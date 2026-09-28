@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   actionsDuStatut, libelleCartouche, lienVersCarte, precisionCartouche, statutDuMessage, tonCartouche,
-  type EtatFil, type StatutClassement, capsuleStatut, motCapsule, bulleCapsule} from './statutClassement';
+  type EtatFil, type StatutClassement, capsuleStatut, motCapsule, bulleCapsule,
+  bulleCapsuleMessage, capsuleDuMessage, regrouperParBien, SORTES_BIEN,
+  type LienPourStatut, type LienPourRegroupement,
+} from './statutClassement';
 import { ecrireEtatUrl } from './ecranUrl';
 
 /**
@@ -63,23 +66,43 @@ describe('🔴 ② le MOT est toujours écrit, la couleur ne fait qu’appuyer',
     for (const s of tous) expect(libelleCartouche(s).trim().length).toBeGreaterThan(2);
   });
 
-  it('les libellés sont ceux qu’Arno a demandés, mot pour mot', () => {
-    expect(libelleCartouche(statutDuMessage(CLASSE))).toBe('GES-2026-000012 · Fuite salle de bain');
-    expect(libelleCartouche(statutDuMessage(fil()))).toBe('À classer');
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 LOT STATUT-PAR-MAIL — CE CARTOUCHE NE PARLE PLUS QUE D'ÉVÉNEMENT, ET IL LE DIT.
+   *
+   * LE DÉFAUT QU'IL CORRIGE, vu par Arno sur le fil 803 (Thirion) : chaque message affichait « À classer » ET le
+   * lien vert « Visualiser / Modifier ». Les deux disaient vrai — l'un de l'ÉVÉNEMENT (aucune carte), l'autre du
+   * BIEN (les trois mails sont rattachés au lot 445) — mais côte à côte, ils se contredisaient à l'œil.
+   *
+   * Le mot « À classer » est désormais RÉSERVÉ à la capsule du BIEN. Ce cartouche-ci est préfixé « Événement : »,
+   * pour qu'on ne puisse plus le lire comme un verdict de classement.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 les libellés nomment l’ÉVÉNEMENT, et ne disent plus jamais « À classer »', () => {
+    expect(libelleCartouche(statutDuMessage(CLASSE))).toBe('Événement : GES-2026-000012 · Fuite salle de bain');
+    expect(libelleCartouche(statutDuMessage(fil()))).toBe('Événement : aucun');
     expect(libelleCartouche(statutDuMessage(fil({ etat: 'sans_suite' })))).toBe('Sans suite');
     expect(libelleCartouche(statutDuMessage(fil(), { horsFile: true }))).toBe('Courrier automatique');
+    // 🔴 LE MOT RÉSERVÉ : aucun libellé de ce cartouche ne peut plus être « À classer », sous aucune forme.
+    for (const s of tous) expect(libelleCartouche(s), libelleCartouche(s)).not.toBe('À classer');
   });
 
   it('une carte sans titre connu se contente de sa référence — jamais d’un « · » orphelin', () => {
-    expect(libelleCartouche(statutDuMessage(fil({ reference: 'GES-2026-000001', evenementId: 1 })))).toBe('GES-2026-000001');
-    expect(libelleCartouche(statutDuMessage(fil({ reference: 'GES-2026-000001', evenementId: 1, evenementObjet: '   ' })))).toBe('GES-2026-000001');
+    expect(libelleCartouche(statutDuMessage(fil({ reference: 'GES-2026-000001', evenementId: 1 })))).toBe('Événement : GES-2026-000001');
+    expect(libelleCartouche(statutDuMessage(fil({ reference: 'GES-2026-000001', evenementId: 1, evenementObjet: '   ' })))).toBe('Événement : GES-2026-000001');
   });
 
-  it('le VERT est réservé à « classé dans une carte » ; les autres ne s’y trompent pas', () => {
+  /**
+   * 🔴 « AUCUN ÉVÉNEMENT » EST NEUTRE, plus « en attente ». Le ton « attente » est celui d'un travail à faire ; or
+   * l'immense majorité des mails n'a pas d'événement et n'en aura jamais. C'est la capsule du BIEN qui porte
+   * désormais le « à faire », et elle seule.
+   */
+  it('🔴 le VERT reste à la carte, et plus AUCUN cartouche ne réclame d’attention', () => {
     expect(tonCartouche(statutDuMessage(CLASSE))).toBe('succes');
-    expect(tonCartouche(statutDuMessage(fil()))).toBe('attente');
+    expect(tonCartouche(statutDuMessage(fil()))).toBe('neutre');
     expect(tonCartouche(statutDuMessage(fil({ etat: 'sans_suite' })))).toBe('neutre');
     expect(tonCartouche(statutDuMessage(fil(), { horsFile: true }))).toBe('neutre');
+    for (const s of tous) expect(tonCartouche(s)).not.toBe('attente');
   });
 
   it('chaque statut sait s’expliquer en une phrase — et la carte d’un mail déplacé dit qu’il est SEUL', () => {
@@ -206,5 +229,160 @@ describe('🔴 la capsule ne dit PAS la même chose que l’entrée « À classe
     const bloc = src.slice(src.indexOf('export function capsuleStatut'));
     expect(bloc).not.toContain('sans_suite');
     expect(bloc).not.toContain('evenement');
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT STATUT-PAR-MAIL — UN SEUL STATUT PAR MAIL, ET C'EST LE BIEN.
+ *
+ * LE DÉFAUT D'ORIGINE, vu par Arno sur le fil 803 (Thirion) : trois messages, tous rattachés au lot 445, et tous
+ * trois affichant « À classer ». Le badge parlait de l'ÉVÉNEMENT, le lien vert du BIEN ; l'œil n'avait aucun moyen
+ * de le deviner.
+ *
+ * CE QUE CE BLOC VERROUILLE :
+ *   ① la capsule ne regarde QUE les biens — logement, propriétaire, locataire — et JAMAIS l'événement ;
+ *   ② une proposition non confirmée ne classe rien ;
+ *   ③ le geste humain l'emporte sur l'automatique ;
+ *   ④ le propriétaire et le locataire comptent autant que le logement : beaucoup de mails parlent d'une PERSONNE
+ *      sans désigner d'appartement, et les exclure les laisserait « à classer » pour toujours.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT STATUT-PAR-MAIL — la capsule d’un message', () => {
+  const lien = (sorte: string, o: Partial<LienPourStatut> = {}): LienPourStatut => ({
+    cible: { sorte }, statut: 'confirme', origine: 'automatique', ...o,
+  });
+
+  it('① sans aucun rattachement : « À classer »', () => {
+    expect(capsuleDuMessage([])).toBe('a_classer');
+  });
+
+  /** 🔴 LE CAS DU FIL 803, rejoué tel quel : un lot confirmé, aucun événement → la capsule est VERTE. */
+  it('🔴 ① un lot confirmé suffit — l’absence d’événement n’y change RIEN (cas du fil 803)', () => {
+    expect(capsuleDuMessage([lien('lot')])).toBe('auto');
+  });
+
+  /** 🔴 ① L'ÉVÉNEMENT NE COMPTE PAS : c'est l'autre question, et les mêler est le défaut qu'on corrige. */
+  it('🔴 ① un rattachement vers un ÉVÉNEMENT ne classe rien', () => {
+    expect(capsuleDuMessage([lien('evenement')])).toBe('a_classer');
+    expect(capsuleDuMessage([lien('evenement', { origine: 'manuel' })])).toBe('a_classer');
+  });
+
+  it('② une PROPOSITION non confirmée ne classe rien', () => {
+    expect(capsuleDuMessage([lien('lot', { statut: 'propose' })])).toBe('a_classer');
+    expect(capsuleDuMessage([lien('lot', { statut: 'retire' })])).toBe('a_classer');
+    expect(capsuleDuMessage([lien('lot', { statut: 'rejete' })])).toBe('a_classer');
+  });
+
+  it('③ le geste humain l’emporte : posé à la main, ou statut touché par quelqu’un', () => {
+    expect(capsuleDuMessage([lien('lot', { origine: 'manuel' })])).toBe('classe');
+    expect(capsuleDuMessage([lien('lot', { parUnHumain: true })])).toBe('classe');
+    // Mêlés : un seul geste humain suffit à faire basculer tout le mail.
+    expect(capsuleDuMessage([lien('lot'), lien('proprietaire', { origine: 'manuel' })])).toBe('classe');
+  });
+
+  it('④ propriétaire et locataire comptent autant qu’un logement', () => {
+    expect(capsuleDuMessage([lien('proprietaire')])).toBe('auto');
+    expect(capsuleDuMessage([lien('locataire')])).toBe('auto');
+  });
+
+  it('une sorte inconnue ne classe rien — on ne devine pas', () => {
+    expect(capsuleDuMessage([lien('carte')])).toBe('a_classer');
+    expect(capsuleDuMessage([lien('')])).toBe('a_classer');
+  });
+
+  it('les trois sortes de bien sont celles-là, et rien d’autre', () => {
+    expect([...SORTES_BIEN].sort()).toEqual(['locataire', 'lot', 'proprietaire']);
+    expect(SORTES_BIEN).not.toContain('evenement');
+  });
+});
+
+describe('l’info-bulle de la capsule d’un message', () => {
+  it('quand c’est rouge, elle dit POURQUOI, et que la proposition ne compte pas', () => {
+    const b = bulleCapsuleMessage('a_classer', []);
+    expect(b).toContain('aucun bien');
+    expect(b).toContain('non confirmée');
+  });
+
+  it('quand c’est vert, elle nomme les biens et dit qui a tranché', () => {
+    expect(bulleCapsuleMessage('classe', ['Lot 445 — 127 rue Gerhard'])).toBe('Rattaché à la main : Lot 445 — 127 rue Gerhard');
+    expect(bulleCapsuleMessage('auto', ['Lot 445'])).toBe('Rattaché automatiquement : Lot 445');
+  });
+
+  it('sans libellé connu, elle reste une phrase — jamais une bulle vide', () => {
+    expect(bulleCapsuleMessage('auto', [])).toBe('Rattaché automatiquement.');
+    expect(bulleCapsuleMessage('classe', ['  '])).toBe('Rattaché à la main.');
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT STATUT-PAR-MAIL — REGROUPER PAR BIEN.
+ *
+ * LE DÉFAUT D'ORIGINE, vu par Arno sur le fil 803 : la fenêtre « Rattachements de l'échange » affichait TROIS LIGNES
+ * IDENTIQUES — « Lot 445 » trois fois — une par message, sans dire que c'était le même bien vu trois fois. On croyait
+ * à un triplon.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT STATUT-PAR-MAIL — regrouper par bien', () => {
+  const l = (id: number, messageId: number, o: Record<string, unknown> = {}) => ({
+    id, messageId, cible: { sorte: 'lot', cle: '445', id: 445 }, libelle: 'Lot 445 — 127 rue Gerhard',
+    statut: 'confirme', origine: 'automatique', parUnHumain: false, ...o,
+  } as LienPourRegroupement);
+
+  /** 🔴 LE CAS DU FIL 803 : trois mails, un seul bien → UNE ligne, et le nombre de mails écrit. */
+  it('🔴 trois mails sur le même lot ⇒ UNE ligne, « sur 3 mails »', () => {
+    const g = regrouperParBien([l(1, 2896), l(2, 2830), l(3, 1449)]);
+    expect(g).toHaveLength(1);
+    expect(g[0].libelle).toBe('Lot 445 — 127 rue Gerhard');
+    expect(g[0].nbMails).toBe(3);
+    expect(g[0].liens).toHaveLength(3);
+  });
+
+  /**
+   * ⚠️ ON COMPTE LES MAILS, PAS LES LIENS. Un mail peut porter deux liens vers le même bien (un hérité d'une pièce,
+   * un posé à la main) : les compter deux fois annoncerait « sur 4 mails » sur une conversation de trois.
+   */
+  it('🔴 deux liens sur le MÊME mail ne comptent qu’un seul mail', () => {
+    const g = regrouperParBien([l(1, 900), l(2, 900)]);
+    expect(g[0].nbMails).toBe(1);
+    expect(g[0].liens).toHaveLength(2);
+  });
+
+  it('deux biens distincts ⇒ deux lignes', () => {
+    const g = regrouperParBien([
+      l(1, 900),
+      l(2, 900, { cible: { sorte: 'proprietaire', cle: 'p-12', id: 12 }, libelle: 'M. Thirion' }),
+    ]);
+    expect(g).toHaveLength(2);
+  });
+
+  it('un lot et un propriétaire de MÊME clé ne se confondent pas', () => {
+    const g = regrouperParBien([
+      l(1, 900, { cible: { sorte: 'lot', cle: '445', id: 445 }, libelle: 'Lot 445' }),
+      l(2, 900, { cible: { sorte: 'proprietaire', cle: '445', id: 445 }, libelle: 'Propriétaire 445' }),
+    ]);
+    expect(g).toHaveLength(2);
+  });
+
+  it('le statut du groupe suit la règle du mail : le geste humain l’emporte', () => {
+    expect(regrouperParBien([l(1, 900), l(2, 901)])[0].statut).toBe('auto');
+    expect(regrouperParBien([l(1, 900), l(2, 901, { origine: 'manuel' })])[0].statut).toBe('classe');
+    expect(regrouperParBien([l(1, 900, { statut: 'propose' })])[0].statut).toBe('a_classer');
+  });
+
+  /** ⚠️ UN ORDRE STABLE : le rattachement principal de la conversation d'abord, puis par libellé. */
+  it('l’ordre est stable : le plus de mails d’abord, puis par libellé', () => {
+    const g = regrouperParBien([
+      l(1, 900, { cible: { sorte: 'lot', cle: 'b', id: 2 }, libelle: 'Zèbre' }),
+      l(2, 901, { cible: { sorte: 'lot', cle: 'a', id: 1 }, libelle: 'Abricot' }),
+      l(3, 902, { cible: { sorte: 'lot', cle: 'a', id: 1 }, libelle: 'Abricot' }),
+    ]);
+    expect(g.map((x) => x.libelle)).toEqual(['Abricot', 'Zèbre']);
+    expect(g[0].nbMails).toBe(2);
+  });
+
+  it('une liste vide ne jette pas', () => {
+    expect(regrouperParBien([])).toEqual([]);
   });
 });

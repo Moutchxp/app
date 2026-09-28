@@ -9,7 +9,8 @@ import {
 } from '../../../../lib/gestion/conversation';
 import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens, LIBELLE_CLASSER } from '../../../../lib/gestion/ecran';
 import {
-  actionsDuStatut, libelleCartouche, lienVersCarte, precisionCartouche, statutDuMessage, tonCartouche,
+  actionsDuStatut, bulleCapsuleMessage, capsuleDuMessage, libelleCartouche, lienVersCarte, motCapsule,
+  precisionCartouche, SORTES_BIEN, statutDuMessage, tonCartouche,
   type ActionStatut, type StatutClassement,
 } from '../../../../lib/gestion/statutClassement';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
@@ -28,6 +29,8 @@ import { EncartAnnuaire } from './EncartAnnuaire';
 import { EncartRattachement } from './EncartRattachement';
 // LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », partagée avec la liste.
 import { RattachementsDuFil } from './RattachementsDuFil';
+// LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail » : portée, biens, parties à la date du mail.
+import { ClasserMail } from './ClasserMail';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
@@ -846,6 +849,12 @@ export function MessageConversation({
   const [actions, setActions] = useState(false);
   /** LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », ouverte depuis l'en-tête de CE message. */
   const [voirRattachements, setVoirRattachements] = useState(false);
+  /**
+   * 🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail », ouverte depuis la capsule ROUGE de CE message.
+   * Deux fenêtres, deux questions : on CLASSE ce qui ne l'est pas, on VISUALISE ce qui l'est. La seconde mène à la
+   * première par son bouton « Modifier », comme avant : rien n'est retiré, on ajoute la porte qui manquait.
+   */
+  const [classerCeMail, setClasserCeMail] = useState(false);
   const propositions = statut ? actionsDuStatut(statut) : { declencheur: null, actions: [] };
   /**
    * ══ 🔴 LOT BARRE-STATUT — LE LIEN DE L'EN-TÊTE SUIT LA MÊME RÈGLE QUE LA BARRE D'UNE LIGNE ════════════════════
@@ -860,9 +869,20 @@ export function MessageConversation({
    * ⚠️ `rattachements === null` (migration 257 absente, ou écran qui ne les charge pas) ⇒ on ne sait rien, et on
    * garde le lien d'avant. On ne devine pas un état qu'on n'a pas lu.
    */
-  const rattacheConfirme = (rattachements ?? []).some(
-    (l) => l.statut === 'confirme' && (l.cible.sorte === 'lot' || l.cible.sorte === 'proprietaire'));
-  const visualisable = rattachements !== null && rattacheConfirme && filId !== null;
+  /**
+   * ══ 🔴 LOT STATUT-PAR-MAIL — LE STATUT DE CE MAIL, C'EST SON RATTACHEMENT À UN BIEN ═══════════════════════════
+   * Une seule capsule, calculée sur les rattachements de CE message à un logement, un propriétaire ou un
+   * locataire. L'événement ne compte pas : c'est l'autre question, et les mêler est précisément le défaut qu'Arno
+   * a vu sur le fil 803 — trois mails rattachés au lot 445 qui affichaient tous « À classer ».
+   *
+   * ⚠️ `rattachements === null` = on ne sait rien (migration 257 absente, ou écran qui ne les charge pas) : on
+   * n'affiche AUCUNE capsule plutôt qu'une rouge qui accuserait à tort.
+   */
+  const capsule = rattachements === null ? null : capsuleDuMessage(rattachements);
+  const biensDuMail = (rattachements ?? [])
+    .filter((l) => SORTES_BIEN.includes(l.cible.sorte) && l.statut === 'confirme')
+    .map((l) => l.libelle);
+  const visualisable = capsule !== null && capsule !== 'a_classer' && filId !== null;
   const hors = mentionHorsFile(message);
   // LOT ENVOI-DIAG — ce message n'est pas arrivé. Rien de plus important à dire sur un message, donc rien au-dessus.
   const echec = mentionNonRemise(message);
@@ -912,6 +932,16 @@ export function MessageConversation({
         <RattachementsDuFil filId={filId} titre={nettoyerObjet(message.objet ?? '') || null}
           onFerme={() => setVoirRattachements(false)}
           onGeste={() => { setVoirRattachements(false); void onRattachement?.(); }} />
+      )}
+
+      {/* 🔴 LOT STATUT-PAR-MAIL — « Classer ce mail » : portée, biens, parties à la date du mail. Rien n'est écrit
+          avant sa validation, et elle passe par la porte existante des rattachements. */}
+      {classerCeMail && (
+        <ClasserMail messageId={message.messageId} filId={filId}
+          objet={nettoyerObjet(message.objet ?? '') || null}
+          onFerme={() => setClasserCeMail(false)}
+          onGeste={onGesteRattachement}
+          onFait={async () => { await onRattachement?.(); }} />
       )}
 
       {/* ══ LOT ENVOI-DIAG — CE MESSAGE N'EST PAS ARRIVÉ ══════════════════════════════════════════════════════════
@@ -964,6 +994,27 @@ export function MessageConversation({
           [statut] · heure · étoile · flèche Répondre · ⋮ — les mêmes places que dans Gmail, parce que l'équipe y
           travaille toute la journée et ne doit pas réapprendre où viser. */}
       <div className="cnv-coin">
+        {/* ══ 🔴 LOT STATUT-PAR-MAIL — LA CAPSULE DU MAIL, EN PREMIER ═══════════════════════════════════════════
+            C'est LE statut du message : rattaché à un bien, ou non. Le MOT est toujours écrit ; la couleur ne fait
+            que l'appuyer.
+
+            🔴 LE CLIC SUIT LE STATUT, comme la barre d'une ligne de liste. « À classer » ⇒ la fenêtre de CLASSEMENT,
+            celle qui propose les biens et leurs parties. « Classé » / « Auto » ⇒ la fenêtre de CONSULTATION, qui
+            montre où c'est rangé et mène à la modification. On ne fait pas ouvrir la même fenêtre aux deux : depuis
+            un mail à classer, la liste des rattachements existants est vide — elle n'aidait à rien. */}
+        {capsule !== null && (
+          <button type="button"
+            className={`cnv-capsule cnv-capsule--${capsule}`}
+            title={bulleCapsuleMessage(capsule, biensDuMail)}
+            onClick={() => (capsule === 'a_classer'
+              ? setClasserCeMail(true)
+              : filId !== null ? setVoirRattachements(true) : undefined)}>
+            {motCapsule(capsule)}
+          </button>
+        )}
+        {/* LA MENTION D'ÉVÉNEMENT, DISCRÈTE ET DISTINCTE. Elle ne dit plus jamais « À classer » : son libellé est
+            préfixé « Événement : », pour qu'on ne puisse plus la lire comme un verdict de classement. Rien du
+            système d'événements n'est retiré — ses gestes restent derrière le même bouton qu'avant. */}
         {statut && (
           <CartoucheStatut statut={statut} ouvert={actions}
             declencheur={visualisable ? 'Visualiser / Modifier' : propositions.declencheur}
@@ -1230,6 +1281,20 @@ const CSS_CONVERSATION = `
 /* Les gestes révélés prennent la LARGEUR ENTIÈRE : ils s'empilent donc d'eux-mêmes sur un téléphone. */
 .cnv-statut-actions{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:0 4px 10px}
 .cnv-statut{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
+/* ══ 🔴 LOT STATUT-PAR-MAIL — LA CAPSULE DU MAIL ═════════════════════════════════════════════════════════════════
+   MEME GABARIT QUE CELLE DE LA LISTE (.bte-capsule) : c'est le MEME statut, il doit se reconnaitre au premier coup
+   d'oeil d'un ecran a l'autre. Le MOT est toujours ecrit — la capsule reste lisible en niveaux de gris et pour un
+   daltonien. C'est un BOUTON : il mene a la fenetre qui sert a changer ce statut. */
+.cnv-capsule{display:inline-flex;align-items:center;min-height:24px;padding:.05rem .45rem;border-radius:999px;
+  font:inherit;font-size:.7rem;font-weight:700;line-height:1.5;white-space:nowrap;cursor:pointer;
+  border:1px solid transparent;background:transparent}
+.cnv-capsule--a_classer{color:var(--color-svv-red);border-color:var(--color-svv-red)}
+.cnv-capsule--classe{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink)}
+/* « Auto » est vert lui aussi — c'est range — mais en aplat plus discret : le geste humain reste le plus visible
+   des deux, sans pour autant faire passer l'automatique pour un probleme. */
+.cnv-capsule--auto{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
+.cnv-capsule:hover{filter:brightness(.94)}
+.cnv-capsule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* ══ 🔴 LOT AVIS-LISIBLE — LE PASSAGE LISIBLE D'UN AVIS DE NON-REMISE ════════════════════════════════════════════
    La COULEUR N'EST QU'UN RENFORT : le texte dit tout, et il reste lisible en niveaux de gris comme pour un
    daltonien. Le gras appuie la premiere ligne, qui porte le titre de l'avis.

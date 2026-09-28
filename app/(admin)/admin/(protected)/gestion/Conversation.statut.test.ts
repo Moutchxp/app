@@ -84,10 +84,15 @@ const cartouche = () => container.querySelector('.cnv-cartouche') as HTMLElement
 const declencheur = () => container.querySelector('.cnv-statut-bouton') as HTMLElement | null;
 
 describe('LES CINQ CARTOUCHES — le mot est écrit, jamais la couleur seule', () => {
-  it('b) échange pas encore classé → « À classer » + bouton « Classer »', async () => {
+  it('b) échange sans événement → « Événement : aucun » + bouton « Classer »', async () => {
     await monter();
-    expect(cartouche()?.textContent).toBe('À classer');
-    expect(cartouche()?.className).toContain('cnv-cartouche--attente');
+    expect(cartouche()?.textContent).toBe('Événement : aucun');
+    /**
+     * 🔴 LOT STATUT-PAR-MAIL — CE CARTOUCHE EST DÉSORMAIS NEUTRE, PLUS « EN ATTENTE ». « Attente » est le ton d'un
+     * travail à faire ; or l'immense majorité des mails n'a pas d'événement et n'en aura jamais. C'est la CAPSULE
+     * du bien qui porte le « à faire », et elle seule — sans quoi l'écran réclame une action qui n'existe pas.
+     */
+    expect(cartouche()?.className).toContain('cnv-cartouche--neutre');
     expect(declencheur()?.textContent).toBe('Classer');
   });
 
@@ -95,7 +100,7 @@ describe('LES CINQ CARTOUCHES — le mot est écrit, jamais la couleur seule', (
     filCourant = FIL({ reference: 'GES-2026-000012', evenementId: 12, evenementObjet: 'Fuite salle de bain' });
     await monter();
     const c = cartouche() as HTMLAnchorElement;
-    expect(c.textContent).toBe('GES-2026-000012 · Fuite salle de bain');
+    expect(c.textContent).toBe('Événement : GES-2026-000012 · Fuite salle de bain');
     expect(c.className).toContain('cnv-cartouche--succes');
     expect(c.tagName).toBe('A');
     expect(c.getAttribute('href')).toBe(/* LOT ERGO-BOITE — la boîte est l'écran par défaut : `ecran=boite` ne s'écrit plus. */ '/admin/gestion?etiquette=carte-12');
@@ -185,13 +190,13 @@ describe('🔴 ① LES MÊMES ROUTES QU’AVANT, et ② le cartouche qui se met 
     expect(cartouche()?.textContent).toBe('Sans suite');
   });
 
-  it('🔴 « Rouvrir » appelle DELETE /sans-suite, et le cartouche redevient « À classer »', async () => {
+  it('🔴 « Rouvrir » appelle DELETE /sans-suite, et le cartouche redevient « Événement : aucun »', async () => {
     filCourant = FIL({ etat: 'sans_suite' });
     await monter();
     await cliquer(declencheur());
     await cliquer(boutonPar(/^Rouvrir$/));
     expect(appels).toContainEqual({ url: '/api/admin/gestion/fils/101/sans-suite', methode: 'DELETE' });
-    expect(cartouche()?.textContent).toBe('À classer');
+    expect(cartouche()?.textContent).toBe('Événement : aucun');
   });
 
   it('sans écran parent, « Classer » retombe sur le panneau EN PLACE — le comportement d’avant', async () => {
@@ -264,7 +269,7 @@ describe('🔴 LOT BARRE-STATUT — « Visualiser / Modifier » dans l’en-têt
   it('🔴 le cartouche, lui, dit toujours « À classer » — c’est l’autre question', async () => {
     liensParMessage = { '900': [lien()] };
     await monter();
-    expect(cartouche()?.textContent).toBe('À classer');
+    expect(cartouche()?.textContent).toBe('Événement : aucun');
   });
 
   it('une PROPOSITION ne suffit pas : le lien reste « Classer »', async () => {
@@ -378,5 +383,255 @@ describe('🔴 LOT AVIS-LISIBLE — l’avis de non-remise, ouvert', () => {
     })];
     await monter();
     expect(avis()).toBeNull();
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT STATUT-PAR-MAIL — LA CAPSULE DU MAIL, À L'ÉCRAN, ET LE CAS DU FIL 803.
+ *
+ * LE DÉFAUT D'ORIGINE : sur le fil 803 (Thirion), chaque message affichait le badge « À classer » ET le lien vert
+ * « Visualiser / Modifier ». Les deux disaient vrai — l'un de l'ÉVÉNEMENT (aucune carte), l'autre du BIEN (les trois
+ * mails sont rattachés au lot 445) — mais côte à côte, ils se contredisaient.
+ *
+ * CE QUE CE BLOC VERROUILLE : un mail rattaché à un bien porte une capsule VERTE, quel que soit son événement ; et
+ * les deux informations ne se disent plus jamais avec les mêmes mots.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT STATUT-PAR-MAIL — la capsule du mail', () => {
+  const lienBien = (o: Record<string, unknown> = {}) => ({
+    id: 1, messageId: 900, pieceId: null, cible: { sorte: 'lot', cle: '445', id: 445 },
+    libelle: 'Lot 445 — 127 rue Gerhard, Puteaux', origine: 'automatique', statut: 'confirme', confiance: null,
+    regle: 'adresse', motif: null, adresses: [], parUnHumain: false,
+    creeLe: null, creePar: null, statutLe: null, statutPar: null, ...o,
+  });
+  const capsule = () => container.querySelector('.cnv-capsule') as HTMLElement | null;
+
+  /** 🔴 LE CAS D'ARNO, REJOUÉ : un lot confirmé, AUCUN événement. La capsule doit être verte. */
+  it('🔴 fil 803 : rattaché au lot 445 et sans événement ⇒ capsule VERTE, plus « À classer »', async () => {
+    liensParMessage = { '900': [lienBien()] };
+    await monter();
+    expect(capsule()?.textContent).toBe('Auto');
+    expect(capsule()?.className).toContain('cnv-capsule--auto');
+    // …et le cartouche d'événement, lui, ne dit plus « À classer ».
+    expect(cartouche()?.textContent).toBe('Événement : aucun');
+  });
+
+  /** 🔴 LES DEUX INFORMATIONS NE SE DISENT PLUS JAMAIS AVEC LES MÊMES MOTS. */
+  it('🔴 « À classer » n’apparaît QUE sur la capsule, jamais sur le cartouche d’événement', async () => {
+    await monter();                                  // aucun rattachement du tout
+    expect(capsule()?.textContent).toBe('À classer');
+    expect(cartouche()?.textContent).not.toBe('À classer');
+    expect(cartouche()?.textContent).toContain('Événement');
+  });
+
+  it('rattaché À LA MAIN ⇒ « Classé »', async () => {
+    liensParMessage = { '900': [lienBien({ origine: 'manuel' })] };
+    await monter();
+    expect(capsule()?.textContent).toBe('Classé');
+    expect(capsule()?.className).toContain('cnv-capsule--classe');
+  });
+
+  it('une PROPOSITION non confirmée laisse la capsule rouge', async () => {
+    liensParMessage = { '900': [lienBien({ statut: 'propose' })] };
+    await monter();
+    expect(capsule()?.textContent).toBe('À classer');
+  });
+
+  /** 🔴 L'ÉVÉNEMENT NE CLASSE PAS UN MAIL : c'est l'autre question, et c'est tout l'objet de ce lot. */
+  it('🔴 un rattachement vers un ÉVÉNEMENT ne verdit PAS la capsule', async () => {
+    liensParMessage = { '900': [lienBien({ cible: { sorte: 'evenement', cle: 'ev-3', id: 3 }, origine: 'manuel' })] };
+    await monter();
+    expect(capsule()?.textContent).toBe('À classer');
+  });
+
+  it('l’info-bulle nomme le bien quand il y en a un, et dit pourquoi quand il n’y en a pas', async () => {
+    liensParMessage = { '900': [lienBien()] };
+    await monter();
+    expect(capsule()?.getAttribute('title')).toContain('Lot 445 — 127 rue Gerhard, Puteaux');
+    act(() => { root.unmount(); }); container.remove();
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    liensParMessage = {};
+    await monter();
+    expect(capsule()?.getAttribute('title')).toContain('aucun bien');
+  });
+
+  /** ⚠️ Sans la migration 257, on ne sait RIEN : aucune capsule plutôt qu'une rouge qui accuserait à tort. */
+  it('rattachements inconnus ⇒ AUCUNE capsule, jamais une rouge par défaut', async () => {
+    await monter({ onRattachement: undefined });
+    // Le bandeau n'est pas chargé : la conversation rend `null`, et la capsule ne s'affiche pas.
+    if (container.querySelector('.ert') === null) expect(capsule()).toBeNull();
+  });
+
+  /**
+   * 🔴 LE CLIC SUIT LE STATUT. Une capsule VERTE mène à la CONSULTATION (« où est-ce rangé ? ») ; une capsule ROUGE
+   * mène au CLASSEMENT (« range-le »). Faire ouvrir la même fenêtre aux deux affichait, depuis un mail à classer,
+   * une liste de rattachements vide — qui n'aidait à rien.
+   */
+  it('une capsule VERTE mène à la fenêtre de consultation des rattachements', async () => {
+    liensParMessage = { '900': [lienBien()] };
+    rattachementsDuFil = { etat: 'ok', data: [lienBien()] };
+    await monter();
+    await cliquer(capsule());
+    expect(container.querySelector('#rdf-titre')).not.toBeNull();
+    expect(container.querySelector('#clm-titre')).toBeNull();
+  });
+
+  it('une capsule ROUGE mène à la fenêtre « Classer ce mail »', async () => {
+    liensParMessage = { '900': [] };
+    await monter();
+    expect(capsule()?.textContent).toBe('À classer');
+    await cliquer(capsule());
+    expect(container.querySelector('#clm-titre')?.textContent).toBe('Classer ce mail');
+    expect(container.querySelector('#rdf-titre')).toBeNull();
+  });
+});
+
+/**
+ * ══ 🔴 LOT STATUT-PAR-MAIL — LA FENÊTRE « CLASSER CE MAIL » ═════════════════════════════════════════════════════════
+ * Demande d'Arno, point 3. Ce qui est protégé ici :
+ *   ① LA PORTÉE est un choix EXPLICITE, et « Ce mail uniquement » est le DÉFAUT — le geste le plus étroit ;
+ *   ② « Toute la conversation » pose le même rattachement sur les mails sans classement manuel, et LE DIT ;
+ *   ③ PLUSIEURS BIENS du même propriétaire peuvent être cochés — un mail parle parfois de deux appartements ;
+ *   ④ le bien trouvé par l'automatisation est PRÉ-COCHÉ et marqué « Recommandé (automatique) » ;
+ *   ⑤ RIEN N'EST ÉCRIT avant le clic sur « Valider le classement » — ouvrir, cocher, décocher, fermer : aucune écriture.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () => {
+  const capsule = () => container.querySelector('.cnv-capsule') as HTMLElement | null;
+  const radios = () => [...container.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+  const cases = () => [...container.querySelectorAll('.clm-bien input[type="checkbox"]')] as HTMLInputElement[];
+  const resume = () => container.querySelector('.clm-resume')?.textContent ?? '';
+  const valider = () => boutonPar(/^Valider le classement$/);
+  /**
+   * LES ÉCRITURES DE RATTACHEMENT, ET ELLES SEULES. Le marquage « lu » de la conversation (`/fils/…/lecture`) est un
+   * `POST` qui part à l'ouverture du fil, bien avant cette fenêtre : le compter ici ferait croire que classer écrit
+   * deux fois.
+   */
+  const ecritures = () => appels.filter((a) => a.methode !== 'GET' && a.url.includes('/rattachements'));
+
+  /** Deux biens du MÊME propriétaire : le cas qu'Arno a demandé de couvrir explicitement. */
+  const bien = (cle: string, o: Record<string, unknown> = {}) => ({
+    cle, libelle: `Lot ${cle} — 127 rue Gerhard, Puteaux`, adresse: '127 rue Gerhard', commune: 'Puteaux',
+    typeBien: 'appartement', recommande: false, dejaRattache: false,
+    parties: [
+      { role: 'proprietaire', cle: 'VMI', nom: 'VM IMMO INVEST' },
+      { role: 'locataire', cle: 'TH', nom: 'THIRION Stéphane', depuis: '2025-05-19', jusqua: '2026-10-02' },
+    ],
+    ...o,
+  });
+
+  const ouvrir = async (contexte: Record<string, unknown>, mails: number[] = [900]) => {
+    liensParMessage = { '900': [] };
+    const avant = global.fetch as unknown as typeof fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/classement?message=')) {
+        appels.push({ url: u, methode: init?.method ?? 'GET' });
+        return { ok: true, json: async () => ({ etat: 'ok', contexte }) } as unknown as Response;
+      }
+      if (u.includes('/classement?fil=')) {
+        appels.push({ url: u, methode: init?.method ?? 'GET' });
+        return { ok: true, json: async () => ({ etat: 'ok', mails }) } as unknown as Response;
+      }
+      return avant(url, init);
+    }) as unknown as typeof fetch;
+    await monter();
+    await cliquer(capsule());
+  };
+
+  const CONTEXTE = (o: Record<string, unknown> = {}) => ({
+    messageId: 900, filId: 101, dateMail: '2026-08-10T09:00:00Z', nbMailsDuFil: 3,
+    proprietaire: { cle: 'VMI', nom: 'VM IMMO INVEST' },
+    biens: [bien('445', { recommande: true })], disponible: true, ...o,
+  });
+
+  it('① la portée par défaut est « Ce mail uniquement »', async () => {
+    await ouvrir(CONTEXTE());
+    const [seul, tout] = radios();
+    expect(seul.checked).toBe(true);
+    expect(tout.checked).toBe(false);
+    expect(container.textContent).toContain('Ce mail uniquement');
+    expect(container.textContent).toContain('Toute la conversation');
+  });
+
+  it('④ le bien recommandé est PRÉ-COCHÉ et le dit en mots', async () => {
+    await ouvrir(CONTEXTE());
+    expect(cases()).toHaveLength(1);
+    expect(cases()[0].checked).toBe(true);
+    expect(container.textContent).toContain('Recommandé (automatique)');
+  });
+
+  it('les parties du bien sont celles de la DATE DU MAIL — propriétaire ET locataire', async () => {
+    await ouvrir(CONTEXTE());
+    expect(container.textContent).toContain('VM IMMO INVEST');
+    expect(container.textContent).toContain('THIRION Stéphane');
+    expect(container.textContent).toContain('2026-10-02');
+    // Et la fenêtre dit de QUELLE date il s'agit, pour qu'on ne lise pas « aujourd'hui ».
+    expect(container.querySelector('.clm-date')?.textContent).toContain('10/08/2026');
+  });
+
+  it('⑤ RIEN n’est écrit à l’ouverture, ni en cochant, ni en décochant', async () => {
+    await ouvrir(CONTEXTE());
+    await cliquer(cases()[0]);
+    await cliquer(cases()[0]);
+    expect(ecritures()).toEqual([]);
+  });
+
+  it('la validation pose le rattachement sur le SEUL mail ouvert (portée par défaut)', async () => {
+    await ouvrir(CONTEXTE());
+    await cliquer(valider());
+    const posts = ecritures().filter((a) => a.methode === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0].url).toContain('/api/admin/gestion/rattachements');
+  });
+
+  it('② « Toute la conversation » annonce « 3 mails classés » et pose sur les trois', async () => {
+    await ouvrir(CONTEXTE(), [900, 901, 902]);
+    await cliquer(radios()[1]);
+    expect(resume()).toContain('3 mails classés');
+    await cliquer(valider());
+    expect(ecritures().filter((a) => a.methode === 'POST')).toHaveLength(3);
+  });
+
+  it('③ PLUSIEURS BIENS du même propriétaire : deux cases, deux rattachements', async () => {
+    await ouvrir(CONTEXTE({ biens: [bien('445', { recommande: true }), bien('446')] }));
+    expect(cases()).toHaveLength(2);
+    // Seul le recommandé est coché : l'autre bien du propriétaire est PROPOSÉ, pas imposé.
+    expect(cases().map((c) => c.checked)).toEqual([true, false]);
+    await cliquer(cases()[1]);
+    expect(resume()).toContain('2 biens');
+    await cliquer(valider());
+    expect(ecritures().filter((a) => a.methode === 'POST')).toHaveLength(2);
+  });
+
+  it('un bien DÉCOCHÉ passe au statut « retiré » (PATCH), il n’est jamais supprimé', async () => {
+    rattachementsDuFil = {
+      etat: 'ok',
+      data: [{
+        id: 77, messageId: 900, pieceId: null, cible: { sorte: 'lot', cle: '445', id: 445 },
+        libelle: 'Lot 445', origine: 'automatique', statut: 'confirme', confiance: null, regle: 'adresse',
+        motif: null, adresses: [], parUnHumain: false, creeLe: null, creePar: null, statutLe: null, statutPar: null,
+      }],
+    };
+    await ouvrir(CONTEXTE());
+    await cliquer(cases()[0]);
+    expect(resume()).toContain('retiré');
+    await cliquer(valider());
+    const ecrits = ecritures();
+    expect(ecrits.filter((a) => a.methode === 'PATCH')).toHaveLength(1);
+    expect(ecrits.filter((a) => a.methode === 'DELETE')).toEqual([]);
+  });
+
+  it('aucun bien coché et rien à retirer : la validation est INACTIVE, et on le dit', async () => {
+    await ouvrir(CONTEXTE({ biens: [bien('445')] }));
+    expect(cases()[0].checked).toBe(false);
+    expect(resume()).toContain('Aucun bien sélectionné');
+    expect(valider()?.disabled).toBe(true);
+  });
+
+  it('annuaire ou migration absents : on le DIT, on ne montre pas une liste vide', async () => {
+    await ouvrir(CONTEXTE({ disponible: false, biens: [] }));
+    expect(container.textContent).toContain('n’est pas encore installé');
+    expect(cases()).toHaveLength(0);
   });
 });

@@ -112,7 +112,7 @@ describe('🔴 ② et ③ pas d’étiquette vide, sauf celle qu’on regarde', 
 
   it('🔴 SAUF celle qu’on regarde : la choisir ne doit pas la faire disparaître', () => {
     const vus = etiquettesVisibles(brutes(), ETIQUETTE_ARRIVEE);
-    expect(vus.map((e) => e.libelle)).toContain('À classer'); // à zéro, mais ouverte
+    expect(vus.map((e) => e.libelle)).toContain('Sans événement'); // à zéro, mais ouverte
   });
 
   it('un compte INCONNU laisse l’étiquette visible : on ne fait pas disparaître ce qu’on ne sait pas', () => {

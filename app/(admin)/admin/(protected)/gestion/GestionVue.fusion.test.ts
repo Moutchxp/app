@@ -77,7 +77,7 @@ describe('🔴 les deux onglets sont partis, et rien d’autre', () => {
   it('l’écran partagé est le point d’entrée : la file À GAUCHE, les événements À DROITE', async () => {
     await monter();
     expect(container.querySelector('.gst-deux')).not.toBeNull();
-    expect(texte()).toContain('À classer');
+    expect(texte()).toContain('Sans événement');
     expect(texte()).toContain('Événements');
     // L'ordre du DOM reste celui du mobile : la file d'abord.
     const html = container.innerHTML;
@@ -137,7 +137,7 @@ describe('🔴 ② on entre en plein écran sur « À classer », pas dans la r�
     await monter();
     await cliquer(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))[0]);
     const active = container.querySelector('.cm-entree--active');
-    expect(active?.textContent).toContain('À classer');
+    expect(active?.textContent).toContain('Sans événement');
   });
 
   /**
@@ -153,10 +153,10 @@ describe('🔴 ② on entre en plein écran sur « À classer », pas dans la r�
     const rang = (mot: string) => etiqs.findIndex((t) => t.includes(mot));
     expect(rang('Réception')).toBeLessThan(rang('Envoyés'));
     expect(rang('Envoyés')).toBeLessThan(rang('Courrier automatique'));
-    expect(rang('Courrier automatique')).toBeLessThan(rang('À classer'));
-    expect(rang('À classer')).toBeLessThan(rang('Brouillons'));
+    expect(rang('Courrier automatique')).toBeLessThan(rang('Sans événement'));
+    expect(rang('Sans événement')).toBeLessThan(rang('Brouillons'));
     // …et les nombres sont bien ceux du serveur.
-    expect(etiqs.some((t) => t.includes('À classer') && t.includes('442'))).toBe(true);
+    expect(etiqs.some((t) => t.includes('Sans événement') && t.includes('442'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Réception') && t.includes('4944'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Envoyés') && t.includes('3311'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Sans suite') && t.includes('7'))).toBe(true);

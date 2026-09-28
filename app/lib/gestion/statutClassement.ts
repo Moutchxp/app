@@ -78,8 +78,23 @@ export function statutDuMessage(fil: EtatFil, message: EtatMessage = {}): Statut
  */
 export function libelleCartouche(s: StatutClassement): string {
   switch (s.sorte) {
-    case 'carte': return s.libelle && s.libelle.trim() !== '' ? `${s.reference} · ${s.libelle.trim()}` : s.reference;
-    case 'a_classer': return 'À classer';
+    case 'carte': {
+      const nom = s.libelle && s.libelle.trim() !== '' ? `${s.reference} · ${s.libelle.trim()}` : s.reference;
+      return `Événement : ${nom}`;
+    }
+    /**
+     * 🔴 LOT STATUT-PAR-MAIL — « À classer » N'EST PLUS JAMAIS LE MOT DE CE CARTOUCHE.
+     *
+     * LE DÉFAUT QU'IL CORRIGE, constaté par Arno sur le fil 803 (Thirion) : chaque message portait le badge
+     * « À classer » ET le lien vert « Visualiser / Modifier ». Contradictoire à l'œil, et pourtant les deux
+     * disaient vrai — ils ne parlaient simplement pas de la même chose : le badge de l'ÉVÉNEMENT (aucune carte),
+     * le lien du BIEN (les trois mails sont rattachés au lot 445).
+     *
+     * Le STATUT d'un mail, désormais, c'est son rattachement à un BIEN, et lui seul (voir `capsuleDuMessage`).
+     * L'événement garde toute sa place — rien n'est supprimé — mais il se dit comme ce qu'il est : une MENTION,
+     * « Événement : aucun », qui ne peut plus être lue comme un verdict de classement.
+     */
+    case 'a_classer': return 'Événement : aucun';
     case 'sans_suite': return 'Sans suite';
     case 'automatique': return 'Courrier automatique';
   }
@@ -92,7 +107,9 @@ export function precisionCartouche(s: StatutClassement): string | null {
       return s.propre
         ? 'Ce mail a été déplacé seul vers cette carte : il ne suit pas son échange.'
         : 'L’échange entier est classé dans cette carte.';
-    case 'a_classer': return 'Cet échange n’est rattaché à aucune carte.';
+    case 'a_classer':
+      return 'Cet échange n’est posé sur aucune carte d’événement. C’est une information distincte du '
+        + 'classement du mail, qui se lit sur sa capsule (À classer / Auto / Classé).';
     case 'sans_suite': return 'Écarté de la file. Il y reviendra si un nouveau message arrive.';
     case 'automatique': return s.motif && s.motif.trim() !== '' ? s.motif.trim() : 'Tenu hors de la file de tri par une règle.';
   }
@@ -104,7 +121,11 @@ export function precisionCartouche(s: StatutClassement): string | null {
  */
 export function tonCartouche(s: StatutClassement): 'succes' | 'attente' | 'neutre' {
   if (s.sorte === 'carte') return 'succes';
-  if (s.sorte === 'a_classer') return 'attente';
+  /**
+   * 🔴 LOT STATUT-PAR-MAIL — « aucun événement » EST NEUTRE, PLUS « EN ATTENTE ». Le ton « attente » est celui
+   * d'un travail à faire ; or ne pas avoir d'événement n'est pas un manquement — l'immense majorité des mails
+   * n'en a pas et n'en aura jamais. C'est la capsule du BIEN qui porte désormais le « à faire », et elle seule.
+   */
   return 'neutre';
 }
 
@@ -203,4 +224,127 @@ export function bulleCapsule(s: CapsuleStatut, detail: string | null): string {
       + '(une proposition non confirmée ne compte pas).';
   }
   return detail && detail.trim() !== '' ? detail : 'Rattaché.';
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT STATUT-PAR-MAIL — LE STATUT D'UN MAIL, C'EST SON RATTACHEMENT À UN BIEN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴 LES SORTES DE CIBLE QUI SONT UN « BIEN » ══════════════════════════════════════════════════════════════════
+ *
+ * Un LOGEMENT, un PROPRIÉTAIRE, un LOCATAIRE. Pas un ÉVÉNEMENT — c'est l'autre question, et toute la confusion du
+ * fil 803 venait de les avoir mêlées.
+ *
+ * ⚠️ POURQUOI LE PROPRIÉTAIRE ET LE LOCATAIRE COMPTENT AUTANT QUE LE LOGEMENT. Beaucoup de mails parlent d'une
+ * PERSONNE sans désigner un appartement précis (un relevé de charges d'un bailleur qui possède six lots, une
+ * demande d'un locataire). Exiger le logement laisserait ces mails « à classer » pour toujours, alors qu'ils sont
+ * parfaitement rangés.
+ */
+export const SORTES_BIEN: readonly string[] = ['lot', 'proprietaire', 'locataire'];
+
+/** Un rattachement, réduit à ce qui décide du statut. Volontairement minimal : ce module ne connaît pas la base. */
+export interface LienPourStatut {
+  cible: { sorte: string };
+  statut: string;
+  origine: string;
+  /** Vrai quand un humain a touché le statut : poser OU confirmer, les deux valent « quelqu'un a tranché ». */
+  parUnHumain?: boolean;
+}
+
+/**
+ * ══ 🔴 LA CAPSULE D'UN MESSAGE, calculée sur SES rattachements à un BIEN. PUR. ═══════════════════════════════════
+ *
+ * C'est LE statut d'un mail, et il n'y en a plus qu'un. Trois valeurs, et la priorité est celle de la liste :
+ * Classé > Auto > À classer — « le geste humain l'emporte ». Un mail que quelqu'un a rattaché à la main est CLASSÉ,
+ * même si le moteur en a proposé trois autres : quelqu'un a tranché, et c'est l'information qui compte.
+ *
+ * ⚠️ UNE PROPOSITION NON CONFIRMÉE NE CLASSE RIEN. Elle reste « à classer », ce qui est exactement ce qu'elle est :
+ * un candidat que personne n'a validé.
+ *
+ * ⚠️ UN RATTACHEMENT VERS UN ÉVÉNEMENT NE COMPTE PAS, et c'est tout l'objet de ce lot. Mesuré le 27/09/2026 :
+ * 474 échanges sans événement contre 9 631 sans rattachement — deux questions, deux nombres, et aucun ne remplace
+ * l'autre. Les mêler donnait le badge « À classer » sur trois mails parfaitement rattachés au lot 445 (fil 803).
+ */
+export function capsuleDuMessage(liens: readonly LienPourStatut[]): CapsuleStatut {
+  const biens = liens.filter((l) => SORTES_BIEN.includes(l.cible.sorte) && l.statut === 'confirme');
+  if (biens.length === 0) return 'a_classer';
+  return biens.some((l) => l.origine === 'manuel' || l.parUnHumain === true) ? 'classe' : 'auto';
+}
+
+/**
+ * L'INFO-BULLE de la capsule d'un MESSAGE : ce à quoi il est rattaché, ou pourquoi il ne l'est pas. PUR.
+ *
+ * ⚠️ QUAND C'EST ROUGE, ON DIT POURQUOI — et on rappelle qu'une proposition ne compte pas. Sans cela, on cherche
+ * un rattachement qui est bien là, mais que personne n'a confirmé.
+ */
+export function bulleCapsuleMessage(s: CapsuleStatut, libelles: readonly string[]): string {
+  if (s === 'a_classer') {
+    return 'Ce mail n’est rattaché à aucun bien (logement, propriétaire ou locataire). '
+      + 'Une proposition automatique non confirmée ne compte pas.';
+  }
+  const dit = libelles.filter((l) => l.trim() !== '');
+  const debut = s === 'classe' ? 'Rattaché à la main' : 'Rattaché automatiquement';
+  return dit.length === 0 ? `${debut}.` : `${debut} : ${dit.join(' · ')}`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT STATUT-PAR-MAIL — REGROUPER LES RATTACHEMENTS D'UNE CONVERSATION PAR BIEN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Un rattachement, réduit à ce qu'il faut pour le regrouper. Ce module ne connaît toujours pas la base. */
+export interface LienPourRegroupement extends LienPourStatut {
+  id: number;
+  messageId: number;
+  libelle: string;
+  cible: { sorte: string; cle?: string | null; id?: number | null };
+}
+
+/** Un BIEN, et tous les mails de la conversation qui lui sont rattachés. */
+export interface GroupeParBien<T extends LienPourRegroupement> {
+  cle: string;
+  sorte: string;
+  libelle: string;
+  /** Combien de MAILS de la conversation portent ce rattachement. C'est le chiffre qui manquait à l'écran. */
+  nbMails: number;
+  /** Le statut du groupe : « Classé » dès qu'un humain a tranché sur l'un d'eux, « Auto » sinon. */
+  statut: CapsuleStatut;
+  liens: T[];
+}
+
+/**
+ * ══ 🔴 REGROUPER PAR BIEN. PUR. ══════════════════════════════════════════════════════════════════════════════════
+ *
+ * LE DÉFAUT QU'IL CORRIGE, vu par Arno sur le fil 803 : la fenêtre « Rattachements de l'échange » affichait TROIS
+ * LIGNES IDENTIQUES — « Lot 445 », « Lot 445 », « Lot 445 » — une par message, sans jamais dire que c'était le même
+ * bien vu trois fois. On croyait à un triplon, ou à une erreur.
+ *
+ * Une ligne par BIEN, donc, avec « sur 3 mails de la conversation » écrit dessus. Le détail par message reste
+ * accessible en dépliant : on ne CACHE rien, on cesse simplement de répéter.
+ *
+ * ⚠️ L'ORDRE EST STABLE ET SIGNIFIANT : d'abord ce qui porte sur le plus de mails (c'est le rattachement principal
+ * de la conversation), puis par libellé. Un ordre qui change d'un affichage à l'autre rend une liste illisible.
+ */
+export function regrouperParBien<T extends LienPourRegroupement>(liens: readonly T[]): GroupeParBien<T>[] {
+  const par = new Map<string, GroupeParBien<T>>();
+  for (const l of liens) {
+    const cle = `${l.cible.sorte}|${l.cible.cle ?? ''}|${l.cible.id ?? 0}`;
+    const g = par.get(cle);
+    if (g === undefined) {
+      par.set(cle, { cle, sorte: l.cible.sorte, libelle: l.libelle, nbMails: 1, statut: 'auto', liens: [l] });
+    } else {
+      g.liens.push(l);
+      // ⚠️ LE NOMBRE DE MAILS, PAS DE LIENS : un mail peut porter deux liens vers le même bien (un hérité d'une
+      //    pièce, un posé à la main). Les compter deux fois annoncerait « sur 4 mails » sur une conversation de 3.
+      g.nbMails = new Set(g.liens.map((x) => x.messageId)).size;
+    }
+  }
+  for (const g of par.values()) {
+    // Le statut du GROUPE suit la même règle que celle d'un mail : le geste humain l'emporte.
+    g.statut = g.liens.some((l) => l.statut === 'confirme' && (l.origine === 'manuel' || l.parUnHumain === true))
+      ? 'classe'
+      : g.liens.some((l) => l.statut === 'confirme') ? 'auto' : 'a_classer';
+    g.nbMails = new Set(g.liens.map((x) => x.messageId)).size;
+  }
+  return [...par.values()].sort((a, b) => b.nbMails - a.nbMails || a.libelle.localeCompare(b.libelle, 'fr'));
 }

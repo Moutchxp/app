@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ModifierRattachement, motSorteLong, CSS_MODIFIER_RATTACHEMENT } from './ModifierRattachement';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
+// LOT STATUT-PAR-MAIL — une ligne par BIEN, pas par message. Module PUR, éprouvé sans écran.
+import { regrouperParBien } from '../../../../lib/gestion/statutClassement';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 
 /**
@@ -95,30 +97,50 @@ export function RattachementsDuFil({ filId, titre, onFerme, onGeste }: {
           </p>
         )}
 
+        {/* ══ 🔴 LOT STATUT-PAR-MAIL — UNE LIGNE PAR BIEN, PAS PAR MESSAGE ═══════════════════════════════════════
+            LE DÉFAUT QU'ON CORRIGE, vu par Arno sur le fil 803 : cette fenêtre affichait TROIS LIGNES IDENTIQUES
+            — « Lot 445 » trois fois — une par message, sans jamais dire que c'était le même bien vu trois fois.
+            On croyait à un triplon, ou à une erreur.
+
+            Désormais : une ligne par BIEN, avec « sur 3 mails de la conversation » écrit dessus, et le détail
+            par message DÉPLIABLE. On ne cache rien — on cesse de répéter. */}
         {etat.v === 'ok' && etat.liens.length > 0 && (
           <ul className="rdf-liste">
-            {etat.liens.map((l) => (
-              <li key={l.id} className="rdf-item">
+            {regrouperParBien(etat.liens).map((g) => (
+              <li key={g.cle} className="rdf-item">
                 <div className="rdf-tete">
-                  <span className="rdf-sorte">{motSorteLong(l.cible.sorte)}</span>
-                  <span className="rdf-cible">{l.libelle}</span>
-                  {/* Le MOT, jamais la couleur seule : « proposé » doit se lire en niveaux de gris. */}
-                  <span className={`rdf-statut rdf-statut--${l.statut}`}>
-                    {l.statut === 'confirme' ? 'confirmé' : 'proposé'}
+                  <span className="rdf-sorte">{motSorteLong(g.sorte as 'lot')}</span>
+                  <span className="rdf-cible">{g.libelle}</span>
+                  <span className={`rdf-statut rdf-statut--${g.statut === 'a_classer' ? 'propose' : 'confirme'}`}>
+                    {g.statut === 'classe' ? 'posé à la main' : g.statut === 'auto' ? 'automatique' : 'proposé'}
                   </span>
                 </div>
+                {/* 🔴 LE CHIFFRE QUI MANQUAIT : combien de mails de la conversation portent ce rattachement. */}
                 <p className="rdf-detail">
-                  {l.origine === 'manuel' ? 'posé à la main' : 'posé automatiquement'}
-                  {l.regle ? ` · règle ${l.regle}` : ''}
-                  {l.creeLe ? ` · ${dateHeureComplete(l.creeLe)}` : ''}
-                  {l.creePar ? ` · ${l.creePar}` : ''}
-                  {/* C'est le MAIL qui est rattaché, jamais l'échange : sans cela, on modifierait le mauvais. */}
-                  {` · mail nº ${l.messageId}`}
-                  {l.pieceId !== null ? ' · cette pièce jointe seulement' : ''}
+                  sur {g.nbMails} mail{g.nbMails > 1 ? 's' : ''} de la conversation
                 </p>
-                <button type="button" className="gst-lien-bouton" onClick={() => setModifie(l)}>
-                  Modifier ce rattachement…
-                </button>
+                {/* LE DÉTAIL, REPLIÉ : chaque mail, sa règle, sa date, son auteur, et son propre « Modifier ». */}
+                <details className="rdf-detail-mails">
+                  <summary className="rdf-resume">Voir le détail par mail</summary>
+                  <ul className="rdf-sous-liste">
+                    {g.liens.map((l) => (
+                      <li key={l.id} className="rdf-sous-item">
+                        <span className="rdf-detail">
+                          mail nº {l.messageId}
+                          {' · '}{l.statut === 'confirme' ? 'confirmé' : 'proposé'}
+                          {' · '}{l.origine === 'manuel' ? 'posé à la main' : 'posé automatiquement'}
+                          {l.regle ? ` · règle ${l.regle}` : ''}
+                          {l.creeLe ? ` · ${dateHeureComplete(l.creeLe)}` : ''}
+                          {l.creePar ? ` · ${l.creePar}` : ''}
+                          {l.pieceId !== null ? ' · cette pièce jointe seulement' : ''}
+                        </span>
+                        <button type="button" className="gst-lien-bouton" onClick={() => setModifie(l)}>
+                          Modifier ce rattachement…
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               </li>
             ))}
           </ul>
@@ -146,4 +168,11 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-statut--confirme{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink)}
 .rdf-statut--propose{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
 .rdf-detail{margin:0;font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+/* LOT STATUT-PAR-MAIL — le detail par mail, REPLIE. On ne cache rien : on cesse de repeter. */
+.rdf-detail-mails{margin-top:2px}
+.rdf-resume{font-size:.78rem;color:var(--color-svv-muted);cursor:pointer}
+.rdf-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.rdf-sous-liste{display:flex;flex-direction:column;gap:6px;margin:6px 0 0;padding:0 0 0 10px;list-style:none;
+  border-left:2px solid var(--color-svv-line)}
+.rdf-sous-item{display:flex;flex-direction:column;gap:2px;min-width:0}
 `;

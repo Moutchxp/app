@@ -16,6 +16,8 @@ import { useReleveGestion } from './useReleveGestion';
 import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
 import { Conversation } from './Conversation';
+// LOT STATUT-PAR-MAIL — la colonne de gauche montre les MAILS reçus, un par ligne.
+import { BoiteReception } from './BoiteReception';
 import { ColonneMode } from './ColonneMode';
 import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
 import { Annuaire } from './Annuaire';
@@ -840,12 +842,34 @@ export function GestionVue({ intro }: {
       ) : (
       /* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite. */
       <div className="gst-deux">
-        <section className="gst-col" aria-labelledby="gst-titre-file">
-          {/* LOT 5-FUSION — le plein écran de CETTE colonne, au-dessus d'elle. Il ne remplace rien : la colonne reste
-              exactement ce qu'elle était, il ouvre seulement la même chose en plus grand, avec ses étiquettes. */}
+        {/* ══ 🔴 LOT STATUT-PAR-MAIL — CETTE COLONNE MONTRE LES MAILS REÇUS, PLUS LA FILE DES ÉCHANGES ═══════════
+            Demande d'Arno. Elle montrait une file de CONVERSATIONS à poser sur un événement ; elle montre désormais
+            les derniers MAILS REÇUS, un par ligne, avec le statut de CHACUN.
+
+            La différence n'est pas cosmétique : une conversation de douze messages occupait UNE ligne, et ses onze
+            autres mails étaient invisibles — or le classement se fait mail par mail. Une liste d'échanges ne
+            pouvait donc pas dire ce qui restait à classer.
+
+            🔴 RIEN N'EST SUPPRIMÉ : la file des échanges sans événement est en dessous, repliée, avec ses gestes
+            et son compteur ; son lien direct est au bas de la boîte de réception. */}
+        <section className="gst-col" aria-labelledby="gst-titre-reception">
+          <BoiteReception
+            maintenant={ref}
+            onOuvrir={(filId, messageId) => aller({
+              ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: filId, messageOuvert: messageId,
+            })}
+            onFileEchanges={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}
+            compteEchanges={d.filsTotal} />
+
+          {/* LA FILE DES ÉCHANGES SANS ÉVÉNEMENT — conservée telle quelle, repliée par défaut. Elle garde son
+              plein écran, sa fenêtre d'activité, ses gestes et son compteur : aucun n'est retiré. */}
+          <details className="gst-file-echanges">
+            <summary className="gst-file-titre">
+              Échanges sans événement <span className="gst-compte">{d.filsTotal}</span>
+            </summary>
           <div className="gst-entete-col">
             <h2 className="gst-titre" id="gst-titre-file">
-              À classer <span className="gst-compte">{d.filsTotal}</span>
+              Sans événement <span className="gst-compte">{d.filsTotal}</span>
             </h2>
             <button type="button" className="svv-btn svv-btn-outline gst-btn"
               onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}>
@@ -895,6 +919,7 @@ export function GestionVue({ intro }: {
               </ul>
             </details>
           )}
+          </details>
         </section>
 
         <section className="gst-col" aria-labelledby="gst-titre-ev">
@@ -956,7 +981,17 @@ export function etiquettesDeLEcran(
     },
     { etiquette: { sorte: 'envoyes', evenementId: null }, libelle: 'Envoyés', compte: comptes?.envoyes ?? null },
     { etiquette: { sorte: 'automatique', evenementId: null }, libelle: 'Courrier automatique', compte: comptes?.automatiques ?? null },
-    { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'À classer', compte: d.filsTotal },
+    /**
+     * 🔴 LOT STATUT-PAR-MAIL — « À classer » DEVIENT « Sans événement ».
+     *
+     * LE DÉFAUT : cette entrée compte les ÉCHANGES sans événement (474 au 27/09/2026), pas les mails à classer.
+     * Sous le même mot que la capsule d'un mail, elle faisait croire à un compteur de travail en retard — alors
+     * que la quasi-totalité des mails n'aura jamais d'événement. Deux questions, deux nombres : mesuré le même
+     * jour, 474 échanges sans événement contre 9 631 mails sans rattachement.
+     *
+     * ⚠️ RIEN N'EST RETIRÉ : c'est la MÊME étiquette, la même liste, le même compteur. Seul le mot change.
+     */
+    { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'Sans événement', compte: d.filsTotal },
     // LOT 5-BOITE-3 — la CORBEILLE. `null` (migration 251 absente) ⇒ l'étiquette est RETIRÉE de la liste, et non
     //   montrée à zéro : sans la migration, le geste « Supprimer » n'existe pas non plus, et une corbeille qu'on ne
     //   peut pas remplir n'a rien à faire dans le sommaire. `filtreEtiquettes` écarte ensuite les étiquettes vides.
@@ -1264,6 +1299,11 @@ const CSS_GESTION = `
 .gst-cite-titre{min-height:44px;display:flex;align-items:center;font-size:.78rem;font-weight:600;color:var(--color-svv-muted);cursor:pointer}
 .gst-cite-corps{color:var(--color-svv-muted);border-left:2px solid var(--color-svv-line-strong);padding-left:.6rem}
 /* CLASSÉS SANS SUITE — replié par défaut : présent sans encombrer. */
+/* LOT STATUT-PAR-MAIL — la file des echanges sans evenement, repliee sous la boite de reception. Rien n'est
+   retire : elle garde son plein ecran, sa fenetre d'activite, ses gestes et son compteur. */
+.gst-file-echanges{margin-top:10px;border-top:1px solid var(--color-svv-line);padding-top:8px}
+.gst-file-titre{font-size:.85rem;font-weight:600;color:var(--color-svv-ink);cursor:pointer}
+.gst-file-titre:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .gst-sans-suite{margin-top:1rem;border-top:1px solid var(--color-svv-line);padding-top:.75rem}
 .gst-sans-suite-titre{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:13px;font-weight:700;color:var(--color-svv-ink);cursor:pointer}
 `;
