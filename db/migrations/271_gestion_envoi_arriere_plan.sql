@@ -64,6 +64,31 @@ DO $$ BEGIN
     CHECK (etat = ANY (ARRAY['prete', 'attente', 'echec']));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+/**
+ * 🔴🔴 LA CONTRAINTE D'ORIGINE CONNAISSAIT DEUX SOURCES ; IL Y EN A MAINTENANT TROIS.
+ *
+ * `gestion_brouillon_piece_origine_chk` exigeait EXACTEMENT une source : la clé de stockage (pièce déposée) ou
+ * l'identifiant d'une pièce reprise d'un message d'origine. C'était juste tant qu'une pièce naissait avec ses
+ * octets. Une pièce « en attente » n'en a encore AUCUNE — elle n'est qu'un nom, une taille et un identifiant
+ * Drive —, et l'insertion échouait.
+ *
+ * Trouvé en essayant pour de vrai, au premier « Joindre » : la route rendait 503 et la pièce n'était pas jointe.
+ * Un invariant écrit pour deux états ne savait pas qu'il en existerait un troisième.
+ *
+ * LA NOUVELLE RÈGLE DIT LA MÊME CHOSE, MAIS POUR LES TROIS ÉTATS :
+ *   · une pièce PRÊTE a exactement UNE origine — c'est l'invariant d'avant, mot pour mot ;
+ *   · une pièce en attente ou en échec n'a pas de `piece_id` (elle vient du Drive, pas d'un message), et sa clé
+ *     de stockage arrive avec ses octets, au moment même où elle passe à « prete ».
+ */
+ALTER TABLE gestion_brouillon_piece DROP CONSTRAINT IF EXISTS gestion_brouillon_piece_origine_chk;
+DO $$ BEGIN
+  ALTER TABLE gestion_brouillon_piece ADD CONSTRAINT gestion_brouillon_piece_origine_chk
+    CHECK (CASE WHEN etat = 'prete'
+                THEN (cle_stockage IS NOT NULL) <> (piece_id IS NOT NULL)
+                ELSE piece_id IS NULL
+           END);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 COMMENT ON COLUMN gestion_brouillon_piece.etat IS
   'prete = les octets sont chez nous | attente = à récupérer du Drive | echec = abandonnée après les reprises. '
   'Un envoi ne part QUE si toutes ses pièces sont « prete » : jamais d''envoi partiel.';
