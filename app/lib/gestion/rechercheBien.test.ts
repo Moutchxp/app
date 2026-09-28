@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  classerResultats, messageAucunBien, motRaison, rangDuBien, rangRaison, raisonsTriees, sansLesProposes,
-  type RaisonCorrespondance,
+  classerResultats, grouperResultats, messageAucunBien, motRaison, rangDuBien, rangRaison, raisonsTriees,
+  sansLesProposes, titreGroupe, type RaisonCorrespondance,
 } from './rechercheBien';
 
 /**
@@ -12,7 +12,9 @@ import {
  *   ① les résultats sont classés par PERTINENCE : l'adresse d'abord, puis les noms, puis téléphone et e-mail ;
  *   ② chaque résultat DIT pourquoi il est là — sans le motif, on ne peut pas trancher ;
  *   ③ un bien déjà proposé par l'automatisation n'est pas répété dans les résultats ;
- *   ④ « aucun bien trouvé » dit CE QU'ON A CHERCHÉ, jamais « aucun résultat » tout court.
+ *   ④ « aucun bien trouvé » dit CE QU'ON A CHERCHÉ, jamais « aucun résultat » tout court ;
+ *   ⑤ 🔴 LES DEUX GROUPES TITRÉS : « Par adresse » d'abord, « Par nom ou coordonnée » ensuite, et un bien qui
+ *      répond aux deux titres n'est QUE dans le premier.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -79,6 +81,70 @@ describe('🔴 ③ un bien déjà proposé n’est pas répété', () => {
 
   it('sans proposition, tout est gardé', () => {
     expect(sansLesProposes([{ cle: '445' }], []).map((x) => x.cle)).toEqual(['445']);
+  });
+});
+
+describe('🔴 ⑤ les deux groupes titrés', () => {
+  const b = (adresse: string, raisons: RaisonCorrespondance[]) => ({ adresse, raisons });
+
+  it('les titres sont écrits en toutes lettres', () => {
+    expect(titreGroupe('adresse')).toBe('Par adresse');
+    expect(titreGroupe('nom_ou_coordonnee')).toBe('Par nom ou coordonnée');
+  });
+
+  it('🔴 « Par adresse » vient EN PREMIER, « Par nom ou coordonnée » ensuite', () => {
+    const g = grouperResultats([
+      b('9 rue Zola', [r('telephone_proprietaire', 'X')]),
+      b('2 rue Alpha', [r('adresse')]),
+    ]);
+    expect(g.map((x) => x.titre)).toEqual(['Par adresse', 'Par nom ou coordonnée']);
+    expect(g[0].biens.map((x) => x.adresse)).toEqual(['2 rue Alpha']);
+    expect(g[1].biens.map((x) => x.adresse)).toEqual(['9 rue Zola']);
+  });
+
+  it('🔴 un bien trouvé par l’adresse ET par un nom n’apparaît QUE dans le premier groupe', () => {
+    const g = grouperResultats([b('2 rue Alpha', [r('adresse'), r('locataire', 'DUPONT')])]);
+    expect(g).toHaveLength(1);
+    expect(g[0].sorte).toBe('adresse');
+    // …et il garde ses DEUX raisons : le groupe dit d'où il vient, la raison dit pourquoi.
+    expect(g[0].biens[0].raisons.map((x) => x.sorte)).toEqual(['adresse', 'locataire']);
+  });
+
+  it('le n° de lot est une ADRESSE, pas un nom : il désigne le bien, pas une personne', () => {
+    const g = grouperResultats([b('2 rue Alpha', [r('lot')])]);
+    expect(g[0].sorte).toBe('adresse');
+  });
+
+  it('propriétaire, locataire, téléphone et e-mail vont TOUS dans le second groupe', () => {
+    const g = grouperResultats([
+      b('1 rue A', [r('proprietaire', 'MARTY')]),
+      b('2 rue B', [r('locataire_passe', 'DUPONT')]),
+      b('3 rue C', [r('telephone_locataire', 'X')]),
+      b('4 rue D', [r('email_proprietaire', 'Y')]),
+    ]);
+    expect(g).toHaveLength(1);
+    expect(g[0].titre).toBe('Par nom ou coordonnée');
+    expect(g[0].biens).toHaveLength(4);
+  });
+
+  it('🔴 un groupe VIDE n’est PAS rendu — un titre suivi de rien se lit comme une panne', () => {
+    expect(grouperResultats([b('2 rue Alpha', [r('adresse')])]).map((x) => x.sorte)).toEqual(['adresse']);
+    expect(grouperResultats([])).toEqual([]);
+  });
+
+  it('dans chaque groupe, l’ordre reste celui de la pertinence puis de l’adresse', () => {
+    const g = grouperResultats([
+      b('9 rue Zola', [r('email_proprietaire', 'X')]),
+      b('12 rue Alpha', [r('locataire', 'D')]),
+      b('2 rue Alpha', [r('locataire', 'D')]),
+    ]);
+    expect(g[0].biens.map((x) => x.adresse)).toEqual(['2 rue Alpha', '12 rue Alpha', '9 rue Zola']);
+  });
+
+  it('un bien SANS raison se montre, dans le second groupe, plutôt que de disparaître en silence', () => {
+    const g = grouperResultats([b('2 rue Alpha', [])]);
+    expect(g).toHaveLength(1);
+    expect(g[0].sorte).toBe('nom_ou_coordonnee');
   });
 });
 

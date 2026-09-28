@@ -109,6 +109,62 @@ export function classerResultats<T extends { adresse: string; raisons: readonly 
 }
 
 /**
+ * 🔴 LES DEUX GROUPES DE RÉSULTATS, DEMANDÉS PAR ARNO LE 28/09/2026. PUR.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * « Par adresse » d'abord, « Par nom ou coordonnée » ensuite. Ce n'est PAS un habillage du classement existant :
+ * c'est la réponse à une question qui se pose devant l'écran. « victor hugo » rend un bien rue Lyautey parce que sa
+ * locataire s'appelle Victor Hugo ; sous un titre « Par nom ou coordonnée », ce résultat cesse d'être une surprise —
+ * il est exactement à sa place, et l'on voit d'un coup d'œil que la zone « Par adresse » est VIDE, donc qu'aucun lot
+ * en gestion n'est à cette adresse. Un titre répond ici à ce qu'une restriction de la recherche aurait fait taire.
+ *
+ * 🔴 ON NE RESTREINT DONC PAS LES NOMS (arbitrage d'Arno) : chercher par nom reste possible même quand la requête
+ * ressemble à une adresse. Le titre suffit à lever l'ambiguïté, et rien n'est perdu.
+ *
+ * 🔴 UN BIEN N'EST JAMAIS DANS LES DEUX GROUPES. Il tombe dans le premier où il a une raison — donc dans
+ * « Par adresse » dès qu'il en a une, même s'il répond AUSSI par un nom. La même ligne deux fois avec deux cases à
+ * cocher, c'est une case qu'on oublie ; c'est la règle déjà posée pour les propositions (`sansLesProposes`).
+ *
+ * ⚠️ LE N° DE LOT EST DANS « Par adresse », et pas dans l'autre : il désigne LE BIEN, pas une personne. Sa raison
+ * s'affiche « n° de lot », donc rien n'est laissé à deviner.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export type SorteGroupe = 'adresse' | 'nom_ou_coordonnee';
+
+export interface GroupeResultats<T> {
+  sorte: SorteGroupe;
+  /** Le titre affiché au-dessus du groupe. */
+  titre: string;
+  biens: T[];
+}
+
+/** Le titre d'un groupe, écrit en toutes lettres — jamais une couleur ni une icône seule. PUR. */
+export function titreGroupe(s: SorteGroupe): string {
+  return s === 'adresse' ? 'Par adresse' : 'Par nom ou coordonnée';
+}
+
+/**
+ * LES RÉSULTATS RANGÉS EN DEUX GROUPES TITRÉS, classés à l'intérieur de chacun. PUR.
+ *
+ * Un groupe VIDE n'est pas rendu : un titre suivi de rien se lit comme une panne d'affichage. Le vide se dit
+ * ailleurs, par `messageAucunBien`, qui rappelle ce qu'on a cherché.
+ *
+ * ⚠️ UN BIEN SANS AUCUNE RAISON (rang 9 — il ne devrait pas arriver) tombe dans le second groupe plutôt que
+ * d'être jeté : un résultat qu'on ne sait pas expliquer se montre, il ne se supprime pas en silence.
+ */
+export function grouperResultats<T extends { adresse: string; raisons: readonly RaisonCorrespondance[] }>(
+  biens: readonly T[],
+): GroupeResultats<T>[] {
+  const parAdresse = biens.filter((b) => rangDuBien(b.raisons) === 0);
+  const parNom = biens.filter((b) => rangDuBien(b.raisons) !== 0);
+  const groupes: GroupeResultats<T>[] = [];
+  for (const [sorte, lot] of [['adresse', parAdresse], ['nom_ou_coordonnee', parNom]] as const) {
+    if (lot.length > 0) groupes.push({ sorte, titre: titreGroupe(sorte), biens: classerResultats(lot) });
+  }
+  return groupes;
+}
+
+/**
  * 🔴 LE MOTIF QUAND ON NE TROUVE RIEN. PUR.
  *
  * « Aucun résultat » tout court laisse croire à une panne, ou à une recherche cassée. On DIT ce qui a été cherché

@@ -12,6 +12,8 @@ import { MenuRattachementBien } from './MenuRattachementBien';
  *   ③a les PROPOSITIONS de l'automatisation sont EN HAUT — et la zone disparaît s'il n'y en a aucune ;
  *   ③b la RECHERCHE LIBRE est en dessous, et ses résultats sont des BIENS, jamais des personnes ;
  *       un bien déjà proposé n'est pas répété ; « aucun bien trouvé » dit ce qu'on a cherché ;
+ *   ③b′ 🔴 LES RÉSULTATS SONT RANGÉS EN DEUX GROUPES TITRÉS — « Par adresse », puis « Par nom ou coordonnée » —
+ *       et un bien qui répond aux deux n'est QUE dans le premier ;
  *   ③c UNE SEULE VALIDATION pour les deux zones, avec la portée et « Hors gestion » ;
  *   🔴 RIEN n'est écrit avant « Rattacher ».
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -97,6 +99,12 @@ const taper = async (t: string) => {
   await calmer();
 };
 const ecritures = () => appels.filter((a) => a.methode !== 'GET');
+/** Tous les résultats de recherche, tous groupes confondus. */
+const zoneResultats = () =>
+  [...container.querySelectorAll('.mrb-resultats')].map((e) => e.textContent ?? '').join(' ');
+/** Les titres des groupes, dans l'ordre où ils s'affichent. */
+const titresGroupes = () =>
+  [...container.querySelectorAll('.mrb-titre--groupe')].map((e) => e.textContent ?? '');
 
 describe('🔴 ③a les propositions de l’automatisation, EN HAUT', () => {
   it('elles sont affichées, avec leur motif, avant la recherche', async () => {
@@ -150,21 +158,20 @@ describe('🔴 ③b la recherche libre : des BIENS, et rien que des biens', () =
     resultats = { lignes: [trouve('999')] };
     await monter();
     await taper('9 rue beta');
-    const bloc = container.querySelector('.mrb-resultats');
-    expect(bloc?.textContent).toContain('9 rue Beta, 92000 VILLE');
-    expect(bloc?.textContent).toContain('lot 999');
-    expect(bloc?.textContent).toContain('trouvé par adresse');
-    expect(bloc?.textContent).toContain('BAILLEUR B');
-    expect(bloc?.textContent).toContain('LOCATAIRE B');
+    const bloc = zoneResultats();
+    expect(bloc).toContain('9 rue Beta, 92000 VILLE');
+    expect(bloc).toContain('lot 999');
+    expect(bloc).toContain('trouvé par adresse');
+    expect(bloc).toContain('BAILLEUR B');
+    expect(bloc).toContain('LOCATAIRE B');
   });
 
   it('🔴 un bien DÉJÀ PROPOSÉ n’est pas répété dans les résultats', async () => {
     resultats = { lignes: [trouve('445'), trouve('999')] };
     await monter();
     await taper('rue');
-    const bloc = container.querySelector('.mrb-resultats');
-    expect(bloc?.textContent).toContain('lot 999');
-    expect(bloc?.textContent).not.toContain('lot 445');
+    expect(zoneResultats()).toContain('lot 999');
+    expect(zoneResultats()).not.toContain('lot 445');
   });
 
   it('🔴 aucun résultat ⇒ on DIT ce qu’on a cherché, jamais « aucun résultat » tout court', async () => {
@@ -179,6 +186,92 @@ describe('🔴 ③b la recherche libre : des BIENS, et rien que des biens', () =
     await monter();
     await taper('puteaux');
     expect(container.textContent).toContain('précisez votre recherche');
+  });
+});
+
+describe('🔴 ③b′ les résultats, en DEUX GROUPES TITRÉS', () => {
+  /** Le même bien, mais trouvé par le NOM de son locataire plutôt que par l'adresse. */
+  const parNom = (cle: string, detail = 'RUELLAN Océane et Victor Hugo') =>
+    trouve(cle, { raisons: [{ sorte: 'locataire', detail }] });
+
+  it('🔴 « Par adresse » est affiché EN PREMIER, « Par nom ou coordonnée » ensuite', async () => {
+    resultats = { lignes: [parNom('998'), trouve('999')] };
+    await monter();
+    await taper('victor hugo');
+    expect(titresGroupes()).toEqual(['Par adresse', 'Par nom ou coordonnée']);
+    const html = container.innerHTML;
+    expect(html.indexOf('Par adresse')).toBeLessThan(html.indexOf('Par nom ou coordonnée'));
+  });
+
+  it('chaque bien est SOUS le bon titre', async () => {
+    resultats = { lignes: [parNom('998'), trouve('999')] };
+    await monter();
+    await taper('victor hugo');
+    const zones = [...container.querySelectorAll('.mrb-resultats')].map((e) => e.textContent ?? '');
+    expect(zones[0]).toContain('lot 999');
+    expect(zones[0]).not.toContain('lot 998');
+    expect(zones[1]).toContain('lot 998');
+  });
+
+  it('🔴 un bien trouvé PAR L’ADRESSE ET PAR UN NOM n’apparaît QUE dans le premier groupe', async () => {
+    resultats = {
+      lignes: [trouve('999', {
+        raisons: [{ sorte: 'adresse', detail: '' }, { sorte: 'locataire', detail: 'DUPONT Jean' }],
+      })],
+    };
+    await monter();
+    await taper('dupont beta');
+    expect(titresGroupes()).toEqual(['Par adresse']);
+    // Une seule case à cocher pour ce bien : deux cases pour un même bien, c'est une case qu'on oublie.
+    expect(zoneResultats().match(/lot 999/g)).toHaveLength(1);
+    // …et il garde SES DEUX raisons : le titre dit par quelle voie, la raison dit laquelle.
+    expect(zoneResultats()).toContain('trouvé par adresse · locataire DUPONT Jean');
+  });
+
+  it('🔴 un groupe VIDE n’est pas titré — sinon un titre suivi de rien se lit comme une panne', async () => {
+    resultats = { lignes: [parNom('998')] };
+    await monter();
+    await taper('victor hugo');
+    expect(titresGroupes()).toEqual(['Par nom ou coordonnée']);
+  });
+
+  it('🔴 le cas réel « victor hugo » : aucune adresse en gestion, le résultat est SOUS « Par nom »', async () => {
+    // Vérifié sur la base le 28/09/2026 : aucun lot en gestion n’est rue Victor Hugo. Le seul résultat est un
+    // lot rue Lyautey, dont la locataire s’appelle Victor Hugo — le titre du groupe l’explique d’un coup d’œil.
+    resultats = { lignes: [parNom('30')] };
+    await monter();
+    await taper('victor hugo');
+    expect(titresGroupes()).toEqual(['Par nom ou coordonnée']);
+    expect(zoneResultats()).toContain('trouvé par locataire RUELLAN Océane et Victor Hugo');
+  });
+
+  it('un bien trouvé par TÉLÉPHONE est un résultat « par nom ou coordonnée »', async () => {
+    resultats = { lignes: [trouve('999', { raisons: [{ sorte: 'telephone_proprietaire', detail: 'BAILLEUR B' }] })] };
+    await monter();
+    await taper('06 69 14 28 07');
+    expect(titresGroupes()).toEqual(['Par nom ou coordonnée']);
+    expect(zoneResultats()).toContain('trouvé par téléphone de BAILLEUR B');
+  });
+
+  it('un bien trouvé par son N° DE LOT reste « par adresse » : le lot désigne le bien, pas une personne', async () => {
+    resultats = { lignes: [trouve('999', { raisons: [{ sorte: 'lot', detail: '' }] })] };
+    await monter();
+    await taper('999');
+    expect(titresGroupes()).toEqual(['Par adresse']);
+    expect(zoneResultats()).toContain('trouvé par n° de lot');
+  });
+
+  it('🔴 les deux groupes se valident ENSEMBLE — le titre range, il ne sépare pas le geste', async () => {
+    resultats = { lignes: [parNom('998'), trouve('999')] };
+    await monter();
+    await taper('victor hugo');
+    const c = cases();
+    // Les deux dernières cases sont les deux résultats, un par groupe.
+    await cliquer(c[c.length - 2]);
+    await cliquer(c[c.length - 1]);
+    await cliquer(boutonPar(/^Rattacher$/));
+    const posts = ecritures().filter((a) => a.methode === 'POST');
+    expect(posts.map((p) => (p.corps as { cible: { cle: string } }).cible.cle).sort()).toEqual(['998', '999']);
   });
 });
 

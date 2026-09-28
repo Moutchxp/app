@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { planClassement } from '../../../../lib/gestion/gesteClassement';
 import { groupesParProprietaire } from '../../../../lib/gestion/ficheBien';
-import { messageAucunBien, motRaison, sansLesProposes } from '../../../../lib/gestion/rechercheBien';
+import { grouperResultats, messageAucunBien, motRaison, sansLesProposes } from '../../../../lib/gestion/rechercheBien';
 import { ColonneBien, ColonneLocataires, CartePersonne, CSS_PROPOSITIONS_BIENS } from './PropositionsDeBiens';
 import { CSS_BOUTON_COPIER } from './BoutonCopier';
 import type { BienProposable, ContexteClassement } from '../../../../lib/gestion/classementBien';
@@ -21,7 +21,8 @@ import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
  * L'ORDRE DU MENU EST CELUI DE LA CONFIANCE :
  *   ① LES PROPOSITIONS DE L'AUTOMATISATION, en haut, avec leur fiche complète (bien, propriétaire, locataire à la
  *      date du mail, certitude, motif, pré-coche). Aucune proposition ⇒ la zone ne s'affiche pas du tout.
- *   ② LA RECHERCHE LIBRE, en dessous, pour ajouter ce que l'automatisation n'a pas vu.
+ *   ② LA RECHERCHE LIBRE, en dessous, pour ajouter ce que l'automatisation n'a pas vu. Ses résultats sont rangés
+ *      en DEUX GROUPES TITRÉS : « Par adresse », puis « Par nom ou coordonnée ».
  *   ③ UNE SEULE VALIDATION pour les deux zones, avec la portée et « Hors gestion ».
  *
  * 🔴 LES RÉSULTATS DE RECHERCHE SONT DES BIENS, JAMAIS DES PERSONNES. Chercher « MARTY » rend SES biens. Et un bien
@@ -107,6 +108,8 @@ export function MenuRattachementBien({ messageId, filId, onFerme, onGeste, onCha
 
   /** 🔴 UN BIEN DÉJÀ PROPOSÉ N'EST PAS RÉPÉTÉ EN BAS : deux cases pour un bien, c'est une case oubliée. */
   const trouves = sansLesProposes(resultats?.lignes ?? [], propositions.map((b) => b.cle));
+  /** …puis rangés en deux groupes titrés. Le tri et la règle « jamais deux fois » vivent dans le module PUR. */
+  const groupes = grouperResultats(trouves);
 
   const basculer = (cle: string) => setCoches((c) => (c.includes(cle) ? c.filter((x) => x !== cle) : [...c, cle]));
 
@@ -220,46 +223,19 @@ export function MenuRattachementBien({ messageId, filId, onFerme, onGeste, onCha
         <p className="pdb-vide">{messageAucunBien(saisie)}</p>
       )}
 
-      {trouves.length > 0 && (
-        <ul className="pdb-liste mrb-resultats">
-          {trouves.map((b) => (
-            <li key={b.cle} className="pdb-item">
-              <div className="pdb-deux">
-                {/* Le MÊME rendu que les propositions : c'est le même objet, il doit se reconnaître. */}
-                <ColonneBien fige={fige} coche={coches.includes(b.cle)} onBasculer={() => basculer(b.cle)}
-                  bien={{
-                    cle: b.cle, libelle: b.libelle, adresse: null, commune: null, typeBien: b.typeBien,
-                    adresseComplete: b.adresse,
-                    caracteristiques: [
-                      ...(b.nature ? [{ libelle: 'Nature', valeur: b.nature }] : []),
-                      ...(b.typeBien ? [{ libelle: 'Type', valeur: b.typeBien }] : []),
-                    ],
-                    parties: b.parties, recommande: false, dejaRattache: false,
-                    // 🔴 LA RAISON DE LA CORRESPONDANCE, EN CLAIR : sans elle, on ne sait pas pourquoi c'est là.
-                    motif: `trouvé par ${b.raisons.map(motRaison).join(' · ')}`,
-                    cas: 'd', certitude: 'a_trancher',
-                  }} />
-                <ColonneLocataires bien={{
-                  cle: b.cle, libelle: b.libelle, adresse: null, commune: null, typeBien: b.typeBien,
-                  adresseComplete: b.adresse, caracteristiques: [], parties: b.parties,
-                  recommande: false, dejaRattache: false, motif: '', cas: 'd', certitude: 'a_trancher',
-                }} />
-              </div>
-              {/* 🔴 LA SOUS-LIGNE DEMANDÉE PAR ARNO, sur UNE ligne : « Propriétaire : … · Locataire : … ». Les
-                  deux colonnes donnent le détail ; celle-ci donne le couple d'un coup d'œil, pour trancher sans
-                  lire. « vacant » est une réponse — un blanc n'en est pas une. */}
-              <p className="mrb-couple">
-                <span className="pdb-role">Propriétaire :</span>{' '}
-                {b.parties.find((p) => p.role === 'proprietaire')?.nom ?? '(inconnu)'}
-                <span className="pdb-sep" aria-hidden="true"> · </span>
-                <span className="pdb-role">Locataire :</span>{' '}
-                {b.parties.filter((p) => p.role === 'locataire').map((p) => p.nom).join(', ')
-                  || 'vacant à cette date'}
-              </p>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* 🔴 LES DEUX GROUPES TITRÉS, DEMANDÉS PAR ARNO : « Par adresse », puis « Par nom ou coordonnée ». Un bien
+          qui répond aux deux n'est que dans le premier — `grouperResultats` s'en charge, pas cet écran. */}
+      {groupes.map((g) => (
+        <section className="mrb-groupe" key={g.sorte}>
+          <p className="mrb-titre mrb-titre--groupe">{g.titre}</p>
+          <ul className="pdb-liste mrb-resultats">
+            {g.biens.map((b) => (
+              <LigneResultat key={b.cle} bien={b} coche={coches.includes(b.cle)} fige={fige}
+                onBasculer={() => basculer(b.cle)} />
+            ))}
+          </ul>
+        </section>
+      ))}
       {resultats?.tronque && (
         <p className="pdb-vide">Seuls les premiers biens sont affichés — précisez votre recherche.</p>
       )}
@@ -300,6 +276,51 @@ export function MenuRattachementBien({ messageId, filId, onFerme, onGeste, onCha
   );
 }
 
+/**
+ * UNE LIGNE DE RÉSULTAT DE RECHERCHE — le MÊME rendu que les propositions du haut : c'est le même objet, un bien,
+ * il doit se reconnaître d'une zone à l'autre.
+ *
+ * 🔴 LA RAISON DE LA CORRESPONDANCE RESTE SUR LA LIGNE, même sous un titre de groupe : le titre dit PAR QUELLE
+ * VOIE le bien est arrivé (adresse, ou nom/coordonnée), la raison dit LAQUELLE exactement — « locataire passé
+ * DUPONT » n'est pas « téléphone de MARS AVENIR », et c'est ce détail qui fait trancher.
+ */
+function LigneResultat({ bien: b, coche, fige, onBasculer }: {
+  bien: BienTrouve; coche: boolean; fige: boolean; onBasculer: () => void;
+}) {
+  const commun = {
+    cle: b.cle, libelle: b.libelle, adresse: null, commune: null, typeBien: b.typeBien,
+    adresseComplete: b.adresse, parties: b.parties, recommande: false, dejaRattache: false,
+    cas: 'd' as const, certitude: 'a_trancher' as const,
+  };
+  return (
+    <li className="pdb-item">
+      <div className="pdb-deux">
+        <ColonneBien fige={fige} coche={coche} onBasculer={onBasculer}
+          bien={{
+            ...commun,
+            caracteristiques: [
+              ...(b.nature ? [{ libelle: 'Nature', valeur: b.nature }] : []),
+              ...(b.typeBien ? [{ libelle: 'Type', valeur: b.typeBien }] : []),
+            ],
+            motif: `trouvé par ${b.raisons.map(motRaison).join(' · ')}`,
+          }} />
+        <ColonneLocataires bien={{ ...commun, caracteristiques: [], motif: '' }} />
+      </div>
+      {/* 🔴 LA SOUS-LIGNE DEMANDÉE PAR ARNO, sur UNE ligne : « Propriétaire : … · Locataire : … ». Les deux
+          colonnes donnent le détail ; celle-ci donne le couple d'un coup d'œil, pour trancher sans lire.
+          « vacant » est une réponse — un blanc n'en est pas une. */}
+      <p className="mrb-couple">
+        <span className="pdb-role">Propriétaire :</span>{' '}
+        {b.parties.find((p) => p.role === 'proprietaire')?.nom ?? '(inconnu)'}
+        <span className="pdb-sep" aria-hidden="true"> · </span>
+        <span className="pdb-role">Locataire :</span>{' '}
+        {b.parties.filter((p) => p.role === 'locataire').map((p) => p.nom).join(', ')
+          || 'vacant à cette date'}
+      </p>
+    </li>
+  );
+}
+
 export const CSS_MENU_RATTACHEMENT = `
 /* Le menu est le VOISIN IMMEDIAT de la ligne qui l'ouvre : un panneau qui s'ouvre en bas de page apparait hors
    du regard. Un liseré à gauche le rattache visuellement à sa ligne. */
@@ -312,7 +333,10 @@ export const CSS_MENU_RATTACHEMENT = `
 .mrb-saisie{min-height:40px;padding:.3rem .5rem;font:inherit;font-size:.9rem;color:var(--color-svv-ink);
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.4rem;min-width:0}
 .mrb-saisie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.mrb-resultats{margin-top:6px;border-top:1px solid var(--color-svv-line)}
+/* Le titre d'un groupe de résultats : il porte le MOT (« Par adresse »), jamais une couleur seule. */
+.mrb-groupe{margin-top:8px;min-width:0}
+.mrb-titre--groupe{margin:.2rem 0 0;color:var(--color-svv-ink)}
+.mrb-resultats{margin-top:4px;border-top:1px solid var(--color-svv-line)}
 .mrb-resultats .pdb-item{border-top:0}
 .mrb-couple{margin:0;padding:0 10px 8px;font-size:.8rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .mrb-portee{margin:8px 0;padding:6px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem;min-width:0}
