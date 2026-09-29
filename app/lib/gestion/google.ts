@@ -400,6 +400,151 @@ export async function lireEnteteGmail(
   };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT BOITE-INTERNE-CORBEILLE — LA CORBEILLE DE GMAIL
+
+   🔴🔴 CE QUE LE DROIT ACTUEL PERMET, ET CE QU'IL NE PERMET PAS. Vérifié sur le VRAI compte le 29/09/2026, en
+   interrogeant Google lui-même (portées accordées : `gmail.modify`, `gmail.settings.basic`, `drive`) puis en
+   essayant chaque verbe sur un identifiant VOLONTAIREMENT INEXISTANT, donc sans viser un seul vrai message :
+
+     POST /messages/<inexistant>/trash    → 400 « Invalid id value »              ⇒ LE DROIT EST LÀ
+     POST /messages/<inexistant>/untrash  → 400 « Invalid id value »              ⇒ LE DROIT EST LÀ
+     DELETE /messages/<inexistant>        → 403 « insufficient authentication scopes » ⇒ LE DROIT MANQUE
+
+   Un 400 se lit « l'identifiant est faux » (c'est nous qui l'avons rendu faux) ; un 403 se lit « on ne te laisse
+   pas faire ça ». C'est cette différence, et elle seule, qui tranche — pas la documentation.
+
+   🔴 IL N'EXISTE AUCUNE PORTÉE « SUPPRIMER SEULEMENT ». Google réserve l'effacement définitif à
+   `https://mail.google.com/`, une portée RESTREINTE qui donne l'accès TOTAL à la boîte (tout lire, tout écrire,
+   tout envoyer, tout effacer). L'accorder ferait perdre la garantie qui tient depuis le lot 5-FIDÈLE : aucun geste
+   de l'application ne peut effacer un mail pour de bon. C'est une décision d'Arno, pas un réglage technique — d'où
+   `PORTEES_GESTION` inchangée et `supprimerDefinitivementGmail` qui existe, mais ne peut pas encore aboutir.
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * MET UN MESSAGE À LA CORBEILLE DE GMAIL, ou l'en SORT. Un seul verbe pour les deux sens : c'est le même geste pris
+ * par l'un ou l'autre bout, et deux fonctions jumelles finiraient par diverger au premier changement.
+ *
+ * 🔒 RÉVERSIBLE PAR CONSTRUCTION. Rien n'est effacé : le message change de dossier, exactement comme lorsqu'on
+ * clique sur la corbeille dans Gmail. Il en ressort d'un clic, d'ici ou de là-bas.
+ *
+ * ⚠️ GMAIL EFFACE LUI-MÊME LE CONTENU DE SA CORBEILLE AU BOUT DE 30 JOURS. Ce n'est pas nous qui le ferons, et ce
+ * n'est pas non plus quelque chose que nous pouvons empêcher — l'écran le DIT, en toutes lettres, au-dessus de la
+ * liste. Notre copie du message, elle, reste en base.
+ */
+export async function corbeilleGmail(
+  accessToken: string, id: string, aLaCorbeille: boolean, deps: DepsGoogle,
+): Promise<Resultat<{ id: string }>> {
+  const verbe = aLaCorbeille ? 'trash' : 'untrash';
+  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}/${verbe}`, {
+    method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    return {
+      ok: false,
+      motif: `Gmail a refusé ${aLaCorbeille ? 'la mise à la corbeille' : 'la réintégration'} : `
+        + `${j.error?.message ?? `HTTP ${res.status}`}`,
+    };
+  }
+  const j = (await res.json().catch(() => ({}))) as { id?: string };
+  return { ok: true, valeur: { id: j.id ?? id } };
+}
+
+/**
+ * LA PORTÉE QUI AUTORISE L'EFFACEMENT DÉFINITIF. Google n'en propose pas de plus étroite : celle-ci donne l'accès
+ * TOTAL à la boîte. C'est pour cela qu'elle n'est pas dans `PORTEES_GESTION`, et que l'écran doit pouvoir dire
+ * « ce droit manque » AVANT qu'on clique, plutôt qu'après un 403.
+ */
+export const PORTEE_SUPPRESSION = 'https://mail.google.com/';
+
+/**
+ * LE DROIT D'EFFACER EST-IL ACCORDÉ ? Lu sur les portées RÉELLEMENT accordées au jeton, jamais sur ce que le code
+ * demande : les deux peuvent diverger — un jeton obtenu avant un changement de `PORTEES_GESTION` porte les
+ * anciennes. PUR, donc sans un seul appel à Google : l'écran peut griser son bouton sans rien demander au réseau.
+ */
+export function droitSuppressionAccorde(portees: readonly string[] | null | undefined): boolean {
+  return (portees ?? []).some((p) => p.trim() === PORTEE_SUPPRESSION);
+}
+
+/** Ce que l'écran affiche quand la portée `https://mail.google.com/` n'a pas été accordée. Écrit UNE fois. */
+export const MENTION_DROIT_SUPPRESSION =
+  'La suppression définitive demande un droit Google supplémentaire, qui n’est pas encore accordé à '
+  + 'gestion@criterimmo.fr. Tant qu’il manque, l’application ne peut RIEN effacer pour de bon — et elle ne fait '
+  + 'pas semblant : voir docs/GUIDE_CONNEXION_GOOGLE_GESTION.md.';
+
+/**
+ * 🔴 SUPPRIME DÉFINITIVEMENT UN MESSAGE DE GMAIL. IRRÉVERSIBLE — il n'y a pas de retour, ni chez nous ni chez Google.
+ *
+ * ⚠️ AUJOURD'HUI, CET APPEL EST REFUSÉ (403) et c'est voulu : la portée qui l'autoriserait n'est pas demandée. La
+ * fonction existe quand même, et elle est câblée jusqu'au bout, pour UNE raison précise — le jour où Arno accorde
+ * le droit, il n'y a rien à écrire, rien à relire, rien à réviser : le bouton s'active. Écrire un contournement
+ * d'ici là (« vider » autrement, ou n'effacer que chez nous) donnerait à l'écran l'air de marcher en mentant sur
+ * ce qui s'est passé dans la vraie boîte.
+ *
+ * 🔴 `droitManquant` EST RENDU À PART. L'écran doit distinguer « Google refuse ce geste à ce compte » (il faut
+ * accorder un droit, et l'on explique comment) de « Google n'a pas répondu » (on réessaie). Les confondre sous un
+ * même « échec » enverrait chercher une panne là où il n'y a qu'une autorisation.
+ */
+export async function supprimerDefinitivementGmail(
+  accessToken: string, id: string, deps: DepsGoogle,
+): Promise<Resultat<{ id: string }> & { droitManquant?: boolean }> {
+  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}`, {
+    method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  // 204 : Gmail ne rend AUCUN corps sur une suppression réussie. 404 : il n'y est plus — le résultat voulu est atteint.
+  if (res.ok || res.status === 404) return { ok: true, valeur: { id } };
+  if (res.status === 403) return { ok: false, motif: MENTION_DROIT_SUPPRESSION, droitManquant: true };
+  const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+  return { ok: false, motif: `Gmail a refusé la suppression : ${j.error?.message ?? `HTTP ${res.status}`}` };
+}
+
+/**
+ * ══ 🔴🔴 TOUT CE QUI EST À LA CORBEILLE DE GMAIL, PAR L'API — ET POURQUOI PAS PAR IMAP ═════════════════════════
+ *
+ * MESURÉ SUR LA VRAIE BOÎTE LE 29/09/2026, ET C'EST LE DÉFAUT QUE L'ESSAI RÉEL A TROUVÉ. Les deux vues de la même
+ * corbeille NE DISENT PAS LA MÊME CHOSE :
+ *
+ *     API Gmail, « in:trash »        → 15 messages, DONT le mail de test qu'on venait d'y mettre
+ *     IMAP, « [Gmail]/Corbeille »    → 16 messages, SANS ce mail — dix minutes après, toujours sans
+ *
+ * Le mail en question porte les libellés `UNREAD TRASH SENT` : c'est un message que NOUS avons envoyé. Gmail ne le
+ * montre pas dans le dossier IMAP de la corbeille — l'IMAP d'une boîte Gmail range le courrier envoyé dans son
+ * propre dossier et l'en sort mal. Ce n'est pas un retard : c'est une divergence durable.
+ *
+ * 🔴 LA CONSÉQUENCE ÉTAIT GRAVE, ET INVISIBLE : la relève réconciliait depuis IMAP, ne trouvait pas le mail, et lui
+ * RETIRAIT sa marque. Vu en vrai — mis à la corbeille à 17 h 01, revenu tout seul en Réception à 17 h 02. Un mail
+ * qu'on supprime et qui revient une minute plus tard, sans un mot.
+ *
+ * 🔴 LA RÈGLE QUI EN SORT : ON RÉCONCILIE DEPUIS LA SOURCE OÙ L'ON ÉCRIT. Les gestes passent par l'API (`trash` /
+ * `untrash`) ; l'état doit donc être relu par l'API. Deux sources pour un même fait, c'est une contradiction qui
+ * attend son heure — et celle-ci n'a pas attendu longtemps.
+ *
+ * ⚠️ PAGINÉ. `maxResults` plafonne à 500 et Google renvoie `nextPageToken` ; s'arrêter à la première page ferait
+ * « disparaître » de la corbeille tout ce qui suit — c'est-à-dire le retirerait de chez nous.
+ */
+export async function listerCorbeilleGmail(
+  accessToken: string, deps: DepsGoogle, pagesMax = 20,
+): Promise<Resultat<{ id: string }[]>> {
+  const out: { id: string }[] = [];
+  let page: string | undefined;
+  for (let i = 0; i < pagesMax; i++) {
+    const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent('in:trash')}&maxResults=500`
+      + (page === undefined ? '' : `&pageToken=${encodeURIComponent(page)}`);
+    const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) return { ok: false, motif: `Lecture de la corbeille impossible (HTTP ${res.status}).` };
+    const j = (await res.json().catch(() => ({}))) as {
+      messages?: { id?: string }[]; nextPageToken?: string;
+    };
+    for (const m of j.messages ?? []) if (m.id) out.push({ id: m.id });
+    page = j.nextPageToken;
+    if (page === undefined) return { ok: true, valeur: out };
+  }
+  // On a atteint le plafond de pages : on ne rend PAS une liste partielle, qui ferait retirer le reste.
+  return { ok: false, motif: `Corbeille trop grande : plus de ${pagesMax * 500} messages.` };
+}
+
 /** Un `Message-ID` sans ses chevrons, comparable des deux côtés. `null` reste `null`. PUR. */
 export function normaliserMessageId(brut: string | null | undefined): string | null {
   const nu = (brut ?? '').trim().replace(/^</, '').replace(/>$/, '');

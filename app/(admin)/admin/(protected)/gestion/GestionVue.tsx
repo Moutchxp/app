@@ -1027,12 +1027,6 @@ export function etiquettesDeLEcran(
      * ⚠️ RIEN N'EST RETIRÉ : c'est la MÊME étiquette, la même liste, le même compteur. Seul le mot change.
      */
     { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'Sans événement', compte: d.filsTotal },
-    // LOT 5-BOITE-3 — la CORBEILLE. `null` (migration 251 absente) ⇒ l'étiquette est RETIRÉE de la liste, et non
-    //   montrée à zéro : sans la migration, le geste « Supprimer » n'existe pas non plus, et une corbeille qu'on ne
-    //   peut pas remplir n'a rien à faire dans le sommaire. `filtreEtiquettes` écarte ensuite les étiquettes vides.
-    ...(comptes?.corbeille === null || comptes?.corbeille === undefined
-      ? []
-      : [{ etiquette: { sorte: 'corbeille' as const, evenementId: null }, libelle: 'Corbeille', compte: comptes.corbeille }]),
     // LOT 5e — les BROUILLONS. Comme les autres : pas d'étiquette vide, et son nombre vient d'une seule lecture.
     { etiquette: { sorte: 'brouillons', evenementId: null }, libelle: 'Brouillons', compte: brouillons },
     /**
@@ -1046,9 +1040,35 @@ export function etiquettesDeLEcran(
      */
     { etiquette: { sorte: 'spam', evenementId: null }, libelle: 'Spam', compte: comptes?.spam ?? null },
     /**
-     * ⚠️ « Sans suite » ET « Corbeille » VIENNENT APRÈS LES CINQ, et ne sont PAS retirées. Arno a donné l'ordre des
-     * cinq entrées qu'il regarde ; il a aussi écrit « rien d'autre n'est retiré ». Elles gardent donc leur place, à
-     * la suite — et `etiquettesVisibles` les écarte d'elle-même quand elles sont vides, comme avant ce lot.
+     * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — « CORBEILLE », JUSTE SOUS « SPAM » (place demandée par Arno) ═══════════
+     *
+     * Les mails que GMAIL tient pour supprimés. Un seul état, synchronisé, comme le spam juste au-dessus et comme
+     * le lu/non lu : la relève relit « [Gmail]/Corbeille » à chaque passe et fait coïncider les deux.
+     *
+     * 🔴 ELLE REMPLACE l'entrée « Corbeille » du lot 5-BOITE-3, qui était plus haut dans cette liste et désignait
+     * une corbeille INTERNE (cacher un échange de nos boîtes sans toucher Gmail). Celle-là n'a jamais servi —
+     * 0 échange sur 36 531 — et deux entrées du même nom, aux deux sens différents, n'auraient rien voulu dire.
+     *
+     * ══ 🔴 `null` ⇒ L'ENTRÉE EST RETIRÉE DE LA LISTE, et il faut l'écrire ICI. VU À L'ÉCRAN le 29/09/2026 :
+     * première version, `compte: comptes?.corbeille ?? null`, en croyant que `etiquettesVisibles` l'écarterait
+     * « comme toute étiquette vide ». C'EST FAUX, et le code le dit : `e.compte === null` veut dire « on ne sait
+     * pas encore » — un état d'attente, pendant lequel l'entrée RESTE, sans son nombre. La colonne affichait donc
+     * « Corbeille » sans compteur, menant à une liste vide par construction, avant même la migration.
+     *
+     * Le retrait est donc explicite, comme le faisait déjà l'entrée qu'on remplace : sans la migration 275, le
+     * geste « Supprimer » n'existe pas non plus, et une corbeille qu'on ne peut pas remplir n'a rien à faire dans
+     * le sommaire. `undefined` = réponse d'API plus ancienne que ce lot : même traitement.
+     */
+    ...(comptes?.corbeille === null || comptes?.corbeille === undefined
+      ? []
+      : [{
+        etiquette: { sorte: 'corbeille' as const, evenementId: null },
+        libelle: 'Corbeille', compte: comptes.corbeille,
+      }]),
+    /**
+     * ⚠️ « Sans suite » VIENT APRÈS, et n'est PAS retirée. Arno a donné l'ordre des entrées qu'il regarde ; il a
+     * aussi écrit « rien d'autre n'est retiré ». Elle garde donc sa place, à la suite — et `etiquettesVisibles`
+     * l'écarte d'elle-même quand elle est vide, comme avant ce lot.
      */
     { etiquette: { sorte: 'sans_suite', evenementId: null }, libelle: 'Sans suite', compte: d.sansSuiteTotal },
     /**

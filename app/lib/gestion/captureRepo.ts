@@ -9,7 +9,9 @@
  */
 import type { PoolClient } from 'pg';
 import { pool, query, withTransaction } from '../db/client';
-import { deplacementsDeMailsDisponibles, destinatairesSeparesDisponibles, spamDisponible} from './schema';
+import {
+  corbeilleGmailDisponible, deplacementsDeMailsDisponibles, destinatairesSeparesDisponibles, spamDisponible,
+} from './schema';
 import { chargerConfigGestion, type ConfigGestion } from './config';
 import type { DepsCapture, MessageAEcrire, MessageBrut, PieceBrute, FilResolu } from './capture';
 import type { RegleExclusion } from './regles';
@@ -185,7 +187,7 @@ export async function resoudreFil(identifiants: string[], cleRacine: string, obj
  */
 export async function ecrireMessage(
   m: MessageAEcrire, filId: number, uidValidite: string | null = null, avecUid = true, avecDeplacements = false,
-  avecDestinatairesSepares = false, avecSpam = false,
+  avecDestinatairesSepares = false, avecSpam = false, avecCorbeille = false,
 ): Promise<number | null> {
   return withTransaction(async (q) => {
     const colonnes = `fil_id, message_id, in_reply_to, references_brut, sens, de_adresse, de_nom, destinataires, nb_destinataires,
@@ -201,6 +203,15 @@ export async function ecrireMessage(
      */
     const spam = avecSpam && m.spam === true
       ? { colonnes: ', spam_le', valeurs: ', now()' }
+      : { colonnes: '', valeurs: '' };
+    /**
+     * LOT BOITE-INTERNE-CORBEILLE — LA CONSTATATION DE CORBEILLE. Même patron que le spam juste au-dessus, au mot
+     * près : colonne ajoutée SEULEMENT si la migration 275 est là ET si ce message vient du dossier
+     * « [Gmail]/Corbeille ». Aucune passe ordinaire n'écrit cette colonne, et une base sans la migration ne la voit
+     * jamais nommée. `now()` — l'instant où NOUS l'avons constaté, pas une date de Gmail que nous n'avons pas.
+     */
+    const corbeille = avecCorbeille && m.corbeille === true
+      ? { colonnes: ', corbeille_le', valeurs: ', now()' }
       : { colonnes: '', valeurs: '' };
     const params = [filId, m.messageId, m.inReplyTo, m.referencesBrut, m.sens, m.deAdresse, m.deNom, m.destinataires, m.nbDestinataires,
        m.objet, m.objetGabarit, m.recuLe, m.corpsTexte, m.corpsHtml, m.automatique, m.signauxAutomatisme,
@@ -222,13 +233,13 @@ export async function ecrireMessage(
     const apresSepares = n + separes.params.length;
     const { rows } = avecUid
       ? await q<{ id: number }>(
-          `INSERT INTO gestion_message (${colonnes}${separes.colonnes}${spam.colonnes}, uid_imap, uid_validity)
-           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`}${spam.valeurs}, $${apresSepares + 1}::bigint, $${apresSepares + 2}::bigint)
+          `INSERT INTO gestion_message (${colonnes}${separes.colonnes}${spam.colonnes}${corbeille.colonnes}, uid_imap, uid_validity)
+           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`}${spam.valeurs}${corbeille.valeurs}, $${apresSepares + 1}::bigint, $${apresSepares + 2}::bigint)
            ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`,
           [...params, ...separes.params, m.uidImap, uidValidite])
       : await q<{ id: number }>(
-          `INSERT INTO gestion_message (${colonnes}${separes.colonnes}${spam.colonnes})
-           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`}${spam.valeurs})
+          `INSERT INTO gestion_message (${colonnes}${separes.colonnes}${spam.colonnes}${corbeille.colonnes})
+           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`}${spam.valeurs}${corbeille.valeurs})
            ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`, [...params, ...separes.params]);
     if (!rows[0]) return null; // déjà écrit : aucun doublon, aucune erreur
 
@@ -478,7 +489,10 @@ export function depsReellesCapture(clientCourant: () => ClientDossier): DepsCapt
       await destinatairesSeparesDisponibles(),
       // LOT ERGO-BOITE-3 — même patron : sonde mémorisée, posée HORS transaction. Sans la migration 263, la colonne
       //   n'est pas nommée et la passe de spam n'a de toute façon pas lieu (cf. `releveReelle`).
-      await spamDisponible()),
+      await spamDisponible(),
+      // LOT BOITE-INTERNE-CORBEILLE — idem : sans la migration 275, la colonne n'est pas nommée et la passe de
+      //   corbeille n'a de toute façon pas lieu (cf. `releveReelle`).
+      await corbeilleGmailDisponible()),
     deposerPieces: deposerPiecesMessage,
   };
 }

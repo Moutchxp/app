@@ -1,7 +1,6 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { comptesBoite } from '../../../../../../lib/gestion/boiteRepo';
-import { compterCorbeille } from '../../../../../../lib/gestion/corbeilleRepo';
 
 /**
  * /api/admin/gestion/boite/comptes (lot 5-FUSION) — LES NOMBRES DE LA COLONNE D'ÉTIQUETTES.
@@ -25,15 +24,20 @@ export async function GET(request: Request): Promise<Response> {
   if (refus) return refus;
 
   try {
-    // LOT 5-BOITE-3 — la corbeille est comptée À CÔTÉ : elle ne sort pas du même regroupement (c'est une colonne de
-    //   `gestion_fil`, pas un état de message). `null` = migration 251 absente ⇒ l'étiquette ne s'affiche pas du tout,
-    //   plutôt qu'un zéro qui se lirait « la corbeille est vide ».
-    // LOT LISTE-GMAIL — la sonde de l'étoile voyage avec les comptes : c'est la seule requête que la liste fait
-    //   déjà au chargement, et la sonde est mémoïsée (elle ne coûte qu'au premier appel du processus).
-    const [comptes, corbeille, etoileDisponible] = await Promise.all([
-      comptesBoite(), compterCorbeille(), (await import('../../../../../../lib/gestion/schema')).etoileDisponible(),
+    /**
+     * ⚠️ LOT BOITE-INTERNE-CORBEILLE — LA CORBEILLE SORT DÉSORMAIS DU MÊME REGROUPEMENT QUE LES AUTRES.
+     * Elle était comptée À CÔTÉ tant qu'elle vivait sur `gestion_fil` (corbeille interne du lot 5-BOITE-3) ; c'est
+     * maintenant un état de MESSAGE, exactement comme le spam, et `comptesBoite` le rend avec les autres. Une
+     * seule lecture, donc aucune chance que deux nombres de la même colonne se contredisent.
+     * `null` = migration 275 absente ⇒ l'entrée ne s'affiche pas, plutôt qu'un zéro qui se lirait « elle est vide ».
+     *
+     * LOT LISTE-GMAIL — la sonde de l'étoile voyage avec les comptes : c'est la seule requête que la liste fait
+     * déjà au chargement, et la sonde est mémoïsée (elle ne coûte qu'au premier appel du processus).
+     */
+    const [comptes, etoileDisponible] = await Promise.all([
+      comptesBoite(), (await import('../../../../../../lib/gestion/schema')).etoileDisponible(),
     ]);
-    return Response.json({ ...comptes, corbeille, etoileDisponible },
+    return Response.json({ ...comptes, etoileDisponible },
       { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     // Pas de catch muet : des compteurs à zéro feraient croire à une boîte vide. On dit que la lecture a échoué, et

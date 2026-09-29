@@ -34,8 +34,10 @@ import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
 // LOT LIGNE-NON-ENVOYE — les mails qui ne sont pas partis, à montrer dans « Envoyés » et dans le fil.
 import { nonEnvoyesAMontrer, nonEnvoyesDesFils } from './fileEnvoiRepo';
 import { fusionnerNonEnvoyes, type MentionNonEnvoye } from './fileEnvoi';
-import { corbeilleDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible } from './schema';
+import { corbeilleGmailDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible } from './schema';
 import { etoilesDesFils } from './etoileRepo';
+// LOT BOITE-INTERNE-CORBEILLE — « nous », c'est `gestion_config.adresse_gestion`, lue à la MÊME source que la capture.
+import { chargerConfigGestion } from './config';
 
 /** Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre. */
 export const PAGE_BOITE = 30;
@@ -129,6 +131,14 @@ export interface LigneBoite {
    * (`SQL_ECHEC_NON_RESOLU`), pas dans une écriture au moment du renvoi.
    */
   nonEnvoye?: MentionNonEnvoye | null;
+  /**
+   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — COMBIEN DE MAILS DE CET ÉCHANGE SONT À LA CORBEILLE ════════════════════
+   * Rendu UNIQUEMENT sous l'étiquette « Corbeille » (ailleurs `0` : la colonne n'est pas calculée, et souvent pas
+   * même nommée). La ligne représente un ÉCHANGE, et « Supprimer définitivement » agira sur TOUS ses mails
+   * supprimés : la confirmation doit donc annoncer le nombre de MAILS, pas le nombre de lignes cochées. Une
+   * question qui annonce « 3 mails » avant d'en effacer 7 est pire qu'une absence de question.
+   */
+  nbCorbeille?: number;
 }
 
 export interface PageBoite {
@@ -204,6 +214,8 @@ interface LigneDB {
   nb_messages: number;
   nb_lisibles: number;
   nb_pieces: number;
+  /** LOT BOITE-INTERNE-CORBEILLE — combien de mails de cet échange sont à la corbeille. `0` hors de son étiquette. */
+  nb_corbeille: number;
   reference: string | null;
   sans_suite: boolean;
   /** LOT CAPSULE-STATUT — rendus par la jointure latérale ; tous `null` quand la migration 257 est absente. */
@@ -233,27 +245,33 @@ interface LigneDB {
 const ETIQUETTE_TOUT: Etiquette = { sorte: 'reception', evenementId: null };
 
 /**
- * LOT 5-BOITE-3 — L'ÉCHANGE EST-IL À LA CORBEILLE ? La règle, écrite UNE fois, et entièrement DÉRIVÉE.
- *
- * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * 🔴 « EN CORBEILLE » = le geste est POSTÉRIEUR OU ÉGAL au dernier message. Comme `m` EST le dernier message de son
- * échange (prédicat du CTE `page`), la comparaison se fait sur lui — et c'est ce qui donne gratuitement le
- * comportement de Gmail : UN NOUVEAU MESSAGE FAIT REVENIR L'ÉCHANGE dans sa boîte, tout seul, sans qu'une seule
- * ligne soit écrite nulle part. Pas de rattrapage à la relève, rien qui puisse se désynchroniser.
- *
- * ⚠️ `>=` ET NON `>` : deux messages peuvent porter le même instant à la seconde près, et un geste fait dans la même
- * seconde que l'arrivée d'un message doit tenir — sinon l'échange ressortirait aussitôt, sans explication.
- * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- */
-/**
  * LOT FILTRE-ETOILE — « cet échange porte l'étoile de l'équipe ». Écrit UNE fois, lu par la liste ET par le
  * compteur : un compteur qui compterait autrement finirait par annoncer un nombre que la liste ne montre pas.
  */
 const SQL_ETOILE = `EXISTS (SELECT 1 FROM gestion_fil_etoile fe WHERE fe.fil_id = m.fil_id AND fe.etoilee)`;
 
-const SQL_EN_CORBEILLE = `EXISTS (SELECT 1 FROM gestion_fil fc
-                                   WHERE fc.id = m.fil_id AND fc.corbeille_le IS NOT NULL
-                                     AND fc.corbeille_le >= m.recu_le)`;
+/**
+ * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — « CE MESSAGE EST À LA CORBEILLE DE GMAIL » ═════════════════════════════════
+ *
+ * Écrit UNE fois, lu partout : l'étiquette « Corbeille » en prend la forme positive, toutes les autres sa négation.
+ * Exactement la grammaire de `SQL_EST_SPAM`, et pour la même raison — deux écritures finiraient par se contredire
+ * et laisseraient un message invisible partout, ou, pire, un mail supprimé en Réception.
+ *
+ * ═══ CE QUE CETTE LIGNE REMPLACE, ET POURQUOI ════════════════════════════════════════════════════════════════════
+ * Jusqu'au 29/09/2026, elle lisait `gestion_fil.corbeille_le` (migration 251) : une corbeille INTERNE, par ÉCHANGE,
+ * dont l'appartenance se DÉRIVAIT d'une comparaison de dates (« le geste est-il postérieur au dernier message ? »),
+ * ce qui donnait gratuitement le retour automatique d'un échange qui reçoit un nouveau message.
+ *
+ * Cette élégance-là n'a plus d'objet : l'état n'est plus le nôtre, c'est celui de GMAIL, et il est posé sur des
+ * MESSAGES — une conversation peut parfaitement avoir un message à la corbeille et trois autres dans la boîte,
+ * c'est même le cas courant quand on fait le ménage dans un long fil. Il n'y a donc plus rien à dériver : la
+ * relève relit la corbeille de Gmail à chaque passe, pose la colonne et la retire. Et le « retour automatique »
+ * n'a pas disparu — il est devenu littéral : sortir un mail de la corbeille dans Gmail le fait revenir chez nous
+ * à la passe suivante, parce que c'est Gmail qui dit la vérité.
+ *
+ * ⚠️ LA COLONNE DE LA 251 N'EST PLUS NOMMÉE NULLE PART, mais elle n'est pas effacée (voir la migration 275).
+ */
+const SQL_EN_CORBEILLE = 'm.corbeille_le IS NOT NULL';
 
 /**
  * LOT ERGO-BOITE-3 — « CE MESSAGE EST DU SPAM ». Écrit UNE fois, lu partout : l'étiquette « Spam » en prend la forme
@@ -261,6 +279,73 @@ const SQL_EN_CORBEILLE = `EXISTS (SELECT 1 FROM gestion_fil fc
  * invisible partout — ou, pire, un spam en Réception.
  */
 const SQL_EST_SPAM = 'm.spam_le IS NOT NULL';
+
+/**
+ * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — « CE MESSAGE EST DANS NOTRE RÉCEPTION » ══════════════════════════════════════
+ *
+ * RÈGLE D'ARNO, 29/09/2026 : un message ENVOYÉ PAR gestion@ — depuis l'app comme depuis Gmail, file d'envoi en
+ * arrière-plan comprise — n'apparaît QUE dans « Envoyés »… SAUF SI gestion@ figure elle-même dans À, Cc ou Cci.
+ * C'est mot pour mot la règle de Gmail : quand on s'écrit à soi-même, le message est dans les deux endroits.
+ *
+ * ═══ CE QUI ÉTAIT VRAI AVANT CE LOT, ET CE QUI NE L'ÉTAIT PAS ════════════════════════════════════════════════════
+ * La première moitié tenait déjà, et solidement : `sens` est posé par `sensDuMessage` (capture.ts) sur la seule
+ * comparaison « l'expéditeur EST-IL gestion@ ? ». Vérifié sur la vraie base le 29/09/2026 : **40 063 messages
+ * partis de gestion@, 40 063 marqués `envoye`, ZÉRO marqué `recu`**. Aucun envoi n'a jamais fuité en Réception.
+ *
+ * La SECONDE moitié — l'exception — n'existait pas. `sens` ne regarde QUE l'expéditeur : un mail que nous nous
+ * adressions à nous-mêmes restait `envoye`, donc invisible en Réception alors que Gmail l'y dépose. Mesuré :
+ * **51 messages dans 49 échanges**, dont **32 échanges qui n'avaient aucun autre message reçu** — ils n'étaient
+ * donc visibles nulle part ailleurs que sous « Envoyés ». Ce sont de vrais courriers : des envois groupés où les
+ * locataires sont en Cci et où gestion@ est le destinataire visible (coupure d'eau, date d'AG, information
+ * chauffage), et des notes qu'on s'envoie à soi-même.
+ *
+ * 🔴 ON NE TOUCHE PAS À `sens`, ET C'EST DÉLIBÉRÉ. Ces messages sont bel et bien ENVOYÉS ; réécrire leur sens pour
+ * les faire entrer en Réception les ferait sortir d'Envoyés, où ils ont toute leur place. « Être dans la
+ * Réception » n'est pas un sens, c'est une APPARTENANCE — et un message peut appartenir aux deux, exactement
+ * comme un échange où l'on a reçu ET répondu depuis le lot BOITE-SENS.
+ *
+ * ⚠️ LES TROIS CHAMPS, PAS DEUX. `dest_cci` compte autant que `dest_a` et `dest_cc` : c'est précisément la forme
+ * des envois groupés ci-dessus. Les trois colonnes sont peuplées sur 100 % des envois (vérifié : 0 `dest_a` nul
+ * sur 40 063), donc aucun repli sur le texte `destinataires` n'est nécessaire — et un repli par sous-chaîne
+ * rapprocherait « gestion@criterimmo.fr » de « ancienne-gestion@criterimmo.fr ».
+ *
+ * ⚠️ L'ADRESSE ARRIVE EN PARAMÈTRE LIÉ, jamais interpolée : elle vient de `gestion_config`, donc de la base.
+ */
+export function sqlNousEstAdresse(alias: string, rang: number): string {
+  return `EXISTS (SELECT 1 FROM jsonb_array_elements(
+                         coalesce(${alias}.dest_a, '[]'::jsonb)
+                      || coalesce(${alias}.dest_cc, '[]'::jsonb)
+                      || coalesce(${alias}.dest_cci, '[]'::jsonb)) dn
+                   WHERE lower(dn ->> 'adresse') = $${rang})`;
+}
+
+/**
+ * LE PRÉDICAT D'APPARTENANCE À UNE BOÎTE, écrit UNE fois et lu par la liste, les DEUX compteurs et la recherche.
+ *
+ * 🔴 UNE SEULE ÉCRITURE, PARCE QUE C'EST LA LEÇON DU LOT BOITE-SENS : un compteur « équivalent mais écrit
+ * autrement » finit par annoncer un nombre que la liste ne montre pas — et c'est toujours le compteur qu'on croit.
+ *
+ * `rangAdresse` à `null` = l'appelant n'a pas d'adresse à lier (ancien comportement, et le cas d'« Envoyés ») :
+ * le prédicat retombe alors EXACTEMENT sur `sens = '…'`, mot pour mot ce qui s'écrivait avant ce lot.
+ */
+export function sqlAppartenance(alias: string, sens: 'recu' | 'envoye', rangAdresse: number | null): string {
+  if (sens === 'envoye' || rangAdresse === null) return `${alias}.sens = '${sens}'`;
+  return `(${alias}.sens = 'recu' OR ${sqlNousEstAdresse(alias, rangAdresse)})`;
+}
+
+/**
+ * NOTRE ADRESSE, telle que la relève la connaît. `gestion_config.adresse_gestion` et RIEN D'AUTRE.
+ *
+ * 🔴 LA MÊME SOURCE QUE `sensDuMessage` (capture.ts), et c'est le point : si cette lecture-ci et celle de la
+ * capture pouvaient diverger, un message serait marqué « envoyé » par l'une et « nous est adressé » par l'autre.
+ * On passe donc par `chargerConfigGestion`, qui porte déjà le repli et la normalisation (minuscules, espaces).
+ *
+ * ⚠️ NON MÉMOÏSÉE, DÉLIBÉRÉMENT : c'est une lecture d'UNE ligne par clé primaire, et une adresse de gestion qu'on
+ * changerait en base doit prendre effet au rechargement suivant, pas au redémarrage du serveur.
+ */
+async function adresseDeLaGestion(): Promise<string> {
+  return (await chargerConfigGestion()).adresseGestion;
+}
 
 function sqlEtiquette(e: Etiquette, corbeille: boolean, spam: boolean): string {
   switch (e.sorte) {
@@ -321,11 +406,11 @@ function sqlEtiquette(e: Etiquette, corbeille: boolean, spam: boolean): string {
     //   Le prédicat impossible rend une liste VIDE, ce qui est vrai tant que rien n'a été relevé.
     case 'spam':
       return spam ? `AND ${SQL_EST_SPAM}` : 'AND false';
-    // LOT 5-BOITE-3 — « Corbeille » : le seul endroit qui MONTRE ce que les autres écartent. Le filtre y est donc la
-    //   forme POSITIVE exacte de l'exclusion posée sur toutes les autres étiquettes — écrites au même endroit, elles
-    //   ne peuvent pas diverger et laisser un échange invisible partout.
+    // LOT BOITE-INTERNE-CORBEILLE — « Corbeille » : le seul endroit qui MONTRE ce que les autres écartent. Le
+    //   filtre y est la forme POSITIVE exacte de l'exclusion posée sur toutes les autres étiquettes — écrites au
+    //   même endroit, elles ne peuvent pas diverger et laisser un message invisible partout.
     case 'corbeille':
-      // ⚠️ SANS LA MIGRATION 251, ON NE NOMME PAS LA COLONNE — pas même ici. Quelqu'un peut arriver sur cette
+      // ⚠️ SANS LA MIGRATION 275, ON NE NOMME PAS LA COLONNE — pas même ici. Quelqu'un peut arriver sur cette
       //   étiquette par une adresse enregistrée : nommer une colonne absente ferait échouer TOUTE la boîte, pas
       //   seulement cette liste. Le prédicat impossible rend une liste VIDE, comme pour « Brouillons ».
       return corbeille ? `AND ${SQL_EN_CORBEILLE}` : 'AND false';
@@ -361,6 +446,11 @@ export function sqlPageBoite(
   rattachements = false,
   /** LOT STATUT-HORS-GESTION — la migration 266 est-elle là ? Sinon aucune capsule grise, et pas une table nommée. */
   horsGestion = false,
+  /**
+   * LOT BOITE-INTERNE-CORBEILLE — le rang du paramètre portant NOTRE adresse, ou `null`. Voir `sqlAppartenance` :
+   * `null` rend la requête mot pour mot celle d'avant ce lot, ce qui garde tous les tests de forme existants.
+   */
+  rangAdresseGestion: number | null = null,
 ): string {
   // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
@@ -378,41 +468,76 @@ export function sqlPageBoite(
    * répare. Le mettre dans `m` seul, à l'inverse, rendrait la ligne sur le bon message mais triée sur le mauvais.
    */
   const sens = sensDeLEtiquette(etiquette);
-  const filtreSensM = sens === null ? '' : `AND m.sens = '${sens}'`;
-  const filtreSensM2 = sens === null ? '' : `AND m2.sens = '${sens}'`;
+  /**
+   * ⚠️ LOT BOITE-INTERNE-CORBEILLE — `sens` DEVIENT UNE APPARTENANCE (voir `sqlAppartenance`). Sous « Réception »,
+   * un message que NOUS avons envoyé mais qui nous est AUSSI adressé en fait partie : c'est la règle de Gmail, et
+   * c'est ce qui rend 32 échanges visibles là où ils sont réellement arrivés. Le prédicat entre toujours aux DEUX
+   * étages — le dissocier ferait ressortir un échange sur un message et le trier sur un autre.
+   */
+  const filtreSensM = sens === null ? '' : `AND ${sqlAppartenance('m', sens, rangAdresseGestion)}`;
+  const filtreSensM2 = sens === null ? '' : `AND ${sqlAppartenance('m2', sens, rangAdresseGestion)}`;
   /**
    * L'INTERLOCUTEUR SUIT LE MESSAGE AFFICHÉ, et il ne peut plus en être autrement.
    *
-   * · Réception : `p` EST le dernier message reçu, donc son expéditeur EST l'interlocuteur. On le lit directement
-   *   sur `p` — la jointure latérale qui allait le chercher n'a plus rien à chercher, et disparaît.
-   * · Envoyés : `p` est le dernier message envoyé, donc l'autre partie est son DESTINATAIRE (« À : … »).
-   * · Les autres étiquettes gardent la jointure latérale : là, `p` peut être un envoi comme une réception.
+   * · un message REÇU : son expéditeur EST l'interlocuteur, lu directement sur `p` ;
+   * · un message ENVOYÉ : l'autre partie est son DESTINATAIRE (« À : … »).
+   *
+   * ⚠️ `dest_a -> 0` : la première adresse « À », pour que le libellé d'un partenaire interne s'applique aussi
+   * dans Envoyés. ET LE NOM DE LA PERSONNE, PAS SEULEMENT SON ADRESSE : nos propres envois écrivent `To: adresse`
+   * sans nom — la ligne afficherait « a.jorel@sansvisavis.com » là où la Réception affiche « Arnaud », pour la même
+   * personne et le même échange. On prend, dans l'ordre : le nom écrit dans « À » s'il y en a un ; sinon le nom
+   * sous lequel CETTE personne nous a écrit DANS CET ÉCHANGE ; sinon le texte brut des destinataires.
    */
-  const colonnesInterlocuteur = sens === 'recu'
-    ? `coalesce(nullif(btrim(p.de_nom), ''), p.de_adresse) AS interlocuteur,
-            p.de_adresse AS interlocuteur_adresse,`
-    : sens === 'envoye'
-      /**
-       * `dest_a -> 0` : la première adresse « À », pour que le libellé d'un partenaire interne s'applique aussi
-       * dans Envoyés.
-       *
-       * ⚠️ ET LE NOM DE LA PERSONNE, PAS SEULEMENT SON ADRESSE. Nos propres envois écrivent `To: adresse` sans nom
-       * — la ligne afficherait donc « a.jorel@sansvisavis.com » là où la Réception affiche « Arnaud », pour la même
-       * personne et le même échange. On prend, dans l'ordre : le nom écrit dans « À » s'il y en a un ; sinon le nom
-       * sous lequel CETTE personne nous a écrit DANS CET ÉCHANGE (c'est le cas d'une réponse, donc le cas courant) ;
-       * sinon le texte brut des destinataires, qui porte tout le monde.
-       */
-      ? `coalesce(nullif(btrim(p.dest_a -> 0 ->> 'nom'), ''),
+  const interlocuteurRecu = `coalesce(nullif(btrim(p.de_nom), ''), p.de_adresse)`;
+  const interlocuteurEnvoye = `coalesce(nullif(btrim(p.dest_a -> 0 ->> 'nom'), ''),
                    CASE WHEN i.de_adresse = (p.dest_a -> 0 ->> 'adresse')
                         THEN nullif(btrim(i.de_nom), '') END,
-                   nullif(btrim(p.destinataires), '')) AS interlocuteur,
+                   nullif(btrim(p.destinataires), ''))`;
+  /**
+   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — SOUS « RÉCEPTION », LA LIGNE PEUT ÊTRE UN ENVOI ════════════════════════
+   * Depuis que Réception accueille les messages QUE NOUS NOUS SOMMES ADRESSÉS, `p.sens` n'y vaut plus
+   * invariablement « recu » : lire l'expéditeur sans regarder le sens afficherait « Gestion CRITERIMMO » comme
+   * correspondant de nos propres envois groupés. Le `CASE` suit donc le message, pas l'étiquette.
+   *
+   * ⚠️ ET LA JOINTURE LATÉRALE REVIENT SOUS RÉCEPTION. Elle avait disparu au lot BOITE-SENS parce qu'il n'y avait
+   * plus rien à chercher ; il y a de nouveau quelque chose — le NOM du destinataire d'un envoi. Trente lignes de
+   * page, une jointure latérale : le coût est celui qu'« Envoyés » paie depuis toujours.
+   */
+  const colonnesInterlocuteur = sens === 'recu' && rangAdresseGestion !== null
+    ? `CASE WHEN p.sens = 'recu' THEN ${interlocuteurRecu} ELSE ${interlocuteurEnvoye} END AS interlocuteur,
+            CASE WHEN p.sens = 'recu' THEN p.de_adresse ELSE (p.dest_a -> 0 ->> 'adresse') END AS interlocuteur_adresse,`
+    : sens === 'recu'
+      ? `${interlocuteurRecu} AS interlocuteur,
+            p.de_adresse AS interlocuteur_adresse,`
+      : sens === 'envoye'
+        ? `${interlocuteurEnvoye} AS interlocuteur,
             (p.dest_a -> 0 ->> 'adresse') AS interlocuteur_adresse,`
-      : `coalesce(nullif(btrim(i.de_nom), ''), i.de_adresse, nullif(btrim(p.destinataires), '')) AS interlocuteur,
+        : `coalesce(nullif(btrim(i.de_nom), ''), i.de_adresse, nullif(btrim(p.destinataires), '')) AS interlocuteur,
             i.de_adresse AS interlocuteur_adresse,`;
-  // LOT 5-BOITE-3 — TOUTES les autres étiquettes écartent la corbeille, et la corbeille seule la montre. Sans la
-  //   migration 251, `corbeille` est faux : la colonne n'est PAS nommée — la nommer ferait échouer toute la boîte,
-  //   pas seulement le geste nouveau.
-  const filtreCorbeille = !corbeille || etiquette.sorte === 'corbeille' ? '' : `AND NOT ${SQL_EN_CORBEILLE}`;
+  /**
+   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LA CORBEILLE EST ÉCARTÉE AUX DEUX ÉTAGES ══════════════════════════════════
+   * Comme le spam, et pour la MÊME raison qu'on a déjà payée une fois : posée sur le seul message candidat,
+   * l'exclusion laisserait un message supprimé jouer le rôle de « dernier message de l'échange ». La ligne
+   * disparaîtrait de la Réception sans que rien ne l'explique — alors que le vrai dernier message, lui, est bien là.
+   *
+   * ⚠️ `corbeille` FAUX (migration 275 absente) ⇒ chaînes vides : la requête est mot pour mot celle d'avant ce lot.
+   */
+  const montreLaCorbeille = corbeille && etiquette.sorte === 'corbeille';
+  const filtreCorbeille = !corbeille || montreLaCorbeille ? '' : 'AND m.corbeille_le IS NULL';
+  /**
+   * 🔴 SOUS « CORBEILLE », `m2` PORTE LA FORME POSITIVE — ET C'EST INDISPENSABLE, pas symétrique pour la beauté.
+   *
+   * Le prédicat `m2` dit « existe-t-il, dans cet échange, un message plus récent QUI COMPTE ? ». Laissé vide sous
+   * l'étiquette « Corbeille », il compare le mail supprimé à TOUS les messages de son échange : un mail jeté au
+   * milieu d'une conversation encore vivante aurait donc toujours un successeur, et n'apparaîtrait NULLE PART —
+   * ni dans ses boîtes, qui l'écartent, ni dans la corbeille, qui ne le retiendrait pas. Une corbeille où l'on ne
+   * retrouve pas ce qu'on y a mis n'est pas une corbeille.
+   *
+   * Avec la forme positive, la ligne est le DERNIER MAIL SUPPRIMÉ de son échange, et la liste compte une ligne
+   * par échange concerné — la même grammaire que toutes les autres étiquettes de cette boîte.
+   */
+  const filtreCorbeilleM2 = !corbeille
+    ? '' : montreLaCorbeille ? 'AND m2.corbeille_le IS NOT NULL' : 'AND m2.corbeille_le IS NULL';
   /**
    * ══ 🔴 LOT ERGO-BOITE-3 — LE SPAM NE SORT DE NULLE PART, SAUF DE SON ÉTIQUETTE ═══════════════════════════════
    * Il est écarté AUX DEUX ÉTAGES du parcours, comme le courrier automatique et pour la même raison : posé sur le
@@ -494,7 +619,7 @@ export function sqlPageBoite(
           --    au LIMIT d'arrêter le travail. Servi par l'index (fil_id, recu_le).
           AND NOT EXISTS (
                 SELECT 1 FROM gestion_message m2
-                 WHERE m2.fil_id = m.fil_id ${filtreM2} ${filtreSensM2} ${filtreSpamM2}
+                 WHERE m2.fil_id = m.fil_id ${filtreM2} ${filtreSensM2} ${filtreSpamM2} ${filtreCorbeilleM2}
                    AND (m2.recu_le, m2.id) > (m.recu_le, m.id))
         ORDER BY m.recu_le DESC, m.fil_id DESC
         LIMIT $3
@@ -517,6 +642,10 @@ export function sqlPageBoite(
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = p.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
             (f.etat = 'sans_suite') AS sans_suite,
+            ${montreLaCorbeille
+              ? `(SELECT count(*) FROM gestion_message cc
+                   WHERE cc.fil_id = p.fil_id AND cc.corbeille_le IS NOT NULL)::int`
+              : '0'} AS nb_corbeille,
             cl.n AS cl_n, cl.humain AS cl_humain, cl.detail AS cl_detail,
             ${horsGestion ? 'hg.motif IS NOT NULL AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'}
        FROM page p JOIN gestion_fil f ON f.id = p.fil_id
@@ -527,7 +656,7 @@ export function sqlPageBoite(
        --   Elle ne sert plus à Réception, où le message de la ligne EST le dernier reçu : rien à chercher.
        --   (Aucun accent GRAVE ici : ce commentaire vit DANS un littéral gabarit, qu'un seul accent grave
        --    terminerait — piège consigné trois fois dans ce dépôt, dont une fois dans ce fichier même.)
-       ${sens === 'recu' ? '' : SQL_INTERLOCUTEUR}
+       ${sens === 'recu' && rangAdresseGestion === null ? '' : SQL_INTERLOCUTEUR}
       ORDER BY p.recu_le DESC, p.fil_id DESC`;
 }
 
@@ -588,9 +717,10 @@ export async function lireBoiteMail(
   // On demande UNE ligne de plus que la page : sa présence dit « il y a une suite », sans compter quoi que ce soit.
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
 
-  // LOT 5-BOITE-3 — la corbeille n'entre dans le SQL que si la migration 251 est là. Sonde HORS transaction : une
-  //   colonne nommée alors qu'elle n'existe pas ferait échouer TOUTE la boîte, pas seulement le geste nouveau.
-  const corbeille = await corbeilleDisponible();
+  // LOT BOITE-INTERNE-CORBEILLE — la corbeille n'entre dans le SQL que si la migration 275 est là. Sonde HORS
+  //   transaction : une colonne nommée alors qu'elle n'existe pas ferait échouer TOUTE la boîte, pas seulement la
+  //   fonction nouvelle.
+  const corbeille = await corbeilleGmailDisponible();
   // LOT ERGO-BOITE-3 — même règle pour le spam et pour la même raison : sans la migration 263, la colonne n'est
   //   nommée nulle part. Les deux sondes sont posées ENSEMBLE, en parallèle : elles sont mémoïsées et ne coûtent
   //   qu'au premier appel.
@@ -603,14 +733,24 @@ export async function lireBoiteMail(
   //   l'étiquette ouverte, et il est calculé ici plutôt que deviné. Poser un paramètre puis calculer son rang à
   //   partir de `params.length` est le décalage d'un cran qui s'est déjà produit dans ce dépôt.
   const paramsEtiquette = parametresEtiquette(etiquette, options.fenetreJours ?? 30);
+  /**
+   * LOT BOITE-INTERNE-CORBEILLE — NOTRE ADRESSE, et seulement là où elle sert (« Réception »). PostgreSQL REFUSE
+   * une requête à qui l'on passe un paramètre qu'elle n'utilise pas : le rang est donc calculé, jamais deviné —
+   * poser un paramètre puis déduire son rang de `params.length` est le décalage d'un cran qui s'est déjà produit
+   * dans ce dépôt.
+   */
+  const adresseGestion = sensDeLEtiquette(etiquette) === 'recu' ? await adresseDeLaGestion() : null;
+  const rangAdresse = adresseGestion === null ? null : 4 + paramsEtiquette.length;
   const retenus = options.filsRetenus;
-  const rangRetenus = retenus === undefined ? null : 4 + paramsEtiquette.length;
+  const rangRetenus = retenus === undefined
+    ? null : 4 + paramsEtiquette.length + (rangAdresse === null ? 0 : 1);
   const { rows } = await query<LigneDB>(
     sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true, rattachements,
-      horsGestion),
+      horsGestion, rangAdresse),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
-      ...paramsEtiquette, ...(retenus === undefined ? [] : [[...retenus]])],
+      ...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
+      ...(retenus === undefined ? [] : [[...retenus]])],
   );
 
   const aSuite = rows.length === aLire;
@@ -669,6 +809,7 @@ export async function lireBoiteMail(
       nbLisibles: r.nb_lisibles,
       aPiece: r.nb_pieces > 0,
       nbPieces: r.nb_pieces,
+      nbCorbeille: r.nb_corbeille,
       reference: r.reference,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
@@ -707,6 +848,7 @@ export async function lireBoiteMail(
       nbLisibles: 1,
       aPiece: false,
       nbPieces: 0,
+      nbCorbeille: 0,
       reference: null,
       sansSuite: false,
       nonRemise: null,
@@ -750,31 +892,47 @@ export async function compterBoite(
    * confondus : la forme même de l'exclusivité. Elle ne convient plus, et la garder « parce qu'elle marchait »
    * aurait donné deux boîtes dont les totaux ne sont pas ceux des listes.
    */
-  const horsCorbeille = corbeille
-    ? `AND NOT EXISTS (SELECT 1 FROM gestion_fil fc WHERE fc.id = m.fil_id
-                        AND fc.corbeille_le IS NOT NULL AND fc.corbeille_le >= m.recu_le)`
-    : '';
+  // LOT BOITE-INTERNE-CORBEILLE — la corbeille est écartée des deux totaux, AUX DEUX ÉTAGES comme dans la liste.
+  const horsCorbeille = corbeille ? 'AND m.corbeille_le IS NULL' : '';
+  const horsCorbeilleM2 = corbeille ? 'AND m2.corbeille_le IS NULL' : '';
   // LOT ERGO-BOITE-3 — le spam n'entre dans AUCUN de ces deux totaux, aux deux étages : le compteur doit compter
   //   exactement ce que la liste montre, et la liste l'écarte (cf. `sqlPageBoite`).
   const horsSpamM = spam ? 'AND m.spam_le IS NULL' : '';
   const seulementEtoiles = etoilesSeules ? `AND ${SQL_ETOILE}` : '';
   const horsSpamM2 = spam ? 'AND m2.spam_le IS NULL' : '';
+  /**
+   * LOT BOITE-INTERNE-CORBEILLE — LE MÊME PRÉDICAT D'APPARTENANCE QUE LA LISTE, aux deux étages.
+   *
+   * ⚠️ LE `m2` NE PEUT PLUS S'ÉCRIRE `m2.sens = m.sens`. Cette forme-là disait « du même sens que le candidat »,
+   * ce qui n'a plus de sens depuis qu'un envoi qui nous est adressé appartient à la Réception : un message REÇU y
+   * serait comparé aux seuls reçus, et un envoi-à-nous-mêmes aux seuls envois — deux règles dans une requête.
+   * L'appartenance, elle, est la même pour les deux, et c'est elle qu'on écrit.
+   */
+  // ⚠️ SOUS « ENVOYÉS », LE PRÉDICAT EST UN LITTÉRAL ET N'UTILISE AUCUN PARAMÈTRE — on n'en passe donc aucun.
+  //    PostgreSQL REFUSE une requête à qui l'on fournit plus de paramètres qu'elle n'en réclame (« bind message
+  //    supplies 1 parameters, but prepared statement requires 0 ») : c'est le piège que `parametresEtiquette`
+  //    évite déjà plus haut, et il se referme ici de la même manière.
+  const rangAdresse = sens === 'recu' ? 1 : null;
+  const appartenanceM = sqlAppartenance('m', sens, rangAdresse);
+  const appartenanceM2 = sqlAppartenance('m2', sens, rangAdresse);
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM gestion_message m
-      WHERE m.sens = $1
+      WHERE ${appartenanceM}
         ${inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL'}
         ${horsSpamM}
         ${seulementEtoiles}
         ${horsCorbeille}
-        -- « aucun message plus récent DU MÊME SENS dans cet échange » : exactement le prédicat de la liste.
+        -- « aucun message plus récent de la MÊME BOÎTE dans cet échange » : exactement le prédicat de la liste.
         AND NOT EXISTS (
               SELECT 1 FROM gestion_message m2
-               WHERE m2.fil_id = m.fil_id AND m2.sens = m.sens
+               WHERE m2.fil_id = m.fil_id AND ${appartenanceM2}
                  ${inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL'}
                  ${horsSpamM2}
+                 ${horsCorbeilleM2}
                  AND (m2.recu_le, m2.id) > (m.recu_le, m.id))`,
-    [sens]);
+    // $1 = notre adresse, et UNIQUEMENT sous « Réception » : ailleurs la requête n'a pas de paramètre du tout.
+    rangAdresse === null ? [] : [await adresseDeLaGestion()]);
   return rows[0]?.n ?? 0;
 }
 
@@ -784,6 +942,12 @@ export async function compterBoite(
  */
 export async function comptesBoite(): Promise<{
   lisibles: number; automatiques: number; envoyes: number; reception: number; spam: number;
+  /**
+   * LOT BOITE-INTERNE-CORBEILLE — combien de MESSAGES sont à la corbeille de Gmail. `null` = migration 275
+   * absente : l'entrée « Corbeille » n'apparaît alors pas du tout, plutôt qu'un zéro qu'on n'a pas mesuré et qui
+   * se lirait « la corbeille est vide ».
+   */
+  corbeille: number | null;
 }> {
   /**
    * LOT BOITE-SENS — LES DEUX BOÎTES NE SONT PLUS DISJOINTES, ET LEUR SOMME NE VEUT PLUS RIEN DIRE.
@@ -792,16 +956,15 @@ export async function comptesBoite(): Promise<{
    * d'échanges lisibles, et c'est normal : ce sont deux vues du même courrier, pas deux moitiés d'un tout. Rien
    * dans l'écran n'additionne ces deux nombres — et personne ne devrait s'y mettre.
    *
-   * 🔴 LA CORBEILLE EST ÉCARTÉE ICI AUSSI, et par la MÊME règle que la liste : le geste doit être postérieur au
-   * dernier message DU SENS affiché. Sans cela, la colonne de gauche et l'en-tête de la liste — qui sort de
+   * 🔴 LA CORBEILLE EST ÉCARTÉE ICI AUSSI, et par la MÊME règle que la liste : un message à la corbeille de Gmail
+   * ne compte dans aucune des deux boîtes. Sans cela, la colonne de gauche et l'en-tête de la liste — qui sort de
    * `compterBoite` — annonceraient deux nombres différents pour la même boîte, et c'est celui de gauche qu'on
-   * lit. Sans la migration 251, la colonne n'est pas nommée et le comportement est celui d'avant.
+   * lit. Sans la migration 275, la colonne n'est pas nommée et le comportement est celui d'avant.
    *
    * ⚠️ UN SEUL parcours pour les quatre nombres : quatre `FILTER` sur le regroupement qui existait déjà. Même
    * balayage, même coût, et aucune chance que les compteurs se contredisent puisqu'ils sortent d'une seule lecture.
    */
-  const [corbeille, spam] = await Promise.all([corbeilleDisponible(), spamDisponible()]);
-  const geste = corbeille ? 'f.corbeille_le' : 'NULL::timestamptz';
+  const [corbeille, spam] = await Promise.all([corbeilleGmailDisponible(), spamDisponible()]);
   /**
    * LOT ERGO-BOITE-3 — LE CINQUIÈME NOMBRE, ET L'EXCLUSION DES QUATRE AUTRES.
    *
@@ -824,25 +987,59 @@ export async function comptesBoite(): Promise<{
   const compteSpam = spam
     ? '(SELECT count(*) FILTER (WHERE spam_le IS NOT NULL)::int FROM gestion_message)'
     : '0::int';
-  const horsSpam = spam ? 'WHERE spam_le IS NULL' : '';
-  const { rows } = await query<{ lisibles: number; total: number; envoyes: number; reception: number; spam: number }>(
+  /**
+   * LOT BOITE-INTERNE-CORBEILLE — LE SIXIÈME NOMBRE, écrit sur le MÊME patron que le spam (et sujet au MÊME piège
+   * de la sous-requête scalaire raconté juste au-dessus : c'est l'EXPRESSION ENTIÈRE qui est choisie, jamais un
+   * morceau qu'on emboîte).
+   *
+   * 🔴 LA CORBEILLE SE COMPTE EN MESSAGES, PAS EN ÉCHANGES, comme le spam et pour la même raison : c'est un
+   * message que Gmail met à la corbeille, pas une conversation. La liste en affiche un par ligne ; le compteur en
+   * dit autant. Et `NULL` sans la migration, pour que l'entrée disparaisse au lieu d'annoncer « 0 ».
+   */
+  /**
+   * 🔴 ELLE SE COMPTE EN ÉCHANGES, PAS EN MESSAGES — à l'inverse du spam juste au-dessus, et c'est voulu. La LISTE
+   * « Corbeille » rend une ligne par ÉCHANGE (le dernier mail supprimé y représente les autres, cf. `sqlPageBoite`) :
+   * compter les messages annoncerait un nombre que la liste ne montre pas, et c'est toujours le compteur qu'on
+   * croit. Le spam, lui, se compte en messages parce qu'un spam n'ouvre pas de conversation — sa liste EST une
+   * liste de spams. Deux règles différentes, parce que les deux listes sont différentes.
+   */
+  const compteCorbeille = corbeille
+    ? '(SELECT count(DISTINCT fil_id)::int FROM gestion_message WHERE corbeille_le IS NOT NULL)'
+    : 'NULL::int';
+  // Le spam ET la corbeille sortent des quatre autres nombres, à la source du regroupement.
+  const exclusions = [spam ? 'spam_le IS NULL' : '', corbeille ? 'corbeille_le IS NULL' : '']
+    .filter((x) => x !== '');
+  const horsSpam = exclusions.length === 0 ? '' : `WHERE ${exclusions.join(' AND ')}`;
+  /**
+   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — « DERNIER REÇU » DEVIENT « DERNIER DE LA RÉCEPTION » ════════════════════
+   * Un message que nous nous sommes adressé est dans notre Réception (règle de Gmail) : il doit donc compter ici
+   * comme il compte dans la liste. Sans cette ligne, la colonne de gauche annoncerait un nombre et l'en-tête de la
+   * liste — qui sort de `compterBoite` — en annoncerait un autre, avec 32 échanges d'écart. C'est exactement la
+   * divergence que le lot BOITE-SENS avait payée une fois.
+   *
+   * ⚠️ « Envoyés » N'EST PAS TOUCHÉ : ces messages y restent, et ils y étaient déjà.
+   */
+  const dansLaReception = `(sens = 'recu' OR ${sqlNousEstAdresse('gestion_message', 1)})`;
+  const { rows } = await query<{
+    lisibles: number; total: number; envoyes: number; reception: number; spam: number; corbeille: number | null;
+  }>(
     `SELECT ${compteSpam} AS spam,
+            ${compteCorbeille} AS corbeille,
             count(*) FILTER (WHERE lisibles > 0)::int AS lisibles,
             count(*)::int AS total,
-            count(*) FILTER (WHERE dernier_envoye IS NOT NULL
-                               AND (geste IS NULL OR geste < dernier_envoye))::int AS envoyes,
-            count(*) FILTER (WHERE dernier_recu IS NOT NULL
-                               AND (geste IS NULL OR geste < dernier_recu))::int AS reception
-       FROM (SELECT x.fil_id, x.lisibles, x.dernier_recu, x.dernier_envoye, ${geste} AS geste
-               FROM (SELECT fil_id,
-                            count(*) FILTER (WHERE exclu_le IS NULL) AS lisibles,
-                            max(recu_le) FILTER (WHERE exclu_le IS NULL AND sens = 'recu') AS dernier_recu,
-                            max(recu_le) FILTER (WHERE exclu_le IS NULL AND sens = 'envoye') AS dernier_envoye
-                       FROM gestion_message ${horsSpam} GROUP BY fil_id) x
-               LEFT JOIN gestion_fil f ON f.id = x.fil_id) y`);
+            count(*) FILTER (WHERE dernier_envoye IS NOT NULL)::int AS envoyes,
+            count(*) FILTER (WHERE dernier_recu IS NOT NULL)::int AS reception
+       FROM (SELECT fil_id,
+                    count(*) FILTER (WHERE exclu_le IS NULL) AS lisibles,
+                    max(recu_le) FILTER (WHERE exclu_le IS NULL AND ${dansLaReception}) AS dernier_recu,
+                    max(recu_le) FILTER (WHERE exclu_le IS NULL AND sens = 'envoye') AS dernier_envoye
+               FROM gestion_message ${horsSpam} GROUP BY fil_id) x`,
+    [await adresseDeLaGestion()]);
   const l = rows[0]?.lisibles ?? 0;
   return {
     lisibles: l, automatiques: (rows[0]?.total ?? 0) - l, envoyes: rows[0]?.envoyes ?? 0,
     reception: rows[0]?.reception ?? 0, spam: rows[0]?.spam ?? 0,
+    // ⚠️ `null` VOYAGE TEL QUEL : il se lit « on ne sait pas » (migration absente), jamais « zéro ».
+    corbeille: rows[0]?.corbeille ?? null,
   };
 }

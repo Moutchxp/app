@@ -30,6 +30,8 @@ const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 vi.mock('./schema', () => ({
   corbeilleDisponible: async () => false,
+  // LOT BOITE-INTERNE-CORBEILLE — la 275 n'est pas le sujet de ce fichier : absente, la boîte est celle d'avant.
+  corbeilleGmailDisponible: async () => false,
   spamDisponible: async () => spamConnu,
   nonRemiseDisponible: async () => false,
   rattachementsDisponibles: async () => true,

@@ -26,6 +26,8 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { normaliserEmail, normaliserTexte } from './annuaire';
+// LOT BOITE-INTERNE-CORBEILLE — la SEULE définition de « une de nos adresses » (voir l'encadré plus bas).
+import { estAdresseInterne } from './adresseInterne';
 
 // ── CE QUE LE MOTEUR REÇOIT ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -135,15 +137,20 @@ export interface Decision {
  * 🔴 NOS PROPRES ADRESSES NE RATTACHENT RIEN. `gestion@` est expéditeur ou destinataire de presque tous les mails :
  * s'en servir comme clé rattacherait tout au même endroit. Le partenaire interne ADHOC (comptabilité externalisée)
  * est exclu pour la même raison — il n'est ni propriétaire ni locataire, il est des deux côtés de tous les dossiers.
+ *
+ * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LA LISTE A DÉMÉNAGÉ, ET RIEN D'AUTRE N'A CHANGÉ ═══════════════════════════
+ * Elle vit désormais dans `adresseInterne.ts`, SEULE définition du dépôt. Elle était écrite ici ET dans
+ * `adressesMessage.estInterne` — deux copies qui tenaient chacune de son côté, pendant qu'une TROISIÈME voie (le
+ * bloc des parties, `indicesParEmail`) ne connaissait la règle ni d'un côté ni de l'autre et rapprochait nos
+ * propres adresses de fiches WIPPIMMO. Le nom `DOMAINES_MAISON` est conservé : il est cité dans les commentaires
+ * et les tests de ce module, et le renommer n'apprendrait rien à personne.
  */
-export const DOMAINES_MAISON = ['criterimmo.fr', 'sansvisavis.com'] as const;
+export { DOMAINES_INTERNES as DOMAINES_MAISON } from './adresseInterne';
 
 export function estAdresseMaison(adresse: string, maison: readonly string[]): boolean {
-  const a = (normaliserEmail(adresse) ?? '').trim();
-  if (a === '') return true;   // une adresse illisible ne rattache rien non plus
-  if (maison.some((m) => (normaliserEmail(m) ?? m.toLowerCase()) === a)) return true;
-  const domaine = a.slice(a.indexOf('@') + 1);
-  return DOMAINES_MAISON.some((d) => domaine === d || domaine.endsWith(`.${d}`));
+  // `normaliserEmail` d'abord : ce module reçoit des adresses BRUTES (« Jean <j@x.fr> »), que la règle centrale,
+  //   elle, attend déjà propres. Le reste — domaines, sous-domaines, adresse illisible — est décidé là-bas.
+  return estAdresseInterne(normaliserEmail(adresse) ?? '', maison.map((m) => normaliserEmail(m) ?? m));
 }
 
 /** Les adresses qui SERVENT DE CLÉ pour ce mail : l'expéditeur si reçu, les destinataires si envoyé. PUR. */

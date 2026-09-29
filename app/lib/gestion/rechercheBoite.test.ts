@@ -14,6 +14,8 @@ vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }))
 // LOT ENVOI-DIAG — `nonRemiseDisponible: false` : la recherche demande les avis de non-remise de ses résultats, et
 //   migration absente elle n'émet aucune requête. Les assertions portent donc sur le SQL d'avant ce lot.
 vi.mock('./schema', () => ({
+  // LOT BOITE-INTERNE-CORBEILLE — la 275 n'est pas le sujet de ce fichier : absente, la boîte est celle d'avant.
+  corbeilleGmailDisponible: async () => false,
   rechercheTexteDisponible: async () => pleinTexte,
   nonRemiseDisponible: async () => false,
   // LOT ERGO-BOITE-3 — par défaut « migration 263 absente » : les assertions de ce fichier portent donc sur le SQL

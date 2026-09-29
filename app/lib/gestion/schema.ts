@@ -437,6 +437,27 @@ export function spamDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ LOT BOITE-INTERNE-CORBEILLE — la migration 275 est-elle appliquée ? ═════════════════════════════════════════
+ *
+ * Elle porte `gestion_message.corbeille_le` : l'état de la corbeille de GMAIL, un seul état synchronisé, comme le
+ * spam et comme le lu/non lu (décision d'Arno du 29/09/2026).
+ *
+ * 🔴 CE QU'ELLE COMMANDE, ET C'EST TOUT LE LOT. Tant qu'elle répond « non » :
+ *   · la relève N'OUVRE PAS « [Gmail]/Corbeille » — rien à écrire, rien à lire, et une connexion de moins ;
+ *   · la colonne n'est NOMMÉE NULLE PART, ni en lecture ni en écriture (leçon de la 251, deux fois payée) ;
+ *   · l'entrée « Corbeille » n'apparaît pas dans la colonne de gauche, et sa liste rend un prédicat impossible ;
+ *   · le menu « ⋯ » d'une ligne ne propose ni « Supprimer » ni « Réintégrer » — proposer un geste qu'on ne saurait
+ *     pas mémoriser serait pire que de ne rien montrer.
+ *
+ * ⚠️ NE PAS CONFONDRE AVEC `corbeilleDisponible()` juste au-dessus, qui sonde `gestion_fil.corbeille_le`
+ * (migration 251) : c'était la corbeille INTERNE, qui ne touchait pas Gmail. Elle est DÉPASSÉE et n'a jamais servi
+ * (0 échange sur 36 531) ; sa sonde n'est plus lue nulle part, et elle reste ici pour que la 251 se relise.
+ */
+export function corbeilleGmailDisponible(): Promise<boolean> {
+  return memoiser('message.corbeille_le', () => colonneExiste('gestion_message', 'corbeille_le'));
+}
+
+/**
  * LOT LISTE-GMAIL — la migration 264 est-elle appliquée ? Elle porte `gestion_fil_etoile`, l'étoile de l'ÉQUIPE
  * sur un échange.
  *

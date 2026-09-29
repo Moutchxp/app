@@ -16,7 +16,9 @@
  * c'est lui qui interprète les guillemets et les espaces, et il ne peut rien produire d'autre qu'une requête de texte.
  */
 import { query } from '../db/client';
-import type { CurseurBoite, LigneBoite, PageBoite } from './boiteRepo';
+import { sqlAppartenance, type CurseurBoite, type LigneBoite, type PageBoite } from './boiteRepo';
+// LOT BOITE-INTERNE-CORBEILLE — « nous », lu à la MÊME source que la capture et que la boîte.
+import { chargerConfigGestion } from './config';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils } from './nonRemiseRepo';
 import {
@@ -104,6 +106,14 @@ interface LigneDB {
  */
 export function conditions(
   c: CritereRecherche, pleinTexte: boolean, spamConnu = false,
+  /**
+   * LOT BOITE-INTERNE-CORBEILLE — NOTRE adresse, pour que la case « Réception » cherche exactement ce que
+   * l'étiquette « Réception » montre. `null` = l'appelant ne l'a pas lue : le prédicat retombe alors mot pour mot
+   * sur celui d'avant ce lot. Ce module est PUR — l'adresse vient donc de l'appelant, jamais d'une lecture d'ici.
+   */
+  adresseGestion: string | null = null,
+  /** LOT BOITE-INTERNE-CORBEILLE — la migration 275 est-elle là ? Sinon la colonne n'est nommée nulle part. */
+  corbeilleConnue = false,
 ): { sql: string[]; params: unknown[] } {
   const sql: string[] = [];
   const params: unknown[] = [];
@@ -128,7 +138,17 @@ export function conditions(
     if (!automatiquesInclus(c)) sql.push('m.exclu_le IS NULL');
   } else {
     const branches: string[] = [];
-    if (c.listes.includes('reception')) branches.push("(m.sens = 'recu' AND m.exclu_le IS NULL)");
+    /**
+     * ⚠️ LOT BOITE-INTERNE-CORBEILLE — « RÉCEPTION » DIT ICI CE QU'ELLE DIT DANS LA COLONNE DE GAUCHE.
+     * Le prédicat sort de `sqlAppartenance`, la MÊME fonction que la liste et les deux compteurs : un message que
+     * gestion@ s'adresse à elle-même est dans notre Réception. Écrire `m.sens = 'recu'` ici aurait donné une case
+     * « Réception » qui ne trouve pas ce que l'étiquette « Réception » montre — la divergence exacte que ce
+     * module a déjà payée une fois. L'adresse est LIÉE, comme toute valeur venue de la base.
+     */
+    if (c.listes.includes('reception')) {
+      const rang = adresseGestion === null ? null : (params.push(adresseGestion), params.length);
+      branches.push(`(${sqlAppartenance('m', 'recu', rang)} AND m.exclu_le IS NULL)`);
+    }
     if (c.listes.includes('envoyes')) branches.push("(m.sens = 'envoye' AND m.exclu_le IS NULL)");
     if (c.listes.includes('automatique')) branches.push('m.exclu_le IS NOT NULL');
     sql.push(branches.length === 0 ? 'false' : `(${branches.join(' OR ')})`);
@@ -144,6 +164,16 @@ export function conditions(
    * ⚠️ `spamConnu` faux (migration 263 absente) ⇒ aucune colonne nommée, aucune condition : comportement d'avant.
    */
   if (spamConnu && c.listes !== undefined && !c.listes.includes('spam')) sql.push('m.spam_le IS NULL');
+  /**
+   * 🔴 LOT BOITE-INTERNE-CORBEILLE — LA CORBEILLE NE SORT JAMAIS DE LA RECHERCHE, et il n'y a pas de case pour
+   * elle. C'est un écart ASSUMÉ avec le spam : le spam a sa case parce qu'on va parfois y repêcher un vrai mail
+   * classé à tort ; la corbeille, elle, contient ce que quelqu'un a décidé de jeter, et une recherche qui le
+   * remonterait ferait rouvrir des échanges qu'on venait de clore. On la consulte par son étiquette, qui la
+   * montre en entier — c'est là qu'on répare une erreur, pas au détour d'une recherche sur un autre sujet.
+   *
+   * ⚠️ Sans la migration 275, la colonne n'est nommée nulle part : la requête est celle d'avant ce lot.
+   */
+  if (corbeilleConnue) sql.push('m.corbeille_le IS NULL');
 
   const termes = decouperTermes(c.saisie);
   const negatifs = decouperTermes(c.sansMots ?? '');
@@ -231,11 +261,12 @@ export async function chercherDansLeCourrier(
   partenaires: readonly PartenaireInterne[] = [],
   limite = PAGE_RECHERCHE,
 ): Promise<PageRecherche> {
-  const { rechercheTexteDisponible, spamDisponible } = await import('./schema');
-  const [pleinTexte, spamConnu] = await Promise.all([rechercheTexteDisponible(), spamDisponible()]);
+  const { rechercheTexteDisponible, spamDisponible, corbeilleGmailDisponible } = await import('./schema');
+  const [pleinTexte, spamConnu, corbeilleConnue, config] = await Promise.all([
+    rechercheTexteDisponible(), spamDisponible(), corbeilleGmailDisponible(), chargerConfigGestion()]);
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
 
-  const { sql: filtres, params } = conditions(critere, pleinTexte, spamConnu);
+  const { sql: filtres, params } = conditions(critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue);
   const lier = (v: unknown): string => { params.push(v); return `$${params.length}`; };
   const where = filtres.length > 0 ? `WHERE ${filtres.join(' AND ')}` : '';
   const curseurSql = curseur === null ? '' :
@@ -344,7 +375,7 @@ export async function chercherDansLeCourrier(
     pleinTexte,
     // Combien de résultats la règle « pas de courrier automatique » écarte : dit en toutes lettres, comme dans la liste.
     automatiquesMasques: curseur === null && critere.inclureAutomatiques !== true
-      ? await compterAutomatiquesMasques(critere, pleinTexte, spamConnu)
+      ? await compterAutomatiquesMasques(critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue)
       : null,
   };
 }
@@ -366,10 +397,11 @@ function avecAutomatiques(c: CritereRecherche, oui: boolean): CritereRecherche {
  * page : c'est une phrase d'écran, pas une donnée dont dépend la suite.
  */
 async function compterAutomatiquesMasques(
-  critere: CritereRecherche, pleinTexte: boolean, spamConnu = false,
+  critere: CritereRecherche, pleinTexte: boolean, spamConnu = false, adresseGestion: string | null = null,
+  corbeilleConnue = false,
 ): Promise<number> {
-  const avec = conditions(avecAutomatiques(critere, true), pleinTexte, spamConnu);
-  const sans = conditions(avecAutomatiques(critere, false), pleinTexte, spamConnu);
+  const avec = conditions(avecAutomatiques(critere, true), pleinTexte, spamConnu, adresseGestion, corbeilleConnue);
+  const sans = conditions(avecAutomatiques(critere, false), pleinTexte, spamConnu, adresseGestion, corbeilleConnue);
   const compte = async (c: { sql: string[]; params: unknown[] }): Promise<number> => {
     const where = c.sql.length > 0 ? `WHERE ${c.sql.join(' AND ')}` : '';
     const { rows } = await query<{ n: number }>(

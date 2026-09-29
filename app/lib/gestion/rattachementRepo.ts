@@ -21,7 +21,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { rattachementsDisponibles, spamDisponible} from './schema';
+import { corbeilleGmailDisponible, rattachementsDisponibles, spamDisponible } from './schema';
 // LOT STATUT-HORS-GESTION — rattacher un bien lève la marque « hors gestion » du mail (réversibilité naturelle).
 import { leverHorsGestionApresRattachement } from './horsGestionRepo';
 import { nomBien, nomProprietaire } from './driveArbre';
@@ -179,8 +179,15 @@ export interface Paquet {
  *
  * ⚠️ Sans la migration 263, la colonne n'est pas nommée : la clause est vide et le comportement est celui d'avant.
  */
+/**
+ * ⚠️ LOT BOITE-INTERNE-CORBEILLE — ELLE ÉCARTE MAINTENANT DEUX CHOSES, et le nom garde son premier sujet parce
+ * qu'il est cité dans `spam.test.ts`. Un mail À LA CORBEILLE de Gmail n'a rien à faire dans « À rattacher » : on
+ * vient de le supprimer, chercher à quel logement le rattacher serait du travail créé par un geste de ménage.
+ * Sans les migrations 263 / 275, la colonne concernée n'est pas nommée et la clause reste celle d'avant.
+ */
 async function clauseHorsSpam(alias: string): Promise<string> {
-  return (await spamDisponible()) ? `AND ${alias}.spam_le IS NULL` : '';
+  const [spam, corbeille] = await Promise.all([spamDisponible(), corbeilleGmailDisponible()]);
+  return `${spam ? `AND ${alias}.spam_le IS NULL` : ''}${corbeille ? ` AND ${alias}.corbeille_le IS NULL` : ''}`;
 }
 
 /** Les messages des `nbFils` fils suivant `depuis`, et toutes les adresses de ces fils. LECTURE SEULE. */

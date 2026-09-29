@@ -102,12 +102,33 @@ describe('🔴 ④ une seule entrée par état, jamais les deux', () => {
     expect(cles(etat({ enCorbeille: true }))).not.toContain('corbeille');
   });
 
-  /** « Supprimer » DIT ce qu'il fait vraiment : rien n'est supprimé. Sans ça, le mot fait peur pour rien. */
-  it('« Supprimer » explique qu’il ne supprime rien, et que l’échange revient tout seul', () => {
+  /**
+   * ══ ⚠️ RÉÉCRIT PAR LE LOT BOITE-INTERNE-CORBEILLE (29/09/2026) ═══════════════════════════════════════════════
+   *
+   * CE QU'IL EXIGEAIT : que l'aide promette « Rien n'est supprimé », « reste intact dans Gmail » et « revient
+   * tout seul si un nouveau message arrive ». C'était EXACT tant que la corbeille était interne — elle cachait
+   * l'échange de nos boîtes sans toucher à la vraie.
+   *
+   * CE QUI A CHANGÉ : le geste part maintenant pour de bon. Vérifié sur la vraie boîte le 29/09/2026 — après le
+   * clic, le mail de test porte le libellé `TRASH` chez Gmail. Les trois promesses sont donc devenues fausses,
+   * et une aide qui rassure à tort devant un geste qui agit est pire qu'une aide absente.
+   *
+   * L'EXIGENCE, ELLE, NE BOUGE PAS : l'aide DIT ce que le geste coûte (l'échange part pour toute l'équipe, Gmail
+   * efface au bout de 30 jours) ET ce qu'il ne coûte pas (notre copie reste, la réintégration est à un clic).
+   */
+  it('« Supprimer » dit ce qu’il coûte, et ce qu’il ne coûte pas', () => {
     const e = menuLigne(etat()).find((x) => x.cle === 'corbeille');
-    expect(e?.aide).toContain('Rien n’est supprimé');
-    expect(e?.aide).toContain('intact dans Gmail');
-    expect(e?.aide).toContain('revient tout seul');
+    // Ce que ça coûte : la VRAIE boîte, pour tout le monde, et une échéance.
+    expect(e?.aide).toContain('corbeille de Gmail');
+    expect(e?.aide).toContain('toute l’équipe');
+    expect(e?.aide).toContain('30 jours');
+    // Ce que ça ne coûte pas : notre copie, et le retour en arrière.
+    expect(e?.aide).toContain('reste en base');
+    expect(e?.aide).toContain('Réintégrer');
+    // 🔴 ET PLUS AUCUNE DES TROIS PROMESSES DEVENUES FAUSSES.
+    expect(e?.aide).not.toContain('intact dans Gmail');
+    expect(e?.aide).not.toContain('Rien n’est supprimé');
+    expect(e?.aide).not.toContain('revient tout seul');
   });
 
   it('le lu/non lu DIT qu’il vaut pour toute l’équipe — c’est celui de Gmail', () => {

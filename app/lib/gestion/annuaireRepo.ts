@@ -24,6 +24,8 @@ import { annuaireDisponible, libelleSourceContactDisponible } from './schema';
 import type { ContactAnnuaire } from './annuaire';
 import type { PlanImport } from './annuaireImport';
 import type { TermeRecherche } from './annuaireRecherche';
+// LOT BOITE-INTERNE-CORBEILLE — nos propres adresses ne se rapprochent d'aucune fiche. Règle CENTRALE, pas locale.
+import { adressesRapprochables } from './adresseInterne';
 
 // ══ ① L'ÉCRITURE ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -819,7 +821,25 @@ export interface IndiceAnnuaire {
  */
 export async function indicesParEmail(emails: readonly string[]): Promise<IssueLecture<IndiceAnnuaire[]>> {
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
-  const propres = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter((e) => e !== ''))];
+  /**
+   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — NOS ADRESSES SORTENT AVANT LA REQUÊTE ══════════════════════════════════
+   * Règle d'Arno du 29/09/2026 : une adresse en `@sansvisavis.com` ou `@criterimmo.fr` n'est JAMAIS rapprochée
+   * d'une fiche, où qu'elle apparaisse. C'était la SEULE voie du module à l'ignorer — et six fiches WIPPIMMO
+   * portent bel et bien une de nos adresses (nous sommes bailleurs ou preneurs à titre personnel). Un mail
+   * interne se coiffait donc de « PROPRIÉTAIRE JOREL Arnaud / MARS AVENIR / GABRIEL ESTATE, LOCATAIRE SARL
+   * MACJ » : mesuré le 29/09, 1 346 mails dans 948 échanges.
+   *
+   * 🔴 AVANT LA REQUÊTE, ET PAS APRÈS. Filtrer le RÉSULTAT laisserait la base chercher, et surtout laisserait la
+   * règle dépendre de ce que la requête a bien voulu rendre. Ici, l'adresse n'entre tout simplement pas.
+   *
+   * 🔴 IL NE RESTE PERSONNE ⇒ LISTE VIDE, et l'appelant n'affiche RIEN. `EncartAnnuaire` rend déjà `null` sur une
+   * liste vide : le bloc des parties disparaît entièrement, au lieu de se vider en laissant son cadre.
+   *
+   * ⚠️ `gestion@criterimmo.fr` était déjà couverte par le domaine ; le partenaire interne (ADHOC) ne l'est pas, et
+   * il ne l'était pas non plus avant ce lot. Il n'a aucune fiche à l'annuaire, donc la requête ne rend rien pour
+   * lui — l'ajouter ici demanderait une lecture de plus en base pour ne rien changer.
+   */
+  const propres = adressesRapprochables(emails);
   if (propres.length === 0) return { etat: 'ok', data: [] };
 
   const { rows } = await query<{

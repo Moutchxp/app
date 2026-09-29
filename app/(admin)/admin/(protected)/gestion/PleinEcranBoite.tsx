@@ -14,7 +14,11 @@ import { cleFenetreBrouillon, reprendreBrouillon } from '../../../../lib/gestion
 // `ecran` est un module PUR (aucun import) : le faire venir dans un composant client ne tire pas `pg`.
 import { titreARattacher } from '../../../../lib/gestion/ecran';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
-import { gesteCorbeille, marquerLectureLigne } from './gestesLigne';
+import {
+  gesteCorbeille, gesteCorbeilleLot, idsDeToutLaCorbeille, lireEtatCorbeille, marquerLectureLigne,
+  DUREE_ANNULATION_MS, MENTION_DROIT_ATTENTE,
+} from './gestesLigne';
+import { EnteteCorbeille } from './EnteteCorbeille';
 import { Conversation } from './Conversation';
 import type { Rapport } from './gestesMail';
 import type { Cible } from '../../../../lib/gestion/rattachement';
@@ -74,6 +78,9 @@ export function etiquettesVisibles(
 ): EtiquetteAffichee[] {
   return toutes.filter((e) => e.compte === null || e.compte > 0 || memeEtiquette(e.etiquette, ouverte));
 }
+
+/** L'ensemble vide, PARTAGÉ : recréé à chaque rendu, il ferait repartir tout ce qui en dépend. */
+const VIDE: ReadonlySet<number> = new Set();
 
 export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, messageOuvert = null, brouillonOuvert = null,
@@ -210,6 +217,31 @@ export function PleinEcranBoite({
   /** Incrémenté après un geste de corbeille : la liste doit être relue, l'échange n'y est plus (ou y revient). */
   const [versionListe, setVersionListe] = useState(0);
   /**
+   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LA SÉLECTION DE LA CORBEILLE ═════════════════════════════════════════════
+   * Elle vit ICI, au-dessus de la liste, et pas dans la liste : le bandeau, les deux boutons et la confirmation en
+   * ont besoin, et la liste se relit sans les perdre. `selCorbeille` porte des ÉCHANGES (ce que les lignes
+   * représentent) ; `lignesCorbeille` porte ce que la liste montre EN CE MOMENT, avec le nombre de mails de
+   * chacune — c'est lui qui permet d'annoncer un nombre de MAILS exact avant une suppression définitive.
+   */
+  /**
+   * ⚠️ LA SÉLECTION PORTE SON ÉTIQUETTE AVEC ELLE, et ce n'est pas une coquetterie : quitter la Corbeille doit la
+   * vider. La remettre à zéro dans un effet serait un `setState` synchrone dans un effet — que le compilateur
+   * React refuse, à raison (rendus en cascade). En la DÉRIVANT, il n'y a plus rien à remettre à zéro : une
+   * sélection prise sous une autre étiquette ne se lit tout simplement pas.
+   */
+  const [selBrute, setSelBrute] = useState<{ sorte: string; ids: ReadonlySet<number> }>(
+    { sorte: '', ids: new Set() });
+  const [lignesCorbeille, setLignesCorbeille] = useState<{ filId: number; nbCorbeille: number }[]>([]);
+  const [toutCorbeille, setToutCorbeille] = useState<{
+    total: number; mails: number; suppressionPossible: boolean; motImpossible: string;
+  } | null>(null);
+  const [occupeCorbeille, setOccupeCorbeille] = useState(false);
+  /**
+   * LE BANDEAU « ANNULER » DE LA RÉINTÉGRATION, et son échéance. 10 s : demande d'Arno, et c'est aussi le délai
+   * que le Drive emploie déjà pour la même promesse — un seul rythme dans toute l'application.
+   */
+  const [reintegres, setReintegres] = useState<{ filIds: number[]; cle: number } | null>(null);
+  /**
    * ══ 🔴 LOT REDACTION-GMAIL — « NOUVEAU MESSAGE » OUVRE UNE FENÊTRE FLOTTANTE ═══════════════════════════════════
    * Il prenait la place de la LISTE : on écrivait, et l'on ne voyait plus ce à quoi on répondait. Désormais la
    * fenêtre s'ancre en bas à droite, la liste reste vivante derrière, et deux messages peuvent s'écrire côte à
@@ -307,6 +339,132 @@ export function PleinEcranBoite({
     // Le bandeau porte l'annulation ; une restauration, elle, se dit dans le compte rendu ordinaire.
     setCorbeilleFaite(versLaCorbeille ? { filId } : null);
     if (!versLaCorbeille) onGeste(r.message);
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     LOT BOITE-INTERNE-CORBEILLE — LES GESTES DE LA CORBEILLE
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  const estCorbeille = etiquette.sorte === 'corbeille';
+  /** La sélection EFFECTIVE : celle de l'étiquette ouverte, et rien d'autre. Voir `selBrute`. */
+  const selCorbeille = selBrute.sorte === etiquette.sorte ? selBrute.ids : VIDE;
+  const setSelCorbeille = (ids: ReadonlySet<number>): void => setSelBrute({ sorte: etiquette.sorte, ids });
+  /**
+   * 🔴 LE TOTAL ET LE DROIT SONT RELUS À CHAQUE OUVERTURE DE LA CORBEILLE, ET APRÈS CHAQUE GESTE (`versionListe`).
+   *
+   * Le total, parce qu'il change dès qu'on réintègre. Le droit, parce qu'il est le seul moyen de griser
+   * « Supprimer définitivement » AVANT le clic — et parce qu'il changera tout seul le jour où Arno accorde la
+   * portée et refait l'autorisation : la page s'en aperçoit à la relecture suivante, sans redémarrage.
+   *
+   * ⚠️ On QUITTE la corbeille ⇒ la sélection ne se lit plus (elle est dérivée de l'étiquette, cf. `selBrute`) :
+   * revenir dessus plus tard avec des cases cochées sur des échanges qu'on ne voit plus serait un piège, et cette
+   * sélection-là porte un geste irréversible.
+   */
+  useEffect(() => {
+    if (!estCorbeille) return; // rien à lire, et RIEN À REMETTRE À ZÉRO : la sélection est dérivée (cf. `selBrute`)
+    let vivant = true;
+    void (async () => {
+      const d = await lireEtatCorbeille();
+      if (vivant && d !== null) setToutCorbeille(d);
+    })();
+    return () => { vivant = false; };
+  }, [estCorbeille, versionListe]);
+
+  /**
+   * LE BANDEAU « ANNULER » S'EFFACE AU BOUT DE 10 s. Passé ce délai, la promesse ne tient plus : la liste a été
+   * relue, l'écran a bougé, et un bouton qui traîne ferait remettre à la corbeille des mails qu'on croyait rangés.
+   */
+  useEffect(() => {
+    if (reintegres === null) return;
+    const t = setTimeout(() => setReintegres(null), DUREE_ANNULATION_MS);
+    return () => clearTimeout(t);
+  }, [reintegres]);
+  const nbMailsSelection = lignesCorbeille
+    .filter((l) => selCorbeille.has(l.filId))
+    .reduce((n, l) => n + Math.max(1, l.nbCorbeille), 0);
+  const toutePageCochee = lignesCorbeille.length > 0
+    && lignesCorbeille.every((l) => selCorbeille.has(l.filId));
+
+  /**
+   * 🔴 LA SÉLECTION EST ÉLAGUÉE À CHAQUE RELECTURE DE LA LISTE. Un échange réintégré quitte la corbeille ; sa case
+   * resterait cochée dans un coin invisible, et le geste suivant agirait sur un mail qu'on ne voit plus. On ne
+   * garde donc que ce que la liste montre — sauf quand « tout sélectionner la Corbeille » vient d'aller chercher
+   * au-delà de la page, ce que `surLesLignes` dit explicitement.
+   */
+  const surLesLignes = (lignes: { filId: number; nbCorbeille: number }[]): void => {
+    setLignesCorbeille(lignes);
+  };
+
+  const basculerCorbeille = (filId: number, coche: boolean): void => {
+    const n = new Set(selCorbeille);
+    if (coche) n.add(filId); else n.delete(filId);
+    setSelCorbeille(n);
+  };
+
+  const cocherLaPage = (coche: boolean): void => {
+    setSelCorbeille(coche ? new Set(lignesCorbeille.map((l) => l.filId)) : new Set());
+  };
+
+  /** « Sélectionner les N échanges de la Corbeille » : on va chercher AU-DELÀ de ce que la page montre. */
+  const cocherToutLaCorbeille = async (): Promise<void> => {
+    const tout = await idsDeToutLaCorbeille();
+    if (tout === null) { onGeste('La liste de la corbeille n’a pas pu être lue.'); return; }
+    setSelCorbeille(new Set(tout.ids));
+    // ⚠️ Le compte de MAILS vient d'ici quand la sélection dépasse la page : les lignes non affichées n'ont pas
+    //    de `nbCorbeille` sous la main, et la confirmation doit dire un nombre exact.
+    setLignesCorbeille(tout.ids.map((filId) => ({
+      filId, nbCorbeille: Math.max(1, Math.round(tout.mails / Math.max(1, tout.total))),
+    })));
+  };
+
+  /**
+   * RÉINTÉGRER. Aucune confirmation (le geste se défait), un bandeau « Annuler » de 10 s, et la liste relue :
+   * les échanges réintégrés ne sont plus à la corbeille, ils n'ont donc plus rien à y faire.
+   */
+  const reintegrer = async (): Promise<void> => {
+    const fils = [...selCorbeille];
+    if (fils.length === 0 || occupeCorbeille) return;
+    setOccupeCorbeille(true);
+    const r = await gesteCorbeilleLot(fils, 'reintegrer');
+    setOccupeCorbeille(false);
+    onGeste(r.message);
+    if (!r.ok) return;
+    setSelCorbeille(new Set());
+    setVersionListe((v) => v + 1);
+    setReintegres({ filIds: fils, cle: Date.now() });
+  };
+
+  /**
+   * Le bandeau « Annuler » : on les REMET à la corbeille, d'où ils viennent. C'est le même verbe pris par l'autre
+   * bout — pas un geste inverse écrit à part, qui aurait divergé au premier changement.
+   *
+   * ⚠️ LE GESTE PORTE SUR TOUS LES MAILS DE CES ÉCHANGES, et non sur les seuls mails réintégrés : on vient de les
+   * sortir de la corbeille, il n'y a donc plus rien « à la corbeille » à y remettre, et borner la sélection ne
+   * rendrait rien. C'est exactement ce que fait `action: 'corbeille'` côté serveur.
+   */
+  const annulerReintegration = async (): Promise<void> => {
+    const fait = reintegres;
+    if (fait === null) return;
+    setReintegres(null);
+    const r = await gesteCorbeilleLot(fait.filIds, 'corbeille');
+    onGeste(r.ok ? 'Réintégration annulée : les mails sont retournés à la corbeille.' : r.message);
+    if (r.ok) setVersionListe((v) => v + 1);
+  };
+
+  /**
+   * 🔴 SUPPRIMER DÉFINITIVEMENT. La confirmation a DÉJÀ eu lieu (`EnteteCorbeille`) : ici on agit. Aucun bandeau
+   * « Annuler » ne suit — il n'y a rien à annuler, et en proposer un serait mentir sur ce qui vient de se passer.
+   */
+  const supprimerDefinitivement = async (): Promise<void> => {
+    const fils = [...selCorbeille];
+    if (fils.length === 0 || occupeCorbeille) return;
+    setOccupeCorbeille(true);
+    const r = await gesteCorbeilleLot(fils, 'supprimer');
+    setOccupeCorbeille(false);
+    onGeste(r.message);
+    if (!r.ok) return;
+    setSelCorbeille(new Set());
+    setVersionListe((v) => v + 1);
   };
 
   /** Défaire le dernier « Supprimer », depuis le bandeau. Le même verbe que « Restaurer », pris par l'autre bout. */
@@ -640,8 +798,46 @@ export function PleinEcranBoite({
                 confirmation, pas un problème, et on n'interrompt pas une lecture d'écran pour ça. */}
             {corbeilleFaite !== null && (
               <p className="pe-corbeille" role="status">
-                <span>Échange mis à la corbeille. Rien n’est supprimé : il reste intact dans Gmail.</span>
+                {/* 🔴 LOT BOITE-INTERNE-CORBEILLE — CETTE PHRASE DISAIT LE CONTRAIRE DE CE QUI SE PASSE.
+                    Elle affirmait « Rien n'est supprimé : il reste intact dans Gmail », ce qui était vrai de la
+                    corbeille INTERNE. Le geste part maintenant pour de vrai : vérifié sur la vraie boîte le
+                    29/09/2026, le mail de test porte le libellé TRASH après le clic. Un bandeau qui rassure à
+                    tort sur un geste qui agit est pire qu'un bandeau absent. */}
+                <span>
+                  Échange mis à la corbeille de Gmail. Il se réintègre d’un clic ; passé 30 jours, Gmail l’efface
+                  lui-même.
+                </span>
                 <button type="button" className="pe-corbeille-annuler" onClick={() => void annulerCorbeille()}>
+                  Annuler
+                </button>
+              </p>
+            )}
+            {/* ══ 🔴 L'EN-TÊTE DE LA CORBEILLE — la mention des 30 jours, la sélection, les deux gestes ══════ */}
+            {estCorbeille && (
+              <EnteteCorbeille
+                nbPage={lignesCorbeille.length}
+                nbSelection={selCorbeille.size}
+                nbMailsSelection={nbMailsSelection}
+                totalCorbeille={toutCorbeille?.total ?? null}
+                toutePageCochee={toutePageCochee}
+                occupe={occupeCorbeille}
+                suppressionPossible={toutCorbeille?.suppressionPossible ?? false}
+                motSuppressionImpossible={toutCorbeille?.motImpossible ?? MENTION_DROIT_ATTENTE}
+                onToutePage={cocherLaPage}
+                onToutLaCorbeille={() => void cocherToutLaCorbeille()}
+                onReintegrer={() => void reintegrer()}
+                onSupprimer={() => void supprimerDefinitivement()} />
+            )}
+            {/* ⚠️ LE BANDEAU DE LA RÉINTÉGRATION EST DISTINCT de celui de la mise à la corbeille juste au-dessus :
+                deux gestes opposés, deux promesses différentes, et l'un ne doit jamais défaire l'autre. */}
+            {reintegres !== null && (
+              <p className="pe-corbeille" role="status">
+                <span>
+                  {reintegres.filIds.length} échange{reintegres.filIds.length > 1 ? 's' : ''} réintégré
+                  {reintegres.filIds.length > 1 ? 's' : ''} — {'ils ont'} retrouvé leur place.
+                </span>
+                <button type="button" className="pe-corbeille-annuler"
+                  onClick={() => void annulerReintegration()}>
                   Annuler
                 </button>
               </p>
@@ -661,7 +857,12 @@ export function PleinEcranBoite({
               versionDonnees={versionDonnees} onListeRelue={onListeRelue}
               /* LOT MESSAGE-CLIQUÉ — le message de la ligne voyage avec l'échange, sans quoi la conversation
                  ouvrirait son dernier message et non celui qu'on vient de cliquer. */
-              onOuvrir={(id, messageId) => { defilement.current = window.scrollY; onOuvrir(id, messageId); }} />
+              onOuvrir={(id, messageId) => { defilement.current = window.scrollY; onOuvrir(id, messageId); }}
+              /* LOT BOITE-INTERNE-CORBEILLE — les cases N'EXISTENT QUE SOUS LA CORBEILLE : ailleurs, `undefined`
+                 rend la liste exactement telle qu'elle était avant ce lot. */
+              selection={estCorbeille
+                ? { actives: selCorbeille, onBasculer: basculerCorbeille, onPage: surLesLignes }
+                : undefined} />
             </>
           )}
         </section>

@@ -19,7 +19,9 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { normaliserEmail } from './annuaire';
-import { DOMAINES_MAISON } from './triPieces';
+// LOT BOITE-INTERNE-CORBEILLE — la SEULE définition de « une de nos adresses », lue aussi par `triPieces` et par
+//   le bloc des parties (`indicesParEmail`), qui ne la connaissait pas.
+import { estAdresseInterne } from './adresseInterne';
 
 export type RoleAdresse = 'expediteur' | 'destinataire' | 'copie' | 'repondre_a' | 'transfere';
 
@@ -100,13 +102,15 @@ export function adressesDuChamp(brut: string | null | undefined): string[] {
   return out;
 }
 
-/** Une de NOS adresses ? Le partenaire interne (comptabilité externalisée) en fait partie : il est des deux côtés. */
+/**
+ * Une de NOS adresses ? Le partenaire interne (comptabilité externalisée) en fait partie : il est des deux côtés.
+ *
+ * ⚠️ LOT BOITE-INTERNE-CORBEILLE — LA RÈGLE N'EST PLUS ÉCRITE ICI. Ce fichier en portait sa propre copie, identique
+ * à celle de `triPieces` au mot près ; deux copies d'une même règle finissent par diverger, et pendant ce temps une
+ * troisième voie l'ignorait complètement. Une seule définition, dans `adresseInterne.ts`.
+ */
 export function estInterne(adresse: string, adresseGestion: string, partenaires: readonly string[] = []): boolean {
-  const a = adresse.trim().toLowerCase();
-  if (a === (adresseGestion ?? '').trim().toLowerCase()) return true;
-  if (partenaires.some((p) => (p ?? '').trim().toLowerCase() === a)) return true;
-  const domaine = a.slice(a.indexOf('@') + 1);
-  return DOMAINES_MAISON.some((d) => domaine === d || domaine.endsWith(`.${d}`));
+  return estAdresseInterne(adresse, [adresseGestion, ...partenaires]);
 }
 
 // ── LE BLOC DE TRANSFERT ──────────────────────────────────────────────────────────────────────────────────────────

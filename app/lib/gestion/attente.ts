@@ -53,7 +53,7 @@ export const MESSAGE_DEPLACE = `
  * cette colonne ferait échouer TOUT l'écran. Tant qu'elle est absente, on rend la condition d'AVANT — et rien ne
  * change. Le drapeau est établi une fois, hors transaction, par `schema.ts`.
  */
-export const messageCompte = (avecDeplacements: boolean, avecSpam = false): string => {
+export const messageCompte = (avecDeplacements: boolean, avecSpam = false, avecCorbeille = false): string => {
   /**
    * 🔴 LOT ERGO-BOITE-3 — LE SPAM NE COMPTE NULLE PART, et c'est ICI qu'on l'écrit, une seule fois. Ce fragment est
    * la définition de « un message qui compte » pour TOUT le poste de tri : le dernier message d'un fil, le dernier
@@ -63,18 +63,27 @@ export const messageCompte = (avecDeplacements: boolean, avecSpam = false): stri
    * ⚠️ `avecSpam` faux (migration 263 absente) ⇒ le fragment est EXACTEMENT celui d'avant ce lot.
    */
   const horsSpam = avecSpam ? ' AND m.spam_le IS NULL' : '';
+  /**
+   * 🔴 LOT BOITE-INTERNE-CORBEILLE — ET UN MAIL À LA CORBEILLE NE COMPTE NULLE PART NON PLUS, pour exactement la
+   * même raison : sans cette ligne, un mail qu'on vient de supprimer continuerait de faire « attendre une
+   * réponse » à son échange, et resterait dans le poste de tri comme du travail en retard. La règle est écrite au
+   * même endroit que celle du spam pour qu'on ne puisse pas en corriger une en oubliant l'autre.
+   *
+   * ⚠️ `avecCorbeille` faux (migration 275 absente) ⇒ le fragment est EXACTEMENT celui d'avant ce lot.
+   */
+  const horsCorbeille = avecCorbeille ? ' AND m.corbeille_le IS NULL' : '';
   return avecDeplacements
-    ? `m.exclu_le IS NULL AND NOT ${MESSAGE_DEPLACE}${horsSpam}`
-    : `m.exclu_le IS NULL${horsSpam}`;
+    ? `m.exclu_le IS NULL AND NOT ${MESSAGE_DEPLACE}${horsSpam}${horsCorbeille}`
+    : `m.exclu_le IS NULL${horsSpam}${horsCorbeille}`;
 };
 
 /** Le dernier message non exclu d'un fil, tous expéditeurs. Donne aussi la DATE D'ACTIVITÉ (fenêtre de la file). */
-export const cteDernier = (avecDeplacements: boolean, avecSpam = false): string => `
+export const cteDernier = (avecDeplacements: boolean, avecSpam = false, avecCorbeille = false): string => `
   SELECT DISTINCT ON (m.fil_id)
          m.fil_id, m.sens, m.automatique, m.recu_le, m.de_adresse,
          coalesce(nullif(btrim(m.de_nom), ''), m.de_adresse) AS interlocuteur
     FROM gestion_message m
-   WHERE ${messageCompte(avecDeplacements, avecSpam)}
+   WHERE ${messageCompte(avecDeplacements, avecSpam, avecCorbeille)}
    ORDER BY m.fil_id, m.recu_le DESC, m.id DESC`;
 
 /**
@@ -82,18 +91,22 @@ export const cteDernier = (avecDeplacements: boolean, avecSpam = false): string 
  * Liste vide → `<> ALL('{}')` vaut VRAI pour tout le monde : le fragment redevient identique au précédent, et le
  * comportement est CELUI D'AVANT LA MIGRATION. C'est ce qui permet de livrer la 233 non appliquée sans rien casser.
  */
-export const cteDernierHorsPartenaire = (p: string, avecDeplacements = false, avecSpam = false): string => `
+export const cteDernierHorsPartenaire = (
+  p: string, avecDeplacements = false, avecSpam = false, avecCorbeille = false,
+): string => `
   SELECT DISTINCT ON (m.fil_id)
          m.fil_id, m.sens, m.automatique
     FROM gestion_message m
-   WHERE ${messageCompte(avecDeplacements, avecSpam)} AND lower(btrim(m.de_adresse)) <> ALL (${p}::text[])
+   WHERE ${messageCompte(avecDeplacements, avecSpam, avecCorbeille)} AND lower(btrim(m.de_adresse)) <> ALL (${p}::text[])
    ORDER BY m.fil_id, m.recu_le DESC, m.id DESC`;
 
 /** Les fils où quelqu'un d'EXTÉRIEUR a écrit : ni nous (`$n`), ni un partenaire interne (`$p`). */
-export const cteExterieur = (p: string, n: string, avecDeplacements = false, avecSpam = false): string => `
+export const cteExterieur = (
+  p: string, n: string, avecDeplacements = false, avecSpam = false, avecCorbeille = false,
+): string => `
   SELECT DISTINCT m.fil_id
     FROM gestion_message m
-   WHERE ${messageCompte(avecDeplacements, avecSpam)}
+   WHERE ${messageCompte(avecDeplacements, avecSpam, avecCorbeille)}
      AND lower(btrim(m.de_adresse)) <> ALL (${p}::text[])
      AND lower(btrim(m.de_adresse)) <> lower(btrim(${n}))`;
 
@@ -121,10 +134,12 @@ export const jointuresAttente = (filCol: string): string => `
  * Les trois CTE, prêtes à être collées derrière un WITH. `p` et `n` sont les placeholders des paramètres liés ;
  * `avecDeplacements` dit si la migration 234 est appliquée (cf. `schema.ts`).
  */
-export function ctesAttente(p: string, n: string, avecDeplacements = false, avecSpam = false): string {
-  return `dernier AS (${cteDernier(avecDeplacements, avecSpam)}),
-     dernier_hors AS (${cteDernierHorsPartenaire(p, avecDeplacements, avecSpam)}),
-     exterieur AS (${cteExterieur(p, n, avecDeplacements, avecSpam)})`;
+export function ctesAttente(
+  p: string, n: string, avecDeplacements = false, avecSpam = false, avecCorbeille = false,
+): string {
+  return `dernier AS (${cteDernier(avecDeplacements, avecSpam, avecCorbeille)}),
+     dernier_hors AS (${cteDernierHorsPartenaire(p, avecDeplacements, avecSpam, avecCorbeille)}),
+     exterieur AS (${cteExterieur(p, n, avecDeplacements, avecSpam, avecCorbeille)})`;
 }
 
 /**

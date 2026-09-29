@@ -189,8 +189,10 @@ describe('③ le courrier automatique : écarté par défaut, jamais supprimé',
     // LOT 5-BOITE — « reception » s'y ajoute de la même façon : un FILTER de plus sur le même regroupement.
     // LOT ERGO-BOITE-3 — et « spam » aussi. Le jeu d'essai ne le rend pas → repli à 0, jamais une exception : c'est
     //   exactement ce que rend une base sans la migration 263.
+    // ⚠️ `corbeille: null` (lot BOITE-INTERNE-CORBEILLE) se lit « on ne sait pas » — migration 275 absente dans ce
+    //    jeu d'essai — et surtout PAS « la corbeille est vide » : c'est ce `null` qui retire l'entrée de la colonne.
     await expect(comptesBoite()).resolves.toEqual({
-      lisibles: 4944, automatiques: 17206 - 4944, envoyes: 0, reception: 0, spam: 0,
+      lisibles: 4944, automatiques: 17206 - 4944, envoyes: 0, reception: 0, spam: 0, corbeille: null,
     });
   });
 });
@@ -214,13 +216,35 @@ describe('③ le courrier automatique : écarté par défaut, jamais supprimé',
  * triée sur le mauvais.
  */
 describe('la règle des deux boîtes', () => {
-  it('Réception = le dernier message REÇU de l’échange, aux DEUX étages du parcours', async () => {
+  /**
+   * ══ 🔴 RÉÉCRIT PAR LE LOT BOITE-INTERNE-CORBEILLE (29/09/2026) — ET VOICI POURQUOI ════════════════════════════
+   *
+   * CE QU'IL DISAIT : « Réception = `m.sens = 'recu'` aux deux étages, et le mot `envoye` n'y paraît nulle part. »
+   * C'était vrai, et c'est devenu FAUX — pas par relâchement, mais parce que la règle d'Arno a une exception que
+   * ce test interdisait : un message que gestion@ s'adresse À ELLE-MÊME (À, Cc ou Cci) est dans notre Réception,
+   * exactement comme le fait Gmail. Mesuré sur la vraie base : 51 messages, 49 échanges, dont 32 qui n'avaient
+   * AUCUN autre message reçu et n'apparaissaient donc que sous « Envoyés ».
+   *
+   * CE QU'IL PROTÈGE MAINTENANT, et qui est la même exigence sous une règle plus large : l'appartenance entre aux
+   * DEUX étages, `m` comme `m2`. C'était l'objet du lot BOITE-SENS et ça ne bouge pas — dans `m2` seul, l'échange
+   * sortirait de la Réception dès qu'on y répond ; dans `m` seul, la ligne serait sur le bon message mais triée
+   * sur le mauvais.
+   */
+  it('Réception = tout message de NOTRE réception, aux DEUX étages du parcours', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
     const sql = parcours(sqlPage()).replace(/\s+/g, ' ');
-    expect(sql).toContain("AND m.sens = 'recu'");
-    expect(sql).toContain("AND m2.sens = 'recu'");
-    expect(sql).not.toContain("'envoye'");
+    expect(sql).toContain("(m.sens = 'recu' OR EXISTS");
+    expect(sql).toContain("(m2.sens = 'recu' OR EXISTS");
+    // 🔴 LES TROIS CHAMPS, aux deux étages : `dest_cci` est précisément la forme des envois groupés.
+    for (const etage of ['m', 'm2']) {
+      for (const champ of ['dest_a', 'dest_cc', 'dest_cci']) expect(sql).toContain(`${etage}.${champ}`);
+    }
+    // ⚠️ L'ADRESSE EST LIÉE, jamais collée dans le SQL : elle vient de la base (`gestion_config`).
+    expect(sql).toContain("lower(dn ->> 'adresse') = $4");
+    expect(sql).not.toContain('gestion@');
+    // Et Réception ne réclame toujours RIEN sur le sens contraire : aucun échange n'en est exclu.
+    expect(sql).not.toContain("m.sens = 'envoye'");
   });
 
   it('Envoyés = le dernier message ENVOYÉ, le pendant EXACT', async () => {
@@ -250,12 +274,25 @@ describe('la règle des deux boîtes', () => {
     expect(env).not.toContain("NOT EXISTS (SELECT 1 FROM gestion_message m3");
   });
 
+  /**
+   * ⚠️ RÉÉCRIT PAR LE LOT BOITE-INTERNE-CORBEILLE. Il exigeait `p.de_adresse AS interlocuteur_adresse` NU sous
+   * Réception — vrai tant que toute ligne de Réception était un message reçu. Depuis qu'un envoi qui nous est
+   * adressé y entre, lire l'expéditeur sans regarder le sens afficherait « Gestion CRITERIMMO » comme
+   * correspondant de nos propres envois groupés. L'exigence n'a pas changé — l'interlocuteur suit le message —,
+   * seule sa forme s'adapte au fait qu'une ligne de Réception peut désormais être un envoi.
+   */
   it('l’interlocuteur suit le message AFFICHÉ, jamais l’autre sens', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
-    // Réception : l'expéditeur du message de la ligne, lu directement — la jointure latérale n'a plus rien à chercher.
-    expect(sqlPage()).toContain('p.de_adresse AS interlocuteur_adresse');
-    expect(sqlPage()).not.toContain("r.sens = 'recu'");
+    // Réception : l'expéditeur si le message est reçu, le destinataire si c'est un envoi qui nous est adressé.
+    expect(sqlPage().replace(/\s+/g, ' '))
+      .toContain("CASE WHEN p.sens = 'recu' THEN p.de_adresse ELSE (p.dest_a -> 0 ->> 'adresse') END");
+    /**
+     * ⚠️ ET LA JOINTURE LATÉRALE REVIENT SOUS RÉCEPTION — ce test exigeait son ABSENCE. Elle avait disparu au lot
+     * BOITE-SENS parce qu'il n'y avait plus rien à chercher ; il y a de nouveau quelque chose, le NOM du
+     * destinataire d'un envoi qui nous est adressé. Sans elle, ces lignes-là afficheraient une adresse nue.
+     */
+    expect(sqlPage()).toContain("r.sens = 'recu'");
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'envoyes', evenementId: null } });
     // Envoyés : le DESTINATAIRE du message de la ligne, jamais un expéditeur.
@@ -319,13 +356,21 @@ describe('la règle des deux boîtes', () => {
     expect(bloc).toContain('f2.brouillon_id IS NOT NULL');
   });
 
+  /**
+   * ⚠️ RÉÉCRIT PAR LE LOT BOITE-INTERNE-CORBEILLE. Il figeait `m2.sens = m.sens` et `WHERE m.sens = $1`. Cette
+   * forme-là disait « du même SENS que le candidat » — ce qui n'a plus de sens depuis qu'un envoi qui nous est
+   * adressé appartient à la Réception : un message reçu y serait comparé aux seuls reçus, et un envoi-à-nous-mêmes
+   * aux seuls envois, soit deux règles dans une même requête. L'EXIGENCE, elle, est intacte et c'est la seule qui
+   * compte : le compteur doit porter EXACTEMENT le prédicat de la liste, au caractère près.
+   */
   it('le TOTAL de chaque boîte porte la même règle que sa liste', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
-    // Le comptage compte les messages qui sont le dernier DE LEUR SENS : une ligne par échange, exactement la liste.
     const sql = (appelCompte()?.[0] as string).replace(/\s+/g, ' ');
-    expect(sql).toContain('m2.sens = m.sens');
-    expect(sql).toContain('WHERE m.sens = $1');
+    // 🔴 LE MÊME PRÉDICAT QUE LA LISTE, aux deux étages — il sort de la même fonction (`sqlAppartenance`).
+    expect(sql).toContain("(m.sens = 'recu' OR EXISTS");
+    expect(sql).toContain("(m2.sens = 'recu' OR EXISTS");
+    expect(sql).toContain("lower(dn ->> 'adresse') = $1");
     // 🔴 Et plus aucune trace du regroupement de l'exclusivité, qui comptait le dernier message TOUS SENS CONFONDUS.
     expect(sql).not.toContain('DISTINCT ON (m.fil_id)');
   });
@@ -443,6 +488,8 @@ describe('④ les étiquettes', () => {
   it('🔴 le filtre entre dans le PARCOURS, avant le LIMIT — sinon la page rend moins que ce qu’on a demandé', () => {
     for (const [sorte, marqueur] of [
       ['envoyes', "m.sens = 'envoye'"],  // LOT 5-BOITE-2 : le dernier message décide, et `m` EST ce dernier
+      // ⚠️ `sqlPageBoite` appelée DIRECTEMENT, sans rang d'adresse : le prédicat retombe alors mot pour mot sur
+      //    celui d'avant le lot BOITE-INTERNE-CORBEILLE. C'est cette propriété-là qui garde tout ce fichier lisible.
       ['reception', "m.sens = 'recu'"],
       ['sans_suite', "f0.etat = 'sans_suite'"],
       ['automatique', 'ml.exclu_le IS NULL'],
@@ -457,9 +504,14 @@ describe('④ les étiquettes', () => {
     expect(sqlPageBoite(false, etiq('reception'))).toBe(sqlPageBoite(false));
   });
 
+  /**
+   * ⚠️ « Réception » PASSE DE 3 À 4 PARAMÈTRES (lot BOITE-INTERNE-CORBEILLE) : le quatrième est NOTRE adresse, que
+   * le prédicat d'appartenance compare aux destinataires. Le reste du tableau ne bouge pas d'une ligne — et c'est
+   * bien le compte EXACT qui est vérifié, étiquette par étiquette, parce que c'est lui qui casse en production.
+   */
   it('🔴 le compte des paramètres LIÉS est exact — un de trop et PostgreSQL refuse la requête', async () => {
     for (const [sorte, id, attendu] of [
-      ['reception', null, 3], ['envoyes', null, 3], ['sans_suite', null, 3], ['automatique', null, 3],
+      ['reception', null, 4], ['envoyes', null, 3], ['sans_suite', null, 3], ['automatique', null, 3],
       ['a_classer', null, 4], ['carte', 7, 4],
     ] as const) {
       rendre([]);
@@ -470,6 +522,22 @@ describe('④ les étiquettes', () => {
       expect(sql.includes('$4')).toBe(attendu === 4);
       expect(sql).not.toContain('$5');
     }
+  });
+
+  /**
+   * 🔴 LE RANG DU FILTRE DES NON-LUS SUIT CELUI DE L'ADRESSE — le décalage d'un cran, en vrai.
+   *
+   * Sous « Réception », l'adresse prend `$4` : la liste des échanges retenus glisse donc en `$5`. Ce test existe
+   * parce que ce décalage-là est EXACTEMENT le défaut que ce dépôt a déjà connu (voir l'encadré `rangRetenus`) —
+   * et parce qu'il ne se voit pas : la requête part, PostgreSQL compare un identifiant à une adresse, et la liste
+   * des non-lus revient vide sans une seule erreur.
+   */
+  it('🔴 sous Réception, le filtre des non-lus prend $5 — pas $4, qui porte l’adresse', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], 30, { etiquette: etiq('reception'), filsRetenus: [12, 34] });
+    expect(paramsPage()).toHaveLength(5);
+    expect(paramsPage()[4]).toEqual([12, 34]);
+    expect(parcours(sqlPage())).toContain('m.fil_id = ANY($5::bigint[])');
   });
 
   it('une CARTE porte son identifiant en $4, et ne compte QUE ses échanges (pas les mails isolés)', async () => {
@@ -508,63 +576,94 @@ describe('④ les étiquettes', () => {
     expect((await lireBoiteMail(null, [], 30, { etiquette: etiq('sans_suite') })).total).toBeNull();
   });
 
-  it('chaque boîte compte AVEC SA RÈGLE : le sens est un paramètre LIÉ, jamais collé dans le SQL', async () => {
+  /**
+   * ⚠️ RÉÉCRIT PAR LE LOT BOITE-INTERNE-CORBEILLE. Il exigeait que le SENS soit un paramètre lié (`$1 = 'recu'`).
+   * Sous « Réception », le sens n'est plus à lui seul la règle : le paramètre lié y porte désormais NOTRE ADRESSE,
+   * et « Envoyés » n'a plus AUCUN paramètre — son prédicat est un littéral. L'exigence de fond ne change pas :
+   * rien qui vienne de la base n'est collé dans le SQL, et le compte des paramètres est exact des deux côtés
+   * (un de trop, et PostgreSQL refuse la requête).
+   */
+  it('chaque boîte compte AVEC SA RÈGLE, et rien de la base n’est collé dans le SQL', async () => {
     rendre([ligne(1)], 4944);
     await lireBoiteMail(null, [], 30, { etiquette: etiq('envoyes') });
-    expect((appelCompte()?.[1] as unknown[])?.[0]).toBe('envoye');
+    // « Envoyés » : un littéral, donc AUCUN paramètre — en passer un ferait échouer la requête.
+    expect(appelCompte()?.[1]).toEqual([]);
+    expect(appelCompte()?.[0]).toContain("m.sens = 'envoye'");
     rendre([ligne(1)], 4944);
     await lireBoiteMail(null, []);
-    expect((appelCompte()?.[1] as unknown[])?.[0]).toBe('recu');
+    // « Réception » : notre adresse, LIÉE, jamais écrite dans la requête.
+    expect((appelCompte()?.[1] as unknown[])?.[0]).toBe('gestion@criterimmo.fr');
+    expect(appelCompte()?.[0]).not.toContain('gestion@');
   });
 });
 
 /**
- * LOT 5-BOITE-3 — LA CORBEILLE DANS LE PARCOURS DE LA BOÎTE.
+ * ══ 🔴🔴 RÉÉCRIT PAR LE LOT BOITE-INTERNE-CORBEILLE (29/09/2026) — LA CORBEILLE A CHANGÉ DE NATURE ═══════════════
  *
- * 🔴 UNE SEULE RÈGLE, DEUX FORMES : l'étiquette « Corbeille » la MONTRE, toutes les autres l'ÉCARTENT. Écrites au
- * même endroit, elles ne peuvent pas diverger et laisser un échange invisible partout.
+ * CE QUE CE BLOC ÉPROUVAIT (lot 5-BOITE-3) : une corbeille INTERNE, posée sur `gestion_fil.corbeille_le`, dont
+ * l'appartenance se DÉRIVAIT d'une comparaison de dates — « le geste est-il postérieur au dernier message ? » —,
+ * ce qui offrait gratuitement le retour automatique d'un échange recevant un nouveau message.
+ *
+ * POURQUOI CE N'EST PLUS ÇA. Décision d'Arno : c'est la corbeille de GMAIL qui fait foi, un seul état synchronisé,
+ * comme le spam. L'état n'est donc plus le nôtre et n'est plus posé sur un ÉCHANGE mais sur des MESSAGES — il n'y a
+ * plus rien à dériver, la relève relit « [Gmail]/Corbeille » à chaque passe. Le retour automatique n'a pas disparu :
+ * il est devenu littéral (sortir un mail de la corbeille dans Gmail le fait revenir chez nous à la passe suivante).
+ * La corbeille interne n'avait JAMAIS servi — 0 échange sur 36 531 — et ses colonnes restent en base, non lues.
+ *
+ * CE QUE CE BLOC ÉPROUVE MAINTENANT, et c'est la même exigence sous une règle plus simple : une seule écriture de
+ * la règle, deux formes (positive sous son étiquette, négative partout ailleurs), et AUX DEUX ÉTAGES du parcours.
  */
 describe('la corbeille dans le parcours', () => {
   const etiq2 = (sorte: string) => ({ sorte, evenementId: null }) as Parameters<typeof sqlPageBoite>[1];
 
-  it('sans la migration 251, la colonne n’est JAMAIS nommée — sinon toute la boîte échouerait', () => {
+  it('sans la migration 275, la colonne n’est JAMAIS nommée — sinon toute la boîte échouerait', () => {
     for (const sorte of ['reception', 'envoyes', 'a_classer', 'corbeille'] as const) {
       expect(sqlPageBoite(false, etiq2(sorte), false)).not.toContain('corbeille_le');
     }
-  });
-
-  it('avec la migration, les autres étiquettes ÉCARTENT la corbeille', () => {
-    for (const sorte of ['reception', 'envoyes', 'a_classer'] as const) {
-      const sql = parcours(sqlPageBoite(false, etiq2(sorte), true)).replace(/\s+/g, ' ');
-      expect(sql).toContain('AND NOT EXISTS (SELECT 1 FROM gestion_fil fc');
-      expect(sql).toContain('fc.corbeille_le >= m.recu_le');
-    }
-  });
-
-  it('…et l’étiquette « Corbeille » la MONTRE, par la forme positive de la même règle', () => {
-    const sql = parcours(sqlPageBoite(false, etiq2('corbeille'), true)).replace(/\s+/g, ' ');
-    expect(sql).toContain('AND EXISTS (SELECT 1 FROM gestion_fil fc');
-    expect(sql).not.toContain('AND NOT EXISTS (SELECT 1 FROM gestion_fil fc');
+    // …et l'étiquette rend alors une liste VIDE plutôt qu'une liste fausse, comme « Brouillons ».
+    expect(parcours(sqlPageBoite(false, etiq2('corbeille'), false)).replace(/\s+/g, ' ')).toContain('AND false');
   });
 
   /**
-   * 🔴 LE RETOUR AUTOMATIQUE, ET IL EST GRATUIT : le message de la ligne étant le DERNIER de son échange (au lot
-   * BOITE-SENS : le dernier DANS SON SENS), comparer le geste à sa date suffit. Un nouveau message arrive → sa date
-   * dépasse celle du geste → l'échange revient dans sa boîte, sans qu'une seule ligne soit écrite, et sans que la
-   * relève ait à savoir que la corbeille existe.
+   * 🔴 AUX DEUX ÉTAGES, ET C'EST LE CŒUR — même leçon que le spam, payée une fois. Posée sur le seul message
+   * candidat, l'exclusion laisserait un mail supprimé jouer le rôle de « dernier message de l'échange » : la
+   * ligne disparaîtrait de la Réception alors que son vrai dernier message est bien là.
    */
-  it('la comparaison porte sur le message AFFICHÉ : c’est ce qui fait revenir l’échange tout seul', () => {
-    const sql = parcours(sqlPageBoite(false, etiq2('reception'), true)).replace(/\s+/g, ' ');
-    expect(sql).toContain('fc.corbeille_le >= m.recu_le');
+  it('avec la migration, les autres étiquettes ÉCARTENT la corbeille, aux DEUX étages', () => {
+    for (const sorte of ['reception', 'envoyes', 'a_classer'] as const) {
+      const sql = parcours(sqlPageBoite(false, etiq2(sorte), true)).replace(/\s+/g, ' ');
+      expect(sql).toContain('AND m.corbeille_le IS NULL');
+      expect(sql).toContain('AND m2.corbeille_le IS NULL');
+    }
   });
 
-  it('le total d’une boîte écarte la corbeille par la MÊME règle', async () => {
+  /**
+   * 🔴 ET LA FORME POSITIVE ENTRE AUSSI DANS `m2`. Laissée vide sous « Corbeille », elle comparerait le mail
+   * supprimé à TOUS les messages de son échange : un mail jeté au milieu d'une conversation vivante aurait
+   * toujours un successeur et n'apparaîtrait NULLE PART. Une corbeille où l'on ne retrouve pas ce qu'on y a mis
+   * n'est pas une corbeille.
+   */
+  it('…et l’étiquette « Corbeille » la MONTRE, par la forme positive de la même règle', () => {
+    const sql = parcours(sqlPageBoite(false, etiq2('corbeille'), true)).replace(/\s+/g, ' ');
+    expect(sql).toContain('AND m.corbeille_le IS NOT NULL');
+    expect(sql).toContain('AND m2.corbeille_le IS NOT NULL');
+    expect(sql).not.toContain('m.corbeille_le IS NULL');
+  });
+
+  /** ⚠️ LA COLONNE DE LA 251 N'EST PLUS NOMMÉE NULLE PART — elle existe en base, elle n'est plus lue. */
+  it('🔴 la corbeille INTERNE de la 251 n’est plus lue nulle part', () => {
+    for (const sorte of ['reception', 'envoyes', 'a_classer', 'corbeille'] as const) {
+      expect(sqlPageBoite(false, etiq2(sorte), true)).not.toContain('gestion_fil fc');
+    }
+  });
+
+  it('le total d’une boîte écarte la corbeille par la MÊME règle, aux deux étages', async () => {
     rendre([], 4944);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: etiq2('reception') });
     const sql = (appelCompte()?.[0] as string).replace(/\s+/g, ' ');
-    expect(sql).toContain('m2.sens = m.sens');
-    // 🔴 LA MÊME FORMULE QUE LA LISTE, mot pour mot : le geste comparé à la date du message affiché. Deux écritures
-    //   différentes du même filtre donneraient un total que la liste ne montre pas — et c'est le total qu'on croit.
-    expect(sql).toContain('fc.corbeille_le >= m.recu_le');
+    // 🔴 LA MÊME FORMULE QUE LA LISTE, mot pour mot. Deux écritures différentes du même filtre donneraient un
+    //   total que la liste ne montre pas — et c'est le total qu'on croit.
+    expect(sql).toContain('AND m.corbeille_le IS NULL');
+    expect(sql).toContain('AND m2.corbeille_le IS NULL');
   });
 });

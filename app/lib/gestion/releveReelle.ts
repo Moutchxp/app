@@ -136,7 +136,32 @@ export function depsReellesReleve(journal?: (ligne: string) => void, options: Op
        */
       const principal = await capturer(depsCapture(), appliquer, optionsCapture);
       const spam = await capturerSpam(async () => { courant = await fabriquer(); return depsCapture(); }, appliquer, journal);
-      return spam === null ? principal : additionnerRapports(principal, spam);
+      /**
+       * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LA TROISIÈME PASSE, EN DEUX TEMPS ═══════════════════════════════════
+       *   ① CAPTURE, exactement comme le spam : les mails de « [Gmail]/Corbeille » que nous ne connaissons pas
+       *      entrent chez nous, marqués `corbeille_le`. Sans ce temps-là, la Corbeille serait VIDE — mesuré sur la
+       *      vraie boîte le 29/09/2026 : 16 mails dans le dossier, ZÉRO connu de notre base. C'est logique, et
+       *      c'est ce qui rend la capture indispensable : un mail mis à la corbeille PERD le libellé de gestion,
+       *      donc la passe ordinaire ne le voit plus — et ne l'a jamais vu s'il a été jeté avant elle.
+       *   ② RÉCONCILIATION, qui fait du miroir un miroir : marque posée sur ce qui est dans le dossier, RETIRÉE de
+       *      tout le reste. Sans elle, un mail réintégré depuis un téléphone resterait à la corbeille chez nous.
+       *
+       * ⚠️ DEUX CONNEXIONS, ET IL LE FAUT. `capturer` referme TOUJOURS la boîte dans son `finally` (garantie du
+       * lot 3-ter), et une instance ImapFlow ne se rouvre pas — c'est l'enseignement, payé deux fois, de la passe
+       * de spam juste au-dessus. Chaque temps prend donc un client NEUF.
+       *
+       * ⚠️ EN SIMULATION, LE TEMPS ② NE TOURNE PAS : réconcilier est une écriture. Le temps ① se comporte comme
+       * toute capture simulée — il lit, il compte, il n'écrit rien.
+       */
+      const corbeille = await capturerCorbeille(
+        async () => { courant = await fabriquer(); return depsCapture(); }, appliquer, journal);
+      const miroir = appliquer ? await reconcilierCorbeille(journal) : null;
+      if (miroir !== null) {
+        journal?.(`corbeille : ${miroir.vus} mail(s) dans le dossier · ${miroir.poses} marqué(s) · `
+          + `${miroir.retires} sorti(s) de la corbeille`);
+      }
+      return [spam, corbeille].reduce<RapportCapture>(
+        (acc, r) => (r === null ? acc : additionnerRapports(acc, r)), principal);
     },
   };
 
@@ -201,6 +226,131 @@ async function capturerSpam(
   } catch (e) {
     // On le DIT. Un spam non relevé n'est pas grave ; un échec muet le serait.
     journal?.(`spam : passe ignorée (${e instanceof Error ? e.message : String(e)})`);
+    return null;
+  }
+}
+
+/** Le dossier de corbeille d'une boîte Gmail en français. Relevé sur la VRAIE boîte le 29/09/2026 (`listerBoites`). */
+export const DOSSIER_CORBEILLE = '[Gmail]/Corbeille';
+
+/**
+ * ① LA CAPTURE DES MAILS DE LA CORBEILLE. Jumelle de `capturerSpam`, au drapeau près.
+ *
+ * 🔴 LE DOSSIER EST LU DEPUIS SON ORIGINE, PAS SUR UNE FENÊTRE — et c'est la seule différence de fond avec le
+ * spam. La corbeille de Gmail se vide toute seule au bout de 30 jours, mais ce délai court depuis la MISE à la
+ * corbeille : on y jette parfaitement un mail vieux de deux ans, et une fenêtre sur `recu_le` l'aurait manqué.
+ * Le filtre des UID déjà vus fait tout le travail : une passe suivante ne relit pas ce qu'elle a déjà lu.
+ *
+ * 🔒 AUCUNE ACTION SUR LE DRIVE. Ce que la capture dépose, ce sont les PIÈCES dans notre stockage S3
+ * (`deposerPieceGestion`) — la copie vers le Drive est un tout autre chantier, déclenché à la main. Rien ici
+ * n'ouvre le Drive.
+ */
+async function capturerCorbeille(
+  neufDeps: () => Promise<Parameters<typeof capturer>[0]>, appliquer: boolean, journal?: (l: string) => void,
+): Promise<RapportCapture | null> {
+  const { corbeilleGmailDisponible } = await import('./schema');
+  if (!await corbeilleGmailDisponible()) {
+    journal?.('corbeille : ignorée (migration 275 non appliquée — rien à écrire, rien à lire)');
+    return null;
+  }
+  try {
+    journal?.(`corbeille : lecture du dossier « ${DOSSIER_CORBEILLE} » (lecture seule)`);
+    return await capturer(await neufDeps(), appliquer, {
+      dossierForce: DOSSIER_CORBEILLE,
+      depuisForce: ORIGINE_DOSSIER,
+      marquerCorbeille: true,
+    });
+  } catch (e) {
+    // On le DIT. Un mail de corbeille non relevé n'est pas grave ; un échec muet le serait.
+    journal?.(`corbeille : capture ignorée (${e instanceof Error ? e.message : String(e)})`);
+    return null;
+  }
+}
+
+/**
+ * ══ 🔴🔴 ② LA RÉCONCILIATION — PAR L'API GMAIL, ET SURTOUT PAS PAR IMAP ════════════════════════════════════════
+ *
+ * Elle relit tout ce que GMAIL tient pour supprimé et fait coïncider notre colonne : marque posée sur ceux-là,
+ * RETIRÉE de tous les autres. C'est ce second sens qui fait de `corbeille_le` un miroir et non une opinion — sans
+ * lui, un mail réintégré depuis un téléphone resterait chez nous à la corbeille pour toujours, invisible dans ses
+ * vraies boîtes.
+ *
+ * ═══ 🔴 POURQUOI L'API ET NON LE DOSSIER IMAP — DÉFAUT TROUVÉ PAR L'ESSAI RÉEL DU 29/09/2026 ═══════════════════
+ *
+ * Première écriture : on lisait « [Gmail]/Corbeille » en IMAP, comme la passe de spam lit « [Gmail]/Spam ».
+ * Mesuré ce jour-là, les deux vues de la MÊME corbeille ne disent pas la même chose :
+ *
+ *     API Gmail, « in:trash »     → 15 messages, DONT le mail de test qu'on venait d'y mettre
+ *     IMAP, « [Gmail]/Corbeille » → 16 messages, SANS ce mail — dix minutes plus tard, toujours sans
+ *
+ * Le mail portait `UNREAD TRASH SENT` : c'est un message que NOUS avions envoyé, et l'IMAP d'une boîte Gmail ne
+ * le sort pas de son dossier « envoyés ». Ce n'est pas un retard, c'est une divergence durable — et elle a produit
+ * exactement ce qu'on redoutait : mis à la corbeille à 17 h 01, REVENU TOUT SEUL en Réception à 17 h 02.
+ *
+ * 🔴 ON RÉCONCILIE DONC DEPUIS LA SOURCE OÙ L'ON ÉCRIT. Les gestes passent par l'API (`trash` / `untrash`) ;
+ * l'état se relit par l'API. Deux sources pour un même fait finissent toujours par se contredire.
+ *
+ * ⚠️ LA CAPTURE, ELLE, RESTE EN IMAP (temps ①) : elle a besoin du message COMPLET, pièces comprises, et c'est ce
+ * que le dossier sait donner. Les deux temps ne répondent pas à la même question — l'un demande « que contient ce
+ * mail ? », l'autre « où est-il ? ».
+ *
+ * 🔴 ON NE RÉCONCILIE JAMAIS SUR UNE LECTURE INCOMPLÈTE. Pas de jeton, un refus de Google, une page manquante :
+ * on s'abstient. Réconcilier sur une liste tronquée retirerait la marque de tout ce qu'on n'a pas su lire.
+ *
+ * 🔒 LECTURE SEULE : `messages.list` puis `format=metadata` — aucun libellé posé, aucun message déplacé, rien de
+ * supprimé. Et aucun corps rapatrié : on ne demande que l'en-tête `Message-Id`.
+ */
+async function reconcilierCorbeille(
+  journal?: (l: string) => void,
+): Promise<{ vus: number; poses: number; retires: number } | null> {
+  const { corbeilleGmailDisponible } = await import('./schema');
+  if (!await corbeilleGmailDisponible()) {
+    journal?.('corbeille : réconciliation ignorée (migration 275 non appliquée)');
+    return null;
+  }
+  try {
+    const { jetonAccesGestion } = await import('./jetonAcces');
+    const jeton = await jetonAccesGestion();
+    if (jeton.etat !== 'ok') {
+      journal?.(`corbeille : réconciliation ignorée (Google indisponible — ${jeton.motif})`);
+      return null;
+    }
+    const { listerCorbeilleGmail, lireEnteteGmail } = await import('./google');
+    const liste = await listerCorbeilleGmail(jeton.jeton, { fetch });
+    if (!liste.ok) { journal?.(`corbeille : réconciliation ignorée (${liste.motif})`); return null; }
+
+    /**
+     * ⚠️ UN APPEL PAR MESSAGE POUR SON `Message-Id`, et rien de plus (`format=metadata`, un seul en-tête). C'est
+     * le prix du pont entre les deux mondes : Gmail désigne ses messages par un identifiant à lui, notre base par
+     * le `Message-ID` de l'en-tête — le seul repère stable, qui ne bouge ni au déplacement ni au réétiquetage.
+     * Concurrence bornée, comme partout ailleurs dans ce module.
+     */
+    const { mapConcurrenceBornee } = await import('../concurrence');
+    const entetes = await mapConcurrenceBornee(liste.valeur, 5,
+      (m) => lireEnteteGmail(jeton.jeton, m.id, { fetch }));
+
+    /**
+     * 🔴 SI UNE SEULE LECTURE A ÉCHOUÉ, ON NE RÉCONCILIE PAS. Une liste incomplète ferait retirer la marque des
+     * mails dont on n'a pas su lire l'en-tête — c'est-à-dire supprimer de la corbeille ce qu'on n'a pas regardé.
+     */
+    const rates = entetes.filter((r) => !r.ok).length;
+    if (rates > 0) {
+      journal?.(`corbeille : réconciliation ignorée (${rates} en-tête(s) illisible(s) sur ${liste.valeur.length})`);
+      return null;
+    }
+    const ids = entetes
+      .map((r) => (r.ok ? r.valeur.messageIdRfc : null))
+      .filter((m): m is string => m !== null);
+
+    const { reconcilier } = await import('./corbeilleRepo');
+    const r = await reconcilier(ids);
+    if (r?.refuse === 'aucune_correspondance') {
+      journal?.(`corbeille : réconciliation REFUSÉE — ${ids.length} mail(s) à la corbeille chez Gmail, aucun `
+        + 'reconnu chez nous. Rien n’a été retiré (voir le journal du serveur).');
+    }
+    return r === null ? null : { vus: liste.valeur.length, ...r };
+  } catch (e) {
+    journal?.(`corbeille : réconciliation ignorée (${e instanceof Error ? e.message : String(e)})`);
     return null;
   }
 }

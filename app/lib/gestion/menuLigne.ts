@@ -120,7 +120,15 @@ export function menuLigne(etat: EtatLigne): EntreeLigne[] {
       }
       : {
         cle: 'corbeille', libelle: 'Supprimer', discrete: true,
-        aide: 'Rien n’est supprimé : l’échange part à la corbeille, reste intact dans Gmail, et revient tout seul si un nouveau message arrive.',
+        /**
+         * 🔴 LOT BOITE-INTERNE-CORBEILLE — RÉÉCRITE, PARCE QU'ELLE N'ÉTAIT PLUS VRAIE.
+         * Elle disait « reste intact dans Gmail, et revient tout seul si un nouveau message arrive » : c'était la
+         * corbeille INTERNE du lot 5-BOITE-3, qui ne touchait rien. Le geste agit maintenant sur la VRAIE boîte —
+         * vérifié le 29/09/2026, le mail porte le libellé TRASH après le clic. L'aide doit donc dire ce que ça
+         * coûte (l'échange part pour toute l'équipe, Gmail l'efface au bout de 30 jours) ET ce que ça ne coûte
+         * pas (notre copie reste, et la réintégration est à un clic).
+         */
+        aide: 'L’échange part à la corbeille de Gmail, pour toute l’équipe. Notre copie reste en base, et « Réintégrer » le ramène d’un clic. Passé 30 jours, Gmail efface son contenu lui-même.',
       });
   }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CurseurBoite, LigneBoite } from '../../../../lib/gestion/boiteRepo';
 // 🔴 `rechercheTermes` et NON `rechercheBoite` : le second contient le SQL et tire `pg` → `dns`, que le navigateur
 //   n'a pas. L'importer ici a fait tomber TOUTE l'application le 24/09/2026, page de connexion comprise.
@@ -293,7 +293,7 @@ export function BoiteMail({
   onOuvrir, onRouvrirBrouillon, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
   dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
   versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
-  etoile = false, onEtoileFiltre,
+  etoile = false, onEtoileFiltre, selection,
 }: {
   /**
    * ══ 🔴 LOT MESSAGE-CLIQUÉ — ON OUVRE L'ÉCHANGE **ET** LE MESSAGE DE LA LIGNE ══════════════════════════════════
@@ -390,6 +390,26 @@ export function BoiteMail({
   onEtoileFiltre?: (actif: boolean) => void;
   /** Prévient le parent que la liste vient de se relire — il peut oublier ce qu'il avait à annoncer. */
   onListeRelue?: () => void;
+  /**
+   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LA SÉLECTION PAR CASES ═══════════════════════════════════════════════════
+   *
+   * ABSENTE (le défaut, et toutes les autres étiquettes) ⇒ AUCUNE case n'est rendue : la liste est alors
+   * EXACTEMENT celle d'avant ce lot, au pixel près. C'est la règle de ce composant depuis le lot 5-BOITE-3 pour le
+   * menu d'une ligne, et elle vaut ici : une case à cocher sur chaque ligne de la Réception serait un ajout que
+   * personne n'a demandé.
+   *
+   * 🔴 LA CASE PORTE L'ÉCHANGE, pas le mail — comme la ligne elle-même. Le geste, lui, ira chercher les mails
+   * concernés côté serveur (`messagesDuFil`), là où la question se pose vraiment.
+   *
+   * ⚠️ `onPage` REMONTE LES LIGNES AFFICHÉES à chaque lecture. Sans lui, « tout sélectionner (la page) » devrait
+   * deviner ce que la liste montre — or elle seule le sait, pagination et « Voir plus » compris.
+   */
+  selection?: {
+    actives: ReadonlySet<number>;
+    onBasculer: (filId: number, coche: boolean) => void;
+    /** Les lignes AFFICHÉES, avec le nombre de mails que chacune porte à la corbeille (cf. `nbCorbeille`). */
+    onPage: (lignes: { filId: number; nbCorbeille: number }[]) => void;
+  };
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [autoInterne, setAutoInterne] = useState(false);
@@ -566,6 +586,50 @@ export function BoiteMail({
   const totalNonLus = etat.v === 'ok' ? etat.nonLusTotal : null;
   const partielNonLus = etat.v === 'ok' && etat.nonLusPartiel;
   useEffect(() => { if (onNonLus) onNonLus(totalNonLus, partielNonLus); }, [onNonLus, totalNonLus, partielNonLus]);
+
+  /**
+   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LES LIGNES AFFICHÉES REMONTENT AU PARENT ═════════════════════════════════
+   * Elle seule sait ce qu'elle montre : la page courante, plus tout ce que « Voir plus » a déroulé. Le parent en a
+   * besoin pour « tout sélectionner (la page) » — et pour ÉLAGUER sa sélection quand la liste se relit : un
+   * échange réintégré disparaît de la corbeille, et une case cochée sur une ligne absente ferait agir sur un mail
+   * qu'on ne voit plus.
+   *
+   * ⚠️ LES LIGNES FABRIQUÉES SONT ÉCARTÉES (`filId > 0`) : un mail qui n'est pas parti n'est pas un échange, il
+   * n'a pas de corbeille, et rien ne doit pouvoir le sélectionner.
+   *
+   * ⚠️ LA CLÉ EST LA CHAÎNE DES IDENTIFIANTS, et non le tableau : un tableau recréé à chaque rendu relancerait
+   * l'effet sans fin — le même piège que `EncartAnnuaire` a déjà rencontré.
+   */
+  const cleAffiches = etat.v === 'ok'
+    ? etat.lignes.filter((l) => l.filId > 0).map((l) => `${l.filId}:${l.nbCorbeille ?? 0}`).join(',')
+    : '';
+  /**
+   * 🔴 LA FONCTION PASSE PAR UNE RÉFÉRENCE, ET L'EFFET NE DÉPEND QUE DE LA CLÉ — CORRECTIF MESURÉ.
+   *
+   * Première écriture : `useEffect(…, [onPage, cleAffiches])`. `selection` est un objet littéral, donc RECRÉÉ à
+   * chaque rendu du parent ; `onPage` changeait donc d'identité à chaque rendu, l'effet repartait, il appelait le
+   * parent, qui posait un état, qui re-rendait… Le test d'écran ne s'est pas contenté d'échouer : il a TOURNÉ SANS
+   * FIN, ce qui est la forme la plus coûteuse de ce défaut — on ne la découvre pas en lisant un diff.
+   *
+   * La CLÉ (la chaîne des identifiants et de leurs comptes) est la seule chose qui doit déclencher l'appel : c'est
+   * elle, et elle seule, qui dit que la liste montre autre chose qu'avant.
+   */
+  const onPageRef = useRef(selection?.onPage);
+  /**
+   * ⚠️ LA RÉFÉRENCE S'ÉCRIT DANS UN EFFET, jamais pendant le rendu : le compilateur React refuse d'y toucher au
+   * rendu (« Cannot access refs during render »), et il a raison — une référence lue pendant le rendu rend le
+   * résultat dépendant de l'ordre des rendus. Cet effet-ci est DÉCLARÉ AVANT celui qui la lit, et React les
+   * exécute dans l'ordre de déclaration : la valeur est donc toujours à jour quand on s'en sert.
+   */
+  useEffect(() => { onPageRef.current = selection?.onPage; });
+  useEffect(() => {
+    const dire = onPageRef.current;
+    if (dire === undefined) return;
+    dire(cleAffiches === '' ? [] : cleAffiches.split(',').map((x) => {
+      const [f, n] = x.split(':');
+      return { filId: Number(f), nbCorbeille: Number(n) };
+    }));
+  }, [cleAffiches]);
 
   async function voirPlus() {
     if (etat.v !== 'ok' || etat.suivant === null || suite) return;
@@ -828,10 +892,20 @@ export function BoiteMail({
       {/* LÀ OÙ L'ÉTIQUETTE DÉCIDE À LA PLACE DE L'INTERRUPTEUR, on le DIT. L'interrupteur lui-même n'a rien perdu : il
           reste où il a toujours été — sur la boîte entière — et il commande en plus « Envoyés », « Sans suite » et les
           cartes. (L'étiquette « À classer » n'arrive jamais ici : le plein écran y affiche le poste de tri lui-même.) */}
+      {/* ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — DEUX ÉTIQUETTES IMPOSENT L'INTERRUPTEUR, ET POUR DEUX RAISONS
+          OPPOSÉES. Vu à l'écran le 29/09/2026 : la Corbeille affichait « cette étiquette ne rassemble QUE les
+          échanges dont aucun message n'est lisible » — la phrase du Courrier automatique, parfaitement fausse ici.
+          Les deux passaient par le même `impose === true`, qui dit seulement « l'interrupteur ne décide pas »,
+          jamais POURQUOI. La Corbeille impose l'inverse : elle montre TOUT ce qu'elle contient, courrier
+          automatique compris — sans quoi un échange entièrement automatique qu'on vient de jeter ne serait visible
+          NULLE PART. Même mécanisme, deux phrases. */}
       {!cherche && impose === true && (
         <p className="gst-tronc">
-          Cette étiquette ne rassemble QUE les échanges dont aucun message n’est lisible — d’où l’absence
-          d’interrupteur ici. Le reste du courrier est sous les autres étiquettes, rien n’est supprimé.
+          {etiquette.sorte === 'corbeille'
+            ? 'Cette liste montre TOUT ce qui est à la corbeille, courrier automatique compris — d’où l’absence '
+              + 'd’interrupteur ici. Rien n’est caché : ce que vous y avez mis s’y retrouve.'
+            : 'Cette étiquette ne rassemble QUE les échanges dont aucun message n’est lisible — d’où l’absence '
+              + 'd’interrupteur ici. Le reste du courrier est sous les autres étiquettes, rien n’est supprimé.'}
         </p>
       )}
 
@@ -887,6 +961,18 @@ export function BoiteMail({
               const nonLu = etat.nonLus.has(l.filId);
               return (
               <li key={l.filId} className="bte-li">
+                {/* 🔴 LA CASE EST HORS DU BOUTON DE LIGNE, et c'est obligatoire : un `<input>` dans un `<button>`
+                    est du HTML invalide, et le clic sur la case ouvrirait l'échange au lieu de la cocher. Elle est
+                    posée AVANT le menu, donc avant la ligne, pour que la tabulation la rencontre d'abord.
+                    ⚠️ `stopPropagation` sur le clic : `MenuLigne` enveloppe la ligne et écoute le clic droit ;
+                    sans lui, cocher ouvrirait aussi le menu contextuel sur certains navigateurs. */}
+                {selection !== undefined && l.filId > 0 && (
+                  <input type="checkbox" className="bte-choix"
+                    checked={selection.actives.has(l.filId)}
+                    aria-label={`Sélectionner « ${nettoyerObjet(l.objet) || '(sans objet)'} »`}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => selection.onBasculer(l.filId, e.target.checked)} />
+                )}
                 {/* LOT 5-BOITE-3 — LE MENU ENVELOPPE LA LIGNE : c'est sur ELLE que se posent le clic droit et
                     l'appui long. Mesuré à l'écran : posés sur le seul bouton « ⋯ », ils n'ouvraient rien. Sans
                     entrée à proposer, `MenuLigne` rend la ligne telle quelle — l'écran d'avant, à l'identique. */}
@@ -1301,6 +1387,20 @@ const CSS_BOITE = `
 .bte-f--court{flex:0 1 8.5rem}
 .bte-f-nom{font-size:.78rem;color:var(--color-svv-muted)}
 .bte-listes{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:0;padding:0;border:0;min-width:0}
+/* LOT BOITE-INTERNE-CORBEILLE — la case de SÉLECTION d'une ligne.
+
+   Nom DISTINCT de .bte-case, qui existait déjà pour les cases du panneau de recherche : deux règles sous le même
+   nom se seraient écrasées en silence, et la plus tardive aurait gagné sans que rien ne le signale.
+
+   AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un littéral gabarit, qu'un seul accent grave terminerait. Le
+   piège s'est refermé une septième fois en écrivant ces lignes — et, comme la fois précédente, dans le
+   commentaire même qui met en garde contre autre chose.
+
+   La CIBLE tactile vient du padding de la ligne (44 px de haut) : la case elle-même reste petite pour ne pas
+   pousser le correspondant hors de sa colonne dans la grille dense. */
+.bte-choix{flex:0 0 auto;align-self:center;width:18px;height:18px;margin:0 2px 0 4px;min-height:auto;
+  accent-color:var(--color-svv-red);cursor:pointer}
+.bte-choix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .bte-case{display:inline-flex;align-items:center;gap:.3rem;font-size:.82rem;color:var(--color-svv-ink);
   min-height:32px;cursor:pointer}
 .bte-avancee-boutons{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}

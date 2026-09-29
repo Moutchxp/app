@@ -83,6 +83,11 @@ export interface MessageAEcrire {
    * (migration 263) ; sans la migration, la colonne n'est pas nommée et ce champ n'a aucun effet.
    */
   spam?: boolean;
+  /**
+   * LOT BOITE-INTERNE-CORBEILLE — ce message était dans la corbeille de Gmail au moment où on l'a lu. Même nature
+   * que `spam` juste au-dessus : une CONSTATATION, faite sur le dossier qu'on a ouvert, jamais déduite du contenu.
+   */
+  corbeille?: boolean;
 }
 
 /** Le fil auquel un message se rattache, une fois résolu en base. */
@@ -209,6 +214,13 @@ export interface OptionsCapture {
    * qui a choisi le dossier, et jamais déduit du contenu.
    */
   marquerSpam?: boolean;
+  /**
+   * LOT BOITE-INTERNE-CORBEILLE — les messages de CETTE passe sont à la corbeille de Gmail.
+   *
+   * 🔴 MÊME NATURE QUE `marquerSpam`, ET MÊME GARDE-FOU : c'est le DOSSIER OUVERT qui fait preuve, pas le contenu.
+   * Le drapeau est posé par l'appelant qui a choisi « [Gmail]/Corbeille », et par personne d'autre.
+   */
+  marquerCorbeille?: boolean;
 }
 
 /** Au-delà de ce seuil, une lecture est signalée EN DIRECT dans la progression : c'est le symptôme qu'on cherchait à voir. */
@@ -291,7 +303,7 @@ export function sensDuMessage(deAdresse: string, adresseGestion: string): 'recu'
  * mois après, pourquoi un message n'était pas dans la file.
  */
 export function preparerMessage(
-  m: MessageBrut, config: ConfigGestion, regles: readonly RegleExclusion[], spam = false,
+  m: MessageBrut, config: ConfigGestion, regles: readonly RegleExclusion[], spam = false, corbeille = false,
 ): MessageAEcrire {
   const sens = sensDuMessage(m.deAdresse, config.adresseGestion);
   const indice = indiceAutomatisme(m.deAdresse, m.entetes);
@@ -311,6 +323,7 @@ export function preparerMessage(
     signauxAutomatisme: indice.motifs.length > 0 ? indice.motifs.join(',') : null,
     exclusion,
     spam,
+    corbeille,
   };
 }
 
@@ -412,7 +425,8 @@ export async function capturer(deps: DepsCapture, appliquer = false, options: Op
       if (mid === '' || connus.has(mid)) { r.dejaConnus += 1; continue; }
       connus.add(mid); // un même Message-ID deux fois dans la même passe ne s'écrit qu'une fois
 
-      const prepare = preparerMessage(m, config, regles, options.marquerSpam === true);
+      const prepare = preparerMessage(m, config, regles, options.marquerSpam === true,
+        options.marquerCorbeille === true);
       if (prepare.sens === 'envoye') r.envoyes += 1; else r.recus += 1;
       if (prepare.exclusion !== null) {
         r.exclus += 1;
