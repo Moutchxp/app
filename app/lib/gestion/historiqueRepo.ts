@@ -20,12 +20,15 @@
 import { query } from '../db/client';
 import { adressesDuChamp } from './adressesMessage';
 import { nomBien, nomProprietaire } from './driveArbre';
-import { deplacementsDeMailsDisponibles, rattachementsDisponibles } from './schema';
+import { deplacementsDeMailsDisponibles, horsGestionDisponible, rattachementsDisponibles } from './schema';
+// LOT FICHES-ANNUAIRE — LA MÊME fonction pure que la boîte : un seul verdict de statut pour tout le module.
+import { capsuleStatut, type CapsuleStatut } from './statutClassement';
 import { cibleEvenement, cibleLot, cibleProprietaire, type Cible } from './rattachement';
 import { libelleCible, type LienAffiche } from './rattachementRepo';
 import {
   texteCible, INTERLOCUTEURS_MAX,
-  type EnteteHistorique, type FiltresHistorique, type Interlocuteur, type LigneHistorique, type PieceHistorique,
+  type EnteteHistorique, type EvenementDeLigne, type FiltresHistorique, type Interlocuteur,
+  type LigneHistorique, type PieceHistorique,
 } from './historique';
 
 /** L'extrait d'un mail dans la frise : assez pour reconnaître de quoi il parle, pas assez pour peser. */
@@ -244,6 +247,16 @@ function conditions(f: FiltresHistorique): { sql: string; params: unknown[] } {
     // L'objet ET le texte : chercher « préavis » sans regarder le corps ne trouverait que les mails bien intitulés.
     bouts.push(`(coalesce(m.objet, '') ILIKE ${p} OR coalesce(m.corps_texte, '') ILIKE ${p})`);
   }
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE — « AVEC ÉVÉNEMENT OUVERT ». Un événement est posé sur l'ÉCHANGE, pas sur le mail :
+   * la condition remonte donc au fil. « Ouvert » se lit « pas encore traité » — les trois états sont
+   * `a_traiter`, `en_cours` et `traite` (contrainte de la table), et les deux premiers attendent une réponse.
+   */
+  if (f.evenementOuvert) {
+    bouts.push(`EXISTS (SELECT 1 FROM gestion_affectation af
+                          JOIN gestion_evenement ev ON ev.id = af.evenement_id
+                         WHERE af.fil_id = m.fil_id AND af.actif AND ev.etat <> 'traite')`);
+  }
   return { sql: bouts.length === 0 ? '' : ` AND ${bouts.join(' AND ')}`, params };
 }
 
@@ -291,6 +304,10 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   const suite = rows.length > f.taille;
   const gardees = rows.slice(0, f.taille);
   const pieces = await piecesDesMessages(gardees.map((r) => Number(r.message_id)));
+  // 🔴 LOT FICHES-ANNUAIRE — les événements des ÉCHANGES de cette page, en UNE requête (jamais une par ligne).
+  const evenements = await evenementsDesFils(gardees.map((r) => Number(r.fil_id)));
+  // 🔴 … et la capsule de statut de chaque MAIL, par la MÊME fonction pure que la boîte.
+  const statuts = await statutsDesMessages(gardees.map((r) => Number(r.message_id)));
 
   return {
     suite,
@@ -311,9 +328,97 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
           lots: new Map(), proprietaires: new Map(),
         }),
         source: r.source === 'carte' ? 'carte' : 'rattachement',
+        evenements: evenements.get(Number(r.fil_id)) ?? [],
+        statut: statuts.get(Number(r.message_id))?.statut ?? null,
+        statutDetail: statuts.get(Number(r.message_id))?.detail ?? null,
       };
     }),
   };
+}
+
+/**
+ * ══ 🔴 LA CAPSULE DE STATUT DE CHAQUE MAIL D'UNE PAGE ═════════════════════════════════════════════════════════
+ *
+ * Les mêmes entrées que la boîte (`boiteRepo`), passées à la MÊME fonction pure (`capsuleStatut`) : rattachements
+ * CONFIRMÉS vers un logement ou un propriétaire, et « quelqu'un a-t-il tranché » (origine manuelle, ou statut
+ * touché par une main). Deux calculs du même verdict finiraient par se contredire, et c'est celui qu'on regarde
+ * le moins qui garderait l'erreur.
+ *
+ * ⚠️ DEUX SONDES, ET ELLES VOYAGENT AVEC LEUR TABLE : sans la 257 on ne nomme pas `gestion_rattachement`, sans la
+ * 266 on ne nomme pas `gestion_hors_gestion`. Une carte vide vaut mieux qu'un écran qui tombe.
+ */
+async function statutsDesMessages(
+  messageIds: readonly number[],
+): Promise<Map<number, { statut: CapsuleStatut; detail: string | null }>> {
+  const out = new Map<number, { statut: CapsuleStatut; detail: string | null }>();
+  const uniques = [...new Set(messageIds)];
+  if (uniques.length === 0) return out;
+  const [avecRattachements, avecHorsGestion] = await Promise.all([
+    rattachementsDisponibles(), horsGestionDisponible(),
+  ]);
+  if (!avecRattachements) return out;
+  const { rows } = await query<{
+    message_id: string; n: number; humain: boolean | null; detail: string | null; hg: boolean | null;
+  }>(
+    `SELECT m.id AS message_id,
+            coalesce(cl.n, 0)::int AS n, cl.humain, cl.detail,
+            ${avecHorsGestion ? 'hg.marque' : 'NULL::boolean'} AS hg
+       FROM gestion_message m
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS n,
+                bool_or(r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL) AS humain,
+                string_agg(coalesce(nullif(btrim(r.cible_libelle), ''), r.cible_cle), ' · ' ORDER BY r.id) AS detail
+           FROM gestion_rattachement r
+          WHERE r.message_id = m.id AND r.statut = 'confirme'
+            AND r.cible_sorte IN ('lot', 'proprietaire')
+       ) cl ON true
+       ${avecHorsGestion ? `LEFT JOIN LATERAL (
+         SELECT true AS marque FROM gestion_hors_gestion h
+          WHERE h.message_id = m.id AND h.retire_le IS NULL LIMIT 1
+       ) hg ON true` : ''}
+      WHERE m.id = ANY($1::bigint[])`, [uniques]);
+  for (const r of rows) {
+    out.set(Number(r.message_id), {
+      statut: capsuleStatut({ nbActifs: r.n, parUnHumain: r.humain === true, horsGestion: r.hg === true }),
+      detail: r.detail,
+    });
+  }
+  return out;
+}
+
+/**
+ * ══ 🔴 LES ÉVÉNEMENTS DES ÉCHANGES D'UNE PAGE, EN UNE REQUÊTE ═════════════════════════════════════════════════
+ *
+ * Une requête par ligne ferait vingt-cinq allers-retours pour une page — c'est la règle du module depuis la liste
+ * de la boîte, et elle ne souffre pas d'exception ici.
+ *
+ * ⚠️ CLÉ = LE FIL, PAS LE MESSAGE : un événement est affecté à l'ÉCHANGE (`gestion_affectation`). Deux mails du
+ * même fil portent donc les mêmes, ce qui est exact — « cet échange attend une réponse ».
+ *
+ * ⚠️ AFFECTATIONS ACTIVES SEULEMENT : une affectation détachée n'a plus cours, et l'afficher ferait lire comme
+ * ouvert ce que quelqu'un a justement retiré.
+ */
+async function evenementsDesFils(filIds: readonly number[]): Promise<Map<number, EvenementDeLigne[]>> {
+  const out = new Map<number, EvenementDeLigne[]>();
+  const uniques = [...new Set(filIds)];
+  if (uniques.length === 0) return out;
+  const { rows } = await query<{
+    fil_id: string; id: string; reference: string; objet: string; etat: string;
+  }>(
+    `SELECT af.fil_id, ev.id, ev.reference, ev.objet, ev.etat
+       FROM gestion_affectation af
+       JOIN gestion_evenement ev ON ev.id = af.evenement_id
+      WHERE af.actif AND af.fil_id = ANY($1::bigint[])
+      ORDER BY af.fil_id, ev.ouvert_le DESC, ev.id DESC`, [uniques]);
+  for (const r of rows) {
+    const cle = Number(r.fil_id);
+    const liste = out.get(cle) ?? [];
+    liste.push({
+      id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: r.etat !== 'traite',
+    });
+    out.set(cle, liste);
+  }
+  return out;
 }
 
 /**

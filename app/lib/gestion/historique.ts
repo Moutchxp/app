@@ -73,6 +73,11 @@ export interface FiltresHistorique {
   du: string | null;
   au: string | null;
   pieces: ChoixPieces;
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE — ne garder que les mails dont l'ÉCHANGE porte un événement OUVERT. Éteint par défaut :
+   * la « vie du bien » montre tout, et c'est un filtre qu'on allume pour trier, jamais un état de départ.
+   */
+  evenementOuvert: boolean;
   /** Recherche dans l'objet ET le texte du mail. Vide = pas de recherche. */
   texte: string;
   /**
@@ -93,6 +98,7 @@ export interface FiltresHistorique {
 
 export const FILTRES_VIDES: FiltresHistorique = {
   interlocuteurs: [], du: null, au: null, pieces: 'toutes', texte: '',
+  evenementOuvert: false,
   avecProprietaire: false, avecLogements: true, grouper: false,
   page: 0, taille: PAGE_HISTORIQUE,
 };
@@ -134,6 +140,7 @@ export function lireFiltres(p: URLSearchParams): FiltresHistorique {
     du: jourValide(p.get('du')),
     au: jourValide(p.get('au')),
     pieces: brutPieces === 'avec' || brutPieces === 'sans' ? brutPieces : 'toutes',
+    evenementOuvert: p.get('evt') === 'ouvert',
     texte: (p.get('q') ?? '').trim().slice(0, 200),
     avecProprietaire: p.get('proprio') === '1',
     // ⚠️ ALLUMÉ SAUF SI ON DIT EXPLICITEMENT NON : l'absence du paramètre doit rendre le défaut, qui est « oui ».
@@ -151,6 +158,7 @@ export function ecrireFiltres(f: FiltresHistorique): string {
   if (f.du !== null) p.set('du', f.du);
   if (f.au !== null) p.set('au', f.au);
   if (f.pieces !== 'toutes') p.set('pieces', f.pieces);
+  if (f.evenementOuvert) p.set('evt', 'ouvert');
   if (f.texte.trim() !== '') p.set('q', f.texte.trim());
   if (f.avecProprietaire) p.set('proprio', '1');
   if (!f.avecLogements) p.set('logements', '0');
@@ -198,6 +206,41 @@ export interface LigneHistorique {
    * cette carte d'événement. Écrit, jamais devinable : les deux axes coexistent et ne disent pas la même chose.
    */
   source: 'rattachement' | 'carte';
+  /**
+   * ══ 🔴 LOT FICHES-ANNUAIRE — LES ÉVÉNEMENTS DE CE MAIL ══════════════════════════════════════════════════════
+   *
+   * Demande d'Arno pour la « vie du bien » : les mails « avec leurs pièces jointes […] et leurs événements »,
+   * plus un filtre « avec événement ouvert ».
+   *
+   * ⚠️ UN ÉVÉNEMENT N'EST PAS POSÉ SUR UN MAIL, mais sur son ÉCHANGE (`gestion_affectation`). Deux mails du même
+   * fil portent donc les mêmes — c'est exact, et c'est ce qu'on veut lire : « cet échange attend une réponse ».
+   *
+   * ⚠️ VIDE N'EST PAS UNE ABSENCE DE DONNÉE : c'est « aucun événement », qui est un fait. L'événement est
+   * FACULTATIF dans ce module (cf. `INTRO_GESTION`), et la plupart des mails n'en ont pas.
+   */
+  evenements: EvenementDeLigne[];
+  /**
+   * ══ 🔴 LOT FICHES-ANNUAIRE — LA CAPSULE DE STATUT DU MAIL ═══════════════════════════════════════════════════
+   *
+   * Demande d'Arno pour la « vie du bien » : « dans le même format de ligne que la boîte (capsules, trombone
+   * gris/noir, triangle ▶/▼) ». La capsule est calculée par `capsuleStatut`, LA MÊME fonction pure que la boîte —
+   * en écrire une seconde ferait un jour deux verdicts pour un même mail.
+   *
+   * ⚠️ `null` QUAND LA MIGRATION 257 N'EST PAS LÀ : la table des rattachements n'est alors nommée nulle part, et
+   * l'écran n'affiche simplement aucune capsule. C'est la règle du module — une sonde voyage avec sa donnée.
+   */
+  statut: 'classe' | 'auto' | 'hors_gestion' | 'a_classer' | null;
+  /** Le détail de la capsule (ce à quoi le mail est rattaché), tel que l'info-bulle l'affiche. */
+  statutDetail: string | null;
+}
+
+/** Un événement tel qu'une ligne d'historique l'annonce. `ouvert` = non traité : c'est lui que le filtre garde. */
+export interface EvenementDeLigne {
+  id: number;
+  reference: string;
+  objet: string;
+  etat: string;
+  ouvert: boolean;
 }
 
 export interface Interlocuteur {

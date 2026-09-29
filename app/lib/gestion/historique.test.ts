@@ -145,6 +145,11 @@ describe('le regroupement par cible', () => {
     messageId: id, filId: 1, recuLe: date, sens: 'recu', de: 'a@fictif.fr', deNom: null, destinataires: [],
     objet: null, extrait: null, pieces: [], parCible: cibleLot(cle), cibleLibelle: `lot ${cle}`,
     source: 'rattachement',
+    // ⚠️ LOT FICHES-ANNUAIRE — une ligne porte désormais les événements de son ÉCHANGE. Vide = aucun, ce qui est
+    //    le cas de la très grande majorité des mails : l'événement est facultatif dans ce module.
+    evenements: [],
+    // ⚠️ `null` = migration 257 absente, ou statut non calculé : l'écran n'affiche alors aucune capsule.
+    statut: null, statutDetail: null,
   });
 
   it('🔴 les groupes suivent le PLUS RÉCENT de chacun, pas l’ordre alphabétique', () => {

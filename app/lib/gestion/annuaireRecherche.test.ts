@@ -162,13 +162,26 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
     expect(src).toContain('{fiche !== null && (');
   });
 
-  it('les trois fiches existent, et le rôle de chaque valeur est écrit en toutes lettres', () => {
+  /**
+   * ══ 🔴 MOTS RÉÉCRITS LE 29/09/2026 (lot FICHES-ANNUAIRE, étape B) ══════════════════════════════════════════
+   *
+   * « Locataire actuel » et « Locataires passés » sont devenus « Locataire(s) en place » et « Historique des
+   * locataires » — les mots d'Arno, mot pour mot, et ils disent mieux ce qu'on lit : un logement peut avoir
+   * PLUSIEURS occupants en place (colocataires, couple), ce que « le locataire actuel » niait au singulier.
+   *
+   * CE QUE LA RÈGLE PROTÈGE N'A PAS BOUGÉ : les trois fiches existent, et le RÔLE de chaque valeur est écrit en
+   * toutes lettres — jamais deux noms l'un sous l'autre sans dire lequel est lequel.
+   */
+  it('🔴 les trois fiches existent, et le rôle de chaque valeur est écrit en toutes lettres', () => {
     expect(src).toContain('function VueProprietaire');
     expect(src).toContain('function VueLot');
     expect(src).toContain('function VueLocataire');
     expect(src).toContain('Propriétaire');
-    expect(src).toContain('Locataire actuel');
-    expect(src).toContain('Locataires passés');
+    expect(src).toContain('en place');
+    expect(src).toContain('Historique des locataires');
+    // Le rôle de la personne est dit dans une capsule, en toutes lettres : « En place » / « Parti ».
+    expect(src).toContain('En place');
+    expect(src).toContain('Parti');
   });
 
   it('les coordonnées sont cliquables : `tel:` compose, `mailto:` (ou l’éditeur maison) écrit', () => {
@@ -252,6 +265,41 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
     expect(vue).toContain('Biens en gestion');
   });
 
+  /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT FICHES-ANNUAIRE, ÉTAPE B — LA FICHE DU BIEN ET « LA VIE DU BIEN »
+     ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /** 🔴 L'EN-TÊTE DU BIEN porte les cinq choses qu'Arno a énumérées, et le dossier Drive en action. */
+  it('🔴 l’en-tête du bien : adresse, lot, type, surface, propriétaire, dossier Drive', () => {
+    const vue = src.slice(src.indexOf('function VueLot'), src.indexOf('function grouperParPeriode'));
+    for (const mot of ['ann-tete-nom', 'lot {f.numero}', 'Surface', 'Propriétaire', 'Dossier Drive']) {
+      expect(vue).toContain(mot);
+    }
+    // 🔴 LA SURFACE N'EST PAS DEVINÉE DEPUIS LE TYPE : aucune colonne n'existe, on écrit le fait.
+    expect(vue).toContain('non renseignée');
+  });
+
+  /**
+   * 🔴 LE GROUPEMENT PAR BAIL EST ÉCRIT, même si la base n'en contient aucun aujourd'hui. Mesuré le
+   * 29/09/2026 : zéro couple (lot, date d'entrée) porté par deux personnes. Un écran qui n'aurait pas prévu deux
+   * occupants les afficherait comme deux baux successifs — ce qui serait faux le jour où l'étape C en crée un.
+   */
+  it('🔴 les occupations sont groupées par PÉRIODE, et un groupe de deux le DIT', () => {
+    const vue = src.slice(src.indexOf('function VueLot'), src.indexOf('export const CSS_ANNUAIRE'));
+    expect(vue).toContain('function grouperParPeriode');
+    expect(vue).toContain('occupants du même bail');
+    // La clé du groupe est la PAIRE de dates, et rien d'autre.
+    expect(vue).toContain('${o.entree ?? \'?\'}|${o.sortie ?? \'?\'}');
+  });
+
+  /** 🔴 CHAQUE OCCUPANT, EN PLACE OU PARTI, PORTE SES COORDONNÉES COMPLÈTES — c'est la demande, mot pour mot. */
+  it('🔴 un occupant affiche ses dates, son adresse, ses téléphones et ses e-mails', () => {
+    const bloc = src.slice(src.indexOf('function BlocOccupant'), src.indexOf('function VueLot'));
+    for (const mot of ['Adresse postale', 'Téléphone', 'E-mail', 'ann-libelle', '<BoutonCopier']) {
+      expect(bloc).toContain(mot);
+    }
+    expect(bloc).toContain('periodeOccupation');
+  });
   it('mobile d’abord : cibles ≥ 44 px, et AUCUNE interaction au seul survol', () => {
     expect(src).toContain('min-height:44px');
     expect(src).not.toMatch(/:hover\{[^}]*(display|visibility)\s*:/);
@@ -286,5 +334,61 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
     expect(repo).toContain('rows.length > PLAFOND_RESULTATS');
     // La ligne en trop ne doit JAMAIS être rendue : elle ne sert qu'à compter.
     expect(repo).toContain('rows.slice(0, PLAFOND_RESULTATS)');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 « LA VIE DU BIEN » — LE MÊME FORMAT DE LIGNE QUE LA BOÎTE
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 la vie du bien', () => {
+  const vdb = readFileSync('app/(admin)/admin/(protected)/gestion/VieDuBien.tsx', 'utf8');
+
+  /**
+   * 🔴 « LE MÊME FORMAT DE LIGNE QUE LA BOÎTE » N'EST PAS UNE RESSEMBLANCE : ce sont les MÊMES fonctions pures
+   * qui décident. En réécrire une seule ici donnerait, un jour, deux verdicts pour un même mail — et c'est celui
+   * qu'on regarde le moins qui garderait l'erreur.
+   */
+  it('🔴 la capsule et le trombone viennent des fonctions de la BOÎTE, jamais d’une seconde règle', () => {
+    expect(vdb).toContain("from '../../../../lib/gestion/statutClassement'");
+    expect(vdb).toContain('motCapsule');
+    expect(vdb).toContain('tonCapsule');
+    expect(vdb).toContain('etatTrombone');
+    expect(vdb).toContain('motTrombone');
+    expect(vdb).toContain('trierPieces');
+  });
+
+  /** 🔴 UN BOUTON DANS UN BOUTON est du HTML invalide : le triangle est le VOISIN de la ligne. */
+  it('🔴 le triangle est hors du bouton de la ligne, et muet au clavier', () => {
+    const i = vdb.indexOf('vdb-triangle');
+    const ligne = vdb.indexOf('className="vdb-ligne"');
+    expect(i).toBeGreaterThan(0);
+    expect(ligne).toBeGreaterThan(i);      // le triangle vient AVANT, donc à gauche
+    expect(vdb).toContain('aria-hidden="true" tabIndex={-1}');
+    expect(vdb).toContain('aria-expanded={ouvert}');
+  });
+
+  /** 🔴 LES TROIS FILTRES D'ARNO, et leur traduction en paramètres de la route — pas un de plus. */
+  it('🔴 Tous / avec pièces jointes / avec événement ouvert, plus une recherche', () => {
+    expect(vdb).toContain("{ cle: 'tous', mot: 'Tous' }");
+    expect(vdb).toContain("mot: 'Avec pièces jointes'");
+    expect(vdb).toContain("mot: 'Avec événement ouvert'");
+    expect(vdb).toContain("p.set('pieces', 'avec')");
+    expect(vdb).toContain("p.set('evt', 'ouvert')");
+    expect(vdb).toContain("p.set('q', texte.trim())");
+    // Le filtre actif est dit par `aria-pressed`, jamais par la seule couleur.
+    expect(vdb).toContain('aria-pressed={filtre === f.cle}');
+  });
+
+  /** ⚠️ LES PIÈCES SONT RENDUES PAR LE COMPOSANT EXISTANT : deux rendus des mêmes pièces se contrediraient. */
+  it('les pièces passent par `PiecesJointes`, jamais par un second rendu', () => {
+    expect(vdb).toContain('<PiecesJointes messageId={l.messageId}');
+  });
+
+  /** ⚠️ ON NE CHARGE PAS 429 MAILS D'UN COUP : la vie du bien se lit par pages, et le dit. */
+  it('la liste est paginée, et le changement de filtre revient à la première page', () => {
+    expect(vdb).toContain("taille: '25'");
+    expect(vdb).toContain('Voir la suite');
+    expect(vdb).toContain('useEffect(() => { setPage(0); }, [filtre, texte]);');
   });
 });

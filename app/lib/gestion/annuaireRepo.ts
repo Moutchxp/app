@@ -565,15 +565,51 @@ export interface FicheProprietaire {
   biens: BienDuProprietaire[];
 }
 
+/**
+ * ══ 🔴🔴 UNE OCCUPATION, AVEC LES COORDONNÉES DE SON OCCUPANT ═════════════════════════════════════════════════
+ *
+ * Demande d'Arno : « LOCATAIRE(S) EN PLACE : tous les occupants du même bail […] avec coordonnées complètes, date
+ * d'entrée et liens vers leur fiche » et « HISTORIQUE DES LOCATAIRES : chaque occupation passée, avec les
+ * occupants, la date d'entrée, la date de sortie et les coordonnées ».
+ *
+ * ═══ CE QUE LA BASE SAIT D'UN « MÊME BAIL », MESURÉ LE 29/09/2026 ═════════════════════════════════════════════
+ * Un bail n'existe pas comme objet : il n'y a que des OCCUPATIONS (une personne, un lot, deux dates). Deux
+ * personnes du même foyer devraient donc faire deux occupations de mêmes dates — or il n'y en a AUCUNE :
+ *   · 0 lot avec deux occupations en cours ;
+ *   · 0 couple (lot, date d'entrée) porté par deux personnes ;
+ *   · mais 116 fiches de locataires sur 510 nomment DEUX personnes dans leur nom (« ABGRALL CAYREY Chloé et
+ *     Romain »).
+ *
+ * 🔴 ON NE DÉCOUPE PAS CES NOMS. Rien ne dit où s'arrête l'un et où commence l'autre, ni quelle coordonnée est à
+ * qui. On rend donc les occupations TELLES QU'ELLES SONT — et l'écran les groupe par PÉRIODE : si un jour deux
+ * personnes partagent une entrée, elles s'afficheront ensemble, sans qu'une ligne de code change.
+ * 🔭 L'étape C ouvre l'ajout d'un occupant : c'est là que le groupe en portera plusieurs, pour de vrai.
+ */
+export interface OccupationDuLot {
+  locataireId: number;
+  nom: string;
+  entree: string | null;
+  sortie: string | null;
+  encours: boolean;
+  adresse: string | null; commune: string | null; codePostal: string | null;
+  contacts: ContactAffiche[];
+}
+
 export interface FicheLot {
   id: number; numero: string; nature: string | null; typeBien: string | null; immeuble: string | null;
   adresse: string | null; commune: string | null; codePostal: string | null;
   debut: string | null; fin: string | null; absent: boolean;
+  /** 🔴 TOUJOURS `null` : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
+  surfaceM2: number | null;
+  /** L'identifiant du dossier Drive DU LOT, lu dans l'arbre (365/365 au 29/09/2026). */
+  driveDossierId: string | null;
   proprietaireId: number | null;
   /** LOT RATTACHEMENT-2 — la clé WIPPIMMO du propriétaire. Ajoutée, comme `FicheProprietaire.cle` et pour la même raison. */
   proprietaireCle: string | null;
   proprietaireNom: string;
-  occupations: { locataireId: number; nom: string; entree: string | null; sortie: string | null; encours: boolean }[];
+  /** Les coordonnées du propriétaire, pour l'en-tête de la fiche du bien. Vide s'il n'est pas dans l'annuaire. */
+  proprietaireContacts: ContactAffiche[];
+  occupations: OccupationDuLot[];
 }
 
 export interface FicheLocataire {
@@ -910,12 +946,23 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
   // 🔴 L'HISTORIQUE EST DÉCROISSANT, LE LOCATAIRE ACTUEL EN TÊTE : c'est lui qu'on cherche neuf fois sur dix.
   const { rows: occ } = await query<{
     locataire_id: string; nom: string; entree: string | null; sortie: string | null;
+    adresse: string | null; commune: string | null; code_postal: string | null;
   }>(
-    `SELECT o.locataire_id::text, l.nom, o.entree::text, o.sortie::text
+    `SELECT o.locataire_id::text, l.nom, o.entree::text, o.sortie::text,
+            l.adresse, l.commune, l.code_postal
        FROM gestion_annuaire_occupation o
        JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
       WHERE o.lot_id = $1
       ORDER BY (o.sortie IS NULL) DESC, o.entree DESC NULLS LAST, o.id DESC`, [id]);
+
+  /**
+   * 🔴 LES COORDONNÉES DE CHAQUE OCCUPANT, en une lecture par PERSONNE DISTINCTE. Un locataire qui revient dans
+   * le même logement (cela arrive) ne se lit qu'une fois : sans ce dédoublonnage, on paierait deux requêtes pour
+   * la même réponse.
+   */
+  const personnes = [...new Set(occ.map((o) => Number(o.locataire_id)))];
+  const coords = new Map<number, ContactAffiche[]>();
+  for (const pid of personnes) coords.set(pid, await contactsDe('locataire', pid));
 
   return {
     etat: 'ok',
@@ -923,12 +970,18 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
       id: Number(l.id), numero: l.wippimmo_id, nature: l.nature, typeBien: l.type_bien, immeuble: l.immeuble,
       adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
       debut: l.gestion_debut, fin: l.gestion_fin, absent: l.absent_le !== null,
+      surfaceM2: null,
+      driveDossierId: await dossierDriveDe('bien', l.wippimmo_id),
       proprietaireId: l.proprietaire_id === null ? null : Number(l.proprietaire_id),
       proprietaireCle: l.proprietaire_cle,
       proprietaireNom: l.proprietaire_nom,
+      proprietaireContacts: l.proprietaire_id === null
+        ? [] : await contactsDe('proprietaire', Number(l.proprietaire_id)),
       occupations: occ.map((o) => ({
         locataireId: Number(o.locataire_id), nom: o.nom, entree: o.entree, sortie: o.sortie,
         encours: o.sortie === null,
+        adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
+        contacts: coords.get(Number(o.locataire_id)) ?? [],
       })),
     },
   };

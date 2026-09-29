@@ -6,7 +6,10 @@ import {
 } from '../../../../lib/gestion/annuaireRecherche';
 import type {
   BienDuProprietaire, FicheLocataire, FicheLot, FicheProprietaire, LigneResultat, ContactAffiche,
+  OccupationDuLot,
 } from '../../../../lib/gestion/annuaireRepo';
+// LOT FICHES-ANNUAIRE étape B — « la vie du bien » : tous ses mails, dans l'idiome de la boîte.
+import { CSS_VIE_DU_BIEN, VieDuBien } from './VieDuBien';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 
@@ -52,10 +55,17 @@ type Fiche =
  *  long pour ne pas lancer une requête par lettre. */
 const ATTENTE_FRAPPE_MS = 250;
 
-export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique }: {
+export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil }: {
   fiche: FicheUrl | null;
   onFiche: (f: FicheUrl | null) => void;
   onRetour: () => void;
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE étape B — l'heure de référence de l'écran, pour que « il y a 3 h » soit le même partout.
+   * Par défaut, maintenant : une fiche ouverte sans référence n'a pas à afficher des dates fausses.
+   */
+  maintenant?: Date;
+  /** Ouvre l'échange d'un mail de la « vie du bien ». Absent = la ligne reste lisible, sans ce chemin. */
+  onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   /** Ouvre « Nouveau message » de la tuile avec ce destinataire. Absent = le lien `mailto:` du système. */
   onEcrire?: (email: string) => void;
   /**
@@ -65,6 +75,11 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique }: {
   onHistorique?: (cible: Cible) => void;
 }) {
   const [terme, setTerme] = useState('');
+  /**
+   * ⚠️ UNE SEULE RÉFÉRENCE DE TEMPS POUR TOUT L'ÉCRAN, figée au montage : recalculer `new Date()` à chaque rendu
+   * ferait glisser les « il y a 3 min » d'une ligne à l'autre, et l'on croirait à des mails différents.
+   */
+  const [refTemps] = useState(() => maintenant ?? new Date());
   const [reponse, setReponse] = useState<Reponse>({ etat: 'repos' });
   const [detail, setDetail] = useState<Fiche | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
@@ -123,6 +138,7 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique }: {
   return (
     <div className="ann">
       <style>{CSS_ANNUAIRE}</style>
+      <style>{CSS_VIE_DU_BIEN}</style>
 
       {/* ══ 🔴🔴 LOT FICHES-ANNUAIRE — LE HAUT DE LA FICHE : UN RETOUR, ET LA RECHERCHE ════════════════════════
           Arno, sur la fiche de M. ROI Nathan : « elle est nulle, il faut totalement la restructurer ». La fiche
@@ -185,7 +201,9 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique }: {
             : detail.etat === 'erreur' ? <p className="gst-erreur" role="status">{detail.message}</p>
               : detail.etat === 'proprietaire'
                 ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onEcrire={onEcrire} onHistorique={onHistorique} />
-                : detail.etat === 'lot' ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} />
+                : detail.etat === 'lot'
+                  ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} onEcrire={onEcrire}
+                    maintenant={refTemps} onOuvrirFil={onOuvrirFil} />
                   : <VueLocataire f={detail.data} ouvrir={ouvrir} onEcrire={onEcrire} onHistorique={onHistorique} />}
         </section>
       ) : (
@@ -358,10 +376,11 @@ function BlocCoordonnees({ f, onEcrire }: { f: FicheProprietaire; onEcrire?: (em
     <section className="ann-bloc" aria-labelledby="ann-coord">
       <h4 className="ann-bloc-titre" id="ann-coord">Coordonnées</h4>
       <article className="ann-personne">
-        <p className="ann-personne-nom">
-          {f.civilite ? `${f.civilite} ` : ''}{f.nom}
-          {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
-        </p>
+        {/* ⚠️ L'EN-TÊTE DU BLOC porte le nom À GAUCHE et ses actions À DROITE. C'est ici que « Modifier » prendra
+            place à l'étape C — un bouton par PERSONNE, puisque le bloc en portera plusieurs. */}
+        <div className="ann-personne-tete">
+          <p className="ann-personne-nom">{f.civilite ? `${f.civilite} ` : ''}{f.nom}</p>
+        </div>
         <dl className="ann-champs">
           <dt>Qualité</dt>
           {/* 🔴 AUCUNE COLONNE « QUALITÉ » n'existe : on le DIT, on ne laisse pas une ligne vide. */}
@@ -440,11 +459,13 @@ function CarteBien({ b, ouvrir }: { b: BienDuProprietaire; ouvrir: (s: FicheUrl[
   return (
     <li className={`ann-carte${b.fin !== null ? ' ann-carte--ancien' : ''}`}>
       <button type="button" className="ann-carte-corps" onClick={() => ouvrir('lot', b.id)}>
-        <span className="ann-carte-titre">{titreLogement(b.adresse, b.commune)}</span>
-        <span className="ann-carte-sous">
-          <span className="ann-etiq">lot {b.numero}</span>
-          {b.nature && <span className="ann-etiq">{b.nature}</span>}
-          {b.typeBien && <span className="ann-etiq">{b.typeBien}</span>}
+        <span className="ann-carte-tete">
+          <span className="ann-carte-titre">{titreLogement(b.adresse, b.commune)}</span>
+          <span className="ann-carte-sous">
+            <span className="ann-etiq">lot {b.numero}</span>
+            {b.nature && <span className="ann-etiq">{b.nature}</span>}
+            {b.typeBien && <span className="ann-etiq">{b.typeBien}</span>}
+          </span>
         </span>
         <span className="ann-carte-faits">
           <span className="ann-fait">
@@ -453,11 +474,12 @@ function CarteBien({ b, ouvrir }: { b: BienDuProprietaire; ouvrir: (s: FicheUrl[
               ? <span className="ann-inconnu">non renseignée</span>
               : <span>{b.surfaceM2} m²</span>}
           </span>
-          <span className="ann-fait">
+          {/* 🔴 LE LOCATAIRE EN PLACE EST MIS EN VALEUR : c'est ce qu'on cherche sur une carte de bien. */}
+          <span className={`ann-fait${b.locataire !== null ? ' ann-fait--locataire' : ''}`}>
             <span className="ann-fait-mot">Locataire</span>
             {b.locataire === null
               ? <span className="ann-vacant">Vacant</span>
-              : <span>{b.locataire}</span>}
+              : <span className="ann-fait-valeur">{b.locataire}</span>}
           </span>
           <span className="ann-fait">
             <span className="ann-fait-mot">Mails</span>
@@ -504,18 +526,24 @@ function VueProprietaire({ f, ouvrir, onEcrire, onHistorique }: {
   const anciens = f.biens.filter((b) => b.fin !== null);
   return (
     <>
-      <h3 className="ann-fiche-titre">{f.civilite ? `${f.civilite} ` : ''}{f.nom}</h3>
-      <p className="ann-fiche-sous">
-        Propriétaire
-        {f.driveDossierId !== null && (
-          <>
-            {' · '}
-            <a className="ann-lien" href={`${DRIVE_DOSSIER}${f.driveDossierId}`} target="_blank" rel="noreferrer">
-              dossier Drive ↗
-            </a>
-          </>
-        )}
-      </p>
+      {/* ══ 🔴 L'EN-TÊTE DE FICHE — un bandeau sobre : le nom en grand, le rôle en capsule, les actions à droite.
+          Demande d'Arno : « en-tête de fiche distinct ». Il remplace un titre et une ligne grise qui se
+          confondaient avec le reste de la page. */}
+      <header className="ann-tete">
+        <div className="ann-tete-mots">
+          <h3 className="ann-tete-nom">{f.civilite ? `${f.civilite} ` : ''}{f.nom}</h3>
+          <p className="ann-tete-sous">
+            <span className="ann-role-capsule">Propriétaire</span>
+            {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
+          </p>
+        </div>
+        <div className="ann-tete-actions">
+          {f.driveDossierId !== null && (
+            <a className="svv-btn svv-btn-outline gst-btn" href={`${DRIVE_DOSSIER}${f.driveDossierId}`}
+              target="_blank" rel="noreferrer">Dossier Drive ↗</a>
+          )}
+        </div>
+      </header>
 
       <BlocCoordonnees f={f} onEcrire={onEcrire} />
 
@@ -555,65 +583,232 @@ function VueProprietaire({ f, ouvrir, onEcrire, onHistorique }: {
   );
 }
 
-function VueLot({ f, ouvrir, onHistorique }: {
+/**
+ * ══ 🔴 UN OCCUPANT, AVEC SES COORDONNÉES COMPLÈTES ════════════════════════════════════════════════════════════
+ *
+ * Demande d'Arno : les occupants « avec coordonnées complètes, date d'entrée et liens vers leur fiche » — et,
+ * pour l'historique, « les occupants, la date d'entrée, la date de sortie et les coordonnées ». Le même bloc
+ * sert aux deux : ce qu'on veut savoir d'un ancien locataire est ce qu'on veut savoir d'un actuel.
+ */
+function BlocOccupant({ o, ouvrir, onEcrire }: {
+  o: OccupationDuLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onEcrire?: (email: string) => void;
+}) {
+  const tels = o.contacts.filter((c) => c.sorte === 'telephone');
+  const mails = o.contacts.filter((c) => c.sorte === 'email');
+  const adresse = titreLogement(o.adresse, [o.codePostal, o.commune].filter((x) => x).join(' '));
+  return (
+    <article className={`ann-personne${o.encours ? '' : ' ann-personne--passe'}`}>
+      <div className="ann-personne-tete">
+        <p className="ann-personne-nom">
+          <button type="button" className="ann-lien ann-lien--fort"
+            onClick={() => ouvrir('locataire', o.locataireId)}>{o.nom}</button>
+        </p>
+        <span className="ann-personne-actions">
+          <span className="ann-role-capsule">{o.encours ? 'En place' : 'Parti'}</span>
+        </span>
+      </div>
+      <dl className="ann-champs">
+        <dt>{o.encours ? 'Entré le' : 'Occupation'}</dt>
+        <dd>
+          {o.entree === null && o.sortie === null
+            ? <span className="ann-inconnu">dates non renseignées</span>
+            : periodeOccupation(o.entree, o.sortie)}
+        </dd>
+        <dt>Adresse postale</dt>
+        <dd>{adresse !== '' ? adresse : <span className="ann-inconnu">non renseignée</span>}</dd>
+        <dt>Téléphone{tels.length > 1 ? 's' : ''}</dt>
+        <dd>
+          {tels.length === 0 ? <span className="ann-inconnu">non renseigné</span> : (
+            <ul className="ann-coords">
+              {tels.map((c) => (
+                <li key={c.valeur} className="ann-coord">
+                  <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
+                  <span className="ann-libelle">{c.libelle ?? 'Téléphone'}</span>
+                  <BoutonCopier valeur={c.affichage} quoi="ce numéro" />
+                </li>
+              ))}
+            </ul>
+          )}
+        </dd>
+        <dt>E-mail{mails.length > 1 ? 's' : ''}</dt>
+        <dd>
+          {mails.length === 0 ? <span className="ann-inconnu">non renseigné</span> : (
+            <ul className="ann-coords">
+              {mails.map((c) => (
+                <li key={c.valeur} className="ann-coord">
+                  {onEcrire
+                    ? <button type="button" className="ann-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
+                    : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
+                  <span className="ann-libelle">{c.libelle ?? 'E-mail'}</span>
+                  <BoutonCopier valeur={c.valeur} quoi="cette adresse" />
+                </li>
+              ))}
+            </ul>
+          )}
+        </dd>
+      </dl>
+    </article>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LA FICHE D'UN BIEN — ÉTAPE B ═════════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « En-tête : adresse, lot, type, surface, propriétaire(s) (liens vers leur fiche), dossier Drive.
+ * LOCATAIRE(S) EN PLACE […] HISTORIQUE DES LOCATAIRES […] VIE DU BIEN ».
+ *
+ * ═══ « LES OCCUPANTS DU MÊME BAIL », ET CE QUE LA BASE EN SAIT ════════════════════════════════════════════════
+ * Un bail n'existe pas comme objet : il n'y a que des OCCUPATIONS (une personne, un lot, deux dates). Deux
+ * personnes d'un même foyer feraient donc deux occupations de MÊMES DATES — mesuré le 29/09/2026 : il n'y en a
+ * AUCUNE dans la base, et 116 fiches de locataires sur 510 nomment pourtant deux personnes dans leur nom
+ * (« ABGRALL CAYREY Chloé et Romain »).
+ *
+ * 🔴 ON NE DÉCOUPE PAS CES NOMS — rien ne dit quelle coordonnée est à qui. L'écran GROUPE donc par PÉRIODE : le
+ * jour où deux personnes partageront une date d'entrée, elles s'afficheront ensemble, sans qu'une ligne change.
+ * 🔭 L'étape C ouvre l'ajout d'un occupant : c'est là que le groupe en portera plusieurs, pour de vrai.
+ */
+function VueLot({ f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil }: {
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
+  onEcrire?: (email: string) => void;
+  maintenant: Date;
+  onOuvrirFil?: (filId: number, messageId?: number | null) => void;
 }) {
   const actuels = f.occupations.filter((o) => o.encours);
   const passes = f.occupations.filter((o) => !o.encours);
+  /** Les occupations passées, groupées par PÉRIODE : un même bail rassemble ses occupants. */
+  const baux = grouperParPeriode(passes);
   return (
     <>
-      <h3 className="ann-fiche-titre">{titreLogement(f.adresse, f.commune)}</h3>
-      <p className="ann-fiche-sous">
-        Lot n° {f.numero}{f.nature ? ` · ${f.nature}` : ''}{f.typeBien ? ` · ${f.typeBien}` : ''}
-        {f.absent && ' · absent du dernier export'}
+      <header className="ann-tete">
+        <div className="ann-tete-mots">
+          <h3 className="ann-tete-nom">{titreLogement(f.adresse, f.commune)}</h3>
+          <p className="ann-tete-sous">
+            <span className="ann-role-capsule">Bien</span>
+            <span className="ann-etiq">lot {f.numero}</span>
+            {f.nature && <span className="ann-etiq">{f.nature}</span>}
+            {f.typeBien && <span className="ann-etiq">{f.typeBien}</span>}
+            {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
+          </p>
+        </div>
+        <div className="ann-tete-actions">
+          {f.driveDossierId !== null && (
+            <a className="svv-btn svv-btn-outline gst-btn" href={`${DRIVE_DOSSIER}${f.driveDossierId}`}
+              target="_blank" rel="noreferrer">Dossier Drive ↗</a>
+          )}
+        </div>
+      </header>
+
+      <section className="ann-bloc">
+        <div className="ann-personne">
+          <dl className="ann-champs">
+            <dt>Adresse</dt>
+            <dd>{titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '))}</dd>
+            {f.immeuble && <><dt>Immeuble</dt><dd>{f.immeuble}</dd></>}
+            <dt>Type</dt>
+            <dd>
+              {[f.nature, f.typeBien].filter((x) => x).join(' · ') || <span className="ann-inconnu">non renseigné</span>}
+            </dd>
+            <dt>Surface</dt>
+            {/* 🔴 AUCUNE COLONNE DE SURFACE n'existe dans le schéma : on le DIT, on ne devine pas depuis le type. */}
+            <dd>{f.surfaceM2 === null ? <span className="ann-inconnu">non renseignée</span> : `${f.surfaceM2} m²`}</dd>
+            <dt>Propriétaire</dt>
+            <dd>
+              {f.proprietaireId !== null ? (
+                <>
+                  <button type="button" className="ann-lien ann-lien--fort"
+                    onClick={() => ouvrir('proprietaire', f.proprietaireId as number)}>{f.proprietaireNom}</button>
+                  {f.proprietaireContacts.length > 0 && (
+                    <ul className="ann-coords">
+                      {f.proprietaireContacts.map((c) => (
+                        <li key={`${c.sorte}-${c.valeur}`} className="ann-coord">
+                          {c.sorte === 'telephone'
+                            ? <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
+                            : onEcrire
+                              ? <button type="button" className="ann-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
+                              : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
+                          <span className="ann-libelle">{c.libelle ?? (c.sorte === 'telephone' ? 'Téléphone' : 'E-mail')}</span>
+                          <BoutonCopier valeur={c.sorte === 'telephone' ? c.affichage : c.valeur}
+                            quoi={c.sorte === 'telephone' ? 'ce numéro' : 'cette adresse'} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <span className="ann-inconnu">
+                  {f.proprietaireNom || 'non rattaché'} — nom porté par plusieurs fiches WIPPIMMO, non tranché
+                </span>
+              )}
+            </dd>
+            <dt>En gestion</dt>
+            <dd>
+              {f.debut ? <>depuis le {formaterDateIso(f.debut)}</> : <span className="ann-inconnu">date non renseignée</span>}
+              {f.fin && <> · <strong>fin de gestion le {formaterDateIso(f.fin)}</strong></>}
+            </dd>
+          </dl>
+        </div>
+      </section>
+
+      <section className="ann-bloc" aria-labelledby="ann-occ">
+        <h4 className="ann-bloc-titre" id="ann-occ">
+          Locataire{actuels.length > 1 ? 's' : ''} en place
+          <span className="gst-compte">{actuels.length}</span>
+        </h4>
+        {actuels.length === 0
+          ? <p className="ann-gris">Aucun bail en cours — le logement est vacant.</p>
+          : actuels.map((o) => (
+            <BlocOccupant key={`a-${o.locataireId}-${o.entree ?? ''}`} o={o} ouvrir={ouvrir} onEcrire={onEcrire} />
+          ))}
+      </section>
+
+      {/* ⚠️ L'HISTORIQUE EST TOUJOURS LÀ, jamais derrière un survol : c'est la question qu'on pose juste après
+          « qui habite ici ? » — « et avant ? ». Chaque occupation passée porte ses coordonnées, comme demandé. */}
+      <section className="ann-bloc" aria-labelledby="ann-histo-loc">
+        <h4 className="ann-bloc-titre" id="ann-histo-loc">
+          Historique des locataires <span className="gst-compte">{passes.length}</span>
+        </h4>
+        {baux.length === 0 ? <p className="ann-gris">Aucun locataire passé connu.</p> : baux.map((bail, i) => (
+          <div key={`bail-${i}`} className="ann-bail">
+            {bail.length > 1 && (
+              <p className="ann-bail-mot">{bail.length} occupants du même bail</p>
+            )}
+            {bail.map((o) => (
+              <BlocOccupant key={`p-${o.locataireId}-${o.entree ?? ''}-${o.sortie ?? ''}`}
+                o={o} ouvrir={ouvrir} onEcrire={onEcrire} />
+            ))}
+          </div>
+        ))}
+      </section>
+
+      <VieDuBien lotCle={f.numero} maintenant={maintenant} onOuvrirFil={onOuvrirFil} />
+
+      <p className="ann-discret">
+        <BoutonHistorique cible={{ sorte: 'lot', cle: f.numero, id: null }} onHistorique={onHistorique} />
       </p>
-      <BoutonHistorique cible={{ sorte: 'lot', cle: f.numero, id: null }} onHistorique={onHistorique} />
-      <dl className="ann-dl">
-        {f.immeuble && <><dt>Immeuble</dt><dd>{f.immeuble}</dd></>}
-        {f.codePostal && <><dt>Code postal</dt><dd>{f.codePostal}</dd></>}
-        <dt>En gestion depuis</dt>
-        <dd>{f.debut ? `le ${formaterDateIso(f.debut)}` : <span className="ann-gris">date inconnue</span>}
-          {f.fin && <> · <strong>fin de gestion le {formaterDateIso(f.fin)}</strong></>}</dd>
-        <dt>Propriétaire</dt>
-        <dd>
-          {f.proprietaireId !== null
-            ? <button type="button" className="ann-lien" onClick={() => ouvrir('proprietaire', f.proprietaireId as number)}>{f.proprietaireNom}</button>
-            : <span className="ann-inconnu">{f.proprietaireNom || 'non rattaché'} <span className="ann-gris">(nom porté par plusieurs fiches WIPPIMMO&nbsp;: non tranché)</span></span>}
-        </dd>
-      </dl>
-
-      <h4 className="ann-sstitre">Locataire actuel</h4>
-      {actuels.length === 0 ? <p className="ann-gris">Aucun bail en cours.</p> : (
-        <ul className="ann-liste">
-          {actuels.map((o) => (
-            <li key={`a-${o.locataireId}-${o.entree ?? ''}`} className="ann-item">
-              <div className="ann-item-titre">
-                <button type="button" className="ann-lien ann-lien--fort" onClick={() => ouvrir('locataire', o.locataireId)}>{o.nom}</button>
-                <span className="ann-etiq">en cours</span>
-              </div>
-              <div className="ann-item-ligne"><span className="ann-role">Entré</span><span>{periodeOccupation(o.entree, o.sortie)}</span></div>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* L'HISTORIQUE EST TOUJOURS LÀ, jamais replié derrière un survol : c'est la question qu'on pose le plus après
-          « qui habite ici ? » — « et avant ? ». */}
-      <h4 className="ann-sstitre">Locataires passés <span className="gst-compte">{passes.length}</span></h4>
-      {passes.length === 0 ? <p className="ann-gris">Aucun locataire passé connu.</p> : (
-        <ul className="ann-liste">
-          {passes.map((o) => (
-            <li key={`p-${o.locataireId}-${o.entree ?? ''}-${o.sortie ?? ''}`} className="ann-item ann-item--passe">
-              <div className="ann-item-titre">
-                <button type="button" className="ann-lien" onClick={() => ouvrir('locataire', o.locataireId)}>{o.nom}</button>
-              </div>
-              <div className="ann-item-ligne"><span className="ann-role">Occupation</span><span>{periodeOccupation(o.entree, o.sortie)}</span></div>
-            </li>
-          ))}
-        </ul>
-      )}
     </>
   );
+}
+
+/**
+ * ══ 🔴 GROUPER LES OCCUPATIONS PAR BAIL ═══════════════════════════════════════════════════════════════════════
+ *
+ * Un « bail » se reconnaît à ses DATES : deux personnes entrées le même jour et sorties le même jour occupaient
+ * le même logement ensemble. C'est la seule lecture que la base permette — elle ne porte pas d'objet « bail ».
+ *
+ * ⚠️ AUCUN GROUPE AUJOURD'HUI, et c'est mesuré : zéro couple (lot, entrée) porté par deux personnes au
+ * 29/09/2026. Le groupement est écrit quand même, parce que l'étape C va créer ces cas — et qu'un écran qui
+ * n'aurait pas prévu deux occupants les afficherait comme deux baux successifs, ce qui serait faux. PUR.
+ */
+function grouperParPeriode(occupations: readonly OccupationDuLot[]): OccupationDuLot[][] {
+  const groupes: OccupationDuLot[][] = [];
+  const index = new Map<string, number>();
+  for (const o of occupations) {
+    const cle = `${o.entree ?? '?'}|${o.sortie ?? '?'}`;
+    const place = index.get(cle);
+    if (place === undefined) { index.set(cle, groupes.length); groupes.push([o]); }
+    else groupes[place].push(o);
+  }
+  return groupes;
 }
 
 function VueLocataire({ f, ouvrir, onEcrire, onHistorique }: {
@@ -697,7 +892,13 @@ export const CSS_ANNUAIRE = `
 .ann-role{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:var(--color-svv-muted);
   flex:0 0 auto;min-width:6.5rem}
 .ann-gris{font-size:.78rem;color:var(--color-svv-muted)}
-.ann-inconnu{font-size:.82rem;color:var(--color-svv-muted);font-style:normal}
+/* ══ « NON RENSEIGNE » : UN FAIT, DIT EN ITALIQUE ET PLUS CLAIR QUE LA VALEUR — jamais un vide, qui se lirait
+   comme un oubli d'affichage.
+   🔴 LE GRIS EST celui de --color-svv-muted (#5c6573), PAS --color-svv-label (#8a929e). Arno demande « gris clair » ET
+   « contraste AA verifie » : mesure sur fond blanc, label tombe a 3,0:1 — sous les 4,5:1 exiges pour un texte de
+   cette taille. Muted tient 6,4:1, reste nettement plus clair que l'encre des valeurs (#16202c, 15,3:1), et
+   l'ITALIQUE fait le reste du travail de distinction. Un contraste qu'on ne peut pas lire n'est pas une nuance. */
+.ann-inconnu{font-size:.85rem;color:var(--color-svv-muted);font-style:italic}
 .ann-sans-lot{font-weight:700;color:var(--color-svv-ink)}
 /* Un lien est un BOUTON souligné : cible tactile pleine hauteur, et jamais une couleur seule pour dire qu'il agit. */
 .ann-lien{background:none;border:0;padding:0;margin:0;text-align:left;cursor:pointer;color:var(--color-svv-ink);
@@ -711,6 +912,150 @@ export const CSS_ANNUAIRE = `
 .ann-etiq--absent{border-color:var(--color-svv-red);color:var(--color-svv-ink)}
 .ann-fiche{display:flex;flex-direction:column;gap:.5rem;min-width:0}
 .ann-retour{align-self:flex-start}
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FICHES-ANNUAIRE — LE LANGAGE VISUEL DES FICHES
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   Arno : « beaucoup trop blanc, il faut plus de contraste et de relief, tout en restant dans le style global du
+   site, sans etre extravagant ».
+
+   CE QUI CHANGE, ET RIEN D'AUTRE :
+     · un FOND DE PAGE legerement teinte (le gris de la charte) sous la fiche, pour que les blocs BLANCS s'en
+       detachent — c'est le relief, et il ne coute aucune couleur nouvelle ;
+     · chaque bloc et chaque carte : surface blanche, bordure fine, ombre douce ;
+     · un EN-TETE de fiche distinct : le nom en grand, le role en capsule, les actions a droite ;
+     · des titres de section porteurs d'un FILET a la couleur de la charte ;
+     · des libelles en gris moyen, des valeurs en encre appuyee, « non renseigne » en italique clair.
+
+   🔴 AUCUNE COULEUR NOUVELLE. Tout sort des jetons existants (--color-svv-*), y compris en Sombre, ou les
+   surfaces sont GRADUEES (bg < field < surface) plutot que posees sur du noir plat.
+   🔴 LE ROUGE NE DECORE JAMAIS : il ne sert qu'aux actions, aux filets de titre et a l'anneau de focus.
+
+   AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
+   terminerait — piege consigne dix fois dans ce depot, et dix fois dans un commentaire. */
+.ann-retour-haut{flex:0 0 auto}
+.ann-champ--compact{flex:1 1 14rem;min-width:0;min-height:38px;font-size:.88rem}
+.ann-bascule{margin:0}
+
+/* LE FOND TEINTE de la fiche. En clair, le gris de la charte ; en sombre, le fond de page, plus SOMBRE que la
+   surface des blocs — dans les deux cas, les blocs se detachent par la LUMINOSITE, jamais par une teinte. */
+.ann-fiche{background:var(--color-svv-field);border-radius:14px;padding:14px;
+  display:flex;flex-direction:column;gap:.9rem;min-width:0}
+.svv-adm-root[data-theme='dark'] .ann-fiche{background:var(--color-svv-bg)}
+@media (prefers-color-scheme:dark){
+  .svv-adm-root:not([data-theme='light']) .ann-fiche{background:var(--color-svv-bg)}
+}
+
+/* ── L'EN-TETE DE FICHE ───────────────────────────────────────────────────────────────────────────────────────
+   Un bandeau sobre : le nom en grand a gauche, le role en capsule dessous, les actions a droite. */
+.ann-tete{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.8rem;
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:12px;
+  box-shadow:0 1px 2px rgba(22,32,44,.05),0 6px 16px rgba(22,32,44,.05);padding:14px 16px}
+.svv-adm-root[data-theme='dark'] .ann-tete{box-shadow:0 1px 2px rgba(0,0,0,.35),0 6px 16px rgba(0,0,0,.28)}
+@media (prefers-color-scheme:dark){
+  .svv-adm-root:not([data-theme='light']) .ann-tete{box-shadow:0 1px 2px rgba(0,0,0,.35),0 6px 16px rgba(0,0,0,.28)}
+}
+.ann-tete-mots{flex:1 1 16rem;min-width:0;display:flex;flex-direction:column;gap:.35rem}
+.ann-tete-nom{margin:0;font-size:1.35rem;line-height:1.2;font-weight:700;color:var(--color-svv-ink);
+  overflow-wrap:anywhere}
+.ann-tete-sous{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0}
+/* LE ROLE EN CAPSULE — un MOT dans une pastille, jamais une couleur seule. */
+.ann-role-capsule{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--color-svv-muted);background:var(--color-svv-field);border:1px solid var(--color-svv-line);
+  border-radius:999px;padding:.12rem .6rem}
+.ann-tete-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-left:auto}
+
+/* ── LES BLOCS ────────────────────────────────────────────────────────────────────────────────────────────── */
+.ann-bloc{display:flex;flex-direction:column;gap:.5rem;margin-top:0}
+/* LE FILET de la charte devant chaque titre de section : deux pixels de rouge, et rien de plus. */
+.ann-bloc-titre{margin:0;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--color-svv-muted);display:flex;align-items:center;gap:.5rem}
+.ann-bloc-titre::before{content:"";flex:0 0 auto;width:3px;height:1em;border-radius:2px;
+  background:var(--color-svv-red)}
+.ann-personne{background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:12px;
+  box-shadow:0 1px 2px rgba(22,32,44,.05);padding:14px 16px;display:flex;flex-direction:column;gap:.6rem}
+.svv-adm-root[data-theme='dark'] .ann-personne{box-shadow:0 1px 2px rgba(0,0,0,.3)}
+@media (prefers-color-scheme:dark){
+  .svv-adm-root:not([data-theme='light']) .ann-personne{box-shadow:0 1px 2px rgba(0,0,0,.3)}
+}
+/* L'EN-TETE D'UN BLOC DE PERSONNE : son nom a gauche, ses actions (Modifier) a droite. */
+.ann-personne-tete{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem}
+.ann-personne-nom{margin:0;font-size:1rem;font-weight:700;color:var(--color-svv-ink);
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;flex:1 1 auto;min-width:0}
+.ann-personne-actions{display:flex;flex-wrap:wrap;gap:.4rem;margin-left:auto}
+.ann-champs{display:grid;grid-template-columns:1fr;gap:.15rem .9rem;margin:0}
+/* LIBELLE en gris moyen, VALEUR en encre appuyee : c'est ce qui donne le contraste demande. */
+.ann-champs dt{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+  color:var(--color-svv-muted);margin-top:.4rem}
+.ann-champs dd{margin:0;font-size:.92rem;font-weight:500;color:var(--color-svv-ink);overflow-wrap:anywhere}
+@media (min-width:520px){
+  .ann-champs{grid-template-columns:9.5rem 1fr}
+  .ann-champs dt{margin-top:.22rem}
+}
+.ann-coords{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.25rem}
+.ann-coord{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+.ann-libelle{font-size:.7rem;font-weight:700;color:var(--color-svv-muted);background:var(--color-svv-field);
+  border:1px solid var(--color-svv-line);border-radius:999px;padding:.05rem .45rem}
+.ann-copier{background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:.4rem;
+  padding:.15rem .5rem;font:inherit;font-size:.72rem;color:var(--color-svv-muted);cursor:pointer;min-height:28px}
+.ann-copier:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong-hover)}
+.ann-copier:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.ann-depuis{margin:0;font-size:.85rem;color:var(--color-svv-ink)}
+/* Un occupant PARTI reste parfaitement lisible : il est seulement pose sur le gris de la page, pas efface. */
+.ann-personne--passe{background:var(--color-svv-field);box-shadow:none}
+.svv-adm-root[data-theme='dark'] .ann-personne--passe{background:var(--color-svv-field);box-shadow:none}
+/* UN BAIL = un groupe d'occupants. Quand il en porte plusieurs, un mot le DIT — jamais un simple alignement. */
+.ann-bail{display:flex;flex-direction:column;gap:.4rem}
+.ann-bail+.ann-bail{margin-top:.5rem;padding-top:.5rem;border-top:1px dashed var(--color-svv-line)}
+.ann-bail-mot{margin:0;font-size:.74rem;font-weight:700;color:var(--color-svv-muted)}
+
+/* ── LES CARTES DE BIENS ─────────────────────────────────────────────────────────────────────────────────── */
+.ann-cartes{list-style:none;margin:0;padding:0;display:grid;gap:12px;
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,20rem),1fr))}
+.ann-carte{background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:12px;
+  box-shadow:0 1px 2px rgba(22,32,44,.05);display:flex;flex-direction:column;overflow:hidden;min-width:0;
+  transition:box-shadow .15s ease,transform .15s ease,border-color .15s ease}
+/* LE SURVOL SOULEVE LA CARTE — l'elevation est un APPUI, jamais l'information : tout reste ecrit. */
+.ann-carte:hover{box-shadow:0 2px 4px rgba(22,32,44,.07),0 10px 24px rgba(22,32,44,.09);
+  border-color:var(--color-svv-line-strong);transform:translateY(-1px)}
+@media (prefers-reduced-motion:reduce){.ann-carte{transition:none}.ann-carte:hover{transform:none}}
+.svv-adm-root[data-theme='dark'] .ann-carte{box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.svv-adm-root[data-theme='dark'] .ann-carte:hover{box-shadow:0 2px 6px rgba(0,0,0,.45),0 10px 24px rgba(0,0,0,.35)}
+@media (prefers-color-scheme:dark){
+  .svv-adm-root:not([data-theme='light']) .ann-carte{box-shadow:0 1px 2px rgba(0,0,0,.3)}
+  .svv-adm-root:not([data-theme='light']) .ann-carte:hover{box-shadow:0 2px 6px rgba(0,0,0,.45),0 10px 24px rgba(0,0,0,.35)}
+}
+.ann-carte--ancien{background:var(--color-svv-field)}
+.ann-carte-corps{display:flex;flex-direction:column;gap:0;align-items:stretch;text-align:left;
+  background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;width:100%}
+.ann-carte-corps:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* L'EN-TETE DE CARTE, TEINTE : il porte l'adresse et les etiquettes, et separe la carte de son contenu. */
+.ann-carte-tete{display:flex;flex-direction:column;gap:.35rem;padding:11px 14px;
+  background:var(--color-svv-field);border-bottom:1px solid var(--color-svv-line)}
+.ann-carte--ancien .ann-carte-tete{background:var(--color-svv-surface)}
+.ann-carte-titre{font-size:.95rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.ann-carte-sous{display:flex;flex-wrap:wrap;gap:.3rem}
+.ann-carte-faits{display:grid;grid-template-columns:1fr;gap:.2rem;padding:11px 14px 8px}
+.ann-fait{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;font-size:.82rem;color:var(--color-svv-ink)}
+.ann-fait-mot{font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+  color:var(--color-svv-muted);flex:0 0 auto;min-width:7.4rem}
+/* LE LOCATAIRE EN PLACE est MIS EN VALEUR : c'est ce qu'on cherche sur une carte de bien. */
+.ann-fait--locataire{background:var(--color-svv-green-soft);border-radius:.4rem;margin:.1rem -.35rem;
+  padding:.2rem .35rem}
+.ann-fait--locataire .ann-fait-valeur{font-weight:700;color:var(--color-svv-green-ink)}
+/* « Vacant » est un MOT, jamais une couleur seule : il se lit en noir et blanc. */
+.ann-vacant{font-weight:700;color:var(--color-svv-red)}
+.ann-carte-pied{display:flex;flex-wrap:wrap;gap:.8rem;padding:0 14px 10px;align-items:center}
+.ann-carte-pied .ann-lien{min-height:32px;font-size:.8rem}
+/* ── LE REPLI DES ANCIENS BIENS ───────────────────────────────────────────────────────────────────────────── */
+.ann-repli{display:flex;align-items:center;gap:.4rem;background:none;border:0;padding:.3rem 0;margin:0;
+  font:inherit;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--color-svv-muted);cursor:pointer;min-height:38px;text-align:left}
+.ann-repli:hover{color:var(--color-svv-ink)}
+.ann-repli:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.ann-repli-triangle{display:inline-block;color:var(--color-svv-red);transition:transform .15s ease}
+.ann-repli-triangle--ouvert{transform:rotate(90deg)}
+@media (prefers-reduced-motion:reduce){.ann-repli-triangle{transition:none}}
+.ann-discret{margin:.2rem 0 0}
 /* ══ LOT FICHES-ANNUAIRE — LE HAUT DE LA FICHE, ET LES CARTES DE BIENS ════════════════════════════════════════
    AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
    terminerait — piege consigne dix fois dans ce depot, et dix fois dans un commentaire. */

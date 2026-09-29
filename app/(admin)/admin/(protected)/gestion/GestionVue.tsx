@@ -826,6 +826,12 @@ export function GestionVue({ intro }: {
         <Annuaire
           fiche={etatUrl.fiche ?? null}
           onFiche={(f) => aller({ ...etatUrl, fiche: f })}
+          /* 🔴 LOT FICHES-ANNUAIRE étape B — l'heure de référence de l'écran, et le chemin vers un échange :
+             « la vie du bien » liste les mails du logement, et un clic doit pouvoir en ouvrir un dans la boîte. */
+          maintenant={ref}
+          onOuvrirFil={(id, messageId) => aller({
+            ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null,
+          })}
           /* Même raison que pour « À rattacher » : on revient là d'où l'on est parti. */
           onRetour={() => aller({ ...ETAT_DEFAUT })}
           /* LOT RATTACHEMENT-2 — « Tout l'historique des échanges » depuis une fiche de logement ou de propriétaire. */
