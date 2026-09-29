@@ -299,9 +299,12 @@ export function CartePersonne({ personne }: { personne: PersonneFiche }) {
             {/* 🔴 LE LIBELLÉ DE LA COLONNE D'ORIGINE — « Mobile 1 », « Mobile 2 ». L'export ne dit PAS à qui est
                 le numéro (voir `ficheBien.ts`) : le libellé dit d'où il sort, et c'est tout ce qui est vrai. */}
             <span className="pdb-etiquette">{t.libelle}</span>
-            {lien === null ? <span className="pdb-valeur">{t.valeur}</span>
-              : <a className="pdb-valeur pdb-lien" href={lien}>{t.valeur}</a>}
-            <BoutonCopier valeur={t.valeur} quoi={`${t.libelle} de ${titre.nom}`} />
+            {/* 🔴 LOT FICHES-RETOUCHES — ON AFFICHE `affichage` (« 06 59 08 82 56 »), ON COPIE `affichage`, et le
+                lien `tel:` part de `valeur` : un lien ne porte jamais d'espaces, et ce qu'on copie doit être ce
+                qu'on lit — un numéro collé recollé dans un autre outil se relit aussi mal ici qu'ailleurs. */}
+            {lien === null ? <span className="pdb-valeur">{t.affichage}</span>
+              : <a className="pdb-valeur pdb-lien" href={lien}>{t.affichage}</a>}
+            <BoutonCopier valeur={t.affichage} quoi={`${t.libelle} de ${titre.nom}`} />
           </p>
         );
       })}

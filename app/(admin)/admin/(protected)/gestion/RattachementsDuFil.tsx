@@ -328,8 +328,10 @@ function CartePersonne({ personne }: { personne: PersonneRattachement }) {
                     dire à qui appartient chaque valeur quand une personne en porte plusieurs. On écrit donc d'où
                     elle sort, au lieu d'inventer une attribution. */}
                 <span className="rdf-contact-libelle">{c.libelle}</span>
-                <span className="rdf-contact-valeur">{c.valeur}</span>
-                <BoutonCopier valeur={c.valeur} quoi={`${c.quoi} de ${personne.nom}`} />
+                {/* 🔴 LOT FICHES-RETOUCHES — le numéro se lit groupé par deux ; `valeur` reste la forme
+                    canonique, pour les comparaisons et le lien `tel:`. */}
+                <span className="rdf-contact-valeur">{c.affichage}</span>
+                <BoutonCopier valeur={c.affichage} quoi={`${c.quoi} de ${personne.nom}`} />
               </li>
             ))}
           </ul>

@@ -35,7 +35,14 @@
  * colonne à l'autre. On n'invente donc aucune attribution : on écrit d'où sort chaque valeur.
  */
 export interface Coordonnee {
+  /** La forme CANONIQUE (`+33659088256`). C'est elle qu'on compare, jamais ce qui est affiché. */
   valeur: string;
+  /**
+   * 🔴 LOT FICHES-RETOUCHES — CE QU'ON MONTRE : « 06 59 08 82 56 ». AJOUTÉ, rien n'est retiré : `valeur` reste la
+   * forme canonique, et c'est toujours elle qui sert aux comparaisons et au lien `tel:`. Les deux doivent
+   * coexister — afficher la canonique donnait « +33659088256 », qu'on ne sait pas lire à voix haute.
+   */
+  affichage: string;
   /** « Mobile 1 », « Email 2 », « Télécoms »… JAMAIS vide : voir `libelleContact` dans `annuaire.ts`. */
   libelle: string;
 }

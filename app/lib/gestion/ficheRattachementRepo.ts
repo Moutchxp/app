@@ -1,5 +1,6 @@
 import { query } from '../db/client';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
+import { formaterTelephone } from './telephoneAffichage';
 import { annuaireDisponible, horsGestionDisponible, libelleSourceContactDisponible, rattachementsDisponibles } from './schema';
 import { libelleContact } from './annuaire';
 import { adresseComplete } from './ficheBien';
@@ -181,9 +182,10 @@ export async function ficheRattachementDuFil(filId: number): Promise<FicheRattac
   if (idsProprios.length > 0 || idsLocataires.length > 0) {
     const avecLibelle = await libelleSourceContactDisponible();
     const { rows: cts } = await query<{
-      sujet: string; sujet_id: string; sorte: string; valeur: string; rang: number; libelle_source: string | null;
+      sujet: string; sujet_id: string; sorte: string; valeur: string; valeur_brute: string;
+      rang: number; libelle_source: string | null;
     }>(
-      `SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, rang,
+      `SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, valeur_brute, rang,
               ${avecLibelle ? 'libelle_source' : "NULL::text AS libelle_source"}
          FROM gestion_annuaire_contact
         WHERE absent_le IS NULL${await conditionCoordonneeVivante()}
@@ -196,6 +198,10 @@ export async function ficheRattachementDuFil(filId: number): Promise<FicheRattac
       // 🔴 LE LIBELLÉ N'EST JAMAIS VIDE : `libelleContact` retombe sur la sorte numérotée par le rang.
       const coord: CoordonneeFiche = {
         valeur: c.valeur,
+        // 🔴 LOT FICHES-RETOUCHES — un telephone s'affiche groupe par deux ; un e-mail n'est pas touche.
+        affichage: c.sorte === 'telephone'
+          ? formaterTelephone(c.valeur, c.valeur_brute)
+          : (c.valeur_brute.trim() === '' ? c.valeur : c.valeur_brute),
         libelle: libelleContact({ sorte: c.sorte, rang: c.rang, libelleSource: c.libelle_source }),
       };
       if (c.sorte === 'email') e.emails.push(coord);

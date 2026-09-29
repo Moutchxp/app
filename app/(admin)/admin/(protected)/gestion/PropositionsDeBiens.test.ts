@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PropositionsDeBiens } from './PropositionsDeBiens';
+// LOT FICHES-RETOUCHES — la MÊME fonction que l'écran : deux formatages, ce serait deux vérités.
+import { formaterTelephone } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * 🔴 LOT AFFECTATION-PAR-BIEN — « UNE PROPOSITION À TRANCHER » : DES BIENS, ÉPROUVÉS À L'ÉCRAN.
@@ -30,8 +32,15 @@ let contexte: Record<string, unknown> | null;
  * LOT CONTACTS-ET-EVENEMENT : chaque coordonnée porte le LIBELLÉ de sa colonne d'origine. Le raccourci ci-dessous
  * accepte une simple chaîne et lui donne un libellé numéroté, comme le fait l'import.
  */
+/**
+ * 🔴 LOT FICHES-RETOUCHES — LA COORDONNÉE PORTE DEUX FORMES, et le raccourci les fabrique toutes les deux :
+ * `valeur` est la forme CANONIQUE (celle qu'on compare, et celle du lien `tel:`), `affichage` est celle qu'on LIT
+ * (« 06 03 05 07 03 »). L'écran rend la seconde ; les épreuves ci-dessous vérifient donc la seconde.
+ */
 const coord = (l: string) => (v: unknown, i: number) => (typeof v === 'string'
-  ? { valeur: v, libelle: `${l} ${i + 1}` } : v);
+  ? { valeur: v, affichage: formaterTelephone(v, ''), libelle: `${l} ${i + 1}` }
+  : { ...(v as object), affichage: (v as { affichage?: string; valeur: string }).affichage
+    ?? formaterTelephone((v as { valeur: string }).valeur, '') });
 const partie = (role: string, nom: string, o: Record<string, unknown> = {}) => ({
   role, cle: nom, nom, ...o,
   emails: ((o.emails as unknown[]) ?? []).map(coord('Email')),
@@ -240,7 +249,11 @@ describe('🔴 ① les propriétaires, en haut, une carte par personne', () => {
     const haut = container.querySelector('.pdb-proprios');
     expect(haut?.textContent).toContain('MARTY Jean-François');
     expect(haut?.textContent).toContain('martyj.f@wanadoo.fr');
-    expect(haut?.textContent).toContain('+33603050703');
+    /* 🔴 LOT FICHES-RETOUCHES — L'ATTENTE EST RÉÉCRITE, LA RÈGLE EST INTACTE. Elle attendait « +33603050703»,
+       la forme CANONIQUE. Arno a tranché : « Tout numéro affiché PAR L'APP est groupé par deux chiffres ». Ce qui
+       était protégé — le numéro du propriétaire est bien là, sous son nom — l'est toujours, et mieux : on vérifie
+       maintenant qu'il est LISIBLE. La forme canonique, elle, reste éprouvée sur le lien `tel:` plus bas. */
+    expect(haut?.textContent).toContain('06 03 05 07 03');
     // …et il est bien AVANT la liste des biens dans le DOM.
     const html = container.innerHTML;
     expect(html.indexOf('pdb-proprios')).toBeLessThan(html.indexOf('pdb-liste'));
@@ -341,7 +354,8 @@ describe('🔴 ② les deux colonnes : le bien à gauche, ses locataires à droi
     expect(droite?.textContent).toContain('ABIDI Aymen');
     expect(droite?.textContent).toContain('du 31/07/2024 au 12/09/2026');
     expect(droite?.textContent).toContain('abidiaymen05@gmail.com');
-    expect(droite?.textContent).toContain('+33605678857');
+    // Même réécriture : la colonne de droite montre le numéro LU, groupé par deux.
+    expect(droite?.textContent).toContain('06 05 67 88 57');
   });
 
   it('une COLOCATION rend DEUX cartes : n’en garder qu’une choisirait au hasard', async () => {
@@ -383,7 +397,11 @@ describe('🔴 ③ le bouton « Copier », en face de chaque contact', () => {
     await monter();
     const premier = boutons().find((b) => /^Copier$/.test(b.textContent ?? ''));
     await cliquer(premier);
-    expect(ecrit).toEqual(['+33603050703']);
+    /* 🔴 LOT FICHES-RETOUCHES — ON COPIE CE QU'ON LIT. L'attente portait la forme canonique ; elle porte
+       maintenant la forme affichée. Ce n'est pas un détail : un numéro copié va dans un autre outil, un SMS, un
+       carnet — et « +33603050703 » s'y relit aussi mal qu'ici. Le lien `tel:`, lui, reste bâti sur la canonique,
+       et c'est éprouvé juste au-dessus : les espaces n'ont rien à faire dans un lien. */
+    expect(ecrit).toEqual(['06 03 05 07 03']);
     // 🔴 LE RETOUR EST ÉCRIT : sans lui on reclique, et on ne sait jamais si le presse-papiers a pris.
     expect(premier?.textContent).toBe('Copié');
   });
@@ -431,12 +449,13 @@ describe('🔴 A3 — chaque coordonnée porte un NOM et un LIBELLÉ', () => {
       adresseComplete: '2 Rue Mars et Roty, 92800 PUTEAUX',
       parties: [
         { ...partie('proprietaire', 'MARS AVENIR'), civilite: 'Sté',
-          telephones: [{ valeur: '+33669142807', libelle: 'Mobile 1' },
-            { valeur: '+33760201010', libelle: 'Mobile 2' }],
+          telephones: [
+            { valeur: '+33669142807', affichage: '06 69 14 28 07', libelle: 'Mobile 1' },
+            { valeur: '+33760201010', affichage: '07 60 20 10 10', libelle: 'Mobile 2' }],
           emails: [{ valeur: 'a.jorel@sansvisavis.com', libelle: 'Email 1' },
             { valeur: 'c.jullien@sansvisavis.com', libelle: 'Email 2' }] },
         { ...partie('locataire', 'SARL MACJ'),
-          telephones: [{ valeur: '+33760201010', libelle: 'Mobile 1' }],
+          telephones: [{ valeur: '+33760201010', affichage: '07 60 20 10 10', libelle: 'Mobile 1' }],
           emails: [{ valeur: 'c.jullien@sansvisavis.com', libelle: 'Email 1' }] },
       ],
     })],
@@ -448,7 +467,7 @@ describe('🔴 A3 — chaque coordonnée porte un NOM et un LIBELLÉ', () => {
     const carte = container.querySelector('.pdb-proprios .pdb-carte');
     expect(carte?.textContent).toContain('MARS AVENIR');
     expect(carte?.textContent).toContain('Mobile 1');
-    expect(carte?.textContent).toContain('+33669142807');
+    expect(carte?.textContent).toContain('06 69 14 28 07');
     expect(carte?.textContent).toContain('Mobile 2');
     expect(carte?.textContent).toContain('Email 2');
     expect(carte?.textContent).toContain('c.jullien@sansvisavis.com');
@@ -495,7 +514,7 @@ describe('🔴 A3 — chaque coordonnée porte un NOM et un LIBELLÉ', () => {
     const droite = container.querySelector('.pdb-col--loc');
     expect(droite?.textContent).toContain('SARL MACJ');
     expect(droite?.textContent).toContain('Mobile 1');
-    expect(droite?.textContent).toContain('+33760201010');
+    expect(droite?.textContent).toContain('07 60 20 10 10');
   });
 
   it('🔴 sans la migration 267, le libellé reste écrit : générique, mais jamais vide', async () => {

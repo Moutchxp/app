@@ -148,8 +148,13 @@ describe('🔴 ③ ④ les groupes de propriétaires', () => {
   it('🔴 une indivision reste UNE carte, avec tous ses contacts', () => {
     const indivision = personne('proprietaire', 'P9', {
       nom: 'MOTTAIS GRAINDORGE Didier et Sandrine',
-      emails: [{ valeur: 'didier@x.fr', libelle: 'Email 1' }, { valeur: 'sandrine@x.fr', libelle: 'Email 2' }],
-      telephones: [{ valeur: '+33600000000', libelle: 'Mobile' }],
+      // LOT FICHES-RETOUCHES — `affichage` ajoute : la forme LUE par l'ecran (« 06 00 00 00 00 »), distincte de
+      // la forme canonique qui, elle, sert aux comparaisons. Les deux voyagent ensemble.
+      emails: [
+        { valeur: 'didier@x.fr', affichage: 'didier@x.fr', libelle: 'Email 1' },
+        { valeur: 'sandrine@x.fr', affichage: 'sandrine@x.fr', libelle: 'Email 2' },
+      ],
+      telephones: [{ valeur: '+33600000000', affichage: '06 00 00 00 00', libelle: 'Mobile' }],
     });
     const g = groupesParProprietaire([{ cle: '1', parties: [indivision] }]);
     expect(g[0].personnes).toHaveLength(1);

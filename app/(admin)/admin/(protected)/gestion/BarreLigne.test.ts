@@ -605,8 +605,10 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
             dateMail: '2026-09-20', nbMails: 1, dossierDriveId: null, lienIds: [1],
             personnes: [{
               role: 'proprietaire', cle: 'P1', id: 12, nom: 'BENTZ Marc', civilite: null,
-              telephones: [{ valeur: '06 11 22 33 44', libelle: 'Mobile 1' }],
-              emails: [{ valeur: 'bentz@fictif.fr', libelle: 'Email 1' }],
+              /* 🔴 LOT FICHES-RETOUCHES — la coordonnée porte DEUX formes : `valeur` (la canonique, comparée et
+                 mise dans le lien `tel:`) et `affichage` (celle qu'on lit). Le bandeau rend la seconde. */
+              telephones: [{ valeur: '+33611223344', affichage: '06 11 22 33 44', libelle: 'Mobile 1' }],
+              emails: [{ valeur: 'bentz@fictif.fr', affichage: 'bentz@fictif.fr', libelle: 'Email 1' }],
               expediteur: true,
             }],
           },

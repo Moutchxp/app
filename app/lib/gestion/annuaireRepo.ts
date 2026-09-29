@@ -22,6 +22,8 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { annuaireDisponible, annuaireModifiableDisponible, libelleSourceContactDisponible } from './schema';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
+// LOT FICHES-RETOUCHES — un numero affiche par l'app est groupe par deux chiffres.
+import { formaterTelephone } from './telephoneAffichage';
 import type { ContactAnnuaire } from './annuaire';
 import type { PlanImport } from './annuaireImport';
 import type { TermeRecherche } from './annuaireRecherche';
@@ -1079,8 +1081,21 @@ const contactsDe = async (sujet: 'proprietaire' | 'locataire', sujetId: number):
     id: Number(r.id),
     sorte: r.sorte as 'telephone' | 'email',
     valeur: r.valeur,
-    // On affiche CE QUI ÉTAIT ÉCRIT : un numéro reformaté n'est plus reconnu par celui qui l'a saisi.
-    affichage: r.valeur_brute.trim() === '' ? r.valeur : r.valeur_brute,
+    /**
+     * ══ 🔴 LOT FICHES-RETOUCHES — UN NUMÉRO LISIBLE, GROUPÉ PAR DEUX ════════════════════════════════════════
+     *
+     * L'INVARIANT D'AVANT DISAIT : « On affiche CE QUI ÉTAIT ÉCRIT : un numéro reformaté n'est plus reconnu par
+     * celui qui l'a saisi. » Il est RÉÉCRIT, et non abandonné — Arno a tranché l'autre sens : « Tout numéro
+     * affiché PAR L'APP est groupé par deux chiffres ». La crainte d'origine était qu'un reformatage rende le
+     * numéro méconnaissable ; `formaterTelephone` fait l'inverse, puisqu'il RESPECTE l'écriture d'origine
+     * (national ou international) et laisse un numéro étranger tel quel. Ce qui est reformaté, ce sont les
+     * 0659088256 collés de l'export — précisément ceux qu'on ne sait pas lire à voix haute.
+     *
+     * ⚠️ UN E-MAIL N'EST PAS TOUCHÉ : `formaterTelephone` ne s'applique qu'aux téléphones.
+     */
+    affichage: r.sorte === 'telephone'
+      ? formaterTelephone(r.valeur, r.valeur_brute)
+      : (r.valeur_brute.trim() === '' ? r.valeur : r.valeur_brute),
     absent: r.absent_le !== null,
     libelle: r.libelle === null || r.libelle.trim() === '' ? null : r.libelle.trim(),
   }));

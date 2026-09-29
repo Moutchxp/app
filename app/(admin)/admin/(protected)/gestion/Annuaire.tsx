@@ -15,6 +15,8 @@ import type { Cible } from '../../../../lib/gestion/rattachement';
 // LOT FICHES-ANNUAIRE étape C — les personnes en CARTES côte à côte, modifiables sur place.
 import { BlocCartes, CSS_CARTES, Ligne as LigneFiche, type GestesCartes, type Sujet } from './CartesPersonnes';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
+// LOT FICHES-RETOUCHES — la nomenclature des coordonnées, partagée par tous les écrans de l'annuaire.
+import { typeDeLibelle } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
@@ -119,6 +121,22 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
   const [rafraichi, setRafraichi] = useState(0);
   const recharger = useCallback(() => setRafraichi((n) => n + 1), []);
   const [ajout, setAjout] = useState<DemandeAjout | null>(null);
+  /**
+   * ══ 🔴 LOT FICHES-RETOUCHES — « HISTORIQUE » OUVRE LA FICHE DU BIEN, POSÉE SUR SA « VIE DU BIEN » ═══════════════
+   *
+   * Le bouton d'une carte de bien mène à la fiche de ce bien, et la fait s'ouvrir AU BON ENDROIT — sur la liste de
+   * ses échanges, qui est ce qu'on venait voir.
+   *
+   * 🔴 UN ÉTAT, ET NON UN MORCEAU D'ADRESSE. L'adresse d'une fiche est `?ecran=annuaire&fiche=lot-312` : lui
+   * ajouter une ancre obligerait `ecranUrl` à porter une notion d'« endroit dans la page », que rien d'autre
+   * n'utilise. Cette intention ne survit d'ailleurs PAS à un rechargement — et c'est voulu : revenir sur la fiche
+   * par son adresse doit la montrer par le haut, comme n'importe quelle fiche.
+   */
+  const [vieDuBienVisee, setVieDuBienVisee] = useState<number | null>(null);
+  const ouvrirVieDuBien = useCallback((lotId: number) => {
+    setVieDuBienVisee(lotId);
+    onFiche({ sorte: 'lot', id: lotId });
+  }, [onFiche]);
 
   // ── LA RECHERCHE ────────────────────────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -331,13 +349,16 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
             : detail.etat === 'erreur' ? <p className="gst-erreur" role="status">{detail.message}</p>
               : detail.etat === 'proprietaire'
                 ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
-                  gestes={gestes} onAjout={setAjout} />
+                  gestes={gestes} onAjout={setAjout} onHistoriqueDuBien={ouvrirVieDuBien} />
                 : detail.etat === 'lot'
                   ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} onEcrire={onEcrire}
                     maintenant={refTemps} onOuvrirFil={onOuvrirFil} gestes={gestes} onAjout={setAjout}
+                    poserSurVieDuBien={vieDuBienVisee === detail.data.id}
+                    onVieDuBienPosee={() => setVieDuBienVisee(null)}
                     onDepart={(occupationId, sortie) => envoyer({ action: 'depart', occupationId, sortie })} />
                   : <VueLocataire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
-                    gestes={gestes} maintenant={refTemps} onOuvrirFil={onOuvrirFil} />}
+                    gestes={gestes} maintenant={refTemps} onOuvrirFil={onOuvrirFil}
+                    onHistoriqueDuBien={ouvrirVieDuBien} />}
         </section>
       ) : (
         <Resultats reponse={reponse} terme={terme} ouvrir={ouvrir} />
@@ -562,7 +583,17 @@ const DRIVE_DOSSIER = 'https://drive.google.com/drive/folders/';
  * ⚠️ « SURFACE : NON RENSEIGNÉE » EST UN FAIT, PAS UN TROU. Mesuré le 29/09/2026 : aucune colonne de surface
  * n'existe dans le schéma. On ne la déduit pas du type (« Type 2 » ne dit pas des mètres carrés).
  */
-function CarteBien({ b, ouvrir }: { b: BienDuProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void }) {
+function CarteBien({ b, ouvrir, onHistoriqueDuBien }: {
+  b: BienDuProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
+  /**
+   * 🔴 LOT FICHES-RETOUCHES — « Historique » ouvre la fiche DE CE BIEN, posée sur sa « vie du bien ».
+   *
+   * Pourquoi la fiche du bien, et non un écran de plus : la « vie du bien » existe déjà, avec ses filtres, ses
+   * capsules et ses pièces jointes. En écrire une seconde version dans la carte, c'est deux endroits à corriger
+   * le jour où l'on change une ligne — et deux réponses possibles à la même question.
+   */
+  onHistoriqueDuBien: (lotId: number) => void;
+}) {
   return (
     <li className={`ann-carte${b.fin !== null ? ' ann-carte--ancien' : ''}`}>
       <button type="button" className="ann-carte-corps" onClick={() => ouvrir('lot', b.id)}>
@@ -606,27 +637,55 @@ function CarteBien({ b, ouvrir }: { b: BienDuProprietaire; ouvrir: (s: FicheUrl[
           </span>
         </span>
       </button>
+      {/* ══ 🔴🔴 LOT FICHES-RETOUCHES — LE PIED DE CARTE EN BOUTONS ═══════════════════════════════════════════
+          Arno : « “Fiche du locataire →” et “Dossier Drive du lot ↗” sont aujourd'hui deux liens soulignés mal
+          alignés. Ils deviennent deux BOUTONS côte à côte sur la même ligne, de même hauteur et de même largeur,
+          avec la même présentation que le bouton “Dossier Drive ↗” de l'en-tête. […] “Historique” […] DANS chaque
+          carte de bien, sur toute la largeur de la carte, AU-DESSUS des deux boutons. »
+
+          🔴 MÊME CLASSE QUE L'EN-TÊTE (`svv-btn svv-btn-outline gst-btn`), et non une imitation : deux boutons
+          qui se ressemblent à un pixel près se mettent à diverger au premier ajustement de la charte. Ici, c'est
+          littéralement le même bouton.
+
+          🔴 UNE GRILLE À DEUX COLONNES ÉGALES pour la rangée du bas — `1fr 1fr`, et non un `flex` qui donnerait
+          à chaque bouton la largeur de son texte. « Même hauteur et même largeur » est la demande, et c'est la
+          grille qui la tient, y compris quand un des deux manque.
+
+          ⚠️ LE PIED SORT DU BOUTON DE LA CARTE, et c'est structurel : un bouton dans un bouton est du HTML
+          invalide et injouable au clavier. */}
       <span className="ann-carte-pied">
-        {b.locataireId !== null && b.locataire !== null && (
-          <button type="button" className="ann-lien" onClick={() => ouvrir('locataire', b.locataireId as number)}>
-            Fiche du locataire →
-          </button>
-        )}
-        {b.driveDossierId !== null ? (
-          <a className="ann-lien" href={`${DRIVE_DOSSIER}${b.driveDossierId}`} target="_blank" rel="noreferrer">
-            Dossier Drive du lot ↗
-          </a>
-        ) : (
-          <span className="ann-inconnu">dossier Drive non construit</span>
-        )}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large"
+          onClick={() => onHistoriqueDuBien(b.id)}>
+          Historique
+        </button>
+        <span className="ann-carte-duo">
+          {b.locataireId !== null && b.locataire !== null && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn ann-carte-bouton"
+              onClick={() => ouvrir('locataire', b.locataireId as number)}>
+              Fiche du locataire →
+            </button>
+          )}
+          {b.driveDossierId !== null ? (
+            <a className="svv-btn svv-btn-outline gst-btn ann-carte-bouton"
+              href={`${DRIVE_DOSSIER}${b.driveDossierId}`} target="_blank" rel="noreferrer">
+              Dossier Drive du lot ↗
+            </a>
+          ) : (
+            /* ⚠️ L'ABSENCE SE DIT, à la place du bouton : un dossier pas encore construit n'est pas une panne,
+               et un bouton grisé sans motif enverrait chercher pourquoi il ne marche pas. */
+            <span className="ann-inconnu ann-carte-sans">dossier Drive non construit</span>
+          )}
+        </span>
       </span>
     </li>
   );
 }
 
-function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout }: {
+function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout, onHistoriqueDuBien }: {
   f: FicheProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
+  /** Ouvre la fiche d'un bien, posée sur sa « vie du bien ». Voir `CarteBien`. */
+  onHistoriqueDuBien: (lotId: number) => void;
   gestes: GestesCartes;
   onAjout: (d: DemandeAjout) => void;
 }) {
@@ -644,6 +703,26 @@ function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout }: {
           <p className="ann-tete-sous">
             <span className="ann-role-capsule">Propriétaire</span>
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
+            {/* ══ 🔴🔴 LOT FICHES-RETOUCHES — L'HISTORIQUE COMPLET DU PROPRIÉTAIRE, ET QUAND IL SERT ═══════════
+                Arno : « l'historique complet du propriétaire reste accessible depuis l'en-tête de la fiche, en
+                lien discret, SI CE N'EST PAS REDONDANT ».
+
+                ═══ CE QUI A ÉTÉ MESURÉ, LE 29/09/2026, AVANT DE TRANCHER ═════════════════════════════════════
+                Sur 32 938 rattachements confirmés, **tous** visent un LOT : AUCUN ne vise un propriétaire (c'est
+                la règle centrale du module, « la cible est toujours un bien »). L'historique d'un propriétaire
+                est donc, exactement, l'UNION des historiques de ses biens — pas un mail de plus.
+
+                🔴 D'OÙ LA RÈGLE RETENUE : le lien n'apparaît QUE si le propriétaire a PLUSIEURS biens. À un seul
+                bien, il rendrait mot pour mot la même liste que le bouton « Historique » de l'unique carte — deux
+                chemins vers la même page, dont on finit par se demander lequel montre autre chose. À plusieurs
+                biens, il répond à une question que les cartes ne savent pas poser : « tout ce qui s'est dit avec
+                cette personne, tous biens confondus ». */}
+            {f.biens.length > 1 && onHistorique !== undefined && (
+              <button type="button" className="ann-lien ann-tete-histo"
+                onClick={() => onHistorique({ sorte: 'proprietaire', cle: f.cle, id: null })}>
+                Historique, tous biens confondus →
+              </button>
+            )}
           </p>
         </div>
         <div className="ann-tete-actions">
@@ -690,7 +769,8 @@ function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout }: {
         </h4>
         {enGestion.length === 0 ? <p className="ann-gris">Aucun bien en gestion.</p> : (
           <ul className="ann-cartes">
-            {enGestion.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir} />)}
+            {enGestion.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir}
+              onHistoriqueDuBien={onHistoriqueDuBien} />)}
           </ul>
         )}
       </section>
@@ -706,16 +786,14 @@ function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout }: {
           </button>
           {anciensOuverts && (
             <ul className="ann-cartes">
-              {anciens.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir} />)}
+              {anciens.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir}
+                onHistoriqueDuBien={onHistoriqueDuBien} />)}
             </ul>
           )}
         </section>
       )}
 
-      {/* ⚠️ DISCRET, ET TOUJOURS LÀ : c'est le chemin vers tout ce qui a été échangé avec cette personne. */}
-      <p className="ann-discret">
-        <BoutonHistorique cible={{ sorte: 'proprietaire', cle: f.cle, id: null }} onHistorique={onHistorique} />
-      </p>
+
     </>
   );
 }
@@ -812,7 +890,8 @@ function BlocOccupant({ o, ouvrir, onEcrire }: {
               {tels.map((c) => (
                 <li key={c.valeur} className="ann-coord">
                   <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
-                  <span className="ann-libelle">{c.libelle ?? 'Téléphone'}</span>
+                  {/* 🔴 LOT FICHES-RETOUCHES — même nomenclature que les cartes : Mobile / Fixe / E-mail. */}
+                  <span className="ann-libelle">{typeDeLibelle(c.libelle, c.sorte).mot}</span>
                   <BoutonCopier valeur={c.affichage} quoi="ce numéro" />
                 </li>
               ))}
@@ -828,7 +907,7 @@ function BlocOccupant({ o, ouvrir, onEcrire }: {
                   {onEcrire
                     ? <button type="button" className="ann-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
                     : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
-                  <span className="ann-libelle">{c.libelle ?? 'E-mail'}</span>
+                  <span className="ann-libelle">{typeDeLibelle(c.libelle, c.sorte).mot}</span>
                   <BoutonCopier valeur={c.valeur} quoi="cette adresse" />
                 </li>
               ))}
@@ -856,7 +935,10 @@ function BlocOccupant({ o, ouvrir, onEcrire }: {
  * jour où deux personnes partageront une date d'entrée, elles s'afficheront ensemble, sans qu'une ligne change.
  * 🔭 L'étape C ouvre l'ajout d'un occupant : c'est là que le groupe en portera plusieurs, pour de vrai.
  */
-function VueLot({ f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onAjout, onDepart }: {
+function VueLot({
+  f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onAjout, onDepart,
+  poserSurVieDuBien, onVieDuBienPosee,
+}: {
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
   onEcrire?: (email: string) => void;
   maintenant: Date;
@@ -865,11 +947,33 @@ function VueLot({ f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, ge
   onAjout: (d: DemandeAjout) => void;
   /** Enregistre un départ. Rend le motif du refus, ou `null`. */
   onDepart: (occupationId: number, sortie: string | null) => Promise<string | null>;
+  /** Vrai quand on arrive ici par « Historique » : la fiche se pose alors sur la « vie du bien ». */
+  poserSurVieDuBien: boolean;
+  /** Prévient le parent que c'est fait — sans quoi la fiche redescendrait à chaque rendu. */
+  onVieDuBienPosee: () => void;
 }) {
   const actuels = f.occupations.filter((o) => o.encours);
   const passes = f.occupations.filter((o) => !o.encours);
   /** Les occupations passées, groupées par PÉRIODE : un même bail rassemble ses occupants. */
   const baux = grouperParPeriode(passes);
+
+  /**
+   * ══ 🔴 SE POSER SUR LA « VIE DU BIEN » QUAND ON ARRIVE PAR « HISTORIQUE » ════════════════════════════════════
+   *
+   * ⚠️ `scrollIntoView` DANS UN EFFET, ET UNE SEULE FOIS. Le faire au rendu serait un effet de bord pendant le
+   * rendu (ce que le compilateur React refuse, à raison) ; le refaire à chaque rendu ramènerait la page vers le
+   * bas dès qu'on déplie un message — exactement l'inverse de ce qu'on veut.
+   *
+   * ⚠️ `behavior: 'smooth'` EST ÉCARTÉ : la liste se remplit encore quand on arrive, et une animation lancée sur
+   * une page qui grandit finit ailleurs que là où elle visait. Un saut net atterrit juste.
+   */
+  const ancreVie = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!poserSurVieDuBien) return;
+    ancreVie.current?.scrollIntoView({ block: 'start' });
+    onVieDuBienPosee();
+  }, [poserSurVieDuBien, onVieDuBienPosee]);
+
   return (
     <>
       <header className="ann-tete">
@@ -995,7 +1099,9 @@ function VueLot({ f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, ge
         ))}
       </section>
 
-      <VieDuBien lotCle={f.numero} maintenant={maintenant} onOuvrirFil={onOuvrirFil} />
+      <div ref={ancreVie}>
+        <VieDuBien lotCle={f.numero} maintenant={maintenant} onOuvrirFil={onOuvrirFil} />
+      </div>
 
       <p className="ann-discret">
         <BoutonHistorique cible={{ sorte: 'lot', cle: f.numero, id: null }} onHistorique={onHistorique} />
@@ -1045,9 +1151,10 @@ function grouperParPeriode(occupations: readonly OccupationDuLot[]): OccupationD
  * personne mais à un BIEN (règle centrale du module : « la cible est toujours un bien ») : les mails d'un
  * locataire sont donc ceux de son logement, et l'écran le DIT plutôt que de laisser croire à un tri par personne.
  */
-function VueLocataire({ f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil }: {
+function VueLocataire({ f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil, onHistoriqueDuBien }: {
   f: FicheLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
+  onHistoriqueDuBien: (lotId: number) => void;
   gestes: GestesCartes;
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
@@ -1092,7 +1199,8 @@ function VueLocataire({ f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil
         {enCours.length === 0
           ? <p className="ann-gris">Aucun logement en cours — cette personne a quitté son ou ses logements.</p>
           : <ul className="ann-cartes">{enCours.map((o) => (
-            <CarteLogement key={`e-${o.lotId ?? o.numero}-${o.entree ?? ''}`} o={o} ouvrir={ouvrir} />
+            <CarteLogement key={`e-${o.lotId ?? o.numero}-${o.entree ?? ''}`} o={o} ouvrir={ouvrir}
+              onHistoriqueDuBien={onHistoriqueDuBien} />
           ))}</ul>}
       </section>
 
@@ -1102,7 +1210,8 @@ function VueLocataire({ f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil
             Logements précédents <span className="gst-compte">{passes.length}</span>
           </h4>
           <ul className="ann-cartes">{passes.map((o) => (
-            <CarteLogement key={`p-${o.lotId ?? o.numero}-${o.entree ?? ''}-${o.sortie ?? ''}`} o={o} ouvrir={ouvrir} />
+            <CarteLogement key={`p-${o.lotId ?? o.numero}-${o.entree ?? ''}-${o.sortie ?? ''}`} o={o}
+              ouvrir={ouvrir} onHistoriqueDuBien={onHistoriqueDuBien} />
           ))}</ul>
         </section>
       )}
@@ -1143,8 +1252,9 @@ function VueLocataire({ f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil
  * ⚠️ UN LOT « HORS GESTION » N'EST PAS CLIQUABLE, et le DIT : l'occupation le nomme par une clé que l'annuaire des
  * lots ne porte pas. Un lien vers une fiche inexistante est pire qu'une absence de lien.
  */
-function CarteLogement({ o, ouvrir }: {
+function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
   o: LogementDuLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
+  onHistoriqueDuBien: (lotId: number) => void;
 }) {
   const corps = (
     <>
@@ -1192,20 +1302,32 @@ function CarteLogement({ o, ouvrir }: {
         : <button type="button" className="ann-carte-corps" onClick={() => ouvrir('lot', o.lotId as number)}>
           {corps}
         </button>}
+      {/* 🔴 LOT FICHES-RETOUCHES — MÊME PIED QUE LA CARTE DE BIEN : deux boutons de même largeur, et
+          « Historique » au-dessus quand le lot est dans l'annuaire. Deux cartes qui montrent le même objet ne
+          peuvent pas se présenter de deux façons — on réapprendrait à lire d'un écran à l'autre. */}
       <span className="ann-carte-pied">
-        {o.proprietaireId !== null && (
-          <button type="button" className="ann-lien"
-            onClick={() => ouvrir('proprietaire', o.proprietaireId as number)}>
-            Fiche du propriétaire →
+        {o.lotId !== null && (
+          <button type="button" className="svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large"
+            onClick={() => onHistoriqueDuBien(o.lotId as number)}>
+            Historique
           </button>
         )}
-        {o.driveDossierId !== null ? (
-          <a className="ann-lien" href={`${DRIVE_DOSSIER}${o.driveDossierId}`} target="_blank" rel="noreferrer">
-            Dossier Drive du lot ↗
-          </a>
-        ) : (
-          <span className="ann-inconnu">dossier Drive non construit</span>
-        )}
+        <span className="ann-carte-duo">
+          {o.proprietaireId !== null && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn ann-carte-bouton"
+              onClick={() => ouvrir('proprietaire', o.proprietaireId as number)}>
+              Fiche du propriétaire →
+            </button>
+          )}
+          {o.driveDossierId !== null ? (
+            <a className="svv-btn svv-btn-outline gst-btn ann-carte-bouton"
+              href={`${DRIVE_DOSSIER}${o.driveDossierId}`} target="_blank" rel="noreferrer">
+              Dossier Drive du lot ↗
+            </a>
+          ) : (
+            <span className="ann-inconnu ann-carte-sans">dossier Drive non construit</span>
+          )}
+        </span>
       </span>
     </li>
   );
@@ -1499,4 +1621,33 @@ export const CSS_ANNUAIRE = `
 @media (max-width:520px){.ann-dl{grid-template-columns:1fr;gap:.1rem}.ann-dl dd{margin-bottom:.35rem}}
 .ann-contacts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
 .ann-contact{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;min-height:44px}
+
+/* ══ 🔴🔴 LOT FICHES-RETOUCHES — LE PIED DE LA CARTE DE BIEN, EN BOUTONS ═══════════════════════════════════════
+   Arno : « deux BOUTONS cote a cote sur la meme ligne, de meme hauteur et de meme largeur, avec la meme
+   presentation que le bouton “Dossier Drive ↗” de l'en-tete » ; et « Historique » AU-DESSUS, sur toute la largeur.
+
+   🔴 UNE GRILLE DE DEUX COLONNES EGALES (1fr 1fr), ET NON UN FLEX. En flex, chaque bouton prendrait la largeur de
+   son texte : « Fiche du locataire → » serait deux fois plus large que « Dossier Drive du lot ↗ », et la promesse
+   « meme largeur » serait fausse a l'oeil des la premiere carte. La grille la tient par construction.
+
+   ⚠️ CES REGLES SONT EN FIN DE FEUILLE, EXPRES : ce fichier porte deux definitions successives de .ann-carte-pied
+   (une premiere version, puis celle du lot esthetique). En cascade, c'est la DERNIERE qui gagne — s'inserer plus
+   haut serait etre ecrase sans un mot.
+
+   AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral gabarit, qu'un seul accent grave terminerait —
+   piege consigne TREIZE fois dans ce depot, et treize fois dans un commentaire. */
+.ann-carte-pied{display:flex;flex-direction:column;gap:.4rem;padding:0 14px 12px;align-items:stretch}
+.ann-carte-duo{display:grid;grid-template-columns:1fr 1fr;gap:.4rem;align-items:stretch}
+/* Un seul des deux ? Il prend toute la ligne — une demi-ligne vide se lirait comme un bouton manquant. */
+.ann-carte-duo:has(> :only-child){grid-template-columns:1fr}
+/* Le bouton de carte : c'est .svv-btn-outline de la charte, centre et calibre pour une grille. */
+.ann-carte-bouton{display:inline-flex;align-items:center;justify-content:center;text-align:center;
+  width:100%;min-height:36px;padding:.35rem .5rem;font-size:.78rem;line-height:1.15;
+  text-decoration:none;overflow-wrap:anywhere}
+.ann-carte-bouton--large{width:100%}
+/* L'absence de dossier Drive se DIT, a la place du bouton, et reste centree sur la meme ligne de base. */
+.ann-carte-sans{display:inline-flex;align-items:center;justify-content:center;text-align:center;
+  min-height:36px;font-size:.76rem}
+/* Le lien discret de l'en-tete : l'historique tous biens confondus, quand il n'est pas redondant. */
+.ann-tete-histo{font-size:.78rem}
 `;

@@ -1,5 +1,6 @@
 import { query } from '../db/client';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
+import { formaterTelephone } from './telephoneAffichage';
 import {
   annuaireDisponible, rattachementsDisponibles, miniaturesDisponibles, libelleSourceContactDisponible,
 } from './schema';
@@ -155,7 +156,7 @@ interface LotDB {
  */
 function sqlContacts(avecLibelle: boolean, vivante: string): string {
   return `
-  SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, rang,
+  SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, valeur_brute, rang,
          ${avecLibelle ? 'libelle_source' : "NULL::text AS libelle_source"}
     FROM gestion_annuaire_contact
    WHERE absent_le IS NULL${vivante}
@@ -330,7 +331,8 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
     // LOT CONTACTS-ET-EVENEMENT — la 267 est-elle là ? Sinon la colonne n'est nommée nulle part (repli générique).
     const avecLibelle = await libelleSourceContactDisponible();
     const { rows: cts } = await query<{
-      sujet: string; sujet_id: string; sorte: string; valeur: string; rang: number; libelle_source: string | null;
+      sujet: string; sujet_id: string; sorte: string; valeur: string; valeur_brute: string;
+      rang: number; libelle_source: string | null;
     }>(sqlContacts(avecLibelle, await conditionCoordonneeVivante()), [idsProprios, idsLocataires]);
     for (const c of cts) {
       const k = cleContact(c.sujet, c.sujet_id);
@@ -338,6 +340,10 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
       // 🔴 LE LIBELLÉ N'EST JAMAIS VIDE : `libelleContact` retombe sur la sorte numérotée par le rang.
       const coord: Coordonnee = {
         valeur: c.valeur,
+        // 🔴 LOT FICHES-RETOUCHES — un telephone s'affiche groupe par deux ; un e-mail n'est pas touche.
+        affichage: c.sorte === 'telephone'
+          ? formaterTelephone(c.valeur, c.valeur_brute)
+          : (c.valeur_brute.trim() === '' ? c.valeur : c.valeur_brute),
         libelle: libelleContact({ sorte: c.sorte, rang: c.rang, libelleSource: c.libelle_source }),
       };
       if (c.sorte === 'email') e.emails.push(coord);

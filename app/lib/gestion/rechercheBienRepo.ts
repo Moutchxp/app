@@ -1,8 +1,9 @@
 import { query } from '../db/client';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
+import { formaterTelephone } from './telephoneAffichage';
 import { annuaireDisponible } from './schema';
 import { analyserTerme, type TermeRecherche } from './annuaireRecherche';
-import { adresseComplete, type PersonneFiche } from './ficheBien';
+import { adresseComplete, type Coordonnee, type PersonneFiche } from './ficheBien';
 import { libelleContact } from './annuaire';
 import { libelleSourceContactDisponible } from './schema';
 import { classerResultats, raisonsTriees, type RaisonCorrespondance } from './rechercheBien';
@@ -215,14 +216,14 @@ async function partiesDesBiens(
   const avecLibelle = await libelleSourceContactDisponible();
   const idsProprios = [...new Set(lots.map((l) => l.proprietaire_id).filter((x): x is string => x !== null))];
   const idsLocataires = [...new Set(occ.map((o) => o.locataire_id))];
-  const contacts = new Map<string, { emails: { valeur: string; libelle: string }[];
-    telephones: { valeur: string; libelle: string }[] }>();
+  const contacts = new Map<string, { emails: Coordonnee[]; telephones: Coordonnee[] }>();
 
   if (idsProprios.length > 0 || idsLocataires.length > 0) {
     const { rows: cts } = await query<{
-      sujet: string; sujet_id: string; sorte: string; valeur: string; rang: number; libelle_source: string | null;
+      sujet: string; sujet_id: string; sorte: string; valeur: string; valeur_brute: string;
+      rang: number; libelle_source: string | null;
     }>(
-      `SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, rang,
+      `SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, valeur_brute, rang,
               ${avecLibelle ? 'libelle_source' : 'NULL::text AS libelle_source'}
          FROM gestion_annuaire_contact
         WHERE absent_le IS NULL${await conditionCoordonneeVivante()}
@@ -233,8 +234,12 @@ async function partiesDesBiens(
     for (const c of cts) {
       const k = `${c.sujet}|${c.sujet_id}`;
       const e = contacts.get(k) ?? { emails: [], telephones: [] };
-      const coord = {
+      const coord: Coordonnee = {
         valeur: c.valeur,
+        // 🔴 LOT FICHES-RETOUCHES — un telephone s'affiche groupe par deux ; un e-mail n'est pas touche.
+        affichage: c.sorte === 'telephone'
+          ? formaterTelephone(c.valeur, c.valeur_brute)
+          : (c.valeur_brute.trim() === '' ? c.valeur : c.valeur_brute),
         libelle: libelleContact({ sorte: c.sorte, rang: c.rang, libelleSource: c.libelle_source }),
       };
       if (c.sorte === 'email') e.emails.push(coord); else if (c.sorte === 'telephone') e.telephones.push(coord);

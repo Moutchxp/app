@@ -6,6 +6,10 @@ import {
   MOTIF_SANS_MIGRATION, phraseArchivage, proposerCoupure, verifierCoordonnees,
   type CoordonneeSaisie, type PartDeCoordonnee,
 } from '../../../../lib/gestion/annuaireEdition';
+// LOT FICHES-RETOUCHES — la nomenclature (Mobile / Fixe / E-mail) et le formatage des numeros.
+import {
+  TYPES_COORDONNEE, formaterSaisieTelephone, motType, sorteDuType, typeDeLibelle, type TypeCoordonnee,
+} from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * ══ 🔴🔴 LOT FICHES-ANNUAIRE, ÉTAPE C — LES PERSONNES EN CARTES, MODIFIABLES SUR PLACE ════════════════════════════
@@ -222,7 +226,10 @@ function Coordonnees({ contacts, sorte, onEcrire }: {
             : onEcrire
               ? <button type="button" className="cp-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
               : <a className="cp-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
-          <span className="cp-caps">{c.libelle ?? mot}</span>
+          {/* 🔴 LOT FICHES-RETOUCHES — LA CAPSULE SUIT LA NOMENCLATURE : Mobile / Fixe / E-mail. Les libellés
+              importés (« Mobile 1 », « Email 2 ») s'y rangent À L'AFFICHAGE SEULEMENT ; rien n'est réécrit en
+              base. Un libellé qu'aucun type ne couvre reste montré tel quel — voir `typeDeLibelle`. */}
+          <span className="cp-caps">{typeDeLibelle(c.libelle, c.sorte).mot}</span>
           <Copier valeur={sorte === 'telephone' ? c.affichage : c.valeur}
             quoi={sorte === 'telephone' ? 'ce numéro' : 'cette adresse'} />
           {c.absent && <span className="cp-caps cp-caps--absent">retiré de l’export</span>}
@@ -386,13 +393,25 @@ function MenuCarte({ p, gestes, onFermer, onSeparer, onRefus, deplacer }: {
 
 // ══ ④ LE FORMULAIRE D'UNE CARTE ═══════════════════════════════════════════════════════════════════════════════════
 
-interface LigneSaisie extends CoordonneeSaisie { cle: string }
+/**
+ * ══ 🔴 UNE LIGNE DE SAISIE : UN TYPE, ET UNE VALEUR ═══════════════════════════════════════════════════════════════
+ *
+ * LOT FICHES-RETOUCHES. La ligne portait TROIS cases — sorte, valeur, libellé libre. Arno : « Supprime la 3e case
+ * (libellé en texte libre). La 1re case devient le TYPE, avec une liste courte : Mobile, Fixe, E-mail. »
+ *
+ * 🔴 LE TYPE PORTE LA SORTE ET LE LIBELLÉ À LA FOIS. C'est ce qui rend l'état impossible impossible : il n'existe
+ * plus de « Mobile » de sorte e-mail, ni de libellé qui contredise la sorte. Le serveur, lui, reçoit toujours les
+ * deux champs qu'il attend — `sorte` et `libelle` —, dérivés du type au moment de l'envoi.
+ */
+interface LigneSaisie { cle: string; type: TypeCoordonnee; valeur: string }
 
 /**
  * ══ 🔴🔴 MODIFIER SUR PLACE — TOUTES LES COORDONNÉES ══════════════════════════════════════════════════════════════
  *
- * Arno : « édition sur place de toutes les coordonnées. Ajouter, retirer et réordonner des téléphones et des e-mails,
- * avec libellé (Mobile, Fixe, Pro, Email 1…). Enregistrer / Annuler. »
+ * Arno : « édition sur place de toutes les coordonnées. Ajouter, retirer et réordonner des téléphones et des
+ * e-mails. Enregistrer / Annuler. » (La consigne d'origine disait « avec libellé (Mobile, Fixe, Pro, Email 1…) » ;
+ * elle est RÉÉCRITE par le lot FICHES-RETOUCHES en une LISTE FERMÉE de trois types — le champ libre ne servait
+ * qu'à inventer une quatrième façon d'écrire « Mobile », que personne ne retrouverait ensuite.)
  *
  * 🔴 LA LISTE COMPLÈTE PART À CHAQUE ENREGISTREMENT, dans l'ordre affiché. Ajouter, retirer et réordonner sont ainsi
  * le même geste — et l'écran n'a pas à calculer un différentiel, donc pas à se tromper un jour sur l'ordre. Le
@@ -419,8 +438,15 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus }: {
   const [codePostal, setCodePostal] = useState(p.codePostal ?? '');
   const [commune, setCommune] = useState(p.commune ?? '');
   const [note, setNote] = useState(p.note ?? '');
+  /**
+   * ⚠️ LE TYPE D'UNE COORDONNÉE EXISTANTE SE DÉDUIT DE SON LIBELLÉ IMPORTÉ (« Mobile 2 » → Mobile), et à défaut de
+   * sa SORTE, qui ne ment jamais. Un libellé hors nomenclature retombe sur le type le plus probable de sa sorte
+   * plutôt que de laisser la liste vide — mais rien n'est réécrit en base tant qu'on n'enregistre pas.
+   */
   const [lignes, setLignes] = useState<LigneSaisie[]>(() => p.contacts.map((c) => ({
-    cle: `c${c.id}`, sorte: c.sorte, valeur: c.affichage, libelle: c.libelle ?? '',
+    cle: `c${c.id}`,
+    type: typeDeLibelle(c.libelle, c.sorte).type ?? (c.sorte === 'email' ? 'email' : 'mobile'),
+    valeur: c.affichage,
   })));
   const [local, setLocal] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
@@ -436,8 +462,9 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus }: {
   };
 
   const soumettre = (): void => {
+    // 🔴 LE TYPE REDEVIENT `sorte` + `libelle` À L'ENVOI : le serveur n'apprend pas un nouveau vocabulaire.
     const saisies: CoordonneeSaisie[] = lignes.map((l) => ({
-      sorte: l.sorte, valeur: l.valeur, libelle: l.libelle,
+      sorte: sorteDuType(l.type), valeur: l.valeur, libelle: motType(l.type),
     }));
     const verdict = verifierCoordonnees(saisies);
     if (!verdict.ok) { setLocal(verdict.motif); return; }
@@ -494,18 +521,28 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus }: {
       <ul className="cp-coords-edit">
         {lignes.map((l, i) => (
           <li key={l.cle} className="cp-coord-edit">
-            <select className="cp-saisie cp-saisie--sorte" value={l.sorte} aria-label="Sorte de coordonnée"
+            {/* 🔴 LE TYPE — trois choix, et rien d'autre. Changer le type d'un téléphone en « E-mail » change AUSSI
+                sa sorte : c'est le même objet, et les tenir séparés autorisait des lignes impossibles. */}
+            <select className="cp-saisie cp-saisie--type" value={l.type} aria-label="Type de coordonnée"
               onChange={(e) => setLignes((v) => v.map((x, j) => (j === i
-                ? { ...x, sorte: e.target.value as 'telephone' | 'email' } : x)))}>
-              <option value="telephone">Téléphone</option>
-              <option value="email">E-mail</option>
+                ? { ...x, type: e.target.value as TypeCoordonnee } : x)))}>
+              {TYPES_COORDONNEE.map((t) => <option key={t.type} value={t.type}>{t.mot}</option>)}
             </select>
+            {/* 🔴 LA VALEUR PREND TOUTE LA LARGEUR LIBÉRÉE : on doit voir le numéro entier, et le plus possible
+                d'une adresse e-mail. C'est la demande d'Arno, et c'est la case qu'on relit vraiment.
+                ⚠️ LE FORMATAGE PENDANT LA FRAPPE NE S'APPLIQUE QUE SI LE CURSEUR EST AU BOUT. Reformater pendant
+                une correction au milieu du champ replacerait le curseur à la fin à chaque touche — le défaut
+                classique de ces champs, et celui qui les rend inutilisables. */}
             <input className="cp-saisie cp-saisie--valeur" value={l.valeur} aria-label="Valeur"
-              placeholder={l.sorte === 'telephone' ? '06 12 34 56 78' : 'nom@exemple.fr'}
-              onChange={(e) => setLignes((v) => v.map((x, j) => (j === i ? { ...x, valeur: e.target.value } : x)))} />
-            <input className="cp-saisie cp-saisie--libelle" value={l.libelle} aria-label="Libellé"
-              placeholder={l.sorte === 'telephone' ? 'Mobile, Fixe, Pro…' : 'Email 1, Pro…'}
-              onChange={(e) => setLignes((v) => v.map((x, j) => (j === i ? { ...x, libelle: e.target.value } : x)))} />
+              inputMode={l.type === 'email' ? 'email' : 'tel'}
+              placeholder={l.type === 'email' ? 'nom@exemple.fr' : '06 12 34 56 78'}
+              onChange={(e) => {
+                const champ = e.target;
+                const auBout = champ.selectionStart === champ.value.length;
+                const brut = champ.value;
+                const valeur = l.type !== 'email' && auBout ? formaterSaisieTelephone(brut) : brut;
+                setLignes((v) => v.map((x, j) => (j === i ? { ...x, valeur } : x)));
+              }} />
             <span className="cp-coord-gestes">
               <button type="button" className="cp-icone" aria-label="Monter" title="Monter"
                 disabled={i === 0} onClick={() => bouger(i, -1)}>↑</button>
@@ -518,13 +555,17 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus }: {
           </li>
         ))}
       </ul>
+      {/* 🔴 « + TÉLÉPHONE » AJOUTE UNE LIGNE DE TYPE MOBILE — présélectionné, et la liste laisse choisir « Fixe »
+          d'un geste. Demander le type AVANT d'ajouter la ligne aurait mis une question là où il n'y en a pas :
+          neuf numéros sur dix sont des mobiles (631 « Mobile » contre 0 « Fixe » dans la base au 29/09/2026).
+          « + E-mail » donne directement le type E-mail. */}
       <div className="cp-ajouts">
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setLignes((v) => [...v,
-          { cle: `n${Date.now()}${v.length}`, sorte: 'telephone', valeur: '', libelle: '' }])}>
+          { cle: `n${Date.now()}${v.length}`, type: 'mobile' as TypeCoordonnee, valeur: '' }])}>
           + Téléphone
         </button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setLignes((v) => [...v,
-          { cle: `n${Date.now()}${v.length}`, sorte: 'email', valeur: '', libelle: '' }])}>
+          { cle: `n${Date.now()}${v.length}`, type: 'email' as TypeCoordonnee, valeur: '' }])}>
           + E-mail
         </button>
       </div>
@@ -620,7 +661,9 @@ function EcranSeparer({ p, onSeparer, onAnnuler, refus }: {
             <li key={c.id} className="cp-repart-ligne">
               <span className="cp-repart-val">
                 {c.affichage}
-                <span className="cp-caps">{c.libelle ?? (c.sorte === 'telephone' ? 'Téléphone' : 'E-mail')}</span>
+                {/* La même nomenclature qu'ailleurs : Mobile / Fixe / E-mail. Deux mots pour une même chose
+                    d'un écran à l'autre, et l'on croit à deux choses différentes. */}
+                <span className="cp-caps">{typeDeLibelle(c.libelle, c.sorte).mot}</span>
               </span>
               <span className="cp-repart-choix">
                 {(['premier', 'second', 'les_deux'] as const).map((part) => (
@@ -806,15 +849,18 @@ export const CSS_CARTES = `
   border:1px solid var(--color-svv-line-strong);border-radius:.45rem;background:var(--color-svv-surface);
   min-width:0;width:100%}
 .cp-saisie--note{min-height:4rem;resize:vertical}
+/* ══ 🔴 LOT FICHES-RETOUCHES — DEUX CASES, ET LA VALEUR PREND TOUTE LA PLACE ═══════════════════════════════════
+   La troisieme case (libelle libre) a disparu ; la valeur herite de sa largeur. Le TYPE est calibre sur son plus
+   long mot (« E-mail ») et pas un pixel de plus : chaque millimetre rendu ici est un caractere de plus visible
+   d'une adresse e-mail, qui est ce qu'on relit vraiment avant d'enregistrer.
+   Les fleches et la croix restent A DROITE, hors de la case, comme avant. */
 .cp-coords-edit{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem}
-.cp-coord-edit{display:grid;grid-template-columns:minmax(0,7rem) minmax(0,1fr);gap:.3rem;align-items:center}
+.cp-coord-edit{display:grid;grid-template-columns:minmax(0,6rem) minmax(0,1fr);gap:.3rem;align-items:center}
 .cp-saisie--valeur{grid-column:2}
-.cp-saisie--libelle{grid-column:2}
 .cp-coord-gestes{grid-column:1 / -1;display:flex;gap:.25rem;justify-content:flex-end}
-@media (min-width:640px){
-  .cp-coord-edit{grid-template-columns:7rem minmax(0,1fr) 8rem auto}
+@media (min-width:600px){
+  .cp-coord-edit{grid-template-columns:6rem minmax(0,1fr) auto}
   .cp-saisie--valeur{grid-column:auto}
-  .cp-saisie--libelle{grid-column:auto}
   .cp-coord-gestes{grid-column:auto;justify-content:flex-start}
 }
 .cp-ajouts{display:flex;gap:.4rem;flex-wrap:wrap}

@@ -280,13 +280,24 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
 
   /**
    * 🔴 UN BOUTON DANS UN BOUTON est du HTML invalide et injouable au clavier. La carte entière est le bouton ;
-   * les deux liens qui en sortent vivent dans un PIED, à côté — pas dedans.
+   * ce qui en sort vit dans un PIED, à côté — pas dedans.
+   *
+   * ══ 🔴 RÈGLE RÉÉCRITE LE 29/09/2026 (lot FICHES-RETOUCHES) ═════════════════════════════════════════════════
+   * Elle cherchait `<a className="ann-lien"` dans le pied. Ce lien souligné n'existe plus : Arno l'a remplacé par
+   * un BOUTON de la charte (« … deux BOUTONS côte à côte […] avec la même présentation que le bouton “Dossier
+   * Drive ↗” de l'en-tête »). CE QUE LA RÈGLE PROTÉGEAIT N'A PAS BOUGÉ D'UN POUCE — et c'est exactement ce qu'on
+   * éprouve maintenant : rien d'interactif dans le corps du bouton, et les trois commandes dans le pied.
    */
-  it('🔴 les liens d’une carte sont hors du bouton de la carte', () => {
+  it('🔴 ce qui est cliquable dans une carte est hors du bouton de la carte', () => {
     const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
     const corps = carte.slice(carte.indexOf('ann-carte-corps'), carte.indexOf('ann-carte-pied'));
+    // AUCUN lien ni bouton imbriqué dans le corps : ni `<a>`, ni un second `<button>`.
     expect(corps).not.toContain('<a ');
-    expect(carte.slice(carte.indexOf('ann-carte-pied'))).toContain('<a className="ann-lien"');
+    expect(corps).not.toContain('<button');
+    // Et le pied porte bien les commandes, en boutons de la charte.
+    const pied = carte.slice(carte.indexOf('ann-carte-pied'));
+    expect(pied).toContain('<a className="svv-btn svv-btn-outline gst-btn ann-carte-bouton"');
+    expect(pied).toContain('Historique');
   });
 
   /** ⚠️ LES ANCIENS BIENS SONT REPLIÉS, JAMAIS RETIRÉS : on ouvre souvent la fiche pour eux. */
