@@ -269,12 +269,32 @@ describe('🔴 l’écran n’offre pas « Visualiser » là où la route refuse
    * 🔴🔴 VISUALISER EST UNE LECTURE DE CONTENU. Afficher un avis d'imposition à l'écran, c'est le lire : le geste
    * tombe donc sous la même règle que « Joindre », et sous le même verdict — pas sous une variante.
    */
-  it('« Visualiser » est conditionné au MÊME verdict que « Joindre »', () => {
+  /**
+   * ⚠️ ASSERTION RÉÉCRITE LE 29/09/2026 (lot DRIVE-FACON-FINDER), et elle en sort plus forte.
+   *
+   * Elle cherchait le mot `joindreAutorise` dans les 900 caractères précédant le dernier « Visualiser » — une
+   * PROXIMITÉ dans le texte, donc une mesure de mise en page autant que de logique. Le verdict est désormais lu
+   * une fois, dans une constante nommée, et « Visualiser » s'atteint par CINQ chemins (le bouton de ligne, le
+   * double-clic, la barre d'espace, la touche Entrée, le menu contextuel). Compter des caractères ne dit plus rien.
+   *
+   * 🔴 CE QU'ON VÉRIFIE MAINTENANT : il n'existe QU'UNE porte (`visualiser`), elle refuse d'elle-même quand le
+   * verdict est négatif, et AUCUN appel ne lui passe autre chose que ce verdict. Un sixième chemin qu'on ajouterait
+   * sans le verdict ferait échouer ce test.
+   */
+  it('🔴🔴 « Visualiser » passe par UNE porte, et cette porte porte le MÊME verdict que « Joindre »', () => {
     const c = code(ECRAN);
-    // ⚠️ La dernière occurrence : le lot APERCU-RAPIDE a ajouté des commentaires qui nomment le mot plus haut.
-    const i = c.lastIndexOf('Visualiser');
-    expect(i).toBeGreaterThan(0);
-    expect(c.slice(Math.max(0, i - 900), i)).toContain('joindreAutorise');
+    // ① Le verdict est lu une fois, à la source, et il vient de la route.
+    expect(c).toContain('const joindreOk = listing?.joindreAutorise === true;');
+    // ② La porte refuse d'elle-même : c'est elle, et pas l'appelant, qui tient la règle.
+    expect(c).toContain('if (!autorise || f.dossier) return;');
+    // ③ Et aucun appel ne lui passe autre chose que ce verdict.
+    const appels = c.match(/visualiser\([^)]*\)/g) ?? [];
+    expect(appels.length).toBeGreaterThan(2);
+    for (const a of appels) {
+      if (a.startsWith('visualiser(f,')) {
+        expect(a).toMatch(/visualiser\(f, (joindreOk|listing\?\.joindreAutorise === true)\)/);
+      }
+    }
   });
 
   /** Et la route de l'aperçu prononce le verdict elle-même : l'écran explique, le serveur protège. */

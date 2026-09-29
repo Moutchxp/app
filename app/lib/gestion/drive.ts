@@ -461,20 +461,47 @@ function versFichiers(j: unknown): FichierDrive[] {
  * ⚠️ `orderBy: 'folder,name'` — Google range les dossiers avant les fichiers quand on le lui demande ainsi. C'est
  * l'ordre de n'importe quel explorateur, et celui qu'on attend sans y penser.
  */
+/**
+ * ══ 🔴🔴 LOT DRIVE-FACON-FINDER — LE DOSSIER EST LU EN ENTIER, PAR PAGES ══════════════════════════════════════
+ *
+ * DÉFAUT TROUVÉ EN MESURANT, le 29/09/2026 : cette fonction demandait UNE page de 200 entrées et s'arrêtait là.
+ * « 1 Propriétaires » en compte plus de 300 : on en voyait 200, les autres n'existaient pas — sans un mot, sans
+ * un « … et d'autres ». Chercher un propriétaire dont le nom commence par C à Z revenait à ne pas le trouver, et
+ * l'on en concluait qu'il n'avait pas de dossier.
+ *
+ * 🔴 ON SUIT DONC `nextPageToken`, jusqu'à `PAGES_MAX`. La borne existe parce qu'un dossier peut, en théorie,
+ * contenir des dizaines de milliers d'entrées : cinq pages (1 000 entrées) couvrent tout ce que le cabinet range
+ * réellement, et la liste virtualisée les affiche sans peine. Au-delà, `tronque` le DIT — un silence serait la
+ * même faute qu'avant, en plus tardive.
+ */
+export const PAGES_MAX_CONTENU = 5;
+
 export async function listerContenu(
-  accessToken: string, o: { parentId: string; driveId?: string | null; pageSize?: number }, deps: DepsGoogle,
-): Promise<Resultat<FichierDrive[]>> {
-  const p = new URLSearchParams({
-    q: `'${echapperQ(o.parentId)}' in parents and trashed = false`,
-    fields: CHAMPS_FICHIERS,
-    pageSize: String(o.pageSize ?? 200),
-    orderBy: 'folder,name',
-    ...PARTAGES,
-  });
-  if (o.driveId) { p.set('driveId', o.driveId); p.set('corpora', 'drive'); }
-  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du dossier') };
-  return { ok: true, valeur: versFichiers(await res.json().catch(() => ({}))) };
+  accessToken: string, o: { parentId: string; driveId?: string | null; pageSize?: number; pagesMax?: number },
+  deps: DepsGoogle,
+): Promise<Resultat<{ fichiers: FichierDrive[]; tronque: boolean }>> {
+  const pagesMax = o.pagesMax ?? PAGES_MAX_CONTENU;
+  const fichiers: FichierDrive[] = [];
+  let jeton: string | null = null;
+  for (let page = 0; page < pagesMax; page += 1) {
+    const p = new URLSearchParams({
+      q: `'${echapperQ(o.parentId)}' in parents and trashed = false`,
+      fields: `nextPageToken, ${CHAMPS_FICHIERS}`,
+      pageSize: String(o.pageSize ?? 200),
+      orderBy: 'folder,name',
+      ...PARTAGES,
+    });
+    if (o.driveId) { p.set('driveId', o.driveId); p.set('corpora', 'drive'); }
+    if (jeton !== null) p.set('pageToken', jeton);
+    const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du dossier') };
+    const j = await res.json().catch(() => ({}));
+    fichiers.push(...versFichiers(j));
+    jeton = (j as { nextPageToken?: string }).nextPageToken ?? null;
+    if (jeton === null) return { ok: true, valeur: { fichiers, tronque: false } };
+  }
+  // On s'est arrêté sur la borne alors que Google en avait encore : on le DIT.
+  return { ok: true, valeur: { fichiers, tronque: jeton !== null } };
 }
 
 /**

@@ -119,10 +119,56 @@ const boutonPar = (m: RegExp) => boutons().find((b) => m.test((b.textContent ?? 
 const cliquer = async (e: Element | null | undefined) => {
   await act(async () => { (e as HTMLElement | undefined)?.click(); }); await calmer();
 };
-const joindreDe = (nom: string) => {
-  const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes(nom));
-  return [...(li?.querySelectorAll('button') ?? [])].find((b) => /^Joindre$/.test((b.textContent ?? '').trim()));
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-FACON-FINDER — LES AIDES DE CE FICHIER ONT ÉTÉ RÉÉCRITES, ET IL FAUT DIRE POURQUOI.
+
+   Elles cherchaient un bouton dont le TEXTE était « Joindre », « Visualiser » ou « Insérer un lien », dans une
+   ligne de classe `.sfd-ligne`. C'était vrai jusqu'au 29/09/2026 ; ce ne l'est plus, et c'est une demande d'Arno :
+   « les actions de ligne restent disponibles : au survol de la ligne, à droite, EN ICÔNES DISCRÈTES avec
+   infobulle, au lieu des 3 liens rouges permanents ». La liste est désormais celle du Finder — `.sfd-ligne`,
+   quatre colonnes, et des gestes en icônes portant leur mot dans `title` et `aria-label`.
+
+   ⚠️ AUCUNE ASSERTION N'A ÉTÉ AFFAIBLIE : ce sont les MÊMES gestes, au même endroit du raisonnement, cherchés par
+   le mot qu'ils portent pour le lecteur d'écran plutôt que par le texte qu'ils affichaient.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Une ligne de la liste, par le nom qu'elle affiche. */
+const ligneDe = (nom: string) =>
+  [...container.querySelectorAll('.sfd-ligne')].find((x) => (x.textContent ?? '').includes(nom));
+/** Un geste de ligne, par son infobulle — le mot que porte l'icône. */
+const gesteDe = (nom: string, titre: string) =>
+  [...(ligneDe(nom)?.querySelectorAll('.sfd-geste') ?? [])]
+    .find((b) => (b.getAttribute('title') ?? '') === titre) as HTMLButtonElement | undefined;
+const joindreDe = (nom: string) => gesteDe(nom, 'Joindre au message');
+const visualiserDe = (nom: string) => gesteDe(nom, 'Visualiser');
+const lienDe = (nom: string) => gesteDe(nom, 'Insérer un lien');
+/** 🔴 Ouvrir un dossier, c'est un DOUBLE-CLIC — comme dans le Finder. */
+const ouvrirDossier = async (nom: string) => {
+  await act(async () => {
+    ligneDe(nom)?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  });
+  await calmer();
 };
+/** Une entrée de la barre latérale, par son libellé. */
+const lateraleDe = (m: RegExp) => [...container.querySelectorAll('.sfd-cote-item')]
+  .find((b) => m.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
+/** 🔴 LA RECHERCHE EST DERRIÈRE LA LOUPE, comme dans le Finder : on l'ouvre avant de taper. */
+const ouvrirLoupe = async () => {
+  if (container.querySelector('.sfd-saisie') === null) {
+    await cliquer(container.querySelector('.sfd-outil[aria-label="Rechercher"]'));
+  }
+  return container.querySelector('.sfd-saisie') as HTMLInputElement;
+};
+/** 🔴 « Nouveau dossier » vit dans le menu « ⋯ » de la barre d'outils, comme dans le Finder. */
+const ouvrirMenuOutils = async () => {
+  await cliquer(container.querySelector('.sfd-outil[aria-label="Autres actions"]'));
+};
+const entreeNouveauDossier = () =>
+  [...container.querySelectorAll('.sfd-menu--outils [role="menuitem"]')]
+    .find((b) => /Nouveau dossier/.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
+/** Ouvre le menu et rend l'entrée « Nouveau dossier » (définie ou non). */
+const nouveauDossier = async () => { await ouvrirMenuOutils(); return entreeNouveauDossier(); };
 
 describe('🔴 ① la fenêtre reste ouverte, et le dossier courant ne bouge pas', () => {
   it('🔴 joindre une pièce NE FERME PAS la fenêtre', async () => {
@@ -135,9 +181,9 @@ describe('🔴 ① la fenêtre reste ouverte, et le dossier courant ne bouge pas
 
   it('🔴 la liste affichée est la MÊME après l’ajout : on n’est pas renvoyé à la racine', async () => {
     await monter();
-    const avant = [...container.querySelectorAll('.sfd-item')].map((x) => x.textContent);
+    const avant = [...container.querySelectorAll('.sfd-ligne')].map((x) => x.textContent);
     await cliquer(joindreDe('bail.pdf'));
-    const apres = [...container.querySelectorAll('.sfd-item')].map((x) => x.textContent);
+    const apres = [...container.querySelectorAll('.sfd-ligne')].map((x) => x.textContent);
     expect(apres).toHaveLength(avant.length);
     expect(container.textContent).toContain('devis.pdf');
   });
@@ -180,7 +226,7 @@ describe('🔴 ① la fenêtre reste ouverte, et le dossier courant ne bouge pas
 
   it('…et il porte le DOSSIER courant dès qu’on est entré quelque part', async () => {
     await monter();
-    await cliquer([...container.querySelectorAll('.sfd-dossier')].find((b) => /Artisans/.test(b.textContent ?? '')));
+    await ouvrirDossier('Artisans');
     await cliquer(joindreDe('bail.pdf'));
     const c = choisis[0] as { drive?: { dossierId: string | null; dossierNom: string | null } };
     expect(c.drive?.dossierId).toBe('d1');
@@ -245,7 +291,7 @@ describe('🔴 ② pas de doublon', () => {
     await monter();
     await cliquer(joindreDe('bail.pdf'));
     expect(joindreDe('bail.pdf')).toBeUndefined();
-    const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes('bail.pdf'));
+    const li = [...container.querySelectorAll('.sfd-ligne')].find((x) => (x.textContent ?? '').includes('bail.pdf'));
     expect(li?.textContent).toContain('ajouté');
     // …et l'autre fichier reste joignable : on ne bloque pas toute la liste.
     expect(joindreDe('devis.pdf')).toBeDefined();
@@ -279,14 +325,14 @@ describe('🔴🔴 ④ « Documents clients scannés » : pas de bouton, et le m
     await monter();
     expect(joindreDe('bail.pdf')).toBeUndefined();
     expect(container.querySelector('.sfd-interdit')?.textContent).toContain('Documents clients scannés');
-    expect(boutonPar(/Insérer un lien/)).toBeDefined();
+    expect(lienDe('bail.pdf')).toBeDefined();
   });
 
   /** 🔴 LA RECHERCHE PARCOURT TOUT LE DRIVE : on annonce le régime AVANT le clic, pas après le refus. */
   it('🔴 une recherche annonce que le droit se juge au moment de joindre', async () => {
     contenu = { ...contenu, recherche: true, joindreAutorise: true, motifRefus: null };
     await monter();
-    const champ = container.querySelector('.sfd-saisie') as HTMLInputElement;
+    const champ = await ouvrirLoupe();
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
       set?.call(champ, 'bail');
@@ -303,7 +349,8 @@ describe('🔴 ⑤ « Récents » sans la migration 269', () => {
   it('🔴 la section N’EXISTE PAS — une section vide se lirait comme une panne', async () => {
     recents = { etat: 'ok', disponible: false, lignes: [] };
     await monter();
-    expect(container.querySelector('.sfd-recents')).toBeNull();
+    // 🔴 SANS LA MIGRATION, l'entrée n'existe pas dans la barre latérale — pas une liste vide.
+    expect(lateraleDe(/Récents/)).toBeUndefined();
     expect(container.textContent).not.toContain('Récents');
     // …et tout le reste marche exactement comme avant.
     expect(joindreDe('bail.pdf')).toBeDefined();
@@ -318,6 +365,7 @@ describe('🔴 ⑤ « Récents » sans la migration 269', () => {
       ],
     };
     await monter();
+    await cliquer(lateraleDe(/Récents/));
     const section = container.querySelector('.sfd-recents');
     expect(section).not.toBeNull();
     expect(section?.textContent).toContain('MACJ');
@@ -331,6 +379,7 @@ describe('🔴 ⑤ « Récents » sans la migration 269', () => {
       lignes: [{ sorte: 'drive_dossier', cle: 'd9', libelle: 'MACJ', detail: null, tailleOctets: null }],
     };
     await monter();
+    await cliquer(lateraleDe(/Récents/));
     const b = [...(container.querySelector('.sfd-recents')?.querySelectorAll('button') ?? [])][0];
     await cliquer(b);
     expect(choisis).toHaveLength(0);
@@ -376,8 +425,8 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
       lignes: [{ sorte: 'drive_dossier', cle: 'd9', libelle: 'MACJ', detail: null, tailleOctets: null }],
     };
     await monterAvecBien();
-    const prio = container.querySelector('.sfd-prio');
-    const rec = container.querySelector('.sfd-recents');
+    const prio = lateraleDe(/Dossier du bien/);
+    const rec = lateraleDe(/Récents/);
     expect(prio).not.toBeNull();
     expect(rec).not.toBeNull();
     /**
@@ -391,7 +440,7 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
   it('🔴 elle NOMME le propriétaire et le bien — le dossier est rangé par propriétaire, pas par logement', async () => {
     prioritaires = { etat: 'ok', dossiers: [dossier()] };
     await monterAvecBien();
-    const bloc = container.querySelector('.sfd-prio');
+    const bloc = lateraleDe(/Dossier du bien/);
     expect(bloc?.textContent).toContain('GARREAU Gabrielle');
     expect(bloc?.textContent).toContain('lot 421');
   });
@@ -399,7 +448,7 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
   it('🔴 ② un clic OUVRE le dossier, et la fenêtre ne se ferme pas', async () => {
     prioritaires = { etat: 'ok', dossiers: [dossier()] };
     await monterAvecBien();
-    await cliquer(container.querySelector('.sfd-prio-ligne'));
+    await cliquer(lateraleDe(/Dossier du bien/));
     expect(appels.some((u) => u.includes('dossier=d-garreau'))).toBe(true);
     expect(fermetures).toBe(0);
     expect(container.querySelector('.sfd')).not.toBeNull();
@@ -411,8 +460,8 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
       dossiers: [dossier({ cles: ['421', '422'], libelle: '28 Av. Marceau — lot 421 · 30 Av. Marceau — lot 422' })],
     };
     await monterAvecBien();
-    expect(container.querySelectorAll('.sfd-prio-ligne')).toHaveLength(1);
-    expect(container.querySelector('.sfd-prio')?.textContent).toContain('2 biens dans ce dossier');
+    expect([...container.querySelectorAll('.sfd-cote-item')].filter((b) => /Dossier du bien/.test(b.textContent ?? ''))).toHaveLength(1);
+    expect(lateraleDe(/Dossier du bien/)?.textContent).toContain('2 biens');
   });
 
   it('deux propriétaires : DEUX lignes, dans l’ordre rendu par le serveur', async () => {
@@ -424,7 +473,7 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
       ],
     };
     await monterAvecBien();
-    const lignes = [...container.querySelectorAll('.sfd-prio-ligne')];
+    const lignes = [...container.querySelectorAll('.sfd-cote-item')].filter((b) => /Dossier du bien/.test(b.textContent ?? ''));
     expect(lignes).toHaveLength(2);
     expect(lignes[0].textContent).toContain('ZOLA');
     expect(lignes[1].textContent).toContain('ABEL');
@@ -434,7 +483,7 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
   it('🔴 ③ aucun bien ⇒ AUCUNE ligne, et le reste du sélecteur est intact', async () => {
     prioritaires = { etat: 'ok', dossiers: [] };
     await monterAvecBien();
-    expect(container.querySelector('.sfd-prio')).toBeNull();
+    expect(lateraleDe(/Dossier du bien/)).toBeUndefined();
     expect(container.textContent).not.toContain('Dossier du bien');
     // …et tout le reste marche comme avant.
     expect(joindreDe('bail.pdf')).toBeDefined();
@@ -444,7 +493,7 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
   it('🔴 ④ sans échange NI lot, aucune requête n’est même émise', async () => {
     await monter();   // ni filId ni lots
     expect(appels.some((u) => u.includes('/dossier-du-bien'))).toBe(false);
-    expect(container.querySelector('.sfd-prio')).toBeNull();
+    expect(lateraleDe(/Dossier du bien/)).toBeUndefined();
   });
 
   it('les lots choisis à l’écriture sont transmis, pour un message neuf sans échange', async () => {
@@ -458,13 +507,23 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
     expect(appels.some((u) => u.includes('lots=421%2C494'))).toBe(true);
   });
 
-  /** ⚠️ Dans des résultats de recherche, la ligne n'aurait rien à voir avec ce qu'on regarde. */
-  it('elle disparaît pendant une recherche, et revient quand on l’efface', async () => {
+  /**
+   * ⚠️ ASSERTION RÉÉCRITE LE 29/09/2026 (lot DRIVE-FACON-FINDER), et la raison est un changement de NATURE.
+   *
+   * Elle exigeait que la ligne DISPARAISSE pendant une recherche : c'était juste tant qu'il s'agissait d'une
+   * SUGGESTION posée en tête de liste — dans des résultats, elle n'aurait rien eu à voir avec ce qu'on regardait.
+   * Ce n'est plus une suggestion : c'est une entrée de la BARRE LATÉRALE, comme dans le Finder, c'est-à-dire un
+   * raccourci permanent. Une barre latérale qui se vide quand on cherche ferait exactement ce qu'Arno reproche à
+   * l'ancien navigateur : se comporter autrement que celui de Google.
+   *
+   * 🔴 CE QU'ON TIENT MAINTENANT, et qui est la vraie garantie : elle reste là, et un clic RAMÈNE au dossier du
+   * bien en quittant la recherche — on ne reste pas coincé dans des résultats.
+   */
+  it('🔴 elle RESTE pendant une recherche, et un clic ramène au dossier du bien', async () => {
     prioritaires = { etat: 'ok', dossiers: [dossier()] };
-    contenu = { ...contenu, recherche: true };
     await monterAvecBien();
-    expect(container.querySelector('.sfd-prio')).not.toBeNull();
-    const champ = container.querySelector('.sfd-saisie') as HTMLInputElement;
+    expect(lateraleDe(/Dossier du bien/)).toBeDefined();
+    const champ = await ouvrirLoupe();
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
       set?.call(champ, 'bail');
@@ -472,7 +531,13 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
     });
     await act(async () => { await new Promise((r) => setTimeout(r, 320)); });
     await calmer();
-    expect(container.querySelector('.sfd-prio')).toBeNull();
+    // Le raccourci est toujours là — c'est une barre latérale, pas une suggestion.
+    expect(lateraleDe(/Dossier du bien/)).toBeDefined();
+    const avant = appels.length;
+    await cliquer(lateraleDe(/Dossier du bien/));
+    // …et il emmène bien dans le dossier du bien, en quittant les résultats.
+    expect(appels.slice(avant).some((u) => u.includes('dossier=d-garreau'))).toBe(true);
+    expect((container.querySelector('.sfd-saisie') as HTMLInputElement | null)?.value ?? '').toBe('');
   });
 });
 
@@ -491,14 +556,12 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', () => {
-  const visualiserDe = (nom: string) => {
-    const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes(nom));
-    return [...(li?.querySelectorAll('button') ?? [])].find((b) => /^Visualiser$/.test((b.textContent ?? '').trim()));
-  };
+  /** ⚠️ RÉÉCRITE (lot DRIVE-FACON-FINDER) : « Visualiser » est une icône à infobulle, plus un lien de texte. */
+  const visualiserDeIci = (nom: string) => gesteDe(nom, 'Visualiser');
 
   it('ouvre un aperçu PAR-DESSUS, sans démonter le sélecteur', async () => {
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     expect(container.querySelector('.apd')).not.toBeNull();
     // Le sélecteur est toujours là, entier : c'est CE point qui garantit « on revient au même endroit ».
     expect(container.querySelector('.sfd')).not.toBeNull();
@@ -509,13 +572,13 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
   it('🔴 à la fermeture : même dossier, même compteur, mêmes « ✓ ajouté »', async () => {
     await monter();
     // On entre dans un dossier, on joint une pièce — l'état à préserver.
-    await cliquer([...container.querySelectorAll('.sfd-dossier')].find((b) => /Artisans/.test(b.textContent ?? '')));
+    await ouvrirDossier('Artisans');
     await cliquer(joindreDe('bail.pdf'));
     const arianeAvant = container.querySelector('.sfd-ariane')?.textContent;
     const compteurAvant = container.querySelector('.sfd-compteur')?.textContent;
     const appelsAvant = appels.length;
 
-    await cliquer(visualiserDe('devis.pdf'));
+    await cliquer(visualiserDeIci('devis.pdf'));
     await cliquer(container.querySelector('.apd-croix'));
 
     expect(container.querySelector('.apd')).toBeNull();
@@ -530,7 +593,7 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
   /** Échap ferme l'APERÇU, et lui seul : une croix qui ferme deux fenêtres serait pire qu'une croix absente. */
   it('🔴 Échap ferme l’aperçu SANS fermer le sélecteur', async () => {
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
@@ -555,7 +618,7 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
    */
   it('🔒 aucun `blob:` n’est créé : les octets traversent, ils ne s’accumulent pas', async () => {
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     expect(urlsCreees).toBe(0);
     /**
      * ⚠️ LOT APERCU-PAGE1 — LE PDF N'EST PLUS DANS UN CADRE : il est lu par NOTRE lecteur, page par page. Le
@@ -569,16 +632,26 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
     expect(urlsRevoquees).toBe(0);
   });
 
-  it('② les trois liens sont dans l’ordre : Visualiser, Joindre, Insérer un lien', async () => {
+  /**
+   * ⚠️ ASSERTION RÉÉCRITE LE 29/09/2026 (lot DRIVE-FACON-FINDER). Elle lisait le TEXTE de trois liens rouges ;
+   * ce sont maintenant trois icônes discrètes, qui n'apparaissent qu'au survol — demande d'Arno. L'ORDRE, lui,
+   * n'a pas changé d'un cran, et c'est lui qui dit l'usage : on REGARDE, puis on joint, puis — à défaut — on met
+   * un lien. On le cherche donc par le MOT que chaque icône porte pour le lecteur d'écran.
+   */
+  it('② les trois gestes sont dans l’ordre : Visualiser, Joindre, Insérer un lien', async () => {
     await monter();
-    const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes('bail.pdf'));
-    const mots = [...(li?.querySelectorAll('.sfd-gestes button') ?? [])].map((b) => (b.textContent ?? '').trim());
-    expect(mots).toEqual(['Visualiser', 'Joindre', 'Insérer un lien']);
+    const mots = [...(ligneDe('bail.pdf')?.querySelectorAll('.sfd-geste') ?? [])]
+      .map((b) => b.getAttribute('title'));
+    expect(mots).toEqual(['Visualiser', 'Joindre au message', 'Insérer un lien']);
+    // ⚠️ Et chacune porte AUSSI un libellé accessible nommant le fichier : une icône muette est injouable.
+    const labels = [...(ligneDe('bail.pdf')?.querySelectorAll('.sfd-geste') ?? [])]
+      .map((b) => b.getAttribute('aria-label'));
+    expect(labels.every((l) => (l ?? '').includes('bail.pdf'))).toBe(true);
   });
 
   it('« Joindre » DANS l’aperçu ajoute la pièce, sans refermer la navigation', async () => {
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     await cliquer([...container.querySelectorAll('.apd button')]
       .find((b) => /Joindre ce fichier/.test(b.textContent ?? '')));
     expect(choisis).toHaveLength(1);
@@ -594,17 +667,17 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
       motifRefus: 'Ce fichier est dans « Documents clients scannés » : son contenu n’est jamais lu.',
     };
     await monter();
-    expect(visualiserDe('bail.pdf')).toBeUndefined();
+    expect(visualiserDeIci('bail.pdf')).toBeUndefined();
     expect(joindreDe('bail.pdf')).toBeUndefined();
     // Le motif est écrit, et le lien reste : la sortie est dite.
     expect(container.querySelector('.sfd-interdit')?.textContent).toContain('Documents clients scannés');
-    expect(boutonPar(/Insérer un lien/)).toBeDefined();
+    expect(lienDe('bail.pdf')).toBeDefined();
   });
 
   it('④ un refus du serveur s’affiche EN FRANÇAIS dans l’aperçu, jamais en JSON brut', async () => {
     apercu = { ok: false, statut: 415, message: 'Aperçu indisponible pour ce type de fichier.' };
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     expect(container.querySelector('.apd-sans')?.textContent).toContain('Aperçu indisponible');
     expect(container.querySelector('.apd-cadre')).toBeNull();
     // Un FORMAT sans aperçu laisse la sortie ouverte : on peut toujours joindre.
@@ -626,7 +699,7 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
       message: 'Ce fichier est dans « Documents clients scannés » : son contenu n’est jamais lu. …',
     };
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     expect(container.querySelector('.apd-sans')?.textContent).toContain('Documents clients scannés');
     expect([...container.querySelectorAll('.apd button')]
       .some((b) => /Joindre ce fichier/.test(b.textContent ?? ''))).toBe(false);
@@ -646,7 +719,7 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
     };
     await monter();
     const avant = appels.length;
-    await cliquer(visualiserDe('archive.zip'));
+    await cliquer(visualiserDeIci('archive.zip'));
     expect(container.querySelector('.apd-sans')?.textContent).toContain('Aperçu indisponible pour ce type de fichier');
     expect(appels.slice(avant).some((u) => u.includes('/drive/apercu'))).toBe(false);
     expect([...container.querySelectorAll('.apd button')]
@@ -660,12 +733,12 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
     contenu = { ...contenu, ...avecCreation };
     await monter();
     // On entre dans un dossier : on ne crée pas à la racine du sélecteur, qui n'est pas un endroit du Drive.
-    await cliquer([...container.querySelectorAll('.sfd-dossier')].find((b) => /Artisans/.test(b.textContent ?? '')));
+    await ouvrirDossier('Artisans');
   };
 
   it('le bouton n’apparaît pas là où le serveur ne dit rien — le défaut, pour une ÉCRITURE, est « non »', async () => {
     await monter();
-    expect(boutonPar(/Nouveau dossier/)).toBeUndefined();
+    expect(await nouveauDossier()).toBeUndefined();
   });
 
   /**
@@ -678,10 +751,10 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
       motifCreation: 'La création de dossiers attend une mise à jour de la base (272) : …',
     };
     await monter();
-    const b = boutonPar(/Nouveau dossier/);
+    const b = await nouveauDossier();
     expect(b).toBeDefined();
     expect(b?.disabled).toBe(true);
-    expect(container.querySelector('.sfd-creer')?.textContent).toContain('272');
+    expect(container.querySelector('.sfd-menu--outils')?.textContent).toContain('272');
     // …et tout le reste du sélecteur marche exactement comme avant.
     expect(joindreDe('bail.pdf')).toBeDefined();
     expect(boutonPar(/^Terminé$/)).toBeDefined();
@@ -693,7 +766,7 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
    */
   it('🔴🔴 confirme avec le NOM et le CHEMIN COMPLET avant d’écrire quoi que ce soit', async () => {
     await monterCreable();
-    await cliquer(boutonPar(/Nouveau dossier/));
+    await cliquer(await nouveauDossier());
     const champNom = container.querySelector('.sfd-creer-corps .sfd-saisie') as HTMLInputElement;
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -713,7 +786,7 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
 
   const allerJusquALaConfirmation = async () => {
     await monterCreable();
-    await cliquer(boutonPar(/Nouveau dossier/));
+    await cliquer(await nouveauDossier());
     const champNom = container.querySelector('.sfd-creer-corps .sfd-saisie') as HTMLInputElement;
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -739,7 +812,7 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
     await cliquer(boutonPar(/^Annuler$/));
     expect(container.querySelector('.sfd-creer-corps')).toBeNull();
     expect(appels.filter((u) => u.startsWith('POST'))).toHaveLength(0);
-    expect(boutonPar(/Nouveau dossier/)).toBeDefined();
+    expect(await nouveauDossier()).toBeDefined();
   });
 
   /** 🔴 « Il n'y a jamais de doublon silencieux » : le refus du serveur s'affiche, et rien n'est écrit. */
@@ -749,7 +822,7 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
       ...dossierNeuf, statut: 409,
       get: { etat: 'refus', message: 'Un dossier « Travaux 2026 » existe déjà à cet endroit : ouvrez-le plutôt…' },
     };
-    await cliquer(boutonPar(/Nouveau dossier/));
+    await cliquer(await nouveauDossier());
     const champNom = container.querySelector('.sfd-creer-corps .sfd-saisie') as HTMLInputElement;
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -800,10 +873,8 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperçu', () => {
-  const visualiserDe = (nom: string) => {
-    const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes(nom));
-    return [...(li?.querySelectorAll('button') ?? [])].find((b) => /^Visualiser$/.test((b.textContent ?? '').trim()));
-  };
+  /** ⚠️ RÉÉCRITE (lot DRIVE-FACON-FINDER) : « Visualiser » est une icône à infobulle, plus un lien de texte. */
+  const visualiserDeIci = (nom: string) => gesteDe(nom, 'Visualiser');
   const boutonNav = (m: RegExp) => [...container.querySelectorAll('.apd-nav button')]
     .find((b) => m.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
   const fleche = async (key: string) => {
@@ -827,7 +898,7 @@ describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperç
   it('① le compteur dit la position, et les flèches du clavier changent de document', async () => {
     listeMelangee();
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     expect(container.querySelector('.apd-compteur-n')?.textContent).toBe('1 / 3');
     expect(container.querySelector('.apd-compteur-nom')?.textContent).toBe('bail.pdf');
 
@@ -842,7 +913,7 @@ describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperç
   it('① les BOUTONS font la même chose que les flèches', async () => {
     listeMelangee();
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     await cliquer(boutonNav(/Suivant/));
     expect(container.querySelector('.apd-compteur-nom')?.textContent).toBe('devis.pdf');
     await cliquer(boutonNav(/Précédent/));
@@ -853,7 +924,7 @@ describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperç
   it('🔴 les fichiers non visualisables sont SAUTÉS, et ne comptent pas', async () => {
     listeMelangee();
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     await fleche('ArrowRight');
     await fleche('ArrowRight');
     expect(container.querySelector('.apd-compteur-n')?.textContent).toBe('3 / 3');
@@ -865,7 +936,7 @@ describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperç
   it('🔴 ② aux extrémités, le bouton correspondant est GRISÉ — on ne boucle pas', async () => {
     listeMelangee();
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     expect(boutonNav(/Précédent/)?.disabled).toBe(true);
     expect(boutonNav(/Suivant/)?.disabled).toBe(false);
 
@@ -882,7 +953,7 @@ describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperç
   it('la navigation n’apparaît pas quand il n’y a qu’un document', async () => {
     contenu = { ...contenu, fichiers: [fichier('f1', 'bail.pdf')] };
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     expect(container.querySelector('.apd')).not.toBeNull();
     expect(container.querySelector('.apd-nav')).toBeNull();
   });
@@ -890,7 +961,7 @@ describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperç
   it('🔴 ③ « Joindre » depuis l’aperçu suit le document AFFICHÉ, et ne ferme pas l’aperçu', async () => {
     listeMelangee();
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     await fleche('ArrowRight');   // on est sur devis.pdf
     await cliquer([...container.querySelectorAll('.apd button')]
       .find((b) => /Joindre ce fichier/.test(b.textContent ?? '')));
@@ -906,7 +977,7 @@ describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperç
   it('③ le « ✓ ajouté » suit le document, pas la fenêtre', async () => {
     listeMelangee();
     await monter();
-    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(visualiserDeIci('bail.pdf'));
     await fleche('ArrowRight');
     await cliquer([...container.querySelectorAll('.apd button')]
       .find((b) => /Joindre ce fichier/.test(b.textContent ?? '')));
@@ -922,7 +993,7 @@ describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperç
     await monter();
     await cliquer(joindreDe('bail.pdf'));
     const compteurAvant = container.querySelector('.sfd-compteur')?.textContent;
-    await cliquer(visualiserDe('devis.pdf'));
+    await cliquer(visualiserDeIci('devis.pdf'));
     await fleche('ArrowRight');
     await cliquer(container.querySelector('.apd-croix'));
     expect(container.querySelector('.apd')).toBeNull();
@@ -944,7 +1015,7 @@ describe('🔒 LOT APERCU-RAPIDE — aucun préchargement là où la lecture est
       motifRefus: 'Ce fichier est dans « Documents clients scannés » : son contenu n’est jamais lu.',
     };
     await monter();
-    const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes('bail.pdf'));
+    const li = [...container.querySelectorAll('.sfd-ligne')].find((x) => (x.textContent ?? '').includes('bail.pdf'));
     expect([...(li?.querySelectorAll('button') ?? [])]
       .some((b) => /^Visualiser$/.test((b.textContent ?? '').trim()))).toBe(false);
 
@@ -962,7 +1033,7 @@ describe('🔒 LOT APERCU-RAPIDE — aucun préchargement là où la lecture est
     };
     await monter();
     const avant = appels.length;
-    const li = container.querySelector('.sfd-item');
+    const li = container.querySelector('.sfd-ligne');
     await act(async () => { li?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
     await calmer();
     expect(appels.slice(avant).some((u) => u.includes('/drive/apercu'))).toBe(false);

@@ -214,7 +214,14 @@ export async function GET(request: Request): Promise<Response> {
        */
       const { joindre: v, creer: c } = await verdictsDossier(jeton.compteGoogle, jeton.jeton, parent);
       return json({
-        etat: 'ok', fichiers: liste.valeur, joindreAutorise: v.joindre, motifRefus: v.motif,
+        etat: 'ok', fichiers: liste.valeur.fichiers, joindreAutorise: v.joindre, motifRefus: v.motif,
+        /**
+         * 🔴 LOT DRIVE-FACON-FINDER — ON DIT QUAND LA LISTE EST INCOMPLÈTE. Jusqu'à ce lot, un dossier de plus de
+         * 200 entrées était tronqué EN SILENCE : « 1 Propriétaires » en compte plus de 300, on en voyait 200, et
+         * l'on en concluait que les autres n'avaient pas de dossier. Le contenu est maintenant lu par pages ; si
+         * la borne est quand même atteinte, l'écran l'annonce au lieu de laisser croire à une liste complète.
+         */
+        tronque: liste.valeur.tronque,
         // 🔴 LE JOURNAL D'ABORD : sans la migration 272, on ne crée rien, même là où la règle du Drive le permettrait.
         creerAutorise: journalDisponible && c.creer,
         /**

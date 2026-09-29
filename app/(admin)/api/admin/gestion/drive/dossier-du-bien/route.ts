@@ -69,7 +69,7 @@ export async function GET(request: Request): Promise<Response> {
         try {
           const contenu = await listerContenu(jeton.jeton, { parentId: d.dossierId }, { fetch });
           if (!contenu.ok) return;
-          const enfants = contenu.valeur.filter((f) => f.dossier).map((f) => ({ id: f.id, nom: f.nom }));
+          const enfants = contenu.valeur.fichiers.filter((f) => f.dossier).map((f) => ({ id: f.id, nom: f.nom }));
           const sous = sousDossierDuBien(enfants, d.cles[0]);
           if (sous !== null) { d.dossierId = sous.id; d.dossierNom = sous.nom; }
         } catch { /* le dossier du propriétaire reste la destination : juste, un cran plus haut */ }
