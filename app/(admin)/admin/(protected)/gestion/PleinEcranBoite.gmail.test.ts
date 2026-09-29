@@ -25,6 +25,9 @@ import { GestionVue } from './GestionVue';
 const LIGNE = (filId: number, objet: string) => ({
   filId, objet, interlocuteur: 'Mme Martin', dernierSens: 'recu' as const, dernierLe: '2026-09-20T12:00:00Z',
   extrait: 'Bonjour, le robinet fuit toujours.', nbMessages: 3, nbLisibles: 3, aPiece: true,
+  // LOT LECTURE-HTML-FIL-TROMBONE — le trombone lit OÙ sont les pièces, plus seulement s'il y en a. Ici : sur le
+  //   message affiché, donc trombone NOIR.
+  piecesDuMessage: 1, piecesAilleurs: 0,
   reference: null as string | null, sansSuite: false,
 });
 const COMPTES = { lisibles: 4944, automatiques: 12262, envoyes: 3311 };

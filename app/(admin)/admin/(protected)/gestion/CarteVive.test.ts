@@ -230,12 +230,28 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
     expect(container.textContent).toContain('Il y a une fuite sous le lavabo.');
   });
 
-  it('LOT 4d-C — l’historique cité est REPLIÉ, présent, et consultable d’un clic', async () => {
+  /**
+   * ══ ⚠️ RÉÉCRIT PAR LE LOT LECTURE-HTML-FIL-TROMBONE (29/09/2026) ═══════════════════════════════════════════
+   *
+   * CE QU'IL EXIGEAIT : que l'historique cité soit REPLIÉ derrière « Afficher le message cité ». C'était la
+   * décision du lot 4d-C, et elle avait sa raison — ne pas noyer la réponse sous ce qu'on cite.
+   *
+   * POURQUOI ELLE TOMBE : Arno a demandé le retrait du repli. Le motif est meilleur que celui d'avant — une
+   * conversation se lit d'un bout à l'autre, et ce repli obligeait à CLIQUER pour savoir à quoi on répondait.
+   *
+   * L'EXIGENCE DE FOND NE BOUGE PAS D'UN MOT : la citation n'est jamais perdue, et elle se DISTINGUE du message
+   * neuf. Ce n'est plus un repli qui l'en sépare, c'est un retrait et un filet gris — le style porte ce que
+   * portait l'état, et il n'y a plus rien à ouvrir, fermer, ni retenir entre deux rendus.
+   */
+  it('l’historique cité est VISIBLE, en retrait, et plus rien à déplier', async () => {
     await ouvrirTout();
-    const repli = container.querySelector('.gst-cite') as HTMLDetailsElement | null;
-    expect(repli?.open).toBe(false);                                   // replié au départ
-    expect(container.textContent).toContain('Afficher le message cité');
-    expect(container.textContent).toContain('avez-vous constaté quelque chose ?'); // …mais jamais perdu
+    // 🔴 PLUS DE REPLI : ni l'élément, ni le mot qui l'ouvrait.
+    expect(container.querySelector('.gst-cite')).toBeNull();
+    expect(container.textContent).not.toContain('Afficher le message cité');
+    // …et la citation est là, dans son bloc mis à distance.
+    const cite = container.querySelector('.gst-cite-bloc');
+    expect(cite).not.toBeNull();
+    expect(cite?.textContent).toContain('avez-vous constaté quelque chose ?');
   });
 
   it('LOT 4d-C — les images de signature sont rangées à part, repliées, et restent consultables', async () => {

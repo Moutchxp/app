@@ -199,11 +199,67 @@ export async function compterBrouillons(): Promise<number> {
   return rows[0]?.n ?? 0;
 }
 
-/** ABANDONNE un brouillon : daté, jamais supprimé. Le geste se défait — il suffit d'en rouvrir un. */
+/**
+ * ══ 🔴🔴 MET UN BROUILLON À LA CORBEILLE — LOT LECTURE-HTML-FIL-TROMBONE, 29/09/2026 ═══════════════════════════
+ *
+ * LE GESTE N'A PAS CHANGÉ D'UNE LIGNE : il DATE la ligne, il ne supprime rien. Ce qui a changé, c'est qu'on peut
+ * désormais REVENIR (`restaurerBrouillon`), et que l'écran le dit — « Mettre à la corbeille » au lieu de
+ * « Supprimer le brouillon ».
+ *
+ * ═══ POURQUOI CETTE CORBEILLE EST LA NÔTRE, ET NON CELLE DE GMAIL ═══════════════════════════════════════════════
+ *
+ * Arno demandait l'état GMAIL, comme pour un mail. Vérifié le 29/09/2026 : Gmail l'accepte parfaitement
+ * (`messages.trash` sur un brouillon rend `DRAFT TRASH`, le brouillon quitte la liste, `untrash` le ramène). Mais
+ * NOS brouillons ne sont pas des brouillons Gmail : `gestion_brouillon` est notre table, elle ne porte aucun
+ * identifiant Gmail, et rien n'est jamais poussé chez Google. Il n'y a donc RIEN à mettre dans la corbeille de
+ * Gmail. Décision d'Arno, prise en connaissance de cause : une corbeille locale, montrée dans la MÊME liste que
+ * les mails, avec une capsule qui dit qu'elle est à nous.
+ *
+ * 🔭 LOT ULTÉRIEUR — la vraie synchronisation (`drafts.create` / `update` / `delete` à chaque enregistrement)
+ * mettrait les brouillons dans Gmail, donc sur le téléphone. Elle demande un lot pour elle seule : conflits
+ * d'édition, pièces jointes, un aller-retour réseau à chaque frappe enregistrée.
+ */
 export async function abandonnerBrouillon(id: number): Promise<void> {
   await query(
     `UPDATE gestion_brouillon SET abandonne_le = now()
       WHERE id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL`, [id]);
+}
+
+/**
+ * 🔴 LE SORT DE LA CORBEILLE. Le même verbe pris par l'autre bout : on remet `abandonne_le` à NULL, et le
+ * brouillon reprend sa place dans « Brouillons », réouvrable avec son contenu et ses pièces — qui n'ont jamais
+ * bougé, puisque rien n'a jamais été supprimé.
+ *
+ * ⚠️ `envoye_le IS NULL` : un brouillon PARTI ne revient pas. Il n'est plus un brouillon, c'est un message.
+ */
+export async function restaurerBrouillon(id: number): Promise<boolean> {
+  const { rowCount } = await query(
+    `UPDATE gestion_brouillon SET abandonne_le = NULL, maj_le = now()
+      WHERE id = $1 AND abandonne_le IS NOT NULL AND envoye_le IS NULL`, [id]);
+  return (rowCount ?? 0) > 0;
+}
+
+/** Les brouillons À LA CORBEILLE, du plus récemment jeté au plus ancien. Bornés, comme la liste des vivants. */
+export async function brouillonsALaCorbeille(limite = 50): Promise<BrouillonEnBase[]> {
+  const { rows } = await query<LigneBrouillon>(
+    `SELECT ${champs(await brouillonHtmlDisponible())} FROM gestion_brouillon
+      WHERE abandonne_le IS NOT NULL AND envoye_le IS NULL
+      ORDER BY abandonne_le DESC, id DESC LIMIT $1`, [Math.min(Math.max(1, limite), 200)]);
+  return rows.map(versBrouillon);
+}
+
+/**
+ * Combien de brouillons sont à la corbeille.
+ *
+ * ⚠️ IL S'AJOUTE AU COMPTEUR DE LA CORBEILLE, et il le faut : la liste les montre, donc le nombre de la colonne
+ * de gauche doit les compter. Un compteur qui ne compte pas ce que sa liste montre finit par faire chercher
+ * ailleurs ce qui est sous les yeux — c'est la règle du module, et elle vaut ici comme partout.
+ */
+export async function compterBrouillonsALaCorbeille(): Promise<number> {
+  const { rows } = await query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM gestion_brouillon
+      WHERE abandonne_le IS NOT NULL AND envoye_le IS NULL`);
+  return rows[0]?.n ?? 0;
 }
 
 // ── Le registre des envois ────────────────────────────────────────────────────────────────────────────────────────

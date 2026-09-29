@@ -1350,6 +1350,13 @@ const CSS_GESTION = `
 /* Le menu d'un message se range au bout de sa ligne d'en-tête, sans pousser le texte. */
 .gst-msg-menu{margin-left:auto}
 /* LOT 4d-C — le texte CITÉ et les images de signature : présents, repliés, jamais supprimés. */
+/* ══ 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LA CITATION EST VISIBLE, MISE À DISTANCE PAR LE STYLE ═══════════════════
+   Elle était repliée derrière « Afficher le message cité » (le .gst-cite ci-dessous, conservé pour la RÉDACTION,
+   où le repli garde son sens : on n'y relit pas ce qu'on cite, on vérifie qu'il est bien joint).
+   Dans la LECTURE, le repli obligeait à cliquer pour savoir à quoi on répondait. Retrait + filet gris : l'œil
+   distingue le neuf de l'ancien sans un seul geste, et il n'y a plus aucun état à tenir. */
+.gst-cite-bloc{margin:.5rem 0 0;padding:0 0 0 .7rem;border-left:3px solid var(--color-svv-line-strong)}
+.gst-cite-bloc .gst-cite-corps{border-left:0;padding-left:0;margin:0}
 .gst-cite{margin-top:.4rem}
 .gst-cite-titre{min-height:44px;display:flex;align-items:center;font-size:.78rem;font-weight:600;color:var(--color-svv-muted);cursor:pointer}
 .gst-cite-corps{color:var(--color-svv-muted);border-left:2px solid var(--color-svv-line-strong);padding-left:.6rem}

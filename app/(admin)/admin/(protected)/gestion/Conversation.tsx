@@ -6,6 +6,7 @@ import {
   etatCorps, lignesDestinataires, mentionHorsFile, mentionNonRemise, messagesDeplies, MENTION_HTML_SEUL,
   libelleOrdre, lireOrdreMemorise, memoriserOrdre, ordonnerMessages, ordreSuivant, ORDRE_FIL_DEFAUT,
   type OrdreFil,
+  piedUtile,
 } from '../../../../lib/gestion/conversation';
 import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens, LIBELLE_CLASSER } from '../../../../lib/gestion/ecran';
 import {
@@ -816,6 +817,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       {/* ══ LOT 5e — ÉCRIRE, SOUS LA CONVERSATION (façon messagerie) ══════════════════════════════════════════════
           Les trois boutons ne s'affichent QUE si tout est réuni : base à jour, droit d'envoi, et écran de lecture en
           pleine page. Chaque manque est DIT, jamais tu — un bouton absent sans explication envoie chercher un bug. */}
+      {/* ══ 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LE PIED NE DOUBLE PLUS LA RANGÉE DU MESSAGE ══════════════════════
+          Défaut vu par Arno sur le fil 36526 : deux rangées « Répondre / Répondre à tous / Transférer » l'une sous
+          l'autre. Ce ne sont pas des doublons de code — l'une répond AU MESSAGE, l'autre au plus RÉCENT — mais sur
+          un fil d'un seul message (ou lu du plus ancien au plus récent) elles répondent au même et se touchent.
+          `piedUtile` est PUR et éprouvé sans écran : voir son encadré. L'éditeur ouvert, lui, s'affiche toujours. */}
       {barreActions && redaction && (
         brouillon !== null && brouillonSous === null ? (
           <Redaction brouillon={brouillon} contexte={redaction}
@@ -823,7 +829,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             onFerme={() => setBrouillon(null)}
             onEnvoye={() => { setBrouillon(null); void recharger(); }}
             onGeste={(m) => onGeste(m)} />
-        ) : brouillon !== null ? null : (
+        ) : brouillon !== null || !piedUtile(messages, ordre, deplies) ? null : (
           <div className="cnv-ecrire">
             {!redaction.schemaPret && (
               <p className="gst-tronc">Mise à jour de la base à appliquer avant de pouvoir écrire (migrations 239 à 241).</p>
@@ -1133,6 +1139,29 @@ export function MessageConversation({
           ⚠️ ELLE N'ENVELOPPE QUE L'EN-TÊTE, pas le message déplié : survoler le corps d'un mail ne doit pas
           allumer sa ligne de titre. */}
       <div className="cnv-rangee">
+      {/* ══ 🔴🔴 LOT LECTURE-HTML-FIL-TROMBONE — LE TRIANGLE, À GAUCHE DE CHAQUE MESSAGE ═══════════════════════════
+          ▶ replié, ▼ déplié, avec une rotation animée. Demande d'Arno : « assez grand pour occuper la hauteur des
+          DEUX premières lignes » — celle de l'expéditeur et celle de l'objet.
+
+          🔴 IL EST LE VOISIN DE LA LIGNE, PAS SON ENFANT, et ce n'est pas un choix de mise en page : la ligne EST
+          un bouton, et un bouton dans un bouton est du HTML invalide et injouable au clavier. C'est la même
+          contrainte qui gouverne déjà le cartouche de statut, l'étoile et le menu « ⋮ » de cette rangée.
+
+          🔴 ET IL EST INVISIBLE AU CLAVIER (`aria-hidden`, `tabIndex -1`). L'action existe DÉJÀ sur la ligne, qui
+          porte `aria-expanded` : en faire un second arrêt de tabulation obligerait à passer deux fois au même
+          endroit pour la même chose, et un lecteur d'écran annoncerait deux boutons pour un seul geste. À la
+          souris, en revanche, il se clique — c'est là qu'on va spontanément.
+
+          ⚠️ IL N'A AUCUN ÉTAT PROPRE : il lit `ouvert`. « Tout déplier », « Tout replier » et le changement
+          d'ordre le mettent donc à jour d'eux-mêmes, sans une ligne de plus. */}
+      <button type="button" className={`cnv-triangle${ouvert ? ' cnv-triangle--ouvert' : ''}`}
+        aria-hidden="true" tabIndex={-1} onClick={onBasculer}>
+        {/* ⚠️ 18 px, et non 15 : à 15, le triangle se perdait dans la hauteur des deux lignes qu'il commande —
+            vu à l'écran sur le fil 36505. Arno demandait « assez grand pour occuper leur hauteur ». */}
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+          <path d="M9 5l8 7-8 7z" fill="currentColor" />
+        </svg>
+      </button>
       {/* La LIGNE REPLIÉE est le bouton : toute la largeur, au moins 44 px, et l'état annoncé par `aria-expanded`. */}
       <button type="button" className="cnv-ligne" aria-expanded={ouvert} onClick={onBasculer}>
         {/* Le SENS est dit par un MOT (« reçu de » / « envoyé à ») : il reste lisible en niveaux de gris. */}
@@ -1321,11 +1350,18 @@ export function MessageConversation({
               {/* Quand l'avis a été isolé, le corps reprend À LA PARTIE TECHNIQUE : la répéter au-dessus en rouge
                   PUIS en noir afficherait deux fois la même phrase. Sinon, le corps entier, comme avant ce lot. */}
               <p className="gst-msg-corps">{(avis !== null ? avis.technique : lisible.visible) || '(message sans texte)'}</p>
+              {/* ══ 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LA CITATION EST VISIBLE, EN RETRAIT ═══════════════════════
+                  Elle vivait dans un `<details>` : « Afficher le message cité », replié par défaut. Arno l'a fait
+                  retirer, et il a raison — une conversation se lit d'un bout à l'autre, et ce repli obligeait à
+                  cliquer pour savoir à quoi on répondait. On la garde donc VISIBLE, simplement mise à distance
+                  par un retrait et un filet gris : l'œil sait ce qui est nouveau sans avoir à cliquer.
+
+                  ⚠️ LE STYLE PORTE TOUT, ET IL N'Y A PLUS AUCUN ÉTAT. Plus de repli, donc plus rien à ouvrir, à
+                  fermer, à retenir entre deux rendus. C'est un retrait de code autant qu'un changement d'écran. */}
               {lisible.cite && (
-                <details className="gst-cite">
-                  <summary className="gst-cite-titre">Afficher le message cité</summary>
+                <blockquote className="gst-cite-bloc">
                   <p className="gst-msg-corps gst-cite-corps">{lisible.cite}</p>
-                </details>
+                </blockquote>
               )}
             </>
           )}
@@ -1425,7 +1461,13 @@ export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer, vert 
   );
 }
 
-const CSS_CONVERSATION = `
+/**
+ * ⚠️ EXPORTÉE POUR ÊTRE ÉPROUVÉE (lot LECTURE-HTML-FIL-TROMBONE). Le triangle ▶ / ▼ ne tient qu'à cette feuille —
+ * rotation, couleur de charte, respect de « moins d'animation » — et rien de tout cela ne se voit dans le DOM
+ * d'un test : jsdom n'applique aucune feuille. On éprouve donc la RÈGLE à la source, plutôt que de vérifier où
+ * quelqu'un a branché la feuille.
+ */
+export const CSS_CONVERSATION = `
 .cnv{display:flex;flex-direction:column;gap:12px;min-width:0}
 .cnv-bandeau{display:flex;flex-direction:column;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--color-svv-line)}
 .cnv-bandeau-haut{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
@@ -1460,6 +1502,19 @@ const CSS_CONVERSATION = `
 .cnv-rangee{display:flex;flex-wrap:wrap;align-items:flex-start;gap:0;flex:1 1 100%;min-width:0;border-radius:6px}
 .cnv-rangee:hover,.cnv-rangee:focus-within{background:var(--color-svv-field)}
 .cnv-rangee>.cnv-ligne{flex:1 1 16rem}
+/* ══ 🔴 LE TRIANGLE ▶ / ▼ ════════════════════════════════════════════════════════════════════════════════════════
+   HAUTEUR : celle des DEUX premieres lignes (expediteur + objet), pas celle de toute la ligne — sinon il
+   descendrait au milieu de l'extrait des que le message est replie et en porte un. On la fixe donc, et l'on
+   aligne le haut du triangle sur le haut du texte (meme padding vertical que .cnv-ligne).
+   COULEUR : celle de la charte (le rouge SVAV), visible en Clair comme en Sombre puisqu'elle est un jeton.
+   ROTATION : 90 degres, animee — et coupee net pour qui a demande moins d'animation. */
+.cnv-triangle{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+  width:26px;height:2.9rem;margin-top:10px;padding:0;border:0;background:none;cursor:pointer;
+  color:var(--color-svv-red);border-radius:6px}
+.cnv-triangle svg{transition:transform .18s ease}
+.cnv-triangle--ouvert svg{transform:rotate(90deg)}
+.cnv-triangle:hover{background:var(--color-svv-line)}
+@media (prefers-reduced-motion:reduce){.cnv-triangle svg{transition:none}}
 .cnv-rangee>.cnv-coin{flex:0 1 auto}
 .cnv-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .cnv-coin{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;flex:0 1 auto;
@@ -1485,9 +1540,30 @@ const CSS_CONVERSATION = `
    Le HTML vient d'un TIERS : il faut le BORNER, sinon un mail de syndic large de 900 px pousse toute la
    conversation, et une image de 2 000 px la déborde. On ne le reformate pas — on l'empêche seulement de sortir
    de son cadre. Les tableaux, eux, defilent DANS leur propre boite : les couper perdrait des colonnes. */
-.cnv-html{max-width:100%;overflow-x:auto;font-size:.9rem;line-height:1.5;color:var(--color-svv-ink);
-  overflow-wrap:anywhere}
+/* ══ 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LE MAIL EST POSÉ SUR SA PROPRE FEUILLE, BLANCHE, MÊME EN SOMBRE ════════
+   Demande d'Arno : « lisible en Sombre SANS INVERSER LES IMAGES ».
+
+   Un mail en HTML apporte ses propres couleurs — du texte noir, des tableaux à fond clair, un logo dessiné pour
+   un fond blanc. En thème Sombre, deux voies s'offraient, et une seule tient :
+     · inverser (filtre sur le bloc) : le texte redevient lisible, mais le logo de la signature, les photos et les
+       captures d'écran sortent en négatif. C'est exactement ce qu'Arno a exclu.
+     · poser le mail sur une FEUILLE BLANCHE, comme une page qu'on aurait imprimée : aucune couleur n'est touchée,
+       ni celles du texte, ni celles des images. Le contraste avec l'écran sombre encadre le mail au lieu de le
+       déformer — et c'est ce que font les messageries qui affichent « l'original ».
+
+   ⚠️ LES COULEURS SONT ÉCRITES EN DUR, ET C'EST VOULU : ce bloc ne suit PAS le thème, c'est tout son objet. Les
+   jetons de la charte y seraient un contresens — ils changeraient avec le thème, donc reviendraient à inverser.
+   C'est la seule exception de tout le module, et elle est ici, sous les yeux.
+
+   AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un littéral gabarit, qu'un seul accent grave terminerait.
+   Le piege s'est referme une HUITIEME fois en ecrivant ce bloc — et, comme les precedentes, sur un commentaire. */
+.cnv-html{max-width:100%;overflow-x:auto;font-size:.9rem;line-height:1.5;
+  color:#1a1a1a;background:#fff;border:1px solid var(--color-svv-line);border-radius:10px;padding:12px 14px;
+  overflow-wrap:anywhere;color-scheme:light}
 .cnv-html img{max-width:100%;height:auto}
+/* Une image intégrée qu'on n'a pas su retrouver : son MOT, dans un cadre discret — jamais une image cassée. */
+.cnv-html img[data-absente]{display:inline-block;min-width:1.2rem;min-height:1.2rem;padding:1px 6px;
+  border:1px dashed #bbb;border-radius:4px;font-size:.72rem;color:#666;font-style:italic}
 .cnv-html table{max-width:100%;border-collapse:collapse}
 .cnv-html td,.cnv-html th{padding:.15rem .3rem;vertical-align:top}
 /* Le mail apporte ses propres couleurs de contenu (legitimes) ; on ne force que ce qui casserait la page. */

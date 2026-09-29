@@ -19,6 +19,8 @@ import {
   DUREE_ANNULATION_MS, MENTION_DROIT_ATTENTE,
 } from './gestesLigne';
 import { EnteteCorbeille } from './EnteteCorbeille';
+// LOT LECTURE-HTML-FIL-TROMBONE — les brouillons jetés, dans la même liste que les mails (bloc à part : voir le fichier).
+import { BrouillonsJetes } from './BrouillonsJetes';
 import { Conversation } from './Conversation';
 import type { Rapport } from './gestesMail';
 import type { Cible } from '../../../../lib/gestion/rattachement';
@@ -827,6 +829,14 @@ export function PleinEcranBoite({
                 onToutLaCorbeille={() => void cocherToutLaCorbeille()}
                 onReintegrer={() => void reintegrer()}
                 onSupprimer={() => void supprimerDefinitivement()} />
+            )}
+            {/* 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LES BROUILLONS JETÉS, au-dessus des mails. Bloc à part parce
+                qu'un brouillon n'a ni date de réception ni identifiant Gmail : l'insérer dans une liste paginée
+                par curseur sur la date ferait sauter des échanges d'une page à l'autre (même raison que le
+                bandeau des envois en échec). */}
+            {estCorbeille && (
+              <BrouillonsJetes version={versionListe} onGeste={onGeste}
+                onChange={() => setVersionListe((v) => v + 1)} />
             )}
             {/* ⚠️ LE BANDEAU DE LA RÉINTÉGRATION EST DISTINCT de celui de la mise à la corbeille juste au-dessus :
                 deux gestes opposés, deux promesses différentes, et l'un ne doit jamais défaire l'autre. */}

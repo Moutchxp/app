@@ -36,6 +36,8 @@ import { nonEnvoyesAMontrer, nonEnvoyesDesFils } from './fileEnvoiRepo';
 import { fusionnerNonEnvoyes, type MentionNonEnvoye } from './fileEnvoi';
 import { corbeilleGmailDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible } from './schema';
 import { etoilesDesFils } from './etoileRepo';
+// LOT LECTURE-HTML-FIL-TROMBONE — la MÊME règle que la conversation pour distinguer une pièce d'un logo de signature.
+import { trierPieces, type PieceATrier } from './lisibilite';
 // LOT BOITE-INTERNE-CORBEILLE — « nous », c'est `gestion_config.adresse_gestion`, lue à la MÊME source que la capture.
 import { chargerConfigGestion } from './config';
 
@@ -90,6 +92,25 @@ export interface LigneBoite {
    * trombone, et il est vrai dès la première pièce.
    */
   nbPieces: number;
+  /**
+   * ══ 🔴🔴 LOT LECTURE-HTML-FIL-TROMBONE — LE TROMBONE DIT OÙ EST LA PIÈCE ═══════════════════════════════════
+   *
+   * DEMANDE D'ARNO : un trombone NOIR quand c'est le message AFFICHÉ SUR LA LIGNE qui porte une pièce, GRIS quand
+   * la pièce est ailleurs dans la conversation, ABSENT quand il n'y en a nulle part.
+   *
+   * 🔴 CE QUE ÇA RÉPARE. Le trombone comptait les pièces de tout l'ÉCHANGE : une conversation de douze messages
+   * dont un seul portait un bail affichait « 📎 1 » sur la ligne du dernier message, qui n'a rien. On ouvrait
+   * pour ne rien trouver — et, à l'inverse, on n'ouvrait pas une ligne dont le mail portait justement la pièce
+   * qu'on cherchait.
+   *
+   * ⚠️ LES DEUX NOMBRES EXCLUENT LES IMAGES DE SIGNATURE ET LES FICHIERS « ._ ». Un logo de signature n'est pas
+   * une pièce jointe : le compter ferait porter un trombone à la moitié du courrier. La règle n'est PAS réécrite
+   * ici — c'est `trierPieces` (module `lisibilite`), la MÊME fonction que l'écran d'un message, appliquée aux
+   * mêmes données. Une seconde règle écrite en SQL aurait fini par compter autrement que la conversation.
+   */
+  piecesDuMessage: number;
+  /** Les pièces de la conversation qui ne sont PAS sur le message affiché. Mêmes exclusions. */
+  piecesAilleurs: number;
   /**
    * LOT LISTE-GMAIL — l'échange porte-t-il l'étoile de l'ÉQUIPE ? (Pas celle de Gmail : voir `etoileRepo`.)
    * Toujours `false` sans la migration 264 — on ne prétend pas savoir ce qu'on n'a pas lu.
@@ -785,11 +806,12 @@ export async function lireBoiteMail(
    */
   const premierePage = curseur === null;
   const montrerEchecs = etiquette.sorte === 'envoyes' && premierePage;
-  const [avis, etoiles, echecsDesFils, echecsOrphelins] = await Promise.all([
+  const [avis, etoiles, echecsDesFils, echecsOrphelins, piecesDesFils] = await Promise.all([
     nonRemisesDesFils(filsDeLaPage),
     etoilesDesFils(filsDeLaPage),
     nonEnvoyesDesFils(filsDeLaPage),
     montrerEchecs ? nonEnvoyesAMontrer() : Promise.resolve([] as MentionNonEnvoye[]),
+    piecesVraiesDesFils(filsDeLaPage),
   ]);
 
   const lignes: LigneBoite[] = gardees.map((r) => ({
@@ -809,6 +831,14 @@ export async function lireBoiteMail(
       nbLisibles: r.nb_lisibles,
       aPiece: r.nb_pieces > 0,
       nbPieces: r.nb_pieces,
+      /**
+       * LOT LECTURE-HTML-FIL-TROMBONE — les deux nombres du trombone. Ils sortent d'UNE lecture supplémentaire
+       * pour toute la page (`piecesVraiesDesFils`), pas d'une requête par ligne.
+       */
+      piecesDuMessage: piecesDesFils.get(Number(r.fil_id))?.get(Number(r.message_id))?.length ?? 0,
+      piecesAilleurs: [...(piecesDesFils.get(Number(r.fil_id)) ?? new Map()).entries()]
+        .filter(([msg]) => msg !== Number(r.message_id))
+        .reduce((n, [, liste]) => n + liste.length, 0),
       nbCorbeille: r.nb_corbeille,
       reference: r.reference,
       sansSuite: r.sans_suite === true,
@@ -848,6 +878,8 @@ export async function lireBoiteMail(
       nbLisibles: 1,
       aPiece: false,
       nbPieces: 0,
+      piecesDuMessage: 0,
+      piecesAilleurs: 0,
       nbCorbeille: 0,
       reference: null,
       sansSuite: false,
@@ -869,6 +901,55 @@ export async function lireBoiteMail(
         options.etoilesSeules === true)
       : null,
   };
+}
+
+/**
+ * ══ 🔴 LES VRAIES PIÈCES JOINTES DES ÉCHANGES D'UNE PAGE, rangées par message ══════════════════════════════════
+ *
+ * UNE SEULE REQUÊTE pour toute la page, jamais une par ligne. Mesuré le 29/09/2026 : 3,9 pièces par échange en
+ * moyenne (26 970 pièces sur 6 980 échanges), soit environ 120 lignes pour une page de 30 — et 268 au pire cas.
+ *
+ * 🔴 LE TRI EST FAIT EN TypeScript, PAR `trierPieces`, ET C'EST TOUT L'INTÉRÊT. C'est la MÊME fonction que la
+ * conversation emploie pour séparer les vraies pièces des images de signature. Réécrire cette règle en SQL — « un
+ * nom qui commence par image, ou moins de 10 ko » — aurait donné deux définitions de « pièce jointe » : la liste
+ * aurait compté 2, le message ouvert en aurait montré 1, et l'on aurait cherché longtemps laquelle a raison.
+ *
+ * ⚠️ LES FICHIERS « ._ » SONT ÉCARTÉS ICI, en SQL, parce que ce n'est pas la même règle : ce ne sont pas des
+ * pièces mal rangées, ce sont les doubles que macOS ajoute à côté de chaque fichier. Aucun n'existe aujourd'hui en
+ * base (mesuré : 0), et c'est justement pour cela qu'on l'écrit maintenant — le jour où il y en aura, personne
+ * n'y repensera.
+ */
+async function piecesVraiesDesFils(
+  filIds: readonly number[],
+): Promise<Map<number, Map<number, PieceATrier[]>>> {
+  const parFil = new Map<number, Map<number, PieceATrier[]>>();
+  if (filIds.length === 0) return parFil;
+  const { rows } = await query<{
+    fil_id: string; message_id: string; nom_fichier: string; type_mime: string | null;
+    taille_octets: string | null;
+  }>(
+    `SELECT m.fil_id::text, p.message_id::text, p.nom_fichier, p.type_mime, p.taille_octets::text
+       FROM gestion_piece p
+       JOIN gestion_message m ON m.id = p.message_id
+      WHERE m.fil_id = ANY($1::bigint[])
+        AND p.nom_fichier NOT LIKE '._%'
+      ORDER BY p.id`, [[...filIds]]);
+  for (const r of rows) {
+    const fil = Number(r.fil_id);
+    const message = Number(r.message_id);
+    const piece: PieceATrier = {
+      nomFichier: r.nom_fichier,
+      typeMime: r.type_mime,
+      // ⚠️ `bigint` en CHAÎNE avec pg : sans conversion, la comparaison de taille de `trierPieces` serait textuelle.
+      tailleOctets: r.taille_octets === null ? null : Number(r.taille_octets),
+    };
+    // 🔴 LA MÊME RÈGLE QUE L'ÉCRAN D'UN MESSAGE : on ne garde que ce que `trierPieces` appelle une VRAIE pièce.
+    if (trierPieces([piece]).vraies.length === 0) continue;
+    const parMessage = parFil.get(fil) ?? new Map<number, PieceATrier[]>();
+    parMessage.set(message, [...(parMessage.get(message) ?? []), piece]);
+    parFil.set(fil, parMessage);
+  }
+  return parFil;
 }
 
 /**

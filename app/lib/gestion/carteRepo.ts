@@ -14,6 +14,8 @@
 import { query } from '../db/client';
 // LOT BIEN-RATTACHE — le HTML d'un mail est assaini CÔTÉ SERVEUR, jamais dans le navigateur (voir `lireCorpsDuMessage`).
 import { assainirHtml, htmlVide } from './htmlMail';
+// LOT LECTURE-HTML-FIL-TROMBONE — les images d'un mail passent par NOS routes : voir `imagesMail`.
+import { reecrireImages, type PieceIntegree } from './imagesMail';
 import { ATTEND, ctesAttente, jointuresAttente } from './attente';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 // ⚠️ UN SEUL IMPORT DE `./schema`, STATIQUE. `destinatairesSeparesDisponibles` était chargée dynamiquement au
@@ -105,10 +107,18 @@ export interface MessageDeFil {
   /** La liste FONDUE d'avant (À et Cc mêlés), toujours rendue : c'est le repli quand le détail n'est pas connu. */
   destinatairesFondus: string | null;
   /**
-   * Le message n'a QUE du HTML (557 messages en base) : on ne peut pas encore l'afficher (lot 5d), et on le DIT.
-   * Un vide muet ferait croire à un message vide, ce qui est faux.
+   * ══ 🔴 LOT LECTURE-HTML-FIL-TROMBONE — CE MAIL A-T-IL UNE VERSION EN HTML ? ═════════════════════════════════
+   *
+   * REMPLACE `htmlSeul`, qui disait « ce mail n'a QUE du HTML ». Ce n'était pas la bonne question : depuis que le
+   * HTML passe AVANT le texte quand il existe, il faut savoir s'il y en a — pas s'il est seul. Mesuré le
+   * 29/09/2026 : 56 367 mails sur 57 223 en ont un. C'est le cas général.
    */
-  htmlSeul: boolean;
+  aHtml: boolean;
+  /**
+   * Le HTML PRÊT POUR L'ÉCRAN (assaini, images réécrites vers nos routes) — rendu avec la liste pour le SEUL
+   * message déplié d'emblée, `null` pour les autres. Ceux-là le reçoivent à l'ouverture, avec leur texte.
+   */
+  html: string | null;
 }
 
 /** Un destinataire tel que l'écran l'affiche. Même forme que ce que la capture range (`adresses.ts`). */
@@ -282,7 +292,14 @@ async function lireMailsDeplaces(
       destA: null,
       destCc: null,
       destinatairesFondus: null,
-      htmlSeul: false,
+      /**
+       * ⚠️ UN MAIL DÉPLACÉ EST MONTRÉ SEUL DANS SA CARTE, et cette lecture-là ne rapporte PAS son HTML : elle ne
+       * lit que `corps_texte`. On le dit honnêtement — `aHtml: false` veut dire « cette lecture n'en sait rien »,
+       * et l'écran affiche alors le texte, exactement comme avant ce lot. Prétendre le contraire ferait attendre
+       * une mise en forme qui n'arriverait jamais.
+       */
+      aHtml: false,
+      html: null,
     },
   }));
 }
@@ -321,9 +338,55 @@ export async function lireCorpsDuMessage(
      * qui sort de la base ne peut PAS quitter cette fonction sans être passé par `assainirHtml` — pas de script,
      * pas d'attribut d'événement, et les images selon la règle déjà en place (`PROTOCOLES_IMAGE`).
      */
-    html: htmlAffichable(r.corps_html),
+    html: await htmlPourLEcran(messageId, r.corps_html),
     htmlSeul: r.html_seul === true,
   };
+}
+
+/**
+ * ══ 🔴 LE HTML PRÊT POUR L'ÉCRAN : ASSAINI, PUIS SES IMAGES RÉÉCRITES ══════════════════════════════════════════
+ *
+ * L'ORDRE N'EST PAS INDIFFÉRENT — assainir D'ABORD, réécrire ENSUITE. `reecrireImages` ne protège de rien : elle
+ * range. L'inverse laisserait l'assainissement passer sur des adresses que nous venons de fabriquer, et surtout
+ * ferait compter les images sur un document qui n'est pas celui que le relais relira.
+ *
+ * ⚠️ LE RANG EST CELUI DU DOCUMENT ASSAINI, des deux côtés (ici et dans `htmlDuMessage`) : `assainirHtml` est pure
+ * et déterministe, les deux comptages sont donc le même comptage.
+ */
+export async function htmlPourLEcran(messageId: number, brut: string | null | undefined): Promise<string | null> {
+  const propre = htmlAffichable(brut);
+  if (propre === null) return null;
+  // Les pièces ne sont lues que s'il y a un `cid:` à résoudre — la quasi-totalité des mails n'en a aucun.
+  const pieces = propre.toLowerCase().includes('cid:') ? await piecesIntegrees(messageId) : [];
+  return reecrireImages(propre, {
+    pieces,
+    piece: (pieceId) => `/api/admin/gestion/pieces/${pieceId}`,
+    relais: (rang) => `/api/admin/gestion/messages/${messageId}/image?rang=${rang}`,
+  });
+}
+
+/** Les pièces d'un message, réduites à ce qui permet de résoudre un `cid:`. LECTURE SEULE. */
+async function piecesIntegrees(messageId: number): Promise<PieceIntegree[]> {
+  const { rows } = await query<{ id: number; nom_fichier: string }>(
+    `SELECT id::int AS id, nom_fichier FROM gestion_piece WHERE message_id = $1 ORDER BY id`, [messageId]);
+  return rows.map((r) => ({ pieceId: r.id, nomFichier: r.nom_fichier }));
+}
+
+/**
+ * ══ 🔴 LE HTML ASSAINI D'UN MESSAGE, TEL QUE L'AFFICHAGE LE VOIT — pour le relais d'images ══════════════════════
+ *
+ * Le relais (`/messages/[id]/image?rang=N`) doit retrouver EXACTEMENT la même liste d'images que le rendu, dans le
+ * même ordre : c'est le rang qui les relie. Il passe donc par cette fonction, et non par une lecture à lui.
+ *
+ * ⚠️ SANS RÉÉCRITURE DES IMAGES. C'est le HTML d'origine, assaini : les `src` y sont encore ceux de l'expéditeur,
+ * et c'est précisément ce que le relais vient chercher.
+ */
+export async function htmlDuMessage(messageId: number): Promise<string | null> {
+  const { rows } = await query<{ corps_html: string | null }>(
+    `SELECT left(coalesce(corps_html, ''), ${MAX_HTML}) AS corps_html FROM gestion_message WHERE id = $1`,
+    [messageId]);
+  const r = rows[0];
+  return r === undefined ? null : htmlAffichable(r.corps_html);
 }
 
 /**
@@ -397,7 +460,7 @@ export async function lireMessagesDuFil(
   const { rows } = await query<{
     message_id: number; message_id_rfc: string; sens: string; de_adresse: string; de_nom: string | null; recu_le: string;
     objet: string | null; corps: string | null; extrait: string | null; automatique: boolean;
-    hors_file: boolean; motif_hors_file: string | null; html_seul: boolean;
+    hors_file: boolean; motif_hors_file: string | null; a_html: boolean; corps_html: string | null;
     dest_a: unknown; dest_cc: unknown; destinataires: string | null; est_dernier: boolean;
   }>(
     `WITH msg AS (
@@ -418,7 +481,11 @@ export async function lireMessagesDuFil(
             automatique,
             (exclu_le IS NOT NULL) AS hors_file,
             exclu_motif AS motif_hors_file,
-            (coalesce(btrim(corps_texte), '') = '' AND coalesce(btrim(corps_html), '') <> '') AS html_seul,
+            (coalesce(btrim(corps_html), '') <> '') AS a_html,
+            -- 🔴 LOT LECTURE-HTML-FIL-TROMBONE — le HTML du DERNIER message part avec la liste, comme son texte.
+            --    Sans lui, le message qu'on déplie d'emblée afficherait « Mise en forme en cours de lecture… » le
+            --    temps d'un aller-retour : un clignotement à CHAQUE ouverture de conversation, pour rien.
+            CASE WHEN est_dernier THEN left(coalesce(corps_html, ''), ${MAX_HTML}) END AS corps_html,
             ${avecDest ? 'dest_a, dest_cc' : 'NULL::jsonb AS dest_a, NULL::jsonb AS dest_cc'},
             destinataires, est_dernier
        FROM msg
@@ -455,6 +522,16 @@ export async function lireMessagesDuFil(
    */
   const avisParMessage = await nonRemisesDesMessages(rows.map((m) => m.message_id));
 
+  /**
+   * ⚠️ LE HTML DU DERNIER MESSAGE EST ASSAINI ET SES IMAGES RÉÉCRITES ICI, comme le ferait `lireCorpsDuMessage` :
+   * c'est le MÊME chemin, appelé au même endroit de la chaîne. Le faire seulement à l'ouverture obligerait le
+   * message déplié d'emblée à repasser par le réseau pour rien.
+   */
+  const htmlDernier = await Promise.all(rows.map(async (m) => [
+    m.message_id, m.corps_html === null ? null : await htmlPourLEcran(m.message_id, m.corps_html),
+  ] as const));
+  const parHtml = new Map(htmlDernier);
+
   const messages: MessageDeFil[] = rows.map((m) => ({
     messageId: m.message_id,
     messageIdRfc: m.message_id_rfc,
@@ -474,7 +551,16 @@ export async function lireMessagesDuFil(
     destA: adressesDe(m.dest_a),
     destCc: adressesDe(m.dest_cc),
     destinatairesFondus: m.destinataires && m.destinataires.trim() !== '' ? m.destinataires : null,
-    htmlSeul: m.html_seul === true,
+    /**
+     * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — `aHtml` REMPLACE `htmlSeul`, et la différence est tout le lot.
+     *
+     * `htmlSeul` disait « ce mail n'a QUE du HTML » (557 messages) : il ne servait qu'à ne pas afficher un vide
+     * muet. Mais la règle a changé — le HTML passe AVANT le texte, quand il existe — et la question n'est donc
+     * plus « n'y a-t-il que ça ? » mais « y en a-t-il ? ». Mesuré le 29/09/2026 : 56 367 mails sur 57 223 ont du
+     * HTML. C'est le cas général, plus l'exception.
+     */
+    aHtml: m.a_html === true,
+    html: parHtml.get(m.message_id) ?? null,
   }));
   return {
     fil: {

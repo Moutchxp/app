@@ -23,7 +23,15 @@ import { BoiteMail } from './BoiteMail';
 const LIGNE = (o: Record<string, unknown> = {}) => ({
   filId: 7, objet: 'Fuite salle de bain', interlocuteur: 'Mme Martin', interlocuteurAdresse: 'martin@orange.fr',
   dernierSens: 'recu', dernierLe: '2026-09-20T12:00:00Z', extrait: 'Le robinet fuit.',
-  nbMessages: 3, nbLisibles: 3, aPiece: true, nbPieces: 2, reference: null, sansSuite: false,
+  nbMessages: 3, nbLisibles: 3, aPiece: true, nbPieces: 2,
+  /**
+   * ⚠️ LOT LECTURE-HTML-FIL-TROMBONE — LE TROMBONE NE LIT PLUS `nbPieces`, qui comptait TOUT l'échange. Il lit
+   * OÙ SONT les pièces : sur le message affiché (`piecesDuMessage`, trombone noir) ou ailleurs dans la
+   * conversation (`piecesAilleurs`, trombone gris). `nbPieces` reste — il dit toujours le total de l'échange,
+   * et d'autres écrans s'en servent — mais il ne décide plus de ce qu'on voit sur la ligne.
+   */
+  piecesDuMessage: 2, piecesAilleurs: 0,
+  reference: null, sansSuite: false,
   // LOT MESSAGE-CLIQUE — le message que la ligne represente : c'est lui que le clic doit ouvrir.
   messageAffiche: 8123,
   nonRemise: null, etoilee: false, ...o,

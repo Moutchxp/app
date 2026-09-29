@@ -136,7 +136,7 @@ export type EtatCorps =
    * serveur (`lireCorpsDuMessage`) : le composant se contente de le poser. 1 180 mails en base sont dans ce cas.
    */
   | { v: 'html'; html: string }
-  /** Le mail n'a que du HTML, mais on ne l'a pas encore demandé. C'était l'ancien `html_seul`, devenu transitoire. */
+  /** On SAIT qu'il y a du HTML, on ne l'a pas encore. État transitoire, le temps d'un aller-retour. */
   | { v: 'html_a_charger' }
   | { v: 'vide' }
   | { v: 'a_charger' };
@@ -152,27 +152,54 @@ export type EtatCorps =
  * `corpsCharge` est ce que la lecture paresseuse a ramené — `undefined` tant qu'on n'a rien demandé. PUR.
  */
 export function etatCorps(
-  m: Pick<MessageDeFil, 'corps' | 'extrait' | 'htmlSeul'>,
+  m: Pick<MessageDeFil, 'corps' | 'extrait'> & Partial<Pick<MessageDeFil, 'aHtml' | 'html'>>,
   corpsCharge?: string | null,
   /** Le HTML DÉJÀ ASSAINI par le serveur. `undefined` = on ne l'a pas encore demandé. */
   htmlCharge?: string | null,
 ): EtatCorps {
-  const texte = corpsCharge !== undefined ? corpsCharge : m.corps;
-  if (texte !== null && texte !== undefined && texte.trim() !== '') return { v: 'texte', texte };
   /**
-   * 🔴 LE HTML PASSE AVANT « À CHARGER » ET AVANT « VIDE ». C'est le défaut corrigé par le lot BIEN-RATTACHE : un
-   * mail dont le corps n'existe qu'en mise en forme affichait « affichage à venir » — pour 1 180 mails en base.
+   * ══ 🔴🔴 LE HTML D'ABORD, LE TEXTE EN SECOURS — LOT LECTURE-HTML-FIL-TROMBONE, 29/09/2026 ════════════════════
+   *
+   * RÈGLE D'ARNO : « si une partie HTML existe, c'est elle qui s'affiche ; le texte brut ne sert qu'en l'absence
+   * de HTML ». C'est aussi ce que fait Gmail, et tous les logiciels de messagerie.
+   *
+   * ═══ CE QUE CETTE INVERSION RÉPARE, SUR UN CAS QU'ARNO A VU ═════════════════════════════════════════════════
+   * Le mail 57185 porte 1 216 caractères de texte ET 7 998 de HTML. L'ancienne règle — « du texte ? alors le
+   * texte » — affichait donc la version de secours : la signature d'Arno y devenait « <https://www.sansvisavis.com/> »,
+   * une adresse Google Maps en clair sur trois lignes, et pas de logo. La mise en forme était là, à côté, inutilisée.
+   *
+   * 🔴 ET CE N'EST PAS UN CAS RARE : 56 367 mails sur 57 223 ont une version HTML. L'ancienne règle ne servait donc
+   * la BONNE version que pour les 557 mails qui n'avaient que ça — l'exception commandait la règle.
+   *
+   * ⚠️ LE TEXTE N'EST PAS PERDU pour autant : il reste la version affichée pour les 454 mails qui n'ont que lui, et
+   * il continue de nourrir l'EXTRAIT des listes et la recherche plein texte, qui ne lisent jamais le HTML.
    */
   if (htmlCharge !== undefined && htmlCharge !== null && htmlCharge.trim() !== '') {
     return { v: 'html', html: htmlCharge };
   }
+  /**
+   * Le HTML arrive avec la liste pour le message déplié d'emblée : on le prend sans aller-retour.
+   *
+   * ⚠️ `?? null` — LE CHAMP PEUT ÊTRE ABSENT, et pas seulement nul. Une lecture plus ancienne que ce lot (un mail
+   * déplacé vers une carte, une réponse d'API d'hier) ne le porte pas du tout ; le lire sans précaution ferait
+   * échouer TOUT l'affichage d'une conversation sur un `undefined.trim()`. Le type dit `string | null`, la
+   * réalité d'un champ qui voyage en JSON dit `string | null | undefined`.
+   */
+  const htmlDeLaListe = m.html ?? null;
+  if (htmlCharge === undefined && htmlDeLaListe !== null && htmlDeLaListe.trim() !== '') {
+    return { v: 'html', html: htmlDeLaListe };
+  }
+  /**
+   * ⚠️ ON SAIT QU'IL Y A DU HTML ET ON NE L'A PAS : on l'ATTEND, on ne se rabat pas sur le texte. Se rabattre
+   * afficherait la version de secours une fraction de seconde puis la bonne — un clignotement qui donne
+   * l'impression que l'écran hésite, et qui ferait lire deux fois la même signature.
+   */
+  if (m.aHtml === true && htmlCharge === undefined) return { v: 'html_a_charger' };
+
+  const texte = corpsCharge !== undefined ? corpsCharge : m.corps;
+  if (texte !== null && texte !== undefined && texte.trim() !== '') return { v: 'texte', texte };
   // Pas de corps sous la main, mais un extrait : le texte existe, il n'est simplement pas encore arrivé.
   if (corpsCharge === undefined && m.extrait !== null && m.extrait.trim() !== '') return { v: 'a_charger' };
-  /**
-   * ⚠️ `htmlCharge === undefined` : on SAIT qu'il y a du HTML (`htmlSeul`), mais on ne l'a pas encore demandé.
-   * C'est un état transitoire — et non une fin de non-recevoir comme l'était l'ancien `html_seul`.
-   */
-  if (m.htmlSeul && htmlCharge === undefined) return { v: 'html_a_charger' };
   return { v: 'vide' };
 }
 
@@ -191,6 +218,38 @@ export const MENTION_HTML_SEUL = 'Mise en forme en cours de lecture…';
 
 /** « recent » = le plus récent en haut (le défaut) ; « ancien » = l'ordre chronologique, celui d'avant ce lot. */
 export type OrdreFil = 'recent' | 'ancien';
+
+/**
+ * ══ 🔴🔴 LE PIED DE CONVERSATION AJOUTE-T-IL QUELQUE CHOSE ? PUR. ══════════════════════════════════════════════
+ *
+ * LE DÉFAUT, VU PAR ARNO SUR LE FIL 36526 : deux rangées « Répondre / Répondre à tous / Transférer » l'une
+ * SOUS L'AUTRE. Elles ne sont pourtant pas en double dans le code — ce sont deux choses différentes :
+ *   · celle de CHAQUE message déplié, qui répond À CE MESSAGE (lot FIL-LECTURE) ;
+ *   · celle du PIED de conversation, qui répond au message le PLUS RÉCENT (lot 5e).
+ *
+ * Sur une conversation d'UN SEUL message, ces deux rangées répondent au même message et se touchent : c'est le
+ * même bouton, écrit deux fois. Et ce n'est pas propre au fil 36526 — cela arrive AUSSI sur un long fil lu dans
+ * l'ordre chronologique, où le plus récent est en bas : le pied se retrouve collé sous sa propre rangée.
+ *
+ * 🔴 LA RÈGLE : le pied ne paraît QUE s'il ne fait pas doublon avec la rangée qui le précède immédiatement —
+ * c'est-à-dire quand le dernier message AFFICHÉ n'est pas celui auquel le pied répond, ou qu'il est replié.
+ * Il garde donc tout son sens là où il sert : un fil lu du plus récent au plus ancien, où le pied attend en bas.
+ *
+ * ⚠️ ON NE SUPPRIME PAS LE PIED, et on ne supprime pas non plus la rangée du message. Arno demande « une seule
+ * rangée par message déplié, et une seule en fin de fil » : les deux existent, on retire seulement le cas où
+ * elles se superposent.
+ */
+export function piedUtile(
+  messages: readonly { messageId: number }[], ordre: OrdreFil, deplies: ReadonlySet<number>,
+): boolean {
+  if (messages.length === 0) return false;
+  const affiches = ordonnerMessages(messages, ordre);
+  const dernierAffiche = affiches[affiches.length - 1];
+  // Le pied répond au plus RÉCENT, qui est le dernier de l'ordre chronologique.
+  const plusRecent = messages[messages.length - 1];
+  if (dernierAffiche.messageId !== plusRecent.messageId) return true; // le pied n'est pas sous sa propre rangée
+  return !deplies.has(plusRecent.messageId);                          // replié : aucune rangée au-dessus
+}
 
 /**
  * 🔴 LE PLUS RÉCENT D'ABORD, PAR DÉFAUT. Demande d'Arno du 27/09/2026 : ce qu'on vient lire est la dernière

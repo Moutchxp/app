@@ -13,7 +13,7 @@ import {
   autoImposeParEtiquette, ETIQUETTE_RECEPTION, etiquetteDepuisTexte, texteEtiquette, type Etiquette,
 } from '../../../../lib/gestion/ecranUrl';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
-import { corpsLisible } from '../../../../lib/gestion/lisibilite';
+import { corpsLisible, etatTrombone, motTrombone } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import {
   bulleCapsule, capsuleStatut, motCapsule, motMotifHorsGestion, type CapsuleStatut,
@@ -1100,12 +1100,23 @@ export function BoiteMail({
                         VARIABLES (référence, « classé sans suite », « courrier automatique », provenance,
                         avertissement) restent devant : ce sont elles qui bougent d'une ligne à l'autre, et c'est
                         pour cela qu'elles ne doivent pas s'intercaler dans ce bloc de fin. */}
-                    {l.aPiece && (
-                      <span className="bte-marque bte-marque--pieces"
-                        title={`${l.nbPieces} pièce${l.nbPieces > 1 ? 's' : ''} jointe${l.nbPieces > 1 ? 's' : ''}`}>
-                        <span aria-hidden="true">📎</span> {l.nbPieces}
-                      </span>
-                    )}
+                    {/* ══ 🔴 LOT LECTURE-HTML-FIL-TROMBONE — NOIR ICI, GRIS AILLEURS, ABSENT SI RIEN ═══════════
+                        Le trombone comptait TOUT l'échange : une conversation de douze messages dont un seul
+                        portait un bail affichait « 📎 1 » sur la ligne du dernier, qui n'a rien. On ouvrait pour
+                        ne rien trouver — et l'inverse arrivait aussi.
+                        ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : l'infobulle dit LEQUEL des deux cas
+                        (« dans ce message » / « ailleurs dans la conversation »), et le nombre est celui de
+                        l'état affiché, jamais le total. */}
+                    {(() => {
+                      const t = etatTrombone(l.piecesDuMessage ?? 0, l.piecesAilleurs ?? 0);
+                      if (t.ou === 'aucune') return null;
+                      return (
+                        <span className={`bte-marque bte-marque--pieces${t.ou === 'ailleurs' ? ' bte-marque--pieces-loin' : ''}`}
+                          title={motTrombone(t) ?? undefined}>
+                          <span aria-hidden="true">📎</span> {t.nombre}
+                        </span>
+                      );
+                    })()}
                     {/* ══ 🔴 LOT CAPSULE-STATUT — LA CAPSULE, TOUJOURS COLLÉE À GAUCHE DE L'HEURE ═══════════════
                         Elle répond à la question qu'on se pose en parcourant la liste : « ce courrier est-il
                         rangé ? ». Trois réponses, trois mots ÉCRITS — la couleur ne fait que les appuyer, elle ne
@@ -1336,7 +1347,12 @@ const CSS_BOITE = `
 .bte-marque{display:inline-flex;align-items:center;gap:.25rem}
 /* 🔴 LE TROMBONE NE RÉTRÉCIT PAS, comme la capsule à laquelle il est collé : quand la ligne manque de place, c'est
    l'avertissement de non-remise qui se tronque. Un « 📎 12 » réduit à « 📎 1 » mentirait. */
-.bte-marque--pieces{flex:0 0 auto}
+/* ══ 🔴 LE TROMBONE : NOIR QUAND LA PIECE EST SUR CE MESSAGE, GRIS QUAND ELLE EST AILLEURS ══════════════════════
+   NOIR = la couleur du TEXTE PRINCIPAL, donc blanche en theme Sombre : le jeton suit le theme, et l'on n'ecrit
+   aucune couleur en dur. GRIS = la couleur des mentions secondaires, celle des autres marques de la ligne.
+   La couleur ne porte JAMAIS l'information seule : l'infobulle dit lequel des deux cas, en toutes lettres. */
+.bte-marque--pieces{flex:0 0 auto;color:var(--color-svv-ink);font-weight:600}
+.bte-marque--pieces-loin{color:var(--color-svv-muted);font-weight:400}
 .bte-ref{font-weight:700;color:var(--color-svv-green-ink)}
 .bte-recherche{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}
 .bte-champ-ligne{display:flex;flex-wrap:wrap;gap:8px}

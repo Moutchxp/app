@@ -192,8 +192,12 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     // LOT BIEN-RATTACHE — `./htmlMail` rejoint la liste : module PUR (aucune base, aucun réseau) qui ASSAINIT le
     //   HTML d'un mail avant de le rendre. Il ne manipule aucun octet de pièce jointe, et c'est justement son
     //   passage OBLIGÉ ici qui garantit que le navigateur ne reçoit jamais de HTML brut.
+    // LOT LECTURE-HTML-FIL-TROMBONE — `./imagesMail` rejoint la liste, pour la MÊME raison que `./htmlMail` :
+    //   module PUR (aucune base, aucun réseau, aucun DOM) qui réécrit les adresses d'images vers NOS routes. Il ne
+    //   manipule aucun octet — il remplace des chaînes de caractères — et son passage obligé ici est justement ce
+    //   qui garantit qu'aucune adresse d'expéditeur n'atteint le navigateur.
     expect(imports).toEqual([
-      '../db/client', './htmlMail', './attente', './partenaires', './schema', './nonRemiseRepo',
+      '../db/client', './htmlMail', './imagesMail', './attente', './partenaires', './schema', './nonRemiseRepo',
     ]);
     expect(imports).not.toContain('../stockage');
     expect(code).not.toContain('urlSignee');

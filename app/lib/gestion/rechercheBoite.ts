@@ -358,6 +358,15 @@ export async function chercherDansLeCourrier(
       nbLisibles: r.nb_lisibles,
       aPiece: r.nb_pieces > 0,
       nbPieces: r.nb_pieces,
+      /**
+       * ⚠️ LOT LECTURE-HTML-FIL-TROMBONE — LA RECHERCHE NE DISTINGUE PAS OÙ EST LA PIÈCE, et le trombone y reste
+       * donc GRIS. Elle rend un RÉSULTAT (le message trouvé), pas une ligne de boîte : la question « la pièce
+       * est-elle sur ce message-là ou ailleurs ? » y demanderait une lecture de plus, pour une liste qu'on
+       * parcourt autrement. `0` se lit « on ne sait pas », et le gris est la direction sûre : il invite à
+       * ouvrir, là où le noir promettrait une pièce sous les yeux.
+       */
+      piecesDuMessage: 0,
+      piecesAilleurs: 0,
       reference: r.reference,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,

@@ -71,12 +71,24 @@ export interface ContexteRedactionEcran {
   signatureHtml?: string;
 }
 
+/**
+ * Le bandeau « Annuler » d'un brouillon jeté vit 10 secondes — demande d'Arno, et le même rythme que le Drive et
+ * que la corbeille des mails. Un seul chiffre pour toute l'application : on n'apprend pas trois délais.
+ */
+export const DUREE_JETE_MS = 10_000;
+
 type Etat =
   | { v: 'ecriture' }
   | { v: 'compte_a_rebours'; clicLe: Date; cle: string }
   | { v: 'envoi' }
   | { v: 'parti' }
-  | { v: 'echec'; motif: string };
+  | { v: 'echec'; motif: string }
+  /**
+   * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LE BROUILLON VIENT D'ALLER À LA CORBEILLE, et l'éditeur tient la promesse
+   * des 10 secondes AVANT de se fermer. Le geste se défait LÀ OÙ IL A ÉTÉ FAIT — c'est la règle du module depuis
+   * le bandeau du Drive, et elle vaut d'autant plus ici que la fenêtre va disparaître.
+   */
+  | { v: 'jete'; brouillonId: number };
 
 /** Ce que l'écran garde du brouillon, plus son identifiant en base une fois enregistré. */
 /**
@@ -278,6 +290,11 @@ export function Redaction({
   reduite?: boolean;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'ecriture' });
+  /**
+   * LE MINUTEUR DES 10 SECONDES du bandeau « Annuler » d'un brouillon jeté. En RÉFÉRENCE, pas en état : le
+   * modifier ne doit pas provoquer de rendu, et « Annuler » doit pouvoir l'arrêter depuis un gestionnaire.
+   */
+  const minuteurJete = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * 🔴 LOT BROUILLONS-GMAIL — « Cc » ET « Cci » S'OUVRENT SÉPARÉMENT, chacun par son bouton dans le champ « À ».
    * Ils s'ouvraient ENSEMBLE, par un lien sous le champ : demander une copie cachée affichait aussi un champ « Cc »
@@ -698,9 +715,18 @@ export function Redaction({
   };
 
   /**
-   * SUPPRIMER LE BROUILLON, sur confirmation. C'est le geste d'ABANDON qui existe déjà (`DELETE`), celui qui DATE
-   * la ligne sans rien effacer en base — pas une suppression réelle. Le mot « Supprimer » est celui de Gmail ; ce
-   * qu'il fait chez nous est plus prudent, et c'est tant mieux.
+   * ══ 🔴🔴 METTRE LE BROUILLON À LA CORBEILLE — LOT LECTURE-HTML-FIL-TROMBONE ═════════════════════════════════
+   *
+   * LE GESTE N'A PAS CHANGÉ : il date la ligne (`DELETE`), il n'efface rien en base — c'est ce qu'il faisait déjà.
+   * CE QUI CHANGE, c'est qu'on peut désormais REVENIR : le brouillon apparaît dans la liste « Corbeille », d'où
+   * « Réintégrer » le remet dans « Brouillons », réouvrable avec son contenu et ses pièces.
+   *
+   * 🔴 ET LES MOTS SUIVENT LE GESTE. « Supprimer le brouillon » promettait une destruction qui n'avait pas lieu —
+   * un mot plus effrayant que la réalité fait hésiter devant un geste anodin, et fait douter de tous les autres.
+   * L'infobulle dit maintenant « Mettre à la corbeille », et le compte rendu dit où il est allé.
+   *
+   * ⚠️ CE N'EST PAS LA CORBEILLE DE GMAIL, et on ne le laisse pas croire : nos brouillons ne sont jamais poussés
+   * chez Google (voir `abandonnerBrouillon`). Le bloc de la liste le dit en toutes lettres.
    */
   const supprimerBrouillon = async (): Promise<void> => {
     const id = aEnregistrer.current.id ?? brouillon.id;
@@ -709,7 +735,43 @@ export function Redaction({
       catch { /* silence : on ferme de toute façon */ }
     }
     setSupprime(false);
-    onGeste('Brouillon supprimé.');
+    /**
+     * 🔴 L'ÉDITEUR NE SE FERME PAS TOUT DE SUITE : il montre le bandeau « Annuler » pendant 10 secondes, puis se
+     * ferme seul. C'est le même patron que la fenêtre d'annulation d'envoi, dix lignes plus haut — un geste dont
+     * on peut revenir se défait LÀ OÙ IL A ÉTÉ FAIT, pas dans un coin de l'écran qu'il faut aller chercher.
+     *
+     * ⚠️ SANS IDENTIFIANT (brouillon jamais enregistré, donc jamais en base), il n'y a rien à réintégrer : on
+     * ferme sans promettre un retour impossible.
+     */
+    if (id === null) { onGeste('Brouillon abandonné.'); onFerme(); return; }
+    setEtat({ v: 'jete', brouillonId: id });
+  };
+
+  /**
+   * ⚠️ LE MINUTEUR EST POSÉ DANS UN EFFET, jamais dans le gestionnaire de clic : posé là-bas, il survivrait au
+   * démontage de la fenêtre (fermée à la main, écran changé) et fermerait quelque chose qui n'existe plus. Ici,
+   * le nettoyage de l'effet l'emporte avec lui.
+   */
+  useEffect(() => {
+    if (etat.v !== 'jete') return;
+    minuteurJete.current = setTimeout(() => { minuteurJete.current = null; onFerme(); }, DUREE_JETE_MS);
+    return () => {
+      if (minuteurJete.current !== null) { clearTimeout(minuteurJete.current); minuteurJete.current = null; }
+    };
+  }, [etat, onFerme]);
+
+  /** LE SORT DE LA CORBEILLE, depuis le bandeau. Le geste inverse, par la même porte. */
+  const reintegrerLeBrouillon = async (id: number): Promise<void> => {
+    if (minuteurJete.current !== null) { clearTimeout(minuteurJete.current); minuteurJete.current = null; }
+    try {
+      const res = await fetch(`/api/admin/gestion/brouillons?id=${id}`, { method: 'PATCH' });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; erreur?: string };
+      onGeste(d.ok === true ? (d.message ?? 'Brouillon réintégré.') : (d.erreur ?? 'Réintégration impossible.'));
+      // 🔴 ON REVIENT À L'ÉCRITURE : le brouillon est de nouveau vivant, la fenêtre doit le montrer.
+      if (d.ok === true) { setEtat({ v: 'ecriture' }); return; }
+    } catch {
+      onGeste('Réintégration impossible : le serveur n’a pas répondu.');
+    }
     onFerme();
   };
 
@@ -849,6 +911,29 @@ export function Redaction({
           <button type="button" className="svv-btn svv-btn-primary gst-btn"
             onClick={() => { if (minuteur.current) clearInterval(minuteur.current); setEtat({ v: 'ecriture' }); onGeste('Envoi annulé : votre message est resté en brouillon.'); }}>
             Annuler l’envoi
+          </button>
+        </div>
+      </section>
+    );
+  }
+  /**
+   * ══ 🔴 LE BROUILLON EST À LA CORBEILLE — 10 SECONDES POUR REVENIR ══════════════════════════════════════════
+   * `aria-live="polite"` comme les autres états d'après-clic : on annonce sans voler le focus. La fermeture est
+   * portée par le minuteur ; « Annuler » l'arrête ET restaure, dans cet ordre — l'inverse laisserait une fenêtre
+   * se fermer sur une restauration en cours.
+   */
+  if (etat.v === 'jete') {
+    return (
+      <section className="red red-apres" aria-live="polite">
+        <style>{CSS_REDACTION}</style>
+        <p className="red-etat">
+          Brouillon mis à la corbeille. <strong>Rien n’est supprimé</strong> — il est dans « Corbeille », et il
+          revient d’un clic.
+        </p>
+        <div className="gst-actions">
+          <button type="button" className="svv-btn svv-btn-primary gst-btn"
+            onClick={() => void reintegrerLeBrouillon(etat.brouillonId)}>
+            Annuler
           </button>
         </div>
       </section>
@@ -1082,8 +1167,11 @@ export function Redaction({
           côté d'« Envoyer », et un clic de trop ne doit pas effacer ce qu'on vient d'écrire. */}
       {supprime && (
         <p className="red-supprime" role="alert">
-          Supprimer ce brouillon ? Le texte sera perdu.{' '}
-          <button type="button" className="gst-lien-bouton" onClick={() => void supprimerBrouillon()}>Supprimer</button>
+          {/* ⚠️ LA PHRASE NE PROMET PLUS LA PERTE DU TEXTE : il part à la corbeille, d'où il revient d'un clic. */}
+          Mettre ce brouillon à la corbeille ? Il pourra en être réintégré.{' '}
+          <button type="button" className="gst-lien-bouton" onClick={() => void supprimerBrouillon()}>
+            Mettre à la corbeille
+          </button>
           {' · '}
           <button type="button" className="gst-lien-bouton" onClick={() => setSupprime(false)}>Annuler</button>
         </p>
@@ -1113,8 +1201,11 @@ export function Redaction({
               de « Joindre un fichier », qui est le même geste avec une autre source. Rien n'a été retiré. */}
           {/* ⚠️ LA CORBEILLE EST LA DERNIÈRE, et elle DEMANDE confirmation : c'est le seul geste de cette rangée
               qui détruit quelque chose. */}
-          <button type="button" className="red-outil red-outil--rouge" title="Supprimer le brouillon"
-            aria-label="Supprimer le brouillon" onClick={() => setSupprime(true)}>
+          {/* 🔴 LOT LECTURE-HTML-FIL-TROMBONE — « Mettre à la corbeille », et non plus « Supprimer le brouillon ».
+              Le geste n'a jamais supprimé : il DATE la ligne. Le mot disait plus que ce qui se passait, ce qui
+              fait hésiter devant l'anodin — et douter des mots employés ailleurs. */}
+          <button type="button" className="red-outil red-outil--rouge" title="Mettre à la corbeille"
+            aria-label="Mettre à la corbeille" onClick={() => setSupprime(true)}>
             <span aria-hidden="true">🗑</span>
           </button>
         </span>

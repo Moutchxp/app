@@ -5,7 +5,8 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
 import { decouperAdresses } from '../../../../../lib/gestion/redaction';
 import {
-  abandonnerBrouillon, enregistrerBrouillon, lireBrouillon, lireBrouillonDuFil, listerBrouillons,
+  abandonnerBrouillon, brouillonsALaCorbeille, enregistrerBrouillon, lireBrouillon, lireBrouillonDuFil,
+  listerBrouillons, restaurerBrouillon,
   listerBrouillonsDuFil,
 } from '../../../../../lib/gestion/redactionRepo';
 import { redactionDisponible } from '../../../../../lib/gestion/schema';
@@ -50,6 +51,24 @@ export async function GET(request: Request): Promise<Response> {
   const filBrut = parametres.get('fil');
   const idBrut = parametres.get('id');
   try {
+    /**
+     * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — `?corbeille=1` : LES BROUILLONS MIS À LA CORBEILLE.
+     *
+     * Rendus RÉDUITS À CE QUE LA LIGNE MONTRE (objet, destinataires, date), jamais leur corps : la corbeille est
+     * une liste, on n'y relit pas ce qu'on a jeté. Le corps revient à la réouverture, par `?id=`, comme pour
+     * n'importe quel brouillon — et il n'a jamais bougé, puisque rien n'a jamais été supprimé.
+     */
+    if (parametres.get('corbeille') === '1') {
+      const jetes = await brouillonsALaCorbeille();
+      return Response.json({
+        liste: jetes.map((b) => ({
+          id: b.id,
+          objet: b.objet,
+          destinataires: [...b.a, ...b.cc],
+          majLe: b.majLe,
+        })),
+      }, { headers: { 'Cache-Control': 'private, no-store' } });
+    }
     /**
      * 🔴 LOT BROUILLONS-GMAIL — `?id=` : UN BROUILLON PRÉCIS, celui qu'on vient de cliquer dans la liste.
      *
@@ -145,6 +164,34 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
+/**
+ * ══ 🔴 LOT LECTURE-HTML-FIL-TROMBONE — SORTIR UN BROUILLON DE LA CORBEILLE ═════════════════════════════════════
+ *
+ * `PATCH` et non `POST` : `POST` enregistre un brouillon (c'est déjà son verbe ici), et l'on ne mélange pas deux
+ * gestes sous un même verbe — les journaux d'accès ne sauraient plus lequel a eu lieu.
+ *
+ * ⚠️ AUCUNE ÉCRITURE N'EST DÉFAITE : le brouillon n'avait jamais été supprimé, seulement DATÉ. Restaurer efface
+ * cette date, et le contenu comme les pièces jointes sont exactement ceux d'avant — ils n'ont pas bougé.
+ */
+export async function PATCH(request: Request): Promise<Response> {
+  const refus = await exigerCompteActif(request, 'gestion');
+  if (refus) return refus;
+  if (!await peutEnvoyerAuNomDeGestion(request)) return refusEnvoi();
+  if (!await redactionDisponible()) return sansSchema();
+
+  const id = Number(new URL(request.url).searchParams.get('id'));
+  if (!Number.isInteger(id) || id <= 0) return Response.json({ erreur: 'Brouillon inconnu.' }, { status: 400 });
+  try {
+    const fait = await restaurerBrouillon(id);
+    return fait
+      ? Response.json({ ok: true, message: 'Brouillon réintégré : il est revenu dans « Brouillons ».' })
+      : Response.json({ erreur: 'Ce brouillon n’est pas à la corbeille (ou il est déjà parti).' }, { status: 404 });
+  } catch (e) {
+    console.error('[gestion/brouillons] restauration impossible', e);
+    return Response.json({ erreur: 'Restauration impossible : la base n’a pas répondu.' }, { status: 503 });
+  }
+}
+
 export async function DELETE(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
@@ -154,9 +201,9 @@ export async function DELETE(request: Request): Promise<Response> {
   const id = Number(new URL(request.url).searchParams.get('id'));
   if (!Number.isInteger(id) || id <= 0) return Response.json({ erreur: 'Brouillon inconnu.' }, { status: 400 });
   try {
-    // ABANDONNE, ne supprime pas : la ligne est datée et reste en base.
+    // MET À LA CORBEILLE : la ligne est DATÉE, jamais supprimée — et elle se restaure par `PATCH`.
     await abandonnerBrouillon(id);
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, message: 'Brouillon mis à la corbeille.' });
   } catch (e) {
     console.error('[gestion/brouillons] abandon impossible', e);
     return Response.json({ erreur: 'Abandon impossible : la base n’a pas répondu.' }, { status: 503 });

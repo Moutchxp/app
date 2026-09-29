@@ -121,6 +121,41 @@ export function estImageDeSignature(p: PieceATrier): boolean {
   return p.tailleOctets !== null && p.tailleOctets > 0 && p.tailleOctets < TAILLE_MAX_SIGNATURE;
 }
 
+/**
+ * ══ 🔴🔴 LOT LECTURE-HTML-FIL-TROMBONE — CE QUE DIT LE TROMBONE D'UNE LIGNE DE LISTE. PUR. ════════════════════
+ *
+ * TROIS ÉTATS, DEMANDÉS PAR ARNO, et chacun répond à une question différente en parcourant la liste :
+ *   · `ici`     — CE message-là porte une pièce. Le trombone est NOIR (blanc en thème Sombre) : on ouvre et on la
+ *                 trouve. C'est le seul cas où l'on promet quelque chose.
+ *   · `ailleurs`— la conversation en porte, mais pas le message affiché. Le trombone est GRIS : il invite à
+ *                 chercher, il ne promet rien. C'est le défaut réparé — jusqu'ici le trombone comptait TOUT
+ *                 l'échange, et l'on ouvrait un mail vide en croyant y trouver un bail.
+ *   · `aucune`  — rien nulle part : pas de trombone du tout.
+ *
+ * ⚠️ LE NOMBRE AFFICHÉ EST CELUI DE L'ÉTAT. « 📎 2 » sur un trombone noir veut dire « deux pièces DANS CE
+ * MESSAGE » ; sur un gris, « deux pièces AILLEURS ». Afficher le total dans les deux cas ferait lire « 2 » sur
+ * une ligne dont le mail n'en porte qu'une.
+ */
+export type EtatTrombone =
+  | { ou: 'ici'; nombre: number }
+  | { ou: 'ailleurs'; nombre: number }
+  | { ou: 'aucune' };
+
+export function etatTrombone(piecesDuMessage: number, piecesAilleurs: number): EtatTrombone {
+  if (piecesDuMessage > 0) return { ou: 'ici', nombre: piecesDuMessage };
+  if (piecesAilleurs > 0) return { ou: 'ailleurs', nombre: piecesAilleurs };
+  return { ou: 'aucune' };
+}
+
+/** L'infobulle du trombone, dans les mots d'Arno. PUR. */
+export function motTrombone(e: EtatTrombone): string | null {
+  if (e.ou === 'aucune') return null;
+  const s = e.nombre > 1 ? 's' : '';
+  return e.ou === 'ici'
+    ? `Pièce${s} jointe${s} dans ce message`
+    : `Pièce${s} jointe${s} ailleurs dans la conversation`;
+}
+
 /** Range les pièces d'un message en deux tas, dans leur ordre d'origine. PUR. */
 export function trierPieces<T extends PieceATrier>(pieces: readonly T[]): { vraies: T[]; signatures: T[] } {
   const vraies: T[] = [];

@@ -34,10 +34,21 @@ export async function GET(request: Request): Promise<Response> {
      * LOT LISTE-GMAIL — la sonde de l'étoile voyage avec les comptes : c'est la seule requête que la liste fait
      * déjà au chargement, et la sonde est mémoïsée (elle ne coûte qu'au premier appel du processus).
      */
-    const [comptes, etoileDisponible] = await Promise.all([
+    const [comptes, etoileDisponible, brouillonsJetes] = await Promise.all([
       comptesBoite(), (await import('../../../../../../lib/gestion/schema')).etoileDisponible(),
+      (await import('../../../../../../lib/gestion/redactionRepo')).compterBrouillonsALaCorbeille().catch(() => 0),
     ]);
-    return Response.json({ ...comptes, etoileDisponible },
+    /**
+     * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LES BROUILLONS JETÉS COMPTENT DANS LA CORBEILLE, parce que la liste les
+     * MONTRE. Un compteur qui ne compte pas ce que sa liste montre fait chercher ailleurs ce qui est sous les
+     * yeux — c'est la règle du module depuis le lot BOITE-SENS, et elle ne souffre pas d'exception.
+     *
+     * ⚠️ `corbeille: null` (migration 275 absente) RESTE `null` même s'il y a des brouillons jetés : sans la
+     * migration, l'étiquette « Corbeille » n'existe pas du tout, et lui donner un nombre la ferait apparaître
+     * pour une liste qui ne saurait rien afficher d'autre.
+     */
+    const corbeille = comptes.corbeille === null ? null : comptes.corbeille + brouillonsJetes;
+    return Response.json({ ...comptes, corbeille, brouillonsJetes, etoileDisponible },
       { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     // Pas de catch muet : des compteurs à zéro feraient croire à une boîte vide. On dit que la lecture a échoué, et

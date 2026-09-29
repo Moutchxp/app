@@ -19,7 +19,7 @@ const msg = (o: Partial<MessageDeFil> = {}): MessageDeFil => ({
   horsFile: false, motifHorsFile: null,
   // LOT ENVOI-DIAG — vide par défaut : un message dont personne ne s'est plaint est arrivé.
   nonRemises: [],
-  destA: null, destCc: null, destinatairesFondus: null, htmlSeul: false,
+  destA: null, destCc: null, destinatairesFondus: null, aHtml: false, html: null,
   ...o,
 });
 
@@ -158,34 +158,82 @@ describe('le corps d’un message — ne jamais dire « vide » à tort', () => 
    * disponible en mise en forme uniquement — affichage à venir » au lieu du contenu. Mesuré le 28/09/2026 :
    * 1 180 mails en base n'ont QUE du HTML. Ils s'affichent désormais, en HTML assaini par le SERVEUR.
    */
-  it('🔴 HTML SEUL, pas encore demandé : un état TRANSITOIRE, et on va le chercher', () => {
-    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: true }))).toEqual({ v: 'html_a_charger' });
+  it('🔴 DU HTML, pas encore demandé : un état TRANSITOIRE, et on va le chercher', () => {
+    expect(etatCorps(msg({ corps: null, extrait: null, aHtml: true }))).toEqual({ v: 'html_a_charger' });
     // 🔴 La mention n'annonce plus une fonctionnalité future : elle annonce une lecture en cours, qui aboutit.
     expect(MENTION_HTML_SEUL).not.toContain('affichage à venir');
     expect(MENTION_HTML_SEUL).toContain('lecture');
   });
 
-  it('🔴 HTML SEUL, une fois chargé : on AFFICHE la mise en forme', () => {
-    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: true }), null, '<p>Bonjour</p>'))
+  it('🔴 une fois chargé : on AFFICHE la mise en forme', () => {
+    expect(etatCorps(msg({ corps: null, extrait: null, aHtml: true }), null, '<p>Bonjour</p>'))
       .toEqual({ v: 'html', html: '<p>Bonjour</p>' });
   });
 
-  it('🔴 le TEXTE prime toujours sur le HTML : c’est lui qu’on lit le mieux', () => {
-    expect(etatCorps(msg({ corps: 'Bonjour', extrait: 'Bonjour', htmlSeul: false }), 'Bonjour', '<p>x</p>'))
+  /**
+   * ══ 🔴🔴 RÉÉCRIT PAR LE LOT LECTURE-HTML-FIL-TROMBONE — LA RÈGLE EST EXACTEMENT INVERSÉE ═══════════════════
+   *
+   * CE QU'IL EXIGEAIT : « le TEXTE prime toujours sur le HTML : c'est lui qu'on lit le mieux. » C'était vrai du
+   * temps où le HTML n'était qu'un pis-aller pour les mails sans texte.
+   *
+   * POURQUOI C'ÉTAIT FAUX. Un mail porte les DEUX versions du MÊME message : le HTML est celle que l'expéditeur
+   * a composée, le texte celle que son logiciel a fabriquée pour les lecteurs qui ne savent pas mieux faire.
+   * Préférer le texte, c'est préférer la copie dégradée. Vu sur le mail 57185 : 1 216 caractères de texte,
+   * 7 998 de HTML — et la signature d'Arno réduite à « <https://www.sansvisavis.com/> » et une adresse Google
+   * Maps en clair sur trois lignes, alors que la bonne version était là, à côté, inutilisée.
+   *
+   * ET CE N'ÉTAIT PAS UN CAS RARE : 56 367 mails sur 57 223 ont une version HTML. L'ancienne règle ne servait la
+   * bonne version que pour les 557 qui n'avaient que ça — l'exception commandait la règle.
+   */
+  it('🔴 le HTML prime sur le texte : c’est la version que l’expéditeur a composée', () => {
+    expect(etatCorps(msg({ corps: 'Bonjour', extrait: 'Bonjour', aHtml: true }), 'Bonjour', '<p>x</p>'))
+      .toEqual({ v: 'html', html: '<p>x</p>' });
+  });
+
+  /**
+   * 🔴 ON ATTEND LE HTML PLUTÔT QUE DE MONTRER LE TEXTE EN ATTENDANT. Se rabattre afficherait la version de
+   * secours une fraction de seconde puis la bonne : un clignotement qui donne l'impression que l'écran hésite,
+   * et qui ferait lire deux fois la même signature.
+   */
+  it('🔴 on SAIT qu’il y a du HTML et on ne l’a pas : on l’attend, on ne montre pas le texte', () => {
+    expect(etatCorps(msg({ corps: 'Bonjour', extrait: 'Bonjour', aHtml: true })).v).toBe('html_a_charger');
+  });
+
+  /** ⚠️ ET LE TEXTE RESTE LA VERSION AFFICHÉE quand il n'y a pas de HTML — c'est le cas de 454 mails. */
+  it('sans HTML, le texte s’affiche, exactement comme avant', () => {
+    expect(etatCorps(msg({ corps: 'Bonjour', extrait: 'Bonjour', aHtml: false }), 'Bonjour', null))
       .toEqual({ v: 'texte', texte: 'Bonjour' });
   });
 
-  it('un HTML chargé mais VIDE (que des balises) ne prétend pas être un contenu', () => {
-    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: true }), null, '')).toEqual({ v: 'vide' });
-    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: true }), null, null)).toEqual({ v: 'vide' });
+  /**
+   * 🔴 LE HTML DU MESSAGE DÉPLIÉ D'EMBLÉE VOYAGE AVEC LA LISTE, et il est pris sans aller-retour : sans cela,
+   * CHAQUE ouverture de conversation afficherait « Mise en forme en cours de lecture… » le temps d'une requête.
+   */
+  it('🔴 le HTML porté par la liste s’affiche sans rien redemander', () => {
+    expect(etatCorps(msg({ corps: 'Bonjour', extrait: 'Bonjour', aHtml: true, html: '<p>déjà là</p>' })))
+      .toEqual({ v: 'html', html: '<p>déjà là</p>' });
   });
 
-  it('un mail qui a un EXTRAIT va d’abord chercher son texte, pas sa mise en forme', () => {
-    expect(etatCorps(msg({ corps: null, extrait: 'Bonjour', htmlSeul: true })).v).toBe('a_charger');
+  it('un HTML chargé mais VIDE (que des balises) ne prétend pas être un contenu', () => {
+    expect(etatCorps(msg({ corps: null, extrait: null, aHtml: true }), null, '')).toEqual({ v: 'vide' });
+    expect(etatCorps(msg({ corps: null, extrait: null, aHtml: true }), null, null)).toEqual({ v: 'vide' });
+  });
+
+  /**
+   * ⚠️ RÉÉCRIT : l'extrait ne commande plus. Un mail qui a du HTML va chercher SA MISE EN FORME, extrait ou pas —
+   * l'extrait n'est qu'un aperçu fabriqué à partir du texte, il ne dit rien de la meilleure version disponible.
+   * Les deux lectures partent d'ailleurs dans la MÊME requête (`lireCorpsDuMessage` rend les deux).
+   */
+  it('un mail qui a du HTML va chercher sa mise en forme, même s’il a un extrait', () => {
+    expect(etatCorps(msg({ corps: null, extrait: 'Bonjour', aHtml: true })).v).toBe('html_a_charger');
+  });
+
+  it('un mail SANS HTML mais avec un extrait va chercher son texte', () => {
+    expect(etatCorps(msg({ corps: null, extrait: 'Bonjour', aHtml: false })).v).toBe('a_charger');
   });
 
   it('un message RÉELLEMENT vide est dit vide', () => {
-    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: false }))).toEqual({ v: 'vide' });
+    expect(etatCorps(msg({ corps: null, extrait: null, aHtml: false }))).toEqual({ v: 'vide' });
   });
 
   it('un chargement qui ne rend rien conclut « vide », et ne boucle pas sur « à charger »', () => {

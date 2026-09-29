@@ -457,6 +457,7 @@ export function corbeilleGmailDisponible(): Promise<boolean> {
   return memoiser('message.corbeille_le', () => colonneExiste('gestion_message', 'corbeille_le'));
 }
 
+
 /**
  * LOT LISTE-GMAIL — la migration 264 est-elle appliquée ? Elle porte `gestion_fil_etoile`, l'étoile de l'ÉQUIPE
  * sur un échange.
