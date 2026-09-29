@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { normaliserTelephone } from './annuaire';
 import {
-  TYPES_COORDONNEE, chiffresTelephone, formaterSaisieTelephone, formaterTelephone, motType, sorteDuType,
-  typeDeLibelle,
+  TYPES_COORDONNEE, chiffresTelephone, formaterSaisieTelephone, formaterTelephone, lignesParType, motType,
+  sorteDuType, typeDeLibelle,
 } from './telephoneAffichage';
 
 /**
@@ -333,8 +333,132 @@ describe('🔴 le numéro affiché par l’app l’est partout de la même faço
   it('🔴 le lien `tel:` est construit sur la valeur canonique', () => {
     const cartes = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
     expect(cartes).toContain('href={`tel:${c.valeur}`}');
+    /* ⚠️ RÉÉCRIT (lot CONTACT-LIGNES) : les deux listes (téléphones, e-mails) ont fusionné en une seule, pour
+       que le regroupement par type puisse décider de l'ordre. La variable s'appelle donc `c` et non `t` — la
+       règle, elle, est intacte : le lien part de la forme CANONIQUE, l'écran montre la forme LUE. */
     const props = readFileSync('app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx', 'utf8');
-    expect(props).toContain('lienTelephone(t.valeur)');
-    expect(props).toContain('{t.affichage}');
+    expect(props).toContain('lienTelephone(c.valeur)');
+    expect(props).toContain('{c.affichage}');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT CONTACT-LIGNES — LE TYPE DANS LE TITRE, ÉCRIT UNE SEULE FOIS
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 regrouper les coordonnées par type', () => {
+  const c = (sorte: 'telephone' | 'email', libelle: string | null, valeur: string) => ({ sorte, libelle, valeur });
+
+  /**
+   * ══ 🔴🔴 LA RÈGLE D'ARNO, MOT POUR MOT ══════════════════════════════════════════════════════════════════════
+   * « Plusieurs numéros du même type : le titre n'apparaît qu'une fois, en face du premier. »
+   */
+  it('🔴 le titre n’est écrit qu’une fois, en face du premier de son groupe', () => {
+    const lignes = lignesParType([
+      c('telephone', 'Mobile 1', 'a'), c('telephone', 'Mobile 2', 'b'), c('email', 'Email 1', 'c'),
+    ]);
+    expect(lignes.map((l) => l.titre)).toEqual(['Mobile', null, 'E-mail']);
+    expect(lignes.map((l) => l.contact.valeur)).toEqual(['a', 'b', 'c']);
+  });
+
+  /**
+   * 🔴 LES GROUPES SE SUIVENT, ET DANS UN ORDRE FIXE : Mobile, Fixe, E-mail. Sans regroupement, une liste
+   * mobile / fixe / mobile écrirait « MOBILE » deux fois — ce qui se lirait comme deux blocs distincts.
+   */
+  it('🔴 les groupes sont rangés Mobile, Fixe, E-mail — et jamais entrelacés', () => {
+    const lignes = lignesParType([
+      c('email', 'Email 1', 'mail'), c('telephone', 'Fixe', 'fixe'), c('telephone', 'Mobile', 'mob1'),
+      c('telephone', 'Mobile 2', 'mob2'),
+    ]);
+    expect(lignes.map((l) => [l.titre, l.contact.valeur]))
+      .toEqual([['Mobile', 'mob1'], [null, 'mob2'], ['Fixe', 'fixe'], ['E-mail', 'mail']]);
+  });
+
+  /**
+   * ⚠️ L'ORDRE INTERNE D'UN GROUPE EST CONSERVÉ : c'est celui du rang, réglé à la main dans le mode Modifier
+   * (lot FICHES-ANNUAIRE). On range les groupes, jamais les numéros d'un même groupe.
+   */
+  it('🔴 l’ordre voulu à la main est conservé DANS un groupe', () => {
+    const lignes = lignesParType([
+      c('telephone', 'Mobile', 'second'), c('telephone', 'Mobile', 'premier'),
+    ]);
+    expect(lignes.map((l) => l.contact.valeur)).toEqual(['second', 'premier']);
+  });
+
+  /** 🔴 UN LIBELLÉ HORS NOMENCLATURE FAIT SON PROPRE GROUPE, sous son intitulé d'origine. */
+  it('🔴 un libellé hors nomenclature garde son mot, et passe après les trois types', () => {
+    const lignes = lignesParType([
+      c('telephone', 'Standard usine', 'x'), c('telephone', 'Mobile', 'y'), c('telephone', 'Standard usine', 'z'),
+    ]);
+    expect(lignes.map((l) => [l.titre, l.contact.valeur]))
+      .toEqual([['Mobile', 'y'], ['Standard usine', 'x'], [null, 'z']]);
+  });
+
+  it('sans libellé, la sorte tranche — et les deux groupes restent distincts', () => {
+    const lignes = lignesParType([c('email', null, 'a'), c('telephone', null, 'b')]);
+    expect(lignes.map((l) => l.titre)).toEqual(['Mobile', 'E-mail']);
+  });
+
+  it('une liste vide ne rend rien', () => {
+    expect(lignesParType([])).toEqual([]);
+  });
+});
+
+describe('🔴 les tuiles de contact : titre | valeur | Copier', () => {
+  /**
+   * ══ 🔴🔴 OÙ VIVAIT LE MOTIF, ET OÙ IL A ÉTÉ CORRIGÉ ════════════════════════════════════════════════════════
+   *
+   * Constat d'Arno : « les petites capsules grises “Mobile” / “E-mail” sont en doublon avec le titre de la
+   * ligne ; les deux boutons “Copier” doivent être justifiés à droite ; même chose sur toutes les tuiles de
+   * contact concernées. » Cherchées une par une, elles étaient QUATRE :
+   *   · `CartesPersonnes` — les cartes de propriétaires et d'occupants (fiches propriétaire, bien, locataire) ;
+   *   · `Annuaire` (BlocOccupant) — l'historique des locataires, sur la fiche du bien ;
+   *   · `PropositionsDeBiens` — le bloc des parties, dans la modale de classement ;
+   *   · `RattachementsDuFil` — le bandeau « Rattaché à » de la modale Visualiser / Modifier.
+   * Les quatre passent désormais par `lignesParType`, et les quatre collent leur « Copier » à droite.
+   */
+  it('🔴 les quatre tuiles regroupent par type', () => {
+    for (const f of [
+      'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx',
+      'app/(admin)/admin/(protected)/gestion/Annuaire.tsx',
+      'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
+      'app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx',
+    ]) {
+      expect(readFileSync(f, 'utf8'), f).toContain('lignesParType');
+    }
+  });
+
+  /** 🔴 « COPIER » COLLÉ AU BORD DROIT, et la valeur tronquée plutôt que repliée — dans les quatre. */
+  it('🔴 « Copier » est collé à droite, et la valeur est tronquée, jamais repliée', () => {
+    const props = readFileSync('app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx', 'utf8');
+    expect(props).toContain('.pdb-contact>.bcp{flex:0 0 auto;margin-left:auto}');
+    expect(props).toContain('white-space:nowrap;overflow:hidden;text-overflow:ellipsis');
+    // 🔴 PLUS DE `flex-wrap` : c'est lui qui faisait passer « Copier » à la ligne sous une adresse longue.
+    expect(props).toContain('.pdb-contact{display:flex;flex-wrap:nowrap');
+
+    const rdf = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
+    expect(rdf).toContain('.rdf-contact>.bcp{flex:0 0 auto;margin-left:auto}');
+    expect(rdf).toContain('.rdf-contact{display:flex;flex-wrap:nowrap');
+    expect(rdf).toContain('white-space:nowrap;overflow:hidden;text-overflow:ellipsis');
+  });
+
+  /** ⚠️ LA CELLULE DE TITRE EXISTE MÊME VIDE : sans elle, la valeur remonterait d'une colonne. */
+  it('🔴 la cellule de titre est rendue même quand le groupe est déjà titré', () => {
+    for (const f of [
+      'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
+      'app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx',
+    ]) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).toContain('aria-hidden="true" />');
+    }
+  });
+
+  /** 🔴 L'INFOBULLE PORTE LE TEXTE ENTIER, et la copie part de la valeur — jamais de ce que l'écran a coupé. */
+  it('🔴 une adresse tronquée garde son texte entier en infobulle, et sa copie intacte', () => {
+    const rdf = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
+    expect(rdf).toContain("title={c.sorte === 'email' ? c.valeur : c.affichage}");
+    expect(rdf).toContain('<BoutonCopier valeur={c.affichage}');
+    const props = readFileSync('app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx', 'utf8');
+    expect(props).toContain("title={c.sorte === 'email' ? c.valeur : c.affichage}");
   });
 });

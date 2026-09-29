@@ -631,9 +631,12 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     expect(items[0].textContent).toContain('Classé');
     // 🔴 LA SURFACE ABSENTE EST DITE, jamais devinée d'après le type.
     expect(items[0].textContent).toContain('surface non renseignée');
-    // 🔴 LES PERSONNES, AVEC LE LIBELLÉ DE LA COLONNE D'ORIGINE et un bouton Copier par coordonnée.
+    /* 🔴 LES PERSONNES, AVEC LE TYPE DE CHAQUE COORDONNÉE et un bouton Copier par coordonnée.
+       ⚠️ RÉÉCRIT LE 30/09/2026 (lot CONTACT-LIGNES) : l'attente portait le libellé D'ORIGINE (« Mobile 1 »).
+       Arno a tranché — le titre porte le TYPE, « MOBILE », et ne s'écrit qu'une fois par groupe. Ce que la
+       règle protégeait n'a pas bougé : la coordonnée n'est jamais rendue sans qu'on sache ce qu'elle est. */
     expect(items[0].textContent).toContain('BENTZ Marc');
-    expect(items[0].textContent).toContain('Mobile 1');
+    expect(items[0].textContent).toContain('Mobile');
     expect(items[0].textContent).toContain('06 11 22 33 44');
     expect(items[0].querySelectorAll('.rdf-contact')).toHaveLength(2);
     // 🔴 L'EXPÉDITEUR est dit par un MOT, jamais par la seule couleur.

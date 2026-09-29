@@ -461,27 +461,49 @@ describe('🔴 A3 — chaque coordonnée porte un NOM et un LIBELLÉ', () => {
     })],
   });
 
-  it('🔴 CHAQUE coordonnée est sous un nom ET porte le libellé de sa colonne — plus rien en vrac', async () => {
+  /**
+   * ══ 🔴 RÈGLE RÉÉCRITE LE 30/09/2026 (lot CONTACT-LIGNES) ═══════════════════════════════════════════════════
+   *
+   * ELLE ATTENDAIT LE LIBELLÉ D'ORIGINE sur chaque ligne (« Mobile 1 », « Mobile 2 », « Email 2 »). Arno a
+   * tranché : le titre porte le TYPE — MOBILE, FIXE, E-MAIL — et ne s'écrit QU'UNE FOIS par groupe.
+   *
+   * CE QUE LA RÈGLE PROTÉGEAIT — « plus rien en vrac » : chaque coordonnée est sous un nom, et sa nature est
+   * dite — est intact, et c'est ce qu'on éprouve ici. Ce qui change, c'est QUEL mot la dit : « Mobile » plutôt
+   * que « Mobile 1 ». Le numéro de colonne ne parlait qu'à celui qui avait lu l'export.
+   */
+  it('🔴 CHAQUE coordonnée est sous un nom, et son TYPE est dit une fois par groupe', async () => {
     contexte = marsAvenir();
     await monter();
     const carte = container.querySelector('.pdb-proprios .pdb-carte');
     expect(carte?.textContent).toContain('MARS AVENIR');
-    expect(carte?.textContent).toContain('Mobile 1');
     expect(carte?.textContent).toContain('06 69 14 28 07');
-    expect(carte?.textContent).toContain('Mobile 2');
-    expect(carte?.textContent).toContain('Email 2');
+    expect(carte?.textContent).toContain('07 60 20 10 10');
     expect(carte?.textContent).toContain('c.jullien@sansvisavis.com');
+    // Le TYPE, écrit une seule fois par groupe : un « Mobile », un « E-mail », et pas un de plus.
+    const titres = [...(carte?.querySelectorAll('.pdb-etiquette') ?? [])]
+      .map((e) => e.textContent ?? '').filter((t) => t.trim() !== '');
+    expect(titres).toEqual(['Mobile', 'E-mail']);
   });
 
-  it('🔴 AUCUNE coordonnée n’est rendue sans étiquette — c’est le défaut signalé', async () => {
+  /**
+   * ══ 🔴 RÈGLE RÉÉCRITE (lot CONTACT-LIGNES) ═════════════════════════════════════════════════════════════════
+   * Elle exigeait une étiquette NON VIDE sur CHAQUE ligne — c'était le bon garde tant que chaque ligne portait
+   * la sienne. Maintenant que le titre ne s'écrit qu'une fois par groupe, les lignes SUIVANTES ont une cellule
+   * de titre vide, exprès : c'est cela, « le titre n'apparaît qu'une fois, en face du premier ».
+   *
+   * CE QUE LA RÈGLE PROTÉGEAIT — aucune coordonnée rendue SANS qu'on sache ce qu'elle est — se vérifie
+   * désormais au GROUPE : le premier de chaque groupe porte son titre, et aucun groupe n'est anonyme.
+   */
+  it('🔴 aucune coordonnée n’est rendue sans que son groupe soit titré', async () => {
     contexte = marsAvenir();
     await monter();
-    const contacts = [...container.querySelectorAll('.pdb-contact')];
-    expect(contacts.length).toBeGreaterThan(0);
-    for (const c of contacts) {
-      const etiquette = c.querySelector('.pdb-etiquette')?.textContent ?? '';
-      expect(etiquette.trim(), c.textContent ?? '').not.toBe('');
-    }
+    const contacts = [...container.querySelectorAll('.pdb-proprios .pdb-contact')];
+    expect(contacts.length).toBe(4);
+    // La 1re et la 3e portent le titre de leur groupe ; la 2e et la 4e sont des suites, et leur case est vide.
+    const titres = contacts.map((c) => (c.querySelector('.pdb-etiquette')?.textContent ?? '').trim());
+    expect(titres).toEqual(['Mobile', '', 'E-mail', '']);
+    // 🔴 LA CELLULE EXISTE TOUJOURS, même vide : sans elle, la valeur remonterait d'une colonne.
+    for (const c of contacts) expect(c.querySelector('.pdb-etiquette')).not.toBeNull();
   });
 
   it('🔴 chaque contact est dans une CARTE qui porte un nom : aucune coordonnée orpheline', async () => {
@@ -500,12 +522,13 @@ describe('🔴 A3 — chaque coordonnée porte un NOM et un LIBELLÉ', () => {
     expect(container.querySelector('.pdb-proprios .pdb-qualite')?.textContent).toBe('Société');
   });
 
-  it('le bouton Copier nomme la coordonnée QU’IL copie, libellé compris', async () => {
+  /** ⚠️ MÊME RÉÉCRITURE, MÊME MOTIF : le bouton nomme le TYPE de ce qu'il copie, et non le numéro de colonne. */
+  it('le bouton Copier nomme la coordonnée QU’IL copie, type compris', async () => {
     contexte = marsAvenir();
     await monter();
     const libelles = boutons().map((b) => b.getAttribute('aria-label') ?? '');
-    expect(libelles).toContain('Copier Mobile 1 de MARS AVENIR');
-    expect(libelles).toContain('Copier Email 2 de MARS AVENIR');
+    expect(libelles).toContain('Copier Mobile de MARS AVENIR');
+    expect(libelles).toContain('Copier E-mail de MARS AVENIR');
   });
 
   it('le locataire suit la même règle, dans sa colonne', async () => {
@@ -513,11 +536,17 @@ describe('🔴 A3 — chaque coordonnée porte un NOM et un LIBELLÉ', () => {
     await monter();
     const droite = container.querySelector('.pdb-col--loc');
     expect(droite?.textContent).toContain('SARL MACJ');
-    expect(droite?.textContent).toContain('Mobile 1');
+    // Le TYPE, pas le numéro de colonne — la même règle que pour le propriétaire.
+    expect(droite?.textContent).toContain('Mobile');
     expect(droite?.textContent).toContain('07 60 20 10 10');
   });
 
-  it('🔴 sans la migration 267, le libellé reste écrit : générique, mais jamais vide', async () => {
+  /**
+   * ⚠️ RÉÉCRITE (lot CONTACT-LIGNES) : sans la migration 267, `libelleContact` rend « E-mail » et « E-mail 2 ».
+   * Les deux se rangent dans le MÊME type, et le titre ne s'écrit donc qu'une fois. Ce que la règle protégeait —
+   * un libellé jamais vide, même sans la colonne d'origine — tient toujours : le groupe est titré.
+   */
+  it('🔴 sans la migration 267, le TYPE reste écrit : générique, mais jamais vide', async () => {
     // C'est ce que rend `libelleContact` côté serveur quand la colonne d'origine est inconnue.
     contexte = CONTEXTE({
       biens: [bien('1', {
@@ -527,6 +556,6 @@ describe('🔴 A3 — chaque coordonnée porte un NOM et un LIBELLÉ', () => {
     });
     await monter();
     const etiquettes = [...container.querySelectorAll('.pdb-etiquette')].map((e) => e.textContent);
-    expect(etiquettes).toEqual(['E-mail', 'E-mail 2']);
+    expect(etiquettes).toEqual(['E-mail', '']);
   });
 });

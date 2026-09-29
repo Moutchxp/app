@@ -186,3 +186,67 @@ export function typeDeLibelle(
   // Un libellé qu'aucun type ne couvre reste AFFICHÉ TEL QUEL — on ne le range pas de force dans une case fausse.
   return { type: null, mot: s };
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LES LIGNES D'UNE TUILE DE CONTACT
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Une coordonnée telle que les écrans la reçoivent, quel que soit le dépôt qui l'a produite. */
+export interface CoordonneeAffichable {
+  sorte: 'telephone' | 'email' | string;
+  libelle: string | null;
+}
+
+/** Une ligne de tuile : la coordonnée, et le TITRE — écrit une seule fois par groupe. */
+export interface LigneContact<T> {
+  contact: T;
+  /** « Mobile », « Fixe », « E-mail »… ou `null` quand la ligne est la SUITE d'un groupe déjà titré. */
+  titre: string | null;
+}
+
+/** L'ordre de lecture des groupes. Ce qui n'est dans aucun type passe après, dans son ordre d'arrivée. */
+const ORDRE_TYPES: readonly TypeCoordonnee[] = ['mobile', 'fixe', 'email'];
+
+/**
+ * ══ 🔴🔴 LOT CONTACT-LIGNES — LE TYPE PASSE DANS LE TITRE, ET NE S'ÉCRIT QU'UNE FOIS ═══════════════════════════════
+ *
+ * Constat d'Arno : « les petites capsules grises “Mobile” / “E-mail” sont en doublon avec le titre de la ligne ».
+ * Elles l'étaient : la ligne disait « TÉLÉPHONE » à gauche et « Mobile » en capsule à droite de la valeur — deux
+ * fois la même information, et deux fois l'occasion de se contredire.
+ *
+ * 🔴 LE TITRE DEVIENT LE TYPE : « MOBILE », « FIXE », « E-MAIL ». Il porte donc ce que la capsule disait, et la
+ * capsule disparaît. Rien n'est perdu — c'est la même information, écrite une fois, à l'endroit qui lui revient.
+ *
+ * 🔴 « Plusieurs numéros du même type : le titre n'apparaît qu'une fois, en face du premier. » D'où le
+ * REGROUPEMENT : les lignes d'un même type se suivent, et seule la première porte son titre. Sans le regroupement,
+ * une liste mobile / fixe / mobile écrirait « MOBILE » deux fois, ce qui se lirait comme deux blocs distincts.
+ *
+ * ⚠️ L'ORDRE INTERNE D'UN GROUPE EST CONSERVÉ : c'est celui du rang, réglé à la main dans le mode Modifier (lot
+ * FICHES-ANNUAIRE). On range les groupes, jamais les numéros d'un même groupe.
+ *
+ * ⚠️ UN LIBELLÉ HORS NOMENCLATURE FAIT SON PROPRE GROUPE, sous son intitulé d'origine : on ne le range pas de
+ * force dans une case fausse, et deux libellés différents ne se fondent pas l'un dans l'autre. PUR.
+ */
+export function lignesParType<T extends CoordonneeAffichable>(contacts: readonly T[]): LigneContact<T>[] {
+  /** Groupes dans leur ordre d'apparition, indexés par le MOT du titre — c'est lui qui distingue les groupes. */
+  const groupes = new Map<string, T[]>();
+  for (const c of contacts) {
+    const { mot } = typeDeLibelle(c.libelle, c.sorte === 'email' ? 'email' : 'telephone');
+    groupes.set(mot, [...(groupes.get(mot) ?? []), c]);
+  }
+
+  const rang = (mot: string): number => {
+    const i = ORDRE_TYPES.findIndex((t) => motType(t) === mot);
+    // Un mot hors nomenclature passe après les trois types, dans son ordre d'arrivée.
+    return i === -1 ? ORDRE_TYPES.length : i;
+  };
+  const mots = [...groupes.keys()].sort((a, b) => rang(a) - rang(b));
+
+  const lignes: LigneContact<T>[] = [];
+  for (const mot of mots) {
+    for (const [i, contact] of (groupes.get(mot) ?? []).entries()) {
+      lignes.push({ contact, titre: i === 0 ? mot : null });
+    }
+  }
+  return lignes;
+}

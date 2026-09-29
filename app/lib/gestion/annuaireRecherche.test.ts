@@ -336,12 +336,25 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
   });
 
   /** 🔴 CHAQUE OCCUPANT, EN PLACE OU PARTI, PORTE SES COORDONNÉES COMPLÈTES — c'est la demande, mot pour mot. */
-  it('🔴 un occupant affiche ses dates, son adresse, ses téléphones et ses e-mails', () => {
+  /**
+   * ══ 🔴 RÈGLE RÉÉCRITE LE 30/09/2026 (lot CONTACT-LIGNES) ═══════════════════════════════════════════════════
+   *
+   * ELLE CHERCHAIT LES MOTS DE L'ANCIENNE STRUCTURE : « Adresse postale », « Téléphone », « E-mail » et la
+   * classe `ann-libelle` — un `<dl>` avec une capsule de type collée à chaque valeur. Arno : la capsule doublait
+   * le titre, et les « Copier » n'étaient pas alignés. Ce bloc réutilise désormais la GRILLE DES CARTES
+   * (`cp-lignes`, `Ligne`), comme partout ailleurs dans l'écran.
+   *
+   * CE QUE LA RÈGLE PROTÉGEAIT N'A PAS BOUGÉ D'UN POUCE : un occupant montre ses DATES, son ADRESSE et ses
+   * COORDONNÉES, chacune avec son bouton Copier. C'est exactement ce qu'on éprouve — au nouvel endroit.
+   */
+  it('🔴 un occupant affiche ses dates, son adresse, ses coordonnées et leurs boutons Copier', () => {
     const bloc = src.slice(src.indexOf('function BlocOccupant'), src.indexOf('function VueLot'));
-    for (const mot of ['Adresse postale', 'Téléphone', 'E-mail', 'ann-libelle', '<BoutonCopier']) {
+    for (const mot of ['Adresse', 'cp-lignes', '<LigneFiche', 'lignesParType', '<BoutonCopier']) {
       expect(bloc).toContain(mot);
     }
     expect(bloc).toContain('periodeOccupation');
+    // 🔴 PLUS DE CAPSULE DE TYPE : le titre de la ligne la porte, et une seule fois par groupe.
+    expect(bloc).not.toContain('ann-libelle');
   });
   it('mobile d’abord : cibles ≥ 44 px, et AUCUNE interaction au seul survol', () => {
     expect(src).toContain('min-height:44px');

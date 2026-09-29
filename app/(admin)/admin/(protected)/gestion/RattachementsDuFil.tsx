@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+// LOT CONTACT-LIGNES — le type passe dans le titre, et ne s'ecrit qu'une fois par groupe.
+import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 import { ModifierRattachement, motSorteLong, CSS_MODIFIER_RATTACHEMENT } from './ModifierRattachement';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import { MenuRattachementBien } from './MenuRattachementBien';
@@ -296,9 +298,10 @@ function CartePersonne({ personne }: { personne: PersonneRattachement }) {
   const qualite = qualitePersonne(personne.civilite);
   const periode = motPeriode(personne);
   const fiche = adresseFicheAnnuaire(personne);
+  /** ⚠️ LA SORTE EST RENDUE EXPLICITE : `CoordonneeFiche` ne la porte pas, elle vivait dans le NOM du tableau. */
   const contacts = [
-    ...personne.telephones.map((c) => ({ ...c, quoi: 'le numéro' })),
-    ...personne.emails.map((c) => ({ ...c, quoi: 'l’adresse e-mail' })),
+    ...personne.telephones.map((c) => ({ ...c, sorte: 'telephone' as const, quoi: 'le numéro' })),
+    ...personne.emails.map((c) => ({ ...c, sorte: 'email' as const, quoi: 'l’adresse e-mail' })),
   ];
 
   return (
@@ -322,15 +325,25 @@ function CartePersonne({ personne }: { personne: PersonneRattachement }) {
         ? <p className="rdf-detail rdf-absent">Aucune coordonnée dans l’annuaire.</p>
         : (
           <ul className="rdf-contacts">
-            {contacts.map((c) => (
-              <li key={`${c.libelle}|${c.valeur}`} className="rdf-contact">
-                {/* 🔴 LE LIBELLÉ DE LA COLONNE D'ORIGINE (« Mobile 1 », « Email 2 ») : l'export ne permet PAS de
-                    dire à qui appartient chaque valeur quand une personne en porte plusieurs. On écrit donc d'où
-                    elle sort, au lieu d'inventer une attribution. */}
-                <span className="rdf-contact-libelle">{c.libelle}</span>
+            {/* ══ 🔴🔴 LOT CONTACT-LIGNES — TITRE | VALEUR | COPIER ══════════════════════════════════════════
+                Le titre portait le libellé D'ORIGINE (« Mobile 1 », « Email 2 ») ; il porte désormais le TYPE —
+                MOBILE, FIXE, E-MAIL —, écrit une seule fois par groupe, et « Copier » est collé au bord droit,
+                aligné d'une ligne à l'autre.
+
+                ⚠️ CE QUE LE LIBELLÉ D'ORIGINE PROTÉGEAIT RESTE VRAI : « l'export ne permet PAS de dire à qui
+                appartient chaque valeur quand une personne en porte plusieurs ». On n'invente toujours aucune
+                attribution — on dit le TYPE, ce qui est vrai, au lieu du numéro de colonne, qui ne parlait
+                qu'à celui qui avait lu l'export. */}
+            {lignesParType(contacts).map(({ contact: c, titre }) => (
+              <li key={`${c.sorte}|${c.valeur}`} className="rdf-contact">
+                {titre === null
+                  ? <span className="rdf-contact-libelle" aria-hidden="true" />
+                  : <span className="rdf-contact-libelle">{titre}</span>}
                 {/* 🔴 LOT FICHES-RETOUCHES — le numéro se lit groupé par deux ; `valeur` reste la forme
                     canonique, pour les comparaisons et le lien `tel:`. */}
-                <span className="rdf-contact-valeur">{c.affichage}</span>
+                <span className="rdf-contact-valeur" title={c.sorte === 'email' ? c.valeur : c.affichage}>
+                  {c.affichage}
+                </span>
                 <BoutonCopier valeur={c.affichage} quoi={`${c.quoi} de ${personne.nom}`} />
               </li>
             ))}
@@ -373,10 +386,17 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-expediteur{padding:.05rem .4rem;border-radius:999px;font-size:.68rem;font-weight:700;letter-spacing:.03em;
   text-transform:uppercase;color:var(--color-svv-red);border:1px solid var(--color-svv-red);white-space:nowrap}
 .rdf-contacts{display:flex;flex-direction:column;gap:2px;margin:2px 0 0;padding:0;list-style:none}
-.rdf-contact{display:flex;flex-wrap:wrap;align-items:center;gap:.1rem .5rem;min-height:32px;min-width:0}
-.rdf-contact-libelle{min-width:5.5rem;font-size:.7rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;
-  color:var(--color-svv-muted)}
-.rdf-contact-valeur{font-size:.85rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* ══ 🔴 LOT CONTACT-LIGNES — titre | valeur | Copier, et « Copier » colle au bord DROIT ═══════════════════
+   Plus de flex-wrap : une adresse longue ne doit jamais pousser « Copier » a la ligne suivante. Elle est
+   TRONQUEE avec « … », son texte entier en infobulle, et la copie, elle, reste intacte. */
+.rdf-contact{display:flex;flex-wrap:nowrap;align-items:center;gap:.5rem;min-height:32px;min-width:0}
+.rdf-contact-libelle{flex:0 0 4.6rem;min-width:0;font-size:.7rem;font-weight:700;letter-spacing:.02em;
+  text-transform:uppercase;color:var(--color-svv-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rdf-contact-valeur{flex:1 1 auto;min-width:0;font-size:.85rem;color:var(--color-svv-ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Le bouton ne retrecit jamais : c'est la valeur qui cede la place, pas lui. */
+.rdf-contact>.bcp{flex:0 0 auto;margin-left:auto}
 /* ══ LE VIDE, DIT ══════════════════════════════════════════════════════════════════════════════════════════ */
 .rdf-vide{display:flex;flex-direction:column;gap:2px;margin-bottom:10px;padding:10px;
   border-left:3px solid var(--color-svv-red);border-radius:0 .5rem .5rem 0;background:var(--color-svv-field)}
@@ -390,6 +410,8 @@ export const CSS_RATTACHEMENTS_FIL = `
   border-left:2px solid var(--color-svv-line)}
 .rdf-sous-item{display:flex;flex-direction:column;gap:2px;min-width:0}
 @media (max-width:520px){
-  .rdf-contact-libelle{min-width:0;flex-basis:100%}
+  /* ⚠️ MEME A 390 px, LA LIGNE NE SE REPLIE PAS : « Copier » doit rester sur la ligne de sa valeur. On retrecit
+     le titre, la valeur tronque — c'est exactement ce que la troncature est la pour faire. */
+  .rdf-contact-libelle{flex-basis:3.6rem}
 }
 `;

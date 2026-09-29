@@ -412,28 +412,76 @@ describe('🔴 l’écran : des cartes côte à côte, alignées, et modifiables
    * 🔴 D'OÙ UNE GRILLE, ET NON UN `<dl>` : les `<dt>` et `<dd>` vivent dans deux flux séparés, et leurs hauteurs
    * ne peuvent pas se répondre. C'est ce qui produisait les décalages.
    */
-  it('🔴 chaque ligne est une GRILLE de deux colonnes, centrée verticalement', () => {
-    expect(src).toContain('.cp-ligne{display:grid');
+  /**
+   * ══ 🔴 RÈGLE RÉÉCRITE LE 30/09/2026 (lot CONTACT-LIGNES) ═══════════════════════════════════════════════════
+   *
+   * ELLE CHERCHAIT `.cp-ligne{display:grid` — UNE grille PAR LIGNE. C'était le défaut suivant : deux grilles
+   * voisines ne partagent pas leurs colonnes, et le bouton « Copier » se posait là où SA ligne le laissait.
+   * Arno : « tous les “Copier” sont alignés verticalement entre eux ». Le bloc entier est donc devenu UNE grille
+   * de trois colonnes, dont les cellules sont les enfants directs.
+   *
+   * CE QUE LA RÈGLE PROTÉGEAIT N'A PAS BOUGÉ, et c'est toujours ce qu'on éprouve : le libellé est centré sur sa
+   * valeur, et aucun `<dl>` n'est de retour — ses deux flux séparés étaient la cause première des « écarts ».
+   */
+  it('🔴 le bloc est UNE grille de trois colonnes, centrée verticalement', () => {
+    expect(src).toContain('.cp-lignes{display:grid;grid-template-columns:5.6rem minmax(0,1fr) auto');
     expect(src).toContain('align-items:center');
     // Le libellé est centré sur sa valeur, pas aligné en haut.
     expect(src).toContain('.cp-lab{');
     expect(src).toContain('align-self:center');
-    // 🔴 AUCUN `<dl>` RENDU DANS LA CARTE : c'est la structure qui produisait les écarts. (Le mot apparaît dans
-    //    le commentaire qui l'explique — on cherche donc la BALISE ouvrante suivie d'un attribut ou d'un chevron.)
     // (Les noms de balises apparaissent dans le commentaire qui explique le choix : on cherche donc ce qu'un
     //  rendu JSX produirait vraiment — une balise ouvrante avec sa classe, et une fermante.)
     expect(src).not.toContain('<dl className');
     expect(src).not.toContain('</dl>');
   });
 
-  it('🔴 l’espacement vertical est UNIQUE — plus de trou entre TÉLÉPHONE et E-MAIL', () => {
+  it('🔴 l’espacement vertical est UNIQUE — plus de trou entre MOBILE et E-MAIL', () => {
     // Un seul `row-gap`, posé sur le conteneur : deux espacements différents rouvriraient le défaut.
-    expect(src).toContain('.cp-lignes{display:flex;flex-direction:column;row-gap:');
+    expect(src).toContain('row-gap:.3rem;column-gap:.5rem}');
   });
 
-  it('🔴 plusieurs numéros : une ligne chacun, le libellé n’apparaît qu’une fois', () => {
-    expect(src).toContain('libelle={i === 0 ?');
+  /**
+   * ══ 🔴 RÈGLE RÉÉCRITE (lot CONTACT-LIGNES) ═════════════════════════════════════════════════════════════════
+   * Elle lisait `libelle={i === 0 ?` — le titre écrit une fois par SORTE, décidé dans le composant. Le
+   * regroupement se fait maintenant par TYPE (Mobile / Fixe / E-mail) dans une fonction PURE éprouvée à part, et
+   * le composant ne fait que rendre ce qu'elle décide. La règle — « le titre n'apparaît qu'une fois, en face du
+   * premier » — est la même, et c'est elle qu'on vérifie.
+   */
+  it('🔴 plusieurs numéros du même type : une ligne chacun, le titre une seule fois', () => {
+    expect(src).toContain('lignesParType(contacts).map(({ contact: c, titre })');
+    expect(src).toContain('libelle={titre}');
     expect(src).toContain('cp-lab--vide');
+  });
+
+  /**
+   * ══ 🔴🔴 LOT CONTACT-LIGNES — LA CAPSULE DE TYPE A DISPARU ═════════════════════════════════════════════════
+   * Constat d'Arno : « les petites capsules grises “Mobile” / “E-mail” sont en doublon avec le titre de la
+   * ligne ». Le titre porte désormais le type ; la capsule n'a plus de raison d'être.
+   *
+   * ⚠️ « RETIRÉ DE L'EXPORT » RESTE, et ce n'est pas un oubli : ce n'est pas un doublon du titre mais un ÉTAT de
+   * la coordonnée, et le taire ferait appeler un numéro que WIPPIMMO ne donne plus.
+   *
+   * ⚠️ L'ÉCRAN « SÉPARER » GARDE SA CAPSULE, ET CE N'EST PAS UN OUBLI NON PLUS. Ses lignes n'ont pas de titre :
+   * chaque coordonnée y est un choix indépendant (« la première / la seconde / les deux »), et un titre écrit une
+   * fois par groupe cacherait le type des suivantes. La capsule n'y double donc rien — elle est le SEUL endroit
+   * où le type s'écrit. L'y retirer aurait perdu une information, pas un doublon.
+   */
+  it('🔴 plus aucune capsule de TYPE dans la tuile de contact', () => {
+    const tuile = src.slice(src.indexOf('function Coordonnees'), src.indexOf('// ══ ③ UNE CARTE'));
+    expect(tuile).not.toContain('cp-caps">{typeDeLibelle(');
+    // L'état « retiré de l'export », lui, reste : ce n'est pas un type.
+    expect(tuile).toContain('cp-caps--absent');
+    // Et l'écran « Séparer » garde la sienne, faute de titre où la loger.
+    expect(src.slice(src.indexOf('function EcranSeparer'))).toContain('cp-caps">{typeDeLibelle(');
+  });
+
+  /** 🔴 « COPIER » EST COLLÉ AU BORD DROIT, et la valeur tronquée plutôt que repliée. */
+  it('🔴 la troisième colonne porte « Copier », collée à droite ; la valeur est tronquée', () => {
+    expect(src).toContain('.cp-apres{justify-content:flex-end}');
+    expect(src).toContain('.cp-val--tronque{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis');
+    // L'infobulle porte le texte ENTIER, et la copie part de la valeur, jamais de ce que l'écran a coupé.
+    expect(src).toContain("infobulle={c.sorte === 'email' ? c.valeur : c.affichage}");
+    expect(src).toContain("valeur={c.sorte === 'telephone' ? c.affichage : c.valeur}");
   });
 
   /** 🔴 CAPSULE ET « COPIER » À LA MÊME HAUTEUR QUE LA VALEUR, compacts et collés : la demande, mot pour mot. */

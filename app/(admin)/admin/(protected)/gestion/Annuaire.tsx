@@ -18,7 +18,7 @@ import {
 } from './CartesPersonnes';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 // LOT FICHES-RETOUCHES — la nomenclature des coordonnées, partagée par tous les écrans de l'annuaire.
-import { typeDeLibelle } from '../../../../lib/gestion/telephoneAffichage';
+import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
@@ -857,8 +857,6 @@ function BoutonDepart({ nom, occupationId, modifiable, onDepart }: {
 function BlocOccupant({ o, ouvrir, onEcrire }: {
   o: OccupationDuLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onEcrire?: (email: string) => void;
 }) {
-  const tels = o.contacts.filter((c) => c.sorte === 'telephone');
-  const mails = o.contacts.filter((c) => c.sorte === 'email');
   const adresse = titreLogement(o.adresse, [o.codePostal, o.commune].filter((x) => x).join(' '));
   return (
     <article className={`ann-personne${o.encours ? '' : ' ann-personne--passe'}`}>
@@ -871,47 +869,44 @@ function BlocOccupant({ o, ouvrir, onEcrire }: {
           <span className="ann-role-capsule">{o.encours ? 'En place' : 'Parti'}</span>
         </span>
       </div>
-      <dl className="ann-champs">
-        <dt>{o.encours ? 'Entré le' : 'Occupation'}</dt>
-        <dd>
+      {/* ══ 🔴🔴 LOT CONTACT-LIGNES — LA MÊME GRILLE QUE LES CARTES ════════════════════════════════════════════
+          Ce bloc rendait ses coordonnées dans un `<dl>`, avec une capsule de type collée à chaque valeur et des
+          « Copier » posés là où la ligne les laissait. Deux défauts d'un coup, tous deux signalés par Arno : la
+          capsule doublait le titre, et les boutons n'étaient pas alignés.
+
+          🔴 IL RÉUTILISE MAINTENANT LA GRILLE DES CARTES (`cp-lignes`, `Ligne`), au lieu d'en tenir une seconde.
+          Ce sont les mêmes coordonnées, dans le même écran : deux mises en page pour un même objet, c'est deux
+          endroits à corriger, et une divergence garantie au premier ajustement. */}
+      <div className="cp-lignes">
+        <LigneFiche libelle={o.encours ? 'Entré le' : 'Occupation'}>
           {o.entree === null && o.sortie === null
             ? <span className="ann-inconnu">dates non renseignées</span>
             : periodeOccupation(o.entree, o.sortie)}
-        </dd>
-        <dt>Adresse postale</dt>
-        <dd>{adresse !== '' ? adresse : <span className="ann-inconnu">non renseignée</span>}</dd>
-        <dt>Téléphone{tels.length > 1 ? 's' : ''}</dt>
-        <dd>
-          {tels.length === 0 ? <span className="ann-inconnu">non renseigné</span> : (
-            <ul className="ann-coords">
-              {tels.map((c) => (
-                <li key={c.valeur} className="ann-coord">
-                  <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
-                  {/* 🔴 LOT FICHES-RETOUCHES — même nomenclature que les cartes : Mobile / Fixe / E-mail. */}
-                  <span className="ann-libelle">{typeDeLibelle(c.libelle, c.sorte).mot}</span>
-                  <BoutonCopier valeur={c.affichage} quoi="ce numéro" />
-                </li>
-              ))}
-            </ul>
-          )}
-        </dd>
-        <dt>E-mail{mails.length > 1 ? 's' : ''}</dt>
-        <dd>
-          {mails.length === 0 ? <span className="ann-inconnu">non renseigné</span> : (
-            <ul className="ann-coords">
-              {mails.map((c) => (
-                <li key={c.valeur} className="ann-coord">
-                  {onEcrire
-                    ? <button type="button" className="ann-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
-                    : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
-                  <span className="ann-libelle">{typeDeLibelle(c.libelle, c.sorte).mot}</span>
-                  <BoutonCopier valeur={c.valeur} quoi="cette adresse" />
-                </li>
-              ))}
-            </ul>
-          )}
-        </dd>
-      </dl>
+        </LigneFiche>
+        <LigneFiche libelle="Adresse">
+          {adresse !== '' ? adresse : <span className="ann-inconnu">non renseignée</span>}
+        </LigneFiche>
+        {o.contacts.length === 0 && (
+          <LigneFiche libelle="Coordonnées">
+            <span className="ann-inconnu">non renseignées</span>
+          </LigneFiche>
+        )}
+        {lignesParType(o.contacts).map(({ contact: c, titre }) => (
+          <LigneFiche key={c.id} libelle={titre} tronque={!c.absent}
+            infobulle={c.sorte === 'email' ? c.valeur : c.affichage}
+            apres={(
+              <BoutonCopier valeur={c.sorte === 'telephone' ? c.affichage : c.valeur}
+                quoi={c.sorte === 'telephone' ? 'ce numéro' : 'cette adresse'} />
+            )}>
+            {c.sorte === 'telephone'
+              ? <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
+              : onEcrire
+                ? <button type="button" className="ann-lien"
+                  onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
+                : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
+          </LigneFiche>
+        ))}
+      </div>
     </article>
   );
 }

@@ -8,7 +8,8 @@ import {
 } from '../../../../lib/gestion/annuaireEdition';
 // LOT FICHES-RETOUCHES — la nomenclature (Mobile / Fixe / E-mail) et le formatage des numeros.
 import {
-  TYPES_COORDONNEE, formaterSaisieTelephone, motType, sorteDuType, typeDeLibelle, type TypeCoordonnee,
+  TYPES_COORDONNEE, formaterSaisieTelephone, lignesParType, motType, sorteDuType, typeDeLibelle,
+  type TypeCoordonnee,
 } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
@@ -174,14 +175,41 @@ function Rangee({ children, nb }: { children: React.ReactNode; nb: number }) {
  * ⚠️ `aria-hidden` SUR LE LIBELLÉ VIDE, et un `<span>` plutôt que rien : la cellule doit exister pour que la grille
  * garde ses deux colonnes. Sans elle, la deuxième ligne d'un groupe glisserait sous le libellé.
  */
-export function Ligne({ libelle, children }: { libelle: string | null; children: React.ReactNode }) {
+export function Ligne({ libelle, children, apres, tronque, infobulle }: {
+  libelle: string | null;
+  children: React.ReactNode;
+  /**
+   * ══ 🔴🔴 LOT CONTACT-LIGNES — LA TROISIÈME COLONNE : LE BOUTON « COPIER » ═══════════════════════════════════
+   *
+   * Arno : « Chaque ligne suit la grille titre | valeur | Copier. Le bouton “Copier” est collé au bord DROIT de
+   * la tuile, et tous les “Copier” sont alignés verticalement entre eux. »
+   *
+   * 🔴 D'OÙ UNE SEULE GRILLE POUR TOUT LE BLOC, et non une grille par ligne. Deux grilles voisines ne partagent
+   * pas leurs colonnes : chaque « Copier » se serait posé là où SA ligne le laissait, et la colonne aurait
+   * dansé d'une ligne à l'autre. Les trois cellules d'une ligne sont donc des enfants DIRECTS de `.cp-lignes`
+   * (d'où le fragment ci-dessous, sans conteneur) : la troisième colonne est alors commune, et tous les boutons
+   * s'alignent d'eux-mêmes, au bord droit.
+   */
+  apres?: React.ReactNode;
+  /**
+   * 🔴 LA VALEUR NE REVIENT JAMAIS À LA LIGNE. Arno : « Une adresse e-mail trop longue est tronquée avec “…”,
+   * l'adresse complète en infobulle, et sa copie reste intacte. Jamais de retour à la ligne qui ferait passer
+   * “Copier” dessous. » Réservé aux coordonnées : une adresse postale ou une note, elles, doivent se replier.
+   */
+  tronque?: boolean;
+  /** Le texte complet, en infobulle, quand la valeur est tronquée. */
+  infobulle?: string;
+}) {
   return (
-    <div className="cp-ligne">
+    <>
       {libelle === null
         ? <span className="cp-lab cp-lab--vide" aria-hidden="true" />
         : <span className="cp-lab">{libelle}</span>}
-      <span className="cp-val">{children}</span>
-    </div>
+      <span className={`cp-val${tronque === true ? ' cp-val--tronque' : ''}`} title={infobulle}>{children}</span>
+      {/* ⚠️ LA CELLULE EXISTE TOUJOURS, même vide : sans elle, la ligne n'aurait que deux cases et la suivante
+          remonterait d'une colonne — la grille se décalerait à partir de la première ligne sans bouton. */}
+      <span className="cp-apres">{apres}</span>
+    </>
   );
 }
 
@@ -211,29 +239,50 @@ function Copier({ valeur, quoi }: { valeur: string; quoi: string }) {
   );
 }
 
-/** Les coordonnées d'une sorte, une par ligne, le libellé une seule fois. */
-function Coordonnees({ contacts, sorte, onEcrire }: {
-  contacts: readonly ContactAffiche[]; sorte: 'telephone' | 'email'; onEcrire?: (email: string) => void;
+/**
+ * ══ 🔴🔴 LOT CONTACT-LIGNES — LES COORDONNÉES, UNE PAR LIGNE, LE TYPE DANS LE TITRE ═══════════════════════════════
+ *
+ * Constat d'Arno : « les petites capsules grises “Mobile” / “E-mail” sont en doublon avec le titre de la ligne ».
+ * Elles l'étaient : la ligne disait « TÉLÉPHONE » à gauche, et « Mobile » en capsule juste après la valeur.
+ *
+ * 🔴 LA CAPSULE DISPARAÎT, LE TITRE PORTE LE TYPE : « MOBILE », « FIXE », « E-MAIL ». La même information, écrite
+ * une seule fois, à l'endroit qui lui revient. `lignesParType` (module PUR) regroupe et ne titre que la première
+ * ligne de chaque groupe — « le titre n'apparaît qu'une fois, en face du premier ».
+ *
+ * ⚠️ « RETIRÉ DE L'EXPORT » N'EST PAS UNE CAPSULE DE TYPE et reste à sa place : ce n'est pas un doublon du titre,
+ * c'est un ÉTAT de la coordonnée, et le taire ferait appeler un numéro que WIPPIMMO ne donne plus.
+ */
+function Coordonnees({ contacts, onEcrire }: {
+  contacts: readonly ContactAffiche[]; onEcrire?: (email: string) => void;
 }) {
-  const liste = contacts.filter((c) => c.sorte === sorte);
-  const mot = sorte === 'telephone' ? 'Téléphone' : 'E-mail';
-  if (liste.length === 0) return <Ligne libelle={mot}><Rien /></Ligne>;
+  if (contacts.length === 0) {
+    return (
+      <>
+        <Ligne libelle="Téléphone"><Rien /></Ligne>
+        <Ligne libelle="E-mail"><Rien /></Ligne>
+      </>
+    );
+  }
   return (
     <>
-      {liste.map((c, i) => (
-        <Ligne key={c.id} libelle={i === 0 ? (liste.length > 1 ? `${mot}s` : mot) : null}>
-          {sorte === 'telephone'
+      {lignesParType(contacts).map(({ contact: c, titre }) => (
+        <Ligne key={c.id} libelle={titre}
+          /* 🔴 TRONQUÉE, JAMAIS REPLIÉE : une adresse longue ne doit pas pousser « Copier » à la ligne suivante.
+             L'infobulle porte l'adresse ENTIÈRE, et la copie, elle, reste intacte — c'est `c.valeur` qui part au
+             presse-papiers, pas ce que l'écran a pu couper. */
+          /* ⚠️ UNE COORDONNÉE « RETIRÉE DE L'EXPORT » N'EST PAS TRONQUÉE : sa mention doit rester lisible, et
+             c'est le seul endroit où elle s'écrit. Elle est rare (une coordonnée disparue d'un ré-import). */
+          tronque={!c.absent} infobulle={c.sorte === 'email' ? c.valeur : c.affichage}
+          apres={(
+            <Copier valeur={c.sorte === 'telephone' ? c.affichage : c.valeur}
+              quoi={c.sorte === 'telephone' ? 'ce numéro' : 'cette adresse'} />
+          )}>
+          {c.sorte === 'telephone'
             /* `tel:` porte la forme canonique (+33…), qui compose partout ; le texte montre ce qui était écrit. */
             ? <a className="cp-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
             : onEcrire
               ? <button type="button" className="cp-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
               : <a className="cp-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
-          {/* 🔴 LOT FICHES-RETOUCHES — LA CAPSULE SUIT LA NOMENCLATURE : Mobile / Fixe / E-mail. Les libellés
-              importés (« Mobile 1 », « Email 2 ») s'y rangent À L'AFFICHAGE SEULEMENT ; rien n'est réécrit en
-              base. Un libellé qu'aucun type ne couvre reste montré tel quel — voir `typeDeLibelle`. */}
-          <span className="cp-caps">{typeDeLibelle(c.libelle, c.sorte).mot}</span>
-          <Copier valeur={sorte === 'telephone' ? c.affichage : c.valeur}
-            quoi={sorte === 'telephone' ? 'ce numéro' : 'cette adresse'} />
           {c.absent && <span className="cp-caps cp-caps--absent">retiré de l’export</span>}
         </Ligne>
       ))}
@@ -321,8 +370,7 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer }: {
       <div className="cp-lignes">
         <Ligne libelle="Qualité">{p.qualite ?? <Rien mot="non renseignée" />}</Ligne>
         <Ligne libelle="Adresse">{adresse !== '' ? adresse : <Rien mot="non renseignée" />}</Ligne>
-        <Coordonnees contacts={p.contacts} sorte="telephone" onEcrire={gestes.onEcrire} />
-        <Coordonnees contacts={p.contacts} sorte="email" onEcrire={gestes.onEcrire} />
+        <Coordonnees contacts={p.contacts} onEcrire={gestes.onEcrire} />
         {dessous}
         <Ligne libelle="Note">{p.note ?? <Rien mot="non renseignée" />}</Ligne>
       </div>
@@ -924,18 +972,34 @@ export const CSS_CARTES = `
 }
 .cp-icone--retirer{color:var(--color-svv-red)}
 
-/* ══ 🔴 L'ALIGNEMENT DES LIGNES — LA DEMANDE EXPRESSE D'ARNO ═══════════════════════════════════════════════════
-   UNE LIGNE = UNE GRILLE DE DEUX COLONNES, centree verticalement. Le libelle est donc mecaniquement au milieu de
-   sa valeur, meme quand celle-ci porte deux capsules et un bouton. Un dl (dt/dd) ne pouvait pas le faire : ses
-   deux colonnes vivent dans des flux separes, et leurs hauteurs ne se repondent pas.
-   L'ESPACEMENT EST LE MEME PARTOUT (row-gap unique sur le conteneur) : plus de trou entre TELEPHONE et E-MAIL. */
-.cp-lignes{display:flex;flex-direction:column;row-gap:.3rem}
-.cp-ligne{display:grid;grid-template-columns:5.6rem minmax(0,1fr);align-items:center;column-gap:.5rem;
-  min-height:1.65rem}
+/* ══ 🔴🔴 L'ALIGNEMENT DES LIGNES — LA DEMANDE EXPRESSE D'ARNO, TENUE PAR UNE SEULE GRILLE ═════════════════════
+   RECRIT LE 30/09/2026 (lot CONTACT-LIGNES). La version d'avant posait UNE GRILLE PAR LIGNE : chaque ligne
+   alignait bien son libelle sur sa valeur, mais deux grilles voisines ne partagent pas leurs colonnes — le bouton
+   « Copier » se posait donc la ou SA ligne le laissait, et la colonne dansait d'une ligne a l'autre.
+
+   🔴 LE BLOC ENTIER EST MAINTENANT UNE SEULE GRILLE DE TROIS COLONNES : titre | valeur | Copier. Les trois
+   cellules d'une ligne sont des enfants DIRECTS de ce conteneur (le composant Ligne rend un fragment, sans
+   conteneur intermediaire). La troisieme colonne est alors COMMUNE a toutes les lignes : tous les « Copier »
+   s'alignent d'eux-memes, colles au bord droit de la tuile, et la valeur prend tout le milieu.
+
+   L'ESPACEMENT RESTE LE MEME PARTOUT (un seul row-gap), et align-items:center garde le libelle au milieu de sa
+   valeur — ce que la version d'avant garantissait deja, et qui ne bouge pas d'un pixel. */
+.cp-lignes{display:grid;grid-template-columns:5.6rem minmax(0,1fr) auto;align-items:center;
+  row-gap:.3rem;column-gap:.5rem}
+.cp-lignes>*{min-height:1.65rem;display:flex;align-items:center}
 .cp-lab{font-size:.72rem;font-weight:600;letter-spacing:.01em;text-transform:uppercase;
   color:var(--color-svv-muted);align-self:center}
+/* La troisieme colonne est collee a DROITE : c'est elle qui porte « Copier ». Vide, elle ne prend pas de place. */
+.cp-apres{justify-content:flex-end}
 .cp-val{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;min-width:0;
   font-size:.85rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* ══ 🔴 UNE VALEUR QUI NE REVIENT JAMAIS A LA LIGNE ════════════════════════════════════════════════════════════
+   Arno : « Une adresse e-mail trop longue est tronquee avec “…”, l'adresse complete en infobulle, et sa copie
+   reste intacte. Jamais de retour a la ligne qui ferait passer “Copier” dessous. »
+   Le min-width:0 de la cellule est ce qui AUTORISE la coupure : sans lui, une grille refuse de reduire une case
+   sous la largeur de son contenu, et la colonne deborderait au lieu de tronquer. */
+.cp-val--tronque{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+.cp-val--tronque>a,.cp-val--tronque>button{display:inline;max-width:100%}
 .cp-rien{font-style:italic;color:var(--color-svv-muted);font-size:.82rem}
 .cp-lien{padding:0;border:0;background:none;font:inherit;color:var(--color-svv-red);text-decoration:underline;
   text-underline-offset:2px;cursor:pointer;text-align:left}

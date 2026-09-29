@@ -6,6 +6,8 @@ import {
   groupesParProprietaire, lienTelephone, locatairesDuBien, periodeOccupation, titreCarte, type PersonneFiche,
 } from '../../../../lib/gestion/ficheBien';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
+// LOT CONTACT-LIGNES — le type passe dans le titre, et ne s'ecrit qu'une fois par groupe.
+import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 import type { BienProposable, ContexteClassement } from '../../../../lib/gestion/classementBien';
 
 /**
@@ -282,6 +284,15 @@ export function CartePersonne({ personne }: { personne: PersonneFiche }) {
   const titre = titreCarte(personne);
   const emails = personne.emails ?? [];
   const telephones = personne.telephones ?? [];
+  /**
+   * 🔴 UNE SEULE LISTE, ET CHAQUE COORDONNÉE PORTE SA SORTE. `Coordonnee` (module `ficheBien`) ne la porte pas :
+   * elle vivait dans le NOM du tableau qui la contenait. On la rend explicite ici, le temps du regroupement —
+   * `lignesParType` en a besoin pour savoir si un libellé absent désigne un téléphone ou une adresse.
+   */
+  const contacts = [
+    ...telephones.map((c) => ({ ...c, sorte: 'telephone' as const })),
+    ...emails.map((c) => ({ ...c, sorte: 'email' as const })),
+  ];
   return (
     <li className="pdb-carte">
       <p className="pdb-personne">
@@ -292,30 +303,38 @@ export function CartePersonne({ personne }: { personne: PersonneFiche }) {
       </p>
       {periode !== null && <p className="pdb-periode">{periode}</p>}
 
-      {telephones.map((t) => {
-        const lien = lienTelephone(t.valeur);
+      {/* ══ 🔴🔴 LOT CONTACT-LIGNES — TITRE | VALEUR | COPIER, ET LE TITRE PORTE LE TYPE ═══════════════════════
+          L'étiquette disait le libellé D'ORIGINE (« Mobile 1 », « Email 2 »), et le « Copier » se posait là où
+          sa ligne le laissait. Arno : le titre porte désormais le TYPE — MOBILE, FIXE, E-MAIL —, il ne s'écrit
+          qu'une fois par groupe, et les « Copier » sont collés au bord droit, alignés entre eux.
+
+          ⚠️ CE QUE L'ÉTIQUETTE PROTÉGEAIT N'EST PAS PERDU. Elle existait parce que « l'export ne dit PAS à qui
+          est le numéro quand une personne en porte plusieurs » : on n'invente toujours aucune attribution — on
+          dit le TYPE de chaque coordonnée, ce qui est vrai, au lieu du numéro de colonne, qui ne parlait qu'à
+          celui qui avait lu l'export. */}
+      {lignesParType(contacts).map(({ contact: c, titre: mot }) => {
+        const lien = c.sorte === 'telephone' ? lienTelephone(c.valeur) : `mailto:${c.valeur}`;
         return (
-          <p className="pdb-contact" key={`tel-${t.valeur}`}>
-            {/* 🔴 LE LIBELLÉ DE LA COLONNE D'ORIGINE — « Mobile 1 », « Mobile 2 ». L'export ne dit PAS à qui est
-                le numéro (voir `ficheBien.ts`) : le libellé dit d'où il sort, et c'est tout ce qui est vrai. */}
-            <span className="pdb-etiquette">{t.libelle}</span>
+          <p className="pdb-contact" key={`${c.sorte}-${c.valeur}`}>
+            {mot === null
+              ? <span className="pdb-etiquette" aria-hidden="true" />
+              : <span className="pdb-etiquette">{mot}</span>}
             {/* 🔴 LOT FICHES-RETOUCHES — ON AFFICHE `affichage` (« 06 59 08 82 56 »), ON COPIE `affichage`, et le
                 lien `tel:` part de `valeur` : un lien ne porte jamais d'espaces, et ce qu'on copie doit être ce
                 qu'on lit — un numéro collé recollé dans un autre outil se relit aussi mal ici qu'ailleurs. */}
-            {lien === null ? <span className="pdb-valeur">{t.affichage}</span>
-              : <a className="pdb-valeur pdb-lien" href={lien}>{t.affichage}</a>}
-            <BoutonCopier valeur={t.affichage} quoi={`${t.libelle} de ${titre.nom}`} />
+            {lien === null
+              ? <span className="pdb-valeur" title={c.affichage}>{c.affichage}</span>
+              : (
+                <a className="pdb-valeur pdb-lien" href={lien}
+                  title={c.sorte === 'email' ? c.valeur : c.affichage}>
+                  {c.sorte === 'email' ? c.valeur : c.affichage}
+                </a>
+              )}
+            <BoutonCopier valeur={c.sorte === 'email' ? c.valeur : c.affichage}
+              quoi={`${mot ?? c.libelle} de ${titre.nom}`} />
           </p>
         );
       })}
-
-      {emails.map((e) => (
-        <p className="pdb-contact" key={`mail-${e.valeur}`}>
-          <span className="pdb-etiquette">{e.libelle}</span>
-          <a className="pdb-valeur pdb-lien" href={`mailto:${e.valeur}`}>{e.valeur}</a>
-          <BoutonCopier valeur={e.valeur} quoi={`${e.libelle} de ${titre.nom}`} />
-        </p>
-      ))}
 
       {/* Dire qu'on n'a AUCUN contact est une information : on sait alors qu'il faudra chercher ailleurs. */}
       {telephones.length === 0 && emails.length === 0 && (
@@ -341,12 +360,22 @@ export const CSS_PROPOSITIONS_BIENS = `
 /* LOT CONTACTS-ET-EVENEMENT — « Société » quand l'export le dit, jamais un prenom invente. */
 .pdb-qualite{margin-left:.4rem;padding:.05rem .35rem;border-radius:999px;font-size:.66rem;font-weight:700;
   color:var(--color-svv-muted);border:1px solid var(--color-svv-line-strong)}
-/* L'ETIQUETTE DE LA COLONNE D'ORIGINE : « Mobile 1 », « Email 2 ». Jamais vide. */
-.pdb-etiquette{flex:0 0 5.2rem;min-width:0;font-size:.7rem;font-weight:700;color:var(--color-svv-muted);
+/* ══ 🔴 LE TITRE DE LA LIGNE : le TYPE (MOBILE, FIXE, E-MAIL), ecrit une seule fois par groupe. ═══════════════
+   Largeur FIXE : c'est elle qui aligne les valeurs entre elles, et qui laisse la cellule vide des lignes
+   suivantes d'un meme groupe tenir sa place. */
+.pdb-etiquette{flex:0 0 4.6rem;min-width:0;font-size:.7rem;font-weight:700;letter-spacing:.02em;
+  text-transform:uppercase;color:var(--color-svv-muted);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pdb-periode{margin:.1rem 0 0;font-size:.76rem;color:var(--color-svv-muted)}
-.pdb-contact{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.25rem 0 0;font-size:.8rem;min-width:0}
-.pdb-valeur{flex:1 1 8rem;min-width:0;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* ══ 🔴 LA LIGNE : titre | valeur | Copier, et « Copier » colle au bord DROIT ═════════════════════════════════
+   Plus de flex-wrap : une adresse longue ne doit jamais pousser « Copier » a la ligne suivante. Elle est
+   TRONQUEE avec « … », son texte entier en infobulle, et la copie, elle, reste intacte. */
+.pdb-contact{display:flex;flex-wrap:nowrap;align-items:center;gap:.4rem;margin:.25rem 0 0;font-size:.8rem;
+  min-width:0}
+.pdb-valeur{flex:1 1 auto;min-width:0;color:var(--color-svv-ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Le bouton ne retrecit jamais : c'est la valeur qui cede la place, pas lui. Il est colle au bord DROIT. */
+.pdb-contact>.bcp{flex:0 0 auto;margin-left:auto}
 .pdb-lien{text-decoration:underline;text-underline-offset:2px}
 .pdb-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .pdb-vide{margin:.15rem 0 0;font-size:.78rem;font-style:italic;color:var(--color-svv-muted)}
