@@ -527,13 +527,42 @@ export async function supprimerDefinitivementGmail(
 export async function listerCorbeilleGmail(
   accessToken: string, deps: DepsGoogle, pagesMax = 20,
 ): Promise<Resultat<{ id: string }[]>> {
+  return listerParRequeteGmail(accessToken, 'in:trash', 'la corbeille', deps, pagesMax);
+}
+
+/**
+ * ══ 🔴 LOT ETOILE-ET-SIGNATURE — TOUT CE QUE GMAIL TIENT POUR ÉTOILÉ ═══════════════════════════════════════════
+ *
+ * Même forme, même garde-fou et mêmes raisons que la corbeille ci-dessus : les gestes d'étoile passent par l'API
+ * (`STARRED` posé ou retiré sur un message), donc l'état se relit par l'API. L'IMAP a bien un `\Flagged`, mais
+ * l'expérience de la corbeille a coûté assez cher pour qu'on ne recommence pas à lire un fait d'un côté et à
+ * l'écrire de l'autre.
+ *
+ * MESURÉ SUR LA VRAIE BOÎTE LE 29/09/2026 : 611 messages étoilés. Deux pages suffisent ; le plafond en autorise 20.
+ *
+ * 🔒 LECTURE SEULE. `messages.list` ne fait que lire, et aucune étoile n'est jamais posée ni retirée ici.
+ */
+export async function listerEtoilesGmail(
+  accessToken: string, deps: DepsGoogle, pagesMax = 20,
+): Promise<Resultat<{ id: string }[]>> {
+  return listerParRequeteGmail(accessToken, 'is:starred', 'les étoiles', deps, pagesMax);
+}
+
+/**
+ * Le parcours paginé d'une recherche Gmail, écrit UNE fois. Les deux appelants ci-dessus partagent exactement la
+ * même exigence : ou bien la liste est COMPLÈTE, ou bien on ne rend rien — une liste tronquée ferait retirer la
+ * marque de tout ce qu'on n'a pas su lire, ce qui est l'inverse d'une réconciliation.
+ */
+async function listerParRequeteGmail(
+  accessToken: string, q: string, quoi: string, deps: DepsGoogle, pagesMax: number,
+): Promise<Resultat<{ id: string }[]>> {
   const out: { id: string }[] = [];
   let page: string | undefined;
   for (let i = 0; i < pagesMax; i++) {
-    const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent('in:trash')}&maxResults=500`
+    const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent(q)}&maxResults=500`
       + (page === undefined ? '' : `&pageToken=${encodeURIComponent(page)}`);
     const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!res.ok) return { ok: false, motif: `Lecture de la corbeille impossible (HTTP ${res.status}).` };
+    if (!res.ok) return { ok: false, motif: `Lecture de ${quoi} impossible (HTTP ${res.status}).` };
     const j = (await res.json().catch(() => ({}))) as {
       messages?: { id?: string }[]; nextPageToken?: string;
     };
@@ -542,7 +571,7 @@ export async function listerCorbeilleGmail(
     if (page === undefined) return { ok: true, valeur: out };
   }
   // On a atteint le plafond de pages : on ne rend PAS une liste partielle, qui ferait retirer le reste.
-  return { ok: false, motif: `Corbeille trop grande : plus de ${pagesMax * 500} messages.` };
+  return { ok: false, motif: `Lecture de ${quoi} trop grande : plus de ${pagesMax * 500} messages.` };
 }
 
 /** Un `Message-ID` sans ses chevrons, comparable des deux côtés. `null` reste `null`. PUR. */

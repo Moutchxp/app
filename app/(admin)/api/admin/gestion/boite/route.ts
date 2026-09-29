@@ -75,11 +75,16 @@ export async function GET(request: Request): Promise<Response> {
       ? [...nl.fils]
       : undefined;
     /**
-     * LOT FILTRE-ETOILE — le filtre « étoilés » n'est demandé que si la migration 264 est là. Sans elle, la table
-     * n'existe pas : la nommer ferait échouer toute la liste, alors que l'écran n'affiche même pas le bouton.
+     * LOT FILTRE-ETOILE — le filtre « étoilés » n'est demandé que si l'une des deux sondes répond.
+     *
+     * 🔴 LOT ETOILE-ET-SIGNATURE — DEUX SONDES, PARCE QU'IL Y A DEUX SOURCES POSSIBLES, jamais les deux à la
+     * fois : la 277 (l'étoile de GMAIL, la seule voulue) si elle est appliquée, sinon la 264 (celle de l'équipe),
+     * exactement comme avant ce lot. Sans aucune des deux, la table ou la colonne serait nommée pour rien — et la
+     * nommer ferait échouer toute la liste, alors que l'écran n'affiche même pas le bouton.
      */
+    const sondes = await import('../../../../../lib/gestion/schema');
     const etoilesSeules = url.searchParams.get('etoile') === '1'
-      && await (await import('../../../../../lib/gestion/schema')).etoileDisponible();
+      && (await sondes.etoileGmailDisponible() || await sondes.etoileDisponible());
     const page = await lireBoiteMail(curseur, partenaires, PAGE_BOITE, {
       inclureAutomatiques, etiquette, fenetreJours, filsRetenus, etoilesSeules,
     });

@@ -160,6 +160,18 @@ export function depsReellesReleve(journal?: (ligne: string) => void, options: Op
         journal?.(`corbeille : ${miroir.vus} mail(s) dans le dossier · ${miroir.poses} marqué(s) · `
           + `${miroir.retires} sorti(s) de la corbeille`);
       }
+      /**
+       * ══ 🔴 LOT ETOILE-ET-SIGNATURE — LA QUATRIÈME PASSE : LES ÉTOILES ═══════════════════════════════════════
+       * Aucune capture IMAP ici, et c'est la différence avec les trois autres : une étoile n'apporte AUCUN
+       * contenu nouveau, elle qualifie des mails que nous avons déjà. Il n'y a donc qu'un temps — le miroir.
+       *
+       * ⚠️ EN SIMULATION, ELLE NE TOURNE PAS : réconcilier est une écriture.
+       */
+      const etoiles = appliquer ? await reconcilierEtoiles(journal) : null;
+      if (etoiles !== null) {
+        journal?.(`étoiles : ${etoiles.vus} message(s) étoilé(s) chez Gmail · ${etoiles.poses} marqué(s) · `
+          + `${etoiles.retires} déétoilé(s)`);
+      }
       return [spam, corbeille].reduce<RapportCapture>(
         (acc, r) => (r === null ? acc : additionnerRapports(acc, r)), principal);
     },
@@ -351,6 +363,75 @@ async function reconcilierCorbeille(
     return r === null ? null : { vus: liste.valeur.length, ...r };
   } catch (e) {
     journal?.(`corbeille : réconciliation ignorée (${e instanceof Error ? e.message : String(e)})`);
+    return null;
+  }
+}
+
+/**
+ * ══ 🔴🔴 LOT ETOILE-ET-SIGNATURE — LE MIROIR DES ÉTOILES ═══════════════════════════════════════════════════════
+ *
+ * Elle relit tout ce que GMAIL tient pour étoilé et fait coïncider `gestion_message.etoile_le` : marque posée sur
+ * ceux-là, RETIRÉE de tous les autres. Sans ce second sens, une étoile décrochée depuis un téléphone resterait
+ * chez nous pour toujours, et le filtre montrerait des échanges que Gmail ne montre plus.
+ *
+ * ═══ POURQUOI PAR L'API, ET SURTOUT PAS PAR IMAP ═══════════════════════════════════════════════════════════════
+ * L'IMAP a bien un `\\Flagged` qui correspond à l'étoile. On ne s'en sert PAS, et la raison est écrite vingt lignes
+ * plus haut, payée par un vrai défaut : la corbeille était réconciliée depuis IMAP et un mail supprimé revenait
+ * tout seul une minute plus tard. LA RÈGLE QUI EN SORT VAUT ICI MOT POUR MOT — on réconcilie depuis la source où
+ * l'on écrit. Les gestes d'étoile passent par l'API (`STARRED` posé ou retiré), l'état se relit par l'API.
+ *
+ * 🔴 ON NE RÉCONCILIE JAMAIS SUR UNE LECTURE INCOMPLÈTE. Pas de jeton, un refus de Google, un en-tête illisible :
+ * on s'abstient. Réconcilier sur une liste tronquée retirerait l'étoile de tout ce qu'on n'a pas su lire.
+ *
+ * 🔒 LECTURE SEULE : `messages.list` puis `format=metadata` sur le seul en-tête `Message-Id`. Aucune étoile posée,
+ * aucune retirée, aucun corps rapatrié.
+ */
+async function reconcilierEtoiles(
+  journal?: (l: string) => void,
+): Promise<{ vus: number; poses: number; retires: number } | null> {
+  const { etoileGmailDisponible } = await import('./schema');
+  if (!await etoileGmailDisponible()) {
+    journal?.('étoiles : réconciliation ignorée (migration 277 non appliquée)');
+    return null;
+  }
+  try {
+    const { jetonAccesGestion } = await import('./jetonAcces');
+    const jeton = await jetonAccesGestion();
+    if (jeton.etat !== 'ok') {
+      journal?.(`étoiles : réconciliation ignorée (Google indisponible — ${jeton.motif})`);
+      return null;
+    }
+    const { listerEtoilesGmail, lireEnteteGmail } = await import('./google');
+    const liste = await listerEtoilesGmail(jeton.jeton, { fetch });
+    if (!liste.ok) { journal?.(`étoiles : réconciliation ignorée (${liste.motif})`); return null; }
+
+    /**
+     * ⚠️ UN APPEL PAR MESSAGE POUR SON `Message-Id` — le même pont que la corbeille, et le même prix : Gmail
+     * désigne ses messages par un identifiant à lui, notre base par le `Message-ID` de l'en-tête, seul repère
+     * stable. Mesuré le 29/09/2026 : 611 étoiles, donc 611 lectures d'en-tête, à concurrence bornée.
+     */
+    const { mapConcurrenceBornee } = await import('../concurrence');
+    const entetes = await mapConcurrenceBornee(liste.valeur, 5,
+      (m) => lireEnteteGmail(jeton.jeton, m.id, { fetch }));
+
+    const rates = entetes.filter((r) => !r.ok).length;
+    if (rates > 0) {
+      journal?.(`étoiles : réconciliation ignorée (${rates} en-tête(s) illisible(s) sur ${liste.valeur.length})`);
+      return null;
+    }
+    const ids = entetes
+      .map((r) => (r.ok ? r.valeur.messageIdRfc : null))
+      .filter((m): m is string => m !== null);
+
+    const { reconcilierEtoiles: ecrire } = await import('./etoileGmailRepo');
+    const r = await ecrire(ids);
+    if (r?.refuse === 'aucune_correspondance') {
+      journal?.(`étoiles : réconciliation REFUSÉE — ${ids.length} message(s) étoilé(s) chez Gmail, aucun reconnu `
+        + 'chez nous. Rien n’a été retiré (voir le journal du serveur).');
+    }
+    return r === null ? null : { vus: liste.valeur.length, ...r };
+  } catch (e) {
+    journal?.(`étoiles : réconciliation ignorée (${e instanceof Error ? e.message : String(e)})`);
     return null;
   }
 }

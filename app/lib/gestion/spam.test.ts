@@ -39,6 +39,12 @@ vi.mock('./schema', () => ({
   horsGestionDisponible: async () => false,
   deplacementsDeMailsDisponibles: async () => false,
   destinatairesSeparesDisponibles: async () => false,
+  /**
+   * 🔴 LOT ETOILE-ET-SIGNATURE — migration 277 absente par défaut : le filtre étoile lit alors encore
+   * `gestion_fil_etoile` (l'étoile de l'équipe), et les assertions de ce fichier portent donc sur le SQL d'avant
+   * ce lot. Les deux sources ne sont JAMAIS lues ensemble — c'est l'une OU l'autre.
+   */
+  etoileGmailDisponible: async () => false,
 }));
 
 let spamConnu = true;

@@ -9,6 +9,8 @@ import { actionJournalEnvoi, cibleJournalEnvoi, commentaireJournalEnvoi } from '
 import { motifLisible } from './motifEchec';
 import { finaliserEnvoi, marquerBrouillonEnvoye, ouvrirEnvoi } from './redactionRepo';
 import { journalEnvoiDisponible } from './schema';
+// LOT ETOILE-ET-SIGNATURE — la signature part avec son logo, incorporé au message (`cid:`), jamais par un lien.
+import { imagesSignaturePourEnvoi } from './signatureImagesReel';
 
 /**
  * MODULE « GESTION » — LOT ENVOI-ARRIERE-PLAN : LE CÂBLAGE RÉEL D'UN ENVOI, EN UN SEUL ENDROIT.
@@ -80,6 +82,12 @@ export function depsEnvoiReel(c: CablageEnvoi): DepsEnvoiComplet {
     // Les PIÈCES, lues au dernier moment (voir `envoi.ts`). `deps.jetonAcces` est réemployé tel quel : un seul
     //   endroit sait rafraîchir le jeton de gestion@, et il n'y en aura jamais deux.
     pieces: (d) => piecesDeLEnvoi(d, depsPiecesEnvoi(() => deps.jetonAcces())),
+    /**
+     * 🔴 LOT ETOILE-ET-SIGNATURE — LES IMAGES DE LA SIGNATURE, rapportées au dernier moment elles aussi, et pour
+     * la même raison que les pièces : ce qui voyage dans le message se lit APRÈS le verrou d'idempotence, jamais
+     * avant — un double-clic ne doit pas re-télécharger ce qui est déjà parti.
+     */
+    imagesSignature: (o) => imagesSignaturePourEnvoi(o.rangs, o.domaine, o.alea),
     ancrage: c.ancrage,
     ouvrirEnvoi,
     envoyer: (o) => envoyerViaGmail(o, { fetch }),

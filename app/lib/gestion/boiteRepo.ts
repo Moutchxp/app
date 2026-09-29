@@ -34,8 +34,16 @@ import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
 // LOT LIGNE-NON-ENVOYE — les mails qui ne sont pas partis, à montrer dans « Envoyés » et dans le fil.
 import { nonEnvoyesAMontrer, nonEnvoyesDesFils } from './fileEnvoiRepo';
 import { fusionnerNonEnvoyes, type MentionNonEnvoye } from './fileEnvoi';
-import { corbeilleGmailDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible } from './schema';
+import {
+  corbeilleGmailDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible, etoileGmailDisponible,
+} from './schema';
 import { etoilesDesFils } from './etoileRepo';
+/**
+ * 🔴 LOT ETOILE-ET-SIGNATURE — L'ÉTOILE DE GMAIL, DEVENUE LA SEULE. `etoilesDesFils` (celle de l'équipe) reste
+ * importée juste au-dessus : sans la migration 277, c'est encore elle qui répond, et la liste se comporte
+ * exactement comme avant ce lot. Les deux ne sont JAMAIS lues ensemble — une ligne ne porte qu'une étoile.
+ */
+import { filsEtoiles } from './etoileGmailRepo';
 // LOT LECTURE-HTML-FIL-TROMBONE — la MÊME règle que la conversation pour distinguer une pièce d'un logo de signature.
 import { trierPieces, type PieceATrier } from './lisibilite';
 // LOT BOITE-INTERNE-CORBEILLE — « nous », c'est `gestion_config.adresse_gestion`, lue à la MÊME source que la capture.
@@ -266,10 +274,34 @@ interface LigneDB {
 const ETIQUETTE_TOUT: Etiquette = { sorte: 'reception', evenementId: null };
 
 /**
- * LOT FILTRE-ETOILE — « cet échange porte l'étoile de l'équipe ». Écrit UNE fois, lu par la liste ET par le
- * compteur : un compteur qui compterait autrement finirait par annoncer un nombre que la liste ne montre pas.
+ * ══ 🔴🔴 « CET ÉCHANGE PORTE UNE ÉTOILE » — RÈGLE RÉÉCRITE LE 29/09/2026 (lot ETOILE-ET-SIGNATURE) ═════════════
+ *
+ * Écrite UNE fois, lue par la liste ET par le compteur : un compteur qui compterait autrement finirait par
+ * annoncer un nombre que la liste ne montre pas — et c'est toujours le compteur qu'on croit.
+ *
+ * CE QU'ELLE LISAIT, ET POURQUOI CE N'ÉTAIT PAS CE QU'ON VOYAIT. Jusqu'à ce lot, elle interrogeait
+ * `gestion_fil_etoile` — l'étoile de l'ÉQUIPE, une table à nous que Gmail ne connaît pas. Or l'étoile qu'on POSE,
+ * dans la conversation, est celle de GMAIL (libellé STARRED sur un message). Deux étoiles, et rien ne le disait.
+ *
+ *     étoiles dans GMAIL (API, « is:starred »)  →  611 messages
+ *     étoiles vues par ce prédicat              →    0 échange (8 lignes en table, aucune à `true`)
+ *
+ * Constat d'Arno, exactement : un message étoilé en toutes lettres dans le fil 334, et un filtre qui ne renvoie
+ * rien. Décision d'Arno : UNE SEULE ÉTOILE, CELLE DE GMAIL — « dès qu'AU MOINS UN message est étoilé », comme
+ * dans Gmail, et dans TOUTES les catégories.
+ *
+ * ⚠️ LE PRÉDICAT PORTE SUR L'ÉCHANGE, PAS SUR LA LIGNE. Une étoile posée sur le message du 18 septembre doit faire
+ * remonter l'échange entier, même si la ligne montre celui du 24 : c'est la règle de Gmail, et c'était l'autre
+ * moitié du défaut — un filtre qui n'aurait regardé que le dernier message aurait raté celui d'Arno.
+ *
+ * ⚠️ SANS LA MIGRATION 277, on retombe MOT POUR MOT sur l'ancien prédicat : la colonne n'est nommée nulle part, et
+ * le filtre se comporte exactement comme avant ce lot.
  */
-const SQL_ETOILE = `EXISTS (SELECT 1 FROM gestion_fil_etoile fe WHERE fe.fil_id = m.fil_id AND fe.etoilee)`;
+function sqlEtoile(etoileGmail: boolean): string {
+  return etoileGmail
+    ? `EXISTS (SELECT 1 FROM gestion_message me WHERE me.fil_id = m.fil_id AND me.etoile_le IS NOT NULL)`
+    : `EXISTS (SELECT 1 FROM gestion_fil_etoile fe WHERE fe.fil_id = m.fil_id AND fe.etoilee)`;
+}
 
 /**
  * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — « CE MESSAGE EST À LA CORBEILLE DE GMAIL » ═════════════════════════════════
@@ -472,6 +504,11 @@ export function sqlPageBoite(
    * `null` rend la requête mot pour mot celle d'avant ce lot, ce qui garde tous les tests de forme existants.
    */
   rangAdresseGestion: number | null = null,
+  /**
+   * 🔴 LOT ETOILE-ET-SIGNATURE — la migration 277 est-elle là ? Elle décide LAQUELLE des deux étoiles le filtre
+   * lit (voir `sqlEtoile`). Sans elle, la requête est mot pour mot celle d'avant ce lot.
+   */
+  etoileGmail = false,
 ): string {
   // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
@@ -572,7 +609,7 @@ export function sqlPageBoite(
   const filtreRetenus = rangFilsRetenus === null ? '' : `AND m.fil_id = ANY($${rangFilsRetenus}::bigint[])`;
   // LOT FILTRE-ETOILE — posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des messages. Le prédicat
   //   « dernier de son sens » n'a donc pas à en tenir compte.
-  const filtreEtoile = etoilesSeules ? `AND ${SQL_ETOILE}` : '';
+  const filtreEtoile = etoilesSeules ? `AND ${sqlEtoile(etoileGmail)}` : '';
   /**
    * ══ 🔴 LOT CAPSULE-STATUT — LE STATUT DANS LA MÊME REQUÊTE, PAS UNE PAR LIGNE ═════════════════════════════════
    * Une jointure LATÉRALE sur les 30 lignes de la page, et rien de plus. Trente requêtes — une par ligne — se
@@ -750,6 +787,8 @@ export async function lireBoiteMail(
   const rattachements = await rattachementsDisponibles();
   // LOT STATUT-HORS-GESTION — même patron, même raison : sans la 266, la table n'est nommée nulle part.
   const horsGestion = await horsGestionDisponible();
+  // LOT ETOILE-ET-SIGNATURE — même patron : sans la 277, la colonne `etoile_le` n'est nommée nulle part.
+  const etoileGmail = await etoileGmailDisponible();
   // LOT ERGO-BOITE-3 — les fils retenus arrivent APRÈS les paramètres de l'étiquette : leur rang dépend donc de
   //   l'étiquette ouverte, et il est calculé ici plutôt que deviné. Poser un paramètre puis calculer son rang à
   //   partir de `params.length` est le décalage d'un cran qui s'est déjà produit dans ce dépôt.
@@ -767,7 +806,7 @@ export async function lireBoiteMail(
     ? null : 4 + paramsEtiquette.length + (rangAdresse === null ? 0 : 1);
   const { rows } = await query<LigneDB>(
     sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true, rattachements,
-      horsGestion, rangAdresse),
+      horsGestion, rangAdresse, etoileGmail),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
       ...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
@@ -808,7 +847,7 @@ export async function lireBoiteMail(
   const montrerEchecs = etiquette.sorte === 'envoyes' && premierePage;
   const [avis, etoiles, echecsDesFils, echecsOrphelins, piecesDesFils] = await Promise.all([
     nonRemisesDesFils(filsDeLaPage),
-    etoilesDesFils(filsDeLaPage),
+    etoileGmail ? filsEtoiles(filsDeLaPage) : etoilesDesFils(filsDeLaPage),
     nonEnvoyesDesFils(filsDeLaPage),
     montrerEchecs ? nonEnvoyesAMontrer() : Promise.resolve([] as MentionNonEnvoye[]),
     piecesVraiesDesFils(filsDeLaPage),
@@ -979,7 +1018,7 @@ export async function compterBoite(
   // LOT ERGO-BOITE-3 — le spam n'entre dans AUCUN de ces deux totaux, aux deux étages : le compteur doit compter
   //   exactement ce que la liste montre, et la liste l'écarte (cf. `sqlPageBoite`).
   const horsSpamM = spam ? 'AND m.spam_le IS NULL' : '';
-  const seulementEtoiles = etoilesSeules ? `AND ${SQL_ETOILE}` : '';
+  const seulementEtoiles = etoilesSeules ? `AND ${sqlEtoile(await etoileGmailDisponible())}` : '';
   const horsSpamM2 = spam ? 'AND m2.spam_le IS NULL' : '';
   /**
    * LOT BOITE-INTERNE-CORBEILLE — LE MÊME PRÉDICAT D'APPARTENANCE QUE LA LISTE, aux deux étages.

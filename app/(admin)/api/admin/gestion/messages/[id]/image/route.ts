@@ -2,9 +2,12 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { htmlDuMessage } from '../../../../../../../lib/gestion/carteRepo';
 import { adressesDesImages, estDistante } from '../../../../../../../lib/gestion/imagesMail';
-import {
-  refusDeLAdresse, typeImageAcceptable, DELAI_MS, REDIRECTIONS_MAX, TAILLE_MAX_IMAGE,
-} from '../../../../../../../lib/gestion/relaisImage';
+/**
+ * 🔴 LOT ETOILE-ET-SIGNATURE — LES VERROUS ONT DÉMÉNAGÉ dans `relaisImageReel`, sans changer d'un mot. Les images
+ * de la signature Gmail en ont besoin des MÊMES, et une seconde copie serait une seconde chance de n'en corriger
+ * qu'une le jour où l'on en resserre un.
+ */
+import { allerChercherImage } from '../../../../../../../lib/gestion/relaisImageReel';
 
 /**
  * /api/admin/gestion/messages/[id]/image?rang=N — LE RELAIS D'IMAGES D'UN MAIL EN HTML.
@@ -62,7 +65,7 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     const url = adresses[rang];
     if (url === undefined || !estDistante(url)) return refus();
 
-    const octets = await allerChercher(url);
+    const octets = await allerChercherImage(url);
     if (octets === null) return refus();
     return new Response(new Uint8Array(octets.corps), {
       status: 200,
@@ -79,47 +82,4 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     console.error('[gestion/image] relais impossible', { messageId, rang, e });
     return refus();
   }
-}
-
-/**
- * VA CHERCHER L'IMAGE, EN SUIVANT LES REDIRECTIONS UNE PAR UNE. `null` = refusé ou illisible, sans distinction
- * rendue au navigateur.
- */
-async function allerChercher(
-  depart: string,
-): Promise<{ corps: ArrayBuffer; type: string } | null> {
-  let url = depart;
-  for (let saut = 0; saut <= REDIRECTIONS_MAX; saut++) {
-    const motif = refusDeLAdresse(url);
-    if (motif !== null) {
-      console.warn('[gestion/image] adresse refusée', { url: url.slice(0, 120), motif });
-      return null;
-    }
-    const minuteur = AbortSignal.timeout(DELAI_MS);
-    const res = await fetch(url, {
-      // 🔴 `manual` : sans cela, `fetch` suivrait une redirection vers une adresse privée SANS la revérifier.
-      redirect: 'manual',
-      signal: minuteur,
-      // Aucun cookie, aucune identité : on va chercher une image, pas une session.
-      credentials: 'omit',
-      headers: { Accept: 'image/*' },
-    });
-    if (res.status >= 300 && res.status < 400) {
-      const suite = res.headers.get('location');
-      if (suite === null) return null;
-      url = new URL(suite, url).toString();
-      continue;
-    }
-    if (!res.ok) return null;
-    const type = res.headers.get('content-type');
-    if (!typeImageAcceptable(type)) return null;
-    // ⚠️ LA TAILLE ANNONCÉE NE SUFFIT PAS : on relit celle des octets REÇUS. Un serveur peut mentir sur son
-    //    `Content-Length`, ou ne pas en donner du tout.
-    const annoncee = Number(res.headers.get('content-length') ?? '0');
-    if (annoncee > TAILLE_MAX_IMAGE) return null;
-    const corps = await res.arrayBuffer();
-    if (corps.byteLength > TAILLE_MAX_IMAGE) return null;
-    return { corps, type: (type ?? 'image/png').split(';')[0].trim() };
-  }
-  return null; // trop de redirections : on s'arrête plutôt que de tourner
 }

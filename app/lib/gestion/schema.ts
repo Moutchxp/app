@@ -492,6 +492,24 @@ export function etoileDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT ETOILE-ET-SIGNATURE — LA MIGRATION 277 EST-ELLE APPLIQUÉE ? ═══════════════════════════════════════
+ *
+ * Elle porte `gestion_message.etoile_le` : l'étoile de GMAIL, gardée chez nous pour que le filtre et le compteur
+ * puissent la lire sans appeler Google trente fois par page.
+ *
+ * 🔴 ELLE REMPLACE `etoileDisponible` COMME SOURCE DU FILTRE, et c'est tout le lot. Il y avait DEUX étoiles :
+ * celle de Gmail (posée depuis la conversation, invisible de notre base) et celle de l'équipe
+ * (`gestion_fil_etoile`, la seule que le filtre lisait). Mesuré le 29/09/2026 : 611 messages étoilés dans Gmail,
+ * ZÉRO échange trouvé par le filtre. Décision d'Arno : une seule étoile, celle de Gmail.
+ *
+ * Tant que cette sonde répond « non » : la colonne n'est nommée nulle part, la réconciliation ne tourne pas, et le
+ * filtre retombe mot pour mot sur ce qu'il lisait avant ce lot. Rien ne casse, et rien ne ment.
+ */
+export function etoileGmailDisponible(): Promise<boolean> {
+  return memoiser('message.etoile_le', () => colonneExiste('gestion_message', 'etoile_le'));
+}
+
+/**
  * ══ LOT REDACTION-GMAIL — LA MIGRATION 265 EST-ELLE APPLIQUÉE ? ════════════════════════════════════════════════
  * Elle porte DEUX choses indépendantes, et elles se sondent SÉPARÉMENT : l'une peut exister sans l'autre si
  * quelqu'un applique la migration à moitié, et une sonde unique mentirait alors dans un sens ou dans l'autre.

@@ -136,6 +136,29 @@ describe('🔴 ② `style` : ce qui passe, et ce qui ne passe jamais', () => {
     expect(styleSur('background-image: url(https://espion.fr/p.gif)')).toBe('');
     expect(styleSur('color: red; background: url("https://espion.fr/p.gif")')).toBe('color: red');
     expect(styleSur('width: expression(alert(1))')).toBe('');
+  });
+
+  /**
+   * 🔴 LOT ETOILE-ET-SIGNATURE — LES MARGES VERTICALES PASSENT, ET IL LE FAUT. Mesuré en comparant côte à côte le
+   * même mail envoyé depuis Gmail et depuis chez nous : la signature de gestion@ écrit `margin-top:0pt` sur
+   * chacun de ses paragraphes. Ces propriétés tombaient, le client appliquait SES marges, et la signature
+   * arrivait aérée d'une ligne blanche de trop entre chaque bloc.
+   *
+   * ⚠️ `margin` (forme courte) ÉTAIT DÉJÀ ACCEPTÉE : refuser la forme longue ne protégeait de rien.
+   */
+  it('🔴 les marges verticales et l’alignement d’une cellule survivent', () => {
+    expect(styleSur('margin-top:0pt;margin-bottom:0pt')).toContain('margin-top: 0pt');
+    expect(styleSur('margin-top:0pt;margin-bottom:0pt')).toContain('margin-bottom: 0pt');
+    expect(styleSur('vertical-align:middle')).toContain('vertical-align: middle');
+    expect(styleSur('border-collapse:collapse')).toContain('border-collapse: collapse');
+  });
+
+  /** 🔒 ET CE QUI CACHE RESTE DEHORS : un retrait très négatif pousse du texte hors de l'écran. */
+  it('🔒 ce qui permet de CACHER du texte ne passe toujours pas', () => {
+    for (const mauvais of ['text-indent: -9999px', 'display: none', 'overflow: hidden', 'position: absolute',
+      'visibility: hidden', 'opacity: 0', 'z-index: 9', 'background-image: url(http://x.fr/p.gif)']) {
+      expect(styleSur(mauvais)).toBe('');
+    }
     expect(styleSur('color: red; /* ruse */ position: fixed')).toBe('color: red');
   });
 

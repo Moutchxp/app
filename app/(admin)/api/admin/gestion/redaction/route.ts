@@ -13,6 +13,8 @@ import {
 } from '../../../../../lib/gestion/schema';
 // LOT REDACTION-GMAIL — la signature Gmail est du HTML venu d'un réglage : elle s'assainit comme tout le reste.
 import { assainirHtml } from '../../../../../lib/gestion/htmlMail';
+// LOT ETOILE-ET-SIGNATURE — ses images passent par NOTRE route : le navigateur n'appelle jamais Google lui-même.
+import { signaturePourEcran } from '../../../../../lib/gestion/signatureImages';
 
 /**
  * /api/admin/gestion/redaction (lot 5e) — CE QUE L'ÉCRAN A BESOIN DE SAVOIR AVANT DE PROPOSER D'ÉCRIRE.
@@ -70,8 +72,18 @@ export async function GET(request: Request): Promise<Response> {
         if (sigs.ok) {
           const nôtre = sigs.valeur.find((s) => estCompteAttendu(s.adresse)) ?? sigs.valeur.find((s) => s.parDefaut);
           signature = signatureEnTexte(nôtre?.signature ?? '');
-          // 🔴 ASSAINIE ICI, comme tout HTML qui entre : la signature vient d'un réglage Gmail, donc de l'extérieur.
-          signatureHtml = assainirHtml(nôtre?.signature ?? '');
+          /**
+           * 🔴 ASSAINIE, PUIS SES IMAGES RENVOYÉES VERS NOTRE ROUTE (lot ETOILE-ET-SIGNATURE).
+           *
+           * L'assainissement d'abord, comme pour tout HTML qui entre : la signature vient d'un réglage Gmail,
+           * donc d'un formulaire. La réécriture ensuite, et dans cet ordre — l'inverse laisserait passer ce que
+           * l'assainissement aurait retiré (même règle que pour les mails reçus, cf. `imagesMail`).
+           *
+           * ⚠️ MESURÉ LE 29/09/2026 : ces images (`lh3/lh5.googleusercontent.com`) se chargent depuis NOTRE
+           * SERVEUR mais restent vides quand la page les demande elle-même. Sans cette réécriture, l'éditeur
+           * montrerait trois images cassées — et c'est ce qui avait fait garder la signature TEXTE jusqu'ici.
+           */
+          signatureHtml = signaturePourEcran(assainirHtml(nôtre?.signature ?? ''));
         }
       } else {
         jetonPresent = false; // jeton périmé : l'écran doit le traiter comme une absence de connexion

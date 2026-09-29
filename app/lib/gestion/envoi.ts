@@ -34,6 +34,9 @@ import {
   type PieceAEnvoyer, type ResultatEnvoi,
 } from './envoiGmail';
 import { pretAEnvoyer } from './redaction';
+// LOT ETOILE-ET-SIGNATURE — reconnaître NOS adresses d'images de signature dans le corps, et les remplacer par des `cid:`.
+import { corpsPourEnvoi, rangSignature, type ImageSignature } from './signatureImages';
+import { adressesDesImages } from './imagesMail';
 
 /** Ce que l'envoi a besoin de savoir du message auquel on répond, pour rester dans le bon fil. */
 export interface AncrageFil {
@@ -98,6 +101,23 @@ export interface DepsEnvoiComplet {
    * Injectée : `envoi.ts` ne sait ni lire le stockage, ni parler à Gmail. Absente ⇒ aucune pièce, comme avant.
    */
   pieces?(d: DemandeEnvoi): Promise<PieceAEnvoyer[]>;
+  /**
+   * ══ 🔴 LOT ETOILE-ET-SIGNATURE — LES IMAGES DE LA SIGNATURE, INCORPORÉES AU MESSAGE ═══════════════════════════
+   *
+   * Reçoit les RANGS que le corps HTML appelle (`…/signature/image?rang=N`), rend leurs octets. Ce qu'elle ne
+   * rapporte pas voit son image retirée du corps : la signature part sans elle, JAMAIS avec un carré barré —
+   * c'est la consigne d'Arno, et une image absente se remarque bien moins qu'une image cassée.
+   *
+   * 🔴 POURQUOI L'INCORPORATION PLUTÔT QU'UN LIEN. Une image distante dans un mail sortant ne s'affiche pas chez
+   * les destinataires dont le client bloque les images distantes (le réglage par défaut d'Outlook), dit à son
+   * hébergeur quand le mail a été ouvert, et meurt le jour où l'adresse change.
+   *
+   * Injectée : `envoi.ts` ne sait ni lire un réglage Gmail, ni aller chercher une image. Absente ⇒ le corps part
+   * tel quel, exactement comme avant ce lot.
+   */
+  imagesSignature?(o: { rangs: readonly number[]; domaine: string; alea: string }): Promise<{
+    images: readonly ImageSignature[]; echecs: readonly number[];
+  }>;
   /** ⑤ Remet le message à Gmail. */
   envoyer(o: { accessToken: string; rfc822: string; cci: readonly string[]; threadId: string | null }): Promise<ResultatEnvoi>;
   /** ⑥ Finalise la ligne. */
@@ -136,7 +156,11 @@ export interface DepsEnvoiComplet {
 }
 
 /** Les gestes qui suivent l'acceptation de Gmail. Nommés, parce qu'un incident doit dire LEQUEL a manqué. */
-export type EtapeApresEnvoi = 'finaliser' | 'brouillon' | 'journal' | 'classement';
+export type EtapeApresEnvoi = 'finaliser' | 'brouillon' | 'journal' | 'classement'
+  // ⚠️ `signature` N'EST PAS UNE ÉTAPE D'APRÈS-ENVOI : elle vient AVANT. Elle est dans cette liste parce qu'elle
+  //    emprunte le même filet (`incident`) — signaler sans jamais faire échouer — et qu'un second mécanisme pour
+  //    dire la même chose serait un second endroit où regarder.
+  | 'signature';
 
 export type IssueEnvoi =
   | { ok: true; envoi: EnvoiEnBase; deja: boolean }
@@ -194,11 +218,51 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
     }
   }
 
+  /**
+   * ══ 🔴 LOT ETOILE-ET-SIGNATURE — LA SIGNATURE PART AVEC SES IMAGES ═══════════════════════════════════════════
+   *
+   * Le corps porte NOS adresses de relais (`…/signature/image?rang=N`), posées à l'insertion dans l'éditeur et
+   * conservées telles quelles par les réponses, les transferts et les brouillons rouverts. On les remplace ici,
+   * au dernier moment, par des `cid:` — et les octets partent dans le message.
+   *
+   * 🔴 UN ÉCHEC N'EMPÊCHE PAS L'ENVOI. Ce n'est qu'une image : si on ne la rapporte pas, elle est retirée du
+   * corps et le message part sans elle. Faire échouer un envoi de locataire pour un logo serait absurde — mais on
+   * le DIT, dans le journal du serveur, parce qu'Arno a demandé à le savoir.
+   */
+  let corpsHtml = d.corpsHtml ?? null;
+  let imagesIntegrees: readonly ImageSignature[] = [];
+  const rangsSignature = corpsHtml === null ? []
+    : adressesDesImages(corpsHtml).map(rangSignature).filter((r): r is number => r !== null);
+  if (deps.imagesSignature && corpsHtml !== null && rangsSignature.length > 0) {
+    try {
+      const r = await deps.imagesSignature({ rangs: rangsSignature, domaine: domaineDe(de.adresse), alea: deps.alea() });
+      /**
+       * ⚠️ CHAQUE IMAGE PORTE SON RANG, et c'est `corpsPourEnvoi` qui les rapproche. La liste rendue peut être
+       * TROUÉE (un rang non rapporté en est simplement absent) : la rapprocher par POSITION décalerait tout ce
+       * qui suit le trou — le logo prendrait la place de l'icône de téléphone, et personne ne le verrait avant
+       * qu'un destinataire le dise.
+       */
+      const remis = corpsPourEnvoi(corpsHtml, r.images);
+      corpsHtml = remis.html;
+      imagesIntegrees = r.images;
+      if (remis.manquantes.length > 0 || r.echecs.length > 0) {
+        deps.incident('signature', new Error(
+          `image(s) de signature non rapportée(s) : rang ${[...new Set([...remis.manquantes, ...r.echecs])].join(', ')} `
+          + '— le message part sans elles, jamais avec une image cassée'));
+      }
+    } catch (e) {
+      // 🔴 MÊME EN CAS DE PANNE, LE MESSAGE PART. On retire alors les images plutôt que de laisser des liens morts.
+      deps.incident('signature', e);
+      corpsHtml = corpsPourEnvoi(corpsHtml, []).html;
+      imagesIntegrees = [];
+    }
+  }
+
   // ⑤ GMAIL.
   const rfc822 = construireRfc822({
     de: de.adresse, deNom: de.nom, a: d.a, cc: d.cc, cci: d.cci,
-    objet: d.objet, corps: d.corps, corpsHtml: d.corpsHtml ?? null, messageId,
-    inReplyTo: ancrage.messageIdRfc, references, pieces,
+    objet: d.objet, corps: d.corps, corpsHtml, messageId,
+    inReplyTo: ancrage.messageIdRfc, references, pieces, imagesIntegrees,
   }, deps.alea());
   const issue = await deps.envoyer({ accessToken: jeton, rfc822, cci: d.cci, threadId: ancrage.threadId });
 

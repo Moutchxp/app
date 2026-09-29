@@ -4,6 +4,7 @@ import { query } from '../../../../../../../lib/db/client';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import { agirSurGmail, basculerEtoile, lireEtatGmail, type DepsActionGmail } from '../../../../../../../lib/gestion/gmailAction';
 import { lireAncrage, memoriserAncrage } from '../../../../../../../lib/gestion/gmailRepo';
+import { ecrireEtoileMessage } from '../../../../../../../lib/gestion/etoileGmailRepo';
 import { peutEnvoyerAuNomDeGestion } from '../../../../../../../lib/gestion/gardeEnvoi';
 import type { ActionMessage } from '../../../../../../../lib/gestion/gmailMenu';
 import {
@@ -52,6 +53,11 @@ function deps(request: Request, messageId: number): DepsActionGmail {
     lire: (t, id) => lireMessageGmail(t, id, { fetch }),
     modifier: (t, id, o) => modifierLibelles(t, id, o, { fetch }),
     bloquer: (t, adresse) => creerFiltreBlocage(t, adresse, { fetch }),
+    /**
+     * 🔴 LOT ETOILE-ET-SIGNATURE — le miroir local de l'étoile, écrit APRÈS Gmail. Sans la migration 277,
+     * `ecrireEtoileMessage` ne nomme pas la colonne et ne fait rien : le geste aboutit quand même dans Gmail.
+     */
+    noterEtoile: (etoilee) => ecrireEtoileMessage(messageId, etoilee),
     journaliser: async (l) => {
       const auteur = await auteurDeLaRequete(request);
       await query(

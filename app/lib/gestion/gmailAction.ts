@@ -47,6 +47,23 @@ export interface DepsActionGmail {
   bloquer(accessToken: string, adresse: string): Promise<{ ok: true; valeur: string } | { ok: false; motif: string }>;
   /** ④ Le journal MÉTIER : qui, quoi, sur quel message. */
   journaliser(l: { action: ActionMessage; messageId: number; detail: string }): Promise<void>;
+  /**
+   * ⑤ 🔴 LOT ETOILE-ET-SIGNATURE — NOTER CHEZ NOUS L'ÉTOILE QUE GMAIL VIENT DE CONFIRMER.
+   *
+   * Le filtre et le compteur de la liste lisent `gestion_message.etoile_le` : sans cette écriture, une étoile
+   * posée ici ne serait visible qu'à la prochaine relève — et Arno a mesuré ce que « invisible » veut dire, avec
+   * 611 étoiles dans Gmail et aucune dans le filtre.
+   *
+   * ⚠️ APRÈS GMAIL, JAMAIS AVANT, et seulement sur un aller-retour RÉUSSI : écrire d'abord chez nous ferait de
+   * notre base une seconde vérité, celle qui se trompe quand Gmail refuse.
+   *
+   * ⚠️ FACULTATIVE. Les épreuves l'omettent, et sans la migration 277 le câblage réel n'écrit rien : le fait
+   * qu'elle manque ne doit JAMAIS empêcher le geste d'aboutir dans Gmail.
+   *
+   * ⚠️ AUCUN IDENTIFIANT EN PARAMÈTRE : ces dépendances sont fabriquées POUR UN MESSAGE (voir la route), et le
+   * repasser ici ouvrirait la porte à ce qu'on note l'étoile d'un autre.
+   */
+  noterEtoile?(etoilee: boolean): Promise<void>;
 }
 
 export type IssueAction =
@@ -102,7 +119,15 @@ export async function lireEtatGmail(deps: DepsActionGmail): Promise<EtatGmail | 
   const ancrage = await deps.ancrage();
   if (ancrage === null) return null;
   const r = await retrouver(jeton, ancrage, deps);
-  return r.ok ? etatDe(r.gmail) : null;
+  if (!r.ok) return null;
+  const etat = etatDe(r.gmail);
+  /**
+   * 🔴 ON PROFITE DE CE QU'ON VIENT D'APPRENDRE. Ouvrir une conversation relit l'état VRAI de chaque message dans
+   * Gmail : c'est gratuit, c'est frais, et le noter garde le filtre d'accord avec ce que l'écran affiche entre
+   * deux relèves. Une lecture qui corrige un miroir n'écrit pas une opinion — elle recopie Gmail.
+   */
+  await deps.noterEtoile?.(etat.etoile).catch(() => {});
+  return etat;
 }
 
 /**
@@ -179,5 +204,7 @@ export async function basculerEtoile(messageId: number, deps: DepsActionGmail): 
     action: 'non_lu', messageId, // le journal porte l'entité, le DÉTAIL dit le geste exact
     detail: avait ? 'étoile retirée dans Gmail' : 'étoile ajoutée dans Gmail',
   });
+  // 🔴 APRÈS GMAIL, ET SEULEMENT APRÈS : le miroir recopie un fait acquis, il ne le devance pas.
+  await deps.noterEtoile?.(!avait).catch(() => {});
   return { ok: true, message: avait ? 'Étoile retirée dans Gmail.' : 'Étoile ajoutée dans Gmail.', etat: etatDe(r.valeur) };
 }

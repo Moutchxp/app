@@ -34,8 +34,15 @@ export async function GET(request: Request): Promise<Response> {
      * LOT LISTE-GMAIL — la sonde de l'étoile voyage avec les comptes : c'est la seule requête que la liste fait
      * déjà au chargement, et la sonde est mémoïsée (elle ne coûte qu'au premier appel du processus).
      */
+    /**
+     * 🔴 LOT ETOILE-ET-SIGNATURE — « le geste d'étoile est-il possible ? » est VRAI dès qu'une des deux sources
+     * existe : celle de Gmail (migration 277, la seule voulue désormais) ou, à défaut, celle de l'équipe (264).
+     * L'écran n'a pas à savoir laquelle — il a juste besoin de savoir s'il peut proposer le bouton.
+     */
+    const sondes = await import('../../../../../../lib/gestion/schema');
     const [comptes, etoileDisponible, brouillonsJetes] = await Promise.all([
-      comptesBoite(), (await import('../../../../../../lib/gestion/schema')).etoileDisponible(),
+      comptesBoite(),
+      (async () => await sondes.etoileGmailDisponible() || await sondes.etoileDisponible())(),
       (await import('../../../../../../lib/gestion/redactionRepo')).compterBrouillonsALaCorbeille().catch(() => 0),
     ]);
     /**

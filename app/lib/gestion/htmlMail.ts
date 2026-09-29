@@ -80,6 +80,24 @@ const PROPRIETES = new Set([
   'margin-left', 'margin-right', 'padding-left', 'padding-right',
   'border-left', 'padding', 'margin', 'line-height', 'white-space',
   /**
+   * ══ 🔴 LOT ETOILE-ET-SIGNATURE — LES MARGES VERTICALES, ET L'ALIGNEMENT D'UNE CELLULE ══════════════════════
+   *
+   * MESURÉ EN COMPARANT CÔTE À CÔTE, le 29/09/2026, le même mail envoyé depuis Gmail et depuis chez nous. La
+   * signature de gestion@ écrit `margin-top:0pt;margin-bottom:0pt` sur chacun de ses paragraphes. Ces deux
+   * propriétés tombaient — le client appliquait alors SES marges par défaut, et la signature arrivait aérée
+   * d'une ligne blanche entre « Service Gestion », l'adresse et les téléphones. Le contenu était juste ; la
+   * mise en page ne l'était pas, et c'est précisément ce qu'Arno demande de reproduire.
+   *
+   * ⚠️ `margin` (LA FORME COURTE) ÉTAIT DÉJÀ ACCEPTÉE. Laisser passer `margin: 0 0 0 40px` tout en refusant
+   * `margin-top: 0pt` ne protégeait de rien : c'était une incohérence, pas un verrou.
+   *
+   * 🔒 ET ON N'EN PROFITE PAS POUR OUVRIR LE RESTE. `text-indent` reste DEHORS (un retrait très négatif pousse
+   * du texte hors de l'écran : lu par un filtre, invisible pour l'humain), `display` et `overflow` aussi (ils
+   * cachent), et rien de ce qui prend une `url()` n'entre jamais.
+   */
+  'margin-top', 'margin-bottom', 'padding-top', 'padding-bottom',
+  'vertical-align', 'border-collapse',
+  /**
    * 🔴 LA FAMILLE `border`, AJOUTÉE AU LOT EDITEUR-PJ — et pas par goût de la complétude.
    *
    * MESURÉ dans Chrome le 28/09/2026 : « Augmenter le retrait » produit
@@ -100,8 +118,27 @@ const PROTOCOLES_LIEN = ['http://', 'https://', 'mailto:', 'tel:'];
  * Les sources qu'une image a le droit de porter. `cid:` est indispensable : c'est ainsi qu'un logo de signature est
  * joint au message lui-même. `data:image/…` est accepté parce qu'il ne va chercher RIEN au dehors — contrairement à
  * une image distante, qui signale l'ouverture du mail à un serveur tiers.
+ *
+ * ═══ 🔴 LOT ETOILE-ET-SIGNATURE — POURQUOI UN CHEMIN RELATIF, ET POURQUOI CELUI-LÀ SEULEMENT ═══════════════════
+ *
+ * LE DÉFAUT, VU À L'ÉCRAN. La signature Gmail arrive dans l'éditeur avec ses images renvoyées vers notre route
+ * (`/api/admin/gestion/signature/image?rang=N`). Or un chemin RELATIF ne commence par aucun des protocoles
+ * ci-dessus : le `src` tombait, et une image sans source acceptable n'est pas rendue du tout. L'éditeur affichait
+ * donc la signature SANS ses trois icônes — proprement, silencieusement, et à contresens de la demande.
+ *
+ * 🔴 ON N'OUVRE PAS « LES CHEMINS RELATIFS » EN GÉNÉRAL, ON OUVRE CELUI-CI. Accepter tout `/…` laisserait un
+ * expéditeur écrire `<img src="/api/admin/…">` dans un mail reçu et faire appeler N'IMPORTE QUELLE de nos routes
+ * par le navigateur de qui lit. Nos routes qui AGISSENT sont en POST ou DELETE, donc inertes à une image — mais
+ * une permission qu'on n'a pas besoin d'accorder ne s'accorde pas.
+ *
+ * Ce chemin-ci est en lecture seule, borné à un rang, et ne rend que des octets d'image (voir sa route). Le pire
+ * qu'un expéditeur mal intentionné puisse obtenir en l'écrivant dans son mail est d'afficher NOTRE logo.
+ *
+ * ⚠️ LA CONSTANTE VIT ICI, dans la couche la plus BASSE, et `signatureImages` la reprend. L'inverse ferait dépendre
+ * l'assainissement — que tout le module traverse — d'un fichier de fonctionnalité.
  */
-const PROTOCOLES_IMAGE = ['http://', 'https://', 'cid:', 'data:image/'];
+export const CHEMIN_IMAGE_SIGNATURE = '/api/admin/gestion/signature/image';
+const PROTOCOLES_IMAGE = ['http://', 'https://', 'cid:', 'data:image/', CHEMIN_IMAGE_SIGNATURE];
 
 /** Décode les entités qu'on doit comprendre pour juger une URL (et seulement celles-là). PUR. */
 function decoderPourJuger(v: string): string {

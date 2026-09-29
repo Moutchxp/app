@@ -436,16 +436,18 @@ export function GestionVue({ intro }: {
            * rien ne le dise — `htmlDisponible`, `classementDisponible` (le champ « Classer ce mail » d'un nouveau
            * message, jamais affiché) et `signatureHtml`.
            *
-           * 🔴🔴 `signatureHtml` N'EST PAS RÉTABLIE ICI, ET C'EST DÉLIBÉRÉ. La rebrancher change ce qui PART :
-           * la signature insérée cesse d'être du texte pour devenir le HTML de Gmail, logo compris. Éprouvé le
-           * 29/09/2026 : les trois images de cette signature sont servies par `lh3/lh5.googleusercontent.com`,
-           * qui ne les rend qu'à une session Google — dans notre éditeur elles restent VIDES, et l'on composerait
-           * en voyant trois images cassées. Les réécrire vers notre relais serait pire : le destinataire
-           * recevrait des adresses qui ne mènent nulle part depuis chez lui.
+           * 🔴🔴 `signatureHtml` EST RÉTABLIE — LOT ETOILE-ET-SIGNATURE, ET LA RAISON D'AVANT ÉTAIT FAUSSE.
            *
-           * Cela dépasse ce lot (qui traite la LECTURE des mails) et demande un arbitrage d'Arno : on garde donc
-           * l'état d'avant — signature TEXTE — et la ligne est écrite ici pour que le choix reste visible.
+           * Le lot précédent l'avait laissée de côté en concluant que ces images « ne sont servies qu'à une
+           * session Google ». MESURÉ DEPUIS : c'est l'inverse. Adresse nue depuis notre SERVEUR → 200, image/png,
+           * 1 933 / 835 / 1 600 octets ; la MÊME adresse avec un jeton Google → 403. Ce n'était pas une question
+           * d'identité, mais de qui appelle : le navigateur n'y arrive pas, le serveur si.
+           *
+           * D'où le chemin en deux temps de ce lot : la route rend une signature dont les images passent par
+           * NOTRE route (`signaturePourEcran`), et l'envoi les incorpore au message en `cid:`. Le logo s'affiche
+           * dans l'éditeur, et il part avec le message sans aucun lien externe.
            */
+          signatureHtml: typeof c.signatureHtml === 'string' ? c.signatureHtml : '',
           htmlDisponible: c.htmlDisponible === true,
           classementDisponible: c.classementDisponible === true,
           /**
