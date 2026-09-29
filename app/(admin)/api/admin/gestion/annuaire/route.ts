@@ -141,9 +141,14 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (action === 'creer') {
       if (sujet === null || typeof corps.nom !== 'string') return mauvaiseDemande();
-      const civilite = typeof corps.civilite === 'string' ? corps.civilite : null;
+      /**
+       * 🔴 LOT FICHES-RETOUCHES-2 — LA CRÉATION PORTE TOUTE LA FICHE, coordonnées comprises. L'écran d'ajout est
+       * désormais la carte « Modifier », vide : il envoie les mêmes champs, et le dépôt les écrit tous dans UNE
+       * transaction. Deux appels laisseraient, au moindre refus du second, une fiche nue dans l'annuaire.
+       */
+      const champs = (corps.champs ?? {}) as Parameters<typeof creerPersonne>[1];
       return Response.json(
-        await creerPersonne(sujet, { civilite, nom: corps.nom }, auteur), { headers: ENTETES });
+        await creerPersonne(sujet, { ...champs, nom: corps.nom }, auteur), { headers: ENTETES });
     }
     if (action === 'ajouter-proprietaire' || action === 'remplacer-proprietaire'
       || action === 'ajouter-occupant' || action === 'depart') {

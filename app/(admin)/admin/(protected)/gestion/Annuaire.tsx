@@ -9,11 +9,13 @@ import type {
   LogementDuLocataire, OccupationDuLot,
 } from '../../../../lib/gestion/annuaireRepo';
 // LOT FICHES-ANNUAIRE étape B — « la vie du bien » : tous ses mails, dans l'idiome de la boîte.
-import { CSS_VIE_DU_BIEN, VieDuBien } from './VieDuBien';
+import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 // LOT FICHES-ANNUAIRE étape C — les personnes en CARTES côte à côte, modifiables sur place.
-import { BlocCartes, CSS_CARTES, Ligne as LigneFiche, type GestesCartes, type Sujet } from './CartesPersonnes';
+import {
+  BlocCartes, CSS_CARTES, Ligne as LigneFiche, type ChampsSaisis, type GestesCartes, type Sujet,
+} from './CartesPersonnes';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 // LOT FICHES-RETOUCHES — la nomenclature des coordonnées, partagée par tous les écrans de l'annuaire.
 import { typeDeLibelle } from '../../../../lib/gestion/telephoneAffichage';
@@ -60,24 +62,17 @@ type Fiche =
  *  long pour ne pas lancer une requête par lettre. */
 const ATTENTE_FRAPPE_MS = 250;
 
-/**
- * ══ 🔴 CE QUE « + AJOUTER » DEMANDE, SELON L'ENDROIT D'OÙ L'ON CLIQUE ═════════════════════════════════════════════
- *
- * Sur la fiche d'un propriétaire, « + Ajouter un propriétaire » veut dire CO-PROPRIÉTAIRE DU MÊME ENSEMBLE DE BIENS :
- * la personne est donc rattachée à tous les biens EN GESTION de la fiche. Sur la fiche d'un bien, elle est rattachée
- * à ce seul bien. Le même panneau sert aux deux : c'est la LISTE DES LOTS qui change, pas le geste.
- *
- * ⚠️ `lots` PEUT ÊTRE VIDE — une personne existe alors dans l'annuaire sans lien. C'est un état légitime (un bailleur
- * dont on ne gère rien encore) et la base le porte déjà : 0 lot n'est pas une erreur.
- */
-interface DemandeAjout {
-  sujet: Sujet;
-  lots: number[];
-  titre: string;
-  /** Vrai pour un occupant : on demande aussi la date d'entrée, qui fait le bail. */
-  avecDate: boolean;
-  motDate: string;
-}
+/* ══ 🔴🔴 RETIRÉ LE 30/09/2026 — LOT FICHES-RETOUCHES-2 ══════════════════════════════════════════════════════════
+   Ici vivaient `DemandeAjout` et son panneau : un clic sur « + Ajouter » ouvrait EN HAUT DE LA FICHE un petit
+   formulaire (Civilité / Nom / date / Créer la fiche), loin de la tuile cliquée.
+
+   Arno l'a remplacé : « Un clic sur la tuile “+ Ajouter” ouvre, À SA PLACE DANS LA RANGÉE, une carte identique au
+   mode Modifier d'un contact existant, mais vide ». Le geste se passe désormais là où l'on a cliqué, et la fiche
+   naît COMPLÈTE — sept champs, un téléphone, un e-mail — au lieu de naître nue et d'attendre qu'on rouvre le
+   crayon. Ce que l'ancien panneau garantissait est tenu, et mieux : la personne est rattachée aux biens de la
+   fiche, et la phrase de rappel le DIT avant qu'on ne remplisse quoi que ce soit.
+   L'état vit maintenant dans `BlocCartes`, au plus près de la rangée qu'il concerne. */
+
 
 export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil }: {
   fiche: FicheUrl | null;
@@ -120,7 +115,6 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
    */
   const [rafraichi, setRafraichi] = useState(0);
   const recharger = useCallback(() => setRafraichi((n) => n + 1), []);
-  const [ajout, setAjout] = useState<DemandeAjout | null>(null);
   /**
    * ══ 🔴 LOT FICHES-RETOUCHES — « HISTORIQUE » OUVRE LA FICHE DU BIEN, POSÉE SUR SA « VIE DU BIEN » ═══════════════
    *
@@ -133,10 +127,23 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
    * par son adresse doit la montrer par le haut, comme n'importe quelle fiche.
    */
   const [vieDuBienVisee, setVieDuBienVisee] = useState<number | null>(null);
-  const ouvrirVieDuBien = useCallback((lotId: number) => {
+  /**
+   * 🔴 LE FILTRE DE LA « VIE DU BIEN » VIT ICI, ET SÉPARÉMENT DE LA DEMANDE DE DÉFILEMENT. Deux choses distinctes :
+   * « pose la page sur la vie du bien » (une demande, consommée UNE fois, puis effacée) et « montre-la filtrée sur
+   * les événements » (un état, qui doit TENIR tant qu'on ne le change pas). Les mêler ferait retomber la liste sur
+   * « Tous » aussitôt après le défilement.
+   */
+  const [filtreVie, setFiltreVie] = useState<FiltreVie>('tous');
+  const ouvrirVieDuBien = useCallback((lotId: number, filtre: FiltreVie = 'tous') => {
+    setFiltreVie(filtre);
     setVieDuBienVisee(lotId);
     onFiche({ sorte: 'lot', id: lotId });
   }, [onFiche]);
+  /**
+   * 🔴 LOT FICHES-RETOUCHES-2 — LE CARTOUCHE MÈNE AU MÊME ENDROIT QUE « HISTORIQUE », mais filtré sur les
+   * échanges qui portent un événement ouvert. Un seul chemin, deux points d'arrivée : celui qu'on demande.
+   */
+  const ouvrirEvenements = useCallback((lotId: number) => ouvrirVieDuBien(lotId, 'evenement'), [ouvrirVieDuBien]);
 
   // ── LA RECHERCHE ────────────────────────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -242,12 +249,12 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
    * moitiés du geste : « la fiche est créée, mais le rattachement au bien a échoué ».
    */
   const creerEtRattacher = useCallback(async (
-    d: DemandeAjout, saisie: { civilite: string; nom: string; date: string },
+    sujet: Sujet, lots: readonly number[], champs: ChampsSaisis,
   ): Promise<string | null> => {
     try {
       const res = await fetch('/api/admin/gestion/annuaire', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'creer', sujet: d.sujet, civilite: saisie.civilite, nom: saisie.nom }),
+        body: JSON.stringify({ action: 'creer', sujet, nom: champs.nom ?? '', champs }),
       });
       const cree = (await res.json()) as { etat?: string; motif?: string; data?: { id?: number } };
       if (cree.etat === 'sans_schema') return MOTIF_SANS_MIGRATION;
@@ -255,14 +262,14 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
         return cree.motif ?? 'La fiche n’a pas pu être créée.';
       }
       const id = cree.data.id;
-      const date = /^\d{4}-\d{2}-\d{2}$/.test(saisie.date) ? saisie.date : null;
-      for (const lotId of d.lots) {
-        const motif = await envoyer(d.sujet === 'proprietaire'
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(champs.date ?? '') ? (champs.date as string) : null;
+      for (const lotId of lots) {
+        const motif = await envoyer(sujet === 'proprietaire'
           ? { action: 'ajouter-proprietaire', lotId, proprietaireId: id, depuis: date }
           : { action: 'ajouter-occupant', lotId, locataireId: id, entree: date });
         if (motif !== null) {
           recharger();
-          return `La fiche « ${saisie.nom} » est créée, mais son rattachement au bien a échoué : ${motif}`;
+          return `La fiche « ${champs.nom ?? ''} » est créée, mais son rattachement au bien a échoué : ${motif}`;
         }
       }
       recharger();
@@ -335,88 +342,27 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
         <section className="ann-fiche" aria-live="polite">
           {/* ⚠️ PLUS DE SECOND BOUTON DE RETOUR ICI : il est en haut de page, au-dessus de tout, et il ramène aux
               résultats comme celui-ci le faisait. En garder deux ferait deux chemins pour un même geste. */}
-          {/* 🔴 LE PANNEAU D'AJOUT EST EN HAUT DE LA FICHE, jamais une fenêtre par-dessus : à 390 px une fenêtre
-              modale cacherait ce qu'on est en train de remplir, et le clavier virtuel le reste. */}
-          {ajout !== null && (
-            <PanneauAjout d={ajout} onAnnuler={() => setAjout(null)}
-              onCreer={async (saisie) => {
-                const motif = await creerEtRattacher(ajout, saisie);
-                if (motif === null) setAjout(null);
-                return motif;
-              }} />
-          )}
           {detail === null || detail.etat === 'charge' ? <p className="gst-info" role="status">Chargement…</p>
             : detail.etat === 'erreur' ? <p className="gst-erreur" role="status">{detail.message}</p>
               : detail.etat === 'proprietaire'
                 ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
-                  gestes={gestes} onAjout={setAjout} onHistoriqueDuBien={ouvrirVieDuBien} />
+                  gestes={gestes} onCreer={creerEtRattacher} onHistoriqueDuBien={ouvrirVieDuBien}
+                  onEvenements={ouvrirEvenements} />
                 : detail.etat === 'lot'
                   ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} onEcrire={onEcrire}
-                    maintenant={refTemps} onOuvrirFil={onOuvrirFil} gestes={gestes} onAjout={setAjout}
+                    maintenant={refTemps} onOuvrirFil={onOuvrirFil} gestes={gestes} onCreer={creerEtRattacher}
                     poserSurVieDuBien={vieDuBienVisee === detail.data.id}
                     onVieDuBienPosee={() => setVieDuBienVisee(null)}
+                    filtreVie={filtreVie} onFiltreVie={setFiltreVie}
                     onDepart={(occupationId, sortie) => envoyer({ action: 'depart', occupationId, sortie })} />
                   : <VueLocataire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
                     gestes={gestes} maintenant={refTemps} onOuvrirFil={onOuvrirFil}
-                    onHistoriqueDuBien={ouvrirVieDuBien} />}
+                    onHistoriqueDuBien={ouvrirVieDuBien} onCreer={creerEtRattacher} />}
         </section>
       ) : (
         <Resultats reponse={reponse} terme={terme} ouvrir={ouvrir} />
       )}
     </div>
-  );
-}
-
-/**
- * ══ 🔴 AJOUTER UNE PERSONNE — LE MINIMUM, ET RIEN DE PLUS ═════════════════════════════════════════════════════════
- *
- * Civilité, nom, et la date quand elle fait le bail. Tout le reste (téléphones, e-mails, qualité, note) se saisit
- * ENSUITE, sur la carte, avec le crayon : demander dix champs avant de créer ferait abandonner le geste à mi-chemin,
- * et une fiche à moitié remplie vaut mieux qu'une fiche jamais créée.
- */
-function PanneauAjout({ d, onCreer, onAnnuler }: {
-  d: DemandeAjout;
-  onCreer: (saisie: { civilite: string; nom: string; date: string }) => Promise<string | null>;
-  onAnnuler: () => void;
-}) {
-  const [civilite, setCivilite] = useState('');
-  const [nom, setNom] = useState('');
-  const [date, setDate] = useState('');
-  const [refus, setRefus] = useState<string | null>(null);
-  const [envoi, setEnvoi] = useState(false);
-  return (
-    <form className="ann-bloc cp-form" onSubmit={(e) => {
-      e.preventDefault();
-      if (nom.trim() === '') { setRefus('Le nom est obligatoire.'); return; }
-      setEnvoi(true);
-      void (async () => { setRefus(await onCreer({ civilite, nom, date })); setEnvoi(false); })();
-    }}>
-      <p className="cp-form-titre">{d.titre}</p>
-      <label className="cp-champ">
-        <span className="cp-champ-mot">Civilité</span>
-        <input className="cp-saisie" value={civilite} onChange={(e) => setCivilite(e.target.value)}
-          placeholder="M. / Mme / SCI…" />
-      </label>
-      <label className="cp-champ">
-        <span className="cp-champ-mot">Nom</span>
-        <input className="cp-saisie" value={nom} onChange={(e) => setNom(e.target.value)} required autoFocus />
-      </label>
-      {d.avecDate && (
-        <label className="cp-champ">
-          <span className="cp-champ-mot">{d.motDate}</span>
-          {/* ⚠️ LA DATE PEUT RESTER VIDE : la base l'accepte (283 occupations sans date d'entrée), et inventer
-              « aujourd'hui » écrirait un fait faux dans l'historique du bien. */}
-          <input className="cp-saisie" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </label>
-      )}
-      {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
-      <div className="cp-form-boutons">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler}>Annuler</button>
-        <button type="submit" className="svv-btn gst-btn" disabled={envoi}>
-          {envoi ? 'Création…' : 'Créer la fiche'}
-        </button>
-      </div>
-    </form>
   );
 }
 
@@ -570,6 +516,39 @@ function DateOuRien({ iso, sinon }: { iso: string | null; sinon: string }) {
 const DRIVE_DOSSIER = 'https://drive.google.com/drive/folders/';
 
 /**
+ * ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — LE CARTOUCHE « ÉVÉNEMENT EN COURS » ═════════════════════════════════════════
+ *
+ * Arno : « Sur une carte de bien concerné par au moins un événement ouvert : juste AU-DESSUS de la ligne SURFACE,
+ * un cartouche orange (coins arrondis, toute la largeur de la carte) avec le texte “Événement en cours”, plus le
+ * nombre s'il y en a plusieurs. Un clic ouvre le ou les événements. Même cartouche en tête de la fiche bien. »
+ *
+ * 🔴 UN SEUL COMPOSANT POUR LES DEUX ENDROITS. La carte et l'en-tête de la fiche doivent dire la même chose, de
+ * la même façon : deux cartouches jumeaux divergeraient au premier ajustement, et l'on croirait à deux états.
+ *
+ * 🔴 « UN CLIC OUVRE LE OU LES ÉVÉNEMENTS » — et ce sont CEUX DE CE BIEN. Il ouvre donc la fiche du bien posée sur
+ * sa « vie du bien », filtrée sur « Avec événement ouvert » : la liste qui en résulte est exactement celle des
+ * échanges de ce logement qui portent un événement, chacun avec le sien. Envoyer vers l'écran « Événements », qui
+ * les montre TOUS, obligerait à rechercher à la main celui qu'on venait de voir.
+ *
+ * ⚠️ AUCUNE COULEUR NOUVELLE : `--color-svv-amber-soft` en fond et `--color-svv-amber` en texte, la paire d'alerte
+ * déjà employée par les replis du module. Contraste vérifié en Clair et en Sombre.
+ *
+ * ⚠️ LE NOMBRE N'EST ÉCRIT QU'AU-DELÀ DE UN. « Événement en cours 1 » se lit comme un compteur qu'on devrait
+ * surveiller ; « Événement en cours » se lit comme un fait.
+ */
+function CartoucheEvenement({ nb, onOuvrir }: { nb: number; onOuvrir: () => void }) {
+  if (nb <= 0) return null;
+  const mot = nb > 1 ? `${nb} événements en cours` : 'Événement en cours';
+  return (
+    <button type="button" className="ann-cartouche" onClick={onOuvrir}
+      title="Voir les échanges de ce bien qui portent un événement ouvert">
+      <span aria-hidden="true" className="ann-cartouche-point">●</span>
+      {mot}
+    </button>
+  );
+}
+
+/**
  * ══ 🔴🔴 UNE CARTE DE BIEN ════════════════════════════════════════════════════════════════════════════════════
  *
  * Arno : « les BIENS en gestion […] sous forme de CARTES cliquables : adresse, lot, type, surface ou “non
@@ -583,8 +562,10 @@ const DRIVE_DOSSIER = 'https://drive.google.com/drive/folders/';
  * ⚠️ « SURFACE : NON RENSEIGNÉE » EST UN FAIT, PAS UN TROU. Mesuré le 29/09/2026 : aucune colonne de surface
  * n'existe dans le schéma. On ne la déduit pas du type (« Type 2 » ne dit pas des mètres carrés).
  */
-function CarteBien({ b, ouvrir, onHistoriqueDuBien }: {
+function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
   b: BienDuProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
+  /** Ouvre la « vie du bien » de ce lot, filtrée sur les échanges qui portent un événement ouvert. */
+  onEvenements: (lotId: number) => void;
   /**
    * 🔴 LOT FICHES-RETOUCHES — « Historique » ouvre la fiche DE CE BIEN, posée sur sa « vie du bien ».
    *
@@ -596,6 +577,18 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien }: {
 }) {
   return (
     <li className={`ann-carte${b.fin !== null ? ' ann-carte--ancien' : ''}`}>
+      {/* ══ 🔴🔴 RÉÉCRIT LE 30/09/2026 — LOT FICHES-RETOUCHES-2 ═══════════════════════════════════════════════
+          L'INVARIANT D'AVANT DISAIT : « LA CARTE ENTIÈRE EST LE BOUTON » — l'en-tête ET les faits vivaient dans un
+          seul `<button>`. Le cartouche « Événement en cours » doit se poser JUSTE AU-DESSUS de la ligne SURFACE,
+          et il est CLIQUABLE : un bouton dans un bouton est du HTML invalide et injouable au clavier.
+
+          🔴 CE QUI EST DEVENU LE BOUTON : L'EN-TÊTE TEINTÉ (l'adresse et ses capsules). C'est ce qu'on vise pour
+          ouvrir un bien, et cela ne laisse qu'UN arrêt de tabulation pour ce geste au lieu de deux. Les faits, en
+          dessous, sont là pour être LUS — et ce qui s'y ouvre a désormais son propre bouton, en pied de carte
+          (« Historique », « Fiche du locataire », « Dossier Drive du lot »).
+
+          CE QUE LA RÈGLE PROTÉGEAIT N'A PAS BOUGÉ : rien d'interactif n'est imbriqué dans autre chose
+          d'interactif, et un garde le vérifie sur la source. */}
       <button type="button" className="ann-carte-corps" onClick={() => ouvrir('lot', b.id)}>
         <span className="ann-carte-tete">
           <span className="ann-carte-titre">{titreLogement(b.adresse, b.commune)}</span>
@@ -605,7 +598,10 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien }: {
             {b.typeBien && <span className="ann-etiq">{b.typeBien}</span>}
           </span>
         </span>
-        <span className="ann-carte-faits">
+      </button>
+      {/* 🔴 JUSTE AU-DESSUS DE LA LIGNE SURFACE, sur toute la largeur — la place demandée par Arno. */}
+      <CartoucheEvenement nb={b.evenementsOuverts} onOuvrir={() => onEvenements(b.id)} />
+      <div className="ann-carte-faits">
           <span className="ann-fait">
             <span className="ann-fait-mot">Surface</span>
             {b.surfaceM2 === null
@@ -635,8 +631,7 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien }: {
             <span className="ann-fait-mot">{b.fin === null ? 'En gestion depuis' : 'Sorti de gestion le'}</span>
             <DateOuRien iso={b.fin ?? b.debut} sinon="non renseigné" />
           </span>
-        </span>
-      </button>
+      </div>
       {/* ══ 🔴🔴 LOT FICHES-RETOUCHES — LE PIED DE CARTE EN BOUTONS ═══════════════════════════════════════════
           Arno : « “Fiche du locataire →” et “Dossier Drive du lot ↗” sont aujourd'hui deux liens soulignés mal
           alignés. Ils deviennent deux BOUTONS côte à côte sur la même ligne, de même hauteur et de même largeur,
@@ -681,13 +676,16 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien }: {
   );
 }
 
-function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout, onHistoriqueDuBien }: {
+function VueProprietaire({ f, ouvrir, onHistorique, gestes, onCreer, onHistoriqueDuBien, onEvenements }: {
   f: FicheProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
   /** Ouvre la fiche d'un bien, posée sur sa « vie du bien ». Voir `CarteBien`. */
   onHistoriqueDuBien: (lotId: number) => void;
+  /** Même chemin, filtré sur les échanges qui portent un événement ouvert. */
+  onEvenements: (lotId: number) => void;
   gestes: GestesCartes;
-  onAjout: (d: DemandeAjout) => void;
+  /** Crée une personne et la rattache aux biens donnés. Rend le motif du refus, ou `null`. */
+  onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis) => Promise<string | null>;
 }) {
   const [anciensOuverts, setAnciensOuverts] = useState(false);
   const enGestion = f.biens.filter((b) => b.fin === null);
@@ -744,15 +742,14 @@ function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout, onHistoriqu
           ⚠️ « + AJOUTER UN PROPRIÉTAIRE » VEUT DIRE CO-PROPRIÉTAIRE DU MÊME ENSEMBLE DE BIENS : la personne créée
           est rattachée à tous les biens EN GESTION de cette fiche, ce qui est exactement ce que le bloc annonce. */}
       <BlocCartes titre="Coordonnées" id="ann-coord" personnes={f.personnes} role="Propriétaire"
-        motAjouter="Ajouter un propriétaire"
-        gestes={{
-          ...gestes,
-          onAjouter: (sujet) => onAjout({
-            sujet, lots: enGestion.map((b) => b.id), avecDate: true,
-            titre: `Ajouter un co-propriétaire${enGestion.length > 0
-              ? ` sur ${enGestion.length} bien${enGestion.length > 1 ? 's' : ''} en gestion` : ''}`,
-            motDate: 'Propriétaire depuis le (facultatif)',
-          }),
+        motAjouter="Ajouter un propriétaire" gestes={gestes}
+        creation={{
+          rappel: enGestion.length === 0
+            ? 'Cette fiche n’a aucun bien en gestion : la personne sera créée dans l’annuaire, sans rattachement.'
+            : `Sera ajouté comme co-propriétaire sur ${enGestion.length === 1 ? 'le bien'
+              : `les ${enGestion.length} biens`} de cette fiche.`,
+          motDate: 'Propriétaire depuis le',
+          onCreer: (champs) => onCreer('proprietaire', enGestion.map((b) => b.id), champs),
         }} />
 
       <p className="ann-depuis">
@@ -770,7 +767,7 @@ function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout, onHistoriqu
         {enGestion.length === 0 ? <p className="ann-gris">Aucun bien en gestion.</p> : (
           <ul className="ann-cartes">
             {enGestion.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir}
-              onHistoriqueDuBien={onHistoriqueDuBien} />)}
+              onHistoriqueDuBien={onHistoriqueDuBien} onEvenements={onEvenements} />)}
           </ul>
         )}
       </section>
@@ -787,7 +784,7 @@ function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout, onHistoriqu
           {anciensOuverts && (
             <ul className="ann-cartes">
               {anciens.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir}
-                onHistoriqueDuBien={onHistoriqueDuBien} />)}
+                onHistoriqueDuBien={onHistoriqueDuBien} onEvenements={onEvenements} />)}
             </ul>
           )}
         </section>
@@ -936,21 +933,29 @@ function BlocOccupant({ o, ouvrir, onEcrire }: {
  * 🔭 L'étape C ouvre l'ajout d'un occupant : c'est là que le groupe en portera plusieurs, pour de vrai.
  */
 function VueLot({
-  f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onAjout, onDepart,
-  poserSurVieDuBien, onVieDuBienPosee,
+  f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onCreer, onDepart,
+  poserSurVieDuBien, onVieDuBienPosee, filtreVie, onFiltreVie,
 }: {
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
   onEcrire?: (email: string) => void;
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   gestes: GestesCartes;
-  onAjout: (d: DemandeAjout) => void;
+  /** Crée une personne et la rattache aux biens donnés. Rend le motif du refus, ou `null`. */
+  onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis) => Promise<string | null>;
   /** Enregistre un départ. Rend le motif du refus, ou `null`. */
   onDepart: (occupationId: number, sortie: string | null) => Promise<string | null>;
-  /** Vrai quand on arrive ici par « Historique » : la fiche se pose alors sur la « vie du bien ». */
+  /** Vrai quand on arrive ici par « Historique » ou par un cartouche : la fiche se pose sur la « vie du bien ». */
   poserSurVieDuBien: boolean;
   /** Prévient le parent que c'est fait — sans quoi la fiche redescendrait à chaque rendu. */
   onVieDuBienPosee: () => void;
+  /**
+   * 🔴 LE FILTRE DE LA « VIE DU BIEN », TENU PAR LE PARENT. Deux chemins le règlent : l'arrivée depuis une carte
+   * de bien (le cartouche « Événement en cours »), et le cartouche de CETTE page. Le garder ici plutôt que dans
+   * `VieDuBien` permet aux deux de dire la même chose sans se marcher dessus.
+   */
+  filtreVie: FiltreVie;
+  onFiltreVie: (f: FiltreVie) => void;
 }) {
   const actuels = f.occupations.filter((o) => o.encours);
   const passes = f.occupations.filter((o) => !o.encours);
@@ -968,6 +973,11 @@ function VueLot({
    * une page qui grandit finit ailleurs que là où elle visait. Un saut net atterrit juste.
    */
   const ancreVie = useRef<HTMLDivElement | null>(null);
+  /**
+   * ⚠️ LA CLÉ DE `VieDuBien` PORTE LE FILTRE : c'est ce qui fait repartir le composant sur le filtre voulu quand
+   * on clique un cartouche. Sans elle, l'état interne de `VieDuBien` garderait le filtre d'avant — et le clic
+   * n'aurait l'air de rien faire.
+   */
   useEffect(() => {
     if (!poserSurVieDuBien) return;
     ancreVie.current?.scrollIntoView({ block: 'start' });
@@ -994,6 +1004,11 @@ function VueLot({
           )}
         </div>
       </header>
+
+      {/* 🔴 LOT FICHES-RETOUCHES-2 — LE MÊME CARTOUCHE EN TÊTE DE LA FICHE DU BIEN, comme demandé. Un clic pose
+          la page sur la « vie du bien » filtrée sur les échanges qui portent un événement ouvert. */}
+      <CartoucheEvenement nb={f.evenementsOuverts}
+        onOuvrir={() => { onFiltreVie('evenement'); ancreVie.current?.scrollIntoView({ block: 'start' }); }} />
 
       <section className="ann-bloc">
         <div className="ann-personne">
@@ -1035,14 +1050,15 @@ function VueLot({
         personnes={f.proprietaires} role="Propriétaire" motAjouter="Ajouter un propriétaire"
         gestes={{
           ...gestes,
-          onAjouter: (sujet) => onAjout({
-            sujet, lots: [f.id], avecDate: true, titre: `Ajouter un propriétaire au lot ${f.numero}`,
-            motDate: 'Propriétaire depuis le (facultatif)',
-          }),
           /* ⚠️ « REMPLACER » MÈNE À LA FICHE DE LA PERSONNE : c'est là que le geste a un sens, puisqu'il faut
              d'abord désigner le NOUVEAU propriétaire. Le proposer ici sans savoir par qui remplacer ouvrirait un
              formulaire qui n'aurait rien à dire. */
           onRemplacer: (sujet, id) => ouvrir(sujet === 'proprietaire' ? 'proprietaire' : 'locataire', id),
+        }}
+        creation={{
+          rappel: `Sera ajouté comme co-propriétaire du lot ${f.numero}.`,
+          motDate: 'Propriétaire depuis le',
+          onCreer: (champs) => onCreer('proprietaire', [f.id], champs),
         }} />
 
       {/* ══ 🔴 LES OCCUPANTS EN PLACE, EN CARTES — chacun avec ses dates et « Enregistrer un départ » ══════════════
@@ -1050,13 +1066,11 @@ function VueLot({
           d'entrée et liens vers leur fiche » ; et pour l'étape C : « enregistrer un départ (date de sortie →
           historique), enregistrer un nouveau locataire (date d'entrée) ». */}
       <BlocCartes titre={`Locataire${actuels.length > 1 ? 's' : ''} en place`} id="ann-occ"
-        personnes={f.occupants} role="En place" motAjouter="Ajouter un occupant"
-        gestes={{
-          ...gestes,
-          onAjouter: (sujet) => onAjout({
-            sujet: sujet === 'locataire' ? 'locataire' : 'locataire', lots: [f.id], avecDate: true,
-            titre: `Ajouter un occupant au lot ${f.numero}`, motDate: 'Entré le (facultatif)',
-          }),
+        personnes={f.occupants} role="En place" motAjouter="Ajouter un occupant" gestes={gestes}
+        creation={{
+          rappel: `Sera ajouté comme occupant du lot ${f.numero}.`,
+          motDate: 'Entré le',
+          onCreer: (champs) => onCreer('locataire', [f.id], champs),
         }}
         dessous={(p) => {
           const occ = actuels.find((o) => o.locataireId === p.id);
@@ -1100,7 +1114,10 @@ function VueLot({
       </section>
 
       <div ref={ancreVie}>
-        <VieDuBien lotCle={f.numero} maintenant={maintenant} onOuvrirFil={onOuvrirFil} />
+        {/* 🔴 LE FILTRE DEMANDÉ EST APPLIQUÉ D'EMBLÉE : arriver par le cartouche « Événement en cours » doit
+            montrer LES ÉCHANGES QUI PORTENT UN ÉVÉNEMENT, pas la liste entière à filtrer soi-même. */}
+        <VieDuBien key={filtreVie} lotCle={f.numero} maintenant={maintenant} onOuvrirFil={onOuvrirFil}
+          filtreInitial={filtreVie} />
       </div>
 
       <p className="ann-discret">
@@ -1151,10 +1168,13 @@ function grouperParPeriode(occupations: readonly OccupationDuLot[]): OccupationD
  * personne mais à un BIEN (règle centrale du module : « la cible est toujours un bien ») : les mails d'un
  * locataire sont donc ceux de son logement, et l'écran le DIT plutôt que de laisser croire à un tri par personne.
  */
-function VueLocataire({ f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil, onHistoriqueDuBien }: {
+function VueLocataire({
+  f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil, onHistoriqueDuBien, onCreer,
+}: {
   f: FicheLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
   onHistoriqueDuBien: (lotId: number) => void;
+  onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis) => Promise<string | null>;
   gestes: GestesCartes;
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
@@ -1177,12 +1197,16 @@ function VueLocataire({ f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil
 
       {/* ══ 🔴 TOUS LES OCCUPANTS DU MÊME LOGEMENT, EN CARTES — la règle d'Arno, à l'écran ═══════════════════════ */}
       <BlocCartes titre="Coordonnées" id="ann-coord-loc" personnes={f.personnes} motAjouter="Ajouter un occupant"
-        role={(p) => (p.id === f.id ? 'Locataire' : 'Même logement')}
-        gestes={{
-          ...gestes,
-          // ⚠️ On rattache au logement EN COURS. Sans logement en cours, la personne est créée sans lien : rien à
-          //    quoi la rattacher, et inventer un bail serait écrire un fait faux.
-          onAjouter: (sujet) => gestes.onAjouter(sujet),
+        role={(p) => (p.id === f.id ? 'Locataire' : 'Même logement')} gestes={gestes}
+        creation={{
+          /* ⚠️ ON RATTACHE AU LOGEMENT EN COURS. Sans logement en cours, la personne est créée sans lien : il n'y
+             a rien à quoi la rattacher, et inventer un bail serait écrire un fait faux — la phrase le dit. */
+          rappel: enCours.length === 0
+            ? 'Cette personne n’occupe aucun logement : le nouvel occupant sera créé sans rattachement.'
+            : `Sera ajouté comme occupant du lot ${enCours[0].numero}, avec ${f.nom}.`,
+          motDate: 'Entré le',
+          onCreer: (champs) => onCreer('locataire', enCours.map((o) => o.lotId)
+            .filter((x): x is number => x !== null).slice(0, 1), champs),
         }} />
       {f.personnes.length > 1 && (
         <p className="ann-gris">
@@ -1650,4 +1674,64 @@ export const CSS_ANNUAIRE = `
   min-height:36px;font-size:.76rem}
 /* Le lien discret de l'en-tete : l'historique tous biens confondus, quand il n'est pas redondant. */
 .ann-tete-histo{font-size:.78rem}
+
+/* ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — DES CARTES DE MEME HAUTEUR, BOUTONS COLLES EN BAS ══════════════════════════
+   Arno : « toutes les cartes ont la meme hauteur : la plus haute impose sa taille aux autres. Pas de hauteur fixe
+   arbitraire. Les boutons du bas sont TOUJOURS colles en bas de la carte, alignes au meme niveau sur toutes les
+   cartes de la ligne, meme quand une carte n'a que 2 boutons (bien vacant). »
+
+   🔴 TROIS REGLES, ET IL FAUT LES TROIS :
+     ① la grille etire ses cases (align-items:stretch, deja le defaut) — chaque carte remplit la hauteur de SA
+       RANGEE, qui est celle de la plus haute ;
+     ② la carte est une colonne flex, et le bloc des FAITS prend l'espace restant (flex:1 1 auto) — c'est lui qui
+       absorbe la difference, pas le pied ;
+     ③ le pied est pousse en bas (margin-top:auto). Sans le ③, une carte courte laisserait ses boutons flotter au
+       milieu, et la ligne des « Dossier Drive » serait en escalier d'une carte a l'autre.
+   Une hauteur FIXE, elle, couperait la plus haute des qu'un bien porte un cartouche d'evenement. */
+.ann-cartes{align-items:stretch}
+.ann-carte-faits{flex:1 1 auto}
+.ann-carte-pied{margin-top:auto}
+
+/* ══ 🔴 LE CARTOUCHE « EVENEMENT EN COURS » ═══════════════════════════════════════════════════════════════════
+   Toute la largeur, coins arrondis, orange SOBRE de la palette d'alerte existante — aucune couleur nouvelle :
+   --color-svv-amber-soft en fond, --color-svv-amber en texte, la paire deja employee par les replis du module.
+   Contraste AA verifie en Clair comme en Sombre. */
+.ann-cartouche{display:flex;align-items:center;justify-content:center;gap:.4rem;width:100%;
+  margin:0 0 .35rem;padding:.4rem .6rem;border-radius:.5rem;cursor:pointer;
+  border:1px solid var(--color-svv-amber);background:var(--color-svv-amber-soft);color:var(--color-svv-amber);
+  font:inherit;font-size:.8rem;font-weight:700;text-align:center;
+  transition:background .15s ease,box-shadow .15s ease,transform .15s ease}
+.ann-cartouche:hover{box-shadow:0 2px 6px rgba(22,32,44,.14);transform:translateY(-1px)}
+.ann-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.ann-cartouche-point{font-size:.6rem;line-height:1}
+/* En tete de la fiche du bien, il respire un peu plus : il n'est plus serre entre deux lignes de faits. */
+.ann-tete + .ann-cartouche{margin:.1rem 0 .2rem;padding:.55rem .7rem;font-size:.85rem}
+@media (prefers-reduced-motion:reduce){.ann-cartouche{transition:none}.ann-cartouche:hover{transform:none}}
+
+/* ══ 🔴 LES BOUTONS REAGISSENT AU SURVOL ══════════════════════════════════════════════════════════════════════
+   Arno : « fond legerement teinte, bordure plus marquee, legere elevation, curseur main, transition courte.
+   Focus clavier visible. Meme comportement en Sombre. »
+
+   ⚠️ LE MOUVEMENT EST DE 1 PIXEL, et il se coupe sous prefers-reduced-motion : une carte qui saute a chaque
+   passage de souris fatigue plus qu'elle n'informe. */
+.ann-carte-bouton,.ann-tete-actions .svv-btn{cursor:pointer;
+  transition:background .15s ease,border-color .15s ease,box-shadow .15s ease,transform .15s ease}
+.ann-carte-bouton:hover,.ann-tete-actions .svv-btn:hover{background:var(--color-svv-field);
+  border-color:var(--color-svv-line-strong-hover);box-shadow:0 2px 6px rgba(22,32,44,.12);
+  transform:translateY(-1px)}
+.ann-carte-bouton:focus-visible,.ann-tete-actions .svv-btn:focus-visible{outline:2px solid var(--color-svv-red);
+  outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .ann-carte-bouton,.ann-tete-actions .svv-btn{transition:none}
+  .ann-carte-bouton:hover,.ann-tete-actions .svv-btn:hover{transform:none}
+}
+/* En SOMBRE, une ombre noire sur fond sombre ne se voit pas : c'est le contour clair qui fait le relief. */
+.svv-adm-root[data-theme='dark'] .ann-carte-bouton:hover,
+.svv-adm-root[data-theme='dark'] .ann-tete-actions .svv-btn:hover,
+.svv-adm-root[data-theme='dark'] .ann-cartouche:hover{box-shadow:0 2px 8px rgba(0,0,0,.5)}
+@media (prefers-color-scheme:dark){
+  .svv-adm-root:not([data-theme='light']) .ann-carte-bouton:hover,
+  .svv-adm-root:not([data-theme='light']) .ann-tete-actions .svv-btn:hover,
+  .svv-adm-root:not([data-theme='light']) .ann-cartouche:hover{box-shadow:0 2px 8px rgba(0,0,0,.5)}
+}
 `;

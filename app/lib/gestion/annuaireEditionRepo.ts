@@ -2,7 +2,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { annuaireModifiableDisponible } from './schema';
 import { nomComplet, normaliserTexte } from './annuaire';
 import {
-  notePropre, texteOuRien, verifierCoordonnees, verifierSeparation,
+  MOTIF_DERNIER_PROPRIETAIRE, notePropre, texteOuRien, verifierCoordonnees, verifierSeparation,
   type CoordonneeSaisie, type RepartitionCoordonnee,
 } from './annuaireEdition';
 import type { Auteur } from './rattachementRepo';
@@ -280,6 +280,31 @@ export async function archiverPersonne(
     const p = rows[0];
     if (p === undefined) return { etat: 'inconnu' as const };
 
+    /**
+     * ══ 🔴🔴 UN BIEN DOIT TOUJOURS AVOIR AU MOINS UN PROPRIÉTAIRE ═════════════════════════════════════════════
+     *
+     * Règle d'Arno : « Il est impossible d'archiver […] le DERNIER propriétaire actif d'un bien. […] Garde côté
+     * serveur aussi : refus dans la transaction, même en cas d'appel direct. »
+     *
+     * 🔴 LE GARDE EST ICI, ET PAS SEULEMENT À L'ÉCRAN. Le bouton grisé protège de la maladresse ; il ne protège
+     * de rien du tout contre un appel direct à la route, une fenêtre restée ouverte pendant qu'un collègue
+     * archivait l'autre propriétaire, ou un futur écran qui oublierait la règle. Un bien sans propriétaire est un
+     * bien qu'on ne sait plus à qui facturer : l'invariant se tient là où il ne peut pas être contourné.
+     *
+     * ⚠️ DANS LA TRANSACTION, ET APRÈS LE `FOR UPDATE` de la fiche : entre la lecture et l'écriture, personne ne
+     * peut archiver l'autre propriétaire du même bien sans attendre ce verrou.
+     */
+    if (archiver && sujet === 'proprietaire') {
+      const orphelin = await lotSansProprietaireApres(q, id);
+      if (orphelin !== null) {
+        return {
+          etat: 'refus' as const,
+          motif: `${MOTIF_DERNIER_PROPRIETAIRE} Le lot ${orphelin} n’en aurait plus aucun. `
+            + 'Ajoutez ou désignez d’abord un autre propriétaire, ou utilisez « Remplacer ».',
+        };
+      }
+    }
+
     await q(
       `UPDATE ${TABLE[sujet]}
           SET archive_le = ${archiver ? 'now()' : 'NULL'},
@@ -296,6 +321,50 @@ export async function archiverPersonne(
     });
     return { etat: 'ok' as const, data: { nom: p.nom } };
   });
+}
+
+/**
+ * ══ 🔴🔴 LE LOT QUI RESTERAIT SANS PROPRIÉTAIRE SI L'ON ARCHIVAIT CETTE PERSONNE ══════════════════════════════════
+ *
+ * Rend la CLÉ WIPPIMMO du premier lot orphelin, ou `null` si aucun ne le deviendrait.
+ *
+ * ═══ POURQUOI DEUX SOURCES DE PROPRIÉTÉ, ET POURQUOI IL FAUT LES DEUX ═════════════════════════════════════════════
+ * Un lot connaît ses propriétaires par `gestion_annuaire_lot.proprietaire_id` (ce que l'import écrit — UN seul) ET
+ * par `gestion_annuaire_lot_proprietaire` (les liens ajoutés à la main, plusieurs, avec leur période). N'en
+ * regarder qu'une laisserait passer exactement le cas qu'on veut interdire : archiver le propriétaire d'import d'un
+ * bien qui n'a aucun co-propriétaire ajouté.
+ *
+ * 🔴 « ACTIF » VEUT DIRE NON ARCHIVÉ, et pour un lien ajouté, EN COURS (`jusqu_a IS NULL`). Un ancien propriétaire
+ * appartient à l'historique du bien : le compter ferait croire que le bien a encore quelqu'un.
+ *
+ * ⚠️ UN LOT SORTI DE GESTION COMPTE AUSSI. On garde ses mails, son historique et ses pièces ; un bien dont on ne
+ * saurait plus dire à qui il était reste une perte, même s'il n'est plus géré aujourd'hui.
+ */
+async function lotSansProprietaireApres(q: RequeteTx, proprietaireId: number): Promise<string | null> {
+  if (!await annuaireModifiableDisponible()) return null;
+  const { rows } = await q<{ cle: string }>(
+    /* AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral gabarit, qu'un seul accent grave
+       terminerait — piege consigne TREIZE fois dans ce depot, et treize fois dans un commentaire.
+       ses_lots : les biens ou cette personne est proprietaire, par l'une ou l'autre source.
+       autres   : pour chacun, combien d'AUTRES proprietaires ACTIFS il lui reste. */
+    `WITH ses_lots AS (
+       SELECT id AS lot_id FROM gestion_annuaire_lot WHERE proprietaire_id = $1
+       UNION
+       SELECT lot_id FROM gestion_annuaire_lot_proprietaire WHERE proprietaire_id = $1 AND jusqu_a IS NULL
+     )
+     SELECT lo.wippimmo_id AS cle
+       FROM ses_lots s JOIN gestion_annuaire_lot lo ON lo.id = s.lot_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM gestion_annuaire_proprietaire pr
+         WHERE pr.id = lo.proprietaire_id AND pr.id <> $1 AND pr.archive_le IS NULL)
+        AND NOT EXISTS (
+        SELECT 1 FROM gestion_annuaire_lot_proprietaire lp
+          JOIN gestion_annuaire_proprietaire pr2 ON pr2.id = lp.proprietaire_id
+         WHERE lp.lot_id = lo.id AND lp.jusqu_a IS NULL AND lp.proprietaire_id <> $1
+           AND pr2.archive_le IS NULL)
+      ORDER BY lo.wippimmo_id
+      LIMIT 1`, [proprietaireId]);
+  return rows[0]?.cle ?? null;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -447,6 +516,24 @@ export async function remplacerProprietaireDuLot(lotId: number, o: {
 }, auteur: Auteur): Promise<IssueEdition> {
   if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
   return withTransaction(async (q) => {
+    /**
+     * ══ 🔴🔴 REMPLACER, OUI — REMPLACER PAR PERSONNE, NON ═════════════════════════════════════════════════════
+     *
+     * Arno : « “Remplacer” reste possible, PUISQUE le successeur est créé dans la même opération ». C'est
+     * exactement ce qui rend ce geste acceptable, et c'est donc exactement ce qu'il faut vérifier : si le
+     * successeur n'existe pas, ou s'il est lui-même archivé, le bien se retrouverait sans propriétaire — par la
+     * porte de derrière, alors qu'on a fermé celle de devant.
+     */
+    const { rows: succ } = await q<{ n: number }>(
+      `SELECT count(*)::int AS n FROM gestion_annuaire_proprietaire
+        WHERE id = $1 AND archive_le IS NULL`, [o.nouveauId]);
+    if ((succ[0]?.n ?? 0) === 0) {
+      return {
+        etat: 'refus' as const,
+        motif: `${MOTIF_DERNIER_PROPRIETAIRE} Le successeur désigné n’existe pas, ou il est archivé.`,
+      };
+    }
+
     await q(
       `UPDATE gestion_annuaire_lot_proprietaire
           SET jusqu_a = coalesce($3::date, current_date)
@@ -473,29 +560,70 @@ export async function remplacerProprietaireDuLot(lotId: number, o: {
 
 /** CRÉE une personne dans l'annuaire, à la main. Rend son identifiant. */
 export async function creerPersonne(
-  sujet: Sujet, o: { civilite: string | null; nom: string }, auteur: Auteur,
+  sujet: Sujet, o: ChampsPersonne & { nom: string }, auteur: Auteur,
 ): Promise<IssueEdition<{ id: number }>> {
   if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
   const nom = texteOuRien(o.nom, 200);
   if (nom === null) return { etat: 'refus', motif: 'Le nom est obligatoire.' };
+
+  /**
+   * ⚠️ LES COORDONNÉES SONT VÉRIFIÉES AVANT D'OUVRIR LA TRANSACTION, comme pour une modification : un refus ne
+   * doit rien avoir commencé — surtout pas créer une fiche à moitié, qu'il faudrait ensuite retrouver.
+   */
+  const retenues = verifierCoordonnees(o.coordonnees ?? []);
+  if (!retenues.ok) return { etat: 'refus', motif: retenues.motif, rang: retenues.rang };
+
   return withTransaction(async (q) => {
     const cle = `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const civilite = texteOuRien(o.civilite, 40);
+    const prenom = texteOuRien(o.prenom, 120);
+    const complet = sujet === 'proprietaire' ? nomComplet(nom, prenom) : nom;
+    const champs = [
+      texteOuRien(o.qualite, 200), notePropre(o.note),
+      texteOuRien(o.adresse, 300), texteOuRien(o.codePostal, 20), texteOuRien(o.commune, 200),
+    ];
+    /**
+     * 🔴🔴 TOUTE LA FICHE EN UNE SEULE ÉCRITURE, coordonnées comprises. L'écran envoie désormais sept champs et
+     * deux coordonnées d'un coup (carte d'ajout = carte Modifier vide) : les écrire en deux appels laisserait,
+     * au moindre refus du second, une fiche nue dans l'annuaire — sans téléphone, sans adresse, et sans que
+     * personne sache d'où elle sort. Ou tout, ou rien.
+     */
     const { rows } = sujet === 'proprietaire'
       ? await q<{ id: string }>(
         `INSERT INTO gestion_annuaire_proprietaire
-           (wippimmo_id, civilite, nom, nom_complet, nom_normalise, rang)
-         VALUES ($1, $2, $3, $3, $4, 0) RETURNING id::text`,
-        [cle, civilite, nom, normaliserTexte(nom)])
+           (wippimmo_id, civilite, nom, prenom, nom_complet, nom_normalise, rang,
+            qualite, note, adresse, code_postal, commune)
+         VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $9, $10, $11) RETURNING id::text`,
+        [cle, civilite, nom, prenom, complet, normaliserTexte(complet), ...champs])
       : await q<{ id: string }>(
         `INSERT INTO gestion_annuaire_locataire
-           (cle_personne, wippimmo_id, civilite, nom, nom_normalise, rang)
-         VALUES ($1, $1, $2, $3, $4, 0) RETURNING id::text`,
-        [cle, civilite, nom, normaliserTexte(nom)]);
+           (cle_personne, wippimmo_id, civilite, nom, prenom, nom_normalise, rang,
+            qualite, note, adresse, code_postal, commune)
+         VALUES ($1, $1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10) RETURNING id::text`,
+        [cle, civilite, nom, prenom, normaliserTexte(nom), ...champs]);
     const id = Number(rows[0].id);
+
+    for (const c of retenues.retenues) {
+      await q(
+        `INSERT INTO gestion_annuaire_contact
+           (sujet, sujet_id, sorte, valeur, valeur_brute, rang, libelle, origine)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'saisie')`,
+        [sujet, id, c.sorte, c.valeur, c.valeurBrute, c.rang, c.libelle]);
+    }
+    /**
+     * 🔴 UNE FICHE CRÉÉE ICI EST INTÉGRALEMENT À NOUS : chacun de ses champs est verrouillé d'emblée. WIPPIMMO
+     * ne la connaît pas (sa clé commence par « app- ») ; le jour où un import prétendrait la recouvrir, il
+     * devrait le SIGNALER, pas l'écraser.
+     */
+    for (const champ of ['civilite', 'nom', 'prenom', 'qualite', 'note', 'adresse', 'code_postal', 'commune',
+      'contacts']) {
+      await verrouiller(q, { sujet, sujetId: id, champ, valeurImport: null, auteur });
+    }
+
     await journaliser(q, {
-      personneId: id, action: 'annuaire_creee', avant: null, apres: nom,
-      commentaire: 'fiche créée à la main dans l’annuaire', auteur,
+      personneId: id, action: 'annuaire_creee', avant: null, apres: complet,
+      commentaire: `fiche créée à la main dans l’annuaire, avec ${retenues.retenues.length} coordonnée(s)`,
+      auteur,
     });
     return { etat: 'ok' as const, data: { id } };
   });

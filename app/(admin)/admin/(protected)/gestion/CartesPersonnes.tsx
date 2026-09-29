@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ContactAffiche, PersonneAnnuaire } from '../../../../lib/gestion/annuaireRepo';
 import {
-  MOTIF_SANS_MIGRATION, phraseArchivage, proposerCoupure, verifierCoordonnees,
-  type CoordonneeSaisie, type PartDeCoordonnee,
+  MOTIF_DERNIER_PROPRIETAIRE, MOTIF_SANS_MIGRATION, manquesDeLaFiche, phraseArchivage, proposerCoupure,
+  verifierCoordonnees, type CoordonneeSaisie, type PartDeCoordonnee,
 } from '../../../../lib/gestion/annuaireEdition';
 // LOT FICHES-RETOUCHES — la nomenclature (Mobile / Fixe / E-mail) et le formatage des numeros.
 import {
@@ -67,6 +67,8 @@ export interface GestesCartes {
 }
 
 export interface ChampsSaisis {
+  /** 🔴 LOT FICHES-RETOUCHES-2 — la date du lien, en CRÉATION seulement (« propriétaire depuis », « entré le »). */
+  date?: string;
   civilite?: string | null;
   nom?: string;
   prenom?: string | null;
@@ -383,7 +385,20 @@ function MenuCarte({ p, gestes, onFermer, onSeparer, onRefus, deplacer }: {
           </div>
         </div>
       ) : (
-        <button type="button" className="cp-menu-item cp-menu-item--attention" onClick={() => setConfirme(true)}>
+        /* ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — LE DERNIER PROPRIÉTAIRE NE S'ARCHIVE PAS ═════════════════════════════
+           Arno : « Il est impossible d'archiver […] le DERNIER propriétaire actif d'un bien. L'action est grisée,
+           avec l'infobulle “Un bien doit toujours avoir au moins un propriétaire”. »
+
+           🔴 GRISÉE, ET NON ABSENTE : une entrée qui disparaît fait chercher où elle est passée ; une entrée
+           grisée qui dit POURQUOI apprend la règle en une seconde. Le serveur refuse de la même façon, et c'est
+           lui qui fait foi — le gris protège de la maladresse, pas d'un appel direct.
+
+           ⚠️ « REMPLACER » RESTE ACTIF juste au-dessus, et c'est voulu : le successeur est créé dans la même
+           opération, le bien n'est donc jamais sans propriétaire, pas même une milliseconde. */
+        <button type="button" className="cp-menu-item cp-menu-item--attention"
+          disabled={p.dernierProprietaire}
+          title={p.dernierProprietaire ? MOTIF_DERNIER_PROPRIETAIRE : undefined}
+          onClick={() => setConfirme(true)}>
           Archiver (restaurable)…
         </button>
       )}
@@ -424,30 +439,56 @@ interface LigneSaisie { cle: string; type: TypeCoordonnee; valeur: string }
  * adresses, jamais celles d'un propriétaire ou d'un locataire — les accepter ferait rapprocher nos propres mails
  * d'une fiche de client.
  */
-function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus }: {
-  p: PersonneAnnuaire;
+function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
+  /** `null` en CRÉATION : la même carte, vide. */
+  p: PersonneAnnuaire | null;
   onEnregistrer: (champs: ChampsSaisis) => Promise<void>;
   onAnnuler: () => void;
   refus: string | null;
+  /**
+   * ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — LA CARTE D'AJOUT EST LA CARTE « MODIFIER », VIDE ════════════════════════════
+   *
+   * Arno : « Un clic sur la tuile “+ Ajouter” ouvre, À SA PLACE DANS LA RANGÉE, une carte identique au mode
+   * Modifier d'un contact existant, mais vide ». Le formulaire d'avant (Civilité / Nom / date / Créer la fiche)
+   * est supprimé : il demandait deux champs, puis obligeait à rouvrir le crayon pour tout le reste — et une fiche
+   * à moitié remplie est une fiche qu'on ne finit jamais.
+   *
+   * 🔴 UN SEUL COMPOSANT POUR LES DEUX MODES, et c'est le cœur de la demande : « identique au mode Modifier ».
+   * Deux formulaires jumeaux divergeraient au premier champ ajouté, et l'on se retrouverait à saisir un prénom
+   * dans l'un et pas dans l'autre.
+   *
+   * ⚠️ LA DIFFÉRENCE TIENT EN TROIS CHOSES, et elles sont toutes ici : le rappel du haut (« Sera ajouté comme
+   * co-propriétaire sur les N biens de cette fiche »), le champ DATE, et l'EXIGENCE de complétude — « Enregistrer »
+   * reste grisé tant qu'il manque quelque chose, chaque manque étant dit sous son champ.
+   */
+  creation?: { rappel: string; motDate: string };
 }) {
-  const [civilite, setCivilite] = useState(p.civilite ?? '');
-  const [prenom, setPrenom] = useState(p.prenom ?? '');
-  const [nom, setNom] = useState(p.nom);
-  const [qualite, setQualite] = useState(p.qualite ?? '');
-  const [adresse, setAdresse] = useState(p.adresse ?? '');
-  const [codePostal, setCodePostal] = useState(p.codePostal ?? '');
-  const [commune, setCommune] = useState(p.commune ?? '');
-  const [note, setNote] = useState(p.note ?? '');
+  const [civilite, setCivilite] = useState(p?.civilite ?? '');
+  const [prenom, setPrenom] = useState(p?.prenom ?? '');
+  const [nom, setNom] = useState(p?.nom ?? '');
+  const [qualite, setQualite] = useState(p?.qualite ?? '');
+  const [adresse, setAdresse] = useState(p?.adresse ?? '');
+  const [codePostal, setCodePostal] = useState(p?.codePostal ?? '');
+  const [commune, setCommune] = useState(p?.commune ?? '');
+  const [note, setNote] = useState(p?.note ?? '');
+  const [date, setDate] = useState('');
   /**
    * ⚠️ LE TYPE D'UNE COORDONNÉE EXISTANTE SE DÉDUIT DE SON LIBELLÉ IMPORTÉ (« Mobile 2 » → Mobile), et à défaut de
    * sa SORTE, qui ne ment jamais. Un libellé hors nomenclature retombe sur le type le plus probable de sa sorte
    * plutôt que de laisser la liste vide — mais rien n'est réécrit en base tant qu'on n'enregistre pas.
    */
-  const [lignes, setLignes] = useState<LigneSaisie[]>(() => p.contacts.map((c) => ({
-    cle: `c${c.id}`,
-    type: typeDeLibelle(c.libelle, c.sorte).type ?? (c.sorte === 'email' ? 'email' : 'mobile'),
-    valeur: c.affichage,
-  })));
+  /**
+   * ⚠️ EN CRÉATION, LA LISTE DÉMARRE AVEC UN TÉLÉPHONE ET UN E-MAIL VIDES — les deux sont obligatoires, et les
+   * faire ajouter à la main ferait chercher où cliquer avant même de pouvoir saisir.
+   */
+  const [lignes, setLignes] = useState<LigneSaisie[]>(() => (p === null
+    ? [{ cle: 'n-tel', type: 'mobile' as TypeCoordonnee, valeur: '' },
+      { cle: 'n-mail', type: 'email' as TypeCoordonnee, valeur: '' }]
+    : p.contacts.map((c) => ({
+      cle: `c${c.id}`,
+      type: typeDeLibelle(c.libelle, c.sorte).type ?? (c.sorte === 'email' ? 'email' : 'mobile'),
+      valeur: c.affichage,
+    }))));
   const [local, setLocal] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
 
@@ -461,61 +502,101 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus }: {
     });
   };
 
+  /**
+   * 🔴 CE QUI MANQUE, CHAMP PAR CHAMP — calculé à CHAQUE rendu, par la fonction PURE partagée. En création
+   * seulement : sur une fiche existante, on n'exige rien de plus qu'avant (une fiche importée peut n'avoir ni
+   * prénom ni e-mail, et refuser de la modifier pour cette raison rendrait la correction impossible).
+   */
+  const saisiesVivantes: CoordonneeSaisie[] = lignes.map((l) => ({
+    sorte: sorteDuType(l.type), valeur: l.valeur, libelle: motType(l.type),
+  }));
+  const manque = creation === undefined ? {} : manquesDeLaFiche({
+    civilite, nom, prenom, adresse, codePostal, commune, coordonnees: saisiesVivantes, date,
+  });
+  const incomplete = Object.keys(manque).length > 0;
+
   const soumettre = (): void => {
     // 🔴 LE TYPE REDEVIENT `sorte` + `libelle` À L'ENVOI : le serveur n'apprend pas un nouveau vocabulaire.
-    const saisies: CoordonneeSaisie[] = lignes.map((l) => ({
-      sorte: sorteDuType(l.type), valeur: l.valeur, libelle: motType(l.type),
-    }));
+    const saisies = saisiesVivantes.filter((c) => c.valeur.trim() !== '');
     const verdict = verifierCoordonnees(saisies);
     if (!verdict.ok) { setLocal(verdict.motif); return; }
     if (nom.trim() === '') { setLocal('Le nom ne peut pas être vide.'); return; }
+    if (incomplete) { setLocal(null); return; }
     setLocal(null);
     setEnvoi(true);
     void (async () => {
       await onEnregistrer({
         civilite, nom, prenom, qualite, adresse, codePostal, commune, note, coordonnees: saisies,
+        ...(creation === undefined ? {} : { date }),
       });
       setEnvoi(false);
     })();
   };
 
+  /**
+   * Le mot qui dit ce qui manque, posé SOUS son champ. Absent quand le champ est rempli.
+   *
+   * ⚠️ UNE FONCTION QUI REND DU JSX, ET NON UN COMPOSANT DÉFINI DANS LE RENDU. Le compilateur React refuse le
+   * second — à raison : un composant recréé à chaque rendu perd son état et remonte tout son sous-arbre. Ici on
+   * n'a besoin que d'un bout de balisage, et un appel de fonction le donne sans rien promettre de plus.
+   */
+  const manqueDe = (champ: string): React.ReactNode => (manque[champ] === undefined
+    ? null
+    : <span className="cp-manque">{manque[champ]}</span>);
+
   return (
     <form className="cp-form" onSubmit={(e) => { e.preventDefault(); soumettre(); }}>
-      <p className="cp-form-titre">Modifier la fiche</p>
+      <p className="cp-form-titre">{creation === undefined ? 'Modifier la fiche' : 'Nouvelle fiche'}</p>
+      {/* 🔴 LE RAPPEL DIT CE QUE LE GESTE VA FAIRE, avant de le faire : « Sera ajouté comme co-propriétaire sur
+          les N biens de cette fiche ». Sans lui, on remplit sept champs sans savoir où la personne atterrit. */}
+      {creation !== undefined && <p className="cp-rappel">{creation.rappel}</p>}
 
       <label className="cp-champ">
         <span className="cp-champ-mot">Civilité</span>
         <input className="cp-saisie" value={civilite} onChange={(e) => setCivilite(e.target.value)}
           placeholder="M. / Mme / SCI…" />
+        {manqueDe('civilite')}
       </label>
       <label className="cp-champ">
         <span className="cp-champ-mot">Nom</span>
         <input className="cp-saisie" value={nom} onChange={(e) => setNom(e.target.value)} required />
+        {manqueDe('nom')}
       </label>
       <label className="cp-champ">
         <span className="cp-champ-mot">Prénom</span>
         <input className="cp-saisie" value={prenom} onChange={(e) => setPrenom(e.target.value)} />
+        {manqueDe('prenom')}
       </label>
       <label className="cp-champ">
-        <span className="cp-champ-mot">Qualité</span>
+        <span className="cp-champ-mot">Qualité <span className="cp-facultatif">facultative</span></span>
         <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)}
           placeholder="indivision, gérant, représentant…" />
       </label>
       <label className="cp-champ">
         <span className="cp-champ-mot">Adresse</span>
         <input className="cp-saisie" value={adresse} onChange={(e) => setAdresse(e.target.value)} />
+        {manqueDe('adresse')}
       </label>
       <div className="cp-champ cp-champ--duo">
         <label className="cp-duo-part">
           <span className="cp-champ-mot">Code postal</span>
           <input className="cp-saisie" value={codePostal} onChange={(e) => setCodePostal(e.target.value)}
             inputMode="numeric" />
+          {manqueDe('codePostal')}
         </label>
         <label className="cp-duo-part">
           <span className="cp-champ-mot">Commune</span>
           <input className="cp-saisie" value={commune} onChange={(e) => setCommune(e.target.value)} />
+          {manqueDe('commune')}
         </label>
       </div>
+      {creation !== undefined && (
+        <label className="cp-champ">
+          <span className="cp-champ-mot">{creation.motDate}</span>
+          <input className="cp-saisie" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          {manqueDe('date')}
+        </label>
+      )}
 
       <p className="cp-form-titre cp-form-titre--second">Téléphones et e-mails</p>
       <ul className="cp-coords-edit">
@@ -569,9 +650,12 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus }: {
           + E-mail
         </button>
       </div>
+      {/* 🔴 LES DEUX MANQUES DE COORDONNÉES sont dits SOUS le bloc qui les porte, comme les autres champs. */}
+      {manqueDe('telephone')}
+      {manqueDe('email')}
 
       <label className="cp-champ">
-        <span className="cp-champ-mot">Note libre</span>
+        <span className="cp-champ-mot">Note libre <span className="cp-facultatif">facultative</span></span>
         <textarea className="cp-saisie cp-saisie--note" value={note} rows={3}
           onChange={(e) => setNote(e.target.value)} />
       </label>
@@ -579,8 +663,13 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus }: {
       {(local ?? refus) !== null && <p className="cp-refus" role="alert">{local ?? refus}</p>}
 
       <div className="cp-form-boutons">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler}>Annuler</button>
-        <button type="submit" className="svv-btn gst-btn" disabled={envoi}>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn cp-bouton" onClick={onAnnuler}>
+          Annuler
+        </button>
+        {/* 🔴 « ENREGISTRER » RESTE GRISÉ TANT QUE LA FICHE EST INCOMPLÈTE — et ce qui bloque est écrit sous
+            chaque champ, juste au-dessus : un bouton grisé sans motif est une énigme. */}
+        <button type="submit" className="svv-btn gst-btn cp-bouton" disabled={envoi || incomplete}
+          title={incomplete ? 'Il reste des champs à renseigner (voir les mentions en rouge).' : undefined}>
           {envoi ? 'Enregistrement…' : 'Enregistrer'}
         </button>
       </div>
@@ -699,7 +788,7 @@ function EcranSeparer({ p, onSeparer, onAnnuler, refus }: {
  * ⚠️ LES ARCHIVÉES SONT RANGÉES APRÈS LES VIVANTES, pas cachées : « Restaurer » a besoin de sa cible, et une fiche
  * archivée qui disparaîtrait de l'écran laisserait croire qu'elle a été supprimée — ce qui n'arrive jamais ici.
  */
-export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, dessous }: {
+export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, dessous, creation }: {
   titre: string;
   id: string;
   personnes: readonly PersonneAnnuaire[];
@@ -707,10 +796,17 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
   role: string | ((p: PersonneAnnuaire) => string);
   motAjouter: string;
   dessous?: (p: PersonneAnnuaire) => React.ReactNode;
+  /**
+   * 🔴 LOT FICHES-RETOUCHES-2 — CE QUE LA CARTE VIDE DOIT SAVOIR : la phrase qui dit où la personne atterrit, le
+   * mot de son champ date, et le geste qui la crée (il rend `null` si tout va bien, sinon le motif du refus).
+   */
+  creation: { rappel: string; motDate: string; onCreer: (champs: ChampsSaisis) => Promise<string | null> };
 }) {
   const vivantes = personnes.filter((p) => !p.archive);
   const archivees = personnes.filter((p) => p.archive);
   const ordonnees = [...vivantes, ...archivees];
+  const [ajout, setAjout] = useState(false);
+  const [refusAjout, setRefusAjout] = useState<string | null>(null);
   return (
     <section className="ann-bloc" aria-labelledby={id}>
       <h4 className="ann-bloc-titre" id={id}>
@@ -736,14 +832,28 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
               },
             }} />
         ))}
-        {/* 🔴 LA CARTE « + AJOUTER » EST AU BOUT DE LA RANGÉE, comme demandé — pas un bouton perdu au-dessus. */}
-        <button type="button" className="cp-carte cp-carte--ajout" disabled={!gestes.modifiable}
-          title={gestes.modifiable ? undefined : MOTIF_SANS_MIGRATION}
-          onClick={() => gestes.onAjouter(personnes[0]?.sujet ?? 'proprietaire')}>
-          <span className="cp-ajout-plus" aria-hidden="true">+</span>
-          <span className="cp-ajout-mot">{motAjouter}</span>
-          {!gestes.modifiable && <span className="cp-rien">{MOTIF_SANS_MIGRATION}</span>}
-        </button>
+        {/* ══ 🔴🔴 LA TUILE « + AJOUTER », ET LA CARTE VIDE QUI PREND SA PLACE ═══════════════════════════════════
+            Arno : « Un clic sur la tuile “+ Ajouter” ouvre, À SA PLACE DANS LA RANGÉE, une carte identique au mode
+            Modifier d'un contact existant, mais vide ». La tuile ne mène donc plus à un formulaire posé ailleurs
+            dans la page : elle DEVIENT la carte, au bout de la rangée, là où l'on vient de cliquer. */}
+        {ajout ? (
+          <article className="cp-carte cp-carte--edition">
+            <FormulaireCarte p={null} refus={refusAjout} onAnnuler={() => { setAjout(false); setRefusAjout(null); }}
+              creation={{ rappel: creation.rappel, motDate: creation.motDate }}
+              onEnregistrer={async (champs) => {
+                const motif = await creation.onCreer(champs);
+                if (motif === null) { setAjout(false); setRefusAjout(null); } else setRefusAjout(motif);
+              }} />
+          </article>
+        ) : (
+          <button type="button" className="cp-carte cp-carte--ajout" disabled={!gestes.modifiable}
+            title={gestes.modifiable ? undefined : MOTIF_SANS_MIGRATION}
+            onClick={() => setAjout(true)}>
+            <span className="cp-ajout-plus" aria-hidden="true">+</span>
+            <span className="cp-ajout-mot">{motAjouter}</span>
+            {!gestes.modifiable && <span className="cp-rien">{MOTIF_SANS_MIGRATION}</span>}
+          </button>
+        )}
       </Rangee>
     </section>
   );
@@ -755,8 +865,16 @@ export const CSS_CARTES = `
 /* ══ LA RANGEE QUI DEFILE ══════════════════════════════════════════════════════════════════════════════════════ */
 .cp-rangee{position:relative;min-width:0}
 /* Le defilement est horizontal, et il s'arrete sur une carte (scroll-snap) : on ne reste jamais a moitie. */
-.cp-piste{display:flex;gap:.6rem;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;
-  padding:.15rem .15rem .5rem;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+/* ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — TOUTES LES CARTES DE LA RANGEE ONT LA MEME HAUTEUR ═════════════════════════
+   Arno : « la plus haute impose sa taille aux autres. Pas de hauteur fixe arbitraire. »
+   align-items:stretch (le defaut du flex) fait exactement cela : chaque carte s'etire sur la hauteur de la
+   ligne, qui est celle de la plus haute. Une hauteur FIXE, elle, couperait la plus haute ou laisserait un vide
+   sous les autres des qu'un proprietaire porte trois telephones.
+   AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral gabarit, qu'un seul accent grave
+   terminerait — piege consigne QUATORZE fois dans ce depot, et quatorze fois dans un commentaire. */
+.cp-piste{display:flex;align-items:stretch;gap:.6rem;overflow-x:auto;overflow-y:hidden;
+  scroll-snap-type:x proximity;padding:.15rem .15rem .5rem;scrollbar-width:thin;
+  -webkit-overflow-scrolling:touch}
 .cp-piste>*{scroll-snap-align:start}
 /* Le FONDU dit qu'il y a une suite. Pose sur la piste, il suit le defilement sans element flottant de plus. */
 .cp-piste--suite{mask-image:linear-gradient(to right,#000 0,#000 calc(100% - 2.2rem),transparent 100%);
@@ -791,9 +909,19 @@ export const CSS_CARTES = `
 /* Cible tactile >= 44 px en hauteur reelle grace au padding : l'icone reste petite, la zone cliquable non. */
 .cp-icone{min-width:2rem;min-height:2rem;display:inline-flex;align-items:center;justify-content:center;
   font-size:.95rem;line-height:1;cursor:pointer;border:1px solid var(--color-svv-line);border-radius:.45rem;
-  background:var(--color-svv-surface);color:var(--color-svv-ink)}
-.cp-icone:hover:not(:disabled){border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
+  background:var(--color-svv-surface);color:var(--color-svv-ink);
+  transition:background .15s ease,border-color .15s ease,box-shadow .15s ease,transform .15s ease}
+/* ══ 🔴 LOT FICHES-RETOUCHES-2 — LE CRAYON ET LE « ⋯ » REAGISSENT AU SURVOL ═══════════════════════════════════
+   Fond legerement teinte, bordure plus marquee, legere elevation, transition courte — la demande d'Arno, la meme
+   que pour les boutons des cartes de biens. Le focus clavier reste visible, et distinct du survol. */
+.cp-icone:hover:not(:disabled){border-color:var(--color-svv-line-strong-hover);background:var(--color-svv-field);
+  box-shadow:0 2px 6px rgba(22,32,44,.12);transform:translateY(-1px)}
+.cp-icone:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .cp-icone:disabled{opacity:.45;cursor:not-allowed}
+@media (prefers-reduced-motion:reduce){
+  .cp-icone{transition:none}
+  .cp-icone:hover:not(:disabled){transform:none}
+}
 .cp-icone--retirer{color:var(--color-svv-red)}
 
 /* ══ 🔴 L'ALIGNEMENT DES LIGNES — LA DEMANDE EXPRESSE D'ARNO ═══════════════════════════════════════════════════
@@ -866,6 +994,15 @@ export const CSS_CARTES = `
 .cp-ajouts{display:flex;gap:.4rem;flex-wrap:wrap}
 .cp-form-boutons{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.25rem}
 .cp-note-verrou{margin:.2rem 0 0;font-size:.74rem;color:var(--color-svv-muted)}
+/* ══ 🔴 CE QUI MANQUE, SOUS SON CHAMP ══════════════════════════════════════════════════════════════════════════
+   Un mot, en rouge de la charte, juste sous la case qu'il concerne. « La fiche est incomplete » oblige a chercher
+   lequel des huit champs manque ; ceci le montre du doigt. */
+.cp-manque{display:block;margin-top:.15rem;font-size:.73rem;color:var(--color-svv-red)}
+.cp-facultatif{font-weight:400;text-transform:none;letter-spacing:0;font-style:italic;
+  color:var(--color-svv-muted)}
+/* Le rappel du haut de la carte d'ajout : ce que le geste va faire, avant qu'on ne remplisse quoi que ce soit. */
+.cp-rappel{margin:0;padding:.35rem .5rem;border-radius:.45rem;font-size:.78rem;
+  background:var(--color-svv-field);color:var(--color-svv-ink)}
 
 /* ══ SEPARER ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
 .cp-repartition{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.4rem}
@@ -878,11 +1015,20 @@ export const CSS_CARTES = `
   color:var(--color-svv-ink);cursor:pointer}
 
 /* ══ LA CARTE « + AJOUTER » ════════════════════════════════════════════════════════════════════════════════════ */
+/* La tuile « + Ajouter » s'aligne sur la hauteur de la rangee comme les autres ; son min-height n'est plus
+   qu'un plancher pour le cas ou elle serait seule. */
 .cp-carte--ajout{align-items:center;justify-content:center;gap:.2rem;cursor:pointer;
   border-style:dashed;border-color:var(--color-svv-line-strong);background:var(--color-svv-field);
-  min-height:8rem;text-align:center}
+  min-height:8rem;text-align:center;transition:background .15s ease,border-color .15s ease,box-shadow .15s ease,
+  transform .15s ease}
 .cp-carte--ajout:hover:not(:disabled){background:var(--color-svv-surface);
-  box-shadow:0 2px 6px rgba(22,32,44,.1)}
+  border-color:var(--color-svv-line-strong-hover);box-shadow:0 2px 6px rgba(22,32,44,.12);
+  transform:translateY(-1px)}
+.cp-carte--ajout:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .cp-carte--ajout{transition:none}
+  .cp-carte--ajout:hover:not(:disabled){transform:none}
+}
 .cp-carte--ajout:disabled{cursor:not-allowed;opacity:.8}
 .cp-ajout-plus{font-size:1.5rem;line-height:1;color:var(--color-svv-red)}
 .cp-ajout-mot{font-size:.85rem;font-weight:600;color:var(--color-svv-ink)}
@@ -892,10 +1038,12 @@ export const CSS_CARTES = `
    repris, parce qu'une ombre noire sur un fond sombre ne se voit pas — c'est le contour clair qui fait le relief. */
 .svv-adm-root[data-theme='dark'] .cp-carte,
 .svv-adm-root[data-theme='dark'] .cp-fleche{box-shadow:0 1px 3px rgba(0,0,0,.45)}
+.svv-adm-root[data-theme='dark'] .cp-icone:hover:not(:disabled){box-shadow:0 2px 8px rgba(0,0,0,.5)}
 .svv-adm-root[data-theme='dark'] .cp-carte--ajout:hover:not(:disabled){box-shadow:0 2px 8px rgba(0,0,0,.5)}
 @media (prefers-color-scheme:dark){
   .svv-adm-root:not([data-theme='light']) .cp-carte,
   .svv-adm-root:not([data-theme='light']) .cp-fleche{box-shadow:0 1px 3px rgba(0,0,0,.45)}
+  .svv-adm-root:not([data-theme='light']) .cp-icone:hover:not(:disabled){box-shadow:0 2px 8px rgba(0,0,0,.5)}
   .svv-adm-root:not([data-theme='light']) .cp-carte--ajout:hover:not(:disabled){box-shadow:0 2px 8px rgba(0,0,0,.5)}
 }
 `;

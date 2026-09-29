@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  LIBELLE_MAX, MOTIF_SANS_MIGRATION, NOTE_MAX, libellePropre, notePropre, ordreDesCartes, phraseArchivage,
-  poidsCivilite, proposerCoupure, texteOuRien, verifierCoordonnees, verifierSeparation,
-  type CoordonneeSaisie,
+  LIBELLE_MAX, MOTIF_DERNIER_PROPRIETAIRE, MOTIF_SANS_MIGRATION, NOTE_MAX, civiliteDesigneSociete, libellePropre,
+  manquesDeLaFiche, notePropre, ordreDesCartes, phraseArchivage, poidsCivilite, proposerCoupure, texteOuRien,
+  verifierCoordonnees, verifierSeparation, type CoordonneeSaisie,
 } from './annuaireEdition';
 
 /**
@@ -519,5 +519,314 @@ describe('🔴 la fiche locataire montre TOUS les occupants du même logement', 
     expect(src).toContain('tous les occupants du même logement');
     // Les mails d'un locataire sont ceux de son LOGEMENT : la règle centrale du module, dite à l'écran.
     expect(src).toContain('un mail est rattaché à un bien, jamais à une personne');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FICHES-RETOUCHES-2
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 un bien doit toujours avoir au moins un propriétaire', () => {
+  /**
+   * ══ 🔴🔴 L'INVARIANT, ET POURQUOI IL SE TIENT AUX DEUX BOUTS ════════════════════════════════════════════════
+   *
+   * Arno : « Il est impossible d'archiver ou de remplacer-sans-successeur le DERNIER propriétaire actif d'un bien.
+   * L'action est grisée, avec l'infobulle “Un bien doit toujours avoir au moins un propriétaire”. Garde côté
+   * serveur aussi : refus dans la transaction, avec un test, même en cas d'appel direct. »
+   *
+   * 🔴 LE BOUTON GRISÉ PROTÈGE DE LA MALADRESSE ; IL NE PROTÈGE DE RIEN CONTRE un appel direct à la route, ou
+   * contre une fenêtre restée ouverte pendant qu'un collègue archivait l'autre propriétaire. Un bien sans
+   * propriétaire est un bien qu'on ne sait plus à qui facturer.
+   */
+  it('🔴 le motif est écrit UNE fois, et l’écran comme le serveur le citent', () => {
+    expect(MOTIF_DERNIER_PROPRIETAIRE).toBe('Un bien doit toujours avoir au moins un propriétaire.');
+    const cartes = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    expect(cartes).toContain('MOTIF_DERNIER_PROPRIETAIRE');
+    const repo = readFileSync('app/lib/gestion/annuaireEditionRepo.ts', 'utf8');
+    expect(repo).toContain('MOTIF_DERNIER_PROPRIETAIRE');
+  });
+
+  it('🔴 l’entrée « Archiver » est DÉSACTIVÉE, pas absente, avec son infobulle', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    const menu = src.slice(src.indexOf('function MenuCarte'), src.indexOf('// ══ ④'));
+    expect(menu).toContain('disabled={p.dernierProprietaire}');
+    expect(menu).toContain('title={p.dernierProprietaire ? MOTIF_DERNIER_PROPRIETAIRE : undefined}');
+    // Une entrée qui DISPARAÎT fait chercher où elle est passée ; une entrée grisée apprend la règle.
+    expect(menu).toContain('Archiver (restaurable)…');
+  });
+
+  /**
+   * 🔴 LE GARDE DU SERVEUR EST DANS LA TRANSACTION, APRÈS LE `FOR UPDATE` de la fiche : entre la lecture et
+   * l'écriture, personne ne peut archiver l'autre propriétaire du même bien sans attendre ce verrou.
+   */
+  it('🔴 le serveur refuse dans la transaction, en regardant LES DEUX sources de propriété', () => {
+    const repo = readFileSync('app/lib/gestion/annuaireEditionRepo.ts', 'utf8');
+    const bloc = repo.slice(repo.indexOf('export async function archiverPersonne'),
+      repo.indexOf('async function lotSansProprietaireApres'));
+    expect(bloc).toContain('await lotSansProprietaireApres(q, id)');
+    expect(bloc).toContain("etat: 'refus'");
+    // Le verrou de ligne est pris AVANT le garde : le `FOR UPDATE` est dans la même fonction, plus haut.
+    expect(bloc).toContain('FOR UPDATE');
+
+    const garde = repo.slice(repo.indexOf('async function lotSansProprietaireApres'));
+    // Les DEUX sources : celle de l'import, et les liens ajoutés à la main, EN COURS.
+    expect(garde).toContain('FROM gestion_annuaire_lot WHERE proprietaire_id = $1');
+    expect(garde).toContain('FROM gestion_annuaire_lot_proprietaire WHERE proprietaire_id = $1 AND jusqu_a IS NULL');
+    expect(garde).toContain('archive_le IS NULL');
+  });
+
+  /** 🔴 « REMPLACER » RESTE POSSIBLE — mais pas par personne : le successeur doit exister et ne pas être archivé. */
+  it('🔴 remplacer exige un successeur vivant, sans quoi le bien serait orphelin par la porte de derrière', () => {
+    const repo = readFileSync('app/lib/gestion/annuaireEditionRepo.ts', 'utf8');
+    const bloc = repo.slice(repo.indexOf('export async function remplacerProprietaireDuLot'));
+    expect(bloc).toContain('WHERE id = $1 AND archive_le IS NULL');
+    expect(bloc).toContain('MOTIF_DERNIER_PROPRIETAIRE');
+  });
+
+  /** ⚠️ LA RÈGLE NE VAUT QUE POUR LES PROPRIÉTAIRES : un logement peut être vacant. */
+  it('un locataire n’est jamais « dernier propriétaire »', () => {
+    const repo = readFileSync('app/lib/gestion/annuaireRepo.ts', 'utf8');
+    expect(repo).toContain("sujet === 'proprietaire'\n    ? await derniersProprietaires(");
+    expect(repo).toContain('new Set<number>()');
+  });
+});
+
+describe('🔴 créer une fiche : ce qu’il faut avoir renseigné', () => {
+  const pleine = {
+    civilite: 'M.', nom: 'DUPONT', prenom: 'Jean',
+    adresse: '12 rue Fictive', codePostal: '92800', commune: 'Puteaux',
+    coordonnees: [
+      { sorte: 'telephone' as const, valeur: '06 12 34 56 78', libelle: 'Mobile' },
+      { sorte: 'email' as const, valeur: 'jean@exemple.fr', libelle: 'E-mail' },
+    ],
+    date: '2026-09-30',
+  };
+
+  it('une fiche complète ne manque de rien', () => {
+    expect(manquesDeLaFiche(pleine)).toEqual({});
+  });
+
+  /** 🔴 TOUS OBLIGATOIRES, SAUF QUALITÉ ET NOTE — la demande d'Arno, mot pour mot. */
+  it('🔴 chaque champ vide est signalé, un par un', () => {
+    const vide = manquesDeLaFiche({
+      civilite: '', nom: '', prenom: '', adresse: '', codePostal: '', commune: '', coordonnees: [], date: '',
+    });
+    expect(Object.keys(vide).sort()).toEqual(
+      ['adresse', 'civilite', 'codePostal', 'commune', 'date', 'email', 'nom', 'prenom', 'telephone'].sort());
+    // Le motif dit ce qui manque, pas « champ invalide ».
+    expect(vide.telephone).toContain('au moins un téléphone');
+    expect(vide.email).toContain('au moins une adresse e-mail');
+  });
+
+  /** 🔴 UNE SCI N'A PAS DE PRÉNOM : l'exiger remplirait l'annuaire de « - » et de « n/a ». */
+  it('🔴 le prénom n’est pas exigé d’une société', () => {
+    for (const c of ['SCI', 'SARL', 'SAS', 'Sté', 'Société', 'SCI DU MOULIN', 'sasu', 'Indivision']) {
+      expect(civiliteDesigneSociete(c), c).toBe(true);
+      expect(manquesDeLaFiche({ ...pleine, civilite: c, prenom: '' }).prenom, c).toBeUndefined();
+    }
+  });
+
+  it('une personne physique, elle, doit avoir son prénom', () => {
+    for (const c of ['M.', 'Mme', 'Monsieur', 'Mlle', '']) expect(civiliteDesigneSociete(c), c).toBe(false);
+    expect(manquesDeLaFiche({ ...pleine, prenom: '' }).prenom).toContain('obligatoire');
+  });
+
+  it('🔴 il faut un téléphone ET un e-mail — l’un ne remplace pas l’autre', () => {
+    const sansMail = manquesDeLaFiche({ ...pleine, coordonnees: [pleine.coordonnees[0]] });
+    expect(sansMail.email).toBeDefined();
+    expect(sansMail.telephone).toBeUndefined();
+    const sansTel = manquesDeLaFiche({ ...pleine, coordonnees: [pleine.coordonnees[1]] });
+    expect(sansTel.telephone).toBeDefined();
+    expect(sansTel.email).toBeUndefined();
+  });
+
+  /** ⚠️ UNE COORDONNÉE VIDE NE COMPTE PAS : la carte d'ajout démarre avec deux lignes vides, exprès. */
+  it('une ligne de coordonnée laissée vide ne satisfait pas l’exigence', () => {
+    const m = manquesDeLaFiche({ ...pleine, coordonnees: [
+      { sorte: 'telephone', valeur: '  ', libelle: 'Mobile' },
+      { sorte: 'email', valeur: '', libelle: 'E-mail' },
+    ] });
+    expect(m.telephone).toBeDefined();
+    expect(m.email).toBeDefined();
+  });
+
+  it('la date doit être une vraie date, pas un fragment', () => {
+    expect(manquesDeLaFiche({ ...pleine, date: '30/09/2026' }).date).toBeDefined();
+    expect(manquesDeLaFiche({ ...pleine, date: '2026-09' }).date).toBeDefined();
+    expect(manquesDeLaFiche({ ...pleine, date: '2026-09-30' }).date).toBeUndefined();
+  });
+
+  /** ⚠️ QUALITÉ ET NOTE NE SONT JAMAIS EXIGÉES : elles n'apparaissent pas dans la liste des manques. */
+  it('qualité et note ne sont jamais réclamées', () => {
+    const m = manquesDeLaFiche(pleine);
+    expect(m.qualite).toBeUndefined();
+    expect(m.note).toBeUndefined();
+  });
+});
+
+describe('🔴 la carte d’ajout est la carte « Modifier », vide', () => {
+  const src = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+
+  /**
+   * 🔴 UN SEUL COMPOSANT POUR LES DEUX MODES. « Identique au mode Modifier » est la demande : deux formulaires
+   * jumeaux divergeraient au premier champ ajouté, et l'on saisirait un prénom dans l'un et pas dans l'autre.
+   */
+  it('🔴 c’est le MÊME `FormulaireCarte`, avec `p` à `null`', () => {
+    expect(src).toContain('p: PersonneAnnuaire | null;');
+    expect(src).toContain('<FormulaireCarte p={null}');
+    // L'ancien formulaire réduit (Civilité / Nom / date) n'existe plus nulle part.
+    const annuaire = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    expect(annuaire).not.toContain('function PanneauAjout');
+    // ⚠️ Le bouton « Créer la fiche » de l'ancien panneau n'est plus RENDU nulle part — le mot ne subsiste que
+    //    dans le commentaire qui explique son retrait.
+    expect(annuaire).not.toContain('>Créer la fiche<');
+    expect(annuaire).not.toContain("'Créer la fiche'");
+  });
+
+  it('🔴 elle s’ouvre À SA PLACE DANS LA RANGÉE, pas ailleurs dans la page', () => {
+    const bloc = src.slice(src.indexOf('export function BlocCartes'));
+    // La tuile et la carte sont les deux faces du même emplacement, au bout de la rangée.
+    expect(bloc).toContain('{ajout ? (');
+    expect(bloc).toContain('cp-carte--ajout');
+    expect(bloc.indexOf('<CartePersonne')).toBeLessThan(bloc.indexOf('{ajout ? ('));
+  });
+
+  it('🔴 le rappel dit où la personne atterrit, AVANT qu’on remplisse quoi que ce soit', () => {
+    expect(src).toContain('{creation.rappel}');
+    const annuaire = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    expect(annuaire).toContain('Sera ajouté comme co-propriétaire sur');
+    expect(annuaire).toContain('Sera ajouté comme occupant du lot');
+  });
+
+  it('🔴 « Enregistrer » est grisé tant qu’il manque quelque chose, et chaque manque est dit SOUS son champ', () => {
+    expect(src).toContain('disabled={envoi || incomplete}');
+    expect(src).toContain('manquesDeLaFiche({');
+    expect(src).toContain('.cp-manque{display:block');
+    // Les deux manques de coordonnées sont dits sous le bloc qui les porte.
+    expect(src).toContain("{manqueDe('telephone')}");
+    expect(src).toContain("{manqueDe('email')}");
+  });
+
+  /** ⚠️ LA CRÉATION EXIGE ; LA MODIFICATION N'EXIGE RIEN DE PLUS QU'AVANT. Une fiche importée peut n'avoir ni
+   *  prénom ni e-mail — refuser de la corriger pour cette raison rendrait la correction impossible. */
+  it('🔴 l’exigence de complétude ne s’applique QU’À la création', () => {
+    expect(src).toContain('const manque = creation === undefined ? {} : manquesDeLaFiche({');
+  });
+
+  /** 🔴 TOUTE LA FICHE EN UNE SEULE ÉCRITURE : deux appels laisseraient une fiche nue au moindre refus. */
+  it('🔴 le dépôt crée la personne ET ses coordonnées dans la même transaction', () => {
+    const repo = readFileSync('app/lib/gestion/annuaireEditionRepo.ts', 'utf8');
+    const bloc = repo.slice(repo.indexOf('export async function creerPersonne'),
+      repo.indexOf('export async function ajouterOccupant'));
+    expect(bloc).toContain('withTransaction');
+    expect(bloc).toContain('INSERT INTO gestion_annuaire_contact');
+    // Et une fiche créée ici est intégralement à nous : chaque champ est verrouillé d'emblée.
+    expect(bloc).toContain('await verrouiller(q,');
+  });
+});
+
+describe('🔴 des cartes de même taille, et des boutons collés en bas', () => {
+  /**
+   * ══ 🔴🔴 TROIS RÈGLES, ET IL FAUT LES TROIS ════════════════════════════════════════════════════════════════
+   * Arno : « toutes les cartes ont la même hauteur : la plus haute impose sa taille aux autres. Pas de hauteur
+   * fixe arbitraire. Les boutons du bas sont TOUJOURS collés en bas, alignés au même niveau sur toutes les cartes
+   * de la ligne, même quand une carte n'a que 2 boutons (bien vacant). »
+   */
+  it('🔴 la grille étire, les faits absorbent, le pied est poussé en bas', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    expect(src).toContain('.ann-cartes{align-items:stretch}');
+    expect(src).toContain('.ann-carte-faits{flex:1 1 auto}');
+    expect(src).toContain('.ann-carte-pied{margin-top:auto}');
+    // 🔴 AUCUNE HAUTEUR FIXE sur une carte : elle couperait la plus haute au premier cartouche d'événement.
+    expect(src).not.toMatch(/\.ann-carte\{[^}]*height:\s*\d/);
+  });
+
+  it('🔴 la rangée des cartes de personnes étire elle aussi', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    expect(src).toContain('.cp-piste{display:flex;align-items:stretch');
+  });
+});
+
+describe('🔴 le cartouche « Événement en cours »', () => {
+  const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+
+  it('🔴 il est JUSTE AU-DESSUS de la ligne SURFACE, sur toute la largeur', () => {
+    const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
+    expect(carte.indexOf('<CartoucheEvenement')).toBeLessThan(carte.indexOf('Surface'));
+    expect(src).toContain('.ann-cartouche{display:flex;align-items:center;justify-content:center;gap:.4rem;');
+    expect(src).toContain('width:100%;');
+  });
+
+  /** ⚠️ AUCUNE COULEUR NOUVELLE : la paire d'alerte déjà employée par les replis du module. */
+  it('🔴 orange SOBRE de la palette existante, jamais une couleur nouvelle', () => {
+    const regle = src.slice(src.indexOf('.ann-cartouche{'), src.indexOf('.ann-cartouche:hover'));
+    expect(regle).toContain('var(--color-svv-amber-soft)');
+    expect(regle).toContain('var(--color-svv-amber)');
+    expect(regle).not.toMatch(/#[0-9a-fA-F]{3,6}/);
+  });
+
+  /** 🔴 LE NOMBRE N'EST ÉCRIT QU'AU-DELÀ DE UN : « Événement en cours 1 » se lit comme un compteur à surveiller. */
+  it('🔴 le nombre n’apparaît qu’à partir de deux, et rien ne s’affiche à zéro', () => {
+    const c = src.slice(src.indexOf('function CartoucheEvenement'), src.indexOf('function CarteBien'));
+    expect(c).toContain('if (nb <= 0) return null;');
+    expect(c).toContain("nb > 1 ? `${nb} événements en cours` : 'Événement en cours'");
+  });
+
+  it('🔴 un clic ouvre les événements DE CE BIEN — la vie du bien, filtrée', () => {
+    expect(src).toContain("ouvrirVieDuBien(lotId, 'evenement')");
+    const vie = readFileSync('app/(admin)/admin/(protected)/gestion/VieDuBien.tsx', 'utf8');
+    expect(vie).toContain('filtreInitial');
+    expect(vie).toContain('useState<FiltreVie>(filtreInitial)');
+  });
+
+  it('🔴 le MÊME cartouche en tête de la fiche du bien', () => {
+    const vue = src.slice(src.indexOf('function VueLot'), src.indexOf('function grouperParPeriode'));
+    expect(vue).toContain('<CartoucheEvenement nb={f.evenementsOuverts}');
+    // Il est nourri par le dépôt, avec la même lecture que la carte.
+    const repo = readFileSync('app/lib/gestion/annuaireRepo.ts', 'utf8');
+    expect(repo).toContain('evenementsOuverts: ev[0]?.n ?? 0');
+  });
+
+  /**
+   * 🔴 UN BOUTON DANS UN BOUTON est du HTML invalide : le cartouche étant CLIQUABLE, le corps de la carte a dû
+   * cesser d'être un bouton géant. C'est l'en-tête teinté qui ouvre le bien, et lui seul.
+   */
+  it('🔴 rien d’interactif n’est imbriqué dans autre chose d’interactif', () => {
+    const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
+    const corps = carte.slice(carte.indexOf('ann-carte-corps'), carte.indexOf('</button>'));
+    expect(corps).not.toContain('<button');
+    expect(corps).not.toContain('<a ');
+    expect(corps).not.toContain('<CartoucheEvenement');
+  });
+});
+
+describe('🔴 les boutons réagissent au survol', () => {
+  /**
+   * Arno : « fond légèrement teinté, bordure plus marquée, légère élévation, curseur main, transition courte.
+   * Focus clavier visible. Même comportement en Sombre. »
+   *
+   * ⚠️ LE MOUVEMENT SE COUPE sous `prefers-reduced-motion` : une carte qui saute à chaque passage de souris
+   * fatigue plus qu'elle n'informe, et c'est une exigence transverse du dépôt.
+   */
+  it('🔴 les boutons des cartes et de l’en-tête : fond, bordure, élévation, transition, focus', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    const regle = src.slice(src.indexOf('.ann-carte-bouton,.ann-tete-actions .svv-btn{'));
+    expect(regle).toContain('cursor:pointer');
+    expect(regle).toContain('transition:background .15s ease');
+    expect(regle).toContain('background:var(--color-svv-field)');
+    expect(regle).toContain('border-color:var(--color-svv-line-strong-hover)');
+    expect(regle).toContain('transform:translateY(-1px)');
+    expect(regle).toContain('outline:2px solid var(--color-svv-red)');
+    expect(regle).toContain('prefers-reduced-motion');
+    // En SOMBRE, c'est le contour clair qui fait le relief : une ombre noire sur fond sombre ne se voit pas.
+    expect(regle).toContain("[data-theme='dark'] .ann-carte-bouton:hover");
+    expect(regle).toContain('prefers-color-scheme:dark');
+  });
+
+  it('🔴 le crayon et le « ⋯ » des cartes réagissent de la même façon', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    expect(src).toContain('.cp-icone:hover:not(:disabled){border-color:var(--color-svv-line-strong-hover)');
+    expect(src).toContain('.cp-icone:focus-visible{outline:2px solid var(--color-svv-red)');
+    expect(src).toContain(".svv-adm-root[data-theme='dark'] .cp-icone:hover:not(:disabled)");
   });
 });

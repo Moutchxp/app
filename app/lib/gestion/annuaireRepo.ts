@@ -684,6 +684,21 @@ export interface PersonneAnnuaire {
   adresse: string | null; commune: string | null; codePostal: string | null;
   absent: boolean;
   contacts: ContactAffiche[];
+  /**
+   * ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — CETTE PERSONNE EST-ELLE LE DERNIER PROPRIÉTAIRE D'UN BIEN ? ═════════════════
+   *
+   * Vrai quand l'archiver laisserait AU MOINS UN bien sans aucun propriétaire actif. L'écran grise alors
+   * « Archiver », avec l'infobulle « Un bien doit toujours avoir au moins un propriétaire » — et le serveur
+   * refuse de la même façon si on l'appelle directement (`lotSansProprietaireApres`).
+   *
+   * 🔴 CALCULÉ EN BASE, PAS À L'ÉCRAN. L'écran ne voit que les propriétaires de LA FICHE OUVERTE ; une personne
+   * peut posséder d'autres biens, avec d'autres co-propriétaires. Un calcul côté écran dirait « il en reste un »
+   * en regardant la mauvaise liste — et griserait, ou dégriserait, au hasard.
+   *
+   * ⚠️ TOUJOURS `false` POUR UN LOCATAIRE : un logement peut être vacant, et un locataire s'archive sans que rien
+   * ne devienne incohérent. La règle ne vaut que pour les propriétaires.
+   */
+  dernierProprietaire: boolean;
 }
 
 export interface LigneResultat {
@@ -846,6 +861,13 @@ export interface FicheLot {
   occupants: PersonneAnnuaire[];
   /** Vrai quand la migration 278 est là. Faux = lecture seule, « Modifier » désactivé avec son motif. */
   modifiable: boolean;
+  /**
+   * 🔴 LOT FICHES-RETOUCHES-2 — COMBIEN D'ÉVÉNEMENTS OUVERTS CONCERNENT CE BIEN. Le cartouche orange de l'en-tête
+   * s'affiche dès qu'il y en a un, et dit le nombre au-delà. Même lecture que la carte de la fiche propriétaire
+   * (`BienDuProprietaire.evenementsOuverts`) : un événement NON TRAITÉ, affecté à un échange dont un mail porte un
+   * rattachement CONFIRMÉ vers ce lot.
+   */
+  evenementsOuverts: number;
 }
 
 /**
@@ -1168,6 +1190,9 @@ async function personnesDe(
 
   const coords = new Map<number, ContactAffiche[]>();
   for (const r of rows) coords.set(Number(r.id), await contactsDe(sujet, Number(r.id)));
+  const derniers = sujet === 'proprietaire'
+    ? await derniersProprietaires(rows.map((r) => Number(r.id)))
+    : new Set<number>();
 
   return rows.map((r) => ({
     sujet, id: Number(r.id), cle: r.cle,
@@ -1177,7 +1202,48 @@ async function personnesDe(
     adresse: r.adresse, commune: r.commune, codePostal: r.code_postal,
     absent: r.absent_le !== null,
     contacts: coords.get(Number(r.id)) ?? [],
+    dernierProprietaire: derniers.has(Number(r.id)),
   }));
+}
+
+/**
+ * ══ 🔴🔴 QUI EST LE DERNIER PROPRIÉTAIRE D'AU MOINS UN BIEN ═══════════════════════════════════════════════════════
+ *
+ * Rend les identifiants de ceux dont l'archivage laisserait un bien SANS aucun propriétaire actif.
+ *
+ * 🔴 UNE SEULE REQUÊTE POUR TOUTE LA RANGÉE, jamais une par carte : la fiche de JULLIEN-GARRIDO en porte cinq, et
+ * cinq allers-retours de plus se verraient. C'est la règle du module depuis la liste de la boîte.
+ *
+ * 🔴 LA MÊME LECTURE QUE LE GARDE DU SERVEUR (`lotSansProprietaireApres`, annuaireEditionRepo) : deux sources de
+ * propriété — celle de l'import (`gestion_annuaire_lot.proprietaire_id`) et les liens ajoutés à la main, EN COURS.
+ * Si l'écran et le serveur ne regardaient pas la même chose, un bouton actif mènerait à un refus, ou l'inverse.
+ *
+ * ⚠️ VIDE SANS LA MIGRATION 278 : personne n'est archivable de toute façon, et la table des liens n'existe pas.
+ */
+async function derniersProprietaires(ids: readonly number[]): Promise<Set<number>> {
+  if (ids.length === 0 || !await annuaireModifiableDisponible()) return new Set();
+  const { rows } = await query<{ proprietaire_id: string }>(
+    /* AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral gabarit, qu'un seul accent grave
+       terminerait — piege consigne TREIZE fois dans ce depot, et treize fois dans un commentaire.
+       liens : (personne, lot) pour les personnes demandees, par l'une ou l'autre source de propriete. */
+    `WITH liens AS (
+       SELECT proprietaire_id, id AS lot_id FROM gestion_annuaire_lot
+        WHERE proprietaire_id = ANY($1::bigint[])
+       UNION
+       SELECT proprietaire_id, lot_id FROM gestion_annuaire_lot_proprietaire
+        WHERE proprietaire_id = ANY($1::bigint[]) AND jusqu_a IS NULL
+     )
+     SELECT DISTINCT li.proprietaire_id::text AS proprietaire_id
+       FROM liens li JOIN gestion_annuaire_lot lo ON lo.id = li.lot_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM gestion_annuaire_proprietaire pr
+         WHERE pr.id = lo.proprietaire_id AND pr.id <> li.proprietaire_id AND pr.archive_le IS NULL)
+        AND NOT EXISTS (
+        SELECT 1 FROM gestion_annuaire_lot_proprietaire lp
+          JOIN gestion_annuaire_proprietaire pr2 ON pr2.id = lp.proprietaire_id
+         WHERE lp.lot_id = lo.id AND lp.jusqu_a IS NULL AND lp.proprietaire_id <> li.proprietaire_id
+           AND pr2.archive_le IS NULL)`, [[...ids]]);
+  return new Set(rows.map((r) => Number(r.proprietaire_id)));
 }
 
 /**
@@ -1421,6 +1487,20 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
    * vente. Sans elle : le propriétaire unique de l'import, ce qui est la vérité d'aujourd'hui.
    */
   const modifiable = await annuaireModifiableDisponible();
+
+  /**
+   * 🔴 LES ÉVÉNEMENTS OUVERTS DE CE BIEN. Même lecture que la carte de la fiche propriétaire, au mot près : deux
+   * comptages différents pour un même bien finiraient par se contredire d'un écran à l'autre.
+   */
+  const { rows: ev } = await query<{ n: number }>(
+    `SELECT count(DISTINCT e.id)::int AS n
+       FROM gestion_evenement e
+       JOIN gestion_affectation a ON a.evenement_id = e.id AND a.actif
+       JOIN gestion_message m2 ON m2.fil_id = a.fil_id
+       JOIN gestion_rattachement r2 ON r2.message_id = m2.id
+      WHERE e.etat <> 'traite' AND r2.cible_sorte = 'lot' AND r2.cible_cle = $1
+        AND r2.statut = 'confirme'`, [l.wippimmo_id]);
+
   let idsProprietaires: number[] = l.proprietaire_id === null ? [] : [Number(l.proprietaire_id)];
   if (modifiable) {
     const { rows: lp } = await query<{ proprietaire_id: string }>(
@@ -1449,6 +1529,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
         adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
         contacts: coords.get(Number(o.locataire_id)) ?? [],
       })),
+      evenementsOuverts: ev[0]?.n ?? 0,
       proprietaires: await personnesDe('proprietaire', idsProprietaires),
       occupants: await personnesDe(
         'locataire', occ.filter((o) => o.sortie === null).map((o) => Number(o.locataire_id))),

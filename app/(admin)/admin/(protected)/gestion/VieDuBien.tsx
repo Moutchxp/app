@@ -50,13 +50,22 @@ type Etat =
 /** Le temps de silence après la dernière frappe avant d'interroger : assez court pour paraître instantané. */
 const ATTENTE_FRAPPE_MS = 250;
 
-export function VieDuBien({ lotCle, maintenant, onOuvrirFil }: {
+export function VieDuBien({ lotCle, maintenant, onOuvrirFil, filtreInitial = 'tous' }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
   lotCle: string;
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+  /**
+   * 🔴 LOT FICHES-RETOUCHES-2 — LE FILTRE DE DÉPART. Le cartouche « Événement en cours » d'une carte de bien mène
+   * ici avec `'evenement'` : on arrive sur les échanges qui portent un événement ouvert, et non sur la liste
+   * entière qu'il faudrait filtrer soi-même.
+   *
+   * ⚠️ C'EST UN DÉPART, PAS UNE CONTRAINTE : les trois filtres restent cliquables, et le premier clic reprend la
+   * main. Un filtre imposé ferait croire que le bien n'a que ces échanges-là.
+   */
+  filtreInitial?: FiltreVie;
 }) {
-  const [filtre, setFiltre] = useState<FiltreVie>('tous');
+  const [filtre, setFiltre] = useState<FiltreVie>(filtreInitial);
   const [texte, setTexte] = useState('');
   const [page, setPage] = useState(0);
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });

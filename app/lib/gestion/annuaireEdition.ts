@@ -274,6 +274,98 @@ export const MOTIF_SANS_MIGRATION =
   'Modification impossible pour l’instant : une mise à jour de la base (migration 278) doit être appliquée. '
   + 'Sans elle, une correction saisie ici serait écrasée au prochain import WIPPIMMO.';
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   CRÉER UNE FICHE — CE QU'IL FAUT AVOIR RENSEIGNÉ
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴 UNE CIVILITÉ QUI DÉSIGNE UNE SOCIÉTÉ ═══════════════════════════════════════════════════════════════════
+ *
+ * Demande d'Arno : « Prénom non exigé si la civilité désigne une société (SCI, SARL, SAS, Sté…) ». Une SCI n'a
+ * pas de prénom, et exiger d'en inventer un remplirait l'annuaire de « - » et de « n/a ».
+ *
+ * ⚠️ ON RECONNAÎT LES FORMES RÉELLEMENT ÉCRITES DANS L'EXPORT, pas une liste idéale : mesuré le 30/09/2026, la
+ * base porte « Sté » (et « M. », « Mme »). Les autres formes sont là pour la saisie à venir — on ne les invente
+ * pas, on les prévoit, et on préfère un faux négatif (le prénom est demandé pour rien, et se remplit d'un mot) à
+ * un faux positif (une personne physique enregistrée sans prénom, qu'on ne saura plus distinguer d'un homonyme).
+ */
+const CIVILITES_SOCIETE = [
+  'ste', 'societe', 'sci', 'sarl', 'sas', 'sasu', 'sa', 'snc', 'scp', 'scm', 'sccv', 'eurl', 'earl',
+  'indivision', 'association', 'copropriete', 'syndic', 'succession',
+];
+
+export function civiliteDesigneSociete(civilite: string | null | undefined): boolean {
+  const c = (civilite ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z ]/g, ' ').trim();
+  if (c === '') return false;
+  return c.split(/\s+/).some((mot) => CIVILITES_SOCIETE.includes(mot));
+}
+
+/** Ce que l'écran de création a sous la main au moment de juger si la fiche est complète. */
+export interface FicheASaisir {
+  civilite: string;
+  nom: string;
+  prenom: string;
+  adresse: string;
+  codePostal: string;
+  commune: string;
+  /** La liste des coordonnées telles qu'elles sont tapées — on y cherche un téléphone ET un e-mail. */
+  coordonnees: readonly CoordonneeSaisie[];
+  /** « Propriétaire depuis le » / « Entré le ». Obligatoire à la création. */
+  date: string;
+}
+
+/**
+ * ══ 🔴🔴 CE QUI MANQUE, CHAMP PAR CHAMP ═══════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « Champs obligatoires : tous, SAUF Qualité et Note. Prénom non exigé si la civilité désigne une société.
+ * Il faut au moins un téléphone ET au moins un e-mail. Chaque champ manquant est signalé SOUS LE CHAMP ;
+ * “Enregistrer” reste grisé tant que la fiche est incomplète. »
+ *
+ * 🔴 UNE CARTE PAR CHAMP, ET NON UNE PHRASE UNIQUE. « La fiche est incomplète » oblige à chercher lequel des huit
+ * champs manque ; un mot sous le champ le montre du doigt. C'est aussi ce qui permet de griser « Enregistrer »
+ * sans que le bouton devienne une énigme : ce qui bloque est affiché, à côté.
+ *
+ * 🔴 ON JUGE LA SAISIE, PAS SA VALIDITÉ DE FOND. « Le téléphone est-il un vrai numéro » reste l'affaire de
+ * `verifierCoordonnees`, à l'enregistrement, avec son motif à elle. Ici on répond à une seule question : est-ce
+ * que quelque chose a été tapé ? Mêler les deux donnerait deux endroits où lire la même règle. PUR.
+ */
+export function manquesDeLaFiche(f: FicheASaisir): Record<string, string> {
+  const manque: Record<string, string> = {};
+  const vide = (v: string): boolean => (v ?? '').trim() === '';
+
+  if (vide(f.civilite)) manque.civilite = 'La civilité est obligatoire (M., Mme, SCI, Sté…).';
+  if (vide(f.nom)) manque.nom = 'Le nom est obligatoire.';
+  // Le prénom n'est exigé que d'une personne physique : une SCI n'en a pas.
+  if (vide(f.prenom) && !civiliteDesigneSociete(f.civilite)) {
+    manque.prenom = 'Le prénom est obligatoire pour une personne ; il ne l’est pas pour une société.';
+  }
+  if (vide(f.adresse)) manque.adresse = 'L’adresse postale est obligatoire.';
+  if (vide(f.codePostal)) manque.codePostal = 'Le code postal est obligatoire.';
+  if (vide(f.commune)) manque.commune = 'La commune est obligatoire.';
+
+  const renseignees = f.coordonnees.filter((c) => !vide(c.valeur));
+  if (!renseignees.some((c) => c.sorte === 'telephone')) {
+    manque.telephone = 'Il faut au moins un téléphone.';
+  }
+  if (!renseignees.some((c) => c.sorte === 'email')) {
+    manque.email = 'Il faut au moins une adresse e-mail.';
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test((f.date ?? '').trim())) manque.date = 'La date est obligatoire.';
+  return manque;
+}
+
+/**
+ * ══ 🔴🔴 UN BIEN DOIT TOUJOURS AVOIR AU MOINS UN PROPRIÉTAIRE ═════════════════════════════════════════════════
+ *
+ * L'infobulle du bouton grisé, et le début du motif que le serveur renvoie s'il est appelé directement. Écrit UNE
+ * fois : l'écran et le serveur doivent dire exactement la même chose, sinon on croit à deux règles différentes.
+ *
+ * 🔴 « REMPLACER » RESTE POSSIBLE, et ce n'est pas une exception à la règle : le successeur est créé dans la même
+ * opération, le bien n'est donc jamais sans propriétaire, pas même une milliseconde.
+ */
+export const MOTIF_DERNIER_PROPRIETAIRE = 'Un bien doit toujours avoir au moins un propriétaire.';
+
 /** La phrase de confirmation d'un archivage. Elle DIT ce qui est gardé — c'est ce qui rend le geste acceptable. */
 export function phraseArchivage(nom: string): string {
   return `Archiver ${nom} ? La fiche sort de l’annuaire actif. Rien n’est supprimé : ses mails, ses `
