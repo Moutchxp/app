@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   ACTIONS_JAMAIS, aplatir, ariane, avancer, cheminCourant, cliquerLigne, COLONNES, comparerNoms, dateFinder,
-  entreesPresse,
+  entreesPresse, menuVide,
   dossierDuChemin, entreesLaterales, fenetreVisible, flecheTri, HAUTEUR_LIGNE,
   HISTORIQUE_DEPART, iconeEntree, memeChemin, menuDossier, menuFichier, motType, naviguerVers, peutAvancer,
   peutReculer, PROFONDEUR_MAX, reculer, SELECTION_VIDE, selectionSuivante, SEUIL_VIRTUALISATION,
@@ -335,6 +335,65 @@ describe('🔴🔴 le menu contextuel ne porte QUE ce que l’application sait f
 
   it('aucune entrée de mémoire tampon quand le lot ne la propose pas', () => {
     expect(entreesPresse(null)).toEqual([]);
+  });
+
+  /**
+   * ══ 🔴 LOT DRIVE-RETOUCHES-1 — LE MENU DU VIDE ════════════════════════════════════════════════════════════
+   *
+   * Arno : « clic droit dans une ZONE VIDE de la liste : aujourd'hui c'est le menu de Chrome qui s'ouvre. »
+   * 🔴 CE N'EST PAS UNE LACUNE DE CONFORT : le menu de Chrome propose « Recharger », c'est-à-dire recharger toute
+   * l'application — fenêtre fermée, sélection perdue, mémoire tampon vidée, brouillon emporté.
+   */
+  it('🔴 le menu du vide : créer, coller, actualiser — et rien d’autre', () => {
+    const m = menuVide({
+      creerAutorise: true,
+      motifCreation: null,
+      presse: { autorise: true, motif: null, motColler: 'Coller ici (déplacer 2 éléments)', presseVide: false },
+    });
+    expect(m.map((e) => e.action)).toEqual(['nouveau_dossier', 'coller', 'actualiser']);
+    expect(m.every((e) => e.motifInactif === null)).toBe(true);
+  });
+
+  /**
+   * ⚠️ DANS LE VIDE, « Coller » DISPARAÎT QUAND IL N'Y A RIEN À COLLER (demande d'Arno). C'est le contraire du
+   * menu d'une LIGNE, où l'entrée reste visible mais éteinte : un menu ouvert sur un élément doit montrer tout
+   * ce qu'on peut lui faire, tandis qu'un menu ouvert sur rien n'a rien à décrire.
+   */
+  it('sans rien dans la mémoire tampon, « Coller » est ABSENT du menu du vide', () => {
+    const m = menuVide({
+      creerAutorise: true,
+      motifCreation: null,
+      presse: { autorise: true, motif: null, motColler: 'Coller ici', presseVide: true },
+    });
+    expect(m.map((e) => e.action)).toEqual(['nouveau_dossier', 'actualiser']);
+  });
+
+  /** 🔴🔴 ET LES MÊMES INTERDITS : sous l'archive, « Nouveau dossier » y est éteint, avec son motif. */
+  it('🔴🔴 sous « Documents clients scannés », « Nouveau dossier » du menu du vide est éteint', () => {
+    const m = menuVide({
+      creerAutorise: false,
+      motifCreation: '« Documents clients scannés » est l’archive du cabinet : rien n’y est créé.',
+    });
+    const creer = m.find((e) => e.action === 'nouveau_dossier');
+    expect(creer?.motifInactif).toContain('Documents clients scannés');
+    // ⚠️ « Actualiser » RESTE : relire un dossier n'écrit rien, et l'archive est parcourable en métadonnées.
+    expect(m.find((e) => e.action === 'actualiser')?.motifInactif).toBeNull();
+  });
+
+  /** ⚠️ SANS MÉMOIRE TAMPON DU TOUT (mode qui ne la propose pas), « Coller » est simplement ABSENT. */
+  it('le menu du vide sans mémoire tampon n’a que deux entrées', () => {
+    expect(menuVide({ creerAutorise: true, motifCreation: null }).map((e) => e.action))
+      .toEqual(['nouveau_dossier', 'actualiser']);
+  });
+
+  /** 🔴🔴 ET JAMAIS D'ACTION DESTRUCTRICE, ICI NON PLUS. */
+  it('🔴🔴 le menu du vide ne porte aucune action destructrice', () => {
+    const tous = [
+      ...menuVide({ creerAutorise: true, motifCreation: null }),
+      ...menuVide({ creerAutorise: false, motifCreation: 'refusé' }),
+    ];
+    const texte = tous.map((e) => `${e.action} ${e.libelle} ${e.motifInactif ?? ''}`).join(' ').toLowerCase();
+    for (const mot of ACTIONS_JAMAIS) expect(texte).not.toContain(mot);
   });
 
   it('🔴🔴 là où la lecture est refusée : Visualiser et Joindre éteints, le lien reste', () => {

@@ -7,8 +7,12 @@ import {
 } from '../../../../lib/gestion/dossierDuBien';
 // LOT DRIVE-VISUALISER-ET-DOSSIERS — voir un fichier sans le joindre, et créer un dossier là où l'on est.
 import { ApercuFichierDrive, adresseApercu, type FichierAVoir } from './ApercuFichierDrive';
-import { sorteApercu } from '../../../../lib/gestion/apercuDrive';
+import { messageSansApercu, sorteApercu } from '../../../../lib/gestion/apercuDrive';
 import { NOM_DOSSIER_MAX } from '../../../../lib/gestion/dossierNouveau';
+// 🔴 LOT DRIVE-RETOUCHES-1 — la ligne de dossier qui naît dans la liste, façon Finder. Module PUR.
+import {
+  DUREE_ECHEC_MS, infobulleChemin, LIGNE_FERMEE, NOM_PAR_DEFAUT, ouvrirLigne, verdictNom, type LigneNeuve,
+} from '../../../../lib/gestion/dossierEnLigne';
 // 🔴 « Drives partagés » et « Partagés avec moi » ne sont pas des dossiers : on n'y dépose pas, et on le DIT.
 import { estRegroupement } from '../../../../lib/gestion/cibleDepot';
 // 🔴 LOT DRIVE-FACON-FINDER — toutes les RÈGLES du navigateur (tri, icônes, historique, sélection, menu) : module PUR.
@@ -30,7 +34,7 @@ import {
 import {
   aplatir, avancer, cheminCourant, cliquerLigne, COLONNES, dateFinder,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
-  iconeEntree, menuDossier, menuFichier, motType, naviguerVers, peutAvancer, peutReculer, reculer,
+  iconeEntree, menuDossier, menuFichier, menuVide, motType, naviguerVers, peutAvancer, peutReculer, reculer,
   SELECTION_VIDE, selectionSuivante, tailleFinder, titreDuChemin, TRI_DEFAUT,
   type ActionMenu, type Chemin, type Colonne, type DroitsPresse, type EntreeDrive, type EntreeMenu,
   type Historique, type Selection, type Tri,
@@ -86,8 +90,17 @@ const MIME_INTERNE = 'application/x-svv-drive';
  */
 const RESSORT_MS = 700;
 
+/**
+ * 🔴 LE PARENT INVENTÉ DES PIÈCES DU MAIL. `voisinsVisualisables` borne le tour « Précédent / Suivant » au MÊME
+ * dossier parent : en donnant ce parent-là aux pièces reçues, elles forment un tour à elles seules, et aucun
+ * fichier du Drive ne peut s'y glisser. Il ne ressemble à aucun identifiant Drive, exprès.
+ */
+const PARENT_PIECES = 'svv:pieces-du-mail';
+
 /** La taille de la fenêtre, retenue d'une ouverture à l'autre. PRÉFÉRENCE LOCALE : elle ne quitte pas ce navigateur. */
 const CLE_TAILLE_FENETRE = 'svv.gestion.selecteurDrive.taille';
+/** La section « Récents » de la barre latérale est-elle dépliée ? Préférence LOCALE au navigateur. */
+const CLE_RECENTS_OUVERTS = 'svv.gestion.selecteurDrive.recents';
 
 /**
  * ══ 🔴 POURQUOI UN CLIC SUR UN DOSSIER ATTEND 220 ms AVANT DE LE DÉPLIER ════════════════════════════════════════
@@ -135,14 +148,11 @@ type Vue =
   | { v: 'indisponible'; message: string };
 
 /**
- * ══ 🔴 L'ÉTAT DE « NOUVEAU DOSSIER » — quatre temps, et le troisième est celui qui protège. ════════════════════════
- * `ferme` → `saisie` → `confirme` (le SERVEUR a rendu le chemin complet) → création. Le chemin de la confirmation
- * vient du serveur, jamais du fil d'Ariane affiché : le recomposer ici le ferait dire par la partie qu'on vérifie.
+ * ══ 🔴 LOT DRIVE-RETOUCHES-1 — LE FORMULAIRE A LAISSÉ LA PLACE À UNE LIGNE ══════════════════════════════════
+ * L'état de la création vit désormais dans `dossierEnLigne.ts` (module PUR) : une ligne qui naît dans la liste,
+ * s'édite sur place, et disparaît si l'on renonce. L'encadré de ce module dit ce que ce changement coûte — la
+ * confirmation du chemin complet — et par quoi il est remplacé : on ne lit plus le chemin, on le VOIT.
  */
-type Creation =
-  | { c: 'ferme' }
-  | { c: 'saisie'; nom: string; occupe: boolean; erreur: string | null }
-  | { c: 'confirme'; nom: string; chemin: string; phrase: string; occupe: boolean; erreur: string | null };
 
 /** Une entrée de l'historique « Récents », telle que la route la rend. */
 interface Recent {
@@ -164,8 +174,15 @@ export interface ChoixFichierDrive {
   lien?: { nom: string; url: string };
 }
 
-/** Ce que le menu contextuel vise. */
-type CibleMenu = { x: number; y: number; entree: Fichier };
+/**
+ * Ce que le menu contextuel vise : une ligne, ou LE VIDE.
+ *
+ * 🔴 LE VIDE EST UNE CIBLE À PART ENTIÈRE (lot DRIVE-RETOUCHES-1). Sans lui, un clic droit entre deux lignes
+ * ouvrait le menu de CHROME — qui propose « Recharger », c'est-à-dire recharger toute l'application : fenêtre
+ * fermée, sélection perdue, mémoire tampon vidée, brouillon en cours emporté. Ce n'était pas une lacune de
+ * confort, c'était un piège.
+ */
+type CibleMenu = { x: number; y: number; entree: Fichier | null };
 
 /**
  * 🔴 LOT DRIVE-UNIQUE — UN DOSSIER OÙ L'ON A DÉJÀ DÉPOSÉ, tel que la route `drive/dossiers` le rend depuis le lot
@@ -224,7 +241,8 @@ export function SelecteurFichierDrive({
   const [rechercheOuverte, setRechercheOuverte] = useState<string | null>(null);
   const [prioritaires, setPrioritaires] = useState<DossierPrioritaire[]>([]);
   const [aVoir, setAVoir] = useState<FichierAVoir | null>(null);
-  const [creation, setCreation] = useState<Creation>({ c: 'ferme' });
+  /** La ligne de dossier en cours de création, s'il y en a une. */
+  const [ligneNeuve, setLigneNeuve] = useState<LigneNeuve>(LIGNE_FERMEE);
   const [motDeLaCreation, setMotDeLaCreation] = useState<string | null>(null);
   const [menu, setMenu] = useState<CibleMenu | null>(null);
   const [outils, setOutils] = useState(false);
@@ -257,6 +275,8 @@ export function SelecteurFichierDrive({
    * la seule à décider (elle relit le parent d'origine dans le journal) ; ceci ne sert qu'à l'affichage.
    */
   const dernierMouvement = useRef<MouvementLocal | null>(null);
+  /** Le nom proposé de la ligne neuve a-t-il DÉJÀ été sélectionné ? Voir l'encadré du champ : le piège est réel. */
+  const nomDejaChoisi = useRef(false);
   /** De quelles listes chaque élément a été retiré : c'est là, et nulle part ailleurs, qu'un refus le remet. */
   const retiresDe = useRef<Map<string, string[]>>(new Map());
   const [scrollTop, setScrollTop] = useState(0);
@@ -272,6 +292,16 @@ export function SelecteurFichierDrive({
   const [compact, setCompact] = useState(true);
   /** Le « … » du bandeau est-il déplié ? Ce qui est caché est COMPTÉ, jamais perdu. */
   const [cheminEntier, setCheminEntier] = useState(false);
+  /**
+   * La section « Récents » est-elle dépliée ? Ouverte par défaut, et la préférence est retenue.
+   *
+   * ⚠️ LUE À L'INITIALISATION, PAS DANS UN EFFET. La replier après coup ferait un rendu pour rien — et le
+   * compilateur React le refuse (« setState synchrone dans un effet »). Ici l'état NAÎT juste.
+   */
+  const [recentsOuverts, setRecentsOuverts] = useState<boolean>(() => {
+    try { return globalThis.localStorage?.getItem(CLE_RECENTS_OUVERTS) !== '0'; }
+    catch { return true; }
+  });
   /** Les lignes dont le déplacement est en vol : elles portent l'indicateur discret « en cours ». */
   const [enMouvement, setEnMouvement] = useState<Set<string>>(new Set());
   /** Le dernier dossier utilisé pour cet échange, et les dossiers récents de dépôt — datés. */
@@ -481,7 +511,7 @@ export function SelecteurFichierDrive({
      LA NAVIGATION
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-  const oublierCreation = () => { setCreation({ c: 'ferme' }); setMotDeLaCreation(null); };
+  const oublierCreation = () => { setLigneNeuve(LIGNE_FERMEE); setMotDeLaCreation(null); };
 
   const allerA = useCallback((c: Chemin) => {
     setSaisie('');
@@ -626,55 +656,72 @@ export function SelecteurFichierDrive({
      « NOUVEAU DOSSIER » — inchangé, avec sa confirmation venue du serveur et ses interdits
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-  const preparerDossier = async (nom: string) => {
-    const parent = dossierCourant?.id ?? '';
-    setCreation({ c: 'saisie', nom, occupe: true, erreur: null });
-    try {
-      const p = new URLSearchParams({ parent, nom });
-      const res = await fetch(`/api/admin/gestion/drive/dossier?${p}`, { cache: 'no-store' });
-      const d = (await res.json()) as { etat?: string; message?: string; nom?: string; chemin?: string; phrase?: string };
-      if (d.etat !== 'ok' || typeof d.chemin !== 'string') {
-        setCreation({ c: 'saisie', nom, occupe: false, erreur: d.message ?? 'Ce nom n’a pas pu être vérifié.' });
-        return;
-      }
-      setCreation({
-        c: 'confirme', nom: d.nom ?? nom, chemin: d.chemin,
-        phrase: d.phrase ?? `Le dossier sera créé ici : ${d.chemin}`, occupe: false, erreur: null,
-      });
-    } catch {
-      setCreation({ c: 'saisie', nom, occupe: false, erreur: 'Le Drive n’a pas répondu.' });
-    }
+  /**
+   * ══ 🔴 OUVRIR LA LIGNE NEUVE ═══════════════════════════════════════════════════════════════════════════════
+   *
+   * Elle naît DANS le dossier visé, à sa place, sous les yeux. Le chemin complet est demandé au serveur en
+   * arrière-plan pour l'infobulle : c'est la trace de la confirmation d'avant — elle ne barre plus la route, elle
+   * reste disponible pour qui veut vérifier où il crée.
+   *
+   * ⚠️ `parent` VOYAGE AVEC L'ÉTAT : entre l'ouverture de la ligne et sa validation, on peut avoir changé de
+   * dossier. Relire « le dossier courant » au moment du POST créerait ailleurs, silencieusement.
+   */
+  const ouvrirLigneNeuve = (parent: string, parentNom: string) => {
+    if (parent === '') return;
+    // Une nouvelle ligne : son nom proposé doit être sélectionné une fois, et une seule.
+    nomDejaChoisi.current = false;
+    setLigneNeuve(ouvrirLigne(parent, parentNom));
+    void (async () => {
+      try {
+        const p = new URLSearchParams({ parent, nom: NOM_PAR_DEFAUT });
+        const res = await fetch(`/api/admin/gestion/drive/dossier?${p}`, { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; chemin?: string };
+        if (d.etat !== 'ok' || typeof d.chemin !== 'string') return;
+        setLigneNeuve((l) => (l.c === 'edition' && l.parent === parent ? { ...l, chemin: d.chemin as string } : l));
+      } catch { /* pas de chemin en infobulle : la ligne reste à sa place, qui dit déjà où l'on est */ }
+    })();
   };
 
-  const creerDossier = async (etat: Extract<Creation, { c: 'confirme' }>) => {
-    const parent = dossierCourant?.id ?? '';
-    setCreation({ ...etat, occupe: true, erreur: null });
+  /**
+   * ══ 🔴 VALIDER LA LIGNE ════════════════════════════════════════════════════════════════════════════════════
+   *
+   * Entrée, ou clic ailleurs. Nom vide → on renonce, sans rien dire : un champ qu'on vide et qu'on valide est un
+   * abandon, pas une erreur. Doublon → la ligne RESTE en édition, avec le message sous le champ.
+   */
+  const validerLigneNeuve = async () => {
+    if (ligneNeuve.c !== 'edition') return;
+    const { parent, parentNom, chemin, nom } = ligneNeuve;
+    const voisins = (parent === (dossierCourant?.id ?? '') ? (listing?.fichiers ?? []) : (enfants.get(parent) ?? []))
+      .filter((f) => f.dossier).map((f) => f.nom);
+    const v = verdictNom(nom, voisins);
+    if (v.quoi === 'renoncer') { setLigneNeuve(LIGNE_FERMEE); return; }
+    if (v.quoi === 'corriger') { setLigneNeuve({ ...ligneNeuve, erreur: v.motif }); return; }
+
+    setLigneNeuve({ c: 'creation', parent, parentNom, chemin, nom: v.nom });
     try {
       const res = await fetch('/api/admin/gestion/drive/dossier', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parent, nom: etat.nom }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parent, nom: v.nom }),
       });
-      const d = (await res.json()) as {
-        etat?: string; message?: string; journalise?: boolean; dossier?: { id: string; nom: string };
-      };
+      const d = (await res.json()) as { etat?: string; message?: string; dossier?: { id: string; nom: string } };
       if (d.etat !== 'ok' || !d.dossier) {
-        setCreation({ ...etat, occupe: false, erreur: d.message ?? 'Le dossier n’a pas pu être créé.' });
+        /* ⚠️ L'ÉCHEC SE DIT DANS LA LIGNE, puis la ligne s'efface. Un dossier qui n'existe pas ne doit pas rester
+           affiché : on le croirait créé, et on irait le chercher. */
+        setLigneNeuve({ c: 'echec', parent, nom: v.nom, motif: d.message ?? 'Le dossier n’a pas pu être créé.' });
+        setTimeout(() => setLigneNeuve((l) => (l.c === 'echec' ? LIGNE_FERMEE : l)), DUREE_ECHEC_MS);
         return;
       }
+      setLigneNeuve(LIGNE_FERMEE);
       // Le dossier parent a changé de contenu : son listing mémorisé ne vaut plus.
       cache.current.delete(parent);
-      // ⚠️ `entrer` remet la création à zéro : on pose donc le message APRÈS, sinon il serait effacé aussitôt.
-      entrer({ id: d.dossier.id, nom: d.dossier.nom });
-      setMotDeLaCreation(d.message ?? `Dossier « ${d.dossier.nom} » créé. Vous y êtes.`);
+      setMotDeLaCreation(d.message ?? `Dossier « ${d.dossier.nom} » créé.`);
+      setTimeout(() => setMotDeLaCreation(null), DUREE_ECHEC_MS);
+      revaliderEnSilence([parent]);
     } catch {
-      setCreation({ ...etat, occupe: false, erreur: 'Le Drive n’a pas répondu.' });
+      setLigneNeuve({ c: 'echec', parent, nom: v.nom, motif: 'Le Drive n’a pas répondu.' });
+      setTimeout(() => setLigneNeuve((l) => (l.c === 'echec' ? LIGNE_FERMEE : l)), DUREE_ECHEC_MS);
     }
   };
-
-  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
-     LE DÉPLIAGE SUR PLACE
-     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
   /**
    * 🔴 LE TRIANGLE ▸ OUVRE LE SOUS-NIVEAU SUR PLACE, sans quitter la vue. Le contenu est lu à la demande, PUIS
@@ -1071,6 +1118,38 @@ export function SelecteurFichierDrive({
     }
   };
 
+  /**
+   * ══ 🔴 POURQUOI L'ŒIL EST PARFOIS ÉTEINT, ET CE QU'IL DIT ALORS ═════════════════════════════════════════
+   *
+   * Deux refus, et deux motifs distincts : un « ._ » de macOS ne CONTIENT pas le document (l'ouvrir montrerait
+   * quelques kilooctets d'attributs), et un type hors liste blanche n'a pas d'aperçu du tout. Un bouton éteint
+   * sans motif se lit comme une panne ; avec son motif, il se lit comme une règle.
+   */
+  const motifSansApercuPiece = (x: PieceARanger): string | null => {
+    if (estFichierSystemeMac(x.nom)) return infobulleFichierSysteme(x.nom);
+    if (sorteApercu(x.typeMime ?? '') === 'aucun') return messageSansApercu(x.typeMime ?? '');
+    return null;
+  };
+
+  /**
+   * OUVRE L'APERÇU D'UNE PIÈCE REÇUE.
+   *
+   * 🔴 LE TOUR « Précédent / Suivant » EST CELUI DES PIÈCES DU MAIL, et il est borné par un parent inventé
+   * (`PARENT_PIECES`) : `voisinsVisualisables` ne retient que ce qui partage le MÊME parent, donc les pièces
+   * restent entre elles et aucun fichier du Drive ne peut s'y glisser. Les deux mondes ne se mélangent jamais.
+   */
+  const voirPiece = (x: PieceARanger) => {
+    setAVoir({
+      id: String(x.pieceId), nom: x.nom, typeMime: x.typeMime ?? '', lien: null,
+      parentId: PARENT_PIECES, source: 'piece',
+    });
+  };
+
+  /** Le voisinage du tour : les pièces visualisables du mail, et rien d'autre. */
+  const voisinagePieces = pieces.map((x) => ({
+    id: String(x.pieceId), nom: x.nom, typeMime: x.typeMime ?? '', dossier: false, parentId: PARENT_PIECES,
+  }));
+
   /** Les pièces qui restent à poser : celles qu'on n'a encore rangées nulle part. */
   const piecesARanger = pieces.filter((x) => !rangees.has(x.pieceId));
 
@@ -1329,7 +1408,8 @@ export function SelecteurFichierDrive({
       if (confirmation !== null) { e.preventDefault(); setConfirmation(null); return; }
       // 🔴 ÉCHAP ANNULE LA COUPE (demande d'Arno) avant de fermer : on renonce au geste, pas à la fenêtre.
       if (presse !== null) { e.preventDefault(); setPresse(null); return; }
-      if (creation.c !== 'ferme') { e.preventDefault(); oublierCreation(); return; }
+      // 🔴 ÉCHAP FERME LA LIGNE NEUVE, et rien n'est créé (demande d'Arno).
+      if (ligneNeuve.c !== 'ferme') { e.preventDefault(); oublierCreation(); return; }
       e.stopPropagation();
       onFermer();
       return;
@@ -1411,7 +1491,13 @@ export function SelecteurFichierDrive({
     presseVide: presse === null,
   });
 
-  const entreesDuMenu = (f: Fichier): EntreeMenu[] => f.dossier
+  const entreesDuMenu = (f: Fichier | null): EntreeMenu[] => (f === null
+    ? menuVide({
+      creerAutorise: listing?.creerAutorise === true,
+      motifCreation: listing?.motifCreation ?? null,
+      presse: droitsPresse(),
+    })
+    : f.dossier
     ? menuDossier({
       creerAutorise: listing?.creerAutorise === true,
       motifCreation: listing?.motifCreation ?? null,
@@ -1427,21 +1513,38 @@ export function SelecteurFichierDrive({
       dejaAjoute: ajoutes.includes(f.id),
       avecLien: (f.lien ?? '') !== '',
       presse: droitsPresse(),
-    });
+    }));
 
-  const agirMenu = (a: ActionMenu, f: Fichier) => {
+  const agirMenu = (a: ActionMenu, f: Fichier | null) => {
     setMenu(null);
+    /* ══ 🔴 LE MENU DU VIDE : trois gestes, et ils portent sur le DOSSIER AFFICHÉ ═══════════════════════════ */
+    if (f === null) {
+      if (a === 'nouveau_dossier') {
+        ouvrirLigneNeuve(dossierCourant?.id ?? '', dossierCourant?.nom ?? 'ce dossier');
+        return;
+      }
+      if (a === 'coller') {
+        const cible = dossierCourant?.id ?? '';
+        if (cible !== '') coller(cible, dossierCourant?.nom ?? 'ce dossier');
+        return;
+      }
+      if (a === 'actualiser') revaliderEnSilence([dossierCourant?.id ?? '']);
+      return;
+    }
     if (a === 'ouvrir') { ouvrirDossier(f); return; }
     if (a === 'visualiser') { visualiser(f, listing?.joindreAutorise === true); return; }
     if (a === 'joindre') { void joindre(f); return; }
     if (a === 'lien') { lier(f); return; }
     if (a === 'ouvrir_google') { ouvrirChezGoogle(f); return; }
     if (a === 'nouveau_dossier') {
-      // On crée DANS ce dossier : on y entre d'abord, pour que la confirmation porte le bon chemin.
-      entrer(f);
-      setTimeout(() => setCreation({ c: 'saisie', nom: '', occupe: false, erreur: null }), 0);
+      /* 🔴 LA LIGNE NAÎT DANS CE DOSSIER-LÀ, QUI SE DÉPLIE (demande d'Arno). On n'y ENTRE plus : entrer faisait
+         perdre la vue d'ensemble pour créer un sous-dossier, alors que tout l'intérêt de l'arbre est de voir
+         l'endroit et ses voisins pendant qu'on crée. */
+      if (!ouverts.has(f.id)) basculerDepliage(f);
+      ouvrirLigneNeuve(f.id, f.nom);
       return;
     }
+    if (a === 'actualiser') { revaliderEnSilence([dossierCourant?.id ?? '']); return; }
     /* 🔴 LES MÊMES GESTES QUE ⌘X / ⌘C / ⌘V, par la même porte : `visesPar` étend à la sélection si la ligne en
        fait partie, exactement comme le clavier. Deux chemins qui feraient deux choses différentes seraient un
        piège. */
@@ -1466,6 +1569,86 @@ export function SelecteurFichierDrive({
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
      LE RENDU
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * ══ 🔴 OÙ LA LIGNE NEUVE S'INSÈRE ═══════════════════════════════════════════════════════════════════════
+   *
+   * En dernière position du dossier où elle naîtra : à la fin de la liste quand c'est le dossier affiché, et à
+   * la fin des enfants du dossier déplié dans le cas contraire. `null` = aucune ligne en cours.
+   *
+   * ⚠️ ON NE LA MONTRE PAS SI SON DOSSIER N'EST PAS VISIBLE : une ligne en édition flottant dans une liste qui
+   * n'est pas la sienne créerait au mauvais endroit sans que rien ne le laisse voir.
+   */
+  const parentLigneNeuve = ligneNeuve.c === 'ferme' ? null : ligneNeuve.parent;
+  const ici = dossierCourant?.id ?? '';
+  const rangLigneNeuve = parentLigneNeuve === null ? null
+    : parentLigneNeuve === ici ? lignes.length
+      : (lignes.some((l) => l.entree.id === parentLigneNeuve) ? lignes.length : null);
+  const indentLigneNeuve = parentLigneNeuve === null || parentLigneNeuve === ici ? 0
+    : (lignes.find((l) => l.entree.id === parentLigneNeuve)?.profondeur ?? 0) + 1;
+
+  /**
+   * LA LIGNE EN ÉDITION. Elle ressemble à une ligne ordinaire — même hauteur, même grille, même indentation —
+   * parce qu'elle EST la ligne qui existera dans une seconde.
+   *
+   * 🔴 LE CHEMIN COMPLET RESTE EN INFOBULLE. C'est ce qui subsiste de la confirmation d'avant : elle ne barre
+   * plus la route, mais qui veut vérifier où il crée peut encore le lire, rendu par le SERVEUR.
+   *
+   * 🔴🔴 ET C'EST UNE FONCTION, PAS UN COMPOSANT — même raison qu'à la barre latérale, en pire : un composant
+   * défini dans le rendu est un type neuf à chaque rendu, donc son `<input>` serait DÉMONTÉ ET REMONTÉ à chaque
+   * frappe. Le curseur sauterait, le focus se perdrait, et la ligne deviendrait intapable.
+   */
+  const ligneEnEdition = (indentation: number) => {
+    if (ligneNeuve.c === 'ferme') return null;
+    if (ligneNeuve.c === 'echec') {
+      return (
+        <li className="sfd-ligne sfd-ligne--neuve" style={{ ...grille, paddingLeft: 6 + indentation * 16 }}>
+          <span className="sfd-col-nom">
+            <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />
+            <span className="sfd-icone" aria-hidden="true">📁</span>
+            <span className="sfd-neuve-echec" role="alert">{ligneNeuve.motif}</span>
+          </span>
+        </li>
+      );
+    }
+    const enCreation = ligneNeuve.c === 'creation';
+    return (
+      <li className="sfd-ligne sfd-ligne--neuve" style={{ ...grille, paddingLeft: 6 + indentation * 16 }}>
+        <span className="sfd-col-nom">
+          <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />
+          <span className="sfd-icone" aria-hidden="true">📁</span>
+          <input
+            className="sfd-neuve-champ" type="text" autoFocus disabled={enCreation}
+            maxLength={NOM_DOSSIER_MAX}
+            value={ligneNeuve.nom}
+            aria-label="Nom du nouveau dossier"
+            title={infobulleChemin(ligneNeuve.chemin, ligneNeuve.parentNom)}
+            onChange={(e) => setLigneNeuve((l) => (l.c === 'edition' ? { ...l, nom: e.target.value, erreur: null } : l))}
+            /* 🔴 ENTRÉE OU CLIC AILLEURS = CRÉATION ; ÉCHAP = ABANDON (demande d'Arno). Échap est traité ICI et
+               non par la fenêtre : il ne doit pas remonter jusqu'à la croix et tout fermer. */
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); void validerLigneNeuve(); return; }
+              if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setLigneNeuve(LIGNE_FERMEE); }
+            }}
+            onBlur={() => { if (ligneNeuve.c === 'edition') void validerLigneNeuve(); }}
+            /* ══ 🔴 LE NOM PROPOSÉ EST SÉLECTIONNÉ — UNE SEULE FOIS, À L'OUVERTURE ═══════════════════════════
+               ⚠️ ET C'EST TOUT LE PIÈGE. Ce champ est CONTRÔLÉ : chaque frappe provoque un rendu, donc rappelle
+               cette référence. Sélectionner à chaque passage resélectionnait tout le texte après chaque lettre,
+               et la lettre suivante l'écrasait : on tapait quarante caractères, il en restait UN. Vu à l'écran,
+               sur le vrai Drive. Le drapeau fait que le geste n'a lieu qu'au premier montage de la ligne. */
+            ref={(el) => {
+              if (el === null || nomDejaChoisi.current) return;
+              nomDejaChoisi.current = true;
+              el.select();
+            }} />
+          {enCreation && <span className="sfd-envol" aria-label="Création en cours…"><span aria-hidden="true">•</span></span>}
+        </span>
+        {ligneNeuve.c === 'edition' && ligneNeuve.erreur !== null && (
+          <span className="sfd-neuve-erreur" role="alert">{ligneNeuve.erreur}</span>
+        )}
+      </li>
+    );
+  };
 
   const recentsDrive = (recents?.lignes ?? []).filter((r) => r.sorte !== 'locale');
   const joindreOk = listing?.joindreAutorise === true;
@@ -1506,7 +1689,22 @@ export function SelecteurFichierDrive({
     aller: { sorte: 'dossier'; id: string; nom: string } | { sorte: 'pieces' };
   };
 
-  const laterales: EntreeLaterale[] = [
+  /**
+   * ══ 🔴 LOT DRIVE-RETOUCHES-1 — TROIS EMPLACEMENTS, PUIS UNE SECTION « RÉCENTS » REPLIABLE ═════════════════
+   *
+   * Arno : « dans la barre latérale : “Mon Drive”, “Drives partagés”, puis un 3e bouton “Récents”, au même style
+   * que les deux premiers, avec un chevron. Déplié par défaut : sous lui, les raccourcis des derniers dossiers
+   * utilisés, indentés et compacts. Le “Dernier dossier utilisé pour cet échange” reste en tête de cette liste,
+   * avec son icône propre. »
+   *
+   * 🔴 CE QUE CE RANGEMENT RÉPARE. La liste plate mélangeait des EMPLACEMENTS (Mon Drive, Drives partagés : des
+   * endroits d'où l'on part) et des RACCOURCIS (des dossiers où l'on est allé). Avec huit dépôts récents, les
+   * deux premiers disparaissaient sous les seconds — et l'on ne trouvait plus la racine du Drive.
+   *
+   * ⚠️ LES RACCOURCIS RESTENT DES CIBLES DE DÉPÔT, repliés ou dépliés — enfin, quand ils sont visibles : on ne
+   * dépose pas sur ce qu'on ne voit pas, et c'est précisément pour cela que la section est dépliée par défaut.
+   */
+  const emplacements: EntreeLaterale[] = [
     ...prioritaires.map((d) => ({
       cle: `bien:${d.dossierId}`, icone: '🏠', libelle: titreDossierPrioritaire(d),
       depot: { id: d.dossierId, nom: d.dossierNom || d.libelle },
@@ -1515,38 +1713,34 @@ export function SelecteurFichierDrive({
       detail: mentionNbBiens(d) === null ? d.libelle : `${d.libelle} · ${mentionNbBiens(d)}`,
       aller: { sorte: 'dossier' as const, id: d.dossierId, nom: d.dossierNom || d.libelle },
     })),
-    // Les dossiers où l'on a RÉELLEMENT déposé, datés : « garder aussi les dossiers récents déjà codés » (Arno).
+    { cle: 'mon_drive', icone: '💾', libelle: 'Mon Drive', detail: null,
+      depot: { id: 'root', nom: 'Mon Drive' },
+      aller: { sorte: 'dossier' as const, id: 'root', nom: 'Mon Drive' } },
+    { cle: 'drives', icone: '👥', libelle: 'Drives partagés', detail: null,
+      depot: null,
+      aller: { sorte: 'dossier' as const, id: 'svav:drives', nom: 'Drives partagés' } },
+    // ⚠️ « Pièces récentes » (celles déjà jointes) n'a de sens qu'en mode JOINDRE : on n'y range rien.
+    ...(mode === 'joindre' && recents?.disponible === true && recentsDrive.length > 0
+      ? [{ cle: 'recents', icone: '📎', libelle: 'Pièces récentes', detail: null,
+        depot: null, aller: { sorte: 'pieces' as const } }]
+      : []),
+  ];
+
+  /** Les raccourcis de la section « Récents » : le dernier dossier de l'échange d'abord, puis les dépôts datés. */
+  const raccourcis: EntreeLaterale[] = [
+    ...(depots.dernier === null ? [] : [{
+      cle: `dernier:${depots.dernier.id}`, icone: '📥', libelle: depots.dernier.nom,
+      detail: 'Dernier dossier utilisé pour cet échange',
+      depot: { id: depots.dernier.id, nom: depots.dernier.nom },
+      aller: { sorte: 'dossier' as const, id: depots.dernier.id, nom: depots.dernier.nom },
+    }]),
     ...depots.recents.map((r) => ({
       cle: `depot:${r.id}`, icone: '🕘', libelle: r.nom,
       detail: r.chemin !== '' ? r.chemin : `dernier dépôt : ${dateFinder(r.dernierDepot)}`,
       depot: { id: r.id, nom: r.nom },
       aller: { sorte: 'dossier' as const, id: r.id, nom: r.nom },
     })),
-    // ⚠️ « Pièces récentes » (celles déjà jointes) n'a de sens qu'en mode JOINDRE : on n'y range rien.
-    ...(mode === 'joindre' && recents?.disponible === true && recentsDrive.length > 0
-      ? [{ cle: 'recents', icone: '📎', libelle: 'Pièces récentes', detail: null,
-        depot: null, aller: { sorte: 'pieces' as const } }]
-      : []),
-    { cle: 'mon_drive', icone: '💾', libelle: 'Mon Drive', detail: null,
-      depot: { id: 'root', nom: 'Mon Drive' },
-      aller: { sorte: 'dossier', id: 'root', nom: 'Mon Drive' } },
-    { cle: 'drives', icone: '👥', libelle: 'Drives partagés', detail: null,
-      depot: null,
-      aller: { sorte: 'dossier', id: 'svav:drives', nom: 'Drives partagés' } },
   ];
-
-  /**
-   * 🔴 EN TÊTE : LE DERNIER DOSSIER UTILISÉ POUR CET ÉCHANGE (demande d'Arno). C'est l'ordre de la probabilité —
-   * neuf fois sur dix, le bon dossier est celui où l'on vient de déposer pour ce même échange.
-   */
-  if (depots.dernier !== null) {
-    laterales.unshift({
-      cle: `dernier:${depots.dernier.id}`, icone: '📥', libelle: depots.dernier.nom,
-      detail: 'Dernier dossier utilisé pour cet échange',
-      depot: { id: depots.dernier.id, nom: depots.dernier.nom },
-      aller: { sorte: 'dossier', id: depots.dernier.id, nom: depots.dernier.nom },
-    });
-  }
 
   /**
    * 🔴 LA MÊME ROUTE QU'AVANT, LE MÊME CALCUL. `drive/dossiers` sans autre paramètre rend la vue d'ouverture du
@@ -1572,6 +1766,40 @@ export function SelecteurFichierDrive({
     })();
     return () => { annule = true; };
   }, [filId]);
+
+  /**
+   * UNE LIGNE DE LA BARRE LATÉRALE. Extraite pour que les emplacements et les raccourcis ne divergent pas : deux
+   * rendus jumeaux finiraient par se contredire, et l'un des deux serait oublié à la première correction.
+   *
+   * 🔴🔴 C'EST UNE FONCTION QUI REND DU JSX, PAS UN COMPOSANT, ET LA DIFFÉRENCE EST TOUT SAUF THÉORIQUE. Un
+   * composant DÉFINI DANS LE RENDU est un type NEUF à chaque rendu : React démonte et remonte son sous-arbre,
+   * donc il RECRÉE les nœuds du DOM. Une cible de dépôt recréée entre le `dragstart` et le `drop` n'est plus
+   * celle qu'on survolait — le dépôt n'arrive jamais, en silence. Vu au test, sur les raccourcis de la barre
+   * latérale, et c'est exactement le genre de panne qu'on met une journée à comprendre.
+   */
+  const ligneLaterale = (l: EntreeLaterale, compact = false) => {
+    return (
+      <li key={l.cle}>
+        <button type="button"
+          className={`sfd-cote-item${compact ? ' sfd-cote-item--compact' : ''}`
+            + `${survole === `cote:${l.cle}` ? ' sfd-cote-item--vise' : ''}`}
+          onClick={() => {
+            if (l.aller.sorte === 'pieces') { setMontrerRecents(true); setSelection(SELECTION_VIDE); return; }
+            entrerDepuisRacine({ id: l.aller.id, nom: l.aller.nom });
+          }}
+          onDragOver={l.depot === null ? undefined
+            : (e) => survolerCible(e, { id: `cote:${l.cle}`, nom: l.libelle, ouvrable: false, reel: l.depot?.id })}
+          onDragLeave={l.depot === null ? undefined : () => quitterCible(`cote:${l.cle}`)}
+          onDrop={l.depot === null ? undefined : (e) => deposerSur(e, l.depot as { id: string; nom: string })}>
+          <span className="sfd-cote-icone" aria-hidden="true">{l.icone}</span>
+          <span className="sfd-cote-mots">
+            <span className="sfd-cote-libelle">{l.libelle}</span>
+            {l.detail !== null && <span className="sfd-cote-detail">{l.detail}</span>}
+          </span>
+        </button>
+      </li>
+    );
+  };
 
   /** Une entrée latérale part TOUJOURS de la racine : c'est un raccourci, pas une descente de plus. */
   function entrerDepuisRacine(f: { id: string; nom: string }) {
@@ -1686,7 +1914,7 @@ export function SelecteurFichierDrive({
                         title={listing.creerAutorise ? undefined : (listing.motifCreation ?? undefined)}
                         onClick={() => {
                           setOutils(false);
-                          setCreation({ c: 'saisie', nom: '', occupe: false, erreur: null });
+                          ouvrirLigneNeuve(dossierCourant?.id ?? '', dossierCourant?.nom ?? 'ce dossier');
                         }}>
                         Nouveau dossier
                       </button>
@@ -1724,46 +1952,6 @@ export function SelecteurFichierDrive({
           </button>
         )}
 
-        {/* ══ « NOUVEAU DOSSIER » — la même fonction, la même confirmation venue du serveur, les mêmes interdits ══ */}
-        {creation.c === 'saisie' && (
-          <div className="sfd-creer-corps">
-            <label className="sfd-champ">
-              <span className="svv-label">Nom du nouveau dossier</span>
-              <input className="sfd-saisie" type="text" value={creation.nom} autoComplete="off"
-                maxLength={NOM_DOSSIER_MAX} autoFocus disabled={creation.occupe}
-                placeholder="ex. « Travaux 2026 »"
-                onChange={(e) => setCreation({ c: 'saisie', nom: e.target.value, occupe: false, erreur: null })}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void preparerDossier(creation.nom); } }} />
-            </label>
-            {creation.erreur !== null && <p className="gst-tronc" role="alert">{creation.erreur}</p>}
-            <div className="sfd-creer-boutons">
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={creation.occupe}
-                onClick={() => void preparerDossier(creation.nom)}>Continuer</button>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={creation.occupe}
-                onClick={oublierCreation}>Annuler</button>
-            </div>
-          </div>
-        )}
-        {creation.c === 'confirme' && (
-          <div className="sfd-creer-corps">
-            {/* 🔴 LE CHEMIN COMPLET, RENDU PAR LE SERVEUR. C'est lui qui vaut confirmation : le recomposer ici le
-                ferait dire par l'écran, et il serait faux précisément dans le cas qui compte. */}
-            {/* 🔴🔴 LE NOM ET LE CHEMIN COMPLET, RENDUS PAR LE SERVEUR. C'est la seule protection contre la faute
-                la plus probable : le bon nom, au mauvais endroit. Deux dossiers « Documents » à deux endroits sont
-                la règle, pas l'exception, dans un Drive construit à la main pendant des années. */}
-            <p className="sfd-creer-chemin" role="status">
-              <span className="sfd-creer-nom">📁 {creation.nom}</span>
-              <span className="sfd-mention sfd-mention--bloc">{creation.phrase}</span>
-            </p>
-            {creation.erreur !== null && <p className="gst-tronc" role="alert">{creation.erreur}</p>}
-            <div className="sfd-creer-boutons">
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={creation.occupe}
-                onClick={() => void creerDossier(creation)}>{creation.occupe ? 'Création…' : 'Créer'}</button>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={creation.occupe}
-                onClick={oublierCreation}>Annuler</button>
-            </div>
-          </div>
-        )}
         {motDeLaCreation !== null && <p className="sfd-creer-fait" role="status">{motDeLaCreation}</p>}
 
         {/* 🔴🔴 LE DOSSIER INTERDIT SE DIT EN TOUTES LETTRES, AVANT la liste — pour qu'on le lise avant de chercher
@@ -1850,7 +2038,26 @@ export function SelecteurFichierDrive({
                           onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }} />
                         <span className="sfd-piece-mots">
                           <span className="sfd-piece-nom" title={x.nom}>{x.nom}</span>
-                          <span className="sfd-piece-taille">{tailleFinder(x.tailleOctets, false)}</span>
+                          {/* ══ 🔴 LE POIDS, ET L'ŒIL À SA DROITE (demande d'Arno) ═══════════════════════════
+                              🔴 IL MARCHE AUSSI SUR UNE PIÈCE VIDÉE : la route des pièces bascule d'elle-même
+                              sur la copie Drive quand les octets locaux ont été libérés. Rien à écrire ici.
+                              ⚠️ ÉTEINT, AVEC SON MOTIF, pour un « ._ » de macOS (qui ne contient pas le document)
+                              et pour un type sans aperçu — promettre une fenêtre vide serait pire que rien. */}
+                          <span className="sfd-piece-ligne">
+                            <span className="sfd-piece-taille">{tailleFinder(x.tailleOctets, false)}</span>
+                            {(() => {
+                              const refus = motifSansApercuPiece(x);
+                              return (
+                                <button type="button" className="sfd-piece-oeil"
+                                  disabled={refus !== null}
+                                  title={refus ?? 'Visualiser'}
+                                  aria-label={refus ?? `Visualiser ${x.nom}`}
+                                  onClick={(e) => { e.stopPropagation(); if (refus === null) voirPiece(x); }}>
+                                  <span aria-hidden="true">👁</span>
+                                </button>
+                              );
+                            })()}
+                          </span>
                           {occupee && <span className="sfd-piece-etat">Rangement…</span>}
                           {ou !== null && !occupee && (
                             <span className="sfd-piece-etat sfd-piece-etat--ok">
@@ -1867,30 +2074,35 @@ export function SelecteurFichierDrive({
                 </ul>
               </section>
             )}
+            {/* ══ LES EMPLACEMENTS : d'où l'on part. Ils restent en tête, toujours visibles. ═════════════════ */}
             <ul className="sfd-cote-liste">
-              {laterales.map((l) => (
-                <li key={l.cle}>
-                  <button type="button"
-                    className={`sfd-cote-item${survole === `cote:${l.cle}` ? ' sfd-cote-item--vise' : ''}`}
-                    onClick={() => {
-                      if (l.aller.sorte === 'pieces') { setMontrerRecents(true); setSelection(SELECTION_VIDE); return; }
-                      entrerDepuisRacine({ id: l.aller.id, nom: l.aller.nom });
-                    }}
-                    onDragOver={l.depot === null ? undefined
-                      : (e) => survolerCible(e, {
-                        id: `cote:${l.cle}`, nom: l.libelle, ouvrable: false, reel: l.depot?.id,
-                      })}
-                    onDragLeave={l.depot === null ? undefined : () => quitterCible(`cote:${l.cle}`)}
-                    onDrop={l.depot === null ? undefined : (e) => deposerSur(e, l.depot as { id: string; nom: string })}>
-                    <span className="sfd-cote-icone" aria-hidden="true">{l.icone}</span>
-                    <span className="sfd-cote-mots">
-                      <span className="sfd-cote-libelle">{l.libelle}</span>
-                      {l.detail !== null && <span className="sfd-cote-detail">{l.detail}</span>}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {emplacements.map((l) => ligneLaterale(l))}
             </ul>
+
+            {/* ══ 🔴 « RÉCENTS » — une SECTION, repliable, au même style que les emplacements ════════════════
+                ⚠️ L'ÉTAT EST MÉMORISÉ (préférence locale, try/catch) : qui replie cette section ne veut pas la
+                voir se rouvrir à chaque message. */}
+            {raccourcis.length > 0 && (
+              <>
+                <button type="button" className="sfd-cote-item sfd-cote-section"
+                  aria-expanded={recentsOuverts}
+                  onClick={() => {
+                    const n = !recentsOuverts;
+                    setRecentsOuverts(n);
+                    try { globalThis.localStorage?.setItem(CLE_RECENTS_OUVERTS, n ? '1' : '0'); }
+                    catch { /* une préférence qu'on ne peut pas écrire n'empêche pas de replier */ }
+                  }}>
+                  <span className="sfd-cote-icone" aria-hidden="true">🕘</span>
+                  <span className="sfd-cote-mots"><span className="sfd-cote-libelle">Récents</span></span>
+                  <span className="sfd-cote-chevron" aria-hidden="true">{recentsOuverts ? '▾' : '▸'}</span>
+                </button>
+                {recentsOuverts && (
+                  <ul className="sfd-cote-liste sfd-cote-liste--indentee">
+                    {raccourcis.map((l) => ligneLaterale(l, true))}
+                  </ul>
+                )}
+              </>
+            )}
           </aside>
 
           <main className="sfd-vue" aria-label="Contenu">
@@ -1911,7 +2123,15 @@ export function SelecteurFichierDrive({
               ))}
             </div>
 
-            <div className="sfd-lignes" ref={scene} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+            <div className="sfd-lignes" ref={scene} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+              /* 🔴 NOTRE MENU, PAS CELUI DE CHROME. ⚠️ On ne le pose QUE si le clic n'a pas déjà été traité par
+                 une ligne : `defaultPrevented` le dit, et c'est ce qui évite deux menus pour un seul clic. */
+              onContextMenu={(e) => {
+                if (e.defaultPrevented) return;
+                e.preventDefault();
+                setSelection(SELECTION_VIDE);
+                setMenu({ x: e.clientX, y: e.clientY, entree: null });
+              }}>
               {/* ══ 🔴 « RÉCENTS », quand on le demande dans la barre latérale ═════════════════════════════════ */}
               {montrerRecents ? (
                 <ul className="sfd-recents">
@@ -1946,7 +2166,7 @@ export function SelecteurFichierDrive({
                   {/* La virtualisation : deux cales, et seulement les lignes qu'on voit. */}
                   {fenetre.avant > 0 && <div style={{ height: fenetre.avant }} aria-hidden="true" />}
                   <ul className="sfd-liste" role="listbox" aria-multiselectable="true">
-                    {visibles.map(({ entree: f, profondeur }) => {
+                    {visibles.map(({ entree: f, profondeur }, rang) => {
                       const choisie = selection.ids.includes(f.id);
                       const deja = ajoutes.includes(f.id);
                       /* 🔴 LES DEUX ÉTATS NOUVEAUX D'UNE LIGNE :
@@ -2096,6 +2316,12 @@ export function SelecteurFichierDrive({
                         </li>
                       );
                     })}
+                    {/* ══ 🔴 LA LIGNE NEUVE, À SA PLACE ════════════════════════════════════════════════════
+                        Arno : « insère immédiatement une ligne de dossier en DERNIÈRE position du dossier
+                        affiché, surlignée, avec une courte animation d'apparition ». Quand on crée dans un
+                        sous-dossier déplié, elle naît à la fin de SES enfants, indentée d'un cran — à l'endroit
+                        exact où le dossier apparaîtra. On ne lit plus un chemin : on le voit. */}
+                    {rangLigneNeuve !== null && ligneEnEdition(indentLigneNeuve)}
                   </ul>
                   {fenetre.apres > 0 && <div style={{ height: fenetre.apres }} aria-hidden="true" />}
                   {/* 🔴 UNE LISTE INCOMPLÈTE LE DIT. Taire la troncature ferait conclure qu'un dossier n'existe
@@ -2184,7 +2410,7 @@ export function SelecteurFichierDrive({
         <div className="sfd-menu-voile" role="presentation" onClick={() => setMenu(null)}
           onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
         <ul className="sfd-menu" role="menu" style={{ left: menu.x, top: menu.y }}
-          aria-label={`Actions sur ${menu.entree.nom}`}>
+          aria-label={menu.entree === null ? 'Actions sur ce dossier' : `Actions sur ${menu.entree.nom}`}>
           {entreesDuMenu(menu.entree).map((e) => (
             <li key={e.action} role="none">
               <button type="button" role="menuitem" className="sfd-menu-item"
@@ -2207,11 +2433,16 @@ export function SelecteurFichierDrive({
     {aVoir !== null && listing !== null && (
       <ApercuFichierDrive
         fichier={aVoir}
-        voisinage={[...listing.dossiers, ...listing.fichiers].map((f) => ({
-          id: f.id, nom: f.nom, typeMime: f.typeMime, dossier: f.dossier,
-          parentId: f.parentId ?? (listing.recherche ? null : dossierCourant?.id ?? null),
-        }))}
-        joindreAutorise={listing.joindreAutorise}
+        /* 🔴 DEUX TOURS POSSIBLES, ET JAMAIS MÉLANGÉS : les pièces du mail, ou les fichiers du dossier affiché.
+           C'est la SOURCE du document ouvert qui tranche, pas l'endroit d'où l'on a cliqué. */
+        voisinage={aVoir.source === 'piece' ? voisinagePieces
+          : [...listing.dossiers, ...listing.fichiers].map((f) => ({
+            id: f.id, nom: f.nom, typeMime: f.typeMime, dossier: f.dossier,
+            parentId: f.parentId ?? (listing.recherche ? null : dossierCourant?.id ?? null),
+          }))}
+        /* ⚠️ AUCUN « Joindre » SUR UNE PIÈCE REÇUE : en mode « ranger » il n'y a pas de message à remplir, et le
+           geste utile — déposer dans un dossier — se fait dans le panneau, qui reste visible derrière. */
+        joindreAutorise={aVoir.source === 'piece' ? false : listing.joindreAutorise}
         estDeja={(id) => ajoutes.includes(id)}
         onJoindre={(f) => {
           void joindre({
@@ -2369,7 +2600,16 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-compteur--vide{color:var(--color-svv-muted)}
 
 /* ── CE QUI RESTE DES LOTS PRECEDENTS ─────────────────────────────────────────────────────────────────────── */
-.sfd-champ{display:flex;flex-direction:column;gap:3px;padding:8px 12px 0;flex:0 0 auto}
+/* ══ 🔴 LOT DRIVE-RETOUCHES-1 — LE BLOC DE RECHERCHE N'EST PLUS MANGE PAR CELUI DU DESSOUS ═════════════════
+   Arno : « le champ est recouvert par le bloc du dessous : sa bordure basse est coupee, et l'en-tete Nom /
+   Taille ainsi que la colonne de gauche le chevauchent ».
+   ⚠️ CE N'ETAIT PAS UN CHEVAUCHEMENT AU SENS STRICT — les boites se touchaient au pixel pres (mesure : le champ
+   finit a 178, le corps commence a 178). Mais le bloc n'avait AUCUN padding bas : la bordure arrondie du champ
+   se retrouvait collee contre l'en-tete, qui a son propre fond et sa propre bordure, et la mangeait. A l'oeil,
+   c'est un chevauchement — et l'oeil a raison, c'est lui qu'on sert.
+   Le bloc prend donc sa hauteur complete, et une bordure le separe franchement de la liste. */
+.sfd-champ{display:flex;flex-direction:column;gap:3px;padding:8px 12px 10px;flex:0 0 auto;
+  background:var(--color-svv-surface);border-bottom:1px solid var(--color-svv-line)}
 .sfd-saisie{width:100%;min-height:38px;padding:.4rem .6rem;font-size:16px;color:var(--color-svv-ink);
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:.4rem}
 .sfd-saisie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
@@ -2490,6 +2730,45 @@ export const CSS_SELECTEUR_FICHIER = `
   .sfd-ranger{border-bottom:0;border-right:1px solid var(--color-svv-line)}
   .sfd-ranger-liste{flex-direction:row;max-height:none;overflow-x:auto}
   .sfd-piece{flex:0 0 12rem}
+}
+
+/* ══ 🔴 LOT DRIVE-RETOUCHES-1 ══════════════════════════════════════════════════════════════════════════════
+   ⚠️ AUCUN BACKTICK dans ce bloc : il vit dans un litteral de gabarit. Cinquieme piege deja paye. */
+
+/* ── L'OEIL SUR UNE PIECE A RANGER ── a droite du poids, comme demande. ─────────────────────────────────── */
+.sfd-piece-ligne{display:flex;align-items:center;gap:6px}
+.sfd-piece-oeil{margin-left:auto;padding:0 2px;font-size:.9rem;line-height:1;cursor:pointer;
+  color:var(--color-svv-ink);background:none;border:0}
+.sfd-piece-oeil:hover:not(:disabled){color:var(--color-svv-red)}
+.sfd-piece-oeil:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* Un oeil eteint n'est pas un bouton : il ne se clique pas, et son infobulle dit pourquoi. */
+.sfd-piece-oeil:disabled{opacity:.35;cursor:default}
+
+/* ── LA SECTION « RECENTS » DE LA BARRE LATERALE ────────────────────────────────────────────────────────── */
+.sfd-cote-section{width:100%}
+.sfd-cote-chevron{margin-left:auto;font-size:.7rem;color:var(--color-svv-muted)}
+/* Les raccourcis sont INDENTES et compacts : ils depemdent du bouton au-dessus, et ils sont nombreux. */
+.sfd-cote-liste--indentee{padding-left:14px;
+  border-left:1px solid color-mix(in srgb, var(--color-svv-line) 70%, transparent);margin-left:12px}
+.sfd-cote-item--compact{min-height:0;padding-top:3px;padding-bottom:3px}
+.sfd-cote-item--compact .sfd-cote-libelle{font-size:.78rem}
+.sfd-cote-item--compact .sfd-cote-detail{font-size:.68rem}
+
+/* ── LA LIGNE DE DOSSIER EN CREATION ────────────────────────────────────────────────────────────────────── */
+.sfd-ligne--neuve{background:color-mix(in srgb, var(--color-svv-red) 10%, transparent);
+  animation:sfd-apparait .18s ease-out}
+@keyframes sfd-apparait{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.sfd-neuve-champ{flex:1 1 auto;min-width:0;height:22px;padding:0 4px;font:inherit;font-size:.82rem;
+  color:var(--color-svv-ink);background:var(--color-svv-surface);
+  border:1px solid var(--color-svv-line-strong);border-radius:.25rem}
+.sfd-neuve-champ:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+.sfd-neuve-champ:disabled{opacity:.7}
+/* Le refus s'affiche SOUS le champ, dans la ligne : on corrige sans quitter des yeux l'endroit ou l'on cree. */
+.sfd-neuve-erreur,.sfd-neuve-echec{font-size:.72rem;color:var(--color-svv-red);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sfd-neuve-echec{font-style:italic}
+@media (prefers-reduced-motion:reduce){
+  .sfd-ligne--neuve{animation:none}
 }
 
 /* ⚠️ SUR TELEPHONE, la barre laterale passe en rangee au-dessus de la liste, et les colonnes de droite

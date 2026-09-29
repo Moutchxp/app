@@ -766,94 +766,146 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
   });
 
   /**
-   * 🔴🔴 LA CONFIRMATION MONTRE LE CHEMIN COMPLET, ET IL VIENT DU SERVEUR. C'est la seule protection contre la
-   * faute la plus probable de tout ce lot : le bon nom, au mauvais endroit.
+   * ══ ⚠️ CES TESTS ONT ÉTÉ RÉÉCRITS LE 29/09/2026 (lot DRIVE-RETOUCHES-1), ET IL FAUT DIRE CE QU'ON PERD ═══════
+   *
+   * Ils éprouvaient un FORMULAIRE en trois temps : saisir, « Continuer » (qui demandait au serveur le chemin
+   * complet), lire ce chemin, puis « Créer ». La confirmation du chemin était la seule protection contre la faute
+   * la plus probable : le bon nom, au mauvais endroit.
+   *
+   * Demande d'Arno : « supprime le formulaire actuel. À la place, “Nouveau dossier” insère immédiatement une ligne
+   * de dossier en DERNIÈRE position du dossier affiché […] le nom est directement éditable dans la ligne. »
+   *
+   * 🔴 LA PROTECTION N'EST PAS ABANDONNÉE, ELLE CHANGE DE FORME : la ligne naît À SA PLACE, dans la liste du
+   * dossier où elle sera créée, sous les yeux. On ne LIT plus un chemin, on le VOIT — et le chemin complet reste
+   * en infobulle du champ, rendu par le serveur. Les tests ci-dessous vérifient les deux : l'endroit, et l'infobulle.
    */
-  it('🔴🔴 confirme avec le NOM et le CHEMIN COMPLET avant d’écrire quoi que ce soit', async () => {
-    await monterCreable();
-    await cliquer(await nouveauDossier());
-    const champNom = container.querySelector('.sfd-creer-corps .sfd-saisie') as HTMLInputElement;
+  const ligneNeuve = () => container.querySelector('.sfd-ligne--neuve');
+  const champNeuf = () => container.querySelector('.sfd-neuve-champ') as HTMLInputElement | null;
+  const taper = async (v: string) => {
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      set?.call(champNom, 'Travaux 2026');
-      champNom.dispatchEvent(new Event('input', { bubbles: true }));
+      set?.call(champNeuf(), v);
+      champNeuf()?.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await cliquer(boutonPar(/^Continuer$/));
-
-    expect(container.querySelector('.sfd-creer-chemin')?.textContent).toContain('Travaux 2026');
-    expect(container.querySelector('.sfd-creer-chemin')?.textContent)
-      .toContain('Mon Drive › Artisans › Travaux 2026');
-    // 🔴 AUCUNE ÉCRITURE ENCORE : la préparation est un GET.
-    expect(appels.filter((u) => u.startsWith('POST') && u.includes('/drive/dossier'))).toHaveLength(0);
-    expect(boutonPar(/^Créer$/)).toBeDefined();
-    expect(boutonPar(/^Annuler$/)).toBeDefined();
-  });
-
-  const allerJusquALaConfirmation = async () => {
-    await monterCreable();
-    await cliquer(await nouveauDossier());
-    const champNom = container.querySelector('.sfd-creer-corps .sfd-saisie') as HTMLInputElement;
+    await calmer();
+  };
+  const touchePourLigne = async (key: string) => {
     await act(async () => {
-      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      set?.call(champNom, 'Travaux 2026');
-      champNom.dispatchEvent(new Event('input', { bubbles: true }));
+      champNeuf()?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
     });
-    await cliquer(boutonPar(/^Continuer$/));
+    await calmer();
   };
 
-  it('« Créer » écrit, puis OUVRE le nouveau dossier', async () => {
-    await allerJusquALaConfirmation();
-    await cliquer(boutonPar(/^Créer$/));
+  it('🔴 la ligne naît DANS la liste, en dernière position, déjà éditable et pré-remplie', async () => {
+    await monterCreable();
+    await cliquer(await nouveauDossier());
+    expect(ligneNeuve()).not.toBeNull();
+    expect(champNeuf()?.value).toBe('Nouveau dossier');
+    // 🔴 ELLE EST LA DERNIÈRE LIGNE : c'est là que le dossier apparaîtra.
+    const lignes = [...container.querySelectorAll('.sfd-ligne')];
+    expect(lignes[lignes.length - 1]).toBe(ligneNeuve());
+    // 🔴 AUCUNE ÉCRITURE : ouvrir la ligne ne crée rien.
+    expect(appels.filter((u) => u.startsWith('POST'))).toHaveLength(0);
+  });
+
+  /** 🔴 LE CHEMIN COMPLET RESTE, EN INFOBULLE, ET IL VIENT DU SERVEUR — c'est ce qui subsiste de la confirmation. */
+  it('🔴🔴 le chemin complet du serveur reste lisible, en infobulle du champ', async () => {
+    await monterCreable();
+    await cliquer(await nouveauDossier());
+    await calmer();
+    expect(champNeuf()?.getAttribute('title')).toContain('Mon Drive › Artisans');
+  });
+
+  /**
+   * 🔴🔴 ON TAPE UN NOM ENTIER, LETTRE PAR LETTRE, ET IL RESTE ENTIER.
+   *
+   * Défaut vu à l'écran, sur le vrai Drive : le champ est CONTRÔLÉ, donc chaque frappe provoque un rendu, donc
+   * rappelle la référence qui sélectionnait le nom proposé. Le texte était resélectionné après CHAQUE lettre, et
+   * la suivante l'écrasait : on tapait quarante caractères, il en restait un. Ce test frappe caractère par
+   * caractère, comme une main — une saisie en un bloc ne l'aurait jamais attrapé.
+   */
+  it('🔴🔴 on tape lettre par lettre, et le nom entier reste', async () => {
+    await monterCreable();
+    await cliquer(await nouveauDossier());
+    const mot = 'Travaux 2026';
+    for (const lettre of mot) {
+      await act(async () => {
+        const champ = champNeuf() as HTMLInputElement;
+        const debut = champ.selectionStart ?? champ.value.length;
+        const fin = champ.selectionEnd ?? champ.value.length;
+        const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        set?.call(champ, champ.value.slice(0, debut) + lettre + champ.value.slice(fin));
+        champ.setSelectionRange(debut + 1, debut + 1);
+        champ.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await calmer();
+    }
+    expect(champNeuf()?.value).toBe(mot);
+  });
+
+  it('Entrée crée, et la ligne disparaît', async () => {
+    await monterCreable();
+    await cliquer(await nouveauDossier());
+    await taper('Travaux 2026');
+    await touchePourLigne('Enter');
     expect(appels.some((u) => u.startsWith('POST') && u.includes('/drive/dossier'))).toBe(true);
-    // Le nouveau dossier s'ouvre : on y va pour y ranger quelque chose.
-    expect(appels.some((u) => u.includes('dossier=dn'))).toBe(true);
-    expect(container.querySelector('.sfd-ariane')?.textContent).toContain('Travaux 2026');
+    expect(ligneNeuve()).toBeNull();
     expect(container.querySelector('.sfd-creer-fait')?.textContent).toContain('Travaux 2026');
     expect(fermetures).toBe(0);
   });
 
-  it('« Annuler » referme la création sans rien écrire', async () => {
-    await allerJusquALaConfirmation();
-    await cliquer(boutonPar(/^Annuler$/));
-    expect(container.querySelector('.sfd-creer-corps')).toBeNull();
+  /** 🔴 ÉCHAP ABANDONNE : la ligne disparaît, rien n'est créé — et la FENÊTRE, elle, ne se ferme pas. */
+  it('🔴 Échap fait disparaître la ligne sans rien créer, et ne ferme pas la fenêtre', async () => {
+    await monterCreable();
+    await cliquer(await nouveauDossier());
+    await touchePourLigne('Escape');
+    expect(ligneNeuve()).toBeNull();
     expect(appels.filter((u) => u.startsWith('POST'))).toHaveLength(0);
-    expect(await nouveauDossier()).toBeDefined();
+    expect(fermetures).toBe(0);
   });
 
-  /** 🔴 « Il n'y a jamais de doublon silencieux » : le refus du serveur s'affiche, et rien n'est écrit. */
-  it('🔴 un doublon est refusé, avec son motif, et la création n’a pas lieu', async () => {
+  /** ⚠️ UN NOM VIDE EST UN ABANDON, PAS UNE ERREUR : on renonce sans rien dire. */
+  it('un nom vide, validé, renonce sans rien créer ni rien reprocher', async () => {
     await monterCreable();
-    dossierNeuf = {
-      ...dossierNeuf, statut: 409,
-      get: { etat: 'refus', message: 'Un dossier « Travaux 2026 » existe déjà à cet endroit : ouvrez-le plutôt…' },
-    };
     await cliquer(await nouveauDossier());
-    const champNom = container.querySelector('.sfd-creer-corps .sfd-saisie') as HTMLInputElement;
-    await act(async () => {
-      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      set?.call(champNom, 'Travaux 2026');
-      champNom.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await cliquer(boutonPar(/^Continuer$/));
-    expect(container.querySelector('.sfd-creer-corps')?.textContent).toContain('existe déjà');
-    expect(boutonPar(/^Créer$/)).toBeUndefined();
+    await taper('   ');
+    await touchePourLigne('Enter');
+    expect(ligneNeuve()).toBeNull();
+    expect(appels.filter((u) => u.startsWith('POST'))).toHaveLength(0);
+    expect(container.textContent).not.toContain('existe déjà');
+  });
+
+  /**
+   * 🔴 UN DOUBLON LAISSE LA LIGNE EN ÉDITION, avec le message sous le champ (demande d'Arno). Le refus est
+   * prononcé SANS appeler le serveur : les noms voisins sont déjà à l'écran, et faire un aller-retour pour
+   * apprendre ce qu'on affiche serait payer une seconde pour un « non » certain.
+   */
+  it('🔴 un doublon garde la ligne en édition, avec son motif, et n’écrit rien', async () => {
+    await monterCreable();
+    await cliquer(await nouveauDossier());
+    // ⚠️ Le double du serveur rend le MÊME contenu dans chaque dossier : « Artisans » y est donc déjà.
+    await taper('Artisans');
+    await touchePourLigne('Enter');
+    expect(ligneNeuve()).not.toBeNull();
+    expect(container.querySelector('.sfd-neuve-erreur')?.textContent).toContain('existe déjà');
     expect(appels.filter((u) => u.startsWith('POST'))).toHaveLength(0);
   });
 
   /**
-   * ⚠️ NAVIGUER REFERME LA CRÉATION EN COURS. Un nom tapé pour un dossier qui survivrait à l'entrée dans un autre
+   * ⚠️ NAVIGUER REFERME LA LIGNE EN COURS. Un nom tapé pour un dossier qui survivrait à l'entrée dans un autre
    * ferait créer au bon nom, au mauvais endroit — la faute que toute cette fonction cherche à empêcher.
    */
-  it('changer de dossier ABANDONNE la création en cours', async () => {
-    await allerJusquALaConfirmation();
+  it('changer de dossier ABANDONNE la ligne en cours', async () => {
+    await monterCreable();
+    await cliquer(await nouveauDossier());
     await cliquer([...container.querySelectorAll('.sfd-ariane button')][0]);   // retour à « Mon Drive »
-    expect(container.querySelector('.sfd-creer-corps')).toBeNull();
+    expect(ligneNeuve()).toBeNull();
     expect(appels.filter((u) => u.startsWith('POST'))).toHaveLength(0);
   });
 
   /** ⚠️ Un dossier créé mais non consigné : on le DIT. Supprimer pour « rattraper » est interdit dans ce lot. */
   it('dit franchement qu’un dossier créé n’a pas pu être consigné', async () => {
-    await allerJusquALaConfirmation();
+    await monterCreable();
     dossierNeuf = {
       ...dossierNeuf,
       post: {
@@ -861,7 +913,9 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
         message: 'Le dossier est créé, mais la ligne de journal n’a pas pu être écrite. Signalez-le : …',
       },
     };
-    await cliquer(boutonPar(/^Créer$/));
+    await cliquer(await nouveauDossier());
+    await taper('Travaux 2026');
+    await touchePourLigne('Enter');
     expect(container.querySelector('.sfd-creer-fait')?.textContent).toContain('journal');
   });
 });

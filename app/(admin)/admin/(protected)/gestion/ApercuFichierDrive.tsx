@@ -49,10 +49,31 @@ export interface FichierAVoir {
   lien: string | null;
   /** Le dossier qui le contient. Il BORNE « Précédent / Suivant » — voir `voisinsVisualisables`. */
   parentId?: string | null;
+  /**
+   * ══ 🔴 LOT DRIVE-RETOUCHES-1 — D'OÙ VIENNENT LES OCTETS ════════════════════════════════════════════════════
+   *
+   * `drive` (défaut) : un fichier du Drive, servi par la route d'aperçu, avec son verdict d'archive.
+   * `piece`          : une PIÈCE REÇUE qu'on est en train de ranger, servie par la route des pièces.
+   *
+   * 🔴 ET C'EST LA ROUTE DES PIÈCES QUI SAIT DÉJÀ LIRE UNE PIÈCE VIDÉE. Depuis le lot du vidage, elle bascule
+   * toute seule sur la copie Drive quand les octets locaux ont été libérés (`stockageVide`), à la même adresse et
+   * sous le même nom. L'aperçu d'une pièce vidée marche donc sans qu'une ligne de plus soit écrite ici — et sans
+   * qu'une seconde définition de « où sont les octets de cette pièce » vienne contredire la première.
+   */
+  source?: 'drive' | 'piece';
 }
 
-/** L'adresse des trois réponses de la route. Écrite une fois : trois recopies dériveraient. PUR. */
-export function adresseApercu(id: string, quoi: 'info' | 'vignette' | 'octets'): string {
+/**
+ * L'adresse des réponses de la route. Écrite une fois : des recopies dériveraient. PUR.
+ *
+ * ⚠️ UNE PIÈCE REÇUE N'A NI `info` NI `vignette` : son type et son nom sont DÉJÀ connus de l'écran qui l'affiche
+ * (le panneau « À ranger » les a reçus avec la pièce), et `sorteApercu` est une fonction pure. Un aller-retour
+ * pour redemander ce qu'on tient dans la main ne servirait qu'à retarder l'ouverture.
+ */
+export function adresseApercu(
+  id: string, quoi: 'info' | 'vignette' | 'octets', source: 'drive' | 'piece' = 'drive',
+): string {
+  if (source === 'piece') return `/api/admin/gestion/pieces/${encodeURIComponent(id)}`;
   const base = `/api/admin/gestion/drive/apercu?fichier=${encodeURIComponent(id)}`;
   return quoi === 'octets' ? base : `${base}&${quoi}=1`;
 }
@@ -109,6 +130,12 @@ export function ApercuFichierDrive({
 }) {
   /** Le document AFFICHÉ. Il change avec « Précédent / Suivant » ; `fichier` est seulement celui d'où l'on part. */
   const [vu, setVu] = useState<FichierAVoir>(fichier);
+  /**
+   * 🔴 D'OÙ VIENNENT LES OCTETS, pour tout le tour. Elle est prise sur le document D'OUVERTURE et non sur celui
+   * qu'on regarde : un tour ne mélange jamais des pièces reçues et des fichiers du Drive — `voisinsVisualisables`
+   * ne retient que ce qui a le même parent, et les deux mondes n'en partagent aucun.
+   */
+  const source = fichier.source ?? 'drive';
   const [etat, setEtat] = useState<Etat>({ e: 'charge', vignette: false });
   const [zoom, setZoom] = useState(1);
   /**
@@ -166,6 +193,22 @@ export function ApercuFichierDrive({
     let annule = false;
     setPage1Peinte(false);
     setEtat({ e: 'charge', vignette: false });
+
+    /* ══ 🔴 UNE PIÈCE REÇUE N'A RIEN À DEMANDER ═════════════════════════════════════════════════════════════
+       Son nom et son type sont DÉJÀ connus de l'écran qui l'affiche (le panneau « À ranger » les a reçus avec
+       elle), et le format hors liste blanche vient d'être tranché juste au-dessus, par la MÊME fonction pure. Un
+       aller-retour pour redemander ce qu'on tient dans la main ne ferait que retarder l'ouverture.
+       ⚠️ AUCUNE VIGNETTE : la route des pièces sert les octets, pas une image de première page. Le lecteur PDF
+       affiche sa propre page 1, comme pour un fichier du Drive dont Google n'aurait pas de vignette. */
+    if (source === 'piece') {
+      setEtat({
+        e: 'pret',
+        sorte: sorte === 'image' ? 'image' : sorte === 'texte' ? 'texte' : 'pdf',
+        vignette: false,
+      });
+      return undefined;
+    }
+
     void (async () => {
       try {
         const res = await fetch(adresseApercu(vu.id, 'info'), { cache: 'no-store' });
@@ -196,7 +239,7 @@ export function ApercuFichierDrive({
       }
     })();
     return () => { annule = true; };
-  }, [vu.id, vu.typeMime]);
+  }, [vu.id, vu.typeMime, source]);
 
   /**
    * ══ 🔴 LE PRÉCHARGEMENT DU VOISIN ════════════════════════════════════════════════════════════════════════════
@@ -216,7 +259,7 @@ export function ApercuFichierDrive({
      * 🔴 ON N'AMORCE QU'APRÈS LA PAGE 1 : le document qu'on est venu voir passe en premier, toujours. Amorcer
      * pendant son chargement lui disputerait la connexion, pour une page que personne ne regarde encore.
      */
-    if (etat.e !== 'pret' || !page1Peinte) return undefined;
+    if (etat.e !== 'pret' || !page1Peinte || source === 'piece') return undefined;
     let annule = false;
     for (const id of [idSuivant, idPrecedent]) {
       if (id === null) continue;
@@ -252,7 +295,7 @@ export function ApercuFichierDrive({
      * octets à moitié lus, donc le bénéfice entier. Il se termine seul, `annule` empêchant seulement d'enchaîner.
      */
     return () => { annule = true; };
-  }, [etat.e, page1Peinte, idSuivant, idPrecedent]);
+  }, [etat.e, page1Peinte, idSuivant, idPrecedent, source]);
 
   /**
    * ÉCHAP FERME, LES FLÈCHES NAVIGUENT — même quand le focus est DANS le cadre de l'aperçu.
@@ -317,14 +360,14 @@ export function ApercuFichierDrive({
                   POSÉ. C'est tout le défaut du lot précédent, corrigé : `page1Peinte` est levé par le lecteur
                   lui-même, quand il a vraiment quelque chose à montrer. */}
               {(etat.e === 'charge' || (etat.vignette && !page1Peinte)) && (
-                <img className="apd-vignette" src={adresseApercu(vu.id, 'vignette')} alt=""
+                <img className="apd-vignette" src={adresseApercu(vu.id, 'vignette', source)} alt=""
                   aria-hidden="true" />
               )}
               {(etat.e === 'charge' || (etat.e === 'pret' && etat.sorte === 'pdf' && !page1Peinte)) && (
                 <p className="apd-attente" role="status">Lecture du fichier…</p>
               )}
               {etat.e === 'pret' && etat.sorte === 'image' && (
-                <img className="apd-image" src={adresseApercu(vu.id, 'octets')} alt={vu.nom}
+                <img className="apd-image" src={adresseApercu(vu.id, 'octets', source)} alt={vu.nom}
                   style={{ width: `${zoom * 100}%` }} />
               )}
               {/*
@@ -334,12 +377,12 @@ export function ApercuFichierDrive({
                 `key` force un lecteur NEUF à chaque document : sans elle, on garderait le rendu du précédent.
               */}
               {etat.e === 'pret' && etat.sorte === 'pdf' && (
-                <LecteurPdf key={vu.id} url={adresseApercu(vu.id, 'octets')} nom={vu.nom}
+                <LecteurPdf key={vu.id} url={adresseApercu(vu.id, 'octets', source)} nom={vu.nom}
                   onPremierePage={direPage1Peinte} />
               )}
               {/* Le TEXTE BRUT garde le cadre : il n'y a rien à décoder, le navigateur l'affiche tel quel. */}
               {etat.e === 'pret' && etat.sorte === 'texte' && (
-                <iframe key={vu.id} className="apd-cadre" src={adresseApercu(vu.id, 'octets')}
+                <iframe key={vu.id} className="apd-cadre" src={adresseApercu(vu.id, 'octets', source)}
                   title={`Aperçu de ${vu.nom}`} />
               )}
             </div>

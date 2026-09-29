@@ -379,8 +379,12 @@ describe('🔴🔴 la route sert des TRANCHES', () => {
     // ⚠️ Et jamais pour un export Google, qui est recalculé à chaque demande : l'amorcer ferait travailler pour rien.
     expect(code).toContain("if (d.sorte === 'export_pdf') return;");
     expect(code).toContain('AMORCE_TAILLE_MAX');
-    // 🔴 Après la page 1, jamais pendant : le document qu'on est venu voir passe en premier.
-    expect(code).toContain("if (etat.e !== 'pret' || !page1Peinte) return undefined;");
+    /* 🔴 Après la page 1, jamais pendant : le document qu'on est venu voir passe en premier.
+       ⚠️ ASSERTION ÉLARGIE LE 29/09/2026 (lot DRIVE-RETOUCHES-1) : la condition porte une clause de plus — on
+       n'amorce pas les voisins d'une PIÈCE REÇUE, qui est servie par une autre route et n'a rien à réchauffer
+       chez Google. La propriété gardée est la même ; on cesse seulement de figer la fin de la ligne. */
+    expect(code).toContain("if (etat.e !== 'pret' || !page1Peinte");
+    expect(code).toContain("source === 'piece') return undefined;");
   });
 
   it('⚠️ seule une lecture complète alimente la mémoire', () => {

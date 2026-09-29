@@ -356,7 +356,7 @@ export function selectionSuivante(sel: Selection, ordre: readonly string[], pas:
 
 export type ActionMenu =
   'visualiser' | 'joindre' | 'lien' | 'ouvrir' | 'nouveau_dossier' | 'ouvrir_google'
-  | 'couper' | 'copier' | 'coller';
+  | 'couper' | 'copier' | 'coller' | 'actualiser';
 
 export interface EntreeMenu {
   action: ActionMenu;
@@ -501,6 +501,48 @@ export function menuDossier(o: {
     },
     // 🔴 SUR UN DOSSIER, « Coller ici » VISE CE DOSSIER-LÀ, pas celui qu'on regarde : c'est toute la différence.
     ...entreesPresse(o.presse ?? null),
+  ];
+}
+
+/**
+ * ══ 🔴 LOT DRIVE-RETOUCHES-1 — LE MENU DU VIDE ══════════════════════════════════════════════════════════════════
+ *
+ * Arno : « clic droit dans une ZONE VIDE de la liste : aujourd'hui c'est le menu de Chrome qui s'ouvre. Remplace-le
+ * par NOTRE menu : “Nouveau dossier” (dans le dossier affiché), “Coller ici” (si la mémoire tampon contient quelque
+ * chose), “Actualiser”. »
+ *
+ * 🔴 POURQUOI C'EST PLUS QU'UN CONFORT. Le menu de Chrome propose « Recharger », « Enregistrer sous », « Inspecter » :
+ * trois gestes qui n'ont aucun sens dans une fenêtre de Drive, et dont le premier RECHARGE TOUTE L'APPLICATION —
+ * fermant la fenêtre, perdant la sélection, la mémoire tampon et le brouillon en cours. Le remplacer n'est pas
+ * décoratif : c'est retirer un piège.
+ *
+ * ⚠️ « Nouveau dossier » Y PORTE LES MÊMES INTERDITS QU'AILLEURS : éteint avec son motif partout où la création est
+ * refusée — à commencer par « Documents clients scannés » et tous ses sous-dossiers.
+ */
+export function menuVide(o: {
+  creerAutorise: boolean;
+  motifCreation: string | null;
+  presse?: DroitsPresse | null;
+}): EntreeMenu[] {
+  return [
+    {
+      action: 'nouveau_dossier',
+      libelle: 'Nouveau dossier',
+      motifInactif: o.creerAutorise ? null : (o.motifCreation ?? 'La création est refusée ici.'),
+    },
+    /* ⚠️ « Coller ici » N'EST LÀ QUE S'IL Y A QUELQUE CHOSE À COLLER (demande d'Arno : « si la mémoire tampon
+       contient quelque chose »). Sur une LIGNE, l'entrée reste visible mais éteinte — un menu qui s'ouvre sur un
+       élément précis doit montrer tout ce qu'on peut lui faire. Dans le VIDE, il n'y a rien à décrire : une
+       entrée morte n'y apprendrait rien, elle allongerait la liste. */
+    ...(o.presse != null && !o.presse.presseVide
+      ? entreesPresse(o.presse).filter((e) => e.action === 'coller')
+      : []),
+    /**
+     * ⚠️ « Actualiser » RELIT LE DOSSIER, il ne recharge pas la page. C'est précisément ce que le menu de Chrome
+     * ne savait pas faire, et la raison pour laquelle cette entrée existe : offrir le geste qu'on cherchait, sans
+     * celui qui emporte tout.
+     */
+    { action: 'actualiser', libelle: 'Actualiser ce dossier', motifInactif: null },
   ];
 }
 
