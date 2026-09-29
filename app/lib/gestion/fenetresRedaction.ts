@@ -98,3 +98,32 @@ export function rangDepuisLaDroite(fenetres: readonly FenetreRedaction[], cle: s
   const i = ancrees.findIndex((f) => f.cle === cle);
   return i < 0 ? 0 : ancrees.length - 1 - i;
 }
+
+/**
+ * ══ 🔴 LOT BROUILLONS-GMAIL — LE DÉCALAGE EN PIXELS, ET POURQUOI LE RANG NE SUFFIT PLUS ════════════════════════
+ *
+ * Une fenêtre RÉDUITE est désormais une PASTILLE, bien plus étroite qu'une fenêtre ouverte (c'est le modèle Gmail,
+ * et la demande d'Arno). Multiplier un rang par une largeur unique donnait alors des chevauchements : une pastille
+ * à droite d'une fenêtre ouverte aurait laissé un trou, et une fenêtre ouverte à droite d'une pastille serait
+ * passée PAR-DESSUS elle — exactement ce que « côte à côte, jamais superposées » interdit.
+ *
+ * On additionne donc les largeurs RÉELLES de tout ce qui est à droite, plus une gouttière par voisin. Pur : les
+ * largeurs sont des constantes du style, nommées ici une seule fois pour que les deux ne divergent pas.
+ */
+export const LARGEUR_OUVERTE_PX = 520;
+export const LARGEUR_REDUITE_PX = 280;
+export const GOUTTIERE_PX = 12;
+export const MARGE_DROITE_PX = 16;
+
+export function largeurDe(etat: EtatFenetre): number {
+  return etat === 'reduite' ? LARGEUR_REDUITE_PX : LARGEUR_OUVERTE_PX;
+}
+
+export function decalageDepuisLaDroite(fenetres: readonly FenetreRedaction[], cle: string): number {
+  const ancrees = fenetres.filter((f) => f.etat !== 'plein');
+  const i = ancrees.findIndex((f) => f.cle === cle);
+  if (i < 0) return MARGE_DROITE_PX;
+  // Tout ce qui est APRÈS dans la liste est à DROITE : la dernière ouverte est la plus à droite.
+  const aDroite = ancrees.slice(i + 1);
+  return aDroite.reduce((n, f) => n + largeurDe(f.etat) + GOUTTIERE_PX, MARGE_DROITE_PX);
+}

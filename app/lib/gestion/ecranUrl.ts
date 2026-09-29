@@ -95,6 +95,20 @@ export interface EtatEcranUrl {
    */
   messageOuvert?: number | null;
   /**
+   * ══ 🔴 LOT BROUILLONS-GMAIL — LE BROUILLON QU'ON VIENT ROUVRIR ════════════════════════════════════════════════
+   *
+   * Un clic sur un brouillon de RÉPONSE ouvrait la conversation… sans l'éditeur, et le brouillon était introuvable
+   * (constat d'Arno). Il voyage désormais dans l'adresse, comme le message visé : la conversation sait alors quel
+   * brouillon rouvrir, et sous quel message le poser.
+   *
+   * ⚠️ IL NE VAUT RIEN SANS `filOuvert`, exactement comme `messageOuvert` : un `?brouillon=` orphelin ne désigne
+   * aucune conversation, et le traîner mettrait deux adresses dans l'historique pour un seul écran.
+   *
+   * ⚠️ FACULTATIF À L'ÉCRITURE : la trentaine d'appels qui construisent déjà un état à la main n'ont pas à écrire
+   * `brouillonOuvert: null`. `null` = « aucun brouillon à rouvrir », c'est-à-dire le comportement d'avant ce lot.
+   */
+  brouillonOuvert?: number | null;
+  /**
    * LOT ANNUAIRE-1 — la fiche ouverte. `null` ailleurs que dans l'annuaire, et dans l'annuaire sans fiche ouverte.
    *
    * ⚠️ FACULTATIVE À L'ÉCRITURE, TOUJOURS RENSEIGNÉE À LA LECTURE. Une trentaine d'appels construisent déjà un état
@@ -169,7 +183,8 @@ export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId:
  * `?ecran=partage`, `?etiquette=envoyes`, `?fil=123` ouvrent exactement ce qu'ils visent (voir `lireEtatUrl`).
  */
 export const ETAT_DEFAUT: EtatEcranUrl = {
-  ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, messageOuvert: null, fiche: null, cible: null,
+  ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, messageOuvert: null, brouillonOuvert: null,
+  fiche: null, cible: null,
   filtre: null, etoile: false,
 };
 
@@ -261,6 +276,8 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
       : etiquetteDepuisTexte(p.get('etiquette')),
     filOuvert,
     messageOuvert: filOuvert === null ? null : identifiant(p.get('message')),
+    // LOT BROUILLONS-GMAIL — comme le message visé : lu SEULEMENT avec son échange (voir `brouillonOuvert`).
+    brouillonOuvert: filOuvert === null ? null : identifiant(p.get('brouillon')),
     // La fiche ne désigne quelque chose QUE dans l'annuaire : la lire ailleurs traînerait un paramètre mort.
     fiche: ecran === 'annuaire' ? ficheDepuisTexte(p.get('fiche')) : null,
     // LOT RATTACHEMENT-2 — idem pour la cible de l'historique. Elle est rendue TELLE QUELLE (bornée) : c'est
@@ -306,6 +323,8 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   // LOT MESSAGE-CLIQUÉ — écrit UNIQUEMENT avec son échange, et jamais seul : voir `messageOuvert`. Ainsi le
   //   rechargement et le bouton « Précédent » rouvrent le message qu'on lisait, pas le dernier du fil.
   if (e.filOuvert !== null && e.messageOuvert != null) p.set('message', String(e.messageOuvert));
+  // LOT BROUILLONS-GMAIL — le brouillon rouvert, écrit avec son échange et jamais seul.
+  if (e.filOuvert !== null && e.brouillonOuvert != null) p.set('brouillon', String(e.brouillonOuvert));
   if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
   if (e.ecran === 'historique' && e.cible != null && e.cible !== '') p.set('cible', e.cible);
   // Seul `non-lus` s'écrit : « tous » est le défaut, et un défaut écrit dans l'adresse n'est plus un défaut.
@@ -345,6 +364,7 @@ export function autoImposeParEtiquette(e: Etiquette): boolean | null {
 export function memeEtat(a: EtatEcranUrl, b: EtatEcranUrl): boolean {
   return a.ecran === b.ecran && a.filOuvert === b.filOuvert
     && (a.filOuvert === null || (a.messageOuvert ?? null) === (b.messageOuvert ?? null))
+    && (a.filOuvert === null || (a.brouillonOuvert ?? null) === (b.brouillonOuvert ?? null))
     && (a.ecran !== 'boite' || memeEtiquette(a.etiquette, b.etiquette))
     && (a.ecran !== 'annuaire' || (a.fiche?.sorte ?? null) === (b.fiche?.sorte ?? null)
       && (a.fiche?.id ?? null) === (b.fiche?.id ?? null))

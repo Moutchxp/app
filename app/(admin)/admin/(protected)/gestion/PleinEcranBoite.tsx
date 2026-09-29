@@ -76,7 +76,8 @@ export function etiquettesVisibles(
 }
 
 export function PleinEcranBoite({
-  etiquette, etiquettes, onEtiquette, filOuvert, messageOuvert = null, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
+  etiquette, etiquettes, onEtiquette, filOuvert, messageOuvert = null, brouillonOuvert = null,
+  onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
   versionDonnees = 0, onListeRelue,
@@ -93,7 +94,9 @@ export function PleinEcranBoite({
    * lisible, comportement d'avant ce lot.
    */
   messageOuvert?: number | null;
-  onOuvrir: (filId: number, messageId?: number | null) => void;
+  onOuvrir: (filId: number, messageId?: number | null, brouillonId?: number | null) => void;
+  /** LOT BROUILLONS-GMAIL — le brouillon de réponse à rouvrir DANS la conversation. `null` = aucun. */
+  brouillonOuvert?: number | null;
   onFermerFil: () => void;
   maintenant: Date;
   onGeste: Rapport;
@@ -567,7 +570,9 @@ export function PleinEcranBoite({
               répond, et deux messages peuvent s'écrire côte à côte. La liste reste donc à sa place, vivante. */}
           {etiquette.sorte === 'brouillons' ? (
             <Brouillons maintenant={maintenant}
-              onOuvrir={(f) => onOuvrir(f)}
+              /* 🔴 « Voir la conversation » emmène AUSSI le brouillon : Arno l'a demandé explicitement, et un
+                 bouton qui ouvre le fil sans l'éditeur fait chercher le brouillon qu'on venait justement reprendre. */
+              onOuvrir={(f, b) => onOuvrir(f, b?.repondAMessageId ?? null, b?.id ?? null)}
               /**
                * 🔴🔴 UN CLIC SUR UN BROUILLON L'OUVRE DANS L'ÉDITEUR — il ne s'ouvrait pas du tout (constat d'Arno).
                * On réutilise la fenêtre de rédaction ORDINAIRE : mêmes destinataires, même objet, même corps mis en
@@ -575,7 +580,22 @@ export function PleinEcranBoite({
                * La clé tient à cet identifiant : recliquer RÉTABLIT la fenêtre au lieu d'en ouvrir une seconde sur
                * le même travail — deux fenêtres sur une seule ligne, et le dernier enregistrement mangerait l'autre.
                */
-              onReprendre={(b) => ouvrirRedaction(cleFenetreBrouillon(b.id), reprendreBrouillon(b))}
+              /**
+               * 🔴🔴 LOT BROUILLONS-GMAIL — UN BROUILLON DE RÉPONSE S'OUVRE DANS SA CONVERSATION.
+               *
+               * CONSTAT D'ARNO : cliquer « Re: État des lieux de sortie » ouvrait la conversation SANS l'éditeur —
+               * le brouillon était introuvable. Il s'ouvrait en réalité dans une fenêtre flottante, détachée du fil
+               * auquel il répond : on ne voyait plus à quoi on répondait, et la fenêtre se confondait avec un
+               * message neuf.
+               *
+               * ⚠️ DEUX CHEMINS, ET C'EST VOULU : un brouillon RATTACHÉ À UN ÉCHANGE va dans sa conversation, sous
+               * le message auquel il répond ; un message NEUF (sans échange) garde sa fenêtre flottante, qui est sa
+               * place naturelle — il n'y a pas de conversation où le poser.
+               */
+              onReprendre={(b) => {
+                if (b.filId !== null) { onOuvrir(b.filId, b.repondAMessageId, b.id); return; }
+                ouvrirRedaction(cleFenetreBrouillon(b.id), reprendreBrouillon(b));
+              }}
               onChange={() => onEtiquette(etiquette)} />
           ) : aClasser ? (
             <>
@@ -659,6 +679,8 @@ export function PleinEcranBoite({
               onRouvrirBrouillon={() => onEtiquette({ sorte: 'brouillons', evenementId: null })}
               /* LOT MESSAGE-CLIQUÉ — le message de la ligne cliquée : déplié et amené à l'écran. */
               messageVise={messageOuvert}
+              /* 🔴 LOT BROUILLONS-GMAIL — le brouillon cliqué se rouvre sous SON message, dans la conversation. */
+              brouillonRepris={brouillonOuvert}
               voieInitiale={voieDemandee}
               onFerme={onFermerFil} barreActions onClassement={(voie) => setClassement(voie)}
               redaction={redaction} onGeste={onGeste}

@@ -153,6 +153,36 @@ export async function lireBrouillonDuFil(filId: number): Promise<BrouillonEnBase
   return rows[0] ? versBrouillon(rows[0]) : null;
 }
 
+/**
+ * 🔴 LOT BROUILLONS-GMAIL — UN BROUILLON PRÉCIS, par son identifiant. Vivant seulement.
+ *
+ * La conversation en a besoin pour rouvrir l'éditeur sous le bon message : `lireBrouillonDuFil` ne suffisait pas,
+ * un échange pouvant porter plusieurs brouillons (une réponse ici, un transfert là) — et c'est CELUI QU'ON A
+ * CLIQUÉ qu'il faut rouvrir, pas le plus récent.
+ *
+ * ⚠️ `abandonne_le IS NULL AND envoye_le IS NULL` : on ne rouvre jamais un brouillon abandonné ou déjà parti. Une
+ * adresse copiée hier ne doit pas ressusciter un message envoyé depuis.
+ */
+export async function lireBrouillon(id: number): Promise<BrouillonEnBase | null> {
+  const { rows } = await query<LigneBrouillon>(
+    `SELECT ${champs(await brouillonHtmlDisponible())} FROM gestion_brouillon
+      WHERE id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL`, [id]);
+  return rows[0] ? versBrouillon(rows[0]) : null;
+}
+
+/**
+ * 🔴 TOUS LES BROUILLONS VIVANTS D'UN ÉCHANGE. C'est ce qui permet à la conversation de poser la mention rouge
+ * « Brouillon » sur le message concerné, comme dans Gmail — y compris quand on arrive par la Réception, sans être
+ * passé par la liste des brouillons.
+ */
+export async function listerBrouillonsDuFil(filId: number): Promise<BrouillonEnBase[]> {
+  const { rows } = await query<LigneBrouillon>(
+    `SELECT ${champs(await brouillonHtmlDisponible())} FROM gestion_brouillon
+      WHERE fil_id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL
+      ORDER BY maj_le DESC, id DESC LIMIT 20`, [filId]);
+  return rows.map(versBrouillon);
+}
+
 /** Tous les brouillons vivants — ce que montre le libellé « Brouillons ». Borné : une liste se lit, elle ne défile pas. */
 export async function listerBrouillons(limite = 50): Promise<BrouillonEnBase[]> {
   const { rows } = await query<LigneBrouillon>(
@@ -295,3 +325,4 @@ export async function suggererCorrespondants(saisie: string, limite = 10): Promi
       LIMIT $2`, [q, Math.min(Math.max(1, limite), 25)]);
   return rows.map((r) => ({ adresse: r.adresse, nom: (r.nom ?? '').trim() || null }));
 }
+

@@ -144,8 +144,19 @@ describe('🔴🔴 un clic sur un brouillon l’OUVRE dans l’éditeur', () => 
     expect(sansCommentaires(liste)).toContain('Voir la conversation');
   });
 
-  it('🔴 l’écran ouvre la fenêtre de rédaction ORDINAIRE sur ce brouillon', () => {
-    expect(sansCommentaires(ecran))
-      .toContain('onReprendre={(b) => ouvrirRedaction(cleFenetreBrouillon(b.id), reprendreBrouillon(b))}');
+  /**
+   * ⚠️ ASSERTION RÉÉCRITE LE 29/09/2026 (lot BROUILLONS-GMAIL), et la raison est une demande d'Arno.
+   *
+   * Elle exigeait que TOUT brouillon s'ouvre dans une fenêtre flottante. C'était vrai la veille ; ce ne l'est
+   * plus : un brouillon de RÉPONSE s'ouvre désormais DANS SA CONVERSATION, sous le message auquel il répond —
+   * la fenêtre flottante le détachait du fil, et l'on ne voyait plus à quoi on répondait. Seul un message NEUF,
+   * qui n'a pas de conversation où se poser, garde sa fenêtre.
+   *
+   * ⚠️ ON NE L'A PAS SUPPRIMÉE : elle dit maintenant la règle qu'on tient, c'est-à-dire les DEUX chemins.
+   */
+  it('🔴 réponse → sa conversation ; message neuf → sa fenêtre de rédaction', () => {
+    const code = sansCommentaires(ecran);
+    expect(code).toContain('if (b.filId !== null) { onOuvrir(b.filId, b.repondAMessageId, b.id); return; }');
+    expect(code).toContain('ouvrirRedaction(cleFenetreBrouillon(b.id), reprendreBrouillon(b))');
   });
 });

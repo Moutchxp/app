@@ -203,6 +203,8 @@ export function GestionVue({ intro }: {
    * commande — sans échange ouvert, un message visé ne désigne rien (voir `ecranUrl`).
    */
   const messageOuvert = filOuvert === null ? null : (etatUrl.messageOuvert ?? null);
+  /** LOT BROUILLONS-GMAIL — le brouillon à rouvrir dans la conversation. Il ne vaut rien sans son échange. */
+  const brouillonOuvert = filOuvert === null ? null : (etatUrl.brouillonOuvert ?? null);
 
   /**
    * L'adresse fait FOI. On la lit au montage — jamais au rendu serveur, où `window` n'existe pas et où une lecture
@@ -798,7 +800,12 @@ export function GestionVue({ intro }: {
           peutEcrire={redaction?.peutEnvoyer === true}
           piecesDisponibles={redaction?.piecesDisponibles === true}
           onEtiquette={(e) => { setPanneau(null); aller({ ...etatUrl, etiquette: e, filOuvert: null }); }}
-          onOuvrir={(id, messageId) => aller({ ...etatUrl, filOuvert: id, messageOuvert: messageId ?? null })}
+          /* LOT BROUILLONS-GMAIL — un brouillon de réponse voyage avec l'échange : la conversation sait alors
+             lequel rouvrir, et sous quel message le poser. Absent ⇒ comportement d'avant ce lot. */
+          onOuvrir={(id, messageId, brouillonId) => aller({
+            ...etatUrl, filOuvert: id, messageOuvert: messageId ?? null, brouillonOuvert: brouillonId ?? null,
+          })}
+          brouillonOuvert={brouillonOuvert}
           onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}
           /* ⚠️ « ← Écran partagé » DOIT NOMMER SON ÉCRAN. Depuis le lot ERGO-BOITE, `ETAT_DEFAUT` EST la boîte :
              s'en remettre à lui ferait un bouton de retour qui ne sort de nulle part. */

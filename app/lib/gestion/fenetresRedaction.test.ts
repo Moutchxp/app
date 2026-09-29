@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
-  celleEnPlein, changerEtat, fermer, FENETRES_MAX, MOTIF_TROP_DE_FENETRES, ouvrir, rangDepuisLaDroite,
+  celleEnPlein, changerEtat, decalageDepuisLaDroite, fermer, FENETRES_MAX, GOUTTIERE_PX, LARGEUR_OUVERTE_PX,
+  LARGEUR_REDUITE_PX, MARGE_DROITE_PX, MOTIF_TROP_DE_FENETRES, ouvrir, rangDepuisLaDroite,
   type FenetreRedaction,
 } from './fenetresRedaction';
 
@@ -122,5 +124,99 @@ describe('la place des fenêtres ancrées', () => {
 
   it('une clé inconnue ne jette pas', () => {
     expect(rangDepuisLaDroite([f('a')], 'x')).toBe(0);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT BROUILLONS-GMAIL — LE DÉCALAGE EN PIXELS, ET LA BARRE DE TITRE QUI DISPARAISSAIT ═══════════════════
+ *
+ * DEUX DÉFAUTS D'ARNO, tous deux reproduits à l'écran le 29/09/2026 :
+ *   ① en rouvrant un brouillon un peu haut (des Cc, une citation), la BARRE DE TITRE n'était plus visible — il
+ *      n'en restait qu'un ruban de 3 px, et l'on ne pouvait ni réduire ni fermer la fenêtre. Mesuré : la barre se
+ *      trouvait à 146 px alors que la fenêtre commençait à 189, donc HORS de sa boîte rognée (`overflow:hidden`) ;
+ *   ② une fenêtre RÉDUITE est désormais une PASTILLE, bien plus étroite. Multiplier un rang par une largeur unique
+ *      aurait fait passer une fenêtre ouverte PAR-DESSUS une pastille — ce que « côte à côte » interdit.
+ */
+describe('🔴🔴 le décalage tient compte de la largeur RÉELLE des voisins', () => {
+  it('la plus à droite est à la marge', () => {
+    const fs = [f('a'), f('b')];
+    expect(decalageDepuisLaDroite(fs, 'b')).toBe(MARGE_DROITE_PX);
+  });
+
+  it('une fenêtre ouverte à gauche d’une autre ouverte', () => {
+    const fs = [f('a'), f('b')];
+    expect(decalageDepuisLaDroite(fs, 'a')).toBe(MARGE_DROITE_PX + LARGEUR_OUVERTE_PX + GOUTTIERE_PX);
+  });
+
+  /** 🔴 LE CAS QUI SE CHEVAUCHAIT : une pastille à droite, une fenêtre ouverte à gauche. */
+  it('🔴 une fenêtre ouverte à gauche d’une PASTILLE ne la recouvre pas', () => {
+    const fs = [f('a'), f('b', 'reduite')];
+    expect(decalageDepuisLaDroite(fs, 'a')).toBe(MARGE_DROITE_PX + LARGEUR_REDUITE_PX + GOUTTIERE_PX);
+  });
+
+  it('deux pastilles côte à côte', () => {
+    const fs = [f('a', 'reduite'), f('b', 'reduite')];
+    expect(decalageDepuisLaDroite(fs, 'b')).toBe(MARGE_DROITE_PX);
+    expect(decalageDepuisLaDroite(fs, 'a')).toBe(MARGE_DROITE_PX + LARGEUR_REDUITE_PX + GOUTTIERE_PX);
+  });
+
+  it('celle en plein écran ne prend pas de place : elle est centrée', () => {
+    const fs = [f('a', 'plein'), f('b')];
+    expect(decalageDepuisLaDroite(fs, 'b')).toBe(MARGE_DROITE_PX);
+  });
+
+  it('une clé inconnue ne jette pas', () => {
+    expect(decalageDepuisLaDroite([f('a')], 'x')).toBe(MARGE_DROITE_PX);
+  });
+});
+
+describe('🔴🔴 la barre de titre ne peut plus être rognée', () => {
+  const src = readFileSync('app/(admin)/admin/(protected)/gestion/FenetresRedaction.tsx', 'utf8');
+  const style = src.slice(src.indexOf('export const CSS_FENETRES'));
+
+  /**
+   * 🔴 LA CAUSE ÉTAIT LÀ : une colonne flex dans une boîte à hauteur maximale et `overflow:hidden`. La grille donne
+   * à la barre une rangée qui lui appartient, dimensionnée AVANT le corps ; rien ne peut plus la pousser dehors.
+   */
+  it('🔴 la fenêtre est une GRILLE à deux rangées, plus une colonne flex', () => {
+    expect(style).toContain('display:grid;grid-template-rows:auto 1fr');
+    expect(style).not.toContain('display:flex;flex-direction:column;width:var(--fre-largeur)');
+  });
+
+  it('🔴 le corps peut rétrécir (min-height:0) et défile chez lui', () => {
+    expect(style).toContain('.fre-corps{min-height:0;overflow-y:auto');
+  });
+
+  it('🔴 réduite, la fenêtre est une pastille : sa rangée de corps est à zéro', () => {
+    expect(style).toContain('grid-template-rows:auto 0');
+    expect(style).toContain(`width:min(${LARGEUR_REDUITE_PX}px`);
+  });
+
+  /** ⚠️ Les largeurs du style et celles du module pur doivent rester d'accord : deux vérités divergeraient. */
+  it('⚠️ le style et le module pur nomment la MÊME largeur', () => {
+    expect(style).toContain(`--fre-largeur:min(${LARGEUR_OUVERTE_PX}px`);
+  });
+});
+
+describe('🔴 les trois icônes de Gmail, dans l’ordre de Gmail', () => {
+  const src = readFileSync('app/(admin)/admin/(protected)/gestion/FenetresRedaction.tsx', 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ');
+
+  it('réduire, puis plein écran, puis fermer', () => {
+    // ⚠️ Les deux premiers libellés sont CALCULÉS (réduire / rétablir) : on cherche les mots, pas un attribut figé.
+    const ordre = ['Réduire la fenêtre', 'Passer en plein écran', 'Fermer la fenêtre'].map((m) => code.indexOf(m));
+    expect(ordre.every((i) => i >= 0)).toBe(true);
+    expect(ordre[0]).toBeLessThan(ordre[1]);
+    expect(ordre[1]).toBeLessThan(ordre[2]);
+  });
+
+  /** 🔴 LE TIRET DE GMAIL, pas un chevron : c'est la forme qu'on reconnaît sans lire. */
+  it('🔴 « réduire » est un tiret quand la fenêtre est ouverte', () => {
+    expect(code).toContain("{f.etat === 'reduite' ? '⌃' : '—'}");
+  });
+
+  it('les trois ont la même boîte : c’est ce qui les fait lire comme une rangée', () => {
+    const style = src.slice(src.indexOf('export const CSS_FENETRES'));
+    expect(style).toContain('.fre-bouton{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px');
   });
 });

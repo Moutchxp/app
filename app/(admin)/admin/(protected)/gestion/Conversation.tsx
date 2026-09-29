@@ -21,6 +21,8 @@ import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { MenuDiscret } from './MenuDiscret';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+// LOT BROUILLONS-GMAIL — la traduction « brouillon en base → brouillon d'éditeur », PURE.
+import { reprendreBrouillon, type BrouillonEnregistre } from '../../../../lib/gestion/brouillonReprise';
 import { heureGmail } from '../../../../lib/gestion/ecran';
 import { lienGmail, libelleEtoile, menuMessage, type ActionMessage } from '../../../../lib/gestion/gmailMenu';
 import { PanneauAffecter } from './PanneauAffecter';
@@ -139,7 +141,7 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon }: {
   filId: number;
   /**
    * 🔴 LOT LIGNE-NON-ENVOYE — rouvre le brouillon d'un mail de cet échange qui n'est pas parti. Absent ⇒ la
@@ -158,6 +160,14 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * tous les écrans qui ouvrent une conversation sans savoir quel message montrer (une carte, un brouillon).
    */
   messageVise?: number | null;
+  /**
+   * 🔴🔴 LOT BROUILLONS-GMAIL — LE BROUILLON À ROUVRIR DANS CETTE CONVERSATION.
+   *
+   * Constat d'Arno : cliquer un brouillon de réponse ouvrait la conversation SANS l'éditeur. Il arrive désormais
+   * par l'adresse (`?fil=…&message=…&brouillon=…`), et l'éditeur se rouvre sous le message auquel il répond,
+   * pré-rempli de tout ce qui avait été enregistré. `null` = on n'en rouvre aucun.
+   */
+  brouillonRepris?: number | null;
   maintenant: Date;
   onGeste: Rapport;
   /** Optionnel : la boîte mail affiche un retour, une carte n'en a pas besoin. */
@@ -383,6 +393,57 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     voieFaite.current = cle;
     setBrouillon(ouvrirRedaction(voieInitiale, vue.messages, filId, redaction, maintenant));
   }, [voieInitiale, vue, redaction, filId, maintenant]);
+
+  /**
+   * ══ 🔴🔴 LOT BROUILLONS-GMAIL — LES BROUILLONS VIVANTS DE CET ÉCHANGE ══════════════════════════════════════════
+   *
+   * Deux usages, une seule lecture :
+   *   ① la MENTION ROUGE « Brouillon » sur le message concerné, comme dans Gmail — et elle s'affiche même quand on
+   *      arrive par la Réception, sans être passé par la liste des brouillons ;
+   *   ② le brouillon qu'on vient de cliquer (`brouillonRepris`), rouvert dans l'éditeur sous SON message.
+   *
+   * ⚠️ SILENCE EN CAS D'ÉCHEC : une conversation doit s'afficher même si la lecture des brouillons échoue. On perd
+   * une mention, jamais le courrier.
+   */
+  const [brouillonsDuFil, setBrouillonsDuFil] = useState<BrouillonEnregistre[]>([]);
+  const relireBrouillons = useCallback(async () => {
+    if (redaction === null || !redaction.schemaPret) return;
+    try {
+      const res = await fetch(`/api/admin/gestion/brouillons?fil=${filId}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const d = (await res.json()) as { brouillons?: BrouillonEnregistre[] };
+      setBrouillonsDuFil(Array.isArray(d.brouillons) ? d.brouillons : []);
+    } catch { /* on perd une mention, jamais le courrier */ }
+  }, [filId, redaction]);
+  useEffect(() => { void relireBrouillons(); }, [relireBrouillons]);
+
+  /**
+   * 🔴 LE BROUILLON CLIQUÉ, ROUVERT SOUS SON MESSAGE. C'est le défaut qu'Arno a nommé : la conversation s'ouvrait,
+   * et l'éditeur n'y était pas — le brouillon devenait introuvable.
+   *
+   * ⚠️ UN SEUL ÉDITEUR PAR BROUILLON : `repriseFaite` retient ce qui a déjà été rouvert. Sans lui, chaque rendu
+   * rouvrirait l'éditeur et écraserait ce qu'on est en train d'y écrire — et recliquer le même brouillon ramène
+   * simplement sur l'éditeur existant au lieu d'en poser un second.
+   */
+  const repriseFaite = useRef<number | null>(null);
+  useEffect(() => {
+    if (brouillonRepris === null || vue.v !== 'ok' || redaction === null) return;
+    if (repriseFaite.current === brouillonRepris) return;
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/gestion/brouillons?id=${brouillonRepris}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const d = (await res.json()) as { brouillon?: BrouillonEnregistre | null };
+        if (annule || !d.brouillon) return;
+        repriseFaite.current = brouillonRepris;
+        setBrouillon(reprendreBrouillon(d.brouillon));
+        // Sous le message auquel il répond ; à défaut, au pied de la conversation, comme un message neuf.
+        setBrouillonSous(d.brouillon.repondAMessageId);
+      } catch { /* un brouillon qu'on n'a pas pu relire ne doit pas casser la conversation */ }
+    })();
+    return () => { annule = true; };
+  }, [brouillonRepris, vue, redaction]);
 
   /**
    * LOT 5-BOITE — OUVRIR UN ÉCHANGE LE MARQUE LU, POUR MOI. Comme dans une messagerie : c'est l'ouverture qui vaut
@@ -734,11 +795,19 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             ) : null}
             /* 🔴 L'ÉDITEUR, JUSTE SOUS CE MESSAGE — lot REPONSE-VISIBLE. Il ne s'ouvre ici que s'il a été demandé
                DEPUIS ce message ; sinon il reste à sa place historique, en pied de conversation. */
+            /* 🔴 LOT BROUILLONS-GMAIL — la mention rouge « Brouillon ». Elle vient de la BASE (les brouillons
+               vivants de l'échange), pas de l'état d'écran : elle s'affiche donc même en arrivant par la
+               Réception. Et elle disparaît dès que l'éditeur est ouvert sur ce message — le brouillon est alors
+               sous les yeux, l'annoncer une seconde fois serait du bruit. */
+            avecBrouillon={brouillonSous !== m.messageId
+              && brouillonsDuFil.some((x) => x.repondAMessageId === m.messageId)}
             piedMessage={brouillon !== null && brouillonSous === m.messageId && redaction ? (
               <Redaction brouillon={brouillon} contexte={redaction}
                 onChange={setBrouillon}
-                onFerme={() => { setBrouillon(null); setBrouillonSous(null); }}
-                onEnvoye={() => { setBrouillon(null); setBrouillonSous(null); void recharger(); }}
+                onFerme={() => { setBrouillon(null); setBrouillonSous(null); void relireBrouillons(); }}
+                onEnvoye={() => {
+                  setBrouillon(null); setBrouillonSous(null); void recharger(); void relireBrouillons();
+                }}
                 onGeste={(t) => onGeste(t)} />
             ) : null} />
         ))}
@@ -876,7 +945,7 @@ function ouvrirRedaction(
  */
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
-  gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null,
+  gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
   rattachements = null, horsGestion = null, onRattachement, onGesteRattachement, onHistorique,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
@@ -897,6 +966,11 @@ export function MessageConversation({
    * d'avant ce lot. Distinct de `panneau`, qui se rend AU-DESSUS du détail et sert au déplacement d'un mail.
    */
   piedMessage?: React.ReactNode;
+  /**
+   * 🔴 LOT BROUILLONS-GMAIL — UNE RÉPONSE EST COMMENCÉE SUR CE MESSAGE. Affiche la mention rouge « Brouillon »,
+   * comme Gmail le fait. `false` (le défaut) ⇒ rien, et le message est exactement celui d'avant ce lot.
+   */
+  avecBrouillon?: boolean;
   /**
    * LOT 5-STATUT — OÙ EN EST CE MESSAGE, juste à gauche de sa date. Absent = aucun cartouche, et le message est
    * exactement celui d'avant ce lot (c'est le cas des écrans qui n'en ont pas besoin).
@@ -1070,6 +1144,12 @@ export function MessageConversation({
         </span>
         {/* Une mention EN MOTS : elle reste lisible en niveaux de gris et pour un daltonien. */}
         {hors && <span className="cnv-hors">{hors}</span>}
+        {/* ══ 🔴🔴 LOT BROUILLONS-GMAIL — « Brouillon », EN ROUGE, COMME DANS GMAIL ═══════════════════════════════
+            Elle se voit sur le message auquel une réponse est commencée, MÊME quand on arrive par la Réception
+            sans être passé par la liste des brouillons : sans elle, un travail en cours restait invisible tant
+            qu'on ne pensait pas à aller le chercher sous son étiquette.
+            ⚠️ UN MOT, pas seulement une couleur : « Brouillon » se lit en niveaux de gris et au lecteur d'écran. */}
+        {avecBrouillon && <span className="cnv-brouillon">Brouillon</span>}
         {!ouvert && message.extrait && <span className="cnv-extrait">{corpsLisible(message.extrait).visible}</span>}
       </button>
 
@@ -1455,6 +1535,10 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
 .cnv-qui{font-weight:700;font-size:.95rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .cnv-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 .cnv-hors{font-size:.75rem;font-weight:700;color:var(--color-svv-muted)}
+/* ══ 🔴 LOT BROUILLONS-GMAIL — « Brouillon », EN ROUGE, comme dans Gmail ════════════════════════════════════════
+   Un MOT et une couleur, jamais la couleur seule : la mention doit se lire en niveaux de gris, pour un daltonien
+   et au lecteur d'ecran. Le rouge est celui du module (--color-svv-red), pas une teinte de plus. */
+.cnv-brouillon{font-size:.75rem;font-weight:700;color:var(--color-svv-red)}
 /* ══ LOT ENVOI-DIAG — « CE MESSAGE N'EST PAS ARRIVÉ » ════════════════════════════════════════════════════════════
    Un bandeau, au-dessus du message, avec un filet à gauche : la même grammaire visuelle que les alertes du module.
    🔴 LA COULEUR N'EST QU'UN RENFORT — la phrase dit tout, et reste lisible en niveaux de gris comme pour un

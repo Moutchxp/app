@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
 import {
-  celleEnPlein, changerEtat, fermer as fermerFenetre, ouvrir, rangDepuisLaDroite,
+  celleEnPlein, changerEtat, decalageDepuisLaDroite, fermer as fermerFenetre, ouvrir,
   type EtatFenetre, type FenetreRedaction,
 } from '../../../../lib/gestion/fenetresRedaction';
 import type { Rapport } from './gestesMail';
@@ -75,17 +75,29 @@ export function FenetresRedaction({
       {fenetres.map((f) => {
         const b = brouillons.get(f.cle);
         if (b === undefined) return null;
-        const rang = rangDepuisLaDroite(fenetres, f.cle);
+        // 🔴 Le décalage vient des largeurs RÉELLES des voisins de droite : une pastille réduite n'occupe pas la
+        //   place d'une fenêtre ouverte, et un rang multiplié par une largeur unique les faisait se chevaucher.
+        const decalage = decalageDepuisLaDroite(fenetres, f.cle);
         const titre = titreFenetre(b);
         return (
           <section
             key={f.cle}
             className={`fre fre--${f.etat}`}
-            style={f.etat === 'plein' ? undefined : { right: `calc(16px + ${rang} * (var(--fre-largeur) + 12px))` }}
+            style={f.etat === 'plein' ? undefined : { right: `${decalage}px` }}
             aria-label={titre}
           >
-            {/* ══ LA BARRE DE TITRE ══ Elle RÉDUIT au clic, comme dans Gmail — c'est le geste qu'on fait sans
-                réfléchir. Les trois boutons sont à droite, chacun nommé en toutes lettres. */}
+            {/* ══ 🔴🔴 LA BARRE DE TITRE — ET POURQUOI ELLE A ÉTÉ REFAITE ═══════════════════════════════════════
+                DÉFAUT D'ARNO, REPRODUIT ET MESURÉ LE 29/09/2026 : en rouvrant le brouillon « Re: État des lieux de
+                sortie » (qui porte des Cc, donc un contenu plus haut), la barre de titre n'était plus visible —
+                il n'en restait qu'un ruban de 3 px. On ne pouvait ni réduire ni fermer la fenêtre.
+                LA CAUSE : la fenêtre est ancrée en bas (`bottom:0`) avec une hauteur maximale ET `overflow:hidden`.
+                Quand le contenu dépassait, la barre se retrouvait HORS de la boîte rognée, et disparaissait.
+                LE CORRECTIF est dans le style : une grille à deux rangées (`auto 1fr`) où la barre a sa rangée à
+                elle, que rien ne peut comprimer — cf. `CSS_FENETRES`.
+
+                Elle RÉDUIT au clic sur le titre, comme dans Gmail. Les trois boutons sont ceux de Gmail, dans
+                l'ordre de Gmail : réduire (–), plein écran (⤢), fermer (×). Chacun porte un mot en toutes lettres,
+                parce qu'une icône muette est inutilisable au lecteur d'écran. */}
             <div className="fre-titre">
               <button type="button" className="fre-titre-mot"
                 aria-expanded={f.etat !== 'reduite'}
@@ -98,13 +110,15 @@ export function FenetresRedaction({
                   aria-label={f.etat === 'reduite' ? 'Rétablir la fenêtre' : 'Réduire la fenêtre'}
                   title={f.etat === 'reduite' ? 'Rétablir la fenêtre' : 'Réduire la fenêtre'}
                   onClick={() => onEtat(f.cle, f.etat === 'reduite' ? 'ouverte' : 'reduite')}>
-                  <span aria-hidden="true">{f.etat === 'reduite' ? '▴' : '▾'}</span>
+                  {/* ⚠️ LE TIRET DE GMAIL, pas un chevron : c'est la forme qu'on reconnaît sans lire. Rétablir
+                      remonte la fenêtre, et l'icône le dit alors par un chevron vers le haut. */}
+                  <span aria-hidden="true" className="fre-icone">{f.etat === 'reduite' ? '⌃' : '—'}</span>
                 </button>
                 <button type="button" className="fre-bouton"
                   aria-label={f.etat === 'plein' ? 'Quitter le plein écran' : 'Passer en plein écran'}
                   title={f.etat === 'plein' ? 'Quitter le plein écran' : 'Passer en plein écran'}
                   onClick={() => onEtat(f.cle, f.etat === 'plein' ? 'ouverte' : 'plein')}>
-                  <span aria-hidden="true">{f.etat === 'plein' ? '⤡' : '⤢'}</span>
+                  <span aria-hidden="true" className="fre-icone">{f.etat === 'plein' ? '⤡' : '⤢'}</span>
                 </button>
                 {/* ⚠️ FERMER NE SUPPRIME PAS : le brouillon est conservé s'il contient quelque chose — c'est la
                     règle du lot BROUILLON-SILENCIEUX, et `Redaction` la tient déjà. Supprimer se demande
@@ -113,7 +127,7 @@ export function FenetresRedaction({
                     court-circuitait justement cette règle et laissait la ligne vide en base. */}
                 <button type="button" className="fre-bouton" aria-label="Fermer la fenêtre" title="Fermer"
                   onClick={() => onDemanderFermeture(f.cle)}>
-                  <span aria-hidden="true">✕</span>
+                  <span aria-hidden="true" className="fre-icone">✕</span>
                 </button>
               </span>
             </div>
@@ -122,6 +136,7 @@ export function FenetresRedaction({
             <div className="fre-corps" hidden={f.etat === 'reduite'}>
               <Redaction
                 dansFenetre
+                reduite={f.etat === 'reduite'}
                 fermetureDemandee={fermetures.get(f.cle) ?? 0}
                 brouillon={b}
                 contexte={contexte}
@@ -153,26 +168,41 @@ export const CSS_FENETRES = `
 /* Le voile du plein ecran. Il n'intercepte PAS le clic (pointer-events:none) : cliquer a cote ne doit pas fermer
    une fenetre ou l'on est en train d'ecrire. On revient par le bouton, jamais par megarde. */
 .fre-voile{position:fixed;inset:0;z-index:58;background:color-mix(in srgb, var(--color-svv-ink) 42%, transparent);pointer-events:none}
-.fre{position:fixed;z-index:60;display:flex;flex-direction:column;width:var(--fre-largeur);
+/* ══ 🔴🔴 UNE GRILLE A DEUX RANGEES, ET NON PLUS UNE COLONNE FLEX ══════════════════════════════════════════════
+   DEFAUT D'ARNO, REPRODUIT LE 29/09/2026 : sur un brouillon un peu haut (des Cc, une citation), la barre de titre
+   disparaissait — il n'en restait qu'un ruban de 3 px, et l'on ne pouvait plus ni reduire ni fermer la fenetre.
+   La fenetre est ancree en bas avec une hauteur MAXIMALE et overflow:hidden ; quand le contenu depassait, la
+   barre se retrouvait hors de la boite rognee.
+   La grille (grid-template-rows: auto 1fr) donne a la barre une rangee qui lui appartient : elle est dimensionnee
+   AVANT le corps, et le corps prend ce qui reste. Rien ne peut plus la comprimer ni la pousser dehors.
+   (Pas d'accent grave dans ce bloc : il fermerait le litteral de style — piege deja rencontre trois fois.) */
+.fre{position:fixed;z-index:60;display:grid;grid-template-rows:auto 1fr;width:var(--fre-largeur);
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);
   border-radius:.7rem .7rem 0 0;box-shadow:0 -2px 22px color-mix(in srgb, var(--color-svv-ink) 20%, transparent);overflow:hidden}
 .fre--ouverte,.fre--reduite{bottom:0}
 .fre--ouverte{max-height:min(78vh, 720px)}
-/* REDUITE : la barre de titre, et rien d'autre. Le brouillon vit toujours derriere. */
-.fre--reduite{max-height:none}
+/* ══ REDUITE : UNE PASTILLE ARRONDIE, comme dans Gmail ═════════════════════════════════════════════════════════
+   Le titre et les trois icones, et rien d'autre. Les pastilles s'alignent cote a cote en bas a droite (le decalage
+   est pose par l'ecran, qui sait leur rang). Le brouillon vit toujours derriere : l'editeur est CACHE, jamais
+   demonte. La rangee du corps est mise a zero pour qu'elle ne reserve aucune hauteur. */
+.fre--reduite{max-height:none;width:min(280px, calc(100vw - 32px));grid-template-rows:auto 0;
+  border-radius:.7rem .7rem 0 0}
+.fre--reduite .fre-titre{border-radius:.6rem .6rem 0 0}
 /* PLEIN ECRAN : centree, large, au-dessus du voile. */
 .fre--plein{top:4vh;bottom:4vh;left:50%;transform:translateX(-50%);width:min(900px, calc(100vw - 32px));
   border-radius:.7rem;z-index:60}
-.fre-titre{display:flex;align-items:center;gap:4px;padding:6px 6px 6px 12px;
+.fre-titre{display:flex;align-items:center;gap:2px;padding:4px 6px 4px 14px;min-height:44px;
   background:var(--color-svv-ink);color:var(--color-svv-surface)}
 .fre-titre-mot{flex:1 1 auto;min-width:0;padding:0;font:inherit;font-size:.85rem;font-weight:600;text-align:left;
   color:inherit;background:none;border:0;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fre-boutons{display:flex;gap:0}
-.fre-bouton{display:inline-flex;align-items:center;justify-content:center;min-width:34px;min-height:34px;padding:0;
+.fre-boutons{display:flex;gap:0;flex:0 0 auto}
+.fre-bouton{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;min-width:32px;padding:0;
   font:inherit;color:inherit;background:transparent;border:0;border-radius:.3rem;cursor:pointer}
+/* Les trois icones ont la MEME boite et la meme taille optique : c'est ce qui les fait lire comme une rangee. */
+.fre-icone{display:block;font-size:.95rem;line-height:1}
 .fre-bouton:hover{background:color-mix(in srgb, var(--color-svv-surface) 18%, transparent)}
 .fre-bouton:focus-visible{outline:2px solid var(--color-svv-surface);outline-offset:-2px}
-.fre-corps{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 12px 12px}
+.fre-corps{min-height:0;overflow-y:auto;padding:10px 12px 12px}
 /* ⚠️ SUR TELEPHONE, une fenetre flottante n'a pas de sens : elle prend tout l'ecran, comme dans Gmail. */
 @media (max-width: 640px){
   .fre--ouverte,.fre--plein{inset:0;width:100%;max-height:none;transform:none;border-radius:0}

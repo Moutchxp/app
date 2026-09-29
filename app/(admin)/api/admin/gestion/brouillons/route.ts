@@ -5,7 +5,8 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
 import { decouperAdresses } from '../../../../../lib/gestion/redaction';
 import {
-  abandonnerBrouillon, enregistrerBrouillon, lireBrouillonDuFil, listerBrouillons,
+  abandonnerBrouillon, enregistrerBrouillon, lireBrouillon, lireBrouillonDuFil, listerBrouillons,
+  listerBrouillonsDuFil,
 } from '../../../../../lib/gestion/redactionRepo';
 import { redactionDisponible } from '../../../../../lib/gestion/schema';
 
@@ -45,13 +46,30 @@ export async function GET(request: Request): Promise<Response> {
   if (refus) return refus;
   if (!await redactionDisponible()) return Response.json({ brouillon: null, brouillons: [] });
 
-  const filBrut = new URL(request.url).searchParams.get('fil');
+  const parametres = new URL(request.url).searchParams;
+  const filBrut = parametres.get('fil');
+  const idBrut = parametres.get('id');
   try {
-    // Avec `?fil=` : le brouillon de CET échange (pour rouvrir la conversation là où on l'avait laissée).
+    /**
+     * 🔴 LOT BROUILLONS-GMAIL — `?id=` : UN BROUILLON PRÉCIS, celui qu'on vient de cliquer dans la liste.
+     *
+     * La conversation en a besoin pour rouvrir l'éditeur sous le bon message. Jusqu'ici la route ne savait rendre
+     * que « le brouillon de cet échange », ce qui ne suffit pas : un échange peut en porter plusieurs (une réponse
+     * à un message, un transfert d'un autre), et c'est CELUI QU'ON A CLIQUÉ qu'il faut rouvrir.
+     */
+    if (idBrut !== null) {
+      const id = Number(idBrut);
+      if (!Number.isInteger(id) || id <= 0) return Response.json({ erreur: 'Brouillon inconnu.' }, { status: 400 });
+      return Response.json({ brouillon: await lireBrouillon(id) },
+        { headers: { 'Cache-Control': 'private, no-store' } });
+    }
+    // Avec `?fil=` : le brouillon de CET échange (pour rouvrir la conversation là où on l'avait laissée), ET la
+    //   liste de TOUS ses brouillons vivants — c'est elle qui permet de marquer « Brouillon » sur le bon message.
     if (filBrut !== null) {
       const filId = Number(filBrut);
       if (!Number.isInteger(filId) || filId <= 0) return Response.json({ erreur: 'Échange inconnu.' }, { status: 400 });
-      return Response.json({ brouillon: await lireBrouillonDuFil(filId) },
+      const [brouillon, brouillons] = await Promise.all([lireBrouillonDuFil(filId), listerBrouillonsDuFil(filId)]);
+      return Response.json({ brouillon, brouillons },
         { headers: { 'Cache-Control': 'private, no-store' } });
     }
     // Sans paramètre : tous les brouillons vivants — ce que montre le libellé « Brouillons ».

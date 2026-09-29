@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
+// LOT BROUILLONS-GMAIL — le délai d'enregistrement est nommé une seule fois, dans le module pur.
+import { DELAI_FRAPPE_MS } from '../../../../lib/gestion/brouillonEnregistrement';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { Conversation } from './Conversation';
@@ -553,6 +555,13 @@ describe('🔴 l’éditeur s’ouvre SOUS le message, se montre, et prend le cu
 describe('🔴 aucun brouillon tant que rien n’est saisi', () => {
   /** Tous les appels à la route des brouillons, avec leur méthode : c'est la seule preuve qui compte. */
   let brouillons: { methode: string; url: string }[];
+  /**
+   * ⚠️ AJOUTÉ LE 29/09/2026 (lot BROUILLONS-GMAIL). La conversation LIT désormais les brouillons vivants de
+   * l'échange, pour poser la mention rouge « Brouillon » sur le bon message. Ces lectures sont des `GET` et ne
+   * touchent à rien ; la règle que ce bloc garde porte sur les ÉCRITURES. On les sépare donc explicitement, au
+   * lieu de compter « tous les appels » — ce qui confondait désormais lire et écrire.
+   */
+  const ecritures = () => brouillons.filter((b) => b.methode === 'POST' || b.methode === 'DELETE');
 
   beforeEach(() => {
     brouillons = [];
@@ -569,9 +578,17 @@ describe('🔴 aucun brouillon tant que rien n’est saisi', () => {
   });
   afterEach(() => { vi.useRealTimers(); });
 
-  /** L'enregistrement automatique attend 1,2 s de calme : on laisse passer ce temps, exprès. */
+  /**
+   * L'enregistrement automatique attend le calme : on laisse passer ce temps, exprès.
+   *
+   * ⚠️ DÉLAI RÉÉCRIT LE 29/09/2026 (lot BROUILLONS-GMAIL) : il était de 1,2 s, il est de 2 s — c'est le réglage
+   * demandé par Arno, et celui de Gmail. On avance donc au-delà de 2 s, et non plus de 1,6 s. La RÈGLE que ces
+   * tests gardent n'a pas changé d'un mot (rien n'est enregistré tant que rien n'est saisi) ; seul le temps qu'on
+   * laisse s'écouler avant de la vérifier a bougé. Le délai lui-même est nommé une seule fois, dans
+   * `brouillonEnregistrement.DELAI_FRAPPE_MS`, et c'est lui qu'on suit.
+   */
   const laisserEnregistrer = async () => {
-    await act(async () => { await vi.advanceTimersByTimeAsync(1600); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(DELAI_FRAPPE_MS + 400); });
   };
   /**
    * ⚠️ LOT REDACTION-GMAIL — ON TAPE DANS UNE ZONE `contentEditable`, plus dans un `textarea`. On écrit donc son
@@ -599,7 +616,7 @@ describe('🔴 aucun brouillon tant que rien n’est saisi', () => {
     await monter();
     await cliquer(repondreDe(13, /^Répondre$/));
     await laisserEnregistrer();
-    expect(brouillons).toHaveLength(0);
+    expect(ecritures()).toHaveLength(0);
   });
 
   it('ouvrir puis fermer sans rien saisir n’enregistre ni n’abandonne rien', async () => {
@@ -607,7 +624,7 @@ describe('🔴 aucun brouillon tant que rien n’est saisi', () => {
     await cliquer(repondreDe(13, /^Répondre$/));
     await cliquer(boutonPar(/^Fermer$/));
     await laisserEnregistrer();
-    expect(brouillons).toHaveLength(0);
+    expect(ecritures()).toHaveLength(0);
     expect(container.querySelector('.red')).toBeNull();
   });
 

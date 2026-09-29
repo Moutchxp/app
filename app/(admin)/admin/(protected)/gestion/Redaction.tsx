@@ -13,6 +13,11 @@ import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, pretAEnvoyer, secondesRestantes,
   type Brouillon, brouillonTouche} from '../../../../lib/gestion/redaction';
+// LOT BROUILLONS-GMAIL — quand enregistrer, et comment savoir que quelque chose a VRAIMENT changé. Module PUR.
+import {
+  brouillonAQuelqueChose, delaiPour, MOTS_ENREGISTREMENT, signatureBrouillon, sorteDuChangement,
+  type EtatEnregistrement,
+} from '../../../../lib/gestion/brouillonEnregistrement';
 
 /**
  * LOT 5e — ÉCRIRE UN MESSAGE. Composant CLIENT.
@@ -111,13 +116,23 @@ export interface BrouillonEcran extends Brouillon { id: number | null; repris?: 
  * referme — au clavier, on ne devrait jamais avoir à viser à la souris.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function ChampDestinataires({ libelle, valeurs, onChange, suggestions, onChercher, autoFocus = false }: {
+export function ChampDestinataires({
+  libelle, valeurs, onChange, suggestions, onChercher, autoFocus = false, actions,
+}: {
   libelle: string;
   valeurs: string[];
   onChange: (v: string[]) => void;
   suggestions: { adresse: string; nom: string | null }[];
   onChercher: (q: string) => void;
   autoFocus?: boolean;
+  /**
+   * 🔴 LOT BROUILLONS-GMAIL — CE QUI SE RANGE DANS LE CHAMP, À DROITE : les boutons « Cc » et « Cci » du champ
+   * « À ». Ils vivaient SOUS le champ, en lien « Ajouter Cc / Cci » ; c'est un déplacement, pas un ajout — la
+   * fonction est identique, elle est simplement là où l'œil la cherche, comme dans Gmail.
+   *
+   * ⚠️ FACULTATIF, et absent partout ailleurs : les champs « Cc » et « Cci » eux-mêmes n'ont rien à y mettre.
+   */
+  actions?: React.ReactNode;
 }) {
   const [saisie, setSaisie] = useState('');
   // La proposition MISE EN AVANT au clavier. −1 = aucune : « Entrée » vaut alors ce qu'il a toujours valu, la
@@ -158,6 +173,11 @@ export function ChampDestinataires({ libelle, valeurs, onChange, suggestions, on
     <div className="red-champ">
       <label className="red-label" htmlFor={id}>{libelle}</label>
       <div className="red-pastilles">
+        {/* ══ 🔴 LOT BROUILLONS-GMAIL — « Cc » ET « Cci » SONT DANS LE CHAMP, à droite, comme dans Gmail ═════════
+            Ils vivaient sous le champ, en lien « Ajouter Cc / Cci ». C'est un DÉPLACEMENT : la fonction est la
+            même, elle est simplement là où l'œil la cherche — au bout de la ligne des destinataires.
+            ⚠️ RENDUS EN DERNIER DANS LE DOM, mais poussés à droite par la mise en page : au clavier, on traverse
+            d'abord la saisie (ce qu'on vient faire), et seulement ensuite ces deux boutons. */}
         {valeurs.map((a) => (
           <span key={a} className={`red-pastille${adresseValide(a) ? '' : ' red-pastille--fautive'}`}
             title={infobulleDe(a)}>
@@ -204,6 +224,7 @@ export function ChampDestinataires({ libelle, valeurs, onChange, suggestions, on
             if (e.key === 'Backspace' && saisie === '' && valeurs.length > 0) onChange(valeurs.slice(0, -1));
           }}
           onBlur={() => ajouter(saisie)} />
+        {actions !== undefined && <span className="red-champ-actions">{actions}</span>}
       </div>
       {ouverte && (
         <ul className="red-suggestions" id={`${id}-liste`} role="listbox">
@@ -229,6 +250,7 @@ export function ChampDestinataires({ libelle, valeurs, onChange, suggestions, on
 
 export function Redaction({
   brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false, fermetureDemandee = 0,
+  reduite = false,
 }: {
   brouillon: BrouillonEcran;
   contexte: ContexteRedactionEcran;
@@ -248,9 +270,22 @@ export function Redaction({
    * pour qu'un brouillon resté vide soit abandonné quelle que soit la croix employée. `0` = aucune demande.
    */
   fermetureDemandee?: number;
+  /**
+   * 🔴 LA FENÊTRE EST-ELLE REPLIÉE SUR SA BARRE DE TITRE ? Réduire est une façon de dire « je m'en occupe plus
+   * tard » : le brouillon doit être en base à cet instant, pas deux secondes après. L'éditeur n'est PAS démonté
+   * quand on réduit (il perdrait le texte non enregistré), il est seulement caché — il peut donc s'enregistrer.
+   */
+  reduite?: boolean;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'ecriture' });
-  const [copies, setCopies] = useState(brouillon.cc.length > 0 || brouillon.cci.length > 0);
+  /**
+   * 🔴 LOT BROUILLONS-GMAIL — « Cc » ET « Cci » S'OUVRENT SÉPARÉMENT, chacun par son bouton dans le champ « À ».
+   * Ils s'ouvraient ENSEMBLE, par un lien sous le champ : demander une copie cachée affichait aussi un champ « Cc »
+   * vide dont on n'avait que faire. Un brouillon qui EN PORTE DÉJÀ les montre d'emblée — sans quoi on rouvrirait un
+   * brouillon en croyant ses destinataires en copie perdus.
+   */
+  const [afficheCc, setAfficheCc] = useState(brouillon.cc.length > 0);
+  const [afficheCci, setAfficheCci] = useState(brouillon.cci.length > 0);
   const [citationOuverte, setCitationOuverte] = useState(false);
   const [suggestions, setSuggestions] = useState<{ adresse: string; nom: string | null }[]>([]);
   const [reste, setReste] = useState(0);
@@ -425,7 +460,16 @@ export function Redaction({
    * (`POST …/pieces`), qui n'attend pas l'enregistrement du texte. Et modifier le texte, l'objet ou un
    * destinataire rend bien « touché » — c'est la comparaison au contenu rouvert qui le dit.
    */
-  const touche = brouillonTouche(origine.current, brouillon, brouillon.repris !== true && piecesJointes > 0);
+  /**
+   * 🔴 LOT BROUILLONS-GMAIL — LA RÈGLE D'ARNO, AJOUTÉE À CELLE-CI : « au moins un destinataire, un objet, du texte
+   * hors signature ou une pièce jointe ». Les deux tiennent ensemble, et il en faut DEUX :
+   *   · `brouillonTouche` répond « quelqu'un a-t-il modifié ce que j'avais pré-rempli ? » — c'est ce qui empêche
+   *     une réponse, née remplie, de se croire écrite ;
+   *   · `brouillonAQuelqueChose` répond « reste-t-il quelque chose à garder ? » — c'est ce qui empêche un
+   *     surlignage posé sur la signature de créer un brouillon vide (défaut vu en base le 29/09 au matin, n° 51).
+   */
+  const touche = brouillonTouche(origine.current, brouillon, brouillon.repris !== true && piecesJointes > 0)
+    && brouillonAQuelqueChose(brouillon, origine.current, brouillon.repris !== true && piecesJointes > 0);
 
   const aEnregistrer = useRef<BrouillonEcran>(brouillon);
   // Le ref suit le brouillon DANS UN EFFET, jamais pendant le rendu : React interdit d'écrire un ref au rendu, et
@@ -434,40 +478,129 @@ export function Redaction({
   /** Le même jugement, lisible par l'effet différé — qui s'exécute bien après le rendu qui l'a armé. */
   const toucheRef = useRef(touche);
   useEffect(() => { toucheRef.current = touche; }, [touche]);
-  useEffect(() => {
+
+  /**
+   * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴🔴 LOT BROUILLONS-GMAIL — L'ENREGISTREMENT EN CONTINU. CE QU'IL REMPLACE, MESURÉ AVANT D'Y TOUCHER :
+   *
+   *   · minuterie de 1 200 ms (premier enregistrement observé à +1,6 s) ;
+   *   · RIEN à la fermeture, à la réduction, au rechargement ni à la fermeture de l'onglet — pas un `pagehide` ;
+   *   · aucun indicateur ;
+   *   · et un DOUBLON systématique : un brouillon neuf partait DEUX fois (+1,6 s puis +3,6 s), parce que recevoir
+   *     son identifiant changeait l'état du brouillon, donc relançait la minuterie.
+   *
+   * 🔴 LA SIGNATURE TUE LE DOUBLON. On compare ce qu'on s'apprête à écrire à ce qu'on a écrit : un identifiant qui
+   * arrive, une citation qu'on replie, un déplacement à l'écran ne changent rien et n'écrivent donc rien.
+   *
+   * 🔴 DEUX DÉLAIS. Deux secondes après la frappe ; un quart de seconde pour un geste discret (destinataire, objet,
+   * pièce) — ce sont ceux qu'on oublie d'enregistrer parce qu'on ferme dans la foulée.
+   * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const [etatEnreg, setEtatEnreg] = useState<EtatEnregistrement>('repos');
+  /** La signature de ce qui est DÉJÀ en base. `null` = rien n'y est encore. */
+  const signatureEcrite = useRef<string | null>(brouillon.repris === true ? signatureBrouillon(brouillon) : null);
+  /** Un envoi en cours : on ne s'enchevêtre pas, et la fermeture peut l'attendre. */
+  const envoiEnCours = useRef<Promise<void> | null>(null);
+
+  const corpsPourEnvoi = useCallback((b: BrouillonEcran) => JSON.stringify({
+    id: b.id, filId: b.filId, repondAMessageId: b.repondALeMessageId, voie: b.voie,
+    a: b.a, cc: b.cc, cci: b.cci, objet: b.objet, corps: b.corps, citation: b.citation,
+    // 🔴 LOT EDITEUR-PJ — LA MISE EN FORME PART AVEC : sans elle un brouillon rouvert revient en texte brut.
+    corpsHtml: b.corpsHtml ?? null,
+  }), []);
+
+  /**
+   * ENREGISTRE MAINTENANT, si et seulement s'il y a quelque chose de neuf à écrire.
+   *
+   * ⚠️ `auVol` = on part (fermeture d'onglet, changement de page) : la requête doit SURVIVRE à la page. `keepalive`
+   * le garantit pour un corps de cette taille ; `sendBeacon` prend le relais si le navigateur refuse. On ne lit
+   * alors pas la réponse — il n'y a plus personne pour l'entendre.
+   */
+  const enregistrerMaintenant = useCallback(async (auVol = false): Promise<void> => {
     if (!contexte.schemaPret || !contexte.peutEnvoyer) return;
-    const t = setTimeout(() => {
-      const b = aEnregistrer.current;
-      /**
-       * 🔴 RIEN N'A ÉTÉ SAISI ⇒ RIEN N'EST ENREGISTRÉ. Ni à l'ouverture, ni jamais. L'ancien test (« objet, corps
-       * et destinataires tous vides ») était toujours faux pour une réponse, qui naît remplie : il laissait donc
-       * passer chaque ouverture. Celui-ci compare à ce que l'éditeur a lui-même pré-rempli.
-       *
-       * ⚠️ ET SI LE BROUILLON EXISTE DÉJÀ, ON NE LE MET PAS À JOUR NON PLUS : il redeviendrait « vide en base »
-       * sans l'être vraiment. C'est la fermeture qui l'abandonnera (voir `fermer`) — un seul endroit décide.
-       */
-      if (!toucheRef.current) return;
-      void (async () => {
-        try {
-          const res = await fetch('/api/admin/gestion/brouillons', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: b.id, filId: b.filId, repondAMessageId: b.repondALeMessageId, voie: b.voie,
-              a: b.a, cc: b.cc, cci: b.cci, objet: b.objet, corps: b.corps, citation: b.citation,
-              // 🔴 LOT EDITEUR-PJ — LA MISE EN FORME PART AVEC. Elle ne partait pas : un brouillon rouvert
-              //   revenait en texte brut, gras et couleurs perdus, sans que rien ne le dise.
-              corpsHtml: b.corpsHtml ?? null,
-            }),
-          });
-          const d = (await res.json().catch(() => ({}))) as { brouillon?: { id: number } };
-          if (res.ok && d.brouillon && aEnregistrer.current.id === null) {
-            onChange({ ...aEnregistrer.current, id: d.brouillon.id });
-          }
-        } catch { /* un brouillon non enregistré n'est pas une panne : ce qui est à l'écran reste à l'écran */ }
-      })();
-    }, 1200);
+    if (!toucheRef.current) return;
+    const b = aEnregistrer.current;
+    const signature = signatureBrouillon(b);
+    if (signature === signatureEcrite.current) return;
+    const corps = corpsPourEnvoi(b);
+
+    if (auVol) {
+      // On marque AVANT de partir : la page peut disparaître à l'instant qui suit.
+      signatureEcrite.current = signature;
+      try {
+        const envoye = globalThis.fetch !== undefined && await Promise.resolve(
+          fetch('/api/admin/gestion/brouillons', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corps, keepalive: true,
+          }).then(() => true, () => false));
+        if (!envoye && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+          navigator.sendBeacon('/api/admin/gestion/brouillons', new Blob([corps], { type: 'application/json' }));
+        }
+      } catch { /* on part : il n'y a plus d'écran pour recevoir un message d'échec */ }
+      return;
+    }
+
+    setEtatEnreg('enregistrement');
+    const promesse = (async () => {
+      try {
+        const res = await fetch('/api/admin/gestion/brouillons', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corps,
+        });
+        const d = (await res.json().catch(() => ({}))) as { brouillon?: { id: number } };
+        if (!res.ok || !d.brouillon) { setEtatEnreg('echec'); return; }
+        signatureEcrite.current = signature;
+        if (aEnregistrer.current.id === null) {
+          // ⚠️ L'identifiant remonte, et il ne relance RIEN : il ne fait pas partie de la signature.
+          aEnregistrer.current = { ...aEnregistrer.current, id: d.brouillon.id };
+          onChange(aEnregistrer.current);
+        }
+        setEtatEnreg('enregistre');
+      } catch {
+        setEtatEnreg('echec');
+      } finally {
+        envoiEnCours.current = null;
+      }
+    })();
+    envoiEnCours.current = promesse;
+    return promesse;
+  }, [contexte.schemaPret, contexte.peutEnvoyer, corpsPourEnvoi, onChange]);
+
+  /** La minuterie : deux secondes après la frappe, un quart de seconde après un geste. */
+  const precedent = useRef<BrouillonEcran | null>(null);
+  useEffect(() => {
+    const sorte = sorteDuChangement(precedent.current, brouillon);
+    precedent.current = brouillon;
+    if (sorte === 'aucun') return undefined;
+    if (signatureBrouillon(brouillon) === signatureEcrite.current) return undefined;
+    const t = setTimeout(() => { void enregistrerMaintenant(); }, delaiPour(sorte));
     return () => clearTimeout(t);
-  }, [brouillon, contexte.schemaPret, contexte.peutEnvoyer, onChange]);
+  }, [brouillon, enregistrerMaintenant]);
+
+  /**
+   * 🔴 ON PART : LA PAGE SE FERME, SE RECHARGE, OU PASSE AU SECOND PLAN. C'est LE moment que l'ancien code ne
+   * couvrait pas du tout — deux secondes de frappe non enregistrées disparaissaient avec l'onglet.
+   *
+   * ⚠️ `pagehide` ET `visibilitychange`, LES DEUX. Safari (et iOS surtout) ne déclenche pas toujours `pagehide`
+   * quand on change d'application ; `visibilitychange` vers « caché » est le seul signal fiable dans ce cas.
+   * `beforeunload` n'est pas employé : il sert à POSER UNE QUESTION, et nous n'en posons aucune.
+   */
+  /** 🔴 RÉDUIRE ENREGISTRE. On replie la fenêtre pour y revenir plus tard : « plus tard » suppose que c'est gardé. */
+  const reduiteAvant = useRef(reduite);
+  useEffect(() => {
+    const passeAReduite = reduite && !reduiteAvant.current;
+    reduiteAvant.current = reduite;
+    if (passeAReduite) void enregistrerMaintenant();
+  }, [reduite, enregistrerMaintenant]);
+
+  useEffect(() => {
+    const partir = () => { void enregistrerMaintenant(true); };
+    const surVisibilite = () => { if (document.visibilityState === 'hidden') partir(); };
+    window.addEventListener('pagehide', partir);
+    document.addEventListener('visibilitychange', surVisibilite);
+    return () => {
+      window.removeEventListener('pagehide', partir);
+      document.removeEventListener('visibilitychange', surVisibilite);
+    };
+  }, [enregistrerMaintenant]);
 
   /**
    * ══ 🔴 FERMER : UN BROUILLON REDEVENU VIDE EST ABANDONNÉ ══════════════════════════════════════════════════════
@@ -598,6 +731,15 @@ export function Redaction({
    * serait bien pire que d'en laisser un vide.
    */
   const fermer = async () => {
+    /**
+     * 🔴 LOT BROUILLONS-GMAIL — ON ENREGISTRE D'ABORD, ON FERME ENSUITE. La croix ne perdait rien de dramatique
+     * jusqu'ici (la minuterie avait souvent tourné), mais les deux dernières secondes de frappe partaient avec la
+     * fenêtre. Fermer, c'est le geste après lequel on n'a plus aucune chance de rattraper.
+     *
+     * ⚠️ ET SEULEMENT S'IL Y A QUELQUE CHOSE À GARDER : `enregistrerMaintenant` se tait tout seul quand rien n'a
+     * été saisi, donc cette ligne ne peut pas ressusciter la création de brouillons vides.
+     */
+    await enregistrerMaintenant();
     const id = aEnregistrer.current.id ?? brouillon.id;
     if (!touche && brouillon.repris !== true && id !== null) {
       try {
@@ -770,21 +912,27 @@ export function Redaction({
           l'encadré de l'effet d'ouverture). */}
       <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={(a) => modifier({ a })}
         suggestions={suggestions} onChercher={chercherCorrespondants}
-        autoFocus={brouillon.a.length === 0 && brouillon.voie !== 'repondre' && brouillon.voie !== 'repondre_tous'} />
+        autoFocus={brouillon.a.length === 0 && brouillon.voie !== 'repondre' && brouillon.voie !== 'repondre_tous'}
+        /* 🔴 LOT BROUILLONS-GMAIL — les deux boutons DANS le champ, collés à droite, comme dans Gmail. Un clic
+           ouvre le champ correspondant ; `aria-expanded` dit s'il est déjà ouvert, pour qui ne voit pas l'écran. */
+        actions={(
+          <>
+            <button type="button" className="red-copie-bouton" aria-expanded={afficheCc}
+              title="Ajouter des destinataires en copie" onClick={() => setAfficheCc(true)}>Cc</button>
+            <button type="button" className="red-copie-bouton" aria-expanded={afficheCci}
+              title="Ajouter des destinataires en copie cachée" onClick={() => setAfficheCci(true)}>Cci</button>
+          </>
+        )} />
 
       {/* Cc et Cci REPLIÉS par défaut : neuf messages sur dix n'en ont pas, et deux champs vides de plus font croire
-          qu'il faut les remplir. Le bouton dit combien il en cache, pour qu'on ne les oublie pas. */}
-      {!copies ? (
-        <button type="button" className="gst-lien-bouton" onClick={() => setCopies(true)}>
-          Ajouter Cc / Cci
-        </button>
-      ) : (
-        <>
-          <ChampDestinataires libelle="Cc" valeurs={brouillon.cc} onChange={(cc) => modifier({ cc })}
-            suggestions={suggestions} onChercher={chercherCorrespondants} />
-          <ChampDestinataires libelle="Cci" valeurs={brouillon.cci} onChange={(cci) => modifier({ cci })}
-            suggestions={suggestions} onChercher={chercherCorrespondants} />
-        </>
+          qu'il faut les remplir. Leurs deux boutons sont maintenant DANS le champ « À », à droite (voir plus haut). */}
+      {afficheCc && (
+        <ChampDestinataires libelle="Cc" valeurs={brouillon.cc} onChange={(cc) => modifier({ cc })}
+          suggestions={suggestions} onChercher={chercherCorrespondants} />
+      )}
+      {afficheCci && (
+        <ChampDestinataires libelle="Cci" valeurs={brouillon.cci} onChange={(cci) => modifier({ cci })}
+          suggestions={suggestions} onChercher={chercherCorrespondants} />
       )}
 
       {brouillon.destinatairesApproximatifs && (
@@ -976,6 +1124,14 @@ export function Redaction({
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>
           Garder en brouillon
         </button>
+
+        {/* ══ 🔴 L'INDICATEUR D'ENREGISTREMENT — discret, en bas, comme dans Gmail ═══════════════════════════════
+            Deux mots, jamais une alerte : `role="status"` n'interrompt pas une lecture d'écran en cours. Il ne dit
+            rien tant qu'il n'y a rien à dire — annoncer « Brouillon enregistré » avant la première lettre serait
+            faux, et un indicateur qui ment ne se lit plus. */}
+        <span className={`red-enreg${etatEnreg === 'echec' ? ' red-enreg--echec' : ''}`} role="status">
+          {MOTS_ENREGISTREMENT[etatEnreg]}
+        </span>
       </div>
     </section>
   );
@@ -1065,6 +1221,22 @@ const CSS_REDACTION = `
 .red-etat{margin:0;font-size:.9rem;color:var(--color-svv-ink)}
 /* AUCUNE barre fixée en bas : le clavier d'iOS la recouvrirait, et le bouton « Envoyer » deviendrait inatteignable. */
 .red-bas{margin-top:4px}
+
+/* ══ 🔴 LOT BROUILLONS-GMAIL — « Cc » ET « Cci » DANS LE CHAMP « A », colles a droite ═══════════════════════════
+   Ils sont pousses au bout de la ligne par margin-left:auto, et restent APRES la saisie dans l'ordre du clavier :
+   on entre une adresse d'abord, on demande une copie ensuite. */
+.red-champ-actions{display:flex;align-items:center;gap:2px;margin-left:auto;flex:0 0 auto}
+.red-copie-bouton{min-height:32px;padding:2px 8px;font:inherit;font-size:.78rem;font-weight:600;
+  color:var(--color-svv-muted);background:transparent;border:0;border-radius:.4rem;cursor:pointer}
+.red-copie-bouton:hover{color:var(--color-svv-ink);background:var(--color-svv-field)}
+.red-copie-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+/* Deja ouvert : le bouton reste la (recliquer ne fait rien de mal) mais il ne s'annonce plus comme une action. */
+.red-copie-bouton[aria-expanded="true"]{color:var(--color-svv-line-strong);cursor:default}
+
+/* ══ 🔴 L'INDICATEUR D'ENREGISTREMENT — discret, a cote des boutons du bas ═════════════════════════════════════
+   Il n'occupe aucune place quand il n'a rien a dire : pas de hauteur reservee, pas de saut de mise en page. */
+.red-enreg{margin-left:auto;font-size:.76rem;color:var(--color-svv-muted);white-space:nowrap}
+.red-enreg--echec{color:var(--color-svv-red);font-weight:600}
 
 ${CSS_PIECES_BROUILLON}
 `;

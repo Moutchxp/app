@@ -42,8 +42,13 @@ export function resumerBrouillon(b: Pick<BrouillonListe, 'objet' | 'corps' | 'a'
 
 export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange }: {
   maintenant: Date;
-  /** Ouvrir l'échange du brouillon. `null` = brouillon hors fil : il n'y a pas de conversation à rouvrir. */
-  onOuvrir: (filId: number) => void;
+  /**
+   * Ouvrir l'échange du brouillon, ET le brouillon avec lui.
+   *
+   * 🔴 LOT BROUILLONS-GMAIL — le brouillon voyage avec l'échange. « Voir la conversation » ouvrait le fil SANS
+   * l'éditeur : on arrivait sur la conversation et l'on cherchait le brouillon qu'on venait de cliquer.
+   */
+  onOuvrir: (filId: number, brouillon: BrouillonListe) => void;
   /**
    * 🔴🔴 ROUVRIR LE BROUILLON LUI-MÊME, DANS L'ÉDITEUR — ce que la liste ne savait pas faire.
    *
@@ -121,7 +126,7 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange }: {
                   brouillon ; le supprimer aurait fait perdre un chemin qui existait. */}
               {b.filId !== null && (
                 <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                  onClick={() => onOuvrir(b.filId as number)}>Voir la conversation</button>
+                  onClick={() => onOuvrir(b.filId as number, b)}>Voir la conversation</button>
               )}
               {/* « Abandonner », et non « Supprimer » : le mot dit ce qui se passe vraiment — le brouillon est daté,
                   il quitte la liste, il reste en base. Appeler cela « supprimer » serait un mensonge. */}
