@@ -9,14 +9,21 @@ import {
 import { ApercuFichierDrive, adresseApercu, type FichierAVoir } from './ApercuFichierDrive';
 import { sorteApercu } from '../../../../lib/gestion/apercuDrive';
 import { NOM_DOSSIER_MAX } from '../../../../lib/gestion/dossierNouveau';
+// 🔴 « Drives partagés » et « Partagés avec moi » ne sont pas des dossiers : on n'y dépose pas, et on le DIT.
+import { estRegroupement } from '../../../../lib/gestion/cibleDepot';
 // 🔴 LOT DRIVE-FACON-FINDER — toutes les RÈGLES du navigateur (tri, icônes, historique, sélection, menu) : module PUR.
 // 🔴 LOT DRIVE-DEPLACER — la règle du déplacement, la presse-papiers et les fichiers « ._ ». Module PUR.
 import {
   DUREE_ANNULATION_MS, estCoupe, estFichierSystemeMac, infobulleFichierSysteme, motColler, motMouvementFait,
   MOT_FICHIER_SYSTEME, type Presse,
 } from '../../../../lib/gestion/driveDeplacement';
+// 🔴 LOT DRIVE-UNIQUE — les règles du mode « ranger », du bandeau des parents et des colonnes. Module PUR.
 import {
-  ariane as arianeDuChemin, aplatir, avancer, cheminCourant, cliquerLigne, COLONNES, dateFinder,
+  bandeauParents, colonnesVisibles, grilleColonnes, MIME_PIECE, motColonnes, motRangee, resumeARanger,
+  titreFenetre, type ModeDrive, type PieceARanger, type Rangee,
+} from '../../../../lib/gestion/rangementDrive';
+import {
+  aplatir, avancer, cheminCourant, cliquerLigne, COLONNES, dateFinder,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
   iconeEntree, menuDossier, menuFichier, motType, naviguerVers, peutAvancer, peutReculer, reculer,
   SELECTION_VIDE, selectionSuivante, tailleFinder, titreDuChemin, TRI_DEFAUT,
@@ -76,6 +83,22 @@ const RESSORT_MS = 700;
 
 /** La taille de la fenêtre, retenue d'une ouverture à l'autre. PRÉFÉRENCE LOCALE : elle ne quitte pas ce navigateur. */
 const CLE_TAILLE_FENETRE = 'svv.gestion.selecteurDrive.taille';
+
+/**
+ * ══ 🔴 POURQUOI UN CLIC SUR UN DOSSIER ATTEND 220 ms AVANT DE LE DÉPLIER ════════════════════════════════════════
+ *
+ * Arno veut les deux gestes : « un clic sur le triangle, ou sur le nom, le déplie sous lui » ET « double-clic sur
+ * un dossier : il devient la racine de la vue ». Ils se marchent dessus — un double-clic COMMENCE par un clic.
+ *
+ * 🔴 CE QUI SE PASSAIT SANS CE DÉLAI, ET QUI A ÉTÉ VU À L'ÉCRAN : le premier clic dépliait (ou repliait), la liste
+ * changeait SOUS LE CURSEUR entre les deux temps du double-clic, et celui-ci se perdait — le dossier ne s'ouvrait
+ * pas, sans que rien ne l'explique. Le geste marchait une fois sur deux, selon l'état du dossier visé.
+ *
+ * ⚠️ LE TRIANGLE, LUI, RESTE INSTANTANÉ. C'est le geste explicite « déplie-moi ça » : rien ne le dispute, donc
+ * rien ne doit le retarder. Le délai ne coûte que là où l'ambiguïté existe, et 220 ms est sous le seuil où l'œil
+ * lit une attente.
+ */
+const DELAI_DEPLIAGE_MS = 220;
 
 /** Le minimum dont la route a besoin : elle relit tout chez Google de toute façon. */
 function fichierMinimal(o: { id: string; nom?: string; dossier?: boolean }): Fichier {
@@ -139,16 +162,48 @@ export interface ChoixFichierDrive {
 /** Ce que le menu contextuel vise. */
 type CibleMenu = { x: number; y: number; entree: Fichier };
 
-export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots = [] }: {
-  /** Ajoute la pièce au brouillon. ⚠️ NE FERME PAS la fenêtre : c'est « Terminé » ou la croix qui ferme. */
-  onChoisir: (c: ChoixFichierDrive) => void | Promise<void>;
+/**
+ * 🔴 LOT DRIVE-UNIQUE — UN DOSSIER OÙ L'ON A DÉJÀ DÉPOSÉ, tel que la route `drive/dossiers` le rend depuis le lot
+ * 5-PJ-D. Il porte son CHEMIN (deux « Documents » ne se distinguent que par là) et la date du dernier dépôt.
+ *
+ * ⚠️ C'EST LA MÊME ROUTE QU'AVANT, ET LE MÊME CALCUL : le panneau en ligne disparaît, sa meilleure idée reste.
+ */
+interface DossierRecent {
+  id: string;
+  nom: string;
+  chemin: string;
+  dernierDepot: string;
+}
+
+export function SelecteurFichierDrive({
+  onChoisir, onFermer, filId = null, lots = [],
+  mode = 'joindre', messageId = null, pieces = [], onRangement,
+}: {
+  /**
+   * Ajoute la pièce au brouillon. ⚠️ NE FERME PAS la fenêtre : c'est « Terminé » ou la croix qui ferme.
+   * ⚠️ INUTILISÉ EN MODE « ranger » — on n'y prend rien, on y pose.
+   */
+  onChoisir?: (c: ChoixFichierDrive) => void | Promise<void>;
   onFermer: () => void;
   /**
    * 🔴 LOT DRIVE-DOSSIER-DU-BIEN — de quoi savoir à quel(s) bien(s) ce mail est relié.
    * Les deux absents ⇒ aucune entrée « Dossier du bien », et le navigateur est le même pour tout le reste.
+   * 🔴 LOT DRIVE-UNIQUE — `filId` sert AUSSI, dans les deux modes, à mettre en tête « le dernier dossier utilisé
+   *    pour cet échange » : c'est presque toujours la bonne réponse, et c'était déjà la promesse du panneau qu'on
+   *    remplace.
    */
   filId?: number | null;
   lots?: readonly string[];
+  /* ══ 🔴🔴 LOT DRIVE-UNIQUE — LE SECOND USAGE ════════════════════════════════════════════════════════════════
+     Arno : « je veux le même système que la fenêtre Drive façon Finder, partout où on y fait appel ». Ranger une
+     pièce reçue ouvre donc CETTE fenêtre, et non plus un panneau en ligne qui réinventait la moitié du Drive. */
+  mode?: ModeDrive;
+  /** Le message dont on range les pièces. Requis en mode « ranger », ignoré en mode « joindre ». */
+  messageId?: number | null;
+  /** Les pièces à ranger, telles que l'écran du message les connaît déjà. */
+  pieces?: readonly PieceARanger[];
+  /** Appelé après chaque rangement réussi : l'écran du message relit ses dépôts et affiche « Dans le Drive ». */
+  onRangement?: () => void;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [histo, setHisto] = useState<Historique>(HISTORIQUE_DEPART);
@@ -190,14 +245,46 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
   const cadre = useRef<HTMLDivElement | null>(null);
   /** Le minuteur qui ouvre un dossier après un survol prolongé pendant le glisser (le « spring-loading » du Finder). */
   const ressort = useRef<{ id: string; minuteur: ReturnType<typeof setTimeout> } | null>(null);
+  /** Le dépliage en attente : un double-clic l'annule avant qu'il ne change la liste sous le curseur. */
+  const depliageEnAttente = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [hauteurVue, setHauteurVue] = useState(600);
+  /* ══ 🔴🔴 LOT DRIVE-UNIQUE ═════════════════════════════════════════════════════════════════════════════════ */
+  /** Où chaque pièce a été rangée, par identifiant de pièce. Une pièce peut être rangée PLUSIEURS fois, ailleurs. */
+  const [rangees, setRangees] = useState<Map<number, Rangee>>(new Map());
+  /** Les pièces dont le dépôt est en cours : leur ligne le dit, et on ne le relance pas deux fois. */
+  const [rangementEnCours, setRangementEnCours] = useState<Set<number>>(new Set());
+  /** La pièce qu'on est en train de glisser. `null` = aucune. */
+  const [pieceGlissee, setPieceGlissee] = useState<PieceARanger | null>(null);
+  /** 🔴 « Par défaut, Nom + Taille seulement » (Arno) : la place gagnée sert à voir trois dossiers ouverts. */
+  const [compact, setCompact] = useState(true);
+  /** Le « … » du bandeau est-il déplié ? Ce qui est caché est COMPTÉ, jamais perdu. */
+  const [cheminEntier, setCheminEntier] = useState(false);
+  /** Le dernier dossier utilisé pour cet échange, et les dossiers récents de dépôt — datés. */
+  const [depots, setDepots] = useState<{ dernier: DossierRecent | null; recents: DossierRecent[] }>(
+    { dernier: null, recents: [] },
+  );
+
+  /**
+   * 🔴 LE SEUL POINT QUI PARLE AU BROUILLON, et il n'a de sens qu'en mode JOINDRE. En mode RANGER il n'y a pas de
+   * message à remplir : l'appeler serait une faute de programmation, et le silence ici la rend inoffensive plutôt
+   * que fatale. Les gestes qui y mènent (Joindre, Insérer un lien) sont de toute façon absents de ce mode-là.
+   */
+  const choisir = async (c: ChoixFichierDrive): Promise<void> => {
+    if (onChoisir === undefined) return;
+    await onChoisir(c);
+  };
 
   /** ⚠️ `lots` est un tableau LITTÉRAL côté appelant : le suivre relancerait la lecture à chaque rendu.
    *  Sa clé, elle, ne change qu'avec son contenu — et elle se vérifie statiquement. */
   const clesLots = lots.join(',');
   const chemin = cheminCourant(histo);
   const dossierCourant = chemin.at(-1) ?? null;
+  /** 🔴 Les deux parents et le dossier courant. Déplié, le bandeau rend le chemin entier — d'où le 99. */
+  const parents = bandeauParents(chemin, cheminEntier ? 99 : undefined);
+  /** Les colonnes montrées, et la grille qu'en-tête et lignes doivent partager EXACTEMENT. */
+  const colonnes = colonnesVisibles(compact, COLONNES.map((c) => c.cle));
+  const grille = { gridTemplateColumns: grilleColonnes(colonnes) };
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
      🔴🔴 RÉACTIVITÉ — LE CACHE DES LISTINGS, ET L'ANNULATION
@@ -474,7 +561,7 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     setErreur(null);
     setAjoutes((a) => (a.includes(f.id) ? a : [...a, f.id]));
     try {
-      await onChoisir({
+      await choisir({
         drive: {
           fichierId: f.id, nom: f.nom,
           dossierId: dossierCourant?.id ?? null,
@@ -490,7 +577,7 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
   /** INSÉRER UN LIEN : aucun contenu n'est lu. C'est pour cela qu'il reste permis partout. */
   const lier = (f: Fichier) => {
     if (f.lien === null || f.lien === '') { setErreur('Ce fichier n’a pas d’adresse Drive partageable.'); return; }
-    void onChoisir({ lien: { nom: f.nom, url: f.lien } });
+    void choisir({ lien: { nom: f.nom, url: f.lien } });
   };
 
   /** OUVRIR DANS GOOGLE DRIVE : un nouvel onglet, en LECTURE. Rien n'est lu ni écrit par l'application. */
@@ -784,6 +871,70 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
   };
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT DRIVE-UNIQUE — LE MODE « RANGER » : POSER UNE PIÈCE REÇUE DANS UN DOSSIER
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴 ON NE RÉÉCRIT PAS LE DÉPÔT. Il passe par la route qui existe depuis le lot 5-PJ-B, avec ses vérifications
+     (la cible est bien un dossier, elle n'est pas à la corbeille, et — depuis ce lot — elle n'est pas dans
+     l'archive), son doublon impossible et son journal. Ce qui change est la FAÇON DE LA VISER, pas ce qu'elle fait.
+
+     ⚠️ UNE PIÈCE PEUT ÊTRE RANGÉE PLUSIEURS FOIS, à des endroits différents, et c'est voulu : un devis va dans le
+     dossier du bien ET dans celui de l'artisan. La marque « ✓ Rangée dans X » dit le DERNIER endroit, elle ne
+     ferme pas le geste.
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  const ranger = async (piece: PieceARanger, cibleId: string, cibleNom: string): Promise<void> => {
+    if (messageId === null || cibleId === '' || rangementEnCours.has(piece.pieceId)) return;
+    setErreur(null);
+    setRangementEnCours((v) => new Set(v).add(piece.pieceId));
+    try {
+      const res = await fetch(`/api/admin/gestion/pieces/${piece.pieceId}/drive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dossierId: cibleId }),
+      });
+      const d = (await res.json()) as {
+        etat?: string; message?: string;
+        resultats?: { pieceId: number; etat: string; lien?: string | null; motif?: string }[];
+      };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'Le rangement n’a pas abouti.'); return; }
+      const r = (d.resultats ?? [])[0];
+      // 🔴 UN ÉCHEC PIÈCE PAR PIÈCE SE DIT : la route rend un verdict par pièce, jamais un « OK » global.
+      if (r === undefined || r.etat === 'echec') {
+        setErreur(`« ${piece.nom} » : ${r?.motif ?? 'le rangement n’a pas abouti.'}`);
+        return;
+      }
+      setRangees((v) => {
+        const n = new Map(v);
+        n.set(piece.pieceId, { dossierId: cibleId, dossierNom: cibleNom, lien: r.lien ?? null });
+        return n;
+      });
+      // Le dossier a un fichier de plus : son listing mémorisé ne vaut plus.
+      cache.current.delete(cibleId);
+      if (dossierCourant?.id === cibleId) void charger(cibleId);
+      // L'écran du message relit ses dépôts : c'est lui qui affiche « Dans le Drive » sur la carte de la pièce.
+      onRangement?.();
+    } catch {
+      setErreur('Le serveur n’a pas répondu.');
+    } finally {
+      setRangementEnCours((v) => { const n = new Set(v); n.delete(piece.pieceId); return n; });
+    }
+  };
+
+  /** Les pièces qui restent à poser : celles qu'on n'a encore rangées nulle part. */
+  const piecesARanger = pieces.filter((x) => !rangees.has(x.pieceId));
+
+  /**
+   * « DÉPOSER ICI » — l'autre voie, pour qui ne glisse pas (et pour le clavier, et pour le tactile).
+   *
+   * ⚠️ IL RANGE CE QUI RESTE À RANGER, pas tout : relancer le bouton après un premier dépôt ne doit pas redéposer
+   * une pièce déjà posée ailleurs. Quand tout est rangé, il range de nouveau TOUT — c'est alors un geste explicite,
+   * pour mettre le lot entier à un second endroit.
+   */
+  const deposerToutIci = (cibleId: string, cibleNom: string) => {
+    const lot = piecesARanger.length > 0 ? piecesARanger : pieces;
+    for (const x of lot) void ranger(x, cibleId, cibleNom);
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
      🔴 LE GLISSER-DÉPOSER
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
      Arno : « sur un dossier → DÉPLACEMENT ; Option (⌥) → COPIE ; sur la zone Pièces jointes du mail → JOINDRE.
@@ -798,6 +949,7 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
   /** Le glisser s'arrête : plus de fantôme, plus de surbrillance, plus de ressort en attente. */
   const finGlisse = () => {
     setGlisse(null);
+    setPieceGlissee(null);
     setSurvole(null);
     if (ressort.current !== null) { clearTimeout(ressort.current.minuteur); ressort.current = null; }
   };
@@ -837,9 +989,14 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     e: React.DragEvent,
     cible: { id: string; nom: string; ouvrable: boolean; reel?: string },
   ) => {
-    // ⚠️ `id` sert à ALLUMER la bonne zone (le fil d'Ariane et la barre latérale ont leurs propres clés) ; `reel`
-    //    est l'identifiant Drive, le seul qui permette de reconnaître qu'on survole ce qu'on est en train de tenir.
-    if (glisse === null || glisse.ids.includes(cible.reel ?? cible.id)) return;
+    /* ⚠️ `id` sert à ALLUMER la bonne zone (le bandeau des parents et la barre latérale ont leurs propres clés) ;
+       `reel` est l'identifiant Drive, le seul qui permette de reconnaître qu'on survole ce qu'on est en train de
+       tenir.
+       🔴 DEUX CHOSES PEUVENT ÊTRE EN VOL, et une seule à la fois : un ou plusieurs fichiers DU DRIVE (qu'on
+       déplace), ou une PIÈCE REÇUE (qu'on range). Les deux visent les mêmes dossiers, par les mêmes zones. */
+    if (pieceGlissee === null) {
+      if (glisse === null || glisse.ids.includes(cible.reel ?? cible.id)) return;
+    }
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move';
@@ -860,6 +1017,31 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     if (ressort.current?.id === id) { clearTimeout(ressort.current.minuteur); ressort.current = null; }
   };
 
+  /** La pièce reçue portée par ce transfert, ou `null` si c'en est un autre. */
+  const pieceDuGlisse = (e: React.DragEvent): PieceARanger | null => {
+    let brut = '';
+    try { brut = e.dataTransfer.getData(MIME_PIECE); } catch { brut = ''; }
+    if (brut !== '') {
+      try {
+        const lu = JSON.parse(brut) as { pieceId?: number };
+        const trouvee = pieces.find((x) => x.pieceId === lu.pieceId);
+        if (trouvee !== undefined) return trouvee;
+      } catch { /* un transfert illisible se rattrape par l'état ci-dessous */ }
+    }
+    // ⚠️ REPLI PAR L'ÉTAT : jsdom et quelques navigateurs ne rendent pas les données d'un transfert pendant
+    //   `dragover`. Ce qu'on tient est alors ce qu'on a pris au `dragstart`, et l'on n'invente rien.
+    return pieceGlissee;
+  };
+
+  const demarrerGlisseDePiece = (e: React.DragEvent, piece: PieceARanger) => {
+    setPieceGlissee(piece);
+    setGlisse(null);
+    try {
+      e.dataTransfer.setData(MIME_PIECE, JSON.stringify({ pieceId: piece.pieceId, nom: piece.nom }));
+      e.dataTransfer.effectAllowed = 'copy';
+    } catch { /* un navigateur qui refuse le transfert ne doit pas casser le panneau */ }
+  };
+
   /** Ce qui a été saisi, relu du transfert — et à défaut, de ce que l'écran se rappelle. */
   const elementsDuGlisse = (e: React.DragEvent): Fichier[] => {
     let brut = '';
@@ -875,10 +1057,22 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     return (glisse?.ids ?? []).map((id) => entreeParId(id)).filter((x): x is Fichier => x !== null);
   };
 
-  /** LE DÉPÔT SUR UN DOSSIER : déplacement, ou copie si Option (⌥) est tenue. */
+  /**
+   * LE DÉPÔT SUR UN DOSSIER : déplacement, copie si Option (⌥) est tenue — ou RANGEMENT d'une pièce reçue.
+   *
+   * 🔴 LE TYPE MIME TRANCHE, ET LUI SEUL. Deux types distincts (`MIME_INTERNE` pour un fichier du Drive,
+   * `MIME_PIECE` pour une pièce reçue) rendent la confusion impossible : ce ne sont pas deux variantes d'un même
+   * geste, ce sont deux opérations, par deux routes, avec deux journaux.
+   */
   const deposerSur = (e: React.DragEvent, cible: { id: string; nom: string }) => {
     e.preventDefault();
     e.stopPropagation();
+    const piece = pieceDuGlisse(e);
+    if (piece !== null) {
+      finGlisse();
+      if (cible.id !== '') void ranger(piece, cible.id, cible.nom);
+      return;
+    }
     const copie = e.altKey;
     const elements = elementsDuGlisse(e);
     finGlisse();
@@ -1132,27 +1326,100 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
    * désigne un VRAI dossier. « Récents » est une liste, « Drives partagés » un écran de choix : rien ne s'y
    * dépose, et `depot: null` le dit une fois pour toutes plutôt que par un test au moment du glisser.
    */
-  const laterales = [
+  /**
+   * ══ 🔴 CE QUE LA BARRE LATÉRALE PROPOSE, ET DANS QUEL ORDRE ═══════════════════════════════════════════════
+   *
+   * Arno : « En tête de la barre latérale : “Dernier dossier utilisé pour cet échange”, puis “Dossier du bien”,
+   * puis Récents (dossiers récents de dépôt, datés). » C'est l'ordre de la probabilité : neuf fois sur dix, le bon
+   * dossier est celui où l'on vient de déposer pour ce même échange.
+   *
+   * 🔴 RIEN N'EST PERDU DU PANNEAU QU'ON REMPLACE : « Dernier dossier utilisé pour cet échange » et « Dossiers
+   * récents » avec leur date de dernier dépôt viennent de la MÊME route (`drive/dossiers`, lot 5-PJ-D) et du même
+   * calcul. Seule leur place change.
+   *
+   * ⚠️ CETTE LISTE NE PORTE QUE DES DONNÉES, JAMAIS DE FERMETURES. Chaque entrée dit OÙ elle mène (`aller`), et
+   * c'est le JSX qui agit. Ce n'est pas une préférence de style : une liste construite au rendu et portant des
+   * fermetures qui remontent jusqu'aux mémoires internes (le cache des listings) devient, pour le compilateur
+   * React, une valeur « contaminée par une référence » — et il renonce alors à optimiser TOUT le fichier.
+   * Des données d'un côté, des gestes de l'autre : c'est plus juste, et c'est ce qu'il sait lire.
+   *
+   * ⚠️ CHACUNE DE CES ENTRÉES EST UNE CIBLE DE DÉPÔT quand elle désigne un vrai dossier. « Pièces récentes » et
+   * « Drives partagés » n'en sont pas : `depot: null` le dit une fois pour toutes, plutôt que par un test au
+   * moment du glisser.
+   */
+  type EntreeLaterale = {
+    cle: string; icone: string; libelle: string; detail: string | null;
+    depot: { id: string; nom: string } | null;
+    /** Où mène cette entrée : un dossier du Drive, ou la liste des pièces déjà jointes. */
+    aller: { sorte: 'dossier'; id: string; nom: string } | { sorte: 'pieces' };
+  };
+
+  const laterales: EntreeLaterale[] = [
     ...prioritaires.map((d) => ({
       cle: `bien:${d.dossierId}`, icone: '🏠', libelle: titreDossierPrioritaire(d),
       depot: { id: d.dossierId, nom: d.dossierNom || d.libelle },
       // ⚠️ LE NOMBRE N'EST DIT QUE S'IL Y EN A PLUSIEURS : « 1 bien » est du bruit. Il l'était déjà avant ce lot,
       //   et le taire ici ferait croire qu'un dossier ne porte qu'un seul logement.
       detail: mentionNbBiens(d) === null ? d.libelle : `${d.libelle} · ${mentionNbBiens(d)}`,
-      aller: () => entrerDepuisRacine({ id: d.dossierId, nom: d.dossierNom || d.libelle }),
+      aller: { sorte: 'dossier' as const, id: d.dossierId, nom: d.dossierNom || d.libelle },
     })),
-    ...(recents?.disponible === true && recentsDrive.length > 0
-      ? [{ cle: 'recents', icone: '🕘', libelle: 'Récents', detail: null as string | null,
-        depot: null as { id: string; nom: string } | null,
-        aller: () => { setMontrerRecents(true); setSelection(SELECTION_VIDE); } }]
+    // Les dossiers où l'on a RÉELLEMENT déposé, datés : « garder aussi les dossiers récents déjà codés » (Arno).
+    ...depots.recents.map((r) => ({
+      cle: `depot:${r.id}`, icone: '🕘', libelle: r.nom,
+      detail: r.chemin !== '' ? r.chemin : `dernier dépôt : ${dateFinder(r.dernierDepot)}`,
+      depot: { id: r.id, nom: r.nom },
+      aller: { sorte: 'dossier' as const, id: r.id, nom: r.nom },
+    })),
+    // ⚠️ « Pièces récentes » (celles déjà jointes) n'a de sens qu'en mode JOINDRE : on n'y range rien.
+    ...(mode === 'joindre' && recents?.disponible === true && recentsDrive.length > 0
+      ? [{ cle: 'recents', icone: '📎', libelle: 'Pièces récentes', detail: null,
+        depot: null, aller: { sorte: 'pieces' as const } }]
       : []),
-    { cle: 'mon_drive', icone: '💾', libelle: 'Mon Drive', detail: null as string | null,
-      depot: { id: 'root', nom: 'Mon Drive' } as { id: string; nom: string } | null,
-      aller: () => entrerDepuisRacine({ id: 'root', nom: 'Mon Drive' }) },
-    { cle: 'drives', icone: '👥', libelle: 'Drives partagés', detail: null as string | null,
-      depot: null as { id: string; nom: string } | null,
-      aller: () => entrerDepuisRacine({ id: 'svav:drives', nom: 'Drives partagés' }) },
+    { cle: 'mon_drive', icone: '💾', libelle: 'Mon Drive', detail: null,
+      depot: { id: 'root', nom: 'Mon Drive' },
+      aller: { sorte: 'dossier', id: 'root', nom: 'Mon Drive' } },
+    { cle: 'drives', icone: '👥', libelle: 'Drives partagés', detail: null,
+      depot: null,
+      aller: { sorte: 'dossier', id: 'svav:drives', nom: 'Drives partagés' } },
   ];
+
+  /**
+   * 🔴 EN TÊTE : LE DERNIER DOSSIER UTILISÉ POUR CET ÉCHANGE (demande d'Arno). C'est l'ordre de la probabilité —
+   * neuf fois sur dix, le bon dossier est celui où l'on vient de déposer pour ce même échange.
+   */
+  if (depots.dernier !== null) {
+    laterales.unshift({
+      cle: `dernier:${depots.dernier.id}`, icone: '📥', libelle: depots.dernier.nom,
+      detail: 'Dernier dossier utilisé pour cet échange',
+      depot: { id: depots.dernier.id, nom: depots.dernier.nom },
+      aller: { sorte: 'dossier', id: depots.dernier.id, nom: depots.dernier.nom },
+    });
+  }
+
+  /**
+   * 🔴 LA MÊME ROUTE QU'AVANT, LE MÊME CALCUL. `drive/dossiers` sans autre paramètre rend la vue d'ouverture du
+   * lot 5-PJ-D : le dernier dossier de l'échange, puis les derniers dossiers où un dépôt a réussi, tous
+   * collaborateurs confondus, chacun avec son chemin et sa date — et déjà filtrés à ce que CE compte Google voit.
+   *
+   * ⚠️ UNE ABSENCE N'EST PAS UNE PANNE : au premier dépôt, il n'y a rien à proposer. La barre latérale garde alors
+   * ses autres entrées, sans rien dire — il n'y a rien à expliquer.
+   */
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const p = new URLSearchParams();
+        if (filId !== null) p.set('fil', String(filId));
+        const res = await fetch(`/api/admin/gestion/drive/dossiers?${p}`, { cache: 'no-store' });
+        const d = (await res.json()) as {
+          etat?: string; mode?: string; dernier?: DossierRecent | null; recents?: DossierRecent[];
+        };
+        if (annule || d.etat !== 'ok' || d.mode !== 'accueil') return;
+        setDepots({ dernier: d.dernier ?? null, recents: d.recents ?? [] });
+      } catch { /* pas de raccourci : le navigateur reste entièrement utilisable */ }
+    })();
+    return () => { annule = true; };
+  }, [filId]);
 
   /** Une entrée latérale part TOUJOURS de la racine : c'est un raccourci, pas une descente de plus. */
   function entrerDepuisRacine(f: { id: string; nom: string }) {
@@ -1176,7 +1443,12 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
             le nom du DOSSIER COURANT, comme dans une fenêtre du Finder — et non un libellé fixe qui ne dirait pas
             où l'on est. */}
         <header className="sfd-barre-titre">
-          <h2 className="sfd-titre" id="sfd-titre">{titreDuChemin(chemin)}</h2>
+          {/* 🔴 EN MODE RANGER, LE TITRE DIT CE QU'ON TIENT, pas où l'on est : on ouvre cette fenêtre les mains
+              pleines, et l'endroit change dix fois avant qu'on pose. En mode JOINDRE, savoir où l'on est EST la
+              question — c'est le nom du dossier courant, comme dans une fenêtre du Finder. */}
+          <h2 className="sfd-titre" id="sfd-titre">
+            {titreFenetre(mode, titreDuChemin(chemin), pieces.length)}
+          </h2>
           <button type="button" className="sfd-croix" aria-label="Fermer la fenêtre" title="Fermer"
             onClick={onFermer}>
             <span aria-hidden="true">✕</span>
@@ -1193,13 +1465,29 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
               disabled={!peutAvancer(histo)} onClick={pasAvant}><span aria-hidden="true">›</span></button>
           </span>
 
-          <nav className="sfd-ariane" aria-label="Chemin">
-            {arianeDuChemin(chemin).map((e, i) => (
-              <span key={`${e.id}:${i}`} className="sfd-ariane-pas">
-                {i > 0 && <span className="sfd-chevron" aria-hidden="true">›</span>}
-                {/* 🔴 LE FIL D'ARIANE EST UNE CIBLE : c'est le geste « remonter d'un cran » du Finder, et sans lui
-                    il faudrait sortir du dossier, lâcher, resélectionner, recommencer. ⚠️ PAS DE RESSORT ici :
-                    on ne veut pas qu'un survol du chemin nous fasse changer d'endroit en plein glisser. */}
+          {/* ══ 🔴 LE BANDEAU DES PARENTS — deux crans en amont, et pas plus ═══════════════════════════════════
+              Arno : « un BANDEAU DES PARENTS montre les 2 dossiers parents ». Le Drive du cabinet fait treize
+              niveaux : un fil d'Ariane entier passe à la ligne et cesse d'être lisible là où il servirait. Ce qui
+              est au-dessus est COMPTÉ, et le « … » le déplie — masquer sans compter ferait croire à une racine.
+              🔴 CHAQUE PAS EST UNE CIBLE DE DÉPÔT : c'est le geste « remonter d'un cran » du Finder, et sans lui
+              il faudrait sortir du dossier, lâcher, resélectionner, recommencer. ⚠️ PAS DE RESSORT ici : on ne
+              veut pas qu'un survol du chemin nous fasse changer d'endroit en plein glisser. */}
+          <nav className="sfd-ariane" aria-label="Dossiers parents">
+            <button type="button"
+              className={`sfd-ariane-bouton sfd-ariane-bouton--racine${survole === 'pas:' ? ' sfd-ariane-bouton--vise' : ''}`}
+              onClick={() => remonter(0)}>Google Drive</button>
+            {parents.caches > 0 && (
+              <>
+                <span className="sfd-chevron" aria-hidden="true">›</span>
+                <button type="button" className="sfd-ariane-bouton sfd-ariane-caches"
+                  title={`${parents.caches} dossier${parents.caches > 1 ? 's' : ''} au-dessus — afficher le chemin entier`}
+                  aria-label={`Afficher les ${parents.caches} dossiers parents masqués`}
+                  onClick={() => setCheminEntier((v) => !v)}>…</button>
+              </>
+            )}
+            {parents.pas.map((e) => (
+              <span key={`${e.id}:${e.index}`} className="sfd-ariane-pas">
+                <span className="sfd-chevron" aria-hidden="true">›</span>
                 <button type="button"
                   className={`sfd-ariane-bouton${survole === `pas:${e.id}` ? ' sfd-ariane-bouton--vise' : ''}`}
                   onClick={() => remonter(e.index)}
@@ -1213,6 +1501,14 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
           </nav>
 
           <span className="sfd-outils-droite">
+            {/* 🔴 « Par défaut, Nom + Taille seulement, avec un bouton pour afficher les autres colonnes » (Arno).
+                ⚠️ LE TRI SUR UNE COLONNE CACHÉE RESTE VALIDE : on peut trier par date, puis replier pour gagner la
+                place, sans perdre l'ordre qu'on venait d'obtenir. */}
+            <button type="button" className="sfd-outil" aria-pressed={!compact}
+              aria-label={motColonnes(compact)} title={motColonnes(compact)}
+              onClick={() => setCompact((v) => !v)}>
+              <span aria-hidden="true">⋮⋮</span>
+            </button>
             <button type="button" className="sfd-outil" aria-label="Rechercher" title="Rechercher"
               aria-expanded={loupeOuverte}
               onClick={() => { setLoupeOuverte((v) => !v); setTimeout(() => champ.current?.focus(), 0); }}>
@@ -1369,12 +1665,65 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
         {/* ══ LE CORPS : barre latérale + liste ═════════════════════════════════════════════════════════════════ */}
         <div className="sfd-corps">
           <aside className="sfd-cote" aria-label="Emplacements">
+            {/* ══ 🔴🔴 « À RANGER » — CE QU'ON TIENT DANS LA MAIN GAUCHE ════════════════════════════════════════
+                Arno : « un panneau “À ranger” qui liste les pièces jointes du mail avec leur miniature, leur nom
+                et leur taille. Chaque pièce est glissable. »
+                🔴 IL EST AU-DESSUS DES EMPLACEMENTS, et non en dessous : on regarde ce qu'on tient, puis on
+                cherche où le mettre. L'inverse obligerait à défiler pour retrouver sa pièce. */}
+            {mode === 'ranger' && pieces.length > 0 && (
+              <section className="sfd-ranger" aria-label="Pièces à ranger">
+                <p className="sfd-ranger-titre" role="status">{resumeARanger(pieces.length, rangees.size)}</p>
+                <ul className="sfd-ranger-liste">
+                  {pieces.map((x) => {
+                    const ou = rangees.get(x.pieceId) ?? null;
+                    const occupee = rangementEnCours.has(x.pieceId);
+                    return (
+                      <li key={x.pieceId}
+                        className={`sfd-piece${ou !== null ? ' sfd-piece--rangee' : ''}`
+                          + `${pieceGlissee?.pieceId === x.pieceId ? ' sfd-piece--enVol' : ''}`}
+                        /* 🔴 GLISSABLE : c'est le geste principal de ce mode. Le bouton « Déposer ici » du pied
+                           est la seconde voie — pour le tactile, et pour qui ne glisse pas. */
+                        draggable
+                        onDragStart={(e) => demarrerGlisseDePiece(e, x)}
+                        onDragEnd={finGlisse}>
+        {/* La miniature est servie par l'application, jamais par une URL de stockage.
+                            🔴 `draggable={false}` SUR LA VIGNETTE, ET C'EST INDISPENSABLE : une image est
+                            saisissable NATIVEMENT par le navigateur. Sans cela, saisir la pièce par sa miniature
+                            démarrait le glisser de l'IMAGE et non celui de la ligne — le dépôt n'arrivait jamais,
+                            en silence. Vu à l'écran, sur la vraie pièce. */}
+                        {/* eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route */}
+                        <img className="sfd-piece-vignette" alt="" draggable={false}
+                          src={`/api/admin/gestion/pieces/${x.pieceId}/miniature`}
+                          loading="lazy" decoding="async"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }} />
+                        <span className="sfd-piece-mots">
+                          <span className="sfd-piece-nom" title={x.nom}>{x.nom}</span>
+                          <span className="sfd-piece-taille">{tailleFinder(x.tailleOctets, false)}</span>
+                          {occupee && <span className="sfd-piece-etat">Rangement…</span>}
+                          {ou !== null && !occupee && (
+                            <span className="sfd-piece-etat sfd-piece-etat--ok">
+                              {motRangee(ou.dossierNom)}
+                              {ou.lien !== null && (
+                                <> · <a className="sfd-piece-lien" href={ou.lien} target="_blank" rel="noreferrer">ouvrir</a></>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
             <ul className="sfd-cote-liste">
               {laterales.map((l) => (
                 <li key={l.cle}>
                   <button type="button"
                     className={`sfd-cote-item${survole === `cote:${l.cle}` ? ' sfd-cote-item--vise' : ''}`}
-                    onClick={l.aller}
+                    onClick={() => {
+                      if (l.aller.sorte === 'pieces') { setMontrerRecents(true); setSelection(SELECTION_VIDE); return; }
+                      entrerDepuisRacine({ id: l.aller.id, nom: l.aller.nom });
+                    }}
                     onDragOver={l.depot === null ? undefined
                       : (e) => survolerCible(e, {
                         id: `cote:${l.cle}`, nom: l.libelle, ouvrable: false, reel: l.depot?.id,
@@ -1394,8 +1743,11 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
 
           <main className="sfd-vue" aria-label="Contenu">
             {/* ══ LES EN-TÊTES DE COLONNES : un clic trie, une flèche dit dans quel sens ═══════════════════════ */}
-            <div className="sfd-entetes" role="row">
-              {COLONNES.map((c) => (
+            {/* ══ 🔴 LES EN-TÊTES — seulement les colonnes MONTRÉES, sur la grille calculée une seule fois ═════
+                ⚠️ LA GRILLE VIENT DU MODULE PUR, et elle est posée à la fois ici et sur chaque ligne : deux
+                grilles écrites séparément se désalignent au premier changement de largeur. */}
+            <div className="sfd-entetes" role="row" style={grille}>
+              {COLONNES.filter((c) => colonnes.includes(c.cle)).map((c) => (
                 <button key={c.cle} type="button" role="columnheader"
                   className={`sfd-entete sfd-col-${c.cle}${tri.colonne === c.cle ? ' sfd-entete--actif' : ''}`}
                   aria-sort={tri.colonne === c.cle ? (tri.sens === 'asc' ? 'ascending' : 'descending') : 'none'}
@@ -1458,7 +1810,9 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
                           className={`sfd-ligne${choisie ? ' sfd-ligne--choisie' : ''}`
                             + `${coupee ? ' sfd-ligne--coupee' : ''}${systeme ? ' sfd-ligne--systeme' : ''}`
                             + `${survole === f.id ? ' sfd-ligne--vise' : ''}`}
-                          style={{ paddingLeft: 6 + profondeur * 16 }}
+                          /* 🔴 L'INDENTATION EST UN PADDING, pas une marge : la ligne garde toute sa largeur, donc
+                             toute sa surface de dépôt. Un dossier profond ne doit pas être plus dur à viser. */
+                          style={{ ...grille, paddingLeft: 6 + profondeur * 16 }}
                           title={systeme ? infobulleFichierSysteme(f.nom) : undefined}
                           /* 🔴 SAISISSABLE — c'est ce qui manquait : « je ne peux pas saisir un fichier ou un
                              document pour le glisser-déposer » (Arno). */
@@ -1477,10 +1831,35 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
                             if (f.dossier) precharger(f.id);
                             else amorcer(f, lisible);
                           }}
-                          onClick={(e) => setSelection((s) => cliquerLigne(s, f.id, ordre,
-                            { cmd: e.metaKey || e.ctrlKey, maj: e.shiftKey }))}
+                          onClick={(e) => {
+                            const etendue = e.metaKey || e.ctrlKey || e.shiftKey;
+                            setSelection((s) => cliquerLigne(s, f.id, ordre,
+                              { cmd: e.metaKey || e.ctrlKey, maj: e.shiftKey }));
+                            /* 🔴 UN CLIC SUR UN DOSSIER LE DÉPLIE SOUS LUI (demande d'Arno) : « quand on ouvre un
+                               dossier, il se déploie sous lui […] le déploiement décale mécaniquement les dossiers
+                               autour, mais ces derniers restent toujours visibles ». C'est ce qui permet de tenir
+                               deux dossiers ouverts côte à côte et de glisser de l'un à l'autre.
+                               ⚠️ SAUF QUAND ON ÉTEND LA SÉLECTION : ⌘-clic et ⇧-clic servent à CHOISIR plusieurs
+                               lignes, et déplier sous eux ferait sauter la liste sous le doigt. */
+                            /* 🔴 UN CLIC SUR UN DOSSIER LE DÉPLIE SOUS LUI, MAIS PAS TOUT DE SUITE : un
+                               double-clic commence par un clic, et déplier entre les deux temps ferait changer la
+                               liste sous le curseur — le double-clic se perdrait. Voir DELAI_DEPLIAGE_MS.
+                               ⚠️ SAUF QUAND ON ÉTEND LA SÉLECTION : ⌘-clic et ⇧-clic servent à CHOISIR plusieurs
+                               lignes, et déplier sous eux ferait sauter la liste sous le doigt. */
+                            if (!f.dossier || etendue) return;
+                            if (depliageEnAttente.current !== null) clearTimeout(depliageEnAttente.current);
+                            depliageEnAttente.current = setTimeout(() => {
+                              depliageEnAttente.current = null;
+                              basculerDepliage(f);
+                            }, DELAI_DEPLIAGE_MS);
+                          }}
                           /* 🔴 DOUBLE-CLIC : un dossier s'ouvre, un fichier se visualise — comme dans le Finder. */
                           onDoubleClick={() => {
+                            // 🔴 ON ANNULE LE DÉPLIAGE QUE LE PREMIER CLIC AVAIT ARMÉ : c'était le même geste.
+                            if (depliageEnAttente.current !== null) {
+                              clearTimeout(depliageEnAttente.current);
+                              depliageEnAttente.current = null;
+                            }
                             if (f.dossier) { ouvrirDossier(f); return; }
                             // ⚠️ `joindreOk`, et non `lisible` : c'est `visualiser` qui dit le refus d'un « ._ ».
                             visualiser(f, joindreOk);
@@ -1496,7 +1875,16 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
                               <button type="button" className="sfd-triangle"
                                 aria-label={ouverts.has(f.id) ? `Replier ${f.nom}` : `Déplier ${f.nom}`}
                                 aria-expanded={ouverts.has(f.id)}
-                                onClick={(e) => { e.stopPropagation(); basculerDepliage(f); }}>
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // ⚠️ Le clic sur la LIGNE a pu armer le même dépliage : deux bascules pour un
+                                  //   seul geste se seraient annulées l'une l'autre.
+                                  if (depliageEnAttente.current !== null) {
+                                    clearTimeout(depliageEnAttente.current);
+                                    depliageEnAttente.current = null;
+                                  }
+                                  basculerDepliage(f);
+                                }}>
                                 <span aria-hidden="true">{ouverts.has(f.id) ? '▾' : '▸'}</span>
                               </button>
                             ) : <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />}
@@ -1504,11 +1892,17 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
                             <span className="sfd-nom" title={f.nom}>{f.nom}</span>
                             {deja && <span className="sfd-ajoute">✓ ajouté</span>}
                           </span>
-                          <span className="sfd-col-modifie">{dateFinder(f.modifieLe)}</span>
-                          <span className="sfd-col-taille">{tailleFinder(f.tailleOctets, f.dossier)}</span>
+                          {colonnes.includes('modifie') && (
+                            <span className="sfd-col-modifie">{dateFinder(f.modifieLe)}</span>
+                          )}
+                          {colonnes.includes('taille') && (
+                            <span className="sfd-col-taille">{tailleFinder(f.tailleOctets, f.dossier)}</span>
+                          )}
                           {/* 🔴 LE TYPE DIT LA VÉRITÉ : « Fichier système Mac », et non « PDF » — car c'en est un
                               qui n'en est pas un. C'est le mot qui évite de le joindre en croyant bien faire. */}
-                          <span className="sfd-col-type">{systeme ? MOT_FICHIER_SYSTEME : motType(f)}</span>
+                          {colonnes.includes('type') && (
+                            <span className="sfd-col-type">{systeme ? MOT_FICHIER_SYSTEME : motType(f)}</span>
+                          )}
 
                           {/* ══ 🔴 LES ACTIONS DE LIGNE, EN ICÔNES DISCRÈTES AU SURVOL ═══════════════════════════
                               Elles étaient trois liens ROUGES permanents sur chaque ligne : la liste en était
@@ -1563,7 +1957,7 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
               ⚠️ ELLE EST DANS CETTE FENÊTRE, et non sur le brouillon : ce navigateur est une modale qui RECOUVRE
               le message — pendant un glisser, la zone du mail est littéralement derrière. La ramener ici est la
               seule façon de la rendre atteignable. Elle n'écrit rien dans le Drive : elle joint, comme le 📎. */}
-          {joindreOk && (
+          {mode === 'joindre' && joindreOk && (
             <div className={`sfd-depot${survole === 'pj' ? ' sfd-depot--vise' : ''}`}
               onDragOver={(e) => {
                 if (glisse === null) return;
@@ -1576,11 +1970,38 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
               <span aria-hidden="true">📎</span> Pièces jointes — déposez ici pour joindre au message
             </div>
           )}
-          <p className={`sfd-compteur${ajoutes.length === 0 ? ' sfd-compteur--vide' : ''}`} role="status">
-            {ajoutes.length === 0
-              ? 'Aucune pièce ajoutée — la fenêtre reste ouverte, prenez-en autant que nécessaire.'
-              : `${ajoutes.length} pièce${ajoutes.length > 1 ? 's' : ''} ajoutée${ajoutes.length > 1 ? 's' : ''} au message.`}
-          </p>
+          {mode === 'joindre' ? (
+            <p className={`sfd-compteur${ajoutes.length === 0 ? ' sfd-compteur--vide' : ''}`} role="status">
+              {ajoutes.length === 0
+                ? 'Aucune pièce ajoutée — la fenêtre reste ouverte, prenez-en autant que nécessaire.'
+                : `${ajoutes.length} pièce${ajoutes.length > 1 ? 's' : ''} ajoutée${ajoutes.length > 1 ? 's' : ''} au message.`}
+            </p>
+          ) : (
+            <p className="sfd-compteur" role="status">
+              {/* 🔴 ON DIT OÙ L'ON EST, parce que c'est là que « Déposer ici » va poser. Un bouton qui nomme sa
+                  cible est la seule protection contre la faute la plus probable : le bon geste, au mauvais endroit. */}
+              {dossierCourant === null
+                ? 'Choisissez un dossier, ou glissez une pièce sur celui de votre choix.'
+                : `Dossier affiché : « ${dossierCourant.nom} ».`}
+            </p>
+          )}
+          {/* ══ 🔴 « DÉPOSER ICI » — la seconde voie, pour le tactile et pour qui ne glisse pas ══════════════
+              ⚠️ ÉTEINT À LA RACINE : « Google Drive », « Drives partagés » et « Partagés avec moi » ne sont pas
+              des dossiers — Google refuserait le dépôt APRÈS le téléversement. Un bouton qui promet cela ment. */}
+          {mode === 'ranger' && pieces.length > 0 && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn"
+              disabled={dossierCourant === null || estRegroupement(dossierCourant.id)}
+              title={dossierCourant === null ? 'Entrez dans un dossier du Drive.'
+                : estRegroupement(dossierCourant.id)
+                  ? 'Ce n’est pas un dossier, c’est un regroupement : ouvrez-le et choisissez un dossier dedans.'
+                  : undefined}
+              onClick={() => {
+                if (dossierCourant === null) return;
+                deposerToutIci(dossierCourant.id, dossierCourant.nom);
+              }}>
+              Déposer ici{piecesARanger.length > 1 ? ` (${piecesARanger.length})` : ''}
+            </button>
+          )}
           {/* 🔴 « JOINDRE LA SÉLECTION » : la suite naturelle du Cmd+clic et du Maj+clic. Absent là où la lecture
               du contenu est refusée, comme les boutons de ligne. */}
           {joindreOk && selectionJoignable.length > 1 && (
@@ -1705,7 +2126,10 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-vue{display:flex;flex-direction:column;min-width:0;min-height:0}
 
 /* ── LES COLONNES : memes largeurs pour l'en-tete et les lignes ───────────────────────────────────────────── */
-.sfd-entetes,.sfd-ligne{display:grid;grid-template-columns:minmax(0,1fr) 11rem 6rem 9rem;align-items:center;gap:8px}
+/* ⚠️ LA GRILLE EST POSEE EN LIGNE, par grilleColonnes (module rangementDrive) : l'en-tete et les lignes doivent
+   porter EXACTEMENT la meme, et elle depend des colonnes montrees. Ce qui reste ici est ce qui ne change pas.
+   ⚠️ ET AUCUN BACKTICK POUR CITER CE NOM : ce commentaire vit dans un litteral de gabarit. Cinquieme fois. */
+.sfd-entetes,.sfd-ligne{display:grid;align-items:center;gap:8px}
 .sfd-entetes{flex:0 0 auto;padding:0 10px;background:var(--color-svv-field);
   border-bottom:1px solid var(--color-svv-line-strong)}
 .sfd-entete{display:flex;align-items:center;gap:4px;min-height:26px;padding:0 4px;
@@ -1846,6 +2270,54 @@ export const CSS_SELECTEUR_FICHIER = `
   .sfd-depot{flex:1 1 100%}
 }
 
+/* ══ 🔴 LOT DRIVE-UNIQUE — L'ARBORESCENCE COMPACTE ET LE PANNEAU « A RANGER » ═══════════════════════════════
+   ⚠️ AUCUN BACKTICK dans ce bloc : il vit dans un litteral de gabarit, et un seul couperait le fichier en deux
+   au milieu d'une regle CSS. Le piege s'est deja referme quatre fois sur ce module.
+   ⚠️ AUCUNE COULEUR EN DUR : uniquement les jetons --color-svv-*, pour que le sombre suive tout seul. */
+
+/* ── LES GUIDES VERTICAUX ── Arno : « guides verticaux discrets, aucune carte ni aucun encadre ».
+   Un degrade repete de 16 px : un filet par niveau d'indentation, exactement au pas de l'arborescence. Il ne
+   coute aucun element de plus, et il suit l'indentation sans qu'on ait a la recopier. */
+.sfd-liste{background-image:repeating-linear-gradient(to right,
+  color-mix(in srgb, var(--color-svv-line) 60%, transparent) 0 1px, transparent 1px 16px);
+  background-position:13px 0;background-repeat:repeat-y;background-size:calc(16px * 6) 100%}
+
+/* ── LE BANDEAU DES PARENTS ── deux crans, et un « … » qui compte ce qui est au-dessus. */
+.sfd-ariane-bouton--racine{font-weight:600}
+.sfd-ariane-caches{letter-spacing:.1em;color:var(--color-svv-muted)}
+
+/* ── LE PANNEAU « A RANGER » ── ce qu'on tient dans la main gauche, au-dessus des emplacements. */
+.sfd-ranger{display:flex;flex-direction:column;gap:4px;padding:8px 8px 10px;flex:0 0 auto;
+  border-bottom:1px solid var(--color-svv-line)}
+.sfd-ranger-titre{margin:0;font-size:.74rem;font-weight:600;letter-spacing:.02em;color:var(--color-svv-muted)}
+.sfd-ranger-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;
+  max-height:40vh;overflow-y:auto}
+
+/* Une piece : sa miniature, son nom, sa taille, et ou elle est rangee. Saisissable a la souris comme au doigt. */
+.sfd-piece{display:flex;align-items:center;gap:6px;padding:4px;border-radius:.4rem;cursor:grab;
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line)}
+.sfd-piece:hover{border-color:var(--color-svv-line-strong)}
+.sfd-piece--enVol{opacity:.5}
+.sfd-piece--rangee{border-style:dashed}
+.sfd-piece-vignette{width:34px;height:34px;object-fit:cover;object-position:top;border-radius:.25rem;
+  background:var(--color-svv-field);flex:0 0 auto}
+.sfd-piece-mots{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 auto}
+.sfd-piece-nom{font-size:.76rem;color:var(--color-svv-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sfd-piece-taille{font-size:.7rem;color:var(--color-svv-muted)}
+/* L'etat est dit en MOTS, jamais par la seule couleur ni par le seul trait du cadre. */
+.sfd-piece-etat{font-size:.7rem;color:var(--color-svv-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sfd-piece-etat--ok{color:var(--color-svv-ink)}
+.sfd-piece-lien{color:var(--color-svv-ink);text-decoration:underline}
+.sfd-piece-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+
+/* ⚠️ SUR TELEPHONE, le panneau « A ranger » passe en rangee defilante au-dessus de la liste : une colonne
+   laterale de 210 px n'a pas sa place a 390 px, et les pieces doivent rester visibles pendant qu'on cherche. */
+@media (max-width: 760px){
+  .sfd-ranger{border-bottom:0;border-right:1px solid var(--color-svv-line)}
+  .sfd-ranger-liste{flex-direction:row;max-height:none;overflow-x:auto}
+  .sfd-piece{flex:0 0 12rem}
+}
+
 /* ⚠️ SUR TELEPHONE, la barre laterale passe en rangee au-dessus de la liste, et les colonnes de droite
    disparaissent : quatre colonnes sur 380 px ne se lisent pas. Le NOM et les gestes restent. */
 @media (max-width: 760px){
@@ -1853,7 +2325,6 @@ export const CSS_SELECTEUR_FICHIER = `
   .sfd-corps{grid-template-columns:1fr;grid-template-rows:auto 1fr}
   .sfd-cote{border-right:0;border-bottom:1px solid var(--color-svv-line)}
   .sfd-cote-liste{flex-direction:row;flex-wrap:wrap}
-  .sfd-entetes,.sfd-ligne{grid-template-columns:minmax(0,1fr) 5rem}
   .sfd-col-modifie,.sfd-col-type,.sfd-entete.sfd-col-modifie,.sfd-entete.sfd-col-type{display:none}
 }
 `;

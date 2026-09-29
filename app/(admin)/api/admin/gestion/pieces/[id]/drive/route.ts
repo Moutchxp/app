@@ -5,6 +5,7 @@ import { verifierCibleDepot } from '../../../../../../../lib/gestion/cibleDepot'
 import { depsReellesDepot } from '../../../../../../../lib/gestion/depotDriveReel';
 import { deposerPieces, resumerDepot } from '../../../../../../../lib/gestion/depotDrive';
 import { lireDossier, memoiserLecture } from '../../../../../../../lib/gestion/drive';
+import { verdictDeposer } from '../../../../../../../lib/gestion/driveVerdict';
 import { jetonPourRequete, messageAcces } from '../../../../../../../lib/gestion/jetonCollaborateur';
 import { depotsDriveDisponibles } from '../../../../../../../lib/gestion/schema';
 
@@ -65,6 +66,14 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
     const lire = memoiserLecture((id: string) => lireDossier(acces.jeton, id, { fetch }));
     const cible = await verifierCibleDepot(dossierId, lire);
     if (!cible.ok) return json({ etat: 'cible_invalide', message: cible.motif }, 400);
+
+    /* ══ 🔴🔴 LOT DRIVE-UNIQUE — ET OÙ CE DOSSIER SE TROUVE-T-IL ? ══════════════════════════════════════════════
+       `verifierCibleDepot` dit ce que la cible EST (un dossier, pas un regroupement, pas la corbeille). Elle ne
+       disait pas OÙ elle est — si bien que l'archive du cabinet était une destination de dépôt valide, alors que
+       rien d'autre dans l'application n'a le droit d'y écrire. Même remontée, même module pur, même « ne pas
+       savoir vaut interdit » que la création d'un dossier. */
+    const place = await verdictDeposer(acces.compteGoogle, acces.jeton, dossierId);
+    if (!place.deposer) return json({ etat: 'cible_invalide', message: place.motif }, 403);
 
     const auteur = { ...await auteurDeLaRequete(request), compteGoogle: acces.compteGoogle };
     const issues = await deposerPieces(depsReellesDepot(lire), acces.jeton, [pieceId], dossierId, auteur);

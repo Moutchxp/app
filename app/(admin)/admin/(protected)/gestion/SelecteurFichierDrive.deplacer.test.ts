@@ -420,13 +420,15 @@ describe('🔴 ④ le dépôt sur les pièces jointes', () => {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 describe('🔴 les fichiers système de macOS restent affichés, mais grisés', () => {
+  /** ⚠️ La colonne « Type » est masquée à l'ouverture depuis le lot DRIVE-UNIQUE : on l'affiche pour la lire. */
   it('affiché, grisé, et son type dit ce qu’il est', async () => {
     await monter();
     const l = ligneDe('._bail.pdf');
     expect(l).toBeDefined();
     expect(l?.className).toContain('sfd-ligne--systeme');
-    expect(l?.querySelector('.sfd-col-type')?.textContent).toBe(MOT_FICHIER_SYSTEME);
     expect(l?.getAttribute('title')).toContain('ouvrez ou joignez « bail.pdf »');
+    await cliquer(container.querySelector('.sfd-outil[aria-label="Afficher les colonnes"]'));
+    expect(ligneDe('._bail.pdf')?.querySelector('.sfd-col-type')?.textContent).toBe(MOT_FICHIER_SYSTEME);
   });
 
   it('🔴 ni « Visualiser » ni « Joindre » — le vrai fichier, lui, les a', async () => {

@@ -106,6 +106,36 @@ describe('déposer des pièces', () => {
     expect(i[0].etat === 'echec' && i[0].motif).toContain('stockage muet');
   });
 
+  /**
+   * ══ 🔴 LOT DRIVE-UNIQUE — LE CAS QU'ON A VRAIMENT RENCONTRÉ, ET QUI N'EST PAS UNE PANNE ═══════════════════════
+   *
+   * En rangeant une vraie pièce le 29/09/2026, l'écran a affiché « The specified key does not exist. » — le message
+   * du stockage objet, en anglais, qui n'apprend rien sinon que quelque chose est cassé.
+   *
+   * 🔴 OR CE N'EST PAS CASSÉ : c'est la trace du VIDAGE du stockage local. Les octets d'une pièce sont libérés une
+   * fois sa copie Drive prouvée — donc une pièce dont les octets manquent est, presque toujours, une pièce qui est
+   * DÉJÀ dans le Drive. Le dire envoie la chercher ; le message d'origine envoie ouvrir un ticket.
+   */
+  it('🔴 des octets absents du stockage se disent en français, et renvoient au Drive', async () => {
+    const d = deps();
+    d.octets = async () => { throw new Error('The specified key does not exist.'); };
+    const i = await deposerPieces(d, 'j', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['echec']);
+    const motif = i[0].etat === 'echec' ? i[0].motif : '';
+    expect(motif).toContain('ne sont plus dans le stockage local');
+    expect(motif).toContain('Drive');
+    // ⚠️ ET PAS UN MOT D'ANGLAIS : c'est tout l'objet de la traduction.
+    expect(motif).not.toContain('key');
+  });
+
+  /** ⚠️ LES AUTRES PANNES GARDENT LEUR MESSAGE BRUT : le traduire au jugé inventerait un diagnostic. */
+  it('une panne qu’on ne sait pas nommer garde son message, tel quel', async () => {
+    const d = deps();
+    d.octets = async () => { throw new Error('connexion réinitialisée par le pair'); };
+    const i = await deposerPieces(d, 'j', [1], 'DOS', AUTEUR);
+    expect(i[0].etat === 'echec' && i[0].motif).toBe('connexion réinitialisée par le pair');
+  });
+
   it('un nom de dossier illisible n’empêche pas de déposer', async () => {
     const d = deps({ infos: null });
     expect(etats(await deposerPieces(d, 'j', [1], 'DOS', AUTEUR))).toEqual(['depose']);

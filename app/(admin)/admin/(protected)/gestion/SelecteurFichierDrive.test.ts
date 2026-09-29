@@ -151,6 +151,11 @@ const ouvrirDossier = async (nom: string) => {
   await calmer();
 };
 /** Une entrée de la barre latérale, par son libellé. */
+/**
+ * ⚠️ LE LIBELLÉ A CHANGÉ LE 29/09/2026 (lot DRIVE-UNIQUE) : « Récents » est devenu « PIÈCES récentes ».
+ * La barre latérale porte désormais DEUX sortes de récents, et les confondre serait un piège : les DOSSIERS où
+ * l'on a déjà déposé (pour ranger) et les PIÈCES déjà jointes (pour joindre). Le mot dit maintenant lequel.
+ */
 const lateraleDe = (m: RegExp) => [...container.querySelectorAll('.sfd-cote-item')]
   .find((b) => m.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
 /** 🔴 LA RECHERCHE EST DERRIÈRE LA LOUPE, comme dans le Finder : on l'ouvre avant de taper. */
@@ -350,7 +355,7 @@ describe('🔴 ⑤ « Récents » sans la migration 269', () => {
     recents = { etat: 'ok', disponible: false, lignes: [] };
     await monter();
     // 🔴 SANS LA MIGRATION, l'entrée n'existe pas dans la barre latérale — pas une liste vide.
-    expect(lateraleDe(/Récents/)).toBeUndefined();
+    expect(lateraleDe(/Pièces récentes/)).toBeUndefined();
     expect(container.textContent).not.toContain('Récents');
     // …et tout le reste marche exactement comme avant.
     expect(joindreDe('bail.pdf')).toBeDefined();
@@ -365,7 +370,7 @@ describe('🔴 ⑤ « Récents » sans la migration 269', () => {
       ],
     };
     await monter();
-    await cliquer(lateraleDe(/Récents/));
+    await cliquer(lateraleDe(/Pièces récentes/));
     const section = container.querySelector('.sfd-recents');
     expect(section).not.toBeNull();
     expect(section?.textContent).toContain('MACJ');
@@ -379,7 +384,7 @@ describe('🔴 ⑤ « Récents » sans la migration 269', () => {
       lignes: [{ sorte: 'drive_dossier', cle: 'd9', libelle: 'MACJ', detail: null, tailleOctets: null }],
     };
     await monter();
-    await cliquer(lateraleDe(/Récents/));
+    await cliquer(lateraleDe(/Pièces récentes/));
     const b = [...(container.querySelector('.sfd-recents')?.querySelectorAll('button') ?? [])][0];
     await cliquer(b);
     expect(choisis).toHaveLength(0);
@@ -426,7 +431,7 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
     };
     await monterAvecBien();
     const prio = lateraleDe(/Dossier du bien/);
-    const rec = lateraleDe(/Récents/);
+    const rec = lateraleDe(/Pièces récentes/);
     expect(prio).not.toBeNull();
     expect(rec).not.toBeNull();
     /**

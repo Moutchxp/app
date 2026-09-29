@@ -17,6 +17,12 @@ const auteurMock = vi.fn();
 const deposerMock = vi.fn();
 const depsMock = vi.fn();
 const lireDossierMock = vi.fn();
+/**
+ * 🔴 LOT DRIVE-UNIQUE — LE VERDICT D'EMPLACEMENT. La route demande désormais AUSSI où se trouve la cible : rien
+ * ne se dépose dans « Documents clients scannés » ni sous lui. On double `verdictDeposer` comme on double déjà
+ * `lireDossier` : c'est le RÉSEAU qu'on simule, jamais la règle — elle a son propre test, sans réseau.
+ */
+const placeMock = vi.fn();
 
 vi.mock('../../../../../../../lib/admin/garde', () => ({
   exigerCompteActif: (...a: unknown[]) => gardeMock(...a),
@@ -38,6 +44,9 @@ vi.mock('../../../../../../../lib/gestion/depotDrive', () => ({
   deposerPieces: (...a: unknown[]) => deposerMock(...a),
   resumerDepot: () => '1 pièce déposée.',
 }));
+vi.mock('../../../../../../../lib/gestion/driveVerdict', () => ({
+  verdictDeposer: (...a: unknown[]) => placeMock(...a),
+}));
 vi.mock('../../../../../../../lib/gestion/drive', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../../../../lib/gestion/drive')>()),
   lireDossier: (_jeton: string, id: string) => lireDossierMock(id),
@@ -57,6 +66,7 @@ const requete = (dossierId: string): Request =>
 beforeEach(() => {
   gardeMock.mockReset(); jetonMock.mockReset(); schemaMock.mockReset();
   auteurMock.mockReset(); deposerMock.mockReset(); depsMock.mockReset(); lireDossierMock.mockReset();
+  placeMock.mockReset();
 
   gardeMock.mockResolvedValue(null);
   jetonMock.mockResolvedValue({ etat: 'ok', jeton: 'J', compteGoogle: 'a.jorel@sansvisavis.com' });
@@ -65,6 +75,7 @@ beforeEach(() => {
   depsMock.mockReturnValue({});
   deposerMock.mockResolvedValue([{ pieceId: 7, nomFichier: 'bail.pdf', etat: 'depose', lien: null }]);
   lireDossierMock.mockImplementation(async (id: string) => ({ ok: true, valeur: dossier(id) }));
+  placeMock.mockResolvedValue({ deposer: true, motif: null });
 });
 
 describe('un REGROUPEMENT n’est pas une destination', () => {
@@ -100,6 +111,34 @@ describe('une cible qui n’est pas un dossier', () => {
     const res = await POST(requete('PERDU'), contexte);
     expect(res.status).toBe(400);
     expect(deposerMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-UNIQUE — ET L'ARCHIVE DU CABINET ? ════════════════════════════════════════════════════════════
+ *
+ * Jusqu'au 29/09/2026, cette route ne regardait que la NATURE de la cible : un dossier, pas un regroupement, pas la
+ * corbeille. Elle ne regardait pas OÙ il est — si bien que « Documents clients scannés » était une destination de
+ * dépôt parfaitement valide, alors qu'aucun autre geste de l'application n'a le droit d'y écrire, et que le panneau
+ * de choix la proposait même dans sa recherche. C'est ce trou que ce lot ferme.
+ */
+describe('🔴🔴 rien ne se dépose dans « Documents clients scannés »', () => {
+  it('la cible sous l’archive est refusée, et AUCUNE pièce ne part', async () => {
+    placeMock.mockResolvedValue({
+      deposer: false,
+      motif: '« Documents clients scannés » est l’archive du cabinet : l’application n’y dépose aucune pièce.',
+    });
+    const res = await POST(requete('DOS'), contexte);
+    expect(res.status).toBe(403);
+    const corps = await res.json();
+    expect(corps.message).toContain('Documents clients scannés');
+    // 🔴 LA PREUVE QUI COMPTE : le refus tombe AVANT le téléversement, pas après.
+    expect(deposerMock).not.toHaveBeenCalled();
+  });
+
+  it('le verdict porte sur le dossier VISÉ, et il est demandé à chaque appel', async () => {
+    await POST(requete('DOS'), contexte);
+    expect(placeMock).toHaveBeenCalledWith('a.jorel@sansvisavis.com', 'J', 'DOS');
   });
 });
 

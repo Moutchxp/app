@@ -128,6 +128,44 @@ export type VerdictCreationDossier =
   | { creer: true }
   | { creer: false; motif: string };
 
+export type VerdictDepot =
+  | { deposer: true }
+  | { deposer: false; motif: string };
+
+/**
+ * ══ 🔴🔴 PEUT-ON DÉPOSER UNE PIÈCE REÇUE DANS CE DOSSIER ? PUR. ══════════════════════════════════════════════════
+ *
+ * 🔴 POURQUOI CETTE FONCTION EXISTE, ET CE QU'ELLE RÉPARE (lot DRIVE-UNIQUE, 29/09/2026).
+ *
+ * Ranger une pièce jointe dans le Drive passait par `verifierCibleDepot` (`cibleDepot.ts`), qui vérifie qu'on vise
+ * bien un DOSSIER — pas un regroupement, pas la corbeille, pas un fichier. Elle ne regardait PAS où ce dossier se
+ * trouve. Autrement dit : l'archive du cabinet était une destination de dépôt valide, alors que rien d'autre dans
+ * l'application n'a le droit d'y écrire. Le panneau en ligne la proposait même dans sa recherche.
+ *
+ * 🔴 LA RÈGLE EST LA MÊME QUE POUR LA CRÉATION D'UN DOSSIER, ET C'EST VOLONTAIRE : déposer un fichier dans un
+ * dossier, c'est y créer quelque chose. Même ascension, même « ne pas savoir vaut interdit », même module pur. Ce
+ * qui change est le MOT du refus : il parle de la pièce qu'on tenait, pas d'un dossier qu'on n'allait pas créer.
+ */
+export function peutDeposer(parent: string | null, index: ReadonlyMap<string, Maillon>): VerdictDepot {
+  const a = remonterJusquEnHaut(parent, index);
+  if (a.ou === 'dehors') return { deposer: true };
+  if (a.ou === 'dedans') {
+    return {
+      deposer: false,
+      motif: `« ${DOSSIER_INTERDIT_LECTURE} » est l’archive du cabinet : l’application n’y dépose aucune pièce, `
+        + 'ni dans ce dossier ni dans aucun de ses sous-dossiers, à quelque profondeur que ce soit.',
+    };
+  }
+  const mot = a.cause === 'depart' ? 'Aucun dossier n’est indiqué'
+    : a.cause === 'trou' ? 'Cet emplacement n’a pas pu être situé entièrement'
+      : a.cause === 'cycle' ? 'L’arborescence de cet emplacement est incohérente'
+        : 'Cet emplacement est trop profond pour être vérifié';
+  return {
+    deposer: false,
+    motif: `${mot} : par précaution, aucune pièce n’y est déposée — on ne range pas là où l’on ne sait pas où l’on est.`,
+  };
+}
+
 /**
  * ══ 🔴🔴 PEUT-ON CRÉER UN DOSSIER DANS CE DOSSIER ? PUR. ═════════════════════════════════════════════════════════
  *

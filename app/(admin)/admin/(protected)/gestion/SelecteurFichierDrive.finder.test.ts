@@ -165,22 +165,44 @@ describe('🔴 ② la barre d’outils, façon Finder', () => {
 });
 
 describe('🔴 ③ la liste, façon Finder', () => {
-  it('quatre colonnes, triables, avec leur flèche', async () => {
+  /**
+   * ⚠️ TEST RÉÉCRIT LE 29/09/2026 (lot DRIVE-UNIQUE), ET IL EN SORT PLUS FORT.
+   *
+   * Il figeait QUATRE colonnes affichées. Demande d'Arno : « Par défaut, pour gagner de la place, Nom + Taille
+   * seulement, avec un bouton pour afficher les autres colonnes. » Les quatre colonnes existent toujours, elles
+   * sont toujours triables : ce qui change est ce qu'on MONTRE à l'ouverture. Le test vérifie donc les DEUX états
+   * et le passage de l'un à l'autre — ce qu'il ne faisait pas.
+   */
+  it('deux colonnes à l’ouverture, quatre au besoin, triables dans les deux cas', async () => {
     await monter();
-    const entetes = [...container.querySelectorAll('.sfd-entete')];
-    expect(entetes.map((e) => e.textContent?.replace(/[▲▼]/g, ''))).toEqual(['Nom', 'Date de modification', 'Taille', 'Type']);
-    expect(entetes[0].getAttribute('aria-sort')).toBe('ascending');
-    await cliquer(entetes[0]);
+    const entetes = () => [...container.querySelectorAll('.sfd-entete')]
+      .map((e) => e.textContent?.replace(/[▲▼]/g, ''));
+    expect(entetes()).toEqual(['Nom', 'Taille']);
+
+    const bouton = container.querySelector('.sfd-outil[aria-label="Afficher les colonnes"]');
+    expect(bouton).not.toBeNull();
+    await cliquer(bouton);
+    expect(entetes()).toEqual(['Nom', 'Date de modification', 'Taille', 'Type']);
+
+    const nom = container.querySelectorAll('.sfd-entete')[0];
+    expect(nom.getAttribute('aria-sort')).toBe('ascending');
+    await cliquer(nom);
     expect(container.querySelectorAll('.sfd-entete')[0].getAttribute('aria-sort')).toBe('descending');
+
+    // Et l'on revient : le bouton dit ce qu'il va faire, dans les deux sens.
+    await cliquer(container.querySelector('.sfd-outil[aria-label="Masquer les colonnes"]'));
+    expect(entetes()).toEqual(['Nom', 'Taille']);
   });
 
+  /** ⚠️ La colonne « Type » est masquée à l'ouverture depuis le lot DRIVE-UNIQUE : on l'affiche pour la lire. */
   it('🔴 les dossiers restent en tête, et chaque ligne porte son icône et son type', async () => {
     await monter();
     const noms = [...container.querySelectorAll('.sfd-ligne .sfd-nom')].map((x) => x.textContent);
     expect(noms[0]).toBe('Artisans');
+    expect(ligneDe('Artisans')?.querySelector('.sfd-col-taille')?.textContent).toBe('--');
+    await cliquer(container.querySelector('.sfd-outil[aria-label="Afficher les colonnes"]'));
     expect(ligneDe('Artisans')?.querySelector('.sfd-col-type')?.textContent).toBe('Dossier');
     expect(ligneDe('bail.pdf')?.querySelector('.sfd-col-type')?.textContent).toBe('Document PDF');
-    expect(ligneDe('Artisans')?.querySelector('.sfd-col-taille')?.textContent).toBe('--');
   });
 
   it('🔴 double-clic : un dossier s’ouvre, un fichier se visualise', async () => {

@@ -5,7 +5,11 @@ import {
   etatArchive, etiquetteType, formaterTaille, sortePiece, tronquerNom,
   type PieceAffichee,
 } from '../../../../lib/gestion/pieces';
-import { CSS_SELECTEUR_DRIVE, SelecteurDossierDrive, type CibleDepot } from './SelecteurDossierDrive';
+// 🔴 LOT DRIVE-UNIQUE — UNE SEULE FENÊTRE DRIVE, PARTOUT. Le panneau en ligne qui vivait ici est remplacé par la
+//    fenêtre façon Finder, ouverte en mode « ranger ». Aucune de ses fonctions n'est perdue : le dernier dossier de
+//    l'échange, les dossiers récents datés et « Déposer ici » y sont, dans la barre latérale et dans le pied.
+import { SelecteurFichierDrive } from './SelecteurFichierDrive';
+import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
 
 /**
  * LOT 5-PJ-A — LES PIÈCES JOINTES, COMME DANS GMAIL. Composant PARTAGÉ : un seul endroit rend les pièces, partout où
@@ -40,9 +44,6 @@ export interface DepotAffiche {
 /** Ce que le clic sur un bouton Drive demande : une pièce, ou tout le message. */
 type Demande = { quoi: 'piece'; pieceId: number; nom: string } | { quoi: 'message' };
 
-/** Le verdict d'une pièce, rendu par la route. Jamais un « OK » global — voir `depotDrive.ts`. */
-interface ResultatDepot { pieceId: number; nomFichier: string; etat: 'depose' | 'deja' | 'echec'; lien?: string | null; motif?: string }
-
 export function PiecesJointes({ messageId, filId, vraies, signatures }: {
   messageId: number;
   /** Sert à rouvrir le sélecteur sur le dernier dossier utilisé pour CET échange. */
@@ -52,9 +53,6 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
 }) {
   const [depots, setDepots] = useState<DepotAffiche[]>([]);
   const [demande, setDemande] = useState<Demande | null>(null);
-  const [resultats, setResultats] = useState<ResultatDepot[] | null>(null);
-  const [resume, setResume] = useState<string | null>(null);
-  const [enCours, setEnCours] = useState(false);
   const [indisponible, setIndisponible] = useState<string | null>(null);
   /**
    * LOT 5-PJ-C2 — l'état de l'accès Drive. `ok` = les boutons agissent, au nom de l'adresse de session ; tout le
@@ -89,35 +87,6 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
 
   useEffect(() => { void relireDepots(); void relireGoogle(); }, [relireDepots, relireGoogle]);
 
-  const deposer = async (cible: CibleDepot): Promise<void> => {
-    if (demande === null) return;
-    const url = demande.quoi === 'piece'
-      ? `/api/admin/gestion/pieces/${demande.pieceId}/drive`
-      : `/api/admin/gestion/messages/${messageId}/drive`;
-    setEnCours(true);
-    setResultats(null);
-    setResume(null);
-    try {
-      const res = await fetch(url, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dossierId: cible.id }),
-      });
-      const d = (await res.json()) as { etat?: string; message?: string; resultats?: ResultatDepot[]; resume?: string };
-      if (d.etat !== 'ok') {
-        setResume(d.message ?? 'Le dépôt n’a pas abouti.');
-      } else {
-        setResultats(d.resultats ?? []);
-        setResume(d.resume ?? null);
-        await relireDepots();
-      }
-    } catch {
-      setResume('Le dépôt n’a pas abouti : le serveur n’a pas répondu.');
-    } finally {
-      setEnCours(false);
-      setDemande(null);
-    }
-  };
-
   if (vraies.length === 0 && signatures.length === 0) return null;
   const depotDe = (pieceId: number): DepotAffiche | undefined => depots.find((d) => d.pieceId === pieceId);
   // LOT 5-PJ-C2 — il n'y a PLUS AUCUN GESTE à proposer : soit l'accès fonctionne au nom de l'adresse de session,
@@ -130,7 +99,7 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
       {vraies.length > 0 && (
         <BlocPieces
           messageId={messageId} pieces={vraies} depotDe={depotDe} indisponible={empeche}
-          onDrive={(d) => { setDemande(d); setResultats(null); setResume(null); }}
+          onDrive={(d) => setDemande(d)}
         />
       )}
       {/* Les images de signature restent À PART et repliées : elles ne doivent pas noyer les vraies pièces (lot 4d-C). */}
@@ -141,44 +110,46 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
           </summary>
           <BlocPieces
             messageId={messageId} pieces={signatures} archive={false} depotDe={depotDe} indisponible={empeche}
-            onDrive={(d) => { setDemande(d); setResultats(null); setResume(null); }}
+            onDrive={(d) => setDemande(d)}
           />
         </details>
       )}
 
+      {/* ══ 🔴🔴 LA FENÊTRE DRIVE, EN MODE « RANGER » ═════════════════════════════════════════════════════════
+          Arno : « je veux le même système que la fenêtre Drive façon Finder, partout où on y fait appel, avec
+          l'ouverture d'une modale ». C'est la MÊME fenêtre que celle de l'éditeur de mail : même arborescence
+          dépliable, même glisser-déposer, même barre latérale, mêmes refus. Seul le sens change — ici on POSE.
+
+          ⚠️ LE COMPTE RENDU N'EST PLUS ICI, ET CE N'EST PAS UNE PERTE : chaque pièce porte son propre état dans
+          le panneau « À ranger » de la fenêtre (« ✓ Rangée dans X · ouvrir »), pendant qu'on range les suivantes.
+          Un rapport en bas de la page, derrière la modale, n'aurait été lu par personne. */}
       {demande !== null && (
-        <SelecteurDossierDrive
+        <SelecteurFichierDrive
+          mode="ranger"
+          messageId={messageId}
           filId={filId ?? null}
-          titre={demande.quoi === 'piece' ? `Ajouter « ${tronquerNom(demande.nom, 34)} » au Drive` : 'Ajouter toutes les pièces au Drive'}
-          onChoisir={(cible) => { void deposer(cible); }}
+          pieces={aRanger(demande, vraies, signatures)}
+          onRangement={() => { void relireDepots(); }}
           onFermer={() => setDemande(null)}
         />
       )}
-
-      {enCours && <p className="pj-info" role="status">Dépôt dans le Drive en cours…</p>}
-
-      {/* ══ LE COMPTE RENDU ══ PIÈCE PAR PIÈCE. Un « OK » global mentirait dès qu'une seule pièce échoue. */}
-      {resume !== null && (
-        <div className="pj-rapport" role="status">
-          <p className="pj-rapport-titre">{resume}</p>
-          {resultats !== null && resultats.length > 0 && (
-            <ul className="pj-rapport-liste">
-              {resultats.map((r) => (
-                <li key={r.pieceId}>
-                  <span className="pj-rapport-nom">{tronquerNom(r.nomFichier, 30)}</span>
-                  {' — '}
-                  {r.etat === 'depose' && 'déposée'}
-                  {r.etat === 'deja' && 'déjà dans ce dossier'}
-                  {r.etat === 'echec' && `échec : ${r.motif ?? 'raison inconnue'}`}
-                  {r.lien ? <> · <a className="pj-lien" href={r.lien} target="_blank" rel="noreferrer">ouvrir</a></> : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
     </div>
   );
+}
+
+/**
+ * 🔴 CE QU'ON EMPORTE DANS LA FENÊTRE : une seule pièce, ou toutes celles qu'on a vraiment.
+ *
+ * ⚠️ LES PIÈCES NON CONSERVÉES SONT ÉCARTÉES (`disponible`) : elles n'existent pas dans le stockage, et les
+ * proposer au rangement promettrait un geste qui échouerait après coup. Elles restent listées à part, avec leur
+ * motif, comme avant.
+ */
+function aRanger(d: Demande, vraies: PieceAffichee[], signatures: PieceAffichee[]): PieceARanger[] {
+  const toutes = [...vraies, ...signatures].filter((p) => p.disponible);
+  const choisies = d.quoi === 'piece' ? toutes.filter((p) => p.pieceId === d.pieceId) : toutes;
+  return choisies.map((p) => ({
+    pieceId: p.pieceId, nom: p.nomFichier, tailleOctets: p.tailleOctets, typeMime: p.typeMime,
+  }));
 }
 
 function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, onDrive }: {
@@ -409,5 +380,6 @@ export const CSS_PIECES = `
 @media (prefers-reduced-motion:reduce){
   .pj-bouton,.pj-action,.pj-apercu{transition:none}
 }
-${CSS_SELECTEUR_DRIVE}
+/* ⚠️ LE STYLE DE LA FENÊTRE DRIVE N'EST PLUS AJOUTÉ ICI : la fenêtre porte le sien, dans son propre <style>. Le
+   panneau en ligne, lui, n'existe plus — ses règles partaient avec lui. */
 `;

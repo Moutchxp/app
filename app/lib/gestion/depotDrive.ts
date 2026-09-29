@@ -53,6 +53,29 @@ export interface Auteur {
 }
 
 /**
+ * ══ 🔴 POURQUOI UN ÉCHEC NE SE DIT PAS AVEC LES MOTS DE LA MACHINE ══════════════════════════════════════════════
+ *
+ * Vu à l'écran le 29/09/2026, en rangeant une vraie pièce : « The specified key does not exist. » Le message vient
+ * du stockage objet, il est en anglais, et il n'apprend rien à qui le lit — sinon que quelque chose est cassé.
+ *
+ * 🔴 OR CE CAS-LÀ N'EST PAS UNE PANNE, ET C'EST TOUT CE QUI COMPTE : c'est la trace du VIDAGE du stockage local.
+ * Les octets d'une pièce sont libérés une fois que sa copie Drive est prouvée (même taille, même md5) — donc une
+ * pièce dont les octets manquent est, presque toujours, une pièce qui EST DÉJÀ dans le Drive, ailleurs. Le dire
+ * envoie la chercher ; « The specified key does not exist » envoie ouvrir un ticket.
+ *
+ * ⚠️ ON NE DEVINE PAS POUR AUTANT : la phrase dit ce qu'on sait (les octets ne sont plus là, et pourquoi), et
+ * renvoie au Drive sans affirmer qu'elle y est. Affirmer serait inventer.
+ */
+function motifEchec(e: unknown): string {
+  const brut = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+  if (/specified key does not exist|NoSuchKey|not found/i.test(brut)) {
+    return 'les octets de cette pièce ne sont plus dans le stockage local — ils sont libérés une fois la copie '
+      + 'vers le Drive prouvée. Cherchez-la dans le Drive : elle y est probablement déjà.';
+  }
+  return brut;
+}
+
+/**
  * DÉPOSE une liste de pièces dans UN dossier.
  *
  * Le jeton est demandé UNE fois pour toute la série : redemander un jeton par pièce multiplierait les allers-retours
@@ -104,10 +127,7 @@ export async function deposerPieces(
       });
     } catch (e) {
       // Une pièce qui casse n'emporte pas les autres : c'est toute la raison du verdict par pièce.
-      issues.push({
-        pieceId, nomFichier: piece.nomFichier, etat: 'echec',
-        motif: (e instanceof Error ? e.message : String(e)).slice(0, 200),
-      });
+      issues.push({ pieceId, nomFichier: piece.nomFichier, etat: 'echec', motif: motifEchec(e) });
     }
   }
   return issues;

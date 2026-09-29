@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { creerDossier, voisinsDuNom } from './driveCreation';
 import { MIME_DOSSIER } from './drive';
 import {
-  DOSSIER_INTERDIT_LECTURE, indexerMaillons, peutCreerDossier, type Maillon,
+  DOSSIER_INTERDIT_LECTURE, indexerMaillons, peutCreerDossier, peutDeposer, type Maillon,
 } from './driveLectureFichier';
 
 /**
@@ -30,6 +30,56 @@ function arbre(): Map<string, Maillon> {
     { id: 'permis2', nom: '1 Propriétaires', parentId: 'permis' },
   ]);
 }
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-UNIQUE — LA JUMELLE DE LA CRÉATION : LE DÉPÔT D'UNE PIÈCE REÇUE ═══════════════════════════════
+ *
+ * 🔴 CE QU'ELLE RÉPARE. Ranger une pièce jointe dans le Drive ne vérifiait que la NATURE de la cible (un dossier,
+ * pas un regroupement, pas la corbeille) — jamais son EMPLACEMENT. « Documents clients scannés » était donc une
+ * destination de dépôt valide, alors qu'aucun autre geste de l'application n'a le droit d'y écrire.
+ *
+ * ⚠️ ELLE EST TESTÉE ICI, À CÔTÉ DE LA CRÉATION, ET CE N'EST PAS UN RANGEMENT DE COMMODITÉ : c'est la MÊME
+ * ascension et la MÊME règle — déposer un fichier dans un dossier, c'est y créer quelque chose. Les voir l'une
+ * sous l'autre est ce qui fera remarquer, le jour où l'une changera, que l'autre doit changer aussi.
+ */
+describe('🔴🔴 aucun dépôt de pièce reçue sous « Documents clients scannés »', () => {
+  it('refuse DANS le dossier interdit, et à TOUTES les profondeurs', () => {
+    for (const id of ['interdit', 'n1', 'n2', 'n3']) {
+      const v = peutDeposer(id, arbre());
+      expect(v.deposer, id).toBe(false);
+      if (!v.deposer) expect(v.motif).toContain(DOSSIER_INTERDIT_LECTURE);
+    }
+  });
+
+  it('le motif parle de la PIÈCE qu’on tenait, pas d’un dossier qu’on n’allait pas créer', () => {
+    const v = peutDeposer('n2', arbre());
+    expect(v.deposer).toBe(false);
+    if (!v.deposer) {
+      expect(v.motif).toContain('n’y dépose aucune pièce');
+      expect(v.motif).not.toContain('crée');
+    }
+  });
+
+  it('AUTORISE ailleurs — un garde qui refuse tout ne protège rien, il supprime une fonction', () => {
+    for (const id of ['permis', 'permis2', 'drive']) expect(peutDeposer(id, arbre()).deposer, id).toBe(true);
+  });
+
+  it('refuse quand on ne sait pas où l’on est — et le DIT autrement qu’un interdit', () => {
+    const vide = indexerMaillons([]);
+    for (const depart of ['', null, 'inconnu']) {
+      const v = peutDeposer(depart as string | null, vide);
+      expect(v.deposer, String(depart)).toBe(false);
+      if (!v.deposer) expect(v.motif).toContain('on ne range pas là où l’on ne sait pas où l’on est');
+    }
+  });
+
+  /** 🔴 LA MÊME RÉPONSE QUE LA CRÉATION, PARTOUT : deux règles jumelles qui divergeraient seraient un trou. */
+  it('🔴 elle répond exactement comme la création, sur toute l’arborescence', () => {
+    for (const id of ['drive', 'interdit', 'n1', 'n2', 'n3', 'permis', 'permis2', 'inconnu']) {
+      expect(peutDeposer(id, arbre()).deposer, id).toBe(peutCreerDossier(id, arbre()).creer);
+    }
+  });
+});
 
 describe('🔴🔴 ① aucune création sous « Documents clients scannés », à AUCUNE profondeur', () => {
   it('refuse DANS le dossier interdit lui-même', () => {

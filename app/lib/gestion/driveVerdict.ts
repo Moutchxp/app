@@ -1,6 +1,6 @@
 import { chaineParents, chercherDossiers } from './drive';
 import {
-  DOSSIER_INTERDIT_LECTURE, indexerMaillons, peutCreerDossier, peutJoindre, type Maillon,
+  DOSSIER_INTERDIT_LECTURE, indexerMaillons, peutCreerDossier, peutDeposer, peutJoindre, type Maillon,
 } from './driveLectureFichier';
 // LOT APERCU-RAPIDE — la chaîne d'un DOSSIER est mémorisée 60 s : elle est la même pour tous ses fichiers.
 import { chaineDuDossierMemo, metadonneesMemo } from './driveMemoire';
@@ -131,6 +131,25 @@ export async function verdictsDossier(
     joindre: j.joindre ? { joindre: true, motif: null } : { joindre: false, motif: j.motif },
     creer: c.creer ? { creer: true, motif: null } : { creer: false, motif: c.motif },
   };
+}
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-UNIQUE — LE VERDICT DU RANGEMENT D'UNE PIÈCE REÇUE ════════════════════════════════════════════
+ *
+ * 🔴 CE QU'IL RÉPARE. Jusqu'au 29/09/2026, ranger une pièce jointe dans le Drive ne vérifiait que la NATURE de la
+ * cible (`verifierCibleDepot` : un dossier, pas un regroupement, pas la corbeille) — jamais son EMPLACEMENT.
+ * « Documents clients scannés » était donc une destination valide pour un dépôt, alors qu'aucun autre geste de
+ * l'application n'a le droit d'y écrire. Les deux routes de dépôt passent désormais par ici.
+ *
+ * ⚠️ MÊME REMONTÉE ET MÊME MÉMOIRE COURTE que les autres verdicts : la chaîne du dossier visé est très souvent
+ * déjà connue (la liste qui vient de s'afficher l'a payée), et le rangement ne la repaie pas.
+ */
+export async function verdictDeposer(
+  sujet: string, jeton: string, dossierId: string,
+): Promise<{ deposer: boolean; motif: string | null }> {
+  const index = indexerMaillons(await chaineDuDossierMemo(sujet, jeton, dossierId, { fetch }));
+  const v = peutDeposer(dossierId, index);
+  return v.deposer ? { deposer: true, motif: null } : { deposer: false, motif: v.motif };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
