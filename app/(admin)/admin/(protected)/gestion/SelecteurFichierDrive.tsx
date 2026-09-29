@@ -17,6 +17,11 @@ import {
   DUREE_ANNULATION_MS, estCoupe, estFichierSystemeMac, infobulleFichierSysteme, motColler, motMouvementFait,
   MOT_FICHIER_SYSTEME, type Presse,
 } from '../../../../lib/gestion/driveDeplacement';
+// 🔴 LOT DRIVE-DEPLACER-RAPIDE — l'écran qui répond au lâcher, et qui sait se dédire. Module PUR.
+import {
+  annuler as annulerLocalement, appliquer as appliquerLocalement, MOT_EN_COURS, motMouvementEnCours,
+  type MouvementLocal,
+} from '../../../../lib/gestion/mouvementOptimiste';
 // 🔴 LOT DRIVE-UNIQUE — les règles du mode « ranger », du bandeau des parents et des colonnes. Module PUR.
 import {
   bandeauParents, colonnesVisibles, grilleColonnes, MIME_PIECE, motColonnes, motRangee, resumeARanger,
@@ -247,6 +252,13 @@ export function SelecteurFichierDrive({
   const ressort = useRef<{ id: string; minuteur: ReturnType<typeof setTimeout> } | null>(null);
   /** Le dépliage en attente : un double-clic l'annule avant qu'il ne change la liste sous le curseur. */
   const depliageEnAttente = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * 🔴 LE DERNIER MOUVEMENT, pour que « Annuler » sache quoi remettre où SANS attendre la route. La route reste
+   * la seule à décider (elle relit le parent d'origine dans le journal) ; ceci ne sert qu'à l'affichage.
+   */
+  const dernierMouvement = useRef<MouvementLocal | null>(null);
+  /** De quelles listes chaque élément a été retiré : c'est là, et nulle part ailleurs, qu'un refus le remet. */
+  const retiresDe = useRef<Map<string, string[]>>(new Map());
   const [scrollTop, setScrollTop] = useState(0);
   const [hauteurVue, setHauteurVue] = useState(600);
   /* ══ 🔴🔴 LOT DRIVE-UNIQUE ═════════════════════════════════════════════════════════════════════════════════ */
@@ -260,6 +272,8 @@ export function SelecteurFichierDrive({
   const [compact, setCompact] = useState(true);
   /** Le « … » du bandeau est-il déplié ? Ce qui est caché est COMPTÉ, jamais perdu. */
   const [cheminEntier, setCheminEntier] = useState(false);
+  /** Les lignes dont le déplacement est en vol : elles portent l'indicateur discret « en cours ». */
+  const [enMouvement, setEnMouvement] = useState<Set<string>>(new Set());
   /** Le dernier dossier utilisé pour cet échange, et les dossiers récents de dépôt — datés. */
   const [depots, setDepots] = useState<{ dernier: DossierRecent | null; recents: DossierRecent[] }>(
     { dernier: null, recents: [] },
@@ -732,11 +746,117 @@ export function SelecteurFichierDrive({
    * modifiable — et il abandonne alors TOUT le fichier. Le laisser faire lui-même vaut mieux qu'un `useCallback`
    * qui lui coûte le reste de l'écran.
    */
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT DRIVE-DEPLACER-RAPIDE — L'ÉCRAN RÉPOND AU LÂCHER, PAS À GOOGLE
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     Arno : « le glisser-déposer est long quand je déplace des fichiers dans notre Drive ». Mesuré avant de
+     toucher à quoi que ce soit : 4,2 s pour UN fichier, 12,9 s pour cinq, plus le rechargement complet de la
+     liste. Le serveur a été rendu plus rapide — mais même à une seconde, l'écran ne doit pas attendre : la main
+     sait ce qu'elle vient de faire.
+
+     🔴 CE QUI SE PASSE MAINTENANT, DANS CET ORDRE :
+       ① la ligne quitte la source et paraît dans la cible, marquée « en cours », et le bandeau s'affiche —
+          le tout sans un seul aller-retour ;
+       ② la demande part ;
+       ③ à la réponse : les refusés REVIENNENT à leur place avec leur motif, le bandeau devient définitif et
+          reçoit son « Annuler », et les deux dossiers sont revalidés en silence.
+
+     ⚠️ L'OPTIMISME S'ARRÊTE AUX LIGNES. Aucune règle n'est devinée ici : le verdict reste prononcé par le
+     serveur, sur les chaînes réelles, avant le moindre `files.update`. L'écran ne fait qu'afficher d'avance ce
+     qui va probablement arriver, et il le défait quand il s'est trompé.
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * Applique un mouvement aux listes que l'écran tient : le cache des dossiers, les sous-niveaux dépliés, et la
+   * vue courante. UNE fonction, pour que les trois ne puissent pas diverger.
+   */
+  const rangerLesListes = (m: MouvementLocal, refuses: readonly string[] | null) => {
+    /* 🔴 CE QU'ON RETIRE EST NOTÉ, ET C'EST CE QU'ON REMETTRA. Un déplacement retire la ligne de PARTOUT où
+       l'écran la montrait — il le faut, car la même ligne peut être affichée à deux endroits et les listes ne
+       sont pas toutes indexées par l'identifiant du parent. Pour la rendre, il faut donc savoir d'où on l'a
+       prise : la deviner la remettrait dans une liste que l'écran n'affiche pas, et le refus resterait muet. */
+    const muter = (avant: ReadonlyMap<string, Fichier[]>): Map<string, Fichier[]> => {
+      if (refuses !== null) return annulerLocalement(avant, m, refuses, retiresDe.current);
+      const r = appliquerLocalement(avant, m);
+      for (const [cle, ids] of r.retires) {
+        const deja = retiresDe.current.get(cle) ?? [];
+        retiresDe.current.set(cle, [...new Set([...deja, ...ids])]);
+      }
+      return r.listes;
+    };
+    if (refuses === null) retiresDe.current = new Map();
+
+    // ① LE CACHE DES DOSSIERS (il porte des listings complets : on n'en change que les fichiers).
+    const listesCache = new Map<string, Fichier[]>();
+    for (const [id, l] of cache.current) listesCache.set(id, l.fichiers);
+    const apresCache = muter(listesCache);
+    for (const [id, fichiers] of apresCache) {
+      const ancien = cache.current.get(id);
+      if (ancien !== undefined) cache.current.set(id, { ...ancien, fichiers });
+    }
+
+    // ② LES SOUS-NIVEAUX DÉPLIÉS.
+    setEnfants((avant) => muter(avant));
+
+    // ③ LA VUE COURANTE — celle qu'on regarde, et la seule qui doit bouger sous l'œil.
+    const ici = dossierCourant?.id ?? '';
+    setVue((v) => {
+      if (v.v !== 'ok') return v;
+      const une = new Map<string, Fichier[]>([[ici, v.fichiers]]);
+      const apres = muter(une).get(ici);
+      return apres === undefined ? v : { ...v, fichiers: apres };
+    });
+  };
+
+  /** Marque (ou démarque) des lignes « en cours » : c'est l'indicateur discret demandé. */
+  const marquerEnVol = (ids: readonly string[], enVol: boolean) => {
+    setEnMouvement((avant) => {
+      const n = new Set(avant);
+      for (const id of ids) { if (enVol) n.add(id); else n.delete(id); }
+      return n;
+    });
+  };
+
+  /**
+   * REVALIDATION SILENCIEUSE des deux dossiers touchés.
+   *
+   * ⚠️ PAS DE `charger()`, ET C'EST TOUT L'INTÉRÊT : `charger` vide l'écran, remet le défilement en haut et
+   * repasse par l'état « chargement ». Ici on relit en arrière-plan et on ne remplace que si l'on est TOUJOURS au
+   * même endroit — l'écran ne bouge pas, il se met d'accord avec le Drive.
+   */
+  const revaliderEnSilence = (dossiers: readonly string[]) => {
+    for (const id of dossiers.filter((x) => x !== '')) {
+      void (async () => {
+        try {
+          const r = await lireListing(id, new AbortController().signal);
+          if ('erreur' in r) return;
+          cache.current.set(id, r);
+          if ((dossierCourant?.id ?? '') === id) setVue((v) => (v.v === 'ok' ? { v: 'ok', ...r } : v));
+          setEnfants((avant) => (avant.has(id) ? new Map(avant).set(id, r.fichiers) : avant));
+        } catch { /* une revalidation ratée laisse l'écran tel quel : il est déjà juste, ou il le sera au retour */ }
+      })();
+    }
+  };
+
   const mouvoir = async (
     sorte: 'deplacer' | 'copier', elements: Fichier[], cibleId: string, cibleNom: string,
   ): Promise<void> => {
     if (elements.length === 0 || cibleId === '') return;
     setErreur(null);
+
+    /* ══ ① L'ÉCRAN, TOUT DE SUITE ════════════════════════════════════════════════════════════════════════════
+       ⚠️ UNE COPIE NE RETIRE RIEN DE LA SOURCE : l'original reste où il est. `source: null` le dit, et c'est la
+       seule différence entre les deux gestes de ce côté-ci. */
+    const source = sorte === 'deplacer' ? (elements[0]?.parentId ?? dossierCourant?.id ?? null) : null;
+    const local: MouvementLocal = { elements, source, cible: cibleId };
+    dernierMouvement.current = sorte === 'deplacer' ? local : null;
+    rangerLesListes(local, null);
+    marquerEnVol(elements.map((e) => e.id), true);
+    setPresse(null);
+    setSelection(SELECTION_VIDE);
+    // 🔴 LE BANDEAU PARAÎT AU LÂCHER (demande d'Arno) — sans « Annuler » tant que rien n'est fait.
+    setBandeau({ mot: motMouvementEnCours(sorte, elements.length, cibleNom), mouvements: [] });
+
     try {
       const res = await fetch('/api/admin/gestion/drive/deplacer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -747,48 +867,80 @@ export function SelecteurFichierDrive({
       });
       const d = (await res.json()) as {
         etat?: string; message?: string; nomCible?: string;
-        faits?: { id: string }[]; refuses?: { nom: string; motif: string }[]; mouvements?: number[];
+        faits?: { id: string }[]; refuses?: { id?: string; nom: string; motif: string }[]; mouvements?: number[];
+        temps?: Record<string, number>;
       };
-      if (d.etat !== 'ok') { setErreur(d.message ?? 'Ce déplacement n’a pas pu être fait.'); return; }
+      marquerEnVol(elements.map((e) => e.id), false);
+
+      // ② LE SERVEUR A REFUSÉ EN BLOC : tout revient, et l'on dit pourquoi.
+      if (d.etat !== 'ok') {
+        rangerLesListes(local, elements.map((e) => e.id));
+        setBandeau(null);
+        setErreur(d.message ?? 'Ce déplacement n’a pas pu être fait.');
+        return;
+      }
+
       const faits = d.faits ?? [];
       const refuses = d.refuses ?? [];
-      // 🔴 UN REFUS SE DIT, AVEC SON MOTIF. Un geste sans effet et sans explication se lit comme une panne.
+      /* 🔴 LES REFUSÉS REVIENNENT À LEUR PLACE, AVEC LEUR MOTIF. C'est ce qui sépare un écran optimiste d'un
+         écran menteur : sans ce retour, un refus laisserait à l'affichage un déplacement qui n'a pas eu lieu. */
       if (refuses.length > 0) {
+        rangerLesListes(local, refuses.map((r) => r.id ?? '').filter((x) => x !== ''));
         setErreur(refuses.map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
       }
-      if (faits.length === 0) return;
-      // Les deux dossiers concernés ont changé de contenu : leur listing mémorisé ne vaut plus.
-      cache.current.delete(cibleId);
-      cache.current.delete(dossierCourant?.id ?? '');
-      setPresse(null);
-      setSelection(SELECTION_VIDE);
+      if (faits.length === 0) { setBandeau(null); return; }
+
       setBandeau({
         mot: motMouvementFait(sorte, faits.length, d.nomCible ?? cibleNom),
         // ⚠️ UNE COPIE NE S'ANNULE PAS : annuler voudrait dire SUPPRIMER la copie, et l'app ne supprime rien.
         mouvements: sorte === 'deplacer' ? (d.mouvements ?? []) : [],
       });
-      void charger(dossierCourant?.id ?? '');
+      // ③ ET L'ON SE MET D'ACCORD AVEC LE DRIVE, SANS QUE L'ÉCRAN BOUGE.
+      revaliderEnSilence([cibleId, source ?? '', dossierCourant?.id ?? '']);
     } catch {
+      marquerEnVol(elements.map((e) => e.id), false);
+      rangerLesListes(local, elements.map((e) => e.id));
+      setBandeau(null);
       setErreur('Le Drive n’a pas répondu.');
     }
   };
 
-  /** ANNULER : la route relit le parent d'origine DANS LE JOURNAL, pas dans ce que cet écran se rappelle. */
+  /**
+   * ANNULER : la route relit le parent d'origine DANS LE JOURNAL, pas dans ce que cet écran se rappelle.
+   *
+   * 🔴 OPTIMISTE LUI AUSSI, ET PAR LE MÊME CHEMIN. Le bandeau disparaît au clic, les lignes repartent d'où elles
+   * viennent, et si la route refuse (elle repasse par le MÊME verdict) elles reviennent, avec le motif.
+   */
   const annulerMouvement = async (mouvements: number[]) => {
     setBandeau(null);
+    const retour = dernierMouvement.current;
+    if (retour !== null && retour.source !== null) {
+      rangerLesListes({ elements: retour.elements, source: retour.cible, cible: retour.source }, null);
+      marquerEnVol(retour.elements.map((e) => e.id), true);
+    }
     try {
       const res = await fetch('/api/admin/gestion/drive/deplacer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'annuler', mouvements }),
       });
       const d = (await res.json()) as { etat?: string; message?: string; refuses?: { nom: string; motif: string }[] };
-      if (d.etat !== 'ok') { setErreur(d.message ?? 'L’annulation n’a pas pu être faite.'); return; }
+      if (retour !== null) marquerEnVol(retour.elements.map((e) => e.id), false);
+      if (d.etat !== 'ok') {
+        if (retour !== null && retour.source !== null) {
+          rangerLesListes({ elements: retour.elements, source: retour.cible, cible: retour.source },
+            retour.elements.map((e) => e.id));
+        }
+        setErreur(d.message ?? 'L’annulation n’a pas pu être faite.');
+        return;
+      }
       if ((d.refuses ?? []).length > 0) {
         setErreur((d.refuses ?? []).map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
       }
-      cache.current.clear();
-      void charger(dossierCourant?.id ?? '');
-    } catch { setErreur('Le Drive n’a pas répondu.'); }
+      revaliderEnSilence(retour === null ? [dossierCourant?.id ?? ''] : [retour.cible, retour.source ?? '']);
+    } catch {
+      if (retour !== null) marquerEnVol(retour.elements.map((e) => e.id), false);
+      setErreur('Le Drive n’a pas répondu.');
+    }
   };
 
   /** Le bandeau s'efface tout seul au bout de dix secondes : le temps de s'apercevoir qu'on s'est trompé. */
@@ -1804,12 +1956,16 @@ export function SelecteurFichierDrive({
                            visualisable ni joignable. */
                       const coupee = estCoupe(presse, f.id);
                       const systeme = estFichierSystemeMac(f.nom);
+                      /* 🔴 « EN COURS » : la ligne est DÉJÀ à sa nouvelle place, mais le Drive ne l'a pas encore
+                         confirmé. Un point discret et une infobulle en mots — jamais la seule opacité, qui se
+                         lirait comme « désactivée », « sélectionnée » ou « coupée » selon l'écran et selon l'œil. */
+                      const enVol = enMouvement.has(f.id);
                       const lisible = joindreOk && !systeme;
                       return (
                         <li key={f.id} role="option" aria-selected={choisie}
                           className={`sfd-ligne${choisie ? ' sfd-ligne--choisie' : ''}`
                             + `${coupee ? ' sfd-ligne--coupee' : ''}${systeme ? ' sfd-ligne--systeme' : ''}`
-                            + `${survole === f.id ? ' sfd-ligne--vise' : ''}`}
+                            + `${survole === f.id ? ' sfd-ligne--vise' : ''}${enVol ? ' sfd-ligne--envol' : ''}`}
                           /* 🔴 L'INDENTATION EST UN PADDING, pas une marge : la ligne garde toute sa largeur, donc
                              toute sa surface de dépôt. Un dossier profond ne doit pas être plus dur à viser. */
                           style={{ ...grille, paddingLeft: 6 + profondeur * 16 }}
@@ -1890,6 +2046,11 @@ export function SelecteurFichierDrive({
                             ) : <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />}
                             <span className="sfd-icone" aria-hidden="true">{iconeEntree(f)}</span>
                             <span className="sfd-nom" title={f.nom}>{f.nom}</span>
+                            {enVol && (
+                              <span className="sfd-envol" title={MOT_EN_COURS} aria-label={MOT_EN_COURS}>
+                                <span aria-hidden="true">•</span>
+                              </span>
+                            )}
                             {deja && <span className="sfd-ajoute">✓ ajouté</span>}
                           </span>
                           {colonnes.includes('modifie') && (
@@ -2241,6 +2402,19 @@ export const CSS_SELECTEUR_FICHIER = `
 
 /* ── UNE LIGNE COUPEE : estompee JUSQU'AU COLLAGE. Elle n'a pas bouge, et Echap rend la coupe. ──────────── */
 .sfd-ligne--coupee{opacity:.45}
+
+/* ── 🔴 LOT DRIVE-DEPLACER-RAPIDE — UNE LIGNE « EN COURS » ────────────────────────────────────────────────
+   Elle est deja a sa nouvelle place ; le Drive ne l'a pas encore confirme. DISCRET, comme demande : un point
+   qui respire, et rien d'autre. L'etat est dit par l'infobulle, jamais par la seule couleur.
+   ⚠️ LA LIGNE RESTE PLEINEMENT LISIBLE : la palir la ferait passer pour desactivee alors qu'elle est bien la. */
+.sfd-ligne--envol .sfd-nom{opacity:.8}
+.sfd-envol{flex:0 0 auto;font-size:1.1rem;line-height:1;color:var(--color-svv-red);
+  animation:sfd-respire 1s ease-in-out infinite}
+@keyframes sfd-respire{0%,100%{opacity:.25}50%{opacity:1}}
+/* ⚠️ Une animation n'est jamais la SEULE information, et elle se coupe quand le systeme le demande. */
+@media (prefers-reduced-motion:reduce){
+  .sfd-envol{animation:none;opacity:.8}
+}
 
 /* ── UN FICHIER SYSTEME MAC (« ._ ») : grise, et son type le dit. Il reste affiche, exprès. ─────────────── */
 .sfd-ligne--systeme{color:var(--color-svv-muted)}

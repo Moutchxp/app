@@ -32,6 +32,10 @@ let choisis: unknown[];
 let envois: { url: string; corps: Record<string, unknown> }[];
 let journalPret: boolean;
 let reponseMouvement: Record<string, unknown>;
+/** Une promesse que le test débloque : elle laisse observer l'écran PENDANT que le serveur réfléchit. */
+let lentEnCours: Promise<void> | null;
+/** Vrai = le `fetch` du déplacement jette, comme un Drive muet. */
+let echecReseau: boolean;
 
 const fichier = (id: string, nom: string, dossier = false) => ({
   id, nom, typeMime: dossier ? 'application/vnd.google-apps.folder' : 'application/pdf',
@@ -43,6 +47,8 @@ beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   choisis = []; envois = [];
   journalPret = true;
+  lentEnCours = null;
+  echecReseau = false;
   reponseMouvement = {
     etat: 'ok', nomCible: 'Artisans', faits: [{ id: 'f1', nom: 'bail.pdf' }], refuses: [], mouvements: [101],
   };
@@ -64,6 +70,8 @@ beforeEach(() => {
       }
       const corps = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
       envois.push({ url, corps });
+      if (echecReseau) throw new Error('réseau coupé');
+      if (lentEnCours !== null) await lentEnCours;
       if (corps.action === 'compter') {
         return new Response(JSON.stringify({ etat: 'ok', possible: true, elements: 4, phrase: 'Copier « Artisans » et son contenu, soit 4 éléments ?' }), { status: 200 });
       }
@@ -458,6 +466,95 @@ describe('🔴 les fichiers système de macOS restent affichés, mais grisés', 
     await monter();
     await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f3', nom: '._bail.pdf' }] });
     expect(envois).toHaveLength(1);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-DEPLACER-RAPIDE — L'ÉCRAN RÉPOND AU LÂCHER
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   Arno : « au lâcher, l'élément quitte la source et apparaît dans la cible IMMÉDIATEMENT (moins de 100 ms), avec
+   un petit indicateur discret “en cours”. Si le serveur refuse ou échoue, l'élément revient à sa place d'origine,
+   avec le motif en clair. » ══════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 l’écran optimiste', () => {
+  /** Une réponse qu'on fait attendre : c'est le seul moyen d'observer l'écran PENDANT que le serveur réfléchit. */
+  const reponseLente = () => {
+    let debloquer: () => void = () => {};
+    const attente = new Promise<void>((r) => { debloquer = r; });
+    return { attente, debloquer };
+  };
+
+  it('🔴 la ligne quitte la source et paraît « en cours » AVANT la réponse du serveur', async () => {
+    const lent = reponseLente();
+    lentEnCours = lent.attente;
+    await monter();
+    expect(ligneDe('bail.pdf')).toBeDefined();
+
+    await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f1', nom: 'bail.pdf' }] });
+
+    // ① La ligne a quitté la liste affichée, et le serveur n'a pas encore répondu.
+    expect(ligneDe('bail.pdf')).toBeUndefined();
+    // ② Le bandeau est là, AU PRÉSENT, et sans « Annuler » — rien n'est encore fait.
+    expect(container.querySelector('.sfd-bandeau')?.textContent).toContain('en cours de déplacement');
+    expect(container.querySelector('.sfd-bandeau-annuler')).toBeNull();
+
+    lent.debloquer();
+    await calmer();
+    // ③ À la réponse : le bandeau devient définitif, et son « Annuler » paraît.
+    expect(container.querySelector('.sfd-bandeau')?.textContent).toContain('déplacé vers « Artisans »');
+    expect(container.querySelector('.sfd-bandeau-annuler')).not.toBeNull();
+  });
+
+  /**
+   * 🔴 LE TEST QUI COMPTE : un refus doit DÉFAIRE l'affichage. Sans lui, l'écran garderait un fichier là où il
+   * n'est pas — et on ne s'en apercevrait qu'en le cherchant.
+   */
+  it('🔴🔴 un refus ramène la ligne à sa place, avec le motif', async () => {
+    reponseMouvement = {
+      etat: 'ok', nomCible: 'Artisans', faits: [], mouvements: [],
+      refuses: [{ id: 'f1', nom: 'bail.pdf', motif: 'Refusé : c’est l’archive du cabinet.' }],
+    };
+    await monter();
+    await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f1', nom: 'bail.pdf' }] });
+
+    expect(ligneDe('bail.pdf')).toBeDefined();
+    expect(container.textContent).toContain('archive du cabinet');
+    expect(container.querySelector('.sfd-bandeau')).toBeNull();
+  });
+
+  it('🔴 un lot mêlé : le refusé revient, le réussi reste parti', async () => {
+    reponseMouvement = {
+      etat: 'ok', nomCible: 'Artisans', mouvements: [101],
+      faits: [{ id: 'f1', nom: 'bail.pdf' }],
+      refuses: [{ id: 'f2', nom: 'devis.pdf', motif: 'Refusé : emplacement inconnu.' }],
+    };
+    await monter();
+    await glisser('drop', ligneDe('Artisans'), {
+      charge: [{ id: 'f1', nom: 'bail.pdf' }, { id: 'f2', nom: 'devis.pdf' }],
+    });
+    expect(ligneDe('bail.pdf')).toBeUndefined();
+    expect(ligneDe('devis.pdf')).toBeDefined();
+    expect(container.textContent).toContain('emplacement inconnu');
+  });
+
+  it('🔴 le Drive muet ramène tout, et le dit', async () => {
+    echecReseau = true;
+    await monter();
+    await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f1', nom: 'bail.pdf' }] });
+    expect(ligneDe('bail.pdf')).toBeDefined();
+    expect(container.textContent).toContain('n’a pas répondu');
+    expect(container.querySelector('.sfd-bandeau')).toBeNull();
+  });
+
+  /**
+   * ⚠️ PAS DE RECHARGEMENT COMPLET. `charger()` viderait l'écran, remettrait le défilement en haut et repasserait
+   * par l'état « chargement » — exactement ce qu'on vient d'éviter. La revalidation relit en silence.
+   */
+  it('🔴 aucun squelette de chargement après un déplacement', async () => {
+    await monter();
+    await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f1', nom: 'bail.pdf' }] });
+    expect(container.querySelector('.sfd-squelette')).toBeNull();
+    expect(ligneDe('Artisans')).toBeDefined();
   });
 });
 

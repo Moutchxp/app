@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DOSSIER_INTERDIT_LECTURE, type Maillon } from '../../../../../../lib/gestion/driveLectureFichier';
+import { oublierLeDrive } from '../../../../../../lib/gestion/driveMemoire';
 
 /**
  * LOT DRIVE-DEPLACER — LA ROUTE QUI DÉPLACE, ET SURTOUT CELLE QUI REFUSE.
@@ -113,6 +114,12 @@ const demande = (corps: unknown): Request =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  /**
+   * 🔴 LA MÉMOIRE COURTE DU DRIVE EST VIDÉE ENTRE DEUX TESTS, et c'est indispensable : elle vit au niveau du
+   * module, donc elle survit d'un test à l'autre. Un test qui hériterait de la chaîne mémorisée par le précédent
+   * ne prouverait plus rien de ce qu'il croit prouver — et surtout, il masquerait une régression de sécurité.
+   */
+  oublierLeDrive();
   gardeMock.mockResolvedValue(null);
   jetonMock.mockResolvedValue({ etat: 'ok', jeton: 'JETON', compteGoogle: 'a.jorel@sansvisavis.com' });
   journalDispoMock.mockResolvedValue(true);
@@ -122,9 +129,20 @@ beforeEach(() => {
     maillons: chaineDepuis('interdit'),
   });
   chaineMock.mockImplementation(async (depart: string) => chaineDepuis(depart));
+  /**
+   * ⚠️ LES MÉTADONNÉES PORTENT DÉSORMAIS `parents`, ET CE N'EST PAS UN DÉTAIL DE FIXTURE (lot DRIVE-DEPLACER-RAPIDE).
+   * La route lisait le parent d'un élément en remontant SA chaîne — un appel Google de plus par élément, alors que
+   * le `files.get` qu'elle faisait juste après le donnait déjà. Elle le lit maintenant là où il était.
+   */
   metaMock.mockImplementation(async (id: string) => (ARBRE[id] === undefined
     ? { ok: false, motif: 'introuvable' }
-    : { ok: true, valeur: { id, nom: ARBRE[id].nom, typeMime: ARBRE[id].dossier ? MIME_DOSSIER : 'application/pdf' } }));
+    : {
+      ok: true,
+      valeur: {
+        id, nom: ARBRE[id].nom, typeMime: ARBRE[id].dossier ? MIME_DOSSIER : 'application/pdf',
+        parents: ARBRE[id].parentId === null ? [] : [ARBRE[id].parentId as string],
+      },
+    }));
   listerMock.mockResolvedValue({ ok: true, valeur: { fichiers: [], tronque: false } });
   deplacerMock.mockResolvedValue({ ok: true, valeur: { id: 'bail', nom: 'bail.pdf', parentId: 'travaux' } });
   copierMock.mockResolvedValue({ ok: true, valeur: { id: 'copie', nom: 'bail.pdf', parentId: 'travaux' } });
@@ -207,6 +225,116 @@ describe('🔴🔴 « Documents clients scannés » — appel DIRECT à la route
     expect(d.faits.map((f) => f.id)).toEqual(['bail']);
     expect(d.refuses.map((r) => r.id)).toEqual(['aF']);
     expect(deplacerMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-DEPLACER-RAPIDE — LA MÉMOIRE COURTE NE DISPENSE D'AUCUNE VÉRIFICATION
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   Le lot a rendu le geste rapide en cessant de REDEMANDER à Google des chaînes de parents qu'il venait de donner.
+   C'est exactement le genre d'optimisation qui ouvre un trou : un cache qui répond « oui » à la place du serveur.
+   Ces tests-là existent pour qu'elle ne puisse pas le faire. ══════════════════════════════════════════════════ */
+
+describe('🔴🔴 le cache ne peut PAS faire passer une cible interdite', () => {
+  /**
+   * 🔴 LE CAS QUI COMPTE : la chaîne de la cible est DÉJÀ en mémoire quand la demande arrive — c'est la situation
+   * normale, la liste vient de l'afficher. Le verdict doit tomber quand même, et il doit tomber sur la chaîne
+   * mémorisée, pas être sauté parce qu'« on connaît déjà cet endroit ».
+   */
+  it('cible sous l’archive DÉJÀ mémorisée : refusé quand même, et rien ne part', async () => {
+    // ① Un premier appel, permis, qui fait entrer « n2 » dans la mémoire courte (c'est une cible qu'on remonte).
+    await POST(demande({ action: 'deplacer', cible: 'n2', elements: [{ id: 'bail' }] }));
+    expect(deplacerMock).not.toHaveBeenCalled();
+    const remonteesApres1 = chaineMock.mock.calls.length;
+
+    // ② Le MÊME appel, maintenant que la chaîne est en cache : le refus doit être identique.
+    const res = await POST(demande({ action: 'deplacer', cible: 'n2', elements: [{ id: 'bail' }] }));
+    const d = (await res.json()) as { faits: unknown[]; refuses: { motif: string }[] };
+    expect(d.faits).toHaveLength(0);
+    expect(d.refuses[0].motif).toContain(DOSSIER_INTERDIT_LECTURE);
+    expect(deplacerMock).not.toHaveBeenCalled();
+
+    // 🔴 ET LA PREUVE QUE LA MÉMOIRE A BIEN SERVI : le second appel n'a PAS redemandé la chaîne à Google.
+    //    Le refus vient donc du cache, et il est aussi ferme que le premier.
+    expect(chaineMock.mock.calls.length).toBe(remonteesApres1);
+  });
+
+  /**
+   * 🔴 ET DANS L'AUTRE SENS : une SOURCE dans l'archive, dont la chaîne du parent est déjà mémorisée parce qu'un
+   * voisin vient d'être examiné. Rien n'en sort, cache ou pas.
+   */
+  it('source dans l’archive avec le parent DÉJÀ mémorisé : refusé quand même', async () => {
+    await POST(demande({ action: 'deplacer', cible: 'travaux', elements: [{ id: 'aF' }] }));
+    const remontees = chaineMock.mock.calls.length;
+    const res = await POST(demande({ action: 'deplacer', cible: 'travaux', elements: [{ id: 'aF' }] }));
+    const d = (await res.json()) as { refuses: { motif: string }[] };
+    expect(d.refuses[0].motif).toContain('Rien n’en sort');
+    expect(deplacerMock).not.toHaveBeenCalled();
+    expect(chaineMock.mock.calls.length).toBe(remontees);
+  });
+
+  /**
+   * ⚠️ LA MÉMOIRE NE DURE QU'UNE MINUTE, et c'est une propriété de SÉCURITÉ, pas de confort : un rangement fait
+   * entre-temps (un dossier déplacé SOUS l'archive) doit être vu. Ici, on vide la mémoire pour rejouer le monde
+   * d'après — et la réponse change, ce qui prouve que la mémoire n'est pas une vérité figée.
+   */
+  it('la mémoire oubliée, la chaîne est redemandée à Google', async () => {
+    await POST(demande({ action: 'deplacer', cible: 'travaux', elements: [{ id: 'bail' }] }));
+    const remontees = chaineMock.mock.calls.length;
+    oublierLeDrive();
+    await POST(demande({ action: 'deplacer', cible: 'travaux', elements: [{ id: 'bail' }] }));
+    expect(chaineMock.mock.calls.length).toBeGreaterThan(remontees);
+  });
+
+  /**
+   * 🔴 UNE CHAÎNE QU'ON N'A PAS SU REMONTER N'EST JAMAIS MÉMORISÉE — sans quoi un « je ne sais pas » deviendrait
+   * un « oui » une minute durant. Elle est redemandée à chaque fois, et elle refuse à chaque fois.
+   */
+  it('une chaîne incomplète n’est pas mémorisée, et refuse à chaque appel', async () => {
+    chaineMock.mockResolvedValue([]);
+    for (const tour of [1, 2]) {
+      const res = await POST(demande({ action: 'deplacer', cible: 'inconnu', elements: [{ id: 'bail' }] }));
+      const d = (await res.json()) as { faits: unknown[]; refuses: { motif: string }[] };
+      expect(d.faits, `tour ${tour}`).toHaveLength(0);
+      expect(d.refuses[0].motif).toContain('précaution');
+    }
+    expect(deplacerMock).not.toHaveBeenCalled();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT DRIVE-DEPLACER-RAPIDE — CE QUE LA PARALLÉLISATION NE DOIT PAS CHANGER
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 une sélection multiple : un seul contrôle par dossier, un verdict par élément', () => {
+  it('cinq fichiers du MÊME dossier ne remontent la chaîne du parent qu’UNE fois', async () => {
+    const cinq = ['bail', 'bail', 'bail', 'bail', 'bail'].map((id) => ({ id }));
+    await POST(demande({ action: 'deplacer', cible: 'travaux', elements: cinq }));
+    // Deux remontées au total : celle de la cible, celle du parent commun. Pas cinq.
+    const departs = chaineMock.mock.calls.map((c) => c[0] as string);
+    expect(new Set(departs)).toEqual(new Set(['travaux', 'base']));
+  });
+
+  /** 🔴 ET CHAQUE ÉLÉMENT GARDE SON VERDICT : un lot mêlé rend autant de réponses que d'éléments. */
+  it('un lot mêlé rend un résultat par élément, réussi ou refusé avec son motif', async () => {
+    const res = await POST(demande({
+      action: 'deplacer', cible: 'travaux',
+      elements: [{ id: 'bail' }, { id: 'aF' }, { id: 'interdit' }, { id: 'fantome' }],
+    }));
+    const d = (await res.json()) as { faits: { id: string }[]; refuses: { id: string; motif: string }[] };
+    expect(d.faits.map((f) => f.id)).toEqual(['bail']);
+    expect(d.refuses.map((r) => r.id).sort()).toEqual(['aF', 'fantome', 'interdit']);
+    // Chaque refus porte SON motif, pas un motif commun.
+    expect(new Set(d.refuses.map((r) => r.motif)).size).toBe(3);
+    expect(deplacerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('la réponse porte les temps et le nombre d’appels Google réellement partis', async () => {
+    const res = await POST(demande({ action: 'deplacer', cible: 'travaux', elements: [{ id: 'bail' }] }));
+    const d = (await res.json()) as { temps?: { total?: number; appelsGoogle?: number; securite?: number } };
+    expect(typeof d.temps?.total).toBe('number');
+    expect(typeof d.temps?.securite).toBe('number');
+    expect(typeof d.temps?.appelsGoogle).toBe('number');
   });
 });
 
