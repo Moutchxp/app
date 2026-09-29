@@ -1,6 +1,7 @@
 import 'server-only';
 import { deposerFichier, lireDossier, type LecteurDossier } from './drive';
 import { lireDepotExistant, memoriserDepot } from './driveRepo';
+import { copierFichier } from './driveMouvement';
 import { lirePiecesDuMessage } from './piecesRepo';
 import { lirePieceAServir } from './carteRepo';
 import { recuperer } from '../stockage';
@@ -24,10 +25,30 @@ export function depsReellesDepot(lire?: LecteurDossier): DepsDepot {
   return {
     lirePiece: async (pieceId: number): Promise<PieceADeposer | null> => {
       const p = await lirePieceAServir(pieceId);
+      /**
+       * 🔴 LOT RANGER-PJ-FIABLE — `stockageVide` ET `driveFileId` VOYAGENT AVEC LA PIÈCE. `lirePieceAServir` les
+       * rendait déjà (lot DRIVE-3) et le dépôt les jetait : il lisait les octets, ne les trouvait pas, et
+       * échouait sur « The specified key does not exist ». Avec eux, une pièce vidée se copie de dossier à
+       * dossier chez Google — ce qu'elle aurait toujours dû faire.
+       */
       return p === null ? null
-        : { pieceId, nomFichier: p.nomFichier, typeMime: p.typeMime, cleStockage: p.cleStockage };
+        : {
+          pieceId, nomFichier: p.nomFichier, typeMime: p.typeMime, cleStockage: p.cleStockage,
+          stockageVide: p.stockageVide, driveFileId: p.driveFileId,
+        };
     },
     octets: async (cle: string) => new Uint8Array(await recuperer(cle)),
+    /**
+     * 🔴 `files.copy` — la MÊME fonction que le geste « copier » du navigateur de fichiers (`driveMouvement`), et
+     * pas une seconde écriture vers Google. Le nom n'est pas imposé : Google donne à la copie le nom de
+     * l'original, exactement comme dans Drive.
+     */
+    copierDepuisDrive: async (jeton, o) => {
+      const r = await copierFichier(jeton, { id: o.driveFileId, parentCible: o.dossierId }, { fetch });
+      return r.ok
+        ? { ok: true, valeur: { id: r.valeur.id, nom: r.valeur.nom || o.nom, webViewLink: r.valeur.lien ?? null } }
+        : r;
+    },
     depotExistant: lireDepotExistant,
     deposer: (jeton, o) => deposerFichier(jeton, o, { fetch }),
     memoriser: memoriserDepot,

@@ -42,7 +42,7 @@ export interface DepotAffiche {
 }
 
 /** Ce que le clic sur un bouton Drive demande : une pièce, ou tout le message. */
-type Demande = { quoi: 'piece'; pieceId: number; nom: string } | { quoi: 'message' };
+export type Demande = { quoi: 'piece'; pieceId: number; nom: string } | { quoi: 'message' };
 
 export function PiecesJointes({ messageId, filId, vraies, signatures }: {
   messageId: number;
@@ -144,10 +144,32 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
  * proposer au rangement promettrait un geste qui échouerait après coup. Elles restent listées à part, avec leur
  * motif, comme avant.
  */
-function aRanger(d: Demande, vraies: PieceAffichee[], signatures: PieceAffichee[]): PieceARanger[] {
-  const toutes = [...vraies, ...signatures].filter((p) => p.disponible);
-  const choisies = d.quoi === 'piece' ? toutes.filter((p) => p.pieceId === d.pieceId) : toutes;
-  return choisies.map((p) => ({
+export function aRanger(d: Demande, vraies: PieceAffichee[], signatures: PieceAffichee[]): PieceARanger[] {
+  /**
+   * ══ 🔴🔴 LOT RANGER-PJ-FIABLE — « TOUT AJOUTER » NE RANGE PAS LES LOGOS DE SIGNATURE ═══════════════════════
+   *
+   * Arno : « fichiers “._” et images de signature (cid:) : ils ne doivent PAS apparaître comme pièces à ranger ».
+   *
+   * LE DÉFAUT, VU SUR UN VRAI MAIL (message 56770, fil 354) : deux vraies pièces, une image de signature — et la
+   * fenêtre annonçait « 3 pièces à ranger », `image001.jpg` comprise. L'écran SAVAIT pourtant que c'en était une :
+   * il l'avait rangée sous « 1 image de signature », dans son propre bloc replié.
+   *
+   * 🔴 CE QUE ÇA COÛTE : le logo du correspondant part dans le dossier du client, à côté du bail. Personne ne le
+   * voit passer — on coche « tout », c'est bien le geste « tout ».
+   *
+   * ⚠️ UNE SIGNATURE RESTE RANGEABLE À LA DEMANDE : le ▲ de sa propre ligne, dans le bloc des signatures, ouvre
+   * la fenêtre sur ELLE (`quoi === 'piece'`). C'est un geste explicite, sur une pièce nommée — l'inverse d'un
+   * « tout » qui emporte ce qu'on n'a pas regardé.
+   *
+   * ⚠️ LES « ._ » DE macOS N'ARRIVENT PAS JUSQU'ICI : ils sont écartés en amont, par `trierPieces`, qui remplit
+   * `vraies` et `signatures` (lot LECTURE-HTML-FIL-TROMBONE). Une seule règle, un seul endroit.
+   */
+  if (d.quoi === 'piece') {
+    return [...vraies, ...signatures]
+      .filter((p) => p.disponible && p.pieceId === d.pieceId)
+      .map((p) => ({ pieceId: p.pieceId, nom: p.nomFichier, tailleOctets: p.tailleOctets, typeMime: p.typeMime }));
+  }
+  return vraies.filter((p) => p.disponible).map((p) => ({
     pieceId: p.pieceId, nom: p.nomFichier, tailleOctets: p.tailleOctets, typeMime: p.typeMime,
   }));
 }

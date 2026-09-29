@@ -36,6 +36,8 @@ export interface ElementDeplace {
   nom: string;
   /** Le parent APRÈS le geste : c'est lui qu'on consigne, et lui qu'on relit pour « Annuler ». */
   parentId: string;
+  /** LOT RANGER-PJ-FIABLE — l'adresse à ouvrir, quand Google la rend. `null` n'est pas un échec. */
+  lien?: string | null;
 }
 
 function motif(statut: number, quoi: string): string {
@@ -95,7 +97,12 @@ export async function deplacerVers(
 export async function copierFichier(
   accessToken: string, o: { id: string; parentCible: string }, deps: DepsGoogle,
 ): Promise<Resultat<ElementDeplace>> {
-  const p = new URLSearchParams({ fields: 'id,name,parents', ...PARTAGES });
+  /**
+   * ⚠️ `webViewLink` EST DEMANDÉ (lot RANGER-PJ-FIABLE). Une pièce dont les octets locaux ont été libérés se range
+   * PAR CETTE COPIE : sans ce champ, l'écran affichait « ✓ Rangée dans X » sans le « · ouvrir » qu'il affiche pour
+   * toutes les autres — le rangement avait l'air moins abouti qu'il ne l'était. Il ne coûte rien de plus.
+   */
+  const p = new URLSearchParams({ fields: 'id,name,parents,webViewLink', ...PARTAGES });
   let res: Response;
   try {
     res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(o.id)}/copy?${p}`, {
@@ -107,11 +114,19 @@ export async function copierFichier(
     return { ok: false, motif: `Le Drive n’a pas répondu : ${e instanceof Error ? e.message : String(e)}` };
   }
   if (!res.ok) return { ok: false, motif: motif(res.status, 'cette copie') };
-  const j = (await res.json().catch(() => ({}))) as { id?: string; name?: string; parents?: string[] };
+  const j = (await res.json().catch(() => ({}))) as {
+    id?: string; name?: string; parents?: string[]; webViewLink?: string;
+  };
   if (typeof j.id !== 'string' || j.id === '') {
     return { ok: false, motif: 'Google n’a pas rendu l’identifiant de la copie.' };
   }
-  return { ok: true, valeur: { id: j.id, nom: j.name ?? '', parentId: j.parents?.[0] ?? o.parentCible } };
+  return {
+    ok: true,
+    valeur: {
+      id: j.id, nom: j.name ?? '', parentId: j.parents?.[0] ?? o.parentCible,
+      lien: j.webViewLink ?? null,
+    },
+  };
 }
 
 /**

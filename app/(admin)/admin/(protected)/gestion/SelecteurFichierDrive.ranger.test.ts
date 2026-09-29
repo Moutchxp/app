@@ -150,6 +150,57 @@ async function glisserPiece(nom: string, cible: Element | null | undefined) {
   await glisser('drop', cible, t);
 }
 
+/**
+ * ══ 🔴🔴 LE GLISSER TEL QUE LE NAVIGATEUR LE FAIT — PAS TEL QU'IL NOUS ARRANGE ═══════════════════════════════════
+ *
+ * `glisserPiece` ci-dessus saute le `dragover` et lâche directement. C'est commode, et c'est précisément ce qui a
+ * laissé passer le défaut du 29/09/2026 : la fenêtre passait tous ses tests, et GLISSER NE FAISAIT RIEN sur le
+ * vrai Drive, sans un mot.
+ *
+ * CE QUE CE GESTE-CI IMPOSE, et que le navigateur impose vraiment :
+ *   ① le `drop` n'arrive QUE si le dernier `dragover` a été annulé (`preventDefault`) — c'est la règle connue ;
+ *   ② 🔴 ET SI LE `dropEffect` CHOISI EST PERMIS PAR L'`effectAllowed` POSÉ AU `dragstart`. Sinon l'opération vaut
+ *      « none » : Chrome montre le curseur « interdit », CESSE d'émettre `dragover`, et n'émet JAMAIS `drop`.
+ *
+ * Relevé dans Chrome, sur le vrai Drive, en instrumentant les événements :
+ *     dragstart  allowed=copy  effect=none
+ *     dragover   allowed=copy  effect=move  prevented=true   ← puis plus AUCUN dragover, et aucun drop
+ *
+ * Une pièce se RANGE (on la copie dans le Drive, le mail garde la sienne) : `effectAllowed` vaut donc `copy`, et
+ * demander `move` était une contradiction que seul le navigateur voyait.
+ */
+const EFFETS_PERMIS: Record<string, readonly string[]> = {
+  copy: ['copy'], move: ['move'], link: ['link'],
+  copyMove: ['copy', 'move'], copyLink: ['copy', 'link'], linkMove: ['link', 'move'],
+  all: ['copy', 'move', 'link'], uninitialized: ['copy', 'move', 'link'], '': ['copy', 'move', 'link'],
+};
+async function glisserVraiment(nom: string, cible: Element | null | undefined): Promise<{
+  entreeAcceptee: boolean; survolAccepte: boolean; effetPermis: boolean;
+}> {
+  const t = await glisser('dragstart', pieceDe(nom));
+  const jouer = async (type: 'dragenter' | 'dragover') => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'dataTransfer', { value: t });
+    Object.defineProperty(e, 'altKey', { value: false });
+    await act(async () => { (cible as HTMLElement | undefined)?.dispatchEvent(e); });
+    await calmer();
+    return e.defaultPrevented;
+  };
+  /**
+   * 🔴 L'ENTRÉE D'ABORD, LE SURVOL ENSUITE — l'ordre du navigateur. Et l'entrée DOIT être annulée : une cible
+   * déjà établie est PERDUE dès qu'on passe sur un élément dont le `dragenter` ne l'est pas, et Chrome cesse
+   * alors d'émettre `dragover`. Le premier `dragover` d'un glisser passe quand même (il n'y a encore aucune
+   * cible à perdre) : c'est exactement ce qui rendait le défaut du 29/09/2026 si trompeur.
+   */
+  const entreeAcceptee = await jouer('dragenter');
+  const survolAccepte = await jouer('dragover');
+  const permis = EFFETS_PERMIS[t.effectAllowed] ?? ['copy', 'move', 'link'];
+  const effetPermis = t.dropEffect === '' || t.dropEffect === 'none' || permis.includes(t.dropEffect);
+  // 🔴 LE NAVIGATEUR N'ÉMET `drop` QUE SI LES TROIS CONDITIONS TIENNENT. On ne triche pas ici non plus.
+  if (entreeAcceptee && survolAccepte && effetPermis) await glisser('drop', cible, t);
+  return { entreeAcceptee, survolAccepte, effetPermis };
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ① LE PANNEAU « À RANGER »
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -233,6 +284,129 @@ describe('🔴 ② ranger en glissant', () => {
     await monter();
     await glisserPiece('photo.jpg', lateraleDe(/Travaux/));
     expect(depots).toEqual([{ pieceId: '12', dossierId: 'D_REC' }]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ②-bis LE GLISSER TEL QUE CHROME LE FAIT — le défaut du 29/09/2026
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ②-bis glisser une pièce : l’effet demandé doit être PERMIS', () => {
+  /**
+   * 🔴 LE DÉFAUT D'ARNO, REPRODUIT : « glisser une pièce du panneau “N pièce(s) à ranger” vers un dossier ne fait
+   * rien ». Ni message, ni trace, ni erreur. Sur le vrai Drive, dans Chrome, en instrumentant les événements :
+   *
+   *     dragstart  allowed=copy  effect=none
+   *     dragover   allowed=copy  effect=move  prevented=true   ← puis plus aucun dragover, et aucun drop
+   *
+   * `survolerCible` posait `dropEffect = altKey ? 'copy' : 'move'` — la règle du DÉPLACEMENT d'un fichier du
+   * Drive, où `effectAllowed` vaut `copyMove`. Appliquée à une PIÈCE, dont le glisser est déclaré `copy`, elle
+   * demande un effet interdit : l'opération vaut « none », et le navigateur refuse tout.
+   *
+   * ⚠️ POURQUOI AUCUN TEST NE LE VOYAIT : tous lâchaient la pièce sans passer par `dragover`. Le contrat du
+   * navigateur n'était donc jamais joué.
+   */
+  it('🔴 le survol est accepté ET l’effet est permis — sur un dossier de l’arbre', async () => {
+    await monter();
+    const r = await glisserVraiment('DEV-20260928-18919.pdf', ligneDe('Artisans'));
+    expect(r.entreeAcceptee).toBe(true);
+    expect(r.survolAccepte).toBe(true);
+    expect(r.effetPermis).toBe(true);
+    expect(depots).toEqual([{ pieceId: '11', dossierId: 'd1' }]);
+  });
+
+  /** 🔴 ET SUR TOUTES LES AUTRES CIBLES : elles passent par le même `survolerCible`, elles ont le même contrat. */
+  it('🔴 sur la barre latérale — dernier dossier, et dossier récent', async () => {
+    await monter();
+    const a = await glisserVraiment('photo.jpg', lateraleDe(/CHARPENTIER/));
+    expect([a.entreeAcceptee, a.survolAccepte, a.effetPermis]).toEqual([true, true, true]);
+    expect(depots).toEqual([{ pieceId: '12', dossierId: 'D_DERNIER' }]);
+    depots = [];
+    const b = await glisserVraiment('DEV-20260928-18919.pdf', lateraleDe(/Travaux/));
+    expect([b.entreeAcceptee, b.survolAccepte, b.effetPermis]).toEqual([true, true, true]);
+    expect(depots).toEqual([{ pieceId: '11', dossierId: 'D_REC' }]);
+  });
+
+  it('🔴 sur un parent du BANDEAU', async () => {
+    await monter();
+    await cliquer(ligneDe('Artisans')?.querySelector('.sfd-triangle'));
+    await act(async () => { ligneDe('Artisans')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    await calmer();
+    const pas = [...container.querySelectorAll('.sfd-ariane-bouton')].find((b) => b.textContent === 'Artisans');
+    const r = await glisserVraiment('photo.jpg', pas);
+    expect([r.entreeAcceptee, r.survolAccepte, r.effetPermis]).toEqual([true, true, true]);
+    expect(depots).toEqual([{ pieceId: '12', dossierId: 'd1' }]);
+  });
+
+  /**
+   * ⚠️ ET LE DÉPLACEMENT D'UN FICHIER DU DRIVE GARDE SON EFFET « move » : c'est un déplacement, pas une copie, et
+   * son `effectAllowed` (`copyMove`) le permet. Corriger l'un ne doit pas casser l'autre.
+   */
+  it('🔴 un fichier du Drive, lui, se DÉPLACE — et son effet reste permis', async () => {
+    await monter();
+    // Il faut d'abord déplier « Artisans » pour que son contenu existe à l'écran : on ne glisse que ce qu'on voit.
+    await cliquer(ligneDe('Artisans')?.querySelector('.sfd-triangle'));
+    const t = await glisser('dragstart', ligneDe('devis-artisan.pdf'));
+    const entree = new Event('dragenter', { bubbles: true, cancelable: true });
+    Object.defineProperty(entree, 'dataTransfer', { value: t });
+    Object.defineProperty(entree, 'altKey', { value: false });
+    await act(async () => { (ligneDe('Baux') as HTMLElement).dispatchEvent(entree); });
+    await calmer();
+    const survol = new Event('dragover', { bubbles: true, cancelable: true });
+    Object.defineProperty(survol, 'dataTransfer', { value: t });
+    Object.defineProperty(survol, 'altKey', { value: false });
+    await act(async () => { (ligneDe('Baux') as HTMLElement).dispatchEvent(survol); });
+    await calmer();
+    expect(entree.defaultPrevented).toBe(true);
+    expect(survol.defaultPrevented).toBe(true);
+    expect(t.effectAllowed).toBe('copyMove');
+    expect(t.dropEffect).toBe('move');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ②-ter UN DOSSIER RESTÉ OUVERT DOIT MONTRER SON CONTENU
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ②-ter l’arbre retrouvé : ouvert VEUT DIRE ouvert', () => {
+  /**
+   * 🔴 LE DÉFAUT, TROUVÉ EN CHERCHANT LE PREMIER (29/09/2026). Les dossiers dépliés sont retenus d'une ouverture
+   * de la fenêtre à l'autre (`sessionStorage`, lot DRIVE-RETOUCHES-2). Mais SEUL L'ÉTAT était retenu : le CONTENU,
+   * lui, n'était relu par personne. La fenêtre se rouvrait donc avec des dossiers marqués ouverts — triangle ▾,
+   * `aria-expanded="true"` — et RIEN dessous.
+   *
+   * CE QUE ÇA DONNAIT À L'ÉCRAN : impossible d'atteindre le dossier voulu. Un clic sur le triangle le REFERMAIT
+   * (il se croyait ouvert), il fallait cliquer une seconde fois pour qu'il se charge enfin. Vu en vrai en
+   * cherchant à atteindre « _TEST CLAUDE rangement2 » : trois tentatives, aucun message, aucune erreur.
+   *
+   * 🔴 ET C'EST GRAVE ICI PLUS QU'AILLEURS : dans cette fenêtre, un dossier qu'on ne peut pas VOIR est un dossier
+   * sur lequel on ne peut pas DÉPOSER. Le rangement d'une pièce s'arrête là, sans rien dire.
+   */
+  it('🔴 un dossier retenu comme ouvert affiche son contenu, SANS qu’on y touche', async () => {
+    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.deplies', JSON.stringify(['d1']));
+    await monter();
+    const tri = ligneDe('Artisans')?.querySelector('.sfd-triangle');
+    expect(tri?.getAttribute('aria-expanded')).toBe('true');
+    // 🔴 CE QUI MANQUAIT : le contenu. Un triangle ouvert sur un dossier vide est un mensonge.
+    expect(ligneDe('devis-artisan.pdf')).toBeDefined();
+  });
+
+  /** ⚠️ ET LE PREMIER CLIC SUR LE TRIANGLE REFERME, comme il doit : c'est bien ouvert, donc il ferme. */
+  it('🔴 et le premier clic sur son triangle le REFERME — une fois, pas deux', async () => {
+    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.deplies', JSON.stringify(['d1']));
+    await monter();
+    await cliquer(ligneDe('Artisans')?.querySelector('.sfd-triangle'));
+    expect(ligneDe('devis-artisan.pdf')).toBeUndefined();
+    await cliquer(ligneDe('Artisans')?.querySelector('.sfd-triangle'));
+    expect(ligneDe('devis-artisan.pdf')).toBeDefined();
+  });
+
+  /** ⚠️ UN IDENTIFIANT RETENU QUI N'EXISTE PLUS ne casse rien : le Drive a bougé entre deux ouvertures. */
+  it('un dossier retenu qui n’existe plus est simplement ignoré', async () => {
+    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.deplies', JSON.stringify(['disparu', 'd1']));
+    await monter();
+    expect(ligneDe('devis-artisan.pdf')).toBeDefined();
+    expect(container.querySelector('.sfd')).not.toBeNull();
   });
 });
 

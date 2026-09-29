@@ -5,23 +5,38 @@ import type { DepotDrive } from './driveRepo';
 const AUTEUR = { id: 7, libelle: 'Arnaud Jorel' };
 
 function deps(o: {
-  pieces?: Record<number, { nomFichier: string; typeMime: string | null; cleStockage: string } | null>;
+  pieces?: Record<number, {
+    nomFichier: string; typeMime: string | null; cleStockage: string;
+    stockageVide?: boolean; driveFileId?: string | null;
+  } | null>;
   existants?: Record<string, DepotDrive>;
   depot?: DepsDepot['deposer'];
   memoriser?: DepsDepot['memoriser'];
   infos?: { nom: string; driveId: string | null } | null;
-} = {}): DepsDepot & { deposes: string[]; memorises: number[] } {
+  /** 🔴 LES OCTETS ONT DISPARU du stockage local — c'est ce que le vidage laisse derrière lui. */
+  octetsAbsents?: boolean;
+  copier?: DepsDepot['copierDepuisDrive'];
+} = {}): DepsDepot & { deposes: string[]; memorises: number[]; copies: string[] } {
   const deposes: string[] = [];
   const memorises: number[] = [];
+  const copies: string[] = [];
   return {
     get deposes() { return deposes; },
     get memorises() { return memorises; },
+    get copies() { return copies; },
     lirePiece: async (id) => {
       const p = (o.pieces ?? {})[id];
       if (p === undefined) return { pieceId: id, nomFichier: `piece-${id}.pdf`, typeMime: 'application/pdf', cleStockage: `k${id}` };
       return p === null ? null : { pieceId: id, ...p };
     },
-    octets: async () => new Uint8Array([1, 2, 3]),
+    copierDepuisDrive: o.copier ?? (async (_j, x) => {
+      copies.push(x.driveFileId);
+      return { ok: true, valeur: { id: `C${x.driveFileId}`, nom: x.nom, webViewLink: `https://drive/copie/${x.nom}` } };
+    }),
+    octets: async () => {
+      if (o.octetsAbsents === true) throw new Error('The specified key does not exist.');
+      return new Uint8Array([1, 2, 3]);
+    },
     depotExistant: async (pieceId, dossierId) => (o.existants ?? {})[`${pieceId}:${dossierId}`] ?? null,
     deposer: o.depot ?? (async (_j, x) => { deposes.push(x.nom); return { ok: true, valeur: { id: `F${x.nom}`, nom: x.nom, webViewLink: `https://drive/${x.nom}` } }; }),
     memoriser: o.memoriser ?? (async (d) => { memorises.push(d.pieceId); return { etat: 'enregistre' }; }),
@@ -147,6 +162,75 @@ describe('déposer des pièces', () => {
     d.infosDossier = infos;
     await deposerPieces(d, 'j', [1, 2, 3], 'DOS', AUTEUR);
     expect(infos).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 UNE PIÈCE VIDÉE SE RANGE QUAND MÊME — elle se COPIE depuis sa copie Drive
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 une pièce dont les octets locaux ont été libérés', () => {
+  /**
+   * 🔴 LE CAS, ET IL EST ORDINAIRE. Les octets d'une pièce sont libérés du stockage local une fois sa copie Drive
+   * PROUVÉE (même taille, même md5) — c'est tout le propos du vidage. La ranger ailleurs échouait alors, avec le
+   * message du stockage objet en anglais : « The specified key does not exist. »
+   *
+   * 🔴 CE N'EST PAS UNE PANNE : le fichier existe, il est dans le Drive, et Google sait le copier d'un dossier à
+   * l'autre sans qu'aucun octet repasse par nous (`files.copy`). Échouer là était un refus de faire ce qui est
+   * parfaitement possible — et le dire en anglais envoyait ouvrir un ticket.
+   *
+   * ⚠️ LA COPIE LUE EST CELLE QUE NOUS AVONS FAITE (`origine = 'copie'`, cf. `lirePieceAServir`), jamais un dépôt
+   * manuel : rien ne garantit qu'un dépôt manuel soit encore là, et il peut vivre dans « Documents clients
+   * scannés », auquel ce lot ne touche sous aucune forme.
+   */
+  it('🔴 elle se copie depuis le Drive, sans repasser par nos octets', async () => {
+    const d = deps({
+      pieces: { 1: { nomFichier: 'bail.pdf', typeMime: 'application/pdf', cleStockage: 'k1', stockageVide: true, driveFileId: 'DF1' } },
+    });
+    const i = await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['depose']);
+    expect(d.copies).toEqual(['DF1']);
+    expect(d.deposes).toEqual([]);          // aucun téléversement : rien n'est remonté d'ici
+    expect(d.memorises).toEqual([1]);       // et le dépôt est mémorisé comme n'importe quel autre
+  });
+
+  /** 🔴 ET MÊME QUAND LE STOCKAGE MENT : la colonne dit « plein », les octets ne sont plus là. On copie quand même. */
+  it('🔴 les octets manquent alors qu’on les croyait là : on copie, on n’échoue pas', async () => {
+    const d = deps({
+      octetsAbsents: true,
+      pieces: { 1: { nomFichier: 'bail.pdf', typeMime: 'application/pdf', cleStockage: 'k1', driveFileId: 'DF1' } },
+    });
+    const i = await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['depose']);
+    expect(d.copies).toEqual(['DF1']);
+  });
+
+  /**
+   * ⚠️ SANS COPIE DRIVE CONNUE, on ne peut rien copier — et l'on retombe sur le message en français, qui dit ce
+   * qu'on sait et envoie chercher dans le Drive. Jamais « The specified key does not exist ».
+   */
+  it('sans copie Drive connue, le motif est en français et dit quoi faire', async () => {
+    const d = deps({
+      octetsAbsents: true,
+      pieces: { 1: { nomFichier: 'bail.pdf', typeMime: 'application/pdf', cleStockage: 'k1', driveFileId: null } },
+    });
+    const i = await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['echec']);
+    const motif = i[0].etat === 'echec' ? i[0].motif : '';
+    expect(motif).toContain('stockage local');
+    expect(motif).not.toContain('specified key');
+  });
+
+  /** ⚠️ ET SI LA COPIE DRIVE ÉCHOUE (fichier supprimé du Drive entre-temps), on le dit — sans inventer un succès. */
+  it('une copie Drive refusée est un échec dit en clair', async () => {
+    const d = deps({
+      pieces: { 1: { nomFichier: 'bail.pdf', typeMime: 'application/pdf', cleStockage: 'k1', stockageVide: true, driveFileId: 'DF1' } },
+      copier: async () => ({ ok: false, motif: 'Ce fichier n’existe plus dans le Drive.' }),
+    });
+    const i = await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['echec']);
+    expect(i[0].etat === 'echec' && i[0].motif).toContain('n’existe plus dans le Drive');
+    expect(d.memorises).toEqual([]);
   });
 });
 

@@ -26,6 +26,20 @@ export interface PieceADeposer {
   nomFichier: string;
   typeMime: string | null;
   cleStockage: string;
+  /**
+   * ══ 🔴 LOT RANGER-PJ-FIABLE — CE QU'IL FAUT SAVOIR QUAND LES OCTETS NE SONT PLUS LÀ ════════════════════════
+   *
+   * `stockageVide` : les octets ont été libérés du stockage local. `driveFileId` : la copie Drive PROUVÉE de
+   * cette pièce — celle que NOUS avons faite (`origine = 'copie'`), jamais un dépôt manuel.
+   *
+   * Les deux existaient déjà (`lirePieceAServir`, lot DRIVE-3) et servaient à SERVIR la pièce à l'écran. Le
+   * dépôt les ignorait : il lisait les octets, ne les trouvait pas, et échouait. Ils entrent ici pour que ranger
+   * une pièce vidée devienne ce qu'il aurait toujours dû être — une copie de dossier à dossier, chez Google.
+   *
+   * ⚠️ FACULTATIFS : un appelant qui ne les renseigne pas se comporte exactement comme avant ce lot.
+   */
+  stockageVide?: boolean;
+  driveFileId?: string | null;
 }
 
 /** Le verdict d'UNE pièce. Le mot est toujours lisible par un humain : c'est lui qui s'affichera. */
@@ -40,6 +54,11 @@ export interface DepsDepot {
   octets(cleStockage: string): Promise<Uint8Array>;
   depotExistant(pieceId: number, dossierId: string): Promise<DepotDrive | null>;
   deposer(jeton: string, o: { nom: string; typeMime: string | null; octets: Uint8Array; dossierId: string }): Promise<Resultat<FichierDepose>>;
+  /**
+   * 🔴 COPIER LA PIÈCE D'UN DOSSIER DU DRIVE À UN AUTRE, sans qu'un seul octet repasse par nous (`files.copy`).
+   * C'est la voie d'une pièce dont les octets locaux ont été libérés. Absente ⇒ comportement d'avant ce lot.
+   */
+  copierDepuisDrive?(jeton: string, o: { driveFileId: string; nom: string; dossierId: string }): Promise<Resultat<FichierDepose>>;
   memoriser(d: ADeposer): Promise<IssueMemorisation>;
   /** Le nom du dossier au moment du dépôt, et son Drive. `null` si le Drive ne le dit pas : on déposera quand même. */
   infosDossier(jeton: string, dossierId: string): Promise<{ nom: string; driveId: string | null } | null>;
@@ -102,11 +121,47 @@ export async function deposerPieces(
         continue;
       }
 
-      // ── ② LA COPIE PART. Le nom d'origine est conservé tel quel.
-      const octets = await deps.octets(piece.cleStockage);
-      const envoi = await deps.deposer(jeton, {
-        nom: piece.nomFichier, typeMime: piece.typeMime, octets, dossierId,
-      });
+      /**
+       * ── ② LA COPIE PART. Le nom d'origine est conservé tel quel.
+       *
+       * ══ 🔴🔴 DEUX VOIES, ET LA SECONDE N'EST PAS UN RATTRAPAGE ═══════════════════════════════════════════
+       *
+       * · PAR NOS OCTETS, le cas ordinaire : on lit le stockage local et on téléverse ;
+       * · PAR LE DRIVE, quand les octets locaux ont été LIBÉRÉS. Ce n'est pas une panne : c'est ce que le vidage
+       *   laisse derrière lui, une fois la copie Drive PROUVÉE (même taille, même md5). Google copie alors de
+       *   dossier à dossier sans qu'un seul octet repasse par nous — plus rapide, et toujours fidèle.
+       *
+       * 🔴 CE QUE CELA REMPLACE : un échec, avec le message du stockage objet EN ANGLAIS — « The specified key
+       * does not exist. » Refuser de faire ce qui est parfaitement possible, et le dire dans une langue qui
+       * envoie ouvrir un ticket.
+       *
+       * ⚠️ ON TENTE LA VOIE DU DRIVE AUSSI QUAND LA LECTURE DES OCTETS ÉCHOUE alors qu'on les croyait là : la
+       * colonne peut dire « plein » et le stockage avoir été nettoyé autrement. L'état réel prime sur ce qu'on
+       * en savait.
+       */
+      const copieDrive = (piece.driveFileId ?? '').trim();
+      const parLeDrive = async (): Promise<Resultat<FichierDepose> | null> => {
+        if (copieDrive === '' || deps.copierDepuisDrive === undefined) return null;
+        return deps.copierDepuisDrive(jeton, { driveFileId: copieDrive, nom: piece.nomFichier, dossierId });
+      };
+
+      let envoi: Resultat<FichierDepose> | null = null;
+      if (piece.stockageVide === true) {
+        envoi = await parLeDrive();
+      }
+      if (envoi === null) {
+        try {
+          const octets = await deps.octets(piece.cleStockage);
+          envoi = await deps.deposer(jeton, {
+            nom: piece.nomFichier, typeMime: piece.typeMime, octets, dossierId,
+          });
+        } catch (e) {
+          // 🔴 LES OCTETS MANQUENT : on essaie le Drive AVANT de déclarer l'échec. S'il n'y a rien à copier,
+          //    `motifEchec` dira en français ce qu'on sait, et où chercher.
+          envoi = await parLeDrive();
+          if (envoi === null) throw e;
+        }
+      }
       if (!envoi.ok) {
         issues.push({ pieceId, nomFichier: piece.nomFichier, etat: 'echec', motif: envoi.motif });
         continue;

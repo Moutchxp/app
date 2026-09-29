@@ -801,6 +801,35 @@ export function SelecteurFichierDrive({
     })();
   }, [enfants, lireListing]);
 
+  /**
+   * ══ 🔴🔴 CE QU'ON AVAIT LAISSÉ OUVERT DOIT ÊTRE OUVERT — ÉTAT *ET* CONTENU ═════════════════════════════════
+   *
+   * LE DÉFAUT, TROUVÉ LE 29/09/2026 EN CHERCHANT L'AUTRE. Les dossiers dépliés sont retenus d'une ouverture de la
+   * fenêtre à l'autre (`sessionStorage`) — mais SEUL L'ÉTAT l'était. Le CONTENU, lui, n'était relu par personne :
+   * `enfants` repart vide à chaque montage.
+   *
+   * CE QUE ÇA DONNAIT À L'ÉCRAN : des dossiers marqués ouverts (triangle ▾, `aria-expanded="true"`) et RIEN
+   * dessous. Le premier clic sur le triangle les REFERMAIT — ils se croyaient ouverts, et ils l'étaient — et il
+   * en fallait un second pour que le contenu arrive enfin. Vu en vrai en essayant d'atteindre un dossier de
+   * test : trois tentatives, aucun message, aucune erreur.
+   *
+   * 🔴 ET DANS CETTE FENÊTRE C'EST PLUS GRAVE QU'AILLEURS : un dossier qu'on ne peut pas VOIR est un dossier sur
+   * lequel on ne peut pas DÉPOSER. Le rangement d'une pièce s'arrêtait là, sans rien dire.
+   *
+   * ⚠️ `demandes` EST UNE RÉFÉRENCE, et elle retient ce qu'on a DÉJÀ TENTÉ — pas ce qu'on a obtenu. Un dossier
+   * disparu du Drive entre deux ouvertures ne rend aucun enfant : sans cette mémoire, on le redemanderait à
+   * chaque rendu, pour toujours.
+   */
+  const enfantsDemandes = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (vue.v !== 'ok') return;
+    for (const id of ouverts) {
+      if (enfants.has(id) || enfantsDemandes.current.has(id)) continue;
+      enfantsDemandes.current.add(id);
+      chargerEnfantsSiBesoin(id);
+    }
+  }, [ouverts, enfants, vue, chargerEnfantsSiBesoin]);
+
   const basculerDepliage = useCallback((f: Fichier) => {
     setOuverts((o) => {
       const n = new Set(o);
@@ -1331,10 +1360,30 @@ export function SelecteurFichierDrive({
   };
 
   /**
-   * LE SURVOL D'UNE CIBLE PENDANT LE GLISSER.
+   * LE SURVOL D'UNE CIBLE PENDANT LE GLISSER. Branchée sur `dragenter` ET sur `dragover`.
    *
    * 🔴 `preventDefault()` EST CE QUI AUTORISE LE DÉPÔT : sans lui, le navigateur affiche le curseur « interdit » et
    * n'émet jamais `drop`. C'est donc ici, et seulement ici, qu'on dit oui — sur un DOSSIER, jamais sur un fichier.
+   *
+   * ══ 🔴🔴 POURQUOI `dragenter` AUSSI, ET NON `dragover` SEUL — DÉFAUT DU 29/09/2026 ═══════════════════════════
+   *
+   * Elle n'était branchée que sur `dragover`, et c'est la seconde moitié du défaut d'Arno (« glisser une pièce ne
+   * fait rien »). Relevé dans Chrome, sur le vrai Drive, APRÈS avoir corrigé le `dropEffect` :
+   *
+   *     dragenter  effect=copy  prevented=false   ← sur la cible
+   *     dragover   effect=copy  prevented=true    ← acceptée
+   *     dragenter  effect=copy  prevented=false   ← l'élément suivant… et plus AUCUN dragover ensuite
+   *     (aucun drop)
+   *
+   * 🔴 LA RÈGLE DU NAVIGATEUR : une fois qu'une cible de dépôt a été établie, passer sur un élément dont le
+   * `dragenter` n'est PAS annulé fait PERDRE la cible — et Chrome cesse d'émettre `dragover`. Le tout premier
+   * `dragover` passe (il n'y a encore aucune cible à perdre) : c'est ce qui rendait le défaut si trompeur, et
+   * c'est pourquoi lâcher aussitôt sur la première ligne survolée semblait parfois marcher.
+   *
+   * Éprouvé en direct : un écouteur qui annule `dragenter` sur la cible, et le dépôt part.
+   *
+   * ⚠️ LES DEUX APPELS SONT IDENTIQUES, et c'est voulu : il n'y a qu'une règle d'acceptation, et elle est ici.
+   * En écrire deux ferait un jour deux réponses différentes à la même question.
    */
   const survolerCible = (
     e: React.DragEvent,
@@ -1357,7 +1406,30 @@ export function SelecteurFichierDrive({
     if (enMain.sorte === 'drive' && enMain.ids.includes(cible.reel ?? cible.id)) return;
     e.preventDefault();
     e.stopPropagation();
-    e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move';
+    /**
+     * ══ 🔴🔴 L'EFFET DEMANDÉ DOIT ÊTRE PERMIS — LE DÉFAUT DU 29/09/2026 ═══════════════════════════════════════
+     *
+     * CONSTAT D'ARNO : « glisser une pièce du panneau “N pièce(s) à ranger” vers un dossier ne fait rien ». Ni
+     * message, ni trace, ni erreur — et tous les tests de la fenêtre étaient au vert.
+     *
+     * REPRODUIT DANS CHROME, sur le vrai Drive, en instrumentant les événements :
+     *
+     *     dragstart  allowed=copy  effect=none
+     *     dragover   allowed=copy  effect=move  prevented=true   ← puis plus AUCUN dragover, et aucun drop
+     *
+     * 🔴 LA RÈGLE DU NAVIGATEUR : si le `dropEffect` choisi n'est pas permis par l'`effectAllowed` posé au
+     * `dragstart`, l'opération vaut « none ». Chrome montre le curseur « interdit », CESSE d'émettre `dragover`,
+     * et n'émet JAMAIS `drop`. Annuler l'événement ne suffit donc pas : les deux conditions sont exigées.
+     *
+     * Cette ligne posait `move` pour tout le monde — la règle du DÉPLACEMENT d'un fichier du Drive, dont le
+     * glisser est déclaré `copyMove`. Une PIÈCE REÇUE, elle, se RANGE : on la COPIE dans le Drive, le mail garde
+     * la sienne, et son glisser est déclaré `copy` (voir `demarrerGlisseDePiece`). Demander `move` était une
+     * contradiction que seul le navigateur voyait.
+     *
+     * ⚠️ ET ⌥ NE CHANGE RIEN POUR UNE PIÈCE : il n'y a pas de « ranger sans copier ». Le proposer afficherait un
+     * curseur de copie sur un geste qui en est déjà une.
+     */
+    e.dataTransfer.dropEffect = enMain.sorte === 'piece' ? 'copy' : (e.altKey ? 'copy' : 'move');
     if (survole !== cible.id) setSurvole(cible.id);
     /* 🔴 L'INDICATEUR PRÈS DU CURSEUR (demande d'Arno) : « → Déposer dans “X” ». Pendant un glisser, la
        surbrillance seule ne suffit pas — la ligne visée peut être à l'autre bout de l'écran, et l'œil est sur le
@@ -1946,6 +2018,9 @@ export function SelecteurFichierDrive({
             if (l.aller.sorte === 'pieces') { setMontrerRecents(true); setSelection(SELECTION_VIDE); return; }
             entrerDepuisRacine({ id: l.aller.id, nom: l.aller.nom });
           }}
+          /* 🔴 `dragenter` ET `dragover`, LES DEUX — voir l'encadré de `survolerCible`. */
+          onDragEnter={l.depot === null ? undefined
+            : (e) => survolerCible(e, { id: `cote:${l.cle}`, nom: l.libelle, ouvrable: false, reel: l.depot?.id })}
           onDragOver={l.depot === null ? undefined
             : (e) => survolerCible(e, { id: `cote:${l.cle}`, nom: l.libelle, ouvrable: false, reel: l.depot?.id })}
           onDragLeave={l.depot === null ? undefined : () => quitterCible(`cote:${l.cle}`)}
@@ -2031,6 +2106,9 @@ export function SelecteurFichierDrive({
                 <button type="button"
                   className={`sfd-ariane-bouton${survole === `pas:${e.id}` ? ' sfd-ariane-bouton--vise' : ''}`}
                   onClick={() => remonter(e.index)}
+                  onDragEnter={(ev) => survolerCible(ev, {
+                    id: `pas:${e.id}`, nom: e.nom, ouvrable: false, reel: e.id,
+                  })}
                   onDragOver={(ev) => survolerCible(ev, {
                     id: `pas:${e.id}`, nom: e.nom, ouvrable: false, reel: e.id,
                   })}
@@ -2358,6 +2436,9 @@ export function SelecteurFichierDrive({
                           /* ⚠️ SEUL UN DOSSIER ACCEPTE UN DÉPÔT. Sur un fichier, on ne fait pas `preventDefault`,
                              et le navigateur montre de lui-même le curseur « interdit » — c'est le retour visuel
                              demandé, rendu par le système plutôt que dessiné par nous. */
+                          onDragEnter={f.dossier
+                            ? (e) => survolerCible(e, { id: f.id, nom: f.nom, ouvrable: true })
+                            : undefined}
                           onDragOver={f.dossier
                             ? (e) => survolerCible(e, { id: f.id, nom: f.nom, ouvrable: true })
                             : undefined}
@@ -2506,6 +2587,12 @@ export function SelecteurFichierDrive({
               seule façon de la rendre atteignable. Elle n'écrit rien dans le Drive : elle joint, comme le 📎. */}
           {mode === 'joindre' && joindreOk && (
             <div className={`sfd-depot${survole === 'pj' ? ' sfd-depot--vise' : ''}`}
+              onDragEnter={(e) => {
+                if (glisse === null) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                if (survole !== 'pj') setSurvole('pj');
+              }}
               onDragOver={(e) => {
                 if (glisse === null) return;
                 e.preventDefault();
