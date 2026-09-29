@@ -191,8 +191,27 @@ function attributsSurs(balise: string, brut: string): string {
     if (!permis.includes(nom)) continue;
     if (nom === 'href' && !urlAcceptable(valeur)) continue;
     if (nom === 'src' && !urlAcceptable(valeur, PROTOCOLES_IMAGE)) continue;
-    if ((nom === 'width' || nom === 'height' || nom === 'size' || nom === 'colspan' || nom === 'rowspan')
-      && !/^\d{1,4}$/.test(valeur.trim())) continue;
+    /**
+     * ══ 🔴 UNE DIMENSION PEUT S'ÉCRIRE AVEC DES DÉCIMALES — RÈGLE RÉÉCRITE LE 29/09/2026 ══════════════════════
+     *
+     * ELLE N'ACCEPTAIT QUE DES ENTIERS (`/^\d{1,4}$/`), et c'était trop strict d'un cas très banal : GMAIL
+     * LUI-MÊME écrit des largeurs fractionnaires dans les signatures qu'il compose. Relevé sur le mail 57185,
+     * tel que Gmail l'a envoyé : `width="23.225806451612918" height="23"`.
+     *
+     * CE QUE CELA DONNAIT À L'ÉCRAN : l'attribut tombait, l'image perdait sa taille et s'affichait à sa
+     * dimension NATURELLE — une icône de téléphone de 23 px occupait un tiers de la hauteur de la page. Le mail
+     * restait lisible, mais il ne ressemblait plus à ce qu'on voit dans Gmail, et c'est la promesse de ce lot.
+     *
+     * 🔒 CE QUI NE CHANGE PAS : la valeur reste un NOMBRE, borné à quatre chiffres avant la virgule. Elle est
+     * réécrite ENTIÈRE (`23.2258…` → `23`), parce que l'attribut HTML `width` n'admet qu'un entier — accepter la
+     * décimale telle quelle reviendrait à s'en remettre à la tolérance de chaque navigateur.
+     */
+    if (nom === 'width' || nom === 'height' || nom === 'size' || nom === 'colspan' || nom === 'rowspan') {
+      const n = valeur.trim();
+      if (!/^\d{1,4}(\.\d+)?$/.test(n)) continue;
+      sortie.push(`${nom}="${n.split('.')[0]}"`);
+      continue;
+    }
     if (nom === 'color' && !/^[#a-zA-Z0-9(),.%\s]{1,40}$/.test(valeur)) continue;
     sortie.push(`${nom}="${echapperAttribut(valeur)}"`);
   }

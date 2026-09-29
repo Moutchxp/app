@@ -457,6 +457,24 @@ export function corbeilleGmailDisponible(): Promise<boolean> {
   return memoiser('message.corbeille_le', () => colonneExiste('gestion_message', 'corbeille_le'));
 }
 
+/**
+ * ══ LOT LECTURE-HTML-FIL-TROMBONE — la migration 276 est-elle appliquée ? ══════════════════════════════════════
+ *
+ * Elle porte `gestion_brouillon.corbeille_le` : un brouillon jeté AVEC la promesse de pouvoir revenir.
+ *
+ * 🔴 POURQUOI ELLE NE SE CONFOND PAS AVEC `abandonne_le`. Cette dernière existe depuis l'origine et veut dire
+ * « jeté pour de bon ». La réutiliser aurait changé son sens rétroactivement : mesuré le 29/09/2026, 25 brouillons
+ * jetés les jours précédents seraient réapparus d'un coup dans la Corbeille. Ce que quelqu'un a jeté sous une
+ * règle reste jeté sous cette règle.
+ *
+ * 🔴 CE QU'ELLE COMMANDE. Tant qu'elle répond « non » : la colonne n'est nommée nulle part, aucun brouillon
+ * n'apparaît dans la Corbeille, et l'éditeur revient à ce qu'il faisait avant ce lot — « Supprimer le brouillon »,
+ * sans bandeau « Annuler ». Une promesse de retour qu'on ne peut pas tenir est pire qu'une absence de promesse.
+ */
+export function corbeilleBrouillonDisponible(): Promise<boolean> {
+  return memoiser('brouillon.corbeille_le', () => colonneExiste('gestion_brouillon', 'corbeille_le'));
+}
+
 
 /**
  * LOT LISTE-GMAIL — la migration 264 est-elle appliquée ? Elle porte `gestion_fil_etoile`, l'étoile de l'ÉQUIPE

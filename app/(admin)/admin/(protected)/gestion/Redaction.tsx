@@ -11,7 +11,7 @@ import {
 import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
-  MENTION_SANS_SIGNATURE, pretAEnvoyer, secondesRestantes,
+  MENTION_SANS_SIGNATURE, motsJeterBrouillon, pretAEnvoyer, secondesRestantes,
   type Brouillon, brouillonTouche} from '../../../../lib/gestion/redaction';
 // LOT BROUILLONS-GMAIL — quand enregistrer, et comment savoir que quelque chose a VRAIMENT changé. Module PUR.
 import {
@@ -63,6 +63,12 @@ export interface ContexteRedactionEcran {
    */
   htmlDisponible?: boolean;
   classementDisponible?: boolean;
+  /**
+   * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — la migration 276 est-elle appliquée ? Elle seule rend un brouillon jeté
+   * RÉINTÉGRABLE. Absente (ou réponse plus ancienne que ce lot ⇒ `undefined`), le geste redevient celui d'avant :
+   * « Supprimer le brouillon », sans bandeau « Annuler ». Les mots viennent de `motsJeterBrouillon`.
+   */
+  corbeilleBrouillon?: boolean;
   /**
    * LOT REDACTION-GMAIL — la signature Gmail de gestion@, EN HTML (logo compris), déjà assainie par la route.
    * Vide ⇒ on garde la signature TEXTE, exactement comme avant ce lot. Lisible avec la portée déjà accordée
@@ -289,6 +295,13 @@ export function Redaction({
    */
   reduite?: boolean;
 }) {
+  /**
+   * 🔴 LES MOTS DU GESTE QUI JETTE, TIRÉS D'UNE SEULE SOURCE. Ils dépendent de la migration 276 : sans elle, rien
+   * n'est réintégrable, et l'éditeur redit « Supprimer le brouillon » sans bandeau « Annuler » (voir
+   * `motsJeterBrouillon`). Info-bulle, question, bouton et compte rendu viennent tous d'ici — écrits en quatre
+   * endroits, ils finiraient par se contredire, et c'est le mot le plus rassurant qu'on croirait.
+   */
+  const motsJeter = motsJeterBrouillon(contexte.corbeilleBrouillon === true);
   const [etat, setEtat] = useState<Etat>({ v: 'ecriture' });
   /**
    * LE MINUTEUR DES 10 SECONDES du bandeau « Annuler » d'un brouillon jeté. En RÉFÉRENCE, pas en état : le
@@ -744,6 +757,11 @@ export function Redaction({
      * ferme sans promettre un retour impossible.
      */
     if (id === null) { onGeste('Brouillon abandonné.'); onFerme(); return; }
+    /**
+     * 🔴 ET SANS LA MIGRATION 276, AUCUN BANDEAU : il n'y a pas de corbeille des brouillons, donc rien à
+     * réintégrer. On ferme en disant ce qui s'est passé, exactement comme avant ce lot.
+     */
+    if (!motsJeter.reversible) { onGeste(motsJeter.compteRendu); onFerme(); return; }
     setEtat({ v: 'jete', brouillonId: id });
   };
 
@@ -927,7 +945,7 @@ export function Redaction({
       <section className="red red-apres" aria-live="polite">
         <style>{CSS_REDACTION}</style>
         <p className="red-etat">
-          Brouillon mis à la corbeille. <strong>Rien n’est supprimé</strong> — il est dans « Corbeille », et il
+          {motsJeter.compteRendu} <strong>Rien n’est supprimé</strong> — il est dans « Corbeille », et il
           revient d’un clic.
         </p>
         <div className="gst-actions">
@@ -1167,10 +1185,11 @@ export function Redaction({
           côté d'« Envoyer », et un clic de trop ne doit pas effacer ce qu'on vient d'écrire. */}
       {supprime && (
         <p className="red-supprime" role="alert">
-          {/* ⚠️ LA PHRASE NE PROMET PLUS LA PERTE DU TEXTE : il part à la corbeille, d'où il revient d'un clic. */}
-          Mettre ce brouillon à la corbeille ? Il pourra en être réintégré.{' '}
+          {/* ⚠️ LA PHRASE NE PROMET PLUS LA PERTE DU TEXTE — mais SEULEMENT si la corbeille existe : sans la
+              migration 276, `motsJeterBrouillon` redonne la phrase d'avant, qui, elle, ne promet aucun retour. */}
+          {motsJeter.question}{' '}
           <button type="button" className="gst-lien-bouton" onClick={() => void supprimerBrouillon()}>
-            Mettre à la corbeille
+            {motsJeter.confirmer}
           </button>
           {' · '}
           <button type="button" className="gst-lien-bouton" onClick={() => setSupprime(false)}>Annuler</button>
@@ -1204,8 +1223,8 @@ export function Redaction({
           {/* 🔴 LOT LECTURE-HTML-FIL-TROMBONE — « Mettre à la corbeille », et non plus « Supprimer le brouillon ».
               Le geste n'a jamais supprimé : il DATE la ligne. Le mot disait plus que ce qui se passait, ce qui
               fait hésiter devant l'anodin — et douter des mots employés ailleurs. */}
-          <button type="button" className="red-outil red-outil--rouge" title="Mettre à la corbeille"
-            aria-label="Mettre à la corbeille" onClick={() => setSupprime(true)}>
+          <button type="button" className="red-outil red-outil--rouge" title={motsJeter.infobulle}
+            aria-label={motsJeter.infobulle} onClick={() => setSupprime(true)}>
             <span aria-hidden="true">🗑</span>
           </button>
         </span>

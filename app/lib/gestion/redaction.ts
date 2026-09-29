@@ -418,3 +418,53 @@ export function brouillonTouche(
 function memesAdresses(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((x, i) => x === b[i]);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT LECTURE-HTML-FIL-TROMBONE — LES MOTS DU GESTE QUI JETTE UN BROUILLON
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Ce que l'éditeur écrit autour du bouton qui jette un brouillon. Tout vient d'ici : trois mots, une seule source. */
+export interface MotsJeterBrouillon {
+  /** L'info-bulle et le libellé accessible du bouton de la barre du bas. */
+  infobulle: string;
+  /** La question posée avant d'agir — elle DIT ce qui va se passer, sans rien promettre de plus. */
+  question: string;
+  /** Le mot du bouton qui confirme. */
+  confirmer: string;
+  /** Le compte rendu, une fois le geste fait. */
+  compteRendu: string;
+  /** Y a-t-il un retour possible, donc un bandeau « Annuler » de 10 secondes ? */
+  reversible: boolean;
+}
+
+/**
+ * ══ 🔴🔴 POURQUOI CES MOTS DÉPENDENT D'UNE MIGRATION ═══════════════════════════════════════════════════════════
+ *
+ * La corbeille des brouillons repose sur `gestion_brouillon.corbeille_le` (migration 276). Tant que la colonne
+ * n'est pas là, le geste fait EXACTEMENT ce qu'il faisait avant ce lot : il date `abandonne_le`, le brouillon
+ * quitte la liste, et personne ne peut le revoir.
+ *
+ * 🔴 ALORS ON NE PROMET PAS LE RETOUR. Dire « Mettre à la corbeille » et montrer un bandeau « Annuler » sur une
+ * base où rien ne peut être réintégré serait un mensonge que l'on découvre au pire moment — après avoir cliqué.
+ * Une promesse de retour qu'on ne peut pas tenir est pire que pas de promesse.
+ *
+ * PUR : la sonde est posée par la route (`corbeilleBrouillonDisponible`), jamais ici.
+ */
+export function motsJeterBrouillon(corbeilleDisponible: boolean): MotsJeterBrouillon {
+  if (corbeilleDisponible) {
+    return {
+      infobulle: 'Mettre à la corbeille',
+      question: 'Mettre ce brouillon à la corbeille ? Il pourra en être réintégré.',
+      confirmer: 'Mettre à la corbeille',
+      compteRendu: 'Brouillon mis à la corbeille.',
+      reversible: true,
+    };
+  }
+  return {
+    infobulle: 'Supprimer le brouillon',
+    question: 'Supprimer ce brouillon ? Il quittera la liste « Brouillons », sans retour possible.',
+    confirmer: 'Supprimer',
+    compteRendu: 'Brouillon supprimé.',
+    reversible: false,
+  };
+}

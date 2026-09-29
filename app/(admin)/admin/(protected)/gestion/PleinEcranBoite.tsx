@@ -730,6 +730,8 @@ export function PleinEcranBoite({
               répond, et deux messages peuvent s'écrire côte à côte. La liste reste donc à sa place, vivante. */}
           {etiquette.sorte === 'brouillons' ? (
             <Brouillons maintenant={maintenant}
+              /* 🔴 LE MÊME MOT QUE DANS L'ÉDITEUR, conditionné par la même sonde (migration 276). */
+              corbeille={redaction?.corbeilleBrouillon === true}
               /* 🔴 « Voir la conversation » emmène AUSSI le brouillon : Arno l'a demandé explicitement, et un
                  bouton qui ouvre le fil sans l'éditeur fait chercher le brouillon qu'on venait justement reprendre. */
               onOuvrir={(f, b) => onOuvrir(f, b?.repondAMessageId ?? null, b?.id ?? null)}

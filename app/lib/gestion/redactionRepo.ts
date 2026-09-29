@@ -21,7 +21,7 @@
 import { query, withTransaction } from '../db/client';
 import type { VoieRedaction } from './redaction';
 // LOT EDITEUR-PJ — le brouillon garde enfin sa mise en forme. Sondé, et réassaini côté serveur.
-import { brouillonHtmlDisponible } from './schema';
+import { brouillonHtmlDisponible, corbeilleBrouillonDisponible } from './schema';
 import { assainirHtml } from './htmlMail';
 
 export interface Auteur { id: number | null; libelle: string }
@@ -220,8 +220,23 @@ export async function compterBrouillons(): Promise<number> {
  * d'édition, pièces jointes, un aller-retour réseau à chaque frappe enregistrée.
  */
 export async function abandonnerBrouillon(id: number): Promise<void> {
+  /**
+   * 🔴 LES DEUX COLONNES SONT ÉCRITES ENSEMBLE, et il faut dire pourquoi il y en a deux.
+   *
+   * `abandonne_le` existe depuis l'origine et veut dire « jeté pour de bon » — c'est elle que « Brouillons », son
+   * compteur et tout le reste du module lisent. On continue de l'écrire : rien ne change de ce côté.
+   *
+   * `corbeille_le` (migration 276) est NOUVELLE et veut dire « jeté AVEC la promesse de revenir ». C'est elle,
+   * et elle seule, qui met le brouillon dans la Corbeille. Réutiliser `abandonne_le` aurait changé son sens
+   * rétroactivement : mesuré le 29/09/2026, 25 brouillons jetés les jours précédents seraient réapparus d'un
+   * coup. Ce que quelqu'un a jeté sous une règle reste jeté sous cette règle.
+   *
+   * ⚠️ SANS LA MIGRATION, LA COLONNE N'EST PAS NOMMÉE : le geste reste l'abandon d'avant, et l'écran le DIT
+   * (l'éditeur retrouve « Supprimer le brouillon », sans bandeau « Annuler »).
+   */
+  const avecCorbeille = await corbeilleBrouillonDisponible();
   await query(
-    `UPDATE gestion_brouillon SET abandonne_le = now()
+    `UPDATE gestion_brouillon SET abandonne_le = now()${avecCorbeille ? ', corbeille_le = now()' : ''}
       WHERE id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL`, [id]);
 }
 
@@ -233,18 +248,22 @@ export async function abandonnerBrouillon(id: number): Promise<void> {
  * ⚠️ `envoye_le IS NULL` : un brouillon PARTI ne revient pas. Il n'est plus un brouillon, c'est un message.
  */
 export async function restaurerBrouillon(id: number): Promise<boolean> {
+  // ⚠️ SANS LA MIGRATION, RIEN N'EST RÉINTÉGRABLE : aucun brouillon n'est dans la Corbeille, et l'écran ne
+  //    propose pas le geste. On ne nomme donc pas la colonne, et l'on rend « rien fait » — ce qui est vrai.
+  if (!await corbeilleBrouillonDisponible()) return false;
   const { rowCount } = await query(
-    `UPDATE gestion_brouillon SET abandonne_le = NULL, maj_le = now()
-      WHERE id = $1 AND abandonne_le IS NOT NULL AND envoye_le IS NULL`, [id]);
+    `UPDATE gestion_brouillon SET abandonne_le = NULL, corbeille_le = NULL, maj_le = now()
+      WHERE id = $1 AND corbeille_le IS NOT NULL AND envoye_le IS NULL`, [id]);
   return (rowCount ?? 0) > 0;
 }
 
 /** Les brouillons À LA CORBEILLE, du plus récemment jeté au plus ancien. Bornés, comme la liste des vivants. */
 export async function brouillonsALaCorbeille(limite = 50): Promise<BrouillonEnBase[]> {
+  if (!await corbeilleBrouillonDisponible()) return [];
   const { rows } = await query<LigneBrouillon>(
     `SELECT ${champs(await brouillonHtmlDisponible())} FROM gestion_brouillon
-      WHERE abandonne_le IS NOT NULL AND envoye_le IS NULL
-      ORDER BY abandonne_le DESC, id DESC LIMIT $1`, [Math.min(Math.max(1, limite), 200)]);
+      WHERE corbeille_le IS NOT NULL AND envoye_le IS NULL
+      ORDER BY corbeille_le DESC, id DESC LIMIT $1`, [Math.min(Math.max(1, limite), 200)]);
   return rows.map(versBrouillon);
 }
 
@@ -256,9 +275,10 @@ export async function brouillonsALaCorbeille(limite = 50): Promise<BrouillonEnBa
  * ailleurs ce qui est sous les yeux — c'est la règle du module, et elle vaut ici comme partout.
  */
 export async function compterBrouillonsALaCorbeille(): Promise<number> {
+  if (!await corbeilleBrouillonDisponible()) return 0;
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n FROM gestion_brouillon
-      WHERE abandonne_le IS NOT NULL AND envoye_le IS NULL`);
+      WHERE corbeille_le IS NOT NULL AND envoye_le IS NULL`);
   return rows[0]?.n ?? 0;
 }
 

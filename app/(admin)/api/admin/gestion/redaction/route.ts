@@ -8,7 +8,8 @@ import {
 import { lireJeton } from '../../../../../lib/gestion/googleJeton';
 import { compterBrouillons } from '../../../../../lib/gestion/redactionRepo';
 import {
-  brouillonCibleDisponible, brouillonHtmlDisponible, piecesEnvoiDisponibles, redactionDisponible,
+  brouillonCibleDisponible, brouillonHtmlDisponible, corbeilleBrouillonDisponible, piecesEnvoiDisponibles,
+  redactionDisponible,
 } from '../../../../../lib/gestion/schema';
 // LOT REDACTION-GMAIL — la signature Gmail est du HTML venu d'un réglage : elle s'assainit comme tout le reste.
 import { assainirHtml } from '../../../../../lib/gestion/htmlMail';
@@ -95,6 +96,13 @@ export async function GET(request: Request): Promise<Response> {
      */
     htmlDisponible: await brouillonHtmlDisponible(),
     classementDisponible: await brouillonCibleDisponible(),
+    /**
+     * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — la migration 276 est-elle appliquée ? D'elle dépendent les MOTS du bouton
+     * qui jette un brouillon (`motsJeterBrouillon`, app/lib/gestion/redaction.ts) : sans la colonne, rien ne peut
+     * être réintégré, donc l'éditeur redit « Supprimer le brouillon » et ne montre aucun bandeau « Annuler ».
+     * Promettre un retour impossible est pire que ne rien promettre.
+     */
+    corbeilleBrouillon: await corbeilleBrouillonDisponible(),
     nomExpediteur: NOM_PAR_DEFAUT, adresseGestion: config.adresseGestion || COMPTE_GESTION,
     delaiAnnulationS: config.annulationEnvoiSecondes,
     brouillons,

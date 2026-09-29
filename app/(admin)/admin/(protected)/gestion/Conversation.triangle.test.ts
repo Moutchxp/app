@@ -174,6 +174,31 @@ describe('🔴 « Tout déplier » et l’ordre mettent les triangles à jour', 
    LE REPLI DE LA CITATION A DISPARU
    ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LE HTML D'UN MAIL SE LIT COMME DANS GMAIL
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 la feuille du mail rend ses images comme un client de messagerie', () => {
+  /**
+   * 🔴 LE CAS RÉEL, VU CÔTE À CÔTE AVEC GMAIL SUR LE MAIL 57185. La remise à zéro de Tailwind pose
+   * `img{display:block}` sur toute l'application — juste pour NOS écrans, faux pour un mail : en HTML une image
+   * est EN LIGNE, et les signatures s'en servent partout. Les deux numéros de téléphone, une seule ligne dans
+   * Gmail (icône, numéro, icône, numéro), s'affichaient sur QUATRE lignes chez nous.
+   *
+   * ⚠️ ÉCRIT SUR LA FEUILLE, et non sur un rendu : la règle qui casse celle-ci est GLOBALE et vient d'ailleurs.
+   * Un test qui monterait un message n'attraperait pas sa disparition, puisque la remise à zéro n'est pas
+   * chargée en test.
+   */
+  it('🔴 une image de mail reste EN LIGNE, malgré la remise à zéro globale', () => {
+    expect(CSS_CONVERSATION).toContain('.cnv-html img{max-width:100%;height:auto;display:inline-block');
+  });
+
+  /** 🔒 LA FEUILLE BLANCHE RESTE BLANCHE EN SOMBRE : inverser un mail, c'est inverser ses images. */
+  it('🔒 le mail se lit sur fond blanc, en Clair comme en Sombre', () => {
+    expect(CSS_CONVERSATION).toContain('color-scheme:light');
+  });
+});
+
 describe('🔴 « Afficher le message cité » n’existe plus', () => {
   it('ni le mot, ni le repli — la citation se lit sans un clic', async () => {
     await monter();

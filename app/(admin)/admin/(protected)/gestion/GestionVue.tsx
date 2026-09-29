@@ -428,6 +428,31 @@ export function GestionVue({ intro }: {
           delaiAnnulationS: typeof c.delaiAnnulationS === 'number' ? c.delaiAnnulationS : 10,
           // LOT 5-PJ-ENVOI — absent d'une réponse plus ancienne que ce lot ⇒ aucune zone de pièces, comme avant.
           piecesDisponibles: c.piecesDisponibles === true,
+          /**
+           * ══ 🔴 LES SONDES DE SCHÉMA SONT RECOPIÉES UNE À UNE, et ce n'est pas du zèle ═══════════════════════
+           *
+           * Cet objet est reconstruit champ par champ (jamais étalé) : tout ce qui n'est pas NOMMÉ ici n'atteint
+           * jamais l'éditeur. Trois réponses de la route s'y perdaient depuis le lot REDACTION-GMAIL, sans que
+           * rien ne le dise — `htmlDisponible`, `classementDisponible` (le champ « Classer ce mail » d'un nouveau
+           * message, jamais affiché) et `signatureHtml`.
+           *
+           * 🔴🔴 `signatureHtml` N'EST PAS RÉTABLIE ICI, ET C'EST DÉLIBÉRÉ. La rebrancher change ce qui PART :
+           * la signature insérée cesse d'être du texte pour devenir le HTML de Gmail, logo compris. Éprouvé le
+           * 29/09/2026 : les trois images de cette signature sont servies par `lh3/lh5.googleusercontent.com`,
+           * qui ne les rend qu'à une session Google — dans notre éditeur elles restent VIDES, et l'on composerait
+           * en voyant trois images cassées. Les réécrire vers notre relais serait pire : le destinataire
+           * recevrait des adresses qui ne mènent nulle part depuis chez lui.
+           *
+           * Cela dépasse ce lot (qui traite la LECTURE des mails) et demande un arbitrage d'Arno : on garde donc
+           * l'état d'avant — signature TEXTE — et la ligne est écrite ici pour que le choix reste visible.
+           */
+          htmlDisponible: c.htmlDisponible === true,
+          classementDisponible: c.classementDisponible === true,
+          /**
+           * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — migration 276. Absente ⇒ jeter un brouillon redevient « Supprimer
+           * le brouillon », sans bandeau « Annuler » : on ne promet pas un retour qu'on ne peut pas tenir.
+           */
+          corbeilleBrouillon: c.corbeilleBrouillon === true,
         });
         setBrouillonsTotal(typeof c.brouillons === 'number' ? c.brouillons : 0);
       } catch { /* aucun bouton d'écriture : voir l'encadré */ }

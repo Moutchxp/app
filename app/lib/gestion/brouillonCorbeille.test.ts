@@ -20,7 +20,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * ═══ CE QUE CE FICHIER PROTÈGE ══════════════════════════════════════════════════════════════════════════════════
  *   ① RIEN N'EST JAMAIS SUPPRIMÉ — le geste DATE la ligne, il ne l'efface pas. Aucun `DELETE` dans ce module ;
  *   ② LE RETOUR EXISTE — et il rend le brouillon À SA PLACE, dans « Brouillons », avec son contenu et ses pièces ;
- *   ③ UN BROUILLON PARTI NE REVIENT PAS — ce n'est plus un brouillon, c'est un message.
+ *   ③ UN BROUILLON PARTI NE REVIENT PAS — ce n'est plus un brouillon, c'est un message ;
+ *   ④ SANS LA MIGRATION 276, LA COLONNE N'EST NOMMÉE NULLE PART, et la corbeille est vide — pas en erreur.
+ *
+ * ═══ 🔴🔴 CE QUI A ÉTÉ RÉÉCRIT LE 29/09/2026, ET POURQUOI ═══════════════════════════════════════════════════════
+ *
+ * CE FICHIER ÉPROUVAIT `abandonne_le` COMME COLONNE DE LA CORBEILLE. C'était la première version du lot, et elle
+ * s'est vue fausse à l'écran : `abandonne_le` existe depuis l'origine du module et veut dire « jeté POUR DE BON ».
+ * La relire comme « jeté avec promesse de retour » change son sens RÉTROACTIVEMENT — mesuré sur la vraie base :
+ * **34 brouillons abandonnés, dont 25 jetés du 24 au 29 septembre, AVANT ce lot**, tous réapparus d'un coup dans
+ * la Corbeille, dont cinq « (sans objet) — sans destinataire » à la suite.
+ *
+ * 🔴 UN INVARIANT NE SE RÉÉCRIT PAS DANS LE PASSÉ. D'où `corbeille_le` (migration 276) : la colonne NOUVELLE date
+ * le geste NOUVEAU. Les deux sont écrites ensemble — `abandonne_le` pour que « Brouillons » et son compteur se
+ * comportent exactement comme avant, `corbeille_le` pour que la Corbeille le montre — et la réintégration efface
+ * les deux. Les attentes d'alors sont RÉÉCRITES ci-dessous, pas retirées : c'est le même besoin, mieux servi.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -29,10 +43,17 @@ vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...a),
   withTransaction: async (f: (q: unknown) => unknown) => f((...a: unknown[]) => queryMock(...a)),
 }));
+/**
+ * ⚠️ `corbeilleBrouillon` EST UNE VARIABLE DU FICHIER, lue à chaque appel de la sonde : les cas « migration
+ * absente » du bloc ④ la basculent, et `beforeEach` la remet à `true`. Une sonde figée à la déclaration du mock
+ * ne permettrait d'éprouver qu'un seul des deux mondes.
+ */
+let corbeilleBrouillon = true;
 vi.mock('./schema', () => ({
   redactionDisponible: async () => true,
   brouillonHtmlDisponible: async () => true,
   brouillonPieceDisponible: async () => false,
+  corbeilleBrouillonDisponible: async () => corbeilleBrouillon,
 }));
 
 import {
@@ -45,6 +66,7 @@ const PARAMS = (i = 0): unknown[] => (queryMock.mock.calls[i]?.[1] ?? []) as unk
 beforeEach(() => {
   queryMock.mockReset();
   queryMock.mockResolvedValue({ rows: [], rowCount: 1 });
+  corbeilleBrouillon = true;
 });
 
 describe('🔴 ① rien n’est jamais supprimé', () => {
@@ -53,6 +75,17 @@ describe('🔴 ① rien n’est jamais supprimé', () => {
     expect(SQL()[0]).toContain('UPDATE gestion_brouillon SET abandonne_le = now()');
     expect(SQL().join(' ').toUpperCase()).not.toContain('DELETE');
     expect(PARAMS(0)[0]).toBe(7);
+  });
+
+  /**
+   * 🔴 LES DEUX COLONNES, ENSEMBLE. `abandonne_le` pour que « Brouillons » et son compteur ne voient aucune
+   * différence ; `corbeille_le` pour que la Corbeille le montre. N'en écrire qu'une laisserait le brouillon
+   * dans les deux listes, ou dans aucune.
+   */
+  it('🔴 le geste date `abandonne_le` ET `corbeille_le` — une seule vérité, deux lectures', async () => {
+    await abandonnerBrouillon(7);
+    expect(SQL()[0]).toContain('abandonne_le = now()');
+    expect(SQL()[0]).toContain('corbeille_le = now()');
   });
 
   /**
@@ -66,11 +99,21 @@ describe('🔴 ① rien n’est jamais supprimé', () => {
 });
 
 describe('🔴 ② le retour existe, et il remet le brouillon à sa place', () => {
-  it('« Réintégrer » remet la date à NULL — le même verbe, par l’autre bout', async () => {
+  it('« Réintégrer » remet les dates à NULL — le même verbe, par l’autre bout', async () => {
     queryMock.mockResolvedValue({ rows: [], rowCount: 1 });
     expect(await restaurerBrouillon(7)).toBe(true);
-    expect(SQL()[0]).toContain('SET abandonne_le = NULL');
-    expect(SQL()[0]).toContain('abandonne_le IS NOT NULL');
+    expect(SQL()[0]).toContain('SET abandonne_le = NULL, corbeille_le = NULL');
+  });
+
+  /**
+   * 🔴 ON NE RÉINTÈGRE QUE CE QUI EST À LA CORBEILLE. La condition porte sur `corbeille_le`, jamais sur
+   * `abandonne_le` : les 25 brouillons jetés AVANT ce lot ont `abandonne_le` posé et `corbeille_le` à NULL —
+   * lus par l'ancienne condition, ils seraient devenus réintégrables, donc de nouveau vivants.
+   */
+  it('🔴 la condition lit `corbeille_le`, pas `abandonne_le`', async () => {
+    await restaurerBrouillon(7);
+    expect(SQL()[0]).toContain('corbeille_le IS NOT NULL');
+    expect(SQL()[0]).not.toContain('abandonne_le IS NOT NULL');
   });
 
   /**
@@ -94,8 +137,8 @@ describe('🔴 ③ ce que la corbeille montre, et ce qu’elle compte', () => {
     queryMock.mockResolvedValue({ rows: [] });
     await brouillonsALaCorbeille();
     const sql = SQL()[0];
-    expect(sql).toContain('abandonne_le IS NOT NULL AND envoye_le IS NULL');
-    expect(sql).toContain('ORDER BY abandonne_le DESC');
+    expect(sql).toContain('corbeille_le IS NOT NULL AND envoye_le IS NULL');
+    expect(sql).toContain('ORDER BY corbeille_le DESC');
   });
 
   it('elle est BORNÉE : une corbeille se lit, elle ne défile pas', async () => {
@@ -116,7 +159,64 @@ describe('🔴 ③ ce que la corbeille montre, et ce qu’elle compte', () => {
   it('🔴 le compteur porte la MÊME condition que la liste', async () => {
     queryMock.mockResolvedValue({ rows: [{ n: 3 }] });
     expect(await compterBrouillonsALaCorbeille()).toBe(3);
-    expect(SQL()[0]).toContain('abandonne_le IS NOT NULL AND envoye_le IS NULL');
+    expect(SQL()[0]).toContain('corbeille_le IS NOT NULL AND envoye_le IS NULL');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④ SANS LA MIGRATION 276 — LE CODE TOURNE, ET NE MENT PAS
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ④ migration 276 absente : la colonne n’est NOMMÉE nulle part', () => {
+  beforeEach(() => { corbeilleBrouillon = false; });
+
+  /**
+   * 🔴 LA RÈGLE DU MODULE : une sonde voyage AVEC la donnée qu'elle conditionne. Nommer une colonne absente ne
+   * donne pas un résultat vide — cela fait ÉCHOUER la requête, donc l'écran entier.
+   */
+  it('🔴 jeter un brouillon fait exactement ce qu’il faisait avant ce lot', async () => {
+    await abandonnerBrouillon(7);
+    expect(SQL()[0]).toContain('abandonne_le = now()');
+    expect(SQL()[0]).not.toContain('corbeille_le');
+  });
+
+  it('🔴 la corbeille est VIDE, et aucune requête n’est posée', async () => {
+    expect(await brouillonsALaCorbeille()).toEqual([]);
+    expect(await compterBrouillonsALaCorbeille()).toBe(0);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴 ET LE RETOUR RÉPOND « NON », pas un faux succès. C'est ce « non » que la route rend à l'écran, et c'est
+   * pourquoi l'éditeur, lui, ne propose même pas le geste : il redit « Supprimer le brouillon ». Une promesse de
+   * retour qu'on ne peut pas tenir est pire que pas de promesse.
+   */
+  it('🔴 réintégrer rend `false` sans rien tenter', async () => {
+    expect(await restaurerBrouillon(7)).toBe(false);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LES MOTS DU GESTE SUIVENT LA MIGRATION
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 l’écran dit ce qui va VRAIMENT se passer', () => {
+  it('avec la corbeille : « Mettre à la corbeille », et un retour', async () => {
+    const { motsJeterBrouillon } = await import('./redaction');
+    const m = motsJeterBrouillon(true);
+    expect(m.infobulle).toBe('Mettre à la corbeille');
+    expect(m.question).toContain('réintégré');
+    expect(m.reversible).toBe(true);
+  });
+
+  /** 🔴 SANS ELLE, LE MOT D'AVANT REVIENT — et il ne promet rien : c'est ce qui se passe. */
+  it('🔴 sans la corbeille : « Supprimer le brouillon », et aucun bandeau', async () => {
+    const { motsJeterBrouillon } = await import('./redaction');
+    const m = motsJeterBrouillon(false);
+    expect(m.infobulle).toBe('Supprimer le brouillon');
+    expect(m.question).toContain('sans retour possible');
+    expect(m.reversible).toBe(false);
   });
 });
 

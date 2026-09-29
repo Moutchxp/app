@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
-import type { VoieRedaction } from '../../../../lib/gestion/redaction';
+import { motsJeterBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 import { ordonnerBrouillons, type BrouillonEnregistre } from '../../../../lib/gestion/brouillonReprise';
 
 /**
@@ -40,8 +40,17 @@ export function resumerBrouillon(b: Pick<BrouillonListe, 'objet' | 'corps' | 'a'
   return b.a.length > 0 ? `à ${b.a.join(', ')}` : '(message vide)';
 }
 
-export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange }: {
+export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbeille = false }: {
   maintenant: Date;
+  /**
+   * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LE MÊME GESTE QUE DANS L'ÉDITEUR, DONC LES MÊMES MOTS. Arno : « même règle
+   * pour Abandonner et tout autre bouton qui supprime un brouillon ». Ce bouton passe déjà par la même porte
+   * (`DELETE /api/admin/gestion/brouillons`), donc par la même corbeille ; il ne le DISAIT pas.
+   *
+   * `false` (migration 276 absente, ou contexte de rédaction pas encore chargé) ⇒ le mot d'avant, qui ne promet
+   * rien : une promesse de retour qu'on ne peut pas tenir est pire que pas de promesse.
+   */
+  corbeille?: boolean;
   /**
    * Ouvrir l'échange du brouillon, ET le brouillon avec lui.
    *
@@ -59,6 +68,8 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange }: {
   /** Un brouillon abandonné change le compteur de l'étiquette : l'écran parent le relit. */
   onChange: () => void;
 }) {
+  /** Les mots du geste, tirés de la MÊME source que l'éditeur : un seul geste ne s'apprend pas deux fois. */
+  const mots = motsJeterBrouillon(corbeille);
   const [etat, setEtat] = useState<{ v: 'charge' } | { v: 'ok'; liste: BrouillonListe[] } | { v: 'erreur' }>({ v: 'charge' });
 
   /** Va chercher la liste et RENVOIE le résultat : c'est l'appelant qui décide quoi en faire. Patron du dépôt. */
@@ -129,20 +140,28 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange }: {
                   onClick={() => onOuvrir(b.filId as number, b)}>Voir la conversation</button>
               )}
               {/* « Abandonner », et non « Supprimer » : le mot dit ce qui se passe vraiment — le brouillon est daté,
-                  il quitte la liste, il reste en base. Appeler cela « supprimer » serait un mensonge. */}
+                  il quitte la liste, il reste en base. Appeler cela « supprimer » serait un mensonge.
+                  🔴 ET DEPUIS LE LOT LECTURE-HTML-FIL-TROMBONE, il va à la CORBEILLE, d'où il revient : le mot le
+                  dit aussi, et c'est le même que dans l'éditeur — un seul geste ne s'apprend pas deux fois. */}
               <button type="button" className="svv-btn svv-btn-outline gst-btn"
                 onClick={() => void (async () => {
                   try {
                     await fetch(`/api/admin/gestion/brouillons?id=${b.id}`, { method: 'DELETE' });
                   } finally { await lire(); onChange(); }
                 })()}>
-                Abandonner
+                {mots.infobulle}
               </button>
             </div>
           </li>
         ))}
       </ul>
-      <p className="gst-note">Un brouillon abandonné n’est pas supprimé : il est daté et conservé en base.</p>
+      {/* 🔴 LA NOTE DIT OÙ IL EST ALLÉ, pas seulement qu'il n'est pas perdu : « conservé en base » ne dit pas où
+          le retrouver, et c'est la seule chose qu'on veut savoir après avoir cliqué. */}
+      <p className="gst-note">
+        {corbeille
+          ? 'Un brouillon mis à la corbeille n’est pas supprimé : il attend dans « Corbeille », d’où « Réintégrer » le ramène ici.'
+          : 'Un brouillon abandonné n’est pas supprimé : il est daté et conservé en base.'}
+      </p>
     </>
   );
 }

@@ -158,6 +158,29 @@ describe('🔴 ③ les images', () => {
     expect(assainirHtml('<img src="javascript:alert(1)" />')).toBe('');
     expect(assainirHtml('<img />')).toBe('');
   });
+
+  /**
+   * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — UNE LARGEUR FRACTIONNAIRE EST UNE LARGEUR. La règle n'acceptait que des
+   * entiers ; GMAIL LUI-MÊME en écrit avec des décimales dans les signatures qu'il compose. Relevé sur le mail
+   * 57185 tel qu'il est arrivé : `width="23.225806451612918"`. L'attribut tombait, et l'icône de téléphone de
+   * 23 px s'affichait à sa taille naturelle — un tiers de la hauteur de la page.
+   *
+   * ⚠️ ELLE EST RÉÉCRITE ENTIÈRE : l'attribut HTML `width` n'admet qu'un entier, et s'en remettre à la tolérance
+   * de chaque navigateur ferait dépendre le rendu du navigateur qui lit.
+   */
+  it('🔴 une dimension à décimales (celles de Gmail) est gardée, arrondie à l’entier', () => {
+    const out = assainirHtml('<img src="https://x.fr/a.png" width="23.225806451612918" height="23">');
+    expect(out).toContain('width="23"');
+    expect(out).toContain('height="23"');
+  });
+
+  it('une dimension entière passe inchangée, et une dimension qui n’en est pas une tombe', () => {
+    expect(assainirHtml('<img src="https://x.fr/a.png" width="198" height="43">')).toContain('width="198"');
+    // 🔒 CE QUI NE CHANGE PAS : ce doit rester un NOMBRE, borné à quatre chiffres avant la virgule.
+    for (const mauvais of ['100%', '12px', '-5', '12345', 'auto', 'e1', '1e3']) {
+      expect(assainirHtml(`<img src="https://x.fr/a.png" width="${mauvais}">`)).not.toContain('width=');
+    }
+  });
 });
 
 describe('④ ce qui doit survivre — la mise en forme de la barre d’outils', () => {

@@ -1560,7 +1560,14 @@ export const CSS_CONVERSATION = `
 .cnv-html{max-width:100%;overflow-x:auto;font-size:.9rem;line-height:1.5;
   color:#1a1a1a;background:#fff;border:1px solid var(--color-svv-line);border-radius:10px;padding:12px 14px;
   overflow-wrap:anywhere;color-scheme:light}
-.cnv-html img{max-width:100%;height:auto}
+/* 🔴 L'IMAGE REDEVIENT EN LIGNE, et il faut dire pourquoi c'est une CORRECTION et non une preference.
+   La remise a zero de Tailwind pose "img{display:block}" sur toute l'application. C'est ce qu'on veut dans NOS
+   ecrans ; dans un mail, c'est faux : en HTML, une image est en ligne, et les signatures s'en servent partout.
+   Vu sur le mail 57185, cote a cote avec Gmail : les deux numeros de telephone, une seule ligne dans Gmail
+   (icone, numero, icone, numero), devenaient QUATRE lignes chez nous. Le mail n'etait pas casse, mais il ne
+   ressemblait plus a ce qu'on voit dans Gmail — la promesse de ce lot.
+   AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un litteral gabarit. */
+.cnv-html img{max-width:100%;height:auto;display:inline-block;vertical-align:middle}
 /* Une image intégrée qu'on n'a pas su retrouver : son MOT, dans un cadre discret — jamais une image cassée. */
 .cnv-html img[data-absente]{display:inline-block;min-width:1.2rem;min-height:1.2rem;padding:1px 6px;
   border:1px dashed #bbb;border-radius:4px;font-size:.72rem;color:#666;font-style:italic}
