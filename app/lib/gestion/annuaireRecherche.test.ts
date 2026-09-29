@@ -385,9 +385,14 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
    * le dit pas est un mensonge, et c'est précisément ce que le module s'interdit ailleurs (la fenêtre de 30 jours
    * de la file annonce ce qu'elle laisse de côté).
    */
+  /**
+   * ⚠️ MOTS RÉÉCRITS LE 30/09/2026 (lot ANNUAIRE-PERSONNES) : la liste rend des PERSONNES, elle dit donc
+   * « N premières personnes » et non « N premiers résultats ». La règle — une liste coupée le DIT, et dit quoi
+   * faire — n'a pas bougé d'un pouce, et c'est elle qu'on éprouve.
+   */
   it('🔴 une liste COUPÉE le dit, et dit quoi faire pour voir le reste', () => {
     expect(src).toContain('reponse.tronque');
-    expect(src).toContain('premiers résultats');
+    expect(src).toContain('premières personnes');
     expect(src).toContain('d’autres correspondent');
     expect(src).toContain('Précisez votre recherche');
   });

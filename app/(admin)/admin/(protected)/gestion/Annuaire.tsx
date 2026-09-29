@@ -5,8 +5,8 @@ import {
   analyserTerme, formaterDateIso, messageRechercheVide, periodeOccupation, titreLogement,
 } from '../../../../lib/gestion/annuaireRecherche';
 import type {
-  BienDuProprietaire, FicheLocataire, FicheLot, FicheProprietaire, LigneResultat,
-  LogementDuLocataire, OccupationDuLot,
+  BienDuProprietaire, FicheLocataire, FicheLot, FicheProprietaire,
+  LogementDuLocataire, OccupationDuLot, PersonneTrouvee, RolePersonne,
 } from '../../../../lib/gestion/annuaireRepo';
 // LOT FICHES-ANNUAIRE étape B — « la vie du bien » : tous ses mails, dans l'idiome de la boîte.
 import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
@@ -49,7 +49,8 @@ type Reponse =
   | { etat: 'charge' }
   | { etat: 'sans_schema' }
   | { etat: 'erreur'; message: string }
-  | { etat: 'ok'; lignes: LigneResultat[]; tronque: boolean; importe: { le: string } | null };
+  /** 🔴 LOT ANNUAIRE-PERSONNES — la réponse porte des PERSONNES, plus des lots. */
+  | { etat: 'ok'; personnes: PersonneTrouvee[]; tronque: boolean; importe: { le: string } | null };
 
 type Fiche =
   | { etat: 'charge' }
@@ -100,6 +101,11 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
    */
   const [refTemps] = useState(() => maintenant ?? new Date());
   const [reponse, setReponse] = useState<Reponse>({ etat: 'repos' });
+  /**
+   * 🔴 LOT ANNUAIRE-PERSONNES — « Personnes archivées : masquées par défaut ; une case “Afficher les archivées”
+   * les montre, avec la mention “archivée” ». L'état vit ici, à côté du terme : les deux font la requête.
+   */
+  const [archivees, setArchivees] = useState(false);
   const [detail, setDetail] = useState<Fiche | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
   /**
@@ -154,15 +160,21 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
     const minuterie = setTimeout(() => {
       void (async () => {
         try {
-          const res = await fetch(`/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}`, { cache: 'no-store' });
+          /* 🔴 LOT ANNUAIRE-PERSONNES — `archivees` part dans l'ADRESSE de la requête, et la case est dans les
+             dépendances de l'effet : la cocher relance la recherche, sans qu'on ait à retaper quoi que ce soit. */
+          const res = await fetch(
+            `/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}${archivees ? '&archivees=1' : ''}`,
+            { cache: 'no-store' });
           const d = (await res.json()) as {
-            etat?: string; data?: { lignes?: LigneResultat[]; tronque?: boolean }; importe?: { le: string } | null;
+            etat?: string; data?: { personnes?: PersonneTrouvee[]; tronque?: boolean };
+            importe?: { le: string } | null;
           };
           if (!vivant) return;
           if (d.etat === 'sans_schema') { setReponse({ etat: 'sans_schema' }); return; }
           if (d.etat !== 'ok') { setReponse({ etat: 'erreur', message: 'La recherche n’a pas abouti.' }); return; }
           setReponse({
-            etat: 'ok', lignes: d.data?.lignes ?? [], tronque: d.data?.tronque === true, importe: d.importe ?? null,
+            etat: 'ok', personnes: d.data?.personnes ?? [], tronque: d.data?.tronque === true,
+            importe: d.importe ?? null,
           });
         } catch {
           if (vivant) setReponse({ etat: 'erreur', message: 'La recherche n’a pas abouti : le serveur n’a pas répondu.' });
@@ -170,7 +182,7 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
       })();
     }, ATTENTE_FRAPPE_MS);
     return () => { vivant = false; clearTimeout(minuterie); };
-  }, [terme]);
+  }, [terme, archivees]);
 
   // ── LA FICHE OUVERTE, QUI VIT DANS L'ADRESSE ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -360,7 +372,8 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
                     onHistoriqueDuBien={ouvrirVieDuBien} onCreer={creerEtRattacher} />}
         </section>
       ) : (
-        <Resultats reponse={reponse} terme={terme} ouvrir={ouvrir} />
+        <Resultats reponse={reponse} terme={terme} ouvrir={ouvrir}
+          archivees={archivees} onArchivees={setArchivees} />
       )}
     </div>
   );
@@ -368,14 +381,36 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
 
 // ══ LA LISTE ════════════════════════════════════════════════════════════════════════════════════════════════════
 
-function Resultats({ reponse, terme, ouvrir }: {
+/**
+ * ══ 🔴🔴 LOT ANNUAIRE-PERSONNES — LES RÉSULTATS SONT DES PERSONNES ════════════════════════════════════════════════
+ *
+ * Constat d'Arno : « un annuaire sert à chercher une PERSONNE. Aujourd'hui les résultats sont des biens
+ * immobiliers. Il faut afficher des noms ; un clic sur un propriétaire mène à sa fiche propriétaire, un clic sur un
+ * locataire à sa fiche locataire. »
+ *
+ * ═══ CE QUI A ÉTÉ REMPLACÉ, ET POURQUOI ═══════════════════════════════════════════════════════════════════════════
+ * La liste d'avant rendait un LOGEMENT par ligne : l'adresse en titre, puis « Propriétaire : … » et « Locataire
+ * actuel : … » en dessous. Elle répondait à « qui est qui par rapport à un logement » — une vraie question, mais
+ * pas celle qu'on pose à un annuaire. Chercher « jullien » rendait cinq lignes (ses cinq biens) là où il fallait
+ * UNE personne.
+ *
+ * 🔴 CE QUE LA RÈGLE D'AVANT PROTÉGEAIT N'EST PAS PERDU : le bien reste écrit sur la ligne de la personne, en
+ * texte court, et la raison dit en clair POURQUOI elle répond (« propriétaire du lot 219 »). On n'a pas retiré
+ * l'information : on a changé ce qui porte la ligne.
+ *
+ * ⚠️ LA LIGNE ENTIÈRE EST LE BOUTON, et les deux liens qui en sortent (la seconde fiche, rien d'autre) vivent
+ * DANS le pied, à côté — un bouton dans un bouton est du HTML invalide et injouable au clavier.
+ */
+function Resultats({ reponse, terme, ouvrir, archivees, onArchivees }: {
   reponse: Reponse; terme: string; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
+  archivees: boolean; onArchivees: (v: boolean) => void;
 }) {
   if (reponse.etat === 'repos') {
     return (
       <p className="gst-vide">
         Tapez un nom, une adresse, une commune, un téléphone, un e-mail ou un numéro de lot.
-        {' '}L’annuaire répond par LOGEMENT&nbsp;: l’adresse, son propriétaire, son locataire actuel.
+        {' '}L’annuaire répond par PERSONNE&nbsp;: son nom, ses coordonnées, et le ou les biens qui la relient
+        {' '}à nous.
       </p>
     );
   }
@@ -390,60 +425,123 @@ function Resultats({ reponse, terme, ouvrir }: {
       </p>
     );
   }
-  if (reponse.lignes.length === 0) {
-    return <p className="gst-vide" role="status">{messageRechercheVide(analyserTerme(terme))}</p>;
+
+  /**
+   * 🔴 LA CASE « AFFICHER LES ARCHIVÉES » EST TOUJOURS LÀ, même quand la liste est vide : c'est souvent ce qu'on
+   * vient cocher quand on ne trouve pas quelqu'un. La cacher sur un résultat vide obligerait à retaper la
+   * recherche pour la voir apparaître.
+   */
+  const caseArchivees = (
+    <label className="ann-archivees">
+      <input type="checkbox" checked={archivees} onChange={(e) => onArchivees(e.target.checked)} />
+      Afficher les archivées
+    </label>
+  );
+
+  if (reponse.personnes.length === 0) {
+    return (
+      <>
+        <p className="gst-vide" role="status">{messageRechercheVide(analyserTerme(terme))}</p>
+        {caseArchivees}
+      </>
+    );
   }
+
   return (
     <>
-      {/* 🔴 UNE LISTE COUPÉE LE DIT. Mesuré le 26/09/2026 sur la vraie base : « puvis » correspond à 76 logements,
-          l'écran en montrait 60 et annonçait « 60 résultats » — 16 disparaissaient sans un mot. C'est exactement ce
-          que le module s'interdit ailleurs (la fenêtre de 30 jours de la file annonce ce qu'elle laisse de côté). */}
+      {/* 🔴 UNE LISTE COUPÉE LE DIT. Mesuré le 26/09/2026 sur la vraie base : « puvis » correspondait à 76
+          logements, l'écran en montrait 60 et annonçait « 60 résultats » — 16 disparaissaient sans un mot. La
+          règle vaut pour les personnes exactement comme elle valait pour les biens. */}
       <p className="ann-compte" role="status">
         {reponse.tronque
           ? <>
-            <strong>{reponse.lignes.length} premiers résultats</strong>
-            {' — d’autres correspondent. Précisez votre recherche (une adresse plus complète, une commune, '}
-            {'un nom) pour tous les voir.'}
+            <strong>{reponse.personnes.length} premières personnes</strong>
+            {' — d’autres correspondent. Précisez votre recherche (un nom complet, une adresse plus précise) '}
+            {'pour toutes les voir.'}
           </>
-          : <>{reponse.lignes.length} résultat{reponse.lignes.length > 1 ? 's' : ''}</>}
+          : <>{reponse.personnes.length} personne{reponse.personnes.length > 1 ? 's' : ''}</>}
         {reponse.importe && <> · annuaire importé le {formaterDateIso(reponse.importe.le)}</>}
       </p>
-      <ul className="ann-liste">
-        {reponse.lignes.map((l, i) => (
-          <li key={`${l.lotId ?? 'x'}-${l.proprietaireId ?? 'x'}-${l.locataireId ?? 'x'}-${i}`} className="ann-item">
-            <div className="ann-item-titre">
-              {l.lotId !== null ? (
-                <button type="button" className="ann-lien ann-lien--fort" onClick={() => ouvrir('lot', l.lotId as number)}>
-                  {titreLogement(l.adresse, l.commune)}
-                </button>
-              ) : <span className="ann-sans-lot">Sans lot en gestion</span>}
-              {l.nature && <span className="ann-etiq">{l.nature}{l.typeBien ? ` · ${l.typeBien}` : ''}</span>}
-              {/* « absent du dernier export » est dit par un MOT : lisible en niveaux de gris comme aux daltoniens. */}
-              {l.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
-            </div>
-            <div className="ann-item-ligne">
-              <span className="ann-role">Propriétaire</span>
-              {l.proprietaireId !== null ? (
-                <button type="button" className="ann-lien" onClick={() => ouvrir('proprietaire', l.proprietaireId as number)}>
-                  {l.proprietaireNom || '(sans nom)'}
-                </button>
-              ) : <span className="ann-inconnu">{l.proprietaireNom || 'non rattaché'}</span>}
-            </div>
-            <div className="ann-item-ligne">
-              <span className="ann-role">Locataire actuel</span>
-              {l.locataireId !== null ? (
-                <>
-                  <button type="button" className="ann-lien" onClick={() => ouvrir('locataire', l.locataireId as number)}>
-                    {l.locataireNom}
-                  </button>
-                  {l.locataireDepuis && <span className="ann-gris">depuis le {formaterDateIso(l.locataireDepuis)}</span>}
-                </>
-              ) : <span className="ann-inconnu">aucun bail en cours</span>}
-            </div>
-          </li>
+      {caseArchivees}
+      <ul className="ann-personnes">
+        {reponse.personnes.map((p, i) => (
+          <LignePersonne key={`${p.sujet}-${p.id}`} p={p} ouvrir={ouvrir}
+            /* 🔴 LE FILET NE SE POSE QU'ENTRE DEUX VOISINES DU MÊME GROUPE : il dit « ces deux-là vont
+               ensemble », et poser un trait sous la dernière d'un groupe dirait le contraire. */
+            memeGroupe={p.groupe !== null && reponse.personnes[i + 1]?.groupe === p.groupe} />
         ))}
       </ul>
     </>
+  );
+}
+
+/** Le mot d'un rôle, écrit une seule fois : deux formulations finiraient par se contredire d'un écran à l'autre. */
+const MOT_ROLE: Record<RolePersonne, string> = {
+  proprietaire: 'Propriétaire',
+  locataire: 'Locataire',
+  ancien_locataire: 'Ancien locataire',
+};
+
+/**
+ * ══ 🔴 UNE PERSONNE, EN UNE LIGNE ════════════════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « civilité + nom + prénom en gras, capsule de rôle (Propriétaire / Locataire / Ancien locataire), puis en
+ * gris sur une ligne : le premier mobile, le premier e-mail, et le ou les biens liés en texte court
+ * (“25 rue Edith Cavell, Courbevoie — lot 219”, “+2 biens” s'il y en a plus). »
+ *
+ * 🔴 UN CLIC MÈNE À SA FICHE — celle de son rôle principal. Une personne qui est à la fois propriétaire et
+ * locataire ouvre sa fiche PROPRIÉTAIRE, et un lien secondaire mène à l'autre : sans lui, une moitié d'elle
+ * serait inatteignable depuis l'annuaire.
+ */
+function LignePersonne({ p, ouvrir, memeGroupe }: {
+  p: PersonneTrouvee; ouvrir: (s: FicheUrl['sorte'], id: number) => void; memeGroupe: boolean;
+}) {
+  const nom = `${p.civilite !== null && p.civilite !== '' ? `${p.civilite} ` : ''}${p.nomAffiche}`;
+  const premier = p.biens[0];
+  return (
+    <li className={`ann-pers${memeGroupe ? ' ann-pers--groupe' : ''}${p.archive ? ' ann-pers--archive' : ''}`}>
+      <button type="button" className="ann-pers-corps" onClick={() => ouvrir(p.sujet, p.id)}>
+        <span className="ann-pers-tete">
+          <span className="ann-pers-nom">{nom}</span>
+          {p.roles.map((r) => (
+            <span key={r} className={`ann-pers-role ann-pers-role--${r}`}>{MOT_ROLE[r]}</span>
+          ))}
+          {p.archive && <span className="ann-etiq ann-etiq--absent">archivée</span>}
+        </span>
+        <span className="ann-pers-gris">
+          {/* ⚠️ « — » PLUTÔT QU'UN VIDE : une coordonnée absente est un fait, et un blanc se lirait comme un
+              défaut d'affichage. */}
+          <span className="ann-pers-coord">{p.mobile ?? '—'}</span>
+          <span className="ann-pers-sep" aria-hidden="true">·</span>
+          <span className="ann-pers-coord">{p.email ?? '—'}</span>
+          {premier !== undefined && (
+            <>
+              <span className="ann-pers-sep" aria-hidden="true">·</span>
+              <span className="ann-pers-bien">
+                {titreLogement(premier.adresse, premier.commune)} — lot {premier.numero}
+                {p.biens.length > 1 && <span className="ann-pers-plus">+{p.biens.length - 1} bien
+                  {p.biens.length > 2 ? 's' : ''}</span>}
+              </span>
+            </>
+          )}
+          {/* 🔴 LA RAISON, EN CLAIR : « propriétaire du lot 219 ». Sans elle, chercher une adresse rendrait trois
+              noms sans qu'on sache lequel est le propriétaire et lequel est parti. */}
+          {p.raison !== null && (
+            <>
+              <span className="ann-pers-sep" aria-hidden="true">·</span>
+              <span className="ann-pers-raison">{p.raison}</span>
+            </>
+          )}
+        </span>
+      </button>
+      {p.autreFicheId !== null && (
+        <span className="ann-pers-pied">
+          <button type="button" className="ann-lien" onClick={() => ouvrir('locataire', p.autreFicheId as number)}>
+            Voir aussi sa fiche locataire →
+          </button>
+        </span>
+      )}
+    </li>
   );
 }
 
@@ -1669,6 +1767,59 @@ export const CSS_ANNUAIRE = `
   min-height:36px;font-size:.76rem}
 /* Le lien discret de l'en-tete : l'historique tous biens confondus, quand il n'est pas redondant. */
 .ann-tete-histo{font-size:.78rem}
+
+/* ══ 🔴🔴 LOT ANNUAIRE-PERSONNES — UNE LIGNE PAR PERSONNE ═════════════════════════════════════════════════════
+   Arno : « une ligne ou carte compacte par personne, cliquable sur toute sa surface ». COMPACTE est le mot :
+   l'annuaire se parcourt des yeux, et une ligne qui respire trop en fait tenir quatre a l'ecran au lieu de dix.
+
+   ⚠️ LA LIGNE ENTIERE EST LE BOUTON, et le lien vers la seconde fiche vit dans un PIED, a cote — jamais dedans :
+   un bouton dans un bouton est du HTML invalide et injouable au clavier. */
+.ann-personnes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.ann-pers{display:flex;flex-direction:column;border:1px solid var(--color-svv-line);border-radius:10px;
+  background:var(--color-svv-surface);overflow:hidden;min-width:0;
+  transition:border-color .15s ease,box-shadow .15s ease}
+.ann-pers:hover{border-color:var(--color-svv-line-strong-hover);box-shadow:0 2px 6px rgba(22,32,44,.1)}
+@media (prefers-reduced-motion:reduce){.ann-pers{transition:none}}
+/* ══ 🔴 LE FILET DISCRET : « quand ils partagent le meme bien, on voit qu'ils vont ensemble » ═══════════════
+   Deux voisines d'un meme groupe sont collees, et un trait FIN les relie. Ni cadre, ni fond, ni titre : un
+   groupe de coloc n'est pas une section — c'est juste deux lignes qui se suivent. */
+.ann-pers--groupe{border-bottom-left-radius:0;border-bottom-right-radius:0;border-bottom-style:dashed;
+  margin-bottom:-6px;padding-bottom:2px}
+.ann-pers--groupe + .ann-pers{border-top-left-radius:0;border-top-right-radius:0;border-top:0}
+.ann-pers--archive{background:var(--color-svv-field);border-style:dashed}
+.ann-pers-corps{display:flex;flex-direction:column;gap:.15rem;align-items:stretch;text-align:left;width:100%;
+  background:none;border:0;padding:8px 12px;font:inherit;color:inherit;cursor:pointer}
+.ann-pers-corps:hover{background:var(--color-svv-field)}
+.ann-pers--archive .ann-pers-corps:hover{background:var(--color-svv-surface)}
+.ann-pers-corps:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.ann-pers-tete{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0}
+.ann-pers-nom{font-size:.92rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* LA CAPSULE DE ROLE. Le MOT porte l'information — jamais la seule couleur, qui ne se lit ni en niveaux de gris
+   ni pour un oeil daltonien. Le ton, lui, ne fait que confirmer ce que le mot dit deja. */
+.ann-pers-role{display:inline-flex;align-items:center;min-height:1.15rem;padding:.05rem .45rem;border-radius:.6rem;
+  font-size:.68rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;
+  background:var(--color-svv-field);color:var(--color-svv-muted)}
+.ann-pers-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
+.ann-pers-role--locataire{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+/* LA LIGNE GRISE : le premier mobile, le premier e-mail, le bien, la raison. Elle ne revient jamais a la ligne
+   au milieu d'une valeur — elle se replie entre ses morceaux, qui sont autant de blocs insecables. */
+.ann-pers-gris{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;min-width:0;
+  font-size:.78rem;color:var(--color-svv-muted)}
+.ann-pers-coord{white-space:nowrap}
+.ann-pers-sep{color:var(--color-svv-line-strong)}
+.ann-pers-bien{min-width:0;overflow-wrap:anywhere}
+.ann-pers-plus{margin-left:.3rem;padding:.02rem .35rem;border-radius:.5rem;font-size:.7rem;font-weight:700;
+  background:var(--color-svv-field);color:var(--color-svv-muted);white-space:nowrap}
+.ann-pers-raison{font-style:italic}
+.ann-pers-pied{display:flex;padding:0 12px 8px}
+.ann-pers-pied .ann-lien{font-size:.78rem}
+/* La case des archivees : discrete, mais TOUJOURS visible — c'est souvent elle qu'on vient cocher. */
+.ann-archivees{display:inline-flex;align-items:center;gap:.4rem;min-height:38px;font-size:.8rem;
+  color:var(--color-svv-muted);cursor:pointer}
+.svv-adm-root[data-theme='dark'] .ann-pers:hover{box-shadow:0 2px 8px rgba(0,0,0,.5)}
+@media (prefers-color-scheme:dark){
+  .svv-adm-root:not([data-theme='light']) .ann-pers:hover{box-shadow:0 2px 8px rgba(0,0,0,.5)}
+}
 
 /* ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — DES CARTES DE MEME HAUTEUR, BOUTONS COLLES EN BAS ══════════════════════════
    Arno : « toutes les cartes ont la meme hauteur : la plus haute impose sa taille aux autres. Pas de hauteur fixe

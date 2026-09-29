@@ -3,6 +3,7 @@ import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { analyserTerme } from '../../../../../lib/gestion/annuaireRecherche';
 import {
   dernierImport, ficheLocataire, ficheLot, ficheProprietaire, indicesParEmail, rechercher,
+  rechercherPersonnes,
 } from '../../../../../lib/gestion/annuaireRepo';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import type { Auteur } from '../../../../../lib/gestion/gestes';
@@ -32,7 +33,8 @@ import {
  *   · sans la migration 278, chaque écriture rend `sans_schema` et l'écran grise « Modifier » avec son motif.
  *
  * QUATRE QUESTIONS EN LECTURE, UNE SEULE ROUTE, parce qu'elles partagent exactement le même droit et le même cache :
- *   · `?q=…`             la recherche (un seul champ, toutes les entrées)
+ *   · `?q=…`             la recherche — elle rend des PERSONNES (lot ANNUAIRE-PERSONNES) ;
+ *                        `?q=…&biens=1` rend les LOTS, pour la commande d'épreuve de l'annuaire
  *   · `?proprietaire=N`  `?lot=N`  `?locataire=N`   une fiche
  *   · `?emails=a,b`      le pont avec la boîte mail : qui sont ces expéditeurs ?
  *
@@ -74,9 +76,29 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json(await indicesParEmail(liste), { headers: ENTETES });
     }
 
+    /**
+     * ══ 🔴🔴 LOT ANNUAIRE-PERSONNES — L'ANNUAIRE RÉPOND PAR DES PERSONNES ═════════════════════════════════════
+     *
+     * Constat d'Arno : « un annuaire sert à chercher une PERSONNE. Aujourd'hui les résultats sont des biens. »
+     * `?q=` rend donc des personnes. Ce que la recherche ACCEPTE n'a pas bougé d'un mot — nom, adresse, commune,
+     * téléphone, e-mail, n° de lot — c'est ce qu'elle REND qui change.
+     *
+     * 🔴 `rechercher` (les LOTS) RESTE APPELABLE par `?q=…&biens=1`, et ce n'est pas une survivance : la commande
+     * d'épreuve de l'annuaire (`gestion:annuaire:epreuve`) s'en sert pour vérifier qu'une adresse, une commune et
+     * un n° de lot retrouvent bien LEUR LOT. La retirer aurait supprimé le seul contrôle automatique de
+     * l'indexation des biens. La recherche de bien du panneau « Rattacher à un bien », elle, passe par
+     * `chercherBiens`, un tout autre chemin — aucun des deux n'est touché.
+     */
     const terme = analyserTerme(url.searchParams.get('q'));
-    const [resultats, importe] = await Promise.all([rechercher(terme), dernierImport()]);
-    return Response.json({ ...resultats, terme, importe }, { headers: ENTETES });
+    if (url.searchParams.get('biens') === '1') {
+      const [resultats, importe] = await Promise.all([rechercher(terme), dernierImport()]);
+      return Response.json({ ...resultats, terme, importe }, { headers: ENTETES });
+    }
+    const avecArchivees = url.searchParams.get('archivees') === '1';
+    const [personnes, importe] = await Promise.all([
+      rechercherPersonnes(terme, { avecArchivees }), dernierImport(),
+    ]);
+    return Response.json({ ...personnes, terme, importe }, { headers: ENTETES });
   } catch (e) {
     // Pas de catch muet : une liste vide se lirait « personne ne correspond », ce qui serait un mensonge.
     console.error('[api/admin/gestion/annuaire] lecture impossible', e);

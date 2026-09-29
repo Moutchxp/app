@@ -1625,6 +1625,359 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
   };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT ANNUAIRE-PERSONNES — CHERCHER UNE PERSONNE, ET RENDRE DES PERSONNES
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Le rôle d'une personne dans un résultat. Une même personne peut en porter deux. */
+export type RolePersonne = 'proprietaire' | 'locataire' | 'ancien_locataire';
+
+/** Un bien lié à une personne, en texte court : « 25 rue Edith Cavell, Courbevoie — lot 219 ». */
+export interface BienLie {
+  lotId: number | null;
+  numero: string;
+  adresse: string | null;
+  commune: string | null;
+}
+
+export interface PersonneTrouvee {
+  /** La fiche PRINCIPALE, celle qu'un clic ouvre. Propriétaire l'emporte quand la personne est les deux. */
+  sujet: 'proprietaire' | 'locataire';
+  id: number;
+  cle: string;
+  civilite: string | null;
+  prenom: string | null;
+  nom: string;
+  /** « M. JULLIEN - GARRIDO Cédric » — le nom tel qu'on l'écrit en gras. */
+  nomAffiche: string;
+  /** Un rôle, ou deux quand la personne est à la fois propriétaire et locataire. Dans l'ordre d'affichage. */
+  roles: RolePersonne[];
+  archive: boolean;
+  /**
+   * 🔴 LA FICHE SECONDAIRE, quand la personne porte DEUX fiches (propriétaire et locataire). Le clic principal
+   * mène à la fiche propriétaire ; ce lien-ci mène à l'autre. Sans lui, une moitié de la personne serait
+   * inatteignable depuis l'annuaire.
+   */
+  autreFicheId: number | null;
+  /** Le PREMIER mobile, déjà formaté (« 06 59 08 82 56 »). `null` quand elle n'en a pas. */
+  mobile: string | null;
+  /** Le PREMIER e-mail. `null` quand elle n'en a pas. */
+  email: string | null;
+  biens: BienLie[];
+  /** « propriétaire du lot 219 », « locataire en place du lot 219 »… `null` quand c'est le NOM qui a répondu. */
+  raison: string | null;
+  /**
+   * 🔴 LA CLÉ DU BIEN PARTAGÉ, quand plusieurs personnes du résultat se rattachent au MÊME bien. L'écran les
+   * range alors sous un filet discret : colocataires, couple, co-propriétaires — on voit qu'ils vont ensemble.
+   * `null` = cette personne ne partage son bien avec personne d'autre dans CE résultat.
+   */
+  groupe: string | null;
+}
+
+export interface ResultatsPersonnes {
+  personnes: PersonneTrouvee[];
+  tronque: boolean;
+}
+
+/** Les mots d'un nom, triés — la seule identité qu'on accepte pour fondre deux fiches en une. PUR. */
+function motsTries(nomNormalise: string): string {
+  return nomNormalise.split(/\s+/).filter((m) => m !== '').sort().join(' ');
+}
+
+/**
+ * ══ 🔴🔴 L'ANNUAIRE REND DES PERSONNES, PLUS DES BIENS ════════════════════════════════════════════════════════════
+ *
+ * Constat d'Arno : « un annuaire sert à chercher une PERSONNE. Aujourd'hui les résultats sont des biens
+ * immobiliers. Il faut afficher des noms ; un clic sur un propriétaire mène à sa fiche propriétaire, un clic sur un
+ * locataire à sa fiche locataire. »
+ *
+ * ═══ CE QUE LA RECHERCHE ACCEPTE N'A PAS BOUGÉ D'UN MOT ═══════════════════════════════════════════════════════════
+ * Nom, prénom, adresse, commune, téléphone (espaces, points, +33), e-mail, n° de lot, sans accent ni casse. C'est
+ * ce qu'elle REND qui change : la personne, jamais le bien.
+ *   · un NOM      → la personne ;
+ *   · une ADRESSE ou un N° DE LOT → le ou les propriétaires, les locataires en place et les anciens de ce bien,
+ *                   chacun avec sa raison en clair (« propriétaire du lot 219 ») ;
+ *   · un TÉLÉPHONE ou un E-MAIL → la personne qui le porte.
+ *
+ * 🔴 `rechercher` (au-dessus) N'EST PAS TOUCHÉE, et c'est voulu : elle rend des LOTS, et la recherche de bien du
+ * panneau « Rattacher à un bien » en dépend. Deux questions, deux fonctions — les mêler aurait fait rendre des
+ * personnes à un écran qui ne sait rattacher qu'à des biens.
+ *
+ * ⚠️ PLUSIEURS REQUÊTES PLUTÔT QU'UNE : deux pour trouver (propriétaires, locataires), deux pour enrichir
+ * (coordonnées, biens). Les tables tiennent dans un souffle — 307 propriétaires, 510 locataires, 365 lots,
+ * 1 793 coordonnées — et une seule requête portant les quatre questions serait illisible à la première relecture.
+ */
+export async function rechercherPersonnes(
+  t: TermeRecherche, o: { avecArchivees?: boolean } = {},
+): Promise<IssueLecture<ResultatsPersonnes>> {
+  if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
+  if (t.vide) return { etat: 'ok', data: { personnes: [], tronque: false } };
+
+  const modifiable = await annuaireModifiableDisponible();
+  const chiffres = t.chiffres === null ? null : `%${t.chiffres}`;
+  const mots = t.mots.length > 0 ? t.mots : [t.texte];
+  const params = [mots, t.telephone, chiffres, t.email, t.numeroLot];
+
+  /**
+   * ⚠️ AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
+   * terminerait — piege consigne QUATORZE fois dans ce depot, et quatorze fois dans un commentaire.
+   *
+   * CONTACTS_TROUVES : la coordonnee tapee, sous ses trois formes (numero complet, fin de numero, e-mail).
+   * LOTS_VISES       : les biens que l'adresse ou le numero de lot designent. Ce sont EUX qui ramenent des
+   *                    personnes par leur bien, et la raison le dira en clair.
+   * PAR_NOM          : « aucun mot ne manque » — chercher « garrido jullien » trouve « JULLIEN - GARRIDO ».
+   */
+  const COMMUN = `
+    WITH mots AS (SELECT unnest($1::text[]) AS m),
+    contacts_trouves AS (
+      SELECT sujet, sujet_id FROM gestion_annuaire_contact
+       WHERE absent_le IS NULL${await conditionCoordonneeVivante()}
+         AND (($2::text IS NOT NULL AND valeur = $2)
+           OR ($3::text IS NOT NULL AND valeur LIKE $3)
+           OR ($4::text IS NOT NULL AND valeur = $4))
+    ),
+    lots_vises AS (
+      SELECT lo.id, lo.wippimmo_id
+        FROM gestion_annuaire_lot lo
+       WHERE ($5::text IS NOT NULL AND lo.wippimmo_id = $5)
+          OR NOT EXISTS (SELECT 1 FROM mots
+                          WHERE (coalesce(lo.adresse_normalisee, '') || ' ' || coalesce(lo.code_postal, ''))
+                                NOT LIKE '%' || m || '%')
+    )`;
+
+  // ── ① LES PROPRIÉTAIRES QUI RÉPONDENT ─────────────────────────────────────────────────────────────────────────
+  const { rows: proprios } = await query<{
+    id: string; cle: string; civilite: string | null; prenom: string | null; nom: string; nom_complet: string;
+    nom_normalise: string; archive: boolean; par_nom: boolean; lot_vise: string | null;
+  }>(
+    `${COMMUN}
+     SELECT pr.id::text, pr.wippimmo_id AS cle, pr.civilite, pr.prenom, pr.nom, pr.nom_complet, pr.nom_normalise,
+            ${modifiable ? '(pr.archive_le IS NOT NULL)' : 'false'} AS archive,
+            (NOT EXISTS (SELECT 1 FROM mots WHERE pr.nom_normalise NOT LIKE '%' || m || '%')) AS par_nom,
+            (SELECT min(v.wippimmo_id) FROM lots_vises v
+              JOIN gestion_annuaire_lot lo2 ON lo2.id = v.id
+             WHERE lo2.proprietaire_id = pr.id) AS lot_vise
+       FROM gestion_annuaire_proprietaire pr
+      WHERE (NOT EXISTS (SELECT 1 FROM mots WHERE pr.nom_normalise NOT LIKE '%' || m || '%'))
+         OR pr.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'proprietaire')
+         OR EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_lot lo2 ON lo2.id = v.id
+                     WHERE lo2.proprietaire_id = pr.id)`, params);
+
+  // ── ② LES LOCATAIRES QUI RÉPONDENT, avec l'état de leur occupation ────────────────────────────────────────────
+  const { rows: locs } = await query<{
+    id: string; cle: string; civilite: string | null; prenom: string | null; nom: string; nom_normalise: string;
+    archive: boolean; par_nom: boolean; en_place: boolean; lot_vise: string | null; lot_vise_en_cours: boolean;
+  }>(
+    `${COMMUN}
+     SELECT lc.id::text, lc.cle_personne AS cle,
+            ${modifiable ? 'lc.civilite, lc.prenom' : 'NULL::text AS civilite, NULL::text AS prenom'},
+            lc.nom, lc.nom_normalise,
+            ${modifiable ? '(lc.archive_le IS NOT NULL)' : 'false'} AS archive,
+            (NOT EXISTS (SELECT 1 FROM mots WHERE lc.nom_normalise NOT LIKE '%' || m || '%')) AS par_nom,
+            EXISTS (SELECT 1 FROM gestion_annuaire_occupation o
+                     WHERE o.locataire_id = lc.id AND o.sortie IS NULL) AS en_place,
+            (SELECT min(v.wippimmo_id) FROM lots_vises v
+               JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
+              WHERE o.locataire_id = lc.id) AS lot_vise,
+            EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
+                     WHERE o.locataire_id = lc.id AND o.sortie IS NULL) AS lot_vise_en_cours
+       FROM gestion_annuaire_locataire lc
+      WHERE (NOT EXISTS (SELECT 1 FROM mots WHERE lc.nom_normalise NOT LIKE '%' || m || '%'))
+         OR lc.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'locataire')
+         OR EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
+                     WHERE o.locataire_id = lc.id)`, params);
+
+  return assemblerPersonnes(proprios, locs, o.avecArchivees === true);
+}
+
+/** Ce que la requête des propriétaires rend, avant enrichissement. */
+interface ProprioBrut {
+  id: string; cle: string; civilite: string | null; prenom: string | null; nom: string; nom_complet: string;
+  nom_normalise: string; archive: boolean; par_nom: boolean; lot_vise: string | null;
+}
+/** Ce que la requête des locataires rend, avant enrichissement. */
+interface LocBrut {
+  id: string; cle: string; civilite: string | null; prenom: string | null; nom: string; nom_normalise: string;
+  archive: boolean; par_nom: boolean; en_place: boolean; lot_vise: string | null; lot_vise_en_cours: boolean;
+}
+
+/**
+ * ══ 🔴🔴 ASSEMBLER LES PERSONNES : ENRICHIR, FONDRE, RANGER, GROUPER ══════════════════════════════════════════════
+ *
+ * Quatre gestes, dans cet ordre, et chacun a sa raison d'être là.
+ */
+async function assemblerPersonnes(
+  proprios: readonly ProprioBrut[], locs: readonly LocBrut[], avecArchivees: boolean,
+): Promise<IssueLecture<ResultatsPersonnes>> {
+  const idsP = proprios.map((p) => Number(p.id));
+  const idsL = locs.map((l) => Number(l.id));
+
+  // ── ① LES COORDONNÉES : le PREMIER mobile et le PREMIER e-mail, en UNE requête pour tout le monde ──────────────
+  const coords = new Map<string, { mobile: string | null; email: string | null }>();
+  if (idsP.length > 0 || idsL.length > 0) {
+    const avecLibelle = await libelleSourceContactDisponible();
+    const { rows } = await query<{
+      sujet: string; sujet_id: string; sorte: string; valeur: string; valeur_brute: string;
+      libelle: string | null;
+    }>(
+      `SELECT sujet, sujet_id::text, sorte, valeur, valeur_brute,
+              ${avecLibelle ? 'libelle_source' : 'NULL::text'} AS libelle
+         FROM gestion_annuaire_contact
+        WHERE absent_le IS NULL${await conditionCoordonneeVivante()}
+          AND ((sujet = 'proprietaire' AND sujet_id = ANY($1::bigint[]))
+            OR (sujet = 'locataire'    AND sujet_id = ANY($2::bigint[])))
+        ORDER BY sorte, rang, id`, [idsP, idsL]);
+    for (const r of rows) {
+      const cle = `${r.sujet}|${r.sujet_id}`;
+      const e = coords.get(cle) ?? { mobile: null, email: null };
+      // ⚠️ LE PREMIER DE CHAQUE SORTE, et rien d'autre : la ligne d'annuaire est une ligne, pas une fiche.
+      if (r.sorte === 'telephone' && e.mobile === null) e.mobile = formaterTelephone(r.valeur, r.valeur_brute);
+      if (r.sorte === 'email' && e.email === null) e.email = r.valeur;
+      coords.set(cle, e);
+    }
+  }
+
+  // ── ② LES BIENS LIÉS : ceux d'un propriétaire, ceux qu'un locataire occupe ou a occupés ───────────────────────
+  const biens = new Map<string, BienLie[]>();
+  if (idsP.length > 0 || idsL.length > 0) {
+    const { rows } = await query<{
+      cle: string; lot_id: string; numero: string; adresse: string | null; commune: string | null;
+    }>(
+      `SELECT 'proprietaire|' || lo.proprietaire_id::text AS cle, lo.id::text AS lot_id,
+              lo.wippimmo_id AS numero, lo.adresse, lo.commune
+         FROM gestion_annuaire_lot lo
+        WHERE lo.proprietaire_id = ANY($1::bigint[])
+        UNION ALL
+       SELECT DISTINCT 'locataire|' || o.locataire_id::text, lo.id::text, lo.wippimmo_id, lo.adresse, lo.commune
+         FROM gestion_annuaire_occupation o
+         JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
+        WHERE o.locataire_id = ANY($2::bigint[])
+        ORDER BY 3`, [idsP, idsL]);
+    for (const r of rows) {
+      const liste = biens.get(r.cle) ?? [];
+      if (!liste.some((b) => b.numero === r.numero)) {
+        liste.push({ lotId: Number(r.lot_id), numero: r.numero, adresse: r.adresse, commune: r.commune });
+      }
+      biens.set(r.cle, liste);
+    }
+  }
+
+  /**
+   * ── ③ FONDRE LES DEUX FICHES D'UNE MÊME PERSONNE ────────────────────────────────────────────────────────────
+   *
+   * Arno : « Une personne qui est à la fois propriétaire et locataire apparaît une seule fois, avec ses deux
+   * capsules (clic → fiche propriétaire, lien secondaire vers la fiche locataire). »
+   *
+   * 🔴 DEUX CONDITIONS, ET IL FAUT LES DEUX : les MOTS DU NOM identiques (triés, donc « GAALOUL Najah et
+   * Stéphanie » retrouve « GAALOUL Stéphanie et Najah ») ET au moins une COORDONNÉE partagée.
+   *
+   * ═══ POURQUOI PAS UNE SEULE ═══════════════════════════════════════════════════════════════════════════════
+   * Mesuré le 30/09/2026 : par le NOM seul, 0 couple — la condition ne fondrait donc jamais rien, et serait
+   * une promesse vide. Par la COORDONNÉE seule, 10 couples — dont 9 sont nos PROPRES sociétés (MARS AVENIR,
+   * SARL MACJ, GABRIEL ESTATE, JOREL Arnaud), qui partagent nos adresses d'agence : les fondre aurait
+   * transformé quatre personnes morales distinctes en une seule. Les deux ensemble : EXACTEMENT un couple,
+   * GAALOUL — le vrai.
+   */
+  const parMotsProprio = new Map<string, ProprioBrut>();
+  for (const p of proprios) parMotsProprio.set(motsTries(p.nom_normalise), p);
+  const coordsDe = (cle: string): Set<string> => {
+    const e = coords.get(cle);
+    return new Set([e?.mobile, e?.email].filter((x): x is string => x !== null && x !== undefined));
+  };
+  /** locataire id → le propriétaire avec qui il fusionne. */
+  const fusion = new Map<string, ProprioBrut>();
+  for (const l of locs) {
+    const p = parMotsProprio.get(motsTries(l.nom_normalise));
+    if (p === undefined) continue;
+    const communes = [...coordsDe(`locataire|${l.id}`)].filter((v) => coordsDe(`proprietaire|${p.id}`).has(v));
+    if (communes.length > 0) fusion.set(l.id, p);
+  }
+
+  // ── ④ LES LIGNES, ENFIN ───────────────────────────────────────────────────────────────────────────────────────
+  const lignes: (PersonneTrouvee & { pertinence: number })[] = [];
+
+  for (const p of proprios) {
+    const cle = `proprietaire|${p.id}`;
+    const jumeau = [...fusion.entries()].find(([, q]) => q.id === p.id);
+    const loc = jumeau === undefined ? null : locs.find((l) => l.id === jumeau[0]) ?? null;
+    const roles: RolePersonne[] = ['proprietaire'];
+    if (loc !== null) roles.push(loc.en_place ? 'locataire' : 'ancien_locataire');
+    lignes.push({
+      sujet: 'proprietaire', id: Number(p.id), cle: p.cle,
+      civilite: p.civilite, prenom: p.prenom, nom: p.nom, nomAffiche: p.nom_complet,
+      roles, archive: p.archive,
+      autreFicheId: loc === null ? null : Number(loc.id),
+      mobile: coords.get(cle)?.mobile ?? null, email: coords.get(cle)?.email ?? null,
+      biens: biens.get(cle) ?? [],
+      raison: p.par_nom || p.lot_vise === null ? null : `propriétaire du lot ${p.lot_vise}`,
+      groupe: null,
+      pertinence: p.par_nom ? 0 : 1,
+    });
+  }
+
+  for (const l of locs) {
+    // Fondue dans son propriétaire : elle a déjà sa ligne, avec ses deux capsules.
+    if (fusion.has(l.id)) continue;
+    const cle = `locataire|${l.id}`;
+    lignes.push({
+      sujet: 'locataire', id: Number(l.id), cle: l.cle,
+      civilite: l.civilite, prenom: l.prenom, nom: l.nom, nomAffiche: l.nom,
+      roles: [l.en_place ? 'locataire' : 'ancien_locataire'], archive: l.archive,
+      autreFicheId: null,
+      mobile: coords.get(cle)?.mobile ?? null, email: coords.get(cle)?.email ?? null,
+      biens: biens.get(cle) ?? [],
+      raison: l.par_nom || l.lot_vise === null
+        ? null
+        : `${l.lot_vise_en_cours ? 'locataire en place' : 'ancien locataire'} du lot ${l.lot_vise}`,
+      groupe: null,
+      pertinence: l.par_nom ? 0 : 1,
+    });
+  }
+
+  /**
+   * 🔴 LES ARCHIVÉES SONT MASQUÉES PAR DÉFAUT, jamais supprimées du calcul : la case « Afficher les archivées »
+   * les ramène sans relancer la recherche du côté serveur avec d'autres règles — c'est la même liste, filtrée.
+   */
+  const visibles = avecArchivees ? lignes : lignes.filter((x) => !x.archive);
+
+  /**
+   * ══ 🔴 L'ORDRE : PERTINENCE DU NOM D'ABORD, PUIS LES RÔLES ══════════════════════════════════════════════════
+   * Arno : « pertinence du nom d'abord, puis Propriétaires avant Locataires en place avant Anciens locataires ».
+   * Une personne trouvée par SON NOM passe donc devant celle trouvée par le bien qu'elle occupe : c'est elle
+   * qu'on cherchait.
+   */
+  const rangRole = (r: RolePersonne): number => (r === 'proprietaire' ? 0 : r === 'locataire' ? 1 : 2);
+  visibles.sort((a, b) => a.pertinence - b.pertinence
+    || rangRole(a.roles[0]) - rangRole(b.roles[0])
+    || a.nomAffiche.localeCompare(b.nomAffiche, 'fr'));
+
+  /**
+   * ══ 🔴 LE GROUPE : CEUX QUI PARTAGENT UN BIEN VONT ENSEMBLE ═════════════════════════════════════════════════
+   * Arno : « Colocataires, couples, co-propriétaires : chaque personne est une ligne à part. Quand ils partagent
+   * le même bien, ils sont regroupés sous un filet discret, pour qu'on voie qu'ils vont ensemble. »
+   *
+   * ⚠️ ON NE GROUPE QUE CE QUI EST VRAIMENT PARTAGÉ : un bien porté par une seule personne du résultat ne fait
+   * pas un groupe. Sans cette condition, chaque personne serait « groupée » toute seule, et le filet ne dirait
+   * plus rien.
+   */
+  const combien = new Map<string, number>();
+  for (const x of visibles) for (const b of x.biens) combien.set(b.numero, (combien.get(b.numero) ?? 0) + 1);
+  for (const x of visibles) {
+    const partage = x.biens.find((b) => (combien.get(b.numero) ?? 0) > 1);
+    x.groupe = partage === undefined ? null : partage.numero;
+  }
+
+  const tronque = visibles.length > PLAFOND_RESULTATS;
+  return {
+    etat: 'ok',
+    data: {
+      tronque,
+      personnes: visibles.slice(0, PLAFOND_RESULTATS)
+        .map(({ pertinence: _p, ...reste }) => reste),
+    },
+  };
+}
+
 // ══ ③ LE PONT AVEC LA BOÎTE MAIL ═══════════════════════════════════════════════════════════════════════════════════
 
 export interface IndiceAnnuaire {
