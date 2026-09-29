@@ -146,14 +146,22 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
    * est — il n'y a qu'une recherche, et elle accepte tout. C'est cela qu'on éprouve désormais, plutôt qu'un
    * comptage de balises que la moindre mise en page faisait mentir.
    */
+  /**
+   * ══ 🔴 RÈGLE RÉÉCRITE UNE SECONDE FOIS LE 29/09/2026 (lot FICHES-ANNUAIRE, étape C) ═════════════════════════
+   *
+   * ELLE COMPTAIT TOUS LES `<input>` DU FICHIER, et attendait exactement deux. L'étape C ajoute de VRAIS
+   * formulaires à cet écran — créer une personne, enregistrer un départ — donc d'autres `<input>`, qui ne sont
+   * pas des champs de recherche du tout. Le comptage global ne disait plus rien.
+   *
+   * CE QU'ON ÉPROUVE DÉSORMAIS, et qui est la règle elle-même : les champs de RECHERCHE (`type="search"`) sont
+   * DEUX, ils écrivent tous les deux dans `terme`, et ils sont mutuellement exclusifs. Les autres saisies sont
+   * des formulaires, et n'ont rien à voir avec « une seule recherche ».
+   */
   it('🔴 UNE SEULE recherche : les deux champs sont exclusifs et écrivent au même endroit', () => {
-    const champs = src.match(/<input[\s\S]*?\/>/g) ?? [];
+    const champs = (src.match(/<input[\s\S]*?\/>/g) ?? []).filter((c) => c.includes('type="search"'));
     expect(champs).toHaveLength(2);
-    // Les deux sont des champs de RECHERCHE, et tous deux alimentent `terme`.
-    for (const c of champs) {
-      expect(c).toContain('type="search"');
-      expect(c).toContain('setTerme(e.target.value)');
-    }
+    // Les deux alimentent `terme` : on ne choisit jamais, avant de taper, dans quel champ on est.
+    for (const c of champs) expect(c).toContain('setTerme(e.target.value)');
     // L'un porte l'étiquette visible (les résultats), l'autre son intitulé accessible (la fiche).
     expect(src).toContain('<label className="ann-label"');
     expect(src).toContain('aria-label="Chercher un propriétaire, un lot, un locataire"');
@@ -210,16 +218,31 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
    * Elle commençait à 590 px du haut, sous cinq blocs qui ne la concernaient pas. Le premier bloc est désormais
    * les COORDONNÉES, et il porte tout ce qu'Arno a énuméré.
    */
+  /**
+   * ══ 🔴 RÈGLE RÉÉCRITE LE 29/09/2026 (lot FICHES-ANNUAIRE, étape C) ══════════════════════════════════════════
+   *
+   * ELLE LISAIT `function BlocCoordonnees`, qui n'existe plus : ce bloc n'affichait qu'UNE personne, et son `<dl>`
+   * ne pouvait pas aligner un libellé sur sa valeur — le défaut signalé par Arno (« des écarts de niveaux
+   * partout »). Le premier bloc est désormais une RANGÉE DE CARTES (`BlocCartes`, fichier `CartesPersonnes`), une
+   * par propriétaire, chacune avec son crayon « Modifier ».
+   *
+   * CE QUE LA RÈGLE PROTÉGEAIT N'A PAS BOUGÉ D'UN POUCE, et on l'éprouve toujours, au nouvel endroit : le premier
+   * bloc de la fiche est celui des COORDONNÉES, il porte tout ce qu'Arno a énuméré (qualité, adresse, téléphones,
+   * e-mails, note), chaque coordonnée a son LIBELLÉ et son bouton COPIER, et la date de début de collaboration
+   * suit. Le détail ligne par ligne vit dans `annuaireEdition.test.ts`, avec les cartes.
+   */
   it('🔴 le premier bloc est celui des COORDONNÉES, et il porte tout ce qui a été demandé', () => {
-    const i = src.indexOf('function BlocCoordonnees');
-    expect(i).toBeGreaterThan(0);
-    const bloc = src.slice(i, src.indexOf('function DateOuRien'));
-    for (const mot of ['Qualité', 'Adresse postale', 'Téléphone', 'E-mail', 'Note', 'Début de collaboration']) {
-      expect(bloc).toContain(mot);
-    }
-    // Le libellé d'origine de chaque coordonnée, et son bouton Copier.
-    expect(bloc).toContain('ann-libelle');
-    expect(bloc).toContain('<BoutonCopier');
+    // Sur la fiche : le bloc « Coordonnées » vient AVANT les biens, et c'est une rangée de cartes.
+    const vue = src.slice(src.indexOf('function VueProprietaire'), src.indexOf('function BoutonDepart'));
+    expect(vue.indexOf('titre="Coordonnées"')).toBeGreaterThan(0);
+    expect(vue.indexOf('titre="Coordonnées"')).toBeLessThan(vue.indexOf('Biens en gestion'));
+    expect(vue).toContain('Début de collaboration');
+
+    // Dans la carte : tout ce qu'Arno a énuméré, avec le libellé de chaque coordonnée et son bouton Copier.
+    const carte = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    for (const mot of ['Qualité', 'Adresse', 'Téléphone', 'E-mail', 'Note']) expect(carte).toContain(mot);
+    expect(carte).toContain('cp-caps');
+    expect(carte).toContain('<Copier ');
   });
 
   /**
@@ -227,10 +250,19 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
    * « note », ni « surface » n'existent dans le schéma. L'écran écrit « non renseignée » — un fait — plutôt
    * qu'un vide, qui se lirait comme un oubli d'affichage, ou qu'une valeur devinée, qui serait un mensonge.
    */
+  /**
+   * ⚠️ MÊME RÉÉCRITURE QUE CI-DESSUS, ET MÊME MOTIF : le bloc lu n'existe plus, la règle est intacte. Elle vaut
+   * maintenant pour la CARTE, qui est l'endroit où ces valeurs s'affichent — et où, la migration 278 appliquée,
+   * « qualité » et « note » cesseront d'être vides pour de bon.
+   */
   it('🔴 ce que la base ne sait pas est écrit « non renseigné(e) », jamais laissé vide', () => {
-    const bloc = src.slice(src.indexOf('function BlocCoordonnees'), src.indexOf('function VueProprietaire'));
-    expect((bloc.match(/non renseignée/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    expect(bloc).toContain('non renseigné');
+    const carte = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    expect((carte.match(/non renseignée/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(carte).toContain('non renseigné');
+    // Et c'est un MOT en italique gris, jamais un blanc, qui se lirait comme un oubli d'affichage.
+    expect(carte).toContain('.cp-rien{font-style:italic');
+    // La surface d'un bien, elle, reste dite sur la fiche : aucune colonne ne la porte.
+    expect(src).toContain('non renseignée');
   });
 
   /** 🔴 LA CARTE D'UN BIEN porte les huit faits qu'Arno a énumérés, chacun avec son mot. */
@@ -305,8 +337,16 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
     expect(src).not.toMatch(/:hover\{[^}]*(display|visibility)\s*:/);
   });
 
-  it('« lot hors gestion » et « absent du dernier export » sont dits par des MOTS', () => {
-    expect(src).toContain('lot hors gestion');
+  /**
+   * ══ 🔴 MOTS RÉÉCRITS LE 29/09/2026 (lot FICHES-ANNUAIRE, étape C) ═══════════════════════════════════════════
+   *
+   * « lot hors gestion » est devenu « hors gestion » : la mention vit maintenant DANS une carte de logement, à
+   * côté de la capsule « lot 494 » — répéter le mot « lot » à trois centimètres du numéro du lot était du
+   * bavardage. La règle protégée, elle, n'a pas bougé d'un pouce : ces deux états sont dits par des MOTS, jamais
+   * par une couleur ou un simple grisé, qu'un écran mal éclairé ou un œil daltonien ne rend pas.
+   */
+  it('« hors gestion » et « absent du dernier export » sont dits par des MOTS', () => {
+    expect(src).toContain('hors gestion');
     expect(src).toContain('absent du dernier export');
   });
 

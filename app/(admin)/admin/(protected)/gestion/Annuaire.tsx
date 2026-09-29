@@ -5,13 +5,16 @@ import {
   analyserTerme, formaterDateIso, messageRechercheVide, periodeOccupation, titreLogement,
 } from '../../../../lib/gestion/annuaireRecherche';
 import type {
-  BienDuProprietaire, FicheLocataire, FicheLot, FicheProprietaire, LigneResultat, ContactAffiche,
-  OccupationDuLot,
+  BienDuProprietaire, FicheLocataire, FicheLot, FicheProprietaire, LigneResultat,
+  LogementDuLocataire, OccupationDuLot,
 } from '../../../../lib/gestion/annuaireRepo';
 // LOT FICHES-ANNUAIRE étape B — « la vie du bien » : tous ses mails, dans l'idiome de la boîte.
 import { CSS_VIE_DU_BIEN, VieDuBien } from './VieDuBien';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import type { Cible } from '../../../../lib/gestion/rattachement';
+// LOT FICHES-ANNUAIRE étape C — les personnes en CARTES côte à côte, modifiables sur place.
+import { BlocCartes, CSS_CARTES, Ligne as LigneFiche, type GestesCartes, type Sujet } from './CartesPersonnes';
+import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 
 /**
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
@@ -55,6 +58,25 @@ type Fiche =
  *  long pour ne pas lancer une requête par lettre. */
 const ATTENTE_FRAPPE_MS = 250;
 
+/**
+ * ══ 🔴 CE QUE « + AJOUTER » DEMANDE, SELON L'ENDROIT D'OÙ L'ON CLIQUE ═════════════════════════════════════════════
+ *
+ * Sur la fiche d'un propriétaire, « + Ajouter un propriétaire » veut dire CO-PROPRIÉTAIRE DU MÊME ENSEMBLE DE BIENS :
+ * la personne est donc rattachée à tous les biens EN GESTION de la fiche. Sur la fiche d'un bien, elle est rattachée
+ * à ce seul bien. Le même panneau sert aux deux : c'est la LISTE DES LOTS qui change, pas le geste.
+ *
+ * ⚠️ `lots` PEUT ÊTRE VIDE — une personne existe alors dans l'annuaire sans lien. C'est un état légitime (un bailleur
+ * dont on ne gère rien encore) et la base le porte déjà : 0 lot n'est pas une erreur.
+ */
+interface DemandeAjout {
+  sujet: Sujet;
+  lots: number[];
+  titre: string;
+  /** Vrai pour un occupant : on demande aussi la date d'entrée, qui fait le bail. */
+  avecDate: boolean;
+  motDate: string;
+}
+
 export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil }: {
   fiche: FicheUrl | null;
   onFiche: (f: FicheUrl | null) => void;
@@ -83,6 +105,20 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
   const [reponse, setReponse] = useState<Reponse>({ etat: 'repos' });
   const [detail, setDetail] = useState<Fiche | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
+  /**
+   * ══ 🔴 LOT FICHES-ANNUAIRE (étape C) — CE QUI FAIT RELIRE LA FICHE APRÈS UNE MODIFICATION ═══════════════════════
+   *
+   * Un compteur, et il entre dans les dépendances du chargement. Après un enregistrement, on RELIT tout depuis la
+   * base plutôt que de rapiécer l'état local.
+   *
+   * 🔴 POURQUOI RELIRE ET NON RAPIÉCER. Le serveur ne fait pas que ranger ce qu'on lui envoie : il recompose le nom
+   * affiché, réveille une coordonnée archivée qui revient, réordonne les cartes, pose des verrous. Un état local
+   * mis à jour à la main finirait par montrer autre chose que la base — et c'est précisément ce genre d'écart qui
+   * fait douter de tout l'écran. Une lecture de plus, c'est une requête ; une divergence, c'est un bogue.
+   */
+  const [rafraichi, setRafraichi] = useState(0);
+  const recharger = useCallback(() => setRafraichi((n) => n + 1), []);
+  const [ajout, setAjout] = useState<DemandeAjout | null>(null);
 
   // ── LA RECHERCHE ────────────────────────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -131,14 +167,98 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
       }
     })();
     return () => { vivant = false; };
-  }, [fiche]);
+  }, [fiche, rafraichi]);
 
   const ouvrir = useCallback((sorte: FicheUrl['sorte'], id: number) => onFiche({ sorte, id }), [onFiche]);
+
+  /**
+   * ══ 🔴🔴 LES GESTES D'ÉCRITURE — UNE SEULE PORTE, UN SEUL TRAITEMENT DE REFUS ════════════════════════════════════
+   *
+   * Chaque geste rend `null` quand tout va bien, ou LE MOTIF DU REFUS, que la carte affiche là où on a cliqué.
+   *
+   * 🔴 UN REFUS N'EST PAS UNE ERREUR TECHNIQUE, et les deux ne se disent pas de la même façon : « cette adresse est
+   * l'une des nôtres » est une phrase à lire et à corriger ; « la base n'a pas répondu » est une panne. Les
+   * confondre ferait chercher un bogue là où il n'y a qu'une faute de frappe.
+   *
+   * ⚠️ `sans_schema` SE DIT AUSSI, avec son motif écrit : la migration 278 n'est pas appliquée. Il ne peut arriver
+   * que si la migration disparaît entre le chargement de la fiche et le clic — mais il se dirait alors clairement,
+   * plutôt que de laisser le bouton tourner dans le vide.
+   */
+  const envoyer = useCallback(async (corps: Record<string, unknown>): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/admin/gestion/annuaire', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
+      });
+      const d = (await res.json()) as { etat?: string; motif?: string; message?: string; data?: unknown };
+      if (d.etat === 'ok') { recharger(); return null; }
+      if (d.etat === 'sans_schema') return MOTIF_SANS_MIGRATION;
+      if (d.etat === 'inconnu') return 'Cette fiche n’existe plus dans l’annuaire.';
+      return d.motif ?? d.message ?? 'Enregistrement refusé.';
+    } catch {
+      return 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.';
+    }
+  }, [recharger]);
+
+  const modifiable = detail !== null && detail.etat !== 'charge' && detail.etat !== 'erreur'
+    && detail.data.modifiable;
+
+  const gestes: GestesCartes = {
+    modifiable,
+    onEnregistrer: (sujet, id, champs) => envoyer({ action: 'modifier', sujet, id, champs }),
+    onArchiver: (sujet, id, archiver) => envoyer({ action: archiver ? 'archiver' : 'restaurer', sujet, id }),
+    onSeparer: (sujet, id, o) => envoyer({ action: 'separer', sujet, id, ...o }),
+    onOrdonner: (sujet, ids) => envoyer({ action: 'ordonner', sujet, ids }),
+    onAjouter: () => { /* remplacé par fiche : chaque vue sait à quel bien rattacher la personne */ },
+    onEcrire,
+  };
+
+  /**
+   * ══ 🔴🔴 CRÉER UNE PERSONNE, PUIS LA RATTACHER — EN DEUX TEMPS, ET C'EST VOULU ═══════════════════════════════════
+   *
+   * Arno : « ajouter un co-propriétaire », « ajouter un occupant ». Une personne neuve n'existe nulle part : il faut
+   * d'abord la CRÉER (elle reçoit une clé « app-… », puisque WIPPIMMO ne la connaît pas), puis la RATTACHER au ou aux
+   * biens concernés.
+   *
+   * 🔴 SI LE RATTACHEMENT ÉCHOUE, LA PERSONNE RESTE — et on le DIT. La défaire serait une suppression, et il n'y en a
+   * pas dans ce module ; la taire laisserait une fiche orpheline que personne ne chercherait. On nomme donc les deux
+   * moitiés du geste : « la fiche est créée, mais le rattachement au bien a échoué ».
+   */
+  const creerEtRattacher = useCallback(async (
+    d: DemandeAjout, saisie: { civilite: string; nom: string; date: string },
+  ): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/admin/gestion/annuaire', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'creer', sujet: d.sujet, civilite: saisie.civilite, nom: saisie.nom }),
+      });
+      const cree = (await res.json()) as { etat?: string; motif?: string; data?: { id?: number } };
+      if (cree.etat === 'sans_schema') return MOTIF_SANS_MIGRATION;
+      if (cree.etat !== 'ok' || typeof cree.data?.id !== 'number') {
+        return cree.motif ?? 'La fiche n’a pas pu être créée.';
+      }
+      const id = cree.data.id;
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(saisie.date) ? saisie.date : null;
+      for (const lotId of d.lots) {
+        const motif = await envoyer(d.sujet === 'proprietaire'
+          ? { action: 'ajouter-proprietaire', lotId, proprietaireId: id, depuis: date }
+          : { action: 'ajouter-occupant', lotId, locataireId: id, entree: date });
+        if (motif !== null) {
+          recharger();
+          return `La fiche « ${saisie.nom} » est créée, mais son rattachement au bien a échoué : ${motif}`;
+        }
+      }
+      recharger();
+      return null;
+    } catch {
+      return 'Création impossible : le serveur n’a pas répondu.';
+    }
+  }, [envoyer, recharger]);
 
   return (
     <div className="ann">
       <style>{CSS_ANNUAIRE}</style>
       <style>{CSS_VIE_DU_BIEN}</style>
+      <style>{CSS_CARTES}</style>
 
       {/* ══ 🔴🔴 LOT FICHES-ANNUAIRE — LE HAUT DE LA FICHE : UN RETOUR, ET LA RECHERCHE ════════════════════════
           Arno, sur la fiche de M. ROI Nathan : « elle est nulle, il faut totalement la restructurer ». La fiche
@@ -197,19 +317,85 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
         <section className="ann-fiche" aria-live="polite">
           {/* ⚠️ PLUS DE SECOND BOUTON DE RETOUR ICI : il est en haut de page, au-dessus de tout, et il ramène aux
               résultats comme celui-ci le faisait. En garder deux ferait deux chemins pour un même geste. */}
+          {/* 🔴 LE PANNEAU D'AJOUT EST EN HAUT DE LA FICHE, jamais une fenêtre par-dessus : à 390 px une fenêtre
+              modale cacherait ce qu'on est en train de remplir, et le clavier virtuel le reste. */}
+          {ajout !== null && (
+            <PanneauAjout d={ajout} onAnnuler={() => setAjout(null)}
+              onCreer={async (saisie) => {
+                const motif = await creerEtRattacher(ajout, saisie);
+                if (motif === null) setAjout(null);
+                return motif;
+              }} />
+          )}
           {detail === null || detail.etat === 'charge' ? <p className="gst-info" role="status">Chargement…</p>
             : detail.etat === 'erreur' ? <p className="gst-erreur" role="status">{detail.message}</p>
               : detail.etat === 'proprietaire'
-                ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onEcrire={onEcrire} onHistorique={onHistorique} />
+                ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
+                  gestes={gestes} onAjout={setAjout} />
                 : detail.etat === 'lot'
                   ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} onEcrire={onEcrire}
-                    maintenant={refTemps} onOuvrirFil={onOuvrirFil} />
-                  : <VueLocataire f={detail.data} ouvrir={ouvrir} onEcrire={onEcrire} onHistorique={onHistorique} />}
+                    maintenant={refTemps} onOuvrirFil={onOuvrirFil} gestes={gestes} onAjout={setAjout}
+                    onDepart={(occupationId, sortie) => envoyer({ action: 'depart', occupationId, sortie })} />
+                  : <VueLocataire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
+                    gestes={gestes} maintenant={refTemps} onOuvrirFil={onOuvrirFil} />}
         </section>
       ) : (
         <Resultats reponse={reponse} terme={terme} ouvrir={ouvrir} />
       )}
     </div>
+  );
+}
+
+/**
+ * ══ 🔴 AJOUTER UNE PERSONNE — LE MINIMUM, ET RIEN DE PLUS ═════════════════════════════════════════════════════════
+ *
+ * Civilité, nom, et la date quand elle fait le bail. Tout le reste (téléphones, e-mails, qualité, note) se saisit
+ * ENSUITE, sur la carte, avec le crayon : demander dix champs avant de créer ferait abandonner le geste à mi-chemin,
+ * et une fiche à moitié remplie vaut mieux qu'une fiche jamais créée.
+ */
+function PanneauAjout({ d, onCreer, onAnnuler }: {
+  d: DemandeAjout;
+  onCreer: (saisie: { civilite: string; nom: string; date: string }) => Promise<string | null>;
+  onAnnuler: () => void;
+}) {
+  const [civilite, setCivilite] = useState('');
+  const [nom, setNom] = useState('');
+  const [date, setDate] = useState('');
+  const [refus, setRefus] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  return (
+    <form className="ann-bloc cp-form" onSubmit={(e) => {
+      e.preventDefault();
+      if (nom.trim() === '') { setRefus('Le nom est obligatoire.'); return; }
+      setEnvoi(true);
+      void (async () => { setRefus(await onCreer({ civilite, nom, date })); setEnvoi(false); })();
+    }}>
+      <p className="cp-form-titre">{d.titre}</p>
+      <label className="cp-champ">
+        <span className="cp-champ-mot">Civilité</span>
+        <input className="cp-saisie" value={civilite} onChange={(e) => setCivilite(e.target.value)}
+          placeholder="M. / Mme / SCI…" />
+      </label>
+      <label className="cp-champ">
+        <span className="cp-champ-mot">Nom</span>
+        <input className="cp-saisie" value={nom} onChange={(e) => setNom(e.target.value)} required autoFocus />
+      </label>
+      {d.avecDate && (
+        <label className="cp-champ">
+          <span className="cp-champ-mot">{d.motDate}</span>
+          {/* ⚠️ LA DATE PEUT RESTER VIDE : la base l'accepte (283 occupations sans date d'entrée), et inventer
+              « aujourd'hui » écrirait un fait faux dans l'historique du bien. */}
+          <input className="cp-saisie" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </label>
+      )}
+      {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
+      <div className="cp-form-boutons">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler}>Annuler</button>
+        <button type="submit" className="svv-btn gst-btn" disabled={envoi}>
+          {envoi ? 'Création…' : 'Créer la fiche'}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -294,30 +480,13 @@ function Resultats({ reponse, terme, ouvrir }: {
   );
 }
 
-// ══ LES CONTACTS, CLIQUABLES ════════════════════════════════════════════════════════════════════════════════════
-
-function Contacts({ contacts, onEcrire }: { contacts: ContactAffiche[]; onEcrire?: (email: string) => void }) {
-  if (contacts.length === 0) return <p className="ann-gris">Aucune coordonnée dans WIPPIMMO.</p>;
-  return (
-    <ul className="ann-contacts">
-      {contacts.map((c) => (
-        <li key={`${c.sorte}-${c.valeur}`} className="ann-contact">
-          <span className="ann-role">{c.sorte === 'telephone' ? 'Téléphone' : 'E-mail'}</span>
-          {c.sorte === 'telephone' ? (
-            /* `tel:` porte la forme CANONIQUE (+33…), qui compose partout ; le texte, lui, montre ce qui était
-               écrit dans WIPPIMMO — un numéro reformaté n'est plus reconnu par celui qui l'a saisi. */
-            <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
-          ) : onEcrire ? (
-            <button type="button" className="ann-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
-          ) : (
-            <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>
-          )}
-          {c.absent && <span className="ann-etiq ann-etiq--absent">retiré de l’export</span>}
-        </li>
-      ))}
-    </ul>
-  );
-}
+/* ══ 🔴 RETIRÉ LE 29/09/2026 — LOT FICHES-ANNUAIRE, ÉTAPE C ════════════════════════════════════════════════════
+   Ici vivait `Contacts`, la liste plate des coordonnées d'une personne (« Aucune coordonnée dans WIPPIMMO. »).
+   Son seul appelant était l'ancienne fiche locataire ; celle-ci porte désormais des CARTES (`BlocCartes`), où
+   chaque coordonnée est une ligne alignée avec son libellé et son bouton Copier.
+   Il n'est pas conservé en dormance : un composant que rien n'appelle finit par diverger de celui qui sert, et
+   l'on corrige alors le mauvais. La règle qu'il portait, elle, est tenue — et éprouvée — dans `CartesPersonnes` :
+   une absence de coordonnée se DIT, jamais un blanc. */
 
 // ══ LES TROIS FICHES ════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -351,88 +520,26 @@ function BoutonCopier({ valeur, quoi }: { valeur: string; quoi: string }) {
   );
 }
 
-/**
- * ══ 🔴🔴 LE BLOC DES COORDONNÉES COMPLÈTES — LE PREMIER DE LA FICHE ═══════════════════════════════════════════
- *
- * Arno : « 1er bloc = COORDONNÉES COMPLÈTES du ou des propriétaires du même ensemble de biens (co-propriétaires,
- * indivision, société + représentant) : civilité, nom, qualité, adresse postale, chaque téléphone et chaque
- * e-mail avec son libellé et un bouton Copier, une note libre ».
- *
- * ═══ CE QUE LA BASE SAIT, MESURÉ LE 29/09/2026 ═════════════════════════════════════════════════════════════════
- *   · civilité 302/307 · adresse postale 304/307 · coordonnées : 354 e-mails et 287 téléphones, TOUS avec leur
- *     libellé d'origine (« Mobile », « Email », …) ;
- *   · QUALITÉ et NOTE LIBRE : aucune colonne n'existe. On écrit « non renseignée » — jamais un vide, qui se
- *     lirait comme un oubli d'affichage ;
- *   · CO-PROPRIÉTAIRES : un bien n'a qu'UN propriétaire dans le schéma (clé étrangère unique). 66 fiches sur 307
- *     nomment pourtant deux personnes DANS le nom (« AISSAOUI Mohamed et Amina »). On rend donc la liste telle
- *     qu'elle est — une personne aujourd'hui — sans inventer un découpage que rien ne permet de faire.
- *     🔭 L'étape C ouvre l'ajout d'un co-propriétaire : c'est là que la liste en portera plusieurs, pour de vrai.
- */
-function BlocCoordonnees({ f, onEcrire }: { f: FicheProprietaire; onEcrire?: (email: string) => void }) {
-  const adresse = titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '));
-  const tels = f.contacts.filter((c) => c.sorte === 'telephone');
-  const mails = f.contacts.filter((c) => c.sorte === 'email');
-  return (
-    <section className="ann-bloc" aria-labelledby="ann-coord">
-      <h4 className="ann-bloc-titre" id="ann-coord">Coordonnées</h4>
-      <article className="ann-personne">
-        {/* ⚠️ L'EN-TÊTE DU BLOC porte le nom À GAUCHE et ses actions À DROITE. C'est ici que « Modifier » prendra
-            place à l'étape C — un bouton par PERSONNE, puisque le bloc en portera plusieurs. */}
-        <div className="ann-personne-tete">
-          <p className="ann-personne-nom">{f.civilite ? `${f.civilite} ` : ''}{f.nom}</p>
-        </div>
-        <dl className="ann-champs">
-          <dt>Qualité</dt>
-          {/* 🔴 AUCUNE COLONNE « QUALITÉ » n'existe : on le DIT, on ne laisse pas une ligne vide. */}
-          <dd><span className="ann-inconnu">non renseignée</span></dd>
-          <dt>Adresse postale</dt>
-          <dd>{adresse !== '' ? adresse : <span className="ann-inconnu">non renseignée</span>}</dd>
-          <dt>Téléphone{tels.length > 1 ? 's' : ''}</dt>
-          <dd>
-            {tels.length === 0 ? <span className="ann-inconnu">non renseigné</span> : (
-              <ul className="ann-coords">
-                {tels.map((c) => (
-                  <li key={c.valeur} className="ann-coord">
-                    <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
-                    <span className="ann-libelle">{c.libelle ?? 'Téléphone'}</span>
-                    <BoutonCopier valeur={c.affichage} quoi="ce numéro" />
-                    {c.absent && <span className="ann-etiq ann-etiq--absent">retiré de l’export</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </dd>
-          <dt>E-mail{mails.length > 1 ? 's' : ''}</dt>
-          <dd>
-            {mails.length === 0 ? <span className="ann-inconnu">non renseigné</span> : (
-              <ul className="ann-coords">
-                {mails.map((c) => (
-                  <li key={c.valeur} className="ann-coord">
-                    {onEcrire
-                      ? <button type="button" className="ann-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
-                      : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
-                    <span className="ann-libelle">{c.libelle ?? 'E-mail'}</span>
-                    <BoutonCopier valeur={c.valeur} quoi="cette adresse" />
-                    {c.absent && <span className="ann-etiq ann-etiq--absent">retiré de l’export</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </dd>
-          <dt>Note</dt>
-          <dd><span className="ann-inconnu">non renseignée</span></dd>
-        </dl>
-      </article>
-      <p className="ann-depuis">
-        {f.relationDepuis
-          ? <>Début de collaboration : <strong>le {formaterDateIso(f.relationDepuis)}</strong>{' '}
-            <span className="ann-gris">— début de gestion du plus ancien lot</span></>
-          : <>Début de collaboration : <span className="ann-inconnu">non renseigné</span>{' '}
-            <span className="ann-gris">— aucun lot en gestion ne porte de date de début</span></>}
-      </p>
-    </section>
-  );
-}
+/* ══ 🔴🔴 REMPLACÉ LE 29/09/2026 — LOT FICHES-ANNUAIRE, ÉTAPE C ════════════════════════════════════════════════
+   Ici vivait `BlocCoordonnees`, le premier bloc de la fiche propriétaire écrit à l'étape A. Il est remplacé par
+   `BlocCartes` (fichier `CartesPersonnes`) pour DEUX raisons, toutes deux dites par Arno :
+
+   ① IL N'AFFICHAIT QU'UNE PERSONNE, alors que le bloc doit porter « le ou les propriétaires du même ensemble de
+      biens », côte à côte, chacun avec son crayon « Modifier » et son menu « ⋯ ».
+
+   ② SON `<dl>` NE POUVAIT PAS ALIGNER UN LIBELLÉ SUR SA VALEUR — « des écarts de niveaux partout ». Les `<dt>` et
+      les `<dd>` vivent dans deux flux séparés : une valeur portant deux capsules et un bouton était plus haute
+      que son libellé, qui remontait. Chaque ligne d'une carte est maintenant une grille de deux colonnes centrées
+      verticalement, ce qui rend l'alignement mécanique plutôt qu'espéré.
+
+   ⚠️ LA DEMANDE D'ORIGINE N'A PAS CHANGÉ, et les cartes la tiennent entièrement : « civilité, nom, qualité,
+   adresse postale, chaque téléphone et chaque e-mail avec son libellé et un bouton Copier, une note libre ».
+   Ce qu'on a mesuré alors reste vrai : civilité 302/307, adresse postale 304/307, 354 e-mails et 287 téléphones
+   tous porteurs de leur libellé d'origine. « Qualité » et « note » n'existaient dans AUCUNE colonne — c'est la
+   migration 278 qui les apporte, et sans elle l'écran écrit encore « non renseignée ».
+
+   Le code n'est pas gardé en dormance : un bloc que rien n'appelle diverge de celui qui sert, et l'on finit par
+   corriger le mauvais. Ce qu'il garantissait est éprouvé sur les cartes, dans `annuaireEdition.test.ts`. */
 
 /** Ce qu'une carte de bien affiche d'une date : la date seule, ou le mot qui dit qu'on ne l'a pas. */
 function DateOuRien({ iso, sinon }: { iso: string | null; sinon: string }) {
@@ -517,9 +624,11 @@ function CarteBien({ b, ouvrir }: { b: BienDuProprietaire; ouvrir: (s: FicheUrl[
   );
 }
 
-function VueProprietaire({ f, ouvrir, onEcrire, onHistorique }: {
-  f: FicheProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onEcrire?: (email: string) => void;
+function VueProprietaire({ f, ouvrir, onHistorique, gestes, onAjout }: {
+  f: FicheProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
+  gestes: GestesCartes;
+  onAjout: (d: DemandeAjout) => void;
 }) {
   const [anciensOuverts, setAnciensOuverts] = useState(false);
   const enGestion = f.biens.filter((b) => b.fin === null);
@@ -545,7 +654,35 @@ function VueProprietaire({ f, ouvrir, onEcrire, onHistorique }: {
         </div>
       </header>
 
-      <BlocCoordonnees f={f} onEcrire={onEcrire} />
+      {/* ══ 🔴🔴 LE BLOC « COORDONNÉES » : DES CARTES, CÔTE À CÔTE, MODIFIABLES ════════════════════════════════
+          Demande d'Arno (complément à l'étape C) : « chaque propriétaire est une CARTE, et les cartes se suivent de
+          gauche à droite […] à la fin de la rangée, une carte “+ Ajouter un propriétaire” ».
+
+          🔴 L'ANCIEN `BlocCoordonnees` RESTE DANS CE FICHIER, mais il n'est plus appelé ici : il servait UN seul
+          propriétaire, dans un `<dl>` dont les libellés ne pouvaient pas s'aligner sur leurs valeurs — le défaut
+          qu'Arno a signalé (« des écarts de niveaux partout »). La raison de son remplacement est écrite sur lui.
+
+          ⚠️ « + AJOUTER UN PROPRIÉTAIRE » VEUT DIRE CO-PROPRIÉTAIRE DU MÊME ENSEMBLE DE BIENS : la personne créée
+          est rattachée à tous les biens EN GESTION de cette fiche, ce qui est exactement ce que le bloc annonce. */}
+      <BlocCartes titre="Coordonnées" id="ann-coord" personnes={f.personnes} role="Propriétaire"
+        motAjouter="Ajouter un propriétaire"
+        gestes={{
+          ...gestes,
+          onAjouter: (sujet) => onAjout({
+            sujet, lots: enGestion.map((b) => b.id), avecDate: true,
+            titre: `Ajouter un co-propriétaire${enGestion.length > 0
+              ? ` sur ${enGestion.length} bien${enGestion.length > 1 ? 's' : ''} en gestion` : ''}`,
+            motDate: 'Propriétaire depuis le (facultatif)',
+          }),
+        }} />
+
+      <p className="ann-depuis">
+        {f.relationDepuis
+          ? <>Début de collaboration : <strong>le {formaterDateIso(f.relationDepuis)}</strong>{' '}
+            <span className="ann-gris">— début de gestion du plus ancien lot</span></>
+          : <>Début de collaboration : <span className="ann-inconnu">non renseigné</span>{' '}
+            <span className="ann-gris">— aucun lot en gestion ne porte de date de début</span></>}
+      </p>
 
       <section className="ann-bloc" aria-labelledby="ann-biens">
         <h4 className="ann-bloc-titre" id="ann-biens">
@@ -580,6 +717,58 @@ function VueProprietaire({ f, ouvrir, onEcrire, onHistorique }: {
         <BoutonHistorique cible={{ sorte: 'proprietaire', cle: f.cle, id: null }} onHistorique={onHistorique} />
       </p>
     </>
+  );
+}
+
+/**
+ * ══ 🔴🔴 ENREGISTRER UN DÉPART ════════════════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « enregistrer un départ (date de sortie → historique) ». C'est le geste le plus lourd de conséquences de
+ * la fiche d'un bien : il fait passer un locataire EN PLACE dans l'HISTORIQUE, et le logement devient vacant.
+ *
+ * 🔴 IL DEMANDE UNE DATE, ET CONFIRMATION. Sans date, le serveur prendrait aujourd'hui — ce qui est souvent faux :
+ * on enregistre un départ une semaine après. La date est donc posée d'abord, visible, et modifiable.
+ *
+ * ⚠️ RIEN N'EST SUPPRIMÉ : l'occupation est DATÉE. Le locataire garde sa fiche, ses coordonnées et ses mails, et
+ * l'historique du bien le montre avec ses deux dates. C'est ce que dit la phrase du panneau.
+ */
+function BoutonDepart({ nom, occupationId, modifiable, onDepart }: {
+  nom: string; occupationId: number; modifiable: boolean;
+  onDepart: (occupationId: number, sortie: string | null) => Promise<string | null>;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const [date, setDate] = useState('');
+  const [refus, setRefus] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  if (!ouvert) {
+    return (
+      <>
+        <button type="button" className="cp-copier" disabled={!modifiable}
+          title={modifiable ? undefined : MOTIF_SANS_MIGRATION} onClick={() => setOuvert(true)}>
+          Enregistrer un départ…
+        </button>
+        {refus !== null && <span className="cp-rien">{refus}</span>}
+      </>
+    );
+  }
+  return (
+    <span className="ann-depart">
+      <span className="cp-rien">{nom} quitte le logement le :</span>
+      <input className="cp-saisie" type="date" value={date} aria-label="Date de sortie"
+        onChange={(e) => setDate(e.target.value)} />
+      <button type="button" className="cp-copier" onClick={() => { setOuvert(false); setRefus(null); }}>
+        Annuler
+      </button>
+      <button type="button" className="cp-copier" disabled={envoi} onClick={() => {
+        setEnvoi(true);
+        void (async () => {
+          const motif = await onDepart(occupationId, /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null);
+          setEnvoi(false);
+          if (motif === null) setOuvert(false); else setRefus(motif);
+        })();
+      }}>{envoi ? 'Enregistrement…' : 'Enregistrer le départ'}</button>
+      {refus !== null && <span className="cp-refus">{refus}</span>}
+    </span>
   );
 }
 
@@ -667,11 +856,15 @@ function BlocOccupant({ o, ouvrir, onEcrire }: {
  * jour où deux personnes partageront une date d'entrée, elles s'afficheront ensemble, sans qu'une ligne change.
  * 🔭 L'étape C ouvre l'ajout d'un occupant : c'est là que le groupe en portera plusieurs, pour de vrai.
  */
-function VueLot({ f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil }: {
+function VueLot({ f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onAjout, onDepart }: {
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
   onEcrire?: (email: string) => void;
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+  gestes: GestesCartes;
+  onAjout: (d: DemandeAjout) => void;
+  /** Enregistre un départ. Rend le motif du refus, ou `null`. */
+  onDepart: (occupationId: number, sortie: string | null) => Promise<string | null>;
 }) {
   const actuels = f.occupations.filter((o) => o.encours);
   const passes = f.occupations.filter((o) => !o.encours);
@@ -711,35 +904,19 @@ function VueLot({ f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil }: 
             <dt>Surface</dt>
             {/* 🔴 AUCUNE COLONNE DE SURFACE n'existe dans le schéma : on le DIT, on ne devine pas depuis le type. */}
             <dd>{f.surfaceM2 === null ? <span className="ann-inconnu">non renseignée</span> : `${f.surfaceM2} m²`}</dd>
-            <dt>Propriétaire</dt>
-            <dd>
-              {f.proprietaireId !== null ? (
-                <>
-                  <button type="button" className="ann-lien ann-lien--fort"
-                    onClick={() => ouvrir('proprietaire', f.proprietaireId as number)}>{f.proprietaireNom}</button>
-                  {f.proprietaireContacts.length > 0 && (
-                    <ul className="ann-coords">
-                      {f.proprietaireContacts.map((c) => (
-                        <li key={`${c.sorte}-${c.valeur}`} className="ann-coord">
-                          {c.sorte === 'telephone'
-                            ? <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
-                            : onEcrire
-                              ? <button type="button" className="ann-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
-                              : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
-                          <span className="ann-libelle">{c.libelle ?? (c.sorte === 'telephone' ? 'Téléphone' : 'E-mail')}</span>
-                          <BoutonCopier valeur={c.sorte === 'telephone' ? c.affichage : c.valeur}
-                            quoi={c.sorte === 'telephone' ? 'ce numéro' : 'cette adresse'} />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              ) : (
-                <span className="ann-inconnu">
-                  {f.proprietaireNom || 'non rattaché'} — nom porté par plusieurs fiches WIPPIMMO, non tranché
-                </span>
-              )}
-            </dd>
+            {/* 🔴 LE PROPRIÉTAIRE N'EST PLUS DÉTAILLÉ ICI : il a sa CARTE, juste en dessous, avec son crayon et
+                toutes ses coordonnées alignées. Répéter ses numéros dans l'en-tête donnerait deux endroits à
+                corriger, dont un seul modifiable — la meilleure façon d'en laisser un se périmer. */}
+            {f.proprietaireId === null && (
+              <>
+                <dt>Propriétaire</dt>
+                <dd>
+                  <span className="ann-inconnu">
+                    {f.proprietaireNom || 'non rattaché'} — nom porté par plusieurs fiches WIPPIMMO, non tranché
+                  </span>
+                </dd>
+              </>
+            )}
             <dt>En gestion</dt>
             <dd>
               {f.debut ? <>depuis le {formaterDateIso(f.debut)}</> : <span className="ann-inconnu">date non renseignée</span>}
@@ -749,17 +926,55 @@ function VueLot({ f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil }: 
         </div>
       </section>
 
-      <section className="ann-bloc" aria-labelledby="ann-occ">
-        <h4 className="ann-bloc-titre" id="ann-occ">
-          Locataire{actuels.length > 1 ? 's' : ''} en place
-          <span className="gst-compte">{actuels.length}</span>
-        </h4>
-        {actuels.length === 0
-          ? <p className="ann-gris">Aucun bail en cours — le logement est vacant.</p>
-          : actuels.map((o) => (
-            <BlocOccupant key={`a-${o.locataireId}-${o.entree ?? ''}`} o={o} ouvrir={ouvrir} onEcrire={onEcrire} />
-          ))}
-      </section>
+      {/* ══ 🔴 LES PROPRIÉTAIRES DU BIEN, EN CARTES — avec « Remplacer » pour une vente ═══════════════════════════ */}
+      <BlocCartes titre={`Propriétaire${f.proprietaires.length > 1 ? 's' : ''}`} id="ann-prop"
+        personnes={f.proprietaires} role="Propriétaire" motAjouter="Ajouter un propriétaire"
+        gestes={{
+          ...gestes,
+          onAjouter: (sujet) => onAjout({
+            sujet, lots: [f.id], avecDate: true, titre: `Ajouter un propriétaire au lot ${f.numero}`,
+            motDate: 'Propriétaire depuis le (facultatif)',
+          }),
+          /* ⚠️ « REMPLACER » MÈNE À LA FICHE DE LA PERSONNE : c'est là que le geste a un sens, puisqu'il faut
+             d'abord désigner le NOUVEAU propriétaire. Le proposer ici sans savoir par qui remplacer ouvrirait un
+             formulaire qui n'aurait rien à dire. */
+          onRemplacer: (sujet, id) => ouvrir(sujet === 'proprietaire' ? 'proprietaire' : 'locataire', id),
+        }} />
+
+      {/* ══ 🔴 LES OCCUPANTS EN PLACE, EN CARTES — chacun avec ses dates et « Enregistrer un départ » ══════════════
+          Arno : « LOCATAIRE(S) EN PLACE : tous les occupants du même bail […] avec coordonnées complètes, date
+          d'entrée et liens vers leur fiche » ; et pour l'étape C : « enregistrer un départ (date de sortie →
+          historique), enregistrer un nouveau locataire (date d'entrée) ». */}
+      <BlocCartes titre={`Locataire${actuels.length > 1 ? 's' : ''} en place`} id="ann-occ"
+        personnes={f.occupants} role="En place" motAjouter="Ajouter un occupant"
+        gestes={{
+          ...gestes,
+          onAjouter: (sujet) => onAjout({
+            sujet: sujet === 'locataire' ? 'locataire' : 'locataire', lots: [f.id], avecDate: true,
+            titre: `Ajouter un occupant au lot ${f.numero}`, motDate: 'Entré le (facultatif)',
+          }),
+        }}
+        dessous={(p) => {
+          const occ = actuels.find((o) => o.locataireId === p.id);
+          if (occ === undefined) return null;
+          return (
+            <>
+              <LigneFiche libelle="Entré le">
+                {occ.entree === null ? <span className="cp-rien">non renseignée</span> : formaterDateIso(occ.entree)}
+              </LigneFiche>
+              <LigneFiche libelle="Sa fiche">
+                <button type="button" className="cp-lien" onClick={() => ouvrir('locataire', p.id)}>
+                  Ouvrir la fiche du locataire →
+                </button>
+              </LigneFiche>
+              <LigneFiche libelle="Départ">
+                <BoutonDepart nom={p.nomAffiche} occupationId={occ.occupationId} modifiable={gestes.modifiable}
+                  onDepart={onDepart} />
+              </LigneFiche>
+            </>
+          );
+        }} />
+      {actuels.length === 0 && <p className="ann-gris">Aucun bail en cours — le logement est vacant.</p>}
 
       {/* ⚠️ L'HISTORIQUE EST TOUJOURS LÀ, jamais derrière un survol : c'est la question qu'on pose juste après
           « qui habite ici ? » — « et avant ? ». Chaque occupation passée porte ses coordonnées, comme demandé. */}
@@ -811,42 +1026,188 @@ function grouperParPeriode(occupations: readonly OccupationDuLot[]): OccupationD
   return groupes;
 }
 
-function VueLocataire({ f, ouvrir, onEcrire, onHistorique }: {
-  f: FicheLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onEcrire?: (email: string) => void;
+/**
+ * ══ 🔴🔴 LA FICHE D'UN LOCATAIRE — ÉTAPE C ═════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « ÉTAPE C — FICHE LOCATAIRE : plus légère (coordonnées, le logement en carte vers la fiche bien, les
+ * dates, le propriétaire, et ses mails) ». Et la RÈGLE qui la gouverne : « chercher un locataire montre TOUS les
+ * occupants du même logement ».
+ *
+ * 🔴 « PLUS LÉGÈRE » NE VEUT PAS DIRE PLUS PAUVRE. On y trouve tout ce qu'on vient y chercher — qui appeler, où il
+ * habite, depuis quand, à qui est le logement, ce qui s'est dit — et rien de plus : ni l'historique complet du
+ * bien (il est sur la fiche du bien), ni ses anciens co-occupants (ils sont dans son historique).
+ *
+ * 🔴 LES CARTES PORTENT LE FOYER, PAS LA SEULE PERSONNE DEMANDÉE. C'est la règle d'Arno prise au mot : appeler un
+ * logement, c'est pouvoir joindre l'un ou l'autre. Ne montrer qu'un des deux conjoints ferait rater l'autre
+ * numéro — le défaut même de l'annuaire d'avant.
+ *
+ * ⚠️ « SES MAILS » RÉUTILISE `VieDuBien`, avec la clé de son LOGEMENT EN COURS. Un mail n'est jamais rattaché à une
+ * personne mais à un BIEN (règle centrale du module : « la cible est toujours un bien ») : les mails d'un
+ * locataire sont donc ceux de son logement, et l'écran le DIT plutôt que de laisser croire à un tri par personne.
+ */
+function VueLocataire({ f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil }: {
+  f: FicheLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
+  gestes: GestesCartes;
+  maintenant: Date;
+  onOuvrirFil?: (filId: number, messageId?: number | null) => void;
 }) {
+  const enCours = f.logements.filter((o) => o.encours);
+  const passes = f.logements.filter((o) => !o.encours);
+  /** Le logement dont on montre les échanges : celui qu'il occupe. Le plus récent s'il en occupe plusieurs. */
+  const logementDesMails = enCours[0] ?? null;
   return (
     <>
-      <h3 className="ann-fiche-titre">{f.nom}</h3>
-      <p className="ann-fiche-sous">Locataire{f.absent && ' · absent du dernier export'}</p>
-      <dl className="ann-dl">
-        <dt>Adresse</dt>
-        <dd>{titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '))}</dd>
-      </dl>
-      <h4 className="ann-sstitre">Coordonnées</h4>
-      <Contacts contacts={f.contacts} onEcrire={onEcrire} />
-      <h4 className="ann-sstitre">Ses logements <span className="gst-compte">{f.occupations.length}</span></h4>
-      <ul className="ann-liste">
-        {f.occupations.map((o) => (
-          <li key={`${o.lotId ?? o.numero}-${o.entree ?? ''}`} className={`ann-item${o.encours ? '' : ' ann-item--passe'}`}>
-            <div className="ann-item-titre">
-              {o.lotId !== null
-                ? <button type="button" className="ann-lien ann-lien--fort" onClick={() => ouvrir('lot', o.lotId as number)}>{titreLogement(o.adresse, o.commune)}</button>
-                : <span className="ann-sans-lot">Lot n° {o.numero}</span>}
-              {o.encours ? <span className="ann-etiq">en cours</span> : <span className="ann-etiq ann-etiq--passe">terminé</span>}
-              {/* Un bail dont le lot n'est pas dans l'export Lots : on le GARDE, et on dit pourquoi il est nu. */}
-              {o.horsGestion && <span className="ann-etiq ann-etiq--absent">lot hors gestion</span>}
-            </div>
-            {/* LOT RATTACHEMENT-2 — un LOCATAIRE n'est pas une cible de rattachement (il déménage ; le logement, non) :
-                l'entrée passe donc par chacun de ses logements, et jamais par lui. */}
-            {!o.horsGestion && (
-              <BoutonHistorique cible={{ sorte: 'lot', cle: o.numero, id: null }} onHistorique={onHistorique} />
-            )}
-            <div className="ann-item-ligne"><span className="ann-role">Occupation</span><span>{periodeOccupation(o.entree, o.sortie)}</span></div>
-          </li>
-        ))}
-      </ul>
+      <header className="ann-tete">
+        <div className="ann-tete-mots">
+          <h3 className="ann-tete-nom">{f.nom}</h3>
+          <p className="ann-tete-sous">
+            <span className="ann-role-capsule">{enCours.length > 0 ? 'Locataire en place' : 'Ancien locataire'}</span>
+            {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
+          </p>
+        </div>
+      </header>
+
+      {/* ══ 🔴 TOUS LES OCCUPANTS DU MÊME LOGEMENT, EN CARTES — la règle d'Arno, à l'écran ═══════════════════════ */}
+      <BlocCartes titre="Coordonnées" id="ann-coord-loc" personnes={f.personnes} motAjouter="Ajouter un occupant"
+        role={(p) => (p.id === f.id ? 'Locataire' : 'Même logement')}
+        gestes={{
+          ...gestes,
+          // ⚠️ On rattache au logement EN COURS. Sans logement en cours, la personne est créée sans lien : rien à
+          //    quoi la rattacher, et inventer un bail serait écrire un fait faux.
+          onAjouter: (sujet) => gestes.onAjouter(sujet),
+        }} />
+      {f.personnes.length > 1 && (
+        <p className="ann-gris">
+          Les cartes ci-dessus portent <strong>tous les occupants du même logement</strong>, et pas seulement la
+          personne cherchée.
+        </p>
+      )}
+
+      {/* ══ 🔴 LE LOGEMENT EN CARTE, VERS LA FICHE DU BIEN, avec les dates et le propriétaire ════════════════════ */}
+      <section className="ann-bloc" aria-labelledby="ann-log">
+        <h4 className="ann-bloc-titre" id="ann-log">
+          {enCours.length > 1 ? 'Ses logements' : 'Son logement'} <span className="gst-compte">{enCours.length}</span>
+        </h4>
+        {enCours.length === 0
+          ? <p className="ann-gris">Aucun logement en cours — cette personne a quitté son ou ses logements.</p>
+          : <ul className="ann-cartes">{enCours.map((o) => (
+            <CarteLogement key={`e-${o.lotId ?? o.numero}-${o.entree ?? ''}`} o={o} ouvrir={ouvrir} />
+          ))}</ul>}
+      </section>
+
+      {passes.length > 0 && (
+        <section className="ann-bloc" aria-labelledby="ann-log-p">
+          <h4 className="ann-bloc-titre" id="ann-log-p">
+            Logements précédents <span className="gst-compte">{passes.length}</span>
+          </h4>
+          <ul className="ann-cartes">{passes.map((o) => (
+            <CarteLogement key={`p-${o.lotId ?? o.numero}-${o.entree ?? ''}-${o.sortie ?? ''}`} o={o} ouvrir={ouvrir} />
+          ))}</ul>
+        </section>
+      )}
+
+      {/* ══ 🔴 SES MAILS — CEUX DE SON LOGEMENT, et c'est dit en toutes lettres ══════════════════════════════════ */}
+      {logementDesMails !== null && !logementDesMails.horsGestion ? (
+        <>
+          <p className="ann-gris">
+            Les échanges ci-dessous sont ceux <strong>du logement</strong> {titreLogement(logementDesMails.adresse,
+              logementDesMails.commune)} : un mail est rattaché à un bien, jamais à une personne.
+          </p>
+          <VieDuBien lotCle={logementDesMails.numero} maintenant={maintenant} onOuvrirFil={onOuvrirFil} />
+        </>
+      ) : (
+        <p className="ann-gris">
+          Aucun logement en gestion pour cette personne : il n’y a donc pas d’échange rattaché à lui montrer.
+        </p>
+      )}
+
+      {/* LOT RATTACHEMENT-2 — un LOCATAIRE n'est pas une cible de rattachement (il déménage ; le logement, non) :
+          l'entrée de l'historique passe donc par son logement, et jamais par lui. */}
+      {logementDesMails !== null && !logementDesMails.horsGestion && (
+        <p className="ann-discret">
+          <BoutonHistorique cible={{ sorte: 'lot', cle: logementDesMails.numero, id: null }}
+            onHistorique={onHistorique} />
+        </p>
+      )}
     </>
+  );
+}
+
+/**
+ * ══ 🔴 LE LOGEMENT D'UN LOCATAIRE, EN CARTE ═══════════════════════════════════════════════════════════════════
+ *
+ * Même langage visuel que les cartes de biens de la fiche propriétaire (`CarteBien`) : ce sont les mêmes objets,
+ * vus d'un autre côté. Deux apparences pour un même bien obligeraient à réapprendre la lecture d'un écran à l'autre.
+ *
+ * ⚠️ UN LOT « HORS GESTION » N'EST PAS CLIQUABLE, et le DIT : l'occupation le nomme par une clé que l'annuaire des
+ * lots ne porte pas. Un lien vers une fiche inexistante est pire qu'une absence de lien.
+ */
+function CarteLogement({ o, ouvrir }: {
+  o: LogementDuLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
+}) {
+  const corps = (
+    <>
+      <span className="ann-carte-tete">
+        <span className="ann-carte-titre">
+          {o.lotId === null ? `Lot n° ${o.numero}` : titreLogement(o.adresse, o.commune)}
+        </span>
+        <span className="ann-carte-sous">
+          <span className="ann-etiq">lot {o.numero}</span>
+          {o.nature && <span className="ann-etiq">{o.nature}</span>}
+          {o.typeBien && <span className="ann-etiq">{o.typeBien}</span>}
+          {o.horsGestion && <span className="ann-etiq ann-etiq--absent">hors gestion</span>}
+        </span>
+      </span>
+      <span className="ann-carte-faits">
+        <span className="ann-fait">
+          <span className="ann-fait-mot">Occupation</span>
+          <span className="ann-fait-valeur">{periodeOccupation(o.entree, o.sortie)}</span>
+        </span>
+        <span className="ann-fait">
+          <span className="ann-fait-mot">Surface</span>
+          {o.surfaceM2 === null ? <span className="ann-inconnu">non renseignée</span> : <span>{o.surfaceM2} m²</span>}
+        </span>
+        <span className="ann-fait">
+          <span className="ann-fait-mot">Propriétaire</span>
+          {o.proprietaireNom === null || o.proprietaireNom === ''
+            ? <span className="ann-inconnu">non renseigné</span>
+            : <span className="ann-fait-valeur">{o.proprietaireNom}</span>}
+        </span>
+        <span className="ann-fait">
+          <span className="ann-fait-mot">Mails</span>
+          <span>{o.mails}</span>
+        </span>
+        <span className="ann-fait">
+          <span className="ann-fait-mot">Dernier échange</span>
+          <DateOuRien iso={o.dernierEchange} sinon="aucun" />
+        </span>
+      </span>
+    </>
+  );
+  return (
+    <li className={`ann-carte${o.encours ? '' : ' ann-carte--ancien'}`}>
+      {o.lotId === null
+        ? <span className="ann-carte-corps">{corps}</span>
+        : <button type="button" className="ann-carte-corps" onClick={() => ouvrir('lot', o.lotId as number)}>
+          {corps}
+        </button>}
+      <span className="ann-carte-pied">
+        {o.proprietaireId !== null && (
+          <button type="button" className="ann-lien"
+            onClick={() => ouvrir('proprietaire', o.proprietaireId as number)}>
+            Fiche du propriétaire →
+          </button>
+        )}
+        {o.driveDossierId !== null ? (
+          <a className="ann-lien" href={`${DRIVE_DOSSIER}${o.driveDossierId}`} target="_blank" rel="noreferrer">
+            Dossier Drive du lot ↗
+          </a>
+        ) : (
+          <span className="ann-inconnu">dossier Drive non construit</span>
+        )}
+      </span>
+    </li>
   );
 }
 
@@ -1000,6 +1361,10 @@ export const CSS_ANNUAIRE = `
 .ann-copier:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong-hover)}
 .ann-copier:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .ann-depuis{margin:0;font-size:.85rem;color:var(--color-svv-ink)}
+/* LOT FICHES-ANNUAIRE etape C — le petit formulaire « enregistrer un depart », POSE DANS LA LIGNE de la carte :
+   il se plie en colonne des que la carte est etroite, pour que la date et ses deux boutons restent atteignables. */
+.ann-depart{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;min-width:0}
+.ann-depart .cp-saisie{min-height:2rem;width:auto;flex:0 1 9.5rem}
 /* Un occupant PARTI reste parfaitement lisible : il est seulement pose sur le gris de la page, pas efface. */
 .ann-personne--passe{background:var(--color-svv-field);box-shadow:none}
 .svv-adm-root[data-theme='dark'] .ann-personne--passe{background:var(--color-svv-field);box-shadow:none}

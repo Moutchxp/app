@@ -20,7 +20,8 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annuaireDisponible, libelleSourceContactDisponible } from './schema';
+import { annuaireDisponible, annuaireModifiableDisponible, libelleSourceContactDisponible } from './schema';
+import { conditionCoordonneeVivante } from './coordonneeVivante';
 import type { ContactAnnuaire } from './annuaire';
 import type { PlanImport } from './annuaireImport';
 import type { TermeRecherche } from './annuaireRecherche';
@@ -49,6 +50,21 @@ export interface ComptesImport {
   contactsMajs: number;
   contactsRetires: number;
   disparus: number; revenus: number;
+  /**
+   * ══ 🔴🔴 LOT FICHES-ANNUAIRE (étape C) — CE QUE L'IMPORT N'A PAS APPLIQUÉ, ET POURQUOI ═══════════════════════
+   *
+   * Règle d'Arno : « une valeur modifiée dans l'app devient PRIORITAIRE et n'est plus jamais écrasée par un
+   * réimport. L'import liste les divergences (“WIPPIMMO dit X, l'app dit Y”) dans son rapport, SANS LES
+   * APPLIQUER ».
+   *
+   * Chaque ligne est une phrase lisible, prête pour le rapport. Une liste VIDE est la réponse normale : elle dit
+   * qu'aucun champ saisi ici ne contredit l'export.
+   *
+   * 🔴 POURQUOI LES DIRE PLUTÔT QUE LES TAIRE. Un champ verrouillé qui diverge est une VRAIE information : soit
+   * WIPPIMMO a été corrigé à son tour (et le verrou peut être levé), soit il se trompe (et le verrou fait son
+   * travail). Taire la divergence rendrait le verrou indiscernable d'un oubli.
+   */
+  divergences: string[];
 }
 
 export const COMPTES_VIDES: ComptesImport = {
@@ -56,7 +72,7 @@ export const COMPTES_VIDES: ComptesImport = {
   lotsCrees: 0, lotsMajs: 0, lotsInchanges: 0,
   locatairesCrees: 0, locatairesMajs: 0, locatairesInchanges: 0,
   occupationsCreees: 0, occupationsMajs: 0, occupationsInchangees: 0,
-  contactsCrees: 0, contactsMajs: 0, contactsRetires: 0, disparus: 0, revenus: 0,
+  contactsCrees: 0, contactsMajs: 0, contactsRetires: 0, disparus: 0, revenus: 0, divergences: [],
 };
 
 export type IssueImport =
@@ -85,13 +101,24 @@ export async function appliquerPlan(plan: PlanImport, options: {
 
   return withTransaction(async (q) => {
     const importId = await ouvrirPasse(q, options);
-    const c: ComptesImport = { ...COMPTES_VIDES };
+    /**
+     * ⚠️ `divergences: []` EST RÉÉCRIT À LA MAIN, ET CE N'EST PAS UNE REDONDANCE. `{ ...COMPTES_VIDES }` copie la
+     * RÉFÉRENCE du tableau : sans cette ligne, chaque import pousserait ses divergences dans la constante
+     * partagée, et le second import hériterait de celles du premier — un cumul invisible, et faux.
+     */
+    const c: ComptesImport = { ...COMPTES_VIDES, divergences: [] };
+    /**
+     * 🔴 LES VERROUS SONT LUS UNE FOIS, AVANT TOUT. Ils disent quels champs l'application possède : l'import ne
+     * les réécrit pas, et signale la divergence. Vide sans la migration 278 — l'import se comporte alors
+     * exactement comme avant ce lot, ce qui est la bonne réponse : sans la table, aucune saisie n'a pu avoir lieu.
+     */
+    const verrous = await lireVerrous(q);
 
-    const proprietaires = await ecrireProprietaires(q, plan, options.appliquer, c);
+    const proprietaires = await ecrireProprietaires(q, plan, options.appliquer, c, verrous);
     const idsLots = await ecrireLots(q, plan, proprietaires.parCle, options.appliquer, c);
-    const idsLocataires = await ecrireLocataires(q, plan, options.appliquer, c);
+    const idsLocataires = await ecrireLocataires(q, plan, options.appliquer, c, verrous);
     await ecrireOccupations(q, plan, idsLocataires, idsLots, options.appliquer, c);
-    await ecrireContacts(q, plan, proprietaires.parId, idsLocataires, options.appliquer, c);
+    await ecrireContacts(q, plan, proprietaires.parId, idsLocataires, options.appliquer, c, verrous);
     await marquerDisparus(q, plan, options.appliquer, c);
 
     await cloreLaPasse(q, importId, plan, c, options.appliquer);
@@ -104,6 +131,69 @@ export async function appliquerPlan(plan: PlanImport, options: {
     if (e instanceof AnnuleSimulation) return { etat: 'ok' as const, comptes: e.comptes, importId: null };
     throw e;
   });
+}
+
+/**
+ * ══ 🔴🔴 LES CHAMPS QUE L'APPLICATION POSSÈDE, LUS UNE FOIS PAR IMPORT ════════════════════════════════════════════
+ *
+ * LOT FICHES-ANNUAIRE (étape C). `gestion_annuaire_verrou` (migration 278) porte un verrou PAR CHAMP : corriger un
+ * téléphone ne gèle pas l'adresse postale, que WIPPIMMO continue de tenir à jour.
+ *
+ * Clé : `sujet|identifiant|champ`. Valeur : ce que WIPPIMMO portait AU MOMENT DU VERROU — inutile ici, mais rendue
+ * pour que le rapport puisse dire d'où vient la divergence.
+ *
+ * 🔴 UNE CARTE PLUTÔT QU'UNE REQUÊTE PAR PERSONNE : l'import parcourt 307 propriétaires et 510 locataires. Huit
+ * cents requêtes de plus, dans une transaction, pour lire une table qui compte quelques dizaines de lignes.
+ *
+ * ⚠️ VIDE SANS LA MIGRATION : la table n'est pas NOMMÉE, et l'import se comporte mot pour mot comme avant ce lot.
+ */
+export type Verrous = ReadonlyMap<string, string | null>;
+
+export const CLE_VERROU = (sujet: string, id: number | string, champ: string): string =>
+  `${sujet}|${id}|${champ}`;
+
+async function lireVerrous(q: RequeteTx): Promise<Verrous> {
+  if (!(await annuaireModifiableDisponible())) return new Map();
+  const { rows } = await q<{ sujet: string; sujet_id: string; champ: string; valeur_import: string | null }>(
+    'SELECT sujet, sujet_id::text, champ, valeur_import FROM gestion_annuaire_verrou');
+  return new Map(rows.map((r) => [CLE_VERROU(r.sujet, r.sujet_id, r.champ), r.valeur_import]));
+}
+
+/**
+ * ══ 🔴 CE QUE L'IMPORT A LE DROIT DE RÉÉCRIRE, POUR UNE PERSONNE DONNÉE ═══════════════════════════════════════════
+ *
+ * Rend le `SET` d'un `ON CONFLICT DO UPDATE` privé des colonnes VERROUILLÉES, et la liste des champs écartés.
+ *
+ * 🔴 `nom_complet` ET `nom_normalise` SUIVENT LE NOM ET LE PRÉNOM. Ce sont des colonnes DÉRIVÉES : réécrire l'une
+ * sans l'autre laisserait une fiche dont le nom affiché ne serait plus celui du nom — et, pire, dont la RECHERCHE
+ * ne trouverait plus la personne sous le nom qu'on voit à l'écran. Verrouiller « nom » les gèle donc toutes deux.
+ *
+ * ⚠️ `absent_le = NULL` ET `importe_le = now()` NE SE VERROUILLENT JAMAIS : ils ne disent pas ce que vaut une
+ * fiche, mais que l'export vient de la nommer. Les geler ferait croire une personne disparue alors qu'elle est là.
+ */
+function setSansVerrous(colonnes: readonly string[], verrouilles: ReadonlySet<string>): {
+  set: string; ecartees: string[];
+} {
+  const gele = (col: string): boolean => verrouilles.has(col)
+    || ((col === 'nom_complet' || col === 'nom_normalise') && (verrouilles.has('nom') || verrouilles.has('prenom')));
+  const gardees = colonnes.filter((c) => !gele(c));
+  return {
+    set: [...gardees.map((c) => `${c} = EXCLUDED.${c}`), 'absent_le = NULL', 'importe_le = now()'].join(', '),
+    ecartees: colonnes.filter(gele),
+  };
+}
+
+/**
+ * LA PHRASE D'UNE DIVERGENCE, écrite une seule fois pour que le rapport parle toujours de la même façon.
+ *
+ * ⚠️ « non renseigné » PLUTÔT QUE RIEN : « WIPPIMMO dit  , l'app dit 06… » serait illisible, et laisserait croire
+ * à un bogue d'affichage. Une absence est une valeur, et elle se dit.
+ */
+function phraseDivergence(
+  qui: string, champ: string, wippimmo: string | null, appli: string | null,
+): string {
+  const mot = (v: string | null): string => (v === null || v.trim() === '' ? 'non renseigné' : v.trim());
+  return `${qui} — ${champ} : WIPPIMMO dit « ${mot(wippimmo)} », l’app dit « ${mot(appli)} » (non appliqué).`;
 }
 
 /** Le signal qui défait la transaction d'une simulation. Ce n'est PAS une erreur : c'est le mode « à blanc ». */
@@ -152,7 +242,15 @@ async function cloreLaPasse(
       [importId,
         `annuaire WIPPIMMO importé : ${c.proprietairesCrees + c.proprietairesMajs} propriétaire(s), `
         + `${c.lotsCrees + c.lotsMajs} lot(s), ${c.occupationsCreees + c.occupationsMajs} bail/baux touchés ; `
-        + `${plan.rejets.length} rejet(s), ${plan.homonymes.length} homonyme(s), ${c.disparus} disparu(s).`]);
+        + `${plan.rejets.length} rejet(s), ${plan.homonymes.length} homonyme(s), ${c.disparus} disparu(s)`
+        /**
+         * 🔴 LES DIVERGENCES SONT DANS LE JOURNAL, ET PAS SEULEMENT DANS LE RAPPORT DE LA COMMANDE. Un rapport
+         * affiché dans un terminal disparaît avec le terminal ; le journal, lui, répond encore dans six mois à
+         * « pourquoi ce numéro n'a-t-il pas changé ? ». Le détail complet, lui, vit dans `comptes.divergences`.
+         */
+        + (c.divergences.length === 0 ? '.'
+          : ` ; ${c.divergences.length} divergence(s) NON APPLIQUÉE(S) (champs saisis dans l’application, `
+            + `prioritaires) :\n${c.divergences.slice(0, 50).join('\n')}`)]);
   }
 }
 
@@ -166,7 +264,7 @@ async function cloreLaPasse(
  * genre d'erreur qu'un annuaire ne doit pas pouvoir commettre : on téléphonerait à un inconnu.
  */
 async function ecrireProprietaires(
-  q: RequeteTx, plan: PlanImport, appliquer: boolean, c: ComptesImport,
+  q: RequeteTx, plan: PlanImport, appliquer: boolean, c: ComptesImport, verrous: Verrous,
 ): Promise<{ parId: Map<string, number>; parCle: Map<string, number> }> {
   const { rows } = await q<{ id: string; wippimmo_id: string } & Empreinte>(
     `SELECT id, wippimmo_id, civilite, nom, prenom, nom_complet, nom_normalise, adresse, commune, code_postal,
@@ -186,6 +284,9 @@ async function ecrireProprietaires(
     if ((combien.get(p.nomNormalise) ?? 0) === 1) parCle.set(p.nomNormalise, id);
   };
 
+  const COLONNES = ['civilite', 'nom', 'prenom', 'nom_complet', 'nom_normalise', 'adresse', 'commune',
+    'code_postal', 'adresse_normalisee', 'relation_depuis'] as const;
+
   for (const p of plan.proprietaires) {
     const avant = existants.get(p.wippimmoId);
     const apres: Empreinte = {
@@ -195,22 +296,37 @@ async function ecrireProprietaires(
       // Un propriétaire présent dans CET export n'est plus absent : la date doit repartir à NULL.
       absent_le: null,
     };
+
+    /**
+     * ══ 🔴🔴 LES CHAMPS SAISIS DANS L'APPLICATION SONT PRIORITAIRES ═══════════════════════════════════════════
+     * On les écarte de la COMPARAISON comme de l'ÉCRITURE, et on dit la divergence.
+     *
+     * 🔴 DE LA COMPARAISON AUSSI, et c'est le point délicat : un champ verrouillé qui diffère rendrait la fiche
+     * « à mettre à jour » à CHAQUE import, pour toujours. Le rapport annoncerait des mises à jour qui n'en sont
+     * pas, et l'idempotence de l'import — sa propriété la plus précieuse — serait perdue en silence.
+     */
+    const verrouilles = new Set(COLONNES.filter(
+      (col) => avant !== undefined && verrous.has(CLE_VERROU('proprietaire', avant.id as string, col))));
+    const comparable: Empreinte = { ...apres };
+    for (const col of verrouilles) {
+      delete comparable[col];
+      if (avant !== undefined && (avant[col] ?? '') !== (apres[col] ?? '')) {
+        c.divergences.push(phraseDivergence(p.nomComplet, col, apres[col], avant[col]));
+      }
+    }
+
     if (avant === undefined) c.proprietairesCrees += 1;
-    else if (memeEmpreinte(apres, avant)) { c.proprietairesInchanges += 1; retenir(p, Number(avant.id)); continue; }
+    else if (memeEmpreinte(comparable, avant)) { c.proprietairesInchanges += 1; retenir(p, Number(avant.id)); continue; }
     else { c.proprietairesMajs += 1; if (avant.absent_le !== null) c.revenus += 1; }
 
     if (!appliquer) { if (avant !== undefined) retenir(p, Number(avant.id)); continue; }
+    const { set } = setSansVerrous(COLONNES, verrouilles);
     const { rows: r } = await q<{ id: string }>(
       `INSERT INTO gestion_annuaire_proprietaire
          (wippimmo_id, civilite, nom, prenom, nom_complet, nom_normalise, adresse, commune, code_postal,
           adresse_normalisee, relation_depuis, absent_le, importe_le)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::date,NULL,now())
-       ON CONFLICT (wippimmo_id) DO UPDATE SET
-         civilite = EXCLUDED.civilite, nom = EXCLUDED.nom, prenom = EXCLUDED.prenom,
-         nom_complet = EXCLUDED.nom_complet, nom_normalise = EXCLUDED.nom_normalise,
-         adresse = EXCLUDED.adresse, commune = EXCLUDED.commune, code_postal = EXCLUDED.code_postal,
-         adresse_normalisee = EXCLUDED.adresse_normalisee, relation_depuis = EXCLUDED.relation_depuis,
-         absent_le = NULL, importe_le = now()
+       ON CONFLICT (wippimmo_id) DO UPDATE SET ${set}
        RETURNING id`,
       [p.wippimmoId, p.civilite, p.nom, p.prenom, p.nomComplet, p.nomNormalise, p.adresse, p.commune,
         p.codePostal, p.adresseNormalisee, p.relationDepuis]);
@@ -263,7 +379,7 @@ async function ecrireLots(
 }
 
 async function ecrireLocataires(
-  q: RequeteTx, plan: PlanImport, appliquer: boolean, c: ComptesImport,
+  q: RequeteTx, plan: PlanImport, appliquer: boolean, c: ComptesImport, verrous: Verrous,
 ): Promise<Map<string, number>> {
   const { rows } = await q<{ id: string; cle_personne: string } & Empreinte>(
     `SELECT id, cle_personne, wippimmo_id, nom, nom_normalise, adresse, commune, code_postal,
@@ -271,6 +387,8 @@ async function ecrireLocataires(
        FROM gestion_annuaire_locataire`);
   const existants = new Map(rows.map((r) => [r.cle_personne, r]));
   const ids = new Map<string, number>();
+  const COLONNES = ['wippimmo_id', 'nom', 'nom_normalise', 'adresse', 'commune', 'code_postal',
+    'adresse_normalisee'] as const;
 
   for (const p of plan.locataires) {
     const avant = existants.get(p.clePersonne);
@@ -278,20 +396,29 @@ async function ecrireLocataires(
       wippimmo_id: p.wippimmoId, nom: p.nom, nom_normalise: p.nomNormalise, adresse: p.adresse,
       commune: p.commune, code_postal: p.codePostal, adresse_normalisee: p.adresseNormalisee, absent_le: null,
     };
+    // 🔴 MÊME RÈGLE QUE POUR LES PROPRIÉTAIRES : un champ saisi ici est prioritaire, et la divergence se DIT.
+    const verrouilles = new Set(COLONNES.filter(
+      (col) => avant !== undefined && verrous.has(CLE_VERROU('locataire', avant.id as string, col))));
+    const comparable: Empreinte = { ...apres };
+    for (const col of verrouilles) {
+      delete comparable[col];
+      if (avant !== undefined && (avant[col] ?? '') !== (apres[col] ?? '')) {
+        c.divergences.push(phraseDivergence(p.nom, col, apres[col], avant[col]));
+      }
+    }
+
     if (avant === undefined) c.locatairesCrees += 1;
-    else if (memeEmpreinte(apres, avant)) { c.locatairesInchanges += 1; ids.set(p.clePersonne, Number(avant.id)); continue; }
+    else if (memeEmpreinte(comparable, avant)) { c.locatairesInchanges += 1; ids.set(p.clePersonne, Number(avant.id)); continue; }
     else { c.locatairesMajs += 1; if (avant.absent_le !== null) c.revenus += 1; }
 
     if (!appliquer) { if (avant !== undefined) ids.set(p.clePersonne, Number(avant.id)); continue; }
+    const { set } = setSansVerrous(COLONNES, verrouilles);
     const { rows: r } = await q<{ id: string }>(
       `INSERT INTO gestion_annuaire_locataire
          (cle_personne, wippimmo_id, nom, nom_normalise, adresse, commune, code_postal, adresse_normalisee,
           absent_le, importe_le)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,now())
-       ON CONFLICT (cle_personne) DO UPDATE SET
-         wippimmo_id = EXCLUDED.wippimmo_id, nom = EXCLUDED.nom, nom_normalise = EXCLUDED.nom_normalise,
-         adresse = EXCLUDED.adresse, commune = EXCLUDED.commune, code_postal = EXCLUDED.code_postal,
-         adresse_normalisee = EXCLUDED.adresse_normalisee, absent_le = NULL, importe_le = now()
+       ON CONFLICT (cle_personne) DO UPDATE SET ${set}
        RETURNING id`,
       [p.clePersonne, p.wippimmoId, p.nom, p.nomNormalise, p.adresse, p.commune, p.codePostal, p.adresseNormalisee]);
     ids.set(p.clePersonne, Number(r[0].id));
@@ -350,6 +477,7 @@ async function ecrireOccupations(
 export async function ecrireContacts(
   q: RequeteTx, plan: PlanImport, idsProprietaires: ReadonlyMap<string, number>,
   idsLocataires: ReadonlyMap<string, number>, appliquer: boolean, c: ComptesImport,
+  verrous: Verrous = new Map(),
 ): Promise<void> {
   const attendus: { sujet: 'proprietaire' | 'locataire'; sujetId: number | null; contact: ContactAnnuaire }[] = [];
   for (const p of plan.proprietaires) {
@@ -391,7 +519,30 @@ export async function ecrireContacts(
     .map((r) => [identite(r.sujet, r.sujet_id, r.sorte, r.valeur), r.libelle_source ?? '']));
   const voulus = new Set(attendus.map((a) => identite(a.sujet, String(a.sujetId), a.contact.sorte, a.contact.valeur)));
 
+  /**
+   * ══ 🔴🔴 UNE PERSONNE DONT LES COORDONNÉES ONT ÉTÉ SAISIES ICI EST INTOUCHABLE ══════════════════════════════
+   *
+   * Règle d'Arno : ce qui est modifié dans l'application est PRIORITAIRE. Pour les coordonnées, le verrou porte
+   * sur le BLOC entier (`champ = 'contacts'`) : elles se modifient ensemble — ajouter, retirer, réordonner sont
+   * le même geste — et les verrouiller une par une obligerait à inventer une identité stable pour chaque numéro.
+   *
+   * 🔴 « INTOUCHABLE » VEUT DIRE LES DEUX SENS : l'import n'AJOUTE pas les siennes, et ne MARQUE PAS ABSENTES
+   * celles qu'il ne connaît plus. Ne faire que la moitié laisserait la fiche d'Arno se vider toute seule à chaque
+   * import — le pire résultat possible, parce qu'il ressemble à un effacement sans en être un.
+   */
+  const bloque = (sujet: string, sujetId: string | number | null): boolean =>
+    sujetId !== null && verrous.has(CLE_VERROU(sujet, sujetId, 'contacts'));
+
   for (const a of attendus) {
+    if (bloque(a.sujet, a.sujetId)) {
+      const cleV = a.sujetId === null ? null : identite(a.sujet, a.sujetId, a.contact.sorte, a.contact.valeur);
+      // On ne le dit que si l'export apporte quelque chose que la fiche n'a pas : sinon il n'y a pas divergence.
+      if (cleV !== null && !existants.has(cleV)) {
+        c.divergences.push(phraseDivergence(
+          `${a.sujet} ${a.sujetId}`, `coordonnée ${a.contact.sorte}`, a.contact.valeurBrute, 'retirée ou absente'));
+      }
+      continue;
+    }
     const cle = a.sujetId === null ? null : identite(a.sujet, a.sujetId, a.contact.sorte, a.contact.valeur);
     const dejaLa = cle !== null && existants.has(cle);
     if (dejaLa) {
@@ -431,9 +582,11 @@ export async function ecrireContacts(
   // ⚠️ `existants` est désormais une CARTE (identité → libellé) : on n'en parcourt que les CLÉS.
   for (const cle of existants.keys()) {
     if (voulus.has(cle)) continue;
+    const [sujet, sujetId, sorte, valeur] = cle.split('|');
+    // 🔴 L'AUTRE MOITIÉ DU VERROU : une fiche dont les coordonnées sont à nous ne se vide pas toute seule.
+    if (bloque(sujet, sujetId)) continue;
     c.contactsRetires += 1;
     if (!appliquer) continue;
-    const [sujet, sujetId, sorte, valeur] = cle.split('|');
     await q(
       `UPDATE gestion_annuaire_contact SET absent_le = now()
         WHERE sujet = $1 AND sujet_id = $2 AND sorte = $3 AND valeur = $4 AND absent_le IS NULL`,
@@ -471,6 +624,15 @@ async function marquerDisparus(
 // ══ ② LA LECTURE ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
 export interface ContactAffiche {
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE (étape C) — L'IDENTIFIANT DE LA LIGNE. Ajouté, rien n'est retiré.
+   *
+   * Il sert à DEUX gestes qui ne peuvent pas s'en passer : l'écran « Séparer en deux personnes » (Arno répartit
+   * CHAQUE coordonnée par une case à cocher — il faut donc pouvoir la nommer) et l'archivage d'une coordonnée
+   * retirée à la main. Désigner une coordonnée par sa valeur aurait suffi tant qu'elles sont uniques par
+   * personne… ce qui est vrai en base, mais cesserait de l'être au premier doublon d'affichage.
+   */
+  id: number;
   sorte: 'telephone' | 'email'; valeur: string; affichage: string; absent: boolean;
   /**
    * 🔴 LOT FICHES-ANNUAIRE — LE LIBELLÉ D'ORIGINE (« Mobile », « Email », « Domicile »…), tel que WIPPIMMO
@@ -481,6 +643,45 @@ export interface ContactAffiche {
    * alors NOMMÉE NULLE PART, et l'écran écrit simplement « Téléphone » ou « E-mail ».
    */
   libelle: string | null;
+}
+
+/**
+ * ══ 🔴🔴 UNE PERSONNE DE L'ANNUAIRE, TELLE QU'UNE CARTE LA MONTRE ═════════════════════════════════════════════
+ *
+ * Demande d'Arno (complément à l'étape C) : « chaque propriétaire (et chaque locataire sur les fiches bien et
+ * locataire) est une CARTE, et les cartes se suivent de gauche à droite […] « Modifier » (icône crayon) en haut à
+ * droite de chaque carte ». Une carte a donc besoin de TOUT ce qui s'y modifie — et d'un identifiant, puisque
+ * chaque geste porte sur UNE personne.
+ *
+ * 🔴 LE MÊME OBJET POUR UN PROPRIÉTAIRE ET POUR UN LOCATAIRE. Ce sont deux tables, mais une seule carte à
+ * l'écran, un seul formulaire, un seul jeu de gestes. Deux types jumeaux auraient dédoublé le composant, puis
+ * divergé au premier ajout de champ.
+ *
+ * ⚠️ `qualite`, `note`, `rang` ET `archive` SONT `null`/0/`false` SANS LA MIGRATION 278 : les colonnes ne sont
+ * alors nommées nulle part, l'écran écrit « non renseigné », et « Modifier » est rendu DÉSACTIVÉ avec son motif.
+ */
+export interface PersonneAnnuaire {
+  sujet: 'proprietaire' | 'locataire';
+  id: number;
+  /** La clé WIPPIMMO — l'identité qui survit à un ré-import, et la cible d'un rattachement. */
+  cle: string;
+  civilite: string | null;
+  prenom: string | null;
+  nom: string;
+  /** Le nom tel qu'on l'affiche : « M. ROI Nathan ». Recomposé côté base pour les propriétaires. */
+  nomAffiche: string;
+  qualite: string | null;
+  note: string | null;
+  /** L'ordre réglé à la main. 0 = jamais réglé — l'écran retombe alors sur Monsieur, Madame, puis les autres. */
+  rang: number;
+  /** Vrai quand la fiche est ARCHIVÉE (jamais supprimée). Elle sort des listes actives et se restaure. */
+  archive: boolean;
+  /** Quand elle a été archivée, et par qui — pour que « Restaurer » sache ce qu'il défait. */
+  archiveLe: string | null;
+  archivePar: string | null;
+  adresse: string | null; commune: string | null; codePostal: string | null;
+  absent: boolean;
+  contacts: ContactAffiche[];
 }
 
 export interface LigneResultat {
@@ -563,6 +764,21 @@ export interface FicheProprietaire {
    * échange, événements, Drive — et sépare les biens en gestion des anciens.
    */
   biens: BienDuProprietaire[];
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE (étape C) — LES CARTES DU BLOC « COORDONNÉES », DANS L'ORDRE.
+   *
+   * Le ou les propriétaires du même ensemble de biens. Sans la migration 278, elle porte EXACTEMENT une personne,
+   * celle de la fiche — la vérité d'aujourd'hui, puisqu'un lot n'a qu'un propriétaire à l'import.
+   *
+   * ⚠️ `nom`, `civilite`, `contacts`, `adresse` (au-dessus) RESTENT : d'autres écrans les lisent, et l'en-tête de
+   * la fiche s'en sert. `personnes` ajoute, il ne remplace pas.
+   */
+  personnes: PersonneAnnuaire[];
+  /**
+   * Vrai quand la migration 278 est là. Faux = les fiches s'affichent en LECTURE SEULE et « Modifier » est rendu
+   * DÉSACTIVÉ avec son motif écrit — jamais absent, ce qui enverrait chercher un bug.
+   */
+  modifiable: boolean;
 }
 
 /**
@@ -586,6 +802,12 @@ export interface FicheProprietaire {
  * 🔭 L'étape C ouvre l'ajout d'un occupant : c'est là que le groupe en portera plusieurs, pour de vrai.
  */
 export interface OccupationDuLot {
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE (étape C) — L'IDENTIFIANT DE L'OCCUPATION, et non celui de la personne. C'est LUI que
+   * « enregistrer un départ » date : une même personne peut avoir occupé deux fois le même logement, et daterait
+   * alors la mauvaise période si on la désignait par son seul nom.
+   */
+  occupationId: number;
   locataireId: number;
   nom: string;
   entree: string | null;
@@ -610,6 +832,43 @@ export interface FicheLot {
   /** Les coordonnées du propriétaire, pour l'en-tête de la fiche du bien. Vide s'il n'est pas dans l'annuaire. */
   proprietaireContacts: ContactAffiche[];
   occupations: OccupationDuLot[];
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE (étape C) — LES CARTES DES PROPRIÉTAIRES DE CE BIEN, dans l'ordre. Sans la migration
+   * 278 : exactement celui de l'import. Avec : tous ceux dont le lien vers ce lot est EN COURS.
+   */
+  proprietaires: PersonneAnnuaire[];
+  /**
+   * 🔴 LES CARTES DES OCCUPANTS EN PLACE (occupation sans date de sortie), dans l'ordre. `occupations` reste :
+   * c'est lui qui porte l'HISTORIQUE, avec les dates. Celui-ci porte de quoi MODIFIER une personne.
+   */
+  occupants: PersonneAnnuaire[];
+  /** Vrai quand la migration 278 est là. Faux = lecture seule, « Modifier » désactivé avec son motif. */
+  modifiable: boolean;
+}
+
+/**
+ * ══ 🔴🔴 LE LOGEMENT D'UN LOCATAIRE, TEL QU'UNE CARTE LE MONTRE ═══════════════════════════════════════════════
+ *
+ * Demande d'Arno (étape C) : « fiche locataire plus légère : coordonnées, le logement en carte vers la fiche
+ * bien, les dates, le propriétaire, et ses mails ». Une carte a donc besoin du bien ET de son propriétaire —
+ * sinon il faudrait ouvrir la fiche du bien pour savoir à qui appartient le logement qu'on habite.
+ *
+ * ⚠️ `horsGestion` VEUT DIRE « CE LOT N'EST PAS DANS NOTRE ANNUAIRE » (l'occupation le nomme par une clé
+ * WIPPIMMO que `gestion_annuaire_lot` ne porte pas). La carte n'est alors pas cliquable, et le DIT — plutôt
+ * qu'un lien vers une fiche inexistante.
+ */
+export interface LogementDuLocataire {
+  lotId: number | null;
+  numero: string;
+  adresse: string | null; commune: string | null; codePostal: string | null;
+  nature: string | null; typeBien: string | null;
+  /** 🔴 TOUJOURS `null` : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
+  surfaceM2: number | null;
+  entree: string | null; sortie: string | null; encours: boolean; horsGestion: boolean;
+  proprietaireId: number | null; proprietaireNom: string | null;
+  /** Combien de mails sont rattachés à ce bien (rattachements CONFIRMÉS), et le dernier. */
+  mails: number; dernierEchange: string | null;
+  driveDossierId: string | null;
 }
 
 export interface FicheLocataire {
@@ -617,6 +876,24 @@ export interface FicheLocataire {
   absent: boolean; contacts: ContactAffiche[];
   occupations: { lotId: number | null; numero: string; adresse: string | null; commune: string | null;
     entree: string | null; sortie: string | null; encours: boolean; horsGestion: boolean }[];
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE (étape C) — LES LOGEMENTS EN CARTES. `occupations` (au-dessus) RESTE : l'écran de
+   * recherche et l'encart de la boîte le lisent. `logements` porte EN PLUS ce qu'une carte demande.
+   */
+  logements: LogementDuLocataire[];
+  /**
+   * ══ 🔴🔴 RÈGLE D'ARNO : « chercher un locataire montre TOUS les occupants du même logement » ═══════════════
+   *
+   * Les cartes du bloc « Coordonnées » de la fiche locataire portent donc la personne demandée ET les autres
+   * occupants EN PLACE du même logement — pas seulement celle dont on a tapé le nom. On appelle le foyer, pas
+   * un nom : ne montrer qu'un des deux conjoints ferait rater l'autre numéro, et c'est exactement ce qu'Arno
+   * décrit comme le défaut de l'annuaire d'avant.
+   *
+   * La personne demandée est TOUJOURS dedans, même sans logement en cours (un locataire parti garde sa fiche).
+   */
+  personnes: PersonneAnnuaire[];
+  /** Vrai quand la migration 278 est là. Faux = lecture seule, « Modifier » désactivé avec son motif. */
+  modifiable: boolean;
 }
 
 export type IssueLecture<T> = { etat: 'ok'; data: T } | { etat: 'sans_schema' } | { etat: 'inconnu' };
@@ -667,9 +944,10 @@ export async function rechercher(t: TermeRecherche): Promise<IssueLecture<Result
   }>(
     `WITH contacts_trouves AS (
        SELECT sujet, sujet_id FROM gestion_annuaire_contact
-        WHERE ($2::text IS NOT NULL AND valeur = $2)
-           OR ($3::text IS NOT NULL AND valeur LIKE $3)
-           OR ($4::text IS NOT NULL AND valeur = $4)
+        WHERE true${await conditionCoordonneeVivante()}
+          AND (($2::text IS NOT NULL AND valeur = $2)
+            OR ($3::text IS NOT NULL AND valeur LIKE $3)
+            OR ($4::text IS NOT NULL AND valeur = $4))
      ),
      -- Le locataire EN COURS d'un lot : celui dont le bail n'a pas de sortie. Le plus récent s'il y en avait
      -- plusieurs (l'export n'en montre aucun, mesuré, mais une donnée future ne doit pas faire choisir au hasard).
@@ -761,14 +1039,44 @@ const contactsDe = async (sujet: 'proprietaire' | 'locataire', sujetId: number):
    * ferait échouer toute la fiche. C'est la règle du module depuis le premier lot.
    */
   const avecLibelle = await libelleSourceContactDisponible();
+  /**
+   * ══ 🔴🔴 LOT FICHES-ANNUAIRE (étape C) — DEUX LIBELLÉS, ET LE NÔTRE GAGNE ═══════════════════════════════════
+   *
+   * `libelle_source` garde ce que WIPPIMMO écrivait ; `libelle` (migration 278) porte ce qu'Arno a saisi. On rend
+   * le second QUAND IL EXISTE, et le premier sinon : écraser `libelle_source` aurait perdu la trace de l'import,
+   * et ignorer `libelle` aurait fait taire la saisie — les deux coexistent, et c'est voulu.
+   *
+   * ⚠️ UNE COORDONNÉE ARCHIVÉE À LA MAIN NE SORT PLUS. `archive_le` (retirée par nous) est DISTINCTE de
+   * `absent_le` (plus dans le dernier export) : la première disparaît de la fiche, la seconde s'affiche grisée
+   * parce qu'elle a servi et pourrait resservir. Les confondre effacerait de l'historique ou ferait réapparaître
+   * ce que quelqu'un venait de retirer.
+   *
+   * 🔴 LES DEUX SONDES VOYAGENT AVEC LEURS COLONNES : sans la migration 268 il n'y a pas de `libelle_source`,
+   * sans la 278 ni `libelle` ni `archive_le` — et les NOMMER ferait échouer toute la fiche.
+   */
+  const modifiable = await annuaireModifiableDisponible();
+  const colonneLibelle = modifiable && avecLibelle ? 'coalesce(libelle, libelle_source)'
+    : modifiable ? 'libelle'
+      : avecLibelle ? 'libelle_source' : 'NULL::text';
   const { rows } = await query<{
-    sorte: string; valeur: string; valeur_brute: string; absent_le: string | null; libelle: string | null;
+    id: string; sorte: string; valeur: string; valeur_brute: string; absent_le: string | null;
+    libelle: string | null;
   }>(
-    `SELECT sorte, valeur, valeur_brute, absent_le::text,
-            ${avecLibelle ? 'libelle_source' : 'NULL::text'} AS libelle
+    `SELECT id::text, sorte, valeur, valeur_brute, absent_le::text,
+            ${colonneLibelle} AS libelle
        FROM gestion_annuaire_contact
-      WHERE sujet = $1 AND sujet_id = $2 ORDER BY sorte, absent_le NULLS FIRST, rang, id`, [sujet, sujetId]);
+      WHERE sujet = $1 AND sujet_id = $2${modifiable ? ' AND archive_le IS NULL' : ''}
+      /* 🔴 L'ORDRE MANUEL PASSE DEVANT LA SORTE — CORRIGE A L'ECRAN LE 29/09/2026.
+         Arno demande de pouvoir « reordonner des telephones et des e-mails ». Trier d'abord par la SORTE rendait
+         ce geste sans effet : la liste revenait toujours e-mails puis telephones, quel que soit le rang
+         enregistre. La carte, elle, GROUPE par sorte a l'affichage (telephones ensemble, e-mails ensemble) :
+         retirer la sorte du tri ne change donc rien a ce qu'on voit, et rend au rang son sens.
+         Sans la migration 278, le tri reste MOT POUR MOT celui d'avant : rien n'a pu etre reordonne.
+         AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral gabarit, qu'un seul accent grave
+         terminerait — piege consigne DOUZE fois dans ce depot, et douze fois dans un commentaire. */
+      ORDER BY ${modifiable ? '' : 'sorte, '}absent_le NULLS FIRST, rang, id`, [sujet, sujetId]);
   return rows.map((r) => ({
+    id: Number(r.id),
     sorte: r.sorte as 'telephone' | 'email',
     valeur: r.valeur,
     // On affiche CE QUI ÉTAIT ÉCRIT : un numéro reformaté n'est plus reconnu par celui qui l'a saisi.
@@ -777,6 +1085,132 @@ const contactsDe = async (sujet: 'proprietaire' | 'locataire', sujetId: number):
     libelle: r.libelle === null || r.libelle.trim() === '' ? null : r.libelle.trim(),
   }));
 };
+
+/**
+ * ══ 🔴🔴 LES PERSONNES D'UNE CARTE, DANS L'ORDRE, AVEC LEURS COORDONNÉES ══════════════════════════════════════
+ *
+ * UNE SEULE REQUÊTE POUR TOUTES LES PERSONNES demandées, puis une lecture de coordonnées par personne DISTINCTE.
+ * Un bien a un ou deux propriétaires, exceptionnellement quatre : lire chacun séparément se verrait à l'écran, et
+ * c'est la règle du module depuis la liste de la boîte.
+ *
+ * 🔴 L'ORDRE VIENT DE LA BASE, PAS DE L'ÉCRAN. `rang` réglé à la main d'abord (les 0 en dernier, puisque 0 veut
+ * dire « jamais réglé »), puis Monsieur, puis Madame, puis les autres, puis le nom. L'écran peut donc afficher le
+ * tableau tel quel — et deux écrans qui lisent la même liste la montrent dans le même ordre.
+ *
+ * ⚠️ LES ARCHIVÉES SONT RENDUES, ET DITES ARCHIVÉES. Les cacher ici priverait « Restaurer » de sa cible ; c'est
+ * l'appelant qui choisit de les ranger à part.
+ */
+async function personnesDe(
+  sujet: 'proprietaire' | 'locataire', ids: readonly number[],
+): Promise<PersonneAnnuaire[]> {
+  const uniques = [...new Set(ids)];
+  if (uniques.length === 0) return [];
+  const modifiable = await annuaireModifiableDisponible();
+  /* ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral gabarit, qu'un seul accent grave
+     terminerait — piege consigne DOUZE fois dans ce depot, et douze fois dans un commentaire.
+     Les colonnes de la migration 278 ne sont NOMMEES que si la sonde les a vues ; sinon on rend des valeurs
+     neutres, de meme type, pour que le reste de la requete ne bouge pas d'une ligne. */
+  const neuves = modifiable
+    ? `qualite, note, rang, archive_le::text, archive_par_libelle`
+    : `NULL::text AS qualite, NULL::text AS note, 0 AS rang, NULL::text AS archive_le,
+       NULL::text AS archive_par_libelle`;
+  const identite = sujet === 'proprietaire'
+    ? `wippimmo_id AS cle, civilite, prenom, nom, nom_complet AS nom_affiche`
+    : modifiable
+      ? `cle_personne AS cle, civilite, prenom, nom, nom AS nom_affiche`
+      : `cle_personne AS cle, NULL::text AS civilite, NULL::text AS prenom, nom, nom AS nom_affiche`;
+  /**
+   * 🔴 L'ORDRE DEMANDÉ PAR ARNO : « Monsieur en premier, Madame en deuxième, puis les autres (société,
+   * représentant…) ; l'ordre se règle à la main dans le mode Modifier ». Le rang réglé à la main PASSE DEVANT.
+   *
+   * ⚠️ « Mme » AVANT « M » DANS LE CASE, exprès : `'Mme' ILIKE 'm%'` est VRAI, et tester Monsieur d'abord
+   * rangerait toutes les dames en première position. Le piège est silencieux — il ne se voit qu'à l'écran.
+   */
+  /**
+   * ⚠️ `0::int`, ET NON `0` TOUT NU. Dans un `ORDER BY`, PostgreSQL lit un entier littéral comme une POSITION de
+   * colonne : `ORDER BY 0` échoue par « ORDER BY position 0 is not in select list », et `ORDER BY 2` trierait
+   * silencieusement sur la deuxième colonne du SELECT. Le transtypage en fait une expression, donc une constante.
+   * Défaut mesuré à l'écran le 29/09/2026 : la fiche rendait « Fiche illisible » sans la migration 278.
+   */
+  const rangTri = modifiable ? 'rang' : '0::int';
+  const civiliteTri = sujet === 'proprietaire' || modifiable ? 'civilite' : 'NULL::text';
+
+  const { rows } = await query<{
+    id: string; cle: string; civilite: string | null; prenom: string | null; nom: string; nom_affiche: string;
+    qualite: string | null; note: string | null; rang: number; archive_le: string | null;
+    archive_par_libelle: string | null; adresse: string | null; commune: string | null;
+    code_postal: string | null; absent_le: string | null;
+  }>(
+    `SELECT id::text, ${identite}, ${neuves}, adresse, commune, code_postal, absent_le::text
+       FROM ${sujet === 'proprietaire' ? 'gestion_annuaire_proprietaire' : 'gestion_annuaire_locataire'}
+      WHERE id = ANY($1::bigint[])
+      ORDER BY (${rangTri} = 0), ${rangTri},
+               CASE WHEN ${civiliteTri} ILIKE 'mme%' OR ${civiliteTri} ILIKE 'mad%' THEN 1
+                    WHEN ${civiliteTri} ILIKE 'm%' THEN 0
+                    ELSE 2 END,
+               nom, id`,
+    [uniques]);
+
+  const coords = new Map<number, ContactAffiche[]>();
+  for (const r of rows) coords.set(Number(r.id), await contactsDe(sujet, Number(r.id)));
+
+  return rows.map((r) => ({
+    sujet, id: Number(r.id), cle: r.cle,
+    civilite: r.civilite, prenom: r.prenom, nom: r.nom, nomAffiche: r.nom_affiche,
+    qualite: r.qualite, note: r.note, rang: r.rang,
+    archive: r.archive_le !== null, archiveLe: r.archive_le, archivePar: r.archive_par_libelle,
+    adresse: r.adresse, commune: r.commune, codePostal: r.code_postal,
+    absent: r.absent_le !== null,
+    contacts: coords.get(Number(r.id)) ?? [],
+  }));
+}
+
+/**
+ * ══ 🔴🔴 LES CO-PROPRIÉTAIRES D'UN MÊME ENSEMBLE DE BIENS ═════════════════════════════════════════════════════
+ *
+ * Demande d'Arno (étape A, rappelée par le complément) : le premier bloc porte « les COORDONNÉES COMPLÈTES du ou
+ * des propriétaires du même ensemble de biens (co-propriétaires, indivision, société + représentant) ».
+ *
+ * ═══ CE QUE LA BASE SAIT, MESURÉ LE 29/09/2026 ════════════════════════════════════════════════════════════════
+ * `gestion_annuaire_lot.proprietaire_id` est UNIQUE par lot : l'import ne sait pas dire « ce bien a deux
+ * propriétaires ». 66 fiches sur 307 nomment pourtant deux personnes DANS leur nom (« AISSAOUI Mohamed et
+ * Amina »). Un ensemble de co-propriétaires ne peut donc exister que par le geste d'Arno.
+ *
+ * 🔴 D'OÙ LA TABLE `gestion_annuaire_lot_proprietaire` (migration 278) : elle porte les liens AJOUTÉS à la main,
+ * avec leur rang et leur période. Sans elle, cette fonction rend la personne demandée, SEULE — ce qui est la
+ * vérité d'aujourd'hui, et non une carte vide.
+ */
+async function coproprietairesDe(proprietaireId: number): Promise<PersonneAnnuaire[]> {
+  if (!await annuaireModifiableDisponible()) return personnesDe('proprietaire', [proprietaireId]);
+  const { rows } = await query<{ proprietaire_id: string }>(
+    /**
+     * ⚠️ DEUX SOURCES DE PROPRIÉTÉ, ET IL FAUT LES DEUX. Corrigé le 29/09/2026, sur la fiche de M. ROI Nathan :
+     * un co-propriétaire venait d'être ajouté, et la fiche n'en montrait toujours qu'un. La raison : la requête
+     * ne partait que de la table des liens AJOUTÉS, où le propriétaire D'ORIGINE n'a aucune ligne — c'est
+     * `gestion_annuaire_lot.proprietaire_id` qui le porte, et l'import ne remplit pas l'autre table.
+     *
+     * On cherche donc D'ABORD SES BIENS (par l'une ou l'autre source), puis TOUS ceux qui les possèdent, par
+     * l'une ou l'autre source. Un lien AJOUTÉ ne compte que s'il est EN COURS (`jusqu_a IS NULL`) : un ancien
+     * propriétaire appartient à l'historique du bien, pas au bloc des coordonnées d'aujourd'hui.
+     *
+     * AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral gabarit, qu'un seul accent grave
+     * terminerait — piege consigne DOUZE fois dans ce depot, et douze fois dans un commentaire.
+     */
+    `WITH ses_lots AS (
+       SELECT id AS lot_id FROM gestion_annuaire_lot WHERE proprietaire_id = $1
+       UNION
+       SELECT lot_id FROM gestion_annuaire_lot_proprietaire WHERE proprietaire_id = $1 AND jusqu_a IS NULL
+     )
+     SELECT DISTINCT lo.proprietaire_id::text AS proprietaire_id
+       FROM gestion_annuaire_lot lo JOIN ses_lots s ON s.lot_id = lo.id
+      WHERE lo.proprietaire_id IS NOT NULL
+     UNION
+     SELECT DISTINCT lp.proprietaire_id::text
+       FROM gestion_annuaire_lot_proprietaire lp JOIN ses_lots s ON s.lot_id = lp.lot_id
+      WHERE lp.jusqu_a IS NULL`, [proprietaireId]);
+  const ids = [proprietaireId, ...rows.map((r) => Number(r.proprietaire_id))];
+  return personnesDe('proprietaire', ids);
+}
 
 export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheProprietaire>> {
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
@@ -819,6 +1253,8 @@ export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheP
         locataireId: l.locataire_id === null ? null : Number(l.locataire_id),
       })),
       biens: await biensDuProprietaire(Number(p.id)),
+      personnes: await coproprietairesDe(Number(p.id)),
+      modifiable: await annuaireModifiableDisponible(),
     },
   };
 }
@@ -945,10 +1381,10 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
 
   // 🔴 L'HISTORIQUE EST DÉCROISSANT, LE LOCATAIRE ACTUEL EN TÊTE : c'est lui qu'on cherche neuf fois sur dix.
   const { rows: occ } = await query<{
-    locataire_id: string; nom: string; entree: string | null; sortie: string | null;
+    id: string; locataire_id: string; nom: string; entree: string | null; sortie: string | null;
     adresse: string | null; commune: string | null; code_postal: string | null;
   }>(
-    `SELECT o.locataire_id::text, l.nom, o.entree::text, o.sortie::text,
+    `SELECT o.id::text, o.locataire_id::text, l.nom, o.entree::text, o.sortie::text,
             l.adresse, l.commune, l.code_postal
        FROM gestion_annuaire_occupation o
        JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
@@ -964,6 +1400,20 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
   const coords = new Map<number, ContactAffiche[]>();
   for (const pid of personnes) coords.set(pid, await contactsDe('locataire', pid));
 
+  /**
+   * ══ 🔴 LES PROPRIÉTAIRES DE CE BIEN, POUR LES CARTES ══════════════════════════════════════════════════════
+   * Avec la migration 278 : les liens EN COURS de la table dédiée — c'est ce qui permet la co-propriété et la
+   * vente. Sans elle : le propriétaire unique de l'import, ce qui est la vérité d'aujourd'hui.
+   */
+  const modifiable = await annuaireModifiableDisponible();
+  let idsProprietaires: number[] = l.proprietaire_id === null ? [] : [Number(l.proprietaire_id)];
+  if (modifiable) {
+    const { rows: lp } = await query<{ proprietaire_id: string }>(
+      `SELECT proprietaire_id::text FROM gestion_annuaire_lot_proprietaire
+        WHERE lot_id = $1 AND jusqu_a IS NULL ORDER BY (rang = 0), rang, id`, [id]);
+    idsProprietaires = [...idsProprietaires, ...lp.map((r) => Number(r.proprietaire_id))];
+  }
+
   return {
     etat: 'ok',
     data: {
@@ -978,11 +1428,16 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
       proprietaireContacts: l.proprietaire_id === null
         ? [] : await contactsDe('proprietaire', Number(l.proprietaire_id)),
       occupations: occ.map((o) => ({
+        occupationId: Number(o.id),
         locataireId: Number(o.locataire_id), nom: o.nom, entree: o.entree, sortie: o.sortie,
         encours: o.sortie === null,
         adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
         contacts: coords.get(Number(o.locataire_id)) ?? [],
       })),
+      proprietaires: await personnesDe('proprietaire', idsProprietaires),
+      occupants: await personnesDe(
+        'locataire', occ.filter((o) => o.sortie === null).map((o) => Number(o.locataire_id))),
+      modifiable,
     },
   };
 }
@@ -997,16 +1452,56 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
   const p = rows[0];
   if (p === undefined) return { etat: 'inconnu' };
 
+  /**
+   * ══ 🔴 LES LOGEMENTS, AVEC DE QUOI REMPLIR UNE CARTE, EN UNE SEULE REQUÊTE ═════════════════════════════════
+   * Le bien, son propriétaire, ses mails et son dossier Drive par des jointures LATÉRALES — même forme que
+   * `biensDuProprietaire`, et pour la même raison : un locataire a une à trois occupations, et trois
+   * allers-retours de plus se verraient à l'écran.
+   */
   const { rows: occ } = await query<{
     lot_id: string | null; numero: string; adresse: string | null; commune: string | null;
+    code_postal: string | null; nature: string | null; type_bien: string | null;
     entree: string | null; sortie: string | null;
+    proprietaire_id: string | null; proprietaire_nom: string | null;
+    mails: number; dernier_echange: string | null; drive_id: string | null;
   }>(
     `SELECT o.lot_id::text, coalesce(lo.wippimmo_id, o.lot_wippimmo_id) AS numero, lo.adresse, lo.commune,
-            o.entree::text, o.sortie::text
+            lo.code_postal, lo.nature, lo.type_bien,
+            o.entree::text, o.sortie::text,
+            pr.id::text AS proprietaire_id, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
+            coalesce(ma.n, 0)::int AS mails,
+            ${INSTANT('ma.dernier')} AS dernier_echange,
+            dr.drive_id
        FROM gestion_annuaire_occupation o
        LEFT JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
+       LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
+       LEFT JOIN LATERAL (
+         SELECT count(DISTINCT m.id)::int AS n, max(m.recu_le) AS dernier
+           FROM gestion_rattachement r
+           JOIN gestion_message m ON m.id = r.message_id
+          WHERE r.cible_sorte = 'lot' AND r.cible_cle = lo.wippimmo_id AND r.statut = 'confirme'
+       ) ma ON true
+       LEFT JOIN gestion_drive_arbre dr
+              ON dr.sorte = 'bien' AND dr.cle = lo.wippimmo_id AND dr.absent_le IS NULL
       WHERE o.locataire_id = $1
       ORDER BY (o.sortie IS NULL) DESC, o.entree DESC NULLS LAST, o.id DESC`, [id]);
+
+  /**
+   * ══ 🔴🔴 TOUS LES OCCUPANTS DU MÊME LOGEMENT — LA RÈGLE D'ARNO ═════════════════════════════════════════════
+   * « chercher un locataire montre TOUS les occupants du même logement ». On part donc des logements OCCUPÉS
+   * aujourd'hui par cette personne, et on ramène toutes les occupations EN COURS de ces mêmes lots.
+   *
+   * ⚠️ LA PERSONNE DEMANDÉE EST TOUJOURS EN TÊTE DE LA LISTE D'IDENTIFIANTS : un locataire parti n'a plus de
+   * logement en cours, et sa propre fiche ne doit pas disparaître de sa propre fiche.
+   */
+  const lotsEnCours = occ.filter((o) => o.sortie === null && o.lot_id !== null).map((o) => Number(o.lot_id));
+  const idsFoyer = [Number(p.id)];
+  if (lotsEnCours.length > 0) {
+    const { rows: voisins } = await query<{ locataire_id: string }>(
+      `SELECT DISTINCT locataire_id::text FROM gestion_annuaire_occupation
+        WHERE lot_id = ANY($1::bigint[]) AND sortie IS NULL`, [lotsEnCours]);
+    idsFoyer.push(...voisins.map((v) => Number(v.locataire_id)));
+  }
 
   return {
     etat: 'ok',
@@ -1019,6 +1514,17 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
         numero: o.numero, adresse: o.adresse, commune: o.commune, entree: o.entree, sortie: o.sortie,
         encours: o.sortie === null, horsGestion: o.lot_id === null,
       })),
+      logements: occ.map((o) => ({
+        lotId: o.lot_id === null ? null : Number(o.lot_id),
+        numero: o.numero, adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
+        nature: o.nature, typeBien: o.type_bien, surfaceM2: null,
+        entree: o.entree, sortie: o.sortie, encours: o.sortie === null, horsGestion: o.lot_id === null,
+        proprietaireId: o.proprietaire_id === null ? null : Number(o.proprietaire_id),
+        proprietaireNom: o.proprietaire_nom,
+        mails: o.mails, dernierEchange: o.dernier_echange, driveDossierId: o.drive_id,
+      })),
+      personnes: await personnesDe('locataire', idsFoyer),
+      modifiable: await annuaireModifiableDisponible(),
     },
   };
 }
@@ -1074,6 +1580,7 @@ export async function indicesParEmail(emails: readonly string[]): Promise<IssueL
     `WITH vises AS (
        SELECT sujet, sujet_id FROM gestion_annuaire_contact
         WHERE sorte = 'email' AND absent_le IS NULL AND valeur = ANY($1::text[])
+          ${await conditionCoordonneeVivante()}
      )
      SELECT 'proprietaire' AS role, pr.id::text, pr.nom_complet AS nom,
             (SELECT concat_ws(', ', lo.adresse, lo.commune) FROM gestion_annuaire_lot lo

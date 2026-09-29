@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { annuaireDisponible, horsGestionDisponible, libelleSourceContactDisponible, rattachementsDisponibles } from './schema';
 import { libelleContact } from './annuaire';
 import { adresseComplete } from './ficheBien';
@@ -185,7 +186,7 @@ export async function ficheRattachementDuFil(filId: number): Promise<FicheRattac
       `SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, rang,
               ${avecLibelle ? 'libelle_source' : "NULL::text AS libelle_source"}
          FROM gestion_annuaire_contact
-        WHERE absent_le IS NULL
+        WHERE absent_le IS NULL${await conditionCoordonneeVivante()}
           AND ((sujet = 'proprietaire' AND sujet_id = ANY($1::bigint[]))
             OR (sujet = 'locataire'    AND sujet_id = ANY($2::bigint[])))
         ORDER BY sorte, rang, id`, [idsProprios, idsLocataires]);

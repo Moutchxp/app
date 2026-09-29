@@ -26,6 +26,12 @@ const annuaire = vi.fn(async () => true);
 vi.mock('./schema', () => ({
   annuaireDisponible: () => annuaire(),
   libelleSourceContactDisponible: async () => true,
+  /**
+   * LOT FICHES-ANNUAIRE (étape C) — la sonde de l'annuaire MODIFIABLE. `false` ici : ces épreuves figent la forme
+   * de la requête SANS la migration 278, et c'est l'état de la base à ce jour. La condition qu'elle ajoute
+   * (`archive_le IS NULL`, pour écarter une coordonnée retirée à la main) a ses propres épreuves.
+   */
+  annuaireModifiableDisponible: async () => false,
 }));
 
 import { chercherBiens } from './rechercheBienRepo';

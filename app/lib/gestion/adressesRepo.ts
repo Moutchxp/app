@@ -11,6 +11,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query } from '../db/client';
+import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { adressesMessagesDisponibles } from './schema';
 import {
   adressesDuChamp, reconnaitre, releverAdresses, type ContactConnu, type OccupationConnue,
@@ -41,7 +42,7 @@ export async function chargerAnnuaireAdresses(): Promise<{
     `SELECT c.sujet, c.sujet_id, c.valeur, pr.wippimmo_id AS prop
        FROM gestion_annuaire_contact c
        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = c.sujet_id AND c.sujet = 'proprietaire'
-      WHERE c.sorte = 'email' AND c.absent_le IS NULL`);
+      WHERE c.sorte = 'email' AND c.absent_le IS NULL${await conditionCoordonneeVivante('c')}`);
 
   const { rows: occs } = await query<{
     locataire_id: string; lot: string | null; prop: string | null; entree: string | null; sortie: string | null;

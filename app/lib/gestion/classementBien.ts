@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { conditionCoordonneeVivante } from './coordonneeVivante';
 import {
   annuaireDisponible, rattachementsDisponibles, miniaturesDisponibles, libelleSourceContactDisponible,
 } from './schema';
@@ -145,13 +146,19 @@ interface LotDB {
  *
  * ⚠️ L'ORDRE EST CELUI DE L'IMPORT (`rang`) : la première adresse est celle que WIPPIMMO donne en premier, et
  * c'est en général la bonne. Trier par ordre alphabétique remonterait une adresse secondaire en tête.
+ *
+ * 🔴 LOT FICHES-ANNUAIRE (étape C) — `vivante` PORTE LA CONDITION `archive_le IS NULL`, celle qui écarte une
+ * coordonnée RETIRÉE À LA MAIN. C'est ici que la règle compte le plus : ce module est le MOTEUR DE PROPOSITIONS.
+ * Une adresse qu'Arno vient d'enlever d'une fiche continuerait, sans cette condition, à proposer le bien de cette
+ * personne pour chaque mail — et son geste n'aurait servi qu'à moitié, ce qui est pire que rien.
+ * La condition vient de `conditionCoordonneeVivante()`, qui la SONDE : sans la migration 278 elle est vide.
  */
-function sqlContacts(avecLibelle: boolean): string {
+function sqlContacts(avecLibelle: boolean, vivante: string): string {
   return `
   SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, rang,
          ${avecLibelle ? 'libelle_source' : "NULL::text AS libelle_source"}
     FROM gestion_annuaire_contact
-   WHERE absent_le IS NULL
+   WHERE absent_le IS NULL${vivante}
      AND ((sujet = 'proprietaire' AND sujet_id = ANY($1::bigint[]))
        OR (sujet = 'locataire'    AND sujet_id = ANY($2::bigint[])))
    ORDER BY sorte, rang, id`;
@@ -324,7 +331,7 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
     const avecLibelle = await libelleSourceContactDisponible();
     const { rows: cts } = await query<{
       sujet: string; sujet_id: string; sorte: string; valeur: string; rang: number; libelle_source: string | null;
-    }>(sqlContacts(avecLibelle), [idsProprios, idsLocataires]);
+    }>(sqlContacts(avecLibelle, await conditionCoordonneeVivante()), [idsProprios, idsLocataires]);
     for (const c of cts) {
       const k = cleContact(c.sujet, c.sujet_id);
       const e = contacts.get(k) ?? { emails: [], telephones: [] };

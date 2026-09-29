@@ -15,6 +15,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query } from '../db/client';
+import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { nomBien, nomProprietaire } from './driveArbre';
 import { adressesDuChamp } from './adressesMessage';
 import type { AnnuaireTri, LotTri, PieceATrier, ProprietaireTri } from './triPieces';
@@ -60,8 +61,9 @@ export interface ContexteTri {
 /** CHARGE TOUT ce que le tri demande. LECTURE SEULE. */
 export async function chargerContexteTri(adresseAgence = ADRESSE_AGENCE_DEFAUT): Promise<ContexteTri> {
   const { rows: contacts } = await query<{ sujet: string; sujet_id: string; valeur: string }>(
+    // ⚠️ `conditionCoordonneeVivante` écarte les adresses RETIRÉES À LA MAIN (migration 278) — voir ce module.
     `SELECT sujet, sujet_id, valeur FROM gestion_annuaire_contact
-      WHERE sorte = 'email' AND absent_le IS NULL`);
+      WHERE sorte = 'email' AND absent_le IS NULL${await conditionCoordonneeVivante()}`);
 
   const { rows: lots } = await query<{
     cle: string; prop: string | null; adresse: string | null; cp: string | null; commune: string | null;

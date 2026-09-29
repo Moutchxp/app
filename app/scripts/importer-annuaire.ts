@@ -117,6 +117,25 @@ export function rendreRapport(plan: PlanImport, c: ComptesImport, o: OptionsImpo
   l.push(`DISPARUS DU DERNIER EXPORT (marqués, JAMAIS effacés) : ${c.disparus}`);
   if (c.revenus > 0) l.push(`REVENUS dans l’export (la mention « absent » est levée) : ${c.revenus}`);
 
+  /**
+   * ══ 🔴🔴 LOT FICHES-ANNUAIRE (étape C) — CE QUE L'IMPORT N'A PAS APPLIQUÉ ══════════════════════════════════════
+   *
+   * Règle d'Arno : « une valeur modifiée dans l'app devient PRIORITAIRE et n'est jamais écrasée par un réimport ;
+   * l'import LISTE les divergences (“WIPPIMMO dit X, l'app dit Y”) dans son rapport, sans les appliquer ».
+   *
+   * 🔴 EN TOUTES LETTRES, ET NON UN SIMPLE COMPTEUR. « 3 divergences » n'apprend rien : ce qu'on veut savoir, c'est
+   * QUEL numéro de QUI, pour décider s'il faut corriger WIPPIMMO ou lever le verrou.
+   */
+  if (c.divergences.length > 0) {
+    l.push('');
+    l.push(`🔴 DIVERGENCES NON APPLIQUÉES (${c.divergences.length}) — la valeur saisie dans l’application est`);
+    l.push('   PRIORITAIRE, celle de WIPPIMMO est seulement signalée :');
+    for (const d of c.divergences.slice(0, 60)) l.push(`  · ${d}`);
+    if (c.divergences.length > 60) l.push(`  … et ${c.divergences.length - 60} autre(s).`);
+    l.push('   Pour qu’une de ces valeurs redevienne celle de WIPPIMMO : la corriger dans WIPPIMMO puis la');
+    l.push('   ressaisir à l’identique dans la fiche — ou retirer le verrou du champ. Rien n’est écrasé au jugé.');
+  }
+
   if (plan.homonymes.length > 0) {
     l.push('');
     l.push('🔴 HOMONYMES DE PROPRIÉTAIRES — signalés, JAMAIS fusionnés :');

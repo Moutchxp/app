@@ -263,6 +263,25 @@ export function annuaireDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT FICHES-ANNUAIRE (étape C) — LA MIGRATION 278 EST-ELLE APPLIQUÉE ? ═════════════════════════════════
+ *
+ * Elle est ce qui rend l'annuaire MODIFIABLE : les champs que WIPPIMMO ne porte pas (qualité, note, civilité d'un
+ * locataire), l'ordre des cartes, l'ARCHIVAGE (jamais l'effacement), les VERROUS qui donnent la priorité à ce
+ * qu'on a saisi, et le lien BIEN ↔ PROPRIÉTAIRE qui permet d'en avoir plusieurs.
+ *
+ * 🔴 CE QU'ELLE COMMANDE. Tant qu'elle répond « non » : aucune de ses colonnes n'est NOMMÉE, les fiches restent
+ * en LECTURE SEULE — exactement ce qu'elles étaient avant ce lot — et « Modifier » est rendu DÉSACTIVÉ AVEC SON
+ * MOTIF ÉCRIT. Ni absent (ce qui enverrait chercher un bug), ni actif (ce qui promettrait un geste impossible).
+ *
+ * ⚠️ ON SONDE LA TABLE DES VERROUS, et non une colonne : c'est la pièce SANS LAQUELLE la promesse centrale du lot
+ * — « une valeur modifiée n'est plus jamais écrasée par un réimport » — ne peut pas être tenue. Permettre la
+ * saisie sans elle reviendrait à laisser quelqu'un corriger un numéro que l'import effacerait le lendemain.
+ */
+export function annuaireModifiableDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_annuaire_verrou', () => tableExiste('gestion_annuaire_verrou'));
+}
+
+/**
  * LOT DRIVE-1 — la migration 254 est-elle appliquée ? Elle seule porte la MÉMOIRE de l'arborescence Drive, qui est
  * aussi la LISTE BLANCHE du garde-fou.
  *

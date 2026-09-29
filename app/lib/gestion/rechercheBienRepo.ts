@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { annuaireDisponible } from './schema';
 import { analyserTerme, type TermeRecherche } from './annuaireRecherche';
 import { adresseComplete, type PersonneFiche } from './ficheBien';
@@ -87,13 +88,19 @@ export async function chercherBiens(
   const date = (o.dateMail ?? '').slice(0, 10);
   const dateUtile = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
   const limite = Math.min(Math.max(1, o.limite ?? PLAFOND_BIENS), 200);
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE (étape C) — LA CONDITION QUI ÉCARTE UNE COORDONNÉE RETIRÉE À LA MAIN.
+   * Chercher un bien par un numéro qu'Arno vient d'enlever d'une fiche le trouverait encore : le geste
+   * n'aurait servi qu'à moitié. Vide tant que la migration 278 n'est pas là (la sonde voyage avec la colonne).
+   */
+  const vivante = await conditionCoordonneeVivante();
 
   const { rows } = await query<LigneDB>(
     `WITH mots AS (SELECT unnest($1::text[]) AS m),
      /* ── LES CONTACTS QUI RÉPONDENT : téléphone (complet ou fin de numéro) ou e-mail ───────────────────────── */
      contacts_trouves AS (
        SELECT sujet, sujet_id FROM gestion_annuaire_contact
-        WHERE absent_le IS NULL
+        WHERE absent_le IS NULL${vivante}
           AND (($2::text IS NOT NULL AND valeur = $2)
             OR ($3::text IS NOT NULL AND valeur LIKE $3)
             OR ($4::text IS NOT NULL AND valeur = $4))
@@ -218,7 +225,7 @@ async function partiesDesBiens(
       `SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, rang,
               ${avecLibelle ? 'libelle_source' : 'NULL::text AS libelle_source'}
          FROM gestion_annuaire_contact
-        WHERE absent_le IS NULL
+        WHERE absent_le IS NULL${await conditionCoordonneeVivante()}
           AND ((sujet = 'proprietaire' AND sujet_id = ANY($1::bigint[]))
             OR (sujet = 'locataire'    AND sujet_id = ANY($2::bigint[])))
         ORDER BY sorte, rang, id`,
