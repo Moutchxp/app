@@ -68,10 +68,19 @@ export type VerdictFichier =
  * dépassée, départ vide : on ne sait pas, et NE PAS SAVOIR VAUT INTERDIT pour les deux gestes. Les fondre dans
  * « dehors » ouvrirait la porte à tout ce qu'on n'a pas su lire.
  */
-type Ascension =
+export type Ascension =
   | { ou: 'dedans' }
   | { ou: 'dehors' }
   | { ou: 'inconnu'; cause: 'depart' | 'trou' | 'cycle' | 'profondeur' };
+
+/**
+ * 🔴 LOT DRIVE-DEPLACER — EXPORTÉE, parce qu'un TROISIÈME geste s'y appuie désormais : DÉPLACER et COPIER. Trois
+ * gestes, une seule traversée — c'est exactement la raison pour laquelle elle avait été extraite au lot
+ * DRIVE-VISUALISER-ET-DOSSIERS, et la raison vaut encore plus fort maintenant qu'une écriture en dépend.
+ */
+export function situer(depart: string | null, index: ReadonlyMap<string, Maillon>): Ascension {
+  return remonterJusquEnHaut(depart, index);
+}
 
 function remonterJusquEnHaut(depart: string | null, index: ReadonlyMap<string, Maillon>): Ascension {
   if (depart === null || depart === '') return { ou: 'inconnu', cause: 'depart' };

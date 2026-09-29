@@ -558,3 +558,18 @@ export function fileEnvoiDisponible(): Promise<boolean> {
 export function journalDossierDriveDisponible(): Promise<boolean> {
   return memoiser('table.gestion_drive_dossier_cree', () => tableExiste('gestion_drive_dossier_cree'));
 }
+
+/**
+ * 🔴🔴 LOT DRIVE-DEPLACER — la migration 274 est-elle appliquée ? Elle porte le JOURNAL des DÉPLACEMENTS et des
+ * COPIES faits dans le Drive (`gestion_drive_mouvement`) : qui, quand, quel élément, d'où, vers où.
+ *
+ * 🔴 ELLE CONDITIONNE UNE ÉCRITURE DANS LE DRIVE DU CABINET, comme la 272 avant elle — et pour une raison de plus :
+ * c'est dans cette table que « Annuler » relit le PARENT D'ORIGINE. Sans journal, « Annuler » devrait croire ce que
+ * l'écran se rappelle, c'est-à-dire la partie qu'on vérifie. Tant qu'elle manque :
+ *   · le glisser-déposer vers la zone « Pièces jointes » du mail FONCTIONNE (il n'écrit rien dans le Drive) ;
+ *   · le déplacement et la copie sont DÉSACTIVÉS, avec leur motif écrit en toutes lettres ;
+ *   · la route les refuse aussi, même appelée directement.
+ */
+export function journalMouvementDriveDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_drive_mouvement', () => tableExiste('gestion_drive_mouvement'));
+}

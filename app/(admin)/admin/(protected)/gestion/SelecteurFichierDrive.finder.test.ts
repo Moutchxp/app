@@ -249,18 +249,34 @@ describe('🔴 ③ la liste, façon Finder', () => {
 });
 
 describe('🔴 ④ le menu contextuel', () => {
-  it('sur un fichier : les quatre entrées permises, et rien d’autre', async () => {
+  /**
+   * ⚠️ CES DEUX LISTES ONT ÉTÉ RÉÉCRITES LE 29/09/2026 (lot DRIVE-DEPLACER), ET IL FAUT DIRE POURQUOI.
+   *
+   * Elles figeaient le menu à quatre entrées sur un fichier et trois sur un dossier. Décision d'Arno du
+   * 29/09/2026 : l'application DÉPLACE et COPIE désormais, et le menu porte donc en plus Couper, Copier et
+   * Coller ici — ce qu'il demande explicitement : « les mêmes entrées dans le menu clic droit ».
+   *
+   * 🔴 ON N'A PAS RELÂCHÉ L'ÉGALITÉ EN INCLUSION : la liste reste EXACTE, sans quoi une entrée ajoutée par
+   * distraction ne se verrait plus. C'est le CONTENU attendu qui change, pas la force de l'assertion. Et le test
+   * qui suit — celui qui cherche les actions destructrices une par une — n'a pas bougé d'une ligne.
+   */
+  it('sur un fichier : les entrées permises, et rien d’autre', async () => {
     await monter();
     await souris('bail.pdf', 'contextmenu');
     const mots = [...container.querySelectorAll('.sfd-menu [role="menuitem"]')].map((b) => b.textContent);
-    expect(mots).toEqual(['Visualiser', 'Joindre au message', 'Insérer un lien', 'Ouvrir dans Google Drive']);
+    expect(mots).toEqual([
+      'Visualiser', 'Joindre au message', 'Insérer un lien', 'Ouvrir dans Google Drive',
+      'Couper', 'Copier', 'Coller ici',
+    ]);
   });
 
-  it('sur un dossier : Ouvrir, Nouveau dossier, Ouvrir dans Google Drive', async () => {
+  it('sur un dossier : Ouvrir, Nouveau dossier, Ouvrir dans Google Drive, puis la mémoire tampon', async () => {
     await monter();
     await souris('Artisans', 'contextmenu');
     const mots = [...container.querySelectorAll('.sfd-menu [role="menuitem"]')].map((b) => b.textContent);
-    expect(mots).toEqual(['Ouvrir', 'Nouveau dossier', 'Ouvrir dans Google Drive']);
+    expect(mots).toEqual([
+      'Ouvrir', 'Nouveau dossier', 'Ouvrir dans Google Drive', 'Couper', 'Copier', 'Coller ici',
+    ]);
   });
 
   /** 🔴🔴 JAMAIS : Renommer, Placer dans la corbeille, Supprimer, Déplacer, Partager, Dupliquer. */

@@ -255,8 +255,16 @@ describe('🔴 le droit de créer voyage AVEC le contenu du dossier', () => {
      * ⚠️ LOT APERCU-RAPIDE — LA REMONTÉE PASSE PAR LA MÉMOIRE COURTE (`chaineDuDossierMemo`), qui appelle
      * `chaineParents` pour son compte. La propriété protégée n'a pas changé : UNE SEULE remontée pour les deux
      * verdicts. Elle se lit désormais sur l'appel mémoïsé, qui est le seul chemin vers le réseau.
+     *
+     * ⚠️ BORNE RÉÉCRITE LE 29/09/2026 (lot DRIVE-DEPLACER). Cette découpe allait de `verdictsDossier` à la FIN DU
+     * FICHIER — ce qui marchait tant que cette fonction était la dernière. `idsProteges`, ajoutée après elle,
+     * remonte LÉGITIMEMENT une chaîne de parents pour situer l'archive, et faisait échouer un test qui ne parlait
+     * pas d'elle. On borne donc à CE QUE LA PROPRIÉTÉ VISE : le corps de `verdictsDossier`, et rien de plus.
      */
-    const bloc = partage.slice(partage.indexOf('export async function verdictsDossier'));
+    const debut = partage.indexOf('export async function verdictsDossier');
+    const suite = partage.indexOf('\nexport ', debut + 1);
+    const bloc = partage.slice(debut, suite === -1 ? undefined : suite);
+    expect(bloc).toContain('verdictsDossier');
     expect(bloc.match(/chaineDuDossierMemo\(/g) ?? []).toHaveLength(1);
     expect(bloc).not.toContain('chaineParents(');
   });
@@ -285,16 +293,24 @@ describe('🔴 l’écran n’offre pas « Visualiser » là où la route refuse
     const c = code(ECRAN);
     // ① Le verdict est lu une fois, à la source, et il vient de la route.
     expect(c).toContain('const joindreOk = listing?.joindreAutorise === true;');
-    // ② La porte refuse d'elle-même : c'est elle, et pas l'appelant, qui tient la règle.
-    expect(c).toContain('if (!autorise || f.dossier) return;');
-    // ③ Et aucun appel ne lui passe autre chose que ce verdict.
+    /* ② LA PORTE REFUSE D'ELLE-MÊME : c'est elle, et pas l'appelant, qui tient la règle.
+       ⚠️ ASSERTION RÉÉCRITE LE 29/09/2026 (lot DRIVE-DEPLACER) : le garde tenait en une ligne
+       (`if (!autorise || f.dossier) return;`) et il en fait deux, parce qu'un troisième refus s'est intercalé
+       entre elles — le fichier « ._ » de macOS, qui doit se DIRE (il renvoie au vrai fichier) là où les deux
+       autres se taisent. La propriété protégée est la même : sans verdict, la porte ne s'ouvre pas. */
+    expect(c).toContain('if (!autorise) return;');
+    expect(c).toContain('if (f.dossier) return;');
+    // ③ Et aucun appel ne lui passe autre chose que ce verdict — ou une version PLUS STRICTE de ce verdict.
     const appels = c.match(/visualiser\([^)]*\)/g) ?? [];
     expect(appels.length).toBeGreaterThan(2);
     for (const a of appels) {
       if (a.startsWith('visualiser(f,')) {
-        expect(a).toMatch(/visualiser\(f, (joindreOk|listing\?\.joindreAutorise === true)\)/);
+        expect(a).toMatch(/visualiser\(f, (joindreOk|lisible|listing\?\.joindreAutorise === true)\)/);
       }
     }
+    /* 🔴 ET `lisible` EST BIEN UNE RESTRICTION DE `joindreOk`, jamais un verdict parallèle : si quelqu'un lui
+       donnait une autre source, « Visualiser » s'ouvrirait là où la route refuse. */
+    expect(c).toContain('const lisible = joindreOk && !systeme;');
   });
 
   /** Et la route de l'aperçu prononce le verdict elle-même : l'écran explique, le serveur protège. */

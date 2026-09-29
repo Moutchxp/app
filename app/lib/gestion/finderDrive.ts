@@ -14,9 +14,12 @@ import { RACINE_DRIVES_PARTAGES, RACINE_MON_DRIVE } from './cibleDepot';
  * sans navigateur, elles se prouvent, et — pour le menu contextuel — elles portent une règle de sécurité qu'on ne
  * veut surtout pas voir vivre au milieu du JSX.
  *
- * 🔴🔴 LA RÈGLE QUI NE SE DISCUTE PAS : l'application ne RENOMME pas, ne DÉPLACE pas, ne SUPPRIME pas, ne met pas à
- * la CORBEILLE, ne PARTAGE pas et ne DUPLIQUE pas. Ces gestes n'existent nulle part dans le code du module, et le
- * menu contextuel ne peut pas les porter : `ACTIONS_MENU` les ignore, et un test les cherche un par un.
+ * 🔴🔴 LA RÈGLE QUI NE SE DISCUTE PAS : l'application ne RENOMME pas, ne SUPPRIME pas, ne met pas à la CORBEILLE et
+ * ne PARTAGE pas. Ces gestes n'existent nulle part dans le code du module, et le menu contextuel ne peut pas les
+ * porter : `ACTIONS_JAMAIS` les nomme, et un test les cherche un par un — dans les menus ET dans ce source.
+ *
+ * ⚠️ 29/09/2026 (lot DRIVE-DEPLACER) : DÉPLACER et COPIER ont quitté cette liste, sur décision d'Arno. Voir
+ * l'encadré d'`ACTIONS_JAMAIS`, qui dit ce qui a changé et surtout ce qui n'a pas changé.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -351,7 +354,9 @@ export function selectionSuivante(sel: Selection, ordre: readonly string[], pas:
    ⑥ 🔴🔴 LE MENU CONTEXTUEL — UNIQUEMENT LES ACTIONS QUE L'APPLICATION SAIT FAIRE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-export type ActionMenu = 'visualiser' | 'joindre' | 'lien' | 'ouvrir' | 'nouveau_dossier' | 'ouvrir_google';
+export type ActionMenu =
+  'visualiser' | 'joindre' | 'lien' | 'ouvrir' | 'nouveau_dossier' | 'ouvrir_google'
+  | 'couper' | 'copier' | 'coller';
 
 export interface EntreeMenu {
   action: ActionMenu;
@@ -361,14 +366,58 @@ export interface EntreeMenu {
 }
 
 /**
- * 🔴🔴 CE QUE LE MENU N'AURA JAMAIS. Écrit ici, en toutes lettres, et vérifié par un test qui les cherche une par
- * une : l'application ne renomme pas, ne déplace pas, ne supprime pas, ne met pas à la corbeille, ne partage pas
- * et ne duplique pas. Aucune de ces fonctions n'existe dans le code ; le menu ne peut donc pas les offrir, et
+ * ══ 🔴🔴 CE QUE LE MENU N'AURA JAMAIS ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Écrit ici, en toutes lettres, et vérifié par un test qui les cherche une par une, dans les deux menus et dans
+ * toutes leurs combinaisons de droits : l'application ne RENOMME pas, ne SUPPRIME pas, ne met pas à la CORBEILLE
+ * et ne PARTAGE pas. Aucune de ces fonctions n'existe dans le code ; le menu ne peut donc pas les offrir, et
  * personne ne doit pouvoir les y ajouter par distraction.
+ *
+ * ⚠️ 29/09/2026 — CETTE LISTE A ÉTÉ RÉÉCRITE, PAS AFFAIBLIE PAR COMMODITÉ. Elle contenait aussi « deplacer »,
+ * « copier » et « dupliquer », parce qu'au lot DRIVE-FACON-FINDER l'application ne savait faire NI l'un NI l'autre.
+ * Décision d'Arno du 29/09/2026 (lot DRIVE-DEPLACER) : elle peut désormais DÉPLACER et COPIER — donc l'interdit de
+ * ces deux mots-là tombe, et il tombe ICI, dans un diff qu'on relit, et non par un test qu'on contourne.
+ *
+ * 🔴 CE QUI N'A PAS BOUGÉ D'UN MOT : supprimer, renommer, corbeille, partager. Ce sont les gestes IRRÉVERSIBLES ou
+ * qui exposent les documents du cabinet à des tiers ; ils restent hors de cette application, et un déplacement se
+ * défait (le bandeau « Annuler », et le journal qui garde le parent d'origine) là où une suppression ne se défait
+ * pas. « dupliquer » est retiré de la liste des MOTS cherchés, mais reste absent du menu : Drive appelle ainsi la
+ * copie SUR PLACE, et ce lot n'a jamais copié que VERS un dossier désigné.
  */
 export const ACTIONS_JAMAIS = [
-  'renommer', 'corbeille', 'supprimer', 'deplacer', 'partager', 'dupliquer', 'copier',
+  'renommer', 'corbeille', 'supprimer', 'partager',
 ] as const;
+
+/**
+ * LES DROITS DU COUPER / COPIER / COLLER, tels que le menu doit les présenter.
+ *
+ * ⚠️ AUCUNE RÈGLE N'EST CALCULÉE ICI. Ce module dit ce qu'on AFFICHE ; c'est la route qui prononce le verdict, en
+ * remontant les chaînes de parents chez Google. Un menu actif ne promet donc rien — il ouvre une demande.
+ */
+export interface DroitsPresse {
+  /** Le geste est-il possible du tout ? (sans le journal en base : non, et le motif le dit.) */
+  autorise: boolean;
+  motif: string | null;
+  /** Le libellé de « Coller », déjà composé (il annonce déplacement ou copie, et le nombre). */
+  motColler: string;
+  /** Rien dans la mémoire tampon : « Coller » est éteint, avec le geste à faire d'abord. */
+  presseVide: boolean;
+}
+
+/** Les trois entrées de la mémoire tampon, identiques sur un fichier et sur un dossier. PUR. */
+export function entreesPresse(m: DroitsPresse | null): EntreeMenu[] {
+  if (m === null) return [];
+  const empeche = m.autorise ? null : (m.motif ?? 'Ce geste est indisponible ici.');
+  return [
+    { action: 'couper', libelle: 'Couper', motifInactif: empeche },
+    { action: 'copier', libelle: 'Copier', motifInactif: empeche },
+    {
+      action: 'coller',
+      libelle: m.motColler,
+      motifInactif: empeche ?? (m.presseVide ? 'Rien à coller : coupez (⌘X) ou copiez (⌘C) d’abord.' : null),
+    },
+  ];
+}
 
 /**
  * LE MENU D'UN FICHIER. PUR.
@@ -387,6 +436,8 @@ export function menuFichier(o: {
   motifRefus: string | null;
   dejaAjoute: boolean;
   avecLien: boolean;
+  /** `null` (ou absent) = ce menu ne propose pas la mémoire tampon du tout. */
+  presse?: DroitsPresse | null;
 }): EntreeMenu[] {
   const refus = o.motifRefus ?? 'La lecture du contenu est refusée ici.';
   return [
@@ -415,6 +466,11 @@ export function menuFichier(o: {
       libelle: 'Ouvrir dans Google Drive',
       motifInactif: o.avecLien ? null : 'Ce fichier n’a pas d’adresse Drive.',
     },
+    /**
+     * ⚠️ « Coller » EXISTE AUSSI SUR UN FICHIER, et ce n'est pas une inattention : on vise le dossier AFFICHÉ, celui
+     * qui contient cette ligne. C'est le geste du Finder — on ne va pas chercher une zone vide pour coller.
+     */
+    ...entreesPresse(o.presse ?? null),
   ];
 }
 
@@ -428,6 +484,8 @@ export function menuDossier(o: {
   creerAutorise: boolean;
   motifCreation: string | null;
   avecLien: boolean;
+  /** `null` (ou absent) = ce menu ne propose pas la mémoire tampon du tout. */
+  presse?: DroitsPresse | null;
 }): EntreeMenu[] {
   return [
     { action: 'ouvrir', libelle: 'Ouvrir', motifInactif: null },
@@ -441,6 +499,8 @@ export function menuDossier(o: {
       libelle: 'Ouvrir dans Google Drive',
       motifInactif: o.avecLien ? null : 'Ce dossier n’a pas d’adresse Drive.',
     },
+    // 🔴 SUR UN DOSSIER, « Coller ici » VISE CE DOSSIER-LÀ, pas celui qu'on regarde : c'est toute la différence.
+    ...entreesPresse(o.presse ?? null),
   ];
 }
 

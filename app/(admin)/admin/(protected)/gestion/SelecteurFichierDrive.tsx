@@ -10,13 +10,18 @@ import { ApercuFichierDrive, adresseApercu, type FichierAVoir } from './ApercuFi
 import { sorteApercu } from '../../../../lib/gestion/apercuDrive';
 import { NOM_DOSSIER_MAX } from '../../../../lib/gestion/dossierNouveau';
 // 🔴 LOT DRIVE-FACON-FINDER — toutes les RÈGLES du navigateur (tri, icônes, historique, sélection, menu) : module PUR.
+// 🔴 LOT DRIVE-DEPLACER — la règle du déplacement, la presse-papiers et les fichiers « ._ ». Module PUR.
+import {
+  DUREE_ANNULATION_MS, estCoupe, estFichierSystemeMac, infobulleFichierSysteme, motColler, motMouvementFait,
+  MOT_FICHIER_SYSTEME, type Presse,
+} from '../../../../lib/gestion/driveDeplacement';
 import {
   ariane as arianeDuChemin, aplatir, avancer, cheminCourant, cliquerLigne, COLONNES, dateFinder,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
   iconeEntree, menuDossier, menuFichier, motType, naviguerVers, peutAvancer, peutReculer, reculer,
   SELECTION_VIDE, selectionSuivante, tailleFinder, titreDuChemin, TRI_DEFAUT,
-  type ActionMenu, type Chemin, type Colonne, type EntreeDrive, type EntreeMenu, type Historique,
-  type Selection, type Tri,
+  type ActionMenu, type Chemin, type Colonne, type DroitsPresse, type EntreeDrive, type EntreeMenu,
+  type Historique, type Selection, type Tri,
 } from '../../../../lib/gestion/finderDrive';
 
 /**
@@ -52,6 +57,33 @@ import {
 
 /** Ce que ce navigateur manipule est exactement ce que le module pur sait trier et décrire. */
 type Fichier = EntreeDrive;
+
+/* ══ 🔴 LOT DRIVE-DEPLACER — LES TROIS CONSTANTES DU GLISSER ═══════════════════════════════════════════════════ */
+
+/**
+ * 🔴 UN TYPE MIME À NOUS, ET RIEN D'AUTRE. Le glisser ne dépose JAMAIS `text/plain` ni `text/uri-list` : un nom de
+ * fichier du cabinet lâché dans n'importe quel champ de n'importe quelle page serait une fuite silencieuse. Un
+ * type inconnu du reste du monde ne se lit que chez nous.
+ */
+const MIME_INTERNE = 'application/x-svv-drive';
+
+/**
+ * ⚠️ LE « RESSORT » DU FINDER : un dossier survolé assez longtemps pendant un glisser s'ouvre tout seul. 700 ms
+ * est le compromis d'Apple — assez court pour descendre trois niveaux sans lâcher, assez long pour traverser un
+ * dossier sans l'ouvrir par accident.
+ */
+const RESSORT_MS = 700;
+
+/** La taille de la fenêtre, retenue d'une ouverture à l'autre. PRÉFÉRENCE LOCALE : elle ne quitte pas ce navigateur. */
+const CLE_TAILLE_FENETRE = 'svv.gestion.selecteurDrive.taille';
+
+/** Le minimum dont la route a besoin : elle relit tout chez Google de toute façon. */
+function fichierMinimal(o: { id: string; nom?: string; dossier?: boolean }): Fichier {
+  return {
+    id: o.id, nom: o.nom ?? '', typeMime: '', tailleOctets: null, modifieLe: null, lien: null,
+    dossier: o.dossier === true,
+  };
+}
 
 /** Une liste chargée, avec ce que la route dit des droits à cet endroit. */
 interface Listing {
@@ -139,8 +171,25 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
   /** 🔴 LE DÉPLIAGE SUR PLACE : les dossiers ouverts, et leurs enfants déjà lus. */
   const [ouverts, setOuverts] = useState<Set<string>>(new Set());
   const [enfants, setEnfants] = useState<Map<string, Fichier[]>>(new Map());
+  /* ══ 🔴🔴 LOT DRIVE-DEPLACER ═══════════════════════════════════════════════════════════════════════════════
+     Décision d'Arno : l'application peut désormais DÉPLACER et COPIER dans le Drive. Elle ne supprime, ne renomme,
+     ne met à la corbeille et ne partage toujours RIEN. */
+  /** La presse-papiers, INTERNE à l'application : elle ne touche jamais au presse-papiers du système. */
+  const [presse, setPresse] = useState<Presse | null>(null);
+  /** Ce qui est en train d'être glissé. `null` = aucun glisser en cours. */
+  const [glisse, setGlisse] = useState<{ ids: string[]; nom: string } | null>(null);
+  /** Le dossier survolé pendant un glisser — celui qui s'allume. */
+  const [survole, setSurvole] = useState<string | null>(null);
+  /** Le bandeau « N élément(s) déplacé(s) vers X — Annuler ». `null` = rien à annoncer. */
+  const [bandeau, setBandeau] = useState<{ mot: string; mouvements: number[] } | null>(null);
+  /** La confirmation d'une copie de dossier, et ce qu'elle annonce. */
+  const [confirmation, setConfirmation] = useState<{ phrase: string; agir: () => void } | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
   const scene = useRef<HTMLDivElement | null>(null);
+  /** La fenêtre elle-même : on lui rend la taille qu'elle avait la dernière fois. */
+  const cadre = useRef<HTMLDivElement | null>(null);
+  /** Le minuteur qui ouvre un dossier après un survol prolongé pendant le glisser (le « spring-loading » du Finder). */
+  const ressort = useRef<{ id: string; minuteur: ReturnType<typeof setTimeout> } | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [hauteurVue, setHauteurVue] = useState(600);
 
@@ -419,6 +468,9 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
    */
   const joindre = async (f: Fichier) => {
     if (ajoutes.includes(f.id)) return;
+    /* 🔴 UN « ._ » NE SE JOINT PAS. Il porte presque le nom d'un vrai document et ne pèse que quelques kilooctets :
+       l'envoyer, c'est envoyer une pièce jointe qui ment. */
+    if (estFichierSystemeMac(f.nom)) { setErreur(infobulleFichierSysteme(f.nom)); return; }
     setErreur(null);
     setAjoutes((a) => (a.includes(f.id) ? a : [...a, f.id]));
     try {
@@ -448,7 +500,12 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
   };
 
   const visualiser = (f: Fichier, autorise: boolean) => {
-    if (!autorise || f.dossier) return;
+    if (f.dossier) return;
+    /* 🔴 UN « ._ » NE S'OUVRE PAS : il ne contient pas le document. Et ce refus-là se DIT AVANT celui de la
+       lecture, parce qu'il est le seul des deux qui apprenne quelque chose : le vrai fichier est juste à côté.
+       Il ne lit rien pour autant — il lit un NOM, que la liste affichait déjà. */
+    if (estFichierSystemeMac(f.nom)) { setErreur(infobulleFichierSysteme(f.nom)); return; }
+    if (!autorise) return;
     setAVoir({
       id: f.id, nom: f.nom, typeMime: f.typeMime, lien: f.lien,
       parentId: f.parentId ?? (vue.v === 'ok' && vue.recherche ? null : dossierCourant?.id ?? null),
@@ -569,7 +626,337 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
   }, []);
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
-     LE CLAVIER — flèches, Entrée, barre d'espace, Échap
+     🔴🔴 DÉPLACER ET COPIER — LE GESTE, ET SON GARDE
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     ⚠️ L'ÉCRAN N'EST PAS LA BARRIÈRE. Il explique et il empêche de viser ce qui sera refusé ; c'est la ROUTE qui
+     protège, en remontant la chaîne des parents de la source ET de la cible chez Google, à chaque appel. Un écran
+     se modifie, une route non.
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /** Le déplacement est-il disponible ? Sans la migration 274, non — et le motif est dit. */
+  const [journalPret, setJournalPret] = useState<boolean | null>(null);
+  const MOTIF_SANS_JOURNAL =
+    'Déplacement indisponible : la mise à jour de la base qui consigne les déplacements n’est pas appliquée. '
+    + 'On ne déplace pas dans le Drive ce qu’on ne saurait pas expliquer ensuite.';
+
+  /**
+   * ⚠️ PAS DE `useCallback` ICI, ET C'EST DÉLIBÉRÉ (même raison qu'à la liste, plus haut) : le compilateur React
+   * refuse d'optimiser un composant dont il ne peut pas préserver la mémorisation manuelle — il juge `chemin`
+   * modifiable — et il abandonne alors TOUT le fichier. Le laisser faire lui-même vaut mieux qu'un `useCallback`
+   * qui lui coûte le reste de l'écran.
+   */
+  const mouvoir = async (
+    sorte: 'deplacer' | 'copier', elements: Fichier[], cibleId: string, cibleNom: string,
+  ): Promise<void> => {
+    if (elements.length === 0 || cibleId === '') return;
+    setErreur(null);
+    try {
+      const res = await fetch('/api/admin/gestion/drive/deplacer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: sorte, cible: cibleId,
+          elements: elements.map((f) => ({ id: f.id, nom: f.nom, dossier: f.dossier, parentId: f.parentId ?? null })),
+        }),
+      });
+      const d = (await res.json()) as {
+        etat?: string; message?: string; nomCible?: string;
+        faits?: { id: string }[]; refuses?: { nom: string; motif: string }[]; mouvements?: number[];
+      };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'Ce déplacement n’a pas pu être fait.'); return; }
+      const faits = d.faits ?? [];
+      const refuses = d.refuses ?? [];
+      // 🔴 UN REFUS SE DIT, AVEC SON MOTIF. Un geste sans effet et sans explication se lit comme une panne.
+      if (refuses.length > 0) {
+        setErreur(refuses.map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
+      }
+      if (faits.length === 0) return;
+      // Les deux dossiers concernés ont changé de contenu : leur listing mémorisé ne vaut plus.
+      cache.current.delete(cibleId);
+      cache.current.delete(dossierCourant?.id ?? '');
+      setPresse(null);
+      setSelection(SELECTION_VIDE);
+      setBandeau({
+        mot: motMouvementFait(sorte, faits.length, d.nomCible ?? cibleNom),
+        // ⚠️ UNE COPIE NE S'ANNULE PAS : annuler voudrait dire SUPPRIMER la copie, et l'app ne supprime rien.
+        mouvements: sorte === 'deplacer' ? (d.mouvements ?? []) : [],
+      });
+      void charger(dossierCourant?.id ?? '');
+    } catch {
+      setErreur('Le Drive n’a pas répondu.');
+    }
+  };
+
+  /** ANNULER : la route relit le parent d'origine DANS LE JOURNAL, pas dans ce que cet écran se rappelle. */
+  const annulerMouvement = async (mouvements: number[]) => {
+    setBandeau(null);
+    try {
+      const res = await fetch('/api/admin/gestion/drive/deplacer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'annuler', mouvements }),
+      });
+      const d = (await res.json()) as { etat?: string; message?: string; refuses?: { nom: string; motif: string }[] };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'L’annulation n’a pas pu être faite.'); return; }
+      if ((d.refuses ?? []).length > 0) {
+        setErreur((d.refuses ?? []).map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
+      }
+      cache.current.clear();
+      void charger(dossierCourant?.id ?? '');
+    } catch { setErreur('Le Drive n’a pas répondu.'); }
+  };
+
+  /** Le bandeau s'efface tout seul au bout de dix secondes : le temps de s'apercevoir qu'on s'est trompé. */
+  useEffect(() => {
+    if (bandeau === null) return undefined;
+    const t = setTimeout(() => setBandeau(null), DUREE_ANNULATION_MS);
+    return () => clearTimeout(t);
+  }, [bandeau]);
+
+  /**
+   * 🔴 ON DEMANDE À LA ROUTE, pas à une copie de la règle. Elle seule sait si le journal existe — et c'est elle
+   * qui refusera de toute façon. `null` = on ne sait pas encore : le geste est alors simplement inactif.
+   */
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/gestion/drive/deplacer', { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; disponible?: boolean };
+        if (!annule) setJournalPret(d.etat === 'ok' && d.disponible === true);
+      } catch { if (!annule) setJournalPret(false); }
+    })();
+    return () => { annule = true; };
+  }, []);
+
+  /** Les éléments visés par un geste : la sélection si la ligne en fait partie, sinon cette ligne seule. */
+  const visesPar = (f: Fichier): Fichier[] => {
+    if (!selection.ids.includes(f.id)) return [f];
+    return selection.ids.map((id) => entreeParId(id)).filter((x): x is Fichier => x !== null);
+  };
+
+
+  /**
+   * ══ 🔴 COPIER UN DOSSIER : ON ANNONCE LE NOMBRE AVANT, ET C'EST LE SERVEUR QUI LE COMPTE ════════════════════
+   *
+   * Arno : « copie récursive, précédée d'une confirmation qui annonce le nombre d'éléments, avec une limite
+   * raisonnable ». Ce nombre ne peut pas venir d'ici : l'écran ne connaît que le premier niveau, et encore, que
+   * s'il l'a déplié. On le demande donc, et l'on n'agit qu'après un « Copier » explicite.
+   *
+   * ⚠️ UN FICHIER SEUL NE DEMANDE RIEN : copier trois pièces jointes est un geste ordinaire. C'est la RÉCURSION
+   * qui se confirme, parce qu'elle seule peut emporter deux cents éléments sans qu'on l'ait vu venir.
+   */
+  const lancerCopie = async (elements: Fichier[], cibleId: string, cibleNom: string): Promise<void> => {
+    const dossiers = elements.filter((f) => f.dossier);
+    if (dossiers.length === 0) { void mouvoir('copier', elements, cibleId, cibleNom); return; }
+    setErreur(null);
+    try {
+      const res = await fetch('/api/admin/gestion/drive/deplacer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'compter', elements: dossiers.map((f) => ({ id: f.id, nom: f.nom, dossier: true })),
+        }),
+      });
+      const d = (await res.json()) as { etat?: string; possible?: boolean; phrase?: string; motif?: string; message?: string };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'Ce dossier n’a pas pu être compté.'); return; }
+      if (d.possible !== true) { setErreur(d.motif ?? 'Cette copie est au-delà de ce que ce geste sait faire.'); return; }
+      setConfirmation({
+        phrase: d.phrase ?? `Copier vers « ${cibleNom} » ?`,
+        agir: () => { setConfirmation(null); void mouvoir('copier', elements, cibleId, cibleNom); },
+      });
+    } catch { setErreur('Le Drive n’a pas répondu.'); }
+  };
+
+  /**
+   * COLLER : déplacer ce qui a été coupé, copier ce qui a été copié.
+   *
+   * 🔴 UNE COPIE PASSE PAR LA MÊME PORTE QUE LE GLISSER AVEC ⌥ : `lancerCopie`, donc la confirmation dès qu'il y a
+   * un dossier. Deux chemins qui feraient deux choses différentes — l'un annonçant le nombre, l'autre non —
+   * seraient un piège tendu à celui qui apprend le geste par l'un des deux.
+   */
+  const coller = (cibleId: string, cibleNom: string) => {
+    if (presse === null || journalPret !== true) return;
+    /* ⚠️ LES ÉLÉMENTS PEUVENT NE PLUS ÊTRE À L'ÉCRAN (on a changé de dossier depuis la prise) : on reconstruit
+       alors le minimum dont la route a besoin — elle relit tout chez Google de toute façon. Ce qu'on ne peut PAS
+       reconstruire, c'est « est-ce un dossier » : c'est pour cela que la prise l'a retenu. */
+    const liste = presse.ids.map((id) => entreeParId(id)
+      ?? fichierMinimal({ id, dossier: presse.dossiers.includes(id) }));
+    if (presse.mode === 'couper') { void mouvoir('deplacer', liste, cibleId, cibleNom); return; }
+    void lancerCopie(liste, cibleId, cibleNom);
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴 LE GLISSER-DÉPOSER
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     Arno : « sur un dossier → DÉPLACEMENT ; Option (⌥) → COPIE ; sur la zone Pièces jointes du mail → JOINDRE.
+     Retour visuel : fantôme, dossier cible en surbrillance, curseur interdit, ouverture automatique d'un dossier
+     après un survol prolongé. »
+
+     ⚠️ CE QUI VOYAGE DANS LE GLISSER TIENT EN UN TYPE MIME À NOUS (`MIME_INTERNE`). Pas de `text/plain`, pas de
+     `text/uri-list` : un nom de document du cabinet lâché dans le champ de recherche d'un autre onglet serait une
+     fuite que personne ne verrait passer.
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /** Le glisser s'arrête : plus de fantôme, plus de surbrillance, plus de ressort en attente. */
+  const finGlisse = () => {
+    setGlisse(null);
+    setSurvole(null);
+    if (ressort.current !== null) { clearTimeout(ressort.current.minuteur); ressort.current = null; }
+  };
+
+  const demarrerGlisse = (e: React.DragEvent, f: Fichier) => {
+    const elements = visesPar(f);
+    if (!selection.ids.includes(f.id)) setSelection({ ids: [f.id], ancre: f.id });
+    setGlisse({
+      ids: elements.map((x) => x.id),
+      nom: elements.length > 1 ? `${elements.length} éléments` : f.nom,
+    });
+    try {
+      e.dataTransfer.setData(MIME_INTERNE, JSON.stringify(
+        elements.map((x) => ({ id: x.id, nom: x.nom, dossier: x.dossier })),
+      ));
+      e.dataTransfer.effectAllowed = 'copyMove';
+      /* 🔴 LE FANTÔME D'UNE SÉLECTION MULTIPLE DIT COMBIEN. Sans lui, on traîne l'image d'UNE ligne en croyant
+         n'en déplacer qu'une — et l'on en déplace cinq. */
+      if (elements.length > 1 && typeof document !== 'undefined') {
+        const fantome = document.createElement('div');
+        fantome.className = 'sfd-fantome';
+        fantome.textContent = `${elements.length} éléments`;
+        document.body.appendChild(fantome);
+        e.dataTransfer.setDragImage(fantome, 14, 14);
+        setTimeout(() => fantome.remove(), 0);
+      }
+    } catch { /* un navigateur qui refuse le transfert ne doit pas casser la sélection */ }
+  };
+
+  /**
+   * LE SURVOL D'UNE CIBLE PENDANT LE GLISSER.
+   *
+   * 🔴 `preventDefault()` EST CE QUI AUTORISE LE DÉPÔT : sans lui, le navigateur affiche le curseur « interdit » et
+   * n'émet jamais `drop`. C'est donc ici, et seulement ici, qu'on dit oui — sur un DOSSIER, jamais sur un fichier.
+   */
+  const survolerCible = (
+    e: React.DragEvent,
+    cible: { id: string; nom: string; ouvrable: boolean; reel?: string },
+  ) => {
+    // ⚠️ `id` sert à ALLUMER la bonne zone (le fil d'Ariane et la barre latérale ont leurs propres clés) ; `reel`
+    //    est l'identifiant Drive, le seul qui permette de reconnaître qu'on survole ce qu'on est en train de tenir.
+    if (glisse === null || glisse.ids.includes(cible.reel ?? cible.id)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move';
+    if (survole !== cible.id) setSurvole(cible.id);
+    // ⚠️ LE RESSORT : on n'en arme qu'UN, et seulement pour un dossier de la liste — pas pour le fil d'Ariane, où
+    //   l'on est déjà en train de remonter, ni pour la zone des pièces jointes, qui ne s'ouvre pas.
+    if (cible.ouvrable && ressort.current?.id !== cible.id) {
+      if (ressort.current !== null) clearTimeout(ressort.current.minuteur);
+      ressort.current = {
+        id: cible.id,
+        minuteur: setTimeout(() => { ressort.current = null; setSurvole(null); entrer(cible); }, RESSORT_MS),
+      };
+    }
+  };
+
+  const quitterCible = (id: string) => {
+    setSurvole((v) => (v === id ? null : v));
+    if (ressort.current?.id === id) { clearTimeout(ressort.current.minuteur); ressort.current = null; }
+  };
+
+  /** Ce qui a été saisi, relu du transfert — et à défaut, de ce que l'écran se rappelle. */
+  const elementsDuGlisse = (e: React.DragEvent): Fichier[] => {
+    let brut = '';
+    try { brut = e.dataTransfer.getData(MIME_INTERNE); } catch { brut = ''; }
+    if (brut !== '') {
+      try {
+        const liste = JSON.parse(brut) as { id?: string; nom?: string; dossier?: boolean }[];
+        const lus = liste.filter((x) => typeof x?.id === 'string' && x.id !== '')
+          .map((x) => entreeParId(x.id as string) ?? fichierMinimal({ id: x.id as string, nom: x.nom, dossier: x.dossier }));
+        if (lus.length > 0) return lus;
+      } catch { /* un transfert illisible se rattrape ci-dessous */ }
+    }
+    return (glisse?.ids ?? []).map((id) => entreeParId(id)).filter((x): x is Fichier => x !== null);
+  };
+
+  /** LE DÉPÔT SUR UN DOSSIER : déplacement, ou copie si Option (⌥) est tenue. */
+  const deposerSur = (e: React.DragEvent, cible: { id: string; nom: string }) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const copie = e.altKey;
+    const elements = elementsDuGlisse(e);
+    finGlisse();
+    if (elements.length === 0 || cible.id === '') return;
+    if (journalPret !== true) { setErreur(MOTIF_SANS_JOURNAL); return; }
+    if (copie) { void lancerCopie(elements, cible.id, cible.nom); return; }
+    void mouvoir('deplacer', elements, cible.id, cible.nom);
+  };
+
+  /**
+   * ══ 🔴 LE DÉPÔT SUR « PIÈCES JOINTES » ══════════════════════════════════════════════════════════════════════
+   *
+   * ⚠️ LA ZONE EST DANS LE PIED DE CETTE FENÊTRE, et non sur le brouillon lui-même : ce navigateur est une fenêtre
+   * MODALE qui recouvre le message — pendant un glisser, la zone du mail est littéralement derrière. La déposer
+   * ici est la seule façon de la rendre atteignable sans démonter la modale.
+   *
+   * 🔴 ELLE N'ÉCRIT RIEN DANS LE DRIVE : elle joint, exactement comme le bouton 📎. Elle reste donc disponible
+   * même sans la migration 274 (demande d'Arno : « sans elle, glisser vers le mail seulement »).
+   */
+  const deposerSurPiecesJointes = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const elements = elementsDuGlisse(e);
+    finGlisse();
+    const joignables = elements.filter((f) => !f.dossier && !estFichierSystemeMac(f.nom) && !ajoutes.includes(f.id));
+    const ecartes = elements.length - joignables.length;
+    if (joignables.length === 0) {
+      setErreur(elements.some((f) => f.dossier)
+        ? 'Un dossier ne se joint pas à un message. Déposez les fichiers qu’il contient.'
+        : 'Rien de joignable dans ce qui a été déposé.');
+      return;
+    }
+    if (ecartes > 0) {
+      setErreur(`${ecartes} élément${ecartes > 1 ? 's' : ''} écarté${ecartes > 1 ? 's' : ''} : `
+        + 'dossier, fichier système « ._ » ou pièce déjà jointe.');
+    }
+    for (const f of joignables) void joindre(f);
+  };
+
+  /**
+   * ══ 🔴 LA TAILLE DE LA FENÊTRE, D'UNE OUVERTURE À L'AUTRE ═══════════════════════════════════════════════════
+   *
+   * Préférence LOCALE au navigateur (demande d'Arno), donc `localStorage` — et tout est sous `try/catch` : en
+   * navigation privée, avec les données de site bloquées, l'accès JETTE. Une fenêtre qui ne se rappelle pas sa
+   * taille est un désagrément ; une fenêtre qui ne s'ouvre pas est une panne.
+   */
+  useEffect(() => {
+    const el = cadre.current;
+    if (el === null) return undefined;
+    try {
+      const brut = globalThis.localStorage?.getItem(CLE_TAILLE_FENETRE) ?? null;
+      if (brut !== null) {
+        const t = JSON.parse(brut) as { l?: number; h?: number };
+        // ⚠️ BORNÉ PAR L'ÉCRAN D'AUJOURD'HUI : une taille retenue sur un 27 pouces rendrait la fenêtre inutilisable
+        //   sur un portable, avec sa croix hors de l'écran.
+        if (typeof t.l === 'number' && t.l >= 520) el.style.width = `${Math.min(t.l, globalThis.innerWidth - 24)}px`;
+        if (typeof t.h === 'number' && t.h >= 360) el.style.height = `${Math.min(t.h, globalThis.innerHeight - 24)}px`;
+      }
+    } catch { /* une préférence illisible n'est pas une panne : la fenêtre garde sa taille par défaut */ }
+    if (typeof ResizeObserver !== 'function') return undefined;
+    let minuteur: ReturnType<typeof setTimeout> | null = null;
+    const obs = new ResizeObserver(() => {
+      if (minuteur !== null) clearTimeout(minuteur);
+      // On n'écrit pas à chaque pixel : on écrit quand la main s'arrête.
+      minuteur = setTimeout(() => {
+        try {
+          const r = el.getBoundingClientRect();
+          globalThis.localStorage?.setItem(CLE_TAILLE_FENETRE,
+            JSON.stringify({ l: Math.round(r.width), h: Math.round(r.height) }));
+        } catch { /* idem : on renonce à se rappeler, pas à fonctionner */ }
+      }, 400);
+    });
+    obs.observe(el);
+    return () => { obs.disconnect(); if (minuteur !== null) clearTimeout(minuteur); };
+  }, []);
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     LE CLAVIER — flèches, Entrée, barre d'espace, Échap, et Cmd+X / Cmd+C / Cmd+V
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
   /** ⚠️ Fonction simple, sans `useCallback` : voir plus haut — le compilateur React fait mieux tout seul. */
@@ -593,9 +980,33 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     if (e.key === 'Escape') {
       if (aVoir !== null) return;
       if (menu !== null) { e.preventDefault(); setMenu(null); return; }
+      if (confirmation !== null) { e.preventDefault(); setConfirmation(null); return; }
+      // 🔴 ÉCHAP ANNULE LA COUPE (demande d'Arno) avant de fermer : on renonce au geste, pas à la fenêtre.
+      if (presse !== null) { e.preventDefault(); setPresse(null); return; }
       if (creation.c !== 'ferme') { e.preventDefault(); oublierCreation(); return; }
       e.stopPropagation();
       onFermer();
+      return;
+    }
+
+    /* ══ 🔴 COUPER / COPIER / COLLER — la presse-papiers INTERNE à l'application ═══════════════════════════════
+       ⚠️ ELLE NE TOUCHE JAMAIS AU PRESSE-PAPIERS DU SYSTÈME : ce qu'on « coupe » ici est une intention, pas une
+       donnée. Rien ne quitte l'application, et rien n'est retiré du Drive tant qu'on n'a pas collé. */
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'x' || e.key === 'c' || e.key === 'v')) {
+      e.preventDefault();
+      if (e.key === 'v') {
+        const cible = dossierCourant?.id ?? '';
+        if (cible !== '') coller(cible, dossierCourant?.nom ?? 'ce dossier');
+        return;
+      }
+      if (selection.ids.length === 0) return;
+      const pris = selection.ids.map((id) => entreeParId(id)).filter((x): x is Fichier => x !== null);
+      setPresse({
+        mode: e.key === 'x' ? 'couper' : 'copier',
+        ids: [...selection.ids],
+        dossiers: pris.filter((x) => x.dossier).map((x) => x.id),
+        parentSource: dossierCourant?.id ?? null,
+      });
       return;
     }
     if (menu !== null) setMenu(null);
@@ -641,17 +1052,35 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     return () => { window.removeEventListener('scroll', fermer, true); window.removeEventListener('resize', fermer); };
   }, [menu]);
 
+  /**
+   * 🔴 CE QUE LE MENU A LE DROIT DE PROPOSER POUR LA MÉMOIRE TAMPON. Sans la migration 274, les trois entrées sont
+   * ÉTEINTES avec leur motif — et non absentes : la fonction existe et attend quelque chose, ce n'est pas la même
+   * information qu'un geste qui n'existe pas.
+   */
+  const droitsPresse = (): DroitsPresse => ({
+    autorise: journalPret === true,
+    motif: journalPret === true ? null
+      : journalPret === null ? 'Vérification en cours…' : MOTIF_SANS_JOURNAL,
+    motColler: motColler(presse),
+    presseVide: presse === null,
+  });
+
   const entreesDuMenu = (f: Fichier): EntreeMenu[] => f.dossier
     ? menuDossier({
       creerAutorise: listing?.creerAutorise === true,
       motifCreation: listing?.motifCreation ?? null,
       avecLien: (f.lien ?? '') !== '',
+      presse: droitsPresse(),
     })
+    /* 🔴🔴 UN FICHIER « ._ » EST TRAITÉ COMME UN ENDROIT OÙ LA LECTURE EST REFUSÉE : « Visualiser » et « Joindre »
+       éteints, avec pour motif l'infobulle qui renvoie au VRAI fichier. Le reste — lien, Drive, couper, copier,
+       coller — n'est pas touché : ces gestes-là ne lisent rien. */
     : menuFichier({
-      joindreAutorise: listing?.joindreAutorise === true,
-      motifRefus: listing?.motifRefus ?? null,
+      joindreAutorise: listing?.joindreAutorise === true && !estFichierSystemeMac(f.nom),
+      motifRefus: estFichierSystemeMac(f.nom) ? infobulleFichierSysteme(f.nom) : (listing?.motifRefus ?? null),
       dejaAjoute: ajoutes.includes(f.id),
       avecLien: (f.lien ?? '') !== '',
+      presse: droitsPresse(),
     });
 
   const agirMenu = (a: ActionMenu, f: Fichier) => {
@@ -665,6 +1094,26 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
       // On crée DANS ce dossier : on y entre d'abord, pour que la confirmation porte le bon chemin.
       entrer(f);
       setTimeout(() => setCreation({ c: 'saisie', nom: '', occupe: false, erreur: null }), 0);
+      return;
+    }
+    /* 🔴 LES MÊMES GESTES QUE ⌘X / ⌘C / ⌘V, par la même porte : `visesPar` étend à la sélection si la ligne en
+       fait partie, exactement comme le clavier. Deux chemins qui feraient deux choses différentes seraient un
+       piège. */
+    if (a === 'couper' || a === 'copier') {
+      const pris = visesPar(f);
+      setPresse({
+        mode: a === 'couper' ? 'couper' : 'copier',
+        ids: pris.map((x) => x.id),
+        dossiers: pris.filter((x) => x.dossier).map((x) => x.id),
+        parentSource: dossierCourant?.id ?? null,
+      });
+      return;
+    }
+    if (a === 'coller') {
+      // 🔴 SUR UN DOSSIER, ON COLLE DEDANS ; sur un fichier, dans le dossier AFFICHÉ, celui qui le contient.
+      if (f.dossier) { coller(f.id, f.nom); return; }
+      const cible = dossierCourant?.id ?? '';
+      if (cible !== '') coller(cible, dossierCourant?.nom ?? 'ce dossier');
     }
   };
 
@@ -678,9 +1127,15 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     .map((id) => entreeParId(id))
     .filter((f): f is Fichier => f !== null && !f.dossier && !ajoutes.includes(f.id));
 
+  /**
+   * 🔴 LA BARRE LATÉRALE EST AUSSI UNE CIBLE DE DÉPÔT, comme dans le Finder — mais seulement là où l'entrée
+   * désigne un VRAI dossier. « Récents » est une liste, « Drives partagés » un écran de choix : rien ne s'y
+   * dépose, et `depot: null` le dit une fois pour toutes plutôt que par un test au moment du glisser.
+   */
   const laterales = [
     ...prioritaires.map((d) => ({
       cle: `bien:${d.dossierId}`, icone: '🏠', libelle: titreDossierPrioritaire(d),
+      depot: { id: d.dossierId, nom: d.dossierNom || d.libelle },
       // ⚠️ LE NOMBRE N'EST DIT QUE S'IL Y EN A PLUSIEURS : « 1 bien » est du bruit. Il l'était déjà avant ce lot,
       //   et le taire ici ferait croire qu'un dossier ne porte qu'un seul logement.
       detail: mentionNbBiens(d) === null ? d.libelle : `${d.libelle} · ${mentionNbBiens(d)}`,
@@ -688,11 +1143,14 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     })),
     ...(recents?.disponible === true && recentsDrive.length > 0
       ? [{ cle: 'recents', icone: '🕘', libelle: 'Récents', detail: null as string | null,
+        depot: null as { id: string; nom: string } | null,
         aller: () => { setMontrerRecents(true); setSelection(SELECTION_VIDE); } }]
       : []),
     { cle: 'mon_drive', icone: '💾', libelle: 'Mon Drive', detail: null as string | null,
+      depot: { id: 'root', nom: 'Mon Drive' } as { id: string; nom: string } | null,
       aller: () => entrerDepuisRacine({ id: 'root', nom: 'Mon Drive' }) },
     { cle: 'drives', icone: '👥', libelle: 'Drives partagés', detail: null as string | null,
+      depot: null as { id: string; nom: string } | null,
       aller: () => entrerDepuisRacine({ id: 'svav:drives', nom: 'Drives partagés' }) },
   ];
 
@@ -706,8 +1164,12 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     <>
     <div className="sfd-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
       <style>{CSS_SELECTEUR_FICHIER}</style>
-      <div className="sfd" role="dialog" aria-modal="true" aria-labelledby="sfd-titre"
-        onKeyDown={surTouche} tabIndex={-1}>
+      <div className="sfd" role="dialog" aria-modal="true" aria-labelledby="sfd-titre" ref={cadre}
+        onKeyDown={surTouche} tabIndex={-1}
+        /* ⚠️ UN GLISSER QUI SE TERMINE DANS LE VIDE DOIT S'ÉTEINDRE : sans cela, la surbrillance et le fantôme
+           survivraient au geste, et l'écran resterait « en train de glisser » pour toujours. */
+        onDragEnd={finGlisse}
+        onDrop={finGlisse}>
 
         {/* ══ 🔴 LA BARRE DE TITRE, AVEC SA CROIX ═══════════════════════════════════════════════════════════════
             Elle manquait : « la fenêtre n'a pas de croix pour la fermer, il faut l'ajouter » (Arno). Le titre est
@@ -735,7 +1197,17 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
             {arianeDuChemin(chemin).map((e, i) => (
               <span key={`${e.id}:${i}`} className="sfd-ariane-pas">
                 {i > 0 && <span className="sfd-chevron" aria-hidden="true">›</span>}
-                <button type="button" className="sfd-ariane-bouton" onClick={() => remonter(e.index)}>{e.nom}</button>
+                {/* 🔴 LE FIL D'ARIANE EST UNE CIBLE : c'est le geste « remonter d'un cran » du Finder, et sans lui
+                    il faudrait sortir du dossier, lâcher, resélectionner, recommencer. ⚠️ PAS DE RESSORT ici :
+                    on ne veut pas qu'un survol du chemin nous fasse changer d'endroit en plein glisser. */}
+                <button type="button"
+                  className={`sfd-ariane-bouton${survole === `pas:${e.id}` ? ' sfd-ariane-bouton--vise' : ''}`}
+                  onClick={() => remonter(e.index)}
+                  onDragOver={(ev) => survolerCible(ev, {
+                    id: `pas:${e.id}`, nom: e.nom, ouvrable: false, reel: e.id,
+                  })}
+                  onDragLeave={() => quitterCible(`pas:${e.id}`)}
+                  onDrop={(ev) => deposerSur(ev, { id: e.id, nom: e.nom })}>{e.nom}</button>
               </span>
             ))}
           </nav>
@@ -860,13 +1332,55 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
         {erreur !== null && <p className="gst-tronc" role="alert">{erreur}</p>}
         {vue.v === 'indisponible' && <p className="gst-tronc" role="alert">{vue.message}</p>}
 
+        {/* ══ 🔴 LE BANDEAU « N ÉLÉMENT(S) DÉPLACÉ(S) VERS X — ANNULER », DIX SECONDES ═══════════════════════
+            ⚠️ « Annuler » N'APPARAÎT QUE POUR UN DÉPLACEMENT. Annuler une copie voudrait dire SUPPRIMER la copie,
+            et l'application ne supprime rien : le bandeau d'une copie dit donc ce qui a été fait, sans promettre
+            un retour qu'on ne saurait pas tenir. */}
+        {bandeau !== null && (
+          <p className="sfd-bandeau" role="status">
+            <span className="sfd-bandeau-mot">{bandeau.mot}</span>
+            {bandeau.mouvements.length > 0 && (
+              <button type="button" className="sfd-bandeau-annuler"
+                onClick={() => void annulerMouvement(bandeau.mouvements)}>Annuler</button>
+            )}
+            <button type="button" className="sfd-bandeau-croix" aria-label="Masquer ce message"
+              onClick={() => setBandeau(null)}><span aria-hidden="true">✕</span></button>
+          </p>
+        )}
+
+        {/* ══ 🔴 LA CONFIRMATION D'UNE COPIE DE DOSSIER, avec le nombre RÉEL compté par le serveur ═══════════ */}
+        {confirmation !== null && (
+          <div className="sfd-creer-corps" role="alertdialog" aria-label="Confirmer la copie">
+            <p className="sfd-creer-chemin">
+              <span className="sfd-creer-nom">📋 {confirmation.phrase}</span>
+              <span className="sfd-mention sfd-mention--bloc">
+                Les doublons de nom sont conservés tous les deux, comme dans Google Drive : rien n’est écrasé.
+              </span>
+            </p>
+            <div className="sfd-creer-boutons">
+              <button type="button" className="svv-btn svv-btn-primary gst-btn"
+                onClick={confirmation.agir}>Copier</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                onClick={() => setConfirmation(null)}>Annuler</button>
+            </div>
+          </div>
+        )}
+
         {/* ══ LE CORPS : barre latérale + liste ═════════════════════════════════════════════════════════════════ */}
         <div className="sfd-corps">
           <aside className="sfd-cote" aria-label="Emplacements">
             <ul className="sfd-cote-liste">
               {laterales.map((l) => (
                 <li key={l.cle}>
-                  <button type="button" className="sfd-cote-item" onClick={l.aller}>
+                  <button type="button"
+                    className={`sfd-cote-item${survole === `cote:${l.cle}` ? ' sfd-cote-item--vise' : ''}`}
+                    onClick={l.aller}
+                    onDragOver={l.depot === null ? undefined
+                      : (e) => survolerCible(e, {
+                        id: `cote:${l.cle}`, nom: l.libelle, ouvrable: false, reel: l.depot?.id,
+                      })}
+                    onDragLeave={l.depot === null ? undefined : () => quitterCible(`cote:${l.cle}`)}
+                    onDrop={l.depot === null ? undefined : (e) => deposerSur(e, l.depot as { id: string; nom: string })}>
                     <span className="sfd-cote-icone" aria-hidden="true">{l.icone}</span>
                     <span className="sfd-cote-mots">
                       <span className="sfd-cote-libelle">{l.libelle}</span>
@@ -931,19 +1445,44 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
                     {visibles.map(({ entree: f, profondeur }) => {
                       const choisie = selection.ids.includes(f.id);
                       const deja = ajoutes.includes(f.id);
+                      /* 🔴 LES DEUX ÉTATS NOUVEAUX D'UNE LIGNE :
+                         · COUPÉE — estompée jusqu'au collage (demande d'Arno). Elle n'a PAS bougé : rien n'est
+                           retiré du Drive tant qu'on n'a pas collé, et Échap rend la coupe.
+                         · « ._ » — le jumeau technique de macOS : grisé, nommé pour ce qu'il est, et ni
+                           visualisable ni joignable. */
+                      const coupee = estCoupe(presse, f.id);
+                      const systeme = estFichierSystemeMac(f.nom);
+                      const lisible = joindreOk && !systeme;
                       return (
                         <li key={f.id} role="option" aria-selected={choisie}
-                          className={`sfd-ligne${choisie ? ' sfd-ligne--choisie' : ''}`}
+                          className={`sfd-ligne${choisie ? ' sfd-ligne--choisie' : ''}`
+                            + `${coupee ? ' sfd-ligne--coupee' : ''}${systeme ? ' sfd-ligne--systeme' : ''}`
+                            + `${survole === f.id ? ' sfd-ligne--vise' : ''}`}
                           style={{ paddingLeft: 6 + profondeur * 16 }}
+                          title={systeme ? infobulleFichierSysteme(f.nom) : undefined}
+                          /* 🔴 SAISISSABLE — c'est ce qui manquait : « je ne peux pas saisir un fichier ou un
+                             document pour le glisser-déposer » (Arno). */
+                          draggable
+                          onDragStart={(e) => demarrerGlisse(e, f)}
+                          onDragEnd={finGlisse}
+                          /* ⚠️ SEUL UN DOSSIER ACCEPTE UN DÉPÔT. Sur un fichier, on ne fait pas `preventDefault`,
+                             et le navigateur montre de lui-même le curseur « interdit » — c'est le retour visuel
+                             demandé, rendu par le système plutôt que dessiné par nous. */
+                          onDragOver={f.dossier
+                            ? (e) => survolerCible(e, { id: f.id, nom: f.nom, ouvrable: true })
+                            : undefined}
+                          onDragLeave={f.dossier ? () => quitterCible(f.id) : undefined}
+                          onDrop={f.dossier ? (e) => deposerSur(e, { id: f.id, nom: f.nom }) : undefined}
                           onMouseEnter={() => {
                             if (f.dossier) precharger(f.id);
-                            else amorcer(f, joindreOk);
+                            else amorcer(f, lisible);
                           }}
                           onClick={(e) => setSelection((s) => cliquerLigne(s, f.id, ordre,
                             { cmd: e.metaKey || e.ctrlKey, maj: e.shiftKey }))}
                           /* 🔴 DOUBLE-CLIC : un dossier s'ouvre, un fichier se visualise — comme dans le Finder. */
                           onDoubleClick={() => {
                             if (f.dossier) { ouvrirDossier(f); return; }
+                            // ⚠️ `joindreOk`, et non `lisible` : c'est `visualiser` qui dit le refus d'un « ._ ».
                             visualiser(f, joindreOk);
                           }}
                           onContextMenu={(e) => {
@@ -967,7 +1506,9 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
                           </span>
                           <span className="sfd-col-modifie">{dateFinder(f.modifieLe)}</span>
                           <span className="sfd-col-taille">{tailleFinder(f.tailleOctets, f.dossier)}</span>
-                          <span className="sfd-col-type">{motType(f)}</span>
+                          {/* 🔴 LE TYPE DIT LA VÉRITÉ : « Fichier système Mac », et non « PDF » — car c'en est un
+                              qui n'en est pas un. C'est le mot qui évite de le joindre en croyant bien faire. */}
+                          <span className="sfd-col-type">{systeme ? MOT_FICHIER_SYSTEME : motType(f)}</span>
 
                           {/* ══ 🔴 LES ACTIONS DE LIGNE, EN ICÔNES DISCRÈTES AU SURVOL ═══════════════════════════
                               Elles étaient trois liens ROUGES permanents sur chaque ligne : la liste en était
@@ -977,15 +1518,15 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
                               motif est affiché une fois, en tête de liste. « Insérer un lien » reste : il ne lit rien. */}
                           {!f.dossier && (
                             <span className="sfd-gestes" onClick={(e) => e.stopPropagation()}>
-                              {joindreOk && (
+                              {lisible && (
                                 <button type="button" className="sfd-geste" title="Visualiser"
                                   aria-label={`Visualiser ${f.nom}`}
-                                  onFocus={() => amorcer(f, joindreOk)}
-                                  onClick={() => visualiser(f, joindreOk)}>
+                                  onFocus={() => amorcer(f, lisible)}
+                                  onClick={() => visualiser(f, lisible)}>
                                   <span aria-hidden="true">👁</span>
                                 </button>
                               )}
-                              {joindreOk && !deja && (
+                              {lisible && !deja && (
                                 <button type="button" className="sfd-geste" title="Joindre au message"
                                   aria-label={`Joindre ${f.nom}`} onClick={() => void joindre(f)}>
                                   <span aria-hidden="true">📎</span>
@@ -1016,8 +1557,25 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
           </main>
         </div>
 
-        {/* ══ LE PIED : le compteur, la sélection multiple, et « Terminé » ══════════════════════════════════════ */}
+        {/* ══ LE PIED : la zone de dépôt, le compteur, la sélection multiple, et « Terminé » ═══════════════════ */}
         <div className="sfd-pied">
+          {/* ══ 🔴 « PIÈCES JOINTES » — LA ZONE DE DÉPÔT DU MESSAGE, RAMENÉE ICI ══════════════════════════════
+              ⚠️ ELLE EST DANS CETTE FENÊTRE, et non sur le brouillon : ce navigateur est une modale qui RECOUVRE
+              le message — pendant un glisser, la zone du mail est littéralement derrière. La ramener ici est la
+              seule façon de la rendre atteignable. Elle n'écrit rien dans le Drive : elle joint, comme le 📎. */}
+          {joindreOk && (
+            <div className={`sfd-depot${survole === 'pj' ? ' sfd-depot--vise' : ''}`}
+              onDragOver={(e) => {
+                if (glisse === null) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                if (survole !== 'pj') setSurvole('pj');
+              }}
+              onDragLeave={() => quitterCible('pj')}
+              onDrop={deposerSurPiecesJointes}>
+              <span aria-hidden="true">📎</span> Pièces jointes — déposez ici pour joindre au message
+            </div>
+          )}
           <p className={`sfd-compteur${ajoutes.length === 0 ? ' sfd-compteur--vide' : ''}`} role="status">
             {ajoutes.length === 0
               ? 'Aucune pièce ajoutée — la fenêtre reste ouverte, prenez-en autant que nécessaire.'
@@ -1241,6 +1799,52 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-creer-boutons{display:flex;gap:8px;flex-wrap:wrap}
 .sfd-creer-fait{margin:6px 12px 0;font-size:.8rem;color:var(--color-svv-ink);flex:0 0 auto}
 .sfd-vide{margin:14px 6px}
+
+/* ══ 🔴 LOT DRIVE-DEPLACER — GLISSER, COUPER/COLLER, BANDEAU, FICHIERS SYSTEME ══════════════════════════════
+   ⚠️ AUCUN BACKTICK dans ce bloc : il vit dans un litteral de gabarit, et un seul backtick couperait le fichier
+   en deux au milieu d'une regle CSS. Le piege s'est deja referme trois fois sur ce module.
+   ⚠️ AUCUNE COULEUR EN DUR : uniquement les jetons --color-svv-*, pour que le sombre suive tout seul. */
+
+/* ── LE FANTOME d'une selection multiple : il dit COMBIEN on tient ──────────────────────────────────────── */
+.sfd-fantome{position:fixed;top:-1000px;left:-1000px;z-index:-1;padding:4px 10px;border-radius:.4rem;
+  font:600 .8rem/1.2 system-ui,sans-serif;color:var(--color-svv-surface);background:var(--color-svv-red)}
+
+/* ── LA CIBLE ALLUMEE : dossier de la liste, entree laterale, pas du fil d'Ariane ───────────────────────── */
+.sfd-ligne--vise{outline:2px solid var(--color-svv-red);outline-offset:-2px;
+  background:color-mix(in srgb, var(--color-svv-red) 12%, transparent)}
+.sfd-cote-item--vise,.sfd-ariane-bouton--vise{outline:2px solid var(--color-svv-red);outline-offset:-2px;
+  background:color-mix(in srgb, var(--color-svv-red) 12%, transparent)}
+
+/* ── UNE LIGNE COUPEE : estompee JUSQU'AU COLLAGE. Elle n'a pas bouge, et Echap rend la coupe. ──────────── */
+.sfd-ligne--coupee{opacity:.45}
+
+/* ── UN FICHIER SYSTEME MAC (« ._ ») : grise, et son type le dit. Il reste affiche, exprès. ─────────────── */
+.sfd-ligne--systeme{color:var(--color-svv-muted)}
+.sfd-ligne--systeme .sfd-nom{font-style:italic}
+
+/* ── LE BANDEAU « N element(s) deplace(s) vers X — Annuler », dix secondes ──────────────────────────────── */
+.sfd-bandeau{display:flex;align-items:center;gap:10px;margin:6px 12px 0;padding:7px 10px;flex:0 0 auto;
+  font-size:.8rem;color:var(--color-svv-ink);background:var(--color-svv-field);
+  border:1px solid var(--color-svv-line-strong);border-left:3px solid var(--color-svv-red);
+  border-radius:0 .35rem .35rem 0}
+.sfd-bandeau-mot{flex:1 1 auto;min-width:0}
+.sfd-bandeau-annuler{flex:0 0 auto;padding:3px 10px;font:600 .78rem/1.2 inherit;cursor:pointer;
+  color:var(--color-svv-surface);background:var(--color-svv-red);border:0;border-radius:.3rem}
+.sfd-bandeau-annuler:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:1px}
+.sfd-bandeau-croix{flex:0 0 auto;padding:0 4px;font-size:.9rem;line-height:1;cursor:pointer;
+  color:var(--color-svv-muted);background:none;border:0}
+
+/* ── LA ZONE « PIECES JOINTES » DU PIED : la cible du mail, ramenee dans la fenetre modale ──────────────── */
+.sfd-depot{flex:1 1 16rem;padding:7px 10px;font-size:.78rem;color:var(--color-svv-muted);
+  background:var(--color-svv-surface);border:1px dashed var(--color-svv-line-strong);border-radius:.4rem}
+.sfd-depot--vise{color:var(--color-svv-ink);border-style:solid;border-color:var(--color-svv-red);
+  background:color-mix(in srgb, var(--color-svv-red) 12%, transparent)}
+
+/* ⚠️ UN GLISSER NE SE FAIT PAS AU DOIGT sur un telephone : la zone de depot y devient un simple rappel, et
+   tous les gestes restent accessibles par le menu contextuel (appui long) et par « Joindre la selection ». */
+@media (max-width: 760px){
+  .sfd-depot{flex:1 1 100%}
+}
 
 /* ⚠️ SUR TELEPHONE, la barre laterale passe en rangee au-dessus de la liste, et les colonnes de droite
    disparaissent : quatre colonnes sur 380 px ne se lisent pas. Le NOM et les gestes restent. */

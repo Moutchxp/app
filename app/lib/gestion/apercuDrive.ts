@@ -1,3 +1,5 @@
+import { estFichierSystemeMac } from './driveDeplacement';
+
 /**
  * MODULE « GESTION » — LOT DRIVE-VISUALISER-ET-DOSSIERS : DE QUOI PEUT-ON MONTRER UN APERÇU ? Module PUR : aucun
  * import, aucune base, aucun réseau, aucun DOM.
@@ -168,11 +170,23 @@ export interface VoisinPossible {
  * ⚠️ L'ORDRE EST CELUI DE LA LISTE, jamais un tri : c'est l'ordre qu'on a sous les yeux, et le seul auquel on
  * s'attende en cliquant « Suivant ».
  */
+/**
+ * ⚠️ IMPORT LOCAL ET MINUSCULE : `estFichierSystemeMac` est une pure question de NOM (« commence-t-il par ._ ? »).
+ * La dupliquer ici aurait donné deux définitions de ce qu'est un fichier système — et le jour où l'une gagne un cas
+ * que l'autre n'a pas, l'aperçu saute un fichier que la liste montre encore.
+ */
 export function voisinsVisualisables(
   liste: readonly VoisinPossible[], ouvert: { id: string; typeMime: string; parentId: string | null },
 ): VoisinPossible[] {
   const retenus = liste.filter((f) => !f.dossier
     && sorteApercu(f.typeMime) !== 'aucun'
+    /**
+     * 🔴 LOT DRIVE-DEPLACER — LES FICHIERS « ._ » SONT SAUTÉS (demande d'Arno). Ce sont les jumeaux techniques
+     * que macOS dépose à côté de chaque fichier : quelques kilooctets d'attributs, aucun document. Les traverser
+     * ferait afficher un cadre vide entre deux vrais documents, et compter « 4 / 9 » pour un tour où cinq entrées
+     * ne montrent rien.
+     */
+    && !estFichierSystemeMac(f.nom)
     && f.parentId !== null && f.parentId === ouvert.parentId);
   if (retenus.some((f) => f.id === ouvert.id)) return retenus;
   /**

@@ -1,5 +1,7 @@
-import { chaineParents } from './drive';
-import { indexerMaillons, peutCreerDossier, peutJoindre, type Maillon } from './driveLectureFichier';
+import { chaineParents, chercherDossiers } from './drive';
+import {
+  DOSSIER_INTERDIT_LECTURE, indexerMaillons, peutCreerDossier, peutJoindre, type Maillon,
+} from './driveLectureFichier';
 // LOT APERCU-RAPIDE — la chaîne d'un DOSSIER est mémorisée 60 s : elle est la même pour tous ses fichiers.
 import { chaineDuDossierMemo, metadonneesMemo } from './driveMemoire';
 
@@ -130,3 +132,65 @@ export async function verdictsDossier(
     creer: c.creer ? { creer: true, motif: null } : { creer: false, motif: c.motif },
   };
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-DEPLACER — LE DOSSIER PROTÉGÉ, ET TOUS SES ANCÊTRES
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LES IDENTIFIANTS QU'UN DÉPLACEMENT NE DOIT JAMAIS TOUCHER.
+ *
+ * 🔴 POURQUOI LES ANCÊTRES COMPTENT AUTANT QUE L'ARCHIVE ELLE-MÊME, et c'est l'interdit qu'on oublie : déplacer
+ * « GESTION LOCATIVE » emporterait « Documents clients scannés » avec lui, sans qu'aucune vérification portant sur
+ * l'archive ne s'en aperçoive — l'archive n'aurait pas bougé, c'est le sol sous elle qui aurait bougé.
+ *
+ * 🔴 ON CHERCHE PAR LE NOM, comme le fait tout le reste de la règle depuis le premier jour (`peutJoindre` compare
+ * le nom des maillons). S'il existe plusieurs dossiers de ce nom, ils sont TOUS protégés, avec leurs chaînes.
+ *
+ * ⚠️ MÉMORISÉ 60 s, comme les chaînes de dossiers : c'est une information de SÉCURITÉ, et une mémoire longue
+ * continuerait d'autoriser un déplacement après un rangement fait entre-temps.
+ *
+ * ⚠️ EN CAS D'ÉCHEC DE LECTURE, ON REND `null` — et l'appelant REFUSE. Ne pas savoir où est l'archive vaut
+ * interdit : c'est la règle de tout le module, et une écriture n'est pas l'endroit où l'assouplir.
+ */
+export interface IdsProteges {
+  /** Les dossiers nommés « Documents clients scannés » eux-mêmes. */
+  proteges: Set<string>;
+  /** Eux, PLUS tous leurs ancêtres : aucun d'eux ne se déplace. */
+  protegesEtAncetres: Set<string>;
+  /** Les maillons rencontrés en chemin, réutilisables par le verdict. */
+  maillons: { id: string; nom: string; parentId: string | null }[];
+}
+
+const memoireProteges = new Map<string, { valeur: IdsProteges; expireA: number }>();
+/** Même durée que la mémoire des chaînes : voir `driveMemoire`. C'est un choix de sécurité, pas de confort. */
+export const MEMOIRE_PROTEGES_MS = 60_000;
+
+export async function idsProteges(
+  sujet: string, jeton: string, maintenant = Date.now(),
+): Promise<IdsProteges | null> {
+  const deja = memoireProteges.get(sujet);
+  if (deja !== undefined && deja.expireA > maintenant) return deja.valeur;
+
+  const trouves = await chercherDossiers(jeton, DOSSIER_INTERDIT_LECTURE, { fetch }, 25);
+  if (!trouves.ok) return null;
+  // ⚠️ `name contains` ne sait pas faire d'égalité : on filtre nous-mêmes, sur le nom exact.
+  const exacts = trouves.valeur.filter((d) => d.nom.trim().toLowerCase() === DOSSIER_INTERDIT_LECTURE.toLowerCase());
+  if (exacts.length === 0) return null;   // on n'a pas trouvé l'archive : on ne sait pas, donc on refusera
+
+  const proteges = new Set<string>();
+  const protegesEtAncetres = new Set<string>();
+  const maillons: { id: string; nom: string; parentId: string | null }[] = [];
+  for (const d of exacts) {
+    proteges.add(d.id);
+    const chaine = await chaineParents(jeton, d.id, { fetch });
+    if (chaine.length === 0) return null;  // chaîne illisible : on ne sait pas
+    for (const m of chaine) { protegesEtAncetres.add(m.id); maillons.push(m); }
+  }
+  const valeur: IdsProteges = { proteges, protegesEtAncetres, maillons };
+  memoireProteges.set(sujet, { valeur, expireA: maintenant + MEMOIRE_PROTEGES_MS });
+  return valeur;
+}
+
+/** Pour les tests, et pour une passe qui voudrait repartir à neuf. Sans effet sur le Drive. */
+export function oublierLesProteges(): void { memoireProteges.clear(); }

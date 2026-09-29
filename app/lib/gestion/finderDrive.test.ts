@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   ACTIONS_JAMAIS, aplatir, ariane, avancer, cheminCourant, cliquerLigne, COLONNES, comparerNoms, dateFinder,
+  entreesPresse,
   dossierDuChemin, entreesLaterales, fenetreVisible, flecheTri, HAUTEUR_LIGNE,
   HISTORIQUE_DEPART, iconeEntree, memeChemin, menuDossier, menuFichier, motType, naviguerVers, peutAvancer,
   peutReculer, PROFONDEUR_MAX, reculer, SELECTION_VIDE, selectionSuivante, SEUIL_VIRTUALISATION,
@@ -265,20 +266,35 @@ describe('🔴🔴 le menu contextuel ne porte QUE ce que l’application sait f
   });
 
   /**
-   * 🔴🔴 JAMAIS : Renommer, Placer dans la corbeille, Supprimer, Déplacer, Partager, Dupliquer. On les cherche une
-   * par une, dans les deux menus et dans TOUTES leurs combinaisons de droits — et dans le source du module, pour
-   * que personne ne puisse les y ajouter par distraction.
+   * ══ 🔴🔴 JAMAIS : Renommer, Placer dans la corbeille, Supprimer, Partager ════════════════════════════════════
+   *
+   * ⚠️ CE TEST A ÉTÉ RÉÉCRIT LE 29/09/2026, PAS SUPPRIMÉ NI AFFAIBLI SANS RAISON. Il cherchait aussi « deplacer »,
+   * « copier » et « dupliquer ». Décision d'Arno du 29/09/2026 (lot DRIVE-DEPLACER) : l'application DÉPLACE et
+   * COPIE désormais dans le Drive — l'invariant a donc changé de CONTENU, et il change ici, dans un diff qu'on
+   * relit, jamais par un test qu'on contourne.
+   *
+   * 🔴 CE QUI RESTE INTERDIT EST CE QUI NE SE DÉFAIT PAS (supprimer, corbeille, renommer) ou ce qui expose les
+   * documents du cabinet à des tiers (partager). Un déplacement, lui, se défait : le bandeau « Annuler », et le
+   * journal qui garde le parent d'origine.
    */
   it('🔴🔴 aucune action destructrice, dans aucun menu, dans aucun état', () => {
+    const avecPresse = { autorise: true, motif: null, motColler: 'Coller ici', presseVide: false };
     const tous = [
       ...menuFichier(permis),
       ...menuFichier({ ...permis, joindreAutorise: false, motifRefus: 'refusé' }),
       ...menuFichier({ ...permis, dejaAjoute: true, avecLien: false }),
+      ...menuFichier({ ...permis, presse: avecPresse }),
+      ...menuFichier({ ...permis, presse: { ...avecPresse, autorise: false, motif: 'journal absent' } }),
       ...menuDossier({ creerAutorise: true, motifCreation: null, avecLien: true }),
       ...menuDossier({ creerAutorise: false, motifCreation: 'refusé', avecLien: false }),
+      ...menuDossier({ creerAutorise: true, motifCreation: null, avecLien: true, presse: avecPresse }),
+      ...menuDossier({ creerAutorise: true, motifCreation: null, avecLien: true,
+        presse: { ...avecPresse, presseVide: true } }),
     ];
-    const texte = tous.map((e) => `${e.action} ${e.libelle}`).join(' ').toLowerCase();
+    const texte = tous.map((e) => `${e.action} ${e.libelle} ${e.motifInactif ?? ''}`).join(' ').toLowerCase();
     for (const mot of ACTIONS_JAMAIS) expect(texte).not.toContain(mot);
+    // Et les mots voisins, que l'anglais de l'API pourrait glisser sans qu'on les lise en français.
+    for (const mot of ['trash', 'delete', 'rename', 'permission']) expect(texte).not.toContain(mot);
   });
 
   it('🔴🔴 et le module lui-même ne connaît pas ces mots', () => {
@@ -288,15 +304,39 @@ describe('🔴🔴 le menu contextuel ne porte QUE ce que l’application sait f
       .filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//')).join('\n')
       // La liste `ACTIONS_JAMAIS` est justement là pour les nommer : on l'écarte avant de chercher.
       .replace(/export const ACTIONS_JAMAIS[\s\S]*?as const;/, ' ');
-    for (const mot of ['renommer', 'corbeille', 'supprimer', 'deplacer', 'partager', 'dupliquer']) {
+    for (const mot of ['renommer', 'corbeille', 'supprimer', 'partager', 'trashed', 'permissions']) {
       expect(code.toLowerCase()).not.toContain(mot);
     }
   });
 
   /**
-   * 🔴🔴 SOUS « DOCUMENTS CLIENTS SCANNÉS » : Visualiser ET Joindre ÉTEINTS, AVEC LEUR MOTIF. « Insérer un lien »
-   * reste — il ne lit rien, il pose une adresse, et Google appliquera ses droits au destinataire.
+   * 🔴 LES TROIS ENTRÉES DE LA MÉMOIRE TAMPON — et leur absence quand on ne les demande pas. « Coller » éteint dit
+   * le geste à faire d'abord : un menu qui refuse sans expliquer se lit comme une panne.
    */
+  it('Couper / Copier / Coller : présentes, éteintes avec leur motif, ou absentes', () => {
+    expect(menuFichier(permis).map((e) => e.action)).not.toContain('couper');
+    expect(menuDossier({ creerAutorise: true, motifCreation: null, avecLien: true }).map((e) => e.action))
+      .not.toContain('coller');
+
+    const pret = entreesPresse({ autorise: true, motif: null, motColler: 'Coller ici (déplacer 2 éléments)', presseVide: false });
+    expect(pret.map((e) => e.action)).toEqual(['couper', 'copier', 'coller']);
+    expect(pret.every((e) => e.motifInactif === null)).toBe(true);
+    expect(pret[2].libelle).toContain('déplacer 2 éléments');
+
+    const vide = entreesPresse({ autorise: true, motif: null, motColler: 'Coller ici', presseVide: true });
+    expect(vide[0].motifInactif).toBeNull();
+    expect(vide[2].motifInactif).toContain('⌘X');
+
+    const sansJournal = entreesPresse({
+      autorise: false, motif: 'La mise à jour de la base n’est pas appliquée.', motColler: 'Coller ici', presseVide: false,
+    });
+    for (const e of sansJournal) expect(e.motifInactif).toContain('base');
+  });
+
+  it('aucune entrée de mémoire tampon quand le lot ne la propose pas', () => {
+    expect(entreesPresse(null)).toEqual([]);
+  });
+
   it('🔴🔴 là où la lecture est refusée : Visualiser et Joindre éteints, le lien reste', () => {
     const m = menuFichier({ ...permis, joindreAutorise: false, motifRefus: 'Ce fichier est dans « Documents clients scannés ».' });
     const par = Object.fromEntries(m.map((e) => [e.action, e]));
