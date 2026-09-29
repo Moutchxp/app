@@ -87,6 +87,34 @@ export function oublierLeDrive(): void {
   octets.clear();
 }
 
+/**
+ * ══ 🔴🔴 LOT DRIVE-RETOUCHES-2 — OUBLIER CE QU'ON VIENT DE CHANGER ═════════════════════════════════════════════
+ *
+ * 🔴 LE DÉFAUT QU'ELLE RÉPARE, VU SUR LE VRAI DRIVE le 29/09/2026. La mémoire retient les métadonnées d'un
+ * élément pendant 60 s, PARENT COMPRIS. Après un déplacement, elle continuait donc d'affirmer l'ANCIEN parent :
+ *   · au mieux, le déplacement suivant du même élément était refusé — « Cet élément est déjà dans ce dossier » —
+ *     alors qu'il n'y était plus. Reproduit : le même appel refusé à 10 s, accepté à 70 s, sans rien changer ;
+ *   · au pire, `removeParents` serait parti avec un parent PÉRIMÉ. Or c'est le piège même de l'API Drive : sans
+ *     le BON `removeParents`, `files.update` AJOUTE un parent au lieu de déplacer — le fichier se retrouverait
+ *     dans deux dossiers à la fois, et l'on croirait l'avoir déplacé alors qu'on l'aurait dupliqué en place.
+ *
+ * 🔴 D'OÙ LA RÈGLE : quiconque ÉCRIT dans le Drive oublie ici ce qu'il vient de changer. Pas tout (vider la
+ * mémoire entière punirait les quarante fichiers du dossier d'à côté) : l'élément touché, et les chaînes des deux
+ * dossiers concernés.
+ *
+ * ⚠️ MIEUX VAUT OUBLIER TROP QUE PAS ASSEZ. Une mémoire vidée à tort coûte un aller-retour ; une mémoire gardée à
+ * tort donne une réponse fausse sur l'emplacement d'un document — c'est-à-dire, ici, sur la sécurité.
+ */
+export function oublierElement(sujet: string, id: string): void {
+  metadonnees.delete(`${sujet}|${id}`);
+  chaines.delete(`${sujet}|${id}`);
+}
+
+/** Oublie la chaîne d'un dossier : son contenu a changé, donc ce qu'on sait de ses enfants aussi. */
+export function oublierChaine(sujet: string, dossierId: string): void {
+  chaines.delete(`${sujet}|${dossierId}`);
+}
+
 /** Combien d'entrées sont retenues. Sert aux mesures et aux tests — jamais à l'écran. */
 export function tailleMemoire(): { metadonnees: number; chaines: number; octets: number; octetsTotal: number } {
   let total = 0;

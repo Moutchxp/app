@@ -55,6 +55,13 @@ const CONTENUS: Record<string, ReturnType<typeof fichier>[]> = {
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  /**
+   * 🔴 ON VIDE LA MÉMOIRE DE SESSION ENTRE DEUX TESTS (lot DRIVE-RETOUCHES-2). Les dossiers dépliés y sont
+   * désormais retenus, d'une ouverture de la fenêtre à l'autre : sans ce nettoyage, un test hériterait de
+   * l'arbre du précédent et ne prouverait plus ce qu'il croit prouver — un triangle « déplierait » un dossier
+   * déjà ouvert, donc le refermerait.
+   */
+  try { globalThis.sessionStorage?.clear(); } catch { /* pas de stockage : l'arbre part vide, ce qui convient */ }
   depots = []; rangements = 0;
   reponseDepot = {
     statut: 200,

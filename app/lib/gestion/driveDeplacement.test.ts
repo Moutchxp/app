@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  COPIE_RECURSIVE_MAX, descendDe, DUREE_ANNULATION_MS, estCoupe, estFichierSystemeMac, infobulleFichierSysteme,
-  motColler, motMouvementFait, MOT_FICHIER_SYSTEME, nomReelDe, peutMouvoir, verdictCopieRecursive,
-  type ContexteMouvement,
+  COPIE_RECURSIVE_MAX, descendDe, DUREE_ANNULATION_MS, empiler, estCoupe, estFichierSystemeMac,
+  infobulleFichierSysteme, motColler, motMouvementFait, motProchaineAnnulation, MOT_FICHIER_SYSTEME, nomReelDe,
+  peutMouvoir, verdictCopieRecursive, type ContexteMouvement,
 } from './driveDeplacement';
 import { DOSSIER_INTERDIT_LECTURE, indexerMaillons, type Maillon } from './driveLectureFichier';
 
@@ -251,6 +251,55 @@ describe('le bandeau « Annuler »', () => {
   it('un déplacement et une copie ne se disent pas du même mot', () => {
     expect(motMouvementFait('deplacer', 3, 'Travaux')).toContain('3 éléments déplacés vers « Travaux »');
     expect(motMouvementFait('copier', 1, 'Travaux')).toContain('1 élément copié');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT DRIVE-RETOUCHES-2 — LA PILE DES DÉPLACEMENTS DE LA SESSION
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 « Annuler le dernier déplacement » — la pile', () => {
+  const pas = (n: number, nom = 'Sous-dossier', nombre = 1, origineNom = 'Destination') =>
+    ({ mouvements: [n], nom, nombre, origineNom });
+
+  it('empile dans l’ordre, et chaque clic défera le plus récent', () => {
+    const p = empiler(empiler([], pas(1, 'A')), pas(2, 'B'));
+    expect(p.map((x) => x.nom)).toEqual(['A', 'B']);
+    expect(motProchaineAnnulation(p)).toContain('« B »');
+  });
+
+  /**
+   * 🔴🔴 UNE COPIE N'ENTRE JAMAIS DANS LA PILE, et c'est ce qui fait que le bouton les « saute » sans avoir à le
+   * savoir : l'annuler voudrait dire la SUPPRIMER, et l'application ne supprime rien. Une copie n'a donc aucune
+   * ligne de journal annulable — `mouvements` y est vide, et c'est ce vide qui la tient dehors.
+   */
+  it('🔴🔴 une copie (aucune ligne de journal) n’entre pas dans la pile', () => {
+    const p = empiler([], { mouvements: [], nom: 'Copie', nombre: 1, origineNom: 'X' });
+    expect(p).toEqual([]);
+  });
+
+  it('un lot compte pour UN pas, et le mot le dit', () => {
+    expect(motProchaineAnnulation([pas(7, 'bail.pdf', 5, 'Travaux')]))
+      .toBe('Remettre les 5 éléments déplacés dans « Travaux »');
+  });
+
+  it('un seul élément est nommé', () => {
+    expect(motProchaineAnnulation([pas(7, 'bail.pdf', 1, 'Travaux')]))
+      .toBe('Remettre « bail.pdf » dans « Travaux »');
+  });
+
+  /** ⚠️ PILE VIDE : le bouton est grisé, et son infobulle dit POURQUOI — y compris le cas qui surprend. */
+  it('🔴 pile vide : l’infobulle explique, et nomme le cas de la copie', () => {
+    const mot = motProchaineAnnulation([]);
+    expect(mot).toContain('Aucun déplacement à annuler');
+    expect(mot).toContain('copie');
+    expect(mot).toContain('ne supprime rien');
+  });
+
+  it('empiler ne modifie pas la pile reçue', () => {
+    const avant = [pas(1)];
+    empiler(avant, pas(2));
+    expect(avant).toHaveLength(1);
   });
 });
 

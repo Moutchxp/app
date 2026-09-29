@@ -237,6 +237,49 @@ export function motMouvementFait(sorte: 'deplacer' | 'copier', n: number, cible:
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT DRIVE-RETOUCHES-2 — LA PILE DES DÉPLACEMENTS DE LA SESSION
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Un pas défaisable : un LOT de déplacements, fait d'un seul geste. */
+export interface PasAnnulable {
+  /** Les lignes de journal, celles que la route relira pour retrouver le parent d'origine. */
+  mouvements: number[];
+  /** Ce qu'on a déplacé, pour le dire dans l'infobulle. */
+  nom: string;
+  nombre: number;
+  /** Où c'était avant, tel que l'écran le savait. Sert au MOT, jamais à la décision. */
+  origineNom: string;
+}
+
+/**
+ * ══ 🔴 CE QUE LE BOUTON « ANNULER LE DERNIER DÉPLACEMENT » VA DÉFAIRE. PUR. ═════════════════════════════════════
+ *
+ * Arno : « chaque clic défait le déplacement le plus récent (un lot = un pas) […] on peut cliquer plusieurs fois
+ * pour remonter l'historique de la session ».
+ *
+ * ⚠️ UNE COPIE N'EST PAS UN PAS. L'annuler voudrait dire SUPPRIMER la copie, et l'application ne supprime rien :
+ * elle n'entre donc jamais dans cette pile — c'est pour cela que `mouvements` y est vide pour une copie, et que
+ * `empiler` l'écarte. Le bouton « saute » les copies parce qu'elles n'y sont jamais entrées.
+ */
+export function empiler(pile: readonly PasAnnulable[], pas: PasAnnulable): PasAnnulable[] {
+  if (pas.mouvements.length === 0) return [...pile];
+  return [...pile, pas];
+}
+
+/** Le mot de l'infobulle : ce que le prochain clic va défaire. PUR. */
+export function motProchaineAnnulation(pile: readonly PasAnnulable[]): string {
+  const dernier = pile[pile.length - 1];
+  if (dernier === undefined) {
+    return 'Aucun déplacement à annuler dans cette fenêtre. (Une copie ne s’annule pas : l’annuler voudrait dire '
+      + 'la supprimer, et l’application ne supprime rien.)';
+  }
+  const quoi = dernier.nombre > 1
+    ? `les ${dernier.nombre} éléments déplacés`
+    : `« ${dernier.nom} »`;
+  return `Remettre ${quoi} dans « ${dernier.origineNom} »`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴 LES FICHIERS « ._ » — les AppleDouble de macOS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

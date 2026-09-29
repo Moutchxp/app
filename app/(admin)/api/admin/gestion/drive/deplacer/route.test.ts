@@ -303,6 +303,58 @@ describe('🔴🔴 le cache ne peut PAS faire passer une cible interdite', () =>
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-RETOUCHES-2 — LA MÉMOIRE OUBLIE CE QU'ON VIENT DE CHANGER
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   Défaut vu sur le VRAI Drive le 29/09/2026 : la mémoire courte retient le parent d'un élément 60 s. Après un
+   déplacement, elle continuait d'affirmer l'ANCIEN parent. Le même appel était refusé à 10 s — « Cet élément est
+   déjà dans ce dossier » — et accepté à 70 s, sans que rien n'ait changé ailleurs.
+
+   🔴 ET LE RISQUE N'ÉTAIT PAS QUE LE REFUS : avec un parent périmé, `removeParents` serait parti faux. Or c'est
+   le piège même de l'API Drive — sans le BON `removeParents`, `files.update` AJOUTE un parent au lieu de
+   déplacer : le fichier se retrouve dans deux dossiers, et l'on croit l'avoir déplacé. ═════════════════════ */
+
+describe('🔴🔴 la mémoire courte n’affirme pas un parent périmé', () => {
+  it('🔴🔴 deux déplacements de suite : le second lit le VRAI parent, pas celui d’avant', async () => {
+    // ① On déplace « bail » (dans « base ») vers « travaux ».
+    await POST(demande({ action: 'deplacer', cible: 'travaux', elements: [{ id: 'bail' }] }));
+    expect(deplacerMock).toHaveBeenCalledWith(
+      'JETON', { id: 'bail', parentOrigine: 'base', parentCible: 'travaux' }, expect.anything());
+
+    // ② Le monde a changé : « bail » est maintenant dans « travaux ».
+    metaMock.mockImplementation(async (id: string) => (id === 'bail'
+      ? { ok: true, valeur: { id, nom: 'bail.pdf', typeMime: 'application/pdf', parents: ['travaux'] } }
+      : (ARBRE[id] === undefined
+        ? { ok: false, motif: 'introuvable' }
+        : {
+          ok: true,
+          valeur: {
+            id, nom: ARBRE[id].nom, typeMime: ARBRE[id].dossier ? MIME_DOSSIER : 'application/pdf',
+            parents: ARBRE[id].parentId === null ? [] : [ARBRE[id].parentId as string],
+          },
+        })));
+    deplacerMock.mockClear();
+
+    // ③ On le renvoie dans « base » : le parent lu doit être « travaux », pas « base ».
+    const res = await POST(demande({ action: 'deplacer', cible: 'base', elements: [{ id: 'bail' }] }));
+    const d = (await res.json()) as { faits: unknown[]; refuses: { motif: string }[] };
+    expect(d.refuses).toHaveLength(0);
+    expect(d.faits).toHaveLength(1);
+    expect(deplacerMock).toHaveBeenCalledWith(
+      'JETON', { id: 'bail', parentOrigine: 'travaux', parentCible: 'base' }, expect.anything());
+  });
+
+  /** ⚠️ ON OUBLIE MÊME QUAND GOOGLE REFUSE : on ne sait pas toujours ce qu'il a fait avant de refuser. */
+  it('un déplacement refusé par Google périme quand même ce qu’on savait', async () => {
+    deplacerMock.mockResolvedValue({ ok: false, motif: 'Google a refusé' });
+    await POST(demande({ action: 'deplacer', cible: 'travaux', elements: [{ id: 'bail' }] }));
+    metaMock.mockClear();
+    await POST(demande({ action: 'deplacer', cible: 'travaux', elements: [{ id: 'bail' }] }));
+    // Les métadonnées ont été REDEMANDÉES : rien n'a été cru sur parole.
+    expect(metaMock).toHaveBeenCalledWith('bail');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴 LOT DRIVE-DEPLACER-RAPIDE — CE QUE LA PARALLÉLISATION NE DOIT PAS CHANGER
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

@@ -45,6 +45,13 @@ const fichier = (id: string, nom: string, dossier = false) => ({
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  /**
+   * 🔴 ON VIDE LA MÉMOIRE DE SESSION ENTRE DEUX TESTS (lot DRIVE-RETOUCHES-2). Les dossiers dépliés y sont
+   * désormais retenus, d'une ouverture de la fenêtre à l'autre : sans ce nettoyage, un test hériterait de
+   * l'arbre du précédent et ne prouverait plus ce qu'il croit prouver — un triangle « déplierait » un dossier
+   * déjà ouvert, donc le refermerait.
+   */
+  try { globalThis.sessionStorage?.clear(); } catch { /* pas de stockage : l'arbre part vide, ce qui convient */ }
   choisis = []; envois = [];
   journalPret = true;
   lentEnCours = null;
@@ -56,6 +63,7 @@ beforeEach(() => {
     etat: 'ok', joindreAutorise: true, motifRefus: null, creerAutorise: true, motifCreation: null,
     fichiers: [
       fichier('d1', 'Artisans', true),
+      fichier('d2', 'Baux', true),
       fichier('f1', 'bail.pdf'),
       fichier('f2', 'devis.pdf'),
       // 🔴 LE JUMEAU TECHNIQUE DE macOS, déposé à côté d'un vrai document.
@@ -147,9 +155,15 @@ function faireTransfert(charge: { id: string; nom: string; dossier?: boolean }[]
 
 async function glisser(
   type: string, cible: Element | null | undefined,
-  o: { charge?: { id: string; nom: string; dossier?: boolean }[] | null; alt?: boolean } = {},
+  o: {
+    charge?: { id: string; nom: string; dossier?: boolean }[] | null;
+    alt?: boolean;
+    /** ⚠️ Un transfert DÉJÀ ouvert : une rafale (dragstart → dragover → drop) doit en partager un seul, comme
+     *  dans le navigateur — en fabriquer un par événement ferait perdre ce qu'on tient entre deux. */
+    transfert?: ReturnType<typeof faireTransfert>;
+  } = {},
 ) {
-  const transfert = faireTransfert(o.charge ?? null);
+  const transfert = o.transfert ?? faireTransfert(o.charge ?? null);
   await act(async () => {
     const e = new Event(type, { bubbles: true, cancelable: true });
     Object.defineProperty(e, 'dataTransfer', { value: transfert });
@@ -240,6 +254,248 @@ describe('🔴 ① glisser-déposer', () => {
     expect(envois).toHaveLength(1);
     expect(envois[0].corps.action).toBe('deplacer');
     expect(envois[0].corps.cible).toBe('d1');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-RETOUCHES-2 — LE LÂCHER QUI NE DÉPLAÇAIT RIEN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   Constat d'Arno : « je prends un dossier, je le glisse sur un autre et je lâche AVANT que le dossier visé ait eu
+   le temps de s'ouvrir tout seul → rien n'est déplacé. »
+
+   🔴 LA CAUSE, TROUVÉE EN REPRODUISANT SUR LE VRAI DRIVE : `setGlisse` n'est pas appliqué avant la fin du
+   gestionnaire de `dragstart`. Le PREMIER `dragover` lisait donc « rien en main » et refusait la cible — or
+   Chrome n'émet `drop` QUE si le DERNIER `dragover` a été annulé. Un lâcher rapide ne déplaçait rien, en silence.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 lâcher AVANT que le dossier visé s’ouvre', () => {
+  /**
+   * ⚠️ CE TEST IMITE CHROME, PAS UNE COMMODITÉ : il ne dépose QUE si le dernier survol a été accepté. Un test qui
+   * dispatcherait `drop` quoi qu'il arrive serait plus indulgent que le navigateur — et il aurait laissé passer
+   * exactement ce défaut-là. (C'est ce qui s'est produit au premier jet de la reproduction.)
+   */
+  const glisserCommeChrome = async (source: string, cible: string, survols: number) => {
+    const t = faireTransfert(null);
+    let accepte = false;
+    /* 🔴🔴 LE `dragstart` ET LE PREMIER `dragover` PARTENT DANS LE MÊME TOUR, SANS RENDU ENTRE LES DEUX — et
+       c'est CE DÉTAIL qui reproduit le défaut. Le navigateur n'attend pas que React ait appliqué son état entre
+       deux événements de la même rafale ; un test qui les sépare par un rendu est plus indulgent que Chrome, et
+       laisse passer exactement ce qu'on cherche. (Vérifié : séparés, ce test passe MÊME sur le code fautif.) */
+    await act(async () => {
+      const d = new Event('dragstart', { bubbles: true, cancelable: true });
+      Object.defineProperty(d, 'dataTransfer', { value: t });
+      ligneDe(source)?.dispatchEvent(d);
+      const e = new Event('dragover', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'dataTransfer', { value: t });
+      Object.defineProperty(e, 'altKey', { value: false });
+      ligneDe(cible)?.dispatchEvent(e);
+      accepte = e.defaultPrevented;
+    });
+    await calmer();
+    for (let i = 1; i < survols; i += 1) {
+      const e = new Event('dragover', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'dataTransfer', { value: t });
+      Object.defineProperty(e, 'altKey', { value: false });
+      await act(async () => { ligneDe(cible)?.dispatchEvent(e); });
+      await calmer();
+      accepte = e.defaultPrevented;
+    }
+    if (accepte) await glisser('drop', ligneDe(cible), { transfert: t });
+    else await glisser('dragend', ligneDe(source), { transfert: t });
+    return accepte;
+  };
+
+  it('🔴🔴 UN SEUL survol, puis on lâche : le déplacement part', async () => {
+    await monter();
+    const accepte = await glisserCommeChrome('bail.pdf', 'Artisans', 1);
+    expect(accepte).toBe(true);
+    expect(envois).toHaveLength(1);
+    expect(envois[0].corps.cible).toBe('d1');
+  });
+
+  /** 🔴 LE CAS D'ARNO : un DOSSIER lâché sur un dossier fermé, tout de suite. */
+  it('🔴🔴 un DOSSIER lâché aussitôt sur un dossier fermé part aussi', async () => {
+    await monter();
+    const accepte = await glisserCommeChrome('Artisans', 'Baux', 1);
+    expect(accepte).toBe(true);
+    expect(envois).toHaveLength(1);
+    expect(envois[0].corps.elements).toEqual([expect.objectContaining({ id: 'd1' })]);
+  });
+
+  it('une sélection multiple part au premier survol, elle aussi', async () => {
+    await monter();
+    await souris('bail.pdf', 'click');
+    await souris('devis.pdf', 'click', { metaKey: true });
+    const accepte = await glisserCommeChrome('bail.pdf', 'Artisans', 1);
+    expect(accepte).toBe(true);
+    expect((envois[0].corps.elements as unknown[])).toHaveLength(2);
+  });
+
+  /** ⚠️ ET ON NE S'ACCEPTE PAS SOI-MÊME : un dossier lâché sur lui-même reste refusé au survol. */
+  it('🔴 un dossier ne s’accepte pas lui-même comme cible', async () => {
+    await monter();
+    const accepte = await glisserCommeChrome('Artisans', 'Artisans', 2);
+    expect(accepte).toBe(false);
+    expect(envois).toHaveLength(0);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LE RESSORT DÉPLIE SUR PLACE — IL N'ENTRE PLUS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 le ressort du glisser', () => {
+  /**
+   * 🔴🔴 IL DÉPLIE, IL N'ENTRE PAS (demande d'Arno). Avant, il appelait « entrer » : la vue changeait de racine en
+   * plein glisser, le fil d'Ariane bougeait, et la ligne visée DISPARAISSAIT sous le curseur — le lâcher ne
+   * tombait plus sur rien.
+   */
+  it('🔴🔴 après le délai, le dossier se DÉPLIE et la racine ne bouge pas', async () => {
+    vi.useFakeTimers();
+    try {
+      await monter();
+      const ariane = () => [...container.querySelectorAll('.sfd-ariane-bouton')].map((b) => b.textContent);
+      const avant = ariane();
+      const t = faireTransfert(null);
+      await glisser('dragstart', ligneDe('bail.pdf'), { transfert: t });
+      await glisser('dragover', ligneDe('Artisans'), { transfert: t });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      // La racine n'a pas bougé, et le contenu du dossier est apparu SOUS lui.
+      expect(ariane()).toEqual(avant);
+      expect(ligneDe('Artisans')).toBeDefined();
+    } finally { vi.useRealTimers(); }
+  });
+
+  /** 🔴 UN GESTE ABANDONNÉ REFERME CE QUE LE RESSORT AVAIT OUVERT : « seul Arno ouvre ou ferme un dossier ». */
+  it('🔴 Échap (ou un lâcher dans le vide) referme les dépliages automatiques', async () => {
+    vi.useFakeTimers();
+    try {
+      await monter();
+      const t = faireTransfert(null);
+      await glisser('dragstart', ligneDe('bail.pdf'), { transfert: t });
+      await glisser('dragover', ligneDe('Artisans'), { transfert: t });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      const deplie = [...container.querySelectorAll('.sfd-ligne')].length;
+      await glisser('dragend', ligneDe('bail.pdf'), { transfert: t });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect([...container.querySelectorAll('.sfd-ligne')].length).toBeLessThanOrEqual(deplie);
+      expect(ligneDe('Artisans')?.querySelector('.sfd-triangle')?.getAttribute('aria-expanded')).toBe('false');
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LES DOSSIERS DÉPLIÉS RESTENT DÉPLIÉS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   Constat d'Arno : « je déplie plusieurs dossiers, j'entre dans l'un d'eux, je ressors, et tous les dossiers
+   dépliés sont refermés. » C'était `setOuverts(new Set())` dans la navigation. Le dépliage est un TRAVAIL de la
+   personne : entrer quelque part ne doit pas le défaire. ════════════════════════════════════════════════════ */
+
+describe('🔴 les dossiers dépliés survivent à la navigation', () => {
+  const triangleDe = (nom: string) => ligneDe(nom)?.querySelector('.sfd-triangle');
+  const estDeplie = (nom: string) => triangleDe(nom)?.getAttribute('aria-expanded') === 'true';
+
+  it('🔴 déplier A et B, entrer dans A, ressortir → A et B toujours dépliés', async () => {
+    await monter();
+    await cliquer(triangleDe('Artisans'));
+    await cliquer(triangleDe('Baux'));
+    expect(estDeplie('Artisans')).toBe(true);
+    expect(estDeplie('Baux')).toBe(true);
+
+    // On entre dans « Artisans »…
+    await souris('Artisans', 'dblclick');
+    expect(container.querySelector('.sfd-titre')?.textContent).toBe('Artisans');
+    // …puis on ressort par le bandeau des parents.
+    await cliquer([...container.querySelectorAll('.sfd-ariane-bouton')].find((b) => b.textContent === 'Google Drive'));
+
+    expect(estDeplie('Artisans')).toBe(true);
+    expect(estDeplie('Baux')).toBe(true);
+  });
+
+  /** 🔴 ET D'UNE OUVERTURE DE LA FENÊTRE À L'AUTRE, dans la même session du navigateur. */
+  it('🔴 l’arbre déplié est retrouvé à la réouverture de la fenêtre', async () => {
+    await monter();
+    await cliquer(triangleDe('Artisans'));
+    expect(estDeplie('Artisans')).toBe(true);
+
+    await act(async () => { root.unmount(); });
+    container.remove();
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    await monter();
+    expect(estDeplie('Artisans')).toBe(true);
+  });
+
+  /** ⚠️ ET SEUL ARNO REFERME : un replis explicite est respecté, et retenu lui aussi. */
+  it('replier reste possible, et se retient', async () => {
+    await monter();
+    await cliquer(triangleDe('Artisans'));
+    await cliquer(triangleDe('Artisans'));
+    expect(estDeplie('Artisans')).toBe(false);
+    await souris('Artisans', 'dblclick');
+    await cliquer([...container.querySelectorAll('.sfd-ariane-bouton')].find((b) => b.textContent === 'Google Drive'));
+    expect(estDeplie('Artisans')).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 « ↶ ANNULER LE DERNIER DÉPLACEMENT »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 le bouton « Annuler le dernier déplacement »', () => {
+  const bouton = () => [...container.querySelectorAll('.sfd-pied button')]
+    .find((b) => (b.textContent ?? '').includes('Annuler le dernier')) as HTMLButtonElement | undefined;
+
+  it('grisé tant que rien n’a été déplacé, et l’infobulle dit pourquoi', async () => {
+    await monter();
+    expect(bouton()?.disabled).toBe(true);
+    expect(bouton()?.getAttribute('title')).toContain('Aucun déplacement à annuler');
+    // ⚠️ ET LE CAS QUI SURPRENT Y EST NOMMÉ : une copie ne s'annule pas.
+    expect(bouton()?.getAttribute('title')).toContain('copie');
+  });
+
+  it('🔴 actif après un déplacement, et son infobulle dit ce qu’il va défaire', async () => {
+    await monter();
+    await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f1', nom: 'bail.pdf' }] });
+    expect(bouton()?.disabled).toBe(false);
+    expect(bouton()?.getAttribute('title')).toContain('Remettre « bail.pdf »');
+  });
+
+  it('🔴 un clic défait le pas le plus récent, par la route et le journal', async () => {
+    await monter();
+    await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f1', nom: 'bail.pdf' }] });
+    envois = [];
+    await cliquer(bouton());
+    expect(envois).toHaveLength(1);
+    expect(envois[0].corps.action).toBe('annuler');
+    expect(envois[0].corps.mouvements).toEqual([101]);
+    // Le pas est consommé : le bouton se regrise.
+    expect(bouton()?.disabled).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 UNE COPIE N'ENTRE PAS DANS LA PILE : l'annuler voudrait dire la SUPPRIMER, et l'application ne supprime
+   * rien. Le bouton reste donc grisé après une copie — il ne « saute » pas un pas, il n'y en a jamais eu.
+   */
+  it('🔴🔴 une copie ne rend pas le bouton actif', async () => {
+    await monter();
+    await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f1', nom: 'bail.pdf' }], alt: true });
+    expect(container.querySelector('.sfd-bandeau')?.textContent).toContain('copié');
+    expect(bouton()?.disabled).toBe(true);
+  });
+
+  /** ⚠️ ON PEUT REMONTER PLUSIEURS PAS : un lot = un pas, et les clics se suivent. */
+  it('deux déplacements, deux annulations', async () => {
+    await monter();
+    await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f1', nom: 'bail.pdf' }] });
+    reponseMouvement = { ...reponseMouvement, mouvements: [102], faits: [{ id: 'f2', nom: 'devis.pdf' }] };
+    await glisser('drop', ligneDe('Artisans'), { charge: [{ id: 'f2', nom: 'devis.pdf' }] });
+    envois = [];
+    await cliquer(bouton());
+    await cliquer(bouton());
+    expect(envois.map((e) => e.corps.mouvements)).toEqual([[102], [101]]);
+    expect(bouton()?.disabled).toBe(true);
   });
 });
 

@@ -18,8 +18,8 @@ import { estRegroupement } from '../../../../lib/gestion/cibleDepot';
 // 🔴 LOT DRIVE-FACON-FINDER — toutes les RÈGLES du navigateur (tri, icônes, historique, sélection, menu) : module PUR.
 // 🔴 LOT DRIVE-DEPLACER — la règle du déplacement, la presse-papiers et les fichiers « ._ ». Module PUR.
 import {
-  DUREE_ANNULATION_MS, estCoupe, estFichierSystemeMac, infobulleFichierSysteme, motColler, motMouvementFait,
-  MOT_FICHIER_SYSTEME, type Presse,
+  DUREE_ANNULATION_MS, empiler, estCoupe, estFichierSystemeMac, infobulleFichierSysteme, motColler,
+  motMouvementFait, motProchaineAnnulation, MOT_FICHIER_SYSTEME, type PasAnnulable, type Presse,
 } from '../../../../lib/gestion/driveDeplacement';
 // 🔴 LOT DRIVE-DEPLACER-RAPIDE — l'écran qui répond au lâcher, et qui sait se dédire. Module PUR.
 import {
@@ -84,11 +84,18 @@ type Fichier = EntreeDrive;
 const MIME_INTERNE = 'application/x-svv-drive';
 
 /**
- * ⚠️ LE « RESSORT » DU FINDER : un dossier survolé assez longtemps pendant un glisser s'ouvre tout seul. 700 ms
- * est le compromis d'Apple — assez court pour descendre trois niveaux sans lâcher, assez long pour traverser un
- * dossier sans l'ouvrir par accident.
+ * ══ 🔴 LE « RESSORT » : UN DOSSIER SURVOLÉ LONGTEMPS SE DÉPLIE — SUR PLACE, ET JAMAIS EN Y ENTRANT ══════════════
+ *
+ * 🔴 CE QU'IL FAISAIT, ET POURQUOI C'ÉTAIT UN DÉFAUT (lot DRIVE-RETOUCHES-2). Il appelait `entrer()` : la vue
+ * changeait de racine EN PLEIN GLISSER. Le fil d'Ariane bougeait, la liste était remplacée — donc la ligne qu'on
+ * visait DISPARAISSAIT sous le curseur, et le lâcher ne tombait plus sur rien. Arno : « on n'entre jamais dans un
+ * dossier pendant un glisser : ni changement de racine, ni fil d'Ariane qui bouge ».
+ *
+ * ⚠️ 1 200 ms, ET NON PLUS 700. Le ressort ne sert plus à NAVIGUER mais à MONTRER : on l'attend moins souvent, et
+ * un déclenchement accidentel en traversant un dossier coûte un dépliage qu'on n'a pas demandé. Plus long vaut
+ * mieux quand le geste est gratuit.
  */
-const RESSORT_MS = 700;
+const RESSORT_MS = 1_200;
 
 /**
  * 🔴 LE PARENT INVENTÉ DES PIÈCES DU MAIL. `voisinsVisualisables` borne le tour « Précédent / Suivant » au MÊME
@@ -101,6 +108,20 @@ const PARENT_PIECES = 'svv:pieces-du-mail';
 const CLE_TAILLE_FENETRE = 'svv.gestion.selecteurDrive.taille';
 /** La section « Récents » de la barre latérale est-elle dépliée ? Préférence LOCALE au navigateur. */
 const CLE_RECENTS_OUVERTS = 'svv.gestion.selecteurDrive.recents';
+/**
+ * ══ 🔴 LES DOSSIERS DÉPLIÉS, D'UNE OUVERTURE DE LA FENÊTRE À L'AUTRE ════════════════════════════════════════════
+ *
+ * Arno : « garde-le aussi d'une ouverture de la fenêtre à l'autre, dans la même session du navigateur ».
+ *
+ * ⚠️ `sessionStorage` ET NON `localStorage`, ET C'EST LE MOT « SESSION » QUI TRANCHE : un arbre déplié est le
+ * contexte d'un travail en cours, pas une préférence. Le retrouver le lendemain, sur un Drive réorganisé entre
+ * temps, ne rendrait service à personne — et laisserait quinze dossiers ouverts qu'on n'a pas demandés.
+ *
+ * ⚠️ BORNÉ À 200 IDENTIFIANTS : sans borne, une longue session d'exploration écrirait des milliers d'entrées dans
+ * un stockage qui n'en veut pas.
+ */
+const CLE_DEPLIES = 'svv.gestion.selecteurDrive.deplies';
+const DEPLIES_MAX = 200;
 
 /**
  * ══ 🔴 POURQUOI UN CLIC SUR UN DOSSIER ATTEND 220 ms AVANT DE LE DÉPLIER ════════════════════════════════════════
@@ -246,8 +267,19 @@ export function SelecteurFichierDrive({
   const [motDeLaCreation, setMotDeLaCreation] = useState<string | null>(null);
   const [menu, setMenu] = useState<CibleMenu | null>(null);
   const [outils, setOutils] = useState(false);
-  /** 🔴 LE DÉPLIAGE SUR PLACE : les dossiers ouverts, et leurs enfants déjà lus. */
-  const [ouverts, setOuverts] = useState<Set<string>>(new Set());
+  /**
+   * 🔴 LE DÉPLIAGE SUR PLACE : les dossiers ouverts, et leurs enfants déjà lus.
+   *
+   * ⚠️ RELU À L'INITIALISATION, sous try/catch : la fenêtre se rouvre sur l'arbre qu'on avait laissé. C'est un
+   * état, pas une préférence — d'où `sessionStorage`, qui meurt avec l'onglet.
+   */
+  const [ouverts, setOuverts] = useState<Set<string>>(() => {
+    try {
+      const brut = globalThis.sessionStorage?.getItem(CLE_DEPLIES) ?? null;
+      const lus = brut === null ? [] : (JSON.parse(brut) as unknown);
+      return new Set(Array.isArray(lus) ? lus.filter((x): x is string => typeof x === 'string') : []);
+    } catch { return new Set(); }
+  });
   const [enfants, setEnfants] = useState<Map<string, Fichier[]>>(new Map());
   /* ══ 🔴🔴 LOT DRIVE-DEPLACER ═══════════════════════════════════════════════════════════════════════════════
      Décision d'Arno : l'application peut désormais DÉPLACER et COPIER dans le Drive. Elle ne supprime, ne renomme,
@@ -256,6 +288,14 @@ export function SelecteurFichierDrive({
   const [presse, setPresse] = useState<Presse | null>(null);
   /** Ce qui est en train d'être glissé. `null` = aucun glisser en cours. */
   const [glisse, setGlisse] = useState<{ ids: string[]; nom: string } | null>(null);
+  /** La cible sous le curseur, et où l'afficher : « → Déposer dans « X » », là où l'œil est déjà. */
+  const [cibleNommee, setCibleNommee] = useState<{ nom: string; x: number; y: number } | null>(null);
+  /**
+   * 🔴 LA PILE DES DÉPLACEMENTS DE CETTE FENÊTRE. Un lot = un pas ; chaque clic sur « ↶ Annuler le dernier
+   * déplacement » en défait un, et l'on peut remonter. Les COPIES n'y entrent jamais : les annuler voudrait dire
+   * les supprimer, et l'application ne supprime rien.
+   */
+  const [pileAnnulation, setPileAnnulation] = useState<PasAnnulable[]>([]);
   /** Le dossier survolé pendant un glisser — celui qui s'allume. */
   const [survole, setSurvole] = useState<string | null>(null);
   /** Le bandeau « N élément(s) déplacé(s) vers X — Annuler ». `null` = rien à annoncer. */
@@ -270,6 +310,14 @@ export function SelecteurFichierDrive({
   const ressort = useRef<{ id: string; minuteur: ReturnType<typeof setTimeout> } | null>(null);
   /** Le dépliage en attente : un double-clic l'annule avant qu'il ne change la liste sous le curseur. */
   const depliageEnAttente = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * 🔴🔴 CE QU'ON TIENT, EN RÉFÉRENCE — parce que l'ÉTAT arrive trop tard. Voir l'encadré de `survolerCible` :
+   * `setGlisse` n'est pas appliqué avant la fin du gestionnaire de `dragstart`, si bien que le premier `dragover`
+   * refusait la cible et que Chrome n'émettait jamais le `drop`.
+   */
+  const enMainRef = useRef<{ sorte: 'drive'; ids: string[] } | { sorte: 'piece'; pieceId: number } | null>(null);
+  /** Les dossiers dépliés PAR LE RESSORT pendant ce glisser : on les referme si le geste est abandonné. */
+  const depliagesDuGlisser = useRef<Set<string>>(new Set());
   /**
    * 🔴 LE DERNIER MOUVEMENT, pour que « Annuler » sache quoi remettre où SANS attendre la route. La route reste
    * la seule à décider (elle relit le parent d'origine dans le journal) ; ceci ne sert qu'à l'affichage.
@@ -517,7 +565,12 @@ export function SelecteurFichierDrive({
     setSaisie('');
     setMontrerRecents(false);
     setSelection(SELECTION_VIDE);
-    setOuverts(new Set());
+    /* 🔴🔴 ON NE REFERME PLUS LES DOSSIERS DÉPLIÉS (lot DRIVE-RETOUCHES-2, demande d'Arno).
+       Constat : « je déplie plusieurs dossiers, j'entre dans l'un d'eux, je ressors, et tous les dossiers
+       dépliés sont refermés ». C'était cette ligne — `setOuverts(new Set())` — et ses deux jumelles dans les
+       flèches ‹ ›. Le dépliage est un TRAVAIL de la personne : entrer quelque part ne doit pas le défaire.
+       ⚠️ L'état est gardé PAR IDENTIFIANT de dossier, donc il reste juste où qu'on aille : un dossier déplié
+       qu'on ne voit pas ne gêne personne, et il est encore déplié quand on revient. */
     oublierCreation();
     setHisto((h) => naviguerVers(h, c));
     void charger(dossierDuChemin(c));
@@ -538,14 +591,16 @@ export function SelecteurFichierDrive({
     if (!peutReculer(histo)) return;
     const h = reculer(histo);
     setHisto(h);
-    setSelection(SELECTION_VIDE); setOuverts(new Set()); setSaisie(''); oublierCreation();
+    // ⚠️ Les dossiers dépliés RESTENT dépliés : voir l'encadré d'`allerA`.
+    setSelection(SELECTION_VIDE); setSaisie(''); oublierCreation();
     void charger(dossierDuChemin(cheminCourant(h)));
   };
   const pasAvant = () => {
     if (!peutAvancer(histo)) return;
     const h = avancer(histo);
     setHisto(h);
-    setSelection(SELECTION_VIDE); setOuverts(new Set()); setSaisie(''); oublierCreation();
+    // ⚠️ Les dossiers dépliés RESTENT dépliés : voir l'encadré d'`allerA`.
+    setSelection(SELECTION_VIDE); setSaisie(''); oublierCreation();
     void charger(dossierDuChemin(cheminCourant(h)));
   };
 
@@ -727,24 +782,34 @@ export function SelecteurFichierDrive({
    * 🔴 LE TRIANGLE ▸ OUVRE LE SOUS-NIVEAU SUR PLACE, sans quitter la vue. Le contenu est lu à la demande, PUIS
    * mémorisé : replier puis redéplier ne redemande rien.
    */
+  /**
+   * LE CONTENU D'UN SOUS-NIVEAU, s'il n'est pas déjà connu.
+   *
+   * ⚠️ EXTRAIT DE `basculerDepliage` (lot DRIVE-RETOUCHES-2) : le ressort du glisser DÉPLIE sans basculer — il ne
+   * doit jamais refermer un dossier déjà ouvert sous le curseur. Les deux gestes partagent donc la lecture, et
+   * elle n'existe qu'une fois.
+   */
+  const chargerEnfantsSiBesoin = useCallback((id: string) => {
+    if (enfants.has(id)) return;
+    void (async () => {
+      try {
+        const r = await lireListing(id, new AbortController().signal);
+        if ('erreur' in r) return;
+        cache.current.set(id, r);
+        setEnfants((m) => new Map(m).set(id, r.fichiers));
+      } catch { /* un sous-niveau qu'on n'a pas pu lire reste replié : rien ne casse */ }
+    })();
+  }, [enfants, lireListing]);
+
   const basculerDepliage = useCallback((f: Fichier) => {
     setOuverts((o) => {
       const n = new Set(o);
       if (n.has(f.id)) { n.delete(f.id); return n; }
       n.add(f.id);
-      if (!enfants.has(f.id)) {
-        void (async () => {
-          try {
-            const r = await lireListing(f.id, new AbortController().signal);
-            if ('erreur' in r) return;
-            cache.current.set(f.id, r);
-            setEnfants((m) => new Map(m).set(f.id, r.fichiers));
-          } catch { /* un sous-niveau qu'on n'a pas pu lire reste replié : rien ne casse */ }
-        })();
-      }
       return n;
     });
-  }, [enfants, lireListing]);
+    chargerEnfantsSiBesoin(f.id);
+  }, [chargerEnfantsSiBesoin]);
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
      LA LISTE : aplatie, triée, virtualisée
@@ -885,6 +950,15 @@ export function SelecteurFichierDrive({
     }
   };
 
+  /** Le nom d'un dossier qu'on a sous la main : le courant, un parent du bandeau, ou une ligne de la liste. */
+  const nomDuDossier = (id: string | null): string | null => {
+    if (id === null || id === '') return null;
+    if (dossierCourant?.id === id) return dossierCourant.nom;
+    return chemin.find((e) => e.id === id)?.nom
+      ?? lignes.find((l) => l.entree.id === id)?.entree.nom
+      ?? null;
+  };
+
   const mouvoir = async (
     sorte: 'deplacer' | 'copier', elements: Fichier[], cibleId: string, cibleNom: string,
   ): Promise<void> => {
@@ -937,11 +1011,20 @@ export function SelecteurFichierDrive({
       }
       if (faits.length === 0) { setBandeau(null); return; }
 
+      const mouvements = sorte === 'deplacer' ? (d.mouvements ?? []) : [];
       setBandeau({
         mot: motMouvementFait(sorte, faits.length, d.nomCible ?? cibleNom),
         // ⚠️ UNE COPIE NE S'ANNULE PAS : annuler voudrait dire SUPPRIMER la copie, et l'app ne supprime rien.
-        mouvements: sorte === 'deplacer' ? (d.mouvements ?? []) : [],
+        mouvements,
       });
+      /* 🔴 ET LE PAS ENTRE DANS LA PILE. `empiler` écarte de lui-même ce qui n'a pas de ligne de journal — donc
+         les copies : elles n'y entrent jamais, et le bouton les « saute » sans avoir à le savoir. */
+      setPileAnnulation((pile) => empiler(pile, {
+        mouvements,
+        nom: elements[0]?.nom ?? '',
+        nombre: faits.length,
+        origineNom: nomDuDossier(source) ?? 'son dossier d’origine',
+      }));
       // ③ ET L'ON SE MET D'ACCORD AVEC LE DRIVE, SANS QUE L'ÉCRAN BOUGE.
       revaliderEnSilence([cibleId, source ?? '', dossierCourant?.id ?? '']);
     } catch {
@@ -988,6 +1071,23 @@ export function SelecteurFichierDrive({
       if (retour !== null) marquerEnVol(retour.elements.map((e) => e.id), false);
       setErreur('Le Drive n’a pas répondu.');
     }
+  };
+
+  /**
+   * ══ 🔴 « ↶ ANNULER LE DERNIER DÉPLACEMENT » ════════════════════════════════════════════════════════════════
+   *
+   * 🔴 IL PASSE PAR LA MÊME ROUTE ET LE MÊME VERDICT que le bandeau de dix secondes : remettre un élément à sa
+   * place est un déplacement comme un autre, et il n'a droit à aucun régime de faveur — l'archive le refuse, ses
+   * ancêtres aussi, et un élément déplacé ailleurs entre-temps est refusé avec son motif.
+   *
+   * ⚠️ LE PAS QUITTE LA PILE MÊME SI LA ROUTE REFUSE. Le laisser ferait re-cliquer sur le même refus indéfiniment,
+   * sans jamais atteindre le pas d'avant. Le motif, lui, s'affiche.
+   */
+  const annulerDernierPas = async () => {
+    const pas = pileAnnulation[pileAnnulation.length - 1];
+    if (pas === undefined) return;
+    setPileAnnulation((pile) => pile.slice(0, -1));
+    await annulerMouvement(pas.mouvements);
   };
 
   /** Le bandeau s'efface tout seul au bout de dix secondes : le temps de s'apercevoir qu'on s'est trompé. */
@@ -1178,16 +1278,36 @@ export function SelecteurFichierDrive({
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
   /** Le glisser s'arrête : plus de fantôme, plus de surbrillance, plus de ressort en attente. */
-  const finGlisse = () => {
+  /**
+   * LE GLISSER S'ARRÊTE. `abandonne` = personne n'a rien déposé (Échap, ou lâcher dans le vide).
+   *
+   * 🔴 LES DÉPLIAGES AUTOMATIQUES D'UN GESTE ABANDONNÉ SE REFERMENT (demande d'Arno : « seul Arno ouvre ou ferme
+   * un dossier »). Ceux d'un geste RÉUSSI restent ouverts : on vient d'y poser quelque chose, on veut le voir.
+   */
+  const finGlisse = (abandonne = false) => {
+    if (abandonne && depliagesDuGlisser.current.size > 0) {
+      const aRefermer = depliagesDuGlisser.current;
+      setOuverts((o) => {
+        const n = new Set(o);
+        for (const id of aRefermer) n.delete(id);
+        return n;
+      });
+    }
+    depliagesDuGlisser.current = new Set();
+    enMainRef.current = null;
     setGlisse(null);
     setPieceGlissee(null);
     setSurvole(null);
+    setCibleNommee(null);
     if (ressort.current !== null) { clearTimeout(ressort.current.minuteur); ressort.current = null; }
   };
 
   const demarrerGlisse = (e: React.DragEvent, f: Fichier) => {
     const elements = visesPar(f);
     if (!selection.ids.includes(f.id)) setSelection({ ids: [f.id], ancre: f.id });
+    // 🔴 LA RÉFÉRENCE D'ABORD : c'est elle que le PREMIER survol lira, et l'état n'arrivera qu'au rendu suivant.
+    enMainRef.current = { sorte: 'drive', ids: elements.map((x) => x.id) };
+    depliagesDuGlisser.current = new Set();
     setGlisse({
       ids: elements.map((x) => x.id),
       nom: elements.length > 1 ? `${elements.length} éléments` : f.nom,
@@ -1225,20 +1345,44 @@ export function SelecteurFichierDrive({
        tenir.
        🔴 DEUX CHOSES PEUVENT ÊTRE EN VOL, et une seule à la fois : un ou plusieurs fichiers DU DRIVE (qu'on
        déplace), ou une PIÈCE REÇUE (qu'on range). Les deux visent les mêmes dossiers, par les mêmes zones. */
-    if (pieceGlissee === null) {
-      if (glisse === null || glisse.ids.includes(cible.reel ?? cible.id)) return;
-    }
+    /* ══ 🔴🔴 ON LIT CE QU'ON TIENT DANS UNE RÉFÉRENCE, PAS DANS L'ÉTAT ════════════════════════════════════
+       🔴 LE DÉFAUT QUE CELA RÉPARE, VU SUR LE VRAI DRIVE : `setGlisse` n'est pas appliqué avant la fin du
+       gestionnaire de `dragstart`. Le PREMIER `dragover` lisait donc `glisse === null` et refusait la cible — or
+       Chrome n'émet `drop` QUE si le DERNIER `dragover` a été annulé. Un lâcher rapide (prendre un dossier, le
+       poser aussitôt sur un autre) ne déplaçait donc RIEN, en silence. Reproduit : « LÂCHER IGNORÉ : le dernier
+       survol n'a pas été accepté », l'élément toujours en place, aucun message.
+       Une référence, elle, est écrite et lue dans le même tour : le premier survol est accepté. */
+    const enMain = enMainRef.current;
+    if (enMain === null) return;
+    if (enMain.sorte === 'drive' && enMain.ids.includes(cible.reel ?? cible.id)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move';
     if (survole !== cible.id) setSurvole(cible.id);
+    /* 🔴 L'INDICATEUR PRÈS DU CURSEUR (demande d'Arno) : « → Déposer dans “X” ». Pendant un glisser, la
+       surbrillance seule ne suffit pas — la ligne visée peut être à l'autre bout de l'écran, et l'œil est sur le
+       curseur. Le nom, là où l'on regarde. */
+    setCibleNommee({ nom: cible.nom, x: e.clientX, y: e.clientY });
     // ⚠️ LE RESSORT : on n'en arme qu'UN, et seulement pour un dossier de la liste — pas pour le fil d'Ariane, où
     //   l'on est déjà en train de remonter, ni pour la zone des pièces jointes, qui ne s'ouvre pas.
     if (cible.ouvrable && ressort.current?.id !== cible.id) {
       if (ressort.current !== null) clearTimeout(ressort.current.minuteur);
+      const idReel = cible.reel ?? cible.id;
       ressort.current = {
         id: cible.id,
-        minuteur: setTimeout(() => { ressort.current = null; setSurvole(null); entrer(cible); }, RESSORT_MS),
+        minuteur: setTimeout(() => {
+          ressort.current = null;
+          /* 🔴 ON DÉPLIE, ON N'ENTRE PAS. La cible reste EXACTEMENT où elle est, sous le curseur : son contenu
+             s'ajoute DESSOUS. C'est ce qui permet de lâcher dessus avant, pendant ou après le dépliage.
+             ⚠️ ET L'ON NOTE QUE CE DÉPLIAGE EST AUTOMATIQUE : si le glisser est abandonné (Échap, ou lâcher dans
+             le vide), on le défait — « seul Arno ouvre ou ferme un dossier » (demande d'Arno). */
+          setOuverts((o) => {
+            if (o.has(idReel)) return o;
+            depliagesDuGlisser.current.add(idReel);
+            return new Set(o).add(idReel);
+          });
+          chargerEnfantsSiBesoin(idReel);
+        }, RESSORT_MS),
       };
     }
   };
@@ -1265,6 +1409,8 @@ export function SelecteurFichierDrive({
   };
 
   const demarrerGlisseDePiece = (e: React.DragEvent, piece: PieceARanger) => {
+    enMainRef.current = { sorte: 'piece', pieceId: piece.pieceId };
+    depliagesDuGlisser.current = new Set();
     setPieceGlissee(piece);
     setGlisse(null);
     try {
@@ -1403,6 +1549,12 @@ export function SelecteurFichierDrive({
      * L'aperçu étant rendu HORS de cette fenêtre, il écoute Échap lui-même ; on se contente de ne pas doubler.
      */
     if (e.key === 'Escape') {
+      /* 🔴 ÉCHAP PENDANT UN GLISSER = ABANDON PROPRE (demande d'Arno) : rien ne bouge, et les dossiers que le
+         ressort avait dépliés se referment.
+         ⚠️ EN PRATIQUE, CHROME NOUS DEVANCE : il annule le glisser lui-même et émet `dragend`, que nous traitons
+         déjà comme un abandon. Ce cas-ci couvre les navigateurs qui laissent passer la touche — et il ne coûte
+         qu'une ligne pour ne pas dépendre d'un détail d'implémentation. */
+      if (enMainRef.current !== null) { e.preventDefault(); e.stopPropagation(); finGlisse(true); return; }
       if (aVoir !== null) return;
       if (menu !== null) { e.preventDefault(); setMenu(null); return; }
       if (confirmation !== null) { e.preventDefault(); setConfirmation(null); return; }
@@ -1451,6 +1603,13 @@ export function SelecteurFichierDrive({
       }
     }
   };
+
+  /** 🔴 CE QUI EST DÉPLIÉ SURVIT À LA FERMETURE DE LA FENÊTRE, le temps de la session. */
+  useEffect(() => {
+    try {
+      globalThis.sessionStorage?.setItem(CLE_DEPLIES, JSON.stringify([...ouverts].slice(-DEPLIES_MAX)));
+    } catch { /* pas de stockage : l'arbre vit seulement tant que la fenêtre est ouverte, et c'est déjà l'essentiel */ }
+  }, [ouverts]);
 
   /** Le défilement suit la sélection au clavier : une ligne choisie hors de l'écran ne sert à rien. */
   useEffect(() => {
@@ -1814,9 +1973,10 @@ export function SelecteurFichierDrive({
       <div className="sfd" role="dialog" aria-modal="true" aria-labelledby="sfd-titre" ref={cadre}
         onKeyDown={surTouche} tabIndex={-1}
         /* ⚠️ UN GLISSER QUI SE TERMINE DANS LE VIDE DOIT S'ÉTEINDRE : sans cela, la surbrillance et le fantôme
-           survivraient au geste, et l'écran resterait « en train de glisser » pour toujours. */
-        onDragEnd={finGlisse}
-        onDrop={finGlisse}>
+           survivraient au geste, et l'écran resterait « en train de glisser » pour toujours.
+           🔴 ET C'EST UN ABANDON : les dossiers que le ressort avait dépliés se referment. */
+        onDragEnd={() => finGlisse(true)}
+        onDrop={() => finGlisse(true)}>
 
         {/* ══ 🔴 LA BARRE DE TITRE, AVEC SA CROIX ═══════════════════════════════════════════════════════════════
             Elle manquait : « la fenêtre n'a pas de croix pour la fermer, il faut l'ajouter » (Arno). Le titre est
@@ -2025,7 +2185,7 @@ export function SelecteurFichierDrive({
                            est la seconde voie — pour le tactile, et pour qui ne glisse pas. */
                         draggable
                         onDragStart={(e) => demarrerGlisseDePiece(e, x)}
-                        onDragEnd={finGlisse}>
+                        onDragEnd={() => finGlisse(true)}>
         {/* La miniature est servie par l'application, jamais par une URL de stockage.
                             🔴 `draggable={false}` SUR LA VIGNETTE, ET C'EST INDISPENSABLE : une image est
                             saisissable NATIVEMENT par le navigateur. Sans cela, saisir la pièce par sa miniature
@@ -2194,7 +2354,7 @@ export function SelecteurFichierDrive({
                              document pour le glisser-déposer » (Arno). */
                           draggable
                           onDragStart={(e) => demarrerGlisse(e, f)}
-                          onDragEnd={finGlisse}
+                          onDragEnd={() => finGlisse(true)}
                           /* ⚠️ SEUL UN DOSSIER ACCEPTE UN DÉPÔT. Sur un fichier, on ne fait pas `preventDefault`,
                              et le navigateur montre de lui-même le curseur « interdit » — c'est le retour visuel
                              demandé, rendu par le système plutôt que dessiné par nous. */
@@ -2397,10 +2557,30 @@ export function SelecteurFichierDrive({
               Joindre la sélection ({selectionJoignable.length})
             </button>
           )}
+          {/* ══ 🔴 « ↶ ANNULER LE DERNIER DÉPLACEMENT », à gauche de « Terminé » ═══════════════════════════
+              ⚠️ GRISÉ TANT QUE RIEN N'A ÉTÉ DÉPLACÉ, et son infobulle dit alors POURQUOI — y compris le cas
+              qui surprend : une copie ne s'annule pas, puisque l'annuler voudrait dire la supprimer. */}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn"
+            disabled={pileAnnulation.length === 0}
+            title={motProchaineAnnulation(pileAnnulation)}
+            aria-label={motProchaineAnnulation(pileAnnulation)}
+            onClick={() => void annulerDernierPas()}>
+            <span aria-hidden="true">↶</span> Annuler le dernier déplacement
+          </button>
           <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onFermer}>Terminé</button>
         </div>
       </div>
     </div>
+
+    {/* ══ 🔴 L'INDICATEUR DE CIBLE, PRÈS DU CURSEUR ════════════════════════════════════════════════════════
+        Arno : « pendant tout le glisser, un indicateur discret près du curseur affiche le nom de la cible ».
+        ⚠️ `pointer-events:none` dans le CSS : il suit le curseur, il ne doit JAMAIS l'intercepter — sans quoi il
+        deviendrait lui-même la cible du lâcher, et le dépôt tomberait à côté. */}
+    {cibleNommee !== null && (glisse !== null || pieceGlissee !== null) && (
+      <div className="sfd-cible-nommee" role="status" style={{ left: cibleNommee.x + 14, top: cibleNommee.y + 18 }}>
+        → Déposer dans «&nbsp;{cibleNommee.nom}&nbsp;»
+      </div>
+    )}
 
     {/* ══ 🔴🔴 LE MENU CONTEXTUEL — UNIQUEMENT LES ACTIONS QUE L'APPLICATION SAIT FAIRE ════════════════════════
         Jamais Renommer, Placer dans la corbeille, Supprimer, Déplacer, Partager ni Dupliquer : l'application ne
@@ -2770,6 +2950,15 @@ export const CSS_SELECTEUR_FICHIER = `
 @media (prefers-reduced-motion:reduce){
   .sfd-ligne--neuve{animation:none}
 }
+
+/* ══ 🔴 LOT DRIVE-RETOUCHES-2 — L'INDICATEUR DE CIBLE, PRES DU CURSEUR ═════════════════════════════════════
+   ⚠️ pointer-events:none EST INDISPENSABLE : il suit le curseur, donc il serait SOUS lui a chaque instant.
+   S'il interceptait les evenements, il deviendrait la cible du lacher et le depot tomberait a cote.
+   ⚠️ AUCUN BACKTICK dans ce bloc : il vit dans un litteral de gabarit. */
+.sfd-cible-nommee{position:fixed;z-index:90;pointer-events:none;padding:3px 8px;border-radius:.35rem;
+  font-size:.76rem;white-space:nowrap;max-width:22rem;overflow:hidden;text-overflow:ellipsis;
+  color:var(--color-svv-surface);background:var(--color-svv-ink);
+  box-shadow:0 2px 8px color-mix(in srgb, var(--color-svv-ink) 35%, transparent)}
 
 /* ⚠️ SUR TELEPHONE, la barre laterale passe en rangee au-dessus de la liste, et les colonnes de droite
    disparaissent : quatre colonnes sur 380 px ne se lisent pas. Le NOM et les gestes restent. */

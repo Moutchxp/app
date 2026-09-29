@@ -4,7 +4,9 @@ import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
 import { chaineParents, lireMetadonnees, listerContenu } from '../../../../../../lib/gestion/drive';
 // 🔴 LOT DRIVE-DEPLACER-RAPIDE — la mémoire courte des chaînes (60 s), déjà partagée avec l'aperçu et la liste.
-import { chaineDuDossierMemo, metadonneesMemo } from '../../../../../../lib/gestion/driveMemoire';
+import {
+  chaineDuDossierMemo, metadonneesMemo, oublierChaine, oublierElement,
+} from '../../../../../../lib/gestion/driveMemoire';
 import { mapConcurrenceBornee } from '../../../../../../lib/concurrence';
 import { idsProteges } from '../../../../../../lib/gestion/driveVerdict';
 import { indexerMaillons, type Maillon } from '../../../../../../lib/gestion/driveLectureFichier';
@@ -290,6 +292,14 @@ async function mouvoir(
   const issues = await mapConcurrenceBornee(pretes, MOUVEMENTS_SIMULTANES, async (p) => {
     if (action === 'deplacer') {
       const r = await deplacerVers(jeton.jeton, { id: p.id, parentOrigine: p.parentOrigine, parentCible: cible }, deps);
+      /* ══ 🔴🔴 ON OUBLIE CE QU'ON VIENT DE CHANGER ════════════════════════════════════════════════════════════
+         La mémoire courte retient le parent d'un élément 60 s. Après ce déplacement, elle affirmerait l'ANCIEN —
+         et le déplacement SUIVANT partirait avec un `removeParents` périmé, ce qui, dans l'API Drive, AJOUTE un
+         parent au lieu de déplacer. Vu sur le vrai Drive : même appel refusé à 10 s, accepté à 70 s.
+         ⚠️ ON OUBLIE MÊME QUAND GOOGLE A REFUSÉ : on ne sait pas toujours ce qu'il a fait avant de refuser. */
+      oublierElement(jeton.compteGoogle, p.id);
+      oublierChaine(jeton.compteGoogle, p.parentOrigine);
+      oublierChaine(jeton.compteGoogle, cible);
       if (!r.ok) return { ok: false as const, id: p.id, nom: p.nom, motif: r.motif };
       const mouvementId = await inscrireMouvement({
         action: 'deplacer', driveId: p.id, nom: p.nom, estDossier: p.estDossier,
@@ -301,6 +311,8 @@ async function mouvoir(
     const copie = p.estDossier
       ? await copierDossier(jeton.jeton, { id: p.id, nom: p.nom, parentCible: cible })
       : await copierFichier(jeton.jeton, { id: p.id, parentCible: cible }, deps);
+    // La cible a un enfant de plus : ce qu'on sait d'elle ne vaut plus. (L'original, lui, n'a pas bougé.)
+    oublierChaine(jeton.compteGoogle, cible);
     if (!copie.ok) return { ok: false as const, id: p.id, nom: p.nom, motif: copie.motif };
     const mouvementId = await inscrireMouvement({
       action: 'copier', driveId: p.id, nom: p.nom, estDossier: p.estDossier,
@@ -472,6 +484,10 @@ async function annuler(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<Re
 
     const r = await deplacerVers(
       jeton.jeton, { id: l.driveId, parentOrigine: meta.parentId, parentCible: l.parentOrigine }, { fetch });
+    // 🔴 UNE ANNULATION EST UN DÉPLACEMENT : elle périme exactement les mêmes choses.
+    oublierElement(jeton.compteGoogle, l.driveId);
+    oublierChaine(jeton.compteGoogle, meta.parentId);
+    oublierChaine(jeton.compteGoogle, l.parentOrigine);
     if (!r.ok) { refuses.push({ id: l.driveId, nom: l.nom, motif: r.motif }); continue; }
 
     // 🔴 LE RETOUR EST UN GESTE, donc il a SA ligne. Et l'aller est daté annulé — sans être effacé.
