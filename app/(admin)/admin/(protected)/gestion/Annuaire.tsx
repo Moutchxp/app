@@ -5,7 +5,7 @@ import {
   analyserTerme, formaterDateIso, messageRechercheVide, periodeOccupation, titreLogement,
 } from '../../../../lib/gestion/annuaireRecherche';
 import type {
-  FicheLocataire, FicheLot, FicheProprietaire, LigneResultat, ContactAffiche,
+  BienDuProprietaire, FicheLocataire, FicheLot, FicheProprietaire, LigneResultat, ContactAffiche,
 } from '../../../../lib/gestion/annuaireRepo';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import type { Cible } from '../../../../lib/gestion/rattachement';
@@ -124,13 +124,34 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique }: {
     <div className="ann">
       <style>{CSS_ANNUAIRE}</style>
 
+      {/* ══ 🔴🔴 LOT FICHES-ANNUAIRE — LE HAUT DE LA FICHE : UN RETOUR, ET LA RECHERCHE ════════════════════════
+          Arno, sur la fiche de M. ROI Nathan : « elle est nulle, il faut totalement la restructurer ». La fiche
+          commençait à 590 px du haut, sous cinq blocs qui ne la concernaient pas — titre du module, sa
+          description, le bandeau de relève, « Relève automatique », « Copie des pièces ». Ils sont retirés de CET
+          écran (voir `GestionVue`), et restent là où ils servent : la page de la boîte.
+
+          🔴 CE QU'ON GARDE, ET RIEN D'AUTRE : un fil de retour, et le champ de recherche — compact quand une
+          fiche est ouverte, parce qu'on y cherche la personne SUIVANTE, pas la page où l'on est. */}
       <div className="ann-entete">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onRetour}>← Écran partagé</button>
-        <h2 className="ann-titre">Annuaire</h2>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn ann-retour-haut"
+          onClick={() => (fiche !== null ? onFiche(null) : onRetour())}>
+          ← Retour
+        </button>
+        {fiche === null && <h2 className="ann-titre">Annuaire</h2>}
+        {/* LE CHAMP. `type="search"` pour la croix d'effacement native. Son étiquette reste VISIBLE tant qu'on est
+            sur les résultats ; sur une fiche elle devient l'invite du champ, faute de quoi elle ferait une ligne
+            de plus au-dessus de ce qu'on est venu lire. */}
+        {fiche !== null && (
+          <input
+            type="search" className="ann-champ ann-champ--compact" value={terme} autoComplete="off"
+            aria-label="Chercher un propriétaire, un lot, un locataire"
+            onChange={(e) => setTerme(e.target.value)}
+            placeholder="Chercher une autre personne, un lot, une adresse…"
+          />
+        )}
       </div>
 
-      {/* LE CHAMP. `type="search"` pour la croix d'effacement native, et une étiquette VISIBLE : un champ dont
-          l'intitulé n'est qu'un texte d'invite disparaît dès qu'on tape, et l'on ne sait plus ce qu'on remplit. */}
+      {fiche === null && (
       <div className="ann-chercher">
         <label className="ann-label" htmlFor="ann-q">Chercher un propriétaire, un lot, un locataire</label>
         <input
@@ -142,14 +163,24 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique }: {
           Tout est accepté&nbsp;: accents ou non, majuscules ou non, téléphone avec espaces, points ou +33.
         </p>
       </div>
+      )}
+
+      {/* 🔴 TAPER DANS LE CHAMP D'UNE FICHE RAMÈNE AUX RÉSULTATS. Sans cela, on taperait sans rien voir venir :
+          les résultats sont rendus à la place de la fiche, et la fiche est encore ouverte. */}
+      {fiche !== null && terme.trim() !== '' && (
+        <p className="ann-bascule">
+          <button type="button" className="ann-lien ann-lien--fort" onClick={() => onFiche(null)}>
+            Voir les résultats pour « {terme.trim()} » →
+          </button>
+        </p>
+      )}
 
       {/* LA FICHE OUVERTE PREND LA PLACE DE LA LISTE — pas de colonne à côté : à 390 px il n'y en a pas deux. Le
           bouton de retour ramène à la liste, qui n'a pas bougé (le texte tapé est resté). */}
       {fiche !== null ? (
         <section className="ann-fiche" aria-live="polite">
-          <button type="button" className="svv-btn svv-btn-outline gst-btn ann-retour" onClick={() => onFiche(null)}>
-            ← Retour aux résultats
-          </button>
+          {/* ⚠️ PLUS DE SECOND BOUTON DE RETOUR ICI : il est en haut de page, au-dessus de tout, et il ramène aux
+              résultats comme celui-ci le faisait. En garder deux ferait deux chemins pour un même geste. */}
           {detail === null || detail.etat === 'charge' ? <p className="gst-info" role="status">Chargement…</p>
             : detail.etat === 'erreur' ? <p className="gst-erreur" role="status">{detail.message}</p>
               : detail.etat === 'proprietaire'
@@ -272,49 +303,254 @@ function Contacts({ contacts, onEcrire }: { contacts: ContactAffiche[]; onEcrire
 
 // ══ LES TROIS FICHES ════════════════════════════════════════════════════════════════════════════════════════════
 
+/**
+ * ══ 🔴 COPIER UNE COORDONNÉE ══════════════════════════════════════════════════════════════════════════════════
+ *
+ * Demande d'Arno : « chaque téléphone et chaque e-mail avec son libellé et un bouton Copier ». Un numéro se
+ * recopie dix fois par jour dans un autre outil — le lire à voix haute à soi-même est exactement le moment où
+ * l'on inverse deux chiffres.
+ *
+ * ⚠️ LE PRESSE-PAPIERS PEUT REFUSER (navigateur ancien, page non sécurisée). On le DIT sur le bouton plutôt que
+ * de laisser croire que c'est copié — un « ✓ » menteur ferait coller autre chose.
+ */
+function BoutonCopier({ valeur, quoi }: { valeur: string; quoi: string }) {
+  const [etat, setEtat] = useState<'repos' | 'fait' | 'refus'>('repos');
+  useEffect(() => {
+    if (etat === 'repos') return;
+    const t = setTimeout(() => setEtat('repos'), 1800);
+    return () => clearTimeout(t);
+  }, [etat]);
+  return (
+    <button type="button" className="ann-copier" title={`Copier ${quoi}`} aria-label={`Copier ${quoi}`}
+      onClick={() => {
+        void (async () => {
+          try { await navigator.clipboard.writeText(valeur); setEtat('fait'); }
+          catch { setEtat('refus'); }
+        })();
+      }}>
+      {etat === 'fait' ? '✓ copié' : etat === 'refus' ? 'copie refusée' : 'Copier'}
+    </button>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LE BLOC DES COORDONNÉES COMPLÈTES — LE PREMIER DE LA FICHE ═══════════════════════════════════════════
+ *
+ * Arno : « 1er bloc = COORDONNÉES COMPLÈTES du ou des propriétaires du même ensemble de biens (co-propriétaires,
+ * indivision, société + représentant) : civilité, nom, qualité, adresse postale, chaque téléphone et chaque
+ * e-mail avec son libellé et un bouton Copier, une note libre ».
+ *
+ * ═══ CE QUE LA BASE SAIT, MESURÉ LE 29/09/2026 ═════════════════════════════════════════════════════════════════
+ *   · civilité 302/307 · adresse postale 304/307 · coordonnées : 354 e-mails et 287 téléphones, TOUS avec leur
+ *     libellé d'origine (« Mobile », « Email », …) ;
+ *   · QUALITÉ et NOTE LIBRE : aucune colonne n'existe. On écrit « non renseignée » — jamais un vide, qui se
+ *     lirait comme un oubli d'affichage ;
+ *   · CO-PROPRIÉTAIRES : un bien n'a qu'UN propriétaire dans le schéma (clé étrangère unique). 66 fiches sur 307
+ *     nomment pourtant deux personnes DANS le nom (« AISSAOUI Mohamed et Amina »). On rend donc la liste telle
+ *     qu'elle est — une personne aujourd'hui — sans inventer un découpage que rien ne permet de faire.
+ *     🔭 L'étape C ouvre l'ajout d'un co-propriétaire : c'est là que la liste en portera plusieurs, pour de vrai.
+ */
+function BlocCoordonnees({ f, onEcrire }: { f: FicheProprietaire; onEcrire?: (email: string) => void }) {
+  const adresse = titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '));
+  const tels = f.contacts.filter((c) => c.sorte === 'telephone');
+  const mails = f.contacts.filter((c) => c.sorte === 'email');
+  return (
+    <section className="ann-bloc" aria-labelledby="ann-coord">
+      <h4 className="ann-bloc-titre" id="ann-coord">Coordonnées</h4>
+      <article className="ann-personne">
+        <p className="ann-personne-nom">
+          {f.civilite ? `${f.civilite} ` : ''}{f.nom}
+          {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
+        </p>
+        <dl className="ann-champs">
+          <dt>Qualité</dt>
+          {/* 🔴 AUCUNE COLONNE « QUALITÉ » n'existe : on le DIT, on ne laisse pas une ligne vide. */}
+          <dd><span className="ann-inconnu">non renseignée</span></dd>
+          <dt>Adresse postale</dt>
+          <dd>{adresse !== '' ? adresse : <span className="ann-inconnu">non renseignée</span>}</dd>
+          <dt>Téléphone{tels.length > 1 ? 's' : ''}</dt>
+          <dd>
+            {tels.length === 0 ? <span className="ann-inconnu">non renseigné</span> : (
+              <ul className="ann-coords">
+                {tels.map((c) => (
+                  <li key={c.valeur} className="ann-coord">
+                    <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
+                    <span className="ann-libelle">{c.libelle ?? 'Téléphone'}</span>
+                    <BoutonCopier valeur={c.affichage} quoi="ce numéro" />
+                    {c.absent && <span className="ann-etiq ann-etiq--absent">retiré de l’export</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+          <dt>E-mail{mails.length > 1 ? 's' : ''}</dt>
+          <dd>
+            {mails.length === 0 ? <span className="ann-inconnu">non renseigné</span> : (
+              <ul className="ann-coords">
+                {mails.map((c) => (
+                  <li key={c.valeur} className="ann-coord">
+                    {onEcrire
+                      ? <button type="button" className="ann-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
+                      : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
+                    <span className="ann-libelle">{c.libelle ?? 'E-mail'}</span>
+                    <BoutonCopier valeur={c.valeur} quoi="cette adresse" />
+                    {c.absent && <span className="ann-etiq ann-etiq--absent">retiré de l’export</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+          <dt>Note</dt>
+          <dd><span className="ann-inconnu">non renseignée</span></dd>
+        </dl>
+      </article>
+      <p className="ann-depuis">
+        {f.relationDepuis
+          ? <>Début de collaboration : <strong>le {formaterDateIso(f.relationDepuis)}</strong>{' '}
+            <span className="ann-gris">— début de gestion du plus ancien lot</span></>
+          : <>Début de collaboration : <span className="ann-inconnu">non renseigné</span>{' '}
+            <span className="ann-gris">— aucun lot en gestion ne porte de date de début</span></>}
+      </p>
+    </section>
+  );
+}
+
+/** Ce qu'une carte de bien affiche d'une date : la date seule, ou le mot qui dit qu'on ne l'a pas. */
+function DateOuRien({ iso, sinon }: { iso: string | null; sinon: string }) {
+  return iso === null ? <span className="ann-inconnu">{sinon}</span> : <>{formaterDateIso(iso)}</>;
+}
+
+const DRIVE_DOSSIER = 'https://drive.google.com/drive/folders/';
+
+/**
+ * ══ 🔴🔴 UNE CARTE DE BIEN ════════════════════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « les BIENS en gestion […] sous forme de CARTES cliquables : adresse, lot, type, surface ou “non
+ * renseignée”, locataire en place ou “Vacant”, nombre de mails, dernier échange, événements ouverts, lien vers le
+ * dossier Drive du lot ».
+ *
+ * 🔴 LA CARTE ENTIÈRE EST LE BOUTON, et les deux liens qui en sortent (le locataire, le Drive) s'arrêtent au clic
+ * (`stopPropagation`). Un bouton dans un bouton serait du HTML invalide : le lien du Drive est donc un vrai
+ * `<a>`, posé À CÔTÉ du bouton dans le flux, et la carte est une grille — pas une imbrication.
+ *
+ * ⚠️ « SURFACE : NON RENSEIGNÉE » EST UN FAIT, PAS UN TROU. Mesuré le 29/09/2026 : aucune colonne de surface
+ * n'existe dans le schéma. On ne la déduit pas du type (« Type 2 » ne dit pas des mètres carrés).
+ */
+function CarteBien({ b, ouvrir }: { b: BienDuProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void }) {
+  return (
+    <li className={`ann-carte${b.fin !== null ? ' ann-carte--ancien' : ''}`}>
+      <button type="button" className="ann-carte-corps" onClick={() => ouvrir('lot', b.id)}>
+        <span className="ann-carte-titre">{titreLogement(b.adresse, b.commune)}</span>
+        <span className="ann-carte-sous">
+          <span className="ann-etiq">lot {b.numero}</span>
+          {b.nature && <span className="ann-etiq">{b.nature}</span>}
+          {b.typeBien && <span className="ann-etiq">{b.typeBien}</span>}
+        </span>
+        <span className="ann-carte-faits">
+          <span className="ann-fait">
+            <span className="ann-fait-mot">Surface</span>
+            {b.surfaceM2 === null
+              ? <span className="ann-inconnu">non renseignée</span>
+              : <span>{b.surfaceM2} m²</span>}
+          </span>
+          <span className="ann-fait">
+            <span className="ann-fait-mot">Locataire</span>
+            {b.locataire === null
+              ? <span className="ann-vacant">Vacant</span>
+              : <span>{b.locataire}</span>}
+          </span>
+          <span className="ann-fait">
+            <span className="ann-fait-mot">Mails</span>
+            <span>{b.mails}</span>
+          </span>
+          <span className="ann-fait">
+            <span className="ann-fait-mot">Dernier échange</span>
+            <DateOuRien iso={b.dernierEchange} sinon="aucun" />
+          </span>
+          <span className="ann-fait">
+            <span className="ann-fait-mot">Événements ouverts</span>
+            <span>{b.evenementsOuverts === 0 ? 'aucun' : b.evenementsOuverts}</span>
+          </span>
+          <span className="ann-fait">
+            <span className="ann-fait-mot">{b.fin === null ? 'En gestion depuis' : 'Sorti de gestion le'}</span>
+            <DateOuRien iso={b.fin ?? b.debut} sinon="non renseigné" />
+          </span>
+        </span>
+      </button>
+      <span className="ann-carte-pied">
+        {b.locataireId !== null && b.locataire !== null && (
+          <button type="button" className="ann-lien" onClick={() => ouvrir('locataire', b.locataireId as number)}>
+            Fiche du locataire →
+          </button>
+        )}
+        {b.driveDossierId !== null ? (
+          <a className="ann-lien" href={`${DRIVE_DOSSIER}${b.driveDossierId}`} target="_blank" rel="noreferrer">
+            Dossier Drive du lot ↗
+          </a>
+        ) : (
+          <span className="ann-inconnu">dossier Drive non construit</span>
+        )}
+      </span>
+    </li>
+  );
+}
+
 function VueProprietaire({ f, ouvrir, onEcrire, onHistorique }: {
   f: FicheProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onEcrire?: (email: string) => void;
   onHistorique?: (cible: Cible) => void;
 }) {
+  const [anciensOuverts, setAnciensOuverts] = useState(false);
+  const enGestion = f.biens.filter((b) => b.fin === null);
+  const anciens = f.biens.filter((b) => b.fin !== null);
   return (
     <>
       <h3 className="ann-fiche-titre">{f.civilite ? `${f.civilite} ` : ''}{f.nom}</h3>
-      <p className="ann-fiche-sous">Propriétaire{f.absent && ' · absent du dernier export'}</p>
-      <BoutonHistorique cible={{ sorte: 'proprietaire', cle: f.cle, id: null }} onHistorique={onHistorique} />
-      <dl className="ann-dl">
-        <dt>Début de la relation</dt>
-        <dd>
-          {f.relationDepuis
-            ? <>le {formaterDateIso(f.relationDepuis)} <span className="ann-gris">(début de gestion du plus ancien de ses lots)</span></>
-            : <span className="ann-gris">inconnu — aucun lot en gestion ne porte de date de début</span>}
-        </dd>
-        <dt>Adresse</dt>
-        <dd>{titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' ')) }</dd>
-      </dl>
-      <h4 className="ann-sstitre">Coordonnées</h4>
-      <Contacts contacts={f.contacts} onEcrire={onEcrire} />
-      <h4 className="ann-sstitre">Ses lots <span className="gst-compte">{f.lots.length}</span></h4>
-      {f.lots.length === 0 ? <p className="ann-gris">Aucun lot en gestion.</p> : (
-        <ul className="ann-liste">
-          {f.lots.map((l) => (
-            <li key={l.id} className="ann-item">
-              <div className="ann-item-titre">
-                <button type="button" className="ann-lien ann-lien--fort" onClick={() => ouvrir('lot', l.id)}>
-                  {titreLogement(l.adresse, l.commune)}
-                </button>
-                {l.nature && <span className="ann-etiq">{l.nature}{l.typeBien ? ` · ${l.typeBien}` : ''}</span>}
-              </div>
-              <div className="ann-item-ligne">
-                <span className="ann-role">Locataire actuel</span>
-                {l.locataireId !== null && l.locataire
-                  ? <button type="button" className="ann-lien" onClick={() => ouvrir('locataire', l.locataireId as number)}>{l.locataire}</button>
-                  : <span className="ann-inconnu">aucun bail en cours</span>}
-              </div>
-              {l.debut && <div className="ann-item-ligne"><span className="ann-role">En gestion depuis</span><span>le {formaterDateIso(l.debut)}</span></div>}
-            </li>
-          ))}
-        </ul>
+      <p className="ann-fiche-sous">
+        Propriétaire
+        {f.driveDossierId !== null && (
+          <>
+            {' · '}
+            <a className="ann-lien" href={`${DRIVE_DOSSIER}${f.driveDossierId}`} target="_blank" rel="noreferrer">
+              dossier Drive ↗
+            </a>
+          </>
+        )}
+      </p>
+
+      <BlocCoordonnees f={f} onEcrire={onEcrire} />
+
+      <section className="ann-bloc" aria-labelledby="ann-biens">
+        <h4 className="ann-bloc-titre" id="ann-biens">
+          Biens en gestion <span className="gst-compte">{enGestion.length}</span>
+        </h4>
+        {enGestion.length === 0 ? <p className="ann-gris">Aucun bien en gestion.</p> : (
+          <ul className="ann-cartes">
+            {enGestion.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir} />)}
+          </ul>
+        )}
+      </section>
+
+      {/* ⚠️ « ANCIENS BIENS » EST REPLIÉ, jamais retiré : un bien sorti de gestion garde ses mails et son
+          historique, et c'est souvent pour EUX qu'on ouvre la fiche. Replié, il ne noie pas les biens vivants. */}
+      {anciens.length > 0 && (
+        <section className="ann-bloc">
+          <button type="button" className="ann-repli" aria-expanded={anciensOuverts}
+            onClick={() => setAnciensOuverts((v) => !v)}>
+            <span aria-hidden="true" className={`ann-repli-triangle${anciensOuverts ? ' ann-repli-triangle--ouvert' : ''}`}>▸</span>
+            Anciens biens <span className="gst-compte">{anciens.length}</span>
+          </button>
+          {anciensOuverts && (
+            <ul className="ann-cartes">
+              {anciens.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir} />)}
+            </ul>
+          )}
+        </section>
       )}
+
+      {/* ⚠️ DISCRET, ET TOUJOURS LÀ : c'est le chemin vers tout ce qui a été échangé avec cette personne. */}
+      <p className="ann-discret">
+        <BoutonHistorique cible={{ sorte: 'proprietaire', cle: f.cle, id: null }} onHistorique={onHistorique} />
+      </p>
     </>
   );
 }
@@ -475,6 +711,74 @@ export const CSS_ANNUAIRE = `
 .ann-etiq--absent{border-color:var(--color-svv-red);color:var(--color-svv-ink)}
 .ann-fiche{display:flex;flex-direction:column;gap:.5rem;min-width:0}
 .ann-retour{align-self:flex-start}
+/* ══ LOT FICHES-ANNUAIRE — LE HAUT DE LA FICHE, ET LES CARTES DE BIENS ════════════════════════════════════════
+   AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
+   terminerait — piege consigne dix fois dans ce depot, et dix fois dans un commentaire. */
+.ann-retour-haut{flex:0 0 auto}
+/* Le champ compact d'une fiche : il prend la place qui reste, sans pousser la fiche vers le bas. */
+.ann-champ--compact{flex:1 1 14rem;min-width:0;min-height:38px;font-size:.88rem}
+.ann-bascule{margin:0}
+/* Un BLOC de fiche : un titre, un cadre discret, et de l'air. C'est l'unite de lecture de la fiche. */
+.ann-bloc{display:flex;flex-direction:column;gap:.5rem;margin-top:.2rem}
+.ann-bloc-titre{margin:0;font-size:.82rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+  color:var(--color-svv-muted)}
+.ann-personne{background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;
+  padding:12px 14px;display:flex;flex-direction:column;gap:.5rem}
+.ann-personne-nom{margin:0;font-size:1rem;font-weight:700;color:var(--color-svv-ink);
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem}
+/* Deux colonnes des 520 px, une seule en dessous : un intitule au-dessus de sa valeur reste lisible au telephone. */
+.ann-champs{display:grid;grid-template-columns:1fr;gap:.15rem .8rem;margin:0}
+.ann-champs dt{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;
+  color:var(--color-svv-muted);margin-top:.35rem}
+.ann-champs dd{margin:0;font-size:.9rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+@media (min-width:520px){
+  .ann-champs{grid-template-columns:9rem 1fr}
+  .ann-champs dt{margin-top:.2rem}
+}
+.ann-coords{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.2rem}
+.ann-coord{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+/* Le LIBELLE d'origine (« Mobile », « Email »). Il dit LEQUEL des trois numeros on regarde. */
+.ann-libelle{font-size:.72rem;font-weight:700;color:var(--color-svv-muted);background:var(--color-svv-field);
+  border:1px solid var(--color-svv-line);border-radius:999px;padding:.05rem .45rem}
+.ann-copier{background:none;border:1px solid var(--color-svv-line);border-radius:.4rem;padding:.15rem .5rem;
+  font:inherit;font-size:.72rem;color:var(--color-svv-muted);cursor:pointer;min-height:28px}
+.ann-copier:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong)}
+.ann-copier:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.ann-depuis{margin:0;font-size:.85rem;color:var(--color-svv-ink)}
+/* ── LES CARTES DE BIENS ─────────────────────────────────────────────────────────────────────────────────────
+   Une grille qui se remplit toute seule : une colonne au telephone, deux ou trois sur un grand ecran. */
+.ann-cartes{list-style:none;margin:0;padding:0;display:grid;gap:10px;
+  grid-template-columns:repeat(auto-fill,minmax(min(100%,19rem),1fr))}
+.ann-carte{background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:12px;
+  display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.ann-carte--ancien{background:var(--color-svv-field)}
+/* LA CARTE ENTIERE EST LE BOUTON. Les deux liens qui en sortent sont DANS LE PIED, a cote — jamais dedans :
+   un bouton dans un bouton est du HTML invalide et injouable au clavier. */
+.ann-carte-corps{display:flex;flex-direction:column;gap:.45rem;align-items:stretch;text-align:left;
+  background:none;border:0;padding:12px 14px 8px;font:inherit;color:inherit;cursor:pointer;width:100%}
+.ann-carte-corps:hover{background:var(--color-svv-field)}
+.ann-carte--ancien .ann-carte-corps:hover{background:var(--color-svv-surface)}
+.ann-carte-corps:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.ann-carte-titre{font-size:.95rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.ann-carte-sous{display:flex;flex-wrap:wrap;gap:.3rem}
+.ann-carte-faits{display:grid;grid-template-columns:1fr;gap:.15rem}
+.ann-fait{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;font-size:.82rem;color:var(--color-svv-ink)}
+.ann-fait-mot{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;
+  color:var(--color-svv-muted);flex:0 0 auto;min-width:8.5rem}
+/* « Vacant » est un MOT, jamais une couleur seule : c'est un fait, et il doit se lire en noir et blanc. */
+.ann-vacant{font-weight:700;color:var(--color-svv-red)}
+.ann-carte-pied{display:flex;flex-wrap:wrap;gap:.8rem;padding:0 14px 10px;align-items:center}
+.ann-carte-pied .ann-lien{min-height:32px;font-size:.8rem}
+/* ── LE REPLI DES ANCIENS BIENS ───────────────────────────────────────────────────────────────────────────── */
+.ann-repli{display:flex;align-items:center;gap:.4rem;background:none;border:0;padding:.3rem 0;margin:0;
+  font:inherit;font-size:.82rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+  color:var(--color-svv-muted);cursor:pointer;min-height:38px;text-align:left}
+.ann-repli:hover{color:var(--color-svv-ink)}
+.ann-repli:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.ann-repli-triangle{display:inline-block;color:var(--color-svv-red);transition:transform .15s ease}
+.ann-repli-triangle--ouvert{transform:rotate(90deg)}
+@media (prefers-reduced-motion:reduce){.ann-repli-triangle{transition:none}}
+.ann-discret{margin:.4rem 0 0}
 .ann-fiche-titre{margin:.2rem 0 0;font-size:1.05rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .ann-fiche-sous{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
 .ann-sstitre{margin:.6rem 0 .2rem;font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}

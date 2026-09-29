@@ -27,6 +27,13 @@ import type { TermeRecherche } from './annuaireRecherche';
 // LOT BOITE-INTERNE-CORBEILLE — nos propres adresses ne se rapprochent d'aucune fiche. Règle CENTRALE, pas locale.
 import { adressesRapprochables } from './adresseInterne';
 
+/**
+ * Un instant rendu en ISO-8601 UTC, tel que l'écran l'attend. Même écriture que `carteRepo` et `redactionRepo` :
+ * trois copies d'une ligne de format valent mieux qu'un module partagé pour une seule expression SQL — mais elles
+ * doivent rester IDENTIQUES, sans quoi deux écrans afficheraient la même date de deux façons.
+ */
+const INSTANT = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+
 // ══ ① L'ÉCRITURE ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
 export interface ComptesImport {
@@ -463,7 +470,18 @@ async function marquerDisparus(
 
 // ══ ② LA LECTURE ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
-export interface ContactAffiche { sorte: 'telephone' | 'email'; valeur: string; affichage: string; absent: boolean }
+export interface ContactAffiche {
+  sorte: 'telephone' | 'email'; valeur: string; affichage: string; absent: boolean;
+  /**
+   * 🔴 LOT FICHES-ANNUAIRE — LE LIBELLÉ D'ORIGINE (« Mobile », « Email », « Domicile »…), tel que WIPPIMMO
+   * l'écrivait. Demande d'Arno : « chaque téléphone et chaque e-mail avec son libellé ». Mesuré le 29/09/2026 :
+   * les 1 793 coordonnées de la base en portent un — la colonne existait, l'écran la jetait.
+   *
+   * ⚠️ `null` QUAND LA MIGRATION 268 N'EST PAS LÀ (sonde `libelleSourceContactDisponible`) : la colonne n'est
+   * alors NOMMÉE NULLE PART, et l'écran écrit simplement « Téléphone » ou « E-mail ».
+   */
+  libelle: string | null;
+}
 
 export interface LigneResultat {
   lotId: number | null;
@@ -490,6 +508,39 @@ export interface LigneResultat {
   absent: boolean;
 }
 
+/**
+ * ══ 🔴🔴 LOT FICHES-ANNUAIRE — CE QU'UNE CARTE DE BIEN DIT, ET CE QU'ELLE NE PEUT PAS DIRE ═══════════════════
+ *
+ * Mesuré sur la vraie base le 29/09/2026, avant d'écrire une ligne d'écran :
+ *
+ *   · `surface`        → AUCUNE colonne, nulle part dans le schéma. La carte écrit « non renseignée ».
+ *   · dossier Drive    → il EXISTE, et pour les 365 lots : `gestion_drive_arbre`, sorte « bien », clé = le numéro
+ *                        WIPPIMMO du lot. Il n'est pas sur la table du lot, d'où la jointure.
+ *   · mails du bien    → `gestion_rattachement`, cible « lot », statut « confirme » : 32 938 liens sur 343 lots.
+ *   · événements       → 1 en base, 0 ouvert. La carte dit « aucun » plutôt que de taire la ligne.
+ *
+ * 🔴 ON N'INVENTE JAMAIS UNE DONNÉE ABSENTE. `surfaceM2` vaut `null`, et l'écran écrit « non renseignée » — ce
+ * qui est un fait, et non un vide qu'on lirait comme un oubli d'affichage.
+ */
+export interface BienDuProprietaire {
+  id: number;
+  numero: string;
+  adresse: string | null; commune: string | null; codePostal: string | null;
+  nature: string | null; typeBien: string | null;
+  /** 🔴 TOUJOURS `null` AUJOURD'HUI : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
+  surfaceM2: number | null;
+  debut: string | null;
+  /** `null` = en gestion. Une date = le bien est SORTI de gestion : il va dans « Anciens biens ». */
+  fin: string | null;
+  locataire: string | null; locataireId: number | null; locataireDepuis: string | null;
+  /** Combien de mails sont rattachés à ce bien (rattachements confirmés), et le plus récent. */
+  mails: number;
+  dernierEchange: string | null;
+  evenementsOuverts: number;
+  /** L'identifiant du dossier Drive du bien, quand l'arbre le connaît. */
+  driveDossierId: string | null;
+}
+
 export interface FicheProprietaire {
   id: number;
   /**
@@ -502,8 +553,16 @@ export interface FicheProprietaire {
   adresse: string | null; commune: string | null; codePostal: string | null;
   relationDepuis: string | null; absent: boolean;
   contacts: ContactAffiche[];
+  /** L'identifiant du dossier Drive du PROPRIÉTAIRE, quand l'arbre le connaît (307/307 au 29/09/2026). */
+  driveDossierId: string | null;
   lots: { id: number; numero: string; adresse: string | null; commune: string | null; nature: string | null;
     typeBien: string | null; debut: string | null; locataire: string | null; locataireId: number | null }[];
+  /**
+   * 🔴 LES BIENS, TELS QUE LES CARTES LES MONTRENT. `lots` (au-dessus) reste : d'autres écrans le lisent, et le
+   * retirer casserait ce qui marche. `biens` porte EN PLUS ce qu'une carte demande — locataire, mails, dernier
+   * échange, événements, Drive — et sépare les biens en gestion des anciens.
+   */
+  biens: BienDuProprietaire[];
 }
 
 export interface FicheLot {
@@ -661,8 +720,17 @@ export async function rechercher(t: TermeRecherche): Promise<IssueLecture<Result
 }
 
 const contactsDe = async (sujet: 'proprietaire' | 'locataire', sujetId: number): Promise<ContactAffiche[]> => {
-  const { rows } = await query<{ sorte: string; valeur: string; valeur_brute: string; absent_le: string | null }>(
-    `SELECT sorte, valeur, valeur_brute, absent_le::text FROM gestion_annuaire_contact
+  /**
+   * ⚠️ LA SONDE VOYAGE AVEC LA COLONNE : sans la migration 268, `libelle_source` n'existe pas, et la NOMMER
+   * ferait échouer toute la fiche. C'est la règle du module depuis le premier lot.
+   */
+  const avecLibelle = await libelleSourceContactDisponible();
+  const { rows } = await query<{
+    sorte: string; valeur: string; valeur_brute: string; absent_le: string | null; libelle: string | null;
+  }>(
+    `SELECT sorte, valeur, valeur_brute, absent_le::text,
+            ${avecLibelle ? 'libelle_source' : 'NULL::text'} AS libelle
+       FROM gestion_annuaire_contact
       WHERE sujet = $1 AND sujet_id = $2 ORDER BY sorte, absent_le NULLS FIRST, rang, id`, [sujet, sujetId]);
   return rows.map((r) => ({
     sorte: r.sorte as 'telephone' | 'email',
@@ -670,6 +738,7 @@ const contactsDe = async (sujet: 'proprietaire' | 'locataire', sujetId: number):
     // On affiche CE QUI ÉTAIT ÉCRIT : un numéro reformaté n'est plus reconnu par celui qui l'a saisi.
     affichage: r.valeur_brute.trim() === '' ? r.valeur : r.valeur_brute,
     absent: r.absent_le !== null,
+    libelle: r.libelle === null || r.libelle.trim() === '' ? null : r.libelle.trim(),
   }));
 };
 
@@ -707,13 +776,117 @@ export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheP
       commune: p.commune,
       codePostal: p.code_postal, relationDepuis: p.relation_depuis, absent: p.absent_le !== null,
       contacts: await contactsDe('proprietaire', Number(p.id)),
+      driveDossierId: await dossierDriveDe('proprietaire', p.wippimmo_id),
       lots: lots.map((l) => ({
         id: Number(l.id), numero: l.wippimmo_id, adresse: l.adresse, commune: l.commune, nature: l.nature,
         typeBien: l.type_bien, debut: l.gestion_debut, locataire: l.locataire,
         locataireId: l.locataire_id === null ? null : Number(l.locataire_id),
       })),
+      biens: await biensDuProprietaire(Number(p.id)),
     },
   };
+}
+
+/**
+ * ══ 🔴 LE DOSSIER DRIVE D'UNE CIBLE, LU DANS L'ARBRE ═══════════════════════════════════════════════════════════
+ *
+ * L'arbre du Drive (`gestion_drive_arbre`) est construit et tenu à jour par le module : il porte un nœud par
+ * propriétaire (307) et un par bien (365), désignés par leur CLÉ WIPPIMMO — la seule identité qui survive à un
+ * ré-import de l'annuaire.
+ *
+ * ⚠️ UNE ABSENCE N'EST PAS UNE PANNE : un dossier pas encore construit rend `null`, et l'écran n'affiche
+ * simplement pas le lien. Inventer une adresse Drive enverrait sur une page d'erreur de Google.
+ */
+async function dossierDriveDe(sorte: 'proprietaire' | 'bien', cle: string | null): Promise<string | null> {
+  if (cle === null || cle.trim() === '') return null;
+  try {
+    const { rows } = await query<{ drive_id: string }>(
+      `SELECT drive_id FROM gestion_drive_arbre
+        WHERE sorte = $1 AND cle = $2 AND absent_le IS NULL LIMIT 1`, [sorte, cle]);
+    return rows[0]?.drive_id ?? null;
+  } catch {
+    // L'arbre peut ne pas exister (migration non appliquée) : la fiche s'affiche quand même, sans le lien.
+    return null;
+  }
+}
+
+/**
+ * ══ 🔴🔴 LES BIENS D'UN PROPRIÉTAIRE, AVEC DE QUOI REMPLIR UNE CARTE ══════════════════════════════════════════
+ *
+ * UNE SEULE REQUÊTE POUR TOUS SES BIENS, et des jointures LATÉRALES plutôt qu'une requête par carte : un
+ * propriétaire en a jusqu'à une dizaine (58 en ont plus d'un), et dix allers-retours se verraient à l'écran.
+ * C'est la règle du module depuis la liste de la boîte.
+ *
+ * 🔴 CE QUE CHAQUE MORCEAU RÉPOND, ET POURQUOI IL EST LÀ :
+ *   · `oc`  — le locataire EN PLACE (occupation sans date de sortie), et depuis quand ;
+ *   · `ma`  — combien de mails sont rattachés à ce bien, et le dernier ; rattachements CONFIRMÉS seulement, car
+ *             une proposition que personne n'a validée n'est pas un échange de ce bien ;
+ *   · `ev`  — les événements OUVERTS ;
+ *   · `dr`  — le dossier Drive du bien, par sa clé WIPPIMMO.
+ *
+ * ⚠️ `surfaceM2` EST TOUJOURS `null` : mesuré le 29/09/2026, aucune colonne de surface n'existe dans le schéma.
+ * On ne devine pas depuis le type de bien — « Type 2 » ne dit pas des mètres carrés. L'écran écrit « non
+ * renseignée », qui est la vérité.
+ */
+async function biensDuProprietaire(proprietaireId: number): Promise<BienDuProprietaire[]> {
+  const { rows } = await query<{
+    id: string; wippimmo_id: string; adresse: string | null; commune: string | null; code_postal: string | null;
+    nature: string | null; type_bien: string | null; gestion_debut: string | null; gestion_fin: string | null;
+    locataire: string | null; locataire_id: string | null; locataire_depuis: string | null;
+    mails: number; dernier_echange: string | null; evenements: number; drive_id: string | null;
+  }>(
+    `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien,
+            lo.gestion_debut::text, lo.gestion_fin::text,
+            oc.nom AS locataire, oc.locataire_id::text AS locataire_id, oc.entree::text AS locataire_depuis,
+            coalesce(ma.n, 0)::int AS mails,
+            ${INSTANT('ma.dernier')} AS dernier_echange,
+            coalesce(ev.n, 0)::int AS evenements,
+            dr.drive_id
+       FROM gestion_annuaire_lot lo
+       LEFT JOIN LATERAL (
+         SELECT l.nom, o.locataire_id, o.entree FROM gestion_annuaire_occupation o
+           JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
+          WHERE o.lot_id = lo.id AND o.sortie IS NULL
+          ORDER BY o.entree DESC NULLS LAST, o.id DESC LIMIT 1
+       ) oc ON true
+       LEFT JOIN LATERAL (
+         SELECT count(DISTINCT m.id)::int AS n, max(m.recu_le) AS dernier
+           FROM gestion_rattachement r
+           JOIN gestion_message m ON m.id = r.message_id
+          WHERE r.cible_sorte = 'lot' AND r.cible_cle = lo.wippimmo_id AND r.statut = 'confirme'
+       ) ma ON true
+       /* ⚠️ UN EVENEMENT N'EST PAS RATTACHE A UN LOT, mais a des ECHANGES (gestion_affectation). « Ouvert »
+          pour ce bien se lit donc : un evenement NON TRAITE, affecte a un echange dont un mail porte un
+          rattachement CONFIRME vers ce lot. Ecrire e.cible_lot serait plus court — et faux : la colonne
+          n'existe pas, et l'inventer ferait echouer toute la fiche.
+          AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral gabarit, qu'un seul accent grave
+          terminerait — piege consigne NEUF fois dans ce depot, et neuf fois dans un commentaire. */
+       LEFT JOIN LATERAL (
+         SELECT count(DISTINCT e.id)::int AS n
+           FROM gestion_evenement e
+           JOIN gestion_affectation a ON a.evenement_id = e.id AND a.actif
+           JOIN gestion_message m2 ON m2.fil_id = a.fil_id
+           JOIN gestion_rattachement r2 ON r2.message_id = m2.id
+          WHERE e.etat <> 'traite' AND r2.cible_sorte = 'lot' AND r2.cible_cle = lo.wippimmo_id
+            AND r2.statut = 'confirme'
+       ) ev ON true
+       LEFT JOIN gestion_drive_arbre dr
+              ON dr.sorte = 'bien' AND dr.cle = lo.wippimmo_id AND dr.absent_le IS NULL
+      WHERE lo.proprietaire_id = $1
+      ORDER BY (lo.gestion_fin IS NOT NULL), lo.commune NULLS LAST, lo.adresse NULLS LAST, lo.wippimmo_id`,
+    [proprietaireId]);
+
+  return rows.map((l) => ({
+    id: Number(l.id), numero: l.wippimmo_id,
+    adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
+    nature: l.nature, typeBien: l.type_bien,
+    surfaceM2: null,
+    debut: l.gestion_debut, fin: l.gestion_fin,
+    locataire: l.locataire, locataireId: l.locataire_id === null ? null : Number(l.locataire_id),
+    locataireDepuis: l.locataire_depuis,
+    mails: l.mails, dernierEchange: l.dernier_echange, evenementsOuverts: l.evenements,
+    driveDossierId: l.drive_id,
+  }));
 }
 
 export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {

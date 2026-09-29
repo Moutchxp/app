@@ -133,9 +133,33 @@ describe('les mots de l’écran', () => {
 describe('garanties statiques de l’écran « Annuaire »', () => {
   const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
 
-  it('UN SEUL champ de recherche, avec une étiquette VISIBLE', () => {
-    expect(src.match(/<input/g) ?? []).toHaveLength(1);
+  /**
+   * ══ 🔴 RÈGLE RÉÉCRITE LE 29/09/2026 (lot FICHES-ANNUAIRE) ═══════════════════════════════════════════════════
+   *
+   * ELLE COMPTAIT LES `<input>` DU FICHIER, et il y en a maintenant DEUX. Ce n'est pas un second champ : c'est
+   * LE MÊME, écrit à deux endroits parce qu'il change de forme — grand avec son étiquette sur les résultats,
+   * compact dans l'en-tête d'une fiche, où l'on cherche la personne SUIVANTE. Les deux sont mutuellement
+   * exclusifs (`fiche === null` / `fiche !== null`) : un seul est rendu à la fois, et ils écrivent tous les deux
+   * dans `terme`.
+   *
+   * CE QUE LA RÈGLE PROTÉGEAIT, ET QUI N'A PAS BOUGÉ : on ne choisit JAMAIS, avant de taper, dans quel champ on
+   * est — il n'y a qu'une recherche, et elle accepte tout. C'est cela qu'on éprouve désormais, plutôt qu'un
+   * comptage de balises que la moindre mise en page faisait mentir.
+   */
+  it('🔴 UNE SEULE recherche : les deux champs sont exclusifs et écrivent au même endroit', () => {
+    const champs = src.match(/<input[\s\S]*?\/>/g) ?? [];
+    expect(champs).toHaveLength(2);
+    // Les deux sont des champs de RECHERCHE, et tous deux alimentent `terme`.
+    for (const c of champs) {
+      expect(c).toContain('type="search"');
+      expect(c).toContain('setTerme(e.target.value)');
+    }
+    // L'un porte l'étiquette visible (les résultats), l'autre son intitulé accessible (la fiche).
     expect(src).toContain('<label className="ann-label"');
+    expect(src).toContain('aria-label="Chercher un propriétaire, un lot, un locataire"');
+    // 🔴 EXCLUSIFS : l'un ne s'affiche que sans fiche, l'autre que sur une fiche.
+    expect(src).toContain('{fiche === null && (');
+    expect(src).toContain('{fiche !== null && (');
   });
 
   it('les trois fiches existent, et le rôle de chaque valeur est écrit en toutes lettres', () => {
@@ -152,9 +176,80 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
     expect(src).toContain('href={`mailto:${c.valeur}`}');
   });
 
-  it('la date de début de relation est PRÉSENTÉE comme dérivée, jamais comme une saisie', () => {
-    expect(src).toContain('Début de la relation');
-    expect(src).toContain('début de gestion du plus ancien de ses lots');
+  /**
+   * ══ 🔴 MOTS RÉÉCRITS LE 29/09/2026 (lot FICHES-ANNUAIRE), à la demande d'Arno, mot pour mot :
+   * « Puis la date de début de collaboration (“le 11/06/2025 — début de gestion du plus ancien lot”) ».
+   *
+   * CE QUE LA RÈGLE PROTÈGE N'A PAS BOUGÉ D'UN POUCE : cette date est DÉRIVÉE (le plus ancien début de gestion),
+   * et l'écran doit le dire. Présentée comme une saisie, on la corrigerait — et il n'y a rien à corriger.
+   */
+  it('🔴 la date de début de collaboration est PRÉSENTÉE comme dérivée, jamais comme une saisie', () => {
+    expect(src).toContain('Début de collaboration');
+    expect(src).toContain('début de gestion du plus ancien lot');
+  });
+
+  /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT FICHES-ANNUAIRE — LA FICHE PROPRIÉTAIRE RESTRUCTURÉE
+     ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * 🔴 CONSTAT D'ARNO sur la fiche de M. ROI Nathan : « elle est nulle, il faut totalement la restructurer ».
+   * Elle commençait à 590 px du haut, sous cinq blocs qui ne la concernaient pas. Le premier bloc est désormais
+   * les COORDONNÉES, et il porte tout ce qu'Arno a énuméré.
+   */
+  it('🔴 le premier bloc est celui des COORDONNÉES, et il porte tout ce qui a été demandé', () => {
+    const i = src.indexOf('function BlocCoordonnees');
+    expect(i).toBeGreaterThan(0);
+    const bloc = src.slice(i, src.indexOf('function DateOuRien'));
+    for (const mot of ['Qualité', 'Adresse postale', 'Téléphone', 'E-mail', 'Note', 'Début de collaboration']) {
+      expect(bloc).toContain(mot);
+    }
+    // Le libellé d'origine de chaque coordonnée, et son bouton Copier.
+    expect(bloc).toContain('ann-libelle');
+    expect(bloc).toContain('<BoutonCopier');
+  });
+
+  /**
+   * 🔴🔴 ON N'INVENTE JAMAIS UNE DONNÉE ABSENTE. Mesuré sur la vraie base le 29/09/2026 : ni « qualité », ni
+   * « note », ni « surface » n'existent dans le schéma. L'écran écrit « non renseignée » — un fait — plutôt
+   * qu'un vide, qui se lirait comme un oubli d'affichage, ou qu'une valeur devinée, qui serait un mensonge.
+   */
+  it('🔴 ce que la base ne sait pas est écrit « non renseigné(e) », jamais laissé vide', () => {
+    const bloc = src.slice(src.indexOf('function BlocCoordonnees'), src.indexOf('function VueProprietaire'));
+    expect((bloc.match(/non renseignée/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(bloc).toContain('non renseigné');
+  });
+
+  /** 🔴 LA CARTE D'UN BIEN porte les huit faits qu'Arno a énumérés, chacun avec son mot. */
+  it('🔴 une carte de bien dit adresse, lot, type, surface, locataire, mails, dernier échange, événements, Drive', () => {
+    const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
+    for (const mot of ['lot ', 'Surface', 'Locataire', 'Mails', 'Dernier échange', 'Événements ouverts']) {
+      expect(carte).toContain(mot);
+    }
+    // « Vacant » est un MOT, jamais une couleur seule.
+    expect(carte).toContain('Vacant');
+    // Le dossier Drive du LOT, et l'aveu quand il n'existe pas.
+    expect(carte).toContain('Dossier Drive du lot');
+    expect(carte).toContain('dossier Drive non construit');
+  });
+
+  /**
+   * 🔴 UN BOUTON DANS UN BOUTON est du HTML invalide et injouable au clavier. La carte entière est le bouton ;
+   * les deux liens qui en sortent vivent dans un PIED, à côté — pas dedans.
+   */
+  it('🔴 les liens d’une carte sont hors du bouton de la carte', () => {
+    const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
+    const corps = carte.slice(carte.indexOf('ann-carte-corps'), carte.indexOf('ann-carte-pied'));
+    expect(corps).not.toContain('<a ');
+    expect(carte.slice(carte.indexOf('ann-carte-pied'))).toContain('<a className="ann-lien"');
+  });
+
+  /** ⚠️ LES ANCIENS BIENS SONT REPLIÉS, JAMAIS RETIRÉS : on ouvre souvent la fiche pour eux. */
+  it('les biens sortis de gestion ont leur section repliable', () => {
+    const vue = src.slice(src.indexOf('function VueProprietaire'), src.indexOf('function VueLot'));
+    expect(vue).toContain('Anciens biens');
+    expect(vue).toContain('aria-expanded={anciensOuverts}');
+    expect(vue).toContain('Biens en gestion');
   });
 
   it('mobile d’abord : cibles ≥ 44 px, et AUCUNE interaction au seul survol', () => {

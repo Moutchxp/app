@@ -646,6 +646,19 @@ export function GestionVue({ intro }: {
       <style>{CSS_GESTION}</style>
       <style>{INFOBULLE_CSS}</style>
 
+      {/* ══ 🔴🔴 LOT FICHES-ANNUAIRE — LE TITRE DE LA PAGE N'A RIEN À FAIRE SUR UNE FICHE ════════════════════
+          « Gestion » et sa description sont rendus par `EnTetePage`, dans `page.tsx` — un composant SERVEUR, au
+          DESSUS de cette vue. Sur la fiche d'une personne, ils occupaient 130 px à répéter le nom du module et à
+          expliquer la boîte mail, au-dessus de coordonnées qu'on venait lire.
+
+          🔴 POURQUOI UNE RÈGLE DE STYLE ET NON UNE CONDITION : l'écran courant est un état du CLIENT (il change
+          sans recharger la page) ; le composant serveur, lui, a déjà rendu. Une feuille conditionnelle est la
+          seule façon honnête de le masquer sans déplacer l'en-tête de TOUS les modules, qui s'en servent.
+
+          ⚠️ RIEN N'EST SUPPRIMÉ : l'en-tête revient dès qu'on quitte l'annuaire, et la page garde son `<h1>`
+          dans le document — un lecteur d'écran qui parcourt les titres le trouve toujours. */}
+      {ecran === 'annuaire' && <style>{'.gst-page > .svv-page-head{display:none}'}</style>}
+
       {/* BANDEAU D'ÉTAT — toujours présent : un outil qui dit depuis quand il n'a pas regardé reste honnête.
           LOT 5-GMAIL — en PLEIN ÉCRAN il devient une ligne compacte qui porte AUSSI le titre du module et sa phrase
           de description (dans une info-bulle cliquable), parce que l'en-tête de page, lui, est replié pour rendre sa
@@ -664,7 +677,19 @@ export function GestionVue({ intro }: {
           🔴 LE BANDEAU D'ALERTE N'EST PAS CELUI-CI. « Relève arrêtée », « copie arrêtée » vivent dans le `<p
           className="gst-veille--alerte">` juste en dessous, sur TOUS les écrans, boîte comprise. C'est même ce
           retrait qui lui rend le haut de page. */}
-      {ecran !== 'boite' && (
+      {/* ══ 🔴🔴 LOT FICHES-ANNUAIRE — L'ANNUAIRE N'EST PAS UNE PAGE DE SERVICE ═══════════════════════════════
+          Arno, devant la fiche de M. ROI Nathan : « elle est nulle, il faut totalement la restructurer ». Elle
+          commençait à 590 px du haut, sous cinq blocs qui ne la concernaient pas : le titre du module, sa
+          description, le bandeau de relève et ses boutons, « Relève automatique », « Copie des pièces ».
+
+          🔴 CE BLOC EST DONC RETIRÉ DE L'ANNUAIRE, comme il l'avait été de la boîte au lot ERGO-BOITE-3 — et pour
+          la même raison : il n'y porte plus rien qu'on vienne y chercher. Il RESTE partout ailleurs (événements,
+          « À rattacher », écran partagé), où il est le seul moyen de relever.
+
+          ⚠️ LES ALERTES, ELLES, NE BOUGENT PAS. « Relève arrêtée », « copie arrêtée », « envoi en échec » restent
+          affichées sur TOUS les écrans, annuaire compris : ce sont des sécurités, et masquer une sécurité pour
+          gagner de la place, c'est la retirer. Seul l'ORDINAIRE descend. */}
+      {ecran !== 'boite' && ecran !== 'annuaire' && (
       <div className={`gst-bandeau${ecran === 'partage' ? '' : ' gst-bandeau--compact'}`} role="status">
         {/* ══ 🔴 LOT ERGO-BOITE — EN PLEIN ÉCRAN, CE BANDEAU NE PORTE PLUS QUE LE TITRE ═══════════════════════════
             L'heure de la dernière relève et l'état de la copie sont descendus dans la colonne (`etatDiscret`), et
@@ -691,13 +716,14 @@ export function GestionVue({ intro }: {
             onClick={() => void charger()}>Rafraîchir</button>
           {/* LOT ANNUAIRE-1 — L'ANNUAIRE, atteignable depuis N'IMPORTE QUEL écran du module. Il ne remplace rien :
               c'est un quatrième écran, et son bouton de retour ramène à l'écran partagé.
-              LOT ERGO-BOITE — en plein écran il vit dans la colonne ; ailleurs, il reste ici. */}
-          {ecran !== 'annuaire' && (
-            <button type="button" className="svv-btn svv-btn-outline gst-btn"
-              onClick={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}>
-              Annuaire
-            </button>
-          )}
+              LOT ERGO-BOITE — en plein écran il vit dans la colonne ; ailleurs, il reste ici.
+              ⚠️ PLUS DE `ecran !== 'annuaire'` ICI : depuis le lot FICHES-ANNUAIRE, tout ce bloc ne s'affiche PLUS
+              dans l'annuaire (voir l'encadré au-dessus). La condition était devenue toujours vraie — TypeScript
+              l'a dit, et une condition qui ne peut pas être fausse est un piège pour qui la relira. */}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn"
+            onClick={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}>
+            Annuaire
+          </button>
           {/* LOT RATTACHEMENT-1 — LA FILE des mails sans rattachement certain, atteignable depuis n'importe quel
               écran. Elle ne remplace rien : ni l'étiquette « À classer » de la boîte (quels ÉCHANGES poser sur une
               carte), ni les cartes. Elle répond à une autre question : quels MAILS n'ont pas de rattachement certain.
@@ -730,7 +756,7 @@ export function GestionVue({ intro }: {
           <span className="gst-veille-texte">{veille.texte}</span>
           {veille.aide && <span className="gst-veille-aide">{veille.aide}</span>}
         </p>
-      ) : ecran !== 'boite' && (
+      ) : ecran !== 'boite' && ecran !== 'annuaire' && (
         <p className="gst-veille" role="status">{veille.texte}</p>
       )}
       {/* LOT RATTACHEMENT-2 — LE COURRIER EST ARRIVÉ, MAIS SON RATTACHEMENT A ÉCHOUÉ. Une ligne SÉPARÉE de celle de
@@ -753,7 +779,7 @@ export function GestionVue({ intro }: {
         </p>
       )}
       {/* Même partage pour la copie : l'arrêt SUBI crie en haut, l'avancement ordinaire descend dans la colonne. */}
-      {copie.niveau === 'calme' && ecran !== 'boite' && (
+      {copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' && (
         <p className="gst-veille" role="status">{copie.texte}</p>
       )}
       {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
