@@ -182,7 +182,22 @@ interface ReponseBoite {
   lignes: LigneEcran[];
   suivant: CurseurBoite | null;
   total: number | null;
-  comptes: ComptesBoite | null;
+  /**
+   * ══ 🔴🔴 LOT SOMBRE-ET-RECHERCHE — `undefined` EST UNE RÉPONSE POSSIBLE, ET ELLE FAISAIT TOMBER L'ÉCRAN ═══
+   *
+   * DÉFAUT REPRODUIT LE 01/10/2026, en cherchant « scan » puis en cliquant la croix « Effacer la recherche » :
+   * `Cannot read properties of undefined (reading 'automatiques')`. L'écran tombait — c'est-à-dire, pour qui le
+   * regarde, « la liste ne se met pas à jour » ou « l'écran est bloqué ».
+   *
+   * 🔴 LA CAUSE : la route de RECHERCHE ne rend pas `comptes` du tout (elle n'a pas d'étiquette à compter), là où
+   * la route de la boîte rend `null` ou un objet. Le champ était déclaré `ComptesBoite | null` — donc TypeScript
+   * ne voyait rien, et le garde `etat.comptes !== null` laissait passer `undefined`, qui n'est pas `null`.
+   *
+   * 🔴 LE CHAMP DIT DÉSORMAIS LA VÉRITÉ (`?`), et l'état le NORMALISE à `null` en entrant : le garde redevient
+   * juste, et le compilateur attrapera le prochain oubli. C'est le seul genre de correctif qui tienne — celui
+   * qui fait rougir la compilation plutôt que l'écran.
+   */
+  comptes?: ComptesBoite | null;
   /**
    * LOT 5-BOITE — les échanges portant au moins un message reçu NON LU PAR MOI. Rendus par le serveur, calculés pour
    * la personne de la session : le navigateur ne décide pas de ce qui est lu. Absent (migration 250 non appliquée,
@@ -232,6 +247,13 @@ type Etat =
  * les deux rendent la même forme de ligne, et l'écran ne doit pas avoir deux façons d'afficher la même chose.
  * Rapporte, ne décide pas.
  */
+/**
+ * 🔴 LE PLAFOND D'ATTENTE D'UNE LECTURE DE BOÎTE. Voir l'encadré dans `chargerPage` : ce n'est pas une cible de
+ * performance (la boîte répond en 100 à 300 ms), c'est la limite au-delà de laquelle une lecture n'est plus lente
+ * mais perdue — et où un écran figé sur « Chargement… » devient un mensonge.
+ */
+export const DELAI_MAX_LECTURE_MS = 20_000;
+
 async function chargerPage(
   curseur: CurseurBoite | null, auto: boolean, critere: Critere, etiquette: Etiquette,
   filtre: 'non-lus' | null = null, etoile = false,
@@ -262,15 +284,42 @@ async function chargerPage(
     if (critere.pj !== 'indifferent') p.set('pj', critere.pj);
     if (critere.listes.length !== LISTES_TOUTES.length) p.set('listes', critere.listes.join(','));
   }
+  /**
+   * ══ 🔴🔴 LOT SOMBRE-ET-RECHERCHE — UNE LECTURE QUI N'ABOUTIT PAS SE DIT, ELLE NE FIGE PAS ═══════════════════
+   *
+   * CONSTAT D'ARNO (01/10/2026) : « l'écran est resté bloqué sur “Chargement de la boîte…” ».
+   *
+   * 🔴 LA CAUSE PREMIÈRE ÉTAIT LA LENTEUR DE LA RECHERCHE (41,7 s mesurées, corrigée dans `rechercheBoite`), et
+   * elle n'est plus. Mais une lecture qui ne revient pas ne doit JAMAIS laisser l'écran sur son mot d'attente :
+   * le réseau peut tomber, un serveur peut se taire, et « Chargement… » pour toujours se lit comme une panne de
+   * l'application alors qu'il suffirait de réessayer.
+   *
+   * ⚠️ VINGT SECONDES, ET C'EST UN PLAFOND, PAS UNE CIBLE. La boîte répond en 100 à 300 ms ; une lecture qui
+   * dépasse vingt secondes n'est plus lente, elle est perdue. On coupe, on le DIT, et l'écran redevient utilisable.
+   *
+   * ⚠️ `AbortSignal.timeout` N'EXISTE PAS PARTOUT (vieux navigateurs, rendu serveur) : on retombe alors sur le
+   * comportement d'avant ce lot plutôt que de faire échouer la lecture pour une question de compatibilité.
+   */
+  const minuteur = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(DELAI_MAX_LECTURE_MS)
+    : undefined;
   try {
     const url = cherche ? '/api/admin/gestion/boite/recherche' : '/api/admin/gestion/boite';
-    const res = await fetch(`${url}?${p.toString()}`, { cache: 'no-store' });
+    const res = await fetch(`${url}?${p.toString()}`, { cache: 'no-store', signal: minuteur });
     if (!res.ok) {
       return { erreur: res.status === 403 ? 'Droit retiré : reconnectez-vous.' : 'Lecture impossible.' };
     }
     return (await res.json()) as ReponseBoite;
-  } catch {
-    return { erreur: 'Lecture impossible : le serveur n’a pas répondu.' };
+  } catch (e) {
+    /* 🔴 LE MOTIF DIT CE QUI S'EST PASSÉ, et les deux ne se réparent pas pareil : un serveur muet se réessaie,
+       une lecture trop longue se signale. Dans les deux cas l'écran SORT de « Chargement… ». */
+    const coupe = (e as { name?: string })?.name === 'TimeoutError'
+      || (e as { name?: string })?.name === 'AbortError';
+    return {
+      erreur: coupe
+        ? 'Lecture interrompue : elle a pris trop de temps. Réessayez.'
+        : 'Lecture impossible : le serveur n’a pas répondu.',
+    };
   }
 }
 
@@ -608,7 +657,8 @@ export function BoiteMail({
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     setEtat({
       // ⚠️ `r.total ?? r.lignes.length` A ÉTÉ RETIRÉ : voir l'encadré du champ `total` de `Etat`.
-      v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? null, comptes: r.comptes,
+      // 🔴 `?? null` : la route de RECHERCHE ne rend aucun compte. Voir l'encadré du champ `comptes`.
+      v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? null, comptes: r.comptes ?? null,
       pleinTexte: r.pleinTexte !== false, automatiquesMasques: r.automatiquesMasques ?? null,
       brouillons: r.brouillons ?? { lignes: [], tronque: false },
       nonLus: new Set(r.nonLus ?? []), nonLusTotal: r.nonLusTotal ?? null, nonLusPartiel: r.nonLusPartiel === true,

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { assainirHtml, htmlVersTexte } from '../../../../lib/gestion/htmlMail';
+// 🔴 LOT SOMBRE-ET-RECHERCHE — relever le texte sombre À L'ÉCRAN, et le retirer de tout ce qui remonte.
+import { CSS_LISIBILITE_SOMBRE, htmlSansMarques, useLisibiliteSombre } from './lisibiliteSombre';
 
 /**
  * LOT REDACTION-GMAIL — LE CORPS EN TEXTE MIS EN FORME, ET SA BARRE D'OUTILS.
@@ -147,10 +149,28 @@ export function EditeurRiche({
     }
   }, [htmlInitial, autoFocus]);
 
+  /**
+   * ══ 🔴🔴 LOT SOMBRE-ET-RECHERCHE — CE QUI REMONTE N'A JAMAIS VU LE THÈME SOMBRE ═════════════════════════
+   *
+   * Arno : « NE MODIFIE PAS le HTML envoyé ni stocké : le mail part avec ses couleurs d'origine, noir sur blanc
+   * pour le destinataire. »
+   *
+   * 🔴 LA PASSE D'AFFICHAGE POSE UN ATTRIBUT (`data-svv-sombre`) sur ce qu'elle a jugé illisible. Il ne porte
+   * aucune couleur, mais il SE VERRAIT dans `innerHTML` — donc dans le brouillon enregistré, donc dans le mail.
+   * `htmlSansMarques` remonte une COPIE nettoyée : le corps est identique au caractère près, que l'écran soit en
+   * Clair ou en Sombre. Un test l'exige.
+   */
   const remonter = useCallback(() => {
-    const html = zone.current?.innerHTML ?? '';
+    const html = zone.current === null ? '' : htmlSansMarques(zone.current);
     onChange({ html, texte: htmlVersTexte(html) });
   }, [onChange]);
+
+  /**
+   * 🔴 LE TEXTE SOMBRE DE LA SIGNATURE, RELEVÉ À L'ÉCRAN. C'est le constat d'Arno : « la signature HTML s'écrit
+   * en noir sur fond sombre, donc illisible ». La passe ne touche ni au HTML remonté (voir `remonter`) ni aux
+   * couleurs vives — elle ne relève que ce qui est sombre ET terne.
+   */
+  useLisibiliteSombre(zone, [htmlInitial]);
 
   /** Mémorise la sélection : appelée à chaque frappe et à chaque clic DANS le champ. */
   const retenirSelection = useCallback(() => {
@@ -389,6 +409,7 @@ export interface ApiEditeur {
 }
 
 export const CSS_EDITEUR_RICHE = `
+${CSS_LISIBILITE_SOMBRE}
 .edr{display:flex;flex-direction:column;min-width:0}
 /* La barre PASSE À LA LIGNE plutôt que de deborder : sur telephone elle tient sur deux ou trois rangees. */
 .edr-barre{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:4px 2px;

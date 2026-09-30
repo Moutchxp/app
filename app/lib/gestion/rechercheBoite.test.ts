@@ -151,12 +151,12 @@ describe('③ les deux régimes, et aucun qui mente', () => {
     const { sql, params } = conditions({ saisie: 'fuite marceau' }, false);
     expect(sql.join(' ')).not.toContain('websearch_to_tsquery');
     /**
-     * 🔴 QUATRE `LIKE` DEPUIS LE LOT NOM-UNIQUE-DES-PIECES : deux sur le TEXTE du message (un par terme), deux
-     * sur les NOMS DE PIÈCES. Les deux moitiés sont en OU — un mail répond s'il porte les mots dans son texte,
-     * OU s'il porte une pièce dont le nom les porte tous.
+     * 🔴 DEUX `LIKE`, UN PAR TERME, SUR LE TEXTE DU MESSAGE. Les noms de pièces restent une ALTERNATIVE, mais ils
+     * ne se cherchent plus ici : depuis le lot SOMBRE-ET-RECHERCHE, ils arrivent déjà résolus, sous forme d'un
+     * tableau d'identifiants — voir `idsParNomDePiece`, et la mesure qui l'a imposé (12 458 ms → 13,8 ms).
      */
-    expect((sql.join(' ').match(/LIKE/g) ?? []).length).toBe(4);
-    expect(params).toEqual(['fuite', 'marceau', 'fuite', 'marceau']);
+    expect((sql.join(' ').match(/LIKE/g) ?? []).length).toBe(2);
+    expect(params).toEqual(['fuite', 'marceau']);
   });
 
   it('la réponse DIT dans quel régime elle est — l’écran ne fait jamais semblant', async () => {
@@ -518,29 +518,67 @@ describe('LOT RECHERCHE-AVANCEE — pièce jointe et période', () => {
    * Arno, mot pour mot : « La recherche trouve la pièce par son nom d'usage ET par son nom d'origine. » Un mail
    * répond donc s'il porte les mots dans son TEXTE, OU s'il porte une pièce dont le NOM les porte tous.
    */
-  it('🔴 sans la migration 286, seul le nom d’ORIGINE est cherché', () => {
-    const sql = plat(conditions({ saisie: 'quittance' }, true).sql.join(' '));
-    expect(sql).toContain('FROM gestion_piece pn');
-    expect(sql).toContain('pn.nom_fichier');
-    // La colonne absente n'est nommée NULLE PART : la lire ferait échouer toute la recherche.
-    expect(sql).not.toContain('nom_usage');
-  });
-
-  it('🔴 avec la migration 286, les DEUX noms sont cherchés', () => {
-    const sql = plat(conditions({ saisie: 'quittance' }, true, false, null, false, true).sql.join(' '));
-    expect(sql).toContain('pn.nom_fichier');
-    expect(sql).toContain('pn.nom_usage');
-  });
-
-  it('🔴 le nom de pièce est une ALTERNATIVE au texte, pas une exigence de plus', () => {
-    const sql = plat(conditions({ saisie: 'quittance' }, true).sql.join(' '));
+  /**
+   * ══ 🔴🔴 LOT SOMBRE-ET-RECHERCHE — LA MÊME RÈGLE, MAIS PLUS EN `EXISTS` ════════════════════════════════════
+   *
+   * CONSTAT D'ARNO (01/10/2026) : « “scan” tapé dans Chercher dans le courrier, la liste reste sur Réception
+   * 1–25 sur 8 561, sans aucun filtrage », et parfois un écran bloqué sur « Chargement de la boîte… ».
+   *
+   * 🔴 LA REQUÊTE RÉPONDAIT — EN 41,7 SECONDES. Le `OR EXISTS (…)` écrit ici empêchait PostgreSQL de se servir
+   * de l'index GIN : il recalculait `to_tsvector` sur les 26 603 messages, trois fois par recherche. Mesuré à
+   * l'`EXPLAIN (ANALYZE)` sur la vraie base : 4,8 ms le plein texte seul, 12 458 ms avec le `OR EXISTS`,
+   * 13,8 ms avec le tableau d'identifiants.
+   *
+   * ⚠️ LA RÈGLE MÉTIER N'A PAS BOUGÉ D'UN MOT : un mail répond s'il porte les mots dans son TEXTE, OU s'il porte
+   * une pièce dont le NOM les porte tous — par le nom d'usage comme par le nom d'origine. Ce qui change est
+   * l'endroit où cette seconde question est posée.
+   */
+  it('🔴🔴 le nom de pièce reste une ALTERNATIVE, sous forme d’identifiants déjà résolus', () => {
+    const { sql, params } = conditions({ saisie: 'quittance' }, true, false, null, false, false, [7, 9]);
+    const plat2 = plat(sql.join(' '));
     // Un OR, jamais un AND : exiger les deux ne trouverait presque rien.
-    expect(sql).toContain('OR EXISTS ( SELECT 1 FROM gestion_piece pn');
+    expect(plat2).toContain('OR m.id = ANY($2::bigint[])');
+    expect(params[1]).toEqual([7, 9]);
+    // 🔴 ET PLUS AUCUNE SOUS-REQUÊTE : c'est elle qui coûtait douze secondes.
+    expect(plat2).not.toContain('EXISTS ( SELECT 1 FROM gestion_piece pn');
+  });
+
+  /**
+   * ⚠️ UN TABLEAU VIDE N'EST PAS « RIEN À AJOUTER » MAIS « AUCUN MESSAGE ». `= ANY('{}')` est faux pour tout le
+   * monde, ce qui est exactement juste — et le SQL garde la même forme dans les deux cas.
+   */
+  it('⚠️ aucune pièce trouvée : la branche existe quand même, et elle est fausse', () => {
+    const { sql, params } = conditions({ saisie: 'quittance' }, true, false, null, false, false, []);
+    expect(plat(sql.join(' '))).toContain('OR m.id = ANY($2::bigint[])');
+    expect(params[1]).toEqual([]);
+  });
+
+  /** ⚠️ SANS TABLEAU (appelant qui n'a pas fait la lecture), on ne cherche pas par nom du tout. */
+  it('⚠️ sans identifiants fournis, aucune branche « nom de pièce »', () => {
+    const sql = plat(conditions({ saisie: 'quittance' }, true).sql.join(' '));
+    expect(sql).not.toContain('gestion_piece pn');
+    expect(sql).toContain('OR false');
+  });
+
+  /**
+   * 🔴🔴 ET LA LECTURE DES NOMS, ELLE, CHERCHE TOUJOURS LES DEUX NOMS — par le fragment partagé, qui dépend de
+   * la sonde de la migration 286. La règle a simplement changé de requête.
+   */
+  it('🔴 la lecture des noms de pièces passe par le fragment des DEUX noms', () => {
+    const src = readFileSync('app/lib/gestion/rechercheBoite.ts', 'utf8');
+    const corps = src.slice(src.indexOf('async function messagesParNomDePiece'),
+      src.indexOf('export async function chercherDansLeCourrier'));
+    expect(corps).toContain('nomsCherchablesAvec(nomUsageConnu, \'pn\')');
+    expect(corps).toContain('FROM gestion_piece pn');
+    // ⚠️ ELLE NE LÈVE JAMAIS : une recherche vaut mieux sans les noms de pièces que pas de recherche du tout.
+    expect(corps).toContain('catch');
+    expect(corps).toContain('return [];');
   });
 
   it('⚠️ sans mots saisis, on ne va PAS lire les noms de pièces pour rien', () => {
-    const sql = plat(conditions({ saisie: '', expediteur: 'martin' }, true).sql.join(' '));
-    expect(sql).not.toContain('gestion_piece pn');
+    const sql = plat(conditions({ saisie: '', expediteur: 'martin' }, true, false, null, false, false, [7])
+      .sql.join(' '));
+    expect(sql).not.toContain('ANY(');
   });
 
   /**

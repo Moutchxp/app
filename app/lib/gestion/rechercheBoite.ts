@@ -146,6 +146,35 @@ export function conditions(
    * prédicat de recherche sans base. Même patron que `spamConnu` et `corbeilleConnue` juste au-dessus.
    */
   nomUsageConnu = false,
+  /**
+   * ══ 🔴🔴 LOT SOMBRE-ET-RECHERCHE — LES MESSAGES TROUVÉS PAR UN NOM DE PIÈCE, DÉJÀ CALCULÉS ═══════════════
+   *
+   * CONSTAT D'ARNO (01/10/2026) : « “scan” tapé dans Chercher dans le courrier, la liste reste sur Réception
+   * 1–25 sur 8 561, sans aucun filtrage » — et une autre fois « bloqué sur Chargement de la boîte… ».
+   *
+   * 🔴 MESURÉ, ET CE N'ÉTAIT NI UN DÉFAUT D'AFFICHAGE NI MA SESSION DE DÉBOGAGE : la requête RÉPONDAIT, en
+   * 41,7 SECONDES. L'écran montrait donc l'état précédent pendant quarante secondes, puis se mettait à jour —
+   * ce qui se lit exactement comme « la recherche ne filtre pas », ou comme un écran figé si l'on attend moins.
+   *
+   * 🔴 LA CAUSE : le `OR EXISTS (…noms de pièces…)` ajouté au lot NOM-UNIQUE-DES-PIECES. Son encadré affirmait
+   * « LE COÛT EST BORNÉ : EXISTS […] sur un ensemble que le plein texte a déjà réduit ». C'EST FAUX, et c'est
+   * le piège même du `OR` : le plein texte ne réduit RIEN quand il est en alternative. PostgreSQL ne peut plus
+   * se servir de l'index GIN, il recalcule `to_tsvector` sur les 26 603 messages et exécute l'EXISTS pour
+   * chacun. Mesuré le 01/10/2026, `EXPLAIN (ANALYZE)` sur la vraie base :
+   *
+   *     plein texte seul (index GIN)                 4,8 ms
+   *     plein texte OR EXISTS (le code d'avant)  12 458 ms      ← et la recherche le fait TROIS fois
+   *     plein texte OR m.id = ANY(tableau)          13,8 ms     ← BitmapOr : les DEUX index servent
+   *
+   * 🔴 CE QUI LE REMPLACE : les identifiants sont cherchés UNE fois, à part (105 ms, balayage de 27 000 pièces),
+   * puis passés ICI comme un tableau LIÉ. Le prédicat redevient `A OR m.id = ANY($n)` — deux branches indexables,
+   * que PostgreSQL réunit par un `BitmapOr`. La règle métier ne bouge pas d'un mot : on cherche toujours par le
+   * nom d'usage ET par le nom d'origine.
+   *
+   * ⚠️ `null` ⇒ ON NE CHERCHE PAS PAR NOM DE PIÈCE DU TOUT (et l'on n'écrit aucune condition pour cela). C'est
+   * ce que fait un appelant qui n'a pas encore fait la lecture — jamais un appelant qui voudrait « tout ».
+   */
+  idsParNomDePiece: readonly number[] | null = null,
 ): { sql: string[]; params: unknown[] } {
   const sql: string[] = [];
   const params: unknown[] = [];
@@ -244,11 +273,17 @@ export function conditions(
    * aussi sous celui du correspondant (« scan_0042 ») quand c'est ce dont on se souvient — ou ce qu'on lit dans
    * le mail, qui n'a pas changé.
    */
-  const cherchable = normSql(nomsCherchablesAvec(nomUsageConnu, 'pn'));
-  const nomsPieces = (): string => `EXISTS (
-        SELECT 1 FROM gestion_piece pn
-         WHERE pn.message_id = m.id
-           AND ${termes.map((t) => `${cherchable} LIKE '%' || ${lier(normaliser(t.texte))} || '%'`).join('\n           AND ')})`;
+  /**
+   * 🔴 LA BRANCHE « NOM DE PIÈCE », DEVENUE UN TABLEAU D'IDENTIFIANTS. Voir l'encadré du paramètre
+   * `idsParNomDePiece` : écrite en `EXISTS`, elle coûtait 12,5 s par requête ; écrite ainsi, 13,8 ms.
+   *
+   * ⚠️ UN TABLEAU VIDE N'EST PAS « RIEN À AJOUTER » MAIS « AUCUN MESSAGE » : `= ANY('{}')` est faux pour tout le
+   * monde, ce qui est exactement juste. On l'écrit quand même plutôt que de sauter la branche — le SQL dit alors
+   * la même chose dans les deux cas, et l'on ne se demande pas un jour pourquoi il change de forme.
+   */
+  const nomsPieces = (): string => (idsParNomDePiece === null
+    ? 'false'
+    : `m.id = ANY(${lier([...idsParNomDePiece])}::bigint[])`);
 
   if (termes.length > 0) {
     if (pleinTexte) {
@@ -344,6 +379,41 @@ export function conditions(
  * de douze messages doit rendre UNE ligne, pas douze. On garde, par échange, le message trouvé LE PLUS RÉCENT — c'est
  * lui qui date le résultat et qui fournit l'extrait.
  */
+/**
+ * ══ 🔴🔴 LES MESSAGES DONT UNE PIÈCE PORTE CES MOTS — UNE SEULE LECTURE, PARTAGÉE ══════════════════════════
+ *
+ * Arno (lot NOM-UNIQUE-DES-PIECES) : « La recherche trouve la pièce par son nom d'usage ET par son nom d'origine. »
+ * La règle ne change pas ; ce qui change est le MOMENT où on l'applique — voir l'encadré de `idsParNomDePiece`.
+ *
+ * ⚠️ UNE FOIS POUR LES TROIS REQUÊTES (la page et les deux comptes). Les trois partagent ensuite le même tableau :
+ * refaire la lecture à chaque requête aurait rendu trois fois les 105 ms mesurés, pour le même résultat.
+ *
+ * ⚠️ TOUS LES TERMES SONT EXIGÉS, sur le MÊME nom : « quittance juillet » doit trouver une pièce dont le nom porte
+ * les deux mots, pas deux pièces qui en portent un chacune. C'est la règle d'avant ce lot, déplacée telle quelle.
+ *
+ * ⚠️ ELLE NE LÈVE JAMAIS. Une recherche qui échouerait parce qu'on n'a pas su lire les noms de pièces vaudrait
+ * moins qu'une recherche qui ne cherche que dans le texte : on rend un tableau vide, et le plein texte répond seul.
+ */
+async function messagesParNomDePiece(
+  termes: readonly { texte: string }[], nomUsageConnu: boolean,
+): Promise<number[]> {
+  if (termes.length === 0) return [];
+  const params: unknown[] = [];
+  const cherchable = normSql(nomsCherchablesAvec(nomUsageConnu, 'pn'));
+  const conditions = termes.map((t) => {
+    params.push(normaliser(t.texte));
+    return `${cherchable} LIKE '%' || $${params.length} || '%'`;
+  }).join(' AND ');
+  try {
+    const { rows } = await query<{ message_id: string }>(
+      `SELECT DISTINCT pn.message_id::text FROM gestion_piece pn WHERE ${conditions}`, params);
+    return rows.map((r) => Number(r.message_id)).filter((n) => Number.isSafeInteger(n));
+  } catch (e) {
+    console.error('[gestion/recherche] lecture des noms de pièces impossible', e);
+    return [];
+  }
+}
+
 export async function chercherDansLeCourrier(
   critere: CritereRecherche,
   curseur: CurseurBoite | null,
@@ -364,8 +434,15 @@ export async function chercherDansLeCourrier(
     rattachementsDisponibles(), horsGestionDisponible(), interneDisponible()]);
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
 
+  /**
+   * 🔴 LES NOMS DE PIÈCES, LUS UNE SEULE FOIS ET AVANT TOUT. Le tableau part ensuite dans les TROIS requêtes —
+   * la page et les deux comptes —, qui redeviennent ainsi servies par l'index. Voir `messagesParNomDePiece`.
+   */
+  const nomUsageConnu = await nomUsageDisponible();
+  const idsParNom = await messagesParNomDePiece(decouperTermes(critere.saisie), nomUsageConnu);
+
   const { sql: filtres, params } = conditions(
-    critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue, await nomUsageDisponible());
+    critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue, nomUsageConnu, idsParNom);
   const lier = (v: unknown): string => { params.push(v); return `$${params.length}`; };
   const where = filtres.length > 0 ? `WHERE ${filtres.join(' AND ')}` : '';
   const curseurSql = curseur === null ? '' :
@@ -439,7 +516,7 @@ export async function chercherDansLeCourrier(
    */
   const comptes = curseur === null
     ? await comptesDeLaRecherche(
-      critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue, await nomUsageDisponible())
+      critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue, nomUsageConnu, idsParNom)
     : { total: null as number | null, masques: null as number | null };
 
   const filsDeLaPage = gardees.map((r) => Number(r.fil_id));
@@ -586,11 +663,11 @@ function avecAutomatiques(c: CritereRecherche, oui: boolean): CritereRecherche {
  */
 async function comptesDeLaRecherche(
   critere: CritereRecherche, pleinTexte: boolean, spamConnu = false, adresseGestion: string | null = null,
-  corbeilleConnue = false, nomUsageConnu = false,
+  corbeilleConnue = false, nomUsageConnu = false, idsParNomDePiece: readonly number[] | null = null,
 ): Promise<{ total: number; masques: number | null }> {
   const compte = async (c: CritereRecherche): Promise<number> => {
     const { sql, params } = conditions(
-      c, pleinTexte, spamConnu, adresseGestion, corbeilleConnue, nomUsageConnu);
+      c, pleinTexte, spamConnu, adresseGestion, corbeilleConnue, nomUsageConnu, idsParNomDePiece);
     const where = sql.length > 0 ? `WHERE ${sql.join(' AND ')}` : '';
     const { rows } = await query<{ n: number }>(
       `SELECT count(DISTINCT m.fil_id)::int AS n FROM gestion_message m ${where}`, params);

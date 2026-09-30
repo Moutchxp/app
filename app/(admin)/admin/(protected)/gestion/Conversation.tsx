@@ -9,6 +9,8 @@ import {
   piedUtile,
 } from '../../../../lib/gestion/conversation';
 import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens, LIBELLE_CLASSER } from '../../../../lib/gestion/ecran';
+// 🔴 LOT SOMBRE-ET-RECHERCHE — le texte noir d'un mail se relève À L'ÉCRAN, jamais dans le HTML stocké.
+import { CSS_LISIBILITE_SOMBRE, useLisibiliteSombre } from './lisibiliteSombre';
 import {
   actionsDuStatut, bulleCapsuleMessage, capsuleDuMessage, libelleCartouche, lienVersCarte, motCapsule,
   precisionCartouche, SORTES_BIEN, statutDuMessage, tonCartouche,
@@ -1296,6 +1298,24 @@ function ouvrirRedaction(
  * UN message de la conversation. Replié, il tient sur une ligne (expéditeur, extrait, date) ; déplié, il montre son
  * en-tête complet, son texte et ses pièces. Le texte est rendu TEL QUEL — jamais interprété comme du HTML.
  */
+/**
+ * ══ 🔴🔴 LOT SOMBRE-ET-RECHERCHE — LE CORPS HTML D'UN MAIL, LISIBLE EN THÈME SOMBRE ═══════════════════════════
+ *
+ * Arno : « Même règle pour les corps HTML des mails reçus et envoyés dans les fils, et pour la visionneuse de
+ * mail. Les couleurs vives (rouge, liens, etc.) et les images ne sont jamais modifiées. »
+ *
+ * 🔴 UN COMPOSANT, ET NON UNE LIGNE RECOPIÉE. Le HTML d'un mail s'affiche à plusieurs endroits ; la règle doit
+ * être la même partout, et le seul moyen d'en être sûr est qu'il n'y ait qu'un endroit où elle est écrite.
+ *
+ * ⚠️ RIEN N'EST RÉÉCRIT. La passe pose un attribut de données sur ce qu'elle juge illisible, et une règle CSS
+ * s'en sert. Le HTML reçu — celui qui repart en transfert ou en réponse — n'est pas touché.
+ */
+function CorpsHtmlMail({ html }: { html: string }) {
+  const zone = useRef<HTMLDivElement | null>(null);
+  useLisibiliteSombre(zone, [html]);
+  return <div ref={zone} className="cnv-html" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
@@ -1778,9 +1798,9 @@ export function MessageConversation({
 
               ⚠️ `cnv-html` BORNE CE QU'IL REÇOIT : largeur maximale, images contenues, tableaux qui défilent dans
               leur propre cadre. Sans cela, un mail de syndic large de 900 px pousse toute la conversation. */}
-          {etat.v === 'html' && (
-            <div className="cnv-html" dangerouslySetInnerHTML={{ __html: etat.html }} />
-          )}
+          {/* 🔴 LOT SOMBRE-ET-RECHERCHE — le texte noir d'un mail se relève À L'ÉCRAN en thème Sombre. Rien n'est
+              réécrit : ni le HTML stocké, ni ce qui repart en transfert ou en réponse. */}
+          {etat.v === 'html' && <CorpsHtmlMail html={etat.html} />}
           {etat.v === 'html_a_charger' && <p className="gst-info" role="status">{MENTION_HTML_SEUL}</p>}
           {etat.v === 'vide' && <p className="gst-msg-corps gst-absent">(message sans texte)</p>}
 
@@ -1974,6 +1994,7 @@ export const CSS_CONVERSATION = `
 
    AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un littéral gabarit, qu'un seul accent grave terminerait.
    Le piege s'est referme une HUITIEME fois en ecrivant ce bloc — et, comme les precedentes, sur un commentaire. */
+${CSS_LISIBILITE_SOMBRE}
 .cnv-html{max-width:100%;overflow-x:auto;font-size:.9rem;line-height:1.5;
   color:#1a1a1a;background:#fff;border:1px solid var(--color-svv-line);border-radius:10px;padding:12px 14px;
   overflow-wrap:anywhere;color-scheme:light}

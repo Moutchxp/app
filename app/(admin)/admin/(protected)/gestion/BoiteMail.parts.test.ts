@@ -216,3 +216,77 @@ describe('garanties d’écran (statiques)', () => {
     expect(src).toContain('une fois la mise à jour de la');
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT SOMBRE-ET-RECHERCHE — LA RECHERCHE « scan » ════════════════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO (01/10/2026) : « “scan” tapé dans Chercher dans le courrier, la liste reste sur Réception
+ * 1–25 sur 8 561, sans aucun filtrage », et une autre fois « l'écran est resté bloqué sur Chargement de la
+ * boîte… ». Reproduit dans un onglet de débogage : DEUX défauts distincts, tous deux dans l'application.
+ */
+describe('🔴🔴 ① la recherche répondait — en 41,7 secondes', () => {
+  const src = readFileSync('app/lib/gestion/rechercheBoite.ts', 'utf8');
+
+  /**
+   * 🔴 MESURÉ À L'`EXPLAIN (ANALYZE)` SUR LA VRAIE BASE : le `OR EXISTS (…noms de pièces…)` empêchait
+   * PostgreSQL de se servir de l'index GIN. Il recalculait `to_tsvector` sur les 26 603 messages, TROIS fois par
+   * recherche (la page et les deux comptes) :
+   *
+   *     plein texte seul                       4,8 ms
+   *     plein texte OR EXISTS (le code d'avant)  12 458 ms
+   *     plein texte OR m.id = ANY(tableau)       13,8 ms
+   *
+   * De bout en bout : 41 700 ms → 99 à 238 ms, mesurés sur la vraie boîte.
+   */
+  it('🔴🔴 plus aucune sous-requête corrélée dans le prédicat de recherche', () => {
+    const conditions = src.slice(src.indexOf('export function conditions('),
+      src.indexOf('async function messagesParNomDePiece'));
+    expect(conditions).not.toContain('EXISTS (\n        SELECT 1 FROM gestion_piece pn');
+    expect(conditions).toContain('m.id = ANY(');
+  });
+
+  /** 🔴 UNE SEULE LECTURE DES NOMS, partagée par les TROIS requêtes : la page et les deux comptes. */
+  it('🔴 les noms de pièces sont lus UNE fois, et le tableau circule', () => {
+    expect(src).toContain('const idsParNom = await messagesParNomDePiece(');
+    expect(src).toContain('corbeilleConnue, nomUsageConnu, idsParNom)');
+    expect(src).toContain('corbeilleConnue, nomUsageConnu, idsParNomDePiece)');
+  });
+
+  /** ⚠️ LA RÈGLE MÉTIER N'A PAS BOUGÉ : on cherche toujours par le nom d'usage ET par le nom d'origine. */
+  it('⚠️ la lecture des noms passe toujours par le fragment des DEUX noms', () => {
+    expect(src).toContain("nomsCherchablesAvec(nomUsageConnu, 'pn')");
+  });
+});
+
+/**
+ * ══ 🔴🔴 ② EFFACER LA RECHERCHE FAISAIT TOMBER L'ÉCRAN ═════════════════════════════════════════════════════
+ *
+ * REPRODUIT : chercher « scan », puis cliquer la croix « Effacer la recherche » →
+ * `Cannot read properties of undefined (reading 'automatiques')`. L'écran tombe, ce qui se lit exactement comme
+ * « la liste ne se met pas à jour » ou « l'écran est bloqué ».
+ *
+ * 🔴 LA CAUSE : la route de RECHERCHE ne rend pas `comptes` (elle n'a pas d'étiquette à compter), là où la route
+ * de la boîte rend `null` ou un objet. Le champ était déclaré `ComptesBoite | null` — le compilateur ne voyait
+ * donc rien, et le garde `etat.comptes !== null` laissait passer `undefined`, qui n'est pas `null`.
+ */
+describe('🔴🔴 ② un écran qui ne tombe plus en effaçant la recherche', () => {
+  const src = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
+
+  it('🔴🔴 le champ dit qu’il peut manquer, et l’état le normalise', () => {
+    expect(src).toContain('comptes?: ComptesBoite | null;');
+    expect(src).toContain('comptes: r.comptes ?? null,');
+  });
+
+  /**
+   * 🔴 ET UNE LECTURE QUI N'ABOUTIT PAS SE DIT. Arno : « une requête qui échoue affiche un message, jamais un
+   * écran figé. » La cause première (41,7 s) est corrigée ; ce plafond est ce qui empêche qu'un réseau muet
+   * laisse « Chargement de la boîte… » pour toujours.
+   */
+  it('🔴 une lecture trop longue est coupée, et le motif le DIT', () => {
+    expect(src).toContain('export const DELAI_MAX_LECTURE_MS');
+    expect(src).toContain('AbortSignal.timeout(DELAI_MAX_LECTURE_MS)');
+    expect(src).toContain('Lecture interrompue : elle a pris trop de temps. Réessayez.');
+    // ⚠️ ET LES DEUX MOTIFS RESTENT DISTINCTS : un serveur muet se réessaie, une lecture trop longue se signale.
+    expect(src).toContain('Lecture impossible : le serveur n’a pas répondu.');
+  });
+});
