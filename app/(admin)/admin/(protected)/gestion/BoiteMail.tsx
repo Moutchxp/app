@@ -105,11 +105,6 @@ export function basculerListe(
   return LISTES_TOUTES.filter((l) => voulues.has(l));
 }
 
-/** Le mot qui désigne une liste à l'écran. Une seule table, lue par les cases à cocher ET par les résultats. PUR. */
-export function motDeLaListe(l: SorteListe): string {
-  return LISTES_CHERCHABLES.find(([cle]) => cle === l)?.[1] ?? l;
-}
-
 /** Le même critère, dans la forme que comprennent le module pur et la route. PUR. */
 export function enCritereRecherche(c: Critere): CritereRecherche {
   return { saisie: c.q, sansMots: c.sansMots, du: c.du, au: c.au, expediteur: c.de, piece: c.pj, listes: c.listes };
@@ -1043,14 +1038,16 @@ export function BoiteMail({
                     {l.reference && <span className="bte-ref">{l.reference}</span>}
                     {l.sansSuite && <span className="bte-marque">classé sans suite</span>}
                     {l.nbLisibles === 0 && <span className="bte-marque">courrier automatique</span>}
-                    {/* ══ LOT RECHERCHE-AVANCEE — D'OÙ VIENT CE RÉSULTAT ══════════════════════════════════════
-                        Seulement en recherche, et seulement si PLUSIEURS listes sont cochées : avec une seule,
-                        la réponse est déjà écrite dans le panneau et la répéter sur chaque ligne serait du bruit.
-                        C'est le MESSAGE trouvé qui la donne, pas l'échange — une conversation vit à la fois dans
-                        « Réception » et dans « Envoyés ». */}
-                    {cherche && l.provenance !== undefined && critere.listes.length > 1 && (
-                      <span className="bte-marque bte-provenance">{motDeLaListe(l.provenance)}</span>
-                    )}
+                    {/* ══ 🔴🔴 RETIRÉ (lot RECHERCHE-LIGNES, 30/09/2026) — LA MENTION DE CATÉGORIE ═════════════
+                        Le lot RECHERCHE-AVANCEE affichait ici « Réception », « Envoyés »… sur chaque résultat,
+                        « seulement si plusieurs listes sont cochées ». Constat d'Arno : ce mot occupait la place
+                        des repères qu'on cherche vraiment en parcourant une liste — le trombone et la capsule —
+                        et faisait d'un résultat de recherche une ligne d'un autre genre. Demande : « Supprime la
+                        mention de catégorie sur les lignes. Un seul composant de ligne pour toutes les listes. »
+                        🔴 L'INFORMATION N'EST PAS PERDUE POUR AUTANT : le champ `provenance` reste rendu par la
+                        route (il dit de quel côté le message a fait mouche), et le panneau de recherche avancée
+                        continue de dire QUELLES listes sont interrogées. Ce qui disparaît est son affichage sur
+                        la ligne, où il n'avait pas d'équivalent dans les autres listes. */}
                     {/* ══ LOT ENVOI-DIAG — UN MESSAGE DE CET ÉCHANGE N'EST PAS ARRIVÉ ═══════════════════════════
                         🔴 SUR LA LIGNE, pas seulement dans l'échange ouvert : sinon il faudrait ouvrir les 6 580
                         échanges d'Envoyés pour espérer tomber dessus. La marque porte le MOTIF, parce que « échec »
@@ -1420,8 +1417,6 @@ const CSS_BOITE = `
 .bte-case{display:inline-flex;align-items:center;gap:.3rem;font-size:.82rem;color:var(--color-svv-ink);
   min-height:32px;cursor:pointer}
 .bte-avancee-boutons{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
-/* La provenance d'un résultat : discrète, mais un MOT — jamais une couleur seule. */
-.bte-provenance{color:var(--color-svv-muted)}
 .bte-brouillons{margin:0 0 10px;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem}
 .bte-brouillons-titre{margin:0 0 6px;font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}
 .bte-brouillon{display:block;width:100%;text-align:left;padding:.35rem 0;font-size:.85rem;

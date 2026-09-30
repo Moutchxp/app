@@ -16,7 +16,15 @@
  * c'est lui qui interprète les guillemets et les espaces, et il ne peut rien produire d'autre qu'une requête de texte.
  */
 import { query } from '../db/client';
-import { sqlAppartenance, type CurseurBoite, type LigneBoite, type PageBoite } from './boiteRepo';
+/**
+ * 🔴 LOT RECHERCHE-LIGNES — LES FRAGMENTS SONT IMPORTÉS, JAMAIS RECOPIÉS. Arno : « un seul composant de ligne pour
+ * toutes les listes […] pas de copie divergente ». Le composant l'était déjà ; ce lot fait que la DONNÉE l'est
+ * aussi — mêmes jointures, mêmes pièces, mêmes règles, écrites une seule fois dans `boiteRepo`.
+ */
+import {
+  piecesVraiesDesFils, sqlAppartenance, sqlJointureClassement, sqlJointureHorsGestion,
+  type CurseurBoite, type LigneBoite, type PageBoite,
+} from './boiteRepo';
 // LOT BOITE-INTERNE-CORBEILLE — « nous », lu à la MÊME source que la capture et que la boîte.
 import { chargerConfigGestion } from './config';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
@@ -98,6 +106,9 @@ interface LigneDB {
   dernier_sens: string; dernier_le: string; extrait: string | null;
   nb_messages: number; nb_lisibles: number; nb_pieces: number; reference: string | null; sans_suite: boolean;
   provenance: string;
+  /** LOT RECHERCHE-LIGNES — la capsule de statut, lue par les MÊMES jointures que la liste (voir `boiteRepo`). */
+  cl_n: number | null; cl_humain: boolean | null; cl_detail: string | null;
+  hg_marque: boolean | null; hg_motif: string | null;
 }
 
 /**
@@ -261,9 +272,18 @@ export async function chercherDansLeCourrier(
   partenaires: readonly PartenaireInterne[] = [],
   limite = PAGE_RECHERCHE,
 ): Promise<PageRecherche> {
-  const { rechercheTexteDisponible, spamDisponible, corbeilleGmailDisponible } = await import('./schema');
-  const [pleinTexte, spamConnu, corbeilleConnue, config] = await Promise.all([
-    rechercheTexteDisponible(), spamDisponible(), corbeilleGmailDisponible(), chargerConfigGestion()]);
+  /**
+   * 🔴 LOT RECHERCHE-LIGNES — LES DEUX SONDES DE LA CAPSULE VOYAGENT AVEC LA PAGE. Même règle que partout dans le
+   * module : une sonde se pose AVEC la donnée qu'elle conditionne, et une sonde négative ne NOMME pas la table —
+   * la requête est alors mot pour mot celle d'avant la migration, et la ligne n'affiche simplement pas de capsule.
+   */
+  const {
+    rechercheTexteDisponible, spamDisponible, corbeilleGmailDisponible,
+    rattachementsDisponibles, horsGestionDisponible,
+  } = await import('./schema');
+  const [pleinTexte, spamConnu, corbeilleConnue, config, rattachements, horsGestion] = await Promise.all([
+    rechercheTexteDisponible(), spamDisponible(), corbeilleGmailDisponible(), chargerConfigGestion(),
+    rattachementsDisponibles(), horsGestionDisponible()]);
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
 
   const { sql: filtres, params } = conditions(critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue);
@@ -303,9 +323,17 @@ export async function chercherDansLeCourrier(
               WHERE pm.fil_id = t.fil_id)::int AS nb_pieces,
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = t.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
-            (f.etat = 'sans_suite') AS sans_suite
+            (f.etat = 'sans_suite') AS sans_suite,
+            -- LOT RECHERCHE-LIGNES — la capsule de statut, par les MEMES jointures que la liste (voir boiteRepo).
+            --   Constat d'Arno : elle manquait dans les resultats. Ce n'etait pas le composant de ligne, c'etait
+            --   la donnee : la recherche rendait classement=null, donc la ligne n'affichait rien, fidelement.
+            -- ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un litteral gabarit.
+            cl.n AS cl_n, cl.humain AS cl_humain, cl.detail AS cl_detail,
+            ${horsGestion ? 'hg.motif IS NOT NULL AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'}
        FROM trouves t
        JOIN gestion_fil f ON f.id = t.fil_id
+       ${sqlJointureClassement(rattachements, 't')}
+       ${sqlJointureHorsGestion(horsGestion, 't')}
   LEFT JOIN LATERAL (
          SELECT r.de_adresse, r.de_nom FROM gestion_message r
           WHERE r.fil_id = t.fil_id AND r.sens = 'recu'
@@ -326,9 +354,15 @@ export async function chercherDansLeCourrier(
   const filsDeLaPage = gardees.map((r) => Number(r.fil_id));
   // LOT LISTE-GMAIL — les mêmes lignes que la liste, donc les mêmes étoiles : un résultat de recherche et une ligne
   //   de boîte montrent le même échange et ne doivent pas se contredire.
-  const [avis, etoiles] = await Promise.all([
+  /**
+   * 🔴 LOT RECHERCHE-LIGNES — LES PIÈCES SONT LUES COMME DANS LA LISTE, par `piecesVraiesDesFils` : UNE requête
+   * pour toute la page, et surtout la MÊME règle — c'est `trierPieces` qui dit ce qu'est une vraie pièce, pas un
+   * `count(*)` qui compterait les logos de signature. Sans elle, le trombone d'un résultat ne pouvait rien dire.
+   */
+  const [avis, etoiles, piecesDesFils] = await Promise.all([
     nonRemisesDesFils(filsDeLaPage),
     (await import('./etoileRepo')).etoilesDesFils(filsDeLaPage),
+    piecesVraiesDesFils(filsDeLaPage),
   ]);
 
   return {
@@ -359,25 +393,46 @@ export async function chercherDansLeCourrier(
       aPiece: r.nb_pieces > 0,
       nbPieces: r.nb_pieces,
       /**
-       * ⚠️ LOT LECTURE-HTML-FIL-TROMBONE — LA RECHERCHE NE DISTINGUE PAS OÙ EST LA PIÈCE, et le trombone y reste
-       * donc GRIS. Elle rend un RÉSULTAT (le message trouvé), pas une ligne de boîte : la question « la pièce
-       * est-elle sur ce message-là ou ailleurs ? » y demanderait une lecture de plus, pour une liste qu'on
-       * parcourt autrement. `0` se lit « on ne sait pas », et le gris est la direction sûre : il invite à
-       * ouvrir, là où le noir promettrait une pièce sous les yeux.
+       * ══ 🔴🔴 RÉÉCRIT (lot RECHERCHE-LIGNES, 30/09/2026) — ET C'EST UN RENVERSEMENT ═══════════════════════════
+       *
+       * CE QUI ÉTAIT ÉCRIT ICI : « la recherche ne distingue pas où est la pièce, et le trombone y reste donc
+       * GRIS […] la question y demanderait une lecture de plus, pour une liste qu'on parcourt autrement. »
+       * Deux choses étaient fausses. ① Le trombone ne restait pas gris : avec `0` et `0`, `etatTrombone` rend
+       * « aucune » — il n'y avait AUCUN trombone, et l'on ne voyait pas qu'un résultat portait une pièce.
+       * ② La lecture de plus est la même que celle de la liste, pour la même page : une requête, pas trente.
+       *
+       * CONSTAT D'ARNO : « il manque le trombone avec le nombre de pièces ». Les résultats sont des lignes de
+       * courrier comme les autres, et on les parcourt pour les mêmes raisons.
        */
-      piecesDuMessage: 0,
-      piecesAilleurs: 0,
+      piecesDuMessage: piecesDesFils.get(Number(r.fil_id))?.get(Number(r.message_id))?.length ?? 0,
+      piecesAilleurs: [...(piecesDesFils.get(Number(r.fil_id)) ?? new Map<number, unknown[]>()).entries()]
+        .filter(([msg]) => msg !== Number(r.message_id))
+        .reduce((n, [, liste]) => n + liste.length, 0),
       reference: r.reference,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
       etoilee: etoiles.has(Number(r.fil_id)),
       /**
-       * LOT CAPSULE-STATUT — PAS DE CAPSULE DANS LES RÉSULTATS DE RECHERCHE, et c'est un choix. La recherche
-       * traverse toutes les listes, y compris les brouillons et le spam, où la capsule n'a pas de sens (demande
-       * d'Arno : « pas dans Brouillons ni Spam »). Lui ajouter une jointure la ralentirait pour une information
-       * qu'on ne saurait pas toujours afficher. `null` se lit « non chargé ici », pas « à classer ».
+       * ══ 🔴🔴 RÉÉCRIT (lot RECHERCHE-LIGNES, 30/09/2026) ═══════════════════════════════════════════════════════
+       *
+       * CE QUI ÉTAIT ÉCRIT ICI : « pas de capsule dans les résultats de recherche, et c'est un choix […] la
+       * recherche traverse toutes les listes, y compris les brouillons et le spam, où la capsule n'a pas de
+       * sens ». Le raisonnement confondait deux choses : les BROUILLONS sont cherchés à part et rendus par un
+       * autre bloc (`chercherDansLesBrouillons`) — ils ne passent jamais par ici ; et le spam reste du courrier,
+       * dont on veut justement savoir s'il a été classé.
+       *
+       * CONSTAT D'ARNO : « il manque […] la capsule de statut (À classer / Auto / Classé / Hors gestion) ». La
+       * capsule se lit maintenant par les MÊMES jointures que la liste, à quoi s'ajoute `horsGestion`, sans quoi
+       * un mail marqué « ne concerne aucun bien » serait annoncé « à classer » dans les seuls résultats.
+       *
+       * ⚠️ `null` GARDE SON SENS : sans la migration 257, il n'y a pas de capsule du tout — jamais une capsule
+       * rouge qui accuserait à tort.
        */
-      classement: null,
+      classement: r.cl_n === null && r.cl_humain === null && r.cl_detail === null
+        ? null
+        : { nbActifs: r.cl_n ?? 0, parUnHumain: r.cl_humain === true, detail: r.cl_detail },
+      horsGestion: r.hg_marque === true,
+      motifHorsGestion: r.hg_motif,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     total: null, // compter TOUS les résultats coûterait le prix de la recherche une seconde fois, pour un chiffre

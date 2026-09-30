@@ -386,6 +386,77 @@ export function sqlAppartenance(alias: string, sens: 'recu' | 'envoye', rangAdre
   return `(${alias}.sens = 'recu' OR ${sqlNousEstAdresse(alias, rangAdresse)})`;
 }
 
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RECHERCHE-LIGNES — LES FRAGMENTS QUE LA LISTE ET LA RECHERCHE PARTAGENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   Constat d'Arno : dans les résultats de recherche, « il manque le trombone avec le nombre de pièces et la capsule
+   de statut ». Le COMPOSANT de ligne était pourtant déjà le même — c'est la DONNÉE qui différait : la recherche
+   rendait piecesDuMessage: 0, piecesAilleurs: 0 et classement: null, si bien que la ligne affichait fidèlement…
+   rien.
+
+   🔴 D'OÙ CES FRAGMENTS. Les recopier dans la requête de recherche aurait donné deux écritures de la même règle —
+   « qu'est-ce qu'un échange classé ? », « qu'est-ce qu'un mail hors gestion ? » — qui auraient fini par ne plus
+   dire la même chose, et l'on aurait cherché longtemps laquelle a raison. Une seule écriture, deux emplois.
+
+   ⚠️ L'ALIAS EST UN PARAMÈTRE : les deux requêtes ne nomment pas leur CTE pareil (page ici, trouves dans la
+   recherche). Rien d'autre ne change.
+   ⚠️ SONDE ABSENTE ⇒ CHAÎNE VIDE : la table n'est alors NOMMÉE NULLE PART, et la requête est mot pour mot celle
+   d'avant la migration. C'est la règle du module.
+*/
+
+/**
+ * ══ 🔴 LOT CAPSULE-STATUT — LE STATUT DANS LA MÊME REQUÊTE, PAS UNE PAR LIGNE ═════════════════════════════════
+ * Une jointure LATÉRALE sur les 30 lignes de la page, et rien de plus. Trente requêtes — une par ligne — se
+ * verraient à l'écran ; c'est la règle du module depuis le bandeau « Rattaché à » de la conversation.
+ *
+ * ⚠️ ON NE COMPTE QUE LES RATTACHEMENTS `confirme`, ET SEULEMENT VERS UN LOGEMENT OU UN PROPRIÉTAIRE. Une
+ * PROPOSITION que personne n'a validée laisse l'échange « à classer » — c'est exactement ce qu'il est. Les
+ * rattachements vers un ÉVÉNEMENT ne comptent pas non plus : c'est l'autre question, celle de la colonne de
+ * gauche (mesuré le 27/09 : 474 échanges sans événement, 9 631 sans rattachement — deux nombres distincts).
+ *
+ * ⚠️ « À LA MAIN » = origine manuelle OU statut touché par quelqu'un. Les deux chemins mènent au même fait : un
+ * humain a tranché. Ne regarder que `origine` raterait toutes les propositions confirmées d'un clic.
+ *
+ * ⚠️ Sans la migration 257, la table n'est NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant.
+ */
+export function sqlJointureClassement(rattachements: boolean, alias: string): string {
+  return !rattachements ? '' : `LEFT JOIN LATERAL (
+         SELECT count(*)::int AS n,
+                bool_or(r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL) AS humain,
+                string_agg(
+                  coalesce(nullif(btrim(r.cible_libelle), ''), r.cible_cle, 'cible ' || r.cible_id::text)
+                  || CASE WHEN r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL
+                          THEN ' — à la main' ELSE ' — automatique' END,
+                  ' · ' ORDER BY r.id) AS detail
+           FROM gestion_rattachement r
+           JOIN gestion_message rm ON rm.id = r.message_id
+          WHERE rm.fil_id = ${alias}.fil_id AND r.statut = 'confirme'
+            AND r.cible_sorte IN ('lot', 'proprietaire')
+       ) cl ON true`;
+}
+
+/**
+ * ══ 🔴 LOT STATUT-HORS-GESTION — « CE MAIL NE CONCERNE AUCUN BIEN » ══════════════════════════════════════════
+ * La marque est posée SUR UN MAIL, et la ligne de liste EST un mail (celui que `page` a retenu, lot
+ * MESSAGE-CLIQUÉ) : on la lit donc sur `p.message_id`, pas sur tout l'échange. Griser une conversation entière
+ * parce qu'un seul de ses douze mails est une prospection dirait le contraire de ce que quelqu'un a décidé.
+ *
+ * ⚠️ ELLE NE L'EMPORTE JAMAIS SUR UN RATTACHEMENT : c'est `capsuleStatut` (module PUR) qui tranche, et la
+ * priorité y est Classé > Auto > Hors gestion > À classer. Cette jointure ne fait que RAPPORTER le fait.
+ *
+ * ⚠️ Sans la migration 266, la table n'est NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant.
+ */
+export function sqlJointureHorsGestion(horsGestion: boolean, alias: string): string {
+  return !horsGestion ? '' : `LEFT JOIN LATERAL (
+         SELECT h.motif
+           FROM gestion_hors_gestion h
+          WHERE h.message_id = ${alias}.message_id AND h.retire_le IS NULL
+          LIMIT 1
+       ) hg ON true`;
+}
+
 /**
  * NOTRE ADRESSE, telle que la relève la connaît. `gestion_config.adresse_gestion` et RIEN D'AUTRE.
  *
@@ -610,52 +681,8 @@ export function sqlPageBoite(
   // LOT FILTRE-ETOILE — posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des messages. Le prédicat
   //   « dernier de son sens » n'a donc pas à en tenir compte.
   const filtreEtoile = etoilesSeules ? `AND ${sqlEtoile(etoileGmail)}` : '';
-  /**
-   * ══ 🔴 LOT CAPSULE-STATUT — LE STATUT DANS LA MÊME REQUÊTE, PAS UNE PAR LIGNE ═════════════════════════════════
-   * Une jointure LATÉRALE sur les 30 lignes de la page, et rien de plus. Trente requêtes — une par ligne — se
-   * verraient à l'écran ; c'est la règle du module depuis le bandeau « Rattaché à » de la conversation.
-   *
-   * ⚠️ ON NE COMPTE QUE LES RATTACHEMENTS `confirme`, ET SEULEMENT VERS UN LOGEMENT OU UN PROPRIÉTAIRE. Une
-   * PROPOSITION que personne n'a validée laisse l'échange « à classer » — c'est exactement ce qu'il est. Les
-   * rattachements vers un ÉVÉNEMENT ne comptent pas non plus : c'est l'autre question, celle de la colonne de
-   * gauche (mesuré le 27/09 : 474 échanges sans événement, 9 631 sans rattachement — deux nombres distincts).
-   *
-   * ⚠️ « À LA MAIN » = origine manuelle OU statut touché par quelqu'un. Les deux chemins mènent au même fait : un
-   * humain a tranché. Ne regarder que `origine` raterait toutes les propositions confirmées d'un clic.
-   *
-   * ⚠️ Sans la migration 257, la table n'est NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant.
-   */
-  const jointureClassement = !rattachements ? '' : `LEFT JOIN LATERAL (
-         SELECT count(*)::int AS n,
-                bool_or(r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL) AS humain,
-                string_agg(
-                  coalesce(nullif(btrim(r.cible_libelle), ''), r.cible_cle, 'cible ' || r.cible_id::text)
-                  || CASE WHEN r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL
-                          THEN ' — à la main' ELSE ' — automatique' END,
-                  ' · ' ORDER BY r.id) AS detail
-           FROM gestion_rattachement r
-           JOIN gestion_message rm ON rm.id = r.message_id
-          WHERE rm.fil_id = p.fil_id AND r.statut = 'confirme'
-            AND r.cible_sorte IN ('lot', 'proprietaire')
-       ) cl ON true`;
-
-  /**
-   * ══ 🔴 LOT STATUT-HORS-GESTION — « CE MAIL NE CONCERNE AUCUN BIEN » ══════════════════════════════════════════
-   * La marque est posée SUR UN MAIL, et la ligne de liste EST un mail (celui que `page` a retenu, lot
-   * MESSAGE-CLIQUÉ) : on la lit donc sur `p.message_id`, pas sur tout l'échange. Griser une conversation entière
-   * parce qu'un seul de ses douze mails est une prospection dirait le contraire de ce que quelqu'un a décidé.
-   *
-   * ⚠️ ELLE NE L'EMPORTE JAMAIS SUR UN RATTACHEMENT : c'est `capsuleStatut` (module PUR) qui tranche, et la
-   * priorité y est Classé > Auto > Hors gestion > À classer. Cette jointure ne fait que RAPPORTER le fait.
-   *
-   * ⚠️ Sans la migration 266, la table n'est NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant.
-   */
-  const jointureHorsGestion = !horsGestion ? '' : `LEFT JOIN LATERAL (
-         SELECT h.motif
-           FROM gestion_hors_gestion h
-          WHERE h.message_id = p.message_id AND h.retire_le IS NULL
-          LIMIT 1
-       ) hg ON true`;
+  const jointureClassement = sqlJointureClassement(rattachements, 'p');
+  const jointureHorsGestion = sqlJointureHorsGestion(horsGestion, 'p');
 
   const estSpam = spam && etiquette.sorte !== 'spam';
   const filtreSpamM = estSpam ? 'AND m.spam_le IS NULL' : '';
@@ -958,7 +985,7 @@ export async function lireBoiteMail(
  * base (mesuré : 0), et c'est justement pour cela qu'on l'écrit maintenant — le jour où il y en aura, personne
  * n'y repensera.
  */
-async function piecesVraiesDesFils(
+export async function piecesVraiesDesFils(
   filIds: readonly number[],
 ): Promise<Map<number, Map<number, PieceATrier[]>>> {
   const parFil = new Map<number, Map<number, PieceATrier[]>>();

@@ -30,10 +30,19 @@ vi.mock('./schema', () => ({
    * ce lot. Les deux sources ne sont JAMAIS lues ensemble — c'est l'une OU l'autre.
    */
   etoileGmailDisponible: async () => false,
+  /**
+   * 🔴 LOT RECHERCHE-LIGNES — LES DEUX SONDES DE LA CAPSULE, absentes par défaut : les assertions de ce fichier
+   * portent donc sur le SQL d'avant ce lot, mot pour mot. Les cas où elles sont là sont éprouvés en les posant
+   * explicitement — c'est la convention de ce fichier depuis le spam et l'étoile.
+   */
+  rattachementsDisponibles: async () => rattachementsConnus,
+  horsGestionDisponible: async () => horsGestionConnu,
 }));
 
 let pleinTexte = true;
 let spamConnu = false;
+let rattachementsConnus = false;
+let horsGestionConnu = false;
 
 import { chercherDansLeCourrier, conditions, decouperTermes, rechercheUtile, EXPRESSION_INDEXEE } from './rechercheBoite';
 
@@ -45,7 +54,11 @@ const repond = (lignes: unknown[] = []) => {
     (String(sql).includes('count(DISTINCT') ? { rows: [{ n: 0 }] } : { rows: lignes }));
 };
 
-beforeEach(() => { pleinTexte = true; spamConnu = false; queryMock.mockReset(); });
+beforeEach(() => {
+  pleinTexte = true; spamConnu = false;
+  rattachementsConnus = false; horsGestionConnu = false;
+  queryMock.mockReset();
+});
 
 describe('① découper la saisie, comme une messagerie', () => {
   it('plusieurs mots → plusieurs termes, tous exigés', () => {
@@ -218,6 +231,88 @@ describe('un résultat = UN ÉCHANGE, pas un message', () => {
     expect(p.lignes[0].filId).toBe(4242);
     expect(typeof p.lignes[0].filId).toBe('number');
     expect(p.lignes[0].messageTrouveId).toBe(7);
+  });
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT RECHERCHE-LIGNES — UN RÉSULTAT EST UNE LIGNE DE COURRIER COMME LES AUTRES
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * 🔴🔴 LE DÉFAUT D'ARNO, ÉPROUVÉ LÀ OÙ IL NAISSAIT. « Il manque le trombone avec le nombre de pièces et la
+   * capsule de statut. » Le composant de ligne était pourtant le même depuis toujours : ce sont ces trois
+   * valeurs-là que la recherche rendait en dur — `piecesDuMessage: 0`, `piecesAilleurs: 0`, `classement: null` —
+   * si bien que la ligne affichait fidèlement… rien.
+   *
+   * ⚠️ AVEC `0` ET `0`, IL N'Y AVAIT MÊME PAS DE TROMBONE GRIS : `etatTrombone(0, 0)` rend « aucune ». Le
+   * commentaire d'alors annonçait un trombone gris ; l'écran n'en montrait aucun.
+   */
+  it('🔴 un résultat porte ses PIÈCES, comme une ligne de liste', async () => {
+    queryMock.mockReset();
+    queryMock.mockImplementation(async (sql: string) => {
+      const q = String(sql);
+      if (q.includes('count(DISTINCT')) return { rows: [{ n: 0 }] };
+      // La lecture des pièces, partagée avec la liste : deux pièces sur le message trouvé, une ailleurs.
+      if (q.includes('FROM gestion_piece p')) {
+        return { rows: [
+          { fil_id: '4242', message_id: '7', nom_fichier: 'bail.pdf', type_mime: 'application/pdf', taille_octets: '90000' },
+          { fil_id: '4242', message_id: '7', nom_fichier: 'edl.pdf', type_mime: 'application/pdf', taille_octets: '80000' },
+          { fil_id: '4242', message_id: '9', nom_fichier: 'quittance.pdf', type_mime: 'application/pdf', taille_octets: '70000' },
+        ] };
+      }
+      return { rows: [{
+        fil_id: '4242', message_id: 7, objet: 'Fuite', objet_trouve: 'Re: Fuite',
+        interlocuteur: 'Mme M.', interlocuteur_adresse: 'm@x.fr', dernier_sens: 'recu',
+        dernier_le: '2026-09-20T08:00:00Z', extrait: 'bonjour', nb_messages: 3, nb_lisibles: 3,
+        nb_pieces: 3, reference: null, sans_suite: false,
+      }] };
+    });
+    const p = await chercherDansLeCourrier({ saisie: 'fuite' }, null, []);
+    expect(p.lignes[0].piecesDuMessage).toBe(2);
+    expect(p.lignes[0].piecesAilleurs).toBe(1);
+  });
+
+  /**
+   * 🔴 LA CAPSULE VIENT DES MÊMES JOINTURES QUE LA LISTE — importées, jamais recopiées : deux écritures de
+   * « qu'est-ce qu'un échange classé ? » finiraient par ne plus dire la même chose.
+   */
+  it('🔴 un résultat porte sa CAPSULE de statut', async () => {
+    rattachementsConnus = true;
+    horsGestionConnu = true;
+    repond([{
+      fil_id: '4242', message_id: 7, objet: 'Fuite', objet_trouve: 'Re: Fuite',
+      interlocuteur: 'Mme M.', interlocuteur_adresse: 'm@x.fr', dernier_sens: 'recu',
+      dernier_le: '2026-09-20T08:00:00Z', extrait: 'bonjour', nb_messages: 3, nb_lisibles: 3,
+      nb_pieces: 0, reference: null, sans_suite: false,
+      cl_n: 1, cl_humain: true, cl_detail: 'lot 219 — à la main',
+      hg_marque: false, hg_motif: null,
+    }]);
+    const p = await chercherDansLeCourrier({ saisie: 'fuite' }, null, []);
+    expect(p.lignes[0].classement).toEqual({ nbActifs: 1, parUnHumain: true, detail: 'lot 219 — à la main' });
+    expect(p.lignes[0].horsGestion).toBe(false);
+    // Et les jointures sont bien celles de la liste : le SQL les porte.
+    const sql = sqlPage().replace(/\s+/g, ' ');
+    expect(sql).toContain('cl.n AS cl_n');
+    expect(sql).toContain('gestion_rattachement r');
+    expect(sql).toContain('gestion_hors_gestion h');
+  });
+
+  /**
+   * ⚠️ SANS LES MIGRATIONS, RIEN N'EST INVENTÉ — et les tables ne sont NOMMÉES NULLE PART : la requête est mot
+   * pour mot celle d'avant, et la ligne n'affiche simplement pas de capsule. `null` se lit « je ne sais pas »,
+   * jamais « à classer ».
+   */
+  it('🔴 sonde absente ⇒ aucune capsule, et aucune table nommée', async () => {
+    repond([{
+      fil_id: '4242', message_id: 7, objet: 'Fuite', objet_trouve: null,
+      interlocuteur: 'Mme M.', interlocuteur_adresse: 'm@x.fr', dernier_sens: 'recu',
+      dernier_le: '2026-09-20T08:00:00Z', extrait: 'bonjour', nb_messages: 1, nb_lisibles: 1,
+      nb_pieces: 0, reference: null, sans_suite: false,
+      cl_n: null, cl_humain: null, cl_detail: null, hg_marque: null, hg_motif: null,
+    }]);
+    const p = await chercherDansLeCourrier({ saisie: 'fuite' }, null, []);
+    expect(p.lignes[0].classement).toBeNull();
+    expect(sqlPage()).not.toContain('gestion_rattachement');
+    expect(sqlPage()).not.toContain('gestion_hors_gestion');
   });
 
   it('recherche sans résultat : une page vide, aucune erreur', async () => {
