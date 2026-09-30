@@ -8,6 +8,8 @@ import {
 // 🔴 LOT DRIVE-UNIQUE — UNE SEULE FENÊTRE DRIVE, PARTOUT. Le panneau en ligne qui vivait ici est remplacé par la
 //    fenêtre façon Finder, ouverte en mode « ranger ». Aucune de ses fonctions n'est perdue : le dernier dossier de
 //    l'échange, les dossiers récents datés et « Déposer ici » y sont, dans la barre latérale et dans le pied.
+// 🔴 LOT PIECES-DE-LA-CONVERSATION — la MÊME fonction pure que la visionneuse : elle décide qui entre dans le tour.
+import { sorteApercu } from '../../../../lib/gestion/apercuDrive';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
 import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
 
@@ -44,12 +46,28 @@ export interface DepotAffiche {
 /** Ce que le clic sur un bouton Drive demande : une pièce, ou tout le message. */
 export type Demande = { quoi: 'piece'; pieceId: number; nom: string } | { quoi: 'message' };
 
-export function PiecesJointes({ messageId, filId, vraies, signatures }: {
+export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualiser }: {
   messageId: number;
   /** Sert à rouvrir le sélecteur sur le dernier dossier utilisé pour CET échange. */
   filId?: number | null;
   vraies: PieceAffichee[];
   signatures: PieceAffichee[];
+  /**
+   * ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LA VIGNETTE OUVRE LA VISIONNEUSE MAISON ═══════════════════════════
+   *
+   * Arno : « côté MAIL (pièces d'un message, modale de récapitulatif, carte “N pièces jointes”), les boutons
+   * ◀ Précédent / Suivant ▶ et les flèches ← → parcourent TOUTES les pièces de la conversation. »
+   *
+   * 🔴 C'EST LA CONVERSATION QUI TIENT LA VISIONNEUSE, et c'est la seule façon d'y parvenir : le tour couvre les
+   * pièces de TOUS les messages, et ce bloc-ci n'en connaît qu'un. Il se contente donc de DEMANDER l'ouverture.
+   *
+   * ⚠️ ABSENT ⇒ LE COMPORTEMENT D'AVANT CE LOT, MOT POUR MOT : la vignette est un lien qui ouvre le fichier dans
+   * un nouvel onglet. C'est le cas des écrans qui affichent des messages venus de PLUSIEURS échanges (l'historique
+   * d'une cible, la vie d'un bien) : il n'y a pas là de « conversation » dont on pourrait faire le tour, et
+   * inventer un tour qui sauterait d'un échange à un autre ferait passer, sans prévenir, du bail d'un logement à
+   * la pièce d'identité d'un autre client.
+   */
+  onVisualiser?: (pieceId: number) => void;
 }) {
   const [depots, setDepots] = useState<DepotAffiche[]>([]);
   const [demande, setDemande] = useState<Demande | null>(null);
@@ -99,7 +117,7 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
       {vraies.length > 0 && (
         <BlocPieces
           messageId={messageId} pieces={vraies} depotDe={depotDe} indisponible={empeche}
-          onDrive={(d) => setDemande(d)}
+          onDrive={(d) => setDemande(d)} onVisualiser={onVisualiser}
         />
       )}
       {/* Les images de signature restent À PART et repliées : elles ne doivent pas noyer les vraies pièces (lot 4d-C). */}
@@ -108,6 +126,9 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
           <summary className="pj-signatures-titre">
             {signatures.length} image{signatures.length > 1 ? 's' : ''} de signature
           </summary>
+          {/* ⚠️ LES SIGNATURES N'ENTRENT PAS DANS LE TOUR DE LA CONVERSATION (elles n'y sont pas comptées) : leur
+              vignette garde donc le lien d'avant, et ouvre l'image dans un onglet. Lui donner la visionneuse
+              l'aurait posée sur une pièce absente du tour — compteur « 0 / 7 » sur une image bien affichée. */}
           <BlocPieces
             messageId={messageId} pieces={signatures} archive={false} depotDe={depotDe} indisponible={empeche}
             onDrive={(d) => setDemande(d)}
@@ -174,12 +195,13 @@ export function aRanger(d: Demande, vraies: PieceAffichee[], signatures: PieceAf
   }));
 }
 
-function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, onDrive }: {
+function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, onDrive, onVisualiser }: {
   messageId: number; pieces: PieceAffichee[]; archive?: boolean;
   depotDe: (pieceId: number) => DepotAffiche | undefined;
   /** `null` = les boutons Drive agissent. Sinon, le MOTIF, affiché tel quel : c'est un constat, pas un geste. */
   indisponible: string | null;
   onDrive: (d: Demande) => void;
+  onVisualiser?: (pieceId: number) => void;
 }) {
   const dispo = pieces.filter((p) => p.disponible);
   const refusees = pieces.filter((p) => !p.disponible);
@@ -221,6 +243,7 @@ function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, 
           <CartePiece
             key={p.pieceId} piece={p} depot={depotDe(p.pieceId)} indisponible={indisponible}
             onDrive={() => onDrive({ quoi: 'piece', pieceId: p.pieceId, nom: p.nomFichier })}
+            onVisualiser={onVisualiser}
           />
         ))}
       </ul>
@@ -248,8 +271,9 @@ function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, 
  * `loading="lazy"` + dimensions réservées : vingt pièces ne déclenchent pas vingt requêtes au chargement, et la page
  * ne saute pas quand les images arrivent.
  */
-function CartePiece({ piece: p, depot, indisponible, onDrive }: {
+function CartePiece({ piece: p, depot, indisponible, onDrive, onVisualiser }: {
   piece: PieceAffichee; depot: DepotAffiche | undefined; indisponible: string | null; onDrive: () => void;
+  onVisualiser?: (pieceId: number) => void;
 }) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
   const [vignetteMorte, setVignetteMorte] = useState(false);
@@ -259,32 +283,65 @@ function CartePiece({ piece: p, depot, indisponible, onDrive }: {
   // Un PDF et une image s'OUVRENT (nouvel onglet) ; tout le reste se TÉLÉCHARGE — ouvrir un .xml dans un onglet
   //   n'apprend rien, et ouvrir un type inconnu revient à laisser le navigateur décider quoi en faire.
   const ouvrable = sorte !== 'autre';
+  /**
+   * ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LA VIGNETTE OUVRE LA VISIONNEUSE MAISON ═══════════════════════════
+   *
+   * 🔴 LA MÊME QUE PARTOUT AILLEURS : miniatures de pages, priorité à la page 1, « Précédent / Suivant » sur
+   * TOUTE la conversation, « Ranger dans le Drive » dans son pied. Le nouvel onglet ouvrait le lecteur PDF du
+   * navigateur, qui ne sait rien de tout cela — et qui attend le fichier entier avant le premier pixel.
+   *
+   * ⚠️ LA CONDITION EST `sorteApercu`, ET NON `sortePiece` : c'est elle qui décide de l'entrée dans le TOUR
+   * (`voisinsVisualisables`). Les deux listes diffèrent — un .txt a un aperçu et pas de miniature — et se fier à
+   * la mauvaise aurait posé la visionneuse sur une pièce absente du tour, donc un compteur « 0 / 7 ».
+   *
+   * ⚠️ SANS RAPPEL, RIEN NE CHANGE : le lien d'avant, vers un nouvel onglet.
+   */
+  const voirIci = onVisualiser !== undefined && sorteApercu(p.typeMime ?? '') !== 'aucun';
 
   return (
     <li className="pj-carte">
-      <a
-        className="pj-apercu"
-        href={ouvrable ? lien : `${lien}?telecharger=1`}
-        {...(ouvrable ? { target: '_blank', rel: 'noreferrer' } : {})}
-        aria-label={`${ouvrable ? 'Ouvrir' : 'Télécharger'} ${p.nomFichier} (${etiquette}, ${formaterTaille(p.tailleOctets)})`}
-      >
-        {avecVignette ? (
-          // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
-          <img
-            className="pj-vignette"
-            src={`${lien}/miniature`}
-            alt=""
-            height={VIGNETTE_H}
-            loading="lazy"
-            decoding="async"
-            // Pas de vignette (migration 244 non appliquée, type sans image, fichier illisible) : on retombe sur
-            //   l'étiquette de type, sans jamais laisser une image cassée à l'écran.
-            onError={() => setVignetteMorte(true)}
-          />
-        ) : (
-          <span className="pj-type" aria-hidden="true">{etiquette}</span>
-        )}
-      </a>
+      {voirIci ? (
+        <button
+          type="button"
+          className="pj-apercu pj-apercu--bouton"
+          onClick={() => onVisualiser?.(p.pieceId)}
+          aria-label={`Visualiser ${p.nomFichier} (${etiquette}, ${formaterTaille(p.tailleOctets)})`}
+        >
+          {avecVignette ? (
+            // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
+            <img
+              className="pj-vignette" src={`${lien}/miniature`} alt="" height={VIGNETTE_H}
+              loading="lazy" decoding="async" onError={() => setVignetteMorte(true)}
+            />
+          ) : (
+            <span className="pj-type" aria-hidden="true">{etiquette}</span>
+          )}
+        </button>
+      ) : (
+        <a
+          className="pj-apercu"
+          href={ouvrable ? lien : `${lien}?telecharger=1`}
+          {...(ouvrable ? { target: '_blank', rel: 'noreferrer' } : {})}
+          aria-label={`${ouvrable ? 'Ouvrir' : 'Télécharger'} ${p.nomFichier} (${etiquette}, ${formaterTaille(p.tailleOctets)})`}
+        >
+          {avecVignette ? (
+            // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
+            <img
+              className="pj-vignette"
+              src={`${lien}/miniature`}
+              alt=""
+              height={VIGNETTE_H}
+              loading="lazy"
+              decoding="async"
+              // Pas de vignette (migration 244 non appliquée, type sans image, fichier illisible) : on retombe sur
+              //   l'étiquette de type, sans jamais laisser une image cassée à l'écran.
+              onError={() => setVignetteMorte(true)}
+            />
+          ) : (
+            <span className="pj-type" aria-hidden="true">{etiquette}</span>
+          )}
+        </a>
+      )}
 
       <div className="pj-pied">
         <span className="pj-nom" title={p.nomFichier}>{tronquerNom(p.nomFichier)}</span>
@@ -352,6 +409,10 @@ export const CSS_PIECES = `
 .pj-apercu{display:flex;align-items:center;justify-content:center;height:${VIGNETTE_H}px;
   background:var(--color-svv-field);border-bottom:1px solid var(--color-svv-line);text-decoration:none;overflow:hidden}
 .pj-apercu:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* LOT PIECES-DE-LA-CONVERSATION — la MEME case, en bouton : elle ouvre la visionneuse maison au lieu d'un onglet.
+   Aucun style propre, seulement ce qu'un <button> apporte de son cru et qu'il faut neutraliser. */
+.pj-apercu--bouton{width:100%;padding:0;font:inherit;cursor:pointer;
+  border:0;border-bottom:1px solid var(--color-svv-line)}
 /* ══ 🔴 LOT LISTE-GMAIL — LA VIGNETTE REMPLIT SON CADRE, RECADRÉE PAR LE HAUT ════════════════════════════════════
    object-fit:contain laissait des bandes vides à gauche et à droite d'une page A4 : la carte annonçait une image, on
    voyait surtout du fond. cover remplit les deux dimensions, et object-position:top choisit CE QU'ON GARDE — le HAUT

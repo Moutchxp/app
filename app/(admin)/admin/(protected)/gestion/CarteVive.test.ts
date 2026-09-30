@@ -184,12 +184,33 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
     await cliquer(boutonPar(/^Tout déplier$/));
   };
 
-  it('le lien d’une pièce pointe vers l’application, JAMAIS vers le stockage', async () => {
+  /**
+   * ══ ⚠️ RÉÉCRIT PAR LE LOT PIECES-DE-LA-CONVERSATION (30/09/2026) ═══════════════════════════════════════════
+   *
+   * CE QU'IL EXIGEAIT : que la CONSULTATION d'une pièce soit un LIEN, vers `/api/admin/gestion/pieces/7` —
+   *     const piece = liens().find((a) => (a.getAttribute('aria-label') ?? '').includes('constat.pdf'));
+   *     expect(piece?.getAttribute('href')).toBe('/api/admin/gestion/pieces/7');
+   *
+   * POURQUOI C'ÉTAIT VRAI : la vignette ouvrait la pièce dans un NOUVEL ONGLET, donc par un lien.
+   *
+   * POURQUOI ÇA NE VAUT PLUS : Arno a demandé que la visionneuse maison s'ouvre côté courrier, avec les
+   * miniatures de pages, la priorité à la page 1, et « Précédent / Suivant » sur TOUTE la conversation. La
+   * vignette est donc devenue un BOUTON — un lien ne peut pas ouvrir une fenêtre dans la page. Le nouvel onglet
+   * ne savait rien de tout cela, et son lecteur PDF attend le fichier entier avant le premier pixel.
+   *
+   * 🔴 LA PROPRIÉTÉ GARDÉE EST LA MÊME, ET C'EST ELLE QUI COMPTE : aucune URL de stockage ne franchit jamais
+   * l'écran, et la consultation reste possible. On l'éprouve donc sur le GESTE (le bouton existe, nommé) et sur
+   * l'ABSENCE d'URL de stockage — non plus sur la nature HTML de l'élément, qui n'était qu'un moyen.
+   */
+  it('AUCUNE URL de stockage à l’écran, et la consultation d’une pièce est offerte', async () => {
     await ouvrirTout();
-    // LOT 5-PJ-A — le nom vit désormais SOUS la vignette ; le lien, lui, se reconnaît à son libellé accessible.
-    const piece = liens().find((a) => (a.getAttribute('aria-label') ?? '').includes('constat.pdf'));
-    expect(piece?.getAttribute('href')).toBe('/api/admin/gestion/pieces/7');
+    // La consultation : un bouton nommé, qui ouvre la visionneuse maison (lot PIECES-DE-LA-CONVERSATION).
+    const voir = boutons().find((b) => (b.getAttribute('aria-label') ?? '').includes('Visualiser constat.pdf'));
+    expect(voir).toBeDefined();
+    // 🔒 ET RIEN, NULLE PART, NE POINTE VERS LE STOCKAGE : c'est l'exigence d'Arno, inchangée depuis le lot 4c.
     for (const a of liens()) expect(a.getAttribute('href') ?? '').not.toMatch(/^https?:|minio|amazonaws|X-Amz/i);
+    // Les octets restent servis par NOTRE route, et par elle seule.
+    expect(liens().some((a) => (a.getAttribute('href') ?? '').startsWith('/api/admin/gestion/pieces/7'))).toBe(true);
   });
 
   it('« Télécharger » est un geste distinct de la consultation, sur la même pièce', async () => {

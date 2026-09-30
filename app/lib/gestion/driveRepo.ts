@@ -56,6 +56,38 @@ export async function lireDepotExistant(pieceId: number, dossierId: string): Pro
 }
 
 /**
+ * ══ 🔴 LOT PIECES-DE-LA-CONVERSATION — LES DÉPÔTS DE TOUT UN ÉCHANGE, EN UNE REQUÊTE ═════════════════════════════
+ *
+ * Le récapitulatif montre les pièces des DOUZE messages d'un échange, et chacune doit dire si elle est déjà dans le
+ * Drive. Relire message par message (`lireDepotsDesPieces` depuis la route d'un message) aurait fait douze
+ * allers-retours pour une fenêtre qui s'ouvre d'un clic — et douze fois la même sonde de schéma.
+ *
+ * ⚠️ MÊME FORME DE RÉPONSE que `lireDepotsDesPieces` : c'est le même objet que l'écran affiche déjà sur la carte
+ * d'une pièce (« Dans le Drive · dossier · ouvrir »). Une seconde forme aurait donné deux mentions à tenir à jour.
+ */
+export async function lireDepotsDuFil(filId: number): Promise<DepotDrive[]> {
+  if (!await depotsDriveDisponibles()) return []; // migration 245 absente : aucun dépôt ne peut exister
+  const { rows } = await query<{
+    piece_id: number; drive_file_id: string; drive_dossier_id: string; dossier_nom: string | null;
+    web_view_link: string | null; depose_le: string; depose_par_libelle: string;
+  }>(
+    `SELECT d.piece_id::int AS piece_id, d.drive_file_id, d.drive_dossier_id, d.dossier_nom, d.web_view_link,
+            to_char(d.depose_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS depose_le,
+            d.depose_par_libelle
+       FROM gestion_piece_drive d
+       JOIN gestion_piece p ON p.id = d.piece_id
+       JOIN gestion_message m ON m.id = p.message_id
+      WHERE m.fil_id = $1
+      ORDER BY d.piece_id, d.depose_le DESC`,
+    [filId],
+  );
+  return rows.map((r) => ({
+    pieceId: r.piece_id, driveFileId: r.drive_file_id, dossierId: r.drive_dossier_id, dossierNom: r.dossier_nom,
+    webViewLink: r.web_view_link, deposeLe: r.depose_le, deposePar: r.depose_par_libelle,
+  }));
+}
+
+/**
  * LE DERNIER DOSSIER UTILISÉ POUR CET ÉCHANGE. Le sélecteur s'ouvre là — dans la vraie vie, les pièces d'un même
  * échange vont presque toujours au même endroit, et redescendre treize niveaux à chaque pièce serait absurde.
  *

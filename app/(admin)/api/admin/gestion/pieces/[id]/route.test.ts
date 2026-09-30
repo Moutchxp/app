@@ -160,6 +160,108 @@ describe('sûreté du fichier servi', () => {
   });
 });
 
+/**
+ * ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LES TRANCHES (`Range`) ════════════════════════════════════════════════════
+ *
+ * CE QUE ÇA REND POSSIBLE, ET QUI NE L'ÉTAIT PAS. Cette route servait TOUJOURS le fichier entier. Deux conséquences
+ * mesurées ailleurs dans le module :
+ *   ① PDF.js attend le document complet avant de peindre le premier pixel (1 117 ms contre 13 646 ms sur un acte de
+ *      3,3 Mo, mesuré côté Drive le 29/09/2026 — c'est le même mécanisme) ;
+ *   ② le préchargement d'un voisin, demandé par Arno « début du fichier seulement », était impossible : il aurait
+ *      tiré douze mégaoctets pour un document que personne ne regarde encore.
+ *
+ * 🔒 UNE TRANCHE N'EST QU'UNE DÉCOUPE DE CE QU'ON AVAIT DÉJÀ LE DROIT DE LIRE : le droit `gestion` est relu au début
+ * de la requête, comme pour toute autre. C'est ce que garde le dernier test de ce bloc.
+ */
+const requeteTranche = (intervalle: string) => new Request('http://local/api/admin/gestion/pieces/7', {
+  headers: { Range: intervalle },
+});
+
+describe('🔴🔴 les tranches : servir le DÉBUT d’une pièce sans servir tout le fichier', () => {
+  beforeEach(() => {
+    // 26 octets, pour que les bornes se lisent à l'œil dans les assertions.
+    stockage.recuperer.mockResolvedValue(Buffer.from('abcdefghijklmnopqrstuvwxyz'));
+  });
+
+  /**
+   * ══ 🔴🔴 ELLE NE L'ANNONCE PAS — ET C'EST MESURÉ, PAS SUPPOSÉ ═══════════════════════════════════════════
+   *
+   * Première écriture de ce lot : `Accept-Ranges: bytes`, pour que PDF.js n'attende plus le fichier entier.
+   * MESURÉ À L'ÉCRAN LE 30/09/2026, sur EDLS.pdf (3 194 577 o, 16 pages), AVEC puis SANS l'en-tête : dans les
+   * deux cas PDF.js émet DEUX requêtes SANS `Range`, pour 4 243 753 octets transférés. Il n'active son mode
+   * « tranches » que si la réponse porte un `Content-Length`, que Next ne met pas sur un flux. L'annoncer ne
+   * change donc AUCUNE requête aujourd'hui — et le jour où ce `Content-Length` apparaîtrait, PDF.js se mettrait
+   * à découper, chaque morceau payant une lecture COMPLÈTE de l'objet chez MinIO (le piège déjà mesuré côté
+   * Drive : « tranches de 128 Kio, 20 requêtes, 13 646 ms — douze fois PIRE », supportable là-bas grâce à la
+   * mémoire courte des octets, que cette route-ci n'a pas).
+   *
+   * 🔴 LA RÈGLE D'ARNO EST « le temps d'ouverture de la page 1 ne doit pas se dégrader ». Un en-tête qui
+   * n'apporte rien et qui peut coûter cher ne se met pas. La tranche reste servie à qui la demande
+   * explicitement — c'est tout ce dont le préchargement d'un voisin a besoin.
+   */
+  it('🔴🔴 la route n’ANNONCE PAS les tranches — elle les sert à qui les demande', async () => {
+    const res = await GET(requete(), ctx('7'));
+    expect(res.headers.get('Accept-Ranges')).toBeNull();
+  });
+
+  it('🔴 un début de fichier est rendu en 206, avec sa position et la taille TOTALE', async () => {
+    const res = await GET(requeteTranche('bytes=0-3'), ctx('7'));
+    expect(res.status).toBe(206);
+    expect(res.headers.get('Content-Range')).toBe('bytes 0-3/26');
+    expect(await res.text()).toBe('abcd');
+  });
+
+  /** ⚠️ `bytes=N-` : depuis un point jusqu'au bout. C'est la forme d'une reprise de téléchargement. */
+  it('une tranche ouverte va jusqu’au bout', async () => {
+    const res = await GET(requeteTranche('bytes=23-'), ctx('7'));
+    expect(res.status).toBe(206);
+    expect(res.headers.get('Content-Range')).toBe('bytes 23-25/26');
+    expect(await res.text()).toBe('xyz');
+  });
+
+  /**
+   * 🔴 `bytes=-N` : les N DERNIERS octets. C'est ainsi que PDF.js va chercher la table d'index, qui est à la FIN
+   * d'un PDF. L'oublier ferait retomber sur le fichier entier à chaque ouverture — donc perdre tout le gain.
+   */
+  it('🔴 les N derniers octets (la table d’index d’un PDF) sont servis', async () => {
+    const res = await GET(requeteTranche('bytes=-4'), ctx('7'));
+    expect(res.status).toBe(206);
+    expect(res.headers.get('Content-Range')).toBe('bytes 22-25/26');
+    expect(await res.text()).toBe('wxyz');
+  });
+
+  /**
+   * 🔴🔴 UNE DEMANDE ILLISIBLE OU HORS BORNES REND LE FICHIER ENTIER, JAMAIS UNE ERREUR — c'est le comportement
+   * d'avant ce lot, et c'est ce qui garantit que rien ne peut casser : au pire, on retombe exactement sur l'ancien.
+   */
+  it('🔴 une demande illisible ou hors bornes rend le fichier ENTIER (200)', async () => {
+    // ⚠️ Un en-tête HTTP ne transporte que des octets : les valeurs d'épreuve restent en pur ASCII.
+    for (const mauvaise of ['bytes=nimporte quoi', 'lignes=0-10', 'bytes=-', 'bytes=99-', 'bytes=5-2']) {
+      const res = await GET(requeteTranche(mauvaise), ctx('7'));
+      expect(res.status, mauvaise).toBe(200);
+      expect(res.headers.get('Content-Range'), mauvaise).toBeNull();
+      expect(await res.text(), mauvaise).toHaveLength(26);
+    }
+  });
+
+  it('une tranche garde le type, le nom et `private, no-store`', async () => {
+    const res = await GET(requeteTranche('bytes=0-3'), ctx('7'));
+    expect(res.headers.get('Content-Type')).toBe('application/pdf');
+    expect(res.headers.get('Content-Disposition')).toBe('inline; filename="constat.pdf"');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+  });
+
+  /** 🔒 ET LE DROIT EST RELU AVANT, COMME TOUJOURS : une tranche n'est pas une porte dérobée. */
+  it('🔒 une tranche demandée sans le droit « gestion » n’ouvre AUCUN octet', async () => {
+    gardeMock.mockResolvedValue(new Response('non', { status: 403 }));
+    const res = await GET(requeteTranche('bytes=0-3'), ctx('7'));
+    expect(res.status).toBe(403);
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(stockage.recuperer).not.toHaveBeenCalled();
+  });
+});
+
 describe('ce que le CODE de la route s’interdit, vérifiable', () => {
   const src = readFileSync('app/(admin)/api/admin/gestion/pieces/[id]/route.ts', 'utf8');
   // On lit le CODE, commentaires ôtés : les commentaires de ce fichier DISENT ce qu'il ne fait pas (« aucune URL

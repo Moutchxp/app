@@ -8,6 +8,8 @@ import {
 } from '../../../../../../lib/gestion/pieceDriveLecture';
 // Le nom de fichier selon la RFC 2231, écrit UNE fois pour tout le module (voir `disposition` plus bas).
 import { parametreNomFichier } from '../../../../../../lib/gestion/envoiGmail';
+// 🔴 LOT PIECES-DE-LA-CONVERSATION — la lecture d'un en-tête `Range`, ÉCRITE UNE FOIS (module pur, déjà éprouvé).
+import { lireIntervalle } from '../../../../../../lib/gestion/apercuDrive';
 
 /**
  * /api/admin/gestion/pieces/[id] (lot 4c) — LES OCTETS D'UNE PIÈCE JOINTE, servis PAR L'APPLICATION.
@@ -160,17 +162,66 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
         { status: 503, headers: { 'Cache-Control': CACHE_PRIVE } });
     }
 
-    return new Response(new Uint8Array(octets), {
-      headers: {
-        'Content-Type': piece.typeMime || TYPE_PAR_DEFAUT,
-        'Content-Disposition': disposition(piece.nomFichier, telechargement),
-        'Cache-Control': CACHE_PRIVE,
-        // Le navigateur ne doit pas re-deviner le type : un `.txt` renommé ne devient pas du HTML exécutable.
-        'X-Content-Type-Options': 'nosniff',
-        // D'où viennent les octets. Utile pour éprouver le chemin, et pour comprendre un délai inhabituel.
-        'X-Source-Contenu': (piece.stockageVide || forcerDrive) ? 'drive' : 'stockage',
-      },
-    });
+    /**
+     * ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LES TRANCHES (`Range`), ET POURQUOI ELLES CHANGENT TOUT ═══════════
+     *
+     * Demande d'Arno : « documents voisins préchargés (début du fichier seulement) », et « le temps d'ouverture de
+     * la page 1 ne doit pas se dégrader ».
+     *
+     * 🔴 SANS TRANCHE, « LE DÉBUT DU FICHIER » N'EXISTE PAS. Cette route servait toujours le fichier ENTIER : un
+     * préchargement aurait donc tiré douze mégaoctets pour un document que personne ne regarde encore — l'inverse
+     * de ce qu'on cherche. Avec les tranches, un voisin coûte quelques dizaines de kilo-octets.
+     *
+     * ══ 🔴🔴 ET POURTANT : PAS D'EN-TÊTE `Accept-Ranges`. MESURÉ, PAS SUPPOSÉ ═══════════════════════════════
+     *
+     * ⚠️ UNE TRANCHE NE COÛTE PAS MOINS CHER AU SERVEUR, ICI. Contrairement au Drive — qui sait découper
+     * lui-même, et à qui l'on transmet la demande telle quelle — MinIO nous rend l'objet ENTIER, et l'on en
+     * coupe un morceau. Chaque tranche paie donc une lecture COMPLÈTE du stockage. Une tranche épargne le
+     * TRANSPORT vers le navigateur, jamais la lecture.
+     *
+     * 🔴 CE QUE L'ANNONCE APPORTE AUJOURD'HUI : RIEN. Mesuré à l'écran le 30/09/2026 sur EDLS.pdf (3 194 577 o,
+     * 16 pages), AVEC puis SANS `Accept-Ranges: bytes` : dans les deux cas PDF.js émet DEUX requêtes SANS
+     * en-tête `Range`, pour 4 243 753 octets transférés (le fetch principal, vérifié à la trace, sort en 200
+     * sans tranche). PDF.js n'active son mode « tranches » que si la réponse porte un `Content-Length`, que
+     * Next ne met pas sur un flux. L'annoncer ne change donc pas une requête.
+     *
+     * 🔴 CE QU'ELLE RISQUERAIT DE COÛTER DEMAIN : le jour où ce `Content-Length` apparaît, PDF.js se mettrait à
+     * découper — et chaque morceau paierait une lecture complète du stockage. C'est le piège déjà mesuré côté
+     * Drive (« disableStream: true, tranches de 128 Kio : 20 requêtes, 13 646 ms — douze fois PIRE »), et là-bas
+     * il n'est supportable que grâce à la mémoire courte des octets, que cette route-ci n'a pas.
+     *
+     * 🔴 LA RÈGLE D'ARNO EST « le temps d'ouverture de la page 1 ne doit pas se dégrader ». Un en-tête qui
+     * n'apporte rien et qui peut coûter cher ne se met pas : on ne l'annonce pas.
+     *
+     * ⚠️ ET LA TRANCHE RESTE SERVIE À QUI LA DEMANDE EXPLICITEMENT — c'est tout ce dont le préchargement d'un
+     * voisin a besoin : il envoie `Range: bytes=0-…` de sa propre initiative, reçoit 256 ko, et la lecture
+     * complète faite par le serveur réchauffe le stockage pour le moment où l'on cliquera « Suivant ».
+     *
+     * 🔒 AUCUN ASSOUPLISSEMENT DE LA RÈGLE : le droit `gestion` a été relu au début de cette requête, comme pour
+     * toute autre. Une tranche n'est qu'une découpe de ce qu'on avait déjà le droit de lire.
+     *
+     * ⚠️ UNE DEMANDE ILLISIBLE OU HORS BORNES REND LE FICHIER ENTIER (200), jamais une erreur : c'est ce que fait
+     * `lireIntervalle` en rendant `null`, et c'est le comportement d'avant ce lot — donc rien ne peut casser.
+     */
+    const entetes = {
+      'Content-Type': piece.typeMime || TYPE_PAR_DEFAUT,
+      'Content-Disposition': disposition(piece.nomFichier, telechargement),
+      'Cache-Control': CACHE_PRIVE,
+      // Le navigateur ne doit pas re-deviner le type : un `.txt` renommé ne devient pas du HTML exécutable.
+      'X-Content-Type-Options': 'nosniff',
+      // D'où viennent les octets. Utile pour éprouver le chemin, et pour comprendre un délai inhabituel.
+      'X-Source-Contenu': (piece.stockageVide || forcerDrive) ? 'drive' : 'stockage',
+    };
+    const tranche = lireIntervalle(request.headers.get('range'), octets.byteLength);
+    if (tranche !== null) {
+      const morceau = octets.subarray(tranche.debut, tranche.fin + 1);
+      return new Response(new Uint8Array(morceau), {
+        status: 206,
+        headers: { ...entetes, 'Content-Range': `bytes ${tranche.debut}-${tranche.fin}/${octets.byteLength}` },
+      });
+    }
+
+    return new Response(new Uint8Array(octets), { headers: entetes });
   } catch (e) {
     console.error('[gestion/piece] lecture impossible', e);
     return erreur('Pièce jointe indisponible : le stockage n’a pas répondu.', 503);

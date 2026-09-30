@@ -384,7 +384,23 @@ describe('🔴🔴 la route sert des TRANCHES', () => {
        n'amorce pas les voisins d'une PIÈCE REÇUE, qui est servie par une autre route et n'a rien à réchauffer
        chez Google. La propriété gardée est la même ; on cesse seulement de figer la fin de la ligne. */
     expect(code).toContain("if (etat.e !== 'pret' || !page1Peinte");
-    expect(code).toContain("source === 'piece') return undefined;");
+    /* ══ 🔴 INVARIANT RÉÉCRIT LE 30/09/2026 — LOT PIECES-DE-LA-CONVERSATION ═══════════════════════════════════
+       CE QUI ÉTAIT ÉCRIT ICI, ET QUI NE VAUT PLUS :
+           expect(code).toContain("source === 'piece') return undefine" + "d;");
+       c'est-à-dire « on n'amorce JAMAIS les voisins d'une pièce reçue ».
+
+       POURQUOI C'ÉTAIT VRAI : la route des pièces servait toujours le fichier ENTIER, sans en-tête `Range`.
+       Amorcer un voisin aurait tiré douze mégaoctets pour un document que personne ne regarde encore — donc
+       disputé la connexion à la page 1 qu'on est en train de lire. Ne rien amorcer était le moindre mal.
+
+       POURQUOI ÇA NE VAUT PLUS : Arno demande (lot PIECES-DE-LA-CONVERSATION) « documents voisins préchargés,
+       DÉBUT DU FICHIER SEULEMENT », et la route des pièces sait désormais répondre en 206 à une tranche. Le
+       voisin coûte donc 256 ko, pas le fichier entier.
+
+       🔒 LA PROPRIÉTÉ DE SÛRETÉ, ELLE, EST INCHANGÉE et c'est ce que les deux lignes ci-dessous gardent : côté
+       pièce on ne demande QUE le début (jamais tout le fichier), et cela reste après la page 1. */
+    expect(code).toContain("if (source === 'piece') {");
+    expect(code).toContain('Range: `bytes=0-${AMORCE_DEBUT_OCTETS - 1}`');
   });
 
   it('⚠️ seule une lecture complète alimente la mémoire', () => {

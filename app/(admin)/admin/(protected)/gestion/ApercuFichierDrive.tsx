@@ -115,9 +115,75 @@ const ZOOMS = [0.5, 0.75, 1, 1.5, 2, 3] as const;
  */
 const AMORCE_TAILLE_MAX = 8 * 1024 * 1024;
 
+/**
+ * ══ 🔴 LOT PIECES-DE-LA-CONVERSATION — « LE DÉBUT DU FICHIER SEULEMENT » (demande d'Arno) ═══════════════════════
+ *
+ * Ce qu'on demande d'un voisin, côté COURRIER : les 256 premiers kilo-octets, par un en-tête `Range`.
+ *
+ * 🔴 POURQUOI CE CHIFFRE ET PAS LE FICHIER ENTIER. Un préchargement doit coûter moins que ce qu'il fait gagner :
+ * tirer douze mégaoctets pour un document que personne ne regarde encore disputerait la connexion à la page qu'on
+ * est en train de lire — exactement ce qu'Arno interdit (« le temps d'ouverture de la page 1 ne doit pas se
+ * dégrader »).
+ *
+ * ⚠️ CE QU'ON RÉCHAUFFE EST LE STOCKAGE, PAS LE NAVIGATEUR. La route lit l'objet ENTIER chez MinIO (ou dans le
+ * Drive) avant d'en couper une tranche : une seule requête suffit donc à réchauffer tout le fichier côté serveur,
+ * pendant que le réseau de la page ne porte que 256 ko. La réponse est `no-store` : rien n'est gardé ici.
+ *
+ * ══ 🔴🔴 LE TABLEAU DES TEMPS DE LA PAGE 1. MESURÉ À L'ÉCRAN LE 30/09/2026, PAS SUPPOSÉ ════════════════════════
+ *
+ * La promesse à tenir est celle d'Arno : « le temps d'ouverture de la page 1 ne doit pas se dégrader ». On ne peut
+ * pas la vérifier en lisant le code — l'amorce est déclenchée par un drapeau d'état, et un drapeau levé trop tôt ne
+ * se voit pas. On l'a donc mesurée SUR LA VRAIE FENÊTRE, ouverte depuis le récapitulatif des pièces d'une
+ * conversation réelle (échange 3494, « Taxes Foncières 2026 », 12 pièces).
+ *
+ * Le repère de « page 1 peinte » est la toile du lecteur (`.lpd-toile`) une fois DIMENSIONNÉE — jamais son
+ * insertion dans la page, qui la précède d'une seconde entière et aurait flatté toutes ces lignes.
+ *
+ *   | pièce ouverte                  | taille | page 1 peinte | 1re requête | amorce du/des voisin(s) |
+ *   |--------------------------------|--------|---------------|-------------|-------------------------|
+ *   | RD TF Pré-St Gervais 2026.pdf  |  77 ko |      1 530 ms |     + 35 ms | + 1 532 ms  (1 voisin)  |
+ *   | RD TF Pergolèse 2026.pdf       |  76 ko |      1 659 ms |     + 29 ms | + 1 660 ms  (2 voisins) |
+ *   | RD TF Pré-St Gervais 2026.pdf  |  77 ko |      2 312 ms |     + 21 ms | + 2 332 ms  (2 voisins) |
+ *   | RD TF Pyrénées 2026.pdf        |  76 ko |      1 416 ms |     + 34 ms | + 1 417 ms  (2 voisins) |
+ *   | SNC RD TF Issy 2026.pdf        |  77 ko |      1 578 ms |     + 23 ms | + 1 597 ms  (2 voisins) |
+ *   | SCI Kleber TF Issy 2026.pdf    |  77 ko |      1 585 ms |     + 28 ms | + 1 608 ms  (2 voisins) |
+ *
+ * 🔴 CE QUE LE TABLEAU PROUVE, ET C'EST LE SEUL POINT QUI COMPTE : sur les six ouvertures, AUCUNE amorce ne part
+ * avant que la page 1 ne soit peinte. L'écart est de 0 à 23 ms APRÈS, jamais avant. Le document qu'on est venu voir
+ * ne partage donc sa connexion avec personne, et la promesse est tenue par construction, pas par chance.
+ *
+ * ⚠️ LA PAGE 1 EST DEMANDÉE DEUX FOIS (mesuré : + 35 ms puis + 77 ms sur la 1re ligne), et ce n'est PAS l'amorce :
+ * c'est PDF.js qui redemande le fichier, déjà constaté et écrit dans la route des pièces. Rien n'a été ajouté ici.
+ *
+ * ⚠️ UNE MESURE DE CE TABLEAU EXIGE UN ONGLET AU PREMIER PLAN. Sur un onglet d'arrière-plan, le rendu PDF ne part
+ * pas du tout (toile figée à 300 × 150, plus de 25 s d'attente), le drapeau n'est jamais levé, et AUCUNE amorce ne
+ * part — ce qui se lit à tort comme « le préchargement ne marche pas ». Une demi-heure y a été perdue le 30/09/2026 :
+ * c'est écrit ici pour que la suivante ne le soit pas.
+ *
+ * ══ 🔴 ET LA TRANCHE, ELLE, TRONQUE VRAIMENT — MESURÉ SUR 5,98 Mo ══════════════════════════════════════════════
+ *
+ * Pièce 8508, `RRU425578-…_rapport.pdf`, 5 984 555 octets, JAMAIS lue avant la mesure, la tranche demandée EN
+ * PREMIER (l'ordre inverse aurait fait profiter la tranche de la mémoire laissée par la lecture complète) :
+ *
+ *   | demande                     | réponse | octets reçus | durée     |
+ *   |-----------------------------|---------|--------------|-----------|
+ *   | `Range: bytes=0-262143`     | **206** |      262 144 | 15 466 ms |
+ *   | aucune (fichier entier)     |     200 |    5 984 555 | 10 631 ms |
+ *
+ * 🔴 LA TRANCHE NE COÛTE PAS MOINS CHER AU SERVEUR, et ces deux lignes le montrent : elle est même la plus LENTE
+ * des deux, parce qu'elle est passée la première et a payé la lecture complète chez MinIO à froid. C'est
+ * exactement ce que la route annonce, et la raison pour laquelle elle n'émet PAS d'en-tête `Accept-Ranges`
+ * (vérifié à la mesure : absent). Ce qu'une tranche épargne est le TRANSPORT — 262 ko au lieu de 5,98 Mo sur la
+ * connexion de la page —, jamais la lecture.
+ */
+const AMORCE_DEBUT_OCTETS = 256 * 1024;
+
+/** Les mots d'avant le lot PIECES-DE-LA-CONVERSATION, conservés à la lettre comme valeur par défaut. */
+const MOT_JOINDRE_DEFAUT = { action: 'Joindre ce fichier', deja: '✓ ajouté' } as const;
+
 export function ApercuFichierDrive({
   fichier, voisinage = [], joindreAutorise, estDeja, onJoindre, onFermer,
-  renommage,
+  renommage, motJoindre = MOT_JOINDRE_DEFAUT, etiquetteNav = 'Documents du dossier',
 }: {
   fichier: FichierAVoir;
   /**
@@ -158,6 +224,24 @@ export function ApercuFichierDrive({
   voisinage?: readonly VoisinPossible[];
   /** Faux sous « Documents clients scannés » : le bouton « Joindre » de l'aperçu n'y est pas non plus. */
   joindreAutorise: boolean;
+  /**
+   * ══ 🔴 LOT PIECES-DE-LA-CONVERSATION — LE MOT DU BOUTON PRINCIPAL, SELON LE CONTEXTE ═══════════════════════
+   *
+   * Arno : « Même composant de visionneuse partout, avec […] le “Joindre / Ranger” selon le contexte. »
+   *
+   * 🔴 LE GESTE EST LE MÊME (`onJoindre`), SEUL LE MOT CHANGE — et c'est délibéré. Dans l'éditeur de mail, on
+   * JOINT un fichier du Drive au message ; dans le récapitulatif des pièces d'une conversation, on RANGE une
+   * pièce reçue dans le Drive. Deux visionneuses auraient divergé au premier correctif ; deux libellés dans la
+   * même visionneuse ne peuvent pas diverger.
+   *
+   * ⚠️ ABSENT ⇒ LES MOTS D'AVANT CE LOT, À LA LETTRE : « Joindre ce fichier » et « ✓ ajouté ».
+   */
+  motJoindre?: { action: string; deja: string };
+  /**
+   * Ce que « Précédent / Suivant » parcourt, DIT au lecteur d'écran. Côté Drive c'est le dossier ; côté courrier,
+   * toute la conversation. Le libellé doit suivre, sinon il annonce un périmètre qui n'est pas celui du tour.
+   */
+  etiquetteNav?: string;
   /** Ce fichier-ci est-il déjà ajouté au message ? Suit le document AFFICHÉ, pas celui qu'on a ouvert en premier. */
   estDeja: (id: string) => boolean;
   onJoindre: (f: FichierAVoir) => void;
@@ -294,12 +378,27 @@ export function ApercuFichierDrive({
      * 🔴 ON N'AMORCE QU'APRÈS LA PAGE 1 : le document qu'on est venu voir passe en premier, toujours. Amorcer
      * pendant son chargement lui disputerait la connexion, pour une page que personne ne regarde encore.
      */
-    if (etat.e !== 'pret' || !page1Peinte || source === 'piece') return undefined;
+    if (etat.e !== 'pret' || !page1Peinte) return undefined;
     let annule = false;
     for (const id of [idSuivant, idPrecedent]) {
       if (id === null) continue;
       void (async () => {
         try {
+          /**
+           * ══ 🔴 CÔTÉ COURRIER : LE DÉBUT DU FICHIER, ET RIEN D'AUTRE ═══════════════════════════════════════
+           *
+           * Une pièce reçue n'a pas de route `info` — son nom et son type sont déjà connus de l'écran. Il n'y a
+           * donc rien à « réchauffer » d'autre que les octets, et on n'en demande que le début (voir
+           * `AMORCE_DEBUT_OCTETS`). C'est ce que le lot PIECES-DE-LA-CONVERSATION a ajouté : avant lui, aucun
+           * préchargement n'était possible ici, faute d'en-tête `Range` sur la route des pièces.
+           */
+          if (source === 'piece') {
+            const r = await fetch(adresseApercu(id, 'octets', 'piece'), {
+              cache: 'no-store', headers: { Range: `bytes=0-${AMORCE_DEBUT_OCTETS - 1}` },
+            });
+            await r.arrayBuffer();
+            return;
+          }
           const res = await fetch(adresseApercu(id, 'info'), { cache: 'no-store' });
           const d = (await res.json()) as { etat?: string; sorte?: string; tailleOctets?: number | null };
           if (annule || d.etat !== 'ok') return;
@@ -458,7 +557,7 @@ export function ApercuFichierDrive({
             Elle n'apparaît que s'il y a quelque chose à parcourir : un unique document ne mérite pas deux boutons
             éteints et un « 1 / 1 » qui n'apprend rien. */}
         {voisins.length > 1 && (
-          <nav className="apd-nav" aria-label="Documents du dossier">
+          <nav className="apd-nav" aria-label={etiquetteNav}>
             <button type="button" className="svv-btn gst-btn" disabled={idPrecedent === null}
               onClick={() => allerVers(idPrecedent)}>◀ Précédent</button>
             <span className="apd-compteur" aria-live="polite">
@@ -476,10 +575,13 @@ export function ApercuFichierDrive({
               jamais lu » se contredirait, et le clic serait refusé par le serveur de toute façon. */}
           {joindreAutorise && !(etat.e === 'sans' && etat.regle) && (
             deja
-              ? <span className="sfd-ajoute">✓ ajouté</span>
+              /* ⚠️ DEUX CLASSES, ET C'EST NÉCESSAIRE : `sfd-ajoute` vient du style du sélecteur Drive, qui n'est
+                 PAS monté quand la visionneuse est ouverte depuis une conversation. `apd-deja`, portée par le
+                 style de cette fenêtre-ci, garantit le même rendu dans les deux cas. */
+              ? <span className="sfd-ajoute apd-deja">{motJoindre.deja}</span>
               : (
                 <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => onJoindre(vu)}>
-                  Joindre ce fichier
+                  {motJoindre.action}
                 </button>
               )
           )}
@@ -666,6 +768,9 @@ export const CSS_APERCU = `
 .apd-compteur-nom{max-width:100%;font-size:.74rem;color:var(--color-svv-muted);overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .apd-pied{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px}
+/* « deja fait » : meme rendu que dans le selecteur Drive, mais porte par CE style — la visionneuse s'ouvre aussi
+   depuis une conversation, ou le style du selecteur n'est pas monte. AUCUN ACCENT GRAVE ici : litteral de gabarit. */
+.apd-deja{flex:0 0 auto;font-size:.72rem;font-weight:700;color:var(--color-svv-green, var(--color-svv-ink))}
 @media (max-width:520px){
   .apd{height:100%;padding:10px}
   .apd-nom{flex-basis:100%}

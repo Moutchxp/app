@@ -17,7 +17,22 @@ import {
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 // LOT AVIS-LISIBLE — module PUR (aucune base) : lire un avis de non-remise et en isoler le passage humain.
 import { estAvisNonRemise, lireAvis, motifNonRemise, texteHumainAvis } from '../../../../lib/gestion/nonRemise';
-import { CSS_PIECES, PiecesJointes } from './PiecesJointes';
+import { CSS_PIECES, PiecesJointes, type DepotAffiche } from './PiecesJointes';
+/**
+ * 🔴 LOT PIECES-DE-LA-CONVERSATION — TOUTES LES PIÈCES DE L'ÉCHANGE, EN UN CLIC. Les règles (ce qui compte, dans
+ * quel ordre, les mots) vivent dans le module PUR ; l'écran ne fait que placer et peindre.
+ */
+import {
+  compterPiecesConversation, ORDRE_PIECES_DEFAUT, ordrePiecesSuivant, PARENT_PIECES_CONVERSATION,
+  piecesDeLaConversation, voisinagePiecesConversation, type OrdrePieces, type PieceDeConversation,
+} from '../../../../lib/gestion/piecesConversation';
+import {
+  BoutonPiecesConversation, CSS_PIECES_CONVERSATION, ModalePiecesConversation,
+} from './PiecesDeLaConversation';
+// 🔴 LA MÊME visionneuse que le Drive, et la MÊME fenêtre « Ranger » : aucune copie divergente (demande d'Arno).
+import { ApercuFichierDrive } from './ApercuFichierDrive';
+import { SelecteurFichierDrive } from './SelecteurFichierDrive';
+import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { MenuDiscret } from './MenuDiscret';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
@@ -281,6 +296,41 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * rendue, plutôt qu'une capsule inventée.
    */
   const [horsGestion, setHorsGestion] = useState<Map<number, { motif: string | null }> | null>(null);
+  /* ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LE RÉCAPITULATIF, LA VISIONNEUSE, LE RANGEMENT ═══════════════════════
+     Les trois vivent ICI, au niveau de la conversation, et pas dans le bloc de pièces d'un message : le tour de
+     « Précédent / Suivant » couvre TOUTES les pièces de l'échange, et un bloc de message n'en connaît qu'un. */
+  /** La fenêtre « Pièces jointes de la conversation » est-elle ouverte ? */
+  const [recapPieces, setRecapPieces] = useState(false);
+  /** L'ordre du récapitulatif. Local à l'écran : rien à mémoriser, la fenêtre s'ouvre et se ferme. */
+  const [ordrePieces, setOrdrePieces] = useState<OrdrePieces>(ORDRE_PIECES_DEFAUT);
+  /** La pièce affichée dans la visionneuse. `null` = elle est fermée. */
+  const [pieceVue, setPieceVue] = useState<number | null>(null);
+  /** La pièce qu'on est en train de ranger. `null` = la fenêtre Drive n'est pas ouverte. */
+  const [rangerPiece, setRangerPiece] = useState<PieceARanger | null>(null);
+  /**
+   * 🔴 CE QUI EST DÉJÀ DANS LE DRIVE, POUR TOUT L'ÉCHANGE, en UNE requête. Une par message aurait fait douze
+   * allers-retours à l'ouverture d'une fenêtre qui s'ouvre d'un clic.
+   *
+   * ⚠️ VIDE TANT QU'ON N'EN A PAS BESOIN : la requête ne part qu'à l'ouverture du récapitulatif ou de la
+   * visionneuse. Lire une conversation ne doit rien coûter de plus qu'avant ce lot.
+   */
+  const [depotsFil, setDepotsFil] = useState<ReadonlyMap<number, DepotAffiche>>(new Map());
+  const relireDepotsFil = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch(`/api/admin/gestion/fils/${filId}/pieces-drive`, { cache: 'no-store' });
+      const d = (await res.json()) as { depots?: DepotAffiche[] };
+      setDepotsFil(new Map((d.depots ?? []).map((x) => [x.pieceId, x])));
+    } catch {
+      // Silence volontaire : on perd la mention « Dans le Drive », jamais la liste des pièces.
+      setDepotsFil(new Map());
+    }
+  }, [filId]);
+  /**
+   * ⚠️ LA DÉPENDANCE EST UN BOOLÉEN, ET C'EST NÉCESSAIRE : avec `pieceVue` lui-même, chaque « Suivant » aurait
+   * relancé la requête. Ce qu'on veut, c'est une lecture au moment où l'une des deux fenêtres s'ouvre.
+   */
+  const piecesRegardees = recapPieces || pieceVue !== null;
+  useEffect(() => { if (piecesRegardees) void relireDepotsFil(); }, [piecesRegardees, relireDepotsFil]);
 
   const recharger = useCallback(async () => {
     setVue({ v: 'charge' });
@@ -517,6 +567,41 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     }
   }
 
+  /**
+   * ══ 🔴 LOT PIECES-DE-LA-CONVERSATION — « ALLER AU MESSAGE » ══════════════════════════════════════════════════
+   *
+   * Arno : « Aller au message (ferme la modale et déplie le message dans le fil) ». Une pièce ne se comprend
+   * souvent qu'avec le courrier qui l'accompagne — « de quoi parlait ce devis, déjà ? ».
+   *
+   * 🔴 ON DÉPLIE, ON NE BASCULE PAS. `basculer` refermerait le message s'il était DÉJÀ ouvert — et c'est
+   * exactement le cas quand on vient d'ouvrir le récapitulatif depuis un message déplié. On aurait donc fermé
+   * le message qu'on demandait à voir.
+   *
+   * ⚠️ ET ON VA CHERCHER SON CORPS : le serveur n'envoie le texte complet que du dernier message. Sans cette
+   * lecture, le message s'ouvrirait sur un corps vide — donc sur une réponse FAUSSE (« ce message n'a pas de
+   * texte ») là où il suffisait de le demander. Même règle que `basculer`, même fonction de lecture.
+   *
+   * ⚠️ LE DÉFILEMENT EST FACULTATIF PARTOUT (`?.`) : `requestAnimationFrame` et `scrollIntoView` n'existent pas
+   * dans tous les environnements de rendu. Une conversation ne doit jamais refuser d'agir parce qu'elle n'a pas
+   * pu défiler.
+   */
+  async function allerAuMessage(messageId: number) {
+    setRecapPieces(false);
+    setPieceVue(null);
+    const m = (vue.v === 'ok' ? vue.messages : []).find((x) => x.messageId === messageId);
+    if (m === undefined) return;
+    setDeplies((s) => new Set(s).add(messageId));
+    const c = corps.get(messageId);
+    const e = etatCorps(m, c?.texte, c?.html);
+    if (e.v === 'a_charger' || e.v === 'html_a_charger') {
+      const lu = await chargerCorps(messageId);
+      setCorps((s) => new Map(s).set(messageId, lu ?? { texte: null, html: null }));
+    }
+    globalThis.requestAnimationFrame?.(() => {
+      filRef.current?.querySelector(`[data-message="${messageId}"]`)?.scrollIntoView?.({ block: 'nearest' });
+    });
+  }
+
   async function toutDeplier(messages: readonly MessageDeFil[]) {
     setDeplies(new Set(messages.map((m) => m.messageId)));
     const manquants = messages.filter((m) => {
@@ -548,6 +633,32 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     return p === undefined ? null : { reference: p.reference, libelle: p.objetEvenement, evenementId: p.evenementId };
   };
   const rattache = fil.reference !== null;
+
+  /* ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — CE QUE LA CONVERSATION PORTE COMME PIÈCES ═════════════════════════════
+     Tout sort du module PUR : le compte du trombone et la liste de la fenêtre viennent du MÊME calcul, si bien
+     qu'on ne peut pas lire « 7 pièces » en haut et en compter neuf en bas. */
+  const nbPieces = compterPiecesConversation(messages);
+  const piecesFil = piecesDeLaConversation(messages, ordrePieces);
+  /** La pièce affichée dans la visionneuse, retrouvée dans la liste classée. */
+  const pieceAffichee = pieceVue === null ? undefined : piecesFil.find((p) => p.pieceId === pieceVue);
+  /**
+   * ══ 🔴 OUVRIR LA FENÊTRE « RANGER » SUR UNE PIÈCE ═══════════════════════════════════════════════════════════
+   *
+   * ⚠️ LA VISIONNEUSE SE FERME, ET C'EST NÉCESSAIRE — vu à l'écran le 30/09/2026. Elle vit au-dessus de la
+   * fenêtre Drive (80 contre 70) : la laisser ouverte cachait entièrement l'arborescence qu'on venait justement
+   * choisir, et le clic sur « Ranger dans le Drive » ne semblait rien faire.
+   *
+   * ⚠️ LE RÉCAPITULATIF, LUI, RESTE OUVERT dessous : une fois la pièce rangée, on revient à la liste sans avoir
+   * à la rouvrir, au même endroit et dans le même ordre.
+   */
+  const ouvrirRangement = (p: PieceDeConversation) => {
+    setPieceVue(null);
+    setRangerPiece({
+      pieceId: p.pieceId, nom: p.nomFichier, tailleOctets: p.tailleOctets, typeMime: p.typeMime,
+    });
+  };
+  /** Le trombone, écrit UNE fois et posé à deux endroits (en haut du fil, et au-dessus du pied de réponse). */
+  const trombonePieces = <BoutonPiecesConversation nombre={nbPieces} onOuvrir={() => setRecapPieces(true)} />;
 
   /**
    * CE QUE LE CARTOUCHE DÉCLENCHE. Chaque geste passe par la route qui EXISTE — rien n'est réécrit, rien n'est
@@ -630,7 +741,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
 
   return (
     <section className="cnv" aria-labelledby={`cnv-titre-${fil.filId}`}>
-      <style>{CSS_CONVERSATION}{CSS_PIECES}</style>
+      <style>{CSS_CONVERSATION}{CSS_PIECES}{CSS_PIECES_CONVERSATION}</style>
 
       {/* ══ LE BANDEAU DU HAUT : NOS FONCTIONS MAISON ══════════════════════════════════════════════════════════════
           Elles appellent les routes EXISTANTES, sans réécrire une ligne de leur logique — donc même journal, même
@@ -717,22 +828,36 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               </button>
             </>
           )}
+          {/* ══ 🔴 LOT PIECES-DE-LA-CONVERSATION — LE TROMBONE DU HAUT ════════════════════════════════════════
+              Arno : « à côté de “N messages · Tout déplier · Plus récent d'abord” ». Il s'affiche même sur un
+              échange d'UN SEUL message (donc sans « Tout déplier ») : une pièce à retrouver ne dépend pas du
+              nombre de messages. Rien du tout quand il n'y a aucune pièce. */}
+          {nbPieces > 0 && <>{' · '}{trombonePieces}</>}
         </p>
       </div>
       )}
-      {/* Le compte et « tout déplier » restent accessibles même sans bandeau (dans une carte). */}
-      {!avecBandeau && messages.length > 1 && (
+      {/* Le compte et « tout déplier » restent accessibles même sans bandeau (dans une carte).
+          ⚠️ LA LIGNE APPARAÎT AUSSI POUR UN SEUL MESSAGE QUI PORTE DES PIÈCES (lot PIECES-DE-LA-CONVERSATION) :
+          sans cela, le trombone n'existait pas dans une carte sur un échange d'un seul message — c'est-à-dire
+          précisément le cas le plus fréquent d'un mail avec une pièce jointe. */}
+      {!avecBandeau && (messages.length > 1 || nbPieces > 0) && (
         <p className="cnv-compte">
-          {messages.length} messages{' · '}
-          <button type="button" className="gst-lien-bouton"
-            onClick={() => (tousDeplies ? setDeplies(new Set()) : void toutDeplier(messages))}>
-            {tousDeplies ? 'Tout replier' : 'Tout déplier'}
-          </button>
-          {' · '}
-          <button type="button" className="gst-lien-bouton cnv-ordre" aria-pressed={ordre === 'recent'}
-            title="Changer l’ordre de lecture des messages" onClick={changerOrdre}>
-            {libelleOrdre(ordre)}
-          </button>
+          {messages.length} message{messages.length > 1 ? 's' : ''}
+          {messages.length > 1 && (
+            <>
+              {' · '}
+              <button type="button" className="gst-lien-bouton"
+                onClick={() => (tousDeplies ? setDeplies(new Set()) : void toutDeplier(messages))}>
+                {tousDeplies ? 'Tout replier' : 'Tout déplier'}
+              </button>
+              {' · '}
+              <button type="button" className="gst-lien-bouton cnv-ordre" aria-pressed={ordre === 'recent'}
+                title="Changer l’ordre de lecture des messages" onClick={changerOrdre}>
+                {libelleOrdre(ordre)}
+              </button>
+            </>
+          )}
+          {nbPieces > 0 && <>{' · '}{trombonePieces}</>}
         </p>
       )}
 
@@ -789,6 +914,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             onRattachement={() => chargerRattachements(idsMessages)}
             onGesteRattachement={(t) => onGeste(t)}
             onHistorique={onHistorique}
+            /* 🔴 LOT PIECES-DE-LA-CONVERSATION — la vignette d'une pièce ouvre la visionneuse maison, avec le tour
+               de toute la conversation. */
+            onVisualiser={(id) => setPieceVue(id)}
             panneau={deplacer === m.messageId ? (
               <DeplacerVers titre="Déplacer ce mail vers" exclure={null}
                 onAnnuler={() => setDeplacer(null)}
@@ -813,6 +941,17 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             ) : null} />
         ))}
       </ol>
+
+      {/* ══ 🔴 LOT PIECES-DE-LA-CONVERSATION — LE TROMBONE DU BAS ════════════════════════════════════════════════
+          Arno : « en BAS, à côté de la rangée Répondre / Répondre à tous / Transférer ». Il est posé JUSTE
+          AU-DESSUS de cette rangée, et non dedans — et c'est ce qui le rend fiable : la rangée n'existe pas
+          toujours (une conversation rendue dans une carte n'a aucun bouton d'envoi, un échange d'un seul message
+          non plus, et l'éditeur ouvert la remplace). Dans la rangée, le trombone aurait disparu avec elle, alors
+          que les pièces, elles, sont toujours là.
+
+          🔴 C'EST LE MÊME COMPOSANT QU'EN HAUT (`trombonePieces`, écrit une seule fois) : même libellé, même
+          infobulle, même compte. Deux boutons écrits séparément auraient fini par se contredire. */}
+      {nbPieces > 0 && <div className="cnv-pieces-bas">{trombonePieces}</div>}
 
       {/* ══ LOT 5e — ÉCRIRE, SOUS LA CONVERSATION (façon messagerie) ══════════════════════════════════════════════
           Les trois boutons ne s'affichent QUE si tout est réuni : base à jour, droit d'envoi, et écran de lecture en
@@ -894,6 +1033,70 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           ))}
         </ul>
       )}
+
+      {/* ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LES TROIS FENÊTRES, EMPILÉES DANS CET ORDRE ═══════════════════════
+          Le récapitulatif (z-index 68), puis la fenêtre Drive (70), puis la visionneuse (80). Chacune reste MONTÉE
+          sous celle qui s'ouvre par-dessus : fermer l'aperçu ne « revient » donc pas à la liste — on n'en était
+          jamais parti, et l'ordre, le défilement et la position n'ont pas bougé. */}
+      {recapPieces && (
+        <ModalePiecesConversation
+          pieces={piecesFil}
+          ordre={ordrePieces}
+          onOrdre={() => setOrdrePieces(ordrePiecesSuivant(ordrePieces))}
+          depots={depotsFil}
+          maintenant={maintenant}
+          /* 🔴 ÉCHAP NE FERME QUE LA FENÊTRE DU DESSUS : voir l'encadré de la prop dans le composant. */
+          ecouterEchap={pieceVue === null && rangerPiece === null}
+          gestes={{
+            onVoir: (id) => setPieceVue(id),
+            onRanger: ouvrirRangement,
+            onAllerAuMessage: (id) => void allerAuMessage(id),
+          }}
+          onFermer={() => setRecapPieces(false)} />
+      )}
+
+      {/* ══ 🔴🔴 LA VISIONNEUSE, AVEC LE TOUR DE TOUTE LA CONVERSATION ════════════════════════════════════════════
+          Arno : « côté MAIL, ◀ Précédent / Suivant ▶ et les flèches ← → parcourent TOUTES les pièces de la
+          conversation, dans l'ordre de la modale ; pas de bouclage à la fin. Côté DRIVE : inchangé. »
+
+          🔴 C'EST LE MÊME COMPOSANT QUE CÔTÉ DRIVE, sans exception écrite : le périmètre du tour est tiré du
+          voisinage par `voisinsVisualisables`, et le parent inventé des pièces de la conversation empêche tout
+          fichier du Drive d'y entrer (et toute pièce d'en sortir). Miniatures de pages et priorité à la page 1
+          viennent donc avec, sans une ligne de plus.
+
+          ⚠️ LE MOT DU BOUTON PRINCIPAL CHANGE, PAS LE GESTE : ici on RANGE une pièce reçue, on ne JOINT pas un
+          fichier du Drive à un message. Le renommage, lui, vit dans la fenêtre « Ranger » qui s'ouvre ensuite —
+          c'est là que le nom part vraiment (lot RENOMMER-AVANT-RANGER). */}
+      {pieceAffichee !== undefined && (
+        <ApercuFichierDrive
+          fichier={{
+            id: String(pieceAffichee.pieceId), nom: pieceAffichee.nomFichier,
+            typeMime: pieceAffichee.typeMime ?? '', lien: null,
+            parentId: PARENT_PIECES_CONVERSATION, source: 'piece',
+          }}
+          voisinage={voisinagePiecesConversation(piecesFil)}
+          etiquetteNav="Pièces de la conversation"
+          joindreAutorise
+          motJoindre={{ action: 'Ranger dans le Drive', deja: '✓ dans le Drive' }}
+          estDeja={(id) => depotsFil.has(Number(id))}
+          onJoindre={(f) => {
+            const p = piecesFil.find((x) => String(x.pieceId) === f.id);
+            if (p !== undefined) ouvrirRangement(p);
+          }}
+          onFermer={() => setPieceVue(null)} />
+      )}
+
+      {/* La fenêtre Drive habituelle, en mode « ranger », sur CETTE pièce : même arborescence, mêmes refus, même
+          stylo de renommage. Rien n'est réécrit ici. */}
+      {rangerPiece !== null && (
+        <SelecteurFichierDrive
+          mode="ranger"
+          messageId={piecesFil.find((p) => p.pieceId === rangerPiece.pieceId)?.messageId ?? null}
+          filId={filId}
+          pieces={[rangerPiece]}
+          onRangement={() => void relireDepotsFil()}
+          onFermer={() => setRangerPiece(null)} />
+      )}
     </section>
   );
 }
@@ -952,9 +1155,15 @@ function ouvrirRedaction(
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
-  rattachements = null, horsGestion = null, onRattachement, onGesteRattachement, onHistorique,
+  rattachements = null, horsGestion = null, onRattachement, onGesteRattachement, onHistorique, onVisualiser,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
+  /**
+   * 🔴 LOT PIECES-DE-LA-CONVERSATION — ouvre la visionneuse maison sur une pièce, avec le tour de TOUTE la
+   * conversation. Rendu par l'écran qui tient la conversation, parce que lui seul connaît toutes les pièces.
+   * Absent = la vignette reste le lien d'avant (nouvel onglet).
+   */
+  onVisualiser?: (pieceId: number) => void;
   /**
    * LOT 5-PJ-B — l'échange auquel ce message appartient. Sert UNIQUEMENT à rouvrir le sélecteur de dossier Drive sur
    * le dernier dossier utilisé pour cet échange. Absent = le sélecteur s'ouvre à la racine, et rien d'autre ne change.
@@ -1412,8 +1621,12 @@ export function MessageConversation({
           {etat.v === 'html_a_charger' && <p className="gst-info" role="status">{MENTION_HTML_SEUL}</p>}
           {etat.v === 'vide' && <p className="gst-msg-corps gst-absent">(message sans texte)</p>}
 
-          {/* LOT 5-PJ-A — un SEUL composant rend les pièces, partout où un message s'affiche. */}
-          <PiecesJointes messageId={message.messageId} filId={filId} vraies={vraies} signatures={signatures} />
+          {/* LOT 5-PJ-A — un SEUL composant rend les pièces, partout où un message s'affiche.
+              🔴 LOT PIECES-DE-LA-CONVERSATION — `onVisualiser` fait ouvrir la visionneuse MAISON au lieu d'un
+              nouvel onglet, avec le tour de TOUTE la conversation. Absent (historique d'une cible, vie d'un bien),
+              la vignette garde le lien d'avant : il n'y a pas là de conversation dont on pourrait faire le tour. */}
+          <PiecesJointes messageId={message.messageId} filId={filId} vraies={vraies} signatures={signatures}
+            onVisualiser={onVisualiser} />
 
           {/* ══ 🔴 LOT FIL-LECTURE — RÉPONDRE À **CE** MESSAGE, PAS AU DERNIER DU FIL ═══════════════════════════
               Les trois gestes sous CHAQUE message déplié, et non plus seulement la flèche du coin. Chacun porte sur
@@ -1631,6 +1844,10 @@ export const CSS_CONVERSATION = `
 /* L'étoile POSÉE : remplie ET colorée. Son libellé accessible change aussi — jamais la couleur seule. */
 .cnv-etoile--posee{color:var(--color-svv-red)}
 /* ── LOT 5-FIDÈLE : le pied de Gmail — trois boutons arrondis, icône puis mot ─────────────────────────────────── */
+/* LOT PIECES-DE-LA-CONVERSATION — la rangee du trombone du bas, juste au-dessus du pied de reponse. Elle existe
+   meme quand le pied n'existe pas (dans une carte, sur un echange d'un seul message, ou l'editeur ouvert) : les
+   pieces, elles, sont toujours la. AUCUN ACCENT GRAVE ici : litteral de gabarit. */
+.cnv-pieces-bas{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:.5rem}
 .cnv-pied{display:flex;flex-wrap:wrap;gap:8px;padding-top:4px}
 .cnv-pied-bouton{display:inline-flex;align-items:center;gap:.45rem;min-height:44px;padding:.45rem 1.1rem;
   font:inherit;font-size:.85rem;font-weight:600;color:var(--color-svv-ink);background:var(--color-svv-surface);
