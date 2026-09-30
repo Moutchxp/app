@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { planClassement } from '../../../../lib/gestion/gesteClassement';
 import {
-  groupesParProprietaire, lienTelephone, locatairesDuBien, periodeOccupation, titreCarte, type PersonneFiche,
+  groupesParProprietaire, locatairesDuBien, periodeOccupation, titreCarte, type PersonneFiche,
 } from '../../../../lib/gestion/ficheBien';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 // LOT CONTACT-LIGNES — le type passe dans le titre, et ne s'ecrit qu'une fois par groupe.
-import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
+import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 import type { BienProposable, ContexteClassement } from '../../../../lib/gestion/classementBien';
 
 /**
@@ -313,9 +313,17 @@ export function CartePersonne({ personne }: { personne: PersonneFiche }) {
           dit le TYPE de chaque coordonnée, ce qui est vrai, au lieu du numéro de colonne, qui ne parlait qu'à
           celui qui avait lu l'export. */}
       {lignesParType(contacts).map(({ contact: c, titre: mot }) => {
-        const lien = c.sorte === 'telephone' ? lienTelephone(c.valeur) : `mailto:${c.valeur}`;
+        /* 🔴 LOT ANNOTATIONS-TEL — LE LIEN PART DE L'AFFICHAGE, PAS DE LA VALEUR STOCKÉE. Mesuré le 30/09/2026 :
+           16 des 804 téléphones portent dans `valeur` un repli de l'import (l'annotation avait fait échouer la
+           normalisation), dont « 06688073220629617981 » — les DEUX numéros d'une cellule collés. Ce lien-là ne
+           composait rien. `affichage` a déjà été décortiqué ; `lienTelephone` lui retire ses espaces. */
+        const lien = c.sorte === 'telephone' ? lienAppel(c.affichage) : `mailto:${c.valeur}`;
         return (
-          <p className="pdb-contact" key={`${c.sorte}-${c.valeur}`}>
+          /* ⚠️ UN BLOC PAR COORDONNÉE, et la note EN DEHORS de la ligne. Poser la note dans la ligne aurait exigé
+             d'y remettre `flex-wrap:wrap` — et une adresse longue aurait de nouveau poussé « Copier » à la ligne
+             suivante, le défaut que le lot CONTACT-LIGNES venait de fermer. */
+          <div className="pdb-contact-bloc" key={`${c.sorte}-${c.valeur}`}>
+          <p className="pdb-contact">
             {mot === null
               ? <span className="pdb-etiquette" aria-hidden="true" />
               : <span className="pdb-etiquette">{mot}</span>}
@@ -333,6 +341,9 @@ export function CartePersonne({ personne }: { personne: PersonneFiche }) {
             <BoutonCopier valeur={c.sorte === 'email' ? c.valeur : c.affichage}
               quoi={`${mot ?? c.libelle} de ${titre.nom}`} />
           </p>
+          {/* 🔴 LOT ANNOTATIONS-TEL — la note passe SOUS la ligne, alignée sur la valeur. */}
+          {c.note !== null && <p className="pdb-note-tel">{c.note}</p>}
+          </div>
         );
       })}
 
@@ -376,6 +387,10 @@ export const CSS_PROPOSITIONS_BIENS = `
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Le bouton ne retrecit jamais : c'est la valeur qui cede la place, pas lui. Il est colle au bord DROIT. */
 .pdb-contact>.bcp{flex:0 0 auto;margin-left:auto}
+/* LOT ANNOTATIONS-TEL — la note vit SOUS la ligne, dans son propre bloc : la ligne, elle, garde son nowrap. */
+.pdb-contact-bloc{min-width:0}
+.pdb-note-tel{margin:.05rem 0 0 5.05rem;font-size:.72rem;font-style:italic;color:var(--color-svv-muted);
+  overflow-wrap:anywhere}
 .pdb-lien{text-decoration:underline;text-underline-offset:2px}
 .pdb-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .pdb-vide{margin:.15rem 0 0;font-size:.78rem;font-style:italic;color:var(--color-svv-muted)}

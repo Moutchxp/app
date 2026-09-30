@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { normaliserTelephone } from './annuaire';
 import {
-  TYPES_COORDONNEE, chiffresTelephone, formaterSaisieTelephone, formaterTelephone, lignesParType, motType,
-  sorteDuType, typeDeLibelle,
+  TYPES_COORDONNEE, chiffresTelephone, decortiquerNumero, formaterSaisieTelephone, formaterTelephone,
+  lienAppel, lignesParType, motType, sorteDuType, typeDeLibelle,
 } from './telephoneAffichage';
 
 /**
@@ -57,14 +57,23 @@ describe('afficher un numéro', () => {
   });
 
   /**
-   * 🔴 UN NUMÉRO ILLISIBLE N'EST JAMAIS AVALÉ. Une ligne de la base porte deux numéros collés (importée d'une
-   * cellule « … - … ») : elle s'affiche telle quelle plutôt que découpée en paires qui ne voudraient rien dire.
+   * ══ 🔴 RÈGLE RÉÉCRITE LE 30/09/2026 (lot ANNOTATIONS-TEL) ══════════════════════════════════════════════════
+   *
+   * ELLE ATTENDAIT QUE « +351 932 472 464 - +351 934 722 745 » S'AFFICHE TEL QUEL. C'était le moins mauvais choix
+   * tant qu'on ne savait pas quoi en faire : deux numéros dans une cellule, et vingt-cinq chiffres collés en
+   * base. Arno a tranché — l'annotation, et ce qui traîne avec, sortent du numéro : la cellule montre LE premier
+   * numéro, lisible, et le second passe en note grise. Rien n'est perdu, tout devient lisible.
+   *
+   * CE QUE LA RÈGLE PROTÉGEAIT N'A PAS BOUGÉ : ce qui n'est pas un numéro n'est jamais AVALÉ. « poste 42 » reste
+   * « poste 42 », et une chaîne vide reste vide — on ne rend jamais un blanc à la place de ce qui était écrit.
    */
   it('🔴 ce qui n’est pas un numéro reste affiché tel quel, jamais vidé', () => {
-    expect(formaterTelephone('+351932472464351934722745', '+351 932 472 464 - +351 934 722 745'))
-      .toBe('+351 932 472 464 - +351 934 722 745');
     expect(formaterTelephone(null, 'poste 42')).toBe('poste 42');
     expect(formaterTelephone('', '')).toBe('');
+    // Deux numéros dans une cellule : le premier s'affiche, lisible. Le second est rendu par la note.
+    expect(formaterTelephone('+351932472464351934722745', '+351 932 472 464 - +351 934 722 745'))
+      .toBe('+351 932 472 464');
+    expect(decortiquerNumero('+351 932 472 464 - +351 934 722 745').note).toBe('aussi : +351 934 722 745');
   });
 
   it('le canonique peut être déduit de l’écriture quand il manque', () => {
@@ -329,16 +338,47 @@ describe('🔴 le numéro affiché par l’app l’est partout de la même faço
     }
   });
 
-  /** ⚠️ LE LIEN `tel:` NE PORTE JAMAIS D'ESPACES : il part de la forme canonique, jamais de l'affichage. */
-  it('🔴 le lien `tel:` est construit sur la valeur canonique', () => {
-    const cartes = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
-    expect(cartes).toContain('href={`tel:${c.valeur}`}');
-    /* ⚠️ RÉÉCRIT (lot CONTACT-LIGNES) : les deux listes (téléphones, e-mails) ont fusionné en une seule, pour
-       que le regroupement par type puisse décider de l'ordre. La variable s'appelle donc `c` et non `t` — la
-       règle, elle, est intacte : le lien part de la forme CANONIQUE, l'écran montre la forme LUE. */
-    const props = readFileSync('app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx', 'utf8');
-    expect(props).toContain('lienTelephone(c.valeur)');
-    expect(props).toContain('{c.affichage}');
+  /**
+   * ══ 🔴🔴 RÉÉCRIT (lot ANNOTATIONS-TEL, 30/09/2026) — ET IL FAUT DIRE POURQUOI ═════════════════════════════
+   *
+   * L'invariant d'avant disait : « le lien `tel:` est construit sur la valeur CANONIQUE, jamais sur l'affichage »
+   * — et il figeait `href={`tel:${c.valeur}`}` et `lienTelephone(c.valeur)`. Il reposait sur une croyance que le
+   * recensement de ce lot a démentie : que `valeur` est TOUJOURS une forme E.164. Elle ne l'est pas pour 16
+   * lignes sur 804, où l'annotation avait fait échouer la normalisation à l'import et où `valeur` porte un
+   * repli — « 0684711817 », et même « 06688073220629617981 », les deux numéros d'une cellule collés. Le lien de
+   * la fiche DUBOIS composait donc vingt chiffres.
+   *
+   * 🔴 LA RÈGLE DE FOND N'A PAS BOUGÉ — un lien ne porte jamais d'espaces, et l'écran montre la forme LUE. Ce
+   * qui change est la SOURCE : l'affichage, déjà décortiqué et renormalisé, et non la colonne stockée.
+   * ⚠️ Et quand ce n'est pas un numéro, il n'y a plus de lien du tout : mieux vaut un texte qu'un appel au hasard.
+   */
+  it('🔴 le lien `tel:` est construit sur l’affichage décortiqué, et sur rien d’autre', () => {
+    for (const f of [
+      'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx',
+      'app/(admin)/admin/(protected)/gestion/Annuaire.tsx',
+      'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
+    ]) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).toContain('lienAppel(c.affichage)');
+      // Les deux formes qui ont produit le défaut ne doivent plus exister nulle part.
+      expect(src, f).not.toContain('tel:${c.valeur}');
+      expect(src, f).not.toContain('lienTelephone(c.valeur)');
+      expect(src, f).toContain('{c.affichage}');
+    }
+  });
+
+  /** 🔴 LA PREUVE PAR LE CAS RÉEL : les deux numéros collés de la ligne 1012 ne composent plus vingt chiffres. */
+  it('🔴 un numéro à deux nombres ne fabrique plus un lien de vingt chiffres', () => {
+    const affiche = formaterTelephone('06688073220629617981', '0668807322 - 0629617981');
+    expect(affiche).toBe('06 68 80 73 22');
+    /* 🔴 ET LE LIEN RESTE EN E.164 : l'invariant du lot FICHES-RETOUCHES (« un lien international compose aussi
+       bien d'ici que de l'étranger ») tient toujours — c'est la SOURCE qui a changé, pas la forme rendue. */
+    expect(lienAppel(affiche)).toBe('tel:+33668807322');
+    expect(lienAppel(formaterTelephone('+33603050703', '06 03 05 07 03'))).toBe('tel:+33603050703');
+    // Un numéro étranger garde son écriture, sans ses espaces : on ne sait pas le normaliser.
+    expect(lienAppel(formaterTelephone('+19499339479', '+1 949 933-9479'))).toBe('tel:+19499339479');
+    // Et une cellule qui n'est pas un numéro ne devient pas un lien.
+    expect(lienAppel(formaterTelephone(null, 'poste 42'))).toBeNull();
   });
 });
 
@@ -460,5 +500,189 @@ describe('🔴 les tuiles de contact : titre | valeur | Copier', () => {
     expect(rdf).toContain('<BoutonCopier valeur={c.affichage}');
     const props = readFileSync('app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx', 'utf8');
     expect(props).toContain("title={c.sorte === 'email' ? c.valeur : c.affichage}");
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT ANNOTATIONS-TEL — CE QUI TRAÎNE À CÔTÉ D'UN NUMÉRO
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 décortiquer un numéro annoté', () => {
+  /**
+   * ══ LES VARIANTES RÉELLEMENT PRÉSENTES DANS LA BASE, recensées le 30/09/2026 sur les 804 téléphones ═════════
+   * Chacune a sa ligne ici : ce ne sont pas des cas imaginés, ce sont les cas qui existent.
+   */
+  it('🔴 « (M) » donne le type Mobile et disparaît du numéro', () => {
+    for (const brut of ['06 84 71 18 17 (M)', '0769795798 (M)', '06 22 76 89 28 (M)']) {
+      const d = decortiquerNumero(brut);
+      expect(d.type, brut).toBe('mobile');
+      expect(d.note, brut).toBeNull();
+      expect(formaterTelephone(null, brut), brut).toMatch(/^0[67] \d{2} \d{2} \d{2} \d{2}$/);
+    }
+  });
+
+  it('🔴 un « M » collé au numéro, sans parenthèses, compte aussi', () => {
+    const d = decortiquerNumero('06 23 04 82 90 M');
+    expect(d).toEqual({ numero: '06 23 04 82 90', type: 'mobile', note: null });
+  });
+
+  /**
+   * 🔴 LE CAS QUI INTERDIT LA COMPARAISON PAR PRÉFIXE. « M.Moreau » COMMENCE par « M » : le ranger dans les
+   * mobiles aurait jeté le nom de la personne — la seule annotation de toute la base qui apprenne quelque chose.
+   */
+  it('🔴 « (M.Moreau) » est un NOM, pas un type : il passe en note', () => {
+    const d = decortiquerNumero('0663219393 (M.Moreau)');
+    expect(d.type).toBeNull();
+    expect(d.note).toBe('M.Moreau');
+    expect(formaterTelephone(null, '0663219393 (M.Moreau)')).toBe('06 63 21 93 93');
+  });
+
+  it('les autres types se reconnaissent aussi : F, Fixe, Bureau, Pro', () => {
+    for (const a of ['(F)', '(Fixe)', '(Bureau)', '(Pro)', '(Domicile)']) {
+      expect(decortiquerNumero(`01 47 83 82 94 ${a}`).type, a).toBe('fixe');
+    }
+    for (const a of ['(Mob)', '(Portable)', '(GSM)']) {
+      expect(decortiquerNumero(`06 12 34 56 78 ${a}`).type, a).toBe('mobile');
+    }
+  });
+
+  /** 🔴 UNE MARQUE DE DOUTE EST UNE INFORMATION : elle sort du numéro, et reste lisible en note. */
+  it('🔴 le « ? » de l’export sort du numéro et devient une note', () => {
+    expect(decortiquerNumero('+33 6 73 55 30 19?')).toEqual(
+      { numero: '+33 6 73 55 30 19', type: null, note: '?' });
+    expect(decortiquerNumero('?+33 6 12 80 97 38').numero).toBe('+33 6 12 80 97 38');
+  });
+
+  /**
+   * 🔴 DEUX NUMÉROS DANS UNE CELLULE : le premier est LE numéro, le second passe en note. Ce n'est pas une
+   * annotation, mais cela produisait le même symptôme — un nombre de vingt chiffres que personne ne sait lire.
+   */
+  it('🔴 deux numéros dans une cellule : le premier s’affiche, le second est noté', () => {
+    const d = decortiquerNumero('06 47 58 26 61 - 07 84 54 12 94');
+    expect(d.numero).toBe('06 47 58 26 61');
+    expect(d.note).toBe('aussi : 07 84 54 12 94');
+  });
+
+  /** ⚠️ UN NUMÉRO RÉPÉTÉ N'EST PAS UN SECOND NUMÉRO : la ligne 402 de la base porte deux fois le même. */
+  it('🔴 le même numéro écrit deux fois ne fabrique pas une note', () => {
+    expect(decortiquerNumero('0682831674 - 0682831674')).toEqual(
+      { numero: '0682831674', type: null, note: null });
+  });
+
+  /**
+   * ══ 🔴🔴 DÉFAUT TROUVÉ PAR LE RECENSEMENT LUI-MÊME ═════════════════════════════════════════════════════════
+   * « +1 949 933-9479 » est UN numéro américain, dont le tiret sépare les groupes. La première version coupait
+   * dessus, gardait « +1 949 933 » et reléguait « 9479 » en note : elle mutilait un numéro valide pour croire en
+   * trouver deux. On ne coupe que si LES DEUX côtés portent assez de chiffres pour être des numéros.
+   */
+  it('🔴 un tiret INTERNE à un numéro étranger ne le coupe pas', () => {
+    expect(decortiquerNumero('+1 949 933-9479')).toEqual(
+      { numero: '+1 949 933-9479', type: null, note: null });
+    expect(formaterTelephone('+19499339479', '+1 949 933-9479')).toBe('+1 949 933-9479');
+  });
+
+  /**
+   * ══ 🔴🔴 DÉFAUT ATTRAPÉ PAR UNE ÉPREUVE EXISTANTE ══════════════════════════════════════════════════════════
+   * « poste 42 » ressortait comme numéro « 42 » et note « poste » : le mot était jeté du numéro. Une annotation
+   * n'existe que collée à un NUMÉRO — sans assez de chiffres, la cellule entière est autre chose, et elle est
+   * rendue telle quelle.
+   */
+  it('🔴 sans numéro, on ne découpe rien', () => {
+    expect(decortiquerNumero('poste 42')).toEqual({ numero: 'poste 42', type: null, note: null });
+    expect(decortiquerNumero('voir avec le gardien')).toEqual(
+      { numero: 'voir avec le gardien', type: null, note: null });
+    expect(decortiquerNumero('')).toEqual({ numero: '', type: null, note: null });
+    expect(decortiquerNumero(null)).toEqual({ numero: '', type: null, note: null });
+  });
+
+  /** ⚠️ UNE PARENTHÈSE DE CHIFFRES EST UN INDICATIF, pas une annotation : « (33) 6 12… ». */
+  it('une parenthèse qui ne porte que des chiffres reste dans le numéro', () => {
+    const d = decortiquerNumero('(+39)3495816850');
+    expect(d.note).toBeNull();
+    expect(d.numero.replace(/\s/g, '')).toBe('(+39)3495816850');
+  });
+
+  it('un numéro nu n’a ni type ni note — l’immense majorité des 804', () => {
+    expect(decortiquerNumero('06 59 08 82 56')).toEqual(
+      { numero: '06 59 08 82 56', type: null, note: null });
+  });
+});
+
+describe('🔴 l’annotation classe la ligne, et la comparaison ne la voit jamais', () => {
+  /**
+   * 🔴 L'ANNOTATION PASSE DEVANT LE LIBELLÉ DE LA COLONNE : « (F) » est écrit à côté du numéro lui-même, quand
+   * l'intitulé de colonne ne parle que de la colonne.
+   */
+  it('🔴 le type de l’annotation l’emporte sur le libellé importé', () => {
+    const lignes = lignesParType([
+      { sorte: 'telephone', libelle: 'Mobile 1', typeAnnotation: 'fixe' },
+      { sorte: 'telephone', libelle: 'Mobile 2', typeAnnotation: null },
+    ]);
+    // Le premier est rangé sous FIXE malgré son libellé « Mobile 1 » ; le second reste sous MOBILE.
+    expect(lignes.map((l) => l.titre)).toEqual(['Mobile', 'Fixe']);
+    expect(lignes[0].contact.libelle).toBe('Mobile 2');
+  });
+
+  it('sans annotation, le libellé décide — comme avant ce lot', () => {
+    const lignes = lignesParType([{ sorte: 'telephone', libelle: 'Mobile 1' }]);
+    expect(lignes[0].titre).toBe('Mobile');
+  });
+
+  /**
+   * ══ 🔴🔴 LA GARANTIE QUI COMPTE : L'ANNOTATION NE TOUCHE PAS LA COMPARAISON ════════════════════════════════
+   * Arno : « à l'affichage ET à la comparaison, l'annotation est retirée du numéro ». Deux écritures du même
+   * numéro, l'une annotée, l'autre non, doivent donner LA MÊME forme canonique — sinon on croit à deux numéros.
+   */
+  it('🔴 « 06 84 71 18 17 (M) » et « 0684711817 » sont le même numéro', () => {
+    const a = normaliserTelephone(decortiquerNumero('06 84 71 18 17 (M)').numero);
+    const b = normaliserTelephone(decortiquerNumero('0684711817').numero);
+    expect(a).toBe('+33684711817');
+    expect(a).toBe(b);
+    // Et ce qui s'affiche se relit : le tour complet est stable.
+    expect(formaterTelephone(a, '06 84 71 18 17 (M)')).toBe('06 84 71 18 17');
+  });
+
+  /**
+   * 🔴 LA FORME STOCKÉE N'EST PLUS CRUE SUR PAROLE. 16 des 804 téléphones portent dans `valeur` un repli de
+   * l'import (« 0684711817 » au lieu de « +33684711817 »), parce que l'annotation empêchait la normalisation.
+   * L'affichage renormalise le numéro NETTOYÉ, et ne retombe sur la valeur stockée que si elle est déjà bonne.
+   */
+  it('🔴 un repli d’import (valeur non E.164) est renormalisé à l’affichage', () => {
+    expect(formaterTelephone('0684711817', '06 84 71 18 17 (M)')).toBe('06 84 71 18 17');
+    expect(formaterTelephone('06828316740682831674', '0682831674 - 0682831674')).toBe('06 82 83 16 74');
+  });
+});
+
+describe('🔴 la note grise arrive jusqu’aux quatre tuiles', () => {
+  /** ⚠️ ELLE NE VIT JAMAIS DANS LA LIGNE : sinon une adresse longue repousserait « Copier » dessous. */
+  it('🔴 les quatre écrans rendent la note, hors de la ligne', () => {
+    for (const f of [
+      'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx',
+      'app/(admin)/admin/(protected)/gestion/Annuaire.tsx',
+      'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
+      'app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx',
+    ]) {
+      expect(readFileSync(f, 'utf8'), f).toContain('c.note !== null');
+    }
+    // Les deux tuiles à une seule ligne gardent leur `nowrap` : la note est sortie de la ligne.
+    const props = readFileSync('app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx', 'utf8');
+    expect(props).toContain('.pdb-contact{display:flex;flex-wrap:nowrap');
+    expect(props).toContain('pdb-contact-bloc');
+    const rdf = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
+    expect(rdf).toContain('.rdf-contact{display:flex;flex-wrap:nowrap');
+    expect(rdf).toContain('rdf-contact-bloc');
+  });
+
+  /** 🔴 CE QU'ON COPIE RESTE LE NUMÉRO SEUL : la note n'y entre jamais. */
+  it('🔴 la note n’entre ni dans la valeur, ni dans ce qu’on copie', () => {
+    const cartes = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    expect(cartes).toContain("valeur={c.sorte === 'telephone' ? c.affichage : c.valeur}");
+    expect(cartes).not.toContain('valeur={c.note');
+  });
+
+  /** ⚠️ UNE LIGNE QUI PORTE UNE NOTE N'EST PAS TRONQUÉE : la note fait une seconde hauteur. */
+  it('🔴 la troncature se désactive quand il y a une note', () => {
+    const cartes = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    expect(cartes).toContain('tronque={!c.absent && c.note === null}');
   });
 });

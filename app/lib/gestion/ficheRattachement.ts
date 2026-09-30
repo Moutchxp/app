@@ -21,7 +21,12 @@
 /** Une coordonnée, avec le libellé de sa colonne d'origine (« Mobile 1 », « Email 2 »). */
 /** 🔴 LOT FICHES-RETOUCHES — `affichage` AJOUTÉ : le numéro groupé par deux. `valeur` reste la forme
  *  canonique, qui sert aux comparaisons et au lien `tel:`. */
-export interface CoordonneeFiche { valeur: string; affichage: string; libelle: string }
+export interface CoordonneeFiche {
+  valeur: string; affichage: string; libelle: string;
+  /** 🔴 LOT ANNOTATIONS-TEL — la note grise sous le numéro, et le type que l'annotation impose. */
+  note: string | null;
+  typeAnnotation: 'mobile' | 'fixe' | null;
+}
 
 /** Une personne de la fiche : un propriétaire, ou un locataire à la date du mail. */
 export interface PersonneRattachement {

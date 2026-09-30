@@ -1,4 +1,6 @@
 import { normaliserTelephone } from './annuaire';
+// LOT ANNOTATIONS-TEL — le lien « appeler » s'ecrit une seule fois, et il vit deja la, avec ses epreuves.
+import { lienTelephone } from './ficheBien';
 
 /**
  * LOT FICHES-RETOUCHES — DES NUMÉROS LISIBLES, ET UNE NOMENCLATURE UNIQUE. Module PUR : aucune base, aucun React.
@@ -57,8 +59,21 @@ export function chiffresTelephone(brut: string | null | undefined): string {
 export function formaterTelephone(
   canonique: string | null | undefined, brut?: string | null,
 ): string {
-  const ecrit = (brut ?? '').trim();
-  const e164 = (canonique ?? '').trim() !== '' ? (canonique as string).trim() : normaliserTelephone(ecrit);
+  /**
+   * ══ 🔴🔴 LOT ANNOTATIONS-TEL — L'ANNOTATION SORT AVANT TOUT LE RESTE ════════════════════════════════════════
+   *
+   * Demande d'Arno : « à l'affichage et à la comparaison, l'annotation est retirée du numéro ». C'est ici qu'elle
+   * sort : ce qui suit ne voit plus qu'un numéro, et le formate comme n'importe quel autre.
+   *
+   * 🔴 ET LA FORME STOCKÉE N'EST PLUS CRUE SUR PAROLE. Mesuré le 30/09/2026 : 16 des 804 téléphones portent dans
+   * `valeur` autre chose qu'un E.164 — un repli de l'import (« 0684711817 », « 06828316740682831674 »), parce que
+   * l'annotation empêchait la normalisation. On renormalise donc le numéro NETTOYÉ, et on ne retombe sur la forme
+   * stockée que si elle est déjà bonne. Rien n'est écrit en base : c'est une lecture, et elle est réversible.
+   */
+  const decort = decortiquerNumero(brut);
+  const ecrit = decort.numero !== '' ? decort.numero : (brut ?? '').trim();
+  const propose = (canonique ?? '').trim();
+  const e164 = propose.startsWith('+') ? propose : normaliserTelephone(ecrit) ?? (propose !== '' ? propose : null);
   if (e164 === null || e164 === '') return ecrit;
 
   if (e164.startsWith(`+${FR}`)) {
@@ -75,6 +90,30 @@ export function formaterTelephone(
 
   // ÉTRANGER — tel qu'il a été écrit, avec ses espaces. À défaut d'écriture, la forme canonique, inchangée.
   return ecrit !== '' ? ecrit : e164;
+}
+
+/**
+ * ══ 🔴🔴 LE LIEN « appeler » D'UNE COORDONNÉE AFFICHÉE ════════════════════════════════════════════════════════════
+ *
+ * 🔴 DÉFAUT MESURÉ LE 30/09/2026, ET C'EST CE LOT QUI L'A RÉVÉLÉ. Les écrans construisaient le lien sur la colonne
+ * `valeur`, sous un commentaire affirmant qu'elle porte « la forme canonique (+33…), qui compose partout ». C'est
+ * faux pour 16 lignes sur 804 : l'annotation ayant fait échouer la normalisation à l'import, `valeur` y porte un
+ * REPLI — « 0684711817 », et même « 06688073220629617981 », les DEUX numéros d'une cellule collés. Le lien de la
+ * fiche DUBOIS composait vingt chiffres, c'est-à-dire rien.
+ *
+ * 🔴 ON REPART DONC DE L'AFFICHAGE, QUI A DÉJÀ ÉTÉ DÉCORTIQUÉ, et on le RENORMALISE : le lien porte l'E.164 quand
+ * le numéro est français (« +33603050703 »), parce qu'un lien international compose aussi bien d'ici que de
+ * l'étranger — c'est l'invariant que le lot FICHES-RETOUCHES avait posé, et il est conservé.
+ *
+ * ⚠️ UN NUMÉRO ÉTRANGER GARDE SON ÉCRITURE, faute de savoir le normaliser : « +1 949 933-9479 » devient
+ * « tel:+19499339479 », sans ses espaces — un lien n'en porte jamais.
+ * ⚠️ ET CE QUI N'EST PAS UN NUMÉRO N'EST PAS UN LIEN : « poste 42 » rendrait « tel:42 », qui appelle n'importe
+ * qui. `lienTelephone` rend `null`, et l'écran affiche alors un texte simple.
+ */
+export function lienAppel(affichage: string | null | undefined): string | null {
+  const vu = (affichage ?? '').trim();
+  if (vu === '') return null;
+  return lienTelephone(normaliserTelephone(vu) ?? vu);
 }
 
 /**
@@ -109,6 +148,11 @@ export function formaterSaisieTelephone(frappe: string): string {
   // National : « 06 59 08 82 56 ». Au-delà de 10 chiffres on laisse filer — c'est à la vérification de trancher.
   return paires(compact);
 }
+
+/**
+ * ⚠️ `decortiquerNumero` EST DÉFINIE PLUS BAS, et c'est volontaire : elle appartient au chapitre des annotations,
+ * et la remonter ici couperait le fil de la lecture. Une fonction nommée est hissée — l'appel est donc valide.
+ */
 
 /** Des chiffres regroupés par deux, séparés d'une espace. PUR. */
 function paires(chiffres: string): string {
@@ -195,6 +239,12 @@ export function typeDeLibelle(
 export interface CoordonneeAffichable {
   sorte: 'telephone' | 'email' | string;
   libelle: string | null;
+  /**
+   * 🔴 LOT ANNOTATIONS-TEL — LE TYPE QUE L'ANNOTATION DU NUMÉRO IMPOSE, quand il y en a une. Il l'emporte sur le
+   * libellé importé : « (F) » est écrit à côté du numéro lui-même, l'intitulé de colonne ne parle, lui, que de la
+   * colonne. Absent ⇒ on retombe sur le libellé, comme avant ce lot.
+   */
+  typeAnnotation?: 'mobile' | 'fixe' | null;
 }
 
 /** Une ligne de tuile : la coordonnée, et le TITRE — écrit une seule fois par groupe. */
@@ -231,7 +281,10 @@ export function lignesParType<T extends CoordonneeAffichable>(contacts: readonly
   /** Groupes dans leur ordre d'apparition, indexés par le MOT du titre — c'est lui qui distingue les groupes. */
   const groupes = new Map<string, T[]>();
   for (const c of contacts) {
-    const { mot } = typeDeLibelle(c.libelle, c.sorte === 'email' ? 'email' : 'telephone');
+    // 🔴 L'ANNOTATION DU NUMÉRO PASSE DEVANT LE LIBELLÉ DE LA COLONNE : elle est écrite à côté du numéro.
+    const mot = c.typeAnnotation !== undefined && c.typeAnnotation !== null
+      ? motType(c.typeAnnotation)
+      : typeDeLibelle(c.libelle, c.sorte === 'email' ? 'email' : 'telephone').mot;
     groupes.set(mot, [...(groupes.get(mot) ?? []), c]);
   }
 
@@ -249,4 +302,159 @@ export function lignesParType<T extends CoordonneeAffichable>(contacts: readonly
     }
   }
   return lignes;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT ANNOTATIONS-TEL — CE QUI TRAÎNE À CÔTÉ D'UN NUMÉRO
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Ce qu'une cellule de téléphone porte vraiment : le numéro, ce que l'annotation dit de son TYPE, et ce qui reste
+ * et mérite d'être lu.
+ */
+export interface NumeroDecortique {
+  /** Le numéro SEUL, débarrassé de son annotation. C'est lui qu'on normalise, affiche et compare. */
+  numero: string;
+  /**
+   * Le type que l'annotation impose : « (M) » → Mobile, « (F) », « Bureau » → Fixe. `null` = elle n'en dit rien.
+   *
+   * ⚠️ NI « email » NI RIEN D'AUTRE : une annotation collée à un NUMÉRO ne peut désigner qu'un téléphone. Le type
+   * est donc volontairement plus étroit que `TypeCoordonnee` — un état impossible n'a pas à être représentable.
+   */
+  type: 'mobile' | 'fixe' | null;
+  /** Ce qui reste et porte une information : « M.Moreau », un second numéro, un poste. Petite note grise. */
+  note: string | null;
+}
+
+/**
+ * Les annotations qui désignent un TYPE, et rien d'autre. Comparaison sur la forme réduite (sans accent, sans
+ * ponctuation, en minuscules) et EXACTE.
+ *
+ * 🔴 EXACTE, ET C'EST LE POINT DÉLICAT. « M.Moreau » COMMENCE par « M » : une comparaison par préfixe en aurait
+ * fait un mobile et aurait jeté le nom de la personne. Mesuré dans la base : c'est précisément le cas de la ligne
+ * 944 (`0663219393 (M.Moreau)`), la seule annotation qui porte un vrai renseignement.
+ */
+const ANNOTATIONS_TYPE: Readonly<Record<string, 'mobile' | 'fixe'>> = {
+  m: 'mobile', mob: 'mobile', mobile: 'mobile', port: 'mobile', portable: 'mobile', gsm: 'mobile',
+  f: 'fixe', fixe: 'fixe', dom: 'fixe', domicile: 'fixe', bureau: 'fixe', bur: 'fixe', pro: 'fixe',
+  tel: 'fixe', standard: 'fixe',
+};
+
+/** Au moins six chiffres : en deçà, ce n'est pas un numéro mais une note qui contient un nombre. */
+const CHIFFRES_MINIMUM = 6;
+
+const compteChiffres = (s: string): number => (s.match(/\d/g) ?? []).length;
+
+/**
+ * ══ 🔴🔴 SÉPARER LE NUMÉRO DE CE QUI TRAÎNE AUTOUR ════════════════════════════════════════════════════════════════
+ *
+ * Demande d'Arno : « à l'affichage et à la comparaison, l'annotation est retirée du numéro ; si elle indique un
+ * type (M = Mobile, F/Fixe/Bureau = Fixe), elle sert à classer la ligne sous MOBILE ou FIXE ; si elle porte une
+ * info utile (poste, nom d'une personne), elle passe en petite note grise sous le numéro. »
+ *
+ * ═══ CE QUE LA BASE PORTE VRAIMENT, RECENSÉ LE 30/09/2026 SUR LES 804 TÉLÉPHONES ══════════════════════════════════
+ *   · « (M) » ×3 et « M » nu ×1 — un type, déjà dit par le libellé « Mobile » : l'annotation ne faisait que le
+ *     répéter, en rendant le numéro illisible ;
+ *   · « (M.Moreau) » ×1 — un NOM. La seule annotation qui apprenne quelque chose ;
+ *   · « ? » ×3 — une marque de doute, sans autre contenu ;
+ *   · DEUX NUMÉROS dans une seule cellule ×9 (« 06 47 58 26 61 - 07 84 54 12 94 ») : ce n'est pas une annotation,
+ *     mais cela produit exactement le même symptôme — un nombre de vingt chiffres que personne ne sait lire.
+ *   · AUCUNE annotation dans les 995 e-mails.
+ *
+ * 🔴 RIEN N'EST JETÉ. Ce qui n'est ni le numéro ni un type devient une NOTE, verbatim : on ne décide pas à la
+ * place d'Arno que « ? » ou « M.Moreau » ne valent pas d'être lus. PUR.
+ */
+export function decortiquerNumero(brut: string | null | undefined): NumeroDecortique {
+  const s = (brut ?? '').replace(/\s+/g, ' ').trim();
+  if (s === '') return { numero: '', type: null, note: null };
+
+  const notes: string[] = [];
+  let type: 'mobile' | 'fixe' | null = null;
+
+  /**
+   * ① LES MORCEAUX ENTRE PARENTHÈSES sortent en premier : c'est la forme la plus fréquente (« (M) »,
+   *   « (M.Moreau) »), et la plus facile à isoler sans toucher aux chiffres.
+   */
+  let reste = s.replace(/\(([^)]*)\)/g, (_tout, dedans: string) => {
+    const mot = String(dedans).trim();
+    const reduit = mot.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+    /* Une parenthèse qui ne porte QUE des chiffres est un INDICATIF, pas une annotation : « (33) 6 12… ».
+       ⚠️ ELLE EST RENDUE AVEC SES PARENTHÈSES : un numéro étranger s'affiche « tel quel, avec ses espaces »
+       (consigne d'Arno), et « (+39)3495816850 » écrit sans ses parenthèses n'est plus ce que la personne a
+       écrit. La comparaison n'en souffre pas : `normaliserTelephone` retire déjà les parenthèses. */
+    if (compteChiffres(mot) > 0 && /^[\d\s.+-]*$/.test(mot)) return `(${mot})`;
+    if (mot !== '' && reduit === mot.toLowerCase().replace(/[^a-z]/g, '') && ANNOTATIONS_TYPE[reduit] !== undefined
+      && mot.replace(/[^A-Za-zÀ-ÿ]/g, '').length === reduit.length) {
+      type = ANNOTATIONS_TYPE[reduit];
+      return ' ';
+    }
+    if (mot !== '') notes.push(mot);
+    return ' ';
+  }).trim();
+
+  /**
+   * ② DEUX NUMÉROS DANS UNE CELLULE. L'export les sépare par « - » ou « / ». Le premier est LE numéro ; les
+   *   suivants deviennent une note — on ne les perd pas, et on n'invente pas une seconde ligne dans l'annuaire,
+   *   qui aurait un identifiant, un rang et un libellé que la base ne porte pas.
+   */
+  const morceaux = reste.split(/\s*[-/]\s*/).map((x) => x.trim()).filter((x) => x !== '');
+  const numeros = morceaux.filter((x) => compteChiffres(x) >= CHIFFRES_MINIMUM);
+  /**
+   * ⚠️ ON NE COUPE QUE SI LES DEUX CÔTÉS SONT DES NUMÉROS. DÉFAUT TROUVÉ PAR LE RECENSEMENT LUI-MÊME, le
+   * 30/09/2026 : « +1 949 933-9479 » est UN numéro américain, dont le tiret sépare les groupes. La version
+   * d'avant en gardait « +1 949 933 » et reléguait « 9479 » en note — elle mutilait un numéro valide pour
+   * croire en trouver deux. Un seul morceau porteur de chiffres ⇒ la chaîne entière est le numéro, tirets
+   * compris, et c'est la normalisation qui tranchera.
+   */
+  if (numeros.length > 1) {
+    reste = numeros[0];
+    const vus = new Set([normaliserTelephone(numeros[0]) ?? numeros[0]]);
+    for (const autre of numeros.slice(1)) {
+      // ⚠️ LE SECOND NUMÉRO EST NETTOYÉ LUI AUSSI : « 06 98 61 20 52? » porte le même « ? » que le premier.
+      const propre = autre.replace(/[^\d\s.()+-]/g, '').replace(/\s+/g, ' ').trim();
+      const cle = normaliserTelephone(propre) ?? propre;
+      /* ⚠️ UN NUMÉRO RÉPÉTÉ N'EST PAS UN SECOND NUMÉRO. Mesuré : la ligne 402 porte « 0682831674 - 0682831674 »,
+         deux fois le même. Le noter « aussi : … » ferait croire à un autre numéro qu'il n'y a pas. */
+      if (vus.has(cle)) continue;
+      vus.add(cle);
+      notes.push(`aussi : ${formaterTelephone(null, propre)}`);
+    }
+    for (const m of morceaux) if (compteChiffres(m) < CHIFFRES_MINIMUM && m !== '') notes.push(m);
+  }
+
+  /**
+   * ③ CE QUI RESTE COLLÉ AU NUMÉRO : un « M » en suffixe, un « ? » en tête ou en queue. On retire tout ce qui
+   *   n'est ni un chiffre ni un séparateur, en gardant trace de ce qu'on retire.
+   */
+  const horsNumero = reste.replace(/[\d\s.()+-]/g, '');
+  if (horsNumero !== '') {
+    const reduit = horsNumero.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+    if (reduit !== '' && ANNOTATIONS_TYPE[reduit] !== undefined && reduit.length === horsNumero.length) {
+      type = type ?? ANNOTATIONS_TYPE[reduit];
+    } else {
+      notes.push(horsNumero);
+    }
+    reste = reste.replace(/[^\d\s.()+-]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * ══ 🔴🔴 SANS NUMÉRO, PAS D'ANNOTATION — ON NE DÉCOUPE RIEN ════════════════════════════════════════════════
+   *
+   * DÉFAUT ATTRAPÉ PAR UNE ÉPREUVE EXISTANTE, le 30/09/2026 : « poste 42 » ressortait comme numéro « 42 » et note
+   * « poste ». Le mot était jeté du numéro, et la cellule ne disait plus ce qu'elle disait.
+   *
+   * 🔴 UNE ANNOTATION N'EXISTE QUE COLLÉE À UN NUMÉRO. Si ce qui reste n'en porte pas assez de chiffres pour en
+   * être un, c'est que la cellule entière est autre chose — une note, un renvoi, un texte libre — et elle est
+   * rendue TELLE QUELLE. C'est l'invariant du module depuis le premier lot : ce qui n'est pas un numéro n'est
+   * jamais avalé.
+   */
+  if (compteChiffres(reste) < CHIFFRES_MINIMUM) {
+    return { numero: s, type: null, note: null };
+  }
+
+  return {
+    numero: reste,
+    type,
+    note: notes.length === 0 ? null : notes.join(' · '),
+  };
 }

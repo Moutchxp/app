@@ -150,11 +150,14 @@ describe('🔴 ③ ④ les groupes de propriétaires', () => {
       nom: 'MOTTAIS GRAINDORGE Didier et Sandrine',
       // LOT FICHES-RETOUCHES — `affichage` ajoute : la forme LUE par l'ecran (« 06 00 00 00 00 »), distincte de
       // la forme canonique qui, elle, sert aux comparaisons. Les deux voyagent ensemble.
+      // LOT ANNOTATIONS-TEL — `note` et `typeAnnotation` ajoutés : ce qui traînait à côté du numéro, et le type
+      // qu'il impose. `null` ici : ces coordonnées de fiction n'ont pas d'annotation.
       emails: [
-        { valeur: 'didier@x.fr', affichage: 'didier@x.fr', libelle: 'Email 1' },
-        { valeur: 'sandrine@x.fr', affichage: 'sandrine@x.fr', libelle: 'Email 2' },
+        { valeur: 'didier@x.fr', affichage: 'didier@x.fr', libelle: 'Email 1', note: null, typeAnnotation: null },
+        { valeur: 'sandrine@x.fr', affichage: 'sandrine@x.fr', libelle: 'Email 2', note: null, typeAnnotation: null },
       ],
-      telephones: [{ valeur: '+33600000000', affichage: '06 00 00 00 00', libelle: 'Mobile' }],
+      telephones: [{ valeur: '+33600000000', affichage: '06 00 00 00 00', libelle: 'Mobile',
+        note: null, typeAnnotation: null }],
     });
     const g = groupesParProprietaire([{ cle: '1', parties: [indivision] }]);
     expect(g[0].personnes).toHaveLength(1);

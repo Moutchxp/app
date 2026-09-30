@@ -23,7 +23,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { annuaireDisponible, annuaireModifiableDisponible, libelleSourceContactDisponible } from './schema';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 // LOT FICHES-RETOUCHES — un numero affiche par l'app est groupe par deux chiffres.
-import { formaterTelephone } from './telephoneAffichage';
+import { decortiquerNumero, formaterTelephone } from './telephoneAffichage';
 import type { ContactAnnuaire } from './annuaire';
 import type { PlanImport } from './annuaireImport';
 import type { TermeRecherche } from './annuaireRecherche';
@@ -637,6 +637,18 @@ export interface ContactAffiche {
   id: number;
   sorte: 'telephone' | 'email'; valeur: string; affichage: string; absent: boolean;
   /**
+   * 🔴 LOT ANNOTATIONS-TEL — CE QUI TRAÎNAIT À CÔTÉ DU NUMÉRO, et qui mérite d'être lu : « M.Moreau », un second
+   * numéro, une marque de doute. L'écran le pose en petite note grise SOUS le numéro. `null` = rien à dire.
+   *
+   * ⚠️ IL N'EST JAMAIS DANS LA VALEUR NI DANS CE QU'ON COPIE : le numéro se compose et se recopie seul.
+   */
+  note: string | null;
+  /**
+   * 🔴 LE TYPE QUE L'ANNOTATION IMPOSE (« (M) » → Mobile, « (F) », « Bureau » → Fixe). Il l'emporte sur le libellé
+   * importé : il est écrit à côté du numéro lui-même, donc plus précis que l'intitulé de la colonne.
+   */
+  typeAnnotation: 'mobile' | 'fixe' | null;
+  /**
    * 🔴 LOT FICHES-ANNUAIRE — LE LIBELLÉ D'ORIGINE (« Mobile », « Email », « Domicile »…), tel que WIPPIMMO
    * l'écrivait. Demande d'Arno : « chaque téléphone et chaque e-mail avec son libellé ». Mesuré le 29/09/2026 :
    * les 1 793 coordonnées de la base en portent un — la colonne existait, l'écran la jetait.
@@ -1118,6 +1130,8 @@ const contactsDe = async (sujet: 'proprietaire' | 'locataire', sujetId: number):
     affichage: r.sorte === 'telephone'
       ? formaterTelephone(r.valeur, r.valeur_brute)
       : (r.valeur_brute.trim() === '' ? r.valeur : r.valeur_brute),
+    note: r.sorte === 'telephone' ? decortiquerNumero(r.valeur_brute).note : null,
+    typeAnnotation: r.sorte === 'telephone' ? decortiquerNumero(r.valeur_brute).type : null,
     absent: r.absent_le !== null,
     libelle: r.libelle === null || r.libelle.trim() === '' ? null : r.libelle.trim(),
   }));

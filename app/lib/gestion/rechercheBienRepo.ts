@@ -1,6 +1,6 @@
 import { query } from '../db/client';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
-import { formaterTelephone } from './telephoneAffichage';
+import { decortiquerNumero, formaterTelephone } from './telephoneAffichage';
 import { annuaireDisponible } from './schema';
 import { analyserTerme, type TermeRecherche } from './annuaireRecherche';
 import { adresseComplete, type Coordonnee, type PersonneFiche } from './ficheBien';
@@ -240,6 +240,9 @@ async function partiesDesBiens(
         affichage: c.sorte === 'telephone'
           ? formaterTelephone(c.valeur, c.valeur_brute)
           : (c.valeur_brute.trim() === '' ? c.valeur : c.valeur_brute),
+        // 🔴 LOT ANNOTATIONS-TEL — ce qui traînait à côté du numéro, et le type qu'il impose.
+        note: c.sorte === 'telephone' ? decortiquerNumero(c.valeur_brute).note : null,
+        typeAnnotation: c.sorte === 'telephone' ? decortiquerNumero(c.valeur_brute).type : null,
         libelle: libelleContact({ sorte: c.sorte, rang: c.rang, libelleSource: c.libelle_source }),
       };
       if (c.sorte === 'email') e.emails.push(coord); else if (c.sorte === 'telephone') e.telephones.push(coord);

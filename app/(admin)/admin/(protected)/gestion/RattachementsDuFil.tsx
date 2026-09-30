@@ -335,7 +335,10 @@ function CartePersonne({ personne }: { personne: PersonneRattachement }) {
                 attribution — on dit le TYPE, ce qui est vrai, au lieu du numéro de colonne, qui ne parlait
                 qu'à celui qui avait lu l'export. */}
             {lignesParType(contacts).map(({ contact: c, titre }) => (
-              <li key={`${c.sorte}|${c.valeur}`} className="rdf-contact">
+              /* ⚠️ MÊME RAISON QUE DANS `PropositionsDeBiens` : la note vit HORS de la ligne, qui garde son
+                 `nowrap` — sans quoi une adresse longue repousserait « Copier » à la ligne suivante. */
+              <li key={`${c.sorte}|${c.valeur}`} className="rdf-contact-bloc">
+                <span className="rdf-contact">
                 {titre === null
                   ? <span className="rdf-contact-libelle" aria-hidden="true" />
                   : <span className="rdf-contact-libelle">{titre}</span>}
@@ -345,6 +348,9 @@ function CartePersonne({ personne }: { personne: PersonneRattachement }) {
                   {c.affichage}
                 </span>
                 <BoutonCopier valeur={c.affichage} quoi={`${c.quoi} de ${personne.nom}`} />
+                </span>
+                {/* 🔴 LOT ANNOTATIONS-TEL — la note passe SOUS la ligne, alignée sur la valeur. */}
+                {c.note !== null && <span className="rdf-note-tel">{c.note}</span>}
               </li>
             ))}
           </ul>
@@ -397,6 +403,10 @@ export const CSS_RATTACHEMENTS_FIL = `
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Le bouton ne retrecit jamais : c'est la valeur qui cede la place, pas lui. */
 .rdf-contact>.bcp{flex:0 0 auto;margin-left:auto}
+/* LOT ANNOTATIONS-TEL — la note vit SOUS la ligne, dans son propre bloc : la ligne, elle, garde son nowrap. */
+.rdf-contact-bloc{display:flex;flex-direction:column;min-width:0}
+.rdf-note-tel{margin-left:5.1rem;font-size:.72rem;font-style:italic;color:var(--color-svv-muted);
+  overflow-wrap:anywhere}
 /* ══ LE VIDE, DIT ══════════════════════════════════════════════════════════════════════════════════════════ */
 .rdf-vide{display:flex;flex-direction:column;gap:2px;margin-bottom:10px;padding:10px;
   border-left:3px solid var(--color-svv-red);border-radius:0 .5rem .5rem 0;background:var(--color-svv-field)}

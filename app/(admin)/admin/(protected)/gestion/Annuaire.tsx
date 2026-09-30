@@ -18,7 +18,7 @@ import {
 } from './CartesPersonnes';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 // LOT FICHES-RETOUCHES — la nomenclature des coordonnées, partagée par tous les écrans de l'annuaire.
-import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
+import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 
 /**
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
@@ -989,21 +989,30 @@ function BlocOccupant({ o, ouvrir, onEcrire }: {
             <span className="ann-inconnu">non renseignées</span>
           </LigneFiche>
         )}
-        {lignesParType(o.contacts).map(({ contact: c, titre }) => (
-          <LigneFiche key={c.id} libelle={titre} tronque={!c.absent}
+        {lignesParType(o.contacts).map(({ contact: c, titre }) => {
+        /* 🔴 LOT ANNOTATIONS-TEL — le lien part de l'AFFICHAGE décortiqué, jamais de `valeur` : 16 lignes sur
+           804 y portent un repli de l'import, dont deux numéros collés en un de vingt chiffres. */
+        const appeler = c.sorte === 'telephone' ? lienAppel(c.affichage) : null;
+        return (
+          <LigneFiche key={c.id} libelle={titre} tronque={!c.absent && c.note === null}
             infobulle={c.sorte === 'email' ? c.valeur : c.affichage}
             apres={(
               <BoutonCopier valeur={c.sorte === 'telephone' ? c.affichage : c.valeur}
                 quoi={c.sorte === 'telephone' ? 'ce numéro' : 'cette adresse'} />
             )}>
             {c.sorte === 'telephone'
-              ? <a className="ann-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
+              ? (appeler === null
+                ? <span>{c.affichage}</span>
+                : <a className="ann-lien" href={appeler}>{c.affichage}</a>)
               : onEcrire
                 ? <button type="button" className="ann-lien"
                   onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
                 : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
+            {/* 🔴 LOT ANNOTATIONS-TEL — la note grise, sous le numéro, comme sur les cartes. */}
+            {c.note !== null && <span className="cp-note-tel">{c.note}</span>}
           </LigneFiche>
-        ))}
+        );
+        })}
       </div>
     </article>
   );

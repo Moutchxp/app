@@ -43,6 +43,10 @@ export interface Coordonnee {
    * coexister — afficher la canonique donnait « +33659088256 », qu'on ne sait pas lire à voix haute.
    */
   affichage: string;
+  /** 🔴 LOT ANNOTATIONS-TEL — la note grise, sous le numéro : « M.Moreau », un second numéro. `null` = rien. */
+  note: string | null;
+  /** 🔴 Le type que l'annotation impose, qui l'emporte sur le libellé importé. */
+  typeAnnotation: 'mobile' | 'fixe' | null;
   /** « Mobile 1 », « Email 2 », « Télécoms »… JAMAIS vide : voir `libelleContact` dans `annuaire.ts`. */
   libelle: string;
 }

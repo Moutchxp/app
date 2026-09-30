@@ -8,7 +8,7 @@ import {
 } from '../../../../lib/gestion/annuaireEdition';
 // LOT FICHES-RETOUCHES — la nomenclature (Mobile / Fixe / E-mail) et le formatage des numeros.
 import {
-  TYPES_COORDONNEE, formaterSaisieTelephone, lignesParType, motType, sorteDuType, typeDeLibelle,
+  TYPES_COORDONNEE, formaterSaisieTelephone, lienAppel, lignesParType, motType, sorteDuType, typeDeLibelle,
   type TypeCoordonnee,
 } from '../../../../lib/gestion/telephoneAffichage';
 
@@ -265,27 +265,43 @@ function Coordonnees({ contacts, onEcrire }: {
   }
   return (
     <>
-      {lignesParType(contacts).map(({ contact: c, titre }) => (
+      {lignesParType(contacts).map(({ contact: c, titre }) => {
+      const appeler = c.sorte === 'telephone' ? lienAppel(c.affichage) : null;
+      return (
         <Ligne key={c.id} libelle={titre}
           /* 🔴 TRONQUÉE, JAMAIS REPLIÉE : une adresse longue ne doit pas pousser « Copier » à la ligne suivante.
              L'infobulle porte l'adresse ENTIÈRE, et la copie, elle, reste intacte — c'est `c.valeur` qui part au
              presse-papiers, pas ce que l'écran a pu couper. */
           /* ⚠️ UNE COORDONNÉE « RETIRÉE DE L'EXPORT » N'EST PAS TRONQUÉE : sa mention doit rester lisible, et
              c'est le seul endroit où elle s'écrit. Elle est rare (une coordonnée disparue d'un ré-import). */
-          tronque={!c.absent} infobulle={c.sorte === 'email' ? c.valeur : c.affichage}
+          /* ⚠️ UNE LIGNE QUI PORTE UNE NOTE N'EST PAS TRONQUÉE : la note se pose SOUS le numéro, la valeur fait
+             donc deux hauteurs — et `white-space:nowrap` les aurait mises côte à côte, puis coupées. */
+          tronque={!c.absent && c.note === null} infobulle={c.sorte === 'email' ? c.valeur : c.affichage}
           apres={(
             <Copier valeur={c.sorte === 'telephone' ? c.affichage : c.valeur}
               quoi={c.sorte === 'telephone' ? 'ce numéro' : 'cette adresse'} />
           )}>
           {c.sorte === 'telephone'
-            /* `tel:` porte la forme canonique (+33…), qui compose partout ; le texte montre ce qui était écrit. */
-            ? <a className="cp-lien" href={`tel:${c.valeur}`}>{c.affichage}</a>
+            /* 🔴 LOT ANNOTATIONS-TEL — LE LIEN PART DE L'AFFICHAGE. Le commentaire d'avant disait « `tel:` porte
+               la forme canonique (+33…), qui compose partout » : c'était FAUX pour 16 lignes sur 804, mesurées le
+               30/09/2026. Leur `valeur` est un repli de l'import, l'annotation ayant fait échouer la normalisation
+               — « 0684711817 » ici, « 06688073220629617981 » (deux numéros collés) ailleurs. `affichage`, lui, a
+               été décortiqué et renormalisé ; `lienTelephone` en retire les espaces, et rend `null` si ce n'est
+               pas un numéro — auquel cas le texte reste, sans lien qui composerait n'importe quoi. */
+            ? (appeler === null
+              ? <span>{c.affichage}</span>
+              : <a className="cp-lien" href={appeler}>{c.affichage}</a>)
             : onEcrire
               ? <button type="button" className="cp-lien" onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
               : <a className="cp-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
           {c.absent && <span className="cp-caps cp-caps--absent">retiré de l’export</span>}
+          {/* 🔴 LOT ANNOTATIONS-TEL — CE QUI TRAÎNAIT À CÔTÉ DU NUMÉRO, en petite note grise SOUS lui : le nom
+              d'une personne, un second numéro, une marque de doute. Il sort du numéro — qui se compose et se
+              recopie seul — mais il n'est pas jeté : on ne décide pas à la place d'Arno qu'il ne vaut rien. */}
+          {c.note !== null && <span className="cp-note-tel">{c.note}</span>}
         </Ligne>
-      ))}
+      );
+      })}
     </>
   );
 }
@@ -1058,6 +1074,12 @@ export const CSS_CARTES = `
 .cp-ajouts{display:flex;gap:.4rem;flex-wrap:wrap}
 .cp-form-boutons{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.25rem}
 .cp-note-verrou{margin:.2rem 0 0;font-size:.74rem;color:var(--color-svv-muted)}
+/* ══ 🔴 LOT ANNOTATIONS-TEL — LA NOTE SOUS LE NUMERO ══════════════════════════════════════════════════════════
+   Petite, grise, sur sa PROPRE ligne (flex-basis:100% force le retour) : elle ne doit ni allonger la ligne du
+   numero, ni pousser « Copier » ailleurs. C'est un renseignement de second plan — « M.Moreau », un second
+   numero —, jamais une valeur qu'on compose ou qu'on recopie. */
+.cp-note-tel{flex:0 0 100%;margin-top:-.1rem;font-size:.72rem;font-style:italic;color:var(--color-svv-muted)}
+
 /* ══ 🔴 CE QUI MANQUE, SOUS SON CHAMP ══════════════════════════════════════════════════════════════════════════
    Un mot, en rouge de la charte, juste sous la case qu'il concerne. « La fiche est incomplete » oblige a chercher
    lequel des huit champs manque ; ceci le montre du doigt. */

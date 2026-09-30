@@ -192,8 +192,21 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
     expect(src).toContain('Parti');
   });
 
+  /**
+   * ══ 🔴 RÉÉCRIT LE 30/09/2026 (lot ANNOTATIONS-TEL) — LA RÈGLE TIENT, SA SOURCE CHANGE ══════════════════════
+   *
+   * L'épreuve figeait `href={`tel:${c.valeur}`}`. Elle reposait sur une croyance que le recensement de ce lot a
+   * démentie : que `valeur` porte TOUJOURS un E.164. Faux pour 16 lignes sur 804, où l'annotation avait fait
+   * échouer la normalisation à l'import — « 06688073220629617981 » y est LE numéro stocké, les deux numéros
+   * d'une cellule collés, et le lien composait ces vingt chiffres.
+   *
+   * CE QU'ELLE PROTÉGEAIT EST INTACT : la coordonnée est cliquable, et le lien ne porte pas d'espaces. Il part
+   * désormais de l'affichage décortiqué, renormalisé par `lienAppel` — qui rend toujours l'E.164 français.
+   */
   it('les coordonnées sont cliquables : `tel:` compose, `mailto:` (ou l’éditeur maison) écrit', () => {
-    expect(src).toContain('href={`tel:${c.valeur}`}');
+    expect(src).toContain('lienAppel(c.affichage)');
+    expect(src).toContain('href={appeler}');
+    expect(src).not.toContain('href={`tel:${c.valeur}`}');
     expect(src).toContain('href={`mailto:${c.valeur}`}');
   });
 
