@@ -163,6 +163,15 @@ export interface PieceDeMessage {
   /** Faux quand la pièce n'a PAS pu être déposée : on dit alors POURQUOI, plutôt que d'offrir un lien qui échouerait. */
   disponible: boolean;
   motifNonStocke: string | null;
+  /**
+   * 🔴 LOT RECAP-SANS-DOUBLON — L'EMPREINTE DU CONTENU. C'est elle qui dit si deux pièces d'une même conversation
+   * sont le MÊME fichier — un document transféré puis re-transféré n'a pas à être listé trois fois.
+   *
+   * ⚠️ `null` = pièce sans octets chez nous (jamais conservée) : le récapitulatif retombe alors sur le nom et la
+   * taille, et il le SIGNALE. Mesuré le 30/09/2026 : 0 pièce a des octets sans empreinte, les 430 sans empreinte
+   * sont exactement les 430 sans clé de stockage.
+   */
+  empreinte: string | null;
 }
 
 /** Même formatage d'instant que `fileRepo` : une seule façon d'écrire une date dans tout le module. */
@@ -400,16 +409,33 @@ export function htmlAffichable(brut: string | null | undefined): string | null {
   return htmlVide(propre) ? null : propre;
 }
 
+/**
+ * ══ 🔴 LES CHAMPS D'UNE PIÈCE DE MESSAGE, ÉCRITS UNE FOIS ═══════════════════════════════════════════════════════
+ *
+ * Deux requêtes lisent les mêmes colonnes — l'une pour un ensemble de messages, l'autre pour tout un fil. Elles
+ * étaient recopiées mot pour mot. En ajoutant l'empreinte (lot RECAP-SANS-DOUBLON), il aurait fallu penser à
+ * l'ajouter DEUX fois : un oubli aurait donné un récapitulatif dédoublonné dans un écran et pas dans l'autre,
+ * sans que rien ne le dise.
+ *
+ * ⚠️ `empreinte_sha256` EXISTE DEPUIS LA CRÉATION DE LA TABLE : aucune sonde de schéma ici, pas plus que pour
+ * `motif_non_stocke` juste à côté. Les sondes protègent les colonnes AJOUTÉES par migration.
+ */
+const CHAMPS_PIECE_DE_MESSAGE = `p.id::int AS piece_id, p.message_id::int AS message_id, p.nom_fichier,
+  p.type_mime, p.taille_octets, (p.cle_stockage IS NOT NULL) AS disponible, p.motif_non_stocke,
+  p.empreinte_sha256`;
+
+interface LignePieceDeMessage {
+  piece_id: number; message_id: number; nom_fichier: string; type_mime: string | null;
+  taille_octets: string | number | null; disponible: boolean; motif_non_stocke: string | null;
+  empreinte_sha256: string | null;
+}
+
 /** Les pièces d'un ensemble de messages, rangées par message. Une seule requête, quel que soit le nombre de messages. */
 async function lirePiecesDesMessages(messageIds: readonly number[]): Promise<Map<number, PieceDeMessage[]>> {
   const parMessage = new Map<number, PieceDeMessage[]>();
   if (messageIds.length === 0) return parMessage;
-  const { rows } = await query<{
-    piece_id: number; message_id: number; nom_fichier: string; type_mime: string | null;
-    taille_octets: string | number | null; disponible: boolean; motif_non_stocke: string | null;
-  }>(
-    `SELECT p.id::int AS piece_id, p.message_id::int AS message_id, p.nom_fichier, p.type_mime, p.taille_octets,
-            (p.cle_stockage IS NOT NULL) AS disponible, p.motif_non_stocke
+  const { rows } = await query<LignePieceDeMessage>(
+    `SELECT ${CHAMPS_PIECE_DE_MESSAGE}
        FROM gestion_piece p WHERE p.message_id = ANY($1::bigint[]) ORDER BY p.id ASC`, [messageIds]);
   for (const p of rows) {
     const liste = parMessage.get(p.message_id) ?? [];
@@ -418,6 +444,7 @@ async function lirePiecesDesMessages(messageIds: readonly number[]): Promise<Map
       // `bigint` revient en CHAÎNE avec pg : sans conversion, les tailles se compareraient comme du texte.
       tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets),
       disponible: p.disponible === true, motifNonStocke: p.motif_non_stocke,
+      empreinte: p.empreinte_sha256,
     });
     parMessage.set(p.message_id, liste);
   }
@@ -491,12 +518,8 @@ export async function lireMessagesDuFil(
        FROM msg
       ORDER BY recu_le ASC, message_id ASC`, [filId]);
 
-  const { rows: pieces } = await query<{
-    piece_id: number; message_id: number; nom_fichier: string; type_mime: string | null;
-    taille_octets: string | number | null; disponible: boolean; motif_non_stocke: string | null;
-  }>(
-    `SELECT p.id::int AS piece_id, p.message_id::int AS message_id, p.nom_fichier, p.type_mime, p.taille_octets,
-            (p.cle_stockage IS NOT NULL) AS disponible, p.motif_non_stocke
+  const { rows: pieces } = await query<LignePieceDeMessage>(
+    `SELECT ${CHAMPS_PIECE_DE_MESSAGE}
        FROM gestion_piece p JOIN gestion_message m ON m.id = p.message_id
       WHERE m.fil_id = $1 AND m.exclu_le IS NULL
       ORDER BY p.id ASC`, [filId]);
@@ -510,6 +533,7 @@ export async function lireMessagesDuFil(
       //   comparaisons de taille mentiraient. Piège connu du dépôt.
       tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets),
       disponible: p.disponible === true, motifNonStocke: p.motif_non_stocke,
+      empreinte: p.empreinte_sha256,
     });
     parMessage.set(p.message_id, liste);
   }

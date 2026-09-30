@@ -410,6 +410,28 @@ export function dateHeureCourte(iso: string | null | undefined, maintenant: Date
   return `${c.jour} ${moisCourt}${annee} ${c.heure}`;
 }
 
+/**
+ * ══ 🔴 LOT RECAP-SANS-DOUBLON — UNE DATE COURTE MAIS ABSOLUE : « 30/09 à 17:49 ». PUR. ═══════════════════════════
+ *
+ * ⚠️ POURQUOI PAS `dateHeureCourte`, QUI EXISTE JUSTE AU-DESSUS. Parce qu'elle est RELATIVE : elle rend « 17:49 »
+ * pour aujourd'hui et « hier 17:49 » pour la veille. C'est exactement ce qu'il faut sur une ligne de courrier —
+ * et exactement ce qu'il ne faut pas ici.
+ *
+ * Cette forme-ci sert aux renvois « aussi envoyée le 30/09 à 17:49 », posés sous une pièce qui apparaît PLUSIEURS
+ * fois dans une conversation. Leur seul travail est de dire LAQUELLE des autres apparitions : trois renvois qui
+ * diraient tous « 17:49 » ne distingueraient rien, et « hier » obligerait à savoir quel jour on est.
+ *
+ * ⚠️ L'ANNÉE N'Y EST PAS, et c'est assumé : ces renvois vivent DANS une conversation, dont les messages portent
+ * déjà leur date complète. L'infobulle de la ligne, elle, donne la date entière (`dateHeureComplete`).
+ */
+export function dateJourEtHeure(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const c = champsParis(d);
+  return `${String(c.jour).padStart(2, '0')}/${String(c.mois).padStart(2, '0')} à ${c.heure}`;
+}
+
 /** Date complète et heure, pour une infobulle ou un en-tête de message. Toujours en heure de Paris. PUR. */
 export function dateHeureComplete(iso: string | null | undefined): string {
   if (!iso) return '—';

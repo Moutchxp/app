@@ -5,7 +5,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { BoutonPiecesConversation, ModalePiecesConversation } from './PiecesDeLaConversation';
 import {
-  piecesDeLaConversation, type MessagePorteur, type PiecePortee,
+  dedoublonnerPieces, piecesDeLaConversation, type MessagePorteur, type PiecePortee,
 } from '../../../../lib/gestion/piecesConversation';
 
 /**
@@ -27,7 +27,9 @@ import {
 
 const piece = (o: Partial<PiecePortee> = {}): PiecePortee => ({
   pieceId: 1, nomFichier: 'bail.pdf', typeMime: 'application/pdf', tailleOctets: 120_000,
-  disponible: true, motifNonStocke: null, ...o,
+  // 🔴 LOT RECAP-SANS-DOUBLON — chaque pièce d'essai porte une empreinte DISTINCTE par défaut : sans cela, deux
+  //   pièces de contenu différent se ressembleraient et le dédoublonnage en avalerait une.
+  disponible: true, motifNonStocke: null, empreinte: `sha-${o.pieceId ?? 1}`, ...o,
 });
 const message = (o: Partial<MessagePorteur> = {}): MessagePorteur => ({
   messageId: 1, recuLe: '2026-09-20T08:00:00Z', sens: 'recu', de: 'marie@exemple.test', deNom: 'Marie Dupont',
@@ -62,11 +64,18 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); });
 
-const monter = (o: { ordre?: 'recent' | 'ancien'; depots?: Map<number, { pieceId: number; dossierNom: string | null; webViewLink: string | null }> } = {}) => {
+const monter = (o: {
+  ordre?: 'recent' | 'ancien';
+  depots?: Map<number, { pieceId: number; dossierNom: string | null; webViewLink: string | null }>;
+  /** 🔴 LOT RECAP-SANS-DOUBLON — la fenêtre reçoit ce que l'écran lui donne : une liste DÉJÀ dédoublonnée. */
+  messages?: MessagePorteur[];
+} = {}) => {
   const ordre = o.ordre ?? 'recent';
+  const recap = dedoublonnerPieces(piecesDeLaConversation(o.messages ?? MESSAGES, ordre));
   act(() => {
     root.render(createElement(ModalePiecesConversation, {
-      pieces: piecesDeLaConversation(MESSAGES, ordre),
+      pieces: recap.pieces,
+      sansEmpreinte: recap.sansEmpreinte,
       ordre,
       onOrdre: () => {},
       depots: o.depots ?? new Map(),
@@ -223,5 +232,74 @@ describe('🔴 le trombone est écrit une fois et posé deux fois', () => {
   it('🔴 le trombone du bas a sa propre rangée, hors du pied de réponse', () => {
     expect(source).toContain('className="cnv-pieces-bas"');
     expect(source).toContain('.cnv-pieces-bas{');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT RECAP-SANS-DOUBLON — CE QUE LA FENÊTRE DIT D'UNE PIÈCE VUE PLUSIEURS FOIS ════════════════════════
+ *
+ * Le module pur décide QUI survit ; seule cette épreuve-ci vérifie que les autres apparitions ARRIVENT à l'écran,
+ * et qu'elles y sont CLIQUABLES. Retirer les répétitions sans rien laisser ferait douter : « je suis sûr de
+ * l'avoir renvoyée, pourquoi ne la vois-je pas ? ».
+ */
+describe('🔴🔴 les autres apparitions se disent, et mènent au message', () => {
+  const MEMES: MessagePorteur[] = [
+    message({
+      messageId: 1, recuLe: '2026-09-01T08:00:00Z', sens: 'recu', deNom: 'De Largentaye',
+      pieces: [piece({ pieceId: 10, nomFichier: 'TF Pergolèse.pdf', empreinte: 'abc' })],
+    }),
+    message({
+      messageId: 2, recuLe: '2026-09-30T15:49:00Z', sens: 'envoye', de: 'gestion@exemple.test', deNom: 'Gestion',
+      pieces: [piece({ pieceId: 20, nomFichier: 'TF Pergolèse.pdf', empreinte: 'abc' })],
+    }),
+  ];
+
+  it('🔴 UNE SEULE carte, et le titre annonce UNE pièce', () => {
+    monter({ messages: MEMES });
+    expect(cartes()).toHaveLength(1);
+    expect(container.querySelector('.pdc-compte')?.textContent).toContain('1 pièce');
+  });
+
+  it('🔴 la mention « aussi envoyée le 30/09 à 17:49 » est écrite sous la vignette', () => {
+    monter({ messages: MEMES });
+    const renvois = [...container.querySelectorAll('.pdc-aussi')].map((e) => e.textContent ?? '');
+    expect(renvois).toEqual(['aussi envoyée le 30/09 à 17:49']);
+  });
+
+  it('🔴 le renvoi est CLIQUABLE et mène AU MESSAGE de cette apparition, pas à celui de la pièce gardée', () => {
+    monter({ messages: MEMES });
+    const renvoi = container.querySelector('.pdc-aussi') as HTMLButtonElement;
+    act(() => { renvoi.click(); });
+    expect(gestes.onAllerAuMessage).toHaveBeenCalledWith(2);
+  });
+
+  /**
+   * 🔴 LE DÉPÔT EST ENREGISTRÉ CONTRE LA PIÈCE RANGÉE. Si l'on a rangé la copie du 30/09 et que la carte montre
+   * celle du 23/09, ne chercher que sur l'identifiant affiché ferait disparaître « Dans le Drive » — et l'on
+   * rangerait une seconde fois un fichier déjà rangé.
+   */
+  it('🔴 « Dans le Drive » se voit même si c’est une AUTRE apparition qui a été rangée', () => {
+    monter({
+      messages: MEMES,
+      depots: new Map([[20, { pieceId: 20, dossierNom: 'Taxes 2026', webViewLink: null }]]),
+    });
+    expect(container.querySelector('.pdc-drive')?.textContent).toContain('Taxes 2026');
+  });
+
+  it('une pièce vue une seule fois ne porte AUCUN renvoi', () => {
+    monter();
+    expect(container.querySelectorAll('.pdc-aussi')).toHaveLength(0);
+  });
+
+  it('⚠️ le rapprochement SANS EMPREINTE est signalé en pied de fenêtre, et seulement alors', () => {
+    monter({ messages: MEMES });
+    expect(container.querySelector('.pdc-presomption')).toBeNull();
+
+    const sansEmpreinte = MEMES.map((m) => message({
+      ...m, pieces: m.pieces.map((x) => ({ ...x, empreinte: null })),
+    }));
+    monter({ messages: sansEmpreinte });
+    expect(container.querySelector('.pdc-presomption')?.textContent)
+      .toContain('sur son nom et sa taille');
   });
 });

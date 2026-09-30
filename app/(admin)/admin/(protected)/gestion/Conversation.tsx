@@ -23,7 +23,7 @@ import { CSS_PIECES, PiecesJointes, type DepotAffiche } from './PiecesJointes';
  * quel ordre, les mots) vivent dans le module PUR ; l'écran ne fait que placer et peindre.
  */
 import {
-  compterPiecesConversation, ORDRE_PIECES_DEFAUT, ordrePiecesSuivant, PARENT_PIECES_CONVERSATION,
+  dedoublonnerPieces, ORDRE_PIECES_DEFAUT, ordrePiecesSuivant, PARENT_PIECES_CONVERSATION,
   piecesDeLaConversation, voisinagePiecesConversation, type OrdrePieces, type PieceDeConversation,
 } from '../../../../lib/gestion/piecesConversation';
 import {
@@ -670,8 +670,20 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   /* ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — CE QUE LA CONVERSATION PORTE COMME PIÈCES ═════════════════════════════
      Tout sort du module PUR : le compte du trombone et la liste de la fenêtre viennent du MÊME calcul, si bien
      qu'on ne peut pas lire « 7 pièces » en haut et en compter neuf en bas. */
-  const nbPieces = compterPiecesConversation(messages);
-  const piecesFil = piecesDeLaConversation(messages, ordrePieces);
+  /**
+   * 🔴🔴 LOT RECAP-SANS-DOUBLON — UN SEUL CALCUL POUR LE COMPTE ET POUR LA LISTE.
+   *
+   * Le fil 3494 annonçait « 30 pièces » pour 8 fichiers différents : les avis d'imposition reçus le 23/09 y
+   * figuraient encore quatre fois, parce qu'ils ont été transférés, puis re-transférés. On garde la PREMIÈRE
+   * apparition, et les autres deviennent des renvois sous sa vignette.
+   *
+   * ⚠️ LE COMPTE EST LA LONGUEUR DE LA LISTE, littéralement : c'est ce qui rend impossible de lire un nombre en
+   * haut et d'en compter un autre en bas. `compterPiecesConversation` rend exactement la même chose pour qui n'a
+   * pas la liste sous la main, et une épreuve tient les deux ensemble.
+   */
+  const recap = dedoublonnerPieces(piecesDeLaConversation(messages, ordrePieces));
+  const piecesFil = recap.pieces;
+  const nbPieces = piecesFil.length;
   /** La pièce affichée dans la visionneuse, retrouvée dans la liste classée. */
   const pieceAffichee = pieceVue === null ? undefined : piecesFil.find((p) => p.pieceId === pieceVue);
   /**
@@ -1091,6 +1103,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           pieces={piecesFil}
           ordre={ordrePieces}
           onOrdre={() => setOrdrePieces(ordrePiecesSuivant(ordrePieces))}
+          sansEmpreinte={recap.sansEmpreinte}
           depots={depotsFil}
           maintenant={maintenant}
           /* 🔴 ÉCHAP NE FERME QUE LA FENÊTRE DU DESSUS : voir l'encadré de la prop dans le composant. */

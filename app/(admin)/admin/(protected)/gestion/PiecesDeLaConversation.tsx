@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  grouperParMessage, INFOBULLE_PIECES_CONVERSATION, libelleOrdrePieces, mentionExpediteurPiece, motPieces,
-  TITRE_PIECES_CONVERSATION, type OrdrePieces, type PieceDeConversation,
+  grouperParMessage, INFOBULLE_PIECES_CONVERSATION, libelleOrdrePieces, mentionAutreApparition,
+  mentionExpediteurPiece, motPieces, TITRE_PIECES_CONVERSATION,
+  type OrdrePieces, type PieceDeConversation, type PieceDedoublonnee,
 } from '../../../../lib/gestion/piecesConversation';
 import { etiquetteType, formaterTaille, sortePiece, tronquerNom } from '../../../../lib/gestion/pieces';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
@@ -68,12 +69,21 @@ export interface GestesPiece {
 }
 
 export function ModalePiecesConversation({
-  pieces, ordre, onOrdre, depots, maintenant, gestes, ecouterEchap, onFermer,
+  pieces, ordre, onOrdre, sansEmpreinte, depots, maintenant, gestes, ecouterEchap, onFermer,
 }: {
-  /** DÉJÀ CLASSÉES par le module pur : cette fenêtre ne trie jamais, elle affiche l'ordre qu'on lui donne. */
-  pieces: readonly PieceDeConversation[];
+  /**
+   * DÉJÀ CLASSÉES **ET DÉJÀ DÉDOUBLONNÉES** par le module pur : cette fenêtre ne trie rien et ne rapproche rien.
+   * Chaque pièce porte ses autres apparitions ; il ne reste qu'à les écrire.
+   */
+  pieces: readonly PieceDedoublonnee[];
   ordre: OrdrePieces;
   onOrdre: () => void;
+  /**
+   * 🔴 COMBIEN DE RAPPROCHEMENTS ONT ÉTÉ FAITS SANS EMPREINTE, sur le seul nom et la seule taille. `0` dans le cas
+   * ordinaire, et le pied de la fenêtre ne dit alors rien. Non nul, il le DIT : une présomption qu'on présente
+   * comme une preuve est pire qu'un doublon affiché.
+   */
+  sansEmpreinte: number;
   /** Les dépôts connus, par pièce. Vide = migration 245 absente, ou aucune pièce rangée : aucune mention. */
   depots: ReadonlyMap<number, DepotAffiche>;
   maintenant: Date;
@@ -134,8 +144,19 @@ export function ModalePiecesConversation({
               </h3>
               <ul className="pdc-grille">
                 {g.pieces.map((p) => (
-                  <CartePieceConversation key={p.pieceId} piece={p} depot={depots.get(p.pieceId)}
-                    maintenant={maintenant} gestes={gestes} />
+                  /**
+                   * 🔴 LOT RECAP-SANS-DOUBLON — « DANS LE DRIVE » SE CHERCHE SUR TOUTES LES APPARITIONS.
+                   *
+                   * Le dépôt est enregistré contre LA pièce rangée. Si l'on a rangé la copie reçue le 30/09 et
+                   * que la carte montre celle du 23/09, chercher le dépôt sur le seul identifiant affiché ferait
+                   * disparaître la mention — et l'on rangerait une seconde fois un fichier déjà rangé.
+                   *
+                   * ⚠️ LE PREMIER DÉPÔT TROUVÉ GAGNE : c'est le même fichier, donc le même document dans le
+                   * Drive. Les montrer tous n'apprendrait rien et allongerait la carte.
+                   */
+                  <CartePieceConversation key={p.pieceId} piece={p} maintenant={maintenant} gestes={gestes}
+                    depot={depots.get(p.pieceId)
+                      ?? p.autresApparitions.map((a) => depots.get(a.pieceId)).find((d) => d !== undefined)} />
                 ))}
               </ul>
             </section>
@@ -149,6 +170,14 @@ export function ModalePiecesConversation({
             « Ranger dans le Drive » ouvre la fenêtre habituelle : c’est là qu’on choisit le dossier, et qu’on peut
             renommer la pièce avant de la déposer. Rien n’est déposé depuis cette liste.
           </p>
+          {/* 🔴 LE REPLI SE DIT. Sans empreinte, le rapprochement n'est qu'une présomption : qui lit la liste doit
+              savoir laquelle des deux il regarde. Rien ne s'affiche dans le cas ordinaire. */}
+          {sansEmpreinte > 0 && (
+            <p className="gst-note pdc-note pdc-presomption">
+              {sansEmpreinte === 1 ? 'Une pièce a été rapprochée' : `${sansEmpreinte} pièces ont été rapprochées`}
+              {' '}sur son nom et sa taille, faute d’empreinte : nous n’en avons pas gardé le contenu.
+            </p>
+          )}
           <button type="button" className="svv-btn gst-btn" onClick={onFermer}>Fermer</button>
         </footer>
       </div>
@@ -165,7 +194,7 @@ export function ModalePiecesConversation({
  * l'ouverture, et la grille ne saute pas quand les images arrivent.
  */
 function CartePieceConversation({ piece: p, depot, maintenant, gestes }: {
-  piece: PieceDeConversation;
+  piece: PieceDedoublonnee;
   depot: DepotAffiche | undefined;
   maintenant: Date;
   gestes: GestesPiece;
@@ -227,6 +256,24 @@ function CartePieceConversation({ piece: p, depot, maintenant, gestes }: {
         {!p.disponible && (
           <span className="pdc-meta">non conservée{p.motifNonStocke ? ` (${p.motifNonStocke})` : ''}</span>
         )}
+        {/* ══ 🔴🔴 LES AUTRES APPARITIONS DU MÊME FICHIER ═══════════════════════════════════════════════════════
+            Arno : « une mention discrète “aussi envoyée le 30/09 à 17:49”, une ligne par autre apparition,
+            cliquable vers le message ».
+
+            🔴 ON LES DIT, ON NE LES CACHE PAS. Retirer les répétitions sans rien laisser ferait douter : « je suis
+            sûr de l'avoir renvoyée, pourquoi ne la vois-je pas ? ». La ligne répond à la question avant qu'elle
+            ne se pose, et le clic mène au courrier concerné.
+
+            ⚠️ UN BOUTON, PAS UN LIEN : le geste reste DANS l'application (fermer la fenêtre, déplier le message),
+            il n'y a aucune adresse à ouvrir — et un lien qui ne navigue pas se copie, se partage, et ne marche
+            nulle part. */}
+        {p.autresApparitions.map((a) => (
+          <button key={a.pieceId} type="button" className="pdc-aussi"
+            onClick={() => gestes.onAllerAuMessage(a.messageId)}
+            title={`Aller au message du ${dateHeureComplete(a.recuLe)}`}>
+            {mentionAutreApparition(a, p.messageId)}
+          </button>
+        ))}
       </div>
 
       {/* ══ LES ACTIONS ══ Toujours visibles, jamais au survol : sur un iPhone, une action qui n'apparaît qu'au
@@ -329,6 +376,11 @@ export const CSS_PIECES_CONVERSATION = `
 .pdc-nom{font-size:.8rem;color:var(--color-svv-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pdc-meta{font-size:.72rem;color:var(--color-svv-ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pdc-drive{font-size:.72rem;color:var(--color-svv-ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pdc-aussi{display:block;text-align:left;padding:0;border:0;background:none;font:inherit;font-size:.72rem;
+  color:var(--color-svv-muted);text-decoration:underline;text-underline-offset:2px;cursor:pointer;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.pdc-aussi:hover,.pdc-aussi:focus-visible{color:var(--color-svv-ink)}
+.pdc-presomption{font-style:italic}
 .pdc-lien{color:var(--color-svv-ink);text-decoration:underline}
 .pdc-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 

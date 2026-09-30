@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  compterPiecesConversation, grouperParMessage, libelleOrdrePieces, mentionExpediteurPiece, motPieces,
+  cleIdentitePiece, compterPiecesConversation, dedoublonnerPieces, grouperParMessage, libelleOrdrePieces,
+  mentionAutreApparition, mentionExpediteurPiece, motPieces, vraiesPiecesDuMessage,
   ordrePiecesSuivant, PARENT_PIECES_CONVERSATION, piecesDeLaConversation, voisinagePiecesConversation,
   type MessagePorteur, type PiecePortee,
 } from './piecesConversation';
@@ -24,7 +25,9 @@ import { positionDans, voisinVers, voisinsVisualisables } from './apercuDrive';
 
 const piece = (o: Partial<PiecePortee> = {}): PiecePortee => ({
   pieceId: 1, nomFichier: 'bail.pdf', typeMime: 'application/pdf', tailleOctets: 120_000,
-  disponible: true, motifNonStocke: null, ...o,
+  // 🔴 LOT RECAP-SANS-DOUBLON — chaque pièce d'essai porte une empreinte DISTINCTE par défaut : sans cela, deux
+  //   pièces de contenu différent se ressembleraient et le dédoublonnage en avalerait une.
+  disponible: true, motifNonStocke: null, empreinte: `sha-${o.pieceId ?? 1}`, ...o,
 });
 
 const message = (o: Partial<MessagePorteur> = {}): MessagePorteur => ({
@@ -218,5 +221,202 @@ describe('🔴🔴 « Précédent / Suivant » parcourt TOUTE la conversation c�
     // 🔴 ET RÉCIPROQUEMENT : ouvert depuis un dossier du Drive, le tour reste BORNÉ À CE DOSSIER (inchangé).
     const cote = voisinsVisualisables(melange, { id: 'drive-1', typeMime: 'application/pdf', parentId: 'dossier-drive' });
     expect(cote.map((v) => v.id)).toEqual(['drive-1']);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT RECAP-SANS-DOUBLON — UNE MÊME PIÈCE N'APPARAÎT QU'UNE FOIS ═══════════════════════════════════════
+ *
+ * CONSTAT D'ARNO, fil 3494 : le récapitulatif annonçait « 30 pièces ». Mesuré en base le 30/09/2026 : 36 pièces
+ * brutes pour 8 fichiers DIFFÉRENTS. Les mêmes avis d'imposition, reçus puis transférés puis re-transférés.
+ *
+ * Les trois cas qu'Arno a nommés sont les trois premiers `it` : reçu puis transféré = 1 ; renommé mais identique
+ * = 1 ; deux fichiers différents de même nom = 2. Le troisième est le plus important : se tromper dans ce sens-là
+ * FAIT DISPARAÎTRE un document, et une pièce manquante ne se voit pas, alors qu'un doublon se voit.
+ */
+describe('🔴🔴 le récapitulatif ne montre qu’une fois le même fichier', () => {
+  /** Le même contenu (même empreinte, même taille), reçu le 1er puis renvoyé le 5. */
+  const recuPuisTransfere = () => [
+    message({
+      messageId: 1, recuLe: '2026-09-01T08:00:00Z', sens: 'recu', de: 'ddl@rdpromotion.fr', deNom: 'De Largentaye',
+      pieces: [piece({ pieceId: 10, nomFichier: 'TF Pergolèse.pdf', empreinte: 'abc', tailleOctets: 76_433 })],
+    }),
+    message({
+      messageId: 2, recuLe: '2026-09-05T17:49:00Z', sens: 'envoye', de: 'gestion@criterimmo.fr', deNom: 'Gestion',
+      pieces: [piece({ pieceId: 20, nomFichier: 'TF Pergolèse.pdf', empreinte: 'abc', tailleOctets: 76_433 })],
+    }),
+  ];
+
+  it('🔴 même fichier REÇU puis TRANSFÉRÉ = 1 pièce', () => {
+    const { pieces } = dedoublonnerPieces(piecesDeLaConversation(recuPuisTransfere()));
+    expect(pieces).toHaveLength(1);
+    expect(compterPiecesConversation(recuPuisTransfere())).toBe(1);
+  });
+
+  it('🔴 fichier RENOMMÉ mais identique = 1 pièce — le nom est ce qui change le plus facilement', () => {
+    const messages = recuPuisTransfere();
+    messages[1] = message({
+      ...messages[1],
+      pieces: [piece({ pieceId: 20, nomFichier: 'taxe foncière Pergolèse (copie).pdf', empreinte: 'abc',
+        tailleOctets: 76_433 })],
+    });
+    expect(dedoublonnerPieces(piecesDeLaConversation(messages)).pieces).toHaveLength(1);
+  });
+
+  it('🔴🔴 deux fichiers DIFFÉRENTS de MÊME NOM = 2 pièces — en fondre un le ferait disparaître', () => {
+    const messages = recuPuisTransfere();
+    messages[1] = message({
+      ...messages[1],
+      pieces: [piece({ pieceId: 20, nomFichier: 'TF Pergolèse.pdf', empreinte: 'zzz', tailleOctets: 76_433 })],
+    });
+    expect(dedoublonnerPieces(piecesDeLaConversation(messages)).pieces).toHaveLength(2);
+  });
+});
+
+describe('🔴 c’est la PREMIÈRE apparition qui reste, et les autres se disent', () => {
+  const messages = () => [
+    message({
+      messageId: 1, recuLe: '2026-09-01T08:00:00Z', sens: 'recu', de: 'ddl@rdpromotion.fr', deNom: 'De Largentaye',
+      pieces: [piece({ pieceId: 10, empreinte: 'abc' })],
+    }),
+    message({
+      messageId: 2, recuLe: '2026-09-05T17:49:00Z', sens: 'envoye', de: 'gestion@criterimmo.fr', deNom: 'Gestion',
+      pieces: [piece({ pieceId: 20, empreinte: 'abc' })],
+    }),
+    message({
+      messageId: 3, recuLe: '2026-09-08T09:10:00Z', sens: 'envoye', de: 'gestion@criterimmo.fr', deNom: 'Gestion',
+      pieces: [piece({ pieceId: 30, empreinte: 'abc' })],
+    }),
+  ];
+
+  it('🔴 la pièce gardée est la PLUS ANCIENNE, avec son message et sa date', () => {
+    const { pieces } = dedoublonnerPieces(piecesDeLaConversation(messages()));
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0].pieceId).toBe(10);
+    expect(pieces[0].messageId).toBe(1);
+    expect(pieces[0].recuLe).toBe('2026-09-01T08:00:00Z');
+  });
+
+  /**
+   * 🔴 LE BOUTON « PLUS RÉCENTE D'ABORD » INVERSE CE QU'ON VOIT, PAS QUI SURVIT. S'il décidait aussi de la
+   * survivante, la même pièce changerait de date et de message selon le sens de lecture.
+   */
+  it('🔴 l’ordre d’AFFICHAGE ne change pas la pièce gardée', () => {
+    for (const ordre of ['recent', 'ancien'] as const) {
+      const { pieces } = dedoublonnerPieces(piecesDeLaConversation(messages(), ordre));
+      expect(pieces[0].pieceId, ordre).toBe(10);
+      expect(pieces[0].autresApparitions.map((a) => a.pieceId), ordre).toEqual([20, 30]);
+    }
+  });
+
+  it('les autres apparitions sont rendues de la plus ANCIENNE à la plus récente, avec leur sens', () => {
+    const { pieces } = dedoublonnerPieces(piecesDeLaConversation(messages()));
+    expect(pieces[0].autresApparitions.map((a) => a.messageId)).toEqual([2, 3]);
+    expect(pieces[0].autresApparitions.every((a) => a.sens === 'envoye')).toBe(true);
+  });
+
+  it('🔴 la mention s’accorde avec LA PIÈCE, et porte une date ABSOLUE', () => {
+    expect(mentionAutreApparition({ sens: 'envoye', recuLe: '2026-09-30T15:49:00Z', messageId: 9 }))
+      .toBe('aussi envoyée le 30/09 à 17:49');
+    expect(mentionAutreApparition({ sens: 'recu', recuLe: '2026-09-30T15:49:00Z', messageId: 9 }))
+      .toBe('aussi reçue le 30/09 à 17:49');
+  });
+
+  /**
+   * 🔴 VU À L'ÉCRAN : le mail du 23/09 portait DEUX FOIS le même PDF. « aussi reçue le 23/09 à 15:57 » sous une
+   * carte datée du 23/09 à 15:57 a l'air faux, et fait chercher un second mail qui n'existe pas.
+   */
+  it('🔴 deux fois dans le MÊME message se dit autrement — sinon la phrase a l’air fausse', () => {
+    expect(mentionAutreApparition({ sens: 'recu', recuLe: '2026-09-23T13:57:00Z', messageId: 5 }, 5))
+      .toBe('jointe une seconde fois au même message');
+    // Un AUTRE message garde la date : c'est elle qui dit lequel.
+    expect(mentionAutreApparition({ sens: 'recu', recuLe: '2026-09-23T13:57:00Z', messageId: 6 }, 5))
+      .toContain('23/09');
+  });
+
+  it('une pièce qui n’apparaît qu’une fois n’a AUCUN renvoi — le cas ordinaire ne dit rien', () => {
+    const { pieces, sansEmpreinte } = dedoublonnerPieces(piecesDeLaConversation([messages()[0]]));
+    expect(pieces[0].autresApparitions).toEqual([]);
+    expect(sansEmpreinte).toBe(0);
+  });
+});
+
+describe('⚠️ sans empreinte, on rapproche sur le nom et la taille — et on le DIT', () => {
+  const sansEmpreinte = (id: number, o: Partial<PiecePortee> = {}) =>
+    piece({ pieceId: id, empreinte: null, nomFichier: 'quittance.pdf', tailleOctets: 4_200, ...o });
+
+  it('le repli rapproche, et se compte', () => {
+    const r = dedoublonnerPieces(piecesDeLaConversation([
+      message({ messageId: 1, recuLe: '2026-09-01T08:00:00Z', pieces: [sansEmpreinte(10)] }),
+      message({ messageId: 2, recuLe: '2026-09-05T08:00:00Z', pieces: [sansEmpreinte(20)] }),
+    ]));
+    expect(r.pieces).toHaveLength(1);
+    expect(r.pieces[0].parNomEtTaille).toBe(true);
+    expect(r.sansEmpreinte).toBe(1);
+  });
+
+  it('une TAILLE différente suffit à séparer deux fichiers de même nom', () => {
+    const r = dedoublonnerPieces(piecesDeLaConversation([
+      message({ messageId: 1, recuLe: '2026-09-01T08:00:00Z', pieces: [sansEmpreinte(10)] }),
+      message({ messageId: 2, recuLe: '2026-09-05T08:00:00Z', pieces: [sansEmpreinte(20, { tailleOctets: 9_000 })] }),
+    ]));
+    expect(r.pieces).toHaveLength(2);
+  });
+
+  /**
+   * 🔴🔴 UNE PRÉSOMPTION N'EST PAS UNE PREUVE, ET LES DEUX NE SE MÉLANGENT PAS. Une pièce sans empreinte ne doit
+   * jamais être fondue dans une pièce qui en a une : on ne sait rien du contenu de la première.
+   */
+  it('🔴 une pièce SANS empreinte n’est jamais confondue avec une pièce QUI EN A une', () => {
+    const r = dedoublonnerPieces(piecesDeLaConversation([
+      message({ messageId: 1, recuLe: '2026-09-01T08:00:00Z',
+        pieces: [piece({ pieceId: 10, nomFichier: 'q.pdf', tailleOctets: 4_200, empreinte: 'abc' })] }),
+      message({ messageId: 2, recuLe: '2026-09-05T08:00:00Z',
+        pieces: [piece({ pieceId: 20, nomFichier: 'q.pdf', tailleOctets: 4_200, empreinte: null })] }),
+    ]));
+    expect(r.pieces).toHaveLength(2);
+    expect(cleIdentitePiece({ ...piece(), empreinte: 'abc' }).cle)
+      .not.toBe(cleIdentitePiece({ ...piece(), empreinte: null }).cle);
+  });
+
+  it('⚠️ une pièce sans empreinte qui n’apparaît QU’UNE fois ne fait rien signaler', () => {
+    const r = dedoublonnerPieces(piecesDeLaConversation([
+      message({ messageId: 1, recuLe: '2026-09-01T08:00:00Z', pieces: [sansEmpreinte(10)] }),
+    ]));
+    expect(r.sansEmpreinte).toBe(0);
+  });
+});
+
+describe('🔴 le compte et la liste ne peuvent pas diverger', () => {
+  const messages = [
+    message({ messageId: 1, recuLe: '2026-09-01T08:00:00Z',
+      pieces: [piece({ pieceId: 10, empreinte: 'a' }), piece({ pieceId: 11, empreinte: 'b' })] }),
+    message({ messageId: 2, recuLe: '2026-09-05T08:00:00Z', sens: 'envoye',
+      pieces: [piece({ pieceId: 20, empreinte: 'a' }), piece({ pieceId: 21, empreinte: 'c' })] }),
+  ];
+
+  it('le total du trombone EST la longueur de la liste dédoublonnée', () => {
+    const { pieces } = dedoublonnerPieces(piecesDeLaConversation(messages));
+    expect(compterPiecesConversation(messages)).toBe(pieces.length);
+    expect(pieces).toHaveLength(3);
+  });
+
+  /** Arno : « Précédent / Suivant dans la visionneuse parcourent la liste dédoublonnée. » */
+  it('🔴 le tour de la visionneuse suit la liste DÉDOUBLONNÉE', () => {
+    // ⚠️ L'ORDRE PAR DÉFAUT EST « plus récente d'abord » : le message 2 passe donc devant. La pièce 20, doublon
+    //   de la 10, a disparu du tour — c'est tout ce que cette épreuve tient.
+    const { pieces } = dedoublonnerPieces(piecesDeLaConversation(messages));
+    expect(voisinagePiecesConversation(pieces).map((v) => v.id)).toEqual(['21', '10', '11']);
+    const anciennes = dedoublonnerPieces(piecesDeLaConversation(messages, 'ancien'));
+    expect(voisinagePiecesConversation(anciennes.pieces).map((v) => v.id)).toEqual(['10', '11', '21']);
+  });
+
+  /**
+   * ⚠️ CE QUI NE CHANGE PAS (demande d'Arno) : le trombone d'un MESSAGE compte les pièces DE CE MESSAGE, doublons
+   * compris. Un mail qui re-transmet deux pièces déjà reçues en porte bien deux, et prétendre le contraire
+   * mentirait sur ce qui est parti.
+   */
+  it('🔴 le trombone d’un MESSAGE reste inchangé : il compte SES pièces, doublons compris', () => {
+    expect(vraiesPiecesDuMessage(messages[1].pieces)).toHaveLength(2);
   });
 });

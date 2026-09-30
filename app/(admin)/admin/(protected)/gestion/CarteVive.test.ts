@@ -57,9 +57,9 @@ const MESSAGES: MessageDeFil[] = [
     corps: 'Bonjour,\n\nIl y a une fuite sous le lavabo. [cid:image001.png@01DA]\n\n> Le 20 septembre, Gestion a écrit :\n> Bonjour, avez-vous constaté quelque chose ?',
     automatique: false,
     pieces: [
-      { pieceId: 7, nomFichier: 'constat.pdf', typeMime: 'application/pdf', tailleOctets: 120000, disponible: true, motifNonStocke: null },
-      { pieceId: 8, nomFichier: 'video.mov', typeMime: 'video/quicktime', tailleOctets: null, disponible: false, motifNonStocke: 'type refusé' },
-      { pieceId: 9, nomFichier: 'image001.png', typeMime: 'image/png', tailleOctets: 3000, disponible: true, motifNonStocke: null },
+      { pieceId: 7, nomFichier: 'constat.pdf', typeMime: 'application/pdf', tailleOctets: 120000, disponible: true, motifNonStocke: null, empreinte: 'sha-7' },
+      { pieceId: 8, nomFichier: 'video.mov', typeMime: 'video/quicktime', tailleOctets: null, disponible: false, motifNonStocke: 'type refusé', empreinte: null },
+      { pieceId: 9, nomFichier: 'image001.png', typeMime: 'image/png', tailleOctets: 3000, disponible: true, motifNonStocke: null, empreinte: 'sha-9' },
     ],
   }),
   conv({
