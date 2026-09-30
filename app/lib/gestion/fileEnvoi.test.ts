@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   attenteAvantReprise, bailExpire, BAIL_SECONDES, causeEnFrancais, corpsAlerte, doitAlerter, ESSAIS_MAX,
+  grouperEnvois, motGroupeEnvoi, signatureEnvoi,
   fusionnerNonEnvoyes, heureFr, motEtatFile, objetAlerte, placePourLaPiece, tonEtatFile, verdictPieces,
   type MentionNonEnvoye,
 } from './fileEnvoi';
@@ -326,5 +327,84 @@ describe('🔴 LOT LIGNE-NON-ENVOYE — fusionner les échecs dans « Envoyés �
     const copie = JSON.parse(JSON.stringify(l));
     fusionnerNonEnvoyes(l, [echec({ filId: 7 })], fabriquer);
     expect(l).toEqual(copie);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT PJ-APRES-VIDAGE — UN ÉCHEC = UN BANDEAU ET UNE ALERTE ═════════════════════════════════════════════
+ *
+ * Mesuré en base le 30/09/2026 sur le fil 3494 : deux clics sur « transférer » (14:55:31 et 14:56:53) ont produit
+ * DEUX lignes de file (12 et 14) portant le MÊME brouillon (64) et la MÊME cause au mot près — donc deux alertes
+ * identiques dans la boîte et quatre bandeaux à l'écran, pour une seule chose à réparer.
+ */
+describe('🔴🔴 regrouper les tentatives identiques', () => {
+  const t = (id: number, o: Record<string, unknown> = {}) => ({
+    id, etat: 'echec' as const, filId: 3494, objet: 'TR : Taxes Foncières',
+    destinataires: ['compta@adhoc.fr'], cause: 'Gmail a refusé l’envoi.',
+    demandeLe: `2026-09-30T14:5${id}:00Z`, ...o,
+  });
+
+  it('deux tentatives identiques ne font qu’un groupe, qui sait combien', () => {
+    const g = grouperEnvois([t(4), t(2)]);
+    expect(g).toHaveLength(1);
+    expect(g[0].nb).toBe(2);
+    expect(g[0].ids).toEqual([4, 2]);
+  });
+
+  it('🔴 la ligne retenue est la PLUS RÉCENTE — c’est son brouillon qu’on rouvre', () => {
+    const g = grouperEnvois([t(2), t(4)]);
+    expect(g[0].ligne.id).toBe(4);
+  });
+
+  /**
+   * 🔴 REGROUPER SUR MOINS QUE CE QU'ON AFFICHE MASQUERAIT UNE PANNE. Deux échecs du même échange mais de causes
+   * différentes sont deux choses à réparer ; les fondre ferait disparaître l'une des deux pour toujours.
+   */
+  it('🔴 une cause différente = un groupe différent, même échange', () => {
+    expect(grouperEnvois([t(4), t(2, { cause: 'la pièce « bail.pdf » manque.' })])).toHaveLength(2);
+  });
+
+  it('un destinataire différent, un objet différent, un état différent : autant de groupes', () => {
+    expect(grouperEnvois([t(4), t(2, { destinataires: ['autre@x.fr'] })])).toHaveLength(2);
+    expect(grouperEnvois([t(4), t(2, { objet: 'Devis' })])).toHaveLength(2);
+    expect(grouperEnvois([t(4), t(2, { etat: 'attente' as const })])).toHaveLength(2);
+  });
+
+  it('⚠️ l’ordre d’entrée est CONSERVÉ : un bandeau ne saute pas d’un endroit à l’autre entre deux relectures', () => {
+    const g = grouperEnvois([t(1, { objet: 'A' }), t(2, { objet: 'B' }), t(3, { objet: 'A' })]);
+    expect(g.map((x) => x.ligne.objet)).toEqual(['A', 'B']);
+  });
+
+  it('la signature ne retient QUE ce que le bandeau affiche', () => {
+    // Le brouillon et l'heure ne sont PAS affichés comme une identité : deux tentatives du même message les ont
+    //   différents (l'heure) ou identiques (le brouillon) sans que cela change ce qu'on lit.
+    expect(signatureEnvoi(t(4))).toBe(signatureEnvoi(t(9)));
+  });
+
+  it('🔴 le NOMBRE est dans le MOT — une synthèse vocale ne lit pas une pastille', () => {
+    expect(motGroupeEnvoi('echec', 1)).toBe('Non envoyé');
+    expect(motGroupeEnvoi('echec', 2)).toBe('2 tentatives non envoyées');
+    expect(motGroupeEnvoi('attente', 3)).toBe('3 envois en cours');
+  });
+});
+
+describe('🔴 le TROISIÈME verrou de l’alerte : la même panne, déjà signalée il y a peu', () => {
+  it('🔴 une panne déjà signalée ne re-alerte pas', () => {
+    expect(doitAlerter({
+      etat: 'echec', alerteLe: null, estUneAlerte: false, dejaSignaleRecemment: true,
+    })).toBe(false);
+  });
+
+  it('⚠️ l’absence de réponse ne fait JAMAIS taire l’alerte — une alerte perdue est un mail qu’on croit parti', () => {
+    expect(doitAlerter({ etat: 'echec', alerteLe: null, estUneAlerte: false })).toBe(true);
+    expect(doitAlerter({
+      etat: 'echec', alerteLe: null, estUneAlerte: false, dejaSignaleRecemment: false,
+    })).toBe(true);
+  });
+
+  it('les deux verrous d’origine restent premiers : une alerte n’alerte jamais sur elle-même', () => {
+    expect(doitAlerter({
+      etat: 'echec', alerteLe: null, estUneAlerte: true, dejaSignaleRecemment: false,
+    })).toBe(false);
   });
 });

@@ -3,6 +3,9 @@ import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { lirePieceAServir } from '../../../../../../lib/gestion/carteRepo';
 import { recuperer } from '../../../../../../lib/stockage';
 import { jetonPourSubject } from '../../../../../../lib/gestion/driveDelegue';
+// 🔴 LOT PJ-APRES-VIDAGE — « lire les octets d'une pièce » s'écrit UNE fois, et tout le monde l'appelle.
+import { lireOctetsPiece } from '../../../../../../lib/gestion/octetsPiece';
+import { depsOctetsPiece } from '../../../../../../lib/gestion/octetsPieceCablage';
 import {
   lienDrive, lireContenuDrive, messageIndisponible,
 } from '../../../../../../lib/gestion/pieceDriveLecture';
@@ -99,40 +102,11 @@ function disposition(nomFichier: string, telechargement: boolean): string {
 }
 
 /**
- * LES OCTETS, LUS DANS LE DRIVE. Rend un `Buffer`, ou de quoi expliquer l'échec à un humain.
- *
- * 🔒 L'IDENTIFIANT VIENT DE NOTRE REGISTRE DE COPIES, jamais d'une requête. C'est ce qui garantit qu'on ne lit que
- * dans « 00 Arrivée des mails ».
+ * 🔴 LOT PJ-APRES-VIDAGE — `lireDepuisDrive` A ÉTÉ RETIRÉE D'ICI. Elle faisait, pour cette seule route, ce que
+ * `lireOctetsPiece` fait désormais pour tout le monde : essayer la copie Drive et comparer son empreinte. La
+ * garder aurait laissé deux écritures de la même règle — et c'est exactement ce qui a produit le défaut du fil
+ * 3494, où l'affichage savait ce que l'envoi ignorait.
  */
-async function lireDepuisDrive(piece: {
-  driveFileId: string | null; md5Attendu: string | null; nomFichier: string;
-}): Promise<Buffer | { message: string; lien: string | null }> {
-  if (piece.driveFileId === null) {
-    return {
-      message: 'Pièce momentanément indisponible : aucune copie Drive vérifiée n’est enregistrée pour elle.',
-      lien: null,
-    };
-  }
-  const jeton = await jetonPourSubject(COMPTE_DRIVE, { fetch });
-  if (!jeton.ok) return { message: messageIndisponible(piece.driveFileId, jeton.motif), lien: lienDrive(piece.driveFileId) };
-
-  const r = await lireContenuDrive(piece.driveFileId, jeton.jeton, { fetch });
-  if (!r.ok) return { message: messageIndisponible(piece.driveFileId, r.motif), lien: lienDrive(piece.driveFileId) };
-
-  /**
-   * 🔴 ON COMPARE L'EMPREINTE DE CE QU'ON VIENT DE RECEVOIR à celle enregistrée lors de la copie. Un fichier
-   * remplacé dans le Drive depuis la copie donnerait des octets différents sous le même nom : les servir sans
-   * rien dire serait le pire des silences. On les refuse, et on renvoie vers la copie.
-   */
-  if (piece.md5Attendu !== null && r.md5.toLowerCase() !== piece.md5Attendu.toLowerCase()) {
-    return {
-      message: messageIndisponible(
-        piece.driveFileId, 'le fichier du Drive ne porte plus la même empreinte que la pièce d’origine'),
-      lien: lienDrive(piece.driveFileId),
-    };
-  }
-  return r.octets;
-}
 
 export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
@@ -151,16 +125,35 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     // `?depuis=drive` : éprouver le chemin Drive sur une pièce encore présente dans les deux endroits.
     const forcerDrive = params.get('depuis') === 'drive';
 
-    const octets = (piece.stockageVide || forcerDrive)
-      ? await lireDepuisDrive(piece)
-      : await recuperer(piece.cleStockage);
+    /**
+     * ══ 🔴🔴 LOT PJ-APRES-VIDAGE — CETTE ROUTE PASSE MAINTENANT PAR LE LECTEUR CENTRAL ═══════════════════════
+     *
+     * Elle savait DÉJÀ basculer sur la copie Drive (lot DRIVE-3), et c'est justement le problème : elle le
+     * savait TOUTE SEULE. Le chemin d'envoi, lui, ne le savait pas — et transférer un mail ancien rendait
+     * « The specified key does not exist ». Deux écritures pour la même question, une seule à jour.
+     *
+     * Elle appelle donc la même fonction que l'envoi, l'archive et les vignettes. Elle y gagne au passage le
+     * DERNIER RECOURS (la pièce du message d'origine dans Gmail), qu'elle n'avait pas.
+     *
+     * ⚠️ `?depuis=drive` EST CONSERVÉ : il sert à éprouver le chemin Drive sur une pièce encore présente dans
+     * les deux endroits. On le traduit en « fais comme si MinIO était vide ».
+     */
+    /**
+     * ⚠️ AUCUNE REQUÊTE DE PLUS : `lirePieceAServir` rend désormais la TAILLE et l'ancre du message d'origine,
+     * dans la MÊME lecture. Une seconde requête pour deux colonnes coûterait un aller-retour à chaque ouverture
+     * de pièce, sur la route qui sert les octets.
+     */
+    const lu = await lireOctetsPiece(
+      { ...piece, pieceId: id, stockageVide: forcerDrive ? true : piece.stockageVide },
+      depsOctetsPiece());
 
-    // 🔴 LA LECTURE DRIVE A ÉCHOUÉ : on le DIT, avec le lien. Jamais un 404, jamais un écran vide.
-    if (!(octets instanceof Buffer) && !(octets instanceof Uint8Array)) {
+    // 🔴 AUCUNE SOURCE N'A RÉPONDU : on le DIT, avec le lien Drive. Jamais un 404, jamais un écran vide.
+    if (!lu.ok) {
       return Response.json(
-        { erreur: octets.message, lienDrive: octets.lien },
+        { erreur: lu.motif, lienDrive: piece.driveFileId === null ? null : lienDrive(piece.driveFileId) },
         { status: 503, headers: { 'Cache-Control': CACHE_PRIVE } });
     }
+    const octets = lu.octets;
 
     /**
      * ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LES TRANCHES (`Range`), ET POURQUOI ELLES CHANGENT TOUT ═══════════

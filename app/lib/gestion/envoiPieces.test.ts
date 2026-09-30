@@ -163,7 +163,23 @@ describe('🔴 le .eml de la 5ᵉ voie', () => {
 });
 
 describe('les pièces du brouillon', () => {
-  it('les fichiers ajoutés ET les pièces reprises sont lus depuis NOS octets', async () => {
+  /**
+   * ══ 🔴🔴 RÉÉCRIT PAR LE LOT PJ-APRES-VIDAGE — LA DÉPENDANCE REÇOIT LA PIÈCE, PLUS UNE CLÉ ══════════════════
+   *
+   * CE QUI ÉTAIT EXIGÉ ICI, ET QUI CACHAIT UN DÉFAUT :
+   *     expect(pieces.map((p) => p.nom)).toEqual(['ajoute.pdf', 'repris.pdf']);
+   * c'est-à-dire : une pièce SANS clé de stockage (« sans-octets.pdf ») disparaissait du message, et le test
+   * CERTIFIAIT cette disparition.
+   *
+   * 🔴 C'ÉTAIT UN ENVOI PARTIEL, ET IL ÉTAIT MUET — l'inverse de la règle écrite en tête de `piecesEnvoiCablage`
+   * (« une lecture qui échoue LÈVE ; `envoi.ts` n'envoie RIEN »). Une pièce absente du transfert ne se
+   * découvrait que chez le correspondant. C'est désormais au LECTEUR CENTRAL de chercher partout où la pièce
+   * peut être — et de LEVER, en la nommant, quand aucune source ne répond.
+   *
+   * La dépendance prend donc la PIÈCE entière : c'est elle qui porte la clé propre du brouillon, la clé de la
+   * pièce reçue, et l'identifiant qui mène à la copie Drive.
+   */
+  it('🔴 les fichiers ajoutés ET les pièces reprises sont lus par le lecteur central', async () => {
     const lues: string[] = [];
     const pieces = await piecesDeLEnvoi(
       { cleIdempotence: 'k', brouillonId: 5, filId: null, repondAMessageId: null, a: [], cc: [], cci: [], objet: '', corps: '' },
@@ -172,14 +188,42 @@ describe('les pièces du brouillon', () => {
         duBrouillon: async () => [
           { nom: 'ajoute.pdf', typeMime: 'application/pdf', cleStockage: 'cle/ajout', cleStockagePiece: null },
           { nom: 'repris.pdf', typeMime: 'application/pdf', cleStockage: null, cleStockagePiece: 'cle/piece' },
-          { nom: 'sans-octets.pdf', typeMime: null, cleStockage: null, cleStockagePiece: null },
         ],
-        octets: async (cle) => { lues.push(cle); return Buffer.from(cle); },
+        octets: async (p) => {
+          const cle = p.cleStockage ?? p.cleStockagePiece ?? '';
+          lues.push(cle);
+          return Buffer.from(cle);
+        },
         ancre: async () => null, original: async () => null, objet: async () => null,
       },
     );
     expect(pieces.map((p) => p.nom)).toEqual(['ajoute.pdf', 'repris.pdf']);
     expect(lues).toEqual(['cle/ajout', 'cle/piece']);
+  });
+
+  /**
+   * 🔴🔴 L'ÉPREUVE QUI REMPLACE CELLE D'AVANT : une pièce que le lecteur ne trouve NULLE PART fait échouer
+   * l'assemblage, elle ne disparaît plus du message. Le nom du fichier remonte avec l'erreur — sans quoi
+   * « les pièces n'ont pas pu être lues » ne dit ni laquelle ni pourquoi, ce qui est exactement le bandeau
+   * qu'Arno a reçu.
+   */
+  it('🔴 une pièce introuvable FAIT ÉCHOUER l’assemblage, elle n’est jamais sautée', async () => {
+    await expect(piecesDeLEnvoi(
+      { cleIdempotence: 'k', brouillonId: 5, filId: null, repondAMessageId: null, a: [], cc: [], cci: [], objet: '', corps: '' },
+      {
+        jeton: async () => 'J',
+        duBrouillon: async () => [
+          { nom: 'presente.pdf', typeMime: 'application/pdf', cleStockage: 'cle/ok', cleStockagePiece: null },
+          { nom: 'sans-octets.pdf', typeMime: null, cleStockage: null, cleStockagePiece: null },
+        ],
+        octets: async (p) => {
+          const cle = p.cleStockage ?? p.cleStockagePiece;
+          if (cle === null) throw new Error(`« ${p.nom} » est introuvable : aucune source ne l’a rendue.`);
+          return Buffer.from(cle);
+        },
+        ancre: async () => null, original: async () => null, objet: async () => null,
+      },
+    )).rejects.toThrow('sans-octets.pdf');
   });
 });
 

@@ -842,7 +842,9 @@ export function GestionVue({ intro }: {
           En TÊTE du module, et pas au fond d'un écran : un mail qui n'est pas parti doit se voir là où l'on
           travaille, quel que soit l'écran ouvert. Il ne s'affiche que s'il a quelque chose à dire — un bandeau
           permanent cesse d'être lu, et le jour où il parle, personne ne le voit. */}
-      <BandeauEnvois />
+      {/* 🔴 LOT PJ-APRES-VIDAGE — `sauf` : ce que le fil ouvert annonce déjà, la tête de page ne le redit pas.
+          Sans lui, regarder l'échange concerné affichait le MÊME échec deux fois, à dix centimètres d'écart. */}
+      <BandeauEnvois sauf={filOuvert} />
       {releveMsg && <p className={`gst-compte-rendu gst-ton-${releveMsg.ton}`} role="status">{releveMsg.texte}</p>}
       {geste && <p className={`gst-compte-rendu gst-ton-${geste.ton}`} role="status">{geste.texte}</p>}
 

@@ -3,7 +3,9 @@ import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { lireEnTeteMessage, lirePiecesDuMessage } from '../../../../../../../lib/gestion/piecesRepo';
 import { etatArchive, nomArchive, nomsSansDoublon } from '../../../../../../../lib/gestion/pieces';
 import { fluxZip, type SourceZip } from '../../../../../../../lib/gestion/zip';
-import { recuperer } from '../../../../../../../lib/stockage';
+// 🔴 LOT PJ-APRES-VIDAGE — « lire les octets d'une pièce » s'écrit UNE fois, et tout le monde l'appelle.
+import { lireOctetsPiece } from '../../../../../../../lib/gestion/octetsPiece';
+import { depsOctetsPiece, lirePiecesALire } from '../../../../../../../lib/gestion/octetsPieceCablage';
 
 /**
  * /api/admin/gestion/messages/[id]/archive (lot 5-PJ-A) — TOUTES LES PIÈCES D'UN MESSAGE, EN UN .zip.
@@ -71,9 +73,30 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     if (!etat.possible) return refus(`Archive impossible : ${etat.motif}.`, 409);
 
     const noms = nomsSansDoublon(pieces.map((p) => p.nomFichier));
+    /**
+     * ══ 🔴🔴 LOT PJ-APRES-VIDAGE — L'ARCHIVE PASSE PAR LE LECTEUR CENTRAL ════════════════════════════════════
+     *
+     * CE QUI ÉTAIT ÉCRIT ICI : `recuperer(p.cleStockage)`, c'est-à-dire MinIO et rien d'autre. Depuis le vidage
+     * de la nuit du 29/09, « Tout télécharger » sur un message ancien aurait rendu une archive VIDE — et le
+     * `surEcart` ci-dessous l'aurait écrite dans le journal du serveur, que personne ne lit en téléchargeant.
+     *
+     * Le lecteur central essaie MinIO, puis NOTRE copie Drive vérifiée, puis le message d'origine.
+     */
+    const aLire = await lirePiecesALire(pieces.map((p) => p.pieceId));
+    const depsLecture = depsOctetsPiece();
     const sources: SourceZip[] = pieces.map((p, i) => ({
       nom: noms[i],
-      lire: async () => new Uint8Array(await recuperer(p.cleStockage)),
+      lire: async () => {
+        const connue = aLire.get(p.pieceId);
+        const r = await lireOctetsPiece(connue ?? {
+          pieceId: p.pieceId, nomFichier: p.nomFichier, cleStockage: p.cleStockage,
+          stockageVide: false, driveFileId: null, md5Attendu: null,
+          tailleAttendue: p.tailleOctets ?? null, messageIdRfc: null,
+        }, depsLecture);
+        // ⚠️ ON LÈVE : `fluxZip` écarte alors la pièce et le DIT par `surEcart`, avec le motif complet.
+        if (!r.ok) throw new Error(r.motif);
+        return new Uint8Array(r.octets);
+      },
     }));
 
     const flux = fluxZip(sources, {

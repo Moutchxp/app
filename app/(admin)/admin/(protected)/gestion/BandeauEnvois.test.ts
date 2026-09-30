@@ -174,10 +174,111 @@ describe('garanties d’écran (statiques)', () => {
   it('🔴 les mots et les tons viennent du module PUR, ils ne sont pas réécrits ici', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/BandeauEnvois.tsx', 'utf8');
     expect(src).toContain("from '../../../../lib/gestion/fileEnvoi'");
-    expect(src).toContain('motEtatFile');
+    // 🔴 LOT PJ-APRES-VIDAGE — `motGroupeEnvoi` remplace `motEtatFile` : il rend le MÊME mot pour une tentative,
+    //   et « 2 tentatives non envoyées » pour deux. Le libellé reste écrit dans le module pur, pas ici.
+    expect(src).toContain('motGroupeEnvoi');
     expect(src).toContain('tonEtatFile');
+    expect(src).toContain('grouperEnvois');
     // Le libellé n'est écrit nulle part en dur dans cet écran.
     const code = src.split('\n').filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l.trim())).join('\n');
     expect(code).not.toContain("'Non envoyé'");
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT PJ-APRES-VIDAGE — UN ÉCHEC = UN BANDEAU ════════════════════════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO, fil 3494 : le même échec s'affichait QUATRE fois — deux en tête de page, deux dans le fil.
+ * Mesuré en base : deux clics sur « transférer » (14:55:31 et 14:56:53), deux lignes de file (12 et 14), MÊME
+ * brouillon (64), MÊME cause au mot près. Deux causes d'affichage, éprouvées ici l'une après l'autre.
+ */
+describe('🔴🔴 deux tentatives identiques ne font qu’UN bandeau, qui dit COMBIEN', () => {
+  const memeEchec = (id: number, quand: string) => echec({
+    id, demandeLe: quand, brouillonId: 64, filId: 3494,
+    objet: 'TR : Taxes Foncières', destinataires: ['compta@adhoc.fr'],
+    cause: 'Gmail a refusé l’envoi : Les pièces jointes n’ont pas pu être lues.',
+  });
+
+  it('🔴 « 2 tentatives non envoyées », et UNE SEULE ligne dans le DOM', async () => {
+    reponse = { etat: 'ok', lignes: [memeEchec(14, '2026-09-30T14:56:53Z'), memeEchec(12, '2026-09-30T14:55:31Z')] };
+    await monter();
+    expect(container.querySelectorAll('.bev-envoi')).toHaveLength(1);
+    expect(container.textContent).toContain('2 tentatives non envoyées');
+    // Le mot REMPLACE « Non envoyé » : le laisser à côté ferait lire deux états pour une seule chose.
+    expect(container.textContent).not.toContain('Non envoyé');
+  });
+
+  it('🔴 le brouillon rouvert est celui de la tentative la PLUS RÉCENTE', async () => {
+    reponse = { etat: 'ok', lignes: [
+      memeEchec(12, '2026-09-30T14:55:31Z'),
+      { ...memeEchec(14, '2026-09-30T14:56:53Z'), brouillonId: 64 },
+    ] };
+    await monter();
+    const b = [...container.querySelectorAll('button')].find((x) => /Rouvrir le brouillon/.test(x.textContent ?? ''));
+    await act(async () => { b?.click(); });
+    expect(rouverts).toEqual([64]);
+  });
+
+  /**
+   * 🔴 REGROUPER SUR LE SEUL FIL MASQUERAIT UNE PANNE. Deux échecs DIFFÉRENTS du même échange sont deux choses à
+   * réparer : les fondre en « 2 tentatives » ferait disparaître l'une des deux pour toujours.
+   */
+  it('🔴 deux échecs du même échange mais de CAUSES différentes restent DEUX bandeaux', async () => {
+    reponse = { etat: 'ok', lignes: [
+      memeEchec(14, '2026-09-30T14:56:53Z'),
+      { ...memeEchec(12, '2026-09-30T14:55:31Z'), cause: 'la pièce « bail.pdf » n’a pas pu être récupérée.' },
+    ] };
+    await monter();
+    expect(container.querySelectorAll('.bev-envoi')).toHaveLength(2);
+    expect(container.textContent).not.toContain('2 tentatives');
+  });
+
+  it('une seule tentative garde son mot d’origine — rien ne change au cas ordinaire', async () => {
+    reponse = { etat: 'ok', lignes: [echec()] };
+    await monter();
+    expect(container.textContent).toContain('Non envoyé');
+    expect(container.textContent).not.toContain('tentatives');
+  });
+});
+
+describe('🔴 `sauf` : ce que le fil ouvert dit déjà, la tête de page ne le redit pas', () => {
+  it('🔴 l’échec de l’échange OUVERT disparaît du bandeau général', async () => {
+    reponse = { etat: 'ok', lignes: [echec({ filId: 3494 })] };
+    await monter({ sauf: 3494 });
+    expect(container.querySelector('.bev-envois')).toBeNull();
+  });
+
+  it('les échecs des AUTRES échanges restent — c’est tout l’intérêt du bandeau en tête', async () => {
+    reponse = { etat: 'ok', lignes: [echec({ id: 1, filId: 3494 }), echec({ id: 2, filId: 77, objet: 'Devis' })] };
+    await monter({ sauf: 3494 });
+    expect(container.querySelectorAll('.bev-envoi')).toHaveLength(1);
+    expect(container.textContent).toContain('Devis');
+  });
+
+  /** ⚠️ Un message NEUF n'a pas de fil : il ne doit jamais être masqué par la borne d'un échange ouvert. */
+  it('un échec SANS échange n’est jamais masqué', async () => {
+    reponse = { etat: 'ok', lignes: [echec({ filId: null })] };
+    await monter({ sauf: 3494 });
+    expect(container.textContent).toContain('Non envoyé');
+  });
+
+  it('sans borne, rien n’est masqué', async () => {
+    reponse = { etat: 'ok', lignes: [echec({ filId: 3494 })] };
+    await monter();
+    expect(container.textContent).toContain('Non envoyé');
+  });
+
+  /**
+   * 🔴 L'ORDRE DES DEUX RÉDUCTIONS COMPTE : masquer PUIS regrouper. L'inverse compterait des tentatives qu'on ne
+   * montre pas, et annoncerait « 2 tentatives » au-dessus d'un bandeau qui n'en montre qu'une.
+   */
+  it('🔴 le nombre annoncé est celui des tentatives RESTANTES, pas des tentatives reçues', async () => {
+    reponse = { etat: 'ok', lignes: [
+      echec({ id: 1, filId: 3494 }), echec({ id: 2, filId: 3494, demandeLe: '2026-09-28T18:00:00Z' }),
+      echec({ id: 3, filId: 77, objet: 'Devis' }),
+    ] };
+    await monter({ sauf: 3494 });
+    expect(container.querySelectorAll('.bev-envoi')).toHaveLength(1);
+    expect(container.textContent).not.toContain('tentatives');
   });
 });

@@ -5,6 +5,9 @@ import {
   lireEtatMiniature, memoriserEchecMiniature, memoriserMiniature,
 } from '../../../../../../../lib/gestion/piecesRepo';
 import { deposerMiniatureGestion, recuperer } from '../../../../../../../lib/stockage';
+// 🔴 LOT PJ-APRES-VIDAGE — « lire les octets d'une pièce » s'écrit UNE fois, et tout le monde l'appelle.
+import { lireOctetsPiece } from '../../../../../../../lib/gestion/octetsPiece';
+import { depsOctetsPiece, lirePiecesALire } from '../../../../../../../lib/gestion/octetsPieceCablage';
 
 /**
  * /api/admin/gestion/pieces/[id]/miniature (lot 5-PJ-A) — LA VIGNETTE D'UNE PIÈCE JOINTE.
@@ -85,8 +88,26 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     // ── ② ÉCHEC DÉJÀ CONSTATÉ : on ne retente pas. L'écran affiche son icône de type. ──
     if (etat.etat === 'echec') return refus('Pas de vignette pour cette pièce.', 404);
 
-    // ── ③ PREMIER AFFICHAGE : on fabrique, on dépose, on retient ──
-    const octets = await recuperer(etat.cleStockage);
+    /**
+     * ── ③ PREMIER AFFICHAGE : on fabrique, on dépose, on retient ──
+     *
+     * 🔴 LOT PJ-APRES-VIDAGE — LES OCTETS PASSENT PAR LE LECTEUR CENTRAL. `recuperer` seul ne trouvait plus rien
+     * depuis le vidage du 29/09 : la vignette d'une pièce ancienne échouait, et l'échec était MÉMORISÉ
+     * (`memoriserEchecMiniature`) — donc jamais retenté, même une fois la lecture réparée.
+     */
+    const lu = await lireOctetsPiece(
+      (await lirePiecesALire([id])).get(id) ?? {
+        pieceId: id, nomFichier: etat.nomFichier, cleStockage: etat.cleStockage,
+        stockageVide: false, driveFileId: null, md5Attendu: null, tailleAttendue: null, messageIdRfc: null,
+      },
+      depsOctetsPiece());
+    /**
+     * ⚠️ UNE SOURCE INJOIGNABLE N'EST PAS UN ÉCHEC DE VIGNETTE, et il ne faut SURTOUT pas le mémoriser : le
+     * Drive peut être momentanément indisponible, et l'on s'interdirait la vignette pour toujours. On rend 404
+     * sans rien retenir — l'écran affiche son icône de type, et réessaiera demain.
+     */
+    if (!lu.ok) return refus('Vignette momentanément indisponible pour cette pièce.', 404);
+    const octets = lu.octets;
     const issue = await genererMiniature(octets, etat.typeMime, etat.nomFichier);
     if (!issue.ok) {
       await memoriserEchecMiniature(id, issue.motif);

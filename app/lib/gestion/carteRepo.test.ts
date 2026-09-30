@@ -142,8 +142,21 @@ describe('les messages d’un échange', () => {
 
 describe('servir une pièce', () => {
   it('rend la clé de stockage au SERVEUR (c’est lui qui ira chercher les octets)', async () => {
-    queryMock.mockResolvedValue({ rows: [{ cle_stockage: 'gestion/2026/09/c.pdf', nom_fichier: 'c.pdf', type_mime: 'application/pdf' }] });
-    expect(await lirePieceAServir(7)).toEqual({ cleStockage: 'gestion/2026/09/c.pdf', nomFichier: 'c.pdf', typeMime: 'application/pdf' });
+    /**
+     * 🔴 LOT PJ-APRES-VIDAGE — LA MÊME LECTURE REND AUSSI LA TAILLE ET L'ANCRE DU MESSAGE D'ORIGINE. Le lecteur
+     * central s'en sert pour vérifier ce qu'une source lui rend, et pour son dernier recours (la pièce dans
+     * Gmail). Les demander par une SECONDE requête coûterait un aller-retour à chaque ouverture de pièce.
+     */
+    queryMock.mockResolvedValue({ rows: [{
+      cle_stockage: 'gestion/2026/09/c.pdf', nom_fichier: 'c.pdf', type_mime: 'application/pdf',
+      vide: false, drive_file_id: 'drv-1', md5: 'abc123',
+      taille_octets: '76504', message_id_rfc: '<m1@mail>',
+    }] });
+    expect(await lirePieceAServir(7)).toEqual({
+      cleStockage: 'gestion/2026/09/c.pdf', nomFichier: 'c.pdf', typeMime: 'application/pdf',
+      stockageVide: false, driveFileId: 'drv-1', md5Attendu: 'abc123',
+      tailleAttendue: 76504, messageIdRfc: '<m1@mail>',
+    });
     /**
      * LOT DRIVE-3 — ON CHERCHE LA REQUÊTE QUI LIT LA PIÈCE, pas la première émise. Les SONDES DE SCHÉMA
      * (`vidageDisponible`, `copiePiecesDisponible`) passent d'abord, sans paramètre : figer l'indice 0 revenait à

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { motEtatFile, tonEtatFile } from '../../../../lib/gestion/fileEnvoi';
+import { grouperEnvois, motGroupeEnvoi, tonEtatFile } from '../../../../lib/gestion/fileEnvoi';
 
 /**
  * 🔴 LOT ENVOI-ARRIERE-PLAN — CE QUI N'EST PAS (ENCORE) PARTI.
@@ -43,9 +43,24 @@ interface EnvoiEnCours {
  */
 const INTERVALLE_MS = 5000;
 
-export function BandeauEnvois({ filId, onRouvrir }: {
+export function BandeauEnvois({ filId, sauf = null, onRouvrir }: {
   /** Borne l'affichage à un échange. `null` = tous, ce qu'on veut en tête du module. */
   filId?: number | null;
+  /**
+   * ══ 🔴🔴 LOT PJ-APRES-VIDAGE — L'ÉCHANGE DONT LE BANDEAU EST DÉJÀ À L'ÉCRAN ════════════════════════════════
+   *
+   * CONSTAT D'ARNO : le même échec s'affichait QUATRE fois — deux en tête de page, deux dans le fil. Deux causes,
+   * et celle-ci est la première : `GestionVue` pose un bandeau GÉNÉRAL, `Conversation` en pose un BORNÉ au fil
+   * ouvert. Quand on regarde justement ce fil, la même phrase est donc écrite deux fois à dix centimètres
+   * d'intervalle — et rien n'y distingue l'une de l'autre, donc on croit à deux pannes.
+   *
+   * 🔴 C'EST LA TÊTE DE PAGE QUI SE TAIT, JAMAIS LE FIL. Le bandeau du fil est posé À CÔTÉ du message concerné,
+   * là où se fait le geste ; celui de la tête n'est qu'un rappel pour les écrans où l'échange n'est pas visible.
+   * Supprimer le mauvais des deux ferait disparaître l'échec de l'endroit où on le répare.
+   *
+   * `null` = on ne masque rien (aucun fil ouvert, ou bandeau déjà borné par `filId`).
+   */
+  sauf?: number | null;
   /** Rouvre le brouillon d'un envoi échoué. Absent = on affiche la cause sans proposer de geste. */
   onRouvrir?: (brouillonId: number) => void;
 }) {
@@ -68,15 +83,26 @@ export function BandeauEnvois({ filId, onRouvrir }: {
     return () => clearInterval(t);
   }, [relire]);
 
-  if (lignes.length === 0) return null;
+  /**
+   * 🔴 DEUX RÉDUCTIONS, DANS CET ORDRE : on retire d'abord ce que le fil ouvert dit déjà, on regroupe ensuite les
+   * tentatives identiques de ce qui reste. L'inverse compterait des tentatives qu'on s'apprête à ne pas montrer,
+   * et annoncerait « 2 tentatives » au-dessus d'un bandeau qui n'en montre qu'une.
+   */
+  const visibles = sauf === null ? lignes : lignes.filter((l) => l.filId !== sauf);
+  const groupes = grouperEnvois(visibles);
+
+  if (groupes.length === 0) return null;
 
   return (
     <div className="bev-envois" role="status" aria-live="polite">
       <style>{CSS_BANDEAU_ENVOIS}</style>
-      {lignes.map((l) => (
+      {groupes.map(({ ligne: l, nb, ids }) => (
         <p key={l.id} className={`bev-envoi bev-envoi--${tonEtatFile(l.etat)}`}>
-          {/* 🔴 LE MOT D'ABORD, toujours : c'est lui qui porte l'état, la couleur ne fait que l'appuyer. */}
-          <span className="bev-envoi-mot">{motEtatFile(l.etat)}</span>
+          {/* 🔴 LE MOT D'ABORD, toujours : c'est lui qui porte l'état, la couleur ne fait que l'appuyer. Et c'est
+              LUI qui porte le nombre — « Non envoyé » lu deux fois ne dit pas « 2 tentatives non envoyées ». */}
+          <span className="bev-envoi-mot" title={nb > 1 ? `Tentatives nos ${ids.join(', ')}` : undefined}>
+            {motGroupeEnvoi(l.etat, nb)}
+          </span>
           <span className="bev-envoi-objet" title={l.objet}>
             {l.objet.trim() === '' ? '(sans objet)' : l.objet}
           </span>

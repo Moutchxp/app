@@ -218,6 +218,43 @@ export async function marquerEchec(id: number, cause: string): Promise<void> {
 }
 
 /** 🔴 Une seule alerte, pour toujours : cette date est le second verrou, celui qui survit à un redémarrage. */
+/**
+ * ══ 🔴🔴 LOT PJ-APRES-VIDAGE — LA MÊME PANNE A-T-ELLE DÉJÀ ÉTÉ SIGNALÉE, IL Y A PEU ? ═══════════════════════════
+ *
+ * Demande d'Arno : « un échec = UN bandeau et UNE alerte ». Mesuré le 30/09/2026 : deux clics sur « transférer »
+ * (14:55:31 et 14:56:53) ont produit DEUX lignes de file portant le MÊME brouillon et la MÊME cause au mot près,
+ * donc DEUX alertes identiques dans la boîte — pour une seule chose à réparer.
+ *
+ * ⚠️ « IDENTIQUE » = MÊME BROUILLON ET MÊME CAUSE. Le brouillon est ce qui fait qu'il s'agit du MÊME message
+ * (deux clics sur le même transfert le réemploient) ; la cause est ce qui fait qu'il s'agit de la MÊME panne. Un
+ * autre message, ou la même reprise qui échoue AUTREMENT, mérite son alerte.
+ *
+ * ⚠️ UNE FENÊTRE, ET PAS « JAMAIS » : une panne réparée peut revenir, et la seconde fois doit être dite. Six
+ * heures couvrent largement la rafale de clics d'une même personne sur un même message, sans jamais étouffer le
+ * signal du lendemain.
+ *
+ * 🔴 UN BROUILLON NUL NE REGROUPE RIEN : sans lui on ne peut pas affirmer qu'il s'agit du même message, et se
+ * taire sur un doute reviendrait à perdre une alerte. On préfère la dire deux fois.
+ */
+const FENETRE_ALERTE_IDENTIQUE = '6 hours';
+
+export async function dejaAlerteIdentique(
+  l: { id: number; brouillonId: number | null }, cause: string,
+): Promise<boolean> {
+  if (l.brouillonId === null) return false;
+  if (!(await fileEnvoiDisponible())) return false;
+  const { rows } = await query<{ n: string }>(
+    `SELECT count(*)::text AS n
+       FROM gestion_envoi_file f
+      WHERE f.id <> $1
+        AND f.brouillon_id = $2
+        AND f.derniere_erreur = $3
+        AND f.alerte_le IS NOT NULL
+        AND f.alerte_le > now() - interval '${FENETRE_ALERTE_IDENTIQUE}'`,
+    [l.id, l.brouillonId, cause]);
+  return Number(rows[0]?.n ?? '0') > 0;
+}
+
 export async function marquerAlerte(id: number): Promise<void> {
   await query(`UPDATE gestion_envoi_file SET alerte_le = now() WHERE id = $1 AND alerte_le IS NULL`, [id]);
 }

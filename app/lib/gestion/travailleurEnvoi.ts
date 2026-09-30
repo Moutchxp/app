@@ -73,6 +73,11 @@ export interface DepsTravailleur {
   alerter(a: { ligne: LigneFile; objet: string; corps: string }): Promise<void>;
   /** Note que l'alerte est partie — pour qu'elle ne reparte jamais. */
   marquerAlerte(id: number): Promise<void>;
+  /**
+   * 🔴 LOT PJ-APRES-VIDAGE — « cette MÊME panne, sur ce MÊME message, a-t-elle déjà été signalée il y a peu ? »
+   * C'est le troisième verrou de `doitAlerter` : sans lui, deux clics font deux alertes identiques.
+   */
+  dejaSignale(l: LigneFile, cause: string): Promise<boolean>;
   /** Le lien vers le brouillon, pour le corps de l'alerte. */
   lienBrouillon(brouillonId: number | null): string;
   /** Signale un incident au journal DU SERVEUR. Ne doit RIEN lever : c'est le dernier filet. */
@@ -209,7 +214,23 @@ async function echouer(deps: DepsTravailleur, l: LigneFile, cause: string, r: Ra
     deps.incident('brouillon', e);
   }
 
-  if (!doitAlerter({ etat: 'echec', alerteLe: l.alerteLe, estUneAlerte: l.estUneAlerte })) return;
+  /**
+   * ⚠️ LA QUESTION EST POSÉE APRÈS `marquerEchec`, donc APRÈS que CETTE ligne porte sa cause — et elle s'exclut
+   * elle-même (`f.id <> $1`). L'interroger avant lirait une base où la panne du jour n'existe pas encore.
+   *
+   * 🔴 ET SON ÉCHEC NE FAIT PAS TAIRE L'ALERTE : si la lecture ne répond pas, on alerte. Une alerte en double est
+   * une gêne ; une alerte perdue est un mail qu'on croit parti.
+   */
+  let dejaSignaleRecemment = false;
+  try {
+    dejaSignaleRecemment = await deps.dejaSignale(l, cause);
+  } catch (e) {
+    deps.incident('alerte-doublon', e);
+  }
+
+  if (!doitAlerter({
+    etat: 'echec', alerteLe: l.alerteLe, estUneAlerte: l.estUneAlerte, dejaSignaleRecemment,
+  })) return;
   try {
     await deps.alerter({
       ligne: l,

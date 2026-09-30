@@ -7,6 +7,7 @@ import { jetonPourSubject } from './driveDelegue';
 import { deposerPieceBrouillon, recuperer } from '../stockage';
 import { TAILLE_MAX_TOTALE } from './piecesEnvoi';
 import {
+  dejaAlerteIdentique,
   etatDesPieces, lignesAPrendre, lireDemande, marquerAlerte, marquerEchec, marquerEnvoye, marquerPiece,
   mettreEnFile, piecesAPrendre, remettreEnAttente, remettreEnBrouillon,
 } from './fileEnvoiRepo';
@@ -137,6 +138,7 @@ export function depsTravailleurReel(): DepsTravailleur {
     remettreEnBrouillon: async (l) => remettreEnBrouillon(l.brouillonId),
     alerter: async (a) => alerterParLaFile({ objet: a.objet, corps: a.corps }),
     marquerAlerte,
+    dejaSignale: (l, cause) => dejaAlerteIdentique(l, cause),
     lienBrouillon: (b) => (b === null
       ? `${racineWeb()}/admin/gestion?etiquette=brouillons`
       : `${racineWeb()}/admin/gestion?etiquette=brouillons&brouillon=${b}`),

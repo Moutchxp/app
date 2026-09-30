@@ -174,6 +174,88 @@ export function corpsAlerte(a: {
   ].join('\n');
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PJ-APRES-VIDAGE — UN ÉCHEC = UN BANDEAU. REGROUPER LES TENTATIVES IDENTIQUES.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO, mesuré en base le 30/09/2026 sur le fil 3494 : DEUX clics sur « transférer », DEUX lignes de file
+   (12 et 14), MÊME brouillon (64), MÊME cause au mot près, DEUX alertes envoyées — et à l'écran QUATRE bandeaux :
+   deux en tête de page et deux dans le fil.
+
+   🔴 LES QUATRE VIENNENT DE DEUX CAUSES DIFFÉRENTES, et il faut les traiter toutes les deux :
+     ① LE DOUBLE MONTAGE — `GestionVue` pose un bandeau GÉNÉRAL en tête, `Conversation` en pose un BORNÉ au fil
+        ouvert. Quand on regarde le fil concerné, le même échec est donc annoncé deux fois, à dix centimètres
+        d'intervalle. La borne `sauf` du bandeau général ferme ce trou : ce que le fil ouvert dit déjà, la tête de
+        page ne le redit pas.
+     ② LA RÉPÉTITION — deux tentatives identiques font deux lignes. Les montrer séparément n'apprend rien de plus
+        qu'un nombre : c'est le MÊME message, la MÊME cause, et le MÊME geste à faire. On les regroupe.
+
+   ⚠️ « IDENTIQUE » SE DÉFINIT, SINON IL SE DEVINE. Deux tentatives sont la même quand tout ce que le bandeau
+   AFFICHE est le même : l'état, l'échange, l'objet, les destinataires et la cause. Regrouper sur moins (le seul
+   fil, par exemple) masquerait deux échecs DIFFÉRENTS du même échange — et l'un des deux ne serait jamais réparé.
+*/
+
+/** La signature d'affichage d'une ligne : tout ce que le bandeau en montre, et rien d'autre. PUR. */
+export function signatureEnvoi(l: {
+  etat: EtatFile; filId: number | null; objet: string; destinataires: readonly string[]; cause: string | null;
+}): string {
+  return [l.etat, l.filId ?? 'sans-fil', l.objet.trim(), [...l.destinataires].join('|'), (l.cause ?? '').trim()]
+    .join('␟');
+}
+
+/** Une tentative, ou plusieurs tentatives identiques, telles qu'elles s'affichent. */
+export interface EnvoiGroupe<T> {
+  /** La tentative la PLUS RÉCENTE — c'est elle qui porte le brouillon à rouvrir et l'heure à afficher. */
+  ligne: T;
+  /** Combien de tentatives identiques ce bandeau résume. 1 = le cas ordinaire. */
+  nb: number;
+  /** Les identifiants de toutes les tentatives résumées, de la plus récente à la plus ancienne. */
+  ids: number[];
+}
+
+/**
+ * REGROUPE LES TENTATIVES IDENTIQUES. PUR, et STABLE : l'ordre d'entrée est conservé, à la place de la PREMIÈRE
+ * occurrence du groupe. Retrier ferait sauter un bandeau d'un endroit à l'autre entre deux relectures.
+ *
+ * ⚠️ LA LIGNE RETENUE EST LA PLUS RÉCENTE, pas la première rencontrée : c'est son brouillon qu'on veut rouvrir, et
+ * c'est son heure qui dit quand on a essayé pour la dernière fois.
+ */
+export function grouperEnvois<T extends {
+  id: number; etat: EtatFile; filId: number | null; objet: string; destinataires: string[];
+  cause: string | null; demandeLe: string;
+}>(lignes: readonly T[]): EnvoiGroupe<T>[] {
+  const ordre: string[] = [];
+  const par = new Map<string, EnvoiGroupe<T>>();
+  for (const l of lignes) {
+    const cle = signatureEnvoi(l);
+    const deja = par.get(cle);
+    if (deja === undefined) {
+      ordre.push(cle);
+      par.set(cle, { ligne: l, nb: 1, ids: [l.id] });
+    } else {
+      deja.nb += 1;
+      deja.ids.push(l.id);
+      if (l.demandeLe > deja.ligne.demandeLe) deja.ligne = l;
+    }
+  }
+  // Les identifiants du plus récent au plus ancien, comme les lignes : un ordre qui change selon l'entrée serait
+  //   illisible dans un titre d'infobulle.
+  for (const g of par.values()) g.ids.sort((a, b) => b - a);
+  return ordre.map((c) => par.get(c) as EnvoiGroupe<T>);
+}
+
+/**
+ * LE MOT D'UN GROUPE. Une seule tentative garde le mot de l'état ; plusieurs disent COMBIEN. PUR.
+ *
+ * 🔴 LE NOMBRE EST DANS LE MOT, pas dans une pastille à côté : c'est le mot que lit une synthèse vocale, et
+ * « Non envoyé » répété deux fois ne dirait pas la même chose que « 2 tentatives non envoyées ».
+ */
+export function motGroupeEnvoi(etat: EtatFile, nb: number): string {
+  if (nb <= 1) return motEtatFile(etat);
+  if (etat === 'echec') return `${nb} tentatives non envoyées`;
+  return `${nb} envois en cours`;
+}
+
 /**
  * 🔴🔴 UNE ALERTE NE DOIT JAMAIS DÉCLENCHER UNE ALERTE. Demande d'Arno, et c'est la protection contre la rafale la
  * plus importante de ce lot : l'alerte part à `gestion@`, qui est NOTRE propre boîte. Si son envoi échouait et
@@ -183,9 +265,25 @@ export function corpsAlerte(a: {
  *   ① cette fonction — une ligne de file marquée « alerte » n'est pas une candidate à l'alerte ;
  *   ② `alerte_le` en base — une ligne déjà alertée ne l'est pas deux fois, même après un redémarrage.
  */
-export function doitAlerter(l: { etat: EtatFile; alerteLe: Date | null; estUneAlerte: boolean }): boolean {
+export function doitAlerter(l: {
+  etat: EtatFile; alerteLe: Date | null; estUneAlerte: boolean;
+  /**
+   * 🔴 LOT PJ-APRES-VIDAGE — TROISIÈME VERROU : « la MÊME panne a DÉJÀ été signalée, il y a peu ».
+   *
+   * Demande d'Arno : « un échec = UN bandeau et UNE alerte ». Les deux verrous ci-dessus ne voient qu'une LIGNE :
+   * deux clics sur « transférer » font deux lignes, donc deux alertes, et c'est ce qui est arrivé le 30/09 à
+   * 14:55 et 14:56 — deux mails identiques dans la boîte pour une seule chose à réparer.
+   *
+   * ⚠️ « RÉCEMMENT », ET PAS « JAMAIS » : la panne peut être réparée puis revenir, et la seconde fois mérite
+   * d'être dite. C'est l'appelant qui fixe la fenêtre — la décision, elle, s'écrit ici.
+   *
+   * Absent = `false` : un appelant qui ne sait pas répondre ne doit pas faire TAIRE une alerte.
+   */
+  dejaSignaleRecemment?: boolean;
+}): boolean {
   if (l.estUneAlerte) return false;
   if (l.etat !== 'echec') return false;
+  if (l.dejaSignaleRecemment === true) return false;
   return l.alerteLe === null;
 }
 

@@ -13,7 +13,6 @@
 import { lireOriginalGmailOctets, chercherParMessageId } from './google';
 import { listerPiecesPourEnvoi } from './brouillonPieceRepoBase';
 import { ancresDuFil } from './lectureGmail';
-import { recuperer } from '../stockage';
 import { query } from '../db/client';
 import type { PieceAEnvoyer } from './envoiGmail';
 import type { DemandeEnvoi } from './envoi';
@@ -49,9 +48,28 @@ export interface DepsPiecesEnvoi {
   /** Le jeton de gestion@, pour aller chercher l'original. `null` = connexion Google absente. */
   jeton(): Promise<string | null>;
   /** Les pièces du brouillon, avec de quoi lire leurs octets. */
-  duBrouillon(brouillonId: number): Promise<{ nom: string; typeMime: string | null; cleStockage: string | null; cleStockagePiece: string | null }[]>;
-  /** Lit les octets d'une clé de stockage. */
-  octets(cle: string): Promise<Buffer>;
+  duBrouillon(brouillonId: number): Promise<{
+    nom: string; typeMime: string | null; cleStockage: string | null; cleStockagePiece: string | null;
+    taille?: number; pieceId?: number | null;
+  }[]>;
+  /**
+   * ══ 🔴🔴 LOT PJ-APRES-VIDAGE — LES OCTETS D'UNE PIÈCE, PAR LE LECTEUR CENTRAL ═════════════════════════════
+   *
+   * CE QUI ÉTAIT ÉCRIT ICI : `octets(cle: string): Promise<Buffer>`, câblé sur `recuperer` — c'est-à-dire MinIO,
+   * et RIEN d'autre.
+   *
+   * 🔴 CE QUE ÇA DONNAIT : depuis le vidage de la nuit du 29/09 (26 522 pièces vidées, copie Drive vérifiée),
+   * transférer un mail ancien rendait « Gmail a refusé l'envoi : Les pièces jointes n'ont pas pu être lues :
+   * The specified key does not exist. » L'AFFICHAGE savait basculer sur la copie Drive depuis le lot DRIVE-3 ;
+   * l'ENVOI ne le savait pas. Deux chemins pour la même question, un seul au courant.
+   *
+   * La dépendance prend donc maintenant la PIÈCE, pas une clé : c'est `lireOctetsPiece` qui décide de la source
+   * (MinIO → copie Drive vérifiée → message d'origine dans Gmail), et lui seul.
+   */
+  octets(p: {
+    nom: string; cleStockage: string | null; cleStockagePiece: string | null;
+    taille?: number; pieceId?: number | null;
+  }): Promise<Buffer>;
   /** Le `Message-ID` RFC du message d'origine — l'ancre vers Gmail. */
   ancre(messageId: number): Promise<string | null>;
   /** Retrouve le message dans Gmail, puis rapatrie son original brut. */
@@ -66,12 +84,25 @@ export interface DepsPiecesEnvoi {
 export async function piecesDeLEnvoi(d: DemandeEnvoi, deps: DepsPiecesEnvoi): Promise<PieceAEnvoyer[]> {
   const pieces: PieceAEnvoyer[] = [];
 
-  // ① Les pièces du brouillon (ajoutées ou reprises). Aucune n'est distante : ce sont NOS octets.
+  /**
+   * ① LES PIÈCES DU BROUILLON — ajoutées à la main, ou reprises d'un message d'origine.
+   *
+   * ══ 🔴🔴 LOT PJ-APRES-VIDEAGE — PLUS AUCUNE PIÈCE N'EST SILENCIEUSEMENT SAUTÉE ══════════════════════════════
+   *
+   * CE QUI ÉTAIT ÉCRIT ICI, ET QUI VIOLAIT LA RÈGLE :
+   *     if (cle === null) continue; // …et elle ne fait rien échouer
+   *
+   * 🔴 C'ÉTAIT UN ENVOI PARTIEL, ET IL ÉTAIT MUET. Une pièce dont on ne trouvait pas la clé disparaissait du
+   * message sans que rien ne le dise — ni à l'écran, ni dans le journal. Le correspondant recevait un transfert
+   * amputé, et personne chez nous ne pouvait le savoir. La règle du module dit l'inverse en toutes lettres :
+   * « une lecture qui échoue LÈVE ; `envoi.ts` transforme l'exception en refus clair et n'envoie RIEN ».
+   *
+   * Désormais, `deps.octets` reçoit la PIÈCE et cherche partout où elle peut être. S'il ne la trouve nulle part,
+   * il lève — avec le NOM du fichier — et le message ne part pas.
+   */
   if (d.brouillonId !== null) {
     for (const p of await deps.duBrouillon(d.brouillonId)) {
-      const cle = p.cleStockage ?? p.cleStockagePiece;
-      if (cle === null) continue; // une pièce sans octets lisibles n'est pas jointe — et elle ne fait rien échouer
-      pieces.push({ nom: p.nom, typeMime: p.typeMime, octets: await deps.octets(cle) });
+      pieces.push({ nom: p.nom, typeMime: p.typeMime, octets: await deps.octets(p) });
     }
   }
 
@@ -98,7 +129,33 @@ export function depsPiecesEnvoi(jeton: () => Promise<string | null>): DepsPieces
   return {
     jeton,
     duBrouillon: listerPiecesPourEnvoi,
-    octets: recuperer,
+    /**
+     * 🔴 LE LECTEUR CENTRAL, et rien d'autre. Il essaie MinIO, puis NOTRE copie Drive vérifiée, puis la pièce du
+     * message d'origine dans Gmail. Il lève, en nommant le fichier, quand aucune source ne répond.
+     *
+     * ⚠️ UNE PIÈCE AJOUTÉE À LA MAIN (`pieceId` nul) N'A QUE LE STOCKAGE OBJET : ni copie Drive, ni message
+     * d'origine. Le lecteur le dit dans son motif plutôt que d'échouer sans raison visible.
+     */
+    octets: async (p) => {
+      const { lireOctetsPiece } = await import('./octetsPiece');
+      const { depsOctetsPiece, lirePiecesALire } = await import('./octetsPieceCablage');
+      const connue = p.pieceId == null ? null : (await lirePiecesALire([p.pieceId])).get(p.pieceId) ?? null;
+      const aLire = connue ?? {
+        pieceId: p.pieceId ?? null,
+        nomFichier: p.nom,
+        cleStockage: p.cleStockage ?? p.cleStockagePiece,
+        stockageVide: false,
+        driveFileId: null,
+        md5Attendu: null,
+        tailleAttendue: p.taille ?? null,
+        messageIdRfc: null,
+      };
+      // ⚠️ La clé PROPRE du brouillon prime quand elle existe : c'est une COPIE faite pour ce message-là.
+      const avecCle = p.cleStockage === null ? aLire : { ...aLire, cleStockage: p.cleStockage, stockageVide: false };
+      const r = await lireOctetsPiece(avecCle, depsOctetsPiece(jeton));
+      if (!r.ok) throw new Error(r.motif);
+      return r.octets;
+    },
     ancre: async (messageId: number) => {
       const { rows } = await query<{ message_id: string | null }>(
         `SELECT message_id FROM gestion_message WHERE id = $1`, [messageId]);

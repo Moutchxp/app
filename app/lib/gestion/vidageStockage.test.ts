@@ -421,9 +421,17 @@ describe('les garanties du lot', () => {
   });
 
   it('🔴 un échec de lecture Drive rend 503 avec un message, jamais un 404 ni un corps vide', () => {
+    /**
+     * ⚠️ LA FORME DU TEST A CHANGÉ AVEC LE LOT PJ-APRES-VIDAGE, PAS LA GARANTIE. La route lisait le Drive
+     * elle-même (`if (!(octets instanceof Buffer))`) ; elle passe maintenant par le lecteur central, qui rend
+     * un verdict (`lu.ok`). La règle éprouvée reste EXACTEMENT la même : une source qui ne répond pas ne doit
+     * jamais donner un 404 — la pièce existe, sa copie existe, c'est la LECTURE qui a échoué — et la réponse
+     * doit porter le lien vers la copie pour qu'on puisse aller la chercher soi-même.
+     */
     expect(route).toContain('status: 503');
-    const bloc = route.slice(route.indexOf('if (!(octets instanceof Buffer)'));
+    const bloc = route.slice(route.indexOf('if (!lu.ok)'));
     expect(bloc.slice(0, 400)).toContain('lienDrive');
+    expect(bloc.slice(0, 400)).toContain('lu.motif');
   });
 });
 

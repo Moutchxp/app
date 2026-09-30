@@ -48,6 +48,8 @@ function deps(o: Partial<DepsTravailleur> = {}): DepsTravailleur & { journal: st
     envoyer: async () => { journal.push('GMAIL'); return { ok: true, envoiId: 77 }; },
     marquerEnvoye: async (id) => { journal.push(`envoye:${id}`); },
     marquerEchec: async (id, c) => { journal.push(`echec:${id}:${c.slice(0, 40)}`); },
+    // 🔴 LOT PJ-APRES-VIDAGE — « rien n'a encore été signalé » est le cas de bureau ; un test le retourne.
+    dejaSignale: async () => false,
     remettreEnBrouillon: async (l) => { journal.push(`brouillon:${l.id}`); },
     alerter: async (a) => { journal.push(`alerte:${a.objet}`); },
     marquerAlerte: async (id) => { journal.push(`alerte-marquee:${id}`); },
@@ -197,6 +199,42 @@ describe('🔴 ③ une seule alerte, jamais de rafale', () => {
     expect(r.echecs).toBe(1);
     expect(r.alertes).toBe(0);
     expect(d.journal.some((l) => l.startsWith('alerte:'))).toBe(false);
+  });
+
+  /**
+   * ══ 🔴🔴 LOT PJ-APRES-VIDAGE — LE TROISIÈME VERROU : DEUX CLICS, UNE ALERTE ════════════════════════════════
+   *
+   * Les deux verrous ci-dessus ne voient qu'UNE ligne. Mesuré en base le 30/09/2026 (fil 3494) : deux clics sur
+   * « transférer », à 14:55:31 et 14:56:53, ont fait DEUX lignes portant le MÊME brouillon et la MÊME cause —
+   * donc deux alertes identiques dans la boîte, pour une seule chose à réparer.
+   */
+  it('🔴 la MÊME panne, déjà signalée il y a peu, ne re-alerte pas', async () => {
+    const d = deps({
+      lignesAPrendre: async () => [ligne()],
+      etatDesPieces: async () => ({ etats: ['echec'] as EtatPiece[], premiereEchouee: 'x.pdf' }),
+      dejaSignale: async () => true,
+    });
+    const r = await envoyerCeQuiEstPret(d);
+    expect(r.alertes).toBe(0);
+    expect(d.journal.some((l) => l.startsWith('alerte:'))).toBe(false);
+    // …et l'échec reste MARQUÉ, et le brouillon remis : on tait le signal en double, jamais l'état.
+    expect(d.journal.some((l) => l.startsWith('echec:1'))).toBe(true);
+    expect(d.journal).toContain('brouillon:1');
+  });
+
+  /**
+   * 🔴 UNE LECTURE QUI NE RÉPOND PAS NE DOIT PAS FAIRE TAIRE L'ALERTE. Une alerte en double est une gêne ; une
+   * alerte perdue est un mail qu'on croit parti.
+   */
+  it('🔴 si la question « déjà signalé ? » échoue, on alerte quand même', async () => {
+    const d = deps({
+      lignesAPrendre: async () => [ligne()],
+      etatDesPieces: async () => ({ etats: ['echec'] as EtatPiece[], premiereEchouee: 'x.pdf' }),
+      dejaSignale: async () => { throw new Error('base muette'); },
+    });
+    const r = await envoyerCeQuiEstPret(d);
+    expect(r.alertes).toBe(1);
+    expect(d.journal).toContain('incident:alerte-doublon');
   });
 });
 

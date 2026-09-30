@@ -620,6 +620,16 @@ export async function lirePieceAServir(pieceId: number): Promise<{
   driveFileId: string | null;
   /** L'empreinte enregistrée à la copie — la route la compare à ce que Drive lui rend. */
   md5Attendu: string | null;
+  /**
+   * 🔴 LOT PJ-APRES-VIDAGE — la TAILLE connue, et l'ancre du message d'origine. Le lecteur central s'en sert pour
+   * vérifier ce qu'il reçoit (une source qui rend 40 octets au lieu de 76 504 n'a pas rendu le bon fichier) et
+   * pour son dernier recours (la pièce, dans le message tel qu'il est aujourd'hui dans Gmail).
+   *
+   * ⚠️ RENDUS PAR LA MÊME REQUÊTE, et c'est le point : une seconde lecture pour deux colonnes ajouterait un
+   * aller-retour à CHAQUE ouverture de pièce, sur la route qui sert les octets.
+   */
+  tailleAttendue: number | null;
+  messageIdRfc: string | null;
 } | null> {
   /**
    * 🔴 UNE SEULE REQUÊTE, ET DEUX SONDES AVANT ELLE. `gestion_piece_vidage` (migration 260) et la colonne
@@ -636,8 +646,10 @@ export async function lirePieceAServir(pieceId: number): Promise<{
   const { rows } = await query<{
     cle_stockage: string | null; nom_fichier: string; type_mime: string | null;
     vide: boolean; drive_file_id: string | null; md5: string | null;
+    taille_octets: string | null; message_id_rfc: string | null;
   }>(
-    `SELECT p.cle_stockage, p.nom_fichier, p.type_mime,
+    `SELECT p.cle_stockage, p.nom_fichier, p.type_mime, p.taille_octets::text,
+            (SELECT m.message_id FROM gestion_message m WHERE m.id = p.message_id) AS message_id_rfc,
             ${avecVidage ? 'EXISTS (SELECT 1 FROM gestion_piece_vidage v WHERE v.piece_id = p.id)' : 'false'} AS vide,
             ${avecCopie ? 'd.drive_file_id' : 'NULL::text'} AS drive_file_id,
             ${avecCopie ? 'd.md5' : 'NULL::text'} AS md5
@@ -652,5 +664,7 @@ export async function lirePieceAServir(pieceId: number): Promise<{
   return {
     cleStockage: p.cle_stockage, nomFichier: p.nom_fichier, typeMime: p.type_mime,
     stockageVide: p.vide, driveFileId: p.drive_file_id, md5Attendu: p.md5,
+    tailleAttendue: p.taille_octets === null ? null : Number(p.taille_octets),
+    messageIdRfc: p.message_id_rfc,
   };
 }

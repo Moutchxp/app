@@ -38,6 +38,12 @@ export interface PiecePourEnvoi {
   /** L'une des deux est renseignée, jamais les deux (contrainte en base). */
   cleStockage: string | null;
   cleStockagePiece: string | null;
+  /**
+   * 🔴 LOT PJ-APRES-VIDAGE — l'identifiant de la PIÈCE REÇUE d'origine, quand c'en est une. C'est par lui qu'on
+   * retrouve sa copie Drive si MinIO a été vidé. `null` = un fichier ajouté à la main au brouillon : il n'a ni
+   * copie Drive ni message d'origine, et sa seule source est le stockage objet.
+   */
+  pieceId: number | null;
 }
 
 /** Les pièces AFFICHABLES d'un brouillon — sans aucune clé de stockage. */
@@ -60,9 +66,15 @@ export async function listerPiecesPourEnvoi(brouillonId: number): Promise<PieceP
   if (!await piecesEnvoiDisponibles()) return [];
   const { rows } = await query<{
     nom_fichier: string; type_mime: string | null; taille_octets: string;
-    cle_stockage: string | null; cle_piece: string | null;
+    cle_stockage: string | null; cle_piece: string | null; piece_id: string | null;
   }>(
-    `SELECT bp.nom_fichier, bp.type_mime, bp.taille_octets::text, bp.cle_stockage, p.cle_stockage AS cle_piece
+    /**
+     * 🔴 LOT PJ-APRES-VIDAGE — `bp.piece_id` EST RENDU, et c'est ce qui manquait. Sans lui, l'envoi ne pouvait
+     * pas retrouver la COPIE DRIVE d'une pièce vidée de MinIO : il ne tenait qu'une clé de stockage, et cette
+     * clé désignait un objet effacé. C'est la cause du « The specified key does not exist » du fil 3494.
+     */
+    `SELECT bp.nom_fichier, bp.type_mime, bp.taille_octets::text, bp.cle_stockage,
+            p.cle_stockage AS cle_piece, bp.piece_id::text AS piece_id
        FROM gestion_brouillon_piece bp
        LEFT JOIN gestion_piece p ON p.id = bp.piece_id
       WHERE bp.brouillon_id = $1 AND bp.retire_le IS NULL
@@ -71,6 +83,7 @@ export async function listerPiecesPourEnvoi(brouillonId: number): Promise<PieceP
   return rows.map((r) => ({
     nom: r.nom_fichier, typeMime: r.type_mime, taille: Number(r.taille_octets),
     cleStockage: r.cle_stockage, cleStockagePiece: r.cle_piece,
+    pieceId: r.piece_id === null ? null : Number(r.piece_id),
   }));
 }
 
