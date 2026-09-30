@@ -698,6 +698,16 @@ export interface PersonneAnnuaire {
   archivePar: string | null;
   adresse: string | null; commune: string | null; codePostal: string | null;
   absent: boolean;
+  /**
+   * 🔴 LOT FICHE-SAISIE-UNIFORME — « Créé le JJ/MM/AAAA affiché sur la carte, rempli automatiquement à la
+   * création et non modifiable. Pour les fiches importées : la date de l'import, avec la mention “importée”. »
+   *
+   * ⚠️ LES DEUX DATES VOYAGENT, et c'est la CLÉ (`cle`) qui tranche laquelle afficher : une fiche créée dans
+   * l'application porte « app-… », l'import porte le vrai numéro WIPPIMMO. À l'import, `cree_le` et `importe_le`
+   * valent tous deux « maintenant » — les comparer ne dirait rien.
+   */
+  creeLe: string | null;
+  importeLe: string | null;
   contacts: ContactAffiche[];
   /**
    * ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — CETTE PERSONNE EST-ELLE LE DERNIER PROPRIÉTAIRE D'UN BIEN ? ═════════════════
@@ -1199,9 +1209,14 @@ async function personnesDe(
     id: string; cle: string; civilite: string | null; prenom: string | null; nom: string; nom_affiche: string;
     qualite: string | null; note: string | null; rang: number; archive_le: string | null;
     archive_par_libelle: string | null; adresse: string | null; commune: string | null;
-    code_postal: string | null; absent_le: string | null;
+    code_postal: string | null; absent_le: string | null; cree_le: string | null; importe_le: string | null;
   }>(
-    `SELECT id::text, ${identite}, ${neuves}, adresse, commune, code_postal, absent_le::text
+    /* 🔴 LOT FICHE-SAISIE-UNIFORME — « Créée le … » / « Importée le … » sur la carte. Les DEUX colonnes existent
+       depuis la creation des tables : ce lot n'en ajoute aucune. C'est la CLE qui dit d'ou vient la fiche (une
+       fiche creee dans l'application porte « app-… »), pas les dates — a l'import elles valent toutes deux
+       « maintenant », et les comparer ne dirait rien. */
+    `SELECT id::text, ${identite}, ${neuves}, adresse, commune, code_postal, absent_le::text,
+            cree_le::text, importe_le::text
        FROM ${sujet === 'proprietaire' ? 'gestion_annuaire_proprietaire' : 'gestion_annuaire_locataire'} pe
       WHERE id = ANY($1::bigint[]) AND ${await sqlPersonneVivante('pe')}
       ORDER BY (${rangTri} = 0), ${rangTri},
@@ -1222,6 +1237,7 @@ async function personnesDe(
     civilite: r.civilite, prenom: r.prenom, nom: r.nom, nomAffiche: r.nom_affiche,
     qualite: r.qualite, note: r.note, rang: r.rang,
     archive: r.archive_le !== null, archiveLe: r.archive_le, archivePar: r.archive_par_libelle,
+    creeLe: r.cree_le, importeLe: r.importe_le,
     adresse: r.adresse, commune: r.commune, codePostal: r.code_postal,
     absent: r.absent_le !== null,
     contacts: coords.get(Number(r.id)) ?? [],

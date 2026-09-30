@@ -2,6 +2,8 @@ import 'server-only';
 import { deposerFichier, lireDossier, type LecteurDossier } from './drive';
 import { lireDepotExistant, memoriserDepot } from './driveRepo';
 import { copierFichier } from './driveMouvement';
+import { motifDisparition } from './copieDisparue';
+import { marquerCopieDisparue } from './nomUsageRepo';
 import { lirePiecesDuMessage } from './piecesRepo';
 import { lirePieceAServir } from './carteRepo';
 import { recuperer } from '../stockage';
@@ -53,8 +55,12 @@ export function depsReellesDepot(lire?: LecteurDossier): DepsDepot {
      * `copierFichier`, où le garde statique continue de surveiller le corps du `PATCH` de `deplacerVers`.
      */
     copierDepuisDrive: async (jeton, o) => {
+      /* 🔴 LOT FICHE-SAISIE-UNIFORME — SI LA COPIE SOURCE A DISPARU DU DRIVE, on la marque et l'on n'en parle
+         pas : `deposerPieces` retombe tout seul sur nos octets, et le rangement aboutit quand même. C'est
+         exactement « utilise les autres copies, et n'affiche jamais d'erreur pour ça ». */
       const r = await copierFichier(
-        jeton, { id: o.driveFileId, parentCible: o.dossierId, nom: o.nom }, { fetch });
+        jeton, { id: o.driveFileId, parentCible: o.dossierId, nom: o.nom }, { fetch },
+        (mort, statut) => { void marquerCopieDisparue(mort, motifDisparition(statut)); });
       return r.ok
         ? { ok: true, valeur: { id: r.valeur.id, nom: r.valeur.nom || o.nom, webViewLink: r.valeur.lien ?? null } }
         : r;

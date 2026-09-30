@@ -212,9 +212,13 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     // LOT NOM-UNIQUE-DES-PIECES — `./nomUsageSql` rejoint la liste, pour la MÊME raison que les précédents : il
     //   rend des FRAGMENTS DE SQL (« nom d'usage, sinon nom d'origine »), ne lit aucun octet et n'ouvre aucun
     //   stockage. Son passage obligé ici est ce qui garantit qu'une pièce renommée s'affiche sous un seul nom.
+    // LOT FICHE-SAISIE-UNIFORME — `./copieDisparueSql` rejoint la liste, pour la MÊME raison encore : un
+    //   FRAGMENT DE SQL (« cette copie Drive existe-t-elle encore ? »). Il ne lit aucun octet et n'ouvre aucun
+    //   stockage. Son passage obligé ici est ce qui garantit qu'on ne sert jamais l'identifiant d'un fichier
+    //   supprimé du Drive — ce qui donnerait une erreur à l'écran sur un document qui existe ailleurs.
     expect(imports).toEqual([
-      '../db/client', './nomUsageSql', './htmlMail', './imagesMail', './attente', './partenaires', './schema',
-      './nonRemiseRepo',
+      '../db/client', './nomUsageSql', './copieDisparueSql', './htmlMail', './imagesMail', './attente',
+      './partenaires', './schema', './nonRemiseRepo',
     ]);
     expect(imports).not.toContain('../stockage');
     expect(code).not.toContain('urlSignee');

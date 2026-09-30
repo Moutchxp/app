@@ -1,6 +1,7 @@
 import { query } from '../db/client';
-import { nomUsageDisponible } from './schema';
+import { copieDisparueDisponible, nomUsageDisponible } from './schema';
 import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
+import { sqlCopieVivante } from './copieDisparueSql';
 import type { CopieDrive, RefusRenommage } from './nomUsagePiece';
 
 /**
@@ -65,8 +66,12 @@ export async function lirePieceANommer(pieceId: number): Promise<PieceANommer | 
  * d'une autre pièce.
  */
 export async function registreDeLaPiece(pieceId: number): Promise<Set<string>> {
+  /* 🔴 LOT FICHE-SAISIE-UNIFORME — UNE COPIE DISPARUE NE SORT PAS DU REGISTRE POUR AUTANT : la ligne reste, elle
+     raconte un dépôt qui a eu lieu. Mais on ne l'offre plus au renommage — écrire dans un fichier supprimé ne
+     peut produire qu'un refus de Google, et donc une erreur à l'écran pour rien. */
   const { rows } = await query<{ drive_file_id: string }>(
-    'SELECT drive_file_id FROM gestion_piece_drive WHERE piece_id = $1', [pieceId]);
+    `SELECT drive_file_id FROM gestion_piece_drive
+      WHERE piece_id = $1 AND ${await sqlCopieVivante('gestion_piece_drive')}`, [pieceId]);
   return new Set(rows.map((r) => r.drive_file_id.trim()).filter((x) => x !== ''));
 }
 
@@ -120,6 +125,34 @@ export async function noterNomEcritDansDrive(driveFileIds: readonly string[], no
       'UPDATE gestion_piece_drive SET nom_drive = $2 WHERE drive_file_id = ANY($1::text[])', [ids, nom]);
   } catch (e) {
     console.error('[gestion/nom-usage] mémoire du nom Drive impossible', e);
+  }
+}
+
+/**
+ * ══ 🔴🔴 LOT FICHE-SAISIE-UNIFORME — MARQUER UNE COPIE DISPARUE DU DRIVE ════════════════════════════════════
+ *
+ * 🔴 ARNO (01/10/2026) : « marque la copie “disparue” dans le registre, cesse de la relire, utilise les autres
+ * copies, et n'affiche jamais d'erreur à Arno pour ça. »
+ *
+ * ⚠️ ELLE NE LÈVE JAMAIS, et elle n'est jamais attendue par un verdict. Elle est appelée depuis des chemins de
+ * LECTURE (relecture de nom, aperçu, rangement) : les faire échouer parce qu'on n'a pas su noter une disparition
+ * remplacerait un silence par une panne — exactement le contraire de ce qui est demandé.
+ *
+ * ⚠️ IDEMPOTENTE : `disparu_le IS NULL` dans le `WHERE`. Une copie déjà marquée garde sa PREMIÈRE date, qui est
+ * la seule intéressante — celle où l'on s'en est aperçu.
+ */
+export async function marquerCopieDisparue(driveFileId: string, motif: string): Promise<boolean> {
+  const id = driveFileId.trim();
+  if (id === '' || !(await copieDisparueDisponible())) return false;
+  try {
+    const { rowCount } = await query(
+      `UPDATE gestion_piece_drive
+          SET disparu_le = now(), disparu_motif = left($2, 200)
+        WHERE drive_file_id = $1 AND disparu_le IS NULL`, [id, motif]);
+    return (rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('[gestion/copie-drive] marque « disparue » impossible', e);
+    return false;
   }
 }
 
@@ -275,7 +308,7 @@ export async function piecesARelire(
             d.drive_file_id, d.drive_dossier_id, d.dossier_nom, d.origine, d.nom_drive
        FROM choisies c
        JOIN gestion_piece p ON p.id = c.piece_id
-       JOIN gestion_piece_drive d ON d.piece_id = c.piece_id
+       JOIN gestion_piece_drive d ON d.piece_id = c.piece_id AND ${await sqlCopieVivante('d')}
       ORDER BY p.id, d.depose_le`,
     [Math.max(1, tranches), ((tranche % tranches) + tranches) % tranches, Math.min(Math.max(1, limite), 500)]);
 
@@ -355,7 +388,7 @@ export async function piecesPrioritaires(limite = PLAFOND_PRIORITAIRES): Promise
             d.drive_file_id, d.drive_dossier_id, d.dossier_nom, d.origine, d.nom_drive
        FROM choisies c
        JOIN gestion_piece p ON p.id = c.piece_id
-       JOIN gestion_piece_drive d ON d.piece_id = c.piece_id
+       JOIN gestion_piece_drive d ON d.piece_id = c.piece_id AND ${await sqlCopieVivante('d')}
       ORDER BY c.vue DESC, p.id, d.depose_le`,
     [Math.min(Math.max(1, limite), 100), FENETRE_PRIORITAIRE_JOURS]);
   return regrouperPourRelecture(rows);
@@ -372,7 +405,7 @@ export async function piecesParIdentifiants(pieceIds: readonly number[]): Promis
     `SELECT p.id::text AS piece_id, ${await sqlNomAffiche('p')} AS nom_affiche,
             d.drive_file_id, d.drive_dossier_id, d.dossier_nom, d.origine, d.nom_drive
        FROM gestion_piece p
-       JOIN gestion_piece_drive d ON d.piece_id = p.id
+       JOIN gestion_piece_drive d ON d.piece_id = p.id AND ${await sqlCopieVivante('d')}
       WHERE p.id = ANY($1::bigint[])
       ORDER BY p.id, d.depose_le`, [ids]);
   return regrouperPourRelecture(rows);

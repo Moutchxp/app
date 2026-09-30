@@ -1,8 +1,10 @@
 import { jetonPourSubject } from './driveDelegue';
 import { nomRepriseDepuisDrive, type NomVuDansDrive } from './nomUsagePiece';
 import {
-  ecrireNomUsage, journaliserRenommage, noterNomEcritDansDrive, piecesParIdentifiants, type PieceARelire,
+  ecrireNomUsage, journaliserRenommage, marquerCopieDisparue, noterNomEcritDansDrive, piecesParIdentifiants,
+  type PieceARelire,
 } from './nomUsageRepo';
+import { motifDisparition } from './copieDisparue';
 import { lireNomsDrive, type DepsReprise } from './reprendreNomsDrive';
 import { renommerPiece } from './renommagePieceReel';
 
@@ -126,7 +128,13 @@ export async function nomsDriveMemo(
   const paquets: string[][] = [];
   for (let i = 0; i < aLire.length; i += EN_PARALLELE) paquets.push(aLire.slice(i, i + EN_PARALLELE));
   for (const paquet of paquets) {
-    const vus = await Promise.all(paquet.map(async (id) => (await lireNomsDrive(jeton, [id], deps))[0] ?? null));
+    /* 🔴 LOT FICHE-SAISIE-UNIFORME — UNE COPIE SUPPRIMÉE DU DRIVE EST MARQUÉE, ET PLUS JAMAIS RELUE. Sans cela,
+       la même copie morte repartait à chaque ouverture d'écran : un aller-retour vers Google, pour toujours, sur
+       un fichier qui n'existe plus. Et l'on n'affiche rien — c'est la demande d'Arno, mot pour mot. */
+    const vus = await Promise.all(paquet.map(async (id) => (await lireNomsDrive(
+      jeton, [id], deps,
+      (mort, statut) => { void marquerCopieDisparue(mort, motifDisparition(statut)); },
+    ))[0] ?? null));
     paquet.forEach((id, i) => {
       const v = vus[i] ?? null;
       memoire.set(cle(id), { valeur: v, expireA: maintenant + MEMOIRE_NOMS_MS });

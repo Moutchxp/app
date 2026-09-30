@@ -261,6 +261,14 @@ export function nomUsageDisponible(): Promise<boolean> {
   return memoiser('piece.nom_usage', () => colonneExiste('gestion_piece', 'nom_usage'));
 }
 
+/**
+ * 🔴 MIGRATION 288 — la copie Drive marquée « disparue ». Sans elle, la colonne n'est nommée nulle part et le
+ * module se comporte exactement comme avant : un 404 reste silencieux, simplement il n'est pas mémorisé.
+ */
+export function copieDisparueDisponible(): Promise<boolean> {
+  return memoiser('piece_drive.disparu_le', () => colonneExiste('gestion_piece_drive', 'disparu_le'));
+}
+
 export function nomDeposeDisponible(): Promise<boolean> {
   return memoiser('piece_drive.nom_depose', () => colonneExiste('gestion_piece_drive', 'nom_depose'));
 }

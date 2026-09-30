@@ -14,6 +14,9 @@
 import { query } from '../db/client';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
+// 🔴 LOT FICHE-SAISIE-UNIFORME — une copie supprimée du Drive ne doit plus être servie : elle produirait une
+//   erreur à l'écran sur un document qui existe ailleurs. Voir `copieDisparue.ts`.
+import { sqlCopieVivante } from './copieDisparueSql';
 // LOT BIEN-RATTACHE — le HTML d'un mail est assaini CÔTÉ SERVEUR, jamais dans le navigateur (voir `lireCorpsDuMessage`).
 import { assainirHtml, htmlVide } from './htmlMail';
 // LOT LECTURE-HTML-FIL-TROMBONE — les images d'un mail passent par NOS routes : voir `imagesMail`.
@@ -709,7 +712,8 @@ export async function lirePieceAServir(pieceId: number): Promise<{
        FROM gestion_piece p
        ${avecCopie
     ? `LEFT JOIN gestion_piece_drive d
-                ON d.piece_id = p.id AND d.origine = 'copie' AND d.verifie_le IS NOT NULL`
+                ON d.piece_id = p.id AND d.origine = 'copie' AND d.verifie_le IS NOT NULL
+               AND ${await sqlCopieVivante('d')}`
     : ''}
       WHERE p.id = $1`, [pieceId]);
   const p = rows[0];

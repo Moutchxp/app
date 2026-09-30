@@ -6,6 +6,11 @@ import { chercherParMessageId, lireOriginalGmailOctets } from './google';
 import { copiePiecesDisponible, vidageDisponible } from './schema';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le nom d'USAGE pour les messages, le nom d'ORIGINE pour retrouver dans Gmail.
 import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
+// 🔴 LOT FICHE-SAISIE-UNIFORME — une copie supprimée du Drive ne doit plus être servie : elle produirait une
+//   erreur à l'écran sur un document qui existe ailleurs. Voir `copieDisparue.ts`.
+import { sqlCopieVivante } from './copieDisparueSql';
+import { estDisparition, motifDisparition } from './copieDisparue';
+import { marquerCopieDisparue } from './nomUsageRepo';
 import type { DepsOctetsPiece, PieceALire } from './octetsPiece';
 
 /**
@@ -59,7 +64,8 @@ export async function lirePiecesALire(pieceIds: readonly number[]): Promise<Map<
        JOIN gestion_message m ON m.id = p.message_id
        ${avecCopie
     ? `LEFT JOIN gestion_piece_drive d
-                ON d.piece_id = p.id AND d.origine = 'copie' AND d.verifie_le IS NOT NULL`
+                ON d.piece_id = p.id AND d.origine = 'copie' AND d.verifie_le IS NOT NULL
+               AND ${await sqlCopieVivante('d')}`
     : ''}
       WHERE p.id = ANY($1::bigint[])`, [ids]);
 
@@ -90,7 +96,22 @@ export function depsOctetsPiece(jetonGmail?: () => Promise<string | null>): Deps
       const jeton = await jetonPourSubject(COMPTE_DRIVE, { fetch });
       if (!jeton.ok) return { ok: false, motif: jeton.motif };
       // 🔒 `lireContenuDrive` n'émet qu'un `GET … ?alt=media`. Il ne sait pas écrire dans le Drive.
-      return lireContenuDrive(driveFileId, jeton.jeton, { fetch });
+      const r = await lireContenuDrive(driveFileId, jeton.jeton, { fetch });
+      /**
+       * 🔴🔴 LOT FICHE-SAISIE-UNIFORME — UNE COPIE SUPPRIMÉE DU DRIVE EST MARQUÉE, PAS AFFICHÉE.
+       *
+       * Arno (01/10/2026) : « marque la copie “disparue” dans le registre, cesse de la relire, utilise les
+       * AUTRES copies, et n'affiche jamais d'erreur pour ça. » La suite se fait toute seule : `lireOctetsPiece`
+       * poursuit déjà vers MinIO puis vers le message d'origine. Ce qui manquait, c'est de ne plus revenir
+       * frapper à une porte murée à chaque ouverture de la pièce.
+       *
+       * ⚠️ ON NE MARQUE QUE 404 ET 403. Un 429 ou un 503 disent « Google est occupé », pas « le fichier n'est
+       * plus là » : marquer là-dessus effacerait des lectures une copie parfaitement vivante.
+       */
+      if (!r.ok && typeof r.code === 'number' && estDisparition(r.code)) {
+        void marquerCopieDisparue(driveFileId, motifDisparition(r.code));
+      }
+      return r;
     },
   };
 

@@ -647,7 +647,6 @@ describe('🔴 créer une fiche : ce qu’il faut avoir renseigné', () => {
       { sorte: 'telephone' as const, valeur: '06 12 34 56 78', libelle: 'Mobile' },
       { sorte: 'email' as const, valeur: 'jean@exemple.fr', libelle: 'E-mail' },
     ],
-    date: '2026-09-30',
   };
 
   it('une fiche complète ne manque de rien', () => {
@@ -657,10 +656,10 @@ describe('🔴 créer une fiche : ce qu’il faut avoir renseigné', () => {
   /** 🔴 TOUS OBLIGATOIRES, SAUF QUALITÉ ET NOTE — la demande d'Arno, mot pour mot. */
   it('🔴 chaque champ vide est signalé, un par un', () => {
     const vide = manquesDeLaFiche({
-      civilite: '', nom: '', prenom: '', adresse: '', codePostal: '', commune: '', coordonnees: [], date: '',
+      civilite: '', nom: '', prenom: '', adresse: '', codePostal: '', commune: '', coordonnees: [],
     });
     expect(Object.keys(vide).sort()).toEqual(
-      ['adresse', 'civilite', 'codePostal', 'commune', 'date', 'email', 'nom', 'prenom', 'telephone'].sort());
+      ['adresse', 'civilite', 'codePostal', 'commune', 'email', 'nom', 'prenom', 'telephone'].sort());
     // Le motif dit ce qui manque, pas « champ invalide ».
     expect(vide.telephone).toContain('au moins un téléphone');
     expect(vide.email).toContain('au moins une adresse e-mail');
@@ -698,10 +697,23 @@ describe('🔴 créer une fiche : ce qu’il faut avoir renseigné', () => {
     expect(m.email).toBeDefined();
   });
 
-  it('la date doit être une vraie date, pas un fragment', () => {
-    expect(manquesDeLaFiche({ ...pleine, date: '30/09/2026' }).date).toBeDefined();
-    expect(manquesDeLaFiche({ ...pleine, date: '2026-09' }).date).toBeDefined();
-    expect(manquesDeLaFiche({ ...pleine, date: '2026-09-30' }).date).toBeUndefined();
+  /**
+   * 🔴🔴 LOT FICHE-SAISIE-UNIFORME — PLUS AUCUNE DATE N'EST RÉCLAMÉE (Arno, 01/10/2026).
+   *
+   * « Supprime le champ “Propriétaire depuis le”. La mention “Date obligatoire” disparaît. » Le champ exigeait
+   * une saisie qui n'était lue par aucun écran ; « Créée le … » la remplace, posée toute seule.
+   *
+   * ⚠️ CE QUI RESTE, ET QU'ON NE TOUCHE PAS : les dates d'ENTRÉE et de SORTIE du bail
+   * (`gestion_annuaire_occupation`). Elles servent, elles : elles nomment les dossiers Drive des locataires et
+   * pilotent l'historique du bien.
+   */
+  it('🔴🔴 aucune date n’est exigée — le champ a été retiré', () => {
+    expect(manquesDeLaFiche(pleine).date).toBeUndefined();
+    const vide = manquesDeLaFiche({
+      civilite: '', nom: '', prenom: '', adresse: '', codePostal: '', commune: '', coordonnees: [],
+    });
+    expect(vide.date).toBeUndefined();
+    expect(Object.keys(vide)).not.toContain('date');
   });
 
   /** ⚠️ QUALITÉ ET NOTE NE SONT JAMAIS EXIGÉES : elles n'apparaissent pas dans la liste des manques. */

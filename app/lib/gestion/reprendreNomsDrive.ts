@@ -1,4 +1,5 @@
 import { jetonPourSubject } from './driveDelegue';
+import { estDisparition } from './copieDisparue';
 import type { NomVuDansDrive } from './nomUsagePiece';
 import {
   piecesARelire, piecesPrioritaires, PLAFOND_RELECTURE, trancheDuMoment, type PieceARelire,
@@ -76,6 +77,18 @@ export interface DepsReprise { fetch: typeof fetch }
  */
 export async function lireNomsDrive(
   accessToken: string, ids: readonly string[], deps: DepsReprise,
+  /**
+   * ══ 🔴🔴 LOT FICHE-SAISIE-UNIFORME — ON DIT CE QUI A DISPARU ═════════════════════════════════════════════
+   *
+   * Arno (01/10/2026) : « marque la copie “disparue” dans le registre, cesse de la relire ». Jusqu'ici, un 404
+   * était avalé ici même (`if (!res.ok) continue`) : silencieux, ce qui était bien — mais OUBLIÉ, ce qui ne
+   * l'était pas. La même copie morte était redemandée à chaque passe, pour toujours.
+   *
+   * ⚠️ FACULTATIF : sans ce rappel, le comportement est celui d'avant ce lot, mot pour mot.
+   * ⚠️ ET IL NE REÇOIT QUE LES VRAIES DISPARITIONS (`estDisparition` : 404 et 403). Un 503 ou une coupure
+   *    réseau NE sont PAS des disparitions — marquer sur un Google occupé effacerait une copie vivante.
+   */
+  auDisparu?: (driveFileId: string, statut: number) => void,
 ): Promise<NomVuDansDrive[]> {
   const propres = [...new Set(ids.map((i) => i.trim()).filter((i) => i !== ''))];
   const vus: NomVuDansDrive[] = [];
@@ -85,11 +98,14 @@ export async function lireNomsDrive(
       const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        if (estDisparition(res.status)) auDisparu?.(id, res.status);
+        continue;
+      }
       const b = await res.json().catch(() => ({})) as { id?: string; name?: string; modifiedTime?: string };
       if (typeof b.name !== 'string') continue;
       vus.push({ driveFileId: b.id ?? id, nom: b.name, modifieLe: b.modifiedTime ?? null });
-    } catch { /* un fichier qui ne répond pas n'emporte pas les autres */ }
+    } catch { /* un fichier qui ne répond pas n'emporte pas les autres — et ce n'est PAS une disparition */ }
   }
   return vus;
 }

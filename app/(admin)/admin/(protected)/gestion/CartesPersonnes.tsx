@@ -7,6 +7,13 @@ import type { ContactAffiche, PersonneAnnuaire } from '../../../../lib/gestion/a
 import {
   MOTIF_DERNIERE_CARTE, motVoirArchivees, nomAvecCivilite, phraseSuppression,
 } from '../../../../lib/gestion/personneVivante';
+// 🔴 LOT FICHE-SAISIE-UNIFORME — le FORMAT des champs, écrit une seule fois : saisie, enregistrement, affichage.
+import {
+  CIVILITES, CIVILITE_AUTRE, civiliteDeLaListe, civiliteRetenue, codePostalFormate, communeFormatee,
+  communeEnSaisie, ficheFormatee, mentionCreation, nomAfficheFormate, nomEnSaisie, nomFormate,
+  prenomEnSaisie, prenomFormate,
+} from '../../../../lib/gestion/saisieFiche';
+import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from './ChampAdresseBan';
 import {
   MOTIF_DERNIER_PROPRIETAIRE, MOTIF_SANS_MIGRATION, manquesDeLaFiche, phraseArchivage, proposerCoupure,
   verifierCoordonnees, type CoordonneeSaisie, type PartDeCoordonnee,
@@ -336,8 +343,21 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer }: {
   const [mode, setMode] = useState<Mode>('lecture');
   const [menu, setMenu] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
-  const adresse = [p.adresse, [p.codePostal, p.commune].filter((x) => x !== null && x !== '').join(' ')]
-    .filter((x) => x !== null && x.trim() !== '').join(', ');
+  /**
+   * 🔴🔴 LOT FICHE-SAISIE-UNIFORME — LA MISE EN FORME S'APPLIQUE À L'AFFICHAGE, TOUT DE SUITE.
+   *
+   * Arno : « Affichage des fiches existantes (import WIPPIMMO) : même mise en forme À L'AFFICHAGE, tout de
+   * suite. Écriture en base seulement quand la fiche est enregistrée : pas de réécriture massive. »
+   *
+   * 🔴 ON MET EN FORME CE QU'ON LIT, SANS RIEN ÉCRIRE. Les 310 fiches importées s'affichent donc au bon format
+   * dès ce lot ; la base, elle, n'est touchée que le jour où quelqu'un ouvre la fiche et l'enregistre — c'est-
+   * à-dire quand une paire d'yeux a regardé ce qu'elle contient.
+   */
+  const adresse = [
+    p.adresse,
+    [codePostalFormate(p.codePostal), communeFormatee(p.commune)].filter((x) => x !== '').join(' '),
+  ].filter((x) => x !== null && x.trim() !== '').join(', ');
+  const mention = mentionCreation({ creeLe: p.creeLe, importeLe: p.importeLe, wippimmoId: p.cle });
 
   const fermer = (): void => { setMode('lecture'); setMenu(false); setRefus(null); };
 
@@ -368,7 +388,7 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer }: {
     <article className={`cp-carte${p.archive ? ' cp-carte--archive' : ''}`}>
       <header className="cp-tete">
         <div className="cp-tete-mots">
-          <p className="cp-nom">{nomAvecCivilite(p.civilite, p.nomAffiche)}</p>
+          <p className="cp-nom">{nomAvecCivilite(p.civilite, nomAfficheFormate(p))}</p>
           <p className="cp-tete-caps">
             <span className="cp-role">{role}</span>
             {p.archive && <span className="cp-caps cp-caps--absent">archivée</span>}
@@ -400,6 +420,14 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer }: {
         {dessous}
         <Ligne libelle="Note">{p.note ?? <Rien mot="non renseignée" />}</Ligne>
       </div>
+      {/* ══ 🔴 LOT FICHE-SAISIE-UNIFORME — « Créée le JJ/MM/AAAA », posée toute seule ════════════════════════
+          Arno : « rempli automatiquement à la création et non modifiable. Pour les fiches importées : la date de
+          l'import, avec la mention “importée”. » Elle remplace le champ « Propriétaire depuis le », qui exigeait
+          une saisie que personne ne lisait.
+
+          ⚠️ RIEN N'EST INVENTÉ QUAND LA DATE MANQUE : la ligne n'apparaît pas. Une date fausse sur une fiche est
+          pire qu'une date absente — c'est elle qu'on citera un jour. */}
+      {mention !== '' && <p className="cp-naissance">{mention}</p>}
     </article>
   );
 }
@@ -576,21 +604,39 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
    * Deux formulaires jumeaux divergeraient au premier champ ajouté, et l'on se retrouverait à saisir un prénom
    * dans l'un et pas dans l'autre.
    *
-   * ⚠️ LA DIFFÉRENCE TIENT EN TROIS CHOSES, et elles sont toutes ici : le rappel du haut (« Sera ajouté comme
-   * co-propriétaire sur les N biens de cette fiche »), le champ DATE, et l'EXIGENCE de complétude — « Enregistrer »
-   * reste grisé tant qu'il manque quelque chose, chaque manque étant dit sous son champ.
+   * ⚠️ LA DIFFÉRENCE TIENT EN DEUX CHOSES, et elles sont toutes ici : le rappel du haut (« Sera ajouté comme
+   * co-propriétaire sur les N biens de cette fiche ») et l'EXIGENCE de complétude — « Enregistrer » reste grisé
+   * tant qu'il manque quelque chose, chaque manque étant dit sous son champ.
+   *
+   * 🔴 LE CHAMP DATE A DISPARU (lot FICHE-SAISIE-UNIFORME) : il exigeait une saisie qui ne servait à rien, et
+   * « Créée le … » la remplace sans rien demander à personne.
    */
-  creation?: { rappel: string; motDate: string };
+  creation?: { rappel: string };
 }) {
-  const [civilite, setCivilite] = useState(p?.civilite ?? '');
-  const [prenom, setPrenom] = useState(p?.prenom ?? '');
-  const [nom, setNom] = useState(p?.nom ?? '');
+  /**
+   * ══ 🔴🔴 LOT FICHE-SAISIE-UNIFORME — LA CIVILITÉ EST UNE LISTE, PLUS UN TEXTE LIBRE ══════════════════════
+   *
+   * ⚠️ UNE FICHE EXISTANTE RETROUVE SA PLACE DANS LA LISTE sans être réécrite : « MME » y devient « Mme », et
+   * ce qui ne ressemble à rien de connu tombe dans « Autre » AVEC son texte d'origine intact. Perdre la
+   * civilité d'une fiche importée parce qu'elle était écrite autrement serait une régression silencieuse.
+   */
+  const civiliteInitiale = civiliteDeLaListe(p?.civilite);
+  const [civiliteChoix, setCiviliteChoix] = useState(civiliteInitiale.choix);
+  const [civiliteLibre, setCiviliteLibre] = useState(civiliteInitiale.libre);
+  const [prenom, setPrenom] = useState(prenomFormate(p?.prenom));
+  const [nom, setNom] = useState(nomFormate(p?.nom));
   const [qualite, setQualite] = useState(p?.qualite ?? '');
   const [adresse, setAdresse] = useState(p?.adresse ?? '');
-  const [codePostal, setCodePostal] = useState(p?.codePostal ?? '');
-  const [commune, setCommune] = useState(p?.commune ?? '');
+  const [codePostal, setCodePostal] = useState(codePostalFormate(p?.codePostal));
+  const [commune, setCommune] = useState(communeFormatee(p?.commune));
   const [note, setNote] = useState(p?.note ?? '');
-  const [date, setDate] = useState('');
+  /**
+   * 🔴 « ADRESSE NON VÉRIFIÉE » : vrai dès qu'on a choisi une proposition de la Base Adresse Nationale. Une
+   * fiche existante démarre à « non vérifiée » — on ne sait pas d'où venait son adresse, et prétendre le
+   * contraire serait affirmer sans savoir. La mention est discrète, et elle n'interdit rien.
+   */
+  const [adresseVerifiee, setAdresseVerifiee] = useState(false);
+  const civilite = civiliteRetenue(civiliteChoix, civiliteLibre);
   /**
    * ⚠️ LE TYPE D'UNE COORDONNÉE EXISTANTE SE DÉDUIT DE SON LIBELLÉ IMPORTÉ (« Mobile 2 » → Mobile), et à défaut de
    * sa SORTE, qui ne ment jamais. Un libellé hors nomenclature retombe sur le type le plus probable de sa sorte
@@ -630,7 +676,7 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
     sorte: sorteDuType(l.type), valeur: l.valeur, libelle: motType(l.type),
   }));
   const manque = creation === undefined ? {} : manquesDeLaFiche({
-    civilite, nom, prenom, adresse, codePostal, commune, coordonnees: saisiesVivantes, date,
+    civilite, nom, prenom, adresse, codePostal, commune, coordonnees: saisiesVivantes,
   });
   const incomplete = Object.keys(manque).length > 0;
 
@@ -644,9 +690,12 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
     setLocal(null);
     setEnvoi(true);
     void (async () => {
+      /* 🔴🔴 LA MISE EN FORME EST RÉAPPLIQUÉE À L'ENREGISTREMENT, et pas seulement à la frappe. Un texte collé,
+         une valeur d'avant ce lot, une fiche importée qu'on rouvre : tout repasse par la MÊME fonction pure. La
+         saisie se met en forme sous les doigts pour qu'on voie ce qui partira ; ici, on s'en assure. */
       await onEnregistrer({
-        civilite, nom, prenom, qualite, adresse, codePostal, commune, note, coordonnees: saisies,
-        ...(creation === undefined ? {} : { date }),
+        ...ficheFormatee({ civilite, nom, prenom, adresse, codePostal, commune }),
+        qualite, note, coordonnees: saisies,
       });
       setEnvoi(false);
     })();
@@ -670,20 +719,35 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
           les N biens de cette fiche ». Sans lui, on remplit sept champs sans savoir où la personne atterrit. */}
       {creation !== undefined && <p className="cp-rappel">{creation.rappel}</p>}
 
+      {/* 🔴 LA CIVILITÉ PILOTE UNE RÈGLE (le prénom n'est pas exigé d'une société) : en texte libre, « S.C.I. »,
+          « Sci » et « SCI » étaient trois valeurs, et l'une d'elles finissait par ne pas être reconnue. */}
       <label className="cp-champ">
         <span className="cp-champ-mot">Civilité</span>
-        <input className="cp-saisie" value={civilite} onChange={(e) => setCivilite(e.target.value)}
-          placeholder="M. / Mme / SCI…" />
+        <select className="cp-saisie" value={civiliteChoix} onChange={(e) => setCiviliteChoix(e.target.value)}>
+          <option value="">Choisir…</option>
+          {CIVILITES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
         {manqueDe('civilite')}
       </label>
+      {/* ⚠️ « AUTRE » GARDE LA PORTE OUVERTE : une liste sans échappatoire oblige à ranger une succession ou un
+          office notarial dans une case fausse — ce qui est pire qu'une case vide. */}
+      {civiliteChoix === CIVILITE_AUTRE && (
+        <label className="cp-champ">
+          <span className="cp-champ-mot">Préciser la civilité</span>
+          <input className="cp-saisie" value={civiliteLibre} onChange={(e) => setCiviliteLibre(e.target.value)}
+            placeholder="Succession, SCP, office notarial…" autoFocus />
+        </label>
+      )}
+      {/* 🔴 LE FORMAT S'APPLIQUE SOUS LES DOIGTS : on voit se former ce qui partira en base. Le faire seulement
+          à l'enregistrement ferait « sauter » le texte au moment où l'on croit avoir fini. */}
       <label className="cp-champ">
         <span className="cp-champ-mot">Nom</span>
-        <input className="cp-saisie" value={nom} onChange={(e) => setNom(e.target.value)} required />
+        <input className="cp-saisie" value={nom} onChange={(e) => setNom(nomEnSaisie(e.target.value))} required />
         {manqueDe('nom')}
       </label>
       <label className="cp-champ">
         <span className="cp-champ-mot">Prénom</span>
-        <input className="cp-saisie" value={prenom} onChange={(e) => setPrenom(e.target.value)} />
+        <input className="cp-saisie" value={prenom} onChange={(e) => setPrenom(prenomEnSaisie(e.target.value))} />
         {manqueDe('prenom')}
       </label>
       <label className="cp-champ">
@@ -691,31 +755,45 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
         <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)}
           placeholder="indivision, gérant, représentant…" />
       </label>
-      <label className="cp-champ">
-        <span className="cp-champ-mot">Adresse</span>
-        <input className="cp-saisie" value={adresse} onChange={(e) => setAdresse(e.target.value)} />
-        {manqueDe('adresse')}
-      </label>
+      {/* ══ 🔴🔴 L'ADRESSE, AVEC LES PROPOSITIONS DE LA BASE ADRESSE NATIONALE ════════════════════════════════
+          Un choix remplit les TROIS champs d'un coup — adresse, code postal, commune (en majuscules). La saisie
+          libre reste possible partout : adresse étrangère, lieu-dit, BAN muette. Aucun blocage, jamais. */}
+      <div className="cp-champ">
+        <label className="cp-champ-mot" htmlFor="cp-adresse">Adresse</label>
+        <ChampAdresseBan
+          id="cp-adresse"
+          valeur={adresse}
+          verifiee={adresseVerifiee}
+          onChange={(v) => { setAdresse(v); setAdresseVerifiee(false); }}
+          onChoisir={(a) => {
+            setAdresse(a.voie);
+            setCodePostal(a.codePostal);
+            setCommune(a.commune);
+            setAdresseVerifiee(true);
+          }}
+          manque={manqueDe('adresse')} />
+      </div>
       <div className="cp-champ cp-champ--duo">
         <label className="cp-duo-part">
           <span className="cp-champ-mot">Code postal</span>
-          <input className="cp-saisie" value={codePostal} onChange={(e) => setCodePostal(e.target.value)}
-            inputMode="numeric" />
+          <input className="cp-saisie" value={codePostal} inputMode="numeric" maxLength={5}
+            onChange={(e) => setCodePostal(codePostalFormate(e.target.value))} />
           {manqueDe('codePostal')}
         </label>
         <label className="cp-duo-part">
           <span className="cp-champ-mot">Commune</span>
-          <input className="cp-saisie" value={commune} onChange={(e) => setCommune(e.target.value)} />
+          <input className="cp-saisie" value={commune}
+            onChange={(e) => setCommune(communeEnSaisie(e.target.value))} />
           {manqueDe('commune')}
         </label>
       </div>
-      {creation !== undefined && (
-        <label className="cp-champ">
-          <span className="cp-champ-mot">{creation.motDate}</span>
-          <input className="cp-saisie" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          {manqueDe('date')}
-        </label>
-      )}
+      {/* ══ 🔴🔴 LE CHAMP « PROPRIÉTAIRE DEPUIS LE » A ÉTÉ RETIRÉ (Arno, 01/10/2026) ══════════════════════════
+          Il demandait une date à la création, la refusait tant qu'elle manquait (« La date est obligatoire »), et
+          ne servait à rien d'autre : `relation_depuis` n'est lue par aucun écran. Ce qui compte pour l'historique
+          des locataires, ce sont les dates d'ENTRÉE et de SORTIE du bail (`gestion_annuaire_occupation`) — elles
+          nomment les dossiers Drive et pilotent la vie du bien, et elles ne sont pas touchées.
+
+          🔴 CE QUI LE REMPLACE : « Créée le JJ/MM/AAAA » sur la carte, posée toute seule, non modifiable. */}
 
       <p className="cp-form-titre cp-form-titre--second">Téléphones et e-mails</p>
       <ul className="cp-coords-edit">
@@ -919,7 +997,7 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
    * 🔴 LOT FICHES-RETOUCHES-2 — CE QUE LA CARTE VIDE DOIT SAVOIR : la phrase qui dit où la personne atterrit, le
    * mot de son champ date, et le geste qui la crée (il rend `null` si tout va bien, sinon le motif du refus).
    */
-  creation: { rappel: string; motDate: string; onCreer: (champs: ChampsSaisis) => Promise<string | null> };
+  creation: { rappel: string; onCreer: (champs: ChampsSaisis) => Promise<string | null> };
 }) {
   const vivantes = personnes.filter((p) => !p.archive);
   const archivees = personnes.filter((p) => p.archive);
@@ -970,7 +1048,7 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
         {ajout ? (
           <article className="cp-carte cp-carte--edition">
             <FormulaireCarte p={null} refus={refusAjout} onAnnuler={() => { setAjout(false); setRefusAjout(null); }}
-              creation={{ rappel: creation.rappel, motDate: creation.motDate }}
+              creation={{ rappel: creation.rappel }}
               onEnregistrer={async (champs) => {
                 const motif = await creation.onCreer(champs);
                 if (motif === null) { setAjout(false); setRefusAjout(null); } else setRefusAjout(motif);
@@ -1128,6 +1206,10 @@ export const CSS_CARTES = `
 .cp-menu-item--danger:disabled{color:var(--color-svv-muted);font-weight:400;cursor:not-allowed}
 /* Le lien des archivees : discret, sous la rangee. On ne met pas en avant ce qu'on a rangé. */
 .cp-archivees{margin:.4rem 0 0;font-size:.8rem;color:var(--color-svv-muted)}
+/* 🔴 LOT FICHE-SAISIE-UNIFORME — « Créée le … » : discrète, en pied de carte. Elle informe, elle ne se saisit
+   pas, et elle ne doit jamais concurrencer du regard les coordonnées juste au-dessus. */
+.cp-naissance{margin:.45rem 0 0;font-size:.72rem;color:var(--color-svv-muted);font-style:italic}
+${CSS_CHAMP_ADRESSE}
 .cp-confirme{display:flex;flex-direction:column;gap:.4rem;padding:.35rem}
 .cp-confirme-mot{margin:0;font-size:.8rem;color:var(--color-svv-ink)}
 .cp-confirme-boutons{display:flex;gap:.4rem;flex-wrap:wrap}

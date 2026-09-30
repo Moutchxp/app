@@ -114,6 +114,12 @@ export async function deplacerVers(
  */
 export async function copierFichier(
   accessToken: string, o: { id: string; parentCible: string; nom?: string }, deps: DepsGoogle,
+  /**
+   * 🔴 LOT FICHE-SAISIE-UNIFORME — appelé quand la SOURCE de la copie a disparu (404) ou n'est plus lisible
+   * (403). L'appelant en tire le marquage du registre ; ici, on se contente de le DIRE. Facultatif : absent,
+   * le comportement est celui d'avant ce lot.
+   */
+  auDisparu?: (driveFileId: string, statut: number) => void,
 ): Promise<Resultat<ElementDeplace>> {
   /**
    * ⚠️ `webViewLink` EST DEMANDÉ (lot RANGER-PJ-FIABLE). Une pièce dont les octets locaux ont été libérés se range
@@ -134,7 +140,12 @@ export async function copierFichier(
   } catch (e) {
     return { ok: false, motif: `Le Drive n’a pas répondu : ${e instanceof Error ? e.message : String(e)}` };
   }
-  if (!res.ok) return { ok: false, motif: motif(res.status, 'cette copie') };
+  if (!res.ok) {
+    /* ⚠️ C'EST LA SOURCE QUI MANQUE, PAS LA CIBLE. Un 404 sur `files/{id}/copy` dit que l'original a disparu —
+       la cible, elle, a déjà été vérifiée par la route avant d'en arriver là. */
+    if (res.status === 404 || res.status === 403) auDisparu?.(o.id, res.status);
+    return { ok: false, motif: motif(res.status, 'cette copie') };
+  }
   const j = (await res.json().catch(() => ({}))) as {
     id?: string; name?: string; parents?: string[]; webViewLink?: string;
   };

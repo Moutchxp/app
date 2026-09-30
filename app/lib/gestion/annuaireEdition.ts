@@ -311,8 +311,6 @@ export interface FicheASaisir {
   commune: string;
   /** La liste des coordonnées telles qu'elles sont tapées — on y cherche un téléphone ET un e-mail. */
   coordonnees: readonly CoordonneeSaisie[];
-  /** « Propriétaire depuis le » / « Entré le ». Obligatoire à la création. */
-  date: string;
 }
 
 /**
@@ -351,7 +349,17 @@ export function manquesDeLaFiche(f: FicheASaisir): Record<string, string> {
   if (!renseignees.some((c) => c.sorte === 'email')) {
     manque.email = 'Il faut au moins une adresse e-mail.';
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test((f.date ?? '').trim())) manque.date = 'La date est obligatoire.';
+  /**
+   * 🔴🔴 LOT FICHE-SAISIE-UNIFORME — « LA DATE EST OBLIGATOIRE » A DISPARU (Arno, 01/10/2026).
+   *
+   * Le champ « Propriétaire depuis le » exigeait une date à la création, et ne servait à rien d'autre :
+   * `relation_depuis` n'est lue par aucun écran. Ce qui compte pour l'historique des locataires, ce sont les
+   * dates d'ENTRÉE et de SORTIE du bail (`gestion_annuaire_occupation`) — elles nomment les dossiers Drive et
+   * pilotent la vie du bien, et elles ne sont pas touchées par ce lot.
+   *
+   * 🔴 ON NE REMPLACE PAS UNE EXIGENCE PAR UNE AUTRE : « Créée le … » est posée toute seule à la création, et
+   * ne se saisit pas.
+   */
   return manque;
 }
 

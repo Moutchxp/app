@@ -856,7 +856,6 @@ function VueProprietaire({ f, ouvrir, onHistorique, gestes, onCreer, onHistoriqu
             ? 'Cette fiche n’a aucun bien en gestion : la personne sera créée dans l’annuaire, sans rattachement.'
             : `Sera ajouté comme co-propriétaire sur ${enGestion.length === 1 ? 'le bien'
               : `les ${enGestion.length} biens`} de cette fiche.`,
-          motDate: 'Propriétaire depuis le',
           onCreer: (champs) => onCreer('proprietaire', enGestion.map((b) => b.id), champs),
         }} />
 
@@ -1169,7 +1168,6 @@ function VueLot({
         }}
         creation={{
           rappel: `Sera ajouté comme co-propriétaire du lot ${f.numero}.`,
-          motDate: 'Propriétaire depuis le',
           onCreer: (champs) => onCreer('proprietaire', [f.id], champs),
         }} />
 
@@ -1181,7 +1179,6 @@ function VueLot({
         personnes={f.occupants} role="En place" motAjouter="Ajouter un occupant" gestes={gestes}
         creation={{
           rappel: `Sera ajouté comme occupant du lot ${f.numero}.`,
-          motDate: 'Entré le',
           onCreer: (champs) => onCreer('locataire', [f.id], champs),
         }}
         dessous={(p) => {
@@ -1316,7 +1313,6 @@ function VueLocataire({
           rappel: enCours.length === 0
             ? 'Cette personne n’occupe aucun logement : le nouvel occupant sera créé sans rattachement.'
             : `Sera ajouté comme occupant du lot ${enCours[0].numero}, avec ${f.nom}.`,
-          motDate: 'Entré le',
           onCreer: (champs) => onCreer('locataire', enCours.map((o) => o.lotId)
             .filter((x): x is number => x !== null).slice(0, 1), champs),
         }} />
