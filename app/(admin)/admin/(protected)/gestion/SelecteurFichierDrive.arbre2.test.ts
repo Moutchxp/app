@@ -142,6 +142,20 @@ const souris = async (e: Element | null | undefined, type: string, init: MouseEv
 const cliquer = async (e: Element | null | undefined) => {
   await act(async () => { (e as HTMLElement | undefined)?.click(); }); await calmer();
 };
+
+/**
+ * ══ 🔴🔴 LE DÉFAUT A CHANGÉ (lot FIL-APERCU-MINIATURES, 30/09/2026) ══════════════════════════════════════════
+ *
+ * Arno : « à l'ouverture de “Ranger N pièces dans le Drive”, toutes les pièces du mail sont cochées ». Glisser
+ * UNE pièce emporte donc toute la sélection — c'est la règle posée par ce lot-ci (« saisir une pièce cochée les
+ * emporte toutes »), appliquée au nouveau défaut. Les épreuves qui parlent d'UNE pièce décochent d'abord.
+ *
+ * ⚠️ ON DÉCOCHE PAR LE BOUTON, comme une personne : passer par l'état interne ne prouverait pas que le geste existe.
+ */
+const decocherTout = async () => {
+  await cliquer([...container.querySelectorAll('button')]
+    .find((x) => /Tout désélectionner/.test(x.textContent ?? '')));
+};
 const touche = async (key: string, init: KeyboardEventInit = {}) => {
   await act(async () => {
     container.querySelector('.sfd')?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }));
@@ -224,6 +238,8 @@ describe('🔴 ① le dépôt dans le contenu d’un dossier ouvert', () => {
    */
   it('🔴 lâcher une pièce sur un FICHIER la range dans le dossier AFFICHÉ', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce.
+    await decocherTout();
     await entrer('Artisans');
     const r = await glisserVraiment('photo.jpg', ligneDe('devis-artisan.pdf'));
     expect(r.entreeAcceptee).toBe(true);
@@ -240,6 +256,8 @@ describe('🔴 ① le dépôt dans le contenu d’un dossier ouvert', () => {
    */
   it('🔴 sous un dossier DÉPLIÉ, la cible est ce dossier-là, pas celui qu’on affiche', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce.
+    await decocherTout();
     // On déplie « Artisans » SANS y entrer : son contenu s'affiche sous lui, dans la liste de la racine.
     await cliquer(ligneDe('Artisans')?.querySelector('.sfd-triangle'));
     expect(ligneDe('devis-artisan.pdf')).toBeDefined();
@@ -264,6 +282,8 @@ describe('🔴 ① le dépôt dans le contenu d’un dossier ouvert', () => {
   /** 🔴 LE VIDE SOUS LA LISTE = LE DOSSIER AFFICHÉ (demande d'Arno). */
   it('🔴 lâcher dans la zone vide sous la liste dépose dans le dossier affiché', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce.
+    await decocherTout();
     await entrer('Artisans');
     const r = await glisserVraiment('photo.jpg', container.querySelector('.sfd-lignes'));
     expect(r.entreeAcceptee).toBe(true);
@@ -315,9 +335,16 @@ describe('🔴 ① le dépôt dans le contenu d’un dossier ouvert', () => {
 describe('🔴 ② plusieurs pièces d’un seul geste', () => {
   const caseDe = (nom: string) => pieceDe(nom)?.querySelector('.sfd-piece-case') as HTMLInputElement | undefined;
 
-  it('chaque pièce porte une case à cocher, nommée', async () => {
+  /**
+   * 🔴 RÉÉCRIT (lot FIL-APERCU-MINIATURES) : la case existe toujours et porte toujours le nom de sa pièce — ce
+   * que cette épreuve protégeait. Ce qui change est son ÉTAT DE DÉPART : cochée, parce qu'on range presque
+   * toujours tout au même endroit. Les deux états sont éprouvés ici, pour que la case reste une case.
+   */
+  it('chaque pièce porte une case à cocher, nommée — et cochée à l’ouverture', async () => {
     await monter();
     expect(caseDe('photo.jpg')?.getAttribute('aria-label')).toBe('Sélectionner photo.jpg');
+    expect(caseDe('photo.jpg')?.checked).toBe(true);
+    await decocherTout();
     expect(caseDe('photo.jpg')?.checked).toBe(false);
   });
 
@@ -436,6 +463,8 @@ describe('🔴 ③ remonter d’un niveau', () => {
   /** 🔴 ELLE EST AUSSI UNE CIBLE DE DÉPÔT (demande d'Arno). */
   it('🔴 on peut y lâcher une pièce : elle va dans le dossier parent', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce.
+    await decocherTout();
     await entrer('Artisans');
     await entrer('Devis 2026');
     const r = await glisserVraiment('photo.jpg', container.querySelector('.sfd-remonter'));
@@ -526,6 +555,49 @@ describe('🔴 ④ la colonne de gauche se règle', () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FIL-APERCU-MINIATURES — LES PIÈCES SONT COCHÉES À L'OUVERTURE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 tout est coché quand la fenêtre s’ouvre', () => {
+  /**
+   * Demande d'Arno : « à l'ouverture de “Ranger N pièces dans le Drive”, toutes les pièces du mail sont
+   * cochées ». C'est le geste le plus fréquent qui devient le défaut : on range presque toujours TOUT au même
+   * endroit, et partir de rien obligeait à cocher trois cases avant de faire le geste qu'on venait faire.
+   */
+  it('🔴 les trois pièces sont cochées, sans rien toucher', async () => {
+    await monter();
+    expect([...container.querySelectorAll('.sfd-piece--cochee')]).toHaveLength(3);
+    // Et le bouton annonce ce qu'il emportera : les trois.
+    expect(boutonDe(/Déposer ici/)?.textContent).toContain('(3)');
+  });
+
+  /** 🔴 « Tout sélectionner » devient « Tout désélectionner » tant que tout est coché (demande d'Arno). */
+  it('🔴 le bouton dit « Tout désélectionner » dès l’ouverture', async () => {
+    await monter();
+    expect(boutonDe(/Tout désélectionner/)).toBeDefined();
+    expect(boutonDe(/^Tout sélectionner/)).toBeUndefined();
+    await cliquer(boutonDe(/Tout désélectionner/));
+    expect([...container.querySelectorAll('.sfd-piece--cochee')]).toHaveLength(0);
+    expect(boutonDe(/Tout sélectionner/)).toBeDefined();
+  });
+
+  /**
+   * 🔴 UNE PIÈCE RANGÉE PASSE À « ✓ Rangée » ET SE DÉCOCHE (demande d'Arno). Ce qui reste coché est donc
+   * exactement ce qui reste à faire — et un second « Déposer ici » ne redépose pas ce qui vient d'être posé.
+   */
+  it('🔴 une pièce rangée se décoche, et ce qui reste coché est ce qui reste à faire', async () => {
+    await monter();
+    await entrer('Artisans');
+    await glisserVraiment('photo.jpg', ligneDe('devis-artisan.pdf'));
+    // Les trois partent ensemble (toutes cochées), donc les trois se décochent.
+    expect([...container.querySelectorAll('.sfd-piece--cochee')]).toHaveLength(0);
+    for (const n of ['DEV-20260928-18919.pdf', 'photo.jpg', 'quittance.pdf']) {
+      expect(pieceDe(n)?.textContent, n).toContain('✓ Rangée dans');
+    }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴 UN DÉFAUT TROUVÉ EN FAISANT L'ESSAI RÉEL DE CE LOT
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
@@ -565,6 +637,8 @@ describe('🔴 les voies neuves passent par la même porte, et disent le refus',
   it('🔴 un refus du serveur est dit, qu’on lâche sur un fichier, sur « Remonter », ou en sélection', async () => {
     refuser = () => 'Le dossier « Documents clients scannés » est en lecture seule.';
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce.
+    await decocherTout();
     await entrer('Artisans');
     await glisserVraiment('photo.jpg', ligneDe('devis-artisan.pdf'));
     expect(depots).toHaveLength(1);

@@ -1157,8 +1157,11 @@ export function MessageConversation({
       <button type="button" className={`cnv-triangle${ouvert ? ' cnv-triangle--ouvert' : ''}`}
         aria-hidden="true" tabIndex={-1} onClick={onBasculer}>
         {/* ⚠️ 18 px, et non 15 : à 15, le triangle se perdait dans la hauteur des deux lignes qu'il commande —
-            vu à l'écran sur le fil 36505. Arno demandait « assez grand pour occuper leur hauteur ». */}
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            vu à l'écran sur le fil 36505. Arno demandait « assez grand pour occuper leur hauteur ».
+            🔴 LOT FIL-APERCU-MINIATURES — 36 px : LE DOUBLE, demandé par Arno. Son comportement ne change pas, et
+            il reste CENTRÉ sur les deux premières lignes — c'est la hauteur fixe de `.cnv-triangle` qui le tient
+            là, jamais la taille du dessin. */}
+        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true" focusable="false">
           <path d="M9 5l8 7-8 7z" fill="currentColor" />
         </svg>
       </button>
@@ -1192,6 +1195,31 @@ export function MessageConversation({
           [statut] · heure · étoile · flèche Répondre · ⋮ — les mêmes places que dans Gmail, parce que l'équipe y
           travaille toute la journée et ne doit pas réapprendre où viser. */}
       <div className="cnv-coin">
+        {/* ══ 🔴🔴 LOT FIL-APERCU-MINIATURES — LE TROMBONE DE CE MESSAGE, À GAUCHE DE LA CAPSULE ═══════════════
+            Demande d'Arno : « chaque ligne de message qui contient au moins une pièce jointe affiche le trombone
+            et le nombre de pièces DE CE MESSAGE, en NOIR, placé à gauche de la capsule de statut, comme dans la
+            liste ».
+
+            🔴 LE NOMBRE EST CELUI DE CE MESSAGE, ET DE LUI SEUL. Dans la LISTE, le trombone compte aussi les
+            pièces du reste de la conversation (en gris) parce qu'une ligne y représente un ÉCHANGE ; ici une
+            ligne EST un message, et la question « combien de pièces dans CELUI-CI » a une réponse exacte. D'où
+            le noir, toujours : il n'y a rien d'« ailleurs » à signaler.
+
+            🔴 LES « ._ » ET LES IMAGES DE SIGNATURE NE COMPTENT PAS, et la règle n'est pas réécrite ici : c'est
+            `trierPieces` — la même fonction que le bloc des pièces jointes affiché sous le message, et que la
+            liste. Une seconde définition de « vraie pièce » aurait fini par compter autrement, et le trombone
+            aurait annoncé 3 là où le message en montre 1.
+
+            ⚠️ AUCUN TROMBONE SANS PIÈCE : pas de zéro, pas de trombone éteint. Une marque qui ne dit rien est du
+            bruit sur toutes les lignes qui n'ont rien. */}
+        {vraies.length > 0 && (
+          <span className="cnv-pieces"
+            title={vraies.length > 1
+              ? `${vraies.length} pièces jointes dans ce message`
+              : '1 pièce jointe dans ce message'}>
+            <span aria-hidden="true">📎</span> {vraies.length}
+          </span>
+        )}
         {/* ══ 🔴 LOT STATUT-PAR-MAIL — LA CAPSULE DU MAIL, EN PREMIER ═══════════════════════════════════════════
             C'est LE statut du message : rattaché à un bien, ou non. Le MOT est toujours écrit ; la couleur ne fait
             que l'appuyer.
@@ -1508,8 +1536,11 @@ export const CSS_CONVERSATION = `
    aligne le haut du triangle sur le haut du texte (meme padding vertical que .cnv-ligne).
    COULEUR : celle de la charte (le rouge SVAV), visible en Clair comme en Sombre puisqu'elle est un jeton.
    ROTATION : 90 degres, animee — et coupee net pour qui a demande moins d'animation. */
+/* 🔴 LOT FIL-APERCU-MINIATURES — LE DESSIN A DOUBLE (18 -> 36 px), LA BOITE SUIT (26 -> 44 px de large).
+   ⚠️ LA HAUTEUR NE BOUGE PAS : elle vaut toujours celle des DEUX premieres lignes, et c'est elle qui garde le
+   triangle centre sur elles. L'elargir le ferait descendre dans l'extrait des qu'un message replie en porte un. */
 .cnv-triangle{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
-  width:26px;height:2.9rem;margin-top:10px;padding:0;border:0;background:none;cursor:pointer;
+  width:44px;height:2.9rem;margin-top:10px;padding:0;border:0;background:none;cursor:pointer;
   color:var(--color-svv-red);border-radius:6px}
 .cnv-triangle svg{transition:transform .18s ease}
 .cnv-triangle--ouvert svg{transform:rotate(90deg)}
@@ -1519,6 +1550,12 @@ export const CSS_CONVERSATION = `
 .cnv-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .cnv-coin{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;flex:0 1 auto;
   min-width:0;padding:6px 0}
+/* 🔴 LOT FIL-APERCU-MINIATURES — LE TROMBONE DU MESSAGE. NOIR, c'est-a-dire la couleur du texte principal : elle
+   suit le theme (noir en Clair, blanc en Sombre) parce que c'est un JETON, et jamais une couleur ecrite en dur.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit, et un seul le refermerait (TS1005).
+   ⚠️ white-space:nowrap — « 📎 2 » ne se coupe pas entre le trombone et son nombre, meme sur un telephone. */
+.cnv-pieces{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;white-space:nowrap;
+  font-size:.76rem;font-weight:600;color:var(--color-svv-ink)}
 /* Les gestes révélés prennent la LARGEUR ENTIÈRE : ils s'empilent donc d'eux-mêmes sur un téléphone. */
 .cnv-statut-actions{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:0 4px 10px}
 .cnv-statut{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}

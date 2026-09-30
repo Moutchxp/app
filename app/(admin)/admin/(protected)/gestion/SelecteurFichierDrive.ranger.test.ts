@@ -104,6 +104,27 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.unstubAllGlobals(); });
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); }); };
+
+/**
+ * ══ 🔴🔴 LE DÉFAUT A CHANGÉ (lot FIL-APERCU-MINIATURES, 30/09/2026) — ET IL FAUT LE DIRE ═════════════════════
+ *
+ * Arno : « à l'ouverture de “Ranger N pièces dans le Drive”, toutes les pièces du mail sont cochées ». C'est le
+ * geste le plus fréquent qui devient le défaut : on range presque toujours TOUT au même endroit.
+ *
+ * CONSÉQUENCE SUR CE FICHIER : glisser UNE pièce emporte désormais toute la sélection — c'est la règle posée par
+ * le lot RANGER-ARBRE-2 (« saisir une pièce cochée les emporte toutes »), appliquée au nouveau défaut. Les
+ * épreuves dont le propos est « CETTE pièce va dans CE dossier » décochent donc d'abord, pour parler d'une pièce
+ * et d'une seule ; celles dont le propos EST la sélection ont été réécrites avec la nouvelle vérité.
+ *
+ * ⚠️ ON DÉCOCHE PAR LE BOUTON, comme une personne le ferait : passer par l'état interne prouverait le contraire
+ * de ce qu'on veut — que l'écran offre bien ce geste.
+ */
+const decocherTout = async () => {
+  const b = [...container.querySelectorAll('button')]
+    .find((x) => /Tout désélectionner/.test(x.textContent ?? ''));
+  await act(async () => { (b as HTMLElement | undefined)?.click(); });
+  await calmer();
+};
 const monter = async (pieces = PIECES) => {
   await act(async () => {
     root.render(createElement(SelecteurFichierDrive, {
@@ -240,10 +261,16 @@ describe('🔴 ① le panneau « À ranger »', () => {
   it('chaque pièce est saisissable, et ne porte QUE notre type MIME', async () => {
     await monter();
     expect(pieceDe('photo.jpg')?.getAttribute('draggable')).toBe('true');
+    /* 🔴 RÉÉCRIT (lot FIL-APERCU-MINIATURES) : toutes les pièces sont cochées à l'ouverture, et saisir une pièce
+       cochée les emporte toutes — la charge porte donc les DEUX identifiants. Décoché, le transfert ne porte que
+       la pièce saisie : les deux moitiés de la règle sont éprouvées ici même. */
     const t = await glisser('dragstart', pieceDe('photo.jpg'));
     expect(Object.keys(t.poses)).toEqual([MIME_PIECE]);
-    expect(JSON.parse(t.poses[MIME_PIECE])).toEqual({ pieceIds: [12] });
+    expect(JSON.parse(t.poses[MIME_PIECE])).toEqual({ pieceIds: [11, 12] });
     expect(t.poses[MIME_PIECE]).not.toContain('photo.jpg');
+    await decocherTout();
+    const seule = await glisser('dragstart', pieceDe('photo.jpg'));
+    expect(JSON.parse(seule.poses[MIME_PIECE])).toEqual({ pieceIds: [12] });
   });
 
   it('le titre de la fenêtre dit ce qu’on tient, et le panneau ce qui reste', async () => {
@@ -260,6 +287,8 @@ describe('🔴 ① le panneau « À ranger »', () => {
 describe('🔴 ② ranger en glissant', () => {
   it('sur un dossier de l’arbre : la pièce part vers CE dossier', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce (voir `decocherTout`).
+    await decocherTout();
     await glisserPiece('DEV-20260928-18919.pdf', ligneDe('Artisans'));
     expect(depots).toEqual([{ pieceId: '11', dossierId: 'd1' }]);
   });
@@ -267,6 +296,8 @@ describe('🔴 ② ranger en glissant', () => {
   /** 🔴 « ✓ Rangée dans X », avec son lien — et la fenêtre RESTE ouverte pour la pièce suivante. */
   it('la pièce dit où elle est allée, et la fenêtre reste ouverte', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce (voir `decocherTout`).
+    await decocherTout();
     await glisserPiece('DEV-20260928-18919.pdf', ligneDe('Artisans'));
     const p = pieceDe('DEV-20260928-18919.pdf');
     expect(p?.textContent).toContain('✓ Rangée dans « Artisans »');
@@ -279,6 +310,8 @@ describe('🔴 ② ranger en glissant', () => {
 
   it('sur un parent du BANDEAU : c’est le geste « remonter d’un cran » du Finder', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce (voir `decocherTout`).
+    await decocherTout();
     await cliquer(ligneDe('Artisans')?.querySelector('.sfd-triangle'));
     // On entre dans « Artisans » : le bandeau porte alors ce dossier, qui devient une cible.
     await act(async () => { ligneDe('Artisans')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
@@ -290,12 +323,16 @@ describe('🔴 ② ranger en glissant', () => {
 
   it('sur « Dernier dossier utilisé pour cet échange », dans la barre latérale', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce (voir `decocherTout`).
+    await decocherTout();
     await glisserPiece('photo.jpg', lateraleDe(/CHARPENTIER/));
     expect(depots).toEqual([{ pieceId: '12', dossierId: 'D_DERNIER' }]);
   });
 
   it('sur un dossier RÉCENT de dépôt', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce (voir `decocherTout`).
+    await decocherTout();
     await glisserPiece('photo.jpg', lateraleDe(/Travaux/));
     expect(depots).toEqual([{ pieceId: '12', dossierId: 'D_REC' }]);
   });
@@ -322,6 +359,8 @@ describe('🔴🔴 ②-bis glisser une pièce : l’effet demandé doit être PE
    */
   it('🔴 le survol est accepté ET l’effet est permis — sur un dossier de l’arbre', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce (voir `decocherTout`).
+    await decocherTout();
     const r = await glisserVraiment('DEV-20260928-18919.pdf', ligneDe('Artisans'));
     expect(r.entreeAcceptee).toBe(true);
     expect(r.survolAccepte).toBe(true);
@@ -332,6 +371,8 @@ describe('🔴🔴 ②-bis glisser une pièce : l’effet demandé doit être PE
   /** 🔴 ET SUR TOUTES LES AUTRES CIBLES : elles passent par le même `survolerCible`, elles ont le même contrat. */
   it('🔴 sur la barre latérale — dernier dossier, et dossier récent', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce (voir `decocherTout`).
+    await decocherTout();
     const a = await glisserVraiment('photo.jpg', lateraleDe(/CHARPENTIER/));
     expect([a.entreeAcceptee, a.survolAccepte, a.effetPermis]).toEqual([true, true, true]);
     expect(depots).toEqual([{ pieceId: '12', dossierId: 'D_DERNIER' }]);
@@ -343,6 +384,8 @@ describe('🔴🔴 ②-bis glisser une pièce : l’effet demandé doit être PE
 
   it('🔴 sur un parent du BANDEAU', async () => {
     await monter();
+    // ⚠️ Toutes les pièces sont cochées à l'ouverture : on décoche pour parler d'UNE pièce (voir `decocherTout`).
+    await decocherTout();
     await cliquer(ligneDe('Artisans')?.querySelector('.sfd-triangle'));
     await act(async () => { ligneDe('Artisans')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
     await calmer();
@@ -452,6 +495,7 @@ describe('🔴 ③ « Déposer ici »', () => {
   /** ⚠️ IL NE REDÉPOSE PAS CE QUI EST DÉJÀ RANGÉ : relancer le bouton ne doit pas dupliquer une pièce posée. */
   it('🔴 il ne range que ce qui RESTE à ranger', async () => {
     await monter();
+    await decocherTout();
     await glisserPiece('DEV-20260928-18919.pdf', ligneDe('Artisans'));
     depots = [];
     await act(async () => { ligneDe('Baux')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });

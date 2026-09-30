@@ -499,8 +499,19 @@ describe('🔴 le lecteur PDF rend la page 1 d’abord', () => {
    * Ce qui compte n'est pas la FORME du rappel mais le FAIT : c'est la page 1 peinte, et elle seule, qui lève le
    * drapeau qui retire la vignette.
    */
+  /**
+   * ⚠️ ASSERTION RÉÉCRITE UNE SECONDE FOIS, le 30/09/2026 (lot FIL-APERCU-MINIATURES). La ligne figée
+   * (`if (n === 1) rappelPage1.current?.();`) est devenue un BLOC : la page 1 peinte lève maintenant DEUX
+   * choses au même instant — le rappel qui retire la vignette, et le drapeau qui autorise la colonne de
+   * miniatures à commencer son travail. C'est la même règle, servie une fois de plus : rien ne part avant que
+   * la page 1 ne soit là. On éprouve donc les deux effets, plutôt qu'une ligne exacte.
+   */
   it('🔴 la page 1 peinte est ANNONCÉE, et c’est elle qui retire la vignette', () => {
-    expect(src).toContain('if (n === 1) rappelPage1.current?.();');
+    expect(src).toContain('rappelPage1.current?.();');
+    expect(src).toContain('if (n === 1) {');
+    // 🔴 ET C'EST LE MÊME INSTANT QUI OUVRE LA FILE DES MINIATURES — jamais un minuteur, jamais la pose du cadre.
+    expect(src).toContain('setPage1Faite(true);');
+    expect(src).toContain('if (doc === null || !page1Faite || total <= 1) return undefined;');
     const apercu = readFileSync('app/(admin)/admin/(protected)/gestion/ApercuFichierDrive.tsx', 'utf8');
     expect(apercu).toMatch(/onPremierePage=\{[A-Za-z0-9_]+\}/);
     expect(apercu).toContain('useCallback(() => setPage1Peinte(true), [])');

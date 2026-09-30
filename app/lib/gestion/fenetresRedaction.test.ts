@@ -177,10 +177,34 @@ describe('🔴🔴 la barre de titre ne peut plus être rognée', () => {
   /**
    * 🔴 LA CAUSE ÉTAIT LÀ : une colonne flex dans une boîte à hauteur maximale et `overflow:hidden`. La grille donne
    * à la barre une rangée qui lui appartient, dimensionnée AVANT le corps ; rien ne peut plus la pousser dehors.
+   *
+   * ══ 🔴🔴 RÉÉCRIT LE 30/09/2026 — « auto 1fr » N'A PAS SUFFI, ET LE DÉFAUT EST REVENU ═══════════════════════
+   *
+   * Constat d'Arno sur le fil 36529 : « il ne reste qu'un mince trait noir au-dessus de De : ». Mesure à l'écran,
+   * qui donne la cause exacte :
+   *
+   *     .fre         y=164  hauteur=580  overflow:hidden  scrollTop=42  scrollHeight=678
+   *     .fre-titre   y=123  hauteur=44                    ← 41 px AU-DESSUS de sa propre fenêtre
+   *
+   * Une rangée « 1fr » a `min-height:auto` : elle ne borne RIEN. Le corps dépassait donc la fenêtre, ce qui la
+   * rendait défilable — et un conteneur `overflow:hidden` reste défilable PAR PROGRAMME : à l'ouverture, le champ
+   * « À » prend le focus, le navigateur fait défiler ses ancêtres, et la barre part par le haut.
+   *
+   * 🔴 L'INVARIANT EST DONC PLUS FORT QU'AVANT, et il exige les DEUX pièces. Mesuré après correction : la grille
+   * vaut « 44px 535.875px » et le corps défile seul (536 px pour 799 px de contenu) — mais `.fre` garde un
+   * scrollHeight de 678 pour 580 de haut, donc un défilement résiduel reste possible, et c'est le `sticky` qui
+   * garantit alors la barre. Retirer l'une en croyant que l'autre suffit rouvrirait la porte.
    */
-  it('🔴 la fenêtre est une GRILLE à deux rangées, plus une colonne flex', () => {
-    expect(style).toContain('display:grid;grid-template-rows:auto 1fr');
+  it('🔴 la fenêtre est une GRILLE dont la rangée du corps est VRAIMENT bornée', () => {
+    expect(style).toContain('display:grid;grid-template-rows:auto minmax(0,1fr)');
     expect(style).not.toContain('display:flex;flex-direction:column;width:var(--fre-largeur)');
+    // ⚠️ « auto 1fr » seul est précisément ce qui a laissé le défaut revenir : il ne doit plus réapparaître.
+    expect(style).not.toContain('grid-template-rows:auto 1fr');
+  });
+
+  /** 🔴 LA CEINTURE : même si `.fre` défile encore, la barre reste visible au lieu de disparaître en silence. */
+  it('🔴 la barre de titre est collée au sommet de la fenêtre', () => {
+    expect(style).toContain('.fre-titre{position:sticky;top:0;z-index:1;');
   });
 
   it('🔴 le corps peut rétrécir (min-height:0) et défile chez lui', () => {

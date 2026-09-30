@@ -431,7 +431,12 @@ export const CSS_APERCU = `
 /* Au-dessus du sélecteur (z-index 70), jamais dedans : voir l'en-tête du composant. */
 .apd-voile{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:12px;
   background:color-mix(in srgb, var(--color-svv-ink) 62%, transparent)}
-.apd{display:flex;flex-direction:column;gap:8px;width:min(1040px,100%);height:min(92vh,100%);padding:12px;
+/* 🔴 LOT FIL-APERCU-MINIATURES — LA FENETRE S'ELARGIT (1040 -> 1280 px) pour loger la colonne de miniatures SANS
+   retirer de largeur au document : la colonne fait 132 px, la fenetre en gagne 240. Mesure a l'ecran : le
+   document garde alors 1 100 px environ, contre 1 016 avant ce lot — il est donc un peu PLUS large qu'avant.
+   ⚠️ LE min() GARDE LE PLAFOND A 100 % : sur un ecran etroit, la fenetre ne deborde pas, et la colonne passe
+   sous le seuil ou elle disparait (voir le CSS du lecteur). AUCUN ACCENT GRAVE ici : litteral de gabarit. */
+.apd{display:flex;flex-direction:column;gap:8px;width:min(1280px,100%);height:min(92vh,100%);padding:12px;
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.8rem;
   box-shadow:0 12px 48px color-mix(in srgb, var(--color-svv-ink) 34%, transparent)}
 .apd-tete{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0}

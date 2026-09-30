@@ -358,7 +358,24 @@ export function SelecteurFichierDrive({
    * l'ancre, un clic nu remplace. Écrire une seconde fois ces trois règles aurait produit deux comportements
    * voisins mais différents dans une même fenêtre — exactement ce qui rend une interface impossible à apprendre.
    */
-  const [choixPieces, setChoixPieces] = useState<Selection>(SELECTION_VIDE);
+  /**
+   * ══ 🔴🔴 LOT FIL-APERCU-MINIATURES — TOUTES LES PIÈCES SONT COCHÉES À L'OUVERTURE ═══════════════════════════
+   *
+   * Demande d'Arno : « à l'ouverture de “Ranger N pièces dans le Drive”, toutes les pièces du mail sont cochées ».
+   *
+   * 🔴 C'EST LE GESTE LE PLUS FRÉQUENT QUI DEVIENT LE DÉFAUT. On ouvre cette fenêtre en tenant les pièces d'un
+   * mail, et neuf fois sur dix on les range TOUTES au même endroit : partir de rien obligeait à cocher trois
+   * cases avant de pouvoir faire le geste qu'on était venu faire.
+   *
+   * ⚠️ LUE À L'INITIALISATION, PAS DANS UN EFFET : cocher après coup ferait un rendu à vide, donc un clignotement
+   * des cases à chaque ouverture — et le compilateur React refuse le `setState` synchrone dans un effet.
+   * ⚠️ ET LA SUITE EST INCHANGÉE : une pièce rangée se décoche (voir `rangerLot`), « Tout sélectionner » devient
+   * « Tout désélectionner » tant que tout est coché (`motToutSelectionner`), et saisir une pièce hors sélection
+   * n'emporte qu'elle. Rien de ce que le lot précédent a posé n'est défait.
+   */
+  const [choixPieces, setChoixPieces] = useState<Selection>(
+    () => (pieces.length === 0 ? SELECTION_VIDE : { ids: pieces.map((x) => String(x.pieceId)), ancre: null }),
+  );
   /**
    * ══ 🔴🔴 LOT RANGER-ARBRE-2 — LA LARGEUR DE LA COLONNE DE GAUCHE ═══════════════════════════════════════════
    * Arno : « Une poignée verticale […] permet de glisser pour élargir ou réduire la colonne, avec un minimum et

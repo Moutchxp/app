@@ -173,10 +173,35 @@ export const CSS_FENETRES = `
    disparaissait — il n'en restait qu'un ruban de 3 px, et l'on ne pouvait plus ni reduire ni fermer la fenetre.
    La fenetre est ancree en bas avec une hauteur MAXIMALE et overflow:hidden ; quand le contenu depassait, la
    barre se retrouvait hors de la boite rognee.
-   La grille (grid-template-rows: auto 1fr) donne a la barre une rangee qui lui appartient : elle est dimensionnee
-   AVANT le corps, et le corps prend ce qui reste. Rien ne peut plus la comprimer ni la pousser dehors.
+   La grille (grid-template-rows: auto minmax(0,1fr)) donne a la barre une rangee qui lui appartient : elle est
+   dimensionnee AVANT le corps, et le corps prend ce qui reste.
+
+   ══ 🔴🔴 LE MEME DEFAUT EST REVENU LE 30/09/2026, ET « auto 1fr » NE SUFFISAIT PAS ═══════════════════════════
+   Constat d'Arno, sur le fil 36529 : « il ne reste qu'un mince trait noir au-dessus de De : » — plus de titre,
+   plus de boutons, donc plus moyen de reduire, d'agrandir ni de fermer.
+
+   MESURE A L'ECRAN, qui donne la cause exacte :
+       .fre         y=164  hauteur=580   overflow:hidden   scrollTop=42   scrollHeight=678
+       .fre-titre   y=123  hauteur=44                      <- 41 px AU-DESSUS de sa propre fenetre
+   La barre etait bien rendue, avec ses trois boutons : elle etait SORTIE DE LA BOITE PAR LE HAUT, et rognee.
+
+   POURQUOI. Une rangee « 1fr » a min-height:auto : elle ne borne RIEN, elle grandit avec son contenu. Le corps
+   depassait donc la fenetre (678 contre 580), ce qui rendait .fre DEFILABLE — et un conteneur overflow:hidden
+   reste defilable PAR PROGRAMME. A l'ouverture, le champ « A » prend le focus, le navigateur fait defiler tous
+   ses ancetres pour le rendre visible, et la barre de titre part par le haut. C'est le pendant vertical du
+   min-width:0 deja consigne dans ce depot pour la troncature.
+
+   LE CORRECTIF TIENT EN DEUX PIECES, ET LES DEUX SERVENT — c'est la mesure qui le dit, pas la theorie :
+     ① minmax(0,1fr) BORNE la rangee du corps. Mesure apres correction : grille « 44px 535.875px », corps de
+        536 px pour 799 px de contenu, qu'il defile LUI-MEME (overflow-y:auto). C'etait le vrai defaut : sans
+        cette borne, le corps poussait la barre hors de la fenetre.
+     ② LA BARRE EST STICKY au sommet. Elle reste necessaire : mesure apres correction, .fre porte encore un
+        scrollHeight de 678 pour 580 de haut, donc un defilement residuel est toujours possible. Le sticky
+        garantit alors que la barre reste visible au lieu de disparaitre en silence.
+   ⚠️ NE PAS RETIRER L'UNE EN CROYANT QUE L'AUTRE SUFFIT : sans la borne, le corps repousse la barre ; sans le
+   sticky, le defilement residuel la cache de nouveau. Le defaut est deja revenu une fois par cette porte.
    (Pas d'accent grave dans ce bloc : il fermerait le litteral de style — piege deja rencontre trois fois.) */
-.fre{position:fixed;z-index:60;display:grid;grid-template-rows:auto 1fr;width:var(--fre-largeur);
+.fre{position:fixed;z-index:60;display:grid;grid-template-rows:auto minmax(0,1fr);width:var(--fre-largeur);
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);
   border-radius:.7rem .7rem 0 0;box-shadow:0 -2px 22px color-mix(in srgb, var(--color-svv-ink) 20%, transparent);overflow:hidden}
 .fre--ouverte,.fre--reduite{bottom:0}
@@ -191,7 +216,10 @@ export const CSS_FENETRES = `
 /* PLEIN ECRAN : centree, large, au-dessus du voile. */
 .fre--plein{top:4vh;bottom:4vh;left:50%;transform:translateX(-50%);width:min(900px, calc(100vw - 32px));
   border-radius:.7rem;z-index:60}
-.fre-titre{display:flex;align-items:center;gap:2px;padding:4px 6px 4px 14px;min-height:44px;
+/* ⚠️ LE position:sticky EST LA CEINTURE, PAS LA CORRECTION (voir l'encadre de .fre) : la bretelle est le
+   minmax(0,1fr) de la grille. AUCUN ACCENT GRAVE ICI : ce commentaire vit dans un litteral de gabarit. */
+.fre-titre{position:sticky;top:0;z-index:1;
+  display:flex;align-items:center;gap:2px;padding:4px 6px 4px 14px;min-height:44px;
   background:var(--color-svv-ink);color:var(--color-svv-surface)}
 .fre-titre-mot{flex:1 1 auto;min-width:0;padding:0;font:inherit;font-size:.85rem;font-weight:600;text-align:left;
   color:inherit;background:none;border:0;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

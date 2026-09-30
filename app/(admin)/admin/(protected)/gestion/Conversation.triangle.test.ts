@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 import { Conversation, CSS_CONVERSATION } from './Conversation';
 
 /**
@@ -204,5 +205,77 @@ describe('🔴 « Afficher le message cité » n’existe plus', () => {
     await monter();
     expect(container.textContent).not.toContain('Afficher le message cité');
     expect(container.querySelector('.gst-cite')).toBeNull();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FIL-APERCU-MINIATURES — LE TRIANGLE DOUBLE, ET LE TROMBONE ARRIVE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 le triangle a doublé, et il reste où il était', () => {
+  /**
+   * Demande d'Arno : « le triangle rouge ▶/▼ garde son comportement, mais sa taille est DOUBLÉE. Il reste centré
+   * sur les deux premières lignes. »
+   *
+   * 🔴 DEUX CHOSES DISTINCTES, ET C'EST TOUT L'INTÉRÊT DE CETTE ÉPREUVE : le DESSIN double (18 → 36 px), la
+   * BOÎTE s'élargit pour le contenir (26 → 44 px), mais la HAUTEUR ne bouge pas. C'est elle qui tient le
+   * triangle centré sur les deux premières lignes ; l'élargir le ferait descendre dans l'extrait dès qu'un
+   * message replié en porte un — le défaut que le lot LECTURE-HTML-FIL-TROMBONE avait justement corrigé.
+   */
+  it('🔴 le dessin fait 36 px — le double de 18', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+    /* ⚠️ ON REGARDE LE SVG DU TRIANGLE, pas tous les svg du fichier : l'étoile et le menu « ⋮ » font 18 px et
+       doivent y rester — ce lot ne parle que du triangle. */
+    const bloc = src.slice(src.indexOf('className={`cnv-triangle'), src.indexOf('className="cnv-ligne"'));
+    expect(bloc).toContain('width="36" height="36"');
+    expect(bloc).not.toContain('width="18"');
+  });
+
+  it('🔴 la hauteur reste celle des DEUX premières lignes', () => {
+    // 2.9rem : la hauteur d'avant, au caractère près. C'est elle qui garde le triangle centré.
+    expect(CSS_CONVERSATION).toContain('width:44px;height:2.9rem;margin-top:10px');
+  });
+});
+
+describe('🔴 le trombone du message, à gauche de la capsule', () => {
+  /**
+   * Demande d'Arno : « chaque ligne de message qui contient au moins une pièce jointe affiche le trombone et le
+   * nombre de pièces DE CE MESSAGE, en NOIR […] placé à gauche de la capsule de statut, comme dans la liste. Les
+   * “._” et les images de signature ne comptent pas. Un message sans pièce jointe n'a pas de trombone. »
+   */
+  const src = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+
+  /**
+   * 🔴 LE NOMBRE VIENT DE `trierPieces`, ET C'EST LA GARANTIE QUI COMPTE. La règle « une image de signature
+   * n'est pas une pièce jointe » n'est PAS réécrite ici : c'est la même fonction que le bloc des pièces affiché
+   * sous le message, et que la liste. Une seconde définition aurait fini par compter autrement — le trombone
+   * aurait annoncé 3 là où le message en montre 1.
+   */
+  it('🔴 il compte les VRAIES pièces, par la même règle que partout', () => {
+    expect(src).toContain('{vraies.length > 0 && (');
+    expect(src).toContain('<span className="cnv-pieces"');
+    expect(src).toContain('{vraies.length}');
+    // La règle vient de `trierPieces`, jamais d'un filtre réécrit sur place.
+    expect(src).toContain('const { vraies, signatures } = trierPieces(message.pieces);');
+  });
+
+  /** 🔴 À GAUCHE DE LA CAPSULE : l'ordre du coin de ligne est trombone, puis capsule. */
+  it('🔴 il est placé avant la capsule de statut', () => {
+    const coin = src.slice(src.indexOf('<div className="cnv-coin">'), src.indexOf('CartoucheStatut'));
+    expect(coin.indexOf('cnv-pieces')).toBeGreaterThan(-1);
+    expect(coin.indexOf('cnv-pieces')).toBeLessThan(coin.indexOf('cnv-capsule'));
+  });
+
+  /**
+   * 🔴 NOIR, C'EST-À-DIRE LA COULEUR DU TEXTE PRINCIPAL — un JETON, donc noir en Clair et blanc en Sombre. Une
+   * couleur écrite en dur aurait été illisible dans l'un des deux thèmes.
+   * ⚠️ ET PAS DE GRIS ICI, contrairement à la liste : une ligne de fil EST un message, donc le nombre affiché
+   * est exact et il n'y a rien d'« ailleurs » à signaler.
+   */
+  it('🔴 il est en couleur de texte principal, jamais en dur', () => {
+    expect(CSS_CONVERSATION).toContain('.cnv-pieces{');
+    expect(CSS_CONVERSATION).toContain('color:var(--color-svv-ink)');
+    const regle = CSS_CONVERSATION.slice(CSS_CONVERSATION.indexOf('.cnv-pieces{'));
+    expect(regle.slice(0, regle.indexOf('}'))).not.toMatch(/#[0-9a-f]{3,6}/i);
   });
 });

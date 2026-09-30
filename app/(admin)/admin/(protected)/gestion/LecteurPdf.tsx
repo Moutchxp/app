@@ -57,6 +57,37 @@ const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3] as const;
  */
 const MORCEAU = 128 * 1024;
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FIL-APERCU-MINIATURES — LA COLONNE DE MINIATURES
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   Demande d'Arno : « une colonne de miniatures de toutes les pages, avec son propre défilement, le numéro sous
+   chaque miniature, la page courante en surbrillance ; un clic amène à la page ; le défilement du document met à
+   jour la miniature active ».
+
+   🔴🔴 ET SA CONTRAINTE, QUI COMMANDE TOUT LE RESTE : « PRIORITÉ ABSOLUE À LA PAGE 1 […] qui ne doit PAS se
+   dégrader ». Une colonne qui commencerait à peindre ses cinquante-deux vignettes pendant que la page 1 se rend
+   volerait exactement le temps qu'on a passé deux lots à gagner. D'où trois règles, toutes vérifiables :
+
+     ① AUCUNE MINIATURE AVANT QUE LA PAGE 1 NE SOIT PEINTE. C'est `page1Faite` qui ouvre la file, et il est levé
+        au même endroit que le rappel qui retire la vignette — donc quand il y a vraiment quelque chose à voir.
+     ② UNE SEULE À LA FOIS, dans l'ordre, et les VISIBLES d'abord : la colonne montre d'emblée ce qu'on regarde,
+        et le reste se remplit pendant qu'on lit. Deux rendus simultanés ne vont pas plus vite — PDF.js a un seul
+        worker — mais ils retardent le premier.
+     ③ AUCUN SECOND TÉLÉCHARGEMENT : les miniatures sortent du MÊME objet `doc` que les pages. `getPage` relit ce
+        que PDF.js a déjà en mémoire, et ne redemande au réseau que ce qui manque, par les mêmes requêtes Range.
+        Ouvrir un second document pour les vignettes aurait doublé le trafic et la mémoire.
+
+   ⚠️ EN ATTENDANT, UN CADRE GRIS À LA BONNE PROPORTION : la colonne a donc sa hauteur définitive dès le premier
+   instant, et rien ne saute sous le curseur quand une vignette arrive. La proportion vient de la PAGE 1 — un PDF
+   dont les pages n'ont pas toutes le même format est rare, et le cadre est de toute façon remplacé par l'image.
+*/
+
+/** La largeur d'une miniature, en pixels CSS. Assez pour reconnaître une page, assez peu pour en voir six. */
+const LARGEUR_MINI = 104;
+/** La proportion de repli quand on ne connaît pas encore celle du document : A4 portrait. */
+const RATIO_A4 = 297 / 210;
+
 export function LecteurPdf({ url, nom, onPremierePage }: {
   url: string;
   nom: string;
@@ -102,6 +133,24 @@ export function LecteurPdf({ url, nom, onPremierePage }: {
    */
   const rappelPage1 = useRef(onPremierePage);
   rappelPage1.current = onPremierePage;
+
+  /* ══ 🔴🔴 LOT FIL-APERCU-MINIATURES — L'ÉTAT DE LA COLONNE ═══════════════════════════════════════════════════
+     Voir l'encadré de `LARGEUR_MINI` : rien ne démarre avant que la page 1 ne soit peinte. */
+  /** La page 1 est-elle peinte ? Tant que non, AUCUNE miniature ne part. C'est la garantie de priorité. */
+  const [page1Faite, setPage1Faite] = useState(false);
+  /** Les miniatures déjà peintes : elles seules remplacent leur cadre gris. */
+  const [miniFaites, setMiniFaites] = useState<ReadonlySet<number>>(new Set());
+  /** La proportion (hauteur / largeur) des pages, lue sur la page 1. Sert aux cadres gris, avant toute image. */
+  const [ratio, setRatio] = useState(RATIO_A4);
+  /** Les toiles des miniatures, par numéro : la file y puise sans passer par React. */
+  const toilesMini = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  /** Ce qui est visible DANS LA COLONNE, à cet instant : la file s'en sert pour choisir la prochaine. */
+  const miniVisibles = useRef<Set<number>>(new Set());
+  /** Les rendus de miniatures en cours ou faits — une file à part, pour ne jamais entrer en collision
+   *  avec celle des PAGES : une miniature et sa page portent le même numéro mais ne sont pas la même toile. */
+  const miniEnCours = useRef<Map<number, { cancel(): void }>>(new Map());
+  const miniDemandees = useRef<Set<number>>(new Set());
+  const colonne = useRef<HTMLDivElement | null>(null);
 
   /**
    * ══ 🔴 L'OUVERTURE DU DOCUMENT ═══════════════════════════════════════════════════════════════════════════════
@@ -218,6 +267,23 @@ export function LecteurPdf({ url, nom, onPremierePage }: {
         // 🔴 LA VIGNETTE NE S'EFFACE QUE MAINTENANT : quand il y a vraiment quelque chose à sa place.
         if (n === 1) rappelPage1.current?.();
       }
+      /**
+       * ══ 🔴🔴 LOT FIL-APERCU-MINIATURES — LA COLONNE S'AUTORISE À TRAVAILLER, ET C'EST HORS DE LA GARDE ═══════
+       *
+       * 🔴 DÉFAUT TROUVÉ À L'ÉCRAN LE 30/09/2026 : ces deux lignes étaient DANS le `if (!pagesPeintes.has(n))`
+       * ci-dessus, et les miniatures ne partaient jamais. Cette garde-là existe pour n'appeler `rappelPage1`
+       * QU'UNE FOIS ; mais en développement, React monte les effets deux fois, et la page 1 pouvait déjà être
+       * comptée quand le rendu qui compte vraiment aboutissait. Le drapeau n'était alors jamais levé, la file
+       * restait fermée, et la colonne gardait ses cadres gris — sans une erreur, sans rien à lire.
+       *
+       * ⚠️ LES DEUX APPELS SONT IDEMPOTENTS (un booléen qui passe à vrai, un nombre qui ne change pas) : les
+       * poser à chaque peinture réussie de la page 1 ne coûte rien et ne peut plus être manqué. Une garde n'est
+       * utile qu'à ce qui ne doit arriver qu'une fois ; ce n'est pas le cas ici.
+       */
+      if (n === 1) {
+        setRatio(base.height / base.width);
+        setPage1Faite(true);
+      }
     } catch (e) {
       enCours.current.delete(n);
       /**
@@ -263,6 +329,134 @@ export function LecteurPdf({ url, nom, onPremierePage }: {
   /** Le zoom change ⇒ tout ce qui était peint doit l'être à nouveau. */
   useEffect(() => { pagesPeintes.current = new Set(); }, [zoom]);
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT FIL-APERCU-MINIATURES — LA FILE DES MINIATURES
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * UNE miniature. Même technique que les pages — rendu sur une toile de brouillon, recopie une fois FINIE —
+   * mais à petite échelle et dans une file SÉPARÉE : une miniature et sa page portent le même numéro sans être
+   * la même toile, et partager la file des pages les aurait fait s'annuler l'une l'autre.
+   *
+   * ⚠️ ELLE NE REDEMANDE RIEN AU RÉSEAU : `doc.getPage` relit ce que PDF.js tient déjà, et ne tire que ce qui
+   * manque, par les mêmes requêtes Range que les pages. C'est le sens de « aucun second téléchargement ».
+   */
+  const peindreMini = useCallback(async (n: number): Promise<void> => {
+    const cible = toilesMini.current.get(n);
+    if (doc === null || cible === undefined) return;
+    try {
+      const p = await doc.getPage(n);
+      const base = p.getViewport({ scale: 1 });
+      const densite = Math.min(globalThis.devicePixelRatio || 1, 2);
+      const vue = p.getViewport({ scale: (LARGEUR_MINI / base.width) * densite });
+      const tampon = document.createElement('canvas');
+      tampon.width = Math.floor(vue.width);
+      tampon.height = Math.floor(vue.height);
+      const ctxTampon = tampon.getContext('2d');
+      const ctx = cible.getContext('2d');
+      if (ctxTampon === null || ctx === null) return;
+      const tache = p.render({ canvasContext: ctxTampon, viewport: vue });
+      miniEnCours.current.set(n, tache);
+      await tache.promise;
+      miniEnCours.current.delete(n);
+      p.cleanup();
+      cible.width = tampon.width;
+      cible.height = tampon.height;
+      cible.style.width = `${LARGEUR_MINI}px`;
+      cible.style.height = `${Math.floor(vue.height / densite)}px`;
+      ctx.drawImage(tampon, 0, 0);
+      setMiniFaites((v) => { const n2 = new Set(v); n2.add(n); return n2; });
+    } catch (e) {
+      miniEnCours.current.delete(n);
+      /* ⚠️ UNE MINIATURE QUI ÉCHOUE NE DIT RIEN À L'ÉCRAN, et c'est délibéré : son cadre gris reste, la page
+         elle-même s'affiche normalement, et une bande rouge dans la colonne ferait croire à une panne du
+         document. On la note dans la console pour qui cherche, et on passe à la suivante. */
+      const nom = (e as { name?: string } | null)?.name ?? '';
+      if (nom !== 'RenderingCancelledException' && nom !== 'AbortException') {
+        console.error('[gestion/lecteurPdf] miniature %d non rendue', n, e);
+      }
+    }
+  }, [doc]);
+
+  /**
+   * ══ 🔴 LA FILE — UNE À LA FOIS, LES VISIBLES D'ABORD, ET JAMAIS AVANT LA PAGE 1 ═══════════════════════════════
+   *
+   * 🔴 POURQUOI UNE SEULE À LA FOIS. PDF.js n'a qu'un worker : lancer cinquante rendus ne les rend pas plus vite,
+   * cela ne fait que retarder le premier — et, pire, cela entre en concurrence avec les PAGES, que l'on est en
+   * train de lire. Une à la fois laisse le document passer devant à chaque tour.
+   *
+   * 🔴 LES VISIBLES D'ABORD, RELUES À CHAQUE TOUR. La colonne se remplit donc sous les yeux, et si l'on y défile
+   * pendant le remplissage, ce qu'on vient d'amener à l'écran passe devant le reste au tour suivant.
+   *
+   * ⚠️ LA BOUCLE S'ARRÊTE D'ELLE-MÊME quand tout est demandé, et le démontage l'interrompt (`vivant`). Sans ce
+   * drapeau, fermer l'aperçu pendant le remplissage laisserait tourner des rendus sur un document détruit.
+   */
+  useEffect(() => {
+    if (doc === null || !page1Faite || total <= 1) return undefined;
+    let vivant = true;
+    /* ⚠️ LA CARTE EST COPIÉE ICI, pas relue au nettoyage : au démontage, `miniEnCours.current` pourrait déjà
+       pointer ailleurs (React le prévient), et l'on annulerait alors les rendus d'un autre document. */
+    const enVol = miniEnCours.current;
+    void (async () => {
+      while (vivant) {
+        const restantes: number[] = [];
+        for (let n = 1; n <= total; n += 1) if (!miniDemandees.current.has(n)) restantes.push(n);
+        if (restantes.length === 0) return;
+        // ⚠️ LA TOILE DOIT EXISTER : une miniature pas encore montée attend le tour suivant plutôt que d'être
+        //   marquée « demandée » — sinon elle ne serait jamais peinte.
+        const prete = restantes.filter((n) => toilesMini.current.has(n));
+        if (prete.length === 0) { await new Promise((r) => setTimeout(r, 60)); continue; }
+        const visible = prete.find((n) => miniVisibles.current.has(n));
+        const n = visible ?? prete[0];
+        miniDemandees.current.add(n);
+        await peindreMini(n);
+      }
+    })();
+    return () => {
+      vivant = false;
+      for (const t of enVol.values()) { try { t.cancel(); } catch { /* déjà fini */ } }
+      enVol.clear();
+    };
+  }, [doc, page1Faite, total, peindreMini]);
+
+  /**
+   * ⚠️ CES DEUX RAPPELS SONT STABLES, et c'est nécessaire : ils entrent dans les dépendances de l'observateur de
+   * chaque miniature. Écrits sur place, ils auraient une identité neuve à chaque rendu du lecteur — l'observateur
+   * se démonterait et se remonterait cinquante fois par défilement. Le numéro voyage donc en argument.
+   */
+  const noterToile = useCallback((n: number, el: HTMLCanvasElement | null) => {
+    if (el === null) toilesMini.current.delete(n); else toilesMini.current.set(n, el);
+  }, []);
+  const noterVisible = useCallback((n: number, v: boolean) => {
+    if (v) miniVisibles.current.add(n); else miniVisibles.current.delete(n);
+  }, []);
+
+  /** Aller à une page : c'est le seul effet d'un clic sur une miniature. */
+  const allerALaPage = useCallback((n: number) => {
+    const el = scene.current;
+    if (el === null) return;
+    const pages = [...el.querySelectorAll('.lpd-page')] as HTMLElement[];
+    const cible = pages[n - 1];
+    if (cible !== undefined) el.scrollTo({ top: cible.offsetTop - 8, behavior: 'smooth' });
+  }, []);
+
+  /**
+   * ⚠️ LA COLONNE SUIT LA PAGE COURANTE, mais elle ne la commande pas : c'est le défilement du DOCUMENT qui dit
+   * quelle page on lit, et la colonne se contente d'amener la miniature correspondante sous les yeux. Une
+   * colonne qui ferait défiler le document en retour enfermerait les deux dans une boucle.
+   */
+  useEffect(() => {
+    const col = colonne.current;
+    if (col === null) return;
+    const active = col.querySelector(`[data-mini="${page}"]`) as HTMLElement | null;
+    if (active === null) return;
+    const hautCol = col.scrollTop;
+    const basCol = hautCol + col.clientHeight;
+    if (active.offsetTop < hautCol || active.offsetTop + active.offsetHeight > basCol) {
+      col.scrollTo({ top: active.offsetTop - col.clientHeight / 2 + active.offsetHeight / 2, behavior: 'smooth' });
+    }
+  }, [page]);
+
   /**
    * ⚠️ LE LECTEUR GARDE SA RACINE MÊME EN ÉCHEC. Rendre un simple paragraphe à la place ferait disparaître le
    * conteneur — et avec lui la place qu'il occupe dans la pile, donc la vignette sauterait d'un coup. On montre
@@ -304,6 +498,33 @@ export function LecteurPdf({ url, nom, onPremierePage }: {
         </span>
       </div>
 
+      {/* ══ 🔴🔴 LE CORPS : la colonne de miniatures, puis le document ═══════════════════════════════════════
+          ⚠️ PAS DE COLONNE SOUS DEUX PAGES (demande d'Arno : « documents d'une seule page ou images : pas de
+          colonne »). Une colonne d'une vignette n'apprend rien et vole de la largeur au document. */}
+      <div className="lpd-corps">
+      {/* ══ 🔴🔴 LA COLONNE EST TOUJOURS RENDUE, ET C'EST UNE CORRECTION, PAS UN DÉTAIL ═══════════════════════
+          DÉFAUT TROUVÉ À L'ÉCRAN LE 30/09/2026, en écrivant ce lot : la colonne n'apparaissait qu'une fois le
+          nombre de pages connu (`total > 1`), donc APRÈS le premier rendu. Ce changement de forme du corps
+          faisait REMONTER les toiles des pages : la page 1 était peinte — la vignette partait, on le voyait —
+          puis son canvas était recréé VIERGE. Le document devenait blanc, sans une erreur, et le seul indice
+          était que la vignette avait disparu.
+
+          🔴 LA STRUCTURE NE CHANGE DONC JAMAIS : la colonne est toujours là, et c'est son CONTENU qui apparaît.
+          Un `hidden` sur un conteneur stable ne coûte rien à React ; un enfant qui naît et meurt lui coûte le
+          sous-arbre d'à côté. */}
+      <div className={`lpd-colonne${total > 1 ? '' : ' lpd-colonne--vide'}`} ref={colonne}
+        aria-label="Pages du document" hidden={total <= 1}>
+        {total > 1 && (
+          <>
+          {Array.from({ length: total }, (_, i) => i + 1).map((n) => (
+            <Miniature key={n} numero={n} nom={nom} actif={n === Math.min(page, total)} ratio={ratio}
+              faite={miniFaites.has(n)}
+              onToile={noterToile} onVisible={noterVisible} onAller={allerALaPage} />
+          ))}
+          </>
+        )}
+      </div>
+
       <div className="lpd-scene" ref={scene}
         onScroll={(e) => {
           // Quelle page est sous les yeux ? La barre le dit, sans rien recalculer d'autre.
@@ -317,7 +538,66 @@ export function LecteurPdf({ url, nom, onPremierePage }: {
           <PageCanvas key={`${n}:${String(zoom)}`} numero={n} nom={nom} peindre={peindre} />
         ))}
       </div>
+      </div>
     </div>
+  );
+}
+
+/**
+ * ══ 🔴 UNE MINIATURE : un cadre à la bonne proportion, une toile, un numéro ═══════════════════════════════════
+ *
+ * 🔴 ELLE NE PEINT RIEN ELLE-MÊME. Elle se contente de dire à la file « voici ma toile » et « je suis visible » :
+ * c'est la file du lecteur qui décide de l'ordre, parce qu'elle seule voit l'ensemble — une miniature qui se
+ * peindrait toute seule au moment où elle apparaît lancerait cinquante rendus d'un coup au premier défilement.
+ *
+ * ⚠️ LE CADRE GRIS A DÉJÀ LA BONNE HAUTEUR (`aspect-ratio`), donc la colonne ne saute pas quand l'image arrive.
+ * ⚠️ LE NUMÉRO EST SOUS LA VIGNETTE, toujours, peinte ou non : c'est lui qu'on lit pour se repérer, et il ne doit
+ * pas apparaître au hasard des rendus.
+ */
+function Miniature({ numero, nom, actif, ratio, faite, onToile, onVisible, onAller }: {
+  numero: number;
+  nom: string;
+  actif: boolean;
+  ratio: number;
+  faite: boolean;
+  onToile: (n: number, el: HTMLCanvasElement | null) => void;
+  onVisible: (n: number, v: boolean) => void;
+  onAller: (n: number) => void;
+}) {
+  const boite = useRef<HTMLButtonElement | null>(null);
+
+  /**
+   * ⚠️ `onVisible` EST STABLE (le parent le tient dans un `useCallback` sans dépendance, et le numéro voyage en
+   * argument) : l'observateur n'est donc posé qu'UNE fois. Un rappel écrit sur place aurait une identité neuve à
+   * chaque rendu du parent, et l'observateur se démonterait puis se remonterait à chaque fois — le piège que ce
+   * fichier documente déjà pour `onPremierePage`.
+   */
+  useEffect(() => {
+    const el = boite.current;
+    if (el === null || typeof IntersectionObserver !== 'function') {
+      // Sans observateur, tout est réputé visible : la file les prendra dans l'ordre, ce qui reste juste.
+      onVisible(numero, true);
+      return undefined;
+    }
+    const obs = new IntersectionObserver((entrees) => {
+      for (const e of entrees) onVisible(numero, e.isIntersecting);
+    }, { rootMargin: '200px 0px' });
+    obs.observe(el);
+    return () => { obs.disconnect(); onVisible(numero, false); };
+  }, [numero, onVisible]);
+
+  return (
+    <button type="button" ref={boite} data-mini={numero}
+      className={`lpd-mini${actif ? ' lpd-mini--active' : ''}`}
+      aria-label={`${nom} — aller à la page ${numero}`}
+      aria-current={actif ? 'true' : undefined}
+      onClick={() => onAller(numero)}>
+      <span className={`lpd-mini-cadre${faite ? ' lpd-mini-cadre--faite' : ''}`}
+        style={{ aspectRatio: `1 / ${ratio}` }}>
+        <canvas ref={(el) => onToile(numero, el)} className="lpd-mini-toile" aria-hidden="true" />
+      </span>
+      <span className="lpd-mini-num">{numero}</span>
+    </button>
   );
 }
 
@@ -371,7 +651,34 @@ export const CSS_LECTEUR_PDF = `
 .lpd-zooms{display:flex;align-items:center;gap:10px}
 .lpd-zoom-mot{min-width:4.2rem;text-align:center;font-size:.78rem;color:var(--color-svv-muted)}
 .lpd-actif{text-decoration:none;border-bottom:2px solid var(--color-svv-red)}
-.lpd-scene{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 0;background:var(--color-svv-field)}
+/* ══ 🔴🔴 LOT FIL-APERCU-MINIATURES — LA COLONNE ET LE DOCUMENT, COTE A COTE ══════════════════════════════════
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit, qu'un seul refermerait. */
+.lpd-corps{flex:1 1 auto;display:flex;min-height:0;min-width:0}
+/* La colonne a SON defilement : on parcourt les pages sans bouger le document, et inversement. */
+.lpd-colonne{flex:0 0 auto;width:132px;overflow-y:auto;overflow-x:hidden;
+  display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 6px;
+  background:var(--color-svv-surface);border-right:1px solid var(--color-svv-line)}
+.lpd-mini{display:flex;flex-direction:column;align-items:center;gap:3px;width:100%;padding:3px;
+  font:inherit;background:none;border:0;border-radius:.35rem;cursor:pointer}
+.lpd-mini:hover{background:var(--color-svv-field)}
+.lpd-mini:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* La page COURANTE se voit par un CADRE, pas par la seule couleur : elle reste reperable en niveaux de gris. */
+.lpd-mini--active .lpd-mini-cadre{border-color:var(--color-svv-red);box-shadow:0 0 0 2px var(--color-svv-red)}
+.lpd-mini--active .lpd-mini-num{color:var(--color-svv-red);font-weight:700}
+/* Le cadre GRIS a deja la proportion du document : la colonne ne saute pas quand l'image arrive. */
+.lpd-mini-cadre{display:block;width:104px;background:var(--color-svv-field);
+  border:1px solid var(--color-svv-line);border-radius:2px;overflow:hidden}
+.lpd-mini-cadre--faite{background:var(--color-svv-page)}
+.lpd-mini-toile{display:block;width:100%;height:auto}
+.lpd-mini-num{font-size:.7rem;color:var(--color-svv-muted)}
+/* ⚠️ SUR ECRAN ETROIT, LA COLONNE DISPARAIT : a 400 px de large, 132 px de vignettes prendraient le tiers de la
+   fenetre au document, qui est le sujet. Les pages restent toutes accessibles par le defilement. */
+@media (max-width: 720px){ .lpd-colonne{display:none} }
+/* ⚠️ VIDE, ELLE NE PREND AUCUNE PLACE : le conteneur reste dans l'arbre (voir l'encadre du rendu), mais il ne
+   doit ni s'afficher ni occuper de largeur tant qu'il n'y a pas de pages a montrer. */
+.lpd-colonne--vide{display:none}
+
+.lpd-scene{flex:1 1 auto;min-height:0;min-width:0;overflow:auto;padding:12px 0;background:var(--color-svv-field)}
 .lpd-page{display:flex;justify-content:center;margin-bottom:12px}
 /* Un fond BLANC sous la page : une page de PDF est blanche, et un canvas vide sur fond sombre se lit « panne ».
    ⚠️ LE JETON --color-svv-page NE SUIT PAS LE THÈME, et c'est expres : le papier d'un acte notarie est blanc en
