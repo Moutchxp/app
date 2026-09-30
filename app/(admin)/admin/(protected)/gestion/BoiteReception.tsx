@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
+import { Trombone } from './Trombone';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { bulleCapsuleMessage, motCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 
@@ -182,7 +183,10 @@ export function BoiteReception({ maintenant, onOuvrir, onPleinEcran, onFileEchan
                   {l.aPiece && (
                     <span className="brc-marque"
                       title={`${l.nbPieces} pièce${l.nbPieces > 1 ? 's' : ''} jointe${l.nbPieces > 1 ? 's' : ''}`}>
-                      <span aria-hidden="true">📎</span> {l.nbPieces}
+                      {/* 🔴 LOT LISTE-PAGINATION — un TRACÉ, pas un emoji : lui seul suit la couleur du texte
+                          (voir l'encadré de `Trombone`). Ici la ligne EST un message et le nombre est celui de SES
+                          pièces : le cas « noir » de la règle d'Arno, sans second état possible. */}
+                      <Trombone /> {l.nbPieces}
                     </span>
                   )}
                   {/* 🔴 LA CAPSULE DU MAIL. `null` = migration 257 absente : aucune capsule, plutôt qu'une rouge

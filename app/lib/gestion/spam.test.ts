@@ -109,7 +109,24 @@ describe('② les COMPTEURS comptent exactement ce que leur liste montre', () =>
     const c = await comptesBoite();
     expect(c.spam).toBe(231);
     const sql = sqls().find((s) => s.includes('FILTER (WHERE lisibles > 0)')) ?? '';
-    expect(sql).toContain("FILTER (WHERE spam_le IS NOT NULL)");
+    /**
+     * ══ 🔴🔴 RÉÉCRIT PAR LE LOT LISTE-PAGINATION — LE SPAM SE COMPTE EN ÉCHANGES ═════════════════════════════
+     *
+     * CE QUI ÉTAIT EXIGÉ ICI, ET QUI ÉTAIT FAUX :
+     *     expect(sql).toContain("FILTER (WHERE spam_le IS NOT NULL)");
+     * c'est-à-dire un `count(*)` de MESSAGES marqués spam.
+     *
+     * POURQUOI C'ÉTAIT FAUX : la liste « Spam » est une liste d'ÉCHANGES, comme les six autres — le `NOT EXISTS`
+     * de `sqlPageBoite` n'y fait aucune exception. MESURÉ en base le 30/09/2026 : 261 messages marqués spam pour
+     * 258 échanges. La colonne annonçait donc 261 au-dessus de 258 lignes, et la pagination aurait hérité de
+     * l'écart. C'est la même famille d'erreur que le « 1–25 sur 291 354 » signalé par Arno : un nombre de
+     * MESSAGES là où la liste montre des ÉCHANGES.
+     *
+     * Le titre de ce `describe` — « les COMPTEURS comptent exactement ce que leur liste montre » — est donc
+     * enfin vrai pour le spam aussi.
+     */
+    expect(sql).toContain('count(DISTINCT fil_id)::int FROM gestion_message WHERE spam_le IS NOT NULL');
+    expect(sql).not.toContain('FILTER (WHERE spam_le IS NOT NULL)');
     expect(sql).toContain('WHERE spam_le IS NULL');  // le regroupement des quatre autres l'ignore
   });
 

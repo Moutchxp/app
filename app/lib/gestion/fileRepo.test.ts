@@ -85,10 +85,15 @@ describe('fileRepo — la file (colonne de gauche)', () => {
     const r = await lireFile(30, CTX);
     // Les deux derniers paramètres sont le CONTEXTE d'expéditeurs (lot 4d) : la liste des partenaires internes,
     //   et notre propre adresse. Liés eux aussi — jamais une adresse collée dans le SQL.
-    expect(params()[0]).toEqual([PAGE, 30, [], 'gestion@criterimmo.fr']);
+    /**
+     * ⚠️ UN CINQUIÈME PARAMÈTRE DEPUIS LE LOT LISTE-PAGINATION : le DÉCALAGE de la page demandée. `0` par défaut,
+     * c'est-à-dire `OFFSET 0` — la requête et son résultat sont mot pour mot ceux d'avant le lot, et c'est
+     * précisément ce que cette ligne garde.
+     */
+    expect(params()[0]).toEqual([PAGE, 30, [], 'gestion@criterimmo.fr', 0]);
     expect(r.total).toBe(213); // l'écran peut dire « 50 affichés sur 213 » sans mentir
     const r2 = await lireFile(30, CTX, 7);
-    expect(params()[2]).toEqual([7, 30, [], 'gestion@criterimmo.fr']);
+    expect(params()[2]).toEqual([7, 30, [], 'gestion@criterimmo.fr', 0]);
     expect(r2.lignes).toEqual([]);
   });
 
@@ -212,7 +217,33 @@ describe('LOT 4b — la file ne montre que ce qui a BOUGÉ récemment', () => {
     expect(s).toContain("d.recu_le >= now() - ($2::int * interval '1 day')");
     // Les deux derniers paramètres sont le CONTEXTE d'expéditeurs (lot 4d) : la liste des partenaires internes,
     //   et notre propre adresse. Liés eux aussi — jamais une adresse collée dans le SQL.
-    expect(params()[0]).toEqual([PAGE, 30, [], 'gestion@criterimmo.fr']);
+    //   ⚠️ Et le 5e est le décalage de page (lot LISTE-PAGINATION), lié lui aussi, `0` par défaut.
+    expect(params()[0]).toEqual([PAGE, 30, [], 'gestion@criterimmo.fr', 0]);
+  });
+
+  /**
+   * ══ 🔴🔴 LOT LISTE-PAGINATION — LA PAGE N DE LA FILE « SANS ÉVÉNEMENT » ════════════════════════════════════
+   *
+   * Cette liste montrait les 50 premiers échanges sur 523 et le disait honnêtement — sans aucun moyen d'atteindre
+   * les autres. Elle se pagine désormais, comme toutes les listes du module.
+   *
+   * 🔴 LE DÉCALAGE EST UN PARAMÈTRE LIÉ, jamais un nombre collé dans le SQL : c'est la règle du fichier depuis le
+   * premier jour, et elle vaut pour lui comme pour la fenêtre d'activité.
+   *
+   * ⚠️ L'`OFFSET` EST LÉGITIME **ICI** et nulle part ailleurs : 523 lignes bornées à la fenêtre d'activité, et un
+   * `ORDER BY` totalement déterministe (attente, puis date, puis identifiant) — aucune ligne ne peut sauter d'une
+   * page à l'autre. La BOÎTE, elle, parcourt 36 580 échanges et s'en tient au curseur.
+   */
+  it('🔴 la page demandée devient un DÉCALAGE lié, et la page 0 ne change rien', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await lireFile(30, CTX, 25, 3);
+    expect(sqls()[0]).toContain('LIMIT $1 OFFSET $5');
+    expect(params()[0]).toEqual([25, 30, [], 'gestion@criterimmo.fr', 75]);
+    await lireFile(30, CTX, 25, 0);
+    expect(params()[2]?.[4]).toBe(0);
+    // ⚠️ UN RANG NÉGATIF RETOMBE SUR LA PREMIÈRE PAGE — un `OFFSET` négatif serait refusé par PostgreSQL.
+    await lireFile(30, CTX, 25, -2);
+    expect(params()[4]?.[4]).toBe(0);
   });
 
   it('compte SÉPARÉMENT ce qu’elle montre et ce qu’elle tait — le second est affiché, jamais tu', async () => {

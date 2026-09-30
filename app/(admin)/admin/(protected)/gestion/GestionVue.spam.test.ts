@@ -366,6 +366,23 @@ describe('🔴 le compteur du titre suit le filtre', () => {
     //   on distingue donc les deux en faisant répondre la page autrement.
     expect(container.querySelector('h2#bte-titre .gst-compte')).not.toBeNull();
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
-    expect(src).toContain('{etoile ? etat.total : (total ?? etat.total)}');
+    /**
+     * ══ 🔴 RÉÉCRIT PAR LE LOT LISTE-PAGINATION — LA RÈGLE EST LA MÊME, ELLE A UN NOM ═══════════════════════
+     *
+     * CE QUI ÉTAIT EXIGÉ ICI :
+     *     expect(src).toContain('{etoile ? etat.total : (total ?? etat.total)}');
+     * c'est-à-dire l'expression écrite EN TOUTES LETTRES dans le titre.
+     *
+     * POURQUOI ELLE A CHANGÉ : le même nombre s'affiche maintenant à TROIS endroits — le titre, et les deux
+     * barres « 1–25 sur N ». Trois expressions recopiées auraient fini par donner trois nombres. Il est donc
+     * calculé UNE fois, dans `nombreDeLaListe`, et les trois le lisent.
+     *
+     * 🔒 LA PROPRIÉTÉ GARDÉE EST INCHANGÉE, et même renforcée : le compte du SERVEUR (`etat.total`, qui connaît
+     * le filtre) l'emporte sur celui de l'ÉTIQUETTE (`total`, calculé par la colonne de gauche, sans filtre).
+     * C'est ce que dit l'ordre du `??` ci-dessous — et il vaut désormais pour tous les filtres, pas seulement
+     * pour l'étoile.
+     */
+    expect(src).toContain('const nombreDeLaListe = etat.total ?? total ?? null;');
+    expect(src).toContain('<span className="gst-compte">{nombreDeLaListe}</span>');
   });
 });

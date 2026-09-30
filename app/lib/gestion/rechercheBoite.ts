@@ -42,8 +42,12 @@ import {
 export { decouperTermes, rechercheUtile, filtresAvancesActifs, listesChoisies, automatiquesInclus, LISTES_TOUTES } from './rechercheTermes';
 export type { Terme, CritereRecherche, SorteListe, FiltrePiece } from './rechercheTermes';
 
-/** Combien de résultats par page. Même pas que la boîte : on passe de l'une à l'autre sans changer de rythme. */
-export const PAGE_RECHERCHE = 30;
+/**
+ * Combien de résultats par page. Même pas que la boîte : on passe de l'une à l'autre sans changer de rythme.
+ * 🔴 LOT LISTE-PAGINATION — 25, comme `PAGE_BOITE`. Les deux nombres sont tenus égaux par une épreuve dédiée :
+ * une pagination qui changerait de rythme en passant aux résultats se lirait comme un défaut.
+ */
+export const PAGE_RECHERCHE = 25;
 /** Extrait BRUT rapporté du message trouvé. L'écran y met en évidence les mots cherchés. */
 const LONGUEUR_EXTRAIT = 600;
 
@@ -351,6 +355,15 @@ export async function chercherDansLeCourrier(
 
   // LOT ENVOI-DIAG — un envoi refusé se voit AUSSI dans un résultat de recherche. Le signaler dans la liste et pas
   //   ici aurait fait d'une recherche le seul endroit où un mail non distribué a l'air normal.
+  /**
+   * 🔴 LOT LISTE-PAGINATION — LES DEUX COMPTES, À LA PREMIÈRE PAGE SEULEMENT. Posés ICI, après la page et avant
+   * les lectures qui l'enrichissent, pour que l'ORDRE des requêtes reste celui d'avant ce lot : la page, puis les
+   * comptes, puis le reste. Un ordre qui bouge sans raison fait tomber des épreuves qui n'avaient rien à voir.
+   */
+  const comptes = curseur === null
+    ? await comptesDeLaRecherche(critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue)
+    : { total: null as number | null, masques: null as number | null };
+
   const filsDeLaPage = gardees.map((r) => Number(r.fil_id));
   // LOT LISTE-GMAIL — les mêmes lignes que la liste, donc les mêmes étoiles : un résultat de recherche et une ligne
   //   de boîte montrent le même échange et ne doivent pas se contredire.
@@ -435,12 +448,15 @@ export async function chercherDansLeCourrier(
       motifHorsGestion: r.hg_motif,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
-    total: null, // compter TOUS les résultats coûterait le prix de la recherche une seconde fois, pour un chiffre
+    /**
+     * 🔴 LOT LISTE-PAGINATION — LES DEUX NOMBRES SORTENT D'UNE SEULE LECTURE (voir `comptesDeLaRecherche`), et
+     * seulement à la PREMIÈRE PAGE : ils ne bougent pas d'une page à l'autre, et les redemander à chaque `‹ ›`
+     * paierait deux fois le prix de la recherche. `null` garde son sens exact — « on ne l'a pas recompté ».
+     */
+    total: comptes.total,
     pleinTexte,
     // Combien de résultats la règle « pas de courrier automatique » écarte : dit en toutes lettres, comme dans la liste.
-    automatiquesMasques: curseur === null && critere.inclureAutomatiques !== true
-      ? await compterAutomatiquesMasques(critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue)
-      : null,
+    automatiquesMasques: comptes.masques,
   };
 }
 
@@ -460,19 +476,51 @@ function avecAutomatiques(c: CritereRecherche, oui: boolean): CritereRecherche {
  * Combien d'échanges la recherche aurait rendus EN PLUS avec le courrier automatique. Calculé seulement à la première
  * page : c'est une phrase d'écran, pas une donnée dont dépend la suite.
  */
-async function compterAutomatiquesMasques(
+/**
+ * ══ 🔴🔴 LOT LISTE-PAGINATION — LES DEUX NOMBRES DE LA RECHERCHE, EN UNE SEULE LECTURE ══════════════════════════
+ *
+ * Deux questions, et elles se répondent avec les MÊMES requêtes :
+ *
+ *   · `total`   — combien d'ÉCHANGES la recherche trouve, tels qu'on les affiche. C'est le N de « 1–25 sur N » ;
+ *   · `masques` — combien la règle du courrier automatique en écarte, pour le dire en toutes lettres.
+ *
+ * 🔴 `count(DISTINCT m.fil_id)` ET NON `count(*)`, et c'est tout l'enjeu du défaut signalé par Arno (« 1–25 sur
+ * 291 354 » pour une liste d'échanges). La recherche rend UN résultat par ÉCHANGE — c'est ce que fait son
+ * `DISTINCT ON (m.fil_id)` — alors qu'un même échange peut porter cinquante messages qui correspondent tous.
+ * Compter les messages donnerait un nombre sans rapport avec le nombre de lignes.
+ *
+ * ⚠️ LE TOTAL EST CELUI DE LA LISTE AFFICHÉE, donc celui du critère TEL QU'IL EST — jamais celui du critère
+ * « avec les automatiques », qui ne sert qu'à mesurer l'écart. C'est la même exigence que partout dans ce lot :
+ * le compteur compte ce qu'on voit.
+ *
+ * ⚠️ AUCUNE REQUÊTE DE PLUS QU'AVANT CE LOT, et l'ordre des deux lectures n'a pas bougé (« avec » puis « sans ») :
+ * le total était déjà calculé, il était simplement jeté après la soustraction. Quand le courrier automatique EST
+ * inclus, une seule lecture suffit — il n'y a rien à soustraire, et `masques` vaut `null` (« sans objet »), jamais
+ * zéro.
+ *
+ * ⚠️ CE QUI ÉTAIT ÉCRIT LÀ OÙ LE TOTAL MANQUAIT : « compter TOUS les résultats coûterait le prix de la recherche
+ * une seconde fois, pour un chiffre ». C'était vrai tant que le chiffre ne servait à rien — et il se trouve qu'on
+ * le payait déjà. Il sert maintenant à dire combien de pages il y a : sans lui, « › » ne saurait pas quand
+ * s'éteindre.
+ */
+async function comptesDeLaRecherche(
   critere: CritereRecherche, pleinTexte: boolean, spamConnu = false, adresseGestion: string | null = null,
   corbeilleConnue = false,
-): Promise<number> {
-  const avec = conditions(avecAutomatiques(critere, true), pleinTexte, spamConnu, adresseGestion, corbeilleConnue);
-  const sans = conditions(avecAutomatiques(critere, false), pleinTexte, spamConnu, adresseGestion, corbeilleConnue);
-  const compte = async (c: { sql: string[]; params: unknown[] }): Promise<number> => {
-    const where = c.sql.length > 0 ? `WHERE ${c.sql.join(' AND ')}` : '';
+): Promise<{ total: number; masques: number | null }> {
+  const compte = async (c: CritereRecherche): Promise<number> => {
+    const { sql, params } = conditions(c, pleinTexte, spamConnu, adresseGestion, corbeilleConnue);
+    const where = sql.length > 0 ? `WHERE ${sql.join(' AND ')}` : '';
     const { rows } = await query<{ n: number }>(
-      `SELECT count(DISTINCT m.fil_id)::int AS n FROM gestion_message m ${where}`, c.params);
+      `SELECT count(DISTINCT m.fil_id)::int AS n FROM gestion_message m ${where}`, params);
     return rows[0]?.n ?? 0;
   };
-  return Math.max(0, (await compte(avec)) - (await compte(sans)));
+  // Le courrier automatique est DÉJÀ dedans : la liste affichée EST « avec », et rien n'est écarté à mesurer.
+  if (automatiquesInclus(critere)) return { total: await compte(critere), masques: null };
+  // ⚠️ L'ORDRE EST CELUI D'AVANT CE LOT — « avec » d'abord, « sans » ensuite. Le changer déplacerait les deux
+  //    lectures l'une par rapport à l'autre sans rien apporter.
+  const avec = await compte(avecAutomatiques(critere, true));
+  const sans = await compte(avecAutomatiques(critere, false));
+  return { total: sans, masques: Math.max(0, avec - sans) };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

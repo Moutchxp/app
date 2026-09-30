@@ -131,10 +131,15 @@ describe('① LA LISTE — pleine largeur par défaut, et jamais démontée', ()
     expect(l).toContain('robinet fuit');
     /**
      * LOT LISTE-GMAIL — DEUX MARQUES ONT CHANGÉ DE FORME, aucune n'a disparu :
-     *   · « 📎 pièce jointe » devient « 📎 2 » — le trombone porte le NOMBRE, qui dit ce que le mot ne disait pas ;
+     *   · « pièce jointe » devient un trombone portant le NOMBRE, qui dit ce que le mot ne disait pas ;
      *   · « 3 messages » quitte le bas de la ligne pour la BARRE D'ACTIONS, tout à droite, comme dans Gmail.
+     *
+     * ⚠️ LOT LISTE-PAGINATION — le trombone est un TRACÉ, plus un emoji (celui-ci ignorait `color` et restait
+     * argenté à côté d'un chiffre noir ou gris). On cherche donc la MARQUE, pas un caractère : `textContent` ne
+     * voit pas un tracé.
      */
-    expect(l).toContain('📎');
+    expect(container.querySelector('.bte-marque--pieces')).not.toBeNull();
+    expect(container.querySelector('.bte-marque--pieces')?.textContent).toContain('1');
     expect(container.querySelector('.brl-compte')?.textContent).toBe('3');
   });
 });

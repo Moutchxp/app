@@ -132,6 +132,23 @@ interface LigneFileDB {
  */
 export async function lireFile(
   fenetreJours: number, ctx: ContexteExpediteurs, limite = PAGE,
+  /**
+   * ══ 🔴 LOT LISTE-PAGINATION — LE RANG DE LA PAGE DEMANDÉE, à partir de 0 ════════════════════════════════════
+   *
+   * Arno demande la même pagination « 1–25 sur N · ‹ › » sur TOUTES les listes, « Sans événement » comprise.
+   * Jusqu'ici cette liste montrait les 50 premiers et disait honnêtement « 50 affichés sur 523 » — ce qui est
+   * honnête mais ne donne AUCUN moyen d'atteindre les 473 autres.
+   *
+   * 🔴 UN `OFFSET`, ET C'EST LÉGITIME ICI — contrairement à la boîte, où c'est une règle écrite du dépôt de ne
+   * jamais en poser. La différence n'est pas de goût : la boîte parcourt 36 580 échanges, où un `OFFSET` profond
+   * ferait lire et jeter des dizaines de milliers de lignes ; cette file en porte 523, bornées à la fenêtre
+   * d'activité, et son `ORDER BY` est totalement déterministe (`attend`, puis la date, puis l'identifiant) —
+   * donc aucune ligne ne peut sauter d'une page à l'autre. C'est aussi ce que fait déjà la file à rattacher.
+   *
+   * ⚠️ `0` (LE DÉFAUT) REND LA REQUÊTE MOT POUR MOT CELLE D'AVANT CE LOT : `OFFSET 0` ne change ni le plan ni le
+   * résultat, et tous les appelants qui ne paginent pas continuent de ne rien demander.
+   */
+  page = 0,
 ): Promise<{ lignes: LigneFile[]; total: number; tropAnciens: number }> {
   const adresses = adressesDe(ctx.partenaires);
   const { rows } = await query<LigneFileDB>(
@@ -152,8 +169,8 @@ export async function lireFile(
        ${jointuresAttente('f.id')}
       WHERE f.etat = 'a_classer' AND d.recu_le >= now() - ($2::int * interval '1 day')
       ORDER BY ${ATTEND} DESC, d.recu_le ASC, f.id ASC
-      LIMIT $1`,
-    [limite, fenetreJours, adresses, ctx.adresseGestion],
+      LIMIT $1 OFFSET $5`,
+    [limite, fenetreJours, adresses, ctx.adresseGestion, Math.max(0, page) * limite],
   );
   // DEUX comptes, jamais un seul : ce que la file montre, ET ce qu'elle tait. Le second est affiché à l'écran —
   //   un outil qui cache sans le dire ment ; un outil qui dit ce qu'il ne montre pas reste honnête.
@@ -355,7 +372,7 @@ export async function lireToleranceVeille(): Promise<number> {
 }
 
 /** L'état complet de l'écran, en une fois. LECTURE SEULE de bout en bout. */
-export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
+export async function lireEcran(limite = PAGE, pageFile = 0): Promise<EtatEcran> {
   // La fenêtre d'activité ET la liste des partenaires internes viennent de la BASE, jamais du code. Les deux sont lues
   //   d'abord : l'attente ne se calcule pas sans savoir qui est qui (lot 4d).
   const [config, partenaires, deplacements, spam, corbeille] = await Promise.all([
@@ -366,7 +383,9 @@ export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
     partenaires, adresseGestion: config.adresseGestion, deplacements, spam, corbeille,
   };
   const [file, evenements, reperes, sansSuite, auto, tolerance, suite, copie] = await Promise.all([
-    lireFile(config.fenetreActiviteJours, ctx, limite), lireEvenements(ctx), lireReperes(), lireSansSuite(),
+    // 🔴 LOT LISTE-PAGINATION — le rang de page ne concerne QUE la file : les cartes, les repères et les échanges
+    //   sans suite ne sont pas paginés, et leur passer un rang les ferait mentir.
+    lireFile(config.fenetreActiviteJours, ctx, limite, pageFile), lireEvenements(ctx), lireReperes(), lireSansSuite(),
     lireDernierePasseAuto(), lireToleranceVeille(), lireSuiteDernierePasse(), lireEtatCopie(),
   ]);
   return {

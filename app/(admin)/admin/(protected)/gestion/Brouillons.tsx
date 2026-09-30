@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+// 🔴 LOT LISTE-PAGINATION — la MÊME barre et la MÊME découpe que les trois autres listes du module.
+import { BarrePages, CSS_BARRE_PAGES } from './BarrePages';
+import { PAR_PAGE, trancheDePage } from '../../../../lib/gestion/pagination';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { motsJeterBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 import { ordonnerBrouillons, type BrouillonEnregistre } from '../../../../lib/gestion/brouillonReprise';
@@ -71,6 +74,12 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbei
   /** Les mots du geste, tirés de la MÊME source que l'éditeur : un seul geste ne s'apprend pas deux fois. */
   const mots = motsJeterBrouillon(corbeille);
   const [etat, setEtat] = useState<{ v: 'charge' } | { v: 'ok'; liste: BrouillonListe[] } | { v: 'erreur' }>({ v: 'charge' });
+  /**
+   * 🔴 LOT LISTE-PAGINATION — LE RANG DE LA PAGE AFFICHÉE. Arno demande la MÊME pagination sur toutes les listes,
+   * celle-ci comprise. Elle se découpe EN MÉMOIRE : la route rend les brouillons en une fois (10 au 30/09/2026),
+   * et le total est donc la longueur de la liste — il ne peut pas se tromper. Voir `trancheDePage`.
+   */
+  const [page, setPage] = useState(0);
 
   /** Va chercher la liste et RENVOIE le résultat : c'est l'appelant qui décide quoi en faire. Patron du dépôt. */
   const chercher = async (): Promise<{ v: 'ok'; liste: BrouillonListe[] } | { v: 'erreur' }> => {
@@ -111,11 +120,28 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbei
     );
   }
 
+  /**
+   * ⚠️ LA PAGE EST BORNÉE À CE QUI EXISTE ENCORE. Un brouillon envoyé ou jeté pendant qu'on regardait la page 2
+   * peut ramener la liste sous 26 lignes : sans ce garde, on resterait sur une page vide, avec un chevron « ‹ »
+   * pour seule issue. On recule d'autorité sur la dernière page qui porte quelque chose.
+   */
+  const dernierePage = Math.max(0, Math.ceil(etat.liste.length / PAR_PAGE) - 1);
+  const pageVue = Math.min(page, dernierePage);
+  const affiches = trancheDePage(etat.liste, pageVue);
+  const barre = (ou: 'haut' | 'bas') => (
+    <BarrePages ou={ou} page={pageVue} lignes={affiches.length} total={etat.liste.length}
+      /* 🔴 LA SUITE SE SAIT ICI SANS RIEN DEMANDER : la liste entière est là, on compte ce qui reste après. */
+      suite={(pageVue + 1) * PAR_PAGE < etat.liste.length} nom="les brouillons"
+      onPage={(v) => setPage(Math.max(0, Math.min(v, dernierePage)))} />
+  );
+
   return (
     <>
+      <style>{CSS_BARRE_PAGES}</style>
       <h3 className="gst-titre">Brouillons <span className="gst-compte">{etat.liste.length}</span></h3>
+      {barre('haut')}
       <ul className="gst-liste">
-        {etat.liste.map((b) => (
+        {affiches.map((b) => (
           <li key={b.id} className="gst-item">
             <div className="gst-item-haut">
               {/* 🔴🔴 LE CLIC ROUVRE LE BROUILLON, TOUJOURS. Il ne rouvrait que la CONVERSATION, et seulement quand
@@ -155,6 +181,7 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbei
           </li>
         ))}
       </ul>
+      {barre('bas')}
       {/* 🔴 LA NOTE DIT OÙ IL EST ALLÉ, pas seulement qu'il n'est pas perdu : « conservé en base » ne dit pas où
           le retrouver, et c'est la seule chose qu'on veut savoir après avoir cliqué. */}
       <p className="gst-note">

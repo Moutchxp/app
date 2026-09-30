@@ -1,6 +1,8 @@
 import 'server-only';
 import { exigerModule } from '../../../../lib/admin/garde';
+// 🔴 LOT LISTE-PAGINATION — la file « Sans événement » se pagine : 25 par page, comme toutes les listes du module.
 import { lireEcran } from '../../../../lib/gestion/fileRepo';
+import { PAR_PAGE as PAGE_FILE } from '../../../../lib/gestion/pagination';
 
 /**
  * /api/admin/gestion (lot 2) — état de l'écran à deux côtés : la FILE des échanges à classer, et les CARTES d'événement.
@@ -21,7 +23,18 @@ export async function GET(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
 
   try {
-    return Response.json(await lireEcran());
+    /**
+     * ══ 🔴 LOT LISTE-PAGINATION — `?filePage=N` : LE RANG DE LA PAGE DE LA FILE « SANS ÉVÉNEMENT » ═════════════
+     *
+     * Absent ⇒ 0, c'est-à-dire EXACTEMENT le comportement d'avant ce lot : tous les appels existants (l'écran
+     * partagé, le rafraîchissement, les épreuves) ne changent pas d'un iota.
+     *
+     * ⚠️ UNE VALEUR ILLISIBLE OU NÉGATIVE RETOMBE SUR 0, jamais une erreur 422 : une adresse collée de travers
+     * doit montrer la première page, pas un écran de panne. C'est la même tolérance que `lireEtatUrl`.
+     */
+    const brut = new URL(request.url).searchParams.get('filePage');
+    const pageFile = brut !== null && /^\d+$/.test(brut) ? Math.min(Number(brut), 10_000) : 0;
+    return Response.json(await lireEcran(PAGE_FILE, pageFile));
   } catch (e) {
     // Pas de catch muet : on journalise le motif réel côté serveur, et on rend une erreur DISTINGUABLE côté client —
     //   l'écran doit pouvoir dire « la base n'a pas répondu », jamais afficher une file vide qui ferait croire au calme.

@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 
-import { comptesBoite, lireBoiteMail, sqlPageBoite, PAGE_BOITE } from './boiteRepo';
+import { comptesBoite, lireBoiteMail, sqlPageBoite, sqlCompteBoite, PAGE_BOITE } from './boiteRepo';
 
 /** Une ligne telle que PostgreSQL la rend : `fil_id` en CHAÎNE (piège `bigint` du dépôt). */
 const ligne = (n: number, o: Record<string, unknown> = {}) => ({
@@ -472,6 +472,70 @@ describe('garanties STATIQUES', () => {
   });
 });
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT LISTE-PAGINATION — LE COMPTE DE LA LISTE EST LA LISTE, COMPTÉE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 le compte d’une liste emploie EXACTEMENT le prédicat de cette liste', () => {
+  /**
+   * Ce qui rend ce lot possible sans créer une seconde vérité : `sqlPageBoite` et `sqlCompteBoite` tirent leurs
+   * fragments de la MÊME fonction (`predicatsBoite`). L'épreuve le vérifie là où ça compte — sur le SQL émis :
+   * chaque morceau du parcours de la page se retrouve mot pour mot dans le compte.
+   *
+   * 🔴 CE QU'ELLE ATTRAPERAIT : quelqu'un ajoute une condition à la liste (une exclusion de plus, un filtre
+   * nouveau) et oublie le compte. La pagination annoncerait alors « sur 8 546 » au-dessus d'une liste qui n'en
+   * contient que 8 400, et la dernière page serait à moitié vide — sans la moindre erreur nulle part.
+   */
+  it('🔴 chaque condition de la page se retrouve dans le compte, mot pour mot', () => {
+    const etiq = (sorte: string) => ({ sorte, evenementId: null } as unknown as Parameters<typeof sqlPageBoite>[1]);
+    for (const sorte of ['reception', 'envoyes', 'automatique', 'spam', 'corbeille', 'sans_suite']) {
+      const page = sqlPageBoite(false, etiq(sorte), true, true, null, true, false, false, 4, true);
+      const compte = sqlCompteBoite(false, etiq(sorte), true, true, null, true, 1, true, 1);
+      const parc = parcours(page).replace(/\s+/g, ' ');
+      for (const fragment of [
+        'AND m.exclu_le IS NULL', 'AND m.spam_le IS NULL', 'AND m2.spam_le IS NULL',
+      ]) {
+        // Le fragment est dans le parcours de la page ⇒ il DOIT être dans le compte. L'inverse serait une
+        //   condition que le compte applique et que la liste ignore : tout aussi faux, et dans l'autre sens.
+        const plat = compte.replace(/\s+/g, ' ');
+        expect(parc.includes(fragment)).toBe(plat.includes(fragment));
+      }
+      // 🔴 LE PRÉDICAT QUI FAIT COMPTER DES ÉCHANGES ET NON DES MESSAGES est présent des deux côtés.
+      expect(compte).toContain('NOT EXISTS');
+      expect(compte).toContain('(m2.recu_le, m2.id) > (m.recu_le, m.id)');
+      // ⚠️ ET LE COMPTE N'A NI CURSEUR NI `LIMIT` : il compte la liste ENTIÈRE, pas une page.
+      expect(compte).not.toContain('LIMIT');
+      expect(compte).not.toContain('recu_le, m.fil_id) <');
+      expect(compte).not.toContain('ORDER BY');
+    }
+  });
+
+  /**
+   * ⚠️ LES RANGS DE PARAMÈTRES REPARTENT DE 1 DANS LE COMPTE. PostgreSQL refuse une requête à qui l'on fournit un
+   * paramètre qu'elle n'utilise pas (« bind message supplies N parameters, but prepared statement requires M ») :
+   * un compte qui garderait `$4` pour son étiquette réclamerait quatre paramètres dont trois n'existent pas.
+   */
+  it('⚠️ le compte numérote ses paramètres à partir de $1, la page à partir de $4', () => {
+    const carte = { sorte: 'carte', evenementId: 12 } as unknown as Parameters<typeof sqlPageBoite>[1];
+    expect(sqlPageBoite(false, carte)).toContain('a0.evenement_id = $4::bigint');
+    expect(sqlCompteBoite(false, carte)).toContain('a0.evenement_id = $1::bigint');
+    const aClasser = { sorte: 'a_classer', evenementId: null } as unknown as Parameters<typeof sqlPageBoite>[1];
+    expect(sqlPageBoite(false, aClasser)).toContain("($4::int * interval '1 day')");
+    expect(sqlCompteBoite(false, aClasser)).toContain("($1::int * interval '1 day')");
+  });
+
+  /** 🔴 ET LE TOTAL RENDU EST BIEN CELUI DE CE COMPTE, pour n'importe quelle étiquette. */
+  it('🔴 le total rendu sort de la requête de comptage, sous toute étiquette', async () => {
+    const etiq2 = (sorte: string) => ({ sorte, evenementId: null } as unknown as { sorte: 'spam'; evenementId: null });
+    queryMock.mockImplementation(async (sql: string) => {
+      if (String(sql).includes('count(*)::int AS n')) return { rows: [{ n: 258 }] };
+      return { rows: [] };
+    });
+    const p = await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: etiq2('spam') });
+    expect(p.total).toBe(258);
+  });
+});
+
 /**
  * LOT 5-FUSION — LES ÉTIQUETTES. Ce qui casse, et comment on le reconnaît :
  *   ① le filtre se pose APRÈS le `LIMIT` → la page rend deux lignes au lieu de trente, sans erreur, et la suivante
@@ -563,17 +627,39 @@ describe('④ les étiquettes', () => {
   });
 
   /**
-   * LOT 5-BOITE-2 — « Envoyés » porte désormais SON total, comme Réception : les deux boîtes sont symétriques et
-   * disjointes, il n'y a plus de raison que l'une sache se compter et pas l'autre. Les AUTRES étiquettes s'en
-   * remettent toujours à la colonne de gauche — la recompter ici donnerait deux chiffres pour une seule vérité.
+   * ══ 🔴🔴 RÉÉCRIT PAR LE LOT LISTE-PAGINATION — TOUTE ÉTIQUETTE PORTE LE TOTAL DE SA LISTE ═══════════════════
+   *
+   * CE QUI ÉTAIT EXIGÉ ICI, ET QUI NE VAUT PLUS :
+   *     expect((await lireBoiteMail(null, [], 30, { etiquette: etiq('sans_suite') })).total).toBeNull();
+   * c'est-à-dire « seules Réception et Envoyés savent se compter ; les autres étiquettes s'en remettent à la
+   * colonne de gauche ».
+   *
+   * POURQUOI C'ÉTAIT LA BONNE RÈGLE : le total n'était affiché que dans le titre, où la colonne de gauche
+   * fournissait déjà le nombre de chaque étiquette. Le recompter ici aurait donné deux chiffres pour une seule
+   * vérité — donc, tôt ou tard, deux chiffres différents.
+   *
+   * POURQUOI ÇA NE VAUT PLUS : la pagination « 1–25 sur N · ‹ › » vit SOUS TOUTES les étiquettes, et avec ou sans
+   * filtre étoilé. Sans total sous « Spam » ou « Corbeille », elle ne saurait pas combien de pages il y a ; avec
+   * le total de la colonne de gauche — qui ignore le filtre étoilé — elle annoncerait 8 546 au-dessus de deux
+   * lignes étoilées.
+   *
+   * 🔒 ET LA CRAINTE D'ORIGINE EST LEVÉE À LA SOURCE, pas contournée : ce total-ci est calculé par
+   * `sqlCompteBoite`, qui emploie LE MÊME prédicat que la page (`predicatsBoite`). Ce n'est pas un second calcul
+   * « équivalent » — c'est la même phrase, comptée au lieu d'être listée. Elle ne peut pas diverger.
+   *
+   * ⚠️ `null` GARDE SON SENS, et l'épreuve le garde aussi : il se lit « pas la première page, donc pas recompté ».
    */
-  it('les deux BOÎTES portent leur total ; les autres étiquettes s’en remettent à la colonne de gauche', async () => {
+  it('TOUTE étiquette porte le total de SA liste ; `null` ne veut plus dire que « pas la première page »', async () => {
     rendre([ligne(1)], 4944);
     expect((await lireBoiteMail(null, [], 30, { etiquette: etiq('envoyes') })).total).toBe(4944);
     rendre([ligne(1)], 4944);
     expect((await lireBoiteMail(null, [])).total).toBe(4944);
+    // 🔴 LE CHANGEMENT DU LOT : « Sans suite » porte désormais SON nombre, au lieu de renvoyer à la colonne.
     rendre([ligne(1)], 4944);
-    expect((await lireBoiteMail(null, [], 30, { etiquette: etiq('sans_suite') })).total).toBeNull();
+    expect((await lireBoiteMail(null, [], 30, { etiquette: etiq('sans_suite') })).total).toBe(4944);
+    // ⚠️ PAS LA PREMIÈRE PAGE ⇒ toujours `null` : le nombre ne bouge pas entre deux pages, on ne le repaie pas.
+    rendre([ligne(1)], 4944);
+    expect((await lireBoiteMail({ dernierLe: '2026-01-01T00:00:00Z', filId: '9' }, [])).total).toBeNull();
   });
 
   /**

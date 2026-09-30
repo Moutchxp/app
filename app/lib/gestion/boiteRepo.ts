@@ -49,8 +49,14 @@ import { trierPieces, type PieceATrier } from './lisibilite';
 // LOT BOITE-INTERNE-CORBEILLE — « nous », c'est `gestion_config.adresse_gestion`, lue à la MÊME source que la capture.
 import { chargerConfigGestion } from './config';
 
-/** Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre. */
-export const PAGE_BOITE = 30;
+/**
+ * Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre.
+ *
+ * 🔴 LOT LISTE-PAGINATION — 25 ET NON PLUS 30, valeur demandée par Arno (« 25 échanges par page par défaut »).
+ * Les trente d'avant venaient d'un défilement sans fin, où le nombre exact ne se voyait pas ; il se lit maintenant
+ * dans « 1–25 sur N », en haut et en bas de chaque page.
+ */
+export const PAGE_BOITE = 25;
 
 /** Extrait BRUT rapporté du dernier message. Généreux à dessein : l'écran y retire l'historique cité avant d'afficher. */
 const LONGUEUR_EXTRAIT = 600;
@@ -471,7 +477,13 @@ async function adresseDeLaGestion(): Promise<string> {
   return (await chargerConfigGestion()).adresseGestion;
 }
 
-function sqlEtiquette(e: Etiquette, corbeille: boolean, spam: boolean): string {
+/**
+ * ⚠️ LOT LISTE-PAGINATION — `rangParam` AU LIEU DE `$4` ÉCRIT EN DUR. Deux requêtes emploient désormais ce
+ * prédicat : la PAGE (où le paramètre de l'étiquette vient après le curseur et le `LIMIT`, donc en 4e position) et
+ * son COMPTE (qui n'a ni curseur ni `LIMIT`, donc en 1re). Le rang par défaut est 4 : les appels d'avant ce lot
+ * rendent une chaîne IDENTIQUE AU CARACTÈRE PRÈS, et les épreuves qui figent la forme du SQL de la page tiennent.
+ */
+function sqlEtiquette(e: Etiquette, corbeille: boolean, spam: boolean, rangParam = 4): string {
   switch (e.sorte) {
     /**
      * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -508,7 +520,7 @@ function sqlEtiquette(e: Etiquette, corbeille: boolean, spam: boolean): string {
     //   POSTE DE TRI lui-même (voir `PleinEcranBoite`), pas cette lecture. Les deux ne peuvent donc pas se
     //   contredire devant l'utilisateur. Ce filtre ne sert qu'à qui appellerait la route directement.
     case 'a_classer':
-      return `AND m.recu_le >= now() - ($4::int * interval '1 day')
+      return `AND m.recu_le >= now() - ($${rangParam}::int * interval '1 day')
           AND EXISTS (SELECT 1 FROM gestion_fil f0 WHERE f0.id = m.fil_id AND f0.etat = 'a_classer')`;
     // « Envoyés » : le PENDANT EXACT de Réception, et pour la même raison sans filtre ici. Voir ci-dessus.
     case 'envoyes':
@@ -543,7 +555,7 @@ function sqlEtiquette(e: Etiquette, corbeille: boolean, spam: boolean): string {
     case 'carte':
       return `AND EXISTS (SELECT 1 FROM gestion_affectation a0
                             WHERE a0.fil_id = m.fil_id AND a0.actif AND a0.message_id IS NULL
-                              AND a0.evenement_id = $4::bigint)`;
+                              AND a0.evenement_id = $${rangParam}::bigint)`;
   }
 }
 
@@ -552,6 +564,107 @@ export function parametresEtiquette(e: Etiquette, fenetreJours: number): number[
   if (e.sorte === 'a_classer') return [fenetreJours];
   if (e.sorte === 'carte') return [e.evenementId ?? 0];
   return [];
+}
+
+/**
+ * ══ 🔴🔴 LOT LISTE-PAGINATION — LE PRÉDICAT DE LA LISTE, ÉCRIT UNE SEULE FOIS ════════════════════════════════════
+ *
+ * Il répond à « quels messages sont les lignes de cette liste ? », et RIEN d'autre : ni ce qu'on affiche de chacun,
+ * ni dans quel ordre, ni combien. Deux requêtes l'emploient, et c'est tout l'objet de cette extraction :
+ *
+ *   · `sqlPageBoite`   — la page qu'on montre (avec curseur, tri et `LIMIT`) ;
+ *   · `sqlCompteBoite` — COMBIEN il y en a en tout (sans curseur, sans tri, sans `LIMIT`).
+ *
+ * 🔴 POURQUOI PAS DEUX ÉCRITURES « ÉQUIVALENTES ». Le dépôt a déjà payé cette leçon et l'a écrite dans
+ * `compterBoite` : « un compteur calculé autrement mais équivalent annonce tôt ou tard un nombre que la liste ne
+ * montre pas — et c'est toujours le compteur qu'on croit ». La pagination affiche « 1–25 sur N » juste au-dessus
+ * des lignes : N et les lignes DOIVENT sortir du même prédicat, sinon la dernière page est vide ou inatteignable.
+ *
+ * ⚠️ LA SORTIE EST IDENTIQUE, AU CARACTÈRE PRÈS, à ce que `sqlPageBoite` composait avant ce lot — les fragments
+ * ont changé de maison, pas de contenu. C'est ce qui permet aux épreuves qui figent la forme du SQL de la page de
+ * rester vertes sans être réécrites.
+ */
+function predicatsBoite(
+  inclureAutomatiques: boolean, etiquette: Etiquette, corbeille: boolean, spam: boolean,
+  rangFilsRetenus: number | null, etoilesSeules: boolean, rangAdresseGestion: number | null,
+  etoileGmail: boolean, rangEtiquette: number,
+): {
+  sens: 'recu' | 'envoye' | null; montreLaCorbeille: boolean;
+  filtreM: string; filtreM2: string; filtreEtiquette: string;
+  filtreSensM: string; filtreSensM2: string;
+  filtreCorbeille: string; filtreCorbeilleM2: string;
+  filtreSpamM: string; filtreSpamM2: string;
+  filtreRetenus: string; filtreEtoile: string;
+} {
+  // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
+  //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
+  const filtreM = inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL';
+  const filtreM2 = inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL';
+  const filtreEtiquette = sqlEtiquette(etiquette, corbeille, spam, rangEtiquette);
+  /**
+   * LOT BOITE-SENS — LE SENS, AUX DEUX ÉTAGES. `null` (toutes les autres étiquettes) ⇒ chaînes vides, et la
+   * requête est alors mot pour mot celle d'avant ce lot.
+   *
+   * 🔴 LE MÊME SENS DANS `m` ET DANS `m2`, ET C'EST LE POINT ENTIER DU LOT. Dans `m2` — le prédicat « existe-t-il
+   * plus récent ? » —, il transforme « le dernier message de l'échange » en « le dernier message de l'échange DANS
+   * CE SENS ». Sans lui, un échange auquel on a répondu n'aurait plus aucun candidat en Réception : son dernier
+   * message reçu serait écarté par l'envoi qui le suit, et l'échange sortirait de la boîte — le défaut même qu'on
+   * répare. Le mettre dans `m` seul, à l'inverse, rendrait la ligne sur le bon message mais triée sur le mauvais.
+   */
+  const sens = sensDeLEtiquette(etiquette);
+  /**
+   * ⚠️ LOT BOITE-INTERNE-CORBEILLE — `sens` DEVIENT UNE APPARTENANCE (voir `sqlAppartenance`). Sous « Réception »,
+   * un message que NOUS avons envoyé mais qui nous est AUSSI adressé en fait partie : c'est la règle de Gmail, et
+   * c'est ce qui rend 32 échanges visibles là où ils sont réellement arrivés. Le prédicat entre toujours aux DEUX
+   * étages — le dissocier ferait ressortir un échange sur un message et le trier sur un autre.
+   */
+  const filtreSensM = sens === null ? '' : `AND ${sqlAppartenance('m', sens, rangAdresseGestion)}`;
+  const filtreSensM2 = sens === null ? '' : `AND ${sqlAppartenance('m2', sens, rangAdresseGestion)}`;
+  /**
+   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LA CORBEILLE EST ÉCARTÉE AUX DEUX ÉTAGES ══════════════════════════════════
+   * Comme le spam, et pour la MÊME raison qu'on a déjà payée une fois : posée sur le seul message candidat,
+   * l'exclusion laisserait un message supprimé jouer le rôle de « dernier message de l'échange ». La ligne
+   * disparaîtrait de la Réception sans que rien ne l'explique — alors que le vrai dernier message, lui, est bien là.
+   *
+   * ⚠️ `corbeille` FAUX (migration 275 absente) ⇒ chaînes vides : la requête est mot pour mot celle d'avant ce lot.
+   */
+  const montreLaCorbeille = corbeille && etiquette.sorte === 'corbeille';
+  const filtreCorbeille = !corbeille || montreLaCorbeille ? '' : 'AND m.corbeille_le IS NULL';
+  /**
+   * 🔴 SOUS « CORBEILLE », `m2` PORTE LA FORME POSITIVE — ET C'EST INDISPENSABLE, pas symétrique pour la beauté.
+   *
+   * Le prédicat `m2` dit « existe-t-il, dans cet échange, un message plus récent QUI COMPTE ? ». Laissé vide sous
+   * l'étiquette « Corbeille », il compare le mail supprimé à TOUS les messages de son échange : un mail jeté au
+   * milieu d'une conversation encore vivante aurait donc toujours un successeur, et n'apparaîtrait NULLE PART —
+   * ni dans ses boîtes, qui l'écartent, ni dans la corbeille, qui ne le retiendrait pas. Une corbeille où l'on ne
+   * retrouve pas ce qu'on y a mis n'est pas une corbeille.
+   *
+   * Avec la forme positive, la ligne est le DERNIER MAIL SUPPRIMÉ de son échange, et la liste compte une ligne
+   * par échange concerné — la même grammaire que toutes les autres étiquettes de cette boîte.
+   */
+  const filtreCorbeilleM2 = !corbeille
+    ? '' : montreLaCorbeille ? 'AND m2.corbeille_le IS NOT NULL' : 'AND m2.corbeille_le IS NULL';
+  // LOT ERGO-BOITE-3 — le sélecteur « non lus ». Posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des
+  //   messages, et le prédicat « dernier de son sens » n'a pas à en tenir compte.
+  const filtreRetenus = rangFilsRetenus === null ? '' : `AND m.fil_id = ANY($${rangFilsRetenus}::bigint[])`;
+  // LOT FILTRE-ETOILE — posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des messages. Le prédicat
+  //   « dernier de son sens » n'a donc pas à en tenir compte.
+  const filtreEtoile = etoilesSeules ? `AND ${sqlEtoile(etoileGmail)}` : '';
+  /**
+   * ══ 🔴 LOT ERGO-BOITE-3 — LE SPAM NE SORT DE NULLE PART, SAUF DE SON ÉTIQUETTE ═══════════════════════════════
+   * Il est écarté AUX DEUX ÉTAGES du parcours, comme le courrier automatique et pour la même raison : posé sur le
+   * seul message candidat, il laisserait un spam masquer le dernier vrai message d'un échange — la ligne
+   * disparaîtrait de la Réception sans que rien ne l'explique.
+   *
+   * ⚠️ `spam` FAUX (migration 263 absente) ⇒ chaînes vides : la requête est alors mot pour mot celle d'avant ce lot.
+   */
+  const estSpam = spam && etiquette.sorte !== 'spam';
+  return {
+    sens, montreLaCorbeille, filtreM, filtreM2, filtreEtiquette, filtreSensM, filtreSensM2,
+    filtreCorbeille, filtreCorbeilleM2, filtreRetenus, filtreEtoile,
+    filtreSpamM: estSpam ? 'AND m.spam_le IS NULL' : '',
+    filtreSpamM2: estSpam ? 'AND m2.spam_le IS NULL' : '',
+  };
 }
 
 /**
@@ -581,30 +694,16 @@ export function sqlPageBoite(
    */
   etoileGmail = false,
 ): string {
-  // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
-  //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
-  const filtreM = inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL';
-  const filtreM2 = inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL';
-  const filtreEtiquette = sqlEtiquette(etiquette, corbeille, spam);
   /**
-   * LOT BOITE-SENS — LE SENS, AUX DEUX ÉTAGES. `null` (toutes les autres étiquettes) ⇒ chaînes vides, et la
-   * requête est alors mot pour mot celle d'avant ce lot.
-   *
-   * 🔴 LE MÊME SENS DANS `m` ET DANS `m2`, ET C'EST LE POINT ENTIER DU LOT. Dans `m2` — le prédicat « existe-t-il
-   * plus récent ? » —, il transforme « le dernier message de l'échange » en « le dernier message de l'échange DANS
-   * CE SENS ». Sans lui, un échange auquel on a répondu n'aurait plus aucun candidat en Réception : son dernier
-   * message reçu serait écarté par l'envoi qui le suit, et l'échange sortirait de la boîte — le défaut même qu'on
-   * répare. Le mettre dans `m` seul, à l'inverse, rendrait la ligne sur le bon message mais triée sur le mauvais.
+   * 🔴 LOT LISTE-PAGINATION — LE PRÉDICAT VIENT DE `predicatsBoite`, PARTAGÉ AVEC `sqlCompteBoite`. Ce qui suit ne
+   * décrit plus QUI entre dans la liste (c'est là-bas), seulement ce qu'on AFFICHE de chaque ligne et dans quel
+   * ordre. Les fragments sont les mêmes, au caractère près, qu'avant ce lot.
    */
-  const sens = sensDeLEtiquette(etiquette);
-  /**
-   * ⚠️ LOT BOITE-INTERNE-CORBEILLE — `sens` DEVIENT UNE APPARTENANCE (voir `sqlAppartenance`). Sous « Réception »,
-   * un message que NOUS avons envoyé mais qui nous est AUSSI adressé en fait partie : c'est la règle de Gmail, et
-   * c'est ce qui rend 32 échanges visibles là où ils sont réellement arrivés. Le prédicat entre toujours aux DEUX
-   * étages — le dissocier ferait ressortir un échange sur un message et le trier sur un autre.
-   */
-  const filtreSensM = sens === null ? '' : `AND ${sqlAppartenance('m', sens, rangAdresseGestion)}`;
-  const filtreSensM2 = sens === null ? '' : `AND ${sqlAppartenance('m2', sens, rangAdresseGestion)}`;
+  const {
+    sens, montreLaCorbeille, filtreM, filtreM2, filtreEtiquette, filtreSensM, filtreSensM2,
+    filtreCorbeille, filtreCorbeilleM2, filtreSpamM, filtreSpamM2, filtreRetenus, filtreEtoile,
+  } = predicatsBoite(inclureAutomatiques, etiquette, corbeille, spam, rangFilsRetenus, etoilesSeules,
+    rangAdresseGestion, etoileGmail, 4);
   /**
    * L'INTERLOCUTEUR SUIT LE MESSAGE AFFICHÉ, et il ne peut plus en être autrement.
    *
@@ -643,50 +742,9 @@ export function sqlPageBoite(
             (p.dest_a -> 0 ->> 'adresse') AS interlocuteur_adresse,`
         : `coalesce(nullif(btrim(i.de_nom), ''), i.de_adresse, nullif(btrim(p.destinataires), '')) AS interlocuteur,
             i.de_adresse AS interlocuteur_adresse,`;
-  /**
-   * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LA CORBEILLE EST ÉCARTÉE AUX DEUX ÉTAGES ══════════════════════════════════
-   * Comme le spam, et pour la MÊME raison qu'on a déjà payée une fois : posée sur le seul message candidat,
-   * l'exclusion laisserait un message supprimé jouer le rôle de « dernier message de l'échange ». La ligne
-   * disparaîtrait de la Réception sans que rien ne l'explique — alors que le vrai dernier message, lui, est bien là.
-   *
-   * ⚠️ `corbeille` FAUX (migration 275 absente) ⇒ chaînes vides : la requête est mot pour mot celle d'avant ce lot.
-   */
-  const montreLaCorbeille = corbeille && etiquette.sorte === 'corbeille';
-  const filtreCorbeille = !corbeille || montreLaCorbeille ? '' : 'AND m.corbeille_le IS NULL';
-  /**
-   * 🔴 SOUS « CORBEILLE », `m2` PORTE LA FORME POSITIVE — ET C'EST INDISPENSABLE, pas symétrique pour la beauté.
-   *
-   * Le prédicat `m2` dit « existe-t-il, dans cet échange, un message plus récent QUI COMPTE ? ». Laissé vide sous
-   * l'étiquette « Corbeille », il compare le mail supprimé à TOUS les messages de son échange : un mail jeté au
-   * milieu d'une conversation encore vivante aurait donc toujours un successeur, et n'apparaîtrait NULLE PART —
-   * ni dans ses boîtes, qui l'écartent, ni dans la corbeille, qui ne le retiendrait pas. Une corbeille où l'on ne
-   * retrouve pas ce qu'on y a mis n'est pas une corbeille.
-   *
-   * Avec la forme positive, la ligne est le DERNIER MAIL SUPPRIMÉ de son échange, et la liste compte une ligne
-   * par échange concerné — la même grammaire que toutes les autres étiquettes de cette boîte.
-   */
-  const filtreCorbeilleM2 = !corbeille
-    ? '' : montreLaCorbeille ? 'AND m2.corbeille_le IS NOT NULL' : 'AND m2.corbeille_le IS NULL';
-  /**
-   * ══ 🔴 LOT ERGO-BOITE-3 — LE SPAM NE SORT DE NULLE PART, SAUF DE SON ÉTIQUETTE ═══════════════════════════════
-   * Il est écarté AUX DEUX ÉTAGES du parcours, comme le courrier automatique et pour la même raison : posé sur le
-   * seul message candidat, il laisserait un spam masquer le dernier vrai message d'un échange — la ligne
-   * disparaîtrait de la Réception sans que rien ne l'explique.
-   *
-   * ⚠️ `spam` FAUX (migration 263 absente) ⇒ chaînes vides : la requête est alors mot pour mot celle d'avant ce lot.
-   */
-  // LOT ERGO-BOITE-3 — le sélecteur « non lus ». Posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des
-  //   messages, et le prédicat « dernier de son sens » n'a pas à en tenir compte.
-  const filtreRetenus = rangFilsRetenus === null ? '' : `AND m.fil_id = ANY($${rangFilsRetenus}::bigint[])`;
-  // LOT FILTRE-ETOILE — posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des messages. Le prédicat
-  //   « dernier de son sens » n'a donc pas à en tenir compte.
-  const filtreEtoile = etoilesSeules ? `AND ${sqlEtoile(etoileGmail)}` : '';
   const jointureClassement = sqlJointureClassement(rattachements, 'p');
   const jointureHorsGestion = sqlJointureHorsGestion(horsGestion, 'p');
 
-  const estSpam = spam && etiquette.sorte !== 'spam';
-  const filtreSpamM = estSpam ? 'AND m.spam_le IS NULL' : '';
-  const filtreSpamM2 = estSpam ? 'AND m2.spam_le IS NULL' : '';
   return `WITH page AS (
        SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires, m.dest_a,
               left(coalesce(m.corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait
@@ -743,6 +801,56 @@ export function sqlPageBoite(
        --    terminerait — piège consigné trois fois dans ce dépôt, dont une fois dans ce fichier même.)
        ${sens === 'recu' && rangAdresseGestion === null ? '' : SQL_INTERLOCUTEUR}
       ORDER BY p.recu_le DESC, p.fil_id DESC`;
+}
+
+/**
+ * ══ 🔴🔴 LOT LISTE-PAGINATION — COMBIEN D'ÉCHANGES CETTE LISTE CONTIENT ═════════════════════════════════════════
+ *
+ * Le MÊME prédicat que la page (`predicatsBoite`), sans curseur, sans tri, sans `LIMIT`, et sans une seule des
+ * colonnes d'affichage : ni l'interlocuteur, ni les sous-requêtes de comptage, ni les jointures de classement. On
+ * ne demande pas QUI sont les lignes, seulement COMBIEN il y en a.
+ *
+ * 🔴 CE QUE ÇA RÉPARE. La pagination annonce « 1–25 sur N » au-dessus des lignes. Un N calculé « autrement mais
+ * équivalent » — ou pire, un nombre de MESSAGES là où la liste montre des ÉCHANGES — rend la dernière page vide
+ * ou inatteignable, et c'est toujours le compteur qu'on croit. Le défaut signalé par Arno était exactement de
+ * cette famille : « 1–25 sur 291 354 », un ordre de grandeur qui n'est celui d'aucune liste d'échanges (la base
+ * en porte 36 580 au 30/09/2026, pour 57 281 messages).
+ *
+ * ⚠️ LE `NOT EXISTS` EST CE QUI COMPTE DES ÉCHANGES ET NON DES MESSAGES. Il ne garde qu'un message par échange —
+ * le dernier de sa boîte — donc la ligne et l'unité comptée sont la même chose, par construction. C'est la règle
+ * déjà écrite dans `compterBoite`, appliquée ici à n'importe quelle étiquette et à n'importe quel filtre.
+ *
+ * 🔒 AUCUNE ÉCRITURE : un `SELECT count(*)`, comme tout ce fichier.
+ *
+ * Paramètres liés, dans cet ordre : ceux de l'étiquette (le cas échéant), puis notre adresse, puis les fils
+ * retenus — la même suite que la page, moins les trois premiers (curseur, curseur, `LIMIT`) qu'un compte n'a pas.
+ */
+export function sqlCompteBoite(
+  inclureAutomatiques: boolean, etiquette: Etiquette = ETIQUETTE_TOUT, corbeille = false, spam = false,
+  rangFilsRetenus: number | null = null, etoilesSeules = false,
+  rangAdresseGestion: number | null = null, etoileGmail = false,
+  /** Le rang du paramètre de l'étiquette. 1 ici, contre 4 dans la page : un compte n'a ni curseur ni `LIMIT`. */
+  rangEtiquette = 1,
+): string {
+  const {
+    filtreM, filtreM2, filtreEtiquette, filtreSensM, filtreSensM2,
+    filtreCorbeille, filtreCorbeilleM2, filtreSpamM, filtreSpamM2, filtreRetenus, filtreEtoile,
+  } = predicatsBoite(inclureAutomatiques, etiquette, corbeille, spam, rangFilsRetenus, etoilesSeules,
+    rangAdresseGestion, etoileGmail, rangEtiquette);
+  return `SELECT count(*)::int AS n
+       FROM gestion_message m
+      WHERE true
+        ${filtreM}
+        ${filtreSensM}
+        ${filtreEtiquette}
+        ${filtreCorbeille}
+        ${filtreSpamM}
+        ${filtreRetenus}
+        ${filtreEtoile}
+        AND NOT EXISTS (
+              SELECT 1 FROM gestion_message m2
+               WHERE m2.fil_id = m.fil_id ${filtreM2} ${filtreSensM2} ${filtreSpamM2} ${filtreCorbeilleM2}
+                 AND (m2.recu_le, m2.id) > (m.recu_le, m.id))`;
 }
 
 /**
@@ -839,6 +947,29 @@ export async function lireBoiteMail(
       ...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
       ...(retenus === undefined ? [] : [[...retenus]])],
   );
+
+  /**
+   * ══ 🔴🔴 LOT LISTE-PAGINATION — LE NOMBRE D'ÉCHANGES DE **CETTE** LISTE ══════════════════════════════════════
+   *
+   * Demande d'Arno : « N = le nombre d'ÉCHANGES de la liste affichée ». Il est donc compté avec le prédicat de la
+   * liste affichée, étiquette et filtres compris — pas avec celui d'une autre.
+   *
+   * ⚠️ À LA PREMIÈRE PAGE SEULEMENT. C'est la seule requête un peu chère de l'écran, et le nombre ne bouge pas
+   * entre deux pages : le redemander à chaque `‹ ›` le paierait pour rien.
+   *
+   * 🔴 ET LES RANGS DES PARAMÈTRES REPARTENT DE 1 : le compte n'a ni curseur ni `LIMIT`, donc pas de `$1..$3`.
+   * PostgreSQL refuse une requête à qui l'on fournit un paramètre qu'elle n'utilise pas — c'est le piège déjà
+   * consigné deux fois dans ce fichier, et la raison pour laquelle chaque rang est CALCULÉ, jamais deviné.
+   */
+  const rangAdresseCompte = adresseGestion === null ? null : 1 + paramsEtiquette.length;
+  const rangRetenusCompte = retenus === undefined
+    ? null : 1 + paramsEtiquette.length + (rangAdresseCompte === null ? 0 : 1);
+  const compteDeLaListe = curseur !== null ? null : (await query<{ n: number }>(
+    sqlCompteBoite(tous, etiquette, corbeille, spam, rangRetenusCompte, options.etoilesSeules === true,
+      rangAdresseCompte, etoileGmail, 1),
+    [...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
+      ...(retenus === undefined ? [] : [[...retenus]])],
+  )).rows[0]?.n ?? 0;
 
   const aSuite = rows.length === aLire;
   const gardees = aSuite ? rows.slice(0, aLire - 1) : rows;
@@ -957,15 +1088,23 @@ export async function lireBoiteMail(
       motifHorsGestion: null,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
-    // Le total N'EST COMPTÉ QUE pour la boîte entière. Sous une étiquette, c'est la colonne de gauche qui porte le
-    //   nombre — et le recompter ici donnerait deux chiffres pour une seule vérité, donc tôt ou tard deux chiffres
-    //   différents. `null` se lit « demande-le à l'étiquette », pas « zéro ».
-    // LOT 5-BOITE-2 — les DEUX boîtes portent désormais leur total, calculé avec leur propre règle. Les autres
-    //   étiquettes s'en remettent toujours à la colonne de gauche (`null` se lit « demande-le à l'étiquette »).
-    total: curseur === null && (etiquette.sorte === 'reception' || etiquette.sorte === 'envoyes')
-      ? await compterBoite(tous, etiquette.sorte === 'envoyes' ? 'envoye' : 'recu', corbeille, spam,
-        options.etoilesSeules === true)
-      : null,
+    /**
+     * ══ 🔴 LOT LISTE-PAGINATION — LE TOTAL EST CELUI DE **CETTE** LISTE, SOUS TOUTE ÉTIQUETTE ════════════════
+     *
+     * CE QUI ÉTAIT ÉCRIT ICI, ET QUI NE VAUT PLUS : « le total n'est compté QUE pour la boîte entière ; sous une
+     * étiquette, c'est la colonne de gauche qui porte le nombre — et le recompter ici donnerait deux chiffres
+     * pour une seule vérité ». La crainte était juste, mais elle visait un compte écrit AUTREMENT. Ce compte-ci
+     * est écrit avec LE MÊME PRÉDICAT que la liste (`predicatsBoite`), ce qui est exactement l'inverse : il ne
+     * peut pas diverger de ce qu'on voit, puisque c'est la même phrase.
+     *
+     * 🔴 ET IL LE FALLAIT. La pagination « 1–25 sur N · ‹ › » existe sous TOUTES les étiquettes, avec ou sans
+     * filtre étoilé. Sans total sous « Spam » ou « Corbeille », elle n'aurait pas su dire combien de pages il y
+     * a ; avec le total de la colonne de gauche — qui ignore le filtre étoilé —, elle aurait annoncé 8 546
+     * au-dessus de deux lignes, ce qui est le défaut déjà corrigé une fois dans le titre.
+     *
+     * ⚠️ `null` GARDE SON SENS EXACT : « pas la première page », donc « on ne l'a pas recompté ». Jamais zéro.
+     */
+    total: compteDeLaListe,
   };
 }
 
@@ -1131,8 +1270,27 @@ export async function comptesBoite(): Promise<{
    * La règle qui en sort : quand une sonde peut faire disparaître le `FROM`, c'est l'EXPRESSION COMPLÈTE qu'on
    * choisit, jamais un morceau qu'on emboîte ensuite.
    */
+  /**
+   * ══ 🔴🔴 LOT LISTE-PAGINATION — LE SPAM SE COMPTE EN ÉCHANGES, COMME LA CORBEILLE. MESURÉ ═══════════════════
+   *
+   * CE QUI ÉTAIT ÉCRIT ICI, ET QUI ÉTAIT FAUX :
+   *     '(SELECT count(*) FILTER (WHERE spam_le IS NOT NULL)::int FROM gestion_message)'
+   * avec pour justification « le spam se compte en messages parce qu'un spam n'ouvre pas de conversation — sa
+   * liste EST une liste de spams ».
+   *
+   * 🔴 LA LISTE N'EST PAS UNE LISTE DE SPAMS : c'est une liste d'ÉCHANGES, comme toutes les autres. Le prédicat
+   * `NOT EXISTS` de `sqlPageBoite` ne garde qu'un message par échange, sous l'étiquette « Spam » comme sous les
+   * six autres — rien n'y fait exception. La justification décrivait une liste qui n'existe pas.
+   *
+   * MESURÉ EN BASE LE 30/09/2026 : 261 messages marqués spam, répartis sur 258 échanges. La colonne annonçait
+   * donc 261 au-dessus de 258 lignes. Écart invisible tant que rien ne s'appuyait dessus ; avec la pagination,
+   * il devient « 1–25 sur 261 » pour 258 échanges, et la dernière page serait à moitié vide.
+   *
+   * ⚠️ C'EST LA MÊME FAMILLE D'ERREUR QUE CELLE QU'ARNO A SIGNALÉE (« 1–25 sur 291 354 ») : un nombre de MESSAGES
+   * là où la liste montre des ÉCHANGES. On la corrige des deux côtés à la fois.
+   */
   const compteSpam = spam
-    ? '(SELECT count(*) FILTER (WHERE spam_le IS NOT NULL)::int FROM gestion_message)'
+    ? '(SELECT count(DISTINCT fil_id)::int FROM gestion_message WHERE spam_le IS NOT NULL)'
     : '0::int';
   /**
    * LOT BOITE-INTERNE-CORBEILLE — LE SIXIÈME NOMBRE, écrit sur le MÊME patron que le spam (et sujet au MÊME piège
@@ -1144,11 +1302,14 @@ export async function comptesBoite(): Promise<{
    * dit autant. Et `NULL` sans la migration, pour que l'entrée disparaisse au lieu d'annoncer « 0 ».
    */
   /**
-   * 🔴 ELLE SE COMPTE EN ÉCHANGES, PAS EN MESSAGES — à l'inverse du spam juste au-dessus, et c'est voulu. La LISTE
-   * « Corbeille » rend une ligne par ÉCHANGE (le dernier mail supprimé y représente les autres, cf. `sqlPageBoite`) :
-   * compter les messages annoncerait un nombre que la liste ne montre pas, et c'est toujours le compteur qu'on
-   * croit. Le spam, lui, se compte en messages parce qu'un spam n'ouvre pas de conversation — sa liste EST une
-   * liste de spams. Deux règles différentes, parce que les deux listes sont différentes.
+   * 🔴 ELLE SE COMPTE EN ÉCHANGES, PAS EN MESSAGES. La LISTE « Corbeille » rend une ligne par ÉCHANGE (le dernier
+   * mail supprimé y représente les autres, cf. `sqlPageBoite`) : compter les messages annoncerait un nombre que la
+   * liste ne montre pas, et c'est toujours le compteur qu'on croit. Mesuré le 30/09/2026 : 19 messages à la
+   * corbeille pour 17 échanges.
+   *
+   * ⚠️ LOT LISTE-PAGINATION — LE SPAM JUSTE AU-DESSUS SUIT DÉSORMAIS LA MÊME RÈGLE. Le commentaire d'ici
+   * annonçait « deux règles différentes, parce que les deux listes sont différentes » : c'était faux, les deux
+   * listes sont des listes d'échanges. Il n'y a plus qu'une règle, et c'est celle-ci.
    */
   const compteCorbeille = corbeille
     ? '(SELECT count(DISTINCT fil_id)::int FROM gestion_message WHERE corbeille_le IS NOT NULL)'

@@ -13,6 +13,9 @@ import {
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { useReleveGestion } from './useReleveGestion';
+// 🔴 LOT LISTE-PAGINATION — la MÊME barre que la boîte, les brouillons et la file à rattacher.
+import { BarrePages, CSS_BARRE_PAGES } from './BarrePages';
+import { PAR_PAGE } from '../../../../lib/gestion/pagination';
 import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
 import { Conversation } from './Conversation';
@@ -86,6 +89,18 @@ export function GestionVue({ intro }: {
   // Instant de référence des « il y a … », figé au rendu et rafraîchi avec les données. JAMAIS calculé pendant le rendu
   //   d'une ligne : deux lignes d'une même page doivent parler du même « maintenant ».
   const [maintenant, setMaintenant] = useState<Date | null>(null);
+  /**
+   * ══ 🔴 LOT LISTE-PAGINATION — LA PAGE DE LA FILE « SANS ÉVÉNEMENT » ═════════════════════════════════════════
+   *
+   * DEUX déclarations pour une seule valeur, et ce n'est pas un doublon :
+   *   · l'ÉTAT fait rendre l'écran quand on tourne la page ;
+   *   · la RÉFÉRENCE est lue par `lire`, qui doit garder la même identité d'un rendu à l'autre — la mettre dans
+   *     ses dépendances relancerait l'effet de montage à chaque changement, et la liste clignoterait.
+   * Les deux sont écrites au MÊME endroit (`allerPageFile`), jamais séparément : c'est ce qui les empêche de
+   * diverger.
+   */
+  const [pageFile, setPageFile] = useState(0);
+  const pageFileRef = useRef(0);
 
   /**
    * LOT 4b/4c — état des GESTES. `panneau` retient l'IDENTIFIANT DE L'ÉCHANGE dont le panneau est ouvert, jamais son
@@ -243,7 +258,14 @@ export function GestionVue({ intro }: {
    */
   const lire = useCallback(async (): Promise<Chargement> => {
     try {
-      const res = await fetch('/api/admin/gestion', { cache: 'no-store' });
+      /**
+       * 🔴 LOT LISTE-PAGINATION — LE RANG DE LA PAGE DE LA FILE VOYAGE AVEC LA DEMANDE. `0` (le défaut) n'est PAS
+       * écrit dans l'adresse : un défaut écrit n'est plus un défaut, et la route rend alors exactement ce qu'elle
+       * rendait avant ce lot. Le rang est lu dans une référence et non dans les dépendances de ce rappel : `lire`
+       * doit garder la MÊME identité d'un rendu à l'autre, sans quoi l'effet de montage se rejouerait sans fin.
+       */
+      const rang = pageFileRef.current;
+      const res = await fetch(`/api/admin/gestion${rang > 0 ? `?filePage=${rang}` : ''}`, { cache: 'no-store' });
       if (!res.ok) return { etat: 'erreur', message: messageErreurHttp(res.status) };
       return { etat: 'ok', data: (await res.json()) as EtatEcran };
     } catch {
@@ -523,11 +545,11 @@ export function GestionVue({ intro }: {
     }
   }, [gesteEnCours, charger]);
 
-  if (vue.etat === 'charge') return <><style>{CSS_GESTION}</style><p className="gst-info" role="status">Chargement…</p></>;
+  if (vue.etat === 'charge') return <><style>{CSS_GESTION}</style><style>{CSS_BARRE_PAGES}</style><p className="gst-info" role="status">Chargement…</p></>;
   if (vue.etat === 'erreur') {
     return (
       <>
-        <style>{CSS_GESTION}</style>
+        <style>{CSS_GESTION}</style><style>{CSS_BARRE_PAGES}</style>
         <p className="gst-erreur" role="status">{vue.message}</p>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void charger()}>Réessayer</button>
       </>
@@ -548,9 +570,38 @@ export function GestionVue({ intro }: {
    * comme « Replier » avait remplacé « Fermer » au lot 4c. Deux mots pour un même geste font douter qu'il s'agisse du
    * même geste — c'est précisément ce qu'on évite.
    */
-  const fileAClasser = d.file.length === 0
+  /**
+   * ══ 🔴🔴 LOT LISTE-PAGINATION — LA BARRE DE LA FILE « SANS ÉVÉNEMENT » ═══════════════════════════════════════
+   *
+   * CE QUE ÇA RÉPARE. Cette liste montrait les 50 premiers échanges et le disait honnêtement (« 50 affichés sur
+   * 523 ») — mais sans AUCUN moyen d'atteindre les 473 autres. La mention de troncature disait la vérité et
+   * laissait sans recours ; la barre donne le recours, et le total devient celui de la catégorie, comme partout.
+   *
+   * 🔴 LA SUITE SE DÉDUIT DU TOTAL ICI, et c'est l'exception qui confirme la règle du lot. Ailleurs on refuse de
+   * la déduire, parce que le serveur sait mieux (il lit une ligne de plus). Ici la file est bornée à la fenêtre
+   * d'activité et son total sort de la MÊME requête que les lignes, dans la même transaction logique : les deux
+   * ne peuvent pas s'écarter d'un cran. Au pire, la dernière page serait vide — et la barre y reste visible pour
+   * pouvoir revenir (cf. `barrePagination`).
+   *
+   * ⚠️ CHANGER DE PAGE RELIT L'ÉCRAN : la file vit côté serveur, on ne la découpe pas en mémoire. On pose la
+   * référence AVANT l'appel, puisque c'est elle que `lire` consulte.
+   */
+  const allerPageFile = (vers: number) => {
+    const rang = Math.max(0, vers);
+    pageFileRef.current = rang;
+    setPageFile(rang);
+    setPanneau(null);
+    void charger();
+  };
+  const barreFile = (ou: 'haut' | 'bas') => (
+    <BarrePages ou={ou} page={pageFile} lignes={d.file.length} total={d.filsTotal}
+      suite={(pageFile + 1) * PAR_PAGE < d.filsTotal} nom="la file" onPage={allerPageFile} />
+  );
+  const fileAClasser = d.file.length === 0 && pageFile === 0
     ? <p className="gst-vide">{messageFileVide(d)}</p>
     : (
+      <>
+      {barreFile('haut')}
       <ul className="gst-liste">
         {d.file.map((f) => (
           <LigneFil key={f.filId} fil={f} maintenant={ref}
@@ -563,6 +614,8 @@ export function GestionVue({ intro }: {
             onAnnuler={() => setPanneau(null)} />
         ))}
       </ul>
+      {barreFile('bas')}
+      </>
     );
 
   /** Les cartes, rendues une seule fois elles aussi : mêmes fonctions dans la colonne et en plein écran. */
@@ -643,7 +696,7 @@ export function GestionVue({ intro }: {
 
   return (
     <>
-      <style>{CSS_GESTION}</style>
+      <style>{CSS_GESTION}</style><style>{CSS_BARRE_PAGES}</style>
       <style>{INFOBULLE_CSS}</style>
 
       {/* ══ 🔴🔴 LOT FICHES-ANNUAIRE — LE TITRE DE LA PAGE N'A RIEN À FAIRE SUR UNE FICHE ════════════════════

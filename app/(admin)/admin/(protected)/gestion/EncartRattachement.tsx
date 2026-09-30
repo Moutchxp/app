@@ -202,6 +202,31 @@ export function EncartRattachement({ messageId, filId, liens, onChange, onGeste,
           Rattacher à un bien
         </button>
       )}
+      {/* ══ 🔴 LOT LISTE-PAGINATION — LA MENTION DES PROPOSITIONS FINIT LA LIGNE DES BIENS ════════════════════
+          Demande d'Arno : « la 3e ligne passe au bout de la 2e, sur la même ligne ». Elle occupait un paragraphe
+          à elle seule sous l'encart — une ligne entière pour six mots, sur un bloc qu'on lit au-dessus de CHAQUE
+          mail. Elle se lit désormais à la suite : « BIEN(S) RATTACHÉ(S) : rien pour l'instant · Rattacher à un
+          bien · 2 propositions de l'automatisation à trancher ».
+
+          🔴 ELLE EST DANS LA MÊME RANGÉE SOUPLE (`ert-tete`) que le titre, les biens et le bouton : si la largeur
+          ne suffit pas, elle passe à la ligne D'ELLE-MÊME (`flex-wrap`), sans rien tronquer. On gagne une ligne
+          quand il y a la place, et on n'en perd aucune quand il n'y en a pas.
+
+          ⚠️ UN `span`, PLUS UN `p` : un paragraphe force un retour à la ligne quelle que soit la place, c'est
+          même sa définition. C'est lui qui coûtait la ligne, pas la marge.
+
+          ⚠️ LE SÉPARATEUR « · » EST DÉCORATIF (`aria-hidden`) : il sépare pour l'œil. Un lecteur d'écran, lui,
+          enchaîne déjà les éléments de la rangée sans avoir besoin d'entendre « point médian ». */}
+      {!ajout && candidats.length > 0 && (
+        <>
+          <span className="ert-separateur" aria-hidden="true">·</span>
+          <span className="ert-motif ert-propositions">
+            {candidats.length === 1
+              ? 'Une proposition de l’automatisation à trancher.'
+              : `${candidats.length} propositions de l’automatisation à trancher.`}
+          </span>
+        </>
+      )}
       </div>
 
       {/* ══ 🔴🔴 UN RESTE D'ANCIEN MODÈLE : DIT POUR CE QU'IL EST, ET JAMAIS SOUS LE TITRE DES BIENS ═════════
@@ -258,13 +283,9 @@ export function EncartRattachement({ messageId, filId, liens, onChange, onGeste,
       {/* 🔴 LOT BIEN-RATTACHE — LES PROPOSITIONS SONT DANS LE MENU, PLUS À L'ÉCRAN EN PERMANENCE. Demande
           d'Arno : une seule entrée. Quand il y en a, la ligne le DIT — sinon on ne saurait pas qu'il y a
           quelque chose à ouvrir, et l'automatisation travaillerait pour personne. */}
-      {!ajout && candidats.length > 0 && (
-        <p className="ert-motif ert-propositions">
-          {candidats.length === 1
-            ? 'Une proposition de l’automatisation à trancher.'
-            : `${candidats.length} propositions de l’automatisation à trancher.`}
-        </p>
-      )}
+      {/* 🔴 LOT LISTE-PAGINATION — CETTE MENTION A ÉTÉ DÉPLACÉE au bout de la ligne « Bien(s) rattaché(s) », dans
+          `ert-tete` (voir son encadré). Elle n'est pas retirée : elle est REMONTÉE, et c'est ce qui fait gagner la
+          ligne qu'Arno demande. Rien n'est affiché deux fois — il n'en reste aucune copie ici. */}
 
       {/* Les propositions qui ne sont PAS des biens (une carte proposée) gardent leurs deux gestes, inchangés :
           rien n'est retiré, et ce bloc-ci ne sait rien des événements. */}
@@ -352,7 +373,11 @@ export const CSS_ENCART_RATTACHEMENT = `
    Marges intérieures réduites (10/12 px puis 6/10), plus d'espace entre les blocs empilés, et surtout la tête, la
    liste et le bouton d'ajout sur une SEULE rangée souple. Les tailles de texte, elles, ne bougent pas : on gagne
    sur le vide, jamais sur la lisibilité. */
-.ert{display:flex;flex-direction:column;gap:.2rem;margin:.5rem 0;padding:6px 10px;border-radius:10px;
+/* 🔴 LOT LISTE-PAGINATION — MARGES VERTICALES RESSERRÉES (demande d'Arno : « réduis aussi les marges verticales
+   du bloc »). L'espace entre blocs empilés passe de .2rem à .1rem, la marge extérieure de .5rem à .3rem et le
+   rembourrage haut/bas de 6 px à 4 px. Les tailles de texte ne bougent pas : on gagne sur le vide, jamais sur la
+   lisibilité — c'est la règle déjà écrite au-dessus, et ce lot ne fait que la pousser d'un cran. */
+.ert{display:flex;flex-direction:column;gap:.1rem;margin:.3rem 0;padding:4px 10px;border-radius:10px;
   border:1px solid var(--color-svv-line);background:var(--color-svv-field);overflow-wrap:anywhere}
 /* La rangée unique : titre, liste et bouton d'ajout s'y suivent, et n'enroulent que si la largeur manque. */
 .ert-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem .5rem}
@@ -384,8 +409,15 @@ export const CSS_ENCART_RATTACHEMENT = `
 .ert-defait{font-size:.8rem;font-style:italic;color:var(--color-svv-muted)}
 .ert-ajouter{align-self:baseline;flex:0 0 auto}
 /* LOT BIEN-RATTACHE — la mention qui dit qu'il y a quelque chose a ouvrir. Sans elle, l'automatisation
-   travaillerait pour personne : on ne saurait pas qu'un menu porte des propositions. */
-.ert-propositions{margin:.2rem 0 0;font-weight:600;color:var(--color-svv-ink)}
+   travaillerait pour personne : on ne saurait pas qu'un menu porte des propositions.
+   🔴 LOT LISTE-PAGINATION — elle vit maintenant DANS la rangee ert-tete, au bout de la ligne des biens : plus de
+   marge haute (elle creait le decrochage), et flex 0 1 auto pour qu'elle passe a la ligne d'elle-meme quand la
+   largeur ne suffit pas, au lieu de comprimer ses voisines.
+   (Aucun accent grave dans ce commentaire : il vit DANS un litteral de gabarit, qu'un seul accent grave
+    terminerait — piege consigne plusieurs fois dans ce depot.) */
+.ert-propositions{margin:0;font-weight:600;color:var(--color-svv-ink);flex:0 1 auto}
+/* Le point median qui separe les trois morceaux de la ligne. Purement decoratif : aria-hidden cote balise. */
+.ert-separateur{flex:0 0 auto;font-size:.74rem;color:var(--color-svv-muted)}
 /* 🔴 LA CIBLE TACTILE : on ne descend pas sous 44 px de HAUTEUR TOTALE, on la répartit autrement. Les trois liens
    (« Modifier », « Retirer », « + Rattacher à… ») gardaient chacun 44 px de hauteur propre, ce qui empilait trois
    pavés dans un encart qui doit tenir sur une ligne. Ils gardent une hauteur confortable et un padding horizontal

@@ -224,11 +224,28 @@ describe('🔴 ④ le compteur de messages a changé de place, il n’est pas do
     expect(container.querySelector('.brl-compte')).toBeNull();
   });
 
-  /** ③ du lot : le trombone porte le NOMBRE, sans le mot. */
-  it('les pièces jointes se disent « 📎 2 », sans le mot', async () => {
+  /**
+   * ③ du lot : le trombone porte le NOMBRE, sans le mot.
+   *
+   * ══ 🔴 RÉÉCRIT PAR LE LOT LISTE-PAGINATION — LE TROMBONE N'EST PLUS UN CARACTÈRE ══════════════════════════
+   *
+   * CE QUI ÉTAIT EXIGÉ ICI, ET QUI NE PEUT PLUS L'ÊTRE :
+   *     expect(bas).toContain('\u{1F4CE}');
+   * L'emoji a été remplacé par un TRACÉ (composant `Trombone`), parce qu'un emoji est rendu par une police EN
+   * COULEUR qui IGNORE la propriété `color` : l'icône restait argentée pendant que son chiffre obéissait, gris ou
+   * noir — le défaut exact signalé par Arno. Un tracé n'a pas de texte, donc `textContent` ne le voit pas.
+   *
+   * 🔒 CE QUE L'ÉPREUVE GARDE EST INCHANGÉ, et c'est ce qui compte : une MARQUE de pièces jointes est présente,
+   * elle porte le NOMBRE, et surtout PAS le mot « pièce jointe » (c'est tout l'objet du lot d'origine).
+   */
+  it('les pièces jointes se disent « trombone 2 », sans le mot', async () => {
     await monter();
     const bas = container.querySelector('.bte-bas')?.textContent ?? '';
-    expect(bas).toContain('📎');
+    const marque = container.querySelector('.bte-marque--pieces');
+    expect(marque).not.toBeNull();
+    // Le tracé est bien là, et il hérite de la couleur du texte : c'est ce que dit `stroke="currentColor"`.
+    expect(marque?.querySelector('svg')?.getAttribute('stroke')).toBe('currentColor');
+    expect(marque?.textContent).toContain('2');
     expect(bas).toContain('2');
     expect(bas).not.toContain('pièce jointe');
   });

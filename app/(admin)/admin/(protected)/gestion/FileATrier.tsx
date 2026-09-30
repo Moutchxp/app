@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+// 🔴 LOT LISTE-PAGINATION — la MÊME barre que les trois autres listes du module (voir son encadré).
+import { BarrePages, CSS_BARRE_PAGES } from './BarrePages';
 import { ChoisirCible, CSS_CHOISIR_CIBLE, type CibleChoisie } from './ChoisirCible';
 import { motSorte, CSS_ENCART_RATTACHEMENT } from './EncartRattachement';
 import type { LigneFile, PageFile } from '../../../../lib/gestion/rattachementRepo';
@@ -109,6 +111,35 @@ export function FileATrier({ onRetour, onOuvrirFil, onGeste }: {
   const cochees = data.lignes.filter((l) => coches.has(l.messageId));
   const cocheesAvecCandidats = cochees.filter((l) => l.candidats.length > 0);
 
+  /**
+   * ══ 🔴🔴 LOT LISTE-PAGINATION — COMBIEN DE MAILS DANS **CETTE** LISTE, selon le filtre posé ══════════════════
+   *
+   * Les trois filtres de cet écran ne montrent pas la même chose, et le total doit suivre — c'est la règle du
+   * lot : « N = le nombre de la liste affichée ». Les trois nombres existent déjà, calculés par le serveur avec
+   * les mêmes prédicats que les lignes (`totaux`) ; on ne recompte rien, on choisit.
+   *
+   * ⚠️ « Tous » EST BIEN LA SOMME DES DEUX AUTRES, et non un quatrième nombre : le filtre « toutes » réunit
+   * exactement les mails à départager et ceux sans candidat. Les mails RATTACHÉS AUTOMATIQUEMENT
+   * (`totaux.automatiques`) n'entrent dans aucune des trois listes — ils n'ont rien à y faire, il n'y a plus
+   * rien à trancher — et les compter ferait annoncer un total que la liste ne montrerait jamais.
+   */
+  const totalDuFiltre = issue === 'a_trier' ? data.totaux.aTrier
+    : issue === 'sans_candidat' ? data.totaux.sansCandidat
+      : data.totaux.aTrier + data.totaux.sansCandidat;
+  /**
+   * La barre, en haut et en bas. Le MÊME composant que la boîte, les brouillons et les échanges sans événement.
+   *
+   * ⚠️ CHANGER DE PAGE DÉCOCHE LA SÉLECTION, comme avant ce lot : les cases désignent des mails de la page
+   * affichée, et un geste par lot appliqué à des lignes qu'on ne voit plus serait une machine à erreurs
+   * silencieuses. C'est écrit ici, dans le geste, plutôt que répété dans deux boutons.
+   */
+  const rendreBarre = (ou: 'haut' | 'bas') => (
+    <BarrePages ou={ou} page={page} lignes={data.lignes.length} total={totalDuFiltre}
+      /* 🔴 LA SUITE VIENT DU SERVEUR (`tronque` : il a lu une ligne de plus), jamais d'une soustraction. */
+      suite={data.tronque} occupe={occupe || etat === 'charge'} nom="la file"
+      onPage={(v) => { setPage(Math.max(v, 0)); setCoches(new Set()); }} />
+  );
+
   return (
     <section className="fat" aria-labelledby="fat-titre">
       <style>{CSS_FILE_A_TRIER}</style>
@@ -202,6 +233,12 @@ export function FileATrier({ onRetour, onOuvrirFil, onGeste }: {
             </p>
           )}
 
+          {/* ══ 🔴 LOT LISTE-PAGINATION — LA BARRE DU HAUT, entre les filtres et la liste ═══════════════════════
+              Demande d'Arno : la MÊME pagination que la boîte, ici aussi. Elle remplace les deux gros boutons
+              « ← Précédents / page 3 / Suivants → » qui vivaient SEULEMENT en bas : il fallait dérouler
+              vingt-cinq mails pour savoir où l'on en était, et autant pour revenir en arrière. */}
+          {rendreBarre('haut')}
+
           <ul className="fat-liste">
             {data.lignes.map((l) => (
               <li key={l.messageId} className="fat-item">
@@ -280,20 +317,11 @@ export function FileATrier({ onRetour, onOuvrirFil, onGeste }: {
             ))}
           </ul>
 
-          {/* LA PAGINATION — « page suivante » n'apparaît que s'il y a vraiment une suite (une ligne de plus lue). */}
-          {(page > 0 || data.tronque) && (
-            <div className="fat-pages">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={page === 0 || occupe}
-                onClick={() => { setPage((p) => Math.max(p - 1, 0)); setCoches(new Set()); }}>
-                ← Précédents
-              </button>
-              <span className="fat-note">page {page + 1}</span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!data.tronque || occupe}
-                onClick={() => { setPage((p) => p + 1); setCoches(new Set()); }}>
-                Suivants →
-              </button>
-            </div>
-          )}
+          {/* ══ 🔴 LOT LISTE-PAGINATION — LA BARRE DU BAS ═══════════════════════════════════════════════════
+              CE QUI ÉTAIT ICI : trois commandes en gros boutons (« ← Précédents », « page 3 », « Suivants → »),
+              qui ne disaient NI combien de mails il reste, NI où l'on en est dans le total. « page 3 » sur
+              16 628 mails à rattacher n'apprend rien. La barre dit « 51–75 sur 16 628 ». */}
+          {rendreBarre('bas')}
         </>
       )}
     </section>
@@ -328,7 +356,13 @@ export const CSS_FILE_A_TRIER = `
 .fat-motif{margin:2px 0 0;font-size:.76rem;font-style:italic;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .fat-candidats{margin-top:.2rem}
 .fat-autre{align-self:flex-start}
-.fat-pages{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+/* 🔴 LOT LISTE-PAGINATION — .fat-pages a disparu avec les trois gros boutons qu'elle habillait. C'est la feuille
+   partagee (posee plus bas) qui porte desormais la pagination, la meme que partout ailleurs dans le module.
+   ⚠️ NE PAS ECRIRE ICI LE NOM DE LA CONSTANTE PRECEDE D'UN DOLLAR-ACCOLADE : ce commentaire vit DANS un litteral
+   de gabarit, et la constante serait INTERPOLEE — la feuille entiere se retrouverait a l'interieur d'un
+   commentaire CSS, en double. Piege rencontre a l'ecriture de ce lot. */
 .fat-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);
   white-space:nowrap;border:0}
+
+${CSS_BARRE_PAGES}
 `;

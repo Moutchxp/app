@@ -14,6 +14,8 @@ import {
 } from '../../../../lib/gestion/ecranUrl';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { corpsLisible, etatTrombone, motTrombone } from '../../../../lib/gestion/lisibilite';
+// 🔴 LOT LISTE-PAGINATION — la barre est un composant PARTAGÉ par les quatre listes du module (voir son encadré).
+import { BarrePages, CSS_BARRE_PAGES } from './BarrePages';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import {
   bulleCapsule, capsuleStatut, motCapsule, motMotifHorsGestion, type CapsuleStatut,
@@ -39,6 +41,8 @@ function capsuleDeLaLigne(l: {
 import { RattachementsDuFil } from './RattachementsDuFil';
 import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
 import { BarreLigne, CSS_BARRE_LIGNE, Etoile } from './BarreLigne';
+// 🔴 LOT LISTE-PAGINATION — un TRACÉ et non un emoji : lui seul suit la couleur du texte (voir son encadré).
+import { Trombone } from './Trombone';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 
 /**
@@ -203,7 +207,13 @@ export interface BrouillonTrouveEcran {
 type Etat =
   | { v: 'charge' }
   | {
-      v: 'ok'; lignes: LigneEcran[]; suivant: CurseurBoite | null; total: number; comptes: ComptesBoite | null;
+      /**
+       * 🔴 LOT LISTE-PAGINATION — `total` EST DÉSORMAIS `number | null`, et `null` veut dire « on ne l'a pas
+       * compté », jamais « zéro ». Il valait auparavant `r.total ?? r.lignes.length`, ce qui faisait passer un
+       * NOMBRE DE LIGNES pour un total : au-dessus d'une liste paginée, cela aurait écrit « 1–25 sur 25 » sur une
+       * Réception de 8 546 échanges, et éteint le chevron « › » dès la première page.
+       */
+      v: 'ok'; lignes: LigneEcran[]; suivant: CurseurBoite | null; total: number | null; comptes: ComptesBoite | null;
       pleinTexte: boolean; automatiquesMasques: number | null;
       brouillons: { lignes: BrouillonTrouveEcran[]; tronque: boolean };
       nonLus: Set<number>; nonLusTotal: number | null; nonLusPartiel: boolean;
@@ -416,14 +426,32 @@ export function BoiteMail({
   const [critere, setCritere] = useState<Critere>(CRITERE_VIDE);
   const [filtres, setFiltres] = useState(false);
   /**
-   * LOT ÉCRAN-VIVANT — combien de pages ont été déroulées par « Voir plus ».
+   * ══ 🔴🔴 LOT LISTE-PAGINATION — OÙ L'ON EN EST, ET COMMENT ON REVIENT EN ARRIÈRE ═══════════════════════════════
    *
-   * ⚠️ ON COMPTE LE GESTE, PAS LE NOMBRE DE LIGNES. Déduire « il y a des pages en plus » d'un nombre de lignes
-   * supposerait de connaître la taille d'une page — une constante qui vit dans `boiteRepo`, lequel tire `pg` et ne
-   * peut donc PAS être importé par ce composant client (c'est l'incident du 24/09/2026 qui a fait tomber toute
-   * l'application). Le geste, lui, est ici, et il ne mentira jamais.
+   * `page` est le rang affiché, à partir de 0. `curseurs` est la PILE des curseurs déjà employés : `curseurs[0]`
+   * vaut toujours `null` (la première page n'en a pas), et `curseurs[n]` est celui qui a servi à lire la page n.
+   *
+   * 🔴 POURQUOI UNE PILE, ET PAS UN CALCUL. La boîte se pagine PAR CURSEUR, jamais par `OFFSET` — c'est une règle
+   * écrite du dépôt (`boiteRepo`), et elle est ce qui permet au `LIMIT` d'arrêter le parcours au lieu de lire et
+   * de jeter huit mille lignes. Un curseur ne se calcule pas : il se REÇOIT du serveur, page après page. Revenir
+   * en arrière consiste donc à reprendre un curseur DÉJÀ VU, et la pile est exactement la mémoire de ceux-là.
+   *
+   * ⚠️ `useRef` ET NON `useState` : la pile ne s'affiche jamais, elle ne fait que se souvenir. En état, chaque
+   * empilement provoquerait un rendu de plus, juste avant celui que la nouvelle page provoque de toute façon.
+   *
+   * 🔴 ET LA PAGE SURVIT À L'OUVERTURE D'UN ÉCHANGE, sans une ligne de plus : la liste n'est pas démontée quand on
+   * ouvre un mail, elle est seulement MASQUÉE (`hidden` dans `PleinEcranBoite`). Son état vit donc jusqu'au
+   * retour — c'est ce qui répond à « la page courante est conservée au retour depuis un fil ».
    */
-  const [dePlus, setDePlus] = useState(0);
+  const [page, setPage] = useState(0);
+  const curseurs = useRef<(CurseurBoite | null)[]>([null]);
+  /**
+   * Le haut de la liste, pour y revenir à chaque changement de page.
+   *
+   * ⚠️ CE N'EST PAS UN LUXE : les pages font 25 lignes, et arriver page 2 au milieu donne l'impression d'avoir
+   * sauté des échanges. Demande explicite d'Arno (« changer de page remonte en haut de la liste »).
+   */
+  const hautDeListe = useRef<HTMLElement | null>(null);
   /**
    * ══ LOT LISTE-GMAIL — L'ÉTOILE DE L'ÉQUIPE ════════════════════════════════════════════════════════════════════
    * `etoiles` dit si le GESTE est possible (migration 264) ; `etoilees` porte l'état de la page, mis à jour SUR
@@ -499,7 +527,12 @@ export function BoiteMail({
    */
   const peutSeRecharger = listePeutSeRecharger({
     rechercheEnCours: cherche,
-    pagesSupplementaires: dePlus > 0,
+    /**
+     * 🔴 LOT LISTE-PAGINATION — « on n'est plus sur la première page » REMPLACE « des pages ont été déroulées ».
+     * La question posée est la même — « relire la première page détruirait-il le travail en cours ? » — et la
+     * réponse aussi : page 12, une relecture silencieuse ramènerait sans prévenir aux vingt-cinq plus récents.
+     */
+    pagesSupplementaires: page > 0,
     selectionEnCours: false,   // la liste ne porte pas encore de sélection multiple
   });
   // L'interrupteur est PILOTÉ s'il l'est, interne sinon. Et l'étiquette peut l'imposer : voir `autoImposeParEtiquette`.
@@ -521,12 +554,18 @@ export function BoiteMail({
     // Une lecture de la première page = une occasion de revoir ce que la base sait faire (cf. l'encadré de
     //   `cleRelecture`). Cela ne coûte rien de plus : la route des comptes est déjà appelée ici.
     setCleRelecture((n) => n + 1);
-    // LOT ÉCRAN-VIVANT — on repart de la première page : ce qui avait été déroulé par « Voir plus » ne l'est plus.
-    setDePlus(0);
+    /**
+     * 🔴 LOT LISTE-PAGINATION — ON REPART DE LA PREMIÈRE PAGE, ET LA PILE DE CURSEURS EST REMISE À PLAT.
+     * Garder la pile d'une autre liste ferait reculer vers des échanges d'une étiquette qu'on a quittée : les
+     * curseurs sont des repères DANS un parcours, ils n'ont aucun sens dans un autre.
+     */
+    setPage(0);
+    curseurs.current = [null];
     const r = await chargerPage(null, avecAuto, c, e, f, et);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     setEtat({
-      v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? r.lignes.length, comptes: r.comptes,
+      // ⚠️ `r.total ?? r.lignes.length` A ÉTÉ RETIRÉ : voir l'encadré du champ `total` de `Etat`.
+      v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? null, comptes: r.comptes,
       pleinTexte: r.pleinTexte !== false, automatiquesMasques: r.automatiquesMasques ?? null,
       brouillons: r.brouillons ?? { lignes: [], tronque: false },
       nonLus: new Set(r.nonLus ?? []), nonLusTotal: r.nonLusTotal ?? null, nonLusPartiel: r.nonLusPartiel === true,
@@ -626,23 +665,58 @@ export function BoiteMail({
     }));
   }, [cleAffiches]);
 
-  async function voirPlus() {
-    if (etat.v !== 'ok' || etat.suivant === null || suite) return;
+  /**
+   * ══ 🔴🔴 LOT LISTE-PAGINATION — CHANGER DE PAGE ═════════════════════════════════════════════════════════════
+   *
+   * CE QUE ÇA REMPLACE : `voirPlus()`, qui CONCATÉNAIT la page suivante sous les précédentes, derrière un bouton
+   * « Voir les échanges plus anciens ». Arno demande sa suppression et une pagination façon Gmail. On REMPLACE
+   * donc les lignes au lieu de les empiler — c'est la différence entre « la page 2 » et « les cinquante
+   * premiers ».
+   *
+   * 🔴 AVANCER SUIT LE CURSEUR DU SERVEUR (`etat.suivant`), RECULER REPREND UN CURSEUR DÉJÀ VU. Aucun curseur
+   * n'est jamais fabriqué ici : la pagination par curseur ne le permet pas, et c'est précisément ce qui la rend
+   * exacte quand du courrier arrive pendant qu'on lit.
+   *
+   * ⚠️ UN CHANGEMENT DE PAGE RATÉ NE CHANGE PAS LA PAGE. On n'avance `page` qu'APRÈS une réponse valide : sinon
+   * l'écran annoncerait « 26–50 » au-dessus des lignes de la page 1, ce qui est le genre de mensonge qu'on ne
+   * remarque qu'une fois le mail cherché longtemps.
+   *
+   * ⚠️ LES BROUILLONS NE SONT RENDUS QU'À LA PREMIÈRE PAGE (règle d'avant ce lot, cf. `chercherDansLesBrouillons`)
+   * : on GARDE donc ceux qu'on a plutôt que de les effacer en tournant la page — ils correspondent toujours.
+   */
+  async function allerPage(vers: number) {
+    if (etat.v !== 'ok' || suite) return;
+    if (vers < 0 || vers === page) return;
+    // On n'avance que d'un cran à la fois (les chevrons ne proposent rien d'autre) : le curseur de la page
+    //   suivante est celui que le serveur vient de rendre, et lui seul.
+    const curseur = vers > page ? etat.suivant : (curseurs.current[vers] ?? null);
+    if (vers > page && curseur === null) return;   // pas de suite : le chevron est éteint, mais on se garde aussi ici
     setSuite(true);
-    setDePlus((n) => n + 1);
-    const r = await chargerPage(etat.suivant, auto, critere, etiquette, filtre, etoile);
+    const r = await chargerPage(curseur, auto, critere, etiquette, filtre, etoile);
     setSuite(false);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
-    // On CONCATÈNE : « voir plus » allonge la liste, il ne la remplace pas — on ne perd jamais ce qu'on lisait.
+    curseurs.current[vers] = curseur;
+    setPage(vers);
     setEtat({
-      ...etat, lignes: [...etat.lignes, ...r.lignes], suivant: r.suivant, total: etat.total, comptes: etat.comptes,
-      // Les non-lus s'ajoutent comme les lignes : « voir plus » allonge, il ne remplace pas.
-      nonLus: new Set([...etat.nonLus, ...(r.nonLus ?? [])]),
+      ...etat, lignes: r.lignes, suivant: r.suivant,
+      /**
+       * 🔴 LE TOTAL NE SE RECOMPTE PAS D'UNE PAGE À L'AUTRE : le serveur ne le rend qu'à la première page, et le
+       * redemander paierait pour rien un nombre qui n'a pas bougé. On garde donc celui qu'on a — `r.total` vaut
+       * `null` ici, et l'écraser avec lui effacerait le « sur N » dès la page 2.
+       */
+      total: etat.total, comptes: etat.comptes,
+      // Les non-lus sont ceux de la page affichée : on REMPLACE, comme les lignes.
+      nonLus: new Set(r.nonLus ?? []),
       nonLusTotal: etat.nonLusTotal, nonLusPartiel: etat.nonLusPartiel,
-      // Les brouillons ne sont rendus qu'à la première page : on GARDE ceux qu'on a, sans quoi « voir plus » les
-      //   ferait disparaître de l'écran alors qu'ils correspondent toujours.
       brouillons: etat.brouillons,
     });
+    /**
+     * ⚠️ REMONTER EN HAUT DE LA LISTE, demandé par Arno. `scrollIntoView` sur le haut de la section plutôt qu'un
+     * `window.scrollTo` : la liste vit dans un conteneur qui défile (le plein écran), et remonter la FENÊTRE ne
+     * remonterait pas le bon élément. Le `?.` couvre jsdom, qui ne l'implémente pas — un test ne doit pas tomber
+     * pour un défilement.
+     */
+    hautDeListe.current?.scrollIntoView?.({ block: 'start' });
   }
 
   if (etat.v === 'charge') return <p className="gst-info" role="status">Chargement de la boîte…</p>;
@@ -656,15 +730,37 @@ export function BoiteMail({
   }
 
   const ref = maintenant ?? new Date();
+  /**
+   * ══ 🔴🔴 LOT LISTE-PAGINATION — UN SEUL NOMBRE POUR LE TITRE ET POUR LES DEUX BARRES ══════════════════════════
+   *
+   * Demande d'Arno : « N = le nombre d'ÉCHANGES de la liste affichée, le même que le compteur de la catégorie ».
+   * Il est donc calculé ICI, une fois, et les trois endroits qui l'affichent lisent la même variable. Trois
+   * expressions « équivalentes » auraient fini par donner trois nombres — c'est exactement ce que la barre du haut
+   * et le titre auraient vécu, séparés de quarante lignes de code.
+   *
+   * 🔴 IL VIENT DU SERVEUR, QUI L'A COMPTÉ AVEC LE PRÉDICAT DE CETTE LISTE (`sqlCompteBoite`,
+   * `comptesDeLaRecherche`) — étiquette, filtre étoilé et sélecteur « non lus » compris. Le nombre porté par
+   * l'étiquette (`total`, calculé par la colonne de gauche) ne sert plus que de repli quand le serveur n'a rien
+   * compté : il ignore les filtres, et annonçait 8 546 au-dessus de deux lignes étoilées.
+   */
+  const nombreDeLaListe = etat.total ?? total ?? null;
+  /**
+   * La barre, rendue DEUX FOIS — au-dessus et au-dessous de la liste, comme Gmail et comme Arno le demande.
+   * C'est le MÊME composant que les trois autres listes du module emploient (`BarrePages`) : « même pagination
+   * partout » ne veut rien dire si chaque écran en écrit sa version.
+   */
+  const rendreBarre = (ou: 'haut' | 'bas') => (
+    <BarrePages ou={ou} page={page} lignes={etat.lignes.length} total={nombreDeLaListe}
+      // 🔴 LE SERVEUR DÉCIDE S'IL Y A UNE SUITE, jamais une soustraction : voir l'encadré de `barrePagination`.
+      suite={etat.suivant !== null} occupe={suite} onPage={(v) => void allerPage(v)} />
+  );
   return (
-    <section aria-labelledby="bte-titre">
+    <section aria-labelledby="bte-titre" ref={hautDeListe}>
       <h2 className="gst-titre" id="bte-titre">
         {cherche ? 'Résultats' : (titre ?? 'Boîte mail')}
-        {/* 🔴 FILTRE ACTIF ⇒ LE COMPTE DE LA PAGE, PAS CELUI DE LA COLONNE. `total` est le nombre porté par
-            l'étiquette (calculé par la colonne de gauche, sans filtre) ; `etat.total` est celui que le serveur
-            vient de compter POUR CETTE LISTE, filtre compris. Vu à l'écran : le titre annonçait 8 471 au-dessus de
-            deux lignes étoilées. Le compteur doit compter ce qu'on voit. */}
-        {!cherche && <span className="gst-compte">{etoile ? etat.total : (total ?? etat.total)}</span>}
+        {/* 🔴 FILTRE ACTIF ⇒ LE COMPTE DE LA PAGE, PAS CELUI DE LA COLONNE. Voir `nombreDeLaListe` ci-dessus : le
+            titre et les deux barres de pagination lisent désormais LE MÊME nombre, calculé une seule fois. */}
+        {!cherche && nombreDeLaListe !== null && <span className="gst-compte">{nombreDeLaListe}</span>}
         {/* ══ LOT ERGO-BOITE — UNE SEULE ICÔNE À LA PLACE DE DEUX BOUTONS ═══════════════════════════════════════
             « Relever maintenant » et « Rafraîchir » faisaient deux choses qu'on veut toujours ensemble : aller
             chercher le courrier, puis montrer ce qu'on a trouvé. Relever sans rafraîchir laissait l'écran sur
@@ -863,6 +959,14 @@ export function BoiteMail({
         )}
       </form>
 
+      {/* ══ 🔴 LOT LISTE-PAGINATION — LA BARRE DU HAUT, ENTRE LA RECHERCHE ET LA LISTE ═════════════════════════
+          « Une ligne fine entre le champ de recherche et le début de la liste. À DROITE de cette ligne :
+          “1–25 sur N ‹ ›”. » La ligne est la BORDURE de cette barre, pas un élément de plus : un filet qui
+          n'existerait que pour séparer se décalerait du contenu au premier ajustement de marge.
+          ⚠️ ELLE EST AU-DESSUS DE TOUT CE QUE LA LISTE PEUT DIRE (mode réduit, courrier automatique masqué,
+          brouillons trouvés) : c'est le repère de position, il doit être à la même place sur tous les écrans. */}
+      {rendreBarre('haut')}
+
       {/* EN RECHERCHE : combien de résultats la règle du courrier automatique écarte. Même phrase, même bouton. */}
       {cherche && etat.automatiquesMasques !== null && etat.automatiquesMasques > 0 && (
         <p className="gst-tronc">
@@ -926,12 +1030,12 @@ export function BoiteMail({
                     <span className="bte-brouillon bte-brouillon--muet">
                       <Evidence texte={mot} saisie={critere.q} />
                       {' · '}courrier neuf, à rouvrir dans « Brouillons »
-                      {b.aPiece && <span className="bte-marque"> <span aria-hidden="true">📎</span> pièce jointe</span>}
+                      {b.aPiece && <span className="bte-marque"> <Trombone /> pièce jointe</span>}
                     </span>
                   ) : (
                     <button type="button" className="bte-brouillon" onClick={() => onOuvrir(b.filId as number)}>
                       <Evidence texte={mot} saisie={critere.q} />
-                      {b.aPiece && <span className="bte-marque"> <span aria-hidden="true">📎</span> pièce jointe</span>}
+                      {b.aPiece && <span className="bte-marque"> <Trombone /> pièce jointe</span>}
                     </button>
                   )}
                 </li>
@@ -1104,13 +1208,20 @@ export function BoiteMail({
                         ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : l'infobulle dit LEQUEL des deux cas
                         (« dans ce message » / « ailleurs dans la conversation »), et le nombre est celui de
                         l'état affiché, jamais le total. */}
+                    {/* ══ 🔴🔴 LOT LISTE-PAGINATION — L'ICÔNE ET LE CHIFFRE, DE LA MÊME COULEUR ═══════════════
+                        CE QUI ÉTAIT ÉCRIT ICI : <span aria-hidden="true">{'\u{1F4CE}'}</span>, c'est-à-dire un EMOJI.
+                        Il est rendu par une police EN COULEUR qui IGNORE `color` : le trombone restait argenté
+                        pendant que le chiffre juste à côté obéissait, gris ou noir. Constat d'Arno, et aucune
+                        retouche de feuille de style ne pouvait y répondre — voir l'encadré de `Trombone`.
+                        Le tracé, lui, suit `currentColor` : les deux moitiés de la marque ont la même couleur
+                        dans les deux cas, et dans les deux thèmes. */}
                     {(() => {
                       const t = etatTrombone(l.piecesDuMessage ?? 0, l.piecesAilleurs ?? 0);
                       if (t.ou === 'aucune') return null;
                       return (
                         <span className={`bte-marque bte-marque--pieces${t.ou === 'ailleurs' ? ' bte-marque--pieces-loin' : ''}`}
                           title={motTrombone(t) ?? undefined}>
-                          <span aria-hidden="true">📎</span> {t.nombre}
+                          <Trombone /> {t.nombre}
                         </span>
                       );
                     })()}
@@ -1195,11 +1306,16 @@ export function BoiteMail({
           </ul>
         )}
 
-      {etat.suivant !== null && (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn bte-plus" disabled={suite} onClick={() => void voirPlus()}>
-          {suite ? 'Chargement…' : 'Voir les échanges plus anciens'}
-        </button>
-      )}
+      {/* ══ 🔴 LOT LISTE-PAGINATION — LA BARRE DU BAS, ET LA FIN DU BOUTON « VOIR PLUS » ════════════════════════
+          CE QUI ÉTAIT ICI, ET QU'ARNO A DEMANDÉ DE SUPPRIMER :
+              <button className="… bte-plus">Voir les échanges plus anciens</button>
+          Il EMPILAIT les pages les unes sous les autres. Empiler ne dit jamais où l'on en est : après quatre clics
+          on a cent lignes et aucune idée du reste — et la position de défilement devenait le seul repère.
+          La même barre qu'en haut le remplace, alignée à droite elle aussi. */}
+      {rendreBarre('bas')}
+      {/* ⚠️ LA MENTION DE FIN RESTE, et elle n'est PAS redondante avec « 8 526–8 546 sur 8 546 » : elle dit que le
+          plus ancien message de la boîte est atteint, c'est-à-dire qu'il n'en existe pas d'autre en base — ce que
+          le nombre, lui, ne dit pas (il pourrait rester des pages qu'un filtre écarte). */}
       {etat.suivant === null && etat.lignes.length > 0 && (
         <p className="gst-tronc">Vous avez atteint le plus ancien message de la boîte.</p>
       )}
@@ -1423,8 +1539,7 @@ const CSS_BOITE = `
   background:transparent;border:0;color:var(--color-svv-ink)}
 .bte-brouillon--muet{cursor:default;color:var(--color-svv-muted)}
 .bte-trouve{font-weight:800;text-decoration:underline;text-underline-offset:2px}
-.bte-plus{margin-top:12px;width:100%}
-@media (min-width:600px){.bte-plus{width:auto}}
+${CSS_BARRE_PAGES}
 
 ${CSS_MENU_LIGNE}
 `;

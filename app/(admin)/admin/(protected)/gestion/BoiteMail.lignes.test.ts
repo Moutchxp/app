@@ -172,9 +172,15 @@ describe('🔴 une ligne de résultat et une ligne de Réception sont la MÊME l
     await monter();
     await taper('jullien');
     const l = ligne();
-    // 📎 2 : les pièces du message AFFICHÉ, en noir (la classe « loin » est celle du gris).
+    /**
+     * ⚠️ RÉÉCRIT PAR LE LOT LISTE-PAGINATION : le trombone est un TRACÉ, plus un emoji (il ignorait `color`, ce
+     * qui le laissait argenté à côté d'un chiffre noir ou gris — le défaut signalé par Arno). `textContent` ne
+     * voit donc plus que le nombre ; la présence de l'icône se vérifie sur le tracé lui-même.
+     */
+    // 2 pièces du message AFFICHÉ, en noir (la classe « loin » est celle du gris).
     const trombone = l?.querySelector('.bte-marque--pieces');
-    expect(trombone?.textContent?.replace(/\s+/g, ' ').trim()).toBe('📎 2');
+    expect(trombone?.querySelector('svg')).not.toBeNull();
+    expect(trombone?.textContent?.replace(/\s+/g, ' ').trim()).toBe('2');
     expect(trombone?.className).not.toContain('bte-marque--pieces-loin');
     // La capsule dit son mot : un rattachement confirmé à la main, c'est « Classé ».
     expect(l?.querySelector('.bte-capsule')?.textContent).toContain('Classé');
