@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  corpsLisible, estImageDeSignature, masquerReferencesImages, separerCitation, TAILLE_MAX_SIGNATURE, trierPieces,
+  corpsLisible, estImageDeSignature, masquerReferencesImages, separerCitation, sqlEstVraiePiece,
+  TAILLE_MAX_SIGNATURE, trierPieces,
 } from './lisibilite';
 
 /**
@@ -129,5 +130,71 @@ describe('③ trier les images de signature', () => {
     expect(vraies.map((x) => x.nomFichier)).toEqual(['constat.pdf', 'photo.jpg']);
     expect(signatures.map((x) => x.nomFichier)).toEqual(['image001.png']);
     expect(vraies.length + signatures.length).toBe(pieces.length); // rien ne disparaît au tri
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RATTACHER-EN-ECRIVANT — LA MÊME RÈGLE, RENDUE EN SQL
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('④ « vraie pièce » en SQL : la même règle, dans l’autre langue', () => {
+  /**
+   * POURQUOI CE RENDU EXISTE. La recherche pagine : elle lit vingt-cinq lignes et s'arrête. Écarter les logos de
+   * signature APRÈS la lecture rendrait des pages de dix-neuf lignes et un total qui ne correspondrait à rien. La
+   * condition doit donc entrer dans le `WHERE` — d'où une version SQL.
+   *
+   * 🔴 CE QU'ON REFUSE, C'EST UNE SECONDE DÉFINITION. Les motifs et la taille limite sont écrits UNE fois et
+   * servent aux deux rendus. Ces épreuves vérifient que la version SQL porte bien les mêmes morceaux : un préfixe
+   * ajouté d'un côté et pas de l'autre est exactement le défaut qu'Arno a constaté à l'écran.
+   *
+   * ⚠️ VÉRIFIÉ AUSSI SUR LA VRAIE BASE, le 30/09/2026 : les deux règles appliquées aux 27 011 lignes de
+   * `gestion_piece` donnent le MÊME verdict sur chacune — 16 686 vraies pièces des deux côtés, 0 désaccord.
+   */
+  it('🔴 porte les mêmes préfixes de signature que la règle TypeScript', () => {
+    const sql = sqlEstVraiePiece('p');
+    for (const prefixe of ['image', 'oledata', 'logo', 'signature', 'outlook-']) {
+      expect(sql).toContain(prefixe);
+    }
+    // Les mêmes extensions d'image, et la même liste.
+    for (const ext of ['png', 'jpe?g', 'gif', 'bmp', 'webp']) expect(sql).toContain(ext);
+  });
+
+  it('🔴 porte la MÊME taille limite, lue à la même constante', () => {
+    expect(sqlEstVraiePiece('p')).toContain(`< ${TAILLE_MAX_SIGNATURE}`);
+    expect(TAILLE_MAX_SIGNATURE).toBe(10 * 1024);
+  });
+
+  /** ⚠️ LES JUMEAUX macOS SONT UNE RÈGLE À PART, et elle est là aussi : « vraie pièce » veut dire les deux. */
+  it('écarte les jumeaux macOS « ._ »', () => {
+    expect(sqlEstVraiePiece('p')).toContain("nom_fichier NOT LIKE '._%'");
+  });
+
+  /** L'alias est celui qu'on lui donne : la condition se pose sous n'importe quel nom de table. */
+  it('l’alias de table est celui demandé', () => {
+    expect(sqlEstVraiePiece('pc')).toContain('pc.nom_fichier');
+    expect(sqlEstVraiePiece('pc')).not.toContain('p.nom_fichier');
+  });
+
+  /**
+   * 🔴 LA COMPARAISON DE CASSE EST INSENSIBLE DES DEUX CÔTÉS. Le motif JavaScript porte le drapeau `i` ; la
+   * version SQL doit employer `~*` et non `~`, sans quoi « IMAGE001.PNG » passerait pour une vraie pièce d'un
+   * côté et pas de l'autre. Ces noms-là arrivent en majuscules aussi souvent qu'en minuscules.
+   */
+  it('🔴 la comparaison est insensible à la casse, comme en TypeScript', () => {
+    expect(sqlEstVraiePiece('p')).toContain('~*');
+    expect(sqlEstVraiePiece('p')).not.toMatch(/[^~]~[^*]/);
+    expect(estImageDeSignature({ nomFichier: 'IMAGE001.PNG', typeMime: 'image/png', tailleOctets: 900_000 }))
+      .toBe(true);
+  });
+
+  /**
+   * ⚠️ UN CAS QUE LES DEUX RÈGLES DOIVENT TRAITER PAREIL, et qui a failli passer : un PDF minuscule. Il est
+   * PETIT, mais il n'est pas une IMAGE — la taille ne décide qu'après. Un quittance de 2 ko reste une pièce.
+   */
+  it('⚠️ un petit PDF reste une vraie pièce, des deux côtés', () => {
+    expect(estImageDeSignature({ nomFichier: 'quittance.pdf', typeMime: 'application/pdf', tailleOctets: 2000 }))
+      .toBe(false);
+    // Côté SQL, la taille n'entre en jeu que sous la condition « c'est une image » : elle en est le facteur.
+    expect(sqlEstVraiePiece('p')).toMatch(/LIKE 'image\/%'[\s\S]*AND[\s\S]*taille_octets/);
   });
 });

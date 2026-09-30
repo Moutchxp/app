@@ -99,8 +99,54 @@ export interface PieceATrier {
 
 /** Au-delà, une image n'est plus un logo de signature : c'est une photo qu'on a voulu envoyer. */
 export const TAILLE_MAX_SIGNATURE = 10 * 1024;
+
+/**
+ * ══ 🔴 LES TROIS MORCEAUX DE LA RÈGLE, ÉCRITS UNE SEULE FOIS ════════════════════════════════════════════════════
+ *
+ * Ils servent DEUX FOIS : à `estImageDeSignature` juste en dessous (en TypeScript, sur une pièce qu'on tient), et
+ * à `sqlEstVraiePiece` (en SQL, pour filtrer une liste avant de la découper en pages). Les écrire deux fois
+ * donnerait deux définitions de « pièce jointe » — et c'est exactement le défaut qu'Arno a signalé : la recherche
+ * « Pièce jointe = Avec » comptait les logos de signature, l'écran ne les comptait pas, et la ligne trouvée
+ * affichait un trombone GRIS (« les pièces sont ailleurs ») sur un mail censé en porter une.
+ *
+ * ⚠️ LES MOTIFS SONT DES CHAÎNES, PAS DES `RegExp` LITTÉRALES, et c'est ce qui rend les deux rendus possibles :
+ * la même syntaxe se compile en `RegExp` ici et se colle dans un `~*` de PostgreSQL là-bas. On s'en tient donc au
+ * sous-ensemble commun (classes, alternatives, ancres, `[\w.-]`) — aucune construction propre à JavaScript.
+ */
+const EXTENSIONS_IMAGE = '(png|jpe?g|gif|bmp|webp)';
+const PREFIXES_DE_SIGNATURE = '(image|oledata|logo|signature|outlook-)';
 /** Les noms que produisent Outlook et consorts pour les images intégrées. */
-const NOMS_DE_SIGNATURE = /^(image|oledata|logo|signature|outlook-)[\w.-]*\.(png|jpe?g|gif|bmp|webp)$/i;
+const NOMS_DE_SIGNATURE = new RegExp(`^${PREFIXES_DE_SIGNATURE}[\\w.-]*\\.${EXTENSIONS_IMAGE}$`, 'i');
+const EXTENSION_IMAGE_FINALE = new RegExp(`\\.${EXTENSIONS_IMAGE}$`, 'i');
+
+/**
+ * ══ 🔴🔴 LA MÊME RÈGLE, EN SQL : « cette pièce est-elle une VRAIE pièce ? » ═══════════════════════════════════
+ *
+ * Rendue depuis les MÊMES motifs et la MÊME constante de taille que `estImageDeSignature`. Ce n'est pas une
+ * seconde écriture « équivalente » : c'est le même texte, rendu dans l'autre langue. Changer un préfixe de
+ * signature change les deux du même geste.
+ *
+ * 🔴 À QUOI ÇA SERT, ET POURQUOI ÇA NE POUVAIT PAS SE FAIRE EN TypeScript. La recherche pagine : elle lit
+ * vingt-cinq lignes et s'arrête. Filtrer les fausses pièces APRÈS la lecture rendrait des pages de dix-neuf
+ * lignes, et un total qui ne correspondrait à rien. La condition doit donc entrer dans le `WHERE`.
+ *
+ * ⚠️ LES JUMEAUX macOS (« ._bail.pdf ») SONT ÉCARTÉS ICI AUSSI — c'est une règle DIFFÉRENTE (ce ne sont pas des
+ * pièces mal rangées, ce sont des doubles techniques), déjà écrite en SQL dans `piecesVraiesDesFils`. Les deux
+ * conditions se posent ensemble, parce que « vraie pièce » veut dire les deux.
+ *
+ * ⚠️ `~*` (insensible à la casse) ET NON `~` : les mêmes noms arrivent en « IMAGE001.PNG » aussi souvent qu'en
+ * minuscules, et le motif JavaScript porte déjà le drapeau `i`.
+ */
+export function sqlEstVraiePiece(alias = 'p'): string {
+  const estImage = `(lower(coalesce(${alias}.type_mime, '')) LIKE 'image/%'`
+    + ` OR ${alias}.nom_fichier ~* '\\.${EXTENSIONS_IMAGE}$')`;
+  const nomDeSignature = `${alias}.nom_fichier ~* '^${PREFIXES_DE_SIGNATURE}[\\w.-]*\\.${EXTENSIONS_IMAGE}$'`;
+  const tropPetite = `(${alias}.taille_octets IS NOT NULL AND ${alias}.taille_octets > 0`
+    + ` AND ${alias}.taille_octets < ${TAILLE_MAX_SIGNATURE})`;
+  // Une pièce est VRAIE quand elle n'est pas un jumeau macOS, et qu'elle n'est pas une image de signature.
+  return `${alias}.nom_fichier NOT LIKE '._%'`
+    + ` AND NOT (${estImage} AND (${nomDeSignature} OR ${tropPetite}))`;
+}
 
 /**
  * ③ Une image INTÉGRÉE À LA SIGNATURE, par opposition à une vraie pièce jointe.
@@ -115,7 +161,7 @@ const NOMS_DE_SIGNATURE = /^(image|oledata|logo|signature|outlook-)[\w.-]*\.(png
 export function estImageDeSignature(p: PieceATrier): boolean {
   const type = (p.typeMime ?? '').toLowerCase();
   const nom = (p.nomFichier ?? '').trim();
-  const estImage = type.startsWith('image/') || /\.(png|jpe?g|gif|bmp|webp)$/i.test(nom);
+  const estImage = type.startsWith('image/') || EXTENSION_IMAGE_FINALE.test(nom);
   if (!estImage) return false;
   if (NOMS_DE_SIGNATURE.test(nom)) return true;
   return p.tailleOctets !== null && p.tailleOctets > 0 && p.tailleOctets < TAILLE_MAX_SIGNATURE;

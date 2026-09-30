@@ -296,6 +296,17 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * rendue, plutôt qu'une capsule inventée.
    */
   const [horsGestion, setHorsGestion] = useState<Map<number, { motif: string | null }> | null>(null);
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — CET ÉCHANGE EST-IL MARQUÉ « INTERNE » ?
+   *
+   * ⚠️ UN BOOLÉEN POUR TOUT L'ÉCHANGE, et non une carte par message : la marque porte sur la CONVERSATION. C'est
+   * exactement ce qui fait que la réponse d'un collègue hérite du statut sans aucun geste de plus — le défaut
+   * qu'Arno a constaté (sa réponse s'affichait « À classer »).
+   *
+   * `null` = on ne sait rien (migration 281 absente, ou lecture en échec) : aucune capsule verte n'est alors
+   * rendue, plutôt qu'une capsule inventée.
+   */
+  const [interne, setInterne] = useState<boolean | null>(null);
   /* ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LE RÉCAPITULATIF, LA VISIONNEUSE, LE RANGEMENT ═══════════════════════
      Les trois vivent ICI, au niveau de la conversation, et pas dans le bloc de pièces d'un message : le tour de
      « Précédent / Suivant » couvre TOUTES les pièces de l'échange, et un bloc de message n'en connaît qu'un. */
@@ -424,12 +435,34 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     }
   }, []);
 
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — LA MARQUE « INTERNE » DE L'ÉCHANGE, dans une lecture à part et silencieuse.
+   * À part, parce qu'elle vit dans une table dont la migration peut manquer ; silencieuse, parce qu'un échec ne
+   * doit retirer QUE la capsule verte — le reste de la conversation n'a aucune raison d'en souffrir.
+   */
+  const chargerInterne = useCallback(async (fil: number | null) => {
+    if (fil === null) { setInterne(false); return; }
+    try {
+      const res = await fetch(`/api/admin/gestion/interne?fils=${fil}`, { cache: 'no-store' });
+      const d = (await res.json()) as { etat?: string; data?: Record<string, unknown> };
+      setInterne(d.etat !== 'ok' ? null : Object.keys(d.data ?? {}).length > 0);
+    } catch {
+      setInterne(null);
+    }
+  }, []);
+
   const idsMessages = vue.v === 'ok' ? vue.messages.map((m) => m.messageId) : [];
   // Une clé STABLE : sans elle, un tableau recréé à chaque rendu relancerait la requête en boucle.
   const cleMessages = idsMessages.join(',');
   useEffect(() => {
     void chargerRattachements(cleMessages === '' ? [] : cleMessages.split(',').map(Number));
   }, [cleMessages, chargerRattachements]);
+  /**
+   * ⚠️ UN EFFET À PART, ET SUR `filId` SEUL. La marque « Interne » porte sur l'ÉCHANGE : la relire à chaque
+   * changement de la liste des messages la redemanderait pour rien, et la lier à `cleMessages` ferait repartir la
+   * requête au moindre dépliage.
+   */
+  useEffect(() => { void chargerInterne(filId); }, [filId, chargerInterne]);
 
   /**
    * LOT 5-BOITE-3 — la voie demandée depuis la liste, appliquée UNE FOIS la conversation chargée : le brouillon se
@@ -911,7 +944,22 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             /* LOT RATTACHEMENT-1 — « Rattaché à … », dans le mail OUVERT. `null` = 257 absente : aucun bandeau. */
             rattachements={rattachements === null ? null : (rattachements.get(m.messageId) ?? [])}
             horsGestion={horsGestion === null ? null : (horsGestion.get(m.messageId) ?? false)}
-            onRattachement={() => chargerRattachements(idsMessages)}
+            /* 🔴 LOT RATTACHER-EN-ECRIVANT — la marque de l'ÉCHANGE, donc LA MÊME pour tous ses messages. C'est
+               ce qui fait que la réponse d'un collègue porte la capsule sans qu'on ait rien fait de plus. */
+            interne={interne}
+            onInterne={async (actif) => {
+              if (filId === null) return;
+              await fetch('/api/admin/gestion/interne', {
+                method: actif ? 'POST' : 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filIds: [filId] }),
+              });
+              await chargerInterne(filId);
+              onGeste(actif
+                ? 'Échange marqué « interne » : il n’y a pas de bien à y rattacher.'
+                : 'Marque « interne » retirée.');
+            }}
+            onRattachement={() => { void chargerRattachements(idsMessages); void chargerInterne(filId); }}
             onGesteRattachement={(t) => onGeste(t)}
             onHistorique={onHistorique}
             /* 🔴 LOT PIECES-DE-LA-CONVERSATION — la vignette d'une pièce ouvre la visionneuse maison, avec le tour
@@ -1155,7 +1203,8 @@ function ouvrirRedaction(
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
-  rattachements = null, horsGestion = null, onRattachement, onGesteRattachement, onHistorique, onVisualiser,
+  rattachements = null, horsGestion = null, interne = null, onInterne,
+  onRattachement, onGesteRattachement, onHistorique, onVisualiser,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
   /**
@@ -1212,6 +1261,13 @@ export function MessageConversation({
    * `null` si on ne sait pas (migration 266 absente, ou lecture en échec). `null` ⇒ aucune capsule grise possible.
    */
   horsGestion?: { motif: string | null } | false | null;
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — l'ÉCHANGE de ce message est-il marqué « interne » ? `null` = on ne sait rien
+   * (migration 281 absente) : aucune capsule verte inventée.
+   */
+  interne?: boolean | null;
+  /** Poser ou retirer la marque. Absent ⇒ aucun bouton : l'écran est alors celui d'avant ce lot. */
+  onInterne?: (actif: boolean) => void | Promise<void>;
   /** Recharge les liens de l'échange après un geste. Absent = le bandeau reste en lecture. */
   onRattachement?: () => void | Promise<void>;
   onGesteRattachement?: (message: string) => void;
@@ -1256,7 +1312,13 @@ export function MessageConversation({
    * redevient vert tout seul, ce qui est exactement la réversibilité demandée.
    */
   const marque = horsGestion === null || horsGestion === false ? null : horsGestion;
-  const capsule = rattachements === null ? null : capsuleDuMessage(rattachements, marque !== null);
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — LA MARQUE « INTERNE » DE L'ÉCHANGE ENTRE DANS LE CALCUL, avec son rang :
+   * Classé > Auto > Interne > Hors gestion > À classer (`capsuleDuMessage`, module PUR). Un échange marqué
+   * interne PUIS rattaché à un bien redevient « Classé » tout seul — la réversibilité par le geste naturel.
+   */
+  const capsule = rattachements === null
+    ? null : capsuleDuMessage(rattachements, marque !== null, interne === true);
   const biensDuMail = (rattachements ?? [])
     .filter((l) => SORTES_BIEN.includes(l.cible.sorte) && l.statut === 'confirme')
     .map((l) => l.libelle);
@@ -1785,6 +1847,8 @@ export const CSS_CONVERSATION = `
    des deux, sans pour autant faire passer l'automatique pour un probleme. */
 .cnv-capsule--auto{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 /* LOT STATUT-HORS-GESTION — le GRIS : une decision prise, pas un travail en attente. Le MOT est ecrit. */
+/* LOT RATTACHER-EN-ECRIVANT — « Interne » : VERT, un etat d'ARRIVEE. Le MOT est toujours ecrit. */
+.cnv-capsule--interne{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 .cnv-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
 /* ══ 🔴 LOT BIEN-RATTACHE — LE CORPS EN MISE EN FORME ══════════════════════════════════════════════════════════
    Le HTML vient d'un TIERS : il faut le BORNER, sinon un mail de syndic large de 900 px pousse toute la

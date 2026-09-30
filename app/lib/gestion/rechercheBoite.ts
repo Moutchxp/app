@@ -29,6 +29,10 @@ import {
 import { chargerConfigGestion } from './config';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils } from './nonRemiseRepo';
+// 🔴 LOT RATTACHER-EN-ECRIVANT — la règle « vraie pièce », rendue en SQL depuis sa définition UNIQUE.
+import { sqlEstVraiePiece } from './lisibilite';
+// 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois.
+import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 import {
   automatiquesInclus, decouperTermes, listesChoisies, normaliser, normSql, type CritereRecherche, type SorteListe,
 } from './rechercheTermes';
@@ -113,6 +117,8 @@ interface LigneDB {
   /** LOT RECHERCHE-LIGNES — la capsule de statut, lue par les MÊMES jointures que la liste (voir `boiteRepo`). */
   cl_n: number | null; cl_humain: boolean | null; cl_detail: string | null;
   hg_marque: boolean | null; hg_motif: string | null;
+  /** LOT RATTACHER-EN-ECRIVANT — `null` quand la migration 281 est absente : la table n'est nommée nulle part. */
+  itn_marque: boolean | null;
 }
 
 /**
@@ -252,9 +258,34 @@ export function conditions(
    * LOT RECHERCHE-AVANCEE — PIÈCE JOINTE. `EXISTS` plutôt qu'une jointure : la question est « y en a-t-il ? », pas
    * « combien ? », et l'index `gestion_piece_message_idx` la sert directement. `indifferent` n'écrit aucune
    * condition — un filtre neutre ne doit rien coûter.
+   *
+   * ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — « UNE VRAIE PIÈCE », ET SUR LE MESSAGE TROUVÉ ═══════════════════════════
+   *
+   * CE QUI ÉTAIT ÉCRIT ICI, ET QUI ÉTAIT INCOMPLET :
+   *     const existe = 'EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)';
+   *
+   * 🔴 CE QUI MANQUAIT : la condition comptait TOUTE ligne de `gestion_piece` — y compris les logos de signature
+   * (image001.png, outlook-xxxx.gif) et les jumeaux macOS (« ._bail.pdf »). Or l'ÉCRAN, lui, ne les compte pas :
+   * c'est `trierPieces` qui décide ce qu'est une pièce, et lui les écarte. Deux définitions, donc deux réponses.
+   *
+   * CE QUE ÇA DONNAIT À L'ÉCRAN, et c'est le constat d'Arno : « Pièce jointe = Avec » rendait des échanges dont
+   * le message trouvé ne portait qu'un logo de signature. La ligne affichait alors un trombone GRIS — « les
+   * pièces sont ailleurs dans la conversation » — sur un résultat censé, précisément, en porter une lui-même.
+   * Le filtre disait donc le contraire de ce que la ligne montrait, sur la même ligne.
+   *
+   * 🔒 LA CORRECTION N'INTRODUIT PAS UNE TROISIÈME DÉFINITION : `sqlEstVraiePiece` est rendu à partir des MÊMES
+   * motifs et de la MÊME constante de taille que `estImageDeSignature` (voir son encadré dans `lisibilite.ts`).
+   *
+   * ⚠️ LA CONDITION PORTE SUR `m`, LE MESSAGE TROUVÉ — jamais sur son échange. C'est déjà ce qu'elle faisait, et
+   * c'est ce qui garantit « jamais un échange où seule une autre partie de la conversation en a » : le `DISTINCT
+   * ON (m.fil_id)` ne garde qu'un message PARMI CEUX QUI PASSENT CE `WHERE`.
+   *
+   * ⚠️ « SANS » EST LA NÉGATION EXACTE DE « AVEC », et c'est pour cela qu'on écrit `NOT (…)` plutôt qu'une
+   * seconde condition : un mail dont la seule pièce est un logo est un mail SANS pièce jointe, dans les deux
+   * sens du filtre. Deux écritures indépendantes laisseraient un jour un mail dans aucun des deux.
    */
   if (c.piece === 'avec' || c.piece === 'sans') {
-    const existe = 'EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)';
+    const existe = `EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id AND ${sqlEstVraiePiece('p')})`;
     sql.push(c.piece === 'avec' ? existe : `NOT ${existe}`);
   }
 
@@ -283,11 +314,11 @@ export async function chercherDansLeCourrier(
    */
   const {
     rechercheTexteDisponible, spamDisponible, corbeilleGmailDisponible,
-    rattachementsDisponibles, horsGestionDisponible,
+    rattachementsDisponibles, horsGestionDisponible, interneDisponible,
   } = await import('./schema');
-  const [pleinTexte, spamConnu, corbeilleConnue, config, rattachements, horsGestion] = await Promise.all([
+  const [pleinTexte, spamConnu, corbeilleConnue, config, rattachements, horsGestion, interne] = await Promise.all([
     rechercheTexteDisponible(), spamDisponible(), corbeilleGmailDisponible(), chargerConfigGestion(),
-    rattachementsDisponibles(), horsGestionDisponible()]);
+    rattachementsDisponibles(), horsGestionDisponible(), interneDisponible()]);
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
 
   const { sql: filtres, params } = conditions(critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue);
@@ -333,11 +364,13 @@ export async function chercherDansLeCourrier(
             --   la donnee : la recherche rendait classement=null, donc la ligne n'affichait rien, fidelement.
             -- ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un litteral gabarit.
             cl.n AS cl_n, cl.humain AS cl_humain, cl.detail AS cl_detail,
-            ${horsGestion ? 'hg.motif IS NOT NULL AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'}
+            ${horsGestion ? 'hg.motif IS NOT NULL AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'},
+            ${sqlColonneInterne(interne)}
        FROM trouves t
        JOIN gestion_fil f ON f.id = t.fil_id
        ${sqlJointureClassement(rattachements, 't')}
        ${sqlJointureHorsGestion(horsGestion, 't')}
+       ${sqlJointureInterne(interne, 't')}
   LEFT JOIN LATERAL (
          SELECT r.de_adresse, r.de_nom FROM gestion_message r
           WHERE r.fil_id = t.fil_id AND r.sens = 'recu'
@@ -446,6 +479,9 @@ export async function chercherDansLeCourrier(
         : { nbActifs: r.cl_n ?? 0, parUnHumain: r.cl_humain === true, detail: r.cl_detail },
       horsGestion: r.hg_marque === true,
       motifHorsGestion: r.hg_motif,
+      // 🔴 LOT RATTACHER-EN-ECRIVANT — la MÊME capsule qu'en liste : un résultat et une ligne de boîte montrent
+      //   le même échange, et ne doivent jamais se contredire (règle du lot RECHERCHE-LIGNES).
+      interne: r.itn_marque === true,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     /**

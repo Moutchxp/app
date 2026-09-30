@@ -579,6 +579,50 @@ export function horsGestionDisponible(): Promise<boolean> {
 }
 
 /**
+ * 🔴 LOT RATTACHER-EN-ECRIVANT — la migration 281 est-elle appliquée ? Elle porte « INTERNE » : un échange entre
+ * collègues, sans bien à rattacher.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, la table n'est NOMMÉE NULLE PART — ni dans une jointure de liste, ni dans une lecture de
+ * conversation — et le bouton « Interne » est GRISÉ avec son motif. Nommer une table absente ferait échouer TOUTE
+ * la boîte, pas seulement la fonction nouvelle : c'est la règle du module depuis l'incident du lot 4a.
+ */
+export function interneDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_fil_interne', () => tableExiste('gestion_fil_interne'));
+}
+
+/**
+ * 🔴 LOT RATTACHER-EN-ECRIVANT — la migration 282 est-elle appliquée ? Elle porte les BIENS COCHÉS PENDANT
+ * L'ÉCRITURE, en attente que la relève capture le message envoyé.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, la table n'est NOMMÉE NULLE PART, et la modale le DIT : les biens cochés ne seront pas
+ * posés. Le mail part quand même, à classer — exactement le comportement d'avant ce lot, mais annoncé.
+ */
+export function envoiCiblesDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_envoi_cible', () => tableExiste('gestion_envoi_cible'));
+}
+
+/**
+ * 🔴 LOT RATTACHER-EN-ECRIVANT — la migration 283 est-elle appliquée ? Elle porte « INTERNE » choisi pendant
+ * l'écriture d'un message NEUF, dont l'échange n'existe pas encore.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, la colonne n'est NOMMÉE NULLE PART : « Interne » reste posable sur une RÉPONSE (dont
+ * l'échange existe déjà), et sur un message neuf l'écran dit de le faire depuis « Classer » une fois le message
+ * parti. Une moitié de fonction ANNONCÉE, jamais une moitié de fonction silencieuse.
+ */
+export function envoiInterneDisponible(): Promise<boolean> {
+  return memoiser('envoi.interne_demande', () => colonneExiste('gestion_envoi', 'interne_demande'));
+}
+
+/**
+ * ⚠️ LA MÊME COLONNE, MAIS SUR LA FILE. Deux sondes SÉPARÉES, parce que les deux colonnes peuvent diverger si la
+ * migration 283 est appliquée à moitié — et parce que nommer une colonne absente ferait échouer TOUT envoi mis en
+ * file, pas seulement ceux qu'on marque.
+ */
+export function envoiInterneFileDisponible(): Promise<boolean> {
+  return memoiser('envoi_file.interne_demande', () => colonneExiste('gestion_envoi_file', 'interne_demande'));
+}
+
+/**
  * 🔴 LOT CONTACTS-ET-EVENEMENT — la migration 267 est-elle appliquée ? Elle porte le LIBELLÉ DE LA COLONNE
  * WIPPIMMO d'où vient chaque coordonnée (« Mobile 1 », « Email 2 »).
  *

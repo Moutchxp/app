@@ -211,17 +211,28 @@ export function lienVersCarte(s: StatutClassement): string | null {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * ══ 🔴 LES QUATRE STATUTS D'UN MAIL, DANS L'ORDRE DE PRIORITÉ ════════════════════════════════════════════════════
+ * ══ 🔴 LES CINQ STATUTS D'UN MAIL, DANS L'ORDRE DE PRIORITÉ ══════════════════════════════════════════════════════
  *
- *   Classé (vert) > Auto (vert) > Hors gestion (GRIS) > À classer (rouge)
+ *   Classé (vert) > Auto (vert) > Interne (VERT) > Hors gestion (GRIS) > À classer (rouge)
  *
  * L'ordre n'est pas décoratif, il tranche les conflits :
  *   · CLASSÉ AVANT AUTO — « le geste humain l'emporte » : quelqu'un a tranché, c'est l'information qui compte ;
- *   · UN RATTACHEMENT AVANT « HORS GESTION » — un mail marqué hors gestion puis rattaché à un bien est rattaché,
- *     point. C'est aussi ce qui rend la marque RÉVERSIBLE par le geste naturel : rattacher la lève.
- *   · « HORS GESTION » AVANT « À CLASSER » — c'est précisément ce que la marque sert à dire.
+ *   · UN RATTACHEMENT AVANT « INTERNE » ET « HORS GESTION » — un mail marqué puis rattaché à un bien est
+ *     rattaché, point. C'est aussi ce qui rend les deux marques RÉVERSIBLES par le geste naturel : rattacher les
+ *     lève ;
+ *   · 🔴 « INTERNE » AVANT « HORS GESTION » (rang demandé par Arno). Les deux disent « pas de bien à rattacher »,
+ *     mais « Interne » dit en plus POURQUOI — c'est un échange entre collègues. Un échange qui porterait les deux
+ *     marques mérite donc le mot le plus précis, et le vert plutôt que le gris ;
+ *   · LES DEUX AVANT « À CLASSER » — c'est précisément ce qu'elles servent à dire.
+ *
+ * 🔴 « INTERNE » EST VERT, ET C'EST VOULU : c'est un état d'ARRIVÉE, pas une mise à l'écart. « Hors gestion »
+ * reste gris parce qu'il dit seulement « ce n'est pas pour nous » ; « Interne » dit « c'est traité ».
+ *
+ * ⚠️ « INTERNE » QUALIFIE L'ÉCHANGE, PAS LE MAIL — à la différence de « Hors gestion ». C'est ce qui fait que la
+ * réponse d'un collègue, reçue demain en Réception, porte la même capsule sans aucun geste de plus (constat
+ * d'Arno : elle affichait « À classer »). Voir l'encadré de la migration 281.
  */
-export type CapsuleStatut = 'classe' | 'auto' | 'hors_gestion' | 'a_classer';
+export type CapsuleStatut = 'classe' | 'auto' | 'interne' | 'hors_gestion' | 'a_classer';
 
 /**
  * LES MOTIFS d'un « hors gestion ». FACULTATIFS : `null` = non précisé. Exiger une justification ferait cocher
@@ -249,10 +260,14 @@ export function motMotifHorsGestion(cle: string | null | undefined): string | nu
  * rattachements `confirme`) : un candidat que personne n'a validé laisse l'échange « à classer », ce qui est
  * exactement ce qu'il est.
  */
-export function capsuleStatut(o: { nbActifs: number; parUnHumain: boolean; horsGestion?: boolean }): CapsuleStatut {
+export function capsuleStatut(
+  o: { nbActifs: number; parUnHumain: boolean; horsGestion?: boolean; interne?: boolean },
+): CapsuleStatut {
   if (o.nbActifs > 0 && o.parUnHumain) return 'classe';
   if (o.nbActifs > 0) return 'auto';
-  // 🔴 APRÈS les deux verts, AVANT le rouge : un échange rattaché est rattaché, même s'il a été marqué hors gestion.
+  // 🔴 APRÈS les deux verts, AVANT le rouge : un échange rattaché est rattaché, même s'il porte une marque.
+  //    Et « Interne » AVANT « Hors gestion » (rang demandé par Arno) : il dit la même chose, en plus précis.
+  if (o.interne === true) return 'interne';
   if (o.horsGestion === true) return 'hors_gestion';
   return 'a_classer';
 }
@@ -261,6 +276,7 @@ export function capsuleStatut(o: { nbActifs: number; parUnHumain: boolean; horsG
 export function motCapsule(s: CapsuleStatut): string {
   if (s === 'classe') return 'Classé';
   if (s === 'auto') return 'Auto';
+  if (s === 'interne') return 'Interne';
   if (s === 'hors_gestion') return 'Hors gestion';
   return 'À classer';
 }
@@ -273,7 +289,8 @@ export function motCapsule(s: CapsuleStatut): string {
  * conversation serait lu comme deux états différents. Le MOT reste écrit partout ; le ton ne fait que l'appuyer.
  */
 export function tonCapsule(s: CapsuleStatut): 'vert' | 'gris' | 'rouge' {
-  if (s === 'classe' || s === 'auto') return 'vert';
+  // 🔴 « Interne » EST VERT : c'est un état d'arrivée, pas une mise à l'écart (voir l'encadré de `CapsuleStatut`).
+  if (s === 'classe' || s === 'auto' || s === 'interne') return 'vert';
   return s === 'hors_gestion' ? 'gris' : 'rouge';
 }
 
@@ -285,7 +302,9 @@ export function tonCapsule(s: CapsuleStatut): 'vert' | 'gris' | 'rouge' {
  * pour que la cible du clic ne se déplace pas sous le doigt.
  */
 export function actionDeLaCapsule(s: CapsuleStatut | null | undefined): { mot: string; ton: 'vert' | 'gris' | 'rouge' } {
-  if (s === 'classe' || s === 'auto') return { mot: 'Visualiser / Modifier', ton: 'vert' };
+  // 🔴 « Interne » SE DÉFAIT PAR LE MÊME BOUTON que les autres réponses : il a déjà une réponse, on veut la voir
+  //    et pouvoir la changer. C'est ce qui le rend réversible « comme Hors gestion », demande d'Arno.
+  if (s === 'classe' || s === 'auto' || s === 'interne') return { mot: 'Visualiser / Modifier', ton: 'vert' };
   if (s === 'hors_gestion') return { mot: 'Visualiser / Modifier', ton: 'gris' };
   return { mot: 'Classer', ton: 'rouge' };
 }
@@ -298,6 +317,10 @@ export function bulleCapsule(s: CapsuleStatut, detail: string | null): string {
   if (s === 'a_classer') {
     return 'Aucun rattachement confirmé à un logement ou à un propriétaire '
       + '(une proposition non confirmée ne compte pas).';
+  }
+  if (s === 'interne') {
+    return 'Échange entre collègues, marqué « interne » à la main : il n’y a pas de bien à y rattacher. '
+      + 'La marque vaut pour toute la conversation. Rattacher un bien la lève.';
   }
   // 🔴 ON DIT QUE C'EST UNE DÉCISION, ET QU'ELLE SE DÉFAIT : un gris muet se lirait comme un oubli.
   if (s === 'hors_gestion') {
@@ -355,9 +378,21 @@ export function capsuleDuMessage(
    * rattachement réel : c'est ce qui la rend réversible par le geste naturel — rattacher un bien la lève.
    */
   horsGestion = false,
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — LA MARQUE « INTERNE » DE SON **ÉCHANGE**, quand il en porte une vivante.
+   *
+   * ⚠️ ELLE VIENT DE L'ÉCHANGE ET NON DU MAIL, et c'est toute la différence avec « hors gestion » juste
+   * au-dessus. C'est ce qui fait que la réponse d'un collègue — un message qu'on n'a jamais marqué — porte la
+   * même capsule : elle appartient au même échange. Voir l'encadré de la migration 281.
+   */
+  interne = false,
 ): CapsuleStatut {
   const biens = liens.filter((l) => SORTES_BIEN.includes(l.cible.sorte) && l.statut === 'confirme');
-  if (biens.length === 0) return horsGestion ? 'hors_gestion' : 'a_classer';
+  if (biens.length === 0) {
+    // 🔴 « Interne » AVANT « Hors gestion » : même rang que dans `capsuleStatut`, et pour la même raison.
+    if (interne) return 'interne';
+    return horsGestion ? 'hors_gestion' : 'a_classer';
+  }
   return biens.some((l) => l.origine === 'manuel' || l.parUnHumain === true) ? 'classe' : 'auto';
 }
 
@@ -377,6 +412,13 @@ export function bulleCapsuleMessage(
      */
     return 'Ce mail n’est rattaché à aucun bien (logement, propriétaire ou locataire). '
       + 'Une proposition automatique non confirmée ne compte pas.';
+  }
+  if (s === 'interne') {
+    // 🔴 ON DIT QUE C'EST UNE DÉCISION, QU'ELLE PORTE SUR L'ÉCHANGE, ET QU'ELLE SE DÉFAIT. Les trois comptent :
+    //    sans le deuxième point, on chercherait pourquoi un mail qu'on n'a jamais touché porte cette capsule.
+    return 'Échange entre collègues, marqué « interne » à la main : il n’y a pas de bien à y rattacher. '
+      + 'La marque vaut pour TOUTE la conversation, réponses comprises. '
+      + 'Rattacher un bien la lève, et « Visualiser / Modifier » aussi.';
   }
   if (s === 'hors_gestion') {
     const mot = motMotifHorsGestion(motifHorsGestion);

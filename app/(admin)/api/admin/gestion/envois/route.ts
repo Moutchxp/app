@@ -141,6 +141,11 @@ export async function POST(request: Request): Promise<Response> {
       ? assainirHtml(corps.corpsHtml.slice(0, 500_000))
       : null,
     cibles: ciblesDemandees(corps.cibles),
+    /**
+     * 🔴 LOT RATTACHER-EN-ECRIVANT — « Interne » coché dans la modale, pour un message NEUF. Le booléen est LU
+     * STRICTEMENT (`=== true`) : une valeur floue venue du navigateur ne doit jamais marquer un échange.
+     */
+    interne: corps.interne === true,
   };
 
   /**
@@ -172,7 +177,7 @@ export async function POST(request: Request): Promise<Response> {
         repondAMessageId: demande.repondAMessageId, voie: demande.voie,
         a: demande.a, cc: demande.cc, cci: demande.cci,
         objet: demande.objet, corps: demande.corpsTexte, corpsHtml: demande.corpsHtml,
-        cibles: demande.cibles,
+        cibles: demande.cibles, interne: demande.interne,
       }, auteur);
       // `null` = la clé existait déjà : c'est un doublon (double-clic, requête rejouée), et c'est le bon résultat.
       if (demande.brouillonId !== null) {
@@ -264,6 +269,7 @@ export async function POST(request: Request): Promise<Response> {
       voie: demande.voie,
       corpsHtml: demande.corpsHtml,
       cibles: demande.cibles,
+      interne: demande.interne,
     }, auteur, deps);
 
     if (!issue.ok) {

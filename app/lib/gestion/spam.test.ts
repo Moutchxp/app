@@ -37,6 +37,9 @@ vi.mock('./schema', () => ({
   rattachementsDisponibles: async () => true,
   // LOT STATUT-HORS-GESTION — la 266 n'est pas le sujet de ce fichier : absente, la boîte est celle d'avant.
   horsGestionDisponible: async () => false,
+  // 🔴 LOT RATTACHER-EN-ECRIVANT — migration 281 absente par défaut : `gestion_fil_interne` n'est NOMMÉE nulle
+  //   part, et les assertions de ce fichier portent donc sur le SQL d'avant ce lot.
+  interneDisponible: async () => false,
   deplacementsDeMailsDisponibles: async () => false,
   destinatairesSeparesDisponibles: async () => false,
   /**

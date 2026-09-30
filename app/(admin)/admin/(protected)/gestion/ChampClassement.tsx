@@ -25,9 +25,19 @@ import { memeCibleBrouillon, type CibleBrouillon } from '../../../../lib/gestion
  * donnerait deux comportements pour une seule question.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function ChampClassement({ cibles, onChange }: {
+export function ChampClassement({ cibles, onChange, onRouvrir, interne = false, onInterne }: {
   cibles: readonly CibleBrouillon[];
   onChange: (c: CibleBrouillon[]) => void;
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — ROUVRIR LA MODALE « Rattacher ce mail à… ». Demande d'Arno : « Elle se rouvre
+   * à la demande depuis “Classer ce mail” ». Absent ⇒ aucun bouton : c'est le cas tant qu'aucun destinataire
+   * n'est validé, puisque le moteur n'aurait alors rien à déduire.
+   */
+  onRouvrir?: () => void;
+  /** 🔴 « Interne » a-t-il été choisi pour ce brouillon ? Il s'affiche ICI, comme les biens : une seule vérité. */
+  interne?: boolean;
+  /** Retirer le choix « interne ». Absent ⇒ il s'affiche sans pouvoir se défaire d'ici. */
+  onInterne?: () => void;
 }) {
   const [ouvert, setOuvert] = useState(false);
 
@@ -52,14 +62,38 @@ export function ChampClassement({ cibles, onChange }: {
       <style>{CSS_CHOISIR_CIBLE}</style>
       <span className="red-label" id="ccl-label">Classer ce mail</span>
 
-      {cibles.length === 0 ? (
+      {/* ══ 🔴 LOT RATTACHER-EN-ECRIVANT — « INTERNE » S'AFFICHE ICI COMME LES BIENS ════════════════════════
+          Une seule vérité sous « Classer ce mail » : ce qui a été décidé pour ce message, quoi que ce soit. Le
+          cacher ici aurait fait croire, en relisant le brouillon, qu'aucune réponse n'avait été donnée. */}
+      {interne && (
+        <p className="ccl-interne">
+          <span className="ccl-interne-capsule">Interne</span>
+          {' '}Échange entre collègues — aucun bien ne sera rattaché, et la conversation portera ce statut.
+          {onInterne && (
+            <>
+              {' '}
+              <button type="button" className="gst-lien-bouton" onClick={onInterne}>Retirer</button>
+            </>
+          )}
+        </p>
+      )}
+
+      {cibles.length === 0 && !interne ? (
         <p className="ccl-rien">
           Aucun classement — ce message partira « à classer ».{' '}
+          {onRouvrir && (
+            <>
+              <button type="button" className="gst-lien-bouton" onClick={onRouvrir}>
+                Rattacher ce mail à…
+              </button>
+              {' · '}
+            </>
+          )}
           <button type="button" className="gst-lien-bouton" onClick={() => setOuvert(true)}>
             Choisir un logement, un propriétaire ou un locataire…
           </button>
         </p>
-      ) : (
+      ) : cibles.length === 0 ? null : (
         <>
           <ul className="ccl-liste" aria-labelledby="ccl-label">
             {cibles.map((c) => (
@@ -78,6 +112,12 @@ export function ChampClassement({ cibles, onChange }: {
             À l’envoi, ce message sera rattaché à {cibles.length === 1 ? 'cette cible' : `ces ${cibles.length} cibles`}
             {' '}— rattachement posé à la main, confirmé, à votre nom.{' '}
             <button type="button" className="gst-lien-bouton" onClick={() => setOuvert(true)}>Ajouter…</button>
+            {onRouvrir && (
+              <>
+                {' · '}
+                <button type="button" className="gst-lien-bouton" onClick={onRouvrir}>Modifier</button>
+              </>
+            )}
           </p>
         </>
       )}
@@ -106,6 +146,10 @@ function motSorte(s: CibleBrouillon['sorte']): string {
 export const CSS_CHAMP_CLASSEMENT = `
 .ccl{display:flex;flex-direction:column;gap:4px;min-width:0}
 .ccl-rien,.ccl-note{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
+/* LOT RATTACHER-EN-ECRIVANT — la reponse « Interne », affichee comme les biens : une seule verite sous ce titre. */
+.ccl-interne{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
+.ccl-interne-capsule{display:inline-block;padding:.05rem .4rem;border-radius:999px;font-size:.7rem;font-weight:700;
+  color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 .ccl-liste{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
 .ccl-pastille{display:inline-flex;align-items:center;gap:.35rem;max-width:100%;padding:.15rem .2rem .15rem .5rem;
   font-size:.8rem;color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);border-radius:999px;

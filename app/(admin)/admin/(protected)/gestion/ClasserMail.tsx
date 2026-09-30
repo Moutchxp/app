@@ -54,6 +54,13 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
         dejaHorsGestion: number[];
         /** La migration 266 est-elle appliquée ? Sinon l'option est GRISÉE, avec une info-bulle qui dit pourquoi. */
         horsGestionInstalle: boolean;
+        /**
+         * 🔴 LOT RATTACHER-EN-ECRIVANT — L'ÉCHANGE porte-t-il DÉJÀ la marque « Interne » ?
+         * ⚠️ UN BOOLÉEN POUR L'ÉCHANGE, pas une liste de mails : la marque porte sur la conversation entière.
+         */
+        dejaInterne: boolean;
+        /** La migration 281 est-elle appliquée ? Sinon l'option est GRISÉE, avec son motif. */
+        interneInstalle: boolean;
       }
     | { v: 'erreur'; message: string }
   >({ v: 'charge' });
@@ -63,7 +70,12 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
    * 🔴 LA RÉPONSE CHOISIE. `biens` est le DÉFAUT : la règle métier dit qu'un mail de gestion concerne un bien, et
    * « hors gestion » est l'exception qu'on déclare — jamais celle qu'on trouve pré-cochée.
    */
-  const [reponse, setReponse] = useState<'biens' | 'hors_gestion'>('biens');
+  const [reponse, setReponse] = useState<'biens' | 'interne' | 'hors_gestion'>('biens');
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — « Annuler interne » est un geste À PART, comme « Annuler hors gestion » : il
+   * se demande d'un bouton en haut de la fenêtre et s'exécute à la validation.
+   */
+  const [annulationInterne, setAnnulationInterne] = useState(false);
   const [motifHg, setMotifHg] = useState<string>('');
   /**
    * 🔴 LOT AFFECTATION-PAR-BIEN — LE CLASSEMENT PIÈCE PAR PIÈCE. Éteint par DÉFAUT : la règle d'avant ce lot, où
@@ -130,8 +142,26 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
         dejaHorsGestion = Object.keys(dh.data ?? {}).map(Number).filter((n) => Number.isSafeInteger(n));
       } catch { /* l'option reste grisée : on ne propose pas un geste dont on ne sait pas s'il aboutira */ }
 
+      /**
+       * 🔴 LA CINQUIÈME LECTURE : la marque « Interne » de l'ÉCHANGE. Sur `filId` et non sur les mails — c'est
+       * toute la différence avec « hors gestion » juste au-dessus (voir l'encadré de `interneRepo`).
+       *
+       * ⚠️ SANS ÉCHANGE (un mail isolé), LE GESTE N'A PAS DE CIBLE : l'option reste grisée, et elle le dit.
+       */
+      let dejaInterne = false;
+      let interneInstalle = false;
+      if (filId !== null) {
+        try {
+          const ri = await fetch(`/api/admin/gestion/interne?fils=${filId}`, { cache: 'no-store' });
+          const di = (await ri.json()) as { etat?: string; data?: Record<string, unknown> };
+          interneInstalle = di.etat === 'ok';
+          dejaInterne = Object.keys(di.data ?? {}).length > 0;
+        } catch { /* l'option reste grisée : on ne propose pas un geste dont on ne sait pas s'il aboutira */ }
+      }
+
       setEtat({
         v: 'ok', contexte: dc.contexte, mailsSansManuel: mails, existants, dejaHorsGestion, horsGestionInstalle,
+        dejaInterne, interneInstalle,
       });
       /**
        * 🔴 LA PRÉ-COCHE : le bien recommandé par l'automatisation, et ceux déjà rattachés. Elle n'est posée QU'UNE
@@ -149,6 +179,14 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
   /** Ce mail porte-t-il DÉJÀ une marque ? C'est ce qui fait apparaître « Annuler hors gestion ». */
   const dejaMarque = etat.v === 'ok' && etat.dejaHorsGestion.includes(messageId);
   const installe = etat.v === 'ok' && etat.horsGestionInstalle;
+  /** 🔴 LOT RATTACHER-EN-ECRIVANT — les deux mêmes dérivés, pour « Interne ». */
+  const dejaMarqueInterne = etat.v === 'ok' && etat.dejaInterne;
+  /** ⚠️ SANS ÉCHANGE, LE GESTE N'A PAS DE CIBLE : l'option reste inactive, et le titre dit pourquoi. */
+  const interneInstalle = etat.v === 'ok' && etat.interneInstalle && filId !== null;
+  const motifInterneInactif = filId === null
+    ? 'Ce mail n’appartient à aucune conversation : « Interne » porte sur un échange.'
+    : 'Mise à jour de la base à appliquer (migration 281) : le statut « Interne » n’est pas encore installé sur '
+      + 'cette base.';
   /** Le geste demandé, quand c'en est un. `annuler` est porté par son propre bouton, pas par la validation. */
   const [annulation, setAnnulation] = useState(false);
   const gesteHg: GesteHorsGestion | null = annulation ? { geste: 'annuler' }
@@ -165,8 +203,20 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
   }), [etat, messageId, portee, selection, gesteHg, parPiece, affectations]);
 
   /** Y a-t-il quelque chose à faire ? La validation est INACTIVE tant que non — et la phrase du bas le DIT. */
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — LES DEUX GESTES « INTERNE » NE PASSENT PAS PAR `planClassement`, et c'est
+   * délibéré : ce module pur raisonne sur des MAILS (il compose des listes de `messageId`), alors qu'« Interne »
+   * porte sur un ÉCHANGE. Lui faire porter les deux unités l'aurait obligé à distinguer, dans chacune de ses
+   * listes, ce qui est un mail de ce qui est un échange — pour un geste qui n'a jamais qu'une seule cible.
+   * Ils sont donc décidés ici, en deux booléens, et exécutés à la validation comme les autres.
+   */
+  const aMarquerInterne = reponse === 'interne' && interneInstalle && !dejaMarqueInterne;
+  const aAnnulerInterne = interneInstalle && dejaMarqueInterne
+    // Annuler explicitement, OU rattacher un bien : le second lève la marque, exactement comme pour hors gestion.
+    && (annulationInterne || (plan !== null && plan.aPoser.length > 0));
   const aFaire = plan !== null && (plan.aPoser.length > 0 || plan.aPoserPieces.length > 0 || plan.aRetirer.length > 0
-    || plan.aMarquerHorsGestion.length > 0 || plan.aAnnulerHorsGestion.length > 0);
+    || plan.aMarquerHorsGestion.length > 0 || plan.aAnnulerHorsGestion.length > 0
+    || aMarquerInterne || aAnnulerInterne);
 
   const basculer = (cle: string) => setCoches((c) => {
     const l = c ?? [];
@@ -260,6 +310,33 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
       } catch { ratés.push('annulation hors gestion'); }
     }
 
+    /**
+     * ══ 🔴 LOT RATTACHER-EN-ECRIVANT — LES GESTES « INTERNE », APRÈS les rattachements ═════════════════════════
+     * Même ordre et même raison que « hors gestion » juste au-dessus : poser un bien lève la marque côté serveur,
+     * donc annuler d'abord puis rattacher donnerait deux écritures pour le même fait.
+     */
+    if (filId !== null && aMarquerInterne) {
+      try {
+        const res = await fetch('/api/admin/gestion/interne', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filIds: [filId] }),
+        });
+        if (res.ok) faits += 1; else ratés.push('marquage interne');
+      } catch { ratés.push('marquage interne'); }
+    }
+    if (filId !== null && aAnnulerInterne) {
+      try {
+        const res = await fetch('/api/admin/gestion/interne', {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filIds: [filId],
+            motif: annulationInterne ? 'annulé à la main' : 'levé : un bien a été rattaché à cet échange',
+          }),
+        });
+        if (res.ok) faits += 1; else ratés.push('annulation interne');
+      } catch { ratés.push('annulation interne'); }
+    }
+
     setEnvoi({ en_cours: false, message: null });
     if (ratés.length > 0) {
       setEnvoi({
@@ -303,6 +380,24 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
           </p>
         )}
 
+        {/* ══ 🔴 LOT RATTACHER-EN-ECRIVANT — CET ÉCHANGE EST DÉJÀ « INTERNE » ═════════════════════════════════
+            Le jumeau du bandeau ci-dessus, pour la marque qui porte sur la CONVERSATION. La phrase le dit
+            explicitement (« cette conversation ») : sans cela, on chercherait pourquoi un mail qu'on n'a jamais
+            touché porte une capsule verte. */}
+        {dejaMarqueInterne && (
+          <p className="clm-marque-vive">
+            <span className="clm-capsule-verte">Interne</span>
+            {' '}Cette conversation est marquée comme un échange entre collègues : il n’y a pas de bien à y
+            rattacher, réponses comprises.
+            {' '}
+            <button type="button" className="gst-lien-bouton" disabled={envoi.en_cours}
+              onClick={() => { setAnnulationInterne(true); setReponse('biens'); }}>
+              Annuler interne
+            </button>
+            {annulationInterne && <span className="clm-note"> — sera annulé à la validation.</span>}
+          </p>
+        )}
+
         {etat.v === 'charge' && <p className="gst-info" role="status">Lecture des biens possibles…</p>}
         {etat.v === 'erreur' && <p className="gst-tronc" role="alert">{etat.message}</p>}
 
@@ -335,12 +430,38 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
                   onChange={() => { setReponse('biens'); setAnnulation(false); }} />
                 <span>Le rattacher à un ou plusieurs biens</span>
               </label>
+              {/* ══ 🔴 LOT RATTACHER-EN-ECRIVANT — « INTERNE », ENTRE LES DEUX AUTRES ════════════════════════
+                  Sa place suit son rang dans la priorité des capsules (Classé > Auto > INTERNE > Hors gestion) :
+                  la liste des réponses et l'ordre des statuts disent la même chose, dans le même ordre.
+
+                  🔴 CE QU'IL AJOUTE À « HORS GESTION », qui pourrait sembler le couvrir : il dit POURQUOI il n'y
+                  a pas de bien — c'est un échange entre collègues — et il porte sur la CONVERSATION, donc la
+                  réponse du collègue en hérite. « Hors gestion » ne fait ni l'un ni l'autre. */}
+              <label className={`clm-choix${interneInstalle ? '' : ' clm-choix--inactif'}`}
+                title={interneInstalle ? undefined : motifInterneInactif}>
+                <input type="radio" name="clm-reponse" checked={reponse === 'interne'} disabled={!interneInstalle}
+                  onChange={() => {
+                    setReponse('interne'); setAnnulation(false); setAnnulationInterne(false); setCoches([]);
+                  }} />
+                <span>
+                  Interne — échange entre collègues, aucun bien à rattacher
+                  {!interneInstalle && ' (pas encore installé sur cette base)'}
+                </span>
+              </label>
+              {reponse === 'interne' && (
+                <p className="clm-note">
+                  La marque vaut pour TOUTE la conversation : la réponse d’un collègue héritera du même statut.
+                  Rattacher un bien la lève.
+                </p>
+              )}
               <label className={`clm-choix${installe ? '' : ' clm-choix--inactif'}`}
                 title={installe ? undefined
                   : 'Mise à jour de la base à appliquer (migration 266) : le marquage « hors gestion » n’est pas '
                     + 'encore installé sur cette base.'}>
                 <input type="radio" name="clm-reponse" checked={reponse === 'hors_gestion'} disabled={!installe}
-                  onChange={() => { setReponse('hors_gestion'); setAnnulation(false); setCoches([]); }} />
+                  onChange={() => {
+                    setReponse('hors_gestion'); setAnnulation(false); setAnnulationInterne(false); setCoches([]);
+                  }} />
                 <span>
                   Hors gestion — ce mail ne concerne aucun bien
                   {!installe && ' (pas encore installé sur cette base)'}
@@ -544,6 +665,10 @@ export const CSS_CLASSER_MAIL = `
   color:var(--color-svv-ink)}
 .clm-capsule-gris{padding:.05rem .4rem;border-radius:999px;font-size:.7rem;font-weight:700;line-height:1.5;
   color:var(--color-svv-muted);border:1px solid var(--color-svv-line-strong)}
+/* LOT RATTACHER-EN-ECRIVANT — la capsule « Interne » du bandeau : VERTE, comme celle des listes et des fils.
+   Le MOT est ecrit dans les trois endroits ; la couleur ne fait que l'appuyer. */
+.clm-capsule-verte{padding:.05rem .4rem;border-radius:999px;font-size:.7rem;font-weight:700;line-height:1.5;
+  color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);border:1px solid transparent}
 .clm-motif{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.4rem 0 0 1.6rem;font-size:.82rem;
   color:var(--color-svv-muted)}
 .clm-select{min-height:36px;padding:.2rem .4rem;font:inherit;font-size:.82rem;color:var(--color-svv-ink);

@@ -9,6 +9,8 @@ import {
   SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
 } from './SelecteurFichierDrive';
 import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
+// 🔴 LOT RATTACHER-EN-ECRIVANT — la modale « Rattacher ce mail à… », ouverte dès qu'une adresse est validée.
+import { CSS_RATTACHER_EN_ECRIVANT, RattacherEnEcrivant } from './RattacherEnEcrivant';
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, motsJeterBrouillon, pretAEnvoyer, secondesRestantes,
@@ -63,6 +65,12 @@ export interface ContexteRedactionEcran {
    */
   htmlDisponible?: boolean;
   classementDisponible?: boolean;
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — la migration 281 est-elle appliquée ? Elle porte « Interne ». Absente (ou
+   * réponse d'API plus ancienne que ce lot ⇒ `undefined`), le bouton est GRISÉ avec son motif : on ne propose pas
+   * un geste dont on sait qu'il ne pourra pas aboutir.
+   */
+  interneDisponible?: boolean;
   /**
    * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — la migration 276 est-elle appliquée ? Elle seule rend un brouillon jeté
    * RÉINTÉGRABLE. Absente (ou réponse plus ancienne que ce lot ⇒ `undefined`), le geste redevient celui d'avant :
@@ -434,6 +442,47 @@ export function Redaction({
   }, [cleOuverture]);
 
   const modifier = (p: Partial<BrouillonEcran>) => onChange({ ...brouillon, ...p });
+
+  /* ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — LA MODALE « RATTACHER CE MAIL À… » ═════════════════════════════════════
+     Demande d'Arno : « dès qu'une adresse est VALIDÉE dans À, Cc ou Cci […] une modale s'ouvre au centre de
+     l'écran ». Trois états, et chacun répond à une contrainte nommée de la demande. */
+  /** La modale est-elle ouverte ? Elle se rouvre aussi à la demande, depuis « Classer ce mail ». */
+  const [rattacherOuvert, setRattacherOuvert] = useState(false);
+  /**
+   * 🔴 « UNE SEULE OUVERTURE AUTOMATIQUE PAR NOUVEL ENSEMBLE DE PROPOSITIONS, JAMAIS EN BOUCLE ». On retient ici
+   * l'ensemble de destinataires pour lequel on a DÉJÀ ouvert : tant qu'il ne change pas, la modale ne se rouvre
+   * pas toute seule — ni à la frappe suivante, ni au rendu suivant, ni après l'avoir fermée.
+   *
+   * ⚠️ UNE RÉFÉRENCE, PAS UN ÉTAT : elle ne s'affiche jamais, et l'écrire en état provoquerait un rendu de plus
+   * à chaque adresse validée.
+   */
+  const dejaProposePour = useRef<string>('');
+  /**
+   * 🔴 « INTERNE » CHOISI PENDANT L'ÉCRITURE. Il ne peut pas être posé tout de suite : la marque porte sur un
+   * ÉCHANGE, et un message neuf n'en a pas encore — c'est l'envoi qui le crée. On retient donc l'intention, et
+   * l'écran la pose après l'envoi, sur l'échange qui en naît.
+   */
+  const [interneVoulu, setInterneVoulu] = useState(false);
+
+  /**
+   * ══ 🔴 LE DÉCLENCHEUR : UNE ADRESSE VALIDÉE, JAMAIS UNE FRAPPE ══════════════════════════════════════════════
+   *
+   * `brouillon.a/cc/cci` ne changent QUE lorsqu'une adresse est réellement ajoutée — par Entrée, par une virgule,
+   * en quittant le champ, ou en choisissant dans la liste. C'est exactement la liste des gestes qu'Arno nomme, et
+   * c'est `ChampDestinataires` qui la tient depuis le lot BROUILLONS-GMAIL : il n'y a rien à ajouter pour que la
+   * règle « jamais à chaque frappe » soit tenue — elle l'est par construction.
+   *
+   * ⚠️ ON N'OUVRE PAS SUR UN CHAMP VIDÉ : retirer la dernière pastille ne doit pas faire surgir une fenêtre.
+   */
+  const destinatairesValides = [...brouillon.a, ...brouillon.cc, ...brouillon.cci]
+    .map((x) => x.trim().toLowerCase()).filter((x) => x !== '');
+  const cleDestinataires = [...new Set(destinatairesValides)].sort().join(',');
+  useEffect(() => {
+    if (cleDestinataires === '' || cleDestinataires === dejaProposePour.current) return;
+    dejaProposePour.current = cleDestinataires;
+    setRattacherOuvert(true);
+  }, [cleDestinataires]);
+
 
   /**
    * ══ LE CORPS À L'OUVERTURE, EN HTML ══════════════════════════════════════════════════════════════════════════
@@ -885,17 +934,66 @@ export function Redaction({
             : (b.citationHtml ? `${b.corpsHtml}<br /><br />${b.citationHtml}` : b.corpsHtml),
           /** LOT REDACTION-GMAIL — les cibles de « Classer ce mail » : elles deviennent des rattachements manuels. */
           cibles: (b.cibles ?? []).length > 0 ? b.cibles : undefined,
+          /**
+           * 🔴 LOT RATTACHER-EN-ECRIVANT — « Interne » coché dans la modale, POUR UN MESSAGE NEUF seulement.
+           *
+           * ⚠️ UNE RÉPONSE NE PASSE PAS PAR LÀ : son échange existe déjà, et l'écran le marque directement après
+           * l'envoi (juste en dessous). Envoyer les deux ferait poser la marque deux fois, par deux chemins qui
+           * pourraient un jour ne plus dire la même chose.
+           */
+          interne: interneVoulu && b.filId === null ? true : undefined,
         }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
       if (!res.ok || !d.ok) { setEtat({ v: 'echec', motif: d.erreur ?? 'Envoi impossible.' }); return; }
       setEtat({ v: 'parti' });
-      onGeste('Message envoyé.');
+      /**
+       * ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — « INTERNE », POSÉ APRÈS L'ENVOI, SUR L'ÉCHANGE ════════════════════
+       *
+       * ⚠️ IL NE PEUT PAS ÊTRE POSÉ AVANT. La marque porte sur un ÉCHANGE : une RÉPONSE en a déjà un (`filId`),
+       * un message NEUF n'en a pas encore — c'est l'envoi qui le crée, et son identifiant n'existe qu'ensuite.
+       * On pose donc ce qu'on peut poser, maintenant, et pour un message neuf le geste reste à faire depuis la
+       * conversation une fois qu'elle existe. C'est dit à l'écran plutôt que tenté en silence.
+       *
+       * 🔴 IL NE PEUT RIEN FAIRE ÉCHOUER : le message est PARTI. Une marque manquée se repose en deux clics ; un
+       * message renvoyé parce qu'on a cru qu'il n'était pas parti, non. C'est la règle du 24/09/2026.
+       */
+      if (interneVoulu) {
+        if (b.filId !== null) {
+          try {
+            await fetch('/api/admin/gestion/interne', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ filIds: [b.filId] }),
+            });
+            onGeste('Message envoyé — conversation marquée « interne ».');
+          } catch {
+            onGeste('Message envoyé. La marque « interne » n’a pas pu être posée : à refaire depuis la conversation.');
+          }
+        } else {
+          /**
+           * 🔴 UN MESSAGE NEUF : l'intention a voyagé AVEC l'envoi (`interne` ci-dessus), et la relève posera la
+           * marque dès qu'elle aura capturé le message — c'est-à-dire dès que l'échange existera. On le DIT,
+           * parce que ce n'est pas immédiat : sans cette phrase, on rouvrirait la conversation en croyant que
+           * le geste a été perdu.
+           *
+           * ⚠️ SANS LA MIGRATION 283, l'intention n'est retenue nulle part. La phrase reste vraie dans les deux
+           * cas (« à la prochaine relève » ou jamais), mais l'écran ne peut pas distinguer — et il vaut mieux
+           * une phrase prudente qu'une promesse que la base ne tiendra pas.
+           */
+          onGeste('Message envoyé. La conversation sera marquée « interne » à la prochaine relève, dès qu’elle '
+            + 'existera — sinon, marquez-la depuis « Classer ».');
+        }
+      } else {
+        onGeste('Message envoyé.');
+      }
       onEnvoye();
     } catch {
       setEtat({ v: 'echec', motif: 'Envoi impossible : le serveur n’a pas répondu. Le brouillon est conservé.' });
     }
-  }, [onEnvoye, onGeste]);
+    // ⚠️ `interneVoulu` ENTRE DANS LES DÉPENDANCES : sans lui, la fermeture capturerait la valeur du premier
+    //   rendu, et cocher « Interne » juste avant d'envoyer n'aurait aucun effet — le genre de défaut qu'on ne
+    //   voit qu'en le cherchant.
+  }, [onEnvoye, onGeste, interneVoulu]);
 
   // LE COMPTE À REBOURS. Tant qu'il court, RIEN n'est parti : aucune requête n'a quitté le navigateur.
   useEffect(() => {
@@ -980,6 +1078,7 @@ export function Redaction({
       <style>{CSS_REDACTION}</style>
       <style>{CSS_EDITEUR_RICHE}</style>
       <style>{CSS_CHAMP_CLASSEMENT}</style>
+      <style>{CSS_RATTACHER_EN_ECRIVANT}</style>
 
       {/* ⚠️ DANS UNE FENÊTRE, CET EN-TÊTE N'EXISTE PAS : la barre de titre de la fenêtre porte déjà le même mot et
           la même croix. Les afficher tous les deux donnait deux « Nouveau message » et deux façons de fermer, à
@@ -1073,13 +1172,65 @@ export function Redaction({
         </div>
       </div>
 
-      {/* ══ LOT REDACTION-GMAIL — CLASSER DÈS L'ÉCRITURE (nouveau message sans historique UNIQUEMENT) ═════════════
-          🔴 POURQUOI SEULEMENT LÀ (demande d'Arno) : une réponse hérite du classement de son échange. Reproposer
-          le geste donnerait deux vérités sur la même conversation, et la seconde n'aurait aucune raison d'être la
-          bonne. Un message NEUF, lui, ne se rattache à rien — et c'est au moment de l'écrire qu'on sait de quoi
-          il parle. */}
-      {brouillon.voie === 'nouveau' && contexte.classementDisponible === true && (
-        <ChampClassement cibles={brouillon.cibles ?? []} onChange={(cibles) => modifier({ cibles })} />
+      {/* ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — CLASSER DÈS L'ÉCRITURE, DANS **TOUTE** FENÊTRE DE RÉDACTION ══════
+          CE QUI ÉTAIT ÉCRIT ICI, ET QUI NE VAUT PLUS : « nouveau message sans historique UNIQUEMENT », au motif
+          qu'« une réponse hérite du classement de son échange ».
+
+          🔴 POURQUOI ÇA NE TIENT PAS. Un rattachement porte sur un MAIL, pas sur un échange : une réponse
+          n'hérite de rien, elle part « à classer » comme les autres — c'est même le cas le plus fréquent, puisque
+          l'essentiel du courrier écrit est une réponse. La restriction privait donc la fonction de son terrain
+          principal. Demande d'Arno, mot pour mot : « Dans toute fenêtre de rédaction (nouveau message, réponse,
+          transfert, brouillon rouvert) ».
+
+          ⚠️ LE BLOC RESTE CONDITIONNÉ À `classementDisponible` : proposer un classement que la base ne saurait
+          pas garder au rechargement serait pire qu'une fonction absente. */}
+      {contexte.classementDisponible === true && (
+        <ChampClassement cibles={brouillon.cibles ?? []} onChange={(cibles) => modifier({ cibles })}
+          /* 🔴 « Rouvrir » : la modale se rouvre À LA DEMANDE depuis ce bloc, comme Arno le demande — l'ouverture
+             automatique n'a lieu qu'une fois par ensemble de destinataires. */
+          onRouvrir={destinatairesValides.length > 0 ? () => setRattacherOuvert(true) : undefined}
+          interne={interneVoulu}
+          onInterne={() => setInterneVoulu(false)} />
+      )}
+
+      {/* ══ 🔴🔴 LA MODALE, AU CENTRE DE L'ÉCRAN ════════════════════════════════════════════════════════════
+          Elle ne se monte QUE quand il y a des destinataires : sans eux, le moteur n'a rien à déduire, et une
+          fenêtre vide ferait douter qu'on ait oublié quelque chose. */}
+      {rattacherOuvert && destinatairesValides.length > 0 && (
+        <RattacherEnEcrivant
+          destinataires={destinatairesValides}
+          objet={brouillon.objet}
+          /**
+           * ══ 🔴🔴 LE CORPS, PRIVÉ DE NOTRE PROPRE SIGNATURE ══════════════════════════════════════════════
+           *
+           * VU À L'ÉCRAN LE 30/09/2026 : la modale proposait — et PRÉ-COCHAIT — « 2 Rue Mars et Roty, Puteaux
+           * — lot 494 » sur un message neuf, avec pour motif « adresse citée dans le mail ». L'adresse citée
+           * était la NÔTRE : celle de la signature de gestion@, qui se trouve être un lot géré. Sur tout
+           * message neuf, ce bien aurait été proposé et coché d'avance — une erreur silencieuse dans
+           * l'historique d'un client, exactement ce que le moteur cherche à éviter.
+           *
+           * 🔴 C'EST LE MÊME PRINCIPE QUE LE CAS (e) DU MOTEUR : nos propres coordonnées ne servent jamais de
+           * clé de rattachement. Là-bas ce sont nos ADRESSES ÉLECTRONIQUES ; ici c'est notre adresse POSTALE,
+           * et elle n'arrive dans le texte que par la signature — qu'on retire donc avant de chercher.
+           *
+           * ⚠️ ON NE RETIRE QUE CE QU'ON A MIS. `contexte.signature` est le texte exact que l'éditeur a inséré :
+           * ce que la personne écrit, elle, est intégralement conservé — y compris une adresse qu'elle taperait
+           * elle-même, qui doit justement proposer son bien.
+           */
+          corps={contexte.signature.trim() === ''
+            ? brouillon.corps
+            : brouillon.corps.split(contexte.signature).join(' ')}
+          pieces={[]}
+          cibles={brouillon.cibles ?? []}
+          onChange={(cibles) => {
+            modifier({ cibles });
+            // 🔴 COCHER UN BIEN LÈVE « INTERNE » : les deux réponses s'excluent (voir l'encadré de la modale).
+            if (cibles.some((c) => c.sorte === 'lot')) setInterneVoulu(false);
+          }}
+          interneDisponible={contexte.interneDisponible === true}
+          interneChoisi={interneVoulu}
+          onInterne={(actif) => { setInterneVoulu(actif); if (actif) modifier({ cibles: [] }); }}
+          onFerme={() => setRattacherOuvert(false)} />
       )}
 
       {contexte.signature.trim() === '' && <p className="gst-note">{MENTION_SANS_SIGNATURE}</p>}

@@ -229,7 +229,12 @@ export interface LigneHistorique {
    * ⚠️ `null` QUAND LA MIGRATION 257 N'EST PAS LÀ : la table des rattachements n'est alors nommée nulle part, et
    * l'écran n'affiche simplement aucune capsule. C'est la règle du module — une sonde voyage avec sa donnée.
    */
-  statut: 'classe' | 'auto' | 'hors_gestion' | 'a_classer' | null;
+  /**
+   * ⚠️ LOT RATTACHER-EN-ECRIVANT — L'UNION EST RECOPIÉE ICI, et `interne` s'y ajoute. Ce module est PUR et
+   * n'importe RIEN (c'est sa garantie) : il ne peut donc pas lire `CapsuleStatut` de `statutClassement`. Le
+   * compilateur les tient accordées — c'est lui qui a signalé l'oubli quand « interne » est apparu.
+   */
+  statut: 'classe' | 'auto' | 'interne' | 'hors_gestion' | 'a_classer' | null;
   /** Le détail de la capsule (ce à quoi le mail est rattaché), tel que l'info-bulle l'affiche. */
   statutDetail: string | null;
 }

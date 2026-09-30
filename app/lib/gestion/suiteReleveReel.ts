@@ -103,6 +103,34 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
     }
 
     /**
+     * ── ⓪ bis 🔴🔴 LOT RATTACHER-EN-ECRIVANT — LES BIENS COCHÉS AVANT L'ENVOI, POSÉS DÈS QUE LEUR MESSAGE EST LÀ
+     *
+     * Quand quelqu'un coche des biens dans la modale de rédaction, le message n'existe pas encore en base :
+     * l'intention attend, attachée à l'envoi. C'est cette passe-ci qui vient de capturer le message dans
+     * « Envoyés » — donc c'est ici, et nulle part ailleurs, que l'intention peut devenir un rattachement.
+     *
+     * 🔴 AVANT LES RETOURS ANTICIPÉS, exactement pour la raison écrite au ⓪ ci-dessus : une passe peut n'avoir
+     * rien de nouveau à rattacher au sens des ADRESSES et venir tout de même de capturer l'envoi qu'on attendait.
+     *
+     * ⚠️ ELLE NE PEUT PAS FAIRE ÉCHOUER LA SUITE : sans la migration 282, `appliquerCiblesEnAttente` rend 0 sans
+     * émettre une seule requête, et elle attrape ses propres erreurs.
+     */
+    const { appliquerCiblesEnAttente, appliquerInterneEnAttente } = await import('./envoiCiblesRepo');
+    const posesEnvoi = await appliquerCiblesEnAttente();
+    if (posesEnvoi > 0) {
+      journal?.(`suite : ${posesEnvoi} bien(s) choisi(s) avant l’envoi, rattaché(s) au message maintenant capturé`);
+    }
+    /**
+     * ⚠️ ET « INTERNE » DEMANDÉ SUR UN MESSAGE NEUF, pour la même raison et au même moment : l'échange n'existait
+     * pas quand on a coché la case, il existe maintenant. Sans la migration 283, la fonction rend 0 sans rien
+     * demander à la base.
+     */
+    const posesInterne = await appliquerInterneEnAttente();
+    if (posesInterne > 0) {
+      journal?.(`suite : ${posesInterne} échange(s) marqué(s) « interne », comme demandé avant l’envoi`);
+    }
+
+    /**
      * ⚠️ « A-T-ON FAIT QUELQUE CHOSE ? » TIENT COMPTE DES AVIS. Les deux sorties ci-dessous rendaient `ignore` —
      * « rien à faire, et ce n'est pas une erreur ». Depuis ce lot, une passe peut n'avoir rien à rattacher ET avoir
      * lu un avis de non-remise : la classer `ignore` mettrait « rien de nouveau » dans le journal de la passe alors

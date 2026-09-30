@@ -24,6 +24,8 @@ const migration257 = vi.fn(async () => true);
 const migration266 = vi.fn(async () => true);
 vi.mock('./schema', () => ({
   rattachementsDisponibles: () => migration257(), horsGestionDisponible: () => migration266(),
+  // 🔴 LOT RATTACHER-EN-ECRIVANT — migration 281 absente : la table n'est nommée nulle part.
+  interneDisponible: async () => false,
 }));
 
 import { lireMailsRecus, compterMailsRecus, PAGE_RECEPTION } from './receptionRepo';

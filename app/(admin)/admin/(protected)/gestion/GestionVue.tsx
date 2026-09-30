@@ -472,6 +472,8 @@ export function GestionVue({ intro }: {
           signatureHtml: typeof c.signatureHtml === 'string' ? c.signatureHtml : '',
           htmlDisponible: c.htmlDisponible === true,
           classementDisponible: c.classementDisponible === true,
+          // 🔴 LOT RATTACHER-EN-ECRIVANT — la 281 : sans elle le bouton « Interne » de la modale reste grisé.
+          interneDisponible: c.interneDisponible === true,
           /**
            * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — migration 276. Absente ⇒ jeter un brouillon redevient « Supprimer
            * le brouillon », sans bandeau « Annuler » : on ne promet pas un retour qu'on ne peut pas tenir.

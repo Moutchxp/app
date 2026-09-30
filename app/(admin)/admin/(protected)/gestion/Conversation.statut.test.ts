@@ -709,6 +709,22 @@ describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () =>
 describe('🔴 LOT STATUT-HORS-GESTION — la capsule grise et son geste', () => {
   const capsule = () => container.querySelector('.cnv-capsule') as HTMLElement | null;
   const reponses = () => [...container.querySelectorAll('input[type="radio"][name="clm-reponse"]')] as HTMLInputElement[];
+  /**
+   * ══ ⚠️ RÉÉCRIT PAR LE LOT RATTACHER-EN-ECRIVANT — ON DÉSIGNE UNE RÉPONSE PAR SON MOT, PLUS PAR SON RANG ══════
+   *
+   * Ces épreuves lisaient `reponses()[1]` pour « Hors gestion ». Le lot a inséré « Interne » entre les deux — à sa
+   * place dans la priorité des capsules (Classé > Auto > INTERNE > Hors gestion) — et le rang 1 désignait soudain
+   * un autre bouton, sans que rien ne le dise. Un index dans une liste de boutons est une adresse qui bouge ;
+   * le mot affiché, lui, est ce que l'utilisateur voit.
+   */
+  const reponsePar = (mot: string | RegExp): HTMLInputElement => {
+    const trouve = reponses().find((r) => {
+      const texte = r.closest('label')?.textContent ?? '';
+      return typeof mot === 'string' ? texte.includes(mot) : mot.test(texte);
+    });
+    if (trouve === undefined) throw new Error(`Aucune réponse « ${String(mot)} » dans la fenêtre.`);
+    return trouve;
+  };
   const valider = () => boutonPar(/^Valider le classement$/);
   const ecritures = () => appels.filter((a) => a.methode !== 'GET' && !a.url.includes('/lecture'));
 
@@ -778,17 +794,20 @@ describe('🔴 LOT STATUT-HORS-GESTION — la capsule grise et son geste', () =>
     liensParMessage = { '900': [] };
     await monterAvecFenetre();
     expect(container.textContent).toContain('Hors gestion — ce mail ne concerne aucun bien');
-    const [biens, hors] = reponses();
+    const biens = reponsePar('Le rattacher à un ou plusieurs biens');
+    const hors = reponsePar('Hors gestion');
     expect(biens.checked).toBe(true);
     expect(hors.checked).toBe(false);
     expect(hors.disabled).toBe(false);
+    // 🔴 LOT RATTACHER-EN-ECRIVANT — et la troisième réponse est là, entre les deux, avec son mot.
+    expect(container.textContent).toContain('Interne — échange entre collègues, aucun bien à rattacher');
   });
 
   it('② sans la migration 266, l’option est GRISÉE et dit pourquoi', async () => {
     liensParMessage = { '900': [] };
     marquesHorsGestion = null;
     await monterAvecFenetre();
-    const [, hors] = reponses();
+    const hors = reponsePar('Hors gestion');
     expect(hors.disabled).toBe(true);
     expect(container.textContent).toContain('pas encore installé sur cette base');
   });
@@ -796,7 +815,7 @@ describe('🔴 LOT STATUT-HORS-GESTION — la capsule grise et son geste', () =>
   it('④ la validation appelle la route des MARQUES, et pas celle des rattachements', async () => {
     liensParMessage = { '900': [] };
     await monterAvecFenetre();
-    await cliquer(reponses()[1]);
+    await cliquer(reponsePar('Hors gestion'));
     expect(container.querySelector('.clm-resume')?.textContent).toContain('marqué « hors gestion »');
     await cliquer(valider());
     const e = ecritures();

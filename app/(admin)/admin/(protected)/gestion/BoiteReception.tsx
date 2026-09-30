@@ -254,6 +254,8 @@ export const CSS_BOITE_RECEPTION = `
 .brc-capsule--classe{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink)}
 .brc-capsule--auto{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 /* LOT STATUT-HORS-GESTION — le GRIS : une decision prise, pas un travail en attente. Le MOT est ecrit. */
+/* LOT RATTACHER-EN-ECRIVANT — « Interne » : VERT, un etat d'ARRIVEE. Le MOT est toujours ecrit. */
+.brc-capsule--interne{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 .brc-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
 .brc-plus{align-self:flex-start}
 .brc-ailleurs{margin:4px 0 0;font-size:.8rem;color:var(--color-svv-muted)}

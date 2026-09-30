@@ -121,6 +121,8 @@ export function depsTravailleurReel(): DepsTravailleur {
         a: d.a, cc: d.cc, cci: d.cci, objet: d.objet, corps: d.corps, voie: d.voie,
         corpsHtml: d.corpsHtml,
         cibles: d.cibles as never,
+        // 🔴 LOT RATTACHER-EN-ECRIVANT — l'intention « Interne » survit à la file, et arrive jusqu'à l'envoi.
+        interne: d.interne === true,
       }, auteur, depsEnvoiReel({
         // 🔴 LE DROIT EST RELU EN BASE, pour l'auteur enregistré : un droit retiré entre le clic et l'envoi
         //   différé coupe l'envoi. C'est le cas que cette relecture existe précisément pour attraper.

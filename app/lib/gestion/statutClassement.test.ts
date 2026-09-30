@@ -490,3 +490,81 @@ describe('🔴 LOT STATUT-HORS-GESTION — quatre statuts, une seule priorité',
     }
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RATTACHER-EN-ECRIVANT — « INTERNE » : UN ÉCHANGE ENTRE COLLÈGUES
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 « Interne » : le cinquième statut, et sa place dans la priorité', () => {
+  const lienBien = (origine = 'manuel') => ({
+    cible: { sorte: 'lot' }, statut: 'confirme', origine, parUnHumain: origine === 'manuel',
+  });
+
+  it('un échange marqué interne, sans aucun rattachement, est « Interne »', () => {
+    expect(capsuleDuMessage([], false, true)).toBe('interne');
+    expect(motCapsule('interne')).toBe('Interne');
+  });
+
+  /**
+   * 🔴 VERT, ET C'EST VOULU. « Interne » est un état d'ARRIVÉE, pas une mise à l'écart : le courrier est traité.
+   * « Hors gestion » reste gris parce qu'il dit seulement « ce n'est pas pour nous ».
+   */
+  it('🔴 il est VERT, à la différence de « Hors gestion » qui reste gris', () => {
+    expect(tonCapsule('interne')).toBe('vert');
+    expect(tonCapsule('hors_gestion')).toBe('gris');
+  });
+
+  /**
+   * ══ 🔴🔴 L'ORDRE DEMANDÉ PAR ARNO : Classé > Auto > Interne > Hors gestion > À classer ══════════════════════
+   *
+   * Chaque ligne tranche un conflit réel :
+   *   · un échange marqué interne PUIS rattaché à un bien est RATTACHÉ — c'est ce qui rend la marque réversible
+   *     par le geste naturel ;
+   *   · un échange marqué interne ET hors gestion porte le mot le plus PRÉCIS : « Interne » dit pourquoi il n'y
+   *     a pas de bien.
+   */
+  it('🔴 un rattachement à la main l’emporte sur « Interne »', () => {
+    expect(capsuleDuMessage([lienBien('manuel')], false, true)).toBe('classe');
+  });
+
+  it('🔴 un rattachement AUTOMATIQUE l’emporte aussi', () => {
+    expect(capsuleDuMessage([lienBien('automatique')], false, true)).toBe('auto');
+  });
+
+  it('🔴 « Interne » l’emporte sur « Hors gestion »', () => {
+    expect(capsuleDuMessage([], true, true)).toBe('interne');
+    // …et sans la marque interne, c'est bien « Hors gestion » qui parle.
+    expect(capsuleDuMessage([], true, false)).toBe('hors_gestion');
+  });
+
+  it('🔴 « Interne » l’emporte sur « À classer »', () => {
+    expect(capsuleDuMessage([], false, false)).toBe('a_classer');
+    expect(capsuleDuMessage([], false, true)).toBe('interne');
+  });
+
+  /** ⚠️ LE MÊME ORDRE DANS `capsuleStatut`, qui sert les LISTES. Deux ordres feraient deux verdicts. */
+  it('⚠️ `capsuleStatut` (les listes) applique EXACTEMENT le même ordre', () => {
+    expect(capsuleStatut({ nbActifs: 1, parUnHumain: true, interne: true })).toBe('classe');
+    expect(capsuleStatut({ nbActifs: 1, parUnHumain: false, interne: true })).toBe('auto');
+    expect(capsuleStatut({ nbActifs: 0, parUnHumain: false, interne: true, horsGestion: true })).toBe('interne');
+    expect(capsuleStatut({ nbActifs: 0, parUnHumain: false, interne: false, horsGestion: true }))
+      .toBe('hors_gestion');
+    expect(capsuleStatut({ nbActifs: 0, parUnHumain: false })).toBe('a_classer');
+  });
+
+  /**
+   * 🔴 LA BULLE DIT LES TROIS CHOSES QUI COMPTENT : que c'est une décision, qu'elle porte sur la CONVERSATION, et
+   * qu'elle se défait. Sans le deuxième point, on chercherait pourquoi un mail qu'on n'a jamais touché est vert.
+   */
+  it('🔴 l’info-bulle dit que la marque vaut pour toute la conversation', () => {
+    const b = bulleCapsuleMessage('interne', []);
+    expect(b).toContain('collègues');
+    expect(b).toContain('conversation');
+    expect(b).toContain('Rattacher un bien');
+  });
+
+  /** ⚠️ IL SE DÉFAIT PAR LE MÊME BOUTON que les autres réponses : « Visualiser / Modifier », en vert. */
+  it('⚠️ le bouton de fin de barre propose de le VOIR et de le changer', () => {
+    expect(actionDeLaCapsule('interne')).toEqual({ mot: 'Visualiser / Modifier', ton: 'vert' });
+  });
+});

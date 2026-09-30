@@ -36,6 +36,7 @@ import { nonEnvoyesAMontrer, nonEnvoyesDesFils } from './fileEnvoiRepo';
 import { fusionnerNonEnvoyes, type MentionNonEnvoye } from './fileEnvoi';
 import {
   corbeilleGmailDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible, etoileGmailDisponible,
+  interneDisponible,
 } from './schema';
 import { etoilesDesFils } from './etoileRepo';
 /**
@@ -44,6 +45,8 @@ import { etoilesDesFils } from './etoileRepo';
  * exactement comme avant ce lot. Les deux ne sont JAMAIS lues ensemble — une ligne ne porte qu'une étoile.
  */
 import { filsEtoiles } from './etoileGmailRepo';
+// 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'échange : jointure et colonne, écrites UNE fois.
+import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 // LOT LECTURE-HTML-FIL-TROMBONE — la MÊME règle que la conversation pour distinguer une pièce d'un logo de signature.
 import { trierPieces, type PieceATrier } from './lisibilite';
 // LOT BOITE-INTERNE-CORBEILLE — « nous », c'est `gestion_config.adresse_gestion`, lue à la MÊME source que la capture.
@@ -143,6 +146,16 @@ export interface LigneBoite {
   horsGestion?: boolean;
   /** `prospection` | `interne` | `autre`, ou `null` : le motif est facultatif. */
   motifHorsGestion?: string | null;
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — l'ÉCHANGE de cette ligne est-il marqué « Interne » ? Un échange entre
+   * collègues, sans bien à rattacher.
+   *
+   * ⚠️ IL PORTE SUR L'ÉCHANGE ET NON SUR LE MAIL, à la différence de `horsGestion` juste au-dessus. C'est ce qui
+   * fait que la réponse d'un collègue, reçue demain, porte la même capsule sans aucun geste de plus.
+   *
+   * ⚠️ `false` QUAND LA MIGRATION 281 MANQUE — on n'invente pas un état qu'on n'a pas lu.
+   */
+  interne?: boolean;
   /** Référence `GES-…` de la carte si l'échange y est affecté, sinon `null`. */
   reference: string | null;
   /** L'échange a-t-il été classé sans suite ? L'écran le DIT : la boîte montre tout, elle n'efface rien. */
@@ -259,6 +272,8 @@ interface LigneDB {
   cl_detail: string | null;
   /** LOT STATUT-HORS-GESTION — `null` quand la migration 266 manque : aucune capsule grise n'est alors rendue. */
   hg_marque: boolean | null;
+  /** LOT RATTACHER-EN-ECRIVANT — `null` quand la migration 281 est absente : la table n'est nommée nulle part. */
+  itn_marque: boolean | null;
   hg_motif: string | null;
 }
 
@@ -693,6 +708,11 @@ export function sqlPageBoite(
    * lit (voir `sqlEtoile`). Sans elle, la requête est mot pour mot celle d'avant ce lot.
    */
   etoileGmail = false,
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — la migration 281 est-elle là ? Sinon `gestion_fil_interne` n'est NOMMÉE NULLE
+   * PART et la requête est mot pour mot celle d'avant ce lot, ce qui garde les épreuves de forme existantes.
+   */
+  interne = false,
 ): string {
   /**
    * 🔴 LOT LISTE-PAGINATION — LE PRÉDICAT VIENT DE `predicatsBoite`, PARTAGÉ AVEC `sqlCompteBoite`. Ce qui suit ne
@@ -744,6 +764,9 @@ export function sqlPageBoite(
             i.de_adresse AS interlocuteur_adresse,`;
   const jointureClassement = sqlJointureClassement(rattachements, 'p');
   const jointureHorsGestion = sqlJointureHorsGestion(horsGestion, 'p');
+  // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois dans
+  //   `interneRepo`. Sans la 281, elle rend une chaîne vide et la requête est celle d'avant ce lot.
+  const jointureInterne = sqlJointureInterne(interne, 'p');
 
   return `WITH page AS (
        SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires, m.dest_a,
@@ -790,10 +813,12 @@ export function sqlPageBoite(
                    WHERE cc.fil_id = p.fil_id AND cc.corbeille_le IS NOT NULL)::int`
               : '0'} AS nb_corbeille,
             cl.n AS cl_n, cl.humain AS cl_humain, cl.detail AS cl_detail,
-            ${horsGestion ? 'hg.motif IS NOT NULL AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'}
+            ${horsGestion ? 'hg.motif IS NOT NULL AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'},
+            ${sqlColonneInterne(interne)}
        FROM page p JOIN gestion_fil f ON f.id = p.fil_id
        ${jointureClassement}
        ${jointureHorsGestion}
+       ${jointureInterne}
        -- La jointure latérale sert encore : aux autres étiquettes (où le message de la ligne peut être un envoi
        --   comme une réception) pour trouver le correspondant, et à Envoyés pour retrouver le NOM du destinataire.
        --   Elle ne sert plus à Réception, où le message de la ligne EST le dernier reçu : rien à chercher.
@@ -924,6 +949,8 @@ export async function lireBoiteMail(
   const horsGestion = await horsGestionDisponible();
   // LOT ETOILE-ET-SIGNATURE — même patron : sans la 277, la colonne `etoile_le` n'est nommée nulle part.
   const etoileGmail = await etoileGmailDisponible();
+  // 🔴 LOT RATTACHER-EN-ECRIVANT — même patron : sans la 281, la table n'est nommée nulle part.
+  const interne = await interneDisponible();
   // LOT ERGO-BOITE-3 — les fils retenus arrivent APRÈS les paramètres de l'étiquette : leur rang dépend donc de
   //   l'étiquette ouverte, et il est calculé ici plutôt que deviné. Poser un paramètre puis calculer son rang à
   //   partir de `params.length` est le décalage d'un cran qui s'est déjà produit dans ce dépôt.
@@ -941,7 +968,7 @@ export async function lireBoiteMail(
     ? null : 4 + paramsEtiquette.length + (rangAdresse === null ? 0 : 1);
   const { rows } = await query<LigneDB>(
     sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true, rattachements,
-      horsGestion, rangAdresse, etoileGmail),
+      horsGestion, rangAdresse, etoileGmail, interne),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
       ...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
@@ -1049,6 +1076,8 @@ export async function lireBoiteMail(
       // LOT STATUT-HORS-GESTION — `false` quand la migration 266 manque : aucune capsule grise, jamais par défaut.
       horsGestion: r.hg_marque === true,
       motifHorsGestion: r.hg_motif,
+      // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque de l'ÉCHANGE. `false` sans la 281 : jamais un état inventé.
+      interne: r.itn_marque === true,
   }));
 
   return {
@@ -1086,6 +1115,7 @@ export async function lireBoiteMail(
       classement: null,
       horsGestion: false,
       motifHorsGestion: null,
+      interne: false,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     /**

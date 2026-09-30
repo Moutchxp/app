@@ -1,6 +1,8 @@
 import { query } from '../db/client';
 import { chargerConfigGestion } from './config';
 import type { AncrageFil, DepsEnvoiComplet } from './envoi';
+// 🔴 LOT RATTACHER-EN-ECRIVANT — les biens cochés pendant l'écriture, mis en attente de leur message.
+import { demanderInternePourEnvoi, enregistrerCiblesEnvoi } from './envoiCiblesRepo';
 import { envoyerViaGmail } from './envoiGmail';
 import { depsPiecesEnvoi, piecesDeLEnvoi } from './piecesEnvoiCablage';
 import { COMPTE_GESTION, lireIdentifiants, rafraichirJeton } from './google';
@@ -116,6 +118,26 @@ export function depsEnvoiReel(c: CablageEnvoi): DepsEnvoiComplet {
       console.error('[gestion/%s] LE MESSAGE EST PARTI mais « %s » a échoué (%s) — à rattraper à la main : %s',
         c.origine, etape, m.etiquette, e instanceof Error ? e.message : String(e));
     },
+    /**
+     * ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — LA DÉPENDANCE `classer`, ENFIN CÂBLÉE ══════════════════════════════
+     *
+     * Elle était DÉCLARÉE dans `envoi.ts` depuis le lot REDACTION-GMAIL, et n'a jamais été fournie : constaté le
+     * 30/09/2026, `deps.classer` valait `undefined` en production, et les biens cochés pendant l'écriture
+     * n'étaient posés NULLE PART — sans erreur, sans trace. La fonction n'existait qu'à moitié.
+     *
+     * 🔴 ELLE ÉCRIT UNE INTENTION, PAS UN RATTACHEMENT. Le message n'existe pas encore en base au moment de
+     * l'envoi (c'est la relève qui le capturera) : l'intention attend, attachée à l'envoi, et un rattrapage la
+     * transforme en rattachement dès que le message est là. Voir `envoiCiblesRepo`.
+     *
+     * ⚠️ ELLE NE PEUT RIEN FAIRE ÉCHOUER : `enregistrerCiblesEnvoi` attrape ses propres erreurs et rend 0. Et
+     * elle est de toute façon appelée AU MIEUX-EFFORT, après le message parti.
+     */
+    classer: async (o) => { await enregistrerCiblesEnvoi({ envoiId: o.envoiId, cibles: o.cibles, auteur: o.auteur }); },
+    /**
+     * 🔴 LOT RATTACHER-EN-ECRIVANT — « INTERNE » demandé sur un message NEUF : même chemin, même raison. Sans la
+     * migration 283, `demanderInternePourEnvoi` rend `false` sans rien écrire, et l'écran l'a déjà dit.
+     */
+    marquerInterne: async (o) => { await demanderInternePourEnvoi(o.envoiId); },
     maintenant: () => new Date(),
     alea: () => crypto.randomUUID().replace(/-/g, ''),
   };

@@ -16,6 +16,11 @@ import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecra
 import { corpsLisible, etatTrombone, motTrombone } from '../../../../lib/gestion/lisibilite';
 // 🔴 LOT LISTE-PAGINATION — la barre est un composant PARTAGÉ par les quatre listes du module (voir son encadré).
 import { BarrePages, CSS_BARRE_PAGES } from './BarrePages';
+/**
+ * 🔴 LOT RATTACHER-EN-ECRIVANT — LE CACHE COURT DES PAGES et la règle de préchargement. Module PUR : aucun `pg`,
+ * donc importable depuis un `'use client'` (voir l'incident du 24/09/2026 consigné dans AGENTS.md).
+ */
+import { CachePages, cleDePage, pagesAPrecharger } from '../../../../lib/gestion/cachePages';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import {
   bulleCapsule, capsuleStatut, motCapsule, motMotifHorsGestion, type CapsuleStatut,
@@ -29,12 +34,14 @@ import {
  * Classé > Auto > Hors gestion > À classer.
  */
 function capsuleDeLaLigne(l: {
-  classement: { nbActifs: number; parUnHumain: boolean } | null; horsGestion?: boolean;
+  classement: { nbActifs: number; parUnHumain: boolean } | null; horsGestion?: boolean; interne?: boolean;
 }): CapsuleStatut {
   return capsuleStatut({
     nbActifs: l.classement?.nbActifs ?? 0,
     parUnHumain: l.classement?.parUnHumain === true,
     horsGestion: l.horsGestion === true,
+    // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque de l'ÉCHANGE. `capsuleStatut` la range entre Auto et Hors gestion.
+    interne: l.interne === true,
   });
 }
 // LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », ouverte par-dessus la liste.
@@ -446,6 +453,28 @@ export function BoiteMail({
   const [page, setPage] = useState(0);
   const curseurs = useRef<(CurseurBoite | null)[]>([null]);
   /**
+   * ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — LE CACHE COURT DES PAGES ════════════════════════════════════════════════
+   *
+   * MESURÉ le 30/09/2026 : un clic sur « › » coûtait 727 à 1 044 ms, dont 625 à 1 022 ms d'ATTENTE SERVEUR pour
+   * 1 ms de transfert. Le temps n'est ni dans le réseau ni dans le rendu : il est dans la requête. On ne la
+   * refait donc pas quand on peut l'éviter — et on la fait D'AVANCE quand on peut l'anticiper.
+   *
+   * ⚠️ `useRef` ET NON `useState` : le cache ne s'affiche jamais. En état, chaque page rangée provoquerait un
+   * rendu de plus, juste avant celui que la page provoque de toute façon.
+   */
+  const cache = useRef(new CachePages<ReponseBoite>());
+  /** Les curseurs préchargés, pour savoir de quoi partir sans attendre que la page soit affichée. */
+  const curseursPrecharges = useRef<Map<number, CurseurBoite | null>>(new Map());
+  /** Un préchargement est-il déjà en cours pour ce rang ? Deux requêtes pour la même page ne servent à rien. */
+  const prechargeEnCours = useRef<Set<string>>(new Set());
+  /**
+   * ⚠️ UN RELAIS, ET IL EST NÉCESSAIRE. `premiere` est mémoïsée SANS dépendance (c'est ce qui l'empêche de
+   * relancer l'effet de montage à chaque rendu) : elle ne peut donc pas appeler `precharger`, qui lit `auto`,
+   * `critere` et l'étiquette du rendu courant. Le relais est une référence mise à jour à chaque rendu — la
+   * fonction appelée est donc toujours la fraîche, sans que `premiere` change d'identité.
+   */
+  const cachePremiere = useRef<(r: ReponseBoite) => void>(() => {});
+  /**
    * Le haut de la liste, pour y revenir à chaque changement de page.
    *
    * ⚠️ CE N'EST PAS UN LUXE : les pages font 25 lignes, et arriver page 2 au milieu donne l'impression d'avoir
@@ -561,6 +590,20 @@ export function BoiteMail({
      */
     setPage(0);
     curseurs.current = [null];
+    /**
+     * ══ 🔴 LE CACHE EST VIDÉ ICI, ET C'EST LE POINT DE PASSAGE DE TOUT CE QUI CHANGE LA LISTE ═════════════════
+     *
+     * `premiere` est appelée par la relève (« Relever et actualiser »), par le rafraîchissement automatique,
+     * après un geste sur une ligne (classer, corbeille, lu — `versionDonnees`), et à chaque changement
+     * d'étiquette, de filtre ou de recherche. Vider ICI couvre donc les trois familles qu'Arno nomme, sans avoir
+     * à se souvenir de le faire à chaque appelant — et un appelant nouveau en hérite d'office.
+     *
+     * 🔴 ON VIDE TOUT plutôt que de deviner quelles pages sont touchées : un mail classé change la page où il
+     * était, TOUTES celles qui la suivaient (les lignes remontent d'un cran) et les totaux. Deviner reviendrait à
+     * réécrire la requête dans le navigateur.
+     */
+    cache.current.vider();
+    curseursPrecharges.current.clear();
     const r = await chargerPage(null, avecAuto, c, e, f, et);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     setEtat({
@@ -570,6 +613,14 @@ export function BoiteMail({
       brouillons: r.brouillons ?? { lignes: [], tronque: false },
       nonLus: new Set(r.nonLus ?? []), nonLusTotal: r.nonLusTotal ?? null, nonLusPartiel: r.nonLusPartiel === true,
     });
+    /**
+     * 🔴 LA PREMIÈRE PAGE EST RANGÉE, ET LES SUIVANTES SONT DEMANDÉES D'AVANCE. C'est ici que le préchargement
+     * commence vraiment : quand on ouvre une liste, on la lit — et pendant ce temps les deux pages suivantes
+     * arrivent, de sorte que le premier « › » ne coûte rien.
+     *
+     * ⚠️ APRÈS `setEtat`, jamais avant : la page qu'on affiche passe en premier, toujours.
+     */
+    cachePremiere.current(r);
   }, []);
 
   // `cleEtiquette` plutôt que l'objet : deux objets égaux mais distincts relanceraient la lecture à chaque rendu.
@@ -684,6 +735,68 @@ export function BoiteMail({
    * ⚠️ LES BROUILLONS NE SONT RENDUS QU'À LA PREMIÈRE PAGE (règle d'avant ce lot, cf. `chercherDansLesBrouillons`)
    * : on GARDE donc ceux qu'on a plutôt que de les effacer en tournant la page — ils correspondent toujours.
    */
+  /**
+   * ══ 🔴 LA CLÉ D'UNE PAGE DANS LE CACHE ═══════════════════════════════════════════════════════════════════════
+   * Tout ce qui décide du CONTENU d'une page y entre : l'étiquette, le rang, et chacun des filtres. En oublier un
+   * servirait la page de « Réception » sous « Spam » — un cache qui se trompe de page est pire que pas de cache.
+   */
+  const cleListe = (rang: number) => cleDePage({
+    etiquette: cleEtiquette, page: rang, auto, filtre, etoile,
+    // ⚠️ LE CRITÈRE ENTIER : deux recherches différentes ne partagent jamais une page.
+    recherche: cherche ? JSON.stringify(critere) : '',
+  });
+
+  /**
+   * ══ 🔴 PRÉCHARGER, EN ARRIÈRE-PLAN ET SANS RIEN BLOQUER ══════════════════════════════════════════════════════
+   *
+   * Les rangs viennent du module PUR (`pagesAPrecharger`) : deux pages en avant, plus la précédente quand on
+   * vient de reculer. Ils sont demandés EN SÉRIE et non en parallèle — chaque curseur se lit dans la réponse de
+   * la page d'avant, et trois requêtes simultanées se disputeraient le serveur qu'on essaie justement de
+   * soulager.
+   *
+   * ⚠️ ELLE NE LÈVE JAMAIS ET NE CHANGE AUCUN ÉTAT VISIBLE. Un préchargement raté n'est pas une panne : la page
+   * sera simplement demandée quand on cliquera, comme avant ce lot.
+   */
+  async function precharger(depuisPage: number, versLArriere: boolean, curseurSuivant: CurseurBoite | null) {
+    const rangs = pagesAPrecharger({ page: depuisPage, versLArriere, suite: curseurSuivant !== null });
+    let curseur = curseurSuivant;
+    for (const rang of rangs) {
+      const cle = cleListe(rang);
+      // Déjà là, ou déjà demandé : on ne redemande pas. Le second cas compte autant que le premier — sans lui,
+      //   deux clics rapides lanceraient deux fois la même requête.
+      if (cache.current.lire(cle, Date.now()) !== null || prechargeEnCours.current.has(cle)) {
+        curseur = curseursPrecharges.current.get(rang + 1) ?? curseur;
+        continue;
+      }
+      const depart = rang < depuisPage ? (curseurs.current[rang] ?? null) : curseur;
+      if (rang > depuisPage && depart === null) break;   // plus de suite : rien à précharger au-delà
+      prechargeEnCours.current.add(cle);
+      try {
+        const r = await chargerPage(depart, auto, critere, etiquette, filtre, etoile);
+        if (!('erreur' in r)) {
+          cache.current.ranger(cle, r, Date.now());
+          curseursPrecharges.current.set(rang, depart);
+          curseur = r.suivant;
+        } else {
+          break;   // le serveur n'a pas répondu : on n'insiste pas en arrière-plan
+        }
+      } catch {
+        break;
+      } finally {
+        prechargeEnCours.current.delete(cle);
+      }
+    }
+  }
+
+  /**
+   * Le relais, remis à jour à CHAQUE rendu : il range la première page et lance le préchargement, avec les
+   * valeurs du rendu courant. Voir l'encadré de `cachePremiere`.
+   */
+  cachePremiere.current = (r) => {
+    cache.current.ranger(cleListe(0), r, Date.now());
+    void precharger(0, false, r.suivant);
+  };
+
   async function allerPage(vers: number) {
     if (etat.v !== 'ok' || suite) return;
     if (vers < 0 || vers === page) return;
@@ -691,9 +804,30 @@ export function BoiteMail({
     //   suivante est celui que le serveur vient de rendre, et lui seul.
     const curseur = vers > page ? etat.suivant : (curseurs.current[vers] ?? null);
     if (vers > page && curseur === null) return;   // pas de suite : le chevron est éteint, mais on se garde aussi ici
+
+    /**
+     * ══ 🔴🔴 UNE PAGE DÉJÀ VUE SE ROUVRE SANS UN SEUL ALLER-RETOUR ═════════════════════════════════════════
+     * Demande d'Arno, mot pour mot. On ne passe même pas par l'état « chargement » : il n'y a rien à attendre,
+     * et un squelette qui clignote une image ferait paraître lent ce qui est instantané.
+     */
+    const garde = cache.current.lire(cleListe(vers), Date.now());
+    if (garde !== null) {
+      curseurs.current[vers] = curseur;
+      setPage(vers);
+      setEtat({
+        ...etat, lignes: garde.lignes, suivant: garde.suivant, total: etat.total, comptes: etat.comptes,
+        nonLus: new Set(garde.nonLus ?? []),
+        nonLusTotal: etat.nonLusTotal, nonLusPartiel: etat.nonLusPartiel, brouillons: etat.brouillons,
+      });
+      hautDeListe.current?.scrollIntoView?.({ block: 'start' });
+      void precharger(vers, vers < page, garde.suivant);
+      return;
+    }
+
     setSuite(true);
     const r = await chargerPage(curseur, auto, critere, etiquette, filtre, etoile);
     setSuite(false);
+    if (!('erreur' in r)) cache.current.ranger(cleListe(vers), r, Date.now());
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     curseurs.current[vers] = curseur;
     setPage(vers);
@@ -717,6 +851,13 @@ export function BoiteMail({
      * pour un défilement.
      */
     hautDeListe.current?.scrollIntoView?.({ block: 'start' });
+
+    /**
+     * 🔴 LE PRÉCHARGEMENT PART **APRÈS** QUE LA PAGE EST RENDUE, jamais avant : la page qu'on est venu voir a la
+     * priorité absolue. C'est la règle qu'Arno écrit, et c'est la même que l'amorce des voisins de la
+     * visionneuse (lot PIECES-DE-LA-CONVERSATION) — pour la même raison : ne rien disputer à ce qu'on regarde.
+     */
+    void precharger(vers, vers < page, r.suivant);
   }
 
   if (etat.v === 'charge') return <p className="gst-info" role="status">Chargement de la boîte…</p>;
@@ -1052,7 +1193,32 @@ export function BoiteMail({
             etoile ? 'Aucun message étoilé dans cette liste.'
               : cherche ? 'Aucun échange ne correspond à cette recherche.'
                 : titre === undefined ? 'Aucun échange dans la boîte.' : `Aucun échange sous « ${titre} ».`}</p>
-        : (
+        : suite ? (
+          /* ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — LE SQUELETTE, JAMAIS UN ÉCRAN FIGÉ ═══════════════════════════
+             Demande d'Arno : « pendant le chargement : squelette de lignes, jamais d'écran figé ».
+
+             🔴 CE QUE ÇA REMPLACE : les lignes de la page PRÉCÉDENTE restaient affichées, immobiles, pendant les
+             800 ms de la requête. Rien ne bougeait — et on recliquait, croyant avoir manqué le bouton. Le
+             squelette dit « ça travaille » sans mentir sur le contenu : il ne montre AUCUNE donnée.
+
+             ⚠️ IL N'APPARAÎT QUE SUR UNE PAGE QU'ON N'A PAS : une page rangée en cache s'affiche sans passer par
+             ici (voir `allerPage`), et un squelette qui clignote une image ferait paraître lent l'instantané.
+
+             ⚠️ `aria-hidden` ET UN `role="status"` À CÔTÉ : le squelette est une image, il n'a rien à faire lire.
+             C'est la phrase qui porte l'information pour qui n'y voit pas. */
+          <>
+            <p className="gst-info bte-sr" role="status">Chargement de la page…</p>
+            <ul className={`gst-liste bte-liste${dense ? ' bte-liste--dense' : ''}`} aria-hidden="true">
+              {Array.from({ length: Math.min(Math.max(etat.lignes.length, 6), 25) }, (_, i) => (
+                <li key={`sq-${i}`} className="bte-ligne bte-squelette">
+                  <span className="bte-sq bte-sq--qui" />
+                  <span className="bte-sq bte-sq--objet" />
+                  <span className="bte-sq bte-sq--date" />
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
           <ul className={`gst-liste bte-liste${dense ? ' bte-liste--dense' : ''}`}>
             {etat.lignes.map((l) => {
               // LOT 5-BOITE — « non lu » = au moins un message REÇU que JE n'ai pas ouvert. Le serveur l'a calculé
@@ -1452,6 +1618,11 @@ const CSS_BOITE = `
 /* « Auto » est vert lui aussi — c'est rangé — mais en aplat plus discret : le geste humain doit rester le plus
    visible des deux, sans pour autant faire passer l'automatique pour un problème. */
 .bte-capsule--auto{color:var(--color-svv-green-ink);border-color:transparent;background:var(--color-svv-green-soft)}
+/* LOT RATTACHER-EN-ECRIVANT — « Interne » : VERT, comme « Classe », parce que c'est un etat d'ARRIVEE et non une
+   mise a l'ecart. Il se distingue de « Classe » par son MOT (toujours ecrit) et par son aplat, comme « Auto » se
+   distingue de « Classe » : la couleur ne porte jamais l'information seule. */
+.bte-capsule--interne{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink);
+  background:var(--color-svv-green-soft)}
 /* LOT STATUT-HORS-GESTION — le GRIS : une decision prise, pas un travail en attente. Le MOT est ecrit. */
 .bte-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
 .bte-filtre-etoile--actif{color:var(--color-svv-red)}
@@ -1540,6 +1711,25 @@ const CSS_BOITE = `
 .bte-brouillon--muet{cursor:default;color:var(--color-svv-muted)}
 .bte-trouve{font-weight:800;text-decoration:underline;text-underline-offset:2px}
 ${CSS_BARRE_PAGES}
+/* ══ LOT RATTACHER-EN-ECRIVANT — LE SQUELETTE DE CHARGEMENT ═════════════════════════════════════════════════════
+   Trois blocs gris qui occupent la place d'une ligne : le correspondant, l'objet, la date. Ils ne montrent AUCUNE
+   donnee — c'est tout l'interet : on voit que ca travaille, sans croire lire la page qui arrive.
+   ⚠️ AUCUN ACCENT GRAVE ICI : litteral de gabarit. */
+.bte-squelette{display:flex;align-items:center;gap:12px;padding:10px 6px;pointer-events:none}
+.bte-sq{display:block;height:11px;border-radius:999px;background:var(--color-svv-line);
+  animation:bte-sq-pulse 1.1s ease-in-out infinite}
+.bte-sq--qui{flex:0 0 140px}
+.bte-sq--objet{flex:1 1 auto;min-width:0}
+.bte-sq--date{flex:0 0 46px}
+@keyframes bte-sq-pulse{0%,100%{opacity:.55}50%{opacity:1}}
+/* 🔴 EXIGENCE TRANSVERSE DU PROJET : qui demande moins d'animation n'en a pas. Le squelette reste, immobile —
+   il dit la meme chose, il ne clignote plus. */
+@media (prefers-reduced-motion:reduce){.bte-sq{animation:none;opacity:.7}}
+/* La phrase que seul un lecteur d'ecran entend : le squelette, lui, porte aria-hidden.
+   (Aucun accent grave : ce commentaire vit DANS un litteral de gabarit — piege qui s'est referme trois fois
+    pendant ces lots.) */
+.bte-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);
+  white-space:nowrap;border:0}
 
 ${CSS_MENU_LIGNE}
 `;

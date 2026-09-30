@@ -76,6 +76,11 @@ export interface DemandeEnvoi {
    * rattachement MANUEL confirmé du message envoyé. Vide ou absent ⇒ rien à classer.
    */
   cibles?: readonly { sorte: string; cle: string | null; id: number | null; libelle: string }[];
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — « Interne » a-t-il été coché dans la modale ? Vrai ⇒ l'intention est retenue
+   * après l'envoi, et la relève pose la marque sur l'échange dès qu'il existe. Absent ⇒ rien, comme avant ce lot.
+   */
+  interne?: boolean;
 }
 
 export interface DepsEnvoiComplet {
@@ -140,6 +145,18 @@ export interface DepsEnvoiComplet {
     cibles: readonly { sorte: string; cle: string | null; id: number | null; libelle: string }[];
     auteur: Auteur;
   }): Promise<void>;
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — « INTERNE » DEMANDÉ PENDANT L'ÉCRITURE D'UN MESSAGE **NEUF**.
+   *
+   * ⚠️ MÊME CONTRAINTE QUE `classer` CI-DESSUS, et même remède : « Interne » porte sur un ÉCHANGE, et un message
+   * neuf n'en a pas encore — c'est la relève qui le crée en capturant le message. On retient donc l'intention sur
+   * l'envoi, et un rattrapage la pose ensuite. Une RÉPONSE, elle, a déjà son échange : l'écran le marque
+   * directement, sans passer par ici.
+   *
+   * ⚠️ AU MIEUX-EFFORT, APRÈS LE MESSAGE PARTI : rien ici ne peut rendre un échec. Absente ⇒ rien n'est retenu,
+   * et l'écran dit de marquer la conversation depuis « Classer ».
+   */
+  marquerInterne?(o: { envoiId: number; auteur: Auteur }): Promise<void>;
   /** Le journal MÉTIER : qui, à qui, quand, quel objet — et SUR QUOI la ligne se range (`envoiId`). */
   journaliser(l: {
     auteur: Auteur; objet: string; destinataires: string[]; issue: 'envoye' | 'echec'; envoiId: number;
@@ -157,6 +174,8 @@ export interface DepsEnvoiComplet {
 
 /** Les gestes qui suivent l'acceptation de Gmail. Nommés, parce qu'un incident doit dire LEQUEL a manqué. */
 export type EtapeApresEnvoi = 'finaliser' | 'brouillon' | 'journal' | 'classement'
+  // 🔴 LOT RATTACHER-EN-ECRIVANT — la demande « Interne » pour un message neuf : même filet que le classement.
+  | 'interne'
   // ⚠️ `signature` N'EST PAS UNE ÉTAPE D'APRÈS-ENVOI : elle vient AVANT. Elle est dans cette liste parce qu'elle
   //    emprunte le même filet (`incident`) — signaler sans jamais faire échouer — et qu'un second mécanisme pour
   //    dire la même chose serait un second endroit où regarder.
@@ -290,6 +309,15 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
   if (deps.classer && cibles.length > 0) {
     await auMieux('classement', () => (deps.classer as NonNullable<DepsEnvoiComplet['classer']>)({
       envoiId: envoi.id, gmailMessageId: issue.gmailMessageId ?? null, cibles, auteur,
+    }));
+  }
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — LA DEMANDE « INTERNE », au même endroit et au même titre que le classement :
+   * en dernier, au mieux-effort, et sans qu'elle puisse jamais rendre un échec.
+   */
+  if (deps.marquerInterne && d.interne === true) {
+    await auMieux('interne', () => (deps.marquerInterne as NonNullable<DepsEnvoiComplet['marquerInterne']>)({
+      envoiId: envoi.id, auteur,
     }));
   }
   return { ok: true, envoi: { ...envoi, etat: 'envoye' }, deja: false };

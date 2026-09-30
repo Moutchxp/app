@@ -5,13 +5,18 @@ import {
   annuaireDisponible, rattachementsDisponibles, miniaturesDisponibles, libelleSourceContactDisponible,
 } from './schema';
 // LOT AFFECTATION-PAR-BIEN — le moteur des propositions est PUR : il décide, et il s'éprouve sans base.
-import { proposerBiens, type AdresseVue } from './propositionsBien';
+import { proposerBiens, type AdresseVue, type TextesDuMail } from './propositionsBien';
 // LOT FICHE-PROPOSITION — ce qui s'affiche, et sous quel mot : un module PUR, éprouvé sans base ni écran.
 import {
   adresseComplete, caracteristiquesDuLot,
   type CaracteristiqueLot, type Coordonnee, type PersonneFiche,
 } from './ficheBien';
 import { libelleContact } from './annuaire';
+// 🔴 LOT RATTACHER-EN-ECRIVANT — la reconnaissance d'une adresse, LA MÊME fonction pure que la relève emploie.
+import { estInterne, reconnaitre } from './adressesMessage';
+import { chargerAnnuaireAdresses } from './adressesRepo';
+// 🔴 « Interne » proposé en premier : la règle vit dans le dépôt qui la porte, écrite une seule fois.
+import { proposerInterneDabord } from './interneRepo';
 
 /**
  * MODULE « GESTION » — LOT STATUT-PAR-MAIL : CE QU'IL FAUT SAVOIR POUR CLASSER UN MAIL DANS UN BIEN. LECTURE SEULE.
@@ -178,64 +183,46 @@ export function libelleBien(l: { adresse: string | null; commune: string | null;
 }
 
 /**
- * ══ CE QU'IL FAUT POUR CLASSER CE MAIL. LECTURE SEULE. ═══════════════════════════════════════════════════════════
+ * ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — LE CŒUR DU CLASSEMENT, EXTRAIT POUR SERVIR DEUX FOIS ═══════════════════════
  *
- * ⚠️ SANS ANNUAIRE OU SANS RATTACHEMENTS, on rend `disponible: false` plutôt qu'une liste vide. Une liste vide se
- * lirait « aucun bien ne correspond », ce qui serait faux : on n'a simplement pas pu chercher.
+ * « De quels BIENS parle-t-on, et qui en sont les parties à cette date ? » — la question ne dépend QUE de trois
+ * choses : des ADRESSES, des TEXTES où chercher une citation, et d'une DATE. Elle ne dépend d'AUCUN message.
+ *
+ * DEUX APPELANTS, et c'est tout l'objet de l'extraction :
+ *   · `contexteClassement(messageId)` — un mail REÇU, qu'on classe après coup ;
+ *   · `contexteClassementRedaction(...)` — un mail qu'on est en train d'ÉCRIRE, et qui n'existe pas encore en
+ *     base. Demande d'Arno : proposer les biens DÈS QU'UNE ADRESSE EST VALIDÉE dans À, Cc ou Cci.
+ *
+ * 🔴 POURQUOI PAS UNE SECONDE ÉCRITURE. Les propositions faites à l'écriture et celles faites à la réception
+ * doivent être LES MÊMES — même moteur (`proposerBiens`, règles a–e), mêmes cartes, mêmes motifs. Deux écritures
+ * auraient divergé au premier ajustement, et l'on aurait vu un bien proposé à l'envoi disparaître à la réception
+ * du même échange. C'est le défaut que le lot RECHERCHE-LIGNES a déjà payé une fois sur les lignes de liste.
+ *
+ * ⚠️ AUCUN CHANGEMENT DE COMPORTEMENT POUR L'APPELANT HISTORIQUE : le corps ci-dessous est celui de
+ * `contexteClassement`, déplacé sans une ligne de différence. Ce qui variait — la date de référence, les liens
+ * déjà posés, les textes — est devenu un paramètre.
  */
-export async function contexteClassement(messageId: number): Promise<ContexteClassement> {
-  const vide: ContexteClassement = {
-    messageId, filId: null, dateMail: null, nbMailsDuFil: 0, proprietaire: null, biens: [],
-    examen: { issue: 'sans_candidat', motif: 'annuaire ou rattachements non installés' }, pieces: [],
-    disponible: false,
-  };
-  if (!(await annuaireDisponible()) || !(await rattachementsDisponibles())) return vide;
-
-  // ── ① LE MAIL : sa date (qui décide des parties), son échange, son objet et son corps (cas c et d) ───────────
-  const { rows: msg } = await query<{
-    fil_id: string | null; recu_le: string; nb: number; objet: string | null; corps: string | null;
-  }>(
-    `SELECT m.fil_id::text AS fil_id,
-            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS recu_le,
-            (SELECT count(*) FROM gestion_message c WHERE c.fil_id = m.fil_id)::int AS nb,
-            m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps
-       FROM gestion_message m WHERE m.id = $1`, [messageId]);
-  const m = msg[0];
-  if (m === undefined) return vide;
-  const dateMail = m.recu_le;
-  const filId = m.fil_id === null ? null : Number(m.fil_id);
-
-  // ── LES PIÈCES JOINTES : leur nom nourrit la reconnaissance (cas c et d) ET le classement pièce par pièce ────
-  const { rows: pieces } = await query<{ id: string; nom_fichier: string; miniature: boolean }>(
-    `SELECT p.id::text, p.nom_fichier,
-            ${(await miniaturesDisponibles()) ? 'p.miniature_cle IS NOT NULL' : 'false'} AS miniature
-       FROM gestion_piece p WHERE p.message_id = $1 ORDER BY p.id`, [messageId]);
-
+async function construireBiens(o: {
+  /** Les adresses vues, telles que `proposerBiens` les attend. */
+  adresses: readonly AdresseVue[];
+  /** Où chercher une citation d'adresse ou de n° de lot (cas c et d) : objet, corps, noms de pièces. */
+  textes: TextesDuMail;
   /**
-   * ── ② LES ADRESSES, celles du mail ET celles de l'échange ────────────────────────────────────────────────────
-   * 🔴 C'est `gestion_message_adresse` qui porte déjà, pour chaque adresse, ce que l'annuaire en dit À LA DATE DU
-   * MAIL : interne ou non, partie (locataire / propriétaire), lot occupé, propriétaire. On ne recalcule rien ici.
+   * La date qui décide QUI sont les parties. Celle du mail quand il existe ; le JOUR MÊME quand on l'écrit —
+   * c'est la seule réponse juste : on s'adresse au locataire d'aujourd'hui, pas à celui d'août 2025.
    */
-  const { rows: adr } = await query<{
-    adresse: string; interne: boolean; partie: string | null; lot_cle: string | null;
-    proprietaire_cle: string | null; du_mail: boolean;
-  }>(
-    `SELECT a.adresse, a.interne, a.partie, a.lot_cle, a.proprietaire_cle,
-            (a.message_id = $1) AS du_mail
-       FROM gestion_message_adresse a
-       JOIN gestion_message mm ON mm.id = a.message_id
-      WHERE a.message_id = $1 OR ($2::bigint IS NOT NULL AND mm.fil_id = $2::bigint)`,
-    [messageId, filId]);
-
-  const adresses: AdresseVue[] = adr.map((a) => ({
-    adresse: a.adresse,
-    interne: a.interne,
-    partie: a.partie === 'locataire' || a.partie === 'proprietaire' ? a.partie : null,
-    lotCle: a.lot_cle,
-    proprietaireCle: a.proprietaire_cle,
-    duMail: a.du_mail,
-  }));
-
+  dateRef: string;
+  /**
+   * Les rattachements DÉJÀ posés sur ce mail (`propose` ou `confirme`). VIDE à la rédaction : un mail qu'on écrit
+   * n'en porte aucun, et lui en inventer ferait afficher « rattachement déjà posé » sur un message inexistant.
+   */
+  liens: readonly { cible_sorte: string; cible_cle: string | null; statut: string }[];
+}): Promise<{
+  biens: BienProposable[];
+  examen: { issue: 'automatique' | 'a_trancher' | 'sans_candidat'; motif: string };
+  proprietaire: { cle: string; nom: string } | null;
+}> {
+  const adresses = o.adresses;
   /**
    * ── ③ LE CATALOGUE DES BIENS ────────────────────────────────────────────────────────────────────────────────
    * ⚠️ TOUS LES LOTS, ET C'EST DÉLIBÉRÉ : le cas (d) cherche une adresse ou un n° de lot dans le TEXTE du mail,
@@ -257,7 +244,7 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
   // ── ④ LE MOTEUR, PUR : c'est lui qui décide, et il s'éprouve sans base ────────────────────────────────────────
   const examen = proposerBiens({
     adresses,
-    textes: { objet: m.objet, corps: m.corps, pieces: pieces.map((p) => p.nom_fichier) },
+    textes: o.textes,
     biens: lots.map((l) => ({
       cle: l.cle, numero: l.cle, adresse: l.adresse, commune: l.commune,
       proprietaireCle: l.proprietaire_cle, proprietaireNom: l.proprietaire_nom,
@@ -270,9 +257,7 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
    * réécrire en base tant que personne n'a validé (demande d'Arno, point 3). Une ligne « propriétaire » en base
    * n'est pas fausse : elle est seulement écrite dans un vocabulaire qu'on n'emploie plus.
    */
-  const { rows: liens } = await query<{ cible_sorte: string; cible_cle: string | null; statut: string }>(
-    `SELECT cible_sorte, cible_cle, statut FROM gestion_rattachement
-      WHERE message_id = $1 AND statut IN ('propose', 'confirme')`, [messageId]);
+  const liens = o.liens;
   const clesConfirmees = new Set(
     liens.filter((l) => l.cible_sorte === 'lot' && l.statut === 'confirme').map((l) => l.cible_cle ?? ''));
   const lotsDesLiens = new Set(liens.filter((l) => l.cible_sorte === 'lot').map((l) => l.cible_cle ?? ''));
@@ -315,7 +300,7 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
     if (l === undefined) continue;
     const { rows: loc } = await query<{
       locataire_id: string; cle: string; nom: string; depuis: string | null; jusqua: string | null;
-    }>(SQL_PARTIES, [l.id, dateMail]);
+    }>(SQL_PARTIES, [l.id, o.dateRef]);
     occupations.set(cle, loc.map((x) => ({
       locataireId: x.locataire_id, cle: x.cle, nom: x.nom, depuis: x.depuis, jusqua: x.jusqua,
     })));
@@ -396,6 +381,7 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
     });
   }
 
+
   /** Le propriétaire qui TITRE la liste — jamais une cible. Celui des biens proposés, s'ils n'en ont qu'un. */
   const propsVus = [...new Set(biens.map((b) => b.parties.find((p) => p.role === 'proprietaire')?.cle ?? '')
     .filter((x) => x !== ''))];
@@ -405,13 +391,6 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
     : null;
 
   return {
-    messageId,
-    filId,
-    dateMail,
-    nbMailsDuFil: m.nb,
-    proprietaire: proprio === null ? null : { cle: proprio.cle, nom: proprio.nom },
-    examen: { issue: examen.issue, motif: examen.motif },
-    pieces: pieces.map((p) => ({ pieceId: Number(p.id), nom: p.nom_fichier, miniature: p.miniature === true })),
     /**
      * ⚠️ LE PLUS SÛR EN TÊTE : quasi certain, puis pré-coché, puis l'ordre alphabétique. Un bien trouvé par son
      * locataire ne doit pas être à chercher au milieu des huit lots du bailleur.
@@ -420,6 +399,199 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
       Number(b.certitude === 'quasi_certaine') - Number(a.certitude === 'quasi_certaine')
       || Number(b.recommande) - Number(a.recommande)
       || a.libelle.localeCompare(b.libelle, 'fr')),
+    examen: { issue: examen.issue, motif: examen.motif },
+    proprietaire: proprio === null ? null : { cle: proprio.cle, nom: proprio.nom },
+  };
+}
+
+/**
+ * ══ CE QU'IL FAUT POUR CLASSER CE MAIL. LECTURE SEULE. ═══════════════════════════════════════════════════════════
+ *
+ * ⚠️ SANS ANNUAIRE OU SANS RATTACHEMENTS, on rend `disponible: false` plutôt qu'une liste vide. Une liste vide se
+ * lirait « aucun bien ne correspond », ce qui serait faux : on n'a simplement pas pu chercher.
+ */
+export async function contexteClassement(messageId: number): Promise<ContexteClassement> {
+  const vide: ContexteClassement = {
+    messageId, filId: null, dateMail: null, nbMailsDuFil: 0, proprietaire: null, biens: [],
+    examen: { issue: 'sans_candidat', motif: 'annuaire ou rattachements non installés' }, pieces: [],
+    disponible: false,
+  };
+  if (!(await annuaireDisponible()) || !(await rattachementsDisponibles())) return vide;
+
+  // ── ① LE MAIL : sa date (qui décide des parties), son échange, son objet et son corps (cas c et d) ───────────
+  const { rows: msg } = await query<{
+    fil_id: string | null; recu_le: string; nb: number; objet: string | null; corps: string | null;
+  }>(
+    `SELECT m.fil_id::text AS fil_id,
+            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS recu_le,
+            (SELECT count(*) FROM gestion_message c WHERE c.fil_id = m.fil_id)::int AS nb,
+            m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps
+       FROM gestion_message m WHERE m.id = $1`, [messageId]);
+  const m = msg[0];
+  if (m === undefined) return vide;
+  const dateMail = m.recu_le;
+  const filId = m.fil_id === null ? null : Number(m.fil_id);
+
+  // ── LES PIÈCES JOINTES : leur nom nourrit la reconnaissance (cas c et d) ET le classement pièce par pièce ────
+  const { rows: pieces } = await query<{ id: string; nom_fichier: string; miniature: boolean }>(
+    `SELECT p.id::text, p.nom_fichier,
+            ${(await miniaturesDisponibles()) ? 'p.miniature_cle IS NOT NULL' : 'false'} AS miniature
+       FROM gestion_piece p WHERE p.message_id = $1 ORDER BY p.id`, [messageId]);
+
+  /**
+   * ── ② LES ADRESSES, celles du mail ET celles de l'échange ────────────────────────────────────────────────────
+   * 🔴 C'est `gestion_message_adresse` qui porte déjà, pour chaque adresse, ce que l'annuaire en dit À LA DATE DU
+   * MAIL : interne ou non, partie (locataire / propriétaire), lot occupé, propriétaire. On ne recalcule rien ici.
+   */
+  const { rows: adr } = await query<{
+    adresse: string; interne: boolean; partie: string | null; lot_cle: string | null;
+    proprietaire_cle: string | null; du_mail: boolean;
+  }>(
+    `SELECT a.adresse, a.interne, a.partie, a.lot_cle, a.proprietaire_cle,
+            (a.message_id = $1) AS du_mail
+       FROM gestion_message_adresse a
+       JOIN gestion_message mm ON mm.id = a.message_id
+      WHERE a.message_id = $1 OR ($2::bigint IS NOT NULL AND mm.fil_id = $2::bigint)`,
+    [messageId, filId]);
+
+  const adresses: AdresseVue[] = adr.map((a) => ({
+    adresse: a.adresse,
+    interne: a.interne,
+    partie: a.partie === 'locataire' || a.partie === 'proprietaire' ? a.partie : null,
+    lotCle: a.lot_cle,
+    proprietaireCle: a.proprietaire_cle,
+    duMail: a.du_mail,
+  }));
+
+  /**
+   * ── ③ À ⑥ : LE CŒUR, PARTAGÉ AVEC LA RÉDACTION (voir `construireBiens`). Les liens déjà posés sur CE mail sont
+   * lus ici, parce qu'eux seuls dépendent du message.
+   */
+  const { rows: liens } = await query<{ cible_sorte: string; cible_cle: string | null; statut: string }>(
+    `SELECT cible_sorte, cible_cle, statut FROM gestion_rattachement
+      WHERE message_id = $1 AND statut IN ('propose', 'confirme')`, [messageId]);
+  const coeur = await construireBiens({
+    adresses,
+    textes: { objet: m.objet, corps: m.corps, pieces: pieces.map((p) => p.nom_fichier) },
+    dateRef: dateMail,
+    liens,
+  });
+
+  return {
+    messageId,
+    filId,
+    dateMail,
+    nbMailsDuFil: m.nb,
+    proprietaire: coeur.proprietaire,
+    examen: coeur.examen,
+    pieces: pieces.map((p) => ({ pieceId: Number(p.id), nom: p.nom_fichier, miniature: p.miniature === true })),
+    biens: coeur.biens,
+    disponible: true,
+  };
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RATTACHER-EN-ECRIVANT — LES PROPOSITIONS PENDANT QU'ON ÉCRIT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Ce que la rédaction rend : les mêmes cartes que le classement d'un mail reçu, plus ce qui lui est propre. */
+export interface ContexteRedaction {
+  /** Les biens proposés, avec leurs parties À LA DATE DU JOUR et leur motif en clair. */
+  biens: BienProposable[];
+  examen: { issue: 'automatique' | 'a_trancher' | 'sans_candidat'; motif: string };
+  proprietaire: { cle: string; nom: string } | null;
+  /**
+   * 🔴 « INTERNE » EST-IL À PROPOSER EN PREMIER ? Vrai quand TOUS les destinataires sont en @sansvisavis.com ou
+   * @criterimmo.fr (demande d'Arno). C'est une PROPOSITION, jamais une décision : rien n'est posé ici.
+   */
+  interneDabord: boolean;
+  /** `false` = annuaire ou migration 257 absents : l'écran le DIT au lieu de montrer une liste vide. */
+  disponible: boolean;
+}
+
+/**
+ * ══ 🔴🔴 QUELS BIENS CE MAIL-QU'ON-ÉCRIT PEUT-IL CONCERNER ? LECTURE SEULE ══════════════════════════════════════
+ *
+ * Demande d'Arno : « dès qu'une adresse est VALIDÉE dans À, Cc ou Cci […] le moteur de propositions calcule les
+ * biens concernés à partir de TOUS les destinataires ».
+ *
+ * 🔴 LE MÊME MOTEUR, LES MÊMES RÈGLES (a–e), LES MÊMES CARTES que le classement d'un mail reçu : tout passe par
+ * `construireBiens`. C'est ce qui garantit qu'un bien proposé à l'écriture ne disparaîtra pas à la réception.
+ *
+ * ⚠️ LA DIFFÉRENCE AVEC UN MAIL REÇU, ET IL N'Y EN A QU'UNE : il n'y a pas de message en base. Les adresses ne
+ * peuvent donc pas être lues dans `gestion_message_adresse` (qui est peuplée par la relève) — on les RECONNAÎT à
+ * chaud, avec `reconnaitre`, LA MÊME fonction pure que la relève emploie. Rien n'est réécrit, rien n'est
+ * recalculé autrement.
+ *
+ * 🔴 LA DATE DE RÉFÉRENCE EST AUJOURD'HUI, et c'est la seule réponse juste : on écrit au locataire
+ * d'aujourd'hui, pas à celui d'août 2025. (Un mail reçu, lui, se classe à SA date — c'est la règle inverse, et
+ * elle est tout aussi juste : le courrier d'un locataire sorti appartient à son occupation.)
+ *
+ * ⚠️ AUCUNE ÉCRITURE. Cette fonction ne pose aucun rattachement : elle PROPOSE. C'est la validation de la modale
+ * qui écrit, à l'envoi, par la porte existante.
+ */
+export async function contexteClassementRedaction(o: {
+  /** Toutes les adresses saisies dans À, Cc et Cci. Les doublons sont écartés ici. */
+  destinataires: readonly string[];
+  /** L'objet en cours de saisie, s'il y en a un : il peut citer une adresse ou un n° de lot (cas c et d). */
+  objet?: string | null;
+  /** Le corps en cours de saisie. Borné par l'appelant : on ne cherche pas dans dix pages. */
+  corps?: string | null;
+  /** Les noms des pièces déjà jointes : « Quittance 12 rue Danton.pdf » désigne un bien aussi sûrement qu'un objet. */
+  pieces?: readonly string[];
+}): Promise<ContexteRedaction> {
+  const adressesSaisies = [...new Set(
+    o.destinataires.map((d) => (d ?? '').trim().toLowerCase()).filter((d) => d !== ''),
+  )];
+  const vide: ContexteRedaction = {
+    biens: [], examen: { issue: 'sans_candidat', motif: 'annuaire ou rattachements non installés' },
+    proprietaire: null, interneDabord: proposerInterneDabord(adressesSaisies), disponible: false,
+  };
+  if (adressesSaisies.length === 0) {
+    return { ...vide, examen: { issue: 'sans_candidat', motif: 'aucun destinataire saisi' }, disponible: true };
+  }
+  if (!(await annuaireDisponible()) || !(await rattachementsDisponibles())) return vide;
+
+  /**
+   * ⚠️ L'ANNUAIRE EST LU EN UNE FOIS, comme le fait la relève. Mesuré le 28/09/2026 : 365 lots, et quelques
+   * milliers de coordonnées — une lecture, pas une par adresse saisie.
+   */
+  const annuaire = await chargerAnnuaireAdresses();
+  const jour = new Date().toISOString().slice(0, 10);
+
+  /**
+   * 🔴 LA RECONNAISSANCE EST CELLE DE LA RELÈVE, appelée telle quelle. `estInterne` écarte nos propres adresses
+   * comme CLÉ (cas e) — sans les effacer de la liste, exactement comme pour un mail reçu.
+   */
+  const adresses: AdresseVue[] = adressesSaisies.map((adresse) => {
+    const interne = estInterne(adresse, annuaire.adresseGestion, annuaire.partenaires);
+    const r = reconnaitre({ adresse, adresseBrute: adresse, role: 'destinataire', interne },
+      jour, annuaire.contacts, annuaire.occupations);
+    return {
+      adresse,
+      interne,
+      partie: r.partie,
+      lotCle: r.lotCle,
+      proprietaireCle: r.proprietaireCle,
+      // ⚠️ TOUTES DU « MAIL » : il n'y a pas d'échange derrière, donc rien qui vienne d'ailleurs.
+      duMail: true,
+    };
+  });
+
+  const coeur = await construireBiens({
+    adresses,
+    textes: { objet: o.objet ?? null, corps: o.corps ?? null, pieces: o.pieces ?? [] },
+    dateRef: jour,
+    // ⚠️ AUCUN LIEN DÉJÀ POSÉ : le mail n'existe pas encore. Voir l'encadré de `construireBiens`.
+    liens: [],
+  });
+
+  return {
+    biens: coeur.biens,
+    examen: coeur.examen,
+    proprietaire: coeur.proprietaire,
+    interneDabord: proposerInterneDabord(adressesSaisies),
     disponible: true,
   };
 }

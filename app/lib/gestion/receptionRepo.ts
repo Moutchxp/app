@@ -1,6 +1,8 @@
 import { query } from '../db/client';
-import { rattachementsDisponibles, horsGestionDisponible } from './schema';
+import { rattachementsDisponibles, horsGestionDisponible, interneDisponible } from './schema';
 import { capsuleDuMessage, type CapsuleStatut } from './statutClassement';
+// 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois.
+import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 
 /**
@@ -93,6 +95,8 @@ interface LigneDB {
   r_manuel: boolean | null;
   /** LOT STATUT-HORS-GESTION — `null` quand la migration 266 est absente : aucune capsule grise, jamais. */
   hg_marque: boolean | null;
+  /** LOT RATTACHER-EN-ECRIVANT — `null` sans la migration 281 : la table n'est nommée nulle part. */
+  itn_marque: boolean | null;
   hg_motif: string | null;
 }
 
@@ -174,6 +178,8 @@ export async function lireMailsRecus(
   const avec = await rattachementsDisponibles();
   // LOT STATUT-HORS-GESTION — même patron : sans la 266, la table n'est nommée nulle part et rien ne change.
   const avecHg = await horsGestionDisponible();
+  // 🔴 LOT RATTACHER-EN-ECRIVANT — même patron : sans la 281, la table n'est nommée nulle part.
+  const avecItn = await interneDisponible();
   const filtre = o.filtre ?? 'tous';
   const aLire = Math.min(Math.max(1, o.limite ?? PAGE_RECEPTION), 100) + 1;
 
@@ -183,10 +189,12 @@ export async function lireMailsRecus(
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le,
             (SELECT count(*) FROM gestion_piece p WHERE p.message_id = m.id)::int AS nb_pieces,
             ${avec ? 'rb.biens AS r_biens, rb.manuel AS r_manuel' : 'NULL::text[] AS r_biens, NULL::boolean AS r_manuel'},
-            ${avecHg ? 'hg.marque AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'}
+            ${avecHg ? 'hg.marque AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'},
+            ${sqlColonneInterne(avecItn)}
        FROM gestion_message m
        ${jointureRattachements(avec)}
        ${jointureHorsGestion(avecHg)}
+       ${sqlJointureInterne(avecItn, 'm')}
       WHERE m.sens = 'recu'
         AND m.spam_le IS NULL
         AND (m.recu_le, m.id) < ($1::timestamptz, $2::bigint)
@@ -212,7 +220,13 @@ export async function lireMailsRecus(
           cible: { sorte: 'lot' }, statut: 'confirme', origine: r.r_manuel === true ? 'manuel' : 'automatique',
         })),
         // 🔴 LA PRIORITÉ EST TENUE PAR LE MODULE PUR : un mail rattaché reste vert, même marqué hors gestion.
-        r.hg_marque === true);
+        r.hg_marque === true,
+        /**
+         * 🔴 LOT RATTACHER-EN-ECRIVANT — la marque de l'ÉCHANGE. C'est ce qui fait que la réponse d'un collègue,
+         * qui arrive ICI (cette colonne est la Réception), porte la capsule verte au lieu de « À classer » —
+         * le défaut exact qu'Arno a constaté.
+         */
+        r.itn_marque === true);
       return {
         // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans cette conversion, les clés React et les comparaisons mentiraient.
         messageId: Number(r.message_id),

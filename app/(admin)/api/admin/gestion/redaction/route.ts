@@ -8,8 +8,8 @@ import {
 import { lireJeton } from '../../../../../lib/gestion/googleJeton';
 import { compterBrouillons } from '../../../../../lib/gestion/redactionRepo';
 import {
-  brouillonCibleDisponible, brouillonHtmlDisponible, corbeilleBrouillonDisponible, piecesEnvoiDisponibles,
-  redactionDisponible,
+  brouillonCibleDisponible, brouillonHtmlDisponible, corbeilleBrouillonDisponible, interneDisponible,
+  piecesEnvoiDisponibles, redactionDisponible,
 } from '../../../../../lib/gestion/schema';
 // LOT REDACTION-GMAIL — la signature Gmail est du HTML venu d'un réglage : elle s'assainit comme tout le reste.
 import { assainirHtml } from '../../../../../lib/gestion/htmlMail';
@@ -108,6 +108,8 @@ export async function GET(request: Request): Promise<Response> {
      */
     htmlDisponible: await brouillonHtmlDisponible(),
     classementDisponible: await brouillonCibleDisponible(),
+    // 🔴 LOT RATTACHER-EN-ECRIVANT — la 281 (« Interne ») : sans elle, le bouton est grisé avec son motif.
+    interneDisponible: await interneDisponible(),
     /**
      * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — la migration 276 est-elle appliquée ? D'elle dépendent les MOTS du bouton
      * qui jette un brouillon (`motsJeterBrouillon`, app/lib/gestion/redaction.ts) : sans la colonne, rien ne peut

@@ -221,18 +221,36 @@ describe('🔴 ② « 1–25 sur N » : N est un nombre d’ÉCHANGES, celui de 
     expect(mot(haut())).toBe('26–50 sur 8 546');
   });
 
-  /** ⚠️ ET LA PAGE SUIVANTE EST DEMANDÉE AVEC LE CURSEUR RENDU PAR LE SERVEUR, jamais un décalage calculé. */
-  it('le chevron › repart du curseur rendu par le serveur', async () => {
+  /**
+   * ══ ⚠️ RÉÉCRIT PAR LE LOT RATTACHER-EN-ECRIVANT — LA PAGE 2 EST DEMANDÉE **AVANT** LE CLIC ═════════════════
+   *
+   * CE QUI ÉTAIT EXIGÉ ICI : qu'un clic sur « › » émette une requête portant le curseur du serveur. L'épreuve
+   * vidait `urls`, cliquait, et cherchait la requête dans ce qui suivait.
+   *
+   * POURQUOI ELLE NE PEUT PLUS L'ÊTRE : le lot précharge les deux pages suivantes DÈS QUE la première est
+   * rendue. Au moment du clic, la page 2 est déjà en cache — et le clic n'émet donc plus RIEN. C'est
+   * exactement l'amélioration demandée (« une page déjà vue se rouvre instantanément ») : l'épreuve mesurait le
+   * symptôme qu'on vient de supprimer.
+   *
+   * 🔒 LA PROPRIÉTÉ GARDÉE EST LA MÊME, et elle est même renforcée : la page 2 est demandée AVEC LE CURSEUR RENDU
+   * PAR LE SERVEUR — seulement plus tôt. Et le clic, lui, ne coûte plus un aller-retour.
+   */
+  it('🔴 la page suivante est préchargée AVEC le curseur du serveur, et le clic ne coûte plus rien', async () => {
     reponses = [
       { lignes: pagePleine(1), suivant: { dernierLe: '2026-09-01T00:00:00Z', filId: '4242' }, total: 8546 },
       { lignes: pagePleine(26), suivant: null, total: null },
     ];
     await monter();
-    urls.length = 0;
-    await cliquer(chevrons(haut())[1]);
+    // ① LE PRÉCHARGEMENT a employé le curseur rendu par le serveur, jamais un décalage calculé.
     expect(urls.some((u) => u.includes('depuis=2026-09-01') && u.includes('avant=4242'))).toBe(true);
     // 🔒 JAMAIS D'`OFFSET` : la boîte se pagine par curseur, c'est une règle écrite du dépôt.
     expect(urls.some((u) => u.includes('offset'))).toBe(false);
+
+    // ② LE CLIC N'ÉMET PLUS AUCUNE REQUÊTE DE PAGE : la page 2 est déjà là.
+    urls.length = 0;
+    await cliquer(chevrons(haut())[1]);
+    expect(mot(haut())).toContain('26–50');
+    expect(urls.filter((u) => u.includes('/boite') && !u.includes('/comptes'))).toEqual([]);
   });
 
   /**

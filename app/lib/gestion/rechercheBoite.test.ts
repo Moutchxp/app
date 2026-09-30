@@ -37,6 +37,9 @@ vi.mock('./schema', () => ({
    */
   rattachementsDisponibles: async () => rattachementsConnus,
   horsGestionDisponible: async () => horsGestionConnu,
+  // 🔴 LOT RATTACHER-EN-ECRIVANT — migration 281 absente par défaut : `gestion_fil_interne` n'est NOMMÉE nulle
+  //   part, et les assertions de ce fichier portent donc sur le SQL d'avant ce lot.
+  interneDisponible: async () => false,
 }));
 
 let pleinTexte = true;
@@ -481,11 +484,63 @@ describe('LOT RECHERCHE-AVANCEE — les listes où chercher', () => {
 describe('LOT RECHERCHE-AVANCEE — pièce jointe et période', () => {
   it('« Avec » exige une pièce, « Sans » l’interdit, « Indifférent » n’écrit rien', () => {
     expect(plat(conditions({ saisie: 'bail', piece: 'avec' }, true).sql.join(' ')))
-      .toContain('EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)');
+      .toContain('EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id AND');
     expect(plat(conditions({ saisie: 'bail', piece: 'sans' }, true).sql.join(' ')))
-      .toContain('NOT EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)');
+      .toContain('NOT EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id AND');
     expect(plat(conditions({ saisie: 'bail', piece: 'indifferent' }, true).sql.join(' ')))
       .not.toContain('gestion_piece');
+  });
+
+  /**
+   * ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — « AVEC » VEUT DIRE UNE **VRAIE** PIÈCE, SUR LE MESSAGE TROUVÉ ═══════════
+   *
+   * LE CONSTAT D'ARNO : « Pièce jointe = Avec » rendait des échanges dont le message trouvé ne portait qu'un logo
+   * de signature. La ligne affichait alors un trombone GRIS — « les pièces sont ailleurs dans la conversation » —
+   * sur un résultat censé en porter une lui-même. Le filtre disait le contraire de ce que la ligne montrait.
+   *
+   * LA CAUSE : deux définitions de « pièce jointe ». Le SQL comptait toute ligne de `gestion_piece` ; l'écran, lui,
+   * passe par `trierPieces`, qui écarte les logos de signature et les jumeaux macOS. MESURÉ EN BASE le 30/09/2026 :
+   * 27 011 lignes dans `gestion_piece`, dont **16 686 seulement** sont de vraies pièces — 10 325 logos comptés à
+   * tort par l'ancien filtre.
+   *
+   * 🔒 CE QUE CETTE ÉPREUVE GARDE : la condition SQL est RENDUE depuis la même définition que la règle TypeScript
+   * (`sqlEstVraiePiece`, dans `lisibilite.ts`), et elle porte sur le MESSAGE trouvé (`m.id`), jamais sur son
+   * échange — c'est ce qui interdit « un échange où seule une autre partie de la conversation en a ».
+   */
+  it('🔴 « Avec » écarte les logos de signature et les jumeaux macOS, sur le message TROUVÉ', () => {
+    const s = plat(conditions({ saisie: 'bail', piece: 'avec' }, true).sql.join(' '));
+    // La condition porte sur le message trouvé, et sur lui seul.
+    expect(s).toContain('p.message_id = m.id');
+    expect(s).not.toContain('p.fil_id');
+    // Les jumeaux macOS sont écartés…
+    expect(s).toContain("p.nom_fichier NOT LIKE '._%'");
+    // …et les images de signature aussi, par leur NOM comme par leur TAILLE.
+    expect(s).toContain('outlook-');
+    expect(s).toContain('p.taille_octets < 10240');
+    expect(s).toContain("lower(coalesce(p.type_mime, '')) LIKE 'image/%'");
+  });
+
+  /**
+   * 🔴 « SANS » EST LA NÉGATION EXACTE DE « AVEC », au caractère près. Deux écritures indépendantes laisseraient
+   * un jour un mail dans aucun des deux — un mail dont la seule pièce est un logo est un mail SANS pièce jointe,
+   * et il doit sortir de « Sans ».
+   */
+  it('🔴 « Sans » est exactement la négation de « Avec »', () => {
+    const avec = plat(conditions({ saisie: 'bail', piece: 'avec' }, true).sql.join(' '));
+    const sans = plat(conditions({ saisie: 'bail', piece: 'sans' }, true).sql.join(' '));
+    const bloc = (x: string) => x.slice(x.indexOf('EXISTS (SELECT 1 FROM gestion_piece'));
+    expect(bloc(sans)).toBe(bloc(avec));
+    expect(sans).toContain(`NOT ${bloc(avec)}`);
+  });
+
+  /**
+   * ⚠️ LA RÈGLE N'EST ÉCRITE QU'UNE FOIS. Si quelqu'un recopiait la condition ici au lieu de l'appeler, les deux
+   * se mettraient à diverger au premier ajustement — c'est précisément le défaut qu'on vient de corriger.
+   */
+  it('⚠️ la condition est RENDUE par `sqlEstVraiePiece`, jamais recopiée', () => {
+    const src = readFileSync('app/lib/gestion/rechercheBoite.ts', 'utf8');
+    expect(src).toContain("sqlEstVraiePiece('p')");
+    expect(src).not.toContain("taille_octets < 10240");
   });
 
   it('la période est INCLUSE des deux côtés, et ses bornes sont des paramètres liés', () => {

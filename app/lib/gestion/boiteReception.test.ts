@@ -37,6 +37,9 @@ vi.mock('./schema', () => ({
   nonRemiseDisponible: async () => false,
   rattachementsDisponibles: async () => true,
   horsGestionDisponible: async () => false,
+  // 🔴 LOT RATTACHER-EN-ECRIVANT — migration 281 absente par défaut : `gestion_fil_interne` n'est NOMMÉE nulle
+  //   part, et les assertions de ce fichier portent donc sur le SQL d'avant ce lot.
+  interneDisponible: async () => false,
   etoileDisponible: async () => false,
   /**
    * 🔴 LOT ETOILE-ET-SIGNATURE — migration 277 absente par défaut : le filtre étoile lit alors encore

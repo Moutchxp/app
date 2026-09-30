@@ -1,6 +1,6 @@
 import { query, withTransaction } from '../db/client';
 import { attenteAvantReprise, BAIL_SECONDES, ESSAIS_MAX } from './fileEnvoi';
-import { fileEnvoiDisponible } from './schema';
+import { envoiInterneFileDisponible, fileEnvoiDisponible } from './schema';
 import type { LigneFile, PieceAFond } from './travailleurEnvoi';
 import type { EtatPiece, MentionNonEnvoye } from './fileEnvoi';
 
@@ -67,6 +67,12 @@ export interface DemandeEnFile {
   corps: string;
   corpsHtml: string | null;
   cibles: readonly unknown[];
+  /**
+   * 🔴 LOT RATTACHER-EN-ECRIVANT — « Interne » coché dans la modale, pour un message NEUF. Il voyage AVEC la
+   * demande : sans lui, l'intention serait perdue en silence pour tout envoi mis en file — c'est-à-dire
+   * précisément quand la base sait la tenir.
+   */
+  interne?: boolean;
 }
 
 /** L'état d'une ligne tel que l'écran le montre. */
@@ -139,16 +145,25 @@ export async function mettreEnFile(
   d: DemandeEnFile, auteur: { id: number | null; libelle: string },
 ): Promise<number | null> {
   if (!(await fileEnvoiDisponible())) return null;
+  const avecInterne = await envoiInterneFileDisponible();
   const { rows } = await query<{ id: string }>(
+    /**
+     * 🔴 LOT RATTACHER-EN-ECRIVANT — LA COLONNE « interne_demande » N'EST NOMMÉE QUE SI ELLE EXISTE (migration
+     * 283). Sans elle, la requête est mot pour mot celle d'avant ce lot : nommer une colonne absente ferait
+     * échouer TOUT envoi mis en file, pas seulement ceux qu'on marque. Règle du module depuis le lot 4a.
+     */
     `INSERT INTO gestion_envoi_file
        (cle_idempotence, brouillon_id, fil_id, repond_a_message_id, voie,
-        dest_a, dest_cc, dest_cci, objet, corps, corps_html, cibles, auteur_id, auteur_libelle)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12::jsonb, $13, $14)
+        dest_a, dest_cc, dest_cci, objet, corps, corps_html, cibles, auteur_id, auteur_libelle${
+  avecInterne ? ', interne_demande' : ''})
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12::jsonb, $13, $14${
+  avecInterne ? ', $15' : ''})
      ON CONFLICT (cle_idempotence) DO NOTHING
      RETURNING id::text`,
     [d.cleIdempotence, d.brouillonId, d.filId, d.repondAMessageId, d.voie,
       JSON.stringify(d.a), JSON.stringify(d.cc), JSON.stringify(d.cci),
-      d.objet, d.corps, d.corpsHtml, JSON.stringify(d.cibles ?? []), auteur.id, auteur.libelle],
+      d.objet, d.corps, d.corpsHtml, JSON.stringify(d.cibles ?? []), auteur.id, auteur.libelle,
+      ...(avecInterne ? [d.interne === true] : [])],
   );
   // Aucune ligne rendue = la clé existait déjà : c'est un doublon, et c'est le bon résultat.
   return rows[0] ? Number(rows[0].id) : null;
@@ -352,10 +367,12 @@ export async function lireDemande(id: number): Promise<(DemandeEnFile & {
     cle_idempotence: string; brouillon_id: string | null; fil_id: string | null;
     repond_a_message_id: string | null; voie: string | null; dest_a: unknown; dest_cc: unknown; dest_cci: unknown;
     objet: string; corps: string; corps_html: string | null; cibles: unknown;
+    interne_demande: boolean | null;
     auteur_id: string | null; auteur_libelle: string;
   }>(
     `SELECT cle_idempotence, brouillon_id::text, fil_id::text, repond_a_message_id::text, voie,
-            dest_a, dest_cc, dest_cci, objet, corps, corps_html, cibles, auteur_id::text, auteur_libelle
+            dest_a, dest_cc, dest_cci, objet, corps, corps_html, cibles, auteur_id::text, auteur_libelle${
+    await envoiInterneFileDisponible() ? ', interne_demande' : ', NULL::boolean AS interne_demande'}
        FROM gestion_envoi_file WHERE id = $1`, [id]);
   const r = rows[0];
   if (!r) return null;
@@ -368,6 +385,7 @@ export async function lireDemande(id: number): Promise<(DemandeEnFile & {
     a: listeDe(r.dest_a), cc: listeDe(r.dest_cc), cci: listeDe(r.dest_cci),
     objet: r.objet, corps: r.corps, corpsHtml: r.corps_html,
     cibles: Array.isArray(r.cibles) ? r.cibles : [],
+    interne: r.interne_demande === true,
     auteurId: r.auteur_id === null ? null : Number(r.auteur_id),
     auteurLibelle: r.auteur_libelle,
   };
