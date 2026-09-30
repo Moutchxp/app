@@ -10,6 +10,7 @@ import type { Auteur } from '../../../../../lib/gestion/gestes';
 import type { RepartitionCoordonnee } from '../../../../../lib/gestion/annuaireEdition';
 import {
   ajouterOccupant, ajouterProprietaireAuLot, archiverPersonne, creerPersonne, enregistrerDepart,
+  supprimerPersonne,
   modifierPersonne, ordonnerPersonnes, remplacerProprietaireDuLot, separerPersonne,
 } from '../../../../../lib/gestion/annuaireEditionRepo';
 
@@ -152,6 +153,21 @@ export async function POST(request: Request): Promise<Response> {
       if (sujet === null || id === null) return mauvaiseDemande();
       return Response.json(
         await archiverPersonne(sujet, id, action === 'archiver', auteur), { headers: ENTETES });
+    }
+    /**
+     * ══ 🔴🔴 LOT SUPPRIMER-CARTE — SUPPRIMER UNE FICHE ═══════════════════════════════════════════════════════
+     *
+     * 🔒 LE GARDE « au moins un propriétaire » N'EST PAS ICI : il est DANS LA TRANSACTION
+     * (`supprimerPersonne`), après un `FOR UPDATE`. Le mettre dans la route le rendrait contournable par une
+     * fenêtre restée ouverte pendant qu'un collègue retire l'autre propriétaire — et c'est exactement le cas
+     * qu'Arno demande de couvrir « y compris en appel direct ».
+     *
+     * ⚠️ AUCUN `DELETE` HTTP : le verbe de cette route reste `POST`, comme pour les autres gestes. Un `DELETE`
+     * ferait croire à une suppression de ligne, alors que rien n'est effacé en base.
+     */
+    if (action === 'supprimer') {
+      if (sujet === null || id === null) return mauvaiseDemande();
+      return Response.json(await supprimerPersonne(sujet, id, auteur), { headers: ENTETES });
     }
     if (action === 'separer') {
       if (sujet === null || id === null) return mauvaiseDemande();

@@ -239,10 +239,20 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
   const modifiable = detail !== null && detail.etat !== 'charge' && detail.etat !== 'erreur'
     && detail.data.modifiable;
 
+  /**
+   * 🔴 LOT SUPPRIMER-CARTE — la migration 287 est-elle là ? C'est le SERVEUR qui le dit, jamais l'écran : sans
+   * elle, `onSupprimer` reste absent et l'entrée du menu n'existe pas du tout.
+   */
+  const suppressionDisponible = detail !== null && detail.etat !== 'charge' && detail.etat !== 'erreur'
+    && detail.data.suppressionDisponible;
+
   const gestes: GestesCartes = {
     modifiable,
     onEnregistrer: (sujet, id, champs) => envoyer({ action: 'modifier', sujet, id, champs }),
     onArchiver: (sujet, id, archiver) => envoyer({ action: archiver ? 'archiver' : 'restaurer', sujet, id }),
+    onSupprimer: suppressionDisponible
+      ? (sujet, id) => envoyer({ action: 'supprimer', sujet, id })
+      : undefined,
     onSeparer: (sujet, id, o) => envoyer({ action: 'separer', sujet, id, ...o }),
     onOrdonner: (sujet, ids) => envoyer({ action: 'ordonner', sujet, ids }),
     onAjouter: () => { /* remplacé par fiche : chaque vue sait à quel bien rattacher la personne */ },

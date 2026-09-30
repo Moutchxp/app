@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ContactAffiche, PersonneAnnuaire } from '../../../../lib/gestion/annuaireRepo';
+// 🔴 LOT SUPPRIMER-CARTE — la phrase de confirmation, le motif du refus et le mot du lien : tous dans le module
+//   PUR, pour que l'écran et le serveur ne puissent pas dire deux choses différentes.
+import {
+  MOTIF_DERNIERE_CARTE, motVoirArchivees, nomAvecCivilite, phraseSuppression,
+} from '../../../../lib/gestion/personneVivante';
 import {
   MOTIF_DERNIER_PROPRIETAIRE, MOTIF_SANS_MIGRATION, manquesDeLaFiche, phraseArchivage, proposerCoupure,
   verifierCoordonnees, type CoordonneeSaisie, type PartDeCoordonnee,
@@ -57,6 +62,11 @@ export interface GestesCartes {
   /** Enregistre les champs d'une personne. Rend `null` si tout va bien, sinon le motif du refus. */
   onEnregistrer: (sujet: Sujet, id: number, champs: ChampsSaisis) => Promise<string | null>;
   onArchiver: (sujet: Sujet, id: number, archiver: boolean) => Promise<string | null>;
+  /**
+   * 🔴 LOT SUPPRIMER-CARTE — supprimer la fiche. ABSENT ⇒ l'entrée n'est pas offerte : c'est le cas sans la
+   * migration 287, et proposer un geste que la base ne saurait pas garder serait pire qu'une fonction absente.
+   */
+  onSupprimer?: (sujet: Sujet, id: number) => Promise<string | null>;
   onSeparer: (sujet: Sujet, id: number, o: {
     premier: string; second: string; repartition: { contactId: number; part: PartDeCoordonnee }[];
   }) => Promise<string | null>;
@@ -358,7 +368,7 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer }: {
     <article className={`cp-carte${p.archive ? ' cp-carte--archive' : ''}`}>
       <header className="cp-tete">
         <div className="cp-tete-mots">
-          <p className="cp-nom">{p.civilite !== null && p.civilite !== '' ? `${p.civilite} ` : ''}{p.nomAffiche}</p>
+          <p className="cp-nom">{nomAvecCivilite(p.civilite, p.nomAffiche)}</p>
           <p className="cp-tete-caps">
             <span className="cp-role">{role}</span>
             {p.archive && <span className="cp-caps cp-caps--absent">archivée</span>}
@@ -410,6 +420,9 @@ function MenuCarte({ p, gestes, onFermer, onSeparer, onRefus, deplacer }: {
   deplacer: { gauche: boolean; droite: boolean; onDeplacer: (sens: -1 | 1) => void } | null;
 }) {
   const [confirme, setConfirme] = useState(false);
+  /** 🔴 LOT SUPPRIMER-CARTE — la confirmation de la SUPPRESSION, distincte de celle de l'archivage : deux gestes
+   *  différents, deux phrases différentes, et l'une ne doit jamais ouvrir l'autre. */
+  const [confirmeSuppression, setConfirmeSuppression] = useState(false);
   const coupure = proposerCoupure(p.nomAffiche);
   return (
     <div className="cp-menu" role="group" aria-label="Autres gestes">
@@ -465,6 +478,48 @@ function MenuCarte({ p, gestes, onFermer, onSeparer, onRefus, deplacer }: {
           onClick={() => setConfirme(true)}>
           Archiver (restaurable)…
         </button>
+      )}
+
+      {/* ══ 🔴🔴 LOT SUPPRIMER-CARTE — « SUPPRIMER », EN DERNIÈRE POSITION ET EN ROUGE ═══════════════════════
+          Arno : « en dernière position, en rouge, à côté de Remplacer / Archiver / Séparer (qui restent) ».
+
+          🔴 EN DERNIER PARCE QUE C'EST LE PLUS DÉFINITIF. Un geste qu'on ne défait pas depuis l'écran ne se met
+          pas en tête de menu, où l'on clique sans lire.
+
+          🔴 GRISÉ SUR LA DERNIÈRE CARTE, avec son motif — jamais absent : une entrée qui disparaît fait chercher
+          où elle est passée ; une entrée grisée qui dit POURQUOI apprend la règle en une seconde. Le serveur
+          refuse de la même façon, dans la transaction, et c'est LUI qui fait foi.
+
+          ⚠️ SANS LA MIGRATION 287, L'ENTRÉE N'EST PAS OFFERTE DU TOUT (`gestes.onSupprimer` absent) : proposer un
+          geste que la base ne saurait pas garder serait pire qu'une fonction absente.
+
+          🔴🔴 ET ELLE EST OFFERTE SUR LES ARCHIVÉES AUSSI — corrigé pendant ce lot. La première version la
+          réservait aux cartes actives, et les fiches de test d'Arno (« _TEST CLAUDE… »), justement archivées,
+          n'étaient alors supprimables par AUCUN geste : le seul endroit où le rebut s'accumule était le seul
+          endroit qu'on ne pouvait pas nettoyer. Une archivée n'est par ailleurs jamais le dernier propriétaire
+          ACTIF d'un bien — la supprimer ne peut donc pas laisser un lot orphelin. */}
+      {gestes.onSupprimer !== undefined && (
+        confirmeSuppression ? (
+          <div className="cp-confirme">
+            <p className="cp-confirme-mot">{phraseSuppression(nomAvecCivilite(p.civilite, p.nomAffiche))}</p>
+            <div className="cp-confirme-boutons">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                onClick={() => setConfirmeSuppression(false)}>
+                Annuler
+              </button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => {
+                void (async () => { onRefus(await gestes.onSupprimer?.(p.sujet, p.id) ?? null); onFermer(); })();
+              }}>Supprimer</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="cp-menu-item cp-menu-item--danger"
+            disabled={p.dernierProprietaire}
+            title={p.dernierProprietaire ? MOTIF_DERNIERE_CARTE : undefined}
+            onClick={() => setConfirmeSuppression(true)}>
+            Supprimer
+          </button>
+        )
       )}
     </div>
   );
@@ -868,7 +923,19 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
 }) {
   const vivantes = personnes.filter((p) => !p.archive);
   const archivees = personnes.filter((p) => p.archive);
-  const ordonnees = [...vivantes, ...archivees];
+  /**
+   * ══ 🔴🔴 LOT SUPPRIMER-CARTE — LES ARCHIVÉES NE SONT PLUS DANS LA RANGÉE ════════════════════════════════
+   *
+   * DÉFAUT VU SUR LA CAPTURE D'ARNO (fiche proprietaire-146) : la carte archivée « Mme _TEST CLAUDE
+   * RETOUCHES2… Camille » s'affichait À CÔTÉ de la carte active, alors que le compteur disait « COORDONNÉES 1 ».
+   * Le compteur comptait les vivantes, la rangée montrait les deux : deux vérités côte à côte, et c'est le
+   * compteur qu'on croit faux.
+   *
+   * 🔴 ELLES NE DISPARAISSENT PAS POUR AUTANT : un lien discret les montre, avec « Restaurer ». Les cacher
+   * sans rien dire aurait fait croire qu'archiver supprime — exactement ce que ce geste promet de ne pas faire.
+   */
+  const [voirArchivees, setVoirArchivees] = useState(false);
+  const ordonnees = voirArchivees ? [...vivantes, ...archivees] : vivantes;
   const [ajout, setAjout] = useState(false);
   const [refusAjout, setRefusAjout] = useState<string | null>(null);
   return (
@@ -919,6 +986,17 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
           </button>
         )}
       </Rangee>
+
+      {/* 🔴 LE LIEN DISCRET, SOUS LA RANGÉE (demande d'Arno). Il n'existe que s'il y a quelque chose à montrer :
+          « Voir les archivées (0) » ferait chercher ce qui n'est pas là. */}
+      {archivees.length > 0 && (
+        <p className="cp-archivees">
+          <button type="button" className="gst-lien-bouton" aria-expanded={voirArchivees}
+            onClick={() => setVoirArchivees((v) => !v)}>
+            {voirArchivees ? 'Masquer les archivées' : motVoirArchivees(archivees.length)}
+          </button>
+        </p>
+      )}
     </section>
   );
 }
@@ -1037,6 +1115,19 @@ export const CSS_CARTES = `
   border:0;border-radius:.4rem;background:none;color:var(--color-svv-ink)}
 .cp-menu-item:hover{background:var(--color-svv-surface)}
 .cp-menu-item--attention{color:var(--color-svv-red);font-weight:600}
+/* 🔴 LOT SUPPRIMER-CARTE — VU A L'ECRAN sur la fiche proprietaire-146 : « Archiver » etait bien INERTE sur le
+   dernier proprietaire (l'attribut disabled y etait depuis le lot FICHES-RETOUCHES-2), mais il PARAISSAIT actif —
+   rouge et vif, comme un geste qu'on peut faire. On cliquait, rien ne se passait, et rien ne disait pourquoi.
+   Un bouton inerte doit SE VOIR inerte : c'est la moitie visible de la regle, et elle manquait. */
+.cp-menu-item--attention:disabled{color:var(--color-svv-muted);font-weight:400;cursor:not-allowed}
+/* 🔴 LOT SUPPRIMER-CARTE — « Supprimer » est le seul rouge PLEIN du menu : c'est le seul geste qui retire la
+   fiche de partout. Le mot porte l'information, la couleur ne fait que l'appuyer — il se lit en niveaux de gris
+   comme il se lit par un daltonien, regle de tout le module. */
+.cp-menu-item--danger{color:var(--color-svv-red);font-weight:700}
+.cp-menu-item--danger:hover:not(:disabled){background:var(--color-svv-red-soft)}
+.cp-menu-item--danger:disabled{color:var(--color-svv-muted);font-weight:400;cursor:not-allowed}
+/* Le lien des archivees : discret, sous la rangee. On ne met pas en avant ce qu'on a rangé. */
+.cp-archivees{margin:.4rem 0 0;font-size:.8rem;color:var(--color-svv-muted)}
 .cp-confirme{display:flex;flex-direction:column;gap:.4rem;padding:.35rem}
 .cp-confirme-mot{margin:0;font-size:.8rem;color:var(--color-svv-ink)}
 .cp-confirme-boutons{display:flex;gap:.4rem;flex-wrap:wrap}

@@ -20,7 +20,10 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annuaireDisponible, annuaireModifiableDisponible, libelleSourceContactDisponible } from './schema';
+// 🔴 LOT SUPPRIMER-CARTE — une fiche supprimée ne s'affiche NULLE PART. Le fragment est écrit une seule fois.
+import { personneVivanteAvec } from './personneVivante';
+import { sqlPersonneVivante } from './personneVivanteSql';
+import { annuaireDisponible, annuaireModifiableDisponible, libelleSourceContactDisponible, suppressionPersonneDisponible } from './schema';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 // LOT FICHES-RETOUCHES — un numero affiche par l'app est groupe par deux chiffres.
 import { decortiquerNumero, formaterTelephone } from './telephoneAffichage';
@@ -808,6 +811,8 @@ export interface FicheProprietaire {
    * DÉSACTIVÉ avec son motif écrit — jamais absent, ce qui enverrait chercher un bug.
    */
   modifiable: boolean;
+  /** 🔴 LOT SUPPRIMER-CARTE — vrai quand la migration 287 est là. Faux ⇒ « Supprimer » n'est pas offert. */
+  suppressionDisponible: boolean;
 }
 
 /**
@@ -873,6 +878,8 @@ export interface FicheLot {
   occupants: PersonneAnnuaire[];
   /** Vrai quand la migration 278 est là. Faux = lecture seule, « Modifier » désactivé avec son motif. */
   modifiable: boolean;
+  /** 🔴 LOT SUPPRIMER-CARTE — vrai quand la migration 287 est là. Faux ⇒ « Supprimer » n'est pas offert. */
+  suppressionDisponible: boolean;
   /**
    * 🔴 LOT FICHES-RETOUCHES-2 — COMBIEN D'ÉVÉNEMENTS OUVERTS CONCERNENT CE BIEN. Le cartouche orange de l'en-tête
    * s'affiche dès qu'il y en a un, et dit le nombre au-delà. Même lecture que la carte de la fiche propriétaire
@@ -930,6 +937,8 @@ export interface FicheLocataire {
   personnes: PersonneAnnuaire[];
   /** Vrai quand la migration 278 est là. Faux = lecture seule, « Modifier » désactivé avec son motif. */
   modifiable: boolean;
+  /** 🔴 LOT SUPPRIMER-CARTE — vrai quand la migration 287 est là. Faux ⇒ « Supprimer » n'est pas offert. */
+  suppressionDisponible: boolean;
 }
 
 export type IssueLecture<T> = { etat: 'ok'; data: T } | { etat: 'sans_schema' } | { etat: 'inconnu' };
@@ -1193,8 +1202,8 @@ async function personnesDe(
     code_postal: string | null; absent_le: string | null;
   }>(
     `SELECT id::text, ${identite}, ${neuves}, adresse, commune, code_postal, absent_le::text
-       FROM ${sujet === 'proprietaire' ? 'gestion_annuaire_proprietaire' : 'gestion_annuaire_locataire'}
-      WHERE id = ANY($1::bigint[])
+       FROM ${sujet === 'proprietaire' ? 'gestion_annuaire_proprietaire' : 'gestion_annuaire_locataire'} pe
+      WHERE id = ANY($1::bigint[]) AND ${await sqlPersonneVivante('pe')}
       ORDER BY (${rangTri} = 0), ${rangTri},
                CASE WHEN ${civiliteTri} ILIKE 'mme%' OR ${civiliteTri} ILIKE 'mad%' THEN 1
                     WHEN ${civiliteTri} ILIKE 'm%' THEN 0
@@ -1314,7 +1323,8 @@ export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheP
     commune: string | null; code_postal: string | null; relation_depuis: string | null; absent_le: string | null;
   }>(`SELECT id, wippimmo_id, nom_complet, civilite, adresse, commune, code_postal, relation_depuis::text,
              absent_le::text
-        FROM gestion_annuaire_proprietaire WHERE id = $1`, [id]);
+        FROM gestion_annuaire_proprietaire pe
+       WHERE id = $1 AND ${await sqlPersonneVivante('pe')}`, [id]);
   const p = rows[0];
   if (p === undefined) return { etat: 'inconnu' };
 
@@ -1350,6 +1360,11 @@ export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheP
       biens: await biensDuProprietaire(Number(p.id)),
       personnes: await coproprietairesDe(Number(p.id)),
       modifiable: await annuaireModifiableDisponible(),
+      /**
+       * 🔴 LOT SUPPRIMER-CARTE — la migration 287 est-elle là ? Faux ⇒ l'entrée « Supprimer » n'est pas offerte
+       * du tout : proposer un geste que la base ne saurait pas garder serait pire qu'une fonction absente.
+       */
+      suppressionDisponible: await suppressionPersonneDisponible(),
     },
   };
 }
@@ -1548,6 +1563,11 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
       occupants: await personnesDe(
         'locataire', occ.filter((o) => o.sortie === null).map((o) => Number(o.locataire_id))),
       modifiable,
+      /**
+       * 🔴 LOT SUPPRIMER-CARTE — la migration 287 est-elle là ? Faux ⇒ l'entrée « Supprimer » n'est pas offerte
+       * du tout : proposer un geste que la base ne saurait pas garder serait pire qu'une fonction absente.
+       */
+      suppressionDisponible: await suppressionPersonneDisponible(),
     },
   };
 }
@@ -1558,7 +1578,8 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
     id: string; nom: string; adresse: string | null; commune: string | null; code_postal: string | null;
     absent_le: string | null;
   }>(`SELECT id, nom, adresse, commune, code_postal, absent_le::text
-        FROM gestion_annuaire_locataire WHERE id = $1`, [id]);
+        FROM gestion_annuaire_locataire pe
+       WHERE id = $1 AND ${await sqlPersonneVivante('pe')}`, [id]);
   const p = rows[0];
   if (p === undefined) return { etat: 'inconnu' };
 
@@ -1635,6 +1656,11 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
       })),
       personnes: await personnesDe('locataire', idsFoyer),
       modifiable: await annuaireModifiableDisponible(),
+      /**
+       * 🔴 LOT SUPPRIMER-CARTE — la migration 287 est-elle là ? Faux ⇒ l'entrée « Supprimer » n'est pas offerte
+       * du tout : proposer un geste que la base ne saurait pas garder serait pire qu'une fonction absente.
+       */
+      suppressionDisponible: await suppressionPersonneDisponible(),
     },
   };
 }
@@ -1724,6 +1750,12 @@ function motsTries(nomNormalise: string): string {
 export async function rechercherPersonnes(
   t: TermeRecherche, o: { avecArchivees?: boolean } = {},
 ): Promise<IssueLecture<ResultatsPersonnes>> {
+  /**
+   * 🔴 LOT SUPPRIMER-CARTE — « cette fiche existe-t-elle encore ? », décidé UNE fois (`personneVivanteAvec`).
+   * Sans la migration 287, il rend `true` : la requête est alors mot pour mot celle d'avant ce lot.
+   */
+  const avecSuppression = await suppressionPersonneDisponible();
+  const vivante = (alias: string): string => personneVivanteAvec(avecSuppression, alias);
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
   if (t.vide) return { etat: 'ok', data: { personnes: [], tronque: false } };
 
@@ -1772,10 +1804,10 @@ export async function rechercherPersonnes(
               JOIN gestion_annuaire_lot lo2 ON lo2.id = v.id
              WHERE lo2.proprietaire_id = pr.id) AS lot_vise
        FROM gestion_annuaire_proprietaire pr
-      WHERE (NOT EXISTS (SELECT 1 FROM mots WHERE pr.nom_normalise NOT LIKE '%' || m || '%'))
+      WHERE ${vivante('pr')} AND ((NOT EXISTS (SELECT 1 FROM mots WHERE pr.nom_normalise NOT LIKE '%' || m || '%'))
          OR pr.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'proprietaire')
          OR EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_lot lo2 ON lo2.id = v.id
-                     WHERE lo2.proprietaire_id = pr.id)`, params);
+                     WHERE lo2.proprietaire_id = pr.id))`, params);
 
   // ── ② LES LOCATAIRES QUI RÉPONDENT, avec l'état de leur occupation ────────────────────────────────────────────
   const { rows: locs } = await query<{
@@ -1796,10 +1828,10 @@ export async function rechercherPersonnes(
             EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
                      WHERE o.locataire_id = lc.id AND o.sortie IS NULL) AS lot_vise_en_cours
        FROM gestion_annuaire_locataire lc
-      WHERE (NOT EXISTS (SELECT 1 FROM mots WHERE lc.nom_normalise NOT LIKE '%' || m || '%'))
+      WHERE ${vivante('lc')} AND ((NOT EXISTS (SELECT 1 FROM mots WHERE lc.nom_normalise NOT LIKE '%' || m || '%'))
          OR lc.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'locataire')
          OR EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
-                     WHERE o.locataire_id = lc.id)`, params);
+                     WHERE o.locataire_id = lc.id))`, params);
 
   return assemblerPersonnes(proprios, locs, o.avecArchivees === true);
 }
@@ -2015,6 +2047,12 @@ export interface IndiceAnnuaire {
  * `gestion_message`, ni la moindre affectation.
  */
 export async function indicesParEmail(emails: readonly string[]): Promise<IssueLecture<IndiceAnnuaire[]>> {
+  /**
+   * 🔴 LOT SUPPRIMER-CARTE — « cette fiche existe-t-elle encore ? », décidé UNE fois (`personneVivanteAvec`).
+   * Sans la migration 287, il rend `true` : la requête est alors mot pour mot celle d'avant ce lot.
+   */
+  const avecSuppression = await suppressionPersonneDisponible();
+  const vivante = (alias: string): string => personneVivanteAvec(avecSuppression, alias);
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
   /**
    * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — NOS ADRESSES SORTENT AVANT LA REQUÊTE ══════════════════════════════════
@@ -2050,7 +2088,7 @@ export async function indicesParEmail(emails: readonly string[]): Promise<IssueL
               WHERE lo.proprietaire_id = pr.id ORDER BY lo.wippimmo_id LIMIT 1) AS logement,
             (SELECT count(*)::text FROM gestion_annuaire_lot lo WHERE lo.proprietaire_id = pr.id) AS nb
        FROM gestion_annuaire_proprietaire pr
-      WHERE pr.id IN (SELECT sujet_id FROM vises WHERE sujet = 'proprietaire')
+      WHERE ${vivante('pr')} AND pr.id IN (SELECT sujet_id FROM vises WHERE sujet = 'proprietaire')
      UNION ALL
      SELECT 'locataire', lc.id::text, lc.nom,
             (SELECT concat_ws(', ', lo.adresse, lo.commune)
@@ -2058,7 +2096,7 @@ export async function indicesParEmail(emails: readonly string[]): Promise<IssueL
               WHERE o.locataire_id = lc.id ORDER BY (o.sortie IS NULL) DESC, o.entree DESC NULLS LAST LIMIT 1),
             (SELECT count(*)::text FROM gestion_annuaire_occupation o WHERE o.locataire_id = lc.id)
        FROM gestion_annuaire_locataire lc
-      WHERE lc.id IN (SELECT sujet_id FROM vises WHERE sujet = 'locataire')`, [propres]);
+      WHERE ${vivante('lc')} AND lc.id IN (SELECT sujet_id FROM vises WHERE sujet = 'locataire')`, [propres]);
 
   return {
     etat: 'ok',

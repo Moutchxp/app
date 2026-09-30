@@ -1,6 +1,8 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annuaireModifiableDisponible } from './schema';
+import { annuaireModifiableDisponible, suppressionPersonneDisponible } from './schema';
 import { nomComplet, normaliserTexte } from './annuaire';
+// 🔴 LOT SUPPRIMER-CARTE — le motif du refus, écrit une fois : l'écran et le serveur disent la MÊME phrase.
+import { MOTIF_DERNIERE_CARTE } from './personneVivante';
 import {
   MOTIF_DERNIER_PROPRIETAIRE, notePropre, texteOuRien, verifierCoordonnees, verifierSeparation,
   type CoordonneeSaisie, type RepartitionCoordonnee,
@@ -317,6 +319,80 @@ export async function archiverPersonne(
       commentaire: archiver
         ? 'fiche archivée — rien n’est supprimé, ses mails et son historique restent'
         : 'fiche restaurée dans l’annuaire actif',
+      auteur,
+    });
+    return { etat: 'ok' as const, data: { nom: p.nom } };
+  });
+}
+
+/**
+ * ══ 🔴🔴 LOT SUPPRIMER-CARTE — SUPPRIMER UNE FICHE DE PERSONNE ════════════════════════════════════════════════
+ *
+ * Arno : « la personne n'apparaît plus NULLE PART dans l'app […] Techniquement, c'est une suppression logique
+ * (marquage “supprimée”, qui, quand) : les mails, les rattachements et les historiques des biens restent intacts.
+ * Aucune ligne n'est effacée en base. »
+ *
+ * ═══ 🔴 AUCUN `DELETE`, ET CE N'EST PAS UNE PRUDENCE DE PRINCIPE ════════════════════════════════════════════════
+ *
+ * Effacer la ligne casserait les clés étrangères des occupations et des lots — c'est-à-dire l'historique du bien
+ * lui-même, que ce lot promet de laisser intact. On MARQUE, et toutes les lectures d'affichage écartent ce qui
+ * est marqué (fragment `sqlPersonneVivante`, écrit à un seul endroit).
+ *
+ * ═══ 🔴🔴 LE GARDE : UNE FICHE DOIT GARDER AU MOINS UN PROPRIÉTAIRE ═════════════════════════════════════════════
+ *
+ * Arno : « Contrôle aussi côté serveur, dans la transaction, avec test, y compris en appel direct. »
+ *
+ * 🔴 C'EST LE MÊME GARDE QUE L'ARCHIVAGE (`lotSansProprietaireApres`), ET C'EST VOULU : les deux gestes retirent
+ * un propriétaire de la vue, et une seconde écriture de la règle finirait par diverger — l'un des deux
+ * autoriserait ce que l'autre refuse, et personne ne saurait lequel a raison.
+ *
+ * ⚠️ LA REQUÊTE DU GARDE NE CONNAÎT QUE `archive_le`. La suppression pose donc AUSSI `archive_le` : une fiche
+ * supprimée est, par construction, une fiche qui n'est plus active — et le garde la compte alors correctement
+ * pour le propriétaire SUIVANT qu'on voudrait retirer. Sans cela, supprimer les deux propriétaires d'un bien
+ * l'un après l'autre aurait été possible.
+ */
+export async function supprimerPersonne(
+  sujet: Sujet, id: number, auteur: Auteur,
+): Promise<IssueEdition<{ nom: string }>> {
+  if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
+  if (!await suppressionPersonneDisponible()) return { etat: 'sans_schema' };
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ nom: string; supprime_le: string | null }>(
+      `SELECT ${sujet === 'proprietaire' ? 'nom_complet AS nom' : 'nom'}, supprime_le::text
+         FROM ${TABLE[sujet]} WHERE id = $1 FOR UPDATE`, [id]);
+    const p = rows[0];
+    if (p === undefined) return { etat: 'inconnu' as const };
+    // ⚠️ DÉJÀ SUPPRIMÉE : on ne refuse pas, on ne réécrit pas. Deux clics ne doivent pas faire deux journaux.
+    if (p.supprime_le !== null) return { etat: 'ok' as const, data: { nom: p.nom } };
+
+    /**
+     * 🔴 LE GARDE, DANS LA TRANSACTION ET APRÈS LE `FOR UPDATE`. Entre la lecture et l'écriture, personne ne peut
+     * retirer l'autre propriétaire du même bien sans attendre ce verrou. Le bouton grisé de l'écran protège de la
+     * maladresse ; celui-ci protège d'un appel direct, d'une fenêtre restée ouverte, et d'un futur écran qui
+     * oublierait la règle.
+     */
+    if (sujet === 'proprietaire') {
+      const orphelin = await lotSansProprietaireApres(q, id);
+      if (orphelin !== null) {
+        return {
+          etat: 'refus' as const,
+          motif: `${MOTIF_DERNIERE_CARTE} Le lot ${orphelin} n’en aurait plus aucun. `
+            + 'Ajoutez ou désignez d’abord une autre fiche, ou utilisez « Remplacer ».',
+        };
+      }
+    }
+
+    await q(
+      `UPDATE ${TABLE[sujet]}
+          SET supprime_le = now(), supprime_par = $2, supprime_par_libelle = $3,
+              archive_le = coalesce(archive_le, now()),
+              archive_par_libelle = coalesce(archive_par_libelle, $3)
+        WHERE id = $1`, [id, auteur.id, auteur.libelle]);
+
+    await journaliser(q, {
+      personneId: id, action: 'annuaire_supprime', avant: null, apres: 'supprimée',
+      commentaire: 'fiche supprimée — elle ne s’affiche plus nulle part ; aucune ligne n’est effacée, et ses '
+        + 'mails, ses rattachements et l’historique du bien restent intacts',
       auteur,
     });
     return { etat: 'ok' as const, data: { nom: p.nom } };

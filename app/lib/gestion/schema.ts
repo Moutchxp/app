@@ -240,6 +240,23 @@ export function compteGoogleDuDepotDisponible(): Promise<boolean> {
  * ⚠️ UNE SEULE SONDE POUR LA COLONNE ET POUR LA TABLE : la migration crée les deux ensemble, et sonder deux fois
  * ferait deux requêtes pour une seule question — avec le risque qu'un jour l'une réponde oui et l'autre non.
  */
+/**
+ * ══ 🔴🔴 LOT SUPPRIMER-CARTE — la migration 287 est-elle appliquée ? ══════════════════════════════════════════
+ *
+ * Elle porte la SUPPRESSION LOGIQUE d'une fiche de personne (`supprime_le`, `supprime_par`,
+ * `supprime_par_libelle`, sur les propriétaires comme sur les locataires).
+ *
+ * 🔴 TANT QU'ELLE MANQUE, l'entrée « Supprimer » n'est pas offerte et aucune colonne n'est nommée : les écrans se
+ * comportent exactement comme avant ce lot. Nommer une colonne absente ferait échouer la lecture de l'annuaire
+ * ENTIÈRE — donc les fiches, les propositions et la recherche de biens, pas seulement la suppression.
+ *
+ * ⚠️ UNE SEULE SONDE POUR LES DEUX TABLES : la migration les traite ensemble, et sonder deux fois ferait deux
+ * requêtes pour une seule question — avec le risque qu'un jour l'une réponde oui et l'autre non.
+ */
+export function suppressionPersonneDisponible(): Promise<boolean> {
+  return memoiser('proprietaire.supprime_le', () => colonneExiste('gestion_annuaire_proprietaire', 'supprime_le'));
+}
+
 export function nomUsageDisponible(): Promise<boolean> {
   return memoiser('piece.nom_usage', () => colonneExiste('gestion_piece', 'nom_usage'));
 }
