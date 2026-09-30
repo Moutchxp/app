@@ -408,3 +408,46 @@ describe('🔴 le TROISIÈME verrou de l’alerte : la même panne, déjà signa
     })).toBe(false);
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT PJ-APRES-VIDAGE — UN ÉCHEC RÉPARÉ DISPARAÎT DE L'ÉCRAN ════════════════════════════════════════════
+ *
+ * Demande d'Arno, troisième moitié du point « bandeaux » : « le bandeau disparaît quand l'envoi finit par
+ * réussir ». La règle EXISTE depuis le lot LIGNE-NON-ENVOYE (`SQL_ECHEC_NON_RESOLU`), mais RIEN ne la gardait —
+ * et une règle que personne n'éprouve est une règle qu'un prochain lot peut retirer sans s'en apercevoir.
+ *
+ * ⚠️ ON ÉPROUVE LES FRAGMENTS SÉMANTIQUES DU SQL, PAS SA FORME (convention du dépôt, AGENTS.md) : le prédicat
+ * vit en base, il n'y a pas de fonction pure à appeler, et figer sa mise en forme casserait au premier
+ * reformatage sans rien apprendre. Ce qu'on tient ici, ce sont les quatre conditions SANS lesquelles la règle ne
+ * veut plus rien dire.
+ *
+ * 🔴 VÉRIFIÉ EN RÉEL le 30/09/2026, en LECTURE SEULE, sur le prédicat tel qu'il est écrit : la base porte
+ * aujourd'hui 2 échecs affichés (brouillon 64, les deux tentatives d'Arno) ; la même requête, appliquée à la
+ * table augmentée d'une ligne « envoyé » hypothétique sur ce brouillon, en rend 0.
+ */
+describe('🔴 un échec qu’un envoi ULTÉRIEUR a réparé ne s’affiche plus', () => {
+  const sql = readFileSync('app/lib/gestion/fileEnvoiRepo.ts', 'utf8').replace(/\s+/g, ' ');
+
+  it('la règle d’exclusion est écrite UNE fois, et les deux listes s’en servent', () => {
+    // Deux écritures de la même règle divergeraient : un échec disparaîtrait d'une liste et pas de l'autre.
+    expect(sql).toContain('const SQL_ECHEC_NON_RESOLU');
+    expect((sql.match(/SQL_ECHEC_NON_RESOLU/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('🔴 les quatre conditions qui FONT la règle sont là', () => {
+    const regle = sql.slice(sql.indexOf('const SQL_ECHEC_NON_RESOLU'), sql.indexOf('/** Ce qu’on met en file'));
+    expect(regle).toContain("f.etat = 'echec'");        // ① on ne parle que des échecs
+    expect(regle).toContain('NOT EXISTS');              // ② et seulement de ceux que rien n'a réparés
+    expect(regle).toContain('f2.brouillon_id = f.brouillon_id'); // ③ le MÊME message, pas un autre
+    expect(regle).toContain("f2.etat = 'envoye'");      // ④ réparé = parti
+    // 🔴 « PLUS TARD », et pas « à un moment » : un envoi réussi AVANT l'échec ne répare rien — c'est l'échec
+    //   qui est venu après lui. Sans cette comparaison, un échec neuf serait masqué par un succès ancien.
+    expect(regle).toContain('f2.demande_le > f.demande_le');
+  });
+
+  it('⚠️ elle ne s’applique QU’AUX échecs : un envoi encore en route n’a rien à réparer', () => {
+    // C'est lui qui comble l'intervalle entre le clic et la capture par la relève : le masquer ferait croire
+    //   le clic perdu pendant une minute, et l'on réécrirait le message.
+    expect(sql).toContain("f.etat IN ('attente', 'en_cours') OR");
+  });
+});
