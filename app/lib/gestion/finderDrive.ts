@@ -248,6 +248,35 @@ export function memeChemin(a: Chemin, b: Chemin): boolean {
 /** L'identifiant du dossier courant. Chaîne vide = la racine du sélecteur. PUR. */
 export function dossierDuChemin(c: Chemin): string { return c.at(-1)?.id ?? ''; }
 
+/**
+ * ══ 🔴🔴 LOT RANGER-ARBRE-2 — RÉÉCRIRE L'ENDROIT OÙ L'ON EST, SANS BOUGER ════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO, sur sa propre copie : « un dossier ouvert depuis “Récents” affiche “Google Drive › Drive”, sans
+ * ses parents, ce qui empêche de remonter ».
+ *
+ * 🔴 POURQUOI C'ARRIVE. Un raccourci (Récents, Dossier du bien, un résultat de recherche) ne connaît qu'UN
+ * identifiant : on y va donc par un chemin d'UN SEUL cran, `[{ id, nom }]`. Le fil d'Ariane dit alors la vérité
+ * qu'il connaît — et cette vérité est trop courte pour qu'on puisse remonter d'un niveau, puisqu'au-dessus il n'y
+ * a que la racine.
+ *
+ * 🔴 CE QUE FAIT CETTE FONCTION. Quand le serveur rend enfin la VRAIE chaîne des parents du dossier affiché, on
+ * REMPLACE l'endroit courant de l'historique par le chemin complet — sans empiler un pas de plus : on n'a pas
+ * navigué, on a simplement appris où l'on était. ⚠️ Empiler ferait qu'un « Précédent » ramènerait au même dossier
+ * sous son nom court, ce qui donnerait à la flèche l'air d'être cassée.
+ *
+ * ⚠️ ON NE REMPLACE QUE CE QUI DÉSIGNE LE MÊME ENDROIT : le dernier cran doit porter le même identifiant. Une
+ * réponse en retard, arrivée après qu'on a changé de dossier, ne doit JAMAIS réécrire l'endroit où l'on est
+ * maintenant — c'est la même règle que le rafraîchissement silencieux des listings.
+ */
+export function remplacerCheminCourant(h: Historique, chemin: Chemin): Historique {
+  const actuel = cheminCourant(h);
+  if (dossierDuChemin(actuel) === '' || dossierDuChemin(actuel) !== dossierDuChemin(chemin)) return h;
+  if (memeChemin(actuel, chemin)) return h;
+  const pile = [...h.pile];
+  pile[h.position] = chemin;
+  return { ...h, pile };
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ④ LA BARRE LATÉRALE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -550,10 +579,19 @@ export function menuVide(o: {
    ⑦ LE DÉPLIAGE SUR PLACE — le triangle ▸ du Finder
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** Une ligne de la liste aplatie : l'entrée, et sa profondeur d'indentation. */
+/** Une ligne de la liste aplatie : l'entrée, sa profondeur d'indentation, et le dossier qui la CONTIENT. */
 export interface LigneAplatie {
   entree: EntreeDrive;
   profondeur: number;
+  /**
+   * 🔴 LOT RANGER-ARBRE-2 — LE DOSSIER PARENT DE CETTE LIGNE. `null` au premier niveau : le parent est alors le
+   * dossier AFFICHÉ, que l'aplatissement ne connaît pas (il ne voit que son contenu).
+   *
+   * 🔴 POURQUOI IL FALLAIT L'AJOUTER. Sans lui, une ligne dépliée ne savait pas d'où elle venait : lâcher une
+   * pièce sur un fichier affiché SOUS un dossier déplié visait « le dossier affiché », c'est-à-dire un tout
+   * autre endroit que celui qu'on avait sous les yeux. Voir `cibleDeDepot`.
+   */
+  parent: { id: string; nom: string } | null;
 }
 
 /**
@@ -576,16 +614,51 @@ export function aplatir(
   enfantsDe: (id: string) => readonly EntreeDrive[] | undefined,
   tri: Tri,
   profondeur = 0,
+  parent: { id: string; nom: string } | null = null,
 ): LigneAplatie[] {
   const out: LigneAplatie[] = [];
   for (const e of trier(racine, tri)) {
-    out.push({ entree: e, profondeur });
+    out.push({ entree: e, profondeur, parent });
     if (!e.dossier || !ouverts.has(e.id) || profondeur >= PROFONDEUR_MAX) continue;
     const enfants = enfantsDe(e.id);
     if (enfants === undefined) continue;
-    out.push(...aplatir(enfants, ouverts, enfantsDe, tri, profondeur + 1));
+    // Les enfants d'un dossier déplié ont CE dossier pour parent — et c'est ce qui les rend visables.
+    out.push(...aplatir(enfants, ouverts, enfantsDe, tri, profondeur + 1, { id: e.id, nom: e.nom }));
   }
   return out;
+}
+
+/**
+ * ══ 🔴🔴 LOT RANGER-ARBRE-2 — CE QUE VISE UN LÂCHER SUR UNE LIGNE. PUR. ══════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO : « si l'on glisse une pièce à ranger sur les LIGNES DE FICHIERS affichées sous un dossier
+ * déplié (et non sur la ligne du dossier elle-même), la pièce revient dans “pièces à ranger” ».
+ *
+ * REPRODUIT AU VRAI GLISSER SOURIS, le 30/09/2026, en instrumentant les événements du navigateur :
+ *
+ *     dragstart → sfd-piece : DecompteCharges (1).pdf
+ *     dragenter → sfd-ligne : 📕 document.pdf   prevented=false   ← personne n'accepte
+ *     dragend   → sfd-piece                                       ← et AUCUN drop, jamais
+ *
+ * La ligne d'un fichier ne posait aucun gestionnaire : le lâcher remontait jusqu'à la fenêtre, dont le `drop`
+ * signifie « abandon ». D'où le retour de la pièce, sans un mot.
+ *
+ * 🔴 LA RÈGLE VOULUE, DANS LES MOTS D'ARNO : « lâcher sur n'importe quelle ligne de fichier = déposer dans le
+ * dossier PARENT de ce fichier ». Un fichier n'est JAMAIS une cible — il en DÉSIGNE une, celle qui le contient.
+ * C'est le geste du Finder, et c'est aussi ce que l'œil croit faire : on vise un endroit, pas un voisin.
+ *
+ * ⚠️ MÊME RÈGLE POUR LES TROIS GESTES (glisser d'une pièce, glisser d'un fichier du Drive, ⌘V) : trois chemins
+ * qui viseraient trois endroits différents pour un même lâcher seraient un piège.
+ *
+ * ⚠️ `null` = RIEN À VISER. À la racine du sélecteur, les lignes sont « Mon Drive », « Drives partagés » et
+ * « Partagés avec moi » : un fichier n'y existe pas, et ces regroupements ne sont pas des dossiers.
+ */
+export function cibleDeDepot(
+  ligne: { entree: { id: string; nom: string; dossier: boolean }; parent: { id: string; nom: string } | null },
+  dossierAffiche: { id: string; nom: string } | null,
+): { id: string; nom: string } | null {
+  if (ligne.entree.dossier) return { id: ligne.entree.id, nom: ligne.entree.nom };
+  return ligne.parent ?? dossierAffiche;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

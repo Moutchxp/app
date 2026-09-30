@@ -268,6 +268,48 @@ describe('🔴 le droit de créer voyage AVEC le contenu du dossier', () => {
     expect(bloc.match(/chaineDuDossierMemo\(/g) ?? []).toHaveLength(1);
     expect(bloc).not.toContain('chaineParents(');
   });
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT RANGER-ARBRE-2 — LE CHEMIN DU DOSSIER VOYAGE AVEC SON CONTENU
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * 🔴 MÊME RÈGLE QUE LA SONDE CI-DESSUS, ET POUR LA MÊME RAISON : ce qui conditionne l'affichage voyage avec la
+   * donnée qu'il conditionne. Le chemin complet arrive DANS la réponse du listage — un appel séparé arriverait
+   * plus tard, et le fil d'Ariane afficherait entre-temps un chemin faux.
+   *
+   * ⚠️ ET IL NE COÛTE RIEN : c'est la chaîne que `verdictsDossier` remontait DÉJÀ, et qu'elle jetait.
+   */
+  it('🔴 le chemin complet du dossier est rendu avec son contenu', () => {
+    const c = code();
+    expect(c).toContain('chaine');
+    const partage = code('app/lib/gestion/driveVerdict.ts');
+    expect(partage).toContain('chaine: await nommerLaRacine(');
+  });
+
+  /**
+   * ══ 🔴🔴 « Drive » N'EST LE NOM DE RIEN — DÉFAUT MESURÉ LE 30/09/2026 SUR LE VRAI DRIVE ════════════════════
+   *
+   * Relevé, sur le Drive du cabinet :
+   *     files.get(0AMcTtmCenCqoUk9PVA) → { name: "Drive" }            ← ce que voit la chaîne des parents
+   *     drives.get(0AMcTtmCenCqoUk9PVA) → { name: "GESTION LOCATIVE" } ← le nom que tout le monde lit
+   *
+   * C'est la seconde moitié du constat d'Arno (« affiche “Google Drive › Drive” »), et c'était un piège pour ce
+   * lot même : rendre la chaîne telle quelle aurait remplacé, dans le fil d'Ariane, « GESTION LOCATIVE » par
+   * « Drive » — donc AGGRAVÉ ce qu'on venait corriger. Attrapé sur le vrai Drive, pas au test.
+   *
+   * ⚠️ LE SURCOÛT EST BORNÉ : l'appel n'est posé que si la tête de chaîne porte le nom générique, et son
+   * résultat est mémorisé une heure (`nomDuDriveMemo`) — le nom d'un Drive d'équipe ne change pas deux fois par an.
+   */
+  it('🔴 la racine d’un Drive partagé est renommée avec son VRAI nom, et l’appel est mémorisé', () => {
+    const partage = code('app/lib/gestion/driveVerdict.ts');
+    expect(partage).toContain("NOM_GENERIQUE_DRIVE = 'Drive'");
+    expect(partage).toContain('nomDuDriveMemo(');
+    // ⚠️ SEULEMENT POUR UNE TÊTE DE CHAÎNE GÉNÉRIQUE : un chemin dans « Mon Drive » ne déclenche aucun appel.
+    expect(partage).toContain('tete.nom !== NOM_GENERIQUE_DRIVE) return chaine');
+    // 🔒 ET C'EST UNE LECTURE : `drives.get` avec le seul champ `name`.
+    expect(code('app/lib/gestion/drive.ts')).toContain('?fields=name');
+  });
 });
 
 describe('🔴 l’écran n’offre pas « Visualiser » là où la route refusera', () => {

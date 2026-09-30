@@ -798,3 +798,31 @@ export async function lireContenuFichier(
   }
   return { ok: true, valeur: octets };
 }
+
+/**
+ * ══ 🔴🔴 LOT RANGER-ARBRE-2 — LE VRAI NOM D'UN DRIVE PARTAGÉ ═════════════════════════════════════════════════════
+ *
+ * 🔴 CE QU'ON A DÉCOUVERT LE 30/09/2026, SUR LE VRAI DRIVE DU CABINET. `files.get` sur la RACINE d'un Drive
+ * partagé ne rend pas son nom : il rend le mot générique « Drive ». Mesuré :
+ *
+ *     files.get(0AMcTtmCenCqoUk9PVA) → { name: "Drive" }        ← ce que voit la chaîne des parents
+ *     drives.list                    → { name: "GESTION LOCATIVE" } ← le vrai nom, celui qu'Arno lit partout
+ *
+ * C'EST L'AUTRE MOITIÉ DU CONSTAT D'ARNO : « un dossier ouvert depuis “Récents” affiche “Google Drive › Drive” ».
+ * Il manquait les parents — et le seul parent affiché portait, en plus, un nom que personne ne reconnaît.
+ *
+ * ⚠️ UN APPEL, ET SEULEMENT POUR UNE RACINE DE DRIVE PARTAGÉ (un maillon sans parent dont l'identifiant est celui
+ * du Drive). Une chaîne dans « Mon Drive » n'en déclenche aucun.
+ * 🔒 LECTURE SEULE : `drives.get` ne lit qu'un nom.
+ */
+export async function nomDuDrive(
+  accessToken: string, driveId: string, deps: DepsGoogle,
+): Promise<string | null> {
+  const res = await deps.fetch(`${ENDPOINT_DRIVES}/${encodeURIComponent(driveId)}?fields=name`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) return null;
+  const j = (await res.json().catch(() => ({}))) as { name?: string };
+  const nom = (j.name ?? '').trim();
+  return nom === '' ? null : nom;
+}

@@ -1,9 +1,9 @@
-import { chaineParents, chercherDossiers } from './drive';
+import { chaineParents, chercherDossiers, nomDuDrive } from './drive';
 import {
   DOSSIER_INTERDIT_LECTURE, indexerMaillons, peutCreerDossier, peutDeposer, peutJoindre, type Maillon,
 } from './driveLectureFichier';
 // LOT APERCU-RAPIDE — la chaîne d'un DOSSIER est mémorisée 60 s : elle est la même pour tous ses fichiers.
-import { chaineDuDossierMemo, metadonneesMemo } from './driveMemoire';
+import { chaineDuDossierMemo, metadonneesMemo, nomDuDriveMemo } from './driveMemoire';
 
 /**
  * MODULE « GESTION » — LE VERDICT « PEUT-ON JOINDRE CE FICHIER ? », EN UN SEUL ENDROIT.
@@ -123,14 +123,53 @@ export async function verdictCreer(jeton: string, parentId: string): Promise<Ver
  */
 export async function verdictsDossier(
   sujet: string, jeton: string, id: string,
-): Promise<{ joindre: VerdictJoindre; creer: VerdictCreer }> {
-  const index = indexerMaillons(await chaineDuDossierMemo(sujet, jeton, id, { fetch }));
+): Promise<{ joindre: VerdictJoindre; creer: VerdictCreer; chaine: { id: string; nom: string }[] }> {
+  const maillons = await chaineDuDossierMemo(sujet, jeton, id, { fetch });
+  const index = indexerMaillons(maillons);
   const j = peutJoindre(id, index);
   const c = peutCreerDossier(id, index);
   return {
     joindre: j.joindre ? { joindre: true, motif: null } : { joindre: false, motif: j.motif },
     creer: c.creer ? { creer: true, motif: null } : { creer: false, motif: c.motif },
+    /**
+     * ══ 🔴🔴 LOT RANGER-ARBRE-2 — LA CHAÎNE EST RENDUE, ET ELLE NE COÛTE (PRESQUE) RIEN ═══════════════════════
+     *
+     * CONSTAT D'ARNO : « un dossier ouvert depuis “Récents” affiche “Google Drive › Drive”, sans ses parents, ce
+     * qui empêche de remonter ». L'écran ne connaissait qu'un identifiant ; le chemin, lui, n'existait nulle part.
+     *
+     * 🔴 IL EXISTAIT POURTANT DÉJÀ, ICI MÊME. Cette fonction REMONTE toute la chaîne des parents pour rendre ses
+     * deux verdicts, et la jetait ensuite. La rendre n'ajoute pas un seul appel à Google — c'est la même chaîne,
+     * mémorisée, qui servait déjà à savoir si l'on est sous « Documents clients scannés ».
+     *
+     * ⚠️ DANS L'ORDRE DE LECTURE, du haut vers le dossier demandé — `chaineParents` remonte, l'écran descend.
+     * ⚠️ UNE CHAÎNE TROUÉE (un ancêtre illisible) est rendue telle quelle : elle est alors plus courte que la
+     * vérité, et l'écran garde le chemin qu'il avait. Il ne dira jamais un parent qu'on n'a pas su lire.
+     */
+    chaine: await nommerLaRacine(jeton, [...maillons].reverse()),
   };
+}
+
+/**
+ * ══ 🔴🔴 LOT RANGER-ARBRE-2 — « Drive » N'EST LE NOM DE RIEN ═════════════════════════════════════════════════════
+ *
+ * Mesuré le 30/09/2026 sur le Drive du cabinet : `files.get` sur la racine d'un Drive partagé rend le mot
+ * générique « Drive », jamais le nom que tout le monde lit (« GESTION LOCATIVE »). Rendre la chaîne telle quelle
+ * aurait donc remplacé, dans le fil d'Ariane, un nom juste par un nom générique — c'est-à-dire aggravé le défaut
+ * qu'on venait corriger. C'EST LA SECONDE MOITIÉ DU CONSTAT D'ARNO : « Google Drive › Drive ».
+ *
+ * ⚠️ UN SEUL APPEL DE PLUS, ET SEULEMENT QUAND LA CHAÎNE COMMENCE PAR UNE RACINE DE DRIVE PARTAGÉ (le premier
+ * maillon n'a pas de parent et porte le nom générique). Dans « Mon Drive », rien n'est demandé.
+ * ⚠️ ET SI L'APPEL ÉCHOUE, ON GARDE CE QU'ON A : un nom générique vaut mieux qu'un fil d'Ariane amputé.
+ */
+const NOM_GENERIQUE_DRIVE = 'Drive';
+async function nommerLaRacine(
+  jeton: string, chaine: { id: string; nom: string }[],
+): Promise<{ id: string; nom: string }[]> {
+  const tete = chaine[0];
+  if (tete === undefined || tete.nom !== NOM_GENERIQUE_DRIVE) return chaine;
+  const vrai = await nomDuDriveMemo(jeton, tete.id, (id) => nomDuDrive(jeton, id, { fetch }));
+  if (vrai === null) return chaine;
+  return [{ id: tete.id, nom: vrai }, ...chaine.slice(1)];
 }
 
 /**

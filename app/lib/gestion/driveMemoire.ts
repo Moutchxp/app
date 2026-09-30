@@ -85,6 +85,33 @@ export function oublierLeDrive(): void {
   metadonnees.clear();
   chaines.clear();
   octets.clear();
+  nomsDeDrives.clear();
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RANGER-ARBRE-2 — LE NOM D'UN DRIVE PARTAGÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   🔴 POURQUOI IL EST MÉMORISÉ PLUS LONGTEMPS QUE TOUT LE RESTE. `files.get` sur la racine d'un Drive partagé rend
+   le mot générique « Drive » : il faut un `drives.get` pour obtenir « GESTION LOCATIVE ». Sans mémoire, cet appel
+   partirait à CHAQUE listage de dossier — un aller-retour réseau supplémentaire pour afficher une page, sur la
+   donnée la plus stable du Drive : le nom d'un Drive d'équipe ne change pas deux fois par an.
+
+   ⚠️ UNE HEURE, et non les 60 s des autres entrées : la mémoire courte existe parce que les CONTENUS bougent. Un
+   nom de Drive, non. Et si quelqu'un le renommait, une heure d'affichage de l'ancien nom serait sans conséquence —
+   aucun verdict, aucun droit, aucune écriture ne dépend de ce nom : il n'est là que pour être LU. */
+const NOMS_DRIVES_MS = 3_600_000;
+const nomsDeDrives = new Map<string, Entree<string | null>>();
+
+export async function nomDuDriveMemo(
+  jeton: string, driveId: string, lire2: (id: string) => Promise<string | null>, maintenant = Date.now(),
+): Promise<string | null> {
+  const deja = nomsDeDrives.get(driveId);
+  if (deja !== undefined && deja.expireA > maintenant) return deja.valeur;
+  const nom = await lire2(driveId);
+  // ⚠️ UN ÉCHEC N'EST PAS RETENU : on réessaiera, plutôt que d'afficher « Drive » pendant une heure.
+  if (nom !== null) nomsDeDrives.set(driveId, { valeur: nom, expireA: maintenant + NOMS_DRIVES_MS });
+  return nom;
 }
 
 /**

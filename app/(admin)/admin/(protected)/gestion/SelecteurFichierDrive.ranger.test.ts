@@ -224,12 +224,26 @@ describe('🔴 ① le panneau « À ranger »', () => {
     expect(pieceDe('photo.jpg')?.querySelector('img')?.getAttribute('draggable')).toBe('false');
   });
 
+  /**
+   * ══ 🔴 RÉÉCRIT (lot RANGER-ARBRE-2) — LE TRANSFERT PORTE UNE LISTE, ET NON UNE PIÈCE ══════════════════════
+   *
+   * La charge était `{ pieceId, nom }` : UNE pièce, parce qu'on n'en glissait qu'une. Arno a demandé la
+   * sélection multiple (« glisser l'une des pièces sélectionnées emporte toute la sélection »), et une charge
+   * qui ne sait nommer qu'une pièce ne peut pas en porter quatre.
+   *
+   * CE QUE CETTE ÉPREUVE PROTÉGEAIT N'A PAS BOUGÉ, et c'est le plus important : le transfert ne porte QUE notre
+   * type MIME. Pas de `text/plain`, pas de `text/uri-list` — un nom de document du cabinet lâché dans le champ
+   * de recherche d'un autre onglet serait une fuite que personne ne verrait passer.
+   * ⚠️ LE NOM A DISPARU DE LA CHARGE, exprès : l'identifiant suffit à retrouver la pièce dans l'état de la
+   * fenêtre, et ce qui ne voyage pas ne peut pas fuir.
+   */
   it('chaque pièce est saisissable, et ne porte QUE notre type MIME', async () => {
     await monter();
     expect(pieceDe('photo.jpg')?.getAttribute('draggable')).toBe('true');
     const t = await glisser('dragstart', pieceDe('photo.jpg'));
     expect(Object.keys(t.poses)).toEqual([MIME_PIECE]);
-    expect(JSON.parse(t.poses[MIME_PIECE])).toEqual({ pieceId: 12, nom: 'photo.jpg' });
+    expect(JSON.parse(t.poses[MIME_PIECE])).toEqual({ pieceIds: [12] });
+    expect(t.poses[MIME_PIECE]).not.toContain('photo.jpg');
   });
 
   it('le titre de la fenêtre dit ce qu’on tient, et le panneau ce qui reste', async () => {

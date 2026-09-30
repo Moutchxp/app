@@ -180,3 +180,122 @@ export function grilleColonnes(colonnes: readonly Colonne[]): string {
   };
   return colonnes.map((c) => largeur[c]).join(' ');
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ④ LOT RANGER-ARBRE-2 — RANGER PLUSIEURS PIÈCES D'UN SEUL GESTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   Demande d'Arno : « Case à cocher par pièce, plus Cmd+clic et Maj+clic, plus “Tout sélectionner”. Glisser l'une
+   des pièces sélectionnées emporte toute la sélection : le fantôme affiche “N pièces”. […] “Déposer ici (N)” suit
+   la sélection, et quand rien n'est sélectionné il porte sur toutes les pièces. »
+
+   🔴 CE QUE CE MODULE DÉCIDE, ET POURQUOI IL EST PUR. Tout ce qui suit répond à une seule question — QUELLES
+   pièces un geste emporte — et cette question n'a rien à voir avec le DOM. La tenir ici permet de l'éprouver sans
+   navigateur, et surtout d'en avoir UNE SEULE réponse : le glisser, le bouton « Déposer ici » et le compte affiché
+   sur ce bouton doivent parler des mêmes pièces, sans quoi le bouton annonce un nombre et en range un autre.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LES PIÈCES QU'UN GESTE EMPORTE. PUR.
+ *
+ * 🔴 LA RÈGLE, DANS L'ORDRE : ① si l'on saisit une pièce QUI FAIT PARTIE de la sélection, on emporte TOUTE la
+ * sélection ; ② si l'on saisit une pièce HORS sélection, on n'emporte QU'ELLE — c'est le geste du Finder, et il
+ * évite d'emmener par surprise des pièces cochées cinq minutes plus tôt ; ③ sans pièce saisie (le bouton
+ * « Déposer ici »), on emporte la sélection, et à défaut de sélection le lot que l'appelant propose.
+ *
+ * ⚠️ L'ORDRE DU PANNEAU EST CONSERVÉ, jamais celui des clics : ce qu'on a coché en désordre se range dans l'ordre
+ * qu'on lit, et les comptes rendus se lisent alors comme la liste.
+ */
+export function piecesEmportees(
+  saisie: PieceARanger | null,
+  choisies: readonly number[],
+  toutes: readonly PieceARanger[],
+  defaut?: readonly PieceARanger[],
+): PieceARanger[] {
+  const dansLaSelection = (x: PieceARanger) => choisies.includes(x.pieceId);
+  if (saisie !== null) {
+    if (!dansLaSelection(saisie)) return [saisie];
+    return toutes.filter(dansLaSelection);
+  }
+  const selection = toutes.filter(dansLaSelection);
+  if (selection.length > 0) return selection;
+  return [...(defaut ?? toutes)];
+}
+
+/**
+ * LE MOT DU FANTÔME qu'on traîne sous le curseur. PUR.
+ *
+ * ⚠️ UNE SEULE PIÈCE GARDE SON NOM : « 1 pièce » n'apprendrait rien à qui la tient déjà. Au-delà, le nom de la
+ * première ne dirait pas combien suivent — et c'est le nombre, là, qui est l'information.
+ */
+export function motFantome(pieces: readonly PieceARanger[]): string {
+  if (pieces.length === 0) return '';
+  return pieces.length === 1 ? pieces[0].nom : `${pieces.length} pièces`;
+}
+
+/** Le mot du bouton « Déposer ici », avec son compte quand il y en a plusieurs. PUR. */
+export function motDeposerIci(nb: number): string {
+  return nb > 1 ? `Déposer ici (${nb})` : 'Déposer ici';
+}
+
+/** Le mot de la case « Tout sélectionner », qui devient « Tout désélectionner » une fois tout coché. PUR. */
+export function motToutSelectionner(choisies: number, total: number): string {
+  return total > 0 && choisies >= total ? 'Tout désélectionner' : 'Tout sélectionner';
+}
+
+/**
+ * CE QUE « TOUT SÉLECTIONNER » PRODUIT. PUR. Un interrupteur : tout coché ⇒ on décoche tout.
+ */
+export function basculerTout(choisies: readonly number[], toutes: readonly PieceARanger[]): number[] {
+  return choisies.length >= toutes.length ? [] : toutes.map((x) => x.pieceId);
+}
+
+/**
+ * ══ 🔴🔴 LE COMPTE RENDU D'UN DÉPÔT MULTIPLE ════════════════════════════════════════════════════════════════════
+ *
+ * Demande d'Arno : « Chaque pièce déposée passe à “✓ Rangée dans X”. En cas d'échec partiel, les pièces refusées
+ * restent à ranger, avec leur motif. »
+ *
+ * 🔴 UN ÉCHEC PARTIEL N'EST PAS UN ÉCHEC. Trois pièces posées, une refusée parce qu'elle est sous « Documents
+ * clients scannés » : dire « le rangement n'a pas abouti » ferait recommencer les trois, et dire « c'est rangé »
+ * perdrait la quatrième. On dit donc les deux, dans cet ordre — ce qui est fait, puis ce qui ne l'est pas.
+ *
+ * ⚠️ LE MOTIF EST CELUI DU SERVEUR, MOT POUR MOT. Le réécrire ici ferait deux vérités, et c'est celle du serveur
+ * qui décide.
+ */
+export function compteRenduDepot(
+  poses: readonly string[], refuses: readonly { nom: string; motif: string }[],
+): string | null {
+  if (refuses.length === 0) return null;
+  const debut = poses.length === 0
+    ? ''
+    : `${poses.length} pièce${poses.length > 1 ? 's' : ''} rangée${poses.length > 1 ? 's' : ''}. `;
+  const restent = refuses.length > 1
+    ? `${refuses.length} pièces restent à ranger : `
+    : '1 pièce reste à ranger : ';
+  return debut + restent + refuses.map((r) => `« ${r.nom} » — ${r.motif}`).join(' ; ');
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑤ LOT RANGER-ARBRE-2 — LA LARGEUR DE LA COLONNE DE GAUCHE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 🔴 LES BORNES, ET POURQUOI ELLES EXISTENT. Sous ce minimum, le panneau « À ranger » ne montre plus assez du nom
+ * d'une pièce pour qu'on la reconnaisse ; au-delà de ce maximum, la LISTE — qui est le sujet de la fenêtre —
+ * devient plus étroite que la barre latérale. Mesuré sur la fenêtre réelle (1 100 px de large) : 180 px laisse
+ * lire « Decompte… », 520 px laisse encore une liste de 580 px.
+ *
+ * 🔴 LA VALEUR PAR DÉFAUT EST CELLE D'AVANT CE LOT, AU PIXEL PRÈS — 210 px, la largeur qui était écrite en dur
+ * dans `grid-template-columns`. Un réglage neuf ne doit RIEN déplacer tant qu'on n'y a pas touché : la fenêtre
+ * de quelqu'un qui ne se sert jamais de la poignée doit rester exactement celle qu'il connaît.
+ */
+export const COTE_MIN = 180;
+export const COTE_MAX = 520;
+export const COTE_DEFAUT = 210;
+
+/** Une largeur ramenée dans ses bornes. PUR. `null` ⇒ la largeur par défaut. */
+export function largeurCote(valeur: number | null | undefined): number {
+  if (valeur === null || valeur === undefined || !Number.isFinite(valeur)) return COTE_DEFAUT;
+  return Math.min(COTE_MAX, Math.max(COTE_MIN, Math.round(valeur)));
+}

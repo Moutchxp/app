@@ -213,32 +213,77 @@ describe('🔴 ① glisser-déposer', () => {
   });
 
   /**
-   * ⚠️ UN FICHIER N'EST PAS UNE DESTINATION. L'application ne fait pas `preventDefault` sur son survol, et c'est
-   * le navigateur qui affiche alors le curseur « interdit » — le retour visuel demandé, rendu par le système.
+   * ══ 🔴🔴 RÉÉCRIT LE 30/09/2026 (lot RANGER-ARBRE-2) — ET C'EST UN RENVERSEMENT ASSUMÉ ═══════════════════════
+   *
+   * L'INVARIANT D'AVANT : « un FICHIER n'accepte pas le dépôt : son survol n'est jamais accepté. L'application ne
+   * fait pas `preventDefault`, et c'est le navigateur qui affiche le curseur “interdit” — le retour visuel
+   * demandé, rendu par le système. » L'intention était juste ; l'effet, sur l'arbre déplié, était un piège.
+   *
+   * CONSTAT D'ARNO : « si l'on glisse une pièce à ranger sur les LIGNES DE FICHIERS affichées sous un dossier
+   * déplié, la pièce revient dans “pièces à ranger” ». Reproduit au vrai glisser souris, événements à l'appui :
+   * le refus faisait remonter le lâcher jusqu'à la fenêtre, dont le `drop` vaut ABANDON — donc rien, sans un mot.
+   *
+   * 🔴 LA RÈGLE D'ARNO, QUI REMPLACE CELLE-CI : « lâcher sur n'importe quelle ligne de fichier = déposer dans le
+   * dossier PARENT de ce fichier ». Un fichier n'est toujours PAS une destination — il en DÉSIGNE une. Ce que
+   * l'ancien invariant protégeait (ne jamais déposer DANS un fichier) est intact et s'éprouve ci-dessous :
+   * c'est le dossier parent qui reçoit, et c'est lui qui s'allume.
    */
-  it('un FICHIER n’accepte pas le dépôt : son survol n’est jamais « accepté »', async () => {
+  it('🔴 un FICHIER accepte le lâcher, mais c’est son DOSSIER PARENT qui reçoit', async () => {
     await monter();
+    // ⚠️ IL FAUT ÊTRE DANS UN DOSSIER : à la RACINE du sélecteur (« Mon Drive », « Drives partagés »), un fichier
+    //   n'a aucun parent à désigner — et c'est bien là, et là seulement, que le curseur « interdit » demeure.
+    await entrerDansArtisans();
     await glisser('dragstart', ligneDe('bail.pdf'));
-    const surDossier = new Event('dragover', { bubbles: true, cancelable: true });
-    Object.defineProperty(surDossier, 'dataTransfer', { value: faireTransfert(null) });
     const surFichier = new Event('dragover', { bubbles: true, cancelable: true });
     Object.defineProperty(surFichier, 'dataTransfer', { value: faireTransfert(null) });
-    await act(async () => {
-      ligneDe('Artisans')?.dispatchEvent(surDossier);
-      ligneDe('devis.pdf')?.dispatchEvent(surFichier);
-    });
-    // `defaultPrevented` EST la réponse « oui, on peut déposer ici ».
-    expect(surDossier.defaultPrevented).toBe(true);
+    await act(async () => { ligneDe('devis.pdf')?.dispatchEvent(surFichier); });
+    // `defaultPrevented` EST la réponse « oui, on peut lâcher ici » — elle vaut maintenant sur un fichier.
+    expect(surFichier.defaultPrevented).toBe(true);
+    // 🔴 ET LE DÉPÔT VA DANS LE DOSSIER QUI CONTIENT CE FICHIER — jamais dans le fichier.
+    await glisser('drop', ligneDe('devis.pdf'), { charge: [{ id: 'f1', nom: 'bail.pdf' }] });
+    expect(envois).toHaveLength(1);
+    expect(envois[0].corps.cible).toBe('d1');
+  });
+
+  /** 🔴 ET À LA RACINE DU SÉLECTEUR, RIEN N'EST VISABLE : « Mon Drive » et « Drives partagés » ne sont pas des
+   *  dossiers, et un fichier n'y a pas de parent. Le curseur « interdit » du navigateur y garde tout son sens. */
+  it('🔴 à la racine, un lâcher sur une ligne n’est toujours pas accepté', async () => {
+    await monter();
+    await glisser('dragstart', ligneDe('bail.pdf'));
+    const surFichier = new Event('dragover', { bubbles: true, cancelable: true });
+    Object.defineProperty(surFichier, 'dataTransfer', { value: faireTransfert(null) });
+    await act(async () => { ligneDe('devis.pdf')?.dispatchEvent(surFichier); });
     expect(surFichier.defaultPrevented).toBe(false);
   });
 
+  /**
+   * ══ 🔴 RÉÉCRIT (lot RANGER-ARBRE-2) — L'EXTINCTION EST DÉCALÉE DE 60 ms, ET IL LE FAUT ════════════════════
+   *
+   * Depuis que deux lignes voisines peuvent désigner LA MÊME cible (deux fichiers du même dossier), traverser
+   * l'une puis l'autre émet `dragenter` sur la nouvelle PUIS `dragleave` sur l'ancienne — soit, pour une cible
+   * unique, « j'arrive » suivi de « je pars ». Éteindre sur-le-champ faisait clignoter le dossier parent à
+   * chaque ligne traversée. La règle qu'éprouvait cette épreuve n'a pas changé : quitter éteint. Simplement,
+   * cela prend un souffle — et tout nouveau survol annule le sursis.
+   */
   it('le dossier survolé s’allume, et s’éteint quand on le quitte', async () => {
     await monter();
     await glisser('dragstart', ligneDe('bail.pdf'));
     await glisser('dragover', ligneDe('Artisans'));
     expect(ligneDe('Artisans')?.className).toContain('sfd-ligne--vise');
     await glisser('dragleave', ligneDe('Artisans'));
+    await act(async () => { await new Promise((r) => setTimeout(r, 90)); });
     expect(ligneDe('Artisans')?.className).not.toContain('sfd-ligne--vise');
+  });
+
+  /** 🔴 ET LE SURSIS NE LAISSE PAS CLIGNOTER : revenir avant qu'il n'expire garde la cible allumée. */
+  it('🔴 traverser deux fichiers du même dossier ne fait pas clignoter le parent', async () => {
+    await monter();
+    await glisser('dragstart', ligneDe('bail.pdf'));
+    await glisser('dragover', ligneDe('Artisans'));
+    await glisser('dragleave', ligneDe('Artisans'));
+    await glisser('dragover', ligneDe('Artisans'));
+    await act(async () => { await new Promise((r) => setTimeout(r, 90)); });
+    expect(ligneDe('Artisans')?.className).toContain('sfd-ligne--vise');
   });
 
   /**

@@ -28,16 +28,17 @@ import {
 } from '../../../../lib/gestion/mouvementOptimiste';
 // 🔴 LOT DRIVE-UNIQUE — les règles du mode « ranger », du bandeau des parents et des colonnes. Module PUR.
 import {
-  bandeauParents, colonnesVisibles, grilleColonnes, MIME_PIECE, motColonnes, motRangee, resumeARanger,
-  titreFenetre, type ModeDrive, type PieceARanger, type Rangee,
+  bandeauParents, basculerTout, colonnesVisibles, compteRenduDepot, COTE_MAX, COTE_MIN, grilleColonnes,
+  largeurCote, MIME_PIECE, motColonnes, motDeposerIci, motFantome, motRangee, motToutSelectionner,
+  piecesEmportees, resumeARanger, titreFenetre, type ModeDrive, type PieceARanger, type Rangee,
 } from '../../../../lib/gestion/rangementDrive';
 import {
-  aplatir, avancer, cheminCourant, cliquerLigne, COLONNES, dateFinder,
+  aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
   iconeEntree, menuDossier, menuFichier, menuVide, motType, naviguerVers, peutAvancer, peutReculer, reculer,
-  SELECTION_VIDE, selectionSuivante, tailleFinder, titreDuChemin, TRI_DEFAUT,
+  remplacerCheminCourant, SELECTION_VIDE, selectionSuivante, tailleFinder, titreDuChemin, TRI_DEFAUT,
   type ActionMenu, type Chemin, type Colonne, type DroitsPresse, type EntreeDrive, type EntreeMenu,
-  type Historique, type Selection, type Tri,
+  type Historique, type LigneAplatie, type Selection, type Tri,
 } from '../../../../lib/gestion/finderDrive';
 
 /**
@@ -109,6 +110,14 @@ const CLE_TAILLE_FENETRE = 'svv.gestion.selecteurDrive.taille';
 /** La section « Récents » de la barre latérale est-elle dépliée ? Préférence LOCALE au navigateur. */
 const CLE_RECENTS_OUVERTS = 'svv.gestion.selecteurDrive.recents';
 /**
+ * 🔴 LOT RANGER-ARBRE-2 — LA LARGEUR DE LA COLONNE DE GAUCHE. Préférence LOCALE au navigateur.
+ *
+ * ⚠️ UNE SEULE CLÉ POUR LES DEUX FENÊTRES (ranger et joindre), parce qu'Arno l'a demandé ainsi — « elle vaut pour
+ * les deux fenêtres Drive » — et parce que c'est la même colonne : la régler d'un côté et la retrouver étroite de
+ * l'autre se lirait comme un réglage qui n'a pas pris.
+ */
+const CLE_LARGEUR_COTE = 'svv.gestion.selecteurDrive.largeurCote';
+/**
  * ══ 🔴 LES DOSSIERS DÉPLIÉS, D'UNE OUVERTURE DE LA FENÊTRE À L'AUTRE ════════════════════════════════════════════
  *
  * Arno : « garde-le aussi d'une ouverture de la fenêtre à l'autre, dans la même session du navigateur ».
@@ -161,6 +170,11 @@ interface Listing {
    * jusqu'à ce lot, un dossier de plus de 200 entrées était tronqué en SILENCE, et l'on croyait avoir tout vu.
    */
   tronque: boolean;
+  /**
+   * 🔴 LOT RANGER-ARBRE-2 — LE VRAI CHEMIN DU DOSSIER, du haut jusqu'à lui, tel que le serveur l'a remonté.
+   * Vide quand il n'y en a pas (la racine, un regroupement, une recherche) : l'écran garde alors ce qu'il a.
+   */
+  chaine: { id: string; nom: string }[];
 }
 
 type Vue =
@@ -315,7 +329,7 @@ export function SelecteurFichierDrive({
    * `setGlisse` n'est pas appliqué avant la fin du gestionnaire de `dragstart`, si bien que le premier `dragover`
    * refusait la cible et que Chrome n'émettait jamais le `drop`.
    */
-  const enMainRef = useRef<{ sorte: 'drive'; ids: string[] } | { sorte: 'piece'; pieceId: number } | null>(null);
+  const enMainRef = useRef<{ sorte: 'drive'; ids: string[] } | { sorte: 'piece'; pieceIds: number[] } | null>(null);
   /** Les dossiers dépliés PAR LE RESSORT pendant ce glisser : on les referme si le geste est abandonné. */
   const depliagesDuGlisser = useRef<Set<string>>(new Set());
   /**
@@ -334,8 +348,37 @@ export function SelecteurFichierDrive({
   const [rangees, setRangees] = useState<Map<number, Rangee>>(new Map());
   /** Les pièces dont le dépôt est en cours : leur ligne le dit, et on ne le relance pas deux fois. */
   const [rangementEnCours, setRangementEnCours] = useState<Set<number>>(new Set());
-  /** La pièce qu'on est en train de glisser. `null` = aucune. */
-  const [pieceGlissee, setPieceGlissee] = useState<PieceARanger | null>(null);
+  /** Les pièces qu'on est en train de glisser. Vide = aucune. */
+  const [piecesGlissees, setPiecesGlissees] = useState<readonly PieceARanger[]>([]);
+  /**
+   * ══ 🔴🔴 LOT RANGER-ARBRE-2 — LES PIÈCES COCHÉES ═══════════════════════════════════════════════════════════
+   * Arno : « Case à cocher par pièce, plus Cmd+clic et Maj+clic, plus “Tout sélectionner”. »
+   *
+   * ⚠️ C'EST LA MÊME `Selection` QUE LA LISTE DU DRIVE, et le même `cliquerLigne` : ⌘ ajoute, ⇧ étend depuis
+   * l'ancre, un clic nu remplace. Écrire une seconde fois ces trois règles aurait produit deux comportements
+   * voisins mais différents dans une même fenêtre — exactement ce qui rend une interface impossible à apprendre.
+   */
+  const [choixPieces, setChoixPieces] = useState<Selection>(SELECTION_VIDE);
+  /**
+   * ══ 🔴🔴 LOT RANGER-ARBRE-2 — LA LARGEUR DE LA COLONNE DE GAUCHE ═══════════════════════════════════════════
+   * Arno : « Une poignée verticale […] permet de glisser pour élargir ou réduire la colonne, avec un minimum et
+   * un maximum raisonnables. Double-clic sur la poignée = largeur par défaut. La largeur est mémorisée. »
+   *
+   * ⚠️ LUE À L'INITIALISATION, PAS DANS UN EFFET : la poser après coup ferait un rendu à la largeur d'avant, donc
+   * un saut visible à chaque ouverture — et le compilateur React refuse le `setState` synchrone dans un effet.
+   * ⚠️ TOUT EST SOUS `try/catch` : un navigateur qui refuse le stockage local doit ouvrir la fenêtre quand même.
+   */
+  const [largeurCoteVue, setLargeurCoteVue] = useState<number>(() => {
+    try {
+      /* ⚠️ `Number(null)` VAUT ZÉRO, PAS `NaN`, et c'est exactement le piège : lire une préférence ABSENTE
+         donnait 0, que les bornes ramenaient au MINIMUM — la colonne s'ouvrait donc étroite chez quelqu'un
+         qui n'avait jamais touché la poignée, au lieu de garder la largeur d'avant. Attrapé par l'épreuve. */
+      const brut = globalThis.localStorage?.getItem(CLE_LARGEUR_COTE) ?? '';
+      return largeurCote(brut === '' ? null : Number(brut));
+    } catch { return largeurCote(null); }
+  });
+  /** La poignée est-elle en train d'être tirée ? Sert à figer le curseur et à empêcher la sélection de texte. */
+  const [tireLaPoignee, setTireLaPoignee] = useState(false);
   /** 🔴 « Par défaut, Nom + Taille seulement » (Arno) : la place gagnée sert à voir trois dossiers ouverts. */
   const [compact, setCompact] = useState(true);
   /** Le « … » du bandeau est-il déplié ? Ce qui est caché est COMPTÉ, jamais perdu. */
@@ -374,6 +417,16 @@ export function SelecteurFichierDrive({
   const dossierCourant = chemin.at(-1) ?? null;
   /** 🔴 Les deux parents et le dossier courant. Déplié, le bandeau rend le chemin entier — d'où le 99. */
   const parents = bandeauParents(chemin, cheminEntier ? 99 : undefined);
+  /**
+   * 🔴 LOT RANGER-ARBRE-2 — CE QU'IL Y A D'UN CRAN AU-DESSUS. À la profondeur 1, c'est la racine du sélecteur
+   * (« Google Drive », ses trois regroupements) : on peut y REMONTER, mais on n'y DÉPOSE pas — ce n'est pas un
+   * dossier, et Google refuserait après coup. D'où deux valeurs et non une : le nom, et la cible s'il y en a une.
+   */
+  const parentDuChemin = chemin.length >= 2 ? chemin[chemin.length - 2] : null;
+  const nomDuParent = parentDuChemin?.nom ?? 'Google Drive';
+  const cibleDuParent = parentDuChemin !== null && !estRegroupement(parentDuChemin.id)
+    ? { id: parentDuChemin.id, nom: parentDuChemin.nom }
+    : null;
   /** Les colonnes montrées, et la grille qu'en-tête et lignes doivent partager EXACTEMENT. */
   const colonnes = colonnesVisibles(compact, COLONNES.map((c) => c.cle));
   const grille = { gridTemplateColumns: grilleColonnes(colonnes) };
@@ -405,6 +458,7 @@ export function SelecteurFichierDrive({
     const d = (await res.json()) as {
       etat?: string; message?: string; fichiers?: Fichier[]; joindreAutorise?: boolean; motifRefus?: string | null;
       creerAutorise?: boolean; motifCreation?: string | null; tronque?: boolean;
+      chaine?: { id: string; nom: string }[];
     };
     if (d.etat !== 'ok') return { erreur: d.message ?? 'Drive indisponible.' };
     return {
@@ -417,6 +471,7 @@ export function SelecteurFichierDrive({
       motifCreation: d.motifCreation ?? null,
       recherche: false,
       tronque: d.tronque === true,
+      chaine: (d.chaine ?? []).filter((e) => typeof e?.id === 'string' && typeof e?.nom === 'string'),
     };
   }, []);
 
@@ -437,6 +492,21 @@ export function SelecteurFichierDrive({
       if ('erreur' in r) { if (connu === undefined) setVue({ v: 'indisponible', message: r.erreur }); return; }
       cache.current.set(dossierId, r);
       setVue({ v: 'ok', ...r });
+      /**
+       * ══ 🔴🔴 LOT RANGER-ARBRE-2 — ON APPREND OÙ L'ON EST, ET L'ON RÉÉCRIT LE CHEMIN ════════════════════════
+       *
+       * CONSTAT D'ARNO : un dossier ouvert depuis « Récents » affichait « Google Drive › Drive », sans ses
+       * parents — donc sans aucun moyen de remonter. Un raccourci ne connaît qu'un identifiant : le chemin
+       * d'entrée fait UN seul cran, et le fil d'Ariane ne peut pas inventer ce qu'on ne lui a pas dit.
+       *
+       * 🔴 LE SERVEUR, LUI, LE SAIT — il vient de remonter toute la chaîne pour rendre son verdict. On remplace
+       * donc l'endroit courant par le chemin COMPLET, sans empiler un pas de plus : on n'a pas navigué, on a
+       * appris. Le geste vaut pour TOUS les points d'entrée — Récents, Dossier du bien, recherche.
+       *
+       * ⚠️ `remplacerCheminCourant` refuse si l'endroit a changé entre-temps : une réponse en retard ne doit
+       * jamais réécrire le chemin d'un autre dossier.
+       */
+      if (r.chaine.length > 0) setHisto((h) => remplacerCheminCourant(h, r.chaine));
     } catch (e) {
       if ((e as { name?: string }).name === 'AbortError') return;
       if (attendu.current === dossierId && connu === undefined) {
@@ -548,6 +618,8 @@ export function SelecteurFichierDrive({
             creerAutorise: false, motifCreation: null,
             // La recherche a sa propre borne, annoncée par la route depuis le lot EDITEUR-PJ.
             tronque: false,
+            // Des résultats venus de quarante dossiers n'ont pas de chemin commun : il n'y a rien à reconstruire.
+            chaine: [],
           });
         } catch { if (!annule) setVue({ v: 'indisponible', message: 'Le Drive n’a pas répondu.' }); }
       })();
@@ -856,6 +928,43 @@ export function SelecteurFichierDrive({
   const ordre = lignes.map((l) => l.entree.id);
   const fenetre = fenetreVisible(lignes.length, scrollTop, hauteurVue);
   const visibles = lignes.slice(fenetre.debut, fenetre.fin);
+  /**
+   * 🔴 LOT RANGER-ARBRE-2 — CE QUE VISE UN LÂCHER DANS LE VIDE, sous la dernière ligne : le dossier AFFICHÉ.
+   * `null` là où il n'y a pas d'endroit — la racine, un regroupement (« Drives partagés » n'est pas un dossier :
+   * Google refuserait le dépôt APRÈS le téléversement), une liste de résultats de recherche.
+   */
+  const depotDansLeVide = dossierCourant !== null && !estRegroupement(dossierCourant.id)
+    && listing?.recherche !== true
+    ? { id: dossierCourant.id, nom: dossierCourant.nom }
+    : null;
+
+  /**
+   * ══ 🔴🔴 LOT RANGER-ARBRE-2 — LA MÊME RÈGLE POUR LE COLLAGE ════════════════════════════════════════════════
+   *
+   * Arno : « Même règle pour les déplacements de fichiers du Drive (Cmd+X/V et glisser) : un fichier n'est jamais
+   * une cible. »
+   *
+   * 🔴 CE QUE CELA CORRIGE. Le commentaire d'avant disait : « sur un fichier, [on colle] dans le dossier AFFICHÉ,
+   * celui qui le contient ». Les deux ne sont PAS la même chose depuis que l'arbre se déplie sur place : un
+   * fichier montré sous un dossier déplié est contenu par CE dossier, pas par celui qu'on affiche. Coller y
+   * déposait donc un cran trop haut — silencieusement, et à un endroit qui n'était même pas sous les yeux.
+   *
+   * ⚠️ UNE SEULE FONCTION POUR LE CLAVIER ET POUR LE MENU : deux réponses différentes à « où va ce collage ? »
+   * seraient un piège tendu à qui apprend le geste par l'un des deux.
+   */
+  const ligneDe = (id: string): LigneAplatie | null => lignes.find((l) => l.entree.id === id) ?? null;
+  const cibleDeLaLigne = (f: Fichier): { id: string; nom: string } | null => {
+    const l = ligneDe(f.id);
+    return l === null ? cibleDeDepot({ entree: f, parent: null }, dossierCourant) : cibleDeDepot(l, dossierCourant);
+  };
+  /** Où le clavier colle : dans la ligne visée quand il n'y en a qu'une, sinon dans le dossier affiché. */
+  const cibleDuCollage = (): { id: string; nom: string } | null => {
+    if (selection.ids.length === 1) {
+      const l = ligneDe(selection.ids[0]);
+      if (l !== null) return cibleDeDepot(l, dossierCourant);
+    }
+    return dossierCourant;
+  };
 
   useEffect(() => {
     const el = scene.current;
@@ -1210,9 +1319,22 @@ export function SelecteurFichierDrive({
      ferme pas le geste.
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-  const ranger = async (piece: PieceARanger, cibleId: string, cibleNom: string): Promise<void> => {
-    if (messageId === null || cibleId === '' || rangementEnCours.has(piece.pieceId)) return;
-    setErreur(null);
+  /**
+   * 🔴 LOT RANGER-ARBRE-2 — ELLE REND SON VERDICT au lieu de le garder pour elle : `rangerLot` en a besoin pour
+   * dire, à la fin, ce qui est passé et ce qui a été refusé. `silencieux` laisse le compte rendu d'ensemble
+   * parler à sa place — sinon le dernier refus écraserait le message du lot, et l'on ne verrait qu'un seul
+   * motif là où il y en a peut-être trois.
+   */
+  const ranger = async (
+    piece: PieceARanger, cibleId: string, cibleNom: string, o: { silencieux?: boolean } = {},
+  ): Promise<{ ok: true } | { ok: false; motif: string }> => {
+    const echec = (motif: string) => {
+      if (o.silencieux !== true) setErreur(`« ${piece.nom} » : ${motif}`);
+      return { ok: false as const, motif };
+    };
+    if (messageId === null || cibleId === '') return { ok: false, motif: 'aucun dossier visé.' };
+    if (rangementEnCours.has(piece.pieceId)) return { ok: false, motif: 'rangement déjà en cours.' };
+    if (o.silencieux !== true) setErreur(null);
     setRangementEnCours((v) => new Set(v).add(piece.pieceId));
     try {
       const res = await fetch(`/api/admin/gestion/pieces/${piece.pieceId}/drive`, {
@@ -1223,13 +1345,10 @@ export function SelecteurFichierDrive({
         etat?: string; message?: string;
         resultats?: { pieceId: number; etat: string; lien?: string | null; motif?: string }[];
       };
-      if (d.etat !== 'ok') { setErreur(d.message ?? 'Le rangement n’a pas abouti.'); return; }
+      if (d.etat !== 'ok') return echec(d.message ?? 'le rangement n’a pas abouti.');
       const r = (d.resultats ?? [])[0];
       // 🔴 UN ÉCHEC PIÈCE PAR PIÈCE SE DIT : la route rend un verdict par pièce, jamais un « OK » global.
-      if (r === undefined || r.etat === 'echec') {
-        setErreur(`« ${piece.nom} » : ${r?.motif ?? 'le rangement n’a pas abouti.'}`);
-        return;
-      }
+      if (r === undefined || r.etat === 'echec') return echec(r?.motif ?? 'le rangement n’a pas abouti.');
       setRangees((v) => {
         const n = new Map(v);
         n.set(piece.pieceId, { dossierId: cibleId, dossierNom: cibleNom, lien: r.lien ?? null });
@@ -1240,8 +1359,9 @@ export function SelecteurFichierDrive({
       if (dossierCourant?.id === cibleId) void charger(cibleId);
       // L'écran du message relit ses dépôts : c'est lui qui affiche « Dans le Drive » sur la carte de la pièce.
       onRangement?.();
+      return { ok: true };
     } catch {
-      setErreur('Le serveur n’a pas répondu.');
+      return echec('le serveur n’a pas répondu.');
     } finally {
       setRangementEnCours((v) => { const n = new Set(v); n.delete(piece.pieceId); return n; });
     }
@@ -1282,16 +1402,60 @@ export function SelecteurFichierDrive({
   /** Les pièces qui restent à poser : celles qu'on n'a encore rangées nulle part. */
   const piecesARanger = pieces.filter((x) => !rangees.has(x.pieceId));
 
+  /** L'ordre du panneau, pour que ⇧-clic sache ce qu'il y a entre deux pièces. */
+  const ordrePieces = pieces.map((x) => String(x.pieceId));
+  /** Les identifiants cochés, en nombres — `Selection` parle en chaînes, le rangement en identifiants de pièce. */
+  const idsChoisis = choixPieces.ids.map((x) => Number(x)).filter((n) => Number.isInteger(n));
+
+  /**
+   * ══ 🔴🔴 LOT RANGER-ARBRE-2 — RANGER UN LOT, ET DIRE CE QUI N'EST PAS PASSÉ ═══════════════════════════════
+   *
+   * Arno : « Chaque pièce déposée passe à “✓ Rangée dans X”. En cas d'échec partiel, les pièces refusées restent
+   * à ranger, avec leur motif. »
+   *
+   * 🔴 UNE PIÈCE APRÈS L'AUTRE, ET CHACUNE S'AFFICHE DÈS QU'ELLE EST POSÉE. Tout envoyer d'un coup aurait donné
+   * un panneau figé puis quatre coches d'un seul coup ; ici la première coche arrive pendant que la deuxième
+   * part. ⚠️ ET SURTOUT : chaque pièce a son propre verdict serveur, donc son propre refus et son propre motif.
+   * Un « OK » global aurait caché la seule qui a été refusée.
+   *
+   * ⚠️ UNE PIÈCE REFUSÉE N'EST PAS MARQUÉE RANGÉE : elle reste dans le panneau, cochée, prête pour un autre
+   * endroit — c'est `ranger` qui ne pose la marque que sur un succès.
+   */
+  const rangerLot = async (lot: readonly PieceARanger[], cibleId: string, cibleNom: string): Promise<void> => {
+    if (lot.length === 0 || cibleId === '') return;
+    setErreur(null);
+    const poses: string[] = [];
+    const refuses: { nom: string; motif: string }[] = [];
+    for (const x of lot) {
+      const r = await ranger(x, cibleId, cibleNom, { silencieux: lot.length > 1 });
+      if (r.ok) poses.push(x.nom); else refuses.push({ nom: x.nom, motif: r.motif });
+    }
+    // Ce qui est posé se voit sur chaque ligne ; ce qui ne l'est pas doit se LIRE, avec son motif.
+    if (lot.length > 1) setErreur(compteRenduDepot(poses, refuses));
+    // Les pièces posées sortent de la sélection : ce qui reste coché est ce qui reste à faire.
+    if (poses.length > 0) {
+      setChoixPieces((c) => ({
+        ids: c.ids.filter((id) => !lot.some((x) => String(x.pieceId) === id && poses.includes(x.nom))),
+        ancre: null,
+      }));
+    }
+  };
+
   /**
    * « DÉPOSER ICI » — l'autre voie, pour qui ne glisse pas (et pour le clavier, et pour le tactile).
    *
    * ⚠️ IL RANGE CE QUI RESTE À RANGER, pas tout : relancer le bouton après un premier dépôt ne doit pas redéposer
    * une pièce déjà posée ailleurs. Quand tout est rangé, il range de nouveau TOUT — c'est alors un geste explicite,
    * pour mettre le lot entier à un second endroit.
+   *
+   * 🔴 LOT RANGER-ARBRE-2 — ET IL SUIT LA SÉLECTION. Arno : « “Déposer ici (N)” suit la sélection, et quand rien
+   * n'est sélectionné il porte sur toutes les pièces. » C'est `piecesEmportees` qui tranche, une fois pour le
+   * bouton et pour le nombre qu'il affiche : un bouton qui annoncerait N et en rangerait M serait pire qu'inutile.
    */
+  const lotDuBouton = piecesEmportees(null, idsChoisis, pieces,
+    piecesARanger.length > 0 ? piecesARanger : pieces);
   const deposerToutIci = (cibleId: string, cibleNom: string) => {
-    const lot = piecesARanger.length > 0 ? piecesARanger : pieces;
-    for (const x of lot) void ranger(x, cibleId, cibleNom);
+    void rangerLot(lotDuBouton, cibleId, cibleNom);
   };
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1325,7 +1489,7 @@ export function SelecteurFichierDrive({
     depliagesDuGlisser.current = new Set();
     enMainRef.current = null;
     setGlisse(null);
-    setPieceGlissee(null);
+    setPiecesGlissees([]);
     setSurvole(null);
     setCibleNommee(null);
     if (ressort.current !== null) { clearTimeout(ressort.current.minuteur); ressort.current = null; }
@@ -1430,6 +1594,8 @@ export function SelecteurFichierDrive({
      * curseur de copie sur un geste qui en est déjà une.
      */
     e.dataTransfer.dropEffect = enMain.sorte === 'piece' ? 'copy' : (e.altKey ? 'copy' : 'move');
+    // On arrive quelque part : le sursis d'extinction posé par la ligne qu'on vient de quitter n'a plus lieu d'être.
+    if (sursisSurvol.current !== null) { clearTimeout(sursisSurvol.current); sursisSurvol.current = null; }
     if (survole !== cible.id) setSurvole(cible.id);
     /* 🔴 L'INDICATEUR PRÈS DU CURSEUR (demande d'Arno) : « → Déposer dans “X” ». Pendant un glisser, la
        surbrillance seule ne suffit pas — la ligne visée peut être à l'autre bout de l'écran, et l'œil est sur le
@@ -1459,35 +1625,73 @@ export function SelecteurFichierDrive({
     }
   };
 
+  /**
+   * ══ 🔴 LOT RANGER-ARBRE-2 — ON N'ÉTEINT PAS TOUT DE SUITE, ET C'EST NÉCESSAIRE ════════════════════════════════
+   *
+   * Depuis que DEUX lignes voisines peuvent désigner LA MÊME cible (deux fichiers du même dossier), passer de
+   * l'une à l'autre produit `dragenter` sur la nouvelle PUIS `dragleave` sur l'ancienne — c'est-à-dire, pour une
+   * cible unique, « j'arrive » suivi de « je pars ». Éteindre sur-le-champ faisait clignoter la surbrillance du
+   * dossier parent à chaque ligne traversée.
+   *
+   * ⚠️ LE DÉLAI EST UN SURSIS, PAS UNE ANIMATION : 60 ms, imperceptibles, et tout nouveau survol l'annule. Sortir
+   * pour de bon éteint donc toujours — simplement un souffle plus tard.
+   */
+  const sursisSurvol = useRef<ReturnType<typeof setTimeout> | null>(null);
   const quitterCible = (id: string) => {
-    setSurvole((v) => (v === id ? null : v));
+    if (sursisSurvol.current !== null) clearTimeout(sursisSurvol.current);
+    sursisSurvol.current = setTimeout(() => {
+      sursisSurvol.current = null;
+      setSurvole((v) => (v === id ? null : v));
+    }, 60);
     if (ressort.current?.id === id) { clearTimeout(ressort.current.minuteur); ressort.current = null; }
   };
 
-  /** La pièce reçue portée par ce transfert, ou `null` si c'en est un autre. */
-  const pieceDuGlisse = (e: React.DragEvent): PieceARanger | null => {
+  /** Les pièces reçues portées par ce transfert. Vide si c'en est un autre. */
+  const piecesDuGlisse = (e: React.DragEvent): PieceARanger[] => {
     let brut = '';
     try { brut = e.dataTransfer.getData(MIME_PIECE); } catch { brut = ''; }
     if (brut !== '') {
       try {
-        const lu = JSON.parse(brut) as { pieceId?: number };
-        const trouvee = pieces.find((x) => x.pieceId === lu.pieceId);
-        if (trouvee !== undefined) return trouvee;
+        const lu = JSON.parse(brut) as { pieceIds?: number[] };
+        const trouvees = pieces.filter((x) => (lu.pieceIds ?? []).includes(x.pieceId));
+        if (trouvees.length > 0) return trouvees;
       } catch { /* un transfert illisible se rattrape par l'état ci-dessous */ }
     }
     // ⚠️ REPLI PAR L'ÉTAT : jsdom et quelques navigateurs ne rendent pas les données d'un transfert pendant
     //   `dragover`. Ce qu'on tient est alors ce qu'on a pris au `dragstart`, et l'on n'invente rien.
-    return pieceGlissee;
+    return [...piecesGlissees];
   };
 
+  /**
+   * ══ 🔴🔴 LOT RANGER-ARBRE-2 — SAISIR UNE PIÈCE COCHÉE LES EMPORTE TOUTES ═══════════════════════════════════
+   *
+   * Arno : « Glisser l'une des pièces sélectionnées emporte toute la sélection : le fantôme affiche “N pièces”. »
+   *
+   * ⚠️ SAISIR UNE PIÈCE **HORS** SÉLECTION N'EMPORTE QU'ELLE, et ne défait pas la sélection : c'est la règle du
+   * Finder, et elle évite d'emmener par surprise trois pièces cochées cinq minutes plus tôt. Tout cela est
+   * tranché par `piecesEmportees`, dans le module pur, pour que le bouton « Déposer ici » dise exactement la
+   * même chose.
+   */
   const demarrerGlisseDePiece = (e: React.DragEvent, piece: PieceARanger) => {
-    enMainRef.current = { sorte: 'piece', pieceId: piece.pieceId };
+    const lot = piecesEmportees(piece, idsChoisis, pieces);
+    // 🔴 LA RÉFÉRENCE D'ABORD : c'est elle que le PREMIER survol lira — l'état n'arrive qu'au rendu suivant.
+    enMainRef.current = { sorte: 'piece', pieceIds: lot.map((x) => x.pieceId) };
     depliagesDuGlisser.current = new Set();
-    setPieceGlissee(piece);
+    setPiecesGlissees(lot);
     setGlisse(null);
     try {
-      e.dataTransfer.setData(MIME_PIECE, JSON.stringify({ pieceId: piece.pieceId, nom: piece.nom }));
+      e.dataTransfer.setData(MIME_PIECE, JSON.stringify({ pieceIds: lot.map((x) => x.pieceId) }));
       e.dataTransfer.effectAllowed = 'copy';
+      /* 🔴 LE FANTÔME DIT COMBIEN. Sans lui, on traîne la vignette d'UNE pièce en croyant n'en ranger qu'une —
+         et l'on en range quatre. Même geste, même fantôme que la sélection multiple du Drive. */
+      if (lot.length > 1 && typeof document !== 'undefined') {
+        const fantome = document.createElement('div');
+        fantome.className = 'sfd-fantome';
+        fantome.textContent = motFantome(lot);
+        document.body.appendChild(fantome);
+        e.dataTransfer.setDragImage(fantome, 14, 14);
+        setTimeout(() => fantome.remove(), 0);
+      }
     } catch { /* un navigateur qui refuse le transfert ne doit pas casser le panneau */ }
   };
 
@@ -1516,10 +1720,10 @@ export function SelecteurFichierDrive({
   const deposerSur = (e: React.DragEvent, cible: { id: string; nom: string }) => {
     e.preventDefault();
     e.stopPropagation();
-    const piece = pieceDuGlisse(e);
-    if (piece !== null) {
+    const lotPieces = piecesDuGlisse(e);
+    if (lotPieces.length > 0) {
       finGlisse();
-      if (cible.id !== '') void ranger(piece, cible.id, cible.nom);
+      if (cible.id !== '') void rangerLot(lotPieces, cible.id, cible.nom);
       return;
     }
     const copie = e.altKey;
@@ -1645,8 +1849,9 @@ export function SelecteurFichierDrive({
     if ((e.metaKey || e.ctrlKey) && (e.key === 'x' || e.key === 'c' || e.key === 'v')) {
       e.preventDefault();
       if (e.key === 'v') {
-        const cible = dossierCourant?.id ?? '';
-        if (cible !== '') coller(cible, dossierCourant?.nom ?? 'ce dossier');
+        // 🔴 LOT RANGER-ARBRE-2 — voir `cibleDuCollage` : un fichier n'est jamais une cible, il en désigne une.
+        const ou = cibleDuCollage();
+        if (ou !== null && ou.id !== '') coller(ou.id, ou.nom);
         return;
       }
       if (selection.ids.length === 0) return;
@@ -1790,10 +1995,11 @@ export function SelecteurFichierDrive({
       return;
     }
     if (a === 'coller') {
-      // 🔴 SUR UN DOSSIER, ON COLLE DEDANS ; sur un fichier, dans le dossier AFFICHÉ, celui qui le contient.
-      if (f.dossier) { coller(f.id, f.nom); return; }
-      const cible = dossierCourant?.id ?? '';
-      if (cible !== '') coller(cible, dossierCourant?.nom ?? 'ce dossier');
+      /* 🔴 SUR UN DOSSIER, ON COLLE DEDANS ; sur un fichier, dans LE DOSSIER QUI LE CONTIENT — son parent réel
+         s'il est affiché sous un dossier déplié, et non « le dossier affiché » comme l'écrivait ce commentaire
+         avant le lot RANGER-ARBRE-2. Voir `cibleDeLaLigne`. */
+      const ou = cibleDeLaLigne(f);
+      if (ou !== null && ou.id !== '') coller(ou.id, ou.nom);
     }
   };
 
@@ -2035,6 +2241,47 @@ export function SelecteurFichierDrive({
     );
   };
 
+  /**
+   * ══ 🔴🔴 LOT RANGER-ARBRE-2 — TIRER LA POIGNÉE ════════════════════════════════════════════════════════════
+   *
+   * 🔴 DES ÉVÉNEMENTS DE POINTEUR, ET LA CAPTURE. `setPointerCapture` fait suivre le pointeur à la poignée même
+   * quand le curseur sort d'elle — sans quoi un geste un peu vif « lâcherait » la poignée au premier pixel
+   * dépassé, et la colonne resterait à une largeur qu'on n'a pas voulue. C'est aussi ce qui rend le geste
+   * identique à la souris, au trackpad et au doigt.
+   *
+   * ⚠️ LA LARGEUR EST BORNÉE PAR LE MODULE PUR (`largeurCote`), jamais ici : une borne écrite à deux endroits
+   * finirait par valoir deux choses différentes.
+   * ⚠️ ON N'ÉCRIT LA PRÉFÉRENCE QU'À LA FIN DU GESTE, pas à chaque pixel : trois cents écritures pour un glisser
+   * de trois cents pixels feraient ramer le stockage local pour un réglage qu'on ne lit qu'à l'ouverture.
+   */
+  const retenirLargeur = (v: number) => {
+    try { globalThis.localStorage?.setItem(CLE_LARGEUR_COTE, String(v)); }
+    catch { /* une préférence qu'on ne peut pas écrire n'empêche pas de régler la colonne */ }
+  };
+  const saisirPoignee = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const poignee = e.currentTarget;
+    const depart = e.clientX;
+    const largeurDepart = largeurCoteVue;
+    let derniere = largeurDepart;
+    setTireLaPoignee(true);
+    try { poignee.setPointerCapture(e.pointerId); } catch { /* un navigateur sans capture suit quand même */ }
+    const bouger = (ev: PointerEvent) => {
+      derniere = largeurCote(largeurDepart + (ev.clientX - depart));
+      setLargeurCoteVue(derniere);
+    };
+    const finir = () => {
+      poignee.removeEventListener('pointermove', bouger);
+      poignee.removeEventListener('pointerup', finir);
+      poignee.removeEventListener('pointercancel', finir);
+      setTireLaPoignee(false);
+      retenirLargeur(derniere);
+    };
+    poignee.addEventListener('pointermove', bouger);
+    poignee.addEventListener('pointerup', finir);
+    poignee.addEventListener('pointercancel', finir);
+  };
+
   /** Une entrée latérale part TOUJOURS de la racine : c'est un raccourci, pas une descente de plus. */
   function entrerDepuisRacine(f: { id: string; nom: string }) {
     setMontrerRecents(false);
@@ -2241,7 +2488,10 @@ export function SelecteurFichierDrive({
         )}
 
         {/* ══ LE CORPS : barre latérale + liste ═════════════════════════════════════════════════════════════════ */}
-        <div className="sfd-corps">
+        <div className={`sfd-corps${tireLaPoignee ? ' sfd-corps--tire' : ''}`}
+          /* 🔴 LA LARGEUR PASSE PAR UNE VARIABLE CSS : la grille du corps la lit, et rien d'autre n'a besoin de
+             la connaître. C'est aussi ce qui permet au CSS de garder ses bornes en une seule ligne. */
+          style={{ ['--sfd-cote' as string]: `${largeurCoteVue}px` }}>
           <aside className="sfd-cote" aria-label="Emplacements">
             {/* ══ 🔴🔴 « À RANGER » — CE QU'ON TIENT DANS LA MAIN GAUCHE ════════════════════════════════════════
                 Arno : « un panneau “À ranger” qui liste les pièces jointes du mail avec leur miniature, leur nom
@@ -2251,19 +2501,45 @@ export function SelecteurFichierDrive({
             {mode === 'ranger' && pieces.length > 0 && (
               <section className="sfd-ranger" aria-label="Pièces à ranger">
                 <p className="sfd-ranger-titre" role="status">{resumeARanger(pieces.length, rangees.size)}</p>
+                {/* ══ 🔴 LOT RANGER-ARBRE-2 — « TOUT SÉLECTIONNER », un interrupteur ══════════════════════════
+                    ⚠️ ABSENT S'IL N'Y A QU'UNE PIÈCE : « tout sélectionner » une pièce unique est une case à
+                    cocher déguisée, et elle est déjà sur la ligne. */}
+                {pieces.length > 1 && (
+                  <button type="button" className="sfd-ranger-tout"
+                    aria-pressed={idsChoisis.length >= pieces.length}
+                    onClick={() => setChoixPieces({ ids: basculerTout(idsChoisis, pieces).map(String), ancre: null })}>
+                    {motToutSelectionner(idsChoisis.length, pieces.length)}
+                  </button>
+                )}
                 <ul className="sfd-ranger-liste">
                   {pieces.map((x) => {
                     const ou = rangees.get(x.pieceId) ?? null;
                     const occupee = rangementEnCours.has(x.pieceId);
+                    const cochee = idsChoisis.includes(x.pieceId);
+                    /** ⌘ et ⇧ passent par la MÊME règle que la liste du Drive : voir `choixPieces`. */
+                    const cliquer = (cmd: boolean, maj: boolean) => setChoixPieces(
+                      (c) => cliquerLigne(c, String(x.pieceId), ordrePieces, { cmd, maj }));
                     return (
                       <li key={x.pieceId}
                         className={`sfd-piece${ou !== null ? ' sfd-piece--rangee' : ''}`
-                          + `${pieceGlissee?.pieceId === x.pieceId ? ' sfd-piece--enVol' : ''}`}
+                          + `${cochee ? ' sfd-piece--cochee' : ''}`
+                          + `${piecesGlissees.some((g) => g.pieceId === x.pieceId) ? ' sfd-piece--enVol' : ''}`}
                         /* 🔴 GLISSABLE : c'est le geste principal de ce mode. Le bouton « Déposer ici » du pied
                            est la seconde voie — pour le tactile, et pour qui ne glisse pas. */
                         draggable
                         onDragStart={(e) => demarrerGlisseDePiece(e, x)}
-                        onDragEnd={() => finGlisse(true)}>
+                        onDragEnd={() => finGlisse(true)}
+                        /* ⚠️ LE CLIC SUR LA LIGNE COCHE AUSSI, ⌘ et ⇧ compris : viser une case de 14 px pour
+                           choisir quatre pièces serait un geste de précision là où l'on veut un geste rapide. */
+                        onClick={(e) => {
+                          if ((e.target as HTMLElement).closest('button, input, a') !== null) return;
+                          cliquer(e.metaKey || e.ctrlKey, e.shiftKey);
+                        }}>
+                        {/* 🔴 LA CASE À COCHER (demande d'Arno). Elle porte le nom de la pièce : sans lui, un
+                            lecteur d'écran n'annoncerait que « case à cocher », quatre fois de suite. */}
+                        <input type="checkbox" className="sfd-piece-case" checked={cochee}
+                          aria-label={`Sélectionner ${x.nom}`}
+                          onChange={() => cliquer(true, false)} />
         {/* La miniature est servie par l'application, jamais par une URL de stockage.
                             🔴 `draggable={false}` SUR LA VIGNETTE, ET C'EST INDISPENSABLE : une image est
                             saisissable NATIVEMENT par le navigateur. Sans cela, saisir la pièce par sa miniature
@@ -2343,7 +2619,49 @@ export function SelecteurFichierDrive({
             )}
           </aside>
 
+          {/* ══ 🔴 LA POIGNÉE (demande d'Arno) ═══════════════════════════════════════════════════════════════
+              ⚠️ `role="separator"` AVEC SES BORNES : c'est ce qui la rend annonçable et manœuvrable autrement
+              qu'à la souris. Les flèches ← → la déplacent de 16 px, et ⇧ de 64 — un réglage qui n'existerait
+              qu'à la souris serait inutilisable à qui n'en a pas. */}
+          <div className="sfd-poignee" role="separator" aria-orientation="vertical" tabIndex={0}
+            aria-label="Largeur de la colonne de gauche"
+            aria-valuenow={largeurCoteVue} aria-valuemin={COTE_MIN} aria-valuemax={COTE_MAX}
+            title="Glissez pour régler la largeur — double-clic pour la largeur par défaut"
+            onPointerDown={saisirPoignee}
+            onDoubleClick={() => { const v = largeurCote(null); setLargeurCoteVue(v); retenirLargeur(v); }}
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+              e.preventDefault();
+              const pas = (e.shiftKey ? 64 : 16) * (e.key === 'ArrowLeft' ? -1 : 1);
+              const v = largeurCote(largeurCoteVue + pas);
+              setLargeurCoteVue(v);
+              retenirLargeur(v);
+            }} />
+
           <main className="sfd-vue" aria-label="Contenu">
+            {/* ══ 🔴🔴 LOT RANGER-ARBRE-2 — « ↑ REMONTER À “X” », AU-DESSUS DE L'EN-TÊTE ════════════════════════
+                Arno : « Une ligne “↑ Remonter à “<dossier parent>”” au-dessus de l'en-tête “Nom”, toujours
+                visible dès qu'on n'est pas à la racine. Un clic remonte d'un niveau. Elle sert aussi de cible
+                de dépôt. »
+                🔴 POURQUOI ELLE VAUT MIEUX QUE LE SEUL FIL D'ARIANE : le bandeau des parents ne montre que deux
+                crans et se replie ; cette ligne-là est TOUJOURS au même endroit, juste au-dessus de la liste, et
+                elle NOMME l'endroit où l'on va. C'est le « .. » du Finder, en toutes lettres.
+                ⚠️ PAS DE RESSORT : on ne veut pas qu'un survol pendant un glisser nous fasse changer d'étage. */}
+            {chemin.length > 0 && (
+              <button type="button"
+                className={`sfd-remonter${survole === 'remonter' ? ' sfd-remonter--vise' : ''}`}
+                title={`Remonter à « ${nomDuParent} »`}
+                onClick={() => remonter(chemin.length - 1)}
+                onDragEnter={cibleDuParent === null ? undefined
+                  : (e) => survolerCible(e, { id: 'remonter', nom: cibleDuParent.nom, ouvrable: false, reel: cibleDuParent.id })}
+                onDragOver={cibleDuParent === null ? undefined
+                  : (e) => survolerCible(e, { id: 'remonter', nom: cibleDuParent.nom, ouvrable: false, reel: cibleDuParent.id })}
+                onDragLeave={cibleDuParent === null ? undefined : () => quitterCible('remonter')}
+                onDrop={cibleDuParent === null ? undefined : (e) => deposerSur(e, cibleDuParent)}>
+                <span aria-hidden="true">↑</span> Remonter à «&nbsp;{nomDuParent}&nbsp;»
+              </button>
+            )}
+
             {/* ══ LES EN-TÊTES DE COLONNES : un clic trie, une flèche dit dans quel sens ═══════════════════════ */}
             {/* ══ 🔴 LES EN-TÊTES — seulement les colonnes MONTRÉES, sur la grille calculée une seule fois ═════
                 ⚠️ LA GRILLE VIENT DU MODULE PUR, et elle est posée à la fois ici et sur chaque ligne : deux
@@ -2361,7 +2679,21 @@ export function SelecteurFichierDrive({
               ))}
             </div>
 
-            <div className="sfd-lignes" ref={scene} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+            {/* ══ 🔴🔴 LOT RANGER-ARBRE-2 — LA ZONE VIDE SOUS LA LISTE EST LE DOSSIER AFFICHÉ ═════════════════
+                Arno : « lâcher dans la zone vide sous la liste = déposer dans le dossier affiché ».
+                🔴 C'EST LA MÊME IDÉE QUE LE LÂCHER SUR UN FICHIER : on vise un ENDROIT, et l'endroit qu'on a
+                sous les yeux est celui dont on lit le contenu. Sans cela, le blanc sous la dernière ligne était
+                un trou — le lâcher y valait abandon, et la pièce revenait sans explication.
+                ⚠️ LES LIGNES ARRÊTENT LEUR ÉVÉNEMENT (`stopPropagation` dans `survolerCible` et `deposerSur`) :
+                ce gestionnaire ne voit donc QUE le vide, jamais un lâcher déjà traité au-dessus d'une ligne. */}
+            <div className={`sfd-lignes${survole === dossierCourant?.id ? ' sfd-lignes--vise' : ''}`}
+              ref={scene} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+              onDragEnter={depotDansLeVide === null ? undefined
+                : (e) => survolerCible(e, { ...depotDansLeVide, ouvrable: false })}
+              onDragOver={depotDansLeVide === null ? undefined
+                : (e) => survolerCible(e, { ...depotDansLeVide, ouvrable: false })}
+              onDragLeave={depotDansLeVide === null ? undefined : () => quitterCible(depotDansLeVide.id)}
+              onDrop={depotDansLeVide === null ? undefined : (e) => deposerSur(e, depotDansLeVide)}
               /* 🔴 NOTRE MENU, PAS CELUI DE CHROME. ⚠️ On ne le pose QUE si le clic n'a pas déjà été traité par
                  une ligne : `defaultPrevented` le dit, et c'est ce qui évite deux menus pour un seul clic. */
               onContextMenu={(e) => {
@@ -2395,7 +2727,12 @@ export function SelecteurFichierDrive({
                 <ul className="sfd-squelette" aria-hidden="true">
                   {Array.from({ length: 14 }, (_, i) => <li key={i} className="sfd-ligne sfd-ligne--squelette" />)}
                 </ul>
-              ) : listing !== null && lignes.length === 0 ? (
+              ) : listing !== null && lignes.length === 0 && ligneNeuve.c === 'ferme' ? (
+                /* ══ 🔴 DÉFAUT TROUVÉ EN FAISANT L'ESSAI RÉEL DU LOT RANGER-ARBRE-2 (30/09/2026) ═══════════════
+                   Dans un dossier VIDE, « Nouveau dossier » ne faisait RIEN : la ligne en édition n'est rendue que
+                   dans la branche ci-dessous, et un dossier vide prenait celle-ci. On ne pouvait donc jamais créer
+                   un premier sous-dossier — il fallait sortir, créer ailleurs, déplacer. Le message « Ce dossier
+                   est vide » s'efface maintenant dès qu'une ligne s'ouvre : c'est elle qu'on vient écrire. */
                 <p className="gst-tronc sfd-vide">
                   {listing.recherche ? `Aucun dossier ni fichier trouvé pour « ${saisie.trim()} ».` : 'Ce dossier est vide.'}
                 </p>
@@ -2404,7 +2741,16 @@ export function SelecteurFichierDrive({
                   {/* La virtualisation : deux cales, et seulement les lignes qu'on voit. */}
                   {fenetre.avant > 0 && <div style={{ height: fenetre.avant }} aria-hidden="true" />}
                   <ul className="sfd-liste" role="listbox" aria-multiselectable="true">
-                    {visibles.map(({ entree: f, profondeur }, rang) => {
+                    {visibles.map((ligne) => {
+                      const { entree: f, profondeur } = ligne;
+                      /**
+                       * ══ 🔴🔴 LOT RANGER-ARBRE-2 — CE QUE CETTE LIGNE DÉSIGNE COMME CIBLE ═══════════════════
+                       * Un DOSSIER se désigne lui-même ; un FICHIER désigne le dossier qui le CONTIENT — son
+                       * parent réel s'il est affiché sous un dossier déplié, le dossier affiché sinon. Voir
+                       * l'encadré de `cibleDeDepot` : c'est le défaut qu'Arno a constaté, et sa règle.
+                       */
+                      const cible = cibleDeDepot(ligne, dossierCourant);
+                      const recevable = cible !== null && !estRegroupement(cible.id) && !listing?.recherche;
                       const choisie = selection.ids.includes(f.id);
                       const deja = ajoutes.includes(f.id);
                       /* 🔴 LES DEUX ÉTATS NOUVEAUX D'UNE LIGNE :
@@ -2433,17 +2779,25 @@ export function SelecteurFichierDrive({
                           draggable
                           onDragStart={(e) => demarrerGlisse(e, f)}
                           onDragEnd={() => finGlisse(true)}
-                          /* ⚠️ SEUL UN DOSSIER ACCEPTE UN DÉPÔT. Sur un fichier, on ne fait pas `preventDefault`,
-                             et le navigateur montre de lui-même le curseur « interdit » — c'est le retour visuel
-                             demandé, rendu par le système plutôt que dessiné par nous. */
-                          onDragEnter={f.dossier
-                            ? (e) => survolerCible(e, { id: f.id, nom: f.nom, ouvrable: true })
-                            : undefined}
-                          onDragOver={f.dossier
-                            ? (e) => survolerCible(e, { id: f.id, nom: f.nom, ouvrable: true })
-                            : undefined}
-                          onDragLeave={f.dossier ? () => quitterCible(f.id) : undefined}
-                          onDrop={f.dossier ? (e) => deposerSur(e, { id: f.id, nom: f.nom }) : undefined}
+                          /* ══ 🔴🔴 RÉÉCRIT (lot RANGER-ARBRE-2) — TOUTE LIGNE ACCEPTE UN LÂCHER ═════════════
+                             CE QUI ÉTAIT ÉCRIT ICI : « seul un dossier accepte un dépôt. Sur un fichier, on ne
+                             fait pas `preventDefault`, et le navigateur montre de lui-même le curseur
+                             “interdit” — c'est le retour visuel demandé ». L'intention était juste, l'effet
+                             non : sur les fichiers d'un dossier DÉPLIÉ, ce refus faisait remonter le lâcher
+                             jusqu'à la fenêtre, dont le `drop` vaut ABANDON — la pièce revenait « à ranger »,
+                             sans un mot. Reproduit au vrai glisser souris le 30/09/2026 (voir `cibleDeDepot`).
+                             🔴 DÉSORMAIS : un fichier n'est pas une cible, il en DÉSIGNE une — son dossier. Le
+                             curseur « interdit » ne reste que là où il n'y a vraiment rien à viser : la racine,
+                             un regroupement, une liste de résultats venus de quarante dossiers.
+                             ⚠️ `ouvrable` SUIT LA LIGNE, PAS LA CIBLE : le ressort déplie ce qu'on survole, et
+                             l'on ne déplie pas un fichier. */
+                          onDragEnter={!recevable ? undefined
+                            : (e) => survolerCible(e, { ...(cible as { id: string; nom: string }), ouvrable: f.dossier })}
+                          onDragOver={!recevable ? undefined
+                            : (e) => survolerCible(e, { ...(cible as { id: string; nom: string }), ouvrable: f.dossier })}
+                          onDragLeave={!recevable ? undefined : () => quitterCible((cible as { id: string }).id)}
+                          onDrop={!recevable ? undefined
+                            : (e) => deposerSur(e, cible as { id: string; nom: string })}
                           onMouseEnter={() => {
                             if (f.dossier) precharger(f.id);
                             else amorcer(f, lisible);
@@ -2633,7 +2987,9 @@ export function SelecteurFichierDrive({
                 if (dossierCourant === null) return;
                 deposerToutIci(dossierCourant.id, dossierCourant.nom);
               }}>
-              Déposer ici{piecesARanger.length > 1 ? ` (${piecesARanger.length})` : ''}
+              {/* 🔴 LOT RANGER-ARBRE-2 — LE NOMBRE EST CELUI DU LOT QUI PARTIRA, sélection comprise : c'est
+                  `piecesEmportees` qui le dit, et le clic range EXACTEMENT ces pièces-là. */}
+              {motDeposerIci(lotDuBouton.length)}
             </button>
           )}
           {/* 🔴 « JOINDRE LA SÉLECTION » : la suite naturelle du Cmd+clic et du Maj+clic. Absent là où la lecture
@@ -2663,7 +3019,7 @@ export function SelecteurFichierDrive({
         Arno : « pendant tout le glisser, un indicateur discret près du curseur affiche le nom de la cible ».
         ⚠️ `pointer-events:none` dans le CSS : il suit le curseur, il ne doit JAMAIS l'intercepter — sans quoi il
         deviendrait lui-même la cible du lâcher, et le dépôt tomberait à côté. */}
-    {cibleNommee !== null && (glisse !== null || pieceGlissee !== null) && (
+    {cibleNommee !== null && (glisse !== null || piecesGlissees.length > 0) && (
       <div className="sfd-cible-nommee" role="status" style={{ left: cibleNommee.x + 14, top: cibleNommee.y + 18 }}>
         → Déposer dans «&nbsp;{cibleNommee.nom}&nbsp;»
       </div>
@@ -2769,7 +3125,22 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-menu--outils{position:absolute;right:0;top:34px;left:auto}
 
 /* ── LE CORPS : barre laterale + liste ────────────────────────────────────────────────────────────────────── */
-.sfd-corps{display:grid;grid-template-columns:210px 1fr;flex:1 1 auto;min-height:0}
+/* 🔴 LOT RANGER-ARBRE-2 — LA COLONNE DE GAUCHE EST REGLABLE : sa largeur vient d'une variable posee en ligne
+   par le composant, bornee par largeurCote (module pur). Le 210px de repli EST la largeur d'avant ce lot, ecrite
+   ici pour qu'un rendu sans la variable (une epreuve, un rendu serveur) garde exactement la fenetre d'avant.
+   ⚠️ AUCUN BACKTICK dans ce bloc : il vit dans un litteral de gabarit. */
+.sfd-corps{display:grid;grid-template-columns:var(--sfd-cote,210px) 6px 1fr;flex:1 1 auto;min-height:0}
+/* Pendant le tirage : plus aucune selection de texte, et le curseur reste celui du geste partout dans la fenetre. */
+.sfd-corps--tire{cursor:col-resize;user-select:none}
+.sfd-corps--tire *{cursor:col-resize !important}
+
+/* ── LA POIGNEE DE LARGEUR ────────────────────────────────────────────────────────────────────────────────
+   ⚠️ ELLE EST LARGE DE 6 px MAIS SE SAISIT SUR 11 : le trait visible reste fin, et la zone sensible deborde de
+   part et d'autre. Une poignee de 6 px se rate une fois sur trois a la souris, et toujours au trackpad. */
+.sfd-poignee{position:relative;background:var(--color-svv-line);cursor:col-resize;touch-action:none}
+.sfd-poignee::after{content:"";position:absolute;top:0;bottom:0;left:-3px;right:-3px}
+.sfd-poignee:hover,.sfd-poignee:focus-visible{background:var(--color-svv-red)}
+.sfd-poignee:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-1px}
 .sfd-cote{overflow-y:auto;padding:8px 6px;background:var(--color-svv-field);border-right:1px solid var(--color-svv-line)}
 .sfd-cote-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
 .sfd-cote-item{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:4px 8px;
@@ -2799,7 +3170,22 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-entete--actif{color:var(--color-svv-ink)}
 .sfd-fleche-tri{font-size:.62rem}
 
+/* ── 🔴 LOT RANGER-ARBRE-2 — « ↑ Remonter a X », au-dessus de l'en-tete, toujours au meme endroit ───────── */
+.sfd-remonter{display:flex;align-items:center;gap:6px;width:100%;min-height:26px;padding:0 10px;
+  font:inherit;font-size:.76rem;text-align:left;color:var(--color-svv-muted);background:transparent;border:0;
+  border-bottom:1px solid var(--color-svv-line);cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sfd-remonter:hover{color:var(--color-svv-ink);background:var(--color-svv-field)}
+.sfd-remonter:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* Visee pendant un glisser : le meme vocabulaire que les autres cibles, pour que l'oeil n'ait rien a reapprendre. */
+.sfd-remonter--vise{color:var(--color-svv-ink);
+  background:color-mix(in srgb, var(--color-svv-red) 16%, transparent);
+  box-shadow:inset 0 0 0 2px var(--color-svv-red)}
+
 .sfd-lignes{flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 10px 8px}
+/* 🔴 LE VIDE SOUS LA LISTE EST UNE CIBLE : quand il est vise, c'est le DOSSIER AFFICHE qui s'allume, en creux —
+   un cadre interieur, pour dire « ici, dans ce que vous regardez », sans peindre toute la liste. */
+.sfd-lignes--vise{box-shadow:inset 0 0 0 2px var(--color-svv-red);border-radius:.3rem}
 .sfd-liste,.sfd-recents,.sfd-squelette{list-style:none;margin:0;padding:0}
 
 /* ── UNE LIGNE : fine, alternee, surlignee au survol et a la selection ────────────────────────────────────── */
@@ -2979,6 +3365,16 @@ export const CSS_SELECTEUR_FICHIER = `
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line)}
 .sfd-piece:hover{border-color:var(--color-svv-line-strong)}
 .sfd-piece--enVol{opacity:.5}
+/* 🔴 LOT RANGER-ARBRE-2 — une piece COCHEE part avec les autres : elle le dit par la couleur ET par sa case. */
+.sfd-piece--cochee{border-color:var(--color-svv-red);
+  background:color-mix(in srgb, var(--color-svv-red) 10%, var(--color-svv-surface))}
+.sfd-piece-case{flex:0 0 auto;width:14px;height:14px;accent-color:var(--color-svv-red);cursor:pointer}
+/* « Tout selectionner » : un bouton de texte, discret, au-dessus de la liste des pieces. */
+.sfd-ranger-tout{align-self:flex-start;padding:1px 4px;font:inherit;font-size:.72rem;
+  color:var(--color-svv-muted);background:transparent;border:0;border-radius:.3rem;
+  text-decoration:underline;cursor:pointer}
+.sfd-ranger-tout:hover{color:var(--color-svv-ink);background:var(--color-svv-surface)}
+.sfd-ranger-tout:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 .sfd-piece--rangee{border-style:dashed}
 .sfd-piece-vignette{width:34px;height:34px;object-fit:cover;object-position:top;border-radius:.25rem;
   background:var(--color-svv-field);flex:0 0 auto}
@@ -2994,6 +3390,11 @@ export const CSS_SELECTEUR_FICHIER = `
 /* ⚠️ SUR TELEPHONE, le panneau « A ranger » passe en rangee defilante au-dessus de la liste : une colonne
    laterale de 210 px n'a pas sa place a 390 px, et les pieces doivent rester visibles pendant qu'on cherche. */
 @media (max-width: 760px){
+  /* 🔴 SOUS 760 px, LA POIGNEE DISPARAIT — une poignee de 6 px au milieu d'un ecran de telephone n'est qu'un
+     piege tactile. ⚠️ LA DISPOSITION, ELLE, NE BOUGE PAS : deux colonnes, comme avant ce lot ; seule la colonne
+     de la poignee est retiree de la grille. */
+  .sfd-corps{grid-template-columns:var(--sfd-cote,210px) 1fr}
+  .sfd-poignee{display:none}
   .sfd-ranger{border-bottom:0;border-right:1px solid var(--color-svv-line)}
   .sfd-ranger-liste{flex-direction:row;max-height:none;overflow-x:auto}
   .sfd-piece{flex:0 0 12rem}

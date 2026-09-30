@@ -212,9 +212,16 @@ export async function GET(request: Request): Promise<Response> {
        * la même chaîne de parents — jusqu'à vingt-six `files.get` au lieu de treize pour afficher une page, sur une
        * arborescence qui fait treize niveaux (mesuré le 25/09/2026). La règle, elle, est la même dans les deux cas.
        */
-      const { joindre: v, creer: c } = await verdictsDossier(jeton.compteGoogle, jeton.jeton, parent);
+      const { joindre: v, creer: c, chaine } = await verdictsDossier(jeton.compteGoogle, jeton.jeton, parent);
       return json({
         etat: 'ok', fichiers: liste.valeur.fichiers, joindreAutorise: v.joindre, motifRefus: v.motif,
+        /**
+         * 🔴 LOT RANGER-ARBRE-2 — LE VRAI CHEMIN DU DOSSIER AFFICHÉ, du haut jusqu'à lui. Il vient de la remontée
+         * que le verdict faisait DÉJÀ : aucun appel Drive de plus. L'écran s'en sert pour reconstruire le fil
+         * d'Ariane et la ligne « ↑ Remonter » quand on est entré par un raccourci (Récents, Dossier du bien, un
+         * résultat de recherche), qui ne connaît qu'un identifiant et ne savait donc pas remonter.
+         */
+        chaine,
         /**
          * 🔴 LOT DRIVE-FACON-FINDER — ON DIT QUAND LA LISTE EST INCOMPLÈTE. Jusqu'à ce lot, un dossier de plus de
          * 200 entrées était tronqué EN SILENCE : « 1 Propriétaires » en compte plus de 300, on en voyait 200, et
