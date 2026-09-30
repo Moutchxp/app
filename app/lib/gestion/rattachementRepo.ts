@@ -21,6 +21,8 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
+// 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
+import { sqlNomAffiche } from './nomUsageSql';
 import { corbeilleGmailDisponible, rattachementsDisponibles, spamDisponible } from './schema';
 // LOT STATUT-HORS-GESTION — rattacher un bien lève la marque « hors gestion » du mail (réversibilité naturelle).
 import { leverHorsGestionApresRattachement } from './horsGestionRepo';
@@ -218,7 +220,7 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
     // ⚠️ LES PIÈCES EN UNE FOIS, par agrégat : une requête par message coûterait des milliers d'accès sur une passe
     //    complète. Le corps est borné — on y cherche une adresse ou un n° de lot, pas un roman.
     `SELECT m.id, m.fil_id, m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps,
-            (SELECT array_agg(p.nom_fichier) FROM gestion_piece p WHERE p.message_id = m.id) AS pieces
+            (SELECT array_agg(${await sqlNomAffiche('p')}) FROM gestion_piece p WHERE p.message_id = m.id) AS pieces
        FROM gestion_message m
       WHERE m.fil_id = ANY($1::bigint[]) ${horsSpam} ORDER BY m.id`, [ids]);
 

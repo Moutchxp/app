@@ -7,7 +7,12 @@ vi.mock('../db/client', () => ({
   withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
   pool: { connect: async () => ({ query: async () => ({ rows: [] }), release: () => {} }) },
 }));
-vi.mock('./schema', () => ({ miniaturesDisponibles: () => miniaturesMock() }));
+vi.mock('./schema', () => ({
+  miniaturesDisponibles: () => miniaturesMock(),
+  // 🔴 LOT NOM-UNIQUE-DES-PIECES — la sonde du nom d'usage (migration 286). Fausse ici : ces épreuves portent sur
+  //   autre chose, et le SQL qu'elles inspectent reste donc celui d'avant ce lot.
+  nomUsageDisponible: async () => false,
+}));
 
 import {
   lireEnTeteMessage, lireEtatMiniature, lirePiecesDuMessage, memoriserEchecMiniature, memoriserMiniature,

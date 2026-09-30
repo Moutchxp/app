@@ -12,6 +12,8 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query } from '../db/client';
+// 🔴 LOT NOM-UNIQUE-DES-PIECES — la cadence de la relecture des noms Drive. Une passe sur dix, pas à chaque tour.
+import { UNE_PASSE_SUR } from './reprendreNomsDrive';
 import { adressesMessagesDisponibles, rattachementsDisponibles, suiteReleveDisponible } from './schema';
 import { chargerAnnuaireAdresses, releverPaquet, COMPTES_RELEVE_VIDE } from './adressesRepo';
 import {
@@ -128,6 +130,31 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
     const posesInterne = await appliquerInterneEnAttente();
     if (posesInterne > 0) {
       journal?.(`suite : ${posesInterne} échange(s) marqué(s) « interne », comme demandé avant l’envoi`);
+    }
+
+    /**
+     * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — LES NOMS CHANGÉS DANS GOOGLE DRIVE, REPRIS ICI ═══════════════════════
+     *
+     * Arno : « À la relève (ou dans une passe légère séparée, espacée), relis en métadonnées le nom des fichiers
+     * Drive créés par l'app. »
+     *
+     * 🔴 UNE PASSE SUR DIX, ET PAS À CHAQUE RELÈVE. Mesuré : 26 543 copies Drive. Les relire toutes chaque
+     * minute ferait près de 400 000 appels par jour pour découvrir un renommage que personne ne fait plus d'une
+     * fois par semaine — et le jour où Google limite le compte, c'est la RELÈVE qui s'arrête. Le détail du
+     * calcul est dans l'encadré de `reprendreNomsDrive.ts`.
+     *
+     * ⚠️ L'HORLOGE FAIT LE TIRAGE, pas un compteur en mémoire : le travailleur redémarre (launchd, un
+     * déploiement), et un compteur repartirait de zéro à chaque fois — donc relirait à chaque redémarrage.
+     *
+     * ⚠️ ELLE NE PEUT PAS FAIRE ÉCHOUER LA SUITE : sans la migration 286 elle rend un rapport vide sans émettre
+     * une requête, et elle attrape ses propres erreurs.
+     */
+    if (Math.floor(Date.now() / 60_000) % UNE_PASSE_SUR === 0) {
+      const { reprendreNomsDepuisDrive } = await import('./reprendreNomsDrive');
+      const repris = await reprendreNomsDepuisDrive();
+      if (repris.reprises > 0) {
+        journal?.(`suite : ${repris.reprises} pièce(s) renommée(s) dans Google Drive, nom repris dans l’application`);
+      }
     }
 
     /**

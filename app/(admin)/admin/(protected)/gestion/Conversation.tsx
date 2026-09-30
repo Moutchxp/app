@@ -702,6 +702,36 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       pieceId: p.pieceId, nom: p.nomFichier, tailleOctets: p.tailleOctets, typeMime: p.typeMime,
     });
   };
+  /**
+   * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — RENOMMER UNE PIÈCE DEPUIS LA VISIONNEUSE ════════════════════════════
+   *
+   * ⚠️ ON RELIT LE FIL APRÈS COUP, on ne bricole pas l'état local : le nom d'usage est écrit en base, et c'est
+   * la base qui fait foi. Le corriger à la main ici donnerait un écran juste et une base qui ne l'est pas — et
+   * la différence ne se verrait qu'au rechargement suivant.
+   *
+   * ⚠️ LES REFUS SE DISENT. Une copie qu'on n'a pas pu renommer (hors registre, dossier protégé, Drive muet)
+   * n'est pas une panne du geste : la pièce EST renommée chez nous. On le dit, plutôt que de laisser croire que
+   * tout a suivi.
+   */
+  const renommerLaPiece = async (pieceId: number, nom: string): Promise<void> => {
+    try {
+      const res = await fetch(`/api/admin/gestion/pieces/${pieceId}/nom`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nom }),
+      });
+      const d = (await res.json().catch(() => ({}))) as {
+        etat?: string; message?: string; refus?: { motif: string }[];
+      };
+      if (d.etat !== 'ok') { onGeste?.(d.message ?? 'Le renommage n’a pas abouti.'); return; }
+      const refus = d.refus ?? [];
+      onGeste?.(refus.length === 0
+        ? 'Pièce renommée — les copies du Drive portent le même nom.'
+        : `Pièce renommée. ${refus.length} copie(s) du Drive n’ont pas suivi : ${refus[0].motif}`);
+      await recharger();
+    } catch {
+      onGeste?.('Le renommage n’a pas abouti : le réseau n’a pas répondu.');
+    }
+  };
+
   /** Le trombone, écrit UNE fois et posé à deux endroits (en haut du fil, et au-dessus du pied de réponse). */
   const trombonePieces = <BoutonPiecesConversation nombre={nbPieces} onOuvrir={() => setRecapPieces(true)} />;
 
@@ -1136,6 +1166,30 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             parentId: PARENT_PIECES_CONVERSATION, source: 'piece',
           }}
           voisinage={voisinagePiecesConversation(piecesFil)}
+          /**
+           * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — LE STYLO RENOMME LA PIÈCE, PLUS SEULEMENT LA COPIE ═══════════
+           *
+           * Arno : « une pièce jointe ne doit avoir qu'un seul nom, qu'elle soit dans un mail ou dans le
+           * Drive ». Le stylo existait déjà dans cette visionneuse, mais SEULEMENT en mode « ranger » : il
+           * nommait la copie qu'on s'apprêtait à déposer. Ici, il change le nom de la PIÈCE — et les copies
+           * Drive que le programme a créées suivent.
+           *
+           * ⚠️ SANS LA MIGRATION 286, LA ROUTE REFUSE AVEC SON MOTIF, et l'écran l'affiche tel quel : on ne
+           * fait pas semblant d'avoir renommé.
+           */
+          renommage={(idAffiche) => {
+            const p = piecesFil.find((x) => String(x.pieceId) === idAffiche);
+            if (p === undefined) return undefined;
+            const origine = p.nomOrigine ?? p.nomFichier;
+            return {
+              nomOrigine: origine,
+              // Le nom d'usage est DÉJÀ dans `nomFichier` : le repli se fait en SQL, une seule fois.
+              nomChoisi: p.nomFichier === origine ? null : p.nomFichier,
+              editerDabord: false,
+              refus: null,
+              onRenommer: (nom: string) => void renommerLaPiece(p.pieceId, nom),
+            };
+          }}
           etiquetteNav="Pièces de la conversation"
           joindreAutorise
           motJoindre={{ action: 'Ranger dans le Drive', deja: '✓ dans le Drive' }}

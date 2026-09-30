@@ -17,6 +17,9 @@ vi.mock('./schema', () => ({
   //   est déclarée ABSENTE : `nonRemisesDesMessages` rend une carte vide sans émettre une seule requête, et les
   //   assertions de ce fichier portent donc exactement sur le SQL d'avant ce lot.
   nonRemiseDisponible: async () => false,
+  // 🔴 LOT NOM-UNIQUE-DES-PIECES — la sonde du nom d'usage (migration 286). Fausse ici : ces épreuves
+  //   portent sur autre chose, et le SQL qu'elles inspectent reste celui d'avant ce lot.
+  nomUsageDisponible: async () => false,
 }));
 
 let avecDest = true;

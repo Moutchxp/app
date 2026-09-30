@@ -31,6 +31,9 @@ import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils } from './nonRemiseRepo';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la règle « vraie pièce », rendue en SQL depuis sa définition UNIQUE.
 import { sqlEstVraiePiece } from './lisibilite';
+// 🔴 LOT NOM-UNIQUE-DES-PIECES — la recherche trouve la pièce par ses DEUX noms (usage et origine).
+import { nomsCherchablesAvec } from './nomUsageSql';
+import { nomUsageDisponible } from './schema';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 import {
@@ -135,6 +138,14 @@ export function conditions(
   adresseGestion: string | null = null,
   /** LOT BOITE-INTERNE-CORBEILLE — la migration 275 est-elle là ? Sinon la colonne n'est nommée nulle part. */
   corbeilleConnue = false,
+  /**
+   * 🔴 LOT NOM-UNIQUE-DES-PIECES — la migration 286 est-elle là ? Sinon `nom_usage` n'est nommée nulle part, et la
+   * recherche ne porte que sur le nom d'origine — c'est-à-dire exactement ce qu'elle faisait avant ce lot.
+   *
+   * ⚠️ REÇU EN PARAMÈTRE, JAMAIS SONDÉ ICI : ce module est PUR, et c'est ce qui permet d'éprouver tout le
+   * prédicat de recherche sans base. Même patron que `spamConnu` et `corbeilleConnue` juste au-dessus.
+   */
+  nomUsageConnu = false,
 ): { sql: string[]; params: unknown[] } {
   const sql: string[] = [];
   const params: unknown[] = [];
@@ -212,6 +223,33 @@ export function conditions(
    */
   const negatifWebsearch = negatifs.map((t) => (t.exact ? `-"${t.texte}"` : `-${t.texte}`)).join(' ');
 
+  /**
+   * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — LA RECHERCHE TROUVE AUSSI PAR LE NOM DES PIÈCES ═══════════════════════
+   *
+   * Arno : « La recherche trouve la pièce par son nom d'usage ET par son nom d'origine. »
+   *
+   * 🔴 CE QUI MANQUAIT : l'index plein texte (migration 237) porte l'objet, le corps, l'expéditeur et les
+   * destinataires — et PAS les noms de pièces. Chercher « quittance juillet » ne trouvait donc rien si le mot
+   * n'était que dans le nom du fichier, ce qui est le cas le plus fréquent une fois la pièce renommée.
+   *
+   * 🔴 POURQUOI UN `OR` ET PAS UN AJOUT À L'INDEX. Toucher à `EXPRESSION_INDEXEE` sans toucher à la migration 237
+   * ferait diverger les deux chaînes — et PostgreSQL cesserait alors d'utiliser l'index EN SILENCE, balayant
+   * 41 Mo de texte à chaque recherche. C'est le défaut que l'encadré de `EXPRESSION_INDEXEE` décrit en toutes
+   * lettres. On ajoute donc une condition À CÔTÉ, qui ne touche pas à l'index.
+   *
+   * ⚠️ LE COÛT EST BORNÉ : `EXISTS` sur `gestion_piece`, servi par `gestion_piece_message_idx`, sur un ensemble
+   * que le plein texte a déjà réduit. Et il ne s'écrit QUE si quelqu'un a tapé des mots.
+   *
+   * ⚠️ LES DEUX NOMS, ET C'EST LE POINT : on cherche sous le nom qu'on a donné (« Quittance juillet »), mais
+   * aussi sous celui du correspondant (« scan_0042 ») quand c'est ce dont on se souvient — ou ce qu'on lit dans
+   * le mail, qui n'a pas changé.
+   */
+  const cherchable = normSql(nomsCherchablesAvec(nomUsageConnu, 'pn'));
+  const nomsPieces = (): string => `EXISTS (
+        SELECT 1 FROM gestion_piece pn
+         WHERE pn.message_id = m.id
+           AND ${termes.map((t) => `${cherchable} LIKE '%' || ${lier(normaliser(t.texte))} || '%'`).join('\n           AND ')})`;
+
   if (termes.length > 0) {
     if (pleinTexte) {
       // La saisie ENTIÈRE, normalisée, confiée à `websearch_to_tsquery` : c'est lui qui comprend les guillemets et les
@@ -219,11 +257,16 @@ export function conditions(
       const requete = negatifWebsearch === ''
         ? normaliser(c.saisie)
         : `${normaliser(c.saisie)} ${negatifWebsearch}`;
-      sql.push(`${EXPRESSION_INDEXEE} @@ websearch_to_tsquery('french', ${lier(requete)})`);
+      sql.push(`(${EXPRESSION_INDEXEE} @@ websearch_to_tsquery('french', ${lier(requete)})
+        OR ${nomsPieces()})`);
     } else {
       // MODE RÉDUIT : un morceau par terme, tous exigés. Pas de radicaux, mais les accents et la casse sont couverts,
       //   et une expression entre guillemets se cherche telle quelle — mieux que le plein texte sur ce point précis.
-      for (const t of termes) sql.push(`${TEXTE_CHERCHABLE} LIKE '%' || ${lier(t.texte)} || '%'`);
+      // ⚠️ EN MODE RÉDUIT, LE `OR` PORTE SUR L'ENSEMBLE DES TERMES, pas terme par terme : « quittance juillet »
+      //   doit trouver un mail dont le NOM DE PIÈCE porte les deux mots, pas un mail qui a l'un dans son corps et
+      //   l'autre dans un nom de fichier.
+      const tous = termes.map((t) => `${TEXTE_CHERCHABLE} LIKE '%' || ${lier(t.texte)} || '%'`).join(' AND ');
+      sql.push(`((${tous}) OR ${nomsPieces()})`);
     }
   }
 
@@ -321,7 +364,8 @@ export async function chercherDansLeCourrier(
     rattachementsDisponibles(), horsGestionDisponible(), interneDisponible()]);
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
 
-  const { sql: filtres, params } = conditions(critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue);
+  const { sql: filtres, params } = conditions(
+    critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue, await nomUsageDisponible());
   const lier = (v: unknown): string => { params.push(v); return `$${params.length}`; };
   const where = filtres.length > 0 ? `WHERE ${filtres.join(' AND ')}` : '';
   const curseurSql = curseur === null ? '' :
@@ -394,7 +438,8 @@ export async function chercherDansLeCourrier(
    * comptes, puis le reste. Un ordre qui bouge sans raison fait tomber des épreuves qui n'avaient rien à voir.
    */
   const comptes = curseur === null
-    ? await comptesDeLaRecherche(critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue)
+    ? await comptesDeLaRecherche(
+      critere, pleinTexte, spamConnu, config.adresseGestion, corbeilleConnue, await nomUsageDisponible())
     : { total: null as number | null, masques: null as number | null };
 
   const filsDeLaPage = gardees.map((r) => Number(r.fil_id));
@@ -541,10 +586,11 @@ function avecAutomatiques(c: CritereRecherche, oui: boolean): CritereRecherche {
  */
 async function comptesDeLaRecherche(
   critere: CritereRecherche, pleinTexte: boolean, spamConnu = false, adresseGestion: string | null = null,
-  corbeilleConnue = false,
+  corbeilleConnue = false, nomUsageConnu = false,
 ): Promise<{ total: number; masques: number | null }> {
   const compte = async (c: CritereRecherche): Promise<number> => {
-    const { sql, params } = conditions(c, pleinTexte, spamConnu, adresseGestion, corbeilleConnue);
+    const { sql, params } = conditions(
+      c, pleinTexte, spamConnu, adresseGestion, corbeilleConnue, nomUsageConnu);
     const where = sql.length > 0 ? `WHERE ${sql.join(' AND ')}` : '';
     const { rows } = await query<{ n: number }>(
       `SELECT count(DISTINCT m.fil_id)::int AS n FROM gestion_message m ${where}`, params);

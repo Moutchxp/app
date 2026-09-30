@@ -51,7 +51,19 @@ import { createHash } from 'node:crypto';
 export interface PieceALire {
   /** L'identifiant de la pièce, pour le journal et les messages d'erreur. */
   pieceId: number | null;
+  /** 🔴 LOT NOM-UNIQUE-DES-PIECES — le nom D'USAGE : c'est lui qu'on écrit dans un refus, parce que c'est lui
+   *  qu'on voit à l'écran. Chercher « scan_0042.pdf » dans un message d'erreur quand on lit « Quittance » ne
+   *  désigne rien pour la personne qui le lit. */
   nomFichier: string;
+  /**
+   * 🔴🔴 LE NOM D'ORIGINE, ET IL SERT À UNE SEULE CHOSE : retrouver la pièce dans le message Gmail. Gmail ne
+   * permet pas de renommer une pièce jointe — là-bas, elle porte TOUJOURS le nom sous lequel elle est arrivée.
+   * Y chercher le nom d'usage ne trouverait rien, et la pièce serait déclarée introuvable alors qu'elle est là.
+   *
+   * ⚠️ FACULTATIF : les appelants qui ne renomment pas (une pièce ajoutée à la main) n'en ont pas, et le dernier
+   * recours retombe alors sur le nom d'usage — qui est le même.
+   */
+  nomOrigine?: string | null;
   /** La clé MinIO. `null` = la pièce n'a jamais été déposée sur le stockage objet. */
   cleStockage: string | null;
   /** MinIO a-t-il été VIDÉ de cet objet ? Vrai ⇒ on ne l'essaie même pas. */
@@ -122,6 +134,7 @@ export async function lireOctetsPiece(brute: PieceALire, deps: DepsOctetsPiece):
   const p: PieceALire = {
     pieceId: brute.pieceId ?? null,
     nomFichier: brute.nomFichier,
+    nomOrigine: (brute.nomOrigine ?? '').trim() === '' ? brute.nomFichier : brute.nomOrigine,
     cleStockage: brute.cleStockage ?? null,
     stockageVide: brute.stockageVide === true,
     driveFileId: brute.driveFileId ?? null,
@@ -183,7 +196,8 @@ export async function lireOctetsPiece(brute: PieceALire, deps: DepsOctetsPiece):
     essais.push('message d’origine : son identifiant n’est pas connu');
   } else {
     try {
-      const octets = await deps.gmail(p.messageIdRfc, p.nomFichier);
+      // 🔴 LE NOM D'ORIGINE, JAMAIS LE NOM D'USAGE : dans Gmail la pièce n'a jamais changé de nom.
+      const octets = await deps.gmail(p.messageIdRfc, p.nomOrigine ?? p.nomFichier);
       if (octets === null) {
         essais.push('message d’origine : la pièce n’y a pas été retrouvée');
       } else {

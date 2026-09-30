@@ -4,6 +4,8 @@ import { jetonPourSubject } from './driveDelegue';
 import { lireContenuDrive } from './pieceDriveLecture';
 import { chercherParMessageId, lireOriginalGmailOctets } from './google';
 import { copiePiecesDisponible, vidageDisponible } from './schema';
+// 🔴 LOT NOM-UNIQUE-DES-PIECES — le nom d'USAGE pour les messages, le nom d'ORIGINE pour retrouver dans Gmail.
+import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
 import type { DepsOctetsPiece, PieceALire } from './octetsPiece';
 
 /**
@@ -44,10 +46,11 @@ export async function lirePiecesALire(pieceIds: readonly number[]): Promise<Map<
   const avecCopie = await copiePiecesDisponible();
 
   const { rows } = await query<{
-    id: string; nom_fichier: string; cle_stockage: string | null; taille_octets: string | null;
+    id: string; nom_fichier: string; nom_origine: string; cle_stockage: string | null; taille_octets: string | null;
     vide: boolean; drive_file_id: string | null; md5: string | null; message_id_rfc: string | null;
   }>(
-    `SELECT p.id::text, p.nom_fichier, p.cle_stockage, p.taille_octets::text,
+    `SELECT p.id::text, ${await sqlNomAffiche('p')} AS nom_fichier,
+            ${sqlNomOrigine('p')} AS nom_origine, p.cle_stockage, p.taille_octets::text,
             ${avecVidage ? 'EXISTS (SELECT 1 FROM gestion_piece_vidage v WHERE v.piece_id = p.id)' : 'false'} AS vide,
             ${avecCopie ? 'd.drive_file_id' : 'NULL::text'} AS drive_file_id,
             ${avecCopie ? 'd.md5' : 'NULL::text'} AS md5,
@@ -64,6 +67,7 @@ export async function lirePiecesALire(pieceIds: readonly number[]): Promise<Map<
     m.set(Number(r.id), {
       pieceId: Number(r.id),
       nomFichier: r.nom_fichier,
+      nomOrigine: r.nom_origine,
       cleStockage: r.cle_stockage,
       stockageVide: r.vide === true,
       driveFileId: r.drive_file_id,

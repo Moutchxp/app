@@ -33,6 +33,8 @@ import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
 // LOT LIGNE-NON-ENVOYE — les mails qui ne sont pas partis, à montrer dans « Envoyés » et dans le fil.
 import { nonEnvoyesAMontrer, nonEnvoyesDesFils } from './fileEnvoiRepo';
+// 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
+import { sqlNomAffiche } from './nomUsageSql';
 import { fusionnerNonEnvoyes, type MentionNonEnvoye } from './fileEnvoi';
 import {
   corbeilleGmailDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible, etoileGmailDisponible,
@@ -1163,7 +1165,8 @@ export async function piecesVraiesDesFils(
     fil_id: string; message_id: string; nom_fichier: string; type_mime: string | null;
     taille_octets: string | null;
   }>(
-    `SELECT m.fil_id::text, p.message_id::text, p.nom_fichier, p.type_mime, p.taille_octets::text
+    `SELECT m.fil_id::text, p.message_id::text, ${await sqlNomAffiche('p')} AS nom_fichier,
+            p.type_mime, p.taille_octets::text
        FROM gestion_piece p
        JOIN gestion_message m ON m.id = p.message_id
       WHERE m.fil_id = ANY($1::bigint[])

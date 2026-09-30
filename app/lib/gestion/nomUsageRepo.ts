@@ -1,0 +1,277 @@
+import { query } from '../db/client';
+import { nomUsageDisponible } from './schema';
+import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
+import type { CopieDrive, RefusRenommage } from './nomUsagePiece';
+
+/**
+ * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — LE NOM D'USAGE EN BASE, ET SON JOURNAL ═══════════════════════════════════
+ *
+ * IMPUR (base). La DÉCISION — quelles copies renommer, laquelle gagne quand deux Drive se contredisent — vit
+ * dans `nomUsagePiece.ts`, qui s'éprouve sans base. Ici on ne fait que lire et écrire.
+ *
+ * 🔴 TOUT EST CONDITIONNÉ À LA MIGRATION 286. Sans elle, ces fonctions rendent des valeurs neutres sans émettre
+ * la moindre requête qui nommerait `nom_usage` ou `gestion_piece_renommage` : nommer une colonne absente ferait
+ * échouer la lecture des pièces ENTIÈRE, donc l'affichage de tout le courrier.
+ */
+
+export interface PieceANommer {
+  pieceId: number;
+  nomOrigine: string;
+  nomAffiche: string;
+  copies: CopieDrive[];
+}
+
+/**
+ * LA PIÈCE ET SES COPIES DRIVE, telles que notre registre les connaît. `null` = pièce inconnue.
+ *
+ * 🔒 LES COPIES VIENNENT DE `gestion_piece_drive`, ET DE NULLE PART AILLEURS. C'est CE registre qui définit « un
+ * fichier que le programme a créé » : une copie de « 00 Arrivée des mails » (`origine = 'copie'`) ou un dépôt
+ * fait par « Ranger » / « Copier » (`origine = 'manuel'`). Un fichier qui n'y figure pas n'est pas à nous, et la
+ * garantie de ce lot tient à ce que la liste vienne d'ici.
+ */
+export async function lirePieceANommer(pieceId: number): Promise<PieceANommer | null> {
+  if (!Number.isSafeInteger(pieceId) || pieceId <= 0) return null;
+  const { rows } = await query<{ nom_origine: string; nom_affiche: string }>(
+    `SELECT ${sqlNomOrigine('p')} AS nom_origine, ${await sqlNomAffiche('p')} AS nom_affiche
+       FROM gestion_piece p WHERE p.id = $1`, [pieceId]);
+  if (!rows[0]) return null;
+
+  const { rows: copies } = await query<{
+    drive_file_id: string; drive_dossier_id: string; dossier_nom: string | null; origine: string;
+  }>(
+    `SELECT drive_file_id, drive_dossier_id, dossier_nom, origine
+       FROM gestion_piece_drive WHERE piece_id = $1 ORDER BY depose_le`, [pieceId]);
+
+  return {
+    pieceId,
+    nomOrigine: rows[0].nom_origine,
+    nomAffiche: rows[0].nom_affiche,
+    copies: copies.map((c) => ({
+      driveFileId: c.drive_file_id, dossierId: c.drive_dossier_id,
+      dossierNom: c.dossier_nom, origine: c.origine,
+    })),
+  };
+}
+
+/**
+ * ══ 🔒 LE REGISTRE : LES IDENTIFIANTS QUE LE PROGRAMME A LUI-MÊME CRÉÉS ═══════════════════════════════════════
+ *
+ * 🔴🔴 C'EST LA GARANTIE CENTRALE DU LOT, et elle tient en une requête. Un identifiant qui n'est pas ici n'est
+ * pas renommé — quoi qu'en dise l'écran, quoi qu'en dise l'appelant. On ne demande pas au code appelant d'être
+ * discipliné : on lui donne un ensemble, et le module de renommage refuse tout ce qui n'y est pas.
+ *
+ * ⚠️ BORNÉ À LA PIÈCE. Charger tout le registre (26 543 lignes) pour renommer deux fichiers serait une lecture
+ * inutile à chaque clic ; et un registre large ferait porter à cette fonction le risque d'autoriser un fichier
+ * d'une autre pièce.
+ */
+export async function registreDeLaPiece(pieceId: number): Promise<Set<string>> {
+  const { rows } = await query<{ drive_file_id: string }>(
+    'SELECT drive_file_id FROM gestion_piece_drive WHERE piece_id = $1', [pieceId]);
+  return new Set(rows.map((r) => r.drive_file_id.trim()).filter((x) => x !== ''));
+}
+
+/**
+ * ÉCRIT LE NOUVEAU NOM D'USAGE. Rend `false` sans la migration 286 — et l'appelant le DIT à l'écran.
+ *
+ * ⚠️ ON ÉCRIT MÊME QUAND LE NOM REDEVIENT CELUI D'ORIGINE : remettre le nom reçu est un geste comme un autre, et
+ * la colonne doit alors porter cette valeur plutôt que de retomber à `NULL` par magie. Le repli `NULL` est pour
+ * les pièces JAMAIS renommées, pas pour celles qu'on a ramenées à leur point de départ.
+ */
+export async function ecrireNomUsage(pieceId: number, nom: string): Promise<boolean> {
+  if (!(await nomUsageDisponible())) return false;
+  const propre = nom.trim();
+  if (propre === '') return false;
+  const { rowCount } = await query(
+    'UPDATE gestion_piece SET nom_usage = $2 WHERE id = $1', [pieceId, propre]);
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * ══ 🔴🔴 ON NOTE CE QU'ON A ÉCRIT DANS LE DRIVE ══════════════════════════════════════════════════════════════
+ *
+ * 🔴 C'EST CE QUI PERMET DE RECONNAÎTRE UN RENOMMAGE HUMAIN. Sans cette mémoire, la reprise comparait le nom
+ * Drive au nom de la PIÈCE — et comme les copies de « 00 Arrivée des mails » portent un préfixe
+ * « date — expéditeur — », la comparaison était vraie partout : la première épreuve réelle a « repris » 60
+ * pièces sur 60, et aurait renommé toute la base d'après ses préfixes.
+ *
+ * Un renommage humain, c'est Drive qui dit autre chose que CE qu'on y a écrit. Rien d'autre.
+ */
+export async function noterNomEcritDansDrive(driveFileIds: readonly string[], nom: string): Promise<void> {
+  const ids = [...new Set(driveFileIds.map((i) => i.trim()).filter((i) => i !== ''))];
+  if (ids.length === 0 || !(await nomUsageDisponible())) return;
+  try {
+    await query(
+      'UPDATE gestion_piece_drive SET nom_drive = $2 WHERE drive_file_id = ANY($1::text[])', [ids, nom]);
+  } catch (e) {
+    console.error('[gestion/nom-usage] mémoire du nom Drive impossible', e);
+  }
+}
+
+/**
+ * ══ 🔴 LE JOURNAL — QUI, QUAND, ANCIEN ET NOUVEAU NOM, IDS DRIVE TOUCHÉS ═════════════════════════════════════
+ *
+ * Demande d'Arno, mot pour mot. Append-only : rien n'y est jamais modifié ni supprimé.
+ *
+ * ⚠️ IL NE LÈVE JAMAIS. Un journal qui ferait échouer le geste qu'il raconte serait pire que pas de journal : on
+ * perdrait le renommage POUR avoir voulu le tracer. On note l'incident au journal du serveur et l'on continue.
+ */
+export async function journaliserRenommage(o: {
+  pieceId: number;
+  ancienNom: string;
+  nouveauNom: string;
+  source: 'app' | 'drive';
+  idsDrive: readonly string[];
+  refus: readonly RefusRenommage[];
+  par: number | null;
+  parLibelle: string;
+}): Promise<void> {
+  if (!(await nomUsageDisponible())) return;
+  try {
+    await query(
+      `INSERT INTO gestion_piece_renommage
+         (piece_id, ancien_nom, nouveau_nom, source, ids_drive, refus, par, par_libelle)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8)`,
+      [o.pieceId, o.ancienNom, o.nouveauNom, o.source,
+        JSON.stringify([...o.idsDrive]), JSON.stringify([...o.refus]), o.par, o.parLibelle]);
+  } catch (e) {
+    console.error('[gestion/nom-usage] journal impossible', e);
+  }
+}
+
+/** Une ligne de journal, telle que l'écran la lit. */
+export interface LigneRenommage {
+  id: number;
+  ancienNom: string;
+  nouveauNom: string;
+  source: 'app' | 'drive';
+  parLibelle: string;
+  le: string;
+}
+
+/** L'historique des renommages d'une pièce, du plus récent au plus ancien. Vide sans la migration. */
+export async function journalDeLaPiece(pieceId: number, limite = 20): Promise<LigneRenommage[]> {
+  if (!(await nomUsageDisponible())) return [];
+  const { rows } = await query<{
+    id: string; ancien_nom: string; nouveau_nom: string; source: string; par_libelle: string; le: string;
+  }>(
+    `SELECT id::text, ancien_nom, nouveau_nom, source, par_libelle, le::text
+       FROM gestion_piece_renommage WHERE piece_id = $1
+      ORDER BY le DESC, id DESC LIMIT $2`, [pieceId, Math.min(Math.max(1, limite), 100)]);
+  return rows.map((r) => ({
+    id: Number(r.id), ancienNom: r.ancien_nom, nouveauNom: r.nouveau_nom,
+    source: r.source === 'drive' ? 'drive' : 'app', parLibelle: r.par_libelle, le: r.le,
+  }));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LA PASSE QUI REPREND LES NOMS CHANGÉS DANS GOOGLE DRIVE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Une pièce candidate à la relecture, avec ses copies. */
+export interface PieceARelire {
+  pieceId: number;
+  nomAffiche: string;
+  copies: {
+    driveFileId: string; dossierId: string; dossierNom: string | null; origine: string;
+    /**
+     * 🔴 LE NOM QUE L'APPLICATION A ÉCRIT SUR CE FICHIER. `null` = on ne le sait pas, et la reprise laisse alors
+     * cette copie TRANQUILLE. Ne pas savoir n'est pas une raison de renommer — c'est la raison de s'abstenir.
+     */
+    nomDrive: string | null;
+  }[];
+}
+
+/**
+ * ══ 🔴🔴 LE COÛT, ET POURQUOI CE CHOIX ════════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « Coût maîtrisé : requêtes groupées, pas de relecture de tout à chaque minute. Explique ton choix. »
+ *
+ * MESURÉ LE 30/09/2026 : 26 543 copies Drive. Les relire toutes à chaque relève — donc toutes les minutes — ferait
+ * quelque 530 appels `files.list` par passe, près de 400 000 par jour, pour découvrir un renommage que personne ne
+ * fait plus d'une fois par semaine. C'est le genre de coût invisible jusqu'au jour où Google limite le compte, et
+ * où c'est la RELÈVE qui s'arrête.
+ *
+ * ═══ 🔴 CE QUE J'AVAIS ÉCRIT D'ABORD, ET POURQUOI C'ÉTAIT FAUX ══════════════════════════════════════════════════
+ *
+ * Première version : « les pièces les plus récemment déposées d'abord », avec un plafond par passe. Le
+ * raisonnement semblait bon — un fichier qu'on vient de renommer est un fichier qu'on vient d'ouvrir.
+ *
+ * 🔴 IL EST FAUX SUR CETTE BASE-CI, et l'épreuve réelle l'a montré tout de suite : 26 522 des 26 543 copies ont
+ * été déposées LA MÊME NUIT, par la passe de copie du 29/09. Trier par date de dépôt ne classe donc rien — l'ordre
+ * est arbitraire à l'intérieur du paquet. La pièce que je voulais éprouver s'est retrouvée au rang 24 100 : un
+ * renommage fait dans Drive ne l'aurait JAMAIS été repris, quel que soit le nombre de passes.
+ *
+ * ═══ 🔴🔴 CE QUI LA REMPLACE : UN BALAYAGE COMPLET, DÉTERMINISTE ET SANS ÉTAT ═══════════════════════════════════
+ *
+ * On découpe le registre en `TRANCHES` paquets, par le reste de la division de l'identifiant. Chaque passe en
+ * prend UN, choisi par l'horloge. Trois propriétés, et il faut les trois :
+ *   ① TOUT EST VU, dans un délai BORNÉ : une tranche par passe, `TRANCHES` passes pour faire le tour — environ
+ *      trois jours au rythme d'une passe toutes les dix minutes. Aucune pièce ne peut être oubliée.
+ *   ② SANS ÉTAT : rien à retenir entre deux passes. Un compteur en mémoire repartirait de zéro à chaque
+ *      redémarrage du travailleur (launchd, un déploiement) et relirait éternellement les mêmes.
+ *   ③ SANS PIC : chaque passe lit le même nombre de pièces, quel que soit le moment.
+ *
+ * ⚠️ LE RESTE DE LA DIVISION, ET PAS UN `OFFSET` : un `OFFSET 24000` ferait balayer 24 000 lignes pour en rendre
+ * soixante, et l'ordre changerait à chaque pièce capturée. Le modulo est stable et se lit sur l'index primaire.
+ */
+export const PLAFOND_RELECTURE = 60;
+
+/**
+ * EN COMBIEN DE PAQUETS ON DÉCOUPE LE REGISTRE. 440 tranches sur 26 543 pièces font environ 60 pièces par passe —
+ * soit une seule requête `files.list`, et le tour complet en 440 passes.
+ *
+ * ⚠️ CE N'EST PAS UNE CONSTANTE DE CONFORT : la changer change le délai au bout duquel un renommage fait dans
+ * Drive est repris. Plus grand = moins cher et plus lent ; plus petit = l'inverse.
+ */
+export const TRANCHES = 440;
+
+/** La tranche à lire à cet instant. PUR — l'horloge est passée, jamais lue ici. */
+export function trancheDuMoment(maintenantMs: number, tranches = TRANCHES): number {
+  return Math.floor(maintenantMs / 600_000) % tranches;
+}
+
+/**
+ * LES PIÈCES DE LA TRANCHE DEMANDÉE, avec leurs copies Drive.
+ *
+ * ⚠️ `origine` EST RENDUE : le tri des copies à renommer en a besoin, et la relire ensuite ferait une requête par
+ * pièce là où celle-ci les rend toutes.
+ *
+ * ⚠️ `limite` BORNE LA TRANCHE, elle ne la choisit pas : c'est un garde-fou pour le jour où le registre aura
+ * beaucoup grossi, pas le mécanisme de découpe.
+ */
+export async function piecesARelire(
+  tranche: number, limite = PLAFOND_RELECTURE, tranches = TRANCHES,
+): Promise<PieceARelire[]> {
+  if (!(await nomUsageDisponible())) return [];
+  const { rows } = await query<{
+    piece_id: string; nom_affiche: string;
+    drive_file_id: string; drive_dossier_id: string; dossier_nom: string | null; origine: string;
+    nom_drive: string | null;
+  }>(
+    `WITH choisies AS (
+       SELECT DISTINCT d.piece_id
+         FROM gestion_piece_drive d
+        WHERE (d.piece_id % $1::bigint) = $2::bigint
+        ORDER BY d.piece_id
+        LIMIT $3
+     )
+     SELECT p.id::text AS piece_id, ${await sqlNomAffiche('p')} AS nom_affiche,
+            d.drive_file_id, d.drive_dossier_id, d.dossier_nom, d.origine, d.nom_drive
+       FROM choisies c
+       JOIN gestion_piece p ON p.id = c.piece_id
+       JOIN gestion_piece_drive d ON d.piece_id = c.piece_id
+      ORDER BY p.id, d.depose_le`,
+    [Math.max(1, tranches), ((tranche % tranches) + tranches) % tranches, Math.min(Math.max(1, limite), 500)]);
+
+  const par = new Map<number, PieceARelire>();
+  for (const r of rows) {
+    const id = Number(r.piece_id);
+    const deja = par.get(id) ?? { pieceId: id, nomAffiche: r.nom_affiche, copies: [] };
+    deja.copies.push({
+      driveFileId: r.drive_file_id, dossierId: r.drive_dossier_id,
+      dossierNom: r.dossier_nom, origine: r.origine, nomDrive: r.nom_drive,
+    });
+    par.set(id, deja);
+  }
+  return [...par.values()];
+}

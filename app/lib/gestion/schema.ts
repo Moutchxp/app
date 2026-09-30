@@ -225,6 +225,25 @@ export function compteGoogleDuDepotDisponible(): Promise<boolean> {
  * d'origine, par la jointure sur `gestion_piece`. On ne NOMME donc la colonne que si elle existe, sinon la
  * requête entière échouerait — et le dépôt, lui, a bien eu lieu.
  */
+/**
+ * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — la migration 286 est-elle appliquée ? ═════════════════════════════════════
+ *
+ * Elle porte le NOM D'USAGE d'une pièce (`gestion_piece.nom_usage`) et son journal de renommages
+ * (`gestion_piece_renommage`). Arno : « une pièce jointe ne doit avoir qu'un seul nom, qu'elle soit dans un mail
+ * ou dans le Drive ».
+ *
+ * 🔴 TANT QU'ELLE MANQUE, le stylo garde EXACTEMENT son comportement d'avant ce lot : il nomme la COPIE au moment
+ * de la ranger (`gestion_piece_drive.nom_depose`, migration 280), et ne touche à rien d'autre. Aucun renommage
+ * Drive n'est émis, et aucune colonne absente n'est nommée — ce qui ferait échouer la lecture des pièces ENTIÈRE,
+ * donc l'affichage de tout le courrier.
+ *
+ * ⚠️ UNE SEULE SONDE POUR LA COLONNE ET POUR LA TABLE : la migration crée les deux ensemble, et sonder deux fois
+ * ferait deux requêtes pour une seule question — avec le risque qu'un jour l'une réponde oui et l'autre non.
+ */
+export function nomUsageDisponible(): Promise<boolean> {
+  return memoiser('piece.nom_usage', () => colonneExiste('gestion_piece', 'nom_usage'));
+}
+
 export function nomDeposeDisponible(): Promise<boolean> {
   return memoiser('piece_drive.nom_depose', () => colonneExiste('gestion_piece_drive', 'nom_depose'));
 }

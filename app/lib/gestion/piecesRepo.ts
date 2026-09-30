@@ -9,6 +9,8 @@
  */
 import { query } from '../db/client';
 import { miniaturesDisponibles } from './schema';
+// 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
+import { sqlNomAffiche } from './nomUsageSql';
 
 /** Une pièce, telle que l'archive et la miniature en ont besoin. */
 export interface PiecePourArchive {
@@ -35,7 +37,8 @@ export async function lirePiecesDuMessage(messageId: number): Promise<PiecePourA
   const { rows } = await query<{
     id: number; nom_fichier: string; type_mime: string | null; cle_stockage: string; taille_octets: string | null;
   }>(
-    `SELECT id::int AS id, nom_fichier, type_mime, cle_stockage, taille_octets
+    `SELECT id::int AS id, ${await sqlNomAffiche('gestion_piece')} AS nom_fichier,
+            type_mime, cle_stockage, taille_octets
        FROM gestion_piece
       WHERE message_id = $1 AND cle_stockage IS NOT NULL
       ORDER BY id`,

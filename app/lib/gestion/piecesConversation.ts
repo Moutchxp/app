@@ -39,7 +39,16 @@ import type { VoisinPossible } from './apercuDrive';
 /** Ce qu'il faut savoir d'une pièce pour la lister. Sous-ensemble de `PieceDeMessage` (carteRepo). */
 export interface PiecePortee {
   pieceId: number;
+  /** 🔴 LOT NOM-UNIQUE-DES-PIECES — le nom d'USAGE : c'est lui qu'on affiche, qu'on envoie et qu'on cherche. */
   nomFichier: string;
+  /**
+   * 🔴 LE NOM D'ORIGINE, sous lequel le correspondant l'a envoyée. Jamais modifié : c'est lui qu'on retrouvera
+   * dans Gmail, qui ne permet pas de renommer une pièce jointe. La mention « reçue sous : … » en vit.
+   *
+   * ⚠️ FACULTATIF : les appelants d'avant ce lot ne le donnent pas, et la mention ne s'affiche alors jamais —
+   * ce qui est exactement le comportement d'avant.
+   */
+  nomOrigine?: string;
   typeMime: string | null;
   tailleOctets: number | null;
   disponible: boolean;

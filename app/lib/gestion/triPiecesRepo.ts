@@ -15,6 +15,8 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query } from '../db/client';
+// 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
+import { sqlNomAffiche } from './nomUsageSql';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { nomBien, nomProprietaire } from './driveArbre';
 import { adressesDuChamp } from './adressesMessage';
@@ -128,7 +130,8 @@ export async function chargerContexteTri(adresseAgence = ADRESSE_AGENCE_DEFAUT):
     dest_a: string | null; dest_cc: string | null; objet: string | null; corps: string | null;
     evenement_adresse: string | null;
   }>(
-    `SELECT p.id AS piece_id, p.taille_octets::text AS taille, p.cle_stockage, p.nom_fichier, p.type_mime,
+    `SELECT p.id AS piece_id, p.taille_octets::text AS taille, p.cle_stockage,
+            ${await sqlNomAffiche('p')} AS nom_fichier, p.type_mime,
             m.id AS message_id, m.fil_id, m.recu_le::text, m.sens, m.de_adresse,
             m.dest_a::text, m.dest_cc::text, m.objet, left(coalesce(m.corps_texte, ''), $1) AS corps,
             ev.adresse_libre AS evenement_adresse

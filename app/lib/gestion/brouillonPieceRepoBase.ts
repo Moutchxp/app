@@ -11,6 +11,14 @@
  * doit protéger. On sépare, on ne désarme pas.
  */
 import { query } from '../db/client';
+/**
+ * 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — UN TRANSFERT OU UNE RÉPONSE PART SOUS LE NOM D'USAGE (demande d'Arno).
+ *
+ * La reprise COPIE le nom dans `gestion_brouillon_piece` : c'est donc ici, et une seule fois, que le nom d'usage
+ * entre dans ce qui partira. La copier plus tard (à l'assemblage) obligerait à la relire pour chaque envoi, et
+ * ferait diverger ce qu'on voit dans le brouillon de ce qui part vraiment.
+ */
+import { sqlNomAffiche } from './nomUsageSql';
 import { fileEnvoiDisponible, piecesEnvoiDisponibles } from './schema';
 import type { PieceBrouillonAffichee } from './piecesEnvoi';
 
@@ -137,7 +145,7 @@ export async function reprendrePiecesDuMessage(brouillonId: number, messageId: n
   if (!await piecesEnvoiDisponibles()) return 0;
   const { rowCount } = await query(
     `INSERT INTO gestion_brouillon_piece (brouillon_id, nom_fichier, type_mime, taille_octets, piece_id)
-     SELECT $1, p.nom_fichier, p.type_mime, coalesce(p.taille_octets, 0), p.id
+     SELECT $1, ${await sqlNomAffiche('p')}, p.type_mime, coalesce(p.taille_octets, 0), p.id
        FROM gestion_piece p
       WHERE p.message_id = $2 AND p.cle_stockage IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM gestion_brouillon_piece b

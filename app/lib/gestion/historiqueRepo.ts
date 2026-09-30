@@ -18,6 +18,8 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query } from '../db/client';
+// 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
+import { sqlNomAffiche } from './nomUsageSql';
 import { adressesDuChamp } from './adressesMessage';
 import { nomBien, nomProprietaire } from './driveArbre';
 import { deplacementsDeMailsDisponibles, horsGestionDisponible, rattachementsDisponibles } from './schema';
@@ -442,7 +444,8 @@ async function piecesDesMessages(ids: readonly number[]): Promise<Map<number, Pi
     message_id: string; id: string; nom_fichier: string; type_mime: string | null; taille_octets: string | null;
     cle_stockage: string | null; motif_non_stocke: string | null;
   }>(
-    `SELECT message_id, id, nom_fichier, type_mime, taille_octets::text, cle_stockage, motif_non_stocke
+    `SELECT message_id, id, ${await sqlNomAffiche('gestion_piece')} AS nom_fichier,
+            type_mime, taille_octets::text, cle_stockage, motif_non_stocke
        FROM gestion_piece WHERE message_id = ANY($1::bigint[]) ORDER BY message_id, id`, [ids]);
   for (const r of rows) {
     const cle = Number(r.message_id);

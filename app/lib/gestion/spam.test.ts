@@ -48,6 +48,9 @@ vi.mock('./schema', () => ({
    * ce lot. Les deux sources ne sont JAMAIS lues ensemble — c'est l'une OU l'autre.
    */
   etoileGmailDisponible: async () => false,
+  // 🔴 LOT NOM-UNIQUE-DES-PIECES — la sonde du nom d'usage (migration 286). Fausse ici : ces épreuves
+  //   portent sur autre chose, et le SQL qu'elles inspectent reste celui d'avant ce lot.
+  nomUsageDisponible: async () => false,
 }));
 
 let spamConnu = true;

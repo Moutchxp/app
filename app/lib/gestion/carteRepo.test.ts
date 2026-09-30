@@ -209,8 +209,12 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     //   module PUR (aucune base, aucun réseau, aucun DOM) qui réécrit les adresses d'images vers NOS routes. Il ne
     //   manipule aucun octet — il remplace des chaînes de caractères — et son passage obligé ici est justement ce
     //   qui garantit qu'aucune adresse d'expéditeur n'atteint le navigateur.
+    // LOT NOM-UNIQUE-DES-PIECES — `./nomUsageSql` rejoint la liste, pour la MÊME raison que les précédents : il
+    //   rend des FRAGMENTS DE SQL (« nom d'usage, sinon nom d'origine »), ne lit aucun octet et n'ouvre aucun
+    //   stockage. Son passage obligé ici est ce qui garantit qu'une pièce renommée s'affiche sous un seul nom.
     expect(imports).toEqual([
-      '../db/client', './htmlMail', './imagesMail', './attente', './partenaires', './schema', './nonRemiseRepo',
+      '../db/client', './nomUsageSql', './htmlMail', './imagesMail', './attente', './partenaires', './schema',
+      './nonRemiseRepo',
     ]);
     expect(imports).not.toContain('../stockage');
     expect(code).not.toContain('urlSignee');

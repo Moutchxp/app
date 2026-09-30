@@ -40,6 +40,9 @@ vi.mock('./schema', () => ({
   // 🔴 LOT RATTACHER-EN-ECRIVANT — migration 281 absente par défaut : `gestion_fil_interne` n'est NOMMÉE nulle
   //   part, et les assertions de ce fichier portent donc sur le SQL d'avant ce lot.
   interneDisponible: async () => false,
+  // 🔴 LOT NOM-UNIQUE-DES-PIECES — la sonde du nom d'usage (migration 286). Fausse ici : ces épreuves
+  //   portent sur autre chose, et le SQL qu'elles inspectent reste celui d'avant ce lot.
+  nomUsageDisponible: async () => false,
 }));
 
 let pleinTexte = true;
@@ -126,8 +129,14 @@ describe('🔴 ② toute valeur saisie passe en PARAMÈTRE LIÉ', () => {
 
   it('les caractères spéciaux ne cassent rien et restent des valeurs', () => {
     const { params } = conditions({ saisie: "o'brien 100% <script> _x" }, true);
-    expect(params).toHaveLength(1);
+    /**
+     * ⚠️ QUATRE PARAMÈTRES DE PLUS DEPUIS LE LOT NOM-UNIQUE-DES-PIECES : la recherche cherche aussi dans les NOMS
+     * DE PIÈCES, un terme par paramètre lié. Ce qui est éprouvé ici n'a pas bougé — tout ce qui vient de la
+     * saisie reste une VALEUR liée, jamais du SQL. C'est d'ailleurs le seul point qui compte pour l'injection.
+     */
+    expect(params.length).toBeGreaterThanOrEqual(1);
     expect(String(params[0])).toContain("o'brien");
+    for (const p of params) expect(typeof p).toBe('string');
   });
 });
 
@@ -141,8 +150,13 @@ describe('③ les deux régimes, et aucun qui mente', () => {
   it('MODE RÉDUIT : un morceau par terme, tous exigés — plus lent, mais il trouve', () => {
     const { sql, params } = conditions({ saisie: 'fuite marceau' }, false);
     expect(sql.join(' ')).not.toContain('websearch_to_tsquery');
-    expect((sql.join(' ').match(/LIKE/g) ?? []).length).toBe(2);
-    expect(params).toEqual(['fuite', 'marceau']);
+    /**
+     * 🔴 QUATRE `LIKE` DEPUIS LE LOT NOM-UNIQUE-DES-PIECES : deux sur le TEXTE du message (un par terme), deux
+     * sur les NOMS DE PIÈCES. Les deux moitiés sont en OU — un mail répond s'il porte les mots dans son texte,
+     * OU s'il porte une pièce dont le nom les porte tous.
+     */
+    expect((sql.join(' ').match(/LIKE/g) ?? []).length).toBe(4);
+    expect(params).toEqual(['fuite', 'marceau', 'fuite', 'marceau']);
   });
 
   it('la réponse DIT dans quel régime elle est — l’écran ne fait jamais semblant', async () => {
@@ -487,8 +501,46 @@ describe('LOT RECHERCHE-AVANCEE — pièce jointe et période', () => {
       .toContain('EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id AND');
     expect(plat(conditions({ saisie: 'bail', piece: 'sans' }, true).sql.join(' ')))
       .toContain('NOT EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id AND');
-    expect(plat(conditions({ saisie: 'bail', piece: 'indifferent' }, true).sql.join(' ')))
-      .not.toContain('gestion_piece');
+    /**
+     * ⚠️ « INDIFFÉRENT » N'ÉCRIT TOUJOURS AUCUN FILTRE DE PIÈCE — c'est ce que cette ligne tient. Elle ne peut
+     * plus le dire par « aucune mention de gestion_piece » : depuis le lot NOM-UNIQUE-DES-PIECES, la recherche
+     * regarde AUSSI les noms de pièces (alias `pn`), et cette lecture-là n'est pas un filtre. On éprouve donc
+     * l'absence du FILTRE (alias `p`), pas l'absence du mot.
+     */
+    const indifferent = plat(conditions({ saisie: 'bail', piece: 'indifferent' }, true).sql.join(' '));
+    expect(indifferent).not.toContain('FROM gestion_piece p WHERE');
+    expect(indifferent).not.toContain('NOT EXISTS');
+  });
+
+  /**
+   * 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — LA RECHERCHE TROUVE LA PIÈCE PAR SES DEUX NOMS.
+   *
+   * Arno, mot pour mot : « La recherche trouve la pièce par son nom d'usage ET par son nom d'origine. » Un mail
+   * répond donc s'il porte les mots dans son TEXTE, OU s'il porte une pièce dont le NOM les porte tous.
+   */
+  it('🔴 sans la migration 286, seul le nom d’ORIGINE est cherché', () => {
+    const sql = plat(conditions({ saisie: 'quittance' }, true).sql.join(' '));
+    expect(sql).toContain('FROM gestion_piece pn');
+    expect(sql).toContain('pn.nom_fichier');
+    // La colonne absente n'est nommée NULLE PART : la lire ferait échouer toute la recherche.
+    expect(sql).not.toContain('nom_usage');
+  });
+
+  it('🔴 avec la migration 286, les DEUX noms sont cherchés', () => {
+    const sql = plat(conditions({ saisie: 'quittance' }, true, false, null, false, true).sql.join(' '));
+    expect(sql).toContain('pn.nom_fichier');
+    expect(sql).toContain('pn.nom_usage');
+  });
+
+  it('🔴 le nom de pièce est une ALTERNATIVE au texte, pas une exigence de plus', () => {
+    const sql = plat(conditions({ saisie: 'quittance' }, true).sql.join(' '));
+    // Un OR, jamais un AND : exiger les deux ne trouverait presque rien.
+    expect(sql).toContain('OR EXISTS ( SELECT 1 FROM gestion_piece pn');
+  });
+
+  it('⚠️ sans mots saisis, on ne va PAS lire les noms de pièces pour rien', () => {
+    const sql = plat(conditions({ saisie: '', expediteur: 'martin' }, true).sql.join(' '));
+    expect(sql).not.toContain('gestion_piece pn');
   });
 
   /**

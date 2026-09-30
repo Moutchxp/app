@@ -12,6 +12,8 @@
  * `/api/admin/gestion/pieces/[id]`.
  */
 import { query } from '../db/client';
+// 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
+import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
 // LOT BIEN-RATTACHE — le HTML d'un mail est assaini CÔTÉ SERVEUR, jamais dans le navigateur (voir `lireCorpsDuMessage`).
 import { assainirHtml, htmlVide } from './htmlMail';
 // LOT LECTURE-HTML-FIL-TROMBONE — les images d'un mail passent par NOS routes : voir `imagesMail`.
@@ -163,6 +165,18 @@ export interface PieceDeMessage {
   /** Faux quand la pièce n'a PAS pu être déposée : on dit alors POURQUOI, plutôt que d'offrir un lien qui échouerait. */
   disponible: boolean;
   motifNonStocke: string | null;
+  /**
+   * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — `nomFichier` EST LE NOM D'USAGE ══════════════════════════════════════
+   *
+   * Sa valeur change, son nom de champ non : c'est ce qui fait que les dix écrans qui l'affichent montrent le
+   * nom d'usage sans qu'une seule ligne d'écran ait à bouger. Le nom D'ORIGINE, lui, arrive à côté.
+   *
+   * ⚠️ POURQUOI PAS RENOMMER LE CHAMP EN `nomAffiche` : il est lu dans une trentaine d'endroits, et le renommer
+   * aurait mêlé un remaniement mécanique à un changement de comportement. Le commentaire coûte moins cher qu'un
+   * diff de trois cents lignes où le vrai changement serait invisible.
+   */
+  /** Le nom sous lequel le correspondant l'a envoyée. Jamais modifié — c'est lui qu'on cherche dans Gmail. */
+  nomOrigine: string;
   /**
    * 🔴 LOT RECAP-SANS-DOUBLON — L'EMPREINTE DU CONTENU. C'est elle qui dit si deux pièces d'une même conversation
    * sont le MÊME fichier — un document transféré puis re-transféré n'a pas à être listé trois fois.
@@ -420,12 +434,19 @@ export function htmlAffichable(brut: string | null | undefined): string | null {
  * ⚠️ `empreinte_sha256` EXISTE DEPUIS LA CRÉATION DE LA TABLE : aucune sonde de schéma ici, pas plus que pour
  * `motif_non_stocke` juste à côté. Les sondes protègent les colonnes AJOUTÉES par migration.
  */
-const CHAMPS_PIECE_DE_MESSAGE = `p.id::int AS piece_id, p.message_id::int AS message_id, p.nom_fichier,
-  p.type_mime, p.taille_octets, (p.cle_stockage IS NOT NULL) AS disponible, p.motif_non_stocke,
-  p.empreinte_sha256`;
+/**
+ * 🔴 LOT NOM-UNIQUE-DES-PIECES — `nom_fichier` REND LE NOM D'USAGE, et `nom_origine` le nom reçu. Le repli est
+ * écrit une seule fois (`sqlNomAffiche`) et dépend d'une sonde : sans la migration 286, les deux colonnes
+ * rendent la même chose et la requête est mot pour mot celle d'avant ce lot.
+ */
+const champsPieceDeMessage = async (): Promise<string> =>
+  `p.id::int AS piece_id, p.message_id::int AS message_id,
+   ${await sqlNomAffiche('p')} AS nom_fichier, ${sqlNomOrigine('p')} AS nom_origine,
+   p.type_mime, p.taille_octets, (p.cle_stockage IS NOT NULL) AS disponible, p.motif_non_stocke,
+   p.empreinte_sha256`;
 
 interface LignePieceDeMessage {
-  piece_id: number; message_id: number; nom_fichier: string; type_mime: string | null;
+  piece_id: number; message_id: number; nom_fichier: string; nom_origine: string; type_mime: string | null;
   taille_octets: string | number | null; disponible: boolean; motif_non_stocke: string | null;
   empreinte_sha256: string | null;
 }
@@ -435,12 +456,12 @@ async function lirePiecesDesMessages(messageIds: readonly number[]): Promise<Map
   const parMessage = new Map<number, PieceDeMessage[]>();
   if (messageIds.length === 0) return parMessage;
   const { rows } = await query<LignePieceDeMessage>(
-    `SELECT ${CHAMPS_PIECE_DE_MESSAGE}
+    `SELECT ${await champsPieceDeMessage()}
        FROM gestion_piece p WHERE p.message_id = ANY($1::bigint[]) ORDER BY p.id ASC`, [messageIds]);
   for (const p of rows) {
     const liste = parMessage.get(p.message_id) ?? [];
     liste.push({
-      pieceId: p.piece_id, nomFichier: p.nom_fichier, typeMime: p.type_mime,
+      pieceId: p.piece_id, nomFichier: p.nom_fichier, nomOrigine: p.nom_origine, typeMime: p.type_mime,
       // `bigint` revient en CHAÎNE avec pg : sans conversion, les tailles se compareraient comme du texte.
       tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets),
       disponible: p.disponible === true, motifNonStocke: p.motif_non_stocke,
@@ -519,7 +540,7 @@ export async function lireMessagesDuFil(
       ORDER BY recu_le ASC, message_id ASC`, [filId]);
 
   const { rows: pieces } = await query<LignePieceDeMessage>(
-    `SELECT ${CHAMPS_PIECE_DE_MESSAGE}
+    `SELECT ${await champsPieceDeMessage()}
        FROM gestion_piece p JOIN gestion_message m ON m.id = p.message_id
       WHERE m.fil_id = $1 AND m.exclu_le IS NULL
       ORDER BY p.id ASC`, [filId]);
@@ -528,7 +549,7 @@ export async function lireMessagesDuFil(
   for (const p of pieces) {
     const liste = parMessage.get(p.message_id) ?? [];
     liste.push({
-      pieceId: p.piece_id, nomFichier: p.nom_fichier, typeMime: p.type_mime,
+      pieceId: p.piece_id, nomFichier: p.nom_fichier, nomOrigine: p.nom_origine, typeMime: p.type_mime,
       // `bigint` revient en CHAÎNE avec pg : sans conversion, l'écran afficherait « 12345 o » comme du texte et les
       //   comparaisons de taille mentiraient. Piège connu du dépôt.
       tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets),
@@ -645,6 +666,13 @@ export async function lirePieceAServir(pieceId: number): Promise<{
   /** L'empreinte enregistrée à la copie — la route la compare à ce que Drive lui rend. */
   md5Attendu: string | null;
   /**
+   * 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — LE NOM D'ORIGINE, ET IL SERT À UNE CHOSE PRÉCISE : retrouver la pièce dans
+   * le message Gmail, au dernier recours du lecteur d'octets. Gmail ne permet pas de renommer une pièce jointe :
+   * là-bas, elle porte TOUJOURS le nom d'origine. Y chercher le nom d'usage ne trouverait rien, et la pièce
+   * serait déclarée introuvable alors qu'elle est là.
+   */
+  nomOrigine: string;
+  /**
    * 🔴 LOT PJ-APRES-VIDAGE — la TAILLE connue, et l'ancre du message d'origine. Le lecteur central s'en sert pour
    * vérifier ce qu'il reçoit (une source qui rend 40 octets au lieu de 76 504 n'a pas rendu le bon fichier) et
    * pour son dernier recours (la pièce, dans le message tel qu'il est aujourd'hui dans Gmail).
@@ -668,11 +696,12 @@ export async function lirePieceAServir(pieceId: number): Promise<{
   const avecCopie = await copiePiecesDisponible();
 
   const { rows } = await query<{
-    cle_stockage: string | null; nom_fichier: string; type_mime: string | null;
+    cle_stockage: string | null; nom_fichier: string; nom_origine: string; type_mime: string | null;
     vide: boolean; drive_file_id: string | null; md5: string | null;
     taille_octets: string | null; message_id_rfc: string | null;
   }>(
-    `SELECT p.cle_stockage, p.nom_fichier, p.type_mime, p.taille_octets::text,
+    `SELECT p.cle_stockage, ${await sqlNomAffiche('p')} AS nom_fichier,
+            ${sqlNomOrigine('p')} AS nom_origine, p.type_mime, p.taille_octets::text,
             (SELECT m.message_id FROM gestion_message m WHERE m.id = p.message_id) AS message_id_rfc,
             ${avecVidage ? 'EXISTS (SELECT 1 FROM gestion_piece_vidage v WHERE v.piece_id = p.id)' : 'false'} AS vide,
             ${avecCopie ? 'd.drive_file_id' : 'NULL::text'} AS drive_file_id,
@@ -686,7 +715,7 @@ export async function lirePieceAServir(pieceId: number): Promise<{
   const p = rows[0];
   if (!p || !p.cle_stockage) return null; // pièce inconnue, ou jamais déposée : dans les deux cas, rien à servir
   return {
-    cleStockage: p.cle_stockage, nomFichier: p.nom_fichier, typeMime: p.type_mime,
+    cleStockage: p.cle_stockage, nomFichier: p.nom_fichier, nomOrigine: p.nom_origine, typeMime: p.type_mime,
     stockageVide: p.vide, driveFileId: p.drive_file_id, md5Attendu: p.md5,
     tailleAttendue: p.taille_octets === null ? null : Number(p.taille_octets),
     messageIdRfc: p.message_id_rfc,
