@@ -623,12 +623,22 @@ export function envoiInterneFileDisponible(): Promise<boolean> {
 }
 
 /**
- * 🔴 LOT BANDEAU-ET-BROUILLONS — la migration 284 est-elle appliquée ? Elle porte « IGNORER » un échec d'envoi :
- * le bandeau se tait pour CET échec, sans que rien ne soit supprimé.
+ * 🔴🔴 LOT CLASSER-DEUX-BOUTONS — la migration 285 est-elle appliquée ? Elle porte le CLASSEMENT DU BROUILLON :
+ * les biens cochés (`cibles`) et « Interne » (`interne`).
  *
- * 🔴 TANT QU'ELLE MANQUE, le lien « Ignorer » n'est pas offert, et le bandeau se comporte exactement comme avant.
- * Nommer une colonne absente ferait échouer la lecture de TOUTE la file d'envoi — donc le bandeau lui-même, et
- * les listes qui le portent. Règle du module depuis le lot 4a.
+ * 🔴 TANT QU'ELLE MANQUE, les deux gros boutons fonctionnent exactement pareil à l'écran, mais le choix ne
+ * survit pas à la fermeture de la fenêtre — il n'a nulle part où s'écrire. L'écran le DIT, plutôt que de laisser
+ * croire qu'un travail de classement est gardé alors qu'il est perdu.
+ *
+ * ⚠️ Nommer une colonne absente ferait échouer la lecture des brouillons ENTIÈRE, pas seulement le classement.
+ * Règle du module depuis le lot 4a.
+ */
+export function brouillonClassementDisponible(): Promise<boolean> {
+  return memoiser('brouillon.cibles', () => colonneExiste('gestion_brouillon', 'cibles'));
+}
+
+/**
+ * 🔴 LOT BANDEAU-ET-BROUILLONS — la migration 284 est-elle appliquée ? Elle porte « IGNORER » un échec d'envoi.
  */
 export function envoiIgnoreDisponible(): Promise<boolean> {
   return memoiser('envoi_file.ignore_le', () => colonneExiste('gestion_envoi_file', 'ignore_le'));

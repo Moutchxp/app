@@ -45,7 +45,8 @@ export function delaiPour(sorte: SorteChangement): number {
 
 /** La part du brouillon qui se retrouve en base. Tout le reste (identifiant, état d'écran) n'est pas un changement. */
 type PartEnregistrable = Pick<Brouillon,
-  'voie' | 'a' | 'cc' | 'cci' | 'objet' | 'corps' | 'citation'> & { corpsHtml?: string | null };
+  'voie' | 'a' | 'cc' | 'cci' | 'objet' | 'corps' | 'citation'>
+  & { corpsHtml?: string | null; cibles?: Brouillon['cibles']; interne?: boolean };
 
 /**
  * ══ ① LA SIGNATURE DE CE QUI SERA ÉCRIT ════════════════════════════════════════════════════════════════════════
@@ -60,6 +61,21 @@ type PartEnregistrable = Pick<Brouillon,
 export function signatureBrouillon(b: PartEnregistrable): string {
   return JSON.stringify([
     b.voie, b.a, b.cc, b.cci, b.objet, b.corps, b.corpsHtml ?? null, b.citation ?? null,
+    /**
+     * ══ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — LE CLASSEMENT ENTRE DANS LA SIGNATURE ══════════════════════════════════
+     *
+     * VU À L'ÉCRAN LE 30/09/2026, la migration 285 appliquée : on cochait un bien, on validait, la case verte
+     * « Rattaché » s'affichait — et la colonne `cibles` restait vide en base.
+     *
+     * 🔴 LA CAUSE : cette signature dit « ce qu'on s'apprête à écrire ». Le classement n'y était pas, donc
+     * changer les biens ne changeait PAS la signature, donc `sorteDuChangement` répondait « aucun », donc
+     * l'enregistrement automatique ne partait jamais. La colonne existait, la route l'écrivait, et rien ne la
+     * déclenchait : le travail de classement se perdait aussi sûrement qu'avant la migration.
+     *
+     * ⚠️ C'EST EXACTEMENT LE MOTIF DE `citation`, deux lignes plus haut : tout ce qui se retrouve en base doit
+     * figurer ici, sans quoi un brouillon dont SEULE cette part a changé n'est jamais réécrit.
+     */
+    b.cibles ?? [], b.interne === true,
   ]);
 }
 

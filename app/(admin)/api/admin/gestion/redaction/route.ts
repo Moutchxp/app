@@ -8,7 +8,8 @@ import {
 import { lireJeton } from '../../../../../lib/gestion/googleJeton';
 import { compterBrouillons } from '../../../../../lib/gestion/redactionRepo';
 import {
-  brouillonCibleDisponible, brouillonHtmlDisponible, corbeilleBrouillonDisponible, interneDisponible,
+  brouillonCibleDisponible, brouillonClassementDisponible, brouillonHtmlDisponible, corbeilleBrouillonDisponible,
+  interneDisponible,
   piecesEnvoiDisponibles, redactionDisponible,
 } from '../../../../../lib/gestion/schema';
 // LOT REDACTION-GMAIL — la signature Gmail est du HTML venu d'un réglage : elle s'assainit comme tout le reste.
@@ -108,6 +109,11 @@ export async function GET(request: Request): Promise<Response> {
      */
     htmlDisponible: await brouillonHtmlDisponible(),
     classementDisponible: await brouillonCibleDisponible(),
+    /**
+     * 🔴 LOT CLASSER-DEUX-BOUTONS — le classement peut-il être GARDÉ avec le brouillon (migration 285) ? C'est
+     * une question distincte de `classementDisponible`, qui dit seulement si la base sait CLASSER un mail.
+     */
+    classementBrouillonDisponible: await brouillonClassementDisponible(),
     // 🔴 LOT RATTACHER-EN-ECRIVANT — la 281 (« Interne ») : sans elle, le bouton est grisé avec son motif.
     interneDisponible: await interneDisponible(),
     /**

@@ -101,6 +101,17 @@ export interface Brouillon {
    * de le refaire donnerait deux vérités sur la même conversation.
    */
   cibles?: CibleBrouillon[];
+  /**
+   * 🔴 LOT CLASSER-DEUX-BOUTONS — « INTERNE » CHOISI PENDANT LA RÉDACTION, et gardé AVEC le brouillon.
+   *
+   * Il ne vivait que dans l'état React de la fenêtre : la fermer perdait la décision sans rien dire. La marque
+   * elle-même est posée sur l'ÉCHANGE à l'envoi — un message neuf n'en a pas encore — mais l'INTENTION appartient
+   * au brouillon, au même titre que les biens cochés.
+   *
+   * ⚠️ IL S'EXCLUT DES CIBLES : « interne » veut dire qu'il n'y a pas de bien à rattacher. Les deux réponses ne
+   * peuvent pas être vraies en même temps, et l'écran ne permet pas de les poser ensemble.
+   */
+  interne?: boolean;
 }
 
 /**
@@ -389,8 +400,10 @@ export function secondesRestantes(clicLe: Date, maintenant: Date, delaiS: number
  * PUR : aucune I/O, aucune horloge. C'est une décision, elle doit pouvoir se rejouer.
  */
 export function brouillonTouche(
-  origine: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'> & { cibles?: CibleBrouillon[] },
-  courant: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'> & { cibles?: CibleBrouillon[] },
+  origine: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'>
+    & { cibles?: CibleBrouillon[]; interne?: boolean },
+  courant: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'>
+    & { cibles?: CibleBrouillon[]; interne?: boolean },
   avecPieces = false,
 ): boolean {
   if (avecPieces) return true;
@@ -406,6 +419,12 @@ export function brouillonTouche(
    * texte → HTML d'un corps hérité ne redonne pas octet pour octet le HTML d'origine.
    */
   if ((courant.cibles ?? []).length !== (origine.cibles ?? []).length) return true;
+  /**
+   * 🔴 LOT CLASSER-DEUX-BOUTONS — ET « INTERNE » EST UNE SAISIE AU MÊME TITRE. C'est même le seul choix qui ne
+   * laisse AUCUNE autre trace : pas de destinataire de plus, pas d'objet, pas de cible. Sans cette ligne,
+   * cliquer « Interne » puis fermer perdait la décision en silence — le brouillon était jugé « pas touché ».
+   */
+  if ((courant.interne === true) !== (origine.interne === true)) return true;
   return !memesAdresses(origine.a, courant.a)
     || !memesAdresses(origine.cc, courant.cc)
     || !memesAdresses(origine.cci, courant.cci);

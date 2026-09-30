@@ -3,7 +3,7 @@ import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { reprendrePiecesDuMessage } from '../../../../../lib/gestion/brouillonPieceRepo';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
-import { decouperAdresses } from '../../../../../lib/gestion/redaction';
+import { decouperAdresses, type CibleBrouillon } from '../../../../../lib/gestion/redaction';
 import {
   abandonnerBrouillon, brouillonsALaCorbeille, compterBrouillons, enregistrerBrouillon, lireBrouillon,
   lireBrouillonDuFil, listerBrouillons, restaurerBrouillon,
@@ -40,6 +40,34 @@ function adresses(brut: unknown): string[] {
 
 function texte(brut: unknown, max: number): string {
   return typeof brut === 'string' ? brut.slice(0, max) : '';
+}
+
+/**
+ * ══ 🔴 LOT CLASSER-DEUX-BOUTONS — LES CIBLES REÇUES DU NAVIGATEUR, VALIDÉES ICI ════════════════════════════════
+ *
+ * 🔒 CE QUI ARRIVE DU NAVIGATEUR N'EST JAMAIS CRU SUR PAROLE, même venant de notre propre écran : c'est le
+ * serveur, et lui seul, qui ne peut pas être contourné. Une cible mal formée est ÉCARTÉE, pas refusée — perdre
+ * une case cochée est ennuyeux, perdre le texte du brouillon avec serait bien pire.
+ *
+ * ⚠️ `sorte` EST VÉRIFIÉE contre la liste fermée, et les libellés sont bornés : une chaîne de cent mille
+ * caractères dans un `jsonb` est une façon de faire grossir la base sans rien y écrire d'utile.
+ */
+function ciblesRecues(brut: unknown): CibleBrouillon[] {
+  if (!Array.isArray(brut)) return [];
+  const out: CibleBrouillon[] = [];
+  for (const x of brut.slice(0, 50)) {
+    if (typeof x !== 'object' || x === null) continue;
+    const c = x as Record<string, unknown>;
+    if (c.sorte !== 'lot' && c.sorte !== 'evenement') continue;
+    if (typeof c.libelle !== 'string' || c.libelle.trim() === '') continue;
+    out.push({
+      sorte: c.sorte,
+      cle: typeof c.cle === 'string' ? c.cle.slice(0, 120) : null,
+      id: typeof c.id === 'number' && Number.isSafeInteger(c.id) ? c.id : null,
+      libelle: c.libelle.slice(0, 300),
+    });
+  }
+  return out;
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -152,6 +180,15 @@ export async function POST(request: Request): Promise<Response> {
        */
       corpsHtml: typeof corps.corpsHtml === 'string' ? corps.corpsHtml.slice(0, 200_000) : null,
       citation: typeof corps.citation === 'string' ? corps.citation.slice(0, 200_000) : null,
+      /**
+       * 🔴🔴 LOT CLASSER-DEUX-BOUTONS — LE CLASSEMENT PART AVEC LE BROUILLON. Les biens cochés et « Interne » ne
+       * vivaient que dans l'état de la fenêtre : la fermer perdait le travail de classement EN SILENCE.
+       *
+       * ⚠️ LE SERVEUR RE-VALIDE LA FORME (`ciblesRecues`) : ce qui arrive du navigateur n'est jamais cru sur
+       * parole, et une cible abîmée ne doit pas entrer en base sous un type qu'elle n'a pas.
+       */
+      cibles: ciblesRecues(corps.cibles),
+      interne: corps.interne === true,
     }, await auteurDeLaRequete(request));
 
     /**

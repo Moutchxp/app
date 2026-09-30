@@ -34,14 +34,22 @@ let contexte: Record<string, unknown>;
 let cibles: CibleBrouillon[];
 let interneChoisi: boolean;
 let ferme: number;
+/** Ce que le moteur de recherche de biens rend, pour les épreuves qui s'en servent. */
+let biensTrouves: Record<string, unknown>[];
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   cibles = []; interneChoisi = false; ferme = 0;
   contexte = { biens: [], examen: { issue: 'sans_candidat', motif: '' }, proprietaire: null,
     interneDabord: false, disponible: true };
-  global.fetch = vi.fn(
-    async () => ({ ok: true, json: async () => ({ etat: 'ok', contexte }) }) as unknown as Response,
+  biensTrouves = [];
+  /**
+   * 🔴 LOT CLASSER-DEUX-BOUTONS — DEUX ROUTES, ET LE FAUX SERVEUR DOIT LES DISTINGUER : le moteur de propositions
+   * (`/classement`) et le moteur de recherche de biens (`/biens`), désormais tous deux dans cette fenêtre.
+   */
+  global.fetch = vi.fn(async (u: unknown) => (String(u).includes('/gestion/biens')
+    ? { ok: true, json: async () => ({ etat: 'ok', lignes: biensTrouves, tronque: false, disponible: true }) }
+    : { ok: true, json: async () => ({ etat: 'ok', contexte }) }) as unknown as Response,
   ) as unknown as typeof fetch;
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
@@ -52,8 +60,6 @@ const monter = async (dest = ['locataire@orange.fr']) => {
     root.render(createElement(RattacherEnEcrivant, {
       destinataires: dest, objet: 'Charges', corps: '', pieces: [],
       cibles, onChange: (c) => { cibles = c; },
-      interneDisponible: true, interneChoisi,
-      onInterne: (a: boolean) => { interneChoisi = a; },
       onFerme: () => { ferme += 1; },
     }));
   });
@@ -164,44 +170,39 @@ describe('🔴 ② « Tout sélectionner » est UN bouton qui bascule', () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   ③ « INTERNE » ET LES BIENS S'EXCLUENT
-   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+   ③ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — « INTERNE » A QUITTÉ CETTE FENÊTRE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-describe('🔴 ③ « Interne » et les biens s’excluent', () => {
-  it('🔴 choisir « Interne » DÉCOCHE tous les biens', async () => {
+   CE QU'IL Y AVAIT : un bouton « Interne — échange entre collègues » en bas de cette modale. Il obligeait à
+   ouvrir une fenêtre de RATTACHEMENT pour dire qu'il n'y avait rien à rattacher.
+
+   🔴 IL EST DEVENU LE GROS BOUTON BLANC du bloc « Classer ce mail » (demande d'Arno), où il se voit sans ouvrir
+   quoi que ce soit. Sa règle d'exclusion avec les biens n'a pas bougé d'un mot — elle est éprouvée là-bas
+   (`ChampClassement.test.ts`), sur le composant qui la porte désormais.
+*/
+
+describe('🔴 ③ « Interne » n’est plus dans cette fenêtre', () => {
+  it('🔴 aucun bouton « Interne » dans la modale de rattachement', async () => {
     contexte.biens = [BIEN('134', true, 'locataire en place')];
     await monter();
-    expect(cases()[0].checked).toBe(true);
-    await cliquer(boutonPar(/^Interne/));
-    expect(cases()[0].checked).toBe(false);
-    expect(interneChoisi).toBe(true);
+    expect([...container.querySelectorAll('button')]
+      .some((b) => /^Interne/.test(b.textContent ?? ''))).toBe(false);
   });
 
-  /** 🔴 « PROPOSÉ EN PREMIER » quand tous les destinataires sont de la maison — c'est le serveur qui le dit. */
-  it('🔴 tous les destinataires de la maison : la modale le DIT', async () => {
+  /**
+   * ⚠️ CE QUI RESTE : la MENTION « tous les destinataires sont de la maison », qui est une INFORMATION du
+   * serveur, pas un bouton. La retirer aurait fait perdre le seul endroit où l'on apprend ce fait.
+   */
+  it('⚠️ la mention « tous de la maison » reste — c’est un renseignement, pas une décision', async () => {
     contexte.interneDabord = true;
     await monter(['a.jorel@sansvisavis.com']);
     expect(container.querySelector('.rec-interne-dabord')?.textContent).toContain('interne');
   });
 
-  it('destinataires mêlés : la mention n’apparaît pas, le bouton reste', async () => {
+  it('destinataires mêlés : la mention n’apparaît pas', async () => {
     contexte.interneDabord = false;
     await monter(['a.jorel@sansvisavis.com', 'locataire@orange.fr']);
     expect(container.querySelector('.rec-interne-dabord')).toBeNull();
-    expect(boutonPar(/^Interne/)).toBeDefined();
-  });
-
-  /** ⚠️ SANS LA MIGRATION 281, LE BOUTON EST GRISÉ **AVEC SON MOTIF** — jamais absent sans explication. */
-  it('⚠️ sans la migration, le bouton est grisé et dit pourquoi', async () => {
-    await act(async () => {
-      root.render(createElement(RattacherEnEcrivant, {
-        destinataires: ['a@b.fr'], cibles: [], onChange: () => {},
-        interneDisponible: false, interneChoisi: false, onInterne: () => {}, onFerme: () => {},
-      }));
-    });
-    await calmer();
-    expect(boutonPar(/^Interne/).disabled).toBe(true);
-    expect(container.textContent).toContain('pas encore installé sur cette base');
   });
 });
 
@@ -222,17 +223,42 @@ describe('🔴 ④ valider écrit les cibles ; ignorer n’écrit rien', () => {
   });
 
   /**
-   * 🔴 IGNORER N'EST PAS UNE ERREUR, C'EST UNE SORTIE NOMMÉE. Le mail part « à classer », comme avant ce lot —
-   * une modale qu'on ne peut quitter que par la croix se referme dans le doute.
+   * ══ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — FERMER SANS CHOISIR : LA CROIX ET « ÉCHAP » ════════════════════════════
+   *
+   * CE QU'IL Y AVAIT : un bouton « Ignorer — envoyer à classer », dans le pied, à côté du seul bouton qui pose
+   * une décision. Il prenait la place d'un choix pour dire qu'on n'en faisait pas.
+   *
+   * 🔴 LES DEUX SORTIES D'ARNO LE REMPLACENT, et elles ne changent RIEN : « Rien n'est changé et le bloc reste
+   * à l'état initial ».
    */
-  it('🔴 ignorer ferme sans rien écrire, et le bouton le DIT', async () => {
+  it('🔴 la CROIX ferme sans rien écrire', async () => {
     contexte.biens = [BIEN('134', true, 'locataire en place')];
     await monter();
-    const ignorer = boutonPar(/^Ignorer/);
-    expect(ignorer.textContent).toContain('à classer');
-    await cliquer(ignorer);
+    // La case est pré-cochée : si la croix validait, on le verrait tout de suite dans `cibles`.
+    expect(cases()[0].checked).toBe(true);
+    const croix = container.querySelector('.rec-croix') as HTMLButtonElement;
+    expect(croix, 'la croix doit exister').not.toBeNull();
+    await cliquer(croix);
     expect(cibles).toEqual([]);
     expect(ferme).toBe(1);
+  });
+
+  it('🔴 « Échap » ferme sans rien écrire non plus', async () => {
+    contexte.biens = [BIEN('134', true, 'locataire en place')];
+    await monter();
+    const boite = container.querySelector('[role="dialog"]') as HTMLElement;
+    await act(async () => {
+      boite.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await calmer();
+    expect(cibles).toEqual([]);
+    expect(ferme).toBe(1);
+  });
+
+  it('⚠️ et « Ignorer » a bien disparu du pied', async () => {
+    await monter();
+    expect([...container.querySelectorAll('button')]
+      .some((b) => /^Ignorer/.test(b.textContent ?? ''))).toBe(false);
   });
 
   /**
@@ -271,5 +297,120 @@ describe('⑤ la demande au serveur', () => {
     expect(appel[1].method).toBe('POST');
     const corps = JSON.parse(String(appel[1].body));
     expect(corps.destinataires).toEqual(['locataire@orange.fr']);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — LE MOTEUR DE RECHERCHE, DANS LA MODALE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   Il était derrière un lien « + Ajouter un autre bien » qui ouvrait une SECONDE fenêtre par-dessus celle-ci : on
+   perdait de vue les propositions au moment précis où l'on cherchait ce qu'elles n'avaient pas trouvé.
+
+   🔴 C'EST LE MOTEUR EXISTANT, pas un second : même route (`/api/admin/gestion/biens`), mêmes groupes
+   (« Par adresse » / « Par nom ou coordonnée »), mêmes raisons de correspondance. Seule la LIGNE change.
+*/
+const TROUVE = (cle: string, o: Record<string, unknown> = {}) => ({
+  cle, libelle: `28 av. Marceau — lot ${cle}`, adresse: '28 av. Marceau', nature: null, typeBien: 'Appartement',
+  parties: [{ role: 'proprietaire', cle: 'P9', nom: 'GARREAU', emails: [], telephones: [] },
+    { role: 'locataire', cle: 'L9', nom: 'THAI', emails: [], telephones: [] }],
+  raisons: [{ sorte: 'adresse', detail: '28 av. Marceau' }],
+  ...o,
+});
+
+const taper = async (texte: string) => {
+  const champ = container.querySelector('.rec-saisie') as HTMLInputElement;
+  expect(champ, 'le champ de recherche doit exister').not.toBeNull();
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(champ, texte);
+    champ.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  // ⚠️ La recherche est DIFFÉRÉE de 250 ms (une requête par lettre serait une requête de trop) : on attend.
+  await act(async () => { await new Promise((r) => setTimeout(r, 320)); });
+  await calmer();
+};
+
+describe('🔴🔴 ⑤ la recherche est DANS la modale, toujours visible', () => {
+  it('🔴 le champ et sa légende sont là dès l’ouverture, sans rien cliquer', async () => {
+    await monter();
+    expect(container.querySelector('.rec-saisie')).not.toBeNull();
+    // 🔴 LA LÉGENDE EST AU-DESSUS DU CHAMP, jamais dedans : un texte d'aide qui disparaît à la première lettre
+    //   n'aide qu'avant qu'on en ait besoin.
+    expect(container.querySelector('.rec-legende')?.textContent).toContain('Adresse');
+  });
+
+  it('⚠️ et le lien « + Ajouter un autre bien » a disparu — il ouvrait une seconde fenêtre', async () => {
+    await monter();
+    expect(container.textContent).not.toContain('Ajouter un autre bien');
+  });
+
+  it('🔴 un résultat porte l’adresse, le type, le PROPRIÉTAIRE et le LOCATAIRE', async () => {
+    biensTrouves = [TROUVE('421')];
+    await monter();
+    await taper('marceau');
+    const ligne = container.querySelector('.rec-ligne');
+    expect(ligne?.textContent).toContain('28 av. Marceau — lot 421 · Appartement');
+    expect(ligne?.textContent).toContain('GARREAU');
+    expect(ligne?.textContent).toContain('THAI');
+  });
+
+  /** 🔴 « VACANT » EST UN MOT, JAMAIS UN BLANC : c'est un fait, et souvent celui qui fait trancher. */
+  it('🔴 un bien sans locataire dit « Vacant »', async () => {
+    biensTrouves = [TROUVE('421', { parties: [{ role: 'proprietaire', cle: 'P9', nom: 'GARREAU' }] })];
+    await monter();
+    await taper('marceau');
+    expect(container.querySelector('.rec-ligne')?.textContent).toContain('Vacant');
+  });
+
+  it('🔴 les deux groupes du moteur sont titrés', async () => {
+    biensTrouves = [TROUVE('421')];
+    await monter();
+    await taper('marceau');
+    expect(container.querySelector('.rec-groupe-titre')?.textContent).toBe('Par adresse');
+  });
+
+  /**
+   * 🔴🔴 L'ÉPREUVE CENTRALE DE CE BLOC : « Un résultat coché rejoint la liste des biens cochés en haut, et le
+   * compteur se met à jour » (demande d'Arno, mot pour mot).
+   */
+  it('🔴🔴 cocher un résultat le fait rejoindre les cochés, et le compteur bouge', async () => {
+    contexte.biens = [BIEN('134', false, 'motif')];
+    biensTrouves = [TROUVE('421')];
+    await monter();
+    expect(container.querySelector('.rec-compte')?.textContent).toContain('0 bien(s) coché(s) sur 1 proposé(s)');
+
+    await taper('marceau');
+    const caseResultat = container.querySelector('.rec-ligne input[type="checkbox"]') as HTMLInputElement;
+    await cliquer(caseResultat);
+
+    expect(container.querySelector('.rec-compte')?.textContent).toContain('1 bien(s) coché(s) sur 2 proposé(s)');
+    // Il est aussi monté dans la liste du haut, avec les propositions.
+    expect(container.querySelector('.rec-biens')?.textContent).toContain('lot 421');
+  });
+
+  it('🔴 et « Valider » l’emporte avec les autres', async () => {
+    biensTrouves = [TROUVE('421')];
+    await monter();
+    await taper('marceau');
+    await cliquer(container.querySelector('.rec-ligne input[type="checkbox"]') as HTMLInputElement);
+    await cliquer(boutonPar(/^Valider/));
+    expect(cibles.map((c) => c.cle)).toEqual(['421']);
+    expect(cibles[0].libelle).toBe('28 av. Marceau — lot 421');
+  });
+
+  it('⚠️ moins de deux caractères : on ne demande rien au serveur', async () => {
+    await monter();
+    const avant = (global.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    await taper('m');
+    const apres = (global.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    expect(apres).toBe(avant);
+  });
+
+  it('⚠️ rien trouvé : on DIT ce qu’on a cherché — « aucun résultat » se lit comme une panne', async () => {
+    biensTrouves = [];
+    await monter();
+    await taper('zzzzz');
+    expect(container.querySelector('.rec-vide')?.textContent).toContain('zzzzz');
   });
 });

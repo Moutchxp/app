@@ -54,6 +54,9 @@ vi.mock('./schema', () => ({
   brouillonHtmlDisponible: async () => true,
   brouillonPieceDisponible: async () => false,
   corbeilleBrouillonDisponible: async () => corbeilleBrouillon,
+  // 🔴 LOT CLASSER-DEUX-BOUTONS — la sonde du classement du brouillon (migration 285). Ce fichier éprouve la
+  //   CORBEILLE : on la met à faux pour que son SQL reste celui d'avant ce lot.
+  brouillonClassementDisponible: async () => false,
 }));
 
 import {

@@ -28,7 +28,14 @@ vi.mock('../db/client', () => ({
   withTransaction: vi.fn(),
 }));
 const migration265 = vi.fn(async () => true);
-vi.mock('./schema', () => ({ brouillonHtmlDisponible: () => migration265() }));
+// 🔴 LOT CLASSER-DEUX-BOUTONS — `brouillonClassementDisponible` (migration 285) entre dans la MÊME sonde-écran.
+//   Ce fichier n'éprouve QUE le HTML : on la met à FAUX, pour que le SQL qu'il inspecte soit celui d'avant ce
+//   lot. Sa propre épreuve vit dans `redactionRepoClassement.test.ts`.
+vi.mock('./schema', () => ({
+  brouillonHtmlDisponible: () => migration265(),
+  brouillonClassementDisponible: async () => false,
+  corbeilleBrouillonDisponible: async () => true,
+}));
 
 import { enregistrerBrouillon } from './redactionRepo';
 

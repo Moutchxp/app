@@ -66,6 +66,12 @@ export interface ContexteRedactionEcran {
   htmlDisponible?: boolean;
   classementDisponible?: boolean;
   /**
+   * 🔴 LOT CLASSER-DEUX-BOUTONS — le classement SURVIT-IL à la fermeture de la fenêtre (migration 285) ? Faux ⇒
+   * les deux boutons marchent, mais le choix ne sera pas retrouvé à la réouverture du brouillon, et l'écran le
+   * DIT. Absent ⇒ on suppose que oui, comme pour les autres sondes facultatives de ce contexte.
+   */
+  classementBrouillonDisponible?: boolean;
+  /**
    * 🔴 LOT RATTACHER-EN-ECRIVANT — la migration 281 est-elle appliquée ? Elle porte « Interne ». Absente (ou
    * réponse d'API plus ancienne que ce lot ⇒ `undefined`), le bouton est GRISÉ avec son motif : on ne propose pas
    * un geste dont on sait qu'il ne pourra pas aboutir.
@@ -458,11 +464,41 @@ export function Redaction({
    */
   const dejaProposePour = useRef<string>('');
   /**
-   * 🔴 « INTERNE » CHOISI PENDANT L'ÉCRITURE. Il ne peut pas être posé tout de suite : la marque porte sur un
-   * ÉCHANGE, et un message neuf n'en a pas encore — c'est l'envoi qui le crée. On retient donc l'intention, et
-   * l'écran la pose après l'envoi, sur l'échange qui en naît.
+   * ══ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — « INTERNE » A QUITTÉ L'ÉTAT REACT POUR LE BROUILLON ══════════════════
+   *
+   * Il ne peut pas être POSÉ tout de suite : la marque porte sur un ÉCHANGE, et un message neuf n'en a pas
+   * encore — c'est l'envoi qui le crée. L'INTENTION, elle, appartient au brouillon, exactement comme les biens
+   * cochés : elle s'enregistre avec lui et se retrouve à sa réouverture (demande d'Arno).
+   *
+   * 🔴 CE QU'ELLE ÉTAIT, ET QUI SE PERDAIT : un `useState` local. Fermer la fenêtre, ou recharger la page,
+   * effaçait la décision SANS RIEN DIRE — on rouvrait le brouillon et « Interne » n'avait jamais existé.
+   *
+   * ⚠️ `interneVoulu` RESTE LE NOM LU PARTOUT AILLEURS dans ce fichier (l'envoi s'en sert) : seule sa SOURCE
+   * change. Renommer aurait touché huit endroits pour ne rien apprendre à personne.
    */
-  const [interneVoulu, setInterneVoulu] = useState(false);
+  const interneVoulu = brouillon.interne === true;
+  const setInterneVoulu = (v: boolean) => modifier({ interne: v });
+
+  /**
+   * ══ 🔴 « RÉINITIALISER » — REVENIR À L'ÉTAT INITIAL, PROPOSITIONS RECALCULÉES ════════════════════════════
+   *
+   * Demande d'Arno : « il revient à l'état initial (les deux boutons), comme si rien n'avait été cliqué. Les
+   * propositions de l'automatisation sont recalculées depuis les destinataires actuels, avec le même
+   * pré-cochage qu'au départ. »
+   *
+   * 🔴 LA CLÉ DE MONTAGE DE LA MODALE CHANGE, et c'est ce qui fait le « recalculées ». Sans elle, la modale
+   * rouverte garderait sa mémoire : les biens trouvés à la main y seraient encore, et la pré-coche — posée une
+   * seule fois au chargement, exprès — ne serait pas refaite. On la remonte donc à neuf.
+   *
+   * ⚠️ ON NE RÉ-ARME PAS L'OUVERTURE AUTOMATIQUE. « Réinitialiser » puis voir la fenêtre resurgir aussitôt
+   * serait hostile : on vient justement de dire qu'on ne voulait pas de ce classement. Elle se rouvre au clic
+   * sur « Rattacher », ou toute seule si un NOUVEAU destinataire est validé — ce qui est un fait nouveau.
+   */
+  const [versionRattachement, setVersionRattachement] = useState(0);
+  const reinitialiserClassement = () => {
+    onChange({ ...brouillon, cibles: [], interne: false });
+    setVersionRattachement((v) => v + 1);
+  };
 
   /**
    * ══ 🔴 LE DÉCLENCHEUR : UNE ADRESSE VALIDÉE, JAMAIS UNE FRAPPE ══════════════════════════════════════════════
@@ -586,6 +622,13 @@ export function Redaction({
     a: b.a, cc: b.cc, cci: b.cci, objet: b.objet, corps: b.corps, citation: b.citation,
     // 🔴 LOT EDITEUR-PJ — LA MISE EN FORME PART AVEC : sans elle un brouillon rouvert revient en texte brut.
     corpsHtml: b.corpsHtml ?? null,
+    /**
+     * 🔴🔴 LOT CLASSER-DEUX-BOUTONS — LE CLASSEMENT PART AVEC, LUI AUSSI. Sans ces deux lignes, la colonne
+     * existe, la route sait l'écrire, et rien ne lui arrive : le travail de classement se perd aussi sûrement
+     * qu'avant la migration. C'est le pendant exact de `corpsHtml` ci-dessus, et le même défaut qu'il a réparé.
+     */
+    cibles: b.cibles ?? [],
+    interne: b.interne === true,
   }), []);
 
   /**
@@ -1192,12 +1235,18 @@ export function Redaction({
           ⚠️ LE BLOC RESTE CONDITIONNÉ À `classementDisponible` : proposer un classement que la base ne saurait
           pas garder au rechargement serait pire qu'une fonction absente. */}
       {contexte.classementDisponible === true && (
-        <ChampClassement cibles={brouillon.cibles ?? []} onChange={(cibles) => modifier({ cibles })}
-          /* 🔴 « Rouvrir » : la modale se rouvre À LA DEMANDE depuis ce bloc, comme Arno le demande — l'ouverture
-             automatique n'a lieu qu'une fois par ensemble de destinataires. */
-          onRouvrir={destinatairesValides.length > 0 ? () => setRattacherOuvert(true) : undefined}
+        <ChampClassement
+          cibles={brouillon.cibles ?? []}
           interne={interneVoulu}
-          onInterne={() => setInterneVoulu(false)} />
+          /* 🔴 « Rattacher » ouvre la modale — et la case VERTE la rouvre avec les choix en cours. L'ouverture
+             automatique, elle, n'a lieu qu'une fois par ensemble de destinataires. */
+          onRattacher={destinatairesValides.length > 0 ? () => setRattacherOuvert(true) : undefined}
+          /* 🔴 LES DEUX RÉPONSES S'EXCLUENT : choisir « Interne » lève les biens, comme cocher un bien lève
+             « Interne » (voir la modale). Une contradiction enregistrée ne se rattrape pas. */
+          onInterne={() => onChange({ ...brouillon, interne: true, cibles: [] })}
+          onReinitialiser={reinitialiserClassement}
+          interneDisponible={contexte.interneDisponible === true}
+          persistant={contexte.classementBrouillonDisponible !== false} />
       )}
 
       {/* ══ 🔴🔴 LA MODALE, AU CENTRE DE L'ÉCRAN ════════════════════════════════════════════════════════════
@@ -1205,6 +1254,13 @@ export function Redaction({
           fenêtre vide ferait douter qu'on ait oublié quelque chose. */}
       {rattacherOuvert && destinatairesValides.length > 0 && (
         <RattacherEnEcrivant
+          /* 🔴 « Réinitialiser » CHANGE CETTE CLÉ : la modale se remonte à neuf, donc les propositions sont
+             relues et la pré-coche refaite — c'est ce que demande Arno, et c'est la seule façon de l'obtenir
+             d'un composant qui, exprès, ne pré-coche qu'une fois. */
+          /* ⚠️ UNE CLÉ TEXTUELLE, PAS LE NOMBRE NU : un `0` posé comme clé se confond avec la clé implicite
+             d'un autre enfant, et React signale alors « two children with the same key, 0 » — un avertissement
+             qui ne dit pas d'où il vient. Le préfixe coûte zéro et ferme la question. */
+          key={`rec-${versionRattachement}`}
           destinataires={destinatairesValides}
           objet={brouillon.objet}
           /**
@@ -1230,13 +1286,11 @@ export function Redaction({
           pieces={[]}
           cibles={brouillon.cibles ?? []}
           onChange={(cibles) => {
-            modifier({ cibles });
             // 🔴 COCHER UN BIEN LÈVE « INTERNE » : les deux réponses s'excluent (voir l'encadré de la modale).
-            if (cibles.some((c) => c.sorte === 'lot')) setInterneVoulu(false);
+            //   Les deux champs partent DANS LE MÊME appel : deux `modifier` successifs perdraient le premier,
+            //   puisque chacun repart du `brouillon` du rendu courant.
+            onChange({ ...brouillon, cibles, interne: cibles.some((c) => c.sorte === 'lot') ? false : interneVoulu });
           }}
-          interneDisponible={contexte.interneDisponible === true}
-          interneChoisi={interneVoulu}
-          onInterne={(actif) => { setInterneVoulu(actif); if (actif) modifier({ cibles: [] }); }}
           onFerme={() => setRattacherOuvert(false)} />
       )}
 

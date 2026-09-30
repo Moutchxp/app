@@ -1,4 +1,4 @@
-import type { Brouillon, VoieRedaction } from './redaction';
+import type { Brouillon, CibleBrouillon, VoieRedaction } from './redaction';
 import { texteVersHtml } from './htmlMail';
 
 /**
@@ -32,6 +32,13 @@ export interface BrouillonEnregistre {
   corpsHtml: string | null;
   citation: string | null;
   majLe: string;
+  /**
+   * 🔴 LOT CLASSER-DEUX-BOUTONS — le classement décidé pendant la rédaction, retrouvé à la réouverture.
+   * ⚠️ FACULTATIFS : une route d'avant ce lot (ou sans la migration 285) ne les rend pas, et l'éditeur repart
+   * alors de l'état initial — les deux boutons — plutôt que d'un état inventé.
+   */
+  cibles?: CibleBrouillon[];
+  interne?: boolean;
 }
 
 /** Le brouillon prêt pour l'éditeur : la forme de l'écran, plus son identifiant et la marque « repris ». */
@@ -69,6 +76,9 @@ export function reprendreBrouillon(b: BrouillonEnregistre): BrouillonRepris {
     destinatairesApproximatifs: false,
     filId: b.filId,
     repondALeMessageId: b.repondAMessageId,
+    // 🔴 LOT CLASSER-DEUX-BOUTONS — le classement revient tel qu'il a été laissé.
+    cibles: [...(b.cibles ?? [])],
+    interne: b.interne === true,
   };
 }
 
