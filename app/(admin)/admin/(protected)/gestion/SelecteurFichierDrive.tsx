@@ -32,6 +32,10 @@ import {
   largeurCote, MIME_PIECE, motColonnes, motDeposerIci, motFantome, motRangee, motToutSelectionner,
   piecesEmportees, resumeARanger, titreFenetre, type ModeDrive, type PieceARanger, type Rangee,
 } from '../../../../lib/gestion/rangementDrive';
+// 🔴 LOT RENOMMER-AVANT-RANGER — le nom sous lequel une pièce partira. Module PUR, partagé avec la route.
+import {
+  estRenommee, INFOBULLE_RENOMMER, mentionNomOrigine, MOTIF_DEJA_RANGEE, nomDeDepot,
+} from '../../../../lib/gestion/renommagePiece';
 import {
   aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
@@ -276,6 +280,22 @@ export function SelecteurFichierDrive({
   const [rechercheOuverte, setRechercheOuverte] = useState<string | null>(null);
   const [prioritaires, setPrioritaires] = useState<DossierPrioritaire[]>([]);
   const [aVoir, setAVoir] = useState<FichierAVoir | null>(null);
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LES NOMS CHOISIS, PAR PIÈCE ═══════════════════════════════════════════
+   *
+   * Demande d'Arno : « le nom choisi est conservé tant que la fenêtre “Ranger” reste ouverte ».
+   *
+   * 🔴 ILS VIVENT ICI, ET NULLE PART AILLEURS. Pas en base : rien n'est décidé tant qu'on n'a pas déposé, et un
+   * nom écrit en base avant le dépôt serait une promesse qu'on ne tient peut-être jamais. Pas dans l'aperçu non
+   * plus : il s'ouvre et se ferme, alors que le nom doit survivre à dix allers-retours. La fenêtre « Ranger »
+   * est le seul endroit dont la durée de vie correspond exactement à celle du choix.
+   *
+   * ⚠️ LA CLÉ EST L'IDENTIFIANT DE PIÈCE, jamais son nom : deux pièces d'un même mail peuvent porter le même
+   * nom, et les confondre renommerait la mauvaise.
+   */
+  const [nomsChoisis, setNomsChoisis] = useState<ReadonlyMap<number, string>>(new Map());
+  /** La pièce dont l'aperçu doit s'ouvrir DIRECTEMENT sur le champ (arrivée par le stylo). */
+  const [renommerDabord, setRenommerDabord] = useState<number | null>(null);
   /** La ligne de dossier en cours de création, s'il y en a une. */
   const [ligneNeuve, setLigneNeuve] = useState<LigneNeuve>(LIGNE_FERMEE);
   const [motDeLaCreation, setMotDeLaCreation] = useState<string | null>(null);
@@ -1356,7 +1376,18 @@ export function SelecteurFichierDrive({
     try {
       const res = await fetch(`/api/admin/gestion/pieces/${piece.pieceId}/drive`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dossierId: cibleId }),
+        /* 🔴 LOT RENOMMER-AVANT-RANGER — LE NOM CHOISI PART AVEC LA DEMANDE, ET C'EST LE SEUL ENDROIT QUI
+           ENVOIE UN DÉPÔT : glisser, « Déposer ici », un raccourci de la barre latérale, un parent du bandeau,
+           la sélection multiple — tous passent par `ranger`, donc tous emportent le nom. C'est ce qui rend la
+           promesse d'Arno vraie « par tous les chemins » sans avoir à le répéter six fois.
+           ⚠️ ON N'ENVOIE RIEN QUAND LE NOM N'A PAS CHANGÉ : la route retombe alors sur le nom d'origine, et la
+           requête est mot pour mot celle d'avant ce lot. */
+        body: JSON.stringify({
+          dossierId: cibleId,
+          ...(estRenommee(piece.nom, nomsChoisis.get(piece.pieceId))
+            ? { nom: nomDeDepot(piece.nom, nomsChoisis.get(piece.pieceId)) }
+            : {}),
+        }),
       });
       const d = (await res.json()) as {
         etat?: string; message?: string;
@@ -1404,16 +1435,47 @@ export function SelecteurFichierDrive({
    * (`PARENT_PIECES`) : `voisinsVisualisables` ne retient que ce qui partage le MÊME parent, donc les pièces
    * restent entre elles et aucun fichier du Drive ne peut s'y glisser. Les deux mondes ne se mélangent jamais.
    */
-  const voirPiece = (x: PieceARanger) => {
+  const voirPiece = (x: PieceARanger, pourRenommer = false) => {
+    setRenommerDabord(pourRenommer ? x.pieceId : null);
     setAVoir({
-      id: String(x.pieceId), nom: x.nom, typeMime: x.typeMime ?? '', lien: null,
-      parentId: PARENT_PIECES, source: 'piece',
+      // ⚠️ LE NOM PASSÉ À L'APERÇU EST CELUI QU'ON A CHOISI : c'est ce qu'annonce sa barre de titre, et c'est
+      //   sous ce nom-là que la pièce partira. Le nom reçu, lui, reste dit par le bandeau.
+      id: String(x.pieceId), nom: nomDeDepot(x.nom, nomsChoisis.get(x.pieceId)), typeMime: x.typeMime ?? '',
+      lien: null, parentId: PARENT_PIECES, source: 'piece',
     });
+  };
+
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — POURQUOI UNE PIÈCE DÉJÀ RANGÉE NE SE RENOMME PLUS ════════════════════
+   *
+   * Arno : « pièce déjà rangée : le stylo est grisé, avec l'infobulle “Déjà rangée — renommez-la dans le Drive”.
+   * On ne renomme jamais un fichier existant du Drive. »
+   *
+   * 🔴 CE N'EST PAS UNE PRÉCAUTION, C'EST LA RÈGLE DU MODULE : l'application déplace et copie dans le Drive, elle
+   * n'y renomme rien. Laisser le champ ouvert donnerait un nom qui ne partirait nulle part — le fichier est
+   * déjà là-bas, sous l'ancien — et l'on croirait l'avoir renommé.
+   */
+  const refusRenommage = (x: PieceARanger): string | null =>
+    (rangees.has(x.pieceId) ? MOTIF_DEJA_RANGEE : null);
+
+  /** Ce qu'on retient d'un renommage. Vide ou égal au nom reçu ⇒ on OUBLIE l'entrée : « pas renommée » est un état. */
+  const renommerPiece = (pieceId: number, nomOrigine: string, nom: string) => {
+    setNomsChoisis((m) => {
+      const n = new Map(m);
+      if (nom.trim() === '' || nom === nomOrigine) n.delete(pieceId); else n.set(pieceId, nom);
+      return n;
+    });
+    // La barre de titre de l'aperçu porte le nom : elle doit suivre, sans quoi on lirait l'ancien juste au-dessus.
+    setAVoir((v) => (v !== null && v.source === 'piece' && v.id === String(pieceId) ? { ...v, nom } : v));
   };
 
   /** Le voisinage du tour : les pièces visualisables du mail, et rien d'autre. */
   const voisinagePieces = pieces.map((x) => ({
-    id: String(x.pieceId), nom: x.nom, typeMime: x.typeMime ?? '', dossier: false, parentId: PARENT_PIECES,
+    /* 🔴 LOT RENOMMER-AVANT-RANGER — LE VOISINAGE PORTE LE NOM CHOISI. C'est lui que la barre de titre affiche
+       quand « Précédent / Suivant » amène cette pièce : y laisser le nom reçu ferait lire l'ancien nom juste
+       au-dessus du bandeau qui annonce le nouveau. Vu à l'écran. */
+    id: String(x.pieceId), nom: nomDeDepot(x.nom, nomsChoisis.get(x.pieceId)),
+    typeMime: x.typeMime ?? '', dossier: false, parentId: PARENT_PIECES,
   }));
 
   /** Les pièces qui restent à poser : celles qu'on n'a encore rangées nulle part. */
@@ -2568,7 +2630,15 @@ export function SelecteurFichierDrive({
                           loading="lazy" decoding="async"
                           onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }} />
                         <span className="sfd-piece-mots">
-                          <span className="sfd-piece-nom" title={x.nom}>{x.nom}</span>
+                          {/* 🔴 LOT RENOMMER-AVANT-RANGER — LA CARTE MONTRE LE NOM SOUS LEQUEL LA PIÈCE PARTIRA.
+                              C'est le seul qui compte pour qui s'apprête à ranger ; le nom reçu, lui, se lit
+                              juste en dessous dès qu'il diffère — c'est celui qu'on cherchera dans le mail. */}
+                          <span className="sfd-piece-nom" title={nomDeDepot(x.nom, nomsChoisis.get(x.pieceId))}>
+                            {nomDeDepot(x.nom, nomsChoisis.get(x.pieceId))}
+                          </span>
+                          {estRenommee(x.nom, nomsChoisis.get(x.pieceId)) && (
+                            <span className="sfd-piece-origine" title={x.nom}>{mentionNomOrigine(x.nom)}</span>
+                          )}
                           {/* ══ 🔴 LE POIDS, ET L'ŒIL À SA DROITE (demande d'Arno) ═══════════════════════════
                               🔴 IL MARCHE AUSSI SUR UNE PIÈCE VIDÉE : la route des pièces bascule d'elle-même
                               sur la copie Drive quand les octets locaux ont été libérés. Rien à écrire ici.
@@ -2585,6 +2655,30 @@ export function SelecteurFichierDrive({
                                   aria-label={refus ?? `Visualiser ${x.nom}`}
                                   onClick={(e) => { e.stopPropagation(); if (refus === null) voirPiece(x); }}>
                                   <span aria-hidden="true">👁</span>
+                                </button>
+                              );
+                            })()}
+                            {/* ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE STYLO, À CÔTÉ DE L'ŒIL ═══════════════════
+                                Arno : « à côté de l'œil, une petite icône stylo ✎ (infobulle “Renommer avant de
+                                ranger”), de même taille et même alignement que l'œil ».
+
+                                🔴 IL OUVRE LA MÊME FENÊTRE QUE L'ŒIL, directement sur le champ. Une boîte de
+                                dialogue à part aurait obligé à renommer SANS voir la pièce — or c'est en la
+                                regardant qu'on sait comment l'appeler, et c'est tout l'intérêt du geste.
+
+                                ⚠️ IL RESTE ACTIF MÊME SANS APERÇU POSSIBLE (un type sans visuel) : on renomme
+                                aussi bien un fichier qu'on ne peut pas afficher, et la fenêtre dira simplement
+                                « aperçu indisponible » à la place du visuel.
+                                ⚠️ ÉTEINT SUR UNE PIÈCE DÉJÀ RANGÉE, avec son motif : voir `refusRenommage`. */}
+                            {(() => {
+                              const refus = refusRenommage(x);
+                              return (
+                                <button type="button" className="sfd-piece-stylo"
+                                  disabled={refus !== null}
+                                  title={refus ?? INFOBULLE_RENOMMER}
+                                  aria-label={refus ?? `${INFOBULLE_RENOMMER} — ${x.nom}`}
+                                  onClick={(e) => { e.stopPropagation(); if (refus === null) voirPiece(x, true); }}>
+                                  <span aria-hidden="true">✎</span>
                                 </button>
                               );
                             })()}
@@ -3090,7 +3184,23 @@ export function SelecteurFichierDrive({
             modifieLe: null, lien: f.lien, dossier: false,
           });
         }}
-        onFermer={() => setAVoir(null)} />
+        /* ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE BANDEAU DE NOM, SEULEMENT SUR UNE PIÈCE REÇUE ═══════════════
+            Un fichier du DRIVE ne se renomme pas ici : il existe déjà là-bas, et l'application n'y renomme rien.
+            La prop est donc absente dans ce cas, et l'aperçu est celui d'avant ce lot, mot pour mot.
+            ⚠️ `pieces.find` ET NON LA PIÈCE CLIQUÉE : « Précédent / Suivant » change de pièce dans la même
+            fenêtre, et le bandeau doit suivre celle qui est AFFICHÉE (demande d'Arno). */
+        renommage={aVoir.source !== 'piece' ? undefined : (idAffiche) => {
+          const x = pieces.find((p) => String(p.pieceId) === idAffiche);
+          if (x === undefined) return undefined;
+          return {
+            nomOrigine: x.nom,
+            nomChoisi: nomsChoisis.get(x.pieceId) ?? null,
+            editerDabord: renommerDabord === x.pieceId,
+            refus: refusRenommage(x),
+            onRenommer: (nom: string) => renommerPiece(x.pieceId, x.nom, nom),
+          };
+        }}
+        onFermer={() => { setAVoir(null); setRenommerDabord(null); }} />
     )}
     </>
   );
@@ -3426,6 +3536,18 @@ export const CSS_SELECTEUR_FICHIER = `
   color:var(--color-svv-ink);background:none;border:0}
 .sfd-piece-oeil:hover:not(:disabled){color:var(--color-svv-red)}
 .sfd-piece-oeil:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* 🔴 LOT RENOMMER-AVANT-RANGER — LE STYLO : meme taille, meme alignement et meme comportement que l'oeil
+   (demande d'Arno). Il n'a PAS de margin-left:auto — c'est l'oeil qui pousse le couple a droite, et les deux
+   restent colles l'un a l'autre.
+   ⚠️ ETEINT, IL GARDE SA PLACE : une icone qui disparait ferait sauter la ligne d'une carte a l'autre. */
+.sfd-piece-stylo{padding:0 2px;font-size:.9rem;line-height:1;cursor:pointer;
+  color:var(--color-svv-ink);background:none;border:0}
+.sfd-piece-stylo:hover:not(:disabled){color:var(--color-svv-red)}
+.sfd-piece-stylo:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.sfd-piece-stylo:disabled,.sfd-piece-oeil:disabled{opacity:.4;cursor:not-allowed}
+/* Le nom RECU, sous le nouveau : petit, gris, et tronque comme le nom lui-meme. */
+.sfd-piece-origine{font-size:.68rem;color:var(--color-svv-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Un oeil eteint n'est pas un bouton : il ne se clique pas, et son infobulle dit pourquoi. */
 .sfd-piece-oeil:disabled{opacity:.35;cursor:default}
 

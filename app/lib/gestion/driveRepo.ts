@@ -12,7 +12,8 @@
 import { query } from '../db/client';
 import { nombreRecentsValide, RECENTS_DEFAUT, type CandidatRecent } from './dossiersRecents';
 import {
-  compteGoogleDuDepotDisponible, depotsDriveDisponibles, journalPieceDriveDisponible, reglageRecentsDisponible,
+  compteGoogleDuDepotDisponible, depotsDriveDisponibles, journalPieceDriveDisponible, nomDeposeDisponible,
+  reglageRecentsDisponible,
 } from './schema';
 
 /** Un dépôt, tel que l'écran l'affiche : « Dans le Drive · ouvrir », avec le nom du dossier. */
@@ -146,6 +147,20 @@ export interface ADeposer {
    * fichier dans le Drive : sans elle, on saurait qui a cliqué sans savoir sous quelle identité le fichier est parti.
    */
   compteGoogle?: string | null;
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE NOM SOUS LEQUEL LA COPIE EST PARTIE ═══════════════════════════════
+   *
+   * Demande d'Arno : « le journal de dépôt garde le nom d'origine ET le nom donné ».
+   *
+   * 🔴 LE NOM D'ORIGINE N'EST PAS RECOPIÉ ICI : il vit déjà dans `gestion_piece.nom_fichier`, et il n'a pas
+   * bougé — le renommage ne touche jamais la pièce reçue. Le dupliquer créerait une seconde vérité qui
+   * divergerait au premier renommage de l'autre côté. Une jointure donne les deux noms.
+   *
+   * ⚠️ `null` OU ÉGAL AU NOM D'ORIGINE ⇒ ON N'ÉCRIT RIEN : une colonne remplie à l'identique sur des milliers de
+   * lignes ne dirait qu'une chose — « personne n'a renommé » — que l'absence dit déjà.
+   * ⚠️ SANS LA MIGRATION 280, la colonne n'est NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant.
+   */
+  nomDepose?: string | null;
 }
 
 /** Ce que l'écriture rapporte. `doublon` = la base a refusé : le fichier était déjà là, et c'est une bonne nouvelle. */
@@ -170,14 +185,20 @@ export async function memoriserDepot(d: ADeposer): Promise<IssueMemorisation> {
   // La colonne `compte_google` n'existe qu'après la migration 246 : on ne la NOMME que si elle est là, sinon la
   //   requête échouerait tout entière — et le dépôt, lui, a bien eu lieu dans le Drive.
   const avecCompte = await compteGoogleDuDepotDisponible();
+  /* 🔴 LOT RENOMMER-AVANT-RANGER — même règle de sonde que `compte_google` juste au-dessus : une colonne absente
+     n'est NOMMÉE NULLE PART, sinon la requête entière échouerait alors que le dépôt a bien eu lieu dans le Drive. */
+  const nomDepose = (d.nomDepose ?? '').trim();
+  const avecNom = nomDepose !== '' && await nomDeposeDisponible();
+  const colonnes = ['piece_id', 'drive_file_id', 'drive_dossier_id', 'dossier_nom', 'drive_id', 'web_view_link',
+    'depose_par', 'depose_par_libelle', ...(avecCompte ? ['compte_google'] : []), ...(avecNom ? ['nom_depose'] : [])];
+  const valeurs: unknown[] = [d.pieceId, d.driveFileId, d.dossierId, d.dossierNom, d.driveId, d.webViewLink,
+    d.auteurId, d.auteurLibelle, ...(avecCompte ? [d.compteGoogle ?? null] : []), ...(avecNom ? [nomDepose] : [])];
   const { rowCount } = await query(
     `INSERT INTO gestion_piece_drive
-       (piece_id, drive_file_id, drive_dossier_id, dossier_nom, drive_id, web_view_link, depose_par, depose_par_libelle${avecCompte ? ', compte_google' : ''})
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8${avecCompte ? ', $9' : ''})
+       (${colonnes.join(', ')})
+     VALUES (${colonnes.map((_, i) => `$${i + 1}`).join(', ')})
      ON CONFLICT (piece_id, drive_dossier_id) DO NOTHING`,
-    avecCompte
-      ? [d.pieceId, d.driveFileId, d.dossierId, d.dossierNom, d.driveId, d.webViewLink, d.auteurId, d.auteurLibelle, d.compteGoogle ?? null]
-      : [d.pieceId, d.driveFileId, d.dossierId, d.dossierNom, d.driveId, d.webViewLink, d.auteurId, d.auteurLibelle],
+    valeurs,
   );
   if ((rowCount ?? 0) === 0) return { etat: 'doublon' };
 

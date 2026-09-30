@@ -19,6 +19,8 @@ import type { FichierDepose } from './drive';
 import type { ADeposer, DepotDrive, IssueMemorisation } from './driveRepo';
 import type { EtatGoogle } from './jetonAcces';
 import type { Resultat } from './google';
+// 🔴 LOT RENOMMER-AVANT-RANGER — le nom de la copie est décidé par le module PUR, jamais recalculé ici.
+import { nomDeDepot } from './renommagePiece';
 
 /** Ce qu'on sait d'une pièce avant de la déposer. */
 export interface PieceADeposer {
@@ -102,6 +104,20 @@ function motifEchec(e: unknown): string {
  */
 export async function deposerPieces(
   deps: DepsDepot, jeton: string, pieceIds: readonly number[], dossierId: string, auteur: Auteur,
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE NOM SOUS LEQUEL LA COPIE PART ════════════════════════════════════════
+   *
+   * Demande d'Arno : « le nouveau nom est celui sous lequel la pièce sera DÉPOSÉE dans le Drive (tous les
+   * chemins) ». Par pièce, parce qu'un lot peut en emporter quatre dont une seule a été renommée.
+   *
+   * 🔴 LA PIÈCE D'ORIGINE N'EST JAMAIS TOUCHÉE. Ce paramètre ne sert qu'à nommer la COPIE : `lirePiece` rend
+   * toujours le nom reçu, et rien ici ne l'écrit. C'est ce qui garantit que le mail, Gmail et notre base de
+   * pièces reçues gardent le nom sous lequel le courrier est arrivé.
+   *
+   * ⚠️ ABSENT, VIDE OU ÉGAL AU NOM D'ORIGINE ⇒ COMPORTEMENT D'AVANT CE LOT, mot pour mot : c'est `nomDeDepot`
+   * (module PUR) qui tranche, et il est appelé UNE fois, au même endroit pour les deux voies de dépôt.
+   */
+  noms?: ReadonlyMap<number, string>,
 ): Promise<IssuePiece[]> {
   const infos = await deps.infosDossier(jeton, dossierId);
   const issues: IssuePiece[] = [];
@@ -112,12 +128,16 @@ export async function deposerPieces(
       issues.push({ pieceId, nomFichier: `pièce ${pieceId}`, etat: 'echec', motif: 'cette pièce n’est pas conservée par l’application' });
       continue;
     }
+    /* 🔴 LE NOM DE LA COPIE, DÉCIDÉ UNE SEULE FOIS ET EN UN SEUL ENDROIT : les deux voies de dépôt (nos octets,
+       la copie de Drive à Drive) et le journal le lisent d'ici. Le calculer deux fois, c'est le calculer
+       différemment un jour. */
+    const nomCopie = nomDeDepot(piece.nomFichier, noms?.get(pieceId));
     try {
       // ── ① DÉJÀ LÀ ? On demande AVANT de téléverser : inutile de pousser 25 Mo pour se faire refuser ensuite.
       //      (La base reste l'arbitre final — cf. `memoriser`, qui tranche entre deux clics simultanés.)
       const deja = await deps.depotExistant(pieceId, dossierId);
       if (deja !== null) {
-        issues.push({ pieceId, nomFichier: piece.nomFichier, etat: 'deja', lien: deja.webViewLink });
+        issues.push({ pieceId, nomFichier: nomCopie, etat: 'deja', lien: deja.webViewLink });
         continue;
       }
 
@@ -142,7 +162,7 @@ export async function deposerPieces(
       const copieDrive = (piece.driveFileId ?? '').trim();
       const parLeDrive = async (): Promise<Resultat<FichierDepose> | null> => {
         if (copieDrive === '' || deps.copierDepuisDrive === undefined) return null;
-        return deps.copierDepuisDrive(jeton, { driveFileId: copieDrive, nom: piece.nomFichier, dossierId });
+        return deps.copierDepuisDrive(jeton, { driveFileId: copieDrive, nom: nomCopie, dossierId });
       };
 
       let envoi: Resultat<FichierDepose> | null = null;
@@ -153,7 +173,7 @@ export async function deposerPieces(
         try {
           const octets = await deps.octets(piece.cleStockage);
           envoi = await deps.deposer(jeton, {
-            nom: piece.nomFichier, typeMime: piece.typeMime, octets, dossierId,
+            nom: nomCopie, typeMime: piece.typeMime, octets, dossierId,
           });
         } catch (e) {
           // 🔴 LES OCTETS MANQUENT : on essaie le Drive AVANT de déclarer l'échec. S'il n'y a rien à copier,
@@ -163,7 +183,7 @@ export async function deposerPieces(
         }
       }
       if (!envoi.ok) {
-        issues.push({ pieceId, nomFichier: piece.nomFichier, etat: 'echec', motif: envoi.motif });
+        issues.push({ pieceId, nomFichier: nomCopie, etat: 'echec', motif: envoi.motif });
         continue;
       }
 
@@ -174,15 +194,19 @@ export async function deposerPieces(
         dossierNom: infos?.nom ?? null, driveId: infos?.driveId ?? null,
         webViewLink: envoi.valeur.webViewLink, auteurId: auteur.id, auteurLibelle: auteur.libelle,
         compteGoogle: auteur.compteGoogle ?? null,
+        // 🔴 LA TRACE DU RENOMMAGE. `null` quand le nom n'a pas changé : voir `ADeposer.nomDepose`.
+        nomDepose: nomCopie === piece.nomFichier ? null : nomCopie,
       });
       issues.push({
-        pieceId, nomFichier: piece.nomFichier,
+        // ⚠️ LE NOM RENDU EST CELUI SOUS LEQUEL LA PIÈCE EST PARTIE : c'est lui que l'écran annonce, et c'est lui
+        //   qu'on retrouvera dans le Drive. Rendre le nom d'origine ferait chercher un fichier qui n'existe pas.
+        pieceId, nomFichier: nomCopie,
         etat: memo.etat === 'doublon' ? 'deja' : 'depose',
         lien: envoi.valeur.webViewLink,
       });
     } catch (e) {
       // Une pièce qui casse n'emporte pas les autres : c'est toute la raison du verdict par pièce.
-      issues.push({ pieceId, nomFichier: piece.nomFichier, etat: 'echec', motif: motifEchec(e) });
+      issues.push({ pieceId, nomFichier: nomCopie, etat: 'echec', motif: motifEchec(e) });
     }
   }
   return issues;

@@ -264,3 +264,70 @@ describe('ce que l’écran dit quand Google manque', () => {
     expect(messageEtatGoogle({ etat: 'ok', jeton: 'j' })).toBe('');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RENOMMER-AVANT-RANGER — LA COPIE PART SOUS LE NOM CHOISI, L'ORIGINE NE BOUGE PAS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 le nom sous lequel la copie part', () => {
+  /**
+   * 🔴🔴 LA GARANTIE CENTRALE DU LOT, ÉPROUVÉE LÀ OÙ LE FICHIER PART VRAIMENT. Tout le reste — le stylo, le
+   * champ, la carte — n'est qu'un affichage si ce nom-ci n'atteint pas le téléversement.
+   */
+  it('🔴 la copie est téléversée sous le nom donné', async () => {
+    const d = deps();
+    const i = await deposerPieces(d, 'j', [1], 'DOS', AUTEUR, new Map([[1, 'Quittance septembre 2026.pdf']]));
+    expect(d.deposes).toEqual(['Quittance septembre 2026.pdf']);
+    // ⚠️ ET L'ISSUE REND CE NOM-LÀ : c'est lui qu'on retrouvera dans le Drive, donc lui que l'écran doit annoncer.
+    expect(i[0].nomFichier).toBe('Quittance septembre 2026.pdf');
+  });
+
+  /**
+   * 🔴🔴 LA PIÈCE D'ORIGINE N'EST JAMAIS RENOMMÉE. `lirePiece` est la seule lecture de la pièce reçue, et rien
+   * dans ce module ne l'écrit : le nom reçu reste le nom reçu, dans le mail comme dans notre base.
+   */
+  it('🔴 rien n’écrit sur la pièce reçue : seul le nom de la COPIE change', async () => {
+    const lues: number[] = [];
+    const d = { ...deps(), lirePiece: async (id: number) => { lues.push(id); return { pieceId: id, nomFichier: '0836_001.pdf', typeMime: 'application/pdf', cleStockage: 'k1' }; } };
+    const i = await deposerPieces(d as never, 'j', [1], 'DOS', AUTEUR, new Map([[1, 'Bail.pdf']]));
+    expect(lues).toEqual([1]);
+    expect(i[0].etat).toBe('depose');
+    // La seule écriture du module est le DÉPÔT (dans le Drive) et sa MÉMORISATION (dans notre journal).
+    expect(Object.keys(d)).not.toContain('renommerPiece');
+  });
+
+  /** 🔴 LE JOURNAL GARDE LES DEUX NOMS : le reçu vit dans `gestion_piece`, le donné arrive ici. */
+  it('🔴 le journal reçoit le nom donné — et seulement s’il diffère', async () => {
+    const vus: { pieceId: number; nomDepose?: string | null }[] = [];
+    const d = deps({ memoriser: async (x) => { vus.push(x); return { etat: 'enregistre' }; } });
+    await deposerPieces(d, 'j', [1, 2], 'DOS', AUTEUR, new Map([[1, 'Bail.pdf']]));
+    expect(vus[0]).toMatchObject({ pieceId: 1, nomDepose: 'Bail.pdf' });
+    // ⚠️ La pièce 2 n'a pas été renommée : rien n'est écrit, et « personne n'a renommé » se lit dans l'absence.
+    expect(vus[1]).toMatchObject({ pieceId: 2, nomDepose: null });
+  });
+
+  /**
+   * 🔴 LA COPIE DE DRIVE À DRIVE SUIT LA MÊME RÈGLE. C'est la voie d'une pièce dont les octets locaux ont été
+   * libérés : elle ne passe pas par `deposer`, et l'oublier aurait déposé sous l'ancien nom une fois sur deux,
+   * selon que le vidage était passé ou non — le pire genre de défaut, invisible et intermittent.
+   */
+  it('🔴 la voie « copie depuis le Drive » emporte aussi le nom donné', async () => {
+    const noms: string[] = [];
+    const d = deps({
+      pieces: { 1: { nomFichier: '0836_001.pdf', typeMime: 'application/pdf', cleStockage: 'k1', stockageVide: true, driveFileId: 'SRC' } },
+      copier: async (_j, x) => { noms.push(x.nom); return { ok: true, valeur: { id: 'C1', nom: x.nom, webViewLink: 'https://drive/c1' } }; },
+    });
+    await deposerPieces(d, 'j', [1], 'DOS', AUTEUR, new Map([[1, 'Bail signé.pdf']]));
+    expect(noms).toEqual(['Bail signé.pdf']);
+  });
+
+  /** ⚠️ SANS RENOMMAGE, LE COMPORTEMENT EST CELUI D'AVANT CE LOT, mot pour mot. */
+  it('sans carte de noms, la pièce part sous son nom d’origine', async () => {
+    const d = deps();
+    await deposerPieces(d, 'j', [1], 'DOS', AUTEUR);
+    expect(d.deposes).toEqual(['piece-1.pdf']);
+    const d2 = deps();
+    await deposerPieces(d2, 'j', [1], 'DOS', AUTEUR, new Map([[1, '  ']]));
+    expect(d2.deposes).toEqual(['piece-1.pdf']);
+  });
+});

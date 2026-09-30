@@ -216,6 +216,19 @@ export function compteGoogleDuDepotDisponible(): Promise<boolean> {
   return memoiser('piece_drive.compte_google', () => colonneExiste('gestion_piece_drive', 'compte_google'));
 }
 
+/**
+ * 🔴 LOT RENOMMER-AVANT-RANGER — le registre des dépôts sait-il dire SOUS QUEL NOM la copie est partie
+ * (migration 280) ?
+ *
+ * ⚠️ ELLE NE CONDITIONNE PAS LE RENOMMAGE LUI-MÊME : sans la migration, la pièce part quand même sous le nom
+ * choisi — c'est le Drive qui le porte. Ce qui manque alors est la TRACE : le journal ne garde que le nom
+ * d'origine, par la jointure sur `gestion_piece`. On ne NOMME donc la colonne que si elle existe, sinon la
+ * requête entière échouerait — et le dépôt, lui, a bien eu lieu.
+ */
+export function nomDeposeDisponible(): Promise<boolean> {
+  return memoiser('piece_drive.nom_depose', () => colonneExiste('gestion_piece_drive', 'nom_depose'));
+}
+
 /** Pour les tests : oublie ce qu'on croyait savoir du schéma. N'a aucun effet en production, où rien ne l'appelle. */
 export function oublierSchema(): void {
   memoire.oublier();

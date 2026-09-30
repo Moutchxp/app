@@ -7,6 +7,10 @@ import {
 } from '../../../../lib/gestion/apercuDrive';
 // LOT APERCU-PAGE1 — le PDF se lit chez nous, page par page : le lecteur natif attendait le fichier entier.
 import { LecteurPdf, CSS_LECTEUR_PDF } from './LecteurPdf';
+// 🔴 LOT RENOMMER-AVANT-RANGER — toutes les règles du nom vivent dans ce module PUR, jamais ici.
+import {
+  eclaterNom, estRenommee, INFOBULLE_RENOMMER, mentionNomOrigine, nomDeDepot, verifierNom,
+} from '../../../../lib/gestion/renommagePiece';
 
 /**
  * LOT DRIVE-VISUALISER-ET-DOSSIERS — « VISUALISER » : VOIR UN FICHIER DU DRIVE SANS LE JOINDRE.
@@ -113,8 +117,39 @@ const AMORCE_TAILLE_MAX = 8 * 1024 * 1024;
 
 export function ApercuFichierDrive({
   fichier, voisinage = [], joindreAutorise, estDeja, onJoindre, onFermer,
+  renommage,
 }: {
   fichier: FichierAVoir;
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE BANDEAU DE NOM, AU-DESSUS DU VISUEL ═══════════════════════════════
+   *
+   * Demande d'Arno : « clic sur le stylo : ouvre l'aperçu habituel avec, AU-DESSUS du visuel, un champ
+   * pré-rempli […] clic sur l'œil : même fenêtre SANS le champ, à sa place le nom du fichier et un petit stylo ».
+   *
+   * 🔴 ABSENT ⇒ L'APERÇU D'AVANT CE LOT, MOT POUR MOT. C'est ce qui permet à la fenêtre de rester LA MÊME
+   * partout : le Drive de l'éditeur de mail n'a rien à renommer (on y regarde des fichiers qui existent déjà),
+   * et il ne passe simplement pas cette prop.
+   *
+   * ⚠️ L'APERÇU NE DÉCIDE RIEN : il montre un nom et rend celui qu'on lui donne. C'est la fenêtre « Ranger » qui
+   * tient les noms choisis, parce que c'est elle qui les fera partir — et qui les garde tant qu'elle est ouverte.
+   */
+  /**
+   * ⚠️ C'EST UNE FONCTION DE L'IDENTIFIANT AFFICHÉ, ET NON UN OBJET FIGÉ — défaut trouvé à l'écran le
+   * 30/09/2026. « Précédent / Suivant » change la pièce DANS l'aperçu, sans que le parent en sache rien : un
+   * objet calculé sur la pièce CLIQUÉE laissait le bandeau sur la première, puis le faisait disparaître. Arno
+   * demandait l'inverse : « le champ suit la pièce affichée ».
+   */
+  renommage?: (idAffiche: string) => {
+    /** Le nom d'ORIGINE de la pièce affichée. C'est le repère : « reçue sous : … ». */
+    nomOrigine: string;
+    /** Le nom choisi, s'il y en a un. `null` = pas encore renommée. */
+    nomChoisi: string | null;
+    /** Ouvre-t-on directement sur le champ ? Vrai par le stylo, faux par l'œil (demande d'Arno). */
+    editerDabord: boolean;
+    /** `null` = renommage possible ; sinon le motif du refus, qui grise le geste et se lit en infobulle. */
+    refus: string | null;
+    onRenommer: (nom: string) => void;
+  } | undefined;
   /**
    * 🔴 LA LISTE AFFICHÉE AU MOMENT DU CLIC. Le périmètre du parcours en est TIRÉ, jamais donné : c'est le module
    * pur `voisinsVisualisables` qui écarte les dossiers, les types sans aperçu, et tout ce qui n'a pas le MÊME
@@ -311,6 +346,21 @@ export function ApercuFichierDrive({
       const cible = e.target as HTMLElement | null;
       const saisie = cible !== null
         && (cible.tagName === 'INPUT' || cible.tagName === 'TEXTAREA' || cible.isContentEditable);
+      /**
+       * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — ÉCHAP DANS LE CHAMP DE NOM ANNULE LE RENOMMAGE ═════════════════════
+       *
+       * Arno : « Échap = annuler le renommage, pas fermer l'aperçu ».
+       *
+       * 🔴 LA DÉCISION SE PREND ICI, ET PAS DANS LE CHAMP. Le champ tente bien un `stopPropagation`, mais cet
+       * écouteur-ci vit sur `document` : un gestionnaire React, délégué à la racine de l'application, ne peut
+       * pas l'empêcher de s'exécuter. Vu au test, qui fermait la fenêtre au lieu d'annuler la saisie.
+       *
+       * ⚠️ L'EXCEPTION EST BORNÉE AU CHAMP DE NOM, par sa classe. Tout le reste — y compris un autre champ —
+       * garde le comportement d'avant : Échap ferme l'aperçu, et c'est la sortie qu'on cherche d'instinct.
+       */
+      /* ⚠️ `classList` PEUT MANQUER : la cible d'une touche est parfois `document` lui-même, qui n'en a pas.
+         Sans ce second `?.`, la touche Échap jetait — et l'aperçu ne se fermait plus du tout. Vu au test. */
+      if (e.key === 'Escape' && cible?.classList?.contains('apd-champ-nom') === true) return;
       if (e.key === 'Escape') { e.stopPropagation(); onFermer(); return; }
       if (saisie) return;
       if (e.key === 'ArrowRight' && idSuivant !== null) { e.preventDefault(); allerVers(idSuivant); }
@@ -349,6 +399,19 @@ export function ApercuFichierDrive({
           <button ref={croix} type="button" className="apd-croix" onClick={onFermer}
             aria-label="Fermer l’aperçu">×</button>
         </header>
+
+        {/* ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE BANDEAU DE NOM, AU-DESSUS DU VISUEL ═══════════════════════════
+            Deux visages pour un seul bandeau : le NOM et un stylo (arrivée par l'œil), ou le CHAMP (arrivée par le
+            stylo, ou clic sur le stylo du bandeau). Voir `BandeauNom`. */}
+        {(() => {
+          // ⚠️ SUR `vu.id`, la pièce AFFICHÉE — jamais celle qu'on a cliquée pour ouvrir la fenêtre.
+          const r = renommage?.(vu.id);
+          if (r === undefined) return null;
+          return (
+            <BandeauNom key={vu.id} nomOrigine={r.nomOrigine} nomChoisi={r.nomChoisi}
+              editerDabord={r.editerDabord} refus={r.refus} onRenommer={r.onRenommer} />
+          );
+        })()}
 
         <div className={`apd-scene${etat.e === 'pret' && etat.sorte === 'image' ? ' apd-scene--image' : ''}`}>
           {/* 🔴 LA VIGNETTE DE LA 1re PAGE, EN GRAND, DÈS QU'ON SAIT QU'ELLE EXISTE. Elle est là avant le document,
@@ -427,6 +490,107 @@ export function ApercuFichierDrive({
   );
 }
 
+
+/**
+ * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE BANDEAU DE NOM ═══════════════════════════════════════════════════════════
+ *
+ * Il a DEUX visages, et c'est la demande d'Arno, mot pour mot :
+ *   · arrivée par l'ŒIL → le NOM du fichier et un petit stylo ✎ ; « un clic sur le stylo fait apparaître le champ
+ *     SUR PLACE » — la fenêtre ne bouge pas, le visuel ne recharge pas, seule la ligne change ;
+ *   · arrivée par le STYLO → le CHAMP, déjà ouvert, « le nom sélectionné SANS l'extension ».
+ *
+ * 🔴 L'EXTENSION EST À CÔTÉ DU CHAMP, PAS DEDANS, et c'est la garantie centrale : un « .pdf » devenu « .pdff »
+ * est un fichier que rien n'ouvre, et la faute ne se découvre qu'au moment où l'on en a besoin. On la retire de
+ * ce qui est saisi, on l'affiche, et on la recolle à la validation.
+ *
+ * 🔴 ÉCHAP ANNULE LE RENOMMAGE, IL NE FERME PAS LA FENÊTRE (demande d'Arno). D'où le `stopPropagation` : sans lui,
+ * la touche remonterait à l'aperçu, qui se fermerait — et l'on perdrait le nom en croyant l'abandonner.
+ *
+ * ⚠️ `key={vu.id}` À L'APPEL : « Précédent / Suivant » change de pièce, et le champ doit suivre. Sans clé neuve,
+ * l'état local du bandeau (la saisie en cours) survivrait au changement et proposerait le nom du voisin.
+ */
+function BandeauNom({ nomOrigine, nomChoisi, editerDabord, refus, onRenommer }: {
+  nomOrigine: string;
+  nomChoisi: string | null;
+  editerDabord: boolean;
+  refus: string | null;
+  onRenommer: (nom: string) => void;
+}) {
+  /** Le nom COMPLET affiché aujourd'hui : celui qu'on a donné, ou celui reçu. */
+  const nomActuel = nomDeDepot(nomOrigine, nomChoisi);
+  const { base, extension } = eclaterNom(nomActuel);
+  // ⚠️ Une pièce non renommable n'ouvre jamais le champ, même arrivée par le stylo : le stylo y est éteint.
+  const [edite, setEdite] = useState(editerDabord && refus === null);
+  const [saisie, setSaisie] = useState(base);
+  const champ = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * 🔴 LA SÉLECTION PORTE SUR LE NOM SEUL (demande d'Arno : « le nom est sélectionné SANS l'extension »).
+   * Comme l'extension ne vit pas dans le champ, tout sélectionner suffit — et l'on ne peut PAS l'effacer par
+   * mégarde en tapant par-dessus, ce qui est tout l'intérêt de l'avoir sortie.
+   */
+  useEffect(() => {
+    if (!edite) return;
+    const el = champ.current;
+    if (el === null) return;
+    el.focus();
+    el.select();
+  }, [edite]);
+
+  const verdict = verifierNom(saisie, extension);
+
+  const valider = () => {
+    if (verdict.refus !== null) return;
+    onRenommer(verdict.nom);
+    setEdite(false);
+  };
+  /** ⚠️ ANNULER REND LE NOM D'AVANT, pas le nom d'origine : on annule une saisie, pas un renommage déjà validé. */
+  const annuler = () => { setSaisie(base); setEdite(false); };
+
+  if (!edite) {
+    return (
+      <div className="apd-nommage">
+        <span className="apd-nommage-nom" title={nomActuel}>{nomActuel}</span>
+        <button type="button" className="apd-stylo" disabled={refus !== null}
+          title={refus ?? INFOBULLE_RENOMMER} aria-label={refus ?? INFOBULLE_RENOMMER}
+          onClick={() => setEdite(true)}>
+          <span aria-hidden="true">✎</span>
+        </button>
+        {/* 🔴 LE NOM REÇU RESTE LISIBLE dès qu'il diffère : c'est lui qu'on cherchera dans le mail. */}
+        {estRenommee(nomOrigine, nomChoisi) && (
+          <span className="apd-nommage-origine">{mentionNomOrigine(nomOrigine)}</span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="apd-nommage apd-nommage--edition">
+      <label className="apd-nommage-label" htmlFor="apd-champ-nom">Nom du fichier</label>
+      <span className="apd-nommage-saisie">
+        <input ref={champ} id="apd-champ-nom" type="text" className="apd-champ-nom" value={saisie}
+          onChange={(e) => setSaisie(e.target.value)}
+          onKeyDown={(e) => {
+            /* 🔴 ÉCHAP ANNULE LE RENOMMAGE, PAS L'APERÇU (demande d'Arno) : on arrête la touche ici. */
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); annuler(); return; }
+            if (e.key === 'Enter') { e.preventDefault(); valider(); }
+          }} />
+        {/* ⚠️ L'EXTENSION EST AFFICHÉE, JAMAIS SAISISSABLE : voir l'encadré ci-dessus. */}
+        {extension !== '' && <span className="apd-extension" aria-label={`extension ${extension}`}>{extension}</span>}
+      </span>
+      <button type="button" className="svv-btn svv-btn-primary gst-btn apd-nommage-btn"
+        disabled={verdict.refus !== null} onClick={valider}>Valider</button>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn apd-nommage-btn"
+        onClick={annuler}>Annuler</button>
+      {/* Le refus GRISE « Valider » et se LIT : un bouton éteint sans motif se prend pour une panne. */}
+      {verdict.refus !== null && <span className="apd-nommage-refus" role="alert">{verdict.refus}</span>}
+      {verdict.refus === null && verdict.remarque !== null && (
+        <span className="apd-nommage-remarque" role="status">{verdict.remarque}</span>
+      )}
+    </div>
+  );
+}
+
 export const CSS_APERCU = `
 /* Au-dessus du sélecteur (z-index 70), jamais dedans : voir l'en-tête du composant. */
 .apd-voile{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:12px;
@@ -462,6 +626,36 @@ export const CSS_APERCU = `
   color:var(--color-svv-ink);background:var(--color-svv-surface);border-radius:999px;
   box-shadow:0 2px 10px color-mix(in srgb, var(--color-svv-ink) 16%, transparent)}
 .apd-cadre{width:100%;height:100%;border:0;background:var(--color-svv-surface)}
+
+/* ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE BANDEAU DE NOM, AU-DESSUS DU VISUEL ══════════════════════════════════
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit, qu'un seul refermerait (TS1005).
+   ⚠️ flex-wrap:wrap — sur un ecran etroit, les boutons passent sous le champ plutot que de le comprimer a rien. */
+.apd-nommage{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:0 0 auto;
+  padding:6px 8px;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:.5rem}
+.apd-nommage-nom{font-size:.88rem;font-weight:600;color:var(--color-svv-ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* Le nom RECU, quand il differe : petit et gris, sous les yeux sans prendre la place du nom qui compte. */
+.apd-nommage-origine{flex:0 0 100%;font-size:.74rem;color:var(--color-svv-muted)}
+.apd-nommage-label{font-size:.74rem;font-weight:700;color:var(--color-svv-muted)}
+/* Le champ et son extension forment UN bloc : l'extension est collee au champ, et se lit comme sa fin. */
+.apd-nommage-saisie{display:flex;align-items:stretch;flex:1 1 16rem;min-width:0;
+  border:1px solid var(--color-svv-line-strong);border-radius:.4rem;background:var(--color-svv-surface)}
+.apd-champ-nom{flex:1 1 auto;min-width:0;padding:6px 8px;font:inherit;font-size:.88rem;
+  color:var(--color-svv-ink);background:transparent;border:0;border-radius:.4rem 0 0 .4rem}
+.apd-champ-nom:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* L'EXTENSION N'EST PAS SAISISSABLE, et elle en a l'air : fond mat, curseur normal, pas de bordure propre. */
+.apd-extension{display:flex;align-items:center;padding:0 8px;font-size:.88rem;font-weight:600;
+  color:var(--color-svv-muted);background:var(--color-svv-field);border-left:1px solid var(--color-svv-line);
+  border-radius:0 .4rem .4rem 0;user-select:none}
+.apd-nommage-btn{flex:0 0 auto}
+.apd-stylo{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex:0 0 auto;
+  font:inherit;color:var(--color-svv-ink);background:transparent;
+  border:1px solid var(--color-svv-line);border-radius:.35rem;cursor:pointer}
+.apd-stylo:hover:not(:disabled){background:var(--color-svv-surface);border-color:var(--color-svv-line-strong)}
+.apd-stylo:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+.apd-stylo:disabled{opacity:.45;cursor:not-allowed}
+.apd-nommage-refus{flex:0 0 100%;font-size:.78rem;color:var(--color-svv-red)}
+.apd-nommage-remarque{flex:0 0 100%;font-size:.78rem;color:var(--color-svv-muted)}
 .apd-image{display:block;height:auto;max-width:none;align-self:start;justify-self:start}
 .apd-sans{margin:0;padding:14px 16px;max-width:34rem;font-size:.9rem;color:var(--color-svv-ink);
   background:var(--color-svv-surface);border-left:3px solid var(--color-svv-red);border-radius:0 .4rem .4rem 0}

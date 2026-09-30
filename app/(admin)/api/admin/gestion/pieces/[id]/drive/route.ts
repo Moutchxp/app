@@ -8,6 +8,8 @@ import { lireDossier, memoiserLecture } from '../../../../../../../lib/gestion/d
 import { verdictDeposer } from '../../../../../../../lib/gestion/driveVerdict';
 import { jetonPourRequete, messageAcces } from '../../../../../../../lib/gestion/jetonCollaborateur';
 import { depotsDriveDisponibles } from '../../../../../../../lib/gestion/schema';
+// 🔴 LOT RENOMMER-AVANT-RANGER — le MÊME nettoyage que l'écran, écrit une seule fois (module PUR).
+import { eclaterNom, verifierNom } from '../../../../../../../lib/gestion/renommagePiece';
 
 /**
  * POST /api/admin/gestion/pieces/[id]/drive (lot 5-PJ-B) — DÉPOSER UNE PIÈCE dans un dossier du Drive.
@@ -41,9 +43,31 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   const pieceId = Number((await ctx.params).id);
   if (!Number.isInteger(pieceId) || pieceId <= 0) return json({ erreur: 'Pièce inconnue.' }, 400);
 
-  const corps = (await request.json().catch(() => ({}))) as { dossierId?: string };
+  const corps = (await request.json().catch(() => ({}))) as { dossierId?: string; nom?: string };
   const dossierId = (corps.dossierId ?? '').trim();
   if (dossierId === '') return json({ erreur: 'Aucun dossier choisi.' }, 400);
+
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE NOM DONNÉ EST REVALIDÉ ICI, ET PAS SEULEMENT À L'ÉCRAN ══════════════
+   *
+   * Demande d'Arno : « le nouveau nom est celui sous lequel la pièce sera DÉPOSÉE dans le Drive ».
+   *
+   * 🔴 L'ÉCRAN NETTOIE DÉJÀ (mêmes fonctions, module PUR), ET ON RECOMMENCE QUAND MÊME. Un écran peut être
+   * modifié, un appel peut être forgé, un vieil onglet peut envoyer ce qu'il veut : la seule barrière qui compte
+   * est celle du serveur. Le coût est nul — c'est une fonction pure sur une chaîne.
+   *
+   * ⚠️ ON NE REFUSE PAS UN NOM SALE, ON LE NETTOIE — exactement comme l'écran, avec le MÊME code : deux
+   * nettoyages différents des deux côtés finiraient par déposer un fichier sous un nom que personne n'a vu.
+   * Un nom devenu vide après nettoyage est simplement ignoré : la pièce part alors sous son nom d'origine,
+   * jamais sous un nom inventé.
+   */
+  const nomDemande = (corps.nom ?? '').trim();
+  let nomChoisi = '';
+  if (nomDemande !== '') {
+    const { base, extension } = eclaterNom(nomDemande);
+    const v = verifierNom(base, extension);
+    if (v.refus === null) nomChoisi = v.nom;
+  }
 
   // La migration AVANT tout : sans mémoire des dépôts, on ne saurait pas empêcher un doublon au clic suivant.
   if (!await depotsDriveDisponibles()) {
@@ -76,7 +100,11 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
     if (!place.deposer) return json({ etat: 'cible_invalide', message: place.motif }, 403);
 
     const auteur = { ...await auteurDeLaRequete(request), compteGoogle: acces.compteGoogle };
-    const issues = await deposerPieces(depsReellesDepot(lire), acces.jeton, [pieceId], dossierId, auteur);
+    const issues = await deposerPieces(
+      depsReellesDepot(lire), acces.jeton, [pieceId], dossierId, auteur,
+      // ⚠️ VIDE ⇒ CARTE VIDE, donc `nomDeDepot` rend le nom d'origine : la route d'avant ce lot, mot pour mot.
+      nomChoisi === '' ? undefined : new Map([[pieceId, nomChoisi]]),
+    );
     return json({ etat: 'ok', resultats: issues, resume: resumerDepot(issues) });
   } catch (e) {
     console.error('[gestion/piece/drive] dépôt impossible', e);
