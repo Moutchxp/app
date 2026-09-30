@@ -46,10 +46,23 @@ export interface DepotAffiche {
 /** Ce que le clic sur un bouton Drive demande : une pièce, ou tout le message. */
 export type Demande = { quoi: 'piece'; pieceId: number; nom: string } | { quoi: 'message' };
 
-export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualiser }: {
+export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualiser, onNomChange }: {
   messageId: number;
   /** Sert à rouvrir le sélecteur sur le dernier dossier utilisé pour CET échange. */
   filId?: number | null;
+  /**
+   * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — « le nouveau nom s'affiche immédiatement PARTOUT » (Arno) ══════════
+   *
+   * DÉFAUT VU À L'ÉCRAN le 30/09/2026 : après un renommage au stylo suivi d'un rangement, cette carte affichait
+   * sa nouvelle mention « Dans le Drive · … » et GARDAIT son ancien nom. Elle relisait ses DÉPÔTS, ce qui est la
+   * moitié de ce qui venait de changer — et elle ne pouvait pas faire mieux : le nom vient du FIL, que seule la
+   * conversation sait relire.
+   *
+   * ⚠️ APPELÉ SEULEMENT QUAND LA BASE A VRAIMENT CHANGÉ DE NOM. Le fil est la lecture la plus coûteuse de
+   * l'écran : la redemander à chaque rangement, pour un cas qui n'arrive qu'après un coup de stylo, serait payer
+   * cher un geste rare.
+   */
+  onNomChange?: () => void;
   vraies: PieceAffichee[];
   signatures: PieceAffichee[];
   /**
@@ -150,7 +163,10 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
           messageId={messageId}
           filId={filId ?? null}
           pieces={aRanger(demande, vraies, signatures)}
-          onRangement={() => { void relireDepots(); }}
+          onRangement={(o) => {
+            void relireDepots();
+            if (o?.nomChange === true) onNomChange?.();
+          }}
           onFermer={() => setDemande(null)}
         />
       )}

@@ -4,6 +4,10 @@ import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import { verifierCibleDepot } from '../../../../../../../lib/gestion/cibleDepot';
 import { depsReellesDepot } from '../../../../../../../lib/gestion/depotDriveReel';
 import { deposerPieces, resumerDepot } from '../../../../../../../lib/gestion/depotDrive';
+// 🔴 LOT RANGER-INSTANTANE-ET-NOM — le nom donné au dépôt devient le NOM D'USAGE de la pièce, et la copie entre
+//   au registre des fichiers que l'application a nommés. Voir l'encadré de ce module : sans ces deux écritures,
+//   la carte du message gardait le nom d'origine et la copie échappait pour toujours à la reprise depuis Drive.
+import { consignerNomDuDepot } from '../../../../../../../lib/gestion/depotNomUsage';
 import { lireDossier, memoiserLecture } from '../../../../../../../lib/gestion/drive';
 import { verdictDeposer } from '../../../../../../../lib/gestion/driveVerdict';
 import { jetonPourRequete, messageAcces } from '../../../../../../../lib/gestion/jetonCollaborateur';
@@ -88,15 +92,33 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
     //   arriveraient encore avec. On refuse AVANT de lire 25 Mo, et la lecture est mémorisée : le dépôt, qui a
     //   besoin du nom du dossier, ne la repaiera pas.
     const lire = memoiserLecture((id: string) => lireDossier(acces.jeton, id, { fetch }));
-    const cible = await verifierCibleDepot(dossierId, lire);
-    if (!cible.ok) return json({ etat: 'cible_invalide', message: cible.motif }, 400);
 
     /* ══ 🔴🔴 LOT DRIVE-UNIQUE — ET OÙ CE DOSSIER SE TROUVE-T-IL ? ══════════════════════════════════════════════
        `verifierCibleDepot` dit ce que la cible EST (un dossier, pas un regroupement, pas la corbeille). Elle ne
        disait pas OÙ elle est — si bien que l'archive du cabinet était une destination de dépôt valide, alors que
        rien d'autre dans l'application n'a le droit d'y écrire. Même remontée, même module pur, même « ne pas
-       savoir vaut interdit » que la création d'un dossier. */
-    const place = await verdictDeposer(acces.compteGoogle, acces.jeton, dossierId);
+       savoir vaut interdit » que la création d'un dossier.
+
+       ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LES DEUX EN PARALLÈLE ═══════════════════════════════════════════
+       Demande d'Arno : « vérification des parents en parallèle et en cache (déjà fait pour les déplacements,
+       réutilise-le) ».
+
+       🔴 ELLES ÉTAIENT EN SÉRIE, ET RIEN NE L'EXIGEAIT : deux questions indépendantes posées à Google, l'une
+       après l'autre. MESURÉ le 30/09/2026 sur le vrai Drive : 448 ms + 303 ms, puis 303 ms + 338 ms — environ
+       650 ms d'attente pour deux appels qui n'ont rien à se dire.
+
+       🔴 ET AUCUNE DES DEUX N'EST AFFAIBLIE. Les deux réponses sont attendues, les deux refus sont prononcés, et
+       DANS LE MÊME ORDRE qu'avant : « ce n'est pas un dossier » d'abord, « ce n'est pas un endroit permis »
+       ensuite. Paralléliser change quand on pose les questions, jamais lesquelles ni ce qu'on fait des réponses.
+
+       ⚠️ ON LANCE LES DEUX AVANT DE LIRE LA PREMIÈRE, donc on paie parfois un verdict dont on n'avait pas
+       besoin — quand la cible n'est même pas un dossier. C'est une LECTURE de métadonnées, mémorisée 60 s
+       (`chaineDuDossierMemo`), et le cas est celui d'une requête forgée : on optimise le chemin normal. */
+    const [cible, place] = await Promise.all([
+      verifierCibleDepot(dossierId, lire),
+      verdictDeposer(acces.compteGoogle, acces.jeton, dossierId),
+    ]);
+    if (!cible.ok) return json({ etat: 'cible_invalide', message: cible.motif }, 400);
     if (!place.deposer) return json({ etat: 'cible_invalide', message: place.motif }, 403);
 
     const auteur = { ...await auteurDeLaRequete(request), compteGoogle: acces.compteGoogle };
@@ -105,7 +127,20 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
       // ⚠️ VIDE ⇒ CARTE VIDE, donc `nomDeDepot` rend le nom d'origine : la route d'avant ce lot, mot pour mot.
       nomChoisi === '' ? undefined : new Map([[pieceId, nomChoisi]]),
     );
-    return json({ etat: 'ok', resultats: issues, resume: resumerDepot(issues) });
+    /**
+     * 🔴🔴 APRÈS LA CONFIRMATION DE GOOGLE, ET SEULEMENT APRÈS. Écrire le nom d'usage avant le dépôt renommerait
+     * la pièce partout dans l'application pour un fichier qui n'existerait peut-être jamais — et un échec de
+     * dépôt laisserait derrière lui un renommage que personne n'a demandé.
+     *
+     * ⚠️ NE LÈVE JAMAIS, et n'est donc pas attendu par le verdict : le fichier EST dans le Drive. Dire le dépôt
+     * raté parce qu'on n'a pas su noter son nom enverrait le déposer une seconde fois.
+     */
+    const bilanNom = await consignerNomDuDepot(pieceId, nomChoisi, issues, auteur);
+    return json({
+      etat: 'ok', resultats: issues, resume: resumerDepot(issues),
+      // L'écran s'en sert pour savoir s'il doit relire le fil : le nom affiché de la pièce vient de changer.
+      nomUsageEcrit: bilanNom.nomUsageEcrit,
+    });
   } catch (e) {
     console.error('[gestion/piece/drive] dépôt impossible', e);
     return json({ etat: 'erreur', message: 'Le dépôt n’a pas abouti.' }, 503);

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   chercherDossiers, deposerFichier, echapperQ, filAriane, listerDossiers, lireDossier, motifHttp,
-  MIME_DOSSIER,
+  MIME_DOSSIER, SIMPLE_JUSQUA_OCTETS,
 } from './drive';
 
 /** Un `fetch` de doublure : rend des réponses scriptées et retient les requêtes émises. */
@@ -147,28 +147,81 @@ describe('le fil d’Ariane', () => {
   });
 });
 
-describe('déposer un fichier — envoi REPRENABLE', () => {
+/**
+ * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — DEUX ENVOIS, UN SEUIL ════════════════════════════════════════════════
+ *
+ * MESURÉ le 30/09/2026 sur le vrai Drive, fichier de 130 ko, trois fois : reprenable 2 953 / 3 556 / 2 608 ms,
+ * multipart 2 466 / 2 476 / 2 058 ms. L'envoi reprenable paie un aller-retour entier pour ouvrir sa session —
+ * une reprise dont un petit fichier n'a aucun besoin.
+ */
+describe('déposer un PETIT fichier — une seule requête (multipart)', () => {
+  it('🔴 une seule requête, et `uploadType=multipart`', async () => {
+    const d = faussefetch([rep({ id: 'F1', name: 'bail.pdf', webViewLink: 'https://drive/F1' })]);
+    const r = await deposerFichier(
+      'j', { nom: 'bail.pdf', typeMime: 'application/pdf', octets: new Uint8Array(10), dossierId: 'DOS' }, d);
+    expect(r.ok && r.valeur).toEqual({ id: 'F1', nom: 'bail.pdf', webViewLink: 'https://drive/F1' });
+    expect(d.appels).toHaveLength(1);
+    expect(d.appels[0].url).toContain('uploadType=multipart');
+    expect(d.appels[0].url).toContain('supportsAllDrives=true');
+  });
+
+  /** Le nom d'origine est ce que l'équipe reconnaîtra dans le Drive : le « nettoyer » romprait le lien avec le mail. */
+  it('le NOM D’ORIGINE et le dossier partent dans les métadonnées, et nulle part ailleurs', async () => {
+    const d = faussefetch([rep({ id: 'F1' })]);
+    await deposerFichier(
+      'j', { nom: 'Reçu de loyer.pdf', typeMime: null, octets: new Uint8Array(1), dossierId: 'DOS' }, d);
+    const texte = new TextDecoder().decode(d.appels[0].init?.body as ArrayBuffer);
+    expect(texte).toContain('{"name":"Reçu de loyer.pdf","parents":["DOS"]}');
+    expect(d.appels[0].url).not.toContain('Re%C3%A7u');
+  });
+
+  /**
+   * ⚠️ LA FRONTIÈRE EST TIRÉE AU HASARD, et il le faut : une frontière FIXE finirait un jour par se trouver dans
+   * les octets d'un PDF, Google couperait le corps au mauvais endroit, et le fichier arriverait tronqué — sans
+   * que rien ne le dise.
+   */
+  it('⚠️ la frontière multipart change d’un envoi à l’autre', async () => {
+    const frontiere = async (): Promise<string> => {
+      const d = faussefetch([rep({ id: 'F1' })]);
+      await deposerFichier('j', { nom: 'a', typeMime: null, octets: new Uint8Array(1), dossierId: 'D' }, d);
+      const t = (d.appels[0].init?.headers as Record<string, string>)['Content-Type'];
+      return t.split('boundary=')[1];
+    };
+    expect(await frontiere()).not.toBe(await frontiere());
+  });
+
+  it('un refus rend un motif lisible, en une seule requête', async () => {
+    const d = faussefetch([new Response('', { status: 403 })]);
+    const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: new Uint8Array(1), dossierId: 'D' }, d);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motif).toContain('droit d’écrire');
+  });
+});
+
+describe('déposer un GROS fichier — envoi REPRENABLE', () => {
   const ouverture = (): Response => new Response('', { status: 200, headers: { Location: 'https://upload/session-1' } });
+  /** Au-dessus du seuil : c'est là qu'une reprise vaut son aller-retour. */
+  const gros = (n = SIMPLE_JUSQUA_OCTETS + 10): Uint8Array => new Uint8Array(n);
 
   it('ouvre une session, puis pousse le contenu', async () => {
     const d = faussefetch([ouverture(), rep({ id: 'F1', name: 'bail.pdf', webViewLink: 'https://drive/F1' })]);
-    const r = await deposerFichier('j', { nom: 'bail.pdf', typeMime: 'application/pdf', octets: new Uint8Array(10), dossierId: 'DOS' }, d);
+    const r = await deposerFichier(
+      'j', { nom: 'bail.pdf', typeMime: 'application/pdf', octets: gros(), dossierId: 'DOS' }, d);
     expect(r.ok && r.valeur).toEqual({ id: 'F1', nom: 'bail.pdf', webViewLink: 'https://drive/F1' });
     expect(d.appels[0].url).toContain('uploadType=resumable');
     expect(d.appels[1].url).toBe('https://upload/session-1');
   });
 
-  /** Le nom d'origine est ce que l'équipe reconnaîtra dans le Drive : le « nettoyer » romprait le lien avec le mail. */
   it('le NOM D’ORIGINE et le dossier partent dans les métadonnées, et nulle part ailleurs', async () => {
     const d = faussefetch([ouverture(), rep({ id: 'F1' })]);
-    await deposerFichier('j', { nom: 'Reçu de loyer.pdf', typeMime: null, octets: new Uint8Array(1), dossierId: 'DOS' }, d);
+    await deposerFichier('j', { nom: 'Reçu de loyer.pdf', typeMime: null, octets: gros(), dossierId: 'DOS' }, d);
     const corps = JSON.parse(String(d.appels[0].init?.body));
     expect(corps).toEqual({ name: 'Reçu de loyer.pdf', parents: ['DOS'] });
   });
 
   it('sans `supportsAllDrives`, un dépôt en Drive partagé serait refusé : le paramètre est là', async () => {
     const d = faussefetch([ouverture(), rep({ id: 'F1' })]);
-    await deposerFichier('j', { nom: 'a', typeMime: null, octets: new Uint8Array(1), dossierId: 'DOS' }, d);
+    await deposerFichier('j', { nom: 'a', typeMime: null, octets: gros(), dossierId: 'DOS' }, d);
     expect(d.appels[0].url).toContain('supportsAllDrives=true');
   });
 
@@ -177,29 +230,39 @@ describe('déposer un fichier — envoi REPRENABLE', () => {
    * qu'on croyait avoir envoyé — sinon une coupure à 90 % ferait tout recommencer.
    */
   it('un 308 fait reprendre à l’octet que Google dit avoir reçu', async () => {
+    const taille = SIMPLE_JUSQUA_OCTETS + 20;
     const d = faussefetch([
       ouverture(),
       new Response('', { status: 308, headers: { Range: 'bytes=0-4' } }),
       rep({ id: 'F1', webViewLink: 'https://drive/F1' }),
     ]);
-    const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: new Uint8Array(20), dossierId: 'D' }, d);
+    const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: gros(taille), dossierId: 'D' }, d);
     expect(r.ok).toBe(true);
     // Le second morceau repart de l'octet 5, celui qui suit ce que Google dit avoir reçu.
-    expect((d.appels[2].init?.headers as Record<string, string>)['Content-Range']).toBe('bytes 5-19/20');
+    expect((d.appels[2].init?.headers as Record<string, string>)['Content-Range'])
+      .toBe(`bytes 5-${taille - 1}/${taille}`);
   });
 
   it('une session non ouverte est dite, pas devinée', async () => {
     const d = faussefetch([new Response('', { status: 200 })]); // 200 mais sans Location
-    const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: new Uint8Array(1), dossierId: 'D' }, d);
+    const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: gros(), dossierId: 'D' }, d);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.motif).toContain('session');
   });
 
   it('un refus de dépôt rend un motif lisible', async () => {
     const d = faussefetch([ouverture(), new Response('', { status: 403 })]);
-    const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: new Uint8Array(1), dossierId: 'D' }, d);
+    const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: gros(), dossierId: 'D' }, d);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.motif).toContain('droit d’écrire');
+  });
+
+  /** ⚠️ UN FICHIER VIDE n'a aucun morceau : il garde le chemin reprenable, qui sait clore une session à vide. */
+  it('⚠️ un fichier VIDE passe par le reprenable, et clôt sa session', async () => {
+    const d = faussefetch([ouverture(), rep({ id: 'F1' })]);
+    const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: new Uint8Array(0), dossierId: 'D' }, d);
+    expect(r.ok).toBe(true);
+    expect(d.appels[0].url).toContain('uploadType=resumable');
   });
 });
 

@@ -343,9 +343,20 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   const piecesRegardees = recapPieces || pieceVue !== null;
   useEffect(() => { if (piecesRegardees) void relireDepotsFil(); }, [piecesRegardees, relireDepotsFil]);
 
-  const recharger = useCallback(async () => {
-    setVue({ v: 'charge' });
+  /**
+   * @param o.silencieux LOT RANGER-INSTANTANE-ET-NOM — relire SANS vider l'écran.
+   *
+   * 🔴 POURQUOI IL A FALLU L'AJOUTER. Une pièce renommée puis rangée change de nom PARTOUT : la base fait foi, et
+   * l'écran doit la relire. Mais passer par « chargement » pour un simple changement de nom ferait clignoter la
+   * conversation entière derrière la fenêtre de rangement, pendant qu'on est encore en train de ranger.
+   *
+   * ⚠️ ON REMPLACE SEULEMENT SI LA LECTURE ABOUTIT : un réseau muet doit laisser l'écran tel qu'il est, pas le
+   * remplacer par une erreur alors que ce qu'on affichait était juste.
+   */
+  const recharger = useCallback(async (o: { silencieux?: boolean } = {}) => {
+    if (o.silencieux !== true) setVue({ v: 'charge' });
     const r = await chargerConversation(filId);
+    if (o.silencieux === true && r.v !== 'ok') return;
     setVue(r);
     if (r.v !== 'ok') return;
     /**
@@ -1007,6 +1018,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             /* 🔴 LOT PIECES-DE-LA-CONVERSATION — la vignette d'une pièce ouvre la visionneuse maison, avec le tour
                de toute la conversation. */
             onVisualiser={(id) => setPieceVue(id)}
+            /* 🔴 LOT RANGER-INSTANTANE-ET-NOM — « le nouveau nom s'affiche immédiatement partout à l'écran, sans
+               recharger la page » (Arno). `silencieux` : on relit le fil SANS le faire clignoter, pendant qu'on
+               est encore en train de ranger. */
+            onNomChange={() => { void recharger({ silencieux: true }); }}
             panneau={deplacer === m.messageId ? (
               <DeplacerVers titre="Déplacer ce mail vers" exclure={null}
                 onAnnuler={() => setDeplacer(null)}
@@ -1209,7 +1224,21 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           messageId={piecesFil.find((p) => p.pieceId === rangerPiece.pieceId)?.messageId ?? null}
           filId={filId}
           pieces={[rangerPiece]}
-          onRangement={() => void relireDepotsFil()}
+          /**
+           * 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — « le nouveau nom s'affiche immédiatement partout à l'écran, sans
+           * recharger la page » (Arno).
+           *
+           * DÉFAUT VU À L'ÉCRAN le 30/09/2026 : après avoir renommé au stylo puis rangé, la carte de la pièce
+           * affichait sa nouvelle MENTION « Dans le Drive · Test creation… » et gardait son ANCIEN NOM. La
+           * relecture ne portait que sur les dépôts — c'est-à-dire sur la moitié de ce qui venait de changer.
+           *
+           * ⚠️ LE FIL N'EST RELU QUE SI UN NOM A VRAIMENT CHANGÉ. Le relire à chaque rangement ferait une requête
+           * de plus sur le geste le plus courant, pour un cas qui n'arrive que quand on a touché au stylo.
+           */
+          onRangement={(o) => {
+            void relireDepotsFil();
+            if (o?.nomChange === true) void recharger({ silencieux: true });
+          }}
           onFermer={() => setRangerPiece(null)} />
       )}
     </section>
@@ -1271,9 +1300,14 @@ export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
   rattachements = null, horsGestion = null, interne = null, onInterne,
-  onRattachement, onGesteRattachement, onHistorique, onVisualiser,
+  onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
+  /**
+   * 🔴 LOT RANGER-INSTANTANE-ET-NOM — une pièce vient d'être renommée EN BASE (stylo, puis rangement). Le nom
+   * affiché vient du FIL : seule la conversation sait le relire, et c'est elle qui rend ce geste.
+   */
+  onNomChange?: () => void;
   /**
    * 🔴 LOT PIECES-DE-LA-CONVERSATION — ouvre la visionneuse maison sur une pièce, avec le tour de TOUTE la
    * conversation. Rendu par l'écran qui tient la conversation, parce que lui seul connaît toutes les pièces.
@@ -1754,8 +1788,10 @@ export function MessageConversation({
               🔴 LOT PIECES-DE-LA-CONVERSATION — `onVisualiser` fait ouvrir la visionneuse MAISON au lieu d'un
               nouvel onglet, avec le tour de TOUTE la conversation. Absent (historique d'une cible, vie d'un bien),
               la vignette garde le lien d'avant : il n'y a pas là de conversation dont on pourrait faire le tour. */}
+          {/* 🔴 LOT RANGER-INSTANTANE-ET-NOM — une pièce renommée au stylo puis rangée change de nom dans la base :
+              seule la conversation sait relire le fil, et c'est de là que vient le nom affiché sur la carte. */}
           <PiecesJointes messageId={message.messageId} filId={filId} vraies={vraies} signatures={signatures}
-            onVisualiser={onVisualiser} />
+            onVisualiser={onVisualiser} onNomChange={onNomChange} />
 
           {/* ══ 🔴 LOT FIL-LECTURE — RÉPONDRE À **CE** MESSAGE, PAS AU DERNIER DU FIL ═══════════════════════════
               Les trois gestes sous CHAQUE message déplié, et non plus seulement la flèche du coin. Chacun porte sur

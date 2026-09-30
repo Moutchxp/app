@@ -303,12 +303,29 @@ export interface FichierDepose { id: string; nom: string; webViewLink: string | 
 export const MORCEAU_OCTETS = 8 * 1024 * 1024;
 
 /**
- * DÉPOSE une copie d'une pièce dans un dossier du Drive, en ENVOI REPRENABLE.
+ * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — EN DESSOUS DE CETTE TAILLE, UNE SEULE REQUÊTE SUFFIT ═════════════════
  *
- * 🔴 POURQUOI REPRENABLE ET NON « SIMPLE ». Un envoi simple tient dans une requête : sur une pièce de 25 Mo et une
- * connexion de bureau ordinaire, une coupure à 90 % fait tout recommencer, et rien ne dit à l'utilisateur ce qui
- * s'est passé. L'envoi reprenable ouvre une session, pousse le fichier par morceaux, et chaque morceau accepté est
- * acquis. C'est aussi ce que fait le bouton Drive de Gmail.
+ * MESURÉ LE 30/09/2026 SUR LE VRAI DRIVE, sur un fichier de 130 ko, trois fois de suite :
+ *
+ *     envoi reprenable (2 allers-retours)   2 953 / 3 556 / 2 608 ms
+ *     envoi multipart  (1 aller-retour)     2 466 / 2 476 / 2 058 ms
+ *
+ * 🔴 CE QU'ON PAIE, ET QUI N'A RIEN À VOIR AVEC LA TAILLE. L'envoi reprenable OUVRE une session (une requête),
+ * puis pousse le contenu (une autre). Sur 130 ko, la seconde requête ne transporte presque rien : on paie un
+ * aller-retour entier — environ un demi-seconde — pour une reprise dont un fichier de 130 ko n'a aucun besoin.
+ *
+ * 🔴 AU-DESSUS, LE REPRENABLE GARDE TOUT SON SENS, et il ne bouge pas : sur une pièce de 25 Mo, une coupure à
+ * 90 % ferait tout recommencer, et chaque morceau accepté est acquis. Le seuil n'est donc pas un réglage de
+ * vitesse : c'est la taille à partir de laquelle une reprise vaut son aller-retour.
+ */
+export const SIMPLE_JUSQUA_OCTETS = 5 * 1024 * 1024;
+
+/**
+ * DÉPOSE une copie d'une pièce dans un dossier du Drive.
+ *
+ * 🔴 DEUX ENVOIS, UN SEUIL. En dessous de `SIMPLE_JUSQUA_OCTETS`, une requête `multipart` — voir l'encadré et sa
+ * mesure. Au-dessus, l'ENVOI REPRENABLE : il ouvre une session, pousse le fichier par morceaux, et chaque morceau
+ * accepté est acquis. C'est aussi ce que fait le bouton Drive de Gmail.
  *
  * 🔴 LE NOM D'ORIGINE EST CONSERVÉ, tel quel. C'est le nom que l'équipe reconnaîtra dans le Drive ; le renommer
  * « proprement » ferait perdre le lien avec le mail dont il vient.
@@ -321,6 +338,9 @@ export async function deposerFichier(
   deps: DepsGoogle,
 ): Promise<Resultat<FichierDepose>> {
   const type = (o.typeMime ?? '').trim() || 'application/octet-stream';
+  if (o.octets.byteLength > 0 && o.octets.byteLength <= SIMPLE_JUSQUA_OCTETS) {
+    return deposerEnUneRequete(accessToken, { ...o, typeMime: type }, deps);
+  }
   const p = new URLSearchParams({ uploadType: 'resumable', fields: 'id,name,webViewLink', ...PARTAGES });
 
   // ── ① Ouvrir la session. Les métadonnées (nom, parent) partent ici, et NULLE PART ailleurs. ──
@@ -381,6 +401,56 @@ function corps(vue: Uint8Array): ArrayBuffer {
 function versFichier(j: unknown): FichierDepose {
   const f = j as { id?: string; name?: string; webViewLink?: string };
   return { id: f.id ?? '', nom: (f.name ?? '').trim(), webViewLink: f.webViewLink ?? null };
+}
+
+/**
+ * ══ 🔴 L'ENVOI EN UNE SEULE REQUÊTE (`uploadType=multipart`) ═══════════════════════════════════════════════════
+ *
+ * Les métadonnées ET le contenu dans un seul corps `multipart/related` : une requête au lieu de deux. Voir
+ * `SIMPLE_JUSQUA_OCTETS` pour la mesure qui l'a fait entrer, et pour la raison de son plafond.
+ *
+ * ⚠️ LA FRONTIÈRE EST TIRÉE AU HASARD, ET C'EST NÉCESSAIRE : si elle apparaissait dans les octets du document,
+ * Google couperait le corps au mauvais endroit et le fichier arriverait tronqué. Une frontière fixe finirait un
+ * jour par se trouver dans un PDF — et le jour où cela arriverait, rien ne le dirait.
+ *
+ * ⚠️ LES MÉTADONNÉES SONT DANS LE CORPS, comme pour l'envoi reprenable : c'est le seul endroit où le nom et le
+ * parent voyagent. Rien de tout cela ne passe par l'URL.
+ */
+async function deposerEnUneRequete(
+  accessToken: string,
+  o: { nom: string; typeMime: string; octets: Uint8Array; dossierId: string },
+  deps: DepsGoogle,
+): Promise<Resultat<FichierDepose>> {
+  const frontiere = `svav-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+  const tete = new TextEncoder().encode(
+    `--${frontiere}
+Content-Type: application/json; charset=UTF-8
+
+`
+    + `${JSON.stringify({ name: o.nom, parents: [o.dossierId] })}
+`
+    + `--${frontiere}
+Content-Type: ${o.typeMime}
+
+`);
+  const pied = new TextEncoder().encode(`
+--${frontiere}--`);
+  const charge = new Uint8Array(tete.byteLength + o.octets.byteLength + pied.byteLength);
+  charge.set(tete, 0);
+  charge.set(o.octets, tete.byteLength);
+  charge.set(pied, tete.byteLength + o.octets.byteLength);
+
+  const p = new URLSearchParams({ uploadType: 'multipart', fields: 'id,name,webViewLink', ...PARTAGES });
+  const res = await deps.fetch(`${API_TELEVERSEMENT}?${p}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': `multipart/related; boundary=${frontiere}`,
+    },
+    body: corps(charge),
+  });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'le dépôt dans le Drive') };
+  return { ok: true, valeur: versFichier(await res.json().catch(() => ({}))) };
 }
 
 /**
@@ -561,6 +631,14 @@ export interface MetaFichier {
    * passe alors directement au document, sans rien annoncer — une vignette absente n'est pas une panne.
    */
   vignette: string | null;
+  /**
+   * 🔴 LOT RANGER-INSTANTANE-ET-NOM — le Drive partagé auquel cet élément appartient ; `null` = « Mon Drive ».
+   *
+   * ⚠️ IL NE COÛTE RIEN : c'est un champ de plus dans un `files.get` qu'on faisait déjà. Il sert à savoir, en
+   * lisant la chaîne des parents, dans quel Drive d'équipe on se trouve — une question qui demandait jusqu'ici
+   * un second appel (270 à 440 ms mesurées, cf. `driveMemoire`).
+   */
+  driveId: string | null;
 }
 
 /** Les MÉTADONNÉES d'un élément : nom, type, taille, parents, vignette. LECTURE SEULE — jamais le contenu. */
@@ -568,7 +646,7 @@ export async function lireMetadonnees(
   accessToken: string, id: string, deps: DepsGoogle,
 ): Promise<Resultat<MetaFichier>> {
   const p = new URLSearchParams({
-    fields: 'id,name,mimeType,size,parents,webViewLink,trashed,thumbnailLink',
+    fields: 'id,name,mimeType,size,parents,webViewLink,trashed,thumbnailLink,driveId',
     ...PARTAGES,
   });
   const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
@@ -576,7 +654,7 @@ export async function lireMetadonnees(
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du fichier') };
   const b = await res.json().catch(() => ({})) as {
     id?: string; name?: string; mimeType?: string; size?: string; parents?: string[];
-    webViewLink?: string; trashed?: boolean; thumbnailLink?: string;
+    webViewLink?: string; trashed?: boolean; thumbnailLink?: string; driveId?: string;
   };
   if (b.trashed === true) return { ok: false, motif: 'Ce fichier est à la corbeille du Drive.' };
   return {
@@ -589,6 +667,7 @@ export async function lireMetadonnees(
       parents: b.parents ?? [],
       lien: b.webViewLink ?? null,
       vignette: b.thumbnailLink ?? null,
+      driveId: b.driveId ?? null,
     },
   };
 }
@@ -603,19 +682,21 @@ export async function lireMetadonnees(
  * ⚠️ BORNÉE, et ELLE S'ARRÊTE SUR ERREUR SANS PRÉTENDRE AVOIR FINI. Le verdict (`peutJoindre`) refuse quand la
  * chaîne est incomplète — c'est exactement ce qu'on veut : ne pas savoir vaut interdit.
  */
+export interface MaillonParent { id: string; nom: string; parentId: string | null; driveId?: string | null }
+
 export async function chaineParents(
   accessToken: string, depart: string, deps: DepsGoogle, max = 32,
-): Promise<{ id: string; nom: string; parentId: string | null }[]> {
-  const chaine: { id: string; nom: string; parentId: string | null }[] = [];
+): Promise<MaillonParent[]> {
+  const chaine: MaillonParent[] = [];
   const vus = new Set<string>();
   let courant: string | null = depart;
   for (let i = 0; i < max && courant !== null; i += 1) {
     if (vus.has(courant)) break;
     vus.add(courant);
-    const m: Resultat<{ nom: string; parents: string[] }> = await lireMetadonnees(accessToken, courant, deps);
+    const m: Resultat<MetaFichier> = await lireMetadonnees(accessToken, courant, deps);
     if (!m.ok) break;
     const parent = m.valeur.parents[0] ?? null;
-    chaine.push({ id: courant, nom: m.valeur.nom, parentId: parent });
+    chaine.push({ id: courant, nom: m.valeur.nom, parentId: parent, driveId: m.valeur.driveId });
     courant = parent;
   }
   return chaine;

@@ -81,8 +81,24 @@ export async function ecrireNomUsage(pieceId: number, nom: string): Promise<bool
   if (!(await nomUsageDisponible())) return false;
   const propre = nom.trim();
   if (propre === '') return false;
+  /**
+   * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — « IS DISTINCT FROM » : LE PREMIER ÉCRIVAIN GAGNE ═══════════════════
+   *
+   * DÉFAUT OBSERVÉ À L'ÉPREUVE RÉELLE, le 30/09/2026 : un renommage fait dans Google Drive a produit DEUX lignes
+   * de journal identiques pour un seul geste. L'écran avait ouvert le fil deux fois presque en même temps ; les
+   * deux lectures ont vu l'ancien nom, les deux ont écrit le nouveau, les deux ont journalisé.
+   *
+   * 🔴 LA CONDITION FAIT DE L'ÉCRITURE UN ARBITRE. Le second `UPDATE` ne touche aucune ligne, rend `false`, et
+   * l'appelant n'écrit alors PAS de seconde ligne de journal. Un fait, une ligne — c'est toute la valeur d'un
+   * journal qu'on relit pour comprendre.
+   *
+   * ⚠️ CE N'EST PAS UN CHANGEMENT DE RÈGLE. On écrit toujours quand le nom redevient celui d'origine : passer de
+   * `NULL` à « 0836_001.pdf » EST une écriture (`IS DISTINCT FROM` traite `NULL` comme différent de tout). Ce
+   * qu'on refuse, c'est de réécrire une valeur déjà en place — ce qui n'a jamais rien changé à personne.
+   */
   const { rowCount } = await query(
-    'UPDATE gestion_piece SET nom_usage = $2 WHERE id = $1', [pieceId, propre]);
+    'UPDATE gestion_piece SET nom_usage = $2 WHERE id = $1 AND nom_usage IS DISTINCT FROM $2',
+    [pieceId, propre]);
   return (rowCount ?? 0) > 0;
 }
 
@@ -263,6 +279,14 @@ export async function piecesARelire(
       ORDER BY p.id, d.depose_le`,
     [Math.max(1, tranches), ((tranche % tranches) + tranches) % tranches, Math.min(Math.max(1, limite), 500)]);
 
+  return regrouperPourRelecture(rows);
+}
+
+/** Une pièce par ligne de pièce, ses copies rassemblées. PUR — la même pour les deux sélecteurs. */
+function regrouperPourRelecture(rows: readonly {
+  piece_id: string; nom_affiche: string; drive_file_id: string; drive_dossier_id: string;
+  dossier_nom: string | null; origine: string; nom_drive: string | null;
+}[]): PieceARelire[] {
   const par = new Map<number, PieceARelire>();
   for (const r of rows) {
     const id = Number(r.piece_id);
@@ -274,4 +298,82 @@ export async function piecesARelire(
     par.set(id, deja);
   }
   return [...par.values()];
+}
+
+/**
+ * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LES PIÈCES QU'UN ÉCRAN VIENT D'AFFICHER ══════════════════════════════
+ *
+ * 🔴 LA MÊME FORME QUE `piecesARelire`, ET C'EST VOULU : la décision de reprendre un nom est écrite UNE fois
+ * (`reprendrePourCesPieces`), et elle ne doit pas pouvoir voir deux formes de données différentes selon qu'elle
+ * a été déclenchée par l'horloge ou par un clic.
+ *
+ * ⚠️ CE N'EST PAS UNE TRANCHE : ici, on sait exactement quelles pièces nous intéressent — celles qui sont sous
+ * les yeux. Le découpage par modulo existe pour balayer 26 543 copies sans en oublier ; il n'a rien à faire dans
+ * une demande qui en vise trente.
+ */
+/**
+ * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LES PIÈCES RANGÉES RÉCEMMENT PASSENT DEVANT ══════════════════════════
+ *
+ * Demande d'Arno : « Garde le balayage de fond pour le reste, mais fais passer en priorité les pièces rangées ou
+ * consultées récemment. »
+ *
+ * 🔴 CE QUE CELA NE DÉFAIT PAS. Le balayage par tranches garde ses trois propriétés — tout est vu dans un délai
+ * borné, sans état, sans pic. Cette liste s'AJOUTE devant lui, elle ne le remplace pas : une pièce déposée il y a
+ * un mois et jamais rouverte continue d'être vue par son tour de tranche, et par lui seul.
+ *
+ * 🔴 POURQUOI « RANGÉE RÉCEMMENT » ET PAS « DÉPOSÉE RÉCEMMENT ». Les 26 522 copies de « 00 Arrivée des mails »
+ * ont été faites la même nuit : trier par date de dépôt ne classe rien (c'est l'erreur que l'épreuve réelle a
+ * corrigée au lot précédent). Ce qu'on retient ici, ce sont les copies dont on SAIT ce qu'on y a écrit
+ * (`nom_drive` renseigné) — c'est-à-dire, par construction, celles qu'un humain a rangées ou renommées depuis
+ * l'application. Ce sont exactement celles qu'il peut avoir rouvertes dans Drive pour les renommer.
+ *
+ * ⚠️ PETIT PLAFOND : cette liste s'ajoute au coût de chaque passe. Elle doit rester une poignée, sinon elle
+ * devient le balayage — avec un ordre, donc avec un angle mort.
+ */
+export const PLAFOND_PRIORITAIRES = 15;
+
+/** Au-delà, une pièce n'est plus « récente » : son tour de tranche viendra, et c'est bien assez. */
+export const FENETRE_PRIORITAIRE_JOURS = 7;
+
+export async function piecesPrioritaires(limite = PLAFOND_PRIORITAIRES): Promise<PieceARelire[]> {
+  if (!(await nomUsageDisponible())) return [];
+  const { rows } = await query<{
+    piece_id: string; nom_affiche: string;
+    drive_file_id: string; drive_dossier_id: string; dossier_nom: string | null; origine: string;
+    nom_drive: string | null;
+  }>(
+    `WITH choisies AS (
+       SELECT d.piece_id, max(d.depose_le) AS vue
+         FROM gestion_piece_drive d
+        WHERE d.nom_drive IS NOT NULL
+          AND d.depose_le > now() - ($2::int * INTERVAL '1 day')
+        GROUP BY d.piece_id
+        ORDER BY vue DESC
+        LIMIT $1
+     )
+     SELECT p.id::text AS piece_id, ${await sqlNomAffiche('p')} AS nom_affiche,
+            d.drive_file_id, d.drive_dossier_id, d.dossier_nom, d.origine, d.nom_drive
+       FROM choisies c
+       JOIN gestion_piece p ON p.id = c.piece_id
+       JOIN gestion_piece_drive d ON d.piece_id = c.piece_id
+      ORDER BY c.vue DESC, p.id, d.depose_le`,
+    [Math.min(Math.max(1, limite), 100), FENETRE_PRIORITAIRE_JOURS]);
+  return regrouperPourRelecture(rows);
+}
+
+export async function piecesParIdentifiants(pieceIds: readonly number[]): Promise<PieceARelire[]> {
+  const ids = [...new Set(pieceIds.filter((i) => Number.isSafeInteger(i) && i > 0))];
+  if (ids.length === 0 || !(await nomUsageDisponible())) return [];
+  const { rows } = await query<{
+    piece_id: string; nom_affiche: string;
+    drive_file_id: string; drive_dossier_id: string; dossier_nom: string | null; origine: string;
+    nom_drive: string | null;
+  }>(
+    `SELECT p.id::text AS piece_id, ${await sqlNomAffiche('p')} AS nom_affiche,
+            d.drive_file_id, d.drive_dossier_id, d.dossier_nom, d.origine, d.nom_drive
+       FROM gestion_piece p
+       JOIN gestion_piece_drive d ON d.piece_id = p.id
+      WHERE p.id = ANY($1::bigint[])
+      ORDER BY p.id, d.depose_le`, [ids]);
+  return regrouperPourRelecture(rows);
 }

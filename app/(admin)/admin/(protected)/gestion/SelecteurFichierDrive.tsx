@@ -26,6 +26,10 @@ import {
   annuler as annulerLocalement, appliquer as appliquerLocalement, MOT_EN_COURS, motMouvementEnCours,
   type MouvementLocal,
 } from '../../../../lib/gestion/mouvementOptimiste';
+// 🔴 LOT RANGER-INSTANTANE-ET-NOM — la ligne qui paraît AU LÂCHER, et qui sait se retirer. Module PUR.
+import {
+  ligneProvisoire, ligneReelle, poser as poserLigne, remplacer as remplacerLigne, retirer as retirerLigne,
+} from '../../../../lib/gestion/depotInstantane';
 // 🔴 LOT DRIVE-UNIQUE — les règles du mode « ranger », du bandeau des parents et des colonnes. Module PUR.
 import {
   bandeauParents, basculerTout, colonnesVisibles, compteRenduDepot, COTE_MAX, COTE_MIN, grilleColonnes,
@@ -264,7 +268,12 @@ export function SelecteurFichierDrive({
   /** Les pièces à ranger, telles que l'écran du message les connaît déjà. */
   pieces?: readonly PieceARanger[];
   /** Appelé après chaque rangement réussi : l'écran du message relit ses dépôts et affiche « Dans le Drive ». */
-  onRangement?: () => void;
+  /**
+   * 🔴 LOT RANGER-INSTANTANE-ET-NOM — `nomChange` DIT QUE LA BASE VIENT DE CHANGER DE NOM. L'écran appelant s'en
+   * sert pour relire le fil : une pièce renommée au stylo puis rangée doit porter son nouveau nom PARTOUT tout de
+   * suite, et pas seulement dans cette fenêtre-ci.
+   */
+  onRangement?: (o?: { nomChange?: boolean }) => void;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [histo, setHisto] = useState<Historique>(HISTORIQUE_DEPART);
@@ -1125,6 +1134,28 @@ export function SelecteurFichierDrive({
     }
   };
 
+  /**
+   * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — APPLIQUER UNE RETOUCHE À TOUTES LES LISTES D'UN DOSSIER ═════════════
+   *
+   * Les mêmes TROIS endroits que `rangerLesListes` — le cache des listings, les sous-niveaux dépliés, la vue
+   * courante —, mais pour un dossier UNIQUE et une transformation quelconque. Le dépôt n'a pas de source à vider :
+   * il n'ajoute (ou retire) qu'une ligne, dans un seul dossier.
+   *
+   * ⚠️ TOUJOURS LES TROIS, JAMAIS DEUX. N'en toucher que deux donne un écran qui se contredit dès qu'on remonte
+   * d'un dossier et qu'on redescend : c'est exactement le genre d'incohérence qu'on attribue au Drive.
+   */
+  const majListesDu = (dossierId: string, transformer: (liste: readonly Fichier[]) => Fichier[]) => {
+    if (dossierId === '') return;
+    const connu = cache.current.get(dossierId);
+    if (connu !== undefined) cache.current.set(dossierId, { ...connu, fichiers: transformer(connu.fichiers) });
+    setEnfants((avant) => (avant.has(dossierId)
+      ? new Map(avant).set(dossierId, transformer(avant.get(dossierId) ?? []))
+      : avant));
+    if ((dossierCourant?.id ?? '') === dossierId) {
+      setVue((v) => (v.v === 'ok' ? { ...v, fichiers: transformer(v.fichiers) } : v));
+    }
+  };
+
   /** Le nom d'un dossier qu'on a sous la main : le courant, un parent du bandeau, ou une ligne de la liste. */
   const nomDuDossier = (id: string | null): string | null => {
     if (id === null || id === '') return null;
@@ -1373,6 +1404,28 @@ export function SelecteurFichierDrive({
     if (rangementEnCours.has(piece.pieceId)) return { ok: false, motif: 'rangement déjà en cours.' };
     if (o.silencieux !== true) setErreur(null);
     setRangementEnCours((v) => new Set(v).add(piece.pieceId));
+
+    /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+       🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LA LIGNE PARAÎT AU LÂCHER
+       ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+       CONSTAT D'ARNO (30/09/2026) : « la fenêtre affiche “✓ Rangée dans Test · ouvrir”, mais le dossier Test
+       ouvert dans l'arbre ne montre PAS le fichier. Il n'apparaît qu'environ 1 minute plus tard. »
+
+       🔴 C'EST LE MÊME PRINCIPE QUE POUR LES DÉPLACEMENTS, et c'est exprès : deux gestes qui se ressemblent
+       doivent répondre pareil. Une ligne provisoire, marquée « en cours », portant LE NOM D'USAGE — pas le nom
+       d'origine, sinon le renommage aurait l'air d'avoir échoué puis d'être rattrapé.
+
+       ⚠️ ELLE NE DIT PAS « RANGÉE ». La marque « ✓ Rangée dans X » n'est posée qu'à la réception de
+       l'identifiant Drive, plus bas : la ligne montre ce qui est EN TRAIN d'arriver, la marque affirme que c'est
+       arrivé. Les confondre, c'était annoncer un rangement dont on n'avait encore aucune preuve. */
+    const nomPourLeDrive = nomDeDepot(piece.nom, nomsChoisis.get(piece.pieceId));
+    const provisoire = ligneProvisoire({ ...piece, nom: nomPourLeDrive }, cibleId);
+    majListesDu(cibleId, (l) => poserLigne(l, provisoire));
+    marquerEnVol([provisoire.id], true);
+    const oublierLaProvisoire = () => {
+      marquerEnVol([provisoire.id], false);
+      majListesDu(cibleId, (l) => retirerLigne(l, piece.pieceId));
+    };
     try {
       const res = await fetch(`/api/admin/gestion/pieces/${piece.pieceId}/drive`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1390,25 +1443,51 @@ export function SelecteurFichierDrive({
         }),
       });
       const d = (await res.json()) as {
-        etat?: string; message?: string;
-        resultats?: { pieceId: number; etat: string; lien?: string | null; motif?: string }[];
+        etat?: string; message?: string; nomUsageEcrit?: boolean;
+        resultats?: {
+          pieceId: number; etat: string; lien?: string | null; motif?: string; driveFileId?: string | null;
+        }[];
       };
-      if (d.etat !== 'ok') return echec(d.message ?? 'le rangement n’a pas abouti.');
+      if (d.etat !== 'ok') { oublierLaProvisoire(); return echec(d.message ?? 'le rangement n’a pas abouti.'); }
       const r = (d.resultats ?? [])[0];
       // 🔴 UN ÉCHEC PIÈCE PAR PIÈCE SE DIT : la route rend un verdict par pièce, jamais un « OK » global.
-      if (r === undefined || r.etat === 'echec') return echec(r?.motif ?? 'le rangement n’a pas abouti.');
+      if (r === undefined || r.etat === 'echec') {
+        /* 🔴 LA LIGNE PROVISOIRE DISPARAÎT, ET LE MOTIF S'AFFICHE. Une ligne optimiste qui resterait après un
+           refus ferait croire à un fichier qui n'est pas là — le mensonge que l'optimisme ne doit jamais dire. */
+        oublierLaProvisoire();
+        return echec(r?.motif ?? 'le rangement n’a pas abouti.');
+      }
+
+      /* 🔴 GOOGLE A CONFIRMÉ : la ligne provisoire devient la VRAIE, avec l'identifiant reçu — et c'est seulement
+         ICI que « ✓ Rangée » est dit. Sans cet identifiant, l'écran ne pouvait que tout redemander au Drive,
+         c'est-à-dire attendre : c'est la moitié de ce lot. */
+      marquerEnVol([provisoire.id], false);
+      const idReel = (r.driveFileId ?? '').trim();
+      if (idReel === '') {
+        // Une route plus ancienne (ou un déploiement en cours) ne rend pas l'identifiant : on retombe sur la
+        //   revalidation, qui est ce qui se faisait avant ce lot. Mieux vaut une seconde d'attente qu'une ligne fausse.
+        oublierLaProvisoire();
+      } else {
+        majListesDu(cibleId, (l) => remplacerLigne(l, piece.pieceId, ligneReelle(
+          { ...piece, nom: nomPourLeDrive }, { driveFileId: idReel, lien: r.lien ?? null }, cibleId)));
+      }
       setRangees((v) => {
         const n = new Map(v);
         n.set(piece.pieceId, { dossierId: cibleId, dossierNom: cibleNom, lien: r.lien ?? null });
         return n;
       });
-      // Le dossier a un fichier de plus : son listing mémorisé ne vaut plus.
-      cache.current.delete(cibleId);
-      if (dossierCourant?.id === cibleId) void charger(cibleId);
-      // L'écran du message relit ses dépôts : c'est lui qui affiche « Dans le Drive » sur la carte de la pièce.
-      onRangement?.();
+      /* 🔴 ON REVALIDE EN SILENCE, ON NE RECHARGE PLUS. `charger` vidait l'écran, remettait le défilement en haut
+         et repassait par « chargement » — pour un dossier qu'on vient de mettre à jour ligne par ligne. La
+         revalidation, elle, relit en arrière-plan et ne remplace que si l'on est toujours au même endroit. */
+      revaliderEnSilence([cibleId]);
+      /* L'écran du message relit ses dépôts : c'est lui qui affiche « Dans le Drive » sur la carte de la pièce.
+         ⚠️ ET LE NOM D'USAGE VIENT PEUT-ÊTRE DE CHANGER (pièce renommée au stylo avant d'être rangée). On le DIT,
+         plutôt que de laisser l'appelant relire le fil à chaque rangement : la carte affichait sa nouvelle
+         mention « Dans le Drive » et gardait son ancien nom — la moitié de ce qui venait de changer. */
+      onRangement?.({ nomChange: d.nomUsageEcrit === true });
       return { ok: true };
     } catch {
+      oublierLaProvisoire();
       return echec('le serveur n’a pas répondu.');
     } finally {
       setRangementEnCours((v) => { const n = new Set(v); n.delete(piece.pieceId); return n; });

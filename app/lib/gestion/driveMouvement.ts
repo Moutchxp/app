@@ -90,12 +90,30 @@ export async function deplacerVers(
 /**
  * ══ 🔴 COPIER UN FICHIER — `files.copy` ═════════════════════════════════════════════════════════════════════════
  *
- * ⚠️ LE NOM N'EST PAS IMPOSÉ. On laisse Google nommer la copie comme il le fait lui-même (le même nom) : c'est le
- * comportement de Drive, et c'est ce qu'Arno a demandé pour les doublons — « les deux sont conservés, jamais
- * d'écrasement ». Imposer un nom serait, techniquement, un renommage.
+ * ⚠️ LE NOM N'EST PAS IMPOSÉ PAR DÉFAUT. On laisse Google nommer la copie comme il le fait lui-même (le même nom) :
+ * c'est le comportement de Drive, et c'est ce qu'Arno a demandé pour les doublons — « les deux sont conservés,
+ * jamais d'écrasement ».
+ */
+/**
+ * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — `nom` : LA COPIE PART SOUS LE NOM QU'ON A CHOISI ══════════════════════
+ *
+ * DÉFAUT TROUVÉ EN INSTRUISANT LE CAS D'ARNO. Le dépôt d'une pièce dont les octets locaux ont été libérés passe
+ * par ici (copie de dossier à dossier, sans qu'un octet repasse par nous). Le nom choisi au stylo était calculé,
+ * passé jusqu'ici… et jeté : Google donnait à la copie le nom de l'ORIGINAL. Une même pièce se serait donc rangée
+ * sous « Recommandé M Ahmed KHARRAT.pdf » par une voie et sous « 0836_001.pdf » par l'autre — c'est-à-dire
+ * exactement le contraire de « un seul nom, partout ».
+ *
+ * ⚠️ ABSENT OU VIDE ⇒ COMPORTEMENT D'AVANT CE LOT, mot pour mot : Google nomme la copie comme l'original. Le geste
+ * « copier » du navigateur de fichiers ne passe donc pas de nom, et ne change pas.
+ *
+ * 🔒 ET CE N'EST PAS UN RENOMMAGE, malgré le mot. Ce que ce fichier s'interdit, c'est de toucher au nom d'un
+ * fichier QUI EXISTE — `files.update` avec un `name` dans le corps. Ici le fichier NAÎT de l'appel : il n'a pas
+ * encore de nom à défaire. C'est exactement la raison pour laquelle `creerDossierPourCopie`, juste en dessous,
+ * a toujours eu le droit d'en porter un. Le corps du `PATCH` de `deplacerVers`, lui, reste vide — c'est là que
+ * le garde statique continue de compter.
  */
 export async function copierFichier(
-  accessToken: string, o: { id: string; parentCible: string }, deps: DepsGoogle,
+  accessToken: string, o: { id: string; parentCible: string; nom?: string }, deps: DepsGoogle,
 ): Promise<Resultat<ElementDeplace>> {
   /**
    * ⚠️ `webViewLink` EST DEMANDÉ (lot RANGER-PJ-FIABLE). Une pièce dont les octets locaux ont été libérés se range
@@ -108,7 +126,10 @@ export async function copierFichier(
     res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(o.id)}/copy?${p}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ parents: [o.parentCible] }),
+      body: JSON.stringify({
+        parents: [o.parentCible],
+        ...((o.nom ?? '').trim() === '' ? {} : { name: (o.nom ?? '').trim() }),
+      }),
     });
   } catch (e) {
     return { ok: false, motif: `Le Drive n’a pas répondu : ${e instanceof Error ? e.message : String(e)}` };

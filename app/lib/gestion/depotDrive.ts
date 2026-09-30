@@ -45,9 +45,19 @@ export interface PieceADeposer {
 }
 
 /** Le verdict d'UNE pièce. Le mot est toujours lisible par un humain : c'est lui qui s'affichera. */
+/**
+ * 🔴 LOT RANGER-INSTANTANE-ET-NOM — `driveFileId` ET `voie` SORTENT AVEC LE VERDICT.
+ *
+ * · `driveFileId` : l'écran en a besoin pour REMPLACER sa ligne provisoire par la vraie, sans recharger le
+ *   dossier. Sans lui, il ne pouvait que tout redemander — c'est-à-dire attendre.
+ * · `voie` : par quel chemin la copie est partie (nos octets, ou `files.copy` chez Google). Elle ne sert pas à
+ *   l'écran : elle sert à la MESURE, et à savoir en lisant un journal pourquoi un dépôt a coûté 3 s ou 400 ms.
+ */
+export type VoieDepot = 'octets' | 'copie_drive';
+
 export type IssuePiece =
-  | { pieceId: number; nomFichier: string; etat: 'depose'; lien: string | null }
-  | { pieceId: number; nomFichier: string; etat: 'deja'; lien: string | null }
+  | { pieceId: number; nomFichier: string; etat: 'depose'; lien: string | null; driveFileId: string; voie: VoieDepot }
+  | { pieceId: number; nomFichier: string; etat: 'deja'; lien: string | null; driveFileId: string | null }
   | { pieceId: number; nomFichier: string; etat: 'echec'; motif: string };
 
 export interface DepsDepot {
@@ -137,7 +147,10 @@ export async function deposerPieces(
       //      (La base reste l'arbitre final — cf. `memoriser`, qui tranche entre deux clics simultanés.)
       const deja = await deps.depotExistant(pieceId, dossierId);
       if (deja !== null) {
-        issues.push({ pieceId, nomFichier: nomCopie, etat: 'deja', lien: deja.webViewLink });
+        issues.push({
+          pieceId, nomFichier: nomCopie, etat: 'deja', lien: deja.webViewLink,
+          driveFileId: deja.driveFileId ?? null,
+        });
         continue;
       }
 
@@ -165,9 +178,32 @@ export async function deposerPieces(
         return deps.copierDepuisDrive(jeton, { driveFileId: copieDrive, nom: nomCopie, dossierId });
       };
 
-      let envoi: Resultat<FichierDepose> | null = null;
-      if (piece.stockageVide === true) {
-        envoi = await parLeDrive();
+      /**
+       * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LA COPIE DRIVE→DRIVE DEVIENT LA VOIE ORDINAIRE ═══════════════
+       *
+       * Demande d'Arno : « quand la pièce existe déjà dans notre copie “00 Arrivée des mails”, fais une copie
+       * Drive → Drive (files.copy) au lieu d'un nouvel envoi ».
+       *
+       * 🔴 CE QUI CHANGE : jusqu'ici, cette voie n'était tentée QUE si les octets locaux avaient été libérés —
+       * c'est-à-dire en rattrapage. Or presque toutes les pièces ONT déjà leur copie dans « 00 Arrivée des
+       * mails » : on lisait donc des mégaoctets depuis le stockage objet, on les repoussait chez Google, et le
+       * fichier qu'on venait d'y écrire s'y trouvait déjà, à un dossier près. `files.copy` ne fait transiter
+       * AUCUN octet : ni lecture MinIO, ni téléversement.
+       *
+       * ⚠️ ET SI LA COPIE ÉCHOUE, ON RETOMBE SUR NOS OCTETS. Le fichier d'origine a pu être mis à la corbeille
+       * dans le Drive, ou les droits avoir changé : la voie rapide n'a alors pas le droit de faire échouer un
+       * dépôt que la voie lente aurait réussi. Un dépôt qui échoue est un document perdu de vue.
+       *
+       * ⚠️ SANS COPIE CONNUE, RIEN NE CHANGE : `parLeDrive` rend `null`, et l'on passe par les octets comme
+       * avant ce lot.
+       */
+      let voie: VoieDepot = 'octets';
+      let envoi: Resultat<FichierDepose> | null = await parLeDrive();
+      if (envoi !== null && envoi.ok) {
+        voie = 'copie_drive';
+      } else if (piece.stockageVide !== true) {
+        // La copie rapide a échoué (ou n'existait pas) : les octets restent la voie sûre.
+        envoi = null;
       }
       if (envoi === null) {
         try {
@@ -180,6 +216,7 @@ export async function deposerPieces(
           //    `motifEchec` dira en français ce qu'on sait, et où chercher.
           envoi = await parLeDrive();
           if (envoi === null) throw e;
+          voie = 'copie_drive';
         }
       }
       if (!envoi.ok) {
@@ -201,7 +238,9 @@ export async function deposerPieces(
         // ⚠️ LE NOM RENDU EST CELUI SOUS LEQUEL LA PIÈCE EST PARTIE : c'est lui que l'écran annonce, et c'est lui
         //   qu'on retrouvera dans le Drive. Rendre le nom d'origine ferait chercher un fichier qui n'existe pas.
         pieceId, nomFichier: nomCopie,
-        etat: memo.etat === 'doublon' ? 'deja' : 'depose',
+        ...(memo.etat === 'doublon'
+          ? { etat: 'deja' as const, driveFileId: envoi.valeur.id }
+          : { etat: 'depose' as const, driveFileId: envoi.valeur.id, voie }),
         lien: envoi.valeur.webViewLink,
       });
     } catch (e) {

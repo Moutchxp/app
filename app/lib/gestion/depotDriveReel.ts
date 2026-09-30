@@ -40,11 +40,21 @@ export function depsReellesDepot(lire?: LecteurDossier): DepsDepot {
     octets: async (cle: string) => new Uint8Array(await recuperer(cle)),
     /**
      * 🔴 `files.copy` — la MÊME fonction que le geste « copier » du navigateur de fichiers (`driveMouvement`), et
-     * pas une seconde écriture vers Google. Le nom n'est pas imposé : Google donne à la copie le nom de
-     * l'original, exactement comme dans Drive.
+     * pas une seconde écriture vers Google.
+     *
+     * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LE NOM CHOISI PART AVEC LA COPIE ═══════════════════════════════
+     *
+     * CE QUI ÉTAIT ÉCRIT ICI : « le nom n'est pas imposé : Google donne à la copie le nom de l'original ». Vrai,
+     * et c'est précisément le défaut : le nom choisi au stylo était calculé, passé jusqu'ici… et jeté. La même
+     * pièce se rangeait donc sous « Recommandé M Ahmed KHARRAT.pdf » par la voie des octets et sous
+     * « 0836_001.pdf » par la voie de la copie — le contraire exact de « un seul nom, partout ».
+     *
+     * ⚠️ ET CE N'EST PAS UN RENOMMAGE : le fichier NAÎT de cet appel, il n'a pas encore de nom à défaire. Voir
+     * `copierFichier`, où le garde statique continue de surveiller le corps du `PATCH` de `deplacerVers`.
      */
     copierDepuisDrive: async (jeton, o) => {
-      const r = await copierFichier(jeton, { id: o.driveFileId, parentCible: o.dossierId }, { fetch });
+      const r = await copierFichier(
+        jeton, { id: o.driveFileId, parentCible: o.dossierId, nom: o.nom }, { fetch });
       return r.ok
         ? { ok: true, valeur: { id: r.valeur.id, nom: r.valeur.nom || o.nom, webViewLink: r.valeur.lien ?? null } }
         : r;

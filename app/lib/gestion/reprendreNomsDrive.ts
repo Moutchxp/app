@@ -1,9 +1,12 @@
 import { jetonPourSubject } from './driveDelegue';
-import { nomRepriseDepuisDrive, type NomVuDansDrive } from './nomUsagePiece';
+import type { NomVuDansDrive } from './nomUsagePiece';
 import {
-  ecrireNomUsage, journaliserRenommage, piecesARelire, PLAFOND_RELECTURE, trancheDuMoment,
+  piecesARelire, piecesPrioritaires, PLAFOND_RELECTURE, trancheDuMoment, type PieceARelire,
 } from './nomUsageRepo';
-import { renommerPiece } from './renommagePieceReel';
+/* 🔴 LOT RANGER-INSTANTANE-ET-NOM — LA DÉCISION DE REPRENDRE UN NOM EST ÉCRITE LÀ-BAS, ET LÀ-BAS SEULEMENT.
+   Cette passe choisit QUELLES pièces ; `relectureNomsDrive` décide QUOI en faire — la même règle, qu'on arrive
+   par l'horloge ou par l'ouverture d'un fil. */
+import { reprendrePourCesPieces } from './relectureNomsDrive';
 
 /**
  * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — RENOMMÉ DANS GOOGLE DRIVE, REPRIS PAR L'APP ═════════════════════════════
@@ -116,74 +119,41 @@ export async function reprendreNomsDepuisDrive(
      * sur une pièce précise sans attendre trois jours que son tour vienne.
      */
     const tranche = o.tranche ?? trancheDuMoment(Date.now());
-    const pieces = await piecesARelire(tranche, o.limite ?? PLAFOND_RELECTURE);
+    /**
+     * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LES RÉCENTES D'ABORD, PUIS LA TRANCHE ════════════════════════════
+     *
+     * Demande d'Arno : « Garde le balayage de fond pour le reste, mais fais passer en priorité les pièces
+     * rangées ou consultées récemment. »
+     *
+     * 🔴 LES DEUX, ET DANS CET ORDRE. La tranche garde ses trois propriétés (tout est vu, sans état, sans pic) ;
+     * la liste prioritaire ne fait que passer devant. Une pièce vue par les deux n'est lue qu'une fois — sans
+     * quoi la poignée de prioritaires reviendrait payer sa lecture à chaque passe de sa propre tranche.
+     */
+    const prioritaires = await piecesPrioritaires();
+    const deLaTranche = await piecesARelire(tranche, o.limite ?? PLAFOND_RELECTURE);
+    const vues = new Set(prioritaires.map((p) => p.pieceId));
+    const pieces: PieceARelire[] = [...prioritaires, ...deLaTranche.filter((p) => !vues.has(p.pieceId))];
     if (pieces.length === 0) return rapport;
 
     const jeton = await jetonPourSubject(COMPTE_DRIVE, deps);
     if (!jeton.ok) return rapport;
 
-    // ① UNE SEULE SÉRIE DE LECTURES pour toutes les copies de toutes les pièces de la tranche.
-    const tousLesIds = pieces.flatMap((p) => p.copies.map((c) => c.driveFileId));
-    const vus = await lireNomsDrive(jeton.jeton, tousLesIds, deps);
-    const parId = new Map(vus.map((v) => [v.driveFileId, v]));
-    rapport.relues = pieces.length;
-
-    for (const p of pieces) {
-      /**
-       * ══ 🔴🔴 ON NE REGARDE QUE LES COPIES DONT ON SAIT CE QU'ON Y A ÉCRIT ═════════════════════════════════
-       *
-       * PREMIÈRE VERSION, RÉFUTÉE PAR L'ÉPREUVE RÉELLE : comparer le nom Drive au nom de la PIÈCE. Les copies de
-       * « 00 Arrivée des mails » sont nommées « 2026-09-23 — expediteur@exemple.fr — Facture.pdf », exprès. Le
-       * nom Drive diffère donc du nom de la pièce pour les 26 522 copies, et la passe a « repris » 60 pièces sur
-       * 60 — elle aurait renommé toute la base d'après ses préfixes.
-       *
-       * 🔴 UN RENOMMAGE HUMAIN, C'EST DRIVE QUI DIT AUTRE CHOSE QUE CE QU'ON Y A ÉCRIT. Une copie dont on ignore
-       * ce qu'on y a mis (`nomDrive` nul, les 26 522 d'aujourd'hui) est LAISSÉE TRANQUILLE : ne pas savoir n'est
-       * pas une raison de renommer, c'est la raison de s'abstenir. La colonne se remplit au premier renommage
-       * fait depuis l'application.
-       */
-      const candidates = p.copies.filter((c) => (c.nomDrive ?? '').trim() !== '');
-      const siens = candidates
-        .map((c) => {
-          const vu = parId.get(c.driveFileId);
-          // On compare à `nomDrive`, pas au nom de la pièce : `nomRepriseDepuisDrive` écarte ce qui est identique.
-          return vu === undefined || vu.nom.trim() === (c.nomDrive ?? '').trim() ? undefined : vu;
-        })
-        .filter((v): v is NomVuDansDrive => v !== undefined);
-      if (siens.length === 0) continue;
-
-      const repris = nomRepriseDepuisDrive(p.nomAffiche, siens);
-      if (repris === null) continue;
-
-      /**
-       * 🔴 ON ÉCRIT LE NOM D'USAGE, PUIS ON ALIGNE LES AUTRES COPIES. `renommerPiece` refait les deux contrôles
-       * de sécurité (registre, chaîne de parents) : la reprise n'est pas un chemin plus permissif que le stylo,
-       * c'est le MÊME chemin déclenché par une autre cause.
-       *
-       * ⚠️ LE JOURNAL DIT « drive », ET C'EST TOUTE LA DIFFÉRENCE : en relisant l'historique, on doit pouvoir
-       * distinguer « quelqu'un a cliqué le stylo » de « le fichier a été renommé dans Google Drive ».
-       */
-      const ancien = p.nomAffiche;
-      if (!(await ecrireNomUsage(p.pieceId, repris.nom))) continue;
-      await journaliserRenommage({
-        pieceId: p.pieceId, ancienNom: ancien, nouveauNom: repris.nom, source: 'drive',
-        idsDrive: [repris.venantDe], refus: [], par: null, parLibelle: 'Google Drive',
-      });
-      rapport.reprises += 1;
-      rapport.details.push({ pieceId: p.pieceId, ancien, nouveau: repris.nom });
-
-      /**
-       * ⚠️ LES AUTRES COPIES SONT ALIGNÉES, mais SANS journaliser une seconde fois : la ligne qui vient d'être
-       * écrite raconte déjà ce renommage. Deux lignes pour un seul fait feraient lire deux renommages.
-       */
-      const autres = p.copies.filter((c) => c.driveFileId !== repris.venantDe);
-      if (autres.length > 0) {
-        await renommerPiece({
-          pieceId: p.pieceId, nom: repris.nom, par: null, parLibelle: 'Google Drive',
-          sansDrive: false, sansJournal: true,
-        }, deps).catch(() => undefined);
-      }
-    }
+    /**
+     * 🔴 LA DÉCISION EST ÉCRITE AILLEURS, ET UNE SEULE FOIS (`reprendrePourCesPieces`). La lecture à la demande
+     * — celle qui se déclenche à l'ouverture d'un fil — applique EXACTEMENT la même règle. Deux copies
+     * divergeraient, et ce jour-là l'une reprendrait un nom que l'autre refuse, sur la même pièce, selon
+     * l'heure. C'est la sorte d'incohérence qu'on met des mois à attribuer.
+     *
+     * ⚠️ LA PASSE DE FOND LIT EN SÉRIE, sans mémoire courte : elle a tout son temps, et la mémoire de 30 s de
+     * l'autre chemin est faite pour une rafale d'écrans, pas pour un balayage qui passe toutes les dix minutes.
+     */
+    const bilan = await reprendrePourCesPieces(
+      pieces, jeton.jeton, deps,
+      async (j, ids, d) => new Map((await lireNomsDrive(j, ids, d)).map((v) => [v.driveFileId, v])),
+    );
+    rapport.relues = bilan.relues;
+    rapport.reprises = bilan.reprises.length;
+    rapport.details = bilan.reprises;
   } catch (e) {
     console.error('[gestion/noms-drive] reprise impossible', e);
   }

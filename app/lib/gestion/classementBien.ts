@@ -17,6 +17,14 @@ import { estInterne, reconnaitre } from './adressesMessage';
 import { chargerAnnuaireAdresses } from './adressesRepo';
 // 🔴 « Interne » proposé en premier : la règle vit dans le dépôt qui la porte, écrite une seule fois.
 import { proposerInterneDabord } from './interneRepo';
+/**
+ * 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LE DERNIER ÉCRAN QUI MONTRAIT ENCORE LE NOM D'ORIGINE.
+ *
+ * Trouvé en cherchant « tous les endroits d'affichage qui n'y passent pas encore » (demande d'Arno) : la liste
+ * « Classer chaque pièce jointe séparément » de `ClasserMail` lisait `p.nom_fichier` en clair. Une pièce renommée
+ * y reparaissait donc sous son nom d'origine, au moment précis où l'on décide dans quel bien la ranger.
+ */
+import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
 
 /**
  * MODULE « GESTION » — LOT STATUT-PAR-MAIL : CE QU'IL FAUT SAVOIR POUR CLASSER UN MAIL DANS UN BIEN. LECTURE SEULE.
@@ -433,8 +441,10 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
   const filId = m.fil_id === null ? null : Number(m.fil_id);
 
   // ── LES PIÈCES JOINTES : leur nom nourrit la reconnaissance (cas c et d) ET le classement pièce par pièce ────
-  const { rows: pieces } = await query<{ id: string; nom_fichier: string; miniature: boolean }>(
-    `SELECT p.id::text, p.nom_fichier,
+  const { rows: pieces } = await query<{
+    id: string; nom_fichier: string; nom_origine: string; miniature: boolean;
+  }>(
+    `SELECT p.id::text, ${await sqlNomAffiche('p')} AS nom_fichier, ${sqlNomOrigine('p')} AS nom_origine,
             ${(await miniaturesDisponibles()) ? 'p.miniature_cle IS NOT NULL' : 'false'} AS miniature
        FROM gestion_piece p WHERE p.message_id = $1 ORDER BY p.id`, [messageId]);
 
@@ -472,7 +482,16 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
       WHERE message_id = $1 AND statut IN ('propose', 'confirme')`, [messageId]);
   const coeur = await construireBiens({
     adresses,
-    textes: { objet: m.objet, corps: m.corps, pieces: pieces.map((p) => p.nom_fichier) },
+    /**
+     * ⚠️ LA RECONNAISSANCE LIT LES DEUX NOMS, L'ÉCRAN UN SEUL. Une règle qui repère « bail » dans un nom de
+     * fichier doit continuer de le repérer après un renommage — et le repérer aussi dans le nom sous lequel la
+     * pièce est ARRIVÉE, qui est celui que le correspondant a choisi. N'en garder qu'un ferait manquer un
+     * classement une fois sur deux, sans que rien ne le dise. Le doublon est écarté quand les deux coïncident.
+     */
+    textes: {
+      objet: m.objet, corps: m.corps,
+      pieces: [...new Set(pieces.flatMap((p) => [p.nom_fichier, p.nom_origine]))],
+    },
     dateRef: dateMail,
     liens,
   });

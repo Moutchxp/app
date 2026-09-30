@@ -69,10 +69,11 @@ describe('déplacer — files.update avec addParents/removeParents, et rien d’
   });
 });
 
-describe('copier — files.copy, et le nom n’est jamais imposé', () => {
+describe('copier — files.copy, et le nom n’est imposé que si on le demande', () => {
   /**
-   * 🔴 LE NOM N'EST PAS IMPOSÉ, et c'est ce qui donne le comportement demandé par Arno pour les doublons : « les
-   * deux sont conservés, jamais d'écrasement ». Imposer un nom serait, techniquement, un renommage.
+   * 🔴 SANS NOM DEMANDÉ, LE CORPS NE PORTE QUE LE PARENT, et c'est ce qui donne le comportement attendu pour les
+   * doublons : « les deux sont conservés, jamais d'écrasement ». C'est le cas du geste « copier » du navigateur
+   * de fichiers, qui ne passe pas de nom — il n'a donc pas changé d'un octet à ce lot.
    */
   it('le corps ne porte que le parent — pas de nom, donc pas de renommage déguisé', async () => {
     const { deps, appels } = faux({ id: 'C1', name: 'bail.pdf', parents: ['CIBLE'] });
@@ -83,6 +84,32 @@ describe('copier — files.copy, et le nom n’est jamais imposé', () => {
     expect(appels[0].url).toContain('/copy');
     const corps = JSON.parse(String(appels[0].init.body)) as Record<string, unknown>;
     expect(Object.keys(corps)).toEqual(['parents']);
+  });
+
+  /**
+   * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LA COPIE PEUT NAÎTRE SOUS LE NOM CHOISI ═══════════════════════════
+   *
+   * DÉFAUT RÉEL : une pièce renommée au stylo puis rangée passait par ici quand ses octets locaux avaient été
+   * libérés, et Google nommait la copie comme l'ORIGINAL. La même pièce se rangeait donc sous deux noms selon
+   * la voie empruntée — le contraire exact de « un seul nom, partout ».
+   *
+   * 🔒 ET CE N'EST PAS UN RENOMMAGE : le fichier NAÎT de cet appel. Rien d'existant n'est touché, et le corps du
+   * `PATCH` de `deplacerVers` reste vide — c'est lui que le garde statique surveille.
+   */
+  it('🔴 un nom demandé part dans le corps, et la copie naît sous ce nom', async () => {
+    const { deps, appels } = faux({ id: 'C2', name: 'Recommandé M Ahmed KHARRAT.pdf', parents: ['CIBLE'] });
+    const r = await copierFichier(
+      'jeton', { id: 'F1', parentCible: 'CIBLE', nom: 'Recommandé M Ahmed KHARRAT.pdf' }, deps);
+
+    expect(r.ok).toBe(true);
+    const corps = JSON.parse(String(appels[0].init.body)) as Record<string, unknown>;
+    expect(corps).toEqual({ parents: ['CIBLE'], name: 'Recommandé M Ahmed KHARRAT.pdf' });
+  });
+
+  it('⚠️ un nom blanc ne s’impose pas : le corps redevient celui d’avant ce lot', async () => {
+    const { deps, appels } = faux({ id: 'C3', name: 'bail.pdf', parents: ['CIBLE'] });
+    await copierFichier('jeton', { id: 'F1', parentCible: 'CIBLE', nom: '   ' }, deps);
+    expect(Object.keys(JSON.parse(String(appels[0].init.body)) as object)).toEqual(['parents']);
   });
 
   it('une copie sans identifiant rendu est un échec, pas une réussite vide', async () => {
@@ -122,10 +149,15 @@ describe('🔴 aucune porte dérobée dans driveMouvement', () => {
     for (const mot of ['delete', 'trashed', 'permissions', 'emptyTrash']) {
       expect(code.toLowerCase()).not.toContain(mot.toLowerCase());
     }
-    /* 🔴 « name: » DANS LE CORPS D'UN DÉPLACEMENT SERAIT UN RENOMMAGE. Il n'est permis qu'une fois : à la
-       CRÉATION du dossier d'accueil d'une copie récursive, où il n'y a rien à renommer — le dossier n'existe pas
-       encore. Une deuxième occurrence voudrait dire qu'on a commencé à renommer l'existant. */
-    expect((code.match(/\bname:/g) ?? [])).toHaveLength(1);
+    /* 🔴🔴 « name: » N'EST PERMIS QUE LÀ OÙ LE FICHIER N'EXISTE PAS ENCORE. Deux endroits, deux naissances :
+       la CRÉATION du dossier d'accueil d'une copie récursive, et la COPIE elle-même (lot RANGER-INSTANTANE-ET-NOM,
+       pour qu'une pièce renommée se range sous son nom par les DEUX voies de dépôt). Une troisième occurrence
+       voudrait dire qu'on a commencé à renommer de l'EXISTANT — et c'est cela, et cela seul, qui est interdit ici.
+
+       🔴 LA VRAIE BARRIÈRE EST JUSTE À CÔTÉ, et elle n'a pas bougé : le corps du `PATCH` de `deplacerVers` est
+       `'{}'`, éprouvé plus haut. Un `name` LÀ serait un renommage ; un `name` sur un fichier qui naît n'en est
+       pas un. */
+    expect((code.match(/\bname:/g) ?? [])).toHaveLength(2);
   });
 
   it('aucun identifiant de dossier en dur — surtout pas celui de l’archive', () => {

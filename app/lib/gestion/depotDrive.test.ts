@@ -234,9 +234,103 @@ describe('🔴🔴 une pièce dont les octets locaux ont été libérés', () =>
   });
 });
 
+/**
+ * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LA COPIE DRIVE→DRIVE DEVIENT LA VOIE ORDINAIRE ══════════════════════
+ *
+ * Demande d'Arno : « quand la pièce existe déjà dans notre copie “00 Arrivée des mails”, fais une copie
+ * Drive → Drive (files.copy) au lieu d'un nouvel envoi ».
+ *
+ * MESURÉ le 30/09/2026 sur le vrai Drive, vérifications comprises : nos octets 3 593 ms → 2 699 ms après les
+ * optimisations ; la copie Drive → Drive, 2 254 ms. Et surtout : AUCUN octet ne transite.
+ */
+describe('🔴🔴 la copie Drive → Drive, voie ordinaire', () => {
+  const avecCopie = (driveFileId = 'ARRIVEE1') => ({
+    pieces: {
+      1: { nomFichier: 'piece-1.pdf', typeMime: 'application/pdf', cleStockage: 'k1', driveFileId },
+    },
+  });
+
+  it('🔴 une pièce qui a DÉJÀ une copie Drive est copiée, pas renvoyée', async () => {
+    const d = deps(avecCopie());
+    const i = await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['depose']);
+    expect(d.copies).toEqual(['ARRIVEE1']);
+    // ⚠️ AUCUN TÉLÉVERSEMENT : c'est tout l'intérêt — pas un octet ne repasse par nous.
+    expect(d.deposes).toEqual([]);
+    expect(i[0].etat === 'depose' && i[0].voie).toBe('copie_drive');
+  });
+
+  /** 🔴 LE NOM CHOISI AU STYLO PART AVEC LA COPIE : sinon la même pièce se rangerait sous deux noms selon la voie. */
+  it('🔴 la copie naît sous le nom d’usage, pas sous celui d’origine', async () => {
+    const vus: { nom: string }[] = [];
+    const d = deps({
+      ...avecCopie(),
+      copier: async (_j, x) => {
+        vus.push({ nom: x.nom });
+        return { ok: true, valeur: { id: 'C1', nom: x.nom, webViewLink: null } };
+      },
+    });
+    await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR, new Map([[1, 'Recommandé M Ahmed KHARRAT.pdf']]));
+    expect(vus).toEqual([{ nom: 'Recommandé M Ahmed KHARRAT.pdf' }]);
+  });
+
+  /**
+   * 🔴🔴 SI LA COPIE RAPIDE ÉCHOUE, ON RETOMBE SUR NOS OCTETS. Le fichier d'origine a pu être mis à la corbeille
+   * dans le Drive, ou les droits avoir changé : la voie rapide n'a pas le droit de faire échouer un dépôt que la
+   * voie lente aurait réussi. Un dépôt qui échoue est un document perdu de vue.
+   */
+  it('🔴🔴 une copie refusée par Google n’emporte pas le dépôt : les octets prennent le relais', async () => {
+    const d = deps({
+      ...avecCopie(),
+      copier: async () => ({ ok: false, motif: 'Google ne trouve plus l’élément visé.' }),
+    });
+    const i = await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['depose']);
+    expect(d.deposes).toEqual(['piece-1.pdf']);
+    expect(i[0].etat === 'depose' && i[0].voie).toBe('octets');
+  });
+
+  /**
+   * ⚠️ MAIS SI LES OCTETS ONT ÉTÉ LIBÉRÉS, il n'y a pas de relais — et l'échec se dit avec le motif de la copie,
+   * pas avec « The specified key does not exist » du stockage objet.
+   */
+  it('⚠️ octets libérés ET copie refusée : un échec, dit en français', async () => {
+    const d = deps({
+      pieces: {
+        1: {
+          nomFichier: 'piece-1.pdf', typeMime: 'application/pdf', cleStockage: 'k1',
+          driveFileId: 'ARRIVEE1', stockageVide: true,
+        },
+      },
+      octetsAbsents: true,
+      copier: async () => ({ ok: false, motif: 'Google ne trouve plus l’élément visé.' }),
+    });
+    const i = await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['echec']);
+    expect(i[0].etat === 'echec' && i[0].motif).toContain('Google');
+  });
+
+  it('⚠️ sans copie Drive connue, rien ne change : on passe par les octets', async () => {
+    const d = deps();
+    const i = await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(d.copies).toEqual([]);
+    expect(d.deposes).toEqual(['piece-1.pdf']);
+    expect(i[0].etat === 'depose' && i[0].voie).toBe('octets');
+  });
+
+  /** 🔴 L'ÉCRAN A BESOIN DE L'IDENTIFIANT pour remplacer sa ligne provisoire par la vraie, sans tout redemander. */
+  it('🔴 l’identifiant du fichier créé revient avec le verdict', async () => {
+    const i = await deposerPieces(deps(avecCopie()), 'jeton', [1], 'DOS', AUTEUR);
+    expect(i[0].etat === 'depose' && i[0].driveFileId).toBe('CARRIVEE1');
+  });
+});
+
 describe('le compte rendu', () => {
-  const issue = (etat: IssuePiece['etat'], id: number): IssuePiece =>
-    (etat === 'echec' ? { pieceId: id, nomFichier: 'x', etat, motif: 'm' } : { pieceId: id, nomFichier: 'x', etat, lien: null });
+  const issue = (etat: IssuePiece['etat'], id: number): IssuePiece => {
+    if (etat === 'echec') return { pieceId: id, nomFichier: 'x', etat, motif: 'm' };
+    if (etat === 'deja') return { pieceId: id, nomFichier: 'x', etat, lien: null, driveFileId: null };
+    return { pieceId: id, nomFichier: 'x', etat, lien: null, driveFileId: `D${id}`, voie: 'octets' };
+  };
 
   it('dit les trois cas avec des MOTS, jamais « 3/5 »', () => {
     const t = resumerDepot([issue('depose', 1), issue('depose', 2), issue('deja', 3), issue('echec', 4)]);

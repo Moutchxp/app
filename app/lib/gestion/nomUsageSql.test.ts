@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { nomsCherchablesAvec, sqlNomAffiche, sqlNomOrigine, sqlNomsCherchables } from './nomUsageSql';
 
 /**
@@ -110,5 +110,65 @@ describe('🔴 chaque endroit qui affiche un nom de pièce passe par le fragment
     const src = readFileSync('app/lib/gestion/octetsPiece.ts', 'utf8');
     expect(src).toContain('deps.gmail(p.messageIdRfc, p.nomOrigine ?? p.nomFichier)');
     expect(readFileSync('app/lib/gestion/octetsPieceCablage.ts', 'utf8')).toContain('sqlNomOrigine');
+  });
+
+  /**
+   * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LA LISTE CI-DESSUS NE SUFFISAIT PAS ══════════════════════════════
+   *
+   * ELLE ÉNUMÈRE CE QU'ON CONNAÎT, et c'est précisément sa limite : un repo AJOUTÉ demain lirait `nom_fichier`
+   * en clair sans faire rougir quoi que ce soit. C'est exactement ce qui s'est produit — `classementBien.ts`
+   * (la liste « Classer chaque pièce jointe séparément ») affichait encore le nom d'origine, et rien ne le
+   * disait. Arno l'a vu à l'écran ; aucun test ne l'avait vu.
+   *
+   * 🔴 D'OÙ UN BALAYAGE, ET NON UNE LISTE : tout fichier du module qui lit `nom_fichier` DE `gestion_piece`
+   * passe par le fragment, ou figure dans le tableau d'exceptions ci-dessous AVEC SA RAISON. Ajouter une ligne
+   * à ce tableau est un geste conscient ; oublier un repo ne l'est pas.
+   *
+   * ⚠️ ON NE REGARDE QUE LES LECTURES. Un `INSERT … (nom_fichier)` écrit le nom REÇU : c'est sa définition même,
+   * et il ne s'affiche nulle part.
+   */
+  const EXCEPTIONS: Record<string, string> = {
+    // Le HTML d'un message référence ses images par le nom sous lequel elles sont ARRIVÉES (`cid:`). Chercher
+    // le nom d'usage n'y résoudrait plus rien, et les images intégrées disparaîtraient du message.
+    'carteRepo.ts': 'résolution des « cid: » par le nom d’origine',
+    // « ._truc » est le jumeau technique que macOS pose À CÔTÉ du fichier : il se reconnaît au nom d'ARRIVÉE.
+    // Un nom d'usage peut commencer par « ._ » sans que la pièce soit un jumeau, et inversement.
+    'boiteRepo.ts': 'filtre des jumeaux macOS « ._ », sur le nom d’arrivée',
+    'triPiecesRepo.ts': 'filtre des jumeaux macOS « ._ », sur le nom d’arrivée',
+    // « image001.png », « ._x » : une signature et un jumeau se reconnaissent au nom FABRIQUÉ par le logiciel
+    // d'en face. Renommer une pièce ne doit pas la faire (re)devenir une signature, ni cesser d'en être une.
+    'lisibilite.ts': 'reconnaissance des signatures et des jumeaux, sur le nom d’arrivée',
+    'piecesRepo.ts': 'filtre des jumeaux macOS « ._ », sur le nom d’arrivée',
+    // La capture ÉCRIT le nom reçu ; elle ne l'affiche jamais.
+    'captureRepo.ts': 'écriture du nom reçu à la capture',
+    // Le vidage compare des empreintes et des tailles ; le nom n'y sert qu'au journal du script.
+    'vidageRepo.ts': 'journal d’un script de maintenance, hors écran',
+    // Plan de classement : script hors ligne, le nom nourrit une règle de reconnaissance — pas un affichage.
+    'classementRepo.ts': 'reconnaissance de rubrique dans un script de plan, hors écran',
+    // Les pièces d'un BROUILLON ont leur propre table et leur propre nom, recopié du nom d'usage à l'insertion.
+    'brouillonPieceRepoBase.ts': 'table des pièces de brouillon, nom recopié à l’insertion',
+    'fileEnvoiRepo.ts': 'table des pièces de brouillon, nom recopié à l’insertion',
+    // Le fragment lui-même, et ses alentours : c'est ici qu'on a le droit de nommer la colonne.
+    'nomUsageSql.ts': 'le fragment lui-même',
+    'nomUsageRepo.ts': 'le registre des noms, qui passe déjà par le fragment',
+  };
+
+  it('🔴🔴 AUCUN repo du module ne lit `nom_fichier` en clair sans raison écrite', () => {
+    const dossier = 'app/lib/gestion';
+    const coupables: string[] = [];
+    for (const nom of readdirSync(dossier)) {
+      if (!nom.endsWith('.ts') || nom.endsWith('.test.ts') || nom.endsWith('.itest.ts')) continue;
+      const src = readFileSync(`${dossier}/${nom}`, 'utf8');
+      // On regarde le CODE, pas la prose : les encadrés de ce module parlent beaucoup de `nom_fichier`.
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .split('\n').filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//')).join('\n');
+      if (!/\bnom_fichier\b/.test(code)) continue;
+      if (EXCEPTIONS[nom] !== undefined) continue;
+      // Nommer la colonne est permis quand le fichier passe AUSSI par le fragment : c'est le cas d'un SELECT
+      // qui rend `… AS nom_fichier`, et d'un INSERT qui écrit le nom reçu juste à côté.
+      if (code.includes('sqlNomAffiche') || code.includes('nomsCherchablesAvec')) continue;
+      coupables.push(nom);
+    }
+    expect(coupables).toEqual([]);
   });
 });

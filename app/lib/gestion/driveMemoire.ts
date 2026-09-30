@@ -34,7 +34,7 @@
  * de fuite qu'un cache introduit sans bruit, et elle est fermée par la clé.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-import { chaineParents, lireMetadonnees, type MetaFichier } from './drive';
+import { chaineParents, lireMetadonnees, type MaillonParent, type MetaFichier } from './drive';
 import type { DepsGoogle, Resultat } from './google';
 
 /** La durée de vie d'une entrée. Voir l'en-tête : c'est un choix de sécurité, pas un réglage de confort. */
@@ -43,7 +43,7 @@ export const MEMOIRE_MS = 60_000;
 interface Entree<T> { valeur: T; expireA: number }
 
 const metadonnees = new Map<string, Entree<Resultat<MetaFichier>>>();
-const chaines = new Map<string, Entree<{ id: string; nom: string; parentId: string | null }[]>>();
+const chaines = new Map<string, Entree<MaillonParent[]>>();
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -218,7 +218,7 @@ export async function metadonneesMemo(
  */
 export async function chaineDuDossierMemo(
   sujet: string, accessToken: string, dossierId: string, deps: DepsGoogle, maintenant = Date.now(),
-): Promise<{ id: string; nom: string; parentId: string | null }[]> {
+): Promise<MaillonParent[]> {
   const cle = `${sujet}|${dossierId}`;
   const deja = lire(chaines, cle, maintenant);
   if (deja !== null) return deja;
