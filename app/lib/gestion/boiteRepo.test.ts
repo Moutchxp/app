@@ -335,7 +335,9 @@ describe('la règle des deux boîtes', () => {
    */
   it('🔴🔴 seules les lignes en ÉCHEC sont lues — jamais un envoi en cours, jamais un envoi réussi', async () => {
     const src = readFileSync('app/lib/gestion/fileEnvoiRepo.ts', 'utf8');
-    const bloc = src.slice(src.indexOf('const SQL_ECHEC_NON_RESOLU'), src.indexOf('interface LigneEchec'));
+    // ⚠️ LOT BANDEAU-ET-BROUILLONS — la règle est devenue une FONCTION (son texte dépend d'une sonde de schéma).
+    //   Ce qu'on éprouve ici n'a pas bougé d'un mot : on ne lit QUE les lignes en échec.
+    const bloc = src.slice(src.indexOf('function sqlEchecNonResolu'), src.indexOf('interface LigneEchec'));
     expect(bloc).toContain("f.etat = 'echec'");
     expect(bloc).not.toContain("f.etat = 'attente'");
     expect(bloc).not.toContain("f.etat = 'en_cours'");
@@ -348,7 +350,7 @@ describe('la règle des deux boîtes', () => {
    */
   it('🔴 un échec RÉPARÉ n’est plus rendu : la règle est dans la requête, pas dans une réécriture', () => {
     const src = readFileSync('app/lib/gestion/fileEnvoiRepo.ts', 'utf8');
-    const bloc = src.slice(src.indexOf('const SQL_ECHEC_NON_RESOLU'), src.indexOf('interface LigneEchec'));
+    const bloc = src.slice(src.indexOf('function sqlEchecNonResolu'), src.indexOf('interface LigneEchec'));
     expect(bloc).toContain('NOT EXISTS');
     expect(bloc).toContain("f2.etat = 'envoye'");
     expect(bloc).toContain('f2.demande_le > f.demande_le');

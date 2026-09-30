@@ -65,15 +65,20 @@ export function BandeauEnvois({ filId, sauf = null, onRouvrir }: {
   onRouvrir?: (brouillonId: number) => void;
 }) {
   const [lignes, setLignes] = useState<EnvoiEnCours[]>([]);
+  /**
+   * 🔴 LOT BANDEAU-ET-BROUILLONS — le lien « Ignorer » n'existe QUE si la migration 284 est appliquée. La route
+   * le dit ; on ne le devine pas. Un lien qui ne fait rien est pire que pas de lien.
+   */
+  const [ignorable, setIgnorable] = useState(false);
 
   const relire = useCallback(async () => {
     try {
       const q = filId ? `?fil=${filId}` : '';
       const res = await fetch(`/api/admin/gestion/envois-en-cours${q}`, { cache: 'no-store' });
-      const d = (await res.json()) as { etat?: string; lignes?: EnvoiEnCours[] };
+      const d = (await res.json()) as { etat?: string; lignes?: EnvoiEnCours[]; ignorable?: boolean };
       // ⚠️ Une erreur laisse la liste TELLE QU'ELLE ÉTAIT : la vider ferait disparaître un « Non envoyé » à cause
       //   d'un hoquet de réseau, c'est-à-dire effacer l'alerte au lieu de la porter.
-      if (d.etat === 'ok') setLignes(d.lignes ?? []);
+      if (d.etat === 'ok') { setLignes(d.lignes ?? []); setIgnorable(d.ignorable === true); }
     } catch { /* silence : on garde ce qu'on affichait */ }
   }, [filId]);
 
@@ -88,6 +93,30 @@ export function BandeauEnvois({ filId, sauf = null, onRouvrir }: {
    * tentatives identiques de ce qui reste. L'inverse compterait des tentatives qu'on s'apprête à ne pas montrer,
    * et annoncerait « 2 tentatives » au-dessus d'un bandeau qui n'en montre qu'une.
    */
+  /**
+   * ══ 🔴 « IGNORER » — LE BANDEAU SE TAIT POUR CET ÉCHEC, SANS RIEN SUPPRIMER ═══════════════════════════════
+   *
+   * ⚠️ ON RETIRE LES LIGNES DE L'ÉCRAN TOUT DE SUITE, avant même la réponse : la relecture n'a lieu que toutes
+   * les cinq secondes, et un bandeau qui reste cinq secondes après qu'on a cliqué « Ignorer » fait recliquer.
+   * En cas d'échec de la requête, la relecture suivante les ramènera — c'est-à-dire la vérité de la base.
+   *
+   * 🔴 UN GROUPE S'IGNORE EN ENTIER. Le bandeau dit « 2 tentatives non envoyées » : n'en taire qu'une laisserait
+   * le bandeau à l'écran en disant « 1 tentative », ce qui se lirait comme un nouvel échec.
+   */
+  const ignorer = async (ids: readonly number[]) => {
+    setLignes((avant) => avant.filter((l) => !ids.includes(l.id)));
+    for (const id of ids) {
+      try {
+        await fetch('/api/admin/gestion/envois-en-cours', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, ignorer: true }),
+        });
+      } catch { /* silence : la relecture suivante ramènera ce qui n'a pas été pris */ }
+    }
+    await relire();
+  };
+
   const visibles = sauf === null ? lignes : lignes.filter((l) => l.filId !== sauf);
   const groupes = grouperEnvois(visibles);
 
@@ -118,6 +147,15 @@ export function BandeauEnvois({ filId, sauf = null, onRouvrir }: {
           )}
           {/* 🔴 LA PHRASE QUI RASSURE : le travail n'est pas perdu. Sans elle, on rouvre tout pour vérifier. */}
           {l.etat === 'echec' && <span className="bev-envoi-note">Le message est retourné dans les Brouillons.</span>}
+          {/* ⚠️ « IGNORER » EN DERNIER, ET DISCRET : c'est le geste qu'on fait quand on a réglé la question
+              autrement. Le mettre en avant inviterait à faire taire une alerte plutôt qu'à la traiter. */}
+          {l.etat === 'echec' && ignorable && (
+            <button type="button" className="gst-lien-bouton bev-envoi-ignorer"
+              title="Masquer ce signalement. Rien n’est supprimé : la cause et l’heure restent enregistrées."
+              onClick={() => void ignorer(ids)}>
+              Ignorer
+            </button>
+          )}
         </p>
       ))}
     </div>
@@ -135,5 +173,7 @@ export const CSS_BANDEAU_ENVOIS = `
 .bev-envoi--rouge .bev-envoi-mot{color:var(--color-svv-red)}
 .bev-envoi-objet{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:22rem}
 .bev-envoi-dest,.bev-envoi-note{color:var(--color-svv-muted)}
+/* Discret, et repousse a droite : on regle la panne, on ne fait pas taire l'alerte en premier reflexe. */
+.bev-envoi-ignorer{margin-left:auto;color:var(--color-svv-muted);font-size:.78rem}
 .bev-envoi-cause{overflow-wrap:anywhere}
 `;

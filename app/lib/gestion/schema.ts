@@ -623,6 +623,18 @@ export function envoiInterneFileDisponible(): Promise<boolean> {
 }
 
 /**
+ * 🔴 LOT BANDEAU-ET-BROUILLONS — la migration 284 est-elle appliquée ? Elle porte « IGNORER » un échec d'envoi :
+ * le bandeau se tait pour CET échec, sans que rien ne soit supprimé.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, le lien « Ignorer » n'est pas offert, et le bandeau se comporte exactement comme avant.
+ * Nommer une colonne absente ferait échouer la lecture de TOUTE la file d'envoi — donc le bandeau lui-même, et
+ * les listes qui le portent. Règle du module depuis le lot 4a.
+ */
+export function envoiIgnoreDisponible(): Promise<boolean> {
+  return memoiser('envoi_file.ignore_le', () => colonneExiste('gestion_envoi_file', 'ignore_le'));
+}
+
+/**
  * 🔴 LOT CONTACTS-ET-EVENEMENT — la migration 267 est-elle appliquée ? Elle porte le LIBELLÉ DE LA COLONNE
  * WIPPIMMO d'où vient chaque coordonnée (« Mobile 1 », « Email 2 »).
  *

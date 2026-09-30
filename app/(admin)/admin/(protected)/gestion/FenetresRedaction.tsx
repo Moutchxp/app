@@ -125,7 +125,32 @@ export function FenetresRedaction({
                     expressément, par la corbeille de la barre du bas.
                     🔴🔴 ET C'EST L'ÉDITEUR QUI FERME, pas cette croix : elle fermait la fenêtre elle-même, ce qui
                     court-circuitait justement cette règle et laissait la ligne vide en base. */}
+                {/**
+                  * ══ 🔴🔴 LOT BANDEAU-ET-BROUILLONS — FERMER NE DOIT PAS FABRIQUER CE QU'IL VA GARDER ══════════
+                  *
+                  * CONSTAT D'ARNO, mesuré en base le 30/09/2026 : cinq brouillons du jour (66, 68, 72, 73, 74)
+                  * n'avaient NI objet, NI autre corps que la signature — seulement un destinataire. Reproduit à
+                  * l'écran : ouvrir « Nouveau message », taper une adresse, cliquer cette croix → brouillon 75,
+                  * de la même forme exactement.
+                  *
+                  * 🔴 LA CAUSE : le champ « À » valide ce qu'on a tapé À LA PERTE DE FOCUS, ce qui est la bonne
+                  * règle quand on passe au champ suivant. Mais cliquer ici fait AUSSI perdre le focus, et dans
+                  * cet ordre : le clic pose le focus sur la croix, `onBlur` transforme le texte à moitié tapé en
+                  * destinataire, l'éditeur se croit « touché », enregistre, PUIS ferme. Le geste qui dit « je ne
+                  * veux pas de ce message » fabriquait lui-même le seul contenu qui le rendait digne d'être gardé.
+                  *
+                  * ⚠️ LE MÊME REMÈDE QUE POUR LES SUGGESTIONS (encadré en tête de `Redaction.tsx`, 24/09/2026) :
+                  * on annule le comportement par défaut du `mousedown`, donc LE FOCUS NE QUITTE PAS LE CHAMP et
+                  * `onBlur` ne se déclenche pas. On ne désarme PAS la validation au focus perdu — elle reste
+                  * juste quand on passe à « Objet ». On enlève seulement au geste de fermeture le pouvoir de
+                  * valider à la place de la personne.
+                  *
+                  * 🔒 RIEN N'EST PERDU : tout ce qui a été VALIDÉ (Entrée, virgule, choix dans la liste) est déjà
+                  * dans l'état, et `fermer` le garde comme avant. Seule la frappe jamais confirmée ne survit pas,
+                  * ce qui est précisément ce que « jamais confirmée » veut dire.
+                  */}
                 <button type="button" className="fre-bouton" aria-label="Fermer la fenêtre" title="Fermer"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => onDemanderFermeture(f.cle)}>
                   <span aria-hidden="true" className="fre-icone">✕</span>
                 </button>

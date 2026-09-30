@@ -430,12 +430,14 @@ describe('🔴 un échec qu’un envoi ULTÉRIEUR a réparé ne s’affiche plus
 
   it('la règle d’exclusion est écrite UNE fois, et les deux listes s’en servent', () => {
     // Deux écritures de la même règle divergeraient : un échec disparaîtrait d'une liste et pas de l'autre.
-    expect(sql).toContain('const SQL_ECHEC_NON_RESOLU');
-    expect((sql.match(/SQL_ECHEC_NON_RESOLU/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    // ⚠️ LOT BANDEAU-ET-BROUILLONS — devenue une FONCTION : son texte dépend désormais d'une sonde de schéma.
+    //   La garantie ne change pas d'un mot — une seule écriture de la règle, appelée par les quatre lectures.
+    expect(sql).toContain('function sqlEchecNonResolu');
+    expect((sql.match(/sqlEchecNonResolu\(/g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
 
   it('🔴 les quatre conditions qui FONT la règle sont là', () => {
-    const regle = sql.slice(sql.indexOf('const SQL_ECHEC_NON_RESOLU'), sql.indexOf('/** Ce qu’on met en file'));
+    const regle = sql.slice(sql.indexOf('function sqlEchecNonResolu'), sql.indexOf('/** Ce qu’on met en file'));
     expect(regle).toContain("f.etat = 'echec'");        // ① on ne parle que des échecs
     expect(regle).toContain('NOT EXISTS');              // ② et seulement de ceux que rien n'a réparés
     expect(regle).toContain('f2.brouillon_id = f.brouillon_id'); // ③ le MÊME message, pas un autre
@@ -449,5 +451,66 @@ describe('🔴 un échec qu’un envoi ULTÉRIEUR a réparé ne s’affiche plus
     // C'est lui qui comble l'intervalle entre le clic et la capture par la relève : le masquer ferait croire
     //   le clic perdu pendant une minute, et l'on réécrirait le message.
     expect(sql).toContain("f.etat IN ('attente', 'en_cours') OR");
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT BANDEAU-ET-BROUILLONS — TROIS FAÇONS DE N'AVOIR PLUS RIEN À FAIRE ════════════════════════════════
+ *
+ * CONSTAT D'ARNO : le bandeau « N tentatives non envoyées » ne disparaissait QUE si l'envoi finissait par réussir.
+ * Cas réel : le brouillon 64 (« Fwd: Taxes Foncières ») est obsolète — les pièces sont parties depuis Gmail — et
+ * le bandeau réclamait toujours un geste sur un travail que plus personne ne voulait faire.
+ *
+ * ⚠️ MÊME FORME D'ÉPREUVE QUE POUR LA RÈGLE D'ORIGINE : le prédicat vit en base, il n'y a pas de fonction pure à
+ * appeler, et figer sa mise en forme casserait au premier reformatage. On tient donc les CONDITIONS, par
+ * fragments sémantiques, sur une chaîne dont les espaces sont normalisés.
+ */
+describe('🔴 le bandeau se tait aussi quand le brouillon est jeté, ou qu’on l’ignore', () => {
+  const sql = readFileSync('app/lib/gestion/fileEnvoiRepo.ts', 'utf8').replace(/\s+/g, ' ');
+  const regle = sql.slice(sql.indexOf('function sqlEchecNonResolu'), sql.indexOf('/** Ce qu’on met en file'));
+
+  it('🔴 un brouillon ABANDONNÉ (corbeille, abandon, suppression) fait taire son échec', () => {
+    expect(regle).toContain('FROM gestion_brouillon b');
+    expect(regle).toContain('b.id = f.brouillon_id');
+    expect(regle).toContain('b.abandonne_le IS NOT NULL');
+  });
+
+  /**
+   * 🔴 ET IL REVIENT SI LE BROUILLON REVIENT. `restaurerBrouillon` remet `abandonne_le` à NULL : la condition
+   * ci-dessus retrouve alors sa valeur d'avant, et le bandeau réapparaît. Une seconde colonne « bandeau masqué »
+   * aurait fallu la remettre à jour à la main, et se serait désynchronisée.
+   */
+  it('🔴 la restauration depuis la corbeille remet bien `abandonne_le` à NULL', () => {
+    const repo = readFileSync('app/lib/gestion/redactionRepo.ts', 'utf8').replace(/\s+/g, ' ');
+    const restaure = repo.slice(repo.indexOf('export async function restaurerBrouillon'));
+    expect(restaure.slice(0, 600)).toContain('abandonne_le = NULL');
+  });
+
+  /**
+   * ⚠️ UN ÉCHEC SANS BROUILLON N'EST JAMAIS MASQUÉ par cette règle : `NOT EXISTS` sur une jointure qui ne trouve
+   * rien reste VRAI. Il n'y a pas de travail à jeter, donc rien qui dise que la question est réglée.
+   */
+  it('⚠️ un échec sans brouillon reste affiché — la règle est un NOT EXISTS, pas une comparaison', () => {
+    expect(regle).toContain('AND NOT EXISTS ( SELECT 1 FROM gestion_brouillon b');
+  });
+
+  it('🔴 « Ignorer » n’est nommé QUE si la migration 284 est appliquée', () => {
+    expect(regle).toContain('avecIgnore ?');
+    expect(regle).toContain('f.ignore_le IS NULL');
+    // Sans la sonde, la colonne n'apparaît nulle part : c'est ce qui protège TOUTE la lecture de la file.
+    expect(regle.indexOf('avecIgnore ?')).toBeLessThan(regle.indexOf('f.ignore_le IS NULL'));
+  });
+
+  it('⚠️ et la règle reste écrite UNE fois : les quatre lectures appellent la même fonction', () => {
+    expect((sql.match(/sqlEchecNonResolu\(/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  /** 🔴 ON DATE, ON N'EFFACE PAS : « Ignorer » ne doit jamais supprimer une ligne de file. */
+  it('🔴 « Ignorer » n’émet aucun DELETE', () => {
+    const verbe = sql.slice(sql.indexOf('export async function ignorerEchecEnvoi'));
+    expect(verbe).not.toContain('DELETE');
+    expect(verbe).toContain('ignore_le = now()');
+    // Réversible : remettre à NULL doit exister, sinon c'est une suppression qui n'ose pas dire son nom.
+    expect(verbe).toContain('ignore_le = NULL');
   });
 });

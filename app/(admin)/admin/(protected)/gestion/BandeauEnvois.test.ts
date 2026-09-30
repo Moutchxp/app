@@ -282,3 +282,61 @@ describe('🔴 `sauf` : ce que le fil ouvert dit déjà, la tête de page ne le 
     expect(container.textContent).not.toContain('tentatives');
   });
 });
+
+/**
+ * ══ 🔴 LOT BANDEAU-ET-BROUILLONS — « IGNORER » ════════════════════════════════════════════════════════════════
+ *
+ * Arno : « un lien “Ignorer” qui masque le bandeau durablement pour cet échec, SANS RIEN SUPPRIMER ».
+ */
+describe('🔴 « Ignorer » fait taire un échec, et rien de plus', () => {
+  const echecs = (n: number) => Array.from({ length: n }, (_, i) => echec({
+    id: 10 + i, filId: 3494, objet: 'Fwd: Taxes Foncières', destinataires: ['compta@adhoc.fr'],
+    cause: 'Gmail a refusé l’envoi.', demandeLe: `2026-09-30T14:5${i}:00Z`,
+  }));
+
+  it('🔴 le lien N’EXISTE PAS tant que la migration 284 manque — un lien qui ne fait rien est pire', async () => {
+    reponse = { etat: 'ok', lignes: echecs(1), ignorable: false };
+    await monter();
+    expect([...container.querySelectorAll('button')].some((b) => b.textContent === 'Ignorer')).toBe(false);
+    // …et le bandeau, lui, est EXACTEMENT celui d'avant.
+    expect(container.textContent).toContain('Non envoyé');
+  });
+
+  it('🔴 le clic retire le bandeau TOUT DE SUITE et demande la mise en sourdine', async () => {
+    reponse = { etat: 'ok', lignes: echecs(1), ignorable: true };
+    await monter();
+    const lien = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Ignorer');
+    expect(lien).toBeDefined();
+
+    reponse = { etat: 'ok', lignes: [], ignorable: true };
+    await act(async () => { lien?.click(); });
+    await calmer();
+
+    const patch = appels.filter((u) => u.includes('envois-en-cours'));
+    expect(patch.length).toBeGreaterThan(1); // la lecture initiale, plus le PATCH, plus la relecture
+    expect(container.querySelector('.bev-envois')).toBeNull();
+  });
+
+  /**
+   * 🔴 UN GROUPE S'IGNORE EN ENTIER. Le bandeau annonce « 2 tentatives non envoyées » : n'en taire qu'une
+   * laisserait le bandeau à l'écran en disant « 1 tentative », ce qui se lirait comme un NOUVEL échec.
+   */
+  it('🔴 « 2 tentatives non envoyées » se tait d’un seul clic, pour les deux', async () => {
+    reponse = { etat: 'ok', lignes: echecs(2), ignorable: true };
+    await monter();
+    expect(container.textContent).toContain('2 tentatives non envoyées');
+    const lien = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Ignorer');
+    reponse = { etat: 'ok', lignes: [], ignorable: true };
+    await act(async () => { lien?.click(); });
+    await calmer();
+    expect(container.querySelector('.bev-envois')).toBeNull();
+  });
+
+  /** ⚠️ LE MOT PROMET CE QU'IL FAIT : il masque, il ne supprime pas — et l'infobulle le dit. */
+  it('⚠️ l’infobulle dit que rien n’est supprimé', async () => {
+    reponse = { etat: 'ok', lignes: echecs(1), ignorable: true };
+    await monter();
+    const lien = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Ignorer');
+    expect(lien?.getAttribute('title')).toContain('Rien n’est supprimé');
+  });
+});

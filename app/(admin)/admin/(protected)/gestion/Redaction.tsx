@@ -1093,7 +1093,14 @@ export function Redaction({
             onClick={() => setPlein((v) => !v)}>
             {plein ? 'Réduire' : 'Plein écran'}
           </button>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>Fermer</button>
+          {/* 🔴 LOT BANDEAU-ET-BROUILLONS — `onMouseDown` ANNULÉ : voir l'encadré de la croix, dans
+              `FenetresRedaction.tsx`. Sans lui, ce bouton fait perdre le focus au champ « À », ce qui valide le
+              texte à moitié tapé — et le geste de fermeture fabrique le destinataire qui fait garder le brouillon.
+              ⚠️ « Garder en brouillon », plus bas, N'A PAS cette garde, et c'est voulu : son mot promet de garder,
+              donc valider ce qui est en train d'être tapé est exactement ce qu'on lui demande. */}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void fermer()}>Fermer</button>
         </div>
       )}
 

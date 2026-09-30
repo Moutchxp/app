@@ -126,3 +126,71 @@ export const MOTS_ENREGISTREMENT: Record<EtatEnregistrement, string> = {
   /** ⚠️ ON LE DIT. Taire un enregistrement raté ferait croire que le texte est gardé alors qu'il ne l'est pas. */
   echec: 'Brouillon non enregistré',
 };
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT BANDEAU-ET-BROUILLONS — CE QU'UNE LIGNE DE BROUILLON DOIT MONTRER
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO, vu à l'écran le 30/09/2026 : les cinq premières lignes de la liste « Brouillons » s'appelaient
+   toutes « Service Gestion 2 rue Mars et Roty, 92800 Puteaux 06 23 53 32 36 01 4… ». Cinq brouillons
+   indiscernables, tous nommés d'après NOTRE PROPRE SIGNATURE.
+
+   🔴 LA CAUSE : à défaut d'objet, la ligne affichait le début du CORPS. Or un brouillon neuf naît déjà rempli —
+   avec la signature, et rien d'autre. « Le début du message » était donc, presque toujours, la signature.
+
+   ═══ LA RÈGLE D'ARNO ════════════════════════════════════════════════════════════════════════════════════════════
+
+   Le titre est l'OBJET, toujours. Sans objet, « (sans objet) », en gris et en italique — un mot qui se lit comme
+   une absence, pas comme un nom de message. Puis, en dessous, une ligne d'extrait de ce qui a été SAISI : ni la
+   signature, ni la citation. Rien saisi ⇒ rien affiché : une ligne vide dit exactement la vérité, et c'est plus
+   honnête qu'un faux titre.
+*/
+
+/** Le mot d'un brouillon sans objet. Écrit une fois : le titre et l'infobulle disent le même. PUR. */
+export const SANS_OBJET_BROUILLON = '(sans objet)';
+
+/** Le titre d'une ligne de brouillon. `sansObjet` dit à l'écran de le peindre en gris italique. PUR. */
+export function titreBrouillon(objet: string): { texte: string; sansObjet: boolean } {
+  const o = objet.trim();
+  return o === '' ? { texte: SANS_OBJET_BROUILLON, sansObjet: true } : { texte: o, sansObjet: false };
+}
+
+/** Une ligne, débarrassée de ce qui ne se voit pas, pour comparer deux lignes entre elles. PUR. */
+const ligneNormalisee = (l: string): string => l.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/**
+ * ══ 🔴 L'EXTRAIT DE CE QUI A ÉTÉ SAISI. PUR. ═══════════════════════════════════════════════════════════════════
+ *
+ * On retire DEUX choses, et seulement deux :
+ *   ① LES LIGNES DE LA SIGNATURE, où qu'elles soient. On ne coupe pas « tout ce qui suit la signature » : on
+ *      écrit parfois SOUS elle, et couper à l'aveugle perdrait ce texte-là. Une ligne saisie qui se trouverait
+ *      identique à une ligne de signature disparaîtrait aussi — c'est sans conséquence, et l'inverse (garder la
+ *      signature) est le défaut qu'on répare.
+ *   ② LA CITATION du message d'origine. Elle est rangée à part dans le brouillon, mais un « Répondre » repris,
+ *      ou un texte collé, peut la ramener dans le corps. Les lignes en « > » et l'en-tête « Le … a écrit : » sont
+ *      les deux formes qu'on rencontre.
+ *
+ * ⚠️ SIGNATURE ABSENTE (`null`, ou pas encore chargée) : on ne retire rien de ce côté-là. Mieux vaut un extrait
+ * qui contient la signature qu'un extrait amputé de ce qui a été écrit.
+ */
+export function extraitSaisi(corps: string, signature: string | null, max = 90): string {
+  const lignesSignature = new Set(
+    (signature ?? '').split('\n').map(ligneNormalisee).filter((l) => l !== ''),
+  );
+
+  const gardees: string[] = [];
+  for (const brute of corps.split('\n')) {
+    const l = brute.trim();
+    // La citation commence ici, et tout ce qui suit lui appartient.
+    if (/^>/.test(l)) break;
+    if (/^Le .+ a écrit\s*:?\s*$/i.test(l)) break;
+    if (/^-{2,}\s*Forwarded message\s*-{2,}/i.test(l)) break;
+    if (l === '') continue;
+    if (lignesSignature.has(ligneNormalisee(l))) continue;
+    gardees.push(l);
+  }
+
+  const texte = gardees.join(' ').replace(/\s+/g, ' ').trim();
+  if (texte.length <= max) return texte;
+  return `${texte.slice(0, max - 1).trimEnd()}…`;
+}

@@ -7,6 +7,8 @@ import { PAR_PAGE, trancheDePage } from '../../../../lib/gestion/pagination';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { motsJeterBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 import { ordonnerBrouillons, type BrouillonEnregistre } from '../../../../lib/gestion/brouillonReprise';
+// 🔴 LOT BANDEAU-ET-BROUILLONS — le titre et l'extrait sont DÉCIDÉS dans le module pur, jamais ici.
+import { extraitSaisi, titreBrouillon } from '../../../../lib/gestion/brouillonEnregistrement';
 
 /**
  * LOT 5e — LA LISTE DES BROUILLONS, sous son étiquette.
@@ -34,17 +36,30 @@ const LIBELLE_VOIE: Record<VoieRedaction, string> = {
   transferer_piece: 'Transfert en pièce jointe',
 };
 
-/** De quoi reconnaître SON brouillon quand on en a cinq. Objet, sinon début du message, sinon destinataires. PUR. */
-export function resumerBrouillon(b: Pick<BrouillonListe, 'objet' | 'corps' | 'a'>): string {
-  const objet = b.objet.trim();
-  if (objet !== '') return objet;
-  const corps = b.corps.replace(/\s+/g, ' ').trim();
-  if (corps !== '') return corps.length <= 70 ? corps : `${corps.slice(0, 69).trimEnd()}…`;
-  return b.a.length > 0 ? `à ${b.a.join(', ')}` : '(message vide)';
-}
+/**
+ * ══ 🔴🔴 LOT BANDEAU-ET-BROUILLONS — `resumerBrouillon` A ÉTÉ RETIRÉE ═══════════════════════════════════════════
+ *
+ * CE QU'ELLE FAISAIT : à défaut d'objet, elle affichait le début du CORPS. Or un brouillon neuf naît déjà rempli —
+ * avec la signature, et rien d'autre. Vu à l'écran le 30/09/2026 : les cinq premières lignes de la liste
+ * s'appelaient toutes « Service Gestion 2 rue Mars et Roty, 92800 Puteaux 06 23 53 32 36 01 4… ». Cinq brouillons
+ * indiscernables, tous nommés d'après NOTRE PROPRE signature.
+ *
+ * 🔴 LA RÈGLE D'ARNO LA REMPLACE : le titre est l'OBJET, toujours ; sans objet, « (sans objet) » en gris italique.
+ * L'extrait de ce qui a été SAISI descend sur sa propre ligne, sans signature ni citation. Les deux décisions
+ * vivent dans le module PUR (`titreBrouillon`, `extraitSaisi`), qui est éprouvé sans écran.
+ *
+ * ⚠️ RIEN N'EST PERDU DE CE QU'ELLE APPORTAIT : les destinataires, qu'elle servait en dernier recours, sont
+ * toujours sur la ligne du bas (« à … »), où ils étaient déjà.
+ */
 
-export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbeille = false }: {
+export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbeille = false, signature = null }: {
   maintenant: Date;
+  /**
+   * 🔴 LOT BANDEAU-ET-BROUILLONS — LA SIGNATURE DE gestion@, pour la retirer de l'extrait. `null` = pas encore
+   * chargée : on n'ampute alors rien, et l'extrait peut contenir la signature — mieux vaut cela qu'un extrait
+   * amputé de ce qui a été écrit.
+   */
+  signature?: string | null;
   /**
    * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LE MÊME GESTE QUE DANS L'ÉDITEUR, DONC LES MÊMES MOTS. Arno : « même règle
    * pour Abandonner et tout autre bouton qui supprime un brouillon ». Ce bouton passe déjà par la même porte
@@ -73,7 +88,7 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbei
 }) {
   /** Les mots du geste, tirés de la MÊME source que l'éditeur : un seul geste ne s'apprend pas deux fois. */
   const mots = motsJeterBrouillon(corbeille);
-  const [etat, setEtat] = useState<{ v: 'charge' } | { v: 'ok'; liste: BrouillonListe[] } | { v: 'erreur' }>({ v: 'charge' });
+  const [etat, setEtat] = useState<{ v: 'charge' } | { v: 'ok'; liste: BrouillonListe[]; total: number } | { v: 'erreur' }>({ v: 'charge' });
   /**
    * 🔴 LOT LISTE-PAGINATION — LE RANG DE LA PAGE AFFICHÉE. Arno demande la MÊME pagination sur toutes les listes,
    * celle-ci comprise. Elle se découpe EN MÉMOIRE : la route rend les brouillons en une fois (10 au 30/09/2026),
@@ -82,13 +97,22 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbei
   const [page, setPage] = useState(0);
 
   /** Va chercher la liste et RENVOIE le résultat : c'est l'appelant qui décide quoi en faire. Patron du dépôt. */
-  const chercher = async (): Promise<{ v: 'ok'; liste: BrouillonListe[] } | { v: 'erreur' }> => {
+  const chercher = async (): Promise<{ v: 'ok'; liste: BrouillonListe[]; total: number } | { v: 'erreur' }> => {
     try {
       const res = await fetch('/api/admin/gestion/brouillons', { cache: 'no-store' });
       if (!res.ok) return { v: 'erreur' };
-      const d = (await res.json()) as { brouillons?: BrouillonListe[] };
+      const d = (await res.json()) as { brouillons?: BrouillonListe[]; total?: number };
       // DU PLUS RÉCEMMENT MODIFIÉ AU PLUS ANCIEN. La base rend déjà cet ordre ; l'écran ne s'en remet pas à elle.
-      return { v: 'ok', liste: ordonnerBrouillons(d.brouillons ?? []) };
+      const liste = ordonnerBrouillons(d.brouillons ?? []);
+      /**
+       * 🔴 LOT BANDEAU-ET-BROUILLONS — LE TOTAL VIENT DE LA BASE, par la MÊME fonction que la colonne de gauche.
+       * Compter les lignes reçues ici redonnerait deux nombres pour une seule chose : la liste est bornée, et les
+       * deux écrans ne se rafraîchissent pas au même moment. C'était l'écart « 18 contre 17 ».
+       *
+       * ⚠️ REPLI SUR LA LONGUEUR quand la route ne rend pas de total (version antérieure servie par un cache) :
+       * un nombre approché vaut mieux qu'un titre sans nombre.
+       */
+      return { v: 'ok', liste, total: typeof d.total === 'number' ? d.total : liste.length };
     } catch { return { v: 'erreur' }; }
   };
   const lire = async () => { setEtat(await chercher()); };
@@ -138,7 +162,8 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbei
   return (
     <>
       <style>{CSS_BARRE_PAGES}</style>
-      <h3 className="gst-titre">Brouillons <span className="gst-compte">{etat.liste.length}</span></h3>
+      <style>{CSS_BROUILLONS}</style>
+      <h3 className="gst-titre">Brouillons <span className="gst-compte">{etat.total}</span></h3>
       {barre('haut')}
       <ul className="gst-liste">
         {affiches.map((b) => (
@@ -147,9 +172,21 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbei
               {/* 🔴🔴 LE CLIC ROUVRE LE BROUILLON, TOUJOURS. Il ne rouvrait que la CONVERSATION, et seulement quand
                   il y en avait une — un message neuf n'était pas cliquable du tout. On revient sur son texte, ses
                   destinataires, sa mise en forme et ses pièces, dans l'éditeur ordinaire. */}
+              {/* 🔴 LE TITRE EST L'OBJET. Sans objet, le mot de l'absence — en gris italique, pour qu'il ne se
+                  lise pas comme un nom de message. Le bouton reste le même : un clic rouvre le brouillon. */}
               <button type="button" className="gst-objet gst-objet-bouton"
-                onClick={() => onReprendre(b)}>{resumerBrouillon(b)}</button>
+                onClick={() => onReprendre(b)}>
+                {(() => {
+                  const t = titreBrouillon(b.objet);
+                  return t.sansObjet ? <span className="bro-sans-objet">{t.texte}</span> : t.texte;
+                })()}
+              </button>
             </div>
+            {/* ⚠️ RIEN DU TOUT QUAND RIEN N'A ÉTÉ SAISI, et c'est la vérité exacte : une ligne vide vaut mieux
+                qu'un extrait de signature, qui faisait passer notre adresse pour le message de quelqu'un. */}
+            {extraitSaisi(b.corps, signature) !== '' && (
+              <p className="bro-extrait">{extraitSaisi(b.corps, signature)}</p>
+            )}
             <div className="gst-item-bas">
               <span>{LIBELLE_VOIE[b.voie]}</span>
               <span className="gst-sep" aria-hidden="true">·</span>
@@ -192,3 +229,15 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbei
     </>
   );
 }
+
+/* ══ 🔴 LOT BANDEAU-ET-BROUILLONS — LES DEUX SEULES CLASSES DE CETTE LISTE ═══════════════════════════════════════
+   Aucune couleur en dur : uniquement des jetons de la charte, comme partout dans le module.
+   ⚠️ PAS UN SEUL ACCENT GRAVE DANS CE BLOC (piege connu du depot : un accent grave dans un commentaire ferme le
+   gabarit et casse la compilation avec une erreur qui ne parle pas du commentaire). */
+export const CSS_BROUILLONS = `
+/* Le mot de l'absence se lit COMME une absence : gris, italique. Il ne doit pas passer pour un nom de message. */
+.bro-sans-objet{color:var(--color-svv-muted);font-style:italic;font-weight:400}
+/* L'extrait de ce qui a ete saisi : une seule ligne, discrete, coupee proprement si elle deborde. */
+.bro-extrait{margin:2px 0 0;font-size:.82rem;color:var(--color-svv-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+`;

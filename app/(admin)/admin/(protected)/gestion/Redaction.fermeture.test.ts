@@ -166,3 +166,103 @@ describe('🔴 le câblage de la croix', () => {
     expect(code).toContain('fermetureDemandee={fermetures.get(f.cle) ?? 0}');
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT BANDEAU-ET-BROUILLONS — FERMER NE DOIT PAS FABRIQUER CE QU'IL VA GARDER ═══════════════════════════
+ *
+ * CONSTAT D'ARNO, mesuré en base le 30/09/2026 : cinq brouillons du jour (n° 66, 68, 72, 73, 74) n'avaient NI
+ * objet, NI autre corps que la signature — seulement un destinataire. Aucun n'avait été écrit.
+ *
+ * REPRODUIT À L'ÉCRAN avant d'écrire une ligne de correctif : ouvrir « Nouveau message », taper une adresse dans
+ * « À », cliquer la croix de la fenêtre → brouillon n° 75, de la même forme exactement.
+ *
+ * 🔴 LA CAUSE : le champ « À » valide ce qu'on a tapé À LA PERTE DE FOCUS. C'est la bonne règle quand on passe au
+ * champ suivant. Mais cliquer sur une croix fait AUSSI perdre le focus, et dans cet ordre : le clic pose le focus
+ * sur la croix, `onBlur` transforme le texte à moitié tapé en destinataire, l'éditeur se croit « touché »,
+ * enregistre, PUIS ferme. Le geste qui dit « je ne veux pas de ce message » fabriquait lui-même le seul contenu
+ * qui le rendait digne d'être gardé.
+ *
+ * ══ ⚠️ CE QUE CES ÉPREUVES ASSÈRENT, ET POURQUOI C'EST BIEN LE COMPORTEMENT ════════════════════════════════════
+ *
+ * Elles vérifient que le `mousedown` d'un geste de fermeture est ANNULÉ. Ce n'est pas « chercher un mot dans le
+ * source » : c'est appeler le vrai gestionnaire et constater qu'il annule l'action par défaut du navigateur —
+ * celle qui déplace le focus. Sans ce déplacement, `onBlur` ne se déclenche pas, et c'est toute la correction.
+ *
+ * 🔴 IL N'Y A PAS MOYEN DE L'ÉPROUVER PLUS LOIN SOUS jsdom : jsdom n'implémente pas le déplacement de focus
+ * provoqué par un `mousedown`, donc le défaut d'origine ne s'y reproduit pas du tout. La preuve de bout en bout a
+ * été faite dans le navigateur, sur l'application réelle (brouillon 75 avant, aucun après).
+ */
+describe('🔴🔴 un geste de FERMETURE ne prend pas le focus au champ « À »', () => {
+  /** Le vrai bouton, le vrai gestionnaire : on lui envoie un `mousedown` et l'on regarde s'il l'annule. */
+  const mousedownAnnule = (bouton: Element | null): boolean => {
+    expect(bouton, 'le bouton doit exister').not.toBeNull();
+    const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    act(() => { bouton?.dispatchEvent(e); });
+    return e.defaultPrevented;
+  };
+
+  /**
+   * ⚠️ HORS FENÊTRE (`dansFenetre: false`) : c'est là que vivent les boutons « Fermer » et « Plein écran ». Dans
+   * une fenêtre, la barre de titre porte déjà la croix — elle est éprouvée dans `FenetresRedaction.barre.test.ts`.
+   */
+  const monterEnPlace = async () => {
+    await act(async () => {
+      root.render(createElement(Redaction, {
+        dansFenetre: false, fermetureDemandee: 0, brouillon: NEUF, contexte: CONTEXTE,
+        onChange: () => {}, onFerme: () => {}, onEnvoye: () => {}, onGeste: () => {},
+      } as never));
+    });
+    await calmer();
+  };
+
+  it('🔴 « Fermer » n’arrache pas le focus — donc ne valide pas une adresse à moitié tapée', async () => {
+    await monterEnPlace();
+    const fermer = [...container.querySelectorAll('button')]
+      .find((b) => (b.textContent ?? '').trim() === 'Fermer');
+    expect(mousedownAnnule(fermer ?? null)).toBe(true);
+  });
+
+  /**
+   * ⚠️ « GARDER EN BROUILLON » N'A PAS CETTE GARDE, ET C'EST VOULU. Son mot promet de garder : valider ce qui est
+   * en train d'être tapé est exactement ce qu'on lui demande. Deux boutons voisins, deux promesses différentes.
+   */
+  it('⚠️ « Garder en brouillon », lui, valide bien ce qui est tapé', async () => {
+    await monterEnPlace();
+    const garder = [...container.querySelectorAll('button')]
+      .find((b) => (b.textContent ?? '').trim() === 'Garder en brouillon');
+    expect(mousedownAnnule(garder ?? null)).toBe(false);
+  });
+
+  /**
+   * ⚠️ ET LA VALIDATION AU FOCUS PERDU RESTE EN PLACE : passer de « À » à « Objet » doit toujours créer la
+   * pastille. La retirer obligerait à appuyer sur Entrée après chaque destinataire — on n'a pas désarmé la règle,
+   * on a seulement enlevé au geste de fermeture le pouvoir de l'appliquer à la place de la personne.
+   */
+  it('⚠️ le champ « À » valide TOUJOURS ce qu’on a tapé quand on passe au champ suivant', async () => {
+    /**
+     * ⚠️ ICI L'ÉTAT DOIT REMONTER : les pastilles se peignent depuis la propriété `brouillon`, que le parent
+     * possède. Avec le `onChange` muet des autres épreuves, la pastille ne pourrait jamais apparaître et
+     * l'épreuve passerait au vert sans rien prouver.
+     */
+    let etat: BrouillonEcran = NEUF;
+    const rendre = () => root.render(createElement(Redaction, {
+      dansFenetre: false, fermetureDemandee: 0, brouillon: etat, contexte: CONTEXTE,
+      onChange: (b: Partial<BrouillonEcran>) => { etat = { ...etat, ...b }; rendre(); },
+      onFerme: () => {}, onEnvoye: () => {}, onGeste: () => {},
+    } as never));
+    await act(async () => { rendre(); });
+    await calmer();
+    const champ = container.querySelector('.red-saisie') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(champ, 'c.jullien@exemple.test');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await calmer();
+    // ⚠️ `focusout`, ET NON `blur` : React délègue à la racine depuis la version 17, et seul `focusout` remonte.
+    await act(async () => { champ.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    await calmer();
+    expect([...container.querySelectorAll('.red-pastille-texte')].map((e) => e.textContent))
+      .toEqual(['c.jullien@exemple.test']);
+  });
+});

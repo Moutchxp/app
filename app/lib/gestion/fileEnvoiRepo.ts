@@ -1,6 +1,6 @@
 import { query, withTransaction } from '../db/client';
 import { attenteAvantReprise, BAIL_SECONDES, ESSAIS_MAX } from './fileEnvoi';
-import { envoiInterneFileDisponible, fileEnvoiDisponible } from './schema';
+import { envoiIgnoreDisponible, envoiInterneFileDisponible, fileEnvoiDisponible } from './schema';
 import type { LigneFile, PieceAFond } from './travailleurEnvoi';
 import type { EtatPiece, MentionNonEnvoye } from './fileEnvoi';
 
@@ -43,7 +43,34 @@ import type { EtatPiece, MentionNonEnvoye } from './fileEnvoi';
  * alertes, par exemple) se répondraient l'un l'autre — `NULL = NULL` ne vaut rien en SQL, mais la jointure sur
  * `IS NOT DISTINCT FROM` en ferait des jumeaux. On ne compare donc que des brouillons réels.
  */
-const SQL_ECHEC_NON_RESOLU = `
+/**
+ * ══ 🔴🔴 LOT BANDEAU-ET-BROUILLONS — TROIS FAÇONS DE NE PLUS AVOIR RIEN À FAIRE ════════════════════════════════
+ *
+ * Un échec appelle à l'écran tant qu'il reste quelque chose à faire. Il y a maintenant TROIS façons de n'avoir
+ * plus rien à faire, et il fallait les trois :
+ *
+ *   ① L'ENVOI A FINI PAR RÉUSSIR — la règle d'origine (lot LIGNE-NON-ENVOYE). « Plus tard », et pas « à un
+ *      moment » : un envoi réussi AVANT l'échec ne répare rien, c'est l'échec qui est venu après lui.
+ *
+ *   ② LE BROUILLON EST À LA CORBEILLE, ABANDONNÉ, OU SUPPRIMÉ — constat d'Arno, cas réel du brouillon 64 (« Fwd:
+ *      Taxes Foncières »), devenu obsolète parce que les pièces sont parties depuis Gmail. Le bandeau réclamait
+ *      un geste sur un travail que plus personne ne voulait faire.
+ *      🔴 ET IL REVIENT SI LE BROUILLON REVIENT : `abandonne_le` est REMIS À NULL par la restauration depuis la
+ *      corbeille (`restaurerBrouillon`), donc cette seule condition tient les deux sens. Une seconde colonne
+ *      « bandeau masqué » aurait fallu la remettre à jour à la main, et se serait désynchronisée.
+ *      ⚠️ UN ÉCHEC SANS BROUILLON (`brouillon_id IS NULL`) N'EST JAMAIS MASQUÉ par cette règle : il n'y a pas de
+ *      travail à jeter, donc rien qui dise que la question est réglée.
+ *
+ *   ③ QUELQU'UN L'A IGNORÉ — le lien « Ignorer » du bandeau. On DATE la ligne, on n'efface rien : la cause et
+ *      l'heure restent lisibles en base. ⚠️ SANS LA MIGRATION 284, la colonne n'est PAS nommée et le prédicat est
+ *      mot pour mot celui d'avant — nommer une colonne absente ferait échouer la lecture de toute la file, donc
+ *      le bandeau lui-même.
+ *
+ * ⚠️ UNE FONCTION, ET NON PLUS UNE CONSTANTE : le texte dépend maintenant d'une sonde. Les quatre endroits qui
+ * s'en servent l'appellent, et il n'y a toujours qu'une seule écriture de la règle.
+ */
+function sqlEchecNonResolu(avecIgnore: boolean): string {
+  return `
   f.etat = 'echec'
   AND NOT EXISTS (
     SELECT 1 FROM gestion_envoi_file f2
@@ -51,7 +78,14 @@ const SQL_ECHEC_NON_RESOLU = `
        AND f2.brouillon_id = f.brouillon_id
        AND f2.etat = 'envoye'
        AND f2.demande_le > f.demande_le
-  )`;
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM gestion_brouillon b
+     WHERE b.id = f.brouillon_id
+       AND b.abandonne_le IS NOT NULL
+  )${avecIgnore ? `
+  AND f.ignore_le IS NULL` : ''}`;
+}
 
 /** Ce qu'on met en file : exactement ce que l'envoi synchrone recevait. */
 export interface DemandeEnFile {
@@ -363,12 +397,13 @@ export async function etatDesPieces(
  */
 export async function envoisEnCours(filId?: number | null): Promise<LigneFileAffichee[]> {
   if (!(await fileEnvoiDisponible())) return [];
+  const avecIgnore = await envoiIgnoreDisponible();
   /**
    * 🔴 LOT LIGNE-NON-ENVOYE — UN ÉCHEC RÉPARÉ NE S'AFFICHE PLUS ICI NON PLUS.
    *
    * Trouvé en essayant : après un renvoi réussi, la LISTE avait bien retiré la capsule et le BANDEAU la montrait
    * encore. Deux écrans, deux vérités sur le même fait — et c'est le bandeau qu'on croit, puisqu'il est en tête.
-   * La règle d'exclusion est donc la MÊME que celle de la liste (`SQL_ECHEC_NON_RESOLU`), et elle vit à un seul
+   * La règle d'exclusion est donc la MÊME que celle de la liste (`sqlEchecNonResolu`), et elle vit à un seul
    * endroit : une seconde copie divergerait le jour où l'une des deux changerait.
    *
    * ⚠️ ELLE NE S'APPLIQUE QU'AUX ÉCHECS : un envoi encore en route (`attente`, `en_cours`) n'a rien à réparer, et
@@ -379,7 +414,7 @@ export async function envoisEnCours(filId?: number | null): Promise<LigneFileAff
             f.dest_a, f.dest_cc, f.dest_cci, f.demande_le::text AS demande_le, f.essais,
             f.alerte_le::text AS alerte_le, f.etat, f.derniere_erreur
        FROM gestion_envoi_file f
-      WHERE (f.etat IN ('attente', 'en_cours') OR (${SQL_ECHEC_NON_RESOLU}))
+      WHERE (f.etat IN ('attente', 'en_cours') OR (${sqlEchecNonResolu(avecIgnore)}))
         AND ($1::bigint IS NULL OR f.fil_id = $1)
       ORDER BY f.demande_le DESC
       LIMIT 50`,
@@ -475,7 +510,7 @@ export async function nonEnvoyesAMontrer(limite = 30): Promise<MentionNonEnvoye[
   const { rows } = await query<LigneEchec>(
     `SELECT ${CHAMPS_ECHEC}
        FROM gestion_envoi_file f
-      WHERE ${SQL_ECHEC_NON_RESOLU}
+      WHERE ${sqlEchecNonResolu(await envoiIgnoreDisponible())}
       ORDER BY f.demande_le DESC
       LIMIT $1`, [Math.min(Math.max(1, limite), 100)]);
   return rows.map(versMention);
@@ -493,7 +528,7 @@ export async function nonEnvoyesDesFils(filIds: readonly number[]): Promise<Map<
   const { rows } = await query<LigneEchec>(
     `SELECT ${CHAMPS_ECHEC}
        FROM gestion_envoi_file f
-      WHERE ${SQL_ECHEC_NON_RESOLU} AND f.fil_id = ANY ($1::bigint[])
+      WHERE ${sqlEchecNonResolu(await envoiIgnoreDisponible())} AND f.fil_id = ANY ($1::bigint[])
       ORDER BY f.demande_le`, [ids]);
   // Le PLUS RÉCENT gagne (l'ordre croissant fait que le dernier écrit écrase) : une ligne ne porte qu'une capsule,
   //   et c'est le dernier état qui intéresse.
@@ -503,4 +538,35 @@ export async function nonEnvoyesDesFils(filIds: readonly number[]): Promise<Map<
     if (m.filId !== null) parFil.set(m.filId, m);
   }
   return parFil;
+}
+
+/**
+ * ══ 🔴🔴 LOT BANDEAU-ET-BROUILLONS — IGNORER UN ÉCHEC, ET REVENIR DESSUS ══════════════════════════════════════
+ *
+ * Arno : « un lien “Ignorer” qui masque le bandeau durablement pour cet échec, SANS RIEN SUPPRIMER ».
+ *
+ * 🔴 ON DATE, ON N'EFFACE PAS — la règle du module, la même que « abandonner » un brouillon. La ligne garde sa
+ * cause, son heure et ses destinataires ; elle cesse seulement d'appeler à l'écran. Un échec effacé, c'est un
+ * incident dont plus rien ne garde la trace le jour où l'on cherche pourquoi un mail n'est pas parti.
+ *
+ * ⚠️ RÉVERSIBLE PAR CONSTRUCTION (`ignorer = false` remet la colonne à NULL) : tout geste du module qui masque
+ * quelque chose doit pouvoir se défaire, sinon c'est une suppression qui n'ose pas dire son nom.
+ *
+ * ⚠️ SANS LA MIGRATION 284, LA FONCTION REND `false` SANS RIEN ÉCRIRE, et l'écran n'offre pas le lien.
+ */
+export async function ignorerEchecEnvoi(
+  id: number, ignorer: boolean, par: { id: number | null; libelle: string },
+): Promise<boolean> {
+  if (!Number.isSafeInteger(id) || id <= 0) return false;
+  if (!(await fileEnvoiDisponible()) || !(await envoiIgnoreDisponible())) return false;
+  const { rowCount } = await query(
+    ignorer
+      ? `UPDATE gestion_envoi_file
+            SET ignore_le = now(), ignore_par = $2, ignore_par_libelle = $3
+          WHERE id = $1 AND etat = 'echec' AND ignore_le IS NULL`
+      : `UPDATE gestion_envoi_file
+            SET ignore_le = NULL, ignore_par = NULL, ignore_par_libelle = NULL
+          WHERE id = $1 AND ignore_le IS NOT NULL`,
+    ignorer ? [id, par.id, par.libelle] : [id]);
+  return (rowCount ?? 0) > 0;
 }

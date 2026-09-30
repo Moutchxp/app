@@ -59,17 +59,21 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 6; i++)
 
 const monter = async (o: { etat?: 'ouverte' | 'reduite' | 'plein'; objet?: string; voie?: BrouillonEcran['voie'] } = {}) => {
   const b = brouillon({ objet: o.objet ?? '', voie: o.voie ?? 'nouveau' });
+  // 🔴 LOT BANDEAU-ET-BROUILLONS — on compte les demandes de fermeture : la correction de la croix ne doit pas
+  //   l'empêcher de fermer, et c'est le risque exact de cette correction.
+  let demandes = 0;
   await act(async () => {
     root.render(createElement(FenetresRedaction, {
       fenetres: [{ cle: 'f1', etat: o.etat ?? 'ouverte' }],
       brouillons: new Map([['f1', b]]),
       contexte: CONTEXTE,
       fermetures: new Map(),
-      onChange: () => {}, onFermer: () => {}, onDemanderFermeture: () => {},
+      onChange: () => {}, onFermer: () => {}, onDemanderFermeture: () => { demandes += 1; },
       onGeste: () => {}, onEnvoye: () => {}, onEtat: () => {},
     } as never));
   });
   await calmer();
+  return { demandes: () => demandes };
 };
 
 const barre = () => container.querySelector('.fre-titre');
@@ -129,5 +133,45 @@ describe('🔴🔴 la barre de titre est rendue, avec ses trois boutons', () => 
     const f = container.querySelector('.fre');
     expect(f?.children[0]?.className).toContain('fre-titre');
     expect(f?.children[1]?.className).toContain('fre-corps');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT BANDEAU-ET-BROUILLONS — LA CROIX NE PREND PAS LE FOCUS AU CHAMP « À » ════════════════════════════
+ *
+ * CONSTAT D'ARNO, mesuré en base le 30/09/2026 : cinq brouillons du jour (n° 66, 68, 72, 73, 74) n'avaient NI
+ * objet, NI autre corps que la signature — seulement un destinataire. Reproduit à l'écran avant de corriger :
+ * ouvrir « Nouveau message », taper une adresse dans « À », cliquer CETTE croix → brouillon n° 75, identique.
+ *
+ * 🔴 La cause : le champ « À » valide ce qu'on a tapé à la perte de focus (bonne règle pour passer au champ
+ * suivant) ; cliquer la croix faisait perdre ce focus AVANT de fermer, donc le geste de fermeture fabriquait
+ * lui-même le destinataire qui rendait le brouillon digne d'être gardé.
+ *
+ * ⚠️ ON ÉPROUVE L'ANNULATION DU `mousedown`, et c'est bien le comportement : sans déplacement de focus, `onBlur`
+ * ne se déclenche pas. jsdom n'implémente pas le focus provoqué par un `mousedown` — le défaut ne s'y reproduit
+ * donc pas, et la preuve de bout en bout a été faite dans le navigateur, sur l'application réelle.
+ */
+describe('🔴🔴 la croix ne valide pas une adresse à moitié tapée', () => {
+  it('🔴 son `mousedown` est ANNULÉ : le focus reste dans le champ', async () => {
+    await monter();
+    const croix = [...document.querySelectorAll('button')]
+      .find((b) => b.getAttribute('aria-label') === 'Fermer la fenêtre');
+    expect(croix, 'la croix doit exister').not.toBeUndefined();
+    const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    act(() => { croix?.dispatchEvent(e); });
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  /**
+   * ⚠️ ELLE FERME TOUJOURS. Annuler le comportement par défaut du `mousedown` n'empêche pas le clic : si cette
+   * épreuve tombait, la fenêtre ne se fermerait plus du tout — c'est le risque exact de la correction.
+   */
+  it('⚠️ et elle DEMANDE toujours la fermeture au clic', async () => {
+    const f = await monter();
+    const croix = [...document.querySelectorAll('button')]
+      .find((b) => b.getAttribute('aria-label') === 'Fermer la fenêtre');
+    act(() => { croix?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); });
+    act(() => { croix?.click(); });
+    expect(f.demandes()).toBe(1);
   });
 });

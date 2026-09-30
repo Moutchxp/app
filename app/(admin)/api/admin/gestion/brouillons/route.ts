@@ -5,8 +5,8 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
 import { decouperAdresses } from '../../../../../lib/gestion/redaction';
 import {
-  abandonnerBrouillon, brouillonsALaCorbeille, enregistrerBrouillon, lireBrouillon, lireBrouillonDuFil,
-  listerBrouillons, restaurerBrouillon,
+  abandonnerBrouillon, brouillonsALaCorbeille, compterBrouillons, enregistrerBrouillon, lireBrouillon,
+  lireBrouillonDuFil, listerBrouillons, restaurerBrouillon,
   listerBrouillonsDuFil,
 } from '../../../../../lib/gestion/redactionRepo';
 import { redactionDisponible } from '../../../../../lib/gestion/schema';
@@ -91,8 +91,26 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ brouillon, brouillons },
         { headers: { 'Cache-Control': 'private, no-store' } });
     }
-    // Sans paramètre : tous les brouillons vivants — ce que montre le libellé « Brouillons ».
-    return Response.json({ brouillons: await listerBrouillons() },
+    /**
+     * Sans paramètre : tous les brouillons vivants — ce que montre le libellé « Brouillons ».
+     *
+     * ══ 🔴🔴 LOT BANDEAU-ET-BROUILLONS — LE TOTAL VIENT AVEC LA LISTE, ET C'EST LE MÊME QUE CELUI DE LA COLONNE ══
+     *
+     * CONSTAT D'ARNO : « Brouillons 18 » en tête de liste contre « 17 » dans la colonne de gauche. Deux nombres
+     * pour une seule chose, et rien ne disait lequel croire.
+     *
+     * 🔴 LA CAUSE : deux CALCULS. La colonne lisait `compterBrouillons()` (un `count(*)` en base, servi par la
+     * route `redaction`) ; la tête de liste comptait les lignes qu'elle avait sous la main. Deux comptes qui ne
+     * peuvent pas s'accorder, pour deux raisons indépendantes :
+     *   · la liste est BORNÉE (50) — au-delà, elle en montrerait moins qu'il n'y en a ;
+     *   · les deux ne se rafraîchissent pas au même moment — un brouillon né dans une fenêtre flottante
+     *     changeait la liste sans toucher au contexte de rédaction, d'où l'écart d'exactement un.
+     *
+     * 🔴 LE TOTAL EST DONC RENDU ICI, PAR LA MÊME FONCTION QUE LA COLONNE. Il n'y a plus qu'un calcul, et la tête
+     * de liste ne compte plus rien elle-même : elle affiche ce que la base a dit, en même temps que la liste.
+     */
+    const [brouillons, total] = await Promise.all([listerBrouillons(), compterBrouillons()]);
+    return Response.json({ brouillons, total },
       { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/brouillons] lecture impossible', e);

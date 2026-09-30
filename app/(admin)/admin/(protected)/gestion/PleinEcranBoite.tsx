@@ -732,6 +732,9 @@ export function PleinEcranBoite({
             <Brouillons maintenant={maintenant}
               /* 🔴 LE MÊME MOT QUE DANS L'ÉDITEUR, conditionné par la même sonde (migration 276). */
               corbeille={redaction?.corbeilleBrouillon === true}
+              /* 🔴 LOT BANDEAU-ET-BROUILLONS — la signature de gestion@, pour la RETIRER de l'extrait. C'est la
+                 même que celle dont l'éditeur pré-remplit le corps : une seconde source divergerait. */
+              signature={redaction?.signature ?? null}
               /* 🔴 « Voir la conversation » emmène AUSSI le brouillon : Arno l'a demandé explicitement, et un
                  bouton qui ouvre le fil sans l'éditeur fait chercher le brouillon qu'on venait justement reprendre. */
               onOuvrir={(f, b) => onOuvrir(f, b?.repondAMessageId ?? null, b?.id ?? null)}
