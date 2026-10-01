@@ -1,7 +1,8 @@
 import { query, withTransaction } from '../db/client';
 import { documentsAutoDisponible } from './schema';
 import {
-  attribuer, estDocumentGarant, indexerNoms, MENTION_GARANT, objetCourt, REGLE_DOCUMENT_AUTO, sousTypeLisible,
+  attribuer, estDocumentGarant, indexerNoms, MENTION_GARANT, objetCourt, REGLE_DOCUMENT_AUTO,
+  REGLE_EXCLUSION_DOCUMENT, sousTypeLisible,
   type AnnuaireAdresses, type Attribution, type DocumentDeFiche, type FicheDestinataire,
   type MotifNonAttribue, type VoieAttribution,
 } from './documentsAuto';
@@ -21,8 +22,14 @@ export type { DocumentDeFiche };
 /** 🔴 NOS ADRESSES : elles ne désignent personne. Écrites une fois, employées partout. */
 export const NOS_ADRESSES: readonly string[] = ['@criterimmo.fr', '@sansvisavis.com', 'gestion.criterimmo@gmail.com'];
 
-/** La règle d'exclusion qui marque un « Document CRITERIMMO ». C'est elle qui définit « document automatique ». */
-export const REGLE_EXCLUSION_DOCUMENT = 5;
+/**
+ * La règle d'exclusion qui marque un « Document CRITERIMMO ».
+ *
+ * ⚠️ RÉEXPORTÉE, PAS REDÉCLARÉE (lot DOCUMENTS-HORS-BIENS) : sa définition vit dans le module PUR, que le moteur
+ * de rattachement, la projection des fenêtres et le garde-fou de la base partagent. Deux « 5 » écrits à deux
+ * endroits finiraient par ne plus désigner la même chose.
+ */
+export { REGLE_EXCLUSION_DOCUMENT } from './documentsAuto';
 
 /**
  * L'ANNUAIRE DES ADRESSES → LES FICHES QUI LES PORTENT. Une seule lecture par passe.

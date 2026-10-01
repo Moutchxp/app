@@ -35,6 +35,8 @@ import type { AdresseEchange } from './propositionTri';
 import { proposerBiens, type BienConnu, type PropositionBien, type TextesDuMail } from './propositionsBien';
 // 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — l'annuaire des personnes citées dans un texte. Module PUR.
 import type { AnnuaireContenu } from './personnesDansLeTexte';
+// 🔴🔴 LOT DOCUMENTS-HORS-BIENS — « ce mail est-il un de nos envois automatiques ? ». Module PUR.
+import { estDocumentEnvoye } from './documentsAuto';
 
 /**
  * LES SORTES DE CIBLE QU'UNE LIGNE DE `gestion_rattachement` PEUT PORTER, à la LECTURE.
@@ -200,8 +202,37 @@ export function examinerMessage(o: {
    * pas : un appelant qui ne le passe pas obtient EXACTEMENT le comportement d'avant ce lot.
    */
   contenu?: AnnuaireContenu;
+  /**
+   * 🔴🔴 LOT DOCUMENTS-HORS-BIENS — LE SENS ET L'EXCLUSION DU MAIL, pour reconnaître nos envois automatiques.
+   * Absents ⇒ le garde ne joue pas, et le moteur se comporte EXACTEMENT comme avant ce lot.
+   */
+  sens?: string | null;
+  exclusionRegleId?: number | null;
 }): Examen {
   const utiles = adressesUtiles(o.adressesEchange.filter((a) => a.messageId === o.messageId)).length;
+
+  /**
+   * ══ 🔴🔴 UN « Document CRITERIMMO » QUE NOUS AVONS ENVOYÉ N'A JAMAIS DE BIEN ═══════════════════════════════════
+   *
+   * RÈGLE D'ARNO (01/10/2026) : « Les “Document CRITERIMMO” concernent des PERSONNES, pas le bien. […] JAMAIS dans
+   * la fiche d'un bien, ni dans “Vie du bien”, ni dans aucun historique ou compteur de bien. »
+   *
+   * 🔴 LE REFUS EST ICI, AVANT TOUT CALCUL, et c'est voulu : `proposerBiens` trouverait l'adresse du locataire et
+   * conclurait très légitimement à son logement. Le mail n'est pas ambigu — il est HORS SUJET. Refuser en amont
+   * évite aussi d'écrire une ligne d'examen « à trier » qui ferait apparaître 33 000 documents dans la file.
+   *
+   * ⚠️ `sans_candidat` ET NON « automatique » : le document ne va dans la file de tri d'aucun bien, et il
+   * n'apparaît donc avec AUCUNE proposition pré-cochée — la dernière phrase du point 3 d'Arno.
+   *
+   * ⚠️ CELA NE CONCERNE QUE NOS ENVOIS. Une RÉPONSE humaine à un document est du vrai courrier client : elle
+   * repasse par le moteur normalement et garde ses biens. C'est `estDocumentEnvoye` qui tient la différence.
+   */
+  if (estDocumentEnvoye({ sens: o.sens, objet: o.textes?.objet, exclusionRegleId: o.exclusionRegleId })) {
+    return {
+      issue: 'sans_candidat', certain: null, candidats: [], adressesUtiles: utiles,
+      motif: 'document automatique envoyé par l’agence : il se range dans une fiche, jamais dans un bien',
+    };
+  }
 
   /**
    * 🔴 UN SEUL MOTEUR, ET C'EST LE MODULE PUR `proposerBiens`. L'écran de classement, la file de tri et cette

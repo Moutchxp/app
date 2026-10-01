@@ -175,6 +175,12 @@ export interface MessageDuPaquet {
   corps: string | null;
   /** Les noms des pièces jointes : « Quittance 12 rue Danton.pdf » désigne un bien aussi sûrement qu'un objet. */
   pieces: string[];
+  /**
+   * 🔴🔴 LOT DOCUMENTS-HORS-BIENS — le SENS et l'EXCLUSION, qui disent si ce mail est un de NOS envois
+   * automatiques. Sans eux, le moteur rattacherait au logement du locataire une quittance qui ne concerne que lui.
+   */
+  sens: string | null;
+  exclusionRegleId: number | null;
 }
 
 export interface Paquet {
@@ -228,7 +234,7 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
   const horsSpam = await clauseHorsSpam('m');
   const { rows: msgs } = await query<{
     id: string; fil_id: string; objet: string | null; corps: string | null; html: string | null;
-    pieces: string[] | null;
+    pieces: string[] | null; sens: string | null; exclu_par_regle_id: number | null;
   }>(
     // ⚠️ LES PIÈCES EN UNE FOIS, par agrégat : une requête par message coûterait des milliers d'accès sur une passe
     //    complète. Le corps est borné — on y cherche une adresse ou un n° de lot, pas un roman.
@@ -236,6 +242,7 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
     //    dont les relevés bancaires). Il est borné plus largement : la conversion le réduit beaucoup.
     `SELECT m.id, m.fil_id, m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps,
             left(coalesce(m.corps_html, ''), 60000) AS html,
+            m.sens, m.exclu_par_regle_id,
             (SELECT array_agg(${await sqlNomAffiche('p')}) FROM gestion_piece p WHERE p.message_id = m.id) AS pieces
        FROM gestion_message m
       WHERE m.fil_id = ANY($1::bigint[]) ${horsSpam} ORDER BY m.id`, [ids]);
@@ -271,6 +278,7 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
     messages: msgs.map((m) => ({
       id: Number(m.id), filId: Number(m.fil_id), objet: m.objet,
       corps: corpsLisible(m.corps, m.html).slice(0, CORPS_CHERCHABLE_MAX), pieces: m.pieces ?? [],
+      sens: m.sens, exclusionRegleId: m.exclu_par_regle_id,
     })),
     adresses,
   };
@@ -451,6 +459,8 @@ async function examinerLePaquet(
       biens: catalogue,
       textes: { objet: m.objet, corps: m.corps, pieces: m.pieces },
       contenu,
+      // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — le moteur doit pouvoir reconnaître NOS envois automatiques et les refuser.
+      sens: m.sens, exclusionRegleId: m.exclusionRegleId,
     });
 
     c.messagesVus += 1;

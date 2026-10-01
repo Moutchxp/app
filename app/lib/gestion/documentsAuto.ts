@@ -21,6 +21,44 @@
 /** La règle qui NOMME ces liens, et la seule que la base accepte vers une fiche (migration 291). */
 export const REGLE_DOCUMENT_AUTO = 'document_auto';
 
+/** La règle d'exclusion qui marque un « Document CRITERIMMO ». Déclarée ICI, dans le module PUR, pour que le
+ *  moteur, la projection, les scripts et le garde-fou de la base partagent UNE seule définition. */
+export const REGLE_EXCLUSION_DOCUMENT = 5;
+
+/** Le marqueur que le logiciel de gestion met dans l'objet de tous ses envois automatiques. */
+export const MARQUEUR_DOCUMENT = 'Document CRITERIMMO';
+
+/**
+ * ══ 🔴🔴 LOT DOCUMENTS-HORS-BIENS — « CE MAIL EST-IL UN DOCUMENT AUTOMATIQUE QUE NOUS AVONS ENVOYÉ ? » PUR ═════
+ *
+ * CONSTAT D'ARNO (01/10/2026), sur la fiche du lot 176 (25 rue Edith Cavell) : le bloc « Vie du bien » affichait
+ * nos propres « Document CRITERIMMO » — quittances, avis mensuels, révisions — avec un badge « Auto ».
+ *
+ * RÈGLE D'ARNO : « Les “Document CRITERIMMO” concernent des PERSONNES, pas le bien. Ils vont UNIQUEMENT dans le
+ * dossier “Documents automatiques” de la fiche locataire ou propriétaire. JAMAIS dans la fiche d'un bien, ni dans
+ * “Vie du bien”, ni dans aucun historique ou compteur de bien. »
+ *
+ * 🔴 TROIS CONDITIONS, ET LES TROIS COMPTENT :
+ *   ① c'est NOUS qui l'envoyons (`sens = 'envoye'`) — une RÉPONSE humaine à un document est du vrai courrier
+ *     client, elle garde ses biens, et c'est une demande explicite d'Arno ;
+ *   ② l'objet porte le marqueur, OU la règle d'exclusion n° 5 l'a écarté — les deux, parce qu'un document peut
+ *     être visible (sorti en Réception par le lot précédent) sans cesser d'être un document ;
+ *   ③ rien d'autre : ni l'adresse, ni la pièce jointe, ni le contenu n'entrent dans cette décision.
+ *
+ * ⚠️ `Re:` ET `Fwd:` SONT COMPRIS DANS LE MARQUEUR. Un « Fwd: Document CRITERIMMO — … » que NOUS transférons
+ * reste un de nos documents ; c'est le `sens` qui fait la différence, jamais le préfixe.
+ */
+export function estDocumentEnvoye(m: {
+  sens: string | null | undefined;
+  objet: string | null | undefined;
+  /** `exclu_par_regle_id` du message. `null` quand le document est visible dans la Réception. */
+  exclusionRegleId?: number | null;
+}): boolean {
+  if ((m.sens ?? '') !== 'envoye') return false;
+  if ((m.exclusionRegleId ?? 0) === REGLE_EXCLUSION_DOCUMENT) return true;
+  return (m.objet ?? '').toLowerCase().includes(MARQUEUR_DOCUMENT.toLowerCase());
+}
+
 /** Une fiche de l'annuaire, réduite à ce qui sert ici. */
 export interface FicheDestinataire {
   sorte: 'proprietaire' | 'locataire';

@@ -8,6 +8,8 @@ import { rattacher, changerStatut } from './rattachementRepo';
 import { marquerInterne, annulerInterne } from './interneRepo';
 import { marquerHorsGestion, annulerHorsGestion } from './horsGestionRepo';
 import type { Auteur } from './gestes';
+// 🔴🔴 LOT DOCUMENTS-HORS-BIENS — « ce mail est-il un de nos envois automatiques ? ». Module PUR.
+import { estDocumentEnvoye } from './documentsAuto';
 
 /**
  * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LES PÉRIODES EN BASE, ET LEUR PROJECTION SUR LES MAILS ═══════════════════════
@@ -146,6 +148,27 @@ export async function mailsDuFil(filId: number): Promise<number[]> {
   const { rows } = await query<{ id: string }>(
     'SELECT id::text FROM gestion_message WHERE fil_id = $1 ORDER BY recu_le, id', [filId]);
   return rows.map((r) => Number(r.id));
+}
+
+/**
+ * ══ 🔴🔴 LOT DOCUMENTS-HORS-BIENS — LES MAILS DE CE FIL QUI SONT DE NOS ENVOIS AUTOMATIQUES ════════════════════
+ *
+ * Une seule requête par conversation, et la décision reste au module PUR (`estDocumentEnvoye`) : le SQL se
+ * contente de rapporter le sens, l'objet et la règle d'exclusion. Un jour où la définition changera, elle ne
+ * changera qu'à un seul endroit.
+ */
+async function documentsDuFil(filId: number): Promise<Set<number>> {
+  const { rows } = await query<{
+    id: string; sens: string | null; objet: string | null; exclu_par_regle_id: number | null;
+  }>(
+    'SELECT id::text, sens, objet, exclu_par_regle_id FROM gestion_message WHERE fil_id = $1', [filId]);
+  const docs = new Set<number>();
+  for (const r of rows) {
+    if (estDocumentEnvoye({ sens: r.sens, objet: r.objet, exclusionRegleId: r.exclu_par_regle_id })) {
+      docs.add(Number(r.id));
+    }
+  }
+  return docs;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -304,6 +327,8 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
   if (mails.length === 0) return 0;
   const { periodes, exceptions } = await suiviDuFil(filId);
   if (periodes.length === 0 && exceptions.length === 0) return 0;
+  // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — lus UNE fois pour toute la conversation (voir la boucle de pose plus bas).
+  const documents = await documentsDuFil(filId);
   const voulu = projeter(mails, periodes, exceptions);
 
   // CE QUE LA BASE PORTE AUJOURD'HUI : les liens « lot » CONFIRMÉS de chaque mail du fil.
@@ -340,7 +365,21 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
       });
       if (issue.ok) gestes += 1;
     }
+    /**
+     * ══ 🔴🔴 LOT DOCUMENTS-HORS-BIENS — LA FENÊTRE NE POSE JAMAIS DE BIEN SUR UN DE NOS DOCUMENTS ══════════════
+     *
+     * RÈGLE D'ARNO (01/10/2026) : un « Document CRITERIMMO » que NOUS envoyons n'entre dans la fiche d'aucun bien.
+     *
+     * 🔴 SANS CE GARDE, LE RETRAIT SERAIT DÉFAIT AU PREMIER GESTE. 20 206 fenêtres vivantes ont été ouvertes PAR
+     * un document (reprise 290) : chacune reposerait son lien à la prochaine projection, et les documents
+     * reviendraient dans « Vie du bien » sans que personne comprenne pourquoi.
+     *
+     * ⚠️ ON NE FERME AUCUNE FENÊTRE, et c'est la demande explicite d'Arno : « on ne leur retire PAS leurs biens ».
+     * Les 1 805 réponses humaines de ces mêmes conversations continuent d'en recevoir leurs biens, exactement
+     * comme avant. Seul le document est sauté — la fenêtre, elle, vit sa vie.
+     */
     for (const b of cibles) {
+      if (documents.has(m)) break;
       if (actuelles.some((l) => l.cle === b.cle)) continue;
       const issue = await rattacher({
         messageId: m, cible: { sorte: 'lot', cle: b.cle, id: null }, auteur,
