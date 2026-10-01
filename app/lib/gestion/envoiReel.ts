@@ -2,7 +2,9 @@ import { query } from '../db/client';
 import { chargerConfigGestion } from './config';
 import type { AncrageFil, DepsEnvoiComplet } from './envoi';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — les biens cochés pendant l'écriture, mis en attente de leur message.
-import { demanderInternePourEnvoi, enregistrerCiblesEnvoi } from './envoiCiblesRepo';
+import {
+  demanderHorsGestionPourEnvoi, demanderInternePourEnvoi, enregistrerCiblesEnvoi,
+} from './envoiCiblesRepo';
 import { envoyerViaGmail } from './envoiGmail';
 import { depsPiecesEnvoi, piecesDeLEnvoi } from './piecesEnvoiCablage';
 import { COMPTE_GESTION, lireIdentifiants, rafraichirJeton } from './google';
@@ -138,6 +140,11 @@ export function depsEnvoiReel(c: CablageEnvoi): DepsEnvoiComplet {
      * migration 283, `demanderInternePourEnvoi` rend `false` sans rien écrire, et l'écran l'a déjà dit.
      */
     marquerInterne: async (o) => { await demanderInternePourEnvoi(o.envoiId); },
+    /**
+     * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ : même chemin, même raison, même filet. Sans la
+     * migration 289, `demanderHorsGestionPourEnvoi` rend `false` sans rien écrire, et le mail part quand même.
+     */
+    marquerHorsGestion: async (o) => { await demanderHorsGestionPourEnvoi(o.envoiId); },
     maintenant: () => new Date(),
     alea: () => crypto.randomUUID().replace(/-/g, ''),
   };

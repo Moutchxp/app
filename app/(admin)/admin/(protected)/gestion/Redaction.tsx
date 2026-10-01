@@ -15,6 +15,11 @@ import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, motsJeterBrouillon, pretAEnvoyer, secondesRestantes,
   type Brouillon, brouillonTouche} from '../../../../lib/gestion/redaction';
+// 🔴🔴 LOT CLASSER-AVANT-ENVOI — « classé ou non » est une DÉCISION, prise dans un module PUR et partagée mot
+//   pour mot avec le serveur. L'écran grise un bouton ; le serveur, lui, refuse.
+import { classementFait, MOTIF_NON_CLASSE } from '../../../../lib/gestion/classementAvantEnvoi';
+// Le contexte rendu par le moteur de classement — type seul : rien de ce module ne vient dans le navigateur.
+import type { ContexteRedaction } from '../../../../lib/gestion/classementBien';
 // LOT BROUILLONS-GMAIL — quand enregistrer, et comment savoir que quelque chose a VRAIMENT changé. Module PUR.
 import {
   brouillonAQuelqueChose, delaiPour, MOTS_ENREGISTREMENT, signatureBrouillon, sorteDuChangement,
@@ -78,6 +83,13 @@ export interface ContexteRedactionEcran {
    */
   interneDisponible?: boolean;
   /**
+   * 🔴 LOT CLASSER-AVANT-ENVOI — la migration 289 est-elle appliquée ? Elle porte « HORS GESTION » HÉRITÉ en
+   * répondant. Faux ⇒ la case verte s'affiche quand même et débloque l'envoi (c'est le geste demandé), mais le
+   * choix ne survit pas à la fermeture et la marque n'est pas reportée sur le message envoyé — et l'écran le
+   * DIT. Absent ⇒ on suppose que oui, comme les autres sondes facultatives de ce contexte.
+   */
+  classementHorsGestionDisponible?: boolean;
+  /**
    * 🔴 LOT LECTURE-HTML-FIL-TROMBONE — la migration 276 est-elle appliquée ? Elle seule rend un brouillon jeté
    * RÉINTÉGRABLE. Absente (ou réponse plus ancienne que ce lot ⇒ `undefined`), le geste redevient celui d'avant :
    * « Supprimer le brouillon », sans bandeau « Annuler ». Les mots viennent de `motsJeterBrouillon`.
@@ -96,6 +108,15 @@ export interface ContexteRedactionEcran {
  * que la corbeille des mails. Un seul chiffre pour toute l'application : on n'apprend pas trois délais.
  */
 export const DUREE_JETE_MS = 10_000;
+
+/**
+ * 🔴 LOT CLASSER-AVANT-ENVOI — LE DÉLAI DE CALME AVANT DE PRÉ-CHARGER LES PROPOSITIONS.
+ *
+ * Le même rythme que les autres lectures différées du module (suggestions d'adresses, recherche de biens) :
+ * coller cinq destinataires d'un coup ne doit pas faire cinq lectures. Un peu plus long qu'une recherche
+ * tapée, parce que personne n'attend ce résultat — il doit seulement être prêt AVANT le clic sur « Rattacher ».
+ */
+export const DELAI_PRECHARGE_CLASSEMENT_MS = 600;
 
 type Etat =
   | { v: 'ecriture' }
@@ -452,17 +473,19 @@ export function Redaction({
   /* ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — LA MODALE « RATTACHER CE MAIL À… » ═════════════════════════════════════
      Demande d'Arno : « dès qu'une adresse est VALIDÉE dans À, Cc ou Cci […] une modale s'ouvre au centre de
      l'écran ». Trois états, et chacun répond à une contrainte nommée de la demande. */
-  /** La modale est-elle ouverte ? Elle se rouvre aussi à la demande, depuis « Classer ce mail ». */
-  const [rattacherOuvert, setRattacherOuvert] = useState(false);
   /**
-   * 🔴 « UNE SEULE OUVERTURE AUTOMATIQUE PAR NOUVEL ENSEMBLE DE PROPOSITIONS, JAMAIS EN BOUCLE ». On retient ici
-   * l'ensemble de destinataires pour lequel on a DÉJÀ ouvert : tant qu'il ne change pas, la modale ne se rouvre
-   * pas toute seule — ni à la frappe suivante, ni au rendu suivant, ni après l'avoir fermée.
+   * La modale est-elle ouverte ?
    *
-   * ⚠️ UNE RÉFÉRENCE, PAS UN ÉTAT : elle ne s'affiche jamais, et l'écrire en état provoquerait un rendu de plus
-   * à chaque adresse validée.
+   * 🔴🔴 LOT CLASSER-AVANT-ENVOI — ELLE NE S'OUVRE PLUS QU'À LA DEMANDE. Demande d'Arno, mot pour mot :
+   * « Saisir ou valider une adresse dans À / Cc / Cci n'ouvre PLUS la modale “Rattacher ce mail à…”. On écrit
+   * son mail normalement. […] la modale ne s'ouvre qu'au clic sur le gros bouton rouge “Rattacher” (ou sur la
+   * case verte “Rattaché” pour modifier). »
+   *
+   * CE QU'IL Y AVAIT ICI, ET QUI A ÉTÉ RETIRÉ : un effet qui ouvrait la fenêtre dès qu'un nouvel ensemble de
+   * destinataires était validé, avec la référence `dejaProposePour` qui l'empêchait de boucler. Les deux
+   * disparaissent ensemble — la seconde n'existait que pour contenir la première.
    */
-  const dejaProposePour = useRef<string>('');
+  const [rattacherOuvert, setRattacherOuvert] = useState(false);
   /**
    * ══ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — « INTERNE » A QUITTÉ L'ÉTAT REACT POUR LE BROUILLON ══════════════════
    *
@@ -490,34 +513,84 @@ export function Redaction({
    * rouverte garderait sa mémoire : les biens trouvés à la main y seraient encore, et la pré-coche — posée une
    * seule fois au chargement, exprès — ne serait pas refaite. On la remonte donc à neuf.
    *
-   * ⚠️ ON NE RÉ-ARME PAS L'OUVERTURE AUTOMATIQUE. « Réinitialiser » puis voir la fenêtre resurgir aussitôt
-   * serait hostile : on vient justement de dire qu'on ne voulait pas de ce classement. Elle se rouvre au clic
-   * sur « Rattacher », ou toute seule si un NOUVEAU destinataire est validé — ce qui est un fait nouveau.
+   * ⚠️ IL NE ROUVRE RIEN. « Réinitialiser » puis voir la fenêtre resurgir aussitôt serait hostile : on vient
+   * justement de dire qu'on ne voulait pas de ce classement. Elle se rouvre au clic sur « Rattacher », et
+   * depuis le lot CLASSER-AVANT-ENVOI, c'est la SEULE façon de l'ouvrir.
+   *
+   * 🔴 LOT CLASSER-AVANT-ENVOI — IL DÉFAIT AUSSI L'HÉRITAGE « hors gestion ». Une réponse dans une conversation
+   * déjà marquée naît verte ; « Réinitialiser » doit la ramener aux deux boutons comme pour les deux autres
+   * états, sinon la case resterait verte et le mot « Réinitialiser » ne voudrait rien dire.
    */
   const [versionRattachement, setVersionRattachement] = useState(0);
   const reinitialiserClassement = () => {
-    onChange({ ...brouillon, cibles: [], interne: false });
+    onChange({ ...brouillon, cibles: [], interne: false, horsGestion: false });
     setVersionRattachement((v) => v + 1);
   };
 
   /**
-   * ══ 🔴 LE DÉCLENCHEUR : UNE ADRESSE VALIDÉE, JAMAIS UNE FRAPPE ══════════════════════════════════════════════
+   * ══ 🔴 LES DESTINATAIRES VALIDÉS — ce dont le moteur déduit les biens ═══════════════════════════════════════
    *
    * `brouillon.a/cc/cci` ne changent QUE lorsqu'une adresse est réellement ajoutée — par Entrée, par une virgule,
-   * en quittant le champ, ou en choisissant dans la liste. C'est exactement la liste des gestes qu'Arno nomme, et
-   * c'est `ChampDestinataires` qui la tient depuis le lot BROUILLONS-GMAIL : il n'y a rien à ajouter pour que la
-   * règle « jamais à chaque frappe » soit tenue — elle l'est par construction.
-   *
-   * ⚠️ ON N'OUVRE PAS SUR UN CHAMP VIDÉ : retirer la dernière pastille ne doit pas faire surgir une fenêtre.
+   * en quittant le champ, ou en choisissant dans la liste. C'est `ChampDestinataires` qui le tient depuis le lot
+   * BROUILLONS-GMAIL : le pré-chargement ci-dessous ne part donc jamais à chaque frappe d'adresse.
    */
   const destinatairesValides = [...brouillon.a, ...brouillon.cc, ...brouillon.cci]
     .map((x) => x.trim().toLowerCase()).filter((x) => x !== '');
   const cleDestinataires = [...new Set(destinatairesValides)].sort().join(',');
+
+  /**
+   * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — LES PROPOSITIONS, CALCULÉES EN ARRIÈRE-PLAN ══════════════════════════════
+   *
+   * Demande d'Arno : « Les propositions continuent d'être calculées en arrière-plan à partir des destinataires
+   * (pour être prêtes et pré-cochées), mais la modale ne s'ouvre qu'au clic sur le gros bouton rouge. »
+   *
+   * 🔴 C'EST LA CONTREPARTIE EXACTE DE L'OUVERTURE AUTOMATIQUE RETIRÉE. Tant que la fenêtre surgissait seule,
+   * elle chargeait pendant qu'on la lisait. Ouverte à la demande, un « Lecture des biens possibles… » d'une
+   * seconde à chaque clic ferait du geste principal une attente — et le but de ce lot est qu'on classe TOUJOURS.
+   *
+   * 🔴 SUR LES DESTINATAIRES, ET SUR EUX SEULS (ce sont les mots d'Arno). L'objet et le corps entrent bien dans
+   * la question posée au serveur — le moteur y cherche une adresse ou un n° de lot —, mais ils ne RELANCENT pas
+   * la lecture : sinon on émettrait une requête par phrase écrite. La modale, elle, rafraîchit en silence à son
+   * ouverture, avec le texte du moment : on montre tout de suite, et on complète ensuite.
+   *
+   * ⚠️ APRÈS UN DÉLAI DE CALME, comme toutes les lectures différées du module : coller cinq adresses d'un coup
+   * ne doit pas faire cinq lectures.
+   *
+   * ⚠️ UN ÉCHEC EST SILENCIEUX ET SANS CONSÉQUENCE : la modale chargera elle-même à l'ouverture, exactement
+   * comme avant ce lot. Un pré-chargement est une avance, jamais une dépendance.
+   */
+  const [prechargeClassement, setPrecharge] =
+    useState<{ cle: string; contexte: ContexteRedaction } | null>(null);
+  /**
+   * ⚠️ L'OBJET ET LE CORPS SONT LUS DANS UNE RÉFÉRENCE, jamais dans les dépendances de l'effet : les y mettre
+   * relancerait la lecture à chaque phrase écrite. Le ref suit le brouillon DANS UN EFFET — React interdit
+   * d'écrire un ref pendant le rendu, et le faire quand même casse le rendu concurrent.
+   */
+  const texteCourant = useRef({ objet: brouillon.objet, corps: brouillon.corps });
   useEffect(() => {
-    if (cleDestinataires === '' || cleDestinataires === dejaProposePour.current) return;
-    dejaProposePour.current = cleDestinataires;
-    setRattacherOuvert(true);
-  }, [cleDestinataires]);
+    texteCourant.current = { objet: brouillon.objet, corps: brouillon.corps };
+  }, [brouillon.objet, brouillon.corps]);
+  useEffect(() => {
+    if (contexte.classementDisponible !== true || cleDestinataires === '') { setPrecharge(null); return undefined; }
+    let vivant = true;
+    const minuteur = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch('/api/admin/gestion/classement', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              destinataires: cleDestinataires.split(','),
+              objet: texteCourant.current.objet, corps: texteCourant.current.corps, pieces: [],
+            }),
+          });
+          const d = (await res.json()) as { etat?: string; contexte?: ContexteRedaction };
+          if (!vivant || d.etat !== 'ok' || d.contexte === undefined) return;
+          setPrecharge({ cle: cleDestinataires, contexte: d.contexte });
+        } catch { /* silencieux : la modale chargera d'elle-même */ }
+      })();
+    }, DELAI_PRECHARGE_CLASSEMENT_MS);
+    return () => { vivant = false; clearTimeout(minuteur); };
+  }, [cleDestinataires, contexte.classementDisponible]);
 
 
   /**
@@ -629,6 +702,12 @@ export function Redaction({
      */
     cibles: b.cibles ?? [],
     interne: b.interne === true,
+    /**
+     * 🔴 LOT CLASSER-AVANT-ENVOI — ET L'HÉRITAGE « HORS GESTION », pour la même raison exactement : un brouillon
+     * rouvert doit retrouver sa case verte, sans quoi il faudrait reclasser un courrier déjà classé. Sans la
+     * migration 289, la route l'ignore — et le bloc l'annonce.
+     */
+    horsGestion: b.horsGestion === true,
   }), []);
 
   /**
@@ -978,13 +1057,27 @@ export function Redaction({
           /** LOT REDACTION-GMAIL — les cibles de « Classer ce mail » : elles deviennent des rattachements manuels. */
           cibles: (b.cibles ?? []).length > 0 ? b.cibles : undefined,
           /**
-           * 🔴 LOT RATTACHER-EN-ECRIVANT — « Interne » coché dans la modale, POUR UN MESSAGE NEUF seulement.
+           * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — « INTERNE » PART MAINTENANT DANS TOUS LES CAS ═════════════════
            *
-           * ⚠️ UNE RÉPONSE NE PASSE PAS PAR LÀ : son échange existe déjà, et l'écran le marque directement après
-           * l'envoi (juste en dessous). Envoyer les deux ferait poser la marque deux fois, par deux chemins qui
-           * pourraient un jour ne plus dire la même chose.
+           * CE QUI ÉTAIT ÉCRIT ICI : « POUR UN MESSAGE NEUF seulement — une réponse ne passe pas par là, son
+           * échange existe déjà et l'écran le marque directement après l'envoi ; envoyer les deux ferait poser
+           * la marque deux fois ».
+           *
+           * 🔴 POURQUOI ÇA NE TIENT PLUS. Le serveur REFUSE désormais un mail non classé, et il ne peut le
+           * juger que sur ce qu'on lui envoie. Taire « Interne » sur une RÉPONSE revenait à lui cacher la
+           * seule chose qui la classait : le refus serait tombé sur le cas le plus fréquent du module.
+           *
+           * ⚠️ ET LA DOUBLE POSE N'EN EST PAS UNE : le rattrapage de la relève pose la marque sur l'ÉCHANGE
+           * avec un `ON CONFLICT … DO NOTHING` sur l'index des marques vivantes (`envoiCiblesRepo`). Si
+           * l'écran l'a déjà posée juste après l'envoi — ce qu'il continue de faire, parce que c'est
+           * IMMÉDIAT —, le rattrapage ne fait rien et éteint simplement le drapeau.
            */
-          interne: interneVoulu && b.filId === null ? true : undefined,
+          interne: interneVoulu ? true : undefined,
+          /**
+           * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ. Il classe le mail aux yeux du serveur, et il
+           * sera posé sur le message envoyé dès que la relève l'aura capturé (migration 289).
+           */
+          horsGestion: b.horsGestion === true ? true : undefined,
         }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
@@ -1056,6 +1149,23 @@ export function Redaction({
   }, [etat, contexte.delaiAnnulationS, envoyerVraiment]);
 
   const pret = pretAEnvoyer(brouillon);
+  /**
+   * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — « ENVOYER » EST INACTIF TANT QUE LE MAIL N'EST PAS CLASSÉ ═══════════════
+   *
+   * Demande d'Arno : « “Envoyer” est inactif tant que le bloc “Classer ce mail” n'est pas une case VERTE
+   * (“Interne”, ou “Rattaché” avec au moins un bien). Infobulle et ligne rouge sous le bouton. »
+   *
+   * 🔴 CONDITIONNÉ À `classementDisponible`, ET IL LE FAUT. Sans la migration 265, le bloc « Classer ce mail »
+   * n'est pas rendu du tout (règle du lot REDACTION-GMAIL : on ne propose pas un classement que la base ne
+   * saurait pas garder). Bloquer l'envoi sur un bloc ABSENT rendrait la fenêtre de rédaction inutilisable, sans
+   * qu'aucun geste à l'écran ne puisse la débloquer — on exigerait un classement impossible à faire.
+   *
+   * ⚠️ LE SERVEUR LE VÉRIFIE AUSSI, avec le MÊME module pur et le MÊME motif : l'écran évite une erreur, le
+   * serveur est la seule autorité. C'est exactement le partage de `pretAEnvoyer`, juste au-dessus.
+   */
+  const classe = classementFait(brouillon);
+  const bloqueParClassement = contexte.classementDisponible === true && !classe;
+  const peutEnvoyer = pret.pret && !bloqueParClassement;
   const titre = brouillon.voie === 'transferer' ? 'Transférer'
     : brouillon.voie === 'nouveau' ? 'Nouveau message'
       : brouillon.voie === 'repondre_tous' ? 'Répondre à tous' : 'Répondre';
@@ -1238,15 +1348,19 @@ export function Redaction({
         <ChampClassement
           cibles={brouillon.cibles ?? []}
           interne={interneVoulu}
-          /* 🔴 « Rattacher » ouvre la modale — et la case VERTE la rouvre avec les choix en cours. L'ouverture
-             automatique, elle, n'a lieu qu'une fois par ensemble de destinataires. */
+          /* 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION », HÉRITÉ de la conversation. Il n'a pas de bouton :
+             on ne le pose pas en écrivant, on le reprend en répondant dans un fil déjà marqué ainsi. */
+          horsGestion={brouillon.horsGestion === true}
+          /* 🔴🔴 LOT CLASSER-AVANT-ENVOI — « Rattacher » est désormais LA SEULE façon d'ouvrir la modale (avec
+             la case verte, qui la rouvre sur les choix en cours). L'ouverture automatique a été retirée. */
           onRattacher={destinatairesValides.length > 0 ? () => setRattacherOuvert(true) : undefined}
-          /* 🔴 LES DEUX RÉPONSES S'EXCLUENT : choisir « Interne » lève les biens, comme cocher un bien lève
-             « Interne » (voir la modale). Une contradiction enregistrée ne se rattrape pas. */
-          onInterne={() => onChange({ ...brouillon, interne: true, cibles: [] })}
+          /* 🔴 LES TROIS RÉPONSES S'EXCLUENT : choisir « Interne » lève les biens ET l'héritage, comme cocher
+             un bien lève « Interne » (voir la modale). Une contradiction enregistrée ne se rattrape pas. */
+          onInterne={() => onChange({ ...brouillon, interne: true, cibles: [], horsGestion: false })}
           onReinitialiser={reinitialiserClassement}
           interneDisponible={contexte.interneDisponible === true}
-          persistant={contexte.classementBrouillonDisponible !== false} />
+          persistant={contexte.classementBrouillonDisponible !== false}
+          persistantHorsGestion={contexte.classementHorsGestionDisponible !== false} />
       )}
 
       {/* ══ 🔴🔴 LA MODALE, AU CENTRE DE L'ÉCRAN ════════════════════════════════════════════════════════════
@@ -1289,8 +1403,21 @@ export function Redaction({
             // 🔴 COCHER UN BIEN LÈVE « INTERNE » : les deux réponses s'excluent (voir l'encadré de la modale).
             //   Les deux champs partent DANS LE MÊME appel : deux `modifier` successifs perdraient le premier,
             //   puisque chacun repart du `brouillon` du rendu courant.
-            onChange({ ...brouillon, cibles, interne: cibles.some((c) => c.sorte === 'lot') ? false : interneVoulu });
+            // 🔴 LOT CLASSER-AVANT-ENVOI — un bien coché lève AUSSI l'héritage « hors gestion » : les trois
+            //   réponses s'excluent, et il n'y a jamais deux cases vertes.
+            const unBien = cibles.some((c) => c.sorte === 'lot');
+            onChange({
+              ...brouillon, cibles,
+              interne: unBien ? false : interneVoulu,
+              horsGestion: unBien ? false : brouillon.horsGestion === true,
+            });
           }}
+          /* 🔴🔴 LOT CLASSER-AVANT-ENVOI — LES PROPOSITIONS SONT DÉJÀ LÀ quand le pré-chargement a abouti pour
+             CES destinataires-ci. La clé est recomposée dans la forme que la modale emploie (ordre de saisie,
+             doublons compris) : une clé qui ne correspondrait pas ferait simplement charger normalement. */
+          precharge={prechargeClassement !== null && prechargeClassement.cle === cleDestinataires
+            ? { cle: destinatairesValides.join(','), contexte: prechargeClassement.contexte }
+            : null}
           onFerme={() => setRattacherOuvert(false)} />
       )}
 
@@ -1410,14 +1537,25 @@ export function Redaction({
 
       <div className="gst-actions red-bas">
         {/* 🔴 LE SEUL CHEMIN D'ENVOI : ce clic, et lui seul. Il n'envoie même pas tout de suite — il ouvre la fenêtre
-            d'annulation. Aucun `type="submit"`, aucun formulaire : « Entrée » ne peut pas déclencher cela. */}
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!pret.pret}
-          onClick={() => setEtat({
-            v: 'compte_a_rebours', clicLe: new Date(),
-            cle: `${brouillon.id ?? 'x'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-          })}>
-          Envoyer{piecesJointes > 0 ? ` (${piecesJointes} pièce${piecesJointes > 1 ? 's' : ''} jointe${piecesJointes > 1 ? 's' : ''})` : ''}
-        </button>
+            d'annulation. Aucun `type="submit"`, aucun formulaire : « Entrée » ne peut pas déclencher cela.
+            🔴🔴 LOT CLASSER-AVANT-ENVOI — ET IL EST INACTIF TANT QUE LE MAIL N'EST PAS CLASSÉ. Puisqu'il n'y a
+            qu'un chemin d'envoi, il n'y a qu'un endroit où poser la règle : « Ctrl/Cmd+Entrée et l'envoi
+            programmé respectent la même règle » est vrai par construction — aucun raccourci clavier n'envoie
+            (c'est l'invariant du haut de ce fichier), et l'envoi différé passe par la MÊME requête, que le
+            serveur garde de son côté.
+            ⚠️ L'INFOBULLE EST SUR L'ENVELOPPE, pas sur le bouton : un bouton désactivé n'émet plus d'événement
+            de survol dans plusieurs navigateurs, et son `title` ne s'affiche jamais. */}
+        <span className="red-envoi" title={bloqueParClassement ? MOTIF_NON_CLASSE : undefined}>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!peutEnvoyer}
+            title={bloqueParClassement ? MOTIF_NON_CLASSE : undefined}
+            aria-describedby={bloqueParClassement ? 'red-non-classe' : undefined}
+            onClick={() => setEtat({
+              v: 'compte_a_rebours', clicLe: new Date(),
+              cle: `${brouillon.id ?? 'x'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            })}>
+            Envoyer{piecesJointes > 0 ? ` (${piecesJointes} pièce${piecesJointes > 1 ? 's' : ''} jointe${piecesJointes > 1 ? 's' : ''})` : ''}
+          </button>
+        </span>
 
         {/* ══ LOT REDACTION-GMAIL — LES OUTILS, À CÔTÉ D'« ENVOYER », comme dans Gmail ══════════════════════════
             Chacun porte un MOT dans son libellé accessible et son info-bulle : une rangée d'icônes muettes est
@@ -1455,6 +1593,27 @@ export function Redaction({
           {MOTS_ENREGISTREMENT[etatEnreg]}
         </span>
       </div>
+
+      {/* ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — LA LIGNE ROUGE, SOUS LE BOUTON ════════════════════════════════════
+          Demande d'Arno : « Infobulle ET ligne rouge sous le bouton ». Les deux, et pas l'une ou l'autre : au
+          doigt, une infobulle n'existe pas (exigence transverse du dépôt), et un bouton gris sans explication
+          se lit comme une panne.
+
+          ⚠️ SOUS LE BOUTON, et non au-dessus comme l'avertissement de `pretAEnvoyer` : c'est là qu'Arno la
+          demande, et c'est là que l'œil revient après avoir cliqué sans effet.
+
+          ⚠️ `role="status"`, PAS `alert` : rien n'est cassé, et interrompre une lecture d'écran à chaque fois
+          que la fenêtre s'ouvre serait insupportable. L'`aria-describedby` du bouton y renvoie — c'est ce qui
+          fait que le motif se lit AU MOMENT où l'on atteint le bouton. */}
+      {bloqueParClassement && (
+        <p className="gst-note red-avertit red-non-classe" id="red-non-classe" role="status">
+          {MOTIF_NON_CLASSE}
+        </p>
+      )}
+
+      {/* ⚠️ « GARDER EN BROUILLON » N'EST JAMAIS BLOQUÉ, et c'est écrit noir sur blanc dans la demande :
+          « Brouillons : on peut toujours enregistrer, fermer ou rouvrir sans classer. Seul l'envoi est
+          bloqué. » Le bouton ci-dessus n'a donc aucune condition, et l'enregistrement automatique non plus. */}
     </section>
   );
 }
@@ -1540,6 +1699,12 @@ const CSS_REDACTION = `
    au clavier comme au doigt, il faut voir OÙ l'on est sans avoir à comparer deux nuances de gris. */
 .red-suggestion--avance{border-color:var(--color-svv-red);background:var(--color-svv-field);font-weight:600}
 .red-avertit{color:var(--color-svv-red);font-weight:600}
+/* 🔴🔴 LOT CLASSER-AVANT-ENVOI — LA LIGNE ROUGE SOUS LE BOUTON, et l'enveloppe qui porte son infobulle.
+   L'enveloppe est un simple inline-flex : elle ne change RIEN a la mise en page de la barre du bas, elle
+   existe pour qu'une infobulle survive a un bouton desactive (plusieurs navigateurs n'emettent plus
+   d'evenement de survol sur un bouton inerte, et son infobulle ne s'affiche donc jamais). */
+.red-envoi{display:inline-flex}
+.red-non-classe{margin:4px 0 0}
 .red-etat{margin:0;font-size:.9rem;color:var(--color-svv-ink)}
 /* AUCUNE barre fixée en bas : le clavier d'iOS la recouvrirait, et le bouton « Envoyer » deviendrait inatteignable. */
 .red-bas{margin-top:4px}

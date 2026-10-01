@@ -27,17 +27,46 @@ import type { BienTrouve, ResultatsBiens } from '../../../../lib/gestion/recherc
  * bloc « Classer ce mail », posée par la même porte au moment de l'envoi. Cocher puis fermer la fenêtre de
  * rédaction sans envoyer ne laisse aucune trace, ce qui est exactement ce qu'on attend d'un brouillon.
  *
- * ⚠️ IGNORER OU FERMER LA MODALE N'EST PAS UNE ERREUR : le mail part « à classer », comme avant ce lot. C'est une
- * proposition, jamais un passage obligé — une modale qu'on ne peut pas fermer transforme un service en péage.
+ * ⚠️ FERMER LA MODALE N'EST PAS UNE ERREUR, et elle reste fermable par la croix comme par « Échap » : rien n'est
+ * changé en sortant par là. Une modale qu'on ne peut pas fermer transforme un service en péage.
  *
- * ═══ ⚠️ UNE SEULE OUVERTURE AUTOMATIQUE PAR ENSEMBLE DE PROPOSITIONS ════════════════════════════════════════════
+ * ═══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — CE QUI A CHANGÉ, ET CE QUI N'A PAS CHANGÉ ══════════════════════════════════
  *
- * La décision d'OUVRIR n'est pas ici : elle est chez l'appelant (`Redaction`), qui compare l'ensemble des biens
- * proposés à celui qu'il a déjà montré. Ce composant-ci, une fois monté, est simplement visible. Mêler les deux
- * aurait donné une fenêtre qui se rouvre à chaque frappe — le défaut que la demande nomme explicitement.
+ * CE QUI ÉTAIT ÉCRIT ICI, ET QUI NE VAUT PLUS :
+ *   · « une MODALE s'ouvre dès qu'une adresse est validée » — Arno l'a retirée : « Saisir ou valider une adresse
+ *     dans À / Cc / Cci n'ouvre PLUS la modale. On écrit son mail normalement. » Elle ne s'ouvre désormais qu'au
+ *     clic sur le gros bouton rouge « Rattacher », ou sur la case verte pour modifier ;
+ *   · « le mail part à classer » si on ferme sans choisir — il NE PART PLUS : « Envoyer » est inactif tant que le
+ *     bloc « Classer ce mail » n'est pas une case verte. Fermer la fenêtre n'est donc plus une renonciation, mais
+ *     un report : on revient aux deux boutons, et le geste reste à faire.
+ *
+ * 🔴 CE QUI N'A PAS CHANGÉ, ET QUI EST MAINTENANT CRUCIAL : les propositions sont CALCULÉES EN ARRIÈRE-PLAN à
+ * partir des destinataires, pour être prêtes et pré-cochées au moment où l'on clique. Voir `precharge`.
+ *
+ * ⚠️ LA DÉCISION D'OUVRIR N'EST TOUJOURS PAS ICI : elle est chez l'appelant (`Redaction`). Ce composant, une fois
+ * monté, est simplement visible.
  */
+/**
+ * 🔴 LA PRÉ-COCHE, ÉCRITE UNE SEULE FOIS — et c'est maintenant indispensable.
+ *
+ * Elle suit EXACTEMENT les règles du moteur, qui sont celles qu'Arno a écrites : locataire → son bien ;
+ * propriétaire à bien unique → ce bien ; propriétaire à plusieurs biens → seulement si l'adresse ou le lot est
+ * cité dans l'objet ou le texte. C'est le champ `recommande` qui les porte — on ne les réécrit pas ici, sans quoi
+ * elles divergeraient du motif affiché juste à côté.
+ *
+ * ⚠️ ET LES CIBLES DÉJÀ RETENUES RESTENT COCHÉES : rouvrir la modale ne décoche jamais un choix fait.
+ *
+ * 🔴 POURQUOI UNE FONCTION DEPUIS LE LOT CLASSER-AVANT-ENVOI : elle est appelée à DEUX endroits — au premier
+ * rendu quand les propositions sont déjà là, et à la fin d'une lecture. Deux copies de cette règle finiraient par
+ * cocher deux choses différentes selon que la fenêtre a été pré-chargée ou non.
+ */
+function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): string[] {
+  const dejaLa = cibles.filter((x) => x.sorte === 'lot').map((x) => x.cle ?? '');
+  return [...new Set([...c.biens.filter((b) => b.recommande).map((b) => b.cle), ...dejaLa])];
+}
+
 export function RattacherEnEcrivant({
-  destinataires, objet, corps, pieces, cibles, onChange, onFerme,
+  destinataires, objet, corps, pieces, cibles, precharge = null, onChange, onFerme,
 }: {
   /** Toutes les adresses VALIDÉES dans À, Cc et Cci. C'est d'elles que le moteur déduit les biens. */
   destinataires: readonly string[];
@@ -47,19 +76,48 @@ export function RattacherEnEcrivant({
   pieces?: readonly string[];
   /** Les cibles déjà retenues pour ce brouillon. La modale les coche d'avance : elle ne repart pas de zéro. */
   cibles: readonly CibleBrouillon[];
+  /**
+   * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — LES PROPOSITIONS, DÉJÀ CALCULÉES EN ARRIÈRE-PLAN ══════════════════════
+   *
+   * Demande d'Arno : « Les propositions continuent d'être calculées en arrière-plan à partir des destinataires
+   * (pour être PRÊTES et PRÉ-COCHÉES), mais la modale ne s'ouvre qu'au clic sur le gros bouton rouge. »
+   *
+   * 🔴 C'EST LA CONTREPARTIE DE L'OUVERTURE AUTOMATIQUE SUPPRIMÉE. Tant que la fenêtre surgissait toute seule,
+   * elle avait le temps de charger pendant qu'on la lisait. Ouverte à la demande, un « Lecture des biens
+   * possibles… » d'une seconde à chaque clic transformerait le geste principal en attente.
+   *
+   * ⚠️ LA CLÉ EST CELLE DES DESTINATAIRES, et elle est VÉRIFIÉE : des propositions calculées pour d'autres
+   * adresses seraient pires que pas de propositions du tout. Si elle ne correspond pas, on charge normalement.
+   *
+   * ⚠️ ON RAFRAÎCHIT QUAND MÊME, EN SILENCE. L'objet et le texte ont pu changer depuis le pré-chargement (le
+   * moteur cite les adresses et les n° de lot du corps : cas c et d). On montre donc tout de suite ce qu'on a,
+   * et la liste se complète seule — sans jamais décocher ce que quelqu'un vient de cocher.
+   */
+  precharge?: { cle: string; contexte: ContexteRedaction } | null;
   onChange: (c: CibleBrouillon[]) => void;
   onFerme: () => void;
 }) {
+  /**
+   * 🔴 LA CLÉ DES DESTINATAIRES, calculée AVANT l'état : c'est elle qui décide si le pré-chargement vaut pour
+   * cette ouverture-ci. Même forme des deux côtés (l'appelant la compose de la même liste, dans le même ordre).
+   */
+  const cle = destinataires.join(',');
+  const pret = precharge !== null && precharge.cle === cle ? precharge.contexte : null;
   const [etat, setEtat] = useState<
     | { v: 'charge' }
     | { v: 'ok'; contexte: ContexteRedaction }
     | { v: 'erreur'; message: string }
-  >({ v: 'charge' });
+  >(pret === null ? { v: 'charge' } : { v: 'ok', contexte: pret });
   /**
    * Les clés cochées. `null` = « pas encore décidé », et c'est ce qui permet de poser la PRÉ-COCHE une seule fois,
    * au chargement : la recalculer ferait recocher d'elle-même une case qu'on vient de décocher.
    */
-  const [coches, setCoches] = useState<string[] | null>(null);
+  const [coches, setCoches] = useState<string[] | null>(
+    // 🔴 LA PRÉ-COCHE EST POSÉE DÈS LE PREMIER RENDU quand les propositions sont déjà là : sans cela, la fenêtre
+    //   s'ouvrirait avec les biens affichés mais aucune case cochée, puis les cases se cocheraient toutes seules
+    //   sous les yeux — un mouvement qui se lit comme un défaut.
+    pret === null ? null : precocher(pret, cibles),
+  );
   /**
    * ══ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — LE MOTEUR DE RECHERCHE EST DANS LA MODALE, TOUJOURS VISIBLE ══════════
    *
@@ -81,9 +139,10 @@ export function RattacherEnEcrivant({
   /** Les biens ajoutés à la main : ils ne viennent pas du moteur, mais ils se cochent et se valident pareil. */
   const [ajoutes, setAjoutes] = useState<CibleBrouillon[]>([]);
 
-  const cle = destinataires.join(',');
   const charger = useCallback(async () => {
-    setEtat({ v: 'charge' });
+    // ⚠️ ON NE REVIENT PAS À « Lecture des biens possibles… » quand on a déjà quelque chose à montrer : ce
+    //   rafraîchissement-ci est silencieux (voir `precharge`). Il ne l'est pas la première fois.
+    setEtat((e) => (e.v === 'ok' ? e : { v: 'charge' }));
     try {
       /**
        * ⚠️ UN `POST` POUR UNE LECTURE, et c'est voulu : la question porte sur des ADRESSES, un OBJET et un CORPS
@@ -100,17 +159,13 @@ export function RattacherEnEcrivant({
         return;
       }
       setEtat({ v: 'ok', contexte: d.contexte });
-      /**
-       * 🔴 LA PRÉ-COCHE, POSÉE UNE SEULE FOIS. Elle suit EXACTEMENT les règles du moteur, qui sont celles
-       * qu'Arno a écrites : locataire → son bien ; propriétaire à bien unique → ce bien ; propriétaire à
-       * plusieurs biens → seulement si l'adresse ou le lot est cité dans l'objet ou le texte. C'est le champ
-       * `recommande` qui les porte — on ne les réécrit pas ici, sans quoi elles divergeraient du motif affiché
-       * juste à côté.
-       *
-       * ⚠️ ET LES CIBLES DÉJÀ RETENUES RESTENT COCHÉES : rouvrir la modale ne décoche jamais un choix fait.
-       */
-      const dejaLa = cibles.filter((c) => c.sorte === 'lot').map((c) => c.cle ?? '');
-      setCoches([...new Set([...d.contexte.biens.filter((b) => b.recommande).map((b) => b.cle), ...dejaLa])]);
+      // 🔴 LA PRÉ-COCHE, POSÉE UNE SEULE FOIS, et par la fonction `precocher` — la même que celle du premier
+      //   rendu quand les propositions sont déjà là. Voir son encadré en tête de fichier.
+      // ⚠️ `?? précoche` ET NON UNE AFFECTATION SÈCHE : un rafraîchissement silencieux ne doit JAMAIS recocher
+      //   une case qu'on vient de décocher. La pré-coche n'a lieu qu'une fois, qu'elle vienne du pré-chargement
+      //   ou de cette lecture-ci.
+      const calcule = precocher(d.contexte, cibles);
+      setCoches((prev) => prev ?? calcule);
     } catch {
       setEtat({ v: 'erreur', message: 'La lecture des biens n’a pas abouti.' });
     }

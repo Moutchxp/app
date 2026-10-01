@@ -28,6 +28,8 @@ import { fileEnvoiDisponible, journalEnvoiDisponible, redactionDisponible } from
 import { mettreEnFile } from '../../../../../lib/gestion/fileEnvoiRepo';
 import { lancerPasseEnFond } from '../../../../../lib/gestion/travailleurEnvoiReel';
 import { pretAEnvoyer } from '../../../../../lib/gestion/redaction';
+// 🔴 LOT CLASSER-AVANT-ENVOI — le garde « ce mail est-il classé ? », module PUR partagé avec l'écran.
+import { refusSiNonClasse } from '../../../../../lib/gestion/classementAvantEnvoi';
 
 /**
  * /api/admin/gestion/envois (lot 5e) — ENVOYER un message au nom de gestion@criterimmo.fr.
@@ -146,6 +148,11 @@ export async function POST(request: Request): Promise<Response> {
      * STRICTEMENT (`=== true`) : une valeur floue venue du navigateur ne doit jamais marquer un échange.
      */
     interne: corps.interne === true,
+    /**
+     * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ d'une conversation déjà marquée ainsi. Lu
+     * STRICTEMENT (`=== true`) comme « Interne », et pour la même raison.
+     */
+    horsGestion: corps.horsGestion === true,
   };
 
   /**
@@ -170,6 +177,19 @@ export async function POST(request: Request): Promise<Response> {
       a: demande.a, cc: demande.cc, cci: demande.cci, objet: demande.objet, corps: demande.corpsTexte,
     } as never);
     if (!pret.pret) return Response.json({ erreur: pret.motif, code: 'invalide' }, { status: 422 });
+    /**
+     * 🔴🔴 LOT CLASSER-AVANT-ENVOI — LE MÊME GARDE QUE L'ENVOI DIRECT, ET IL FAUT L'ÉCRIRE ICI AUSSI.
+     *
+     * Demande d'Arno : « l'envoi programmé respecte la même règle, et le serveur la vérifie aussi (refus avec
+     * motif) ». Ce chemin-ci NE PASSE PAS par `envoyerMessage` : il met en file et rend la main. Sans cette
+     * ligne, un mail non classé serait accepté dès que la base sait tenir une file — c'est-à-dire en
+     * production — et refusé seulement en secours. Le garde doit être là où la décision est prise.
+     *
+     * ⚠️ MÊME MODULE PUR, MÊME MOTIF : `refusSiNonClasse`. Deux formulations du même refus feraient douter
+     * qu'il s'agisse du même.
+     */
+    const nonClasse = refusSiNonClasse(demande);
+    if (nonClasse !== null) return Response.json({ erreur: nonClasse, code: 'invalide' }, { status: 422 });
     try {
       const id = await mettreEnFile({
         cleIdempotence: demande.cleIdempotence,
@@ -177,7 +197,7 @@ export async function POST(request: Request): Promise<Response> {
         repondAMessageId: demande.repondAMessageId, voie: demande.voie,
         a: demande.a, cc: demande.cc, cci: demande.cci,
         objet: demande.objet, corps: demande.corpsTexte, corpsHtml: demande.corpsHtml,
-        cibles: demande.cibles, interne: demande.interne,
+        cibles: demande.cibles, interne: demande.interne, horsGestion: demande.horsGestion,
       }, auteur);
       // `null` = la clé existait déjà : c'est un doublon (double-clic, requête rejouée), et c'est le bon résultat.
       if (demande.brouillonId !== null) {
@@ -270,6 +290,8 @@ export async function POST(request: Request): Promise<Response> {
       corpsHtml: demande.corpsHtml,
       cibles: demande.cibles,
       interne: demande.interne,
+      // 🔴 LOT CLASSER-AVANT-ENVOI — « Hors gestion » hérité : il compte pour le garde de `envoyerMessage`.
+      horsGestion: demande.horsGestion,
     }, auteur, deps);
 
     if (!issue.ok) {

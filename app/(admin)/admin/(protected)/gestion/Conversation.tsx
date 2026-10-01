@@ -55,6 +55,8 @@ import { RattachementsDuFil } from './RattachementsDuFil';
 import { ClasserMail } from './ClasserMail';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { Cible } from '../../../../lib/gestion/rattachement';
+// 🔴🔴 LOT CLASSER-AVANT-ENVOI — ce dont une réponse hérite : décidé dans un module PUR, éprouvé à part.
+import { classementHerite, type ClassementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
 /**
@@ -275,10 +277,39 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * de l'endroit où l'éditeur est rendu.
    */
   const [brouillonSous, setBrouillonSous] = useState<number | null>(null);
+  /**
+   * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — CE DONT LA RÉPONSE À **CE** MESSAGE HÉRITE ═══════════════════════════════
+   *
+   * 🔴 ON HÉRITE DU MESSAGE AUQUEL ON RÉPOND, pas « de la conversation en général ». Un fil peut porter des
+   * rattachements différents d'un mail à l'autre ; prendre leur union donnerait à la réponse des biens dont le
+   * message qu'on a sous les yeux ne parle pas. « Interne », lui, porte sur l'ÉCHANGE (migration 281) : c'est
+   * le seul des trois qui se lise au niveau du fil, et c'est voulu.
+   *
+   * ⚠️ MÊME RÈGLE QUE LA CAPSULE : un lien ne compte que s'il est CONFIRMÉ. Une proposition du moteur n'est pas
+   * un classement — la reprendre en case verte ferait valider en silence ce que personne n'a tranché.
+   *
+   * ⚠️ SEULS LES LOTS SONT REPRIS. Les liens « propriétaire » et « locataire » comptent encore pour la capsule
+   * d'un vieux mail, mais cette voie de création a été fermée (lot FICHE-RATTACHEMENT, migration 273) : on ne
+   * va pas la rouvrir par la porte de l'héritage. La décision est dans le module pur.
+   *
+   * ⚠️ `null` NE VAUT PAS `false` : quand on ne sait rien (migration absente, lecture en échec), on n'hérite de
+   * rien et l'obligation de classer s'applique — plutôt qu'un classement inventé.
+   */
+  const heritageDe = (messageId: number | null): ClassementHerite => classementHerite({
+    biens: messageId === null ? [] : (rattachements?.get(messageId) ?? [])
+      .filter((l) => l.statut === 'confirme')
+      .map((l) => ({ sorte: l.cible.sorte, cle: l.cible.cle, id: l.cible.id, libelle: l.libelle })),
+    filInterne: interne,
+    messageHorsGestion: messageId === null ? null : horsGestion?.has(messageId) ?? null,
+  });
+  /** L'héritage pour une réponse au message le PLUS RÉCENT — c'est celui auquel répond le pied de la page. */
+  const heritageDuDernier = (liste: readonly MessageDeFil[]): ClassementHerite =>
+    heritageDe(liste.length > 0 ? liste[liste.length - 1].messageId : null);
+
   /** Ouvre la rédaction pour UN message précis, et la place sous lui. Un seul endroit pour les deux décisions. */
   const repondreA = (voie: VoieRedaction, m: MessageDeFil) => {
     if (redaction === null) return;
-    setBrouillon(ouvrirRedaction(voie, [m], filId, redaction, maintenant));
+    setBrouillon(ouvrirRedaction(voie, [m], filId, redaction, maintenant, heritageDe(m.messageId)));
     setBrouillonSous(m.messageId);
   };
   /**
@@ -488,7 +519,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     const cle = `${filId}:${voieInitiale}`;
     if (voieFaite.current === cle) return;
     voieFaite.current = cle;
-    setBrouillon(ouvrirRedaction(voieInitiale, vue.messages, filId, redaction, maintenant));
+    setBrouillon(ouvrirRedaction(voieInitiale, vue.messages, filId, redaction, maintenant,
+      heritageDuDernier(vue.messages)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 🔴 `heritageDuDernier` lit les rattachements, qui
+    //   arrivent par une autre requête : l'ajouter ferait rejouer cet effet dès leur arrivée, c'est-à-dire
+    //   ÉCRASER ce que la personne est en train d'écrire (le défaut que `voieFaite` existe pour empêcher).
   }, [voieInitiale, vue, redaction, filId, maintenant]);
 
   /**
@@ -1105,7 +1140,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                   {(['repondre', 'repondre_tous', 'transferer'] as const).map((voie) => (
                     <button key={voie} type="button" className="cnv-pied-bouton"
                       onClick={() => {
-                        setBrouillon(ouvrirRedaction(voie, messages, fil.filId, redaction, maintenant));
+                        setBrouillon(ouvrirRedaction(voie, messages, fil.filId, redaction, maintenant,
+                          heritageDuDernier(messages)));
                         setBrouillonSous(null); // le pied répond au plus récent : il s'ouvre à SA place, en bas
                       }}>
                       <IconeVoie voie={voie} />
@@ -1282,6 +1318,22 @@ function IconeVoie({ voie }: { voie: VoieRedaction }) {
 function ouvrirRedaction(
   voie: VoieRedaction, messages: readonly MessageDeFil[], filId: number,
   ctx: ContexteRedactionEcran, maintenant: Date,
+  /**
+   * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — CE DONT LA RÉPONSE HÉRITE ═══════════════════════════════════════════════
+   *
+   * Demande d'Arno : « Réponse / Répondre à tous / Transférer : si la conversation est déjà rattachée, interne
+   * ou hors gestion, la case est pré-remplie en vert dans le même état (avec Réinitialiser). Sinon, même
+   * obligation que pour un nouveau message. »
+   *
+   * 🔴 SANS CELA, LE BLOCAGE RETOMBERAIT SUR LE CAS LE PLUS FRÉQUENT DU MODULE. L'essentiel du courrier écrit
+   * est une réponse ; obliger à reclasser à la main un échange déjà classé aurait remplacé une file de mails à
+   * classer par une file de gestes à refaire.
+   *
+   * ⚠️ VIDE PAR DÉFAUT : les appelants qui ne savent rien de la conversation (un brouillon rouvert depuis la
+   * liste, un écran qui ne lit pas les rattachements) n'héritent de rien, et l'obligation s'applique. On
+   * n'invente jamais un classement.
+   */
+  herite: ClassementHerite = { cibles: [], interne: false, horsGestion: false },
 ): BrouillonEcran {
   const dernier = messages.length > 0 ? messages[messages.length - 1] : null;
   const b = preparerBrouillon(voie, dernier === null ? null : {
@@ -1291,7 +1343,10 @@ function ouvrirRedaction(
   }, { adresseGestion: ctx.adresseGestion, signature: ctx.signature },
   { filId, dateLisible: dernier ? dateHeureComplete(dernier.recuLe) : undefined });
   void maintenant;
-  return { ...b, id: null };
+  return {
+    ...b, id: null,
+    cibles: herite.cibles, interne: herite.interne, horsGestion: herite.horsGestion,
+  };
 }
 
 /**

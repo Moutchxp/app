@@ -21,7 +21,10 @@
 import { query, withTransaction } from '../db/client';
 import type { CibleBrouillon, VoieRedaction } from './redaction';
 // LOT EDITEUR-PJ — le brouillon garde enfin sa mise en forme. Sondé, et réassaini côté serveur.
-import { brouillonClassementDisponible, brouillonHtmlDisponible, corbeilleBrouillonDisponible } from './schema';
+import {
+  brouillonClassementDisponible, brouillonHorsGestionDisponible, brouillonHtmlDisponible,
+  corbeilleBrouillonDisponible,
+} from './schema';
 import { assainirHtml } from './htmlMail';
 
 export interface Auteur { id: number | null; libelle: string }
@@ -62,6 +65,12 @@ export interface BrouillonEnBase {
    */
   cibles: CibleBrouillon[];
   interne: boolean;
+  /**
+   * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ d'une conversation déjà marquée ainsi. Jamais choisi
+   * dans la fenêtre : il n'y a pas de bouton pour lui. `false` sans la migration 289, comme `[]`/`false`
+   * ci-dessus sans la 285 — l'héritage vit alors le temps de la fenêtre, et l'écran le dit.
+   */
+  horsGestion: boolean;
 }
 
 const INSTANT = (c: string) => `to_char(${c} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
@@ -80,21 +89,30 @@ function champsClassement(avec: boolean): string {
 }
 
 /**
+ * 🔴 LOT CLASSER-AVANT-ENVOI — LA MÊME RÈGLE POUR « HORS GESTION », mais une sonde À PART (migration 289) : les
+ * colonnes peuvent diverger si une migration est appliquée à moitié, et ce qui compte ici est de ne JAMAIS nommer
+ * une colonne absente — ce serait la lecture des brouillons entière qui tomberait.
+ */
+function champHorsGestion(avec: boolean): string {
+  return avec ? ', hors_gestion' : ', false AS hors_gestion';
+}
+
+/**
  * 🔴 LOT EDITEUR-PJ — LES CHAMPS, AVEC OU SANS LA COLONNE `corps_html` (migration 265).
  *
  * ⚠️ LA COLONNE N'EST NOMMÉE QUE SI ELLE EXISTE. La sonder puis choisir le SQL est la règle de tout le module :
  * nommer une colonne absente ferait échouer la lecture des brouillons ENTIÈRE, pas seulement la mise en forme.
  */
-function champs(avecHtml: boolean, avecClassement = false): string {
+function champs(avecHtml: boolean, avecClassement = false, avecHorsGestion = false): string {
   return (avecHtml ? `${CHAMPS_BROUILLON}, corps_html` : `${CHAMPS_BROUILLON}, NULL::text AS corps_html`)
-    + champsClassement(avecClassement);
+    + champsClassement(avecClassement) + champHorsGestion(avecHorsGestion);
 }
 
 interface LigneBrouillon {
   id: number; fil_id: number | null; repond_a_message_id: number | null; voie: string;
   dest_a: unknown; dest_cc: unknown; dest_cci: unknown; objet: string; corps: string;
   citation: string | null; auteur_libelle: string; maj_le: string; corps_html: string | null;
-  cibles: unknown; interne: boolean | null;
+  cibles: unknown; interne: boolean | null; hors_gestion: boolean | null;
 }
 
 /**
@@ -134,7 +152,7 @@ function versBrouillon(r: LigneBrouillon): BrouillonEnBase {
     a: listeDe(r.dest_a), cc: listeDe(r.dest_cc), cci: listeDe(r.dest_cci),
     objet: r.objet, corps: r.corps, corpsHtml: r.corps_html, citation: r.citation,
     auteurLibelle: r.auteur_libelle, majLe: r.maj_le,
-    cibles: ciblesDe(r.cibles), interne: r.interne === true,
+    cibles: ciblesDe(r.cibles), interne: r.interne === true, horsGestion: r.hors_gestion === true,
   };
 }
 
@@ -150,7 +168,9 @@ export async function enregistrerBrouillon(
        a: string[]; cc: string[]; cci: string[]; objet: string; corps: string; corpsHtml?: string | null;
        citation: string | null;
        /** 🔴 LOT CLASSER-DEUX-BOUTONS — le classement décidé dans la fenêtre. Absent ⇒ inchangé en base. */
-       cibles?: readonly CibleBrouillon[]; interne?: boolean },
+       cibles?: readonly CibleBrouillon[]; interne?: boolean;
+       /** 🔴 LOT CLASSER-AVANT-ENVOI — « Hors gestion » hérité de la conversation. Absent ⇒ faux. */
+       horsGestion?: boolean },
   auteur: Auteur,
 ): Promise<BrouillonEnBase> {
   /**
@@ -169,8 +189,16 @@ export async function enregistrerBrouillon(
    * nommer une colonne absente ferait échouer TOUT l'enregistrement du brouillon, donc perdre le texte écrit.
    */
   const avecClassement = await brouillonClassementDisponible();
+  /**
+   * 🔴 LOT CLASSER-AVANT-ENVOI — UNE TROISIÈME SONDE, séparée des deux autres (migration 289). Même raison
+   * qu'au-dessus, et une de plus : trois colonnes facultatives écrites à la main avec des `$11`/`$12`/`$13`
+   * calculés en tête finissent par se décaler d'un cran — et un décalage de paramètre n'échoue pas, il écrit la
+   * mauvaise valeur dans la mauvaise colonne. On NUMÉROTE DONC LES PARAMÈTRES EN LES POUSSANT (voir `ajouter`).
+   */
+  const avecHorsGestion = await brouillonHorsGestionDisponible();
   const cibles = JSON.stringify(b.cibles ?? []);
   const interne = b.interne === true;
+  const horsGestion = b.horsGestion === true;
   const html = avecHtml
     ? (typeof b.corpsHtml === 'string' && b.corpsHtml.trim() !== '' ? assainirHtml(b.corpsHtml) : null)
     : null;
@@ -179,37 +207,61 @@ export async function enregistrerBrouillon(
     JSON.stringify(b.a), JSON.stringify(b.cc), JSON.stringify(b.cci),
     b.objet, b.corps, b.citation, auteur.id, auteur.libelle,
   ];
+
+  /**
+   * 🔴 LES COLONNES FACULTATIVES, DÉCRITES UNE SEULE FOIS. Chaque entrée dit son nom, sa transtypage éventuel et
+   * sa valeur ; la numérotation est DÉRIVÉE de l'ordre où on les pousse, jamais écrite à la main. Les deux
+   * requêtes (mise à jour et insertion) lisent la même liste : elles ne peuvent donc plus diverger.
+   */
+  const optionnelles: { nom: string; cast: string; valeur: unknown }[] = [
+    ...(avecHtml ? [{ nom: 'corps_html', cast: '', valeur: html }] : []),
+    ...(avecClassement ? [
+      { nom: 'cibles', cast: '::jsonb', valeur: cibles },
+      { nom: 'interne', cast: '', valeur: interne },
+    ] : []),
+    ...(avecHorsGestion ? [{ nom: 'hors_gestion', cast: '', valeur: horsGestion }] : []),
+  ];
+  const valeursOptionnelles = optionnelles.map((o) => o.valeur);
+  /** Les `nom = $n::cast` d'un UPDATE, numérotés à partir du premier paramètre libre. */
+  const affectations = (depuis: number): string =>
+    optionnelles.map((o, i) => `, ${o.nom} = $${depuis + i}${o.cast}`).join('');
+  /** Les `$n::cast` d'un INSERT, dans le même ordre que `optionnelles`. */
+  const placeholders = (depuis: number): string =>
+    optionnelles.map((o, i) => `, $${depuis + i}${o.cast}`).join('');
+  const nomsOptionnels = optionnelles.map((o) => `, ${o.nom}`).join('');
+  const champsRendus = champs(avecHtml, avecClassement, avecHorsGestion);
+
   if (b.id) {
     // Mise à jour CIBLÉE : on ne touche qu'un brouillon encore vivant, et qui appartient à l'auteur. Un brouillon déjà
     //   envoyé ou abandonné ne se réécrit pas — sinon un onglet resté ouvert le ressusciterait après coup.
+    // ⚠️ $1 = l'identifiant, $2..$10 = les neuf premières valeurs : les colonnes facultatives commencent donc à $11.
     const { rows } = await query<LigneBrouillon>(
       `UPDATE gestion_brouillon
           SET fil_id = $2, repond_a_message_id = $3, voie = $4, dest_a = $5::jsonb, dest_cc = $6::jsonb,
-              dest_cci = $7::jsonb, objet = $8, corps = $9, citation = $10${avecHtml ? ', corps_html = $11' : ''}${
-  avecClassement ? `, cibles = $${avecHtml ? 12 : 11}::jsonb, interne = $${avecHtml ? 13 : 12}` : ''},
+              dest_cci = $7::jsonb, objet = $8, corps = $9, citation = $10${affectations(11)},
               maj_le = now()
         WHERE id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL
-        RETURNING ${champs(avecHtml, avecClassement)}`,
-      [b.id, ...valeurs.slice(0, 9), ...(avecHtml ? [html] : []),
-        ...(avecClassement ? [cibles, interne] : [])]);
+        RETURNING ${champsRendus}`,
+      [b.id, ...valeurs.slice(0, 9), ...valeursOptionnelles]);
     if (rows[0]) return versBrouillon(rows[0]);
     // Le brouillon visé n'existe plus (envoyé, abandonné) : on en ouvre un neuf plutôt que de perdre ce qui est écrit.
   }
+  // ⚠️ $1..$11 = les onze valeurs obligatoires : les colonnes facultatives commencent à $12.
   const { rows } = await query<LigneBrouillon>(
     `INSERT INTO gestion_brouillon
        (fil_id, repond_a_message_id, voie, dest_a, dest_cc, dest_cci, objet, corps, citation, auteur_id,
-        auteur_libelle${avecHtml ? ', corps_html' : ''}${avecClassement ? ', cibles, interne' : ''})
-     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11${avecHtml ? ', $12' : ''}${
-  avecClassement ? `, $${avecHtml ? 13 : 12}::jsonb, $${avecHtml ? 14 : 13}` : ''})
-     RETURNING ${champs(avecHtml, avecClassement)}`,
-    [...valeurs, ...(avecHtml ? [html] : []), ...(avecClassement ? [cibles, interne] : [])]);
+        auteur_libelle${nomsOptionnels})
+     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11${placeholders(12)})
+     RETURNING ${champsRendus}`,
+    [...valeurs, ...valeursOptionnelles]);
   return versBrouillon(rows[0]);
 }
 
 /** Le brouillon VIVANT d'un échange, s'il y en a un. Le plus récemment touché fait foi. */
 export async function lireBrouillonDuFil(filId: number): Promise<BrouillonEnBase | null> {
   const { rows } = await query<LigneBrouillon>(
-    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible())}
+    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible(),
+      await brouillonHorsGestionDisponible())}
        FROM gestion_brouillon
       WHERE fil_id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL
       ORDER BY maj_le DESC, id DESC LIMIT 1`, [filId]);
@@ -228,7 +280,8 @@ export async function lireBrouillonDuFil(filId: number): Promise<BrouillonEnBase
  */
 export async function lireBrouillon(id: number): Promise<BrouillonEnBase | null> {
   const { rows } = await query<LigneBrouillon>(
-    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible())}
+    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible(),
+      await brouillonHorsGestionDisponible())}
        FROM gestion_brouillon
       WHERE id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL`, [id]);
   return rows[0] ? versBrouillon(rows[0]) : null;
@@ -241,7 +294,8 @@ export async function lireBrouillon(id: number): Promise<BrouillonEnBase | null>
  */
 export async function listerBrouillonsDuFil(filId: number): Promise<BrouillonEnBase[]> {
   const { rows } = await query<LigneBrouillon>(
-    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible())}
+    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible(),
+      await brouillonHorsGestionDisponible())}
        FROM gestion_brouillon
       WHERE fil_id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL
       ORDER BY maj_le DESC, id DESC LIMIT 20`, [filId]);
@@ -251,7 +305,8 @@ export async function listerBrouillonsDuFil(filId: number): Promise<BrouillonEnB
 /** Tous les brouillons vivants — ce que montre le libellé « Brouillons ». Borné : une liste se lit, elle ne défile pas. */
 export async function listerBrouillons(limite = 50): Promise<BrouillonEnBase[]> {
   const { rows } = await query<LigneBrouillon>(
-    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible())}
+    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible(),
+      await brouillonHorsGestionDisponible())}
        FROM gestion_brouillon
       WHERE abandonne_le IS NULL AND envoye_le IS NULL
       ORDER BY maj_le DESC, id DESC LIMIT $1`, [Math.min(Math.max(1, limite), 200)]);
@@ -327,7 +382,8 @@ export async function restaurerBrouillon(id: number): Promise<boolean> {
 export async function brouillonsALaCorbeille(limite = 50): Promise<BrouillonEnBase[]> {
   if (!await corbeilleBrouillonDisponible()) return [];
   const { rows } = await query<LigneBrouillon>(
-    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible())}
+    `SELECT ${champs(await brouillonHtmlDisponible(), await brouillonClassementDisponible(),
+      await brouillonHorsGestionDisponible())}
        FROM gestion_brouillon
       WHERE corbeille_le IS NOT NULL AND envoye_le IS NULL
       ORDER BY corbeille_le DESC, id DESC LIMIT $1`, [Math.min(Math.max(1, limite), 200)]);

@@ -1,5 +1,8 @@
 import { query } from '../db/client';
-import { envoiCiblesDisponibles, envoiInterneDisponible, interneDisponible, rattachementsDisponibles } from './schema';
+import {
+  envoiCiblesDisponibles, envoiHorsGestionDisponible, envoiInterneDisponible, horsGestionDisponible,
+  interneDisponible, rattachementsDisponibles,
+} from './schema';
 import type { Auteur } from './gestes';
 
 /**
@@ -248,6 +251,83 @@ export async function appliquerInterneEnAttente(): Promise<number> {
     return rows.length;
   } catch (e) {
     console.error('[gestion/envoiCibles] application « interne » impossible', e);
+    return 0;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ EN RÉPONDANT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO : « si la conversation est déjà rattachée, interne ou hors gestion, la case est pré-remplie en
+   vert dans le même état ». Des trois états, celui-ci est le seul qui ne voyage pas tout seul :
+     · « rattaché » passe par les `cibles` du brouillon, et le rattrapage ci-dessus le pose ;
+     · « interne » porte sur l'ÉCHANGE (migration 281) : la réponse en hérite sans qu'on écrive quoi que ce soit ;
+     · « HORS GESTION » porte sur UN MESSAGE (migration 266) — et le message qu'on vient d'envoyer n'existe pas
+       encore en base. Sans ce qui suit, la case verte aurait dit « Hors gestion » et le fil aurait affiché, deux
+       minutes plus tard, un mail « à classer » : deux vérités sur le même courrier.
+
+   🔴 LE MÊME CHEMIN EN DEUX TEMPS, LE MÊME FRAGMENT DE RECONNAISSANCE. On ne réinvente ni l'un ni l'autre : deux
+   façons de retrouver la copie d'un envoi finiraient par ne plus désigner le même message. */
+
+/**
+ * ① À L'ENVOI — RETENIR L'INTENTION « HORS GESTION ».
+ *
+ * ⚠️ SANS LA MIGRATION 289, la colonne n'est nommée nulle part et cette fonction rend `false` : le mail part,
+ * la case verte avait bien débloqué l'envoi, et la marque reste à poser à la main depuis la conversation.
+ * Une moitié de fonction ANNONCÉE, jamais une moitié de fonction silencieuse.
+ */
+export async function demanderHorsGestionPourEnvoi(envoiId: number): Promise<boolean> {
+  try {
+    if (!(await envoiHorsGestionDisponible())) return false;
+    await query('UPDATE gestion_envoi SET hors_gestion_demande = true WHERE id = $1', [envoiId]);
+    return true;
+  } catch (e) {
+    console.error('[gestion/envoiCibles] demande « hors gestion » impossible (envoi=%d)', envoiId, e);
+    return false;
+  }
+}
+
+/**
+ * ② ter — POSER « HORS GESTION » SUR LES MESSAGES ENFIN CAPTURÉS. Rend le nombre posé.
+ *
+ * 🔴 UNE SEULE REQUÊTE, IDEMPOTENTE, et le MÊME fragment de reconnaissance que les deux rattrapages voisins.
+ * `ON CONFLICT … DO NOTHING` sur l'index partiel des marques vivantes : un message déjà marqué ne l'est pas deux
+ * fois, et la relève peut repasser autant qu'elle veut.
+ *
+ * ⚠️ AUCUN MOTIF N'EST INVENTÉ (`NULL`). La table n'en accepte que trois (« prospection », « interne », « autre »)
+ * et aucun ne décrit ce qui s'est passé ici : on a hérité de la décision d'un collègue, on ne la requalifie pas.
+ *
+ * ⚠️ L'AUTEUR EST CELUI DE L'ENVOI : `gestion_hors_gestion` refuse un libellé vide ou « automatique ». Ce n'est
+ * pas le programme qui décide — c'est la personne qui a envoyé dans un fil déjà marqué.
+ *
+ * ⚠️ ELLE NE LÈVE JAMAIS : appelée en fin de relève, elle ne doit pas pouvoir faire échouer une passe.
+ */
+export async function appliquerHorsGestionEnAttente(): Promise<number> {
+  try {
+    if (!(await envoiHorsGestionDisponible()) || !(await horsGestionDisponible())) return 0;
+    const { rows } = await query<{ id: string }>(
+      `WITH prets AS (
+         SELECT e.id AS envoi_id, m.id AS message_id, e.auteur_id, e.auteur_libelle
+           FROM gestion_envoi e
+           JOIN gestion_message m ON m.id = ${SQL_MESSAGE_DE_L_ENVOI}
+          WHERE e.hors_gestion_demande AND e.etat = 'envoye' AND e.parti_le IS NOT NULL
+            AND btrim(coalesce(e.auteur_libelle, '')) <> ''
+            AND lower(btrim(coalesce(e.auteur_libelle, ''))) <> 'automatique'
+       ), poses AS (
+         INSERT INTO gestion_hors_gestion (message_id, motif, pose_par, pose_par_libelle)
+         SELECT p.message_id, NULL, p.auteur_id, p.auteur_libelle FROM prets p
+         ON CONFLICT (message_id) WHERE retire_le IS NULL DO NOTHING
+         RETURNING message_id
+       )
+       UPDATE gestion_envoi e
+          SET hors_gestion_demande = false
+         FROM prets p
+        WHERE e.id = p.envoi_id
+        RETURNING e.id::text`);
+    return rows.length;
+  } catch (e) {
+    console.error('[gestion/envoiCibles] application « hors gestion » impossible', e);
     return 0;
   }
 }

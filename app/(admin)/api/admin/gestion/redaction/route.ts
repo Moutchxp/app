@@ -8,7 +8,8 @@ import {
 import { lireJeton } from '../../../../../lib/gestion/googleJeton';
 import { compterBrouillons } from '../../../../../lib/gestion/redactionRepo';
 import {
-  brouillonCibleDisponible, brouillonClassementDisponible, brouillonHtmlDisponible, corbeilleBrouillonDisponible,
+  brouillonCibleDisponible, brouillonClassementDisponible, brouillonHorsGestionDisponible,
+  brouillonHtmlDisponible, corbeilleBrouillonDisponible,
   interneDisponible,
   piecesEnvoiDisponibles, redactionDisponible,
 } from '../../../../../lib/gestion/schema';
@@ -114,6 +115,12 @@ export async function GET(request: Request): Promise<Response> {
      * une question distincte de `classementDisponible`, qui dit seulement si la base sait CLASSER un mail.
      */
     classementBrouillonDisponible: await brouillonClassementDisponible(),
+    /**
+     * 🔴 LOT CLASSER-AVANT-ENVOI — la migration 289 est-elle appliquée ? Elle porte « HORS GESTION » HÉRITÉ en
+     * répondant dans un fil déjà marqué ainsi. Encore une question DISTINCTE : les colonnes peuvent diverger si
+     * une migration est appliquée à moitié, et l'écran ne doit annoncer que ce qu'il sait.
+     */
+    classementHorsGestionDisponible: await brouillonHorsGestionDisponible(),
     // 🔴 LOT RATTACHER-EN-ECRIVANT — la 281 (« Interne ») : sans elle, le bouton est grisé avec son motif.
     interneDisponible: await interneDisponible(),
     /**

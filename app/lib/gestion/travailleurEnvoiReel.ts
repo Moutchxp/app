@@ -124,6 +124,12 @@ export function depsTravailleurReel(): DepsTravailleur {
         cibles: d.cibles as never,
         // 🔴 LOT RATTACHER-EN-ECRIVANT — l'intention « Interne » survit à la file, et arrive jusqu'à l'envoi.
         interne: d.interne === true,
+        /**
+         * 🔴 LOT CLASSER-AVANT-ENVOI — ET « HORS GESTION » HÉRITÉ, pour la même raison. Il compte aussi pour le
+         * garde de `envoyerMessage` : sans lui, une réponse classée « hors gestion » et mise en file serait
+         * refusée par le serveur au moment où le travailleur la reprend, c'est-à-dire bien après le clic.
+         */
+        horsGestion: d.horsGestion === true,
       }, auteur, depsEnvoiReel({
         // 🔴 LE DROIT EST RELU EN BASE, pour l'auteur enregistré : un droit retiré entre le clic et l'envoi
         //   différé coupe l'envoi. C'est le cas que cette relecture existe précisément pour attraper.

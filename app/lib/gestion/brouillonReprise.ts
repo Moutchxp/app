@@ -39,6 +39,12 @@ export interface BrouillonEnregistre {
    */
   cibles?: CibleBrouillon[];
   interne?: boolean;
+  /**
+   * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ d'une conversation déjà marquée ainsi. Même règle,
+   * même prudence : absent (route plus ancienne, ou migration 289 non appliquée) ⇒ faux, et l'obligation de
+   * classer s'applique à la réouverture. On ne reconstruit jamais un classement qu'on n'a pas lu.
+   */
+  horsGestion?: boolean;
 }
 
 /** Le brouillon prêt pour l'éditeur : la forme de l'écran, plus son identifiant et la marque « repris ». */
@@ -79,6 +85,9 @@ export function reprendreBrouillon(b: BrouillonEnregistre): BrouillonRepris {
     // 🔴 LOT CLASSER-DEUX-BOUTONS — le classement revient tel qu'il a été laissé.
     cibles: [...(b.cibles ?? [])],
     interne: b.interne === true,
+    // 🔴 LOT CLASSER-AVANT-ENVOI — et l'héritage avec, sans quoi rouvrir un brouillon demanderait de reclasser
+    //   un courrier déjà classé.
+    horsGestion: b.horsGestion === true,
   };
 }
 

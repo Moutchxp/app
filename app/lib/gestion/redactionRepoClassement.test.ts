@@ -15,6 +15,8 @@ import { enregistrerBrouillon, lireBrouillon } from './redactionRepo';
  * dépôt) : une assertion sur le texte de la requête casserait au premier reformatage sans rien apprendre.
  */
 let migration285: () => Promise<boolean>;
+/** 🔴 LOT CLASSER-AVANT-ENVOI — la sonde de la migration 289 (« hors gestion » hérité), séparée de la 285. */
+let migration289: () => Promise<boolean>;
 const requetes: { sql: string; params: unknown[] }[] = [];
 let reponse: Record<string, unknown>;
 
@@ -28,6 +30,9 @@ vi.mock('../db/client', () => ({
 vi.mock('./schema', () => ({
   brouillonHtmlDisponible: async () => false,
   brouillonClassementDisponible: () => migration285(),
+  // 🔴 LOT CLASSER-AVANT-ENVOI — la sonde de la migration 289 (« hors gestion » hérité). FAUSSE ici : ce
+  //   fichier éprouve la 285, et son SQL doit rester celui d'avant le lot suivant.
+  brouillonHorsGestionDisponible: () => migration289(),
   corbeilleBrouillonDisponible: async () => true,
 }));
 vi.mock('./htmlMail', () => ({ assainirHtml: (h: string) => h }));
@@ -36,7 +41,7 @@ const LIGNE = (o: Record<string, unknown> = {}) => ({
   id: 7, fil_id: null, repond_a_message_id: null, voie: 'nouveau',
   dest_a: ['a@b.fr'], dest_cc: [], dest_cci: [], objet: 'Charges', corps: 'texte',
   citation: null, auteur_libelle: 'arno', maj_le: '2026-09-30T18:00:00Z', corps_html: null,
-  cibles: [], interne: false, ...o,
+  cibles: [], interne: false, hors_gestion: false, ...o,
 });
 
 const BROUILLON = {
@@ -46,7 +51,13 @@ const BROUILLON = {
 const AUTEUR = { id: 2, libelle: 'arno' };
 const LOT = { sorte: 'lot' as const, cle: '421', id: null, libelle: '28 av. Marceau — lot 421' };
 
-beforeEach(() => { requetes.length = 0; migration285 = async () => true; reponse = LIGNE(); });
+beforeEach(() => {
+  requetes.length = 0;
+  migration285 = async () => true;
+  // ⚠️ FAUSSE PAR DÉFAUT : la 289 est LIVRÉE NON APPLIQUÉE. Le décor ordinaire est donc celui d'aujourd'hui.
+  migration289 = async () => false;
+  reponse = LIGNE();
+});
 
 describe('🔴 le classement est ÉCRIT avec le brouillon', () => {
   it('🔴 à la CRÉATION : les biens et « Interne » partent dans les paramètres liés', async () => {
@@ -103,6 +114,69 @@ describe('🔴 le classement est RELU à la réouverture', () => {
   it('une colonne qui n’est pas un tableau donne une liste vide', async () => {
     reponse = LIGNE({ cibles: 'pas un tableau' });
     expect((await lireBrouillon(7))?.cibles).toEqual([]);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ, SA PROPRE COLONNE ET SA PROPRE SONDE ══════════════
+ *
+ * ARNO (01/10/2026) : « si la conversation est déjà rattachée, interne ou hors gestion, la case est pré-remplie
+ * en vert dans le même état ». Des trois états, celui-ci est le seul qui n'avait nulle part où s'écrire.
+ *
+ * 🔴 UNE SONDE À PART DE LA 285, et c'est la règle du module : deux migrations peuvent être appliquées à
+ * moitié, et nommer une colonne absente ferait échouer la lecture des brouillons ENTIÈRE.
+ */
+describe('🔴🔴 « Hors gestion » hérité, écrit et relu avec le brouillon', () => {
+  beforeEach(() => { migration289 = async () => true; });
+
+  it('🔴 à la CRÉATION, la colonne est nommée et la valeur part liée', async () => {
+    await enregistrerBrouillon({ ...BROUILLON, horsGestion: true }, AUTEUR);
+    const ecriture = requetes.find((r) => /INSERT INTO gestion_brouillon/.test(r.sql));
+    expect(ecriture?.sql).toContain('hors_gestion');
+    expect(ecriture?.params).toContain(true);
+  });
+
+  it('🔴 à la MISE À JOUR aussi', async () => {
+    await enregistrerBrouillon({ ...BROUILLON, id: 7, horsGestion: true }, AUTEUR);
+    const ecriture = requetes.find((r) => /UPDATE gestion_brouillon/.test(r.sql));
+    expect(ecriture?.sql).toContain('hors_gestion = ');
+    expect(ecriture?.params).toContain(true);
+  });
+
+  /**
+   * 🔴🔴 LE DÉCALAGE DE PARAMÈTRES, LE DÉFAUT QUE CE TEST EXISTE POUR ATTRAPER. Trois colonnes facultatives
+   * numérotées à la main finissent par se décaler d'un cran — et un décalage n'échoue pas : il écrit la
+   * mauvaise valeur dans la mauvaise colonne. On éprouve donc les TROIS ensemble.
+   */
+  it('🔴🔴 les trois colonnes facultatives ensemble : chacune reçoit SA valeur', async () => {
+    await enregistrerBrouillon({
+      ...BROUILLON, id: 7, corpsHtml: '<p>bonjour</p>', cibles: [LOT], interne: false, horsGestion: true,
+    }, AUTEUR);
+    const ecriture = requetes.find((r) => /UPDATE gestion_brouillon/.test(r.sql));
+    const sql = (ecriture?.sql ?? '').replace(/\s+/g, ' ');
+    // L'ordre des colonnes et celui des paramètres doivent se correspondre, un pour un.
+    const rangs = ['cibles', 'interne', 'hors_gestion']
+      .map((c) => Number(new RegExp(`${c} = \\$(\\d+)`).exec(sql)?.[1]));
+    expect(rangs.some(Number.isNaN)).toBe(false);
+    const p = ecriture?.params ?? [];
+    expect(p[rangs[0] - 1]).toBe(JSON.stringify([LOT]));
+    expect(p[rangs[1] - 1]).toBe(false);
+    expect(p[rangs[2] - 1]).toBe(true);
+  });
+
+  it('🔴 et il REVIENT à la réouverture — sinon il faudrait reclasser un courrier déjà classé', async () => {
+    reponse = LIGNE({ hors_gestion: true });
+    expect((await lireBrouillon(7))?.horsGestion).toBe(true);
+  });
+
+  /** ⚠️ SANS LA 289 : la colonne n'est NOMMÉE NULLE PART, et la lecture rend `false` sans rien inventer. */
+  it('⚠️ sans la migration 289, la colonne n’est nommée nulle part', async () => {
+    migration289 = async () => false;
+    await enregistrerBrouillon({ ...BROUILLON, horsGestion: true }, AUTEUR);
+    const ecriture = requetes.find((r) => /INSERT INTO gestion_brouillon/.test(r.sql));
+    expect(ecriture?.sql).not.toContain('hors_gestion,');
+    expect(ecriture?.sql).toContain('false AS hors_gestion');
+    expect((await lireBrouillon(7))?.horsGestion).toBe(false);
   });
 });
 

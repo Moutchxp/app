@@ -1,6 +1,8 @@
 import { query, withTransaction } from '../db/client';
 import { attenteAvantReprise, BAIL_SECONDES, ESSAIS_MAX } from './fileEnvoi';
-import { envoiIgnoreDisponible, envoiInterneFileDisponible, fileEnvoiDisponible } from './schema';
+import {
+  envoiHorsGestionFileDisponible, envoiIgnoreDisponible, envoiInterneFileDisponible, fileEnvoiDisponible,
+} from './schema';
 import type { LigneFile, PieceAFond } from './travailleurEnvoi';
 import type { EtatPiece, MentionNonEnvoye } from './fileEnvoi';
 
@@ -107,6 +109,12 @@ export interface DemandeEnFile {
    * précisément quand la base sait la tenir.
    */
   interne?: boolean;
+  /**
+   * 🔴 LOT CLASSER-AVANT-ENVOI — « Hors gestion » HÉRITÉ d'une conversation déjà marquée ainsi. Il voyage avec
+   * la demande pour la même raison que « Interne » : une intention qui disparaît selon le chemin emprunté est
+   * le genre de défaut qu'on ne reproduit jamais.
+   */
+  horsGestion?: boolean;
 }
 
 /** L'état d'une ligne tel que l'écran le montre. */
@@ -180,6 +188,19 @@ export async function mettreEnFile(
 ): Promise<number | null> {
   if (!(await fileEnvoiDisponible())) return null;
   const avecInterne = await envoiInterneFileDisponible();
+  /**
+   * 🔴 LOT CLASSER-AVANT-ENVOI — UNE SONDE DE PLUS (migration 289), et donc une colonne facultative de plus.
+   * Deux colonnes optionnelles numérotées à la main ($15, $16…) se décalent au premier ajout, et un décalage de
+   * paramètre n'échoue pas : il écrit la mauvaise valeur dans la mauvaise colonne. On les POUSSE donc.
+   */
+  const avecHorsGestion = await envoiHorsGestionFileDisponible();
+  const optionnelles: { nom: string; valeur: unknown }[] = [
+    ...(avecInterne ? [{ nom: 'interne_demande', valeur: d.interne === true }] : []),
+    ...(avecHorsGestion ? [{ nom: 'hors_gestion_demande', valeur: d.horsGestion === true }] : []),
+  ];
+  // ⚠️ $1..$14 SONT LES COLONNES OBLIGATOIRES : les facultatives commencent donc à $15.
+  const nomsOptionnels = optionnelles.map((o) => `, ${o.nom}`).join('');
+  const placeholders = optionnelles.map((_, i) => `, $${15 + i}`).join('');
   const { rows } = await query<{ id: string }>(
     /**
      * 🔴 LOT RATTACHER-EN-ECRIVANT — LA COLONNE « interne_demande » N'EST NOMMÉE QUE SI ELLE EXISTE (migration
@@ -188,16 +209,15 @@ export async function mettreEnFile(
      */
     `INSERT INTO gestion_envoi_file
        (cle_idempotence, brouillon_id, fil_id, repond_a_message_id, voie,
-        dest_a, dest_cc, dest_cci, objet, corps, corps_html, cibles, auteur_id, auteur_libelle${
-  avecInterne ? ', interne_demande' : ''})
+        dest_a, dest_cc, dest_cci, objet, corps, corps_html, cibles, auteur_id, auteur_libelle${nomsOptionnels})
      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12::jsonb, $13, $14${
-  avecInterne ? ', $15' : ''})
+  placeholders})
      ON CONFLICT (cle_idempotence) DO NOTHING
      RETURNING id::text`,
     [d.cleIdempotence, d.brouillonId, d.filId, d.repondAMessageId, d.voie,
       JSON.stringify(d.a), JSON.stringify(d.cc), JSON.stringify(d.cci),
       d.objet, d.corps, d.corpsHtml, JSON.stringify(d.cibles ?? []), auteur.id, auteur.libelle,
-      ...(avecInterne ? [d.interne === true] : [])],
+      ...optionnelles.map((o) => o.valeur)],
   );
   // Aucune ligne rendue = la clé existait déjà : c'est un doublon, et c'est le bon résultat.
   return rows[0] ? Number(rows[0].id) : null;
@@ -440,11 +460,14 @@ export async function lireDemande(id: number): Promise<(DemandeEnFile & {
     repond_a_message_id: string | null; voie: string | null; dest_a: unknown; dest_cc: unknown; dest_cci: unknown;
     objet: string; corps: string; corps_html: string | null; cibles: unknown;
     interne_demande: boolean | null;
+    hors_gestion_demande: boolean | null;
     auteur_id: string | null; auteur_libelle: string;
   }>(
     `SELECT cle_idempotence, brouillon_id::text, fil_id::text, repond_a_message_id::text, voie,
             dest_a, dest_cc, dest_cci, objet, corps, corps_html, cibles, auteur_id::text, auteur_libelle${
-    await envoiInterneFileDisponible() ? ', interne_demande' : ', NULL::boolean AS interne_demande'}
+    await envoiInterneFileDisponible() ? ', interne_demande' : ', NULL::boolean AS interne_demande'}${
+    await envoiHorsGestionFileDisponible()
+      ? ', hors_gestion_demande' : ', NULL::boolean AS hors_gestion_demande'}
        FROM gestion_envoi_file WHERE id = $1`, [id]);
   const r = rows[0];
   if (!r) return null;
@@ -458,6 +481,7 @@ export async function lireDemande(id: number): Promise<(DemandeEnFile & {
     objet: r.objet, corps: r.corps, corpsHtml: r.corps_html,
     cibles: Array.isArray(r.cibles) ? r.cibles : [],
     interne: r.interne_demande === true,
+    horsGestion: r.hors_gestion_demande === true,
     auteurId: r.auteur_id === null ? null : Number(r.auteur_id),
     auteurLibelle: r.auteur_libelle,
   };

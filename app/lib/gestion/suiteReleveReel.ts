@@ -117,7 +117,8 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
      * ⚠️ ELLE NE PEUT PAS FAIRE ÉCHOUER LA SUITE : sans la migration 282, `appliquerCiblesEnAttente` rend 0 sans
      * émettre une seule requête, et elle attrape ses propres erreurs.
      */
-    const { appliquerCiblesEnAttente, appliquerInterneEnAttente } = await import('./envoiCiblesRepo');
+    const { appliquerCiblesEnAttente, appliquerHorsGestionEnAttente, appliquerInterneEnAttente } =
+      await import('./envoiCiblesRepo');
     const posesEnvoi = await appliquerCiblesEnAttente();
     if (posesEnvoi > 0) {
       journal?.(`suite : ${posesEnvoi} bien(s) choisi(s) avant l’envoi, rattaché(s) au message maintenant capturé`);
@@ -130,6 +131,15 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
     const posesInterne = await appliquerInterneEnAttente();
     if (posesInterne > 0) {
       journal?.(`suite : ${posesInterne} échange(s) marqué(s) « interne », comme demandé avant l’envoi`);
+    }
+    /**
+     * 🔴 LOT CLASSER-AVANT-ENVOI — ET « HORS GESTION » HÉRITÉ : même raison, même moment. Répondre dans un fil
+     * déjà marqué ainsi pré-remplit la case verte ; la marque, elle, ne peut se poser que sur le message, et le
+     * message vient d'arriver. Sans la migration 289, la fonction rend 0 sans rien demander à la base.
+     */
+    const posesHorsGestion = await appliquerHorsGestionEnAttente();
+    if (posesHorsGestion > 0) {
+      journal?.(`suite : ${posesHorsGestion} message(s) marqué(s) « hors gestion », comme hérité avant l’envoi`);
     }
 
     /**

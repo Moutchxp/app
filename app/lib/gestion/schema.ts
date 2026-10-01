@@ -681,6 +681,35 @@ export function brouillonClassementDisponible(): Promise<boolean> {
   return memoiser('brouillon.cibles', () => colonneExiste('gestion_brouillon', 'cibles'));
 }
 
+/* ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — LA MIGRATION 289, SONDÉE COLONNE PAR COLONNE ═══════════════════════════════
+   Elle porte « HORS GESTION » HÉRITÉ en répondant dans un fil déjà marqué ainsi. Des trois états classants, c'est
+   le seul qui ne voyageait pas tout seul : « rattaché » passe par les `cibles` du brouillon, « interne » porte sur
+   l'ÉCHANGE (migration 281) — « hors gestion », lui, porte sur UN message (migration 266).
+
+   🔴 TROIS SONDES SÉPARÉES, et jamais une seule : les trois colonnes peuvent diverger si la migration est
+   appliquée à moitié, et nommer une colonne absente ferait échouer TOUTE la lecture concernée (brouillons, file
+   d'envoi), pas seulement la nouveauté. Règle du module depuis l'incident du lot 4a.
+
+   ⚠️ TANT QU'ELLES MANQUENT, la case verte « Hors gestion » s'affiche et débloque l'envoi — ce qui est bien le
+   geste demandé — mais le choix n'est pas retrouvé à la réouverture du brouillon, et la marque n'est pas reportée
+   sur le message envoyé. L'écran le DIT : une moitié de fonction ANNONCÉE, jamais silencieuse. */
+
+/** La colonne qui garde l'héritage AVEC LE BROUILLON (migration 289). */
+export function brouillonHorsGestionDisponible(): Promise<boolean> {
+  return memoiser('brouillon.hors_gestion', () => colonneExiste('gestion_brouillon', 'hors_gestion'));
+}
+
+/** La colonne qui retient l'intention SUR L'ENVOI, le temps que la relève capture le message (migration 289). */
+export function envoiHorsGestionDisponible(): Promise<boolean> {
+  return memoiser('envoi.hors_gestion_demande', () => colonneExiste('gestion_envoi', 'hors_gestion_demande'));
+}
+
+/** ⚠️ LA MÊME, MAIS SUR LA FILE : un envoi différé ne doit pas perdre son classement en chemin (migration 289). */
+export function envoiHorsGestionFileDisponible(): Promise<boolean> {
+  return memoiser('envoi_file.hors_gestion_demande',
+    () => colonneExiste('gestion_envoi_file', 'hors_gestion_demande'));
+}
+
 /**
  * 🔴 LOT BANDEAU-ET-BROUILLONS — la migration 284 est-elle appliquée ? Elle porte « IGNORER » un échec d'envoi.
  */

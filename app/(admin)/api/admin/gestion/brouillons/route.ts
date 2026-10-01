@@ -189,6 +189,12 @@ export async function POST(request: Request): Promise<Response> {
        */
       cibles: ciblesRecues(corps.cibles),
       interne: corps.interne === true,
+      /**
+       * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ d'une conversation déjà marquée ainsi. Lu
+       * STRICTEMENT (`=== true`), comme « Interne » : une valeur floue venue du navigateur ne doit jamais
+       * classer un courrier. Sans la migration 289, le dépôt l'ignore sans rien casser.
+       */
+      horsGestion: corps.horsGestion === true,
     }, await auteurDeLaRequete(request));
 
     /**

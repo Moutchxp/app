@@ -112,6 +112,23 @@ export interface Brouillon {
    * peuvent pas être vraies en même temps, et l'écran ne permet pas de les poser ensemble.
    */
   interne?: boolean;
+  /**
+   * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION », HÉRITÉ ET JAMAIS CHOISI ICI ══════════════════════════
+   *
+   * Demande d'Arno : « si la conversation est déjà rattachée, interne ou hors gestion, la case est pré-remplie en
+   * vert dans le même état ». Des trois états, c'est le seul qui n'a pas de bouton dans la fenêtre de rédaction :
+   * on ne le POSE pas en écrivant, on en HÉRITE en répondant dans un fil déjà marqué ainsi.
+   *
+   * 🔴 POURQUOI IL DOIT EXISTER ICI MALGRÉ TOUT : sans lui, répondre dans une conversation « hors gestion »
+   * tomberait sous l'obligation de classer, et il faudrait reclasser à la main un courrier déjà classé — c'est-à-
+   * dire remplacer une file de mails à classer par une file de gestes à refaire.
+   *
+   * ⚠️ IL S'EXCLUT DES DEUX AUTRES, comme elles s'excluent entre elles : une seule case verte, jamais deux.
+   *
+   * ⚠️ SANS LA MIGRATION 289, il n'a nulle part où s'écrire : la case verte s'affiche et l'envoi est débloqué,
+   * mais le choix ne sera pas retrouvé à la réouverture du brouillon. L'écran le DIT.
+   */
+  horsGestion?: boolean;
 }
 
 /**

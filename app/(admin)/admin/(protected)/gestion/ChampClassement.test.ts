@@ -3,8 +3,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { ChampClassement } from './ChampClassement';
+import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
 import type { CibleBrouillon } from '../../../../lib/gestion/redaction';
+import {
+  ANIM_COURBE_ELASTIQUE, ANIM_EFFACER_MS, ANIM_ETENDRE_MS, ANIM_REBOND_MS, ANIM_TOTAL_MS,
+} from '../../../../lib/gestion/classementAvantEnvoi';
 
 /**
  * ══ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — LES TROIS ÉTATS DU BLOC « CLASSER CE MAIL » ═══════════════════════════════
@@ -34,18 +37,20 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); });
 const LOT = (cle: string, libelle: string): CibleBrouillon => ({ sorte: 'lot', cle, id: null, libelle });
 
 const monter = (o: {
-  cibles?: CibleBrouillon[]; interne?: boolean; sansDestinataire?: boolean;
-  interneDisponible?: boolean; persistant?: boolean;
+  cibles?: CibleBrouillon[]; interne?: boolean; horsGestion?: boolean; sansDestinataire?: boolean;
+  interneDisponible?: boolean; persistant?: boolean; persistantHorsGestion?: boolean;
 } = {}) => {
   act(() => {
     root.render(createElement(ChampClassement, {
       cibles: o.cibles ?? [],
       interne: o.interne === true,
+      horsGestion: o.horsGestion === true,
       onRattacher: o.sansDestinataire === true ? undefined : gestes.onRattacher,
       onInterne: gestes.onInterne,
       onReinitialiser: gestes.onReinitialiser,
       interneDisponible: o.interneDisponible !== false,
       persistant: o.persistant !== false,
+      persistantHorsGestion: o.persistantHorsGestion !== false,
     } as never));
   });
 };
@@ -71,9 +76,17 @@ describe('🔴 ① rien n’est décidé : DEUX cases, moitié-moitié', () => {
     expect(gestes.onRattacher).toHaveBeenCalledTimes(1);
   });
 
-  it('🔴 le mail part « à classer » tant que rien n’est choisi, et le bloc le DIT', () => {
+  /**
+   * 🔴🔴 LOT CLASSER-AVANT-ENVOI — CE TEST A CHANGÉ DE PROMESSE, PARCE QUE LE COMPORTEMENT A CHANGÉ.
+   *
+   * IL DISAIT : « le mail part “à classer” tant que rien n'est choisi, et le bloc le DIT ». Ce n'est plus vrai :
+   * le mail NE PART PLUS (demande d'Arno : « Envoyer est inactif tant que le bloc n'est pas une case VERTE »).
+   * Garder l'ancienne phrase à l'écran aurait été la seule de ce bloc à annoncer quelque chose qui n'arrive pas.
+   */
+  it('🔴🔴 sans choix, le bloc dit que le mail NE PARTIRA PAS — et non plus qu’il partira « à classer »', () => {
     monter();
-    expect(container.textContent).toContain('à classer');
+    expect(container.textContent).toContain('ne part plus sans classement');
+    expect(container.textContent).not.toContain('partira « à classer »');
   });
 
   /** ⚠️ UN BOUTON INERTE DIT POURQUOI. Éteint sans motif, il se lit comme une panne. */
@@ -136,6 +149,139 @@ describe('🔴 ③ « Interne » : UNE case VERTE, et une animation', () => {
   it('🔴 jamais deux cases vertes, même si les deux états arrivaient ensemble', () => {
     monter({ interne: true, cibles: [LOT('421', 'A')] });
     expect(container.querySelectorAll('.ccl-case--verte')).toHaveLength(1);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — ④ « HORS GESTION », HÉRITÉ ET JAMAIS CHOISI ICI ════════════════════════════
+ *
+ * ARNO (01/10/2026) : « si la conversation est déjà rattachée, interne ou hors gestion, la case est pré-remplie
+ * en vert dans le même état (avec Réinitialiser) ».
+ */
+describe('🔴🔴 ④ « Hors gestion » : la troisième case verte, héritée', () => {
+  it('🔴 une seule case verte, et le MOT porte l’information', () => {
+    monter({ horsGestion: true });
+    const c = cases();
+    expect(c).toHaveLength(1);
+    expect(c[0].className).toContain('ccl-case--verte');
+    expect(c[0].textContent).toContain('Hors gestion');
+  });
+
+  /** 🔴 LA CASE DIT D'OÙ ELLE VIENT : personne n'a cliqué, et laisser croire le contraire serait un mensonge. */
+  it('🔴 elle annonce qu’elle est REPRISE de la conversation', () => {
+    monter({ horsGestion: true });
+    expect(container.textContent).toContain('Repris de la conversation');
+  });
+
+  /** 🔴 IL N'Y A PAS DE QUATRIÈME BOUTON : on ne propose jamais de POSER cet état depuis la rédaction. */
+  it('🔴🔴 aucun bouton « Hors gestion » à l’état initial', () => {
+    monter();
+    expect(container.textContent).not.toContain('Hors gestion');
+    expect(cases()).toHaveLength(2);
+  });
+
+  it('🔴 « Réinitialiser » est là, comme pour les deux autres', () => {
+    monter({ horsGestion: true });
+    expect(boutonPar(/^Réinitialiser$/)).toBeDefined();
+  });
+
+  /** 🔴 L'ORDRE DE PRIORITÉ : un bien rattaché l'emporte — il n'y a jamais deux cases vertes. */
+  it('🔴 un bien rattaché l’emporte sur l’héritage « hors gestion »', () => {
+    monter({ horsGestion: true, cibles: [LOT('421', 'A')] });
+    expect(container.querySelectorAll('.ccl-case--verte')).toHaveLength(1);
+    expect(cases()[0].textContent).toContain('Rattaché');
+  });
+
+  it('🔴 sans la migration 289, le bloc prévient — et SEULEMENT quand l’héritage sert', () => {
+    monter({ horsGestion: true, persistantHorsGestion: false });
+    expect(container.textContent).toContain('migration 289');
+    monter({ interne: true, persistantHorsGestion: false });
+    expect(container.textContent).not.toContain('migration 289');
+  });
+});
+
+/**
+ * ══ 🔴🔴 L'ANIMATION « D — ÉLASTIQUE », VALIDÉE PAR ARNO — ÉPROUVÉE SUR LE VRAI COMPOSANT ═════════════════════
+ *
+ * « Clic sur “Interne” : la case blanche s'étend vers la GAUCHE […]. “Valider” dans la modale : la case rouge
+ * s'étend vers la DROITE […]. Le choix est enregistré au clic, sans attendre la fin de l'animation.
+ * “Réinitialiser” : retour instantané aux deux boutons. »
+ *
+ * ⚠️ ON ÉPROUVE LE PASSAGE D'UN ÉTAT À L'AUTRE, pas un montage : c'est tout l'objet de cette animation, et c'est
+ * aussi la seule façon de prouver qu'une fenêtre qui s'OUVRE déjà classée n'anime rien.
+ */
+describe('🔴🔴 l’animation « D — Élastique », dans les deux sens', () => {
+  it('🔴 « Interne » : la case s’étend vers la GAUCHE, depuis le blanc', () => {
+    monter();
+    monter({ interne: true });
+    const verte = container.querySelector('.ccl-case--verte') as HTMLElement;
+    expect(verte.className).toContain('ccl-case--elastique');
+    expect(verte.className).toContain('ccl-case--vers-gauche');
+    expect(verte.className).toContain('ccl-depuis-blanc');
+  });
+
+  it('🔴 « Rattaché » : la case s’étend vers la DROITE, depuis le rouge', () => {
+    monter();
+    monter({ cibles: [LOT('421', 'A')] });
+    const verte = container.querySelector('.ccl-case--verte') as HTMLElement;
+    expect(verte.className).toContain('ccl-case--vers-droite');
+    expect(verte.className).toContain('ccl-depuis-rouge');
+  });
+
+  /** 🔴 « L'AUTRE CASE S'EFFACE » : encore faut-il qu'elle soit là pour s'effacer. */
+  it('🔴 l’autre case reste le temps de s’effacer, à sa place, et muette', () => {
+    monter();
+    monter({ interne: true });
+    const f = container.querySelector('.ccl-fantome') as HTMLElement;
+    expect(f).not.toBeNull();
+    // « Interne » était à DROITE : c'est donc « Rattacher », à GAUCHE, qui s'efface.
+    expect(f.className).toContain('ccl-fantome--gauche');
+    expect(f.textContent).toContain('Rattacher');
+    expect(f.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('🔴 et dans l’autre sens, c’est « Interne », à droite, qui s’efface', () => {
+    monter();
+    monter({ cibles: [LOT('421', 'A')] });
+    const f = container.querySelector('.ccl-fantome') as HTMLElement;
+    expect(f.className).toContain('ccl-fantome--droite');
+    expect(f.textContent).toContain('Interne');
+  });
+
+  /**
+   * 🔴🔴 UNE FENÊTRE QUI S'OUVRE DÉJÀ CLASSÉE N'ANIME RIEN. C'est le cas d'une réponse dans une conversation
+   * rattachée : sans cette règle, chaque ouverture aurait déclenché un mouvement que personne n'a demandé.
+   */
+  it('🔴🔴 un montage DIRECT en vert n’anime pas', () => {
+    monter({ cibles: [LOT('421', 'A')] });
+    expect(container.querySelector('.ccl-case--elastique')).toBeNull();
+    expect(container.querySelector('.ccl-fantome')).toBeNull();
+  });
+
+  it('⚠️ changer les biens d’une case DÉJÀ verte n’anime pas non plus', () => {
+    monter({ cibles: [LOT('421', 'A')] });
+    monter({ cibles: [LOT('421', 'A'), LOT('12', 'B')] });
+    expect(container.querySelector('.ccl-case--elastique')).toBeNull();
+  });
+
+  /** 🔴 « Réinitialiser » : retour INSTANTANÉ aux deux boutons. */
+  it('🔴 le retour à zéro n’anime rien, et rend les deux cases', () => {
+    monter();
+    monter({ interne: true });
+    monter({ interne: false });
+    expect(cases()).toHaveLength(2);
+    expect(container.querySelector('.ccl-case--elastique')).toBeNull();
+    expect(container.querySelector('.ccl-fantome')).toBeNull();
+  });
+
+  /** ⚠️ ET L'ANIMATION SE TERMINE : passé le total annoncé, il ne reste ni classe ni fantôme. */
+  it('⚠️ après 560 ms, plus aucune trace de l’animation', async () => {
+    monter();
+    monter({ interne: true });
+    expect(container.querySelector('.ccl-case--elastique')).not.toBeNull();
+    await act(async () => { await new Promise((r) => { setTimeout(r, ANIM_TOTAL_MS + 40); }); });
+    expect(container.querySelector('.ccl-case--elastique')).toBeNull();
+    expect(container.querySelector('.ccl-fantome')).toBeNull();
   });
 });
 
@@ -203,6 +349,33 @@ describe('garanties d’écran (statiques)', () => {
     expect(src).toContain('prefers-reduced-motion');
     const bloc = src.slice(src.indexOf('prefers-reduced-motion'));
     expect(bloc).toContain('animation:none');
+    // 🔴 ET L'ÉTAT FINAL EST LÀ DIRECTEMENT : le fantôme ne s'efface pas, il n'apparaît pas.
+    expect(bloc).toContain('.ccl-fantome{display:none}');
+  });
+
+  /**
+   * 🔴🔴 LES DURÉES D'ARNO SONT DANS LA FEUILLE DE STYLE, et elles y viennent du module PUR. Deux chiffres
+   * écrits séparément (le délai du composant, la durée du CSS) finissent par diverger d'une dizaine de
+   * millisecondes, et la case reste figée dans son état d'arrivée — un défaut qu'on ne voit qu'une fois sur dix.
+   */
+  it('🔴🔴 300 / 180 / 260 ms et le léger dépassement arrivent bien dans le CSS', () => {
+    expect(CSS_CHAMP_CLASSEMENT).toContain(`animation-duration:${ANIM_ETENDRE_MS}ms, ${ANIM_REBOND_MS}ms`);
+    expect(CSS_CHAMP_CLASSEMENT).toContain(`animation-delay:0ms, ${ANIM_ETENDRE_MS}ms`);
+    expect(CSS_CHAMP_CLASSEMENT).toContain(`ccl-effacer ${ANIM_EFFACER_MS}ms ease-out forwards`);
+    expect(CSS_CHAMP_CLASSEMENT).toContain(ANIM_COURBE_ELASTIQUE);
+    // Le rebond demande : 1 -> 1.04 -> 0.986 -> 1.
+    expect(CSS_CHAMP_CLASSEMENT).toContain('scale(1.04)');
+    expect(CSS_CHAMP_CLASSEMENT).toContain('scale(.986)');
+    // Et aucune durée ecrite a la main : le total vient de la somme des deux.
+    expect(ANIM_ETENDRE_MS + ANIM_REBOND_MS).toBe(ANIM_TOTAL_MS);
+  });
+
+  /** 🔴 LES DEUX SENS SONT DANS LA FEUILLE, et ils ne partent pas de la même couleur. */
+  it('🔴 un jeu d’images-clés par sens : depuis le blanc, depuis le rouge', () => {
+    expect(src).toContain('@keyframes ccl-elastique-blanc');
+    expect(src).toContain('@keyframes ccl-elastique-rouge');
+    expect(src).toContain('.ccl-case--vers-gauche{transform-origin:right center}');
+    expect(src).toContain('.ccl-case--vers-droite{transform-origin:left center}');
   });
 
   /** La règle de coupe vient du module PUR : l'écran place et peint, il ne décide pas. */

@@ -34,6 +34,8 @@ import {
   type PieceAEnvoyer, type ResultatEnvoi,
 } from './envoiGmail';
 import { pretAEnvoyer } from './redaction';
+// 🔴 LOT CLASSER-AVANT-ENVOI — le garde « ce mail est-il classé ? », MODULE PUR partagé avec l'écran et la route.
+import { refusSiNonClasse } from './classementAvantEnvoi';
 // LOT ETOILE-ET-SIGNATURE — reconnaître NOS adresses d'images de signature dans le corps, et les remplacer par des `cid:`.
 import { corpsPourEnvoi, rangSignature, type ImageSignature } from './signatureImages';
 import { adressesDesImages } from './imagesMail';
@@ -81,6 +83,14 @@ export interface DemandeEnvoi {
    * après l'envoi, et la relève pose la marque sur l'échange dès qu'il existe. Absent ⇒ rien, comme avant ce lot.
    */
   interne?: boolean;
+  /**
+   * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION », HÉRITÉ d'une conversation déjà marquée ainsi. Comme
+   * « Interne » ci-dessus : l'intention est retenue après l'envoi, et la relève pose la marque sur le message
+   * dès qu'elle l'a capturé. Absent ⇒ rien.
+   *
+   * 🔴 IL COMPTE AUSSI POUR LE GARDE (étape ②bis) : c'est l'un des trois états qui font qu'un mail EST classé.
+   */
+  horsGestion?: boolean;
 }
 
 export interface DepsEnvoiComplet {
@@ -157,6 +167,17 @@ export interface DepsEnvoiComplet {
    * et l'écran dit de marquer la conversation depuis « Classer ».
    */
   marquerInterne?(o: { envoiId: number; auteur: Auteur }): Promise<void>;
+  /**
+   * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ, retenu sur l'envoi.
+   *
+   * ⚠️ MÊME CONTRAINTE, MÊME REMÈDE que `marquerInterne` — à une différence près : « hors gestion » porte sur un
+   * MESSAGE (migration 266), pas sur l'échange. Le message envoyé n'existe pas encore en base au moment où l'on
+   * envoie : c'est la relève qui le capturera. On retient donc l'intention, et le rattrapage la pose ensuite.
+   *
+   * ⚠️ AU MIEUX-EFFORT, APRÈS LE MESSAGE PARTI : rien ici ne peut rendre un échec. Absente ⇒ rien n'est retenu,
+   * et le mail restera « à classer » dans le fil — ce qui se répare d'un geste, contrairement à un mail renvoyé.
+   */
+  marquerHorsGestion?(o: { envoiId: number; auteur: Auteur }): Promise<void>;
   /** Le journal MÉTIER : qui, à qui, quand, quel objet — et SUR QUOI la ligne se range (`envoiId`). */
   journaliser(l: {
     auteur: Auteur; objet: string; destinataires: string[]; issue: 'envoye' | 'echec'; envoiId: number;
@@ -176,6 +197,8 @@ export interface DepsEnvoiComplet {
 export type EtapeApresEnvoi = 'finaliser' | 'brouillon' | 'journal' | 'classement'
   // 🔴 LOT RATTACHER-EN-ECRIVANT — la demande « Interne » pour un message neuf : même filet que le classement.
   | 'interne'
+  // 🔴 LOT CLASSER-AVANT-ENVOI — « hors gestion » hérité d'une conversation déjà marquée ainsi : même filet.
+  | 'hors_gestion'
   // ⚠️ `signature` N'EST PAS UNE ÉTAPE D'APRÈS-ENVOI : elle vient AVANT. Elle est dans cette liste parce qu'elle
   //    emprunte le même filet (`incident`) — signaler sans jamais faire échouer — et qu'un second mécanisme pour
   //    dire la même chose serait un second endroit où regarder.
@@ -198,6 +221,25 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
   // ② LE BROUILLON EST-IL ENVOYABLE ? L'écran l'a déjà vérifié ; ici c'est l'autorité, pas une politesse.
   const pret = pretAEnvoyer(d);
   if (!pret.pret) return { ok: false, code: 'invalide', motif: pret.motif };
+
+  /**
+   * ══ 🔴🔴 ②bis LOT CLASSER-AVANT-ENVOI — LE MAIL EST-IL CLASSÉ ? ═══════════════════════════════════════════
+   *
+   * Demande d'Arno : « Ctrl/Cmd+Entrée et l'envoi programmé respectent la même règle, et LE SERVEUR LA VÉRIFIE
+   * AUSSI (refus avec motif). »
+   *
+   * 🔴 ICI, ET PAS SEULEMENT À L'ÉCRAN. Le bouton grisé évite une erreur ; cette ligne-ci est la seule qu'un
+   * navigateur ne puisse pas contourner — un onglet resté ouvert avant ce lot, une requête rejouée, un script.
+   * C'est le même raisonnement que l'étape ② juste au-dessus, et il vaut exactement autant.
+   *
+   * 🔴 ET AVANT TOUTE ÉCRITURE : le refus est rendu avant d'ouvrir la ligne d'envoi (④), donc rien n'est écrit
+   * pour un message qui ne partira pas. Piège du dépôt : `withTransaction` commite au retour normal.
+   *
+   * ⚠️ `code: 'invalide'`, comme le refus d'un brouillon incomplet : du point de vue de l'appelant, c'est la
+   * même nature de refus — quelque chose manque, et c'est dit en toutes lettres.
+   */
+  const nonClasse = refusSiNonClasse(d);
+  if (nonClasse !== null) return { ok: false, code: 'invalide', motif: nonClasse };
 
   // ③ LA CONNEXION GOOGLE. Sans elle on ne prétend rien : on le DIT, et le brouillon reste où il est.
   const jeton = await deps.jetonAcces();
@@ -319,6 +361,16 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
     await auMieux('interne', () => (deps.marquerInterne as NonNullable<DepsEnvoiComplet['marquerInterne']>)({
       envoiId: envoi.id, auteur,
     }));
+  }
+  /**
+   * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ, retenu de la même façon et pour la même raison. Le
+   * message envoyé n'existe pas encore en base : la relève le capturera, et le rattrapage posera la marque.
+   */
+  if (deps.marquerHorsGestion && d.horsGestion === true) {
+    await auMieux('hors_gestion',
+      () => (deps.marquerHorsGestion as NonNullable<DepsEnvoiComplet['marquerHorsGestion']>)({
+        envoiId: envoi.id, auteur,
+      }));
   }
   return { ok: true, envoi: { ...envoi, etat: 'envoye' }, deja: false };
 }

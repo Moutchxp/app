@@ -28,6 +28,18 @@ const DEMANDE: DemandeEnvoi = {
   cleIdempotence: 'cle-essai-123456', brouillonId: 12, filId: 101, repondAMessageId: 900,
   a: ['martin@orange.fr'], cc: ['syndic@immo.fr'], cci: ['archive@criterimmo.fr'],
   objet: 'Re: Fuite salle de bain', corps: 'Bonjour,\nNous intervenons demain.',
+  /**
+   * 🔴🔴 LOT CLASSER-AVANT-ENVOI — CE BROUILLON EST CLASSÉ, ET IL DOIT L'ÊTRE POUR PARTIR.
+   *
+   * Depuis ce lot, `envoyerMessage` REFUSE un mail sans classement (étape ②bis) : « le serveur la vérifie
+   * aussi ». Le brouillon d'épreuve porte donc « Interne » — le classement le plus neutre, celui qui n'ajoute
+   * aucun rattachement et n'appelle aucune dépendance de plus (`marquerInterne` n'est pas fournie par le monde
+   * simulé). Toutes les épreuves qui suivent portent sur l'ENVOI, pas sur le classement : elles doivent franchir
+   * ce garde-là sans que rien d'autre ne change.
+   *
+   * ⚠️ LE GARDE A SES PROPRES ÉPREUVES, plus bas : on ne le vérifie pas par effet de bord sur ce décor.
+   */
+  interne: true,
 };
 
 const LIGNE: EnvoiEnBase = {
@@ -161,6 +173,116 @@ describe('SANS CONNEXION GOOGLE, et sur un brouillon incomplet', () => {
     const r = await envoyerMessage({ ...DEMANDE, a: [], cc: [], cci: [] }, AUTEUR, deps);
     expect(r).toMatchObject({ ok: false, code: 'invalide' });
     expect(trace.ordre).toEqual(['droit']);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — LE GARDE SERVEUR : UN MAIL NON CLASSÉ NE PART PAS ══════════════════════════
+ *
+ * ARNO (01/10/2026) : « Ctrl/Cmd+Entrée et l'envoi programmé respectent la même règle, et LE SERVEUR LA VÉRIFIE
+ * AUSSI (refus avec motif). »
+ *
+ * 🔴 POURQUOI UN GARDE SERVEUR ALORS QUE LE BOUTON EST GRISÉ. Un bouton désactivé évite une erreur ; il ne
+ * protège de rien. Un onglet resté ouvert depuis avant ce lot, une requête rejouée par le navigateur, un script :
+ * tous passent à côté de l'écran. C'est exactement le raisonnement de l'étape ② (`pretAEnvoyer`), et il vaut
+ * autant ici.
+ */
+describe('🔴🔴 UN MAIL NON CLASSÉ NE PART PAS, ET LE SERVEUR LE DIT', () => {
+  const nu = { ...DEMANDE, interne: undefined };
+
+  it('🔴🔴 ni bien, ni « interne », ni « hors gestion » : REFUSÉ, avec le motif d’Arno', async () => {
+    const { deps } = monde();
+    const r = await envoyerMessage(nu, AUTEUR, deps);
+    expect(r).toMatchObject({
+      ok: false, code: 'invalide',
+      motif: 'Classez ce mail avant de l’envoyer : Rattacher ou Interne.',
+    });
+  });
+
+  /**
+   * 🔴🔴 ET AVANT TOUTE ÉCRITURE. Le refus tombe après la relecture du droit et avant d'ouvrir la ligne d'envoi :
+   * rien n'est écrit pour un message qui ne partira pas, et Google n'est pas réveillé pour rien.
+   */
+  it('🔴🔴 refusé AVANT la ligne d’envoi et AVANT Google', async () => {
+    const { deps, trace } = monde();
+    await envoyerMessage(nu, AUTEUR, deps);
+    expect(trace.ordre).toEqual(['droit']);
+    expect(trace.ouvertures).toEqual([]);
+    expect(trace.envois).toEqual([]);
+  });
+
+  it('🔴 un BIEN coché suffit à le laisser partir', async () => {
+    const { deps, trace } = monde();
+    const r = await envoyerMessage({
+      ...nu, cibles: [{ sorte: 'lot', cle: '421', id: null, libelle: '28 av. Marceau — lot 421' }],
+    }, AUTEUR, deps);
+    expect(r.ok).toBe(true);
+    expect(trace.envois).toHaveLength(1);
+  });
+
+  it('🔴 « Interne » aussi', async () => {
+    const { deps } = monde();
+    expect((await envoyerMessage({ ...nu, interne: true }, AUTEUR, deps)).ok).toBe(true);
+  });
+
+  it('🔴 et « Hors gestion », hérité d’une conversation déjà marquée', async () => {
+    const { deps } = monde();
+    expect((await envoyerMessage({ ...nu, horsGestion: true }, AUTEUR, deps)).ok).toBe(true);
+  });
+
+  /**
+   * 🔴 UN ÉVÉNEMENT N'EST PAS UN BIEN. La case verte dit « Rattaché » et liste des LOGEMENTS : une carte
+   * d'événement cochée ailleurs ne doit pas faire croire que le courrier est classé.
+   */
+  it('🔴 une cible « evenement » SEULE ne suffit pas', async () => {
+    const { deps } = monde();
+    const r = await envoyerMessage({
+      ...nu, cibles: [{ sorte: 'evenement', cle: null, id: 9, libelle: 'Visite' }],
+    }, AUTEUR, deps);
+    expect(r).toMatchObject({ ok: false, code: 'invalide' });
+  });
+
+  /**
+   * ⚠️ L'ORDRE DES DEUX GARDES : un brouillon à la fois vide ET non classé se voit reprocher d'abord ce qui se
+   * répare en premier — on n'envoie pas quelqu'un classer un message qu'il n'a pas encore écrit.
+   */
+  it('⚠️ un brouillon vide se voit d’abord reprocher d’être vide', async () => {
+    const { deps } = monde();
+    const r = await envoyerMessage({ ...nu, a: [], cc: [], cci: [] }, AUTEUR, deps);
+    expect(r.ok === false && r.motif).toContain('destinataire');
+  });
+});
+
+/**
+ * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION » HÉRITÉ, RETENU SUR L'ENVOI comme « Interne » l'est déjà.
+ *
+ * ⚠️ APRÈS LE MESSAGE PARTI, ET AU MIEUX-EFFORT : « hors gestion » porte sur un MESSAGE (migration 266), et le
+ * message envoyé n'existe pas encore en base — c'est la relève qui le capturera.
+ */
+describe('🔴 « Hors gestion » hérité : l’intention est retenue, jamais imposée', () => {
+  it('🔴 demandé ⇒ la dépendance est appelée avec l’envoi et son auteur', async () => {
+    const { deps } = monde();
+    const vus: unknown[] = [];
+    deps.marquerHorsGestion = async (o) => { vus.push(o); };
+    await envoyerMessage({ ...DEMANDE, interne: undefined, horsGestion: true }, AUTEUR, deps);
+    expect(vus).toEqual([{ envoiId: 55, auteur: AUTEUR }]);
+  });
+
+  it('⚠️ non demandé ⇒ rien n’est appelé', async () => {
+    const { deps } = monde();
+    const vus: unknown[] = [];
+    deps.marquerHorsGestion = async (o) => { vus.push(o); };
+    await envoyerMessage(DEMANDE, AUTEUR, deps);
+    expect(vus).toEqual([]);
+  });
+
+  /** ⚠️ ET ELLE NE PEUT PAS FAIRE ÉCHOUER UN ENVOI : le message est PARTI (règle du 24/09/2026). */
+  it('⚠️ si elle échoue, le message reste parti — et l’incident est signalé', async () => {
+    const { deps, trace } = monde();
+    deps.marquerHorsGestion = async () => { throw new Error('migration 289 absente'); };
+    const r = await envoyerMessage({ ...DEMANDE, interne: undefined, horsGestion: true }, AUTEUR, deps);
+    expect(r.ok).toBe(true);
+    expect(trace.incidents.map((i) => i.etape)).toContain('hors_gestion');
   });
 });
 
