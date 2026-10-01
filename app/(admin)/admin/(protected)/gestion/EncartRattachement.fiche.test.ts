@@ -140,10 +140,41 @@ describe('🔴 la ligne des biens s’intitule « Bien(s) rattaché(s) : »', ()
     expect(rangee?.lastElementChild).toBe(ccl);
   });
 
-  it('🔴 RIEN N’EST RETIRÉ : le lien garde « Modifier » et « Retirer »', async () => {
+  /**
+   * ══ 🔴🔴 LOT BLOC-CLASSER-COMPACT — « Modifier » ET « Retirer » ONT ÉTÉ RETIRÉS (accord explicite d'Arno) ══
+   *
+   * CE TEST DISAIT : « RIEN N'EST RETIRÉ : le lien garde “Modifier” et “Retirer” ». Ce n'est plus vrai, et
+   * c'est voulu : « Ces actions passent par la case verte » (Arno). Changer de bien, c'est décocher l'un et
+   * cocher l'autre dans la modale ; retirer, c'est décocher — et « Valider — aucun bien » retire tout.
+   *
+   * 🔴 CE QUI RESTE SUR LA LIGNE : l'adresse (qui ouvre l'historique d'un clic) et « automatique » s'il y a
+   * lieu. C'est exactement ce qu'Arno décrit, et rien de plus.
+   */
+  it('🔴🔴 la ligne ne porte plus « Modifier » ni « Retirer »', async () => {
     await monter([lien()]);
-    expect(boutonPar(/^Modifier$/)).toBeDefined();
-    expect(boutonPar(/^Retirer$/)).toBeDefined();
+    expect(boutonPar(/^Modifier$/)).toBeUndefined();
+    expect(boutonPar(/^Retirer$/)).toBeUndefined();
+  });
+
+  /** 🔴 LE LIBELLÉ « LOGEMENT » A DISPARU AUSSI : l'adresse suit DIRECTEMENT le titre de la ligne. */
+  it('🔴 « BIEN(S) RATTACHÉ(S) : » est suivi DIRECTEMENT de l’adresse', async () => {
+    await monter([lien()]);
+    const texte = (ligneBiens()?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(texte).not.toContain('LOGEMENT');
+    expect(texte).not.toContain('Logement');
+    // ⚠️ `textContent` NE REND PAS L'ESPACE que la mise en page pose entre deux éléments souples : on
+    //   vérifie donc l'ENCHAÎNEMENT, qui est ce qu'Arno demande (« suivi DIRECTEMENT de l'adresse »).
+    expect(texte).toContain('Bien(s) rattaché(s) :22 Boulevard Richard Wallace');
+  });
+
+  /** ⚠️ « automatique » NE S'ÉCRIT QUE S'IL Y A LIEU : un lien posé à la main n'a rien à signaler. */
+  it('⚠️ « automatique » n’apparaît que pour un lien du moteur', async () => {
+    await monter([{ ...lien(), parUnHumain: true }]);
+    expect(ligneBiens()?.textContent).not.toContain('automatique');
+    await monter([{ ...lien(), parUnHumain: false }]);
+    expect(ligneBiens()?.textContent).toContain('automatique');
+    // …et « à la main » ne s'écrit plus du tout : c'est le cas normal.
+    expect(ligneBiens()?.textContent).not.toContain('à la main');
   });
 });
 
@@ -250,6 +281,84 @@ describe('🔴🔴 la MODALE « Rattacher ce mail à… », la même qu’à la 
 });
 
 /**
+ * ══ 🔴🔴 LOT BLOC-CLASSER-COMPACT — « TOUT TIENT SUR 2 LIGNES » ═══════════════════════════════════════════════
+ *
+ * ARNO : « Ligne 1 : ÉVÉNEMENT RATTACHÉ… (inchangée). Ligne 2 : BIEN(S) RATTACHÉ(S) : … Le module de droite est
+ * centré verticalement sur la hauteur des DEUX lignes. Le texte de gauche prend la place restante (min-width: 0)
+ * et ne passe jamais sous le module. »
+ *
+ * ⚠️ CE QUI SE VÉRIFIE ICI EST LA STRUCTURE, pas les pixels : jsdom ne met rien en page. La structure est
+ * pourtant ce qui DÉCIDE de la mise en page — un module frère de la ligne 2 ne peut pas se centrer sur deux
+ * lignes, quelle que soit la feuille de style.
+ */
+describe('🔴🔴 le bloc tient sur deux lignes, le module à droite des deux', () => {
+  it('🔴🔴 la rangée n’a que DEUX enfants : la colonne de gauche, et le module', async () => {
+    await monter([lien()]);
+    const rangee = container.querySelector('.ert-rangee') as HTMLElement;
+    expect(rangee.children).toHaveLength(2);
+    expect(rangee.children[0].className).toContain('ert-colonne');
+    expect(rangee.children[1].className).toContain('ccl');
+  });
+
+  it('🔴 la colonne porte les DEUX lignes : l’événement, puis les biens', async () => {
+    await monter([lien()]);
+    const colonne = container.querySelector('.ert-colonne') as HTMLElement;
+    expect(colonne.querySelector('.bev-tete')).not.toBeNull();
+    expect(colonne.querySelector('.ert-tete--biens')).not.toBeNull();
+    // …et le module n'est PAS dedans : il est à côté, donc à droite des deux.
+    expect(colonne.querySelector('.ccl')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LES TROIS RÈGLES QUI EMPÊCHENT L'ADRESSE DE POUSSER LE MODULE, et il faut les trois : ne pas
+   * s'enrouler, pouvoir rétrécir, et ne laisser se comprimer QUE l'adresse.
+   */
+  it('🔴🔴 la ligne 2 ne s’enroule pas, peut rétrécir, et seule l’adresse se coupe', async () => {
+    const { CSS_ENCART_RATTACHEMENT: css } = await import('./EncartRattachement');
+    expect(css).toContain('.ert-tete--biens{flex-wrap:nowrap;min-width:0;overflow:hidden}');
+    expect(css).toContain('.ert-tete--biens>*{flex:0 0 auto}');
+    expect(css).toContain('.ert-premier>.ert-lien--coupe{flex:0 1 auto;min-width:0}');
+    expect(css).toContain('text-overflow:ellipsis');
+    // 🔴 LA COLONNE PEUT RÉTRÉCIR : sans `min-width:0`, le texte imposerait sa largeur naturelle.
+    expect(css).toContain('.ert-colonne{display:flex;flex-direction:column;gap:6px;flex:1 1 auto;min-width:0}');
+  });
+
+  /** 🔴 UNE MARGE INTÉRIEURE ÉGALE, ET LE MODULE QUI NE TOUCHE PAS LE BORD (10 à 12 px, demande d'Arno). */
+  it('🔴 la capsule garde 10 px en haut, en bas et sur les côtés', async () => {
+    const { CSS_ENCART_RATTACHEMENT: css } = await import('./EncartRattachement');
+    expect(css).toContain('padding:10px;');
+    // L'interligne entre les deux lignes est RÉGULIER, et le même que celui de la colonne.
+    expect(css).toContain('gap:6px');
+  });
+
+  /** 🔴 À LARGEUR RÉDUITE, le module passe SOUS les deux lignes, en pleine largeur. */
+  it('🔴 sous 560 px, la rangée s’empile', async () => {
+    const { CSS_ENCART_RATTACHEMENT: css } = await import('./EncartRattachement');
+    const bloc = css.slice(css.indexOf('@media (max-width:560px)'));
+    expect(bloc).toContain('flex-direction:column');
+    expect(bloc).toContain('align-items:stretch');
+    // 🔴 EN PLEINE LARGEUR, et pas seulement « a la ligne » : c'est le mot d'Arno.
+    expect(bloc).toContain('.ert-rangee>.ccl--compact{width:100%}');
+    // ⚠️ ET AUCUN ENTRE-DEUX : sans `nowrap`, le module decrocherait en gardant sa largeur, colle a gauche.
+    expect(css).toContain('.ert-rangee{display:flex;flex-wrap:nowrap;');
+  });
+
+  /**
+   * 🔴🔴 MÊME LARGEUR DANS LES DEUX ÉTATS, « pour qu'il n'y ait pas de saut à l'animation » : la largeur est
+   * portée par le CONTENEUR, jamais par son contenu.
+   */
+  it('🔴🔴 le module a la même largeur à deux boutons et en case verte', async () => {
+    const { CSS_CHAMP_CLASSEMENT: css } = await import('./ChampClassement');
+    expect(css).toContain('.ccl--compact{gap:3px;width:clamp(210px, 30%, 320px);flex:0 0 auto;');
+    // …et sa hauteur suit le bloc : les cases remplissent ce que le conteneur leur donne.
+    expect(css).toContain('.ccl--compact .ccl-case{min-height:38px;height:100%');
+    // ⚠️ …MAIS BORNÉE : déplié, le bloc triple de hauteur et la case verte deviendrait un pavé.
+    expect(css).toContain('flex:1 1 auto;max-height:72px');
+    expect(container.querySelector('.ccl-refaire')).toBeNull();
+  });
+});
+
+/**
  * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA LIGNE « BIEN(S) RATTACHÉ(S) : » ET SON « voir plus » ════════════════
  *
  * ARNO (point 3) : « Affiche l'adresse complète du PREMIER bien (adresse — type — lot N). S'il y a plusieurs
@@ -296,11 +405,28 @@ describe('🔴🔴 la ligne montre le PREMIER bien, et se déplie', () => {
     expect(boutonPar(/^voir plus$/)).toBeDefined();
   });
 
-  /** 🔴 « Modifier » et « Retirer » RESTENT sur la ligne de gauche (Arno : « pour l'instant »). */
-  it('🔴 « Modifier » et « Retirer » restent sur la ligne repliée', async () => {
+  /**
+   * 🔴 LE DÉPLIAGE VIT SOUS LA LIGNE 2, DANS LA COLONNE DE GAUCHE — jamais dans la rangée de la ligne 2, qui
+   * ne s'enroule pas. Sans cela, déplier pousserait le module de droite hors du bloc.
+   */
+  it('🔴 le dépliage est SOUS la ligne 2, et ne touche pas au module', async () => {
     await monter([COURT, AUTRE]);
-    expect(boutonPar(/^Modifier$/)).toBeDefined();
-    expect(boutonPar(/^Retirer$/)).toBeDefined();
+    await cliquer(boutonPar(/^voir plus/));
+    const colonne = container.querySelector('.ert-colonne');
+    const deplie = container.querySelector('.ert-deplie');
+    expect(deplie).not.toBeNull();
+    expect(colonne?.contains(deplie as Node)).toBe(true);
+    // Le module est le FRÈRE de la colonne, pas son contenu : il reste à droite, intouché.
+    expect(colonne?.querySelector('.ccl')).toBeNull();
+    expect(container.querySelector('.ert-rangee > .ccl')).not.toBeNull();
+  });
+
+  /** 🔴 ET LE DÉPLIAGE NON PLUS NE PORTE « Modifier » / « Retirer » : une seule logique, repliée ou dépliée. */
+  it('🔴 déplié, les lignes ne portent pas plus de gestes que repliées', async () => {
+    await monter([COURT, AUTRE]);
+    await cliquer(boutonPar(/^voir plus/));
+    expect(boutonPar(/^Modifier$/)).toBeUndefined();
+    expect(boutonPar(/^Retirer$/)).toBeUndefined();
   });
 });
 
@@ -527,11 +653,11 @@ describe('🔴 B1 — lier, créer, délier', () => {
 });
 
 describe('🔴 B3 — rien n’est perdu', () => {
-  it('les biens déjà classés restent visibles, avec Modifier et Retirer', async () => {
+  it('les biens déjà classés restent visibles — et leurs gestes sont dans la case verte', async () => {
     await monter([lien()]);
     expect(ligneBiens()?.textContent).toContain('22 Boulevard Richard Wallace');
-    expect(boutonPar(/^Modifier$/)).toBeDefined();
-    expect(boutonPar(/^Retirer$/)).toBeDefined();
+    // Le geste n'a pas disparu, il a UNE porte : la case verte ouvre la modale (modifier, décocher, valider).
+    expect(container.querySelector('.ccl-case--verte')).not.toBeNull();
   });
 
   it('la recherche manuelle d’un bien reste accessible — par la case verte', async () => {

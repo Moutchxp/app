@@ -205,9 +205,10 @@ describe('🔴🔴 ④ « Hors gestion » : la troisième case verte, héritée'
     expect(cases()).toHaveLength(2);
   });
 
-  it('🔴 « Réinitialiser » est là, comme pour les deux autres', () => {
+  it('🔴 un clic la défait, comme les deux autres', () => {
     monter({ horsGestion: true });
-    expect(boutonPar(/^Réinitialiser$/)).toBeDefined();
+    act(() => { (cases()[0] as HTMLButtonElement).click(); });
+    expect(gestes.onReinitialiser).toHaveBeenCalledTimes(1);
   });
 
   /** 🔴 L'ORDRE DE PRIORITÉ : un bien rattaché l'emporte — il n'y a jamais deux cases vertes. */
@@ -342,11 +343,20 @@ describe('🔴🔴 la case verte « Interne » / « Hors gestion » se défait d
     expect(gestes.onReinitialiser).not.toHaveBeenCalled();
   });
 
-  /** ⚠️ ET « Réinitialiser » RESTE (Arno le demande) : la case est le geste évident, le lien le geste nommé. */
-  it('⚠️ le lien « Réinitialiser » est toujours là, sous les trois cases vertes', () => {
-    for (const o of [{ interne: true }, { horsGestion: true }, { cibles: [LOT('421', 'A')] }]) {
+  /**
+   * ══ 🔴🔴 LOT BLOC-CLASSER-COMPACT — LE LIEN « RÉINITIALISER » A ÉTÉ RETIRÉ (accord explicite d'Arno) ══════
+   *
+   * CE TEST DISAIT : « le lien “Réinitialiser” est toujours là, sous les trois cases vertes ». Il ne l'est
+   * plus : il faisait DOUBLON avec la case, devenue cliquable, et coûtait une ligne sous CHAQUE mail.
+   *
+   * 🔴 LE GESTE N'EST PAS PERDU — il a UNE porte au lieu de deux : la case verte elle-même. C'est exactement
+   * ce que les épreuves ci-dessus vérifient, état par état.
+   */
+  it('🔴🔴 le lien « Réinitialiser » n’existe plus nulle part', () => {
+    for (const o of [{ interne: true }, { horsGestion: true }, { cibles: [LOT('421', 'A')] }, {}]) {
       monter(o);
-      expect(boutonPar(/^Réinitialiser$/), JSON.stringify(o)).toBeDefined();
+      expect(boutonPar(/^Réinitialiser$/), JSON.stringify(o)).toBeUndefined();
+      expect(container.querySelector('.ccl-refaire'), JSON.stringify(o)).toBeNull();
     }
   });
 });
@@ -386,20 +396,17 @@ describe('🔴🔴 la version COMPACTE, pour le bloc gris d’un mail', () => {
   });
 });
 
-describe('🔴 « Réinitialiser » revient à l’état initial', () => {
-  it('🔴 il est là dès qu’une décision est prise, et pas avant', () => {
-    monter();
-    expect(boutonPar(/^Réinitialiser$/)).toBeUndefined();
-    monter({ interne: true });
-    expect(boutonPar(/^Réinitialiser$/)).toBeDefined();
+describe('🔴 revenir à l’état initial', () => {
+  /**
+   * 🔴 LOT BLOC-CLASSER-COMPACT — LE RETOUR PASSE PAR LA CASE, ET PAR ELLE SEULE. « Interne » et « Hors
+   * gestion » se défont d'un clic ; « Rattaché » ouvre la modale, où « Valider — aucun bien » fait le retour.
+   * Deux portes pour un même geste finissent par ne plus faire la même chose.
+   */
+  it('🔴 « Rattaché » ne se défait PAS d’un clic : il ouvre la modale', () => {
     monter({ cibles: [LOT('421', 'A')] });
-    expect(boutonPar(/^Réinitialiser$/)).toBeDefined();
-  });
-
-  it('🔴 le clic demande la remise à zéro', () => {
-    monter({ cibles: [LOT('421', 'A')] });
-    act(() => { boutonPar(/^Réinitialiser$/)?.click(); });
-    expect(gestes.onReinitialiser).toHaveBeenCalledTimes(1);
+    act(() => { (cases()[0] as HTMLButtonElement).click(); });
+    expect(gestes.onRattacher).toHaveBeenCalledTimes(1);
+    expect(gestes.onReinitialiser).not.toHaveBeenCalled();
   });
 
   it('🔴 remis à zéro, on retrouve EXACTEMENT les deux cases du départ', () => {

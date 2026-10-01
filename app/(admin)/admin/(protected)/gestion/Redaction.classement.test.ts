@@ -172,14 +172,27 @@ describe('🔴🔴 ② « ENVOYER » EST INACTIF TANT QUE LE MAIL N’EST PAS CL
     expect(container.querySelector('.red-non-classe')).toBeNull();
   });
 
-  /** 🔴 ET « RÉINITIALISER » LE REBLOQUE : l'état revient aux deux boutons, l'obligation avec lui. */
-  it('🔴 « Réinitialiser » rebloque l’envoi', async () => {
-    await monter({ ...NEUF, cibles: [LOT_421] });
-    const refaire = [...container.querySelectorAll('button')]
-      .find((b) => (b.textContent ?? '').trim() === 'Réinitialiser') as HTMLButtonElement;
-    await act(async () => { refaire.click(); });
+  /**
+   * 🔴 ET DÉFAIRE LE CLASSEMENT REBLOQUE L'ENVOI : l'état revient aux deux boutons, l'obligation avec lui.
+   *
+   * ⚠️ LE LIEN « Réinitialiser » A DISPARU au lot BLOC-CLASSER-COMPACT (accord d'Arno) : il faisait doublon
+   * avec la case verte, devenue cliquable. On éprouve donc le geste qui reste — et c'est le même chemin, la
+   * propriété `onReinitialiser`, que la case appelle.
+   */
+  it('🔴 défaire le classement rebloque l’envoi', async () => {
+    await monter({ ...NEUF, interne: true });
+    expect(boutonEnvoyer().disabled).toBe(false);
+    await act(async () => { (caseDe(/Interne/) as HTMLButtonElement).click(); });
     await calmer();
     expect(boutonEnvoyer().disabled).toBe(true);
+    expect(container.querySelector('.red-non-classe')?.textContent).toBe(MOTIF_NON_CLASSE);
+  });
+
+  /** 🔴🔴 ET IL N'Y A PLUS DE LIEN « Réinitialiser » : une seule porte pour défaire, la case elle-même. */
+  it('🔴🔴 le lien « Réinitialiser » a disparu de la fenêtre de rédaction', async () => {
+    await monter({ ...NEUF, cibles: [LOT_421] });
+    expect([...container.querySelectorAll('button')]
+      .some((b) => (b.textContent ?? '').trim() === 'Réinitialiser')).toBe(false);
   });
 
   /**
@@ -233,12 +246,10 @@ describe('🔴🔴 ③ une réponse dans un fil déjà classé part sans rien re
     expect(container.querySelector('.red-non-classe')?.textContent).toBe(MOTIF_NON_CLASSE);
   });
 
-  /** 🔴 « avec Réinitialiser » : l'héritage se défait, comme un choix fait à la main. */
-  it('🔴 l’héritage « hors gestion » se défait avec « Réinitialiser »', async () => {
+  /** 🔴 L'héritage se défait comme un choix fait à la main : d'un clic sur la case verte. */
+  it('🔴 l’héritage « hors gestion » se défait d’un clic sur la case', async () => {
     await monter({ ...REPONSE, horsGestion: true });
-    const refaire = [...container.querySelectorAll('button')]
-      .find((b) => (b.textContent ?? '').trim() === 'Réinitialiser') as HTMLButtonElement;
-    await act(async () => { refaire.click(); });
+    await act(async () => { (caseDe(/Hors gestion/) as HTMLButtonElement).click(); });
     await calmer();
     expect(caseDe(/Hors gestion/)).toBeUndefined();
     expect([...container.querySelectorAll('.ccl-case')]).toHaveLength(2);

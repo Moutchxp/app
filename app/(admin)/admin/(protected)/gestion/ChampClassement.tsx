@@ -51,7 +51,7 @@ export function ChampClassement({
   interne: boolean;
   /**
    * 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION », HÉRITÉ de la conversation. Jamais posé depuis ce bloc : il n'a
-   * pas de bouton, seulement une case verte et « Réinitialiser » pour la défaire.
+   * pas de bouton, seulement une case verte — qu'un clic défait.
    */
   horsGestion?: boolean;
   /**
@@ -180,7 +180,7 @@ export function ChampClassement({
           <div className="ccl-anim">
             {etat === 'rattache' && (
               /* 🔴 CLIQUABLE : « Un clic sur la case verte rouvre la modale avec les choix en cours ». Les deux
-                 autres cases vertes n'ont rien à rouvrir — c'est « Réinitialiser » qui les défait. */
+                 autres cases vertes n'ont rien à rouvrir : un clic les DÉFAIT (voir plus bas). */
               <button type="button" className={`ccl-case ccl-case--verte ccl-case--pleine${classeAnimee}`}
                 onClick={onRattacher} disabled={onRattacher === undefined}
                 title="Revoir ou modifier les biens rattachés">
@@ -194,11 +194,9 @@ export function ChampClassement({
                 “À classer” tant qu'un nouveau choix n'est pas fait. »
 
                 🔴 ELLES ÉTAIENT DES PARAGRAPHES (`role="status"`), et c'était juste tant qu'elles ne faisaient
-                rien : seul « Réinitialiser » les défaisait. Elles deviennent des BOUTONS, qui appellent le
-                MÊME geste — un seul chemin pour défaire, jamais deux qui finiraient par diverger.
-
-                ⚠️ « Réinitialiser » RESTE (Arno le demande explicitement) : la case est le geste évident, le
-                lien est le geste nommé. Les deux font la même chose, et c'est voulu. */}
+                rien : seul un lien « Réinitialiser » les défaisait. Elles sont des BOUTONS, et depuis le lot
+                BLOC-CLASSER-COMPACT elles sont LE SEUL chemin — le lien a été retiré, avec l'accord d'Arno,
+                parce que deux portes pour un même geste finissent par ne plus faire la même chose. */}
             {etat === 'interne' && (
               <button type="button"
                 className={`ccl-case ccl-case--verte ccl-case--pleine${classeAnimee}`}
@@ -229,13 +227,16 @@ export function ChampClassement({
             )}
           </div>
 
-          {/* 🔴 « RÉINITIALISER », PETIT ET SOUS LA CASE (demande d'Arno). Il défait, il ne décide pas : le
-              mettre en avant inviterait à annuler plutôt qu'à classer. */}
-          <p className="ccl-refaire">
-            <button type="button" className="gst-lien-bouton" onClick={onReinitialiser}>
-              Réinitialiser
-            </button>
-          </p>
+          {/* ══ 🔴🔴 LOT BLOC-CLASSER-COMPACT — « RÉINITIALISER » A ÉTÉ RETIRÉ (accord explicite d'Arno) ══════
+              CE QU'IL Y AVAIT : un lien « Réinitialiser » sous la case verte, qui défaisait le classement.
+
+              🔴 POURQUOI IL PART : il faisait DOUBLON avec la case elle-même depuis que celle-ci est cliquable.
+              « Interne » et « Hors gestion » se défont d'un clic sur la case ; « Rattaché » ouvre la modale, où
+              l'on décoche et où « Valider — aucun bien » ramène les deux boutons. Deux chemins pour un même
+              geste finissent par ne plus faire la même chose — et celui-ci coûtait une ligne sous CHAQUE mail.
+
+              ⚠️ LE GESTE N'EST PAS PERDU, il a une seule porte : `onReinitialiser` est toujours là, appelé par
+              la case verte. C'est la propriété, pas le lien, qui portait la fonction. */}
         </>
       ) : (
         /* ══ ① — LES DEUX CASES, MOITIÉ-MOITIÉ, MÊME HAUTEUR ═════════════════════════════════════════════════ */
@@ -384,7 +385,6 @@ export const CSS_CHAMP_CLASSEMENT = `
   .ccl-case{transition:none}
 }
 
-.ccl-refaire{margin:0}
 
 /* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA VERSION COMPACTE, POUR LE BLOC GRIS D'UN MAIL ══════════════════════
    « Version compacte, a la hauteur du bloc » (Arno). Le bloc gris surplombe CHAQUE mail d'une conversation qui
@@ -396,14 +396,24 @@ export const CSS_CHAMP_CLASSEMENT = `
 
    ⚠️ LA CIBLE TACTILE RESTE ATTEIGNABLE : 44 px au doigt (pointer:coarse), 38 px a la souris. On gagne sur le
    vide, jamais sur la possibilite de cliquer. */
-.ccl--compact{gap:3px;width:clamp(210px, 32%, 330px);flex:0 0 auto}
-.ccl--compact .ccl-case{min-height:38px;padding:4px 8px;gap:0;border-radius:.5rem}
+/* 🔴🔴 LOT BLOC-CLASSER-COMPACT — MÊME LARGEUR DANS LES DEUX ÉTATS, et une hauteur qui suit le bloc.
+   « Même largeur pour l'état “deux boutons” et l'état “case verte”, pour qu'il n'y ait pas de saut a
+   l'animation » (Arno) : la largeur est portee par le CONTENEUR, jamais par son contenu — c'est ce qui garantit
+   qu'une case verte etroite et deux boutons larges occupent exactement la meme place.
+   « La hauteur des boutons s'adapte au bloc » : le conteneur s'etire (align-self:stretch, pose par la rangee)
+   et les cases remplissent ce qu'il leur donne. */
+.ccl--compact{gap:3px;width:clamp(210px, 30%, 320px);flex:0 0 auto;
+  display:flex;flex-direction:column;justify-content:center}
+/* ⚠️ LA HAUTEUR SUIT LE BLOC, MAIS ELLE EST BORNEE. Mesure a l'ecran : deplie, le bloc passe a 184 px et la
+   case verte devenait un pave de 160 px — « s'adapte au bloc » veut dire « epouse les DEUX lignes », pas
+   « grandit sans fin ». 72 px couvrent largement les deux lignes (70 px mesures) ; au-dela, le module reste
+   centre et garde sa taille. */
+.ccl--compact>.ccl-anim,.ccl--compact>.ccl-deux{flex:1 1 auto;max-height:72px}
+.ccl--compact .ccl-case{min-height:38px;height:100%;padding:4px 8px;gap:0;border-radius:.5rem}
 @media (pointer:coarse){.ccl--compact .ccl-case{min-height:44px}}
 .ccl--compact .ccl-case-mot{font-size:.82rem}
 .ccl--compact .ccl-case-detail{font-size:.7rem;-webkit-line-clamp:1}
 .ccl--compact .ccl-deux{gap:6px}
-.ccl--compact .ccl-refaire{text-align:right;font-size:.72rem}
-.ccl--compact .ccl-refaire .gst-lien-bouton{min-height:20px;padding:0}
 /* Sous 560 px, le bloc gris s'empile : la version compacte reprend toute la largeur plutot que de s'etrangler. */
 @media (max-width:560px){
   .ccl--compact{width:100%}

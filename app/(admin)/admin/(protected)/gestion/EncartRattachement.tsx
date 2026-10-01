@@ -241,6 +241,10 @@ export function EncartRattachement({
 
   /** Ce que la ligne de gauche montre d'abord : le premier bien, en entier, et « voir plus » s'il faut. */
   const ligne = lignePremierBien(vivants.map((l) => l.libelle));
+  /** La mention des propositions, écrite une fois : elle sert de texte ET d'infobulle (elle peut se tronquer). */
+  const motPropositions = candidats.length === 1
+    ? 'Une proposition de l’automatisation à trancher.'
+    : `${candidats.length} propositions de l’automatisation à trancher.`;
 
   return (
     <div className="ert" role="group" aria-label="Rattachements de ce mail">
@@ -256,6 +260,15 @@ export function EncartRattachement({
           titre, la liste et le bouton d'ajout étaient trois blocs empilés, séparés par des marges : six lignes de
           hauteur pour une information qui en tient une. Ils sont maintenant dans le MÊME conteneur souple, qui ne
           passe à la ligne que si la largeur ne suffit pas. Rien n'est retiré — seuls les blancs le sont. */}
+      {/* ══ 🔴🔴 LOT BLOC-CLASSER-COMPACT — TOUT TIENT SUR DEUX LIGNES, LE MODULE À DROITE DES DEUX ═════════
+          Demande d'Arno : « Le module de droite est centré verticalement sur la hauteur des DEUX lignes. » Il
+          ne vivait qu'à côté de la ligne 2 : il se calait donc sur une seule, et la capsule gagnait une marche.
+          Les deux lignes entrent dans une COLONNE, et la rangée n'a plus que deux enfants — la colonne, et le
+          module. C'est aussi ce qui fait qu'à largeur réduite le module passe sous les DEUX lignes, en pleine
+          largeur, et non sous la seconde seulement. */}
+      <div className="ert-rangee">
+      <div className="ert-colonne">
+
       {/* ══ 🔴 LOT CONTACTS-ET-EVENEMENT — LE BLOC « ÉVÉNEMENT RATTACHÉ », EN TÊTE ════════════════════════════
           L'événement est FACULTATIF et ne change jamais la capsule de statut (qui dépend du bien) : « aucun » est
           une réponse normale. Lier, créer et délier sont ici, et leurs panneaux s'ouvrent JUSTE SOUS la ligne. */}
@@ -273,8 +286,7 @@ export function EncartRattachement({
           Demande d'Arno : le module de classement va « à l'extrémité DROITE » du bloc, « à la hauteur du bloc ».
           La ligne de gauche garde ce qu'elle disait — titre, biens, « Modifier », « Retirer », propositions —
           et gagne l'adresse COMPLÈTE du premier bien avec son « voir plus ». */}
-      <div className="ert-rangee">
-      <div className="ert-tete">
+      <div className="ert-tete ert-tete--biens">
         <span className="ert-titre">Bien(s) rattaché(s) :</span>
         {vivants.length === 0 && <span className="ert-vide">rien pour l’instant</span>}
 
@@ -287,9 +299,22 @@ export function EncartRattachement({
           et le reste se déplie — rien n'est caché, tout est à un clic.
 
           ⚠️ LA DÉCISION « voir plus » VIENT DU MODULE PUR (`lignePremierBien`) : l'écran place et peint. */}
+      {/* ══ 🔴🔴 LOT BLOC-CLASSER-COMPACT — LA LIGNE 2, ET RIEN QUE LA LIGNE 2 ═══════════════════════════════
+          Demande d'Arno, mot pour mot : « “BIEN(S) RATTACHÉ(S) :” suivi DIRECTEMENT de l'adresse du premier
+          bien, puis “automatique” en gris s'il y a lieu, puis “voir plus” quand il y a plusieurs biens ou que
+          l'adresse est tronquée. »
+
+          CE QUI A ÉTÉ RETIRÉ, AVEC SON ACCORD EXPLICITE :
+            · le libellé « LOGEMENT » devant l'adresse — l'adresse dit déjà ce qu'elle désigne, et le titre de
+              la ligne dit « bien » ; trois mots pour la même information sur une ligne qui doit en tenir une ;
+            · les liens « Modifier » et « Retirer » — ils passent désormais par la case verte, qui ouvre la
+              modale (modifier, décocher, « Valider — aucun bien » pour tout retirer). Deux portes pour le même
+              geste finissent par ne plus faire la même chose.
+
+          ⚠️ RIEN N'EST DEVENU INACCESSIBLE : changer de bien, c'est décocher l'un et cocher l'autre dans la
+          modale ; retirer, c'est décocher. Et l'HISTORIQUE reste à un clic sur l'adresse elle-même. */}
       {vivants.length > 0 && !deplie && (
         <span className="ert-premier">
-          <span className="ert-sorte">{motSorte(vivants[0].cible.sorte)}</span>
           {onHistorique
             ? (
               <button type="button" className="ert-lien ert-lien--coupe"
@@ -298,62 +323,16 @@ export function EncartRattachement({
                 {ligne.premier}
               </button>
             )
-            : <span className="ert-nom ert-lien--coupe">{ligne.premier}</span>}
-          <span className="ert-source">{vivants[0].parUnHumain ? 'à la main' : 'automatique'}</span>
-          <button type="button" className="gst-lien-bouton" disabled={occupe}
-            onClick={() => setModifie(vivants[0])}>
-            Modifier
-          </button>
-          <button type="button" className="gst-lien-bouton" disabled={occupe}
-            onClick={() => void changer(vivants[0], 'retire', `Rattachement retiré : ${vivants[0].libelle}`)}>
-            Retirer
-          </button>
+            : <span className="ert-nom ert-lien--coupe" title={ligne.premier}>{ligne.premier}</span>}
+          {/* « automatique » EN GRIS S'IL Y A LIEU : quand c'est une personne qui a posé le lien, il n'y a rien
+              à signaler — c'est le cas normal, et l'écrire ferait du bruit sur chaque mail classé à la main. */}
+          {!vivants[0].parUnHumain && <span className="ert-source">automatique</span>}
           {ligne.voirPlus && (
             <button type="button" className="gst-lien-bouton ert-voir" onClick={() => setDeplie(true)}>
               {ligne.total > 1 ? `voir plus (${ligne.total})` : 'voir plus'}
             </button>
           )}
         </span>
-      )}
-
-      {/* ══ DÉPLIÉ : « l'adresse complète du premier bien puis tous les autres, une ligne chacun » (Arno) ════ */}
-      {vivants.length > 0 && deplie && (
-        <ul className="ert-liste">
-          {vivants.map((l) => (
-            <li key={l.id} className="ert-ligne">
-              <span className="ert-sorte">{motSorte(l.cible.sorte)}</span>
-              {/* LOT RATTACHEMENT-2 — L'ÉTIQUETTE EST LE POINT D'ENTRÉE de l'historique : un clic, et l'on voit tout
-                  ce qui s'est dit à propos de ce logement. C'est le chemin le plus court depuis un mail qu'on lit. */}
-              {onHistorique
-                ? (
-                  <button type="button" className="ert-lien" onClick={() => onHistorique(l.cible)}
-                    title={`Tout l’historique — ${l.libelle}`}>
-                    {l.libelle}
-                  </button>
-                )
-                : <span className="ert-nom">{l.libelle}</span>}
-              {/* D'OÙ VIENT LE LIEN, écrit : le moteur peut se tromper, une personne engage sa décision. */}
-              <span className="ert-source">{l.parUnHumain ? 'à la main' : 'automatique'}</span>
-              {l.pieceId !== null && <span className="ert-source">cette pièce seulement</span>}
-              {/* LOT FIL-LECTURE-2 — « Modifier » AVANT « Retirer », et de la même couleur : ce sont les deux
-                  gestes qui touchent ce lien, et changer de cible est presque toujours ce qu'on veut faire quand
-                  on est tenté de retirer. La fenêtre ne modifie rien tant qu'on n'a pas validé. */}
-              <button type="button" className="gst-lien-bouton" disabled={occupe}
-                onClick={() => setModifie(l)}>
-                Modifier
-              </button>
-              <button type="button" className="gst-lien-bouton" disabled={occupe}
-                onClick={() => void changer(l, 'retire', `Rattachement retiré : ${l.libelle}`)}>
-                Retirer
-              </button>
-            </li>
-          ))}
-          <li className="ert-ligne">
-            <button type="button" className="gst-lien-bouton ert-voir" onClick={() => setDeplie(false)}>
-              voir moins
-            </button>
-          </li>
-        </ul>
       )}
 
       {/* ⚠️ LE LIEN ROUGE « Rattacher à un bien » A ÉTÉ SUPPRIMÉ (demande d'Arno) : les deux cases, à droite,
@@ -378,12 +357,42 @@ export function EncartRattachement({
       {!ajout && candidats.length > 0 && (
         <>
           <span className="ert-separateur" aria-hidden="true">·</span>
-          <span className="ert-motif ert-propositions">
-            {candidats.length === 1
-              ? 'Une proposition de l’automatisation à trancher.'
-              : `${candidats.length} propositions de l’automatisation à trancher.`}
-          </span>
+          {/* 🔴 LOT BLOC-CLASSER-COMPACT — L'INFOBULLE PORTE LE TEXTE ENTIER : la mention se tronque quand la
+              place manque (le bloc doit tenir sur deux lignes), et ce qui est coupé reste atteignable. */}
+          <span className="ert-motif ert-propositions" title={motPropositions}>{motPropositions}</span>
         </>
+      )}
+      </div>
+
+      {/* ══ DÉPLIÉ : « l'adresse complète du premier bien puis tous les autres, une ligne chacun » (Arno) ════ */}
+      {/* ⚠️ DÉPLIÉ, LA MÊME FORME QUE LA LIGNE 2, répétée : l'adresse, et « automatique » s'il y a lieu. Garder
+          « Modifier » et « Retirer » ici seulement aurait rendu le geste dépendant d'un repli — on l'aurait
+          cherché sans le trouver huit fois sur dix. */}
+      {vivants.length > 0 && deplie && (
+        <ul className="ert-liste ert-deplie">
+          {vivants.map((l) => (
+            <li key={l.id} className="ert-ligne">
+              {/* LOT RATTACHEMENT-2 — L'ÉTIQUETTE EST LE POINT D'ENTRÉE de l'historique : un clic, et l'on voit tout
+                  ce qui s'est dit à propos de ce logement. C'est le chemin le plus court depuis un mail qu'on lit. */}
+              {onHistorique
+                ? (
+                  <button type="button" className="ert-lien" onClick={() => onHistorique(l.cible)}
+                    title={`Tout l’historique — ${l.libelle}`}>
+                    {l.libelle}
+                  </button>
+                )
+                : <span className="ert-nom">{l.libelle}</span>}
+              {/* D'OÙ VIENT LE LIEN, écrit quand il vient du moteur : une personne, elle, engage sa décision. */}
+              {!l.parUnHumain && <span className="ert-source">automatique</span>}
+              {l.pieceId !== null && <span className="ert-source">cette pièce seulement</span>}
+            </li>
+          ))}
+          <li className="ert-ligne">
+            <button type="button" className="gst-lien-bouton ert-voir" onClick={() => setDeplie(false)}>
+              voir moins
+            </button>
+          </li>
+        </ul>
       )}
       </div>
 
@@ -585,11 +594,36 @@ export const CSS_ENCART_RATTACHEMENT = `
    du bloc »). L'espace entre blocs empilés passe de .2rem à .1rem, la marge extérieure de .5rem à .3rem et le
    rembourrage haut/bas de 6 px à 4 px. Les tailles de texte ne bougent pas : on gagne sur le vide, jamais sur la
    lisibilité — c'est la règle déjà écrite au-dessus, et ce lot ne fait que la pousser d'un cran. */
-.ert{display:flex;flex-direction:column;gap:.1rem;margin:.3rem 0;padding:4px 10px;border-radius:10px;
+/* 🔴🔴 LOT BLOC-CLASSER-COMPACT — UNE MARGE INTERIEURE EGALE, ET LE MODULE QUI NE TOUCHE JAMAIS LE BORD.
+   « marge interieure egale en haut, en bas et a droite, environ 10 a 12 px. Il ne touche JAMAIS le bord de la
+   capsule grise » (Arno). Le rembourrage etait de 4 px en haut et en bas : le module arrivait a 4 px du bord,
+   et la capsule paraissait trop serree autour de lui. 10 px partout, et un interligne REGULIER entre les deux
+   lignes (6 px) — ni tasse, ni ecarte.
+   ⚠️ 10 px SUR LES QUATRE COTES, et non 10/12 : mesure a l'ecran, 12 px a droite plus la bordure faisaient
+   13 px d'un cote contre 11 de l'autre. Arno demande une marge EGALE ; elle doit l'etre a la mesure. */
+.ert{display:flex;flex-direction:column;gap:6px;margin:.3rem 0;padding:10px;border-radius:10px;
   border:1px solid var(--color-svv-line);background:var(--color-svv-field);overflow-wrap:anywhere}
 /* La rangée unique : titre, liste et bouton d'ajout s'y suivent, et n'enroulent que si la largeur manque. */
 .ert-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem .5rem}
 .ert-tete>.ert-liste{flex:1 1 auto;min-width:0}
+
+/* ══ 🔴🔴 LA LIGNE 2 TIENT SUR UNE LIGNE, ET NE POUSSE JAMAIS LE MODULE ══════════════════════════════════════
+   « L'adresse longue se tronque avec “…” sur une ligne, sans jamais pousser le module de droite » (Arno).
+   TROIS CONDITIONS, et il faut les trois :
+     ① la rangee ne s'enroule PAS (nowrap) — sinon « voir plus » tombe a la ligne, et la ligne 2 en fait deux ;
+     ② elle peut RETRECIR (min-width:0) — sans quoi un flex refuse de passer sous la taille de son contenu, et
+       l'adresse pousserait le module hors du bloc au lieu de se couper ;
+     ③ seule l'ADRESSE se laisse comprimer (flex:0 1 auto) ; le titre, « automatique » et « voir plus » gardent
+       leur taille (flex:0 0 auto). Ce sont trois mots courts : les tronquer ne ferait gagner que du sens. */
+.ert-tete--biens{flex-wrap:nowrap;min-width:0;overflow:hidden}
+.ert-tete--biens>*{flex:0 0 auto}
+.ert-tete--biens>.ert-premier{flex:1 1 auto;min-width:0}
+/* 🔴 LA MENTION DES PROPOSITIONS SE COMPRIME, ELLE AUSSI, et ne s'enroule jamais : mesure a l'ecran, elle
+   passait sur DEUX lignes et le bloc en faisait trois. Elle se tronque donc en dernier recours — l'adresse
+   garde la priorite parce qu'elle est plus longue et absorbe davantage de compression —, et son infobulle
+   porte le texte entier. */
+.ert-tete--biens>.ert-propositions{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
 .ert-titre{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:var(--color-svv-muted)}
 .ert-vide{font-size:.8rem;font-style:italic;color:var(--color-svv-muted)}
 .ert-sous-titre{margin:.3rem 0 0;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;
@@ -624,19 +658,37 @@ export const CSS_ENCART_RATTACHEMENT = `
    c'est ce que veut dire « a la hauteur du bloc » quand la gauche passe sur deux lignes.
    ⚠️ Sous 560 px, les deux colonnes s'empilent : deux cases de 38 px cote a cote avec une adresse complete
    deviennent illisibles sur un telephone. */
-.ert-rangee{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem .8rem;min-width:0}
-.ert-rangee>.ert-tete{flex:1 1 320px;min-width:0}
+/* ══ 🔴🔴 DEUX COLONNES : LES DEUX LIGNES A GAUCHE, LE MODULE A DROITE DES DEUX ══════════════════════════════
+   « Le module de droite est centre verticalement sur la hauteur des DEUX lignes » (Arno) : il est donc le frere
+   de la COLONNE, pas de la ligne 2. align-items:stretch lui donne toute la hauteur, et c'est lui qui centre
+   son contenu (voir .ccl--compact) — ce qui laisse aussi ses cases s'etirer avec le bloc.
+   ⚠️ min-width:0 SUR LA COLONNE : sans lui, le texte de gauche imposerait sa largeur naturelle et pousserait
+   le module. C'est la regle la plus souvent oubliee des mises en page flex, et c'est exactement le defaut
+   qu'Arno decrit. */
+/* ⚠️ « nowrap » ET NON « wrap », ET C'EST LA CLE DE LA DEMANDE. Avec « wrap », le module passait a la ligne des que
+   la place manquait — mais en gardant SA largeur, donc colle a gauche sous le texte : ni une colonne, ni une
+   pleine largeur, juste un decrochage. Il n'y a desormais que DEUX etats, et aucun entre-deux : cote a cote
+   (le texte se comprime et l'adresse se tronque), ou empile en PLEINE largeur sous les deux lignes. */
+.ert-rangee{display:flex;flex-wrap:nowrap;align-items:stretch;gap:.5rem .8rem;min-width:0}
+.ert-colonne{display:flex;flex-direction:column;gap:6px;flex:1 1 auto;min-width:0}
+/* A largeur reduite, le module passe SOUS les deux lignes, en PLEINE largeur (demande d'Arno). */
 @media (max-width:560px){
   .ert-rangee{flex-direction:column;align-items:stretch}
+  .ert-rangee>.ccl--compact{width:100%}
 }
 
-/* ══ LA LIGNE REPLIEE : le PREMIER bien, en entier, et « voir plus » au bout ═════════════════════════════════
+/* ══ LA LIGNE REPLIEE : le PREMIER bien, et « voir plus » au bout ════════════════════════════════════════════
    ⚠️ LE LIBELLE NE DEBORDE PAS, il se COUPE avec des points de suspension : une adresse complete peut faire
    80 caracteres, et la faire passer a la ligne repousserait le module de classement hors de la rangee. Le
    texte entier reste accessible — c'est tout l'objet de « voir plus », et l'infobulle le porte aussi. */
-.ert-premier{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;min-width:0;flex:1 1 auto}
-.ert-lien--coupe{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;min-width:0}
+.ert-premier{display:flex;flex-wrap:nowrap;align-items:baseline;gap:.4rem;min-width:0;overflow:hidden}
+.ert-premier>*{flex:0 0 auto}
+.ert-premier>.ert-lien--coupe{flex:0 1 auto;min-width:0}
+.ert-lien--coupe{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;min-width:0;
+  display:block}
 .ert-voir{font-weight:600;white-space:nowrap}
+/* Le depliage vit SOUS la ligne 2, dans la colonne : il ne doit ni la rallonger, ni pousser le module. */
+.ert-deplie{gap:2px}
 
 /* La portee, reprise au pied de la modale. Meme forme que celle du panneau qu'elle remplace. */
 .ert-portee{margin:0 0 .5rem;padding:6px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem;
