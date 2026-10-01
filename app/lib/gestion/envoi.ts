@@ -38,6 +38,8 @@ import { pretAEnvoyer } from './redaction';
 import { refusSiNonClasse } from './classementAvantEnvoi';
 // LOT ETOILE-ET-SIGNATURE — reconnaître NOS adresses d'images de signature dans le corps, et les remplacer par des `cid:`.
 import { corpsPourEnvoi, rangSignature, type ImageSignature } from './signatureImages';
+// 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 0) — les images du corps CITÉ partent avec leurs octets, elles aussi.
+import { citeesParmi, corpsCitePourEnvoi, type ImageCitee } from './imagesCitees';
 import { adressesDesImages } from './imagesMail';
 
 /** Ce que l'envoi a besoin de savoir du message auquel on répond, pour rester dans le bon fil. */
@@ -133,6 +135,22 @@ export interface DepsEnvoiComplet {
   imagesSignature?(o: { rangs: readonly number[]; domaine: string; alea: string }): Promise<{
     images: readonly ImageSignature[]; echecs: readonly number[];
   }>;
+  /**
+   * ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 0) — LES IMAGES DU CORPS CITÉ ═══════════════════════════════════
+   *
+   * DÉCISION D'ARNO (02/10/2026) : « Les images citées dans une réponse ou un transfert partent avec leurs octets
+   * intégrés (pièce en ligne cid:), jamais un lien vers nos routes internes. »
+   *
+   * 🔴 POURQUOI C'EST UNE SECONDE DÉPENDANCE ET NON LA PREMIÈRE. La signature est désignée par un RANG dans un
+   * document que nous écrivons ; une image citée est désignée par une de NOS ROUTES, qui sait d'où viennent ses
+   * octets — une pièce jointe, une image intégrée, une image distante. Deux questions différentes, deux lectures
+   * différentes ; les confondre obligerait l'une des deux à deviner.
+   *
+   * Injectée : `envoi.ts` ne lit aucune base. Absente ⇒ le corps part tel quel, comme avant ce lot.
+   */
+  imagesCitees?(o: { adresses: readonly string[]; domaine: string; alea: string }): Promise<{
+    images: readonly ImageCitee[]; echecs: readonly number[];
+  }>;
   /** ⑤ Remet le message à Gmail. */
   envoyer(o: { accessToken: string; rfc822: string; cci: readonly string[]; threadId: string | null }): Promise<ResultatEnvoi>;
   /** ⑥ Finalise la ligne. */
@@ -202,7 +220,11 @@ export type EtapeApresEnvoi = 'finaliser' | 'brouillon' | 'journal' | 'classemen
   // ⚠️ `signature` N'EST PAS UNE ÉTAPE D'APRÈS-ENVOI : elle vient AVANT. Elle est dans cette liste parce qu'elle
   //    emprunte le même filet (`incident`) — signaler sans jamais faire échouer — et qu'un second mécanisme pour
   //    dire la même chose serait un second endroit où regarder.
-  | 'signature';
+  | 'signature'
+  // ⚠️ `images_citees` NON PLUS n'est pas une étape d'après-envoi : elle vient avant, et emprunte le même filet,
+  //    pour la même raison que `signature` — un second mécanisme pour dire la même chose serait un second endroit
+  //    où regarder le jour où une image manque.
+  | 'images_citees';
 
 export type IssueEnvoi =
   | { ok: true; envoi: EnvoiEnBase; deja: boolean }
@@ -319,11 +341,45 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
     }
   }
 
+  /**
+   * ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 0) — LES IMAGES CITÉES, INCORPORÉES ELLES AUSSI ════════════════
+   *
+   * Même mécanique que la signature, juste après elle, et dans cet ordre : la signature a déjà remplacé SES
+   * adresses par des `cid:`, donc celles qui restent et qui sont NÔTRES sont bien celles du corps cité.
+   *
+   * 🔴 UN ÉCHEC N'EMPÊCHE PAS L'ENVOI, comme pour la signature : la balise est retirée et le message part sans
+   * cette image. Une photo manquante se remarque moins qu'un carré barré, et beaucoup moins qu'un envoi refusé.
+   */
+  let imagesDuCorps: readonly ImageCitee[] = [];
+  const adressesCitees = corpsHtml === null ? [] : adressesDesImages(corpsHtml);
+  if (deps.imagesCitees && corpsHtml !== null && citeesParmi(adressesCitees).length > 0) {
+    try {
+      const r = await deps.imagesCitees({
+        adresses: adressesCitees, domaine: domaineDe(de.adresse), alea: deps.alea(),
+      });
+      const remis = corpsCitePourEnvoi(corpsHtml, r.images);
+      corpsHtml = remis.html;
+      imagesDuCorps = r.images;
+      if (remis.manquantes.length > 0 || r.echecs.length > 0) {
+        deps.incident('images_citees', new Error(
+          `image(s) citée(s) non rapportée(s) : indice ${[...new Set([...remis.manquantes, ...r.echecs])].join(', ')} `
+          + '— le message part sans elles, jamais avec une image cassée'));
+      }
+    } catch (e) {
+      deps.incident('images_citees', e);
+      corpsHtml = corpsCitePourEnvoi(corpsHtml, []).html;
+      imagesDuCorps = [];
+    }
+  }
+
   // ⑤ GMAIL.
   const rfc822 = construireRfc822({
     de: de.adresse, deNom: de.nom, a: d.a, cc: d.cc, cci: d.cci,
     objet: d.objet, corps: d.corps, corpsHtml, messageId,
-    inReplyTo: ancrage.messageIdRfc, references, pieces, imagesIntegrees,
+    inReplyTo: ancrage.messageIdRfc, references, pieces,
+    // ⚠️ LES DEUX LISTES PARTENT ENSEMBLE dans le même `multipart/related`. Leurs `cid` ne peuvent pas se
+    //   heurter : la signature préfixe « sig », les images citées « cit » (voir `cidCite`).
+    imagesIntegrees: [...imagesIntegrees, ...imagesDuCorps],
   }, deps.alea());
   const issue = await deps.envoyer({ accessToken: jeton, rfc822, cci: d.cci, threadId: ancrage.threadId });
 

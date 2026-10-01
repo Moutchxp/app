@@ -15,6 +15,8 @@ import { finaliserEnvoi, marquerBrouillonEnvoye, ouvrirEnvoi } from './redaction
 import { journalEnvoiDisponible } from './schema';
 // LOT ETOILE-ET-SIGNATURE — la signature part avec son logo, incorporé au message (`cid:`), jamais par un lien.
 import { imagesSignaturePourEnvoi } from './signatureImagesReel';
+// 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 0) — les images du corps cité, incorporées comme celles de la signature.
+import { imagesCiteesPourEnvoi } from './imagesCiteesReel';
 
 /**
  * MODULE « GESTION » — LOT ENVOI-ARRIERE-PLAN : LE CÂBLAGE RÉEL D'UN ENVOI, EN UN SEUL ENDROIT.
@@ -92,6 +94,7 @@ export function depsEnvoiReel(c: CablageEnvoi): DepsEnvoiComplet {
      * avant — un double-clic ne doit pas re-télécharger ce qui est déjà parti.
      */
     imagesSignature: (o) => imagesSignaturePourEnvoi(o.rangs, o.domaine, o.alea),
+    imagesCitees: (o) => imagesCiteesPourEnvoi(o.adresses, o.domaine, o.alea),
     ancrage: c.ancrage,
     ouvrirEnvoi,
     envoyer: (o) => envoyerViaGmail(o, { fetch }),
