@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { memeCibleBrouillon, type CibleBrouillon } from '../../../../lib/gestion/redaction';
 import type { ContexteRedaction } from '../../../../lib/gestion/classementBien';
 // 🔴 LE MOTEUR DE RECHERCHE DE BIENS, TEL QU'IL EXISTE : mêmes groupes, mêmes raisons, même route.
 import { grouperResultats, messageAucunBien, motRaison } from '../../../../lib/gestion/rechercheBien';
 import { ligneCompacteDuBien } from '../../../../lib/gestion/classementBoutons';
+// 🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — la phrase d'Arno quand le moteur ne trouve rien. Module PUR.
+import { AUCUNE_PROPOSITION } from '../../../../lib/gestion/classementAvantEnvoi';
 // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la catégorie d'un lot, posée là où la nature est connue. Module PUR.
 import { categorieDuBien, type CategorieBien } from '../../../../lib/gestion/categorieBien';
 // 🔴 LOT MODALE-RATTACHER-PROPRE — le titre d'un bien (sans numéro de lot) et la pastille « i ».
@@ -185,6 +187,8 @@ export function RattacherEnEcrivant({
    * compacte, pour tenir dans une modale à côté des propositions.
    */
   const [saisie, setSaisie] = useState('');
+  /** 🔴 LE CHAMP DE RECHERCHE : quand il n'y a aucune proposition, c'est là que va le curseur (voir plus bas). */
+  const champRecherche = useRef<HTMLInputElement | null>(null);
   const [recherche, setRecherche] = useState<
     | { v: 'repos' }
     | { v: 'cherche' }
@@ -357,6 +361,28 @@ export function RattacherEnEcrivant({
     const v = clesVisibles();
     return v.length > 0 && v.every((c) => selection.has(c));
   })();
+
+  /**
+   * ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — « AUCUNE PROPOSITION » EST UN ÉTAT À PART ═══════════
+   *
+   * Rien à cocher, nulle part : ni proposition du moteur, ni bien déjà rattaché, ni résultat de recherche. C'est
+   * alors la PHRASE qui remplace le compteur, et le curseur part dans le champ de recherche — le seul geste qui
+   * reste à faire.
+   *
+   * ⚠️ IL SUFFIT D'UN RÉSULTAT DE RECHERCHE POUR EN SORTIR : les cases reviennent, et le compteur avec elles.
+   */
+  const aucuneProposition = clesVisibles().length === 0;
+
+  /**
+   * 🔴 LE CURSEUR VA DANS LE CHAMP DE RECHERCHE (demande d'Arno). Une seule fois, à l'ouverture : le remettre à
+   * chaque rendu arracherait le curseur des mains dès qu'on cliquerait ailleurs.
+   */
+  const dejaPlace = useRef(false);
+  useEffect(() => {
+    if (!aucuneProposition || dejaPlace.current || contexte === null || !contexte.disponible) return;
+    dejaPlace.current = true;
+    champRecherche.current?.focus();
+  }, [aucuneProposition, contexte]);
   const toutBasculer = () => setCoches((l) => {
     const v = new Set(l ?? []);
     const visibles = clesVisibles();
@@ -526,13 +552,23 @@ export function RattacherEnEcrivant({
                      cochant désormais aussi les résultats de recherche, on lisait « 3 bien(s) coché(s) sur
                      1 proposé(s) » — une phrase qui compte deux choses différentes de part et d'autre de
                      « sur ». Les deux nombres parlent maintenant du même ensemble : celui qu'on voit. */}
-              <p className="rec-compte" role="status">
-                {clesVisibles().length === 0
-                  ? 'Aucun bien ne se déduit de ces destinataires.'
-                  : `${selection.size} bien(s) coché(s) sur ${clesVisibles().length} affiché(s).`}
-              </p>
-              {/* 🔴 UN SEUL LIEN QUI BASCULE, et il porte sur les propositions ET sur les résultats affichés. */}
-              {clesVisibles().length > 0 && (
+              {/* ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — QUAND IL N'Y A RIEN, ON LE DIT ═══════
+                  DEMANDE D'ARNO (01/10/2026) : « Aucune proposition disponible pour ce mail. Utilise le moteur
+                  de recherche ci-dessous pour sélectionner le ou les biens en relation avec ce mail. »
+
+                  🔴 ET SURTOUT : PAS DE « 0 bien(s) coché(s) sur 0 affiché(s) ». Ce compteur-là ne comptait
+                  rien ; il donnait à une fenêtre vide l'air d'une fenêtre pleine, et laissait chercher des cases
+                  qui n'existaient pas. Une phrase qui dit QUOI FAIRE vaut mieux qu'un nombre qui dit zéro. */}
+              {aucuneProposition
+                ? <p className="rec-compte rec-aucune" role="status">{AUCUNE_PROPOSITION}</p>
+                : (
+                  <p className="rec-compte" role="status">
+                    {`${selection.size} bien(s) coché(s) sur ${clesVisibles().length} affiché(s).`}
+                  </p>
+                )}
+              {/* 🔴 UN SEUL LIEN QUI BASCULE, et il porte sur les propositions ET sur les résultats affichés.
+                  ⚠️ IL DISPARAÎT AVEC LES CASES : « tout sélectionner » sur rien ne veut rien dire. */}
+              {!aucuneProposition && (
                 <button type="button" className="gst-lien-bouton" onClick={toutBasculer}>
                   {toutesCochees ? 'Désélectionner tous les biens' : 'Sélectionner tous les biens'}
                 </button>
@@ -605,7 +641,8 @@ export function RattacherEnEcrivant({
               Adresse, n° de lot, nom (propriétaire ou locataire), téléphone ou e-mail — tous les mots, dans
               n’importe quel ordre
             </span>
-            <input className="rec-saisie" type="search" value={saisie} autoComplete="off" maxLength={120}
+            <input ref={champRecherche}
+              className="rec-saisie" type="search" value={saisie} autoComplete="off" maxLength={120}
               placeholder="ex. « 28 marceau », « 421 », « MARTY », « 06 03 05 07 03 »"
               onChange={(e) => setSaisie(e.target.value)} />
           </label>
@@ -768,6 +805,11 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
 .rec-barre{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.5rem;
   margin:0 0 .4rem}
 .rec-compte{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
+/* ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — LA PHRASE QUI REMPLACE LE COMPTEUR A ZERO ════════════════
+   Elle prend toute la largeur (le lien « Selectionner tous les biens » n'est plus la pour partager la ligne) et
+   se lit comme une consigne, pas comme une note de bas de page : meme taille que le reste de la carte, et la
+   couleur du texte ordinaire plutot que le gris des compteurs. */
+.rec-aucune{flex:1 1 100%;font-size:.84rem;line-height:1.45;color:var(--color-svv-ink)}
 .rec-biens{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;
   max-height:34vh;overflow-y:auto}
 .rec-bien{padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem}

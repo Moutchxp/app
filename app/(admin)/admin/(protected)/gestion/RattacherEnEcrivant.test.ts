@@ -4,6 +4,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { RattacherEnEcrivant } from './RattacherEnEcrivant';
 import type { CibleBrouillon } from '../../../../lib/gestion/redaction';
+// 🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — la phrase d'Arno, citée et non recopiée.
+import { AUCUNE_PROPOSITION } from '../../../../lib/gestion/classementAvantEnvoi';
 
 /**
  * ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — LA MODALE « RATTACHER CE MAIL À… » ════════════════════════════════════════
@@ -180,12 +182,37 @@ describe('🔴 ② « Tout sélectionner » est UN bouton qui bascule', () => {
     expect(container.querySelector('.rec-compte')?.textContent).toContain('3 bien(s) coché(s) sur 3');
   });
 
-  /** ⚠️ AUCUN BIEN À PROPOSER : pas de bouton « tout », et on le DIT plutôt que de laisser une liste muette. */
-  it('⚠️ aucun bien proposé : on le dit, et le bouton « tout » n’existe pas', async () => {
+  /**
+   * ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — QUAND IL N'Y A RIEN, ON DIT QUOI FAIRE ══════════════
+   *
+   * ARNO (01/10/2026), au mot près : « Aucune proposition disponible pour ce mail. Utilise le moteur de recherche
+   * ci-dessous pour sélectionner le ou les biens en relation avec ce mail. » La phrase remplace « 0 bien(s)
+   * coché(s) sur 0 affiché(s) » — un compteur qui ne comptait rien et donnait à une fenêtre vide l'air d'une
+   * fenêtre pleine.
+   */
+  it('🔴🔴 aucun bien proposé : la phrase d’Arno, et aucun compteur à zéro', async () => {
     contexte.biens = [];
     await monter();
-    expect(container.querySelector('.rec-compte')?.textContent).toContain('Aucun bien ne se déduit');
+    const dit = container.querySelector('.rec-compte')?.textContent ?? '';
+    expect(dit).toBe(AUCUNE_PROPOSITION);
+    expect(dit).not.toContain('0 bien(s)');
     expect(boutonPar(/Sélectionner tous les biens/)).toBeUndefined();
+    // …et aucune case à cocher dans la carte des propositions.
+    expect(container.querySelectorAll('.rec-biens input[type="checkbox"]')).toHaveLength(0);
+  });
+
+  /** 🔴 « Le curseur se place directement dans le champ du moteur de recherche » (Arno). */
+  it('🔴🔴 le curseur part dans le champ de recherche', async () => {
+    contexte.biens = [];
+    await monter();
+    expect(document.activeElement).toBe(container.querySelector('.rec-saisie'));
+  });
+
+  /** ⚠️ ET DÈS QU'IL Y A QUELQUE CHOSE À COCHER, le compteur et la bascule reviennent. */
+  it('⚠️ avec un bien proposé, le compteur et la bascule sont là', async () => {
+    await monter();
+    expect(container.querySelector('.rec-compte')?.textContent).toContain('bien(s) coché(s)');
+    expect(boutonPar(/les biens/)).toBeDefined();
   });
 });
 

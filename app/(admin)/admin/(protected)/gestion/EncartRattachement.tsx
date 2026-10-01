@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CSS_CHOISIR_CIBLE } from './ChoisirCible';
 import { ModifierRattachement } from './ModifierRattachement';
 // 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE MÊME MODULE QUE LA FENÊTRE DE RÉDACTION, à l'extrémité droite du bloc.
@@ -213,6 +213,34 @@ export function EncartRattachement({
     });
   };
 
+  /**
+   * ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — « VOIR PLUS » SE DÉCIDE SUR CE QUI EST AFFICHÉ ═══════
+   *
+   * Demande d'Arno : « le lien ne s'affiche que si la vue dépliée montre AU MOINS une information absente de la
+   * ligne de base ». Deux choses peuvent manquer à la ligne, et deux seulement :
+   *   ① le TITRE COUPÉ par le CSS — l'écran seul le sait : `scrollWidth > clientWidth` ;
+   *   ② les MENTIONS que seul le dépliage porte — aujourd'hui « cette pièce seulement ».
+   * (Le troisième cas, « il y a d'autres biens », est décidé par le module pur, qui compte.)
+   *
+   * ⚠️ CES TROIS LIGNES SONT AU-DESSUS DU `return null` QUI SUIT, ET CE N'EST PAS UN HASARD : un `useState` posé
+   * après une sortie anticipée n'est pas appelé à tous les rendus, et React s'arrête net (« Rendered fewer hooks
+   * than expected »). Mesuré ici même, sur 46 épreuves d'un coup.
+   */
+  const nomDuPremier = useRef<HTMLElement | null>(null);
+  const [titreCoupe, setTitreCoupe] = useState(false);
+  useEffect(() => {
+    const el = nomDuPremier.current;
+    if (el === null) { setTitreCoupe(false); return undefined; }
+    // ⚠️ UN PIXEL DE MARGE : un navigateur rend parfois `scrollWidth` supérieur d'un pixel sans rien couper.
+    const mesurer = (): void => setTitreCoupe(el.scrollWidth > el.clientWidth + 1);
+    mesurer();
+    // ⚠️ LA LARGEUR CHANGE AVEC LA FENÊTRE : sans cela, le lien ne reviendrait pas en réduisant l'écran.
+    if (typeof ResizeObserver !== 'function') return undefined;
+    const ro = new ResizeObserver(mesurer);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [liens, deplie]);
+
   if (liens === null) return null;
 
   /**
@@ -383,8 +411,21 @@ export function EncartRattachement({
     })) }),
   });
 
+  /**
+   * ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — « VOIR PLUS » SE DÉCIDE SUR CE QUI EST AFFICHÉ ═══════
+   *
+   * Demande d'Arno : « le lien ne s'affiche que si la vue dépliée montre AU MOINS une information absente de la
+   * ligne de base ». Deux choses peuvent manquer à la ligne, et deux seulement :
+   *   ① le TITRE COUPÉ par le CSS — c'est l'écran qui le sait, et lui seul : `scrollWidth > clientWidth` ;
+   *   ② les MENTIONS que seul le dépliage porte — aujourd'hui « cette pièce seulement ».
+   * (Le troisième cas, « il y a d'autres biens », est décidé par le module pur, qui compte.)
+   */
   /** Ce que la ligne de gauche montre d'abord : le premier bien, en entier, et « voir plus » s'il faut. */
-  const ligne = lignePremierBien(vivants.map(titreDe));
+  const ligne = lignePremierBien(vivants.map(titreDe), {
+    tronque: titreCoupe,
+    // ⚠️ SEULEMENT CELLES DU PREMIER : s'il y a d'autres biens, le lien s'affiche de toute façon.
+    enPlus: vivants.length === 1 && vivants[0].pieceId !== null ? ['cette pièce seulement'] : [],
+  });
   /** La mention des propositions, écrite une fois : elle sert de texte ET d'infobulle (elle peut se tronquer). */
   const motPropositions = candidats.length === 1
     ? 'Une proposition de l’automatisation à trancher.'
@@ -460,15 +501,23 @@ export function EncartRattachement({
           modale ; retirer, c'est décocher. Et l'HISTORIQUE reste à un clic sur l'adresse elle-même. */}
       {vivants.length > 0 && !deplie && (
         <span className="ert-premier">
+          {/* ⚠️ C'EST CET ÉLÉMENT QU'ON MESURE : celui qui porte la coupure CSS. Mesurer son parent dirait que
+              tout tient, puisque le parent, lui, s'adapte. */}
           {onHistorique
             ? (
               <button type="button" className="ert-lien ert-lien--coupe"
+                ref={(e) => { nomDuPremier.current = e; }}
                 onClick={() => onHistorique(vivants[0].cible)}
                 title={`Tout l’historique — ${ligne.premier}`}>
                 {ligne.premier}
               </button>
             )
-            : <span className="ert-nom ert-lien--coupe" title={ligne.premier}>{ligne.premier}</span>}
+            : (
+              <span className="ert-nom ert-lien--coupe" ref={(e) => { nomDuPremier.current = e; }}
+                title={ligne.premier}>
+                {ligne.premier}
+              </span>
+            )}
           {/* 🔴 LOT MODALE-RATTACHER-PROPRE — LA MÊME PASTILLE QUE DANS LA MODALE (demande d'Arno) : le numéro
               de lot a quitté le titre, il est dans cette fenêtre — avec tout le reste du descriptif. */}
           {vivants[0].cible.cle !== null && (

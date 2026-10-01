@@ -58,6 +58,16 @@ const monter = (o: {
 };
 
 const cases = () => [...container.querySelectorAll('.ccl-case')];
+/**
+ * ⚠️ REPARTIR D'UN COMPOSANT NEUF. Depuis le lot AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE, un composant qui VIT
+ * garde la mémoire de son état précédent et joue la transition. Quand une épreuve veut éprouver un ÉTAT et non
+ * un MOUVEMENT, elle repart de zéro — comme à l'ouverture d'une fenêtre.
+ */
+const remonter = (): void => {
+  act(() => { root.unmount(); });
+  container.remove();
+  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+};
 const boutonPar = (re: RegExp) => [...container.querySelectorAll('button')]
   .find((b) => re.test((b.textContent ?? '').trim())) as HTMLButtonElement | undefined;
 
@@ -290,14 +300,91 @@ describe('🔴🔴 l’animation « D — Élastique », dans les deux sens', ()
     expect(container.querySelector('.ccl-case--elastique')).toBeNull();
   });
 
-  /** 🔴 « Réinitialiser » : retour INSTANTANÉ aux deux boutons. */
-  it('🔴 le retour à zéro n’anime rien, et rend les deux cases', () => {
+  /**
+   * ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — LE RETOUR S'ANIME, LUI AUSSI ════════════════════════
+   *
+   * CE TEST DISAIT LE CONTRAIRE (« le retour à zéro n'anime rien »), et il avait raison tant que l'animation
+   * n'existait que dans un sens. Arno demande désormais le mouvement MIROIR : « le gros bouton vert se scinde en
+   * Rattacher (rouge) et Interne (blanc) ». Ce qui reste vrai, et qui comptait dans l'ancien test : les deux
+   * boutons sont là TOUT DE SUITE, cliquables — l'animation n'attend rien et ne retarde rien.
+   */
+  it('🔴🔴 le retour à zéro SCINDE la case verte, et rend les deux boutons tout de suite', () => {
     monter();
     monter({ interne: true });
     monter({ interne: false });
-    expect(cases()).toHaveLength(2);
+    // Les deux vrais boutons sont là (le fantôme vert, lui, n'est pas un bouton).
+    expect(container.querySelectorAll('button.ccl-case')).toHaveLength(2);
     expect(container.querySelector('.ccl-case--elastique')).toBeNull();
-    expect(container.querySelector('.ccl-fantome')).toBeNull();
+    // …et la case verte se rétracte vers SA moitié : « Interne » vers la droite, et redevient blanche.
+    const f = container.querySelector('.ccl-scinde') as HTMLElement;
+    expect(f.className).toContain('ccl-scinde--droite');
+    expect(f.textContent).toContain('Interne');
+    expect(f.querySelector('.ccl-retracte')?.className).toContain('ccl-vers-blanc');
+  });
+
+  /** 🔴 « Rattaché » tient la moitié GAUCHE : il se rétracte vers le bouton rouge. */
+  it('🔴🔴 …et « Rattaché » se rétracte vers la gauche, en redevenant rouge', () => {
+    monter();
+    monter({ cibles: [LOT('421', 'A')] });
+    monter({ cibles: [] });
+    const f = container.querySelector('.ccl-scinde') as HTMLElement;
+    expect(f.className).toContain('ccl-scinde--gauche');
+    expect(f.textContent).toContain('Rattaché');
+    expect(f.querySelector('.ccl-retracte')?.className).toContain('ccl-vers-rouge');
+  });
+
+  /** 🔴 « L'AUTRE bouton réapparaît en fondu » — et lui seul : celui que le fantôme découvre est déjà là. */
+  it('🔴🔴 seul l’autre bouton réapparaît en fondu, et les deux rebondissent', () => {
+    monter();
+    monter({ interne: true });
+    monter({ interne: false });
+    const [rouge, blanc] = [...container.querySelectorAll('button.ccl-case')] as HTMLElement[];
+    expect(rouge.className).toContain('ccl-case--reparait');   // la case « Interne » le découvrait
+    expect(blanc.className).not.toContain('ccl-case--reparait');
+    expect(rouge.className).toContain('ccl-case--rebondit');
+    expect(blanc.className).toContain('ccl-case--rebondit');
+  });
+
+  /**
+   * 🔴🔴 PASSAGE DIRECT D'UNE CASE VERTE À L'AUTRE : scission, PUIS réunion (demande d'Arno). On voit donc
+   * d'abord les deux boutons, alors même que l'état d'arrivée est déjà posé.
+   */
+  it('🔴🔴 de « Rattaché » à « Interne » : scission d’abord, réunion ensuite', async () => {
+    monter();
+    monter({ cibles: [LOT('421', 'A')] });
+    await act(async () => { await new Promise((r) => { setTimeout(r, ANIM_TOTAL_MS + 40); }); });
+    monter({ cibles: [], interne: true });
+    // ① la scission de « Rattaché » — les deux boutons sont revenus
+    expect(container.querySelectorAll('button.ccl-case')).toHaveLength(2);
+    expect(container.querySelector('.ccl-scinde')?.textContent).toContain('Rattaché');
+    // ② puis la réunion vers « Interne »
+    await act(async () => { await new Promise((r) => { setTimeout(r, ANIM_TOTAL_MS + 40); }); });
+    expect(cases()[0].textContent).toContain('Interne');
+    expect(container.querySelector('.ccl-case--elastique')).not.toBeNull();
+    await act(async () => { await new Promise((r) => { setTimeout(r, ANIM_TOTAL_MS + 40); }); });
+    expect(container.querySelector('.ccl-case--elastique')).toBeNull();
+  });
+
+  /** ⚠️ PAS DE DOUBLE ANIMATION : un rafraîchissement qui rend le même état ne rejoue rien. */
+  it('⚠️ un rafraîchissement au même état ne rejoue aucune animation', () => {
+    monter();
+    monter({ interne: true });
+    monter({ interne: false });
+    const avant = container.querySelector('.ccl-scinde');
+    monter({ interne: false });
+    monter({ interne: false });
+    // La même scission, toujours en cours — pas une seconde qui recommencerait du début.
+    expect(container.querySelector('.ccl-scinde')).toBe(avant);
+  });
+
+  it('⚠️ après 560 ms, la scission ne laisse aucune trace', async () => {
+    monter();
+    monter({ interne: true });
+    monter({ interne: false });
+    expect(container.querySelector('.ccl-scinde')).not.toBeNull();
+    await act(async () => { await new Promise((r) => { setTimeout(r, ANIM_TOTAL_MS + 40); }); });
+    expect(container.querySelector('.ccl-scinde')).toBeNull();
+    expect(container.querySelector('.ccl-case--reparait')).toBeNull();
   });
 
   /** ⚠️ ET L'ANIMATION SE TERMINE : passé le total annoncé, il ne reste ni classe ni fantôme. */
@@ -385,12 +472,19 @@ describe('🔴🔴 la version COMPACTE, pour le bloc gris d’un mail', () => {
   });
 
   /** 🔴 RIEN N'EST RETIRÉ DE LA FONCTION : mêmes états, mêmes mots, même animation. */
+  /**
+   * ⚠️ CHAQUE ÉTAT EST MONTÉ À NEUF. Depuis le lot AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE, passer d'une case
+   * verte à une autre joue d'abord la SCISSION : enchaîner les trois états sur le même composant aurait éprouvé
+   * l'animation au lieu des trois états. C'est elle qu'on éprouve ailleurs, et ici on éprouve les mots.
+   */
   it('🔴 les trois états verts existent aussi en compact', () => {
     monter({ compact: true, cibles: [LOT('421', 'A', 'parking')] });
     expect(cases()[0].textContent).toContain('Rattaché');
     expect(container.querySelector('.ccl-case-detail')?.textContent).toBe('1 parking');
+    remonter();
     monter({ compact: true, interne: true });
     expect(cases()[0].textContent).toContain('Interne');
+    remonter();
     monter({ compact: true, horsGestion: true });
     expect(cases()[0].textContent).toContain('Hors gestion');
   });
@@ -409,10 +503,12 @@ describe('🔴 revenir à l’état initial', () => {
     expect(gestes.onReinitialiser).not.toHaveBeenCalled();
   });
 
+  /** ⚠️ `button.ccl-case` ET NON `.ccl-case` : le fantôme de la scission porte la même classe, et n'est pas un
+   *  bouton. C'est exactement ce qui le distingue — on ne peut ni le cliquer, ni l'entendre. */
   it('🔴 remis à zéro, on retrouve EXACTEMENT les deux cases du départ', () => {
     monter({ cibles: [LOT('421', 'A')] });
     monter({ cibles: [], interne: false });
-    const c = cases();
+    const c = [...container.querySelectorAll('button.ccl-case')];
     expect(c).toHaveLength(2);
     expect(c[0].className).toContain('ccl-case--rouge');
     expect(c[1].className).toContain('ccl-case--blanche');
@@ -457,8 +553,10 @@ describe('garanties d’écran (statiques)', () => {
     expect(src).toContain('prefers-reduced-motion');
     const bloc = src.slice(src.indexOf('prefers-reduced-motion'));
     expect(bloc).toContain('animation:none');
-    // 🔴 ET L'ÉTAT FINAL EST LÀ DIRECTEMENT : le fantôme ne s'efface pas, il n'apparaît pas.
-    expect(bloc).toContain('.ccl-fantome{display:none}');
+    // 🔴 ET L'ÉTAT FINAL EST LÀ DIRECTEMENT : les fantômes ne s'effacent pas, ils n'apparaissent pas.
+    expect(bloc).toContain('.ccl-fantome,.ccl-scinde{display:none}');
+    // 🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — la scission non plus ne bouge pas, et rien ne reste pâle.
+    expect(bloc).toContain('opacity:1');
   });
 
   /**

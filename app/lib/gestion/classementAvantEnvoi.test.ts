@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   ANIM_COURBE_ELASTIQUE, ANIM_EFFACER_MS, ANIM_ETENDRE_MS, ANIM_REBOND_MS, ANIM_TOTAL_MS,
-  classementFait, classementHerite, etatClassement, MOTIF_NON_CLASSE, refusSiNonClasse,
+  AUCUNE_PROPOSITION, classementFait, classementHerite, coteDeLaCase, etapesAnimation, etatClassement,
+  MOTIF_NON_CLASSE, refusSiNonClasse,
 } from './classementAvantEnvoi';
 
 /**
@@ -150,6 +151,76 @@ describe('🔴🔴 ④ les durées de l’animation validée par Arno', () => {
 
   it('🔴 le léger dépassement, écrit une seule fois', () => {
     expect(ANIM_COURBE_ELASTIQUE).toBe('cubic-bezier(.34,1.56,.64,1)');
+  });
+});
+
+/**
+ * ══ 🔴🔴 ⑤ LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — LES DEUX SENS DU MOUVEMENT ════════════════════════════
+ *
+ * ARNO : « Ajoute l'animation inverse, quand le gros bouton vert se scinde en Rattacher (rouge) et Interne
+ * (blanc). […] Passage direct de Rattaché à Interne (ou l'inverse) : scission, puis réunion du côté de l'autre
+ * bouton. »
+ */
+describe('🔴🔴 ⑤ ce qu’il faut jouer pour passer d’un état à l’autre', () => {
+  it('🔴 des deux boutons à une case verte : une RÉUNION, et rien d’autre', () => {
+    expect(etapesAnimation('rien', 'rattache')).toEqual([{ geste: 'reunion', etat: 'rattache' }]);
+    expect(etapesAnimation('rien', 'interne')).toEqual([{ geste: 'reunion', etat: 'interne' }]);
+    expect(etapesAnimation('rien', 'hors_gestion')).toEqual([{ geste: 'reunion', etat: 'hors_gestion' }]);
+  });
+
+  /**
+   * ══ 🔴🔴 L'INVENTAIRE DES CHEMINS QUI RAMÈNENT À « À CLASSER » ════════════════════════════════════════════
+   *
+   * Arno demande l'inventaire de TOUS les chemins. Les voici — et ils produisent tous la MÊME étape, parce
+   * qu'ils passent tous par le même entonnoir : l'état du bloc.
+   *   ① décocher le dernier bien, puis « Valider — aucun bien »  ⇒ rattache → rien
+   *   ② cliquer la case verte « Interne »                        ⇒ interne  → rien
+   *   ③ cliquer la case verte « Hors gestion »                   ⇒ hors_gestion → rien
+   *   ④ « Annuler » / « Retirer » un rattachement                ⇒ rattache → rien
+   *   ⑤ le bloc « Suivi dans la conversation » qui ne porte plus rien ⇒ rattache → rien
+   *   ⑥ un classement HÉRITÉ qui disparaît                       ⇒ rattache/interne/hors_gestion → rien
+   */
+  it('🔴🔴 TOUS les chemins vers « À classer » donnent une SCISSION', () => {
+    for (const depuis of ['rattache', 'interne', 'hors_gestion'] as const) {
+      expect(etapesAnimation(depuis, 'rien'), depuis).toEqual([{ geste: 'scission', etat: depuis }]);
+    }
+  });
+
+  it('🔴🔴 d’une case verte à l’autre : scission PUIS réunion', () => {
+    expect(etapesAnimation('rattache', 'interne')).toEqual([
+      { geste: 'scission', etat: 'rattache' }, { geste: 'reunion', etat: 'interne' },
+    ]);
+    expect(etapesAnimation('interne', 'rattache')).toEqual([
+      { geste: 'scission', etat: 'interne' }, { geste: 'reunion', etat: 'rattache' },
+    ]);
+  });
+
+  /** ⚠️ C'EST CE QUI INTERDIT LA DOUBLE ANIMATION quand la liste se rafraîchit sans rien changer. */
+  it('⚠️ le même état deux fois ne joue RIEN', () => {
+    for (const e of ['rien', 'rattache', 'interne', 'hors_gestion'] as const) {
+      expect(etapesAnimation(e, e), e).toEqual([]);
+    }
+  });
+
+  /** 🔴 LE CÔTÉ : « Rattaché » vient du bouton rouge, à gauche ; « Interne » du blanc, à droite. */
+  it('🔴 chaque case verte sait de quel côté elle se rétracte', () => {
+    expect(coteDeLaCase('rattache')).toBe('gauche');
+    expect(coteDeLaCase('interne')).toBe('droite');
+    // « Hors gestion » n'a pas de bouton à lui : il suit « Interne », par où il se pose.
+    expect(coteDeLaCase('hors_gestion')).toBe('droite');
+  });
+});
+
+/** 🔴 LA PHRASE D'ARNO QUAND LE MOTEUR NE TROUVE RIEN — citée, jamais recopiée. */
+describe('🔴🔴 ⑥ « aucune proposition » se dit, et dit quoi faire', () => {
+  it('🔴 la phrase est celle d’Arno, au mot près', () => {
+    expect(AUCUNE_PROPOSITION).toBe('Aucune proposition disponible pour ce mail. '
+      + 'Utilise le moteur de recherche ci-dessous pour sélectionner le ou les biens en relation avec ce mail.');
+  });
+
+  it('⚠️ elle ne compte rien : c’est tout l’objet du changement', () => {
+    expect(AUCUNE_PROPOSITION).not.toContain('0');
+    expect(AUCUNE_PROPOSITION).toContain('moteur de recherche');
   });
 });
 

@@ -68,6 +68,37 @@ describe('🔴🔴 ① le cas d’Arno : la signature citée ne propose plus rie
     expect(r.propositions[0].cas).toBe('d');
   });
 
+  /**
+   * ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — LE CAS QU'ARNO DEMANDE D'ÉPROUVER ═══════════════════
+   *
+   * « Un mail dont l'expéditeur est inconnu et qui ne contient que notre signature → message affiché,
+   * 0 proposition. » Côté moteur, c'est ceci : aucune adresse reconnue, un corps qui n'est QUE notre signature,
+   * et pas une seule proposition. (La phrase affichée, elle, s'éprouve sur la modale.)
+   */
+  it('🔴🔴 expéditeur inconnu + notre signature seule : AUCUNE proposition', () => {
+    const SIGNATURE_SEULE = `Bonjour,
+
+Je reviens vers vous prochainement.
+
+Bien cordialement,
+
+Service Gestion
+
+2 rue Mars et Roty, 92800 Puteaux
+
+06 23 53 32 36
+`;
+    const r = proposerBiens({
+      // Une adresse d'un tiers, que l'annuaire ne connaît pas : ni partie, ni propriétaire.
+      adresses: [{ adresse: 'inconnu@ailleurs.fr', interne: false, partie: null, lotCle: null,
+        proprietaireCle: null, duMail: true }],
+      textes: { objet: 'Votre demande', corps: SIGNATURE_SEULE },
+      biens: [LOT_494],
+    });
+    expect(r.issue).toBe('sans_candidat');
+    expect(r.propositions).toEqual([]);
+  });
+
   it('🔴 l’objet, lui, n’est jamais une citation : il continue de compter', () => {
     const r = proposerBiens({
       adresses: [],

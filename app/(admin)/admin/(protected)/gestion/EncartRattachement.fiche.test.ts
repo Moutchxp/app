@@ -292,9 +292,11 @@ describe('🔴🔴 la MODALE « Rattacher ce mail à… », la même qu’à la 
     expect(appels.find((a) => a.methode === 'PATCH')?.corps).toMatchObject({ statut: 'retire' });
 
     // ⚠️ LE PARENT REND LA VÉRITÉ : le lien retiré, la conversation recharge et ne le passe plus.
+    // ⚠️ `button.ccl-case` : depuis le lot AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE, le fantôme de la scission
+    //   porte la même classe pendant 560 ms — mais il n'est pas un bouton, et c'est ce qui le distingue.
     await monter([], { interne: false, onInterne: (a: boolean) => { vus.push(a); } });
-    expect(container.querySelectorAll('.ccl-case')).toHaveLength(2);
-    await cliquer([...container.querySelectorAll('.ccl-case')][1]);
+    expect(container.querySelectorAll('button.ccl-case')).toHaveLength(2);
+    await cliquer([...container.querySelectorAll('button.ccl-case')][1]);
     expect(vus).toEqual([true]);
   });
 
@@ -451,10 +453,25 @@ describe('🔴🔴 la ligne montre le PREMIER bien, et se déplie', () => {
     expect(boutonPar(/^voir plus/)).toBeDefined();
   });
 
-  /** 🔴 « ou si l'adresse est tronquée » : un libellé long mérite « voir plus » même tout seul. */
-  it('🔴 un seul bien, mais long : « voir plus » quand même, sans compte', async () => {
+  /**
+   * ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — « VOIR PLUS » SEULEMENT S'IL Y A QUELQUE CHOSE EN PLUS
+   *
+   * CE TEST DISAIT L'INVERSE (« un libellé long mérite “voir plus” même tout seul »), parce que la troncature
+   * était DEVINÉE sur la longueur. Arno : « le lien ne s'affiche que si la vue dépliée montre AU MOINS une
+   * information absente de la ligne de base. Un seul bien, entièrement visible → pas de lien. » Un libellé long
+   * qui tient n'est plus une raison d'ouvrir ; seule la coupure réelle en est une, et l'écran la MESURE.
+   */
+  it('🔴🔴 un seul bien, même long : AUCUN lien tant que rien n’est coupé', async () => {
     await monter([AUTRE]);
-    expect(boutonPar(/^voir plus$/)).toBeDefined();
+    expect(boutonPar(/^voir plus/)).toBeUndefined();
+  });
+
+  /** 🔴 L'AUTRE RAISON D'OUVRIR : une mention que la ligne ne porte pas. */
+  it('🔴🔴 un bien posé sur UNE PIÈCE : le lien revient, car la ligne ne le dit pas', async () => {
+    await monter([{ ...lien(), pieceId: 7 }]);
+    expect(boutonPar(/^voir plus/)).toBeDefined();
+    await cliquer(boutonPar(/^voir plus/));
+    expect(container.querySelector('.ert-deplie')?.textContent).toContain('cette pièce seulement');
   });
 
   /**

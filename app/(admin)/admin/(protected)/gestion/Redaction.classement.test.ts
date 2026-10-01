@@ -251,8 +251,11 @@ describe('🔴🔴 ③ une réponse dans un fil déjà classé part sans rien re
     await monter({ ...REPONSE, horsGestion: true });
     await act(async () => { (caseDe(/Hors gestion/) as HTMLButtonElement).click(); });
     await calmer();
-    expect(caseDe(/Hors gestion/)).toBeUndefined();
-    expect([...container.querySelectorAll('.ccl-case')]).toHaveLength(2);
+    // ⚠️ `button.ccl-case` : depuis le lot AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE, la case verte qui s'en va
+    //   reste 560 ms à l'écran sous forme de FANTÔME — qui porte la même classe, mais n'est pas un bouton.
+    expect([...container.querySelectorAll('button.ccl-case')]).toHaveLength(2);
+    expect([...container.querySelectorAll('button.ccl-case')].map((b) => b.textContent ?? '').join(' '))
+      .not.toContain('Hors gestion');
   });
 });
 

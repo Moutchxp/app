@@ -65,6 +65,19 @@ export function classementFait(b: ClassementBrouillon): boolean {
 export const MOTIF_NON_CLASSE = 'Classez ce mail avant de l’envoyer : Rattacher ou Interne.';
 
 /**
+ * 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — CE QUE DIT LA CARTE « PROPOSITIONS » QUAND ELLE EST VIDE.
+ *
+ * LA PHRASE EST CELLE D'ARNO, AU MOT PRÈS (01/10/2026). Elle remplace « 0 bien(s) coché(s) sur 0 affiché(s) », un
+ * compteur qui ne comptait rien et qui donnait à une fenêtre vide l'air d'une fenêtre pleine : on y cherchait des
+ * cases qui n'existaient pas. Une phrase qui dit QUOI FAIRE vaut mieux qu'un nombre qui dit zéro.
+ *
+ * ⚠️ ELLE VIT ICI, avec les autres phrases du classement, et non dans le composant : c'est la seule façon qu'une
+ * épreuve puisse la citer sans la recopier — et une phrase recopiée finit par différer d'un mot.
+ */
+export const AUCUNE_PROPOSITION = 'Aucune proposition disponible pour ce mail. '
+  + 'Utilise le moteur de recherche ci-dessous pour sélectionner le ou les biens en relation avec ce mail.';
+
+/**
  * LE GARDE, CÔTÉ SERVEUR comme côté écran : `null` = rien à redire, sinon le motif à rendre. PUR.
  *
  * ⚠️ IL NE REGARDE QUE CE QUI SERA RÉELLEMENT ÉCRIT (biens, « interne », « hors gestion »), jamais un drapeau que
@@ -165,3 +178,70 @@ export const ANIM_REBOND_MS = 260;
 export const ANIM_COURBE_ELASTIQUE = 'cubic-bezier(.34,1.56,.64,1)';
 /** Ce que dure le geste entier — c'est ce délai que le composant attend avant de retirer sa classe. */
 export const ANIM_TOTAL_MS = ANIM_ETENDRE_MS + ANIM_REBOND_MS;
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — L'AUTRE SENS : LA SCISSION
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (01/10/2026) : « Ajoute l'animation inverse, quand le gros bouton vert se scinde en Rattacher
+   (rouge) et Interne (blanc). Mouvement miroir de D : le vert “Rattaché” se rétracte vers la moitié GAUCHE et
+   redevient le bouton rouge ; le vert “Interne” se rétracte vers la moitié DROITE et redevient le bouton blanc ;
+   l'autre bouton réapparaît en fondu ; même courbe, mêmes durées, petit rebond final sur les deux boutons.
+   Passage direct de Rattaché à Interne (ou l'inverse) : scission, puis réunion du côté de l'autre bouton. »
+
+   ═══ 🔴🔴 L'INVENTAIRE DES CHEMINS, ET POURQUOI IL N'Y A RIEN À ÉNUMÉRER DANS LE CODE ══════════════════════════
+
+   Arno demande l'inventaire de TOUS les chemins qui ramènent un mail à « À classer ». Les voici, mesurés dans le
+   module le 01/10/2026 :
+     ① décocher le dernier bien dans la modale, puis « Valider — aucun bien » ;
+     ② cliquer la case verte « Interne » (elle est un bouton : un clic la défait) ;
+     ③ cliquer la case verte « Hors gestion » ;
+     ④ « Annuler » / « Retirer » un rattachement depuis le bloc gris ou la fiche ;
+     ⑤ retirer le dernier bien par le bloc « Suivi dans la conversation » (une période qui ne porte plus rien) ;
+     ⑥ un mail dont le classement hérité disparaît quand la conversation change d'avis.
+
+   🔴 ET ILS PASSENT TOUS PAR LE MÊME ENTONNOIR : `etatClassement`. L'animation ne se branche donc sur AUCUN d'eux
+   en particulier — elle observe la TRANSITION d'état, qui est la seule chose que ces six chemins ont en commun.
+   Les brancher un par un aurait demandé six signaux depuis six endroits, et le septième chemin — celui qu'on
+   ajoutera dans six mois — serait né sans animation, sans que personne le remarque.
+
+   ⚠️ C'EST AUSSI CE QUI INTERDIT LA DOUBLE ANIMATION. Un rafraîchissement de la liste qui rend le MÊME état ne
+   produit aucune étape : `etapesAnimation` rend une liste VIDE, et le composant ne touche pas à sa file.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Les deux sens du mouvement. `reunion` = deux boutons → une case verte ; `scission` = l'inverse. */
+export type GesteAnimation = 'reunion' | 'scission';
+
+export interface EtapeAnimation {
+  geste: GesteAnimation;
+  /**
+   * LA CASE VERTE CONCERNÉE — celle qui naît (réunion) ou celle qui s'en va (scission). C'est elle qui décide du
+   * CÔTÉ : « Rattaché » tient la moitié gauche (le bouton rouge), « Interne » et « Hors gestion » la droite.
+   */
+  etat: Exclude<EtatClassement, 'rien'>;
+}
+
+/**
+ * 🔴 CE QU'IL FAUT JOUER POUR PASSER DE `avant` À `apres`. PUR.
+ *
+ * ⚠️ UN PASSAGE DIRECT ENTRE DEUX CASES VERTES FAIT DEUX ÉTAPES, dans cet ordre : la scission de l'ancienne, puis
+ * la réunion de la nouvelle. C'est la demande d'Arno au mot près, et c'est aussi la seule lecture honnête du
+ * geste — on ne glisse pas d'un classement à l'autre, on en défait un et on en pose un autre.
+ */
+export function etapesAnimation(avant: EtatClassement, apres: EtatClassement): EtapeAnimation[] {
+  if (avant === apres) return [];
+  const etapes: EtapeAnimation[] = [];
+  if (avant !== 'rien') etapes.push({ geste: 'scission', etat: avant });
+  if (apres !== 'rien') etapes.push({ geste: 'reunion', etat: apres });
+  return etapes;
+}
+
+/**
+ * DE QUEL CÔTÉ LA CASE VERTE VIT. PUR.
+ *
+ * « Rattaché » vient du bouton ROUGE, qui est à GAUCHE ; « Interne » du bouton BLANC, à DROITE. « Hors gestion »
+ * suit « Interne » : il se pose par le même chemin (le lien de la modale) et n'a pas de bouton à lui.
+ */
+export function coteDeLaCase(e: Exclude<EtatClassement, 'rien'>): 'gauche' | 'droite' {
+  return e === 'rattache' ? 'gauche' : 'droite';
+}

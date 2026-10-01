@@ -24,34 +24,54 @@
  *   · la CASE VERTE compte (« 1 logement + 1 parking ») — c'est `resumeParCategorie`, dans `categorieBien.ts` ;
  *   · la LIGNE DE GAUCHE nomme — c'est ici, et elle nomme EN ENTIER, quitte à déplier.
  *
- * 🔴 « OU SI L'ADRESSE EST TRONQUÉE » : une troncature est un fait de MISE EN PAGE (largeur de la fenêtre,
- * taille de police), que ce module ne peut pas connaître — et le navigateur ne la signale pas. On ne la devine
- * donc pas : on décide sur la LONGUEUR du libellé, qui est la seule chose dont on dispose et qui prédit la
- * troncature dans l'immense majorité des cas. Le seuil est bas exprès : proposer « voir plus » pour un libellé
- * qui tenait finalement ne coûte qu'un lien ignoré ; ne pas le proposer sur un libellé coupé cache une adresse.
+ * ═══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — « VOIR PLUS » SEULEMENT S'IL Y A QUELQUE CHOSE EN PLUS ══
+ *
+ * DEMANDE D'ARNO (01/10/2026) : « le lien “voir plus” ne s'affiche que si la vue dépliée montre AU MOINS une
+ * information absente de la ligne de base. Exemple : un seul bien, entièrement visible sur la ligne → pas de
+ * lien. Pour le décider, compare au contenu réellement affiché, comme pour la pastille “i”. »
+ *
+ * 🔴 CE QUI CHANGE : LA TRONCATURE EST MESURÉE, ELLE N'EST PLUS DEVINÉE. Ce module décidait sur la LONGUEUR du
+ * libellé (plus de 54 caractères ⇒ « sans doute coupé »), faute de connaître la mise en page. C'était un pari, et
+ * il se trompait dans les deux sens : sur un grand écran, un libellé de 60 caractères tient très bien, et le lien
+ * s'affichait pour ne rien montrer de plus. L'écran, lui, SAIT : `scrollWidth > clientWidth` est la question
+ * exacte, posée à l'élément réellement affiché. Le module continue de DÉCIDER — il reçoit la mesure, il ne la
+ * prend pas.
+ *
+ * ⚠️ `LONGUEUR_AVANT_VOIR_PLUS` A DONC DISPARU. Garder un seuil « au cas où » aurait laissé les deux règles
+ * cohabiter, et la plus bavarde des deux l'aurait emporté — c'est-à-dire exactement le défaut qu'Arno signale.
  */
-export const LONGUEUR_AVANT_VOIR_PLUS = 54;
 
 /** Ce que la ligne « Bien(s) rattaché(s) : » affiche, repliée. PUR. */
 export interface LignePremierBien {
   /** Le libellé COMPLET du premier bien — jamais coupé ici : c'est le CSS qui met des points de suspension. */
   premier: string;
-  /** Faut-il proposer « voir plus » ? Vrai dès qu'il y a un second bien, ou que le premier risque d'être coupé. */
+  /** Faut-il proposer « voir plus » ? Vrai seulement si le dépliage montre quelque chose que la ligne ne montre pas. */
   voirPlus: boolean;
   /** Combien de biens en tout. Zéro = la ligne dit « rien pour l'instant », comme avant ce lot. */
   total: number;
 }
 
-export function lignePremierBien(
-  libelles: readonly string[], seuil = LONGUEUR_AVANT_VOIR_PLUS,
-): LignePremierBien {
+export function lignePremierBien(libelles: readonly string[], o?: {
+  /**
+   * LE PREMIER LIBELLÉ EST-IL RÉELLEMENT COUPÉ À L'ÉCRAN ? Mesuré par l'écran, jamais deviné ici. Absent ⇒ on
+   * considère qu'il tient : une mesure manquante ne doit pas faire apparaître un lien qui ne montrera rien.
+   */
+  tronque?: boolean;
+  /**
+   * CE QUE LE DÉPLIAGE MONTRE EN PLUS, et que la ligne ne montre pas — par exemple « cette pièce seulement »,
+   * qui ne figure que dans la vue dépliée. Chaque mention compte, quelle qu'elle soit.
+   */
+  enPlus?: readonly string[];
+}): LignePremierBien {
   // ⚠️ AUCUN LIBELLÉ VIDE : un blanc en tête ferait croire à un bien sans nom, et pousserait les autres hors de
   //   vue. Ce qui n'a pas de nom n'a rien à montrer sur cette ligne — il reste dans le dépliage.
   const propres = libelles.map((l) => l.trim()).filter((l) => l !== '');
   const premier = propres[0] ?? '';
+  const enPlus = (o?.enPlus ?? []).filter((m) => m.trim() !== '');
   return {
     premier,
-    voirPlus: propres.length > 1 || premier.length > seuil,
+    // LES TROIS SEULES RAISONS D'OUVRIR : d'autres biens, un titre coupé, ou une mention qu'on ne voit pas.
+    voirPlus: propres.length > 1 || o?.tronque === true || enPlus.length > 0,
     total: propres.length,
   };
 }

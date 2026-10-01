@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LONGUEUR_AVANT_VOIR_PLUS, ligneCompacteDuBien, lignePremierBien } from './classementBoutons';
+import { ligneCompacteDuBien, lignePremierBien } from './classementBoutons';
 
 /**
  * ══ 🔴 CE QUE LES ÉCRANS DE CLASSEMENT ÉCRIVENT ═══════════════════════════════════════════════════════════════
@@ -35,19 +35,28 @@ describe('🔴🔴 ce que la ligne montre d’abord', () => {
   });
 
   /**
-   * 🔴 « OU SI L'ADRESSE EST TRONQUÉE » — et une troncature est un fait de MISE EN PAGE, que ce module ne peut
-   * pas connaître. On décide donc sur la LONGUEUR, seule chose dont on dispose. Le seuil est bas exprès : un
-   * « voir plus » de trop ne coûte qu'un lien ignoré ; un « voir plus » manquant cache une adresse.
+   * ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — LA TRONCATURE EST MESURÉE, PLUS DEVINÉE ═════════════
+   *
+   * ARNO : « le lien ne s'affiche que si la vue dépliée montre AU MOINS une information absente de la ligne de
+   * base. Un seul bien, entièrement visible → pas de lien. Pour le décider, compare au contenu réellement
+   * affiché. » Un libellé long qui TIENT n'est donc plus une raison d'ouvrir : seule la coupure réelle en est une.
    */
-  it('🔴 un seul bien, mais long : « voir plus » quand même', () => {
-    expect(LONGUEUR_AVANT_VOIR_PLUS).toBe(54);
-    expect(LONG.length).toBeGreaterThan(LONGUEUR_AVANT_VOIR_PLUS);
-    expect(lignePremierBien([LONG]).voirPlus).toBe(true);
+  it('🔴🔴 un seul bien, même long : PAS de lien tant qu’il tient à l’écran', () => {
+    expect(LONG.length).toBeGreaterThan(54);
+    expect(lignePremierBien([LONG]).voirPlus).toBe(false);
   });
 
-  it('⚠️ le seuil se règle, et il porte sur le libellé RENDU', () => {
-    expect(lignePremierBien([COURT], 5).voirPlus).toBe(true);
-    expect(lignePremierBien([LONG], 500).voirPlus).toBe(false);
+  it('🔴🔴 …et le lien revient dès que l’écran dit qu’il est coupé', () => {
+    expect(lignePremierBien([LONG], { tronque: true }).voirPlus).toBe(true);
+    expect(lignePremierBien([COURT], { tronque: true }).voirPlus).toBe(true);
+  });
+
+  /** 🔴 L'AUTRE RAISON D'OUVRIR : une mention que la ligne ne porte pas (« cette pièce seulement »). */
+  it('🔴🔴 une mention absente de la ligne suffit à proposer « voir plus »', () => {
+    expect(lignePremierBien([COURT], { enPlus: ['cette pièce seulement'] }).voirPlus).toBe(true);
+    // ⚠️ Une mention VIDE n'est pas une information : elle ne doit rien ouvrir.
+    expect(lignePremierBien([COURT], { enPlus: ['   '] }).voirPlus).toBe(false);
+    expect(lignePremierBien([COURT], { enPlus: [] }).voirPlus).toBe(false);
   });
 
   it('aucun bien : rien à montrer, rien à déplier', () => {

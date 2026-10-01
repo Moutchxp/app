@@ -7,7 +7,8 @@ import { resumeParCategorie } from '../../../../lib/gestion/categorieBien';
 // 🔴 LOT CLASSER-AVANT-ENVOI — l'état du bloc et les durées de l'animation : décidés dans un module PUR.
 import {
   ANIM_COURBE_ELASTIQUE, ANIM_EFFACER_MS, ANIM_ETENDRE_MS, ANIM_REBOND_MS, ANIM_TOTAL_MS,
-  etatClassement, type EtatClassement,
+  coteDeLaCase, etapesAnimation, etatClassement,
+  type EtapeAnimation, type EtatClassement,
 } from '../../../../lib/gestion/classementAvantEnvoi';
 
 /**
@@ -130,18 +131,37 @@ export function ChampClassement({
    * ⚠️ `prefers-reduced-motion` : la feuille de style réduit le mouvement à rien, et l'état final est là
    * immédiatement — exigence transverse du dépôt.
    */
-  const [anime, setAnime] = useState<EtatClassement | null>(null);
+  /**
+   * ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — UNE FILE D'ÉTAPES, ET NON UN SEUL ÉTAT ═══════════════
+   *
+   * Il fallait une FILE parce qu'un passage direct de « Rattaché » à « Interne » en demande DEUX : la scission de
+   * l'ancienne case, puis la réunion de la nouvelle (demande d'Arno). Un seul état n'aurait pu en porter qu'une,
+   * et le mouvement aurait sauté l'autre.
+   *
+   * ⚠️ PAS DE DOUBLE ANIMATION QUAND LA LISTE SE RAFRAÎCHIT : `etapesAnimation` rend une liste VIDE quand l'état
+   * ne change pas, et on ne touche alors pas à la file. Un parent qui redessine trente fois ne joue rien.
+   */
+  const [file, setFile] = useState<EtapeAnimation[]>([]);
   const precedent = useRef<EtatClassement>(etat);
   useEffect(() => {
     const avant = precedent.current;
     precedent.current = etat;
-    // Seul le passage DES DEUX BOUTONS à une case verte s'anime. Tout le reste (ouverture déjà classée,
-    //   « Réinitialiser », changement de biens dans une case déjà verte) est instantané.
-    if (avant !== 'rien' || etat === 'rien') { setAnime(null); return undefined; }
-    setAnime(etat);
-    const t = setTimeout(() => setAnime(null), ANIM_TOTAL_MS);
-    return () => clearTimeout(t);
+    // ⚠️ RIEN À L'OUVERTURE : la mémoire part de l'état COURANT, donc la première comparaison est toujours nulle.
+    const etapes = etapesAnimation(avant, etat);
+    if (etapes.length > 0) setFile(etapes);
   }, [etat]);
+
+  /** La file se vide d'elle-même, une étape tous les `ANIM_TOTAL_MS`. */
+  useEffect(() => {
+    if (file.length === 0) return undefined;
+    const t = setTimeout(() => setFile((f) => f.slice(1)), ANIM_TOTAL_MS);
+    return () => clearTimeout(t);
+  }, [file]);
+
+  const etape = file[0] ?? null;
+  /** VRAI tant que la case verte n'est pas encore partie : on montre alors les DEUX boutons, en train de naître. */
+  const enScission = etape?.geste === 'scission';
+  const anime = etape?.geste === 'reunion' ? etape.etat : null;
 
   /** La case choisie s'étend vers la GAUCHE pour « Interne » (elle était à droite), vers la DROITE sinon. */
   const sens = anime === 'rattache' ? 'droite' : 'gauche';
@@ -151,6 +171,15 @@ export function ChampClassement({
     : { classe: 'ccl-case--rouge', cote: 'ccl-fantome--gauche', mot: 'Rattacher', detail: 'à un logement' };
   const classeAnimee = anime === null ? '' : ` ccl-case--elastique ccl-case--vers-${sens} ccl-depuis-${
     anime === 'rattache' ? 'rouge' : 'blanc'}`;
+
+  /**
+   * ══ 🔴🔴 LE MOUVEMENT MIROIR : CE QUE LA SCISSION RENVERSE ═════════════════════════════════════════════════
+   *
+   * Pendant la scission, la case verte n'est plus dans l'arbre — ce sont les deux boutons qui y sont. On rend
+   * donc d'elle un FANTÔME, pleine largeur, qui se rétracte vers sa moitié et reprend sa couleur d'origine ;
+   * l'AUTRE bouton, celui que le fantôme découvre, réapparaît en fondu. Les deux reçoivent le rebond final.
+   */
+  const cote = enScission && etape !== null ? coteDeLaCase(etape.etat) : null;
 
   const motifRattacher = onRattacher === undefined
     ? 'Ajoutez d’abord un destinataire : les biens se déduisent de lui.'
@@ -166,6 +195,16 @@ export function ChampClassement({
    */
   const resume = resumeParCategorie(biens);
 
+  /** La case verte qui s'en va, telle qu'on la voit pendant la scission : son mot, son détail, et son côté. */
+  const vertQuiPart = !enScission || etape === null ? null : {
+    cote,
+    vers: cote === 'gauche' ? 'rouge' : 'blanc',
+    mot: etape.etat === 'rattache' ? 'Rattaché' : etape.etat === 'interne' ? 'Interne' : 'Hors gestion',
+    detail: etape.etat === 'rattache' ? resume : etape.etat === 'interne'
+      ? 'Échange entre collègues — aucun bien ne sera rattaché.'
+      : 'Ce courrier ne concerne aucun bien.',
+  };
+
   return (
     <div className={`ccl${compact ? ' ccl--compact' : ''}`}>
       {!compact && <span className="red-label" id="ccl-label">{titre}</span>}
@@ -175,7 +214,10 @@ export function ChampClassement({
           560 ms de l'animation, l'AUTRE case y est rendue en fantôme, à la place exacte qu'elle occupait, et
           s'efface en 180 ms. Sans ce fantôme, « l'autre case s'efface » n'aurait rien à effacer — elle aurait
           déjà disparu du DOM au rendu précédent. */}
-      {etat !== 'rien' ? (
+      {/* ⚠️ PENDANT LA SCISSION, ON MONTRE LES DEUX BOUTONS MÊME SI L'ÉTAT EST DÉJÀ VERT. C'est le cas du passage
+          direct « Rattaché » → « Interne » : l'état d'arrivée est posé, mais le mouvement commence par défaire
+          l'ancien. Rendre tout de suite la nouvelle case verte sauterait la moitié du geste. */}
+      {etat !== 'rien' && !enScission ? (
         <>
           <div className="ccl-anim">
             {etat === 'rattache' && (
@@ -240,20 +282,39 @@ export function ChampClassement({
         </>
       ) : (
         /* ══ ① — LES DEUX CASES, MOITIÉ-MOITIÉ, MÊME HAUTEUR ═════════════════════════════════════════════════ */
-        <div className="ccl-deux">
-          <button type="button" className="ccl-case ccl-case--rouge"
+        <div className={`ccl-deux${enScission ? ' ccl-deux--scission' : ''}`}>
+          {/* ⚠️ `ccl-case--reparait` NE VA QU'À CELUI QUE LE FANTÔME DÉCOUVRE : l'autre est révélé par la
+              rétractation elle-même, et le faire aussi apparaître en fondu le ferait clignoter. */}
+          <button type="button"
+            className={`ccl-case ccl-case--rouge${enScission ? ' ccl-case--rebondit' : ''}${
+              cote === 'droite' ? ' ccl-case--reparait' : ''}`}
             onClick={onRattacher} disabled={onRattacher === undefined} title={motifRattacher}>
             <span className="ccl-case-mot">Rattacher</span>
             <span className="ccl-case-detail">à un logement</span>
           </button>
           {/* ⚠️ LE CLIC NE FAIT QU'UNE CHOSE : poser le choix. L'animation se déclenche toute seule, en voyant
               l'état passer de « rien » à une case verte — même mécanisme que « Valider » dans la modale. */}
-          <button type="button" className="ccl-case ccl-case--blanche"
+          <button type="button"
+            className={`ccl-case ccl-case--blanche${enScission ? ' ccl-case--rebondit' : ''}${
+              cote === 'gauche' ? ' ccl-case--reparait' : ''}`}
             disabled={!interneDisponible} title={motifInterne}
             onClick={onInterne}>
             <span className="ccl-case-mot">Interne</span>
             <span className="ccl-case-detail">entre collègues</span>
           </button>
+          {/* ══ 🔴🔴 LE FANTÔME VERT DE LA SCISSION ══════════════════════════════════════════════════════════
+              Il est l'image de la case qui s'en va : pleine largeur, il se rétracte vers SA moitié et reprend la
+              couleur du bouton qu'il redevient. Comme le fantôme de la réunion, il n'est pas un bouton — il ne
+              s'annonce pas, et on ne peut pas le cliquer. */}
+          {vertQuiPart !== null && (
+            <span className={`ccl-scinde ccl-scinde--${vertQuiPart.cote}`} aria-hidden="true">
+              <span className={`ccl-case ccl-case--verte ccl-case--fixe ccl-retracte ccl-vers-${
+                vertQuiPart.vers}`}>
+                <span className="ccl-case-mot">{vertQuiPart.mot}</span>
+                <span className="ccl-case-detail">{vertQuiPart.detail}</span>
+              </span>
+            </span>
+          )}
         </div>
       )}
 
@@ -376,12 +437,58 @@ export const CSS_CHAMP_CLASSEMENT = `
 .ccl-fantome--droite{right:0}
 .ccl-fantome>.ccl-case{height:100%}
 
+/* ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — LA SCISSION, MIROIR DE LA REUNION ════════════════════════
+   « le vert “Rattache” se retracte vers la moitie GAUCHE et redevient le bouton rouge ; le vert “Interne” se
+   retracte vers la moitie DROITE et redevient le bouton blanc ; l'autre bouton reapparait en fondu ; meme courbe,
+   memes durees, petit rebond final sur les deux boutons. » (Arno, 01/10/2026)
+
+   🔴 POURQUOI LA RETRACTATION ANIME LA LARGEUR, LA OU L'EXTENSION ANIME L'ECHELLE. La reunion part d'une case qui
+   occupe DEJA une moitie de la grille : scaleX(.5)->scaleX(1) la fait grandir exactement a sa place. La scission,
+   elle, part de la pleine largeur et doit ATTERRIR sur une moitie de grille — c'est-a-dire calc(50% - 4px), la
+   moitie moins la moitie de l'ecart. Un scaleX(.5) l'aurait posee 4 px trop a droite, et ces 4 px de vert se
+   seraient vus par-dessus la gouttiere a l'instant precis ou le fantome disparait. La courbe et les durees, elles,
+   sont les memes au millieme pres.
+
+   ⚠️ LE FANTOME COUVRE LE BOUTON QU'IL REDEVIENT, et le decouvre en se retractant — c'est ce qui fait que ce
+   bouton-la n'a PAS besoin de fondu. Seul l'autre en recoit un. */
+.ccl-deux--scission{position:relative}
+
+@keyframes ccl-retracte-rouge{
+  from{width:100%}
+  to{width:calc(50% - 4px);background:var(--color-svv-red);color:#fff;border-color:var(--color-svv-red)}
+}
+@keyframes ccl-retracte-blanc{
+  from{width:100%}
+  to{width:calc(50% - 4px);background:var(--color-svv-surface);color:var(--color-svv-ink);
+    border-color:var(--color-svv-line-strong)}
+}
+@keyframes ccl-reparait{ from{opacity:0} to{opacity:1} }
+
+/* Le fantome vert tient TOUTE la rangee, accroche du cote ou il va se poser. */
+.ccl-scinde{position:absolute;top:0;bottom:0;pointer-events:none}
+.ccl-scinde--gauche{left:0;right:0}
+.ccl-scinde--droite{left:0;right:0;display:flex;justify-content:flex-end}
+.ccl-scinde>.ccl-case{height:100%}
+.ccl-retracte{animation-duration:${ANIM_ETENDRE_MS}ms;animation-timing-function:${ANIM_COURBE_ELASTIQUE};
+  animation-fill-mode:forwards}
+.ccl-vers-rouge{animation-name:ccl-retracte-rouge}
+.ccl-vers-blanc{animation-name:ccl-retracte-blanc}
+/* L'AUTRE bouton : un fondu de la meme duree que l'effacement de la reunion. */
+.ccl-case--reparait{animation:ccl-reparait ${ANIM_EFFACER_MS}ms ease-out both}
+/* LE REBOND FINAL, SUR LES DEUX BOUTONS : meme image-cle, meme duree, et il commence quand la retractation finit. */
+.ccl-case--rebondit{animation:ccl-rebond ${ANIM_REBOND_MS}ms ease-out ${ANIM_ETENDRE_MS}ms}
+/* Quand le bouton porte les deux (fondu + rebond), on les enchaine dans la meme declaration. */
+.ccl-case--reparait.ccl-case--rebondit{
+  animation:ccl-reparait ${ANIM_EFFACER_MS}ms ease-out both,
+            ccl-rebond ${ANIM_REBOND_MS}ms ease-out ${ANIM_ETENDRE_MS}ms}
+
 /* EXIGENCE TRANSVERSE DU DEPOT : qui demande moins de mouvement n'en recoit aucun. L'etat final, lui, est la
    immediatement — c'est exactement ce qu'Arno demande (« prefers-reduced-motion : pas d'animation, etat final
-   direct »). Le fantome DISPARAIT au lieu de s'effacer : il n'a plus rien a raconter. */
+   direct »). Les fantomes DISPARAISSENT au lieu de s'effacer : ils n'ont plus rien a raconter. */
 @media (prefers-reduced-motion: reduce){
   .ccl-case--elastique{animation:none}
-  .ccl-fantome{display:none}
+  .ccl-fantome,.ccl-scinde{display:none}
+  .ccl-case--reparait,.ccl-case--rebondit,.ccl-case--reparait.ccl-case--rebondit{animation:none;opacity:1}
   .ccl-case{transition:none}
 }
 

@@ -23,19 +23,73 @@
 import { query } from '../lib/db/client';
 import { citeUneAdresseAgence } from '../lib/gestion/adressesAgence';
 import {
-  COMPTES_VIDES, chargerLibelles, examinerFilsPrecis, type ComptesPasse,
+  COMPTES_VIDES, chargerLibelles, changerStatut, examinerFilsPrecis, type ComptesPasse,
 } from '../lib/gestion/rattachementRepo';
+import { citationDuBien, texteCherchable, type BienConnu } from '../lib/gestion/propositionsBien';
 import { rattachementsDisponibles } from '../lib/gestion/schema';
 
 const P = '  ';
 
 /** Les lots dont l'adresse EST celle de l'agence. LECTURE SEULE. */
-async function lotsDeLAgence(): Promise<{ cle: string; libelle: string }[]> {
+async function lotsDeLAgence(): Promise<{ cle: string; libelle: string; bien: BienConnu }[]> {
   const { rows } = await query<{ cle: string; adresse: string | null; commune: string | null }>(
     'SELECT wippimmo_id AS cle, adresse, commune FROM gestion_annuaire_lot');
   return rows
     .filter((l) => citeUneAdresseAgence(`${l.adresse ?? ''} ${l.commune ?? ''}`))
-    .map((l) => ({ cle: l.cle, libelle: `${l.adresse ?? ''}, ${l.commune ?? ''} — lot ${l.cle}` }));
+    .map((l) => ({
+      cle: l.cle,
+      libelle: `${l.adresse ?? ''}, ${l.commune ?? ''} — lot ${l.cle}`,
+      bien: {
+        cle: l.cle, numero: l.cle, adresse: l.adresse, commune: l.commune,
+        proprietaireCle: null, proprietaireNom: null,
+      },
+    }));
+}
+
+/**
+ * ══ 🔴🔴 LE BALAYAGE FINAL : UNE PROPOSITION DONT LA CITATION N'EXISTE PLUS ════════════════════════════════════
+ *
+ * LE DÉFAUT QU'IL FERME, trouvé le 01/10/2026 en vérifiant les 33 propositions restantes. Le réexamen du moteur
+ * (`examinerFilsPrecis`) saute les mails mis au SPAM ou à la CORBEILLE de Gmail — c'est voulu, et c'est juste :
+ * on ne cherche pas à quel logement rattacher une publicité. Mais les propositions déjà posées sur ces mails-là
+ * n'étaient donc JAMAIS revisitées : 30 lignes vivantes, dont le mail 57203, où notre signature citée derrière des
+ * « > » désignait encore le lot 494. Sorti de la corbeille, ce mail serait revenu avec sa fausse proposition.
+ *
+ * 🔴 LA RÈGLE EST CELLE D'ARNO, APPLIQUÉE À LA LETTRE : « la signature de l'agence, quelle que soit sa forme, ne
+ * sert JAMAIS à faire une proposition ». On rejoue donc la citation sur le texte NETTOYÉ ; si elle n'existe plus,
+ * la proposition est retirée — par la porte publique (`changerStatut`), donc datée, signée et réversible.
+ *
+ * ⚠️ ON NE TOUCHE QUE LES PROPOSITIONS DU MOTEUR, et jamais une ligne confirmée ou qu'un humain a touchée.
+ */
+async function balayerLesCitationsDisparues(
+  lots: readonly { cle: string; bien: BienConnu }[], appliquer: boolean,
+): Promise<{ vues: number; retirees: number }> {
+  const parCle = new Map(lots.map((l) => [l.cle, l.bien]));
+  const { rows } = await query<{
+    id: string; cle: string; objet: string | null; corps: string | null; pieces: string[] | null;
+  }>(
+    `SELECT r.id::text, r.cible_cle AS cle, m.objet, left(coalesce(m.corps_texte,''), 4000) AS corps,
+            (SELECT array_agg(p.nom_fichier) FROM gestion_piece p WHERE p.message_id = m.id) AS pieces
+       FROM gestion_rattachement r JOIN gestion_message m ON m.id = r.message_id
+      WHERE r.cible_sorte = 'lot' AND r.cible_cle = ANY($1::text[]) AND r.statut = 'propose'
+        AND r.origine = 'automatique' AND r.statut_par_libelle IS NULL AND r.piece_id IS NULL`,
+    [lots.map((l) => l.cle)]);
+
+  let retirees = 0;
+  for (const r of rows) {
+    const bien = parCle.get(r.cle);
+    if (bien === undefined) continue;
+    const texte = texteCherchable({ objet: r.objet, corps: r.corps, pieces: r.pieces ?? [] });
+    if (citationDuBien(bien, texte) !== null) continue;   // la citation tient encore : on ne touche à rien
+    retirees += 1;
+    if (!appliquer) continue;
+    await changerStatut({
+      lienId: Number(r.id), statut: 'retire',
+      auteur: { id: null, libelle: 'nettoyage des signatures de l’agence' },
+      motif: 'la citation venait d’une signature ou d’un bloc cité : elle ne fonde plus de proposition',
+    });
+  }
+  return { vues: rows.length, retirees };
 }
 
 /** Combien de propositions vivantes portent ces lots, et combien de liens y ont été CONFIRMÉS. LECTURE SEULE. */
@@ -78,7 +132,9 @@ async function main(): Promise<void> {
   const filIds = fils.map((f) => Number(f.fil_id));
 
   if (!appliquer) {
-    console.log(`\n🔵 SIMULATION — ${filIds.length} conversation(s) seraient réexaminées. `
+    const balayage = await balayerLesCitationsDisparues(lots, false);
+    console.log(`\n🔵 SIMULATION — ${filIds.length} conversation(s) seraient réexaminées, `
+      + `et ${balayage.retirees} proposition(s) sur ${balayage.vues} seraient retirées faute de citation. `
       + 'Rien n’a été écrit. Relancez avec --appliquer.');
     return;
   }
@@ -96,8 +152,12 @@ async function main(): Promise<void> {
     process.stdout.write(`${P}${Math.min(i + PAQUET, filIds.length)} / ${filIds.length}\r`);
   }
 
+  // ③ CE QUE LE MOTEUR NE REVISITE JAMAIS (spam, corbeille) : on rejoue la citation à la main.
+  const balayage = await balayerLesCitationsDisparues(lots, true);
+  console.log(`\n${P}balayage des citations disparues : ${balayage.retirees} retirée(s) sur ${balayage.vues}`);
+
   const apres = await compter(cles);
-  console.log('\n\nAPRÈS');
+  console.log('\nAPRÈS');
   console.log(`${P}propositions vivantes   ${apres.proposes}`);
   console.log(`${P}liens CONFIRMÉS         ${apres.confirmes}`);
   console.log(`\n${P}messages réexaminés     ${comptes.messagesVus}`);
