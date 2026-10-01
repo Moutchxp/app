@@ -728,6 +728,32 @@ export function periodesDisponibles(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — LA MIGRATION 291 EST-ELLE APPLIQUÉE ? ═══════════════════════════════════
+ *
+ * Elle seule permet de ranger un document automatique chez une FICHE (propriétaire ou locataire) sans passer par
+ * un bien. Tant qu'elle ne l'est pas, la section « Documents automatiques » ne s'affiche nulle part et le
+ * classement ne range rien : tout se comporte exactement comme avant ce lot.
+ *
+ * ⚠️ ON SONDE LA CONTRAINTE, PAS UNE TABLE NI UNE COLONNE. Cette migration ne crée rien : elle DESSERRE une règle
+ * existante. Le seul fait observable est donc la nouvelle forme de `gestion_rattachement_cible_bien_chk` — et on
+ * la reconnaît au mot `document_auto`, qui n'apparaît nulle part ailleurs.
+ */
+export function documentsAutoDisponible(): Promise<boolean> {
+  return memoiser('contrainte.document_auto', async () => {
+    try {
+      const { rows } = await query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_constraint
+          WHERE conrelid = 'gestion_rattachement'::regclass
+            AND conname = 'gestion_rattachement_cible_bien_chk'
+            AND pg_get_constraintdef(oid) LIKE '%document_auto%'`);
+      return (rows[0]?.n ?? 0) > 0;
+    } catch {
+      return false; // base injoignable, ou table absente : on répond « non », donc l'écran se tait
+    }
+  });
+}
+
+/**
  * 🔴 LOT BANDEAU-ET-BROUILLONS — la migration 284 est-elle appliquée ? Elle porte « IGNORER » un échec d'envoi.
  */
 export function envoiIgnoreDisponible(): Promise<boolean> {

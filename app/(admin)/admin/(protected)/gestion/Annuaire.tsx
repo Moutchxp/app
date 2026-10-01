@@ -10,6 +10,8 @@ import type {
 } from '../../../../lib/gestion/annuaireRepo';
 // LOT FICHES-ANNUAIRE étape B — « la vie du bien » : tous ses mails, dans l'idiome de la boîte.
 import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
+// 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
+import { DocumentsAutomatiques } from './DocumentsAutomatiques';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 // LOT FICHES-ANNUAIRE étape C — les personnes en CARTES côte à côte, modifiables sur place.
@@ -902,7 +904,9 @@ function VueProprietaire({ f, ouvrir, onHistorique, gestes, onCreer, onHistoriqu
         </section>
       )}
 
-
+      {/* 🔴🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — les documents du logiciel de gestion, rangés chez LA PERSONNE.
+          Sans la migration 291, le composant ne rend RIEN : la fiche est exactement celle d'avant. */}
+      <DocumentsAutomatiques sorte="proprietaire" id={f.id} />
     </>
   );
 }
@@ -1376,6 +1380,10 @@ function VueLocataire({
             onHistorique={onHistorique} />
         </p>
       )}
+
+      {/* 🔴🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — quittances, avis d'échéance, relances : ils sont adressés à CETTE
+          personne, et c'est chez elle qu'ils se rangent. Sans la migration 291, rien ne s'affiche. */}
+      <DocumentsAutomatiques sorte="locataire" id={f.id} />
     </>
   );
 }
