@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  adresseEntiere, descriptifDuBien, descriptifPauvre, DESCRIPTIF_A_COMPLETER, immeubleRepeteLAdresse,
+  adresseEntiere, descriptifDuBien, descriptifHorsLigne, AUCUN_DETAIL_SUPPLEMENTAIRE, immeubleRepeteLAdresse,
 } from './descriptifBien';
 
 /**
@@ -26,7 +26,7 @@ const valeur = (b: Parameters<typeof descriptifDuBien>[0], libelle: string) =>
 describe('🔴🔴 ① tout ce que la base sait, et rien de plus', () => {
   it('🔴 un bien complet rend ses lignes, dans l’ordre d’Arno', () => {
     expect(libelles(LOT_360)).toEqual([
-      'Nature', 'Type', 'Adresse', 'Propriétaire', 'Locataire en place',
+      'Nature', 'Type', 'Adresse', 'Propriétaire', 'Locataire en place', 'Date d’entrée',
       'N° de lot', 'En gestion depuis', 'Dossier Drive',
     ]);
   });
@@ -44,7 +44,16 @@ describe('🔴🔴 ① tout ce que la base sait, et rien de plus', () => {
 
   it('🔴 les dates sont écrites à la française', () => {
     expect(valeur(LOT_360, 'En gestion depuis')).toBe('15/03/2021');
-    expect(valeur(LOT_360, 'Locataire en place')).toBe('MARTIN Paul — depuis le 01/09/2024');
+    expect(valeur(LOT_360, 'Date d’entrée')).toBe('01/09/2024');
+  });
+
+  /**
+   * 🔴🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — LE NOM ET LA DATE SONT DEUX LIGNES. Arno veut pouvoir cacher le
+   * locataire déjà visible sur la ligne SANS perdre sa date d'entrée, qu'il demande expressément de garder.
+   */
+  it('🔴🔴 le locataire et sa date d’entrée sont deux lignes distinctes', () => {
+    expect(valeur(LOT_360, 'Locataire en place')).toBe('MARTIN Paul');
+    expect(valeur(LOT_360, 'Date d’entrée')).toBe('01/09/2024');
   });
 
   it('🔴 plusieurs propriétaires sont tous nommés', () => {
@@ -54,8 +63,8 @@ describe('🔴🔴 ① tout ce que la base sait, et rien de plus', () => {
 
   it('🔴 plusieurs occupants font plusieurs lignes', () => {
     const l = descriptifDuBien({ ...LOT_360, occupants: [{ nom: 'A', depuis: '2024-01-01' }, { nom: 'B' }] })
-      .filter((x) => x.libelle === 'Locataire en place');
-    expect(l.map((x) => x.valeur)).toEqual(['A — depuis le 01/01/2024', 'B']);
+      .filter((x) => x.libelle === 'Locataire en place' || x.libelle === 'Date d’entrée');
+    expect(l.map((x) => x.valeur)).toEqual(['A', '01/01/2024', 'B']);
   });
 
   /** ⚠️ UN CHAMP VIDE N'EST PAS AFFICHÉ — la règle d'Arno, et ce qui rend la liste honnête. */
@@ -76,7 +85,7 @@ describe('🔴🔴 ① tout ce que la base sait, et rien de plus', () => {
     });
     expect(l.map((x) => x.libelle)).toEqual([
       'Nature', 'Type', 'Nombre de pièces', 'Surface', 'Annexes', 'Adresse', 'Étage', 'Escalier',
-      'Propriétaire', 'Locataire en place', 'N° de lot', 'En gestion depuis', 'Dossier Drive',
+      'Propriétaire', 'Locataire en place', 'Date d’entrée', 'N° de lot', 'En gestion depuis', 'Dossier Drive',
     ]);
   });
 
@@ -106,32 +115,62 @@ describe('⚠️ ② le bâtiment, seulement s’il apprend quelque chose', () =
 });
 
 /**
- * ══ 🔴🔴 ③ « S'IL NE RESTE PRESQUE RIEN, LA FENÊTRE L'INDIQUE » ════════════════════════════════════════════════
+ * ══ 🔴🔴 ③ LOT PROPOSITIONS-EMAILS-MULTIPLES — LA FENÊTRE NE RÉPÈTE PAS LA LIGNE ═══════════════════════════════
  *
- * « Presque rien » = rien au-delà de ce que le TITRE disait déjà (nature, type, adresse). Une fenêtre qui ne
- * ferait que répéter le titre laisserait croire que le bien est décrit alors qu'il ne l'est pas.
+ * ARNO (01/10/2026) : « Elle n'affiche que ce qui n'est PAS déjà sur la ligne : ni l'adresse, ni le type, ni le
+ * propriétaire, ni le locataire en place s'ils sont déjà visibles. Elle garde le reste […]. S'il ne reste rien :
+ * “Aucun détail supplémentaire — compléter la fiche du bien”, avec le lien. »
  */
-describe('🔴🔴 ③ un descriptif qui n’apprend rien le DIT', () => {
-  it('🔴🔴 nature, type et adresse seuls : la fenêtre l’indique', () => {
-    const l = descriptifDuBien({
-      nature: 'Appartement', typeBien: 'Studio', adresse: '4 rue Hugo', commune: 'PUTEAUX',
-    });
-    expect(l).toHaveLength(3);
-    expect(descriptifPauvre(l)).toBe(true);
-    expect(DESCRIPTIF_A_COMPLETER).toBe('Descriptif à compléter dans la fiche du bien.');
+describe('🔴🔴 ③ ce qui est déjà sur la ligne n’est pas répété', () => {
+  /** Ce que l'écran de rattachement affiche vraiment : le titre du bien, puis ses parties. */
+  const LIGNE = '10 rue Chateaubriand, CHATILLON — Appartement meublé · Type 2'
+    + ' propriétaire THAI Cécile locataire MARTIN Paul';
+
+  it('🔴🔴 adresse, nature, type, propriétaire et locataire disparaissent de la fenêtre', () => {
+    const restant = descriptifHorsLigne(descriptifDuBien(LOT_360), LIGNE).map((l) => l.libelle);
+    for (const parti of ['Adresse', 'Nature', 'Type', 'Propriétaire', 'Locataire en place']) {
+      expect(restant, parti).not.toContain(parti);
+    }
   });
 
-  it('🔴 un seul champ de plus suffit à ne plus le dire', () => {
-    expect(descriptifPauvre(descriptifDuBien({ nature: 'Appartement', cle: '12' }))).toBe(false);
-    expect(descriptifPauvre(descriptifDuBien({ nature: 'Appartement', proprietaires: ['X'] }))).toBe(false);
+  /** 🔴 ET LE RESTE EST GARDÉ — y compris la date d'entrée, qu'Arno nomme expressément. */
+  it('🔴🔴 le reste est gardé : date d’entrée, n° de lot, gestion, Drive', () => {
+    expect(descriptifHorsLigne(descriptifDuBien(LOT_360), LIGNE).map((l) => l.libelle))
+      .toEqual(['Date d’entrée', 'N° de lot', 'En gestion depuis', 'Dossier Drive']);
   });
 
-  it('⚠️ une fiche entièrement vide est pauvre, elle aussi', () => {
-    expect(descriptifPauvre(descriptifDuBien({}))).toBe(true);
+  /** ⚠️ LE CODE POSTAL N'EST PAS SUR LA LIGNE, et il ne doit pas suffire à faire répéter l'adresse. */
+  it('⚠️ l’adresse part même si la ligne n’écrit pas le code postal', () => {
+    const l = descriptifHorsLigne(descriptifDuBien(LOT_360), '10 rue Chateaubriand, CHATILLON');
+    expect(l.map((x) => x.libelle)).not.toContain('Adresse');
   });
 
-  it('⚠️ une fiche complète ne l’est pas', () => {
-    expect(descriptifPauvre(descriptifDuBien(LOT_360))).toBe(false);
+  it('🔴 ce que la ligne NE dit PAS reste affiché', () => {
+    const l = descriptifHorsLigne(descriptifDuBien(LOT_360), '10 rue Chateaubriand, CHATILLON');
+    expect(l.map((x) => x.libelle)).toContain('Propriétaire');
+    expect(l.map((x) => x.libelle)).toContain('Nature');
+  });
+
+  /** ⚠️ SANS LIGNE CONNUE, ON NE RETIRE RIEN : le doute profite à ce qui se voit. */
+  it('⚠️ une ligne inconnue ne fait rien disparaître', () => {
+    expect(descriptifHorsLigne(descriptifDuBien(LOT_360), null)).toHaveLength(9);
+    expect(descriptifHorsLigne(descriptifDuBien(LOT_360), '   ')).toHaveLength(9);
+  });
+
+  /** 🔴 LE N° DE LOT N'EST JAMAIS EFFACÉ, même si la ligne contient son nombre par hasard. */
+  it('🔴🔴 le n° de lot survit à tout : c’est l’identité du bien', () => {
+    expect(descriptifHorsLigne(descriptifDuBien(LOT_360), 'lot 360 — 10 rue Chateaubriand')
+      .map((l) => l.libelle)).toContain('N° de lot');
+  });
+
+  it('🔴 quand il ne reste rien, la phrase d’Arno est celle-ci', () => {
+    const tout = descriptifDuBien({ nature: 'Appartement', typeBien: 'Studio', adresse: '4 rue Hugo' });
+    expect(descriptifHorsLigne(tout, '4 rue Hugo — Appartement · Studio')).toEqual([]);
+    expect(AUCUN_DETAIL_SUPPLEMENTAIRE).toBe('Aucun détail supplémentaire — compléter la fiche du bien');
+  });
+
+  it('⚠️ une fiche entièrement vide ne rend aucune ligne', () => {
+    expect(descriptifHorsLigne(descriptifDuBien({}), 'quoi que ce soit')).toEqual([]);
   });
 });
 

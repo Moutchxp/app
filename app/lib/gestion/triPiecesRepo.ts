@@ -20,6 +20,8 @@ import { sqlNomAffiche } from './nomUsageSql';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { nomBien, nomProprietaire } from './driveArbre';
 import { adressesDuChamp } from './adressesMessage';
+// 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — la liste centrale des adresses postales de l'agence (bureau ET siège).
+import { VOIES_AGENCE } from './adressesAgence';
 import type { AnnuaireTri, LotTri, PieceATrier, ProprietaireTri } from './triPieces';
 
 /**
@@ -27,9 +29,13 @@ import type { AnnuaireTri, LotTri, PieceATrier, ProprietaireTri } from './triPie
  *
  * MESURÉ le 26/09/2026 : sans cette exclusion, la règle c reconnaissait cette adresse dans le corps de tous nos
  * envois et y expédiait 1 853 pièces, toutes à tort. Une signature dit qui envoie, pas de quoi le mail parle.
- * Elle vit ici — et non en base — parce que la signature vient de Google, pas de `gestion_config`.
+ *
+ * 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — ELLE N'EST PLUS ÉCRITE ICI. La même erreur s'est reproduite le
+ * 01/10/2026 dans l'AUTRE moteur, celui des propositions de bien (2 226 propositions sur le lot 494), parce que la
+ * règle vivait dans ce fichier-ci et nulle part ailleurs. La liste — bureau ET siège — est désormais centrale :
+ * `adressesAgence.ts`. Ce nom reste, parce que la commande `--adresse-agence=` l'emploie.
  */
-export const ADRESSE_AGENCE_DEFAUT = '2 rue Mars et Roty';
+export const ADRESSE_AGENCE_DEFAUT = VOIES_AGENCE[0];
 
 /** Le corps est tronqué : une adresse citée l'est en tête, et 26 000 corps entiers ne tiennent pas en mémoire. */
 export const CORPS_MAX = 4000;
@@ -111,7 +117,16 @@ export async function chargerContexteTri(adresseAgence = ADRESSE_AGENCE_DEFAUT):
 
   const annuaire: AnnuaireTri = {
     adressesMaison: [cfg[0]?.adresse ?? 'gestion@criterimmo.fr'],
-    adressesPostalesMaison: adresseAgence.trim() === '' ? [] : [adresseAgence],
+    /**
+     * 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — TOUTES LES ADRESSES DE L'AGENCE, PAS SEULEMENT LA PREMIÈRE. Le siège
+     * (191-195 avenue Charles de Gaulle) figure au bas des courriers officiels : il devait être écarté lui aussi.
+     *
+     * ⚠️ `--adresse-agence=` RESTE PRIORITAIRE quand on la donne : c'est la soupape du rapport, qui permet de
+     * mesurer ce que l'exclusion coûte en la retirant (`--adresse-agence=`, vide).
+     */
+    adressesPostalesMaison: adresseAgence.trim() === ''
+      ? []
+      : [...new Set([adresseAgence, ...VOIES_AGENCE])],
     contacts: contacts.map((c) => ({
       email: c.valeur, role: c.sujet as 'proprietaire' | 'locataire', sujetId: Number(c.sujet_id),
     })),

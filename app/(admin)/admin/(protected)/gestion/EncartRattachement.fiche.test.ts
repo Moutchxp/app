@@ -649,6 +649,96 @@ describe('🔴🔴 le titre du bien, et sa pastille, dans le bloc gris', () => {
 });
 
 /**
+ * ══ 🔴🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — LA PASTILLE S'OUVRE AU SURVOL, ET NE RÉPÈTE PAS LA LIGNE ══════════
+ *
+ * ARNO (01/10/2026, point 3) : « Elle s'ouvre AU SURVOL (court délai d'environ 150 ms, se referme quand la souris
+ * quitte la pastille et la fenêtre). Elle s'ouvre aussi au focus clavier. Au toucher (mobile), un appui l'ouvre.
+ * Elle n'affiche que ce qui n'est PAS déjà sur la ligne. »
+ */
+describe('🔴🔴 la pastille « i » : survol, focus, et aucun doublon', () => {
+  const pastille = () => ligneBiens()?.querySelector('.ifb-pastille') as HTMLElement;
+  const racine = () => ligneBiens()?.querySelector('.ifb') as HTMLElement;
+  const fenetre = () => container.querySelector('.ifb-fenetre');
+  const survoler = async (e: HTMLElement) => {
+    await act(async () => { e.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+  };
+  const quitter = async (e: HTMLElement) => {
+    await act(async () => { e.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })); });
+  };
+  const attendre = async (ms: number) => { await act(async () => { vi.advanceTimersByTime(ms); }); await calmer(); };
+
+  beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** 🔴 LE DÉLAI N'EST PAS UN CONFORT : sans lui, traverser une liste ouvrirait (et chargerait) chaque fenêtre. */
+  it('🔴🔴 le survol n’ouvre PAS tout de suite…', async () => {
+    await monter([lien()]);
+    await survoler(pastille());
+    expect(fenetre()).toBeNull();
+    await attendre(100);
+    expect(fenetre()).toBeNull();
+  });
+
+  it('🔴🔴 …et l’ouvre après le court délai', async () => {
+    await monter([lien()]);
+    await survoler(pastille());
+    await attendre(200);
+    expect(fenetre()).not.toBeNull();
+  });
+
+  /** ⚠️ QUITTER LA RACINE, PAS LE BOUTON : la fenêtre et la pastille sont le même ensemble. */
+  it('🔴 quitter la pastille ET la fenêtre referme', async () => {
+    await monter([lien()]);
+    await survoler(pastille());
+    await attendre(200);
+    expect(fenetre()).not.toBeNull();
+    await quitter(racine());
+    expect(fenetre()).toBeNull();
+  });
+
+  it('⚠️ repartir avant la fin du délai n’ouvre rien du tout', async () => {
+    await monter([lien()]);
+    await survoler(pastille());
+    await attendre(80);
+    await quitter(racine());
+    await attendre(400);
+    expect(fenetre()).toBeNull();
+  });
+
+  it('🔴 le focus clavier l’ouvre, sans attendre', async () => {
+    await monter([lien()]);
+    await act(async () => { pastille().focus(); });
+    await calmer();
+    expect(fenetre()).not.toBeNull();
+  });
+
+  /** 🔴 AU TOUCHER, AUCUN SURVOL N'EXISTE : l'appui reste la porte, et il ne coche pas la case. */
+  it('🔴 un appui (toucher) l’ouvre, et la referme', async () => {
+    await monter([lien()]);
+    await cliquer(pastille());
+    expect(fenetre()).not.toBeNull();
+    await cliquer(pastille());
+    expect(fenetre()).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 AUCUN DOUBLON. La ligne écrit « 22 Boulevard Richard Wallace, PUTEAUX — Appartement · Type 2 » : la
+   * fenêtre ne doit répéter ni l'adresse, ni la nature, ni le type — mais garder le n° de lot et le reste.
+   */
+  it('🔴🔴 elle n’affiche pas ce qui est déjà sur la ligne', async () => {
+    await monter([lien()]);
+    await cliquer(pastille());
+    const libelles = [...(fenetre()?.querySelectorAll('.ifb-libelle') ?? [])].map((x) => x.textContent);
+    expect(libelles).not.toContain('Adresse');
+    expect(libelles).not.toContain('Nature');
+    expect(libelles).not.toContain('Type');
+    // …et ce qui n'est PAS sur la ligne reste : le n° de lot, la gestion, le propriétaire.
+    expect(libelles).toContain('N° de lot');
+    expect(libelles).toContain('Propriétaire');
+  });
+});
+
+/**
  * ══ 🔴🔴 LES TROIS ÉTATS DU MODULE, AU-DESSUS D'UN MAIL ═══════════════════════════════════════════════════════
  *
  * ARNO (point 1) : « Mail non rattaché (À classer) → deux boutons. Mail rattaché / Interne / Hors gestion →

@@ -31,9 +31,12 @@
  * (d), le moteur PROPOSE et l'humain tranche — c'est un clic contre une erreur silencieuse dans l'historique d'un
  * client, et le second coûte infiniment plus cher.
  *
- * Aucun import, aucune base, aucun React : tous les cas se rejouent ici sans rien brancher.
+ * Aucune base, aucun React : tous les cas se rejouent ici sans rien brancher.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+// 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — le corps d'un mail traîne l'échange entier derrière lui : citations et
+//   signature de l'agence sont retirées AVANT qu'on y cherche un bien. Module PUR lui aussi.
+import { texteNonCite } from './texteCite';
 
 /** Un bien de la gestion, réduit à ce qui permet de le proposer et de le reconnaître dans un texte. */
 export interface BienConnu {
@@ -155,9 +158,24 @@ export function citationDuBien(bien: BienConnu, texte: string): 'adresse' | 'lot
   return lotCite(bien, texte) ? 'lot' : null;
 }
 
-/** Tous les textes du mail, normalisés en une seule chaîne à fouiller. PUR. */
+/**
+ * Tous les textes du mail, normalisés en une seule chaîne à fouiller. PUR.
+ *
+ * ══ 🔴🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — LE CORPS EST D'ABORD DÉBARRASSÉ DE CE QUE SON AUTEUR N'A PAS ÉCRIT ══
+ *
+ * Citations, signatures de l'agence, liens : voir `texteCite`. Sans cela, NOTRE PROPRE adresse postale, citée au
+ * bas de chaque réponse, désignait le lot 494 — 2 226 propositions dans la base pour cette seule raison
+ * (mesuré le 01/10/2026, mail 57306 de Mme THAI).
+ *
+ * ⚠️ LE NETTOYAGE EST ICI, ET NON CHEZ LES APPELANTS. Trois chemins fabriquent ces textes (le classement d'un mail
+ * reçu, la rédaction, la passe automatique) : en laisser un seul l'oublier, c'est rouvrir le défaut par une porte
+ * de service, et personne ne le verrait — une proposition fausse ne fait pas de bruit.
+ *
+ * ⚠️ L'OBJET ET LES NOMS DE PIÈCES NE SONT PAS TOUCHÉS : un objet n'est jamais une citation, un nom de fichier non
+ * plus.
+ */
 export function texteCherchable(t: TextesDuMail): string {
-  return normaliser([t.objet ?? '', t.corps ?? '', ...(t.pieces ?? [])].join(' '));
+  return normaliser([t.objet ?? '', texteNonCite(t.corps), ...(t.pieces ?? [])].join(' '));
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════

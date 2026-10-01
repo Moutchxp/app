@@ -3,15 +3,21 @@ import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import {
   contexteClassement, contexteClassementRedaction, mailsSansClassementManuel,
 } from '../../../../../lib/gestion/classementBien';
+// 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — le filet contre le cache périmé (voir l'encadré du GET).
+import { rafraichirAvantOuverture } from '../../../../../lib/gestion/rafraichirPropositions';
 
 /**
  * /api/admin/gestion/classement — LOT STATUT-PAR-MAIL : DE QUOI CLASSER UN MAIL DANS UN BIEN.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * 🔒 LECTURE SEULE, ET UN SEUL VERBE. Cette route ne fait que RÉPONDRE à « à quels biens ce mail peut-il se
+ * 🔒 AUCUN CLASSEMENT NE SE POSE ICI. Cette route ne fait que RÉPONDRE à « à quels biens ce mail peut-il se
  * rattacher, et qui sont leurs parties à sa date ? ». Le geste d'ÉCRITURE reste celui qui existe déjà —
  * `POST /api/admin/gestion/rattachements` — avec son journal, son auteur et sa réversibilité. Ouvrir un second
  * chemin d'écriture ici aurait donné deux façons de poser un rattachement, donc un jour deux comportements.
+ *
+ * ⚠️ LOT PROPOSITIONS-EMAILS-MULTIPLES — ELLE N'EST PLUS STRICTEMENT EN LECTURE SEULE, et c'est une demande
+ * d'Arno du 01/10/2026 : avant de répondre pour un mail, elle remet à jour la RECONNAISSANCE des adresses si une
+ * fiche a changé depuis son calcul, puis les propositions automatiques qui s'en déduisent. Voir l'encadré du GET.
  *
  * LES QUESTIONS :
  *   · `?message=N`            les biens proposables pour ce mail, la recommandation, les parties à SA date
@@ -104,6 +110,22 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ etat: 'erreur', message: 'Mail non désigné.' },
         { status: 400, headers: { 'Cache-Control': SANS_CACHE } });
     }
+    /**
+     * ══ 🔴🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — AUCUN CACHE PÉRIMÉ À L'OUVERTURE ═══════════════════════════════
+     *
+     * DEMANDE D'ARNO (01/10/2026) : « à l'ouverture d'un mail, les propositions sont recalculées si la fiche a
+     * changé depuis leur calcul ». Le défaut qu'elle ferme : il avait ajouté la seconde adresse de Mme THAI à sa
+     * fiche, rechargé, rouvert le mail — et n'avait toujours AUCUNE proposition de ses deux biens, parce que la
+     * reconnaissance des adresses était figée au jour de la capture.
+     *
+     * ⚠️ C'EST LA SEULE ÉCRITURE DE CETTE ROUTE, et elle n'est pas un classement : elle remet à jour un CALCUL
+     * (la reconnaissance des adresses, puis les propositions automatiques qui s'en déduisent). Les rattachements
+     * posés à la main n'y survivent pas par chance mais par construction — voir `rafraichirPropositions`.
+     *
+     * ⚠️ ELLE NE COÛTE RIEN QUAND RIEN N'A CHANGÉ : une requête qui ne rend aucune ligne (voir
+     * `messagesAReconnaitre`), et l'on passe.
+     */
+    await rafraichirAvantOuverture(message);
     return Response.json({ etat: 'ok', contexte: await contexteClassement(message) },
       { headers: { 'Cache-Control': SANS_CACHE } });
   } catch (e) {

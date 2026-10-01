@@ -8,6 +8,12 @@ import {
   type CoordonneeSaisie, type RepartitionCoordonnee,
 } from './annuaireEdition';
 import type { Auteur } from './rattachementRepo';
+/**
+ * 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — CORRIGER UNE FICHE DOIT CHANGER CE QUE LES MAILS PROPOSENT, TOUT DE
+ * SUITE. Sans cela, le geste n'a d'effet que sur les mails à venir, et celui qu'on regarde — celui qui a motivé la
+ * correction — reste muet. Voir `rafraichirPropositions`.
+ */
+import { rafraichirPourAdresses } from './rafraichirPropositions';
 
 /**
  * LOT FICHES-ANNUAIRE (étape C) — ÉCRIRE DANS L'ANNUAIRE. IMPUR (base), et le seul module qui écrive.
@@ -138,7 +144,13 @@ export async function modifierPersonne(
     if (!retenues.ok) return { etat: 'refus', motif: retenues.motif, rang: retenues.rang };
   }
 
-  return withTransaction(async (q) => {
+  /**
+   * 🔴 LES ADRESSES ÉLECTRONIQUES TOUCHÉES — celles qui ENTRENT comme celles qui SORTENT. On les recueille dans la
+   * transaction et on s'en sert APRÈS : un recalcul qui lirait la base avant le COMMIT n'y verrait rien de nouveau.
+   */
+  const emailsTouches = new Set<string>();
+
+  const issue = await withTransaction(async (q) => {
     const { rows } = await q<Record<string, string | null>>(
       `SELECT * FROM ${TABLE[sujet]} WHERE id = $1 FOR UPDATE`, [id]);
     const avant = rows[0];
@@ -200,6 +212,7 @@ export async function modifierPersonne(
       // 🔴 CE QUI SORT EST ARCHIVÉ — jamais effacé. On garde qui l'a retiré et quand, dans le journal.
       for (const a of anciennes) {
         if (voulues.has(`${a.sorte}:${a.valeur}`)) continue;
+        if (a.sorte === 'email') emailsTouches.add(a.valeur);
         await q('UPDATE gestion_annuaire_contact SET archive_le = now() WHERE id = $1', [Number(a.id)]);
         await journaliser(q, {
           personneId: id, action: 'annuaire_coordonnee_retiree',
@@ -211,6 +224,9 @@ export async function modifierPersonne(
       // 🔴 CE QUI ENTRE OU REVIENT : `ON CONFLICT` sur la clé unique (sujet, sujet_id, sorte, valeur). Une
       //    coordonnée retirée puis remise se RÉVEILLE (archive_le à NULL) au lieu de faire une seconde ligne.
       for (const c of retenues.retenues) {
+        // ⚠️ TOUTES LES ADRESSES RETENUES, pas seulement les nouvelles : une adresse remise après avoir été
+        //   archivée ne produit pas de ligne « ancienne », et c'est pourtant le cas où le recalcul compte le plus.
+        if (c.sorte === 'email') emailsTouches.add(c.valeur);
         await q(
           `INSERT INTO gestion_annuaire_contact
              (sujet, sujet_id, sorte, valeur, valeur_brute, rang, libelle, origine, archive_le)
@@ -235,6 +251,26 @@ export async function modifierPersonne(
 
     return { etat: 'ok' as const, data: undefined };
   });
+
+  /**
+   * ══ 🔴🔴 LE RECALCUL IMMÉDIAT (demande d'Arno du 01/10/2026) ═══════════════════════════════════════════════
+   *
+   * APRÈS LE COMMIT, ET JAMAIS DEDANS : le recalcul relit l'annuaire pour reconnaître les adresses des mails ; à
+   * l'intérieur de la transaction, il lirait l'état d'AVANT et conclurait que rien n'a changé.
+   *
+   * ⚠️ IL NE PEUT PAS FAIRE ÉCHOUER LA MODIFICATION, qui est déjà écrite et journalisée. Un échec se DIT au
+   * journal du serveur, et le filet de l'ouverture d'un mail rattrapera ces mails-là — c'est précisément à cela
+   * qu'il sert.
+   */
+  if (issue.etat === 'ok' && emailsTouches.size > 0) {
+    try {
+      await rafraichirPourAdresses([...emailsTouches]);
+    } catch (e) {
+      console.error('[annuaire] recalcul des propositions impossible après modification de la fiche %s %d',
+        sujet, id, e);
+    }
+  }
+  return issue;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -469,7 +505,11 @@ export async function separerPersonne(sujet: Sujet, id: number, o: {
   const verdict = verifierSeparation(o.premier, o.second);
   if (!verdict.ok) return { etat: 'refus', motif: verdict.motif };
 
-  return withTransaction(async (q) => {
+  /** 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — séparer DÉPLACE des adresses d'une fiche à l'autre : le propriétaire
+   *  que ces adresses désignent change, donc les propositions des mails qui les portent aussi. */
+  const emailsTouches = new Set<string>();
+
+  const issue = await withTransaction(async (q) => {
     const { rows } = await q<Record<string, string | null>>(
       `SELECT * FROM ${TABLE[sujet]} WHERE id = $1 FOR UPDATE`, [id]);
     const p = rows[0];
@@ -519,6 +559,7 @@ export async function separerPersonne(sujet: Sujet, id: number, o: {
           WHERE id = $1 AND sujet = $2 AND sujet_id = $3`, [r.contactId, sujet, id]);
       const coord = c[0];
       if (coord === undefined) continue;
+      if (coord.sorte === 'email') emailsTouches.add(coord.valeur);
       // Elle va à la SECONDE (copie) dès que la part la nomme.
       if (r.part === 'second' || r.part === 'les_deux') {
         await q(
@@ -546,6 +587,16 @@ export async function separerPersonne(sujet: Sujet, id: number, o: {
     });
     return { etat: 'ok' as const, data: { nouvelId } };
   });
+
+  // ⚠️ APRÈS LE COMMIT, et sans pouvoir faire échouer la séparation : même règle que `modifierPersonne`.
+  if (issue.etat === 'ok' && emailsTouches.size > 0) {
+    try {
+      await rafraichirPourAdresses([...emailsTouches]);
+    } catch (e) {
+      console.error('[annuaire] recalcul des propositions impossible après séparation de %s %d', sujet, id, e);
+    }
+  }
+  return issue;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -649,7 +700,7 @@ export async function creerPersonne(
   const retenues = verifierCoordonnees(o.coordonnees ?? []);
   if (!retenues.ok) return { etat: 'refus', motif: retenues.motif, rang: retenues.rang };
 
-  return withTransaction(async (q) => {
+  const issue = await withTransaction(async (q) => {
     const cle = `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const civilite = texteOuRien(o.civilite, 40);
     const prenom = texteOuRien(o.prenom, 120);
@@ -703,6 +754,21 @@ export async function creerPersonne(
     });
     return { etat: 'ok' as const, data: { id } };
   });
+
+  /**
+   * 🔴 UNE FICHE CRÉÉE REND RECONNAISSABLES DES ADRESSES QUI NE L'ÉTAIENT PAS — y compris sur des mails VIEUX de
+   * plusieurs mois. C'est le cas le plus utile du lot : on crée la fiche d'un correspondant, et son courrier
+   * passé rejoint aussitôt le bon dossier.
+   */
+  const emails = retenues.ok ? retenues.retenues.filter((c) => c.sorte === 'email').map((c) => c.valeur) : [];
+  if (issue.etat === 'ok' && emails.length > 0) {
+    try {
+      await rafraichirPourAdresses(emails);
+    } catch (e) {
+      console.error('[annuaire] recalcul des propositions impossible après création d’une fiche %s', sujet, e);
+    }
+  }
+  return issue;
 }
 
 /** AJOUTE un occupant à un bien, avec sa date d'entrée. Plusieurs occupants d'un même bail partagent la date. */

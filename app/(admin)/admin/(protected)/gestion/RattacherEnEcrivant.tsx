@@ -546,8 +546,10 @@ export function RattacherEnEcrivant({
                     <input type="checkbox" checked={selection.has(b.cle)} onChange={() => basculer(b.cle)} />
                     {/* 🔴 LOT MODALE-RATTACHER-PROPRE — LE TITRE, SANS NUMÉRO DE LOT : « adresse — qualité ». */}
                     <span className="rec-bien-nom">{titre(b.cle)}</span>
-                    {/* ⚠️ LA PASTILLE EST DANS LE LABEL, et elle NE COCHE PAS : voir `InfoBien`. */}
-                    <InfoBien cle={b.cle} titre={titre(b.cle)} />
+                    {/* ⚠️ LA PASTILLE EST DANS LE LABEL, et elle NE COCHE PAS : voir `InfoBien`.
+                        ⚠️ `surLaLigne` PORTE LES PARTIES, écrites juste dessous dans `rec-parties`. */}
+                    <InfoBien cle={b.cle} titre={titre(b.cle)}
+                      surLaLigne={`${titre(b.cle)} ${b.parties.map((p) => p.nom).join(' ')}`} />
                   </label>
                   {/* 🔴 LE MOTIF EST ÉCRIT EN CLAIR, TOUJOURS (« locataire de ce bien », « propriétaire »…) : on
                       doit savoir POURQUOI ce bien est proposé, et pourquoi sa case est cochée, sans rouvrir le
@@ -577,7 +579,8 @@ export function RattacherEnEcrivant({
                     <input type="checkbox" checked={selection.has(a.cle ?? '')}
                       onChange={() => basculer(a.cle ?? '')} />
                     <span className="rec-bien-nom">{titre(a.cle ?? '')}</span>
-                    <InfoBien cle={a.cle ?? ''} titre={titre(a.cle ?? '')} />
+                    {/* ⚠️ ICI LA LIGNE N'AFFICHE QUE LE TITRE : aucune partie n'est écrite dessous. */}
+                    <InfoBien cle={a.cle ?? ''} titre={titre(a.cle ?? '')} surLaLigne={titre(a.cle ?? '')} />
                   </label>
                   <p className="rec-motif">
                     {origine === 'recherche'
@@ -701,7 +704,9 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, onBasculer }: {
         <span className="rec-ligne-corps">
           <span className="rec-ligne-titre">
             {l.titre}
-            <InfoBien cle={b.cle} titre={l.titre} />
+            {/* ⚠️ `surLaLigne` PORTE AUSSI LES PARTIES, qui sont écrites juste dessous : la fenêtre ne répétera
+                donc ni le propriétaire ni le locataire — mais gardera la DATE D'ENTRÉE, qui n'est pas là. */}
+            <InfoBien cle={b.cle} titre={l.titre} surLaLigne={`${l.titre} ${l.proprietaires} ${l.locataire}`} />
           </span>
           {/* 🔴🔴 « déjà dans la sélection » : la même case, vue d'un autre endroit — jamais un second bien. */}
           {dejaEnHaut && <span className="rec-ligne-deja">déjà dans la sélection</span>}

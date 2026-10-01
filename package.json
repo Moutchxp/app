@@ -107,7 +107,8 @@
     "gestion:classement:plan": "tsx app/scripts/plan-classement.ts",
     "gestion:vidage:audit": "tsx app/scripts/audit-vidage.ts",
     "gestion:miniatures:completer": "tsx app/scripts/completer-miniatures.ts",
-    "gestion:periodes:reprise": "tsx app/scripts/periodes-reprise.ts"
+    "gestion:periodes:reprise": "tsx app/scripts/periodes-reprise.ts",
+    "gestion:propositions:agence": "tsx app/scripts/recalculer-propositions-agence.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",

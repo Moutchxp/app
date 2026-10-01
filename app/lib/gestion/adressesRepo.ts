@@ -97,37 +97,145 @@ export async function releverPaquet(
        FROM gestion_message WHERE id > $1 ORDER BY id LIMIT $2`, [depuis, paquet]);
   if (rows.length === 0) return null;
 
-  for (const m of rows) {
-    const relevees = releverAdresses({
-      de: m.de,
-      destA: adressesDuChamp(m.dest_a),
-      destCc: adressesDuChamp(m.dest_cc),
-      repondreA: adressesDuChamp(m.repondre_a),
-      corps: m.corps ?? '',
-    }, annuaire.adresseGestion, annuaire.partenaires);
-
-    c.messagesVus += 1;
-    for (const a of relevees) {
-      const r = reconnaitre(a, m.recu_le, annuaire.contacts, annuaire.occupations);
-      await query(
-        `INSERT INTO gestion_message_adresse
-           (message_id, adresse, adresse_brute, role, interne, partie, proprietaire_cle, locataire_id, lot_cle, motif, calcule_le)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
-         ON CONFLICT (message_id, adresse, role) DO UPDATE SET
-           adresse_brute = EXCLUDED.adresse_brute, interne = EXCLUDED.interne, partie = EXCLUDED.partie,
-           proprietaire_cle = EXCLUDED.proprietaire_cle, locataire_id = EXCLUDED.locataire_id,
-           lot_cle = EXCLUDED.lot_cle, motif = EXCLUDED.motif, calcule_le = now()`,
-        [Number(m.id), a.adresse, a.adresseBrute, a.role, a.interne,
-          r.partie, r.proprietaireCle, r.locataireId, r.lotCle, r.motif]);
-
-      c.adressesEcrites += 1;
-      if (a.interne) c.internes += 1;
-      if (r.partie !== null) c.reconnues += 1;
-      if (r.lotCle !== null) c.avecLot += 1;
-      if (a.role === 'transfere') c.transferts += 1;
-    }
-  }
+  for (const m of rows) await ecrireLesAdresses(m, annuaire, c);
   return Number(rows[rows.length - 1].id);
+}
+
+/** Un message tel que les deux chemins le lisent : la relève par paquets, et le recalcul d'une fiche modifiée. */
+interface MessageBrut {
+  id: string; de: string; dest_a: string | null; dest_cc: string | null; repondre_a: string | null;
+  recu_le: string; corps: string | null;
+}
+
+/**
+ * 🔴 L'ÉCRITURE DES ADRESSES D'UN MESSAGE, ÉCRITE UNE SEULE FOIS.
+ *
+ * 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — elle était dans le corps de `releverPaquet` ; le recalcul après
+ * modification d'une fiche en avait besoin à l'identique. L'y recopier aurait donné deux reconnaissances possibles
+ * pour un même message selon le chemin emprunté — exactement le genre d'écart qu'on ne voit jamais, parce que les
+ * deux ont l'air de marcher.
+ */
+async function ecrireLesAdresses(
+  m: MessageBrut, annuaire: Awaited<ReturnType<typeof chargerAnnuaireAdresses>>, c: ComptesReleve,
+): Promise<void> {
+  const relevees = releverAdresses({
+    de: m.de,
+    destA: adressesDuChamp(m.dest_a),
+    destCc: adressesDuChamp(m.dest_cc),
+    repondreA: adressesDuChamp(m.repondre_a),
+    corps: m.corps ?? '',
+  }, annuaire.adresseGestion, annuaire.partenaires);
+
+  c.messagesVus += 1;
+  for (const a of relevees) {
+    const r = reconnaitre(a, m.recu_le, annuaire.contacts, annuaire.occupations);
+    await query(
+      `INSERT INTO gestion_message_adresse
+         (message_id, adresse, adresse_brute, role, interne, partie, proprietaire_cle, locataire_id, lot_cle, motif, calcule_le)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+       ON CONFLICT (message_id, adresse, role) DO UPDATE SET
+         adresse_brute = EXCLUDED.adresse_brute, interne = EXCLUDED.interne, partie = EXCLUDED.partie,
+         proprietaire_cle = EXCLUDED.proprietaire_cle, locataire_id = EXCLUDED.locataire_id,
+         lot_cle = EXCLUDED.lot_cle, motif = EXCLUDED.motif, calcule_le = now()`,
+      [Number(m.id), a.adresse, a.adresseBrute, a.role, a.interne,
+        r.partie, r.proprietaireCle, r.locataireId, r.lotCle, r.motif]);
+
+    c.adressesEcrites += 1;
+    if (a.interne) c.internes += 1;
+    if (r.partie !== null) c.reconnues += 1;
+    if (r.lotCle !== null) c.avecLot += 1;
+    if (a.role === 'transfere') c.transferts += 1;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — LA RECONNAISSANCE N'EST PLUS GELÉE À LA CAPTURE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ═══ LE DÉFAUT, CONSTATÉ PAR ARNO LE 01/10/2026 ════════════════════════════════════════════════════════════════
+
+   Mme THAI écrit depuis `cecilethai85@gmail.com`. Arno ajoute cette SECONDE adresse à sa fiche (elle en a deux),
+   recharge, rouvre le mail : AUCUNE proposition de ses deux biens du 10 rue Chateaubriand.
+
+   🔴 LE MOTEUR N'Y ÉTAIT POUR RIEN, ET C'EST TOUTE LA LEÇON. `reconnaitre` compare l'adresse à TOUTES les lignes
+   de contact de l'annuaire — deux adresses sur une fiche ont toujours fonctionné. Ce qui ne fonctionnait pas, c'est
+   que `gestion_message_adresse` porte le RÉSULTAT de cette comparaison, calculé une fois pour toutes AU MOMENT DE
+   LA CAPTURE. Les trois mails du fil 36558 avaient été relevés les 29 et 30/09 ; l'adresse est entrée dans la
+   fiche le 01/10 à 14h29. Leur ligne disait donc encore « adresse inconnue de l'annuaire », et le disait pour
+   toujours.
+
+   ⇒ UN CACHE QUE RIEN N'INVALIDAIT. C'est exactement ce qu'Arno demande de fermer : « toute modification des
+   coordonnées d'une fiche recalcule IMMÉDIATEMENT les propositions des mails concernés ; ensuite, à l'ouverture
+   d'un mail, elles sont recalculées si la fiche a changé depuis leur calcul ».
+
+   ⚠️ AUCUNE MIGRATION : `calcule_le` existe depuis le premier jour, et `gestion_annuaire_contact` porte déjà
+   `cree_le`, `archive_le` et `absent_le`. Il n'y avait pas de colonne à ajouter — seulement une question à poser.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 🔴 DE CES MESSAGES, LESQUELS ONT UNE RECONNAISSANCE PÉRIMÉE ? LECTURE SEULE.
+ *
+ * Périmé = l'une des adresses du message correspond à une coordonnée de l'annuaire qui a été CRÉÉE, ARCHIVÉE ou
+ * marquée absente APRÈS le calcul. Les trois cas comptent : ajouter une adresse à une fiche doit faire apparaître
+ * des propositions, en retirer une doit les faire disparaître.
+ *
+ * ⚠️ UNE ADRESSE QUE L'ANNUAIRE N'A JAMAIS CONNUE NE REND RIEN DE PÉRIMÉ : il n'y a rien à recalculer, et la
+ * jointure ne trouve rien. C'est ce qui rend ce contrôle presque gratuit à l'ouverture d'un mail — mesuré le
+ * 01/10/2026 : 1 807 lignes de contact, index sur `valeur` et sur `adresse`.
+ */
+export async function messagesAReconnaitre(messageIds: readonly number[]): Promise<number[]> {
+  if (messageIds.length === 0 || !(await adressesMessagesDisponibles())) return [];
+  const { rows } = await query<{ message_id: string }>(
+    `SELECT DISTINCT a.message_id::text
+       FROM gestion_message_adresse a
+       JOIN gestion_annuaire_contact c ON c.sorte = 'email' AND c.valeur = a.adresse
+      WHERE a.message_id = ANY($1::bigint[])
+        AND greatest(c.cree_le, c.archive_le, c.absent_le) > a.calcule_le`, [messageIds]);
+  return rows.map((r) => Number(r.message_id));
+}
+
+/** Les messages — et leurs conversations — où ces adresses apparaissent, quel que soit leur rôle. LECTURE SEULE. */
+export async function messagesDeCesAdresses(adresses: readonly string[]): Promise<{
+  messageIds: number[]; filIds: number[];
+}> {
+  const propres = [...new Set(adresses.map((a) => (a ?? '').trim().toLowerCase()).filter((a) => a !== ''))];
+  if (propres.length === 0 || !(await adressesMessagesDisponibles())) return { messageIds: [], filIds: [] };
+  const { rows } = await query<{ message_id: string; fil_id: string | null }>(
+    `SELECT DISTINCT a.message_id::text, m.fil_id::text
+       FROM gestion_message_adresse a JOIN gestion_message m ON m.id = a.message_id
+      WHERE a.adresse = ANY($1::text[])`, [propres]);
+  return {
+    messageIds: rows.map((r) => Number(r.message_id)),
+    filIds: [...new Set(rows.map((r) => r.fil_id).filter((x): x is string => x !== null).map(Number))],
+  };
+}
+
+/**
+ * 🔴 RECALCULE LA RECONNAISSANCE DE CES MESSAGES, et d'eux seuls. Rend le nombre de lignes réécrites.
+ *
+ * 🔴 C'EST LA MÊME ÉCRITURE QUE LA RELÈVE, au mot près : même `releverAdresses`, même `reconnaitre`, même
+ * `INSERT … ON CONFLICT`. Une seconde écriture aurait divergé au premier ajustement, et l'on aurait vu une adresse
+ * reconnue à la capture et inconnue au recalcul — ou l'inverse.
+ *
+ * ⚠️ `calcule_le` EST REMIS À `now()` MÊME QUAND RIEN NE CHANGE : c'est lui qui dit « cette ligne a été confrontée
+ * à l'annuaire d'aujourd'hui ». Sans cela, un message dont la reconnaissance reste négative serait recalculé à
+ * chaque ouverture, indéfiniment.
+ */
+export async function recalculerLesAdresses(messageIds: readonly number[]): Promise<number> {
+  if (messageIds.length === 0 || !(await adressesMessagesDisponibles())) return 0;
+  const annuaire = await chargerAnnuaireAdresses();
+  const c: ComptesReleve = { ...COMPTES_RELEVE_VIDE };
+
+  const { rows } = await query<{
+    id: string; de: string; dest_a: string | null; dest_cc: string | null; repondre_a: string | null;
+    recu_le: string; corps: string | null;
+  }>(
+    `SELECT id, de_adresse AS de, dest_a::text, dest_cc::text, repondre_a::text, recu_le::text,
+            left(coalesce(corps_texte, ''), 8000) AS corps
+       FROM gestion_message WHERE id = ANY($1::bigint[]) ORDER BY id`, [messageIds]);
+
+  for (const m of rows) await ecrireLesAdresses(m, annuaire, c);
+  return c.adressesEcrites;
 }
 
 /** Le plus grand identifiant de message déjà relevé : c'est le curseur de reprise. */

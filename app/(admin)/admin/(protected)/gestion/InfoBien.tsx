@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  descriptifDuBien, descriptifPauvre, DESCRIPTIF_A_COMPLETER, type LigneDescriptif,
+  descriptifDuBien, descriptifHorsLigne, AUCUN_DETAIL_SUPPLEMENTAIRE, type LigneDescriptif,
 } from '../../../../lib/gestion/descriptifBien';
 import { texteFiche } from '../../../../lib/gestion/ecranUrl';
 import type { FicheLot } from '../../../../lib/gestion/annuaireRepo';
@@ -33,17 +33,38 @@ import type { FicheLot } from '../../../../lib/gestion/annuaireRepo';
  *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : `FicheLot` passe par `import type`, effacé à la compilation.
  */
-export function InfoBien({ cle, titre }: {
+
+/**
+ * 🔴 LE COURT DÉLAI DU SURVOL, demandé par Arno : « environ 150 ms ». Il n'est pas un confort — il est ce qui
+ * empêche une traversée de liste d'ouvrir (et de CHARGER) quarante fenêtres au passage de la souris.
+ */
+export const DELAI_SURVOL_MS = 150;
+export function InfoBien({ cle, titre, surLaLigne }: {
   /** La clé WIPPIMMO du lot. C'est tout ce que les écrans de rattachement connaissent du bien. */
   cle: string;
   /** Le titre affiché à côté, repris dans l'en-tête de la fenêtre : on doit savoir de quel bien on parle. */
   titre: string;
+  /**
+   * 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — TOUT CE QUI EST DÉJÀ VISIBLE À CÔTÉ DE LA PASTILLE : le titre, et les
+   * parties écrites dessous. La fenêtre n'en répète rien (voir `descriptifHorsLigne`).
+   *
+   * ⚠️ ABSENT ⇒ ON NE RETIRE RIEN. Un écran qui ne dit pas ce qu'il affiche ne doit pas faire disparaître une
+   * information : le doute profite à ce qui se voit.
+   */
+  surLaLigne?: string | null;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const [etat, setEtat] = useState<
     { v: 'repos' } | { v: 'charge' } | { v: 'ok'; fiche: FicheLot } | { v: 'erreur'; message: string }
   >({ v: 'repos' });
   const racine = useRef<HTMLSpanElement | null>(null);
+  /** Le compte à rebours du survol. Il vit dans une `ref` : le modifier ne doit pas redessiner la ligne. */
+  const delai = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const annulerLeDelai = useCallback((): void => {
+    if (delai.current !== null) { clearTimeout(delai.current); delai.current = null; }
+  }, []);
+  // ⚠️ UN COMPTE À REBOURS QUI SURVIT AU COMPOSANT OUVRIRAIT UNE FENÊTRE DÉMONTÉE : on le coupe au démontage.
+  useEffect(() => annulerLeDelai, [annulerLeDelai]);
 
   const charger = useCallback(async () => {
     setEtat({ v: 'charge' });
@@ -98,9 +119,45 @@ export function InfoBien({ cle, titre }: {
     // 🔴 LES TROIS GESTES QUI EMPÊCHENT LA CASE DE SE COCHER (voir l'encadré du composant).
     e.preventDefault();
     e.stopPropagation();
+    annulerLeDelai();
     const futur = !ouvert;
     setOuvert(futur);
     if (futur && etat.v === 'repos') void charger();
+  };
+
+  /* ══ 🔴🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — ELLE S'OUVRE AU SURVOL ══════════════════════════════════════════
+     DEMANDE D'ARNO (01/10/2026) : « Elle s'ouvre AU SURVOL (court délai d'environ 150 ms, se referme quand la
+     souris quitte la pastille et la fenêtre). Elle s'ouvre aussi au focus clavier. Au toucher (mobile), un appui
+     l'ouvre. »
+
+     🔴 LE DÉLAI N'EST PAS UN CONFORT, C'EST CE QUI REND LE SURVOL UTILISABLE. Sans lui, traverser une liste de
+     quarante biens ouvrirait quarante fenêtres au passage de la souris — et chacune lancerait une requête.
+
+     ⚠️ LA FERMETURE DEMANDE DE QUITTER LA PASTILLE **ET** LA FENÊTRE. Les deux sont dans le même `span` racine :
+     on écoute donc la sortie de la racine, et non celle du bouton — sinon la fenêtre se refermerait à l'instant
+     où l'on va la lire.
+
+     ⚠️ AU TOUCHER, AUCUN SURVOL N'EXISTE : le `click` reste la seule porte, et c'est `basculer` qui la tient. */
+
+  const ouvrirApresDelai = (): void => {
+    annulerLeDelai();
+    delai.current = setTimeout(() => {
+      setOuvert(true);
+      if (etat.v === 'repos') void charger();
+    }, DELAI_SURVOL_MS);
+  };
+
+  /** Quitter la racine (pastille ET fenêtre) referme — et annule une ouverture qui n'a pas encore eu lieu. */
+  const quitter = (): void => { annulerLeDelai(); setOuvert(false); };
+
+  /**
+   * 🔴 LE FOCUS CLAVIER OUVRE SANS DÉLAI. Un délai au clavier n'aurait aucun sens : on ne « traverse » pas une
+   * liste à la tabulation, on s'arrête sur un élément.
+   */
+  const auFocus = (): void => {
+    annulerLeDelai();
+    setOuvert(true);
+    if (etat.v === 'repos') void charger();
   };
 
   const fiche = etat.v === 'ok' ? etat.fiche : null;
@@ -122,8 +179,16 @@ export function InfoBien({ cle, titre }: {
     driveDossierId: fiche.driveDossierId,
   });
 
+  /** 🔴 CE QUI N'EST PAS DÉJÀ SOUS LES YEUX — et rien d'autre (demande d'Arno, point 3). */
+  const horsLigne = descriptifHorsLigne(lignes, surLaLigne ?? null);
+
   return (
-    <span className="ifb" ref={racine}>
+    <span className="ifb" ref={racine}
+      onMouseEnter={ouvrirApresDelai} onMouseLeave={quitter}
+      /* ⚠️ `onBlur` SUR LA RACINE, pas sur le bouton : passer du bouton à la croix de la fenêtre ne doit pas
+         refermer ce qu'on vient d'ouvrir. React fait remonter `blur` (c'est `focusout`), donc la racine le voit. */
+      onFocus={auFocus}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) quitter(); }}>
       {/* 🔴 LA FEUILLE DE STYLE N'EST PAS MONTÉE ICI, ET C'EST VOULU. La pastille vit DANS le libellé d'une case
           à cocher : un élément `style` à cet endroit entre dans le `textContent` du titre — mesuré, une épreuve
           y lisait le texte de la feuille collé au nom du bien. L'écran qui emploie la pastille monte
@@ -152,16 +217,16 @@ export function InfoBien({ cle, titre }: {
           {fiche !== null && (
             <>
               <dl className="ifb-liste">
-                {lignes.map((l) => (
+                {horsLigne.map((l) => (
                   <span className="ifb-ligne" key={`${l.libelle}-${l.valeur}`}>
                     <dt className="ifb-libelle">{l.libelle}</dt>
                     <dd className="ifb-valeur">{l.valeur}</dd>
                   </span>
                 ))}
               </dl>
-              {/* 🔴 « s'il ne reste presque rien, la fenêtre l'indique » — et « presque rien » veut dire : rien
-                  au-delà de ce que le titre disait déjà (voir `descriptifBien`). */}
-              {descriptifPauvre(lignes) && <span className="ifb-note">{DESCRIPTIF_A_COMPLETER}</span>}
+              {/* 🔴 « S'il ne reste rien : “Aucun détail supplémentaire — compléter la fiche du bien”, avec le
+                  lien » (Arno). Le lien est juste dessous, et il reste affiché dans tous les cas. */}
+              {horsLigne.length === 0 && <span className="ifb-note">{AUCUN_DETAIL_SUPPLEMENTAIRE}</span>}
               {/* ⚠️ UN VRAI LIEN, dans un nouvel onglet : on consulte une fiche sans perdre le classement en
                   cours. Un bouton qui NAVIGUERAIT ferait refermer la modale et oublier les cases cochées. */}
               <a className="ifb-fiche" target="_blank" rel="noreferrer"

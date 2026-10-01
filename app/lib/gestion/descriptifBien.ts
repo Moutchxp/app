@@ -96,8 +96,14 @@ export function descriptifDuBien(b: BienDecrit): LigneDescriptif[] {
   for (const o of b.occupants ?? []) {
     const nom = propre(o.nom);
     if (nom === '') continue;
-    const depuis = dateLisible(o.depuis);
-    ajouter('Locataire en place', depuis === '' ? nom : `${nom} — depuis le ${depuis}`);
+    /**
+     * 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — LE NOM ET LA DATE SONT DEUX LIGNES, et c'est la condition pour tenir
+     * la règle d'Arno (« elle n'affiche que ce qui n'est PAS déjà sur la ligne […] ni le locataire en place s'il
+     * est déjà visible ; elle garde le reste, dont la date d'entrée »). Collés en une seule ligne, ils étaient
+     * indissociables : cacher le nom déjà visible emportait la date, que personne n'avait vue.
+     */
+    ajouter('Locataire en place', nom);
+    ajouter('Date d’entrée', dateLisible(o.depuis));
   }
   // ④ L'ADMINISTRATIF.
   ajouter('N° de lot', b.cle);
@@ -120,18 +126,69 @@ export function immeubleRepeteLAdresse(b: BienDecrit): boolean {
   return i === '' || i === a || a.includes(i) || i.includes(a);
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — LA FENÊTRE NE RÉPÈTE PAS LA LIGNE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (01/10/2026) : « Elle n'affiche que ce qui n'est PAS déjà sur la ligne : ni l'adresse, ni le
+   type, ni le propriétaire, ni le locataire en place s'ils sont déjà visibles. Elle garde le reste (étage,
+   surface, pièces, annexes, bâtiment, n° de lot, immeuble, date d'entrée, en gestion depuis, dossier Drive…). »
+
+   🔴 ON COMPARE À CE QUI EST VRAIMENT AFFICHÉ, ET NON À UNE LISTE DE LIBELLÉS DEVINÉE. La version précédente
+   supposait que le titre portait toujours « nature, type, adresse » : le jour où un écran titre autrement, la
+   fenêtre se serait tue sur une information qu'on ne voyait nulle part, ou aurait répété ce qu'on avait sous les
+   yeux. L'appelant passe le TEXTE de la ligne ; la règle suit toute seule.
+
+   ⚠️ LE CODE POSTAL NE COMPTE PAS dans la comparaison : la ligne écrit « 10 rue Chateaubriand, CHATILLON » là où
+   la fiche écrit « 10 rue Chateaubriand, 92320 CHATILLON ». L'exiger aurait fait répéter l'adresse partout.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
 /**
- * 🔴 « S'IL NE RESTE PRESQUE RIEN, LA FENÊTRE L'INDIQUE » (Arno).
+ * Minuscules, accents ôtés, ponctuation en espaces. PUR.
  *
- * « Presque rien » veut dire : au-delà de ce que le TITRE disait déjà. Nature, type et adresse sont dans le
- * titre — une fenêtre qui ne ferait que les répéter n'apprendrait rien, et laisserait croire que le bien est
- * décrit alors qu'il ne l'est pas. On compte donc ce qui AJOUTE quelque chose.
+ * ⚠️ ÉCRITE ICI, parce que ce module ne doit RIEN importer (un garde statique le vérifie) : il décide de ce qui
+ * s'affiche, et doit pouvoir se rejouer tout seul.
  */
-export const LIGNES_DEJA_DANS_LE_TITRE: readonly string[] = ['Nature', 'Type', 'Adresse'];
-
-/** La phrase écrite quand la fiche n'apprend rien de plus que le titre. Une seule formulation, un seul endroit. */
-export const DESCRIPTIF_A_COMPLETER = 'Descriptif à compléter dans la fiche du bien.';
-
-export function descriptifPauvre(lignes: readonly LigneDescriptif[]): boolean {
-  return lignes.filter((l) => !LIGNES_DEJA_DANS_LE_TITRE.includes(l.libelle)).length === 0;
+function aplatir(t: string | null | undefined): string {
+  return (t ?? '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
+
+/**
+ * 🔴 LES SEULES LIGNES QU'ON ACCEPTE D'EFFACER, et c'est exactement la liste d'Arno.
+ *
+ * ⚠️ AUCUNE AUTRE, JAMAIS. « N° de lot » vaut « 360 » : un titre qui contiendrait ce nombre par hasard ferait
+ * disparaître l'identité du lot — la seule ligne qu'on vient chercher quand on doute du bien.
+ */
+export const LIGNES_EFFACABLES: readonly string[] = [
+  'Adresse', 'Nature', 'Type', 'Propriétaire', 'Locataire en place',
+];
+
+/**
+ * CE QUI RESTE À MONTRER, UNE FOIS RETIRÉ CE QUE LA LIGNE DIT DÉJÀ. PUR.
+ *
+ * `surLaLigne` = tout ce qui est visible à côté de la pastille : le titre du bien, et les parties écrites
+ * dessous. Vide ⇒ on ne retire rien (on ne sait pas ce qui est affiché, donc on n'enlève rien).
+ */
+export function descriptifHorsLigne(
+  lignes: readonly LigneDescriptif[], surLaLigne: string | null | undefined,
+): LigneDescriptif[] {
+  const ligne = ` ${aplatir(surLaLigne)} `;
+  if (ligne.trim() === '') return [...lignes];
+  return lignes.filter((l) => {
+    if (!LIGNES_EFFACABLES.includes(l.libelle)) return true;
+    const mots = aplatir(l.valeur).split(' ').filter((m) => m !== '' && !/^\d{5}$/.test(m));
+    // Tous les mots sur la ligne ⇒ la fenêtre ne ferait que répéter. Un seul manque ⇒ elle apprend quelque chose.
+    return mots.length === 0 || !mots.every((m) => ligne.includes(` ${m} `));
+  });
+}
+
+/**
+ * 🔴 « S'IL NE RESTE RIEN : “Aucun détail supplémentaire — compléter la fiche du bien”, avec le lien » (Arno).
+ *
+ * Une seule formulation, un seul endroit. Elle remplace « Descriptif à compléter… », qui parlait d'un descriptif
+ * pauvre alors qu'il s'agit maintenant d'un descriptif entièrement visible sur la ligne : ce n'est pas la même
+ * chose, et la phrase ne devait pas laisser croire que la fiche est vide.
+ */
+export const AUCUN_DETAIL_SUPPLEMENTAIRE = 'Aucun détail supplémentaire — compléter la fiche du bien';

@@ -472,7 +472,9 @@ export function EncartRattachement({
           {/* 🔴 LOT MODALE-RATTACHER-PROPRE — LA MÊME PASTILLE QUE DANS LA MODALE (demande d'Arno) : le numéro
               de lot a quitté le titre, il est dans cette fenêtre — avec tout le reste du descriptif. */}
           {vivants[0].cible.cle !== null && (
-            <InfoBien cle={vivants[0].cible.cle} titre={ligne.premier} />
+            // ⚠️ `surLaLigne` = CE BLOC N'AFFICHE QUE LE TITRE : la fenêtre n'en répétera donc ni l'adresse ni
+            //   la qualité, et gardera tout le reste (n° de lot, gestion, parties, Drive…).
+            <InfoBien cle={vivants[0].cible.cle} titre={ligne.premier} surLaLigne={ligne.premier} />
           )}
           {/* « automatique » EN GRIS S'IL Y A LIEU : quand c'est une personne qui a posé le lien, il n'y a rien
               à signaler — c'est le cas normal, et l'écrire ferait du bruit sur chaque mail classé à la main. */}
@@ -533,7 +535,9 @@ export function EncartRattachement({
                 )
                 : <span className="ert-nom">{titreDe(l)}</span>}
               {/* 🔴 LA PASTILLE EST AUSSI DANS LE « voir plus » (demande d'Arno) : chaque bien y a son descriptif. */}
-              {l.cible.cle !== null && <InfoBien cle={l.cible.cle} titre={titreDe(l)} />}
+              {l.cible.cle !== null && (
+                <InfoBien cle={l.cible.cle} titre={titreDe(l)} surLaLigne={titreDe(l)} />
+              )}
               {/* D'OÙ VIENT LE LIEN, écrit quand il vient du moteur : une personne, elle, engage sa décision. */}
               {!l.parUnHumain && <span className="ert-source">automatique</span>}
               {l.pieceId !== null && <span className="ert-source">cette pièce seulement</span>}
