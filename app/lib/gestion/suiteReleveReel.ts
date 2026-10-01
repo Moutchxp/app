@@ -25,6 +25,16 @@ import {
 } from './suiteReleve';
 
 /**
+ * 🔴🔴 LOT SUIVI-CONVERSATION — QUI SIGNE UN CLASSEMENT HÉRITÉ.
+ *
+ * La base REFUSE un auteur vide ou « automatique » sur une période (migration 290) : une période est une
+ * décision humaine. Mais l'HÉRITAGE n'en crée aucune — il applique celle qui existe déjà à un mail qui vient
+ * d'arriver. Les rattachements qu'il pose portent donc ce nom, qui dit exactement ce qui s'est passé : ce n'est
+ * ni Arno, ni l'automatisation de rattachement, c'est la règle qu'Arno a posée, appliquée par la relève.
+ */
+const AUTEUR_SUIVI = 'suivi de la conversation';
+
+/**
  * LES MESSAGES SANS AUCUNE ADRESSE RELEVÉE, et les fils concernés. LECTURE SEULE.
  *
  * 🔴 LA BORNE EST CALCULÉE À PART ET PASSÉE EN PARAMÈTRE, jamais écrite en sous-requête. MESURÉ le 26/09/2026 : en
@@ -142,6 +152,7 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
       journal?.(`suite : ${posesHorsGestion} message(s) marqué(s) « hors gestion », comme hérité avant l’envoi`);
     }
 
+
     /**
      * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — LES NOMS CHANGÉS DANS GOOGLE DRIVE, REPRIS ICI ═══════════════════════
      *
@@ -186,6 +197,41 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
 
     const aFaire = await messagesSansAdresses();
     if (aFaire.messages.length === 0) return issueSansRattachement('rien de nouveau à rattacher');
+
+    /**
+     * ── ⓪ ter 🔴🔴 LOT SUIVI-CONVERSATION — UN MAIL QUI ARRIVE HÉRITE DE LA PÉRIODE EN COURS
+     *
+     * Demande d'Arno (point 3) : « Un nouveau mail d'une conversation hérite automatiquement de la période EN
+     * COURS (la dernière ouverte), jamais d'une exception. Les propositions automatiques n'écrasent jamais une
+     * période ou une exception posée à la main. »
+     *
+     * 🔴 ICI, ET NULLE PART AILLEURS : c'est cette passe qui vient de capturer le mail. Avant elle, il n'y avait
+     * rien à classer ; après elle, le mail serait déjà passé devant l'œil d'Arno en « à classer » alors que sa
+     * conversation a une règle depuis longtemps.
+     *
+     * ⚠️ AVANT LE RÉEXAMEN DES PROPOSITIONS, et c'est voulu : la période pose un rattachement CONFIRMÉ, que le
+     * moteur de propositions respecte (il ne propose pas ce qui est déjà classé). L'inverse aurait fait naître
+     * une proposition sur un mail que la période venait de classer.
+     *
+     * ⚠️ SANS LA MIGRATION 290, `heriterLesNouveauxMails` rend 0 sans nommer une seule table : la relève se
+     * comporte exactement comme avant ce lot.
+     */
+    if (aFaire.fils.length > 0) {
+      const { heriterLesNouveauxMails } = await import('./periodeRepo');
+      let herites = 0;
+      for (const fil of aFaire.fils) {
+        try {
+          herites += await heriterLesNouveauxMails(fil, { id: null, libelle: AUTEUR_SUIVI });
+        } catch (e) {
+          // 🔴 UNE PASSE DE RELÈVE NE TOMBE PAS POUR UN HÉRITAGE MANQUÉ : c'est une comptabilité en retard, pas
+          //   du courrier perdu. On le dit au journal DU SERVEUR, et la passe continue.
+          console.error('[gestion/suite] héritage de période impossible (fil=%d)', fil, e);
+        }
+      }
+      if (herites > 0) {
+        journal?.(`suite : ${herites} classement(s) hérité(s) de la période en cours de leur conversation`);
+      }
+    }
 
     // ── ① LES ADRESSES DES MESSAGES NOUVEAUX ────────────────────────────────────────────────────────────────────
     const annuaire = await chargerAnnuaireAdresses();

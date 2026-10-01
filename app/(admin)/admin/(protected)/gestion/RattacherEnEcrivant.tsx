@@ -72,7 +72,7 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 
 export function RattacherEnEcrivant({
   destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null,
-  piedSupplementaire = null, onChange, onFerme,
+  piedSupplementaire = null, validationBloquee = null, onChange, onFerme,
 }: {
   /**
    * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA MÊME MODALE AU-DESSUS D'UN MAIL REÇU ════════════════════════════
@@ -133,6 +133,14 @@ export function RattacherEnEcrivant({
    * décide et affiche ; elle place. C'est ce qui lui permet de rester la même des deux côtés.
    */
   piedSupplementaire?: React.ReactNode;
+  /**
+   * 🔴🔴 LOT SUIVI-CONVERSATION — « Sans confirmation, “Valider” reste bloqué » (Arno).
+   *
+   * Le pied que l'appelant ajoute peut porter une décision à confirmer — « Toute la conversation » reclasse des
+   * mails passés. La fenêtre ne sait pas ce qu'est une période ; elle sait seulement qu'on lui a dit d'attendre.
+   * Le motif est affiché à côté du bouton : un bouton gris sans explication se lit comme une panne.
+   */
+  validationBloquee?: string | null;
   onChange: (c: CibleBrouillon[]) => void;
   onFerme: () => void;
 }) {
@@ -410,6 +418,9 @@ export function RattacherEnEcrivant({
   };
 
   const valider = () => {
+    // ⚠️ GARDE DE DERNIER RECOURS : le bouton est déjà désactivé, mais un bouton désactivé ne protège pas d'un
+    //   « Entrée » ni d'un navigateur qui rejoue l'événement.
+    if (validationBloquee !== null) return;
     /**
      * 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LES CIBLES DÉJÀ RETENUES ENTRENT DANS CETTE TABLE, ET IL LE FAUT.
      *
@@ -646,7 +657,14 @@ export function RattacherEnEcrivant({
         {piedSupplementaire !== null && <div className="rec-pied-sup">{piedSupplementaire}</div>}
 
         <div className="mrt-pied rec-pied">
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={valider}>
+          {/* 🔴 LOT SUIVI-CONVERSATION — LE MOTIF DU BLOCAGE SE LIT, il ne se survole pas : au doigt, une
+              infobulle n'existe pas (exigence transverse du dépôt). */}
+          {validationBloquee !== null && (
+            <p className="rec-bloque" role="status">{validationBloquee}</p>
+          )}
+          <button type="button" className="svv-btn svv-btn-primary gst-btn"
+            disabled={validationBloquee !== null} title={validationBloquee ?? undefined}
+            onClick={valider}>
             {/* 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE VRAI NOMBRE, ET « aucun bien » À ZÉRO (demande d'Arno).
                 Le bouton reste ACTIF à zéro : valider à vide est une décision — elle retire tous les
                 rattachements et ramène les deux boutons, d'où l'on peut alors choisir « Interne ».
@@ -797,6 +815,9 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
    plus, du meme relief que les autres, pour qu'on la lise comme une zone et non comme un ajout. */
 .rec-pied-sup{margin:0;padding:8px 10px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);
   border-radius:.7rem;min-width:0}
+/* 🔴 LOT SUIVI-CONVERSATION — le motif qui dit pourquoi « Valider » attend. Il prend toute la largeur du pied
+   pour se lire d'un coup, et le rouge n'est qu'un renfort : le MOT porte l'information. */
+.rec-bloque{flex:1 1 100%;margin:0;font-size:.82rem;font-weight:600;color:var(--color-svv-red)}
 @media (max-width:520px){
   .rec{width:100%;max-width:100%}
   .rec-pied>.svv-btn{flex:1 1 100%}

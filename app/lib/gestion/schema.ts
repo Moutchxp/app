@@ -711,6 +711,23 @@ export function envoiHorsGestionFileDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT SUIVI-CONVERSATION — la migration 290 est-elle appliquée ? ═══════════════════════════════════════
+ *
+ * Elle porte les PÉRIODES de classement d'une conversation, et les EXCEPTIONS mail par mail.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LE COMPORTEMENT EST EXACTEMENT CELUI D'AVANT : le bloc « Suivi dans la conversation »
+ * n'est pas rendu, un classement vaut pour le mail qu'on classe (ou pour toute la conversation si on le demande
+ * par l'ancien chemin), et aucune requête ne nomme les tables absentes. Nommer une table absente ferait échouer
+ * la lecture ENTIÈRE d'une conversation, pas seulement la nouveauté — règle du module depuis l'incident du
+ * lot 4a.
+ *
+ * ⚠️ ON SONDE LA TABLE DES PÉRIODES : les quatre tables naissent dans UNE transaction, elles arrivent ensemble.
+ */
+export function periodesDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_fil_periode', () => tableExiste('gestion_fil_periode'));
+}
+
+/**
  * 🔴 LOT BANDEAU-ET-BROUILLONS — la migration 284 est-elle appliquée ? Elle porte « IGNORER » un échec d'envoi.
  */
 export function envoiIgnoreDisponible(): Promise<boolean> {

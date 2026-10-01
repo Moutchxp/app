@@ -1,0 +1,393 @@
+import { describe, it, expect } from 'vitest';
+import {
+  alerteTouteLaConversation, blocSuiviVisible, classementVide, effetDuChoix, mailsDuBien, motClassement,
+  periodeEnCours, projeter, reperesDuFil, reprendre, repriseFidele, SUIVI_DEFAUT,
+  type Classement, type ExceptionMail, type Periode,
+} from './periodesConversation';
+
+/**
+ * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LES PÉRIODES, ÉPROUVÉES SUR LE SCÉNARIO D'ARNO ══════════════════════════════
+ *
+ * ARNO (01/10/2026) : « Une conversation peut changer de sujet. Son classement se découpe en PÉRIODES
+ * successives. Chaque mail retient la règle sous laquelle il a été classé […]. Un changement en cours de route
+ * n'efface jamais le passé (sauf “Toute la conversation”). »
+ */
+const bien = (cle: string): Classement => ({ sorte: 'biens', biens: [{ cle, libelle: `lot ${cle}` }] });
+const INTERNE: Classement = { sorte: 'interne', biens: [] };
+const HORS: Classement = { sorte: 'hors_gestion', biens: [] };
+const periode = (id: number, depuis: number, c: Classement): Periode =>
+  ({ id, depuisMessageId: depuis, classement: c });
+const exception = (m: number, c: Classement): ExceptionMail => ({ messageId: m, classement: c });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ① la projection : quel classement pour quel mail', () => {
+  it('🔴 une seule période depuis le premier mail : tous les mails la portent', () => {
+    const p = projeter([1, 2, 3], [periode(1, 1, bien('A'))], []);
+    expect([...p.keys()]).toEqual([1, 2, 3]);
+    expect([...p.values()].every((c) => c.biens[0].cle === 'A')).toBe(true);
+  });
+
+  /** 🔴 UNE EXCEPTION PORTE SUR UN MAIL, ET SUR LUI SEUL : le suivant reprend la règle d'avant. */
+  it('🔴🔴 une exception ne déplace PAS la période', () => {
+    const p = projeter([1, 2, 3], [periode(1, 1, bien('A'))], [exception(2, bien('C'))]);
+    expect(p.get(1)?.biens[0].cle).toBe('A');
+    expect(p.get(2)?.biens[0].cle).toBe('C');
+    expect(p.get(3)?.biens[0].cle).toBe('A');
+  });
+
+  it('🔴 une nouvelle période court jusqu’à la fin, et ne touche pas au passé', () => {
+    const p = projeter([1, 2, 3, 4], [periode(1, 1, bien('A')), periode(2, 3, bien('B'))], []);
+    expect([1, 2].every((m) => p.get(m)?.biens[0].cle === 'A')).toBe(true);
+    expect([3, 4].every((m) => p.get(m)?.biens[0].cle === 'B')).toBe(true);
+  });
+
+  /**
+   * ⚠️ UN MAIL ANTÉRIEUR À TOUTE PÉRIODE N'EST PAS CLASSÉ. Lui inventer un classement rétroactif serait
+   * exactement ce que « un changement n'efface jamais le passé » interdit.
+   */
+  it('⚠️ les mails d’avant la première période restent à classer', () => {
+    const p = projeter([1, 2, 3], [periode(1, 2, bien('A'))], []);
+    expect(p.has(1)).toBe(false);
+    expect(p.get(2)?.biens[0].cle).toBe('A');
+    expect(p.get(3)?.biens[0].cle).toBe('A');
+  });
+
+  /** ⚠️ L'ORDRE EST CELUI DE LA CONVERSATION, pas celui des identifiants (un mail capturé en retard). */
+  it('⚠️ l’ordre suit la liste des mails, pas les identifiants', () => {
+    const p = projeter([10, 3, 7], [periode(1, 10, bien('A')), periode(2, 7, bien('B'))], []);
+    expect(p.get(10)?.biens[0].cle).toBe('A');
+    expect(p.get(3)?.biens[0].cle).toBe('A');
+    expect(p.get(7)?.biens[0].cle).toBe('B');
+  });
+
+  it('⚠️ une période posée sur un mail absent de la conversation est ignorée', () => {
+    const p = projeter([1, 2], [periode(1, 1, bien('A')), periode(2, 99, bien('B'))], []);
+    expect([...p.values()].every((c) => c.biens[0].cle === 'A')).toBe(true);
+  });
+});
+
+/**
+ * ══ 🔴🔴 ② LE SCÉNARIO D'ARNO, MOT POUR MOT ═══════════════════════════════════════════════════════════════════
+ *
+ * « mails 1-3 lot A (initial), mail 4 exception lot C, mail 5 suit (A), mail 6 nouvelle période lot B, mails 7-8
+ * suivent (B). Attendu : A = 1,2,3,5 ; C = 4 ; B = 6,7,8. Puis “Toute la conversation” sur lot D au mail 8 :
+ * D = 1,2,3,5,6,7,8 et C = 4 (exception conservée). »
+ */
+describe('🔴🔴 ② le scénario d’Arno, de bout en bout', () => {
+  const MAILS = [1, 2, 3, 4, 5, 6, 7, 8];
+  const periodes: Periode[] = [periode(1, 1, bien('A')), periode(2, 6, bien('B'))];
+  const exceptions: ExceptionMail[] = [exception(4, bien('C'))];
+
+  it('🔴🔴 A = 1,2,3,5 · C = 4 · B = 6,7,8', () => {
+    expect(mailsDuBien(MAILS, periodes, exceptions, 'A')).toEqual([1, 2, 3, 5]);
+    expect(mailsDuBien(MAILS, periodes, exceptions, 'C')).toEqual([4]);
+    expect(mailsDuBien(MAILS, periodes, exceptions, 'B')).toEqual([6, 7, 8]);
+  });
+
+  /** 🔴🔴 PUIS « TOUTE LA CONVERSATION » SUR LE LOT D, DEPUIS LE MAIL 8. */
+  it('🔴🔴 « Toute la conversation » sur D : D = 1,2,3,5,6,7,8 — et C = 4 reste', () => {
+    const effet = effetDuChoix({
+      choix: 'conversation', messageId: 8, classement: bien('D'), periodes, exceptions,
+    });
+    // Toutes les périodes sont remplacées…
+    expect(effet.periodesRemplacees.sort()).toEqual([1, 2]);
+    // …par UNE seule, depuis le premier mail. L'appelant en connaît l'identifiant réel ; ici, le premier.
+    expect(effet.nouvellePeriode?.classement.biens[0].cle).toBe('D');
+    expect(effet.nouvelleException).toBeNull();
+
+    const apres = projeter(MAILS, [periode(3, 1, bien('D'))], exceptions);
+    expect(mailsDuBien(MAILS, [periode(3, 1, bien('D'))], exceptions, 'D')).toEqual([1, 2, 3, 5, 6, 7, 8]);
+    expect(mailsDuBien(MAILS, [periode(3, 1, bien('D'))], exceptions, 'C')).toEqual([4]);
+    expect(apres.get(4)?.biens[0].cle).toBe('C');
+  });
+
+  /** 🔴 ET LES ANCIENS BIENS NE SONT PLUS NULLE PART : « remplace toutes les périodes ». */
+  it('🔴 après « Toute la conversation », A et B ont disparu des historiques', () => {
+    const apres = [periode(3, 1, bien('D'))];
+    expect(mailsDuBien(MAILS, apres, exceptions, 'A')).toEqual([]);
+    expect(mailsDuBien(MAILS, apres, exceptions, 'B')).toEqual([]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ③ le bloc « Suivi dans la conversation » : ses DEUX conditions', () => {
+  it('🔴🔴 absent sur le PREMIER mail, même si la conversation est classée', () => {
+    expect(blocSuiviVisible({ estPremierMail: true, dejaClassee: true })).toBe(false);
+  });
+
+  it('🔴🔴 absent sur une conversation JAMAIS classée, même au troisième mail', () => {
+    expect(blocSuiviVisible({ estPremierMail: false, dejaClassee: false })).toBe(false);
+  });
+
+  it('🔴🔴 présent seulement quand les DEUX conditions sont réunies', () => {
+    expect(blocSuiviVisible({ estPremierMail: false, dejaClassee: true })).toBe(true);
+  });
+
+  /** 🔴 « avec “Ce mail et la conversation à venir” coché par défaut » (Arno). */
+  it('🔴 le choix par défaut est « la conversation à venir »', () => {
+    expect(SUIVI_DEFAUT).toBe('suite');
+  });
+});
+
+describe('🔴🔴 ④ ce que chaque choix écrit', () => {
+  const periodes = [periode(1, 1, bien('A'))];
+
+  it('🔴 « Ce mail uniquement » pose une EXCEPTION, et rien d’autre', () => {
+    const e = effetDuChoix({ choix: 'mail', messageId: 5, classement: bien('C'), periodes, exceptions: [] });
+    expect(e.nouvelleException).toEqual({ messageId: 5, classement: bien('C') });
+    expect(e.nouvellePeriode).toBeNull();
+    expect(e.periodesRemplacees).toEqual([]);
+  });
+
+  it('🔴 « Ce mail et la suite » ouvre une PÉRIODE, et ne remplace rien', () => {
+    const e = effetDuChoix({ choix: 'suite', messageId: 5, classement: bien('B'), periodes, exceptions: [] });
+    expect(e.nouvellePeriode).toEqual({ depuisMessageId: 5, classement: bien('B') });
+    expect(e.nouvelleException).toBeNull();
+    expect(e.periodesRemplacees).toEqual([]);
+  });
+
+  it('🔴🔴 « Toute la conversation » remplace TOUTES les périodes', () => {
+    const e = effetDuChoix({
+      choix: 'conversation', messageId: 5, classement: bien('D'),
+      periodes: [periode(1, 1, bien('A')), periode(2, 3, bien('B'))], exceptions: [],
+    });
+    expect(e.periodesRemplacees.sort()).toEqual([1, 2]);
+    expect(e.nouvelleException).toBeNull();
+  });
+
+  /**
+   * ⚠️ UN MAIL QUI PORTAIT UNE EXCEPTION ET QU'ON RECLASSE EN PÉRIODE LA PERD — sinon elle masquerait aussitôt
+   * la règle qu'on vient de poser sur ce mail même, et le geste n'aurait aucun effet visible.
+   */
+  it('⚠️ reclasser en période un mail qui portait une exception la retire', () => {
+    const exceptions = [exception(5, bien('C'))];
+    expect(effetDuChoix({ choix: 'suite', messageId: 5, classement: bien('B'), periodes, exceptions })
+      .exceptionRetiree).toBe(5);
+    expect(effetDuChoix({ choix: 'conversation', messageId: 5, classement: bien('B'), periodes, exceptions })
+      .exceptionRetiree).toBe(5);
+    // …mais reposer une EXCEPTION sur ce mail ne « retire » rien : elle est simplement remplacée.
+    expect(effetDuChoix({ choix: 'mail', messageId: 5, classement: bien('B'), periodes, exceptions })
+      .exceptionRetiree).toBeNull();
+  });
+});
+
+/**
+ * ══ 🔴🔴 ⑤ L'ALERTE DE « TOUTE LA CONVERSATION » ══════════════════════════════════════════════════════════════
+ *
+ * ARNO : « une alerte explique la conséquence (“Les N mails de cette conversation seront reclassés sur … ; les M
+ * exceptions sont conservées”) et doit être confirmée. Sans confirmation, “Valider” reste bloqué. »
+ */
+describe('🔴🔴 ⑤ ce que l’alerte annonce', () => {
+  it('🔴 sans exception : le nombre de mails, et rien de plus', () => {
+    expect(alerteTouteLaConversation({
+      mails: [1, 2, 3], exceptions: [], versQuoi: '10 rue Chateaubriand — Parking', messageId: 3,
+    })).toBe('Les 3 mails de cette conversation seront reclassés sur 10 rue Chateaubriand — Parking.');
+  });
+
+  /** ⚠️ ON NE COMPTE PAS LES MAILS QU'ON NE RECLASSE PAS : une alerte qui exagère ne se lit plus. */
+  it('🔴🔴 avec des exceptions : elles sortent du compte, et sont annoncées conservées', () => {
+    expect(alerteTouteLaConversation({
+      mails: [1, 2, 3, 4, 5], exceptions: [exception(2, bien('C')), exception(4, bien('E'))],
+      versQuoi: 'Interne', messageId: 5,
+    })).toBe('Les 3 mails de cette conversation seront reclassés sur Interne ; 2 exceptions sont conservées.');
+  });
+
+  it('⚠️ une seule exception se dit au singulier', () => {
+    expect(alerteTouteLaConversation({
+      mails: [1, 2], exceptions: [exception(1, bien('C'))], versQuoi: 'Interne', messageId: 2,
+    })).toContain('1 exception est conservée.');
+  });
+
+  /** 🔴 LE MAIL QU'ON CLASSE CHANGE, MÊME S'IL PORTAIT UNE EXCEPTION : il est dans le compte. */
+  it('🔴 le mail en cours est compté, même s’il portait une exception', () => {
+    expect(alerteTouteLaConversation({
+      mails: [1, 2, 3], exceptions: [exception(3, bien('C'))], versQuoi: 'Interne', messageId: 3,
+    })).toBe('Les 3 mails de cette conversation seront reclassés sur Interne.');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ⑥ Interne et Hors gestion suivent la même logique', () => {
+  const MAILS = [1, 2, 3, 4];
+
+  it('🔴 « à partir de ce mail, la conversation devient interne »', () => {
+    const p = projeter(MAILS, [periode(1, 1, bien('A')), periode(2, 3, INTERNE)], []);
+    expect(p.get(2)?.sorte).toBe('biens');
+    expect(p.get(3)?.sorte).toBe('interne');
+    expect(p.get(4)?.sorte).toBe('interne');
+  });
+
+  it('🔴 une exception « hors gestion » ne déplace pas la période interne', () => {
+    const p = projeter(MAILS, [periode(1, 1, INTERNE)], [exception(2, HORS)]);
+    expect([p.get(1)?.sorte, p.get(2)?.sorte, p.get(3)?.sorte]).toEqual(['interne', 'hors_gestion', 'interne']);
+  });
+
+  it('🔴 un bien rattaché après une période interne rouvre une période « biens »', () => {
+    const p = projeter(MAILS, [periode(1, 1, INTERNE), periode(2, 3, bien('A'))], []);
+    expect(p.get(4)?.biens[0].cle).toBe('A');
+  });
+
+  it('les mots employés dans les repères', () => {
+    expect(motClassement(INTERNE)).toBe('Interne');
+    expect(motClassement(HORS)).toBe('Hors gestion');
+    expect(motClassement(bien('A'))).toBe('lot A');
+    expect(motClassement({ sorte: 'biens', biens: [] })).toBe('aucun bien');
+    expect(classementVide({ sorte: 'biens', biens: [] })).toBe(true);
+    expect(classementVide(INTERNE)).toBe(false);
+  });
+});
+
+/**
+ * ══ 🔴🔴 ⑦ L'HÉRITAGE À L'ARRIVÉE D'UN MAIL ═══════════════════════════════════════════════════════════════════
+ *
+ * ARNO : « Un nouveau mail d'une conversation hérite automatiquement de la période EN COURS (la dernière
+ * ouverte), jamais d'une exception. »
+ */
+describe('🔴🔴 ⑦ un mail qui arrive hérite de la période en cours', () => {
+  it('🔴 la dernière période ouverte, et non la première', () => {
+    const p = periodeEnCours([1, 2, 3], [periode(1, 1, bien('A')), periode(2, 3, bien('B'))]);
+    expect(p?.classement.biens[0].cle).toBe('B');
+  });
+
+  /** 🔴🔴 « JAMAIS D'UNE EXCEPTION » : la propager la transformerait en période, c'est-à-dire en son contraire. */
+  it('🔴🔴 une exception sur le dernier mail ne s’hérite PAS', () => {
+    const MAILS = [1, 2, 3];
+    const periodes = [periode(1, 1, bien('A'))];
+    const exceptions = [exception(3, bien('C'))];
+    expect(periodeEnCours(MAILS, periodes)?.classement.biens[0].cle).toBe('A');
+    // …et le mail 4, qui arrive, porte bien A — pas C.
+    const p = projeter([...MAILS, 4], periodes, exceptions);
+    expect(p.get(4)?.biens[0].cle).toBe('A');
+    expect(p.get(3)?.biens[0].cle).toBe('C');
+  });
+
+  it('⚠️ aucune période ⇒ rien à hériter, et le mail reste à classer', () => {
+    expect(periodeEnCours([1, 2], [])).toBeNull();
+    expect(projeter([1, 2], [], []).size).toBe(0);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ⑧ les repères dans le fil', () => {
+  it('🔴 une ligne par changement de période, avec qui et quand', () => {
+    const r = reperesDuFil([1, 2, 3, 4], [
+      periode(1, 1, bien('A')),
+      { ...periode(2, 3, INTERNE), parLibelle: 'a.jorel', le: '2026-10-01' },
+    ]);
+    expect(r).toEqual([
+      { avantMessageId: 3, versQuoi: 'Interne', parLibelle: 'a.jorel', le: '2026-10-01' },
+    ]);
+  });
+
+  /** ⚠️ « À partir d'ici » EN TÊTE DE CONVERSATION NE SÉPARE RIEN : la première période n'a pas de repère. */
+  it('⚠️ la période qui commence au premier mail ne produit aucun repère', () => {
+    expect(reperesDuFil([1, 2], [periode(1, 1, bien('A'))])).toEqual([]);
+  });
+
+  it('⚠️ une période hors de la conversation n’en produit pas non plus', () => {
+    expect(reperesDuFil([1, 2], [periode(1, 99, bien('A'))])).toEqual([]);
+  });
+});
+
+/**
+ * ══ 🔴🔴 ⑨ LA REPRISE DES DONNÉES EXISTANTES ══════════════════════════════════════════════════════════════════
+ *
+ * ARNO (point 6) : « Reprends les rattachements actuels sans rien perdre : chaque conversation existante devient
+ * une période initiale, et un rattachement posé sur un seul mail est repris comme exception. »
+ *
+ * 🔴 LE CRITÈRE DE SUCCÈS EST `repriseFidele` : on reprojette, et l'on compare couple par couple.
+ */
+describe('🔴🔴 ⑨ reprendre l’existant sans rien perdre', () => {
+  const B = (cle: string) => [{ cle, libelle: `lot ${cle}` }];
+
+  it('🔴 une conversation entièrement sur un bien : UNE période, aucune exception', () => {
+    const c = { mails: [1, 2, 3].map((messageId) => ({ messageId, biens: B('A') })) };
+    const r = reprendre(c);
+    expect(r.periodes).toEqual([{ depuisMessageId: 1, classement: { sorte: 'biens', biens: B('A') } }]);
+    expect(r.exceptions).toEqual([]);
+    expect(repriseFidele(c, r)).toBe(true);
+  });
+
+  /** 🔴🔴 « UN RATTACHEMENT POSÉ SUR UN SEUL MAIL EST REPRIS COMME EXCEPTION ». */
+  it('🔴🔴 un bien qui n’apparaît qu’une fois devient une exception', () => {
+    const c = { mails: [
+      { messageId: 1, biens: B('A') }, { messageId: 2, biens: B('C') }, { messageId: 3, biens: B('A') },
+    ] };
+    const r = reprendre(c);
+    expect(r.periodes).toHaveLength(1);
+    expect(r.exceptions).toEqual([{ messageId: 2, classement: { sorte: 'biens', biens: B('C') } }]);
+    expect(repriseFidele(c, r)).toBe(true);
+  });
+
+  /** 🔴 UN CHANGEMENT DURABLE EST UNE PÉRIODE, pas une exception : l'ensemble revient. */
+  it('🔴 un ensemble qui se répète ensuite est une PÉRIODE', () => {
+    const c = { mails: [
+      { messageId: 1, biens: B('A') }, { messageId: 2, biens: B('B') }, { messageId: 3, biens: B('B') },
+    ] };
+    const r = reprendre(c);
+    expect(r.periodes.map((p) => p.depuisMessageId)).toEqual([1, 2]);
+    expect(r.exceptions).toEqual([]);
+    expect(repriseFidele(c, r)).toBe(true);
+  });
+
+  /** ⚠️ UN MAIL SANS BIEN, SOUS UNE PÉRIODE QUI EN PORTE, EST UNE EXCEPTION VIDE : il n'était rattaché à rien. */
+  it('⚠️ un mail non rattaché au milieu d’une période ne s’en voit pas attribuer un', () => {
+    const c = { mails: [
+      { messageId: 1, biens: B('A') }, { messageId: 2, biens: [] }, { messageId: 3, biens: B('A') },
+    ] };
+    const r = reprendre(c);
+    expect(r.exceptions).toEqual([{ messageId: 2, classement: { sorte: 'biens', biens: [] } }]);
+    expect(repriseFidele(c, r)).toBe(true);
+  });
+
+  it('⚠️ une conversation sans aucun rattachement ne crée rien', () => {
+    const c = { mails: [{ messageId: 1, biens: [] }, { messageId: 2, biens: [] }] };
+    expect(reprendre(c)).toEqual({ periodes: [], exceptions: [] });
+    expect(repriseFidele(c, reprendre(c))).toBe(true);
+  });
+
+  it('⚠️ les mails d’avant le premier rattachement restent à classer', () => {
+    const c = { mails: [
+      { messageId: 1, biens: [] }, { messageId: 2, biens: B('A') }, { messageId: 3, biens: B('A') },
+    ] };
+    const r = reprendre(c);
+    expect(r.periodes[0].depuisMessageId).toBe(2);
+    expect(r.exceptions).toEqual([]);
+    expect(repriseFidele(c, r)).toBe(true);
+  });
+
+  it('🔴 plusieurs biens sur un même mail sont repris ensemble', () => {
+    const deux = [{ cle: 'A', libelle: 'lot A' }, { cle: 'B', libelle: 'lot B' }];
+    const c = { mails: [{ messageId: 1, biens: deux }, { messageId: 2, biens: deux }] };
+    const r = reprendre(c);
+    expect(r.periodes[0].classement.biens).toHaveLength(2);
+    expect(repriseFidele(c, r)).toBe(true);
+  });
+
+  /** 🔴🔴 LE SCÉNARIO D'ARNO, REPRIS DEPUIS L'EXISTANT : il doit se retrouver tel quel. */
+  it('🔴🔴 le scénario d’Arno se reprend à l’identique', () => {
+    const c = { mails: [
+      { messageId: 1, biens: B('A') }, { messageId: 2, biens: B('A') }, { messageId: 3, biens: B('A') },
+      { messageId: 4, biens: B('C') }, { messageId: 5, biens: B('A') },
+      { messageId: 6, biens: B('B') }, { messageId: 7, biens: B('B') }, { messageId: 8, biens: B('B') },
+    ] };
+    const r = reprendre(c);
+    expect(repriseFidele(c, r)).toBe(true);
+    expect(r.periodes.map((p) => p.depuisMessageId)).toEqual([1, 6]);
+    expect(r.exceptions.map((e) => e.messageId)).toEqual([4]);
+  });
+});
+
+/** 🔒 LE MODULE EST PUR : il ne connaît ni la base, ni l'horloge, ni l'écran. */
+describe('🔒 module pur', () => {
+  it('🔒 aucun import', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('app/lib/gestion/periodesConversation.ts', 'utf8');
+    expect(src.split('\n').filter((l) => /^\s*import\b/.test(l))).toEqual([]);
+    expect(/fetch\(|query\(|new Date\(/.test(src)).toBe(false);
+  });
+});

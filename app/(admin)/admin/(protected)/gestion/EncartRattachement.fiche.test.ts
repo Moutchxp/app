@@ -49,12 +49,15 @@ let evenementDuMail: Record<string, unknown> | null;
  */
 let migration268: boolean;
 let appels: { url: string; methode: string; corps: unknown }[];
+/** 🔴 LOT SUIVI-CONVERSATION — les périodes de la conversation. `null` = migration 290 absente. */
+let suiviDuFil: { periodes: unknown[]; exceptions: unknown[]; mails: number[] } | null;
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   evenementDuMail = null;
   migration268 = true;
   appels = [];
+  suiviDuFil = null;
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     const methode = init?.method ?? 'GET';
@@ -70,6 +73,17 @@ beforeEach(() => {
         } as unknown as Response;
       }
       return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+    }
+    /**
+     * 🔴🔴 LOT SUIVI-CONVERSATION — LES PÉRIODES. Par défaut `sans_schema` : c'est l'état d'AUJOURD'HUI
+     * (migration 290 livrée non appliquée), et les épreuves d'avant ce lot doivent continuer de passer tel
+     * quel. Les épreuves du suivi, elles, posent `suiviDuFil` et obtiennent le nouveau chemin.
+     */
+    if (u.includes('/gestion/suivi')) {
+      return {
+        ok: true,
+        json: async () => (suiviDuFil === null ? { etat: 'sans_schema' } : { etat: 'ok', ...suiviDuFil }),
+      } as unknown as Response;
     }
     // 🔴 LOT MODALE-RATTACHER-PROPRE — la fiche que la pastille « i » demande, par la CLÉ du lot.
     if (u.includes('lotCle=')) {
@@ -292,12 +306,16 @@ describe('🔴🔴 la MODALE « Rattacher ce mail à… », la même qu’à la 
     expect(appels.some((a) => a.methode !== 'GET')).toBe(false);
   });
 
-  /** 🔴 RIEN N'EST PERDU : la portée et « Hors gestion… » sont repris au pied de la modale. */
-  it('🔴 la portée et « Hors gestion… » sont au pied de la modale', async () => {
+  /**
+   * 🔴 RIEN N'EST PERDU : « Hors gestion… » est repris au pied de la modale.
+   *
+   * ⚠️ « Portée » A ÉTÉ REMPLACÉE PAR « Suivi dans la conversation » au lot SUIVI-CONVERSATION — et le bloc
+   * n'apparaît que sous DEUX conditions, qui ne sont pas réunies ici (migration 290 absente par défaut).
+   */
+  it('🔴 « Hors gestion… » est au pied de la modale', async () => {
     await monter([]);
     await cliquer(container.querySelector('.ccl-case--rouge'));
     const modale = container.querySelector('.rec-voile');
-    expect(modale?.textContent ?? '').toContain('Toute la conversation');
     expect(modale?.textContent ?? '').toContain('Hors gestion, ou classer par pièce');
   });
 });
@@ -461,6 +479,126 @@ describe('🔴🔴 la ligne montre le PREMIER bien, et se déplie', () => {
     await cliquer(boutonPar(/^voir plus/));
     expect(boutonPar(/^Modifier$/)).toBeUndefined();
     expect(boutonPar(/^Retirer$/)).toBeUndefined();
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LE BLOC « SUIVI DANS LA CONVERSATION » ═══════════════════════════════════════
+ *
+ * ARNO : « Il n'apparaît dans la modale que si DEUX conditions sont réunies : le mail n'est pas le premier de la
+ * conversation, ET on modifie un classement déjà validé sur cette conversation. […] avec “Ce mail et la
+ * conversation à venir” coché par défaut. […] Sans confirmation, “Valider” reste bloqué. »
+ */
+describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
+  const PERIODE = {
+    id: 1, depuisMessageId: 800, classement: { sorte: 'biens', biens: [{ cle: '442', libelle: 'lot 442' }] },
+  };
+  const ouvrir = async () => {
+    await monter([lien()]);
+    await cliquer(container.querySelector('.ccl-case--verte'));
+  };
+  const bloc = () => [...container.querySelectorAll('.ert-portee')]
+    .find((f) => /Suivi dans la conversation/.test(f.textContent ?? ''));
+
+  /** ⚠️ SANS LA MIGRATION 290, LE BLOC N'EXISTE PAS : le classement se comporte comme avant ce lot. */
+  it('⚠️ absent sans la migration 290', async () => {
+    suiviDuFil = null;
+    await ouvrir();
+    expect(bloc()).toBeUndefined();
+  });
+
+  it('🔴🔴 absent sur le PREMIER mail de la conversation, même classée', async () => {
+    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [900, 901] };
+    await ouvrir();
+    expect(bloc()).toBeUndefined();
+  });
+
+  it('🔴🔴 absent sur une conversation JAMAIS classée', async () => {
+    suiviDuFil = { periodes: [], exceptions: [], mails: [800, 900] };
+    await ouvrir();
+    expect(bloc()).toBeUndefined();
+  });
+
+  it('🔴🔴 présent quand les DEUX conditions sont réunies, avec les trois choix', async () => {
+    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
+    await ouvrir();
+    const f = bloc();
+    expect(f).toBeDefined();
+    expect(f?.textContent).toContain('Ce mail uniquement');
+    expect(f?.textContent).toContain('Ce mail et la conversation à venir');
+    expect(f?.textContent).toContain('Toute la conversation');
+  });
+
+  /** 🔴 « Une phrase d'aide sous chaque choix, en français simple. » */
+  it('🔴 chaque choix porte sa phrase d’aide', async () => {
+    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
+    await ouvrir();
+    const aides = [...(bloc()?.querySelectorAll('.ert-suivi-aide') ?? [])].map((x) => x.textContent ?? '');
+    expect(aides).toHaveLength(3);
+    expect(aides[0]).toContain('Le mail suivant reprend la règle d’avant');
+    expect(aides[1]).toContain('Les mails précédents ne bougent pas');
+    expect(aides[2]).toContain('Les exceptions déjà posées sont conservées');
+  });
+
+  it('🔴 « Ce mail et la conversation à venir » est coché par défaut', async () => {
+    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
+    await ouvrir();
+    const cases = [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
+    expect(cases.map((c) => c.checked)).toEqual([false, true, false]);
+  });
+
+  /**
+   * 🔴🔴 « TOUTE LA CONVERSATION » : l'alerte, et la confirmation sans laquelle « Valider » reste bloqué.
+   */
+  it('🔴🔴 « Toute la conversation » alerte, et bloque « Valider » tant qu’on n’a pas confirmé', async () => {
+    suiviDuFil = {
+      periodes: [PERIODE], exceptions: [{ messageId: 801, classement: { sorte: 'biens', biens: [] } }],
+      mails: [800, 801, 900],
+    };
+    await ouvrir();
+    const radios = [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
+    await cliquer(radios[2]);
+
+    const alerte = container.querySelector('.ert-alerte-texte')?.textContent ?? '';
+    expect(alerte).toContain('2 mails de cette conversation seront reclassés');
+    expect(alerte).toContain('1 exception est conservée');
+
+    const valider = boutonPar(/^Valider/) as HTMLButtonElement;
+    expect(valider.disabled).toBe(true);
+    expect(container.querySelector('.rec-bloque')?.textContent).toContain('Cochez la confirmation');
+
+    await cliquer(container.querySelector('.ert-alerte input[type="checkbox"]'));
+    expect((boutonPar(/^Valider/) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  /** ⚠️ CHANGER DE CHOIX REDEMANDE LA CONFIRMATION : on ne garde pas un « oui » donné pour autre chose. */
+  it('⚠️ revenir sur un autre choix remet la confirmation à zéro', async () => {
+    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
+    await ouvrir();
+    const radios = () => [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
+    await cliquer(radios()[2]);
+    await cliquer(container.querySelector('.ert-alerte input[type="checkbox"]'));
+    await cliquer(radios()[0]);
+    await cliquer(radios()[2]);
+    expect((boutonPar(/^Valider/) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 LA VALIDATION ENVOIE LA DÉCISION, EN UNE REQUÊTE — et non une suite de gestes mail par mail.
+   */
+  it('🔴🔴 valider envoie le classement ET le choix de suivi', async () => {
+    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
+    await ouvrir();
+    const radios = [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
+    await cliquer(radios[0]);
+    await cliquer(boutonPar(/^Valider/));
+    const envoi = appels.find((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'));
+    expect(envoi?.corps).toMatchObject({
+      filId: 101, messageId: 900, choix: 'mail',
+      classement: { sorte: 'biens', biens: [{ cle: '442' }] },
+    });
+    // ⚠️ ET AUCUN GESTE MAIL PAR MAIL : la décision passe par UNE porte.
+    expect(appels.some((a) => a.methode === 'PATCH')).toBe(false);
   });
 });
 

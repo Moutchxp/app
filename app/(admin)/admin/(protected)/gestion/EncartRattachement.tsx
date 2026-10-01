@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CSS_CHOISIR_CIBLE } from './ChoisirCible';
 import { ModifierRattachement } from './ModifierRattachement';
 // 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE MÊME MODULE QUE LA FENÊTRE DE RÉDACTION, à l'extrémité droite du bloc.
@@ -9,6 +9,11 @@ import { CSS_RATTACHER_EN_ECRIVANT, RattacherEnEcrivant } from './RattacherEnEcr
 import { lignePremierBien } from '../../../../lib/gestion/classementBoutons';
 // 🔴 LOT MODALE-RATTACHER-PROPRE — le titre d'un bien (sans numéro de lot) et la pastille « i ».
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
+// 🔴🔴 LOT SUIVI-CONVERSATION — les périodes de classement d'une conversation. Décisions dans un module PUR.
+import {
+  alerteTouteLaConversation, blocSuiviVisible, motClassement, SUIVI_DEFAUT,
+  type ChoixSuivi, type Classement, type ExceptionMail, type Periode,
+} from '../../../../lib/gestion/periodesConversation';
 import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
 import type { CibleBrouillon } from '../../../../lib/gestion/redaction';
 // LOT AFFECTATION-PAR-BIEN — la fenêtre de classement complète, partagée : une seule implémentation du geste.
@@ -49,6 +54,38 @@ import type { Cible, Statut } from '../../../../lib/gestion/rattachement';
  * à appliquer » sur une base où elle l'était. `BlocEvenement` demande maintenant la réponse au serveur, avec les
  * données qu'elle conditionne. Ne pas la réintroduire ici : elle retraverserait deux composants pour rien.
  */
+/**
+ * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LES TROIS CHOIX, DANS L'ORDRE D'ARNO, AVEC LEUR PHRASE D'AIDE ════════════════
+ *
+ * « Une phrase d'aide sous chaque choix, en français simple » (Arno). Trois options dont on ne comprend pas la
+ * différence valent une option : c'est la phrase qui fait le choix, pas le titre.
+ *
+ * ⚠️ ÉCRITS ICI ET NULLE PART AILLEURS : l'ordre, les mots et les aides sont une seule vérité. Le choix coché
+ * d'avance, lui, vient du module pur (`SUIVI_DEFAUT`).
+ */
+const CHOIX_SUIVI: readonly { cle: ChoixSuivi; mot: string; aide: string }[] = [
+  {
+    cle: 'mail', mot: 'Ce mail uniquement',
+    aide: 'Exception : ce mail seul est classé ainsi. Le mail suivant reprend la règle d’avant.',
+  },
+  {
+    cle: 'suite', mot: 'Ce mail et la conversation à venir',
+    aide: 'Nouvelle période à partir d’ici. Les mails précédents ne bougent pas.',
+  },
+  {
+    cle: 'conversation', mot: 'Toute la conversation',
+    aide: 'Tous les mails, passés et à venir, sont reclassés. Les exceptions déjà posées sont conservées.',
+  },
+];
+
+/** Ce qu'on dit après le geste. Un mot par choix : « posé » ne dit pas la même chose selon ce qu'on a décidé. */
+function motDuGeste(choix: ChoixSuivi, c: Classement): string {
+  const quoi = motClassement(c);
+  if (choix === 'mail') return `Exception posée sur ce mail : ${quoi}.`;
+  if (choix === 'conversation') return `Toute la conversation reclassée : ${quoi}.`;
+  return `Nouvelle période à partir de ce mail : ${quoi}.`;
+}
+
 export function EncartRattachement({
   messageId, filId, liens, interne = null, horsGestion = false, onInterne, onHorsGestion,
   onChange, onGeste, onHistorique,
@@ -96,8 +133,45 @@ export function EncartRattachement({
   const [ajout, setAjout] = useState(false);
   /** 🔴 « voir plus » : la ligne de gauche est repliée sur le PREMIER bien, et se déplie sur demande. */
   const [deplie, setDeplie] = useState(false);
-  /** La portée du rattachement, reprise du panneau d'avant : « ce mail » ou « toute la conversation ». */
-  const [portee, setPortee] = useState<'mail' | 'conversation'>('mail');
+  /**
+   * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LE SUIVI REMPLACE LA PORTÉE ═══════════════════════════════════════════════
+   *
+   * Demande d'Arno : le bloc « Suivi dans la conversation » REMPLACE « Portée de ce qu'on ajoute », avec trois
+   * choix au lieu de deux, et « Ce mail et la conversation à venir » coché d'avance.
+   *
+   * 🔴 CE QUI A CHANGÉ, ET CE N'EST PAS QU'UN MOT. « Portée » disait où le geste s'appliquait AUJOURD'HUI ;
+   * « Suivi » dit sous quelle règle le mail est classé, donc ce dont les mails À VENIR hériteront. C'est la
+   * différence entre un geste et une décision — et c'est ce qui permet de ne plus écraser le passé.
+   */
+  const [choix, setChoix] = useState<ChoixSuivi>(SUIVI_DEFAUT);
+  /** 🔴 « Sans confirmation, “Valider” reste bloqué » : la case que « Toute la conversation » exige. */
+  const [confirme, setConfirme] = useState(false);
+  /** Les périodes et exceptions de cette conversation. `null` = migration 290 absente, ou lecture en échec. */
+  const [suivi, setSuivi] = useState<{
+    periodes: Periode[]; exceptions: ExceptionMail[]; mails: number[];
+  } | null>(null);
+
+  /**
+   * ⚠️ LE SUIVI N'EST LU QU'À L'OUVERTURE DE LA MODALE. Le bloc gris surplombe CHAQUE mail d'une conversation
+   * qui en porte parfois trente : lire les périodes pour chacun ferait trente requêtes à l'ouverture d'un fil,
+   * pour une information que personne ne regarde tant qu'il ne classe pas.
+   */
+  useEffect(() => {
+    if (!ajout || filId == null) return undefined;
+    let vivant = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/gestion/suivi?fil=${filId}`, { cache: 'no-store' });
+        const d = (await res.json()) as {
+          etat?: string; periodes?: Periode[]; exceptions?: ExceptionMail[]; mails?: number[];
+        };
+        if (!vivant) return;
+        setSuivi(d.etat !== 'ok' ? null
+          : { periodes: d.periodes ?? [], exceptions: d.exceptions ?? [], mails: d.mails ?? [] });
+      } catch { if (vivant) setSuivi(null); }
+    })();
+    return () => { vivant = false; };
+  }, [ajout, filId]);
   /** LOT FIL-LECTURE-2 — le rattachement dont on a ouvert la fenêtre « Modifier ». `null` = aucune fenêtre. */
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
   const [occupe, setOccupe] = useState(false);
@@ -197,35 +271,56 @@ export function EncartRattachement({
    * ⚠️ LES GESTES PASSENT PAR LES ROUTES EXISTANTES (`agir`), jamais par une seconde écriture : « Retirer » écrit
    * `retire` sur le lien, il ne supprime rien. Tout reste daté et signé, et remettable.
    *
-   * ⚠️ LA PORTÉE « TOUTE LA CONVERSATION » NE VAUT QUE POUR CE QU'ON AJOUTE. Retirer en masse sur un échange
-   * entier depuis cette fenêtre défer_ait des classements qu'on n'a pas regardés ; le retrait reste donc sur le
-   * mail ouvert, qui est le geste le plus étroit et le moins regrettable.
+   * ══ 🔴🔴 LOT SUIVI-CONVERSATION — DEUX CHEMINS, ET LE SECOND EST CELUI D'AVANT ═══════════════════════════
+   *
+   * ① AVEC LA MIGRATION 290 : on envoie LA DÉCISION — ce classement, avec ce suivi — à `/api/admin/gestion/suivi`,
+   *    et le serveur en tire les écritures. C'est le seul chemin qui sache ce qu'est une période.
+   * ② SANS ELLE : le chemin d'avant, mot pour mot — un geste par bien posé, un par bien retiré, sur CE mail. Le
+   *    classement se comporte exactement comme avant ce lot, et l'écran ne propose aucun suivi.
+   *
+   * 🔴 UN DIFF DANS LES DEUX CAS. On ne retire pas tout pour tout reposer : un lien reposé perdrait sa date, son
+   * auteur et son motif d'origine — tout ce qui permet de dire, six mois plus tard, d'où vient un rattachement.
    */
   const appliquerCibles = async (choisies: readonly CibleBrouillon[]): Promise<void> => {
     const voulues = new Set(choisies.filter((c) => c.sorte === 'lot').map((c) => c.cle ?? ''));
+
+    // ① LE CHEMIN DES PÉRIODES : une seule requête, qui porte la décision entière.
+    if (suivi !== null && filId != null) {
+      const classement: Classement = {
+        sorte: 'biens',
+        biens: choisies.filter((c) => c.sorte === 'lot')
+          .map((c) => ({ cle: c.cle ?? '', libelle: c.libelle })),
+      };
+      setOccupe(true);
+      setErreur(null);
+      try {
+        const res = await fetch('/api/admin/gestion/suivi', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filId, messageId, classement, choix }),
+        });
+        const d = (await res.json()) as { ok?: boolean; erreur?: string };
+        if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return; }
+        onGeste?.(motDuGeste(choix, classement));
+        await onChange();
+        setAjout(false);
+      } catch {
+        setErreur('Le serveur n’a pas répondu.');
+      } finally {
+        setOccupe(false);
+      }
+      return;
+    }
+
+    // ② LE CHEMIN D'AVANT, inchangé : ce mail, et lui seul.
     const presentes = new Set(biensRattaches.map((c) => c.cle ?? ''));
     const aPoser = [...voulues].filter((c) => !presentes.has(c));
     const aRetirer = vivants.filter((l) => l.cible.sorte === 'lot' && !voulues.has(l.cible.cle ?? ''));
-
-    let mails: number[] = [messageId];
-    if (portee === 'conversation' && filId != null && aPoser.length > 0) {
-      try {
-        const res = await fetch(`/api/admin/gestion/classement?fil=${filId}&portee=1`, { cache: 'no-store' });
-        const d = (await res.json()) as { etat?: string; mails?: number[] };
-        if (d.etat === 'ok') mails = [...new Set([messageId, ...(d.mails ?? [])])];
-      } catch { /* on retombe sur le mail ouvert : le geste le plus étroit est le moins regrettable */ }
-    }
-
     for (const l of aRetirer) {
       await agir({ lienId: l.id, statut: 'retire' }, 'PATCH', `Rattachement retiré : ${l.libelle}`);
     }
-    for (const m of mails) {
-      for (const cle of aPoser) {
-        await agir({
-          messageId: m, cible: { sorte: 'lot', cle },
-          motif: portee === 'conversation' ? 'rattaché à la main (toute la conversation)' : 'rattaché à la main',
-        }, 'POST', 'Rattachement posé.');
-      }
+    for (const cle of aPoser) {
+      await agir({ messageId, cible: { sorte: 'lot', cle }, motif: 'rattaché à la main' },
+        'POST', 'Rattachement posé.');
     }
     if (aPoser.length === 0 && aRetirer.length === 0) await onChange();
     setAjout(false);
@@ -268,6 +363,25 @@ export function EncartRattachement({
     })),
   ).map((x) => [x.cle, x.titre]));
   const titreDe = (l: LienAffiche): string => titres.get(l.cible.cle ?? '') ?? l.libelle;
+
+  /**
+   * 🔴🔴 LES DEUX CONDITIONS D'ARNO, décidées dans le module PUR. `suivi === null` = migration 290 absente : le
+   * bloc n'existe pas, et le classement se comporte comme avant ce lot.
+   */
+  const blocVisible = suivi !== null && blocSuiviVisible({
+    estPremierMail: suivi.mails.length > 0 && suivi.mails[0] === messageId,
+    dejaClassee: suivi.periodes.length > 0 || suivi.exceptions.length > 0,
+  });
+  /** Ce que l'alerte annonce, mot pour mot — composé par le module pur. */
+  const alerte = suivi === null ? '' : alerteTouteLaConversation({
+    mails: suivi.mails, exceptions: suivi.exceptions, messageId,
+    // ⚠️ L'ALERTE PARLE DE CE QUI EST RATTACHÉ AU MOMENT OÙ ON OUVRE : la fenêtre, elle, connaît la sélection
+    //   en cours de modification, mais elle ne la remonte qu'à la validation. Nommer l'état de départ est
+    //   honnête et suffit à faire comprendre la portée du geste — c'est le NOMBRE de mails qui alerte.
+    versQuoi: motClassement({ sorte: 'biens', biens: biensRattaches.map((b) => ({
+      cle: b.cle ?? '', libelle: b.libelle,
+    })) }),
+  });
 
   /** Ce que la ligne de gauche montre d'abord : le premier bien, en entier, et « voir plus » s'il faut. */
   const ligne = lignePremierBien(vivants.map(titreDe));
@@ -489,8 +603,8 @@ export function EncartRattachement({
           une autre forme et avec une autre validation. Une seule fenêtre pour un seul geste, des deux côtés de
           l'application : c'est tout l'objet de ce lot.
 
-          ⚠️ CE QUE LE PANNEAU PORTAIT DE PLUS EST REPRIS AU PIED, pas perdu : la portée (« ce mail » / « toute
-          la conversation ») et « Hors gestion, ou classer par pièce… ». */}
+          ⚠️ CE QUE LE PANNEAU PORTAIT DE PLUS EST REPRIS AU PIED, pas perdu : le suivi (qui a remplacé la
+          portée, lot SUIVI-CONVERSATION) et « Hors gestion, ou classer par pièce… ». */}
       {ajout && (
         <RattacherEnEcrivant
           messageId={messageId}
@@ -498,26 +612,45 @@ export function EncartRattachement({
           cibles={biensRattaches}
           onChange={(c) => { void appliquerCibles(c); }}
           onFerme={() => setAjout(false)}
+          validationBloquee={blocVisible && choix === 'conversation' && !confirme
+            ? 'Cochez la confirmation ci-dessus pour reclasser toute la conversation.'
+            : null}
           piedSupplementaire={(
             <>
-              <fieldset className="ert-portee">
-                <legend className="ert-portee-titre">Portée de ce qu’on AJOUTE</legend>
-                <label className="ert-choix">
-                  <input type="radio" name="ert-portee" checked={portee === 'mail'}
-                    onChange={() => setPortee('mail')} />
-                  <span>Ce mail uniquement</span>
-                </label>
-                <label className={`ert-choix${filId == null ? ' ert-choix--inactif' : ''}`}>
-                  <input type="radio" name="ert-portee" checked={portee === 'conversation'}
-                    disabled={filId == null} onChange={() => setPortee('conversation')} />
-                  <span>Toute la conversation{filId == null ? ' — échange inconnu' : ''}</span>
-                </label>
-                {/* ⚠️ ON LE DIT : le RETRAIT ne suit pas la portée. Défaire en masse des classements qu'on n'a
-                    pas regardés serait le contraire d'un geste prudent. */}
-                <p className="ert-portee-note">
-                  Ce qu’on décoche n’est retiré que de CE mail.
-                </p>
-              </fieldset>
+              {/* ══ 🔴🔴 LOT SUIVI-CONVERSATION — « SUIVI DANS LA CONVERSATION » ══════════════════════════
+                  Demande d'Arno : « Il n'apparaît dans la modale que si DEUX conditions sont réunies : le mail
+                  n'est pas le premier de la conversation, ET on modifie un classement déjà validé sur cette
+                  conversation. Sinon, il est absent, et le premier classement vaut pour ce mail et toute la
+                  suite. » La décision est dans le module PUR (`blocSuiviVisible`). */}
+              {blocVisible && (
+                <fieldset className="ert-portee">
+                  <legend className="ert-portee-titre">Suivi dans la conversation</legend>
+                  {CHOIX_SUIVI.map((c) => (
+                    <label className="ert-choix ert-choix--suivi" key={c.cle}>
+                      <input type="radio" name="ert-suivi" checked={choix === c.cle}
+                        onChange={() => { setChoix(c.cle); setConfirme(false); }} />
+                      <span>
+                        <span className="ert-suivi-mot">{c.mot}</span>
+                        {/* 🔴 UNE PHRASE D'AIDE SOUS CHAQUE CHOIX, EN FRANÇAIS SIMPLE (demande d'Arno) : trois
+                            options dont on ne comprend pas la différence valent une option. */}
+                        <span className="ert-suivi-aide">{c.aide}</span>
+                      </span>
+                    </label>
+                  ))}
+
+                  {/* 🔴🔴 L'ALERTE DE « TOUTE LA CONVERSATION », et sa confirmation obligatoire. */}
+                  {choix === 'conversation' && (
+                    <p className="ert-alerte" role="status">
+                      <span className="ert-alerte-texte">{alerte}</span>
+                      <label className="ert-choix">
+                        <input type="checkbox" checked={confirme}
+                          onChange={() => setConfirme((v) => !v)} />
+                        <span>Je confirme le reclassement de toute la conversation.</span>
+                      </label>
+                    </p>
+                  )}
+                </fieldset>
+              )}
               <button type="button" className="gst-lien-bouton"
                 onClick={() => { setAjout(false); setClasser(true); }}>
                 Hors gestion, ou classer par pièce…
@@ -737,6 +870,21 @@ export const CSS_ENCART_RATTACHEMENT = `
   cursor:pointer}
 .ert-choix--inactif{color:var(--color-svv-muted);cursor:default}
 .ert-portee-note{margin:.2rem 0 0;font-size:.74rem;font-style:italic;color:var(--color-svv-muted)}
+
+/* ══ 🔴🔴 LOT SUIVI-CONVERSATION — LES TROIS CHOIX, ET LEUR PHRASE D'AIDE ═══════════════════════════════════════
+   « Une phrase d'aide sous chaque choix, en francais simple » (Arno). Elle vit SOUS le mot, en petit et en gris :
+   le mot se lit d'un coup d'oeil, l'aide se lit quand on hesite. Les deux sur la meme ligne auraient fait choisir
+   au hasard. */
+.ert-choix--suivi{align-items:flex-start;min-height:0;padding:3px 0}
+.ert-choix--suivi>span{display:flex;flex-direction:column;gap:1px;min-width:0}
+.ert-suivi-mot{font-weight:600}
+.ert-suivi-aide{font-size:.74rem;color:var(--color-svv-muted);line-height:1.35}
+
+/* 🔴 L'ALERTE DE « TOUTE LA CONVERSATION ». Elle reclasse des mails PASSES : elle se voit, et elle se confirme.
+   Le liseret rouge n'est qu'un renfort — le MOT porte l'information, regle du module depuis la premiere capsule. */
+.ert-alerte{display:flex;flex-direction:column;gap:.2rem;margin:.4rem 0 0;padding:6px 8px;border-radius:0 .5rem .5rem 0;
+  border-left:3px solid var(--color-svv-red);background:var(--color-svv-field)}
+.ert-alerte-texte{font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}
 /* LOT BIEN-RATTACHE — la mention qui dit qu'il y a quelque chose a ouvrir. Sans elle, l'automatisation
    travaillerait pour personne : on ne saurait pas qu'un menu porte des propositions.
    🔴 LOT LISTE-PAGINATION — elle vit maintenant DANS la rangee ert-tete, au bout de la ligne des biens : plus de

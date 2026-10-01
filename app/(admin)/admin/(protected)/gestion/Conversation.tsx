@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../../../lib/gestion/carteRepo';
 import {
   etatCorps, lignesDestinataires, mentionHorsFile, mentionNonRemise, messagesDeplies, MENTION_HTML_SEUL,
@@ -57,6 +57,10 @@ import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 // 🔴🔴 LOT CLASSER-AVANT-ENVOI — ce dont une réponse hérite : décidé dans un module PUR, éprouvé à part.
 import { classementHerite, type ClassementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
+// 🔴🔴 LOT SUIVI-CONVERSATION — les repères de période dans le fil. Décidés dans un module PUR.
+import {
+  motClassement, reperesDuFil, type ExceptionMail, type Periode,
+} from '../../../../lib/gestion/periodesConversation';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
 /**
@@ -340,6 +344,20 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * rendue, plutôt qu'une capsule inventée.
    */
   const [interne, setInterne] = useState<boolean | null>(null);
+  /**
+   * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LES PÉRIODES DE CETTE CONVERSATION ═══════════════════════════════════════
+   *
+   * Demande d'Arno (point 4) : « Entre deux mails, quand la période change, une fine ligne de séparation : “À
+   * partir d'ici : 10 rue Chateaubriand — Parking”, avec la date et qui l'a décidé. Un mail en exception porte
+   * une petite mention “exception : <biens>” dans son en-tête. »
+   *
+   * `null` = migration 290 absente, ou lecture en échec : aucun repère n'est rendu, et le fil est exactement
+   * celui d'avant ce lot. Lecture SILENCIEUSE, comme les rattachements : une erreur rouge au-dessus d'un mail
+   * ferait croire que le mail lui-même a un problème.
+   */
+  const [suivi, setSuivi] = useState<{
+    periodes: Periode[]; exceptions: ExceptionMail[]; mails: number[];
+  } | null>(null);
   /* ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LE RÉCAPITULATIF, LA VISIONNEUSE, LE RANGEMENT ═══════════════════════
      Les trois vivent ICI, au niveau de la conversation, et pas dans le bloc de pièces d'un message : le tour de
      « Précédent / Suivant » couvre TOUTES les pièces de l'échange, et un bloc de message n'en connaît qu'un. */
@@ -507,6 +525,25 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * requête au moindre dépliage.
    */
   useEffect(() => { void chargerInterne(filId); }, [filId, chargerInterne]);
+
+  /**
+   * 🔴 LOT SUIVI-CONVERSATION — LE SUIVI, LU UNE FOIS PAR CONVERSATION. Comme « Interne », il porte sur
+   * l'ÉCHANGE : le relire à chaque dépliage de message le redemanderait pour rien.
+   */
+  const chargerSuivi = useCallback(async (fil: number | null) => {
+    if (fil === null) { setSuivi(null); return; }
+    try {
+      const res = await fetch(`/api/admin/gestion/suivi?fil=${fil}`, { cache: 'no-store' });
+      const d = (await res.json()) as {
+        etat?: string; periodes?: Periode[]; exceptions?: ExceptionMail[]; mails?: number[];
+      };
+      setSuivi(d.etat !== 'ok' ? null
+        : { periodes: d.periodes ?? [], exceptions: d.exceptions ?? [], mails: d.mails ?? [] });
+    } catch {
+      setSuivi(null);
+    }
+  }, []);
+  useEffect(() => { void chargerSuivi(filId); }, [filId, chargerSuivi]);
 
   /**
    * LOT 5-BOITE-3 — la voie demandée depuis la liste, appliquée UNE FOIS la conversation chargée : le brouillon se
@@ -862,6 +899,17 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   };
   const tousDeplies = messages.length > 0 && messages.every((m) => deplies.has(m.messageId));
 
+  /**
+   * 🔴 LOT SUIVI-CONVERSATION — LES REPÈRES, décidés par le module PUR. `suivi === null` (migration 290 absente
+   * ou lecture en échec) ⇒ aucune ligne, et le fil est exactement celui d'avant ce lot.
+   */
+  const reperes = suivi === null ? [] : reperesDuFil(suivi.mails, suivi.periodes);
+  /** Le mot d'une exception, pour l'en-tête du mail qui la porte. `null` = ce mail n'en porte pas. */
+  const exceptionDe = (messageId: number): string | null => {
+    const e = suivi?.exceptions.find((x) => x.messageId === messageId);
+    return e === undefined ? null : motClassement(e.classement);
+  };
+
   return (
     <section className="cnv" aria-labelledby={`cnv-titre-${fil.filId}`}>
       <style>{CSS_CONVERSATION}{CSS_PIECES}{CSS_PIECES_CONVERSATION}</style>
@@ -1014,7 +1062,31 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
 
       <ol className="cnv-fil" ref={filRef}>
         {ordonnerMessages(messages, ordre).map((m) => (
-          <MessageConversation key={m.messageId} message={m} maintenant={maintenant} filId={filId}
+          <Fragment key={m.messageId}>
+          {/* ══ 🔴🔴 LOT SUIVI-CONVERSATION — « À PARTIR D'ICI : … » ════════════════════════════════════════
+              Demande d'Arno : « Entre deux mails, quand la période change, une fine ligne de séparation […]
+              avec la date et qui l'a décidé. »
+
+              ⚠️ ELLE SE POSE AVANT LE MAIL QUI OUVRE LA PÉRIODE, et seulement là : c'est la définition d'une
+              période (« à partir de ce mail, inclus »). La décision — quelles lignes, et laquelle sauter —
+              vient du module PUR (`reperesDuFil`), qui écarte celle du premier mail : « À partir d'ici » en
+              tête de conversation ne sépare rien. */}
+          {reperes.filter((r) => r.avantMessageId === m.messageId).map((r) => (
+            <li className="cnv-repere" key={`rep-${r.avantMessageId}`}>
+              <span className="cnv-repere-mot">À partir d’ici : {r.versQuoi}</span>
+              {(r.parLibelle !== null || r.le !== null) && (
+                <span className="cnv-repere-qui">
+                  {r.le !== null && dateHeureComplete(r.le)}
+                  {r.le !== null && r.parLibelle !== null ? ' · ' : ''}
+                  {r.parLibelle}
+                </span>
+              )}
+            </li>
+          ))}
+          <MessageConversation message={m} maintenant={maintenant} filId={filId}
+            /* 🔴 LOT SUIVI-CONVERSATION — « Un mail en exception porte une petite mention “exception : <biens>”
+               dans son en-tête. » Le mot vient du module pur : trois sortes, une seule façon de les écrire. */
+            exception={exceptionDe(m.messageId)}
             ouvert={deplies.has(m.messageId)}
             corpsCharge={corps.get(m.messageId)?.texte}
             htmlCharge={corps.get(m.messageId)?.html}
@@ -1067,7 +1139,12 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               await chargerRattachements(idsMessages);
               onGeste(actif ? 'Mail marqué « hors gestion ».' : 'Marque « hors gestion » retirée.');
             }}
-            onRattachement={() => { void chargerRattachements(idsMessages); void chargerInterne(filId); }}
+            onRattachement={() => {
+              void chargerRattachements(idsMessages);
+              void chargerInterne(filId);
+              // 🔴 LOT SUIVI-CONVERSATION — les périodes aussi : un classement vient peut-être d'en ouvrir une.
+              void chargerSuivi(filId);
+            }}
             onGesteRattachement={(t) => onGeste(t)}
             onHistorique={onHistorique}
             /* 🔴 LOT PIECES-DE-LA-CONVERSATION — la vignette d'une pièce ouvre la visionneuse maison, avec le tour
@@ -1099,6 +1176,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                 }}
                 onGeste={(t) => onGeste(t)} />
             ) : null} />
+          </Fragment>
         ))}
       </ol>
 
@@ -1392,7 +1470,7 @@ function CorpsHtmlMail({ html }: { html: string }) {
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
-  rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion,
+  rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
@@ -1467,6 +1545,12 @@ export function MessageConversation({
    * Absent ⇒ la case verte « Hors gestion » s'affiche mais ne se défait pas d'ici.
    */
   onHorsGestion?: (actif: boolean) => void | Promise<void>;
+  /**
+   * 🔴 LOT SUIVI-CONVERSATION — « Un mail en exception porte une petite mention “exception : <biens>” dans son
+   * en-tête » (Arno). Déjà composé par la conversation, qui seule connaît les périodes. `null` = ce mail suit
+   * la règle de sa période, et il n'y a rien à signaler.
+   */
+  exception?: string | null;
   /** Recharge les liens de l'échange après un geste. Absent = le bandeau reste en lecture. */
   onRattachement?: () => void | Promise<void>;
   onGesteRattachement?: (message: string) => void;
@@ -1710,6 +1794,16 @@ export function MessageConversation({
               : filId !== null ? setVoirRattachements(true) : undefined)}>
             {motCapsule(capsule)}
           </button>
+        )}
+        {/* ══ 🔴🔴 LOT SUIVI-CONVERSATION — « exception : <biens> » ════════════════════════════════════════════
+            Demande d'Arno, mot pour mot. Elle se lit À CÔTÉ de la capsule, et non à sa place : la capsule dit
+            le STATUT (classé, à classer…), la mention dit SOUS QUELLE RÈGLE — « ce mail-ci, et pas les
+            autres ». Deux informations différentes, et celle-ci n'existe que sur quelques mails. */}
+        {exception !== null && (
+          <span className="cnv-exception" title="Ce mail est classé à part : la période de la conversation ne
+ s’applique pas à lui.">
+            exception : {exception}
+          </span>
         )}
         {/* LA MENTION D'ÉVÉNEMENT, DISCRÈTE ET DISTINCTE. Elle ne dit plus jamais « À classer » : son libellé est
             préfixé « Événement : », pour qu'on ne puisse plus la lire comme un verdict de classement. Rien du
@@ -2046,6 +2140,19 @@ export const CSS_CONVERSATION = `
    MEME GABARIT QUE CELLE DE LA LISTE (.bte-capsule) : c'est le MEME statut, il doit se reconnaitre au premier coup
    d'oeil d'un ecran a l'autre. Le MOT est toujours ecrit — la capsule reste lisible en niveaux de gris et pour un
    daltonien. C'est un BOUTON : il mene a la fenetre qui sert a changer ce statut. */
+/* ══ 🔴🔴 LOT SUIVI-CONVERSATION — LE REPERE DE PERIODE, ET LA MENTION D'EXCEPTION ═════════════════════════════
+   « une fine ligne de separation » (Arno) : fine, donc, et grise — elle separe, elle n'alerte pas. Le MOT porte
+   l'information ; le trait n'est qu'un renfort, regle du module depuis la premiere capsule. */
+.cnv-repere{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .6rem;margin:.5rem 0 .3rem;
+  padding:.2rem 0 .3rem;border-top:1px solid var(--color-svv-line-strong);list-style:none}
+.cnv-repere-mot{font-size:.76rem;font-weight:700;letter-spacing:.01em;color:var(--color-svv-ink);
+  overflow-wrap:anywhere}
+.cnv-repere-qui{font-size:.72rem;color:var(--color-svv-muted)}
+/* La mention d'exception : discrete, a cote de la capsule, et jamais a sa place — ce sont deux informations. */
+.cnv-exception{display:inline-flex;align-items:center;min-height:22px;padding:.05rem .4rem;border-radius:999px;
+  font-size:.7rem;font-weight:700;color:var(--color-svv-muted);border:1px dashed var(--color-svv-line-strong);
+  overflow-wrap:anywhere}
+
 .cnv-capsule{display:inline-flex;align-items:center;min-height:24px;padding:.05rem .45rem;border-radius:999px;
   font:inherit;font-size:.7rem;font-weight:700;line-height:1.5;white-space:nowrap;cursor:pointer;
   border:1px solid transparent;background:transparent}
