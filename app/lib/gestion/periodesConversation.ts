@@ -202,9 +202,52 @@ export function periodeEnCours(
  * 🔴 POURQUOI LES DEUX. Sur le PREMIER mail, il n'y a pas de passé à préserver : les trois choix diraient la
  * même chose. Et sur une conversation JAMAIS classée, il n'y a pas de règle à modifier : poser la première vaut
  * pour tout ce qui suit. Montrer trois options qui font la même chose, c'est demander d'arbitrer pour rien.
+ *
+ * ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT — UNE TROISIÈME CONDITION, ET C'EST LA PLUS IMPORTANTE ═══════════════
+ *
+ * CONSTAT D'ARNO (02/10/2026), fil 3490 / message 57368 : « Le bloc s'affiche dès l'ouverture de la modale, sans
+ * qu'aucune case ait été touchée. »
+ *
+ * POURQUOI. `dejaClassee` valait « cette conversation a au moins une période ou une exception » — or depuis la
+ * reprise de la migration 290, TOUTE conversation déjà classée en a une (le fil 3490 en a trois, et le 57368 est
+ * son 4ᵉ mail). Les deux conditions étaient donc vraies à l'ouverture, et le bloc s'affichait d'emblée : il
+ * demandait d'arbitrer la portée d'un changement qui n'avait pas eu lieu.
+ *
+ * 🔴 LA RÈGLE D'ARNO : « le bloc n'apparaît QUE lorsque la sélection de biens de la liste du haut est DIFFÉRENTE
+ * du rattachement validé en vigueur pour ce mail ». Il apparaît au moment du changement et disparaît si l'on
+ * revient exactement à l'état de départ.
+ *
+ * ⚠️ LA RÉFÉRENCE EST LE RATTACHEMENT **VALIDÉ**, PAS LA PRÉ-COCHE DU MOTEUR. Une proposition cochée d'avance et
+ * laissée telle quelle ne compte pas comme un changement : personne n'a rien décidé. C'est la moitié de la règle
+ * qu'on perdrait le plus facilement, et celle qui ferait réapparaître le défaut sous une autre forme.
  */
-export function blocSuiviVisible(o: { estPremierMail: boolean; dejaClassee: boolean }): boolean {
-  return !o.estPremierMail && o.dejaClassee;
+export function blocSuiviVisible(o: {
+  estPremierMail: boolean;
+  dejaClassee: boolean;
+  /**
+   * 🔴🔴 LA RÉFÉRENCE : LES BIENS **VALIDÉS** POUR CE MAIL — confirmés à la main, ou posés par la fenêtre en
+   * cours. SURTOUT PAS les cases pré-cochées par le moteur : une proposition n'est pas une décision, et la
+   * laisser telle quelle n'est pas un changement.
+   */
+  reference: readonly string[];
+  /**
+   * Les biens cochés EN CE MOMENT dans la liste du haut. `null` = la modale n'a encore rien dit (elle n'est pas
+   * ouverte, ou ses propositions se chargent) : sans sélection connue, il n'y a aucun changement à constater.
+   */
+  selection: readonly string[] | null;
+}): boolean {
+  if (o.estPremierMail || !o.dejaClassee) return false;
+  if (o.selection === null) return false;
+  return !memesBiens(o.selection, o.reference);
+}
+
+/** Deux ensembles de clés de biens désignent-ils la même chose ? L'ORDRE NE COMPTE PAS, les doublons non plus. PUR. */
+export function memesBiens(a: readonly string[], b: readonly string[]): boolean {
+  const ea = new Set(a);
+  const eb = new Set(b);
+  if (ea.size !== eb.size) return false;
+  for (const c of ea) if (!eb.has(c)) return false;
+  return true;
 }
 
 /** Le résultat d'un choix : ce qu'il faut écrire, et ce qu'il ne faut surtout pas toucher. */

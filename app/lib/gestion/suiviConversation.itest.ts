@@ -126,16 +126,23 @@ describe('S1 — le bloc n’apparaît qu’aux deux conditions', () => {
     const { filId, mails } = await conversation(3);
     const { blocSuiviVisible } = await import('./periodesConversation');
 
+    // ⚠️ LOT MODALE-SUIVI-ET-DEFILEMENT — le bloc a une TROISIÈME condition : la sélection doit DIFFÉRER du
+    //    rattachement validé. On la fournit ici (une case changée), pour n'éprouver que les deux premières.
+    const change = { reference: ['LOT-A'], selection: ['LOT-B'] };
     // ① premier mail : jamais, même une fois la conversation classée
-    expect(blocSuiviVisible({ estPremierMail: true, dejaClassee: true })).toBe(false);
+    expect(blocSuiviVisible({ estPremierMail: true, dejaClassee: true, ...change })).toBe(false);
     // ② deuxième mail, conversation JAMAIS classée : non plus
-    expect(blocSuiviVisible({ estPremierMail: false, dejaClassee: false })).toBe(false);
+    expect(blocSuiviVisible({ estPremierMail: false, dejaClassee: false, ...change })).toBe(false);
 
     // ③ on pose un classement : la conversation est désormais « déjà classée »
     await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
     const { periodes } = await suiviDuFil(filId);
     expect(periodes).toHaveLength(1);
-    expect(blocSuiviVisible({ estPremierMail: false, dejaClassee: periodes.length > 0 })).toBe(true);
+    expect(blocSuiviVisible({ estPremierMail: false, dejaClassee: periodes.length > 0, ...change })).toBe(true);
+    // 🔴🔴 ET SANS CHANGEMENT, TOUJOURS PAS DE BLOC : c'est le défaut du fil 3490, éprouvé ici aussi.
+    expect(blocSuiviVisible({
+      estPremierMail: false, dejaClassee: periodes.length > 0, reference: ['LOT-A'], selection: ['LOT-A'],
+    })).toBe(false);
   });
 });
 

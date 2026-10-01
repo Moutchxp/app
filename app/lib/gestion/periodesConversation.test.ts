@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  alerteTouteLaConversation, blocSuiviVisible, classementVide, effetDuChoix, faceALaFenetre, mailsDuBien,
+  alerteTouteLaConversation, blocSuiviVisible, memesBiens, classementVide, effetDuChoix, faceALaFenetre, mailsDuBien,
   motClassement,
   periodeEnCours, projeter, reperesDuFil, reprendre, repriseFidele, SUIVI_DEFAUT,
   type Classement, type ExceptionMail, type Periode,
@@ -113,17 +113,67 @@ describe('🔴🔴 ② le scénario d’Arno, de bout en bout', () => {
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('🔴🔴 ③ le bloc « Suivi dans la conversation » : ses DEUX conditions', () => {
-  it('🔴🔴 absent sur le PREMIER mail, même si la conversation est classée', () => {
-    expect(blocSuiviVisible({ estPremierMail: true, dejaClassee: true })).toBe(false);
+describe('🔴🔴 ③ le bloc « Suivi dans la conversation » : ses TROIS conditions', () => {
+  /**
+   * ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT — LE DÉFAUT D'ARNO, ET LA TROISIÈME CONDITION ════════════════════════
+   *
+   * CONSTAT (02/10/2026), fil 3490 / message 57368 : « Le bloc s'affiche dès l'ouverture de la modale, sans
+   * qu'aucune case ait été touchée. » Les deux premières conditions étaient vraies — 4ᵉ mail, conversation
+   * classée (3 périodes) — et elles suffisaient. Il manquait la seule qui dit qu'il se passe quelque chose : la
+   * sélection a-t-elle CHANGÉ par rapport au rattachement validé ?
+   */
+  /** Le décor : un 2ᵉ mail d'une conversation déjà classée, dont le bien validé est LOT-A. */
+  const decor = (selection: readonly string[] | null) => ({
+    estPremierMail: false, dejaClassee: true, reference: ['LOT-A'], selection,
+  });
+
+  it('🔴🔴 absent sur le PREMIER mail, même si la conversation est classée et la sélection changée', () => {
+    expect(blocSuiviVisible({ ...decor(['LOT-B']), estPremierMail: true })).toBe(false);
   });
 
   it('🔴🔴 absent sur une conversation JAMAIS classée, même au troisième mail', () => {
-    expect(blocSuiviVisible({ estPremierMail: false, dejaClassee: false })).toBe(false);
+    expect(blocSuiviVisible({ ...decor(['LOT-B']), dejaClassee: false })).toBe(false);
   });
 
-  it('🔴🔴 présent seulement quand les DEUX conditions sont réunies', () => {
-    expect(blocSuiviVisible({ estPremierMail: false, dejaClassee: true })).toBe(true);
+  /** 🔴🔴 LE CAS DU FIL 3490 : à l'ouverture, la sélection vaut le rattachement validé — donc pas de bloc. */
+  it('🔴🔴 à l’ouverture, sélection = rattachement validé : AUCUN bloc', () => {
+    expect(blocSuiviVisible(decor(['LOT-A']))).toBe(false);
+  });
+
+  it('🔴🔴 une case changée : le bloc apparaît', () => {
+    expect(blocSuiviVisible(decor(['LOT-A', 'LOT-B']))).toBe(true);   // une case cochée en plus
+    expect(blocSuiviVisible(decor([]))).toBe(true);                   // la seule case décochée
+    expect(blocSuiviVisible(decor(['LOT-B']))).toBe(true);            // une autre à la place
+  });
+
+  it('🔴🔴 retour exact à l’état de départ : le bloc disparaît', () => {
+    expect(blocSuiviVisible(decor(['LOT-A', 'LOT-B']))).toBe(true);
+    expect(blocSuiviVisible(decor(['LOT-A']))).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 LA MOITIÉ DE LA RÈGLE QU'ON PERDRAIT LE PLUS FACILEMENT. « Une case pré-cochée par une proposition,
+   * laissée telle quelle, ne compte pas comme un changement » (Arno). La référence est le rattachement VALIDÉ ;
+   * si le moteur propose LOT-B et que la modale le coche d'avance, la sélection vaut { A, B } — et le bloc
+   * s'affiche, parce qu'A VALIDER cela changerait bien le rattachement. En revanche, quand RIEN n'est validé, il
+   * n'y a pas de bloc du tout (2ᵉ condition) : c'est là que la pré-coche ne peut rien déclencher.
+   */
+  it('🔴🔴 sans aucun rattachement validé dans la conversation, la pré-coche ne déclenche rien', () => {
+    expect(blocSuiviVisible({
+      estPremierMail: false, dejaClassee: false, reference: [], selection: ['LOT-B'],
+    })).toBe(false);
+  });
+
+  it('⚠️ tant que la modale n’a rien dit (sélection inconnue), pas de bloc', () => {
+    expect(blocSuiviVisible(decor(null))).toBe(false);
+  });
+
+  it('⚠️ l’ordre et les doublons ne font pas un changement', () => {
+    expect(memesBiens(['A', 'B'], ['B', 'A'])).toBe(true);
+    expect(memesBiens(['A', 'A', 'B'], ['B', 'A'])).toBe(true);
+    expect(memesBiens(['A'], ['A', 'B'])).toBe(false);
+    expect(memesBiens([], [])).toBe(true);
+    expect(blocSuiviVisible({ ...decor(['LOT-A', 'LOT-A']) })).toBe(false);
   });
 
   /** 🔴 « avec “Ce mail et la conversation à venir” coché par défaut » (Arno). */

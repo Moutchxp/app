@@ -13,6 +13,8 @@ import { categorieDuBien, type CategorieBien } from '../../../../lib/gestion/cat
 // 🔴 LOT MODALE-RATTACHER-PROPRE — le titre d'un bien (sans numéro de lot) et la pastille « i ».
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
 import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
+// 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 2) — la pastille qui annonce le contenu en dessous d'une liste.
+import { CSS_ZONE_DEFILANTE, ZoneDefilante } from './ZoneDefilante';
 import type { BienTrouve, ResultatsBiens } from '../../../../lib/gestion/rechercheBienRepo';
 
 /**
@@ -74,7 +76,7 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 
 export function RattacherEnEcrivant({
   destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null,
-  piedSupplementaire = null, validationBloquee = null, onChange, onFerme,
+  piedSupplementaire = null, validationBloquee = null, onSelection, onChange, onFerme,
 }: {
   /**
    * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA MÊME MODALE AU-DESSUS D'UN MAIL REÇU ════════════════════════════
@@ -135,6 +137,18 @@ export function RattacherEnEcrivant({
    * décide et affiche ; elle place. C'est ce qui lui permet de rester la même des deux côtés.
    */
   piedSupplementaire?: React.ReactNode;
+  /**
+   * ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT — CE QUI EST COCHÉ EN CE MOMENT, REMONTÉ À L'ÉCRAN ════════════════════
+   *
+   * Demande d'Arno : le bloc « Suivi dans la conversation » ne doit apparaître QUE lorsque la sélection diffère du
+   * rattachement validé. Or la sélection vit ICI, et le bloc est rendu par l'écran (il arrive en
+   * `piedSupplementaire`). Il faut donc que la modale DISE ce qu'elle a sous les cases.
+   *
+   * ⚠️ ELLE REMONTE DES CLÉS, PAS UNE DÉCISION. La modale ne sait pas ce qu'est une fenêtre de conversation, et
+   * elle n'a pas à le savoir : elle rend l'état de ses cases, l'écran le compare à ce qui est validé, et c'est un
+   * module PUR (`blocSuiviVisible`) qui tranche. Absente ⇒ comportement d'avant ce lot.
+   */
+  onSelection?: (cles: readonly string[]) => void;
   /**
    * 🔴🔴 LOT SUIVI-CONVERSATION — « Sans confirmation, “Valider” reste bloqué » (Arno).
    *
@@ -333,6 +347,18 @@ export function RattacherEnEcrivant({
   const titre = (cle: string): string => parTitre.get(cle)
     ?? tous.find((b) => b.cle === cle)?.libelle ?? cle;
   const selection = coches ?? new Set<string>();
+  /**
+   * 🔴 ON REMONTE LA SÉLECTION À CHAQUE FOIS QU'ELLE CHANGE, et seulement alors. `coches` est un `Set` dont la
+   * RÉFÉRENCE change à chaque bascule : la dépendance suffit, et l'effet ne tourne pas à chaque rendu.
+   *
+   * ⚠️ `null` TANT QUE LA PRÉ-COCHE N'A PAS EU LIEU : on ne remonte rien avant de savoir, sinon l'écran lirait
+   * « aucun bien coché » pendant le chargement et croirait à un changement.
+   */
+  useEffect(() => {
+    if (coches === null) return;
+    onSelection?.([...coches]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coches]);
   const basculer = (c: string) => setCoches((l) => {
     const v = new Set(l ?? []);
     if (v.has(c)) v.delete(c); else v.add(c);
@@ -507,6 +533,7 @@ export function RattacherEnEcrivant({
       {/* 🔴 LOT MODALE-RATTACHER-PROPRE — la feuille de la pastille « i » : la modale vit au-dessus de tout, et
           ne peut compter sur aucune feuille montée par l'écran qui l'ouvre. */}
       <style>{CSS_INFO_BIEN}</style>
+      <style>{CSS_ZONE_DEFILANTE}</style>
       <div className="mrt rec" role="dialog" aria-modal="true" aria-labelledby="rec-titre"
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); fermerSansRien(); } }}>
         {/* 🔴 LA CROIX EST UNE SORTIE NOMMÉE (demande d'Arno) : elle remplace le bouton « Ignorer » du pied, qui
@@ -514,6 +541,12 @@ export function RattacherEnEcrivant({
         <button type="button" className="rec-croix" aria-label="Fermer sans rien changer"
           title="Fermer sans rien changer" onClick={fermerSansRien}>×</button>
         <h2 className="mrt-titre" id="rec-titre">Rattacher ce mail à…</h2>
+        {/* ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 3) — SEUL LE MILIEU DÉFILE ═══════════════════════════
+            CONSTAT D'ARNO : « Sur la capture, “Valider” est coupé en bas. » La modale entière défilait
+            (`.rec{max-height:92vh;overflow-y:auto}`) : passé une certaine hauteur de contenu, le pied sortait du
+            cadre, et le seul bouton qui décide devenait invisible.
+            🔴 LE TITRE ET LE PIED SONT DÉSORMAIS HORS DU DÉFILEMENT, et ce bloc-ci est le seul à défiler. */}
+        <div className="rec-corps">
         {/* ⚠️ « D'APRÈS LE DESTINATAIRE » NE SE DIT QUE D'UN MAIL QU'ON ÉCRIT. Sur un mail REÇU, le moteur part
             du message lui-même : la phrase serait fausse, et il n'y a rien à mettre à la place — chaque bien
             proposé porte déjà SON motif, juste à côté de sa case. */}
@@ -582,7 +615,8 @@ export function RattacherEnEcrivant({
               )}
             </div>
 
-            <ul className="rec-biens">
+            {/* 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 2) — la zone DIT ce qu'elle cache en dessous. */}
+            <ZoneDefilante className="rec-biens" as="ul" enfants={<>
               {(contexte.biens ?? []).filter((b) => !b.replie || autresDeplies).map((b) => (
                 <li key={b.cle} className="rec-bien">
                   <label className="rec-choix">
@@ -644,7 +678,7 @@ export function RattacherEnEcrivant({
                   </p>
                 </li>
               ))}
-            </ul>
+            </>} />
           </section>
         )}
 
@@ -678,8 +712,9 @@ export function RattacherEnEcrivant({
             <p className="rec-vide">{messageAucunBien(saisie)}</p>
           )}
 
+          {/* 🔴 LA MÊME ZONE, pour les résultats : Arno nomme les deux listes. */}
           {recherche.v === 'ok' && recherche.resultats.lignes.length > 0 && (
-            <div className="rec-resultats">
+            <ZoneDefilante className="rec-resultats" enfants={<>
               {grouperResultats(recherche.resultats.lignes).map((g) => (
                 <section key={g.sorte} className="rec-groupe">
                   {/* Les deux groupes titrés du moteur : « Par adresse », puis « Par nom ou coordonnée ». */}
@@ -697,7 +732,7 @@ export function RattacherEnEcrivant({
                   </ul>
                 </section>
               ))}
-            </div>
+            </>} />
           )}
           {recherche.v === 'ok' && recherche.resultats.tronque && (
             <p className="rec-vide">Seuls les premiers biens sont affichés — précisez votre recherche.</p>
@@ -713,6 +748,11 @@ export function RattacherEnEcrivant({
                 sorties qui ne changent rien n'ont pas besoin de deux libellés ; celle-ci prenait la place d'une
                 décision, à côté du seul bouton qui en pose une.
             🔒 LE BOUTON ROUGE N'EST PAS TOUCHÉ : même mot, même compte, même geste. */}
+        </div>
+
+        {/* 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 1) — le bloc « Suivi dans la conversation » APPARAÎT au moment
+            où la sélection change (c'est l'écran qui le décide, module pur `blocSuiviVisible`). L'animation est
+            la même que partout ailleurs dans la modale : une apparition discrète, et rien de plus. */}
         {piedSupplementaire !== null && <div className="rec-pied-sup">{piedSupplementaire}</div>}
 
         <div className="mrt-pied rec-pied">
@@ -799,9 +839,18 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
    justement pourquoi on prend des jetons et pas des valeurs. */
 .rec-voile{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
   padding:16px;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);overflow-y:auto}
+/* ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 3) — LA MODALE TIENT DANS L'ECRAN ═══════════════════════════════
+   CONSTAT D'ARNO : « Valider » etait coupe en bas. La modale entiere defilait, donc le pied sortait du cadre des
+   que le contenu depassait. Elle est maintenant une COLONNE : titre, corps defilant, pied. Seul le milieu bouge.
+   ⚠️ min-height:0 SUR LE CORPS EST OBLIGATOIRE : sans lui, un enfant flex refuse de retrecir sous sa hauteur
+   naturelle, le corps garde sa taille entiere et le pied repart hors cadre — le defaut qu'on vient de corriger.
+   ⚠️ 100dvh A COTE DE 92vh : sur un telephone, vh ignore la barre d'adresse et la modale depasse malgre la
+   borne. min() prend la plus severe des deux, et 32px laisse la marge du voile.
+   AUCUN ACCENT GRAVE ICI : ce commentaire vit dans un litteral gabarit (piege TS1005 du depot). */
 .rec{position:relative;max-width:680px;width:min(680px, 96vw);background:var(--color-svv-field);
   color:var(--color-svv-ink);border-radius:12px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.28);
-  max-height:92vh;overflow-y:auto}
+  display:flex;flex-direction:column;max-height:min(92vh, calc(100dvh - 32px));overflow:hidden}
+.rec-corps{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 
 /* LA CROIX : 44 px de cible, en permanence, jamais au survol — au doigt, le survol n'existe pas. */
 .rec-croix{position:absolute;top:8px;right:8px;display:inline-flex;align-items:center;justify-content:center;
@@ -876,11 +925,17 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
 .rec-ligne-motif{font-size:.72rem;font-style:italic;color:var(--color-svv-muted)}
 
 .rec-note{font-size:.78rem;color:var(--color-svv-muted)}
-.rec-pied{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;margin-top:.8rem}
+/* 🔴 LE PIED NE DEFILE PAS : il est hors du corps, donc toujours visible — c'est tout l'objet du point 3. */
+.rec-pied{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;margin-top:.8rem;flex:0 0 auto}
 /* 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — ce que l'appelant ajoute au pied (portee, « Hors gestion… ») : une carte de
    plus, du meme relief que les autres, pour qu'on la lise comme une zone et non comme un ajout. */
+/* 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 1) — IL APPARAIT AU MOMENT DU CHANGEMENT, discretement.
+   La meme apparition que le reste de la modale : une opacite et quelques pixels, jamais un surgissement.
+   Il ne defile pas non plus : il porte une decision, au meme titre que le bouton juste en dessous. */
 .rec-pied-sup{margin:0;padding:8px 10px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);
-  border-radius:.7rem;min-width:0}
+  border-radius:.7rem;min-width:0;flex:0 0 auto;animation:rec-parait .18s ease-out both}
+@keyframes rec-parait{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.rec-pied-sup{animation:none}}
 /* 🔴 LOT SUIVI-CONVERSATION — le motif qui dit pourquoi « Valider » attend. Il prend toute la largeur du pied
    pour se lire d'un coup, et le rouge n'est qu'un renfort : le MOT porte l'information. */
 .rec-bloque{flex:1 1 100%;margin:0;font-size:.82rem;font-weight:600;color:var(--color-svv-red)}

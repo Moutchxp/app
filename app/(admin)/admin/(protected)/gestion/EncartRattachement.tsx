@@ -241,6 +241,20 @@ export function EncartRattachement({
     return () => ro.disconnect();
   }, [liens, deplie]);
 
+  /**
+   * ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT — CE QUE LA MODALE A SOUS LES CASES, À CET INSTANT ═══════════════════
+   *
+   * `null` = la modale est fermée, ou ses propositions se chargent encore : il n'y a alors aucun changement à
+   * constater, et le bloc « Suivi dans la conversation » reste absent. C'est l'état de départ, et c'est lui
+   * qu'Arno voyait enfreint — le bloc s'affichait avant qu'on ait touché quoi que ce soit.
+   *
+   * ⚠️ DÉCLARÉ **AVANT** LE RETOUR ANTICIPÉ CI-DESSOUS, et ce n'est pas un détail de style : un `useState` placé
+   * après ferait rendre moins de crochets qu'au tour précédent dès que `liens` passe à `null`, et React lève
+   * « Rendered fewer hooks than expected ». Le piège s'est refermé une première fois au lot
+   * PROPOSITIONS-EMAILS-MULTIPLES (46 essais rouges) ; il s'est refermé ici une seconde fois.
+   */
+  const [selectionModale, setSelectionModale] = useState<readonly string[] | null>(null);
+
   if (liens === null) return null;
 
   /**
@@ -399,6 +413,14 @@ export function EncartRattachement({
   const blocVisible = suivi !== null && blocSuiviVisible({
     estPremierMail: suivi.mails.length > 0 && suivi.mails[0] === messageId,
     dejaClassee: suivi.periodes.length > 0 || suivi.exceptions.length > 0,
+    /**
+     * 🔴🔴 LA RÉFÉRENCE EST CE QUI EST **VALIDÉ** POUR CE MAIL : ses liens CONFIRMÉS, c'est-à-dire ceux qu'une
+     * personne a posés et ceux que la fenêtre en cours a projetés — la projection les écrit confirmés, donc une
+     * seule définition suffit pour les deux. Les PROPOSITIONS du moteur n'en sont pas : laisser une case
+     * pré-cochée telle quelle n'est pas une décision, et ne doit pas faire apparaître le bloc.
+     */
+    reference: biensRattaches.map((b) => b.cle ?? ''),
+    selection: selectionModale,
   });
   /** Ce que l'alerte annonce, mot pour mot — composé par le module pur. */
   const alerte = suivi === null ? '' : alerteTouteLaConversation({
@@ -663,8 +685,10 @@ export function EncartRattachement({
           messageId={messageId}
           destinataires={[]}
           cibles={biensRattaches}
+          onSelection={setSelectionModale}
           onChange={(c) => { void appliquerCibles(c); }}
-          onFerme={() => setAjout(false)}
+          /* 🔴 FERMER OUBLIE LA SÉLECTION : rouvrir repart de l'état validé, donc sans bloc, comme à l'ouverture. */
+          onFerme={() => { setSelectionModale(null); setAjout(false); }}
           validationBloquee={blocVisible && choix === 'conversation' && !confirme
             ? 'Cochez la confirmation ci-dessus pour reclasser toute la conversation.'
             : null}

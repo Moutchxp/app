@@ -514,6 +514,19 @@ describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
     await monter([lien()]);
     await cliquer(container.querySelector('.ccl-case--verte'));
   };
+  /**
+   * ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT — OUVRIR NE SUFFIT PLUS, IL FAUT CHANGER QUELQUE CHOSE ═══════════════
+   *
+   * CONSTAT D'ARNO (02/10/2026), fil 3490 : « Le bloc s'affiche dès l'ouverture de la modale, sans qu'aucune case
+   * ait été touchée. » Le bloc n'apparaît désormais que si la sélection DIFFÈRE du rattachement validé. Les
+   * essais qui l'attendent doivent donc faire le geste — et c'est très bien ainsi : ils décrivent maintenant le
+   * parcours réel, « j'ouvre, je change, on me demande la portée ».
+   */
+  const changerUneCase = async () => {
+    const cases = [...container.querySelectorAll('.rec-bien input[type="checkbox"]')] as HTMLInputElement[];
+    await cliquer(cases[0]);
+  };
+  const ouvrirEtChanger = async () => { await ouvrir(); await changerUneCase(); };
   const bloc = () => [...container.querySelectorAll('.ert-portee')]
     .find((f) => /Suivi dans la conversation/.test(f.textContent ?? ''));
 
@@ -538,7 +551,7 @@ describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
 
   it('🔴🔴 présent quand les DEUX conditions sont réunies, avec les trois choix', async () => {
     suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
-    await ouvrir();
+    await ouvrirEtChanger();
     const f = bloc();
     expect(f).toBeDefined();
     expect(f?.textContent).toContain('Ce mail uniquement');
@@ -549,7 +562,7 @@ describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
   /** 🔴 « Une phrase d'aide sous chaque choix, en français simple. » */
   it('🔴 chaque choix porte sa phrase d’aide', async () => {
     suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
-    await ouvrir();
+    await ouvrirEtChanger();
     const aides = [...(bloc()?.querySelectorAll('.ert-suivi-aide') ?? [])].map((x) => x.textContent ?? '');
     expect(aides).toHaveLength(3);
     expect(aides[0]).toContain('Le mail suivant reprend la règle d’avant');
@@ -559,7 +572,7 @@ describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
 
   it('🔴 « Ce mail et la conversation à venir » est coché par défaut', async () => {
     suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
-    await ouvrir();
+    await ouvrirEtChanger();
     const cases = [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
     expect(cases.map((c) => c.checked)).toEqual([false, true, false]);
   });
@@ -572,7 +585,7 @@ describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
       periodes: [PERIODE], exceptions: [{ messageId: 801, classement: { sorte: 'biens', biens: [] } }],
       mails: [800, 801, 900],
     };
-    await ouvrir();
+    await ouvrirEtChanger();
     const radios = [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
     await cliquer(radios[2]);
 
@@ -591,7 +604,7 @@ describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
   /** ⚠️ CHANGER DE CHOIX REDEMANDE LA CONFIRMATION : on ne garde pas un « oui » donné pour autre chose. */
   it('⚠️ revenir sur un autre choix remet la confirmation à zéro', async () => {
     suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
-    await ouvrir();
+    await ouvrirEtChanger();
     const radios = () => [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
     await cliquer(radios()[2]);
     await cliquer(container.querySelector('.ert-alerte input[type="checkbox"]'));
@@ -605,14 +618,21 @@ describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
    */
   it('🔴🔴 valider envoie le classement ET le choix de suivi', async () => {
     suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
-    await ouvrir();
+    await ouvrirEtChanger();
     const radios = [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
     await cliquer(radios[0]);
     await cliquer(boutonPar(/^Valider/));
     const envoi = appels.find((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'));
+    /**
+     * ⚠️ LE CLASSEMENT ENVOYÉ EST VIDE, ET C'EST LE GESTE QU'ON VIENT DE FAIRE. Depuis le lot
+     * MODALE-SUIVI-ET-DEFILEMENT, le bloc de suivi n'apparaît qu'après un CHANGEMENT : l'essai décoche donc le
+     * seul bien rattaché, puis choisit « ce mail uniquement ». Ce qui part est exactement cela — le classement
+     * voulu et la portée voulue, en une requête. C'est ce que l'essai éprouve, et il l'éprouve maintenant sur un
+     * parcours réel.
+     */
     expect(envoi?.corps).toMatchObject({
       filId: 101, messageId: 900, choix: 'mail',
-      classement: { sorte: 'biens', biens: [{ cle: '442' }] },
+      classement: { sorte: 'biens', biens: [] },
     });
     // ⚠️ ET AUCUN GESTE MAIL PAR MAIL : la décision passe par UNE porte.
     expect(appels.some((a) => a.methode === 'PATCH')).toBe(false);
