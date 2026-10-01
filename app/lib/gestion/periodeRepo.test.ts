@@ -48,7 +48,9 @@ vi.mock('./horsGestionRepo', () => ({
   annulerHorsGestion: (...a: unknown[]) => annulerHorsGestion(...(a as [])),
 }));
 
-import { heriterLesNouveauxMails, poserClassement, projeterLeFil, reprendreExistant } from './periodeRepo';
+import {
+  heriterLesNouveauxMails, poserClassement, projeterLeFil, reprendreExistant, MOTIF_POSE_PAR_SUIVI,
+} from './periodeRepo';
 
 const AUTEUR = { id: 7, libelle: 'a.jorel@sansvisavis.com' };
 
@@ -57,7 +59,7 @@ interface FausseBase {
   mails: number[];
   periodes: { id: string; depuis: number; sorte: string; biens: { cle: string; libelle: string }[] | null }[];
   exceptions: { id: string; message: number; sorte: string; biens: { cle: string; libelle: string }[] | null }[];
-  liens: { id: number; message: number; cle: string }[];
+  liens: { id: number; message: number; cle: string; parLeSuivi?: boolean }[];
   filsARerendre: number[];
   dejaRepris: number;
 }
@@ -82,7 +84,11 @@ function reponse(sql: string): { rows: unknown[] } {
     })) };
   }
   if (s.includes('SELECT id::text, message_id::text, cible_cle')) {
-    return { rows: base.liens.map((l) => ({ id: String(l.id), message_id: String(l.message), cible_cle: l.cle })) };
+    return { rows: base.liens.map((l) => ({
+      id: String(l.id), message_id: String(l.message), cible_cle: l.cle,
+      // ⚠️ Par défaut, un lien de la fausse base vient de la FENÊTRE : c'est le cas courant de la projection.
+      par_le_suivi: l.parLeSuivi !== false,
+    })) };
   }
   if (s.includes('SELECT DISTINCT m.fil_id')) return { rows: base.filsARerendre.map((f) => ({ fil_id: String(f) })) };
   if (s.includes('count(*)::int AS n FROM gestion_fil_periode')) return { rows: [{ n: base.dejaRepris }] };
@@ -278,6 +284,47 @@ describe('🔴🔴 ④ la projection est un DIFF', () => {
     expect(lecture).toContain("cible_sorte = 'lot'");
     expect(lecture).toContain("statut = 'confirme'");
     expect(lecture).toContain('piece_id IS NULL');
+  });
+
+  /**
+   * ══ 🔴🔴 LOT PREUVE-SUIVI-CONVERSATION — CE QU'UN HUMAIN A POSÉ N'EST JAMAIS DÉPLACÉ PAR UNE FENÊTRE ════════
+   *
+   * LE DÉFAUT QUE LE SCÉNARIO S11 A TROUVÉ (01/10/2026) : la projection retirait TOUT lien confirmé qu'une
+   * fenêtre ne voulait plus — y compris celui qu'une personne avait posé en regardant le mail. Arno : « Un
+   * rattachement posé à la main n'est jamais déplacé par un changement de fenêtre (sauf “Toute la
+   * conversation”, qui le remplace). »
+   *
+   * ⚠️ MESURÉ SUR LA BASE RÉELLE AVANT LE CORRECTIF : 2 liens retirés par le suivi, tous deux posés par le suivi
+   * lui-même. Aucun lien humain n'avait encore été touché — le défaut existait, il n'avait pas servi.
+   */
+  it('🔴🔴 un lien POSÉ À LA MAIN n’est pas retiré par une fenêtre', async () => {
+    base.mails = [10];
+    base.periodes = [{ id: '1', depuis: 10, sorte: 'biens', biens: [BIEN] }];
+    base.liens = [{ id: 78, message: 10, cle: 'pose-a-la-main', parLeSuivi: false }];
+    await projeterLeFil(1, AUTEUR);
+    expect(changerStatut).not.toHaveBeenCalled();
+    // …et la fenêtre pose quand même le sien, à côté.
+    expect(rattacher).toHaveBeenCalledWith(expect.objectContaining({
+      cible: { sorte: 'lot', cle: BIEN.cle, id: null },
+    }));
+  });
+
+  /** 🔴 LA SEULE EXCEPTION, ET ARNO LA NOMME : « Toute la conversation » remplace tout, le manuel compris. */
+  it('🔴🔴 …sauf « Toute la conversation », qui le remplace', async () => {
+    base.mails = [10];
+    base.periodes = [{ id: '1', depuis: 10, sorte: 'biens', biens: [BIEN] }];
+    base.liens = [{ id: 78, message: 10, cle: 'pose-a-la-main', parLeSuivi: false }];
+    await projeterLeFil(1, AUTEUR, { remplacerLesLiensManuels: true });
+    expect(changerStatut).toHaveBeenCalledWith(expect.objectContaining({ lienId: 78, statut: 'retire' }));
+  });
+
+  /** ⚠️ ET LA REQUÊTE SAIT LE DIRE : c'est le MOTIF qui distingue, pas `origine` (toujours « manuel »). */
+  it('⚠️ la lecture distingue les liens de la fenêtre par leur MOTIF', async () => {
+    base.periodes = [{ id: '1', depuis: 10, sorte: 'biens', biens: [BIEN] }];
+    await projeterLeFil(1, AUTEUR);
+    const lecture = sqls().find((x) => x.includes('SELECT id::text, message_id::text, cible_cle')) ?? '';
+    expect(lecture).toContain('par_le_suivi');
+    expect(queryMock.mock.calls.some((c) => (c[1] as unknown[])?.includes(MOTIF_POSE_PAR_SUIVI))).toBe(true);
   });
 
   it('⚠️ sans aucune période ni exception, la projection ne pose rien', async () => {

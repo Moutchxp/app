@@ -197,7 +197,10 @@ export async function poserClassement(o: {
     }
   });
 
-  const projetes = await projeterLeFil(o.filId, o.auteur);
+  const projetes = await projeterLeFil(o.filId, o.auteur, {
+    // 🔴 SEUL « Toute la conversation » remplace un lien posé à la main — et il l'annonce avant (voir la modale).
+    remplacerLesLiensManuels: o.choix === 'conversation',
+  });
   return { ok: true, projetes };
 }
 
@@ -236,7 +239,30 @@ async function ecrireBiens(
  * automatiques n'écrasent jamais une période ou une exception posée à la main » — et réciproquement, une
  * période ne rejette pas une proposition que personne n'a tranchée).
  */
-export async function projeterLeFil(filId: number, auteur: Auteur): Promise<number> {
+/**
+ * 🔴🔴 LA SIGNATURE DES LIENS QUE LA PROJECTION A POSÉS ELLE-MÊME — et c'est elle qui protège le geste humain.
+ *
+ * LE DÉFAUT QU'ELLE FERME, trouvé le 01/10/2026 par le scénario S11 du lot PREUVE-SUIVI-CONVERSATION : la
+ * projection retirait TOUT lien confirmé qu'une fenêtre ne voulait plus — y compris celui qu'une personne avait
+ * posé à la main. Arno : « Un rattachement posé à la main n'est jamais déplacé par un changement de fenêtre. »
+ *
+ * ⚠️ POURQUOI LE MOTIF, ET NON `origine`. Les liens de la projection passent par `rattacher`, qui écrit toujours
+ * `origine = 'manuel'` (le geste est signé par la personne qui a posé la fenêtre). Le motif est donc le SEUL
+ * marqueur qui distingue « posé par une fenêtre » de « posé à la main » — et il est écrit ici, une fois.
+ *
+ * ⚠️ MESURÉ SUR LA BASE RÉELLE AVANT LE CORRECTIF : 2 liens retirés par le suivi, tous deux posés par le suivi
+ * lui-même. AUCUN lien humain n'a été touché en production — le défaut existait, il n'avait pas encore servi.
+ */
+export const MOTIF_POSE_PAR_SUIVI = 'posé par le suivi de la conversation';
+export const MOTIF_RETIRE_PAR_SUIVI = 'retiré par le suivi de la conversation';
+
+export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
+  /**
+   * 🔴 « TOUTE LA CONVERSATION » REMPLACE AUSSI CE QUI A ÉTÉ POSÉ À LA MAIN (décision d'Arno). C'est le seul
+   * geste qui l'autorise, parce que c'est le seul qui annonce sa portée et demande une confirmation écrite.
+   */
+  remplacerLesLiensManuels?: boolean;
+}): Promise<number> {
   if (!(await periodesDisponibles())) return 0;
   const mails = await mailsDuFil(filId);
   if (mails.length === 0) return 0;
@@ -245,15 +271,17 @@ export async function projeterLeFil(filId: number, auteur: Auteur): Promise<numb
   const voulu = projeter(mails, periodes, exceptions);
 
   // CE QUE LA BASE PORTE AUJOURD'HUI : les liens « lot » CONFIRMÉS de chaque mail du fil.
-  const { rows } = await query<{ id: string; message_id: string; cible_cle: string }>(
-    `SELECT id::text, message_id::text, cible_cle
+  const { rows } = await query<{ id: string; message_id: string; cible_cle: string; par_le_suivi: boolean }>(
+    `SELECT id::text, message_id::text, cible_cle,
+            (coalesce(motif, '') = $2) AS par_le_suivi
        FROM gestion_rattachement
       WHERE message_id = ANY($1::bigint[]) AND cible_sorte = 'lot' AND statut = 'confirme'
-        AND piece_id IS NULL`, [mails]);
-  const porte = new Map<number, { id: number; cle: string }[]>();
+        AND piece_id IS NULL`, [mails, MOTIF_POSE_PAR_SUIVI]);
+  const porte = new Map<number, { id: number; cle: string; parLeSuivi: boolean }[]>();
   for (const r of rows) {
     const m = Number(r.message_id);
-    porte.set(m, [...(porte.get(m) ?? []), { id: Number(r.id), cle: r.cible_cle }]);
+    porte.set(m, [...(porte.get(m) ?? []),
+      { id: Number(r.id), cle: r.cible_cle, parLeSuivi: r.par_le_suivi === true }]);
   }
 
   let gestes = 0;
@@ -266,9 +294,13 @@ export async function projeterLeFil(filId: number, auteur: Auteur): Promise<numb
 
     for (const l of actuelles) {
       if (voulues.has(l.cle)) continue;
+      /**
+       * 🔴🔴 ON NE RETIRE QUE CE QUE LA FENÊTRE A POSÉ. Un lien venu d'une personne — ou du moteur de
+       * rattachement — reste : il a été décidé en regardant le mail, ce que la fenêtre ne fait pas.
+       */
+      if (!l.parLeSuivi && o?.remplacerLesLiensManuels !== true) continue;
       const issue = await changerStatut({
-        lienId: l.id, statut: 'retire', auteur,
-        motif: 'retiré par le suivi de la conversation',
+        lienId: l.id, statut: 'retire', auteur, motif: MOTIF_RETIRE_PAR_SUIVI,
       });
       if (issue.ok) gestes += 1;
     }
@@ -276,7 +308,7 @@ export async function projeterLeFil(filId: number, auteur: Auteur): Promise<numb
       if (actuelles.some((l) => l.cle === b.cle)) continue;
       const issue = await rattacher({
         messageId: m, cible: { sorte: 'lot', cle: b.cle, id: null }, auteur,
-        motif: 'posé par le suivi de la conversation',
+        motif: MOTIF_POSE_PAR_SUIVI,
       });
       if (issue.ok) gestes += 1;
     }
