@@ -31,6 +31,8 @@
  * de mot de passe dans un mail est du hameçonnage), `link`/`meta`/`base` (ils modifient le document qui les reçoit),
  * `svg`/`math` (leurs enfants ont leur propre grammaire, où `<style>` et les gestionnaires d'événements reviennent).
  */
+import { sansChargeBase64 } from './imagesIntegrees';
+
 const BALISES = new Set([
   'p', 'br', 'div', 'span',
   'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'del', 'sub', 'sup',
@@ -323,7 +325,23 @@ export function assainirHtml(brut: string | null | undefined): string {
     }
 
     const gt = entree.indexOf('>', lt + 1);
-    if (gt < 0) { sortie += texteAssaini(entree.slice(lt)); break; }
+    /**
+     * 🔴🔴 LOT IMAGES-INTEGREES — UNE BALISE COUPÉE N'EST PAS DU TEXTE, ON LA JETTE.
+     *
+     * LE DÉFAUT D'ARNO, MESURÉ AU CARACTÈRE PRÈS (message 57381) : son HTML fait 2 327 574 caractères, la lecture
+     * le coupe à 400 000, et la coupe tombe DANS la seule balise `<img>` du mail — dont la charge `base64` fait à
+     * elle seule plus de 2,3 Mo. Faute de « > », tout le reste repartait en texte échappé : 398 159 caractères de
+     * base64 affichés en clair. 1 531 messages étaient dans ce cas.
+     *
+     * 🔴 LA DÉCISION SE PREND SUR LA FORME, PAS SUR LA CAUSE : ce qui suit un « < » suivi d'une lettre est un
+     * fragment de balise, quelle que soit la raison pour laquelle il n'est pas refermé. Un « a < b » en fin de
+     * document, lui, n'est pas une balise — et il reste du texte (voir juste en dessous, `nom === ''`).
+     */
+    if (gt < 0) {
+      if (/^<[a-zA-Z/]/.test(entree.slice(lt, lt + 2))) break;   // balise tronquée : rien n'en sort
+      sortie += texteAssaini(entree.slice(lt));
+      break;
+    }
     const dedans = entree.slice(lt + 1, gt);
     const fermante = dedans.startsWith('/');
     const nom = (fermante ? dedans.slice(1) : dedans).match(/^[a-zA-Z][a-zA-Z0-9]*/)?.[0]?.toLowerCase() ?? '';
@@ -429,7 +447,13 @@ export function htmlVersTexte(brut: string | null | undefined): string {
 
     if (entree.startsWith('<!--', lt)) { const f = entree.indexOf('-->', lt + 4); i = f < 0 ? entree.length : f + 3; continue; }
     const gt = entree.indexOf('>', lt + 1);
-    if (gt < 0) { sortie += decoderEntites(entree.slice(lt)); break; }
+    // 🔴 LOT IMAGES-INTEGREES — MÊME RÈGLE QU'À L'ASSAINISSEMENT : une balise coupée ne devient pas du texte. Sans
+    //   cela, l'extrait de la liste, la recherche et le moteur de propositions avalaient la charge base64.
+    if (gt < 0) {
+      if (/^<[a-zA-Z/]/.test(entree.slice(lt, lt + 2))) break;
+      sortie += decoderEntites(entree.slice(lt));
+      break;
+    }
     const dedans = entree.slice(lt + 1, gt);
     const fermante = dedans.startsWith('/');
     const nom = (fermante ? dedans.slice(1) : dedans).match(/^[a-zA-Z][a-zA-Z0-9]*/)?.[0]?.toLowerCase() ?? '';
@@ -560,8 +584,15 @@ export function texteVersHtml(brut: string | null | undefined): string {
    ⚠️ LE TEXTE RESTE PRIORITAIRE quand il existe : il est ce que l'expéditeur a écrit, là où la conversion du HTML
    est une reconstitution. On ne convertit que faute de mieux. */
 
-/** Ce qu'on donne au moteur de propositions : le texte du mail, ou à défaut son HTML rendu en texte. PUR. */
+/**
+ * Ce qu'on donne au moteur de propositions : le texte du mail, ou à défaut son HTML rendu en texte. PUR.
+ *
+ * 🔴🔴 LOT IMAGES-INTEGREES — LA CHARGE D'UNE IMAGE N'EST JAMAIS DU TEXTE À FOUILLER. Une suite base64 contient,
+ * par construction, à peu près toutes les suites de lettres possibles : y chercher un nom de locataire le trouve
+ * TOUJOURS. Un mail se serait retrouvé rattaché au bien d'un autre pour une coïncidence d'octets — et les 20
+ * messages dont le `corps_texte` porte lui-même une balise `<img>` étaient exactement dans ce cas.
+ */
 export function corpsLisible(texte: string | null | undefined, html: string | null | undefined): string {
   const t = (texte ?? '').trim();
-  return t !== '' ? (texte ?? '') : htmlVersTexte(html);
+  return sansChargeBase64(t !== '' ? (texte ?? '') : htmlVersTexte(html));
 }

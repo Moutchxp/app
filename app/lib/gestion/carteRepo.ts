@@ -18,9 +18,12 @@ import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
 //   erreur à l'écran sur un document qui existe ailleurs. Voir `copieDisparue.ts`.
 import { sqlCopieVivante } from './copieDisparueSql';
 // LOT BIEN-RATTACHE — le HTML d'un mail est assaini CÔTÉ SERVEUR, jamais dans le navigateur (voir `lireCorpsDuMessage`).
-import { assainirHtml, htmlVide } from './htmlMail';
+import { assainirHtml, echapperTexte, htmlVide } from './htmlMail';
 // LOT LECTURE-HTML-FIL-TROMBONE — les images d'un mail passent par NOS routes : voir `imagesMail`.
 import { reecrireImages, type PieceIntegree } from './imagesMail';
+import {
+  decouperTexteAImages, sqlExtraitLisible, sqlSansChargeImage, texteAUneImage,
+} from './imagesIntegrees';
 import { ATTEND, ctesAttente, jointuresAttente } from './attente';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 // ⚠️ UN SEUL IMPORT DE `./schema`, STATIQUE. `destinatairesSeparesDisponibles` était chargée dynamiquement au
@@ -345,7 +348,7 @@ export async function lireCorpsDuMessage(
   }>(
     `SELECT id::int AS message_id,
             left(coalesce(corps_texte, ''), ${MAX_CORPS}) AS corps,
-            left(coalesce(corps_html, ''), ${MAX_HTML}) AS corps_html,
+            left(${sqlSansChargeImage('corps_html')}, ${MAX_HTML}) AS corps_html,
             (coalesce(btrim(corps_texte), '') = '' AND coalesce(btrim(corps_html), '') <> '') AS html_seul
        FROM gestion_message WHERE id = $1`, [messageId]);
   const r = rows[0];
@@ -364,9 +367,35 @@ export async function lireCorpsDuMessage(
      * qui sort de la base ne peut PAS quitter cette fonction sans être passé par `assainirHtml` — pas de script,
      * pas d'attribut d'événement, et les images selon la règle déjà en place (`PROTOCOLES_IMAGE`).
      */
-    html: await htmlPourLEcran(messageId, r.corps_html),
+    /**
+     * 🔴🔴 LOT IMAGES-INTEGREES — UN TEXTE QUI PORTE UNE BALISE D'IMAGE DEVIENT UN CORPS À DESSINER.
+     *
+     * Demande d'Arno : « Texte seul contenant une balise <img src="data:image/…"> → l'image est dessinée à sa
+     * place. » MESURÉ : 20 messages ont « <img » dans leur `corps_texte`, dont 2 une image `data:`. L'écran les
+     * affichait en code, parce qu'un corps « texte » est rendu tel quel — et c'est la bonne règle, sauf ici.
+     *
+     * 🔴 ON NE DEVIENT PAS UN LECTEUR DE HTML POUR AUTANT. Le texte est reconstruit morceau par morceau : tout ce
+     * qui n'est pas une balise `<img>` est ÉCHAPPÉ caractère par caractère, puis le tout repasse par le même
+     * assainissement et la même réécriture d'images que n'importe quel corps HTML. Un `<b>` dans le texte reste
+     * donc affiché comme `<b>`, et une image devient une image.
+     */
+    html: await htmlPourLEcran(messageId, texteAUneImage(r.corps) && (r.corps_html ?? '').trim() === ''
+      ? htmlDuTexteAImages(r.corps ?? '')
+      : r.corps_html),
     htmlSeul: r.html_seul === true,
   };
+}
+
+/**
+ * Le HTML d'un corps TEXTE qui porte des balises d'image : les images restent des balises, tout le reste est
+ * échappé. PUR. Le résultat repasse par `assainirHtml`, qui reste le seul juge de ce qui a le droit d'exister.
+ */
+export function htmlDuTexteAImages(texte: string): string {
+  return decouperTexteAImages(texte)
+    .map((m) => (m.sorte === 'image'
+      ? m.valeur
+      : `<p>${echapperTexte(m.valeur).split('\n').join('<br />')}</p>`))
+    .join('');
 }
 
 /**
@@ -388,6 +417,12 @@ export async function htmlPourLEcran(messageId: number, brut: string | null | un
     pieces,
     piece: (pieceId) => `/api/admin/gestion/pieces/${pieceId}`,
     relais: (rang) => `/api/admin/gestion/messages/${messageId}/image?rang=${rang}`,
+    /**
+     * 🔴🔴 LOT IMAGES-INTEGREES — les octets d'une image `data:` sont retirés à la LECTURE (`sqlSansChargeImage`)
+     * et servis à la demande par cette route. Le rang est celui du document assaini, exactement comme pour le
+     * relais des images distantes : les deux côtés comptent les mêmes `<img>` dans le même ordre.
+     */
+    integree: (rang) => `/api/admin/gestion/messages/${messageId}/integree?rang=${rang}`,
   });
 }
 
@@ -409,7 +444,7 @@ async function piecesIntegrees(messageId: number): Promise<PieceIntegree[]> {
  */
 export async function htmlDuMessage(messageId: number): Promise<string | null> {
   const { rows } = await query<{ corps_html: string | null }>(
-    `SELECT left(coalesce(corps_html, ''), ${MAX_HTML}) AS corps_html FROM gestion_message WHERE id = $1`,
+    `SELECT left(${sqlSansChargeImage('corps_html')}, ${MAX_HTML}) AS corps_html FROM gestion_message WHERE id = $1`,
     [messageId]);
   const r = rows[0];
   return r === undefined ? null : htmlAffichable(r.corps_html);
@@ -528,7 +563,7 @@ export async function lireMessagesDuFil(
      SELECT id::int AS message_id, message_id AS message_id_rfc, sens, de_adresse, de_nom,
             ${INSTANT('recu_le')} AS recu_le, objet,
             CASE WHEN est_dernier THEN left(coalesce(corps_texte, ''), ${MAX_CORPS}) END AS corps,
-            left(coalesce(corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait,
+            left(${sqlExtraitLisible('corps_texte')}, ${LONGUEUR_EXTRAIT}) AS extrait,
             automatique,
             (exclu_le IS NOT NULL) AS hors_file,
             exclu_motif AS motif_hors_file,
@@ -536,7 +571,7 @@ export async function lireMessagesDuFil(
             -- 🔴 LOT LECTURE-HTML-FIL-TROMBONE — le HTML du DERNIER message part avec la liste, comme son texte.
             --    Sans lui, le message qu'on déplie d'emblée afficherait « Mise en forme en cours de lecture… » le
             --    temps d'un aller-retour : un clignotement à CHAQUE ouverture de conversation, pour rien.
-            CASE WHEN est_dernier THEN left(coalesce(corps_html, ''), ${MAX_HTML}) END AS corps_html,
+            CASE WHEN est_dernier THEN left(${sqlSansChargeImage('corps_html')}, ${MAX_HTML}) END AS corps_html,
             ${avecDest ? 'dest_a, dest_cc' : 'NULL::jsonb AS dest_a, NULL::jsonb AS dest_cc'},
             destinataires, est_dernier
        FROM msg

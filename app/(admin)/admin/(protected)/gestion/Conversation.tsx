@@ -1437,7 +1437,20 @@ function ouvrirRedaction(
     recuLe: dernier.recuLe, corps: dernier.corps ?? dernier.extrait,
     destA: dernier.destA, destCc: dernier.destCc, destinatairesFondus: dernier.destinatairesFondus,
   }, { adresseGestion: ctx.adresseGestion, signature: ctx.signature },
-  { filId, dateLisible: dernier ? dateHeureComplete(dernier.recuLe) : undefined });
+  {
+    filId,
+    dateLisible: dernier ? dateHeureComplete(dernier.recuLe) : undefined,
+    /**
+     * 🔴🔴 LOT IMAGES-INTEGREES — « Quand on répond ou transfère depuis l'appli, l'image citée part comme une
+     * image et non comme du texte » (Arno).
+     *
+     * Sans cette ligne, la citation HTML retombait sur la version TEXTE du message : pour les 20 mails dont le
+     * corps texte porte lui-même une balise `<img src="data:…">`, la citation emportait donc la balise ÉCHAPPÉE —
+     * du code, exactement ce qu'Arno a vu à l'écran. Le HTML passé ici est celui du serveur, DÉJÀ ASSAINI
+     * (`lireCorpsDuMessage` → `assainirHtml`), et il porte de vraies balises d'image.
+     */
+    origineHtml: dernier?.html ?? null,
+  });
   void maintenant;
   return {
     ...b, id: null,
@@ -1461,10 +1474,37 @@ function ouvrirRedaction(
  * ⚠️ RIEN N'EST RÉÉCRIT. La passe pose un attribut de données sur ce qu'elle juge illisible, et une règle CSS
  * s'en sert. Le HTML reçu — celui qui repart en transfert ou en réponse — n'est pas touché.
  */
-function CorpsHtmlMail({ html }: { html: string }) {
+function CorpsHtmlMail({ html, onVisualiser }: {
+  html: string;
+  /**
+   * 🔴🔴 LOT IMAGES-INTEGREES — « clic pour l'agrandir (même visionneuse que les pièces) » (Arno).
+   *
+   * ⚠️ ET IL FAUT DIRE JUSQU'OÙ ÇA VA. La visionneuse maison montre une PIÈCE de la conversation : elle est
+   * pilotée par un identifiant de pièce, et fait le tour des pièces du fil. Une image du corps n'en est une que
+   * lorsqu'elle est venue par `cid:` — dans ce cas, et c'est le cas qui compte, le clic l'ouvre dans la
+   * visionneuse, exactement comme sa vignette. Une image intégrée (`data:`) ou distante n'a pas de pièce à
+   * désigner : elle s'ouvre alors en pleine taille dans un onglet. Dans les deux cas on voit l'IMAGE, jamais du code.
+   */
+  onVisualiser?: (pieceId: number) => void;
+}) {
   const zone = useRef<HTMLDivElement | null>(null);
   useLisibiliteSombre(zone, [html]);
-  return <div ref={zone} className="cnv-html" dangerouslySetInnerHTML={{ __html: html }} />;
+  const agrandir = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const cible = e.target as HTMLElement;
+    if (cible.tagName !== 'IMG') return;
+    // Une image qu'on n'a pas pu afficher n'a rien à agrandir : sa vignette porte déjà son propre lien.
+    if (cible.hasAttribute('data-absente')) return;
+    const src = cible.getAttribute('src') ?? '';
+    if (src === '') return;
+    e.preventDefault();
+    const piece = /\/api\/admin\/gestion\/pieces\/(\d+)/.exec(src);
+    if (piece !== null && onVisualiser !== undefined) { onVisualiser(Number(piece[1])); return; }
+    window.open(src, '_blank', 'noopener,noreferrer');
+  };
+  return (
+    <div ref={zone} className="cnv-html" onClick={agrandir}
+      dangerouslySetInnerHTML={{ __html: html }} />
+  );
 }
 
 export function MessageConversation({
@@ -1979,7 +2019,7 @@ export function MessageConversation({
               leur propre cadre. Sans cela, un mail de syndic large de 900 px pousse toute la conversation. */}
           {/* 🔴 LOT SOMBRE-ET-RECHERCHE — le texte noir d'un mail se relève À L'ÉCRAN en thème Sombre. Rien n'est
               réécrit : ni le HTML stocké, ni ce qui repart en transfert ou en réponse. */}
-          {etat.v === 'html' && <CorpsHtmlMail html={etat.html} />}
+          {etat.v === 'html' && <CorpsHtmlMail html={etat.html} onVisualiser={onVisualiser} />}
           {etat.v === 'html_a_charger' && <p className="gst-info" role="status">{MENTION_HTML_SEUL}</p>}
           {etat.v === 'vide' && <p className="gst-msg-corps gst-absent">(message sans texte)</p>}
 
@@ -2197,7 +2237,17 @@ ${CSS_LISIBILITE_SOMBRE}
    (icone, numero, icone, numero), devenaient QUATRE lignes chez nous. Le mail n'etait pas casse, mais il ne
    ressemblait plus a ce qu'on voit dans Gmail — la promesse de ce lot.
    AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un litteral gabarit. */
-.cnv-html img{max-width:100%;height:auto;display:inline-block;vertical-align:middle}
+/* 🔴 LOT IMAGES-INTEGREES — « Image affichee a largeur maximale du mail, proportions gardees, clic pour
+   l'agrandir » (Arno). height:auto EST la garantie des proportions ; le curseur annonce le clic.
+   AUCUN ACCENT GRAVE ICI : ce commentaire vit dans un litteral gabarit (piege TS1005 du depot). */
+.cnv-html img{max-width:100%;height:auto;display:inline-block;vertical-align:middle;cursor:zoom-in}
+.cnv-html img[data-absente]{cursor:default}
+/* La vignette d'une image qu'on ne peut pas afficher : un mot, un detail, un lien — jamais du code. */
+.iim-vignette{display:inline-flex;align-items:baseline;gap:.35rem;flex-wrap:wrap;margin:.2rem 0;padding:.25rem .5rem;
+  font-size:.8rem;background:var(--color-svv-field);border:1px dashed var(--color-svv-line-strong);border-radius:.4rem}
+.iim-mot{font-weight:600}
+.iim-detail{color:var(--color-svv-muted)}
+.iim-lien{color:var(--color-svv-red);text-decoration:underline;text-underline-offset:2px}
 /* Une image intégrée qu'on n'a pas su retrouver : son MOT, dans un cadre discret — jamais une image cassée. */
 .cnv-html img[data-absente]{display:inline-block;min-width:1.2rem;min-height:1.2rem;padding:1px 6px;
   border:1px dashed #bbb;border-radius:4px;font-size:.72rem;color:#666;font-style:italic}

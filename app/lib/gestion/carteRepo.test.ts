@@ -216,9 +216,13 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     //   FRAGMENT DE SQL (« cette copie Drive existe-t-elle encore ? »). Il ne lit aucun octet et n'ouvre aucun
     //   stockage. Son passage obligé ici est ce qui garantit qu'on ne sert jamais l'identifiant d'un fichier
     //   supprimé du Drive — ce qui donnerait une erreur à l'écran sur un document qui existe ailleurs.
+    // LOT IMAGES-INTEGREES — `./imagesIntegrees` rejoint la liste, pour la MÊME raison que `./htmlMail` et
+    //   `./imagesMail` : module PUR (aucune base, aucun réseau, aucun DOM) qui dit ce qu'est une image intégrée,
+    //   ce qui est sûr, et rend des FRAGMENTS DE SQL. Il ne manipule aucun octet de pièce jointe, et c'est son
+    //   passage obligé ici qui garantit qu'une charge base64 n'atteint jamais l'écran sous forme de texte.
     expect(imports).toEqual([
-      '../db/client', './nomUsageSql', './copieDisparueSql', './htmlMail', './imagesMail', './attente',
-      './partenaires', './schema', './nonRemiseRepo',
+      '../db/client', './nomUsageSql', './copieDisparueSql', './htmlMail', './imagesMail', './imagesIntegrees',
+      './attente', './partenaires', './schema', './nonRemiseRepo',
     ]);
     expect(imports).not.toContain('../stockage');
     expect(code).not.toContain('urlSignee');

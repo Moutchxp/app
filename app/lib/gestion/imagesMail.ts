@@ -37,6 +37,10 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import {
+  lireDataImage, octetsDeLaCharge, refusDeLImage, tailleLisible, vignetteImage,
+} from './imagesIntegrees';
+
 /** Ce qu'on sait d'une pièce pour résoudre un `cid:`. */
 export interface PieceIntegree { pieceId: number; nomFichier: string }
 
@@ -133,6 +137,14 @@ export function reecrireImages(
     piece: (pieceId: number) => string;
     /** L'adresse de NOTRE relais, pour la `rang`-ième image du document. `null` = on n'affiche pas l'image. */
     relais: ((rang: number) => string) | null;
+    /**
+     * 🔴🔴 LOT IMAGES-INTEGREES — L'ADRESSE QUI SERT LES OCTETS D'UNE IMAGE INTÉGRÉE (`data:`).
+     *
+     * Absente ⇒ comportement d'avant ce lot : l'image `data:` reste telle quelle, octets compris. Présente ⇒ les
+     * images dont la charge a été retirée à la lecture (voir `sqlSansChargeImage`) y sont renvoyées. C'est ce qui
+     * permet de ne plus faire traverser 2 Mo de base64 à la page pour une photo qu'on n'a peut-être pas regardée.
+     */
+    integree?: (rang: number) => string;
   },
 ): string {
   const pieces = o.pieces ?? [];
@@ -152,7 +164,34 @@ export function reecrireImages(
     if (estDistante(src)) {
       return o.relais === null ? marque(balise, 'image distante non affichée') : remplacerSrc(balise, o.relais(rang));
     }
-    // `data:image/…` : les octets sont déjà là, rien à aller chercher. Tout le reste est tombé à l'assainissement.
+    /**
+     * ══ 🔴🔴 LOT IMAGES-INTEGREES — UNE IMAGE INTÉGRÉE S'AFFICHE, OU SE DIT. JAMAIS DU CODE. ═══════════════════
+     *
+     * Trois issues, et une seule ligne de conduite — ce qu'on ne peut pas montrer, on l'ÉCRIT :
+     *   · format refusé (svg et tout ce qui n'est pas jpeg/png/gif/webp), charge illisible ou trop lourde →
+     *     une VIGNETTE qui nomme l'image, dit sa taille et pourquoi elle ne s'affiche pas ;
+     *   · charge retirée à la lecture → l'image part vers le relais, qui ira chercher les octets en base ;
+     *   · petite image intacte → elle reste telle quelle, comme avant ce lot.
+     */
+    const data = lireDataImage(src);
+    if (data !== null) {
+      const refus = refusDeLImage(data);
+      if (refus !== null) {
+        return vignetteImage({
+          nom: `image ${data.type}`,
+          taille: tailleLisible(octetsDeLaCharge(data.charge)),
+          refus,
+          href: refus === 'taille' && o.integree !== undefined ? o.integree(rang) : null,
+        });
+      }
+      if (data.allegee) {
+        return o.integree === undefined
+          ? marque(balise, MENTION_IMAGE_INTROUVABLE)
+          : remplacerSrc(balise, o.integree(rang));
+      }
+      return balise;
+    }
+    // Tout le reste est tombé à l'assainissement : `PROTOCOLES_IMAGE` n'en laisse pas passer d'autre.
     return balise;
   });
 }

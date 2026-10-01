@@ -53,6 +53,7 @@ import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 import { trierPieces, type PieceATrier } from './lisibilite';
 // LOT BOITE-INTERNE-CORBEILLE — « nous », c'est `gestion_config.adresse_gestion`, lue à la MÊME source que la capture.
 import { chargerConfigGestion } from './config';
+import { sqlExtraitLisible } from './imagesIntegrees';
 
 /**
  * Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre.
@@ -772,7 +773,7 @@ export function sqlPageBoite(
 
   return `WITH page AS (
        SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires, m.dest_a,
-              left(coalesce(m.corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait
+              left(${sqlExtraitLisible('m.corps_texte')}, ${LONGUEUR_EXTRAIT}) AS extrait
          FROM gestion_message m
         WHERE (m.recu_le, m.fil_id) < ($1::timestamptz, $2::bigint)
           ${filtreM}

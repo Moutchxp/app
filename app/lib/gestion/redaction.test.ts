@@ -251,9 +251,23 @@ describe('LA FENÊTRE D’ANNULATION', () => {
 });
 
 describe('garanties STATIQUES', () => {
-  it('🔴 module PUR : aucun import, donc rien qui puisse tirer `pg` jusque dans le navigateur', () => {
+  /**
+   * 🔴 CE QUE CE GARDE PROTÈGE VRAIMENT : que RIEN, depuis ce module, ne puisse tirer `pg` jusque dans le
+   * navigateur. « Aucun import » en était la forme la plus simple, et elle a tenu tant qu'il n'y avait rien à
+   * partager.
+   *
+   * 🔴 LOT IMAGES-INTEGREES — UN SEUL IMPORT EST ADMIS, et le garde vérifie la chaîne ENTIÈRE : `imagesIntegrees`
+   * doit lui-même n'importer RIEN. Autrement dit la garantie n'est pas affaiblie, elle est vérifiée d'un cran plus
+   * loin. La recopier à la place aurait donné DEUX définitions de « retirer la charge d'une image » — et un jour
+   * deux comportements, dans le brouillon et à l'écran.
+   */
+  it('🔴 module PUR : rien qui puisse tirer `pg` jusque dans le navigateur, sur toute la chaîne', () => {
     const src = readFileSync('app/lib/gestion/redaction.ts', 'utf8');
-    expect(src.split('\n').filter((l) => /^\s*import\b/.test(l))).toEqual([]);
+    const imports = src.split('\n').filter((l) => /^\s*import\b/.test(l)).map((l) => l.trim());
+    expect(imports).toEqual(["import { sansChargeBase64 } from './imagesIntegrees';"]);
+    // …et le module importé est lui aussi sans aucun import : la chaîne s'arrête là.
+    const amont = readFileSync('app/lib/gestion/imagesIntegrees.ts', 'utf8');
+    expect(amont.split('\n').filter((l) => /^\s*import\b/.test(l))).toEqual([]);
   });
 
   it('il ne sait ni envoyer, ni lire une base, ni parler à Google', () => {

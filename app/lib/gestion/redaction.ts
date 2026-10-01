@@ -34,6 +34,8 @@ export function estUnTransfert(voie: VoieRedaction): boolean {
 export interface AdresseAffichee { adresse: string; nom?: string | null }
 
 /** Ce qu'on sait du message auquel on répond. Volontairement minimal : ce module ne connaît pas la base. */
+import { sansChargeBase64 } from './imagesIntegrees';
+
 export interface MessageOrigine {
   messageId: number;
   de: string;
@@ -278,7 +280,15 @@ export function citerMessageHtml(m: MessageOrigine, dateLisible?: string, corpsH
 }
 
 export function citerMessage(m: MessageOrigine, dateLisible?: string): string | null {
-  const corps = (m.corps ?? '').replace(/\r\n/g, '\n').trimEnd();
+  /**
+   * 🔴🔴 LOT IMAGES-INTEGREES — LA CITATION NE RECOPIE JAMAIS LES OCTETS D'UNE IMAGE.
+   *
+   * Arno : « Quand on répond ou transfère depuis l'appli, l'image citée part comme une image et non comme du
+   * texte. » La version HTML de la citation emporte une vraie balise (voir `citerMessageHtml`) ; la version TEXTE,
+   * elle, ne peut pas montrer d'image — mais elle ne doit SURTOUT pas recopier des mégaoctets de base64 dans le
+   * brouillon. MESURÉ : 20 messages portent une balise d'image dans leur corps texte.
+   */
+  const corps = sansChargeBase64((m.corps ?? '').replace(/\r\n/g, '\n')).trimEnd();
   const qui = (m.deNom ?? '').trim() !== '' ? `${(m.deNom ?? '').trim()} <${m.de}>` : m.de;
   const quand = (dateLisible ?? '').trim();
   const intro = quand === '' ? `${qui} a écrit :` : `Le ${quand}, ${qui} a écrit :`;
