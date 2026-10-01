@@ -646,7 +646,8 @@ describe('🔴🔴 le titre du bien, et sa pastille, dans le bloc gris', () => {
     const p = ligneBiens()?.querySelector('.ifb-pastille') as HTMLButtonElement;
     expect(p).not.toBeNull();
     await cliquer(p);
-    const f = container.querySelector('.ifb-fenetre');
+    // 🔴 LOT BULLE-INFO-ET-S12 — DANS LE DOCUMENT, PLUS DANS LE CONTENEUR : la bulle passe par un portail.
+    const f = document.querySelector('.ifb-bulle');
     expect(f?.textContent).toContain('442');
     expect(f?.textContent).toContain('MARTY Jean');
     expect(f?.textContent).toContain('Ouvrir la fiche du bien');
@@ -675,7 +676,8 @@ describe('🔴🔴 le titre du bien, et sa pastille, dans le bloc gris', () => {
 describe('🔴🔴 la pastille « i » : survol, focus, et aucun doublon', () => {
   const pastille = () => ligneBiens()?.querySelector('.ifb-pastille') as HTMLElement;
   const racine = () => ligneBiens()?.querySelector('.ifb') as HTMLElement;
-  const fenetre = () => container.querySelector('.ifb-fenetre');
+  /** 🔴 LOT BULLE-INFO-ET-S12 — la bulle est rendue dans `document.body` (portail), pour n'être jamais coupée. */
+  const fenetre = () => document.querySelector('.ifb-bulle');
   const survoler = async (e: HTMLElement) => {
     await act(async () => { e.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
   };
@@ -704,12 +706,19 @@ describe('🔴🔴 la pastille « i » : survol, focus, et aucun doublon', () =>
   });
 
   /** ⚠️ QUITTER LA RACINE, PAS LE BOUTON : la fenêtre et la pastille sont le même ensemble. */
-  it('🔴 quitter la pastille ET la fenêtre referme', async () => {
+  it('🔴 quitter la pastille ET la fenêtre referme — après le délai de grâce', async () => {
     await monter([lien()]);
     await survoler(pastille());
     await attendre(200);
     expect(fenetre()).not.toBeNull();
     await quitter(racine());
+    /**
+     * 🔴🔴 LOT BULLE-INFO-ET-S12 — LA FERMETURE EST DÉSORMAIS DIFFÉRÉE, et ce n'est pas un détail d'essai : c'est
+     * exactement ce qui rend le lien « Ouvrir la fiche du bien » atteignable (constat (b) d'Arno). Pendant la
+     * grâce, la bulle est ENCORE LÀ — et elle le reste si la souris y entre.
+     */
+    expect(fenetre()).not.toBeNull();
+    await attendre(250);
     expect(fenetre()).toBeNull();
   });
 

@@ -593,7 +593,12 @@ describe('🔴🔴 ⑦ un seul lien qui bascule, sur les propositions ET les ré
  */
 describe('🔴🔴 ⑧ la pastille d’information', () => {
   const pastille = () => container.querySelector('.ifb-pastille') as HTMLButtonElement;
-  const fenetre = () => container.querySelector('.ifb-fenetre');
+  /**
+   * 🔴 LOT BULLE-INFO-ET-S12 — LA BULLE N'EST PLUS DANS LE CONTENEUR, ET C'EST LE CORRECTIF LUI-MÊME.
+   * Elle est rendue par un PORTAIL dans `document.body`, pour qu'aucun bloc à `overflow` ne la coupe : on la
+   * cherche donc dans le document. Un sélecteur resté sur `container` dirait « fermée » alors qu'elle est ouverte.
+   */
+  const fenetre = () => document.querySelector('.ifb-bulle');
 
   it('🔴 chaque bien proposé porte une pastille', async () => {
     contexte.biens = [BIEN('421', false, 'm'), BIEN('432', false, 'm')];
@@ -625,7 +630,7 @@ describe('🔴🔴 ⑧ la pastille d’information', () => {
 
     await cliquer(pastille());
     expect(laCase().checked).toBe(false);
-    await cliquer(container.querySelector('.ifb-croix') as HTMLElement);
+    await cliquer(document.querySelector('.ifb-croix') as HTMLElement);
     expect(laCase().checked).toBe(false);
     expect(fenetre()).toBeNull();
   });
@@ -662,9 +667,9 @@ describe('🔴🔴 ⑧ la pastille d’information', () => {
     await monter();
     const pastilles = [...container.querySelectorAll('.ifb-pastille')] as HTMLButtonElement[];
     await cliquer(pastilles[0]);
-    expect(container.querySelectorAll('.ifb-fenetre')).toHaveLength(1);
+    expect(document.querySelectorAll('.ifb-bulle')).toHaveLength(1);
     await cliquer(pastilles[1]);
-    expect(container.querySelectorAll('.ifb-fenetre')).toHaveLength(1);
+    expect(document.querySelectorAll('.ifb-bulle')).toHaveLength(1);
   });
 
   /** ⚠️ ELLE NE CHARGE QU'À L'OUVERTURE : quarante biens ne font pas quarante requêtes. */
