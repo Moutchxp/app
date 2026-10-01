@@ -46,6 +46,14 @@ export interface BienTrouve {
   cle: string;
   libelle: string;
   adresse: string;
+  /**
+   * 🔴 LOT MODALE-RATTACHER-PROPRE — LA VOIE ET LA COMMUNE, SÉPARÉES. `adresse` est l'adresse COMPLÈTE (avec le
+   * code postal), telle que les cartes l'affichent depuis toujours. Le TITRE d'un bien, lui, s'écrit
+   * « voie, COMMUNE — qualité » (demande d'Arno, sans code postal) : il lui faut donc les deux morceaux, et
+   * les redécouper d'une chaîne composée serait une analyse syntaxique de ce qu'on vient d'assembler.
+   */
+  adresseVoie: string | null;
+  commune: string | null;
   nature: string | null;
   typeBien: string | null;
   /** Le propriétaire et le ou les locataires À LA DATE DU MAIL, comme dans la fiche de proposition. */
@@ -179,6 +187,7 @@ export async function chercherBiens(
       cle: r.cle,
       adresse,
       libelle: adresse === '' ? `Lot ${r.cle}` : `${adresse} — lot ${r.cle}`,
+      adresseVoie: r.adresse, commune: r.commune,
       nature: r.nature, typeBien: r.type_bien,
       parties: parties.get(r.cle) ?? [],
       raisons: raisonsTriees(raisons),

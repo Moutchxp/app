@@ -1487,6 +1487,30 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
   }));
 }
 
+/**
+ * ══ 🔴 LOT MODALE-RATTACHER-PROPRE — LA FICHE D'UN LOT PAR SA CLÉ WIPPIMMO ═══════════════════════════════════
+ *
+ * La pastille « i » de la modale de rattachement ne connaît du bien que sa CLÉ (c'est elle, la cible de
+ * rattachement), jamais l'identifiant interne de l'annuaire. Elle demande donc la fiche par la clé.
+ *
+ * 🔴 UNE RÉSOLUTION, PAS UNE SECONDE LECTURE : on traduit la clé en identifiant, puis on appelle `ficheLot` —
+ * la MÊME fonction que l'annuaire, avec les mêmes jointures et les mêmes garanties. Une seconde implémentation
+ * de « la fiche d'un bien » finirait par montrer autre chose que l'annuaire, et c'est exactement le genre
+ * d'écart qu'on ne détecte qu'en les comparant à la main.
+ *
+ * ⚠️ CLÉ INCONNUE ⇒ « inconnu », jamais une fiche vide : la pastille le dit au lieu d'afficher un cadre blanc.
+ */
+export async function ficheLotParCle(cle: string): Promise<IssueLecture<FicheLot>> {
+  if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
+  const propre = cle.trim();
+  if (propre === '') return { etat: 'inconnu' };
+  const { rows } = await query<{ id: string }>(
+    'SELECT id::text FROM gestion_annuaire_lot WHERE wippimmo_id = $1', [propre]);
+  const id = rows[0]?.id;
+  if (id === undefined) return { etat: 'inconnu' };
+  return ficheLot(Number(id));
+}
+
 export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
   const { rows } = await query<{

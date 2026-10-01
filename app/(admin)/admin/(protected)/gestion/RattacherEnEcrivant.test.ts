@@ -36,6 +36,8 @@ let interneChoisi: boolean;
 let ferme: number;
 /** Ce que le moteur de recherche de biens rend, pour les épreuves qui s'en servent. */
 let biensTrouves: Record<string, unknown>[];
+/** 🔴 LOT MODALE-RATTACHER-PROPRE — la fiche d'un bien, telle que la route de l'annuaire la rend à la pastille. */
+let ficheLot: Record<string, unknown>;
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
@@ -43,14 +45,32 @@ beforeEach(() => {
   contexte = { biens: [], examen: { issue: 'sans_candidat', motif: '' }, proprietaire: null,
     interneDabord: false, disponible: true };
   biensTrouves = [];
+  ficheLot = {
+    id: 77, numero: '421', nature: 'Appartement meublé', typeBien: 'Type 2', immeuble: null,
+    adresse: '28 av. Marceau', commune: 'COURBEVOIE', codePostal: '92400',
+    debut: '2021-01-04', fin: null, absent: false, surfaceM2: null, driveDossierId: 'D1',
+    proprietaireId: 9, proprietaireCle: 'P9', proprietaireNom: 'GARREAU Gabrielle', proprietaireContacts: [],
+    occupations: [{ nom: 'THAI Cécile', entree: '2024-02-01', sortie: null }],
+    proprietaires: [{ nom: 'GARREAU Gabrielle' }], occupants: [],
+    modifiable: true, suppressionDisponible: true, evenementsOuverts: 0,
+  };
   /**
    * 🔴 LOT CLASSER-DEUX-BOUTONS — DEUX ROUTES, ET LE FAUX SERVEUR DOIT LES DISTINGUER : le moteur de propositions
    * (`/classement`) et le moteur de recherche de biens (`/biens`), désormais tous deux dans cette fenêtre.
    */
-  global.fetch = vi.fn(async (u: unknown) => (String(u).includes('/gestion/biens')
-    ? { ok: true, json: async () => ({ etat: 'ok', lignes: biensTrouves, tronque: false, disponible: true }) }
-    : { ok: true, json: async () => ({ etat: 'ok', contexte }) }) as unknown as Response,
-  ) as unknown as typeof fetch;
+  global.fetch = vi.fn(async (u: unknown) => {
+    const url = String(u);
+    // 🔴 LOT MODALE-RATTACHER-PROPRE — la fiche que la pastille « i » demande, par la CLÉ du lot.
+    if (url.includes('lotCle=')) {
+      return { ok: true, json: async () => ({ etat: 'ok', data: ficheLot }) } as unknown as Response;
+    }
+    if (url.includes('/gestion/biens')) {
+      return {
+        ok: true, json: async () => ({ etat: 'ok', lignes: biensTrouves, tronque: false, disponible: true }),
+      } as unknown as Response;
+    }
+    return { ok: true, json: async () => ({ etat: 'ok', contexte }) } as unknown as Response;
+  }) as unknown as typeof fetch;
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
@@ -140,23 +160,23 @@ describe('🔴 ② « Tout sélectionner » est UN bouton qui bascule', () => {
 
   it('🔴 il coche tout, puis décoche tout, et son MOT suit', async () => {
     await monter(['bailleur@free.fr']);
-    expect(boutonPar(/Tout sélectionner/)).toBeDefined();
+    expect(boutonPar(/Sélectionner tous les biens/)).toBeDefined();
 
-    await cliquer(boutonPar(/Tout sélectionner/));
+    await cliquer(boutonPar(/Sélectionner tous les biens/));
     expect(cases().every((c) => c.checked)).toBe(true);
     // 🔴 LE MOT CHANGE : deux boutons séparés laisseraient toujours l'un des deux sans effet.
-    expect(boutonPar(/Tout désélectionner/)).toBeDefined();
+    expect(boutonPar(/Désélectionner tous les biens/)).toBeDefined();
 
-    await cliquer(boutonPar(/Tout désélectionner/));
+    await cliquer(boutonPar(/Désélectionner tous les biens/));
     expect(cases().every((c) => !c.checked)).toBe(true);
-    expect(boutonPar(/Tout sélectionner/)).toBeDefined();
+    expect(boutonPar(/Sélectionner tous les biens/)).toBeDefined();
   });
 
   it('le compte affiché suit les cases, toujours', async () => {
     await monter(['bailleur@free.fr']);
     await cliquer(cases()[1]);
     expect(container.querySelector('.rec-compte')?.textContent).toContain('1 bien(s) coché(s) sur 3');
-    await cliquer(boutonPar(/Tout sélectionner/));
+    await cliquer(boutonPar(/Sélectionner tous les biens/));
     expect(container.querySelector('.rec-compte')?.textContent).toContain('3 bien(s) coché(s) sur 3');
   });
 
@@ -165,7 +185,7 @@ describe('🔴 ② « Tout sélectionner » est UN bouton qui bascule', () => {
     contexte.biens = [];
     await monter();
     expect(container.querySelector('.rec-compte')?.textContent).toContain('Aucun bien ne se déduit');
-    expect(boutonPar(/Tout sélectionner/)).toBeUndefined();
+    expect(boutonPar(/Sélectionner tous les biens/)).toBeUndefined();
   });
 });
 
@@ -326,7 +346,7 @@ describe('🔴🔴 ⑤bis un bien déjà retenu que le moteur ne propose pas', (
     contexte = { ...contexte, biens: [BIEN('100', true, 'locataire')] };
     await monter();
     expect(boutonPar(/Valider/).textContent).toContain('2 bien(s)');
-    await cliquer(boutonPar(/^Tout désélectionner$/));
+    await cliquer(boutonPar(/^Désélectionner tous les biens$/));
     expect(boutonPar(/Valider/).textContent).toBe('Valider — aucun bien');
   });
 
@@ -409,6 +429,228 @@ describe('🔴🔴 la catégorie est posée à la validation', () => {
   });
 });
 
+/**
+ * ══ 🔴🔴 LOT MODALE-RATTACHER-PROPRE — ① LE DOUBLE COMPTE ═════════════════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO : « le lot 432 est coché dans PROPOSITIONS et à nouveau dans les résultats du MOTEUR DE
+ * RECHERCHE. Le compteur affiche “2 bien(s) coché(s)” […] alors qu'il n'y a qu'UN bien. »
+ *
+ * 🔴 CE QU'ON A TROUVÉ EN LE REJOUANT, ET QUI EST PLUS SUBTIL QUE « le compteur compte deux fois ». Le même bien
+ * était AFFICHÉ DEUX FOIS — une fois en haut, une fois dans les résultats — et rien ne disait que les deux cases
+ * n'en faisaient qu'une. Le compte, lui, était juste : il additionnait le bien cherché et une proposition déjà
+ * cochée. Mais en voyant le bien deux fois ET le chiffre deux, on conclut qu'il est compté deux fois. Le défaut
+ * n'était pas dans le calcul, il était dans ce que l'écran laissait croire — ce qui revient au même pour qui
+ * valide un classement.
+ *
+ * 🔴 LA SÉLECTION EST DÉSORMAIS UN ENSEMBLE (`Set`), et le résultat déjà montré en haut le DIT.
+ */
+describe('🔴🔴 ⑥ un bien ne se compte jamais deux fois', () => {
+  /**
+   * 🔴🔴 LE TEST QUI ÉCHOUE SUR LE CODE D'AVANT : la mention « déjà dans la sélection » n'existait pas, et rien
+   * ne reliait les deux apparitions du même bien.
+   */
+  it('🔴🔴 un résultat déjà montré en haut porte « déjà dans la sélection »', async () => {
+    contexte.biens = [BIEN('432', true, 'locataire de ce bien')];
+    biensTrouves = [TROUVE('432')];
+    await monter();
+    await taper('manessier');
+    const ligne = container.querySelector('.rec-ligne');
+    expect(ligne?.textContent).toContain('déjà dans la sélection');
+    expect(ligne?.className).toContain('rec-ligne--deja');
+  });
+
+  /** 🔴 ET IL NE CRÉE AUCUNE SECONDE ENTRÉE EN HAUT : une seule ligne pour ce bien dans les propositions. */
+  it('🔴🔴 aucune seconde entrée en haut, et le compteur reste à UN', async () => {
+    contexte.biens = [BIEN('432', true, 'locataire de ce bien')];
+    biensTrouves = [TROUVE('432')];
+    await monter();
+    await taper('manessier');
+    expect(container.querySelectorAll('.rec-bien')).toHaveLength(1);
+    expect(container.querySelector('.rec-compte')?.textContent).toContain('1 bien(s) coché(s) sur 1 affiché(s)');
+    expect(boutonPar(/^Valider/).textContent).toBe('Valider — 1 bien(s)');
+  });
+
+  /**
+   * 🔴🔴 « UNE SEULE CASE LOGIQUE : cocher ou décocher l'une met à jour l'autre instantanément » (Arno).
+   */
+  it('🔴🔴 décocher depuis les RÉSULTATS décoche aussi en haut, et inversement', async () => {
+    contexte.biens = [BIEN('432', true, 'locataire de ce bien')];
+    biensTrouves = [TROUVE('432')];
+    await monter();
+    await taper('manessier');
+    const enHaut = () => (container.querySelector('.rec-bien input') as HTMLInputElement);
+    const enBas = () => (container.querySelector('.rec-ligne input') as HTMLInputElement);
+    expect([enHaut().checked, enBas().checked]).toEqual([true, true]);
+
+    await cliquer(enBas());
+    expect([enHaut().checked, enBas().checked]).toEqual([false, false]);
+    expect(boutonPar(/^Valider/).textContent).toBe('Valider — aucun bien');
+
+    await cliquer(enHaut());
+    expect([enHaut().checked, enBas().checked]).toEqual([true, true]);
+    expect(boutonPar(/^Valider/).textContent).toBe('Valider — 1 bien(s)');
+  });
+
+  /** 🔴 ET LA VALIDATION N'EN POSE QU'UN : l'ensemble ne peut pas rendre deux fois la même clé. */
+  it('🔴🔴 valider ne rend qu’UNE cible pour ce bien', async () => {
+    contexte.biens = [BIEN('432', true, 'locataire')];
+    biensTrouves = [TROUVE('432')];
+    await monter();
+    await taper('manessier');
+    await cliquer(boutonPar(/^Valider/));
+    expect(cibles.map((c) => c.cle)).toEqual(['432']);
+  });
+
+  /** ⚠️ UN BIEN RÉELLEMENT NOUVEAU, LUI, REJOINT BIEN LA LISTE DU HAUT — rien n'est cassé de ce côté. */
+  it('⚠️ un résultat qui n’est PAS en haut l’y fait entrer, une seule fois', async () => {
+    contexte.biens = [BIEN('134', false, 'motif')];
+    biensTrouves = [TROUVE('432')];
+    await monter();
+    await taper('manessier');
+    expect(container.querySelector('.rec-ligne')?.textContent).not.toContain('déjà dans la sélection');
+    await cliquer(container.querySelector('.rec-ligne input') as HTMLInputElement);
+    expect(container.querySelectorAll('.rec-bien')).toHaveLength(2);
+    expect(container.querySelector('.rec-ligne')?.textContent).toContain('déjà dans la sélection');
+    expect(boutonPar(/^Valider/).textContent).toBe('Valider — 1 bien(s)');
+  });
+});
+
+/**
+ * ══ 🔴🔴 ⑦ LA BASCULE PORTE SUR TOUT CE QUI EST VISIBLE ════════════════════════════════════════════════════════
+ *
+ * ARNO : « “Sélectionner tous les biens” quand au moins un bien visible n'est pas coché, “Désélectionner tous
+ * les biens” quand tous le sont. Il porte sur les biens proposés ET sur les résultats de recherche affichés. »
+ */
+describe('🔴🔴 ⑦ un seul lien qui bascule, sur les propositions ET les résultats', () => {
+  it('🔴🔴 il coche AUSSI les résultats de recherche', async () => {
+    contexte.biens = [BIEN('134', false, 'motif')];
+    biensTrouves = [TROUVE('421'), TROUVE('432')];
+    await monter();
+    await taper('marceau');
+    expect(boutonPar(/^Sélectionner tous les biens$/)).toBeDefined();
+
+    await cliquer(boutonPar(/^Sélectionner tous les biens$/));
+    const toutes = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    expect(toutes.every((c) => c.checked)).toBe(true);
+    expect(boutonPar(/^Valider/).textContent).toBe('Valider — 3 bien(s)');
+  });
+
+  it('🔴 puis il les décoche tous, et son MOT suit', async () => {
+    contexte.biens = [BIEN('134', false, 'motif')];
+    biensTrouves = [TROUVE('421')];
+    await monter();
+    await taper('marceau');
+    await cliquer(boutonPar(/^Sélectionner tous les biens$/));
+    expect(boutonPar(/^Désélectionner tous les biens$/)).toBeDefined();
+    await cliquer(boutonPar(/^Désélectionner tous les biens$/));
+    const toutes = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    expect(toutes.every((c) => !c.checked)).toBe(true);
+    expect(boutonPar(/^Sélectionner tous les biens$/)).toBeDefined();
+  });
+
+  /** ⚠️ « VISIBLE » EST LE MOT : un résultat qu'on n'a pas cherché n'est pas coché d'un clic. */
+  it('⚠️ il ne touche à rien d’invisible', async () => {
+    contexte.biens = [BIEN('134', false, 'motif')];
+    biensTrouves = [TROUVE('421')];
+    await monter();
+    await cliquer(boutonPar(/^Sélectionner tous les biens$/));
+    expect(boutonPar(/^Valider/).textContent).toBe('Valider — 1 bien(s)');
+  });
+});
+
+/**
+ * ══ 🔴🔴 ⑧ LA PASTILLE « i » ══════════════════════════════════════════════════════════════════════════════════
+ *
+ * ARNO : « À côté du titre de chaque bien, une petite pastille “i”. […] Cliquer la pastille ne coche ni ne
+ * décoche le bien. […] Fermeture par la croix, par Échap ou par un clic à l'extérieur. »
+ */
+describe('🔴🔴 ⑧ la pastille d’information', () => {
+  const pastille = () => container.querySelector('.ifb-pastille') as HTMLButtonElement;
+  const fenetre = () => container.querySelector('.ifb-fenetre');
+
+  it('🔴 chaque bien proposé porte une pastille', async () => {
+    contexte.biens = [BIEN('421', false, 'm'), BIEN('432', false, 'm')];
+    await monter();
+    expect(container.querySelectorAll('.rec-bien .ifb-pastille')).toHaveLength(2);
+  });
+
+  it('🔴 un clic l’ouvre, et la fiche s’y affiche', async () => {
+    contexte.biens = [BIEN('421', false, 'm')];
+    await monter();
+    expect(fenetre()).toBeNull();
+    await cliquer(pastille());
+    expect(fenetre()).not.toBeNull();
+    const texte = fenetre()?.textContent ?? '';
+    expect(texte).toContain('Appartement meublé');
+    // 🔴🔴 LE NUMÉRO DE LOT EST ICI — c'est la contrepartie exacte de son retrait du titre.
+    expect(texte).toContain('421');
+    expect(texte).toContain('GARREAU Gabrielle');
+    expect(texte).toContain('THAI Cécile');
+    expect(texte).toContain('Ouvrir la fiche du bien');
+  });
+
+  /** 🔴🔴 « Cliquer la pastille ne coche ni ne décoche le bien » — la pastille vit DANS le libellé de la case. */
+  it('🔴🔴 l’ouvrir ne coche PAS le bien, la fermer non plus', async () => {
+    contexte.biens = [BIEN('421', false, 'pas de pré-coche')];
+    await monter();
+    const laCase = () => (container.querySelector('.rec-bien input') as HTMLInputElement);
+    expect(laCase().checked).toBe(false);
+
+    await cliquer(pastille());
+    expect(laCase().checked).toBe(false);
+    await cliquer(container.querySelector('.ifb-croix') as HTMLElement);
+    expect(laCase().checked).toBe(false);
+    expect(fenetre()).toBeNull();
+  });
+
+  it('🔴 « Échap » la ferme', async () => {
+    contexte.biens = [BIEN('421', false, 'm')];
+    await monter();
+    await cliquer(pastille());
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await calmer();
+    expect(fenetre()).toBeNull();
+  });
+
+  it('🔴 un clic à l’extérieur la ferme aussi', async () => {
+    contexte.biens = [BIEN('421', false, 'm')];
+    await monter();
+    await cliquer(pastille());
+    await act(async () => {
+      document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+    await calmer();
+    expect(fenetre()).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 UNE SEULE FENÊTRE À LA FOIS. Constaté à l'écran : ouvrir une seconde pastille laissait les deux
+   * descriptifs ouverts, superposés. Deux fiches côte à côte, c'est deux fois la question « de quel bien
+   * parle-t-on ? ».
+   */
+  it('🔴🔴 ouvrir une seconde pastille ferme la première', async () => {
+    contexte.biens = [BIEN('421', false, 'm'), BIEN('432', false, 'm')];
+    await monter();
+    const pastilles = [...container.querySelectorAll('.ifb-pastille')] as HTMLButtonElement[];
+    await cliquer(pastilles[0]);
+    expect(container.querySelectorAll('.ifb-fenetre')).toHaveLength(1);
+    await cliquer(pastilles[1]);
+    expect(container.querySelectorAll('.ifb-fenetre')).toHaveLength(1);
+  });
+
+  /** ⚠️ ELLE NE CHARGE QU'À L'OUVERTURE : quarante biens ne font pas quarante requêtes. */
+  it('⚠️ aucune lecture de fiche tant qu’on n’ouvre pas', async () => {
+    contexte.biens = [BIEN('421', false, 'm'), BIEN('432', false, 'm')];
+    await monter();
+    const appels = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(appels.some((c) => String(c[0]).includes('lotCle='))).toBe(false);
+    await cliquer(pastille());
+    expect(appels.some((c) => String(c[0]).includes('lotCle='))).toBe(true);
+  });
+});
+
 describe('⑤ la demande au serveur', () => {
   /**
    * 🔴 UN `POST`, ET LES DESTINATAIRES DANS LE CORPS — jamais dans l'adresse. La question porte sur des adresses
@@ -438,6 +680,8 @@ describe('⑤ la demande au serveur', () => {
 */
 const TROUVE = (cle: string, o: Record<string, unknown> = {}) => ({
   cle, libelle: `28 av. Marceau — lot ${cle}`, adresse: '28 av. Marceau', nature: null, typeBien: 'Appartement',
+  // 🔴 LOT MODALE-RATTACHER-PROPRE — la voie et la commune, séparées : c'est d'elles que le TITRE se compose.
+  adresseVoie: '28 av. Marceau', commune: 'COURBEVOIE',
   parties: [{ role: 'proprietaire', cle: 'P9', nom: 'GARREAU', emails: [], telephones: [] },
     { role: 'locataire', cle: 'L9', nom: 'THAI', emails: [], telephones: [] }],
   raisons: [{ sorte: 'adresse', detail: '28 av. Marceau' }],
@@ -476,7 +720,9 @@ describe('🔴🔴 ⑤ la recherche est DANS la modale, toujours visible', () =>
     await monter();
     await taper('marceau');
     const ligne = container.querySelector('.rec-ligne');
-    expect(ligne?.textContent).toContain('28 av. Marceau — lot 421 · Appartement');
+    // 🔴🔴 LOT MODALE-RATTACHER-PROPRE — LE TITRE N'A PLUS DE NUMÉRO DE LOT : « adresse — qualité ».
+    expect(ligne?.textContent).toContain('28 av. Marceau, COURBEVOIE — Appartement');
+    expect(ligne?.textContent).not.toContain('lot 421');
     expect(ligne?.textContent).toContain('GARREAU');
     expect(ligne?.textContent).toContain('THAI');
   });
@@ -504,15 +750,15 @@ describe('🔴🔴 ⑤ la recherche est DANS la modale, toujours visible', () =>
     contexte.biens = [BIEN('134', false, 'motif')];
     biensTrouves = [TROUVE('421')];
     await monter();
-    expect(container.querySelector('.rec-compte')?.textContent).toContain('0 bien(s) coché(s) sur 1 proposé(s)');
+    expect(container.querySelector('.rec-compte')?.textContent).toContain('0 bien(s) coché(s) sur 1 affiché(s)');
 
     await taper('marceau');
     const caseResultat = container.querySelector('.rec-ligne input[type="checkbox"]') as HTMLInputElement;
     await cliquer(caseResultat);
 
-    expect(container.querySelector('.rec-compte')?.textContent).toContain('1 bien(s) coché(s) sur 2 proposé(s)');
-    // Il est aussi monté dans la liste du haut, avec les propositions.
-    expect(container.querySelector('.rec-biens')?.textContent).toContain('lot 421');
+    expect(container.querySelector('.rec-compte')?.textContent).toContain('1 bien(s) coché(s) sur 2 affiché(s)');
+    // Il est aussi monté dans la liste du haut, avec les propositions — sous son titre, sans numéro de lot.
+    expect(container.querySelector('.rec-biens')?.textContent).toContain('28 av. Marceau, COURBEVOIE');
   });
 
   it('🔴 et « Valider » l’emporte avec les autres', async () => {

@@ -25,6 +25,14 @@ let root: Root;
 const lien = (o: Record<string, unknown> = {}) => ({
   id: 1, messageId: 900, pieceId: null, cible: { sorte: 'lot', cle: '442', id: null },
   libelle: '22 Boulevard Richard Wallace, PUTEAUX — lot 442', origine: 'manuel', statut: 'confirme',
+  /**
+   * 🔴 LOT MODALE-RATTACHER-PROPRE — LES FAITS DU LOT, joints à la lecture. C'est d'eux que le TITRE se
+   * compose (« adresse — Nature · Type »), et non du libellé figé ci-dessus, qui porte l'ancien format.
+   */
+  bien: {
+    adresse: '22 Boulevard Richard Wallace', commune: 'PUTEAUX', nature: 'Appartement', typeBien: 'Type 2',
+    immeuble: null,
+  },
   confiance: null, regle: 'a', motif: null, adresses: [], parUnHumain: true,
   creeLe: null, creePar: null, statutLe: null, statutPar: null, ...o,
 });
@@ -62,6 +70,20 @@ beforeEach(() => {
         } as unknown as Response;
       }
       return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+    }
+    // 🔴 LOT MODALE-RATTACHER-PROPRE — la fiche que la pastille « i » demande, par la CLÉ du lot.
+    if (u.includes('lotCle=')) {
+      return {
+        ok: true,
+        json: async () => ({ etat: 'ok', data: {
+          id: 55, numero: '442', nature: 'Appartement', typeBien: 'Type 2', immeuble: null,
+          adresse: '22 Boulevard Richard Wallace', commune: 'PUTEAUX', codePostal: '92800',
+          debut: '2020-06-01', fin: null, absent: false, surfaceM2: null, driveDossierId: null,
+          proprietaireId: null, proprietaireCle: null, proprietaireNom: 'MARTY Jean', proprietaireContacts: [],
+          occupations: [], proprietaires: [], occupants: [],
+          modifiable: true, suppressionDisponible: true, evenementsOuverts: 0,
+        } }),
+      } as unknown as Response;
     }
     // La recherche de l'annuaire, et le contexte des propositions : ni l'une ni l'autre n'est le sujet ici.
     if (u.includes('/classement?message=')) {
@@ -366,22 +388,34 @@ describe('🔴🔴 le bloc tient sur deux lignes, le module à droite des deux',
  * l'adresse complète du premier bien puis tous les autres, une ligne chacun. “voir moins” replie. »
  */
 describe('🔴🔴 la ligne montre le PREMIER bien, et se déplie', () => {
-  const COURT = { ...lien(), id: 1, libelle: '4 rue Hugo — lot 12' };
+  /** ⚠️ LES TITRES VIENNENT DES FAITS DU LOT, plus du libellé figé : c'est tout l'objet du lot MODALE-…-PROPRE. */
+  const COURT = {
+    ...lien(), id: 1, libelle: '4 rue Hugo — lot 12',
+    bien: { adresse: '4 rue Hugo', commune: null, nature: 'Studio', typeBien: null, immeuble: null },
+  };
   const AUTRE = {
     ...lien(), id: 2, cible: { sorte: 'lot', cle: '99', id: null },
     libelle: '2 rue Mars et Roty, 92800 PUTEAUX — Appartement Type 2 — lot 99',
+    bien: {
+      adresse: '2 rue Mars et Roty', commune: 'PUTEAUX', nature: 'Appartement meublé', typeBien: 'Type 2',
+      immeuble: null,
+    },
   };
+  const TITRE_COURT = '4 rue Hugo — Studio';
+  const TITRE_AUTRE = '2 rue Mars et Roty, PUTEAUX — Appartement meublé · Type 2';
 
   it('🔴 un seul bien court : son libellé ENTIER, et aucun « voir plus »', async () => {
     await monter([COURT]);
-    expect(ligneBiens()?.textContent).toContain('4 rue Hugo — lot 12');
+    expect(ligneBiens()?.textContent).toContain(TITRE_COURT);
+    // 🔴🔴 ET PLUS AUCUN NUMÉRO DE LOT DANS LE TITRE.
+    expect(ligneBiens()?.textContent).not.toContain('lot 12');
     expect(boutonPar(/^voir plus/)).toBeUndefined();
   });
 
   it('🔴 plusieurs biens : seul le PREMIER est montré, avec « voir plus » et le compte', async () => {
     await monter([COURT, AUTRE]);
-    expect(ligneBiens()?.textContent).toContain('4 rue Hugo — lot 12');
-    expect(ligneBiens()?.textContent).not.toContain('lot 99');
+    expect(ligneBiens()?.textContent).toContain(TITRE_COURT);
+    expect(ligneBiens()?.textContent).not.toContain('Mars et Roty');
     expect(boutonPar(/^voir plus \(2\)$/)).toBeDefined();
   });
 
@@ -391,11 +425,11 @@ describe('🔴🔴 la ligne montre le PREMIER bien, et se déplie', () => {
     const lignes = [...container.querySelectorAll('.ert-liste .ert-ligne')];
     // Deux biens, plus la ligne qui porte « voir moins ».
     expect(lignes).toHaveLength(3);
-    expect(container.textContent).toContain('4 rue Hugo — lot 12');
-    expect(container.textContent).toContain('lot 99');
+    expect(container.textContent).toContain(TITRE_COURT);
+    expect(container.textContent).toContain(TITRE_AUTRE);
 
     await cliquer(boutonPar(/^voir moins$/));
-    expect(container.textContent).not.toContain('lot 99');
+    expect(container.textContent).not.toContain('Mars et Roty');
     expect(boutonPar(/^voir plus/)).toBeDefined();
   });
 
@@ -427,6 +461,52 @@ describe('🔴🔴 la ligne montre le PREMIER bien, et se déplie', () => {
     await cliquer(boutonPar(/^voir plus/));
     expect(boutonPar(/^Modifier$/)).toBeUndefined();
     expect(boutonPar(/^Retirer$/)).toBeUndefined();
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT MODALE-RATTACHER-PROPRE — LE TITRE SANS NUMÉRO, ET LA PASTILLE « i » ══════════════════════════════
+ *
+ * ARNO : « dans la ligne “BIEN(S) RATTACHÉ(S)” ainsi que dans le “voir plus”, le titre d'un bien devient
+ * “adresse — Type de bien”. Le numéro de lot n'apparaît plus dans le titre. […] Même pastille dans la ligne
+ * “BIEN(S) RATTACHÉ(S)” et dans le “voir plus”. »
+ */
+describe('🔴🔴 le titre du bien, et sa pastille, dans le bloc gris', () => {
+  it('🔴🔴 le titre vient des FAITS du lot, pas du libellé figé en base', async () => {
+    await monter([lien()]);
+    const texte = ligneBiens()?.textContent ?? '';
+    expect(texte).toContain('22 Boulevard Richard Wallace, PUTEAUX — Appartement · Type 2');
+    expect(texte).not.toContain('lot 442');
+  });
+
+  /** ⚠️ SANS L'ANNUAIRE (migration 253 absente), on retombe sur le libellé enregistré : un nom d'hier vaut
+   *  mieux qu'un bien sans nom. */
+  it('⚠️ sans les faits du lot, le libellé enregistré fait le repli', async () => {
+    await monter([{ ...lien(), bien: null }]);
+    expect(ligneBiens()?.textContent).toContain('22 Boulevard Richard Wallace, PUTEAUX — lot 442');
+  });
+
+  it('🔴 la pastille est sur la ligne, et elle ouvre le descriptif', async () => {
+    await monter([lien()]);
+    const p = ligneBiens()?.querySelector('.ifb-pastille') as HTMLButtonElement;
+    expect(p).not.toBeNull();
+    await cliquer(p);
+    const f = container.querySelector('.ifb-fenetre');
+    expect(f?.textContent).toContain('442');
+    expect(f?.textContent).toContain('MARTY Jean');
+    expect(f?.textContent).toContain('Ouvrir la fiche du bien');
+  });
+
+  it('🔴 et chaque bien du « voir plus » a la sienne', async () => {
+    const AUTRE = {
+      ...lien(), id: 2, cible: { sorte: 'lot', cle: '99', id: null },
+      bien: { adresse: '2 rue Mars', commune: 'PUTEAUX', nature: 'Parking', typeBien: 'Garage', immeuble: null },
+    };
+    await monter([lien(), AUTRE]);
+    await cliquer(boutonPar(/^voir plus/));
+    expect(container.querySelectorAll('.ert-deplie .ifb-pastille')).toHaveLength(2);
+    // 🔴 ET LE PARKING S'ÉCRIT SANS SON TYPE : la nature dit tout (module `titreBien`).
+    expect(container.querySelector('.ert-deplie')?.textContent).toContain('2 rue Mars, PUTEAUX — Parking');
   });
 });
 

@@ -80,12 +80,22 @@ export function ligneCompacteDuBien(b: {
   libelle: string;
   typeBien?: string | null;
   parties: readonly { role: string; nom: string }[];
-}): LigneCompacte {
+}, titreImpose?: string): LigneCompacte {
   const type = (b.typeBien ?? '').trim();
   const proprios = b.parties.filter((p) => p.role === 'proprietaire').map((p) => p.nom.trim()).filter((n) => n !== '');
   const locataires = b.parties.filter((p) => p.role === 'locataire').map((p) => p.nom.trim()).filter((n) => n !== '');
   return {
-    titre: type === '' ? b.libelle : `${b.libelle} · ${type}`,
+    /**
+     * 🔴 LOT MODALE-RATTACHER-PROPRE — LE TITRE PEUT ÊTRE IMPOSÉ PAR L'APPELANT, et il l'est désormais partout
+     * dans la modale de rattachement : « adresse — Nature · Type », sans numéro de lot (module `titreBien`).
+     *
+     * ⚠️ LA FORME D'AVANT RESTE LE DÉFAUT, et ce n'est pas de la prudence : la même ligne compacte sert ailleurs
+     * (la fenêtre « Visualiser / Modifier »), où le titre n'est pas calculé. Lui imposer un format qu'elle ne
+     * sait pas produire l'aurait laissée sans titre du tout.
+     */
+    titre: (titreImpose ?? '').trim() !== ''
+      ? (titreImpose as string)
+      : (type === '' ? b.libelle : `${b.libelle} · ${type}`),
     proprietaires: proprios.length === 0 ? '(propriétaire inconnu)' : proprios.join(', '),
     locataire: locataires.length === 0 ? 'Vacant' : locataires.join(', '),
   };

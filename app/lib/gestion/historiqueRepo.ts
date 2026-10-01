@@ -584,6 +584,8 @@ export async function propositionsHistorique(c: CibleEtendue): Promise<{
          * ici — comme dans `rattachementRepo`, conditionnée à la sonde de l'annuaire.
          */
         categorie: null,
+        // ⚠️ IDEM POUR LES FAITS DU LOT : cet écran n'affiche pas de titre calculé (voir ci-dessus).
+        bien: null,
         origine: r.origine === 'manuel' ? 'manuel' : 'automatique',
         statut: 'propose', confiance: r.confiance, regle: r.regle, motif: r.motif,
         adresses: (r.adresses ?? '').split(' ').filter((a) => a !== ''),

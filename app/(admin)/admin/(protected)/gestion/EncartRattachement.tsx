@@ -7,6 +7,9 @@ import { ModifierRattachement } from './ModifierRattachement';
 import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
 import { CSS_RATTACHER_EN_ECRIVANT, RattacherEnEcrivant } from './RattacherEnEcrivant';
 import { lignePremierBien } from '../../../../lib/gestion/classementBoutons';
+// 🔴 LOT MODALE-RATTACHER-PROPRE — le titre d'un bien (sans numéro de lot) et la pastille « i ».
+import { titresDistincts } from '../../../../lib/gestion/titreBien';
+import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
 import type { CibleBrouillon } from '../../../../lib/gestion/redaction';
 // LOT AFFECTATION-PAR-BIEN — la fenêtre de classement complète, partagée : une seule implémentation du geste.
 import { ClasserMail } from './ClasserMail';
@@ -239,8 +242,35 @@ export function EncartRattachement({
     if (horsGestion) await onHorsGestion?.(false);
   };
 
+  /**
+   * ══ 🔴🔴 LOT MODALE-RATTACHER-PROPRE — LE TITRE D'UN BIEN, SANS SON NUMÉRO DE LOT ══════════════════════════
+   *
+   * Demande d'Arno : « dans la ligne “BIEN(S) RATTACHÉ(S)” ainsi que dans le “voir plus”, le titre d'un bien
+   * devient “adresse — Type de bien”. Le numéro de lot n'apparaît plus dans le titre. »
+   *
+   * 🔴 IL EST RECALCULÉ, PAS RELU. `cible_libelle` est le texte FIGÉ au moment du rattachement — il porte
+   * l'ancien format (« … — Appartement Studio — lot 247 »), et il porterait l'adresse d'alors si elle avait
+   * changé depuis. Le titre vient donc des FAITS du lot, joints à la lecture (`lien.bien`).
+   *
+   * ⚠️ REPLI SUR LE LIBELLÉ ENREGISTRÉ quand l'annuaire ne dit rien (migration 253 absente, lot disparu de
+   * l'import) : un bien sans nom sur cette ligne serait pire qu'un nom d'hier.
+   *
+   * ⚠️ LE DÉPARTAGE PORTE SUR LA LISTE ENTIÈRE DU MAIL : deux lots du même immeuble, même type, sont le cas
+   * fréquent — et c'est précisément celui où deux titres identiques rendraient la ligne inutilisable.
+   */
+  const titres = new Map(titresDistincts(
+    // ⚠️ `!= null` COUVRE AUSSI `undefined` : une réponse d'API plus ancienne que ce lot ne porte pas `bien`, et
+    //   un titre composé de rien donnerait « Lot 442 » — exactement le numéro qu'on vient d'en retirer.
+    vivants.filter((l) => l.cible.sorte === 'lot' && l.bien != null && l.cible.cle !== null).map((l) => ({
+      cle: l.cible.cle as string,
+      adresse: [l.bien?.adresse ?? '', l.bien?.commune ?? ''].filter((x) => x.trim() !== '').join(', '),
+      nature: l.bien?.nature ?? null, typeBien: l.bien?.typeBien ?? null, immeuble: l.bien?.immeuble ?? null,
+    })),
+  ).map((x) => [x.cle, x.titre]));
+  const titreDe = (l: LienAffiche): string => titres.get(l.cible.cle ?? '') ?? l.libelle;
+
   /** Ce que la ligne de gauche montre d'abord : le premier bien, en entier, et « voir plus » s'il faut. */
-  const ligne = lignePremierBien(vivants.map((l) => l.libelle));
+  const ligne = lignePremierBien(vivants.map(titreDe));
   /** La mention des propositions, écrite une fois : elle sert de texte ET d'infobulle (elle peut se tronquer). */
   const motPropositions = candidats.length === 1
     ? 'Une proposition de l’automatisation à trancher.'
@@ -254,6 +284,7 @@ export function EncartRattachement({
           la fenêtre de rédaction, et ne peut compter sur aucune feuille montée par elle. */}
       <style>{CSS_CHAMP_CLASSEMENT}</style>
       <style>{CSS_RATTACHER_EN_ECRIVANT}</style>
+      <style>{CSS_INFO_BIEN}</style>
 
       {/* ══ LOT FIL-LECTURE-2 — TOUT SUR UNE LIGNE QUAND ÇA TIENT ═════════════════════════════════════════════
           « RATTACHÉ À · PROPRIÉTAIRE DENIS Philippe · automatique · Modifier · Retirer · + Rattacher à… ». Le
@@ -324,6 +355,11 @@ export function EncartRattachement({
               </button>
             )
             : <span className="ert-nom ert-lien--coupe" title={ligne.premier}>{ligne.premier}</span>}
+          {/* 🔴 LOT MODALE-RATTACHER-PROPRE — LA MÊME PASTILLE QUE DANS LA MODALE (demande d'Arno) : le numéro
+              de lot a quitté le titre, il est dans cette fenêtre — avec tout le reste du descriptif. */}
+          {vivants[0].cible.cle !== null && (
+            <InfoBien cle={vivants[0].cible.cle} titre={ligne.premier} />
+          )}
           {/* « automatique » EN GRIS S'IL Y A LIEU : quand c'est une personne qui a posé le lien, il n'y a rien
               à signaler — c'est le cas normal, et l'écrire ferait du bruit sur chaque mail classé à la main. */}
           {!vivants[0].parUnHumain && <span className="ert-source">automatique</span>}
@@ -377,11 +413,13 @@ export function EncartRattachement({
               {onHistorique
                 ? (
                   <button type="button" className="ert-lien" onClick={() => onHistorique(l.cible)}
-                    title={`Tout l’historique — ${l.libelle}`}>
-                    {l.libelle}
+                    title={`Tout l’historique — ${titreDe(l)}`}>
+                    {titreDe(l)}
                   </button>
                 )
-                : <span className="ert-nom">{l.libelle}</span>}
+                : <span className="ert-nom">{titreDe(l)}</span>}
+              {/* 🔴 LA PASTILLE EST AUSSI DANS LE « voir plus » (demande d'Arno) : chaque bien y a son descriptif. */}
+              {l.cible.cle !== null && <InfoBien cle={l.cible.cle} titre={titreDe(l)} />}
               {/* D'OÙ VIENT LE LIEN, écrit quand il vient du moteur : une personne, elle, engage sa décision. */}
               {!l.parUnHumain && <span className="ert-source">automatique</span>}
               {l.pieceId !== null && <span className="ert-source">cette pièce seulement</span>}

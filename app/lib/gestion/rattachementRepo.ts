@@ -498,6 +498,18 @@ export interface LienAffiche {
    * alors comme « logement », la règle par défaut du module — jamais une quatrième catégorie.
    */
   categorie: 'logement' | 'parking' | 'cave' | null;
+  /**
+   * 🔴 LOT MODALE-RATTACHER-PROPRE — DE QUOI TITRER LE BIEN : « adresse — Nature · Type », sans numéro de lot.
+   *
+   * 🔴 LE TITRE N'EST PAS CALCULÉ ICI, ET C'EST VOULU. Deux biens de même adresse et même type se départagent
+   * par leur bâtiment — une décision qui a besoin de la LISTE entière, que seul l'écran connaît. Le dépôt rend
+   * donc les FAITS, l'écran rend le titre (module pur `titreBien`).
+   *
+   * `null` = annuaire absent (migration 253) ou lot disparu de l'import : l'écran retombe sur `libelle`, le
+   * texte figé au moment du rattachement, qui porte encore l'ancien format.
+   */
+  bien: { adresse: string | null; commune: string | null; nature: string | null; typeBien: string | null;
+    immeuble: string | null } | null;
   origine: 'automatique' | 'manuel';
   statut: Statut;
   confiance: string | null;
@@ -528,6 +540,8 @@ function ligneVersLien(r: {
   statut_par_libelle: string | null;
   /** 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la nature du lot, jointe à la lecture (voir `CHAMPS_LIEN`). */
   lot_nature?: string | null; lot_type?: string | null;
+  /** 🔴 LOT MODALE-RATTACHER-PROPRE — et de quoi TITRER le bien sans son numéro de lot. */
+  lot_adresse?: string | null; lot_commune?: string | null; lot_immeuble?: string | null;
 }): LienAffiche {
   const cible: Cible = {
     sorte: r.cible_sorte as Cible['sorte'],
@@ -548,6 +562,10 @@ function ligneVersLien(r: {
     categorie: cible.sorte !== 'lot' || r.lot_nature === undefined
       ? null
       : categorieDuBien({ nature: r.lot_nature, typeBien: r.lot_type ?? null }),
+    bien: cible.sorte !== 'lot' || r.lot_nature === undefined ? null : {
+      adresse: r.lot_adresse ?? null, commune: r.lot_commune ?? null,
+      nature: r.lot_nature ?? null, typeBien: r.lot_type ?? null, immeuble: r.lot_immeuble ?? null,
+    },
     origine: r.origine === 'manuel' ? 'manuel' : 'automatique',
     statut: r.statut as Statut,
     confiance: r.confiance, regle: r.regle, motif: r.motif,
@@ -590,7 +608,8 @@ const CHAMPS_LIEN = `r.id, r.message_id, r.piece_id, r.cible_sorte, r.cible_cle,
  */
 function champsLien(avecLot: boolean): string {
   return avecLot
-    ? `${CHAMPS_LIEN}, lo.nature AS lot_nature, lo.type_bien AS lot_type`
+    ? `${CHAMPS_LIEN}, lo.nature AS lot_nature, lo.type_bien AS lot_type,
+       lo.adresse AS lot_adresse, lo.commune AS lot_commune, lo.immeuble AS lot_immeuble`
     : CHAMPS_LIEN;
 }
 

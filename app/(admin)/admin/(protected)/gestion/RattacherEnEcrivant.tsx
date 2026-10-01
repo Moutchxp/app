@@ -8,6 +8,9 @@ import { grouperResultats, messageAucunBien, motRaison } from '../../../../lib/g
 import { ligneCompacteDuBien } from '../../../../lib/gestion/classementBoutons';
 // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la catégorie d'un lot, posée là où la nature est connue. Module PUR.
 import { categorieDuBien, type CategorieBien } from '../../../../lib/gestion/categorieBien';
+// 🔴 LOT MODALE-RATTACHER-PROPRE — le titre d'un bien (sans numéro de lot) et la pastille « i ».
+import { titresDistincts } from '../../../../lib/gestion/titreBien';
+import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
 import type { BienTrouve, ResultatsBiens } from '../../../../lib/gestion/rechercheBienRepo';
 
 /**
@@ -62,9 +65,9 @@ import type { BienTrouve, ResultatsBiens } from '../../../../lib/gestion/recherc
  * rendu quand les propositions sont déjà là, et à la fin d'une lecture. Deux copies de cette règle finiraient par
  * cocher deux choses différentes selon que la fenêtre a été pré-chargée ou non.
  */
-function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): string[] {
+function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set<string> {
   const dejaLa = cibles.filter((x) => x.sorte === 'lot').map((x) => x.cle ?? '');
-  return [...new Set([...c.biens.filter((b) => b.recommande).map((b) => b.cle), ...dejaLa])];
+  return new Set([...c.biens.filter((b) => b.recommande).map((b) => b.cle), ...dejaLa]);
 }
 
 export function RattacherEnEcrivant({
@@ -148,7 +151,15 @@ export function RattacherEnEcrivant({
    * Les clés cochées. `null` = « pas encore décidé », et c'est ce qui permet de poser la PRÉ-COCHE une seule fois,
    * au chargement : la recalculer ferait recocher d'elle-même une case qu'on vient de décocher.
    */
-  const [coches, setCoches] = useState<string[] | null>(
+  /**
+   * ══ 🔴🔴 LOT MODALE-RATTACHER-PROPRE — LA SÉLECTION EST UN ENSEMBLE, PAS UNE LISTE ══════════════════════════
+   *
+   * Demande d'Arno : « La sélection est un ENSEMBLE de biens (clé = id du lot), jamais une liste qui empile des
+   * doublons. » C'était un tableau de clés, tenu sans doublon par la discipline de `basculer`. Un `Set` ne le
+   * tient pas par discipline mais PAR NATURE : il n'y a plus de chemin, présent ou futur, par lequel un même
+   * bien pourrait être compté deux fois — ni le compteur, ni le bouton, ni le résumé de la case verte.
+   */
+  const [coches, setCoches] = useState<Set<string> | null>(
     // 🔴 LA PRÉ-COCHE EST POSÉE DÈS LE PREMIER RENDU quand les propositions sont déjà là : sans cela, la fenêtre
     //   s'ouvrirait avec les biens affichés mais aucune case cochée, puis les cases se cocheraient toutes seules
     //   sous les yeux — un mouvement qui se lit comme un défaut.
@@ -270,19 +281,81 @@ export function RattacherEnEcrivant({
     ...(contexte?.biens ?? []).map((b) => ({ cle: b.cle, libelle: b.libelle })),
     ...horsPropositions.map((x) => ({ cle: x.cible.cle ?? '', libelle: x.cible.libelle })),
   ];
-  const selection = coches ?? [];
-  const toutesCochees = tous.length > 0 && tous.every((b) => selection.includes(b.cle));
+  /** Ce qui est DÉJÀ montré en haut — propositions comprises. Sert à dire « déjà dans la sélection » en bas. */
+  const clesEnHaut = new Set(tous.map((b) => b.cle).filter((c) => c !== ''));
 
+  /**
+   * ══ 🔴🔴 LOT MODALE-RATTACHER-PROPRE — LES TITRES, CALCULÉS UNE FOIS POUR TOUTE LA FENÊTRE ═════════════════
+   *
+   * Demande d'Arno : « le titre d'un bien devient “adresse — Type de bien” […]. Le numéro de lot n'apparaît plus
+   * dans le titre. » Et : « Deux biens de même adresse et même type : départager par l'étage ou la mention utile
+   * la plus courte. »
+   *
+   * 🔴 SUR L'UNION DES TROIS LISTES, et il le faut : deux homonymes peuvent être l'un dans les propositions et
+   * l'autre dans les résultats de recherche. Les titrer liste par liste laisserait passer exactement le cas que
+   * le départage existe pour résoudre — et c'est le cas le plus fréquent (deux lots du même immeuble).
+   *
+   * ⚠️ LA CLÉ RESTE LA CLÉ : le titre est un affichage, jamais une identité. Cocher, valider et compter se font
+   * sur la clé WIPPIMMO, qui ne bouge pas d'un titre à l'autre.
+   */
+  const pourTitres = [
+    ...(contexte?.biens ?? []).map((b) => ({
+      cle: b.cle, adresse: [b.adresse ?? '', b.commune ?? ''].filter((x) => x.trim() !== '').join(', '),
+      nature: b.nature, typeBien: b.typeBien, immeuble: null as string | null,
+    })),
+    ...horsPropositions.map((x) => ({
+      cle: x.cible.cle ?? '', adresse: x.cible.libelle, nature: null, typeBien: null,
+      immeuble: null as string | null,
+    })),
+    ...(recherche.v === 'ok' ? recherche.resultats.lignes : []).map((b) => ({
+      cle: b.cle, adresse: [b.adresseVoie ?? '', b.commune ?? ''].filter((x) => x.trim() !== '').join(', '),
+      nature: b.nature, typeBien: b.typeBien, immeuble: null as string | null,
+    })),
+  ];
+  const parTitre = new Map(titresDistincts(pourTitres.filter((b) => b.cle !== '')).map((x) => [x.cle, x.titre]));
+  /**
+   * ⚠️ UN REPLI NOMMÉ : un bien déjà rattaché dont on n'a que le libellé enregistré (le texte figé en base, qui
+   * porte encore « — lot N ») garde ce libellé plutôt que de perdre son nom. C'est le seul endroit où l'ancien
+   * format peut encore apparaître, et il disparaît dès que le moteur ou la recherche rendent le bien.
+   */
+  const titre = (cle: string): string => parTitre.get(cle)
+    ?? tous.find((b) => b.cle === cle)?.libelle ?? cle;
+  const selection = coches ?? new Set<string>();
   const basculer = (c: string) => setCoches((l) => {
-    const v = l ?? [];
-    return v.includes(c) ? v.filter((x) => x !== c) : [...v, c];
+    const v = new Set(l ?? []);
+    if (v.has(c)) v.delete(c); else v.add(c);
+    return v;
   });
 
   /**
-   * 🔴 « TOUT SÉLECTIONNER / TOUT DÉSÉLECTIONNER » EST UN SEUL BOUTON, qui bascule. Deux boutons séparés
-   * laisseraient toujours l'un des deux sans effet, et il faudrait deviner lequel.
+   * ══ 🔴🔴 LOT MODALE-RATTACHER-PROPRE — UN SEUL LIEN QUI BASCULE, SUR TOUT CE QUI EST VISIBLE ════════════════
+   *
+   * Demande d'Arno : « “Tout sélectionner / Tout désélectionner” devient un seul lien qui bascule d'un clic :
+   * “Sélectionner tous les biens” quand au moins un bien visible n'est pas coché, “Désélectionner tous les
+   * biens” quand tous le sont. Il porte sur les biens proposés ET sur les résultats de recherche affichés. »
+   *
+   * 🔴 CE QU'IL NE FAISAIT PAS, ET QUI SE VOYAIT : il ne portait que sur la liste du HAUT. On cherchait trois
+   * biens, on cliquait « Tout sélectionner », et les trois résultats restaient décochés — le mot disait « tout »
+   * et le geste en laissait la moitié.
+   *
+   * ⚠️ « VISIBLE » EST LE MOT EXACT : ce qui n'est pas à l'écran n'est pas touché. Cocher d'un clic des biens
+   * qu'on n'a pas vus serait exactement le défaut que ce lot répare du côté du compteur.
    */
-  const toutBasculer = () => setCoches(toutesCochees ? [] : tous.map((b) => b.cle));
+  const clesVisibles = (): string[] => [...new Set([
+    ...tous.map((b) => b.cle),
+    ...(recherche.v === 'ok' ? recherche.resultats.lignes.map((b) => b.cle) : []),
+  ])].filter((c) => c !== '');
+  const toutesCochees = (() => {
+    const v = clesVisibles();
+    return v.length > 0 && v.every((c) => selection.has(c));
+  })();
+  const toutBasculer = () => setCoches((l) => {
+    const v = new Set(l ?? []);
+    const visibles = clesVisibles();
+    if (visibles.every((c) => v.has(c))) for (const c of visibles) v.delete(c);
+    else for (const c of visibles) v.add(c);
+    return v;
+  });
 
   /**
    * ══ LA RECHERCHE, DIFFÉRÉE DE 250 ms ═══════════════════════════════════════════════════════════════════════
@@ -359,7 +432,7 @@ export function RattacherEnEcrivant({
       });
     }
     for (const a of ajoutes) parCle.set(a.cle ?? '', { libelle: a.libelle, id: a.id, categorie: a.categorie });
-    const retenues: CibleBrouillon[] = selection
+    const retenues: CibleBrouillon[] = [...selection]
       .filter((c) => parCle.has(c))
       .map((c) => ({
         sorte: 'lot' as const, cle: c, id: parCle.get(c)?.id ?? null,
@@ -387,6 +460,9 @@ export function RattacherEnEcrivant({
     <div className="mrt-voile rec-voile" role="presentation"
       onClick={(e) => { if (e.target === e.currentTarget) fermerSansRien(); }}>
       <style>{CSS_RATTACHER_EN_ECRIVANT}</style>
+      {/* 🔴 LOT MODALE-RATTACHER-PROPRE — la feuille de la pastille « i » : la modale vit au-dessus de tout, et
+          ne peut compter sur aucune feuille montée par l'écran qui l'ouvre. */}
+      <style>{CSS_INFO_BIEN}</style>
       <div className="mrt rec" role="dialog" aria-modal="true" aria-labelledby="rec-titre"
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); fermerSansRien(); } }}>
         {/* 🔴 LA CROIX EST UNE SORTIE NOMMÉE (demande d'Arno) : elle remplace le bouton « Ignorer » du pied, qui
@@ -431,14 +507,23 @@ export function RattacherEnEcrivant({
           <section className="rec-carte" aria-label="Biens proposés">
             <p className="rec-carte-titre">Propositions</p>
             <div className="rec-barre">
+              {/* ══ 🔴🔴 LOT MODALE-RATTACHER-PROPRE — LE COMPTEUR, ET CE QU'IL COMPTE ═══════════════════════
+                  ① DES BIENS DISTINCTS, par construction : `selection` est un ENSEMBLE. Un bien qui figure à la
+                     fois dans les propositions et dans les résultats n'y entre qu'une fois, quel que soit
+                     l'endroit où on l'a coché.
+                  ② SUR CE QUI EST AFFICHÉ, et non plus « sur N proposé(s) ». Constaté à l'écran : la bascule
+                     cochant désormais aussi les résultats de recherche, on lisait « 3 bien(s) coché(s) sur
+                     1 proposé(s) » — une phrase qui compte deux choses différentes de part et d'autre de
+                     « sur ». Les deux nombres parlent maintenant du même ensemble : celui qu'on voit. */}
               <p className="rec-compte" role="status">
-                {tous.length === 0
+                {clesVisibles().length === 0
                   ? 'Aucun bien ne se déduit de ces destinataires.'
-                  : `${selection.length} bien(s) coché(s) sur ${tous.length} proposé(s).`}
+                  : `${selection.size} bien(s) coché(s) sur ${clesVisibles().length} affiché(s).`}
               </p>
-              {tous.length > 0 && (
+              {/* 🔴 UN SEUL LIEN QUI BASCULE, et il porte sur les propositions ET sur les résultats affichés. */}
+              {clesVisibles().length > 0 && (
                 <button type="button" className="gst-lien-bouton" onClick={toutBasculer}>
-                  {toutesCochees ? 'Tout désélectionner' : 'Tout sélectionner'}
+                  {toutesCochees ? 'Désélectionner tous les biens' : 'Sélectionner tous les biens'}
                 </button>
               )}
             </div>
@@ -447,8 +532,11 @@ export function RattacherEnEcrivant({
               {(contexte.biens ?? []).map((b) => (
                 <li key={b.cle} className="rec-bien">
                   <label className="rec-choix">
-                    <input type="checkbox" checked={selection.includes(b.cle)} onChange={() => basculer(b.cle)} />
-                    <span className="rec-bien-nom">{b.libelle}</span>
+                    <input type="checkbox" checked={selection.has(b.cle)} onChange={() => basculer(b.cle)} />
+                    {/* 🔴 LOT MODALE-RATTACHER-PROPRE — LE TITRE, SANS NUMÉRO DE LOT : « adresse — qualité ». */}
+                    <span className="rec-bien-nom">{titre(b.cle)}</span>
+                    {/* ⚠️ LA PASTILLE EST DANS LE LABEL, et elle NE COCHE PAS : voir `InfoBien`. */}
+                    <InfoBien cle={b.cle} titre={titre(b.cle)} />
                   </label>
                   {/* 🔴 LE MOTIF EST ÉCRIT EN CLAIR, TOUJOURS (« locataire de ce bien », « propriétaire »…) : on
                       doit savoir POURQUOI ce bien est proposé, et pourquoi sa case est cochée, sans rouvrir le
@@ -475,9 +563,10 @@ export function RattacherEnEcrivant({
               {horsPropositions.map(({ cible: a, origine }) => (
                 <li key={`hors-${a.cle}`} className="rec-bien">
                   <label className="rec-choix">
-                    <input type="checkbox" checked={selection.includes(a.cle ?? '')}
+                    <input type="checkbox" checked={selection.has(a.cle ?? '')}
                       onChange={() => basculer(a.cle ?? '')} />
-                    <span className="rec-bien-nom">{a.libelle}</span>
+                    <span className="rec-bien-nom">{titre(a.cle ?? '')}</span>
+                    <InfoBien cle={a.cle ?? ''} titre={titre(a.cle ?? '')} />
                   </label>
                   <p className="rec-motif">
                     {origine === 'recherche'
@@ -527,7 +616,12 @@ export function RattacherEnEcrivant({
                   <p className="rec-groupe-titre">{g.titre}</p>
                   <ul className="rec-lignes">
                     {g.biens.map((b) => (
-                      <LigneBienCompacte key={b.cle} bien={b} coche={selection.includes(b.cle)}
+                      <LigneBienCompacte key={b.cle} bien={b} coche={selection.has(b.cle)}
+                        titre={titre(b.cle)}
+                        /* 🔴🔴 LOT MODALE-RATTACHER-PROPRE — « déjà dans la sélection » (demande d'Arno) : ce
+                           bien est DÉJÀ montré en haut. La mention dit que les deux cases n'en font qu'une,
+                           et le compteur ne le compte qu'une fois. */
+                        dejaEnHaut={clesEnHaut.has(b.cle)}
                         onBasculer={() => basculerResultat(b)} />
                     ))}
                   </ul>
@@ -558,7 +652,7 @@ export function RattacherEnEcrivant({
                 rattachements et ramène les deux boutons, d'où l'on peut alors choisir « Interne ».
                 ⚠️ `selection` NE COMPTE PLUS QUE DU VISIBLE : toute clé cochée a désormais sa case (voir
                 l'encadré de `horsPropositions`). C'est ce qui fait que ce compte redescend à zéro. */}
-            {selection.length === 0 ? 'Valider — aucun bien' : `Valider — ${selection.length} bien(s)`}
+            {selection.size === 0 ? 'Valider — aucun bien' : `Valider — ${selection.size} bien(s)`}
           </button>
         </div>
       </div>
@@ -578,16 +672,21 @@ export function RattacherEnEcrivant({
  * ⚠️ LA MISE EN FORME EST DÉCIDÉE DANS LE MODULE PUR (`ligneCompacteDuBien`) : « Vacant », les co-propriétaires,
  * le type accolé au libellé. Cet écran place et peint, il ne décide pas.
  */
-function LigneBienCompacte({ bien: b, coche, onBasculer }: {
-  bien: BienTrouve; coche: boolean; onBasculer: () => void;
+function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, onBasculer }: {
+  bien: BienTrouve; coche: boolean; titre: string; dejaEnHaut: boolean; onBasculer: () => void;
 }) {
-  const l = ligneCompacteDuBien(b);
+  const l = ligneCompacteDuBien(b, titre);
   return (
-    <li className="rec-ligne">
+    <li className={`rec-ligne${dejaEnHaut ? ' rec-ligne--deja' : ''}`}>
       <label className="rec-ligne-choix">
         <input type="checkbox" checked={coche} onChange={onBasculer} />
         <span className="rec-ligne-corps">
-          <span className="rec-ligne-titre">{l.titre}</span>
+          <span className="rec-ligne-titre">
+            {l.titre}
+            <InfoBien cle={b.cle} titre={l.titre} />
+          </span>
+          {/* 🔴🔴 « déjà dans la sélection » : la même case, vue d'un autre endroit — jamais un second bien. */}
+          {dejaEnHaut && <span className="rec-ligne-deja">déjà dans la sélection</span>}
           <span className="rec-ligne-parties">
             <span className="rec-ligne-role">{b.parties.filter((p) => p.role === 'proprietaire').length > 1
               ? 'Propriétaires' : 'Propriétaire'}</span>
@@ -674,11 +773,18 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
 .rec-lignes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
 .rec-ligne{border-radius:.45rem}
 .rec-ligne:hover{background:var(--color-svv-field)}
+/* 🔴🔴 LOT MODALE-RATTACHER-PROPRE — UN RESULTAT DEJA MONTRE EN HAUT. Il garde sa case (cocher ici ou la-haut
+   revient au meme), mais il DIT qu'il n'est pas un second bien. Le liseret n'est qu'un renfort : c'est le MOT
+   qui porte l'information, regle du module depuis la premiere capsule. */
+.rec-ligne--deja{border-left:3px solid var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
+.rec-ligne-deja{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;
+  color:var(--color-svv-green-ink)}
 .rec-ligne-choix{display:flex;align-items:flex-start;gap:.5rem;padding:5px 6px;min-height:40px;cursor:pointer;
   min-width:0}
 .rec-ligne-corps{display:flex;flex-direction:column;gap:1px;min-width:0}
 /* VALEURS FONCEES, LIBELLES GRIS (demande d'Arno) : la hierarchie se lit sans couleur supplementaire. */
-.rec-ligne-titre{font-size:.84rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.rec-ligne-titre{display:inline-flex;align-items:center;flex-wrap:wrap;font-size:.84rem;font-weight:600;
+  color:var(--color-svv-ink);overflow-wrap:anywhere}
 .rec-ligne-parties{font-size:.76rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .rec-ligne-role{font-weight:700;font-size:.66rem;text-transform:uppercase;letter-spacing:.03em;
   color:var(--color-svv-muted)}

@@ -2,7 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { analyserTerme } from '../../../../../lib/gestion/annuaireRecherche';
 import {
-  dernierImport, ficheLocataire, ficheLot, ficheProprietaire, indicesParEmail, rechercher,
+  dernierImport, ficheLocataire, ficheLot, ficheLotParCle, ficheProprietaire, indicesParEmail, rechercher,
   rechercherPersonnes,
 } from '../../../../../lib/gestion/annuaireRepo';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
@@ -66,6 +66,17 @@ export async function GET(request: Request): Promise<Response> {
 
     const idLot = identifiant(url.searchParams.get('lot'));
     if (idLot !== null) return Response.json(await ficheLot(idLot), { headers: ENTETES });
+
+    /**
+     * 🔴 LOT MODALE-RATTACHER-PROPRE — LA MÊME FICHE, DEMANDÉE PAR LA CLÉ WIPPIMMO.
+     *
+     * La pastille « i » de la modale de rattachement ne connaît du bien que sa CLÉ : c'est elle, la cible de
+     * rattachement, et l'identifiant interne de l'annuaire ne voyage nulle part dans ce chemin. Elle demande
+     * donc la fiche par la clé — la MÊME fiche, par la MÊME fonction (`ficheLotParCle` ne fait que résoudre la
+     * clé puis appeler `ficheLot`). Deux lectures de « la fiche d'un bien » finiraient par montrer deux choses.
+     */
+    const cleLot = (url.searchParams.get('lotCle') ?? '').trim().slice(0, 64);
+    if (cleLot !== '') return Response.json(await ficheLotParCle(cleLot), { headers: ENTETES });
 
     const idLocataire = identifiant(url.searchParams.get('locataire'));
     if (idLocataire !== null) return Response.json(await ficheLocataire(idLocataire), { headers: ENTETES });
