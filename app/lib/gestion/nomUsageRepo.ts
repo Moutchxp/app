@@ -82,10 +82,27 @@ export async function registreDeLaPiece(pieceId: number): Promise<Set<string>> {
  * la colonne doit alors porter cette valeur plutôt que de retomber à `NULL` par magie. Le repli `NULL` est pour
  * les pièces JAMAIS renommées, pas pour celles qu'on a ramenées à leur point de départ.
  */
-export async function ecrireNomUsage(pieceId: number, nom: string): Promise<boolean> {
-  if (!(await nomUsageDisponible())) return false;
+/**
+ * ══ 🔴🔴 LOT RANGER-ET-NOM-FIABLES — TROIS RÉPONSES, ET PAS DEUX ═══════════════════════════════════════════
+ *
+ * DÉFAUT TROUVÉ À L'ÉPREUVE RÉELLE, le 01/10/2026 : un nom renommé DANS Google Drive était bien repris par la
+ * pièce, mais les TROIS autres copies gardaient l'ancien nom.
+ *
+ * 🔴 LA CAUSE : la reprise écrit d'abord le nom d'usage, puis appelle `renommerPiece` pour aligner les autres
+ * copies. Ce second appel réécrit le MÊME nom — et depuis que l'écriture est un arbitre (`IS DISTINCT FROM`,
+ * lot précédent), elle ne touche aucune ligne et rendait `false`. `renommerPiece` lisait ce `false` comme
+ * « la migration 286 manque », abandonnait, et n'alignait rien.
+ *
+ * 🔴 UN BOOLÉEN NE POUVAIT PAS DIRE LA DIFFÉRENCE entre « je n'ai pas pu » et « c'était déjà fait ». Les deux
+ * ne se traitent pas pareil : la première est un refus, la seconde est un succès. Trois réponses, donc, et le
+ * compilateur force désormais l'appelant à les distinguer.
+ */
+export type IssueNomUsage = 'ecrit' | 'inchange' | 'indisponible';
+
+export async function ecrireNomUsage(pieceId: number, nom: string): Promise<IssueNomUsage> {
+  if (!(await nomUsageDisponible())) return 'indisponible';
   const propre = nom.trim();
-  if (propre === '') return false;
+  if (propre === '') return 'indisponible';
   /**
    * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — « IS DISTINCT FROM » : LE PREMIER ÉCRIVAIN GAGNE ═══════════════════
    *
@@ -104,7 +121,9 @@ export async function ecrireNomUsage(pieceId: number, nom: string): Promise<bool
   const { rowCount } = await query(
     'UPDATE gestion_piece SET nom_usage = $2 WHERE id = $1 AND nom_usage IS DISTINCT FROM $2',
     [pieceId, propre]);
-  return (rowCount ?? 0) > 0;
+  /* ⚠️ ZÉRO LIGNE TOUCHÉE VEUT DIRE « LA VALEUR Y ÉTAIT DÉJÀ » — la pièce existe (l'appelant vient de la lire),
+     et la colonne existe (sonde ci-dessus). C'est un SUCCÈS, pas un refus. */
+  return (rowCount ?? 0) > 0 ? 'ecrit' : 'inchange';
 }
 
 /**

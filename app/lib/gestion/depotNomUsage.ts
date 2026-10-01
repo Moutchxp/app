@@ -1,6 +1,7 @@
 import 'server-only';
 import { lirePieceANommer, ecrireNomUsage, journaliserRenommage, noterNomEcritDansDrive } from './nomUsageRepo';
 import type { IssuePiece } from './depotDrive';
+import { libelleAvecOrigine } from './nomUsagePiece';
 
 /**
  * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — « RENOMMER AVANT DE RANGER » ÉCRIT LE NOM D'USAGE ═════════════════════
@@ -75,12 +76,17 @@ export async function consignerNomDuDepot(
     // ⚠️ RIEN À FAIRE SI LE NOM N'A PAS CHANGÉ : on note quand même le registre (le fichier Drive porte bien ce
     //   nom-là), mais on n'écrit ni journal ni colonne pour un geste qui n'en est pas un.
     const change = ancien.trim() !== nom;
-    const nomUsageEcrit = change ? await ecrireNomUsage(pieceId, nom) : false;
+    /* ⚠️ `'ecrit'` SEULEMENT : « inchangé » veut dire que la base portait déjà ce nom, donc que l'écran n'a rien
+       à relire — et « indisponible », que la migration 286 manque. Ni l'un ni l'autre n'est un renommage. */
+    const nomUsageEcrit = change && await ecrireNomUsage(pieceId, nom) === 'ecrit';
     await noterNomEcritDansDrive(ids, nom);
     if (change && nomUsageEcrit) {
       await journaliserRenommage({
         pieceId, ancienNom: ancien, nouveauNom: nom, source: 'app', idsDrive: ids, refus: [],
-        par: auteur.id, parLibelle: auteur.libelle,
+        par: auteur.id,
+        // 🔴 LOT RANGER-ET-NOM-FIABLES — l'origine entre dans le libellé : ce renommage-ci vient du stylo de la
+        //   fenêtre de rangement, pas de la visionneuse. Les deux ne se relisent pas pareil.
+        parLibelle: libelleAvecOrigine(auteur.libelle, 'rangement'),
       });
     }
     return { nomUsageEcrit, idsNotes: ids };

@@ -25,10 +25,12 @@ vi.mock('./nomUsageRepo', () => ({
   lirePieceANommer: async (pieceId: number) => ({
     pieceId, nomOrigine: '0836_001.pdf', nomAffiche, copies: [],
   }),
+  /* 🔴 LOT RANGER-ET-NOM-FIABLES — l'écriture rend désormais TROIS réponses : « écrit », « inchangé » (la base
+     portait déjà ce nom — un succès), « indisponible » (la migration 286 manque — un refus). */
   ecrireNomUsage: async (pieceId: number, nom: string) => {
-    if (!ecritureMarche) return false;
+    if (!ecritureMarche) return 'indisponible';
     ecrits.push({ pieceId, nom });
-    return true;
+    return 'ecrit';
   },
   noterNomEcritDansDrive: async (ids: readonly string[], nom: string) => {
     notes.push({ ids: [...ids], nom });
@@ -57,13 +59,20 @@ describe('🔴🔴 ① le nom d’usage est écrit', () => {
     expect(b.nomUsageEcrit).toBe(true);
   });
 
-  /** 🔴 LE GESTE SE RACONTE : qui, quand, ancien et nouveau nom — et il vient de l'APPLICATION, pas de Drive. */
-  it('🔴 le journal dit d’où vient le renommage', async () => {
+  /**
+   * 🔴 LE GESTE SE RACONTE : qui, quand, ancien et nouveau nom — et il vient de l'APPLICATION, pas de Drive.
+   *
+   * 🔴 LOT RANGER-ET-NOM-FIABLES — ET D'OÙ, DANS L'APPLICATION. Arno : « Journal de chaque renommage : origine
+   * (visionneuse mail, visionneuse Drive, Google Drive, rangement) ». La même personne renomme depuis quatre
+   * endroits, et les quatre ne se réparent pas pareil : sans ce mot, on relit une suite de renommages sans
+   * savoir lequel a déclenché l'autre.
+   */
+  it('🔴 le journal dit d’où vient le renommage, et par quel geste', async () => {
     await consignerNomDuDepot(26994, 'Recommandé M Ahmed KHARRAT.pdf', [depose('D1')], AUTEUR);
     expect(journaux).toHaveLength(1);
     expect(journaux[0]).toMatchObject({
       pieceId: 26994, ancienNom: '0836_001.pdf', nouveauNom: 'Recommandé M Ahmed KHARRAT.pdf',
-      source: 'app', par: 2, parLibelle: 'a.jorel@sansvisavis.com',
+      source: 'app', par: 2, parLibelle: 'a.jorel@sansvisavis.com (rangement)',
     });
   });
 

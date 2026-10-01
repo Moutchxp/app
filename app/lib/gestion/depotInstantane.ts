@@ -139,3 +139,69 @@ export function ligneReelle(
     parentId: cibleId,
   };
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RANGER-ET-NOM-FIABLES — LA LIGNE QUI DISPARAISSAIT APRÈS ÊTRE APPARUE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (01/10/2026) : « une pièce renommée puis rangée dans “Test” affiche ✓ Rangée sur la carte de
+   gauche, mais la ligne n'apparaît PAS dans le dossier de l'arbre. Il faut fermer puis rouvrir la fenêtre. Au
+   second essai, tout a marché. »
+
+   🔴 LA CAUSE, ET ELLE EXPLIQUE L'INTERMITTENCE. Le lot précédent posait bien la ligne dans les trois listes —
+   puis lançait AUSSITÔT une revalidation silencieuse du dossier cible. Cette revalidation REMPLACE la liste par
+   ce que Google rend… et Google ne rend pas encore le fichier.
+
+   MESURÉ LE 30/09/2026 sur le vrai Drive « Test » (lot précédent, banc de cohérence) : un fichier créé met
+   3,8 SECONDES à apparaître dans `files.list`. La revalidation, elle, part dans la seconde. Elle rendait donc
+   une liste SANS le fichier, et effaçait la ligne qu'on venait de poser. Au second essai, Google avait rattrapé
+   son retard — d'où « au second essai, tout a marché ».
+
+   🔴 CE QUI LE CORRIGE : un dépôt CONFIRMÉ par Google est une vérité qu'aucune liste plus ancienne n'a le droit
+   de défaire. On garde donc, quelques secondes, la trace des dépôts confirmés, et TOUTE liste qui arrive pour ce
+   dossier se voit réinjecter ce qu'elle ne sait pas encore. Le jour où Google rattrape, la ligne y est déjà : la
+   réinjection ne fait alors rien du tout.
+
+   ⚠️ ET ÇA COUVRE AUSSI LE DOSSIER QU'ON N'AFFICHAIT PAS ENCORE. Si le dossier cible n'était ni ouvert, ni
+   déplié, ni en mémoire au moment du lâcher, il n'y avait aucune liste à retoucher. La trace, elle, est posée
+   quand même — et la ligne paraît au premier affichage de ce dossier. */
+
+/** Un dépôt confirmé par Google, qu'aucune liste plus ancienne n'a le droit d'effacer. */
+export interface DepotConfirme {
+  dossierId: string;
+  ligne: EntreeDrive;
+  /** Au-delà, on n'insiste plus : voir `FENETRE_REINJECTION_MS`. */
+  jusqua: number;
+}
+
+/**
+ * ⚠️ COMBIEN DE TEMPS ON TIENT TÊTE À GOOGLE. 30 secondes : huit fois le retard mesuré (3,8 s), donc large, et
+ * assez court pour qu'un fichier VRAIMENT disparu (supprimé dans Drive dans la foulée) cesse d'être affiché.
+ *
+ * 🔴 CE N'EST PAS UN CACHE. On ne réinvente aucune ligne : on empêche seulement une liste PÉRIMÉE d'effacer un
+ * fait qu'on a vu arriver. Passé ce délai, c'est Google qui a raison, quoi qu'il dise.
+ */
+export const FENETRE_REINJECTION_MS = 30_000;
+
+/**
+ * RÉINJECTE dans une liste fraîchement reçue les dépôts confirmés qu'elle ne porte pas encore. PUR.
+ *
+ * ⚠️ EN TÊTE, comme la ligne provisoire : c'est celle qu'on vient de créer, c'est celle qu'on cherche des yeux.
+ * ⚠️ ET JAMAIS EN DOUBLE : dès que Google la rend, la sienne fait foi et la nôtre ne s'ajoute pas.
+ */
+export function fusionnerDepots(
+  liste: readonly EntreeDrive[], dossierId: string,
+  depots: readonly DepotConfirme[], maintenant: number,
+): EntreeDrive[] {
+  const presents = new Set(liste.map((e) => e.id));
+  const manquants = depots.filter((d) => d.dossierId === dossierId
+    && d.jusqua > maintenant && !presents.has(d.ligne.id));
+  return manquants.length === 0 ? [...liste] : [...manquants.map((d) => d.ligne), ...liste];
+}
+
+/** Écarte les traces périmées. Appelé à chaque usage : rien ne doit survivre à sa fenêtre. */
+export function depotsVivants(
+  depots: readonly DepotConfirme[], maintenant: number,
+): DepotConfirme[] {
+  return depots.filter((d) => d.jusqua > maintenant);
+}

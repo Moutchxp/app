@@ -162,6 +162,8 @@ export interface BilanRelecture {
 export async function reprendrePourCesPieces(
   pieces: readonly PieceARelire[], jeton: string, deps: DepsReprise,
   lire: (jeton: string, ids: readonly string[], deps: DepsReprise) => Promise<Map<string, NomVuDansDrive>>,
+  /** 🔴 L'adresse au nom de laquelle ALIGNER les autres copies. Voir l'appel à `renommerPiece` plus bas. */
+  sujet: string | null = null,
 ): Promise<BilanRelecture> {
   const bilan: BilanRelecture = { relues: 0, reprises: [] };
   if (pieces.length === 0) return bilan;
@@ -192,7 +194,19 @@ export async function reprendrePourCesPieces(
     if (repris === null) continue;
 
     const ancien = piece.nomAffiche;
-    if (!(await ecrireNomUsage(piece.pieceId, repris.nom))) continue;
+    /**
+     * ══ 🔴 TROIS RÉPONSES, TROIS CONDUITES ══════════════════════════════════════════════════════════════════
+     *
+     * · « indisponible » (migration 286 absente) ⇒ on ARRÊTE : il n'y a pas de nom d'usage à tenir.
+     * · « écrit » ⇒ le geste est neuf : on l'aligne ET on le journalise.
+     * · « inchangé » ⇒ une autre lecture concurrente vient d'adopter le même nom. On ALIGNE quand même (il peut
+     *   rester des copies en retard), mais on NE JOURNALISE PAS : deux lignes pour un seul fait feraient lire
+     *   deux renommages. Observé en vrai le 01/10/2026 — deux requêtes parties presque ensemble avaient écrit
+     *   deux lignes identiques.
+     */
+    const ecriture = await ecrireNomUsage(piece.pieceId, repris.nom);
+    if (ecriture === 'indisponible') continue;
+    const neuf = ecriture === 'ecrit';
 
     /**
      * ══ 🔴🔴 LA COPIE D'OÙ VIENT LE NOM ENTRE AU REGISTRE, SOUS CE NOM ═════════════════════════════════════
@@ -215,18 +229,25 @@ export async function reprendrePourCesPieces(
     await noterNomEcritDansDrive([repris.venantDe], repris.nom);
     /* ⚠️ LE JOURNAL DIT « drive », ET C'EST TOUTE LA DIFFÉRENCE : en relisant l'historique, on doit pouvoir
        distinguer « quelqu'un a cliqué le stylo » de « le fichier a été renommé dans Google Drive ». */
-    await journaliserRenommage({
-      pieceId: piece.pieceId, ancienNom: ancien, nouveauNom: repris.nom, source: 'drive',
-      idsDrive: [repris.venantDe], refus: [], par: null, parLibelle: 'Google Drive',
-    });
-    bilan.reprises.push({ pieceId: piece.pieceId, ancien, nouveau: repris.nom });
+    if (neuf) {
+      await journaliserRenommage({
+        pieceId: piece.pieceId, ancienNom: ancien, nouveauNom: repris.nom, source: 'drive',
+        idsDrive: [repris.venantDe], refus: [], par: null, parLibelle: 'Google Drive',
+      });
+      bilan.reprises.push({ pieceId: piece.pieceId, ancien, nouveau: repris.nom });
+    }
 
     /* ⚠️ LES AUTRES COPIES SONT ALIGNÉES, mais SANS journaliser une seconde fois : la ligne qu'on vient d'écrire
        raconte déjà ce renommage. Deux lignes pour un seul fait feraient lire deux renommages. */
     if (copies.length > 1 || piece.copies.length > 1) {
+      /**
+       * 🔴 LOT RANGER-ET-NOM-FIABLES — ALIGNÉES AU NOM DE CELUI QUI REGARDE. Le compte de la relève reçoit 404
+       * sur les copies d'un Drive partagé dont il n'est pas membre (mesuré) : sans cette adresse, l'alignement
+       * partait dans le vide et les autres copies gardaient l'ancien nom.
+       */
       await renommerPiece({
         pieceId: piece.pieceId, nom: repris.nom, par: null, parLibelle: 'Google Drive',
-        sansDrive: false, sansJournal: true,
+        sansDrive: false, sansJournal: true, sujet, origine: 'google_drive',
       }, deps).catch(() => undefined);
     }
   }
@@ -260,7 +281,7 @@ export async function relireNomsDesPieces(
     const jeton = await jetonPourSubject(adresse, deps);
     if (!jeton.ok) return vide;
     return await reprendrePourCesPieces(
-      pieces, jeton.jeton, deps, (j, i, d) => nomsDriveMemo(j, i, d, Date.now(), adresse));
+      pieces, jeton.jeton, deps, (j, i, d) => nomsDriveMemo(j, i, d, Date.now(), adresse), adresse);
   } catch (e) {
     console.error('[gestion/noms-drive] relecture à la demande impossible', e);
     return vide;

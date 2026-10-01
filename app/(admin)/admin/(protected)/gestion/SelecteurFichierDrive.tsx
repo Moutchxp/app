@@ -28,7 +28,8 @@ import {
 } from '../../../../lib/gestion/mouvementOptimiste';
 // 🔴 LOT RANGER-INSTANTANE-ET-NOM — la ligne qui paraît AU LÂCHER, et qui sait se retirer. Module PUR.
 import {
-  ligneProvisoire, ligneReelle, poser as poserLigne, remplacer as remplacerLigne, retirer as retirerLigne,
+  depotsVivants, FENETRE_REINJECTION_MS, fusionnerDepots, ligneProvisoire, ligneReelle, poser as poserLigne,
+  remplacer as remplacerLigne, retirer as retirerLigne, type DepotConfirme,
 } from '../../../../lib/gestion/depotInstantane';
 // 🔴 LOT DRIVE-UNIQUE — les règles du mode « ranger », du bandeau des parents et des colonnes. Module PUR.
 import {
@@ -491,6 +492,18 @@ export function SelecteurFichierDrive({
      seulement si l'on est toujours au même endroit. Sinon, changer vite de dossier ferait revenir le contenu du
      précédent par-dessus le nouveau.
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+  /**
+   * ══ 🔴🔴 LOT RANGER-ET-NOM-FIABLES — LES DÉPÔTS CONFIRMÉS, QU'AUCUNE LISTE PÉRIMÉE N'EFFACE ═══════════════
+   *
+   * Voir l'encadré de `fusionnerDepots` : Google met environ 3,8 s à faire paraître un fichier neuf dans
+   * `files.list`, et la revalidation silencieuse partait dans la seconde. Elle rendait donc une liste SANS le
+   * fichier, et effaçait la ligne qu'on venait de poser — d'où « il faut fermer puis rouvrir la fenêtre », et
+   * d'où l'intermittence (au second essai, Google avait rattrapé).
+   *
+   * ⚠️ UNE `ref`, ET NON UN ÉTAT : cette trace ne doit JAMAIS provoquer de rendu par elle-même. Elle est lue au
+   * moment où une liste arrive, et c'est cette liste-là qui déclenche le rendu.
+   */
+  const depotsConfirmes = useRef<DepotConfirme[]>([]);
   const cache = useRef<Map<string, Listing>>(new Map());
   const enVol = useRef<AbortController | null>(null);
   /** L'endroit qu'on est en train de charger : une réponse qui n'est plus la sienne est jetée. */
@@ -507,8 +520,19 @@ export function SelecteurFichierDrive({
       chaine?: { id: string; nom: string }[];
     };
     if (d.etat !== 'ok') return { erreur: d.message ?? 'Drive indisponible.' };
+    /**
+     * 🔴🔴 LE POINT DE PASSAGE UNIQUE. Toute liste reçue — premier affichage, préchargement au survol, dépliage
+     * d'un sous-niveau, revalidation silencieuse — passe par ici. Y réinjecter les dépôts confirmés couvre donc
+     * TOUS les chemins d'un coup, y compris le dossier qu'on n'avait pas encore ouvert au moment du lâcher.
+     *
+     * ⚠️ LE FAIRE DANS CHAQUE APPELANT AURAIT LAISSÉ UN TROU : il y en a quatre, et il suffit d'en oublier un
+     * pour que le défaut revienne, intermittent, sur ce chemin-là seulement.
+     */
+    const maintenant = Date.now();
+    depotsConfirmes.current = depotsVivants(depotsConfirmes.current, maintenant);
+    const fichiers = fusionnerDepots(d.fichiers ?? [], dossierId, depotsConfirmes.current, maintenant);
     return {
-      fichiers: d.fichiers ?? [], dossiers: [],
+      fichiers, dossiers: [],
       joindreAutorise: d.joindreAutorise !== false,
       motifRefus: d.motifRefus ?? null,
       // ⚠️ `=== true` et non `!== false` : un serveur qui ne dirait rien ne doit pas laisser croire qu'on peut
@@ -1468,8 +1492,21 @@ export function SelecteurFichierDrive({
         //   revalidation, qui est ce qui se faisait avant ce lot. Mieux vaut une seconde d'attente qu'une ligne fausse.
         oublierLaProvisoire();
       } else {
-        majListesDu(cibleId, (l) => remplacerLigne(l, piece.pieceId, ligneReelle(
-          { ...piece, nom: nomPourLeDrive }, { driveFileId: idReel, lien: r.lien ?? null }, cibleId)));
+        const reelle = ligneReelle(
+          { ...piece, nom: nomPourLeDrive }, { driveFileId: idReel, lien: r.lien ?? null }, cibleId);
+        /**
+         * 🔴🔴 ON RETIENT LE DÉPÔT AVANT DE TOUCHER AUX LISTES. Google met environ 3,8 s à faire paraître un
+         * fichier neuf dans `files.list` : toute liste qui arrive d'ici là se verra réinjecter cette ligne —
+         * y compris celle de la revalidation qu'on lance juste après, et qui, sans cela, l'effaçait.
+         *
+         * ⚠️ ET LA TRACE VAUT MÊME SI LE DOSSIER N'EST AFFICHÉ NULLE PART : la ligne paraîtra au premier
+         * affichage de ce dossier, sans qu'il faille rouvrir la fenêtre.
+         */
+        depotsConfirmes.current = [
+          ...depotsVivants(depotsConfirmes.current, Date.now()).filter((d) => d.ligne.id !== idReel),
+          { dossierId: cibleId, ligne: reelle, jusqua: Date.now() + FENETRE_REINJECTION_MS },
+        ];
+        majListesDu(cibleId, (l) => remplacerLigne(l, piece.pieceId, reelle));
       }
       setRangees((v) => {
         const n = new Map(v);
@@ -1479,6 +1516,11 @@ export function SelecteurFichierDrive({
       /* 🔴 ON REVALIDE EN SILENCE, ON NE RECHARGE PLUS. `charger` vidait l'écran, remettait le défilement en haut
          et repassait par « chargement » — pour un dossier qu'on vient de mettre à jour ligne par ligne. La
          revalidation, elle, relit en arrière-plan et ne remplace que si l'on est toujours au même endroit. */
+      /**
+       * 🔴 « DÈS QUE ✓ RANGÉE EST CONFIRMÉ, UNE REVALIDATION SILENCIEUSE DU DOSSIER CIBLE » (Arno). Elle part
+       * tout de suite, et elle ne peut plus rien effacer : le dépôt confirmé est réinjecté dans la liste
+       * qu'elle rapporte (voir `lireListing`). La ligne est donc là en moins de 100 ms, et elle y reste.
+       */
       revaliderEnSilence([cibleId]);
       /* L'écran du message relit ses dépôts : c'est lui qui affiche « Dans le Drive » sur la carte de la pièce.
          ⚠️ ET LE NOM D'USAGE VIENT PEUT-ÊTRE DE CHANGER (pièce renommée au stylo avant d'être rangée). On le DIT,

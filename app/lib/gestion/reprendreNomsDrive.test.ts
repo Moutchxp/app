@@ -25,7 +25,9 @@ vi.mock('./nomUsageRepo', async (original) => {
   return {
     ...vrai,
     piecesARelire: async () => pieces,
-    ecrireNomUsage: async (piece: number, nom: string) => { ecrits.push({ piece, nom }); return true; },
+    /* 🔴 LOT RANGER-ET-NOM-FIABLES — l'écriture rend trois réponses : « écrit » (geste neuf), « inchangé » (la
+       base portait déjà ce nom — on aligne, mais on ne journalise pas), « indisponible » (migration 286 absente). */
+    ecrireNomUsage: async (piece: number, nom: string) => { ecrits.push({ piece, nom }); return 'ecrit'; },
     journaliserRenommage: async (o: { source: string; ancienNom: string; nouveauNom: string }) => {
       journal.push({ source: o.source, ancien: o.ancienNom, nouveau: o.nouveauNom });
     },

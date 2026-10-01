@@ -5,6 +5,9 @@ import { renommerPiece } from '../../../../../../../lib/gestion/renommagePieceRe
 import { nomUsageDisponible } from '../../../../../../../lib/gestion/schema';
 import { eclaterNom, verifierNom } from '../../../../../../../lib/gestion/renommagePiece';
 import { lirePieceANommer } from '../../../../../../../lib/gestion/nomUsageRepo';
+// 🔴 LOT RANGER-ET-NOM-FIABLES — l'adresse au nom de laquelle Google applique ses droits, et l'origine du geste.
+import { etatAccesDrive } from '../../../../../../../lib/gestion/jetonCollaborateur';
+import type { OrigineRenommage } from '../../../../../../../lib/gestion/nomUsagePiece';
 
 /**
  * ══ 🔴🔴 /api/admin/gestion/pieces/[id]/nom — LOT NOM-UNIQUE-DES-PIECES ═══════════════════════════════════════
@@ -30,6 +33,19 @@ import { lirePieceANommer } from '../../../../../../../lib/gestion/nomUsageRepo'
  * Runtime Node (driver pg + appels Google).
  */
 export const runtime = 'nodejs';
+
+/**
+ * ══ 🔴 D'OÙ VIENT LE GESTE (Arno) : « visionneuse mail, visionneuse Drive, Google Drive, rangement » ═════════
+ *
+ * ⚠️ L'ÉCRAN LE DIT, ET LE SERVEUR NE LE CROIT QUE S'IL EST CONNU. Une valeur inventée retombe sur la
+ * visionneuse du mail — qui est ce que fait cette route depuis toujours. On ne journalise jamais un mot venu du
+ * navigateur sans l'avoir reconnu : un journal se relit, et ce qu'on y lit doit vouloir dire quelque chose.
+ */
+function origineDemandee(request: Request): OrigineRenommage {
+  const brut = new URL(request.url).searchParams.get('origine') ?? '';
+  const connues: OrigineRenommage[] = ['visionneuse_mail', 'visionneuse_drive', 'google_drive', 'rangement'];
+  return connues.find((x) => x === brut) ?? 'visionneuse_mail';
+}
 
 const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
 
@@ -73,8 +89,25 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     }
 
     const auteur = await auteurDeLaRequete(request);
+    /**
+     * ══ 🔴🔴 LOT RANGER-ET-NOM-FIABLES — ON RENOMME AU NOM DE LA PERSONNE QUI RENOMME ══════════════════════
+     *
+     * CONSTAT D'ARNO : « le nom change côté mail, mais PAS dans le Drive ». MESURÉ le 01/10/2026 : le compte de
+     * la relève (`gestion@criterimmo.fr`) reçoit 404 sur les quatre copies de la pièce d'essai, là où
+     * `a.jorel@sansvisavis.com` reçoit 200 — les copies vivent dans un Drive partagé dont la relève n'est pas
+     * membre. Chaque `files.update(name)` partait donc dans le vide.
+     *
+     * ⚠️ UN COLLABORATEUR SANS ACCÈS DRIVE NE FAIT PAS ÉCHOUER LE RENOMMAGE : `renommerPiece` écrit le nom
+     * d'usage d'abord, rend `ok`, et dit le refus Drive en clair. Perdre le geste parce que Google se tait
+     * serait pire que de le faire à moitié — et l'écran le DIT, il ne fait pas semblant.
+     *
+     * ⚠️ L'ORIGINE PART AVEC : c'est ce geste-ci, et lui seul, qui vient de la visionneuse du mail.
+     */
+    const acces = await etatAccesDrive(request);
     const issue = await renommerPiece({
       pieceId: id, nom: verdict.nom, par: auteur.id, parLibelle: auteur.libelle,
+      sujet: acces.etat === 'ok' ? acces.adresse : null,
+      origine: origineDemandee(request),
     });
     if (!issue.ok) {
       return Response.json({ etat: 'refuse', message: issue.motif }, { status: 422, headers: ENTETES });

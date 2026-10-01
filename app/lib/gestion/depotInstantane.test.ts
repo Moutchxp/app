@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { EntreeDrive } from './finderDrive';
 import {
-  estProvisoire, idProvisoire, ligneProvisoire, ligneReelle, poser, remplacer, retirer,
+  depotsVivants, estProvisoire, FENETRE_REINJECTION_MS, fusionnerDepots, idProvisoire, ligneProvisoire,
+  ligneReelle, poser, remplacer, retirer, type DepotConfirme,
 } from './depotInstantane';
 
 /**
@@ -169,5 +170,98 @@ describe('🔴🔴 l’écran pose la ligne dans les TROIS listes', () => {
     const geste = ecran.slice(ecran.indexOf('const ranger = async ('), ecran.indexOf('const motifSansApercuPiece'));
     expect(geste).toContain('revaliderEnSilence([cibleId])');
     expect(geste).not.toContain('void charger(cibleId)');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT RANGER-ET-NOM-FIABLES — LA LIGNE QUI DISPARAISSAIT APRÈS ÊTRE APPARUE ══════════════════════════
+ *
+ * CONSTAT D'ARNO (01/10/2026) : « ✓ Rangée s'affiche sur la carte de gauche, mais la ligne n'apparaît PAS dans
+ * le dossier de l'arbre. Il faut fermer puis rouvrir la fenêtre. Au second essai, tout a marché. »
+ *
+ * 🔴 LA CAUSE, ET ELLE EXPLIQUE L'INTERMITTENCE. Le correctif précédent posait bien la ligne, puis lançait une
+ * revalidation silencieuse qui REMPLAÇAIT la liste par ce que Google rend. Or Google met environ 3,8 SECONDES
+ * (mesuré sur le vrai Drive « Test ») à faire paraître un fichier neuf dans `files.list` : la revalidation
+ * rapportait donc une liste SANS le fichier, et effaçait la ligne. Au second essai, Google avait rattrapé.
+ */
+describe('🔴🔴 une liste périmée n’efface plus un dépôt confirmé', () => {
+  const depot = (id: string, dossierId = 'CIBLE', jusqua = 1_000): DepotConfirme => ({
+    dossierId, jusqua, ligne: ligneReelle(PIECE, { driveFileId: id, lien: null }, dossierId),
+  });
+
+  /** 🔴 LE CAS D'ARNO, EXACTEMENT : la revalidation revient sans le fichier, et la ligne doit rester. */
+  it('🔴🔴 la revalidation ne rapporte pas encore le fichier : la ligne reste', () => {
+    const deGoogle = [fichier('A'), fichier('B')];
+    const apres = fusionnerDepots(deGoogle, 'CIBLE', [depot('D1')], 500);
+    expect(apres.map((e) => e.id)).toEqual(['D1', 'A', 'B']);
+  });
+
+  /** 🔴 ET DÈS QUE GOOGLE RATTRAPE, la sienne fait foi : pas de doublon, pas de ligne fantôme. */
+  it('🔴 quand Google la rend enfin, elle n’est pas ajoutée deux fois', () => {
+    const deGoogle = [fichier('D1'), fichier('A')];
+    const apres = fusionnerDepots(deGoogle, 'CIBLE', [depot('D1')], 500);
+    expect(apres.map((e) => e.id)).toEqual(['D1', 'A']);
+  });
+
+  /**
+   * ⚠️ UN DÉPÔT DANS UN AUTRE DOSSIER NE DÉBORDE PAS ICI. Sans ce filtre, ranger dans « Test » aurait fait
+   * paraître la ligne dans tous les dossiers qu'on ouvre ensuite.
+   */
+  it('⚠️ le dossier est respecté : une ligne ne paraît que là où elle a été déposée', () => {
+    const apres = fusionnerDepots([fichier('A')], 'AUTRE', [depot('D1', 'CIBLE')], 500);
+    expect(apres.map((e) => e.id)).toEqual(['A']);
+  });
+
+  /**
+   * 🔴 CE N'EST PAS UN CACHE : passé la fenêtre, c'est Google qui a raison, quoi qu'il dise. Un fichier supprimé
+   * dans Drive juste après le dépôt doit finir par disparaître de l'écran.
+   */
+  it('🔴 passé la fenêtre, on n’insiste plus', () => {
+    const apres = fusionnerDepots([fichier('A')], 'CIBLE', [depot('D1', 'CIBLE', 1_000)], 2_000);
+    expect(apres.map((e) => e.id)).toEqual(['A']);
+    expect(depotsVivants([depot('D1', 'CIBLE', 1_000)], 2_000)).toEqual([]);
+    expect(depotsVivants([depot('D1', 'CIBLE', 5_000)], 2_000)).toHaveLength(1);
+  });
+
+  /** ⚠️ PLUSIEURS DÉPÔTS D'AFFILÉE dans le même dossier : tous réinjectés, aucun perdu. */
+  it('⚠️ deux rangements à la suite tiennent tous les deux', () => {
+    const apres = fusionnerDepots([fichier('A')], 'CIBLE', [depot('D1'), depot('D2')], 500);
+    expect(apres.map((e) => e.id)).toEqual(['D1', 'D2', 'A']);
+  });
+
+  /** ⚠️ La fenêtre est LARGE devant le retard mesuré (3,8 s), et courte devant l'attention d'un humain. */
+  it('⚠️ la fenêtre couvre largement le retard de Google', () => {
+    expect(FENETRE_REINJECTION_MS).toBeGreaterThanOrEqual(15_000);
+    expect(FENETRE_REINJECTION_MS).toBeLessThanOrEqual(60_000);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LE POINT DE PASSAGE UNIQUE — ET POURQUOI IL DOIT L'ÊTRE ════════════════════════════════════════════
+ *
+ * Quatre chemins rapportent une liste : le premier affichage, le préchargement au survol, le dépliage d'un
+ * sous-niveau, la revalidation silencieuse. Réinjecter dans chacun aurait laissé un trou dès qu'on en oublie un —
+ * et le défaut serait revenu, intermittent, sur ce chemin-là seulement.
+ */
+describe('🔴🔴 la réinjection est faite UNE fois, là où toutes les listes passent', () => {
+  const ecran = readFileSync('app/(admin)/admin/(protected)/gestion/SelecteurFichierDrive.tsx', 'utf8');
+
+  it('🔴 `lireListing` fusionne, et c’est le seul endroit qui le fait', () => {
+    const corps = ecran.slice(ecran.indexOf('const lireListing = useCallback'), ecran.indexOf('const charger ='));
+    expect(corps).toContain('fusionnerDepots(');
+    expect((ecran.match(/fusionnerDepots\(/g) ?? [])).toHaveLength(1);
+  });
+
+  /** 🔴 LA TRACE EST POSÉE AVANT LA REVALIDATION : sinon la liste qui revient efface encore la ligne. */
+  it('🔴 le dépôt est retenu AVANT que la revalidation ne parte', () => {
+    const geste = ecran.slice(ecran.indexOf('const ranger = async ('), ecran.indexOf('const motifSansApercuPiece'));
+    expect(geste.indexOf('depotsConfirmes.current = [')).toBeGreaterThan(0);
+    expect(geste.indexOf('depotsConfirmes.current = ['))
+      .toBeLessThan(geste.indexOf('revaliderEnSilence([cibleId])'));
+  });
+
+  /** ⚠️ UNE `ref`, jamais un état : cette trace ne doit pas provoquer de rendu par elle-même. */
+  it('⚠️ la trace ne déclenche aucun rendu', () => {
+    expect(ecran).toContain('const depotsConfirmes = useRef<DepotConfirme[]>([]);');
   });
 });

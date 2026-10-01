@@ -17,7 +17,9 @@ let lectures = 0;
 
 vi.mock('./nomUsageRepo', async (vrai) => ({
   ...(await vrai<Record<string, unknown>>()),
-  ecrireNomUsage: async (pieceId: number, nom: string) => { ecrits.push({ pieceId, nom }); return true; },
+  /* 🔴 LOT RANGER-ET-NOM-FIABLES — trois réponses : « écrit », « inchangé » (déjà ce nom : un succès, mais pas
+     un geste neuf), « indisponible » (migration 286 absente : un refus). */
+  ecrireNomUsage: async (pieceId: number, nom: string) => { ecrits.push({ pieceId, nom }); return 'ecrit'; },
   journaliserRenommage: async (o: Record<string, unknown>) => { journaux.push(o); },
   noterNomEcritDansDrive: async (ids: readonly string[], nom: string) => { notes.push({ ids: [...ids], nom }); },
   piecesParIdentifiants: async () => [],

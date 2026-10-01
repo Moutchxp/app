@@ -232,3 +232,41 @@ export function mentionDoublonDossier(nom: string, dossier: string | null): stri
   return `Un autre fichier de ${ou} porte déjà le nom « ${nom} ». Les deux sont conservés, comme le fait Google `
     + 'Drive ; vérifiez lequel vous voulez ouvrir.';
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RANGER-ET-NOM-FIABLES — D'OÙ VIENT UN RENOMMAGE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   Arno (01/10/2026) : « Journal de chaque renommage : origine (visionneuse mail, visionneuse Drive, Google
+   Drive, rangement), ancien et nouveau nom, ids touchés. »
+
+   🔴 POURQUOI L'ORIGINE COMPTE AUTANT QUE L'AUTEUR. « Qui » ne suffit pas à comprendre un historique : la même
+   personne renomme depuis quatre endroits, et les quatre ne se réparent pas pareil. « Renommé dans Google
+   Drive » dit qu'il faut regarder du côté de Google ; « au rangement » dit que le nom vient du stylo de la
+   fenêtre de dépôt. Sans ce mot, on relit une suite de renommages sans savoir lequel a déclenché l'autre.
+
+   ⚠️ LA COLONNE `source` NE CHANGE PAS : elle vaut toujours `app` ou `drive`, et c'est elle qui dit si le geste
+   vient de NOUS ou de Google — la distinction qui commande la sécurité. L'origine, elle, est un détail de
+   lecture : elle s'écrit dans le libellé, qui est du texte libre. Ajouter une colonne pour cela aurait demandé
+   une migration à une table de journal, pour une information qu'on ne cherchera jamais autrement qu'en lisant. */
+
+export type OrigineRenommage = 'visionneuse_mail' | 'visionneuse_drive' | 'google_drive' | 'rangement';
+
+/** Les mots qu'on lit dans le journal. Écrits une fois : deux formulations feraient croire à deux gestes. */
+export const MOTS_ORIGINE: Record<OrigineRenommage, string> = {
+  visionneuse_mail: 'visionneuse du mail',
+  visionneuse_drive: 'visionneuse du Drive',
+  google_drive: 'Google Drive',
+  rangement: 'rangement',
+};
+
+/**
+ * « a.jorel@sansvisavis.com (visionneuse du mail) ». PUR.
+ *
+ * ⚠️ SANS ORIGINE, LE LIBELLÉ NE CHANGE PAS D'UN CARACTÈRE : les lignes écrites avant ce lot et celles des
+ * appelants qui n'en passent pas se relisent à l'identique.
+ */
+export function libelleAvecOrigine(parLibelle: string, origine?: OrigineRenommage): string {
+  const mot = origine === undefined ? '' : MOTS_ORIGINE[origine];
+  return mot === '' ? parLibelle : `${parLibelle} (${mot})`;
+}
