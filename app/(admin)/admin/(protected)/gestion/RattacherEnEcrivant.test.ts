@@ -283,6 +283,132 @@ describe('🔴 ④ valider écrit les cibles ; ignorer n’écrit rien', () => {
   });
 });
 
+/**
+ * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — « LE BOUTON RESTE BLOQUÉ À 1 » ════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO : « le bouton reste bloqué à “1” alors que rien n'est coché dans la liste visible ».
+ *
+ * LA CAUSE, rejouée ici avant d'être corrigée : un bien DÉJÀ RETENU que le moteur ne propose pas était
+ * PRÉ-COCHÉ (il entre dans la pré-coche par `dejaLa`) mais N'AVAIT AUCUNE CASE dans la liste. Il était donc
+ * compté par le bouton, invisible à l'œil, et hors d'atteinte de « Tout désélectionner », qui ne parcourait que
+ * les lignes affichées.
+ *
+ * ⚠️ ET IL Y AVAIT PIRE, SILENCIEUX : `valider` écartait les clés absentes de la liste visible — ce bien aurait
+ * donc été RETIRÉ à la validation, sans que rien ne le dise.
+ */
+describe('🔴🔴 ⑤bis un bien déjà retenu que le moteur ne propose pas', () => {
+  const DEJA: CibleBrouillon = {
+    sorte: 'lot', cle: 'Z9', id: null, libelle: '9 rue Ancienne — lot Z9', categorie: 'parking',
+  };
+
+  it('🔴🔴 il a SA CASE dans la liste, cochée — plus jamais compté sans être visible', async () => {
+    cibles = [DEJA];
+    contexte = { ...contexte, biens: [BIEN('100', false, 'un des 3 biens')] };
+    await monter();
+    expect(cases()).toHaveLength(2);
+    expect(container.textContent).toContain('9 rue Ancienne — lot Z9');
+    // Le motif distingue les deux sources : on ne décoche pas à l'aveugle.
+    expect(container.textContent).toContain('déjà rattaché');
+    expect(boutonPar(/Valider/).textContent).toContain('1 bien(s)');
+  });
+
+  it('🔴🔴 on peut le DÉCOCHER, et le compteur tombe à zéro', async () => {
+    cibles = [DEJA];
+    await monter();
+    expect(boutonPar(/Valider/).textContent).toContain('1 bien(s)');
+    await cliquer(cases()[0]);
+    expect(boutonPar(/Valider/).textContent).toBe('Valider — aucun bien');
+  });
+
+  /** 🔴 « Tout désélectionner » l'atteint désormais : il fait partie de la liste. */
+  it('🔴 « Tout désélectionner » le décoche aussi', async () => {
+    cibles = [DEJA];
+    contexte = { ...contexte, biens: [BIEN('100', true, 'locataire')] };
+    await monter();
+    expect(boutonPar(/Valider/).textContent).toContain('2 bien(s)');
+    await cliquer(boutonPar(/^Tout désélectionner$/));
+    expect(boutonPar(/Valider/).textContent).toBe('Valider — aucun bien');
+  });
+
+  /** 🔴🔴 ET IL SURVIT À LA VALIDATION, avec sa catégorie : il n'est plus écarté en silence. */
+  it('🔴🔴 valider le garde — il n’est plus perdu en chemin', async () => {
+    cibles = [DEJA];
+    await monter();
+    await cliquer(boutonPar(/Valider/));
+    expect(cibles).toEqual([DEJA]);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — VALIDER À ZÉRO EST UNE DÉCISION ═══════════════════════════════════════
+ *
+ * ARNO : « À 0, le bouton reste actif et s'intitule “Valider — aucun bien” : valider retire tous les
+ * rattachements et ramène les deux boutons rouge et blanc. On peut alors choisir “Interne”. »
+ */
+describe('🔴🔴 valider à 0 bien', () => {
+  it('🔴 le bouton est ACTIF et dit « aucun bien »', async () => {
+    await monter();
+    const b = boutonPar(/^Valider/);
+    expect(b.textContent).toBe('Valider — aucun bien');
+    expect(b.disabled).toBe(false);
+  });
+
+  it('🔴🔴 valider à zéro retire TOUS les biens — et la fenêtre se ferme', async () => {
+    cibles = [
+      { sorte: 'lot', cle: 'A', id: null, libelle: 'A' },
+      { sorte: 'lot', cle: 'B', id: null, libelle: 'B' },
+    ];
+    await monter();
+    for (const c of cases()) if (c.checked) await cliquer(c);
+    expect(boutonPar(/^Valider/).textContent).toBe('Valider — aucun bien');
+    await cliquer(boutonPar(/^Valider/));
+    expect(cibles).toEqual([]);
+    expect(ferme).toBe(1);
+  });
+
+  /** ⚠️ UN ÉVÉNEMENT CHOISI AILLEURS SURVIT : valider à zéro parle des BIENS, pas de tout le classement. */
+  it('⚠️ un événement déjà choisi n’est pas emporté', async () => {
+    cibles = [
+      { sorte: 'lot', cle: 'A', id: null, libelle: 'A' },
+      { sorte: 'evenement', cle: null, id: 7, libelle: 'Visite' },
+    ];
+    await monter();
+    for (const c of cases()) if (c.checked) await cliquer(c);
+    await cliquer(boutonPar(/^Valider/));
+    expect(cibles).toEqual([{ sorte: 'evenement', cle: null, id: 7, libelle: 'Visite' }]);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA CATÉGORIE VOYAGE AVEC LA CIBLE ═════════════════════════════════════
+ *
+ * La case verte écrit « 1 logement + 1 parking ». Ce compte ne peut pas se faire à l'affichage : l'écran ne
+ * connaît ni l'annuaire ni les natures. La catégorie est donc posée ICI, là où la nature du lot est connue.
+ */
+describe('🔴🔴 la catégorie est posée à la validation', () => {
+  it('🔴 un bien proposé part avec sa catégorie, déduite de sa NATURE', async () => {
+    contexte = { ...contexte, biens: [
+      { ...BIEN('360', true, 'locataire'), nature: 'Appartement meublé' },
+      { ...BIEN('397', true, 'même propriétaire'), nature: 'Parking' },
+    ] };
+    await monter();
+    await cliquer(boutonPar(/^Valider/));
+    expect(cibles.map((c) => c.categorie)).toEqual(['logement', 'parking']);
+  });
+
+  /** 🔴 LE CAS RÉEL D'ARNO : lots 360 + 397 de Mme THAI ⇒ « 1 logement + 1 parking ». */
+  it('🔴🔴 le cas réel : 360 + 397 donnent bien un logement et un parking', async () => {
+    contexte = { ...contexte, biens: [
+      { ...BIEN('360', true, 'locataire'), nature: 'Appartement meublé', typeBien: 'Type 2' },
+      { ...BIEN('397', true, 'même propriétaire'), nature: 'Parking', typeBien: 'Garage' },
+    ] };
+    await monter();
+    await cliquer(boutonPar(/^Valider/));
+    const { resumeParCategorie } = await import('../../../../lib/gestion/categorieBien');
+    expect(resumeParCategorie(cibles)).toBe('1 logement + 1 parking');
+  });
+});
+
 describe('⑤ la demande au serveur', () => {
   /**
    * 🔴 UN `POST`, ET LES DESTINATAIRES DANS LE CORPS — jamais dans l'adresse. La question porte sur des adresses

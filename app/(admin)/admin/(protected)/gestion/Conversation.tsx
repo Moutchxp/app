@@ -1049,6 +1049,24 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                 ? 'Échange marqué « interne » : il n’y a pas de bien à y rattacher.'
                 : 'Marque « interne » retirée.');
             }}
+            /**
+             * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — RETIRER « HORS GESTION » DEPUIS LE BLOC DU MAIL.
+             *
+             * Demande d'Arno : « Clic sur la case verte “Interne” (ou “Hors gestion”) → retour immédiat aux deux
+             * boutons rouge et blanc. Pour un mail reçu, le statut repasse à “À classer”. »
+             *
+             * ⚠️ `DELETE` N'EFFACE RIEN : la route écrit `retire_le` sur la ligne, qui reste datée et signée.
+             * C'est la règle de `horsGestionRepo` depuis la migration 266, et elle vaut ici comme ailleurs.
+             */
+            onHorsGestion={async (actif) => {
+              await fetch('/api/admin/gestion/hors-gestion', {
+                method: actif ? 'POST' : 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messageIds: [m.messageId] }),
+              });
+              await chargerRattachements(idsMessages);
+              onGeste(actif ? 'Mail marqué « hors gestion ».' : 'Marque « hors gestion » retirée.');
+            }}
             onRattachement={() => { void chargerRattachements(idsMessages); void chargerInterne(filId); }}
             onGesteRattachement={(t) => onGeste(t)}
             onHistorique={onHistorique}
@@ -1374,7 +1392,7 @@ function CorpsHtmlMail({ html }: { html: string }) {
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
-  rattachements = null, horsGestion = null, interne = null, onInterne,
+  rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion,
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
@@ -1444,6 +1462,11 @@ export function MessageConversation({
   interne?: boolean | null;
   /** Poser ou retirer la marque. Absent ⇒ aucun bouton : l'écran est alors celui d'avant ce lot. */
   onInterne?: (actif: boolean) => void | Promise<void>;
+  /**
+   * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — pose (`true`) ou retire (`false`) la marque « hors gestion » de CE mail.
+   * Absent ⇒ la case verte « Hors gestion » s'affiche mais ne se défait pas d'ici.
+   */
+  onHorsGestion?: (actif: boolean) => void | Promise<void>;
   /** Recharge les liens de l'échange après un geste. Absent = le bandeau reste en lecture. */
   onRattachement?: () => void | Promise<void>;
   onGesteRattachement?: (message: string) => void;
@@ -1811,6 +1834,13 @@ export function MessageConversation({
               rattachements (migration 257 appliquée) — sinon rien, et le message est exactement celui d'avant. */}
           {onRattachement && (
             <EncartRattachement messageId={message.messageId} filId={filId} liens={rattachements}
+              /* 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — les deux autres réponses vertes : « Interne » porte sur
+                 l'ÉCHANGE (migration 281), « Hors gestion » sur CE mail (migration 266). Sans elles, le bloc
+                 aurait proposé deux boutons au-dessus d'un mail déjà classé. */
+              interne={interne}
+              horsGestion={marque !== null}
+              onInterne={onInterne}
+              onHorsGestion={onHorsGestion}
               onChange={onRattachement} onGeste={onGesteRattachement} onHistorique={onHistorique} />
           )}
 

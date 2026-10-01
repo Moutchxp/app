@@ -23,7 +23,11 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche } from './nomUsageSql';
-import { corbeilleGmailDisponible, rattachementsDisponibles, spamDisponible } from './schema';
+import {
+  annuaireDisponible, corbeilleGmailDisponible, rattachementsDisponibles, spamDisponible,
+} from './schema';
+// 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la catégorie d'un lot (logement / parking / cave). Module PUR.
+import { categorieDuBien } from './categorieBien';
 // LOT STATUT-HORS-GESTION — rattacher un bien lève la marque « hors gestion » du mail (réversibilité naturelle).
 import { leverHorsGestionApresRattachement } from './horsGestionRepo';
 import { nomBien, nomProprietaire } from './driveArbre';
@@ -483,6 +487,17 @@ export interface LienAffiche {
   pieceId: number | null;
   cible: Cible;
   libelle: string;
+  /**
+   * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA CATÉGORIE DU LOT (logement / parking / cave), lue avec le lien.
+   *
+   * 🔴 ELLE NE SE DEVINE PAS DU LIBELLÉ. Le libellé est une chaîne composée (« adresse — Nature Type — lot N »)
+   * dont la forme a déjà changé deux fois ; la NATURE, elle, est une donnée de l'annuaire. On la joint donc au
+   * lot, et le module pur `categorieBien` en tire la catégorie.
+   *
+   * `null` = on ne sait pas : annuaire absent (migration 253), ou lot disparu de l'import. Le résumé la compte
+   * alors comme « logement », la règle par défaut du module — jamais une quatrième catégorie.
+   */
+  categorie: 'logement' | 'parking' | 'cave' | null;
   origine: 'automatique' | 'manuel';
   statut: Statut;
   confiance: string | null;
@@ -511,6 +526,8 @@ function ligneVersLien(r: {
   confiance: string | null; regle: string | null; motif: string | null; adresses: string | null;
   cree_le?: string | null; cree_par_libelle?: string | null; statut_le?: string | null;
   statut_par_libelle: string | null;
+  /** 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la nature du lot, jointe à la lecture (voir `CHAMPS_LIEN`). */
+  lot_nature?: string | null; lot_type?: string | null;
 }): LienAffiche {
   const cible: Cible = {
     sorte: r.cible_sorte as Cible['sorte'],
@@ -521,6 +538,16 @@ function ligneVersLien(r: {
     id: Number(r.id), messageId: Number(r.message_id),
     pieceId: r.piece_id === null ? null : Number(r.piece_id),
     cible, libelle: r.cible_libelle ?? cibleCourte(cible),
+    /**
+     * ⚠️ SEULS LES LOTS ONT UNE CATÉGORIE. Un événement, un propriétaire ou un locataire n'en ont pas, et leur
+     * en donner une ferait compter une personne comme un logement dans le résumé de la case verte.
+     *
+     * ⚠️ `undefined` (lot sans ligne d'annuaire, ou lecture sans la jointure) ⇒ `null`, jamais « logement »
+     * d'office : c'est le module pur qui applique la règle par défaut, à un seul endroit.
+     */
+    categorie: cible.sorte !== 'lot' || r.lot_nature === undefined
+      ? null
+      : categorieDuBien({ nature: r.lot_nature, typeBien: r.lot_type ?? null }),
     origine: r.origine === 'manuel' ? 'manuel' : 'automatique',
     statut: r.statut as Statut,
     confiance: r.confiance, regle: r.regle, motif: r.motif,
@@ -538,10 +565,40 @@ function ligneVersLien(r: {
  * statut et quand. Ils ne servent qu'à la fenêtre « Modifier », qui doit pouvoir dire d'où vient un rattachement
  * avant qu'on le change. Lecture seule, aucune migration : ces colonnes existent depuis la 257.
  */
-const CHAMPS_LIEN = `id, message_id, piece_id, cible_sorte, cible_cle, cible_id, cible_libelle,
-  origine, statut, confiance, regle, motif, adresses, statut_par_libelle,
-  to_char(cree_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS cree_le, cree_par_libelle,
-  to_char(statut_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS statut_le`;
+const CHAMPS_LIEN = `r.id, r.message_id, r.piece_id, r.cible_sorte, r.cible_cle, r.cible_id, r.cible_libelle,
+  r.origine, r.statut, r.confiance, r.regle, r.motif, r.adresses, r.statut_par_libelle,
+  to_char(r.cree_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS cree_le, r.cree_par_libelle,
+  to_char(r.statut_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS statut_le`;
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA NATURE DU LOT, JOINTE À LA LECTURE DES LIENS ═══════════════════════════
+ *
+ * La case verte « Rattaché » n'écrit plus une adresse mais « 1 logement + 1 parking ». Ce compte se fait sur la
+ * NATURE du lot — une donnée de l'annuaire —, jamais sur le libellé, qui est une chaîne composée dont la forme a
+ * déjà changé deux fois.
+ *
+ * 🔴 UNE JOINTURE CONDITIONNÉE À LA SONDE, et c'est la règle du module depuis le lot 4a : sans la migration 253,
+ * `gestion_annuaire_lot` n'existe pas, et la NOMMER ferait échouer la lecture ENTIÈRE des rattachements — donc le
+ * bandeau de chaque mail, pas seulement la nouveauté. Sans elle, on ne joint pas, `lot_nature` reste `undefined`,
+ * et la catégorie vaut `null`.
+ *
+ * ⚠️ `LEFT JOIN`, JAMAIS `JOIN` : un lot disparu de l'import ne doit pas faire disparaître son rattachement de
+ * l'écran. On préfère une catégorie inconnue à un lien invisible.
+ *
+ * ⚠️ LA JOINTURE EST BORNÉE AUX LOTS (`cible_sorte = 'lot'`) : les 19 555 lignes historiques « propriétaire » et
+ * « locataire » portent une clé WIPPIMMO de PERSONNE, qui ne doit surtout pas rencontrer un numéro de lot.
+ */
+function champsLien(avecLot: boolean): string {
+  return avecLot
+    ? `${CHAMPS_LIEN}, lo.nature AS lot_nature, lo.type_bien AS lot_type`
+    : CHAMPS_LIEN;
+}
+
+function jointureLot(avecLot: boolean): string {
+  return avecLot
+    ? ` LEFT JOIN gestion_annuaire_lot lo ON r.cible_sorte = 'lot' AND lo.wippimmo_id = r.cible_cle`
+    : '';
+}
 
 /**
  * LES LIENS VIVANTS DE PLUSIEURS MAILS, pour le bandeau d'une conversation. LECTURE SEULE.
@@ -554,10 +611,11 @@ export async function liensDesMessages(messageIds: readonly number[]): Promise<I
   const m = new Map<number, LienAffiche[]>();
   if (messageIds.length === 0) return { etat: 'ok', data: m };
 
+  const avecLot = await annuaireDisponible();
   const { rows } = await query<Parameters<typeof ligneVersLien>[0]>(
-    `SELECT ${CHAMPS_LIEN} FROM gestion_rattachement
-      WHERE message_id = ANY($1::bigint[]) AND statut IN ('propose', 'confirme')
-      ORDER BY message_id, statut DESC, cible_sorte, id`, [messageIds]);
+    `SELECT ${champsLien(avecLot)} FROM gestion_rattachement r${jointureLot(avecLot)}
+      WHERE r.message_id = ANY($1::bigint[]) AND r.statut IN ('propose', 'confirme')
+      ORDER BY r.message_id, r.statut DESC, r.cible_sorte, r.id`, [messageIds]);
 
   for (const r of rows) {
     const lien = ligneVersLien(r);
@@ -583,8 +641,9 @@ export async function liensDesMessages(messageIds: readonly number[]): Promise<I
  */
 export async function liensDuFil(filId: number): Promise<Issue2<LienAffiche[]>> {
   if (!(await rattachementsDisponibles())) return { etat: 'sans_schema' };
+  const avecLot = await annuaireDisponible();
   const { rows } = await query<Parameters<typeof ligneVersLien>[0]>(
-    `SELECT ${CHAMPS_LIEN} FROM gestion_rattachement r
+    `SELECT ${champsLien(avecLot)} FROM gestion_rattachement r${jointureLot(avecLot)}
       WHERE r.statut IN ('propose', 'confirme')
         AND r.message_id IN (SELECT m.id FROM gestion_message m WHERE m.fil_id = $1::bigint)
       ORDER BY r.message_id DESC, r.statut DESC, r.cible_sorte, r.id`, [filId]);
@@ -599,13 +658,14 @@ export async function liensDuFil(filId: number): Promise<Issue2<LienAffiche[]>> 
  */
 export async function liensDeLaPiece(pieceId: number): Promise<Issue2<LienAffiche[]>> {
   if (!(await rattachementsDisponibles())) return { etat: 'sans_schema' };
+  const avecLot = await annuaireDisponible();
   const { rows } = await query<Parameters<typeof ligneVersLien>[0]>(
-    `SELECT ${CHAMPS_LIEN} FROM gestion_rattachement
-      WHERE statut IN ('propose', 'confirme')
-        AND (piece_id = $1
-             OR (piece_id IS NULL
-                 AND message_id = (SELECT message_id FROM gestion_piece WHERE id = $1)))
-      ORDER BY piece_id NULLS FIRST, statut DESC, cible_sorte, id`, [pieceId]);
+    `SELECT ${champsLien(avecLot)} FROM gestion_rattachement r${jointureLot(avecLot)}
+      WHERE r.statut IN ('propose', 'confirme')
+        AND (r.piece_id = $1
+             OR (r.piece_id IS NULL
+                 AND r.message_id = (SELECT message_id FROM gestion_piece WHERE id = $1)))
+      ORDER BY r.piece_id NULLS FIRST, r.statut DESC, r.cible_sorte, r.id`, [pieceId]);
   return { etat: 'ok', data: rows.map(ligneVersLien) };
 }
 

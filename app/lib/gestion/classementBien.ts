@@ -70,6 +70,13 @@ export interface BienProposable {
   commune: string | null;
   typeBien: string | null;
   /**
+   * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA NATURE WIPPIMMO DU LOT (« Appartement », « Parking », « Box »…). Elle
+   * était déjà lue pour les caractéristiques ; elle est rendue TELLE QUELLE ici parce que c'est elle qui décide
+   * de la CATÉGORIE (logement / parking / cave) écrite dans la case verte. On ne la relit pas d'un libellé : un
+   * libellé se reformate, une nature est une donnée.
+   */
+  nature: string | null;
+  /**
    * 🔴 LOT FICHE-PROPOSITION — TOUT CE QUE L'IMPORT WIPPIMMO PORTE POUR CE LOT, et rien d'autre. Les champs vides
    * ne sont pas dans la liste : c'est `caracteristiquesDuLot` (module PUR) qui décide, pas l'écran.
    */
@@ -377,7 +384,7 @@ async function construireBiens(o: {
     biens.push({
       cle: l.cle,
       libelle: libelleBien({ adresse: l.adresse, commune: l.commune, cle: l.cle }),
-      adresse: l.adresse, commune: l.commune, typeBien: l.type_bien,
+      adresse: l.adresse, commune: l.commune, typeBien: l.type_bien, nature: l.nature,
       adresseComplete: adresseComplete(fiche),
       caracteristiques: caracteristiquesDuLot(fiche),
       parties,

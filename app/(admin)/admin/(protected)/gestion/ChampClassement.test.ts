@@ -34,11 +34,12 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); });
 
-const LOT = (cle: string, libelle: string): CibleBrouillon => ({ sorte: 'lot', cle, id: null, libelle });
+const LOT = (cle: string, libelle: string, categorie?: 'logement' | 'parking' | 'cave'): CibleBrouillon =>
+  ({ sorte: 'lot', cle, id: null, libelle, ...(categorie ? { categorie } : {}) });
 
 const monter = (o: {
   cibles?: CibleBrouillon[]; interne?: boolean; horsGestion?: boolean; sansDestinataire?: boolean;
-  interneDisponible?: boolean; persistant?: boolean; persistantHorsGestion?: boolean;
+  interneDisponible?: boolean; persistant?: boolean; persistantHorsGestion?: boolean; compact?: boolean;
 } = {}) => {
   act(() => {
     root.render(createElement(ChampClassement, {
@@ -51,6 +52,7 @@ const monter = (o: {
       interneDisponible: o.interneDisponible !== false,
       persistant: o.persistant !== false,
       persistantHorsGestion: o.persistantHorsGestion !== false,
+      compact: o.compact === true,
     } as never));
   });
 };
@@ -112,14 +114,31 @@ describe('🔴 ② des biens cochés : UNE case VERTE « Rattaché »', () => {
     expect(c[0].textContent).toContain('Rattaché');
   });
 
-  it('🔴 la liste courte des biens est SOUS le mot', () => {
-    monter({ cibles: [LOT('421', '28 av. Marceau — lot 421')] });
-    expect(container.querySelector('.ccl-case-detail')?.textContent).toBe('28 av. Marceau — lot 421');
+  /**
+   * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE TEST A CHANGÉ DE PROMESSE, PARCE QUE LA CASE A CHANGÉ DE TEXTE.
+   *
+   * IL DISAIT : « la liste courte des biens est SOUS le mot » (« 28 av. Marceau — lot 421, +2 »). Demande
+   * d'Arno : la case verte porte désormais un RÉSUMÉ PAR CATÉGORIE, sans adresse — « 1 logement + 1 parking ».
+   * Au-dessus d'un mail, l'adresse est déjà écrite en entier juste à gauche : la répéter tronquée la faisait
+   * lire deux fois, et mal la seconde fois.
+   */
+  it('🔴🔴 sous le mot : le RÉSUMÉ PAR CATÉGORIE, sans aucune adresse', () => {
+    monter({ cibles: [LOT('421', '28 av. Marceau — lot 421', 'logement')] });
+    const detail = container.querySelector('.ccl-case-detail')?.textContent;
+    expect(detail).toBe('1 logement');
+    expect(detail).not.toContain('Marceau');
   });
 
-  it('🔴 au-delà de deux biens, « +N » compte CE QU’ON NE MONTRE PAS', () => {
+  it('🔴 plusieurs catégories : « 1 logement + 2 parkings »', () => {
+    monter({ cibles: [
+      LOT('360', 'A', 'logement'), LOT('397', 'B', 'parking'), LOT('398', 'C', 'parking'),
+    ] });
+    expect(container.querySelector('.ccl-case-detail')?.textContent).toBe('1 logement + 2 parkings');
+  });
+
+  it('🔴 quatre logements ne sont plus « A, B, +2 » mais « 4 logements »', () => {
     monter({ cibles: [LOT('1', 'A'), LOT('2', 'B'), LOT('3', 'C'), LOT('4', 'D')] });
-    expect(container.querySelector('.ccl-case-detail')?.textContent).toBe('A, B, +2');
+    expect(container.querySelector('.ccl-case-detail')?.textContent).toBe('4 logements');
   });
 
   it('🔴 un clic sur la case verte ROUVRE la modale', () => {
@@ -167,10 +186,16 @@ describe('🔴🔴 ④ « Hors gestion » : la troisième case verte, héritée'
     expect(c[0].textContent).toContain('Hors gestion');
   });
 
-  /** 🔴 LA CASE DIT D'OÙ ELLE VIENT : personne n'a cliqué, et laisser croire le contraire serait un mensonge. */
-  it('🔴 elle annonce qu’elle est REPRISE de la conversation', () => {
+  /**
+   * 🔴 LA CASE DIT CE QU'ELLE SIGNIFIE : « ce courrier ne concerne aucun bien ».
+   *
+   * ⚠️ ELLE NE DIT PLUS « repris de la conversation » (lot CLASSER-SUR-CHAQUE-MAIL) : depuis que le même
+   * composant vit AUSSI au-dessus de chaque mail reçu, cet état n'est plus seulement hérité — sur un mail, il
+   * est SA propre marque. Une phrase vraie dans un cas sur deux ne vaut pas mieux qu'une phrase fausse.
+   */
+  it('🔴 elle dit ce que « Hors gestion » veut dire', () => {
     monter({ horsGestion: true });
-    expect(container.textContent).toContain('Repris de la conversation');
+    expect(container.textContent).toContain('ne concerne aucun bien');
   });
 
   /** 🔴 IL N'Y A PAS DE QUATRIÈME BOUTON : on ne propose jamais de POSER cet état depuis la rédaction. */
@@ -285,6 +310,82 @@ describe('🔴🔴 l’animation « D — Élastique », dans les deux sens', ()
   });
 });
 
+/**
+ * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA CASE VERTE SE DÉFAIT D'UN CLIC, ET LA VERSION COMPACTE ══════════════
+ *
+ * ARNO (point 4) : « Clic sur la case verte “Interne” (ou “Hors gestion”) → retour immédiat aux deux boutons
+ * rouge et blanc, prêts à reclasser. » — et (point 1) « Version compacte, à la hauteur du bloc ».
+ */
+describe('🔴🔴 la case verte « Interne » / « Hors gestion » se défait d’un clic', () => {
+  it('🔴 « Interne » est un BOUTON, et le clic demande le retour aux deux cases', () => {
+    monter({ interne: true });
+    const verte = cases()[0] as HTMLButtonElement;
+    expect(verte.tagName).toBe('BUTTON');
+    act(() => { verte.click(); });
+    expect(gestes.onReinitialiser).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 « Hors gestion » aussi', () => {
+    monter({ horsGestion: true });
+    act(() => { (cases()[0] as HTMLButtonElement).click(); });
+    expect(gestes.onReinitialiser).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * 🔴 « RATTACHÉ » NE SE DÉFAIT PAS AU CLIC : il ROUVRE la modale (« avec les biens actuellement rattachés
+   * cochés »). Les deux cases vertes ne répondent pas à la même question, et c'est voulu.
+   */
+  it('🔴 « Rattaché », lui, rouvre la modale — il ne se défait pas', () => {
+    monter({ cibles: [LOT('421', 'A')] });
+    act(() => { (cases()[0] as HTMLButtonElement).click(); });
+    expect(gestes.onRattacher).toHaveBeenCalledTimes(1);
+    expect(gestes.onReinitialiser).not.toHaveBeenCalled();
+  });
+
+  /** ⚠️ ET « Réinitialiser » RESTE (Arno le demande) : la case est le geste évident, le lien le geste nommé. */
+  it('⚠️ le lien « Réinitialiser » est toujours là, sous les trois cases vertes', () => {
+    for (const o of [{ interne: true }, { horsGestion: true }, { cibles: [LOT('421', 'A')] }]) {
+      monter(o);
+      expect(boutonPar(/^Réinitialiser$/), JSON.stringify(o)).toBeDefined();
+    }
+  });
+});
+
+describe('🔴🔴 la version COMPACTE, pour le bloc gris d’un mail', () => {
+  it('🔴 elle porte sa classe, et le titre disparaît', () => {
+    monter({ compact: true });
+    expect(container.querySelector('.ccl')?.className).toContain('ccl--compact');
+    expect(container.textContent).not.toContain('Classer ce mail');
+  });
+
+  /** 🔴 LES NOTES AUSSI : trente mails dans une conversation, quatre lignes de notes chacun — illisible. */
+  it('🔴 les notes du bas ne sont pas rendues', () => {
+    monter({ compact: true, persistant: false, interneDisponible: false });
+    expect(container.textContent).not.toContain('migration 285');
+    expect(container.textContent).not.toContain('migration 281');
+    expect(container.textContent).not.toContain('ne part plus sans classement');
+  });
+
+  /** ⚠️ MAIS LES MOTIFS RESTENT ATTEIGNABLES : ils passent par l'infobulle du bouton, jamais dans le vide. */
+  it('⚠️ le motif d’un bouton inerte reste dans son infobulle', () => {
+    monter({ compact: true, interneDisponible: false });
+    const blanche = cases()[1] as HTMLButtonElement;
+    expect(blanche.disabled).toBe(true);
+    expect(blanche.getAttribute('title')).toContain('migration 281');
+  });
+
+  /** 🔴 RIEN N'EST RETIRÉ DE LA FONCTION : mêmes états, mêmes mots, même animation. */
+  it('🔴 les trois états verts existent aussi en compact', () => {
+    monter({ compact: true, cibles: [LOT('421', 'A', 'parking')] });
+    expect(cases()[0].textContent).toContain('Rattaché');
+    expect(container.querySelector('.ccl-case-detail')?.textContent).toBe('1 parking');
+    monter({ compact: true, interne: true });
+    expect(cases()[0].textContent).toContain('Interne');
+    monter({ compact: true, horsGestion: true });
+    expect(cases()[0].textContent).toContain('Hors gestion');
+  });
+});
+
 describe('🔴 « Réinitialiser » revient à l’état initial', () => {
   it('🔴 il est là dès qu’une décision est prise, et pas avant', () => {
     monter();
@@ -378,8 +479,10 @@ describe('garanties d’écran (statiques)', () => {
     expect(src).toContain('.ccl-case--vers-droite{transform-origin:left center}');
   });
 
-  /** La règle de coupe vient du module PUR : l'écran place et peint, il ne décide pas. */
-  it('le résumé des biens vient du module pur', () => {
-    expect(src).toContain('resumeBiensRattaches');
+  /** La règle du résumé vient du module PUR : l'écran place et peint, il ne décide pas. */
+  it('le résumé par catégorie vient du module pur', () => {
+    expect(src).toContain('resumeParCategorie');
+    // 🔴 ET PLUS AUCUNE ADRESSE : l'ancien résumé par libellé a disparu de ce composant.
+    expect(src).not.toContain('resumeBiensRattaches');
   });
 });

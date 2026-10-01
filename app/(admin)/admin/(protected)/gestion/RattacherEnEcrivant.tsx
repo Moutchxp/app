@@ -6,6 +6,8 @@ import type { ContexteRedaction } from '../../../../lib/gestion/classementBien';
 // 🔴 LE MOTEUR DE RECHERCHE DE BIENS, TEL QU'IL EXISTE : mêmes groupes, mêmes raisons, même route.
 import { grouperResultats, messageAucunBien, motRaison } from '../../../../lib/gestion/rechercheBien';
 import { ligneCompacteDuBien } from '../../../../lib/gestion/classementBoutons';
+// 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la catégorie d'un lot, posée là où la nature est connue. Module PUR.
+import { categorieDuBien, type CategorieBien } from '../../../../lib/gestion/categorieBien';
 import type { BienTrouve, ResultatsBiens } from '../../../../lib/gestion/rechercheBienRepo';
 
 /**
@@ -66,8 +68,27 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): str
 }
 
 export function RattacherEnEcrivant({
-  destinataires, objet, corps, pieces, cibles, precharge = null, onChange, onFerme,
+  destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null,
+  piedSupplementaire = null, onChange, onFerme,
 }: {
+  /**
+   * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA MÊME MODALE AU-DESSUS D'UN MAIL REÇU ════════════════════════════
+   *
+   * Demande d'Arno (point 4) : « Clic sur la case verte “Rattaché” → la modale “Rattacher ce mail à…” s'ouvre
+   * avec les biens actuellement rattachés COCHÉS, plus les propositions et le moteur de recherche. » — et cette
+   * phrase vaut « mails ET rédaction ».
+   *
+   * 🔴 UNE SEULE DIFFÉRENCE, ET ELLE TIENT EN UNE REQUÊTE. Pour un message qu'on écrit, le moteur déduit les
+   * biens des DESTINATAIRES (`POST …/classement`) ; pour un message reçu, il les déduit du MESSAGE lui-même
+   * (`GET …/classement?message=N`), qui est en base avec ses adresses analysées. Les deux routes rendent les
+   * MÊMES `BienProposable`, avec les mêmes motifs et la même pré-coche : tout le reste de cette fenêtre est
+   * rigoureusement identique.
+   *
+   * ⚠️ CE COMPOSANT N'ÉCRIT TOUJOURS RIEN EN BASE. Il rend la liste choisie par `onChange` ; c'est l'appelant
+   * qui en tire les gestes — remplir un brouillon pour la rédaction, poser et retirer des liens pour un mail.
+   * Mêler les deux ici ferait de cette fenêtre un second chemin d'écriture, à côté des routes existantes.
+   */
+  messageId?: number | null;
   /** Toutes les adresses VALIDÉES dans À, Cc et Cci. C'est d'elles que le moteur déduit les biens. */
   destinataires: readonly string[];
   objet?: string | null;
@@ -94,6 +115,21 @@ export function RattacherEnEcrivant({
    * et la liste se complète seule — sans jamais décocher ce que quelqu'un vient de cocher.
    */
   precharge?: { cle: string; contexte: ContexteRedaction } | null;
+  /**
+   * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE QUE L'APPELANT AJOUTE AU PIED, au-dessus du bouton de validation.
+   *
+   * Il sert à UN cas, et il faut qu'il serve : le bloc d'un mail reçu y remet la PORTÉE (« ce mail » / « toute
+   * la conversation ») et l'entrée « Hors gestion, ou classer par pièce… », qui vivaient dans le panneau ouvert
+   * par le lien rouge « Rattacher à un bien » — lien qu'Arno a fait supprimer au profit des deux cases.
+   *
+   * 🔴 RIEN N'EST PERDU, ET C'EST LA RAISON DE CETTE PROPRIÉTÉ. Ces deux gestes restent par ailleurs accessibles
+   * depuis « Visualiser / Modifier » ; les reprendre ici leur garde le chemin le plus court — celui qu'on
+   * empruntait avant ce lot.
+   *
+   * ⚠️ LA FENÊTRE NE SAIT RIEN DE CE QU'ELLE REND ICI : elle ne connaît ni la portée, ni les pièces. L'appelant
+   * décide et affiche ; elle place. C'est ce qui lui permet de rester la même des deux côtés.
+   */
+  piedSupplementaire?: React.ReactNode;
   onChange: (c: CibleBrouillon[]) => void;
   onFerme: () => void;
 }) {
@@ -101,7 +137,7 @@ export function RattacherEnEcrivant({
    * 🔴 LA CLÉ DES DESTINATAIRES, calculée AVANT l'état : c'est elle qui décide si le pré-chargement vaut pour
    * cette ouverture-ci. Même forme des deux côtés (l'appelant la compose de la même liste, dans le même ordre).
    */
-  const cle = destinataires.join(',');
+  const cle = messageId === null ? destinataires.join(',') : `message:${messageId}`;
   const pret = precharge !== null && precharge.cle === cle ? precharge.contexte : null;
   const [etat, setEtat] = useState<
     | { v: 'charge' }
@@ -149,22 +185,39 @@ export function RattacherEnEcrivant({
        * en cours de frappe. Les mettre dans l'adresse de la requête y écrirait des données personnelles, et les
        * ferait entrer dans les journaux du serveur et l'historique du navigateur. Rien n'est écrit en base.
        */
-      const res = await fetch('/api/admin/gestion/classement', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ destinataires, objet, corps, pieces }),
-      });
-      const d = (await res.json()) as { etat?: string; contexte?: ContexteRedaction; message?: string };
+      const res = messageId === null
+        ? await fetch('/api/admin/gestion/classement', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ destinataires, objet, corps, pieces }),
+        })
+        // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — un mail REÇU : le moteur part du message, pas des destinataires.
+        : await fetch(`/api/admin/gestion/classement?message=${messageId}`, { cache: 'no-store' });
+      const d = (await res.json()) as {
+        etat?: string; contexte?: Partial<ContexteRedaction>; message?: string;
+      };
       if (d.etat !== 'ok' || d.contexte === undefined) {
         setEtat({ v: 'erreur', message: d.message ?? 'La lecture des biens n’a pas abouti.' });
         return;
       }
-      setEtat({ v: 'ok', contexte: d.contexte });
+      /**
+       * ⚠️ LES DEUX ROUTES NE RENDENT PAS EXACTEMENT LE MÊME OBJET : celle du mail reçu ne porte pas
+       * `interneDabord` (il n'y a pas de destinataires à examiner). On COMPLÈTE au lieu de supposer — un champ
+       * manquant lu comme `undefined` ferait disparaître la mention sans rien dire, ou pire, l'afficherait.
+       */
+      const recu: ContexteRedaction = {
+        biens: d.contexte.biens ?? [],
+        examen: d.contexte.examen ?? { issue: 'sans_candidat', motif: '' },
+        proprietaire: d.contexte.proprietaire ?? null,
+        interneDabord: d.contexte.interneDabord === true,
+        disponible: d.contexte.disponible !== false,
+      };
+      setEtat({ v: 'ok', contexte: recu });
       // 🔴 LA PRÉ-COCHE, POSÉE UNE SEULE FOIS, et par la fonction `precocher` — la même que celle du premier
       //   rendu quand les propositions sont déjà là. Voir son encadré en tête de fichier.
       // ⚠️ `?? précoche` ET NON UNE AFFECTATION SÈCHE : un rafraîchissement silencieux ne doit JAMAIS recocher
       //   une case qu'on vient de décocher. La pré-coche n'a lieu qu'une fois, qu'elle vienne du pré-chargement
       //   ou de cette lecture-ci.
-      const calcule = precocher(d.contexte, cibles);
+      const calcule = precocher(recu, cibles);
       setCoches((prev) => prev ?? calcule);
     } catch {
       setEtat({ v: 'erreur', message: 'La lecture des biens n’a pas abouti.' });
@@ -172,16 +225,50 @@ export function RattacherEnEcrivant({
     // ⚠️ `cibles` HORS DES DÉPENDANCES : elles ne servent qu'à la pré-coche initiale. Les y mettre relancerait la
     //   requête à chaque case cochée — une lecture du serveur par clic.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cle, objet, corps]);
+  }, [cle, objet, corps, messageId]);
 
   useEffect(() => { void charger(); }, [charger]);
 
   const contexte = etat.v === 'ok' ? etat.contexte : null;
-  /** Tous les biens montrés : ceux du moteur, puis ceux qu'on est allé chercher à la main. */
-  const tous: { cle: string; libelle: string; manuel: boolean }[] = [
-    ...(contexte?.biens ?? []).map((b) => ({ cle: b.cle, libelle: b.libelle, manuel: false })),
-    ...ajoutes.filter((a) => !(contexte?.biens ?? []).some((b) => b.cle === (a.cle ?? '')))
-      .map((a) => ({ cle: a.cle ?? '', libelle: a.libelle, manuel: true })),
+
+  /**
+   * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE DÉFAUT D'ARNO : « LE COMPTEUR RESTE BLOQUÉ À 1 » ═════════════════
+   *
+   * CONSTAT : « il reste bloqué à “1” alors que rien n'est coché dans la liste visible ». LA CAUSE, trouvée en
+   * relisant ce fichier, et elle est entièrement ici :
+   *
+   *   · la PRÉ-COCHE réunit les biens recommandés par le moteur ET les cibles DÉJÀ retenues (`dejaLa`) ;
+   *   · la LISTE AFFICHÉE, elle, ne montrait que les propositions du moteur et les résultats de recherche.
+   *
+   * Un bien déjà rattaché que le moteur ne propose pas — le cas d'un rattachement posé à la main la semaine
+   * dernière — était donc COCHÉ SANS CASE : compté par le bouton, invisible dans la liste, et hors d'atteinte
+   * de « Tout désélectionner », qui ne parcourait lui aussi que les lignes visibles. Le compteur ne pouvait pas
+   * redescendre.
+   *
+   * 🔴 ET IL Y AVAIT PIRE, SILENCIEUX : `valider` ne gardait que les clés présentes dans la liste visible. Ce
+   * bien déjà rattaché aurait donc été RETIRÉ à la validation, sans que rien ne le dise.
+   *
+   * ═══ LE CORRECTIF : CE QUI EST COCHÉ EST VISIBLE, TOUJOURS ══════════════════════════════════════════════════
+   *
+   * Les cibles déjà retenues qui ne sont pas proposées rejoignent la liste, avec leur case et leur motif. C'est
+   * aussi exactement ce qu'Arno demande au point 4 : « la modale s'ouvre avec les biens actuellement rattachés
+   * COCHÉS, plus les propositions et le moteur de recherche ».
+   */
+  const clesProposees = new Set((contexte?.biens ?? []).map((b) => b.cle));
+  /** Les biens montrés SOUS les propositions : trouvés à la recherche, ou déjà rattachés et non proposés. */
+  const horsPropositions: { cible: CibleBrouillon; origine: 'recherche' | 'deja' }[] = [
+    ...ajoutes.filter((a) => !clesProposees.has(a.cle ?? ''))
+      .map((a) => ({ cible: a, origine: 'recherche' as const })),
+    ...cibles
+      .filter((c) => c.sorte === 'lot'
+        && !clesProposees.has(c.cle ?? '')
+        && !ajoutes.some((a) => (a.cle ?? '') === (c.cle ?? '')))
+      .map((c) => ({ cible: c, origine: 'deja' as const })),
+  ];
+  /** Tous les biens montrés : ceux du moteur, puis les autres. C'est la liste que le compteur compte. */
+  const tous: { cle: string; libelle: string }[] = [
+    ...(contexte?.biens ?? []).map((b) => ({ cle: b.cle, libelle: b.libelle })),
+    ...horsPropositions.map((x) => ({ cle: x.cible.cle ?? '', libelle: x.cible.libelle })),
   ];
   const selection = coches ?? [];
   const toutesCochees = tous.length > 0 && tous.every((b) => selection.includes(b.cle));
@@ -236,7 +323,12 @@ export function RattacherEnEcrivant({
    * L'effacer ferait disparaître sous le doigt la ligne qu'on vient de toucher.
    */
   const basculerResultat = (b: BienTrouve) => {
-    const n: CibleBrouillon = { sorte: 'lot', cle: b.cle, id: null, libelle: b.libelle };
+    // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA CATÉGORIE EST POSÉE ICI, là où la nature du lot est connue. L'écran
+    //   qui affichera la case verte, lui, ne connaît ni l'annuaire ni les natures : il place et peint.
+    const n: CibleBrouillon = {
+      sorte: 'lot', cle: b.cle, id: null, libelle: b.libelle,
+      categorie: categorieDuBien({ nature: b.nature, typeBien: b.typeBien }),
+    };
     if (!ajoutes.some((x) => memeCibleBrouillon(x, n))
       && !(contexte?.biens ?? []).some((x) => x.cle === b.cle)) {
       setAjoutes((a) => [...a, n]);
@@ -245,12 +337,35 @@ export function RattacherEnEcrivant({
   };
 
   const valider = () => {
-    const parCle = new Map<string, { libelle: string; id: number | null }>();
-    for (const b of contexte?.biens ?? []) parCle.set(b.cle, { libelle: b.libelle, id: null });
-    for (const a of ajoutes) parCle.set(a.cle ?? '', { libelle: a.libelle, id: a.id });
+    /**
+     * 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LES CIBLES DÉJÀ RETENUES ENTRENT DANS CETTE TABLE, ET IL LE FAUT.
+     *
+     * Avant ce lot, elle ne contenait que les propositions du moteur et les résultats de recherche : une clé
+     * cochée qui ne venait ni de l'un ni de l'autre — un bien rattaché à la main la semaine dernière — était
+     * écartée par le `filter` ci-dessous, donc RETIRÉE à la validation, en silence. C'est la seconde moitié du
+     * défaut « le compteur reste bloqué à 1 » (voir l'encadré de `horsPropositions`).
+     *
+     * ⚠️ L'ORDRE D'INSERTION COMPTE : les cibles déjà là d'abord, puis le moteur et la recherche, qui portent
+     * un libellé et une CATÉGORIE fraîchement lus. Le plus récent gagne.
+     */
+    const parCle = new Map<string, { libelle: string; id: number | null; categorie?: CategorieBien }>();
+    for (const c of cibles) {
+      if (c.sorte === 'lot') parCle.set(c.cle ?? '', { libelle: c.libelle, id: c.id, categorie: c.categorie });
+    }
+    for (const b of contexte?.biens ?? []) {
+      parCle.set(b.cle, {
+        libelle: b.libelle, id: null,
+        categorie: categorieDuBien({ nature: b.nature, typeBien: b.typeBien }),
+      });
+    }
+    for (const a of ajoutes) parCle.set(a.cle ?? '', { libelle: a.libelle, id: a.id, categorie: a.categorie });
     const retenues: CibleBrouillon[] = selection
       .filter((c) => parCle.has(c))
-      .map((c) => ({ sorte: 'lot' as const, cle: c, id: parCle.get(c)?.id ?? null, libelle: parCle.get(c)?.libelle ?? c }));
+      .map((c) => ({
+        sorte: 'lot' as const, cle: c, id: parCle.get(c)?.id ?? null,
+        libelle: parCle.get(c)?.libelle ?? c,
+        ...(parCle.get(c)?.categorie ? { categorie: parCle.get(c)?.categorie } : {}),
+      }));
     /**
      * ⚠️ LES CIBLES QUI NE SONT PAS DES LOGEMENTS SONT CONSERVÉES TELLES QUELLES. Un événement choisi dans le
      * bloc « Classer ce mail » n'a rien à faire dans cette fenêtre, et valider ici ne doit pas l'effacer.
@@ -279,10 +394,15 @@ export function RattacherEnEcrivant({
         <button type="button" className="rec-croix" aria-label="Fermer sans rien changer"
           title="Fermer sans rien changer" onClick={fermerSansRien}>×</button>
         <h2 className="mrt-titre" id="rec-titre">Rattacher ce mail à…</h2>
-        <p className="rec-dest">
-          D’après {destinataires.length === 1 ? 'le destinataire' : `les ${destinataires.length} destinataires`}
-          {' : '}{destinataires.join(', ')}
-        </p>
+        {/* ⚠️ « D'APRÈS LE DESTINATAIRE » NE SE DIT QUE D'UN MAIL QU'ON ÉCRIT. Sur un mail REÇU, le moteur part
+            du message lui-même : la phrase serait fausse, et il n'y a rien à mettre à la place — chaque bien
+            proposé porte déjà SON motif, juste à côté de sa case. */}
+        {messageId === null && (
+          <p className="rec-dest">
+            D’après {destinataires.length === 1 ? 'le destinataire' : `les ${destinataires.length} destinataires`}
+            {' : '}{destinataires.join(', ')}
+          </p>
+        )}
 
         {/* ══ 🔴 « INTERNE » EN PREMIER QUAND TOUS LES DESTINATAIRES SONT DE LA MAISON ══════════════════════════
             Demande d'Arno. C'est une PROPOSITION de place, pas une décision : rien n'est coché d'avance, et le
@@ -345,15 +465,25 @@ export function RattacherEnEcrivant({
                   </ul>
                 </li>
               ))}
-              {/* Les biens trouvés à la main : mêmes cases, même validation — ils n'ont simplement pas de motif. */}
-              {ajoutes.map((a) => (
-                <li key={`ajout-${a.cle}`} className="rec-bien">
+              {/* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE QUI EST COCHÉ EST VISIBLE, TOUJOURS ══════════════
+                  Deux sources ici, et la SECONDE est le correctif du défaut d'Arno (« le compteur reste bloqué
+                  à 1 ») : les biens DÉJÀ RATTACHÉS que le moteur ne propose pas. Ils étaient cochés sans case —
+                  comptés par le bouton, introuvables dans la liste, hors d'atteinte de « Tout désélectionner ».
+
+                  🔴 LE MOTIF DIT D'OÙ CHACUN VIENT : « ajouté à la main depuis la recherche » n'est pas « déjà
+                  rattaché à ce mail », et c'est précisément ce qu'on a besoin de savoir avant de décocher. */}
+              {horsPropositions.map(({ cible: a, origine }) => (
+                <li key={`hors-${a.cle}`} className="rec-bien">
                   <label className="rec-choix">
                     <input type="checkbox" checked={selection.includes(a.cle ?? '')}
                       onChange={() => basculer(a.cle ?? '')} />
                     <span className="rec-bien-nom">{a.libelle}</span>
                   </label>
-                  <p className="rec-motif">ajouté à la main depuis la recherche</p>
+                  <p className="rec-motif">
+                    {origine === 'recherche'
+                      ? 'ajouté à la main depuis la recherche'
+                      : 'déjà rattaché — décochez pour le retirer'}
+                  </p>
                 </li>
               ))}
             </ul>
@@ -419,9 +549,16 @@ export function RattacherEnEcrivant({
                 sorties qui ne changent rien n'ont pas besoin de deux libellés ; celle-ci prenait la place d'une
                 décision, à côté du seul bouton qui en pose une.
             🔒 LE BOUTON ROUGE N'EST PAS TOUCHÉ : même mot, même compte, même geste. */}
+        {piedSupplementaire !== null && <div className="rec-pied-sup">{piedSupplementaire}</div>}
+
         <div className="mrt-pied rec-pied">
           <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={valider}>
-            {selection.length === 0 ? 'Valider sans rattachement' : `Valider — ${selection.length} bien(s)`}
+            {/* 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE VRAI NOMBRE, ET « aucun bien » À ZÉRO (demande d'Arno).
+                Le bouton reste ACTIF à zéro : valider à vide est une décision — elle retire tous les
+                rattachements et ramène les deux boutons, d'où l'on peut alors choisir « Interne ».
+                ⚠️ `selection` NE COMPTE PLUS QUE DU VISIBLE : toute clé cochée a désormais sa case (voir
+                l'encadré de `horsPropositions`). C'est ce qui fait que ce compte redescend à zéro. */}
+            {selection.length === 0 ? 'Valider — aucun bien' : `Valider — ${selection.length} bien(s)`}
           </button>
         </div>
       </div>
@@ -550,6 +687,10 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
 
 .rec-note{font-size:.78rem;color:var(--color-svv-muted)}
 .rec-pied{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;margin-top:.8rem}
+/* 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — ce que l'appelant ajoute au pied (portee, « Hors gestion… ») : une carte de
+   plus, du meme relief que les autres, pour qu'on la lise comme une zone et non comme un ajout. */
+.rec-pied-sup{margin:0;padding:8px 10px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);
+  border-radius:.7rem;min-width:0}
 @media (max-width:520px){
   .rec{width:100%;max-width:100%}
   .rec-pied>.svv-btn{flex:1 1 100%}

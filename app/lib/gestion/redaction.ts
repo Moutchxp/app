@@ -143,6 +143,22 @@ export interface CibleBrouillon {
   cle: string | null;
   id: number | null;
   libelle: string;
+  /**
+   * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA CATÉGORIE DU LOT, pour que la case verte écrive « 1 logement +
+   * 1 parking » au lieu d'une adresse déjà écrite juste à côté.
+   *
+   * ⚠️ ELLE VOYAGE AVEC LA CIBLE, et n'est jamais recalculée à l'affichage : l'écran ne connaît ni la nature du
+   * lot ni l'annuaire. Elle est posée au moment où l'on coche, là où la nature est connue.
+   *
+   * ⚠️ FACULTATIVE, ET SANS MIGRATION : `cibles` est une colonne `jsonb`. Absente (brouillon d'avant ce lot),
+   * elle compte comme « logement » au résumé — la même règle par défaut que `categorieDuBien`, jamais un trou.
+   *
+   * 🔴 LE TYPE EST RECOPIÉ, PAS IMPORTÉ, et c'est voulu : ce module est PUR — aucun import, pas même de type
+   * (une épreuve statique le vérifie, parce qu'un import de type d'aujourd'hui devient l'import de valeur de
+   * demain, et c'est ainsi que `pg` est arrivé dans le navigateur le 24/09/2026). La VÉRITÉ de cette liste vit
+   * dans `categorieBien.ts` ; le compilateur tient les deux d'accord à chaque affectation.
+   */
+  categorie?: 'logement' | 'parking' | 'cave';
 }
 
 /** Deux cibles désignent-elles la même chose ? Sert à ne pas en poser deux fois la même. PUR. */

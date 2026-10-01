@@ -109,10 +109,35 @@ describe('🔴 la ligne des biens s’intitule « Bien(s) rattaché(s) : »', ()
       .not.toContain('événement');
   });
 
-  it('sans aucun lien, la ligne dit « rien pour l’instant » et garde son bouton', async () => {
+  /**
+   * 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE TEST A CHANGÉ DE PROMESSE, PARCE QUE LE LIEN A ÉTÉ SUPPRIMÉ.
+   *
+   * IL DISAIT : « …et garde son bouton », en parlant du lien rouge « Rattacher à un bien ». Demande d'Arno :
+   * « Il prend la place physique du lien rouge “Rattacher à un bien”, qui est SUPPRIMÉ. » Ce sont désormais les
+   * DEUX CASES, à l'extrémité droite, qui portent le geste — et elles en portent trois, pas une.
+   */
+  it('🔴🔴 sans aucun lien : « rien pour l’instant », et les DEUX CASES à droite', async () => {
     await monter([]);
     expect(ligneBiens()?.querySelector('.ert-vide')?.textContent).toBe('rien pour l’instant');
-    expect(boutonPar(/^Rattacher à un bien$/)).toBeDefined();
+    // Le lien rouge a disparu…
+    expect(boutonPar(/^Rattacher à un bien$/)).toBeUndefined();
+    // …et les deux cases du module de classement l'ont remplacé.
+    const cases = [...container.querySelectorAll('.ccl-case')];
+    expect(cases).toHaveLength(2);
+    expect(cases[0].textContent).toContain('Rattacher');
+    expect(cases[0].className).toContain('ccl-case--rouge');
+    expect(cases[1].textContent).toContain('Interne');
+  });
+
+  /** 🔴 « Version compacte, à la hauteur du bloc » (Arno) : c'est le même composant, dans sa variante compacte. */
+  it('🔴 le module est en version COMPACTE, et à l’extrémité droite de la rangée', async () => {
+    await monter([]);
+    const rangee = container.querySelector('.ert-rangee');
+    expect(rangee).not.toBeNull();
+    const ccl = rangee?.querySelector('.ccl');
+    expect(ccl?.className).toContain('ccl--compact');
+    // DERNIER de la rangée : c'est ce que veut dire « à l'extrémité droite ».
+    expect(rangee?.lastElementChild).toBe(ccl);
   });
 
   it('🔴 RIEN N’EST RETIRÉ : le lien garde « Modifier » et « Retirer »', async () => {
@@ -122,40 +147,229 @@ describe('🔴 la ligne des biens s’intitule « Bien(s) rattaché(s) : »', ()
   });
 });
 
-describe('🔴 le MENU s’ouvre JUSTE SOUS la ligne', () => {
-  it('il n’est pas là au repos', async () => {
+/**
+ * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE PANNEAU EN LIGNE EST DEVENU **LA MODALE** ══════════════════════════
+ *
+ * ARNO (point 4) : « Clic sur la case verte “Rattaché” → la modale “Rattacher ce mail à…” s'ouvre avec les biens
+ * actuellement rattachés COCHÉS, plus les propositions et le moteur de recherche. »
+ *
+ * 🔴 C'EST LA MÊME FENÊTRE QUE LA RÉDACTION, et c'est tout l'objet de ce lot : un seul geste, une seule fenêtre,
+ * des deux côtés de l'application. Le panneau `MenuRattachementBien` n'est pas mort pour autant — il reste la
+ * fenêtre « Visualiser / Modifier » de l'en-tête.
+ */
+describe('🔴🔴 la MODALE « Rattacher ce mail à… », la même qu’à la rédaction', () => {
+  it('elle n’est pas là au repos', async () => {
     await monter([lien()]);
-    expect(container.querySelector('.mrb')).toBeNull();
+    expect(container.querySelector('.rec-voile')).toBeNull();
+  });
+
+  it('🔴 la case ROUGE l’ouvre, avec le moteur de recherche', async () => {
+    await monter([]);
+    await cliquer(container.querySelector('.ccl-case--rouge'));
+    const modale = container.querySelector('.rec-voile');
+    expect(modale).not.toBeNull();
+    expect(modale?.textContent ?? '').toContain('Rattacher ce mail à');
+    expect(modale?.textContent ?? '').toContain('Moteur de recherche');
+  });
+
+  /** 🔴 « avec les biens actuellement rattachés COCHÉS » — c'est le correctif du compteur bloqué à « 1 ». */
+  it('🔴🔴 la case VERTE la rouvre avec le bien déjà rattaché COCHÉ et VISIBLE', async () => {
+    await monter([lien()]);
+    await cliquer(container.querySelector('.ccl-case--verte'));
+    const cases = [...container.querySelectorAll('.rec-biens input[type="checkbox"]')] as HTMLInputElement[];
+    expect(cases).toHaveLength(1);
+    expect(cases[0].checked).toBe(true);
+    expect(container.querySelector('.rec-biens')?.textContent).toContain('22 Boulevard Richard Wallace');
+    // Le compteur du bouton dit le VRAI nombre, celui des cases visibles.
+    expect(boutonPar(/^Valider — 1 bien\(s\)$/)).toBeDefined();
   });
 
   /**
-   * 🔴 LOT BIEN-RATTACHE — UNE SEULE ENTRÉE. Il y avait deux portes pour la même question : ce lien, et le bloc
-   * des propositions ouvert en permanence. On cochait dans l'un, on validait dans l'autre.
+   * 🔴🔴 LE DÉFAUT D'ARNO, REJOUÉ : « il reste bloqué à “1” alors que rien n'est coché dans la liste visible ».
+   * Décocher la seule case doit faire tomber le compteur à zéro — et le bouton s'intituler « aucun bien ».
    */
-  it('🔴 au clic, il apparaît — et son VOISIN PRÉCÉDENT est la ligne elle-même', async () => {
+  it('🔴🔴 décocher tout : le compteur tombe à ZÉRO, et le bouton le dit', async () => {
     await monter([lien()]);
-    await cliquer(boutonPar(/^Rattacher à un bien$/));
-
-    const tete = ligneBiens();
-    expect(tete).not.toBeNull();
-    /**
-     * 🔴 LA PREUVE DE POSITION, et non une preuve de présence. Avant ce lot, le sélecteur existait aussi — mais
-     * tout en bas de l'encart. On vérifie donc qu'il suit IMMÉDIATEMENT la ligne dans le DOM : c'est exactement
-     * ce qu'Arno a demandé, et c'est ce qui casserait si quelqu'un le redéplaçait.
-     */
-    const suivant = tete?.nextElementSibling;
-    expect(suivant).not.toBeNull();
-    expect(suivant?.classList.contains('mrb')).toBe(true);
-    // 🔴 ET IL PORTE LA RECHERCHE : c'est la fusion des deux anciennes portes.
-    expect(suivant?.textContent ?? '').toContain('Chercher un autre bien');
+    await cliquer(container.querySelector('.ccl-case--verte'));
+    await cliquer(container.querySelector('.rec-biens input[type="checkbox"]'));
+    expect(boutonPar(/^Valider — aucun bien$/)).toBeDefined();
+    expect(boutonPar(/^Valider — aucun bien$/)?.disabled).toBe(false);
   });
 
-  it('il se referme, et la ligne reprend son lien', async () => {
+  /** 🔴 « valider retire tous les rattachements » : un PATCH `retire`, jamais une suppression. */
+  it('🔴🔴 valider à 0 RETIRE le rattachement, sans rien supprimer', async () => {
     await monter([lien()]);
-    await cliquer(boutonPar(/^Rattacher à un bien$/));
-    expect(boutonPar(/^Rattacher à un bien$/)).toBeUndefined();
-    await cliquer(boutonPar(/^Annuler$/));
-    expect(boutonPar(/^Rattacher à un bien$/)).toBeDefined();
+    await cliquer(container.querySelector('.ccl-case--verte'));
+    await cliquer(container.querySelector('.rec-biens input[type="checkbox"]'));
+    await cliquer(boutonPar(/^Valider — aucun bien$/));
+    const patch = appels.find((a) => a.methode === 'PATCH' && a.url.includes('/rattachements'));
+    expect(patch?.corps).toMatchObject({ lienId: 1, statut: 'retire' });
+    // …et aucune suppression n'est jamais émise.
+    expect(appels.some((a) => a.methode === 'DELETE' && a.url.includes('/rattachements'))).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 LE PARCOURS COMPLET QU'ARNO DEMANDE EN TEST : « passer de Rattaché à Interne ».
+   *
+   * Il tient en trois temps, et aucun n'est évident seul : on décoche, on valide à zéro (le lien est RETIRÉ, pas
+   * supprimé), les deux cases reviennent — et c'est seulement là que « Interne » devient choisissable.
+   */
+  it('🔴🔴 de RATTACHÉ à INTERNE, de bout en bout', async () => {
+    const vus: boolean[] = [];
+    await monter([lien()], { interne: false, onInterne: (a: boolean) => { vus.push(a); } });
+    expect(container.querySelector('.ccl-case--verte')?.textContent).toContain('Rattaché');
+
+    await cliquer(container.querySelector('.ccl-case--verte'));
+    await cliquer(container.querySelector('.rec-biens input[type="checkbox"]'));
+    await cliquer(boutonPar(/^Valider — aucun bien$/));
+    expect(appels.find((a) => a.methode === 'PATCH')?.corps).toMatchObject({ statut: 'retire' });
+
+    // ⚠️ LE PARENT REND LA VÉRITÉ : le lien retiré, la conversation recharge et ne le passe plus.
+    await monter([], { interne: false, onInterne: (a: boolean) => { vus.push(a); } });
+    expect(container.querySelectorAll('.ccl-case')).toHaveLength(2);
+    await cliquer([...container.querySelectorAll('.ccl-case')][1]);
+    expect(vus).toEqual([true]);
+  });
+
+  it('la croix la referme sans rien écrire', async () => {
+    await monter([lien()]);
+    await cliquer(container.querySelector('.ccl-case--verte'));
+    await cliquer(container.querySelector('.rec-croix'));
+    expect(container.querySelector('.rec-voile')).toBeNull();
+    expect(appels.some((a) => a.methode !== 'GET')).toBe(false);
+  });
+
+  /** 🔴 RIEN N'EST PERDU : la portée et « Hors gestion… » sont repris au pied de la modale. */
+  it('🔴 la portée et « Hors gestion… » sont au pied de la modale', async () => {
+    await monter([]);
+    await cliquer(container.querySelector('.ccl-case--rouge'));
+    const modale = container.querySelector('.rec-voile');
+    expect(modale?.textContent ?? '').toContain('Toute la conversation');
+    expect(modale?.textContent ?? '').toContain('Hors gestion, ou classer par pièce');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA LIGNE « BIEN(S) RATTACHÉ(S) : » ET SON « voir plus » ════════════════
+ *
+ * ARNO (point 3) : « Affiche l'adresse complète du PREMIER bien (adresse — type — lot N). S'il y a plusieurs
+ * biens, ou si l'adresse est tronquée : un petit lien “voir plus” au bout. Un clic déplie, juste en dessous,
+ * l'adresse complète du premier bien puis tous les autres, une ligne chacun. “voir moins” replie. »
+ */
+describe('🔴🔴 la ligne montre le PREMIER bien, et se déplie', () => {
+  const COURT = { ...lien(), id: 1, libelle: '4 rue Hugo — lot 12' };
+  const AUTRE = {
+    ...lien(), id: 2, cible: { sorte: 'lot', cle: '99', id: null },
+    libelle: '2 rue Mars et Roty, 92800 PUTEAUX — Appartement Type 2 — lot 99',
+  };
+
+  it('🔴 un seul bien court : son libellé ENTIER, et aucun « voir plus »', async () => {
+    await monter([COURT]);
+    expect(ligneBiens()?.textContent).toContain('4 rue Hugo — lot 12');
+    expect(boutonPar(/^voir plus/)).toBeUndefined();
+  });
+
+  it('🔴 plusieurs biens : seul le PREMIER est montré, avec « voir plus » et le compte', async () => {
+    await monter([COURT, AUTRE]);
+    expect(ligneBiens()?.textContent).toContain('4 rue Hugo — lot 12');
+    expect(ligneBiens()?.textContent).not.toContain('lot 99');
+    expect(boutonPar(/^voir plus \(2\)$/)).toBeDefined();
+  });
+
+  it('🔴🔴 « voir plus » déplie TOUS les biens, une ligne chacun — puis « voir moins » replie', async () => {
+    await monter([COURT, AUTRE]);
+    await cliquer(boutonPar(/^voir plus/));
+    const lignes = [...container.querySelectorAll('.ert-liste .ert-ligne')];
+    // Deux biens, plus la ligne qui porte « voir moins ».
+    expect(lignes).toHaveLength(3);
+    expect(container.textContent).toContain('4 rue Hugo — lot 12');
+    expect(container.textContent).toContain('lot 99');
+
+    await cliquer(boutonPar(/^voir moins$/));
+    expect(container.textContent).not.toContain('lot 99');
+    expect(boutonPar(/^voir plus/)).toBeDefined();
+  });
+
+  /** 🔴 « ou si l'adresse est tronquée » : un libellé long mérite « voir plus » même tout seul. */
+  it('🔴 un seul bien, mais long : « voir plus » quand même, sans compte', async () => {
+    await monter([AUTRE]);
+    expect(boutonPar(/^voir plus$/)).toBeDefined();
+  });
+
+  /** 🔴 « Modifier » et « Retirer » RESTENT sur la ligne de gauche (Arno : « pour l'instant »). */
+  it('🔴 « Modifier » et « Retirer » restent sur la ligne repliée', async () => {
+    await monter([COURT, AUTRE]);
+    expect(boutonPar(/^Modifier$/)).toBeDefined();
+    expect(boutonPar(/^Retirer$/)).toBeDefined();
+  });
+});
+
+/**
+ * ══ 🔴🔴 LES TROIS ÉTATS DU MODULE, AU-DESSUS D'UN MAIL ═══════════════════════════════════════════════════════
+ *
+ * ARNO (point 1) : « Mail non rattaché (À classer) → deux boutons. Mail rattaché / Interne / Hors gestion →
+ * case verte correspondante. »
+ */
+describe('🔴🔴 l’état du module suit celui du mail', () => {
+  const vert = () => container.querySelector('.ccl-case--verte');
+
+  it('🔴 mail À CLASSER : deux boutons', async () => {
+    await monter([]);
+    expect(vert()).toBeNull();
+    expect(container.querySelectorAll('.ccl-case')).toHaveLength(2);
+  });
+
+  it('🔴 mail RATTACHÉ : case verte « Rattaché », avec le résumé par catégorie', async () => {
+    await monter([lien()]);
+    expect(vert()?.textContent).toContain('Rattaché');
+    // Aucune catégorie connue (l'annuaire ne l'a pas dite) ⇒ compté comme un logement, jamais un trou.
+    expect(container.querySelector('.ccl-case-detail')?.textContent).toBe('1 logement');
+  });
+
+  it('🔴 un PARKING rattaché se compte comme tel', async () => {
+    await monter([{ ...lien(), categorie: 'parking' }]);
+    expect(container.querySelector('.ccl-case-detail')?.textContent).toBe('1 parking');
+  });
+
+  it('🔴 échange INTERNE : case verte « Interne »', async () => {
+    await monter([], { interne: true, onInterne: () => {} });
+    expect(vert()?.textContent).toContain('Interne');
+  });
+
+  it('🔴 mail HORS GESTION : case verte « Hors gestion »', async () => {
+    await monter([], { horsGestion: true, onHorsGestion: () => {} });
+    expect(vert()?.textContent).toContain('Hors gestion');
+  });
+
+  /** 🔴 LA CASE BLANCHE POSE « INTERNE » SUR L'ÉCHANGE — le geste existant, par la route existante. */
+  it('🔴 cliquer « Interne » demande la marque de l’ÉCHANGE', async () => {
+    const vus: boolean[] = [];
+    await monter([], { interne: false, onInterne: (a: boolean) => { vus.push(a); } });
+    await cliquer([...container.querySelectorAll('.ccl-case')][1]);
+    expect(vus).toEqual([true]);
+  });
+
+  /** 🔴 ET LA CASE VERTE LA RETIRE : « le statut repasse à “À classer” tant qu'un nouveau choix n'est pas fait ». */
+  it('🔴🔴 cliquer la case verte « Interne » RETIRE la marque', async () => {
+    const vus: boolean[] = [];
+    await monter([], { interne: true, onInterne: (a: boolean) => { vus.push(a); } });
+    await cliquer(vert());
+    expect(vus).toEqual([false]);
+  });
+
+  it('🔴🔴 cliquer la case verte « Hors gestion » retire la marque du MAIL', async () => {
+    const vus: boolean[] = [];
+    await monter([], { horsGestion: true, onHorsGestion: (a: boolean) => { vus.push(a); } });
+    await cliquer(vert());
+    expect(vus).toEqual([false]);
+  });
+
+  /** ⚠️ ON NE SAIT RIEN (migration 281 absente) : la case blanche est inerte, avec son motif. */
+  it('⚠️ sans la migration 281, « Interne » est grisée et dit pourquoi', async () => {
+    await monter([], { interne: null });
+    const blanche = [...container.querySelectorAll('.ccl-case')][1] as HTMLButtonElement;
+    expect(blanche.disabled).toBe(true);
+    expect(blanche.getAttribute('title')).toContain('migration 281');
   });
 });
 
@@ -320,8 +534,9 @@ describe('🔴 B3 — rien n’est perdu', () => {
     expect(boutonPar(/^Retirer$/)).toBeDefined();
   });
 
-  it('la recherche manuelle d’un bien reste accessible', async () => {
+  it('la recherche manuelle d’un bien reste accessible — par la case verte', async () => {
     await monter([lien()]);
-    expect(boutonPar(/^Rattacher à un bien$/)).toBeDefined();
+    await cliquer(container.querySelector('.ccl-case--verte'));
+    expect(container.querySelector('.rec-saisie')).not.toBeNull();
   });
 });

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CibleBrouillon } from '../../../../lib/gestion/redaction';
-import { resumeBiensRattaches } from '../../../../lib/gestion/classementBoutons';
+// 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — « 1 logement + 1 parking » remplace l'adresse dans la case verte.
+import { resumeParCategorie } from '../../../../lib/gestion/categorieBien';
 // 🔴 LOT CLASSER-AVANT-ENVOI — l'état du bloc et les durées de l'animation : décidés dans un module PUR.
 import {
   ANIM_COURBE_ELASTIQUE, ANIM_EFFACER_MS, ANIM_ETENDRE_MS, ANIM_REBOND_MS, ANIM_TOTAL_MS,
@@ -43,6 +44,7 @@ import {
 export function ChampClassement({
   cibles, interne, horsGestion = false, onRattacher, onInterne, onReinitialiser,
   interneDisponible = true, persistant = true, persistantHorsGestion = true,
+  compact = false, titre = 'Classer ce mail',
 }: {
   cibles: readonly CibleBrouillon[];
   /** « Interne » a-t-il été choisi pour ce brouillon ? */
@@ -75,6 +77,25 @@ export function ChampClassement({
    * qu'il sait. Faux ⇒ l'héritage « Hors gestion » vaut pour cet envoi, sans survivre à la fermeture.
    */
   persistantHorsGestion?: boolean;
+  /**
+   * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA VERSION COMPACTE, POUR LE BLOC GRIS D'UN MAIL ═══════════════════
+   *
+   * Demande d'Arno : « place à l'extrémité DROITE le même composant que dans la fenêtre de rédaction […]
+   * Version compacte, à la hauteur du bloc. »
+   *
+   * 🔴 LE MÊME COMPOSANT, ET NON UN SECOND. Deux implémentations du même geste finiraient par deux
+   * comportements — c'est la règle du module, et elle a déjà servi pour « Hors gestion ». Ce qui change ici est
+   * une AFFAIRE DE PLACE : cases plus basses, détail sur une ligne, titre et notes retirés (le bloc gris porte
+   * déjà son propre titre, et la place manque au-dessus de chaque mail).
+   *
+   * ⚠️ RIEN N'EST RETIRÉ DE LA FONCTION : les mêmes états, les mêmes gestes, la même animation.
+   */
+  compact?: boolean;
+  /**
+   * Le titre au-dessus des cases. Retiré en version compacte (le bloc gris le porte déjà). Changé nulle part
+   * ailleurs : un seul mot pour un seul geste.
+   */
+  titre?: string;
 }) {
   const biens = cibles.filter((c) => c.sorte === 'lot');
 
@@ -138,9 +159,16 @@ export function ChampClassement({
     ? undefined
     : 'Mise à jour de la base à appliquer (migration 281) : le statut « Interne » n’est pas encore installé.';
 
+  /**
+   * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE RÉSUMÉ PAR CATÉGORIE, décidé dans le module pur. « 1 logement +
+   * 1 parking » remplace l'adresse : au-dessus d'un mail, l'adresse est déjà écrite en entier juste à gauche,
+   * et la répéter tronquée dans la case verte la faisait lire deux fois, mal la seconde.
+   */
+  const resume = resumeParCategorie(biens);
+
   return (
-    <div className="ccl">
-      <span className="red-label" id="ccl-label">Classer ce mail</span>
+    <div className={`ccl${compact ? ' ccl--compact' : ''}`}>
+      {!compact && <span className="red-label" id="ccl-label">{titre}</span>}
 
       {/* ══ ②, ③ ET ④ — UNE SEULE CASE VERTE, ET LE MOT DIT LAQUELLE ════════════════════════════════════════
           🔴 LOT CLASSER-AVANT-ENVOI — LA CASE VIT DANS UN CONTENEUR POSITIONNÉ (`ccl-anim`) : pendant les
@@ -157,26 +185,37 @@ export function ChampClassement({
                 onClick={onRattacher} disabled={onRattacher === undefined}
                 title="Revoir ou modifier les biens rattachés">
                 <span className="ccl-case-mot">Rattaché</span>
-                <span className="ccl-case-detail">{resumeBiensRattaches(biens.map((b) => b.libelle))}</span>
+                <span className="ccl-case-detail">{resume}</span>
               </button>
             )}
+            {/* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — « INTERNE » ET « HORS GESTION » SONT CLIQUABLES ═══════
+                Demande d'Arno : « Clic sur la case verte “Interne” (ou “Hors gestion”) → retour immédiat aux
+                deux boutons rouge et blanc, prêts à reclasser. Pour un mail reçu, le statut repasse à
+                “À classer” tant qu'un nouveau choix n'est pas fait. »
+
+                🔴 ELLES ÉTAIENT DES PARAGRAPHES (`role="status"`), et c'était juste tant qu'elles ne faisaient
+                rien : seul « Réinitialiser » les défaisait. Elles deviennent des BOUTONS, qui appellent le
+                MÊME geste — un seul chemin pour défaire, jamais deux qui finiraient par diverger.
+
+                ⚠️ « Réinitialiser » RESTE (Arno le demande explicitement) : la case est le geste évident, le
+                lien est le geste nommé. Les deux font la même chose, et c'est voulu. */}
             {etat === 'interne' && (
-              <p className={`ccl-case ccl-case--verte ccl-case--pleine ccl-case--fixe${classeAnimee}`}
-                role="status">
+              <button type="button"
+                className={`ccl-case ccl-case--verte ccl-case--pleine${classeAnimee}`}
+                onClick={onReinitialiser} title="Revenir aux deux boutons pour reclasser ce mail">
                 <span className="ccl-case-mot">Interne</span>
                 <span className="ccl-case-detail">Échange entre collègues — aucun bien ne sera rattaché.</span>
-              </p>
+              </button>
             )}
             {etat === 'hors_gestion' && (
               /* 🔴 HÉRITÉ, ET LA CASE LE DIT. On ne laisse pas croire qu'un choix a été fait dans cette
-                 fenêtre : il vient de la conversation, et « Réinitialiser » permet de ne pas le reprendre. */
-              <p className={`ccl-case ccl-case--verte ccl-case--pleine ccl-case--fixe${classeAnimee}`}
-                role="status">
+                 fenêtre : il vient de la conversation, et un clic suffit à ne pas le reprendre. */
+              <button type="button"
+                className={`ccl-case ccl-case--verte ccl-case--pleine${classeAnimee}`}
+                onClick={onReinitialiser} title="Revenir aux deux boutons pour reclasser ce mail">
                 <span className="ccl-case-mot">Hors gestion</span>
-                <span className="ccl-case-detail">
-                  Repris de la conversation — ce courrier ne concerne aucun bien.
-                </span>
-              </p>
+                <span className="ccl-case-detail">Ce courrier ne concerne aucun bien.</span>
+              </button>
             )}
             {/* ⚠️ `aria-hidden` ET AUCUNE CIBLE DE CLIC : c'est une image de ce qui vient de disparaître, pas un
                 bouton. L'annoncer ferait lire deux fois le même choix à un lecteur d'écran. */}
@@ -217,12 +256,15 @@ export function ChampClassement({
         </div>
       )}
 
-      {/* ⚠️ LES MOTIFS SE LISENT, ils ne se survolent pas : sur un téléphone, une infobulle n'existe pas. */}
-      {motifRattacher !== undefined && etat === 'rien' && (
+      {/* ⚠️ LES MOTIFS SE LISENT, ils ne se survolent pas : sur un téléphone, une infobulle n'existe pas.
+          🔴 SAUF EN VERSION COMPACTE : ce bloc-ci surplombe CHAQUE mail d'une conversation qui en porte parfois
+          trente. Quatre lignes de notes par mail rendraient le fil illisible — et les mêmes phrases sont déjà
+          écrites, en entier, dans la fenêtre de rédaction. Les infobulles des boutons, elles, restent. */}
+      {!compact && motifRattacher !== undefined && etat === 'rien' && (
         <p className="ccl-note">{motifRattacher}</p>
       )}
-      {motifInterne !== undefined && etat === 'rien' && <p className="ccl-note">{motifInterne}</p>}
-      {!persistant && (
+      {!compact && motifInterne !== undefined && etat === 'rien' && <p className="ccl-note">{motifInterne}</p>}
+      {!compact && !persistant && (
         <p className="ccl-note">
           Mise à jour de la base à appliquer (migration 285) : ce choix vaut pour cet envoi, mais il ne sera pas
           retrouvé si vous fermez la fenêtre.
@@ -230,7 +272,7 @@ export function ChampClassement({
       )}
       {/* 🔴 LA MÊME FRANCHISE POUR L'HÉRITAGE, et seulement quand il sert : annoncer la 289 sur un brouillon qui
           n'a rien hérité ferait chercher un problème là où il n'y en a pas. */}
-      {etat === 'hors_gestion' && !persistantHorsGestion && (
+      {!compact && etat === 'hors_gestion' && !persistantHorsGestion && (
         <p className="ccl-note">
           Mise à jour de la base à appliquer (migration 289) : ce classement vaut pour cet envoi, mais il ne sera
           pas retrouvé si vous fermez la fenêtre, et la marque ne sera pas reportée sur le message envoyé.
@@ -239,7 +281,7 @@ export function ChampClassement({
       {/* 🔴🔴 LOT CLASSER-AVANT-ENVOI — CE QUI REMPLACE « Sans choix, ce message partira à classer ».
           La phrase d'avant décrivait une CONSÉQUENCE acceptée ; ce n'en est plus une — l'envoi est bloqué. Lui
           laisser dire le contraire aurait été la seule phrase de l'écran à mentir sur ce qui va se passer. */}
-      {etat === 'rien' && (
+      {!compact && etat === 'rien' && (
         <p className="ccl-note">Un mail ne part plus sans classement : choisissez « Rattacher » ou « Interne ».</p>
       )}
     </div>
@@ -343,6 +385,29 @@ export const CSS_CHAMP_CLASSEMENT = `
 }
 
 .ccl-refaire{margin:0}
+
+/* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA VERSION COMPACTE, POUR LE BLOC GRIS D'UN MAIL ══════════════════════
+   « Version compacte, a la hauteur du bloc » (Arno). Le bloc gris surplombe CHAQUE mail d'une conversation qui
+   en porte parfois trente : la hauteur y coute, et elle coute trente fois.
+
+   🔴 ON NE RETIRE QUE DU VIDE ET DE LA REDONDANCE : le titre (le bloc gris porte deja le sien), les notes (les
+   memes phrases sont ecrites en entier dans la fenetre de redaction), et la hauteur des cases. Les MOTS des
+   cases, eux, ne bougent pas — c'est la regle du module depuis la premiere capsule.
+
+   ⚠️ LA CIBLE TACTILE RESTE ATTEIGNABLE : 44 px au doigt (pointer:coarse), 38 px a la souris. On gagne sur le
+   vide, jamais sur la possibilite de cliquer. */
+.ccl--compact{gap:3px;width:clamp(210px, 32%, 330px);flex:0 0 auto}
+.ccl--compact .ccl-case{min-height:38px;padding:4px 8px;gap:0;border-radius:.5rem}
+@media (pointer:coarse){.ccl--compact .ccl-case{min-height:44px}}
+.ccl--compact .ccl-case-mot{font-size:.82rem}
+.ccl--compact .ccl-case-detail{font-size:.7rem;-webkit-line-clamp:1}
+.ccl--compact .ccl-deux{gap:6px}
+.ccl--compact .ccl-refaire{text-align:right;font-size:.72rem}
+.ccl--compact .ccl-refaire .gst-lien-bouton{min-height:20px;padding:0}
+/* Sous 560 px, le bloc gris s'empile : la version compacte reprend toute la largeur plutot que de s'etrangler. */
+@media (max-width:560px){
+  .ccl--compact{width:100%}
+}
 .ccl-note{margin:0;font-size:.78rem;color:var(--color-svv-muted)}
 
 /* Sous 380 px, deux cases cote a cote deviennent illisibles : elles s'empilent, sans rien perdre. */

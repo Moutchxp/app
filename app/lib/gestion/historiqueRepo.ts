@@ -576,6 +576,14 @@ export async function propositionsHistorique(c: CibleEtendue): Promise<{
         id: Number(r.id), messageId: Number(r.message_id),
         pieceId: r.piece_id === null ? null : Number(r.piece_id),
         cible, libelle: r.cible_libelle ?? texteCible(cible),
+        /**
+         * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — `null` ICI, ET C'EST DÉLIBÉRÉ. Cet écran-ci liste des PROPOSITIONS à
+         * trancher sur l'historique d'une cible : il n'affiche aucune case verte, donc aucun résumé par
+         * catégorie. Joindre l'annuaire pour un champ que personne ne lit coûterait une jointure de plus sur
+         * une requête déjà bornée à 50 lignes. Le jour où cet écran montre le résumé, la jointure est à ajouter
+         * ici — comme dans `rattachementRepo`, conditionnée à la sonde de l'annuaire.
+         */
+        categorie: null,
         origine: r.origine === 'manuel' ? 'manuel' : 'automatique',
         statut: 'propose', confiance: r.confiance, regle: r.regle, motif: r.motif,
         adresses: (r.adresses ?? '').split(' ').filter((a) => a !== ''),

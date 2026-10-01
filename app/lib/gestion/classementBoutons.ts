@@ -1,31 +1,59 @@
 /**
- * ══ 🔴 LOT CLASSER-DEUX-BOUTONS — CE QUE LA CASE VERTE ÉCRIT SOUS LE MOT. PUR. ═════════════════════════════════
+ * ══ 🔴 CE QUE LES ÉCRANS DE CLASSEMENT ÉCRIVENT, MOT POUR MOT. PUR. ════════════════════════════════════════════
  *
- * Demande d'Arno : « Sous le mot, en petit, la liste courte des biens choisis (“28 av. Marceau — lot 421”, “+2”
- * s'il y en a plus). »
+ * 🔴 POURQUOI DES FONCTIONS, ET PAS DEUX LIGNES DANS L'ÉCRAN. Parce que ce sont des DÉCISIONS — ce qu'on montre,
+ * ce qu'on dit du reste — et qu'une décision s'éprouve sans monter de composant. C'est la séparation que tout le
+ * module applique : l'écran place et peint, le module pur décide.
  *
- * 🔴 POURQUOI UNE FONCTION, ET PAS DEUX LIGNES DANS L'ÉCRAN. Parce que la règle de coupe est une DÉCISION —
- * combien on montre, ce qu'on dit du reste — et qu'une décision s'éprouve sans monter de composant. C'est la
- * séparation que tout le module applique : l'écran place et peint, le module pur décide.
+ * ⚠️ LE RÉSUMÉ PAR CATÉGORIE DE LA CASE VERTE N'EST PLUS ICI : il vit dans `categorieBien.ts`, avec la règle qui
+ * décide de la catégorie d'un lot. Les deux sont la même question, elles ne doivent pas vivre à deux endroits.
  */
-
-/** Combien de biens on nomme avant de compter le reste. Deux : au-delà, la ligne déborde d'une case de 56 px. */
-export const BIENS_NOMMES_MAX = 2;
 
 /**
- * LA LISTE COURTE DES BIENS RATTACHÉS. PUR.
+ * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE QUE LA LIGNE « BIEN(S) RATTACHÉ(S) : » MONTRE D'ABORD. PUR. ═══════════
  *
- * ⚠️ « +2 » COMPTE CE QU'ON NE MONTRE PAS, pas le total : « 28 av. Marceau — lot 421, 4 rue Hugo — lot 12, +2 »
- * se lit « et deux autres », ce qui est la seule lecture utile. Écrire le total obligerait à soustraire de tête.
+ * Demande d'Arno : « Affiche l'adresse complète du PREMIER bien (adresse — type — lot N). S'il y a plusieurs
+ * biens, ou si l'adresse est tronquée : un petit lien “voir plus” au bout. Un clic déplie, juste en dessous,
+ * l'adresse complète du premier bien puis tous les autres, une ligne chacun. »
  *
- * ⚠️ AUCUN BIEN RENDU N'EST VIDE : un libellé blanc laisserait une virgule orpheline, qui se lit comme un bug.
+ * ═══ 🔴 CE QUE CETTE FONCTION REMPLACE, ET POURQUOI ═════════════════════════════════════════════════════════════
+ *
+ * `resumeBiensRattaches` écrivait « 28 av. Marceau — lot 421, 4 rue Hugo — lot 12, +2 » SOUS le mot de la case
+ * verte. Deux adresses tronquées et un compte : on ne pouvait ni lire la première en entier, ni atteindre les
+ * autres. Arno a coupé la question en deux, et chaque moitié a désormais sa place :
+ *   · la CASE VERTE compte (« 1 logement + 1 parking ») — c'est `resumeParCategorie`, dans `categorieBien.ts` ;
+ *   · la LIGNE DE GAUCHE nomme — c'est ici, et elle nomme EN ENTIER, quitte à déplier.
+ *
+ * 🔴 « OU SI L'ADRESSE EST TRONQUÉE » : une troncature est un fait de MISE EN PAGE (largeur de la fenêtre,
+ * taille de police), que ce module ne peut pas connaître — et le navigateur ne la signale pas. On ne la devine
+ * donc pas : on décide sur la LONGUEUR du libellé, qui est la seule chose dont on dispose et qui prédit la
+ * troncature dans l'immense majorité des cas. Le seuil est bas exprès : proposer « voir plus » pour un libellé
+ * qui tenait finalement ne coûte qu'un lien ignoré ; ne pas le proposer sur un libellé coupé cache une adresse.
  */
-export function resumeBiensRattaches(libelles: readonly string[], max = BIENS_NOMMES_MAX): string {
+export const LONGUEUR_AVANT_VOIR_PLUS = 54;
+
+/** Ce que la ligne « Bien(s) rattaché(s) : » affiche, repliée. PUR. */
+export interface LignePremierBien {
+  /** Le libellé COMPLET du premier bien — jamais coupé ici : c'est le CSS qui met des points de suspension. */
+  premier: string;
+  /** Faut-il proposer « voir plus » ? Vrai dès qu'il y a un second bien, ou que le premier risque d'être coupé. */
+  voirPlus: boolean;
+  /** Combien de biens en tout. Zéro = la ligne dit « rien pour l'instant », comme avant ce lot. */
+  total: number;
+}
+
+export function lignePremierBien(
+  libelles: readonly string[], seuil = LONGUEUR_AVANT_VOIR_PLUS,
+): LignePremierBien {
+  // ⚠️ AUCUN LIBELLÉ VIDE : un blanc en tête ferait croire à un bien sans nom, et pousserait les autres hors de
+  //   vue. Ce qui n'a pas de nom n'a rien à montrer sur cette ligne — il reste dans le dépliage.
   const propres = libelles.map((l) => l.trim()).filter((l) => l !== '');
-  if (propres.length === 0) return 'aucun bien';
-  const nommes = propres.slice(0, Math.max(1, max));
-  const reste = propres.length - nommes.length;
-  return reste > 0 ? `${nommes.join(', ')}, +${reste}` : nommes.join(', ');
+  const premier = propres[0] ?? '';
+  return {
+    premier,
+    voirPlus: propres.length > 1 || premier.length > seuil,
+    total: propres.length,
+  };
 }
 
 /**

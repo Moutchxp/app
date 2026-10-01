@@ -289,6 +289,8 @@ function LigneResultat({ bien: b, coche, fige, onBasculer }: {
 }) {
   const commun = {
     cle: b.cle, libelle: b.libelle, adresse: null, commune: null, typeBien: b.typeBien,
+    // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la nature voyage avec le résultat : c'est elle qui décide de la catégorie.
+    nature: b.nature ?? null,
     adresseComplete: b.adresse, parties: b.parties, recommande: false, dejaRattache: false,
     cas: 'd' as const, certitude: 'a_trancher' as const,
   };

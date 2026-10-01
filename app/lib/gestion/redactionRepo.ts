@@ -134,6 +134,13 @@ function ciblesDe(brut: unknown): CibleBrouillon[] {
       cle: typeof c.cle === 'string' ? c.cle : null,
       id: typeof c.id === 'number' ? c.id : null,
       libelle: c.libelle,
+      /**
+       * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA CATÉGORIE, relue dans la colonne `jsonb` (aucune migration). Elle est
+       * vérifiée contre la liste fermée comme `sorte` : une valeur inconnue en base ne doit pas entrer dans le
+       * type. Absente ⇒ absente, et le résumé la compte comme « logement » (règle de `categorieBien`).
+       */
+      ...(c.categorie === 'logement' || c.categorie === 'parking' || c.categorie === 'cave'
+        ? { categorie: c.categorie } : {}),
     });
   }
   return out;

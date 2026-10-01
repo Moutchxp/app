@@ -1,43 +1,64 @@
 import { describe, it, expect } from 'vitest';
-import { BIENS_NOMMES_MAX, ligneCompacteDuBien, resumeBiensRattaches } from './classementBoutons';
+import { LONGUEUR_AVANT_VOIR_PLUS, ligneCompacteDuBien, lignePremierBien } from './classementBoutons';
 
 /**
- * ══ 🔴 LOT CLASSER-DEUX-BOUTONS — CE QUE LA CASE VERTE ET LA LIGNE DE RÉSULTAT ÉCRIVENT ═══════════════════════
+ * ══ 🔴 CE QUE LES ÉCRANS DE CLASSEMENT ÉCRIVENT ═══════════════════════════════════════════════════════════════
  *
- * Deux décisions d'affichage, éprouvées sans monter le moindre composant : combien de biens on nomme avant de
- * compter le reste, et comment se lit une ligne de recherche.
+ * Deux décisions d'affichage, éprouvées sans monter le moindre composant : ce que la ligne « Bien(s)
+ * rattaché(s) : » montre d'abord, et comment se lit une ligne de recherche.
+ *
+ * ⚠️ CE FICHIER ÉPROUVAIT AUSSI `resumeBiensRattaches` — la liste courte d'adresses SOUS le mot de la case verte
+ * (« A, B, +2 »). Elle a été RETIRÉE au lot CLASSER-SUR-CHAQUE-MAIL : Arno a coupé la question en deux, et
+ * chaque moitié a désormais sa place et ses épreuves — la case verte COMPTE (`resumeParCategorie`, dans
+ * `categorieBien.test.ts`), la ligne de gauche NOMME (ci-dessous). Rien n'est perdu, tout a déménagé.
  */
-describe('🔴 la liste courte des biens rattachés', () => {
-  it('un bien : son libellé, tel quel', () => {
-    expect(resumeBiensRattaches(['28 av. Marceau — lot 421'])).toBe('28 av. Marceau — lot 421');
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA LIGNE « BIEN(S) RATTACHÉ(S) : » ═════════════════════════════════════
+ *
+ * ARNO : « Affiche l'adresse complète du PREMIER bien (adresse — type — lot N). S'il y a plusieurs biens, ou si
+ * l'adresse est tronquée : un petit lien “voir plus” au bout. »
+ */
+describe('🔴🔴 ce que la ligne montre d’abord', () => {
+  const COURT = '4 rue Hugo — lot 12';
+  const LONG = '38-44 rue de la Vanne, 92120 MONTROUGE — Appartement meublé Type 3 — lot 418';
+
+  it('🔴 un seul bien court : son libellé entier, et AUCUN « voir plus »', () => {
+    expect(lignePremierBien([COURT])).toEqual({ premier: COURT, voirPlus: false, total: 1 });
   });
 
-  it('deux biens : les deux, séparés par une virgule', () => {
-    expect(resumeBiensRattaches(['A', 'B'])).toBe('A, B');
+  it('🔴 plusieurs biens : le PREMIER, et « voir plus »', () => {
+    const l = lignePremierBien([COURT, '2 rue Mars — lot 99']);
+    expect(l.premier).toBe(COURT);
+    expect(l.voirPlus).toBe(true);
+    expect(l.total).toBe(2);
   });
 
   /**
-   * 🔴 « +2 » COMPTE CE QU'ON NE MONTRE PAS, pas le total. « A, B, +2 » se lit « et deux autres » — la seule
-   * lecture utile. Écrire le total obligerait à soustraire de tête.
+   * 🔴 « OU SI L'ADRESSE EST TRONQUÉE » — et une troncature est un fait de MISE EN PAGE, que ce module ne peut
+   * pas connaître. On décide donc sur la LONGUEUR, seule chose dont on dispose. Le seuil est bas exprès : un
+   * « voir plus » de trop ne coûte qu'un lien ignoré ; un « voir plus » manquant cache une adresse.
    */
-  it('🔴 au-delà, « +N » compte le RESTE, jamais le total', () => {
-    expect(resumeBiensRattaches(['A', 'B', 'C', 'D'])).toBe('A, B, +2');
-    expect(resumeBiensRattaches(['A', 'B', 'C'])).toBe('A, B, +1');
+  it('🔴 un seul bien, mais long : « voir plus » quand même', () => {
+    expect(LONGUEUR_AVANT_VOIR_PLUS).toBe(54);
+    expect(LONG.length).toBeGreaterThan(LONGUEUR_AVANT_VOIR_PLUS);
+    expect(lignePremierBien([LONG]).voirPlus).toBe(true);
   });
 
-  it('aucun bien : un mot, jamais une chaîne vide', () => {
-    expect(resumeBiensRattaches([])).toBe('aucun bien');
+  it('⚠️ le seuil se règle, et il porte sur le libellé RENDU', () => {
+    expect(lignePremierBien([COURT], 5).voirPlus).toBe(true);
+    expect(lignePremierBien([LONG], 500).voirPlus).toBe(false);
   });
 
-  /** ⚠️ UN LIBELLÉ BLANC LAISSERAIT UNE VIRGULE ORPHELINE, qui se lit comme un bug. */
-  it('⚠️ les libellés vides sont écartés, pas affichés', () => {
-    expect(resumeBiensRattaches(['A', '   ', 'B'])).toBe('A, B');
-    expect(resumeBiensRattaches(['  '])).toBe('aucun bien');
+  it('aucun bien : rien à montrer, rien à déplier', () => {
+    expect(lignePremierBien([])).toEqual({ premier: '', voirPlus: false, total: 0 });
   });
 
-  it('le seuil est nommé, et au moins un bien est toujours montré', () => {
-    expect(BIENS_NOMMES_MAX).toBe(2);
-    expect(resumeBiensRattaches(['A', 'B', 'C'], 0)).toBe('A, +2');
+  /** ⚠️ UN LIBELLÉ BLANC NE PREND PAS LA PREMIÈRE PLACE : il pousserait les vrais hors de vue. */
+  it('⚠️ les libellés vides sont écartés, jamais affichés en tête', () => {
+    expect(lignePremierBien(['   ', COURT]).premier).toBe(COURT);
+    expect(lignePremierBien(['   ', COURT]).total).toBe(1);
+    expect(lignePremierBien(['  ']).total).toBe(0);
   });
 });
 
