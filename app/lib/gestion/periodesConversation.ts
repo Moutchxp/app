@@ -348,6 +348,19 @@ export function alerteTouteLaConversation(o: {
    mail en exception porte une petite mention “exception : <biens>” dans son en-tête. » */
 
 export interface RepereFil {
+  /**
+   * 🔴🔴 L'IDENTITÉ DE LA PÉRIODE QUI PRODUIT CETTE LIGNE — et c'est une correction, pas un confort.
+   *
+   * CONSTAT (02/10/2026, console du navigateur sur le fil 3490) : « Encountered two children with the same key,
+   * rep-57368. » PLUSIEURS périodes peuvent commencer au MÊME mail — ce fil en a trois sur le message 57368 : une
+   * posée par la reprise de la migration 290, deux posées à la main le même jour. L'écran les identifiait par le
+   * mail, donc par la même clé pour les trois : React prévient que des enfants peuvent être dupliqués ou OMIS,
+   * c'est-à-dire qu'une ligne « À partir d'ici » pouvait disparaître.
+   *
+   * ⚠️ `avantMessageId` NE PEUT PAS SERVIR D'IDENTITÉ, et c'est le fond de l'affaire : il dit OÙ la ligne se
+   * pose, pas QUI elle est. L'identifiant de la période, lui, est unique par construction.
+   */
+  id: number;
   /** Le mail AVANT lequel la ligne s'affiche. */
   avantMessageId: number;
   /** « 10 rue Chateaubriand — Parking », « Interne », « Hors gestion » — déjà composé. */
@@ -378,6 +391,7 @@ export function reperesDuFil(
     .filter((p) => (rang.get(p.depuisMessageId) ?? -1) > 0)
     .sort((a, b) => (rang.get(a.depuisMessageId) as number) - (rang.get(b.depuisMessageId) as number))
     .map((p) => ({
+      id: p.id,
       avantMessageId: p.depuisMessageId,
       versQuoi: motClassement(p.classement),
       parLibelle: p.parLibelle ?? null,

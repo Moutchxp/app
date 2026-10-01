@@ -330,8 +330,32 @@ describe('🔴 ⑧ les repères dans le fil', () => {
       { ...periode(2, 3, INTERNE), parLibelle: 'a.jorel', le: '2026-10-01' },
     ]);
     expect(r).toEqual([
-      { avantMessageId: 3, versQuoi: 'Interne', parLibelle: 'a.jorel', le: '2026-10-01' },
+      { id: 2, avantMessageId: 3, versQuoi: 'Interne', parLibelle: 'a.jorel', le: '2026-10-01' },
     ]);
+  });
+
+  /**
+   * ══ 🔴🔴 PLUSIEURS PÉRIODES PEUVENT COMMENCER AU MÊME MAIL — ET CHACUNE GARDE SON IDENTITÉ ══════════════════
+   *
+   * CONSTAT (02/10/2026, console du navigateur, fil 3490) : « Encountered two children with the same key,
+   * rep-57368. » Ce fil porte TROIS périodes vivantes sur le message 57368 — une posée par la reprise de la
+   * migration 290, deux posées à la main le même jour. L'écran les identifiait par le MAIL : trois lignes, une
+   * seule clé. React prévient alors que des enfants peuvent être dupliqués ou OMIS — autrement dit qu'une ligne
+   * « À partir d'ici » pouvait disparaître de l'écran sans que personne le sache.
+   *
+   * 🔴 `avantMessageId` DIT OÙ LA LIGNE SE POSE, PAS QUI ELLE EST. Seul l'identifiant de la période est unique.
+   */
+  it('🔴🔴 trois périodes sur le même mail rendent trois repères, à trois identités distinctes', () => {
+    const r = reperesDuFil([1, 2, 3], [
+      periode(17667, 2, bien('A')),
+      periode(23811, 2, bien('B')),
+      periode(23812, 2, bien('C')),
+    ]);
+    expect(r).toHaveLength(3);
+    expect(r.map((x) => x.avantMessageId)).toEqual([2, 2, 2]);
+    // 🔴 TROIS CLÉS DIFFÉRENTES : c'est tout ce que l'écran demande pour ne rien perdre.
+    expect(new Set(r.map((x) => x.id)).size).toBe(3);
+    expect(r.map((x) => x.id)).toEqual([17667, 23811, 23812]);
   });
 
   /** ⚠️ « À partir d'ici » EN TÊTE DE CONVERSATION NE SÉPARE RIEN : la première période n'a pas de repère. */

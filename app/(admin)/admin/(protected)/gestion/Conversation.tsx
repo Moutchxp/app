@@ -1072,7 +1072,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               vient du module PUR (`reperesDuFil`), qui écarte celle du premier mail : « À partir d'ici » en
               tête de conversation ne sépare rien. */}
           {reperes.filter((r) => r.avantMessageId === m.messageId).map((r) => (
-            <li className="cnv-repere" key={`rep-${r.avantMessageId}`}>
+            /* 🔴 LA CLÉ EST CELLE DE LA PÉRIODE, PAS CELLE DU MAIL : plusieurs périodes peuvent commencer au
+               même mail (le fil 3490 en a trois sur le 57368), et la clé du mail les confondait — React
+               prévenait que des lignes pouvaient être dupliquées ou OMISES. */
+            <li className="cnv-repere" key={`rep-${r.id}`}>
               <span className="cnv-repere-mot">À partir d’ici : {r.versQuoi}</span>
               {(r.parLibelle !== null || r.le !== null) && (
                 <span className="cnv-repere-qui">
