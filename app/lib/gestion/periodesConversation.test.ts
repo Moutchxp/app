@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  alerteTouteLaConversation, blocSuiviVisible, classementVide, effetDuChoix, mailsDuBien, motClassement,
+  alerteTouteLaConversation, blocSuiviVisible, classementVide, effetDuChoix, faceALaFenetre, mailsDuBien,
+  motClassement,
   periodeEnCours, projeter, reperesDuFil, reprendre, repriseFidele, SUIVI_DEFAUT,
   type Classement, type ExceptionMail, type Periode,
 } from './periodesConversation';
@@ -383,6 +384,40 @@ describe('🔴🔴 ⑨ reprendre l’existant sans rien perdre', () => {
 });
 
 /** 🔒 LE MODULE EST PUR : il ne connaît ni la base, ni l'horloge, ni l'écran. */
+/**
+ * ══ 🔴🔴 ⑩ LOT BULLE-INFO-ET-S12 — QUAND LA FENÊTRE ET L'EXPÉDITEUR SE CONTREDISENT ═══════════════════════════
+ *
+ * DÉCISION D'ARNO (01/10/2026), en réponse au scénario S12 : « La fenêtre gagne. Le mail est rattaché aux biens
+ * de la fenêtre. Si l'adresse de l'expéditeur désigne un AUTRE bien, ce bien devient une proposition DÉCOCHÉE. »
+ */
+describe('🔴🔴 ⑩ la fenêtre gagne', () => {
+  const fenetre = (...cles: string[]) => ({ sorte: 'biens' as const, biens: cles.map((c) => ({ cle: c, libelle: c })) });
+
+  it('🔴🔴 un bien que la fenêtre NE porte PAS se PROPOSE, il ne se confirme pas', () => {
+    expect(faceALaFenetre(fenetre('A'), 'C')).toBe('propose');
+  });
+
+  it('🔴 un bien que la fenêtre porte se confirme, comme avant', () => {
+    expect(faceALaFenetre(fenetre('A'), 'A')).toBe('confirme');
+    expect(faceALaFenetre(fenetre('A', 'B'), 'B')).toBe('confirme');
+  });
+
+  /** ⚠️ AUCUNE FENÊTRE ⇒ RIEN NE CHANGE : c'est le cas de l'immense majorité du courrier. */
+  it('🔴🔴 sans fenêtre, le comportement est EXACTEMENT celui d’avant', () => {
+    expect(faceALaFenetre(undefined, 'A')).toBe('confirme');
+  });
+
+  /** 🔴 UNE FENÊTRE « INTERNE » OU « HORS GESTION » NE PORTE AUCUN BIEN : tout bien y est « un autre bien ». */
+  it('🔴 sous une fenêtre « interne » ou « hors gestion », le moteur ne confirme rien', () => {
+    expect(faceALaFenetre({ sorte: 'interne', biens: [] }, 'A')).toBe('propose');
+    expect(faceALaFenetre({ sorte: 'hors_gestion', biens: [] }, 'A')).toBe('propose');
+  });
+
+  it('⚠️ une fenêtre vide ne confirme rien non plus', () => {
+    expect(faceALaFenetre({ sorte: 'biens', biens: [] }, 'A')).toBe('propose');
+  });
+});
+
 describe('🔒 module pur', () => {
   it('🔒 aucun import', async () => {
     const { readFileSync } = await import('node:fs');

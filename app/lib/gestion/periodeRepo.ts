@@ -105,6 +105,42 @@ function classementDe(sorte: string, biens: { cle: string; libelle: string }[] |
   return { sorte: 'biens', biens: biens ?? [] };
 }
 
+/**
+ * ══ 🔴🔴 LOT BULLE-INFO-ET-S12 — CE QUE LA FENÊTRE DIT DE CHAQUE MAIL, POUR TOUT UN PAQUET ════════════════════
+ *
+ * Le moteur de rattachement en a besoin pour appliquer la décision d'Arno : « la fenêtre gagne ». Il lit donc,
+ * pour les conversations qu'il examine, le classement projeté de chaque mail.
+ *
+ * ⚠️ DEUX REQUÊTES POUR TOUT LE PAQUET, jamais deux par mail : une passe en examine des centaines.
+ *
+ * ⚠️ SANS LA MIGRATION 290, RIEN N'EST NOMMÉ et la carte est VIDE : le moteur se comporte alors exactement comme
+ * avant cette règle, puisque `faceALaFenetre(undefined, …)` rend « confirme ».
+ */
+export async function classementParMail(filIds: readonly number[]): Promise<Map<number, Classement>> {
+  const parMail = new Map<number, Classement>();
+  if (filIds.length === 0 || !(await periodesDisponibles())) return parMail;
+  try {
+    const { rows: mails } = await query<{ fil_id: string; id: string }>(
+      `SELECT fil_id::text, id::text FROM gestion_message
+        WHERE fil_id = ANY($1::bigint[]) ORDER BY recu_le, id`, [filIds]);
+    const parFil = new Map<number, number[]>();
+    for (const m of mails) {
+      const f = Number(m.fil_id);
+      parFil.set(f, [...(parFil.get(f) ?? []), Number(m.id)]);
+    }
+    for (const [filId, liste] of parFil) {
+      const { periodes, exceptions } = await suiviDuFil(filId);
+      if (periodes.length === 0 && exceptions.length === 0) continue;
+      for (const [id, c] of projeter(liste, periodes, exceptions)) parMail.set(id, c);
+    }
+  } catch (e) {
+    // ⚠️ SILENCIEUX : une lecture en échec ne doit pas arrêter une passe de 37 000 liens. Sans carte, le moteur
+    //   retombe sur son comportement d'avant — jamais sur un comportement inventé.
+    console.error('[gestion/periodes] classement par mail illisible', e);
+  }
+  return parMail;
+}
+
 /** Les mails d'une conversation, DANS L'ORDRE DE LECTURE. C'est cet ordre qui range les périodes. */
 export async function mailsDuFil(filId: number): Promise<number[]> {
   const { rows } = await query<{ id: string }>(

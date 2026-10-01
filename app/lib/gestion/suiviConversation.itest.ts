@@ -480,47 +480,141 @@ describe('🔒 la projection pure et la base ne divergent jamais', () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   S12 — UN MAIL ENTRANT DONT L'EXPÉDITEUR DÉSIGNE UN AUTRE BIEN QUE LA FENÊTRE
+   🔴🔴 S12 — UN MAIL ENTRANT DONT L'EXPÉDITEUR DÉSIGNE UN AUTRE BIEN QUE LA FENÊTRE : LA FENÊTRE GAGNE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('S12 — fenêtre ou expéditeur ? (description, pas de correction)', () => {
-  /**
-   * 📋 CE QU'ON DÉCRIT, ET DANS L'ORDRE OÙ LA RELÈVE LE FAIT (voir `suiteReleveReel`) :
-   *   ① `heriterLesNouveauxMails` — la fenêtre en cours est projetée sur les mails neufs ;
-   *   ② `examinerFilsPrecis` — le moteur de rattachement examine le fil et pose ce que les ADRESSES disent.
-   * Les deux écrivent dans `gestion_rattachement`, et aucun ne retire ce que l'autre a posé (depuis le correctif
-   * du scénario S11). La question pour Arno est donc : que doit-il rester à l'écran quand les deux ne disent pas
-   * la même chose ?
-   */
-  it('📋 ce que le code fait réellement', async () => {
-    const { filId, mails } = await conversation(3);
-    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
-
-    // Un mail arrive. Le moteur de rattachement, lui, le rattacherait au LOT-C (son expéditeur est le locataire
-    //   du LOT-C) : on écrit donc le lien tel que le moteur l'écrirait.
+/**
+ * ⚠️ CE BLOC N'ÉPROUVE PAS UN MODULE PUR, IL ÉPROUVE LA RELÈVE. Il enchaîne, DANS SON ORDRE :
+ *   ① `heriterLesNouveauxMails` — la fenêtre en cours est projetée sur les mails neufs ;
+ *   ② `examinerFilsPrecis` — le VRAI moteur de rattachement, qui lit `gestion_message_adresse` et décide.
+ * Écrire le lien d'expéditeur « à la main » au lieu d'appeler le moteur prouverait seulement que l'épreuve sait
+ * écrire une ligne. Ce qu'Arno veut savoir est ce que fait la RELÈVE, et c'est donc elle qu'on appelle.
+ */
+describe('🔴🔴 S12 — la fenêtre gagne, l’expéditeur devient une proposition décochée', () => {
+  /** Un mail qui arrive dans la conversation, dont l'adresse d'expéditeur est RECONNUE comme locataire d'un bien. */
+  async function mailEntrant(filId: number, lotDeLExpediteur: string): Promise<number> {
     const { rows } = await query<{ id: string }>(
       `INSERT INTO gestion_message (fil_id, message_id, sens, de_adresse, recu_le, objet)
-       VALUES ($1, $2, 'recu', 'locataire-c@example.test', '2026-01-09T09:00:00Z', 'Mail fictif entrant')
-       RETURNING id::text`, [filId, `entrant-${filId}`]);
-    const entrant = Number(rows[0].id);
+       VALUES ($1, $2, 'recu', $3, '2026-01-09T09:00:00Z', 'Mail fictif entrant') RETURNING id::text`,
+      [filId, `entrant-${filId}-${lotDeLExpediteur}`, `locataire-${lotDeLExpediteur}@example.test`]);
+    const id = Number(rows[0].id);
+    // La reconnaissance d'adresse telle que la relève l'écrit : cette personne est la locataire de ce bien.
+    await query(
+      `INSERT INTO gestion_message_adresse
+         (message_id, adresse, role, interne, partie, lot_cle, motif)
+       VALUES ($1, $2, 'expediteur', false, 'locataire', $3, 'locataire en place à la date du mail')`,
+      [id, `locataire-${lotDeLExpediteur}@example.test`, lotDeLExpediteur]);
+    return id;
+  }
 
-    // ① la fenêtre hérite…
+  /** La relève, dans son ordre : la fenêtre hérite, puis le moteur examine le fil entier. */
+  async function releve(filId: number): Promise<void> {
     await heriterLesNouveauxMails(filId, AUTEUR);
-    const apresFenetre = rangs(mails.concat(entrant), await historique(filId, 'LOT-A'));
-    // ② …puis le moteur pose ce que l'adresse dit.
-    await rattacher({
-      messageId: entrant, cible: { sorte: 'lot', cle: 'LOT-C', id: null },
-      auteur: { id: null, libelle: 'moteur de rattachement' },
-      motif: 'locataire en place à la date du mail',
+    const { examinerFilsPrecis, chargerLibelles, COMPTES_VIDES } = await import('./rattachementRepo');
+    await examinerFilsPrecis([filId], await chargerLibelles(), { ...COMPTES_VIDES }, true);
+  }
+
+  /**
+   * LES LIENS VIVANTS d'un bien sur un mail précis, sous la forme « statut (origine) ».
+   *
+   * ⚠️ ON NE FILTRE PAS SUR L'ORIGINE, et c'est ce qui rend l'attendu honnête : quand la fenêtre a DÉJÀ posé le
+   * bien (`origine = 'manuel'`), le moteur n'en pose pas un second — il respecte la ligne existante. Un attendu
+   * qui n'aurait regardé que les lignes « automatique » aurait conclu « aucun lien » là où il y en a un.
+   */
+  async function liens(messageId: number, cle: string): Promise<string[]> {
+    const { rows } = await query<{ statut: string; origine: string }>(
+      `SELECT statut, origine FROM gestion_rattachement
+        WHERE message_id = $1 AND cible_cle = $2 AND piece_id IS NULL
+          AND statut IN ('propose', 'confirme') ORDER BY id`, [messageId, cle]);
+    return rows.map((r) => `${r.statut} (${r.origine})`);
+  }
+
+  /**
+   * 🔴🔴 LA DÉCISION D'ARNO (01/10/2026), MOT POUR MOT : « Un mail entrant dans une conversation qui a une fenêtre
+   * en cours : la FENÊTRE GAGNE. Le mail est rattaché aux biens de la fenêtre. Si l'adresse de l'expéditeur désigne
+   * un AUTRE bien, ce bien devient une proposition DÉCOCHÉE (pas de lien confirmé). »
+   *
+   * ⚠️ AVANT CE LOT, LES DEUX LIENS ÉTAIENT CONFIRMÉS et le mail apparaissait dans DEUX historiques de biens.
+   */
+  it('🔴🔴 l’autre bien est PROPOSÉ, pas confirmé — et le bien de la fenêtre l’est', async () => {
+    const { filId, mails } = await conversation(3);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    const entrant = await mailEntrant(filId, 'LOT-C');
+
+    await releve(filId);
+
+    // ① LE MAIL EST DANS L'HISTORIQUE DU BIEN DE LA FENÊTRE.
+    expect(await historique(filId, 'LOT-A')).toContain(entrant);
+    // ② IL N'EST PAS DANS CELUI DU BIEN DE L'EXPÉDITEUR…
+    expect(await historique(filId, 'LOT-C')).toEqual([]);
+    // ③ …mais le bien de l'expéditeur est bien là, PROPOSÉ : rien n'est perdu, c'est à un clic.
+    expect(await liens(entrant, 'LOT-C')).toEqual(['propose (automatique)']);
+  });
+
+  /** ⚠️ L'AUTRE MOITIÉ DE LA RÈGLE : quand les deux disent la même chose, le lien se CONFIRME, comme avant. */
+  it('⚠️ quand l’expéditeur désigne le bien de la fenêtre, le lien est confirmé', async () => {
+    const { filId, mails } = await conversation(3);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-C'), choix: 'suite', auteur: AUTEUR });
+    const entrant = await mailEntrant(filId, 'LOT-C');
+
+    await releve(filId);
+
+    expect(await historique(filId, 'LOT-C')).toContain(entrant);
+    // 🔴 UN SEUL LIEN, CONFIRMÉ : celui que la fenêtre a posé. Le moteur l'a RESPECTÉ au lieu d'en poser un second.
+    expect(await liens(entrant, 'LOT-C')).toEqual(['confirme (manuel)']);
+  });
+
+  /**
+   * 🔴 LE COURRIER ORDINAIRE NE CHANGE PAS. Sans aucune fenêtre, le moteur confirme comme il l'a toujours fait —
+   * c'est le cas de l'immense majorité des mails, et la décision d'Arno ne doit rien y toucher.
+   */
+  it('🔴 sans fenêtre, le lien d’expéditeur reste confirmé (aucune régression)', async () => {
+    const { filId } = await conversation(2);
+    const entrant = await mailEntrant(filId, 'LOT-C');
+
+    await releve(filId);
+
+    expect(await historique(filId, 'LOT-C')).toContain(entrant);
+    expect(await liens(entrant, 'LOT-C')).toEqual(['confirme (automatique)']);
+  });
+
+  /**
+   * 🔴 ET UNE FENÊTRE « INTERNE » OU « HORS GESTION » NE CONFIRME RIEN NON PLUS. Elle dit que l'échange ne concerne
+   * aucun bien : confirmer le bien de l'expéditeur par-dessus serait la contredire.
+   */
+  it('🔴 une fenêtre « interne » laisse le bien de l’expéditeur en proposition', async () => {
+    const { filId, mails } = await conversation(3);
+    await poserClassement({ filId, messageId: mails[0], classement: INTERNE, choix: 'suite', auteur: AUTEUR });
+    const entrant = await mailEntrant(filId, 'LOT-C');
+
+    await releve(filId);
+
+    expect(await historique(filId, 'LOT-C')).toEqual([]);
+    expect(await liens(entrant, 'LOT-C')).toEqual(['propose (automatique)']);
+  });
+
+  /**
+   * 🔴🔴 ET LE GESTE HUMAIN RESTE SOUVERAIN. Si une personne a confirmé le bien de l'expéditeur, une passe du
+   * moteur ne le remet pas en proposition — c'est la règle ① d'`ecrireLienMoteur`, et S12 ne l'entame pas.
+   */
+  it('🔴🔴 un lien confirmé PAR UNE PERSONNE n’est pas remis en proposition', async () => {
+    const { filId, mails } = await conversation(3);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    const entrant = await mailEntrant(filId, 'LOT-C');
+    await releve(filId);
+    expect(await liens(entrant, 'LOT-C')).toEqual(['propose (automatique)']);
+
+    // Arno regarde le mail et confirme le bien de l'expéditeur : c'est lui qui a vu le mail, pas la fenêtre.
+    const { rows } = await query<{ id: string }>(
+      `SELECT id::text FROM gestion_rattachement
+        WHERE message_id = $1 AND cible_cle = 'LOT-C' AND piece_id IS NULL`, [entrant]);
+    await changerStatut({
+      lienId: Number(rows[0].id), statut: 'confirme',
+      auteur: { id: null, libelle: 'a.jorel@example.test' }, motif: 'vu le mail',
     });
 
-    const a = await historique(filId, 'LOT-A');
-    const c = await historique(filId, 'LOT-C');
-    console.log(`S12 — mail entrant : LOT-A(fenêtre)=${a.includes(entrant)} LOT-C(expéditeur)=${c.includes(entrant)}`
-      + `  — après la seule fenêtre : ${JSON.stringify(apresFenetre)}`);
-
-    // 📋 LE FAIT, SANS JUGEMENT : les DEUX liens coexistent sur le mail entrant.
-    expect(a).toContain(entrant);
-    expect(c).toContain(entrant);
+    await releve(filId);   // une 2e passe de la relève : elle ne doit RIEN défaire
+    expect(await historique(filId, 'LOT-C')).toContain(entrant);
+    expect(await historique(filId, 'LOT-A')).toContain(entrant);
   });
 });

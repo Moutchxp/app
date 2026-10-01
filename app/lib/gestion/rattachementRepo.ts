@@ -23,6 +23,9 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 // 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — l'annuaire des personnes, pour le cas (e).
 import { chargerAnnuaireContenu } from './annuaireContenuRepo';
+// 🔴🔴 LOT BULLE-INFO-ET-S12 — « la fenêtre gagne ». La RÈGLE est pure ; la carte des fenêtres vient de
+//   `periodeRepo`, qui importe ce fichier-ci — on la charge donc à la demande, comme le fait déjà la relève.
+import { faceALaFenetre } from './periodesConversation';
 // 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — le corps à fouiller : le texte, ou le HTML rendu en texte.
 import { corpsLisible } from './htmlMail';
 import { CORPS_CHERCHABLE_MAX } from './propositionsBien';
@@ -432,6 +435,14 @@ async function examinerLePaquet(
    * Sans lui, le cas (e) ne joue pas et la passe se comporte exactement comme avant ce lot.
    */
   const contenu = await chargerAnnuaireContenu();
+  /**
+   * 🔴🔴 LOT BULLE-INFO-ET-S12 — CE QUE LA FENÊTRE DE CHAQUE CONVERSATION DIT DE CHAQUE MAIL.
+   *
+   * DÉCISION D'ARNO (01/10/2026) : « La fenêtre gagne. Si l'adresse de l'expéditeur désigne un AUTRE bien, ce
+   * bien devient une proposition DÉCOCHÉE. » Sans la migration 290, la carte est vide et rien ne change.
+   */
+  const { classementParMail } = await import('./periodeRepo');
+  const fenetres = await classementParMail(paquet.fils);
   for (const m of paquet.messages) {
     const examen = examinerMessage({
       messageId: m.id,
@@ -463,10 +474,17 @@ async function examinerLePaquet(
      * portent sur une AUTRE personne que celle qui écrit, et restent donc à côté du lien confirmé, en
      * propositions décochées. (Avant ce lot, `candidats` était toujours vide quand `certain` existait.)
      */
+    /**
+     * 🔴🔴 ET C'EST ICI QUE LA FENÊTRE L'EMPORTE. Un bien CERTAIN d'après l'adresse ne se confirme que si la
+     * fenêtre de la conversation le porte aussi ; sinon il se PROPOSE, décoché. La règle est décidée par le
+     * module pur (`faceALaFenetre`), qui rend « confirme » dès qu'aucune fenêtre ne couvre le mail — donc pour
+     * l'immense majorité du courrier, où rien ne change.
+     */
     const aEcrire: { cand: Candidat; statut: 'propose' | 'confirme' }[] =
       examen.certain !== null
-        ? [{ cand: examen.certain, statut: 'confirme' as const },
-          ...examen.candidats.map((cand) => ({ cand, statut: 'propose' as const }))]
+        ? [{ cand: examen.certain,
+          statut: faceALaFenetre(fenetres.get(m.id), examen.certain.cible.cle ?? '') },
+        ...examen.candidats.map((cand) => ({ cand, statut: 'propose' as const }))]
         : examen.candidats.map((cand) => ({ cand, statut: 'propose' as const }));
 
     if (!appliquer) {

@@ -143,6 +143,40 @@ export function mailsDuBien(
  * 🔴 « JAMAIS D'UNE EXCEPTION » EST LA MOITIÉ QUI COMPTE. Une exception dit « ce mail-là, et pas les autres » :
  * la propager au suivant la transformerait en période, c'est-à-dire en l'exact contraire de ce qu'on a demandé.
  */
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT BULLE-INFO-ET-S12 — QUAND LA FENÊTRE ET L'EXPÉDITEUR NE DISENT PAS LA MÊME CHOSE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   LA QUESTION, POSÉE PAR LE SCÉNARIO S12 du lot PREUVE-SUIVI-CONVERSATION : un mail arrive dans une conversation
+   qui a une fenêtre en cours, et l'adresse de son expéditeur désigne un AUTRE bien. Les deux liens coexistaient,
+   sans que rien ne dise lequel faisait foi.
+
+   🔴🔴 DÉCISION D'ARNO (01/10/2026) : « LA FENÊTRE GAGNE. Le mail est rattaché aux biens de la fenêtre. Si
+   l'adresse de l'expéditeur désigne un AUTRE bien, ce bien devient une proposition DÉCOCHÉE (pas de lien
+   confirmé). »
+
+   🔴 POURQUOI C'EST LA BONNE RÉPONSE, et pas l'inverse. Une fenêtre est une décision HUMAINE, prise en lisant la
+   conversation : quelqu'un a dit « à partir d'ici, cet échange parle de ce logement ». Une adresse d'expéditeur
+   est une déduction du moteur — juste la plupart du temps, mais déduite. Entre une décision et une déduction, la
+   décision l'emporte ; et la déduction n'est pas jetée pour autant, elle attend un clic.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * CE QU'IL FAUT FAIRE D'UN BIEN QUE L'EXPÉDITEUR DÉSIGNE, pour un mail couvert (ou non) par une fenêtre. PUR.
+ *
+ * ⚠️ `undefined` = AUCUNE FENÊTRE NE COUVRE CE MAIL, et c'est le cas de l'immense majorité du courrier : on rend
+ * alors `confirme`, c'est-à-dire exactement le comportement d'avant cette règle.
+ *
+ * ⚠️ UNE FENÊTRE « INTERNE » OU « HORS GESTION » NE PORTE AUCUN BIEN : tout bien que l'expéditeur désigne y est
+ * donc « un autre bien », et se propose. C'est cohérent — quelqu'un a dit que cet échange ne concernait aucun
+ * logement ; le moteur n'a pas à le contredire tout seul.
+ */
+export function faceALaFenetre(fenetre: Classement | undefined, cle: string): 'confirme' | 'propose' {
+  if (fenetre === undefined) return 'confirme';
+  if (fenetre.sorte !== 'biens') return 'propose';
+  return fenetre.biens.some((b) => b.cle === cle) ? 'confirme' : 'propose';
+}
+
 export function periodeEnCours(
   mails: readonly number[], periodes: readonly Periode[],
 ): Periode | null {
