@@ -8,7 +8,7 @@ import {
 /**
  * ══ 🔴🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — LE DOSSIER « DOCUMENTS AUTOMATIQUES » D'UNE FICHE ════════════════════
  *
- * DÉCISION D'ARNO (02/10/2026) : « Dans chaque fiche propriétaire et locataire, une section “Documents
+ * DÉCISION D'ARNO (01/10/2026) : « Dans chaque fiche propriétaire et locataire, une section “Documents
  * automatiques” : le nombre, une liste par date décroissante (date, sous-type lisible, objet), un filtre par
  * sous-type et par année, un clic ouvre le mail. »
  *

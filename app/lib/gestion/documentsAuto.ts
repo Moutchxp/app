@@ -1,7 +1,7 @@
 /**
  * ══ 🔴🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — À QUI EST DESTINÉ CE DOCUMENT ? ════════════════════════════════════════
  *
- * DÉCISION D'ARNO (02/10/2026) : « Les documents automatiques ne se rangent PAS par bien mais par PERSONNE : une
+ * DÉCISION D'ARNO (01/10/2026) : « Les documents automatiques ne se rangent PAS par bien mais par PERSONNE : une
  * fiche propriétaire (quel que soit le nombre de personnes dedans) ou une fiche locataire. »
  *
  * ═══ CE QU'UNE « FICHE » EST, ET POURQUOI C'EST LA BONNE UNITÉ ══════════════════════════════════════════════════

@@ -2,11 +2,15 @@
 -- 291 — LOT DOCUMENTS-AUTO-PAR-FICHE : UN DOCUMENT AUTOMATIQUE SE RANGE CHEZ UNE PERSONNE, PAS DANS UN LOGEMENT
 -- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 --
--- 🔴🔴 ⚠️ MIGRATION LIVRÉE **NON APPLIQUÉE**. Elle desserre une contrainte posée après un incident réel : elle ne
--- s'applique QUE sur accord explicite d'Arno. Rien dans le code ne l'exige pour fonctionner — sans elle, la sonde
--- `documentsAutoDisponible()` rend « non », aucune section ne s'affiche, et tout se comporte comme avant.
+-- 🔴🔴 ⚠️ LIVRÉE NON APPLIQUÉE, PUIS **APPLIQUÉE LE 01/10/2026 SUR ACCORD EXPLICITE D'ARNO**. Elle desserre une
+-- contrainte posée après un incident réel, et c'est pourquoi son application a été demandée, jamais décidée ici.
+-- Rien dans le code ne l'exige pour fonctionner : sans elle, la sonde `documentsAutoDisponible()` rend « non »,
+-- aucune section ne s'affiche, et tout se comporte comme avant.
 --
--- ═══ DÉCISION D'ARNO (02/10/2026) ═══════════════════════════════════════════════════════════════════════════════
+-- ⚠️ ET ELLE A ÉTÉ APPLIQUÉE **DEUX FOIS**, parce que la première écriture de son verrou ne tenait pas : lire le
+-- bloc « coalesce » du point ② — c'est la leçon la plus importante de ce fichier.
+--
+-- ═══ DÉCISION D'ARNO (01/10/2026) ═══════════════════════════════════════════════════════════════════════════════
 --
 -- « Les documents automatiques ne se rangent PAS par bien mais par PERSONNE : une fiche propriétaire (quel que
 -- soit le nombre de personnes dedans) ou une fiche locataire. »
@@ -66,12 +70,24 @@ ALTER TABLE gestion_rattachement ADD CONSTRAINT gestion_rattachement_cible_chk
 -- ── ② LA PORTE ÉTROITE ET NOMMÉE ────────────────────────────────────────────────────────────────────────────────
 -- 🔴 LIRE CETTE CONTRAINTE COMME UNE PHRASE : « un lien vivant vise un bien ou un événement ; sauf s'il est mort ;
 --    sauf s'il vise une fiche ET qu'il est, explicitement, un document automatique ».
+--
+-- 🔴🔴 `coalesce(regle, '')` ET NON `regle = …` — LE PIÈGE QUI A FAIT PASSER LE VERROU À L'ESSAI.
+--
+-- MESURÉ À L'APPLICATION (01/10/2026) : la première écriture de cette contrainte employait `regle =
+-- 'document_auto'`. Un essai d'intrusion — insérer un lien vivant vers un propriétaire SANS règle — EST PASSÉ.
+-- La cause est la logique à TROIS valeurs de SQL : avec `regle` à NULL, la comparaison rend NULL, donc
+-- `false OR false OR NULL` rend NULL — et une contrainte CHECK ACCEPTE la ligne quand elle rend NULL. Autrement
+-- dit, il suffisait d'OMETTRE la règle pour contourner la seule serrure du verrou.
+--
+-- ⚠️ C'EST LE DÉFAUT LE PLUS DANGEREUX DE TOUTE CETTE MIGRATION, et il ne se voit pas à la lecture : la
+-- contrainte se LIT juste. `coalesce` la rend bivalente, et l'essai d'intrusion ci-dessous est devenu un test.
 ALTER TABLE gestion_rattachement DROP CONSTRAINT IF EXISTS gestion_rattachement_cible_bien_chk;
 ALTER TABLE gestion_rattachement ADD CONSTRAINT gestion_rattachement_cible_bien_chk
   CHECK (
     cible_sorte = ANY (ARRAY['lot'::text, 'evenement'::text])
     OR statut = ANY (ARRAY['rejete'::text, 'retire'::text])
-    OR (cible_sorte = ANY (ARRAY['proprietaire'::text, 'locataire'::text]) AND regle = 'document_auto')
+    OR (cible_sorte = ANY (ARRAY['proprietaire'::text, 'locataire'::text])
+        AND coalesce(regle, '') = 'document_auto')
   );
 
 -- ── ③ LIRE LES DOCUMENTS D'UNE FICHE ────────────────────────────────────────────────────────────────────────────

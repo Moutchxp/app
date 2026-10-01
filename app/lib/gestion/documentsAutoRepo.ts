@@ -134,7 +134,21 @@ export async function rangerLesDocuments(o: {
   return c;
 }
 
-/** Pose le lien d'un document vers sa fiche. Idempotent : repasser ne crée pas de doublon. */
+/**
+ * Pose le lien d'un document vers sa fiche. Idempotent : repasser ne crée pas de doublon.
+ *
+ * 🔴🔴 LE `NOT EXISTS` NE REGARDE QUE LES LIENS **VIVANTS**, ET CE DÉTAIL A COÛTÉ 7 330 DOCUMENTS.
+ *
+ * MESURÉ À LA PREMIÈRE APPLICATION (01/10/2026) : 23 510 fiches certaines, mais 16 180 liens écrits
+ * seulement. Cause : 8 943 de ces documents portaient déjà un lien « fiche » **retiré** le 28/09 par la
+ * conversion de masse vers les biens (`statut_par_libelle = 'conversion règle bien 28/09'`, aucun geste
+ * humain). Le garde, qui ne filtrait pas le statut, prenait ce lien MORT pour une présence et sautait le
+ * document — qui n'apparaissait alors dans aucune fiche, puisque la lecture ne retient que les vivants.
+ *
+ * ⚠️ UN LIEN RETIRÉ EST UN HISTORIQUE, PAS UNE PRÉSENCE. C'est d'ailleurs exactement ce que dit la table :
+ * son unique contrainte d'unicité (`gestion_rattachement_vivant_idx`) est PARTIELLE sur
+ * `statut IN ('propose','confirme')`. Le garde s'aligne donc sur elle, ni plus large ni plus étroit.
+ */
 async function poserLien(d: DocumentARanger, f: FicheDestinataire, auteur: string): Promise<number> {
   return withTransaction(async (q) => {
     const { rowCount } = await q(
@@ -145,7 +159,8 @@ async function poserLien(d: DocumentARanger, f: FicheDestinataire, auteur: strin
         WHERE NOT EXISTS (
           SELECT 1 FROM gestion_rattachement r
            WHERE r.message_id = $1 AND r.cible_sorte = $2 AND coalesce(r.cible_cle,'') = $3
-             AND coalesce(r.piece_id, 0) = 0)`,
+             AND coalesce(r.piece_id, 0) = 0
+             AND r.statut IN ('propose', 'confirme'))`,
       [d.messageId, f.sorte, f.cle, f.libelle, REGLE_DOCUMENT_AUTO,
         `document automatique adressé à ${f.libelle}`, auteur]);
     return rowCount ?? 0;

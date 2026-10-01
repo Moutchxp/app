@@ -8,7 +8,7 @@ import {
 /**
  * ══ 🔴🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — UN DOCUMENT SE RANGE CHEZ UNE PERSONNE ════════════════════════════════
  *
- * DÉCISION D'ARNO (02/10/2026) : « Les documents automatiques ne se rangent PAS par bien mais par PERSONNE : une
+ * DÉCISION D'ARNO (01/10/2026) : « Les documents automatiques ne se rangent PAS par bien mais par PERSONNE : une
  * fiche propriétaire (quel que soit le nombre de personnes dedans) ou une fiche locataire. […] Seuls les
  * documents dont la fiche destinataire est CERTAINE sont rangés automatiquement. »
  *
@@ -233,14 +233,38 @@ describe('🔒 ⑤ aucun lien vers un bien, aucune fenêtre de conversation touc
   it('🔴🔴 la migration n’autorise une fiche QUE sous la règle « document_auto »', () => {
     const c = migration.replace(/\s+/g, ' ');
     expect(c).toContain("cible_sorte = ANY (ARRAY['lot'::text, 'evenement'::text])");
-    expect(c).toContain("AND regle = 'document_auto'");
+    expect(c).toContain("AND coalesce(regle, '') = 'document_auto'");
     // 🔴 ET LE VERROU RESTE : sans la règle, une fiche vivante est toujours refusée.
     expect(c).toContain("statut = ANY (ARRAY['rejete'::text, 'retire'::text])");
   });
 
-  it('🔴 elle est livrée NON APPLIQUÉE, et le dit en toutes lettres', () => {
+  /**
+   * ══ 🔴🔴 LE TEST QUI VIENT D'UN VERROU QUI N'A PAS TENU ═══════════════════════════════════════════════════════
+   *
+   * MESURÉ LE 01/10/2026, À LA PREMIÈRE APPLICATION : la contrainte s'écrivait `AND regle = 'document_auto'`, et
+   * un essai d'intrusion — un lien VIVANT vers un propriétaire, SANS règle — **est passé** (`INSERT 0 1`).
+   *
+   * La cause est la logique à TROIS valeurs de SQL : `regle` à NULL rend la comparaison NULL, donc l'expression
+   * entière rend `false OR false OR NULL` = NULL — et une contrainte CHECK **ACCEPTE** une ligne dont l'expression
+   * rend NULL. Il suffisait donc d'OMETTRE la règle pour ouvrir le verrou en grand.
+   *
+   * ⚠️ CE TEST INTERDIT LA FORME NUE, pas seulement il n'exige la bonne : les deux assertions ne disent pas la
+   * même chose, et c'est la seconde qui empêche la régression. La contrainte doit rester BIVALENTE.
+   */
+  it('🔴🔴 son verrou est BIVALENT : la forme nue « regle = … », qui laissait passer un NULL, est interdite', () => {
+    const c = migration.replace(/\s+/g, ' ');
+    const verrou = c.slice(c.indexOf('ADD CONSTRAINT gestion_rattachement_cible_bien_chk'));
+    const corps = verrou.slice(0, verrou.indexOf(');') + 2);
+    expect(corps).toContain("coalesce(regle, '') = 'document_auto'");
+    expect(corps).not.toContain('AND regle =');
+  });
+
+  it('🔴 elle porte la trace de l’accord d’Arno et de sa date d’application', () => {
     expect(migration).toContain('NON APPLIQUÉE');
-    expect(migration).toContain('accord');
+    // ⚠️ Sans casse : le mot « accord » est écrit en capitales dans le bandeau, et ce test n'a pas à en dépendre.
+    expect(migration.toLowerCase()).toContain('accord');
+    // 🔴 APPLIQUÉE le 01/10/2026 : la trace reste dans le fichier, elle ne s'effacera pas avec la mémoire.
+    expect(migration).toContain('APPLIQUÉE LE 01/10/2026');
   });
 
   it('🔴🔴 le rangement n’écrit JAMAIS un lien vers un bien', () => {
@@ -248,6 +272,24 @@ describe('🔒 ⑤ aucun lien vers un bien, aucune fenêtre de conversation touc
     expect(insert).toContain("REGLE_DOCUMENT_AUTO");
     expect(insert).not.toContain("'lot'");
     expect(REGLE_DOCUMENT_AUTO).toBe('document_auto');
+  });
+
+  /**
+   * ══ 🔴🔴 UN LIEN RETIRÉ EST UN HISTORIQUE, PAS UNE PRÉSENCE — LE DÉFAUT QUI A COÛTÉ 7 330 DOCUMENTS ═══════════
+   *
+   * MESURÉ LE 01/10/2026 : 23 510 fiches certaines, 16 180 liens écrits. Les 7 330 manquants portaient déjà un
+   * lien « fiche » **retiré** le 28/09 par la conversion de masse vers les biens — aucun geste humain. Le garde
+   * d'idempotence, qui ne regardait pas le statut, prenait ce lien MORT pour une présence et sautait le document :
+   * il n'apparaissait alors dans AUCUNE fiche, puisque la lecture ne retient que les vivants.
+   *
+   * ⚠️ L'ÉTALON EST LA TABLE ELLE-MÊME : son unique contrainte d'unicité (`gestion_rattachement_vivant_idx`) est
+   * PARTIELLE sur `statut IN ('propose','confirme')`. Le garde doit s'aligner sur elle, ni plus large ni plus
+   * étroit — plus large, il perd des documents ; plus étroit, il viole l'index.
+   */
+  it('🔴🔴 le garde d’idempotence ne regarde que les liens VIVANTS', () => {
+    const insert = repo.slice(repo.indexOf('async function poserLien'));
+    const garde = insert.slice(insert.indexOf('WHERE NOT EXISTS')).replace(/\s+/g, ' ');
+    expect(garde).toContain("r.statut IN ('propose', 'confirme')");
   });
 
   /**
