@@ -117,7 +117,13 @@ export type Destination =
   | { sorte: 'proprietaire'; cle: string }
   | { sorte: 'non_rattache'; annee: string; mois: string };
 
-export type Regle = 'a' | 'b' | 'c' | 'd';
+/**
+ * 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — (e) EST ARRIVÉE AVEC LE CINQUIÈME CAS du moteur de propositions : « le
+ * texte nomme quelqu'un de l'annuaire ». Le TRI DES PIÈCES ne l'émet pas (il n'a que ses quatre règles) ; le type
+ * est partagé parce que `gestion_rattachement.regle` l'est — et la base ne contraint pas cette colonne, donc
+ * aucune migration n'est nécessaire.
+ */
+export type Regle = 'a' | 'b' | 'c' | 'd' | 'e';
 export type Confiance = 'haute' | 'moyenne' | 'basse';
 
 export interface Decision {

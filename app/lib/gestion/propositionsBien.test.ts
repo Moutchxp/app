@@ -326,3 +326,92 @@ describe('l’échange comme second souffle', () => {
     expect(r.propositions.map((p) => p.cle)).toEqual(['445']);
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — LE CAS (e), ET SA RÈGLE ABSOLUE ═════════════════════════════════════
+ *
+ * ARNO (01/10/2026) : « Une correspondance trouvée dans le CONTENU (et pas dans l'adresse de l'expéditeur ou des
+ * destinataires) ne rattache JAMAIS le mail automatiquement : jamais de statut “Auto”, jamais de lien confirmé,
+ * jamais d'héritage de période ; dans la modale, ces propositions apparaissent DÉCOCHÉES. »
+ */
+describe('🔴🔴 (e) le texte nomme quelqu’un de l’annuaire', () => {
+  const CHAKROUN = {
+    cle: 'locataire|106', role: 'locataire' as const, nom: 'CHAKROUN Zahra',
+    emails: ['zahrachakroun@gmail.com'], telephones: [], lots: ['295'],
+  };
+  const CONTENU = { personnes: [CHAKROUN] };
+  const MOTIF = { corps: 'Motif de l’opération : LOYER ZAHRA CHAKROUN oct 2026' };
+
+  it('🔴 le bien de la personne nommée est proposé, avec l’extrait réel', () => {
+    const r = proposerBiens({ adresses: [], textes: MOTIF, biens: [bien('295')], contenu: CONTENU });
+    expect(r.propositions.map((p) => p.cle)).toEqual(['295']);
+    expect(r.propositions[0].motif).toContain('trouvé dans le contenu du mail');
+    expect(r.propositions[0].motif).toContain('LOYER ZAHRA CHAKROUN');
+  });
+
+  /** 🔴🔴 LA RÈGLE ABSOLUE, ÉPROUVÉE DE TROIS FAÇONS : décoché, à trancher, et jamais « automatique ». */
+  it('🔴🔴 JAMAIS cochée, JAMAIS quasi certaine, JAMAIS automatique — même toute seule', () => {
+    const r = proposerBiens({ adresses: [], textes: MOTIF, biens: [bien('295')], contenu: CONTENU });
+    expect(r.propositions[0]).toMatchObject({ cas: 'e', certitude: 'a_trancher', preCoche: false });
+    expect(r.issue).toBe('a_trancher');
+    expect(r.issue).not.toBe('automatique');
+  });
+
+  it('🔴 son adresse e-mail citée dans le texte ne la coche pas davantage', () => {
+    const r = proposerBiens({
+      adresses: [], textes: { corps: 'merci d’écrire à zahrachakroun@gmail.com' },
+      biens: [bien('295')], contenu: CONTENU,
+    });
+    expect(r.propositions[0]).toMatchObject({ cas: 'e', preCoche: false });
+  });
+
+  /**
+   * 🔴🔴 ELLES S'AJOUTENT, ELLES NE REMPLACENT PAS (Arno) : « si le mail a déjà des propositions d'expéditeur
+   * (cochées), celles du contenu s'ajoutent en dessous, décochées ».
+   */
+  it('🔴🔴 elles s’ajoutent SOUS les propositions d’expéditeur, sans les toucher', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'loc@x.fr', partie: 'locataire', lotCle: '445', proprietaireCle: 'P1' })],
+      textes: MOTIF, biens: [bien('445'), bien('295')], contenu: CONTENU,
+    });
+    expect(r.propositions.map((p) => p.cle)).toEqual(['445', '295']);
+    expect(r.propositions[0]).toMatchObject({ cas: 'a', preCoche: true, certitude: 'quasi_certaine' });
+    expect(r.propositions[1]).toMatchObject({ cas: 'e', preCoche: false, certitude: 'a_trancher' });
+  });
+
+  /**
+   * 🔴🔴 ET ELLES N'EMPÊCHENT PAS UN RATTACHEMENT AUTOMATIQUE QUI EXISTAIT AVANT CE LOT. Compter le contenu dans
+   * « un seul bien certain » aurait fait basculer en « à trancher » des mails que le moteur posait tout seul
+   * depuis des mois — une fonctionnalité retirée en silence.
+   */
+  it('🔴🔴 un bien CERTAIN reste automatique, même si le texte nomme quelqu’un d’autre', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'loc@x.fr', partie: 'locataire', lotCle: '445', proprietaireCle: 'P1' })],
+      textes: MOTIF, biens: [bien('445'), bien('295')], contenu: CONTENU,
+    });
+    expect(r.issue).toBe('automatique');
+    // …et la proposition de contenu est TOUJOURS là, décochée, à côté du lien certain.
+    expect(r.propositions.filter((p) => p.cas === 'e')).toHaveLength(1);
+  });
+
+  it('⚠️ sans annuaire des personnes, le cas (e) ne joue pas : le moteur est celui d’avant', () => {
+    const r = proposerBiens({ adresses: [], textes: MOTIF, biens: [bien('295')] });
+    expect(r.issue).toBe('sans_candidat');
+  });
+
+  /** ⚠️ UN BIEN DÉJÀ PROPOSÉ GARDE SON MOTIF, le plus sûr des deux : on ne le propose pas deux fois. */
+  it('⚠️ un bien déjà proposé par son propriétaire n’est pas reproposé par le contenu', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'loc@x.fr', partie: 'locataire', lotCle: '295', proprietaireCle: 'P1' })],
+      textes: MOTIF, biens: [bien('295')], contenu: CONTENU,
+    });
+    expect(r.propositions).toHaveLength(1);
+    expect(r.propositions[0].cas).toBe('a');
+  });
+
+  /** 🔴 LE MOTIF DE L'EXAMEN DIT D'OÙ ÇA VIENT — et pas « l'échange en porte », qui serait faux. */
+  it('🔴 quand seul le contenu a parlé, le motif le dit', () => {
+    const r = proposerBiens({ adresses: [], textes: MOTIF, biens: [bien('295')], contenu: CONTENU });
+    expect(r.motif).toContain('personne nommée dans le texte');
+  });
+});

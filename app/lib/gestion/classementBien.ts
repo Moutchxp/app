@@ -3,9 +3,14 @@ import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { decortiquerNumero, formaterTelephone } from './telephoneAffichage';
 import {
   annuaireDisponible, rattachementsDisponibles, miniaturesDisponibles, libelleSourceContactDisponible,
+  spamDisponible, corbeilleGmailDisponible,
 } from './schema';
 // LOT AFFECTATION-PAR-BIEN — le moteur des propositions est PUR : il décide, et il s'éprouve sans base.
-import { proposerBiens, type AdresseVue, type TextesDuMail } from './propositionsBien';
+import {
+  proposerBiens, CORPS_CHERCHABLE_MAX, type AdresseVue, type CasProposition, type TextesDuMail,
+} from './propositionsBien';
+// 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — le corps à fouiller : le texte, ou le HTML rendu en texte.
+import { corpsLisible } from './htmlMail';
 // LOT FICHE-PROPOSITION — ce qui s'affiche, et sous quel mot : un module PUR, éprouvé sans base ni écran.
 import {
   adresseComplete, caracteristiquesDuLot,
@@ -15,6 +20,9 @@ import { libelleContact } from './annuaire';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la reconnaissance d'une adresse, LA MÊME fonction pure que la relève emploie.
 import { estInterne, reconnaitre } from './adressesMessage';
 import { chargerAnnuaireAdresses } from './adressesRepo';
+// 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — qui le texte nomme-t-il ? Chargé ici, décidé par le module PUR.
+import { chargerAnnuaireContenu } from './annuaireContenuRepo';
+import type { AnnuaireContenu } from './personnesDansLeTexte';
 // 🔴 « Interne » proposé en premier : la règle vit dans le dépôt qui la porte, écrite une seule fois.
 import { proposerInterneDabord } from './interneRepo';
 /**
@@ -97,9 +105,14 @@ export interface BienProposable {
    */
   motif: string;
   /** Le cas de la règle : (a) locataire, (b) propriétaire à un seul bien, (c) à plusieurs, (d) cité dans le texte. */
-  cas: 'a' | 'b' | 'c' | 'd';
-  /** `quasi_certaine` = cas (a) et (b) ; `a_trancher` = cas (c) et (d). */
+  cas: CasProposition;
+  /** `quasi_certaine` = cas (a) et (b) ; `a_trancher` = cas (c), (d) et (e). */
   certitude: 'quasi_certaine' | 'a_trancher';
+  /**
+   * 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — VRAI au-delà du cinquième bien d'une même personne. L'écran le range
+   * derrière « voir les autres » : douze lots d'un bailleur noieraient la proposition au lieu de l'éclairer.
+   */
+  replie: boolean;
   /** Vrai quand ce mail lui est DÉJÀ rattaché de façon confirmée. L'écran le coche et le dit. */
   dejaRattache: boolean;
 }
@@ -191,6 +204,22 @@ type CarteContacts = Map<string, { emails: Coordonnee[]; telephones: Coordonnee[
 /** La clé d'une personne dans la carte des contacts : sa sorte et son identifiant interne. PUR. */
 function cleContact(sujet: string, sujetId: string | number): string { return `${sujet}|${sujetId}`; }
 
+/**
+ * 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — CE MAIL EST-IL ÉCARTÉ ? (spam ou corbeille de Gmail).
+ *
+ * ⚠️ LES DEUX COLONNES SONT SONDÉES : sans les migrations 263 / 275 elles ne sont nommées NULLE PART, et la
+ * clause vaut `false` — le comportement d'avant. C'est la même règle que `clauseHorsSpam` du moteur, écrite ici
+ * en expression parce qu'on la lit pour UN mail au lieu de filtrer une liste.
+ */
+async function clauseEcarte(alias: string): Promise<string> {
+  const [spam, corbeille] = await Promise.all([spamDisponible(), corbeilleGmailDisponible()]);
+  const bouts = [
+    spam ? `${alias}.spam_le IS NOT NULL` : null,
+    corbeille ? `${alias}.corbeille_le IS NOT NULL` : null,
+  ].filter((x): x is string => x !== null);
+  return bouts.length === 0 ? 'false' : `(${bouts.join(' OR ')})`;
+}
+
 /** Le libellé d'un bien, écrit UNE fois : deux formulations finiraient par se contredire d'un écran à l'autre. */
 export function libelleBien(l: { adresse: string | null; commune: string | null; cle: string }): string {
   const lieu = [l.adresse, l.commune].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(', ');
@@ -232,6 +261,11 @@ async function construireBiens(o: {
    * n'en porte aucun, et lui en inventer ferait afficher « rattachement déjà posé » sur un message inexistant.
    */
   liens: readonly { cible_sorte: string; cible_cle: string | null; statut: string }[];
+  /**
+   * 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — L'ANNUAIRE DES PERSONNES, pour le cas (e). Absent ⇒ le cas ne joue
+   * pas : c'est ainsi qu'on écarte les mails de spam, ceux de la corbeille et les échanges tout internes.
+   */
+  contenu?: AnnuaireContenu;
 }): Promise<{
   biens: BienProposable[];
   examen: { issue: 'automatique' | 'a_trancher' | 'sans_candidat'; motif: string };
@@ -264,6 +298,7 @@ async function construireBiens(o: {
       cle: l.cle, numero: l.cle, adresse: l.adresse, commune: l.commune,
       proprietaireCle: l.proprietaire_cle, proprietaireNom: l.proprietaire_nom,
     })),
+    contenu: o.contenu,
   });
 
   /**
@@ -280,9 +315,14 @@ async function construireBiens(o: {
     liens.filter((l) => l.cible_sorte === 'proprietaire').map((l) => l.cible_cle ?? ''));
 
   /** Les biens à montrer : ceux que le moteur propose, PLUS ceux qu'un lien ancien désigne (directement ou via son propriétaire). */
-  const aMontrer = new Map<string, { motif: string; cas: 'a' | 'b' | 'c' | 'd'; certitude: 'quasi_certaine' | 'a_trancher'; preCoche: boolean }>();
+  const aMontrer = new Map<string, {
+    motif: string; cas: CasProposition; certitude: 'quasi_certaine' | 'a_trancher'; preCoche: boolean;
+    replie?: boolean;
+  }>();
   for (const p of examen.propositions) {
-    aMontrer.set(p.cle, { motif: p.motif, cas: p.cas, certitude: p.certitude, preCoche: p.preCoche });
+    aMontrer.set(p.cle, {
+      motif: p.motif, cas: p.cas, certitude: p.certitude, preCoche: p.preCoche, replie: p.replie === true,
+    });
   }
   for (const cle of lotsDesLiens) {
     if (cle !== '' && !aMontrer.has(cle)) {
@@ -392,6 +432,8 @@ async function construireBiens(o: {
       motif: info.motif,
       cas: info.cas,
       certitude: info.certitude,
+      // 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — au-delà du 5e bien d'une personne : derrière « voir les autres ».
+      replie: info.replie === true,
       dejaRattache: clesConfirmees.has(l.cle),
     });
   }
@@ -436,11 +478,17 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
   // ── ① LE MAIL : sa date (qui décide des parties), son échange, son objet et son corps (cas c et d) ───────────
   const { rows: msg } = await query<{
     fil_id: string | null; recu_le: string; nb: number; objet: string | null; corps: string | null;
+    /** 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — le HTML sert de SECOURS quand le texte manque. */
+    html: string | null;
+    /** 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — au spam ou à la corbeille : le cas (e) ne joue pas. */
+    ecarte: boolean;
   }>(
     `SELECT m.fil_id::text AS fil_id,
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS recu_le,
             (SELECT count(*) FROM gestion_message c WHERE c.fil_id = m.fil_id)::int AS nb,
-            m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps
+            m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps,
+            left(coalesce(m.corps_html, ''), 60000) AS html,
+            ${await clauseEcarte('m')} AS ecarte
        FROM gestion_message m WHERE m.id = $1`, [messageId]);
   const m = msg[0];
   if (m === undefined) return vide;
@@ -487,7 +535,18 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
   const { rows: liens } = await query<{ cible_sorte: string; cible_cle: string | null; statut: string }>(
     `SELECT cible_sorte, cible_cle, statut FROM gestion_rattachement
       WHERE message_id = $1 AND statut IN ('propose', 'confirme')`, [messageId]);
+  /**
+   * ══ 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — TROIS CAS OÙ LE CONTENU NE PROPOSE RIEN (demande d'Arno) ═════════
+   *   · le mail est au SPAM ou à la CORBEILLE de Gmail — on vient de le jeter, on ne cherche pas chez qui le ranger ;
+   *   · TOUTES les adresses du mail sont des nôtres — un échange entre collègues ne concerne aucun client ;
+   *   · l'annuaire n'est pas installé (`chargerAnnuaireContenu` rend alors une liste vide).
+   * Dans ces cas on ne passe pas l'annuaire des personnes, et le cas (e) ne joue tout simplement pas.
+   */
+  const toutInterne = adresses.length > 0 && adresses.every((a) => a.interne);
+  const contenu = m.ecarte === true || toutInterne ? undefined : await chargerAnnuaireContenu();
+
   const coeur = await construireBiens({
+    contenu,
     adresses,
     /**
      * ⚠️ LA RECONNAISSANCE LIT LES DEUX NOMS, L'ÉCRAN UN SEUL. Une règle qui repère « bail » dans un nom de
@@ -496,7 +555,9 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
      * classement une fois sur deux, sans que rien ne le dise. Le doublon est écarté quand les deux coïncident.
      */
     textes: {
-      objet: m.objet, corps: m.corps,
+      objet: m.objet,
+      // 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — le texte, ou le HTML rendu en texte quand il n'y a pas de texte.
+      corps: corpsLisible(m.corps, m.html).slice(0, CORPS_CHERCHABLE_MAX),
       pieces: [...new Set(pieces.flatMap((p) => [p.nom_fichier, p.nom_origine]))],
     },
     dateRef: dateMail,

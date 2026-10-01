@@ -13,7 +13,7 @@ import type { Auteur } from './rattachementRepo';
  * SUITE. Sans cela, le geste n'a d'effet que sur les mails à venir, et celui qu'on regarde — celui qui a motivé la
  * correction — reste muet. Voir `rafraichirPropositions`.
  */
-import { rafraichirPourAdresses } from './rafraichirPropositions';
+import { rafraichirPourAdresses, rafraichirPourNoms } from './rafraichirPropositions';
 
 /**
  * LOT FICHES-ANNUAIRE (étape C) — ÉCRIRE DANS L'ANNUAIRE. IMPUR (base), et le seul module qui écrive.
@@ -149,6 +149,11 @@ export async function modifierPersonne(
    * transaction et on s'en sert APRÈS : un recalcul qui lirait la base avant le COMMIT n'y verrait rien de nouveau.
    */
   const emailsTouches = new Set<string>();
+  /**
+   * 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — LES NOMS TOUCHÉS, l'ancien comme le nouveau. Un nom corrigé change ce
+   * que le TEXTE des mails désigne : les propositions de contenu doivent suivre, dans les deux sens.
+   */
+  const nomsTouches = new Set<string>();
 
   const issue = await withTransaction(async (q) => {
     const { rows } = await q<Record<string, string | null>>(
@@ -174,6 +179,11 @@ export async function modifierPersonne(
     poser('note', 'note', champs.note);
 
     for (const [colonne, valeur] of Object.entries(colonnes)) {
+      // 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — l'ANCIEN nom autant que le nouveau : les propositions que l'ancien
+      //   fondait doivent disparaître, celles du nouveau apparaître.
+      if (colonne === 'nom' || colonne === 'prenom') {
+        for (const x of [avant[colonne] ?? '', valeur ?? '']) if (x.trim() !== '') nomsTouches.add(x);
+      }
       await q(`UPDATE ${TABLE[sujet]} SET ${colonne} = $2 WHERE id = $1`, [id, valeur]);
       await verrouiller(q, { sujet, sujetId: id, champ: colonne, valeurImport: avant[colonne] ?? null, auteur });
       await journaliser(q, {
@@ -262,9 +272,11 @@ export async function modifierPersonne(
    * journal du serveur, et le filet de l'ouverture d'un mail rattrapera ces mails-là — c'est précisément à cela
    * qu'il sert.
    */
-  if (issue.etat === 'ok' && emailsTouches.size > 0) {
+  if (issue.etat === 'ok' && (emailsTouches.size > 0 || nomsTouches.size > 0)) {
     try {
-      await rafraichirPourAdresses([...emailsTouches]);
+      if (emailsTouches.size > 0) await rafraichirPourAdresses([...emailsTouches]);
+      // 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — et les mails où ce NOM est écrit, dans le texte.
+      if (nomsTouches.size > 0) await rafraichirPourNoms([...nomsTouches]);
     } catch (e) {
       console.error('[annuaire] recalcul des propositions impossible après modification de la fiche %s %d',
         sujet, id, e);
@@ -761,9 +773,11 @@ export async function creerPersonne(
    * passé rejoint aussitôt le bon dossier.
    */
   const emails = retenues.ok ? retenues.retenues.filter((c) => c.sorte === 'email').map((c) => c.valeur) : [];
-  if (issue.etat === 'ok' && emails.length > 0) {
+  if (issue.etat === 'ok') {
     try {
-      await rafraichirPourAdresses(emails);
+      if (emails.length > 0) await rafraichirPourAdresses(emails);
+      // 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — une fiche créée rend un NOM reconnaissable dans tout le courrier passé.
+      await rafraichirPourNoms([nom, o.prenom ?? '']);
     } catch (e) {
       console.error('[annuaire] recalcul des propositions impossible après création d’une fiche %s', sujet, e);
     }

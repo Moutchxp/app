@@ -77,8 +77,8 @@ vi.mock('./rattachementRepo', () => ({
   COMPTES_VIDES: {},
 }));
 
-const { FILS_MAX_PAR_GESTE, rafraichirLesFils, rafraichirPourAdresses } =
-  await import('./rafraichirPropositions');
+const { FILS_MAX_PAR_GESTE, LONGUEUR_NOM_CHERCHABLE, rafraichirLesFils, rafraichirPourAdresses,
+  rafraichirPourNoms } = await import('./rafraichirPropositions');
 
 beforeEach(() => {
   schema = true;
@@ -175,6 +175,43 @@ describe('🔴🔴 ③ à l’ouverture d’un mail : seulement si une fiche a b
 });
 
 /**
+ * ══ 🔴🔴 ③ bis LOT PROPOSITIONS-PAR-LE-CONTENU — UN NOM QUI CHANGE ════════════════════════════════════════════
+ *
+ * Arno : « Les propositions se recalculent quand une fiche change (même mécanisme que pour les adresses
+ * e-mail). » Un NOM n'a pas de table : on le cherche là où il peut être, dans le texte des mails.
+ */
+describe('🔴🔴 ③ bis le nom d’une fiche a changé', () => {
+  it('🔴 les conversations où le nom est écrit sont réexaminées', async () => {
+    queryMock.mockResolvedValue({ rows: [{ fil_id: '5' }, { fil_id: '9' }] });
+    const c = await rafraichirPourNoms(['CHAKROUN Zahra']);
+    expect(examinerFilsPrecis).toHaveBeenCalled();
+    expect((examinerFilsPrecis.mock.calls[0] as unknown[])[0]).toEqual([5, 9]);
+    expect(c.filsReexamines).toBe(2);
+    // ⚠️ ON CHERCHE DANS L'OBJET **ET** DANS LE CORPS : un nom se cite aussi bien dans l'un que dans l'autre.
+    const sql = String(queryMock.mock.calls[0][0]).replace(/\s+/g, ' ');
+    expect(sql).toContain('m.objet');
+    expect(sql).toContain('corps_texte');
+    // …et jamais dans le spam ni la corbeille.
+    expect(sql).toContain('spam_le IS NULL');
+    expect(sql).toContain('corbeille_le IS NULL');
+  });
+
+  /** ⚠️ UN MOT TROP COURT RAMÈNERAIT LA MOITIÉ DE LA BOÎTE pour ne rien apprendre. */
+  it('⚠️ les mots trop courts ne sont pas cherchés', async () => {
+    await rafraichirPourNoms(['Le', 'de', 'A']);
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(LONGUEUR_NOM_CHERCHABLE).toBe(4);
+  });
+
+  it('⚠️ un nom qu’aucun mail ne porte ne déclenche aucun réexamen', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    const c = await rafraichirPourNoms(['INTROUVABLE']);
+    expect(examinerFilsPrecis).not.toHaveBeenCalled();
+    expect(c.filsReexamines).toBe(0);
+  });
+});
+
+/**
  * ══ 🔴🔴 ④ LES DEUX BRANCHEMENTS, GARDÉS SUR LE TEXTE ══════════════════════════════════════════════════════════
  *
  * Le reste du fichier éprouve la MÉCANIQUE ; ces gardes-ci vérifient qu'elle est bien BRANCHÉE aux deux endroits
@@ -202,6 +239,15 @@ describe('🔴🔴 ④ c’est bien branché, aux deux endroits', () => {
       expect(bloc).toContain('catch');
     }
     expect(repo).toContain('await withTransaction(');
+  });
+
+  /** 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — et un NOM corrigé déclenche le même recalcul qu'une adresse. */
+  it('🔴🔴 modifier ou créer une fiche recalcule aussi pour le NOM', async () => {
+    const repo = await lire('app/lib/gestion/annuaireEditionRepo.ts');
+    expect(repo).toContain('rafraichirPourNoms');
+    expect(repo.match(/await rafraichirPourNoms\(/g) ?? []).toHaveLength(2);
+    // ⚠️ L'ANCIEN NOM EST GARDÉ AUTANT QUE LE NOUVEAU : sinon les propositions de l'ancien resteraient.
+    expect(repo).toContain('nomsTouches.add');
   });
 
   it('🔴🔴 l’ouverture d’un mail passe par le filet', async () => {

@@ -293,6 +293,8 @@ function LigneResultat({ bien: b, coche, fige, onBasculer }: {
     nature: b.nature ?? null,
     adresseComplete: b.adresse, parties: b.parties, recommande: false, dejaRattache: false,
     cas: 'd' as const, certitude: 'a_trancher' as const,
+    // ⚠️ LOT PROPOSITIONS-PAR-LE-CONTENU — un résultat de recherche n'est jamais replié : on l'a demandé.
+    replie: false,
   };
   return (
     <li className="pdb-item">

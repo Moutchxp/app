@@ -33,6 +33,8 @@ import type { Confiance, Regle } from './triPieces';
 import type { AdresseEchange } from './propositionTri';
 // LOT AFFECTATION-PAR-BIEN — la cible d'un classement est TOUJOURS un bien : le moteur de ce lot est le seul.
 import { proposerBiens, type BienConnu, type PropositionBien, type TextesDuMail } from './propositionsBien';
+// 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — l'annuaire des personnes citées dans un texte. Module PUR.
+import type { AnnuaireContenu } from './personnesDansLeTexte';
 
 /**
  * LES SORTES DE CIBLE QU'UNE LIGNE DE `gestion_rattachement` PEUT PORTER, à la LECTURE.
@@ -193,6 +195,11 @@ export function examinerMessage(o: {
   biens: readonly BienConnu[];
   /** L'objet, le corps et les noms de pièces : la matière des cas (c) et (d). Absents ⇒ ces cas ne jouent pas. */
   textes?: TextesDuMail;
+  /**
+   * 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — L'ANNUAIRE DES PERSONNES, pour le cas (e). Absent ⇒ le cas ne joue
+   * pas : un appelant qui ne le passe pas obtient EXACTEMENT le comportement d'avant ce lot.
+   */
+  contenu?: AnnuaireContenu;
 }): Examen {
   const utiles = adressesUtiles(o.adressesEchange.filter((a) => a.messageId === o.messageId)).length;
 
@@ -213,23 +220,33 @@ export function examinerMessage(o: {
     })),
     textes: o.textes,
     biens: o.biens,
+    contenu: o.contenu,
   });
 
   /** Une proposition de bien, traduite dans le vocabulaire des rattachements. La cible est TOUJOURS un lot. */
   const enCandidat = (p: PropositionBien): Candidat => ({
     cible: cibleLot(p.cle),
-    // La règle dit D'OÙ vient la conclusion : (a) et (b) du mail, (c) et (d) d'un arbitrage à faire.
+    // La règle dit D'OÙ vient la conclusion : (a) et (b) du mail, (c) et (d) d'un arbitrage à faire,
+    //   (e) une personne NOMMÉE dans le texte — la plus faible des cinq, et elle ne coche jamais rien.
     regle: p.cas === 'a' || p.cas === 'b' ? 'a' : p.cas,
-    confiance: p.certitude === 'quasi_certaine' ? 'haute' : 'moyenne',
+    confiance: p.cas === 'e' ? 'basse' : p.certitude === 'quasi_certaine' ? 'haute' : 'moyenne',
     motif: p.motif,
     adresses: p.adresses,
   });
 
   if (examen.issue === 'automatique') {
+    /**
+     * 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — UN LIEN CERTAIN N'EFFACE PAS LES PROPOSITIONS DE CONTENU.
+     *
+     * Elles portent sur une AUTRE personne que celle qui écrit (le motif d'un virement nomme un locataire que
+     * l'expéditeur — la banque — ne connaît pas). Les jeter au motif qu'un bien est certain ferait perdre la
+     * seule indication qu'un mail de tiers porte parfois. Elles restent donc, en PROPOSITIONS décochées, à côté
+     * du lien confirmé.
+     */
     return {
       issue: 'automatique',
-      certain: enCandidat(examen.propositions[0]),
-      candidats: [],
+      certain: enCandidat(examen.propositions.find((p) => p.cas !== 'e') ?? examen.propositions[0]),
+      candidats: examen.propositions.filter((p) => p.cas === 'e').map(enCandidat),
       adressesUtiles: utiles,
       motif: examen.motif,
     };

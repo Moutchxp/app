@@ -21,6 +21,11 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
+// 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — l'annuaire des personnes, pour le cas (e).
+import { chargerAnnuaireContenu } from './annuaireContenuRepo';
+// 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — le corps à fouiller : le texte, ou le HTML rendu en texte.
+import { corpsLisible } from './htmlMail';
+import { CORPS_CHERCHABLE_MAX } from './propositionsBien';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche } from './nomUsageSql';
 import {
@@ -219,11 +224,15 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
   //   le fil — sinon un spam égaré ferait disparaître de la file un échange parfaitement légitime.
   const horsSpam = await clauseHorsSpam('m');
   const { rows: msgs } = await query<{
-    id: string; fil_id: string; objet: string | null; corps: string | null; pieces: string[] | null;
+    id: string; fil_id: string; objet: string | null; corps: string | null; html: string | null;
+    pieces: string[] | null;
   }>(
     // ⚠️ LES PIÈCES EN UNE FOIS, par agrégat : une requête par message coûterait des milliers d'accès sur une passe
     //    complète. Le corps est borné — on y cherche une adresse ou un n° de lot, pas un roman.
+    // 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — le HTML sert de SECOURS quand le texte manque (1 189 messages,
+    //    dont les relevés bancaires). Il est borné plus largement : la conversion le réduit beaucoup.
     `SELECT m.id, m.fil_id, m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps,
+            left(coalesce(m.corps_html, ''), 60000) AS html,
             (SELECT array_agg(${await sqlNomAffiche('p')}) FROM gestion_piece p WHERE p.message_id = m.id) AS pieces
        FROM gestion_message m
       WHERE m.fil_id = ANY($1::bigint[]) ${horsSpam} ORDER BY m.id`, [ids]);
@@ -257,7 +266,8 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
   return {
     fils: [...ids],
     messages: msgs.map((m) => ({
-      id: Number(m.id), filId: Number(m.fil_id), objet: m.objet, corps: m.corps, pieces: m.pieces ?? [],
+      id: Number(m.id), filId: Number(m.fil_id), objet: m.objet,
+      corps: corpsLisible(m.corps, m.html).slice(0, CORPS_CHERCHABLE_MAX), pieces: m.pieces ?? [],
     })),
     adresses,
   };
@@ -417,6 +427,11 @@ async function examinerLePaquet(
 ): Promise<void> {
   // ⚠️ UNE SEULE LECTURE DU CATALOGUE POUR TOUT LE PAQUET : il ne bouge pas pendant la passe.
   const catalogue = await chargerCatalogueBiens();
+  /**
+   * 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — L'ANNUAIRE DES PERSONNES, lu lui aussi UNE fois pour tout le paquet.
+   * Sans lui, le cas (e) ne joue pas et la passe se comporte exactement comme avant ce lot.
+   */
+  const contenu = await chargerAnnuaireContenu();
   for (const m of paquet.messages) {
     const examen = examinerMessage({
       messageId: m.id,
@@ -424,6 +439,7 @@ async function examinerLePaquet(
       // LOT AFFECTATION-PAR-BIEN — le catalogue et les textes : sans eux, les cas (b), (c) et (d) ne jouent pas.
       biens: catalogue,
       textes: { objet: m.objet, corps: m.corps, pieces: m.pieces },
+      contenu,
     });
 
     c.messagesVus += 1;
@@ -442,9 +458,15 @@ async function examinerLePaquet(
       if (examen.adressesUtiles === 0) c.sansCandidatInconnu += 1; else c.sansCandidatSansCible += 1;
     }
 
+    /**
+     * 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — UN LIEN CERTAIN N'EFFACE PLUS LES PROPOSITIONS DE CONTENU. Elles
+     * portent sur une AUTRE personne que celle qui écrit, et restent donc à côté du lien confirmé, en
+     * propositions décochées. (Avant ce lot, `candidats` était toujours vide quand `certain` existait.)
+     */
     const aEcrire: { cand: Candidat; statut: 'propose' | 'confirme' }[] =
       examen.certain !== null
-        ? [{ cand: examen.certain, statut: 'confirme' }]
+        ? [{ cand: examen.certain, statut: 'confirme' as const },
+          ...examen.candidats.map((cand) => ({ cand, statut: 'propose' as const }))]
         : examen.candidats.map((cand) => ({ cand, statut: 'propose' as const }));
 
     if (!appliquer) {

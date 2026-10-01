@@ -544,3 +544,24 @@ export function texteVersHtml(brut: string | null | undefined): string {
   if (t.trim() === '') return '';
   return t.split(/\n\n+/).map((para) => `<p>${echapperTexte(para).split('\n').join('<br />')}</p>`).join('');
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — LE CORPS QU'ON PEUT FOUILLER
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   LE DÉFAUT QU'IL FERME, trouvé le 01/10/2026 en éprouvant le cas d'Arno. Le mail du Crédit Mutuel (57335), qui
+   porte « Motif de l'opération : LOYER ZAHRA CHAKROUN », n'a PAS de `corps_texte` : il est arrivé en HTML seul
+   (17 292 caractères). Tout le moteur de propositions lit `corps_texte` — pour ce mail-là, il lisait donc le vide,
+   et les cas (c), (d) et (e) ne pouvaient rien y trouver.
+
+   MESURÉ SUR LA BASE : 1 189 messages sur 57 385 sont dans ce cas — deux pour cent du courrier, dont les relevés
+   bancaires, qui sont précisément ceux qui nomment un locataire dans leur texte.
+
+   ⚠️ LE TEXTE RESTE PRIORITAIRE quand il existe : il est ce que l'expéditeur a écrit, là où la conversion du HTML
+   est une reconstitution. On ne convertit que faute de mieux. */
+
+/** Ce qu'on donne au moteur de propositions : le texte du mail, ou à défaut son HTML rendu en texte. PUR. */
+export function corpsLisible(texte: string | null | undefined, html: string | null | undefined): string {
+  const t = (texte ?? '').trim();
+  return t !== '' ? (texte ?? '') : htmlVersTexte(html);
+}

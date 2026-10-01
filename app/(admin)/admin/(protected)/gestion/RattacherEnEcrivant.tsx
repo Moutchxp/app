@@ -374,6 +374,13 @@ export function RattacherEnEcrivant({
   const aucuneProposition = clesVisibles().length === 0;
 
   /**
+   * 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — LES BIENS AU-DELÀ DU CINQUIÈME D'UNE MÊME PERSONNE. Ils sont dans la
+   * liste (ils se cochent, ils se valident) mais rangés derrière un lien tant qu'on ne les demande pas.
+   */
+  const [autresDeplies, setAutresDeplies] = useState(false);
+  const replies = (contexte?.biens ?? []).filter((b) => b.replie).length;
+
+  /**
    * 🔴 LE CURSEUR VA DANS LE CHAMP DE RECHERCHE (demande d'Arno). Une seule fois, à l'ouverture : le remettre à
    * chaque rendu arracherait le curseur des mains dès qu'on cliquerait ailleurs.
    */
@@ -576,7 +583,7 @@ export function RattacherEnEcrivant({
             </div>
 
             <ul className="rec-biens">
-              {(contexte.biens ?? []).map((b) => (
+              {(contexte.biens ?? []).filter((b) => !b.replie || autresDeplies).map((b) => (
                 <li key={b.cle} className="rec-bien">
                   <label className="rec-choix">
                     <input type="checkbox" checked={selection.has(b.cle)} onChange={() => basculer(b.cle)} />
@@ -609,6 +616,18 @@ export function RattacherEnEcrivant({
 
                   🔴 LE MOTIF DIT D'OÙ CHACUN VIENT : « ajouté à la main depuis la recherche » n'est pas « déjà
                   rattaché à ce mail », et c'est précisément ce qu'on a besoin de savoir avant de décocher. */}
+              {/* ══ 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — « VOIR LES AUTRES » ═══════════════════════════════
+                  Demande d'Arno : « Plus de 5 biens → les 5 plus pertinents, plus “voir les autres”. » Les
+                  douze lots d'un bailleur noieraient la proposition au lieu de l'éclairer ; ils ne sont pas
+                  perdus pour autant, ils sont à un clic. */}
+              {replies > 0 && (
+                <li className="rec-bien rec-autres">
+                  <button type="button" className="gst-lien-bouton"
+                    onClick={() => setAutresDeplies((v) => !v)}>
+                    {autresDeplies ? 'masquer les autres biens' : `voir les autres (${replies})`}
+                  </button>
+                </li>
+              )}
               {horsPropositions.map(({ cible: a, origine }) => (
                 <li key={`hors-${a.cle}`} className="rec-bien">
                   <label className="rec-choix">

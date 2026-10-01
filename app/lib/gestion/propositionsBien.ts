@@ -37,6 +37,10 @@
 // 🔴 LOT PROPOSITIONS-EMAILS-MULTIPLES — le corps d'un mail traîne l'échange entier derrière lui : citations et
 //   signature de l'agence sont retirées AVANT qu'on y cherche un bien. Module PUR lui aussi.
 import { texteNonCite } from './texteCite';
+// 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — qui le texte nomme-t-il ? Module PUR lui aussi.
+import {
+  biensAMontrer, motifDuContenu, personnesDansLeTexte, type AnnuaireContenu,
+} from './personnesDansLeTexte';
 
 /** Un bien de la gestion, réduit à ce qui permet de le proposer et de le reconnaître dans un texte. */
 export interface BienConnu {
@@ -62,7 +66,12 @@ export interface AdresseVue {
   duMail: boolean;
 }
 
-export type CasProposition = 'a' | 'b' | 'c' | 'd';
+/**
+ * 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — (e) EST UN CINQUIÈME CAS, ET IL NE RESSEMBLE À AUCUN AUTRE. Les quatre
+ * premiers partent d'une ADRESSE de l'échange ou d'une citation de BIEN ; (e) part d'une PERSONNE nommée dans le
+ * texte. Il ne coche jamais rien — voir `personnesDansLeTexte`.
+ */
+export type CasProposition = 'a' | 'b' | 'c' | 'd' | 'e';
 
 export interface PropositionBien {
   cle: string;
@@ -75,6 +84,12 @@ export interface PropositionBien {
   preCoche: boolean;
   /** Les adresses qui fondent la proposition. Vide au cas (d), qui ne vient pas d'une adresse. */
   adresses: string[];
+  /**
+   * 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — VRAI au-delà du cinquième bien d'une même personne (demande d'Arno :
+   * « Plus de 5 biens → les 5 plus pertinents, plus “voir les autres” »). L'écran les range derrière un lien :
+   * les douze lots d'un bailleur noieraient la proposition au lieu de l'éclairer.
+   */
+  replie?: boolean;
 }
 
 export interface ExamenBiens {
@@ -86,6 +101,9 @@ export interface ExamenBiens {
   propositions: PropositionBien[];
   motif: string;
 }
+
+/** Ce qu'on garde du corps pour y chercher : une citation d'adresse ou un nom est toujours en tête. */
+export const CORPS_CHERCHABLE_MAX = 4000;
 
 /** Les textes du mail où chercher une adresse ou un n° de lot (cas c et d). */
 export interface TextesDuMail {
@@ -175,7 +193,19 @@ export function citationDuBien(bien: BienConnu, texte: string): 'adresse' | 'lot
  * plus.
  */
 export function texteCherchable(t: TextesDuMail): string {
-  return normaliser([t.objet ?? '', texteNonCite(t.corps), ...(t.pieces ?? [])].join(' '));
+  return normaliser(texteDuContenu(t));
+}
+
+/**
+ * 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — LE TEXTE NETTOYÉ, MAIS **PAS** APLATI. PUR.
+ *
+ * Le cas (e) a besoin de deux choses que `normaliser` détruit : les MAJUSCULES (un nom propre s'écrit avec une
+ * majuscule — c'est le garde-fou des noms rares) et la PONCTUATION (l'extrait qu'on affiche doit se lire comme
+ * le mail l'a écrit : « Motif : LOYER ZAHRA CHAKROUN »). Les deux fonctions partagent donc le NETTOYAGE —
+ * citations, signatures de l'agence, liens — et se séparent sur la mise à plat.
+ */
+export function texteDuContenu(t: TextesDuMail): string {
+  return [t.objet ?? '', texteNonCite(t.corps), ...(t.pieces ?? [])].join('\n');
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -201,6 +231,11 @@ export function proposerBiens(o: {
   textes?: TextesDuMail;
   /** Le catalogue des biens utiles : ceux des propriétaires vus, plus ceux que le texte pourrait citer. */
   biens: readonly BienConnu[];
+  /**
+   * 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — L'ANNUAIRE DES PERSONNES, pour le cas (e). Absent ⇒ le cas ne joue
+   * pas, et le moteur se comporte exactement comme avant ce lot.
+   */
+  contenu?: AnnuaireContenu;
 }): ExamenBiens {
   const biensDuProprietaire = new Map<string, BienConnu[]>();
   for (const b of o.biens) {
@@ -304,6 +339,40 @@ export function proposerBiens(o: {
     }
   }
 
+  /**
+   * ══ 🔴🔴 (e) — LE TEXTE NOMME QUELQU'UN DE L'ANNUAIRE ═══════════════════════════════════════════════════════
+   *
+   * DEMANDE D'ARNO (01/10/2026) : « Quand le contenu d'un mail cite une personne de l'annuaire, proposer les
+   * biens de cette personne. » Cas réel : un virement du Crédit Mutuel, « Motif : LOYER ZAHRA CHAKROUN ».
+   *
+   * 🔴🔴 ET SA RÈGLE ABSOLUE : « Une correspondance trouvée dans le CONTENU ne rattache JAMAIS le mail
+   * automatiquement. » Ces propositions sont donc TOUJOURS `a_trancher` et TOUJOURS décochées — quelle que soit
+   * leur évidence apparente. Une adresse DÉSIGNE ; un nom RESSEMBLE.
+   *
+   * ⚠️ ELLES S'AJOUTENT, elles ne remplacent pas : « si le mail a déjà des propositions d'expéditeur (cochées),
+   * celles du contenu s'ajoutent EN DESSOUS, décochées ». D'où leur place ici, après les quatre autres cas, et
+   * sans la condition « si rien n'a été trouvé » qui garde le cas (d).
+   *
+   * ⚠️ `ajouter` ÉCARTE CE QUI EST DÉJÀ LÀ : un bien déjà proposé par son propriétaire garde SON motif, le plus
+   * sûr des deux. On ne le propose pas deux fois.
+   */
+  const parContenu = o.contenu === undefined
+    ? []
+    : personnesDansLeTexte(texteDuContenu(o.textes ?? {}), o.contenu);
+  for (const c of parContenu) {
+    const { montres, autres } = biensAMontrer(c.personne);
+    const tous = [...c.personne.lots];
+    for (const cle of tous) {
+      ajouter({
+        cle, cas: 'e', certitude: 'a_trancher', preCoche: false,
+        motif: motifDuContenu(c) + (autres > 0 && !montres.includes(cle) ? ` — un de ses ${tous.length} biens` : ''),
+        adresses: [],
+        // Au-delà du cinquième : rangé derrière « voir les autres ».
+        replie: !montres.includes(cle),
+      });
+    }
+  }
+
   if (propositions.length === 0) {
     return {
       issue: 'sans_candidat', propositions: [],
@@ -319,19 +388,38 @@ export function proposerBiens(o: {
    * dossiers — et personne ne doit trancher à notre place en silence.
    */
   const quasi = propositions.filter((p) => p.certitude === 'quasi_certaine');
-  if (propositions.length === 1 && quasi.length === 1 && !depuisLEchange) {
+  /**
+   * 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — « AUTO » SE DÉCIDE SANS LE CONTENU, ET C'EST ESSENTIEL.
+   *
+   * DEUX RAISONS, et chacune suffirait :
+   *   ① une correspondance de contenu ne doit JAMAIS rattacher (règle absolue d'Arno) — elle ne peut donc pas
+   *      être le bien certain ;
+   *   ② elle ne doit pas non plus EMPÊCHER un rattachement automatique qui existait avant ce lot. Compter les
+   *      propositions de contenu dans « un seul bien certain » aurait fait basculer en « à trancher » des mails
+   *      que le moteur posait tout seul depuis des mois — une fonctionnalité retirée en silence.
+   */
+  const parAdresse = propositions.filter((p) => p.cas !== 'e');
+  if (parAdresse.length === 1 && quasi.length === 1 && !depuisLEchange) {
     return {
       issue: 'automatique', propositions,
-      motif: `un seul bien certain — ${propositions[0].motif}`,
+      motif: `un seul bien certain — ${parAdresse[0].motif}`,
     };
   }
 
+  /**
+   * ⚠️ LE MOTIF DIT D'OÙ VIENNENT LES PROPOSITIONS, et le cas (e) a le sien. Sans cette ligne, un mail que SEUL
+   * le contenu a sauvé s'annonçait « aucune adresse connue dans ce mail ; l'échange, lui, en porte » — ce qui
+   * était faux : l'échange n'avait rien donné, c'est le TEXTE qui a nommé quelqu'un.
+   */
+  const queDuContenu = parAdresse.length === 0 && propositions.length > 0;
   return {
     issue: 'a_trancher', propositions,
-    motif: depuisLEchange
-      ? 'aucune adresse connue dans ce mail ; l’échange, lui, en porte — à confirmer à la main'
-      : quasi.length > 1
-        ? `${quasi.length} biens quasi certains : le mail concerne plusieurs dossiers, à trancher`
-        : `${propositions.length} bien(s) proposé(s), à trancher`,
+    motif: queDuContenu
+      ? `${propositions.length} bien(s) proposé(s) d’après une personne nommée dans le texte — à confirmer à la main`
+      : depuisLEchange
+        ? 'aucune adresse connue dans ce mail ; l’échange, lui, en porte — à confirmer à la main'
+        : quasi.length > 1
+          ? `${quasi.length} biens quasi certains : le mail concerne plusieurs dossiers, à trancher`
+          : `${propositions.length} bien(s) proposé(s), à trancher`,
   };
 }

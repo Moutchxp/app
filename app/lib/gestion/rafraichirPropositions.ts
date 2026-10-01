@@ -94,6 +94,44 @@ export async function rafraichirPourAdresses(adresses: readonly string[]): Promi
 }
 
 /**
+ * ══ 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — ① bis : LE NOM D'UNE FICHE A CHANGÉ ══════════════════════════════════
+ *
+ * Arno : « Les propositions se recalculent quand une fiche change (même mécanisme que pour les adresses
+ * e-mail). » Pour une ADRESSE, on sait où chercher : `gestion_message_adresse` la porte. Pour un NOM, il n'y a
+ * pas de table — le nom est DANS le texte. On le cherche donc là où il peut être, et c'est la seule façon.
+ *
+ * ⚠️ MESURÉ LE 01/10/2026 : 1,8 s pour un nom sur 57 385 messages, sans index (il n'y en a pas sur un corps de
+ * mail, et en créer un pour ce geste-là coûterait plus cher qu'il ne rapporte). C'est acceptable parce que
+ * modifier une fiche est un geste DÉLIBÉRÉ et rare, et que ce recalcul a lieu APRÈS le commit : il ne retarde
+ * rien de ce qu'Arno voit.
+ *
+ * ⚠️ ON NE CHERCHE QUE LES MOTS ASSEZ LONGS. Un nom de deux lettres ramènerait la moitié de la boîte, pour ne
+ * rien apprendre.
+ */
+export const LONGUEUR_NOM_CHERCHABLE = 4;
+
+export async function rafraichirPourNoms(noms: readonly string[]): Promise<ChiffresRafraichissement> {
+  const c: ChiffresRafraichissement = { ...RIEN, comptes: { ...COMPTES_VIDES } };
+  const mots = [...new Set(noms.flatMap((n) => (n ?? '').split(/[^\p{L}\p{N}]+/u))
+    .map((m) => m.trim()).filter((m) => m.length >= LONGUEUR_NOM_CHERCHABLE))];
+  if (mots.length === 0 || !(await rattachementsDisponibles())) return c;
+
+  const { rows } = await query<{ fil_id: string | null }>(
+    `SELECT DISTINCT m.fil_id::text
+       FROM gestion_message m
+      WHERE m.spam_le IS NULL AND m.corbeille_le IS NULL AND m.fil_id IS NOT NULL
+        AND EXISTS (SELECT 1 FROM unnest($1::text[]) w
+                     WHERE coalesce(m.objet, '') ILIKE '%' || w || '%'
+                        OR left(coalesce(m.corps_texte, ''), 4000) ILIKE '%' || w || '%')
+      LIMIT $2`, [mots, FILS_MAX_PAR_GESTE]);
+  const filIds = rows.map((r) => Number(r.fil_id));
+  if (filIds.length === 0) return c;
+  c.messagesPerimes = filIds.length;
+  await reexaminer(filIds, c);
+  return c;
+}
+
+/**
  * 🔴 ② À L'OUVERTURE D'UN MAIL : on ne recalcule QUE si une fiche a bougé depuis le dernier calcul.
  *
  * ⚠️ LE CONTRÔLE EST UNE SEULE REQUÊTE, et il ne rend rien dans l'immense majorité des cas (voir
