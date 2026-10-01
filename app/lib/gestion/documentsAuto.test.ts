@@ -32,7 +32,8 @@ describe('① une fiche certaine : le document est rangé', () => {
       annuaire: annuaire([['paul@exemple.test', [fiche('locataire', 'LOC-7')]]]),
       nosAdresses: NOUS,
     });
-    expect(a).toEqual({ sorte: 'fiche', fiche: fiche('locataire', 'LOC-7'), multiBiens: false });
+    expect(a).toEqual({ sorte: 'fiche', fiche: fiche('locataire', 'LOC-7'), multiBiens: false,
+      voie: 'adresse', garant: false, motifAdresse: null });
   });
 
   it('🔴 un document à un propriétaire MONO-bien va dans sa fiche, avec son bien', () => {
@@ -70,7 +71,8 @@ describe('① une fiche certaine : le document est rangé', () => {
       ]),
       nosAdresses: NOUS,
     });
-    expect(a).toEqual({ sorte: 'fiche', fiche: indivision, multiBiens: false });
+    expect(a).toEqual({ sorte: 'fiche', fiche: indivision, multiBiens: false,
+      voie: 'adresse', garant: false, motifAdresse: null });
   });
 
   /** ⚠️ NOS PROPRES ADRESSES NE COMPTENT PAS : un document en copie chez nous reste le document du client. */
@@ -100,7 +102,7 @@ describe('② ce qui n’est pas certain n’est pas rangé', () => {
         [fiche('proprietaire', 'PRO-1'), fiche('proprietaire', 'PRO-2')]]]),
       nosAdresses: NOUS,
     });
-    expect(a).toEqual({ sorte: 'non_attribue', motif: 'adresse_partagee' });
+    expect(a).toEqual({ sorte: 'non_attribue', motif: 'adresse_partagee', garant: false });
   });
 
   it('🔴 deux destinataires de fiches différentes : rien n’est rangé', () => {
@@ -112,21 +114,21 @@ describe('② ce qui n’est pas certain n’est pas rangé', () => {
       ]),
       nosAdresses: NOUS,
     });
-    expect(a).toEqual({ sorte: 'non_attribue', motif: 'fiches_differentes' });
+    expect(a).toEqual({ sorte: 'non_attribue', motif: 'fiches_differentes', garant: false });
   });
 
   it('🔴 une adresse inconnue de l’annuaire : rien n’est rangé', () => {
     const a = attribuer({
       destinataires: ['garant@exemple.test'], annuaire: annuaire([]), nosAdresses: NOUS,
     });
-    expect(a).toEqual({ sorte: 'non_attribue', motif: 'adresse_inconnue' });
+    expect(a).toEqual({ sorte: 'non_attribue', motif: 'adresse_inconnue', garant: false });
   });
 
   it('🔴 un document adressé à nous seuls : rien n’est rangé', () => {
     const a = attribuer({
       destinataires: ['gestion@criterimmo.fr'], annuaire: annuaire([]), nosAdresses: NOUS,
     });
-    expect(a).toEqual({ sorte: 'non_attribue', motif: 'nos_adresses' });
+    expect(a).toEqual({ sorte: 'non_attribue', motif: 'nos_adresses', garant: false });
   });
 
   it('⚠️ les quatre motifs sont DISTINGUÉS : ils appellent des gestes différents', () => {
@@ -151,11 +153,12 @@ describe('🔴🔴 ③ une adresse ajoutée à une fiche range ce qui devient ce
   it('🔴🔴 avant l’ajout : inconnue. Après l’ajout : rangée, sans rien changer d’autre', () => {
     const doc = { destinataires: ['nouvelle@exemple.test'], nosAdresses: NOUS };
     expect(attribuer({ ...doc, annuaire: annuaire([]) }))
-      .toEqual({ sorte: 'non_attribue', motif: 'adresse_inconnue' });
+      .toEqual({ sorte: 'non_attribue', motif: 'adresse_inconnue', garant: false });
 
     const apresAjout = annuaire([['nouvelle@exemple.test', [fiche('locataire', 'LOC-12')]]]);
     expect(attribuer({ ...doc, annuaire: apresAjout }))
-      .toEqual({ sorte: 'fiche', fiche: fiche('locataire', 'LOC-12'), multiBiens: false });
+      .toEqual({ sorte: 'fiche', fiche: fiche('locataire', 'LOC-12'), multiBiens: false,
+        voie: 'adresse', garant: false, motifAdresse: null });
   });
 
   /** ⚠️ ET L'INVERSE EST VRAI AUSSI : ajouter une adresse DÉJÀ prise rend le document ambigu, donc non rangé. */
@@ -166,7 +169,7 @@ describe('🔴🔴 ③ une adresse ajoutée à une fiche range ce qui devient ce
     expect(attribuer({
       ...doc,
       annuaire: annuaire([['paul@exemple.test', [fiche('locataire', 'LOC-7'), fiche('proprietaire', 'PRO-1')]]]),
-    })).toEqual({ sorte: 'non_attribue', motif: 'adresse_partagee' });
+    })).toEqual({ sorte: 'non_attribue', motif: 'adresse_partagee', garant: false });
   });
 });
 

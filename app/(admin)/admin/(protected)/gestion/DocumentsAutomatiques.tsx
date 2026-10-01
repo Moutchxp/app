@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  anneesDe, AUCUN_DOCUMENT, SOUS_TYPES, type DocumentDeFiche,
+  anneesDe, AUCUN_DOCUMENT, MENTION_GARANT, SOUS_TYPES, type DocumentDeFiche,
 } from '../../../../lib/gestion/documentsAuto';
 
 /**
@@ -120,6 +120,9 @@ export function DocumentsAutomatiques({ sorte, id }: {
                 <span className="dau-date">{d.le}</span>
                 <span className="dau-type">{d.sousType}</span>
                 <span className="dau-objet">{d.objet}</span>
+                {/* 🔴 LA MENTION CHANGE LE SENS DE LA LIGNE, elle ne la décore pas : sans elle, une mise en
+                    demeure partie chez la caution se lirait « on a écrit au locataire ». Décision d'Arno. */}
+                {d.garant && <span className="dau-garant">{MENTION_GARANT}</span>}
               </a>
             </li>
           ))}
@@ -154,6 +157,9 @@ export const CSS_DOCUMENTS_AUTO = `
 .dau-type{flex:0 0 auto;padding:.05rem .4rem;font-size:.72rem;font-weight:700;letter-spacing:.02em;
   color:var(--color-svv-ink);background:var(--color-svv-field);border-radius:.3rem}
 .dau-objet{flex:1 1 12rem;min-width:0;font-size:.84rem;overflow-wrap:anywhere}
+/* LA MENTION « envoye au garant » : discrete, mais jamais effacee — elle change le sens de la ligne. */
+.dau-garant{flex:0 0 auto;padding:.05rem .4rem;font-size:.68rem;font-weight:700;letter-spacing:.02em;
+  text-transform:uppercase;color:var(--color-svv-red);border:1px solid currentColor;border-radius:.3rem}
 .dau-aucun{margin:.3rem 0}
 @media (max-width:560px){
   .dau-lien{gap:.3rem}

@@ -45,7 +45,27 @@ async function main(): Promise<void> {
   for (const [m, n] of Object.entries(c.nonAttribues)) {
     console.log(`${P}  · ${m.padEnd(32)} ${String(n).padStart(6)}  ${pc(n)}`);
   }
-  if (appliquer) console.log(`${P}liens écrits                         ${String(c.ecrits).padStart(6)}`);
+  console.log(`${P}PAR QUELLE VOIE LA FICHE A ÉTÉ RECONNUE`);
+  console.log(`${P}  · l’adresse du destinataire        ${String(c.parVoie.adresse).padStart(6)}`);
+  console.log(`${P}  · le NOM lu dans l’objet           ${String(c.parVoie.nom).padStart(6)}   (décision d’Arno)`);
+  for (const [m, n] of Object.entries(c.gagnesParNomSelonCause)) {
+    if (n > 0) console.log(`${P}      dont l’adresse échouait en ${m.padEnd(20)} ${String(n).padStart(5)}`);
+  }
+  console.log(`${P}DOCUMENTS DE GARANT                  ${String(c.garants.total).padStart(6)}`
+    + `   dont rangés dans une fiche : ${c.garants.ranges}`);
+  const vontEnReception = Object.values(c.nonAttribues).reduce((a, b) => a + b, 0);
+  console.log(`${P}VONT DANS LA RÉCEPTION               ${String(vontEnReception).padStart(6)}  ${pc(vontEnReception)}`);
+  if (appliquer) {
+    console.log(`${P}liens écrits                         ${String(c.ecrits).padStart(6)}`);
+    console.log(`${P}rendus visibles (→ Réception)        ${String(c.rendusVisibles).padStart(6)}`);
+    console.log(`${P}remis en « Courrier automatique »    ${String(c.remisEnAutomatique).padStart(6)}`);
+  }
+
+  console.log(`\n${c.exemples.length} EXEMPLES À VÉRIFIER (message, ce qu’on a lu, ce qu’on en conclut)`);
+  for (const e of c.exemples) {
+    console.log(`${P}#${String(e.messageId).padEnd(6)} « ${e.objet.slice(0, 54).padEnd(54)} »`);
+    console.log(`${P}        → ${e.issue}${e.garant ? ' · envoyé au garant' : ''} : ${e.vers}`);
+  }
 
   const biensApres = await confirmesSurBiens();
   console.log(`\n${P}rattachements confirmés AUX BIENS : ${biensAvant} avant, ${biensApres} après`);

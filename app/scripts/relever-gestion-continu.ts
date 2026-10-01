@@ -134,6 +134,39 @@ async function main(): Promise<void> {
       //   l'écran de distinguer « l'ordonnanceur tourne » de « quelqu'un a cliqué » — la question qu'on ne pouvait
       //   pas poser le 25/09, pendant les dix heures sans courrier.
       const issue = await relever(true, undefined, { automatique: true });
+
+      /**
+       * ══ 🔴🔴 LOT DOCUMENTS-AUTO-SUITE — LES DOCUMENTS SE RANGENT AU FIL DE L'EAU ═════════════════════════════
+       *
+       * DÉCISION D'ARNO (01/10/2026) : « Les nouveaux documents relevés suivent la même règle au fil de l'eau » et
+       * « une fiche complétée plus tard range automatiquement les documents devenus certains, qui quittent alors
+       * la Réception pour leur fiche ».
+       *
+       * 🔴 APRÈS LA RELÈVE, ET NON AVANT — à l'inverse de la file d'envoi juste au-dessus. Ce qu'on range, ce sont
+       * les documents que la relève vient d'écrire : passer avant reviendrait à toujours ranger avec un tour de
+       * retard.
+       *
+       * ⚠️ `seulementNonRanges` EST CE QUI REND LA PASSE GRATUITE EN RÉGIME NORMAL. Elle ne relit que les
+       * documents sans fiche (environ 3 500 aujourd'hui, en mémoire), n'écrit que ce qui change, et ne touche pas
+       * aux 24 000 déjà rangés. C'est aussi elle qui réalise la seconde phrase d'Arno : un document sans fiche est
+       * reproposé à CHAQUE passe, donc il se range tout seul le jour où l'annuaire le permet.
+       *
+       * 🔴 ELLE NE PEUT PAS FAIRE ÉCHOUER LA RELÈVE. Même contrat que la file d'envoi : le courrier relevé est
+       * acquis, et un rangement qui échoue ne doit pas le remettre en cause. L'erreur est dite, puis oubliée.
+       */
+      try {
+        const { rangerLesDocuments } = await import('../lib/gestion/documentsAutoRepo');
+        const c = await rangerLesDocuments({
+          appliquer: true, seulementNonRanges: true, auteurLibelle: 'relève continue',
+        });
+        if (c.ecrits > 0 || c.rendusVisibles > 0 || c.remisEnAutomatique > 0) {
+          console.log(`  documents automatiques : ${c.ecrits} rangé(s), `
+            + `${c.rendusVisibles} vers la Réception, ${c.remisEnAutomatique} vers leur fiche`);
+        }
+      } catch (e) {
+        console.log(`  ⚠ rangement des documents automatiques impossible ce tour-ci : ${(e as Error).message}`);
+      }
+
       toursRestants -= 1;
       return { resultat: issue.resultat, captures: issue.rapport?.captures ?? null };
     },

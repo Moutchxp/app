@@ -112,7 +112,8 @@
     "gestion:propositions:contenu": "tsx app/scripts/propositions-contenu.ts",
     "gestion:fenetre:reprise": "tsx app/scripts/reprendre-fenetre-gagne.ts",
     "gestion:auto:reponses": "tsx app/scripts/reprendre-reponses-automatiques.ts",
-    "gestion:documents:ranger": "tsx app/scripts/ranger-documents-auto.ts"
+    "gestion:documents:ranger": "tsx app/scripts/ranger-documents-auto.ts",
+    "gestion:documents:adresses": "tsx app/scripts/adresses-inconnues-documents.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
