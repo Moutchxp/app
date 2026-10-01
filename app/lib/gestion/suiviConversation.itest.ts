@@ -48,6 +48,14 @@ const AUTEUR = { id: null, libelle: 'épreuve des périodes' };
 const LOTS = ['LOT-A', 'LOT-B', 'LOT-C', 'LOT-D'] as const;
 const bien = (cle: string) => ({ cle, libelle: `Bien fictif ${cle}` });
 const biens = (cle: string) => ({ sorte: 'biens' as const, biens: [bien(cle)] });
+/**
+ * 🔴 PLUSIEURS BIENS DANS UN MÊME CLASSEMENT — c'est la forme que prend un AJOUT à l'écran.
+ *
+ * La modale envoie TOUTES les cases cochées (`appliquerCibles`, `EncartRattachement.tsx`), et celles des biens
+ * déjà rattachés le sont d'avance : ajouter un bien produit donc un classement à deux biens, jamais un classement
+ * qui remplacerait le premier. C'est ce que le scénario T7 éprouve.
+ */
+const plusieurs = (...cles: string[]) => ({ sorte: 'biens' as const, biens: cles.map(bien) });
 const INTERNE = { sorte: 'interne' as const, biens: [] };
 const HORS = { sorte: 'hors_gestion' as const, biens: [] };
 
@@ -283,6 +291,102 @@ describe('S7 — « à venir » posé AVANT une fenêtre existante (description,
     expect(a).toEqual([1]);
     expect(c).toEqual([2, 3, 4, 5]);
     expect(b).toEqual([6, 7, 8]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 T7 — AJOUTER UN BIEN « POUR CE MAIL ET LA CONVERSATION À VENIR »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * DÉCISION D'ARNO (01/10/2026), LECTURE 1, MOT POUR MOT : « L'ajout d'un bien avec “Ce mail et la conversation à
+ * venir” ouvre une NOUVELLE FENÊTRE, sans effet sur les fenêtres passées. Attendu au mail 4 : A = tous les mails,
+ * B = mails 4 et suivants. Seule “Toute la conversation” est rétroactive, et elle épargne les exceptions “Ce mail
+ * uniquement”. »
+ *
+ * ═══ POURQUOI « A = TOUS LES MAILS » N'EST PAS UNE EXCEPTION À S4 ════════════════════════════════════════════════
+ *
+ * S4 montre qu'une fenêtre REMPLACE la précédente : poser B seul au mail 4 rendrait A = 1 à 3. Ici le geste n'est
+ * pas le même — c'est un AJOUT. La modale envoie toutes les cases cochées, et celle du bien déjà rattaché l'est
+ * d'avance : le classement de la nouvelle fenêtre vaut donc { A, B }, et A continue sans rupture. Les deux règles
+ * disent la même chose ; c'est le GESTE qui diffère, pas le moteur.
+ *
+ * ⚠️ C'EST AUSSI CE QUI REND LE SCÉNARIO UTILE. Si un jour l'écran n'envoyait plus que le bien ajouté, A
+ * disparaîtrait des mails 4 à 8 sans que personne l'ait demandé — et ce sont ces essais-là qui s'en apercevraient.
+ */
+describe('🔴🔴 T7 — ajouter un bien « à venir » n’efface pas celui qui était déjà là', () => {
+  it('🔴🔴 au mail 4 : A garde TOUS les mails, B prend le 4 et les suivants', async () => {
+    const { filId, mails } = await conversation(8);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+
+    // L'AJOUT : le bien déjà coché (A) part avec le nouveau (B), comme la modale l'envoie.
+    await poserClassement({
+      filId, messageId: mails[3], classement: plusieurs('LOT-A', 'LOT-B'), choix: 'suite', auteur: AUTEUR,
+    });
+
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(rangs(mails, await historique(filId, 'LOT-B'))).toEqual([4, 5, 6, 7, 8]);
+  });
+
+  it('🔴 « sans effet sur les fenêtres passées » : la première reste vivante, rien n’est remplacé', async () => {
+    const { filId, mails } = await conversation(8);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({
+      filId, messageId: mails[3], classement: plusieurs('LOT-A', 'LOT-B'), choix: 'suite', auteur: AUTEUR,
+    });
+
+    // DEUX fenêtres vivantes, dans l'ordre, et AUCUNE remplacée : « à venir » n'a touché à rien derrière lui.
+    const { periodes } = await suiviDuFil(filId);
+    expect(periodes.map((p) => p.classement.biens.map((b) => b.cle)))
+      .toEqual([['LOT-A'], ['LOT-A', 'LOT-B']]);
+    const { rows } = await query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM gestion_fil_periode WHERE fil_id = $1 AND remplacee_le IS NOT NULL', [filId]);
+    expect(rows[0].n).toBe(0);
+  });
+
+  /**
+   * 🔴 LE CONTRASTE, SUR LE MÊME DÉCOR — c'est lui qui donne son sens à la règle : REMPLACER et AJOUTER ne sont pas
+   * le même geste, et seul le premier fait perdre des mails au bien d'avant.
+   */
+  it('🔴 poser B SEUL au mail 4, c’est remplacer : A s’arrête au 3 (règle S4, inchangée)', async () => {
+    const { filId, mails } = await conversation(8);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[3], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
+
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 2, 3]);
+    expect(rangs(mails, await historique(filId, 'LOT-B'))).toEqual([4, 5, 6, 7, 8]);
+  });
+
+  /**
+   * 🔴🔴 « SEULE “TOUTE LA CONVERSATION” EST RÉTROACTIVE, ET ELLE ÉPARGNE LES EXCEPTIONS “CE MAIL UNIQUEMENT”. »
+   *
+   * Les deux moitiés de la phrase sont éprouvées ici, l'une après l'autre, sur le décor de T7 : « à venir » ne
+   * remonte pas le temps, « toute la conversation » le remonte — sauf là où une personne a dit « ce mail
+   * uniquement », qui reste intact.
+   */
+  it('🔴🔴 « à venir » ne remonte pas le temps, « toute la conversation » oui — sauf les exceptions', async () => {
+    const { filId, mails } = await conversation(8);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    // Une exception « ce mail uniquement » sur le mail 2, posée avant tout le reste.
+    await poserClassement({ filId, messageId: mails[1], classement: biens('LOT-C'), choix: 'mail', auteur: AUTEUR });
+    await poserClassement({
+      filId, messageId: mails[3], classement: plusieurs('LOT-A', 'LOT-B'), choix: 'suite', auteur: AUTEUR,
+    });
+
+    // ① « À VENIR » N'EST PAS RÉTROACTIF : le mail 2 reste au LOT-C, et B ne descend pas sous le 4.
+    expect(rangs(mails, await historique(filId, 'LOT-C'))).toEqual([2]);
+    expect(rangs(mails, await historique(filId, 'LOT-B'))).toEqual([4, 5, 6, 7, 8]);
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 3, 4, 5, 6, 7, 8]);
+
+    // ② « TOUTE LA CONVERSATION » L'EST, ET ELLE ÉPARGNE L'EXCEPTION.
+    await poserClassement({
+      filId, messageId: mails[7], classement: biens('LOT-D'), choix: 'conversation', auteur: AUTEUR,
+    });
+    expect(rangs(mails, await historique(filId, 'LOT-D'))).toEqual([1, 3, 4, 5, 6, 7, 8]);
+    expect(rangs(mails, await historique(filId, 'LOT-C'))).toEqual([2]);
+    expect(await historique(filId, 'LOT-A')).toEqual([]);
+    expect(await historique(filId, 'LOT-B')).toEqual([]);
   });
 });
 
