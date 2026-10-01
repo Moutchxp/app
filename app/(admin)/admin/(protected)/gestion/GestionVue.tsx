@@ -10,6 +10,7 @@ import {
   ecrireEtatUrl, ETAT_DEFAUT, ETIQUETTE_ARRIVEE, ETIQUETTE_RECEPTION, lireEtatUrl, memeEtat,
   type EtatEcranUrl, type Etiquette,
 } from '../../../../lib/gestion/ecranUrl';
+import { decisionRetour, lireMemoire, memoirePour } from '../../../../lib/gestion/retourEcran';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { useReleveGestion } from './useReleveGestion';
@@ -245,11 +246,47 @@ export function GestionVue({ intro }: {
     setEtatUrl(suivant);
     if (typeof window === 'undefined') return;
     const url = `${window.location.pathname}${ecrireEtatUrl(suivant)}`;
+    const courant = lireEtatUrl(window.location.search);
+    /**
+     * 🔴🔴 LOT FLECHES-RETOUR — CHAQUE ENTRÉE D'HISTORIQUE EMPORTE L'ÉCRAN D'OÙ L'ON VIENT.
+     *
+     * C'est tout le mécanisme : la question « où revenir ? » ne se pose plus à chaque flèche, elle est RÉPONDUE
+     * ici, une fois, au moment où l'on quitte un écran. Le module pur `retourEcran` décide ce qu'il faut retenir
+     * (descendre pose un parent, se déplacer au même niveau l'hérite) ; cette ligne se contente de le ranger.
+     *
+     * ⚠️ L'OBJET DOIT RESTER SÉRIALISABLE : le navigateur le garde dans son historique et le relit après un
+     * rechargement. C'est pourquoi `MemoireEntree` ne porte que des données, jamais une fonction.
+     */
+    const memoire = memoirePour(courant, suivant, lireMemoire(window.history.state));
     // Empiler une entrée seulement si l'écran CHANGE : sinon « Précédent » demanderait autant de clics qu'on en a
     //   donné pour rien. `pushState` (et non `router.push`) : aucun aller-retour serveur pour un changement d'écran.
-    if (memeEtat(lireEtatUrl(window.location.search), suivant)) window.history.replaceState(null, '', url);
-    else window.history.pushState(null, '', url);
+    if (memeEtat(courant, suivant)) window.history.replaceState(memoire, '', url);
+    else window.history.pushState(memoire, '', url);
   }, []);
+
+  /**
+   * ══ 🔴🔴 LOT FLECHES-RETOUR — LE RETOUR, UNE SEULE FOIS POUR TOUT LE MODULE ════════════════════════════════════
+   *
+   * RÈGLE D'ARNO (01/10/2026) : « Toute flèche ou tout bouton de retour ramène à l'ÉCRAN PRÉCÉDENT réellement
+   * visité, dans l'état exact où on l'a quitté […]. Jamais vers une destination fixe quand on venait d'ailleurs. »
+   *
+   * 🔴 IL RECULE DANS L'HISTORIQUE QUAND IL LE PEUT, et c'est ce qui rend la position de défilement, la page de
+   * liste et la recherche sans que personne ait à les sauvegarder : le navigateur les tient déjà. « ← » fait alors
+   * EXACTEMENT ce que fait le bouton « Précédent » — autre exigence d'Arno.
+   *
+   * ⚠️ ET IL VA DROIT AU PARENT QUAND RECULER RENDRAIT AUTRE CHOSE : un mail atteint depuis un mail voisin a bien
+   * la liste pour parent, mais l'entrée juste avant lui est l'autre mail. Le module pur tranche (`decisionRetour`).
+   *
+   * ⚠️ SANS RIEN DERRIÈRE (adresse collée, nouvel onglet), on ne sort jamais de l'application : on remonte d'un
+   * cran logique — le dossier du mail, la liste de l'annuaire, l'écran partagé.
+   */
+  const retour = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const courant = lireEtatUrl(window.location.search);
+    const d = decisionRetour(courant, lireMemoire(window.history.state));
+    if (d.sorte === 'reculer') { window.history.back(); return; }
+    aller(d.etat);
+  }, [aller]);
 
   /**
    * Lit l'écran et RENVOIE le résultat sans toucher à aucun état : c'est l'appelant qui décide quoi en faire. Un refus
@@ -889,8 +926,10 @@ export function GestionVue({ intro }: {
           onOuvrirFil={(id, messageId) => aller({
             ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null,
           })}
-          /* Même raison que pour « À rattacher » : on revient là d'où l'on est parti. */
-          onRetour={() => aller({ ...ETAT_DEFAUT })}
+          /* 🔴🔴 LOT FLECHES-RETOUR — « ← Retour » revient à l'écran précédent RÉELLEMENT visité : la liste de
+             l'annuaire quand on y a ouvert une fiche, le MAIL quand on est venu d'un mail. Avant ce lot, il
+             ramenait toujours à la boîte — le second défaut constaté par Arno. */
+          onRetour={retour}
           /* LOT RATTACHEMENT-2 — « Tout l'historique des échanges » depuis une fiche de logement ou de propriétaire. */
           onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
           /* Écrire à quelqu'un trouvé dans l'annuaire : on part dans la boîte, où vit le SEUL écran d'écriture. */
@@ -922,7 +961,10 @@ export function GestionVue({ intro }: {
             ...etatUrl, filOuvert: id, messageOuvert: messageId ?? null, brouillonOuvert: brouillonId ?? null,
           })}
           brouillonOuvert={brouillonOuvert}
-          onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}
+          /* 🔴🔴 LOT FLECHES-RETOUR — la flèche du mail revient D'OÙ L'ON VIENT (« À rattacher », une recherche,
+             l'annuaire…), et non à l'étiquette courante. Avant ce lot, « À rattacher → mail → ← » rendait
+             « Réception » : le défaut qu'Arno a constaté. */
+          onFermerFil={retour}
           /* ⚠️ « ← Écran partagé » DOIT NOMMER SON ÉCRAN. Depuis le lot ERGO-BOITE, `ETAT_DEFAUT` EST la boîte :
              s'en remettre à lui ferait un bouton de retour qui ne sort de nulle part. */
           onRetour={() => aller({ ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE })}
@@ -965,7 +1007,8 @@ export function GestionVue({ intro }: {
           {filOuvert !== null && (
             <section className="gst-col">
               <Conversation filId={filOuvert} maintenant={ref} messageVise={messageOuvert}
-                onFerme={() => aller({ ...etatUrl, filOuvert: null })}
+                /* 🔴 LOT FLECHES-RETOUR — le MÊME retour que partout ailleurs. */
+                onFerme={retour}
                 onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
                 onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
                 onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
@@ -978,7 +1021,8 @@ export function GestionVue({ intro }: {
       ) : filOuvert !== null ? (
         <section className="gst-col">
           <Conversation filId={filOuvert} maintenant={ref} messageVise={messageOuvert}
-            onFerme={() => aller({ ...etatUrl, filOuvert: null })}
+            /* 🔴 LOT FLECHES-RETOUR — le MÊME retour que partout ailleurs. */
+            onFerme={retour}
             onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
             onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
             onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />

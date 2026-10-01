@@ -316,8 +316,13 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
           🔴 CE QU'ON GARDE, ET RIEN D'AUTRE : un fil de retour, et le champ de recherche — compact quand une
           fiche est ouverte, parce qu'on y cherche la personne SUIVANTE, pas la page où l'on est. */}
       <div className="ann-entete">
+        {/* 🔴🔴 LOT FLECHES-RETOUR — UN SEUL GESTE, CELUI DE TOUT LE MODULE.
+            Avant ce lot, ce bouton connaissait deux destinations FIXES : la liste de l'annuaire quand une fiche
+            était ouverte, la boîte sinon. Venu d'un mail, il ne rendait donc jamais le mail — constat d'Arno.
+            `onRetour` est maintenant le retour commun : il rend la liste quand on y a ouvert la fiche, et le mail
+            quand on vient d'un mail. La présentation du bouton, elle, ne change pas d'un pixel. */}
         <button type="button" className="svv-btn svv-btn-outline gst-btn ann-retour-haut"
-          onClick={() => (fiche !== null ? onFiche(null) : onRetour())}>
+          onClick={() => onRetour()}>
           ← Retour
         </button>
         {fiche === null && <h2 className="ann-titre">Annuaire</h2>}

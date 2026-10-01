@@ -144,10 +144,19 @@ describe('🔴 ce qu’on n’a PAS touché', () => {
   });
 
   /** ⚠️ LES FICHES ET LE RETOUR NE BOUGENT PAS : le retour ramène aux résultats, avec la saisie intacte. */
+  /**
+   * 🔴🔴 LOT FLECHES-RETOUR — LA PROPRIÉTÉ N'A PAS CHANGÉ, LE MOYEN SI.
+   *
+   * Le bouton reposait la fiche à `null` quand une fiche était ouverte, et menait à la boîte sinon : deux
+   * destinations FIXES, dont aucune n'était le mail d'où l'on venait (constat d'Arno). Il passe désormais par le
+   * RETOUR COMMUN du module (`onRetour`), qui recule dans l'historique : la liste revient telle qu'on l'a quittée,
+   * et le terme cherché n'est même pas touché — personne n'a à le sauvegarder.
+   */
   it('🔴 le bouton Retour ramène aux résultats sans effacer la saisie', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
-    // Il repose la fiche à `null` — le terme, lui, vit dans un état qui n'est pas touché.
-    expect(src).toContain('onClick={() => (fiche !== null ? onFiche(null) : onRetour())}');
+    expect(src).toContain('onClick={() => onRetour()}');
+    expect(src).not.toContain('fiche !== null ? onFiche(null) : onRetour()');
+    // Le terme vit dans un état que le retour ne touche pas — c'est ce qui le fait survivre.
     expect(src).toContain('const [terme, setTerme] = useState');
   });
 });

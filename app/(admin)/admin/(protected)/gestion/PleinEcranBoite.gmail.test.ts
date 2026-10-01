@@ -46,8 +46,57 @@ let root: Root;
 let appels: { url: string; methode: string }[];
 let filRattache: boolean;
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FLECHES-RETOUR — UN HISTORIQUE QUI RECULE VRAIMENT, parce que jsdom n'en a pas
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   MESURÉ : dans jsdom, `history.back()` NE FAIT RIEN — ni changement d'adresse, ni `popstate`. Ce n'est pas un
+   détail d'outillage ici : depuis ce lot, la flèche de retour RECULE dans l'historique (c'est ce qui rend la
+   position de défilement et la recherche de la liste), et sans traversée il n'y aurait plus rien à éprouver.
+
+   🔴 ON NE SIMULE DONC PAS LE RÉSULTAT, ON DONNE UN HISTORIQUE AU NAVIGATEUR D'ESSAI : une pile d'entrées
+   (adresse + état), un curseur, et `back()` qui restaure l'entrée précédente puis émet `popstate` — exactement ce
+   que fait un vrai navigateur, et ce que l'écran écoute déjà. Les assertions, elles, portent sur l'écran. */
+function brancherHistorique(): () => void {
+  const pile: { url: string; etat: unknown }[] = [
+    { url: '/admin/gestion?ecran=boite&etiquette=reception', etat: null },
+  ];
+  let i = 0;
+  const poser = (): void => {
+    window.history.replaceState(pile[i].etat, '', pile[i].url);
+  };
+  const vrai = {
+    push: window.history.pushState.bind(window.history),
+    remplace: window.history.replaceState.bind(window.history),
+    back: window.history.back.bind(window.history),
+  };
+  window.history.pushState = ((etat: unknown, _t: string, url: string) => {
+    pile.length = i + 1;
+    pile.push({ url, etat });
+    i += 1;
+    vrai.push(etat, _t, url);
+  }) as typeof window.history.pushState;
+  window.history.replaceState = ((etat: unknown, _t: string, url: string) => {
+    pile[i] = { url, etat };
+    vrai.remplace(etat, _t, url);
+  }) as typeof window.history.replaceState;
+  window.history.back = (() => {
+    if (i === 0) return;
+    i -= 1;
+    poser();
+    window.dispatchEvent(new PopStateEvent('popstate', { state: pile[i].etat }));
+  }) as typeof window.history.back;
+  return () => {
+    window.history.pushState = vrai.push;
+    window.history.replaceState = vrai.remplace;
+    window.history.back = vrai.back;
+  };
+}
+let debrancherHistorique: () => void = () => {};
+
 beforeEach(() => {
   window.history.replaceState(null, '', '/admin/gestion?ecran=boite&etiquette=reception');
+  debrancherHistorique = brancherHistorique();
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   appels = [];
   filRattache = false;
@@ -76,7 +125,12 @@ beforeEach(() => {
     return { ok: true, json: async () => ECRAN } as unknown as Response;
   }) as unknown as typeof fetch;
 });
-afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
+afterEach(() => {
+  act(() => { root.unmount(); });
+  container.remove();
+  debrancherHistorique();
+  vi.restoreAllMocks();
+});
 
 // `setTimeout(0)` et non seulement des microtâches : la recherche d'événement est TEMPORISÉE (elle part sur un
 //   minuteur, même à zéro pour une saisie vide). Sans ce tour de boucle, on conclurait à tort qu'elle n'interroge rien.
@@ -165,9 +219,18 @@ describe('② L’OUVERTURE EN PLEINE PAGE, et le retour', () => {
   it('elle ramène à la liste, et l’adresse revient avec elle', async () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
+    expect(url()).toBe('/admin/gestion?fil=101');
     await cliquer(retour());
     expect(container.querySelector('.cnv')).toBeNull();
-    expect(url()).toBe('/admin/gestion');
+    expect(liste()?.hasAttribute('hidden')).toBe(false);
+    /**
+     * 🔴 LOT FLECHES-RETOUR — L'ADRESSE REVIENT TELLE QU'ELLE ÉTAIT, et non réécrite sous sa forme la plus courte.
+     * La flèche RECULE maintenant dans l'historique : le navigateur restaure l'entrée précédente à l'identique —
+     * c'est précisément ce qui rend aussi la position de défilement et la page de liste. Les deux écritures
+     * désignent le même écran (`lireEtatUrl` les ramène au même état) ; ce qui compte est qu'aucun fil n'y reste.
+     */
+    expect(url()).toContain('/admin/gestion');
+    expect(url()).not.toContain('fil=');
   });
 
   it('🔴 ② « Précédent » du navigateur ramène AUSSI à la liste', async () => {
