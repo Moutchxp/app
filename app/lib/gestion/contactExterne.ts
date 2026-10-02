@@ -403,7 +403,18 @@ export const TITRE_LOCATAIRES = 'LOCATAIRE(S)';
 /** Le titre de l'étape et celui du bloc de suivi — les mots d'Arno. */
 export const TITRE_ETAPE2 = 'Classer ce nouveau contact';
 export const TITRE_INTERVIENT = 'Ce contact intervient pour :';
-export const TITRE_SUIVI = 'Suivi des prochains échanges';
+/**
+ * 🔴🔴 LOT BROUILLONS-APERCU-TYPES-LIBELLES — LE MÊME TITRE QUE LA MODALE PRINCIPALE (demande d'Arno, 02/10/2026).
+ *
+ * Il s'appelait « Suivi des prochains échanges ». Deux blocs qui font la même chose — décider si les mails à venir
+ * suivront — portaient deux noms : on les lisait comme deux mécanismes, alors qu'il n'y en a qu'un (ces deux choix
+ * tombent sur les périodes de `periodesConversation`, voir plus bas).
+ *
+ * ⚠️ AUCUN RISQUE DE CONFUSION À L'ÉCRAN : le bloc à 3 choix de « Rattacher ce mail à… » et l'étape 2 ne
+ * s'affichent JAMAIS ensemble — c'est l'invariant du lot SUIVI-CONVERSATION-NON-RATTACHEE (un expéditeur inconnu
+ * ouvre l'étape 2, un expéditeur connu ouvre le bloc).
+ */
+export const TITRE_SUIVI = 'Suivi dans la conversation';
 
 /** Une personne proposée à l'étape 2. Son identité est (sorte, clé) — jamais un identifiant interne. */
 export interface PersonneEtape2 {
@@ -548,16 +559,36 @@ export type SuiviContact = 'auto' | 'ponctuel';
 /** Le choix coché d'avance — « coché par défaut » (Arno). */
 export const SUIVI_CONTACT_DEFAUT: SuiviContact = 'auto';
 
-/** Les deux choix, dans l'ordre d'Arno, avec leur phrase d'aide. Écrits ICI et nulle part ailleurs. */
+/**
+ * Les deux choix, dans l'ordre d'Arno, avec leur phrase d'aide. Écrits ICI et nulle part ailleurs.
+ *
+ * ══ 🔴🔴 LOT BROUILLONS-APERCU-TYPES-LIBELLES — LES MOTS DE LA MODALE PRINCIPALE, ET RIEN D'AUTRE ══════════════
+ *
+ * DEMANDE D'ARNO (02/10/2026) : « “Suivi automatique de cette conversation” devient “Ce mail et la conversation à
+ * venir” ; “Classement ponctuel — revalidation au prochain message” devient “Ce mail uniquement”. INTERDIT :
+ * modifier le comportement. »
+ *
+ * 🔴🔴 SEULS LES MOTS CHANGENT, ET C'EST VÉRIFIABLE LIGNE À LIGNE : `cle` reste `auto` / `ponctuel` — ce sont les
+ * valeurs qui partent au serveur —, l'ordre ne bouge pas, le défaut reste `auto`, et `choixSuiviDeContact` rend
+ * toujours `suite` / `mail`. Pas une seule épreuve d'intégration de CONTACTS-EXTERNES n'a eu à changer.
+ *
+ * 🔴 POURQUOI CES MOTS-LÀ. Ce sont EXACTEMENT ceux des deux premiers choix du bloc « Suivi dans la conversation »
+ * de « Rattacher ce mail à… », et ils désignent exactement la même chose : `auto` ouvre une période à partir de ce
+ * mail (le `suite` de la modale), `ponctuel` pose une exception sur ce mail seul (le `mail` de la modale). Deux
+ * noms pour un seul mécanisme obligeaient à réapprendre, d'un écran à l'autre, ce qu'on savait déjà.
+ *
+ * ⚠️ LES PHRASES D'AIDE ONT ÉTÉ RACCOURCIES AU TON DE LA MODALE — une ligne, pas trois. Ce qu'elles perdent en
+ * détail (le sens des échanges, le recalcul du rôle) n'est pas perdu pour autant : c'est la bulle du rôle
+ * instantané qui le porte, à l'endroit où la question se pose.
+ */
 export const CHOIX_SUIVI_CONTACT: readonly { cle: SuiviContact; mot: string; aide: string }[] = [
   {
-    cle: 'auto', mot: 'Suivi automatique de cette conversation',
-    aide: 'Les prochains messages de cet échange, dans les deux sens, reprennent ce classement '
-      + 'et ces personnes. Le rôle est recalculé à la date de chaque message.',
+    cle: 'auto', mot: 'Ce mail et la conversation à venir',
+    aide: 'Les prochains mails de cet échange reprennent ce classement et ces personnes.',
   },
   {
-    cle: 'ponctuel', mot: 'Classement ponctuel — revalidation au prochain message',
-    aide: 'Ce message seul est classé. Le prochain reste « À classer », avec ce choix proposé d’avance.',
+    cle: 'ponctuel', mot: 'Ce mail uniquement',
+    aide: 'Ce mail seul est classé. Le suivant reste « À classer », avec ce choix proposé d’avance.',
   },
 ];
 

@@ -9,6 +9,8 @@ import {
   CHOIX_SUIVI_CONTACT, MOT_PERSONNALISER, TYPES_AVANT_294, TYPES_CONTACT_EXTERNE,
 } from '../../../../lib/gestion/contactExterne';
 import type { BienEtape2, ReponseEtape2 } from '../../../../lib/gestion/contactExterneRepo';
+// 🔴🔴 LOT BROUILLONS-APERCU-TYPES-LIBELLES — les choix de la MODALE, pour comparer les mots à leur source.
+import { CHOIX_SUIVI } from './EncartRattachement';
 
 /**
  * ══ 🔴🔴 LOT CONTACTS-EXTERNES — L'ÉTAPE 2, SUR LE VRAI COMPOSANT MONTÉ ════════════════════════════════════════
@@ -506,5 +508,25 @@ describe('🔴🔴 E-10 — le type : « Diagnostiqueur », et « Personnaliser�
     // Sans cela, rouvrir la fiche afficherait un choix VIDE, et valider effacerait son type.
     expect(optionsDuType()).toContain('Huissier');
     expect((container.querySelector('select') as HTMLSelectElement).value).toBe('huissier');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT BROUILLONS-APERCU-TYPES-LIBELLES — LE BLOC DE SUIVI PORTE LES MOTS DE LA MODALE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le bloc de suivi de l’étape 2, renommé', () => {
+  /**
+   * 🔴 LES MOTS SONT LUS À LA SOURCE, jamais recopiés : s'ils divergeaient un jour de ceux de la modale, cette
+   * épreuve tomberait — alors qu'une recopie serait restée muette.
+   */
+  it('🔴🔴 ses deux mots sont ceux des deux premiers choix du bloc à 3 choix', () => {
+    const motDe = (cle: 'mail' | 'suite'): string => CHOIX_SUIVI.find((c) => c.cle === cle)!.mot;
+    expect(CHOIX_SUIVI_CONTACT.find((c) => c.cle === 'auto')!.mot).toBe(motDe('suite'));
+    expect(CHOIX_SUIVI_CONTACT.find((c) => c.cle === 'ponctuel')!.mot).toBe(motDe('mail'));
+  });
+
+  it('🔴 et son titre est celui de la modale', () => {
+    expect(TITRE_SUIVI).toBe('Suivi dans la conversation');
   });
 });

@@ -5,7 +5,8 @@ import {
   roleLocataireALaDate, roleLocataireParmiOccupations, roleRecu, suiviContactRecu, tonRoleInstantane,
   typeLibreRecu, typeRecu, typesProposes,
   BIEN_UNIQUEMENT, CHOIX_ETAPE2_VIDE, CHOIX_SUIVI_CONTACT, LIEN_ANCIENS_LOCATAIRES, REGLE_INTERVENTION,
-  ROLES_INSTANTANES, SUIVI_CONTACT_DEFAUT, TYPES_AVANT_294, TYPES_CONTACT_EXTERNE, TYPE_A_PERSONNALISER,
+  ROLES_INSTANTANES, SUIVI_CONTACT_DEFAUT, TITRE_SUIVI, TYPES_AVANT_294, TYPES_CONTACT_EXTERNE,
+  TYPE_A_PERSONNALISER,
   TYPE_LONGUEUR_MAX,
   type ContexteEtape2, type PersonneEtape2,
 } from './contactExterne';
@@ -510,5 +511,60 @@ describe('C-G — `motClassement` gagne les personnes sans toucher à ce qu’il
       sorte: 'interne', biens: [],
       personnes: [{ sorte: 'locataire', cle: 'L1', libelle: 'THAI Cécile' }],
     })).toBe('Interne');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT BROUILLONS-APERCU-TYPES-LIBELLES — LE BLOC DE SUIVI DE L'ÉTAPE 2 : LES MOTS, ET RIEN QUE LES MOTS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (02/10/2026) : le bloc « SUIVI DES PROCHAINS ÉCHANGES » reprend EXACTEMENT le titre et la
+   nomenclature du bloc « SUIVI DANS LA CONVERSATION » de la modale « Rattacher ce mail à… ».
+
+   « INTERDIT : modifier le comportement. Les deux options gardent EXACTEMENT leurs effets actuels, leurs valeurs
+   envoyées au serveur, leur choix par défaut. »
+
+   🔴 C'EST CE QUE CE BLOC D'ÉPREUVES PROUVE, des deux côtés : les MOTS ont changé, et RIEN D'AUTRE.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le bloc de suivi de l’étape 2 : uniformisation des LIBELLÉS', () => {
+  it('🔴 le titre est celui de la modale principale, au caractère près', () => {
+    expect(TITRE_SUIVI).toBe('Suivi dans la conversation');
+  });
+
+  it('🔴🔴 les deux mots sont ceux des deux premiers choix de la modale', () => {
+    expect(CHOIX_SUIVI_CONTACT.map((c) => c.mot)).toEqual([
+      'Ce mail et la conversation à venir',
+      'Ce mail uniquement',
+    ]);
+  });
+
+  /**
+   * 🔴🔴 LA PREUVE QUE RIEN D'AUTRE N'A BOUGÉ — et c'est l'interdit d'Arno, pris au mot. Si l'une de ces lignes
+   * tombe, ce n'est plus un changement de libellé : c'est un changement de comportement.
+   */
+  it('🔴🔴 les VALEURS envoyées au serveur, l’ordre et le défaut sont INCHANGÉS', () => {
+    // ① les clés — c'est ce qui part au serveur, et ce que `suiviContactRecu` re-valide
+    expect(CHOIX_SUIVI_CONTACT.map((c) => c.cle)).toEqual(['auto', 'ponctuel']);
+    // ② le nombre d'options
+    expect(CHOIX_SUIVI_CONTACT).toHaveLength(2);
+    // ③ le choix coché d'avance
+    expect(SUIVI_CONTACT_DEFAUT).toBe('auto');
+    // ④ ce que chaque choix PRODUIT dans le mécanisme des périodes
+    expect(choixSuiviDeContact('auto')).toBe('suite');
+    expect(choixSuiviDeContact('ponctuel')).toBe('mail');
+    // ⑤ la re-validation de ce qui revient du navigateur, défaut compris
+    expect(suiviContactRecu('ponctuel')).toBe('ponctuel');
+    expect(suiviContactRecu('auto')).toBe('auto');
+    expect(suiviContactRecu('n’importe quoi')).toBe('auto');
+    expect(suiviContactRecu(null)).toBe('auto');
+  });
+
+  it('⚠️ chaque choix garde une phrase d’aide, courte et du même ton', () => {
+    for (const c of CHOIX_SUIVI_CONTACT) {
+      expect(c.aide.trim()).not.toBe('');
+      // Une ligne, pas trois : c'est le ton de la modale (demande d'Arno).
+      expect(c.aide.length).toBeLessThanOrEqual(90);
+    }
   });
 });

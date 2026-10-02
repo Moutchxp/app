@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EncartRattachement } from './EncartRattachement';
-import { BIEN_UNIQUEMENT, TITRE_ETAPE2 } from '../../../../lib/gestion/contactExterne';
+import { BIEN_UNIQUEMENT, TITRE_ETAPE2, TITRE_SUIVI } from '../../../../lib/gestion/contactExterne';
 
 /**
  * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LE CÂBLAGE : ÉTAPE 1 → ÉTAPE 2 → ÉCRITURE ════════════════════════════════════
@@ -533,8 +533,20 @@ describe('🔴🔴 ⑧ conversation jamais rattachée : le bloc est là dès l�
     // Et au Valider, c'est bien l'étape 2 qui s'ouvre, avec SES deux choix.
     await cliquer('Valider —');
     expect(etape2Ouverte()).toBe(true);
-    expect(texte()).toContain('Suivi des prochains échanges');
-    expect(texte()).not.toContain('Suivi dans la conversation');
+    /**
+     * ══ 🔴🔴 L'INVARIANT NE SE LIT PLUS AU TITRE — ET C'EST VOULU (lot BROUILLONS-APERCU-TYPES-LIBELLES) ══════
+     *
+     * Depuis qu'Arno a demandé l'uniformisation, les DEUX blocs s'appellent « Suivi dans la conversation » : le
+     * titre ne départage donc plus rien. Ce qui les distingue n'a pas changé pour autant — le bloc de l'étape 1
+     * offre TROIS choix, dont « Toute la conversation », celui de l'étape 2 en offre DEUX. C'est sur cela que
+     * l'invariant se vérifie désormais, et c'est un meilleur contrôle : il porte sur ce que l'écran FAIT, pas
+     * sur la façon dont il s'intitule.
+     */
+    expect(texte()).toContain(TITRE_SUIVI);
+    expect(texte()).toContain('Ce mail et la conversation à venir');
+    expect(texte()).toContain('Ce mail uniquement');
+    // 🔴 LE TROISIÈME CHOIX N'EXISTE QUE DANS LA MODALE : s'il apparaît ici, les deux blocs sont montés ensemble.
+    expect(texte()).not.toContain('Toute la conversation');
   });
 
   it('🔴🔴 un RATTACHEMENT VALIDÉ suffit à faire reprendre la règle ①, même sans période', async () => {

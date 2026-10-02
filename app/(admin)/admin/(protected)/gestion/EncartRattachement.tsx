@@ -67,8 +67,15 @@ import type { Cible, Statut } from '../../../../lib/gestion/rattachement';
  *
  * ⚠️ ÉCRITS ICI ET NULLE PART AILLEURS : l'ordre, les mots et les aides sont une seule vérité. Le choix coché
  * d'avance, lui, vient du module pur (`SUIVI_DEFAUT`).
+ *
+ * 🔴🔴 EXPORTÉ DEPUIS LE LOT BROUILLONS-APERCU-TYPES-LIBELLES, et pour une seule raison : le bloc de suivi de
+ * l'étape 2 reprend désormais ces mots (demande d'Arno). Une épreuve les compare À LA SOURCE plutôt que de les
+ * recopier — recopiés, les deux listes auraient divergé au premier ajustement sans que rien ne le dise.
+ *
+ * ⚠️ AUCUN CONTENU N'A CHANGÉ ICI : ni l'ordre, ni les mots, ni les aides, ni les clés. Seul le mot-clé `export`
+ * a été ajouté.
  */
-const CHOIX_SUIVI: readonly { cle: ChoixSuivi; mot: string; aide: string }[] = [
+export const CHOIX_SUIVI: readonly { cle: ChoixSuivi; mot: string; aide: string }[] = [
   {
     cle: 'mail', mot: 'Ce mail uniquement',
     aide: 'Exception : ce mail seul est classé ainsi. Le mail suivant reprend la règle d’avant.',

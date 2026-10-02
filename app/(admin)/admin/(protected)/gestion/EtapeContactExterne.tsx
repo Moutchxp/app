@@ -20,7 +20,7 @@ import type { BienEtape2, ReponseEtape2 } from '../../../../lib/gestion/contactE
  * DEMANDE D'ARNO (02/10/2026), et c'est sa maquette : « En tête : adresse et type du bien. Si plusieurs biens sont
  * cochés, une section par bien. “Ce contact intervient pour :” → “Le bien uniquement” (sous-titre « Artisan,
  * syndic, expert… aucune personne spécifique ») ; PROPRIÉTAIRE(S) ; LOCATAIRE(S) avec leur pastille de statut
- * CALCULÉE À LA DATE DE RÉCEPTION DU MAIL. Puis “Suivi des prochains échanges” (deux choix). Au bas : “Contact
+ * CALCULÉE À LA DATE DE RÉCEPTION DU MAIL. Puis “Suivi dans la conversation” (deux choix). Au bas : “Contact
  * externe : <adresse>”, plus les champs FACULTATIFS nom, téléphone et type. Bouton “Valider” en rouge. »
  *
  * ET : « Objectif : 2 à 3 gestes après le choix du bien. »
@@ -210,7 +210,7 @@ export function EtapeContactExterne({
             <fieldset className="ece-bloc">
               <legend className="ece-sous-titre">{TITRE_SUIVI}</legend>
               {CHOIX_SUIVI_CONTACT.map((c) => (
-                <label className="ece-choix" key={c.cle}>
+                <label className="ece-choix ece-choix--suivi" key={c.cle}>
                   <input type="radio" name="ece-suivi" checked={suivi === c.cle}
                     onChange={() => setSuivi(c.cle)} />
                   <span className="ece-corps">
@@ -515,6 +515,16 @@ export const CSS_ETAPE_CONTACT = `
 
 .ece-deplier{font-weight:600;margin-top:.3rem}
 .ece-choix{display:flex;align-items:flex-start;gap:.55rem;min-height:40px;padding:3px 0;cursor:pointer}
+/* ══ 🔴 LOT BROUILLONS-APERCU-TYPES-LIBELLES — LE BLOC DE SUIVI PREND LA TYPOGRAPHIE DE LA MODALE ══════════════
+   Le modele est le bloc de suivi de la modale « Rattacher ce mail a… » (.ert-suivi-mot / .ert-suivi-aide).
+   ⚠️ SON TITRE N'EST PAS ECRIT ICI, et pas par hasard : le contenu d'un <style> entre dans le textContent de
+   la fenetre, et une epreuve qui verifie l'ABSENCE du titre le trouverait dans ce commentaire.
+   La forme etait deja la meme (legende en capitales, mot en gras, aide en gris dessous) ; seules deux tailles
+   differaient d'un centieme de rem. On les aligne ICI, sur une classe propre au bloc : toucher .ece-mot et
+   .ece-aide aurait deplace les cartes de personnes et les aides des champs, qui n'ont rien demande.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un litteral de gabarit. */
+.ece-choix--suivi .ece-mot{font-size:.85rem;font-weight:600}
+.ece-choix--suivi .ece-aide{font-size:.74rem}
 
 /* ══ LES TROIS CHAMPS FACULTATIFS — en rangee quand la place suffit, empiles sur un telephone ═══════════════ */
 .ece-champs{display:flex;flex-wrap:wrap;gap:.5rem .6rem;min-width:0}
