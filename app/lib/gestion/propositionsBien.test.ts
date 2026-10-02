@@ -112,15 +112,31 @@ describe('🔴 (c) un PROPRIÉTAIRE à PLUSIEURS biens', () => {
     expect(r.propositions[0].motif).toContain('un des 3 biens de MARTY Jean-François');
   });
 
-  it('🔴 SAUF si l’adresse d’un de ces biens est citée dans l’objet : celui-là est coché, et on DIT pourquoi', () => {
+  /**
+   * ══ 🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — CET ATTENDU EST RETOURNÉ, SUR DEMANDE D'ARNO ═════════════════
+   *
+   * Il disait : « SAUF si l'adresse d'un de ces biens est citée dans l'objet : celui-là est COCHÉ. » Arno a
+   * tranché le 02/10/2026, après avoir vu « 76 bien(s) coché(s) sur 76 affiché(s) » sur le fil 193 :
+   *
+   *     « Pourquoi la règle "adresse citée" pré-coche-t-elle ? Elle fait partie des propositions par le contenu,
+   *       qui doivent être DÉCOCHÉES, comme la règle e. »
+   *
+   * 🔴 LA PROPOSITION RESTE, ET SON MOTIF AUSSI : seule la CASE change. Rien n'est retiré — on cesse de cocher.
+   * Le n° de lot, lui, continue de cocher (épreuve suivante) : il désigne UN logement, pas un immeuble.
+   */
+  it('🔴🔴 une adresse citée PROPOSE, mais ne coche JAMAIS (76 lots au même numéro)', () => {
     const r = proposerBiens({
       adresses: [adr({ adresse: 'marty@free.fr', partie: 'proprietaire', proprietaireCle: 'P1' })],
       biens: troisBiens,
       textes: { objet: 'Charges 30 avenue de Verdun, Courbevoie' },
     });
-    const coches = r.propositions.filter((p) => p.preCoche);
-    expect(coches.map((p) => p.cle)).toEqual(['447']);
-    expect(coches[0].motif).toContain('adresse cité dans le mail');
+    // La proposition EST là, et elle dit pourquoi…
+    const cite = r.propositions.find((p) => p.cle === '447');
+    expect(cite?.motif).toContain('adresse citée dans le mail');
+    // … mais AUCUNE case n'est cochée.
+    expect(r.propositions.filter((p) => p.preCoche)).toEqual([]);
+    // ⚠️ ET LES TROIS BIENS SONT TOUJOURS PROPOSÉS : on n'a rien perdu.
+    expect(r.propositions.map((p) => p.cle).sort()).toEqual(['445', '446', '447']);
   });
 
   it('…ou si le n° de lot est cité dans le corps', () => {
@@ -133,13 +149,25 @@ describe('🔴 (c) un PROPRIÉTAIRE à PLUSIEURS biens', () => {
     expect(r.propositions.find((p) => p.cle === '446')?.motif).toContain('n° de lot cité dans le mail');
   });
 
-  it('…ou dans le NOM D’UNE PIÈCE JOINTE', () => {
+  it('…et le NOM D’UNE PIÈCE JOINTE est fouillé lui aussi — mais une adresse n’y coche pas davantage', () => {
     const r = proposerBiens({
       adresses: [adr({ adresse: 'marty@free.fr', partie: 'proprietaire', proprietaireCle: 'P1' })],
       biens: troisBiens,
       textes: { pieces: ['Quittance 30 avenue de Verdun juillet.pdf'] },
     });
-    expect(r.propositions.filter((p) => p.preCoche).map((p) => p.cle)).toEqual(['447']);
+    // 🔴 LA FOUILLE DU NOM DE PIÈCE N'A PAS CHANGÉ : le bien est bien reconnu, et son motif le dit.
+    expect(r.propositions.find((p) => p.cle === '447')?.motif).toContain('adresse citée dans le mail');
+    // 🔴 SEULE LA CASE CHANGE : une adresse, d'où qu'elle vienne, ne coche plus.
+    expect(r.propositions.filter((p) => p.preCoche)).toEqual([]);
+  });
+
+  it('🔴🔴 un n° de lot dans le nom d’une pièce, LUI, coche toujours : il désigne UN logement', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'marty@free.fr', partie: 'proprietaire', proprietaireCle: 'P1' })],
+      biens: troisBiens,
+      textes: { pieces: ['Appel de fonds lot 446.pdf'] },
+    });
+    expect(r.propositions.filter((p) => p.preCoche).map((p) => p.cle)).toEqual(['446']);
   });
 
   it('plusieurs biens cités ⇒ plusieurs cochés : un mail parle parfois de deux appartements', () => {
@@ -172,17 +200,123 @@ describe('🔴 (d) aucune adresse reconnue : le TEXTE, et lui seul', () => {
     });
     expect(r.issue).toBe('a_trancher');
     expect(r.propositions.map((p) => p.cle)).toEqual(['445']);
-    expect(r.propositions[0]).toMatchObject({ cas: 'd', preCoche: true });
+    /**
+     * 🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — `preCoche` ÉTAIT `true` ICI, et c'est le défaut du fil 193.
+     * Ce cas est la DERNIÈRE chance du moteur : aucune adresse n'est connue, et il fouille le texte. Une
+     * trouvaille de dernière chance ne coche pas — elle propose. (Le n° de lot garde son droit : épreuve
+     * suivante.)
+     */
+    expect(r.propositions[0]).toMatchObject({ cas: 'd', preCoche: false, certitude: 'a_trancher' });
     expect(r.propositions[0].motif).toContain('aucune adresse connue');
+    expect(r.propositions[0].motif).toContain('adresse citée dans le mail');
+    // 🔴 ET LE N° DE LOT N'EST PLUS ÉCRIT : le mail ne le citait pas (demande d'Arno).
+    expect(r.propositions[0].motif).not.toContain('lot 445');
+    expect(r.propositions[0].motif).toContain('18 rue Danton');
   });
 
-  it('le n° de lot cité suffit aussi (mails Monga, comptabilité)', () => {
+  it('le n° de lot cité suffit aussi (mails Monga, comptabilité) — et LUI coche', () => {
     const r = proposerBiens({
       adresses: [],
       biens: [bien('375', { adresse: '1bis rue des Pavillons' })],
       textes: { corps: 'MNG-20354 — rappel pour le lot 375, porte de box défaillante' },
     });
     expect(r.propositions.map((p) => p.cle)).toEqual(['375']);
+    // 🔴 UN N° DE LOT DÉSIGNE UN LOGEMENT, pas un immeuble : il garde son droit de cocher.
+    expect(r.propositions[0].preCoche).toBe(true);
+    // 🔴 ET LE MOTIF PEUT, LUI, ÉCRIRE LE N° : le mail le cite vraiment.
+    expect(r.propositions[0].motif).toContain('lot 375');
+  });
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LE CAS D'ARNO : UNE ADRESSE, SOIXANTE-SEIZE LOTS (fil 193, 02/10/2026)
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /** Un immeuble de N lots à la même adresse — exactement le 54 avenue Puvis de Chavannes et ses 76 lots. */
+  const immeuble = (n: number, proprietaireCle: string | null = null) =>
+    Array.from({ length: n }, (_, i) => bien(String(100 + i), {
+      adresse: '54 avenue Puvis de Chavannes', commune: 'Courbevoie', proprietaireCle,
+    }));
+
+  it('🔴🔴 76 lots à la même adresse : TOUS proposés, AUCUN coché', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'frederic.racan@free.fr' })],
+      biens: immeuble(76),
+      textes: { objet: 'Remboursement dépôt de garantie / 54 avenue Puvis de Chavannes, Courbevoie' },
+    });
+    expect(r.propositions).toHaveLength(76);
+    // 🔴 LE DÉFAUT D'ARNO, RETOURNÉ : « 76 bien(s) coché(s) sur 76 affiché(s) » devient zéro coché.
+    expect(r.propositions.filter((p) => p.preCoche)).toEqual([]);
+    expect(r.issue).toBe('a_trancher');
+  });
+
+  it('🔴🔴 et seuls CINQ sont montrés : les 71 autres se replient derrière « voir les autres »', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'frederic.racan@free.fr' })],
+      biens: immeuble(76),
+      textes: { objet: 'Remboursement dépôt de garantie / 54 avenue Puvis de Chavannes, Courbevoie' },
+    });
+    expect(r.propositions.filter((p) => p.replie !== true)).toHaveLength(5);
+    expect(r.propositions.filter((p) => p.replie === true)).toHaveLength(71);
+    // ⚠️ RIEN N'EST PERDU : les 76 sont toujours là, et se cochent si on les déplie.
+    expect(r.propositions).toHaveLength(76);
+  });
+
+  it('🔴🔴 le LOT CITÉ passe devant, et il est coché — même au milieu de 76', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'frederic.racan@free.fr' })],
+      biens: immeuble(76),
+      // Le mail nomme l'immeuble ET un lot précis : c'est celui-là qu'on veut voir, et cocher.
+      textes: { objet: 'Dépôt de garantie 54 avenue Puvis de Chavannes, Courbevoie — lot 142' },
+    });
+    const coches = r.propositions.filter((p) => p.preCoche);
+    expect(coches.map((p) => p.cle)).toEqual(['142']);
+    // 🔴 ET IL EST VISIBLE D'EMBLÉE : un bien coché qu'il faudrait déplier pour voir serait le pire des cas.
+    expect(r.propositions.find((p) => p.cle === '142')?.replie).not.toBe(true);
+  });
+
+  /**
+   * ⚠️ UNE ÉPREUVE QUI A CHANGÉ DE SUJET, ET C'EST ELLE QUI L'A VOULU. Elle devait montrer qu'un bien dont le
+   * propriétaire écrit dans l'échange passe devant ses voisins. Elle a montré AUTRE CHOSE : dès qu'une adresse
+   * reconnue désigne un propriétaire qui possède un bien, c'est le cas (c) qui répond — et le cas (d) ne se
+   * déclenche jamais. Le critère était donc inatteignable ; il a été retiré de `biensCitesAMontrer`, et cette
+   * épreuve garde désormais la raison pour laquelle il n'y est pas.
+   */
+  it('🔴 un propriétaire reconnu fait répondre le cas (c), jamais le (d) — d’où un seul bien proposé', () => {
+    const biens = [
+      ...immeuble(10),
+      bien('999', { adresse: '54 avenue Puvis de Chavannes', commune: 'Courbevoie', proprietaireCle: 'P7' }),
+    ];
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'bailleur@x.fr', proprietaireCle: 'P7' })],
+      biens,
+      textes: { objet: 'Charges 54 avenue Puvis de Chavannes, Courbevoie' },
+    });
+    // Le cas (b) a tranché : un propriétaire à bien UNIQUE, c'est son bien, et lui seul.
+    expect(r.propositions.map((p) => p.cle)).toEqual(['999']);
+    expect(r.propositions[0].cas).toBe('b');
+  });
+
+  it('🔴 au-dessous de six, rien ne se replie : le dépliage ne sert à rien sur cinq lignes', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'syndic@inconnu.fr' })],
+      biens: immeuble(4),
+      textes: { objet: 'Ravalement 54 avenue Puvis de Chavannes, Courbevoie' },
+    });
+    expect(r.propositions).toHaveLength(4);
+    expect(r.propositions.every((p) => p.replie !== true)).toBe(true);
+  });
+
+  it('🔴🔴 le motif DIT combien de lots partagent l’adresse, et n’écrit PAS le n° de lot', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'syndic@inconnu.fr' })],
+      biens: immeuble(76),
+      textes: { objet: 'Ravalement 54 avenue Puvis de Chavannes, Courbevoie' },
+    });
+    const m = r.propositions[0].motif;
+    expect(m).toContain('adresse citée dans le mail');
+    expect(m).toContain('un des 76 lots de cette adresse');
+    // 🔴 DEMANDE D'ARNO : « n'affiche le n° de lot que s'il figure vraiment dans le mail ».
+    expect(m).not.toContain('lot 100');
   });
 
   it('🔴 le cas (d) ne se déclenche QUE si aucune adresse n’a rien donné', () => {

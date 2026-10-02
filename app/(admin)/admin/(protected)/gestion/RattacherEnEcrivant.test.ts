@@ -818,3 +818,80 @@ describe('🔴🔴 ⑤ la recherche est DANS la modale, toujours visible', () =>
     expect(container.querySelector('.rec-vide')?.textContent).toContain('zzzzz');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — « VISIBLE » VEUT DIRE À L'ÉCRAN, PAS « DANS LA RÉPONSE »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (02/10/2026) : « Valider ne doit jamais partir sur des dizaines de biens sans geste explicite. »
+
+   Le défaut tenait en une ligne : les biens REPLIÉS derrière « voir les autres » entraient dans la liste comptée
+   comme les autres. Le compteur annonçait « sur 76 affiché(s) » avec cinq lignes à l'écran, et « Sélectionner
+   tous les biens » en cochait 76 — dont 71 que personne n'avait vus. Le mot « VISIBLE », écrit en toutes lettres
+   au lot MODALE-RATTACHER-PROPRE, était démenti par le code juste en dessous. */
+
+describe('🔴🔴 les biens repliés ne sont ni comptés ni cochés tant qu’on ne les a pas dépliés', () => {
+  /** Six biens d'une même adresse : cinq montrés, un replié — la forme exacte des 76 lots du fil 193. */
+  const avecReplies = () => {
+    contexte = {
+      biens: [
+        { ...BIEN('100', false, 'adresse citée dans le mail — un des 6 lots de cette adresse') },
+        { ...BIEN('101', false, 'adresse citée dans le mail'), replie: false },
+        { ...BIEN('102', false, 'adresse citée dans le mail'), replie: false },
+        { ...BIEN('103', false, 'adresse citée dans le mail'), replie: false },
+        { ...BIEN('104', false, 'adresse citée dans le mail'), replie: false },
+        { ...BIEN('105', false, 'adresse citée dans le mail'), replie: true },
+      ],
+      examen: { issue: 'a_trancher', motif: '' }, proprietaire: null,
+      interneDabord: false, disponible: true,
+    };
+  };
+
+  it('🔴🔴 le compteur ne compte QUE ce qui est à l’écran', async () => {
+    avecReplies();
+    await monter();
+    expect(container.textContent).toContain('0 bien(s) coché(s) sur 5 affiché(s)');
+    expect(container.textContent).not.toContain('sur 6 affiché(s)');
+  });
+
+  it('🔴🔴 « Sélectionner tous les biens » ne touche PAS ce qui est replié', async () => {
+    avecReplies();
+    await monter();
+    const lien = [...container.querySelectorAll('button')]
+      .find((b) => (b.textContent ?? '').includes('Sélectionner tous les biens'));
+    await act(async () => { lien?.click(); });
+    expect(container.textContent).toContain('5 bien(s) coché(s) sur 5 affiché(s)');
+    // 🔴 ET « Valider » PART SUR CINQ, pas sur six : le sixième n'a jamais été montré.
+    expect(container.textContent).toContain('Valider — 5 bien(s)');
+  });
+
+  it('🔴 « voir les autres » les ramène — et ils comptent alors, eux aussi', async () => {
+    avecReplies();
+    await monter();
+    const voir = [...container.querySelectorAll('button')]
+      .find((b) => (b.textContent ?? '').includes('voir les autres'));
+    expect(voir?.textContent).toContain('(1)');
+    await act(async () => { voir?.click(); });
+    expect(container.textContent).toContain('0 bien(s) coché(s) sur 6 affiché(s)');
+  });
+
+  it('🔴🔴 un bien replié qu’on a COCHÉ reste visible même après avoir masqué les autres', async () => {
+    /**
+     * ⚠️ LE PIÈGE QUE CETTE ÉPREUVE FERME : « ce qui est coché est visible, TOUJOURS » (lot
+     * CLASSER-SUR-CHAQUE-MAIL). Replier un bien qu'on vient de cocher le rendrait coché sans case — compté par
+     * le bouton, introuvable dans la liste, hors d'atteinte de « Tout désélectionner ».
+     */
+    avecReplies();
+    await monter();
+    const voir = [...container.querySelectorAll('button')]
+      .find((b) => (b.textContent ?? '').includes('voir les autres'));
+    await act(async () => { voir?.click(); });
+    const cases = [...container.querySelectorAll<HTMLInputElement>('.rec-biens input[type="checkbox"]')];
+    await act(async () => { cases[5].click(); });
+    const masquer = [...container.querySelectorAll('button')]
+      .find((b) => (b.textContent ?? '').includes('masquer les autres biens'));
+    await act(async () => { masquer?.click(); });
+    // Il est toujours là, et toujours compté : six affichés, un coché.
+    expect(container.textContent).toContain('1 bien(s) coché(s) sur 6 affiché(s)');
+  });
+});

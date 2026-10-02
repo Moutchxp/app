@@ -237,6 +237,14 @@ export function RattacherEnEcrivant({
   >({ v: 'repos' });
   /** Les biens ajoutés à la main : ils ne viennent pas du moteur, mais ils se cochent et se valident pareil. */
   const [ajoutes, setAjoutes] = useState<CibleBrouillon[]>([]);
+  /**
+   * 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — LES BIENS AU-DELÀ DU CINQUIÈME. Ils sont dans la liste (ils se cochent,
+   * ils se valident) mais rangés derrière un lien tant qu'on ne les demande pas.
+   *
+   * ⚠️ DÉCLARÉ ICI, AVEC LES AUTRES ÉTATS (lot URGENT-VERIF-SUIVI-ET-76-BIENS) : `proposesAffiches` en dépend, et
+   * il se calcule bien avant le rendu. Un crochet déclaré plus bas serait lu après son premier usage.
+   */
+  const [autresDeplies, setAutresDeplies] = useState(false);
 
   const charger = useCallback(async () => {
     // ⚠️ ON NE REVIENT PAS À « Lecture des biens possibles… » quand on a déjà quelque chose à montrer : ce
@@ -320,6 +328,21 @@ export function RattacherEnEcrivant({
    * COCHÉS, plus les propositions et le moteur de recherche ».
    */
   const clesProposees = new Set((contexte?.biens ?? []).map((b) => b.cle));
+
+  /**
+   * ══ 🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — LES PROPOSITIONS RÉELLEMENT À L'ÉCRAN ═══════════════════════════
+   *
+   * 🔴 UNE SEULE LISTE POUR DEUX USAGES, ET C'EST TOUT L'OBJET DE CETTE LIGNE : elle est rendue par la liste du
+   * haut ET comptée par le compteur. Avant ce lot, le rendu filtrait les repliés et le compte ne les filtrait
+   * pas — d'où « sur 76 affiché(s) » avec cinq lignes à l'écran, et un « Sélectionner tous les biens » qui en
+   * cochait 71 que personne n'avait vus.
+   *
+   * ⚠️ UN BIEN REPLIÉ MAIS **COCHÉ** RESTE AFFICHÉ, et il le faut : on peut déplier, cocher, puis replier. Le
+   * cacher le laisserait coché sans case — c'est exactement le défaut « le compteur reste bloqué à 1 » que le lot
+   * CLASSER-SUR-CHAQUE-MAIL a payé une fois. Ce qui est coché est visible, toujours.
+   */
+  const proposesAffiches = (contexte?.biens ?? []).filter(
+    (b) => b.replie !== true || autresDeplies || (coches?.has(b.cle) ?? false));
   /** Les biens montrés SOUS les propositions : trouvés à la recherche, ou déjà rattachés et non proposés. */
   const horsPropositions: { cible: CibleBrouillon; origine: 'recherche' | 'deja' }[] = [
     ...ajoutes.filter((a) => !clesProposees.has(a.cle ?? ''))
@@ -330,9 +353,29 @@ export function RattacherEnEcrivant({
         && !ajoutes.some((a) => (a.cle ?? '') === (c.cle ?? '')))
       .map((c) => ({ cible: c, origine: 'deja' as const })),
   ];
-  /** Tous les biens montrés : ceux du moteur, puis les autres. C'est la liste que le compteur compte. */
+  /**
+   * Tous les biens montrés : ceux du moteur, puis les autres. C'est la liste que le compteur compte.
+   *
+   * ══ 🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — « MONTRÉS » VEUT DIRE **À L'ÉCRAN**, PAS « DANS LA RÉPONSE » ═══
+   *
+   * CONSTAT D'ARNO (02/10/2026) : « Valider ne doit jamais partir sur des dizaines de biens sans geste
+   * explicite. »
+   *
+   * 🔴 LE DÉFAUT EXACT, trouvé en relisant ce fichier. Les biens repliés derrière « voir les autres » entraient
+   * dans cette liste comme les autres. Trois conséquences, toutes fausses :
+   *   ① le compteur annonçait « sur 76 affiché(s) » alors que CINQ étaient à l'écran ;
+   *   ② « Sélectionner tous les biens » en cochait 76, dont 71 que personne n'avait vus ;
+   *   ③ et le mot « VISIBLE », écrit en toutes lettres au lot MODALE-RATTACHER-PROPRE (« ce qui n'est pas à
+   *      l'écran n'est pas touché »), était démenti par le code juste en dessous.
+   *
+   * ⚠️ LES BIENS REPLIÉS NE SONT PAS PERDUS : ils sont à un clic (« voir les autres »), et dès qu'on déplie ils
+   * reviennent dans cette liste — compteur et bascule compris. C'est `autresDeplies` qui le dit.
+   *
+   * ⚠️ `horsPropositions` N'EST JAMAIS REPLIÉ : ce sont les biens DÉJÀ rattachés et ceux qu'on vient de trouver à
+   * la recherche. Les cacher ferait exactement le défaut que ce bloc répare — une case cochée sans case.
+   */
   const tous: { cle: string; libelle: string }[] = [
-    ...(contexte?.biens ?? []).map((b) => ({ cle: b.cle, libelle: b.libelle })),
+    ...proposesAffiches.map((b) => ({ cle: b.cle, libelle: b.libelle })),
     ...horsPropositions.map((x) => ({ cle: x.cible.cle ?? '', libelle: x.cible.libelle })),
   ];
   /** Ce qui est DÉJÀ montré en haut — propositions comprises. Sert à dire « déjà dans la sélection » en bas. */
@@ -428,10 +471,10 @@ export function RattacherEnEcrivant({
   const aucuneProposition = clesVisibles().length === 0;
 
   /**
-   * 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — LES BIENS AU-DELÀ DU CINQUIÈME D'UNE MÊME PERSONNE. Ils sont dans la
-   * liste (ils se cochent, ils se valident) mais rangés derrière un lien tant qu'on ne les demande pas.
+   * ⚠️ `autresDeplies` EST DÉCLARÉ PLUS HAUT (avec les autres états), parce que `proposesAffiches` en dépend et
+   * qu'il se calcule avant le rendu. Il vivait ici ; l'ordre des crochets reste le même à chaque rendu, ce qui
+   * est la seule chose que React exige.
    */
-  const [autresDeplies, setAutresDeplies] = useState(false);
   const replies = (contexte?.biens ?? []).filter((b) => b.replie).length;
 
   /**
@@ -645,7 +688,9 @@ export function RattacherEnEcrivant({
 
             {/* 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 2) — la zone DIT ce qu'elle cache en dessous. */}
             <ZoneDefilante className="rec-biens" as="ul" enfants={<>
-              {(contexte.biens ?? []).filter((b) => !b.replie || autresDeplies).map((b) => (
+              {/* 🔴 LA MÊME LISTE QUE CELLE QUE LE COMPTEUR COMPTE (`proposesAffiches`) : avant ce lot, le rendu
+                  filtrait les repliés et le compte ne les filtrait pas. Une seule liste, un seul verdict. */}
+              {proposesAffiches.map((b) => (
                 <li key={b.cle} className="rec-bien">
                   <label className="rec-choix">
                     <input type="checkbox" checked={selection.has(b.cle)} onChange={() => basculer(b.cle)} />

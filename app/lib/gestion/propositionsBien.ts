@@ -39,7 +39,7 @@
 import { texteNonCite } from './texteCite';
 // 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — qui le texte nomme-t-il ? Module PUR lui aussi.
 import {
-  biensAMontrer, motifDuContenu, personnesDansLeTexte, type AnnuaireContenu,
+  biensAMontrer, motifDuContenu, personnesDansLeTexte, BIENS_MONTRES, type AnnuaireContenu,
 } from './personnesDansLeTexte';
 
 /** Un bien de la gestion, réduit à ce qui permet de le proposer et de le reconnaître dans un texte. */
@@ -170,10 +170,98 @@ export function lotCite(bien: BienConnu, texte: string): boolean {
   return new RegExp(`(?:^| )(?:lot|logement|lot n|logement n) ${n}(?: |$)`).test(` ${texte} `);
 }
 
-/** Le bien est-il cité, d'une façon ou d'une autre ? Et par quoi — le motif le dira. PUR. */
+/**
+ * Le bien est-il cité, d'une façon ou d'une autre ? Et par quoi — le motif le dira. PUR.
+ *
+ * ══ 🔴🔴 LE N° DE LOT L'EMPORTE SUR L'ADRESSE (lot URGENT-VERIF-SUIVI-ET-76-BIENS) ════════════════════════════
+ *
+ * L'ordre était l'inverse, et il ne se voyait pas : les deux citations menaient au même résultat, puisque les
+ * deux cochaient. Depuis que l'adresse ne coche plus, l'ordre DÉCIDE — et le mettre à l'envers aurait coûté
+ * exactement le cas qui compte.
+ *
+ * 🔴 L'EXEMPLE QUI L'A RÉVÉLÉ, trouvé par l'épreuve « le LOT CITÉ passe devant, même au milieu de 76 » :
+ * « Dépôt de garantie 54 avenue Puvis de Chavannes — lot 142 ». Les 76 lots de l'immeuble répondent à l'adresse,
+ * et UN SEUL répond au numéro. Si l'adresse l'emportait, le lot 142 serait traité comme ses 75 voisins :
+ * décoché, et peut-être même replié. Le mail le nommait, pourtant.
+ *
+ * ⚠️ UNE ADRESSE DÉSIGNE UN IMMEUBLE, UN N° DE LOT DÉSIGNE UN LOGEMENT. Entre les deux, le plus précis gagne —
+ * c'est la même règle d'ordre que `proposerBiens` applique à ses cinq cas (du plus sûr au moins sûr).
+ */
 export function citationDuBien(bien: BienConnu, texte: string): 'adresse' | 'lot' | null {
-  if (adresseCitee(bien, texte)) return 'adresse';
-  return lotCite(bien, texte) ? 'lot' : null;
+  if (lotCite(bien, texte)) return 'lot';
+  return adresseCitee(bien, texte) ? 'adresse' : null;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — UNE ADRESSE CITÉE NE COCHE PLUS RIEN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (02/10/2026), fil 193 / message 57339 « Remboursement dépôt de garantie / 54 … » : la modale
+   annonçait « 76 bien(s) coché(s) sur 76 affiché(s) ». TOUS les lots du 54 avenue Puvis de Chavannes étaient
+   cochés d'avance, motif « adresse cité dans le mail ».
+
+   🔴 POURQUOI C'ÉTAIT UN DÉFAUT, ET PAS UNE SURPRISE. Une adresse citée est une proposition PAR LE CONTENU, au
+   même titre que la règle (e) — et la règle absolue d'Arno, écrite au lot PROPOSITIONS-PAR-LE-CONTENU, dit :
+   « Une correspondance trouvée dans le CONTENU ne rattache JAMAIS le mail automatiquement. » Ces propositions
+   portaient d'ailleurs déjà `certitude: 'a_trancher'` — « à trancher » et « coché d'avance » se contredisaient.
+
+   🔴 MESURÉ EN BASE LE 02/10/2026 : 964 mails de la file « À rattacher » avaient plus de CINQ biens cochés
+   d'avance, 42 660 cases en tout, et le pire cas en comptait 109. Aucun n'avait été validé — mais un seul clic
+   sur « Valider » aurait rattaché un mail à 109 logements.
+
+   ⚠️ LE N° DE LOT, LUI, CONTINUE DE COCHER. Ce n'est pas la même information : une adresse DÉSIGNE UN IMMEUBLE
+   (76 lots au 54 avenue Puvis de Chavannes), un n° de lot désigne UN LOGEMENT et un seul. Arno a nommé
+   « l'adresse citée », et c'est elle seule qui change — retirer aussi le n° de lot retirerait une fonctionnalité
+   qui marche, sans qu'on l'ait demandé.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * UNE CITATION COCHE-T-ELLE LA CASE ? PUR.
+ *
+ * Écrite ICI et nulle part ailleurs : les cas (c) et (d) la posent tous deux, et deux `if` finiraient par ne plus
+ * dire la même chose — c'est exactement ce qui vient d'arriver entre `certitude` et `preCoche`.
+ */
+export function citationCoche(cite: 'adresse' | 'lot' | null): boolean {
+  return cite === 'lot';
+}
+
+/**
+ * ══ 🔴🔴 LES CINQ BIENS CITÉS LES PLUS PERTINENTS ; LES AUTRES SE REPLIENT. PUR. ══════════════════════════════
+ *
+ * Demande d'Arno : « si l'adresse citée correspond à PLUSIEURS lots d'un même immeuble, on ne liste pas les
+ * 76 lots : […] les 5 lots les plus pertinents (n° de lot ou étage cité, locataire ou propriétaire dans
+ * l'échange) + "voir les autres" ».
+ *
+ * 🔴 L'ORDRE DE PERTINENCE :
+ *   ① le N° DE LOT est cité, lui aussi — le mail nomme CE logement, pas seulement l'immeuble ;
+ *   ② le reste, dans l'ordre où l'annuaire les donne.
+ *
+ * ⚠️ LES DEUX AUTRES CRITÈRES D'ARNO N'ONT PAS DE PRISE ICI, ET IL FAUT LE DIRE PLUTÔT QUE DE FAIRE SEMBLANT :
+ *   · « l'ÉTAGE cité » — l'annuaire ne porte aucun étage (`BienConnu` n'a ni champ, ni colonne derrière). Le
+ *     deviner d'un « Type 2 » ou d'un n° de lot serait inventer une donnée ;
+ *   · « le LOCATAIRE ou le PROPRIÉTAIRE dans l'échange » — ce cas (d) ne se déclenche QUE si aucune adresse
+ *     reconnue n'a produit de bien (`propositions.length === 0`). Par construction, aucun bien de la liste n'a
+ *     donc de partie dans l'échange : le critère ne départagerait jamais rien. Une première écriture le portait ;
+ *     l'épreuve « un bien dont le propriétaire est dans l'échange » a montré qu'elle ne pouvait pas l'atteindre.
+ *
+ * ⚠️ LE TRI EST STABLE : à rang égal, l'ordre d'arrivée est conservé (celui de l'annuaire, trié par commune puis
+ * adresse). Un tri instable ferait changer les cinq montrés d'un rechargement à l'autre, et l'on croirait la
+ * liste aléatoire.
+ *
+ * ⚠️ `BIENS_MONTRES` EST LA MÊME CONSTANTE QUE LA RÈGLE (e) — cinq, et pour la même raison : « au-delà, la liste
+ * des biens d'un bailleur noie la proposition au lieu de l'éclairer » (Arno). Deux seuils différents pour le même
+ * geste seraient deux comportements à expliquer.
+ */
+export function biensCitesAMontrer(
+  cites: readonly { cle: string; cite: 'adresse' | 'lot' }[],
+): Set<string> {
+  if (cites.length <= BIENS_MONTRES) return new Set(cites.map((x) => x.cle));
+  return new Set(
+    cites.map((x, i) => ({ x, i }))
+      .sort((a, b) => (a.x.cite === 'lot' ? 0 : 1) - (b.x.cite === 'lot' ? 0 : 1) || a.i - b.i)
+      .slice(0, BIENS_MONTRES)
+      .map((e) => e.x.cle),
+  );
 }
 
 /**
@@ -216,6 +304,20 @@ export function texteDuContenu(t: TextesDuMail): string {
 function nomCourt(b: BienConnu): string {
   const lieu = [b.adresse, b.commune].filter((x) => x !== null && x !== '').join(', ');
   return lieu === '' ? `lot ${b.numero ?? b.cle}` : `${lieu} — lot ${b.numero ?? b.cle}`;
+}
+
+/**
+ * ══ 🔴 LE MÊME NOM, SANS LE N° DE LOT (lot URGENT-VERIF-SUIVI-ET-76-BIENS) ════════════════════════════════════
+ *
+ * Demande d'Arno : « Le motif affiché "adresse cité dans le mail (… — lot 170)" laisse croire que le lot est
+ * cité : n'affiche le n° de lot que s'il figure vraiment dans le mail. »
+ *
+ * ⚠️ IL RESTE UN REPLI SUR LE LOT quand on n'a ni adresse ni commune : un motif qui ne nommerait RIEN serait
+ * pire que celui qu'on corrige. Mais on ne peut alors pas s'être trompé — c'est la seule chose qu'on sache dire.
+ */
+function nomSansLot(b: BienConnu): string {
+  const lieu = [b.adresse, b.commune].filter((x) => x !== null && x !== '').join(', ');
+  return lieu === '' ? `lot ${b.numero ?? b.cle}` : lieu;
 }
 
 /**
@@ -293,15 +395,22 @@ export function proposerBiens(o: {
       }
       /**
        * 🔴 CAS (c) — PLUSIEURS BIENS : ON LES PROPOSE TOUS, ET ON N'EN COCHE AUCUN. Choisir « le premier » serait
-       * ranger au hasard le courrier d'un bailleur de huit lots. La SEULE exception est la citation explicite dans
-       * le mail : là, on coche, et on écrit pourquoi.
+       * ranger au hasard le courrier d'un bailleur de huit lots.
+       *
+       * ══ 🔴🔴 LA SEULE EXCEPTION EST LE N° DE LOT, PLUS L'ADRESSE (lot URGENT-VERIF-SUIVI-ET-76-BIENS) ═══════
+       * Une adresse citée désigne un IMMEUBLE, pas un logement : au 54 avenue Puvis de Chavannes, elle en désigne
+       * 76. Elle PROPOSE donc, décochée, comme toute proposition par le contenu. Le n° de lot, lui, en désigne un
+       * seul : il coche. Voir l'encadré de `citationCoche`.
        */
       for (const b of siens) {
         const cite = citationDuBien(b, texte);
         ajouter({
-          cle: b.cle, cas: 'c', certitude: 'a_trancher', preCoche: cite !== null,
+          cle: b.cle, cas: 'c', certitude: 'a_trancher', preCoche: citationCoche(cite),
+          // ⚠️ L'ACCORD SUIT LE MOT : « adresse citée », « n° de lot cité ». La phrase se lit dans la modale,
+          //   sous la case — une faute d'accord y est la première chose qu'on voit.
           motif: cite !== null
-            ? `${cite === 'adresse' ? 'adresse' : 'n° de lot'} cité dans le mail — un des ${siens.length} biens de ${nom}`
+            ? `${cite === 'adresse' ? 'adresse citée' : 'n° de lot cité'} dans le mail `
+              + `— un des ${siens.length} biens de ${nom}`
             : `un des ${siens.length} biens de ${nom}${provenance}`,
           adresses,
         });
@@ -327,14 +436,39 @@ export function proposerBiens(o: {
    * toutes lettres. C'est le dernier filet — et il ne donne JAMAIS un rattachement automatique.
    */
   if (propositions.length === 0 && texte !== '') {
-    for (const b of o.biens) {
-      const cite = citationDuBien(b, texte);
-      if (cite === null) continue;
+    /**
+     * ══ 🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — C'EST ICI QUE LES 76 CASES ÉTAIENT COCHÉES ═══════════════════
+     *
+     * Le fil 193 (« Remboursement dépôt de garantie / 54 … ») passe par ce cas : son expéditeur EST à l'annuaire,
+     * mais son occupation ne couvre plus la date du mail — il est sorti, c'est précisément l'objet du mail. Aucun
+     * bien ne vient donc des adresses, et le texte prend le relais. L'adresse « 54 avenue Puvis de Chavannes »
+     * désigne 76 lots, et les 76 étaient cochés.
+     *
+     * 🔴 TROIS CHANGEMENTS, ET AUCUN NE RETIRE DE PROPOSITION :
+     *   ① une adresse citée NE COCHE PLUS (`citationCoche`) — un n° de lot, si ;
+     *   ② au-delà de cinq, les moins pertinents se REPLIENT derrière « voir les autres » (ils restent là, et se
+     *      cochent) ;
+     *   ③ le motif ne montre le N° DE LOT que si le mail le cite VRAIMENT (demande d'Arno : « le motif laisse
+     *      croire que le lot est cité »).
+     */
+    const cites = o.biens
+      .map((b) => ({ b, cite: citationDuBien(b, texte) }))
+      .filter((x): x is { b: BienConnu; cite: 'adresse' | 'lot' } => x.cite !== null);
+    const montres = biensCitesAMontrer(cites.map((x) => ({ cle: x.b.cle, cite: x.cite })));
+    for (const { b, cite } of cites) {
       ajouter({
-        cle: b.cle, cas: 'd', certitude: 'a_trancher', preCoche: true,
-        motif: `aucune adresse connue ; ${cite === 'adresse' ? 'adresse' : 'n° de lot'} cité dans le mail `
-          + `(${nomCourt(b)})`,
+        cle: b.cle, cas: 'd', certitude: 'a_trancher', preCoche: citationCoche(cite),
+        /**
+         * 🔴 LE N° DE LOT N'EST ÉCRIT QUE S'IL EST CITÉ. `nomCourt` ajoute toujours « — lot N », ce qui faisait
+         * lire « adresse cité dans le mail (… — lot 170) » comme si le mail nommait le lot 170. Il ne le nommait
+         * pas : il nommait l'immeuble, et 76 lots y répondaient.
+         */
+        motif: `aucune adresse connue ; ${cite === 'adresse' ? 'adresse citée' : 'n° de lot cité'} dans le mail `
+          + `(${cite === 'lot' ? nomCourt(b) : nomSansLot(b)})`
+          + (cite === 'adresse' && cites.length > 1 ? ` — un des ${cites.length} lots de cette adresse` : ''),
         adresses: [],
+        // Au-delà du cinquième : rangé derrière « voir les autres », comme la règle (e).
+        replie: !montres.has(b.cle),
       });
     }
   }
