@@ -167,7 +167,13 @@ const CSS_APERCU_BROUILLON = `
   background:var(--color-svv-surface);box-shadow:0 18px 50px rgba(0,0,0,.28)}
 .apb-tete{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0}
 .apb-titre{flex:1 1 12rem;min-width:0;margin:0;font-size:.95rem;font-weight:700;color:var(--color-svv-ink)}
-.apb-modifier{min-height:40px}
+/* 🔴 LA CLASSE .svv-btn PORTE width:100% (feuille globale) : sans ces trois proprietes, « Modifier » prend toute
+   la rangee et rejette la croix a la ligne — vu a l'ecran le 02/10/2026. On le ramene a sa taille de contenu, et
+   il ne retrecit ni ne s'etire.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral de gabarit, qu'un seul accent grave
+   terminerait — piege consigne douze fois dans ce depot, et dans lequel je viens de tomber. */
+.apb-modifier{flex:0 0 auto;width:auto;min-height:40px;padding:0 .9rem;font-size:.85rem}
+.apb-croix{flex:0 0 auto}
 .apb-croix{min-width:44px;min-height:44px;font-size:1.3rem;line-height:1;color:var(--color-svv-ink);
   background:transparent;border:1px solid transparent;border-radius:.5rem;cursor:pointer}
 .apb-croix:hover{background:var(--color-svv-field);border-color:var(--color-svv-line)}
