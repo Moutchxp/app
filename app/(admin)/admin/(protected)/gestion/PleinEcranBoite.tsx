@@ -10,7 +10,10 @@ import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './R
 import { FenetresRedaction, useFenetresRedaction } from './FenetresRedaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 // La traduction « brouillon en base → brouillon d'éditeur », PURE et éprouvée sans écran.
-import { cleFenetreBrouillon, reprendreBrouillon } from '../../../../lib/gestion/brouillonReprise';
+import { cleFenetreBrouillon, reprendreBrouillon, type BrouillonEnregistre as BrouillonLu }
+  from '../../../../lib/gestion/brouillonReprise';
+// 🔴🔴 LOT BROUILLONS-APERCU — la fenêtre qui MONTRE un brouillon trouvé, sans l'ouvrir dans l'éditeur.
+import { ApercuBrouillon } from './ApercuBrouillon';
 // `ecran` est un module PUR (aucun import) : le faire venir dans un composant client ne tire pas `pg`.
 import { titreARattacher } from '../../../../lib/gestion/ecran';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
@@ -188,6 +191,12 @@ export function PleinEcranBoite({
    * l'adresse : c'est un pli de lecture, pas un endroit où l'on est. Le mettre dans l'URL polluerait l'historique
    * du navigateur d'un « Précédent » qui ne ferait que replier un texte.
    */
+  /**
+   * 🔴🔴 LOT BROUILLONS-APERCU — LE BROUILLON QU'ON REGARDE, ou `null`. C'est un ÉTAT DE PLUS, posé PAR-DESSUS :
+   * la liste des résultats n'est ni démontée ni rechargée, donc la refermer rend exactement les mêmes résultats,
+   * au défilement près (règle des flèches de retour).
+   */
+  const [apercuBrouillon, setApercuBrouillon] = useState<number | null>(null);
   const [detailsOuverts, setDetailsOuverts] = useState(false);
   const [panneauMobile, setPanneauMobile] = useState<PanneauMobile>('colonne');
   /**
@@ -257,6 +266,21 @@ export function PleinEcranBoite({
   /** Le refus d'une troisième fenêtre, dit en toutes lettres. `null` = rien à signaler. */
   const [refusFenetre, setRefusFenetre] = useState<string | null>(null);
   /** Ouvre (ou rétablit) une fenêtre de rédaction, et DIT pourquoi quand elle est refusée. */
+  /**
+   * ══ 🔴🔴 ROUVRIR UN BROUILLON DANS L'ÉDITEUR ORDINAIRE — UN SEUL ENDROIT POUR DEUX APPELANTS ════════════════
+   *
+   * Le dossier « Brouillons » l'appelle depuis sa liste ; l'aperçu d'un brouillon TROUVÉ l'appelle depuis son
+   * bouton « Modifier ». Arno demande « le même éditeur que depuis le dossier Brouillons » : le seul moyen d'en
+   * être sûr est qu'il n'y ait qu'un endroit où le geste est écrit.
+   *
+   * ⚠️ DEUX CHEMINS, ET C'EST VOULU : un brouillon RATTACHÉ À UN ÉCHANGE va dans sa conversation, sous le message
+   * auquel il répond ; un message NEUF (sans échange) garde sa fenêtre flottante, qui est sa place naturelle.
+   */
+  const reprendreCeBrouillon = (b: BrouillonLu): void => {
+    if (b.filId !== null) { onOuvrir(b.filId, b.repondAMessageId, b.id); return; }
+    ouvrirRedaction(cleFenetreBrouillon(b.id), reprendreBrouillon(b));
+  };
+
   const ouvrirRedaction = (cle: string, b: BrouillonEcran): void => {
     const motif = fen.ouvrirFenetre(cle, b);
     setRefusFenetre(motif);
@@ -757,10 +781,7 @@ export function PleinEcranBoite({
                * le message auquel il répond ; un message NEUF (sans échange) garde sa fenêtre flottante, qui est sa
                * place naturelle — il n'y a pas de conversation où le poser.
                */
-              onReprendre={(b) => {
-                if (b.filId !== null) { onOuvrir(b.filId, b.repondAMessageId, b.id); return; }
-                ouvrirRedaction(cleFenetreBrouillon(b.id), reprendreBrouillon(b));
-              }}
+              onReprendre={reprendreCeBrouillon}
               onChange={() => onEtiquette(etiquette)} />
           ) : aClasser ? (
             <>
@@ -869,6 +890,8 @@ export function PleinEcranBoite({
                * inexistante donnerait un écran vide, et l'on chercherait le mail perdu.
                */
               onRouvrirBrouillon={() => onEtiquette({ sorte: 'brouillons', evenementId: null })}
+              /* 🔴🔴 LOT BROUILLONS-APERCU — l'œil des lignes de brouillon trouvées par une recherche. */
+              onApercuBrouillon={(id) => setApercuBrouillon(id)}
               versionDonnees={versionDonnees} onListeRelue={onListeRelue}
               /* LOT MESSAGE-CLIQUÉ — le message de la ligne voyage avec l'échange, sans quoi la conversation
                  ouvrirait son dernier message et non celui qu'on vient de cliquer. */
@@ -926,6 +949,15 @@ export function PleinEcranBoite({
           </aside>
         )}
       </div>
+
+      {/* ══ 🔴🔴 LOT BROUILLONS-APERCU — LA FENÊTRE, POSÉE PAR-DESSUS TOUT LE RESTE ═══════════════════════════
+          Elle ne remplace aucun écran : la liste, les résultats de recherche et la conversation restent montés
+          derrière. La refermer ne recharge donc rien, et l'on retrouve ses résultats tels qu'on les a laissés. */}
+      {apercuBrouillon !== null && (
+        <ApercuBrouillon brouillonId={apercuBrouillon}
+          onFermer={() => setApercuBrouillon(null)}
+          onModifier={reprendreCeBrouillon} />
+      )}
     </div>
   );
 }

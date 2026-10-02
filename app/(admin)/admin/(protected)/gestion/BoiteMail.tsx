@@ -50,6 +50,9 @@ import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
 import { BarreLigne, CSS_BARRE_LIGNE, Etoile } from './BarreLigne';
 // 🔴 LOT LISTE-PAGINATION — un TRACÉ et non un emoji : lui seul suit la couleur du texte (voir son encadré).
 import { Trombone } from './Trombone';
+// 🔴🔴 LOT BROUILLONS-APERCU — l'œil des lignes de brouillon, et le mot qu'il porte.
+import { Oeil } from './Oeil';
+import { AIDE_OEIL } from '../../../../lib/gestion/apercuBrouillon';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 
 /**
@@ -351,7 +354,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 }
 
 export function BoiteMail({
-  onOuvrir, onRouvrirBrouillon, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
+  onOuvrir, onRouvrirBrouillon, onApercuBrouillon, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
   dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
   versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
   etoile = false, onEtoileFiltre, selection,
@@ -371,6 +374,14 @@ export function BoiteMail({
    * n'est pas cliquable, ce qui vaut mieux qu'un clic qui n'ouvre rien.
    */
   onRouvrirBrouillon?: (brouillonId: number | null) => void;
+  /**
+   * 🔴🔴 LOT BROUILLONS-APERCU — VOIR un brouillon trouvé, en lecture seule, sans l'ouvrir dans l'éditeur.
+   *
+   * ⚠️ FACULTATIF, ET SON ABSENCE REND LA CARTE D'AVANT CE LOT, à l'identique : pas d'œil, pas de colonne en
+   * plus. Un appelant qui ne sait pas afficher la fenêtre d'aperçu ne doit pas proposer un bouton qui n'ouvre
+   * rien — c'est la règle de `onRouvrirBrouillon`, juste au-dessus.
+   */
+  onApercuBrouillon?: (brouillonId: number) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
   etiquette?: Etiquette;
   /** Titre affiché au-dessus de la liste. Absent = « Boîte mail », comme avant. */
@@ -1216,7 +1227,7 @@ export function BoiteMail({
             {etat.brouillons.lignes.map((b) => {
               const mot = `${nettoyerObjet(b.objet ?? '') || '(sans objet)'}${b.destinataire ? ` — à ${b.destinataire}` : ''}`;
               return (
-                <li key={b.brouillonId}>
+                <li key={b.brouillonId} className="bte-brouillon-ligne">
                   {b.filId === null ? (
                     <span className="bte-brouillon bte-brouillon--muet">
                       <Evidence texte={mot} saisie={critere.q} />
@@ -1227,6 +1238,19 @@ export function BoiteMail({
                     <button type="button" className="bte-brouillon" onClick={() => onOuvrir(b.filId as number)}>
                       <Evidence texte={mot} saisie={critere.q} />
                       {b.aPiece && <span className="bte-marque"> <Trombone /> pièce jointe</span>}
+                    </button>
+                  )}
+                  {/* ══ 🔴🔴 LOT BROUILLONS-APERCU — L'ŒIL, SUR CHAQUE LIGNE SANS EXCEPTION ═══════════════════
+                      CONSTAT D'ARNO : « la carte liste les brouillons, sans moyen de les voir ».
+
+                      🔴 Y COMPRIS SUR UN COURRIER NEUF, et c'est là qu'il sert le plus : cette ligne-là n'est
+                      cliquable nulle part (il n'y a pas de conversation à rouvrir), et son contenu était donc
+                      parfaitement invisible depuis les résultats. Le libellé « à rouvrir dans "Brouillons" »
+                      reste mot pour mot — il dit où MODIFIER, l'œil dit comment VOIR. */}
+                  {onApercuBrouillon !== undefined && (
+                    <button type="button" className="bte-oeil" aria-label={AIDE_OEIL} title={AIDE_OEIL}
+                      onClick={() => onApercuBrouillon(b.brouillonId)}>
+                      <Oeil />
                     </button>
                   )}
                 </li>
@@ -1756,6 +1780,15 @@ const CSS_BOITE = `
 .bte-avancee-boutons{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
 .bte-brouillons{margin:0 0 10px;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem}
 .bte-brouillons-titre{margin:0 0 6px;font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}
+/* 🔴 LOT BROUILLONS-APERCU — la ligne porte son libellé À GAUCHE et son œil À DROITE, et l'œil ne rétrécit
+   jamais : c'est une cible tactile, elle garde ses 44 px quelle que soit la longueur de l'objet. */
+.bte-brouillon-ligne{display:flex;align-items:center;gap:6px;min-width:0}
+.bte-brouillon-ligne>.bte-brouillon{flex:1 1 auto;min-width:0}
+.bte-oeil{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;min-width:44px;
+  min-height:44px;color:var(--color-svv-ink-soft);background:transparent;border:1px solid transparent;
+  border-radius:.5rem;cursor:pointer}
+.bte-oeil:hover{color:var(--color-svv-ink);background:var(--color-svv-field);border-color:var(--color-svv-line)}
+.bte-oeil:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .bte-brouillon{display:block;width:100%;text-align:left;padding:.35rem 0;font-size:.85rem;
   background:transparent;border:0;color:var(--color-svv-ink)}
 .bte-brouillon--muet{cursor:default;color:var(--color-svv-muted)}

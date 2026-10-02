@@ -1477,7 +1477,12 @@ function ouvrirRedaction(
  * ⚠️ RIEN N'EST RÉÉCRIT. La passe pose un attribut de données sur ce qu'elle juge illisible, et une règle CSS
  * s'en sert. Le HTML reçu — celui qui repart en transfert ou en réponse — n'est pas touché.
  */
-function CorpsHtmlMail({ html, onVisualiser }: {
+/**
+ * 🔴🔴 EXPORTÉ DEPUIS LE LOT BROUILLONS-APERCU — l'aperçu d'un brouillon affiche son corps DANS LA MÊME
+ * VISIONNEUSE QUE LES MAILS (demande d'Arno). C'est le seul endroit où la règle de lisibilité en thème sombre et
+ * le clic d'agrandissement des images sont écrits : la recopier ailleurs les ferait diverger au premier correctif.
+ */
+export function CorpsHtmlMail({ html, onVisualiser }: {
   html: string;
   /**
    * 🔴🔴 LOT IMAGES-INTEGREES — « clic pour l'agrandir (même visionneuse que les pièces) » (Arno).
