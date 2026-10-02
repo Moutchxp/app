@@ -114,6 +114,51 @@ export async function adressesDesFiches(clesBiens: readonly string[]): Promise<S
   return out;
 }
 
+/**
+ * ══ 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — L'EXPÉDITEUR DE CE MAIL EST-IL CONNU DES FICHES ? ═════════════
+ *
+ * Demande d'Arno (02/10/2026), règle ② : sur une conversation JAMAIS rattachée, le bloc à 3 choix s'affiche
+ * toujours — « expéditeur CONNU des fiches propriétaires/locataires ».
+ *
+ * 🔴 « CONNU » SE MESURE : l'adresse est contact d'au moins une fiche VIVANTE. C'est la même définition que
+ * `adressesDesFiches`, sans la restriction aux biens cochés — parce que la question posée ici n'est pas « connu
+ * sur CE dossier » mais « connu de la maison ». Un ancien locataire d'un autre immeuble reste quelqu'un dont on
+ * sait qui il est, et le bloc doit lui être offert.
+ *
+ * 🔴 ET C'EST CE QUI TIENT L'INVARIANT : le bloc à 3 choix et l'étape 2 ne s'affichent jamais ensemble. Une
+ * adresse inconnue de TOUTES les fiches l'est forcément de celles des biens cochés — donc l'étape 2 s'ouvrira, et
+ * le bloc, lui, sera resté fermé.
+ *
+ * ⚠️ NOS PROPRES ADRESSES RENDENT « NON », et c'est la lettre de la règle : elles ne sont contact d'aucune fiche.
+ * Un mail que NOUS envoyons n'ouvre donc pas le bloc sur une conversation jamais rattachée. À signaler à Arno —
+ * ce n'est pas un oubli, c'est ce qu'il a écrit.
+ *
+ * ⚠️ `archive_le` ET `absent_le` : mêmes conditions que partout ailleurs. Une adresse qu'Arno vient de retirer
+ * d'une fiche n'est plus une adresse de la fiche — sinon son geste n'aurait servi qu'à moitié.
+ */
+export async function expediteurConnuDesFiches(messageId: number): Promise<boolean> {
+  if (!(await annuaireDisponible())) return false;
+  try {
+    const vivante = await conditionCoordonneeVivante('c');
+    const { rows } = await query<{ connu: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM gestion_annuaire_contact c
+          WHERE c.sorte = 'email' AND c.absent_le IS NULL${vivante}
+            AND lower(btrim(c.valeur)) = (
+              SELECT lower(btrim(coalesce(m.de_adresse, ''))) FROM gestion_message m WHERE m.id = $1)
+            AND btrim(coalesce(c.valeur, '')) <> ''
+       ) AS connu`, [messageId]);
+    return rows[0]?.connu === true;
+  } catch (e) {
+    /**
+     * ⚠️ SILENCIEUX, ET « NON ». Entre les deux réponses possibles, « inconnu » CACHE le bloc — c'est le
+     * comportement d'avant ce lot, et une lecture en échec ne doit jamais faire apparaître une décision de plus.
+     */
+    console.error('[gestion/contacts] expéditeur connu ? lecture impossible (message=%d)', messageId, e);
+    return false;
+  }
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ② CE QU'IL FAUT POUR DÉCIDER, ET POUR AFFICHER L'ÉTAPE 2
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */

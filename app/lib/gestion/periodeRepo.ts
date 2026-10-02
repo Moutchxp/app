@@ -187,6 +187,45 @@ export async function classementParMail(filIds: readonly number[]): Promise<Map<
   return parMail;
 }
 
+/**
+ * ══ 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — CETTE CONVERSATION A-T-ELLE DÉJÀ UN RATTACHEMENT VALIDÉ ? ═════
+ *
+ * Demande d'Arno (02/10/2026) : « conversation DÉJÀ rattachée (au moins une période OU un rattachement
+ * validé) ». Les périodes et les exceptions se lisent déjà ailleurs ; il manquait ce troisième fait.
+ *
+ * 🔴 « VALIDÉ » VEUT DIRE **CONFIRMÉ**, ET SEULEMENT CONFIRMÉ. Arno l'écrit noir sur blanc : « une proposition
+ * pré-cochée par le moteur ne compte pas comme un rattachement validé ». Les lignes `propose` sont donc exclues —
+ * c'est toute la différence entre « le moteur a une idée » et « quelqu'un a tranché ».
+ *
+ * ⚠️ `piece_id IS NULL` : un rattachement de PIÈCE JOINTE range un fichier dans un dossier, il ne classe pas le
+ * mail. Le compter ferait passer pour « rattachée » une conversation dont aucun message ne l'est.
+ *
+ * ⚠️ `EXISTS` ET NON `count(*)` : on ne veut savoir que s'il y en a UN. Sur un fil de trente mails portant chacun
+ * soixante-seize propositions, compter coûterait pour rien.
+ *
+ * ⚠️ SANS LA MIGRATION 257, on répond « non » sans nommer la table : la conversation est alors traitée comme
+ * jamais rattachée, ce qui est exactement ce qu'elle est pour une base qui n'a pas de rattachements.
+ */
+export async function filRattache(filId: number): Promise<boolean> {
+  if (!(await rattachementsDisponibles())) return false;
+  try {
+    const { rows } = await query<{ rattache: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM gestion_rattachement r JOIN gestion_message m ON m.id = r.message_id
+          WHERE m.fil_id = $1 AND r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
+       ) AS rattache`, [filId]);
+    return rows[0]?.rattache === true;
+  } catch (e) {
+    /**
+     * ⚠️ SILENCIEUX, ET « NON » PLUTÔT QUE « OUI ». Une lecture en échec ne doit pas empêcher de classer ; et
+     * entre les deux réponses possibles, « jamais rattachée » MONTRE le bloc au lieu de le cacher. On préfère
+     * offrir un choix de trop qu'en escamoter un.
+     */
+    console.error('[gestion/periodes] rattachement du fil illisible (fil=%d)', filId, e);
+    return false;
+  }
+}
+
 /** Les mails d'une conversation, DANS L'ORDRE DE LECTURE. C'est cet ordre qui range les périodes. */
 export async function mailsDuFil(filId: number): Promise<number[]> {
   const { rows } = await query<{ id: string }>(

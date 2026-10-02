@@ -38,7 +38,11 @@ let propositions: Record<string, unknown>[];
  * 🔴 CE QUE LA ROUTE DU SUIVI RÉPOND (migration 290). Par défaut une conversation JAMAIS classée — c'est l'état
  * du fil 193 d'Arno, et celui qui n'affiche aucun bloc. Les épreuves ⑦ la posent déjà classée.
  */
-let suiviDuFil: { periodes: unknown[]; exceptions: unknown[]; mails: number[] };
+let suiviDuFil: {
+  periodes: unknown[]; exceptions: unknown[]; mails: number[];
+  /** 🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — les deux faits de la règle ② d'Arno. */
+  rattachee?: boolean; expediteurConnu?: boolean;
+};
 
 const LOT = '442';
 const OCCUPANT = 'thai cecile#c.thai@orange.fr';
@@ -471,5 +475,120 @@ describe('🔴🔴 ⑦ expéditeur connu : le bloc à 3 choix apparaît au chang
     expect(texte()).toContain('Je confirme le reclassement de toute la conversation.');
     expect(bouton('Valider —')?.disabled).toBe(true);
     expect(ecritures()).toHaveLength(0);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑧ LOT SUIVI-CONVERSATION-NON-RATTACHEE — LA SECONDE PORTE, SUR LE CHEMIN RÉEL
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (02/10/2026) : « conversation JAMAIS rattachée (aucune période, aucune exception, aucun
+   rattachement confirmé), expéditeur CONNU : le bloc à 3 choix est TOUJOURS affiché dès l'ouverture, quelle que
+   soit la position du mail (1er compris), sans condition de changement. »
+
+   ⚠️ C'EST LE SERVEUR QUI DÉCIDE, et ces épreuves le pilotent par sa RÉPONSE — jamais par une propriété du
+   composant. C'est la leçon du correctif du 28/09/2026 : un test qui passe une propriété prouve le composant et
+   pas le câblage. */
+
+describe('🔴🔴 ⑧ conversation jamais rattachée : le bloc est là dès l’ouverture', () => {
+  /** Jamais rattachée : aucune période, aucune exception, aucun rattachement validé. */
+  const jamaisRattachee = (o: Partial<typeof suiviDuFil> = {}) => {
+    etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
+    suiviDuFil = { periodes: [], exceptions: [], mails: [800, 900], rattachee: false, expediteurConnu: true, ...o };
+  };
+
+  it('🔴🔴 le bloc est visible SANS qu’on ait touché à une case', async () => {
+    jamaisRattachee();
+    await monter();
+    await cliquer('Rattacher');
+    expect(etape1Ouverte()).toBe(true);
+    expect(texte()).toContain('Suivi dans la conversation');
+    expect(texte()).toContain('Ce mail uniquement');
+    expect(texte()).toContain('Toute la conversation');
+  });
+
+  it('🔴🔴 au PREMIER mail de la conversation aussi', async () => {
+    // `mails[0] === messageId` : c'est bien le premier, et la règle ① l'aurait fait taire.
+    jamaisRattachee({ mails: [900] });
+    await monter();
+    await cliquer('Rattacher');
+    expect(texte()).toContain('Suivi dans la conversation');
+  });
+
+  it('🔴 « Ce mail et la conversation à venir » est coché d’avance', async () => {
+    jamaisRattachee();
+    await monter();
+    await cliquer('Rattacher');
+    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios).toHaveLength(3);
+    expect(radios[1].checked).toBe(true);
+  });
+
+  it('🔴🔴 EXPÉDITEUR INCONNU : aucun bloc dans l’étape 1 — c’est l’étape 2 qui porte le suivi', async () => {
+    jamaisRattachee({ expediteurConnu: false });
+    etape2 = { ...ETAPE2_DEMANDEE };
+    await monter();
+    await cliquer('Rattacher');
+    expect(texte()).not.toContain('Suivi dans la conversation');
+    // Et au Valider, c'est bien l'étape 2 qui s'ouvre, avec SES deux choix.
+    await cliquer('Valider —');
+    expect(etape2Ouverte()).toBe(true);
+    expect(texte()).toContain('Suivi des prochains échanges');
+    expect(texte()).not.toContain('Suivi dans la conversation');
+  });
+
+  it('🔴🔴 un RATTACHEMENT VALIDÉ suffit à faire reprendre la règle ①, même sans période', async () => {
+    /**
+     * 🔴 LA LETTRE D'ARNO : « conversation DÉJÀ rattachée (au moins une période OU un rattachement validé) ».
+     * Sans ce fait, une conversation portant des liens confirmés mais aucune période aurait montré le bloc en
+     * permanence — alors qu'elle relève de la règle ①, inchangée.
+     */
+    jamaisRattachee({ rattachee: true });
+    await monterAvecLien();
+    await cliquer('Rattaché');
+    expect(texte()).not.toContain('Suivi dans la conversation');
+    // Et il réapparaît au changement, comme depuis le 01/10.
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(texte()).toContain('Suivi dans la conversation');
+  });
+
+  it('🔴🔴 APRÈS VALIDATION, le mail suivant suit la règle ① (la conversation est devenue rattachée)', async () => {
+    jamaisRattachee();
+    await monter();
+    await cliquer('Rattacher');
+    expect(texte()).toContain('Suivi dans la conversation');
+    await cliquer('Valider —');
+    expect(ecritures()).toHaveLength(1);
+    expect((ecritures()[0].corps as { choix: string }).choix).toBe('suite');
+
+    /**
+     * Le mail SUIVANT : la conversation porte désormais une période ET un rattachement validé. Le serveur le dit,
+     * et le bloc se tait tant qu'on ne change rien — c'est exactement la règle ①.
+     */
+    suiviDuFil = {
+      periodes: [{ id: 1, depuisMessageId: 900, classement: { sorte: 'biens', biens: [{ cle: LOT, libelle: PROPOSE.libelle }] } }],
+      exceptions: [], mails: [800, 900], rattachee: true, expediteurConnu: true,
+    };
+    await monterAvecLien();
+    await cliquer('Rattaché');
+    expect(texte()).not.toContain('Suivi dans la conversation');
+  });
+
+  it('⚠️ une réponse d’API plus ancienne (sans les deux champs) rend le comportement d’AVANT', async () => {
+    etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
+    suiviDuFil = { periodes: [], exceptions: [], mails: [800, 900] } as unknown as typeof suiviDuFil;
+    await monter();
+    await cliquer('Rattacher');
+    expect(texte()).not.toContain('Suivi dans la conversation');
+  });
+
+  it('🔴 la route est bien interrogée AVEC le mail : sans lui elle ne peut pas répondre', async () => {
+    jamaisRattachee();
+    await monter();
+    await cliquer('Rattacher');
+    const lecture = appels.find((a) => a.url.includes('/gestion/suivi') && a.methode === 'GET');
+    expect(lecture?.url).toContain('fil=101');
+    expect(lecture?.url).toContain('message=900');
   });
 });

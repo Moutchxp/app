@@ -252,8 +252,46 @@ export function periodeEnCours(
  * laissée telle quelle ne compte pas comme un changement : personne n'a rien décidé. C'est la moitié de la règle
  * qu'on perdrait le plus facilement, et celle qui ferait réapparaître le défaut sous une autre forme.
  */
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — LA SECONDE PORTE, AJOUTÉE LE 02/10/2026
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO, et c'est un AJOUT : la règle du 01/10 ne change pas d'un mot.
+
+     ① CONVERSATION DÉJÀ RATTACHÉE (au moins une période, une exception OU un rattachement validé) : rien ne
+        bouge. Pas de bloc au 1er mail ; à partir du 2e, il n'apparaît que si la sélection DIFFÈRE du
+        rattachement validé, et il disparaît au retour à l'état de départ.
+
+     ② CONVERSATION JAMAIS RATTACHÉE, expéditeur CONNU des fiches : le bloc est TOUJOURS affiché dès
+        l'ouverture, quelle que soit la position du mail (1er compris), SANS condition de changement.
+
+   🔴 POURQUOI ② EXISTE. Jusqu'ici, une conversation jamais classée ne montrait aucun bloc — et la raison tenait :
+   « il n'y a pas de règle à modifier ». Mais le premier classement EST une règle, et c'est même la plus lourde :
+   il décide si les mails à venir suivront. Le poser sans jamais pouvoir dire « ce mail uniquement » ou « toute la
+   conversation » revenait à choisir pour la personne. Constat d'Arno sur le fil 193, le 02/10/2026.
+
+   🔴🔴 POURQUOI « EXPÉDITEUR CONNU » GARDE CETTE PORTE, et ce n'est pas un détail : un expéditeur INCONNU ouvre
+   l'ÉTAPE 2 (« Classer ce nouveau contact »), qui porte DÉJÀ son propre suivi à deux choix. Afficher les trois
+   choix de l'étape 1 en plus donnerait DEUX blocs de suivi pour un seul geste, et deux réponses possibles à la
+   même question. L'invariant est donc : le bloc à 3 choix et l'étape 2 ne s'affichent JAMAIS ensemble.
+
+   ⚠️ « CONNU DES FICHES » EST LA LETTRE D'ARNO, et elle se mesure : l'adresse est contact d'au moins une fiche
+   propriétaire ou locataire vivante. Ce n'est PAS « nous le connaissons de vue » — sur le fil 193 précisément,
+   `frederic.racan@free.fr` n'est contact d'AUCUNE fiche (vérifié en base le 02/10/2026 : zéro ligne dans
+   `gestion_annuaire_contact`, aucune fiche à ce nom, `partie` nulle sur les quatre mails du fil). Ce mail-là
+   relève donc de l'étape 2, pas du bloc.
+
+   ⚠️ CONSÉQUENCE À CONNAÎTRE : un mail que NOUS envoyons n'a pas d'expéditeur « connu des fiches » (notre adresse
+   n'est contact d'aucune), donc pas de bloc sur une conversation jamais rattachée qu'il ouvrirait. C'est la
+   lettre de la règle ; si Arno veut l'étendre, c'est une ligne — mais ce n'est pas ce qu'il a écrit.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
 export function blocSuiviVisible(o: {
   estPremierMail: boolean;
+  /**
+   * 🔴 « DÉJÀ RATTACHÉE » AU SENS D'ARNO : au moins une période, une exception, OU un rattachement VALIDÉ sur un
+   * mail de cette conversation. Une proposition pré-cochée par le moteur n'en est pas un — personne n'a tranché.
+   */
   dejaClassee: boolean;
   /**
    * 🔴🔴 LA RÉFÉRENCE : LES BIENS **VALIDÉS** POUR CE MAIL — confirmés à la main, ou posés par la fenêtre en
@@ -266,8 +304,24 @@ export function blocSuiviVisible(o: {
    * ouverte, ou ses propositions se chargent) : sans sélection connue, il n'y a aucun changement à constater.
    */
   selection: readonly string[] | null;
+  /**
+   * 🔴🔴 RÈGLE ② — l'adresse de l'expéditeur est-elle contact d'une fiche propriétaire ou locataire ?
+   *
+   * ⚠️ FACULTATIF, ET ABSENT VAUT « NON ». Tout ce qui appelait cette fonction avant ce lot continue donc de se
+   * comporter exactement comme avant : sur une conversation jamais rattachée, pas de bloc. C'est ce qui permet
+   * d'ajouter cette porte sans toucher à un seul attendu existant.
+   */
+  expediteurConnu?: boolean;
 }): boolean {
-  if (o.estPremierMail || !o.dejaClassee) return false;
+  /**
+   * 🔴🔴 RÈGLE ② — LA CONVERSATION N'A JAMAIS ÉTÉ RATTACHÉE : le bloc est TOUJOURS là pour un expéditeur connu.
+   *
+   * Aucune condition de changement, et `estPremierMail` ne compte pas : il n'y a pas de passé à préserver, et le
+   * classement qu'on s'apprête à poser est le PREMIER — c'est lui qui décidera pour la suite.
+   */
+  if (!o.dejaClassee) return o.expediteurConnu === true;
+  // ── RÈGLE ① — INCHANGÉE DEPUIS LE 01/10/2026 ──────────────────────────────────────────────────────────────────
+  if (o.estPremierMail) return false;
   if (o.selection === null) return false;
   return !memesBiens(o.selection, o.reference);
 }

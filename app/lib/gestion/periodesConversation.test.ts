@@ -500,3 +500,77 @@ describe('🔒 module pur', () => {
     expect(/fetch\(|query\(|new Date\(/.test(src)).toBe(false);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — LA SECONDE PORTE (décision d'Arno du 02/10/2026)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   « Conversation JAMAIS rattachée (aucune période, aucune exception, aucun rattachement confirmé), expéditeur
+   CONNU des fiches propriétaires/locataires : le bloc à 3 choix est TOUJOURS affiché dès l'ouverture de la
+   modale, quelle que soit la position du mail dans la conversation (1er mail compris), sans condition de
+   changement. »
+
+   ⚠️ LA RÈGLE DU 01/10 NE CHANGE PAS D'UN MOT — les épreuves ci-dessus le gardent, et elles n'ont pas bougé.
+   Celles-ci n'éprouvent QUE la porte nouvelle. */
+
+describe('🔴🔴 ⑫ conversation JAMAIS rattachée : le bloc est toujours là pour un expéditeur connu', () => {
+  /** Jamais rattachée : ni période, ni exception, ni rattachement validé. La référence est donc vide. */
+  const jamais = (o: Partial<Parameters<typeof blocSuiviVisible>[0]> = {}) => blocSuiviVisible({
+    estPremierMail: false, dejaClassee: false, reference: [], selection: [], expediteurConnu: true, ...o,
+  });
+
+  it('🔴🔴 au PREMIER mail : visible — c’est là que le premier classement se décide', () => {
+    expect(jamais({ estPremierMail: true })).toBe(true);
+  });
+
+  it('🔴🔴 au troisième mail, SANS qu’on ait rien changé : visible', () => {
+    expect(jamais({ estPremierMail: false, selection: [] })).toBe(true);
+  });
+
+  it('🔴 visible quelle que soit la sélection — il n’y a aucune condition de changement', () => {
+    expect(jamais({ selection: ['LOT-A'] })).toBe(true);
+    expect(jamais({ selection: ['LOT-A', 'LOT-B'] })).toBe(true);
+    /**
+     * ⚠️ MÊME QUAND LA MODALE N'A ENCORE RIEN DIT (`selection: null`). Dans la règle ①, `null` veut dire « on ne
+     * sait pas s'il y a eu un changement », donc pas de bloc. Ici il n'y a rien à comparer : le bloc ne dépend
+     * d'aucun changement, et attendre la première case cochée le ferait apparaître en sautant sous les yeux.
+     */
+    expect(jamais({ selection: null })).toBe(true);
+  });
+
+  it('🔴 une pré-coche du moteur ne change rien : elle n’est ni une condition, ni un rattachement', () => {
+    // Le moteur a coché LOT-A d'avance ; rien n'est validé pour autant, et le bloc était déjà là sans elle.
+    expect(jamais({ selection: ['LOT-A'], reference: [] })).toBe(true);
+  });
+
+  it('🔴🔴 EXPÉDITEUR INCONNU : pas de bloc — c’est l’étape 2 qui porte le suivi, et elle seule', () => {
+    /**
+     * 🔴 L'INVARIANT : le bloc à 3 choix et l'étape 2 ne s'affichent JAMAIS ensemble. Deux blocs de suivi pour un
+     * seul geste donneraient deux réponses possibles à la même question.
+     */
+    expect(jamais({ expediteurConnu: false })).toBe(false);
+    expect(jamais({ expediteurConnu: false, estPremierMail: true })).toBe(false);
+  });
+
+  it('⚠️ `expediteurConnu` ABSENT vaut « non » : c’est le comportement d’AVANT ce lot', () => {
+    // Tout ce qui appelait cette fonction avant le 02/10/2026 ne passe pas ce champ.
+    expect(blocSuiviVisible({
+      estPremierMail: false, dejaClassee: false, reference: [], selection: ['LOT-B'],
+    })).toBe(false);
+  });
+
+  it('🔴🔴 DÈS QUE LA CONVERSATION EST RATTACHÉE, la règle ① reprend la main', () => {
+    const rattachee = (selection: readonly string[]) => blocSuiviVisible({
+      estPremierMail: false, dejaClassee: true, reference: ['LOT-A'], selection, expediteurConnu: true,
+    });
+    // Sans changement : caché, alors même que l'expéditeur est connu — la règle ② ne déborde pas sur la ①.
+    expect(rattachee(['LOT-A'])).toBe(false);
+    // Avec changement : visible, comme depuis le 01/10.
+    expect(rattachee(['LOT-B'])).toBe(true);
+    // Et le premier mail d'une conversation rattachée reste muet.
+    expect(blocSuiviVisible({
+      estPremierMail: true, dejaClassee: true, reference: ['LOT-A'], selection: ['LOT-B'],
+      expediteurConnu: true,
+    })).toBe(false);
+  });
+});

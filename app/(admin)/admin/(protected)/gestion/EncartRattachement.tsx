@@ -154,6 +154,15 @@ export function EncartRattachement({
   /** Les périodes et exceptions de cette conversation. `null` = migration 290 absente, ou lecture en échec. */
   const [suivi, setSuivi] = useState<{
     periodes: Periode[]; exceptions: ExceptionMail[]; mails: number[];
+    /**
+     * 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — LES DEUX FAITS QUE LA RÈGLE ② D'ARNO DEMANDE.
+     *
+     * · `rattachee`       — cette conversation porte-t-elle au moins un rattachement VALIDÉ ? Les périodes et les
+     *                       exceptions ne suffisaient pas : Arno écrit « au moins une période OU un rattachement
+     *                       validé ». Une proposition pré-cochée n'en est pas un.
+     * · `expediteurConnu` — l'adresse de ce mail est-elle contact d'une fiche propriétaire ou locataire ?
+     */
+    rattachee: boolean; expediteurConnu: boolean;
   } | null>(null);
 
   /**
@@ -166,17 +175,29 @@ export function EncartRattachement({
     let vivant = true;
     void (async () => {
       try {
-        const res = await fetch(`/api/admin/gestion/suivi?fil=${filId}`, { cache: 'no-store' });
+        /**
+         * 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — LE MAIL EST DÉSORMAIS PASSÉ, et il le faut : la règle ②
+         * d'Arno demande si l'expéditeur de CE mail est connu des fiches. La route répond `false` si on ne le
+         * passe pas, donc l'omettre rendrait simplement le comportement d'avant ce lot.
+         */
+        const res = await fetch(
+          `/api/admin/gestion/suivi?fil=${filId}&message=${messageId}`, { cache: 'no-store' });
         const d = (await res.json()) as {
           etat?: string; periodes?: Periode[]; exceptions?: ExceptionMail[]; mails?: number[];
+          rattachee?: boolean; expediteurConnu?: boolean;
         };
         if (!vivant) return;
         setSuivi(d.etat !== 'ok' ? null
-          : { periodes: d.periodes ?? [], exceptions: d.exceptions ?? [], mails: d.mails ?? [] });
+          : {
+            periodes: d.periodes ?? [], exceptions: d.exceptions ?? [], mails: d.mails ?? [],
+            // ⚠️ `=== true` ET NON `?? false` : une réponse d'API plus ancienne que ce lot ne porte pas ces
+            //   champs, et `undefined` doit valoir « non » — c'est-à-dire le comportement d'avant.
+            rattachee: d.rattachee === true, expediteurConnu: d.expediteurConnu === true,
+          });
       } catch { if (vivant) setSuivi(null); }
     })();
     return () => { vivant = false; };
-  }, [ajout, filId]);
+  }, [ajout, filId, messageId]);
   /** LOT FIL-LECTURE-2 — le rattachement dont on a ouvert la fenêtre « Modifier ». `null` = aucune fenêtre. */
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
   const [occupe, setOccupe] = useState(false);
@@ -557,7 +578,17 @@ export function EncartRattachement({
    */
   const blocVisible = suivi !== null && blocSuiviVisible({
     estPremierMail: suivi.mails.length > 0 && suivi.mails[0] === messageId,
-    dejaClassee: suivi.periodes.length > 0 || suivi.exceptions.length > 0,
+    /**
+     * 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — `rattachee` S'AJOUTE AUX DEUX AUTRES, et c'est la lettre
+     * d'Arno : « conversation DÉJÀ rattachée (au moins une période OU un rattachement validé) ».
+     *
+     * ⚠️ CE N'EST PAS UN DÉTAIL DE PLUS : sans lui, une conversation portant des rattachements validés mais
+     * aucune période serait tenue pour « jamais rattachée », et la règle ② lui montrerait le bloc en permanence —
+     * alors qu'elle relève de la règle ①, inchangée.
+     */
+    dejaClassee: suivi.periodes.length > 0 || suivi.exceptions.length > 0 || suivi.rattachee,
+    // 🔴 RÈGLE ② : sur une conversation jamais rattachée, c'est LUI qui ouvre le bloc — et lui seul.
+    expediteurConnu: suivi.expediteurConnu,
     /**
      * 🔴🔴 LA RÉFÉRENCE EST CE QUI EST **VALIDÉ** POUR CE MAIL : ses liens CONFIRMÉS, c'est-à-dire ceux qu'une
      * personne a posés et ceux que la fenêtre en cours a projetés — la projection les écrit confirmés, donc une

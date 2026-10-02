@@ -2,8 +2,10 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
-  mailsDuFil, poserClassement, suiviDuFil,
+  filRattache, mailsDuFil, poserClassement, suiviDuFil,
 } from '../../../../../lib/gestion/periodeRepo';
+// 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — « cet expéditeur est-il connu des fiches ? » (règle ② d'Arno).
+import { expediteurConnuDesFiches } from '../../../../../lib/gestion/contactExterneRepo';
 import { periodesDisponibles } from '../../../../../lib/gestion/schema';
 import type { ChoixSuivi, Classement, SorteClassement } from '../../../../../lib/gestion/periodesConversation';
 
@@ -123,14 +125,34 @@ export async function GET(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
 
-  const filId = entier(new URL(request.url).searchParams.get('fil'));
+  const url = new URL(request.url);
+  const filId = entier(url.searchParams.get('fil'));
   if (filId === null) return Response.json({ erreur: 'Échange inconnu.' }, { status: 422, headers: ENTETES });
   if (!(await periodesDisponibles())) {
     return Response.json({ etat: 'sans_schema' }, { headers: ENTETES });
   }
+  /**
+   * 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — LE MAIL QU'ON CLASSE, pour savoir si son expéditeur est connu.
+   *
+   * ⚠️ FACULTATIF : un appelant qui ne le passe pas (ou une version plus ancienne de l'écran) obtient
+   * `expediteurConnu: false`, donc le comportement d'AVANT ce lot — pas de bloc sur une conversation jamais
+   * rattachée. Un paramètre nouveau ne doit jamais rendre une réponse plus bavarde par surprise.
+   */
+  const messageId = entier(url.searchParams.get('message'));
   try {
-    const [suivi, mails] = await Promise.all([suiviDuFil(filId), mailsDuFil(filId)]);
-    return Response.json({ etat: 'ok', ...suivi, mails }, { headers: ENTETES });
+    /**
+     * 🔴 QUATRE LECTURES EN PARALLÈLE, et non l'une après l'autre : elles sont indépendantes, et cette route
+     * s'exécute à CHAQUE ouverture de la modale. Les enchaîner se verrait à l'écran.
+     */
+    const [suivi, mails, rattachee, expediteurConnu] = await Promise.all([
+      suiviDuFil(filId),
+      mailsDuFil(filId),
+      // 🔴 « DÉJÀ RATTACHÉE » : au moins un rattachement VALIDÉ, en plus des périodes et des exceptions.
+      filRattache(filId),
+      messageId === null ? Promise.resolve(false) : expediteurConnuDesFiches(messageId),
+    ]);
+    return Response.json(
+      { etat: 'ok', ...suivi, mails, rattachee, expediteurConnu }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/suivi] lecture impossible (fil=%d)', filId, e);
     return Response.json({ erreur: 'Lecture impossible : la base n’a pas répondu.' },

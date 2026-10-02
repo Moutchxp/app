@@ -30,9 +30,9 @@ import { query, closePool } from '../db/client';
 import {
   adressesDesFiches, contexteEtape2, enregistrerContactExterne, interventionsDeLaFiche,
   interventionsDesMessages, lireContactExterne, memoireDuFil, personnesDesBiens, poserInterventions,
-  retirerInterventionsSansBien, rolesALaDateDesMails, typesAProposer,
+  expediteurConnuDesFiches, retirerInterventionsSansBien, rolesALaDateDesMails, typesAProposer,
 } from './contactExterneRepo';
-import { poserClassement } from './periodeRepo';
+import { filRattache, poserClassement } from './periodeRepo';
 import { changerStatut, rattacher } from './rattachementRepo';
 import { ordonnerEtape2, REGLE_INTERVENTION } from './contactExterne';
 import type { PersonneClassee } from './periodesConversation';
@@ -878,5 +878,86 @@ describe('🔴🔴 C-10 — « Personnaliser… » : la base accepte un type lib
     expect(liste.slice(0, 9)).toEqual([
       'avocat', 'garant', 'artisan', 'diagnostiqueur', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
     ]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 C-11 — LES DEUX FAITS DE LA RÈGLE ② (lot SUIVI-CONVERSATION-NON-RATTACHEE)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   La règle elle-même est PURE et éprouvée sans base (`periodesConversation.test.ts`, section ⑫). Ce qui se
+   vérifie ici, c'est ce que la base RÉPOND : « cette conversation est-elle rattachée ? » et « cet expéditeur
+   est-il connu des fiches ? ». Les deux décident de l'affichage du bloc à 3 choix.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 C-11 — « déjà rattachée ? » et « expéditeur connu ? », lus en base', () => {
+  it('🔴 une conversation neuve n’est pas rattachée', async () => {
+    const { filId } = await conversation([{ le: '2026-03-10', de: AVOCAT }]);
+    expect(await filRattache(filId)).toBe(false);
+  });
+
+  it('🔴🔴 une PROPOSITION ne rattache pas — seul un lien CONFIRMÉ compte', async () => {
+    const { filId, ids } = await conversation([{ le: '2026-03-10', de: AVOCAT }]);
+    await query(
+      `INSERT INTO gestion_rattachement (message_id, cible_sorte, cible_cle, origine, statut, cree_par_libelle)
+       VALUES ($1, 'lot', $2, 'automatique', 'propose', 'moteur')`, [ids[0], LOT_A]);
+    // « Une proposition pré-cochée par le moteur ne compte pas comme un rattachement validé » (Arno).
+    expect(await filRattache(filId)).toBe(false);
+  });
+
+  it('🔴🔴 un lien confirmé sur N’IMPORTE QUEL mail du fil suffit', async () => {
+    const { filId, ids } = await conversation([
+      { le: '2026-03-10', de: AVOCAT }, { le: '2026-03-11', de: AVOCAT },
+    ]);
+    expect(await filRattache(filId)).toBe(false);
+    await rattacher({ messageId: ids[1], cible: { sorte: 'lot', cle: LOT_A, id: null }, auteur: AUTEUR });
+    expect(await filRattache(filId)).toBe(true);
+  });
+
+  it('🔴 un lien RETIRÉ ne rattache plus : la conversation redevient neuve', async () => {
+    const { filId, ids } = await conversation([{ le: '2026-03-10', de: AVOCAT }]);
+    const lien = await rattacher({
+      messageId: ids[0], cible: { sorte: 'lot', cle: LOT_A, id: null }, auteur: AUTEUR,
+    });
+    expect(await filRattache(filId)).toBe(true);
+    await changerStatut({ lienId: lien.ok ? lien.id : 0, statut: 'retire', auteur: AUTEUR });
+    expect(await filRattache(filId)).toBe(false);
+  });
+
+  it('⚠️ un rattachement de PIÈCE JOINTE ne rattache pas le MAIL', async () => {
+    const { filId, ids } = await conversation([{ le: '2026-03-10', de: AVOCAT }]);
+    const { rows: p } = await query<{ id: string }>(
+      `INSERT INTO gestion_piece (message_id, nom_fichier, type_mime, taille_octets)
+       VALUES ($1, 'quittance.pdf', 'application/pdf', 1024) RETURNING id::text`, [ids[0]]);
+    await query(
+      `INSERT INTO gestion_rattachement
+         (message_id, piece_id, cible_sorte, cible_cle, origine, statut, cree_par_libelle)
+       VALUES ($1, $2, 'lot', $3, 'manuel', 'confirme', 'essai')`, [ids[0], Number(p[0].id), LOT_A]);
+    // Une pièce rangée dans un dossier ne dit pas que le mail est classé.
+    expect(await filRattache(filId)).toBe(false);
+  });
+
+  it('🔴🔴 l’expéditeur est CONNU quand son adresse est contact d’une fiche vivante', async () => {
+    const { ids } = await conversation([{ le: '2026-03-10', de: 'occupant@exemple.test' }]);
+    expect(await expediteurConnuDesFiches(ids[0])).toBe(true);
+    // Un sorti de 2023 reste connu : « connu de la maison », pas « locataire à cette date ».
+    const { ids: s } = await conversation([{ le: '2026-03-10', de: 'sortant@exemple.test' }]);
+    expect(await expediteurConnuDesFiches(s[0])).toBe(true);
+  });
+
+  it('🔴🔴 et INCONNU quand elle ne l’est d’aucune — le cas du fil 193 d’Arno', async () => {
+    const { ids } = await conversation([{ le: '2026-03-10', de: AVOCAT }]);
+    expect(await expediteurConnuDesFiches(ids[0])).toBe(false);
+  });
+
+  it('⚠️ nos propres adresses ne sont contact d’aucune fiche : « inconnu », donc pas de bloc', async () => {
+    /**
+     * 🔴 C'EST LA LETTRE DE LA RÈGLE, et il faut le savoir : un mail que NOUS envoyons n'ouvre pas le bloc sur
+     * une conversation jamais rattachée. À signaler à Arno — ce n'est pas un oubli.
+     */
+    const { ids } = await conversation([
+      { le: '2026-03-10', de: 'gestion@criterimmo.fr', sens: 'envoye' },
+    ]);
+    expect(await expediteurConnuDesFiches(ids[0])).toBe(false);
   });
 });
