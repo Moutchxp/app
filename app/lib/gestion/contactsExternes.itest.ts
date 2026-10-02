@@ -869,14 +869,21 @@ describe('🔴🔴 C-10 — « Personnaliser… » : la base accepte un type lib
     expect((await lireContactExterne('diag@cabinet.test'))?.type).toBe('diagnostiqueur');
   });
 
+  it('🔴🔴 « famille » s’enregistre et se relit — le type ajouté le 02/10/2026', async () => {
+    const r = await enregistrerContactExterne({ email: 'fille@exemple.test', type: 'famille', auteur: AUTEUR });
+    expect(r.ok).toBe(true);
+    expect((await lireContactExterne('fille@exemple.test'))?.type).toBe('famille');
+  });
+
   it('🔴🔴 un type écrit à la main REVIENT dans la liste proposée la fois suivante', async () => {
     await enregistrerContactExterne({ email: 'h2@etude.test', type: 'huissier de justice', auteur: AUTEUR });
     const { liste, libre } = await typesAProposer();
     expect(libre).toBe(true);
     expect(liste).toContain('huissier de justice');
-    // ⚠️ ET LES NEUF DE DÉPART SONT TOUJOURS EN TÊTE, dans l'ordre d'Arno.
-    expect(liste.slice(0, 9)).toEqual([
-      'avocat', 'garant', 'artisan', 'diagnostiqueur', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
+    // ⚠️ ET LES DIX DE DÉPART SONT TOUJOURS EN TÊTE, dans l'ordre d'Arno — « famille » ajouté le 02/10/2026.
+    expect(liste.slice(0, 10)).toEqual([
+      'avocat', 'garant', 'artisan', 'syndic', 'expert', 'assurance', 'notaire', 'diagnostiqueur',
+      'famille', 'autre',
     ]);
   });
 });

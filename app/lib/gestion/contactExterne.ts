@@ -52,8 +52,20 @@ export const REGLE_INTERVENTION = 'intervention';
  * « autre » dit « j'ai regardé et aucun ne convient », ce qui n'est pas la même information.
  */
 export const TYPES_CONTACT_EXTERNE = [
-  // 🔴 « Diagnostiqueur » ajouté sur demande d'Arno le 02/10/2026. Il vient avec les métiers du bâti.
-  'avocat', 'garant', 'artisan', 'diagnostiqueur', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
+  /**
+   * 🔴🔴 L'ORDRE EST CELUI D'ARNO, MOT POUR MOT (02/10/2026) : « Avocat, Garant, Artisan, Syndic, Expert,
+   * Assurance, Notaire, Diagnostiqueur, Famille, Autre, Personnaliser… ». C'est l'ordre qu'il LIT ; le changer
+   * pour un ordre alphabétique ferait chercher chaque type à un endroit différent de celui qu'il annonce.
+   *
+   * 🔴 « Famille » (lot BROUILLONS-APERCU-TYPES-LIBELLES) : un proche du locataire ou du propriétaire qui écrit à
+   * sa place. Ce n'est ni un métier ni « Autre » — c'est le cas le plus fréquent après les métiers, et le ranger
+   * dans « Autre » revenait à ne rien en savoir.
+   *
+   * ⚠️ « Autre » RESTE EN DERNIER DES TYPES, juste avant « Personnaliser… » : c'est le choix par défaut de ce
+   * qu'on ne sait pas nommer, et un choix par défaut ne se met pas au milieu d'une liste.
+   */
+  'avocat', 'garant', 'artisan', 'syndic', 'expert', 'assurance', 'notaire', 'diagnostiqueur',
+  'famille', 'autre',
 ] as const;
 
 export type TypeContactExterne = typeof TYPES_CONTACT_EXTERNE[number];
@@ -90,7 +102,8 @@ export const TYPE_LONGUEUR_MAX = 40;
 export function motTypeContact(t: string): string {
   const mots: Record<string, string> = {
     avocat: 'Avocat', garant: 'Garant', artisan: 'Artisan', diagnostiqueur: 'Diagnostiqueur',
-    syndic: 'Syndic', expert: 'Expert', assurance: 'Assurance', notaire: 'Notaire', autre: 'Autre',
+    syndic: 'Syndic', expert: 'Expert', assurance: 'Assurance', notaire: 'Notaire',
+    famille: 'Famille', autre: 'Autre',
   };
   const connu = mots[t];
   if (connu !== undefined) return connu;
@@ -140,6 +153,11 @@ export function typeLibreRecu(brut: unknown): string | null {
  *
  * ⚠️ CETTE LISTE EST UN CONSTAT, PAS UNE RÈGLE. Elle disparaîtra le jour où la 294 sera appliquée ; elle n'est
  * là que pour décrire fidèlement une base qui n'a pas encore reçu sa mise à jour.
+ */
+/**
+ * ⚠️ « famille » N'EST PAS DANS CETTE LISTE, ET C'EST VOLONTAIRE : tant que la 294 n'est pas appliquée, la base le
+ * REFUSERAIT. On ne propose jamais un choix que la base rejetterait en silence — c'est toute la raison d'être de
+ * cette constante.
  */
 export const TYPES_AVANT_294: readonly string[] = [
   'avocat', 'garant', 'artisan', 'syndic', 'expert', 'assurance', 'notaire', 'autre',

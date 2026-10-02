@@ -357,14 +357,35 @@ describe('C-F — la mention « via … » et les motifs se relisent dans deux a
 
   it('🔴 les types d’Arno, dans son ordre, et « autre » en dernier', () => {
     /**
-     * 🔴 « Diagnostiqueur » AJOUTÉ LE 02/10/2026 (demande d'Arno). Il vient avec les métiers du bâti, entre
-     * « artisan » et « syndic » — l'ordre est celui qu'on LIT, et il n'est pas alphabétique par hasard.
+     * 🔴🔴 L'ORDRE EST DICTÉ, PAS DÉDUIT. Arno l'a écrit mot pour mot le 02/10/2026 : « Avocat, Garant, Artisan,
+     * Syndic, Expert, Assurance, Notaire, Diagnostiqueur, Famille, Autre, Personnaliser… ». Il n'est pas
+     * alphabétique, et il n'a pas à l'être : c'est l'ordre qu'on LIT à l'écran.
+     *
+     * 🔴 « Famille » ajouté avec le lot BROUILLONS-APERCU-TYPES-LIBELLES — un proche qui écrit à la place du
+     * locataire ou du propriétaire. « Diagnostiqueur » a rejoint la fin des métiers, à la place qu'Arno lui donne.
      */
     expect([...TYPES_CONTACT_EXTERNE]).toEqual([
-      'avocat', 'garant', 'artisan', 'diagnostiqueur', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
+      'avocat', 'garant', 'artisan', 'syndic', 'expert', 'assurance', 'notaire', 'diagnostiqueur',
+      'famille', 'autre',
     ]);
     expect(motTypeContact('avocat')).toBe('Avocat');
     expect(motTypeContact('diagnostiqueur')).toBe('Diagnostiqueur');
+    expect(motTypeContact('famille')).toBe('Famille');
+    // ⚠️ « Autre » FERME LA LISTE : le choix de ce qu'on ne sait pas nommer ne se met pas au milieu.
+    expect(TYPES_CONTACT_EXTERNE[TYPES_CONTACT_EXTERNE.length - 1]).toBe('autre');
+  });
+
+  /**
+   * 🔴🔴 LE GARDE-FOU QUI ÉVITE UN CHOIX QUI ÉCHOUERAIT EN SILENCE. Tant que la migration 294 n'est pas
+   * appliquée, la base refuse tout ce qui n'est pas dans ses huit mots : « famille » et « diagnostiqueur » n'y
+   * sont pas, et l'écran ne doit donc pas les proposer.
+   */
+  it('🔴🔴 sans la migration 294, ni « famille » ni « diagnostiqueur » ne sont proposés', () => {
+    expect(TYPES_AVANT_294).not.toContain('famille');
+    expect(TYPES_AVANT_294).not.toContain('diagnostiqueur');
+    expect(typesProposes([], { typeLibre: false })).toEqual([...TYPES_AVANT_294]);
+    // …et AVEC la 294, les dix de la liste, dans l'ordre d'Arno.
+    expect(typesProposes([], { typeLibre: true })).toEqual([...TYPES_CONTACT_EXTERNE]);
   });
 
   it('⚠️ un type venu du navigateur est re-validé, et « aucun » reste permis', () => {
