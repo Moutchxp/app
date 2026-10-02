@@ -114,6 +114,105 @@ const PROPRIETES = new Set([
   'border', 'border-color', 'border-style', 'border-width', 'border-radius',
 ]);
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RENDU-FIDELE-HTML — LE SECOND PROFIL : AFFICHER UN MAIL **REÇU** COMME GMAIL L'AFFICHE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (02/10/2026), message 57411 de Monga : « le bouton "Vers Mission" est ABSENT ; la mise en page
+   est déformée, le contenu s'étale sur toute la largeur et le bloc bleu est étiré. »
+
+   ═══ CE QUE LE DIAGNOSTIC A MONTRÉ, ET QUI CHANGE LA NATURE DU PROBLÈME ════════════════════════════════════════
+
+   🔴 LE BOUTON N'ÉTAIT PAS RETIRÉ : IL ÉTAIT RENDU INVISIBLE. Son `<a>`, son `href`, son `color:#FFFFFF`, son
+   `padding` et son `border-radius` passaient tous. Ce qui tombait, c'est `background:#1B4DFF` — la forme COURTE,
+   absente de la liste, là où `background-color` y est. Résultat : du blanc sur du blanc. Et `display:inline-block`
+   tombait aussi, donc même plus un bloc.
+
+   🔴 LA MISE EN PAGE TOMBAIT PAR SES ATTRIBUTS : `width`, `align`, `cellpadding` ne sont permis sur AUCUNE balise
+   de tableau, et `max-width` n'est dans aucune liste. Mesuré sur la base le 03/10/2026 : 42 720 mails à tableaux
+   sur 46 732 perdaient au moins un attribut de mise en page, 2 986 731 attributs au total, et 36 403 perdaient
+   leur `max-width` — d'où la colonne qui s'étale sur toute la largeur.
+
+   ═══ POURQUOI UN SECOND PROFIL, ET NON UNE LISTE ÉLARGIE ═══════════════════════════════════════════════════════
+
+   🔴🔴 LA MÊME FONCTION SERT DEUX CHOSES OPPOSÉES, et c'est le point de tout ce lot :
+
+     · ÉCRIRE un mail (l'éditeur, les brouillons, la signature) — là, la liste étroite est JUSTE. Elle décrit ce
+       que notre barre d'outils produit ; tout ce qui dépasse vient d'un collage, et un collage ne doit pas
+       pouvoir glisser du contenu caché dans un mail qui partira SOUS NOTRE NOM.
+     · LIRE un mail reçu — là, la même étroitesse est un défaut : elle réécrit la mise en page de quelqu'un
+       d'autre, et finit par cacher un bouton de travail.
+
+   Élargir la liste commune aurait desserré le départ pour réparer l'arrivée. Les deux profils séparent ces deux
+   questions, et `assainirHtml` — l'écriture — ne change pas d'un caractère.
+
+   ═══ 🔒 CE QUI NE CHANGE PAS, ET QUI EST TOUTE LA SÛRETÉ ═══════════════════════════════════════════════════════
+
+   Le MOTEUR est le même : mêmes balises interdites (`script`, `style`, `iframe`, `object`, `embed`, `form`…),
+   même effacement de leur contenu, mêmes `on*` jetés avant tout, mêmes protocoles de lien, même filtre de valeur
+   (`url(`, `expression(`, `javascript:`, `@import`, `/*`) sur CHAQUE déclaration. Un profil n'ouvre que des NOMS
+   d'attributs et de propriétés ; il ne touche à aucune barrière.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export type ProfilHtml = 'ecriture' | 'reception';
+
+/**
+ * LES BALISES EN PLUS, À LA LECTURE. `center` est le centrage des mails commerciaux — celui qu'Arno voit dans
+ * Gmail. `tfoot` et `caption` complètent les tableaux ; `area`/`map` restent dehors (ils cliquent), `style` aussi
+ * (voir l'encadré « ce qui n'y est pas » plus bas).
+ */
+const BALISES_RECEPTION = new Set([...BALISES, 'center', 'tfoot', 'caption', 'colgroup', 'col', 'big', 'small', 'tt', 'abbr']);
+
+/**
+ * LES ATTRIBUTS DE MISE EN PAGE D'UN TABLEAU DE MAIL. Ce sont ceux que tous les gabarits d'e-mailing emploient
+ * depuis vingt ans, parce qu'eux seuls passent partout. Aucun ne porte d'URL ni de code.
+ *
+ * ⚠️ `background` N'Y EST PAS (l'attribut, pas la propriété) : il prend une URL d'image, donc une balise espion.
+ */
+const ATTRIBUTS_RECEPTION: Record<string, readonly string[]> = {
+  ...ATTRIBUTS,
+  a: ['href', 'title', 'name'],
+  img: ['src', 'alt', 'width', 'height', 'border'],
+  table: ['width', 'height', 'align', 'bgcolor', 'cellpadding', 'cellspacing', 'border'],
+  tr: ['align', 'valign', 'bgcolor', 'height'],
+  td: ['colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'bgcolor'],
+  th: ['colspan', 'rowspan', 'width', 'height', 'align', 'valign', 'bgcolor'],
+  col: ['width', 'span'], colgroup: ['width', 'span'],
+  div: ['align'], p: ['align'], center: [], font: ['face', 'size', 'color'],
+};
+
+/**
+ * LES PROPRIÉTÉS CSS EN PLUS, À LA LECTURE.
+ *
+ * 🔒 CE QUI RESTE DEHORS, ET C'EST LA DEMANDE EXPRESSE D'ARNO (« pas de CSS qui sort du cadre du mail ») :
+ * `position`, `z-index`, `transform`, `filter`, `content`, `behavior`, `opacity`, `visibility`, `float` au-delà du
+ * cadre, et tout ce qui prend une `url()` — le filtre de valeur reste la barrière, et il ne bouge pas.
+ *
+ * ⚠️ `display` ENTRE ICI ALORS QU'IL EST REFUSÉ À L'ÉCRITURE, et il faut dire pourquoi la règle n'est pas la même
+ * des deux côtés. À l'ÉCRITURE, `display:none` sert à cacher du texte dans un mail qu'on envoie — c'est du
+ * hameçonnage, et c'est nous qui signons. À la LECTURE, c'est le mail de quelqu'un d'autre : Gmail l'affiche tel
+ * quel, et le refuser transformait `inline-block` en texte nu — c'est très exactement ce qui a effacé le bouton
+ * d'Arno. Reproduire fidèlement ce que Gmail montre EST la demande.
+ *
+ * ⚠️ `background` (LA FORME COURTE) EST LE CŒUR DU DÉFAUT : elle portait le bleu du bouton Monga. Elle peut
+ * contenir une `url()` — et c'est le filtre de valeur, inchangé, qui la refuse alors en entier.
+ */
+const PROPRIETES_RECEPTION = new Set([...PROPRIETES,
+  'background',
+  'display',
+  'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
+  'border-top', 'border-right', 'border-bottom',
+  'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
+  'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+  'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+  'border-top-left-radius', 'border-top-right-radius',
+  'border-bottom-left-radius', 'border-bottom-right-radius',
+  'border-spacing', 'caption-side', 'table-layout', 'empty-cells',
+  'letter-spacing', 'word-spacing', 'text-transform', 'font-variant', 'font',
+  'text-align-last', 'direction', 'word-break', 'overflow-wrap',
+  'list-style', 'list-style-type', 'list-style-position',
+]);
+
 /** Les protocoles qu'un lien a le droit de porter. Tout le reste — `javascript:`, `vbscript:`, `file:`, `data:` — non. */
 const PROTOCOLES_LIEN = ['http://', 'https://', 'mailto:', 'tel:'];
 /**
@@ -190,14 +289,17 @@ export function urlAcceptable(brut: string, protocoles: readonly string[] = PROT
  * projet à part, et chaque bogue s'y verrait dans un mail parti.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function styleSur(brut: string): string {
+export function styleSur(brut: string, profil: ProfilHtml = 'ecriture'): string {
+  // 🔴🔴 LOT RENDU-FIDELE-HTML — `reception` ouvre des NOMS de propriétés, et rien d'autre : le filtre de valeur
+  //   juste en dessous est le même pour les deux profils, et c'est lui la barrière.
+  const permises = profil === 'reception' ? PROPRIETES_RECEPTION : PROPRIETES;
   const gardees: string[] = [];
   for (const decl of brut.split(';')) {
     const i = decl.indexOf(':');
     if (i < 0) continue;
     const nom = decl.slice(0, i).trim().toLowerCase();
     const valeur = decl.slice(i + 1).trim();
-    if (!PROPRIETES.has(nom) || valeur === '') continue;
+    if (!permises.has(nom) || valeur === '') continue;
     // 🔴 AUCUNE VALEUR NE PEUT ALLER CHERCHER QUOI QUE CE SOIT AU DEHORS, ni contenir de code : `url(…)` fait une
     //   balise espion, `expression(…)` exécutait du script sur les vieux moteurs, et un `/*` masque la suite.
     const v = valeur.toLowerCase();
@@ -208,8 +310,8 @@ export function styleSur(brut: string): string {
 }
 
 /** Les attributs d'une balise, filtrés. PUR. */
-function attributsSurs(balise: string, brut: string): string {
-  const permis = ATTRIBUTS[balise] ?? [];
+function attributsSurs(balise: string, brut: string, profil: ProfilHtml = 'ecriture'): string {
+  const permis = (profil === 'reception' ? ATTRIBUTS_RECEPTION : ATTRIBUTS)[balise] ?? [];
   const sortie: string[] = [];
   // Une seule passe sur `nom="valeur"`, `nom='valeur'` ou `nom=valeur`. Un attribut sans valeur (`disabled`) est
   //   ignoré : aucune balise autorisée n'en a besoin, et il n'apporte rien à un mail.
@@ -223,7 +325,7 @@ function attributsSurs(balise: string, brut: string): string {
       if (!STYLE_PARTOUT) continue;
       // 🔴 DÉCODÉ AVANT D'ÊTRE JUGÉ : le `;` de `&quot;` coupait les noms de police en deux, et un `expression&#40;`
       //   passait le filtre. Voir l'encadré de `styleSur`. `echapperAttribut` ré-échappe ensuite pour la sortie.
-      const s = styleSur(decoderEntites(valeur));
+      const s = styleSur(decoderEntites(valeur), profil);
       if (s !== '') sortie.push(`style="${echapperAttribut(s)}"`);
       continue;
     }
@@ -247,6 +349,19 @@ function attributsSurs(balise: string, brut: string): string {
      */
     if (nom === 'width' || nom === 'height' || nom === 'size' || nom === 'colspan' || nom === 'rowspan') {
       const n = valeur.trim();
+      /**
+       * ══ 🔴🔴 LOT RENDU-FIDELE-HTML — UNE LARGEUR EN POURCENTAGE, À LA LECTURE SEULEMENT ═══════════════════
+       *
+       * `width="100%"` est LA valeur la plus répandue des gabarits d'e-mailing : c'est elle qui fait tenir la
+       * colonne. La règle n'acceptait qu'un NOMBRE — juste pour ce que notre éditeur produit (des tailles
+       * d'image en pixels), faux pour un mail reçu : les six tableaux du mail 57411 perdaient leur largeur, et
+       * la colonne s'étalait sur toute la page. C'est la moitié du constat d'Arno.
+       *
+       * 🔒 ELLE RESTE UN NOMBRE, suivi au plus d'un `%`, borné à quatre chiffres. Rien d'autre ne passe — ni
+       * `calc(`, ni `px`, ni une expression. Et à l'ÉCRITURE la règle ne bouge pas : un pourcentage y est
+       * toujours refusé.
+       */
+      if (profil === 'reception' && /^\d{1,4}%$/.test(n)) { sortie.push(`${nom}="${n}"`); continue; }
       if (!/^\d{1,4}(\.\d+)?$/.test(n)) continue;
       sortie.push(`${nom}="${n.split('.')[0]}"`);
       continue;
@@ -300,7 +415,13 @@ export const HTML_MAX = 500_000;
  * ⚠️ LES BALISES OUVERTES SONT SUIVIES, et refermées à la fin. Un `<b>` laissé ouvert par un collage mettrait en
  * gras tout ce qui suit dans l'écran qui l'affiche — y compris ce qui ne vient pas de ce message.
  */
-export function assainirHtml(brut: string | null | undefined): string {
+export function assainirHtml(brut: string | null | undefined, profil: ProfilHtml = 'ecriture'): string {
+  /**
+   * 🔴🔴 LOT RENDU-FIDELE-HTML — LE PROFIL EST LE DERNIER PARAMÈTRE ET VAUT `ecriture` PAR DÉFAUT : tous les
+   * appelants écrits avant ce lot (l'éditeur, les brouillons, la signature) rendent donc un résultat IDENTIFIQUE
+   * AU CARACTÈRE PRÈS. Seule la lecture d'un mail reçu demande `reception`.
+   */
+  const balises = profil === 'reception' ? BALISES_RECEPTION : BALISES;
   const entree = (brut ?? '').slice(0, HTML_MAX);
   let sortie = '';
   const ouvertes: string[] = [];
@@ -359,7 +480,7 @@ export function assainirHtml(brut: string | null | undefined): string {
     }
 
     if (fermante) {
-      if (BALISES.has(nom) && !ORPHELINES.has(nom)) {
+      if (balises.has(nom) && !ORPHELINES.has(nom)) {
         const rang = ouvertes.lastIndexOf(nom);
         if (rang >= 0) {
           // On referme aussi ce qui était ouvert par-dessus : un document mal imbriqué ne doit pas rester ouvert.
@@ -371,8 +492,8 @@ export function assainirHtml(brut: string | null | undefined): string {
       continue;
     }
 
-    if (!BALISES.has(nom)) { i = gt + 1; continue; } // enveloppe inconnue retirée, contenu conservé
-    const attrs = attributsSurs(nom, dedans.slice(nom.length));
+    if (!balises.has(nom)) { i = gt + 1; continue; } // enveloppe inconnue retirée, contenu conservé
+    const attrs = attributsSurs(nom, dedans.slice(nom.length), profil);
     if (ORPHELINES.has(nom)) {
       // Une image sans `src` acceptable ne sert à rien et laisserait une icône cassée chez le destinataire.
       if (nom === 'img' && !attrs.includes('src=')) { i = gt + 1; continue; }

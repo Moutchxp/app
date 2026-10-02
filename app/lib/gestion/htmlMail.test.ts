@@ -447,3 +447,162 @@ describe('🔴 les entités HTML d’un mail reçu', () => {
     expect(assainirHtml('<p>Dupont & Fils</p>')).toBe('<p>Dupont &amp; Fils</p>');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RENDU-FIDELE-HTML — AFFICHER UN MAIL REÇU COMME GMAIL L'AFFICHE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (02/10/2026), message 57411 de Monga : « le bouton "Vers Mission" est ABSENT ; la mise en page
+   est déformée, le contenu s'étale sur toute la largeur et le bloc bleu est étiré. »
+
+   🔴 CE QUE LE DIAGNOSTIC A MONTRÉ : le bouton n'était pas retiré, il était rendu INVISIBLE — `color:#FFFFFF`
+   passait, `background:#1B4DFF` (la forme COURTE) tombait. Du blanc sur du blanc.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Le bouton du mail 57411, recopié du HTML réellement stocké en base. */
+const BOUTON_MONGA = '<tr><td style="padding:26px 44px 0;text-align:center;">'
+  + '<a href="https://app.monga.io/missions/view/dbb10000-bd6e-6045-7aee-08df1fc272b8"'
+  + ' style="display:inline-block;background:#1B4DFF;color:#FFFFFF;font-size:15px;font-weight:600;'
+  + 'text-decoration:none;padding:14px 32px;border-radius:10px;">Vers Mission</a></td></tr>';
+
+describe('🔴🔴 le bouton d’un mail reçu', () => {
+  it('🔴🔴 « Vers Mission » garde son href, son FOND et sa forme', () => {
+    const s = assainirHtml(BOUTON_MONGA, 'reception');
+    expect(s).toContain('href="https://app.monga.io/missions/view/dbb10000-bd6e-6045-7aee-08df1fc272b8"');
+    // 🔴 LE FOND : c'est lui qui manquait, et sans lui le bouton était blanc sur blanc.
+    expect(s).toContain('background: #1B4DFF');
+    expect(s).toContain('color: #FFFFFF');
+    expect(s).toContain('display: inline-block');
+    expect(s).toContain('padding: 14px 32px');
+    expect(s).toContain('border-radius: 10px');
+    expect(s).toContain('>Vers Mission</a>');
+  });
+
+  it('🔴 il s’ouvre dans un nouvel onglet, sans rendre la main à la page ouverte', () => {
+    const s = assainirHtml(BOUTON_MONGA, 'reception');
+    expect(s).toContain('target="_blank"');
+    expect(s).toContain('rel="noopener noreferrer"');
+  });
+
+  /** 🔴🔴 LA PREUVE DU DÉFAUT : avec le profil d'ÉCRITURE — celui d'avant ce lot — le fond tombait. */
+  it('🔴🔴 et c’est bien le profil qui change : à l’écriture, le fond tombait', () => {
+    const avant = assainirHtml(BOUTON_MONGA);
+    expect(avant).toContain('color: #FFFFFF');
+    expect(avant).not.toContain('background: #1B4DFF');
+    expect(avant).not.toContain('display: inline-block');
+  });
+
+  it('🔴 mailto: et tel: sont conservés eux aussi', () => {
+    const s = assainirHtml('<a href="mailto:interventions@monga.io">écrire</a><a href="tel:+33145000000">appeler</a>',
+      'reception');
+    expect(s).toContain('href="mailto:interventions@monga.io"');
+    expect(s).toContain('href="tel:+33145000000"');
+  });
+});
+
+describe('🔴🔴 la mise en page d’un mail reçu', () => {
+  const GABARIT = '<center><table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#F5F6F8">'
+    + '<tr><td align="center" valign="top">'
+    + '<div style="max-width:600px;margin:0 auto;background:#FFFFFF;">colonne</div>'
+    + '</td></tr></table></center>';
+
+  it('🔴🔴 la colonne reste CENTRÉE et bornée en largeur', () => {
+    const s = assainirHtml(GABARIT, 'reception');
+    expect(s).toContain('<center>');
+    expect(s).toContain('align="center"');
+    expect(s).toContain('max-width: 600px');
+    expect(s).toContain('margin: 0 auto');
+  });
+
+  it('🔴🔴 les attributs de mise en page des tableaux sont gardés', () => {
+    const s = assainirHtml(GABARIT, 'reception');
+    for (const a of ['width="100%"', 'cellpadding="0"', 'cellspacing="0"', 'border="0"', 'bgcolor="#F5F6F8"',
+      'valign="top"']) {
+      expect(s, a).toContain(a);
+    }
+  });
+
+  /** 🔴 `width="100%"` EST LA VALEUR LA PLUS RÉPANDUE DES GABARITS D'E-MAILING, et elle tombait. */
+  it('🔴 une largeur en POURCENTAGE passe à la lecture, jamais à l’écriture', () => {
+    expect(assainirHtml('<table width="100%"><tr><td>x</td></tr></table>', 'reception')).toContain('width="100%"');
+    expect(assainirHtml('<table width="100%"><tr><td>x</td></tr></table>')).not.toContain('width=');
+    // …et rien d'autre qu'un nombre suivi au plus d'un %.
+    expect(assainirHtml('<table width="calc(100% - 2px)"><tr><td>x</td></tr></table>', 'reception'))
+      .not.toContain('width=');
+  });
+
+  it('⚠️ et le profil d’ÉCRITURE perd tout cela, comme avant ce lot', () => {
+    const avant = assainirHtml(GABARIT);
+    expect(avant).not.toContain('<center>');
+    expect(avant).not.toContain('align=');
+    expect(avant).not.toContain('cellpadding=');
+    expect(avant).not.toContain('max-width');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔒 LA SÛRETÉ NE BOUGE PAS D'UN CARACTÈRE — C'EST LA CONDITION DE TOUT CE LOT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔒 un mail reçu n’apporte toujours NI code NI fuite', () => {
+  const VENIMEUX = '<script>vol()</script>'
+    + '<div onclick="vol()" onmouseover="vol()">texte</div>'
+    + '<a href="javascript:vol()">piège</a>'
+    + '<form action="https://voleur.test"><input name="motdepasse"><button>Envoyer</button></form>'
+    + '<iframe src="https://voleur.test"></iframe><object data="x"></object><embed src="x">'
+    + '<style>body{display:none}</style>'
+    + '<div style="position:fixed;z-index:9999;background:url(https://espion.test/p.gif);">couvrant</div>'
+    + '<img src="https://espion.test/pixel.gif" onerror="vol()">';
+
+  it('🔴🔴 ni script, ni gestionnaire d’événement, ni javascript:, ni formulaire', () => {
+    const s = assainirHtml(VENIMEUX, 'reception');
+    expect(s).not.toContain('<script');
+    expect(s).not.toContain('vol()');
+    expect(s).not.toMatch(/\son[a-z]+\s*=/i);
+    expect(s).not.toContain('javascript:');
+    expect(s).not.toContain('<form');
+    expect(s).not.toContain('<input');
+    expect(s).not.toContain('<button');
+  });
+
+  it('🔴🔴 ni iframe, ni object, ni embed', () => {
+    const s = assainirHtml(VENIMEUX, 'reception');
+    for (const b of ['<iframe', '<object', '<embed']) expect(s, b).not.toContain(b);
+  });
+
+  /**
+   * 🔴🔴 LE `<style>` N'ATTEINT JAMAIS L'APPLICATION, et c'est la demande d'Arno (« isolé pour qu'il n'atteigne
+   * pas l'appli »). La réponse la plus simple est aussi la plus sûre : la balise est VIDÉE, contenu compris. Une
+   * feuille de style de mail ne peut donc pas peindre un pixel hors de son cadre, ni masquer quoi que ce soit.
+   */
+  it('🔴🔴 un <style> d’en-tête est vidé : aucun effet, ni dans le mail ni hors de lui', () => {
+    const s = assainirHtml(VENIMEUX, 'reception');
+    expect(s).not.toContain('<style');
+    expect(s).not.toContain('body{display:none}');
+    expect(s).not.toContain('display:none');
+  });
+
+  it('🔴🔴 aucun CSS ne sort du cadre du mail, et aucune valeur ne va chercher au dehors', () => {
+    const s = assainirHtml(VENIMEUX, 'reception');
+    expect(s).not.toContain('position');
+    expect(s).not.toContain('z-index');
+    // 🔴 `url(` RESTE REFUSÉ, y compris dans la forme courte `background` qu'on vient d'autoriser.
+    expect(s).not.toContain('url(');
+    expect(s).not.toContain('espion.test/p.gif');
+  });
+
+  it('🔴 une valeur portant url(), expression() ou @import tombe EN ENTIER', () => {
+    const s = assainirHtml('<div style="background:url(https://espion.test/p.gif) #fff;color:#111">x</div>',
+      'reception');
+    expect(s).not.toContain('url(');
+    expect(s).not.toContain('background');
+    // …mais la déclaration voisine, elle, est gardée : on jette la valeur fautive, pas tout le style.
+    expect(s).toContain('color: #111');
+  });
+
+  it('🔴 les protocoles de lien restent les quatre permis', () => {
+    for (const mauvais of ['javascript:x', 'vbscript:x', 'data:text/html;base64,PHN2Zz4=', 'file:///etc/passwd']) {
+      expect(assainirHtml(`<a href="${mauvais}">x</a>`, 'reception')).not.toContain('href=');
+    }
+  });
+});

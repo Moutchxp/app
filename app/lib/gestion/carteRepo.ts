@@ -457,7 +457,25 @@ export async function htmlDuMessage(messageId: number): Promise<string | null> {
  * donnerait un cadre blanc, ce qui se lit « message vide » — alors qu'il n'y avait rien à lire dès le départ.
  */
 export function htmlAffichable(brut: string | null | undefined): string | null {
-  const propre = assainirHtml(brut);
+  /**
+   * ══ 🔴🔴 LOT RENDU-FIDELE-HTML — C'EST UN MAIL **REÇU** QU'ON AFFICHE, DONC LE PROFIL « reception » ══════════
+   *
+   * Demande d'Arno : « un mail doit s'afficher comme dans Gmail, et surtout ses boutons et liens doivent être
+   * présents et cliquables (ce sont des liens de travail : missions, devis, validations) ».
+   *
+   * 🔴 CETTE SEULE LIGNE EST CE QUI RÉPARE LE BOUTON D'ARNO. Avec le profil d'ÉCRITURE, `background:#1B4DFF`
+   * tombait (seul `background-color` était permis) alors que `color:#FFFFFF` passait : le bouton Monga était
+   * rendu en blanc sur blanc — présent, cliquable, et invisible. Et `width`/`align`/`cellpadding`/`max-width`
+   * tombaient aussi, d'où la colonne étalée sur toute la largeur.
+   *
+   * ⚠️ LA SÛRETÉ NE BOUGE PAS D'UN CARACTÈRE : même moteur, mêmes balises interdites et vidées (`script`,
+   * `style`, `iframe`, `form`…), mêmes `on*` jetés, mêmes protocoles de lien, même refus de toute valeur portant
+   * `url(`, `expression(`, `javascript:` ou `@import`. Le profil n'ouvre que des NOMS.
+   *
+   * ⚠️ ET L'ÉCRITURE N'EST PAS CONCERNÉE : ce que NOUS envoyons passe toujours par le profil strict, qui est son
+   * défaut. Un collage ne peut toujours pas glisser du contenu caché dans un mail signé de nous.
+   */
+  const propre = assainirHtml(brut, 'reception');
   return htmlVide(propre) ? null : propre;
 }
 
