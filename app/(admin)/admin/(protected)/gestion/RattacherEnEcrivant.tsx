@@ -951,8 +951,20 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
    se lit comme une consigne, pas comme une note de bas de page : meme taille que le reste de la carte, et la
    couleur du texte ordinaire plutot que le gris des compteurs. */
 .rec-aucune{flex:1 1 100%;font-size:.84rem;line-height:1.45;color:var(--color-svv-ink)}
+/* ══ 🔴 LOT DEFILEMENT-MODALES — EXCEPTION N° 1, ET ELLE EST JUSTIFIEE ════════════════════════════════════════
+   Arno autorise deux zones qui defilent a l'interieur du corps : « les listes longues deja validees (liste des
+   propositions, avec sa pastille "voir les suivants", et resultats de recherche) ».
+
+   POURQUOI CELLE-CI RESTE : un mail peut porter 76 propositions (constat du lot URGENT-VERIF-SUIVI-ET-76-BIENS).
+   Sans hauteur bornee, elles pousseraient le moteur de recherche et le pied hors de l'ecran, et l'on ne pourrait
+   plus ni chercher ni valider sans avoir fait defiler toute la liste.
+
+   🔴 overscroll-behavior:auto, ECRIT EXPLICITEMENT, et c'est la demande d'Arno : en bout de liste, la molette
+   PASSE a la modale au lieu d'etre avalee. C'est la valeur par defaut, mais l'ecrire la met a l'abri — une seule
+   ligne contain heritee ailleurs a deja suffi a bloquer toutes les capsules de l'etape 2.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un litteral de gabarit. */
 .rec-biens{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;
-  max-height:34vh;overflow-y:auto}
+  max-height:34vh;overflow-y:auto;overscroll-behavior:auto}
 .rec-bien{padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem}
 /* CIBLE TACTILE : la ligne entiere est cliquable, et la case ne descend pas sous 44 px de hauteur totale. */
 .rec-choix{display:flex;align-items:flex-start;gap:.5rem;min-height:32px;cursor:pointer}
@@ -971,8 +983,13 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
   min-width:0;width:100%}
 .rec-saisie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .rec-vide{margin:.4rem 0 0;font-size:.8rem;color:var(--color-svv-muted)}
-/* DEFILEMENT INTERNE (demande d'Arno) : la recherche ne pousse jamais les propositions hors de l'ecran. */
-.rec-resultats{margin-top:.4rem;max-height:30vh;overflow-y:auto}
+/* ══ 🔴 LOT DEFILEMENT-MODALES — EXCEPTION N° 2, justifiee elle aussi ════════════════════════════════════════
+   DEFILEMENT INTERNE (demande d'Arno) : la recherche ne pousse jamais les propositions hors de l'ecran. Une
+   recherche large rend des dizaines de biens ; sans hauteur bornee, la liste des propositions deja cochees
+   disparaitrait vers le bas des qu'on tape trois lettres.
+   🔴 overscroll-behavior:auto, pour la meme raison que la liste du dessus : en bout de resultats, la molette
+   rend la main a la modale. */
+.rec-resultats{margin-top:.4rem;max-height:30vh;overflow-y:auto;overscroll-behavior:auto}
 .rec-groupe+.rec-groupe{margin-top:.5rem}
 .rec-groupe-titre{margin:0 0 .25rem;font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
   color:var(--color-svv-ink)}

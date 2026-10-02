@@ -185,7 +185,7 @@ export function EtapeContactExterne({
           <label className="ece-carte ece-exclusif">
             <input type="checkbox" checked={choix.bienUniquement}
               onChange={() => setChoix((c) => basculerEtape2(c, null))} />
-            <span className="ece-corps">
+            <span className="ece-texte">
               <span className="ece-mot">{BIEN_UNIQUEMENT}</span>
               <span className="ece-aide">{BIEN_UNIQUEMENT_AIDE}</span>
             </span>
@@ -213,7 +213,7 @@ export function EtapeContactExterne({
                 <label className="ece-choix ece-choix--suivi" key={c.cle}>
                   <input type="radio" name="ece-suivi" checked={suivi === c.cle}
                     onChange={() => setSuivi(c.cle)} />
-                  <span className="ece-corps">
+                  <span className="ece-texte">
                     <span className="ece-mot">{c.mot}</span>
                     {/* 🔴 UNE PHRASE D'AIDE SOUS CHAQUE CHOIX, EN FRANÇAIS SIMPLE — la même règle que le bloc
                         « Suivi dans la conversation » : c'est la phrase qui fait le choix, pas le titre. */}
@@ -390,7 +390,7 @@ function Personne({ p, coche, onBasculer }: {
     <li className="ece-item">
       <label className="ece-carte">
         <input type="checkbox" checked={coche} onChange={onBasculer} />
-        <span className="ece-corps">
+        <span className="ece-texte">
           <span className="ece-nom">
             {(p.civilite ?? '').trim() !== '' && <span className="ece-civ">{p.civilite}</span>}
             {p.nom}
@@ -492,7 +492,21 @@ export const CSS_ETAPE_CONTACT = `
 .ece-carte:focus-within{outline:2px solid var(--color-svv-red);outline-offset:1px}
 /* 🔴 « Le bien uniquement » EST EXCLUSIF, et il se voit : il vit hors des sections, en pleine largeur. */
 .ece-exclusif{margin:0 0 10px;background:var(--color-svv-surface)}
-.ece-corps{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
+/* ══ 🔴🔴 LOT DEFILEMENT-MODALES — CETTE CLASSE S'APPELAIT .ece-corps, COMME LE CORPS DE LA MODALE ════════════
+   CONSTAT D'ARNO (02/10/2026), etape 2 : « presque toutes les capsules internes ont leur propre zone de
+   defilement alors qu'elles ne contiennent qu'une ou deux lignes. Des que la souris passe dessus, la molette reste
+   bloquee dedans, et la modale entiere ne defile plus. »
+
+   🔴 LA CAUSE, ET ELLE TIENT EN UN MOT : DEUX regles portaient le MEME nom de classe pour DEUX choses sans rapport
+   — le CORPS DE LA MODALE (la seule zone qui doit defiler) et la COLONNE DE TEXTE d'une capsule (le nom au-dessus
+   de son aide). En CSS, les deux regles s'appliquent aux DEUX elements : chaque capsule heritait donc de
+   overflow-y:auto ET de overscroll-behavior:contain. Le second est le coupable — il interdit explicitement au
+   defilement de remonter au parent, et la molette etait avalee par une boite qui n'avait rien a faire defiler.
+
+   ⚠️ LA CORRECTION EST UN RENOMMAGE, PAS UN RETRAIT : la colonne de texte garde EXACTEMENT sa mise en page (meme
+   display, meme gap, meme min-width). Seul le nom change, et avec lui l'heritage qui n'avait jamais ete voulu.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un litteral de gabarit. */
+.ece-texte{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
 .ece-mot{font-size:.86rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .ece-nom{font-size:.86rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .ece-civ{font-size:.74rem;font-weight:400;color:var(--color-svv-muted);margin-right:.3rem}

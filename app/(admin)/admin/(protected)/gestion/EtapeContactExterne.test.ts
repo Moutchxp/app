@@ -2,7 +2,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { EtapeContactExterne, motOccupation, typeDuBien, type ValidationEtape2 } from './EtapeContactExterne';
+import {
+  CSS_ETAPE_CONTACT, EtapeContactExterne, motOccupation, typeDuBien, type ValidationEtape2,
+} from './EtapeContactExterne';
+// 🔴🔴 LOT DEFILEMENT-MODALES — la feuille de l'autre modale, éprouvée par les mêmes règles.
+import { CSS_RATTACHER_EN_ECRIVANT } from './RattacherEnEcrivant';
 // 🔴 LES MOTS D'ARNO SONT CITÉS, JAMAIS RECOPIÉS : un test qui recopie une phrase ne surveille plus rien.
 import {
   BIEN_UNIQUEMENT, BIEN_UNIQUEMENT_AIDE, LIEN_ANCIENS_LOCATAIRES, TITRE_ETAPE2, TITRE_SUIVI,
@@ -528,5 +532,115 @@ describe('🔴🔴 le bloc de suivi de l’étape 2, renommé', () => {
 
   it('🔴 et son titre est celui de la modale', () => {
     expect(TITRE_SUIVI).toBe('Suivi dans la conversation');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DEFILEMENT-MODALES — UNE SEULE ZONE DÉFILE, ET C'EST LE CORPS DE LA MODALE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (02/10/2026), étape 2 du fil 36691 : « presque toutes les capsules internes (“Le bien
+   uniquement”, cartes Propriétaire / Locataire, “Suivi dans la conversation”, “Contact externe”) ont leur propre
+   zone de défilement alors qu'elles ne contiennent qu'une ou deux lignes. Dès que la souris passe dessus, la
+   molette reste bloquée dedans, et la modale entière ne défile plus. »
+
+   🔴 LA CAUSE : deux règles portaient le MÊME nom `.ece-corps` — le corps de la modale, et la colonne de texte
+   d'une capsule. Chaque capsule héritait donc de `overflow-y:auto` et surtout de `overscroll-behavior:contain`,
+   qui interdit au défilement de remonter au parent.
+
+   ⚠️ CES ÉPREUVES LISENT LA FEUILLE DE STYLE, et c'est voulu : jsdom ne met rien en page, il ne peut donc pas
+   constater un défilement. Ce qui se vérifie ici est la CAUSE — qu'aucune capsule ne porte de zone de défilement,
+   et qu'un même nom ne serve pas deux fois.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LES DÉCLARATIONS D'UN SÉLECTEUR, telles que la feuille les écrit.
+ *
+ * ⚠️ LES COMMENTAIRES SONT RETIRÉS D'ABORD, et ce n'est pas un détail : ces feuilles en portent beaucoup, et un
+ * commentaire posé juste avant une règle se retrouverait collé à son sélecteur — la règle serait alors invisible
+ * à cette lecture, et l'épreuve passerait pour une raison fausse. (Vu en écrivant ce fichier.)
+ */
+const reglesDe = (css: string, selecteur: string): string[] =>
+  css.replace(/\/\*[\s\S]*?\*\//g, '').split('}').map((b) => b.trim())
+    .filter((b) => b.includes('{') && b.slice(0, b.indexOf('{')).split(',').map((x) => x.trim())
+      .includes(selecteur))
+    .map((b) => b.slice(b.indexOf('{') + 1));
+
+describe('🔴🔴 le défilement de la modale « Classer ce nouveau contact »', () => {
+  it('🔴🔴 `.ece-corps` n’est défini QU’UNE FOIS — c’était toute la cause', () => {
+    expect(reglesDe(CSS_ETAPE_CONTACT, '.ece-corps')).toHaveLength(1);
+  });
+
+  it('🔴🔴 le corps de la modale est la SEULE zone qui défile', () => {
+    const corps = reglesDe(CSS_ETAPE_CONTACT, '.ece-corps')[0];
+    expect(corps).toContain('overflow-y:auto');
+    // …et c'est bien le corps : il prend la place restante et accepte de rétrécir (sinon le pied sort du cadre).
+    expect(corps).toContain('flex:1 1 auto');
+    expect(corps).toContain('min-height:0');
+  });
+
+  /**
+   * 🔴🔴 LE CAS QUI AURAIT ATTRAPÉ LE DÉFAUT D'ARNO. Chacune de ces classes habille une capsule qui ne contient
+   * qu'une ou deux lignes : aucune n'a de raison de défiler, et aucune ne doit retenir la molette.
+   */
+  it('🔴🔴 AUCUNE capsule ne crée de zone de défilement, ni ne retient la molette', () => {
+    const capsules = [
+      '.ece-texte',      // la colonne de texte d'une capsule — celle qui portait le défaut
+      '.ece-carte',      // « Le bien uniquement », chaque personne
+      '.ece-exclusif',   // « Le bien uniquement », en pleine largeur
+      '.ece-bloc',       // « Suivi dans la conversation », « Contact externe »
+      '.ece-choix',      // une ligne de choix du suivi
+      '.ece-liste', '.ece-item', '.ece-champs', '.ece-champ', '.ece-saisie', '.ece-pastilles',
+    ];
+    for (const c of capsules) {
+      for (const regle of reglesDe(CSS_ETAPE_CONTACT, c)) {
+        expect(regle, `${c} ne doit pas défiler`).not.toContain('overflow-y:auto');
+        expect(regle, `${c} ne doit pas défiler`).not.toContain('overflow-y:scroll');
+        expect(regle, `${c} ne doit pas borner sa hauteur`).not.toContain('max-height');
+        expect(regle, `${c} ne doit pas retenir la molette`).not.toContain('overscroll-behavior:contain');
+      }
+    }
+  });
+
+  /**
+   * ⚠️ `overflow-wrap:anywhere` N'EST PAS UN DÉFILEMENT, et il doit RESTER : c'est lui qui empêche une adresse
+   * e-mail sans espace de déborder de sa capsule. Arno demande justement que rien ne soit coupé.
+   */
+  it('⚠️ le contenu ne se coupe pas : les longs mots passent toujours à la ligne', () => {
+    for (const c of ['.ece-bien-adresse', '.ece-mot', '.ece-nom']) {
+      expect(reglesDe(CSS_ETAPE_CONTACT, c)[0]).toContain('overflow-wrap:anywhere');
+    }
+    // …et aucune capsule ne masque ce qui dépasse.
+    for (const c of ['.ece-texte', '.ece-carte', '.ece-bloc']) {
+      for (const regle of reglesDe(CSS_ETAPE_CONTACT, c)) expect(regle).not.toContain('overflow:hidden');
+    }
+  });
+});
+
+describe('🔴🔴 le défilement de la modale « Rattacher ce mail à… »', () => {
+  it('🔴 le corps est la zone qui défile, et il est défini une seule fois', () => {
+    expect(reglesDe(CSS_RATTACHER_EN_ECRIVANT, '.rec-corps')).toHaveLength(1);
+    expect(reglesDe(CSS_RATTACHER_EN_ECRIVANT, '.rec-corps')[0]).toContain('overflow-y:auto');
+  });
+
+  it('🔴🔴 aucune capsule ne défile — seules les DEUX listes longues autorisées par Arno', () => {
+    const quiDefilent = CSS_RATTACHER_EN_ECRIVANT.replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('}').map((b) => b.trim())
+      .filter((b) => b.includes('{') && /overflow-y:\s*(auto|scroll)/.test(b.slice(b.indexOf('{'))))
+      .map((b) => b.slice(0, b.indexOf('{')).trim());
+    expect(quiDefilent.sort()).toEqual(['.rec-biens', '.rec-corps', '.rec-resultats', '.rec-voile']);
+  });
+
+  /**
+   * 🔴🔴 LA DEMANDE EXPRESSE D'ARNO : « assure-toi qu'en bout de liste la molette passe à la modale
+   * (overscroll-behavior : auto, pas contain) ». Les deux exceptions l'écrivent, plutôt que de s'en remettre au
+   * défaut — une seule ligne `contain` héritée ailleurs a suffi à bloquer toutes les capsules de l'étape 2.
+   */
+  it('🔴🔴 en bout des deux listes, la molette rend la main à la modale', () => {
+    for (const c of ['.rec-biens', '.rec-resultats']) {
+      const regle = reglesDe(CSS_RATTACHER_EN_ECRIVANT, c)[0];
+      expect(regle, `${c} doit laisser passer la molette`).toContain('overscroll-behavior:auto');
+      expect(regle).not.toContain('overscroll-behavior:contain');
+    }
   });
 });
