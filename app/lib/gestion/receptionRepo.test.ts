@@ -29,6 +29,8 @@ vi.mock('./schema', () => ({
 }));
 
 import { lireMailsRecus, compterMailsRecus, PAGE_RECEPTION } from './receptionRepo';
+// 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — la source unique de « qu'est-ce qu'un bien ? ».
+import { sqlSortesBien } from './statutClassement';
 
 /** Une ligne telle que PostgreSQL la rend : les `bigint` en CHAÎNE (piège du dépôt). */
 const ligne = (n: number, o: Record<string, unknown> = {}) => ({
@@ -167,6 +169,9 @@ describe('🔴 le statut de la ligne est celui du MAIL, sur ses rattachements à
     await lireMailsRecus(null);
     const s = sqlPage();
     expect(s).toContain("r.statut = 'confirme'");
+    // 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — la liste vient de `SORTES_BIEN` : on compare à la source, jamais
+    //    à une copie. Le mot-à-mot reste vérifié juste après, pour que la règle elle-même ne change pas en silence.
+    expect(s).toContain(`r.cible_sorte IN (${sqlSortesBien()})`);
     expect(s).toContain("r.cible_sorte IN ('lot', 'proprietaire', 'locataire')");
     expect(s).not.toContain("'evenement'");
   });

@@ -1,6 +1,6 @@
 import { query } from '../db/client';
 import { rattachementsDisponibles, horsGestionDisponible, interneDisponible } from './schema';
-import { capsuleDuMessage, type CapsuleStatut } from './statutClassement';
+import { capsuleDuMessage, sqlSortesBien, type CapsuleStatut } from './statutClassement';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
@@ -137,7 +137,10 @@ function jointureRattachements(avec: boolean): string {
          FROM gestion_rattachement r
         WHERE r.message_id = m.id
           AND r.statut = 'confirme'
-          AND r.cible_sorte IN ('lot', 'proprietaire', 'locataire')
+          -- 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — la MEME liste que capsuleDuMessage juste en dessous, et
+          --    elle vient desormais de SORTES_BIEN : recopiee ici, elle disait vrai, mais rien ne l'y obligeait.
+          --    (Aucun accent GRAVE ici : ce commentaire vit DANS un litteral gabarit, qu'un seul terminerait.)
+          AND r.cible_sorte IN (${sqlSortesBien()})
      ) rb ON true`;
 }
 

@@ -356,7 +356,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 export function BoiteMail({
   onOuvrir, onRouvrirBrouillon, onApercuBrouillon, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
   dense = false, onNonLus, onTotalEtiquette, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
-  versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
+  versionDonnees = 0, versionStatuts = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
   etoile = false, onEtoileFiltre, selection,
 }: {
   /**
@@ -452,6 +452,26 @@ export function BoiteMail({
    * `0` (le défaut) = aucun battement : la liste se comporte exactement comme avant ce lot.
    */
   versionDonnees?: number;
+  /**
+   * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LE BATTEMENT DU STATUT ═══════════════════════════════════════════
+   *
+   * Un nombre que l'écran parent INCRÉMENTE quand un classement vient d'être validé AILLEURS (dans la conversation
+   * ouverte par-dessus : Rattacher, Interne, Hors gestion, étape 2 « nouveau contact »). La liste relit alors SA
+   * PAGE COURANTE, et la capsule de la ligne redit ce qui est en base.
+   *
+   * 🔴 CE QU'IL NE FAIT PAS, ET C'EST TOUT SON INTÉRÊT : il ne revient PAS à la première page, ne vide PAS la
+   * recherche tapée, et ne demande AUCUNE permission à `listePeutSeRecharger`. Ce garde-là protège le travail en
+   * cours contre un rafraîchissement qu'on n'a pas demandé (du courrier qui arrive) ; ici, c'est l'inverse — on
+   * vient de faire le geste soi-même, et c'est son RÉSULTAT qu'on veut voir. Lui appliquer le garde aurait laissé
+   * « À classer » affiché précisément quand on regarde si le classement a pris.
+   *
+   * 🔴 ET LE STATUT N'EST PAS RECALCULÉ ICI. On relit la page : la capsule sort de `capsuleStatut`, nourrie par la
+   * requête de la boîte, comme toujours. Poser le nouveau statut à la main dans l'état d'écran aurait fait une
+   * seconde écriture de la règle de priorité — celle qui s'est déjà mise à mentir une fois (voir `sqlSortesBien`).
+   *
+   * `0` (le défaut) = aucun battement : la liste se comporte exactement comme avant ce lot.
+   */
+  versionStatuts?: number;
   /**
    * LOT ERGO-BOITE — UN SEUL GESTE : relever le courrier PUIS rafraîchir l'écran. Absent ⇒ aucune icône, et la liste
    * est exactement celle d'avant ce lot (c'est le cas de la recherche et des écrans qui n'ont rien à relever).
@@ -549,6 +569,13 @@ export function BoiteMail({
    * fonction appelée est donc toujours la fraîche, sans que `premiere` change d'identité.
    */
   const cachePremiere = useRef<(r: ReponseBoite) => void>(() => {});
+  /**
+   * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LE MÊME RELAIS, POUR LA MÊME RAISON (voir l'encadré ci-dessus).
+   * Relire la page COURANTE demande l'étiquette, le critère, les filtres, le rang de la page et son curseur — tout
+   * ce que l'effet du battement n'a pas le droit de surveiller sans se redéclencher à chaque rendu. La référence
+   * est remise à jour à CHAQUE rendu : la fonction appelée est donc toujours celle du rendu courant.
+   */
+  const relireSurPlace = useRef<() => void>(() => {});
   /**
    * Le haut de la liste, pour y revenir à chaque changement de page.
    *
@@ -723,6 +750,21 @@ export function BoiteMail({
     //   surveille déjà — et relirait deux fois la même page à chaque changement d'étiquette.
   }, [versionDonnees]);
 
+  /**
+   * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LA LIGNE SUIT LE CLASSEMENT QU'ON VIENT DE VALIDER ════════════════
+   *
+   * `versionStatuts` ne change que sur décision du parent, après un geste de classement fait dans la conversation.
+   * On relit alors la page courante (voir `relireSurPlace`) — pas la première, pas toute la liste.
+   *
+   * 🔴 AUCUN RISQUE DE BOUCLE : cet effet ne dépend QUE de `versionStatuts`, qu'il n'écrit jamais, et il passe par
+   * une référence plutôt que par des valeurs du rendu. C'est la discipline posée après la boucle de rendu qui a
+   * saturé la mémoire dans ce fichier (encadré de `rafraichir.ts`).
+   */
+  useEffect(() => {
+    if (!versionStatuts) return;                                  // 0 ou absent : comportement d'avant ce lot
+    relireSurPlace.current();
+  }, [versionStatuts]);
+
   // LOT 5-BOITE — le gras suit le geste, SUR PLACE. `cle` change à chaque marquage ; le contenu, lui, peut être
   //   identique deux fois de suite (rouvrir le même échange), d'où une clé plutôt qu'une comparaison de valeurs.
   const cleMarquage = marquage?.cle ?? 0;
@@ -883,6 +925,48 @@ export function BoiteMail({
   cachePremiere.current = (r) => {
     cache.current.ranger(cleListe(0), r, Date.now());
     void precharger(0, false, r.suivant);
+  };
+
+  /**
+   * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — RELIRE LA PAGE COURANTE, SANS BOUGER DE PLACE ════════════════════
+   *
+   * Demande d'Arno : « la ligne se met à jour immédiatement au retour dans la liste (même mise à jour optimiste que
+   * pour Rattacher) ». Le geste « Rattacher » depuis la liste passe, lui, par `premiere()` — c'est légitime là-bas :
+   * on vient de cliquer DANS la liste, qu'on a sous les yeux. Ici le geste a eu lieu dans la conversation, et la
+   * liste attend derrière avec sa page, sa recherche et son défilement : les lui reprendre serait payer la
+   * correction d'un défaut par un autre.
+   *
+   * CE QUI EST FAIT, DONC, ET RIEN DE PLUS :
+   *   · le CACHE est vidé — une page gardée porte l'état d'avant le geste, et c'est exactement ce qu'on répare ;
+   *   · la page du rang COURANT est redemandée avec le curseur qui l'avait servie (`curseurs.current[page]`) ;
+   *   · les lignes et le total sont remplacés ; le rang, la recherche et les filtres ne bougent pas.
+   *
+   * ⚠️ ON NE PASSE PAS PAR L'ÉTAT « chargement ». La liste est masquée derrière la conversation au moment où ce
+   * battement part : un squelette rendrait l'écran vide le temps du retour, pour une page qui arrive en 1 ms.
+   *
+   * ⚠️ UN ÉCHEC NE DÉTRUIT RIEN. On garde les lignes qu'on a : une liste d'un instant trop vieille vaut mieux
+   * qu'un écran d'erreur à la place d'une boîte mail — et le prochain chargement la corrigera de toute façon.
+   *
+   * ⚠️ `total` NE S'ÉCRASE PAS AVEC `null` : le serveur ne le rend qu'à la première page (règle d'`allerPage`).
+   * Au-delà, on garde celui qu'on avait, sinon le « sur N » disparaîtrait au premier classement fait page 2.
+   */
+  relireSurPlace.current = () => {
+    void (async () => {
+      if (etat.v !== 'ok') return;          // en chargement ou en erreur : la lecture en cours dira la vérité
+      cache.current.vider();
+      curseursPrecharges.current.clear();
+      const depart = curseurs.current[page] ?? null;
+      const r = await chargerPage(depart, auto, critere, etiquette, filtre, etoile);
+      if ('erreur' in r) return;
+      cache.current.ranger(cleListe(page), r, Date.now());
+      setEtat((e) => (e.v !== 'ok' ? e : {
+        ...e, lignes: r.lignes, suivant: r.suivant,
+        total: r.total ?? e.total, comptes: r.comptes ?? e.comptes,
+        brouillons: r.brouillons ?? e.brouillons,
+        // Les non-lus sont ceux de la page affichée : on REMPLACE, comme les lignes (règle d'`allerPage`).
+        nonLus: new Set(r.nonLus ?? []),
+      }));
+    })();
   };
 
   async function allerPage(vers: number) {

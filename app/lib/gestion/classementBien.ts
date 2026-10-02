@@ -25,6 +25,8 @@ import { chargerAnnuaireContenu } from './annuaireContenuRepo';
 import type { AnnuaireContenu } from './personnesDansLeTexte';
 // 🔴 « Interne » proposé en premier : la règle vit dans le dépôt qui la porte, écrite une seule fois.
 import { proposerInterneDabord } from './interneRepo';
+// 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — « qu'est-ce qu'un bien ? », lue à la source unique (`SORTES_BIEN`).
+import { sqlSortesBien } from './statutClassement';
 /**
  * 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LE DERNIER ÉCRAN QUI MONTRAIT ENCORE LE NOM D'ORIGINE.
  *
@@ -699,7 +701,7 @@ export async function mailsSansClassementManuel(filId: number): Promise<number[]
           SELECT 1 FROM gestion_rattachement r
            WHERE r.message_id = m.id AND r.statut = 'confirme'
              AND (r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL)
-             AND r.cible_sorte IN ('lot', 'proprietaire', 'locataire'))
+             AND r.cible_sorte IN (${sqlSortesBien()}))
       ORDER BY m.recu_le, m.id`, [filId]);
   return rows.map((r) => Number(r.id));
 }

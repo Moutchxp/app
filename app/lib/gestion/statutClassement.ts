@@ -348,6 +348,30 @@ export function bulleCapsule(s: CapsuleStatut, detail: string | null): string {
  */
 export const SORTES_BIEN: readonly string[] = ['lot', 'proprietaire', 'locataire'];
 
+/**
+ * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LA MÊME LISTE, POUR UNE CLAUSE `IN` SQL ════════════════════════════
+ *
+ * CE QUE ÇA RÉPARE, ET C'ÉTAIT MESURÉ. « Qu'est-ce qu'un bien ? » était écrite CINQ fois dans le module, avec DEUX
+ * réponses différentes : `('lot', 'proprietaire', 'locataire')` dans `SORTES_BIEN`, dans `receptionRepo` et dans
+ * `classementBien` ; `('lot', 'proprietaire')` dans la jointure de la LIGNE de liste, dans le prédicat du dossier
+ * « À classer » et dans l'historique d'une cible. Tant qu'aucun lien `locataire` n'existait en base, les deux
+ * réponses coïncidaient et personne ne pouvait le voir.
+ *
+ * 🔴 LE 01/10/2026, 17 061 LIENS `locataire` ONT ÉTÉ POSÉS (origine `automatique`), plus 11 le lendemain. Mesuré
+ * le 03/10/2026 : **15 494 échanges** dont le SEUL rattachement confirmé visait un locataire affichaient donc
+ * « Classé »/« Auto » sur la pastille du MAIL et « À classer » sur la LIGNE de la liste — deux verdicts opposés
+ * pour le même mail, au même instant. Le compteur « À classer » les comptait aussi : 9 414 au lieu de 9 147.
+ *
+ * ⚠️ AUCUNE INTERPOLATION D'ENTRÉE : la liste est une constante de code, jamais une saisie. Elle se cite donc
+ * telle quelle dans une requête, et c'est la seule chose de ce fichier qui connaisse le mot « SQL ».
+ *
+ * ⚠️ MODULE TOUJOURS PUR : une chaîne, aucun `pg`, aucun accès. Il reste importable depuis un composant client
+ * (règle du module depuis l'incident du 24/09/2026).
+ */
+export function sqlSortesBien(): string {
+  return SORTES_BIEN.map((s) => `'${s}'`).join(', ');
+}
+
 /** Un rattachement, réduit à ce qui décide du statut. Volontairement minimal : ce module ne connaît pas la base. */
 export interface LienPourStatut {
   cible: { sorte: string };

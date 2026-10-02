@@ -136,6 +136,26 @@ export function GestionVue({ intro }: {
     } | null
   >(null);
   /**
+   * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — QUAND REDEMANDER LES COMPTEURS DE LA COLONNE ════════════════════
+   *
+   * DEMANDE D'ARNO : « le compteur “À classer” baisse » après une validation. Il ne descend pas tout seul : les
+   * sept nombres de la colonne viennent d'UNE lecture (`/api/admin/gestion/boite/comptes`), faite UNE FOIS en
+   * entrant en plein écran. Un mail marqué « Interne » depuis la conversation le laissait donc inchangé jusqu'au
+   * rechargement de la page.
+   *
+   * 🔴 UN NUMÉRO DE VERSION, ET NON `setComptesBoite(null)`. Remettre l'état à `null` aurait redéclenché la même
+   * lecture — mais `null` veut dire « on ne sait pas » dans toute cette colonne : les entrées auraient perdu leur
+   * nombre le temps de l'aller-retour, et « Corbeille » aurait DISPARU puis reparu (son absence de nombre la
+   * retire de la liste, cf. l'encadré de son entrée). Avec une version, les anciens nombres restent affichés
+   * jusqu'à l'arrivée des nouveaux.
+   *
+   * ⚠️ LA RÉFÉRENCE SERT DE GARDE D'UNICITÉ, à la place de l'ancien `comptesBoite !== null` : elle retient la
+   * version DÉJÀ lue, de sorte qu'aller et revenir en plein écran ne redemande rien — exactement ce que faisait le
+   * garde d'avant.
+   */
+  const [versionComptes, setVersionComptes] = useState(0);
+  const comptesCharges = useRef(-1);
+  /**
    * LOT 5-BOITE — combien d'échanges me restent NON LUS, remonté par la liste elle-même (elle l'obtient du serveur,
    * calculé pour MA session). `null` = on ne sait pas encore, ou le suivi de lecture n'est pas disponible : on
    * n'affiche alors rien, plutôt qu'un « 0 » qui ressemblerait à une bonne nouvelle.
@@ -555,7 +575,20 @@ export function GestionVue({ intro }: {
    * qu'avec des nombres faux — l'écran reste utilisable, il ne raconte simplement rien qu'il ne sait pas.
    */
   useEffect(() => {
-    if (ecran !== 'boite' || comptesBoite !== null) return;
+    if (ecran !== 'boite') return;
+    /**
+     * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LE GARDE D'UNICITÉ EST DEVENU UNE VERSION.
+     *
+     * Il s'écrivait `comptesBoite !== null` : une seule lecture, jamais rejouée. On lit maintenant « ai-je déjà
+     * lu CETTE version ? », ce qui garde le même comportement (aller et revenir en plein écran ne redemande
+     * rien) tout en permettant à un classement de réclamer une relecture. La référence est posée AVANT la
+     * requête : deux rendus rapprochés ne lanceraient pas deux fois la même lecture.
+     *
+     * ⚠️ UN ÉCHEC NE REMET PAS LA RÉFÉRENCE EN ARRIÈRE, exactement comme avant ce lot : la colonne reste alors
+     * sans nombres plutôt que de réessayer en boucle à chaque rendu.
+     */
+    if (comptesCharges.current === versionComptes) return;
+    comptesCharges.current = versionComptes;
     let annule = false;
     void (async () => {
       try {
@@ -585,7 +618,7 @@ export function GestionVue({ intro }: {
       } catch { /* étiquettes sans nombre : voir l'encadré */ }
     })();
     return () => { annule = true; };
-  }, [ecran, comptesBoite]);
+  }, [ecran, versionComptes]);
 
   /** Un geste = un appel, un compte rendu, un rechargement. Jamais un silence, succès comme échec. */
   const agir = useCallback(async (url: string, methode: 'POST' | 'DELETE', succes: string, corps?: unknown) => {
@@ -1013,6 +1046,16 @@ export function GestionVue({ intro }: {
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */
           onRelever={() => void releverMaintenant()} releveEnCours={releveEnCours}
           onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) void charger(); }}
+          /**
+           * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LES COMPTEURS DE LA COLONNE SUIVENT LE CLASSEMENT.
+           *
+           * La LISTE se met à jour toute seule (`versionStatuts`, dans `PleinEcranBoite`) ; les sept nombres de
+           * la colonne, eux, viennent d'ici — et « À classer » en est un. Voir l'encadré de `versionComptes`.
+           *
+           * ⚠️ ON NE RAPPELLE PAS `charger()` : cette lecture-là (file, cartes, veille) n'a rien à voir avec le
+           * classement d'un mail, et la payer à chaque geste ferait relire l'écran entier pour un chiffre.
+           */
+          onClassementChange={() => setVersionComptes((v) => v + 1)}
           redaction={redaction}
           enfantAClasser={fileAClasser} />
       ) : ecran === 'evenements' ? (

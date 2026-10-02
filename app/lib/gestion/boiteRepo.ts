@@ -49,6 +49,12 @@ import { etoilesDesFils } from './etoileRepo';
 import { filsEtoiles } from './etoileGmailRepo';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'échange : jointure et colonne, écrites UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
+/**
+ * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — « QU'EST-CE QU'UN BIEN ? », LUE AU MÊME ENDROIT QUE LA PASTILLE DU MAIL.
+ * Ce fichier en nommait sa propre version (`'lot', 'proprietaire'`), et les deux ont divergé. Voir l'encadré de
+ * `sqlSortesBien` (statutClassement.ts) pour la mesure.
+ */
+import { sqlSortesBien } from './statutClassement';
 // LOT LECTURE-HTML-FIL-TROMBONE — la MÊME règle que la conversation pour distinguer une pièce d'un logo de signature.
 import { trierPieces, type PieceATrier } from './lisibilite';
 // LOT BOITE-INTERNE-CORBEILLE — « nous », c'est `gestion_config.adresse_gestion`, lue à la MÊME source que la capture.
@@ -435,10 +441,16 @@ export function sqlAppartenance(alias: string, sens: 'recu' | 'envoye', rangAdre
  * Une jointure LATÉRALE sur les 30 lignes de la page, et rien de plus. Trente requêtes — une par ligne — se
  * verraient à l'écran ; c'est la règle du module depuis le bandeau « Rattaché à » de la conversation.
  *
- * ⚠️ ON NE COMPTE QUE LES RATTACHEMENTS `confirme`, ET SEULEMENT VERS UN LOGEMENT OU UN PROPRIÉTAIRE. Une
- * PROPOSITION que personne n'a validée laisse l'échange « à classer » — c'est exactement ce qu'il est. Les
- * rattachements vers un ÉVÉNEMENT ne comptent pas non plus : c'est l'autre question, celle de la colonne de
- * gauche (mesuré le 27/09 : 474 échanges sans événement, 9 631 sans rattachement — deux nombres distincts).
+ * ⚠️ ON NE COMPTE QUE LES RATTACHEMENTS `confirme`, ET SEULEMENT VERS UN BIEN. Une PROPOSITION que personne n'a
+ * validée laisse l'échange « à classer » — c'est exactement ce qu'il est. Les rattachements vers un ÉVÉNEMENT ne
+ * comptent pas non plus : c'est l'autre question, celle de la colonne de gauche (mesuré le 27/09 : 474 échanges
+ * sans événement, 9 631 sans rattachement — deux nombres distincts).
+ *
+ * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — « UN BIEN », C'EST `sqlSortesBien()` ET RIEN D'AUTRE. Cette clause
+ * nommait `('lot', 'proprietaire')` à la main, là où la pastille du MAIL (`capsuleDuMessage`, via `SORTES_BIEN`)
+ * compte aussi `locataire`. Les deux écritures ont divergé le 01/10/2026, jour où 17 061 liens `locataire` ont
+ * été posés : 15 494 échanges affichaient « Classé » dans le mail et « À classer » sur leur ligne. Une seule
+ * écriture, désormais — voir l'encadré de `sqlSortesBien`.
  *
  * ⚠️ « À LA MAIN » = origine manuelle OU statut touché par quelqu'un. Les deux chemins mènent au même fait : un
  * humain a tranché. Ne regarder que `origine` raterait toutes les propositions confirmées d'un clic.
@@ -457,7 +469,7 @@ export function sqlJointureClassement(rattachements: boolean, alias: string): st
            FROM gestion_rattachement r
            JOIN gestion_message rm ON rm.id = r.message_id
           WHERE rm.fil_id = ${alias}.fil_id AND r.statut = 'confirme'
-            AND r.cible_sorte IN ('lot', 'proprietaire')
+            AND r.cible_sorte IN (${sqlSortesBien()})
        ) cl ON true`;
 }
 
@@ -560,14 +572,18 @@ function sqlEtiquette(
      *
      * 🔴 LA SOURCE DE VÉRITÉ EST `capsuleStatut` (module PUR), et ce prédicat en est la TRANSCRIPTION LITTÉRALE,
      * dans le même ordre de priorité : un échange est « à classer » quand il n'a AUCUN rattachement confirmé vers
-     * un logement ou un propriétaire, qu'il n'est pas marqué « Interne », et que le message de la ligne n'est pas
+     * un BIEN (`sqlSortesBien()`), qu'il n'est pas marqué « Interne », et que le message de la ligne n'est pas
      * « Hors gestion ». Les trois négations sont exactement les trois conditions que `capsuleStatut` teste avant
      * de rendre `a_classer`.
      *
      * ⚠️ LES TROIS SOUS-REQUÊTES SONT ÉCRITES SUR LE MODÈLE DES JOINTURES DE LA LISTE — `sqlJointureClassement`
-     * pour la première (fil entier, `confirme`, cibles `lot`/`proprietaire`), `sqlJointureHorsGestion` pour la
+     * pour la première (fil entier, `confirme`, cibles de `sqlSortesBien()`), `sqlJointureHorsGestion` pour la
      * troisième (le MESSAGE de la ligne, pas tout l'échange). Un prédicat qui s'en écarterait ferait une liste qui
      * ne coïncide pas avec les pastilles qu'elle affiche — exactement ce qu'Arno veut éviter.
+     *
+     * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — ET C'EST ARRIVÉ. Cette clause nommait `('lot', 'proprietaire')` à
+     * la main : le dossier et son compteur retenaient donc 267 échanges que la pastille du mail tient pour classés
+     * (9 414 contre 9 147, mesuré le 03/10/2026). La liste des sortes vient maintenant de `SORTES_BIEN`.
      *
      * ⚠️ UNE PROPOSITION NE CLASSE RIEN : `statut = 'confirme'` seulement. C'est la règle de la pastille, et c'est
      * aussi ce qui fait que ce dossier n'est pas celui de « À rattacher » (mesuré : 16 142 mails « à classer »
@@ -584,7 +600,7 @@ function sqlEtiquette(
                 SELECT 1 FROM gestion_rattachement r0
                   JOIN gestion_message rm0 ON rm0.id = r0.message_id
                  WHERE rm0.fil_id = m.fil_id AND r0.statut = 'confirme'
-                   AND r0.cible_sorte IN ('lot', 'proprietaire'))`;
+                   AND r0.cible_sorte IN (${sqlSortesBien()}))`;
       const sansInterne = sondes?.interne !== true ? '' : `
           AND NOT EXISTS (
                 SELECT 1 FROM gestion_fil_interne i0

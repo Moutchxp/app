@@ -95,6 +95,7 @@ export function PleinEcranBoite({
   versionDonnees = 0, onListeRelue,
   onRattacher, aRattacher = null, aRattacherSansCandidat = null, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
+  onClassementChange,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -185,6 +186,17 @@ export function PleinEcranBoite({
   /** LOT ÉCRAN-VIVANT — incrémenté par l'écran quand du courrier est arrivé. La liste se relit si elle le peut. */
   versionDonnees?: number;
   onListeRelue?: () => void;
+  /**
+   * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — « LE CLASSEMENT D'UN ÉCHANGE A CHANGÉ » ══════════════════════════
+   *
+   * Cet écran s'occupe seul de SA liste (voir `versionStatuts`). Ce rappel sert à l'autre moitié de la demande
+   * d'Arno : « le compteur “À classer” baisse ». Ce nombre-là n'appartient pas à la liste — il vient de
+   * `/api/admin/gestion/boite/comptes`, lu par l'écran parent, et il reste donc à lui de le redemander.
+   *
+   * ABSENT ⇒ seule la liste se met à jour. C'est déjà le défaut réparé ; le compteur, lui, se corrigera au
+   * prochain chargement de l'écran.
+   */
+  onClassementChange?: () => void;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -229,6 +241,20 @@ export function PleinEcranBoite({
   const [corbeilleFaite, setCorbeilleFaite] = useState<{ filId: number } | null>(null);
   /** Incrémenté après un geste de corbeille : la liste doit être relue, l'échange n'y est plus (ou y revient). */
   const [versionListe, setVersionListe] = useState(0);
+  /**
+   * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LE BATTEMENT DU STATUT ═══════════════════════════════════════════
+   *
+   * Incrémenté quand un classement est validé DANS la conversation (Rattacher, Interne, Hors gestion, étape 2
+   * « nouveau contact »). La liste, masquée derrière, relit sa page COURANTE sur ce signal.
+   *
+   * 🔴 POURQUOI PAS `versionListe`, QUI EXISTE DÉJÀ. `versionListe` est la CLÉ de `<BoiteMail>` : la toucher
+   * DÉMONTE la liste. On perdrait alors la page où l'on était, la recherche tapée et la position de défilement —
+   * c'est-à-dire exactement ce que le lot LISTE-PAGINATION garantit au retour depuis un fil. Le battement, lui,
+   * ne fait relire qu'une page, à sa place.
+   *
+   * ⚠️ `0` = rien ne s'est passé : la liste se comporte exactement comme avant ce lot.
+   */
+  const [versionStatuts, setVersionStatuts] = useState(0);
   /**
    * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LA SÉLECTION DE LA CORBEILLE ═════════════════════════════════════════════
    * Elle vit ICI, au-dessus de la liste, et pas dans la liste : le bandeau, les deux boutons et la confirmation en
@@ -896,6 +922,8 @@ export function PleinEcranBoite({
               /* 🔴🔴 LOT BROUILLONS-APERCU — l'œil des lignes de brouillon trouvées par une recherche. */
               onApercuBrouillon={(id) => setApercuBrouillon(id)}
               versionDonnees={versionDonnees} onListeRelue={onListeRelue}
+              /* 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — le battement du statut : voir son encadré ci-dessus. */
+              versionStatuts={versionStatuts}
               /* LOT MESSAGE-CLIQUÉ — le message de la ligne voyage avec l'échange, sans quoi la conversation
                  ouvrirait son dernier message et non celui qu'on vient de cliquer. */
               onOuvrir={(id, messageId) => { defilement.current = window.scrollY; onOuvrir(id, messageId); }}
@@ -931,7 +959,19 @@ export function PleinEcranBoite({
               // LOT RATTACHEMENT-2 — une étiquette du bandeau « Rattaché à » ouvre TOUT l'historique de la cible.
               onHistorique={onHistorique}
               // LOT 5-BOITE — ouvrir (ou marquer non lu) change le gras de la liste, qui l'applique sur place.
-              onLecture={(id, lu) => setMarquage((m) => ({ filId: id, nonLu: !lu, cle: m.cle + 1 }))} />
+              onLecture={(id, lu) => setMarquage((m) => ({ filId: id, nonLu: !lu, cle: m.cle + 1 }))}
+              /**
+               * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — UN CLASSEMENT VALIDÉ ICI DOIT SE VOIR LÀ-BAS.
+               *
+               * La liste n'est pas démontée pendant qu'on lit un mail : elle est MASQUÉE (`hidden` sur
+               * `.pe-liste`). Sans ce rappel, elle affichait au retour l'état d'avant le geste — « À classer »
+               * sur un échange qu'on venait de marquer « Interne » (constat d'Arno, fil 36691).
+               *
+               * ⚠️ DEUX DESTINATAIRES, ET CHACUN A SON TRAVAIL : la LISTE relit sa page (`versionStatuts`), et
+               * l'ÉCRAN PARENT redemande les compteurs de la colonne — le nombre d'« À classer » ne lui vient
+               * pas de la liste quand ce n'est pas cette liste qui est ouverte.
+               */
+              onClassementChange={() => { setVersionStatuts((v) => v + 1); onClassementChange?.(); }} />
           </section>
         )}
 

@@ -24,7 +24,7 @@ import { adressesDuChamp } from './adressesMessage';
 import { nomBien, nomProprietaire } from './driveArbre';
 import { deplacementsDeMailsDisponibles, horsGestionDisponible, rattachementsDisponibles } from './schema';
 // LOT FICHES-ANNUAIRE — LA MÊME fonction pure que la boîte : un seul verdict de statut pour tout le module.
-import { capsuleStatut, type CapsuleStatut } from './statutClassement';
+import { capsuleStatut, sqlSortesBien, type CapsuleStatut } from './statutClassement';
 import { cibleEvenement, cibleLot, cibleProprietaire, type Cible } from './rattachement';
 import { libelleCible, type LienAffiche } from './rattachementRepo';
 // 🔴🔴 LOT CONTACTS-EXTERNES — « via Me Martin, avocat » sur la ligne d'un mail de « Vie du bien ».
@@ -384,7 +384,11 @@ async function statutsDesMessages(
                 string_agg(coalesce(nullif(btrim(r.cible_libelle), ''), r.cible_cle), ' · ' ORDER BY r.id) AS detail
            FROM gestion_rattachement r
           WHERE r.message_id = m.id AND r.statut = 'confirme'
-            AND r.cible_sorte IN ('lot', 'proprietaire')
+            -- 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — « un bien » vient de SORTES_BIEN, jamais d'une liste
+            --    recopiee ici : cette clause nommait 'lot' et 'proprietaire' seuls, et disait donc « A classer »
+            --    la ou la pastille du mail disait « Classe ». Voir l'encadre de sqlSortesBien.
+            --    (Aucun accent GRAVE ici : ce commentaire vit DANS un litteral gabarit, qu'un seul terminerait.)
+            AND r.cible_sorte IN (${sqlSortesBien()})
        ) cl ON true
        ${avecHorsGestion ? `LEFT JOIN LATERAL (
          SELECT true AS marque FROM gestion_hors_gestion h

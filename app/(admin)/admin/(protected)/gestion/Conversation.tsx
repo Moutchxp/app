@@ -177,7 +177,7 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon, onClassementChange }: {
   filId: number;
   /**
    * 🔴 LOT LIGNE-NON-ENVOYE — rouvre le brouillon d'un mail de cet échange qui n'est pas parti. Absent ⇒ la
@@ -254,6 +254,28 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * les étiquettes restent du texte (cas d'une conversation rendue DANS une carte, d'où l'on ne veut pas partir).
    */
   onHistorique?: (cible: Cible) => void;
+  /**
+   * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — « LE CLASSEMENT DE CET ÉCHANGE VIENT DE CHANGER » ═══════════════
+   *
+   * LE DÉFAUT QU'IL CORRIGE, constaté par Arno le 03/10/2026 sur le fil 36691 (« augustin », Mira Bercier).
+   * Marquer l'échange « Interne » depuis le mail écrivait bien en base — vérifié, `gestion_fil_interne` id 49,
+   * vivante — et la lecture de la liste rendait bien `interne: true`. Mais la LISTE, derrière la conversation,
+   * n'est pas démontée au retour : elle est seulement MASQUÉE (`hidden` dans `PleinEcranBoite`, règle du lot
+   * LISTE-PAGINATION qui préserve la page et la recherche). Elle affichait donc l'état d'AVANT le geste, et
+   * « À classer » survivait à la décision qu'on venait de prendre.
+   *
+   * 🔴 CE RAPPEL N'EST PAS UN COMPTE RENDU. `onGeste` dit CE QU'ON A FAIT (une phrase, un bandeau) ; celui-ci dit
+   * QUE LE STATUT A BOUGÉ, et il part aussi quand aucune phrase n'est affichée — par exemple quand
+   * `EncartRattachement` a déjà écrit la sienne. Les mêler aurait fait deux bandeaux pour un seul geste.
+   *
+   * ⚠️ IL NE PORTE AUCUNE VALEUR, ET C'EST VOULU : le statut se RECALCULE côté serveur, par la même requête que la
+   * liste. Faire voyager « le nouveau statut est Interne » serait une seconde écriture de la règle de priorité —
+   * celle que `capsuleStatut` tient seule.
+   *
+   * ABSENT (le défaut : une conversation rendue dans une carte, dans l'écran partagé) ⇒ rien n'est signalé, et la
+   * conversation est exactement celle d'avant ce lot. Ces écrans remontent leur liste au retour, qui se relit.
+   */
+  onClassementChange?: () => void;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
@@ -1140,6 +1162,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               onGeste(actif
                 ? 'Échange marqué « interne » : il n’y a pas de bien à y rattacher.'
                 : 'Marque « interne » retirée.');
+              // 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LA LIGNE DE LISTE DOIT SUIVRE. C'est le geste même du
+              //   constat d'Arno sur le fil 36691 : voir l'encadré de `onClassementChange`.
+              onClassementChange?.();
             }}
             /**
              * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — RETIRER « HORS GESTION » DEPUIS LE BLOC DU MAIL.
@@ -1158,12 +1183,23 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               });
               await chargerRattachements(idsMessages);
               onGeste(actif ? 'Mail marqué « hors gestion ».' : 'Marque « hors gestion » retirée.');
+              // 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — même raison qu'« Interne » juste au-dessus.
+              onClassementChange?.();
             }}
             onRattachement={() => {
               void chargerRattachements(idsMessages);
               void chargerInterne(filId);
               // 🔴 LOT SUIVI-CONVERSATION — les périodes aussi : un classement vient peut-être d'en ouvrir une.
               void chargerSuivi(filId);
+              /**
+               * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — ET C'EST ICI QUE « RATTACHER » PASSE.
+               *
+               * Ce rappel est celui qu'`EncartRattachement` déclenche après CHACUN de ses gestes : rattacher,
+               * détacher, la fenêtre « Modifier », la fenêtre complète « Classer » et l'étape 2 « classer ce
+               * nouveau contact » — tous appellent son `onChange`, qui aboutit ici. Les quatre gestes qu'Arno
+               * nomme sont donc couverts par deux points d'appel, et non par cinq.
+               */
+              onClassementChange?.();
             }}
             onGesteRattachement={(t) => onGeste(t)}
             onHistorique={onHistorique}

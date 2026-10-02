@@ -15,6 +15,12 @@ const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 
 import { comptesBoite, lireBoiteMail, sqlPageBoite, sqlCompteBoite, PAGE_BOITE } from './boiteRepo';
+/**
+ * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — ON ÉPROUVE LA SOURCE UNIQUE, PAS SA COPIE. Les épreuves de ce fichier
+ * figeaient `('lot', 'proprietaire')` écrit à la main ; c'est-à-dire qu'elles protégeaient la DIVERGENCE qu'on
+ * vient de corriger. Elles comparent désormais au fragment que le module PUR rend.
+ */
+import { sqlSortesBien } from './statutClassement';
 
 /** Une ligne telle que PostgreSQL la rend : `fil_id` en CHAÎNE (piège `bigint` du dépôt). */
 const ligne = (n: number, o: Record<string, unknown> = {}) => ({
@@ -780,9 +786,16 @@ describe('🔴🔴 le dossier « À classer »', () => {
 
   it('🔴🔴 il transcrit les TROIS conditions de la pastille, et dans le même sens', () => {
     const s = sql();
-    // ① aucun rattachement CONFIRMÉ vers un logement ou un propriétaire, sur TOUT l'échange
+    // ① aucun rattachement CONFIRMÉ vers un BIEN, sur TOUT l'échange
     expect(s).toContain("r0.statut = 'confirme'");
-    expect(s).toContain("r0.cible_sorte IN ('lot', 'proprietaire')");
+    /**
+     * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LA LISTE DES SORTES VIENT DE `SORTES_BIEN`, ET ON L'ÉPROUVE AINSI.
+     * Elle était écrite ici à la main (`('lot', 'proprietaire')`) — c'est-à-dire que l'épreuve figeait la COPIE au
+     * lieu de vérifier qu'il n'y en a plus qu'une. Si quelqu'un ajoute une sorte de bien, ce test suit tout seul ;
+     * si quelqu'un redivise la règle en deux, il tombe.
+     */
+    expect(s).toContain(`r0.cible_sorte IN (${sqlSortesBien()})`);
+    expect(s).toContain("r0.cible_sorte IN ('lot', 'proprietaire', 'locataire')");
     expect(s).toContain('rm0.fil_id = m.fil_id');
     // ② l'échange n'est pas marqué « Interne »
     expect(s).toContain('gestion_fil_interne i0');
@@ -828,7 +841,7 @@ describe('🔴🔴 le dossier « À classer »', () => {
     const compte = sqlCompteBoite(false, ETIQ, false, false, null, false, null, false, 1, true, true, true)
       .replace(/\s+/g, ' ');
     for (const morceau of [
-      "r0.statut = 'confirme'", "r0.cible_sorte IN ('lot', 'proprietaire')",
+      "r0.statut = 'confirme'", `r0.cible_sorte IN (${sqlSortesBien()})`,
       'gestion_fil_interne i0', 'gestion_hors_gestion h0',
     ]) {
       expect(page).toContain(morceau);
