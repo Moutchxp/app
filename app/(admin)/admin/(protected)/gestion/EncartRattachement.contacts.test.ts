@@ -1,0 +1,353 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { EncartRattachement } from './EncartRattachement';
+import { BIEN_UNIQUEMENT, TITRE_ETAPE2 } from '../../../../lib/gestion/contactExterne';
+
+/**
+ * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LE CÂBLAGE : ÉTAPE 1 → ÉTAPE 2 → ÉCRITURE ════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 C'EST LE TEST DE LA RÈGLE N° 1 — NE RIEN CASSER. Il prouve, sur le vrai encart monté, que :
+ *
+ *   ① expéditeur CONNU ⇒ la modale se ferme et le classement part, par la porte qui existait déjà
+ *      (`POST /api/admin/gestion/suivi`) — aucune étape 2, aucun appel de plus ;
+ *   ② expéditeur INCONNU ⇒ l'étape 2 s'ouvre, et RIEN n'est encore écrit ;
+ *   ③ « ← Retour » rouvre l'étape 1 AVEC SES CASES COCHÉES, et n'écrit toujours rien ;
+ *   ④ valider l'étape 2 ⇒ le contact est mémorisé, PUIS le classement part — bien ET personnes, dans le MÊME
+ *      `classement` de la MÊME route. Jamais une seconde porte d'écriture ;
+ *   ⑤ une lecture en échec NE BLOQUE RIEN : le bien se classe comme avant, et le compte rendu le dit.
+ *
+ * ⚠️ ON ÉPROUVE LE CHEMIN RÉEL, pas une propriété : le verdict « faut-il l'étape 2 ? » vient de la RÉPONSE du
+ * serveur. C'est la leçon du correctif du 28/09/2026 (un test qui passait une propriété prouvait le composant et
+ * pas le câblage, et l'application annonçait « migration à appliquer » sur une base à jour).
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let container: HTMLDivElement;
+let root: Root;
+let appels: { url: string; methode: string; corps: Record<string, unknown> | null }[];
+let gestes: string[];
+/** Ce que la route de l'étape 2 répond. `null` = la lecture ÉCHOUE (cas ⑤). */
+let etape2: Record<string, unknown> | null;
+/** Ce que le moteur propose. Piloté par le test : un seul bien d'ordinaire, deux pour le scénario ③-bis. */
+let propositions: Record<string, unknown>[];
+
+const LOT = '442';
+const OCCUPANT = 'thai cecile#c.thai@orange.fr';
+
+/** Un bien proposé par le moteur, coché d'avance : c'est l'état ordinaire d'un mail d'un locataire. */
+const PROPOSE = {
+  cle: LOT, libelle: '22 Bd Richard Wallace, PUTEAUX — lot 442',
+  adresse: '22 Bd Richard Wallace', commune: 'PUTEAUX', typeBien: 'Type 2', nature: 'Appartement',
+  caracteristiques: [], adresseComplete: '22 Bd Richard Wallace, 92800 PUTEAUX',
+  parties: [], recommande: true, motif: 'locataire de ce bien', cas: 'a',
+  certitude: 'quasi_certaine', replie: false, dejaRattache: false,
+};
+
+/** La réponse « l'étape 2 est demandée » — celle d'un avocat inconnu sur ce bien. */
+const ETAPE2_DEMANDEE = {
+  messageId: 900, filId: 101, dateMail: '2026-03-10',
+  expediteur: 'avocat@cabinet.test', expediteurNom: 'Cabinet Martin',
+  requise: true, motif: null,
+  biens: [{
+    cle: LOT, adresseComplete: '22 Bd Richard Wallace, 92800 PUTEAUX',
+    nature: 'Appartement', typeBien: 'Type 2',
+    personnes: [{
+      sorte: 'locataire', cle: OCCUPANT, id: 12, nom: 'THAI Cécile', civilite: 'Mme',
+      role: 'locataire_occupant', entree: '2024-02-01', sortie: null,
+    }],
+  }],
+  contact: null, premierClassement: true, precoche: null, disponible: true,
+};
+
+beforeEach(() => {
+  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  appels = []; gestes = []; propositions = [PROPOSE];
+  etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
+
+  global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    const methode = init?.method ?? 'GET';
+    appels.push({
+      url: u, methode, corps: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+    });
+    // 🔴 LA ROUTE DE L'ÉTAPE 2 : c'est ELLE qui décide, et le test la pilote.
+    if (u.includes('/gestion/contact-externe')) {
+      if (methode === 'POST') return { ok: true, json: async () => ({ ok: true, id: 77 }) } as unknown as Response;
+      return {
+        ok: true,
+        json: async () => (etape2 === null
+          ? { etat: 'erreur', message: 'Lecture impossible.' }
+          : { etat: 'ok', data: etape2 }),
+      } as unknown as Response;
+    }
+    // 🔴 LA PORTE D'ÉCRITURE, CELLE QUI EXISTAIT DÉJÀ.
+    if (u.includes('/gestion/suivi')) {
+      if (methode === 'POST') {
+        return { ok: true, json: async () => ({ ok: true, projetes: 1 }) } as unknown as Response;
+      }
+      // Les périodes : la conversation en a une, donc le chemin ① (le seul qui connaisse les personnes).
+      return {
+        ok: true,
+        json: async () => ({ etat: 'ok', periodes: [], exceptions: [], mails: [900] }),
+      } as unknown as Response;
+    }
+    if (u.includes('/classement?message=')) {
+      return {
+        ok: true,
+        json: async () => ({ etat: 'ok', contexte: { disponible: true, biens: propositions } }),
+      } as unknown as Response;
+    }
+    if (u.includes('/affectation')) {
+      return { ok: true, json: async () => ({ etat: 'ok', evenement: null, qualifie: true }) } as unknown as Response;
+    }
+    if (u.includes('lotCle=')) {
+      return { ok: true, json: async () => ({ etat: 'ok', data: null }) } as unknown as Response;
+    }
+    return { ok: true, json: async () => ({ etat: 'ok', data: [] }) } as unknown as Response;
+  }) as unknown as typeof fetch;
+});
+afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
+
+const calmer = async () => { await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); }); };
+
+const monter = async () => {
+  await act(async () => {
+    root.render(createElement(EncartRattachement, {
+      messageId: 900, filId: 101, liens: [], interne: false, horsGestion: false,
+      onChange: () => {}, onGeste: (m: string) => { gestes.push(m); },
+    } as never));
+  });
+  await calmer();
+};
+
+const texte = (): string => container.textContent ?? '';
+const boutons = (): HTMLButtonElement[] => [...container.querySelectorAll('button')];
+const bouton = (mot: string): HTMLButtonElement | undefined =>
+  boutons().find((b) => (b.textContent ?? '').includes(mot));
+const cliquer = async (mot: string) => {
+  const b = bouton(mot);
+  if (b === undefined) throw new Error(`aucun bouton « ${mot} » — écran : ${texte().slice(0, 400)}`);
+  await act(async () => { b.click(); });
+  await calmer();
+};
+const caseDe = (nom: string): HTMLInputElement => {
+  const label = [...container.querySelectorAll('label')].find((l) => (l.textContent ?? '').includes(nom));
+  const c = label?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  if (c === null || c === undefined) throw new Error(`aucune case pour « ${nom} »`);
+  return c;
+};
+/**
+ * ⚠️ LA CASE DU BIEN SE CHERCHE PAR SON ADRESSE, PAS PAR SON LIBELLÉ FIGÉ. La modale affiche le TITRE recalculé
+ * (« adresse — Nature · Type », lot MODALE-RATTACHER-PROPRE), d'où le numéro de lot a été retiré : chercher
+ * « — lot 442 » ne trouverait rien. C'est précisément ce que ce lot-là a changé, et le test s'y conforme.
+ */
+const caseDuBien = (): HTMLInputElement => caseDe('22 Bd Richard Wallace');
+/** La modale de l'étape 1 est-elle ouverte ? Son titre est le même depuis le lot RATTACHER-EN-ECRIVANT. */
+const etape1Ouverte = (): boolean => texte().includes('Rattacher ce mail à…');
+const etape2Ouverte = (): boolean => texte().includes(TITRE_ETAPE2);
+const ecritures = () => appels.filter((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'));
+
+/** Ouvre la modale et valide le bien proposé (déjà coché par le moteur). */
+const validerLeBien = async () => {
+  await cliquer('Rattacher');
+  expect(etape1Ouverte()).toBe(true);
+  await cliquer('Valider —');
+};
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ① EXPÉDITEUR CONNU — RIEN DE NOUVEAU, AU GESTE PRÈS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ① expéditeur connu : le comportement actuel, sans une différence', () => {
+  it('🔴🔴 aucune étape 2, et le classement part par la route du suivi', async () => {
+    await monter();
+    await validerLeBien();
+    expect(etape2Ouverte()).toBe(false);
+    expect(etape1Ouverte()).toBe(false);
+    expect(ecritures()).toHaveLength(1);
+    const corps = ecritures()[0].corps as { classement: Record<string, unknown> };
+    expect(corps.classement.biens).toEqual([{ cle: LOT, libelle: PROPOSE.libelle }]);
+    // 🔴🔴 ET AUCUN CHAMP `personnes` : le classement est BYTE-IDENTIQUE à celui d'avant ce lot.
+    expect(Object.keys(corps.classement)).toEqual(['sorte', 'biens']);
+  });
+
+  it('🔴 le compte rendu est celui d’avant : aucune mention ajoutée', async () => {
+    await monter();
+    await validerLeBien();
+    expect(gestes).toHaveLength(1);
+    expect(gestes[0]).not.toContain('non vérifié');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ② EXPÉDITEUR INCONNU — L'ÉTAPE 2 S'OUVRE, ET RIEN N'EST ÉCRIT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ② expéditeur inconnu : l’étape 2 s’ouvre, et rien n’est encore écrit', () => {
+  beforeEach(() => { etape2 = { ...ETAPE2_DEMANDEE }; });
+
+  it('🔴🔴 l’étape 2 remplace l’étape 1, et AUCUNE écriture n’a eu lieu', async () => {
+    await monter();
+    await validerLeBien();
+    expect(etape2Ouverte()).toBe(true);
+    expect(etape1Ouverte()).toBe(false);
+    expect(ecritures()).toHaveLength(0);
+    // Les personnes du bien sont là, avec le mot d'Arno.
+    expect(texte()).toContain('THAI Cécile');
+    expect(texte()).toContain('Locataire occupant');
+  });
+
+  it('🔴 la question est posée AVEC les biens cochés (c’est d’eux que dépend la réponse)', async () => {
+    await monter();
+    await validerLeBien();
+    const lecture = appels.find((a) => a.url.includes('/gestion/contact-externe') && a.methode === 'GET');
+    expect(lecture?.url).toContain(`biens=${LOT}`);
+    expect(lecture?.url).toContain('message=900');
+  });
+
+  it('🔴🔴 ③ « ← Retour » rouvre l’étape 1 AVEC SA CASE COCHÉE, et n’écrit rien', async () => {
+    await monter();
+    await validerLeBien();
+    await cliquer('← Retour');
+    expect(etape2Ouverte()).toBe(false);
+    expect(etape1Ouverte()).toBe(true);
+    // 🔴 LA CASE DU BIEN EST TOUJOURS COCHÉE : c'est la demande d'Arno, mot pour mot.
+    expect(caseDuBien().checked).toBe(true);
+    expect(texte()).toContain('Valider — 1 bien(s)');
+    expect(ecritures()).toHaveLength(0);
+  });
+
+  it('🔴🔴 ③-bis « ← Retour » NE RECOCHE PAS CE QU’ON AVAIT DÉCOCHÉ (défaut vu à l’écran)', async () => {
+    /**
+     * 🔴🔴 LE DÉFAUT EXACT, MESURÉ À L'ÉCRAN le 02/10/2026 sur le mail 57329 (GDS PROPRETÉ) : le moteur
+     * proposait QUATRE biens, tous cochés d'avance. On les décochait, on en cochait un autre par la recherche,
+     * on validait, puis on revenait — et la fenêtre affichait « 5 bien(s) coché(s) ». La PRÉ-COCHE du moteur
+     * revenait par-dessus la sélection qu'on venait de quitter.
+     *
+     * 🔴 « Garde les cases cochées » (Arno) VEUT DIRE LES DEUX SENS : ce qui est coché reste coché, ET ce qui
+     * est décoché reste décoché. D'où la propriété `selectionInitiale` de la modale.
+     */
+    // Deux propositions, toutes deux recommandées : c'est la situation qui a révélé le défaut.
+    propositions = [PROPOSE, { ...PROPOSE, cle: '443', libelle: '8 rue des Pavillons, PUTEAUX — lot 443',
+      adresse: '8 rue des Pavillons', adresseComplete: '8 rue des Pavillons, 92800 PUTEAUX' }];
+    await monter();
+    await cliquer('Rattacher');
+    expect(texte()).toContain('2 bien(s) coché(s)');
+
+    // On en DÉCOCHE un, et l'on valide avec l'autre.
+    await act(async () => { caseDe('8 rue des Pavillons').click(); });
+    await calmer();
+    expect(texte()).toContain('1 bien(s) coché(s)');
+    await cliquer('Valider — 1 bien(s)');
+    expect(etape2Ouverte()).toBe(true);
+
+    await cliquer('← Retour');
+    // 🔴 UN SEUL BIEN COCHÉ, celui qu'on avait laissé. Le second est TOUJOURS AFFICHÉ, mais décoché.
+    expect(texte()).toContain('1 bien(s) coché(s) sur 2 affiché(s)');
+    expect(caseDe('8 rue des Pavillons').checked).toBe(false);
+    expect(caseDuBien().checked).toBe(true);
+  });
+
+  it('🔴🔴 ④ valider l’étape 2 : le contact d’abord, le classement ENSUITE, par la MÊME route', async () => {
+    await monter();
+    await validerLeBien();
+    await act(async () => { caseDe('THAI Cécile').click(); });
+    await calmer();
+    await cliquer('Valider');
+
+    // ① LE CONTACT EXTERNE EST MÉMORISÉ, avec son adresse et le nom pré-rempli du mail.
+    const contact = appels.find((a) => a.url.includes('/gestion/contact-externe') && a.methode === 'POST');
+    expect(contact).toBeDefined();
+    expect((contact?.corps as { email: string }).email).toBe('avocat@cabinet.test');
+
+    // ② PUIS LE CLASSEMENT, par la porte existante, avec le bien ET la personne.
+    expect(ecritures()).toHaveLength(1);
+    const corps = ecritures()[0].corps as {
+      classement: { biens: unknown[]; personnes: { sorte: string; cle: string; contactExterneId: number }[] };
+      choix: string;
+    };
+    expect(corps.classement.biens).toEqual([{ cle: LOT, libelle: PROPOSE.libelle }]);
+    expect(corps.classement.personnes).toEqual([
+      { sorte: 'locataire', cle: OCCUPANT, libelle: 'THAI Cécile', contactExterneId: 77 },
+    ]);
+    // 🔴 « Suivi automatique » (le défaut) → le choix `suite` du mécanisme existant.
+    expect(corps.choix).toBe('suite');
+    // 🔴🔴 ET L'ORDRE EST CELUI-LÀ : le contact AVANT le classement, sans quoi le lien n'aurait pas son « via ».
+    expect(appels.indexOf(contact as (typeof appels)[number]))
+      .toBeLessThan(appels.indexOf(ecritures()[0]));
+  });
+
+  it('🔴 « Classement ponctuel » envoie le choix `mail` — une exception, rien d’hérité', async () => {
+    await monter();
+    await validerLeBien();
+    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    await act(async () => { radios[1].click(); });
+    await act(async () => { caseDe('THAI Cécile').click(); });
+    await calmer();
+    await cliquer('Valider');
+    expect((ecritures()[0].corps as { choix: string }).choix).toBe('mail');
+  });
+
+  it('🔴 « Le bien uniquement » : le bien est classé, et AUCUNE personne n’est envoyée', async () => {
+    await monter();
+    await validerLeBien();
+    await act(async () => { caseDe(BIEN_UNIQUEMENT).click(); });
+    await calmer();
+    await cliquer('Valider');
+    const corps = ecritures()[0].corps as { classement: Record<string, unknown> };
+    expect(corps.classement.biens).toHaveLength(1);
+    // ⚠️ AUCUN CHAMP `personnes` DU TOUT : « aucune relation vers une personne » (Arno).
+    expect(Object.keys(corps.classement)).toEqual(['sorte', 'biens']);
+  });
+
+  it('🔴 l’étape 2 se ferme après la validation', async () => {
+    await monter();
+    await validerLeBien();
+    await act(async () => { caseDe(BIEN_UNIQUEMENT).click(); });
+    await calmer();
+    await cliquer('Valider');
+    expect(etape2Ouverte()).toBe(false);
+    expect(etape1Ouverte()).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑤ UNE LECTURE EN ÉCHEC NE BLOQUE RIEN — ET LE DIT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑤ si la vérification échoue, le bien se classe quand même', () => {
+  beforeEach(() => { etape2 = null; });
+
+  it('🔴🔴 le classement part, et le compte rendu annonce l’expéditeur NON VÉRIFIÉ', async () => {
+    await monter();
+    await validerLeBien();
+    expect(etape2Ouverte()).toBe(false);
+    expect(ecritures()).toHaveLength(1);
+    expect(gestes[0]).toContain('expéditeur non vérifié');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 ⑥ « VALIDER — AUCUN BIEN » NE POSE AUCUNE QUESTION
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ⑥ « Valider — aucun bien » : aucune question, et pas même une requête', () => {
+  beforeEach(() => { etape2 = { ...ETAPE2_DEMANDEE }; });
+
+  it('🔴 décocher le bien proposé puis valider ne demande RIEN au serveur sur le contact', async () => {
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(texte()).toContain('Valider — aucun bien');
+    await cliquer('Valider — aucun bien');
+    expect(etape2Ouverte()).toBe(false);
+    // ⚠️ AUCUNE LECTURE DE L'ÉTAPE 2 : la question n'a pas de sens, et on ne la pose donc pas.
+    expect(appels.filter((a) => a.url.includes('/gestion/contact-externe'))).toHaveLength(0);
+    expect(ecritures()).toHaveLength(1);
+  });
+});

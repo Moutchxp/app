@@ -845,3 +845,25 @@ export function journalDossierDriveDisponible(): Promise<boolean> {
 export function journalMouvementDriveDisponible(): Promise<boolean> {
   return memoiser('table.gestion_drive_mouvement', () => tableExiste('gestion_drive_mouvement'));
 }
+
+/**
+ * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LA MIGRATION 293 EST-ELLE APPLIQUÉE ? ══════════════════════════════════════════
+ *
+ * Elle seule permet qu'un mail rattaché à un bien porte, EN PLUS, une relation vers une personne nommée du dossier
+ * — la règle `intervention`. Tant qu'elle ne l'est pas :
+ *   · la 2ᵉ étape « Classer ce nouveau contact » ne s'affiche NULLE PART ;
+ *   · la section « Échanges par un contact extérieur » n'apparaît sur aucune fiche ;
+ *   · aucune requête ne nomme `gestion_contact_externe`, `role_instantane` ni les deux tables de personnes ;
+ *   · le classement d'un mail se comporte EXACTEMENT comme avant ce lot, au geste près.
+ *
+ * ⚠️ ON SONDE LA TABLE `gestion_contact_externe`, et une seule sonde suffit pour les six morceaux : la migration
+ * les crée dans UNE transaction, donc ils arrivent ensemble ou pas du tout. C'est la règle déjà écrite pour
+ * `fileEnvoiDisponible`, et on prend le morceau le plus VISIBLE.
+ *
+ * ⚠️ POURQUOI PAS LA CONTRAINTE, comme `documentsAutoDisponible`. La 291 ne CRÉAIT rien — elle desserrait une
+ * règle, et la contrainte était son seul fait observable. Ici il y a des tables : les sonder coûte une requête
+ * `information_schema` au lieu d'une lecture de `pg_constraint`, et se lit sans connaître le nom de la contrainte.
+ */
+export function interventionsDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_contact_externe', () => tableExiste('gestion_contact_externe'));
+}

@@ -6,6 +6,8 @@ import { dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/ge
 import { corpsLisible, etatTrombone, motTrombone, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { motCapsule, tonCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
+// 🔴🔴 LOT CONTACTS-EXTERNES — le mot du rôle instantané, écrit UNE fois dans le module PUR.
+import { motRoleInstantane } from '../../../../lib/gestion/contactExterne';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
 
 /**
@@ -220,6 +222,21 @@ function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil }: {
             <span className="vdb-quand">{dateHeureCourte(l.recuLe, maintenant)}</span>
           </span>
           <span className="vdb-objet">Objet : {nettoyerObjet(l.objet ?? '') || '(sans objet)'}</span>
+          {/* ══ 🔴🔴 LOT CONTACTS-EXTERNES — « pour MARTY Jean-François (locataire sortant) · via Me Martin, avocat »
+              Demande d'Arno : le mail apparaît ici « avec le rôle instantané et le contact externe ».
+              ⚠️ LE RÔLE EST CELUI DU JOUR DU MAIL, et il ne bougera plus : c'est ce qui permet de relire un
+              courrier d'avocat de 2025 sans le faire mentir. Vide ⇒ rien n'est affiché, et la ligne est celle
+              d'avant ce lot — c'est le cas de l'immense majorité du courrier. */}
+          {(l.interventions ?? []).length > 0 && (
+            <span className="vdb-via">
+              {(l.interventions ?? []).map((x) => (
+                <span key={`${x.sorte}-${x.libelle}`} className="vdb-via-qui">
+                  pour {x.libelle} <span className="vdb-via-role">({motRoleInstantane(x.role).toLowerCase()})</span>
+                  {x.via !== null && <> · <span className="vdb-via-contact">{x.via}</span></>}
+                </span>
+              ))}
+            </span>
+          )}
           {!ouvert && lisible !== null && lisible.visible !== '' && (
             <span className="vdb-extrait">{lisible.visible}</span>
           )}
@@ -298,6 +315,14 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-objet{font-size:.84rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .vdb-extrait{font-size:.8rem;color:var(--color-svv-muted);overflow:hidden;text-overflow:ellipsis;
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
+/* 🔴🔴 LOT CONTACTS-EXTERNES — « pour MARTY Jean-Francois (locataire sortant) · via Me Martin, avocat ».
+   Elle s'enroule d'elle-meme quand la largeur manque : sur un telephone, une ligne de plus vaut mieux qu'un nom
+   tronque au milieu. Le ROLE est entre parentheses et le contact en italique — deux informations de nature
+   differente, et l'oeil doit pouvoir les separer sans les lire. */
+.vdb-via{display:flex;flex-wrap:wrap;gap:.1rem .6rem;font-size:.78rem;color:var(--color-svv-muted);min-width:0}
+.vdb-via-qui{overflow-wrap:anywhere}
+.vdb-via-role{font-weight:600}
+.vdb-via-contact{font-style:italic}
 /* LES CAPSULES — les memes MOTS que la boite, et les memes tons. Le mot porte l'information, le ton l'appuie. */
 .vdb-capsule{font-size:.68rem;font-weight:700;border-radius:999px;padding:.1rem .5rem;border:1px solid transparent;
   flex:0 0 auto}

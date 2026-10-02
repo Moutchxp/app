@@ -1,8 +1,8 @@
 import { query, withTransaction } from '../db/client';
-import { periodesDisponibles, rattachementsDisponibles } from './schema';
+import { periodesDisponibles, rattachementsDisponibles, interventionsDisponibles } from './schema';
 import {
   effetDuChoix, periodeEnCours, projeter, reprendre, repriseFidele,
-  type ChoixSuivi, type Classement, type ExceptionMail, type Periode,
+  type ChoixSuivi, type Classement, type ExceptionMail, type Periode, type PersonneClassee,
 } from './periodesConversation';
 import { rattacher, changerStatut } from './rattachementRepo';
 import { marquerInterne, annulerInterne } from './interneRepo';
@@ -10,6 +10,10 @@ import { marquerHorsGestion, annulerHorsGestion } from './horsGestionRepo';
 import type { Auteur } from './gestes';
 // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — « ce mail est-il un de nos envois automatiques ? ». Module PUR.
 import { estDocumentEnvoye } from './documentsAuto';
+// 🔴🔴 LOT CONTACTS-EXTERNES — les interventions que la fenêtre projette, et le rôle recalculé mail par mail.
+import {
+  aDesInterventions, cleRole, poserInterventions, retirerInterventionsSansBien, rolesALaDateDesMails,
+} from './contactExterneRepo';
 
 /**
  * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LES PÉRIODES EN BASE, ET LEUR PROJECTION SUR LES MAILS ═══════════════════════
@@ -56,14 +60,38 @@ const VIDE: SuiviDuFil = { periodes: [], exceptions: [] };
 export async function suiviDuFil(filId: number): Promise<SuiviDuFil> {
   if (!(await periodesDisponibles())) return VIDE;
   try {
+    /**
+     * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LES PERSONNES QUE LA FENÊTRE PORTE, LUES DANS LA MÊME REQUÊTE ═══════════
+     *
+     * ⚠️ LA SOUS-REQUÊTE N'EST ÉCRITE QUE SI LA MIGRATION 293 EST LÀ. Sans elle, `gestion_fil_periode_personne`
+     * n'est NOMMÉE NULLE PART, et la lecture rend `NULL` — donc un classement sans personne, c'est-à-dire
+     * exactement ce que ce fichier rendait avant ce lot. Nommer une table absente ferait échouer la lecture du
+     * suivi, donc le bloc « Suivi dans la conversation » de CHAQUE mail (leçon du lot 4a).
+     */
+    const avecPersonnes = await interventionsDisponibles();
+    const sqlPersonnesPeriode = avecPersonnes
+      ? `(SELECT json_agg(json_build_object('sorte', x.cible_sorte, 'cle', x.cible_cle,
+                                            'libelle', coalesce(x.cible_libelle, x.cible_cle),
+                                            'contactExterneId', x.contact_externe_id))
+            FROM gestion_fil_periode_personne x WHERE x.periode_id = p.id)`
+      : 'NULL::json';
+    const sqlPersonnesException = avecPersonnes
+      ? `(SELECT json_agg(json_build_object('sorte', x.cible_sorte, 'cle', x.cible_cle,
+                                            'libelle', coalesce(x.cible_libelle, x.cible_cle),
+                                            'contactExterneId', x.contact_externe_id))
+            FROM gestion_message_exception_personne x WHERE x.exception_id = e.id)`
+      : 'NULL::json';
+
     const { rows: pr } = await query<{
       id: string; depuis_message_id: string; sorte: string; cree_par_libelle: string; cree_le: string;
       biens: { cle: string; libelle: string }[] | null;
+      personnes: PersonneClassee[] | null;
     }>(
       `SELECT p.id::text, p.depuis_message_id::text, p.sorte, p.cree_par_libelle,
               to_char(p.cree_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS cree_le,
               (SELECT json_agg(json_build_object('cle', b.cible_cle, 'libelle', b.cible_libelle))
-                 FROM gestion_fil_periode_bien b WHERE b.periode_id = p.id) AS biens
+                 FROM gestion_fil_periode_bien b WHERE b.periode_id = p.id) AS biens,
+              ${sqlPersonnesPeriode} AS personnes
          FROM gestion_fil_periode p
         WHERE p.fil_id = $1 AND p.remplacee_le IS NULL
         ORDER BY p.id`, [filId]);
@@ -71,11 +99,13 @@ export async function suiviDuFil(filId: number): Promise<SuiviDuFil> {
     const { rows: er } = await query<{
       id: string; message_id: string; sorte: string; cree_par_libelle: string; cree_le: string;
       biens: { cle: string; libelle: string }[] | null;
+      personnes: PersonneClassee[] | null;
     }>(
       `SELECT e.id::text, e.message_id::text, e.sorte, e.cree_par_libelle,
               to_char(e.cree_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS cree_le,
               (SELECT json_agg(json_build_object('cle', b.cible_cle, 'libelle', b.cible_libelle))
-                 FROM gestion_message_exception_bien b WHERE b.exception_id = e.id) AS biens
+                 FROM gestion_message_exception_bien b WHERE b.exception_id = e.id) AS biens,
+              ${sqlPersonnesException} AS personnes
          FROM gestion_message_exception e
          JOIN gestion_message m ON m.id = e.message_id
         WHERE m.fil_id = $1 AND e.retiree_le IS NULL
@@ -84,12 +114,12 @@ export async function suiviDuFil(filId: number): Promise<SuiviDuFil> {
     return {
       periodes: pr.map((r) => ({
         id: Number(r.id), depuisMessageId: Number(r.depuis_message_id),
-        classement: classementDe(r.sorte, r.biens),
+        classement: classementDe(r.sorte, r.biens, r.personnes),
         parLibelle: r.cree_par_libelle, le: r.cree_le,
       })),
       exceptions: er.map((r) => ({
         messageId: Number(r.message_id),
-        classement: classementDe(r.sorte, r.biens),
+        classement: classementDe(r.sorte, r.biens, r.personnes),
         parLibelle: r.cree_par_libelle, le: r.cree_le,
       })),
     };
@@ -101,10 +131,24 @@ export async function suiviDuFil(filId: number): Promise<SuiviDuFil> {
   }
 }
 
-function classementDe(sorte: string, biens: { cle: string; libelle: string }[] | null): Classement {
+/**
+ * ⚠️ « Interne » ET « Hors gestion » NE PORTENT AUCUNE PERSONNE, et ce n'est pas un oubli : une fenêtre qui dit
+ * « cet échange ne concerne aucun logement » ne peut porter aucune intervention — la base l'exige (une
+ * intervention sans bien vivant est refusée, migration 293). Les ignorer ici est donc la même règle, dite plus
+ * tôt, et cela évite de projeter des liens que la base rejetterait un par un.
+ */
+function classementDe(
+  sorte: string,
+  biens: { cle: string; libelle: string }[] | null,
+  personnes: PersonneClassee[] | null = null,
+): Classement {
   if (sorte === 'interne') return { sorte: 'interne', biens: [] };
   if (sorte === 'hors_gestion') return { sorte: 'hors_gestion', biens: [] };
-  return { sorte: 'biens', biens: biens ?? [] };
+  const qui = (personnes ?? []).filter(
+    (p) => (p.cle ?? '').trim() !== '' && (p.sorte === 'proprietaire' || p.sorte === 'locataire'));
+  return qui.length === 0
+    ? { sorte: 'biens', biens: biens ?? [] }
+    : { sorte: 'biens', biens: biens ?? [], personnes: qui };
 }
 
 /**
@@ -214,6 +258,13 @@ export async function poserClassement(o: {
 
   const mails = await mailsDuFil(o.filId);
   if (!mails.includes(o.messageId)) return { ok: false, motif: 'Ce mail n’appartient pas à cette conversation.' };
+  /**
+   * 🔴 LOT CONTACTS-EXTERNES — LA SONDE EST LUE **UNE FOIS**, AVANT LA TRANSACTION. La lire dedans ferait une
+   * requête `information_schema` au milieu d'une écriture ; et surtout, une sonde qui échouerait abandonnerait
+   * TOUTE la transaction (PostgreSQL abandonne à la première erreur) — le piège du lot 4a, inscrit en tête de
+   * `schema.ts`.
+   */
+  const avecPersonnes = await interventionsDisponibles();
   const avant = await suiviDuFil(o.filId);
   const effet = effetDuChoix({
     choix: o.choix, messageId: o.messageId, classement: o.classement,
@@ -242,6 +293,10 @@ export async function poserClassement(o: {
          VALUES ($1, $2, $3, $4, $5) RETURNING id::text`,
         [o.filId, depuis, o.classement.sorte, o.auteur.id, libelle]);
       await ecrireBiens(q, 'gestion_fil_periode_bien', 'periode_id', Number(rows[0].id), o.classement);
+      // 🔴 LOT CONTACTS-EXTERNES — les personnes que cette fenêtre porte. Sans la 293, la fonction sort avant sa
+      //   requête : aucune table nouvelle n'est nommée, et la fenêtre ne porte que ses biens, comme avant.
+      await ecrirePersonnes(q, 'gestion_fil_periode_personne', 'periode_id', Number(rows[0].id), o.classement,
+        avecPersonnes);
     }
     // ④ LA NOUVELLE EXCEPTION. Une seule vivante par mail — l'index unique partiel le garantit.
     if (effet.nouvelleException !== null) {
@@ -253,6 +308,8 @@ export async function poserClassement(o: {
          VALUES ($1, $2, $3, $4) RETURNING id::text`,
         [o.messageId, o.classement.sorte, o.auteur.id, libelle]);
       await ecrireBiens(q, 'gestion_message_exception_bien', 'exception_id', Number(rows[0].id), o.classement);
+      await ecrirePersonnes(q, 'gestion_message_exception_personne', 'exception_id', Number(rows[0].id),
+        o.classement, avecPersonnes);
     }
   });
 
@@ -275,6 +332,34 @@ async function ecrireBiens(
      SELECT $1, c.cle, c.libelle FROM jsonb_to_recordset($2::jsonb) AS c(cle text, libelle text)
      ON CONFLICT DO NOTHING`,
     [id, JSON.stringify(c.biens.map((b) => ({ cle: b.cle, libelle: b.libelle })))]);
+}
+
+/**
+ * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LES PERSONNES D'UNE FENÊTRE OU D'UNE EXCEPTION ═══════════════════════════════
+ *
+ * La jumelle d'`ecrireBiens`, à la ligne près, et pour la même raison : un seul aller-retour, aucune
+ * interpolation de valeur, `ON CONFLICT DO NOTHING` (l'index unique porte sur le triplet).
+ *
+ * ⚠️ `disponible` EST PASSÉ, PAS SONDÉ ICI : on est DANS une transaction, et une sonde qui échouerait
+ * l'abandonnerait tout entière. L'appelant la lit avant d'ouvrir (voir `poserClassement`).
+ *
+ * ⚠️ UN CLASSEMENT « interne » OU « hors gestion » NE PORTE AUCUNE PERSONNE : `c.sorte !== 'biens'` sort, et
+ * c'est la même règle que `classementDe` — une fenêtre sans logement ne peut porter aucune intervention.
+ */
+async function ecrirePersonnes(
+  q: Requete, table: string, colonne: string, id: number, c: Classement, disponible: boolean,
+): Promise<void> {
+  if (!disponible) return;
+  const qui = c.sorte === 'biens' ? (c.personnes ?? []) : [];
+  if (qui.length === 0) return;
+  await q(
+    `INSERT INTO ${table} (${colonne}, cible_sorte, cible_cle, cible_libelle, contact_externe_id)
+     SELECT $1, p.sorte, p.cle, p.libelle, p.contact
+       FROM jsonb_to_recordset($2::jsonb) AS p(sorte text, cle text, libelle text, contact bigint)
+     ON CONFLICT DO NOTHING`,
+    [id, JSON.stringify(qui.map((p) => ({
+      sorte: p.sorte, cle: p.cle, libelle: p.libelle, contact: p.contactExterneId ?? null,
+    })))]);
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -399,6 +484,29 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
     }
   }
 
+  /**
+   * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LES INTERVENTIONS, PROJETÉES COMME LES BIENS ══════════════════════════════
+   *
+   * ⚠️ **APRÈS** LA BOUCLE DES BIENS, ET CE N'EST PAS UN CHOIX DE STYLE : la base refuse une intervention sans
+   * lien vivant vers un bien sur le même mail (migration 293). Projeter les personnes avant les biens ferait
+   * échouer chaque pose, une par une, sur une conversation entièrement neuve.
+   *
+   * ⚠️ UN SEUL APPEL, GARDÉ PAR LA SONDE : sans la migration 293, la fonction sort à sa première ligne et la
+   * projection se comporte EXACTEMENT comme avant ce lot. Aucune autre ligne de `projeterLeFil` n'a changé.
+   */
+  gestes += await projeterLesInterventions(mails, voulu, documents, auteur);
+
+  /**
+   * 🔴🔴 LA CASCADE : UNE INTERVENTION NE SURVIT PAS AU DÉPART DE SON BIEN. La boucle ci-dessus a pu retirer des
+   * liens « bien » (une fenêtre qui change de logement, « Toute la conversation ») : les interventions des mails
+   * qui n'ont plus aucun bien vivant sont retirées, datées et signées. La base ne peut pas le faire — l'encadré
+   * de la migration 293 dit pourquoi —, donc c'est ici.
+   *
+   * ⚠️ ELLE N'EST PAS COMPTÉE DANS `gestes` : ce n'est pas une décision, c'est la conséquence mécanique d'une
+   * décision déjà comptée. L'annoncer deux fois ferait un compte rendu qui exagère.
+   */
+  await retirerInterventionsSansBien(mails, auteur);
+
   // LA MARQUE « INTERNE » DE L'ÉCHANGE : elle suit la période EN COURS, qui est celle du fil tout entier.
   const encours = periodeEnCours(mails, periodes);
   if (encours !== null) {
@@ -408,6 +516,107 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
     if (issue.ok && issue.nb > 0) gestes += 1;
   }
   return gestes;
+}
+
+/**
+ * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LES INTERVENTIONS QUE LES FENÊTRES DEMANDENT, MAIL PAR MAIL ══════════════════
+ *
+ * Demande d'Arno : « “Suivi automatique” ouvre une fenêtre qui porte le(s) bien(s) ET les relations aux
+ * personnes. Les mails suivants de la conversation (dans les deux sens) en héritent, rôle instantané RECALCULÉ à
+ * la date de chaque mail. »
+ *
+ * 🔴 LE RÔLE EST RECALCULÉ ICI, ET C'EST TOUT L'OBJET DE CETTE FONCTION. La fenêtre porte des PERSONNES, jamais
+ * des rôles : un courrier de mars et un courrier de septembre, sous la même fenêtre, peuvent concerner la même
+ * personne comme OCCUPANTE puis comme SORTANTE. Chaque lien reçoit donc son propre mot, figé à SA date.
+ *
+ * ⚠️ UN MAIL SANS AUCUNE PERSONNE PASSE QUAND MÊME PAR LE DIFF, et il le faut : c'est ainsi qu'une fenêtre dont
+ * on a DÉCOCHÉ toutes les personnes retire celles qu'elle avait posées. Sortir tôt sur `personnes.length === 0`
+ * laisserait des interventions que plus aucune règle ne demande.
+ *
+ * ⚠️ MAIS UN MAIL QUE LA FENÊTRE NE COUVRE PAS EST ÉPARGNÉ (`voulu.get(m) === undefined`), comme pour les biens :
+ * un mail antérieur à toute période n'est pas classé, et on ne lui invente rien.
+ *
+ * ⚠️ ET UN « Document CRITERIMMO » EST SAUTÉ, pour la raison qui le fait sauter côté biens : il ne porte aucun
+ * bien, donc la base refuserait l'intervention — et surtout il ne concerne aucun logement.
+ */
+async function projeterLesInterventions(
+  mails: readonly number[],
+  voulu: Map<number, Classement>,
+  documents: Set<number>,
+  auteur: Auteur,
+): Promise<number> {
+  if (!(await interventionsDisponibles())) return 0;
+
+  const demandes: { messageId: number; biens: string[]; personnes: readonly PersonneClassee[] }[] = [];
+  for (const m of mails) {
+    const c = voulu.get(m);
+    if (c === undefined || c.sorte !== 'biens' || documents.has(m)) continue;
+    demandes.push({
+      messageId: m,
+      biens: c.biens.map((b) => b.cle),
+      personnes: c.personnes ?? [],
+    });
+  }
+  /**
+   * ══ 🔴🔴 LE RACCOURCI, ET SA CONDITION — UN DÉFAUT TROUVÉ PAR L'ÉPREUVE C-5 ════════════════════════════════
+   *
+   * Aucune fenêtre ne porte de personne : c'est le cas de l'immense majorité du courrier, et l'on ne veut pas
+   * lire les dates de trente mails puis les occupations de leurs biens pour ne rien trouver.
+   *
+   * 🔴🔴 MAIS « AUCUNE PERSONNE VOULUE » NE VEUT PAS DIRE « RIEN À FAIRE ». C'est exactement l'état d'une fenêtre
+   * dont on vient de DÉCOCHER toutes les personnes : le diff doit alors RETIRER ce qu'elle avait posé. La
+   * première écriture de cette fonction sortait ici sans condition, et le lien restait — défaut mesuré par
+   * l'épreuve « décocher toutes les personnes d'une fenêtre retire ce qu'elle avait posé ».
+   *
+   * ⚠️ LA QUESTION COÛTE UNE REQUÊTE INDEXÉE, et une seule, sur les mails de cette conversation.
+   */
+  if (!demandes.some((d) => d.personnes.length > 0)
+    && !(await aDesInterventions(demandes.map((d) => d.messageId)))) return 0;
+
+  const dates = await datesDesMails(demandes.map((d) => d.messageId));
+  const roles = await rolesALaDateDesMails(demandes.map((d) => ({
+    messageId: d.messageId,
+    dateMail: dates.get(d.messageId) ?? '',
+    biens: d.biens,
+    personnes: d.personnes.map((p) => ({ sorte: p.sorte, cle: p.cle })),
+  })));
+
+  let gestes = 0;
+  for (const d of demandes) {
+    const issue = await poserInterventions({
+      messageId: d.messageId,
+      personnes: d.personnes.map((p) => ({
+        sorte: p.sorte, cle: p.cle, libelle: p.libelle,
+        // ⚠️ `locataire_a_venir` EN DERNIER RECOURS : un rôle qu'on n'a pas su calculer ne doit pas se déguiser
+        //   en « occupant ». La pastille grise le dit, et la ligne reste corrigeable.
+        role: roles.get(cleRole(d.messageId, p)) ?? 'locataire_a_venir',
+        contactExterneId: p.contactExterneId ?? null,
+      })),
+      contact: null,
+      auteur,
+      parLeSuivi: true,
+    });
+    if (issue.ok) gestes += issue.posees + issue.retirees;
+  }
+  return gestes;
+}
+
+/**
+ * LES DATES DE RÉCEPTION D'UN PAQUET DE MAILS, en jours ISO. LECTURE SEULE.
+ *
+ * ⚠️ UN JOUR ISO, PAS UN HORODATAGE : le rôle instantané se décide sur des dates CIVILES (entrée, sortie), et
+ * comparer un horodatage UTC à une date civile recule d'un jour sur une sortie à minuit. C'est le piège consigné
+ * au lot LOT-1 du module « permis », et il vaut ici mot pour mot.
+ */
+async function datesDesMails(messageIds: readonly number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  const ids = [...new Set(messageIds)];
+  if (ids.length === 0) return out;
+  const { rows } = await query<{ id: string; le: string | null }>(
+    `SELECT id::text, to_char(recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS le
+       FROM gestion_message WHERE id = ANY($1::bigint[])`, [ids]);
+  for (const r of rows) if (r.le !== null) out.set(Number(r.id), r.le);
+  return out;
 }
 
 /**

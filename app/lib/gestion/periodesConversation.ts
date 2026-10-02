@@ -37,11 +37,42 @@ export interface BienClasse {
   libelle: string;
 }
 
+/**
+ * ══ 🔴🔴 LOT CONTACTS-EXTERNES — UNE PERSONNE DU DOSSIER QUE LA FENÊTRE PORTE AUSSI ═══════════════════════════
+ *
+ * Demande d'Arno : « “Suivi automatique” ouvre une fenêtre (même mécanisme que “Ce mail et la conversation à
+ * venir”) qui porte le(s) bien(s) ET les relations aux personnes. »
+ *
+ * ⚠️ `role` N'EST PAS ICI, ET C'EST LE POINT. Le rôle instantané est RECALCULÉ à la date de CHAQUE mail que la
+ * fenêtre couvre (« rôle instantané recalculé à la date de chaque mail », Arno). Le figer dans la fenêtre
+ * donnerait à un mail de mars le rôle calculé en janvier — exactement ce que l'instantané doit éviter.
+ */
+export interface PersonneClassee {
+  sorte: 'proprietaire' | 'locataire';
+  /** La CLÉ de la carte : `wippimmo_id` pour un propriétaire, `cle_personne` pour un locataire. */
+  cle: string;
+  libelle: string;
+  /** Le contact externe par qui le mail est passé. `null` = aucun n'a été mémorisé, ce qui est permis. */
+  contactExterneId?: number | null;
+}
+
 /** Le classement porté par une période ou une exception. */
 export interface Classement {
   sorte: SorteClassement;
   /** Les biens, quand `sorte === 'biens'`. Vide pour les deux autres sortes. */
   biens: readonly BienClasse[];
+  /**
+   * 🔴 LOT CONTACTS-EXTERNES — LES PERSONNES DU DOSSIER QUE CE CLASSEMENT CONCERNE AUSSI. FACULTATIF, et absent
+   * de l'immense majorité des classements : un mail ordinaire n'a pas d'intermédiaire.
+   *
+   * ⚠️ ELLES NE REMPLACENT JAMAIS LES BIENS, elles s'y ajoutent (règle n° 1 du lot). Un classement qui porterait
+   * des personnes SANS bien serait refusé par la base (migration 293) — et il n'a pas de sens : une intervention
+   * est « ce mail, rattaché à ce logement, concerne aussi cette personne ».
+   *
+   * ⚠️ CHAMP OPTIONNEL, ET DÉLIBÉRÉMENT : tout le code écrit avant ce lot construit des `Classement` sans lui, et
+   * doit continuer de compiler et de se comporter à l'identique. `undefined` et `[]` veulent dire la même chose.
+   */
+  personnes?: readonly PersonneClassee[];
 }
 
 /** Une période : elle commence à un mail, et court jusqu'à la suivante. */
@@ -369,12 +400,28 @@ export interface RepereFil {
   le: string | null;
 }
 
-/** Le texte d'un classement, en une ligne. PUR. */
+/**
+ * Le texte d'un classement, en une ligne. PUR.
+ *
+ * ══ 🔴 LOT CONTACTS-EXTERNES — LES PERSONNES S'AJOUTENT À LA PHRASE, ET SEULEMENT QUAND IL Y EN A ═════════════
+ *
+ * Demande d'Arno : « Repères “À partir d'ici : …” dans le fil : comme aujourd'hui, en mentionnant les personnes
+ * et le contact externe. »
+ *
+ * ⚠️ UN CLASSEMENT SANS PERSONNE REND EXACTEMENT CE QU'IL RENDAIT AVANT CE LOT, caractère pour caractère. C'est
+ * ce qui permet d'ajouter cette mention sans toucher à un seul attendu de `periodesConversation.test.ts` ni des
+ * scénarios S1 à S13 — le champ est facultatif, et l'immense majorité du courrier n'a pas d'intermédiaire.
+ *
+ * ⚠️ « Interne » ET « Hors gestion » SORTENT AVANT, et c'est juste : une fenêtre qui dit « cet échange ne
+ * concerne aucun logement » ne peut porter aucune intervention (la base l'exige, migration 293).
+ */
 export function motClassement(c: Classement): string {
   if (c.sorte === 'interne') return 'Interne';
   if (c.sorte === 'hors_gestion') return 'Hors gestion';
   const noms = c.biens.map((b) => b.libelle.trim()).filter((l) => l !== '');
-  return noms.length === 0 ? 'aucun bien' : noms.join(', ');
+  const base = noms.length === 0 ? 'aucun bien' : noms.join(', ');
+  const qui = (c.personnes ?? []).map((p) => p.libelle.trim()).filter((l) => l !== '');
+  return qui.length === 0 ? base : `${base} · pour ${qui.join(', ')}`;
 }
 
 /**

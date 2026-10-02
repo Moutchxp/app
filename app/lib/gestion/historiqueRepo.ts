@@ -27,6 +27,8 @@ import { deplacementsDeMailsDisponibles, horsGestionDisponible, rattachementsDis
 import { capsuleStatut, type CapsuleStatut } from './statutClassement';
 import { cibleEvenement, cibleLot, cibleProprietaire, type Cible } from './rattachement';
 import { libelleCible, type LienAffiche } from './rattachementRepo';
+// 🔴🔴 LOT CONTACTS-EXTERNES — « via Me Martin, avocat » sur la ligne d'un mail de « Vie du bien ».
+import { interventionsDesMessages } from './contactExterneRepo';
 import {
   texteCible, INTERLOCUTEURS_MAX,
   type EnteteHistorique, type EvenementDeLigne, type FiltresHistorique, type Interlocuteur,
@@ -310,6 +312,12 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   const evenements = await evenementsDesFils(gardees.map((r) => Number(r.fil_id)));
   // 🔴 … et la capsule de statut de chaque MAIL, par la MÊME fonction pure que la boîte.
   const statuts = await statutsDesMessages(gardees.map((r) => Number(r.message_id)));
+  /**
+   * 🔴🔴 LOT CONTACTS-EXTERNES — les personnes que chaque mail concerne AUSSI, et la mention « via … ». UNE
+   * requête pour la page entière, jamais une par ligne. Carte VIDE sans la migration 293 : la fonction sort
+   * avant sa requête, et les lignes n'affichent alors rien de plus — exactement comme avant ce lot.
+   */
+  const interventions = await interventionsDesMessages(gardees.map((r) => Number(r.message_id)));
 
   return {
     suite,
@@ -333,6 +341,10 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
         evenements: evenements.get(Number(r.fil_id)) ?? [],
         statut: statuts.get(Number(r.message_id))?.statut ?? null,
         statutDetail: statuts.get(Number(r.message_id))?.detail ?? null,
+        // 🔴 LOT CONTACTS-EXTERNES — on ne garde que ce que la ligne affiche : le nom, le rôle figé, et le « via ».
+        interventions: (interventions.get(Number(r.message_id)) ?? []).map((x) => ({
+          sorte: x.sorte, libelle: x.libelle, role: x.role, via: x.via,
+        })),
       };
     }),
   };

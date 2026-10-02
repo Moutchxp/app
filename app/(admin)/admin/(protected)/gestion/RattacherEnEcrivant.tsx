@@ -76,7 +76,8 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 
 export function RattacherEnEcrivant({
   destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null,
-  piedSupplementaire = null, validationBloquee = null, onSelection, onChange, onFerme,
+  piedSupplementaire = null, validationBloquee = null, selectionInitiale = null,
+  onSelection, onChange, onFerme,
 }: {
   /**
    * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA MÊME MODALE AU-DESSUS D'UN MAIL REÇU ════════════════════════════
@@ -157,6 +158,24 @@ export function RattacherEnEcrivant({
    * Le motif est affiché à côté du bouton : un bouton gris sans explication se lit comme une panne.
    */
   validationBloquee?: string | null;
+  /**
+   * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LA SÉLECTION EXACTE À REPRENDRE, PRÉ-COCHE DU MOTEUR COMPRISE ═══════════════
+   *
+   * `null` (le défaut) = comportement d'avant ce lot, sans une différence : la fenêtre pose sa PRÉ-COCHE, qui
+   * réunit les biens recommandés par le moteur et les cibles déjà retenues (voir `precocher`).
+   *
+   * 🔴 UNE LISTE = CETTE LISTE, ET RIEN D'AUTRE. Elle sert à UN cas : « ← Retour » depuis la 2ᵉ étape, qui doit
+   * rouvrir la fenêtre EXACTEMENT comme on l'a quittée.
+   *
+   * ⚠️ POURQUOI `cibles` NE SUFFISAIT PAS, ET C'EST UN DÉFAUT VU À L'ÉCRAN LE 02/10/2026. On rouvrait la fenêtre
+   * en lui passant la sélection dans `cibles` ; la pré-coche y AJOUTAIT les quatre propositions du moteur, que
+   * l'on venait justement de décocher. « Garde les cases cochées » (Arno) veut dire les deux : ce qui est coché
+   * reste coché, ET ce qui est décoché reste décoché.
+   *
+   * ⚠️ UNE LISTE VIDE EST UNE SÉLECTION, PAS UNE ABSENCE : elle veut dire « aucun bien », et la fenêtre doit
+   * rouvrir sur « Valider — aucun bien ». C'est pour cela que le défaut est `null` et non `[]`.
+   */
+  selectionInitiale?: readonly string[] | null;
   onChange: (c: CibleBrouillon[]) => void;
   onFerme: () => void;
 }) {
@@ -166,6 +185,11 @@ export function RattacherEnEcrivant({
    */
   const cle = messageId === null ? destinataires.join(',') : `message:${messageId}`;
   const pret = precharge !== null && precharge.cle === cle ? precharge.contexte : null;
+  /**
+   * 🔴 LOT CONTACTS-EXTERNES — LA SÉLECTION IMPOSÉE PAR L'APPELANT (« ← Retour »). `null` = il n'en impose
+   * aucune, et la pré-coche d'origine s'applique — c'est-à-dire tout le comportement d'avant ce lot.
+   */
+  const imposee = selectionInitiale === null ? null : new Set(selectionInitiale);
   const [etat, setEtat] = useState<
     | { v: 'charge' }
     | { v: 'ok'; contexte: ContexteRedaction }
@@ -187,7 +211,9 @@ export function RattacherEnEcrivant({
     // 🔴 LA PRÉ-COCHE EST POSÉE DÈS LE PREMIER RENDU quand les propositions sont déjà là : sans cela, la fenêtre
     //   s'ouvrirait avec les biens affichés mais aucune case cochée, puis les cases se cocheraient toutes seules
     //   sous les yeux — un mouvement qui se lit comme un défaut.
-    pret === null ? null : precocher(pret, cibles),
+    // 🔴 LOT CONTACTS-EXTERNES — une sélection IMPOSÉE passe avant tout, et sans attendre les propositions :
+    //   c'est « ← Retour », et il doit rendre la fenêtre telle qu'on l'a quittée, pas telle que le moteur la veut.
+    imposee ?? (pret === null ? null : precocher(pret, cibles)),
   );
   /**
    * ══ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — LE MOTEUR DE RECHERCHE EST DANS LA MODALE, TOUJOURS VISIBLE ══════════
@@ -255,7 +281,9 @@ export function RattacherEnEcrivant({
       //   une case qu'on vient de décocher. La pré-coche n'a lieu qu'une fois, qu'elle vienne du pré-chargement
       //   ou de cette lecture-ci.
       const calcule = precocher(recu, cibles);
-      setCoches((prev) => prev ?? calcule);
+      // 🔴 LOT CONTACTS-EXTERNES — `imposee` d'abord : une sélection rendue par « ← Retour » ne doit pas se voir
+      //   compléter par la pré-coche du moteur à la fin du chargement (défaut vu à l'écran le 02/10/2026).
+      setCoches((prev) => prev ?? imposee ?? calcule);
     } catch {
       setEtat({ v: 'erreur', message: 'La lecture des biens n’a pas abouti.' });
     }

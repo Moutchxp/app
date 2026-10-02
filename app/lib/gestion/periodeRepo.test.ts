@@ -24,9 +24,24 @@ vi.mock('../db/client', () => ({
 
 let migration290 = true;
 let migration257 = true;
+/**
+ * ══ 🔴 LOT CONTACTS-EXTERNES — LA SEULE MODIFICATION DE CE FICHIER, ET ELLE N'EST PAS UN ATTENDU ══════════════
+ *
+ * `periodeRepo` sonde désormais une troisième migration (la 293, les interventions). Ce faux module doit donc
+ * répondre à `interventionsDisponibles`, comme il répond déjà aux deux autres — sans quoi la sonde vaudrait
+ * `undefined` et les 16 épreuves de ce fichier tomberaient sur un appel de non-fonction.
+ *
+ * 🔴 AUCUN ATTENDU N'A CHANGÉ, et c'est le point : `false` par défaut, donc la projection des interventions sort
+ * à sa première ligne et `periodeRepo` se comporte EXACTEMENT comme avant ce lot. C'est la gratuité de ce lot sur
+ * l'existant, vérifiée par les 16 épreuves telles qu'elles étaient écrites.
+ *
+ * (Le cas « 293 présente » est éprouvé à part, dans `contactsExternes.suivi.test.ts` : un fichier NOUVEAU.)
+ */
+let migration293 = false;
 vi.mock('./schema', () => ({
   periodesDisponibles: async () => migration290,
   rattachementsDisponibles: async () => migration257,
+  interventionsDisponibles: async () => migration293,
 }));
 
 const rattacher = vi.fn(async () => ({ ok: true }));
@@ -101,7 +116,7 @@ function reponse(sql: string): { rows: unknown[] } {
 }
 
 beforeEach(() => {
-  migration290 = true; migration257 = true;
+  migration290 = true; migration257 = true; migration293 = false;
   base = { mails: [10, 20, 30], periodes: [], exceptions: [], liens: [], filsARerendre: [], dejaRepris: 0 };
   for (const m of [queryMock, qMock, rattacher, changerStatut, marquerInterne, annulerInterne,
     marquerHorsGestion, annulerHorsGestion]) m.mockClear();

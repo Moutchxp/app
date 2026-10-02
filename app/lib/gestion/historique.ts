@@ -237,6 +237,33 @@ export interface LigneHistorique {
   statut: 'classe' | 'auto' | 'interne' | 'hors_gestion' | 'a_classer' | null;
   /** Le détail de la capsule (ce à quoi le mail est rattaché), tel que l'info-bulle l'affiche. */
   statutDetail: string | null;
+  /**
+   * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LES PERSONNES QUE CE MAIL CONCERNE AUSSI, ET PAR QUI IL EST PASSÉ ══════════
+   *
+   * Demande d'Arno : « le mail apparaît dans “Vie du bien” ET dans l'historique de chaque carte ou fiche
+   * concernée, avec le rôle instantané et le contact externe (“via Me Martin, avocat”) ».
+   *
+   * ⚠️ VIDE N'EST PAS UNE ABSENCE DE DONNÉE : c'est « aucun intermédiaire », qui est le cas de l'immense majorité
+   * du courrier. La ligne n'affiche alors rien de plus, exactement comme avant ce lot.
+   *
+   * ⚠️ VIDE AUSSI SANS LA MIGRATION 293 : la sonde répond « non », le dépôt ne nomme aucune colonne nouvelle, et
+   * la carte revient vide. Une sonde voyage avec sa donnée — règle du module.
+   *
+   * ⚠️ L'UNION DES RÔLES EST RECOPIÉE ICI, comme celle de `statut` juste au-dessus et pour la même raison : ce
+   * module est PUR et n'importe RIEN. Le compilateur tient les deux accordées.
+   *
+   * ⚠️ CHAMP **FACULTATIF**, ET DÉLIBÉRÉMENT. Une réponse d'API plus ancienne que ce lot ne le porte pas, et tout
+   * ce qui construit une ligne d'historique ailleurs dans le dépôt doit continuer de compiler sans une ligne de
+   * différence. `undefined` et `[]` veulent dire la même chose : aucun intermédiaire.
+   */
+  interventions?: {
+    sorte: 'proprietaire' | 'locataire';
+    /** Le nom de la personne, tel qu'il était au moment du classement (libellé figé du lien). */
+    libelle: string;
+    role: 'proprietaire' | 'locataire_occupant' | 'locataire_sortant' | 'locataire_a_venir';
+    /** « via Me Martin, avocat » — déjà composé par le dépôt, ou `null` si aucun contact n'est nommé. */
+    via: string | null;
+  }[];
 }
 
 /** Un événement tel qu'une ligne d'historique l'annonce. `ouvert` = non traité : c'est lui que le filtre garde. */

@@ -38,6 +38,9 @@ import {
 import { categorieDuBien } from './categorieBien';
 // LOT STATUT-HORS-GESTION — rattacher un bien lève la marque « hors gestion » du mail (réversibilité naturelle).
 import { leverHorsGestionApresRattachement } from './horsGestionRepo';
+// 🔴🔴 LOT CONTACTS-EXTERNES — une intervention ne survit pas au départ de son bien (voir `changerStatut`).
+//   ⚠️ AUCUN CYCLE : `contactExterneRepo` n'importe pas ce fichier-ci.
+import { retirerInterventionsSansBien } from './contactExterneRepo';
 import { nomBien, nomProprietaire } from './driveArbre';
 import type { BienConnu } from './propositionsBien';
 import {
@@ -979,9 +982,26 @@ export async function changerStatut(o: {
   if (!(await rattachementsDisponibles())) {
     return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 257).' };
   }
-  return withTransaction(async (q) => {
-    const { rows } = await q<{ statut: string; cible_sorte: string; cible_cle: string | null; cible_id: string | null }>(
-      'SELECT statut, cible_sorte, cible_cle, cible_id FROM gestion_rattachement WHERE id = $1 FOR UPDATE',
+  /**
+   * ══ 🔴🔴 LOT CONTACTS-EXTERNES — CE QU'IL FAUT RETENIR POUR LA CASCADE, ET RIEN DE PLUS ═══════════════════
+   *
+   * Une intervention (un mail qui concerne AUSSI une personne du dossier) ne survit pas au départ de son bien :
+   * la migration 293 refuse de la CRÉER sans bien vivant, mais elle ne peut pas refuser qu'on retire le bien
+   * ensuite — ce refus-là casserait « Valider — aucun bien », cette fenêtre, la file à trier et la projection
+   * des périodes. L'encadré de la migration le dit en toutes lettres.
+   *
+   * 🔴 DONC LA CASCADE EST ICI, APRÈS LA TRANSACTION, et elle ne regarde que ce cas précis : un lien « lot » qui
+   * cesse d'être vivant. Tout le reste de cette fonction est INCHANGÉ, à la ligne près.
+   */
+  let cascade: { messageId: number } | null = null;
+
+  const issue = await withTransaction<IssueGeste>(async (q) => {
+    const { rows } = await q<{
+      statut: string; cible_sorte: string; cible_cle: string | null; cible_id: string | null;
+      message_id: string;
+    }>(
+      `SELECT statut, cible_sorte, cible_cle, cible_id, message_id::text
+         FROM gestion_rattachement WHERE id = $1 FOR UPDATE`,
       [o.lienId]);
     if (rows.length === 0) return { ok: false, motif: 'Ce rattachement n’existe pas.' };
     const avant = rows[0].statut as Statut;
@@ -999,8 +1019,22 @@ export async function changerStatut(o: {
     });
     await journaliser(q, o.lienId, ACTION_DU_STATUT[o.statut], o.auteur,
       `${ACTION_DU_STATUT[o.statut]} : ${cible}`, avant, o.statut);
+    // 🔴 ON NOTE, ON N'AGIT PAS ENCORE : la cascade lit la table que cette transaction est en train d'écrire.
+    if (rows[0].cible_sorte === 'lot' && (o.statut === 'retire' || o.statut === 'rejete')) {
+      cascade = { messageId: Number(rows[0].message_id) };
+    }
     return { ok: true, id: o.lienId };
   });
+
+  /**
+   * ⚠️ APRÈS LA TRANSACTION, ET SANS LA FAIRE ÉCHOUER : c'est un rattrapage d'état, pas le geste lui-même. La
+   * fonction appelée avale ses propres erreurs et sonde la migration 293 avant de nommer sa colonne — exactement
+   * la discipline de `leverHorsGestionApresRattachement`, juste au-dessus.
+   */
+  if (issue.ok && cascade !== null) {
+    await retirerInterventionsSansBien([(cascade as { messageId: number }).messageId], o.auteur);
+  }
+  return issue;
 }
 
 /** Le mot du journal pour chaque statut d'arrivée. Écrit en français : le journal se relit sans le code. */

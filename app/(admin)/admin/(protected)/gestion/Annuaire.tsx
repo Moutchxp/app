@@ -12,6 +12,8 @@ import type {
 import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
 // 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
 import { DocumentsAutomatiques } from './DocumentsAutomatiques';
+// 🔴🔴 LOT CONTACTS-EXTERNES — les échanges de cette personne passés par un intermédiaire. Liste DISTINCTE.
+import { InterventionsDeLaFiche } from './InterventionsDeLaFiche';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 // LOT FICHES-ANNUAIRE étape C — les personnes en CARTES côte à côte, modifiables sur place.
@@ -376,7 +378,7 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
               : detail.etat === 'proprietaire'
                 ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
                   gestes={gestes} onCreer={creerEtRattacher} onHistoriqueDuBien={ouvrirVieDuBien}
-                  onEvenements={ouvrirEvenements} />
+                  onEvenements={ouvrirEvenements} onOuvrirFil={onOuvrirFil} />
                 : detail.etat === 'lot'
                   ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} onEcrire={onEcrire}
                     maintenant={refTemps} onOuvrirFil={onOuvrirFil} gestes={gestes} onCreer={creerEtRattacher}
@@ -791,9 +793,16 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
   );
 }
 
-function VueProprietaire({ f, ouvrir, onHistorique, gestes, onCreer, onHistoriqueDuBien, onEvenements }: {
+function VueProprietaire({
+  f, ouvrir, onHistorique, gestes, onCreer, onHistoriqueDuBien, onEvenements, onOuvrirFil,
+}: {
   f: FicheProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
+  /**
+   * 🔴 LOT CONTACTS-EXTERNES — ouvrir l'échange depuis une ligne de « Échanges par un contact extérieur ». La
+   * fiche locataire le recevait déjà ; la fiche propriétaire ne l'avait pas, et la ligne y serait restée du texte.
+   */
+  onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   /** Ouvre la fiche d'un bien, posée sur sa « vie du bien ». Voir `CarteBien`. */
   onHistoriqueDuBien: (lotId: number) => void;
   /** Même chemin, filtré sur les échanges qui portent un événement ouvert. */
@@ -907,6 +916,12 @@ function VueProprietaire({ f, ouvrir, onHistorique, gestes, onCreer, onHistoriqu
       {/* 🔴🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — les documents du logiciel de gestion, rangés chez LA PERSONNE.
           Sans la migration 291, le composant ne rend RIEN : la fiche est exactement celle d'avant. */}
       <DocumentsAutomatiques sorte="proprietaire" id={f.id} />
+
+      {/* ══ 🔴🔴 LOT CONTACTS-EXTERNES — LES ÉCHANGES PASSÉS PAR UN INTERMÉDIAIRE ═══════════════════════════
+          Une liste DISTINCTE de celle du dessus, et la section le dit en toutes lettres : les documents
+          automatiques partent de chez nous et ne concernent aucun bien ; ces échanges-ci sont reçus, rattachés à
+          un bien, et concernent AUSSI cette personne. Sans la migration 293, le composant ne rend RIEN. */}
+      <InterventionsDeLaFiche sorte="proprietaire" id={f.id} onOuvrirFil={onOuvrirFil} />
     </>
   );
 }
@@ -1384,6 +1399,10 @@ function VueLocataire({
       {/* 🔴🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — quittances, avis d'échéance, relances : ils sont adressés à CETTE
           personne, et c'est chez elle qu'ils se rangent. Sans la migration 291, rien ne s'affiche. */}
       <DocumentsAutomatiques sorte="locataire" id={f.id} />
+
+      {/* ══ 🔴🔴 LOT CONTACTS-EXTERNES — et ici, le courrier de son avocat, de son garant ou du syndic, avec son
+          rôle AU JOUR DU MAIL. Liste distincte des documents automatiques ; sans la 293, rien ne s'affiche. */}
+      <InterventionsDeLaFiche sorte="locataire" id={f.id} onOuvrirFil={onOuvrirFil} />
     </>
   );
 }

@@ -45,7 +45,7 @@ function entier(brut: unknown): number | null {
  */
 export function classementRecu(brut: unknown): Classement | null {
   if (typeof brut !== 'object' || brut === null) return null;
-  const c = brut as { sorte?: unknown; biens?: unknown };
+  const c = brut as { sorte?: unknown; biens?: unknown; personnes?: unknown };
   const sortes: SorteClassement[] = ['biens', 'interne', 'hors_gestion'];
   const sorte = sortes.find((s) => s === c.sorte);
   if (sorte === undefined) return null;
@@ -63,7 +63,55 @@ export function classementRecu(brut: unknown): Classement | null {
     .slice(0, 50);
   // ⚠️ SANS DOUBLON : la sélection est un ENSEMBLE (lot MODALE-RATTACHER-PROPRE), et elle le reste en base.
   const vues = new Set<string>();
-  return { sorte, biens: biens.filter((b) => (vues.has(b.cle) ? false : (vues.add(b.cle), true))) };
+  const retenus = biens.filter((b) => (vues.has(b.cle) ? false : (vues.add(b.cle), true)));
+  const personnes = personnesRecues(c.personnes);
+  /**
+   * ⚠️ LE CHAMP N'EST POSÉ QUE S'IL Y A QUELQUE CHOSE À POSER. Un `personnes: []` systématique changerait la forme
+   * de TOUS les classements du dépôt — y compris ceux des 23 812 fenêtres existantes relues par la projection — et
+   * ferait diverger les attendus des scénarios S1 à S13 pour rien.
+   */
+  return personnes.length === 0
+    ? { sorte, biens: retenus }
+    : { sorte, biens: retenus, personnes };
+}
+
+/**
+ * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LES PERSONNES REÇUES DU NAVIGATEUR, RE-VALIDÉES. PUR. ════════════════════════
+ *
+ * 🔴 RIEN N'EST CRU SUR PAROLE, et c'est la règle de cette route depuis `classementRecu` : la sorte est vérifiée
+ * contre la liste fermée (`proprietaire` ou `locataire`, et rien d'autre — jamais `lot`, jamais `evenement`), la
+ * clé est bornée, le libellé retombe sur la clé, et l'identifiant du contact externe doit être un entier positif.
+ *
+ * ⚠️ UNE SORTE INCONNUE EST ÉCARTÉE, PAS CORRIGÉE. Transformer un `lot` reçu ici en `proprietaire` écrirait une
+ * cible que personne n'a demandée ; l'écarter laisse un classement de biens parfaitement valide.
+ *
+ * ⚠️ CINQUANTE AU PLUS, comme les biens : ce n'est pas une règle métier, c'est le refus d'un payload absurde.
+ */
+export function personnesRecues(brut: unknown): { sorte: 'proprietaire' | 'locataire'; cle: string; libelle: string; contactExterneId: number | null }[] {
+  const liste = Array.isArray(brut) ? brut : [];
+  const vues = new Set<string>();
+  return liste
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
+    .map((x) => {
+      const sorte = x.sorte === 'locataire' ? 'locataire' as const
+        : x.sorte === 'proprietaire' ? 'proprietaire' as const : null;
+      const cle = typeof x.cle === 'string' ? x.cle.trim().slice(0, 300) : '';
+      const contact = Number(x.contactExterneId);
+      return {
+        sorte,
+        cle,
+        libelle: typeof x.libelle === 'string' && x.libelle.trim() !== ''
+          ? x.libelle.trim().slice(0, 300) : cle,
+        contactExterneId: Number.isSafeInteger(contact) && contact > 0 ? contact : null,
+      };
+    })
+    .filter((x): x is { sorte: 'proprietaire' | 'locataire'; cle: string; libelle: string; contactExterneId: number | null } =>
+      x.sorte !== null && x.cle !== '')
+    .filter((x) => {
+      const k = `${x.sorte}:${x.cle}`;
+      return vues.has(k) ? false : (vues.add(k), true);
+    })
+    .slice(0, 50);
 }
 
 /** Le choix de suivi reçu. Absent ou inconnu ⇒ `suite`, le défaut d'Arno — jamais « toute la conversation ». */

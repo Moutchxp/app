@@ -12,9 +12,14 @@ import { titresDistincts } from '../../../../lib/gestion/titreBien';
 // 🔴🔴 LOT SUIVI-CONVERSATION — les périodes de classement d'une conversation. Décisions dans un module PUR.
 import {
   alerteTouteLaConversation, blocSuiviVisible, motClassement, SUIVI_DEFAUT,
-  type ChoixSuivi, type Classement, type ExceptionMail, type Periode,
+  type ChoixSuivi, type Classement, type ExceptionMail, type Periode, type PersonneClassee,
 } from '../../../../lib/gestion/periodesConversation';
 import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
+// 🔴🔴 LOT CONTACTS-EXTERNES — la 2ᵉ étape « Classer ce nouveau contact », et ses décisions (module PUR).
+import { CSS_ETAPE_CONTACT, EtapeContactExterne, type ValidationEtape2 } from './EtapeContactExterne';
+import { choixSuiviDeContact } from '../../../../lib/gestion/contactExterne';
+// ⚠️ `import type` SEULEMENT : ce dépôt tire `pg` (garde de graphe `clientBoundary.guard.test.ts`).
+import type { ReponseEtape2 } from '../../../../lib/gestion/contactExterneRepo';
 import type { CibleBrouillon } from '../../../../lib/gestion/redaction';
 // LOT AFFECTATION-PAR-BIEN — la fenêtre de classement complète, partagée : une seule implémentation du geste.
 import { ClasserMail } from './ClasserMail';
@@ -255,6 +260,26 @@ export function EncartRattachement({
    */
   const [selectionModale, setSelectionModale] = useState<readonly string[] | null>(null);
 
+  /**
+   * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LES QUATRE ÉTATS DE LA 2ᵉ ÉTAPE ══════════════════════════════════════════
+   *
+   * ⚠️ DÉCLARÉS **AVANT** LE RETOUR ANTICIPÉ CI-DESSOUS, et ce n'est pas un détail de style : un `useState` placé
+   * après ferait rendre moins de crochets qu'au tour précédent dès que `liens` passe à `null`, et React lève
+   * « Rendered fewer hooks than expected ». Le piège s'est déjà refermé DEUX fois dans ce fichier (lots
+   * PROPOSITIONS-EMAILS-MULTIPLES puis MODALE-SUIVI-ET-DEFILEMENT). Il ne se refermera pas une troisième.
+   *
+   * · `etape2`        — les données de l'étape. `null` = elle n'est pas ouverte.
+   * · `ciblesEnCours` — 🔴 LES CASES COCHÉES À L'ÉTAPE 1, GARDÉES POUR « ← Retour » (demande d'Arno). C'est ce
+   *                     qui permet de rouvrir l'étape 1 exactement comme on l'a quittée : `precocher` coche les
+   *                     cibles qu'on lui donne.
+   * · `verification`  — le temps d'un aller-retour : on DIT ce qu'on fait plutôt que de clignoter.
+   */
+  const [etape2, setEtape2] = useState<ReponseEtape2 | null>(null);
+  const [ciblesEnCours, setCiblesEnCours] = useState<readonly CibleBrouillon[] | null>(null);
+  const [verification, setVerification] = useState(false);
+  const [occupeEtape2, setOccupeEtape2] = useState(false);
+  const [erreurEtape2, setErreurEtape2] = useState<string | null>(null);
+
   if (liens === null) return null;
 
   /**
@@ -323,8 +348,83 @@ export function EncartRattachement({
    * 🔴 UN DIFF DANS LES DEUX CAS. On ne retire pas tout pour tout reposer : un lien reposé perdrait sa date, son
    * auteur et son motif d'origine — tout ce qui permet de dire, six mois plus tard, d'où vient un rattachement.
    */
+  /**
+   * ══ 🔴🔴 LOT CONTACTS-EXTERNES — AU CLIC SUR « VALIDER », ON VÉRIFIE L'EXPÉDITEUR D'ABORD ═══════════════════
+   *
+   * Demande d'Arno : « au clic sur Valider, compare l'adresse de l'expéditeur à TOUTES les adresses de TOUTES les
+   * cartes des fiches propriétaires et locataires de CHAQUE bien coché. Si l'adresse correspond : comportement
+   * actuel, rien de nouveau. Si elle ne correspond pas : la modale ne se ferme pas et affiche une 2ᵉ ÉTAPE. »
+   *
+   * 🔴 LA DÉCISION EST AU SERVEUR, ET IL LE FAUT : lui seul a l'annuaire, et les adresses des fiches n'ont rien à
+   * faire dans le navigateur. Le module PUR `etape2Requise` tranche côté serveur, sur des faits qu'il a lus.
+   *
+   * ⚠️ UNE LECTURE EN ÉCHEC NE BLOQUE RIEN. Le classement du bien part comme avant (règle n° 1 : ne rien casser),
+   * et le compte rendu le DIT — « expéditeur non vérifié ». Répondre « pas d'étape 2 » en silence ferait perdre
+   * l'information exactement dans le cas où ce lot existe pour la retenir.
+   */
+  const demanderEtape2 = async (choisies: readonly CibleBrouillon[]): Promise<{
+    data: ReponseEtape2 | null; echec: boolean;
+  }> => {
+    const biens = choisies.filter((c) => c.sorte === 'lot').map((c) => c.cle ?? '').filter((c) => c !== '');
+    // ⚠️ AUCUN BIEN COCHÉ ⇒ AUCUNE QUESTION. « Valider — aucun bien » RETIRE les rattachements : demander pour
+    //   qui un contact intervient à ce moment-là n'aurait aucun sens (et la base refuserait le lien).
+    if (biens.length === 0) return { data: null, echec: false };
+    const p = new URLSearchParams({ message: String(messageId), biens: biens.join(',') });
+    if (interne === true) p.set('interne', '1');
+    if (horsGestion) p.set('horsGestion', '1');
+    try {
+      const res = await fetch(`/api/admin/gestion/contact-externe?${p}`, { cache: 'no-store' });
+      const d = (await res.json()) as { etat?: string; data?: ReponseEtape2 };
+      if (d.etat !== 'ok' || d.data === undefined) return { data: null, echec: true };
+      return { data: d.data.requise ? d.data : null, echec: false };
+    } catch {
+      return { data: null, echec: true };
+    }
+  };
+
   const appliquerCibles = async (choisies: readonly CibleBrouillon[]): Promise<void> => {
+    /**
+     * 🔴 « La modale ne se ferme pas » (Arno) : la fenêtre de l'étape 1 se démonte, et celle de l'étape 2 se
+     * monte dans le MÊME cadre, aux mêmes mesures. Entre les deux, un voile qui DIT ce qu'il fait — sans quoi
+     * l'écran clignoterait, et un clignotement se lit comme un défaut.
+     */
+    setVerification(true);
+    const verdict = await demanderEtape2(choisies);
+    setVerification(false);
+    if (verdict.data !== null) {
+      // ⚠️ ON GARDE LES CASES COCHÉES : « ← Retour » rouvre l'étape 1 avec cette liste, et `precocher` les coche.
+      setCiblesEnCours(choisies);
+      setEtape2(verdict.data);
+      return;
+    }
+    await ecrireClassement(choisies, [], null, verdict.echec);
+  };
+
+  /**
+   * ══ 🔴🔴 ÉCRIRE LE CLASSEMENT — LES DEUX CHEMINS D'AVANT, PLUS LES PERSONNES ════════════════════════════════
+   *
+   * ⚠️ LE CORPS DES DEUX CHEMINS EST CELUI D'AVANT CE LOT, À LA LIGNE PRÈS. Ce qui est nouveau :
+   *   · `personnes` entre dans le `classement` envoyé à la route du suivi (champ FACULTATIF : un classement sans
+   *     personne est byte-identique à celui d'avant) ;
+   *   · `suiviContact` peut imposer le choix de suivi quand l'étape 2 l'a demandé (voir la règle de préséance).
+   *
+   * 🔴🔴 LA PRÉSÉANCE DES DEUX MÉCANISMES DE SUIVI, ET ELLE EST CELLE D'ARNO :
+   *   ① si le bloc à 3 choix est VISIBLE, c'est LUI qui arbitre (« à partir du 2e mail, si on MODIFIE la
+   *      sélection d'une conversation en suivi automatique, c'est le bloc à 3 choix existant qui s'applique,
+   *      inchangé ») ;
+   *   ② sinon, si l'étape 2 a montré ses deux choix, ce sont EUX ;
+   *   ③ sinon, le défaut (`SUIVI_DEFAUT`), comme avant ce lot.
+   */
+  const ecrireClassement = async (
+    choisies: readonly CibleBrouillon[],
+    personnes: readonly PersonneClassee[],
+    suiviContact: 'auto' | 'ponctuel' | null,
+    expediteurNonVerifie = false,
+  ): Promise<void> => {
     const voulues = new Set(choisies.filter((c) => c.sorte === 'lot').map((c) => c.cle ?? ''));
+    /** ⚠️ `?? ''` NE SUFFIRAIT PAS : une mention honnête vaut mieux qu'un silence sur une vérification sautée. */
+    const mention = expediteurNonVerifie
+      ? ' (expéditeur non vérifié : la lecture des fiches n’a pas abouti)' : '';
 
     // ① LE CHEMIN DES PÉRIODES : une seule requête, qui porte la décision entière.
     if (suivi !== null && filId != null) {
@@ -332,19 +432,25 @@ export function EncartRattachement({
         sorte: 'biens',
         biens: choisies.filter((c) => c.sorte === 'lot')
           .map((c) => ({ cle: c.cle ?? '', libelle: c.libelle })),
+        ...(personnes.length === 0 ? {} : { personnes }),
       };
+      // 🔴 LA PRÉSÉANCE, ÉCRITE UNE SEULE FOIS (voir l'encadré ci-dessus).
+      const choixRetenu: ChoixSuivi = blocVisible || suiviContact === null
+        ? choix : choixSuiviDeContact(suiviContact);
       setOccupe(true);
       setErreur(null);
       try {
         const res = await fetch('/api/admin/gestion/suivi', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filId, messageId, classement, choix }),
+          body: JSON.stringify({ filId, messageId, classement, choix: choixRetenu }),
         });
         const d = (await res.json()) as { ok?: boolean; erreur?: string };
         if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return; }
-        onGeste?.(motDuGeste(choix, classement));
+        onGeste?.(`${motDuGeste(choixRetenu, classement)}${mention}`);
         await onChange();
         setAjout(false);
+        setEtape2(null);
+        setCiblesEnCours(null);
       } catch {
         setErreur('Le serveur n’a pas répondu.');
       } finally {
@@ -366,6 +472,45 @@ export function EncartRattachement({
     }
     if (aPoser.length === 0 && aRetirer.length === 0) await onChange();
     setAjout(false);
+    setEtape2(null);
+    setCiblesEnCours(null);
+  };
+
+  /**
+   * ══ 🔴🔴 VALIDER L'ÉTAPE 2 : LE CONTACT D'ABORD, LE CLASSEMENT ENSUITE ═════════════════════════════════════
+   *
+   * 🔴 L'ORDRE EST LA FONCTIONNALITÉ : il faut l'identifiant du contact externe pour l'écrire sur chaque lien
+   * d'intervention. On le mémorise donc AVANT de poser le classement.
+   *
+   * ⚠️ UN CONTACT QU'ON N'A PAS PU MÉMORISER NE BLOQUE RIEN. Les trois champs sont facultatifs — c'est écrit
+   * deux fois dans le cahier des charges —, et le classement du bien ne doit pas dépendre d'eux. Les relations
+   * aux personnes se posent alors sans `contact_externe_id` : la mention « via … » manquera, le rôle instantané
+   * et le lien ne manqueront pas.
+   */
+  const validerEtape2 = async (v: ValidationEtape2): Promise<void> => {
+    const cibles = ciblesEnCours ?? [];
+    setErreurEtape2(null);
+    setOccupeEtape2(true);
+    let contactId: number | null = null;
+    try {
+      if (etape2 !== null && etape2.disponible) {
+        const res = await fetch('/api/admin/gestion/contact-externe', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: etape2.expediteur, ...v.contact }),
+        });
+        const d = (await res.json()) as { ok?: boolean; id?: number };
+        if (d.ok === true && typeof d.id === 'number') contactId = d.id;
+      }
+      await ecrireClassement(
+        cibles,
+        v.personnes.map((p) => ({ ...p, contactExterneId: contactId })),
+        v.suivi,
+      );
+    } catch {
+      setErreurEtape2('Le serveur n’a pas répondu.');
+    } finally {
+      setOccupeEtape2(false);
+    }
   };
 
   /**
@@ -684,11 +829,36 @@ export function EncartRattachement({
         <RattacherEnEcrivant
           messageId={messageId}
           destinataires={[]}
-          cibles={biensRattaches}
+          /**
+           * 🔴🔴 LOT CONTACTS-EXTERNES — « ← Retour » GARDE LES CASES COCHÉES (demande d'Arno), et voici comment :
+           * on rouvre l'étape 1 avec la liste qu'on venait d'y valider. `precocher` (dans `RattacherEnEcrivant`)
+           * coche d'office les cibles qu'on lui donne, et les fait figurer dans la liste même si le moteur ne les
+           * propose pas (`horsPropositions`). La fenêtre se retrouve donc exactement comme on l'a quittée.
+           *
+           * ⚠️ `?? biensRattaches` : hors d'un retour, c'est le comportement d'avant ce lot, sans une différence.
+           */
+          cibles={ciblesEnCours ?? biensRattaches}
+          /**
+           * 🔴🔴 ET « GARDER LES CASES COCHÉES » VEUT DIRE LES DEUX SENS. `cibles` seul ne suffisait pas : la
+           * pré-coche de la fenêtre y AJOUTE les biens recommandés par le moteur, c'est-à-dire ceux qu'on venait
+           * justement de décocher. Défaut vu à l'écran le 02/10/2026 sur le mail 57329 (GDS PROPRETÉ) : on
+           * revenait de l'étape 2 avec « 5 bien(s) coché(s) » au lieu d'un seul.
+           */
+          selectionInitiale={ciblesEnCours === null
+            ? null
+            : ciblesEnCours.filter((c) => c.sorte === 'lot').map((c) => c.cle ?? '')}
           onSelection={setSelectionModale}
           onChange={(c) => { void appliquerCibles(c); }}
-          /* 🔴 FERMER OUBLIE LA SÉLECTION : rouvrir repart de l'état validé, donc sans bloc, comme à l'ouverture. */
-          onFerme={() => { setSelectionModale(null); setAjout(false); }}
+          /* 🔴 FERMER OUBLIE LA SÉLECTION : rouvrir repart de l'état validé, donc sans bloc, comme à l'ouverture.
+             ⚠️ LOT CONTACTS-EXTERNES — la croix et « Échap » oublient AUSSI les cases gardées pour le retour :
+                sortir par là, c'est renoncer, et renoncer ne doit rien laisser derrière.
+
+             🔴🔴 ET CE `null` N'EFFACE PAS CELUI DU CHEMIN « VALIDER », MALGRÉ LES APPARENCES. Dans la modale,
+                `valider()` appelle `onChange()` PUIS `onFerme()`, tous deux de façon synchrone — mais
+                `appliquerCibles` est ASYNCHRONE : elle n'a encore rien posé quand cette ligne passe. C'est donc
+                `setCiblesEnCours(choisies)`, exécuté APRÈS la réponse du serveur, qui a le dernier mot. L'ordre
+                réel est : onChange (début) → onFerme (ce null) → réponse → ciblesEnCours. */
+          onFerme={() => { setSelectionModale(null); setAjout(false); setCiblesEnCours(null); }}
           validationBloquee={blocVisible && choix === 'conversation' && !confirme
             ? 'Cochez la confirmation ci-dessus pour reclasser toute la conversation.'
             : null}
@@ -812,6 +982,34 @@ export function EncartRattachement({
           onGeste={onGeste}
           onAnnuler={() => setModifie(null)}
           onFait={async () => { setModifie(null); await onChange(); }} />
+      )}
+
+      {/* ══ 🔴🔴 LOT CONTACTS-EXTERNES — LE TEMPS D'UN ALLER-RETOUR, ON DIT CE QU'ON FAIT ════════════════════
+          « La modale ne se ferme pas » (Arno) : entre l'étape 1 qui se démonte et l'étape 2 qui se monte, il y a
+          une requête. Sans ce voile, l'écran serait nu pendant ce temps — et un clignotement se lit comme un
+          défaut, pas comme une attente. Il porte le MÊME cadre et les MÊMES mesures que les deux étapes. */}
+      {verification && (
+        <div className="ece-voile" role="presentation">
+          <style>{CSS_ETAPE_CONTACT}</style>
+          <div className="ece ece--attente" role="status">
+            <p className="ece-attente">Vérification de l’expéditeur…</p>
+          </div>
+        </div>
+      )}
+
+      {/* ══ 🔴🔴 L'ÉTAPE 2 : « CLASSER CE NOUVEAU CONTACT » ══════════════════════════════════════════════════
+          Elle ne s'ouvre QUE sur décision du serveur (`requise`), qui applique le module pur `etape2Requise` :
+          mail reçu, au moins un bien coché, ni Interne ni Hors gestion, pas un « Document CRITERIMMO », adresse
+          qui n'est pas des nôtres, et expéditeur inconnu de toutes les fiches des biens cochés. */}
+      {etape2 !== null && (
+        <EtapeContactExterne
+          data={etape2}
+          occupe={occupeEtape2 || occupe}
+          erreur={erreurEtape2 ?? erreur}
+          /* 🔴 « ← Retour » ROUVRE L'ÉTAPE 1 AVEC SES CASES (voir `ciblesEnCours`). Rien n'est écrit : on revient
+             exactement où l'on était, et le geste reste à faire. */
+          onRetour={() => { setEtape2(null); setErreurEtape2(null); setAjout(true); }}
+          onValider={validerEtape2} />
       )}
     </div>
   );
