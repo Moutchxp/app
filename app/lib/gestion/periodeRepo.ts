@@ -1,8 +1,9 @@
 import { query, withTransaction } from '../db/client';
 import { periodesDisponibles, rattachementsDisponibles, interventionsDisponibles } from './schema';
 import {
-  effetDuChoix, periodeEnCours, projeter, reprendre, repriseFidele,
+  effetDuChoix, periodeEnCours, projeter, reprendre, repriseFidele, simplifierLeSuivi,
   type ChoixSuivi, type Classement, type ExceptionMail, type Periode, type PersonneClassee,
+  type Simplification,
 } from './periodesConversation';
 import { rattacher, changerStatut } from './rattachementRepo';
 import { marquerInterne, annulerInterne } from './interneRepo';
@@ -305,9 +306,16 @@ export async function poserClassement(o: {
    */
   const avecPersonnes = await interventionsDisponibles();
   const avant = await suiviDuFil(o.filId);
+  /**
+   * 🔴🔴 LOT SUIVI-DERNIER-CHOIX — `mails` EST LA SEULE LIGNE NOUVELLE DE CETTE ÉCRITURE.
+   *
+   * C'est lui qui permet au module pur de répondre à la question d'Arno : « ce choix aboutit-il à la MÊME
+   * configuration que celle en vigueur juste avant ce mail ? ». Sans l'ordre des mails, la question n'a pas de
+   * sens — et la règle 2 se tait (voir `effetDuChoix`).
+   */
   const effet = effetDuChoix({
     choix: o.choix, messageId: o.messageId, classement: o.classement,
-    periodes: avant.periodes, exceptions: avant.exceptions,
+    periodes: avant.periodes, exceptions: avant.exceptions, mails,
   });
 
   await withTransaction(async (q) => {
@@ -761,4 +769,75 @@ export async function reprendreExistant(o: {
     });
   }
   return c;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT SUIVI-DERNIER-CHOIX — DÉSEMPILER UNE CONVERSATION DÉJÀ ACCUMULÉE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export interface IssueSimplification extends Simplification {
+  /** Combien de gestes la reprojection a réellement posés ou retirés sur `gestion_rattachement`. */
+  projetes: number;
+}
+
+const RIEN: IssueSimplification = {
+  periodesRetirees: [], exceptionsRetirees: [], pointsEmpiles: 0, decisionsRedondantes: 0, projetes: 0,
+};
+
+/**
+ * NE LAISSE QU'UN SEUL REPÈRE PAR POINT DE DÉPART, ET AUCUN QUI NE CHANGE RIEN.
+ *
+ * Le module PUR (`simplifierLeSuivi`) DÉCIDE ce qui tombe ; ici on écrit, puis on REPROJETTE — parce que retirer
+ * une décision peut rendre des mails à la configuration précédente, et que `gestion_rattachement` est la table
+ * que tout le reste de l'application lit.
+ *
+ * 🔴 RIEN N'EST SUPPRIMÉ : une période est DATÉE et SIGNÉE (`remplacee_le`, `remplacee_par_libelle`), une
+ * exception est datée (`retiree_le` — sa table ne porte pas de signataire, c'est le journal qui la porte). Tout
+ * est donc relisible, et rien n'est perdu.
+ *
+ * ⚠️ `appliquer` N'EST PAS LE DÉFAUT : par défaut elle COMPTE sans rien écrire. C'est ce qui permet de donner les
+ * chiffres avant d'engager la base.
+ */
+export async function simplifierLeFil(o: {
+  filId: number; auteur: Auteur; appliquer?: boolean;
+}): Promise<IssueSimplification> {
+  if (!(await periodesDisponibles())) return RIEN;
+  const mails = await mailsDuFil(o.filId);
+  if (mails.length === 0) return RIEN;
+  const { periodes, exceptions } = await suiviDuFil(o.filId);
+  const quoi = simplifierLeSuivi({ mails, periodes, exceptions });
+  if (quoi.periodesRetirees.length === 0 && quoi.exceptionsRetirees.length === 0) return { ...quoi, projetes: 0 };
+  if (o.appliquer !== true) return { ...quoi, projetes: 0 };
+
+  const libelle = (o.auteur.libelle ?? '').trim() || 'reprise « dernier choix »';
+  await withTransaction(async (q) => {
+    if (quoi.periodesRetirees.length > 0) {
+      await q(
+        `UPDATE gestion_fil_periode SET remplacee_le = now(), remplacee_par_libelle = $2
+          WHERE id = ANY($1::bigint[]) AND remplacee_le IS NULL`, [quoi.periodesRetirees, libelle]);
+    }
+    if (quoi.exceptionsRetirees.length > 0) {
+      await q(
+        `UPDATE gestion_message_exception SET retiree_le = now()
+          WHERE message_id = ANY($1::bigint[]) AND retiree_le IS NULL`, [quoi.exceptionsRetirees]);
+    }
+    /**
+     * 🔴 LE JOURNAL PORTE LA TRACE, ET C'EST LE POINT 3 D'ARNO : « Pas d'historique affiché des choix
+     * intermédiaires. Le journal technique interne peut garder la trace (annulation, audit), mais il n'apparaît
+     * jamais dans le fil. » Une ligne par conversation reprise suffit à répondre, six mois plus tard, à « qui a
+     * retiré ce repère, et pourquoi ».
+     */
+    await q(
+      `INSERT INTO gestion_journal
+         (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_libelle)
+       VALUES ('fil', $1, 'simplifier le suivi', $2, $3, $4, $5)`,
+      [o.filId, String(periodes.length + exceptions.length),
+        String(periodes.length + exceptions.length - quoi.periodesRetirees.length
+          - quoi.exceptionsRetirees.length),
+        `${quoi.pointsEmpiles} point(s) de départ empilé(s), ${quoi.decisionsRedondantes} décision(s) sans effet`,
+        libelle]);
+  });
+
+  const projetes = await projeterLeFil(o.filId, o.auteur);
+  return { ...quoi, projetes };
 }

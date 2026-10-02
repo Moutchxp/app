@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  alerteTouteLaConversation, blocSuiviVisible, memesBiens, classementVide, effetDuChoix, faceALaFenetre, mailsDuBien,
-  motClassement,
-  periodeEnCours, projeter, reperesDuFil, reprendre, repriseFidele, SUIVI_DEFAUT,
+  alerteTouteLaConversation, blocSuiviVisible, memesBiens, classementVide, configurationHeritee, effetDuChoix,
+  faceALaFenetre, mailsDuBien,
+  memeConfiguration, motClassement,
+  periodeEnCours, projeter, reperesDuFil, reprendre, repriseFidele, simplifierLeSuivi, SUIVI_DEFAUT,
   type Classement, type ExceptionMail, type Periode,
 } from './periodesConversation';
 
@@ -572,5 +573,259 @@ describe('🔴🔴 ⑫ conversation JAMAIS rattachée : le bloc est toujours là
       estPremierMail: true, dejaClassee: true, reference: ['LOT-A'], selection: ['LOT-B'],
       expediteurConnu: true,
     })).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑬ LOT SUIVI-DERNIER-CHOIX — SEUL LE DERNIER CHOIX EXISTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (02/10/2026), fil 546 / message 57242 : quatre repères empilés au même endroit. « Les décisions
+   successives s'accumulent : ça n'a aucun intérêt. »
+
+     RÈGLE 1 — plusieurs changements sur le MÊME mail : le dernier REMPLACE, il ne s'ajoute pas.
+     RÈGLE 2 — un choix qui aboutit à la configuration déjà en vigueur ne laisse RIEN.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑬ « même configuration ? » — les trois axes d’Arno', () => {
+  it('🔴 les mêmes biens, dans n’importe quel ordre, c’est la même chose', () => {
+    const deux = (a: string, b: string): Classement =>
+      ({ sorte: 'biens', biens: [{ cle: a, libelle: a }, { cle: b, libelle: b }] });
+    expect(memeConfiguration(deux('A', 'B'), deux('B', 'A'))).toBe(true);
+    expect(memeConfiguration(deux('A', 'B'), bien('A'))).toBe(false);
+  });
+
+  it('🔴🔴 « Interne » et « Hors gestion » ne se confondent ni entre eux ni avec « aucun bien »', () => {
+    const aucun: Classement = { sorte: 'biens', biens: [] };
+    expect(memeConfiguration(INTERNE, INTERNE)).toBe(true);
+    expect(memeConfiguration(INTERNE, HORS)).toBe(false);
+    // 🔴 LE PIÈGE : les trois portent zéro bien. Comparer les seuls biens les rendrait identiques.
+    expect(memeConfiguration(INTERNE, aucun)).toBe(false);
+    expect(memeConfiguration(HORS, aucun)).toBe(false);
+  });
+
+  it('🔴🔴 les PERSONNES comptent : mêmes biens, personne en plus ⇒ ce n’est pas la même configuration', () => {
+    const sans: Classement = { sorte: 'biens', biens: [{ cle: 'A', libelle: 'lot A' }] };
+    const avec: Classement = {
+      sorte: 'biens', biens: [{ cle: 'A', libelle: 'lot A' }],
+      personnes: [{ sorte: 'locataire', cle: 'p1', libelle: 'MARTIN Jean' }],
+    };
+    expect(memeConfiguration(sans, avec)).toBe(false);
+    expect(memeConfiguration(avec, { ...avec, personnes: [...(avec.personnes ?? [])] })).toBe(true);
+    // ⚠️ `undefined` et `[]` disent la même chose — c'est la convention du champ depuis CONTACTS-EXTERNES.
+    expect(memeConfiguration(sans, { ...sans, personnes: [] })).toBe(true);
+  });
+});
+
+describe('🔴🔴 ⑬-bis la configuration en vigueur JUSTE AVANT un mail', () => {
+  const mails = [1, 2, 3, 4];
+
+  it('🔴 elle ignore ce qui commençait à ce mail — sinon on comparerait le choix à lui-même', () => {
+    const periodes = [periode(1, 1, bien('A')), periode(2, 3, bien('B'))];
+    expect(configurationHeritee({ messageId: 3, mails, periodes, exceptions: [] })).toEqual(bien('A'));
+  });
+
+  it('🔴 rien en vigueur avant le premier mail : `undefined`, et ce n’est PAS « aucun bien »', () => {
+    expect(configurationHeritee({
+      messageId: 1, mails, periodes: [periode(1, 1, bien('A'))], exceptions: [],
+    })).toBeUndefined();
+  });
+
+  it('🔴 une exception sur ce mail est ignorée elle aussi', () => {
+    const periodes = [periode(1, 1, bien('A'))];
+    expect(configurationHeritee({
+      messageId: 2, mails, periodes, exceptions: [exception(2, bien('C'))],
+    })).toEqual(bien('A'));
+  });
+});
+
+describe('🔴🔴 ⑬-ter RÈGLE 1 — le dernier choix REMPLACE celui du même mail', () => {
+  const mails = [1, 2, 3];
+
+  it('🔴🔴 une période qui commençait déjà à ce mail est remplacée, jamais doublée', () => {
+    const periodes = [periode(1, 1, bien('A')), periode(7, 3, bien('B'))];
+    const e = effetDuChoix({ choix: 'suite', messageId: 3, classement: bien('C'), periodes, exceptions: [], mails });
+    expect(e.periodesRemplacees).toEqual([7]);
+    expect(e.nouvellePeriode).toEqual({ depuisMessageId: 3, classement: bien('C') });
+  });
+
+  it('🔴 « Ce mail uniquement » remplace lui aussi la période de ce mail', () => {
+    const periodes = [periode(1, 1, bien('A')), periode(7, 3, bien('B'))];
+    const e = effetDuChoix({ choix: 'mail', messageId: 3, classement: bien('C'), periodes, exceptions: [], mails });
+    expect(e.periodesRemplacees).toEqual([7]);
+    expect(e.nouvelleException).toEqual({ messageId: 3, classement: bien('C') });
+    expect(e.nouvellePeriode).toBeNull();
+  });
+
+  it('⚠️ et il ne touche PAS les périodes des autres mails', () => {
+    const periodes = [periode(1, 1, bien('A')), periode(7, 3, bien('B'))];
+    const e = effetDuChoix({ choix: 'suite', messageId: 2, classement: bien('C'), periodes, exceptions: [], mails });
+    expect(e.periodesRemplacees).toEqual([]);
+  });
+
+  /**
+   * 🔴🔴 LA GARANTIE DE COMPATIBILITÉ : sans `mails`, l'effet est EXACTEMENT celui d'avant ce lot. C'est ce qui
+   * permet d'ajouter la règle 2 sans toucher un seul appelant écrit avant.
+   */
+  it('🔴🔴 sans `mails`, la règle 2 se tait — l’effet d’avant ce lot, au champ près', () => {
+    const periodes = [periode(1, 1, bien('A'))];
+    const e = effetDuChoix({ choix: 'suite', messageId: 2, classement: bien('A'), periodes, exceptions: [] });
+    expect(e.nouvellePeriode).toEqual({ depuisMessageId: 2, classement: bien('A') });
+  });
+});
+
+describe('🔴🔴 ⑬-quater RÈGLE 2 — un choix qui ne change rien ne laisse rien', () => {
+  const mails = [1, 2, 3];
+
+  it('🔴🔴 reposer la configuration déjà en vigueur ne pose RIEN et retire ce qui traînait', () => {
+    const periodes = [periode(1, 1, bien('A')), periode(7, 3, bien('B'))];
+    // Au mail 3, on revient sur A : c'est ce que le mail 2 portait déjà. Donc aucun changement.
+    const e = effetDuChoix({ choix: 'suite', messageId: 3, classement: bien('A'), periodes, exceptions: [], mails });
+    expect(e.nouvellePeriode).toBeNull();
+    expect(e.nouvelleException).toBeNull();
+    expect(e.periodesRemplacees).toEqual([7]);
+  });
+
+  it('🔴 une exception qui dit la même chose que sa période disparaît elle aussi', () => {
+    const periodes = [periode(1, 1, bien('A'))];
+    const e = effetDuChoix({
+      choix: 'mail', messageId: 2, classement: bien('A'), periodes, exceptions: [exception(2, bien('B'))], mails,
+    });
+    expect(e.nouvelleException).toBeNull();
+    // 🔴 ET L'ANCIENNE EST RETIRÉE : rien n'étant inséré, personne d'autre ne la retirerait.
+    expect(e.exceptionRetiree).toBe(2);
+  });
+
+  it('🔴 un choix qui change vraiment quelque chose pose bien sa période', () => {
+    const periodes = [periode(1, 1, bien('A'))];
+    const e = effetDuChoix({ choix: 'suite', messageId: 3, classement: bien('B'), periodes, exceptions: [], mails });
+    expect(e.nouvellePeriode).toEqual({ depuisMessageId: 3, classement: bien('B') });
+  });
+
+  it('🔴🔴 le PREMIER classement d’une conversation n’est jamais effacé par la règle 2', () => {
+    // Rien n'est en vigueur avant le mail 1 : « aucun bien » y est une décision, pas un non-changement.
+    const aucun: Classement = { sorte: 'biens', biens: [] };
+    const e = effetDuChoix({ choix: 'suite', messageId: 1, classement: aucun, periodes: [], exceptions: [], mails });
+    expect(e.nouvellePeriode).toEqual({ depuisMessageId: 1, classement: aucun });
+  });
+
+  it('⚠️ « Toute la conversation » n’est pas concerné : il repart du premier mail', () => {
+    const periodes = [periode(1, 1, bien('A'))];
+    const e = effetDuChoix({
+      choix: 'conversation', messageId: 3, classement: bien('A'), periodes, exceptions: [], mails,
+    });
+    expect(e.nouvellePeriode).toEqual({ depuisMessageId: 0, classement: bien('A') });
+    expect(e.periodesRemplacees).toEqual([1]);
+  });
+});
+
+describe('🔴🔴 ⑬-quinquies la reprise : désempiler une conversation déjà accumulée', () => {
+  /** 🔴 LE FIL 546 D'ARNO, À L'IDENTIQUE : 17 mails, 8 décisions, 4 empilées au mail 17. */
+  const le = (s: string) => s;
+  const p = (id: number, depuis: number, c: Classement, quand: string): Periode =>
+    ({ id, depuisMessageId: depuis, classement: c, le: le(quand) });
+  const mails546 = Array.from({ length: 17 }, (_, i) => i + 1);
+  const AUCUN: Classement = { sorte: 'biens', biens: [] };
+  const DEUX: Classement = {
+    sorte: 'biens', biens: [{ cle: '365', libelle: 'lot 365' }, { cle: '366', libelle: 'lot 366' }],
+  };
+  const UN = bien('365');
+  const fil546: Periode[] = [
+    p(23821, 1, DEUX, '2026-10-02T19:42:02Z'),
+    p(23822, 2, AUCUN, '2026-10-02T19:43:35Z'),
+    p(23823, 17, AUCUN, '2026-10-02T19:58:27Z'),
+    p(23824, 17, AUCUN, '2026-10-02T19:58:41Z'),
+    p(23825, 17, AUCUN, '2026-10-02T19:59:01Z'),
+    p(23826, 17, DEUX, '2026-10-02T19:59:18Z'),
+    p(23827, 14, UN, '2026-10-02T20:03:03Z'),
+    p(23828, 1, AUCUN, '2026-10-02T20:06:37Z'),
+  ];
+
+  it('🔴🔴 le fil 546 : 8 décisions ⇒ 3, et UN SEUL repère par point de départ', () => {
+    const q = simplifierLeSuivi({ mails: mails546, periodes: fil546, exceptions: [] });
+    // ① RÈGLE 1 — mail 1 : la plus récente (23828) gagne ; mail 17 : la plus récente (23826) gagne.
+    expect(q.pointsEmpiles).toBe(2);
+    // ② RÈGLE 2 — le mail 2 redit « aucun bien », déjà en vigueur depuis le mail 1 : il ne change rien.
+    expect(q.decisionsRedondantes).toBe(1);
+    expect(q.periodesRetirees.sort((a, b) => a - b)).toEqual([23821, 23822, 23823, 23824, 23825]);
+    expect(q.exceptionsRetirees).toEqual([]);
+
+    // CE QUI RESTE, et c'est le résultat qu'Arno veut voir à l'écran.
+    const restantes = fil546.filter((x) => !q.periodesRetirees.includes(x.id));
+    expect(restantes.map((x) => x.depuisMessageId)).toEqual([23826, 23827, 23828].map((id) =>
+      (fil546.find((y) => y.id === id) as Periode).depuisMessageId));
+    // Un seul repère par point de départ, et aucun pour le premier mail.
+    expect(reperesDuFil(mails546, restantes).map((r) => r.avantMessageId)).toEqual([14, 17]);
+  });
+
+  it('🔴🔴 LA GARANTIE : la simplification ne change AUCUN classement de mail', () => {
+    const q = simplifierLeSuivi({ mails: mails546, periodes: fil546, exceptions: [] });
+    const restantes = fil546.filter((x) => !q.periodesRetirees.includes(x.id));
+    const avant = projeter(mails546, fil546, []);
+    const apres = projeter(mails546, restantes, []);
+    for (const m of mails546) expect(motClassement(apres.get(m) as Classement)).toBe(motClassement(avant.get(m) as Classement));
+  });
+
+  it('🔴 elle est REJOUABLE : une seconde passe ne trouve plus rien', () => {
+    const q = simplifierLeSuivi({ mails: mails546, periodes: fil546, exceptions: [] });
+    const restantes = fil546.filter((x) => !q.periodesRetirees.includes(x.id));
+    const encore = simplifierLeSuivi({ mails: mails546, periodes: restantes, exceptions: [] });
+    expect(encore.periodesRetirees).toEqual([]);
+    expect(encore.exceptionsRetirees).toEqual([]);
+  });
+
+  /**
+   * 🔴🔴 LE SEUL CAS OÙ LA REPRISE CHANGE UN CLASSEMENT, et il est voulu : au même mail, `projeter` donne toujours
+   * la priorité à l'exception ; si la PÉRIODE est la plus récente des deux, la règle 1 retire l'exception et le
+   * mail change. C'est « exception puis “à venir” sur le même mail → seul le dernier ».
+   */
+  it('🔴🔴 exception puis période au même mail : l’exception tombe, et ce mail change', () => {
+    const mails = [1, 2, 3];
+    const periodes = [
+      p(1, 1, bien('A'), '2026-10-02T10:00:00Z'),
+      p(2, 2, bien('B'), '2026-10-02T12:00:00Z'),
+    ];
+    const exceptions: ExceptionMail[] = [{ ...exception(2, bien('C')), le: '2026-10-02T11:00:00Z' }];
+    const q = simplifierLeSuivi({ mails, periodes, exceptions });
+    expect(q.exceptionsRetirees).toEqual([2]);
+    expect(q.periodesRetirees).toEqual([]);
+    expect(projeter(mails, periodes, exceptions).get(2)?.biens[0].cle).toBe('C');
+    expect(projeter(mails, periodes, []).get(2)?.biens[0].cle).toBe('B');
+  });
+
+  it('🔴 et dans l’autre sens — l’exception la plus récente gagne, la période du même mail tombe', () => {
+    const mails = [1, 2, 3];
+    const periodes = [
+      p(1, 1, bien('A'), '2026-10-02T10:00:00Z'),
+      p(2, 2, bien('B'), '2026-10-02T11:00:00Z'),
+    ];
+    const exceptions: ExceptionMail[] = [{ ...exception(2, bien('C')), le: '2026-10-02T12:00:00Z' }];
+    const q = simplifierLeSuivi({ mails, periodes, exceptions });
+    expect(q.periodesRetirees).toEqual([2]);
+    expect(q.exceptionsRetirees).toEqual([]);
+    // Le mail 3 reprend alors A : la période B qu'on avait posée au mail 2 n'existe plus.
+    const restantes = periodes.filter((x) => x.id !== 2);
+    expect(projeter(mails, restantes, exceptions).get(3)?.biens[0].cle).toBe('A');
+  });
+
+  it('⚠️ une conversation déjà propre n’est pas touchée', () => {
+    const mails = [1, 2, 3];
+    const q = simplifierLeSuivi({
+      mails,
+      periodes: [p(1, 1, bien('A'), '2026-10-02T10:00:00Z'), p(2, 3, bien('B'), '2026-10-02T11:00:00Z')],
+      exceptions: [],
+    });
+    expect(q).toEqual({
+      periodesRetirees: [], exceptionsRetirees: [], pointsEmpiles: 0, decisionsRedondantes: 0,
+    });
+  });
+
+  it('⚠️ une décision posée sur un mail qui n’est plus dans la conversation est ignorée, pas retirée', () => {
+    const q = simplifierLeSuivi({
+      mails: [1, 2],
+      periodes: [p(1, 1, bien('A'), '2026-10-02T10:00:00Z'), p(2, 99, bien('B'), '2026-10-02T11:00:00Z')],
+      exceptions: [],
+    });
+    expect(q.periodesRetirees).toEqual([]);
   });
 });

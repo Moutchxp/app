@@ -326,6 +326,55 @@ export function blocSuiviVisible(o: {
   return !memesBiens(o.selection, o.reference);
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT SUIVI-DERNIER-CHOIX — « MÊME CONFIGURATION ? », LA QUESTION QUI DÉCIDE S'IL S'EST PASSÉ QUELQUE CHOSE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   RÈGLE 2 D'ARNO (02/10/2026) : « Si le dernier choix aboutit à la MÊME configuration que celle en vigueur juste
+   avant ce mail (même biens, même statut Interne / Hors gestion, mêmes personnes), il n'y a AUCUN changement. »
+
+   🔴 LES TROIS AXES SONT NOMMÉS PAR ARNO, ET IL N'EN MANQUE PAS UN. Comparer les seuls biens laisserait passer un
+   « Interne » qui redevient « Interne » (même ensemble vide de biens, mais ce n'est pas la même chose qu'un
+   classement sur aucun bien), et un ajout de personne sur les mêmes biens (lot CONTACTS-EXTERNES) passerait pour
+   « rien n'a changé » alors qu'une intervention serait posée.
+
+   ⚠️ L'ORDRE NE COMPTE NULLE PART : une sélection est un ENSEMBLE, à l'écran comme en base. */
+
+/** Deux classements disent-ils exactement la même chose ? PUR. */
+export function memeConfiguration(a: Classement, b: Classement): boolean {
+  if (a.sorte !== b.sorte) return false;
+  // ⚠️ « Interne » et « Hors gestion » ne portent ni bien ni personne : la sorte suffit à les départager.
+  if (a.sorte !== 'biens') return true;
+  if (!memesBiens(a.biens.map((x) => x.cle), b.biens.map((x) => x.cle))) return false;
+  const cle = (p: PersonneClassee): string => `${p.sorte}:${p.cle}`;
+  return memesBiens((a.personnes ?? []).map(cle), (b.personnes ?? []).map(cle));
+}
+
+/**
+ * LA CONFIGURATION EN VIGUEUR JUSTE AVANT CE MAIL. PUR.
+ *
+ * 🔴 ON RETIRE D'ABORD CE QUI COMMENÇAIT À CE MAIL, et c'est tout le point : on veut savoir de quoi ce mail
+ * HÉRITERAIT si l'on n'avait rien posé dessus. Garder la décision qu'on s'apprête à remplacer ferait comparer le
+ * nouveau choix… à lui-même.
+ *
+ * ⚠️ `undefined` = AUCUNE CONFIGURATION N'EST EN VIGUEUR (le mail est antérieur à toute période). Ce n'est PAS la
+ * même chose qu'un classement « aucun bien » : l'un dit « personne n'a rien décidé », l'autre dit « quelqu'un a
+ * décidé que cet échange ne concernait aucun logement ». La règle 2 ne s'applique donc pas dans ce cas — sans
+ * quoi le tout premier classement d'une conversation s'effacerait lui-même.
+ */
+export function configurationHeritee(o: {
+  messageId: number;
+  mails: readonly number[];
+  periodes: readonly Periode[];
+  exceptions: readonly ExceptionMail[];
+}): Classement | undefined {
+  return projeter(
+    o.mails,
+    o.periodes.filter((p) => p.depuisMessageId !== o.messageId),
+    o.exceptions.filter((e) => e.messageId !== o.messageId),
+  ).get(o.messageId);
+}
+
 /** Deux ensembles de clés de biens désignent-ils la même chose ? L'ORDRE NE COMPTE PAS, les doublons non plus. PUR. */
 export function memesBiens(a: readonly string[], b: readonly string[]): boolean {
   const ea = new Set(a);
@@ -360,6 +409,37 @@ export interface EffetDuChoix {
  *
  * ⚠️ UN MAIL QUI PORTAIT UNE EXCEPTION ET QU'ON RECLASSE EN PÉRIODE PERD SON EXCEPTION — sinon elle masquerait
  * aussitôt la règle qu'on vient de poser sur ce mail même, et le geste n'aurait aucun effet visible.
+ *
+ * ══ 🔴🔴 LOT SUIVI-DERNIER-CHOIX — DEUX RÈGLES DE PLUS, ET AUCUNE DES TROIS CI-DESSUS NE CHANGE ════════════════
+ *
+ * CONSTAT D'ARNO (02/10/2026), fil 546 / message 57242 : QUATRE repères empilés au même endroit — « aucun bien »
+ * trois fois, puis « lot 365, lot 366 ». « Les décisions successives s'accumulent : ça n'a aucun intérêt. »
+ *
+ *   RÈGLE 1 — PLUSIEURS CHANGEMENTS SUR LE MÊME MAIL : SEUL LE DERNIER EXISTE. Le nouveau choix REMPLACE la
+ *   période ou l'exception qui commençait déjà à ce mail, il ne s'y ajoute pas. Un seul repère par point de
+ *   départ.
+ *
+ *   RÈGLE 2 — UN CHOIX QUI NE CHANGE RIEN NE LAISSE RIEN. Si le dernier choix aboutit à la MÊME configuration que
+ *   celle en vigueur juste avant ce mail, on RETIRE la décision de ce mail et l'on n'en pose aucune : aucun
+ *   repère, et les mails concernés reviennent à la configuration précédente.
+ *
+ * 🔴 POURQUOI LA RÈGLE 1 NE CHANGE AUCUN RATTACHEMENT (et c'est ce qui la rend sûre). `projeter` lit les périodes
+ * dans l'ordre des mails et, à égalité de point de départ, garde la DERNIÈRE : les doublons empilés étaient déjà
+ * sans effet sur le classement. On retire du poids mort et des repères en double, pas une décision.
+ *
+ * 🔴🔴 L'EXCEPTION À CETTE TRANQUILLITÉ, et il faut la connaître : à un même mail, une EXCEPTION l'emporte
+ * toujours sur une période dans `projeter`, quel que soit l'ordre de création. Quand la plus récente des deux est
+ * la période, la règle 1 fait donc bel et bien changer le classement de ce mail — c'est exactement ce qu'Arno
+ * demande (« exception puis “à venir” sur le même mail → seul le dernier »), et c'est la seule source d'écart de
+ * la reprise.
+ *
+ * ⚠️ `mails` EST FACULTATIF, ET SON ABSENCE REND L'EFFET D'AVANT CE LOT. Sans l'ordre des mails, on ne peut pas
+ * savoir ce qui était en vigueur avant : la règle 2 se tait alors, plutôt que de deviner. Tout appelant écrit
+ * avant ce lot continue donc de se comporter exactement comme avant.
+ *
+ * ⚠️ « TOUTE LA CONVERSATION » N'EST PAS CONCERNÉ PAR LA RÈGLE 2, et Arno le range d'ailleurs dans les inchangés :
+ * il repart du PREMIER mail, où rien n'est « en vigueur avant ». Il remplace déjà toutes les périodes, celles de
+ * ce mail comprises — la règle 1 est donc satisfaite d'office.
  */
 export function effetDuChoix(o: {
   choix: ChoixSuivi;
@@ -367,29 +447,58 @@ export function effetDuChoix(o: {
   classement: Classement;
   periodes: readonly Periode[];
   exceptions: readonly ExceptionMail[];
+  /** Les mails de la conversation, DANS L'ORDRE. Absent ⇒ la règle 2 ne s'applique pas (effet d'avant ce lot). */
+  mails?: readonly number[];
 }): EffetDuChoix {
   const portaitUneException = o.exceptions.some((e) => e.messageId === o.messageId);
+  // 🔴 RÈGLE 1 — ce qui commençait déjà à ce mail est REMPLACÉ, quel que soit le choix.
+  const deCeMail = o.periodes.filter((p) => p.depuisMessageId === o.messageId).map((p) => p.id);
+
+  if (o.choix === 'conversation') {
+    // c) TOUTE LA CONVERSATION : une seule période, depuis le premier mail, et toutes les autres remplacées.
+    return {
+      nouvellePeriode: { depuisMessageId: 0, classement: o.classement },
+      nouvelleException: null,
+      periodesRemplacees: o.periodes.map((p) => p.id),
+      exceptionRetiree: portaitUneException ? o.messageId : null,
+    };
+  }
+
+  /**
+   * 🔴🔴 RÈGLE 2 — ON RETIRE, ON NE POSE PAS.
+   *
+   * ⚠️ `exceptionRetiree` EST RENSEIGNÉ ICI, ET IL LE FAUT : rien n'étant inséré, l'écriture de l'exception — qui
+   * retire d'ordinaire la précédente au passage — n'aura pas lieu. Sans cette ligne, une exception qui ne change
+   * rien survivrait à sa propre annulation.
+   */
+  if (o.mails !== undefined) {
+    const herite = configurationHeritee({
+      messageId: o.messageId, mails: o.mails, periodes: o.periodes, exceptions: o.exceptions,
+    });
+    if (herite !== undefined && memeConfiguration(herite, o.classement)) {
+      return {
+        nouvellePeriode: null,
+        nouvelleException: null,
+        periodesRemplacees: deCeMail,
+        exceptionRetiree: portaitUneException ? o.messageId : null,
+      };
+    }
+  }
+
   if (o.choix === 'mail') {
     return {
       nouvellePeriode: null,
       nouvelleException: { messageId: o.messageId, classement: o.classement },
-      periodesRemplacees: [],
+      periodesRemplacees: deCeMail,
+      // ⚠️ `null` : reposer une EXCEPTION sur ce mail ne « retire » rien — l'écriture la remplace (une seule
+      //   exception vivante par mail, l'index unique partiel de la migration 290 le garantit).
       exceptionRetiree: null,
     };
   }
-  if (o.choix === 'suite') {
-    return {
-      nouvellePeriode: { depuisMessageId: o.messageId, classement: o.classement },
-      nouvelleException: null,
-      periodesRemplacees: [],
-      exceptionRetiree: portaitUneException ? o.messageId : null,
-    };
-  }
-  // c) TOUTE LA CONVERSATION : une seule période, depuis le premier mail, et toutes les autres remplacées.
   return {
-    nouvellePeriode: { depuisMessageId: 0, classement: o.classement },
+    nouvellePeriode: { depuisMessageId: o.messageId, classement: o.classement },
     nouvelleException: null,
-    periodesRemplacees: o.periodes.map((p) => p.id),
+    periodesRemplacees: deCeMail,
     exceptionRetiree: portaitUneException ? o.messageId : null,
   };
 }
@@ -568,6 +677,108 @@ export function reprendre(c: ConversationExistante): Reprise {
     courante = m.biens;
   }
   return out;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT SUIVI-DERNIER-CHOIX — LA REPRISE DE L'EXISTANT : DÉSEMPILER CE QUI S'EST ACCUMULÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   Les deux règles ci-dessus valent pour les gestes À VENIR. Restent les conversations déjà empilées — le fil 546
+   en porte huit décisions pour quatre points de départ. Cette fonction dit, pour UNE conversation, ce qu'il faut
+   retirer pour la mettre dans l'état qu'auraient produit les deux règles.
+
+   🔴 ELLE NE DÉCIDE RIEN DE NEUF : elle applique la règle 1 (ne garder que la dernière décision de chaque point de
+   départ), puis la règle 2 (retirer celles qui, une fois les doublons tombés, ne changent rien). Le même ordre que
+   la pose, et pour la même raison : on ne peut juger « ça ne change rien » qu'après avoir su QUI survit.
+
+   ⚠️ ELLE NE SUPPRIME RIEN ELLE-MÊME — elle NOMME. L'écriture (datée, signée, réversible) est au repo. */
+
+export interface Simplification {
+  /** Les identifiants des périodes à retirer. */
+  periodesRetirees: number[];
+  /** Les mails dont l'exception vivante est à retirer (une seule par mail, par construction). */
+  exceptionsRetirees: number[];
+  /** Combien de points de départ portaient plusieurs décisions — le chiffre du constat d'Arno. */
+  pointsEmpiles: number;
+  /** Combien de décisions survivantes ne changeaient rien à la configuration en vigueur avant elles. */
+  decisionsRedondantes: number;
+}
+
+/** Une décision posée à un mail, qu'elle soit période ou exception. Interne à la simplification. */
+interface Decision {
+  periodeId: number | null;
+  messageId: number;
+  classement: Classement;
+  le: string;
+}
+
+/**
+ * CE QU'IL FAUT RETIRER D'UNE CONVERSATION POUR N'Y LAISSER QUE LES DERNIERS CHOIX UTILES. PUR.
+ *
+ * 🔴 L'ORDRE DE DÉPART EST CELUI DE LA CRÉATION (`le`), jamais celui des identifiants : une période et une
+ * exception vivent dans deux tables, leurs numéros ne se comparent pas. À instant égal — ce que la base ne produit
+ * pas, mais qu'un décor de test peut écrire —, la période l'emporte sur l'exception, pour que la fonction rende
+ * toujours le même résultat.
+ *
+ * ⚠️ UNE DÉCISION POSÉE SUR UN MAIL QUI N'EST PLUS DANS LA CONVERSATION EST IGNORÉE, jamais retirée : un mail
+ * déplacé ailleurs n'est pas une raison d'effacer une décision qu'on ne sait plus lire.
+ */
+export function simplifierLeSuivi(o: {
+  mails: readonly number[];
+  periodes: readonly Periode[];
+  exceptions: readonly ExceptionMail[];
+}): Simplification {
+  const out: Simplification = {
+    periodesRetirees: [], exceptionsRetirees: [], pointsEmpiles: 0, decisionsRedondantes: 0,
+  };
+  const rang = new Map(o.mails.map((m, i) => [m, i]));
+
+  const decisions: Decision[] = [
+    ...o.periodes
+      .filter((p) => rang.has(p.depuisMessageId))
+      .map((p) => ({
+        periodeId: p.id, messageId: p.depuisMessageId, classement: p.classement, le: p.le ?? '',
+      })),
+    ...o.exceptions
+      .filter((e) => rang.has(e.messageId))
+      .map((e) => ({ periodeId: null, messageId: e.messageId, classement: e.classement, le: e.le ?? '' })),
+  ];
+
+  // ① RÈGLE 1 — par point de départ, on ne garde que la plus récente.
+  const parMail = new Map<number, Decision[]>();
+  for (const d of decisions) parMail.set(d.messageId, [...(parMail.get(d.messageId) ?? []), d]);
+  const survivante = new Map<number, Decision>();
+  for (const [messageId, liste] of parMail) {
+    const triees = [...liste].sort((a, b) =>
+      (a.le < b.le ? -1 : a.le > b.le ? 1 : (a.periodeId ?? 0) - (b.periodeId ?? 0)));
+    const derniere = triees[triees.length - 1];
+    survivante.set(messageId, derniere);
+    if (triees.length > 1) out.pointsEmpiles += 1;
+    for (const d of triees.slice(0, -1)) retirer(out, d);
+  }
+
+  // ② RÈGLE 2 — dans l'ordre des mails, on retire ce qui ne change rien à ce qui était déjà en vigueur.
+  let courante: Classement | null = null;
+  for (const m of o.mails) {
+    const d = survivante.get(m);
+    if (d === undefined) continue;
+    if (courante !== null && memeConfiguration(courante, d.classement)) {
+      retirer(out, d);
+      out.decisionsRedondantes += 1;
+      continue;
+    }
+    /**
+     * ⚠️ UNE EXCEPTION NE DÉPLACE PAS LA CONFIGURATION EN VIGUEUR, et c'est sa définition même : « ce mail seul
+     * est classé ainsi, le mail suivant reprend la règle d'avant ». Seule une période fait avancer `courante`.
+     */
+    if (d.periodeId !== null) courante = d.classement;
+  }
+  return out;
+}
+
+function retirer(out: Simplification, d: Decision): void {
+  if (d.periodeId !== null) out.periodesRetirees.push(d.periodeId);
+  else out.exceptionsRetirees.push(d.messageId);
 }
 
 /**

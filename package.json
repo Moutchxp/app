@@ -98,6 +98,7 @@
     "gestion:drive:empreintes-production": "tsx app/scripts/empreintes-production-drive.ts",
     "gestion:rattachement:proposer": "tsx app/scripts/proposer-rattachements.ts",
     "gestion:rattachement:epreuve": "tsx app/scripts/rattachement-epreuve.ts",
+    "gestion:suivi:dernier-choix": "tsx app/scripts/reprendre-dernier-choix.ts",
     "gestion:copie:epreuve": "tsx app/scripts/copie-epreuve.ts",
     "gestion:drive:vider-stockage": "tsx app/scripts/vider-stockage.ts",
     "gestion:vidage:epreuve": "tsx app/scripts/vidage-epreuve.ts",

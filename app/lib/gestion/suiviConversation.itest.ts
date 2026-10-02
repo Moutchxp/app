@@ -25,7 +25,9 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { query, closePool } from '../db/client';
-import { poserClassement, heriterLesNouveauxMails, suiviDuFil, mailsDuFil } from './periodeRepo';
+import {
+  poserClassement, heriterLesNouveauxMails, simplifierLeFil, suiviDuFil, mailsDuFil,
+} from './periodeRepo';
 import { projeter, mailsDuBien, reperesDuFil, periodeEnCours } from './periodesConversation';
 import { changerStatut, rattacher } from './rattachementRepo';
 import { lireInterne } from './interneRepo';
@@ -727,5 +729,235 @@ describe('🔴🔴 S12 — la fenêtre gagne, l’expéditeur devient une propos
     await releve(filId);   // une 2e passe de la relève : elle ne doit RIEN défaire
     expect(await historique(filId, 'LOT-C')).toContain(entrant);
     expect(await historique(filId, 'LOT-A')).toContain(entrant);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 S14 — LOT SUIVI-DERNIER-CHOIX : SEUL LE DERNIER CHOIX EXISTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (02/10/2026), fil 546 / message 57242 : quatre repères empilés au même endroit — « À partir
+   d'ici : aucun bien » trois fois, puis « À partir d'ici : lot 365, lot 366 ». « Les décisions successives
+   s'accumulent : ça n'a aucun intérêt. »
+
+     RÈGLE 1 — plusieurs changements sur le MÊME mail : le dernier REMPLACE la période ou l'exception qui
+               commençait déjà là. Un seul repère par point de départ.
+     RÈGLE 2 — si le dernier choix aboutit à la configuration déjà en vigueur juste avant ce mail, on ne pose
+               RIEN : la décision de ce mail est retirée, et les mails concernés reviennent à la configuration
+               précédente.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Les repères réellement affichés dans le fil, LUS COMME L'ÉCRAN LES LIT. */
+async function reperes(filId: number): Promise<string[]> {
+  const mails = await mailsDuFil(filId);
+  const { periodes } = await suiviDuFil(filId);
+  return reperesDuFil(mails, periodes).map((r) => `${rang(mails, r.avantMessageId)} → ${r.versQuoi}`);
+}
+
+describe('S14 — plusieurs changements sur le même mail : seul le dernier existe', () => {
+  it('🔴🔴 trois changements de suite au mail 3 : UNE période, UN repère, et c’est le dernier', async () => {
+    const { filId, mails } = await conversation(4);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-C'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-D'), choix: 'suite', auteur: AUTEUR });
+
+    const { periodes } = await suiviDuFil(filId);
+    // Une pour le mail 1, une pour le mail 3 — et pas quatre.
+    expect(periodes).toHaveLength(2);
+    expect(await reperes(filId)).toEqual(['3 → Bien fictif LOT-D']);
+
+    // Et l'historique dit la même chose : B et C n'ont jamais eu lieu.
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 2]);
+    expect(rangs(mails, await historique(filId, 'LOT-D'))).toEqual([3, 4]);
+    expect(await historique(filId, 'LOT-B')).toEqual([]);
+    expect(await historique(filId, 'LOT-C')).toEqual([]);
+  });
+
+  it('🔴🔴 A → B → A au même mail : plus AUCUNE période là, et les rattachements d’origine reviennent', async () => {
+    const { filId, mails } = await conversation(4);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 2, 3, 4]);
+
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
+    expect(rangs(mails, await historique(filId, 'LOT-B'))).toEqual([3, 4]);
+
+    // ── LE RETOUR À A : ce n'est plus un changement, donc ce n'est plus une décision ────────────────────────────
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+
+    const { periodes } = await suiviDuFil(filId);
+    expect(periodes).toHaveLength(1);                       // celle du mail 1, et elle seule
+    expect(await reperes(filId)).toEqual([]);               // aucun repère : rien n'a changé en route
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 2, 3, 4]);
+    expect(await historique(filId, 'LOT-B')).toEqual([]);   // les liens de B sont retirés
+  });
+
+  it('⚠️ deux mails DIFFÉRENTS : deux repères — la règle ne déborde jamais sur le voisin', async () => {
+    const { filId, mails } = await conversation(5);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[4], classement: biens('LOT-C'), choix: 'suite', auteur: AUTEUR });
+
+    expect((await suiviDuFil(filId)).periodes).toHaveLength(3);
+    expect(await reperes(filId)).toEqual(['3 → Bien fictif LOT-B', '5 → Bien fictif LOT-C']);
+  });
+
+  it('🔴🔴 exception puis « à venir » au même mail : seul le dernier — la période gagne', async () => {
+    const { filId, mails } = await conversation(4);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-C'), choix: 'mail', auteur: AUTEUR });
+    expect(rangs(mails, await historique(filId, 'LOT-C'))).toEqual([3]);
+
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
+
+    const { periodes, exceptions } = await suiviDuFil(filId);
+    expect(exceptions).toHaveLength(0);                     // l'exception a cédé la place
+    expect(periodes).toHaveLength(2);
+    expect(await reperes(filId)).toEqual(['3 → Bien fictif LOT-B']);
+    expect(await historique(filId, 'LOT-C')).toEqual([]);
+    expect(rangs(mails, await historique(filId, 'LOT-B'))).toEqual([3, 4]);
+  });
+
+  it('🔴🔴 et dans l’autre sens : « à venir » puis exception au même mail — l’exception gagne', async () => {
+    const { filId, mails } = await conversation(4);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-C'), choix: 'mail', auteur: AUTEUR });
+
+    const { periodes, exceptions } = await suiviDuFil(filId);
+    expect(periodes).toHaveLength(1);                       // la période du mail 3 a été REMPLACÉE, pas doublée
+    expect(exceptions).toHaveLength(1);
+    expect(await reperes(filId)).toEqual([]);
+    // Le mail 3 est sur C ; le mail 4 reprend A, puisque la période B n'existe plus.
+    expect(rangs(mails, await historique(filId, 'LOT-C'))).toEqual([3]);
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 2, 4]);
+    expect(await historique(filId, 'LOT-B')).toEqual([]);
+  });
+
+  it('🔴 une exception qui redit la période en cours ne laisse rien', async () => {
+    const { filId, mails } = await conversation(4);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-A'), choix: 'mail', auteur: AUTEUR });
+
+    expect((await suiviDuFil(filId)).exceptions).toHaveLength(0);
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 2, 3, 4]);
+  });
+
+  /**
+   * 🔴🔴 « ANNULER » : OUVRIR LA MODALE ET NE PAS VALIDER N'ÉCRIT RIEN.
+   *
+   * Le bouton rend la main sans appeler la route d'écriture — ce que cette épreuve vérifie en rejouant TOUT ce
+   * que l'ouverture de la modale lit, puis en comparant l'état de la conversation au caractère près.
+   */
+  it('🔴 « Annuler » : tout ce que la modale LIT à l’ouverture n’écrit rien', async () => {
+    const { filId, mails } = await conversation(4);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
+
+    const etat = async (): Promise<string> => JSON.stringify({
+      suivi: await suiviDuFil(filId),
+      a: await historique(filId, 'LOT-A'),
+      b: await historique(filId, 'LOT-B'),
+      reperes: await reperes(filId),
+    });
+    const avant = await etat();
+
+    // L'ouverture de la modale : les mails, le suivi, les repères — et rien d'autre.
+    await mailsDuFil(filId);
+    await suiviDuFil(filId);
+    await reperes(filId);
+
+    expect(await etat()).toBe(avant);
+  });
+});
+
+describe('S14-bis — la reprise désempile ce qui s’est accumulé avant ce lot', () => {
+  /** Empile des périodes à la main, comme la base en porte depuis le 02/10 — `poserClassement` ne le permet plus. */
+  async function empiler(filId: number, messageId: number, cles: readonly string[]): Promise<number> {
+    const { rows } = await query<{ id: string }>(
+      `INSERT INTO gestion_fil_periode (fil_id, depuis_message_id, sorte, cree_par_libelle)
+       VALUES ($1, $2, 'biens', 'décor de l’épreuve') RETURNING id::text`, [filId, messageId]);
+    const id = Number(rows[0].id);
+    for (const cle of cles) {
+      await query(
+        `INSERT INTO gestion_fil_periode_bien (periode_id, cible_cle, cible_libelle)
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [id, cle, `Bien fictif ${cle}`]);
+    }
+    return id;
+  }
+
+  it('🔴🔴 le fil 546 d’Arno, rejoué : 4 décisions au même mail ⇒ une seule, la dernière', async () => {
+    const { filId, mails } = await conversation(5);
+    await empiler(filId, mails[0], ['LOT-A']);
+    const morte1 = await empiler(filId, mails[4], []);
+    const morte2 = await empiler(filId, mails[4], []);
+    const morte3 = await empiler(filId, mails[4], []);
+    const derniere = await empiler(filId, mails[4], ['LOT-B']);
+    expect((await suiviDuFil(filId)).periodes).toHaveLength(5);
+
+    const issue = await simplifierLeFil({ filId, auteur: AUTEUR, appliquer: true });
+
+    expect(issue.pointsEmpiles).toBe(1);
+    expect(issue.periodesRetirees.sort((a, b) => a - b)).toEqual([morte1, morte2, morte3].sort((a, b) => a - b));
+    const { periodes } = await suiviDuFil(filId);
+    expect(periodes).toHaveLength(2);
+    expect(periodes.map((p) => p.id)).toContain(derniere);
+    expect(await reperes(filId)).toEqual(['5 → Bien fictif LOT-B']);
+  });
+
+  it('🔴🔴 une décision qui redit la précédente est retirée, et les rattachements ne bougent pas', async () => {
+    const { filId, mails } = await conversation(4);
+    await empiler(filId, mails[0], ['LOT-A']);
+    const redondante = await empiler(filId, mails[2], ['LOT-A']);
+    // On aligne d'abord les rattachements sur cet état empilé, comme la base l'est aujourd'hui.
+    const { projeterLeFil } = await import('./periodeRepo');
+    await projeterLeFil(filId, AUTEUR);
+    const avant = rangs(mails, await historique(filId, 'LOT-A'));
+
+    const issue = await simplifierLeFil({ filId, auteur: AUTEUR, appliquer: true });
+
+    expect(issue.decisionsRedondantes).toBe(1);
+    expect(issue.periodesRetirees).toEqual([redondante]);
+    expect(await reperes(filId)).toEqual([]);
+    // 🔴 LA GARANTIE : l'historique du bien est le MÊME — on a retiré un repère, pas un classement.
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual(avant);
+  });
+
+  it('🔴 RIEN n’est supprimé : la période retirée est datée et signée', async () => {
+    const { filId, mails } = await conversation(3);
+    await empiler(filId, mails[0], ['LOT-A']);
+    const redondante = await empiler(filId, mails[1], ['LOT-A']);
+    await simplifierLeFil({ filId, auteur: AUTEUR, appliquer: true });
+
+    const { rows } = await query<{ remplacee_le: string | null; remplacee_par_libelle: string | null }>(
+      'SELECT remplacee_le::text, remplacee_par_libelle FROM gestion_fil_periode WHERE id = $1', [redondante]);
+    expect(rows[0].remplacee_le).not.toBeNull();
+    expect(rows[0].remplacee_par_libelle).toBe(AUTEUR.libelle);
+  });
+
+  it('⚠️ la simulation ne touche à rien, et la reprise est rejouable', async () => {
+    const { filId, mails } = await conversation(3);
+    await empiler(filId, mails[0], ['LOT-A']);
+    await empiler(filId, mails[1], ['LOT-A']);
+
+    const vue = await simplifierLeFil({ filId, auteur: AUTEUR });        // sans `appliquer`
+    expect(vue.periodesRetirees).toHaveLength(1);
+    expect((await suiviDuFil(filId)).periodes).toHaveLength(2);          // rien n'a bougé
+
+    await simplifierLeFil({ filId, auteur: AUTEUR, appliquer: true });
+    const encore = await simplifierLeFil({ filId, auteur: AUTEUR, appliquer: true });
+    expect(encore.periodesRetirees).toEqual([]);
+    expect(encore.exceptionsRetirees).toEqual([]);
+  });
+
+  it('⚠️ une conversation déjà propre n’est pas touchée du tout', async () => {
+    const { filId, mails } = await conversation(4);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
+
+    const issue = await simplifierLeFil({ filId, auteur: AUTEUR, appliquer: true });
+    expect(issue.periodesRetirees).toEqual([]);
+    expect(issue.projetes).toBe(0);
+    expect((await suiviDuFil(filId)).periodes).toHaveLength(2);
   });
 });
