@@ -19,6 +19,8 @@ import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
 import { sqlCopieVivante } from './copieDisparueSql';
 // LOT BIEN-RATTACHE — le HTML d'un mail est assaini CÔTÉ SERVEUR, jamais dans le navigateur (voir `lireCorpsDuMessage`).
 import { assainirHtml, echapperTexte, htmlVide } from './htmlMail';
+// 🔴🔴 LOT CADRE-ISOLE-MAILS — les <style> d'en-tête du mail, extraits du BRUT et filtrés. Module PUR.
+import { stylesDuMail } from './cadreMail';
 // LOT LECTURE-HTML-FIL-TROMBONE — les images d'un mail passent par NOS routes : voir `imagesMail`.
 import { reecrireImages, type PieceIntegree } from './imagesMail';
 import {
@@ -127,6 +129,13 @@ export interface MessageDeFil {
    * message déplié d'emblée, `null` pour les autres. Ceux-là le reçoivent à l'ouverture, avec leur texte.
    */
   html: string | null;
+  /**
+   * ══ 🔴🔴 LOT CADRE-ISOLE-MAILS — LA FEUILLE `<style>` D'EN-TÊTE DU MAIL, DÉJÀ FILTRÉE ═════════════════════
+   *
+   * Elle n'est posée QUE dans le cadre isolé, où elle ne peut peindre que le mail. `''` = ce mail n'en a pas, ou
+   * cette lecture ne la rapporte pas — le cadre s'affiche alors comme avant ce lot.
+   */
+  cssMail?: string;
 }
 
 /** Un destinataire tel que l'écran l'affiche. Même forme que ce que la capture range (`adresses.ts`). */
@@ -329,6 +338,8 @@ async function lireMailsDeplaces(
        */
       aHtml: false,
       html: null,
+      // 🔴 CETTE LECTURE NE RAPPORTE PAS LE HTML : elle n'a donc pas de feuille à rendre non plus.
+      cssMail: '',
     },
   }));
 }
@@ -342,7 +353,19 @@ async function lireMailsDeplaces(
  */
 export async function lireCorpsDuMessage(
   messageId: number,
-): Promise<{ messageId: number; corps: string | null; html: string | null; htmlSeul: boolean } | null> {
+): Promise<{
+  messageId: number; corps: string | null; html: string | null; htmlSeul: boolean;
+  /**
+   * ══ 🔴🔴 LOT CADRE-ISOLE-MAILS — LE CSS D'EN-TÊTE DU MAIL, POUR SON CADRE ISOLÉ ════════════════════════════
+   *
+   * 34 366 mails stockés portent un `<style>` qui change vraiment leur rendu (mesuré le 03/10/2026). Jusqu'ici il
+   * était VIDÉ par l'assainissement, contenu compris — et il le reste pour tout ce qui s'affiche DANS la page.
+   * Il n'est rendu ici que pour être posé dans le cadre isolé, où il ne peut peindre que le mail.
+   *
+   * ⚠️ `''` QUAND IL N'Y EN A PAS, jamais `null` : l'écran n'a alors rien à décider, il pose une feuille vide.
+   */
+  cssMail: string;
+} | null> {
   const { rows } = await query<{
     message_id: number; corps: string | null; corps_html: string | null; html_seul: boolean;
   }>(
@@ -383,6 +406,12 @@ export async function lireCorpsDuMessage(
       ? htmlDuTexteAImages(r.corps ?? '')
       : r.corps_html),
     htmlSeul: r.html_seul === true,
+    /**
+     * 🔴 LU SUR LE **BRUT**, ET IL LE FAUT : `assainirHtml` vide la balise `<style>`, contenu compris. L'extraction
+     * se fait donc sur la source, avant assainissement — puis le CSS est filtré (`@import`, `url(` externe,
+     * `expression(`, `javascript:`, et toute sortie de balise).
+     */
+    cssMail: stylesDuMail(r.corps_html),
   };
 }
 
@@ -662,6 +691,14 @@ export async function lireMessagesDuFil(
      */
     aHtml: m.a_html === true,
     html: parHtml.get(m.message_id) ?? null,
+    /**
+     * 🔴🔴 LOT CADRE-ISOLE-MAILS — LA FEUILLE D'EN-TÊTE DU MAIL VOYAGE AVEC SON HTML, par le même chemin.
+     *
+     * ⚠️ ELLE EST LUE SUR LE **BRUT** (`m.corps_html`), avant assainissement : `assainirHtml` vide la balise
+     * `<style>`, contenu compris, et c'est très bien ainsi pour tout ce qui s'affiche DANS la page. Le cadre
+     * isolé, lui, est le seul endroit où cette feuille peut peindre sans risque.
+     */
+    cssMail: stylesDuMail(m.corps_html),
   }));
   return {
     fil: {

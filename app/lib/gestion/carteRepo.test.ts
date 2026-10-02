@@ -221,7 +221,10 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     //   ce qui est sûr, et rend des FRAGMENTS DE SQL. Il ne manipule aucun octet de pièce jointe, et c'est son
     //   passage obligé ici qui garantit qu'une charge base64 n'atteint jamais l'écran sous forme de texte.
     expect(imports).toEqual([
-      '../db/client', './nomUsageSql', './copieDisparueSql', './htmlMail', './imagesMail', './imagesIntegrees',
+      // 🔴🔴 LOT CADRE-ISOLE-MAILS — `./cadreMail` est un module PUR (il extrait et filtre les <style> d'en-tête
+      //   d'un mail). Il ne nomme ni stockage, ni signature d'URL : il entre donc dans cette liste sans l'ouvrir.
+      '../db/client', './nomUsageSql', './copieDisparueSql', './htmlMail', './cadreMail',
+      './imagesMail', './imagesIntegrees',
       './attente', './partenaires', './schema', './nonRemiseRepo',
     ]);
     expect(imports).not.toContain('../stockage');

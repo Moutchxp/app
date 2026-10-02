@@ -92,7 +92,9 @@ describe('le chargement paresseux des corps', () => {
   it('le corps d’un seul message se lit à part, avec son identifiant LIÉ', async () => {
     queryMock.mockResolvedValue({ rows: [{ message_id: 42, corps: 'bonjour', corps_html: null, html_seul: false }] });
     const r = await lireCorpsDuMessage(42);
-    expect(r).toEqual({ messageId: 42, corps: 'bonjour', html: null, htmlSeul: false });
+    // 🔴🔴 LOT CADRE-ISOLE-MAILS — `cssMail` voyage avec le corps : la feuille <style> d'en-tête du mail,
+    //   filtrée, pour son cadre isolé. Ce message n'en a pas : chaîne vide, jamais `null`.
+    expect(r).toEqual({ messageId: 42, corps: 'bonjour', html: null, htmlSeul: false, cssMail: '' });
     expect(queryMock.mock.calls[0][1]).toEqual([42]);
   });
 
@@ -112,7 +114,7 @@ describe('le chargement paresseux des corps', () => {
       rows: [{ message_id: 5, corps: '', corps_html: '<p>Bonjour</p>', html_seul: true }],
     });
     await expect(lireCorpsDuMessage(5))
-      .resolves.toEqual({ messageId: 5, corps: null, html: '<p>Bonjour</p>', htmlSeul: true });
+      .resolves.toEqual({ messageId: 5, corps: null, html: '<p>Bonjour</p>', htmlSeul: true, cssMail: '' });
   });
 
   it('🔴 le script est ÔTÉ avant de sortir de la base — jamais au navigateur de s’en charger', async () => {

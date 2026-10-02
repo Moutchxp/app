@@ -11,6 +11,8 @@ import {
 import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens, LIBELLE_CLASSER } from '../../../../lib/gestion/ecran';
 // 🔴 LOT SOMBRE-ET-RECHERCHE — le texte noir d'un mail se relève À L'ÉCRAN, jamais dans le HTML stocké.
 import { CSS_LISIBILITE_SOMBRE, useLisibiliteSombre } from './lisibiliteSombre';
+// 🔴🔴 LOT CADRE-ISOLE-MAILS — le cadre isolé d'un corps de mail reçu, et sa feuille.
+import { CadreMail, CSS_CADRE_MAIL } from './CadreMail';
 import {
   actionsDuStatut, bulleCapsuleMessage, capsuleDuMessage, libelleCartouche, lienVersCarte, motCapsule,
   precisionCartouche, SORTES_BIEN, statutDuMessage, tonCartouche,
@@ -107,12 +109,22 @@ async function chargerConversation(filId: number): Promise<Vue> {
  * 🔴 LOT BIEN-RATTACHE — ELLE RAMÈNE AUSSI LE HTML, DÉJÀ ASSAINI PAR LE SERVEUR. 1 180 mails en base n'ont QUE de
  * la mise en forme ; ils affichaient « affichage à venir » au lieu de leur contenu.
  */
-async function chargerCorps(messageId: number): Promise<{ texte: string | null; html: string | null } | undefined> {
+async function chargerCorps(
+  messageId: number,
+): Promise<{ texte: string | null; html: string | null; cssMail?: string } | undefined> {
   try {
     const res = await fetch(`/api/admin/gestion/messages/${messageId}/corps`, { cache: 'no-store' });
     if (!res.ok) return undefined;
-    const d = (await res.json()) as { corps?: string | null; html?: string | null };
-    return { texte: d.corps ?? null, html: d.html ?? null };
+    /**
+     * 🔴🔴 LOT CADRE-ISOLE-MAILS — `cssMail` EST LA FEUILLE D'EN-TÊTE DU MAIL, déjà filtrée par le serveur
+     * (`@import`, `url(` externe, `expression(` et toute sortie de balise refusés). Elle n'est posée QUE dans le
+     * cadre isolé, jamais dans la page.
+     *
+     * ⚠️ ABSENTE D'UNE RÉPONSE PLUS ANCIENNE QUE CE LOT ⇒ chaîne vide : le cadre s'affiche alors sans la feuille
+     * du mail, c'est-à-dire exactement comme avant ce lot.
+     */
+    const d = (await res.json()) as { corps?: string | null; html?: string | null; cssMail?: string | null };
+    return { texte: d.corps ?? null, html: d.html ?? null, cssMail: d.cssMail ?? '' };
   } catch {
     return undefined;
   }
@@ -265,7 +277,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * 🔴 LOT BIEN-RATTACHE — LA CARTE PORTE LE TEXTE **ET** LE HTML ASSAINI. Un mail sans texte n'est pas un mail
    * vide : 1 180 en base n'ont que de la mise en forme, et c'est elle qu'il faut montrer.
    */
-  const [corps, setCorps] = useState<Map<number, { texte: string | null; html: string | null }>>(new Map());
+  // 🔴🔴 LOT CADRE-ISOLE-MAILS — `cssMail` voyage avec le corps : c'est la feuille d'en-tête du mail, filtrée
+  //   par le serveur, et elle n'est posée QUE dans le cadre isolé.
+  const [corps, setCorps] = useState<Map<number,
+    { texte: string | null; html: string | null; cssMail?: string }>>(new Map());
   const [affecter, setAffecter] = useState(false);
   const [deplacer, setDeplacer] = useState<number | null>(null);
   /** LOT 5e — le brouillon en cours d'écriture sous la conversation. `null` = on ne rédige pas. */
@@ -1093,6 +1108,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             ouvert={deplies.has(m.messageId)}
             corpsCharge={corps.get(m.messageId)?.texte}
             htmlCharge={corps.get(m.messageId)?.html}
+            /* 🔴🔴 LOT CADRE-ISOLE-MAILS — la feuille d'en-tête du mail, pour son cadre isolé. */
+            cssMailCharge={corps.get(m.messageId)?.cssMail}
             onBasculer={() => void basculer(m)}
             /* 🔴 LOT CONTACTS-ET-EVENEMENT — LE CARTOUCHE REFLÈTE LE BLOC « Événement rattaché », y compris quand
                la carte est posée SUR CE MAIL SEUL. `partis` porte déjà ces mails (le serveur les rend depuis
@@ -1516,7 +1533,7 @@ export function CorpsHtmlMail({ html, onVisualiser }: {
 }
 
 export function MessageConversation({
-  message, maintenant, ouvert, corpsCharge, htmlCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
+  message, maintenant, ouvert, corpsCharge, htmlCharge, cssMailCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange,
@@ -1541,6 +1558,8 @@ export function MessageConversation({
   corpsCharge?: string | null;
   /** LOT BIEN-RATTACHE — le HTML du message, DÉJÀ ASSAINI par le serveur. `undefined` = pas encore demandé. */
   htmlCharge?: string | null;
+  /** 🔴🔴 LOT CADRE-ISOLE-MAILS — le CSS d'en-tête du mail, déjà filtré par le serveur. */
+  cssMailCharge?: string | null;
   onBasculer: () => void;
   /** Gestes par mail, CONSERVÉS du lot 4d : déplacer ce mail vers une autre carte, ou l'en détacher. */
   onDeplacer?: () => void; onRemettre?: () => void; panneau?: React.ReactNode;
@@ -2027,7 +2046,19 @@ export function MessageConversation({
               leur propre cadre. Sans cela, un mail de syndic large de 900 px pousse toute la conversation. */}
           {/* 🔴 LOT SOMBRE-ET-RECHERCHE — le texte noir d'un mail se relève À L'ÉCRAN en thème Sombre. Rien n'est
               réécrit : ni le HTML stocké, ni ce qui repart en transfert ou en réponse. */}
-          {etat.v === 'html' && <CorpsHtmlMail html={etat.html} onVisualiser={onVisualiser} />}
+          {/* ══ 🔴🔴 LOT CADRE-ISOLE-MAILS — LE CORPS D'UN MAIL REÇU VIT DANS SON PROPRE CADRE ════════════
+              Décision d'Arno (03/10/2026) : un cadre isolé, bac à sable SANS `allow-scripts`, CSP
+              `script-src 'none'`. Il garde les `<style>` d'en-tête du mail — 34 366 mails en portent qui
+              changent le rendu — et ils ne peuvent peindre QUE le mail.
+              🔴 TOUT CE QUI EXISTAIT EST GARDÉ : hauteur automatique (aucune barre interne), clic pour agrandir
+              une image dans la visionneuse, liens en nouvel onglet, fond blanc en thème Sombre.
+              ⚠️ DEUX SOURCES POUR LA FEUILLE, ET C'EST VOULU : le message déplié d'emblée la reçoit AVEC le fil
+              (`message.cssMail`) ; ceux qu'on ouvre ensuite la reçoivent avec leur corps (`cssMailCharge`).
+              C'est le même chemin que le HTML lui-même, à la ligne près. */}
+          {etat.v === 'html' && (
+            <CadreMail html={etat.html} cssMail={cssMailCharge ?? message.cssMail ?? null} onVisualiser={onVisualiser}
+              titre={`Corps du message — ${message.objet ?? 'sans objet'}`} />
+          )}
           {etat.v === 'html_a_charger' && <p className="gst-info" role="status">{MENTION_HTML_SEUL}</p>}
           {etat.v === 'vide' && <p className="gst-msg-corps gst-absent">(message sans texte)</p>}
 
@@ -2235,6 +2266,7 @@ export const CSS_CONVERSATION = `
    AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un littéral gabarit, qu'un seul accent grave terminerait.
    Le piege s'est referme une HUITIEME fois en ecrivant ce bloc — et, comme les precedentes, sur un commentaire. */
 ${CSS_LISIBILITE_SOMBRE}
+${CSS_CADRE_MAIL}
 .cnv-html{max-width:100%;overflow-x:auto;font-size:.9rem;line-height:1.5;
   color:#1a1a1a;background:#fff;border:1px solid var(--color-svv-line);border-radius:10px;padding:12px 14px;
   overflow-wrap:anywhere;color-scheme:light}
