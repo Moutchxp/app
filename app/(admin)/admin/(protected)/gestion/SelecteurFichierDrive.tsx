@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // LOT DRIVE-DOSSIER-DU-BIEN — le dossier du propriétaire du bien rattaché, proposé en première position.
 import {
   dossiersPrioritaires, mentionNbBiens, titreDossierPrioritaire, type BienDuMail, type DossierPrioritaire,
@@ -35,7 +35,8 @@ import {
 import {
   bandeauParents, basculerTout, colonnesVisibles, compteRenduDepot, COTE_MAX, COTE_MIN, grilleColonnes,
   largeurCote, MIME_PIECE, motColonnes, motDeposerIci, motFantome, motRangee, motToutSelectionner,
-  piecesEmportees, resumeARanger, titreFenetre, type ModeDrive, type PieceARanger, type Rangee,
+  arbreARestaurer, piecesEmportees, resumeARanger, signatureSession, titreFenetre,
+  type ModeDrive, type PieceARanger, type Rangee,
 } from '../../../../lib/gestion/rangementDrive';
 // 🔴 LOT RENOMMER-AVANT-RANGER — le nom sous lequel une pièce partira. Module PUR, partagé avec la route.
 import {
@@ -140,6 +141,20 @@ const CLE_LARGEUR_COTE = 'svv.gestion.selecteurDrive.largeurCote';
  */
 const CLE_DEPLIES = 'svv.gestion.selecteurDrive.deplies';
 const DEPLIES_MAX = 200;
+/**
+ * ══ 🔴🔴 LOT DRIVE-FERME — POUR QUELLES PIÈCES L'ARBRE A-T-IL ÉTÉ RETENU ? ═════════════════════════════════════
+ *
+ * DÉCISION D'ARNO (02/10/2026, option « b »), après qu'il a constaté l'arbre à moitié déplié à l'ouverture :
+ * « La mémorisation est gardée, mais restaurée uniquement si l'on rouvre la fenêtre pour les MÊMES pièces. Dès
+ * que les pièces changent (nouvelle session de classement), l'arbre repart entièrement fermé. »
+ *
+ * 🔴 CETTE CLÉ EST CE QUI REND LES DEUX RÈGLES COMPATIBLES. Celle du 29/09 (« garde-le d'une ouverture à
+ * l'autre ») n'est pas retirée : elle est BORNÉE au travail en cours. Sans cette seconde clé, le stockage savait
+ * QUELS dossiers étaient ouverts, mais pas POUR QUOI — et ne pouvait donc pas répondre à la question d'Arno.
+ *
+ * ⚠️ `sessionStorage` COMME SA JUMELLE, et pour la même raison : c'est un contexte de travail, pas une préférence.
+ */
+const CLE_SESSION = 'svv.gestion.selecteurDrive.session';
 
 /**
  * ══ 🔴 POURQUOI UN CLIC SUR UN DOSSIER ATTEND 220 ms AVANT DE LE DÉPLIER ════════════════════════════════════════
@@ -317,8 +332,25 @@ export function SelecteurFichierDrive({
    * ⚠️ RELU À L'INITIALISATION, sous try/catch : la fenêtre se rouvre sur l'arbre qu'on avait laissé. C'est un
    * état, pas une préférence — d'où `sessionStorage`, qui meurt avec l'onglet.
    */
+  /**
+   * 🔴🔴 LOT DRIVE-FERME — LA SIGNATURE DE CETTE SESSION DE CLASSEMENT, calculée une fois pour toutes.
+   *
+   * ⚠️ `useMemo` SUR LES PIÈCES, et non à chaque rendu : la signature sert de clé d'écriture dans le stockage, et
+   * la recalculer à l'identique à chaque frappe ferait réécrire le stockage pour rien.
+   */
+  const signature = useMemo(
+    () => signatureSession({ mode, messageId, pieces }), [mode, messageId, pieces]);
   const [ouverts, setOuverts] = useState<Set<string>>(() => {
     try {
+      /**
+       * 🔴🔴 ON NE RESTAURE QUE POUR LES MÊMES PIÈCES (décision d'Arno du 02/10/2026). Des pièces NEUVES ouvrent
+       * une nouvelle session de classement : l'arbre repart entièrement fermé, « rien n'est déplié d'avance ».
+       *
+       * ⚠️ UNE SIGNATURE ABSENTE VAUT « NON » : c'est ce qu'a écrit une version d'avant ce lot, qui ne savait pas
+       * pour quelles pièces elle retenait l'arbre. Dans le doute, fermé.
+       */
+      const retenue = globalThis.sessionStorage?.getItem(CLE_SESSION) ?? null;
+      if (!arbreARestaurer(retenue, signatureSession({ mode, messageId, pieces }))) return new Set();
       const brut = globalThis.sessionStorage?.getItem(CLE_DEPLIES) ?? null;
       const lus = brut === null ? [] : (JSON.parse(brut) as unknown);
       return new Set(Array.isArray(lus) ? lus.filter((x): x is string => typeof x === 'string') : []);
@@ -2081,12 +2113,19 @@ export function SelecteurFichierDrive({
     }
   };
 
-  /** 🔴 CE QUI EST DÉPLIÉ SURVIT À LA FERMETURE DE LA FENÊTRE, le temps de la session. */
+  /**
+   * 🔴 CE QUI EST DÉPLIÉ SURVIT À LA FERMETURE DE LA FENÊTRE, le temps de la session.
+   *
+   * 🔴🔴 LOT DRIVE-FERME — ET LA SIGNATURE PART AVEC, DANS LA MÊME ÉCRITURE. Les deux doivent rester d'accord :
+   * un arbre retenu sans sa signature serait restauré pour n'importe quelles pièces (le défaut qu'Arno a vu), et
+   * une signature sans arbre ne restaurerait rien. Les écrire ensemble est ce qui l'assure.
+   */
   useEffect(() => {
     try {
       globalThis.sessionStorage?.setItem(CLE_DEPLIES, JSON.stringify([...ouverts].slice(-DEPLIES_MAX)));
+      globalThis.sessionStorage?.setItem(CLE_SESSION, signature);
     } catch { /* pas de stockage : l'arbre vit seulement tant que la fenêtre est ouverte, et c'est déjà l'essentiel */ }
-  }, [ouverts]);
+  }, [ouverts, signature]);
 
   /** Le défilement suit la sélection au clavier : une ligne choisie hors de l'écran ne sert à rien. */
   useEffect(() => {

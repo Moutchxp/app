@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  bandeauParents, COLONNES_COMPACTES, colonnesVisibles, grilleColonnes, MIME_PIECE, motColonnes, motRangee,
-  PARENTS_VISIBLES, resumeARanger, titreFenetre,
+  arbreARestaurer, bandeauParents, COLONNES_COMPACTES, colonnesVisibles, grilleColonnes, MIME_PIECE,
+  motColonnes, motRangee,
+  PARENTS_VISIBLES, resumeARanger, signatureSession, titreFenetre,
 } from './rangementDrive';
 import { COLONNES, type Chemin } from './finderDrive';
 
@@ -146,5 +147,63 @@ describe('🔴 le type MIME du glisser d’une pièce', () => {
 
   it('n’est ni text/plain ni text/uri-list — un nom de document du cabinet ne fuit pas dans un autre onglet', () => {
     expect(MIME_PIECE.startsWith('application/')).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-FERME — CE QUI FAIT UNE SESSION DE CLASSEMENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (02/10/2026, option « b ») : « La mémorisation de l'arbre est gardée, mais restaurée uniquement
+   si l'on rouvre la fenêtre pour les MÊMES pièces. Dès que les pièces changent, l'arbre repart entièrement
+   fermé. »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 la signature d’une session de classement', () => {
+  const p = (pieceId: number, nom = 'x.pdf') => ({ pieceId, nom, tailleOctets: 1, typeMime: 'application/pdf' });
+
+  it('🔴 les MÊMES pièces donnent la MÊME signature, quel que soit leur ordre', () => {
+    const a = signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(11), p(12)] });
+    const b = signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(12), p(11)] });
+    expect(a).toBe(b);
+  });
+
+  it('🔴🔴 une pièce différente, en plus ou en moins, change la signature', () => {
+    const deux = signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(11), p(12)] });
+    expect(signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(11)] })).not.toBe(deux);
+    expect(signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(11), p(12), p(13)] })).not.toBe(deux);
+    expect(signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(11), p(99)] })).not.toBe(deux);
+  });
+
+  /** ⚠️ LE NOM NE COMPTE PAS : il peut changer avant le dépôt (lot RENOMMER-AVANT-RANGER). L'identifiant, non. */
+  it('⚠️ renommer une pièce avant de la ranger ne change pas la session', () => {
+    expect(signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(11, 'scan.pdf')] }))
+      .toBe(signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(11, 'bail signé.pdf')] }));
+  });
+
+  it('🔴 un doublon d’identifiant ne fabrique pas une session différente', () => {
+    expect(signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(11), p(11)] }))
+      .toBe(signatureSession({ mode: 'ranger', messageId: 900, pieces: [p(11)] }));
+  });
+
+  /**
+   * ⚠️ LE MODE « JOINDRE » N'EST PAS CONCERNÉ. Il ne range aucune pièce : sa signature est constante, et son
+   * arbre se retrouve d'une ouverture à l'autre exactement comme avant ce lot. Arno n'a rien demandé là-dessus.
+   */
+  it('⚠️ « joindre » garde une signature constante — son arbre se retrouve, comme avant', () => {
+    expect(signatureSession({ mode: 'joindre' })).toBe('joindre');
+    expect(signatureSession({ mode: 'joindre', messageId: 900, pieces: [p(11)] })).toBe('joindre');
+  });
+});
+
+describe('🔴🔴 faut-il restaurer l’arbre mémorisé ?', () => {
+  it('🔴 oui pour la même session, non pour une autre', () => {
+    expect(arbreARestaurer('ranger:900:11,12', 'ranger:900:11,12')).toBe(true);
+    expect(arbreARestaurer('ranger:900:11,12', 'ranger:900:99')).toBe(false);
+  });
+
+  /** 🔴 PAS DE SIGNATURE ⇒ FERMÉ. C'est ce qu'a écrit une version d'avant ce lot : dans le doute, on ne restaure pas. */
+  it('🔴🔴 sans signature retenue, on ne restaure rien', () => {
+    expect(arbreARestaurer(null, 'ranger:900:11,12')).toBe(false);
   });
 });

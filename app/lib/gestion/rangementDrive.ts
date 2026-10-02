@@ -299,3 +299,64 @@ export function largeurCote(valeur: number | null | undefined): number {
   if (valeur === null || valeur === undefined || !Number.isFinite(valeur)) return COTE_DEFAUT;
   return Math.min(COTE_MAX, Math.max(COTE_MIN, Math.round(valeur)));
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-FERME — UNE SESSION DE CLASSEMENT, ET CE QUI LA DISTINGUE DE LA PRÉCÉDENTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (02/10/2026, option « b ») : « La mémorisation de l'arbre est gardée, mais restaurée uniquement
+   si l'on rouvre la fenêtre pour les MÊMES pièces. Dès que les pièces changent (nouvelle session de classement),
+   l'arbre repart entièrement fermé. »
+
+   ═══ POURQUOI DEUX RÈGLES COEXISTENT ICI, ET CE QUE CHACUNE PROTÈGE ════════════════════════════════════════════
+
+   Une règle ANTÉRIEURE, validée par Arno le 29/09/2026, disait : « garde-le aussi d'une ouverture de la fenêtre à
+   l'autre, dans la même session du navigateur ». Elle sert un cas réel : on range une pièce, on referme, on
+   rouvre pour la MÊME pièce (on s'est trompé de dossier, on veut la déposer ailleurs) — et l'on ne veut pas
+   re-déplier six niveaux.
+
+   Le constat du 02/10 en vise un autre : on ouvre pour une pièce NEUVE, et l'arbre s'affiche à moitié déplié sur
+   le travail d'avant. Arno : « Rien n'est déplié d'avance. »
+
+   🔴 LES DEUX SONT VRAIES, ET ELLES NE PARLENT PAS DU MÊME MOMENT. Ce qui les sépare n'est pas le temps écoulé ni
+   le nombre d'ouvertures : c'est le TRAVAIL EN COURS. Tant qu'on range les mêmes pièces, c'est la même session de
+   classement, et l'arbre est le contexte de ce travail. Dès que les pièces changent, le travail d'avant est fini.
+
+   ⚠️ LE MODE « JOINDRE » N'EST PAS CONCERNÉ, et c'est délibéré : il ne range aucune pièce, il en choisit une à
+   joindre. Sa signature est donc constante, et son arbre se retrouve d'une ouverture à l'autre exactement comme
+   avant ce lot. Arno n'a rien demandé là-dessus ; on ne retire pas une règle qu'il n'a pas visée.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * CE QUI IDENTIFIE UNE SESSION DE CLASSEMENT. PUR.
+ *
+ * 🔴 LES IDENTIFIANTS DE PIÈCE, TRIÉS, ET LE MESSAGE DONT ELLES VIENNENT. Trier est nécessaire : l'écran peut
+ * présenter les mêmes pièces dans un autre ordre d'une ouverture à l'autre, et deux ordres différents des mêmes
+ * pièces sont la MÊME session — refermer l'arbre pour cette raison-là serait incompréhensible.
+ *
+ * ⚠️ JAMAIS LES NOMS : deux pièces d'un même mail portent souvent le même nom (« scan.pdf »), et un nom peut
+ * changer avant le dépôt (lot RENOMMER-AVANT-RANGER). L'identifiant, lui, ne bouge pas.
+ *
+ * ⚠️ LE MESSAGE ENTRE DANS LA SIGNATURE en plus des pièces : deux messages ne partagent jamais d'identifiant de
+ * pièce, mais l'écrire rend la signature lisible dans le stockage, et vérifiable à l'œil pendant un diagnostic.
+ */
+export function signatureSession(o: {
+  mode: ModeDrive;
+  messageId?: number | null;
+  pieces?: readonly PieceARanger[];
+}): string {
+  if (o.mode !== 'ranger') return 'joindre';
+  const ids = [...new Set((o.pieces ?? []).map((p) => p.pieceId))].sort((a, b) => a - b);
+  return `ranger:${o.messageId ?? 0}:${ids.join(',')}`;
+}
+
+/**
+ * L'ARBRE MÉMORISÉ DOIT-IL ÊTRE RESTAURÉ ? PUR.
+ *
+ * ⚠️ UNE SIGNATURE ABSENTE (`null`) VAUT « NON » : c'est l'état d'un stockage écrit par une version d'avant ce
+ * lot, qui ne savait pas pour quelles pièces il avait retenu l'arbre. Dans le doute, on repart fermé — c'est le
+ * sens de la demande d'Arno, et c'est aussi le moins surprenant des deux.
+ */
+export function arbreARestaurer(signatureRetenue: string | null, signatureCourante: string): boolean {
+  return signatureRetenue !== null && signatureRetenue === signatureCourante;
+}

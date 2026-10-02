@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
-import { MIME_PIECE } from '../../../../lib/gestion/rangementDrive';
+import { MIME_PIECE, signatureSession } from '../../../../lib/gestion/rangementDrive';
 
 /**
  * LOT DRIVE-UNIQUE — LA MÊME FENÊTRE, EN MODE « RANGER ».
@@ -427,6 +427,20 @@ describe('🔴🔴 ②-bis glisser une pièce : l’effet demandé doit être PE
 
 describe('🔴🔴 ②-ter l’arbre retrouvé : ouvert VEUT DIRE ouvert', () => {
   /**
+   * ══ 🔴🔴 LOT DRIVE-FERME — L'ARBRE N'EST PLUS RETENU TOUT SEUL : SA SESSION PART AVEC ═══════════════════════
+   *
+   * Décision d'Arno (02/10/2026, option « b ») : l'arbre mémorisé n'est restauré que si l'on rouvre la fenêtre
+   * pour LES MÊMES PIÈCES. Ces trois épreuves décrivent exactement ce cas — on rouvre sur `PIECES` —, elles
+   * posent donc la signature correspondante en plus des dossiers ouverts. Sans elle, la fenêtre repartirait
+   * fermée, ce qui est la NOUVELLE règle et fait l'objet du bloc ②-quater juste en dessous.
+   */
+  const retenir = (deplies: string[], pieces = PIECES) => {
+    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.deplies', JSON.stringify(deplies));
+    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.session',
+      signatureSession({ mode: 'ranger', messageId: 900, pieces }));
+  };
+
+  /**
    * 🔴 LE DÉFAUT, TROUVÉ EN CHERCHANT LE PREMIER (29/09/2026). Les dossiers dépliés sont retenus d'une ouverture
    * de la fenêtre à l'autre (`sessionStorage`, lot DRIVE-RETOUCHES-2). Mais SEUL L'ÉTAT était retenu : le CONTENU,
    * lui, n'était relu par personne. La fenêtre se rouvrait donc avec des dossiers marqués ouverts — triangle ▾,
@@ -440,7 +454,7 @@ describe('🔴🔴 ②-ter l’arbre retrouvé : ouvert VEUT DIRE ouvert', () =>
    * sur lequel on ne peut pas DÉPOSER. Le rangement d'une pièce s'arrête là, sans rien dire.
    */
   it('🔴 un dossier retenu comme ouvert affiche son contenu, SANS qu’on y touche', async () => {
-    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.deplies', JSON.stringify(['d1']));
+    retenir(['d1']);
     await monter();
     const tri = ligneDe('Artisans')?.querySelector('.sfd-triangle');
     expect(tri?.getAttribute('aria-expanded')).toBe('true');
@@ -450,7 +464,7 @@ describe('🔴🔴 ②-ter l’arbre retrouvé : ouvert VEUT DIRE ouvert', () =>
 
   /** ⚠️ ET LE PREMIER CLIC SUR LE TRIANGLE REFERME, comme il doit : c'est bien ouvert, donc il ferme. */
   it('🔴 et le premier clic sur son triangle le REFERME — une fois, pas deux', async () => {
-    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.deplies', JSON.stringify(['d1']));
+    retenir(['d1']);
     await monter();
     await cliquer(ligneDe('Artisans')?.querySelector('.sfd-triangle'));
     expect(ligneDe('devis-artisan.pdf')).toBeUndefined();
@@ -460,7 +474,7 @@ describe('🔴🔴 ②-ter l’arbre retrouvé : ouvert VEUT DIRE ouvert', () =>
 
   /** ⚠️ UN IDENTIFIANT RETENU QUI N'EXISTE PLUS ne casse rien : le Drive a bougé entre deux ouvertures. */
   it('un dossier retenu qui n’existe plus est simplement ignoré', async () => {
-    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.deplies', JSON.stringify(['disparu', 'd1']));
+    retenir(['disparu', 'd1']);
     await monter();
     expect(ligneDe('devis-artisan.pdf')).toBeDefined();
     expect(container.querySelector('.sfd')).not.toBeNull();
@@ -645,5 +659,87 @@ describe('🔴 ce que le mode RANGER ne propose pas', () => {
   it('aucun compteur de pièces ajoutées : on pose, on ne prend pas', async () => {
     await monter();
     expect(container.querySelector('.sfd-compteur')?.textContent).not.toContain('ajoutée');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ②-quater LOT DRIVE-FERME — UNE NOUVELLE SESSION DE CLASSEMENT REPART ARBRE FERMÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (02/10/2026) : « Quand on ouvre "Ranger une pièce dans le Drive" pour une ou plusieurs NOUVELLES
+   pièces, la colonne de droite s'affiche dans son état initial […] tous les dossiers mères FERMÉS. Rien n'est
+   déplié d'avance, même si une session précédente avait déplié des dossiers. »
+
+   DÉCISION, option « b » : la mémorisation du 29/09 n'est PAS retirée — elle est BORNÉE au travail en cours.
+   Mêmes pièces ⇒ arbre restauré ; pièces changées ⇒ tout fermé.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ②-quater une nouvelle session de classement ouvre l’arbre FERMÉ', () => {
+  const retenirPour = (deplies: string[], pieces: typeof PIECES) => {
+    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.deplies', JSON.stringify(deplies));
+    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.session',
+      signatureSession({ mode: 'ranger', messageId: 900, pieces }));
+  };
+
+  it('🔴🔴 MÊMES PIÈCES : l’arbre est restauré, comme Arno l’avait validé le 29/09', async () => {
+    retenirPour(['d1'], PIECES);
+    await monter(PIECES);
+    expect(ligneDe('Artisans')?.querySelector('.sfd-triangle')?.getAttribute('aria-expanded')).toBe('true');
+    expect(ligneDe('devis-artisan.pdf')).toBeDefined();
+  });
+
+  it('🔴🔴 NOUVELLES PIÈCES : tout est fermé, rien n’est déplié d’avance', async () => {
+    retenirPour(['d1'], PIECES);
+    // Une autre pièce, donc une autre session de classement.
+    const neuves = [{ pieceId: 99, nom: '0856_001.pdf', tailleOctets: 200_000, typeMime: 'application/pdf' }];
+    await monter(neuves);
+    expect(ligneDe('Artisans')?.querySelector('.sfd-triangle')?.getAttribute('aria-expanded')).toBe('false');
+    expect(ligneDe('devis-artisan.pdf')).toBeUndefined();
+  });
+
+  /**
+   * ⚠️ UNE PIÈCE AJOUTÉE AU LOT CHANGE AUSSI LA SESSION. On range deux pièces, on referme, on rouvre avec une
+   * troisième : ce n'est plus le même travail, et l'arbre repart fermé. C'est la lettre de la décision
+   * (« dès que les pièces changent »), et c'est aussi ce qu'on attend — la troisième pièce n'a rien à voir avec
+   * le dossier où l'on rangeait les deux premières.
+   */
+  it('🔴 une pièce EN PLUS suffit à ouvrir une nouvelle session', async () => {
+    retenirPour(['d1'], PIECES);
+    await monter([...PIECES, { pieceId: 13, nom: 'autre.pdf', tailleOctets: 10, typeMime: 'application/pdf' }]);
+    expect(ligneDe('devis-artisan.pdf')).toBeUndefined();
+  });
+
+  /**
+   * 🔴 L'ORDRE DES PIÈCES NE FAIT PAS UNE NOUVELLE SESSION. L'écran peut les présenter dans un autre ordre d'une
+   * ouverture à l'autre ; refermer l'arbre pour cette raison-là serait incompréhensible.
+   */
+  it('🔴 les MÊMES pièces dans un autre ordre restent la même session', async () => {
+    retenirPour(['d1'], PIECES);
+    await monter([...PIECES].reverse());
+    expect(ligneDe('devis-artisan.pdf')).toBeDefined();
+  });
+
+  /**
+   * ⚠️ UN ARBRE RETENU PAR UNE VERSION D'AVANT CE LOT n'a pas de signature : on ne sait pas pour quelles pièces
+   * il a été gardé. Dans le doute, fermé — c'est le sens de la demande d'Arno, et le moins surprenant des deux.
+   */
+  it('⚠️ un arbre retenu SANS signature (version d’avant ce lot) repart fermé', async () => {
+    globalThis.sessionStorage.setItem('svv.gestion.selecteurDrive.deplies', JSON.stringify(['d1']));
+    await monter(PIECES);
+    expect(ligneDe('devis-artisan.pdf')).toBeUndefined();
+  });
+
+  /**
+   * 🔴🔴 DANS LA MÊME SESSION, L'ÉTAT RESTE CE QUE LA PERSONNE EN A FAIT. On déplie à la main, et rien ne vient
+   * le refermer : la règle ne s'applique qu'à l'OUVERTURE de la fenêtre.
+   */
+  it('🔴🔴 à l’intérieur d’une même session, ce qu’on déplie reste déplié', async () => {
+    await monter(PIECES);
+    expect(ligneDe('devis-artisan.pdf')).toBeUndefined();
+    await cliquer(ligneDe('Artisans')?.querySelector('.sfd-triangle'));
+    expect(ligneDe('devis-artisan.pdf')).toBeDefined();
+    // …et c'est bien ce qui est retenu, avec la signature de CETTE session.
+    expect(globalThis.sessionStorage.getItem('svv.gestion.selecteurDrive.session'))
+      .toBe(signatureSession({ mode: 'ranger', messageId: 900, pieces: PIECES }));
   });
 });
