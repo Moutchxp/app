@@ -124,7 +124,9 @@ describe('🔴 PLEIN ÉCRAN — la colonne du mode remplace les liens de modules
     await monter();
     await entrerEnPleinEcran();
     const dedans = emplacement()?.textContent ?? '';
-    expect(dedans).toContain('Sans événement');
+    // 🔴🔴 LOT DOSSIER-A-CLASSER — « Sans événement » a quitté la colonne ; « À classer » occupe sa place.
+    expect(dedans).toContain('À classer');
+    expect(dedans).not.toContain('Sans événement');
     expect(dedans).toContain('Réception');
     expect(dedans).toContain('← Écran partagé');
   });

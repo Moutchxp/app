@@ -130,6 +130,9 @@ export function GestionVue({ intro }: {
       /** LOT ERGO-BOITE-3 — absent tant que la migration 263 n'est pas appliquée : l'entrée « Spam » reste alors
        *  sans nombre, et `etiquettesVisibles` l'écarte, comme toute étiquette vide. */
       spam?: number;
+      /** 🔴🔴 LOT DOSSIER-A-CLASSER — les échanges qui portent la pastille rouge. Absent d'une réponse plus
+       *  ancienne que ce lot : l'entrée reste alors sans compteur, jamais à zéro. */
+      aClasser?: number;
     } | null
   >(null);
   /**
@@ -191,6 +194,28 @@ export function GestionVue({ intro }: {
     setNonLus((avant) => (avant.n === n && avant.partiel === (partiel === true)
       ? avant
       : { n, partiel: partiel === true }));
+  }, []);
+  /**
+   * ══ 🔴🔴 LOT DOSSIER-A-CLASSER — LE COMPTEUR « À CLASSER » SUIT LA LISTE, EN DIRECT ═══════════════════════════
+   *
+   * DEMANDE D'ARNO : « Le compteur se met à jour quand un mail est classé (il sort du dossier, avec la même mise
+   * à jour optimiste que la Réception). »
+   *
+   * 🔴 C'EST LE MÊME PATRON QUE `majNonLus` JUSTE AU-DESSUS, et c'est ce qui le rend juste : la liste est la seule
+   * à savoir ce qu'elle montre. Un mail classé disparaît de la liste à sa relecture, la liste rapporte son nouveau
+   * total, et la colonne baisse — sans seconde requête, et sans qu'un second calcul puisse la contredire.
+   *
+   * ⚠️ SEULEMENT POUR SON PROPRE DOSSIER : le total de « Réception » ne doit pas venir écraser celui d'« À
+   * classer ». La sorte voyage avec le nombre, et c'est elle qui décide si l'on écoute.
+   *
+   * ⚠️ ET SEULEMENT SI L'ON A DÉJÀ DES COMPTES : tant que la colonne n'a rien chargé, on ne fabrique pas un objet
+   * partiel dont les six autres nombres seraient inventés.
+   */
+  const majTotalEtiquette = useCallback((sorte: string, total: number | null) => {
+    if (sorte !== 'a_classer_statut' || total === null) return;
+    setComptesBoite((avant) => (avant === null || avant.aClasser === total
+      ? avant
+      : { ...avant, aClasser: total }));
   }, []);
   /**
    * LOT 5e — CE QUE L'ÉCRAN SAIT DE LA RÉDACTION : base à jour ? droit d'envoyer ? connexion Google ? quelle
@@ -538,7 +563,7 @@ export function GestionVue({ intro }: {
         if (!res.ok || annule) return;
         const c = (await res.json()) as {
           lisibles?: number; automatiques?: number; envoyes?: number; reception?: number; corbeille?: number | null;
-          spam?: number;
+          spam?: number; aClasser?: number;
         };
         if (!annule && typeof c.lisibles === 'number') {
           // `reception` est le compte de l'étiquette Réception (au moins un message reçu). Une réponse plus ancienne
@@ -552,6 +577,9 @@ export function GestionVue({ intro }: {
             //   l'entrée « Spam » reste alors sans nombre et disparaît de la colonne, au lieu d'annoncer un zéro
             //   qu'on n'a pas mesuré. Un `?? 0` ici aurait été le mensonge poli.
             spam: c.spam,
+            // 🔴🔴 LOT DOSSIER-A-CLASSER — `undefined` SE PROPAGE TEL QUEL, comme `spam` juste au-dessus : sans
+            //   le nombre, l'entrée s'affiche sans compteur plutôt que d'annoncer un zéro qu'on n'a pas mesuré.
+            aClasser: c.aClasser,
           });
         }
       } catch { /* étiquettes sans nombre : voir l'encadré */ }
@@ -950,7 +978,7 @@ export function GestionVue({ intro }: {
           etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
           /* LOT MESSAGE-CLIQUÉ — le message que la ligne cliquée représentait, lu dans l'adresse. */
           messageOuvert={messageOuvert}
-          auto={auto} onAuto={setAuto} onNonLus={majNonLus}
+          auto={auto} onAuto={setAuto} onNonLus={majNonLus} onTotalEtiquette={majTotalEtiquette}
           corbeilleDisponible={comptesBoite?.corbeille !== null && comptesBoite?.corbeille !== undefined}
           peutEcrire={redaction?.peutEnvoyer === true}
           piecesDisponibles={redaction?.piecesDisponibles === true}
@@ -1154,6 +1182,8 @@ export function etiquettesDeLEcran(
   comptes: {
     lisibles: number; automatiques: number; envoyes: number; reception?: number; corbeille?: number | null;
     spam?: number;
+    /** 🔴🔴 LOT DOSSIER-A-CLASSER — les échanges à classer. Absent ⇒ l'entrée s'affiche sans compteur. */
+    aClasser?: number;
   } | null,
   brouillons: number | null = null,
   nonLus: number | null = null,
@@ -1177,16 +1207,32 @@ export function etiquettesDeLEcran(
     { etiquette: { sorte: 'envoyes', evenementId: null }, libelle: 'Envoyés', compte: comptes?.envoyes ?? null },
     { etiquette: { sorte: 'automatique', evenementId: null }, libelle: 'Courrier automatique', compte: comptes?.automatiques ?? null },
     /**
-     * 🔴 LOT STATUT-PAR-MAIL — « À classer » DEVIENT « Sans événement ».
+     * ══ 🔴🔴 LOT DOSSIER-A-CLASSER — « SANS ÉVÉNEMENT » CÈDE SA PLACE À « À CLASSER » ═════════════════════════
      *
-     * LE DÉFAUT : cette entrée compte les ÉCHANGES sans événement (474 au 27/09/2026), pas les mails à classer.
-     * Sous le même mot que la capsule d'un mail, elle faisait croire à un compteur de travail en retard — alors
-     * que la quasi-totalité des mails n'aura jamais d'événement. Deux questions, deux nombres : mesuré le même
-     * jour, 474 échanges sans événement contre 9 631 mails sans rattachement.
+     * DÉCISION D'ARNO (02/10/2026), accord explicite : « Le dossier “Sans événement” (641) ne me sert à rien. Il
+     * est remplacé, À LA MÊME PLACE, par un dossier “À classer” qui affiche tous les mails portant le statut
+     * “À classer” (la pastille rouge des listes). »
      *
-     * ⚠️ RIEN N'EST RETIRÉ : c'est la MÊME étiquette, la même liste, le même compteur. Seul le mot change.
+     * HISTOIRE DE CETTE LIGNE, en deux temps. Au lot STATUT-PAR-MAIL, l'entrée s'appelait « À classer » et
+     * comptait les échanges SANS ÉVÉNEMENT : le mot promettait un arriéré de classement, le nombre parlait d'autre
+     * chose. On avait alors corrigé LE MOT (« Sans événement »). Arno tranche aujourd'hui dans l'autre sens : ce
+     * qu'il veut à cette place, c'est le travail de classement — donc on change LA CHOSE, et le mot d'origine
+     * redevient juste.
+     *
+     * 🔴 CE QUI N'EST PAS RETIRÉ, ET IL FAUT LE SAVOIR. Seule l'ENTRÉE DE LA COLONNE change. L'étiquette
+     * `a_classer` (le poste de tri, sa fenêtre d'activité, son écran plein, ses gestes) vit toujours : l'écran
+     * PARTAGÉ garde son panneau « Sans événement » avec le même compteur `d.filsTotal`, et son bouton « Plein
+     * écran ». Rien de la logique « sans événement » n'est touché — ni la pastille « Événement : aucun », ni la
+     * recherche, ni les autres écrans.
+     *
+     * ⚠️ `?? null` ET NON `?? 0` : une réponse d'API plus ancienne que ce lot ne porte pas ce nombre. `null` se lit
+     * « on ne sait pas encore » et laisse l'entrée SANS compteur ; un `0` se lirait « il n'y a plus rien à
+     * classer », ce qui serait la plus mauvaise des nouvelles à annoncer à tort.
      */
-    { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'Sans événement', compte: d.filsTotal },
+    {
+      etiquette: { sorte: 'a_classer_statut', evenementId: null }, libelle: 'À classer',
+      compte: comptes?.aClasser ?? null,
+    },
     // LOT 5e — les BROUILLONS. Comme les autres : pas d'étiquette vide, et son nombre vient d'une seule lecture.
     { etiquette: { sorte: 'brouillons', evenementId: null }, libelle: 'Brouillons', compte: brouillons },
     /**

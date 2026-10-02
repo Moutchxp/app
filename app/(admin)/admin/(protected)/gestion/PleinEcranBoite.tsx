@@ -90,7 +90,7 @@ const VIDE: ReadonlySet<number> = new Set();
 export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, messageOuvert = null, brouillonOuvert = null,
   onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
-  enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
+  enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
   versionDonnees = 0, onListeRelue,
   onRattacher, aRattacher = null, aRattacherSansCandidat = null, onAnnuaire, etatDiscret = null,
@@ -121,6 +121,8 @@ export function PleinEcranBoite({
   redaction?: ContexteRedactionEcran | null;
   /** LOT 5-BOITE — remonte le nombre d'échanges non lus par la personne connectée, pour l'étiquette « Réception ». */
   onNonLus?: (n: number | null, partiel?: boolean) => void;
+  /** 🔴🔴 LOT DOSSIER-A-CLASSER — le total de l'étiquette ouverte, pour le compteur de la colonne. */
+  onTotalEtiquette?: (sorte: string, total: number | null) => void;
   /** LOT 5-BOITE-3 — la migration 251 est-elle là, et peut-on écrire au nom de gestion@ ? Pilote le menu des lignes. */
   corbeilleDisponible?: boolean;
   peutEcrire?: boolean;
@@ -881,7 +883,8 @@ export function PleinEcranBoite({
             <BoiteMail key={versionListe} etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
               onRelever={onRelever} releveEnCours={releveEnCours} filtre={filtre}
               etoile={etoile} onEtoileFiltre={onEtoileFiltre}
-              auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus} marquage={marquage}
+              auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus}
+              onTotalEtiquette={onTotalEtiquette} marquage={marquage}
               corbeille={corbeilleDisponible} peutEcrire={peutEcrire} piecesDisponibles={piecesDisponibles}
               onActionLigne={agirSurLigne}
               /**

@@ -35,7 +35,9 @@ const ECRAN = {
   evenements: [CARTE(12, 3), CARTE(13, 0)], evenementsTotal: 2,
   messagesCaptures: 56000, messagesExclus: 40000, derniereReleveLe: '2026-09-24T10:00:00Z',
 };
-const COMPTES = { lisibles: 4944, automatiques: 12262, envoyes: 3311 };
+// 🔴🔴 LOT DOSSIER-A-CLASSER — `aClasser` est le septième nombre de la lecture de la boîte : il alimente la
+//   nouvelle entrée « À classer » de la colonne.
+const COMPTES = { lisibles: 4944, automatiques: 12262, envoyes: 3311, aClasser: 1234 };
 const PAGE_BOITE = { lignes: [], suivant: null, total: null, comptes: COMPTES };
 
 let container: HTMLDivElement;
@@ -161,11 +163,26 @@ describe('🔴 ② le plein écran de la colonne de gauche ouvre la RÉCEPTION',
     expect(container.querySelector('.cm-entree--active')?.textContent).toContain('Réception');
   });
 
-  it('la file des échanges sans événement garde SON bouton, qui ouvre « Sans événement »', async () => {
+  /**
+   * ══ 🔴🔴 LOT DOSSIER-A-CLASSER — CE QUE LE RETRAIT DE LA COLONNE CHANGE POUR CE BOUTON ════════════════════════
+   *
+   * Le panneau « Sans événement » de l'écran PARTAGÉ n'est pas touché : il garde son titre, son compteur et son
+   * bouton « Plein écran », qui ouvre toujours le poste de tri (étiquette `a_classer`). C'est la demande d'Arno —
+   * « Retrait de “Sans événement” de la COLONNE uniquement ».
+   *
+   * 🔴 LA CONSÉQUENCE, ÉPROUVÉE ICI PLUTÔT QUE DÉCOUVERTE PLUS TARD : cette étiquette n'ayant plus d'entrée dans
+   * la colonne, aucune entrée ne s'y allume quand on arrive par ce bouton. La liste, elle, est bien celle du poste
+   * de tri. À signaler à Arno : s'il veut que la colonne nomme encore cet endroit, c'est une décision à prendre,
+   * pas un défaut à corriger en douce.
+   */
+  it('la file sans événement garde SON bouton — mais la colonne n’a plus d’entrée à allumer', async () => {
     await monter();
     const pleins = boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''));
     await cliquer(pleins[1]);
-    expect(container.querySelector('.cm-entree--active')?.textContent).toContain('Sans événement');
+    expect(container.querySelector('.cm-entree--active')).toBeNull();
+    // …et « Sans événement » n'est nulle part dans la colonne.
+    const etiqs = [...container.querySelectorAll('.cm-entree')].map((e) => e.textContent ?? '');
+    expect(etiqs.some((t) => t.includes('Sans événement'))).toBe(false);
   });
 
   /**
@@ -181,10 +198,13 @@ describe('🔴 ② le plein écran de la colonne de gauche ouvre la RÉCEPTION',
     const rang = (mot: string) => etiqs.findIndex((t) => t.includes(mot));
     expect(rang('Réception')).toBeLessThan(rang('Envoyés'));
     expect(rang('Envoyés')).toBeLessThan(rang('Courrier automatique'));
-    expect(rang('Courrier automatique')).toBeLessThan(rang('Sans événement'));
-    expect(rang('Sans événement')).toBeLessThan(rang('Brouillons'));
-    // …et les nombres sont bien ceux du serveur.
-    expect(etiqs.some((t) => t.includes('Sans événement') && t.includes('442'))).toBe(true);
+    // 🔴🔴 LOT DOSSIER-A-CLASSER — « À classer » occupe EXACTEMENT la place de « Sans événement » : entre
+    //   « Courrier automatique » et « Brouillons ». C'est le « à la même place » d'Arno, éprouvé.
+    expect(rang('Courrier automatique')).toBeLessThan(rang('À classer'));
+    expect(rang('À classer')).toBeLessThan(rang('Brouillons'));
+    expect(etiqs.some((t) => t.includes('Sans événement'))).toBe(false);
+    // …et les nombres sont bien ceux du serveur. Celui d'« À classer » vient de la boîte, pas du poste de tri.
+    expect(etiqs.some((t) => t.includes('À classer') && t.includes('1234'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Réception') && t.includes('4944'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Envoyés') && t.includes('3311'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Sans suite') && t.includes('7'))).toBe(true);

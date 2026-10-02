@@ -191,8 +191,12 @@ describe('③ le courrier automatique : écarté par défaut, jamais supprimé',
     //   exactement ce que rend une base sans la migration 263.
     // ⚠️ `corbeille: null` (lot BOITE-INTERNE-CORBEILLE) se lit « on ne sait pas » — migration 275 absente dans ce
     //    jeu d'essai — et surtout PAS « la corbeille est vide » : c'est ce `null` qui retire l'entrée de la colonne.
+    // 🔴🔴 LOT DOSSIER-A-CLASSER — le SEPTIÈME nombre, celui du dossier « À classer ». Il ne sort pas du même
+    //    regroupement que les six autres (la pastille interroge trois tables de plus) : c'est une requête à part,
+    //    bâtie par `sqlCompteBoite` — le MÊME constructeur que l'en-tête de la liste. Le jeu d'essai rend 100.
     await expect(comptesBoite()).resolves.toEqual({
       lisibles: 4944, automatiques: 17206 - 4944, envoyes: 0, reception: 0, spam: 0, corbeille: null,
+      aClasser: 100,
     });
   });
 });
@@ -753,5 +757,99 @@ describe('la corbeille dans le parcours', () => {
     //   total que la liste ne montre pas — et c'est le total qu'on croit.
     expect(sql).toContain('AND m.corbeille_le IS NULL');
     expect(sql).toContain('AND m2.corbeille_le IS NULL');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DOSSIER-A-CLASSER — LE DOSSIER « À CLASSER » : EXACTEMENT LA RÈGLE DE LA PASTILLE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (02/10/2026) : « contenu : exactement les mails au statut “À classer” (même règle que la
+   pastille, une seule source de vérité) ».
+
+   🔴 CE QUE CE BLOC PROTÈGE : que le prédicat du dossier soit la TRANSCRIPTION des trois conditions de
+   `capsuleStatut`, et qu'il ne nomme AUCUNE table dont la migration pourrait manquer.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le dossier « À classer »', () => {
+  const ETIQ = { sorte: 'a_classer_statut' as const, evenementId: null };
+  const sql = (o?: { rattachements?: boolean; horsGestion?: boolean; interne?: boolean }) =>
+    sqlPageBoite(false, ETIQ, false, false, null, false,
+      o?.rattachements ?? true, o?.horsGestion ?? true, null, false, o?.interne ?? true)
+      .replace(/\s+/g, ' ');
+
+  it('🔴🔴 il transcrit les TROIS conditions de la pastille, et dans le même sens', () => {
+    const s = sql();
+    // ① aucun rattachement CONFIRMÉ vers un logement ou un propriétaire, sur TOUT l'échange
+    expect(s).toContain("r0.statut = 'confirme'");
+    expect(s).toContain("r0.cible_sorte IN ('lot', 'proprietaire')");
+    expect(s).toContain('rm0.fil_id = m.fil_id');
+    // ② l'échange n'est pas marqué « Interne »
+    expect(s).toContain('gestion_fil_interne i0');
+    expect(s).toContain('i0.fil_id = m.fil_id');
+    // ③ le MESSAGE de la ligne n'est pas « Hors gestion » — le message, pas l'échange
+    expect(s).toContain('gestion_hors_gestion h0');
+    expect(s).toContain('h0.message_id = m.id');
+    // 🔴 LES TROIS SONT DES NÉGATIONS : c'est ce qui en fait « à classer » et non « classé ».
+    expect((s.match(/AND NOT EXISTS/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+
+  /**
+   * 🔴🔴 UNE PROPOSITION NE CLASSE RIEN. C'est la moitié de la règle qu'on perdrait le plus facilement, et c'est
+   * aussi ce qui distingue ce dossier de « À rattacher » : mesuré sur la base réelle le 02/10/2026, 16 142 mails
+   * « à classer » n'entrent dans AUCUNE file de tri, et 2 274 mails de la file sont déjà classés.
+   */
+  it('🔴🔴 il ne compte QUE les rattachements confirmés — jamais une proposition', () => {
+    expect(sql()).not.toContain("r0.statut = 'propose'");
+    expect(sql()).toContain("r0.statut = 'confirme'");
+  });
+
+  /**
+   * 🔴 SANS LA MIGRATION, PAS UNE TABLE NOMMÉE. La règle du module : nommer une table absente ferait échouer TOUTE
+   * la boîte — pas seulement ce dossier. Le dépôt l'a déjà payé (les six compteurs disparus du 27/09/2026).
+   */
+  it('🔴🔴 sans les migrations 257 / 266 / 281, aucune de ces tables n’est nommée', () => {
+    const nu = sql({ rattachements: false, horsGestion: false, interne: false });
+    expect(nu).not.toContain('gestion_rattachement');
+    expect(nu).not.toContain('gestion_hors_gestion');
+    expect(nu).not.toContain('gestion_fil_interne');
+    // …et chaque sonde se lève SEULE, sans entraîner les deux autres.
+    expect(sql({ horsGestion: false, interne: false })).toContain('gestion_rattachement');
+    expect(sql({ horsGestion: false, interne: false })).not.toContain('gestion_fil_interne');
+  });
+
+  /**
+   * 🔴🔴 LE COMPTE POSE LE MÊME PRÉDICAT QUE LA PAGE. Sans cela, la colonne annoncerait « 1–25 sur N » pour une
+   * liste qui n'en montre pas N — le défaut du lot LISTE-PAGINATION, et on ne le refait pas.
+   */
+  it('🔴🔴 le COMPTE et la PAGE posent le même prédicat, au caractère près', () => {
+    const page = sqlPageBoite(false, ETIQ, false, false, null, false, true, true, null, false, true)
+      .replace(/\s+/g, ' ');
+    const compte = sqlCompteBoite(false, ETIQ, false, false, null, false, null, false, 1, true, true, true)
+      .replace(/\s+/g, ' ');
+    for (const morceau of [
+      "r0.statut = 'confirme'", "r0.cible_sorte IN ('lot', 'proprietaire')",
+      'gestion_fil_interne i0', 'gestion_hors_gestion h0',
+    ]) {
+      expect(page).toContain(morceau);
+      expect(compte).toContain(morceau);
+    }
+  });
+
+  /**
+   * ⚠️ LES AUTRES ÉTIQUETTES NE BOUGENT PAS D'UN CARACTÈRE. C'est ce qui permet d'ajouter ce dossier sans toucher
+   * aux épreuves de forme existantes — et surtout sans changer ce que montrent les six autres listes.
+   */
+  it('⚠️ aucune autre étiquette n’est touchée par ce dossier', () => {
+    for (const sorte of ['reception', 'envoyes', 'automatique', 'spam', 'corbeille', 'a_classer'] as const) {
+      const s = sqlPageBoite(false, { sorte, evenementId: null }, true, true, null, false, true, true, null, false, true);
+      expect(s).not.toContain('r0.');
+      expect(s).not.toContain('i0.');
+      expect(s).not.toContain('h0.');
+    }
+    // 🔴 ET « a_classer » RESTE LE POSTE DE TRI : sa règle est l'ÉTAT de l'échange, pas la pastille d'un mail.
+    const posteDeTri = sqlPageBoite(false, { sorte: 'a_classer', evenementId: null }, false, false, null, false,
+      true, true, null, false, true).replace(/\s+/g, ' ');
+    expect(posteDeTri).toContain("f0.etat = 'a_classer'");
   });
 });

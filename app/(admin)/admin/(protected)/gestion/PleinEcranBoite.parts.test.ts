@@ -39,15 +39,32 @@ const carte = (id: number, nbFils: number) => ({
   demandeur: null, adresseLibre: null, etat: 'a_traiter' as const, ouvertLe: '2026-09-01T10:00:00Z',
   dernierEchangeLe: null, nbFils, nbMailsDeplaces: 0, attend: false,
 });
-const COMPTES = { lisibles: 4944, automatiques: 12262, envoyes: 3311 };
+const COMPTES = { lisibles: 4944, automatiques: 12262, envoyes: 3311, aClasser: 1234 };
 const par = (l: EtiquetteAffichee[], sorte: string) => l.find((e) => e.etiquette.sorte === sorte);
 
 describe('🔴 ① les compteurs viennent d’où ils sont DÉJÀ calculés, jamais d’un second calcul', () => {
   const l = etiquettesDeLEcran(ecran(), COMPTES);
 
-  it('« À classer » et « Sans suite » sont ceux du poste de tri, mot pour mot', () => {
-    expect(par(l, 'a_classer')?.compte).toBe(442);   // = filsTotal
+  it('« Sans suite » est celui du poste de tri, mot pour mot', () => {
     expect(par(l, 'sans_suite')?.compte).toBe(7);    // = sansSuiteTotal
+  });
+
+  /**
+   * ══ 🔴🔴 LOT DOSSIER-A-CLASSER — « SANS ÉVÉNEMENT » A QUITTÉ LA COLONNE, « À CLASSER » PREND SA PLACE ═══════
+   *
+   * Accord explicite d'Arno (02/10/2026) : « Le dossier “Sans événement” ne me sert à rien. Il est remplacé, à la
+   * même place, par un dossier “À classer”. » Ce cas disait l'inverse ; il dit maintenant ce qui est.
+   *
+   * ⚠️ ET SON NOMBRE NE VIENT PLUS DU POSTE DE TRI : il sort de la lecture de la boîte (`comptesBoite`), par le
+   * MÊME constructeur que l'en-tête de la liste. C'est tout l'objet du lot — le compteur et la liste ne peuvent
+   * plus se contredire.
+   */
+  it('🔴🔴 « À classer » a remplacé « Sans événement », et son nombre vient de la BOÎTE', () => {
+    expect(par(l, 'a_classer_statut')?.libelle).toBe('À classer');
+    expect(par(l, 'a_classer_statut')?.compte).toBe(1234);
+    // 🔴 L'ANCIENNE ENTRÉE N'EST PLUS DANS LA COLONNE — c'est le retrait demandé.
+    expect(par(l, 'a_classer')).toBeUndefined();
+    expect(l.map((e) => e.libelle)).not.toContain('Sans événement');
   });
 
   it('« Réception », « Envoyés » et « Courrier automatique » sortent de l’unique lecture de la boîte', () => {
@@ -60,7 +77,13 @@ describe('🔴 ① les compteurs viennent d’où ils sont DÉJÀ calculés, jam
     const sans = etiquettesDeLEcran(ecran(), null);
     expect(par(sans, 'reception')?.compte).toBeNull();
     expect(par(sans, 'envoyes')?.compte).toBeNull();
-    expect(par(sans, 'a_classer')?.compte).toBe(442); // celui-là, lui, est connu d'emblée
+    expect(par(sans, 'sans_suite')?.compte).toBe(7); // celui-là, lui, est connu d'emblée (poste de tri)
+    /**
+     * 🔴🔴 LOT DOSSIER-A-CLASSER — ET « À classer » SUIT LA MÊME RÈGLE QUE « Réception » : son nombre vient de la
+     * boîte, donc sans elle il vaut `null` — jamais `0`. Un « 0 » se lirait « il n'y a plus rien à classer », la
+     * plus mauvaise des nouvelles à annoncer à tort.
+     */
+    expect(par(sans, 'a_classer_statut')?.compte).toBeNull();
   });
 
   /**
@@ -111,8 +134,11 @@ describe('🔴 ② et ③ pas d’étiquette vide, sauf celle qu’on regarde', 
   });
 
   it('🔴 SAUF celle qu’on regarde : la choisir ne doit pas la faire disparaître', () => {
-    const vus = etiquettesVisibles(brutes(), ETIQUETTE_ARRIVEE);
-    expect(vus.map((e) => e.libelle)).toContain('Sans événement'); // à zéro, mais ouverte
+    // 🔴🔴 LOT DOSSIER-A-CLASSER — l'exemple était « Sans événement », qui a quitté la colonne. La RÈGLE, elle,
+    //   n'a pas changé d'un mot : on l'éprouve désormais sur « À classer », qui occupe la même place.
+    const ouverte: Etiquette = { sorte: 'a_classer_statut', evenementId: null };
+    const vus = etiquettesVisibles(brutes(), ouverte);
+    expect(vus.map((e) => e.libelle)).toContain('À classer'); // à zéro, mais ouverte
   });
 
   it('un compte INCONNU laisse l’étiquette visible : on ne fait pas disparaître ce qu’on ne sait pas', () => {

@@ -50,6 +50,23 @@ export type SorteEtiquette =
    * migration 263, l'étiquette existe et sa liste est vide — jamais fausse.
    */
   | 'spam'
+  /**
+   * ══ 🔴🔴 LOT DOSSIER-A-CLASSER — LES MAILS QUI PORTENT LA PASTILLE ROUGE « À classer » ══════════════════════
+   *
+   * DÉCISION D'ARNO (02/10/2026) : « Le dossier “Sans événement” ne me sert à rien. Il est remplacé, à la même
+   * place, par un dossier “À classer” qui affiche tous les mails portant le statut “À classer”. »
+   *
+   * 🔴🔴 POURQUOI UN NOM DIFFÉRENT DE `a_classer`, ET C'EST TOUT LE PIÈGE DE CE LOT. La sorte `a_classer` existe
+   * depuis le lot 5-FUSION et ne désigne PAS ce que son nom dit : c'est l'étiquette du POSTE DE TRI (les échanges
+   * sans événement, `gestion_fil.etat = 'a_classer'`), rebaptisée « Sans événement » à l'écran au lot
+   * STATUT-PAR-MAIL précisément parce que son mot trompait. La réutiliser aurait fait pointer la même adresse vers
+   * deux listes différentes, et cassé toutes les adresses déjà copiées ou mises en favori.
+   *
+   * ⚠️ LE MOT AFFICHÉ EST « À classer » ; la sorte, elle, dit SUR QUOI elle porte — le STATUT d'un mail, et non
+   * l'état d'un échange. Mesuré le 02/10/2026 : 38 013 mails portent le statut, contre 36 690 échanges sans
+   * événement. Deux questions, deux nombres, deux listes.
+   */
+  | 'a_classer_statut'
   | 'carte';
 
 export interface Etiquette {
@@ -191,6 +208,9 @@ export const ETAT_DEFAUT: EtatEcranUrl = {
 const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique'];
 const SORTES_FIXES: readonly SorteEtiquette[] = [
   'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons', 'spam',
+  // 🔴🔴 LOT DOSSIER-A-CLASSER — le dossier des mails qui portent la pastille rouge. Voir l'encadré de la sorte :
+  //   ce n'est PAS `a_classer`, qui est le poste de tri (« Sans événement »).
+  'a_classer_statut',
   // LOT 5-BOITE-3 — la corbeille est une étiquette comme les autres : elle vit dans l'adresse, donc elle se
   //   recharge, se copie et se retrouve par « Précédent ».
   'corbeille',

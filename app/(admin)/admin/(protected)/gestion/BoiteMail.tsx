@@ -355,7 +355,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 
 export function BoiteMail({
   onOuvrir, onRouvrirBrouillon, onApercuBrouillon, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
-  dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
+  dense = false, onNonLus, onTotalEtiquette, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
   versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
   etoile = false, onEtoileFiltre, selection,
 }: {
@@ -405,6 +405,21 @@ export function BoiteMail({
    * compte personnel) : le parent n'affiche alors rien plutôt qu'un zéro qui aurait l'air d'une bonne nouvelle.
    */
   onNonLus?: (n: number | null, partiel?: boolean) => void;
+  /**
+   * ══ 🔴🔴 LOT DOSSIER-A-CLASSER — LA LISTE DIT AU PARENT COMBIEN ELLE EN A, pour l'étiquette ouverte ═════════
+   *
+   * DEMANDE D'ARNO : « Le compteur se met à jour quand un mail est classé (il sort du dossier, avec la même mise
+   * à jour optimiste que la Réception). »
+   *
+   * 🔴 C'EST EXACTEMENT LE MÉCANISME DE `onNonLus`, ET C'EST VOULU. La liste est la seule à savoir ce qu'elle
+   * montre ; elle le dit, le parent l'écrit dans la colonne. Quand un mail est classé, la liste se relit (le
+   * geste appelle `charger`), rapporte son nouveau total, et le nombre de la colonne baisse — sans seconde
+   * requête, et sans que deux calculs puissent se contredire.
+   *
+   * ⚠️ `null` = LE TOTAL N'EST PAS CONNU (pages suivantes : il n'est demandé qu'à la première). Le parent garde
+   * alors le nombre qu'il avait, plutôt que d'effacer un compteur juste parce qu'on a tourné la page.
+   */
+  onTotalEtiquette?: (sorte: string, total: number | null) => void;
   /**
    * LOT 5-BOITE — un marquage de lecture qui vient d'avoir lieu AILLEURS (la conversation ouverte à côté).
    *
@@ -732,6 +747,18 @@ export function BoiteMail({
   const totalNonLus = etat.v === 'ok' ? etat.nonLusTotal : null;
   const partielNonLus = etat.v === 'ok' && etat.nonLusPartiel;
   useEffect(() => { if (onNonLus) onNonLus(totalNonLus, partielNonLus); }, [onNonLus, totalNonLus, partielNonLus]);
+
+  /**
+   * 🔴🔴 LOT DOSSIER-A-CLASSER — LE TOTAL DE L'ÉTIQUETTE OUVERTE, REMONTÉ comme les non-lus juste au-dessus.
+   *
+   * ⚠️ IL NE REMONTE QUE SUR UN ÉTAT `ok` : pendant le chargement ou après une erreur, la liste ne sait rien, et
+   * annoncer `null` ferait clignoter le compteur de la colonne à chaque relecture.
+   */
+  const totalAffiche = etat.v === 'ok' ? etat.total : undefined;
+  useEffect(() => {
+    if (onTotalEtiquette === undefined || totalAffiche === undefined) return;
+    onTotalEtiquette(etiquette.sorte, totalAffiche);
+  }, [onTotalEtiquette, etiquette.sorte, totalAffiche]);
 
   /**
    * ══ 🔴 LOT BOITE-INTERNE-CORBEILLE — LES LIGNES AFFICHÉES REMONTENT AU PARENT ═════════════════════════════════

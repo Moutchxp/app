@@ -501,7 +501,19 @@ async function adresseDeLaGestion(): Promise<string> {
  * son COMPTE (qui n'a ni curseur ni `LIMIT`, donc en 1re). Le rang par défaut est 4 : les appels d'avant ce lot
  * rendent une chaîne IDENTIQUE AU CARACTÈRE PRÈS, et les épreuves qui figent la forme du SQL de la page tiennent.
  */
-function sqlEtiquette(e: Etiquette, corbeille: boolean, spam: boolean, rangParam = 4): string {
+function sqlEtiquette(
+  e: Etiquette, corbeille: boolean, spam: boolean, rangParam = 4,
+  /**
+   * 🔴🔴 LOT DOSSIER-A-CLASSER — LES TROIS SONDES DONT LE DOSSIER « À classer » A BESOIN. Elles valent `false` par
+   * défaut : tout appelant écrit avant ce lot rend donc une chaîne IDENTIQUE AU CARACTÈRE PRÈS pour les autres
+   * étiquettes, et les épreuves qui figent la forme du SQL de la page tiennent.
+   *
+   * ⚠️ POURQUOI ELLES SONT INDISPENSABLES : sans la migration 257 (ou 266, ou 281), nommer `gestion_rattachement`,
+   * `gestion_hors_gestion` ou `gestion_fil_interne` ferait échouer TOUTE la requête de la boîte — pas seulement ce
+   * dossier. C'est la règle du module, et elle a déjà coûté une fois (les compteurs disparus du 27/09/2026).
+   */
+  sondes?: { rattachements?: boolean; horsGestion?: boolean; interne?: boolean },
+): string {
   switch (e.sorte) {
     /**
      * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -540,6 +552,49 @@ function sqlEtiquette(e: Etiquette, corbeille: boolean, spam: boolean, rangParam
     case 'a_classer':
       return `AND m.recu_le >= now() - ($${rangParam}::int * interval '1 day')
           AND EXISTS (SELECT 1 FROM gestion_fil f0 WHERE f0.id = m.fil_id AND f0.etat = 'a_classer')`;
+    /**
+     * ══ 🔴🔴 LOT DOSSIER-A-CLASSER — LA PASTILLE ROUGE, ET RIEN D'AUTRE ════════════════════════════════════════
+     *
+     * DÉCISION D'ARNO : « contenu : exactement les mails au statut “À classer” (même règle que la pastille, une
+     * seule source de vérité) ».
+     *
+     * 🔴 LA SOURCE DE VÉRITÉ EST `capsuleStatut` (module PUR), et ce prédicat en est la TRANSCRIPTION LITTÉRALE,
+     * dans le même ordre de priorité : un échange est « à classer » quand il n'a AUCUN rattachement confirmé vers
+     * un logement ou un propriétaire, qu'il n'est pas marqué « Interne », et que le message de la ligne n'est pas
+     * « Hors gestion ». Les trois négations sont exactement les trois conditions que `capsuleStatut` teste avant
+     * de rendre `a_classer`.
+     *
+     * ⚠️ LES TROIS SOUS-REQUÊTES SONT ÉCRITES SUR LE MODÈLE DES JOINTURES DE LA LISTE — `sqlJointureClassement`
+     * pour la première (fil entier, `confirme`, cibles `lot`/`proprietaire`), `sqlJointureHorsGestion` pour la
+     * troisième (le MESSAGE de la ligne, pas tout l'échange). Un prédicat qui s'en écarterait ferait une liste qui
+     * ne coïncide pas avec les pastilles qu'elle affiche — exactement ce qu'Arno veut éviter.
+     *
+     * ⚠️ UNE PROPOSITION NE CLASSE RIEN : `statut = 'confirme'` seulement. C'est la règle de la pastille, et c'est
+     * aussi ce qui fait que ce dossier n'est pas celui de « À rattacher » (mesuré : 16 142 mails « à classer »
+     * n'entrent dans aucune file de tri, et 2 274 mails de la file sont déjà classés).
+     *
+     * ⚠️ AUCUNE SONDE N'EST NÉCESSAIRE ICI, et il faut dire pourquoi : les trois tables sont celles que la liste
+     * nomme DÉJÀ pour afficher ses pastilles, sous la garde des sondes de `sqlPageBoite`. Sans la migration 257,
+     * aucune ligne ne porte de rattachement — le dossier montre alors toute la boîte, ce qui est la vérité pour
+     * une base sans rattachements.
+     */
+    case 'a_classer_statut': {
+      const sansRattachement = sondes?.rattachements !== true ? '' : `
+          AND NOT EXISTS (
+                SELECT 1 FROM gestion_rattachement r0
+                  JOIN gestion_message rm0 ON rm0.id = r0.message_id
+                 WHERE rm0.fil_id = m.fil_id AND r0.statut = 'confirme'
+                   AND r0.cible_sorte IN ('lot', 'proprietaire'))`;
+      const sansInterne = sondes?.interne !== true ? '' : `
+          AND NOT EXISTS (
+                SELECT 1 FROM gestion_fil_interne i0
+                 WHERE i0.fil_id = m.fil_id AND i0.retire_le IS NULL)`;
+      const sansHorsGestion = sondes?.horsGestion !== true ? '' : `
+          AND NOT EXISTS (
+                SELECT 1 FROM gestion_hors_gestion h0
+                 WHERE h0.message_id = m.id AND h0.retire_le IS NULL)`;
+      return `${sansRattachement}${sansInterne}${sansHorsGestion}`;
+    }
     // « Envoyés » : le PENDANT EXACT de Réception, et pour la même raison sans filtre ici. Voir ci-dessus.
     case 'envoyes':
       return '';
@@ -606,6 +661,8 @@ function predicatsBoite(
   inclureAutomatiques: boolean, etiquette: Etiquette, corbeille: boolean, spam: boolean,
   rangFilsRetenus: number | null, etoilesSeules: boolean, rangAdresseGestion: number | null,
   etoileGmail: boolean, rangEtiquette: number,
+  /** 🔴🔴 LOT DOSSIER-A-CLASSER — les trois sondes dont le seul dossier « À classer » a besoin. */
+  sondes?: { rattachements?: boolean; horsGestion?: boolean; interne?: boolean },
 ): {
   sens: 'recu' | 'envoye' | null; montreLaCorbeille: boolean;
   filtreM: string; filtreM2: string; filtreEtiquette: string;
@@ -618,7 +675,9 @@ function predicatsBoite(
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
   const filtreM = inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL';
   const filtreM2 = inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL';
-  const filtreEtiquette = sqlEtiquette(etiquette, corbeille, spam, rangEtiquette);
+  // 🔴🔴 LOT DOSSIER-A-CLASSER — les sondes voyagent jusqu'au prédicat de l'étiquette : lui seul en a besoin, et
+  //   seulement pour « À classer ». Les autres étiquettes rendent la même chaîne qu'avant ce lot.
+  const filtreEtiquette = sqlEtiquette(etiquette, corbeille, spam, rangEtiquette, sondes);
   /**
    * LOT BOITE-SENS — LE SENS, AUX DEUX ÉTAGES. `null` (toutes les autres étiquettes) ⇒ chaînes vides, et la
    * requête est alors mot pour mot celle d'avant ce lot.
@@ -726,7 +785,7 @@ export function sqlPageBoite(
     sens, montreLaCorbeille, filtreM, filtreM2, filtreEtiquette, filtreSensM, filtreSensM2,
     filtreCorbeille, filtreCorbeilleM2, filtreSpamM, filtreSpamM2, filtreRetenus, filtreEtoile,
   } = predicatsBoite(inclureAutomatiques, etiquette, corbeille, spam, rangFilsRetenus, etoilesSeules,
-    rangAdresseGestion, etoileGmail, 4);
+    rangAdresseGestion, etoileGmail, 4, { rattachements, horsGestion, interne });
   /**
    * L'INTERLOCUTEUR SUIT LE MESSAGE AFFICHÉ, et il ne peut plus en être autrement.
    *
@@ -859,12 +918,22 @@ export function sqlCompteBoite(
   rangAdresseGestion: number | null = null, etoileGmail = false,
   /** Le rang du paramètre de l'étiquette. 1 ici, contre 4 dans la page : un compte n'a ni curseur ni `LIMIT`. */
   rangEtiquette = 1,
+  /**
+   * 🔴🔴 LOT DOSSIER-A-CLASSER — LES TROIS SONDES, EN FIN DE SIGNATURE ET À `false` PAR DÉFAUT.
+   *
+   * Le COMPTE doit poser le MÊME prédicat que la PAGE, sans quoi la colonne annoncerait un nombre que la liste ne
+   * montre pas — c'est le défaut « 1–25 sur 261 pour 258 lignes » du lot LISTE-PAGINATION, et on ne le refait pas.
+   *
+   * ⚠️ À `false`, la chaîne rendue est IDENTIQUE AU CARACTÈRE PRÈS à celle d'avant ce lot pour toutes les autres
+   * étiquettes : les épreuves qui figent la forme du SQL tiennent sans être réécrites.
+   */
+  rattachements = false, horsGestion = false, interne = false,
 ): string {
   const {
     filtreM, filtreM2, filtreEtiquette, filtreSensM, filtreSensM2,
     filtreCorbeille, filtreCorbeilleM2, filtreSpamM, filtreSpamM2, filtreRetenus, filtreEtoile,
   } = predicatsBoite(inclureAutomatiques, etiquette, corbeille, spam, rangFilsRetenus, etoilesSeules,
-    rangAdresseGestion, etoileGmail, rangEtiquette);
+    rangAdresseGestion, etoileGmail, rangEtiquette, { rattachements, horsGestion, interne });
   return `SELECT count(*)::int AS n
        FROM gestion_message m
       WHERE true
@@ -995,8 +1064,10 @@ export async function lireBoiteMail(
   const rangRetenusCompte = retenus === undefined
     ? null : 1 + paramsEtiquette.length + (rangAdresseCompte === null ? 0 : 1);
   const compteDeLaListe = curseur !== null ? null : (await query<{ n: number }>(
+    // 🔴🔴 LOT DOSSIER-A-CLASSER — LES MÊMES SONDES QUE LA PAGE, et c'est obligatoire : le compte doit poser le
+    //   MÊME prédicat, sinon la barre annoncerait « 1–25 sur N » pour une liste qui n'en montre pas N.
     sqlCompteBoite(tous, etiquette, corbeille, spam, rangRetenusCompte, options.etoilesSeules === true,
-      rangAdresseCompte, etoileGmail, 1),
+      rangAdresseCompte, etoileGmail, 1, rattachements, horsGestion, interne),
     [...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
       ...(retenus === undefined ? [] : [[...retenus]])],
   )).rows[0]?.n ?? 0;
@@ -1263,6 +1334,19 @@ export async function compterBoite(
 export async function comptesBoite(): Promise<{
   lisibles: number; automatiques: number; envoyes: number; reception: number; spam: number;
   /**
+   * ══ 🔴🔴 LOT DOSSIER-A-CLASSER — COMBIEN D'ÉCHANGES PORTENT LA PASTILLE ROUGE « À classer » ══════════════════
+   *
+   * 🔴 IL SORT DU MÊME CONSTRUCTEUR QUE L'EN-TÊTE DE LA LISTE (`sqlCompteBoite`), avec la MÊME étiquette et les
+   * MÊMES sondes. Ce n'est pas un raffinement : un compteur « calculé autrement mais équivalent » annonce tôt ou
+   * tard un nombre que la liste ne montre pas, et c'est toujours le compteur qu'on croit. Le dépôt l'a déjà payé
+   * deux fois (« 1–25 sur 261 » pour 258 lignes ; les 32 échanges d'écart du lot BOITE-SENS).
+   *
+   * ⚠️ IL COMPTE CE QUE LA LISTE MONTRE PAR DÉFAUT, donc SANS le courrier automatique — comme toutes les autres
+   * entrées de la colonne. L'interrupteur « Afficher aussi le courrier automatique » reste maître de la liste, et
+   * la liste dit alors combien elle en masque, comme partout ailleurs.
+   */
+  aClasser: number;
+  /**
    * LOT BOITE-INTERNE-CORBEILLE — combien de MESSAGES sont à la corbeille de Gmail. `null` = migration 275
    * absente : l'entrée « Corbeille » n'apparaît alors pas du tout, plutôt qu'un zéro qu'on n'a pas mesuré et qui
    * se lirait « la corbeille est vide ».
@@ -1377,10 +1461,34 @@ export async function comptesBoite(): Promise<{
                     max(recu_le) FILTER (WHERE exclu_le IS NULL AND sens = 'envoye') AS dernier_envoye
                FROM gestion_message ${horsSpam} GROUP BY fil_id) x`,
     [await adresseDeLaGestion()]);
+  /**
+   * 🔴🔴 LOT DOSSIER-A-CLASSER — LE SEPTIÈME NOMBRE, par le constructeur de la liste elle-même.
+   *
+   * ⚠️ UNE REQUÊTE DE PLUS, et c'est assumé : elle ne peut pas se greffer sur le regroupement ci-dessus, qui
+   * raisonne par ÉCHANGE sur `gestion_message` seul, alors que la pastille interroge trois autres tables. La
+   * greffer de force aurait voulu dire réécrire le prédicat une seconde fois — exactement ce qu'on refuse.
+   *
+   * ⚠️ ELLE NE FAIT PAS TOMBER LES AUTRES : en cas d'échec on rend `0` plutôt que de perdre toute la colonne.
+   * C'est la leçon du 27/09/2026 — une sous-requête fautive avait fait disparaître les six compteurs d'un coup.
+   */
+  const aClasser = await (async (): Promise<number> => {
+    try {
+      const [rattachements, horsGestion, interne] = await Promise.all([
+        rattachementsDisponibles(), horsGestionDisponible(), interneDisponible(),
+      ]);
+      const { rows: r2 } = await query<{ n: number }>(
+        sqlCompteBoite(false, { sorte: 'a_classer_statut', evenementId: null }, corbeille, spam,
+          null, false, null, false, 1, rattachements, horsGestion, interne), []);
+      return r2[0]?.n ?? 0;
+    } catch (e) {
+      console.error('[gestion/boite] compte « À classer » illisible', e);
+      return 0;
+    }
+  })();
   const l = rows[0]?.lisibles ?? 0;
   return {
     lisibles: l, automatiques: (rows[0]?.total ?? 0) - l, envoyes: rows[0]?.envoyes ?? 0,
-    reception: rows[0]?.reception ?? 0, spam: rows[0]?.spam ?? 0,
+    reception: rows[0]?.reception ?? 0, spam: rows[0]?.spam ?? 0, aClasser,
     // ⚠️ `null` VOYAGE TEL QUEL : il se lit « on ne sait pas » (migration absente), jamais « zéro ».
     corbeille: rows[0]?.corbeille ?? null,
   };
