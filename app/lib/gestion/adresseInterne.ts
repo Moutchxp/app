@@ -45,6 +45,29 @@
 export const DOMAINES_INTERNES = ['criterimmo.fr', 'sansvisavis.com'] as const;
 
 /**
+ * ══ 🔴🔴 NOS ADRESSES NOMMÉES UNE PAR UNE — celles qui ne sont pas sur un de nos domaines ══════════════════════
+ *
+ * DÉCISION D'ARNO (02/10/2026) : « gestion.criterimmo@gmail.com est NOTRE adresse. Ajoute-la à la liste centrale
+ * des adresses internes (comme @criterimmo.fr et @sansvisavis.com) : jamais d'étape 2, jamais de bloc des
+ * parties, jamais de proposition par expéditeur. »
+ *
+ * 🔴 POURQUOI UNE SECONDE LISTE, ET NON UN DOMAINE DE PLUS. `gmail.com` ne peut évidemment pas entrer dans
+ * `DOMAINES_INTERNES` : il rendrait internes des centaines de locataires et de propriétaires, et le module
+ * cesserait de rapprocher la moitié de son courrier. Une adresse NOMMÉE est donc le seul moyen juste, et la
+ * comparaison se fait sur l'adresse ENTIÈRE, jamais sur un morceau.
+ *
+ * ⚠️ CE QUE CETTE ENTRÉE A RÉVÉLÉ, ET C'EST LA VRAIE LEÇON. Elle existait DÉJÀ, mais ailleurs : dans
+ * `documentsAutoRepo.NOS_ADRESSES`, recopiée à la main. Le rangement des documents automatiques la connaissait
+ * donc, et le moteur de rattachement l'ignorait — 940 mails de notre propre boîte attendaient dans la file « À
+ * rattacher » comme s'ils venaient d'un inconnu. C'est exactement ce que produit une règle recopiée : elle tient
+ * là où on l'a écrite, et elle manque là où on a oublié. `NOS_ADRESSES` DÉRIVE désormais de cette liste-ci.
+ *
+ * ⚠️ EN MINUSCULES, SANS BLANC : la comparaison normalise des deux côtés, mais une entrée mal formée ici ne
+ * correspondrait jamais à rien, en silence.
+ */
+export const ADRESSES_INTERNES = ['gestion.criterimmo@gmail.com'] as const;
+
+/**
  * CETTE ADRESSE EST-ELLE UNE DES NÔTRES ? PUR.
  *
  * ⚠️ UNE ADRESSE VIDE OU ILLISIBLE REND `true`, et ce n'est pas une facilité : la question posée est « peut-on s'en
@@ -62,6 +85,9 @@ export function estAdresseInterne(
   const a = (adresse ?? '').trim().toLowerCase();
   if (a === '' || !a.includes('@')) return true;
   if (autres.some((x) => (x ?? '').trim().toLowerCase() === a)) return true;
+  // 🔴 NOS ADRESSES NOMMÉES, comparées EN ENTIER : « gestion.criterimmo@gmail.com » est à nous, « gmail.com »
+  //   ne l'est pas. Un test sur le domaine seul rendrait internes des centaines de clients.
+  if ((ADRESSES_INTERNES as readonly string[]).includes(a)) return true;
   const domaine = a.slice(a.indexOf('@') + 1);
   return DOMAINES_INTERNES.some((d) => domaine === d || domaine.endsWith(`.${d}`));
 }

@@ -9,6 +9,8 @@
  * ne raconte jamais autre chose que la base.
  */
 import { query } from '../db/client';
+// 🔴🔴 LA LISTE CENTRALE DE NOS DOMAINES. Le repli ci-dessous en DÉRIVE, il ne la recopie plus (voir son encadré).
+import { DOMAINES_INTERNES } from './adresseInterne';
 
 export interface ConfigGestion {
   dossierImap: string;
@@ -42,7 +44,23 @@ export interface ConfigGestion {
 export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
   dossierImap: '_GESTION BOITE MAIL',
   adresseGestion: 'gestion@criterimmo.fr',
-  domainesInternes: ['criterimmo.fr', 'sansvisavis.com'],
+  /**
+   * ══ 🔴🔴 LOT CONTACTS-EXTERNES — CE REPLI DÉRIVE DE LA LISTE CENTRALE, il ne la recopie plus ════════════════
+   *
+   * Il était écrit à la main, et il disait la même chose que `adresseInterne.DOMAINES_INTERNES` — une QUATRIÈME
+   * copie, trouvée le 02/10/2026 par le garde de `adressesInternesPartout.test.ts`. Deux listes finissent
+   * toujours par ne plus dire la même chose : c'est ce qui a laissé 940 mails de notre propre boîte Gmail dans
+   * la file « À rattacher ».
+   *
+   * ⚠️ CE CHAMP RESTE, ET IL N'EST TOUCHÉ EN RIEN D'AUTRE. Il vit aussi EN BASE (`gestion_config.domaines_internes`,
+   * migration 228) et reste réglable sans redéploiement ; ceci n'est que son REPLI, pour une base qui ne
+   * répondrait pas. Ses valeurs sont identiques à ce qu'elles étaient.
+   *
+   * ⚠️ À SIGNALER À ARNO : aucune lecture du dépôt ne consulte ce champ aujourd'hui (vérifié par recherche le
+   * 02/10/2026 — seuls `config.ts` et son épreuve le nomment). La règle « nos adresses » passe TOUTE par
+   * `adresseInterne.ts`. On ne le retire pas pour autant : ce serait retirer une fonctionnalité.
+   */
+  domainesInternes: [...DOMAINES_INTERNES],
   rattrapageJours: 90,
   plafondParPasse: 400,
   typesPiecesAcceptes: [

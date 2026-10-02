@@ -1,5 +1,7 @@
 import { query } from '../db/client';
 import { interneDisponible } from './schema';
+// 🔴🔴 LA LISTE CENTRALE DE NOS ADRESSES. `DOMAINES_MAISON` en est le RÉEXPORT, plus une copie (voir plus bas).
+import { estAdresseInterne } from './adresseInterne';
 import type { Auteur } from './gestes';
 
 /**
@@ -72,14 +74,32 @@ function idsPropres(ids: readonly number[]): number[] {
  * compta externalisée (ADHOC), qui n'est PAS la maison. Ici on demande « est-ce un collègue ? », et la compta
  * externalisée n'en est pas un : un échange avec elle concerne de vrais biens.
  */
-export const DOMAINES_MAISON: readonly string[] = ['sansvisavis.com', 'criterimmo.fr'];
+/**
+ * ══ 🔴🔴 ELLE N'EST PLUS RECOPIÉE : ELLE **EST** LA LISTE CENTRALE ════════════════════════════════════════════
+ *
+ * Elle était écrite ici à la main. Elle disait la même chose que `adresseInterne.DOMAINES_INTERNES` — jusqu'au
+ * jour où l'une des deux bougerait. C'est arrivé le 02/10/2026, et pas ici : `gestion.criterimmo@gmail.com`
+ * vivait dans une TROISIÈME copie (`documentsAutoRepo.NOS_ADRESSES`) que la liste centrale ignorait.
+ *
+ * ⚠️ L'ORDRE DES DOMAINES CHANGE (`criterimmo.fr` puis `sansvisavis.com`), et il n'a jamais rien décidé : la
+ * reconnaissance se fait par appartenance, pas par rang.
+ */
+export { DOMAINES_INTERNES as DOMAINES_MAISON, ADRESSES_INTERNES } from './adresseInterne';
 
-/** Cette adresse est-elle celle d'un collègue de la maison ? PUR. */
+/**
+ * Cette adresse est-elle celle d'un collègue de la maison ? PUR.
+ *
+ * ⚠️ DEUX DIFFÉRENCES AVEC `estInterne` (adressesMessage.ts), ET ELLES SONT VOULUES — voir l'encadré ci-dessus :
+ *   ① AUCUN `autres` N'EST PASSÉ : la compta externalisée (ADHOC) n'est PAS un collègue. Un échange avec elle
+ *      concerne de vrais biens, et ne doit pas se proposer « Interne » ;
+ *   ② UNE ADRESSE SANS ARROBASE REND `false` ICI, et `true` là-bas. Là-bas la question est « peut-on s'en servir
+ *      comme clé ? » — une chaîne illisible ne désigne personne. Ici elle est « est-ce un collègue ? » — et
+ *      « sansvisavis.com » tout court n'est pas une personne. Le garde reste donc AVANT la délégation.
+ */
 export function estAdresseMaison(adresse: string | null | undefined): boolean {
   const a = (adresse ?? '').trim().toLowerCase();
-  const arobase = a.lastIndexOf('@');
-  if (arobase < 0) return false;
-  return DOMAINES_MAISON.includes(a.slice(arobase + 1));
+  if (!a.includes('@')) return false;
+  return estAdresseInterne(a);
 }
 
 /**

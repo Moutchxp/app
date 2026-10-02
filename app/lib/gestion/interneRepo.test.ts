@@ -21,6 +21,8 @@ import {
   DOMAINES_MAISON, annulerInterne, auteurHumainInterne, estAdresseMaison, lireInterne, marquerInterne,
   proposerInterneDabord, sqlColonneInterne, sqlJointureInterne,
 } from './interneRepo';
+// 🔴 LA LISTE CENTRALE, pour vérifier que `DOMAINES_MAISON` en EST le réexport et non une copie.
+import { DOMAINES_INTERNES } from './adresseInterne';
 
 const AUTEUR = { id: 7, libelle: 'a.jorel@sansvisavis.com' };
 const sqls = () => queryMock.mock.calls.map((c) => String(c[0]).replace(/\s+/g, ' '));
@@ -104,11 +106,32 @@ describe('② sans la migration 281, la table n’est NOMMÉE nulle part', () =>
 
 describe('③ « Interne » proposé en premier', () => {
   it('les deux domaines de la maison sont reconnus, quelle que soit la casse', () => {
-    expect(DOMAINES_MAISON).toEqual(['sansvisavis.com', 'criterimmo.fr']);
+    /**
+     * ══ 🔴🔴 LOT CONTACTS-EXTERNES — CET ATTENDU A CHANGÉ, ET IL NE S'EST PAS AFFAIBLI ═══════════════════════
+     *
+     * Il recopiait les deux domaines (`['sansvisavis.com', 'criterimmo.fr']`). C'était la copie d'une copie :
+     * `DOMAINES_MAISON` était lui-même une recopie de `adresseInterne.DOMAINES_INTERNES`, et c'est exactement
+     * ce que le 02/10/2026 a fait payer — `gestion.criterimmo@gmail.com` vivait dans une TROISIÈME copie
+     * (`documentsAutoRepo.NOS_ADRESSES`) que la liste centrale ignorait, et 940 mails de notre propre boîte
+     * attendaient dans la file « À rattacher ».
+     *
+     * 🔴 `DOMAINES_MAISON` EST DÉSORMAIS LE RÉEXPORT DE LA LISTE CENTRALE. L'épreuve le VÉRIFIE (`toBe`, la même
+     * référence) au lieu de recopier son contenu : un quatrième domaine ajouté un jour n'aura pas à être écrit
+     * ici. C'est le même garde que `adresseInterne.test.ts` pose déjà sur `triPieces.DOMAINES_MAISON`.
+     *
+     * ⚠️ L'ORDRE N'A JAMAIS RIEN DÉCIDÉ : la reconnaissance se fait par appartenance, pas par rang.
+     */
+    expect(DOMAINES_MAISON).toBe(DOMAINES_INTERNES);
+    expect([...DOMAINES_MAISON].sort()).toEqual(['criterimmo.fr', 'sansvisavis.com']);
     expect(estAdresseMaison('a.jorel@sansvisavis.com')).toBe(true);
     expect(estAdresseMaison('  Gestion@CRITERIMMO.FR ')).toBe(true);
     expect(estAdresseMaison('locataire@orange.fr')).toBe(false);
     expect(estAdresseMaison('sansvisavis.com')).toBe(false);   // pas d'arobase : pas une adresse
+    // 🔴 DÉCISION D'ARNO (02/10/2026) : notre boîte Gmail de gestion est des nôtres, elle aussi.
+    expect(estAdresseMaison('gestion.criterimmo@gmail.com')).toBe(true);
+    expect(estAdresseMaison('  GESTION.CRITERIMMO@Gmail.COM ')).toBe(true);
+    // ⚠️ ET `gmail.com` RESTE EXTÉRIEUR : c'est l'adresse ENTIÈRE qui est à nous, jamais le domaine.
+    expect(estAdresseMaison('locataire@gmail.com')).toBe(false);
   });
 
   it('TOUS les destinataires de la maison ⇒ proposé en premier', () => {

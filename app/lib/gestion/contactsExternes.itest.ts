@@ -253,6 +253,32 @@ describe('🔴🔴 C-1 — expéditeur connu → pas d’étape 2 · inconnu →
     expect(r2?.motif).toBe('adresse_interne');
   });
 
+  it('🔴🔴 NOTRE BOÎTE GMAIL DE GESTION est des nôtres → pas d’étape 2 (décision d’Arno du 02/10/2026)', async () => {
+    /**
+     * 🔴 LE DÉFAUT QUE CE SCÉNARIO FERME, mesuré sur la base réelle : `gestion.criterimmo@gmail.com` n'était
+     * connue que de `documentsAutoRepo.NOS_ADRESSES`, une recopie — pas de la liste centrale. 940 mails de notre
+     * propre boîte attendaient donc dans la file « À rattacher » comme s'ils venaient d'un inconnu.
+     *
+     * ⚠️ ON ÉPROUVE LE CHEMIN DU DÉPÔT, pas seulement le module pur : c'est lui qui compose les « autres »
+     * adresses (gestion, partenaires) et appelle `estAdresseInterne`. Le module pur est éprouvé à part
+     * (`adressesInternesPartout.test.ts`), sur les cinq voies à la fois.
+     */
+    const { ids } = await conversation([{ le: '2026-03-10', de: 'gestion.criterimmo@gmail.com' }]);
+    const r = await contexteEtape2({
+      messageId: ids[0], biensCoches: [LOT_A], interne: false, horsGestion: false,
+    });
+    expect(r?.motif).toBe('adresse_interne');
+    expect(r?.requise).toBe(false);
+  });
+
+  it('⚠️ et « gmail.com » reste EXTÉRIEUR : un vrai client chez le même fournisseur ouvre l’étape 2', async () => {
+    const { ids } = await conversation([{ le: '2026-03-10', de: 'locataire.dupont@gmail.com' }]);
+    const r = await contexteEtape2({
+      messageId: ids[0], biensCoches: [LOT_A], interne: false, horsGestion: false,
+    });
+    expect(r?.requise).toBe(true);
+  });
+
   it('🔴🔴 un « Document CRITERIMMO » que NOUS envoyons → pas d’étape 2', async () => {
     const { ids } = await conversation([{
       le: '2026-03-10', de: 'gestion@criterimmo.fr', sens: 'envoye',

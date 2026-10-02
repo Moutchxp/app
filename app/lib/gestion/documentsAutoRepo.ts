@@ -1,5 +1,7 @@
 import { query, withTransaction } from '../db/client';
 import { documentsAutoDisponible } from './schema';
+// 🔴🔴 LA LISTE CENTRALE DE NOS ADRESSES — `NOS_ADRESSES` en DÉRIVE, elle ne la recopie plus (voir son encadré).
+import { ADRESSES_INTERNES, DOMAINES_INTERNES } from './adresseInterne';
 import {
   attribuer, estDocumentGarant, indexerNoms, MENTION_GARANT, objetCourt, REGLE_DOCUMENT_AUTO,
   REGLE_EXCLUSION_DOCUMENT, sousTypeLisible,
@@ -19,8 +21,23 @@ export type { DocumentDeFiche };
  * rangement ne range rien. L'écran se tait, et le module se comporte exactement comme avant ce lot.
  */
 
-/** 🔴 NOS ADRESSES : elles ne désignent personne. Écrites une fois, employées partout. */
-export const NOS_ADRESSES: readonly string[] = ['@criterimmo.fr', '@sansvisavis.com', 'gestion.criterimmo@gmail.com'];
+/**
+ * ══ 🔴🔴 NOS ADRESSES : elles ne désignent personne. DÉRIVÉES, plus jamais recopiées ═══════════════════════════
+ *
+ * ⚠️ CETTE LIGNE ÉTAIT UNE COPIE À LA MAIN, ET LA COPIE A COÛTÉ 940 MAILS. Elle portait
+ * `gestion.criterimmo@gmail.com` que la liste CENTRALE (`adresseInterne.ts`) ignorait : le rangement des
+ * documents automatiques savait donc que cette boîte était la nôtre, et le moteur de rattachement ne le savait
+ * pas. Résultat mesuré le 02/10/2026 : 940 mails de notre propre boîte attendaient dans la file « À rattacher »
+ * comme s'ils venaient d'un inconnu. Deux listes finissent toujours par ne plus dire la même chose.
+ *
+ * 🔴 ELLE SE COMPOSE DONC DE LA LISTE CENTRALE, et d'elle seule. Le format attendu ici est particulier — un
+ * DOMAINE s'écrit `@domaine` (voir `estNotreAdresse`), une adresse nommée s'écrit en entier — et c'est la seule
+ * chose que cette ligne décide encore.
+ */
+export const NOS_ADRESSES: readonly string[] = [
+  ...DOMAINES_INTERNES.map((d) => `@${d}`),
+  ...ADRESSES_INTERNES,
+];
 
 /**
  * La règle d'exclusion qui marque un « Document CRITERIMMO ».
