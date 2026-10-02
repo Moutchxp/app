@@ -34,6 +34,11 @@ let gestes: string[];
 let etape2: Record<string, unknown> | null;
 /** Ce que le moteur propose. Piloté par le test : un seul bien d'ordinaire, deux pour le scénario ③-bis. */
 let propositions: Record<string, unknown>[];
+/**
+ * 🔴 CE QUE LA ROUTE DU SUIVI RÉPOND (migration 290). Par défaut une conversation JAMAIS classée — c'est l'état
+ * du fil 193 d'Arno, et celui qui n'affiche aucun bloc. Les épreuves ⑦ la posent déjà classée.
+ */
+let suiviDuFil: { periodes: unknown[]; exceptions: unknown[]; mails: number[] };
 
 const LOT = '442';
 const OCCUPANT = 'thai cecile#c.thai@orange.fr';
@@ -61,11 +66,16 @@ const ETAPE2_DEMANDEE = {
     }],
   }],
   contact: null, premierClassement: true, precoche: null, disponible: true,
+  // 🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — la liste des types vient du serveur ; celle d'une base
+  //   sans la migration 294 (les huit d'origine, et pas de « Personnaliser… »).
+  typesProposes: ['avocat', 'garant', 'artisan', 'syndic', 'expert', 'assurance', 'notaire', 'autre'],
+  typeLibre: false,
 };
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   appels = []; gestes = []; propositions = [PROPOSE];
+  suiviDuFil = { periodes: [], exceptions: [], mails: [900] };
   etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
 
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -89,10 +99,10 @@ beforeEach(() => {
       if (methode === 'POST') {
         return { ok: true, json: async () => ({ ok: true, projetes: 1 }) } as unknown as Response;
       }
-      // Les périodes : la conversation en a une, donc le chemin ① (le seul qui connaisse les personnes).
+      // Les périodes de la conversation : c'est d'elles que dépend l'apparition du bloc à 3 choix.
       return {
         ok: true,
-        json: async () => ({ etat: 'ok', periodes: [], exceptions: [], mails: [900] }),
+        json: async () => ({ etat: 'ok', ...suiviDuFil }),
       } as unknown as Response;
     }
     if (u.includes('/classement?message=')) {
@@ -118,6 +128,27 @@ const monter = async () => {
   await act(async () => {
     root.render(createElement(EncartRattachement, {
       messageId: 900, filId: 101, liens: [], interne: false, horsGestion: false,
+      onChange: () => {}, onGeste: (m: string) => { gestes.push(m); },
+    } as never));
+  });
+  await calmer();
+};
+
+/**
+ * 🔴 LE MÊME ENCART, MAIS AVEC UN BIEN DÉJÀ RATTACHÉ. C'est lui la RÉFÉRENCE du bloc à 3 choix : sans lien
+ * confirmé, la sélection ne peut pas « différer du rattachement validé ».
+ */
+const monterAvecLien = async () => {
+  await act(async () => {
+    root.render(createElement(EncartRattachement, {
+      messageId: 900, filId: 101, interne: false, horsGestion: false,
+      liens: [{
+        id: 1, messageId: 900, pieceId: null, cible: { sorte: 'lot', cle: LOT, id: null },
+        libelle: PROPOSE.libelle, origine: 'manuel', statut: 'confirme',
+        bien: { adresse: '22 Bd Richard Wallace', commune: 'PUTEAUX', nature: 'Appartement', typeBien: 'Type 2', immeuble: null },
+        confiance: null, regle: 'a', motif: null, adresses: [], parUnHumain: true,
+        creeLe: null, creePar: null, statutLe: null, statutPar: null, categorie: null,
+      }],
       onChange: () => {}, onGeste: (m: string) => { gestes.push(m); },
     } as never));
   });
@@ -349,5 +380,96 @@ describe('🔴 ⑥ « Valider — aucun bien » : aucune question, et pas même 
     // ⚠️ AUCUNE LECTURE DE L'ÉTAPE 2 : la question n'a pas de sens, et on ne la pose donc pas.
     expect(appels.filter((a) => a.url.includes('/gestion/contact-externe'))).toHaveLength(0);
     expect(ecritures()).toHaveLength(1);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑦ LA NON-RÉGRESSION DEMANDÉE PAR ARNO : LE BLOC À 3 CHOIX, POUR UN EXPÉDITEUR CONNU
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   RÈGLE D'ARNO, rappelée le 02/10/2026 : « pour tout expéditeur présent dans les fiches propriétaires ou
+   locataires, la modale et le bloc à 3 choix fonctionnent EXACTEMENT comme avant CONTACTS-EXTERNES. L'étape 2 ne
+   concerne QUE les expéditeurs inconnus. »
+
+   🔴 CE QUE CES ÉPREUVES GARDENT, ET QU'AUCUNE AUTRE NE GARDAIT : l'aller-retour complet du bloc sur le chemin
+   RÉEL — la modale montée, la route de l'étape 2 répondant « expéditeur connu », et le bloc qui apparaît au
+   changement puis disparaît au retour à l'état de départ. Les trois conditions de `blocSuiviVisible` sont
+   éprouvées à part (module pur) ; ici c'est le CÂBLAGE qui est sous surveillance.
+
+   ⚠️ ELLES AURAIENT ATTRAPÉ UNE RÉGRESSION DU LOT CONTACTS-EXTERNES. Il n'y en a pas eu — le calcul et le rendu
+   du bloc sont restés identiques au caractère près — mais rien ne le VÉRIFIAIT de bout en bout. */
+
+describe('🔴🔴 ⑦ expéditeur connu : le bloc à 3 choix apparaît au changement, et disparaît au retour', () => {
+  /** Une conversation DÉJÀ CLASSÉE, et un mail qui n'est pas le premier : les deux conditions d'Arno. */
+  const dejaClassee = () => {
+    etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
+    suiviDuFil = {
+      periodes: [{ id: 1, depuisMessageId: 800, classement: { sorte: 'biens', biens: [{ cle: LOT, libelle: PROPOSE.libelle }] } }],
+      exceptions: [],
+      mails: [800, 900],
+    };
+  };
+
+  it('🔴🔴 À L’OUVERTURE : pas de bloc — la sélection est celle qui est validée', async () => {
+    dejaClassee();
+    await monterAvecLien();
+    await cliquer('Rattaché');
+    expect(etape1Ouverte()).toBe(true);
+    expect(texte()).not.toContain('Suivi dans la conversation');
+  });
+
+  it('🔴🔴 ON CHANGE UNE CASE : le bloc APPARAÎT, avec ses trois choix et son défaut', async () => {
+    dejaClassee();
+    await monterAvecLien();
+    await cliquer('Rattaché');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(texte()).toContain('Suivi dans la conversation');
+    expect(texte()).toContain('Ce mail uniquement');
+    expect(texte()).toContain('Ce mail et la conversation à venir');
+    expect(texte()).toContain('Toute la conversation');
+    // 🔴 LE CHOIX COCHÉ D'AVANCE N'A PAS CHANGÉ : « Ce mail et la conversation à venir ».
+    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios).toHaveLength(3);
+    expect(radios[1].checked).toBe(true);
+  });
+
+  it('🔴🔴 ON REVIENT À L’ÉTAT DE DÉPART : le bloc DISPARAÎT', async () => {
+    dejaClassee();
+    await monterAvecLien();
+    await cliquer('Rattaché');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(texte()).toContain('Suivi dans la conversation');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(texte()).not.toContain('Suivi dans la conversation');
+  });
+
+  it('🔴🔴 ET AUCUNE ÉTAPE 2 N’EST JAMAIS OUVERTE pour cet expéditeur', async () => {
+    dejaClassee();
+    await monterAvecLien();
+    await cliquer('Rattaché');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    await cliquer('Valider — aucun bien');
+    expect(etape2Ouverte()).toBe(false);
+    // Le classement part par la porte qui existait déjà, avec le choix du bloc à 3 choix.
+    expect(ecritures()).toHaveLength(1);
+    expect((ecritures()[0].corps as { choix: string }).choix).toBe('suite');
+  });
+
+  it('🔴 « Toute la conversation » exige toujours sa confirmation avant de valider', async () => {
+    dejaClassee();
+    await monterAvecLien();
+    await cliquer('Rattaché');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    await act(async () => { radios[2].click(); });
+    await calmer();
+    expect(texte()).toContain('Je confirme le reclassement de toute la conversation.');
+    expect(bouton('Valider —')?.disabled).toBe(true);
+    expect(ecritures()).toHaveLength(0);
   });
 });

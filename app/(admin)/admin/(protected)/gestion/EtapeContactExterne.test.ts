@@ -6,7 +6,7 @@ import { EtapeContactExterne, motOccupation, typeDuBien, type ValidationEtape2 }
 // 🔴 LES MOTS D'ARNO SONT CITÉS, JAMAIS RECOPIÉS : un test qui recopie une phrase ne surveille plus rien.
 import {
   BIEN_UNIQUEMENT, BIEN_UNIQUEMENT_AIDE, LIEN_ANCIENS_LOCATAIRES, TITRE_ETAPE2, TITRE_SUIVI,
-  CHOIX_SUIVI_CONTACT,
+  CHOIX_SUIVI_CONTACT, MOT_PERSONNALISER, TYPES_AVANT_294, TYPES_CONTACT_EXTERNE,
 } from '../../../../lib/gestion/contactExterne';
 import type { BienEtape2, ReponseEtape2 } from '../../../../lib/gestion/contactExterneRepo';
 
@@ -40,7 +40,13 @@ const DATA = (o: Partial<ReponseEtape2> = {}): ReponseEtape2 => ({
   messageId: 57368, filId: 3490, dateMail: '2025-03-12',
   expediteur: 'contact@cabinet-martin.fr', expediteurNom: 'Cabinet Martin',
   requise: true, motif: null, biens: [BIEN()], contact: null,
-  premierClassement: true, precoche: null, disponible: true, ...o,
+  premierClassement: true, precoche: null, disponible: true,
+  /**
+   * 🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — la liste des types vient du SERVEUR. Par défaut, celle qu'une base
+   * SANS la migration 294 accepte : les huit d'origine, et pas de « Personnaliser… ». Les épreuves du type libre
+   * posent `typesProposes` et `typeLibre` elles-mêmes.
+   */
+  typesProposes: [...TYPES_AVANT_294], typeLibre: false, ...o,
 });
 
 beforeEach(() => {
@@ -414,5 +420,91 @@ describe('E-9 — les mots de mise en forme', () => {
     expect(typeDuBien({ nature: 'Parking', typeBien: 'Parking' })).toBe('Parking');
     expect(typeDuBien({ nature: null, typeBien: null })).toBe('');
     expect(typeDuBien({ nature: 'Box', typeBien: null })).toBe('Box');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 E-10 — LE CHAMP « TYPE » (lot URGENT-VERIF-SUIVI-ET-76-BIENS)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Les mots du choix « Type », tels qu'ils s'affichent. */
+const optionsDuType = (): string[] =>
+  [...container.querySelectorAll('select option')].map((o) => o.textContent ?? '');
+
+describe('🔴🔴 E-10 — le type : « Diagnostiqueur », et « Personnaliser… »', () => {
+  it('⚠️ SANS la migration 294, la liste est celle que la base accepte — et « Personnaliser… » est absent', () => {
+    monter();
+    expect(optionsDuType()).not.toContain(MOT_PERSONNALISER);
+    // 🔴 « Diagnostiqueur » non plus : la contrainte de la 293 le refuserait, et le type disparaîtrait en
+    //   silence (les trois champs du contact ne bloquent jamais le classement).
+    expect(optionsDuType()).not.toContain('Diagnostiqueur');
+    expect(optionsDuType()).toContain('Syndic');
+  });
+
+  it('🔴🔴 AVEC la 294, « Diagnostiqueur » est proposé', () => {
+    monter(DATA({ typesProposes: [...TYPES_CONTACT_EXTERNE], typeLibre: true }));
+    expect(optionsDuType()).toContain('Diagnostiqueur');
+  });
+
+  it('🔴🔴 « Personnaliser… » ouvre un champ texte, et ce qu’on y écrit est rendu TEL QUEL', () => {
+    monter(DATA({ typesProposes: [...TYPES_CONTACT_EXTERNE], typeLibre: true }));
+    expect(optionsDuType()).toContain(MOT_PERSONNALISER);
+    // Avant le choix, aucun champ libre.
+    expect(container.querySelectorAll('input[type="text"]')).toHaveLength(1); // le seul champ « Nom »
+
+    const select = container.querySelector('select') as HTMLSelectElement;
+    act(() => {
+      select.value = '__personnaliser__';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const champs = [...container.querySelectorAll<HTMLInputElement>('input[type="text"]')];
+    expect(champs).toHaveLength(2);
+
+    /**
+     * ⚠️ LE SETTER NATIF, ET NON `champ.value = …` : React garde la valeur du champ dans son propre suivi, et une
+     * affectation directe ne déclenche PAS son `onChange`. C'est le même geste que `taper` dans
+     * `RattacherEnEcrivant.test.ts` — un test qui l'oublie croit avoir tapé et n'a rien tapé.
+     */
+    const libre = champs[1];
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(libre, '  Huissier DE Justice ');
+      libre.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    cocher(cases()[0]);
+    act(() => { bouton('Valider')?.click(); });
+    // 🔴 ENREGISTRÉ TEL QUEL, à la normalisation près (casse et blancs) — on ne traduit pas, on ne range pas.
+    expect((valide as unknown as ValidationEtape2).contact.type).toBe('huissier de justice');
+  });
+
+  it('🔴 le marqueur d’écran n’est JAMAIS rendu comme un type', () => {
+    monter(DATA({ typesProposes: [...TYPES_CONTACT_EXTERNE], typeLibre: true }));
+    const select = container.querySelector('select') as HTMLSelectElement;
+    act(() => {
+      select.value = '__personnaliser__';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    // Champ libre laissé VIDE : aucun type, et « Valider » part quand même (les champs ne bloquent jamais).
+    cocher(cases()[0]);
+    expect(bouton('Valider')?.disabled).toBe(false);
+    act(() => { bouton('Valider')?.click(); });
+    expect((valide as unknown as ValidationEtape2).contact.type).toBeNull();
+  });
+
+  it('🔴 un type déjà écrit à la main revient dans la liste les prochaines fois', () => {
+    monter(DATA({
+      typesProposes: [...TYPES_CONTACT_EXTERNE, 'huissier'], typeLibre: true,
+    }));
+    expect(optionsDuType()).toContain('Huissier');
+  });
+
+  it('⚠️ un contact dont le type n’est plus proposé garde quand même son type dans la liste', () => {
+    monter(DATA({
+      typesProposes: [...TYPES_AVANT_294], typeLibre: false,
+      contact: { email: 'x@y.fr', nom: null, telephone: null, type: 'huissier' },
+    }));
+    // Sans cela, rouvrir la fiche afficherait un choix VIDE, et valider effacerait son type.
+    expect(optionsDuType()).toContain('Huissier');
+    expect((container.querySelector('select') as HTMLSelectElement).value).toBe('huissier');
   });
 });

@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   basculerEtape2, choixSuiviDeContact, clePersonne, etape2Requise, etape2Validable, libelleContactExterne,
   mentionVia, motRoleInstantane, motTypeContact, motifIntervention, ordonnerEtape2,
-  roleLocataireALaDate, roleLocataireParmiOccupations, roleRecu, suiviContactRecu, tonRoleInstantane, typeRecu,
+  roleLocataireALaDate, roleLocataireParmiOccupations, roleRecu, suiviContactRecu, tonRoleInstantane,
+  typeLibreRecu, typeRecu, typesProposes,
   BIEN_UNIQUEMENT, CHOIX_ETAPE2_VIDE, CHOIX_SUIVI_CONTACT, LIEN_ANCIENS_LOCATAIRES, REGLE_INTERVENTION,
-  ROLES_INSTANTANES, SUIVI_CONTACT_DEFAUT, TYPES_CONTACT_EXTERNE,
+  ROLES_INSTANTANES, SUIVI_CONTACT_DEFAUT, TYPES_AVANT_294, TYPES_CONTACT_EXTERNE, TYPE_A_PERSONNALISER,
+  TYPE_LONGUEUR_MAX,
   type ContexteEtape2, type PersonneEtape2,
 } from './contactExterne';
 import { motClassement } from './periodesConversation';
@@ -353,17 +355,99 @@ describe('C-F — la mention « via … » et les motifs se relisent dans deux a
     expect(libelleContactExterne('contact@belmonts.fr')).toBe('Contact externe : contact@belmonts.fr');
   });
 
-  it('🔴 les huit types d’Arno, dans son ordre, et « autre » en dernier', () => {
+  it('🔴 les types d’Arno, dans son ordre, et « autre » en dernier', () => {
+    /**
+     * 🔴 « Diagnostiqueur » AJOUTÉ LE 02/10/2026 (demande d'Arno). Il vient avec les métiers du bâti, entre
+     * « artisan » et « syndic » — l'ordre est celui qu'on LIT, et il n'est pas alphabétique par hasard.
+     */
     expect([...TYPES_CONTACT_EXTERNE]).toEqual([
-      'avocat', 'garant', 'artisan', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
+      'avocat', 'garant', 'artisan', 'diagnostiqueur', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
     ]);
     expect(motTypeContact('avocat')).toBe('Avocat');
+    expect(motTypeContact('diagnostiqueur')).toBe('Diagnostiqueur');
   });
 
   it('⚠️ un type venu du navigateur est re-validé, et « aucun » reste permis', () => {
     expect(typeRecu('SYNDIC')).toBe('syndic');
     expect(typeRecu('huissier')).toBeNull();
     expect(typeRecu(null)).toBeNull();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 C-H — LE TYPE ÉCRIT À LA MAIN (lot URGENT-VERIF-SUIVI-ET-76-BIENS)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 C-H — « Personnaliser… » : un type qu’Arno écrit lui-même', () => {
+  it('🔴 il est enregistré TEL QUEL — on ne traduit pas, on ne range pas dans une case existante', () => {
+    expect(typeLibreRecu('huissier de justice')).toBe('huissier de justice');
+    expect(typeLibreRecu('diagnostiqueur amiante')).toBe('diagnostiqueur amiante');
+    // ⚠️ LES ACCENTS, LES TIRETS ET LES APOSTROPHES PASSENT : « maître d'œuvre » est un métier.
+    expect(typeLibreRecu('maître d’œuvre')).toBe('maître d’œuvre');
+    expect(typeLibreRecu('bureau d-études')).toBe('bureau d-études');
+  });
+
+  it('🔴 il est NORMALISÉ juste ce qu’il faut : casse, blancs de bord, blancs multiples', () => {
+    expect(typeLibreRecu('  HUISSIER  ')).toBe('huissier');
+    expect(typeLibreRecu('huissier   de    justice')).toBe('huissier de justice');
+    // Sans cela, « Syndic » et « syndic » feraient DEUX types dans la liste des prochaines fois.
+    expect(typeLibreRecu('Syndic')).toBe(typeLibreRecu('syndic'));
+  });
+
+  it('🔴 ce qui ne dit rien est refusé — et « aucun type » reste permis', () => {
+    expect(typeLibreRecu('')).toBeNull();
+    expect(typeLibreRecu('   ')).toBeNull();
+    expect(typeLibreRecu(null)).toBeNull();
+    expect(typeLibreRecu(42)).toBeNull();
+  });
+
+  it('🔴🔴 le MARQUEUR d’écran n’est JAMAIS enregistré comme un type', () => {
+    expect(typeLibreRecu(TYPE_A_PERSONNALISER)).toBeNull();
+    // ⚠️ Et il ne peut pas se confondre avec un métier : aucun ne s'écrit avec des tirets bas doublés.
+    expect((TYPES_CONTACT_EXTERNE as readonly string[])).not.toContain(TYPE_A_PERSONNALISER);
+  });
+
+  it('⚠️ il est borné, et les caractères de commande sont retirés', () => {
+    expect(typeLibreRecu('x'.repeat(200))).toHaveLength(TYPE_LONGUEUR_MAX);
+    expect(typeLibreRecu('huissier  de justice')).toBe('huissier de justice');
+  });
+
+  it('🔴 un type inconnu s’AFFICHE quand même, avec une majuscule et rien de plus', () => {
+    expect(motTypeContact('huissier de justice')).toBe('Huissier de justice');
+    expect(motTypeContact('')).toBe('');
+  });
+});
+
+describe('🔴🔴 C-I — la liste proposée suit ce que la base accepte', () => {
+  it('🔴 SANS la migration 294 : les huit d’origine, et PAS « Diagnostiqueur »', () => {
+    const l = typesProposes(['huissier'], { typeLibre: false });
+    expect(l).toEqual([...TYPES_AVANT_294]);
+    expect(l).not.toContain('diagnostiqueur');
+    expect(l).not.toContain('huissier');
+  });
+
+  it('🔴 un choix qui échouerait n’est jamais proposé — c’est pour cela que la liste est bornée', () => {
+    // La base de la 293 n'accepte QUE ces huit mots : la liste affichée leur est identique.
+    expect(typesProposes([], { typeLibre: false }).every((t) => TYPES_AVANT_294.includes(t))).toBe(true);
+  });
+
+  it('🔴🔴 AVEC la 294 : les neuf, PLUS les types déjà écrits à la main', () => {
+    const l = typesProposes(['huissier', 'Huissier', 'maître d’œuvre'], { typeLibre: true });
+    expect(l.slice(0, TYPES_CONTACT_EXTERNE.length)).toEqual([...TYPES_CONTACT_EXTERNE]);
+    // Les ajoutés viennent après, SANS DOUBLON (la casse ne crée pas un second type) et par ordre alphabétique.
+    expect(l.slice(TYPES_CONTACT_EXTERNE.length)).toEqual(['huissier', 'maître d’œuvre']);
+  });
+
+  it('⚠️ un type déjà écrit qui est devenu l’un des neuf n’apparaît pas deux fois', () => {
+    const l = typesProposes(['diagnostiqueur', 'SYNDIC'], { typeLibre: true });
+    expect(l.filter((t) => t === 'diagnostiqueur')).toHaveLength(1);
+    expect(l.filter((t) => t === 'syndic')).toHaveLength(1);
+  });
+
+  it('🔴 l’ordre est STABLE : deux appels rendent la même liste', () => {
+    const a = typesProposes(['zeta', 'alpha'], { typeLibre: true });
+    const b = typesProposes(['alpha', 'zeta'], { typeLibre: true });
+    expect(a).toEqual(b);
   });
 
   it('🔴 la règle qui nomme ces liens est « intervention », et pas « document_auto »', () => {

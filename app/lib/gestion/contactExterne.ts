@@ -52,24 +52,119 @@ export const REGLE_INTERVENTION = 'intervention';
  * « autre » dit « j'ai regardé et aucun ne convient », ce qui n'est pas la même information.
  */
 export const TYPES_CONTACT_EXTERNE = [
-  'avocat', 'garant', 'artisan', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
+  // 🔴 « Diagnostiqueur » ajouté sur demande d'Arno le 02/10/2026. Il vient avec les métiers du bâti.
+  'avocat', 'garant', 'artisan', 'diagnostiqueur', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
 ] as const;
 
 export type TypeContactExterne = typeof TYPES_CONTACT_EXTERNE[number];
 
-/** Le type, écrit comme on le lit. PUR. */
-export function motTypeContact(t: TypeContactExterne): string {
-  const mots: Record<TypeContactExterne, string> = {
-    avocat: 'Avocat', garant: 'Garant', artisan: 'Artisan', syndic: 'Syndic',
-    expert: 'Expert', assurance: 'Assurance', notaire: 'Notaire', autre: 'Autre',
+/**
+ * ══ 🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — UN TYPE PEUT ÊTRE ÉCRIT LIBREMENT ════════════════════════════════
+ *
+ * DEMANDE D'ARNO (02/10/2026) : « Ajoute "Personnaliser…" : quand on le choisit, un champ texte apparaît pour
+ * écrire le type librement (enregistré tel quel, puis proposé dans la liste aux prochaines fois). »
+ *
+ * 🔴 CE N'EST PLUS UNE LISTE FERMÉE, C'EST UNE LISTE DE DÉPART. Les neuf valeurs ci-dessus sont celles qu'on
+ * propose d'avance ; un type écrit à la main les rejoint, et reviendra dans la liste au prochain contact.
+ *
+ * ⚠️ LA VALEUR QUI OUVRE LE CHAMP N'EST PAS UN TYPE. C'est un marqueur d'écran, et il porte un nom qu'aucun
+ * métier ne peut prendre — sans quoi quelqu'un écrirait un jour « personnaliser » comme type, et la liste
+ * s'ouvrirait toute seule. Il n'est JAMAIS enregistré.
+ */
+export const TYPE_A_PERSONNALISER = '__personnaliser__';
+
+/** Le mot du choix qui ouvre le champ libre — les mots d'Arno. */
+export const MOT_PERSONNALISER = 'Personnaliser…';
+
+/** La longueur maximale d'un type écrit à la main. Borne de SÛRETÉ, jamais une règle métier. */
+export const TYPE_LONGUEUR_MAX = 40;
+
+/**
+ * Le type, écrit comme on le lit. PUR.
+ *
+ * ⚠️ IL ACCEPTE DÉSORMAIS N'IMPORTE QUEL TYPE, pas seulement les neuf de la liste : un type écrit à la main doit
+ * s'afficher comme les autres. Les neuf connus gardent leur orthographe exacte (« Avis d'échéance » un jour
+ * aurait une apostrophe) ; les autres prennent une majuscule initiale, et rien de plus — on n'invente pas la
+ * casse de ce qu'Arno a tapé.
+ */
+export function motTypeContact(t: string): string {
+  const mots: Record<string, string> = {
+    avocat: 'Avocat', garant: 'Garant', artisan: 'Artisan', diagnostiqueur: 'Diagnostiqueur',
+    syndic: 'Syndic', expert: 'Expert', assurance: 'Assurance', notaire: 'Notaire', autre: 'Autre',
   };
-  return mots[t];
+  const connu = mots[t];
+  if (connu !== undefined) return connu;
+  const s = (t ?? '').trim();
+  return s === '' ? '' : s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** Un type reçu du navigateur, re-validé contre la liste fermée. `null` = aucun, ce qui est permis. PUR. */
+/** Un type reçu du navigateur, re-validé contre la liste de départ. `null` = aucun, ce qui est permis. PUR. */
 export function typeRecu(brut: unknown): TypeContactExterne | null {
   const s = typeof brut === 'string' ? brut.trim().toLowerCase() : '';
   return (TYPES_CONTACT_EXTERNE as readonly string[]).includes(s) ? (s as TypeContactExterne) : null;
+}
+
+/**
+ * ══ 🔴🔴 UN TYPE ÉCRIT À LA MAIN, MIS SOUS LA FORME QUE LA BASE ACCEPTE. PUR. ═════════════════════════════════
+ *
+ * « Enregistré tel quel » (Arno) veut dire : on ne traduit pas, on ne devine pas, on ne range pas dans une case
+ * existante. On NORMALISE seulement ce qu'il faut pour que deux saisies du même mot n'en fassent pas deux types :
+ * les blancs de bord, les blancs multiples, et la casse.
+ *
+ * 🔴 CE QU'ON REFUSE, ET POURQUOI SI PEU. Une chaîne vide (elle ne dit rien), ce qui dépasse la borne de sûreté,
+ * et le marqueur d'écran. Tout le reste passe — y compris les accents, les traits d'union et les apostrophes :
+ * « diagnostiqueur amiante », « maître d'œuvre », « huissier » sont des types parfaitement légitimes, et une
+ * liste blanche de caractères finirait par refuser un métier qu'on n'avait pas prévu.
+ *
+ * ⚠️ LES CARACTÈRES DE COMMANDE SONT RETIRÉS : ils ne s'affichent pas, et deux types qui se ressemblent à l'œil
+ * sans être égaux sont pires que deux types différents.
+ */
+export function typeLibreRecu(brut: unknown): string | null {
+  if (typeof brut !== 'string') return null;
+  // eslint-disable-next-line no-control-regex
+  const s = brut.replace(/[ -]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (s === '' || s === TYPE_A_PERSONNALISER) return null;
+  return s.slice(0, TYPE_LONGUEUR_MAX);
+}
+
+/**
+ * ══ 🔴🔴 LES HUIT TYPES QUE LA BASE ACCEPTE **AVANT** LA MIGRATION 294 ════════════════════════════════════════
+ *
+ * La migration 293 (appliquée le 02/10/2026) a écrit la liste DANS LA BASE, sous forme de contrainte. Tant que
+ * la 294 n'est pas appliquée, la base REFUSE tout ce qui n'est pas dans ces huit mots — « Diagnostiqueur »
+ * compris, puisqu'il arrive avec ce lot-ci.
+ *
+ * 🔴 ON NE PROPOSE DONC PAS CE QUE LA BASE REFUSERAIT. Un choix qui échoue en silence est pire qu'un choix
+ * absent : les trois champs du contact ne bloquent jamais le classement, et le type disparaîtrait sans que
+ * personne le voie. L'écran offre exactement ce qui peut être enregistré — ni plus, ni moins.
+ *
+ * ⚠️ CETTE LISTE EST UN CONSTAT, PAS UNE RÈGLE. Elle disparaîtra le jour où la 294 sera appliquée ; elle n'est
+ * là que pour décrire fidèlement une base qui n'a pas encore reçu sa mise à jour.
+ */
+export const TYPES_AVANT_294: readonly string[] = [
+  'avocat', 'garant', 'artisan', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
+];
+
+/**
+ * LA LISTE PROPOSÉE DANS LE CHOIX : celle de départ, PLUS les types déjà écrits à la main. PUR.
+ *
+ * Demande d'Arno : un type personnalisé est « proposé dans la liste aux prochaines fois ».
+ *
+ * ⚠️ SANS DOUBLON ET DANS UN ORDRE STABLE : les neuf de départ d'abord, dans l'ordre d'Arno (c'est celui qu'il
+ * lit), puis les types ajoutés, par ordre alphabétique. Un ordre qui changerait à chaque ouverture ferait
+ * chercher « Syndic » à un endroit différent chaque fois.
+ *
+ * ⚠️ `typeLibre: false` (migration 294 absente) ⇒ LES HUIT D'AVANT, et eux seuls. Voir `TYPES_AVANT_294`.
+ */
+export function typesProposes(
+  dejaEmployes: readonly string[], o?: { typeLibre?: boolean },
+): string[] {
+  if (o?.typeLibre !== true) return [...TYPES_AVANT_294];
+  const connus = new Set<string>(TYPES_CONTACT_EXTERNE);
+  const ajoutes = [...new Set(
+    dejaEmployes.map((t) => typeLibreRecu(t)).filter((t): t is string => t !== null && !connus.has(t)),
+  )].sort((a, b) => a.localeCompare(b, 'fr'));
+  return [...TYPES_CONTACT_EXTERNE, ...ajoutes];
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -472,7 +567,12 @@ export interface ContactExterne {
   email: string;
   nom: string | null;
   telephone: string | null;
-  type: TypeContactExterne | null;
+  /**
+   * ⚠️ `string` ET NON `TypeContactExterne` DEPUIS LE LOT URGENT-VERIF-SUIVI-ET-76-BIENS : un type peut être
+   * écrit à la main (« Personnaliser… »). La liste des neuf reste celle qu'on PROPOSE ; elle n'est plus celle
+   * qu'on accepte. `motTypeContact` sait afficher les deux.
+   */
+  type: string | null;
 }
 
 /** Le libellé du bas de l'étape — les mots d'Arno : « Contact externe : <adresse> ». PUR. */

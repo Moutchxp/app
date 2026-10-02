@@ -29,8 +29,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { query, closePool } from '../db/client';
 import {
   adressesDesFiches, contexteEtape2, enregistrerContactExterne, interventionsDeLaFiche,
-  interventionsDesMessages, memoireDuFil, personnesDesBiens, poserInterventions,
-  retirerInterventionsSansBien, rolesALaDateDesMails,
+  interventionsDesMessages, lireContactExterne, memoireDuFil, personnesDesBiens, poserInterventions,
+  retirerInterventionsSansBien, rolesALaDateDesMails, typesAProposer,
 } from './contactExterneRepo';
 import { poserClassement } from './periodeRepo';
 import { changerStatut, rattacher } from './rattachementRepo';
@@ -816,5 +816,67 @@ describe('🔴🔴 C-9 — retirer le bien retire l’intervention, datée et si
     const { ids } = await conversation([{ le: '2026-03-10', de: AVOCAT }]);
     expect(await retirerInterventionsSansBien(ids, AUTEUR)).toBe(0);
     expect(await retirerInterventionsSansBien([], AUTEUR)).toBe(0);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 C-10 — LE TYPE ÉCRIT À LA MAIN (migration 294)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   Les deux essais écrits au pied de la migration 294, joués ici sur une base jetable. La leçon de la 291 : une
+   contrainte se LIT juste, et seule la tentative réelle montre ce qu'elle laisse passer.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 C-10 — « Personnaliser… » : la base accepte un type libre, et refuse ce qui dériverait', () => {
+  it('🔴 un type écrit à la main est enregistré TEL QUEL', async () => {
+    const r = await enregistrerContactExterne({
+      email: 'huissier@etude.test', nom: 'SCP Durand', type: 'huissier de justice', auteur: AUTEUR,
+    });
+    expect(r.ok).toBe(true);
+    const c = await lireContactExterne('huissier@etude.test');
+    expect(c?.type).toBe('huissier de justice');
+  });
+
+  it('🔴 il est NORMALISÉ avant d’arriver en base : casse et blancs ne font pas deux types', async () => {
+    await enregistrerContactExterne({
+      email: 'expert2@cabinet.test', type: '  DIAGNOSTIQUEUR   Amiante ', auteur: AUTEUR,
+    });
+    expect((await lireContactExterne('expert2@cabinet.test'))?.type).toBe('diagnostiqueur amiante');
+  });
+
+  it('🔴🔴 et la BASE refuse ce que le dépôt aurait laissé passer (essai d’intrusion de la 294)', async () => {
+    // Une majuscule : sinon « Syndic » et « syndic » feraient deux types dans la liste des prochaines fois.
+    await expect(query(
+      `INSERT INTO gestion_contact_externe (email, type, cree_par_libelle)
+       VALUES ('essai294@exemple.test', 'Huissier', 'essai')`,
+    )).rejects.toThrow(/type_chk/);
+    // Un blanc de bord, et une chaîne vide : deux formes qui ne disent rien.
+    await expect(query(
+      `INSERT INTO gestion_contact_externe (email, type, cree_par_libelle)
+       VALUES ('essai294b@exemple.test', ' huissier', 'essai')`,
+    )).rejects.toThrow(/type_chk/);
+    await expect(query(
+      `INSERT INTO gestion_contact_externe (email, type, cree_par_libelle)
+       VALUES ('essai294c@exemple.test', '', 'essai')`,
+    )).rejects.toThrow(/type_chk/);
+  });
+
+  it('🔴 « Diagnostiqueur » passe désormais, ce que la contrainte de la 293 refusait', async () => {
+    const r = await enregistrerContactExterne({
+      email: 'diag@cabinet.test', type: 'diagnostiqueur', auteur: AUTEUR,
+    });
+    expect(r.ok).toBe(true);
+    expect((await lireContactExterne('diag@cabinet.test'))?.type).toBe('diagnostiqueur');
+  });
+
+  it('🔴🔴 un type écrit à la main REVIENT dans la liste proposée la fois suivante', async () => {
+    await enregistrerContactExterne({ email: 'h2@etude.test', type: 'huissier de justice', auteur: AUTEUR });
+    const { liste, libre } = await typesAProposer();
+    expect(libre).toBe(true);
+    expect(liste).toContain('huissier de justice');
+    // ⚠️ ET LES NEUF DE DÉPART SONT TOUJOURS EN TÊTE, dans l'ordre d'Arno.
+    expect(liste.slice(0, 9)).toEqual([
+      'avocat', 'garant', 'artisan', 'diagnostiqueur', 'syndic', 'expert', 'assurance', 'notaire', 'autre',
+    ]);
   });
 });

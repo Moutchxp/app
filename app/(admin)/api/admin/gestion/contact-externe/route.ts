@@ -2,7 +2,6 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { contexteEtape2, enregistrerContactExterne } from '../../../../../lib/gestion/contactExterneRepo';
-import { typeRecu } from '../../../../../lib/gestion/contactExterne';
 
 /**
  * ══ /api/admin/gestion/contact-externe — LOT CONTACTS-EXTERNES : LA 2ᵉ ÉTAPE DE LA MODALE ═════════════════════
@@ -106,8 +105,15 @@ export async function POST(request: Request): Promise<Response> {
       //   déjà saisie avec du blanc (voir `enregistrerContactExterne`).
       nom: typeof corps.nom === 'string' ? corps.nom : null,
       telephone: typeof corps.telephone === 'string' ? corps.telephone : null,
-      // 🔴 LE TYPE EST RE-VALIDÉ CONTRE LA LISTE FERMÉE D'ARNO : rien n'est cru sur parole.
-      type: typeRecu(corps.type),
+      /**
+       * 🔴 LE TYPE EST RE-VALIDÉ PAR LE DÉPÔT, pas ici (lot URGENT-VERIF-SUIVI-ET-76-BIENS). Depuis
+       * « Personnaliser… », ce qui est acceptable dépend de la migration 294 — et seule la sonde le sait. On
+       * transmet donc la saisie telle quelle ; `enregistrerContactExterne` la met en forme ou la refuse.
+       *
+       * ⚠️ RIEN N'EST CRU SUR PAROLE POUR AUTANT : la chaîne est bornée ici (une borne de sûreté, jamais une
+       * règle métier), et la forme finale est décidée par `typeLibreRecu` ou `typeRecu` selon le cas.
+       */
+      type: typeof corps.type === 'string' ? corps.type.slice(0, 200) : null,
       auteur: await auteurDeLaRequete(request),
     });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });

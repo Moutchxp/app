@@ -3,11 +3,11 @@
 import { useState } from 'react';
 import {
   basculerEtape2, clePersonne, etape2Validable, libelleContactExterne, motRoleInstantane, motTypeContact,
-  ordonnerEtape2, suiviContactRecu, tonRoleInstantane,
+  ordonnerEtape2, suiviContactRecu, tonRoleInstantane, typeLibreRecu,
   BIEN_UNIQUEMENT, BIEN_UNIQUEMENT_AIDE, CHOIX_ETAPE2_VIDE, CHOIX_SUIVI_CONTACT, LIEN_ANCIENS_LOCATAIRES,
-  SUIVI_CONTACT_DEFAUT, TITRE_ETAPE2, TITRE_INTERVIENT, TITRE_LOCATAIRES, TITRE_PROPRIETAIRES, TITRE_SUIVI,
-  TYPES_CONTACT_EXTERNE,
-  type ChoixEtape2, type PersonneEtape2, type SuiviContact, type TypeContactExterne,
+  MOT_PERSONNALISER, SUIVI_CONTACT_DEFAUT, TITRE_ETAPE2, TITRE_INTERVIENT, TITRE_LOCATAIRES,
+  TITRE_PROPRIETAIRES, TITRE_SUIVI, TYPE_A_PERSONNALISER, TYPE_LONGUEUR_MAX,
+  type ChoixEtape2, type PersonneEtape2, type SuiviContact,
 } from '../../../../lib/gestion/contactExterne';
 // ⚠️ `import type` SEULEMENT : ce dépôt tire `pg`, et un composant client qui l'importerait vraiment ferait
 //   refuser le bundle (garde de graphe `clientBoundary.guard.test.ts`, incident du 24/09/2026).
@@ -51,8 +51,13 @@ export interface ValidationEtape2 {
   bienUniquement: boolean;
   /** Le choix de suivi, quand les deux choix étaient affichés. `null` = ils ne l'étaient pas. */
   suivi: SuiviContact | null;
-  /** Les trois champs FACULTATIFS du contact externe. Jamais bloquants. */
-  contact: { nom: string; telephone: string; type: TypeContactExterne | null };
+  /**
+   * Les trois champs FACULTATIFS du contact externe. Jamais bloquants.
+   *
+   * ⚠️ `type` EST UNE CHAÎNE depuis « Personnaliser… » (lot URGENT-VERIF-SUIVI-ET-76-BIENS) : la liste des neuf
+   * est ce qu'on PROPOSE, plus ce qu'on accepte. `null` = aucun type, ce qui reste permis.
+   */
+  contact: { nom: string; telephone: string; type: string | null };
 }
 
 export function EtapeContactExterne({
@@ -81,7 +86,17 @@ export function EtapeContactExterne({
   /** 🔴 LES TROIS CHAMPS SONT PRÉ-REMPLIS QUAND L'ADRESSE EST DÉJÀ UN CONTACT CONNU (demande d'Arno). */
   const [nom, setNom] = useState<string>(data.contact?.nom ?? data.expediteurNom ?? '');
   const [telephone, setTelephone] = useState<string>(data.contact?.telephone ?? '');
-  const [type, setType] = useState<TypeContactExterne | ''>(data.contact?.type ?? '');
+  /**
+   * ══ 🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — LE CHOIX, ET LE CHAMP LIBRE QU'IL PEUT OUVRIR ═══════════════════
+   *
+   * `type` porte la valeur du CHOIX : un type de la liste, `''` (aucun), ou le marqueur `TYPE_A_PERSONNALISER`.
+   * Ce marqueur n'est JAMAIS enregistré — il ne fait qu'ouvrir `typeLibre`, le champ texte juste à côté.
+   *
+   * ⚠️ UN TYPE DÉJÀ ENREGISTRÉ QUI N'EST PLUS DANS LA LISTE (un type libre d'hier que la 294 aurait perdu)
+   * ouvrirait un choix vide. On le remet donc dans la liste à l'affichage — voir `listeDesTypes`.
+   */
+  const [type, setType] = useState<string>(data.contact?.type ?? '');
+  const [typeLibre, setTypeLibre] = useState<string>('');
   /** Le dépliage des anciens locataires, par bien : déplier l'un ne déplie pas les autres. */
   const [deplies, setDeplies] = useState<Set<string>>(new Set());
 
@@ -90,6 +105,29 @@ export function EtapeContactExterne({
   for (const b of data.biens) for (const p of b.personnes) parCle.set(clePersonne(p), p);
 
   const validable = etape2Validable(choix);
+
+  /**
+   * 🔴 LA LISTE AFFICHÉE VIENT DU SERVEUR — lui seul sait ce que la base accepte (migration 294) et quels types
+   * ont déjà été écrits à la main. L'écran n'en invente aucun.
+   *
+   * ⚠️ UN TYPE DÉJÀ ENREGISTRÉ EST TOUJOURS DANS LA LISTE, même s'il n'y figure plus : sans cela, rouvrir la
+   * fiche d'un contact afficherait un choix VIDE, et valider effacerait son type sans que personne le demande.
+   */
+  /**
+   * ⚠️ `?? []` ET NON `data.typesProposes` SEC : une réponse d'API plus ancienne que ce lot ne porte pas ce
+   * champ, et un `...undefined` fait TOMBER tout l'écran (« data.typesProposes is not iterable » — mesuré ici
+   * même en écrivant les épreuves). Un champ manquant doit donner une liste vide, jamais une page blanche.
+   */
+  const listeDesTypes = [...new Set([
+    ...(data.typesProposes ?? []),
+    ...(data.contact?.type !== null && data.contact?.type !== undefined ? [data.contact.type] : []),
+  ])];
+
+  /** Ce qui partira vraiment : le champ libre quand il est ouvert, sinon le choix de la liste. PUR. */
+  const typeRetenu = (): string | null => {
+    if (type === TYPE_A_PERSONNALISER) return typeLibreRecu(typeLibre);
+    return type === '' ? null : type;
+  };
 
   const valider = (): void => {
     if (!validable || occupe) return;
@@ -102,7 +140,7 @@ export function EtapeContactExterne({
       // 🔴 LES DEUX CHOIX NE COMPTENT QUE S'ILS ÉTAIENT AFFICHÉS : sinon c'est la conversation qui décide, et
       //   l'appelant garde la main (bloc à 3 choix existant, inchangé).
       suivi: data.premierClassement ? suivi : null,
-      contact: { nom: nom.trim(), telephone: telephone.trim(), type: type === '' ? null : type },
+      contact: { nom: nom.trim(), telephone: telephone.trim(), type: typeRetenu() },
     });
   };
 
@@ -206,14 +244,37 @@ export function EtapeContactExterne({
               </label>
               <label className="ece-champ">
                 <span className="ece-libelle">Type</span>
-                <select className="ece-saisie" value={type}
-                  onChange={(e) => setType(e.target.value as TypeContactExterne | '')}>
+                <select className="ece-saisie" value={type} onChange={(e) => setType(e.target.value)}>
                   <option value="">—</option>
-                  {TYPES_CONTACT_EXTERNE.map((t) => (
+                  {listeDesTypes.map((t) => (
                     <option key={t} value={t}>{motTypeContact(t)}</option>
                   ))}
+                  {/* 🔴 « Personnaliser… » EN DERNIER, et seulement si la base sait le garder (migration 294).
+                      Proposer un choix qui échouerait en silence serait pire que ne pas le proposer : les trois
+                      champs du contact ne bloquent jamais le classement, et le type disparaîtrait sans bruit. */}
+                  {data.typeLibre && (
+                    <option value={TYPE_A_PERSONNALISER}>{MOT_PERSONNALISER}</option>
+                  )}
                 </select>
               </label>
+              {/* ══ 🔴🔴 LE CHAMP LIBRE — il n'apparaît QU'À LA DEMANDE (demande d'Arno) ══════════════════════
+                  « quand on le choisit, un champ texte apparaît pour écrire le type librement (enregistré tel
+                  quel, puis proposé dans la liste aux prochaines fois) ». Il prend toute la largeur : un métier
+                  s'écrit parfois en trois mots (« diagnostiqueur amiante », « maître d'œuvre »). */}
+              {type === TYPE_A_PERSONNALISER && (
+                <label className="ece-champ ece-champ--large">
+                  <span className="ece-libelle">Type personnalisé</span>
+                  <input className="ece-saisie" type="text" value={typeLibre} autoFocus
+                    maxLength={TYPE_LONGUEUR_MAX} autoComplete="off"
+                    placeholder="ex. « huissier », « diagnostiqueur amiante »"
+                    onChange={(e) => setTypeLibre(e.target.value)} />
+                  {/* ⚠️ IL NE BLOQUE PAS, LUI NON PLUS : laissé vide, aucun type n'est enregistré, et le
+                      classement part quand même. On le DIT, pour qu'un champ vide ne se lise pas comme un oubli. */}
+                  <span className="ece-aide">
+                    Enregistré tel quel, et proposé dans la liste les prochaines fois. Laissé vide : aucun type.
+                  </span>
+                </label>
+              )}
             </div>
           </fieldset>
         </div>
@@ -458,6 +519,8 @@ export const CSS_ETAPE_CONTACT = `
 /* ══ LES TROIS CHAMPS FACULTATIFS — en rangee quand la place suffit, empiles sur un telephone ═══════════════ */
 .ece-champs{display:flex;flex-wrap:wrap;gap:.5rem .6rem;min-width:0}
 .ece-champ{display:flex;flex-direction:column;gap:.2rem;flex:1 1 11rem;min-width:0}
+/* Le champ du type personnalise prend toute la largeur : un metier s'ecrit parfois en trois mots. */
+.ece-champ--large{flex:1 1 100%}
 .ece-libelle{font-size:.72rem;font-weight:700;letter-spacing:.02em;color:var(--color-svv-muted)}
 .ece-saisie{min-height:40px;padding:.35rem .5rem;font:inherit;font-size:.88rem;color:var(--color-svv-ink);
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:.45rem;

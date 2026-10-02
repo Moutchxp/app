@@ -1,5 +1,7 @@
 import { query, withTransaction } from '../db/client';
-import { annuaireDisponible, interventionsDisponibles, rattachementsDisponibles } from './schema';
+import {
+  annuaireDisponible, interventionsDisponibles, rattachementsDisponibles, typesLibresDisponibles,
+} from './schema';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { adresseComplete } from './ficheBien';
 // 🔴 LA LISTE DE NOS DOMAINES, écrite UNE fois dans le dépôt (lot BOITE-INTERNE-CORBEILLE).
@@ -10,7 +12,7 @@ import { adressesDe, lirePartenairesInternes } from './partenaires';
 import { estDocumentEnvoye } from './documentsAuto';
 import {
   clePersonne, etape2Requise, motifIntervention, mentionVia,
-  roleLocataireALaDate, roleLocataireParmiOccupations, roleRecu, typeRecu,
+  roleLocataireALaDate, roleLocataireParmiOccupations, roleRecu, typeLibreRecu, typeRecu, typesProposes,
   MOTIF_INTERVENTION_PAR_SUIVI, MOTIF_INTERVENTION_RETIREE_PAR_SUIVI, MOTIF_INTERVENTION_SANS_BIEN,
   REGLE_INTERVENTION,
   type ContactExterne, type ContexteEtape2, type InterventionDeFiche, type MotifSansEtape2,
@@ -157,6 +159,15 @@ export interface ReponseEtape2 {
    * enregistré, les relations aux personnes ne le seront pas encore. Il ne bloque rien et ne cache rien.
    */
   disponible: boolean;
+  /**
+   * ══ 🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — LES TYPES QUE LE CHOIX PROPOSE ═══════════════════════════════════
+   *
+   * Composés par le SERVEUR, parce que lui seul sait deux choses : ce que la base accepte (migration 294), et
+   * quels types ont déjà été écrits à la main. L'écran rend la liste qu'on lui donne — il n'en invente aucune.
+   */
+  typesProposes: string[];
+  /** 🔴 `false` = migration 294 absente : le choix « Personnaliser… » ne s'affiche pas. */
+  typeLibre: boolean;
 }
 
 /**
@@ -215,20 +226,53 @@ export async function contexteEtape2(o: {
       messageId: o.messageId, filId, dateMail: m.recu_le, expediteur, expediteurNom: m.de_nom,
       requise: false, motif: verdict.motif, biens: [], contact: null,
       premierClassement: true, precoche: null, disponible,
+      // ⚠️ L'étape ne s'affichera pas : la liste des types n'a personne à qui s'adresser.
+      typesProposes: [], typeLibre: false,
     };
   }
 
-  const [biens, contact, memoire] = await Promise.all([
+  const [biens, contact, memoire, types] = await Promise.all([
     personnesDesBiens(cles, m.recu_le ?? ''),
     lireContactExterne(expediteur),
     memoireDuFil(filId, o.messageId),
+    typesAProposer(),
   ]);
 
   return {
     messageId: o.messageId, filId, dateMail: m.recu_le, expediteur, expediteurNom: m.de_nom,
     requise: true, motif: null, biens, contact,
     premierClassement: memoire.premierClassement, precoche: memoire.precoche, disponible,
+    typesProposes: types.liste, typeLibre: types.libre,
   };
+}
+
+/**
+ * ══ 🔴🔴 LES TYPES QUE LE CHOIX PROPOSE, ET CE QUE LA BASE ACCEPTE. LECTURE SEULE. ════════════════════════════
+ *
+ * Deux réponses en une, et elles vont ensemble :
+ *   · `liste` — ce que l'écran affiche. Sans la migration 294, ce sont les HUIT types que la contrainte de la
+ *     293 autorise ; avec elle, les neuf (« Diagnostiqueur » compris) PLUS tous ceux déjà écrits à la main ;
+ *   · `libre` — le choix « Personnaliser… » s'affiche-t-il.
+ *
+ * 🔴 ON NE PROPOSE JAMAIS CE QUE LA BASE REFUSERAIT. Les trois champs du contact ne bloquent pas le classement :
+ * un type refusé disparaîtrait donc en silence, et Arno croirait l'avoir enregistré. La liste affichée est
+ * exactement la liste enregistrable.
+ *
+ * ⚠️ LA DÉCISION EST AU MODULE PUR (`typesProposes`) : ici on ne fait que lire la sonde et la base.
+ */
+export async function typesAProposer(): Promise<{ liste: string[]; libre: boolean }> {
+  const libre = await typesLibresDisponibles();
+  if (!libre) return { liste: typesProposes([], { typeLibre: false }), libre: false };
+  try {
+    // ⚠️ `DISTINCT` SUR LA COLONNE, pas un parcours : la table est petite, mais la requête doit le rester.
+    const { rows } = await query<{ type: string }>(
+      "SELECT DISTINCT type FROM gestion_contact_externe WHERE type IS NOT NULL AND btrim(type) <> ''");
+    return { liste: typesProposes(rows.map((r) => r.type), { typeLibre: true }), libre: true };
+  } catch (e) {
+    // ⚠️ SILENCIEUX : une lecture en échec ne doit pas empêcher de classer. On retombe sur la liste de départ.
+    console.error('[gestion/contacts] lecture des types impossible', e);
+    return { liste: typesProposes([], { typeLibre: true }), libre: true };
+  }
 }
 
 /**
@@ -541,9 +585,20 @@ export async function lireContactExterne(email: string): Promise<ContactExterne 
       email: string; nom: string | null; telephone: string | null; type: string | null;
     }>('SELECT email, nom, telephone, type FROM gestion_contact_externe WHERE email = $1', [adresse]);
     const r = rows[0];
+    /**
+     * ⚠️ LE TYPE EST RENDU TEL QUE LA BASE LE PORTE, et non re-validé contre la liste des neuf. C'était le cas
+     * avant « Personnaliser… », et ça rendait `null` pour tout type écrit à la main : on enregistrait
+     * « huissier de justice » et on le relisait vide (mesuré par l'épreuve C-10).
+     *
+     * 🔴 LA FORME EST DÉJÀ GARANTIE PAR LA BASE (contrainte de la 294 : minuscules, non vide, borné). La relire
+     * avec une règle PLUS ÉTROITE que celle de l'écriture, c'est perdre en silence ce qu'on vient d'écrire.
+     */
     return r === undefined
       ? null
-      : { email: r.email, nom: r.nom, telephone: r.telephone, type: typeRecu(r.type) };
+      : {
+        email: r.email, nom: r.nom, telephone: r.telephone,
+        type: (r.type ?? '').trim() === '' ? null : r.type,
+      };
   } catch (e) {
     console.error('[gestion/contacts] lecture du contact externe impossible', e);
     return null;
@@ -571,7 +626,11 @@ export async function enregistrerContactExterne(o: {
   email: string;
   nom?: string | null;
   telephone?: string | null;
-  type?: TypeContactExterne | null;
+  /**
+   * ⚠️ `string` ET NON `TypeContactExterne` (lot URGENT-VERIF-SUIVI-ET-76-BIENS) : un type peut être écrit à la
+   * main. C'est CETTE fonction qui décide ce que la base acceptera — voir le bloc `type` plus bas.
+   */
+  type?: string | null;
   auteur: Auteur;
 }): Promise<IssueContact> {
   if (!(await interventionsDisponibles())) {
@@ -587,7 +646,18 @@ export async function enregistrerContactExterne(o: {
 
   const nom = (o.nom ?? '').trim().slice(0, MAX_NOM);
   const tel = (o.telephone ?? '').trim().slice(0, MAX_TEL);
-  const type = o.type ?? null;
+  /**
+   * ══ 🔴🔴 LE TYPE EST VALIDÉ SELON CE QUE LA BASE ACCEPTE, ET NULLE PART AILLEURS ══════════════════════════
+   *
+   * Avec la migration 294 : n'importe quel type, mis sous sa forme canonique (`typeLibreRecu`).
+   * Sans elle : les huit de la liste de la 293, et rien d'autre (`typeRecu`) — un type hors liste serait REFUSÉ
+   * par la contrainte, et comme les trois champs ne bloquent jamais le classement, il disparaîtrait en silence.
+   *
+   * 🔴 C'EST LE DÉPÔT QUI TRANCHE, PAS LA ROUTE. La route ne connaît pas la sonde, et deux endroits qui
+   * décideraient de la même chose finiraient par ne plus décider pareil. L'écran, lui, ne propose déjà que ce
+   * qui est enregistrable (`typesAProposer`) : cette ligne est le filet, pas la règle visible.
+   */
+  const type = (await typesLibresDisponibles()) ? typeLibreRecu(o.type) : typeRecu(o.type);
 
   const { rows } = await query<{ id: string }>(
     `INSERT INTO gestion_contact_externe (email, nom, telephone, type, cree_par, cree_par_libelle)
@@ -845,7 +915,7 @@ export async function interventionsDeLaFiche(
        */
       role: roleRecu(r.role_instantane) ?? 'locataire_a_venir',
       via: r.email === null ? null : (mentionVia({
-        email: r.email, nom: r.nom, telephone: null, type: typeRecu(r.type),
+        email: r.email, nom: r.nom, telephone: null, type: (r.type ?? '').trim() === '' ? null : r.type,
       }) || null),
       biens: r.biens ?? [],
     }));
@@ -922,7 +992,7 @@ export async function interventionsDesMessages(
         libelle: (r.cible_libelle ?? '').trim() === '' ? r.cible_cle : (r.cible_libelle as string),
         role: roleRecu(r.role_instantane) ?? 'locataire_a_venir',
         via: r.email === null ? null : (mentionVia({
-          email: r.email, nom: r.nom, telephone: null, type: typeRecu(r.type),
+          email: r.email, nom: r.nom, telephone: null, type: (r.type ?? '').trim() === '' ? null : r.type,
         }) || null),
       }]);
     }

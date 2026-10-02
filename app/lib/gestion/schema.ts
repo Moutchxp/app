@@ -867,3 +867,35 @@ export function journalMouvementDriveDisponible(): Promise<boolean> {
 export function interventionsDisponibles(): Promise<boolean> {
   return memoiser('table.gestion_contact_externe', () => tableExiste('gestion_contact_externe'));
 }
+
+/**
+ * ══ 🔴🔴 LOT URGENT-VERIF-SUIVI-ET-76-BIENS — LA MIGRATION 294 EST-ELLE APPLIQUÉE ? ═══════════════════════════
+ *
+ * Elle seule permet qu'un type de contact externe soit ÉCRIT À LA MAIN (« Personnaliser… »). La 293 avait gravé
+ * la liste des huit types dans une contrainte ; la 294 la remplace par une vérification de FORME.
+ *
+ * Tant qu'elle n'est pas appliquée :
+ *   · le choix « Personnaliser… » ne s'affiche NULLE PART ;
+ *   · « Diagnostiqueur » n'est pas proposé non plus — la base le refuserait, et un choix qui échoue en silence
+ *     est pire qu'un choix absent (les trois champs du contact ne bloquent jamais le classement) ;
+ *   · les huit types d'origine fonctionnent exactement comme aujourd'hui.
+ *
+ * ⚠️ ON SONDE LA CONTRAINTE, PAS UNE TABLE : cette migration ne crée rien, elle DESSERRE. Son seul fait
+ * observable est la forme de `gestion_contact_externe_type_chk` — et on la reconnaît au mot `lower`, qui
+ * n'apparaît que dans la nouvelle écriture. C'est exactement la méthode de `documentsAutoDisponible`.
+ */
+export function typesLibresDisponibles(): Promise<boolean> {
+  return memoiser('contrainte.type_libre', async () => {
+    try {
+      const { rows } = await query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_constraint
+          WHERE conrelid = 'gestion_contact_externe'::regclass
+            AND conname = 'gestion_contact_externe_type_chk'
+            AND pg_get_constraintdef(oid) LIKE '%lower%'`);
+      return (rows[0]?.n ?? 0) > 0;
+    } catch {
+      // base injoignable, ou table absente (293 non appliquée) : on répond « non », donc l'écran se tait
+      return false;
+    }
+  });
+}
