@@ -7,6 +7,7 @@ import {
 import { motifDisparition } from './copieDisparue';
 import { lireNomsDrive, type DepsReprise } from './reprendreNomsDrive';
 import { renommerPiece } from './renommagePieceReel';
+import { cleNomDrive, MEMOIRE_NOMS_MS, memoireNoms } from './nomsDriveMemoire';
 
 /**
  * ══ 🔴🔴 LOT RANGER-INSTANTANE-ET-NOM — LIRE LES NOMS DRIVE À LA DEMANDE, PAS DANS TROIS JOURS ════════════════
@@ -44,8 +45,18 @@ import { renommerPiece } from './renommagePieceReel';
  * l'un ce que l'autre seul peut lire. C'est le genre de fuite qu'un cache introduit sans bruit.
  */
 
-/** Voir l'encadré : 30 s est le délai au bout duquel on accepte de se tromper, pas un réglage de confort. */
-export const MEMOIRE_NOMS_MS = 30_000;
+/**
+ * ══ 🔴🔴 LOT RENOMMAGE-UN-SEUL-NOM — LA MÉMOIRE A DÉMÉNAGÉ, ET C'ÉTAIT NÉCESSAIRE ══════════════════════════════
+ *
+ * Elle vit désormais dans `nomsDriveMemoire.ts`, parce que c'est le chemin d'ÉCRITURE qui doit l'oublier — et
+ * que ce module-ci importe `renommagePieceReel`, donc ne pouvait pas être importé par lui. L'encadré de
+ * `nomsDriveMemoire.ts` raconte le défaut qui l'a imposé : un renommage qui s'annulait 63 ms plus tard.
+ *
+ * ⚠️ LES TROIS NOMS SONT RÉ-EXPORTÉS TELS QUELS : aucun appelant ni aucune épreuve n'a à savoir qu'ils ont
+ * changé de fichier.
+ */
+export { oublierLesNomsDrive, tailleMemoireNoms } from './nomsDriveMemoire';
+export { MEMOIRE_NOMS_MS };
 
 /**
  * COMBIEN DE `files.get` EN VOL EN MÊME TEMPS.
@@ -84,18 +95,6 @@ export const PLAFOND_A_LA_DEMANDE = 40;
  */
 const COMPTE_RELEVE = 'gestion@criterimmo.fr';
 
-interface Vu { valeur: NomVuDansDrive | null; expireA: number }
-const memoire = new Map<string, Vu>();
-
-/** Pour les tests, et pour une passe qui voudrait repartir à neuf. Sans effet sur le Drive. */
-export function oublierLesNomsDrive(): void {
-  memoire.clear();
-}
-
-/** Combien de noms sont retenus. Sert aux mesures et aux tests — jamais à l'écran. */
-export function tailleMemoireNoms(): number {
-  return memoire.size;
-}
 
 /**
  * LES NOMS ACTUELS DE CES COPIES, mémorisés 30 s, lus EN PARALLÈLE par petits paquets.
@@ -110,10 +109,10 @@ export async function nomsDriveMemo(
   const propres = [...new Set(ids.map((i) => i.trim()).filter((i) => i !== ''))];
   const sortie = new Map<string, NomVuDansDrive>();
   const aLire: string[] = [];
-  const cle = (id: string): string => `${sujet}|${id}`;
+  const cle = (id: string): string => cleNomDrive(sujet, id);
 
   for (const id of propres) {
-    const deja = memoire.get(cle(id));
+    const deja = memoireNoms.get(cle(id));
     if (deja !== undefined && deja.expireA > maintenant) {
       if (deja.valeur !== null) sortie.set(id, deja.valeur);
       continue;
@@ -137,7 +136,7 @@ export async function nomsDriveMemo(
     ))[0] ?? null));
     paquet.forEach((id, i) => {
       const v = vus[i] ?? null;
-      memoire.set(cle(id), { valeur: v, expireA: maintenant + MEMOIRE_NOMS_MS });
+      memoireNoms.set(cle(id), { valeur: v, expireA: maintenant + MEMOIRE_NOMS_MS });
       if (v !== null) sortie.set(id, v);
     });
   }

@@ -507,7 +507,10 @@ export function ApercuFichierDrive({
           const r = renommage?.(vu.id);
           if (r === undefined) return null;
           return (
-            <BandeauNom key={vu.id} nomOrigine={r.nomOrigine} nomChoisi={r.nomChoisi}
+            /* 🔴 LOT RENOMMAGE-UN-SEUL-NOM — LE TYPE DU DOCUMENT VOYAGE AVEC LE NOM : c'est lui qui redonne
+               l'extension quand le nom n'en porte pas à la fin (« … 0836_001.pdf [octets] »). Il vient du
+               document AFFICHÉ, comme tout le reste du bandeau. */
+            <BandeauNom key={vu.id} nomOrigine={r.nomOrigine} nomChoisi={r.nomChoisi} typeMime={vu.typeMime}
               editerDabord={r.editerDabord} refus={r.refus} onRenommer={r.onRenommer} />
           );
         })()}
@@ -611,16 +614,22 @@ export function ApercuFichierDrive({
  * ⚠️ `key={vu.id}` À L'APPEL : « Précédent / Suivant » change de pièce, et le champ doit suivre. Sans clé neuve,
  * l'état local du bandeau (la saisie en cours) survivrait au changement et proposerait le nom du voisin.
  */
-function BandeauNom({ nomOrigine, nomChoisi, editerDabord, refus, onRenommer }: {
+function BandeauNom({ nomOrigine, nomChoisi, typeMime, editerDabord, refus, onRenommer }: {
   nomOrigine: string;
   nomChoisi: string | null;
+  /**
+   * 🔴 LOT RENOMMAGE-UN-SEUL-NOM — CE QUE LE DOCUMENT EST. Il sert UNIQUEMENT à repêcher l'extension quand le
+   * nom n'en porte pas à la fin : « _MESURE … 0836_001.pdf [octets] » finit par « [octets] », et sans le type
+   * ce PDF se serait renommé en fichier sans extension. Vide ou inconnu ⇒ on n'invente rien.
+   */
+  typeMime: string | null | undefined;
   editerDabord: boolean;
   refus: string | null;
   onRenommer: (nom: string) => void;
 }) {
   /** Le nom COMPLET affiché aujourd'hui : celui qu'on a donné, ou celui reçu. */
   const nomActuel = nomDeDepot(nomOrigine, nomChoisi);
-  const { base, extension } = eclaterNom(nomActuel);
+  const { base, extension } = eclaterNom(nomActuel, typeMime);
   // ⚠️ Une pièce non renommable n'ouvre jamais le champ, même arrivée par le stylo : le stylo y est éteint.
   const [edite, setEdite] = useState(editerDabord && refus === null);
   const [saisie, setSaisie] = useState(base);

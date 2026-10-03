@@ -2,6 +2,7 @@ import { query } from '../db/client';
 import { copieDisparueDisponible, nomUsageDisponible } from './schema';
 import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
 import { sqlCopieVivante } from './copieDisparueSql';
+import { oublierCesNoms } from './nomsDriveMemoire';
 import type { CopieDrive, RefusRenommage } from './nomUsagePiece';
 
 /**
@@ -19,6 +20,12 @@ export interface PieceANommer {
   pieceId: number;
   nomOrigine: string;
   nomAffiche: string;
+  /**
+   * 🔴 LOT RENOMMAGE-UN-SEUL-NOM — CE QUE LA PIÈCE EST. Il sert au SERVEUR à recoller l'extension d'origine
+   * même quand le nom n'en porte pas à la fin : la règle d'Arno « l'extension est TOUJOURS conservée » ne peut
+   * pas reposer sur l'écran seul, qui se contourne.
+   */
+  typeMime: string | null;
   copies: CopieDrive[];
 }
 
@@ -32,8 +39,8 @@ export interface PieceANommer {
  */
 export async function lirePieceANommer(pieceId: number): Promise<PieceANommer | null> {
   if (!Number.isSafeInteger(pieceId) || pieceId <= 0) return null;
-  const { rows } = await query<{ nom_origine: string; nom_affiche: string }>(
-    `SELECT ${sqlNomOrigine('p')} AS nom_origine, ${await sqlNomAffiche('p')} AS nom_affiche
+  const { rows } = await query<{ nom_origine: string; nom_affiche: string; type_mime: string | null }>(
+    `SELECT ${sqlNomOrigine('p')} AS nom_origine, ${await sqlNomAffiche('p')} AS nom_affiche, p.type_mime
        FROM gestion_piece p WHERE p.id = $1`, [pieceId]);
   if (!rows[0]) return null;
 
@@ -47,6 +54,7 @@ export async function lirePieceANommer(pieceId: number): Promise<PieceANommer | 
     pieceId,
     nomOrigine: rows[0].nom_origine,
     nomAffiche: rows[0].nom_affiche,
+    typeMime: rows[0].type_mime,
     copies: copies.map((c) => ({
       driveFileId: c.drive_file_id, dossierId: c.drive_dossier_id,
       dossierNom: c.dossier_nom, origine: c.origine,
@@ -135,9 +143,26 @@ export async function ecrireNomUsage(pieceId: number, nom: string): Promise<Issu
  * pièces sur 60, et aurait renommé toute la base d'après ses préfixes.
  *
  * Un renommage humain, c'est Drive qui dit autre chose que CE qu'on y a écrit. Rien d'autre.
+ *
+ * ══ 🔴🔴 LOT RENOMMAGE-UN-SEUL-NOM — ET ON OUBLIE AUSSITÔT CE QU'ON VIENT DE RENDRE FAUX ═══════════════════════
+ *
+ * DÉFAUT TROUVÉ À L'ÉPREUVE RÉELLE, le 03/10/2026 : un renommage s'annulait TOUT SEUL 63 millisecondes plus tard
+ * (journal, pièce 27087 : ligne 81 `app` « test renomage.pdf » → « epreuve lot extension.pdf », ligne 82 `drive`
+ * qui revient en arrière). La reprise relisait le nom du fichier dans sa MÉMOIRE de 30 secondes — remplie à
+ * l'ouverture de la visionneuse, donc AVANT notre écriture —, le trouvait différent du `nom_drive` qu'on vient
+ * d'écrire ici, et en concluait qu'un humain avait renommé dans Drive. Elle défaisait notre propre geste.
+ *
+ * 🔴 C'EST ICI QUE L'OUBLI DOIT SE FAIRE, et nulle part ailleurs : cette fonction est le SEUL endroit qui note
+ * « voilà ce que nous avons écrit chez Google ». Les deux faits — ce qu'on a écrit, et le cache que cela périme
+ * — sont le même fait ; les séparer, c'est accepter qu'un jour l'un se fasse sans l'autre.
+ *
+ * ⚠️ L'OUBLI PASSE AVANT L'ÉCRITURE EN BASE, et avant même la sonde de migration : il ne coûte rien, il ne peut
+ * pas échouer, et le faire après laisserait une fenêtre — courte, mais c'est exactement dans une fenêtre de
+ * 63 ms que le défaut s'est produit.
  */
 export async function noterNomEcritDansDrive(driveFileIds: readonly string[], nom: string): Promise<void> {
   const ids = [...new Set(driveFileIds.map((i) => i.trim()).filter((i) => i !== ''))];
+  oublierCesNoms(ids);
   if (ids.length === 0 || !(await nomUsageDisponible())) return;
   try {
     await query(

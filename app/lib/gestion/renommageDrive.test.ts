@@ -174,6 +174,29 @@ describe('🔴 aucune porte dérobée dans renommageDrive', () => {
   });
 
   /**
+   * ══ 🔴🔴 LOT RENOMMAGE-UN-SEUL-NOM — RENOMMER N'EST NI COPIER NI ENVOYER ═══════════════════════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « Renommer = `files.update(name)` sur les fichiers EXISTANTS, jamais une copie
+   * ni un envoi neuf. »
+   *
+   * 🔴 LE DIAGNOSTIC DU 03/10 A MONTRÉ QUE C'ÉTAIT DÉJÀ LE CAS : sur les 17 renommages du journal — 29 couples
+   * (ligne × identifiant Drive), 8 identifiants distincts — AUCUN n'a créé de fichier ; chaque identifiant
+   * touché figurait déjà au registre avec une date de dépôt antérieure au renommage. Les deux fichiers de même
+   * contenu du Drive « Test » sont nés à 45 minutes d'écart, l'un par un rangement, l'autre par un script de
+   * mesure hors registre.
+   *
+   * ⚠️ CE TEST NE PROUVE PAS LE PASSÉ, IL PROTÈGE L'AVENIR. Un diagnostic se refait ; un garde statique, non :
+   * il refusera la première ligne qui ferait de ce module un copieur.
+   */
+  it('🔴🔴 ni `files.copy`, ni envoi de contenu : on écrit sur un fichier qui existe', () => {
+    for (const mot of ['copy', 'upload', 'multipart', 'resumable', 'media']) {
+      expect(code.toLowerCase(), mot).not.toContain(mot.toLowerCase());
+    }
+    /* 🔴 ET L'ADRESSE VISÉE PORTE TOUJOURS UN IDENTIFIANT : un POST sur `/files` nu créerait un fichier. */
+    expect(code).toContain('${API_FICHIERS}/${encodeURIComponent(id)}');
+  });
+
+  /**
    * 🔴🔴 ET IL NE LIT PAS LE REGISTRE : celui-ci lui est DONNÉ. Un module qui irait le chercher lui-même pourrait
    * se tromper sur ce qu'il lit — et la garantie de tout ce lot tient à ce qu'il ne puisse pas.
    */

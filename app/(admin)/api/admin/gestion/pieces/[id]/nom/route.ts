@@ -81,9 +81,19 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     /**
      * 🔒 L'EXTENSION VIENT DU NOM ACTUEL, JAMAIS DE CE QUI EST REÇU. C'est la garantie du lot
      * RENOMMER-AVANT-RANGER, et elle vaut ici à l'identique : on ne change QUE la base du nom.
+     *
+     * ══ 🔴🔴 LOT RENOMMAGE-UN-SEUL-NOM — ET LE TYPE LA REPÊCHE QUAND LE NOM NE L'A PAS ═══════════════════════
+     *
+     * Un nom qui finit par « [octets] » ne portait aucune extension à l'œil de `eclaterNom`, et le renommage
+     * rendait un document nu. Le TYPE de la pièce, lui, dit que c'est un PDF : c'est de lui que l'extension
+     * vient alors. Règle d'Arno : « l'extension d'origine est TOUJOURS conservée ».
+     *
+     * 🔴 ET LE RETRAIT DE L'EXTENSION RETAPÉE EST FAIT PAR `verifierNom`, UNE SEULE FOIS, pour l'écran comme
+     * pour ici. L'ancienne ligne coupait la queue du nom reçu avec `eclaterNom` — ce qui effaçait en silence un
+     * « Bail 2026.03 » en « Bail 2026 ». Le module pur ne retire désormais QUE l'extension attendue.
      */
-    const { extension } = eclaterNom(piece.nomAffiche);
-    const verdict = verifierNom(eclaterNom(voulu).base === '' ? voulu : eclaterNom(voulu).base, extension);
+    const { extension } = eclaterNom(piece.nomAffiche, piece.typeMime);
+    const verdict = verifierNom(voulu, extension);
     if (verdict.refus !== null) {
       return Response.json({ etat: 'refuse', message: verdict.refus }, { status: 422, headers: ENTETES });
     }

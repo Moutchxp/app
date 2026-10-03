@@ -294,3 +294,98 @@ describe('🔴 ③ une pièce déjà rangée ne se renomme plus', () => {
     expect(MOTIF_DEJA_RANGEE).toContain('renommez-la dans le Drive');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④ LOT RENOMMAGE-UN-SEUL-NOM — L'EXTENSION NE SE PERD JAMAIS, ET NE DOUBLE JAMAIS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 LE CAS RÉEL D'ARNO (03/10/2026) ════════════════════════════════════════════════════════════════════════
+ *
+ * « J'ai renommé « _MESURE 1790804662784 0836_001.pdf [octets] » en « reco renomage » : le nouveau nom
+ * s'enregistre SANS « .pdf ». La règle : l'extension d'origine est TOUJOURS conservée. »
+ *
+ * Ce nom-là finit par « [octets] » : aucune extension à la fin, donc le champ portait le nom ENTIER et ce qu'on
+ * tapait par-dessus partait nu. C'est le TYPE du document qui dit que c'est un PDF — et il voyage désormais
+ * jusqu'au bandeau.
+ */
+describe('🔴🔴 ④ l’extension d’origine est toujours conservée', () => {
+  /** Une pièce dont le nom porte « .pdf » AU MILIEU, exactement comme celle d'Arno. */
+  const AU_MILIEU = [{
+    pieceId: 21, nom: '_MESURE 1790804662784 0836_001.pdf [octets]',
+    tailleOctets: 133_157, typeMime: 'application/pdf',
+  }];
+
+  it('🔴🔴 un nom qui ne finit pas par son extension : le type la redonne, à côté du champ', async () => {
+    await monter(AU_MILIEU);
+    await cliquer(stylo('_MESURE 1790804662784 0836_001.pdf [octets]'));
+    // Le nom ENTIER reste dans le champ : on ne retire rien de ce qui était écrit…
+    expect(champ()?.value).toBe('_MESURE 1790804662784 0836_001.pdf [octets]');
+    // … et l'extension repêchée s'affiche à côté, non modifiable.
+    expect(extension()).toBe('.pdf');
+  });
+
+  /** 🔴🔴 L'ÉPREUVE QUI RÉPOND À ARNO : « reco renomage » devient « reco renomage.pdf », et pas autre chose. */
+  it('🔴🔴 « reco renomage » part avec son « .pdf »', async () => {
+    await monter(AU_MILIEU);
+    await cliquer(stylo('_MESURE 1790804662784 0836_001.pdf [octets]'));
+    await taper('reco renomage');
+    await cliquer(boutonDe(/^Valider$/));
+    expect(pieceDe('reco renomage.pdf')).toBeDefined();
+  });
+
+  /** 🔴🔴 ET LE NOM ARRIVE AINSI À LA ROUTE DE DÉPÔT — le reste ne serait qu'un affichage. */
+  it('🔴🔴 le dépôt reçoit « reco renomage.pdf »', async () => {
+    await monter(AU_MILIEU);
+    await cliquer(stylo('_MESURE 1790804662784 0836_001.pdf [octets]'));
+    await taper('reco renomage');
+    await cliquer(boutonDe(/^Valider$/));
+    await cliquer(container.querySelector('.apd-croix'));
+    await act(async () => { ligneDe('Artisans')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    await calmer();
+    await cliquer(boutonDe(/^Déposer ici/));
+    expect(depots.length).toBe(1);
+    expect(depots[0].corps.nom).toBe('reco renomage.pdf');
+  });
+
+  /** 🔴🔴 JAMAIS « x.pdf.pdf » (règle d'Arno) : l'extension retapée dans le champ ne compte qu'une fois. */
+  it('🔴🔴 retaper l’extension ne la double pas', async () => {
+    await monter();
+    await cliquer(stylo('0836_001.pdf'));
+    await taper('Quittance.pdf');
+    await cliquer(boutonDe(/^Valider$/));
+    expect(pieceDe('Quittance.pdf')).toBeDefined();
+    expect(pieceDe('Quittance.pdf.pdf')).toBeUndefined();
+  });
+
+  /** ⚠️ ET LA CASSE NE FAIT PAS UNE SECONDE EXTENSION : « .PDF » tapé sur un « .pdf » est la même. */
+  it('« .PDF » tapé sur un « .pdf » ne double pas non plus', async () => {
+    await monter();
+    await cliquer(stylo('0836_001.pdf'));
+    await taper('Quittance.PDF');
+    await cliquer(boutonDe(/^Valider$/));
+    expect(pieceDe('Quittance.pdf')).toBeDefined();
+  });
+
+  /**
+   * 🔴🔴 ON NE RETIRE QUE L'EXTENSION ATTENDUE. Couper « la dernière chose qui ressemble à une extension »
+   * effaçait le « .03 » de « Bail 2026.03 » en silence — une partie du nom perdue sans le dire.
+   */
+  it('🔴🔴 un autre point en queue n’est pas pris pour l’extension', async () => {
+    await monter();
+    await cliquer(stylo('0836_001.pdf'));
+    await taper('Bail 2026.03');
+    await cliquer(boutonDe(/^Valider$/));
+    expect(pieceDe('Bail 2026.03.pdf')).toBeDefined();
+  });
+
+  /** ⚠️ UNE IMAGE GARDE SON « .jpeg » TEL QUEL : le nom passe avant le type, on ne normalise pas en « .jpg ». */
+  it('le nom passe avant le type : « .jpeg » reste « .jpeg »', async () => {
+    await monter();
+    await cliquer(stylo('IMG_4757.jpeg'));
+    expect(extension()).toBe('.jpeg');
+    await taper('Photo du compteur');
+    await cliquer(boutonDe(/^Valider$/));
+    expect(pieceDe('Photo du compteur.jpeg')).toBeDefined();
+  });
+});

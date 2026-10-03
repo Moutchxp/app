@@ -4347,8 +4347,17 @@ export function SelecteurFichierDrive({
             parentId: f.parentId ?? (listing.recherche ? null : dossierCourant?.id ?? null),
           }))}
         /* ⚠️ AUCUN « Joindre » SUR UNE PIÈCE REÇUE : en mode « ranger » il n'y a pas de message à remplir, et le
-           geste utile — déposer dans un dossier — se fait dans le panneau, qui reste visible derrière. */
-        joindreAutorise={aVoir.source === 'piece' ? false : listing.joindreAutorise}
+           geste utile — déposer dans un dossier — se fait dans le panneau, qui reste visible derrière.
+           ══ 🔴🔴 LOT RENOMMAGE-UN-SEUL-NOM, POINT 4 — « JOINDRE CE FICHIER » EST UN GESTE D'ÉCRITURE ═════════
+           CONSTAT D'ARNO (03/10/2026) : « le bouton apparaît dans la visionneuse pendant la LECTURE d'un mail
+           reçu ». Il y était, et il ne faisait RIEN : `onChoisir` n'existe qu'en mode « joindre », donc le clic
+           partait dans le vide — exactement le défaut des entrées « Joindre au message » et « Insérer un lien »
+           du menu clic droit, corrigé au lot précédent. Même règle, même mot : `mode === 'joindre'` EST « la
+           fenêtre a été ouverte depuis un message en cours d'écriture » (nouveau, réponse, transfert,
+           brouillon) — c'est le seul composant qui le passe, et il ne le passe que de là.
+           ⚠️ CE N'EST PAS UN MASQUAGE DE PLUS : le bouton reste exactement là où il servait, et nulle part
+           ailleurs. Rien n'est retiré à l'éditeur de mail. */
+        joindreAutorise={aVoir.source === 'piece' || mode !== 'joindre' ? false : listing.joindreAutorise}
         estDeja={(id) => ajoutes.includes(id)}
         onJoindre={(f) => {
           void joindre({
