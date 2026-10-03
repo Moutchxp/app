@@ -2406,6 +2406,23 @@ export const CSS_CONVERSATION = `
 /* L'EN-TÊTE D'UN MESSAGE : la ligne cliquable, puis son COIN (statut · date · menu) — deux frères, jamais imbriqués.
    Ils s'assoient côte à côte quand il y a la place, et le coin passe SOUS le nom de l'expéditeur quand elle manque. */
 .cnv-msg{display:flex;flex-wrap:wrap;align-items:flex-start;border-bottom:1px solid var(--color-svv-line);min-width:0}
+/* ══ 🔴🔴 LOT REPERE-INTEGRE — LE REPERE PREND LA PLACE DU SEPARATEUR, IL NE S'Y AJOUTE PAS ═══════════════════════
+   Demande d'Arno : « sur le mail qui porte un repere, la ligne de separation grise du cote du repere (en bas en
+   "Plus recent d'abord", en haut en "Plus ancien d'abord") est SUPPRIMEE. La phrase et le lisere rouge prennent
+   exactement sa place. »
+
+   🔴 UNE SEULE REGLE COUVRE LES DEUX TRIS, et c'est ce qui la rend juste. Le repere est TOUJOURS rendu juste
+   apres le mail dont il depend en « plus recent d'abord », et juste avant lui en « plus ancien d'abord » — or
+   dans ce second cas, le trait gris qui le precede appartient au mail PRECEDENT. Dans les deux cas, le trait a
+   effacer est donc celui du mail qui est JUSTE AVANT le repere. Une regle par tri aurait fini par diverger.
+
+   ⚠️ AUCUN ACCENT GRAVE ICI : il fermerait le litteral de gabarit (piege vu 11 fois dans ce depot).
+   ⚠️ LE SELECTEUR :has() PLUTOT QU'UNE CLASSE POSEE PAR REACT : le voisinage se lit dans le document, et c'est exactement ce
+   dont il s'agit. Une classe calculee aurait demande de connaitre, pour chaque mail, l'element qui le suit APRES
+   le tri — une seconde verite a tenir a jour a chaque changement d'ordre.
+
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+.cnv-msg:has(+ .cnv-repere){border-bottom-color:transparent}
 .cnv-msg--hors{background:var(--color-svv-field)}
 .cnv-ligne{display:flex;flex-direction:column;gap:3px;flex:1 1 16rem;min-width:0;min-height:44px;padding:10px 4px;
   text-align:left;background:none;border:0;color:inherit;font:inherit;cursor:pointer}
@@ -2472,8 +2489,10 @@ export const CSS_CONVERSATION = `
 
    ⚠️ COULEUR : var(--color-svv-red), un JETON — lisible en Clair comme en Sombre, jamais une couleur en dur.
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+/* 🔴 LE REPERE SE SERRE : il remplace un trait de 1 px, il ne vient pas s'ajouter a lui. Les marges d'avant
+   (.6rem / .4rem) creusaient un trou la ou il n'y avait qu'une ligne. */
 .cnv-repere{position:relative;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
-  margin:.6rem 0 .4rem;padding:0;list-style:none;--cnv-repere-h:0px}
+  margin:.1rem 0;padding:0;list-style:none;--cnv-repere-h:0px}
 .cnv-repere-phrase{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:.2rem .5rem;
   padding:0 .6rem;text-align:center;min-width:0}
 /* 🔴 LA PHRASE EST ROUGE, et le reste de la mention la suit en plus discret : c'est une seule information. */

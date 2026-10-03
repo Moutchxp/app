@@ -214,6 +214,39 @@ describe('🔴 ③ ce que l’écran dessine', () => {
     }
   });
 
+  /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT REPERE-INTEGRE — LE REPÈRE PREND LA PLACE DU SÉPARATEUR, IL NE S'Y AJOUTE PAS
+     ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+     Arno : « sur le mail qui porte un repère, la ligne de séparation grise du côté du repère (en bas en “Plus
+     récent d'abord”, en haut en “Plus ancien d'abord”) est SUPPRIMÉE. La phrase et le liseré rouge prennent
+     exactement sa place. » */
+
+  /**
+   * 🔴🔴 UNE SEULE RÈGLE COUVRE LES DEUX TRIS, et c'est ce qui la rend juste. Le repère est TOUJOURS rendu juste
+   * après le mail dont il dépend en « plus récent d'abord », et juste avant lui en « plus ancien d'abord » — or
+   * dans ce second cas, le trait gris qui le précède appartient au mail PRÉCÉDENT. Dans les deux cas, le trait à
+   * effacer est donc celui du mail qui est JUSTE AVANT le repère.
+   */
+  it('🔴🔴 le mail qui précède un repère perd son trait gris, dans les deux tris', () => {
+    expect(src).toContain('.cnv-msg:has(+ .cnv-repere){border-bottom-color:transparent}');
+  });
+
+  /**
+   * 🔴🔴 ET LA HAUTEUR DE LA LIGNE NE BOUGE PAS D'UN PIXEL. `border-bottom-color:transparent` — et non
+   * `border:none` ni `border-width:0` : la bordure reste dans la boîte, donc aucune reprise de mise en page.
+   * Mesuré dans le navigateur sur le fil 3490 : 90,60 px avant comme après, écart 0 px (Arno en tolérait 4).
+   */
+  it('🔴🔴 le trait est rendu INVISIBLE, jamais retiré de la boîte', () => {
+    expect(src).not.toContain('.cnv-msg:has(+ .cnv-repere){border-bottom:none}');
+    expect(src).not.toContain('.cnv-msg:has(+ .cnv-repere){border-bottom-width:0}');
+  });
+
+  /** 🔴 ET LE REPÈRE SE SERRE : il remplace un trait de 1 px, il ne creuse pas un trou à sa place. */
+  it('🔴 le repère ne garde que des marges minces', () => {
+    expect(src).toContain('margin:.1rem 0;padding:0;list-style:none;--cnv-repere-h:0px');
+  });
+
   /** ⚠️ UN REPÈRE PAR FENÊTRE, JAMAIS EMPILÉ : la clé reste celle de la PÉRIODE, pas celle du mail. */
   it('⚠️ la clé du repère reste celle de la période', () => {
     expect((src.match(/key=\{`rep-\$\{r\.id\}`\}/g) ?? [])).toHaveLength(2);
