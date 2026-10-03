@@ -2443,15 +2443,32 @@ export function MessageConversation({
               🔴 L'OBJET EN PREMIÈRE LIGNE — demande d'Arno. Un message repris six mois plus tard n'a pas forcément
               l'objet du fil : c'est le sien qu'il faut lire, et il n'était affiché nulle part. */}
           {/**
-            * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — L'EN-TÊTE ET SA CORBEILLE, CÔTE À CÔTE ═════════
+            * ══ 🔴🔴 LOT DRIVE-HABILLAGE, POINT 4 — LA CORBEILLE **DANS** LE BLOC GRIS ════════════════════════════
             *
-            * 🔴 LA RANGÉE EST NOUVELLE, LE BLOC NE BOUGE PAS. Arno : « ne déplace pas les autres éléments du
-            * bloc. » Le `<dl>` garde donc exactement sa grammaire et sa mise en colonnes ; on l'enveloppe, et
-            * l'icône prend la place qui restait à droite — `align-items: stretch` lui donne toute la hauteur,
-            * sans qu'aucune ligne ne se décale.
+            * DEMANDE D'ARNO (03/10/2026) : « le bloc gris De / À / Date reprend toute la largeur comme avant. La
+            * corbeille est intégrée DANS ce bloc, à l'extrême DROITE, dans une case blanche (fond de carte du
+            * thème) à coins arrondis, bien intégrée à la trame grise, avec la même icône et le même comportement
+            * (Annuler compris). »
+            *
+            * 🔴 CE QUI ÉTAIT ÉCRIT, ET CE QUE CELA COÛTAIT. Le lot COMPTEURS avait posé une RANGÉE
+            * (`cnv-entete-rangee`) : le `<dl>` gris et le bouton côte à côte, en frères. Le bloc gris perdait donc
+            * 52 px de largeur sur toute sa hauteur, et l'icône flottait à sa droite, sur le fond de la page — deux
+            * surfaces au lieu d'une. Le bloc reprend toute la largeur, et la corbeille est DEDANS.
+            *
+            * 🔴 ELLE EST POSITIONNÉE, PAS INSÉRÉE DANS LE FLUX, et c'est la condition pour que « le bloc ne bouge
+            * pas » : une ligne de plus dans le `<dl>` aurait décalé « De », « À » et « Date » vers le bas. Le
+            * `<dl>` garde exactement sa grammaire et sa mise en colonnes ; il réserve seulement, à droite, la
+            * place de la case (`padding-right`).
+            *
+            * ⚠️ UN `<button>` NE PEUT PAS ÊTRE ENFANT DIRECT D'UN `<dl>` (le modèle de contenu n'accepte que
+            * `dt`/`dd`/`div`). Il vit donc dans un `div`, comme chacune des lignes au-dessus — c'est du HTML
+            * parfaitement valide, et c'est déjà la grammaire de ce bloc depuis le lot FIL-LECTURE.
             */}
-          <div className="cnv-entete-rangee">
-          <dl className="cnv-entete">
+          {/* ⚠️ LA PLACE N'EST RÉSERVÉE QUE S'IL Y A UNE CORBEILLE (`--avec-corbeille`) : là où les gestes ne sont
+              pas permis — l'historique d'une cible, la vie d'un bien — le bloc n'aurait eu qu'une gouttière vide
+              à droite. Une classe plutôt qu'un `:has()` : elle dit l'intention, et elle ne dépend d'aucun
+              navigateur. */}
+          <dl className={`cnv-entete${onCorbeilleMessage !== undefined ? ' cnv-entete--avec-corbeille' : ''}`}>
             {/* ⚠️ PAS DE LIGNE « OBJET » ICI — LOT FIL-LECTURE-2. Elle y a vécu une journée : l'objet apparaissait
                 alors DEUX fois, sous « reçu de … » et dans cet en-tête, à trois centimètres d'écart. Celui du haut
                 a gagné : il est visible message replié comme déplié, alors que celui-ci ne l'était que déplié.
@@ -2475,17 +2492,21 @@ export function MessageConversation({
               <dt>Date</dt>
               <dd>{dateHeureComplete(message.recuLe)}</dd>
             </div>
+            {/* 🔴 LE MOT EST LE MÊME POUR LA BULLE ET POUR LE LECTEUR D'ÉCRAN : une corbeille dessinée ne dit pas
+                CE QU'ELLE JETTE — « ce message », et non l'échange, est toute la différence.
+                🔴🔴 LOT DRIVE-HABILLAGE, POINT 4 — ELLE EST MAINTENANT DANS LE BLOC, à l'extrême droite, dans sa
+                case au fond de carte. Le geste et son « Annuler » sont EXACTEMENT ceux d'avant : seul le
+                `className` du conteneur change, l'appel ne bouge pas. */}
+            {onCorbeilleMessage !== undefined && (
+              <div className="cnv-entete-corbeille">
+                <button type="button" className="cnv-corbeille"
+                  title={AIDE_CORBEILLE_MESSAGE} aria-label={AIDE_CORBEILLE_MESSAGE}
+                  onClick={onCorbeilleMessage}>
+                  <span aria-hidden="true">🗑</span>
+                </button>
+              </div>
+            )}
           </dl>
-          {/* 🔴 LE MOT EST LE MÊME POUR LA BULLE ET POUR LE LECTEUR D'ÉCRAN : une corbeille dessinée ne dit pas
-              CE QU'ELLE JETTE — « ce message », et non l'échange, est toute la différence. */}
-          {onCorbeilleMessage !== undefined && (
-            <button type="button" className="cnv-corbeille"
-              title={AIDE_CORBEILLE_MESSAGE} aria-label={AIDE_CORBEILLE_MESSAGE}
-              onClick={onCorbeilleMessage}>
-              <span aria-hidden="true">🗑</span>
-            </button>
-          )}
-          </div>
 
           {/* LOT RATTACHEMENT-1 — DE QUOI CE MAIL PARLE-T-IL ? Juste sous l'en-tête, avant le texte : c'est une
               donnée du mail, pas un commentaire sur son contenu. Il ne s'affiche que si la conversation a pu lire les
@@ -2777,10 +2798,28 @@ export const CSS_CONVERSATION = `
 
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot).
    🔴 AUCUNE COULEUR EN DUR : les jetons basculent seuls en Clair et en Sombre. */
-.cnv-entete-rangee{display:flex;align-items:stretch;gap:8px;min-width:0}
-.cnv-entete-rangee>.cnv-entete{flex:1 1 auto;min-width:0}
-.cnv-corbeille{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:44px;padding:0;
-  font:inherit;font-size:1.25rem;line-height:1;color:var(--color-svv-muted);background:transparent;
+/* ══ LOT DRIVE-HABILLAGE, POINT 4 — LA CORBEILLE DANS LE BLOC GRIS, A L'EXTREME DROITE ═════════════════════════
+   Arno : « le bloc gris De / A / Date reprend toute la largeur comme avant. La corbeille est integree DANS ce
+   bloc, a l'extreme DROITE, dans une case blanche (fond de carte du theme) a coins arrondis, bien integree a la
+   trame grise ».
+
+   CE QUI A ETE RETIRE : la rangee cnv-entete-rangee, qui posait le bloc gris et le bouton EN FRERES. Le bloc
+   perdait 52 px de largeur sur toute sa hauteur, et l'icone flottait a sa droite sur le fond de la page — deux
+   surfaces la ou il n'en faut qu'une.
+
+   LA CASE EST POSITIONNEE, PAS INSEREE DANS LE FLUX : c'est la condition pour que le bloc ne bouge pas. Une ligne
+   de plus dans le dl aurait decale De, A et Date vers le bas. Le dl reserve seulement la place a droite, par son
+   padding — et les valeurs s'y arretent au lieu de passer dessous.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois).
+
+   BIEN INTEGREE A LA TRAME GRISE : fond de CARTE (--color-svv-surface, blanc en Clair, carte sombre en Sombre)
+   sur le gris du bloc (--color-svv-field), un liseré de charte, des coins arrondis, et 6 px de retrait en haut,
+   en bas et a droite pour que le gris l'entoure de tous les cotes. Aucune couleur en dur : elle bascule seule.
+
+   LE COMPORTEMENT NE CHANGE PAS — meme icone, meme bulle, meme clic, meme bandeau « Annuler ». */
+.cnv-entete-corbeille{position:absolute;top:6px;right:6px;bottom:6px;display:flex}
+.cnv-corbeille{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:44px;padding:0;
+  font:inherit;font-size:1.25rem;line-height:1;color:var(--color-svv-muted);background:var(--color-svv-surface);
   border:1px solid var(--color-svv-line);border-radius:.5rem;cursor:pointer}
 .cnv-corbeille:hover{color:var(--color-svv-red);border-color:var(--color-svv-red);
   background:var(--color-svv-field)}
@@ -2968,7 +3007,13 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
    destinataires multiples tiennent sur la MÊME ligne et ne passent à la ligne que si la largeur ne suffit pas —
    c'est overflow-wrap qui en décide, jamais un retour écrit en dur.
    ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit. */
-.cnv-entete{margin:0 0 10px;padding:8px 10px;background:var(--color-svv-field);border-radius:.5rem;font-size:.8rem;min-width:0}
+/* ⚠️ LOT DRIVE-HABILLAGE, POINT 4 — position:relative : le bloc reprend TOUTE la largeur (plus de rangee qui lui
+   en prenait 52 px) et il porte lui-meme la case de la corbeille, posee a son extreme droite. */
+.cnv-entete{position:relative;margin:0 0 10px;padding:8px 10px;background:var(--color-svv-field);
+  border-radius:.5rem;font-size:.8rem;min-width:0}
+/* LA PLACE N'EST RESERVEE QUE LA OU LA CORBEILLE EXISTE : ailleurs (historique d'une cible, vie d'un bien), le
+   bloc n'aurait eu qu'une gouttiere vide. Et sans ce padding, une adresse longue passerait SOUS la case. */
+.cnv-entete--avec-corbeille{padding-right:62px}
 .cnv-entete-ligne{display:flex;align-items:baseline;gap:.5rem;margin:0 0 .2rem}
 .cnv-entete-ligne:last-child{margin-bottom:0}
 .cnv-entete dt{flex:0 0 auto;min-width:2.6rem;font-weight:700;color:var(--color-svv-muted)}

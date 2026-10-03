@@ -82,14 +82,40 @@ describe('🔴🔴 ② l’icône dans le bloc d’en-tête', () => {
   });
 
   /**
-   * 🔴🔴 « À DROITE, TOUTE LA HAUTEUR DU BLOC », ET « NE DÉPLACE PAS LES AUTRES ÉLÉMENTS » (Arno). La rangée est
-   * nouvelle, le `<dl>` garde exactement sa grammaire et sa mise en colonnes : c'est `align-items: stretch` qui
-   * donne la hauteur, et `flex: 1` sur le `<dl>` qui lui laisse la largeur qui restait.
+   * ══ 🔴🔴 RÉÉCRIT PAR LE LOT DRIVE-HABILLAGE, POINT 4 — LA CORBEILLE EST PASSÉE **DANS** LE BLOC ═══════════════
+   *
+   * CE QUI ÉTAIT EXIGÉ ICI : une RANGÉE (`cnv-entete-rangee`) posant le bloc gris et le bouton EN FRÈRES, avec
+   * `align-items: stretch` pour la hauteur et `flex: 1` sur le `<dl>` pour la largeur restante.
+   *
+   * 🔴 POURQUOI CELA CHANGE. Arno, le 03/10/2026 : « le bloc gris De / À / Date reprend toute la largeur comme
+   * avant. La corbeille est intégrée DANS ce bloc, à l'extrême DROITE, dans une case blanche (fond de carte du
+   * thème) à coins arrondis, bien intégrée à la trame grise. » La rangée faisait perdre au bloc 52 px de largeur
+   * sur toute sa hauteur, et laissait l'icône flotter à sa droite sur le fond de la page — deux surfaces là où il
+   * n'en faut qu'une.
+   *
+   * 🔒 LA PROPRIÉTÉ GARDÉE PAR CETTE ÉPREUVE N'A PAS BOUGÉ, et c'est celle qui compte : « ne déplace pas les
+   * autres éléments du bloc ». La case est POSITIONNÉE (absolue dans le bloc devenu `relative`), donc aucune
+   * ligne du `<dl>` ne se décale — une ligne de plus dans le flux aurait poussé « De », « À » et « Date » vers le
+   * bas. Et la place est RÉSERVÉE par un padding, sinon une adresse longue passerait sous la case.
    */
-  it('🔴🔴 toute la hauteur, à droite, sans rien déplacer', () => {
-    expect(CONV).toContain('.cnv-entete-rangee{display:flex;align-items:stretch;gap:8px;min-width:0}');
-    expect(CONV).toContain('.cnv-entete-rangee>.cnv-entete{flex:1 1 auto;min-width:0}');
-    expect(CONV).toContain('<div className="cnv-entete-rangee">');
+  it('🔴🔴 dans le bloc, à droite, sans rien déplacer', () => {
+    // 🔴 LE BLOC PORTE LA CASE : il est `relative`, et il n'y a plus de rangée qui lui prenne de la largeur.
+    expect(CONV).toContain('.cnv-entete{position:relative;');
+    /* ⚠️ EN NÉGATIF SUR LA RÈGLE ET SUR LE BALISAGE, pas sur le MOT : les deux encadrés qui racontent ce retrait
+       le nomment, et c'est leur raison d'être — on ne garde pas un historique en effaçant le nom de ce qu'on a
+       retiré. Ce qui doit avoir disparu, c'est la rangée elle-même. */
+    expect(CONV).not.toContain('.cnv-entete-rangee{');
+    expect(CONV).not.toContain('className="cnv-entete-rangee"');
+    // 🔴 LA CASE EST POSÉE À L'EXTRÊME DROITE, SUR TOUTE LA HAUTEUR UTILE, et hors du flux.
+    expect(CONV).toContain('.cnv-entete-corbeille{position:absolute;top:6px;right:6px;bottom:6px;display:flex}');
+    // 🔴 FOND DE CARTE (blanc en Clair, carte sombre en Sombre) sur le gris du bloc, et des coins arrondis.
+    expect(CONV).toContain('background:var(--color-svv-surface)');
+    expect(CONV).toContain('border-radius:.5rem;cursor:pointer}');
+    // 🔴 ET LA PLACE EST RÉSERVÉE — mais SEULEMENT là où la corbeille existe.
+    expect(CONV).toContain('.cnv-entete--avec-corbeille{padding-right:62px}');
+    expect(CONV).toContain("onCorbeilleMessage !== undefined ? ' cnv-entete--avec-corbeille' : ''");
+    // ⚠️ UN `<button>` NE PEUT PAS ÊTRE ENFANT DIRECT D'UN `<dl>` : il vit dans un `div`, comme chaque ligne.
+    expect(CONV).toContain('<div className="cnv-entete-corbeille">');
   });
 
   /** ⚠️ ABSENTE LÀ OÙ LES GESTES NE SONT PAS PERMIS : comme l'étoile et « Répondre » juste au-dessus. */
