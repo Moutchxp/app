@@ -24,6 +24,11 @@ const journalMock = vi.fn();
 const copiesMock = vi.fn();
 const metaMock = vi.fn();
 const chaineMock = vi.fn();
+/**
+ * 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 1 — les emplacements d'une PIÈCE. Ils viennent désormais de
+ * deux voies réunies : le lien de dépôt, et l'empreinte du contenu. Voir le dernier bloc de ce fichier.
+ */
+const piecesMock = vi.fn();
 
 vi.mock('../../../../../../lib/admin/garde', () => ({
   exigerCompteActif: (...a: unknown[]) => gardeMock(...a),
@@ -36,6 +41,7 @@ vi.mock('../../../../../../lib/gestion/schema', () => ({
 }));
 vi.mock('../../../../../../lib/gestion/driveMouvementRepo', () => ({
   copiesDuDocument: (...a: unknown[]) => copiesMock(...a),
+  fichiersDriveDeLaPiece: (...a: unknown[]) => piecesMock(...a),
 }));
 vi.mock('../../../../../../lib/gestion/driveMemoire', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../../../lib/gestion/driveMemoire')>()),
@@ -83,6 +89,7 @@ beforeEach(() => {
   jetonMock.mockResolvedValue({ etat: 'ok', jeton: 'JETON', compteGoogle: 'a.jorel@sansvisavis.com' });
   journalMock.mockResolvedValue(true);
   copiesMock.mockResolvedValue([{ source: 'source', copie: 'copie' }]);
+  piecesMock.mockResolvedValue([]);
   chaineMock.mockImplementation(async (depart: string) => chaineDepuis(depart));
   metaMock.mockImplementation(async (id: string) => {
     const n = ARBRE[id];
@@ -149,6 +156,109 @@ describe('🔴🔴 les emplacements connus d’un document', () => {
   it('⚠️ sans source désignée, la route refuse', async () => {
     const r = await GET(new Request('http://local/api/admin/gestion/drive/localiser'));
     expect(r.status).toBe(422);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 1 — LA PIÈCE REVENUE RENOMMÉE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CAS RÉEL D'ARNO (03/10/2026) : une pièce prise dans notre Drive, renommée, envoyée puis renvoyée à gestion@.
+   Elle revient comme une pièce NEUVE — aucun dépôt à son nom — et c'est pourquoi la loupe ne trouvait rien.
+   Mesuré sur la pièce 27125 : 0 ligne dans `gestion_piece_drive`, alors que le contenu (md5
+   `4b782aa3d863fd2e7f2e849d523b0448`) est bien dans le Drive.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+const surLaPiece = (id: number) =>
+  GET(new Request(`http://local/api/admin/gestion/drive/localiser?piece=${id}`));
+
+describe('🔴🔴 une pièce reconnue par son CONTENU, pas par son nom', () => {
+  /**
+   * 🔴🔴 LE CAS D'ARNO, DE BOUT EN BOUT. La pièce n'a aucun dépôt à son nom : son seul départ vient de
+   * l'empreinte. Le chemin est tracé comme pour n'importe quel emplacement — c'est le minimum qu'il a demandé.
+   */
+  it('🔴🔴 aucun dépôt à son nom, et pourtant le chemin est tracé', async () => {
+    piecesMock.mockResolvedValue([{ driveFileId: 'copie', md5: 'EMPREINTE', parEmpreinte: true }]);
+    copiesMock.mockResolvedValue([]);
+    const d = (await (await surLaPiece(27125)).json()) as {
+      etat: string; parRegistre: number;
+      occurrences: { id: string; voie: string; chemin: { nom: string }[] }[];
+    };
+    expect(d.etat).toBe('ok');
+    expect(d.occurrences.map((o) => o.id)).toEqual(['copie']);
+    expect(d.occurrences[0].chemin.map((c) => c.nom)).toEqual(['Quittances', 'Bien B', 'Biens', 'Racine']);
+    /**
+     * 🔴 ET LA VOIE EST DITE : « par empreinte », jamais « par le registre ». Compter cet emplacement comme une
+     * copie faite par l'application ferait dire d'un fichier qu'elle n'a jamais touché qu'elle l'a produit.
+     */
+    expect(d.occurrences[0].voie).toBe('empreinte');
+    expect(d.parRegistre).toBe(0);
+  });
+
+  /**
+   * 🔴 LES DEUX VOIES COHABITENT, et le compte de chacune est juste : l'écran en fait une phrase qui distingue
+   * une certitude sur ce qu'on a fait d'une certitude sur le contenu.
+   */
+  it('🔴 un dépôt à son nom ET un fichier de même contenu : deux voies, deux comptes', async () => {
+    piecesMock.mockResolvedValue([
+      { driveFileId: 'source', md5: 'EMPREINTE', parEmpreinte: false },
+      { driveFileId: 'copie', md5: 'EMPREINTE', parEmpreinte: true },
+    ]);
+    copiesMock.mockResolvedValue([]);
+    const d = (await (await surLaPiece(27125)).json()) as {
+      parRegistre: number; occurrences: { id: string; voie: string }[];
+    };
+    expect(d.occurrences.map((o) => `${o.id}:${o.voie}`).sort())
+      .toEqual(['copie:empreinte', 'source:registre']);
+    expect(d.parRegistre).toBe(1);
+  });
+
+  /**
+   * ⚠️ LA VOIE SE PROPAGE AUX COPIES D'UN DÉPART, et c'est juste : la copie d'un fichier connu par le registre
+   * est connue par le registre, même si l'on est arrivé au départ par l'empreinte.
+   */
+  it('⚠️ un fichier atteint par les deux voies garde la plus forte', async () => {
+    piecesMock.mockResolvedValue([
+      { driveFileId: 'source', md5: 'EMPREINTE', parEmpreinte: false },
+      { driveFileId: 'copie', md5: 'EMPREINTE', parEmpreinte: true },
+    ]);
+    // Le journal relie la source à la copie : la copie est donc AUSSI connue par le registre.
+    copiesMock.mockResolvedValue([{ source: 'source', copie: 'copie' }]);
+    const d = (await (await surLaPiece(27125)).json()) as {
+      parRegistre: number; occurrences: { id: string; voie: string }[];
+    };
+    expect(d.occurrences.every((o) => o.voie === 'registre')).toBe(true);
+    expect(d.parRegistre).toBe(2);
+  });
+
+  /**
+   * 🔴 UN CONTENU DIFFÉRENT SOUS LE MÊME NOM N'EST PAS RECONNU, et c'est le sens même de l'empreinte : elle
+   * juge les octets, jamais le nom. Ici la base ne rend aucun emplacement — la fenêtre dit « aucun connu ».
+   */
+  it('🔴🔴 même nom, contenu différent : rien n’est reconnu', async () => {
+    piecesMock.mockResolvedValue([]);
+    const d = (await (await surLaPiece(27125)).json()) as { occurrences: unknown[]; nombre: number };
+    expect(d.occurrences).toEqual([]);
+    expect(d.nombre).toBe(0);
+  });
+
+  /**
+   * 🔴🔴 LA PASTILLE PARAÎT SANS UN SEUL APPEL GOOGLE. `?compte=1` ne lit que la base : c'est ce qui permet de
+   * l'afficher pour toutes les vignettes dès l'ouverture de la fenêtre, et Arno l'a demandé explicitement.
+   */
+  it('🔴🔴 `?compte=1` compte par empreinte, et n’appelle pas Google', async () => {
+    piecesMock.mockResolvedValue([
+      { driveFileId: 'source', md5: 'EMPREINTE', parEmpreinte: true },
+      { driveFileId: 'copie', md5: 'EMPREINTE', parEmpreinte: true },
+    ]);
+    copiesMock.mockResolvedValue([]);
+    const r = await GET(new Request('http://local/api/admin/gestion/drive/localiser?piece=27125&compte=1'));
+    const d = (await r.json()) as { nombre: number; md5: string | null };
+    expect(d.nombre).toBe(2);
+    expect(d.md5).toBe('EMPREINTE');
+    // 🔴 AUCUNE MÉTADONNÉE DEMANDÉE : ni `files.get`, ni remontée de parents.
+    expect(metaMock).not.toHaveBeenCalled();
+    expect(chaineMock).not.toHaveBeenCalled();
   });
 });
 

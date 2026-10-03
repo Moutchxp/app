@@ -603,6 +603,24 @@ export function pieceIntegreeDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE — LA MIGRATION 298 EST-ELLE APPLIQUÉE ? ════════════════════════
+ *
+ * Elle porte `gestion_piece.md5` : l'empreinte des octets d'une pièce, dans le MÊME alphabet que celle de Google
+ * (`md5Checksum`). C'est elle, et elle seule, qui permet de reconnaître une pièce dont le contenu est déjà rangé
+ * dans le Drive quand son NOM a changé en route — le cas d'Arno du 03/10/2026.
+ *
+ * 🔴 NOTRE sha256 NE PEUT PAS SERVIR À ÇA : Google ne rend que le md5, et calculer le sha256 des fichiers du Drive
+ * supposerait de télécharger leur contenu. Les deux empreintes coexistent, chacune pour ce qu'elle sait faire.
+ *
+ * Tant que cette sonde répond « non » : la colonne n'est NOMMÉE NULLE PART, la reconnaissance par contenu ne joue
+ * pas, et la loupe comme la pastille retombent mot pour mot sur le lien `piece_id` qu'elles suivaient avant ce lot.
+ * Rien ne casse, et rien ne ment — simplement, une pièce revenue renommée reste invisible, comme aujourd'hui.
+ */
+export function pieceMd5Disponible(): Promise<boolean> {
+  return memoiser('piece.md5', () => colonneExiste('gestion_piece', 'md5'));
+}
+
+/**
  * ══ LOT REDACTION-GMAIL — LA MIGRATION 265 EST-ELLE APPLIQUÉE ? ════════════════════════════════════════════════
  * Elle porte DEUX choses indépendantes, et elles se sondent SÉPARÉMENT : l'une peut exister sans l'autre si
  * quelqu'un applique la migration à moitié, et une sonde unique mentirait alors dans un sens ou dans l'autre.

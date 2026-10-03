@@ -96,23 +96,47 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     /* ── ① LE REGISTRE, EN BASE ET SANS UN APPEL GOOGLE ────────────────────────────────────────────────────── */
-    const departs = source !== ''
-      ? [source]
-      : (await fichiersDriveDeLaPiece(piece)).map((x) => x.driveFileId);
+    /**
+     * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 1 — LES DÉPARTS VIENNENT DE DEUX VOIES ════════════
+     *
+     * `fichiersDriveDeLaPiece` rend, depuis ce lot, les copies de cette pièce ET celles de MÊME CONTENU (même
+     * `md5`). Une pièce revenue renommée — le cas d'Arno — n'a aucune copie à son nom : ses départs viennent
+     * tous de l'empreinte, et c'est exactement ce qui la rend reconnaissable.
+     *
+     * 🔴 LA VOIE DE CHAQUE DÉPART EST CONSERVÉE, parce que l'écran la DIT (`phraseMethode`) : « par le registre »
+     * est une certitude sur ce que nous avons fait, « par empreinte » une certitude sur le contenu. Les deux sont
+     * exactes, elles ne disent pas la même chose, et les confondre ferait mentir la phrase.
+     */
+    const parPiece = source !== '' ? [] : await fichiersDriveDeLaPiece(piece);
+    const departs: { id: string; voie: 'registre' | 'empreinte' }[] = source !== ''
+      ? [{ id: source, voie: 'registre' }]
+      : parPiece.map((x) => ({ id: x.driveFileId, voie: x.parEmpreinte ? 'empreinte' as const : 'registre' as const }));
     if (departs.length === 0) {
-      return json({ etat: 'ok', source: source === '' ? String(piece) : source, md5: null, occurrences: [], parRegistre: 0 });
+      return json({
+        etat: 'ok', source: source === '' ? String(piece) : source,
+        md5: null, occurrences: [], parRegistre: 0, nombre: 0,
+      });
     }
     const avecJournal = await journalMouvementDriveDisponible();
     const liens: LienCopie[] = avecJournal
-      ? (await Promise.all(departs.map((d) => copiesDuDocument(d)))).flat()
+      ? (await Promise.all(departs.map((d) => copiesDuDocument(d.id)))).flat()
       : [];
-    const ids = [...new Set(departs.flatMap((d) => fermetureCopies(d, liens)))].slice(0, OCCURRENCES_MAX);
+    /**
+     * ⚠️ LA VOIE SE PROPAGE AUX COPIES D'UN DÉPART, et c'est juste : la copie d'un fichier trouvé par le registre
+     * est connue par le registre. Un identifiant atteint par les deux voies garde la plus forte — `registre` —
+     * parce que `set` n'écrase pas une entrée déjà posée et que les départs du registre viennent en premier.
+     */
+    const voieDe = new Map<string, 'registre' | 'empreinte'>();
+    for (const d of [...departs].sort((a, b) => (a.voie === 'registre' ? -1 : 1) - (b.voie === 'registre' ? -1 : 1))) {
+      for (const id of fermetureCopies(d.id, liens)) if (!voieDe.has(id)) voieDe.set(id, d.voie);
+    }
+    const ids = [...voieDe.keys()].slice(0, OCCURRENCES_MAX);
 
     /* ── `?compte=1` : on s'arrête ici. Rien n'est demandé à Google (sauf l'empreinte, et seulement si la base ne
           l'a pas déjà). C'est ce qui rend le compteur vert gratuit sur une colonne de dix vignettes. ───────── */
     if (compteSeul) {
       const md5Base = source === ''
-        ? (await fichiersDriveDeLaPiece(piece)).map((x) => x.md5).find((x) => (x ?? '') !== '') ?? null
+        ? parPiece.map((x) => x.md5).find((x) => (x ?? '') !== '') ?? null
         : null;
       const md5 = md5Base ?? (source === ''
         ? null
@@ -151,7 +175,8 @@ export async function GET(request: Request): Promise<Response> {
         id: l.id,
         nom: l.meta.valeur.nom,
         chemin: chaine.map((m) => ({ id: m.id, nom: m.nom })),
-        voie: 'registre',
+        /* 🔴 LA VOIE EST CELLE PAR LAQUELLE ON A TROUVÉ CE FICHIER, pas un défaut : l'écran en fait une phrase. */
+        voie: voieDe.get(l.id) ?? 'registre',
       });
     }
 
@@ -166,8 +191,14 @@ export async function GET(request: Request): Promise<Response> {
        */
       md5: md5Source,
       occurrences,
-      /** ⚠️ Rendu pour que l'écran puisse dire « par le registre » : c'est une certitude, pas une ressemblance. */
-      parRegistre: occurrences.length,
+      /**
+       * ⚠️ Rendu pour que l'écran puisse dire « par le registre » : c'est une certitude, pas une ressemblance.
+       *
+       * 🔴 DEPUIS LE NIVEAU 1, ON NE COMPTE PLUS TOUTES LES OCCURRENCES ICI : celles trouvées par l'empreinte du
+       * contenu se comptent à part, et l'écran les annonce autrement. Garder `occurrences.length` aurait fait
+       * dire « par le registre des copies de l'application » d'un fichier que l'application n'a jamais touché.
+       */
+      parRegistre: occurrences.filter((o) => o.voie === 'registre').length,
     });
   } catch (e) {
     console.error('[api/admin/gestion/drive/localiser] échec', e);

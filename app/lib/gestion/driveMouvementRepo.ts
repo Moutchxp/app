@@ -166,18 +166,60 @@ export async function copiesDuDocument(driveId: string, limite = 300): Promise<{
  * ⚠️ `md5` EST RENDU QUAND ON L'A : il évite un `files.get` à l'appelant pour les pièces, et c'est l'empreinte
  * que la comparaison de contenu utilisera.
  *
- * 🔒 LECTURE SEULE, et bornée.
+ * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 1 — « MÊME PIÈCE **OU** MÊME CONTENU » ══════════════════
+ *
+ * CONSTAT D'ARNO (03/10/2026) : une pièce prise dans notre Drive, renommée, envoyée puis renvoyée à gestion@
+ * revient comme une pièce NEUVE. Elle n'a aucun dépôt à son nom — `gestion_piece_drive` n'en sait rien — donc la
+ * loupe n'avait aucun point de départ et la pastille affichait zéro. Mesuré sur la pièce 27125 : 0 ligne.
+ *
+ * RÈGLE D'ARNO : « une pièce dont le CONTENU est déjà dans le Drive doit être reconnue, quel que soit son nom. »
+ * Cette fonction rend donc, depuis ce lot, les copies de DEUX provenances, réunies :
+ *
+ *   ① CELLES DE CETTE PIÈCE — le lien `piece_id`. C'est une certitude : on relit ce qu'on a fait.
+ *   ② CELLES DE MÊME CONTENU — `lower(md5)` égal à celui de la pièce. C'est une certitude aussi : deux fichiers de
+ *      même empreinte MD5 sont le même document, et le nom n'y entre pas.
+ *
+ * ⚠️ `UNION`, ET JAMAIS UN REMPLACEMENT : ① répond encore seul pour une pièce sans empreinte (39 dans la base) ou
+ * pour un document Google natif, dont Google ne calcule aucun md5. Élargir ne retire rien.
+ *
+ * ⚠️ ON ÉCARTE LES COPIES DISPARUES (`disparu_le`) DES DEUX CÔTÉS : une empreinte qui ne désigne plus qu'un fichier
+ * supprimé ferait annoncer un emplacement où l'on n'irait rien trouver.
+ *
+ * ⚠️ SANS LA MIGRATION 298, la colonne `gestion_piece.md5` n'est NOMMÉE NULLE PART et la requête est mot pour mot
+ * celle d'avant ce lot : la reconnaissance par contenu ne joue pas, et rien d'autre ne change.
+ *
+ * 🔒 LECTURE SEULE, et bornée. Zéro appel Google : tout est en base.
  */
 export async function fichiersDriveDeLaPiece(
   pieceId: number, limite = 50,
-): Promise<{ driveFileId: string; md5: string | null }[]> {
+): Promise<{ driveFileId: string; md5: string | null; parEmpreinte: boolean }[]> {
   if (!Number.isSafeInteger(pieceId) || pieceId <= 0) return [];
   if (!await copiePiecesDisponible()) return [];
-  const { rows } = await query<{ drive_file_id: string; md5: string | null }>(
-    `SELECT drive_file_id, md5
-       FROM gestion_piece_drive
-      WHERE piece_id = $1 AND btrim(drive_file_id) <> ''
-      ORDER BY id
+  const { pieceMd5Disponible } = await import('./schema');
+  const parContenu = await pieceMd5Disponible();
+  /**
+   * 🔴 `DISTINCT ON (drive_file_id)` AVEC LE LIEN D'ABORD : un fichier trouvé PAR LES DEUX voies n'apparaît
+   * qu'une fois, et il s'annonce comme venant du registre — la voie la plus forte. Sans cela, la pastille
+   * compterait deux fois le même emplacement.
+   */
+  const { rows } = await query<{ drive_file_id: string; md5: string | null; par_empreinte: boolean }>(
+    `SELECT drive_file_id, md5, par_empreinte FROM (
+       SELECT DISTINCT ON (drive_file_id) drive_file_id, md5, par_empreinte, id
+         FROM (
+         SELECT d.drive_file_id, d.md5, false AS par_empreinte, d.id
+           FROM gestion_piece_drive d
+          WHERE d.piece_id = $1 AND btrim(d.drive_file_id) <> '' AND d.disparu_le IS NULL
+         ${parContenu ? `
+         UNION ALL
+         SELECT d.drive_file_id, d.md5, true AS par_empreinte, d.id
+           FROM gestion_piece_drive d
+           JOIN gestion_piece p ON lower(btrim(p.md5)) = lower(btrim(d.md5))
+          WHERE p.id = $1 AND coalesce(btrim(p.md5), '') <> ''
+            AND btrim(d.drive_file_id) <> '' AND d.disparu_le IS NULL` : ''}
+         ) t
+        ORDER BY drive_file_id, par_empreinte, id
+     ) u
+      ORDER BY u.id
       LIMIT $2`, [pieceId, limite]);
-  return rows.map((r) => ({ driveFileId: r.drive_file_id, md5: r.md5 }));
+  return rows.map((r) => ({ driveFileId: r.drive_file_id, md5: r.md5, parEmpreinte: r.par_empreinte }));
 }

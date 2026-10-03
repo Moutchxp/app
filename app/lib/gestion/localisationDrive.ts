@@ -208,23 +208,41 @@ export function motCompteur(n: number): string {
  */
 export function phraseMethode(o: {
   nombre: number; parRegistre: number; parEmpreinte: number; empreinteConnue: boolean; dossiersLus: number;
+  /**
+   * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 2 — L'ÉTENDUE RÉELLE DE LA COMPARAISON ══════════════
+   *
+   * Combien de fichiers du Drive nous connaissons l'empreinte, index compris. `null` ⇒ aucun index (migration 299
+   * non appliquée) : la phrase reste CELLE D'AVANT, mot pour mot, parce que la limite est alors celle d'avant.
+   *
+   * 🔴 CE NOMBRE CHANGE CE QU'ON A LE DROIT DE DIRE. Sans index, « le Drive n'est pas balayé » est la vérité.
+   * Avec un index de 181 000 fichiers, la dire encore ferait sous-estimer ce qu'on sait — et annoncer « nulle
+   * part ailleurs » reste interdit, parce qu'un index a toujours une date.
+   */
+  fichiersIndexes?: number | null;
 }): string {
   const debut = motCompteur(o.nombre);
   const voies: string[] = [];
   if (o.parRegistre > 0) voies.push(`${o.parRegistre} par le registre des copies de l’application`);
   if (o.parEmpreinte > 0) voies.push(`${o.parEmpreinte} par empreinte de contenu identique`);
   const comment = voies.length === 0 ? '' : ` — ${voies.join(', ')}`;
+  const dossiers = `${o.dossiersLus} dossier${o.dossiersLus > 1 ? 's' : ''} `
+    + `déjà ouvert${o.dossiersLus > 1 ? 's' : ''} dans cette fenêtre`;
   /**
-   * 🔴 LA LIMITE EST DITE DANS LES DEUX CAS, et elle n'est pas la même :
+   * 🔴 LA LIMITE EST DITE DANS TOUS LES CAS, et elle n'est pas la même :
    *   · sans empreinte (un document Google natif), seul le registre a pu répondre ;
-   *   · avec empreinte, la comparaison n'a porté que sur les dossiers déjà ouverts dans cette fenêtre.
+   *   · avec empreinte et sans index, la comparaison porte sur ce qu'on a rangé et sur les dossiers ouverts ;
+   *   · avec un index, elle porte sur les fichiers indexés — et l'index a une date, ce qui se dit aussi.
    */
+  const indexes = o.fichiersIndexes ?? null;
   const limite = !o.empreinteConnue
     ? ' Ce document n’a pas d’empreinte de contenu (document Google natif) : seules les copies faites par '
       + 'l’application sont connues.'
-    : ` La comparaison par empreinte n’a porté que sur les ${o.dossiersLus} dossier${o.dossiersLus > 1 ? 's' : ''} `
-      + 'déjà ouvert' + (o.dossiersLus > 1 ? 's' : '') + ' dans cette fenêtre : le Drive n’est pas balayé, et une '
-      + 'copie rangée ailleurs à la main n’apparaît pas ici.';
+    : indexes !== null && indexes > 0
+      ? ` La comparaison par empreinte a porté sur les ${indexes.toLocaleString('fr-FR')} fichiers du Drive dont `
+        + `nous connaissons l’empreinte, plus les ${dossiers} : un fichier ajouté depuis le dernier relevé de `
+        + 'l’index n’y est pas encore.'
+      : ' La comparaison par empreinte n’a porté que sur ce que l’application a elle-même rangé, plus les '
+        + `${dossiers} : le Drive n’est pas balayé, et une copie rangée ailleurs à la main n’apparaît pas ici.`;
   return `${debut}${comment}.${limite}`;
 }
 

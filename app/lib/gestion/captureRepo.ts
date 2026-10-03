@@ -9,6 +9,7 @@
  */
 import type { PoolClient } from 'pg';
 import { pool, query, withTransaction } from '../db/client';
+import { createHash } from 'node:crypto';
 import {
   corbeilleGmailDisponible, deplacementsDeMailsDisponibles, destinatairesSeparesDisponibles, spamDisponible,
 } from './schema';
@@ -376,6 +377,22 @@ export async function deposerPiecesMessage(
    * paie rien du tout — c'est la quasi-totalité du courrier qui arrive avec des pièces.
    */
   const empreintesDuCorps = await empreintesDuCorpsDuMessage(messageId, pieces);
+  /**
+   * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 1 — LE md5 SE CALCULE ICI, UNE FOIS ══════════════════
+   *
+   * RÈGLE D'ARNO : « une pièce dont le CONTENU est déjà dans le Drive doit être reconnue, quel que soit son nom. »
+   * La seule empreinte que Google rende est le md5 ; nous ne gardions que le sha256. Les deux ne se comparent pas,
+   * et c'est pour cela que la pièce revenue renommée d'Arno n'allumait rien.
+   *
+   * 🔴 ON LE CALCULE AU MOMENT OÙ LES OCTETS SONT DANS LA MAIN, et c'est le seul moment où c'est gratuit : plus
+   * tard, il faudrait les redemander à MinIO, au Drive ou à Gmail — ce que fait la passe de rattrapage, pour
+   * l'existant seulement.
+   *
+   * ⚠️ LA SONDE EST LUE UNE SEULE FOIS POUR TOUT LE MESSAGE, hors de la boucle : elle est mémoïsée, mais la lire
+   * par pièce ferait dépendre la forme de la requête d'un appel répété pour rien.
+   */
+  const { pieceMd5Disponible } = await import('./schema');
+  const avecMd5 = await pieceMd5Disponible();
   let deposees = 0, nonDeposees = 0;
   for (const p of pieces) {
     try {
@@ -388,15 +405,21 @@ export async function deposerPiecesMessage(
         const integree = empreintesDuCorps === null
           ? null
           : estPoseeDansLeCorps(res.empreinte, empreintesDuCorps);
-        const { rows } = integree === null
-          ? await query<{ id: string }>(
-            `INSERT INTO gestion_piece (message_id, nom_fichier, type_mime, taille_octets, cle_stockage, empreinte_sha256, stocke_le)
-             VALUES ($1,$2,$3,$4,$5,$6, now()) RETURNING id::text`,
-            [messageId, p.nomFichier, p.typeMime, res.taille, res.cle, res.empreinte])
-          : await query<{ id: string }>(
-            `INSERT INTO gestion_piece (message_id, nom_fichier, type_mime, taille_octets, cle_stockage, empreinte_sha256, stocke_le, integree)
-             VALUES ($1,$2,$3,$4,$5,$6, now(), $7) RETURNING id::text`,
-            [messageId, p.nomFichier, p.typeMime, res.taille, res.cle, res.empreinte, integree]);
+        /**
+         * 🔴 LES DEUX COLONNES CONDITIONNÉES SE NOMMENT ENSEMBLE, ET SEULEMENT SI LEUR MIGRATION EST LÀ. Écrire
+         * quatre variantes à la main (296 × 298) aurait fait quatre requêtes à maintenir, dont trois que personne
+         * ne relit jamais ; la liste se construit, et la requête reste MOT POUR MOT celle d'avant quand les deux
+         * sondes répondent « non ».
+         */
+        const colonnes = ['message_id', 'nom_fichier', 'type_mime', 'taille_octets', 'cle_stockage',
+          'empreinte_sha256', ...(integree === null ? [] : ['integree']), ...(avecMd5 ? ['md5'] : [])];
+        const valeurs: unknown[] = [messageId, p.nomFichier, p.typeMime, res.taille, res.cle, res.empreinte,
+          ...(integree === null ? [] : [integree]),
+          ...(avecMd5 ? [createHash('md5').update(p.contenu).digest('hex')] : [])];
+        const { rows } = await query<{ id: string }>(
+          `INSERT INTO gestion_piece (${colonnes.join(', ')}, stocke_le)
+           VALUES (${colonnes.map((_, i) => `$${i + 1}`).join(',')}, now()) RETURNING id::text`,
+          valeurs);
         deposees += 1;
         // 🔴 LOT MINIATURES-COMPLÈTES — L'APERÇU EST FABRIQUÉ ICI, TOUT DE SUITE. Voir l'encadré de `miniatureALArrivee`.
         await miniatureALArrivee(Number(rows[0].id), p.contenu, p.typeMime, p.nomFichier);
