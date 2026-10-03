@@ -13,6 +13,8 @@ import {
 import { parametreNomFichier } from '../../../../../../lib/gestion/envoiGmail';
 // 🔴 LOT PIECES-DE-LA-CONVERSATION — la lecture d'un en-tête `Range`, ÉCRITE UNE FOIS (module pur, déjà éprouvé).
 import { lireIntervalle } from '../../../../../../lib/gestion/apercuDrive';
+// 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — seules les vidéos annoncent les tranches : voir l'encadré plus bas.
+import { estVideo } from '../../../../../../lib/gestion/pieces';
 
 /**
  * /api/admin/gestion/pieces/[id] (lot 4c) — LES OCTETS D'UNE PIÈCE JOINTE, servis PAR L'APPLICATION.
@@ -204,6 +206,24 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
       'X-Content-Type-Options': 'nosniff',
       // D'où viennent les octets. Utile pour éprouver le chemin, et pour comprendre un délai inhabituel.
       'X-Source-Contenu': (piece.stockageVide || forcerDrive) ? 'drive' : 'stockage',
+      /**
+       * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — `Accept-Ranges` POUR LES VIDÉOS, ET POUR ELLES SEULES ══
+       *
+       * Arno : « diffusion par plages (Range / 206) depuis la même source que le téléchargement ».
+       *
+       * 🔴 UN LECTEUR VIDÉO NE DEMANDE PAS UN FICHIER, IL DEMANDE DES MORCEAUX. Sans cette annonce, Chrome
+       * charge la vidéo d'un bout à l'autre et la barre de temps ne permet plus de SAUTER : déplacer le curseur
+       * à 3 minutes exige de pouvoir demander l'octet correspondant, c'est-à-dire une tranche.
+       *
+       * ⚠️ ET SURTOUT PAS POUR LE RESTE, ce qui serait le réflexe. L'encadré ci-dessus l'a mesuré le 30/09/2026 :
+       * annoncer les tranches à PDF.js ne gagne RIEN (il ne les demande pas) et peut coûter très cher le jour où
+       * il s'y met — chaque tranche paie ici une lecture COMPLÈTE du stockage, MinIO ne sachant pas découper.
+       * La décision d'alors tient ; on ne l'élargit qu'au cas qui en a besoin, et qui ne marche pas sans.
+       *
+       * 🔒 AUCUN ASSOUPLISSEMENT DU DROIT : une tranche n'est qu'une découpe de ce qu'on avait déjà le droit de
+       * lire, et `exigerCompteActif` a été relu au début de CETTE requête comme de toutes les autres.
+       */
+      ...(estVideo(piece.typeMime, piece.nomFichier) ? { 'Accept-Ranges': 'bytes' } : {}),
     };
     const tranche = lireIntervalle(request.headers.get('range'), octets.byteLength);
     if (tranche !== null) {

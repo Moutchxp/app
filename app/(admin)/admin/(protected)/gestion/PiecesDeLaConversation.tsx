@@ -11,6 +11,8 @@ import {
 } from '../../../../lib/gestion/pieces';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { messageSansApercu, sorteApercu } from '../../../../lib/gestion/apercuDrive';
+/* 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — la vignette d'une vidéo, extraite par le navigateur. */
+import { useMiniatureVideo } from './miniatureVideoNavigateur';
 import type { DepotAffiche } from './PiecesJointes';
 
 /**
@@ -203,9 +205,15 @@ function CartePieceConversation({ piece: p, depot, maintenant, gestes }: {
 }) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
   const [vignetteMorte, setVignetteMorte] = useState(false);
-  const avecVignette = p.disponible && sorte !== 'autre' && !vignetteMorte;
   const etiquette = etiquetteType(p.nomFichier, p.typeMime);
   const lien = `/api/admin/gestion/pieces/${p.pieceId}`;
+  /* 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — « vaut PARTOUT où il y a des miniatures » (Arno). Le même crochet
+     que le bloc d'un message et que l'éditeur : une seule implémentation, donc un seul comportement. */
+  const { pret: vignetteVideoPrete } = useMiniatureVideo({
+    pieceId: p.pieceId, urlOctets: lien, urlMiniature: `${lien}/miniature`,
+    estVideo: sorte === 'video', sansVignette: vignetteMorte && p.disponible,
+  });
+  const avecVignette = p.disponible && sorte !== 'autre' && (!vignetteMorte || vignetteVideoPrete);
   /**
    * 🔴 POURQUOI « VISUALISER » EST PARFOIS ÉTEINT, ET CE QU'IL DIT ALORS. Un type hors liste blanche n'a pas
    * d'aperçu du tout (`sorteApercu`), et une pièce non conservée n'a pas d'octets. Un bouton éteint sans motif se
@@ -249,13 +257,17 @@ function CartePieceConversation({ piece: p, depot, maintenant, gestes }: {
           aria-label={`Ouvrir ${p.nomFichier} dans un nouvel onglet (${etiquette}, ${formaterTaille(p.tailleOctets)})`}>
           {avecVignette ? (
             // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
-            <img className="pdc-vignette" src={`${lien}/miniature`} alt="" height={VIGNETTE_H}
+            /* ⚠️ `?v=1` UNE FOIS LA VIGNETTE VIDÉO DÉPOSÉE : le 404 d'il y a un instant est encore dans la
+               mémoire de la page, et seule une adresse neuve force la relecture. */
+            <img className="pdc-vignette" src={vignetteVideoPrete ? `${lien}/miniature?v=1` : `${lien}/miniature`}
+              alt="" height={VIGNETTE_H}
               loading="lazy" decoding="async"
               /* Une image est saisissable nativement : sans cela, un double-clic traînant démarre son glisser. */
               draggable={false}
               // Pas de vignette (migration 244 non appliquée, type sans image, fichier illisible) : on retombe sur
               //   l'étiquette de type, sans jamais laisser une image cassée à l'écran.
-              onError={() => setVignetteMorte(true)} />
+              onError={() => setVignetteMorte(true)}
+              onLoad={() => { if (vignetteVideoPrete) setVignetteMorte(false); }} />
           ) : (
             <span className="pdc-type" aria-hidden="true">{etiquette}</span>
           )}

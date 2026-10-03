@@ -31,7 +31,7 @@ import { estFichierSystemeMac } from './driveDeplacement';
  */
 
 /** Ce que l'aperçu sait faire d'un fichier. `aucun` n'est pas une panne : c'est une réponse. */
-export type SorteApercu = 'pdf' | 'image' | 'texte' | 'export_pdf' | 'aucun';
+export type SorteApercu = 'pdf' | 'image' | 'texte' | 'video' | 'export_pdf' | 'aucun';
 
 /** Le préfixe des types Google natifs. Écrit une fois : c'est lui qui distingue « pas d'octets » de « pas d'aperçu ». */
 export const PREFIXE_GOOGLE = 'application/vnd.google-apps';
@@ -57,6 +57,24 @@ const IMAGES = new Set([
 /** Les types texte acceptés. Tous SERVIS en `text/plain` : on montre le contenu, on ne l’interprète jamais. */
 const TEXTES = new Set(['text/plain', 'text/csv', 'text/tab-separated-values', 'text/markdown']);
 
+/**
+ * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LES VIDÉOS QUE LA VISIONNEUSE OUVRE ══════════════════════════════
+ *
+ * Arno : « Œil “Visualiser” et visionneuse : lecteur vidéo intégré (lecture, pause, barre de temps, son, plein
+ * écran) […]. Formats : mp4, mov, webm, m4v, 3gp. »
+ *
+ * 🔴 LA LISTE EST LA MÊME QUE CELLE DE `pieces.ts`, et elle le reste : un fichier qu'un écran annonce comme une
+ * vidéo et que la visionneuse refuserait d'ouvrir serait un bouton qui ne fait rien. On ne l'importe pas pour
+ * autant — ce module doit rester lisible seul, et le test les compare à la source.
+ *
+ * ⚠️ OUVRIR N'EST PAS DÉCODER : `video/quicktime` est ici parce qu'un `.mov` EST une vidéo. Si le navigateur ne
+ * sait pas le lire (le cas du HEVC d'iPhone dans Chrome), c'est le lecteur qui le DIT, avec un bouton pour
+ * télécharger. Un format écarté d'ici, lui, n'aurait reçu aucune explication.
+ */
+const VIDEOS = new Set([
+  'video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v', 'video/3gpp', 'video/3gpp2',
+]);
+
 /** La normalisation d'un type MIME : sans paramètre (`; charset=…`), sans casse, sans espace. PUR. */
 export function typeNu(brut: string): string {
   return (brut ?? '').split(';')[0].trim().toLowerCase();
@@ -68,6 +86,7 @@ export function sorteApercu(typeMime: string): SorteApercu {
   if (t === 'application/pdf') return 'pdf';
   if (IMAGES.has(t)) return 'image';
   if (TEXTES.has(t)) return 'texte';
+  if (VIDEOS.has(t)) return 'video';
   if (GOOGLE_EXPORTABLES.has(t)) return 'export_pdf';
   return 'aucun';
 }
@@ -83,6 +102,9 @@ export function typeServi(typeMime: string): string | null {
     case 'pdf': case 'export_pdf': return 'application/pdf';
     case 'image': return typeNu(typeMime) === 'image/jpg' ? 'image/jpeg' : typeNu(typeMime);
     case 'texte': return 'text/plain; charset=utf-8';
+    /* 🔴 LA VIDÉO EST SERVIE SOUS SON PROPRE TYPE : c'est lui qui dit au navigateur quel décodeur ouvrir, et un
+       type faussé ferait échouer la lecture d'un fichier parfaitement lisible. */
+    case 'video': return typeNu(typeMime);
     case 'aucun': return null;
   }
 }

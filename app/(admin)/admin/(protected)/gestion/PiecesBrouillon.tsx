@@ -11,6 +11,8 @@ import {
    l'étiquette de type, la sorte de pièce et le mot de l'œil viennent du module que `PiecesJointes` emploie déjà. */
 import { AIDE_OEIL_PIECE, etiquetteType, sortePiece } from '../../../../lib/gestion/pieces';
 import { sorteApercu } from '../../../../lib/gestion/apercuDrive';
+/* 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — la vignette d'une vidéo, extraite par le navigateur. */
+import { useMiniatureVideo } from './miniatureVideoNavigateur';
 /* 🔴 L'œil est un TRACÉ, jamais un emoji : « 👁 » est rendu par une police EN COULEUR qui ignore `color`. */
 import { Oeil } from './Oeil';
 
@@ -386,10 +388,30 @@ function VignettePiece({ piece: p, brouillonId, onCocher, onRetirer, onVisualise
    * ⚠️ ET ON NE LA DEMANDE PAS NON PLUS SI LES OCTETS SONT INTROUVABLES : la route répondrait 404, et l'étiquette
    * est de toute façon ce qu'il faut montrer.
    */
-  const avecImage = brouillonId !== null && !indisponible
-    && sortePiece(p.typeMime, p.nom) !== 'autre' && !vignetteMorte;
+  const sorte = sortePiece(p.typeMime, p.nom);
   /** 🔴 L'ŒIL N'EXISTE QUE S'IL OUVRE QUELQUE CHOSE. Voir l'encadré de `onVisualiser`. */
   const pieceReçue = p.pieceId ?? null;
+  /**
+   * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LA VIGNETTE D'UNE VIDÉO, ICI AUSSI ═══════════════════════════
+   *
+   * Arno : « vaut PARTOUT où il y a des miniatures (lecture du mail, récapitulatif des pièces, ÉDITEUR) ».
+   *
+   * ⚠️ ET SA PORTÉE EXACTE, QU'IL FAUT DIRE : elle couvre les pièces REÇUES qu'on fait suivre (`p.pieceId`,
+   * c'est-à-dire le cas d'Arno : transférer une vidéo arrivée par mail). Une vidéo DÉPOSÉE DEPUIS LE DISQUE dans
+   * un brouillon n'est pas une `gestion_piece` : elle n'a pas de vignette à conserver, et sa tuile garde son
+   * étiquette de type. Lui en donner une demanderait une colonne de plus sur les pièces de brouillon — une
+   * migration qu'Arno n'a pas demandée, et que je ne pose pas de mon propre chef.
+   */
+  const lienPieceRecue = pieceReçue === null ? null : `/api/admin/gestion/pieces/${pieceReçue}`;
+  const { pret: vignetteVideoPrete } = useMiniatureVideo({
+    pieceId: pieceReçue ?? 0,
+    urlOctets: lienPieceRecue ?? '',
+    urlMiniature: lienPieceRecue === null ? '' : `${lienPieceRecue}/miniature`,
+    estVideo: sorte === 'video' && lienPieceRecue !== null,
+    sansVignette: vignetteMorte,
+  });
+  const avecImage = brouillonId !== null && !indisponible
+    && sorte !== 'autre' && (!vignetteMorte || vignetteVideoPrete);
   const voirIci = onVisualiser !== undefined && pieceReçue !== null
     && sorteApercu(p.typeMime ?? '') !== 'aucun';
 
@@ -401,7 +423,10 @@ function VignettePiece({ piece: p, brouillonId, onCocher, onRetirer, onVisualise
           // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
           <img
             className="pjb-vignette"
-            src={`/api/admin/gestion/brouillons/${brouillonId}/pieces/miniature?piece=${p.id}`}
+            /* ⚠️ `?v=1` UNE FOIS LA VIGNETTE VIDÉO DÉPOSÉE : le 404 d'il y a un instant est encore dans la mémoire
+               de la page, et seule une adresse neuve force la relecture. */
+            src={`/api/admin/gestion/brouillons/${brouillonId}/pieces/miniature?piece=${p.id}`
+              + (vignetteVideoPrete ? '&v=1' : '')}
             alt=""
             height={HAUTEUR_VIGNETTE}
             loading="lazy"
@@ -409,6 +434,7 @@ function VignettePiece({ piece: p, brouillonId, onCocher, onRetirer, onVisualise
             draggable={false}
             /* 🔴 PAS DE VIGNETTE ⇒ L'ÉTIQUETTE DE TYPE, jamais une image cassée (règle d'Arno). */
             onError={() => setVignetteMorte(true)}
+            onLoad={() => { if (vignetteVideoPrete) setVignetteMorte(false); }}
           />
         ) : (
           <span className="pjb-type" aria-hidden="true">{etiquette}</span>

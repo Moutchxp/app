@@ -68,7 +68,16 @@ export function sourceContenu(p: PieceACompleter): SourceContenu {
  * que l'écran et que `genererMiniature`, pour qu'aucun des trois ne puisse dire autre chose que les deux autres.
  */
 export function peutAvoirMiniature(typeMime: string | null, nomFichier: string): boolean {
-  return sortePiece(typeMime, nomFichier) !== 'autre';
+  const sorte = sortePiece(typeMime, nomFichier);
+  /**
+   * 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — UNE VIDÉO N'EST PAS POUR CETTE PASSE-CI.
+   *
+   * Sa miniature est extraite PAR LE NAVIGATEUR (le serveur n'a pas de décodeur vidéo : pas de `ffmpeg` sur la
+   * machine, et aucune installation sans l'accord d'Arno). La reprendre ici ferait TÉLÉCHARGER des centaines de
+   * mégaoctets de vidéo depuis le Drive pour échouer à coup sûr — exactement la dépense pure que cette fonction
+   * est là pour éviter.
+   */
+  return sorte !== 'autre' && sorte !== 'video';
 }
 
 /**

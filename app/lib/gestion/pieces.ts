@@ -22,12 +22,56 @@ export { formaterTaille } from './ecran';
 import { formaterTaille as taille } from './ecran';
 
 /** La sorte d'une pièce, du point de vue de l'AFFICHAGE — pas du point de vue de la sécurité. */
-export type SortePiece = 'pdf' | 'image' | 'autre';
+export type SortePiece = 'pdf' | 'image' | 'video' | 'autre';
 
 /** Les types d'image dont on sait faire une miniature. Liste FERMÉE : un type absent d'ici reçoit une icône. */
 const IMAGES_MINIATURABLES = new Set([
   'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif',
 ]);
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS, POINT 2 — LES VIDÉOS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (03/10/2026), fil 36593 / message 57422 : « VIDEO-2026-09-3….mp4 », 8,2 Mo, affichée en tuile
+   grise « MP4 » — sans image, sans lecture, sans rien.
+
+   🔴 CE QUE LA BASE DIT (relevé le 03/10/2026) : 117 vidéos, 1,1 Go — 80 `.mp4` (`video/mp4`, 783 Mo) et 37
+   `.mov` (`video/quicktime`, 337 Mo). Aucun autre format.
+
+   RÈGLE D'ARNO : « Formats : mp4, mov, webm, m4v, 3gp. » La liste est FERMÉE, comme celle des images : un type
+   absent d'ici garde son icône, et aucun octet n'est ouvert pour lui.
+
+   ⚠️ CETTE SORTE NE DÉCIDE QUE DE L'AFFICHAGE. Elle ne dit pas qu'on sait DÉCODER le fichier — c'est le
+   navigateur qui tranchera, et il dira non pour un `.mov` HEVC d'iPhone dans Chrome. L'écran a donc un message
+   pour ce cas-là (`MESSAGE_VIDEO_ILLISIBLE`), et jamais un cadre noir sans explication. */
+
+/**
+ * Les types vidéo que l'on PRÉSENTE comme des vidéos. Liste FERMÉE (règle d'Arno).
+ *
+ * ⚠️ `video/quicktime` EST DANS LA LISTE alors que Chrome ne le lit pas toujours : un `.mov` reste une vidéo, et
+ * la bonne réponse est de lui offrir un lecteur qui DIT qu'il ne sait pas la lire, jamais de la déguiser en
+ * fichier quelconque. Safari, lui, les lit.
+ */
+const VIDEOS = new Set([
+  'video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v', 'video/3gpp', 'video/3gpp2',
+]);
+
+/** Les extensions correspondantes, pour les mails qui n'annoncent aucun type (ou `application/octet-stream`). */
+const EXTENSIONS_VIDEO = ['mp4', 'mov', 'webm', 'm4v', '3gp', '3g2'];
+
+/**
+ * 🔴 CE QU'ON ÉCRIT QUAND LE NAVIGATEUR NE SAIT PAS LIRE LE FORMAT (demande d'Arno, mot pour mot).
+ *
+ * ⚠️ IL EST SUIVI D'UN BOUTON « Télécharger », et les deux vont ensemble : un message qui constate sans proposer
+ * laisse devant un cul-de-sac. C'est la règle de `messageSansApercu`, appliquée ici.
+ */
+export const MESSAGE_VIDEO_ILLISIBLE = 'Ce format ne se lit pas dans le navigateur';
+
+/** Cette pièce est-elle une vidéo, au sens de l'affichage ? PUR. */
+export function estVideo(typeMime: string | null | undefined, nomFichier = ''): boolean {
+  return sortePiece(typeMime, nomFichier) === 'video';
+}
 
 /** Type MIME normalisé : minuscules, sans le `; charset=…`. Même règle que `stockage/index.ts`. PUR. */
 export function typeNormalise(typeMime: string | null | undefined): string {
@@ -45,12 +89,14 @@ export function sortePiece(typeMime: string | null | undefined, nomFichier = '')
   const t = typeNormalise(typeMime);
   if (t === 'application/pdf') return 'pdf';
   if (IMAGES_MINIATURABLES.has(t)) return 'image';
+  if (VIDEOS.has(t)) return 'video';
   // Un type absent ou générique (`application/octet-stream`) est fréquent : on se rabat sur l'extension du NOM, qui
   //   ne décide ici que de l'affichage — jamais de ce qu'on fait des octets.
   if (t === '' || t === 'application/octet-stream') {
     const ext = extensionDuNom(nomFichier);
     if (ext === 'pdf') return 'pdf';
     if (['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif'].includes(ext)) return 'image';
+    if (EXTENSIONS_VIDEO.includes(ext)) return 'video';
   }
   return 'autre';
 }

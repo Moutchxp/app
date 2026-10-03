@@ -9,6 +9,9 @@ import {
 // 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — la hauteur de vignette est PARTAGÉE avec la grille de
 //    l'éditeur : Arno veut « mêmes dimensions et même style ». Une seule constante, donc.
 import { HAUTEUR_VIGNETTE } from '../../../../lib/gestion/piecesEnvoi';
+/* 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — la vignette d'une vidéo est extraite par le navigateur, une seule
+   implémentation pour les trois écrans qui montrent des miniatures. */
+import { useMiniatureVideo } from './miniatureVideoNavigateur';
 // 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — l'œil est un TRACÉ, jamais un emoji : « 👁 » est rendu par une police EN
 //    COULEUR qui ignore `color`, et resterait de la même teinte en Clair et en Sombre (leçon du trombone).
 import { Oeil } from './Oeil';
@@ -310,9 +313,20 @@ function CartePiece({ piece: p, depot, indisponible, onDrive, onVisualiser }: {
 }) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
   const [vignetteMorte, setVignetteMorte] = useState(false);
-  const avecVignette = sorte !== 'autre' && !vignetteMorte;
   const etiquette = etiquetteType(p.nomFichier, p.typeMime);
   const lien = `/api/admin/gestion/pieces/${p.pieceId}`;
+  /**
+   * 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LA VIGNETTE D'UNE VIDÉO SE FABRIQUE DANS LE NAVIGATEUR.
+   *
+   * Le serveur n'a pas de décodeur vidéo (pas de `ffmpeg`, et rien ne s'installe sans l'accord d'Arno) : il
+   * répond donc 404, l'image échoue, et c'est CET échec qui lance l'extraction. Une fois déposée, la vignette
+   * est servie comme toutes les autres — par la même route, avec le même cache.
+   */
+  const { pret: vignetteVideoPrete } = useMiniatureVideo({
+    pieceId: p.pieceId, urlOctets: lien, urlMiniature: `${lien}/miniature`,
+    estVideo: sorte === 'video', sansVignette: vignetteMorte,
+  });
+  const avecVignette = sorte !== 'autre' && (!vignetteMorte || vignetteVideoPrete);
   /**
    * ══ 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — DEUX GESTES, DEUX DESTINATIONS, PLUS AUCUNE AMBIGUÏTÉ ═══════════════
    *
@@ -366,7 +380,10 @@ function CartePiece({ piece: p, depot, indisponible, onDrive, onVisualiser }: {
           // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
           <img
             className="pj-vignette"
-            src={`${lien}/miniature`}
+            /* ⚠️ `?v=1` APRÈS LE DÉPÔT, ET C'EST INDISPENSABLE : le navigateur a mis en cache le 404 de tout à
+               l'heure (la route le sert `no-store`, mais l'image, elle, reste dans la mémoire de la page). Une
+               adresse neuve force la relecture, et c'est la seule qui marche. */
+            src={vignetteVideoPrete ? `${lien}/miniature?v=1` : `${lien}/miniature`}
             alt=""
             height={VIGNETTE_H}
             loading="lazy"
@@ -377,6 +394,9 @@ function CartePiece({ piece: p, depot, indisponible, onDrive, onVisualiser }: {
             // Pas de vignette (migration 244 non appliquée, type sans image, fichier illisible) : on retombe sur
             //   l'étiquette de type, sans jamais laisser une image cassée à l'écran.
             onError={() => setVignetteMorte(true)}
+            /* 🔴 LA VIGNETTE VIDÉO VIENT D'ARRIVER : on oublie l'échec d'avant, sinon la tuile grise reviendrait
+               au prochain rendu. */
+            onLoad={() => { if (vignetteVideoPrete) setVignetteMorte(false); }}
           />
         ) : (
           <span className="pj-type" aria-hidden="true">{etiquette}</span>

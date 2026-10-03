@@ -39,6 +39,41 @@ export const DELAI_MAX_MS = 15_000;
 /** Le type de la miniature produite. JPEG : une vignette n'a pas besoin de transparence, et pèse trois fois moins. */
 export const TYPE_MINIATURE = 'image/jpeg';
 
+/**
+ * 🔴🔴 LE MOTIF D'UNE VIDÉO : « c'est au navigateur de la faire ». Écrit une seule fois, lu par la route (qui
+ * accepte alors le dépôt) et par `echecDefinitif` (qui s'abstient de condamner la pièce).
+ */
+export const MOTIF_MINIATURE_NAVIGATEUR = 'miniature vidéo : extraite par le navigateur';
+
+/**
+ * ══ 🔴🔴 LA MINIATURE DÉPOSÉE PAR LE NAVIGATEUR, RE-ENCODÉE ICI ═════════════════════════════════════════════════
+ *
+ * 🔴 ON NE STOCKE JAMAIS LES OCTETS REÇUS TELS QUELS. Ils viennent d'un navigateur — authentifié, mais c'est tout
+ * de même une entrée extérieure, et rien ne garantit qu'un JPEG annoncé en soit un. `sharp` les DÉCODE puis les
+ * RÉENCODE : ce qui ressort est une image fabriquée par nous, aux dimensions que nous imposons. Un fichier qui
+ * n'est pas une image échoue ici, et n'entre jamais dans le stockage.
+ *
+ * ⚠️ MÊMES BORNES QUE LE RESTE : taille d'entrée, pixels décodés, délai. Une « bombe de décompression » déposée à
+ * la main serait exactement le même danger qu'une reçue par mail.
+ */
+export async function miniatureDepuisImageDeposee(octets: Buffer): Promise<IssueMiniature> {
+  if (octets.byteLength === 0) return { ok: false, motif: 'image vide' };
+  if (octets.byteLength > DEPOT_MAX_OCTETS) {
+    return { ok: false, motif: `image déposée trop volumineuse (${octets.byteLength} octets)` };
+  }
+  try {
+    return await borner(miniatureImage(octets), DELAI_MAX_MS, 'réencodage de la miniature déposée');
+  } catch (e) {
+    return { ok: false, motif: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
+  }
+}
+
+/**
+ * Au-delà, on refuse le dépôt sans l'ouvrir. Une vignette de 320 px de côté pèse quelques dizaines de kilo-octets :
+ * deux mégaoctets laissent une marge confortable et ferment la porte à tout le reste.
+ */
+export const DEPOT_MAX_OCTETS = 2 * 1024 * 1024;
+
 export type IssueMiniature =
   | { ok: true; octets: Buffer; largeur: number; hauteur: number }
   | { ok: false; motif: string };
@@ -149,6 +184,20 @@ export async function genererMiniature(
   // 🔴 C'est ICI que HTML et SVG sont écartés : `sortePiece` ne les classe ni en image ni en PDF, donc on n'ouvre
   //   jamais leurs octets. Un fichier qu'on n'interprète pas ne peut rien exécuter.
   if (sorte === 'autre') return { ok: false, motif: 'type sans miniature' };
+  /**
+   * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — UNE VIDÉO NE SE DÉCODE PAS ICI ═══════════════════════════════
+   *
+   * `sharp` ne sait pas ouvrir un conteneur mp4, et l'extraction d'une image demande un décodeur vidéo. Le Mac
+   * d'Arno n'a PAS `ffmpeg` (vérifié : `which ffmpeg` → introuvable) et sa règle est explicite : « n'installe
+   * RIEN sur le Mac sans demander à Arno ». La miniature d'une vidéo est donc extraite PAR LE NAVIGATEUR
+   * (`<video>` + `canvas`), qui porte déjà les décodeurs, puis déposée ici par `POST` et conservée comme les
+   * autres (voir `MOTIF_MINIATURE_NAVIGATEUR`).
+   *
+   * ⚠️ LE MOTIF N'EST PAS UN ÉCHEC DÉFINITIF, et c'est tout l'écart : `echecDefinitif` (miniatureCompletion) ne
+   * le reconnaît pas comme tel, donc la pièce n'est jamais marquée « echec » — sans quoi la vignette déposée par
+   * le navigateur plus tard ne serait plus jamais servie.
+   */
+  if (sorte === 'video') return { ok: false, motif: MOTIF_MINIATURE_NAVIGATEUR };
   try {
     return await borner(sorte === 'pdf' ? miniaturePdf(octets) : miniatureImage(octets), DELAI_MAX_MS, 'fabrication de la miniature');
   } catch (e) {

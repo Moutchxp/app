@@ -7,6 +7,8 @@ import {
 } from '../../../../lib/gestion/apercuDrive';
 // LOT APERCU-PAGE1 — le PDF se lit chez nous, page par page : le lecteur natif attendait le fichier entier.
 import { LecteurPdf, CSS_LECTEUR_PDF } from './LecteurPdf';
+/* 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — le mot du format illisible, écrit une seule fois (module pur). */
+import { MESSAGE_VIDEO_ILLISIBLE } from '../../../../lib/gestion/pieces';
 // 🔴 LOT RENOMMER-AVANT-RANGER — toutes les règles du nom vivent dans ce module PUR, jamais ici.
 import {
   eclaterNom, estRenommee, INFOBULLE_RENOMMER, mentionNomOrigine, nomDeDepot, verifierNom,
@@ -86,14 +88,14 @@ export function adresseApercu(
 interface Info {
   etat?: string;
   nom?: string;
-  sorte?: 'pdf' | 'image' | 'texte' | 'export_pdf' | 'aucun';
+  sorte?: 'pdf' | 'image' | 'texte' | 'video' | 'export_pdf' | 'aucun';
   vignette?: boolean;
   message?: string;
 }
 
 type Etat =
   | { e: 'charge'; vignette: boolean }
-  | { e: 'pret'; sorte: 'pdf' | 'image' | 'texte'; vignette: boolean }
+  | { e: 'pret'; sorte: 'pdf' | 'image' | 'texte' | 'video'; vignette: boolean }
   /**
    * `regle` distingue LES DEUX RAISONS de ne rien montrer, et ce n'est pas une nuance d'affichage :
    *   · un format dont on ne sait pas faire d'aperçu — on peut tout de même le JOINDRE ;
@@ -266,6 +268,14 @@ export function ApercuFichierDrive({
    */
   const [page1Peinte, setPage1Peinte] = useState(false);
   /**
+   * 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LE NAVIGATEUR A-T-IL REFUSÉ DE LIRE CETTE VIDÉO ?
+   *
+   * ⚠️ SEUL LE NAVIGATEUR PEUT RÉPONDRE, et seulement après avoir essayé : le type MIME ne dit RIEN du codec.
+   * Un `.mov` H.264 se lit partout, le même `.mov` en HEVC (l'enregistrement par défaut d'un iPhone récent) est
+   * refusé par Chrome et accepté par Safari. On ne devine donc pas : on tente, et `onError` nous le dit.
+   */
+  const [illisible, setIllisible] = useState(false);
+  /**
    * ⚠️ LE RAPPEL DOIT GARDER LA MÊME IDENTITÉ D'UN RENDU À L'AUTRE. Écrit sur place (`() => setPage1Peinte(true)`),
    * il changeait d'identité à chaque rendu de cet écran, et le lecteur PDF repartait de zéro à chaque fois — la
    * page 1 n'arrivait jamais au bout de son rendu (mesuré le 29/09/2026 : plus de trente secondes, toile blanche).
@@ -305,6 +315,9 @@ export function ApercuFichierDrive({
    */
   useEffect(() => {
     const sorte = sorteApercu(vu.typeMime);
+    /* 🔴 LE VERDICT DU NAVIGATEUR REPART À ZÉRO À CHAQUE DOCUMENT : un `.mov` refusé ne doit pas faire croire
+       que le `.mp4` suivant l'est aussi. */
+    setIllisible(false);
     if (sorte === 'aucun') {
       setEtat({ e: 'sans', message: messageSansApercu(vu.typeMime), regle: false });
       return undefined;
@@ -322,7 +335,7 @@ export function ApercuFichierDrive({
     if (source === 'piece') {
       setEtat({
         e: 'pret',
-        sorte: sorte === 'image' ? 'image' : sorte === 'texte' ? 'texte' : 'pdf',
+        sorte: sorte === 'image' ? 'image' : sorte === 'texte' ? 'texte' : sorte === 'video' ? 'video' : 'pdf',
         vignette: false,
       });
       return undefined;
@@ -348,7 +361,8 @@ export function ApercuFichierDrive({
         }
         setEtat({
           e: 'pret',
-          sorte: d.sorte === 'image' ? 'image' : d.sorte === 'texte' ? 'texte' : 'pdf',
+          sorte: d.sorte === 'image' ? 'image' : d.sorte === 'texte' ? 'texte'
+            : d.sorte === 'video' ? 'video' : 'pdf',
           vignette: d.vignette === true,
         });
       } catch {
@@ -545,6 +559,47 @@ export function ApercuFichierDrive({
                 <LecteurPdf key={vu.id} url={adresseApercu(vu.id, 'octets', source)} nom={vu.nom}
                   onPremierePage={direPage1Peinte} />
               )}
+              {/* ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LE LECTEUR VIDÉO ════════════════════════════
+                  Arno : « lecteur vidéo intégré (lecture, pause, barre de temps, son, plein écran), avec
+                  diffusion par plages (Range / 206) depuis la MÊME SOURCE que le téléchargement ».
+
+                  🔴 LES CINQ COMMANDES VIENNENT DE `controls`, et c'est volontaire : les commandes natives du
+                  navigateur savent le plein écran, l'image dans l'image, la vitesse, les sous-titres et le
+                  clavier. En réécrire une barre aurait donné moins, en moins accessible.
+
+                  🔴 LA SOURCE EST CELLE DU TÉLÉCHARGEMENT (`adresseApercu(..., 'octets')`), donc la chaîne
+                  entière — MinIO, puis notre copie Drive, puis Gmail. Rien de particulier n'a été câblé pour la
+                  vidéo : c'est la même route, qui sert désormais `Accept-Ranges: bytes` quand la pièce en est une.
+
+                  ⚠️ `preload="metadata"` : on tire la durée et la première image, pas le film. Une liste de
+                  pièces ouverte par mégarde ne doit pas peser 300 Mo.
+
+                  ⚠️ `key` FORCE UN LECTEUR NEUF à chaque document, comme pour le PDF : sans elle, « Suivant »
+                  garderait le flux précédent en cours de lecture. */}
+              {etat.e === 'pret' && etat.sorte === 'video' && (
+                illisible
+                  ? (
+                    /* 🔴 « Ce format ne se lit pas dans le navigateur » + le bouton qui sauve la situation
+                       (demande d'Arno). Un message qui constate sans proposer laisse devant un cul-de-sac. */
+                    <div className="apd-video-refus" role="status">
+                      <p className="apd-sans">{MESSAGE_VIDEO_ILLISIBLE}</p>
+                      <p className="apd-video-note">
+                        Le fichier est intact : il se lit sur votre ordinateur, ou dans un autre navigateur.
+                      </p>
+                      <a className="svv-btn svv-btn-primary gst-btn" download={vu.nom}
+                        href={`${adresseApercu(vu.id, 'octets', source)}${source === 'piece' ? '?telecharger=1' : ''}`}>
+                        Télécharger la vidéo
+                      </a>
+                    </div>
+                  )
+                  : (
+                    <video key={vu.id} className="apd-video" controls playsInline preload="metadata"
+                      src={adresseApercu(vu.id, 'octets', source)}
+                      aria-label={`Vidéo ${vu.nom}`}
+                      onError={() => setIllisible(true)}
+                      onLoadedData={direPage1Peinte} />
+                  )
+              )}
               {/* Le TEXTE BRUT garde le cadre : il n'y a rien à décoder, le navigateur l'affiche tel quel. */}
               {etat.e === 'pret' && etat.sorte === 'texte' && (
                 <iframe key={vu.id} className="apd-cadre" src={adresseApercu(vu.id, 'octets', source)}
@@ -737,6 +792,21 @@ export const CSS_APERCU = `
   color:var(--color-svv-ink);background:var(--color-svv-surface);border-radius:999px;
   box-shadow:0 2px 10px color-mix(in srgb, var(--color-svv-ink) 16%, transparent)}
 .apd-cadre{width:100%;height:100%;border:0;background:var(--color-svv-surface)}
+
+/* ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LE LECTEUR VIDEO ════════════════════════════════════════════
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot).
+   La video occupe TOUTE la scene, en gardant ses proportions ("object-fit:contain").
+
+   ⚠️ POURQUOI PAS "width:auto", QUI SERAIT LE REFLEXE : tant que les metadonnees ne sont pas arrivees, le
+   navigateur ne connait pas le format de la video et la boite retombe sur sa taille par defaut — 300 x 150 px,
+   un timbre-poste noir au coin d'une grande fenetre. Vu a l'ecran le 03/10/2026. Avec une boite qui occupe la
+   scene, le cadre est bon des le premier pixel, et "contain" empeche toute deformation.
+
+   ⚠️ AUCUN FOND POSE ICI : les bandes laissent voir la scene, qui suit le theme. Un fond noir ecrit en dur
+   aurait en plus viole le garde des jetons (themeDrive.test.ts). */
+.apd-video{width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;border-radius:.4rem}
+.apd-video-refus{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;text-align:center}
+.apd-video-note{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
 
 /* ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE BANDEAU DE NOM, AU-DESSUS DU VISUEL ══════════════════════════════════
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit, qu'un seul refermerait (TS1005).

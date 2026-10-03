@@ -1,6 +1,10 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
-import { genererMiniature, TYPE_MINIATURE } from '../../../../../../../lib/gestion/miniature';
+import {
+  DEPOT_MAX_OCTETS, genererMiniature, miniatureDepuisImageDeposee, MOTIF_MINIATURE_NAVIGATEUR, TYPE_MINIATURE,
+} from '../../../../../../../lib/gestion/miniature';
+// 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — une VIDÉO ne se décode pas ici : voir le `POST` en bas de fichier.
+import { estVideo } from '../../../../../../../lib/gestion/pieces';
 import {
   lireEtatMiniature, memoriserEchecMiniature, memoriserMiniature,
 } from '../../../../../../../lib/gestion/piecesRepo';
@@ -110,7 +114,11 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     const octets = lu.octets;
     const issue = await genererMiniature(octets, etat.typeMime, etat.nomFichier);
     if (!issue.ok) {
-      await memoriserEchecMiniature(id, issue.motif);
+      /**
+       * ⚠️ UNE VIDÉO N'EST PAS UN ÉCHEC : sa vignette viendra du NAVIGATEUR, par le `POST` ci-dessous. L'inscrire
+       * « echec » la condamnerait avant même qu'on ait essayé — la branche ② ci-dessus ne retente jamais.
+       */
+      if (issue.motif !== MOTIF_MINIATURE_NAVIGATEUR) await memoriserEchecMiniature(id, issue.motif);
       return refus('Pas de vignette pour cette pièce.', 404);
     }
     const depot = await deposerMiniatureGestion(issue.octets, id);
@@ -121,5 +129,73 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   } catch (e) {
     console.error('[gestion/miniature] fabrication impossible', e);
     return refus('Vignette indisponible.', 503);
+  }
+}
+
+/**
+ * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LE NAVIGATEUR DÉPOSE LA VIGNETTE D'UNE VIDÉO ═════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (03/10/2026) : « Miniature : une image extraite de la vidéo (vers 1 s), mise en cache, servie comme
+ * les autres miniatures. Choisis la méthode : ffmpeg côté serveur s'il est déjà installé (vérifie : which ffmpeg),
+ * sinon extraction dans le navigateur (<video> + canvas). N'installe RIEN sur le Mac sans demander à Arno. »
+ *
+ * 🔴 VÉRIFIÉ : `which ffmpeg` → INTROUVABLE. C'est donc la seconde voie, et elle a un avantage qu'il faut dire :
+ * elle ne demande AUCUN outil système, ni ici ni sur le futur hébergement — la même contrainte qui avait fait
+ * choisir PDFium (WASM) plutôt que poppler pour les PDF.
+ *
+ * ═══ 🔒 CE QUI PROTÈGE CE DÉPÔT, ET POURQUOI CHAQUE GARDE EST LÀ ══════════════════════════════════════════════════
+ *
+ *   ① LE MÊME DROIT que pour la pièce elle-même (`gestion`), relu à CHAQUE requête ;
+ *   ② LA PIÈCE DOIT ÊTRE UNE VIDÉO. Sans cette garde, n'importe quelle pièce pourrait recevoir une image choisie
+ *      par le client — c'est-à-dire qu'une facture pourrait s'afficher sous la vignette d'autre chose ;
+ *   ③ UNE VIGNETTE DÉJÀ FABRIQUÉE NE SE REMPLACE PAS. Le dépôt sert à COMBLER une absence, jamais à réécrire ce
+ *      qui est là : sans cela, un onglet resté ouvert écraserait le travail d'un autre à chaque affichage ;
+ *   ④ LES OCTETS SONT RÉENCODÉS PAR `sharp` (voir `miniatureDepuisImageDeposee`). Ce qui est stocké est une image
+ *      fabriquée par NOUS, aux dimensions que NOUS imposons. Ce qui n'est pas une image n'entre pas ;
+ *   ⑤ LA TAILLE EST BORNÉE AVANT TOUTE LECTURE (`DEPOT_MAX_OCTETS`).
+ *
+ * ⚠️ UN ÉCHEC DE DÉPÔT N'EST PAS MÉMORISÉ comme un échec de vignette : le navigateur réessaiera à la prochaine
+ * ouverture, et une vidéo qu'un navigateur ne sait pas décoder garde simplement son icône.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function POST(request: Request, ctx: Contexte): Promise<Response> {
+  const barrage = await exigerCompteActif(request, 'gestion');
+  if (barrage) return sansCache(barrage);
+
+  const id = Number((await ctx.params).id);
+  if (!Number.isInteger(id) || id <= 0) return refus('Pièce inconnue.', 400);
+
+  try {
+    const etat = await lireEtatMiniature(id);
+    if (etat === null) return refus('Cette pièce jointe n’est pas disponible.', 404);
+    // ② LA GARDE QUI COMPTE : seule une vidéo reçoit une vignette venue du navigateur.
+    if (!estVideo(etat.typeMime, etat.nomFichier)) {
+      return refus('Cette pièce n’est pas une vidéo : sa vignette est fabriquée par le serveur.', 409);
+    }
+    // ③ ON COMBLE UNE ABSENCE, ON NE REMPLACE RIEN.
+    if (etat.etat === 'ok' && etat.cleMiniature !== null) {
+      return Response.json({ etat: 'deja' }, { headers: { 'Cache-Control': SANS_CACHE } });
+    }
+
+    // ⑤ BORNÉ AVANT LECTURE : on refuse sans ouvrir ce qui est manifestement hors sujet.
+    const annonce = Number(request.headers.get('content-length') ?? '0');
+    if (Number.isFinite(annonce) && annonce > DEPOT_MAX_OCTETS) {
+      return refus('Image déposée trop volumineuse.', 413);
+    }
+    const recu = Buffer.from(await request.arrayBuffer());
+    if (recu.byteLength > DEPOT_MAX_OCTETS) return refus('Image déposée trop volumineuse.', 413);
+
+    // ④ RÉENCODÉE PAR NOUS : ce qui entre dans le stockage est notre JPEG, jamais celui du client.
+    const issue = await miniatureDepuisImageDeposee(recu);
+    if (!issue.ok) return refus('Image déposée illisible.', 422);
+
+    const depot = await deposerMiniatureGestion(issue.octets, id);
+    if (!depot.depose) return refus('Le stockage n’a pas accepté la vignette.', 503);
+    await memoriserMiniature(id, depot.cle);
+    return Response.json({ etat: 'ok' }, { headers: { 'Cache-Control': SANS_CACHE } });
+  } catch (e) {
+    console.error('[gestion/miniature] dépôt impossible', e);
+    return refus('Dépôt de vignette impossible.', 503);
   }
 }
