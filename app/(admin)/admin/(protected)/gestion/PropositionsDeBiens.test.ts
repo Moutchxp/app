@@ -308,15 +308,27 @@ describe('🔴 ② les deux colonnes : le bien à gauche, ses locataires à droi
     expect(container.querySelectorAll('.pdb-col--loc')).toHaveLength(2);
   });
 
-  it('la colonne de gauche porte la case à cocher, l’adresse complète, le lot et les caractéristiques', async () => {
+  /**
+   * ⚠️ RÉÉCRIT AU LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS (POINT 1) : la case, l'adresse et le lot ont quitté la
+   * colonne de gauche pour coiffer la CARTE entière — demande d'Arno, « en-tête de carte (case + adresse + lot)
+   * bien détaché du détail ». Resté dans la colonne, l'en-tête n'aurait couvert que la moitié de la carte.
+   *
+   * 🔴 CE QU'IL PROTÉGEAIT NE BOUGE PAS : la case est toujours là, l'adresse complète et le lot aussi, et les
+   * caractéristiques restent dans la colonne de gauche. On vérifie chaque chose à sa nouvelle place.
+   */
+  it('l’en-tête de carte porte la case, l’adresse complète et le lot ; la colonne, les caractéristiques', async () => {
     await monter();
+    const carte = container.querySelector('.pdb-item');
+    const tete = carte?.querySelector('.pdb-tete');
+    expect(tete?.querySelector('input[type="checkbox"]')).not.toBeNull();
+    expect(tete?.textContent).toContain('18 rue Danton, 92300 Levallois-Perret');
+    expect(tete?.textContent).toContain('lot 310a');
     const gauche = container.querySelector('.pdb-col--bien');
-    expect(gauche?.querySelector('input[type="checkbox"]')).not.toBeNull();
-    expect(gauche?.textContent).toContain('18 rue Danton, 92300 Levallois-Perret');
-    expect(gauche?.textContent).toContain('lot 310a');
     expect(gauche?.textContent).toContain('Nature');
     expect(gauche?.textContent).toContain('Appartement');
     expect(gauche?.textContent).toContain('Type 4');
+    /* 🔴 ET L'EN-TÊTE EST BIEN DANS LA CARTE, au-dessus des deux colonnes — jamais dans l'une d'elles. */
+    expect(carte?.querySelector('.pdb-col--bien .pdb-tete')).toBeNull();
   });
 
   it('🔴 les CHAMPS ABSENTS de l’import ne sont pas affichés — pas même sous un tiret', async () => {

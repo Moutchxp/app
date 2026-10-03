@@ -166,9 +166,10 @@ export function PropositionsDeBiens({ messageId, occupe, onChange, onGeste, onCl
           <ul className="pdb-liste">
             {g.biens.map((b) => (
               <li key={b.cle} className="pdb-item">
+                <EnTeteCarteBien bien={b} coche={selection.includes(b.cle)} fige={fige}
+                  onBasculer={() => basculer(b.cle)} />
                 <div className="pdb-deux">
-                  <ColonneBien bien={b} coche={selection.includes(b.cle)} fige={fige}
-                    onBasculer={() => basculer(b.cle)} />
+                  <ColonneBien bien={b} />
                   <ColonneLocataires bien={b} />
                 </div>
               </li>
@@ -203,21 +204,37 @@ export function PropositionsDeBiens({ messageId, occupe, onChange, onGeste, onCl
  * 🔴 LES CARACTÉRISTIQUES VIENNENT DU MODULE PUR, pas d'un calcul fait ici : c'est lui qui sait ce que l'import
  * porte vraiment, et qui écarte les champs vides. L'écran ne fait que les rendre.
  */
-export function ColonneBien({ bien, coche, fige, onBasculer }: {
+/**
+ * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 1 — L'EN-TÊTE DE LA CARTE ════════════════════════════════
+ *
+ * DEMANDE D'ARNO : « en-tête de carte (case + adresse + lot) bien détaché du détail ».
+ *
+ * 🔴 IL EST SORTI DE LA COLONNE DE GAUCHE pour coiffer la carte ENTIÈRE. Resté dans la colonne, son bandeau
+ * n'aurait couvert que la moitié de la carte — un en-tête à mi-largeur ne coiffe rien, il ajoute une ligne.
+ *
+ * ⚠️ LE BALISAGE NE CHANGE PAS DE NATURE : c'est toujours UN `<label>` qui porte la case et le nom, donc cliquer
+ * le nom coche encore le bien. C'est sa PLACE qui change, pas ce qu'il fait.
+ */
+export function EnTeteCarteBien({ bien, coche, fige, onBasculer }: {
   bien: BienProposable; coche: boolean; fige: boolean; onBasculer: () => void;
 }) {
   return (
+    <label className="pdb-tete">
+      <input type="checkbox" checked={coche} disabled={fige} onChange={onBasculer} />
+      {/* ⚠️ LE N° DE LOT N'EST AJOUTÉ QU'À L'ADRESSE COMPLÈTE. Le `libelle` de repli le porte DÉJÀ
+          (« … — lot 442 ») : l'ajouter par-dessus écrivait « — lot 442 — lot 442 ». */}
+      <span className="pdb-nom">
+        {bien.adresseComplete
+          ? <>{bien.adresseComplete}<span className="pdb-lot"> — lot {bien.cle}</span></>
+          : bien.libelle}
+      </span>
+    </label>
+  );
+}
+
+export function ColonneBien({ bien }: { bien: BienProposable }) {
+  return (
     <div className="pdb-col pdb-col--bien">
-      <label className="pdb-tete">
-        <input type="checkbox" checked={coche} disabled={fige} onChange={onBasculer} />
-        {/* ⚠️ LE N° DE LOT N'EST AJOUTÉ QU'À L'ADRESSE COMPLÈTE. Le `libelle` de repli le porte DÉJÀ
-            (« … — lot 442 ») : l'ajouter par-dessus écrivait « — lot 442 — lot 442 ». */}
-        <span className="pdb-nom">
-          {bien.adresseComplete
-            ? <>{bien.adresseComplete}<span className="pdb-lot"> — lot {bien.cle}</span></>
-            : bien.libelle}
-        </span>
-      </label>
 
       {/**
         * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — UN BIEN DÉJÀ RATTACHÉ N'EST PLUS « À TRANCHER » ═══════════
@@ -410,9 +427,34 @@ export const CSS_PROPOSITIONS_BIENS = `
 .pdb-lien{text-decoration:underline;text-underline-offset:2px}
 .pdb-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .pdb-vide{margin:.15rem 0 0;font-size:.78rem;font-style:italic;color:var(--color-svv-muted)}
-.pdb-liste{display:flex;flex-direction:column;gap:0;margin:0 0 8px;padding:0;list-style:none}
-.pdb-item{border:1px solid var(--color-svv-line);border-top:0;background:var(--color-svv-surface);min-width:0}
-.pdb-item:last-child{border-radius:0 0 .6rem .6rem}
+/* ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 1 — CHAQUE BIEN EST UNE CARTE ════════════════════════
+   DEMANDE D'ARNO (03/10/2026) : « chaque bien est une CARTE nettement séparée des autres : fond propre
+   légèrement contrasté, bordure visible, coins arrondis, espacement franc entre deux cartes, en-tête de carte
+   (case + adresse + lot) bien détaché du détail, survol et état coché visibles (bordure accent) ».
+
+   🔴 CE QUE C'ETAIT, ET POURQUOI ÇA NE SE LISAIT PAS. Les biens etaient empiles en un seul bloc : « gap:0 » et
+   « border-top:0 » faisaient de douze biens un tableau continu, ou l'oeil ne voyait plus ou finissait l'un et ou
+   commencait le suivant. Sur le cas d'Arno (fil 36663), les caracteristiques d'un bien semblaient appartenir au
+   bien du dessus.
+
+   ⚠️ MEME LANGAGE VISUEL QUE LES CARTES DU HAUT DE LA FENETRE (.rdf-item) : meme rayon, meme bordure, meme fond
+   de surface. Deux grammaires de carte dans une seule fenetre feraient deux objets la ou il n'y en a qu'un.
+
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot).
+   🔴 AUCUNE COULEUR EN DUR : tout vient des jetons, qui basculent seuls en Clair et en Sombre. */
+.pdb-liste{display:flex;flex-direction:column;gap:8px;margin:0 0 8px;padding:0;list-style:none}
+.pdb-item{border:1px solid var(--color-svv-line);border-radius:.6rem;background:var(--color-svv-surface);
+  min-width:0;transition:border-color .12s ease}
+/* Le SURVOL se voit : la bordure se renforce, sans que rien ne bouge (pas d'ombre, pas de deplacement). */
+.pdb-item:hover{border-color:var(--color-svv-line-strong)}
+/* 🔴 L'ETAT COCHE SE VOIT AUSSI, et par la BORDURE ACCENT (demande d'Arno) : une carte cochee est une decision. */
+.pdb-item:has(input[type="checkbox"]:checked){border-color:var(--color-svv-red)}
+/* ⚠️ ET AU CLAVIER : le focus d'une case eclaire sa carte entiere, sinon la ligne paraitrait inerte. */
+.pdb-item:has(input[type="checkbox"]:focus-visible){border-color:var(--color-svv-red)}
+/* 🔴 L'EN-TETE DE CARTE (case + adresse + lot) EST DETACHE DU DETAIL : un filet et un fond legerement contraste.
+   C'est ce qui donne a l'oeil le point d'entree de chaque carte. */
+.pdb-item .pdb-tete{padding:8px 10px;background:var(--color-svv-field);border-radius:.55rem .55rem 0 0;
+  border-bottom:1px solid var(--color-svv-line)}
 /* 🔴 DEUX COLONNES ÉGALES — et l'une SOUS l'autre des qu'on manque de place (exigence mobile du depot). */
 .pdb-deux{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 10px;min-width:0}
 @media (max-width:720px){.pdb-deux{grid-template-columns:1fr}}

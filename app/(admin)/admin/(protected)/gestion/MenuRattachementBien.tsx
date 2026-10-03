@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { planClassement } from '../../../../lib/gestion/gesteClassement';
 import { groupesParProprietaire } from '../../../../lib/gestion/ficheBien';
 import { grouperResultats, messageAucunBien, motRaison, sansLesProposes } from '../../../../lib/gestion/rechercheBien';
-import { ColonneBien, ColonneLocataires, CartePersonne, CSS_PROPOSITIONS_BIENS } from './PropositionsDeBiens';
+import {
+  ColonneBien, ColonneLocataires, CartePersonne, EnTeteCarteBien, CSS_PROPOSITIONS_BIENS,
+} from './PropositionsDeBiens';
 import { CSS_BOUTON_COPIER } from './BoutonCopier';
 /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — le motif qui fait d'un lien un AJOUT PONCTUEL. Voir son encadré. */
 import {
@@ -396,9 +398,11 @@ export function MenuRattachementBien({
               <ul className="pdb-liste">
                 {g.biens.map((b) => (
                   <li key={b.cle} className="pdb-item">
+                    {/* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 1 — l'en-tête coiffe la carte entière. */}
+                    <EnTeteCarteBien bien={b} coche={coches.includes(b.cle)} fige={fige}
+                      onBasculer={() => basculer(b.cle)} />
                     <div className="pdb-deux">
-                      <ColonneBien bien={b} coche={coches.includes(b.cle)} fige={fige}
-                        onBasculer={() => basculer(b.cle)} />
+                      <ColonneBien bien={b} />
                       <ColonneLocataires bien={b} />
                     </div>
                   </li>
@@ -516,18 +520,21 @@ function LigneResultat({ bien: b, coche, fige, onBasculer }: {
     // ⚠️ LOT PROPOSITIONS-PAR-LE-CONTENU — un résultat de recherche n'est jamais replié : on l'a demandé.
     replie: false,
   };
+  const bienDetaille = {
+    ...commun,
+    caracteristiques: [
+      ...(b.nature ? [{ libelle: 'Nature', valeur: b.nature }] : []),
+      ...(b.typeBien ? [{ libelle: 'Type', valeur: b.typeBien }] : []),
+    ],
+    motif: `trouvé par ${b.raisons.map(motRaison).join(' · ')}`,
+  };
   return (
     <li className="pdb-item">
+      {/* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 1 — l'en-tête coiffe la carte entière : c'est lui qui
+          donne à l'œil le point d'entrée de chaque résultat, là où douze biens formaient un tableau continu. */}
+      <EnTeteCarteBien bien={bienDetaille} coche={coche} fige={fige} onBasculer={onBasculer} />
       <div className="pdb-deux">
-        <ColonneBien fige={fige} coche={coche} onBasculer={onBasculer}
-          bien={{
-            ...commun,
-            caracteristiques: [
-              ...(b.nature ? [{ libelle: 'Nature', valeur: b.nature }] : []),
-              ...(b.typeBien ? [{ libelle: 'Type', valeur: b.typeBien }] : []),
-            ],
-            motif: `trouvé par ${b.raisons.map(motRaison).join(' · ')}`,
-          }} />
+        <ColonneBien bien={bienDetaille} />
         <ColonneLocataires bien={{ ...commun, caracteristiques: [], motif: '' }} />
       </div>
       {/* 🔴 LA SOUS-LIGNE DEMANDÉE PAR ARNO, sur UNE ligne : « Propriétaire : … · Locataire : … ». Les deux
