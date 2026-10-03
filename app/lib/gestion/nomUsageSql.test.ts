@@ -148,6 +148,10 @@ describe('🔴 chaque endroit qui affiche un nom de pièce passe par le fragment
     // Les pièces d'un BROUILLON ont leur propre table et leur propre nom, recopié du nom d'usage à l'insertion.
     'brouillonPieceRepoBase.ts': 'table des pièces de brouillon, nom recopié à l’insertion',
     'fileEnvoiRepo.ts': 'table des pièces de brouillon, nom recopié à l’insertion',
+    // 🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — MÊME TABLE, MÊME RAISON : il lit la ligne du BROUILLON pour
+    //    en tirer les octets d'une vignette. Le nom qu'il rend sert à fabriquer l'image (le générateur regarde
+    //    l'extension), jamais à être affiché — l'écran, lui, tient déjà le nom que la liste lui a donné.
+    'brouillonPieceOctets.ts': 'table des pièces de brouillon, nom recopié à l’insertion',
     // Le fragment lui-même, et ses alentours : c'est ici qu'on a le droit de nommer la colonne.
     'nomUsageSql.ts': 'le fragment lui-même',
     'nomUsageRepo.ts': 'le registre des noms, qui passe déjà par le fragment',

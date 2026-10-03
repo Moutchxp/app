@@ -2,10 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AIDE_PIECE_INDISPONIBLE, MENTION_PIECE_INDISPONIBLE, motCasesPieces, motToutCocher, piecesCochees,
-  tailleQuiPartira, TAILLE_MAX_TOTALE, taillePourHumain, verifierPiece,
+  AIDE_PIECE_INDISPONIBLE, MENTION_NON_ENVOYEE, MENTION_PIECE_INDISPONIBLE, motCasesPieces, motToutCocher,
+  piecesCochees, tailleQuiPartira, TAILLE_MAX_TOTALE, taillePourHumain, verifierPiece,
+  HAUTEUR_VIGNETTE,
   type PieceBrouillonAffichee,
 } from '../../../../lib/gestion/piecesEnvoi';
+/* 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — LA MÊME GRAMMAIRE QUE LA LECTURE, pas une seconde écriture :
+   l'étiquette de type, la sorte de pièce et le mot de l'œil viennent du module que `PiecesJointes` emploie déjà. */
+import { AIDE_OEIL_PIECE, etiquetteType, sortePiece } from '../../../../lib/gestion/pieces';
+import { sorteApercu } from '../../../../lib/gestion/apercuDrive';
+/* 🔴 L'œil est un TRACÉ, jamais un emoji : « 👁 » est rendu par une police EN COULEUR qui ignore `color`. */
+import { Oeil } from './Oeil';
 
 /**
  * LOT 5-PJ-ENVOI — LES PIÈCES JOINTES D'UN BROUILLON, à l'écran.
@@ -41,7 +48,7 @@ interface PieceRecente {
   tailleOctets: number | null;
 }
 
-export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, actions }: {
+export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, actions, onVisualiser }: {
   /** `null` = le brouillon n'est pas encore enregistré. Il le sera à la première pièce (voir l'encadré). */
   brouillonId: number | null;
   /** Prévient l'éditeur du nombre de pièces (il l'affiche à côté du bouton « Envoyer »). */
@@ -53,6 +60,14 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
   onBesoinDeBrouillon?: () => Promise<number | null>;
   /** Les outils qui partagent cette barre : le Drive et le lien (lot EDITEUR-PJ). */
   actions?: React.ReactNode;
+  /**
+   * 🔴🔴 L'ŒIL D'UNE VIGNETTE — la MÊME visionneuse que la lecture (`ApercuFichierDrive`, `source: 'piece'`).
+   *
+   * ⚠️ ABSENT ⇒ AUCUN ŒIL, et c'est la règle du module depuis le lot 5-PJ-A : un bouton qui n'ouvrirait rien est
+   * pire que pas de bouton. Il ne paraît donc que sur une pièce REPRISE d'un message, la seule que cette
+   * visionneuse sache ouvrir.
+   */
+  onVisualiser?: (piece: { id: number; nom: string; typeMime: string | null }) => void;
 }) {
   const [pieces, setPieces] = useState<PieceBrouillonAffichee[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -292,38 +307,20 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
         sur {taillePourHumain(TAILLE_MAX_TOTALE)} au maximum.
       </p>
 
+      {/* ══ 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — LA GRILLE DE VIGNETTES ═══════════════════════════
+          Arno : « le transfert avec pièces cochées est parfait, mais les pièces apparaissent en lignes de texte.
+          Je veux le format MINIATURE, comme dans la lecture des mails, pour vérifier ce que j'envoie. »
+          Voir l'encadré de `VignettePiece`. */}
       {pieces.length > 0 && (
-        <ul className="pjb-liste">
-          {pieces.map((p) => {
-            const indisponible = p.disponible === false;
-            const cochee = p.cochee !== false;
-            return (
-              <li key={p.id} className={`pjb-item${indisponible ? ' pjb-item--indisponible' : ''}`}>
-                {/* ══ 🔴🔴 LA CASE — « on la décoche pour ne pas l'envoyer, on la recoche » (Arno) ════════════
-                    ⚠️ UNE VRAIE CASE À COCHER, pas un bouton déguisé : elle s'atteint au clavier, elle s'annonce
-                    toute seule aux lecteurs d'écran, et son état est celui que le navigateur connaît déjà. */}
-                <input type="checkbox" className="pjb-case" checked={cochee} disabled={indisponible}
-                  id={`pjb-case-${p.id}`}
-                  aria-label={`Joindre ${p.nom}`}
-                  title={indisponible ? AIDE_PIECE_INDISPONIBLE : 'Joindre cette pièce'}
-                  onChange={(e) => void cocher(p.id, e.currentTarget.checked)} />
-                <label className="pjb-nom" htmlFor={`pjb-case-${p.id}`} title={p.nom}>{p.nom}</label>
-                <span className="pjb-taille">{taillePourHumain(p.taille)}</span>
-                {/* Une pièce REPRISE d'un transfert le DIT : on sait alors pourquoi elle est là sans l'avoir ajoutée. */}
-                {p.origine === 'reprise' && <span className="pjb-origine">du message d’origine</span>}
-                {/* 🔴 ET SI SES OCTETS SONT INTROUVABLES, ON LE DIT — jamais un envoi qui échoue en silence. */}
-                {indisponible && (
-                  <span className="pjb-indisponible" title={AIDE_PIECE_INDISPONIBLE}>{MENTION_PIECE_INDISPONIBLE}</span>
-                )}
-                <button
-                  type="button" className="pjb-retirer" onClick={() => void retirer(p.id)}
-                  aria-label={`Retirer la pièce ${p.nom}`} title="Retirer"
-                >
-                  ✕
-                </button>
-              </li>
-            );
-          })}
+        <ul className="pjb-grille">
+          {pieces.map((p) => (
+            <VignettePiece
+              key={p.id} piece={p} brouillonId={brouillonId}
+              onCocher={(c) => void cocher(p.id, c)}
+              onRetirer={() => void retirer(p.id)}
+              onVisualiser={onVisualiser}
+            />
+          ))}
         </ul>
       )}
 
@@ -344,6 +341,119 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
       {/* Un refus DIT pourquoi, avec le nom du fichier et le chiffre en cause. Jamais « fichier invalide ». */}
       {message && <p className="pjb-refus" role="status">{message}</p>}
     </div>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — UNE PIÈCE DU BROUILLON, EN VIGNETTE ════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (03/10/2026) : « le transfert avec pièces cochées est parfait, mais les pièces apparaissent en
+ * lignes de texte. Je veux le format MINIATURE, comme dans la lecture des mails, pour vérifier ce que j'envoie. »
+ *
+ * 🔴 MÊMES DIMENSIONS ET MÊME STYLE QUE LA LECTURE, et pas « à peu près » : la hauteur de vignette, le recadrage
+ * par le haut, la grille `auto-fill minmax(180px, 1fr)` et la cible de 44 px sont repris tels quels de
+ * `PiecesJointes`. Deux grilles qui se ressemblent sans être identiques se mettent à diverger au premier réglage.
+ *
+ * 🔴 CE QUI NE CHANGE PAS, ET C'EST LA MOITIÉ DU TRAVAIL : la case à cocher, la mention « du message d'origine »,
+ * le compteur « N pièce(s) jointe(s) sur M », « Tout cocher / Tout décocher », « Joindre un fichier », le Drive, le
+ * lien et « Récents ». Arno l'a demandé explicitement — on change la FORME d'une liste, pas ce qu'elle fait.
+ *
+ * ⚠️ UNE VIGNETTE CASSÉE N'EXISTE PAS ICI. Trois cas donnent une tuile NEUTRE qui DIT son état, jamais une image
+ * morte : un type sans aperçu (une étiquette « DOCX », « XML », qui en dit plus qu'une icône générique), un fichier
+ * dont les octets sont introuvables, et l'instant où la vignette n'est pas encore arrivée.
+ *
+ * ⚠️ UNE PIÈCE DÉCOCHÉE RESTE VISIBLE, estompée, avec « non envoyée » en toutes lettres. Arno : « on la décoche
+ * pour ne pas l'envoyer, on la recoche. » La faire disparaître reviendrait à confondre décocher et retirer — deux
+ * gestes qui coexistent, et que la croix ✕ distingue.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function VignettePiece({ piece: p, brouillonId, onCocher, onRetirer, onVisualiser }: {
+  piece: PieceBrouillonAffichee;
+  brouillonId: number | null;
+  onCocher: (cochee: boolean) => void;
+  onRetirer: () => void;
+  onVisualiser?: (piece: { id: number; nom: string; typeMime: string | null }) => void;
+}) {
+  const [vignetteMorte, setVignetteMorte] = useState(false);
+  const indisponible = p.disponible === false;
+  const cochee = p.cochee !== false;
+  const etiquette = etiquetteType(p.nom, p.typeMime);
+  /**
+   * ⚠️ `sortePiece` DÉCIDE S'IL Y A UNE IMAGE À DEMANDER : inutile d'aller chercher la vignette d'un .docx pour
+   * se faire répondre 404 et retomber sur l'étiquette. C'est le même test que la lecture.
+   *
+   * ⚠️ ET ON NE LA DEMANDE PAS NON PLUS SI LES OCTETS SONT INTROUVABLES : la route répondrait 404, et l'étiquette
+   * est de toute façon ce qu'il faut montrer.
+   */
+  const avecImage = brouillonId !== null && !indisponible
+    && sortePiece(p.typeMime, p.nom) !== 'autre' && !vignetteMorte;
+  /** 🔴 L'ŒIL N'EXISTE QUE S'IL OUVRE QUELQUE CHOSE. Voir l'encadré de `onVisualiser`. */
+  const pieceReçue = p.pieceId ?? null;
+  const voirIci = onVisualiser !== undefined && pieceReçue !== null
+    && sorteApercu(p.typeMime ?? '') !== 'aucun';
+
+  return (
+    <li className={`pjb-carte${cochee ? '' : ' pjb-carte--decochee'}`
+      + `${indisponible ? ' pjb-carte--indisponible' : ''}`}>
+      <div className="pjb-apercu">
+        {avecImage ? (
+          // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
+          <img
+            className="pjb-vignette"
+            src={`/api/admin/gestion/brouillons/${brouillonId}/pieces/miniature?piece=${p.id}`}
+            alt=""
+            height={HAUTEUR_VIGNETTE}
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            /* 🔴 PAS DE VIGNETTE ⇒ L'ÉTIQUETTE DE TYPE, jamais une image cassée (règle d'Arno). */
+            onError={() => setVignetteMorte(true)}
+          />
+        ) : (
+          <span className="pjb-type" aria-hidden="true">{etiquette}</span>
+        )}
+      </div>
+
+      <div className="pjb-pied">
+        {/* La case et le nom sont LIÉS : cliquer le nom coche, comme dans toute liste à cases. */}
+        <label className="pjb-ligne-nom" htmlFor={`pjb-case-${p.id}`}>
+          <input type="checkbox" className="pjb-case" checked={cochee} disabled={indisponible}
+            id={`pjb-case-${p.id}`}
+            aria-label={`Joindre ${p.nom}`}
+            title={indisponible ? AIDE_PIECE_INDISPONIBLE : 'Joindre cette pièce'}
+            onChange={(e) => onCocher(e.currentTarget.checked)} />
+          <span className="pjb-nom" title={p.nom}>{p.nom}</span>
+        </label>
+        <span className="pjb-taille">{taillePourHumain(p.taille)}</span>
+        {/* Une pièce REPRISE d'un transfert le DIT : on sait alors pourquoi elle est là sans l'avoir ajoutée. */}
+        {p.origine === 'reprise' && <span className="pjb-origine">du message d’origine</span>}
+        {/* 🔴 DÉCOCHÉE : elle reste là, estompée, et son état se LIT. */}
+        {!cochee && !indisponible && <span className="pjb-nonenvoyee">{MENTION_NON_ENVOYEE}</span>}
+        {/* 🔴 ET SI SES OCTETS SONT INTROUVABLES, ON LE DIT — jamais un envoi qui échoue en silence. */}
+        {indisponible && (
+          <span className="pjb-indisponible" title={AIDE_PIECE_INDISPONIBLE}>{MENTION_PIECE_INDISPONIBLE}</span>
+        )}
+      </div>
+
+      {/* LA RANGÉE D'ACTIONS, toujours visible, cible de 44 px — comme en lecture. */}
+      <div className="pjb-actions">
+        {voirIci && (
+          <button
+            type="button" className="pjb-action pjb-oeil" onClick={() => onVisualiser?.({ id: pieceReçue, nom: p.nom, typeMime: p.typeMime })}
+            aria-label={`${AIDE_OEIL_PIECE} ${p.nom}`} title={AIDE_OEIL_PIECE}
+          >
+            <Oeil taille={17} />
+          </button>
+        )}
+        <button
+          type="button" className="pjb-action pjb-retirer" onClick={onRetirer}
+          aria-label={`Retirer la pièce ${p.nom}`} title="Retirer"
+        >
+          ✕
+        </button>
+      </div>
+    </li>
   );
 }
 
@@ -392,16 +502,42 @@ export const CSS_PIECES_BROUILLON = `
 .pjb-recent-bouton:hover:not(:disabled){background:var(--color-svv-surface);border-color:var(--color-svv-line)}
 .pjb-recent-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .pjb-aide{margin:0;font-size:.76rem;color:var(--color-svv-muted);line-height:1.4}
-.pjb-liste{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:3px}
-.pjb-item{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:44px;padding:4px 6px;border-radius:8px;
-  background:var(--color-svv-field);font-size:.82rem}
-.pjb-nom{flex:1 1 8rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-svv-ink)}
+/* ══ LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — LA GRILLE DE VIGNETTES ════════════════════════════════════════
+   Arno : « format MINIATURE, comme dans la lecture des mails, pour verifier ce que j'envoie », et « memes
+   dimensions et meme style que les miniatures de lecture ». Les valeurs sont donc celles de .pj-grille /
+   .pj-carte / .pj-apercu, a l'identique — y compris le repli en UNE colonne a 390 px, sans media query.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+.pjb-grille{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:8px;
+  grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.pjb-carte{display:flex;flex-direction:column;border:1px solid var(--color-svv-line);border-radius:.6rem;
+  background:var(--color-svv-surface);overflow:hidden;min-width:0}
+/* 🔴 DECOCHEE : estompee, mais TOUJOURS LA — et le mot « Non envoyee » dit ce que le gris ne dit pas. */
+.pjb-carte--decochee{opacity:.5}
+.pjb-carte--indisponible{opacity:.55;border-style:dashed}
+.pjb-carte--indisponible .pjb-nom{text-decoration:line-through}
+/* L'apercu : hauteur RESERVEE, pour que la zone ne saute pas quand les vignettes arrivent. */
+.pjb-apercu{display:flex;align-items:center;justify-content:center;height:${HAUTEUR_VIGNETTE}px;
+  background:var(--color-svv-field);border-bottom:1px solid var(--color-svv-line);overflow:hidden}
+/* cover + object-position:top : on garde le HAUT du document, ce qui permet de le reconnaitre sans l'ouvrir. */
+.pjb-vignette{width:100%;height:${HAUTEUR_VIGNETTE}px;object-fit:cover;object-position:top;display:block}
+/* L'etiquette de TYPE en toutes lettres : lisible en niveaux de gris, la ou une icone seule ne dirait rien. */
+.pjb-type{font-size:.95rem;font-weight:600;letter-spacing:.06em;color:var(--color-svv-muted)}
+.pjb-pied{display:flex;flex-direction:column;gap:2px;padding:.4rem .5rem 0;min-width:0}
+/* La case et le nom sur une meme ligne : cliquer le nom coche, comme dans toute liste a cases. */
+.pjb-ligne-nom{display:flex;align-items:center;gap:6px;min-width:0;cursor:pointer}
+.pjb-nom{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:.8rem;color:var(--color-svv-ink)}
 .pjb-taille{font-size:.74rem;color:var(--color-svv-muted);white-space:nowrap}
 .pjb-origine{font-size:.7rem;color:var(--color-svv-muted);white-space:nowrap}
-.pjb-retirer{min-width:44px;min-height:44px;border:1px solid transparent;border-radius:.45rem;background:transparent;
-  color:var(--color-svv-ink);cursor:pointer;font-size:.9rem}
-.pjb-retirer:hover{background:var(--color-svv-surface);border-color:var(--color-svv-line)}
-.pjb-retirer:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.pjb-nonenvoyee{font-size:.72rem;font-weight:700;color:var(--color-svv-ink);white-space:nowrap}
+/* Les actions : TOUJOURS visibles (jamais au survol seul), cible de 44 px — comme en lecture. */
+.pjb-actions{display:flex;align-items:center;gap:2px;padding:.2rem .35rem .35rem;margin-top:auto}
+.pjb-action{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;
+  color:var(--color-svv-ink);background:transparent;border:1px solid transparent;border-radius:.45rem;
+  cursor:pointer;font:inherit;font-size:1.05rem;line-height:1}
+.pjb-action:hover{background:var(--color-svv-field);border-color:var(--color-svv-line)}
+.pjb-action:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.pjb-retirer{margin-left:auto}
 /* Un refus est dit par des MOTS : il reste lisible en niveaux de gris comme aux daltoniens. */
 .pjb-refus{margin:0;font-size:.78rem;font-weight:600;color:var(--color-svv-ink);line-height:1.4}
 `;

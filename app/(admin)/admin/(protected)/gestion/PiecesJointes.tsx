@@ -6,6 +6,9 @@ import {
   sortePiece, tronquerNom,
   type PieceAffichee,
 } from '../../../../lib/gestion/pieces';
+// 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — la hauteur de vignette est PARTAGÉE avec la grille de
+//    l'éditeur : Arno veut « mêmes dimensions et même style ». Une seule constante, donc.
+import { HAUTEUR_VIGNETTE } from '../../../../lib/gestion/piecesEnvoi';
 // 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — l'œil est un TRACÉ, jamais un emoji : « 👁 » est rendu par une police EN
 //    COULEUR qui ignore `color`, et resterait de la même teinte en Clair et en Sombre (leçon du trombone).
 import { Oeil } from './Oeil';
@@ -37,8 +40,15 @@ import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
  * base, sous peine de faire tomber toute l'application (incident du 24/09/2026).
  */
 
-/** Les dimensions réservées à la vignette. Fixées ICI et dans le CSS : sans elles, la page saute quand les images arrivent. */
-const VIGNETTE_H = 108;
+/**
+ * Les dimensions réservées à la vignette. Fixées ICI et dans le CSS : sans elles, la page saute quand les images
+ * arrivent.
+ *
+ * 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — ELLE VIENT DÉSORMAIS DU MODULE PARTAGÉ, et c'est la demande
+ * d'Arno : « mêmes dimensions et même style que les miniatures de lecture » pour les pièces de l'éditeur. Deux
+ * constantes de 108 auraient divergé au premier réglage ; celle-ci est la seule.
+ */
+const VIGNETTE_H = HAUTEUR_VIGNETTE;
 
 /** Un dépôt déjà fait, tel que la route le rend. */
 export interface DepotAffiche {

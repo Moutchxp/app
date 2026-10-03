@@ -104,6 +104,18 @@ export interface PieceBrouillonAffichee {
    * leurs octets étaient là.
    */
   disponible?: boolean;
+  /**
+   * ══ 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — LA PIÈCE REÇUE D'ORIGINE, QUAND C'EN EST UNE ══════════
+   *
+   * Arno veut l'ŒIL sur chaque vignette de l'éditeur, « même visionneuse » que la lecture. Or cette visionneuse
+   * (`ApercuFichierDrive`, `source: 'piece'`) sait ouvrir une pièce REÇUE, désignée par son identifiant.
+   *
+   * ⚠️ `null` POUR UN FICHIER AJOUTÉ (Mac, Drive, « Récents ») : il n'existe dans aucun message, donc la
+   * visionneuse n'a rien à ouvrir, et l'œil ne s'affiche pas. La règle du module depuis le lot 5-PJ-A — « un
+   * bouton qui n'ouvrirait rien est pire que pas de bouton » — vaut ici aussi. Sa VIGNETTE, elle, s'affiche
+   * comme les autres : elle vient de la route des pièces de brouillon, qui ne dépend d'aucune origine.
+   */
+  pieceId?: number | null;
 }
 
 /** Le total joint, pour l'écran comme pour la vérification. PUR. */
@@ -141,6 +153,23 @@ export function motToutCocher(toutesCochees: boolean): string {
 export const MENTION_PIECE_INDISPONIBLE = 'Pièce indisponible';
 export const AIDE_PIECE_INDISPONIBLE =
   'Ses octets sont introuvables (ni chez nous, ni dans le Drive, ni dans Gmail) : elle ne peut pas être jointe.';
+
+/**
+ * ══ 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — CE QU'UNE VIGNETTE DÉCOCHÉE ANNONCE ════════════════════════
+ *
+ * Arno : « une pièce décochée reste visible mais estompée, avec la mention “non envoyée”. »
+ *
+ * 🔴 EN MOTS, PAS SEULEMENT EN GRIS. Une vignette simplement estompée se lit « en cours de chargement » autant que
+ * « ne partira pas » ; et estompée seule, elle ne dit rien du tout à qui regarde en niveaux de gris.
+ */
+export const MENTION_NON_ENVOYEE = 'Non envoyée';
+
+/**
+ * ⚠️ LA HAUTEUR DE VIGNETTE, ÉCRITE UNE SEULE FOIS POUR LES DEUX GRILLES. Arno : « mêmes dimensions et même style
+ * que les miniatures de lecture ». Deux constantes auraient dérivé au premier réglage — et c'est exactement le
+ * genre d'écart qu'on ne voit qu'en mettant les deux écrans côte à côte.
+ */
+export const HAUTEUR_VIGNETTE = 108;
 
 /** Celles qui partiront vraiment. PUR — l'écran et le compteur lisent la MÊME liste. */
 export function piecesCochees<T extends { cochee?: boolean }>(pieces: readonly T[]): T[] {

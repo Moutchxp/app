@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CSS_PIECES_BROUILLON, PiecesBrouillon } from './PiecesBrouillon';
+/* 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — la MÊME visionneuse que la lecture d'un mail, ouverte par
+   l'œil d'une vignette de l'éditeur. En écrire une seconde aurait fait deux écrans à corriger au premier défaut. */
+import { ApercuFichierDrive } from './ApercuFichierDrive';
+import { PARENT_PIECES_CONVERSATION } from '../../../../lib/gestion/piecesConversation';
 // LOT REDACTION-GMAIL — le corps en texte mis en forme, et le nettoyage du HTML collé (module PUR, partagé serveur).
 import { CSS_EDITEUR_RICHE, EditeurRiche, type ApiEditeur } from './EditeurRiche';
 import { htmlVersTexte, texteVersHtml } from '../../../../lib/gestion/htmlMail';
@@ -360,6 +364,11 @@ export function Redaction({
   const [barreOutils, setBarreOutils] = useState(true);
   /** Le sélecteur de fichier Drive, et la petite fenêtre « insérer un lien ». `null` = fermés. */
   const [drive, setDrive] = useState(false);
+  /**
+   * 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — la pièce ouverte dans la visionneuse, par l'œil d'une
+   * vignette. `null` = aucune. C'est la MÊME visionneuse que la lecture d'un mail.
+   */
+  const [pieceVue, setPieceVue] = useState<{ id: number; nom: string; typeMime: string | null } | null>(null);
   const [lien, setLien] = useState<{ texte: string; url: string } | null>(null);
   /** La confirmation de suppression du brouillon. Un brouillon se supprime EXPRÈS, jamais par un clic au passage. */
   const [supprime, setSupprime] = useState(false);
@@ -1457,6 +1466,14 @@ export function Redaction({
         <PiecesBrouillon key={versionPieces} brouillonId={brouillon.id} onChange={setPiecesJointes}
           onBesoinDeBrouillon={assurerBrouillon}
           /**
+           * ══ 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — L'ŒIL D'UNE VIGNETTE ════════════════════════════
+           *
+           * Arno : « les pictos œil “Visualiser” (même visionneuse) ». C'est donc `ApercuFichierDrive`,
+           * `source: 'piece'` — celle que la lecture d'un mail emploie déjà. En écrire une seconde ici aurait fait
+           * deux visionneuses à corriger au premier défaut.
+           */
+          onVisualiser={(p) => setPieceVue(p)}
+          /**
            * 🔴 LOT EDITEUR-PJ — LES DEUX ICÔNES REJOIGNENT LA ZONE DES PIÈCES (demande d'Arno). Elles vivaient en
            * bas, à côté d'« Envoyer », parmi les outils du message. Or « joindre depuis le Drive » et « joindre un
            * fichier » sont LE MÊME geste avec deux sources : les séparer de trente centimètres obligeait à chercher.
@@ -1524,6 +1541,31 @@ export function Redaction({
       {/* 🔴 LOT EDITEUR-PJ — LA FENÊTRE NE SE FERME PLUS À CHAQUE PIÈCE : on en prend autant qu'on veut, dans
           autant de dossiers qu'on veut, et c'est « Terminé » qui ferme. Insérer un LIEN, en revanche, referme :
           c'est un geste qui finit dans le corps du message, et l'on veut voir où il a atterri. */}
+      {/* ══ 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — LA VISIONNEUSE, OUVERTE PAR L'ŒIL D'UNE VIGNETTE ══
+          Arno : « les pictos œil “Visualiser” (même visionneuse) ». C'est celle de la lecture, à l'identique.
+
+          ⚠️ SANS VOISINAGE, ET C'EST VOULU : les flèches ◀ ▶ font le tour des pièces d'une CONVERSATION. Ici on
+          regarde ce qu'on s'apprête à ENVOYER — un brouillon n'est pas un fil, et promettre un tour qui sauterait
+          d'un message à l'autre ferait passer sans prévenir d'une pièce qu'on joint à une pièce qu'on ne joint pas.
+
+          ⚠️ NI RENOMMAGE NI « RANGER DANS LE DRIVE » : on vérifie avant d'envoyer, on ne réorganise pas. Les deux
+          gestes existent, à leur place, dans la lecture du message. */}
+      {pieceVue !== null && (
+        <ApercuFichierDrive
+          fichier={{
+            id: String(pieceVue.id), nom: pieceVue.nom, typeMime: pieceVue.typeMime ?? '', lien: null,
+            parentId: PARENT_PIECES_CONVERSATION, source: 'piece',
+          }}
+          etiquetteNav="Pièce jointe au message"
+          /* ⚠️ AUCUN BOUTON D'ACTION : on REGARDE ce qu'on s'apprête à envoyer. « Joindre » ici n'aurait aucun
+             sens — la pièce EST déjà jointe, c'est tout l'objet de la vignette qui vient de l'ouvrir. */
+          joindreAutorise={false}
+          estDeja={() => false}
+          onJoindre={() => { /* sans objet : le bouton n'est pas affiché (voir ci-dessus) */ }}
+          onFermer={() => setPieceVue(null)}
+        />
+      )}
+
       {drive && (
         <SelecteurFichierDrive
           /**

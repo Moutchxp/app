@@ -75,7 +75,7 @@ const monter = async () => {
   await calmer();
 };
 const cases = () => [...container.querySelectorAll('input.pjb-case')] as HTMLInputElement[];
-const lignes = () => [...container.querySelectorAll('.pjb-item')];
+const lignes = () => [...container.querySelectorAll('.pjb-carte')];
 const compteur = () => container.querySelector('.pjb-compte')?.textContent ?? '';
 const boutonTout = () => container.querySelector('.pjb-tout') as HTMLButtonElement | null;
 const cliquer = async (e: Element | null | undefined) => {
@@ -180,7 +180,7 @@ describe('🔴🔴 ③ une pièce dont les octets sont introuvables', () => {
     const c = cases()[1];
     expect(c.checked).toBe(false);
     expect(c.disabled).toBe(true);
-    expect(lignes()[1].className).toContain('pjb-item--indisponible');
+    expect(lignes()[1].className).toContain('pjb-carte--indisponible');
   });
 
   it('🔴 elle ne compte pas parmi les pièces jointes', async () => {

@@ -91,6 +91,9 @@ export async function listerPieces(brouillonId: number): Promise<PieceBrouillonA
     id: r.id, nom: r.nom_fichier, typeMime: r.type_mime, taille: Number(r.taille_octets),
     origine: r.piece_id === null ? 'ajoutee' : 'reprise',
     cochee: r.cochee === true, disponible: r.disponible === true,
+    /* 🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — l'identifiant de la pièce REÇUE, pour l'œil. Il était déjà
+       lu par cette requête ; il ne sortait simplement pas. Voir l'encadré de `PieceBrouillonAffichee.pieceId`. */
+    pieceId: r.piece_id === null ? null : Number(r.piece_id),
   }));
 }
 
