@@ -70,6 +70,41 @@ const argNombre = (nom: string): number | null => {
    ① LES PIÈCES — IL FAUT LES OCTETS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * ══ 🔴🔴 ①a — LA REPRISE GRATUITE : L'EMPREINTE EST DÉJÀ EN BASE POUR 97,8 % DES PIÈCES ═════════════════════════
+ *
+ * MESURÉ LE 03/10/2026, et c'est ce qui change tout : 26 522 pièces sur 27 127 ont une copie Drive VÉRIFIÉE qui
+ * porte son `md5`. Et une copie « vérifiée » n'est pas une copie « qu'on croit bonne » : au moment de la
+ * campagne, le md5 rendu par Google a été COMPARÉ au md5 des octets lus sur MinIO (`conclure` →
+ * `verifierCopie({ md5Attendu, md5Rendu })`), et `verifie_le` n'a été posé qu'en cas d'égalité.
+ *
+ * 🔴 DONC CE md5 **EST** CELUI DU CONTENU DE LA PIÈCE, par construction — pas une ressemblance, une égalité
+ * prouvée à l'époque. Le recopier est exact, instantané, et n'émet pas un octet de réseau.
+ *
+ * ⚠️ ET CE N'EST PAS UN RACCOURCI DE CONFORT : ces 26 522 pièces sont EXACTEMENT celles qui ont été VIDÉES du
+ * stockage objet. Leurs octets ne vivent plus que dans le Drive — les redemander un par un, c'est 26 522
+ * téléchargements complets, soit près de six heures mesurées (0,8 s par pièce sur un échantillon de 200). Pour
+ * aboutir au même chiffre, déjà écrit dans la ligne d'à côté.
+ *
+ * 🔒 ON NE REMPLACE JAMAIS UNE EMPREINTE DÉJÀ POSÉE, et l'on n'accepte que les copies vivantes et vérifiées.
+ */
+async function reprisParLeRegistre(appliquer: boolean): Promise<void> {
+  const SOURCE = `SELECT p.id, min(lower(btrim(d.md5))) AS md5
+                    FROM gestion_piece p
+                    JOIN gestion_piece_drive d ON d.piece_id = p.id
+                   WHERE coalesce(p.md5, '') = ''
+                     AND d.origine = 'copie' AND d.verifie_le IS NOT NULL
+                     AND coalesce(btrim(d.md5), '') <> '' AND d.disparu_le IS NULL
+                   GROUP BY p.id`;
+  const { rows: combien } = await query<{ n: string }>(`SELECT count(*)::text AS n FROM (${SOURCE}) t`);
+  console.log(`\n① a) REPRISE PAR LE REGISTRE (copies vérifiées, sans réseau) : ${combien[0].n} pièce(s)`);
+  if (!appliquer) { console.log('   (simulation — rien écrit)'); return; }
+  const r = await query(
+    `UPDATE gestion_piece p SET md5 = t.md5 FROM (${SOURCE}) t
+      WHERE p.id = t.id AND coalesce(p.md5, '') = ''`);
+  console.log(`   ✅ ${r.rowCount ?? 0} empreinte(s) reprise(s) du registre.`);
+}
+
 async function passePieces(appliquer: boolean, limite: number | null): Promise<void> {
   if (!(await pieceMd5Disponible())) {
     console.log('\n══ ① LES PIÈCES ═══════════════════════════════════════════════════════════════');
@@ -87,10 +122,14 @@ async function passePieces(appliquer: boolean, limite: number | null): Promise<v
   console.log(`pièces en tout : ${etat[0].total} — avec empreinte md5 : ${etat[0].avec}`
     + ` — jamais déposées au stockage : ${etat[0].sans_octets}`);
 
+  /* 🔴 LA REPRISE GRATUITE D'ABORD : elle règle 97,8 % des pièces sans un octet de réseau. Voir son encadré. */
+  await reprisParLeRegistre(appliquer);
+
   const { rows: aFaire } = await query<{ id: string }>(
     `SELECT id::text FROM gestion_piece
       WHERE coalesce(md5, '') = '' ORDER BY id DESC ${limite === null ? '' : `LIMIT ${limite}`}`);
-  console.log(`à calculer : ${aFaire.length}${limite === null ? '' : ` (borné à ${limite})`}`);
+  console.log(`\n① b) RESTE À CALCULER SUR LES OCTETS : ${aFaire.length}`
+    + `${limite === null ? '' : ` (borné à ${limite})`}`);
   if (aFaire.length === 0) return;
 
   const deps = depsOctetsPiece(jetonGmail);
