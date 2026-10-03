@@ -212,6 +212,20 @@ export interface LigneBoite {
    * question qui annonce « 3 mails » avant d'en effacer 7 est pire qu'une absence de question.
    */
   nbCorbeille?: number;
+  /**
+   * ══ 🔴🔴 LOT REINTEGRER — CE MAIL PORTE-T-IL LA MARQUE SPAM DE GMAIL ? ══════════════════════════════════════
+   *
+   * Le troisième signal dont `boiteOrigine` (module PUR) a besoin pour NOMMER la boîte d'où un mail de la
+   * corbeille revient — les deux autres, `dernierSens` et `nbLisibles`, sont déjà rendus.
+   *
+   * 🔴 IL EST RENDU UNIQUEMENT QUAND LA COLONNE EST NOMMABLE (migration 263, sonde `spamDisponible`) ; ailleurs
+   * `false`. On n'invente pas un état qu'on n'a pas lu : sans la migration, `aideReintegrer` reçoit `null` et ne
+   * nomme aucune boîte plutôt que d'en nommer une fausse.
+   *
+   * ⚠️ IL PORTE SUR LE MAIL DE LA LIGNE, pas sur l'échange : c'est un mail que Gmail marque, pas une
+   * conversation. Même portée que `horsGestion`.
+   */
+  spam?: boolean;
 }
 
 export interface PageBoite {
@@ -289,6 +303,8 @@ interface LigneDB {
   nb_pieces: number;
   /** LOT BOITE-INTERNE-CORBEILLE — combien de mails de cet échange sont à la corbeille. `0` hors de son étiquette. */
   nb_corbeille: number;
+  /** 🔴 LOT REINTEGRER — le mail de la ligne porte-t-il la marque SPAM ? `false` sans la migration 263. */
+  est_spam: boolean | null;
   reference: string | null;
   sans_suite: boolean;
   /** LOT CAPSULE-STATUT — rendus par la jointure latérale ; tous `null` quand la migration 257 est absente. */
@@ -902,6 +918,7 @@ export function sqlPageBoite(
 
   return `WITH page AS (
        SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires, m.dest_a,
+              ${spam ? '(m.spam_le IS NOT NULL)' : 'false'} AS est_spam,
               left(${sqlExtraitLisible('m.corps_texte')}, ${LONGUEUR_EXTRAIT}) AS extrait
          FROM gestion_message m
         WHERE (m.recu_le, m.fil_id) < ($1::timestamptz, $2::bigint)
@@ -949,6 +966,11 @@ export function sqlPageBoite(
               ? `(SELECT count(*) FROM gestion_message cc
                    WHERE cc.fil_id = p.fil_id AND cc.corbeille_le IS NOT NULL)::int`
               : '0'} AS nb_corbeille,
+            -- 🔴🔴 LOT REINTEGRER — le troisieme signal de boiteOrigine : ce mail porte-t-il la marque SPAM de
+            --   Gmail ? Les deux autres (sens, nombre de lisibles) sont deja rendus. Sans la migration 263, la
+            --   colonne n'est NOMMEE NULLE PART et le CTE rend le litteral faux — on n'invente pas un etat.
+            --   AUCUN ACCENT GRAVE ICI : ce commentaire vit dans un litteral de gabarit (piege TS1005 du depot).
+            p.est_spam AS est_spam,
             cl.n AS cl_n, cl.humain AS cl_humain, cl.detail AS cl_detail,
             ${horsGestion ? 'hg.motif IS NOT NULL AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'},
             ${sqlColonneInterne(interne)}
@@ -1215,6 +1237,10 @@ export async function lireBoiteMail(
         .filter(([msg]) => msg !== Number(r.message_id))
         .reduce((n, [, liste]) => n + liste.length, 0),
       nbCorbeille: r.nb_corbeille,
+      /* 🔴 LOT REINTEGRER — `=== true` et non `?? false` : sans la migration 263 le CTE rend le littéral `false`,
+         et un `null` venu d'une route plus ancienne doit se lire « on ne sait pas », donc `false`. Jamais un état
+         inventé — c'est ce qui fait que l'aide du menu ne nomme alors AUCUNE boîte. */
+      spam: r.est_spam === true,
       reference: r.reference,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,

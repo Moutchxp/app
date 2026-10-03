@@ -21,6 +21,8 @@ import { ApercuBrouillon } from './ApercuBrouillon';
 // `ecran` est un module PUR (aucun import) : le faire venir dans un composant client ne tire pas `pg`.
 import { titreARattacher } from '../../../../lib/gestion/ecran';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
+/* 🔴🔴 LOT REINTEGRER — la boîte d'origine d'un mail de la corbeille, et la phrase du bandeau (module PUR). */
+import { bandeauReintegre, boiteOrigine, type BoiteOrigine } from '../../../../lib/gestion/boiteOrigine';
 import {
   gesteCorbeille, gesteCorbeilleLot, idsDeToutLaCorbeille, lireEtatCorbeille, marquerLectureLigne,
   DUREE_ANNULATION_MS, MENTION_DROIT_ATTENTE,
@@ -243,6 +245,27 @@ export function PleinEcranBoite({
    * chercher l'échange dans la corbeille pour le restaurer serait lui faire payer une erreur de clic.
    */
   const [corbeilleFaite, setCorbeilleFaite] = useState<{ filId: number } | null>(null);
+  /**
+   * ══ 🔴🔴 LOT REINTEGRER — « ANNULER » EXISTE DANS LES DEUX SENS ══════════════════════════════════════════════
+   *
+   * Arno : « Après “Réintégrer” : le mail quitte la corbeille, réapparaît dans sa boîte d'origine, et les
+   * compteurs du menu de gauche se mettent à jour en direct. “Annuler” est possible quelques secondes, comme pour
+   * la mise à la corbeille. »
+   *
+   * 🔴 CE QUI MANQUAIT, ET C'ÉTAIT LA SEULE CHOSE : `setCorbeilleFaite(versLaCorbeille ? { filId } : null)` —
+   * le bandeau n'existait QUE dans le sens de la corbeille. Une réintégration se disait par un compte rendu
+   * ordinaire, sans retour possible. Or c'est le sens où l'on se trompe le plus : on réintègre en parcourant une
+   * liste, et la ligne disparaît sous les yeux.
+   *
+   * ⚠️ DEUX ÉTATS ET NON UN SEUL, avec un sens : un même état porteur d'un drapeau aurait laissé les deux
+   * bandeaux se confondre, et « Annuler » appeler la mauvaise direction. Ils ne peuvent pas être ouverts
+   * ensemble — le second geste efface le premier, comme aujourd'hui.
+   *
+   * ⚠️ LA BOÎTE EST GARDÉE AVEC LE FIL : la ligne a quitté la liste, on ne peut plus la relire pour savoir où le
+   * mail est parti. Sans elle, le bandeau dirait « réintégré » sans dire OÙ — et il faudrait le chercher.
+   */
+  const [reintegreFait, setReintegreFait] =
+    useState<{ filId: number; boite: BoiteOrigine | null } | null>(null);
   /** Incrémenté après un geste de corbeille : la liste doit être relue, l'échange n'y est plus (ou y revient). */
   const [versionListe, setVersionListe] = useState(0);
   /**
@@ -290,7 +313,10 @@ export function PleinEcranBoite({
    */
   const [selBrute, setSelBrute] = useState<{ sorte: string; ids: ReadonlySet<number> }>(
     { sorte: '', ids: new Set() });
-  const [lignesCorbeille, setLignesCorbeille] = useState<{ filId: number; nbCorbeille: number }[]>([]);
+  /* 🔴 LOT REINTEGRER — chaque ligne porte aussi sa BOÎTE D'ORIGINE : le bandeau doit la nommer après que la ligne
+     a quitté la liste, moment où il est trop tard pour la relire. */
+  const [lignesCorbeille, setLignesCorbeille] =
+    useState<{ filId: number; nbCorbeille: number; boite?: BoiteOrigine }[]>([]);
   const [toutCorbeille, setToutCorbeille] = useState<{
     total: number; mails: number; suppressionPossible: boolean; motImpossible: string;
   } | null>(null);
@@ -417,7 +443,18 @@ export function PleinEcranBoite({
     setVersionListe((v) => v + 1);
     if (filOuvert === filId) onFermerFil();
     // Le bandeau porte l'annulation ; une restauration, elle, se dit dans le compte rendu ordinaire.
+    /**
+     * ══ 🔴🔴 LOT REINTEGRER — LE BANDEAU « ANNULER » DANS LES DEUX SENS ═════════════════════════════════════════
+     *
+     * ⚠️ UN SEUL DES DEUX À LA FOIS, et c'est ce que l'autre `null` garantit : deux bandeaux côte à côte
+     * laisseraient cliquer « Annuler » sur la mauvaise direction.
+     *
+     * 🔴 LA BOÎTE EST LUE **AVANT** LA RELECTURE DE LA LISTE : à l'instant d'après, la ligne n'y est plus.
+     * `lignesCorbeille` la portait depuis `onPage` — voir son encadré.
+     */
+    const boiteDuFil = lignesCorbeille.find((l) => l.filId === filId)?.boite ?? null;
     setCorbeilleFaite(versLaCorbeille ? { filId } : null);
+    setReintegreFait(versLaCorbeille ? null : { filId, boite: boiteDuFil });
     /**
      * 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — LES COMPTEURS SUIVENT DANS LES DEUX SENS.
      *
@@ -426,8 +463,9 @@ export function PleinEcranBoite({
      * précisément le genre d'oubli qui a produit le constat d'Arno : on branche sur le geste, jamais sur
      * l'affichage du message.
      */
-    onGeste(versLaCorbeille ? '' : r.message,
-      { compteurs: versLaCorbeille ? DELTA_FIL_CORBEILLE : DELTA_FIL_RESTAURE });
+    /* ⚠️ PLUS DE COMPTE RENDU DANS LE SENS « RÉINTÉGRER » : il est devenu le BANDEAU, qui dit la même chose ET
+       porte « Annuler ». Deux messages pour un geste seraient du bruit — c'est déjà la règle du sens inverse. */
+    onGeste('', { compteurs: versLaCorbeille ? DELTA_FIL_CORBEILLE : DELTA_FIL_RESTAURE });
   };
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -468,6 +506,16 @@ export function PleinEcranBoite({
     const t = setTimeout(() => setReintegres(null), DUREE_ANNULATION_MS);
     return () => clearTimeout(t);
   }, [reintegres]);
+  /**
+   * 🔴🔴 LOT REINTEGRER — LE MÊME DÉLAI POUR LA RÉINTÉGRATION D'UN SEUL MAIL. Arno : « “Annuler” est possible
+   * quelques secondes, comme pour la mise à la corbeille. » `DUREE_ANNULATION_MS` est la seule durée d'annulation
+   * du module : deux valeurs voisines auraient fait disparaître un bandeau avant l'autre, sans raison lisible.
+   */
+  useEffect(() => {
+    if (reintegreFait === null) return;
+    const t = setTimeout(() => setReintegreFait(null), DUREE_ANNULATION_MS);
+    return () => clearTimeout(t);
+  }, [reintegreFait]);
   const nbMailsSelection = lignesCorbeille
     .filter((l) => selCorbeille.has(l.filId))
     .reduce((n, l) => n + Math.max(1, l.nbCorbeille), 0);
@@ -480,7 +528,7 @@ export function PleinEcranBoite({
    * garde donc que ce que la liste montre — sauf quand « tout sélectionner la Corbeille » vient d'aller chercher
    * au-delà de la page, ce que `surLesLignes` dit explicitement.
    */
-  const surLesLignes = (lignes: { filId: number; nbCorbeille: number }[]): void => {
+  const surLesLignes = (lignes: { filId: number; nbCorbeille: number; boite: BoiteOrigine }[]): void => {
     setLignesCorbeille(lignes);
   };
 
@@ -556,7 +604,31 @@ export function PleinEcranBoite({
     setVersionListe((v) => v + 1);
   };
 
-  /** Défaire le dernier « Supprimer », depuis le bandeau. Le même verbe que « Restaurer », pris par l'autre bout. */
+  /**
+   * ══ 🔴🔴 LOT REINTEGRER — DÉFAIRE LA RÉINTÉGRATION D'UN SEUL MAIL, depuis son bandeau ═══════════════════════════
+   *
+   * ⚠️ DISTINCTE DE `annulerReintegration` JUSTE AU-DESSUS, et les deux sont nécessaires : celle-là défait un LOT
+   * (la sélection multiple de l'en-tête de la Corbeille, qui avait déjà son bandeau et son « Annuler ») ; celle-ci
+   * défait LE geste du menu « … » d'UNE ligne, qui n'en avait pas. Les fondre aurait voulu dire porter un tableau
+   * d'un seul élément et un état partagé entre deux chemins qui ne se déclenchent jamais ensemble.
+   *
+   * 🔴 LE MÊME CHEMIN QUE SON CONTRAIRE, pris par l'autre bout : la route `corbeille`, action `corbeille`. On ne
+   * crée pas un second geste pour défaire le premier — ce serait deux endroits à tenir d'accord, et le journal de
+   * la corbeille cesserait de raconter une histoire lisible.
+   *
+   * ⚠️ LES COMPTEURS SUIVENT, comme à l'aller : le même delta, dans l'autre sens.
+   */
+  const annulerReintegrationDuMail = async (): Promise<void> => {
+    const fait = reintegreFait;
+    if (fait === null) return;
+    setReintegreFait(null);
+    const r = await gesteCorbeille(fait.filId, true);
+    onGeste(r.ok ? 'Réintégration annulée : le mail est reparti à la corbeille.' : r.message,
+      r.ok ? { compteurs: DELTA_FIL_CORBEILLE } : undefined);
+    if (r.ok) setVersionListe((v) => v + 1);
+  };
+
+  /** Défaire le dernier « Supprimer », depuis le bandeau. Le même verbe que « Réintégrer », pris par l'autre bout. */
   const annulerCorbeille = async (): Promise<void> => {
     const fait = corbeilleFaite;
     if (fait === null) return;
@@ -922,6 +994,40 @@ export function PleinEcranBoite({
                   lui-même.
                 </span>
                 <button type="button" className="pe-corbeille-annuler" onClick={() => void annulerCorbeille()}>
+                  Annuler
+                </button>
+              </p>
+            )}
+            {/* ══ 🔴🔴 LOT REINTEGRER — LE BANDEAU SYMÉTRIQUE ═══════════════════════════════════════════════════
+                Arno : « Après “Réintégrer” […] “Annuler” est possible quelques secondes, comme pour la mise à la
+                corbeille. » C'est donc EXACTEMENT le même bandeau, à la même place, avec le même bouton : il reste
+                tant qu'on ne fait pas autre chose, comme celui du dessus. Un geste réversible doit se défaire LÀ
+                OÙ IL A ÉTÉ FAIT.
+
+                🔴 ET IL DIT OÙ LE MAIL EST PARTI. La liste qu'on regarde est la Corbeille : le mail vient d'en
+                disparaître sous les yeux. Sans le nom de la boîte, il faudrait le chercher. La phrase vient du
+                module PUR (`bandeauReintegre`), qui dit aussi que le statut et l'étoile sont conservés — ce que
+                la mécanique garantit par construction, et qu'on a donc le droit d'affirmer. */}
+            {reintegreFait !== null && (
+              <p className="pe-corbeille" role="status">
+                <span>{bandeauReintegre(reintegreFait.boite ?? null)}</span>
+                {/**
+                 * 🔴🔴 `annulerReintegrationDuMail`, ET SURTOUT PAS `annulerReintegration` — DÉFAUT QUE J'AI
+                 * INTRODUIT ET QUE L'ÉCRAN A ATTRAPÉ.
+                 *
+                 * Les deux noms se ressemblent et ne défont pas la même chose : `annulerReintegration` lit
+                 * `reintegres` (le LOT de la sélection multiple), `annulerReintegrationDuMail` lit
+                 * `reintegreFait` (LE mail du menu « … »). Branché sur la première, ce bouton lisait un état
+                 * `null`, sortait à la première ligne, et NE FAISAIT RIEN — sans erreur, sans message, le bandeau
+                 * restant même affiché. MESURÉ à l'écran le 03/10/2026 en instrumentant `fetch` : zéro appel
+                 * après le clic, bandeau inchangé, mail resté dans « Envoyés ».
+                 *
+                 * ⚠️ LA LEÇON : deux gestes voisins qui lisent deux états différents doivent être éprouvés SUR
+                 * L'ÉCRAN, pas seulement par la lecture du code — un `?? null` et un retour anticipé suffisent à
+                 * rendre un bouton muet.
+                 */}
+                <button type="button" className="pe-corbeille-annuler"
+                  onClick={() => void annulerReintegrationDuMail()}>
                   Annuler
                 </button>
               </p>

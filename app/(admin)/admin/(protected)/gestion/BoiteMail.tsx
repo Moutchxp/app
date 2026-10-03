@@ -25,6 +25,8 @@ import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import {
   bulleCapsule, capsuleStatut, motCapsule, motMotifHorsGestion, type CapsuleStatut,
 } from '../../../../lib/gestion/statutClassement';
+/* 🔴🔴 LOT REINTEGRER — la boîte d'origine d'un mail de la corbeille, lue sur ses propres signaux (module PUR). */
+import { boiteOrigine, type BoiteOrigine } from '../../../../lib/gestion/boiteOrigine';
 // 🔴🔴 LOT OPTION-C — le MOT de l'unité comptée, écrit une seule fois pour les deux écrans (module PUR).
 import { motConversations } from '../../../../lib/gestion/uniteListe';
 
@@ -534,8 +536,13 @@ export function BoiteMail({
   selection?: {
     actives: ReadonlySet<number>;
     onBasculer: (filId: number, coche: boolean) => void;
-    /** Les lignes AFFICHÉES, avec le nombre de mails que chacune porte à la corbeille (cf. `nbCorbeille`). */
-    onPage: (lignes: { filId: number; nbCorbeille: number }[]) => void;
+    /**
+     * Les lignes AFFICHÉES, avec le nombre de mails que chacune porte à la corbeille (cf. `nbCorbeille`).
+     *
+     * 🔴 LOT REINTEGRER — ET LA BOÎTE D'OÙ CHACUNE VIENT. Le bandeau « Mail réintégré dans X » doit la NOMMER, et
+     * au moment où il s'affiche la ligne a déjà quitté la liste : il est trop tard pour la relire.
+     */
+    onPage: (lignes: { filId: number; nbCorbeille: number; boite: BoiteOrigine }[]) => void;
   };
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
@@ -865,8 +872,16 @@ export function BoiteMail({
    * ⚠️ LA CLÉ EST LA CHAÎNE DES IDENTIFIANTS, et non le tableau : un tableau recréé à chaque rendu relancerait
    * l'effet sans fin — le même piège que `EncartAnnuaire` a déjà rencontré.
    */
+  /**
+   * ⚠️ LOT REINTEGRER — LA CLÉ PORTE AUSSI LA BOÎTE D'ORIGINE. Le bandeau « Mail réintégré dans X » a besoin de la
+   * NOMMER, et au moment où il s'affiche la ligne a déjà quitté la liste : on ne peut plus la relire. Elle voyage
+   * donc avec la clé, qui est de toute façon ce que l'effet surveille.
+   */
   const cleAffiches = etat.v === 'ok'
-    ? etat.lignes.filter((l) => l.filId > 0).map((l) => `${l.filId}:${l.nbCorbeille ?? 0}`).join(',')
+    ? etat.lignes.filter((l) => l.filId > 0)
+      .map((l) => `${l.filId}:${l.nbCorbeille ?? 0}:${boiteOrigine({
+        sens: l.dernierSens, spam: l.spam === true, lisibles: l.nbLisibles,
+      })}`).join(',')
     : '';
   /**
    * 🔴 LA FONCTION PASSE PAR UNE RÉFÉRENCE, ET L'EFFET NE DÉPEND QUE DE LA CLÉ — CORRECTIF MESURÉ.
@@ -891,8 +906,8 @@ export function BoiteMail({
     const dire = onPageRef.current;
     if (dire === undefined) return;
     dire(cleAffiches === '' ? [] : cleAffiches.split(',').map((x) => {
-      const [f, n] = x.split(':');
-      return { filId: Number(f), nbCorbeille: Number(n) };
+      const [f, n, b] = x.split(':');
+      return { filId: Number(f), nbCorbeille: Number(n), boite: b as BoiteOrigine };
     }));
   }, [cleAffiches]);
 
@@ -1495,6 +1510,22 @@ export function BoiteMail({
                     nonLu, enCorbeille: etiquette.sorte === 'corbeille',
                     corbeilleDisponible: corbeille, peutEcrire: peutEcrire && onActionLigne !== undefined,
                     piecesDisponibles,
+                    /**
+                     * ══ 🔴🔴 LOT REINTEGRER — LA BOÎTE D'OÙ CE MAIL VIENT, pour que l'aide la NOMME ════════════
+                     *
+                     * Arno : « la description “Le mail revient à sa place d'origine : <nom de la boîte>” ».
+                     *
+                     * 🔴 ELLE SE LIT SUR LA LIGNE, elle ne se devine pas : les trois signaux de `boiteOrigine`
+                     * (le sens du mail affiché, sa marque spam, le nombre de messages lisibles de l'échange)
+                     * sont exactement les colonnes qui DÉFINISSENT les boîtes, et la mise à la corbeille n'en
+                     * touche aucune. Voir le diagnostic complet dans `boiteOrigine`.
+                     *
+                     * ⚠️ `null` HORS DE LA CORBEILLE : l'entrée n'y est pas proposée, et calculer une origine
+                     * pour un mail qui n'en est pas revenu n'aurait aucun sens.
+                     */
+                    boiteOrigine: etiquette.sorte === 'corbeille'
+                      ? boiteOrigine({ sens: l.dernierSens, spam: l.spam === true, lisibles: l.nbLisibles })
+                      : null,
                   }}
                   onAction={(a) => onActionLigne?.(l.filId, a)}
                 >

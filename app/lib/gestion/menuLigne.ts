@@ -22,6 +22,13 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+/**
+ * 🔴🔴 LOT REINTEGRER — le NOM de la boîte d'origine et la phrase d'aide viennent du module PUR `boiteOrigine`,
+ * qui porte aussi le diagnostic (l'origine est intrinsèque, pas mémorisée). Ce module reste PUR : il n'importe
+ * qu'un type et deux fonctions sans I/O.
+ */
+import { aideReintegrer, LIBELLE_REINTEGRER, type BoiteOrigine } from './boiteOrigine';
+
 export type ActionLigne =
   | 'repondre' | 'repondre_tous' | 'transferer' | 'transferer_piece'
   | 'corbeille' | 'restaurer'
@@ -47,10 +54,10 @@ export interface EntreeLigne {
 export interface EtatLigne {
   /** L'échange porte-t-il au moins un message non lu (dans Gmail — c'est le seul lu/non lu, cf. lot 5-BOITE-2) ? */
   nonLu: boolean;
-  /** L'échange est-il DÉJÀ à la corbeille ? On propose alors « Restaurer », jamais « Supprimer » une seconde fois. */
+  /** L'échange est-il DÉJÀ à la corbeille ? On propose alors « Réintégrer », jamais « Supprimer » deux fois. */
   enCorbeille: boolean;
   /**
-   * La migration 251 est-elle appliquée ? Sinon NI « Supprimer » NI « Restaurer » : proposer une corbeille dont on
+   * La migration 251 est-elle appliquée ? Sinon NI « Supprimer » NI « Réintégrer » : proposer une corbeille dont on
    * ne pourrait pas se souvenir ferait réapparaître l'échange au rechargement, sans un mot d'explication.
    */
   corbeilleDisponible: boolean;
@@ -65,13 +72,30 @@ export interface EtatLigne {
    * ne marcherait pas.
    */
   piecesDisponibles?: boolean;
+  /**
+   * ══ 🔴🔴 LOT REINTEGRER — LA BOÎTE D'OÙ CE MAIL VIENT ════════════════════════════════════════════════════════
+   *
+   * Arno : « une action “Réintégrer” dans le menu “…” qui le remet à sa place d'origine : la boîte ou catégorie
+   * d'où il vient […] avec la description “Le mail revient à sa place d'origine : <nom de la boîte>” ».
+   *
+   * 🔴 ELLE N'EST PAS MÉMORISÉE, ELLE EST INTRINSÈQUE, et c'est tout le diagnostic de ce lot : la mise à la
+   * corbeille n'écrit QUE `corbeille_le` (`marquerCorbeille`), donc `sens`, `exclu_le` et `spam_le` — les trois
+   * colonnes qui DÉFINISSENT les boîtes — sont intactes. Le module PUR `boiteOrigine` les lit ; ce module-ci ne
+   * fait que recevoir le verdict pour l'écrire.
+   *
+   * ⚠️ `null` OU ABSENTE ⇒ L'AIDE NE NOMME AUCUNE BOÎTE. C'est le cas d'un appelant qui ne connaît pas les
+   * signaux, ou de la migration 263 absente (la marque spam est alors illisible). La phrase reste vraie et
+   * s'arrête là : nommer « Réception » parce que c'est le cas le plus fréquent enverrait chercher dans la mauvaise
+   * liste une fois sur mille — et ce sont ces fois-là qui coûtent.
+   */
+  boiteOrigine?: BoiteOrigine | null;
 }
 
 /**
  * LES ENTRÉES DU MENU, dans l'ordre. PUR.
  *
  * ⚠️ UNE SEULE ENTRÉE POUR LE LU/NON LU, et c'est « l'une OU l'autre » : afficher les deux obligerait à lire laquelle
- * s'applique, alors que le libellé dit déjà ce qui va se passer. Même chose pour Supprimer / Restaurer.
+ * s'applique, alors que le libellé dit déjà ce qui va se passer. Même chose pour Supprimer / Réintégrer.
  */
 export function menuLigne(etat: EtatLigne): EntreeLigne[] {
   const entrees: EntreeLigne[] = [];
@@ -95,7 +119,7 @@ export function menuLigne(etat: EtatLigne): EntreeLigne[] {
    * ══ 🔴 LE SECOND GROUPE : CE QUI AGIT SUR L'ÉCHANGE, ET « SUPPRIMER » EN DERNIER ══════════════════════════════
    * Ordre demandé par Arno le 27/09/2026 : « Marquer comme lu / non lu », PUIS « Supprimer ». Le geste le plus
    * lourd — celui qui retire l'échange de la vue — se trouve désormais au bout du menu, là où l'on n'arrive pas par
-   * inadvertance. « Restaurer » prend la même place que « Supprimer » : c'est le même geste, pris par l'autre bout.
+   * inadvertance. « Réintégrer » prend la même place que « Supprimer » : c'est le même geste, pris par l'autre bout.
    *
    * 🔴 LE SÉPARATEUR SE POSE SUR LE PREMIER DE CE GROUPE, QUEL QU'IL SOIT. Il était écrit deux fois, avec une
    * condition croisée (`&& !etat.corbeilleDisponible`) qui disait « mets le trait ici sauf si l'autre l'a déjà mis ».
@@ -115,8 +139,22 @@ export function menuLigne(etat: EtatLigne): EntreeLigne[] {
   if (etat.corbeilleDisponible) {
     surLEchange.push(etat.enCorbeille
       ? {
-        cle: 'restaurer', libelle: 'Restaurer',
-        aide: 'L’échange revient dans sa boîte, avec tous ses messages.',
+        /**
+         * ══ 🔴🔴 LOT REINTEGRER — « Restaurer » DEVIENT « Réintégrer » ═══════════════════════════════════════
+         *
+         * Arno : « Renomme-le “Réintégrer” (même mot que pour les brouillons) avec la description “Le mail
+         * revient à sa place d'origine : <nom de la boîte>”. Aucune autre action n'est retirée. »
+         *
+         * 🔴 LE MÊME MOT QUE POUR LES BROUILLONS, ET C'EST LE POINT : deux verbes pour un seul geste — défaire une
+         * mise à la corbeille — obligeaient à apprendre lequel s'applique où. Le mot vient de `boiteOrigine`,
+         * écrit une seule fois.
+         *
+         * ⚠️ LA CLÉ `restaurer` NE CHANGE PAS. C'est elle que les écrans branchent sur la route (`agirSurLigne`,
+         * `PleinEcranBoite`) : la renommer aurait cassé le câblage pour un libellé. Le MOT est à l'écran, la clé
+         * est dans le code — et un test vérifie qu'aucun écran ne lit le libellé pour décider.
+         */
+        cle: 'restaurer', libelle: LIBELLE_REINTEGRER,
+        aide: aideReintegrer(etat.boiteOrigine ?? null),
       }
       : {
         cle: 'corbeille', libelle: 'Supprimer', discrete: true,
