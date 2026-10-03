@@ -63,6 +63,10 @@ import { classementHerite, type ClassementHerite } from '../../../../lib/gestion
 import {
   motClassement, reperesDuFil, type ExceptionMail, type Periode, type RepereFil,
 } from '../../../../lib/gestion/periodesConversation';
+/* 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — les mots du picto « brouillon en attente », écrits une seule fois. */
+import {
+  AIDE_BROUILLON_EN_ATTENTE, MENTION_BROUILLON_VOIR_EN_BAS, PICTO_BROUILLON,
+} from '../../../../lib/gestion/brouillonEnAttente';
 /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — de quel CÔTÉ le repère se pose, et ce que sa pastille explique. */
 import {
   AIDE_PASTILLE_REPERE, comparatifRepere, coteDuRepere,
@@ -715,8 +719,44 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     return () => { annule = true; };
   }, [barreActions, vue]);
 
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — LA ZONE DE RÉPONSE SUIT LE MAIL, ET NE TRAÎNE JAMAIS DANS UNE LISTE ══
+   *
+   * CONSTAT D'ARNO (03/10/2026) : « j'ouvre un mail reçu, je clique Répondre, la zone s'ouvre sous le mail (OK) ;
+   * je ferme le MAIL sans fermer la zone de réponse : la zone reste affichée dans la LISTE, intercalée entre les
+   * lignes, sous la ligne du mail. C'est faux. »
+   *
+   * 🔴 LA CAUSE, LUE DANS LE CODE : `piedMessage` était rendu HORS du bloc `{ouvert && …}` de `MessageConversation`.
+   * Replier le mail laissait donc l'éditeur accroché sous une LIGNE repliée, au milieu des autres lignes.
+   *
+   * 🔴 ON NE DÉMONTE PAS L'ÉDITEUR, ON DEMANDE SA FERMETURE — et la nuance est tout. Un démontage sec sauterait
+   * `fermer()`, c'est-à-dire la règle qui ① enregistre ce qui a été saisi et ② abandonne un brouillon resté vide.
+   * On passe donc par `fermetureDemandee`, la MÊME porte que la croix d'une fenêtre flottante : l'éditeur
+   * enregistre, puis rend la main par `onFerme`. En attendant, il est CACHÉ, jamais retiré — exactement ce que
+   * fait déjà `reduite` dans `Redaction`, et pour la même raison.
+   */
+  const [fermetureReponse, setFermetureReponse] = useState(0);
+
   async function basculer(m: MessageDeFil) {
     const ouvert = deplies.has(m.messageId);
+    /* 🔴 ON REPLIE LE MAIL QUI PORTE L'ÉDITEUR : on demande sa fermeture, il enregistre, et il s'en va. */
+    if (ouvert && brouillonSous === m.messageId) setFermetureReponse((n) => n + 1);
+    /**
+     * 🔴🔴 ON DÉPLIE UN MAIL QUI A UN BROUILLON EN ATTENTE : sa zone de réponse se rouvre AVEC CE BROUILLON.
+     *
+     * RÈGLE D'ARNO : « quand on rouvre ce mail, la zone de réponse est rouverte sous le mail, avec le brouillon
+     * prêt à compléter (MÊME brouillon, pas un doublon). »
+     *
+     * ⚠️ ON REPREND LE BROUILLON EXISTANT (`reprendreBrouillon`), on n'en ouvre pas un neuf : son identifiant
+     * voyage avec lui, donc l'enregistrement suivant écrit la MÊME ligne. C'est ce qui empêche un doublon à
+     * chaque réouverture.
+     *
+     * ⚠️ ET SEULEMENT SI AUCUN ÉDITEUR N'EST DÉJÀ OUVERT : on ne remplace jamais ce qu'on est en train d'écrire.
+     */
+    if (!ouvert && brouillon === null && redaction !== null) {
+      const sien = brouillonsDuFil.find((b) => b.repondAMessageId === m.messageId);
+      if (sien !== undefined) { setBrouillon(reprendreBrouillon(sien)); setBrouillonSous(m.messageId); }
+    }
     setDeplies((s) => { const n = new Set(s); if (ouvert) n.delete(m.messageId); else n.add(m.messageId); return n; });
     // On ne va chercher un corps qu'UNE fois, et seulement s'il en manque un : replier puis redéplier ne recharge rien.
     const chargeDe = (id: number) => corps.get(id);
@@ -1225,14 +1265,24 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                sous les yeux, l'annoncer une seconde fois serait du bruit. */
             avecBrouillon={brouillonSous !== m.messageId
               && brouillonsDuFil.some((x) => x.repondAMessageId === m.messageId)}
+            /* 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — la mention du HAUT, elle, reste même quand l'éditeur est
+               ouvert : c'est elle qui permet de le retrouver quand il est plus bas que l'écran. */
+            brouillonEnAttente={brouillonsDuFil.some((x) => x.repondAMessageId === m.messageId)}
+            /**
+             * 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — L'ÉDITEUR EST CACHÉ QUAND LE MAIL EST REPLIÉ, jamais rendu
+             * au milieu des lignes. `hidden` et non un démontage : voir l'encadré de `basculer`.
+             */
             piedMessage={brouillon !== null && brouillonSous === m.messageId && redaction ? (
-              <Redaction brouillon={brouillon} contexte={redaction}
-                onChange={setBrouillon}
-                onFerme={() => { setBrouillon(null); setBrouillonSous(null); void relireBrouillons(); }}
-                onEnvoye={() => {
-                  setBrouillon(null); setBrouillonSous(null); void recharger(); void relireBrouillons();
-                }}
-                onGeste={(t) => onGeste(t)} />
+              <div hidden={!deplies.has(m.messageId)}>
+                <Redaction brouillon={brouillon} contexte={redaction}
+                  fermetureDemandee={fermetureReponse}
+                  onChange={setBrouillon}
+                  onFerme={() => { setBrouillon(null); setBrouillonSous(null); void relireBrouillons(); }}
+                  onEnvoye={() => {
+                    setBrouillon(null); setBrouillonSous(null); void recharger(); void relireBrouillons();
+                  }}
+                  onGeste={(t) => onGeste(t)} />
+              </div>
             ) : null} />
           {/* 🔴🔴 EN ORDRE « PLUS RÉCENT D'ABORD », CE QUI PRÉCÈDE CHRONOLOGIQUEMENT EST EN DESSOUS. Voir
               l'encadré du côté opposé, et `coteDuRepere`. */}
@@ -1674,6 +1724,7 @@ export function CorpsHtmlMail({ html, onVisualiser }: {
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, cssMailCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
+  brouillonEnAttente = false,
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange,
 }: {
@@ -1713,6 +1764,14 @@ export function MessageConversation({
    * comme Gmail le fait. `false` (le défaut) ⇒ rien, et le message est exactement celui d'avant ce lot.
    */
   avecBrouillon?: boolean;
+  /**
+   * 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — CE MAIL A UNE RÉPONSE COMMENCÉE, éditeur ouvert ou non.
+   *
+   * ⚠️ DISTINCT DE `avecBrouillon`, qui se tait dès que l'éditeur est sous les yeux : la mention du HAUT, elle,
+   * sert précisément à retrouver une zone de réponse qu'on ne voit pas — qu'elle soit fermée ou simplement plus
+   * bas que l'écran. Les deux viennent de la même source (les brouillons vivants de l'échange).
+   */
+  brouillonEnAttente?: boolean;
   /**
    * LOT 5-STATUT — OÙ EN EST CE MESSAGE, juste à gauche de sa date. Absent = aucun cartouche, et le message est
    * exactement celui d'avant ce lot (c'est le cas des écrans qui n'en ont pas besoin).
@@ -1766,6 +1825,8 @@ export function MessageConversation({
   const [actions, setActions] = useState(false);
   /** LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », ouverte depuis l'en-tête de CE message. */
   const [voirRattachements, setVoirRattachements] = useState(false);
+  /** 🔴 LOT BROUILLON-REPONSE-ET-REPERE — le pied du message, cible du défilement de la mention du haut. */
+  const pied = useRef<HTMLDivElement | null>(null);
   /**
    * 🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail », ouverte depuis la capsule ROUGE de CE message.
    * Deux fenêtres, deux questions : on CLASSE ce qui ne l'est pas, on VISUALISE ce qui l'est. La seconde mène à la
@@ -1944,7 +2005,15 @@ export function MessageConversation({
             sans être passé par la liste des brouillons : sans elle, un travail en cours restait invisible tant
             qu'on ne pensait pas à aller le chercher sous son étiquette.
             ⚠️ UN MOT, pas seulement une couleur : « Brouillon » se lit en niveaux de gris et au lecteur d'écran. */}
-        {avecBrouillon && <span className="cnv-brouillon">Brouillon</span>}
+        {/* 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — LE PICTO « BROUILLON EN ATTENTE », sur la ligne du mail
+            concerné. Arno : « on voit quel mail a un brouillon ». Le crayon porte son nom (`aria-label`) et sa
+            bulle (`title`) ; le MOT reste à côté, parce qu'un picto seul ne se lit pas en niveaux de gris. */}
+        {avecBrouillon && (
+          <span className="cnv-brouillon" title={AIDE_BROUILLON_EN_ATTENTE}>
+            <span className="cnv-brouillon-picto" role="img" aria-label={AIDE_BROUILLON_EN_ATTENTE}>{PICTO_BROUILLON}</span>
+            Brouillon
+          </span>
+        )}
         {!ouvert && message.extrait && <span className="cnv-extrait">{corpsLisible(message.extrait).visible}</span>}
       </button>
 
@@ -2093,6 +2162,21 @@ export function MessageConversation({
 
       {ouvert && (
         <div className="cnv-detail">
+          {/* ══ 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — « BROUILLON DE RÉPONSE EN ATTENTE — VOIR EN BAS » ═══════
+              Arno : « en haut du mail ouvert, une mention qui fait défiler jusqu'à la zone de réponse. »
+
+              🔴 ELLE TIENT SA PROMESSE : le clic emmène au pied du message, là où l'éditeur est rendu. Une
+              mention qui dirait où regarder sans y conduire ferait chercher.
+
+              ⚠️ ELLE N'APPARAÎT QUE SI LE MAIL A VRAIMENT UN BROUILLON : c'est la même source que le picto de
+              la ligne — les brouillons VIVANTS de l'échange, lus en base, jamais un état d'écran. */}
+          {brouillonEnAttente && (
+            <button type="button" className="cnv-brouillon-haut"
+              onClick={() => pied.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })}>
+              <span className="cnv-brouillon-picto" aria-hidden="true">{PICTO_BROUILLON}</span>
+              {MENTION_BROUILLON_VOIR_EN_BAS}
+            </button>
+          )}
           {/* ══ 🔴 LOT FIL-LECTURE — L'EN-TÊTE COMPACT : UN INTITULÉ, UNE LIGNE ═══════════════════════════════
               Avant ce lot, l'intitulé était au-dessus de sa valeur : quatre intitulés faisaient huit lignes, pour
               cinq mots d'information. Chaque ligne porte désormais son intitulé à gauche et sa valeur à droite,
@@ -2240,8 +2324,9 @@ export function MessageConversation({
         </div>
       )}
       {/* L'ÉDITEUR, S'IL APPARTIENT À CE MESSAGE. En dernier, après les pièces jointes : on répond sous ce qu'on
-          vient de lire, pas au milieu. */}
-      {piedMessage}
+          vient de lire, pas au milieu.
+          🔴 L'ANCRE DU DÉFILEMENT : c'est ici que la mention du haut emmène (voir `cnv-brouillon-haut`). */}
+      <div ref={pied}>{piedMessage}</div>
     </li>
   );
 }
@@ -2527,7 +2612,19 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
 /* ══ 🔴 LOT BROUILLONS-GMAIL — « Brouillon », EN ROUGE, comme dans Gmail ════════════════════════════════════════
    Un MOT et une couleur, jamais la couleur seule : la mention doit se lire en niveaux de gris, pour un daltonien
    et au lecteur d'ecran. Le rouge est celui du module (--color-svv-red), pas une teinte de plus. */
-.cnv-brouillon{font-size:.75rem;font-weight:700;color:var(--color-svv-red)}
+/* ══ 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — LE PICTO « BROUILLON EN ATTENTE » ══════════════════════════════════
+   Le crayon et le mot vont ensemble : le picto se repere d'un coup d'oeil, le mot reste lisible en niveaux de
+   gris et au lecteur d'ecran. Couleur : le jeton rouge, comme la mention qu'il accompagne.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+.cnv-brouillon{display:inline-flex;align-items:center;gap:3px;font-size:.75rem;font-weight:700;
+  color:var(--color-svv-red)}
+.cnv-brouillon-picto{font-style:normal;line-height:1}
+/* La mention du HAUT du mail ouvert : un BOUTON, parce qu'elle emmene (elle fait defiler jusqu'a la reponse). */
+.cnv-brouillon-haut{display:inline-flex;align-items:center;gap:6px;min-height:32px;margin:0 0 .4rem;
+  padding:.15rem .55rem;font:inherit;font-size:.78rem;font-weight:700;color:var(--color-svv-red);
+  background:transparent;border:1px dashed var(--color-svv-red);border-radius:999px;cursor:pointer}
+.cnv-brouillon-haut:hover{background:var(--color-svv-field)}
+.cnv-brouillon-haut:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* ══ LOT ENVOI-DIAG — « CE MESSAGE N'EST PAS ARRIVÉ » ════════════════════════════════════════════════════════════
    Un bandeau, au-dessus du message, avec un filet à gauche : la même grammaire visuelle que les alertes du module.
    🔴 LA COULEUR N'EST QU'UN RENFORT — la phrase dit tout, et reste lisible en niveaux de gris comme pour un

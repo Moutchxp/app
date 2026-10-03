@@ -48,6 +48,8 @@ function capsuleDeLaLigne(l: {
 import { RattachementsDuFil } from './RattachementsDuFil';
 import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
 import { BarreLigne, CSS_BARRE_LIGNE, Etoile } from './BarreLigne';
+// 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — les mots du picto « brouillon en attente », écrits une seule fois.
+import { AIDE_BROUILLON_EN_ATTENTE, PICTO_BROUILLON } from '../../../../lib/gestion/brouillonEnAttente';
 // 🔴 LOT LISTE-PAGINATION — un TRACÉ et non un emoji : lui seul suit la couleur du texte (voir son encadré).
 import { Trombone } from './Trombone';
 // 🔴🔴 LOT BROUILLONS-APERCU — l'œil des lignes de brouillon, et le mot qu'il porte.
@@ -1541,6 +1543,21 @@ export function BoiteMail({
                         Non envoyé
                       </span>
                     )}
+                    {/* ══ 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — LE PICTO « BROUILLON EN ATTENTE » ══════════════
+                        Arno : « juste à GAUCHE du bloc trombone / nombre / statut ». Il est donc ICI, et nulle
+                        part ailleurs : c'est la dernière des marques VARIABLES, juste avant le couple
+                        trombone + capsule qui, lui, est à la même place sur toutes les lignes.
+
+                        🔴 UN PICTO QUI PORTE SON NOM : `aria-label` et bulle disent « Brouillon de réponse en
+                        attente ». Un crayon seul ne se lit ni en niveaux de gris ni au lecteur d'écran.
+
+                        ⚠️ IL DISPARAÎT TOUT SEUL quand le brouillon part ou s'en va : la ligne lit les brouillons
+                        VIVANTS de l'échange (`filsAvecBrouillonEnAttente`), jamais un état d'écran. */}
+                    {l.brouillonEnAttente && (
+                      <span className="bte-marque bte-marque--brouillon" title={AIDE_BROUILLON_EN_ATTENTE}>
+                        <span role="img" aria-label={AIDE_BROUILLON_EN_ATTENTE}>{PICTO_BROUILLON}</span>
+                      </span>
+                    )}
                     {/* ══ 🔴 LE TROMBONE, COLLÉ À LA CAPSULE — retouche demandée par Arno ════════════════════════
                         LOT LISTE-GMAIL — le trombone porte le NOMBRE, sans le mot : « 📎 2 » se lit d'un coup
                         d'œil, là où « pièce jointe » prenait la moitié de la ligne sans dire combien. Le nombre
@@ -1821,6 +1838,9 @@ const CSS_BOITE = `
    aucune couleur en dur. GRIS = la couleur des mentions secondaires, celle des autres marques de la ligne.
    La couleur ne porte JAMAIS l'information seule : l'infobulle dit lequel des deux cas, en toutes lettres. */
 .bte-marque--pieces{flex:0 0 auto;color:var(--color-svv-ink);font-weight:600}
+/* 🔴 LOT BROUILLON-REPONSE-ET-REPERE — le crayon d'une reponse commencee, juste a gauche du bloc trombone.
+   Rouge comme la mention « Brouillon » du fil : c'est la meme chose, vue de la liste. */
+.bte-marque--brouillon{flex:0 0 auto;color:var(--color-svv-red);font-weight:700;font-style:normal}
 .bte-marque--pieces-loin{color:var(--color-svv-muted);font-weight:400}
 .bte-ref{font-weight:700;color:var(--color-svv-green-ink)}
 .bte-recherche{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}

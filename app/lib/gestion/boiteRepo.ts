@@ -33,6 +33,9 @@ import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
 // LOT LIGNE-NON-ENVOYE — les mails qui ne sont pas partis, à montrer dans « Envoyés » et dans le fil.
 import { nonEnvoyesAMontrer, nonEnvoyesDesFils } from './fileEnvoiRepo';
+// 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — quels échanges portent une réponse commencée. Lecture à part, comme
+//    les avis, les étoiles et les échecs : la requête de page est le morceau le plus délicat du module.
+import { filsAvecBrouillonEnAttente } from './brouillonEnAttenteRepo';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche } from './nomUsageSql';
 import { fusionnerNonEnvoyes, type MentionNonEnvoye } from './fileEnvoi';
@@ -167,6 +170,17 @@ export interface LigneBoite {
    * ⚠️ `false` QUAND LA MIGRATION 281 MANQUE — on n'invente pas un état qu'on n'a pas lu.
    */
   interne?: boolean;
+  /**
+   * 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — UNE RÉPONSE EST COMMENCÉE SUR CET ÉCHANGE, et elle attend.
+   *
+   * Arno : « un picto “brouillon en attente” sur la ligne du listing de la Réception et des autres dossiers,
+   * juste à GAUCHE du bloc trombone / nombre / statut […]. Il disparaît quand le brouillon est envoyé ou
+   * supprimé. »
+   *
+   * ⚠️ `false` SANS LA MIGRATION DES BROUILLONS : aucune ligne ne porte le picto, et la liste est celle d'avant
+   * ce lot.
+   */
+  brouillonEnAttente: boolean;
   /** Référence `GES-…` de la carte si l'échange y est affecté, sinon `null`. */
   reference: string | null;
   /** L'échange a-t-il été classé sans suite ? L'écran le DIT : la boîte montre tout, elle n'efface rien. */
@@ -1142,12 +1156,13 @@ export async function lireBoiteMail(
    */
   const premierePage = curseur === null;
   const montrerEchecs = etiquette.sorte === 'envoyes' && premierePage;
-  const [avis, etoiles, echecsDesFils, echecsOrphelins, piecesDesFils] = await Promise.all([
+  const [avis, etoiles, echecsDesFils, echecsOrphelins, piecesDesFils, brouillons] = await Promise.all([
     nonRemisesDesFils(filsDeLaPage),
     etoileGmail ? filsEtoiles(filsDeLaPage) : etoilesDesFils(filsDeLaPage),
     nonEnvoyesDesFils(filsDeLaPage),
     montrerEchecs ? nonEnvoyesAMontrer() : Promise.resolve([] as MentionNonEnvoye[]),
     piecesVraiesDesFils(filsDeLaPage),
+    filsAvecBrouillonEnAttente(filsDeLaPage),
   ]);
 
   const lignes: LigneBoite[] = gardees.map((r) => ({
@@ -1190,6 +1205,16 @@ export async function lireBoiteMail(
       motifHorsGestion: r.hg_motif,
       // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque de l'ÉCHANGE. `false` sans la 281 : jamais un état inventé.
       interne: r.itn_marque === true,
+      /**
+       * 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — UNE RÉPONSE EST COMMENCÉE SUR CET ÉCHANGE.
+       *
+       * Arno : « un picto “brouillon en attente” sur la ligne du listing de la Réception et des autres
+       * dossiers […]. Il disparaît quand le brouillon est envoyé ou supprimé. »
+       *
+       * ⚠️ `false` SANS LA MIGRATION DES BROUILLONS : aucune ligne ne porte le picto, et la liste est celle
+       * d'avant ce lot.
+       */
+      brouillonEnAttente: brouillons.has(Number(r.fil_id)),
   }));
 
   return {
@@ -1212,6 +1237,8 @@ export async function lireBoiteMail(
       dernierSens: 'envoye' as const,
       dernierLe: e.demandeLe,
       extrait: e.cause,
+      /* ⚠️ UNE LIGNE FABRIQUÉE N'A PAS D'ÉCHANGE, donc aucun brouillon à annoncer : le picto ne s'y pose jamais. */
+      brouillonEnAttente: false,
       nbMessages: 1,
       nbLisibles: 1,
       aPiece: false,

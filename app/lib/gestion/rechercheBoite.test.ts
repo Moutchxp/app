@@ -14,6 +14,11 @@ vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }))
 // LOT ENVOI-DIAG — `nonRemiseDisponible: false` : la recherche demande les avis de non-remise de ses résultats, et
 //   migration absente elle n'émet aucune requête. Les assertions portent donc sur le SQL d'avant ce lot.
 vi.mock('./schema', () => ({
+  /* 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — le picto « brouillon en attente » n'est pas le sujet de ce fichier :
+     sonde ABSENTE, `filsAvecBrouillonEnAttente` rend un ensemble vide SANS rien demander à la base, et le SQL
+     inspecté ici reste celui d'avant ce lot. */
+  redactionDisponible: async () => false,
+  corbeilleBrouillonDisponible: async () => false,
   /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la 296 n'est pas le sujet de ce fichier : ABSENTE, la colonne
      `integree` n'est nommée nulle part et le SQL inspecté ici reste celui d'avant ce lot. */
   pieceIntegreeDisponible: async () => false,

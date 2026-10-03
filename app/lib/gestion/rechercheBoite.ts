@@ -532,16 +532,20 @@ export async function chercherDansLeCourrier(
    * pour toute la page, et surtout la MÊME règle — c'est `trierPieces` qui dit ce qu'est une vraie pièce, pas un
    * `count(*)` qui compterait les logos de signature. Sans elle, le trombone d'un résultat ne pouvait rien dire.
    */
-  const [avis, etoiles, piecesDesFils] = await Promise.all([
+  const [avis, etoiles, piecesDesFils, brouillons] = await Promise.all([
     nonRemisesDesFils(filsDeLaPage),
     (await import('./etoileRepo')).etoilesDesFils(filsDeLaPage),
     piecesVraiesDesFils(filsDeLaPage),
+    /* 🔴 LOT BROUILLON-REPONSE-ET-REPERE — le picto vaut AUSSI dans les résultats de recherche : une réponse
+       commencée ne doit pas disparaître parce qu'on est arrivé à la ligne par la recherche. */
+    (await import('./brouillonEnAttenteRepo')).filsAvecBrouillonEnAttente(filsDeLaPage),
   ]);
 
   return {
     lignes: gardees.map((r) => ({
       // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans conversion, les clés React et les comparaisons mentiraient.
       filId: Number(r.fil_id),
+      brouillonEnAttente: brouillons.has(Number(r.fil_id)),
       messageTrouveId: Number(r.message_id),
       /**
        * LOT MESSAGE-CLIQUÉ — DANS UNE RECHERCHE, LE MESSAGE DE LA LIGNE EST LE MESSAGE TROUVÉ. La même valeur sous

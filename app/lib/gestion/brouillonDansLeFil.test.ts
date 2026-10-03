@@ -95,7 +95,14 @@ describe('🔴🔴 le câblage : de la liste jusque sous le bon message', () => 
   it('🔴🔴 le message porte la mention « Brouillon », lue en base', () => {
     expect(conv).toContain('/api/admin/gestion/brouillons?fil=${filId}');
     expect(conv).toContain('brouillonsDuFil.some((x) => x.repondAMessageId === m.messageId)');
-    expect(conv).toContain('<span className="cnv-brouillon">Brouillon</span>');
+    /**
+     * 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — LE MOT S'ACCOMPAGNE DÉSORMAIS D'UN PICTO. Arno le demande sur les
+     * trois écrans, avec son `aria-label` et sa bulle. Le MOT reste : un crayon seul ne se lit ni en niveaux de
+     * gris ni au lecteur d'écran — c'est la règle de ce fichier depuis le début, et elle n'a pas changé.
+     */
+    expect(conv).toContain('<span className="cnv-brouillon" title={AIDE_BROUILLON_EN_ATTENTE}>');
+    expect(conv).toContain('aria-label={AIDE_BROUILLON_EN_ATTENTE}>{PICTO_BROUILLON}');
+    expect(conv).toContain('Brouillon');
     // ⚠️ Un MOT, pas seulement une couleur : il se lit en niveaux de gris et au lecteur d'écran.
     expect(conv).toContain('.cnv-brouillon{');
     expect(conv).toContain('color:var(--color-svv-red)}');
