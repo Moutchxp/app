@@ -563,8 +563,31 @@ function versFichiers(j: unknown): FichierDrive[] {
  * contenir des dizaines de milliers d'entrées : cinq pages (1 000 entrées) couvrent tout ce que le cabinet range
  * réellement, et la liste virtualisée les affiche sans peine. Au-delà, `tronque` le DIT — un silence serait la
  * même faute qu'avant, en plus tardive.
+ *
+ * ══ 🔴🔴 LOT FENETRES-INDEPENDANTES-ET-DEFILEMENT-DRIVE — LA BORNE MONTE, ET LA LECTURE ACCÉLÈRE ════════════════
+ *
+ * RÈGLE D'ARNO (03/10/2026) : « tous les fichiers d'un dossier sont atteignables, QUEL QUE SOIT LEUR NOMBRE :
+ * chargement de la suite au défilement, ou pages complètes. Garde la vitesse obtenue. »
+ *
+ * 🔴 ON A CHOISI LES PAGES COMPLÈTES, ET ELLES COÛTENT MOINS CHER QU'AVANT, pas plus. `files.list` accepte
+ * `pageSize` jusqu'à 1 000 ; on en demandait 200. Conséquences, dans cet ordre :
+ *
+ *   · un dossier de 300 entrées (« 1 Propriétaires ») se lisait en DEUX appels, il s'en lit UN ;
+ *   · le plafond passe de 1 000 à 25 000 entrées — au-delà de tout ce qu'un dossier Drive porte en pratique ;
+ *   · et le cas ordinaire — un dossier de quelques dizaines d'entrées — ne change pas d'un appel : Google ne
+ *     facture pas la taille demandée, il rend ce qu'il y a.
+ *
+ * ⚠️ LA BORNE NE DISPARAÎT PAS, et il ne faut pas qu'elle disparaisse : sans elle, un dossier pathologique ferait
+ * tourner la lecture indéfiniment pendant qu'un écran attend. Elle est seulement portée là où plus personne ne la
+ * rencontre — et quand elle est atteinte, `tronque` le DIT toujours.
  */
-export const PAGES_MAX_CONTENU = 5;
+export const PAGES_MAX_CONTENU = 25;
+
+/**
+ * 🔴 LA TAILLE DE PAGE : le maximum que `files.list` accepte. En demander moins ne coûte pas moins cher — c'est
+ * le nombre d'ALLERS-RETOURS qui coûte, et chacun vaut environ 300 ms (mesuré le 03/10/2026).
+ */
+export const TAILLE_PAGE_CONTENU = 1000;
 
 export async function listerContenu(
   accessToken: string, o: { parentId: string; driveId?: string | null; pageSize?: number; pagesMax?: number },
@@ -577,7 +600,7 @@ export async function listerContenu(
     const p = new URLSearchParams({
       q: `'${echapperQ(o.parentId)}' in parents and trashed = false`,
       fields: `nextPageToken, ${CHAMPS_FICHIERS}`,
-      pageSize: String(o.pageSize ?? 200),
+      pageSize: String(o.pageSize ?? TAILLE_PAGE_CONTENU),
       orderBy: 'folder,name',
       ...PARTAGES,
     });
