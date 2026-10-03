@@ -52,6 +52,20 @@ export interface PersonneRattachement {
 /** Un bien rattaché à l'échange, avec tout ce qu'on veut savoir sans rouvrir WIPPIMMO. */
 export interface BienRattache {
   cle: string;
+  /**
+   * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — L'IDENTIFIANT INTERNE DU LOT ═══════════════════════
+   *
+   * Il sert UNIQUEMENT à ouvrir la fiche du bien dans l'application (« Historique du bien »), qui s'adresse par
+   * `?ecran=annuaire&fiche=lot-<id>`.
+   *
+   * ⚠️ CE N'EST PAS `cle`, ET LES CONFONDRE OUVRIRAIT LA FICHE D'UN AUTRE BIEN. `cle` est le numéro WIPPIMMO
+   * (« 459 »), celui qu'on lit à l'écran et qui désigne le lot pour les humains ; `lotId` est la clé primaire de
+   * `gestion_annuaire_lot`. Le lot 459 n'est pas la ligne nº 459. C'est exactement la précaution déjà écrite pour
+   * `adresseFicheAnnuaire` d'une personne.
+   *
+   * ⚠️ `null` = INCONNU, et le bouton est alors éteint plutôt que de mener à une fiche vide.
+   */
+  lotId: number | null;
   /** L'adresse COMPLÈTE : voie, code postal, commune. Une adresse sans code postal n'est pas une adresse. */
   adresseComplete: string;
   numeroLot: string;
@@ -226,8 +240,23 @@ export function ordonnerBiens(biens: readonly BienRattache[]): BienRattache[] {
  * l'on croirait le dossier disparu.
  */
 export function adresseDossierDrive(dossierId: string | null): string | null {
+  const id = idDossierDrive(dossierId);
+  return id === null ? null : `https://drive.google.com/drive/folders/${encodeURIComponent(id)}`;
+}
+
+/**
+ * ══ 🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — « A-T-ON UN DOSSIER, OUI OU NON ? » PUR. ════════════════
+ *
+ * L'identifiant utile du dossier, ou `null` s'il n'y en a pas. C'est LA question du bouton « Ouvrir le Drive du
+ * bien » : avec un identifiant il ouvre, sans il s'éteint et dit « Dossier Drive non renseigné ».
+ *
+ * 🔴 UNE SEULE RÈGLE POUR LES DEUX USAGES, et c'est pour cela que cette fonction existe. `adresseDossierDrive`
+ * jugeait déjà « vide après trim ⇒ rien » ; recopier ce test dans le composant aurait permis qu'un jour l'un
+ * accepte ce que l'autre refuse — un bouton actif au-dessus d'un lien absent, ou l'inverse.
+ */
+export function idDossierDrive(dossierId: string | null): string | null {
   const id = (dossierId ?? '').trim();
-  return id === '' ? null : `https://drive.google.com/drive/folders/${encodeURIComponent(id)}`;
+  return id === '' ? null : id;
 }
 
 /**
@@ -241,6 +270,65 @@ export function adresseDossierDrive(dossierId: string | null): string | null {
 export function adresseFicheAnnuaire(p: Pick<PersonneRattachement, 'role' | 'id'>): string | null {
   if (p.id === null || !Number.isSafeInteger(p.id) || p.id <= 0) return null;
   return `/admin/gestion?ecran=annuaire&fiche=${p.role}-${p.id}`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — LES DEUX GRANDS BOUTONS DE CHAQUE CARTE DE BIEN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (03/10/2026) : « sur chaque carte de bien, à la place de la ligne “Ouvrir le dossier du bien ↗
+   — dans Google Drive, en lecture”, DEUX boutons rouges allongés côte à côte, remplissant ensemble la largeur de
+   la carte :
+     a) “Ouvrir le Drive du bien” — ouvre NOTRE outil Drive, positionné directement dans le dossier Drive du bien.
+        Si le dossier est sous “Documents clients scannés” : consultation seule, aucune écriture possible (gardes
+        existantes, refus serveur). Si le bien n'a pas de dossier connu : bouton grisé “Dossier Drive non
+        renseigné”.
+     b) “Historique du bien” — ouvre la fiche du bien avec son historique (“Vie du bien”), dans l'application. »
+
+   🔴 CE QUE CES DEUX BOUTONS REMPLACENT, ET POURQUOI C'EST MIEUX. La ligne d'avant envoyait dans Google Drive,
+   hors de l'application : on y perdait le mail, les gardes de l'archive n'y existent pas, et le retour se faisait
+   par un onglet qu'il fallait refermer. Le même dossier s'ouvre désormais dans l'outil qui connaît nos règles.
+
+   ⚠️ LES MOTS VIVENT ICI, comme tous les mots de cette fenêtre : un libellé recopié dans le composant ne se
+   relit plus, et deux libellés pour un bouton finissent par ne plus dire la même chose. */
+
+/** a) LE DOSSIER DU BIEN, DANS NOTRE OUTIL. */
+export const MOT_DRIVE_DU_BIEN = 'Ouvrir le Drive du bien';
+
+/**
+ * …et son absence, DITE. Un bouton éteint sans mot laisse croire à une panne ; celui-ci nomme ce qui manque, et
+ * ce qui manque est une donnée de l'annuaire — pas un droit refusé.
+ */
+export const MOT_DRIVE_ABSENT = 'Dossier Drive non renseigné';
+
+/** b) LA FICHE DU BIEN ET SON « Vie du bien ». */
+export const MOT_HISTORIQUE_DU_BIEN = 'Historique du bien';
+
+/** L'aide des deux boutons : elle dit OÙ l'on va, pas ce qu'on clique. */
+export const AIDE_DRIVE_DU_BIEN =
+  'Ouvre le dossier Drive de ce bien dans la fenêtre Drive de l’application.';
+export const AIDE_DRIVE_ABSENT =
+  'Aucun dossier Drive n’est connu pour ce bien : il n’y a donc rien à ouvrir.';
+export const AIDE_HISTORIQUE_DU_BIEN =
+  'Ouvre la fiche de ce bien, sur « Vie du bien ».';
+/** ⚠️ Ne devrait pas arriver : un bien de cette fenêtre vient de l'annuaire, donc il a une ligne. On le dit quand même. */
+export const AIDE_HISTORIQUE_ABSENT =
+  'Ce bien n’a pas de fiche dans l’annuaire : il n’y a pas d’historique à ouvrir.';
+
+/**
+ * ══ L'ADRESSE DE LA FICHE DU BIEN, DANS L'APPLICATION. PUR. ══════════════════════════════════════════════════════
+ *
+ * 🔴 UNE ADRESSE, ET NON UN APPEL DE COMPOSANT. C'est ce qui fait tenir la dernière phrase d'Arno : « la flèche
+ * retour revient à la fenêtre ou au mail d'origine (règle existante) ». Une navigation ordinaire empile un cran
+ * dans l'historique du navigateur ; le mail, lui, vit déjà dans l'adresse (`?fil=…&message=…`) depuis le lot
+ * 5-FUSION. « Précédent » ramène donc exactement là d'où l'on vient, sans qu'une seule ligne ne le gère.
+ *
+ * ⚠️ MÊME GARDE QUE `adresseFicheAnnuaire`, et pour la même raison : un identifiant absent, négatif ou non entier
+ * ne fabrique PAS de lien. Mieux vaut un bouton éteint qu'une fiche vide — voir `lotId`.
+ */
+export function adresseHistoriqueDuBien(lotId: number | null): string | null {
+  if (lotId === null || !Number.isSafeInteger(lotId) || lotId <= 0) return null;
+  return `/admin/gestion?ecran=annuaire&fiche=lot-${lotId}`;
 }
 
 /**

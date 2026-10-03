@@ -284,7 +284,7 @@ interface DossierRecent {
 
 export function SelecteurFichierDrive({
   onChoisir, onFermer, filId = null, lots = [],
-  mode = 'joindre', messageId = null, pieces = [], onRangement,
+  mode = 'joindre', messageId = null, pieces = [], onRangement, dossierDepart = null,
 }: {
   /**
    * Ajoute la pièce au brouillon. ⚠️ NE FERME PAS la fenêtre : c'est « Terminé » ou la croix qui ferme.
@@ -316,9 +316,33 @@ export function SelecteurFichierDrive({
    * suite, et pas seulement dans cette fenêtre-ci.
    */
   onRangement?: (o?: { nomChange?: boolean }) => void;
+  /**
+   * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — OÙ LA FENÊTRE S'OUVRE ══════════════════════════════
+   *
+   * Arno : « ouvre NOTRE outil Drive, positionné DIRECTEMENT dans le dossier Drive du bien (arbre déplié jusqu'à
+   * lui) ». `null` (le défaut) ⇒ la racine, c'est-à-dire exactement le comportement d'avant ce lot pour les trois
+   * appelants existants.
+   *
+   * 🔴 LE NOM SERT D'ATTENTE, PAS DE VÉRITÉ. On part sur un chemin d'UN SEUL cran — `[{ id, nom }]` —, et le
+   * serveur rend la CHAÎNE complète des parents avec son listing : `remplacerCheminCourant` réécrit alors
+   * l'endroit sans empiler un pas de plus, et le fil d'Ariane se déplie jusqu'au dossier. C'est le mécanisme du
+   * lot RANGER-ARBRE-2, celui des raccourcis « Récents » et « Dossier du bien » — on n'en ajoute pas un second.
+   */
+  dossierDepart?: { id: string; nom: string } | null;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
-  const [histo, setHisto] = useState<Historique>(HISTORIQUE_DEPART);
+  /**
+   * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — ON PART LÀ OÙ L'ON NOUS ENVOIE. L'endroit de départ
+   * est posé dès l'INITIALISATION, et non par un effet : un effet aurait montré la racine le temps d'un rendu,
+   * c'est-à-dire un clignotement au moment précis où l'on veut voir le dossier du bien.
+   *
+   * ⚠️ LE PREMIER CRAN RESTE LA RACINE dans la pile : « ‹ » remonte donc au Drive entier, comme partout ailleurs.
+   */
+  const [histo, setHisto] = useState<Historique>(() => (dossierDepart === null
+    ? HISTORIQUE_DEPART
+    : naviguerVers(HISTORIQUE_DEPART, [{ id: dossierDepart.id, nom: dossierDepart.nom }])));
+  /** Le dossier à charger au montage, figé une fois : la fenêtre ne doit pas repartir ailleurs à un rendu de plus. */
+  const departInitial = useRef<string>(dossierDepart?.id ?? '');
   const [tri, setTri] = useState<Tri>(TRI_DEFAUT);
   const [selection, setSelection] = useState<Selection>(SELECTION_VIDE);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -693,7 +717,9 @@ export function SelecteurFichierDrive({
     let annule = false;
     // ⚠️ UNE MICRO-TÂCHE, PAS UN MINUTEUR : elle part au tout prochain tour de boucle, donc sans aucun délai
     //   perceptible, là où un `setTimeout` aurait fait attendre un tour d'horloge complet.
-    queueMicrotask(() => { if (!annule) void charger(''); });
+    // 🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — le dossier de départ s'il y en a un, la racine sinon.
+    //   La chaîne des parents arrive avec le listing et déplie le fil d'Ariane : voir `dossierDepart`.
+    queueMicrotask(() => { if (!annule) void charger(departInitial.current); });
     return () => { annule = true; };
   }, [charger]);
 
@@ -4340,7 +4366,10 @@ export function SelecteurFichierDrive({
           )}
           {/* 🔴 « JOINDRE LA SÉLECTION » : la suite naturelle du Cmd+clic et du Maj+clic. Absent là où la lecture
               du contenu est refusée, comme les boutons de ligne. */}
-          {joindreOk && selectionJoignable.length > 1 && (
+          {/* ⚠️ LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — SEUL LE MODE « consulter » EST ÉCARTÉ ICI : on y
+                 vient regarder le dossier d'un bien, il n'y a aucun message à remplir. Les modes « joindre » et
+                 « ranger » gardent EXACTEMENT ce qu'ils affichaient — ce lot ne retire rien à personne. */}
+          {mode !== 'consulter' && joindreOk && selectionJoignable.length > 1 && (
             <button type="button" className="svv-btn svv-btn-outline gst-btn"
               onClick={() => { for (const f of selectionJoignable) void joindre(f); }}>
               Joindre la sélection ({selectionJoignable.length})

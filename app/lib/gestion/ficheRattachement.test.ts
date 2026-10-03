@@ -23,6 +23,9 @@ const personne = (p: Partial<PersonneRattachement>): PersonneRattachement => ({
 
 const bien = (p: Partial<BienRattache>): BienRattache => ({
   cle: '100', adresseComplete: '4 rue Fictive, 92400 PUTEAUX', numeroLot: '100',
+  /* ⚠️ LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — `lotId` N'EST PAS `cle` : la ligne nº 7 porte le lot
+     « 100 ». C'est tout l'écart que `adresseHistoriqueDuBien` protège, et il est écrit ici exprès. */
+  lotId: 7,
   nature: 'Appartement', typeBien: 'Type 2', surfaceM2: null, statut: 'auto',
   dateMail: '2026-09-20', nbMails: 1, dossierDriveId: null, personnes: [], lienIds: [], ...p,
 });

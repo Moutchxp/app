@@ -322,6 +322,9 @@ export async function ficheRattachementDuFil(
 
     biens.push({
       cle,
+      /* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — l'identifiant INTERNE du lot, pour « Historique du
+         bien ». Il était déjà lu par la requête ③ (`lo.id::text`) : aucune requête de plus. Voir `lotId`. */
+      lotId: Number(lot.id),
       adresseComplete: adresseComplete({
         adresse: lot.adresse, codePostal: lot.code_postal, commune: lot.commune,
       }),

@@ -9,13 +9,19 @@ import { MenuRattachementBien } from './MenuRattachementBien';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 // LOT FICHE-RATTACHEMENT — les mots et les ordres vivent dans un module PUR, éprouvé sans écran.
 import {
-  adresseDossierDrive, adresseFicheAnnuaire, motNbBiensRattaches, motPeriode, motRole, motSansLocataire,
+  adresseFicheAnnuaire, adresseHistoriqueDuBien, idDossierDrive,
+  motNbBiensRattaches, motPeriode, motRole, motSansLocataire,
   motStatutBien,
   motSurface, qualitePersonne,
+  AIDE_DRIVE_ABSENT, AIDE_DRIVE_DU_BIEN, AIDE_HISTORIQUE_ABSENT, AIDE_HISTORIQUE_DU_BIEN,
   AUCUN_BIEN_DU_MAIL, biensDuMail, ENCADRE_EXCEPTION_CE_MAIL, MENTION_AJOUT_PONCTUEL, motEnTeteMail,
-  MOT_CHANGER_REGLE_SUIVI, MOT_MODIFIER_BIENS_DU_MAIL, resumeModificationBiens, TITRE_BIENS_DU_MAIL,
+  MOT_CHANGER_REGLE_SUIVI, MOT_DRIVE_ABSENT, MOT_DRIVE_DU_BIEN, MOT_HISTORIQUE_DU_BIEN,
+  MOT_MODIFIER_BIENS_DU_MAIL, resumeModificationBiens, TITRE_BIENS_DU_MAIL,
   type BienRattache, type FicheRattachementFil, type PersonneRattachement,
 } from '../../../../lib/gestion/ficheRattachement';
+/* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — « Ouvrir le Drive du bien » ouvre NOTRE outil Drive, et
+   c'est CELUI-LÀ, pas une seconde fenêtre qui lui ressemblerait. Voir l'encadré d'`EcranDriveDuBien`. */
+import { SelecteurFichierDrive } from './SelecteurFichierDrive';
 /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — LA RÈGLE DE SUIVI ET SON ALERTE VIENNENT DE LA SOURCE.
    `CHOIX_SUIVI` vit dans `EncartRattachement` depuis le lot BROUILLONS-APERCU-TYPES-LIBELLES, et il y est exporté
    précisément pour cela : les mots et les aides ne se recopient pas d'un écran à l'autre. */
@@ -102,6 +108,14 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
    * payer à tout le monde le prix d'un lien que l'on ne clique pas toujours.
    */
   const [dossiers, setDossiers] = useState<Record<string, string>>({});
+  /**
+   * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — LE DRIVE DU BIEN, DEMANDÉ DEPUIS UNE CARTE ══════════
+   *
+   * `null` = la fenêtre est celle qu'on connaît. Non nul = on a cliqué « Ouvrir le Drive du bien », et c'est la
+   * fenêtre Drive qui prend la place — exactement comme `modifie` plus bas, et pour la même raison : deux boîtes
+   * de dialogue empilées sont injouables au clavier, et un lecteur d'écran ne sait plus laquelle est active.
+   */
+  const [driveDuBien, setDriveDuBien] = useState<{ id: string; nom: string } | null>(null);
 
   const charger = useCallback(async () => {
     setEtat({ v: 'charge' });
@@ -196,6 +210,36 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
         onGeste={onGeste}
         onAnnuler={() => setModifie(null)}
         onFait={async () => { setModifie(null); await charger(); }} />
+    );
+  }
+
+  /**
+   * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 a) — LE DRIVE DU BIEN, DANS NOTRE OUTIL ══════════════
+   *
+   * RÈGLE D'ARNO : « “Ouvrir le Drive du bien” ouvre NOTRE outil Drive (la fenêtre Drive de l'app) positionné
+   * directement dans le dossier Drive du bien (arbre déplié jusqu'à lui). Si le dossier est sous “Documents
+   * clients scannés” : consultation seule, aucune action d'écriture possible (gardes existantes, refus serveur). »
+   *
+   * 🔴 C'EST LE MÊME COMPOSANT QUE PARTOUT AILLEURS (`SelecteurFichierDrive`), et c'est tout l'intérêt : les
+   * gardes de l'archive, le menu, l'aperçu, les refus du serveur sont ceux qui sont déjà éprouvés. Réécrire ici
+   * un navigateur « en lecture » aurait fabriqué un second jeu de règles d'autorisation — donc, un jour, deux
+   * réponses différentes à la même question.
+   *
+   * 🔒 AUCUNE PERMISSION N'EST ACCORDÉE ICI. La consultation seule sous « Documents clients scannés » ne vient pas
+   * d'un drapeau que cette fenêtre passerait : elle vient du serveur, qui remonte la chaîne des parents et refuse
+   * (`verdictJoindre`, `verdictCreer`, `verdictDeposer`). Un drapeau d'écran se contournerait ; un refus serveur,
+   * non.
+   *
+   * ⚠️ `filId` EST PASSÉ, et il sert : la barre latérale propose alors « Dossier du bien » et les derniers
+   * dossiers utilisés pour cet échange — c'est-à-dire qu'on garde le contexte du mail d'où l'on vient.
+   */
+  if (driveDuBien !== null) {
+    return (
+      <SelecteurFichierDrive
+        mode="consulter"
+        filId={filId}
+        dossierDepart={driveDuBien}
+        onFermer={() => setDriveDuBien(null)} />
     );
   }
 
@@ -359,6 +403,8 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
                ses liens à lui. Voir `biensDuMail`. */
             surUnSeulMail
             liens={b.lienIds.map((id) => liensParId.get(id)).filter((l): l is LienAffiche => l !== undefined)}
+            /* 🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 a) — la carte demande, la fenêtre ouvre. */
+            onDrive={setDriveDuBien}
             onModifier={setModifie} />
         ))}
 
@@ -476,7 +522,7 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
 
 /** UN BIEN : sa fiche, ses personnes, ses gestes. */
 function BlocBien({
-  bien, dossierId, liens, onModifier, ponctuel = false, surUnSeulMail = false, garde, onGarder,
+  bien, dossierId, liens, onModifier, ponctuel = false, surUnSeulMail = false, garde, onGarder, onDrive,
 }: {
   bien: BienRattache;
   dossierId: string | null;
@@ -502,8 +548,17 @@ function BlocBien({
    */
   garde?: boolean;
   onGarder?: () => void;
+  /**
+   * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 a) — « Ouvrir le Drive du bien ». La carte DEMANDE,
+   * elle n'ouvre pas : la fenêtre Drive prend la place de toute la boîte de dialogue, c'est donc à celle-ci de
+   * décider. Voir l'encadré du rendu dans `RattachementsDuFil`.
+   */
+  onDrive?: (dossier: { id: string; nom: string }) => void;
 }) {
-  const drive = adresseDossierDrive(dossierId);
+  /** L'identifiant du dossier Drive, ou `null` : c'est LA question du premier bouton. */
+  const dossier = idDossierDrive(dossierId);
+  /** L'adresse de la fiche du bien, ou `null` : celle du second. */
+  const histo = adresseHistoriqueDuBien(bien.lotId);
   const avecCase = garde !== undefined && onGarder !== undefined;
   /* 🔴 LA CARTE S'ESTOMPE quand elle ne sera plus là : la mention le DIT, l'opacité ne fait que l'appuyer. */
   const retire = avecCase && garde === false;
@@ -538,16 +593,49 @@ function BlocBien({
         )}
       </p>
 
-      {/* 🔒 LE DOSSIER DU BIEN : une ADRESSE que le navigateur ouvre, jamais un appel de l'application à Google.
-          Nouvel onglet, en lecture, avec les droits Google de la personne connectée. */}
-      {drive !== null && (
-        <p className="rdf-detail">
-          <a className="rdf-lien" href={drive} target="_blank" rel="noopener noreferrer">
-            Ouvrir le dossier du bien <span aria-hidden="true">↗</span>
+      {/* ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — LES DEUX GRANDS BOUTONS DE LA CARTE ═════════
+          RÈGLE D'ARNO : « DEUX boutons rouges allongés côte à côte, remplissant ensemble la largeur de la carte,
+          à la place de la ligne “Ouvrir le dossier du bien ↗ — dans Google Drive, en lecture”. […] Les deux
+          boutons tiennent sur mobile (empilés si nécessaire). »
+
+          🔴 CE QUE LA LIGNE REMPLACÉE FAISAIT DE MOINS. Elle sortait de l'application : on perdait le mail, les
+          gardes de l'archive n'existent pas chez Google, et le retour passait par un onglet à refermer. Et elle
+          ne proposait RIEN pour l'autre question qu'on se pose devant un bien — « que s'est-il passé ici ? ».
+
+          ⚠️ LA LARGEUR SE PARTAGE EN DEUX PARTS ÉGALES (`flex:1 1 0` sur chacun), et non « au contenu » : deux
+          boutons de largeurs différentes se liraient comme un bouton principal et un bouton secondaire, alors
+          que ce sont deux chemins de même rang. */}
+      <div className="rdf-raccourcis">
+        {/* a) 🔒 LE DOSSIER DU BIEN, DANS NOTRE OUTIL — ou, s'il est inconnu, le MOT qui le dit, éteint. */}
+        {dossier === null ? (
+          <button type="button" className="svv-btn svv-btn-primary gst-btn rdf-raccourci" disabled
+            title={AIDE_DRIVE_ABSENT} aria-label={AIDE_DRIVE_ABSENT}>
+            {MOT_DRIVE_ABSENT}
+          </button>
+        ) : (
+          <button type="button" className="svv-btn svv-btn-primary gst-btn rdf-raccourci"
+            title={AIDE_DRIVE_DU_BIEN}
+            /* ⚠️ LE NOM PASSÉ N'EST QU'UNE ATTENTE : le serveur rend la chaîne complète des parents avec son
+               listing, et le fil d'Ariane de la fenêtre Drive se corrige de lui-même (lot RANGER-ARBRE-2). */
+            onClick={() => onDrive?.({ id: dossier, nom: `${bien.adresseComplete} — lot ${bien.numeroLot}` })}>
+            {MOT_DRIVE_DU_BIEN}
+          </button>
+        )}
+        {/* b) 🔴 LA FICHE DU BIEN ET SON « Vie du bien » — une NAVIGATION ordinaire, dans l'application.
+            C'est elle qui fait tenir la promesse d'Arno : « la flèche retour revient à la fenêtre ou au mail
+            d'origine (règle existante) ». Voir `adresseHistoriqueDuBien`. */}
+        {histo === null ? (
+          <button type="button" className="svv-btn svv-btn-primary gst-btn rdf-raccourci" disabled
+            title={AIDE_HISTORIQUE_ABSENT} aria-label={AIDE_HISTORIQUE_ABSENT}>
+            {MOT_HISTORIQUE_DU_BIEN}
+          </button>
+        ) : (
+          <a className="svv-btn svv-btn-primary gst-btn rdf-raccourci" href={histo}
+            title={AIDE_HISTORIQUE_DU_BIEN}>
+            {MOT_HISTORIQUE_DU_BIEN}
           </a>
-          <span className="rdf-note"> — dans Google Drive, en lecture</span>
-        </p>
-      )}
+        )}
+      </div>
 
       {/* ══ 🔴 LES PERSONNES, L'EXPÉDITEUR EN TÊTE ═════════════════════════════════════════════════════════ */}
       {bien.personnes.filter((p) => p.role === 'proprietaire').length === 0 && (
@@ -691,6 +779,21 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-note{font-size:.74rem;color:var(--color-svv-muted)}
 .rdf-lien{font-size:.78rem;font-weight:600;color:var(--color-svv-red)}
 .rdf-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — LES DEUX GRANDS BOUTONS DE LA CARTE ══════════════════
+   « Deux boutons rouges allongés cote a cote, remplissant ensemble la largeur de la carte » (Arno). Le rouge, le
+   rayon et l'etat desactive viennent de .svv-btn-primary de la charte : AUCUNE couleur n'est ecrite ici.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot, vu 12 fois). */
+.rdf-raccourcis{display:flex;gap:8px;margin:2px 0;min-width:0}
+/* 🔴 DEUX PARTS EGALES, et non « au contenu » : deux largeurs differentes se liraient comme un bouton principal
+   et un bouton secondaire, alors que ce sont deux chemins de meme rang. */
+.rdf-raccourci{flex:1 1 0;min-width:0;text-align:center;text-decoration:none;
+  font-size:.82rem;font-weight:700;line-height:1.25;white-space:normal;overflow-wrap:anywhere}
+.rdf-raccourci:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+@media (max-width:420px){
+  /* 🔴 « Les deux boutons tiennent sur mobile (empiles si necessaire) » (Arno). A 390 px, deux libelles de cette
+     longueur cote a cote tiennent sur quatre lignes chacun : on empile, et chacun reprend toute la largeur. */
+  .rdf-raccourcis{flex-direction:column}
+}
 /* ══ UNE PERSONNE ══════════════════════════════════════════════════════════════════════════════════════════ */
 .rdf-personne{display:flex;flex-direction:column;gap:3px;padding:8px 10px;min-width:0;
   background:var(--color-svv-field);border-radius:.5rem}

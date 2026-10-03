@@ -30,13 +30,26 @@ import type { Chemin, Colonne } from './finderDrive';
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * `joindre` = depuis l'éditeur de mail : on PREND des fichiers du Drive pour les mettre dans un message.
- * `ranger`  = depuis un mail reçu : on POSE des pièces reçues dans un dossier du Drive.
+ * `joindre`   = depuis l'éditeur de mail : on PREND des fichiers du Drive pour les mettre dans un message.
+ * `ranger`    = depuis un mail reçu : on POSE des pièces reçues dans un dossier du Drive.
+ * `consulter` = depuis la carte d'un bien : on vient REGARDER son dossier, sans rien prendre ni rien poser.
  *
- * ⚠️ LES DEUX SENS SONT OPPOSÉS, et c'est la seule chose qu'il faut garder en tête en lisant l'écran : en mode
+ * ⚠️ LES DEUX PREMIERS SENS SONT OPPOSÉS, et c'est la chose à garder en tête en lisant l'écran : en mode
  * `joindre` la fenêtre est une SOURCE, en mode `ranger` elle est une DESTINATION.
+ *
+ * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — POURQUOI UN TROISIÈME MODE ET NON L'UN DES DEUX ══════
+ *
+ * Arno : « “Ouvrir le Drive du bien” ouvre NOTRE outil Drive, positionné directement dans le dossier Drive du
+ * bien ». On n'y tient aucune pièce et l'on n'y rédige aucun message : les deux modes existants auraient tous
+ * deux MENTI dans leur pied de fenêtre — « Aucune pièce ajoutée, prenez-en autant que nécessaire » d'un côté,
+ * « Ranger une pièce dans le Drive » de l'autre.
+ *
+ * ⚠️ `consulter` NE RETIRE AUCUN DROIT D'ÉCRITURE. Ce n'est pas un mode « lecture seule » : créer un dossier,
+ * déplacer, copier restent exactement ce qu'ils sont, et c'est le SERVEUR qui refuse sous « Documents clients
+ * scannés », comme partout ailleurs (`verdictJoindre`, `verdictCreer`, `verdictDeposer`). Un mode qui éteindrait
+ * lui-même les gestes aurait créé une seconde règle d'autorisation — donc, un jour, deux règles divergentes.
  */
-export type ModeDrive = 'joindre' | 'ranger';
+export type ModeDrive = 'joindre' | 'ranger' | 'consulter';
 
 /**
  * Une pièce reçue, en attente de rangement. Ce que l'écran affiche dans le panneau « À ranger ».
@@ -98,9 +111,13 @@ export function resumeARanger(total: number, rangees: number): string {
  * ⚠️ EN MODE RANGER, LE TITRE NE DIT PAS LE DOSSIER COURANT mais ce qu'on est en train de faire : on ouvre cette
  * fenêtre en tenant des pièces, et l'endroit où l'on est change dix fois avant qu'on les pose. C'est l'inverse du
  * mode JOINDRE, où l'on est venu chercher quelque chose et où savoir où l'on est EST la question.
+ *
+ * ⚠️ `consulter` DIT L'ENDROIT, comme `joindre` : on y vient pour regarder un dossier précis, donc savoir lequel
+ * est, là encore, toute la question. Le test porte sur `ranger` et non sur `joindre` pour cette raison — un mode
+ * de plus ne doit pas se retrouver, par défaut, à annoncer un rangement qu'il ne fait pas.
  */
 export function titreFenetre(mode: ModeDrive, nomCourant: string, nbPieces: number): string {
-  if (mode === 'joindre') return nomCourant;
+  if (mode !== 'ranger') return nomCourant;
   return nbPieces > 1 ? `Ranger ${nbPieces} pièces dans le Drive` : 'Ranger une pièce dans le Drive';
 }
 
