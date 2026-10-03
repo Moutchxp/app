@@ -25,6 +25,8 @@ import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import {
   bulleCapsule, capsuleStatut, motCapsule, motMotifHorsGestion, type CapsuleStatut,
 } from '../../../../lib/gestion/statutClassement';
+// 🔴🔴 LOT OPTION-C — le MOT de l'unité comptée, écrit une seule fois pour les deux écrans (module PUR).
+import { motConversations } from '../../../../lib/gestion/uniteListe';
 
 /**
  * 🔴 LOT STATUT-HORS-GESTION — LE STATUT D'UNE LIGNE DE LISTE, calculé EN UN SEUL ENDROIT.
@@ -1121,7 +1123,20 @@ export function BoiteMail({
         {cherche ? 'Résultats' : (titre ?? 'Boîte mail')}
         {/* 🔴 FILTRE ACTIF ⇒ LE COMPTE DE LA PAGE, PAS CELUI DE LA COLONNE. Voir `nombreDeLaListe` ci-dessus : le
             titre et les deux barres de pagination lisent désormais LE MÊME nombre, calculé une seule fois. */}
-        {!cherche && nombreDeLaListe !== null && <span className="gst-compte">{nombreDeLaListe}</span>}
+        {/* ══ 🔴🔴 LOT OPTION-C — LE COMPTEUR DIT CE QU'IL COMPTE : DES CONVERSATIONS ═══════════════════════════
+            Décision d'Arno (03/10/2026) : « les deux unités restent […] et chaque titre dit ce qu'il compte :
+            “N mails reçus” et “N conversations” ».
+
+            🔴 « CONVERSATIONS » VAUT POUR TOUTES LES ÉTIQUETTES DE CETTE LISTE, pas seulement pour Réception : le
+            prédicat `NOT EXISTS` de `sqlPageBoite` ne garde qu'UN message par échange sous Réception, Envoyés,
+            Spam, Corbeille et sous une carte — rien n'y fait exception (lot LISTE-PAGINATION, qui a corrigé le
+            compteur du spam pour cette raison exacte). Le mot est donc posé ici, une seule fois.
+
+            ⚠️ « Brouillons » NE PASSE PAS PAR CETTE LISTE (il est servi depuis `gestion_brouillon`, voir le
+            prédicat `AND false` de `sqlEtiquette`) : aucun brouillon ne sera jamais appelé « conversation » ici. */}
+        {!cherche && nombreDeLaListe !== null && (
+          <span className="gst-compte">{motConversations(nombreDeLaListe)}</span>
+        )}
         {/* ══ LOT ERGO-BOITE — UNE SEULE ICÔNE À LA PLACE DE DEUX BOUTONS ═══════════════════════════════════════
             « Relever maintenant » et « Rafraîchir » faisaient deux choses qu'on veut toujours ensemble : aller
             chercher le courrier, puis montrer ce qu'on a trouvé. Relever sans rafraîchir laissait l'écran sur

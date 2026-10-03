@@ -468,6 +468,25 @@ export function sqlAppartenance(alias: string, sens: 'recu' | 'envoye', rangAdre
  * été posés : 15 494 échanges affichaient « Classé » dans le mail et « À classer » sur leur ligne. Une seule
  * écriture, désormais — voir l'encadré de `sqlSortesBien`.
  *
+ * ══ 🔴🔴 LOT STATUT-LIGNE-DU-MAIL-AFFICHE — LE STATUT EST CELUI DU MAIL DE LA LIGNE, PLUS CELUI DE L'ÉCHANGE ════
+ *
+ * DÉCISION D'ARNO (03/10/2026, option C) : « Dans l'écran partagé, le statut d'une ligne reste celui de SON mail.
+ * Pour le plein écran, statut = celui du mail affiché sur la ligne. »
+ *
+ * 🔴 CE QUI ÉTAIT ÉCRIT ICI : « rm.fil_id = (alias).fil_id » — tout l'ÉCHANGE. La ligne de la boîte plein écran
+ * n'est pourtant pas un échange : c'est UN mail, celui que `page` a retenu (lot MESSAGE-CLIQUÉ), et c'est son nom,
+ * son objet, son heure, son trombone et sa marque « hors gestion » (`sqlJointureHorsGestion`, juste en dessous)
+ * qu'elle affiche déjà. Seul le rattachement raisonnait encore sur les douze autres messages.
+ *
+ * 🔴 CE QUE CELA CORRIGEAIT MAL. Deux mails de la MÊME conversation pouvaient porter deux statuts opposés dans la
+ * colonne de gauche (un mail par ligne, chacun son rattachement) et un seul et même statut en plein écran — celui
+ * de l'échange. MESURÉ SUR LA BASE D'ARNO le 03/10/2026, par le compteur du dossier « À classer » : **9 146 →
+ * 10 340 échanges**, soit **1 194 lignes** qui annonçaient « Classé » ou « Auto » sur un mail affiché qui n'est,
+ * lui, rattaché à aucun bien.
+ *
+ * ⚠️ IL N'Y A PLUS DE JOINTURE SUR `gestion_message` : le lien `r.message_id` suffit, et c'est l'index
+ * `gestion_rattachement (message_id)` qui travaille. La requête lit moins qu'avant.
+ *
  * ⚠️ « À LA MAIN » = origine manuelle OU statut touché par quelqu'un. Les deux chemins mènent au même fait : un
  * humain a tranché. Ne regarder que `origine` raterait toutes les propositions confirmées d'un clic.
  *
@@ -483,8 +502,7 @@ export function sqlJointureClassement(rattachements: boolean, alias: string): st
                           THEN ' — à la main' ELSE ' — automatique' END,
                   ' · ' ORDER BY r.id) AS detail
            FROM gestion_rattachement r
-           JOIN gestion_message rm ON rm.id = r.message_id
-          WHERE rm.fil_id = ${alias}.fil_id AND r.statut = 'confirme'
+          WHERE r.message_id = ${alias}.message_id AND r.statut = 'confirme'
             AND r.cible_sorte IN (${sqlSortesBien()})
        ) cl ON true`;
 }
@@ -593,13 +611,20 @@ function sqlEtiquette(
      * de rendre `a_classer`.
      *
      * ⚠️ LES TROIS SOUS-REQUÊTES SONT ÉCRITES SUR LE MODÈLE DES JOINTURES DE LA LISTE — `sqlJointureClassement`
-     * pour la première (fil entier, `confirme`, cibles de `sqlSortesBien()`), `sqlJointureHorsGestion` pour la
-     * troisième (le MESSAGE de la ligne, pas tout l'échange). Un prédicat qui s'en écarterait ferait une liste qui
-     * ne coïncide pas avec les pastilles qu'elle affiche — exactement ce qu'Arno veut éviter.
+     * pour la première, `sqlJointureHorsGestion` pour la troisième. Les deux portent sur le MESSAGE DE LA LIGNE.
+     * Un prédicat qui s'en écarterait ferait une liste qui ne coïncide pas avec les pastilles qu'elle affiche —
+     * exactement ce qu'Arno veut éviter.
      *
      * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — ET C'EST ARRIVÉ. Cette clause nommait `('lot', 'proprietaire')` à
      * la main : le dossier et son compteur retenaient donc 267 échanges que la pastille du mail tient pour classés
      * (9 414 contre 9 147, mesuré le 03/10/2026). La liste des sortes vient maintenant de `SORTES_BIEN`.
+     *
+     * 🔴🔴 LOT STATUT-LIGNE-DU-MAIL-AFFICHE — ET LA PORTÉE SUIT CELLE DE LA JOINTURE. `rm0.fil_id = m.fil_id`
+     * (tout l'échange) devient `r0.message_id = m.id` (le mail de la ligne) : ce dossier est « exactement les
+     * mails au statut À classer », et le statut vient de changer de portée. Le laisser sur l'échange aurait rendu
+     * un dossier qui n'affiche pas ses propres pastilles — le défaut même qu'il existe pour empêcher. MESURÉ SUR
+     * LA BASE D'ARNO le 03/10/2026 : **9 146 → 10 340** échanges (+1 194 lignes dont le mail affiché n'est, lui,
+     * rattaché à aucun bien, alors qu'un autre message de l'échange l'est).
      *
      * ⚠️ UNE PROPOSITION NE CLASSE RIEN : `statut = 'confirme'` seulement. C'est la règle de la pastille, et c'est
      * aussi ce qui fait que ce dossier n'est pas celui de « À rattacher » (mesuré : 16 142 mails « à classer »
@@ -614,8 +639,7 @@ function sqlEtiquette(
       const sansRattachement = sondes?.rattachements !== true ? '' : `
           AND NOT EXISTS (
                 SELECT 1 FROM gestion_rattachement r0
-                  JOIN gestion_message rm0 ON rm0.id = r0.message_id
-                 WHERE rm0.fil_id = m.fil_id AND r0.statut = 'confirme'
+                 WHERE r0.message_id = m.id AND r0.statut = 'confirme'
                    AND r0.cible_sorte IN (${sqlSortesBien()}))`;
       const sansInterne = sondes?.interne !== true ? '' : `
           AND NOT EXISTS (

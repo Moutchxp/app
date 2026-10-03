@@ -786,7 +786,7 @@ describe('🔴🔴 le dossier « À classer »', () => {
 
   it('🔴🔴 il transcrit les TROIS conditions de la pastille, et dans le même sens', () => {
     const s = sql();
-    // ① aucun rattachement CONFIRMÉ vers un BIEN, sur TOUT l'échange
+    // ① aucun rattachement CONFIRMÉ vers un BIEN, sur LE MAIL DE LA LIGNE (lot STATUT-LIGNE-DU-MAIL-AFFICHE)
     expect(s).toContain("r0.statut = 'confirme'");
     /**
      * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LA LISTE DES SORTES VIENT DE `SORTES_BIEN`, ET ON L'ÉPROUVE AINSI.
@@ -796,8 +796,23 @@ describe('🔴🔴 le dossier « À classer »', () => {
      */
     expect(s).toContain(`r0.cible_sorte IN (${sqlSortesBien()})`);
     expect(s).toContain("r0.cible_sorte IN ('lot', 'proprietaire', 'locataire')");
-    expect(s).toContain('rm0.fil_id = m.fil_id');
-    // ② l'échange n'est pas marqué « Interne »
+    /**
+     * 🔴🔴 LOT STATUT-LIGNE-DU-MAIL-AFFICHE — LE MAIL DE LA LIGNE, PLUS TOUT L'ÉCHANGE.
+     *
+     * Décision d'Arno (03/10/2026, option C) : « statut = celui du mail affiché sur la ligne ». Le prédicat
+     * portait sur `rm0.fil_id = m.fil_id` (donc sur les douze autres messages de la conversation) : mesuré sur la
+     * base d'Arno, 1 194 échanges annonçaient « Classé » sur un mail affiché rattaché à rien (compteur du dossier
+     * 9 146 → 10 340). La jointure de la LISTE a changé de portée au même endroit : les deux doivent suivre, sinon
+     * le dossier n'affiche plus ses propres pastilles.
+     */
+    expect(s).toContain('r0.message_id = m.id');
+    expect(s).not.toContain('rm0.fil_id = m.fil_id');
+    expect(s).not.toContain('gestion_message rm0');
+    /**
+     * ② L'ÉCHANGE n'est pas marqué « Interne » — ET CELUI-LÀ RESTE SUR L'ÉCHANGE, délibérément. C'est la règle de
+     * `capsuleDuMessage` : la marque « interne » vient de l'ÉCHANGE et non du mail, et c'est ce qui fait que la
+     * réponse d'un collègue — un message qu'on n'a jamais marqué — porte la même capsule.
+     */
     expect(s).toContain('gestion_fil_interne i0');
     expect(s).toContain('i0.fil_id = m.fil_id');
     // ③ le MESSAGE de la ligne n'est pas « Hors gestion » — le message, pas l'échange
@@ -864,5 +879,70 @@ describe('🔴🔴 le dossier « À classer »', () => {
     const posteDeTri = sqlPageBoite(false, { sorte: 'a_classer', evenementId: null }, false, false, null, false,
       true, true, null, false, true).replace(/\s+/g, ' ');
     expect(posteDeTri).toContain("f0.etat = 'a_classer'");
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT STATUT-LIGNE-DU-MAIL-AFFICHE — LA LIGNE PORTE LE STATUT DE **SON** MAIL
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (03/10/2026, option C) : « Dans l'écran partagé, le statut d'une ligne reste celui de SON mail.
+   Pour le plein écran, statut = celui du mail affiché sur la ligne. »
+
+   🔴 CE QUI ÉTAIT ÉCRIT : la jointure de classement agrégeait les rattachements de TOUT L'ÉCHANGE
+   (`rm.fil_id = p.fil_id`), alors que la ligne affiche déjà le nom, l'objet, l'heure, le trombone et la marque
+   « hors gestion » d'UN SEUL message — celui que `page` a retenu (lot MESSAGE-CLIQUÉ).
+
+   🔴 MESURÉ SUR LA BASE D'ARNO, par le compteur du dossier « À classer » : 9 146 → 10 340 échanges. 1 194 lignes
+   annonçaient donc « Classé » ou « Auto » sur un mail affiché qui n'est, lui, rattaché à aucun bien.
+
+   ⚠️ LA MARQUE « INTERNE » RESTE SUR L'ÉCHANGE, et c'est la règle de `capsuleDuMessage` : elle vient de
+   l'ÉCHANGE, ce qui fait que la réponse d'un collègue porte la même capsule sans qu'on l'ait marquée.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le statut de la ligne est celui du mail affiché', () => {
+  const page = (etiquette: 'reception' | 'envoyes' = 'reception') =>
+    sqlPageBoite(false, { sorte: etiquette, evenementId: null }, true, true, null, false, true, true, null, false, true)
+      .replace(/\s+/g, ' ');
+
+  it('🔴🔴 la jointure de classement lit `r.message_id`, jamais le fil', () => {
+    const s = page();
+    expect(s).toContain('WHERE r.message_id = p.message_id');
+    // 🔴 LA PREUVE EN NÉGATIF : plus aucune remontée vers l'échange dans cette jointure.
+    expect(s).not.toContain('rm.fil_id = p.fil_id');
+    expect(s).not.toContain('JOIN gestion_message rm');
+  });
+
+  /**
+   * 🔴 LA MÊME PORTÉE QUE LA MARQUE « HORS GESTION », qui lit `p.message_id` depuis le lot STATUT-HORS-GESTION.
+   * Deux portées différentes sur la même ligne, c'était la contradiction qu'Arno a vue à l'écran.
+   */
+  it('🔴 elle a la même portée que « hors gestion » sur la même ligne', () => {
+    const s = page();
+    expect(s).toContain('h.message_id = p.message_id');
+    expect(s).toContain('r.message_id = p.message_id');
+  });
+
+  /** ⚠️ ET SOUS « ENVOYÉS » AUSSI : c'est la même jointure, pour toutes les étiquettes. */
+  it('⚠️ la règle vaut pour toutes les étiquettes de la liste', () => {
+    expect(page('envoyes')).toContain('r.message_id = p.message_id');
+  });
+
+  /** ⚠️ SANS LA MIGRATION 257, la table n'est NOMMÉE NULLE PART — la règle du module ne bouge pas. */
+  it('⚠️ sans la migration 257, `gestion_rattachement` n’est nommée nulle part', () => {
+    const nu = sqlPageBoite(false, { sorte: 'reception', evenementId: null }, true, true, null, false,
+      false, false, null, false, false);
+    expect(nu).not.toContain('gestion_rattachement');
+  });
+
+  /**
+   * 🔴🔴 LA RECHERCHE SUIT, PAR CONSTRUCTION. Elle emploie le MÊME fragment (`sqlJointureClassement`, avec son
+   * propre alias) : c'est tout l'objet du lot RECHERCHE-LIGNES. Si quelqu'un en recopiait une seconde écriture,
+   * les résultats de recherche afficheraient des pastilles que la liste ne montre pas.
+   */
+  it('🔴🔴 la recherche lit le même fragment, avec son alias', () => {
+    const src = readFileSync('app/lib/gestion/rechercheBoite.ts', 'utf8');
+    expect(src).toContain("sqlJointureClassement(rattachements, 't')");
+    expect(src).not.toContain('gestion_rattachement r0');
   });
 });

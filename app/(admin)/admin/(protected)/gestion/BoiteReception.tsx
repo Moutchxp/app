@@ -5,6 +5,8 @@ import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecra
 import { Trombone } from './Trombone';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { bulleCapsuleMessage, motCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
+// 🔴🔴 LOT OPTION-C — le MOT de l'unité comptée, écrit une seule fois pour les deux écrans (module PUR).
+import { motMailsRecus } from '../../../../lib/gestion/uniteListe';
 
 /**
  * LOT STATUT-PAR-MAIL — LA BOÎTE DE RÉCEPTION DE `gestion@criterimmo.fr`, UN MAIL PAR LIGNE.
@@ -133,7 +135,15 @@ export function BoiteReception({ maintenant, onOuvrir, onPleinEcran, onFileEchan
       <div className="gst-entete-col">
         <h2 className="gst-titre" id="gst-titre-reception">
           Boîte de réception <span className="brc-adresse">gestion@criterimmo.fr</span>
-          {etat.v === 'ok' && etat.total !== null && <span className="gst-compte">{etat.total}</span>}
+          {/* ══ 🔴🔴 LOT OPTION-C — LE COMPTEUR DIT CE QU'IL COMPTE : DES MAILS ════════════════════════════════
+              Décision d'Arno (03/10/2026) : « les deux unités restent, et chaque titre dit ce qu'il compte ».
+              Cette colonne montre UN MAIL PAR LIGNE (lot STATUT-PAR-MAIL) ; le plein écran, UNE CONVERSATION par
+              ligne. Les deux nombres diffèrent donc légitimement — ce que le nombre nu ne disait pas, et qui a
+              fait écrire à Arno « j'ai l'impression qu'un mail manque ». Le mot vient de `uniteListe` (module
+              PUR), écrit une seule fois pour les deux écrans. */}
+          {etat.v === 'ok' && etat.total !== null && (
+            <span className="gst-compte">{motMailsRecus(etat.total)}</span>
+          )}
         </h2>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onPleinEcran}>
           Plein écran

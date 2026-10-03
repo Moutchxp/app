@@ -383,6 +383,14 @@ describe('🔴 le compteur du titre suit le filtre', () => {
      * pour l'étoile.
      */
     expect(src).toContain('const nombreDeLaListe = etat.total ?? total ?? null;');
-    expect(src).toContain('<span className="gst-compte">{nombreDeLaListe}</span>');
+    /**
+     * ══ 🔴🔴 RETOUCHÉ PAR LE LOT OPTION-C — LE NOMBRE EST LE MÊME, IL DIT MAINTENANT CE QU'IL COMPTE ═══════════
+     *
+     * Décision d'Arno (03/10/2026) : « chaque titre dit ce qu'il compte : “N mails reçus” et “N conversations” ».
+     * Le titre affiche donc `motConversations(nombreDeLaListe)` au lieu du nombre nu. 🔒 LA PROPRIÉTÉ GARDÉE PAR
+     * CETTE ÉPREUVE N'A PAS BOUGÉ D'UN POUCE : c'est toujours `nombreDeLaListe` — le compte du SERVEUR, qui
+     * connaît le filtre — qui est lu, et jamais celui de l'étiquette.
+     */
+    expect(src).toContain('<span className="gst-compte">{motConversations(nombreDeLaListe)}</span>');
   });
 });
