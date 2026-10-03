@@ -239,7 +239,8 @@ describe('🔴🔴 ④ « Historique du bien »', () => {
     await monter();
     const a = [...cartes()[0].querySelectorAll('a.rdf-raccourci')][0] as HTMLAnchorElement;
     expect(a.textContent).toContain(MOT_HISTORIQUE_DU_BIEN);
-    expect(a.getAttribute('href')).toBe('/admin/gestion?ecran=annuaire&fiche=lot-7');
+    /* 🔴 `&bloc=vie` : la page se pose sur « Vie du bien » (lot PICTO-PIECE-DANS-LE-DRIVE, point 0). */
+    expect(a.getAttribute('href')).toBe('/admin/gestion?ecran=annuaire&fiche=lot-7&bloc=vie');
   });
 
   /**
@@ -250,7 +251,9 @@ describe('🔴🔴 ④ « Historique du bien »', () => {
   it('🔴🔴 le n° de lot n’apparaît PAS dans l’adresse', async () => {
     await monter();
     const liens = [...container.querySelectorAll('a.rdf-raccourci')].map((a) => a.getAttribute('href') ?? '');
-    expect(liens).toEqual(['/admin/gestion?ecran=annuaire&fiche=lot-7', '/admin/gestion?ecran=annuaire&fiche=lot-8']);
+    expect(liens).toEqual([
+      '/admin/gestion?ecran=annuaire&fiche=lot-7&bloc=vie', '/admin/gestion?ecran=annuaire&fiche=lot-8&bloc=vie',
+    ]);
     expect(liens.some((h) => h.includes('lot-484'))).toBe(false);
   });
 

@@ -325,10 +325,20 @@ export const AIDE_HISTORIQUE_ABSENT =
  *
  * ⚠️ MÊME GARDE QUE `adresseFicheAnnuaire`, et pour la même raison : un identifiant absent, négatif ou non entier
  * ne fabrique PAS de lien. Mieux vaut un bouton éteint qu'une fiche vide — voir `lotId`.
+ *
+ * ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — ET L'ADRESSE DIT SUR QUOI ELLE SE POSE ═════════════════════════
+ *
+ * DÉCISION D'ARNO (03/10/2026) : « oui, “Historique du bien” pose la page directement sur le bloc “Vie du bien”
+ * de la fiche (paramètre d'adresse + défilement). La flèche retour reste inchangée. »
+ *
+ * 🔴 `&bloc=vie` EST CE QUI MANQUAIT AU BOUTON POUR TENIR SON NOM. Il s'appelle « Historique du bien » et
+ * déposait en haut de la fiche, c'est-à-dire sur les coordonnées du propriétaire : l'historique était là, deux
+ * écrans plus bas. Le paramètre vit dans l'ADRESSE et non dans un état, pour que la promesse survive à un
+ * rechargement et à un lien envoyé à un collègue — voir `bloc` dans `ecranUrl`.
  */
 export function adresseHistoriqueDuBien(lotId: number | null): string | null {
   if (lotId === null || !Number.isSafeInteger(lotId) || lotId <= 0) return null;
-  return `/admin/gestion?ecran=annuaire&fiche=lot-${lotId}`;
+  return `/admin/gestion?ecran=annuaire&fiche=lot-${lotId}&bloc=vie`;
 }
 
 /**

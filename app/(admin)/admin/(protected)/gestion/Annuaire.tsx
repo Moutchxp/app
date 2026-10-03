@@ -79,10 +79,17 @@ const ATTENTE_FRAPPE_MS = 250;
    L'état vit maintenant dans `BlocCartes`, au plus près de la rangée qu'il concerne. */
 
 
-export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil }: {
+export function Annuaire({
+  fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil, poserSurVie = false,
+}: {
   fiche: FicheUrl | null;
   onFiche: (f: FicheUrl | null) => void;
   onRetour: () => void;
+  /**
+   * 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — l'adresse demande de se poser sur « Vie du bien » (`&bloc=vie`).
+   * `false` (le défaut) = la fiche s'ouvre par le haut, exactement comme avant ce lot.
+   */
+  poserSurVie?: boolean;
   /**
    * 🔴 LOT FICHES-ANNUAIRE étape B — l'heure de référence de l'écran, pour que « il y a 3 h » soit le même partout.
    * Par défaut, maintenant : une fiche ouverte sans référence n'a pas à afficher des dates fausses.
@@ -131,10 +138,21 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
    * Le bouton d'une carte de bien mène à la fiche de ce bien, et la fait s'ouvrir AU BON ENDROIT — sur la liste de
    * ses échanges, qui est ce qu'on venait voir.
    *
-   * 🔴 UN ÉTAT, ET NON UN MORCEAU D'ADRESSE. L'adresse d'une fiche est `?ecran=annuaire&fiche=lot-312` : lui
-   * ajouter une ancre obligerait `ecranUrl` à porter une notion d'« endroit dans la page », que rien d'autre
-   * n'utilise. Cette intention ne survit d'ailleurs PAS à un rechargement — et c'est voulu : revenir sur la fiche
-   * par son adresse doit la montrer par le haut, comme n'importe quelle fiche.
+   * 🔴 UN ÉTAT POUR LES CLICS D'ICI. Un cartouche ou un bouton de CETTE fiche sait déjà où l'on est : son
+   * intention n'a pas à traverser l'adresse, et elle ne doit pas survivre à un rechargement.
+   *
+   * ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — … MAIS L'ADRESSE QUAND LA DEMANDE VIENT D'AILLEURS ═════════
+   *
+   * DÉCISION D'ARNO (03/10/2026) : « oui, “Historique du bien” pose la page directement sur le bloc “Vie du
+   * bien” de la fiche (paramètre d'adresse + défilement). La flèche retour reste inchangée. »
+   *
+   * Ce fichier portait l'arbitrage inverse, et il était juste tant que la demande venait d'un clic DANS la fiche.
+   * Le bouton « Historique du bien » des cartes de la fenêtre « Bien(s) rattaché(s) à ce mail » est ailleurs : il
+   * ARRIVE sur la fiche, et ce qu'il promet doit tenir après un rechargement comme dans un lien envoyé à un
+   * collègue. D'où `?bloc=vie`, lu par `ecranUrl` et rendu ici par `poserSurVie`.
+   *
+   * ⚠️ LES DEUX CHEMINS SE REJOIGNENT ICI, et c'est voulu : `vieDuBienVisee` reste le seul état qui commande le
+   * défilement. Un second mécanisme aurait fini par se poser deux fois, ou pas du tout.
    */
   const [vieDuBienVisee, setVieDuBienVisee] = useState<number | null>(null);
   /**
@@ -154,6 +172,24 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique, mai
    * échanges qui portent un événement ouvert. Un seul chemin, deux points d'arrivée : celui qu'on demande.
    */
   const ouvrirEvenements = useCallback((lotId: number) => ouvrirVieDuBien(lotId, 'evenement'), [ouvrirVieDuBien]);
+
+  /**
+   * ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — ARRIVER SUR « VIE DU BIEN » PAR L'ADRESSE ══════════════════
+   *
+   * `?ecran=annuaire&fiche=lot-287&bloc=vie` demande exactement ce que demande le cartouche « Historique » de la
+   * fiche : on le fait donc passer par le MÊME état, et le défilement reste écrit à un seul endroit.
+   *
+   * ⚠️ ON NE RÉÉCRIT PAS L'ADRESSE ICI. Elle garde `bloc=vie`, et c'est juste : elle décrit d'où l'on vient et ce
+   * qu'on est venu voir. Le défilement, lui, n'a lieu qu'une fois — `onVieDuBienPosee` efface l'état, et cet
+   * effet ne repart que si la fiche visée change.
+   *
+   * ⚠️ `sorte === 'lot'` SEULEMENT : « Vie du bien » n'existe pas sur la fiche d'une personne, et viser un bloc
+   * qui n'est pas là ferait un défilement vers nulle part.
+   */
+  useEffect(() => {
+    if (!poserSurVie || fiche === null || fiche.sorte !== 'lot') return;
+    setVieDuBienVisee(fiche.id);
+  }, [poserSurVie, fiche]);
 
   // ── LA RECHERCHE ────────────────────────────────────────────────────────────────────────────────────────────────
   useEffect(() => {

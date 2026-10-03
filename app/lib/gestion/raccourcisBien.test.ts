@@ -53,9 +53,14 @@ describe('🔴🔴 ① les mots et les adresses, dans le module pur', () => {
    * d'une personne : le lot « 459 » n'est pas la ligne nº 459 de `gestion_annuaire_lot`, et les confondre
    * ouvrirait la fiche d'un autre bien.
    */
+  /**
+   * ⚠️ `&bloc=vie` A ÉTÉ AJOUTÉ AU LOT PICTO-PIECE-DANS-LE-DRIVE (point 0), sur décision d'Arno : le bouton
+   * s'appelle « Historique du bien », il doit donc poser la page sur « Vie du bien » et non en haut de la fiche.
+   * Le reste de l'adresse — et la règle de l'identifiant interne — est inchangé. Voir `blocVieDuBien.test.ts`.
+   */
   it('🔴🔴 l’adresse de la fiche du bien se construit sur `lotId`', () => {
-    expect(adresseHistoriqueDuBien(7)).toBe('/admin/gestion?ecran=annuaire&fiche=lot-7');
-    expect(adresseHistoriqueDuBien(459)).toBe('/admin/gestion?ecran=annuaire&fiche=lot-459');
+    expect(adresseHistoriqueDuBien(7)).toBe('/admin/gestion?ecran=annuaire&fiche=lot-7&bloc=vie');
+    expect(adresseHistoriqueDuBien(459)).toBe('/admin/gestion?ecran=annuaire&fiche=lot-459&bloc=vie');
   });
 
   /** ⚠️ PAS DE LIEN PLUTÔT QU'UN LIEN MORT : un identifiant absent, nul, négatif ou non entier ne fabrique rien. */

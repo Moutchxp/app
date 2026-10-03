@@ -135,6 +135,25 @@ export interface EtatEcranUrl {
    */
   fiche?: FicheUrl | null;
   /**
+   * ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — SUR QUEL BLOC DE LA FICHE ON ARRIVE ══════════════════════════
+   *
+   * DÉCISION D'ARNO (03/10/2026) : « oui, “Historique du bien” pose la page directement sur le bloc “Vie du bien”
+   * de la fiche (paramètre d'adresse + défilement). La flèche retour reste inchangée. »
+   *
+   * 🔴 CE QUE CELA CHANGE, ET POURQUOI C'EST BIEN UNE DÉCISION. `Annuaire` portait jusqu'ici l'arbitrage inverse,
+   * écrit noir sur blanc : « un état, et non un morceau d'adresse […] cette intention ne survit PAS à un
+   * rechargement, et c'est voulu ». Il valait tant que la demande venait d'un CLIC DANS la fiche — on y était
+   * déjà. Elle vient désormais d'un bouton qui s'appelle « Historique du bien » et qui est AILLEURS : la fiche
+   * doit alors s'ouvrir sur ce qu'il promet, y compris après un rechargement ou un lien envoyé à un collègue.
+   *
+   * ⚠️ UNE VALEUR, PAS UN BOOLÉEN : `bloc=vie` nomme l'endroit. Un `?vie=1` aurait fermé la porte au prochain
+   * bloc qu'on voudra viser, et obligé à un second paramètre qui dirait la même chose autrement.
+   *
+   * ⚠️ IL NE VAUT RIEN SANS `fiche`, comme `message` sans `fil` : un `?bloc=vie` orphelin ne désigne aucun endroit.
+   * Et toute autre valeur vaut `null` — une adresse abîmée ouvre la fiche par le haut, jamais une erreur.
+   */
+  bloc?: 'vie' | null;
+  /**
    * LOT RATTACHEMENT-2 — la cible de l'historique, écrite `lot-282` / `proprio-339` / `carte-12`. `null` ailleurs que
    * dans l'écran `historique`.
    *
@@ -201,7 +220,7 @@ export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId:
  */
 export const ETAT_DEFAUT: EtatEcranUrl = {
   ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, messageOuvert: null, brouillonOuvert: null,
-  fiche: null, cible: null,
+  fiche: null, bloc: null, cible: null,
   filtre: null, etoile: false,
 };
 
@@ -300,6 +319,10 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
     brouillonOuvert: filOuvert === null ? null : identifiant(p.get('brouillon')),
     // La fiche ne désigne quelque chose QUE dans l'annuaire : la lire ailleurs traînerait un paramètre mort.
     fiche: ecran === 'annuaire' ? ficheDepuisTexte(p.get('fiche')) : null,
+    /* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — le bloc visé n'existe QUE sur une fiche de l'annuaire, et
+       seule la valeur connue est retenue : voir `bloc`. */
+    bloc: ecran === 'annuaire' && ficheDepuisTexte(p.get('fiche')) !== null && p.get('bloc') === 'vie'
+      ? 'vie' : null,
     // LOT RATTACHEMENT-2 — idem pour la cible de l'historique. Elle est rendue TELLE QUELLE (bornée) : c'est
     //   `cibleDepuisTexte` dans `historique.ts` qui juge si elle désigne quelque chose, et lui seul.
     cible: ecran === 'historique' ? cibleBrute(p.get('cible')) : null,
@@ -346,6 +369,8 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   // LOT BROUILLONS-GMAIL — le brouillon rouvert, écrit avec son échange et jamais seul.
   if (e.filOuvert !== null && e.brouillonOuvert != null) p.set('brouillon', String(e.brouillonOuvert));
   if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
+  // 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — écrit UNIQUEMENT avec sa fiche, et jamais seul : voir `bloc`.
+  if (e.ecran === 'annuaire' && e.fiche != null && e.bloc === 'vie') p.set('bloc', 'vie');
   if (e.ecran === 'historique' && e.cible != null && e.cible !== '') p.set('cible', e.cible);
   // Seul `non-lus` s'écrit : « tous » est le défaut, et un défaut écrit dans l'adresse n'est plus un défaut.
   if (e.ecran === 'boite' && e.filtre === 'non-lus') p.set('filtre', 'non-lus');

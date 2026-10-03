@@ -65,6 +65,9 @@ describe('🔴 ② lire puis écrire redonne la MÊME adresse', () => {
   const adresses = [
     '', '?ecran=partage', '?etiquette=envoyes', '?etiquette=carte-77&fil=412',
     '?ecran=evenements', '?fil=9', '?etiquette=sans_suite', '?etiquette=a_classer',
+    /* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — la fiche d'un bien, posée sur « Vie du bien ». Elle entre
+       dans les formes canoniques : c'est une adresse qu'on envoie à un collègue, donc elle doit se relire. */
+    '?ecran=annuaire&fiche=lot-287&bloc=vie',
   ];
 
   it('aller-retour stable sur toutes les formes canoniques', () => {

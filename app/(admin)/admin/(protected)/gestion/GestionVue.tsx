@@ -1074,7 +1074,11 @@ export function GestionVue({ intro }: {
       ) : ecran === 'annuaire' ? (
         <Annuaire
           fiche={etatUrl.fiche ?? null}
-          onFiche={(f) => aller({ ...etatUrl, fiche: f })}
+          /* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — « Historique du bien » arrive avec `&bloc=vie` et la
+             fiche se pose sur son historique. ⚠️ `bloc: null` EN CHANGEANT DE FICHE : une fiche ouverte à la main
+             depuis l'annuaire s'ouvre par le haut, sinon le paramètre collerait à toutes les suivantes. */
+          poserSurVie={etatUrl.bloc === 'vie'}
+          onFiche={(f) => aller({ ...etatUrl, fiche: f, bloc: null })}
           /* 🔴 LOT FICHES-ANNUAIRE étape B — l'heure de référence de l'écran, et le chemin vers un échange :
              « la vie du bien » liste les mails du logement, et un clic doit pouvoir en ouvrir un dans la boîte. */
           maintenant={ref}
