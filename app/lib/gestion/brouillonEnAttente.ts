@@ -29,3 +29,23 @@ export const AIDE_BROUILLON_EN_ATTENTE = 'Brouillon de réponse en attente';
  * mention qui dirait où regarder sans y emmener ferait chercher.
  */
 export const MENTION_BROUILLON_VOIR_EN_BAS = 'Brouillon de réponse en attente — voir en bas';
+
+/**
+ * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — LA GRANDE CORBEILLE D'UN MESSAGE ═══════════════════════════
+ *
+ * RÈGLE D'ARNO (03/10/2026) : « aria-label et bulle “Mettre ce message à la corbeille” ».
+ *
+ * 🔴 « CE MESSAGE », ET NON « CET ÉCHANGE ». C'est toute la différence avec la corbeille d'une ligne de liste, et
+ * une corbeille dessinée ne dit pas ce qu'elle jette : le mot, lui, le dit. Un seul endroit l'écrit, pour que la
+ * bulle et le lecteur d'écran ne puissent pas diverger.
+ */
+export const AIDE_CORBEILLE_MESSAGE = 'Mettre ce message à la corbeille';
+
+/** Le bandeau qui suit le geste, et qui le défait. Quelques secondes, puis il s'efface de lui-même. */
+export const BANDEAU_MESSAGE_CORBEILLE = 'Message mis à la corbeille';
+
+/**
+ * Combien de temps le bandeau reste. « Quelques secondes » (Arno) : dix, le temps de lire la phrase et d'atteindre
+ * « Annuler » sans se presser — et c'est déjà le délai du bandeau de l'éditeur. Un seul rythme dans tout le module.
+ */
+export const DELAI_BANDEAU_CORBEILLE_MS = 10_000;

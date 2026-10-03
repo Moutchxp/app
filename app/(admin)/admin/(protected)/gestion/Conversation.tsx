@@ -1,6 +1,10 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+/* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la corbeille d'UN message : même route, même journal, même
+   synchronisation Gmail que celle d'un échange. Seule la désignation change. */
+import { gesteCorbeilleMessage } from './gestesLigne';
+import { DELTA_FIL_CORBEILLE, DELTA_FIL_RESTAURE } from '../../../../lib/gestion/compteursColonne';
 import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../../../lib/gestion/carteRepo';
 import {
   etatCorps, lignesDestinataires, mentionHorsFile, mentionNonRemise, messagesDeplies, MENTION_HTML_SEUL,
@@ -65,7 +69,8 @@ import {
 } from '../../../../lib/gestion/periodesConversation';
 /* 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — les mots du picto « brouillon en attente », écrits une seule fois. */
 import {
-  AIDE_BROUILLON_EN_ATTENTE, MENTION_BROUILLON_VOIR_EN_BAS, PICTO_BROUILLON,
+  AIDE_BROUILLON_EN_ATTENTE, AIDE_CORBEILLE_MESSAGE, BANDEAU_MESSAGE_CORBEILLE,
+  DELAI_BANDEAU_CORBEILLE_MS, MENTION_BROUILLON_VOIR_EN_BAS, PICTO_BROUILLON,
 } from '../../../../lib/gestion/brouillonEnAttente';
 /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — de quel CÔTÉ le repère se pose, et ce que sa pastille explique. */
 import {
@@ -760,6 +765,36 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * un « Répondre » cliqué juste après n'amènerait plus nulle part.
    */
   const [calerLaReponse, setCalerLaReponse] = useState(true);
+  /**
+   * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — LE MESSAGE QUI VIENT DE PARTIR À LA CORBEILLE ════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « Un bandeau “Message mis à la corbeille — Annuler” reste quelques secondes. Le
+   * message disparaît de la conversation affichée. […] Jamais de suppression définitive. »
+   *
+   * 🔴 ON LE RETIRE DE L'AFFICHAGE SANS ATTENDRE LA RELECTURE, et c'est ce qui rend le geste franc : le mail
+   * s'en va sous le doigt. La relecture du fil, elle, part en même temps et confirme — c'est la même règle de
+   * deux temps que les compteurs de ce lot.
+   *
+   * ⚠️ `null` = aucun geste en cours. Le bandeau s'efface de lui-même après `DELAI_BANDEAU_CORBEILLE_MS`, ou
+   * aussitôt qu'on annule.
+   */
+  const [messageJete, setMessageJete] = useState<{ messageId: number; de: string } | null>(null);
+  /**
+   * Les messages que CE geste vient de jeter, et qu'on retire donc de l'affichage.
+   *
+   * ⚠️ UN ENSEMBLE, PAS UN SEUL : on peut en jeter trois de suite avant que le bandeau du premier s'efface, et
+   * ils doivent tous disparaître. Le bandeau, lui, ne parle que du dernier — c'est lui qu'on vient de faire.
+   */
+  const [jetes, setJetes] = useState<ReadonlySet<number>>(new Set());
+  /**
+   * « quelques secondes » (Arno). Dix : le temps de lire la phrase et d'atteindre « Annuler » sans se presser,
+   * et c'est déjà le délai du bandeau de l'éditeur — un seul rythme dans tout le module.
+   */
+  useEffect(() => {
+    if (messageJete === null) return undefined;
+    const t = setTimeout(() => setMessageJete(null), DELAI_BANDEAU_CORBEILLE_MS);
+    return () => clearTimeout(t);
+  }, [messageJete]);
 
   async function basculer(m: MessageDeFil) {
     const ouvert = deplies.has(m.messageId);
@@ -846,6 +881,47 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     globalThis.requestAnimationFrame?.(() => {
       filRef.current?.querySelector(`[data-message="${messageId}"]`)?.scrollIntoView?.({ block: 'nearest' });
     });
+  }
+
+  /**
+   * ══ 🔴🔴 METTRE CE MESSAGE À LA CORBEILLE — ET POUVOIR LE DÉFAIRE ═════════════════════════════════════════════
+   *
+   * 🔴 LE MÊME MÉCANISME QUE LA CORBEILLE D'UN ÉCHANGE, synchronisé avec Gmail : une seule route, un seul
+   * journal, une seule corbeille. Seule la DÉSIGNATION change — ce message, et non tout le fil.
+   *
+   * ⚠️ ON NE RETIRE RIEN TANT QUE LE SERVEUR N'A PAS DIT OUI. Retirer d'abord et remettre en cas d'échec ferait
+   * clignoter un mail qui n'a jamais bougé, et laisserait croire une seconde qu'il est parti.
+   *
+   * 🔴 LES COMPTEURS SUIVENT (point 1 de ce lot) : `rechargerTout` relit la liste — la ligne quitte Réception,
+   * « À classer » ou tout autre dossier si plus aucun message de l'échange n'y figure — et le delta fait monter
+   * « Corbeille » tout de suite.
+   */
+  async function corbeilleDuMessage(m: MessageDeFil): Promise<void> {
+    const r = await gesteCorbeilleMessage(m.messageId, true);
+    if (!r.ok) { onGeste(r.message); return; }
+    /**
+     * 🔴 LE MAIL DISPARAÎT DE LA CONVERSATION AFFICHÉE (Arno), et c'est l'écran qui le retire : la lecture du fil
+     * rend TOUS les messages de l'échange, et c'est ce qu'il faut — ouverte depuis la Corbeille, la conversation
+     * doit justement montrer ce qui y est. Ce qu'on cache, c'est ce que CE geste vient de jeter.
+     */
+    setJetes((s) => new Set(s).add(m.messageId));
+    setMessageJete({ messageId: m.messageId, de: m.deNom?.trim() || m.de });
+    /**
+     * ⚠️ PAS DE `rechargerTout` ICI, ET C'EST DÉLIBÉRÉ : il FERME l'échange (`filOuvert: null`), donc il
+     * emporterait le bandeau « Annuler » avec lui — le geste ne serait plus défaisable. Les compteurs, eux,
+     * suivent tout de suite (point 1), et la LIGNE quitte ses dossiers au battement suivant de l'écran vivant,
+     * sans que rien ne saute sous les yeux.
+     */
+    onGeste('', { compteurs: DELTA_FIL_CORBEILLE });
+  }
+
+  /** LE GESTE INVERSE, par la même porte. « Annuler » n'est pas une seconde implémentation : c'est le retour. */
+  async function annulerCorbeilleDuMessage(messageId: number): Promise<void> {
+    const r = await gesteCorbeilleMessage(messageId, false);
+    setMessageJete(null);
+    if (!r.ok) { onGeste(r.message); return; }
+    setJetes((s) => { const n = new Set(s); n.delete(messageId); return n; });
+    onGeste('Message rétabli.', { compteurs: DELTA_FIL_RESTAURE });
   }
 
   async function toutDeplier(messages: readonly MessageDeFil[]) {
@@ -1191,7 +1267,24 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       <BandeauEnvois filId={filId} onRouvrir={onRouvrirBrouillon} />
 
       <ol className="cnv-fil" ref={filRef}>
-        {ordonnerMessages(messages, ordre).map((m) => (
+        {/**
+          * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — « Message mis à la corbeille — Annuler » ══════════
+          *
+          * Mot pour mot la demande d'Arno. Il reste quelques secondes, puis s'efface de lui-même : un bandeau qui
+          * resterait finirait par parler d'un geste qu'on ne se rappelle plus avoir fait.
+          *
+          * 🔴 « ANNULER » EST UN VRAI RETOUR, pas un simple masquage : il rappelle la même route dans l'autre
+          * sens, et le mail revient dans Gmail comme chez nous.
+          */}
+        {messageJete !== null && (
+          <p className="cnv-jete" role="status">
+            <span className="cnv-jete-mot">{BANDEAU_MESSAGE_CORBEILLE}</span>
+            <span className="cnv-jete-qui">{messageJete.de}</span>
+            <button type="button" className="gst-lien-bouton"
+              onClick={() => void annulerCorbeilleDuMessage(messageJete.messageId)}>Annuler</button>
+          </p>
+        )}
+        {ordonnerMessages(messages.filter((m) => !jetes.has(m.messageId)), ordre).map((m) => (
           <Fragment key={m.messageId}>
           {/* ══ 🔴🔴 LOT SUIVI-CONVERSATION — « À PARTIR D'ICI : … » ════════════════════════════════════════
               Demande d'Arno : « Entre deux mails, quand la période change, une fine ligne de séparation […]
@@ -1233,6 +1326,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             onEtoile={barreActions && redaction ? () => void basculerEtoile(m) : undefined}
             onRepondre={barreActions && redaction ? (voie) => repondreA(voie, m) : undefined}
             onActionMessage={barreActions ? (a) => void agirSurLeMessage(a, m) : undefined}
+            /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la grande corbeille du bloc d'en-tête. Elle ne
+               s'affiche que là où les gestes sont permis, comme l'étoile et « Répondre » juste au-dessus. */
+            onCorbeilleMessage={barreActions ? () => void corbeilleDuMessage(m) : undefined}
             onDeplacer={() => setDeplacer(m.messageId)}
             onRemettre={() => void agirSurLeMail(m.messageId, null, onGeste)}
             /* LOT RATTACHEMENT-1 — « Rattaché à … », dans le mail OUVERT. `null` = 257 absente : aucun bandeau. */
@@ -1805,7 +1901,7 @@ export function MessageConversation({
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
   brouillonEnAttente = false,
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
-  onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange,
+  onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
   /**
@@ -1867,6 +1963,16 @@ export function MessageConversation({
   onRepondre?: (voie: VoieRedaction) => void;
   /** Une entrée du menu « ⋮ » qui n'est ni « déplacer » ni « détacher » — celles-là gardent leurs rappels d'origine. */
   onActionMessage?: (a: ActionMessage) => void;
+  /**
+   * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — LA GRANDE CORBEILLE DU BLOC D'EN-TÊTE ═══════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « dans le bloc d'en-tête d'un message ouvert (De, À, Cc, Date), à DROITE, une
+   * grande icône corbeille qui occupe toute la hauteur du bloc. […] Clic : ce MESSAGE va à la corbeille. »
+   *
+   * ⚠️ ABSENTE ⇒ AUCUNE ICÔNE, et le bloc est exactement celui d'avant ce lot. C'est le cas des écrans qui
+   * affichent un message sans pouvoir agir dessus (une carte, un aperçu).
+   */
+  onCorbeilleMessage?: () => void;
   /**
    * LOT RATTACHEMENT-1 — les liens de CE mail, déjà chargés par la conversation. `null` (le défaut) = aucun bandeau :
    * c'est le cas des écrans qui n'ont pas besoin des rattachements, et celui d'une migration 257 non appliquée.
@@ -2269,6 +2375,15 @@ export function MessageConversation({
 
               🔴 L'OBJET EN PREMIÈRE LIGNE — demande d'Arno. Un message repris six mois plus tard n'a pas forcément
               l'objet du fil : c'est le sien qu'il faut lire, et il n'était affiché nulle part. */}
+          {/**
+            * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — L'EN-TÊTE ET SA CORBEILLE, CÔTE À CÔTE ═════════
+            *
+            * 🔴 LA RANGÉE EST NOUVELLE, LE BLOC NE BOUGE PAS. Arno : « ne déplace pas les autres éléments du
+            * bloc. » Le `<dl>` garde donc exactement sa grammaire et sa mise en colonnes ; on l'enveloppe, et
+            * l'icône prend la place qui restait à droite — `align-items: stretch` lui donne toute la hauteur,
+            * sans qu'aucune ligne ne se décale.
+            */}
+          <div className="cnv-entete-rangee">
           <dl className="cnv-entete">
             {/* ⚠️ PAS DE LIGNE « OBJET » ICI — LOT FIL-LECTURE-2. Elle y a vécu une journée : l'objet apparaissait
                 alors DEUX fois, sous « reçu de … » et dans cet en-tête, à trois centimètres d'écart. Celui du haut
@@ -2294,6 +2409,16 @@ export function MessageConversation({
               <dd>{dateHeureComplete(message.recuLe)}</dd>
             </div>
           </dl>
+          {/* 🔴 LE MOT EST LE MÊME POUR LA BULLE ET POUR LE LECTEUR D'ÉCRAN : une corbeille dessinée ne dit pas
+              CE QU'ELLE JETTE — « ce message », et non l'échange, est toute la différence. */}
+          {onCorbeilleMessage !== undefined && (
+            <button type="button" className="cnv-corbeille"
+              title={AIDE_CORBEILLE_MESSAGE} aria-label={AIDE_CORBEILLE_MESSAGE}
+              onClick={onCorbeilleMessage}>
+              <span aria-hidden="true">🗑</span>
+            </button>
+          )}
+          </div>
 
           {/* LOT RATTACHEMENT-1 — DE QUOI CE MAIL PARLE-T-IL ? Juste sous l'en-tête, avant le texte : c'est une
               donnée du mail, pas un commentaire sur son contenu. Il ne s'affiche que si la conversation a pu lire les
@@ -2576,6 +2701,28 @@ export const CSS_CONVERSATION = `
 .cnv-repere-mot{font-size:.76rem;font-weight:700;letter-spacing:.01em;color:var(--color-svv-red);
   overflow-wrap:anywhere}
 .cnv-repere-qui{font-size:.72rem;color:var(--color-svv-red);opacity:.75}
+/* ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — LA GRANDE CORBEILLE DU BLOC D'EN-TETE ═══════════════════
+   Demande d'Arno : « a DROITE, une grande icone corbeille qui occupe toute la hauteur du bloc » et « ne deplace
+   pas les autres elements du bloc ».
+
+   🔴 LA RANGEE EST EN "stretch" : c'est elle qui donne au bouton toute la hauteur du bloc, sans qu'aucune ligne
+   du <dl> ne se decale. Le <dl> garde "flex:1", donc exactement la largeur qui restait.
+
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot).
+   🔴 AUCUNE COULEUR EN DUR : les jetons basculent seuls en Clair et en Sombre. */
+.cnv-entete-rangee{display:flex;align-items:stretch;gap:8px;min-width:0}
+.cnv-entete-rangee>.cnv-entete{flex:1 1 auto;min-width:0}
+.cnv-corbeille{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:44px;padding:0;
+  font:inherit;font-size:1.25rem;line-height:1;color:var(--color-svv-muted);background:transparent;
+  border:1px solid var(--color-svv-line);border-radius:.5rem;cursor:pointer}
+.cnv-corbeille:hover{color:var(--color-svv-red);border-color:var(--color-svv-red);
+  background:var(--color-svv-field)}
+.cnv-corbeille:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* Le bandeau « Message mis a la corbeille — Annuler ». Un lisere rouge, et le MOT : jamais la couleur seule. */
+.cnv-jete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;margin:0 0 .4rem;padding:8px 10px;
+  border-radius:0 .5rem .5rem 0;border-left:3px solid var(--color-svv-red);background:var(--color-svv-field)}
+.cnv-jete-mot{font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
+.cnv-jete-qui{font-size:.8rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 /* 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — LA PASTILLE "i" EST UN BOUTON, et elle OUVRE une fenetre.
    Meme dessin que la pastille des biens (.ifb-pastille), au rouge du repere pres : c'est la meme promesse ("il y a
    plus a lire ici"), donc le meme objet a l'oeil. Elle n'est plus une bulle au survol : voir ModaleChangementSuivi. */

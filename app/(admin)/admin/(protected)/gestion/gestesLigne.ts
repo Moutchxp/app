@@ -56,6 +56,29 @@ export async function gesteCorbeille(filId: number, versLaCorbeille: boolean): P
 }
 
 /**
+ * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — UN SEUL MESSAGE À LA CORBEILLE ═════════════════════════════
+ *
+ * RÈGLE D'ARNO (03/10/2026) : « une grande icône corbeille dans le bloc d'en-tête d'un message ouvert. Clic : ce
+ * MESSAGE va à la corbeille (mécanisme de corbeille existant, synchronisé avec Gmail comme aujourd'hui). […]
+ * Jamais de suppression définitive. Restaurable depuis la Corbeille. »
+ *
+ * 🔴 C'EST LA MÊME ROUTE, LE MÊME GESTE, LE MÊME JOURNAL que la corbeille d'un échange : seule la DÉSIGNATION
+ * change — un message plutôt qu'un fil. Écrire un second chemin aurait donné deux corbeilles, dont une qui
+ * oublierait un jour de se synchroniser avec Gmail.
+ *
+ * 🔴 ET AUCUNE SUPPRESSION DÉFINITIVE N'EST ATTEIGNABLE D'ICI : les deux seules actions offertes sont
+ * « corbeille » et « reintegrer ». La troisième (`supprimer`) reste réservée à l'écran de la Corbeille, où elle
+ * est confirmée — c'est la règle du module depuis le lot BOITE-INTERNE-CORBEILLE.
+ */
+export async function gesteCorbeilleMessage(
+  messageId: number, versLaCorbeille: boolean,
+): Promise<IssueGeste> {
+  return appelerCorbeille({
+    messageIds: [messageId], action: versLaCorbeille ? 'corbeille' : 'reintegrer',
+  });
+}
+
+/**
  * LES GESTES DE LA LISTE « CORBEILLE » : réintégrer une sélection, ou la supprimer définitivement.
  *
  * 🔴 LA RÉPONSE EST RENDUE TELLE QUELLE, `droitManquant` COMPRIS. L'écran doit pouvoir distinguer « Google refuse

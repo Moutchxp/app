@@ -93,7 +93,9 @@ export async function POST(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
 
-  const corps = (await request.json().catch(() => ({}))) as { action?: string; filIds?: unknown };
+  const corps = (await request.json().catch(() => ({}))) as {
+    action?: string; filIds?: unknown; messageIds?: unknown;
+  };
   const action = ACTIONS.includes(corps.action as Action) ? (corps.action as Action) : null;
   if (action === null) return json({ etat: 'erreur', message: 'Geste inconnu.' }, 400);
 
@@ -156,13 +158,39 @@ export async function POST(request: Request): Promise<Response> {
  *     échange peut être encore vivant avec un seul mail jeté : agir sur les autres réintégrerait — ou pire,
  *     supprimerait — des mails que personne n'a jamais mis à la corbeille.
  */
-async function resoudreMessages(corps: { filIds?: unknown }, action: Action): Promise<number[] | null> {
+async function resoudreMessages(
+  corps: { filIds?: unknown; messageIds?: unknown }, action: Action,
+): Promise<number[] | null> {
+  /**
+   * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — UN MESSAGE, DÉSIGNÉ DIRECTEMENT ═══════════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « une grande icône corbeille dans le bloc d'en-tête d'un message ouvert. Clic :
+   * ce MESSAGE va à la corbeille (mécanisme de corbeille existant, synchronisé avec Gmail comme aujourd'hui). »
+   *
+   * 🔴 RIEN DE NOUVEAU N'EST ÉCRIT POUR CELA, et c'est le point : cette route travaille DÉJÀ message par message
+   * (`agirSurUn`), elle ne savait simplement pas en recevoir la liste — elle la déduisait des échanges. On lui
+   * donne la porte qui manquait ; la suite (Gmail, la base, le journal, le compte rendu) est identique au geste
+   * sur un échange entier.
+   *
+   * ⚠️ BORNÉ, COMME LES ÉCHANGES : on ne prend que des entiers positifs, dédoublonnés. Un identifiant qui ne
+   * serait pas chez nous est écarté plus loin, par `lireAncrage`, avec son motif.
+   *
+   * ⚠️ `messageIds` L'EMPORTE QUAND IL EST LÀ : les deux ensemble n'auraient aucun sens, et préférer silencieusement
+   * les échanges ferait partir à la corbeille toute une conversation là où l'on désignait un seul mail.
+   */
+  if (Array.isArray(corps.messageIds)) {
+    const ids = [...new Set(corps.messageIds.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0))];
+    return ids.length === 0 ? null : ids.slice(0, MESSAGES_MAX);
+  }
   if (!Array.isArray(corps.filIds)) return null;
   const fils = [...new Set(corps.filIds.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0))];
   if (fils.length === 0) return null;
   const ids = await messagesDuFil(fils, action !== 'corbeille');
   return ids.length === 0 ? null : ids;
 }
+
+/** Une liste de messages est BORNÉE : un échange ne porte jamais des milliers de mails, un geste non plus. */
+const MESSAGES_MAX = 200;
 
 /**
  * UN MESSAGE, DE BOUT EN BOUT : le retrouver dans Gmail, puis y agir.
