@@ -153,3 +153,32 @@ export function motProchaineRestauration(nom: string, nombre: number): string {
   const quoi = nombre > 1 ? `les ${nombre} fichiers mis à la corbeille` : `« ${nom} »`;
   return `Sortir ${quoi} de la corbeille du Drive`;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 1 — POURQUOI LE GESTE A ÉTÉ REFUSÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (04/10/2026) : « bandeau “Ce fichier n'a pas pu être lu dans le Drive”, fichier toujours en
+   place. Plus jamais “n'a pas pu être lu” pour un échec d'écriture. »
+
+   CE QUI SE PASSAIT, REPRODUIT : sa mise à la corbeille avait RÉUSSI (journal des mouvements, ligne 170, 03/10 à
+   23:56:27). La ligne restait à l'écran — Google met des secondes à cesser de rendre un fichier jeté — et le
+   geste pouvait donc être rejoué. Au second coup, la lecture refusait avec une raison parfaitement claire (« Ce
+   fichier est à la corbeille du Drive. ») et la route la JETAIT pour une phrase vague, qui envoyait chercher une
+   panne de lecture là où il n'y avait qu'un geste déjà fait. */
+
+/**
+ * LA PHRASE D'UN REFUS, bâtie sur la raison RÉELLE. PUR.
+ *
+ * 🔴 LE PRÉFIXE NOMME LE GESTE qu'on voulait faire. Sans lui, « Ce fichier est à la corbeille du Drive. » se lirait
+ * comme un état constaté au hasard, et pas comme la raison d'un refus.
+ *
+ * ⚠️ LA RAISON N'EST NI RÉÉCRITE NI TRADUITE : elle vient du lecteur (`motifHttp`, `lireMetadonnees`), elle est
+ * déjà en français simple, et elle distingue les cas qui comptent — à la corbeille, introuvable, droit refusé,
+ * Drive indisponible. La réécrire ici ne pourrait que l'appauvrir, et ferait deux vérités sur le même refus.
+ */
+export function motifRefusCorbeille(raison: string): string {
+  const r = (raison ?? '').trim();
+  if (r === '') return 'Mise à la corbeille impossible : le Drive n’a pas dit pourquoi.';
+  return `Mise à la corbeille impossible : ${r.charAt(0).toLowerCase()}${r.slice(1)}`;
+}

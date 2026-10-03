@@ -33,13 +33,15 @@ import {
 import { annoncerPiecesDrive } from '../../../../lib/gestion/signalPieceDrive';
 // 🔴 LOT DRIVE-DEPLACER-RAPIDE — l'écran qui répond au lâcher, et qui sait se dédire. Module PUR.
 import {
-  annuler as annulerLocalement, appliquer as appliquerLocalement, MOT_EN_COURS, motMouvementEnCours,
+  ajouterA, annuler as annulerLocalement, appliquer as appliquerLocalement, MOT_EN_COURS,
+  motMouvementEnCours,
   type MouvementLocal,
 } from '../../../../lib/gestion/mouvementOptimiste';
 // 🔴 LOT RANGER-INSTANTANE-ET-NOM — la ligne qui paraît AU LÂCHER, et qui sait se retirer. Module PUR.
 import {
-  depotsVivants, FENETRE_REINJECTION_MS, fusionnerDepots, ligneProvisoire, ligneReelle, poser as poserLigne,
-  remplacer as remplacerLigne, retirer as retirerLigne, type DepotConfirme,
+  depotsVivants, ecarterRetires, FENETRE_REINJECTION_MS, fusionnerDepots, ligneProvisoire, ligneReelle,
+  poser as poserLigne, remplacer as remplacerLigne, retirer as retirerLigne, retraitsVivants,
+  type DepotConfirme, type RetraitConfirme,
 } from '../../../../lib/gestion/depotInstantane';
 // 🔴 LOT DRIVE-UNIQUE — les règles du mode « ranger », du bandeau des parents et des colonnes. Module PUR.
 import {
@@ -785,6 +787,28 @@ export function SelecteurFichierDrive({
    * moment où une liste arrive, et c'est cette liste-là qui déclenche le rendu.
    */
   const depotsConfirmes = useRef<DepotConfirme[]>([]);
+  /**
+   * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 1 — LE SYMÉTRIQUE DES DÉPÔTS ═══════════════════════════
+   *
+   * CONSTAT D'ARNO : « j'ai demandé “Mettre à la corbeille” et confirmé. Fichier TOUJOURS EN PLACE. »
+   *
+   * Sa mise à la corbeille avait RÉUSSI (journal des mouvements, ligne 170). C'est l'écran qui ne suivait pas :
+   * il lançait une revalidation silencieuse, et Google rendait encore l'ancienne liste AVEC le fichier. La ligne
+   * restait — et comme elle restait, le geste pouvait être rejoué sur un fichier déjà jeté, ce qui produisait
+   * exactement le message d'erreur qu'il a lu.
+   *
+   * 🔴 MÊME REMÈDE QUE POUR LES DÉPÔTS, RENVERSÉ. Un retrait confirmé par Google est une vérité qu'aucune liste
+   * plus ancienne n'a le droit de défaire. Voir l'encadré de `ecarterRetires`.
+   *
+   * ⚠️ UNE `ref`, ET NON UN ÉTAT, pour la même raison que `depotsConfirmes` : cette trace ne doit jamais
+   * provoquer de rendu par elle-même. Elle est lue au moment où une liste arrive, et c'est cette liste qui rend.
+   */
+  const retraitsConfirmes = useRef<RetraitConfirme[]>([]);
+  /**
+   * 🔴 LES LIGNES RETIRÉES PAR UNE MISE À LA CORBEILLE, gardées telles qu'elles étaient. C'est ce que
+   * « Annuler » repose, sans attendre que Google les reliste. Vidée au fur et à mesure des retours.
+   */
+  const retireesCorbeille = useRef<Map<string, Fichier>>(new Map());
   const cache = useRef<Map<string, Listing>>(new Map());
   const enVol = useRef<AbortController | null>(null);
   /** L'endroit qu'on est en train de charger : une réponse qui n'est plus la sienne est jetée. */
@@ -812,7 +836,18 @@ export function SelecteurFichierDrive({
      */
     const maintenant = Date.now();
     depotsConfirmes.current = depotsVivants(depotsConfirmes.current, maintenant);
-    const fichiers = fusionnerDepots(d.fichiers ?? [], dossierId, depotsConfirmes.current, maintenant);
+    retraitsConfirmes.current = retraitsVivants(retraitsConfirmes.current, maintenant);
+    /**
+     * 🔴 LES DEUX CORRECTIONS DU MÊME RETARD, DANS LE MÊME PASSAGE UNIQUE : on réinjecte ce que Google ne rend
+     * PAS ENCORE (un dépôt tout frais), et l'on écarte ce qu'il rend ENCORE (un fichier qu'on vient de jeter).
+     *
+     * ⚠️ L'ORDRE N'A AUCUNE IMPORTANCE ICI — un fichier ne peut pas être à la fois un dépôt confirmé de cette
+     * fenêtre et un retrait confirmé d'elle — mais l'écart passe en SECOND par principe : le dernier geste
+     * connu a le dernier mot.
+     */
+    const fichiers = ecarterRetires(
+      fusionnerDepots(d.fichiers ?? [], dossierId, depotsConfirmes.current, maintenant),
+      retraitsConfirmes.current, maintenant);
     return {
       fichiers, dossiers: [],
       joindreAutorise: d.joindreAutorise !== false,
@@ -1660,7 +1695,15 @@ export function SelecteurFichierDrive({
    * Elle garde LE FICHIER et SON CHEMIN : deux fichiers du même nom vivent dans deux dossiers différents, et c'est
    * précisément quand on en a deux sous les yeux qu'on se trompe de ligne.
    */
-  const [aJeter, setAJeter] = useState<{ id: string; nom: string; chemin: string; parentNom: string } | null>(null);
+  const [aJeter, setAJeter] = useState<{
+    id: string; nom: string; chemin: string; parentNom: string;
+    /**
+     * 🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL — L'IDENTIFIANT du dossier qui le contient, et pas seulement son
+     * nom. C'est lui qu'on revalide après le geste : en arborescence, le fichier jeté est très souvent dans un
+     * sous-niveau déplié, et revalider « le dossier affiché » ne touchait alors pas la liste où il vivait.
+     */
+    parentId: string;
+  } | null>(null);
   const [jetEnCours, setJetEnCours] = useState(false);
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1832,6 +1875,94 @@ export function SelecteurFichierDrive({
       const apres = muter(une).get(ici);
       return apres === undefined ? v : { ...v, fichiers: apres };
     });
+  };
+
+  /**
+   * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 1 — LA LIGNE QUITTE SA PLACE, TOUT DE SUITE ═════════════
+   *
+   * Arno : « après confirmation, le fichier QUITTE IMMÉDIATEMENT son emplacement dans la liste et va dans la
+   * corbeille du Drive ».
+   *
+   * 🔴 LES TROIS PORTEURS DE LISTES, ET IL FAUT LES TROIS. Le cache des dossiers, les sous-niveaux dépliés et la
+   * vue courante. En arborescence, le fichier jeté est très souvent dans un sous-niveau DÉPLIÉ et pas dans le
+   * dossier affiché : ne retoucher que la vue courante ne faisait rien du tout — et c'est l'autre moitié de ce
+   * qu'Arno a constaté. C'est la même liste de porteurs que `rangerLesListes`, pour la même raison.
+   *
+   * ⚠️ ET LA TRACE EST POSÉE EN PLUS DU RETRAIT. Retirer la ligne des listes qu'on tient ne suffit pas : la
+   * prochaine liste venue de Google la ramènerait. La trace (`retraitsConfirmes`) tient tête à Google le temps
+   * qu'il rattrape — voir `ecarterRetires`.
+   *
+   * ⚠️ `rendre` REMET LA TRACE EN CAUSE, et sert à « Annuler » : on OUBLIE le retrait, puis on revalide. Sans cet
+   * oubli, un fichier sorti de la corbeille resterait invisible jusqu'à la fin de la fenêtre de 30 secondes —
+   * c'est-à-dire que « Annuler » semblerait n'avoir rien fait.
+   */
+  const retirerDesListes = (ids: readonly string[]) => {
+    if (ids.length === 0) return;
+    const partis = new Set(ids);
+    /**
+     * 🔴 CE QU'ON RETIRE EST GARDÉ, ET C'EST CE QU'ON REMETTRA. « Annuler » doit rendre la ligne AUSSI VITE qu'on
+     * l'a retirée : attendre que Google la reliste ferait croire que l'annulation n'a rien fait (constaté à
+     * l'écran le 04/10/2026 — le fichier était revenu chez Google, et la ligne restait absente de l'arbre).
+     *
+     * ⚠️ ON GARDE L'ENTRÉE TELLE QU'ELLE ÉTAIT, avec son type, sa taille et sa date : la reconstruire de mémoire
+     * aurait donné une ligne qui saute de place au premier tri par date, juste sous l'œil.
+     */
+    const sans = (l: readonly Fichier[]): Fichier[] => {
+      for (const f of l) if (partis.has(f.id) && !retireesCorbeille.current.has(f.id)) {
+        retireesCorbeille.current.set(f.id, f);
+      }
+      return l.filter((f) => !partis.has(f.id));
+    };
+    // ① LE CACHE DES DOSSIERS (listings complets : on n'en change que les fichiers).
+    for (const [id, l] of cache.current) cache.current.set(id, { ...l, fichiers: sans(l.fichiers) });
+    // ② LES SOUS-NIVEAUX DÉPLIÉS — là où vit le fichier quand on est arrivé en arborescence.
+    setEnfants((avant) => {
+      const n = new Map(avant);
+      for (const [id, l] of avant) n.set(id, sans(l));
+      return n;
+    });
+    // ③ LA VUE COURANTE — celle qu'on regarde, et la seule qui doit bouger sous l'œil.
+    setVue((v) => (v.v === 'ok' ? { ...v, fichiers: sans(v.fichiers) } : v));
+  };
+
+  /**
+   * 🔴 RENDRE LES LIGNES QU'ON AVAIT RETIRÉES — c'est ce que « Annuler » doit faire, et tout de suite.
+   *
+   * ① on OUBLIE le retrait, sans quoi `ecarterRetires` continuerait de masquer un fichier parfaitement revenu
+   *    pendant trente secondes — c'est-à-dire que « Annuler » semblerait n'avoir rien fait ;
+   * ② on REPOSE la ligne gardée dans son dossier d'ORIGINE, celui que le serveur rend depuis le journal des
+   *    mouvements. L'écran, lui, ne sait pas où le fichier vivait — seulement où il le montrait.
+   *
+   * ⚠️ EN TÊTE DU DOSSIER, et sans doublon : si Google l'a déjà relisté, la sienne fait foi et la nôtre ne
+   * s'ajoute pas. Même règle que la réinjection d'un dépôt.
+   */
+  const rendreLesLignes = (ids: readonly string[], dossiers: readonly string[]) => {
+    const rendus = new Set(ids);
+    retraitsConfirmes.current = retraitsConfirmes.current.filter((r) => !rendus.has(r.id));
+    const aRendre = ids
+      .map((id) => retireesCorbeille.current.get(id))
+      .filter((f): f is Fichier => f !== undefined);
+    if (aRendre.length === 0) return;
+    /**
+     * ══ 🔴🔴 ET LA LIGNE REMISE DOIT TENIR TÊTE À GOOGLE, EXACTEMENT COMME UN DÉPÔT ════════════════════════════
+     *
+     * DÉFAUT MESURÉ À L'ÉCRAN le 04/10/2026, après avoir posé la remise : la ligne revenait bien (1 998 ms), puis
+     * REPARTAIT une seconde plus tard. La revalidation silencieuse rapportait une liste de Google qui ne
+     * contenait pas encore le fichier sorti de la corbeille, et elle remplaçait la nôtre.
+     *
+     * 🔴 C'EST LE DÉFAUT DES DÉPÔTS, MOT POUR MOT (voir `fusionnerDepots`) — et pour cause : DU POINT DE VUE DE LA
+     * LISTE, une restauration EST un dépôt. Un fichier qui reparaît dans un dossier, que Google ne rend pas
+     * encore. On réutilise donc le mécanisme qui existe, au lieu d'en écrire un troisième : trois mécanismes pour
+     * le même retard auraient divergé à la première correction.
+     */
+    const jusqua = Date.now() + FENETRE_REINJECTION_MS;
+    const retours: DepotConfirme[] = [];
+    for (const dossierId of dossiers.filter((x) => x !== '')) {
+      majListesDu(dossierId, (l) => ajouterA(l, aRendre, dossierId));
+      for (const ligne of aRendre) retours.push({ dossierId, ligne: { ...ligne, parentId: dossierId }, jusqua });
+    }
+    depotsConfirmes.current = [...depotsVivants(depotsConfirmes.current, Date.now()), ...retours];
+    for (const id of rendus) retireesCorbeille.current.delete(id);
   };
 
   /** Marque (ou démarque) des lignes « en cours » : c'est l'indicateur discret demandé. */
@@ -3294,6 +3425,7 @@ export function SelecteurFichierDrive({
         chemin: [...chemin.map((e) => e.nom), ...(ou !== null && ou.id !== (dossierCourant?.id ?? '') ? [ou.nom] : [])]
           .join(' / '),
         parentNom: ou?.nom ?? dossierCourant?.nom ?? '',
+        parentId: ou?.id ?? dossierCourant?.id ?? '',
       });
     }
   };
@@ -3311,7 +3443,9 @@ export function SelecteurFichierDrive({
    * la ligne ; une ligne qu'on aurait fait disparaître à tort ferait croire le document perdu. On attend donc la
    * réponse de Google, puis on relit le dossier.
    */
-  const jeterALaCorbeille = async (cible: { id: string; nom: string; parentNom: string }): Promise<void> => {
+  const jeterALaCorbeille = async (
+    cible: { id: string; nom: string; parentNom: string; parentId: string },
+  ): Promise<void> => {
     setErreur(null);
     setJetEnCours(true);
     try {
@@ -3330,6 +3464,23 @@ export function SelecteurFichierDrive({
       }
       const faits = d.faits ?? [];
       if (faits.length === 0) return;
+      /**
+       * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 1 — LA LIGNE PART ICI, ET PAS DANS 4 SECONDES ═══════
+       *
+       * Arno : « après confirmation, le fichier QUITTE IMMÉDIATEMENT son emplacement dans la liste ». Avant ce
+       * lot, on se contentait de `revaliderEnSilence` — et Google rendait encore la liste AVEC le fichier
+       * (3,8 s mesurées pour le retard inverse, celui d'un fichier neuf). La ligne restait donc, on recliquait,
+       * et le second clic tombait sur un fichier déjà jeté : c'est le message d'erreur qu'Arno a lu.
+       *
+       * ⚠️ SEULS LES `faits` PARTENT. Un lot dont trois passent et deux sont refusés ne retire que les trois :
+       * les refusés restent là où ils sont, avec leur motif dans le bandeau d'erreur.
+       */
+      const partis = faits.map((f) => f.id);
+      retraitsConfirmes.current = [
+        ...retraitsVivants(retraitsConfirmes.current, Date.now()),
+        ...partis.map((id) => ({ id, jusqua: Date.now() + FENETRE_REINJECTION_MS })),
+      ];
+      retirerDesListes(partis);
       setBandeau({ mot: motCorbeilleFaite(faits.length), mouvements: d.mouvements ?? [], sorte: 'corbeille' });
       /* 🔴 LE PAS ENTRE DANS LA MÊME PILE QUE LES DÉPLACEMENTS : un clic sur « Annuler » défait le plus récent,
          quel qu'il soit. C'est `sorte` qui dira ensuite quelle route appeler et quel mot écrire. */
@@ -3351,7 +3502,10 @@ export function SelecteurFichierDrive({
        */
       relireComptes();
       annoncerPiecesDrive();
-      revaliderEnSilence([dossierCourant?.id ?? '']);
+      /* 🔴 LE DOSSIER RÉEL DU FICHIER, ET LE DOSSIER AFFICHÉ : en arborescence ce ne sont pas le même, et c'est
+         celui du fichier qui porte la ligne qu'on vient de retirer. Les deux, pour que la vue courante se
+         rafraîchisse aussi quand le fichier en venait. */
+      revaliderEnSilence([...new Set([cible.parentId, dossierCourant?.id ?? ''])].filter((x) => x !== ''));
     } catch {
       setErreur('Le Drive n’a pas répondu.');
     } finally {
@@ -3607,17 +3761,41 @@ export function SelecteurFichierDrive({
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'restaurer', mouvements }),
       });
-      const d = (await res.json()) as { etat?: string; message?: string; refuses?: { nom: string; motif: string }[] };
+      const d = (await res.json()) as {
+        etat?: string; message?: string; refuses?: { nom: string; motif: string }[];
+        remis?: string[]; dossiers?: string[];
+      };
       if (d.etat !== 'ok') { setErreur(d.message ?? 'La restauration n’a pas pu être faite.'); return; }
       if ((d.refuses ?? []).length > 0) {
         setErreur((d.refuses ?? []).map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
       }
+      /**
+       * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL — « ANNULER » DOIT OUBLIER LE RETRAIT ═══════════════════════
+       *
+       * Le geste de corbeille a posé une trace qui tient tête à Google pendant 30 secondes (voir
+       * `retraitsConfirmes`) : sans elle, la liste suivante ramenait la ligne qu'on venait de jeter. Mais si l'on
+       * ANNULE dans ces 30 secondes — et c'est le cas normal, le bandeau ne dure pas plus longtemps —, la même
+       * trace ferait disparaître un fichier parfaitement REVENU. « Annuler » semblerait n'avoir rien fait.
+       *
+       * ⚠️ ON N'OUBLIE QUE CE QUI EST RÉELLEMENT REMIS (`remis`) : un refus partiel laisse sa trace en place pour
+       * les fichiers qui, eux, sont bien restés à la corbeille.
+       */
+      rendreLesLignes(d.remis ?? [], d.dossiers ?? []);
       /* 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LE RETOUR FAIT REMONTER LE COMPTEUR. La route vient de lever la marque
          « disparue » au registre et dans l'index ; sans cette relecture, la pastille resterait éteinte sur un
          document parfaitement revenu — un compteur qui ne sait que baisser finit à zéro et ne dit plus rien. */
       relireComptes();
       annoncerPiecesDrive();
-      revaliderEnSilence([dossierCourant?.id ?? '']);
+      /**
+       * 🔴🔴 ON REVALIDE LES DOSSIERS D'ORIGINE, pas seulement celui qu'on affiche. Depuis que la ligne est
+       * retirée IMMÉDIATEMENT, « Annuler » doit la REMETTRE immédiatement — et en arborescence le dossier du
+       * fichier n'est presque jamais le dossier affiché. Constaté à l'écran : le fichier était bien revenu chez
+       * Google, et la ligne restait absente de l'arbre.
+       *
+       * ⚠️ LES DOSSIERS VIENNENT DU SERVEUR (`dossiers`), qui les lit dans le journal des mouvements. L'écran
+       * ne les connaît pas : il n'a jamais su où le fichier vivait, seulement où il le montrait.
+       */
+      revaliderEnSilence([...new Set([...(d.dossiers ?? []), dossierCourant?.id ?? ''])].filter((x) => x !== ''));
     } catch {
       setErreur('Le Drive n’a pas répondu.');
     }

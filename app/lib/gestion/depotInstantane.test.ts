@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { EntreeDrive } from './finderDrive';
 import {
-  depotsVivants, estProvisoire, FENETRE_REINJECTION_MS, fusionnerDepots, idProvisoire, ligneProvisoire,
-  ligneReelle, poser, remplacer, retirer, type DepotConfirme,
+  depotsVivants, ecarterRetires, estProvisoire, FENETRE_REINJECTION_MS, fusionnerDepots, idProvisoire,
+  ligneProvisoire, ligneReelle, poser, remplacer, retirer, retraitsVivants, type DepotConfirme,
 } from './depotInstantane';
 
 /**
@@ -263,5 +263,147 @@ describe('🔴🔴 la réinjection est faite UNE fois, là où toutes les listes
   /** ⚠️ UNE `ref`, jamais un état : cette trace ne doit pas provoquer de rendu par elle-même. */
   it('⚠️ la trace ne déclenche aucun rendu', () => {
     expect(ecran).toContain('const depotsConfirmes = useRef<DepotConfirme[]>([]);');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 1 — LE SYMÉTRIQUE : UN RETRAIT CONFIRMÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (04/10/2026) : « j'ai demandé “Mettre à la corbeille” et confirmé. Fichier TOUJOURS EN PLACE. »
+
+   DIAGNOSTIC MESURÉ : la mise à la corbeille avait RÉUSSI (journal des mouvements, ligne 170, 03/10 à 23:56:27,
+   non annulée ; le fichier est bien `trashed: true` chez Google). C'est l'écran qui ne suivait pas — il revalidait
+   aussitôt, et Google rendait encore l'ancienne liste AVEC le fichier. La ligne restait donc, le geste pouvait
+   être REJOUÉ sur elle, et le second coup produisait le message d'erreur qu'Arno a lu. */
+
+describe('🔴🔴 un retrait confirmé n’est pas ressuscité par une liste périmée', () => {
+  const f = (id: string): EntreeDrive => ({
+    id, nom: id, typeMime: 'application/pdf', tailleOctets: 1, modifieLe: null, lien: null, dossier: false,
+  });
+
+  /** 🔴 LE FICHIER JETÉ QUITTE LA LISTE, même quand Google le rend encore. */
+  it('🔴 il est écarté de la liste que Google rend encore', () => {
+    const liste = [f('A'), f('B'), f('C')];
+    const r = ecarterRetires(liste, [{ id: 'B', jusqua: 2000 }], 1000);
+    expect(r.map((x) => x.id)).toEqual(['A', 'C']);
+  });
+
+  /**
+   * 🔴 PASSÉ LA FENÊTRE, C'EST GOOGLE QUI A RAISON. Ce n'est pas un filtre d'affichage, c'est la correction d'un
+   * RETARD : si le fichier est encore là trente secondes plus tard, c'est qu'il est là.
+   */
+  it('🔴 passé la fenêtre, la trace ne masque plus rien', () => {
+    const liste = [f('A'), f('B')];
+    expect(ecarterRetires(liste, [{ id: 'B', jusqua: 500 }], 1000).map((x) => x.id)).toEqual(['A', 'B']);
+    expect(retraitsVivants([{ id: 'B', jusqua: 500 }], 1000)).toEqual([]);
+    expect(retraitsVivants([{ id: 'B', jusqua: 2000 }], 1000)).toHaveLength(1);
+  });
+
+  /** ⚠️ AUCUNE TRACE : la liste est rendue telle quelle, et c'est une COPIE (on ne rend jamais l'entrée reçue). */
+  it('⚠️ sans trace, la liste passe intacte', () => {
+    const liste = [f('A'), f('B')];
+    const r = ecarterRetires(liste, [], 1000);
+    expect(r.map((x) => x.id)).toEqual(['A', 'B']);
+    expect(r).not.toBe(liste);
+  });
+
+  /**
+   * 🔴🔴 LE RETRAIT PORTE SUR L'IDENTIFIANT SEUL, pas sur un couple (fichier, dossier) : un fichier à la corbeille
+   * du Drive n'est plus dans AUCUN dossier. Le limiter à son ancien parent l'aurait laissé visible partout
+   * ailleurs où l'écran le montrait — et la même ligne peut être affichée à deux endroits.
+   */
+  it('🔴🔴 il disparaît de TOUTES les listes, pas seulement de son ancien dossier', () => {
+    const ici = ecarterRetires([f('A'), f('X')], [{ id: 'X', jusqua: 2000 }], 1000);
+    const ailleurs = ecarterRetires([f('X'), f('B')], [{ id: 'X', jusqua: 2000 }], 1000);
+    expect(ici.map((x) => x.id)).toEqual(['A']);
+    expect(ailleurs.map((x) => x.id)).toEqual(['B']);
+  });
+
+  /** ⚠️ LA MÊME FENÊTRE QUE LES DÉPÔTS : les deux décrivent le même retard, celui de Google. */
+  it('⚠️ une seule fenêtre pour les deux retards', () => {
+    expect(FENETRE_REINJECTION_MS).toBe(30_000);
+  });
+});
+
+describe('🔴🔴 l’écran retire la ligne tout de suite, et sait la rendre', () => {
+  const ecran = readFileSync('app/(admin)/admin/(protected)/gestion/SelecteurFichierDrive.tsx', 'utf8');
+  /**
+   * 🔴 LES DEUX CORRECTIONS DU MÊME RETARD PASSENT PAR LE POINT UNIQUE (`lireListing`) : on réinjecte ce que
+   * Google ne rend PAS ENCORE, et l'on écarte ce qu'il rend ENCORE. Un seul endroit, donc les quatre chemins de
+   * lecture (premier affichage, survol, dépliage, revalidation) sont couverts d'un coup.
+   */
+  it('🔴 `lireListing` écarte les retraits, et lui seul', () => {
+    const corps = ecran.slice(ecran.indexOf('const lireListing = useCallback'), ecran.indexOf('const charger ='));
+    expect(corps).toContain('ecarterRetires(');
+    expect((ecran.match(/ecarterRetires\(/g) ?? [])).toHaveLength(1);
+  });
+
+  /**
+   * 🔴🔴 LA LIGNE EST RETIRÉE DES TROIS PORTEURS DE LISTES, et il faut les trois. En arborescence, le fichier
+   * jeté est très souvent dans un sous-niveau DÉPLIÉ et pas dans le dossier affiché : ne retoucher que la vue
+   * courante ne faisait rien du tout — c'est l'autre moitié de ce qu'Arno a constaté.
+   */
+  it('🔴🔴 les trois porteurs de listes sont retouchés', () => {
+    const corps = ecran.slice(ecran.indexOf('const retirerDesListes = ('), ecran.indexOf('const oublierRetraits'));
+    expect(corps).toContain('cache.current.set(');
+    expect(corps).toContain('setEnfants((avant)');
+    expect(corps).toContain('setVue((v)');
+  });
+
+  /** 🔴 SEULS LES FICHIERS RÉELLEMENT JETÉS PARTENT : un lot partiellement refusé ne retire que ce qui est passé. */
+  it('🔴 seuls les `faits` quittent la liste', () => {
+    const geste = ecran.slice(ecran.indexOf('const jeterALaCorbeille = async ('), ecran.indexOf('const sortirDeLaCorbeille'));
+    expect(geste).toContain('const partis = faits.map((f) => f.id);');
+    expect(geste).toContain('retirerDesListes(partis);');
+  });
+
+  /**
+   * 🔴🔴 « ANNULER » OUBLIE LE RETRAIT **ET** REPOSE LA LIGNE. Sans l'oubli, un fichier sorti de la corbeille
+   * resterait invisible jusqu'à la fin de la fenêtre de 30 secondes. Et sans la remise, il faudrait attendre que
+   * Google le reliste : mesuré à l'écran, « Annuler » semblait alors n'avoir rien fait.
+   *
+   * ⚠️ SEULEMENT POUR CE QUI EST RÉELLEMENT REMIS (`remis`) : un refus partiel laisse la trace en place pour les
+   * fichiers qui, eux, sont bien restés à la corbeille.
+   */
+  it('🔴🔴 la restauration oublie la trace et repose la ligne, pour ce qui est remis', () => {
+    const geste = ecran.slice(ecran.indexOf('const sortirDeLaCorbeille = async ('));
+    expect(geste).toContain('rendreLesLignes(d.remis ?? [], d.dossiers ?? []);');
+    const helper = ecran.slice(ecran.indexOf('const rendreLesLignes = ('), ecran.indexOf('/** Marque (ou démarque)'));
+    expect(helper).toContain('retraitsConfirmes.current.filter((r) => !rendus.has(r.id))');
+    expect(helper).toContain('majListesDu(dossierId, (l) => ajouterA(l, aRendre, dossierId));');
+  });
+
+  /**
+   * ══ 🔴🔴 ET LA LIGNE REMISE TIENT TÊTE À GOOGLE, COMME UN DÉPÔT — DÉFAUT MESURÉ À L'ÉCRAN ════════════════════
+   *
+   * Après avoir posé la remise, la ligne revenait bien (1 998 ms) puis REPARTAIT une seconde plus tard : la
+   * revalidation silencieuse rapportait une liste de Google qui ne contenait pas encore le fichier sorti de la
+   * corbeille, et elle remplaçait la nôtre.
+   *
+   * 🔴 C'EST LE DÉFAUT DES DÉPÔTS, MOT POUR MOT — et pour cause : DU POINT DE VUE DE LA LISTE, une restauration
+   * EST un dépôt. On réutilise donc le mécanisme qui existe plutôt que d'en écrire un troisième : trois
+   * mécanismes pour le même retard auraient divergé à la première correction.
+   */
+  it('🔴🔴 la ligne remise est réinjectée comme un dépôt, pas réinventée', () => {
+    const helper = ecran.slice(ecran.indexOf('const rendreLesLignes = ('), ecran.indexOf('/** Marque (ou démarque)'));
+    expect(helper).toContain('const retours: DepotConfirme[] = [];');
+    expect(helper).toContain('depotsConfirmes.current = [...depotsVivants(depotsConfirmes.current, Date.now()), ...retours];');
+    /* ⚠️ ET AUCUN TROISIÈME MÉCANISME : la fenêtre n'en connaît que deux, les dépôts et les retraits. */
+    expect(ecran).not.toContain('retoursConfirmes');
+  });
+
+  /**
+   * 🔴 LE DOSSIER REVALIDÉ EST CELUI DU FICHIER, pas seulement celui qu'on affiche : en arborescence ce ne sont
+   * pas le même, et c'est celui du fichier qui porte la ligne qu'on vient de retirer.
+   */
+  it('🔴 la revalidation vise le dossier réel du fichier', () => {
+    const geste = ecran.slice(ecran.indexOf('const jeterALaCorbeille = async ('), ecran.indexOf('const sortirDeLaCorbeille'));
+    expect(geste).toContain('cible.parentId');
+  });
+
+  /** ⚠️ UNE `ref`, jamais un état : cette trace ne doit pas provoquer de rendu par elle-même. */
+  it('⚠️ la trace des retraits ne déclenche aucun rendu', () => {
+    expect(ecran).toContain('const retraitsConfirmes = useRef<RetraitConfirme[]>([]);');
   });
 });

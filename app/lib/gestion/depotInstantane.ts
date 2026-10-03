@@ -199,6 +199,58 @@ export function fusionnerDepots(
   return manquants.length === 0 ? [...liste] : [...manquants.map((d) => d.ligne), ...liste];
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL — LE SYMÉTRIQUE : UN RETRAIT CONFIRMÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (04/10/2026) : « j'ai demandé “Mettre à la corbeille” et confirmé. Résultat : bandeau d'erreur,
+   fichier TOUJOURS EN PLACE. »
+
+   DIAGNOSTIC MESURÉ. La mise à la corbeille avait RÉUSSI — journal des mouvements, ligne 170, 03/10 à 23:56:27,
+   non annulée, et le fichier est bien `trashed: true` chez Google. Ce qu'Arno a vu ensuite vient d'ici : l'écran
+   lançait une revalidation silencieuse du dossier courant, et Google rendait encore l'ancienne liste, AVEC le
+   fichier. La ligne restait donc à l'écran — et comme elle restait, le geste pouvait être REJOUÉ sur un fichier
+   déjà à la corbeille, ce qui produisait précisément le message d'erreur qu'il a lu.
+
+   🔴 C'EST EXACTEMENT LE DÉFAUT DES DÉPÔTS, DANS L'AUTRE SENS. Google met des secondes à faire PARAÎTRE un
+   fichier neuf dans `files.list` (3,8 s mesurées le 30/09/2026) ; il met le même temps à cesser de rendre un
+   fichier qu'on vient de jeter. Le remède est donc le même, renversé : un retrait CONFIRMÉ par Google est une
+   vérité qu'aucune liste plus ancienne n'a le droit de défaire.
+
+   ⚠️ LA FENÊTRE EST LA MÊME (`FENETRE_REINJECTION_MS`), et c'est voulu : les deux décrivent le même retard, celui
+   de Google. En tenir deux aurait fait divulguer deux vérités sur la même chose.
+
+   ⚠️ ET LE RETRAIT PORTE SUR L'IDENTIFIANT SEUL, pas sur un couple (fichier, dossier) : un fichier à la corbeille
+   du Drive n'est plus dans AUCUN dossier. Le limiter à son ancien parent l'aurait laissé visible partout ailleurs
+   où l'écran le montrait — et la même ligne peut être affichée à deux endroits. */
+
+/** Un retrait confirmé par Google (mise à la corbeille), qu'aucune liste plus ancienne n'a le droit de ressusciter. */
+export interface RetraitConfirme {
+  id: string;
+  /** Au-delà, c'est Google qui a raison, quoi qu'il dise — même règle que les dépôts. */
+  jusqua: number;
+}
+
+/**
+ * ÉCARTE d'une liste fraîchement reçue les fichiers dont le retrait est confirmé. PUR.
+ *
+ * 🔴 CE N'EST PAS UN FILTRE D'AFFICHAGE, c'est la correction d'un RETARD : passé la fenêtre, la trace meurt et la
+ * liste de Google reprend toute son autorité. On n'efface rien qu'on n'ait vu partir.
+ */
+export function ecarterRetires(
+  liste: readonly EntreeDrive[], retraits: readonly RetraitConfirme[], maintenant: number,
+): EntreeDrive[] {
+  const partis = new Set(retraits.filter((r) => r.jusqua > maintenant).map((r) => r.id));
+  return partis.size === 0 ? [...liste] : liste.filter((e) => !partis.has(e.id));
+}
+
+/** Écarte les traces périmées. Même rôle que `depotsVivants`, pour les retraits. PUR. */
+export function retraitsVivants(
+  retraits: readonly RetraitConfirme[], maintenant: number,
+): RetraitConfirme[] {
+  return retraits.filter((r) => r.jusqua > maintenant);
+}
+
 /** Écarte les traces périmées. Appelé à chaque usage : rien ne doit survivre à sa fenêtre. */
 export function depotsVivants(
   depots: readonly DepotConfirme[], maintenant: number,

@@ -6,7 +6,7 @@ import { chaineParents } from '../../../../../../lib/gestion/drive';
 import { metadonneesMemo, oublierChaine, oublierElement } from '../../../../../../lib/gestion/driveMemoire';
 import { idsProteges } from '../../../../../../lib/gestion/driveVerdict';
 import { indexerMaillons } from '../../../../../../lib/gestion/driveLectureFichier';
-import { peutMettreCorbeille } from '../../../../../../lib/gestion/driveCorbeille';
+import { motifRefusCorbeille, peutMettreCorbeille } from '../../../../../../lib/gestion/driveCorbeille';
 import { basculerCorbeille } from '../../../../../../lib/gestion/driveCorbeilleReel';
 import { inscrireMouvement, marquerAnnule, mouvementsAnnulables } from '../../../../../../lib/gestion/driveMouvementRepo';
 import { corbeilleDriveDisponible, journalMouvementDriveDisponible } from '../../../../../../lib/gestion/schema';
@@ -179,7 +179,27 @@ async function mettre(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<Res
     // ── ① CE QUE GOOGLE DIT DE CE FICHIER (son type, son parent). Jamais ce que l'écran affirme. ───────────────
     const meta = await metadonneesMemo(jeton.compteGoogle, jeton.jeton, id, { fetch });
     if (!meta.ok) {
-      refuses.push({ id, nom: nomAnnonce, motif: 'Ce fichier n’a pas pu être lu dans le Drive.' });
+      /**
+       * ══ 🔴🔴 LA RAISON DE GOOGLE EST RENDUE TELLE QUELLE — CORRIGÉ LE 04/10/2026 ══════════════════════════════
+       *
+       * CONSTAT D'ARNO : « bandeau “Ce fichier n'a pas pu être lu dans le Drive”, fichier toujours en place.
+       * Plus jamais “n'a pas pu être lu” pour un échec d'écriture. »
+       *
+       * CE QUI SE PASSAIT, MESURÉ ET REPRODUIT. Sa mise à la corbeille avait RÉUSSI (journal des mouvements,
+       * ligne 170, 03/10 à 23:56:27). La ligne restait pourtant à l'écran — Google met des secondes à cesser de
+       * rendre un fichier jeté — et le geste pouvait donc être REJOUÉ sur elle. Au second coup, `lireMetadonnees`
+       * refusait avec une raison parfaitement claire : « Ce fichier est à la corbeille du Drive. » Et cette ligne
+       * la JETAIT pour écrire à la place une phrase vague, qui envoyait chercher une panne de lecture là où il
+       * n'y avait qu'un geste déjà fait.
+       *
+       * 🔴 LE MOTIF DU LECTEUR EST DÉJÀ ÉCRIT EN FRANÇAIS SIMPLE, et il distingue les cas qui comptent : fichier
+       * à la corbeille, introuvable, droit refusé, Drive indisponible (`motifHttp`). Le réécrire ici ne pouvait
+       * que l'appauvrir.
+       *
+       * ⚠️ ET ON DIT QUE C'EST UN REFUS DU GESTE, pas un incident de lecture : le préfixe nomme ce qu'on voulait
+       * faire. « Ce fichier est à la corbeille du Drive. » seul laisserait croire à un état constaté au hasard.
+       */
+      refuses.push({ id, nom: nomAnnonce, motif: motifRefusCorbeille(meta.motif) });
       continue;
     }
     const nom = meta.valeur.nom;
@@ -249,6 +269,19 @@ async function restaurer(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<
   }
 
   const remis: string[] = [];
+  /**
+   * 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL — LES DOSSIERS OÙ LES FICHIERS SONT REVENUS.
+   *
+   * Depuis que l'écran retire la ligne IMMÉDIATEMENT (et non plus en attendant que Google rattrape), il doit
+   * aussi la REMETTRE immédiatement — sinon « Annuler » remet bien le fichier dans le Drive et ne le montre
+   * nulle part. Constaté à l'écran le 04/10/2026 : le fichier était revenu (parents corrects chez Google) et
+   * la ligne restait absente de l'arbre.
+   *
+   * 🔴 LE DOSSIER VIENT DU JOURNAL, PAS DU NAVIGATEUR : c'est `parentOrigine`, celui qu'on a consigné en
+   * jetant le fichier. L'écran, lui, ne connaît que le dossier qu'il AFFICHE — et en arborescence ce n'est
+   * presque jamais celui du fichier.
+   */
+  const dossiers: string[] = [];
   const refuses: { id: string; nom: string; motif: string }[] = [];
   for (const l of lignes) {
     /**
@@ -289,11 +322,12 @@ async function restaurer(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<
     });
     await marquerAnnule(l.id);
     remis.push(l.driveId);
+    if (l.parentOrigine.trim() !== '') dossiers.push(l.parentOrigine.trim());
   }
 
   /* 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — et le reflet INVERSE : un document revenu doit faire remonter le
      compteur. Un compteur qui ne sait que baisser finit à zéro et ne dit plus rien. */
   await refletCorbeille(remis, false);
 
-  return json({ etat: 'ok', action: 'restaurer', remis, refuses });
+  return json({ etat: 'ok', action: 'restaurer', remis, dossiers: [...new Set(dossiers)], refuses });
 }
