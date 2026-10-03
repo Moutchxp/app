@@ -589,7 +589,7 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
      * PROPOSÉS pour l'expéditeur. Il n'y a plus deux fenêtres : celle-ci porte sur le mail affiché sur la ligne,
      * d'où qu'on l'ouvre.
      */
-    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) de ce mail');
+    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) rattaché(s) à ce mail');
     // 🔴 LOT FICHE-RATTACHEMENT — l'objet et le nombre de mails en tête (demande d'Arno).
     expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Fuite salle de bain');
     expect(container.querySelector('[role="dialog"]')?.textContent).toContain('3 mails dans la conversation');
@@ -714,7 +714,7 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     /* 🔴🔴 LE GESTE POUR EN SORTIR EST LE GRAND BOUTON D'ARNO — « Rattacher à un bien » a été remplacé par
        « Modifier les biens de ce mail », qui fait la même chose et davantage (il retire aussi). */
     expect([...container.querySelectorAll('button')]
-      .some((b) => /Modifier les biens de ce mail/.test(b.textContent ?? ''))).toBe(true);
+      .some((b) => /Modifier les biens rattachés à ce mail/.test(b.textContent ?? ''))).toBe(true);
   });
 
   /** ⚠️ La migration 257 absente est un ÉTAT, pas une panne : on le DIT plutôt que de montrer une liste vide. */

@@ -219,11 +219,27 @@ export function ColonneBien({ bien, coche, fige, onBasculer }: {
         </span>
       </label>
 
+      {/**
+        * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — UN BIEN DÉJÀ RATTACHÉ N'EST PLUS « À TRANCHER » ═══════════
+        *
+        * DÉCISION D'ARNO (03/10/2026) : « un bien déjà rattaché n'affiche que “déjà rattaché”, sans la pastille
+        * “À trancher” ».
+        *
+        * 🔴 LES DEUX PASTILLES SE CONTREDISAIENT. « À trancher » est la CERTITUDE du moteur — « je ne sais pas si
+        * c'est celui-là » — et « déjà rattaché » est un FAIT : quelqu'un a tranché, et c'est écrit en base. Les
+        * afficher côte à côte revenait à redemander une décision déjà prise.
+        *
+        * ⚠️ « Quasi certain » DISPARAÎT AUSSI dans ce cas, et pour la même raison : la certitude du moteur
+        * n'apprend plus rien une fois le bien rattaché. Le fait l'emporte sur l'estimation.
+        */}
       <p className="pdb-marques">
-        <span className={`pdb-certitude${bien.certitude === 'quasi_certaine' ? ' pdb-certitude--sure' : ''}`}>
-          {bien.certitude === 'quasi_certaine' ? 'Quasi certain' : 'À trancher'}
-        </span>
-        {bien.dejaRattache && <span className="pdb-certitude">déjà rattaché</span>}
+        {bien.dejaRattache
+          ? <span className="pdb-certitude">déjà rattaché</span>
+          : (
+            <span className={`pdb-certitude${bien.certitude === 'quasi_certaine' ? ' pdb-certitude--sure' : ''}`}>
+              {bien.certitude === 'quasi_certaine' ? 'Quasi certain' : 'À trancher'}
+            </span>
+          )}
       </p>
 
       {/* ⚠️ UN CHAMP VIDE N'EST PAS DANS LA LISTE : le module pur l'a déjà écarté. Pas de tiret, pas de « inconnu ». */}

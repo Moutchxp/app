@@ -272,7 +272,17 @@ export function motNbMails(n: number): string {
    fenêtre. »
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-export const TITRE_BIENS_DU_MAIL = 'Bien(s) de ce mail';
+/**
+ * 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LES MOTS D'ARNO, À LA LETTRE (03/10/2026).
+ *
+ * « Titre : “Bien(s) rattaché(s) à ce mail” (au lieu de “Bien(s) de ce mail”). Bouton : “Modifier les biens
+ * rattachés à ce mail”. »
+ *
+ * 🔴 « RATTACHÉ(S) » DIT CE QUE LA FENÊTRE MONTRE, et c'est tout l'écart. « Bien(s) de ce mail » pouvait se lire
+ * « les biens dont ce mail parle » — c'est-à-dire les propositions. La fenêtre, elle, ne montre que les liens
+ * vivants et confirmés : le mot le dit désormais lui-même.
+ */
+export const TITRE_BIENS_DU_MAIL = 'Bien(s) rattaché(s) à ce mail';
 export const AUCUN_BIEN_DU_MAIL = 'Aucun bien rattaché à ce mail';
 
 /**
@@ -395,7 +405,7 @@ export interface EnTeteMailFenetre {
 }
 
 /** Le grand bouton, et le lien qui lui fait pendant. Écrits ici, lus par l'écran — jamais recopiés. */
-export const MOT_MODIFIER_BIENS_DU_MAIL = 'Modifier les biens de ce mail';
+export const MOT_MODIFIER_BIENS_DU_MAIL = 'Modifier les biens rattachés à ce mail';
 export const MOT_CHANGER_REGLE_SUIVI =
   'Changer plutôt la règle de suivi de la conversation à partir de ce mail';
 
@@ -409,6 +419,10 @@ export const MOT_CHANGER_REGLE_SUIVI =
  * après coup ») et c'est d'autant plus vrai ici : la différence entre une exception et une règle de suivi ne se
  * voit pas à l'écran une fois le geste fait — elle se voit trois mails plus loin.
  */
+/** Les titres des DEUX zones du panneau. Écrits ici, lus par l'écran — jamais recopiés d'un composant à l'autre. */
+export const ZONE_DEJA_RATTACHES = 'Bien(s) déjà rattaché(s) à ce mail';
+export const ZONE_AUTRES_PROPOSES = 'Autres biens proposés';
+
 export const ENCADRE_EXCEPTION_CE_MAIL =
   'Ce changement ne concerne que ce mail (exception). La règle de suivi de la conversation reste inchangée pour '
   + 'les autres mails.';

@@ -176,7 +176,10 @@ describe('🔴 ④ ce que la fenêtre écrit', () => {
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
   it('🔴🔴 un seul titre, et il parle du MAIL', () => {
-    expect(TITRE_BIENS_DU_MAIL).toBe('Bien(s) de ce mail');
+    /* 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — « RATTACHÉ(S) » DIT CE QUE LA FENÊTRE MONTRE. « Bien(s) de ce
+       mail » pouvait se lire « les biens dont ce mail parle », c'est-à-dire les propositions ; la fenêtre, elle,
+       ne montre que les liens vivants et confirmés. Mot d'Arno, à la lettre. */
+    expect(TITRE_BIENS_DU_MAIL).toBe('Bien(s) rattaché(s) à ce mail');
     expect(src).toContain('<h2 className="mrt-titre" id="rdf-titre">{TITRE_BIENS_DU_MAIL}</h2>');
     /* 🔴 ET « Bien(s) de cet échange » N'EST PLUS EMPLOYÉ NULLE PART : un rattachement se pose sur un MAIL,
        « les biens de l'échange » était une somme — et une somme ne se modifie pas. */

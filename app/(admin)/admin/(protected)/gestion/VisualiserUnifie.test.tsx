@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { RattachementsDuFil } from './RattachementsDuFil';
 import {
   ENCADRE_EXCEPTION_CE_MAIL, MOT_CHANGER_REGLE_SUIVI, MOT_MODIFIER_BIENS_DU_MAIL,
+  ZONE_AUTRES_PROPOSES, ZONE_DEJA_RATTACHES,
 } from '../../../../lib/gestion/ficheRattachement';
 
 /**
@@ -178,7 +179,7 @@ describe('🔴🔴 ① une seule fenêtre, quel que soit le point d’entrée', 
   /** 🔴 ET LE TITRE EST LE MÊME DES DEUX CÔTÉS : « Bien(s) de cet échange » n'existe plus. */
   it('🔴🔴 un seul titre, et il parle du mail', async () => {
     await monter(null);
-    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) de ce mail');
+    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) rattaché(s) à ce mail');
   });
 
   /** 🔴 L'EN-TÊTE DIT DE QUEL MAIL ON PARLE : expéditeur, date, objet (demande d'Arno). */
@@ -209,31 +210,83 @@ describe('🔴🔴 ② le grand bouton ouvre les deux zones, dans la même fenê
     await cliquer(b as Element);
   };
 
-  it('🔴🔴 a) les propositions, b) la recherche, c) l’encadré — tout dans la même fenêtre', async () => {
+  it('🔴🔴 a) les biens rattachés, b) les autres proposés, la recherche, et l’encadré', async () => {
     await ouvrir();
     /* ⚠️ TOUJOURS UNE SEULE BOÎTE DE DIALOGUE : deux fenêtres empilées sont injouables au clavier. */
     expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
-    // a) les propositions de l'automatisation
-    expect(dialogue()).toContain('propositions de l’automatisation');
-    // b) le moteur de recherche, sur TOUS les biens de la base
+    /* 🔴🔴 DEUX ZONES NETTEMENT SÉPARÉES (Arno) : chacune a son titre ET son propre bloc. */
+    expect(container.querySelector('.mrb-zone--a')?.textContent).toContain(ZONE_DEJA_RATTACHES);
+    expect(container.querySelector('.mrb-zone--b')?.textContent).toContain(ZONE_AUTRES_PROPOSES);
+    // le moteur de recherche, sur TOUS les biens de la base
     expect(container.querySelector('input[type="search"]')).not.toBeNull();
     // c) l'encadré, mot pour mot celui d'Arno
     expect(container.querySelector('.rdf-encadre')?.textContent).toBe(ENCADRE_EXCEPTION_CE_MAIL);
   });
 
   /**
-   * 🔴🔴 « DÉCOCHÉES, SAUF LES BIENS DÉJÀ RATTACHÉS, QUI SONT COCHÉS » (Arno).
-   *
-   * ⚠️ C'EST L'ÉTAT RÉEL DU MAIL QUI COMMANDE, PAS LA RECOMMANDATION DU MOTEUR : dans ce décor, le moteur
-   * recommande les DEUX biens (`recommande: true` sur les deux) et un seul est rattaché. Sans cette règle, on
-   * rouvrirait la fenêtre avec une case cochée qui ne correspond à rien de posé — et « Valider » l'écrirait.
+   * 🔴🔴 « TOUTES DÉCOCHÉES PAR DÉFAUT » (décision d'Arno) — et c'est l'inverse de ce que le lot précédent
+   * figeait. La zone (b) ne porte que ce qu'on peut AJOUTER : une case déjà cochée y ferait croire qu'il reste
+   * une décision à prendre sur un bien déjà posé, et se décocherait par mégarde.
    */
-  it('🔴🔴 pré-coche : les biens DÉJÀ rattachés, et eux seuls', async () => {
+  it('🔴🔴 aucune proposition pré-cochée dans la zone (b)', async () => {
     await ouvrir();
-    const cases = [...container.querySelectorAll('.mrb input[type="checkbox"], .pdb-item input[type="checkbox"]')];
-    const cochees = cases.filter((c) => (c as HTMLInputElement).checked);
-    expect(cases.length).toBeGreaterThanOrEqual(2);
-    expect(cochees).toHaveLength(1);
+    const cases = [...container.querySelectorAll('.mrb-zone--b input[type="checkbox"]')] as HTMLInputElement[];
+    expect(cases.length).toBeGreaterThan(0);
+    expect(cases.filter((c) => c.checked)).toHaveLength(0);
+  });
+
+  /** 🔴🔴 ET UN BIEN DÉJÀ RATTACHÉ N'EST PAS DANS (b) : il est dans (a), avec son ✕. */
+  it('🔴🔴 un bien déjà rattaché n’apparaît pas dans « Autres biens proposés »', async () => {
+    await ouvrir();
+    const b = container.querySelector('.mrb-zone--b')?.textContent ?? '';
+    expect(b).not.toContain('2 rue Fictive');
+    const a = container.querySelector('.mrb-zone--a')?.textContent ?? '';
+    expect(a).toContain('2 rue Fictive');
+    /* ⚠️ ET IL N'EST PLUS ANNONCÉ « À trancher » : le fait l'emporte sur l'estimation du moteur (décision
+       d'Arno). La pastille reste là où elle informe — sur un bien qu'on PEUT ajouter, en zone (b). */
+    expect(a).not.toContain('À trancher');
+    expect(b).toContain('À trancher');
+  });
+
+  /** 🔴🔴 LE ✕ RETIRE — et le bien reste affiché, barré, avec « Remettre » : un retrait doit pouvoir se défaire. */
+  it('🔴🔴 le ✕ retire le bien, et « Remettre » le ramène', async () => {
+    await ouvrir();
+    const croix = container.querySelector('.mrb-croix') as HTMLButtonElement;
+    expect(croix).not.toBeNull();
+    await cliquer(croix);
+    expect(container.querySelector('.mrb-deja-item--retire')).not.toBeNull();
+    expect(container.querySelector('.rdf-bilan')?.textContent).toBe('1 bien retiré sur ce mail.');
+    const remettre = [...container.querySelectorAll('.mrb-zone--a button')]
+      .find((b) => (b.textContent ?? '').includes('Remettre')) as HTMLButtonElement;
+    await cliquer(remettre);
+    expect(container.querySelector('.mrb-deja-item--retire')).toBeNull();
+    expect(container.querySelector('.rdf-bilan')?.textContent).toBe('Aucun changement : rien ne sera écrit.');
+  });
+
+  /** 🔴🔴 ✕ PUIS VALIDER → le classement envoyé ne porte plus ce bien, et rien d'autre ne change. */
+  it('🔴🔴 ✕ puis Valider retire le bien du mail, en une exception', async () => {
+    await ouvrir();
+    await cliquer(container.querySelector('.mrb-croix') as Element);
+    await cliquer(bouton(/Valider les biens de ce mail/) as Element);
+    expect(ecritures).toHaveLength(1);
+    const corps = ecritures[0].corps as { choix: string; classement: { biens: { cle: string }[] } };
+    expect(corps.choix).toBe('mail');
+    expect(corps.classement.biens).toEqual([]);
+  });
+
+  /**
+   * 🔴🔴 LA SÉLECTION DE DÉPART EST L'ÉTAT RÉEL DU MAIL, et elle se lit dans la zone (a) — plus dans une case.
+   *
+   * ⚠️ CE TEST A ÉTÉ RÉÉCRIT AU LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS : il figeait « une case cochée », ce
+   * qu'Arno a remplacé par deux zones (« toutes décochées par défaut » en (b)). Ce qu'il protégeait reste
+   * éprouvé : c'est l'état RÉEL qui commande, pas la recommandation du moteur — lequel, dans ce décor,
+   * recommande les DEUX biens alors qu'un seul est rattaché.
+   */
+  it('🔴🔴 l’état de départ est l’état réel du mail, pas la recommandation du moteur', async () => {
+    await ouvrir();
+    expect([...container.querySelectorAll('.mrb-deja-item')]).toHaveLength(1);
+    expect(container.querySelector('.mrb-zone--a')?.textContent).toContain('2 rue Fictive');
+    expect(container.querySelector('.rdf-bilan')?.textContent).toBe('Aucun changement : rien ne sera écrit.');
   });
 
   /**
@@ -293,14 +346,8 @@ describe('🔴🔴 ② le grand bouton ouvre les deux zones, dans la même fenê
     expect((bouton(/Valider les biens de ce mail/) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  /** 🔴 ET LA PHRASE COMPTE LES DEUX SENS : un retrait est un geste, au même titre qu'un ajout. */
-  it('🔴 décocher le bien rattaché annonce un RETRAIT', async () => {
-    await ouvrir();
-    const cochee = ([...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[])
-      .find((c) => c.checked);
-    await cocher(cochee as HTMLInputElement);
-    expect(container.querySelector('.rdf-bilan')?.textContent).toBe('1 bien retiré sur ce mail.');
-  });
+  /* ⚠️ « décocher le bien rattaché annonce un RETRAIT » est devenu « le ✕ retire », plus haut : depuis le lot
+     FENETRE-BIENS-LIBELLES-ET-VIDEOS, un bien rattaché n'a plus de case — il a une croix. */
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

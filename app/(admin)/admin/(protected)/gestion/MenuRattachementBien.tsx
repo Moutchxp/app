@@ -7,7 +7,9 @@ import { grouperResultats, messageAucunBien, motRaison, sansLesProposes } from '
 import { ColonneBien, ColonneLocataires, CartePersonne, CSS_PROPOSITIONS_BIENS } from './PropositionsDeBiens';
 import { CSS_BOUTON_COPIER } from './BoutonCopier';
 /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — le motif qui fait d'un lien un AJOUT PONCTUEL. Voir son encadré. */
-import { MOTIF_AJOUT_PONCTUEL } from '../../../../lib/gestion/ficheRattachement';
+import {
+  MOTIF_AJOUT_PONCTUEL, ZONE_AUTRES_PROPOSES, ZONE_DEJA_RATTACHES,
+} from '../../../../lib/gestion/ficheRattachement';
 import type { BienProposable, ContexteClassement } from '../../../../lib/gestion/classementBien';
 import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
 
@@ -39,6 +41,7 @@ import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
 export function MenuRattachementBien({
   messageId, filId, onFerme, onGeste, onChange, onHorsGestion, ponctuel = false,
   preCoches = null, pied, onValider, motValider, validationBloquee = null, onSelection, libellesConnus,
+  dejaRattaches,
 }: {
   messageId: number;
   filId: number | null;
@@ -82,6 +85,24 @@ export function MenuRattachementBien({
    * dans une période.
    */
   libellesConnus?: Readonly<Record<string, string>>;
+  /**
+   * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LA ZONE (a), « BIEN(S) DÉJÀ RATTACHÉ(S) À CE MAIL » ══════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « Panneau de modification, DEUX ZONES NETTEMENT SÉPARÉES : a) “Bien(s) déjà
+   * rattaché(s) à ce mail” : les biens actuels, avec un ✕ pour retirer chacun ; b) “Autres biens proposés” : les
+   * propositions de l'automatisation SAUF les biens déjà rattachés, TOUTES DÉCOCHÉES par défaut. »
+   *
+   * 🔴 POURQUOI DEUX ZONES PLUTÔT QU'UNE LISTE DE CASES. Une seule liste mêlait deux choses de nature différente :
+   * ce qui EST (un fait, écrit en base) et ce qu'on PROPOSE (une estimation du moteur). On y cherchait, parmi six
+   * lignes cochables, laquelle était déjà posée — et c'est exactement ce qu'on vient voir.
+   *
+   * ⚠️ UN BIEN RETIRÉ RESTE AFFICHÉ, barré, avec « Remettre » : le ✕ ne le fait pas disparaître. Sans quoi un
+   * retrait fait par erreur serait irrattrapable sans refermer la fenêtre — et l'on ne saurait même pas ce qu'on
+   * vient de retirer.
+   *
+   * ⚠️ ABSENT ⇒ COMPORTEMENT D'AVANT CE LOT : pas de zone (a), et les propositions ne sont filtrées de rien.
+   */
+  dejaRattaches?: readonly { cle: string; libelle: string }[];
   /** Le mot du bouton, quand ce n'est plus « Rattacher ». */
   motValider?: string;
   /** Un motif non nul BLOQUE la validation et s'affiche : c'est la confirmation de « Toute la conversation ». */
@@ -158,7 +179,19 @@ export function MenuRattachementBien({
   useEffect(() => { champ.current?.focus(); }, []);
 
   const contexte = etat.v === 'ok' ? etat.contexte : null;
-  const propositions: BienProposable[] = contexte?.biens ?? [];
+  /**
+   * 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LES PROPOSITIONS, SAUF LES BIENS DÉJÀ RATTACHÉS.
+   *
+   * Arno : « b) “Autres biens proposés” : les propositions de l'automatisation SAUF les biens déjà rattachés ».
+   * Ils sont dans la zone (a), au-dessus : les répéter ici avec une case à cocher ferait croire qu'il reste
+   * quelque chose à décider à leur sujet — et une case déjà cochée dans une liste de propositions se décoche par
+   * mégarde.
+   *
+   * ⚠️ ON FILTRE SUR LA LISTE D'OUVERTURE, pas sur la sélection en cours : un bien retiré par le ✕ ne doit pas
+   * réapparaître ici d'un coup, il se remet par « Remettre », là où on vient de le retirer.
+   */
+  const clesDeja = new Set((dejaRattaches ?? []).map((b) => b.cle));
+  const propositions: BienProposable[] = (contexte?.biens ?? []).filter((b) => !clesDeja.has(b.cle));
   const dateMail = contexte?.dateMail ?? null;
 
   /**
@@ -190,8 +223,14 @@ export function MenuRattachementBien({
     return () => { annule = true; clearTimeout(minuteur); setCherche(false); };
   }, [saisie, dateMail]);
 
-  /** 🔴 UN BIEN DÉJÀ PROPOSÉ N'EST PAS RÉPÉTÉ EN BAS : deux cases pour un bien, c'est une case oubliée. */
-  const trouves = sansLesProposes(resultats?.lignes ?? [], propositions.map((b) => b.cle));
+  /**
+   * 🔴 UN BIEN DÉJÀ PROPOSÉ N'EST PAS RÉPÉTÉ EN BAS : deux cases pour un bien, c'est une case oubliée.
+   *
+   * ⚠️ ET UN BIEN DÉJÀ RATTACHÉ NON PLUS, depuis le lot FENETRE-BIENS-LIBELLES-ET-VIDEOS : il est dans la zone
+   * (a), et le retrouver plus bas avec une case cochée ferait deux endroits pour un seul état.
+   */
+  const trouves = sansLesProposes(resultats?.lignes ?? [],
+    [...propositions.map((b) => b.cle), ...clesDeja]);
   /** …puis rangés en deux groupes titrés. Le tri et la règle « jamais deux fois » vivent dans le module PUR. */
   const groupes = grouperResultats(trouves);
 
@@ -295,11 +334,53 @@ export function MenuRattachementBien({
 
       {etat.v === 'charge' && <p className="gst-info" role="status">Lecture des biens possibles…</p>}
 
-      {/* ══ ① LES PROPOSITIONS DE L'AUTOMATISATION — absentes s'il n'y en a aucune ═══════════════════════════ */}
+      {/* ══ 🔴🔴 (a) LES BIENS DÉJÀ RATTACHÉS À CE MAIL — LE FAIT, AVANT L'ESTIMATION ════════════════════════
+          Demande d'Arno, mot pour mot : « les biens actuels, avec un ✕ pour retirer chacun ».
+
+          ⚠️ UN BIEN RETIRÉ RESTE LÀ, BARRÉ, avec « Remettre » : le ✕ retire du geste à venir, il n'efface rien
+          à l'écran. Un retrait fait par erreur doit pouvoir se défaire sans refermer la fenêtre. */}
+      {dejaRattaches !== undefined && dejaRattaches.length > 0 && (
+        <section className="mrb-zone mrb-zone--a" aria-label="Biens déjà rattachés à ce mail">
+          <p className="mrb-titre mrb-titre--zone">
+            {dejaRattaches.length === 1 ? ZONE_DEJA_RATTACHES : `${ZONE_DEJA_RATTACHES} — ${dejaRattaches.length}`}
+          </p>
+          <ul className="mrb-deja">
+            {dejaRattaches.map((b) => {
+              const garde = coches.includes(b.cle);
+              return (
+                <li key={b.cle} className={garde ? 'mrb-deja-item' : 'mrb-deja-item mrb-deja-item--retire'}>
+                  <span className="mrb-deja-nom">{b.libelle}</span>
+                  {garde
+                    ? (
+                      <button type="button" className="mrb-croix" disabled={fige}
+                        aria-label={`Retirer ${b.libelle} de ce mail`} title="Retirer de ce mail"
+                        onClick={() => basculer(b.cle)}>
+                        <span aria-hidden="true">✕</span>
+                      </button>
+                    )
+                    : (
+                      <>
+                        <span className="mrb-deja-mot">retiré</span>
+                        <button type="button" className="gst-lien-bouton" disabled={fige}
+                          onClick={() => basculer(b.cle)}>Remettre</button>
+                      </>
+                    )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* ══ ① (b) LES PROPOSITIONS DE L'AUTOMATISATION — absentes s'il n'y en a aucune ═══════════════════════
+          🔴🔴 SAUF LES BIENS DÉJÀ RATTACHÉS (Arno) : ils sont au-dessus, dans la zone (a), et les montrer une
+          seconde fois avec une case à cocher ferait croire qu'il reste quelque chose à décider à leur sujet. */}
       {propositions.length > 0 && (
-        <>
-          <p className="mrb-titre">
-            {propositions.length === 1 ? 'Une proposition de l’automatisation' : `${propositions.length} propositions de l’automatisation`}
+        <section className="mrb-zone mrb-zone--b" aria-label="Autres biens proposés">
+          <p className="mrb-titre mrb-titre--zone">
+            {dejaRattaches === undefined
+              ? (propositions.length === 1 ? 'Une proposition de l’automatisation' : `${propositions.length} propositions de l’automatisation`)
+              : (propositions.length === 1 ? ZONE_AUTRES_PROPOSES : `${ZONE_AUTRES_PROPOSES} — ${propositions.length}`)}
             {contexte?.examen && <span className="pdb-examen"> — {contexte.examen.motif}</span>}
           </p>
           {groupesParProprietaire(propositions).map((g, i) => (
@@ -325,7 +406,7 @@ export function MenuRattachementBien({
               </ul>
             </section>
           ))}
-        </>
+        </section>
       )}
 
       {/* ══ ② LA RECHERCHE LIBRE — pour ajouter ce que l'automatisation n'a pas vu ════════════════════════════ */}
@@ -489,4 +570,35 @@ export const CSS_MENU_RATTACHEMENT = `
 .mrb-choix{display:flex;align-items:center;gap:.5rem;min-height:32px;font-size:.85rem;color:var(--color-svv-ink);
   cursor:pointer}
 .mrb-choix--inactif{color:var(--color-svv-muted);cursor:default}
+
+/* ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — DEUX ZONES NETTEMENT SEPAREES ════════════════════════════════
+   Demande d'Arno : « titres distincts, separateur ou fond different, espacement », lisibles en Clair et en Sombre.
+   Les trois sont la : un FOND propre a chaque zone, un LISERE de couleur sur son bord gauche, et un ecart franc
+   entre les deux. Le fond seul ne suffirait pas en Sombre, ou les aplats se ressemblent.
+
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot, vu 12 fois).
+   🔴 AUCUNE COULEUR EN DUR : tout vient des jetons, qui basculent seuls d'un theme a l'autre. */
+.mrb-zone{margin:10px 0;padding:8px 10px;border-radius:.6rem;background:var(--color-svv-surface);
+  border:1px solid var(--color-svv-line);min-width:0}
+/* (a) CE QUI EST : un fait, ecrit en base. Le rouge de la maison le marque. */
+.mrb-zone--a{border-left:3px solid var(--color-svv-red)}
+/* (b) CE QU'ON PROPOSE : une estimation. Un liseré neutre, pour qu'on ne confonde pas les deux d'un coup d'oeil. */
+.mrb-zone--b{border-left:3px solid var(--color-svv-line-strong)}
+.mrb-titre--zone{margin-top:0;color:var(--color-svv-ink)}
+.mrb-deja{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
+.mrb-deja-item{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-height:36px;padding:4px 6px;
+  border-radius:.4rem;background:var(--color-svv-field);min-width:0}
+.mrb-deja-nom{flex:1 1 12rem;font-size:.85rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* Un bien retire reste LA, barre : le mot et le trait disent la meme chose, et « Remettre » le ramene. */
+.mrb-deja-item--retire .mrb-deja-nom{text-decoration:line-through;color:var(--color-svv-muted);font-weight:400}
+.mrb-deja-mot{font-size:.7rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;
+  color:var(--color-svv-muted)}
+/* La croix : cible tactile pleine, jamais un caractere seul perdu au bout d'une ligne. */
+.mrb-croix{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;
+  flex:0 0 auto;font:inherit;font-size:.9rem;line-height:1;color:var(--color-svv-muted);background:transparent;
+  border:1px solid var(--color-svv-line-strong);border-radius:.4rem;cursor:pointer}
+.mrb-croix:hover{color:var(--color-svv-red);border-color:var(--color-svv-red)}
+.mrb-croix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.mrb-croix:disabled{opacity:.5;cursor:default}
+@media (pointer:coarse){.mrb-croix{width:44px;height:44px}}
 `;

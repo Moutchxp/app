@@ -358,6 +358,9 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
           <MenuRattachementBien messageId={mailId} filId={filId}
             preCoches={clesDuMail}
             libellesConnus={libellesDuMail}
+            /* 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LA ZONE (a) D'ARNO : ce qui EST rattaché, avec son ✕.
+               La fenêtre est seule à le savoir : c'est elle qui lit les liens vivants du mail. */
+            dejaRattaches={biens.map((b) => ({ cle: b.cle, libelle: libellesDuMail[b.cle] ?? b.cle }))}
             onSelection={setSelection}
             motValider={panneau === 'exception' ? 'Valider les biens de ce mail' : 'Valider le suivi'}
             validationBloquee={bloquee}

@@ -345,7 +345,7 @@ describe('🔴 LOT BARRE-STATUT — « Visualiser / Modifier » dans l’en-têt
      * Arno voyait, à côté de son unique bien, les cinq autres biens possibles de l'expéditeur marqués
      * « À trancher ». La fenêtre de la LISTE, elle, garde son titre et son contenu d'avant.
      */
-    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) de ce mail');
+    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) rattaché(s) à ce mail');
     expect(container.querySelector('.rdf-item')?.textContent).toContain('12 rue des Lilas, 92400 COURBEVOIE');
     // …et surtout PAS le panneau de classement, qui répond à l'autre question.
     expect(classements).toEqual([]);
