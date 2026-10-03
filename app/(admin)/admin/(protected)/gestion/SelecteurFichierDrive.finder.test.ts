@@ -293,9 +293,15 @@ describe('🔴 ④ le menu contextuel', () => {
     await monter();
     await souris('bail.pdf', 'contextmenu');
     const mots = [...container.querySelectorAll('.sfd-menu [role="menuitem"]')].map((b) => b.textContent);
+    /**
+     * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « Supprimer » S'AJOUTE EN DERNIER, sur décision d'Arno du
+     * 03/10/2026 (mise à la CORBEILLE du Drive, réversible 30 jours ; la suppression définitive reste absente du
+     * dépôt). Il est EN DERNIER et séparé de « Coller ici » : c'est le seul geste du menu qui retire un document
+     * d'un dossier où quelqu'un ira le chercher, et il ne doit pas se trouver sous le doigt qui visait autre chose.
+     */
     expect(mots).toEqual([
       'Visualiser', 'Joindre au message', 'Insérer un lien', 'Ouvrir dans Google Drive',
-      'Couper', 'Copier', 'Coller ici',
+      'Couper', 'Copier', 'Coller ici', 'Supprimer',
     ]);
   });
 
@@ -308,15 +314,24 @@ describe('🔴 ④ le menu contextuel', () => {
     ]);
   });
 
-  /** 🔴🔴 JAMAIS : Renommer, Placer dans la corbeille, Supprimer, Déplacer, Partager, Dupliquer. */
+  /**
+   * 🔴🔴 JAMAIS : Renommer, Déplacer, Partager, Dupliquer — et jamais de suppression DÉFINITIVE.
+   *
+   * ⚠️ RÉÉCRIT LE 03/10/2026 (lot DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE), pas affaibli : « Supprimer » entre dans
+   * le menu d'un FICHIER sur décision d'Arno, parce qu'il met à la CORBEILLE — un geste qui se défait (30 jours
+   * chez Google, et tout de suite par « Annuler »). Ce qui reste interdit est ce qui ne se défait pas, et le test
+   * le dit maintenant précisément : aucune de ces entrées sur un DOSSIER, jamais, à aucun titre.
+   */
   it('🔴🔴 aucune action destructrice, sur un fichier comme sur un dossier', async () => {
     await monter();
     for (const nom of ['bail.pdf', 'Artisans']) {
       await souris(nom, 'contextmenu');
       const texte = (container.querySelector('.sfd-menu')?.textContent ?? '').toLowerCase();
-      for (const mot of ['renommer', 'corbeille', 'supprimer', 'déplacer', 'partager', 'dupliquer']) {
+      for (const mot of ['renommer', 'partager', 'dupliquer', 'définitiv']) {
         expect(texte).not.toContain(mot);
       }
+      // 🔴🔴 ET SUR UN DOSSIER, « Supprimer » N'EXISTE PAS : il emporterait ce qu'on ne voit pas.
+      if (nom === 'Artisans') expect(texte).not.toContain('supprimer');
       await cliquer(container.querySelector('.sfd-menu-voile'));
     }
   });

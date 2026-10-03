@@ -42,6 +42,14 @@ import {
 import {
   estRenommee, INFOBULLE_RENOMMER, mentionNomOrigine, MOTIF_DEJA_RANGEE, nomDeDepot,
 } from '../../../../lib/gestion/renommagePiece';
+/**
+ * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « Supprimer » = METTRE À LA CORBEILLE DU DRIVE. Module PUR : la
+ * phrase de la confirmation et les mots du compte rendu y vivent, pour que l'écran ne puisse pas en écrire une
+ * plus légère que ce que le geste fait réellement.
+ */
+import {
+  BOUTON_ANNULER_CORBEILLE, BOUTON_CONFIRMER_CORBEILLE, motCorbeilleFaite, phraseCorbeille,
+} from '../../../../lib/gestion/driveCorbeille';
 import {
   aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
@@ -375,7 +383,17 @@ export function SelecteurFichierDrive({
   /** Le dossier survolé pendant un glisser — celui qui s'allume. */
   const [survole, setSurvole] = useState<string | null>(null);
   /** Le bandeau « N élément(s) déplacé(s) vers X — Annuler ». `null` = rien à annoncer. */
-  const [bandeau, setBandeau] = useState<{ mot: string; mouvements: number[] } | null>(null);
+  /**
+   * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — `sorte` DIT QUELLE ROUTE L'« Annuler » DU BANDEAU DOIT
+   * APPELER. Sans elle, le bouton aurait demandé un DÉPLACEMENT pour défaire une mise à la corbeille : la route
+   * de déplacement aurait cherché un parent d'origine dans des lignes qu'elle ne retient pas, et l'annulation
+   * aurait échoué en silence juste au moment où l'on en a le plus besoin.
+   *
+   * ⚠️ ABSENT ⇒ `'deplacer'` : tout ce qui existait avant ce lot se comporte à l'identique.
+   */
+  const [bandeau, setBandeau] = useState<
+    { mot: string; mouvements: number[]; sorte?: 'deplacer' | 'corbeille' } | null
+  >(null);
   /** La confirmation d'une copie de dossier, et ce qu'elle annonce. */
   const [confirmation, setConfirmation] = useState<{ phrase: string; agir: () => void } | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
@@ -1093,6 +1111,25 @@ export function SelecteurFichierDrive({
     + 'On ne déplace pas dans le Drive ce qu’on ne saurait pas expliquer ensuite.';
 
   /**
+   * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « SUPPRIMER » EST-IL POSSIBLE ICI ? ═══════════════════════
+   *
+   * `null` = on ne sait pas encore (la sonde est en vol) : l'entrée n'apparaît PAS. On ne montre pas un geste
+   * irréversible à trente jours tant qu'on n'a pas la réponse du serveur.
+   *
+   * 🔴 ON DEMANDE À LA ROUTE, pas à une copie de la règle côté navigateur : elle seule sait si les migrations 274
+   * et 295 sont là, et c'est elle qui refusera de toute façon.
+   */
+  const [corbeillePrete, setCorbeillePrete] = useState<boolean | null>(null);
+  /**
+   * 🔴🔴 LA CONFIRMATION — obligatoire, et jamais contournable. `null` = aucune en cours.
+   *
+   * Elle garde LE FICHIER et SON CHEMIN : deux fichiers du même nom vivent dans deux dossiers différents, et c'est
+   * précisément quand on en a deux sous les yeux qu'on se trompe de ligne.
+   */
+  const [aJeter, setAJeter] = useState<{ id: string; nom: string; chemin: string; parentNom: string } | null>(null);
+  const [jetEnCours, setJetEnCours] = useState(false);
+
+  /**
    * ⚠️ PAS DE `useCallback` ICI, ET C'EST DÉLIBÉRÉ (même raison qu'à la liste, plus haut) : le compilateur React
    * refuse d'optimiser un composant dont il ne peut pas préserver la mémorisation manuelle — il juge `chemin`
    * modifiable — et il abandonne alors TOUT le fichier. Le laisser faire lui-même vaut mieux qu'un `useCallback`
@@ -1349,6 +1386,16 @@ export function SelecteurFichierDrive({
     const pas = pileAnnulation[pileAnnulation.length - 1];
     if (pas === undefined) return;
     setPileAnnulation((pile) => pile.slice(0, -1));
+    /**
+     * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — UN SEUL BOUTON, DEUX GESTES À DÉFAIRE.
+     *
+     * Arno : « “Annuler le dernier déplacement” sait aussi annuler une mise à la corbeille (restauration). » Les
+     * deux pas vivent dans la même pile, dans l'ordre où ils ont été faits : un clic défait le plus récent, quel
+     * qu'il soit, sans que personne ait à chercher lequel des deux boutons appuyer.
+     *
+     * ⚠️ `sorte` ABSENT ⇒ DÉPLACEMENT : tous les pas empilés avant ce lot se comportent à l'identique.
+     */
+    if (pas.sorte === 'corbeille') { await sortirDeLaCorbeille(pas.mouvements); return; }
     await annulerMouvement(pas.mouvements);
   };
 
@@ -1371,6 +1418,23 @@ export function SelecteurFichierDrive({
         const d = (await res.json()) as { etat?: string; disponible?: boolean };
         if (!annule) setJournalPret(d.etat === 'ok' && d.disponible === true);
       } catch { if (!annule) setJournalPret(false); }
+    })();
+    return () => { annule = true; };
+  }, []);
+
+  /**
+   * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LA MÊME DISCIPLINE POUR « SUPPRIMER ». Une sonde, une fois, à
+   * la route. Sans les migrations 274 et 295, elle répond « non » et l'entrée du menu n'existe pas — plutôt que de
+   * laisser cliquer sur un geste qui sera refusé après coup.
+   */
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/gestion/drive/corbeille', { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; disponible?: boolean };
+        if (!annule) setCorbeillePrete(d.etat === 'ok' && d.disponible === true);
+      } catch { if (!annule) setCorbeillePrete(false); }
     })();
     return () => { annule = true; };
   }, []);
@@ -2065,6 +2129,15 @@ export function SelecteurFichierDrive({
       if (enMainRef.current !== null) { e.preventDefault(); e.stopPropagation(); finGlisse(true); return; }
       if (aVoir !== null) return;
       if (menu !== null) { e.preventDefault(); setMenu(null); return; }
+      /**
+       * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « Échap = Annuler » (Arno, mot pour mot), ET AVANT TOUT
+       * LE RESTE. Posée ici, la touche renonce à la mise à la corbeille sans fermer la fenêtre ni toucher au
+       * reste : c'est la sortie qu'on cherche quand on vient de lire la phrase et qu'on a changé d'avis.
+       *
+       * ⚠️ PLACÉE AVANT `confirmation` : les deux ne peuvent pas être ouvertes ensemble, mais l'ordre fixe la
+       * réponse si cela arrivait un jour — et c'est celle qui ne détruit rien qui doit gagner.
+       */
+      if (aJeter !== null) { e.preventDefault(); setAJeter(null); return; }
       if (confirmation !== null) { e.preventDefault(); setConfirmation(null); return; }
       // 🔴 ÉCHAP ANNULE LA COUPE (demande d'Arno) avant de fermer : on renonce au geste, pas à la fenêtre.
       if (presse !== null) { e.preventDefault(); setPresse(null); return; }
@@ -2188,7 +2261,40 @@ export function SelecteurFichierDrive({
       dejaAjoute: ajoutes.includes(f.id),
       avecLien: (f.lien ?? '') !== '',
       presse: droitsPresse(),
+      corbeille: droitsCorbeille(),
     }));
+
+  /**
+   * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — QUAND L'ENTRÉE « Supprimer » EXISTE-T-ELLE ? ═════════════
+   *
+   * `null` ⇒ ELLE N'EXISTE PAS DU TOUT, et c'est le cas le plus important :
+   *
+   *   🔴🔴 ① SOUS « Documents clients scannés », `listing.joindreAutorise` est FAUX — c'est le verdict que le
+   *      serveur a déjà prononcé pour ce dossier, en remontant ses parents. On s'y accroche plutôt que d'inventer
+   *      un second test : deux règles qui répondent à « suis-je dans l'archive ? » finiraient par diverger, et le
+   *      jour où elles divergent, c'est un document d'archive qui part à la corbeille. Arno demande que l'entrée
+   *      N'APPARAISSE PAS là-bas, et non qu'elle y soit éteinte : on ne montre pas la porte d'un endroit où l'on
+   *      ne doit jamais entrer.
+   *
+   *   ② TANT QUE LA SONDE N'A PAS RÉPONDU (`null`) : on n'annonce pas un geste irréversible à trente jours avant
+   *      de savoir s'il est possible.
+   *
+   * ⚠️ ÉTEINTE AVEC SON MOTIF quand les migrations manquent : là, un refus expliqué vaut mieux qu'une absence —
+   * la fonction existe et attend quelque chose, ce n'est pas la même information qu'un geste qui n'existe pas.
+   *
+   * 🔴 ET CE N'EST PAS LA PROTECTION. C'est la route qui refuse, par ascendance de dossiers relue chez Google à
+   * chaque appel. Ceci n'est que ce que l'écran propose.
+   */
+  const droitsCorbeille = (): { autorise: boolean; motifInactif: string | null } | null => {
+    if (corbeillePrete === null) return null;
+    if (listing !== null && listing.joindreAutorise !== true) return null;
+    return corbeillePrete
+      ? { autorise: true, motifInactif: null }
+      : {
+        autorise: false,
+        motifInactif: 'Indisponible : la mise à jour de la base qui consigne ce geste (295) n’est pas appliquée.',
+      };
+  };
 
   const agirMenu = (a: ActionMenu, f: Fichier | null) => {
     setMenu(null);
@@ -2239,6 +2345,105 @@ export function SelecteurFichierDrive({
          avant le lot RANGER-ARBRE-2. Voir `cibleDeLaLigne`. */
       const ou = cibleDeLaLigne(f);
       if (ou !== null && ou.id !== '') coller(ou.id, ou.nom);
+      return;
+    }
+    /**
+     * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LE CLIC N'AGIT PAS : IL DEMANDE.
+     *
+     * Aucun appel ne part d'ici. On ouvre la confirmation, et c'est elle — et elle seule — qui déclenche. Un geste
+     * qui retire un document d'un dossier où quelqu'un ira le chercher ne se prend pas sur un clic de menu, fût-il
+     * en dernière position.
+     *
+     * ⚠️ `visesPar` N'EST PAS EMPLOYÉ ICI, à la différence de « Couper » et « Copier » : la confirmation nomme UN
+     * fichier et UN chemin. Étendre le geste à une sélection qu'on ne nommerait pas ferait partir à la corbeille
+     * des fichiers que la phrase n'a pas annoncés.
+     */
+    if (a === 'mettre_corbeille') {
+      const ou = cibleDeLaLigne(f);
+      setAJeter({
+        id: f.id,
+        nom: f.nom,
+        /* Le chemin COMPLET, tel qu'on le lit dans le bandeau : c'est lui qui distingue deux homonymes. */
+        chemin: [...chemin.map((e) => e.nom), ...(ou !== null && ou.id !== (dossierCourant?.id ?? '') ? [ou.nom] : [])]
+          .join(' / '),
+        parentNom: ou?.nom ?? dossierCourant?.nom ?? '',
+      });
+    }
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 METTRE À LA CORBEILLE — APRÈS LA CONFIRMATION, ET JAMAIS AVANT
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * 🔴 LE GESTE PART AVEC LE COMPTE DE L'UTILISATEUR (le jeton lui appartient, comme pour le renommage) : c'est
+   * SA corbeille qui reçoit le fichier, et ce sont SES droits qui décident. Un refus 403 est donc une information
+   * exacte — on l'affiche en toutes lettres plutôt que de le faire passer pour une panne.
+   *
+   * ⚠️ AUCUN AFFICHAGE OPTIMISTE ICI, à la différence du déplacement. Un déplacement raté se corrige en remettant
+   * la ligne ; une ligne qu'on aurait fait disparaître à tort ferait croire le document perdu. On attend donc la
+   * réponse de Google, puis on relit le dossier.
+   */
+  const jeterALaCorbeille = async (cible: { id: string; nom: string; parentNom: string }): Promise<void> => {
+    setErreur(null);
+    setJetEnCours(true);
+    try {
+      const res = await fetch('/api/admin/gestion/drive/corbeille', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'corbeille', elements: [{ id: cible.id, nom: cible.nom }] }),
+      });
+      const d = (await res.json()) as {
+        etat?: string; message?: string;
+        faits?: { id: string; nom: string }[]; refuses?: { nom: string; motif: string }[];
+        mouvements?: number[];
+      };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'La mise à la corbeille n’a pas pu être faite.'); return; }
+      if ((d.refuses ?? []).length > 0) {
+        setErreur((d.refuses ?? []).map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
+      }
+      const faits = d.faits ?? [];
+      if (faits.length === 0) return;
+      setBandeau({ mot: motCorbeilleFaite(faits.length), mouvements: d.mouvements ?? [], sorte: 'corbeille' });
+      /* 🔴 LE PAS ENTRE DANS LA MÊME PILE QUE LES DÉPLACEMENTS : un clic sur « Annuler » défait le plus récent,
+         quel qu'il soit. C'est `sorte` qui dira ensuite quelle route appeler et quel mot écrire. */
+      setPileAnnulation((pile) => empiler(pile, {
+        mouvements: d.mouvements ?? [],
+        nom: cible.nom,
+        nombre: faits.length,
+        origineNom: cible.parentNom,
+        sorte: 'corbeille',
+      }));
+      revaliderEnSilence([dossierCourant?.id ?? '']);
+    } catch {
+      setErreur('Le Drive n’a pas répondu.');
+    } finally {
+      setJetEnCours(false);
+      setAJeter(null);
+    }
+  };
+
+  /**
+   * 🔴🔴 SORTIR DE LA CORBEILLE — c'est « Annuler », appliqué à un pas de corbeille.
+   *
+   * ⚠️ IL PASSE PAR LA MÊME ROUTE ET LE MÊME VERDICT que la mise à la corbeille : remettre un fichier en place
+   * est un geste sur ce fichier, et il n'a droit à aucun régime de faveur — sans quoi « je l'y mets, je l'en
+   * sors » deviendrait une porte de sortie de l'archive.
+   */
+  const sortirDeLaCorbeille = async (mouvements: number[]): Promise<void> => {
+    setBandeau(null);
+    try {
+      const res = await fetch('/api/admin/gestion/drive/corbeille', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restaurer', mouvements }),
+      });
+      const d = (await res.json()) as { etat?: string; message?: string; refuses?: { nom: string; motif: string }[] };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'La restauration n’a pas pu être faite.'); return; }
+      if ((d.refuses ?? []).length > 0) {
+        setErreur((d.refuses ?? []).map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
+      }
+      revaliderEnSilence([dossierCourant?.id ?? '']);
+    } catch {
+      setErreur('Le Drive n’a pas répondu.');
     }
   };
 
@@ -2693,19 +2898,54 @@ export function SelecteurFichierDrive({
         {vue.v === 'indisponible' && <p className="gst-tronc" role="alert">{vue.message}</p>}
 
         {/* ══ 🔴 LE BANDEAU « N ÉLÉMENT(S) DÉPLACÉ(S) VERS X — ANNULER », DIX SECONDES ═══════════════════════
-            ⚠️ « Annuler » N'APPARAÎT QUE POUR UN DÉPLACEMENT. Annuler une copie voudrait dire SUPPRIMER la copie,
-            et l'application ne supprime rien : le bandeau d'une copie dit donc ce qui a été fait, sans promettre
-            un retour qu'on ne saurait pas tenir. */}
+            ⚠️ « Annuler » N'APPARAÎT PAS POUR UNE COPIE. L'annuler voudrait dire SUPPRIMER DÉFINITIVEMENT la
+            copie, et cela n'existe nulle part ici : le bandeau d'une copie dit donc ce qui a été fait, sans
+            promettre un retour qu'on ne saurait pas tenir.
+
+            🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — IL APPARAÎT POUR UNE CORBEILLE, et il appelle alors
+            l'AUTRE route : `sorte` est ce qui l'en informe. */}
         {bandeau !== null && (
           <p className="sfd-bandeau" role="status">
             <span className="sfd-bandeau-mot">{bandeau.mot}</span>
             {bandeau.mouvements.length > 0 && (
               <button type="button" className="sfd-bandeau-annuler"
-                onClick={() => void annulerMouvement(bandeau.mouvements)}>Annuler</button>
+                onClick={() => void (bandeau.sorte === 'corbeille'
+                  ? sortirDeLaCorbeille(bandeau.mouvements)
+                  : annulerMouvement(bandeau.mouvements))}>Annuler</button>
             )}
             <button type="button" className="sfd-bandeau-croix" aria-label="Masquer ce message"
               onClick={() => setBandeau(null)}><span aria-hidden="true">✕</span></button>
           </p>
+        )}
+
+        {/* ══ 🔴🔴 LA CONFIRMATION D'UNE MISE À LA CORBEILLE — OBLIGATOIRE, ET JAMAIS CONTOURNABLE ═══════════
+            Arno dicte la phrase au mot près ; elle vient du module PUR (`phraseCorbeille`), pour que l'écran ne
+            puisse pas en écrire une plus légère que ce que le geste fait. Elle NOMME le fichier ET son chemin :
+            deux fichiers du même nom vivent dans deux dossiers différents, et c'est quand on en a deux sous les
+            yeux qu'on se trompe de ligne.
+
+            🔴 `role="alertdialog"` : un lecteur d'écran l'annonce au lieu de la laisser passer, comme la
+            confirmation de copie juste en dessous. Échap = Annuler (voir le gestionnaire de touches). */}
+        {aJeter !== null && (
+          <div className="sfd-creer-corps" role="alertdialog" aria-label="Confirmer la mise à la corbeille">
+            <p className="sfd-creer-chemin">
+              <span className="sfd-creer-nom">🗑 {phraseCorbeille(aJeter.nom, aJeter.chemin)}</span>
+              <span className="sfd-mention sfd-mention--bloc">
+                Le fichier n’est pas supprimé définitivement : il part dans la corbeille de votre Drive, d’où il
+                se restaure. « Annuler le dernier déplacement », en bas de cette fenêtre, l’en sort tout de suite.
+              </span>
+            </p>
+            <div className="sfd-creer-boutons">
+              {/* ⚠️ « Annuler » EN PREMIER, et c'est voulu : le bouton qui ne détruit rien est celui qu'on doit
+                  pouvoir attraper sans réfléchir. */}
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={jetEnCours}
+                onClick={() => setAJeter(null)}>{BOUTON_ANNULER_CORBEILLE}</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={jetEnCours}
+                onClick={() => void jeterALaCorbeille(aJeter)}>
+                {jetEnCours ? 'Envoi à la corbeille…' : BOUTON_CONFIRMER_CORBEILLE}
+              </button>
+            </div>
+          </div>
         )}
 
         {/* ══ 🔴 LA CONFIRMATION D'UNE COPIE DE DOSSIER, avec le nombre RÉEL compté par le serveur ═══════════ */}

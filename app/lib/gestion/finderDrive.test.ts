@@ -273,9 +273,14 @@ describe('🔴🔴 le menu contextuel ne porte QUE ce que l’application sait f
    * COPIE désormais dans le Drive — l'invariant a donc changé de CONTENU, et il change ici, dans un diff qu'on
    * relit, jamais par un test qu'on contourne.
    *
-   * 🔴 CE QUI RESTE INTERDIT EST CE QUI NE SE DÉFAIT PAS (supprimer, corbeille, renommer) ou ce qui expose les
+   * 🔴 CE QUI RESTE INTERDIT EST CE QUI NE SE DÉFAIT PAS (supprimer définitivement, renommer) ou ce qui expose les
    * documents du cabinet à des tiers (partager). Un déplacement, lui, se défait : le bandeau « Annuler », et le
    * journal qui garde le parent d'origine.
+   *
+   * ⚠️ RÉÉCRIT UNE SECONDE FOIS LE 03/10/2026 (lot DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE), pour la MÊME raison et
+   * selon la MÊME ligne de partage : la mise à la CORBEILLE se défait (30 jours chez Google, et tout de suite par
+   * « Annuler »), donc elle entre dans le menu sur décision d'Arno. La suppression DÉFINITIVE n'y entre pas, et
+   * `files.delete` / `emptyTrash` restent absents du dépôt.
    */
   it('🔴🔴 aucune action destructrice, dans aucun menu, dans aucun état', () => {
     const avecPresse = { autorise: true, motif: null, motColler: 'Coller ici', presseVide: false };
@@ -297,6 +302,45 @@ describe('🔴🔴 le menu contextuel ne porte QUE ce que l’application sait f
     for (const mot of ['trash', 'delete', 'rename', 'permission']) expect(texte).not.toContain(mot);
   });
 
+  /**
+   * ══ 🔴🔴 ET « SUPPRIMER » N'APPARAÎT QUE LORSQU'ON LE DEMANDE, JAMAIS AUTREMENT ═════════════════════════════
+   *
+   * C'est ce qui permet au test précédent de rester vrai : l'entrée est ABSENTE par défaut. Elle ne naît que si
+   * l'appelant passe `corbeille` — c'est-à-dire si la route a répondu que les deux migrations sont là ET que le
+   * fichier n'est pas sous « Documents clients scannés ».
+   */
+  it('🔴🔴 « Supprimer » est ABSENT par défaut, et présent seulement sur demande', () => {
+    const sans = menuFichier(permis);
+    expect(sans.some((e) => e.action === 'mettre_corbeille')).toBe(false);
+    expect(sans.map((e) => e.libelle).join(' ').toLowerCase()).not.toContain('supprimer');
+
+    const avec = menuFichier({ ...permis, corbeille: { autorise: true, motifInactif: null } });
+    const entree = avec.find((e) => e.action === 'mettre_corbeille');
+    expect(entree?.libelle).toBe('Supprimer');
+    expect(entree?.motifInactif).toBeNull();
+    // 🔴 EN DERNIER : il ne doit pas se trouver sous le doigt qui visait « Coller ».
+    expect(avec[avec.length - 1].action).toBe('mettre_corbeille');
+  });
+
+  /** ⚠️ ÉTEINT AVEC SON MOTIF quand la base n'est pas prête — là, un refus expliqué vaut mieux qu'une absence. */
+  it('⚠️ « Supprimer » s’éteint avec son motif', () => {
+    const avec = menuFichier({
+      ...permis, corbeille: { autorise: false, motifInactif: 'migration 295 absente' },
+    });
+    expect(avec.find((e) => e.action === 'mettre_corbeille')?.motifInactif).toBe('migration 295 absente');
+  });
+
+  /** 🔴🔴 ET JAMAIS SUR UN DOSSIER : `menuDossier` ne connaît même pas l'option. */
+  it('🔴🔴 un DOSSIER n’a jamais « Supprimer »', () => {
+    const tous = [
+      ...menuDossier({ creerAutorise: true, motifCreation: null, avecLien: true }),
+      ...menuDossier({ creerAutorise: false, motifCreation: 'refusé', avecLien: false }),
+      ...menuVide({ creerAutorise: true, motifCreation: null }),
+    ];
+    expect(tous.some((e) => e.action === 'mettre_corbeille')).toBe(false);
+    expect(tous.map((e) => e.libelle).join(' ').toLowerCase()).not.toContain('supprimer');
+  });
+
   it('🔴🔴 et le module lui-même ne connaît pas ces mots', () => {
     const src = readFileSync('app/lib/gestion/finderDrive.ts', 'utf8');
     // ⚠️ On examine le CODE, pas la prose : l'encadré du fichier explique justement qu'on ne les met pas.
@@ -304,9 +348,21 @@ describe('🔴🔴 le menu contextuel ne porte QUE ce que l’application sait f
       .filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//')).join('\n')
       // La liste `ACTIONS_JAMAIS` est justement là pour les nommer : on l'écarte avant de chercher.
       .replace(/export const ACTIONS_JAMAIS[\s\S]*?as const;/, ' ');
-    for (const mot of ['renommer', 'corbeille', 'supprimer', 'partager', 'trashed', 'permissions']) {
+    /**
+     * ⚠️ « corbeille » A QUITTÉ CETTE LISTE LE 03/10/2026 — décision d'Arno, lot
+     * DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE. Le mot s'écrit désormais dans ce module, et seulement dans l'entrée
+     * prévue (`mettre_corbeille`). Tout le reste est inchangé : « supprimer » et « trashed » restent cherchés,
+     * parce que ce sont eux qui désignent la suppression DÉFINITIVE et l'écriture qui la ferait.
+     */
+    for (const mot of ['renommer', 'partager', 'trashed', 'permissions']) {
       expect(code.toLowerCase()).not.toContain(mot);
     }
+    /**
+     * 🔴🔴 « supprimer » NE S'ÉCRIT QUE COMME LIBELLÉ DE BOUTON, et nulle part ailleurs. Une occurrence de plus
+     * serait une fonction qui porte ce nom — exactement ce que ce garde existe pour attraper.
+     */
+    expect((code.toLowerCase().match(/supprimer/g) ?? []).length).toBe(1);
+    expect(code).toContain("libelle: 'Supprimer'");
   });
 
   /**

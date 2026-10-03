@@ -495,7 +495,9 @@ describe('🔴 le bouton « Annuler le dernier déplacement »', () => {
   it('grisé tant que rien n’a été déplacé, et l’infobulle dit pourquoi', async () => {
     await monter();
     expect(bouton()?.disabled).toBe(true);
-    expect(bouton()?.getAttribute('title')).toContain('Aucun déplacement à annuler');
+    // ⚠️ « déplacement » EST DEVENU « geste » (lot DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE) : la pile contient
+    //    désormais aussi des mises à la corbeille.
+    expect(bouton()?.getAttribute('title')).toContain('Aucun geste à annuler');
     // ⚠️ ET LE CAS QUI SURPRENT Y EST NOMMÉ : une copie ne s'annule pas.
     expect(bouton()?.getAttribute('title')).toContain('copie');
   });

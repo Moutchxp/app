@@ -899,3 +899,36 @@ export function typesLibresDisponibles(): Promise<boolean> {
     }
   });
 }
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LA MIGRATION 295 EST-ELLE APPLIQUÉE ? ════════════════════════
+ *
+ * Elle seule permet au journal des gestes Drive de consigner une MISE À LA CORBEILLE (et son retour). Tant qu'elle
+ * n'est pas appliquée :
+ *   · l'entrée « Supprimer » ne s'affiche NULLE PART dans le menu contextuel ;
+ *   · la route `/drive/corbeille` REFUSE, même appelée directement ;
+ *   · tout le reste de la fenêtre Drive se comporte exactement comme avant ce lot.
+ *
+ * 🔴 ET C'EST LA RÈGLE DU LOT DRIVE-DEPLACER, APPLIQUÉE À UN GESTE PLUS LOURD : on n'écrit pas dans le Drive du
+ * cabinet ce qu'on ne saurait pas consigner. Un document disparu d'un dossier où quelqu'un le cherche, sans une
+ * ligne pour dire qui l'a mis à la corbeille et quand, est pire qu'un document qu'on n'a pas touché.
+ *
+ * ⚠️ ON SONDE LA CONTRAINTE, PAS UNE TABLE : cette migration ne crée rien, elle ÉLARGIT. Son seul fait observable
+ * est la forme de `gestion_drive_mouvement_action_chk` — et on la reconnaît au mot `corbeille`, qui n'apparaît que
+ * dans la nouvelle écriture. C'est la méthode de `documentsAutoDisponible` et de `typesLibresDisponibles`.
+ */
+export function corbeilleDriveDisponible(): Promise<boolean> {
+  return memoiser('contrainte.drive_corbeille', async () => {
+    try {
+      const { rows } = await query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_constraint
+          WHERE conrelid = 'gestion_drive_mouvement'::regclass
+            AND conname = 'gestion_drive_mouvement_action_chk'
+            AND pg_get_constraintdef(oid) LIKE '%corbeille%'`);
+      return (rows[0]?.n ?? 0) > 0;
+    } catch {
+      // base injoignable, ou table absente (274 non appliquée) : on répond « non », donc l'écran se tait
+      return false;
+    }
+  });
+}

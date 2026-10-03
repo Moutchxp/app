@@ -249,6 +249,19 @@ export interface PasAnnulable {
   nombre: number;
   /** Où c'était avant, tel que l'écran le savait. Sert au MOT, jamais à la décision. */
   origineNom: string;
+  /**
+   * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — DE QUEL GESTE CE PAS EST-IL LE RETOUR ? ═════════════════
+   *
+   * Arno : « “Annuler le dernier déplacement” sait aussi annuler une mise à la corbeille (restauration). » Les
+   * deux pas vivent donc dans la MÊME pile — c'est ce qui fait qu'un clic défait « le plus récent », quel qu'il
+   * soit, sans que la personne ait à se demander lequel des deux boutons chercher.
+   *
+   * ⚠️ ABSENT ⇒ `'deplacer'`, et tout ce qui existait avant ce lot se comporte à l'identique.
+   *
+   * 🔴 IL NE DÉCIDE RIEN : il dit seulement QUELLE ROUTE appeler et QUEL MOT écrire. Le droit, lui, se prononce
+   * côté serveur, en remontant les chaînes de parents chez Google — pour l'un comme pour l'autre.
+   */
+  sorte?: 'deplacer' | 'corbeille';
 }
 
 /**
@@ -270,8 +283,19 @@ export function empiler(pile: readonly PasAnnulable[], pas: PasAnnulable): PasAn
 export function motProchaineAnnulation(pile: readonly PasAnnulable[]): string {
   const dernier = pile[pile.length - 1];
   if (dernier === undefined) {
-    return 'Aucun déplacement à annuler dans cette fenêtre. (Une copie ne s’annule pas : l’annuler voudrait dire '
-      + 'la supprimer, et l’application ne supprime rien.)';
+    return 'Aucun geste à annuler dans cette fenêtre. (Une copie ne s’annule pas : l’annuler voudrait dire la '
+      + 'supprimer définitivement, et l’application ne le fait nulle part.)';
+  }
+  /**
+   * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LE MOT DIT CE QUE LE CLIC VA FAIRE, pas ce qu'on a fait.
+   * « Remettre dans X » pour un déplacement, « Sortir de la corbeille » pour une corbeille : annoncer un
+   * déplacement puis restaurer un fichier serait le genre d'écart qui fait hésiter au moment de cliquer.
+   */
+  if (dernier.sorte === 'corbeille') {
+    const quoi = dernier.nombre > 1
+      ? `les ${dernier.nombre} fichiers mis à la corbeille`
+      : `« ${dernier.nom} »`;
+    return `Sortir ${quoi} de la corbeille du Drive`;
   }
   const quoi = dernier.nombre > 1
     ? `les ${dernier.nombre} éléments déplacés`

@@ -291,9 +291,35 @@ describe('🔴 « Annuler le dernier déplacement » — la pile', () => {
   /** ⚠️ PILE VIDE : le bouton est grisé, et son infobulle dit POURQUOI — y compris le cas qui surprend. */
   it('🔴 pile vide : l’infobulle explique, et nomme le cas de la copie', () => {
     const mot = motProchaineAnnulation([]);
-    expect(mot).toContain('Aucun déplacement à annuler');
+    /**
+     * ⚠️ « déplacement » EST DEVENU « geste » LE 03/10/2026 (lot DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE) : la pile
+     * contient désormais aussi des mises à la corbeille, et annoncer « aucun déplacement » aurait laissé croire
+     * qu'une corbeille, elle, serait peut-être annulable ailleurs.
+     */
+    expect(mot).toContain('Aucun geste à annuler');
     expect(mot).toContain('copie');
-    expect(mot).toContain('ne supprime rien');
+    expect(mot).toContain('supprimer définitivement');
+  });
+
+  /**
+   * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — UNE CORBEILLE SE DÉFAIT, ET LE MOT LE DIT ════════════════
+   *
+   * Arno : « “Annuler le dernier déplacement” sait aussi annuler une mise à la corbeille (restauration). » Les
+   * deux pas vivent dans la même pile ; seul le MOT change, parce que le geste change.
+   */
+  it('🔴🔴 un pas de corbeille annonce une SORTIE de corbeille, pas un déplacement', () => {
+    const corbeille = { ...pas(9, '0851_001.pdf', 1, 'Test'), sorte: 'corbeille' as const };
+    const mot = motProchaineAnnulation([corbeille]);
+    expect(mot).toBe('Sortir « 0851_001.pdf » de la corbeille du Drive');
+    expect(mot).not.toContain('Remettre');
+    expect(motProchaineAnnulation([{ ...corbeille, nombre: 3 }]))
+      .toContain('les 3 fichiers mis à la corbeille');
+  });
+
+  /** ⚠️ ET UN PAS SANS `sorte` RESTE UN DÉPLACEMENT : tout ce qui existait avant ce lot est inchangé. */
+  it('⚠️ un pas sans `sorte` se lit comme un déplacement', () => {
+    expect(motProchaineAnnulation([pas(7, 'bail.pdf', 1, 'Travaux')]))
+      .toBe('Remettre « bail.pdf » dans « Travaux »');
   });
 
   it('empiler ne modifie pas la pile reçue', () => {

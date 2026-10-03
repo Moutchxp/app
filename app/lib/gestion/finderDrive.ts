@@ -385,7 +385,9 @@ export function selectionSuivante(sel: Selection, ordre: readonly string[], pas:
 
 export type ActionMenu =
   'visualiser' | 'joindre' | 'lien' | 'ouvrir' | 'nouveau_dossier' | 'ouvrir_google'
-  | 'couper' | 'copier' | 'coller' | 'actualiser';
+  | 'couper' | 'copier' | 'coller' | 'actualiser'
+  /* 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — sur une ligne de FICHIER uniquement. Voir l'encadré. */
+  | 'mettre_corbeille';
 
 export interface EntreeMenu {
   action: ActionMenu;
@@ -407,14 +409,27 @@ export interface EntreeMenu {
  * Décision d'Arno du 29/09/2026 (lot DRIVE-DEPLACER) : elle peut désormais DÉPLACER et COPIER — donc l'interdit de
  * ces deux mots-là tombe, et il tombe ICI, dans un diff qu'on relit, et non par un test qu'on contourne.
  *
- * 🔴 CE QUI N'A PAS BOUGÉ D'UN MOT : supprimer, renommer, corbeille, partager. Ce sont les gestes IRRÉVERSIBLES ou
- * qui exposent les documents du cabinet à des tiers ; ils restent hors de cette application, et un déplacement se
+ * 🔴 CE QUI N'A PAS BOUGÉ D'UN MOT : supprimer, renommer, partager. Ce sont les gestes IRRÉVERSIBLES ou qui
+ * exposent les documents du cabinet à des tiers ; ils restent hors de cette application, et un déplacement se
  * défait (le bandeau « Annuler », et le journal qui garde le parent d'origine) là où une suppression ne se défait
  * pas. « dupliquer » est retiré de la liste des MOTS cherchés, mais reste absent du menu : Drive appelle ainsi la
  * copie SUR PLACE, et ce lot n'a jamais copié que VERS un dossier désigné.
+ *
+ * ══ 🔴🔴 03/10/2026 — « corbeille » SORT DE CETTE LISTE, SUR DÉCISION EXPLICITE D'ARNO ═══════════════════════════
+ *
+ * Lot DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE : « nouvelle entrée du menu clic droit sur une ligne de FICHIER
+ * uniquement […] mise à la CORBEILLE du Drive (récupérable 30 jours). JAMAIS de suppression définitive. »
+ *
+ * 🔴 ET C'EST EXACTEMENT LA LIGNE DE PARTAGE QUE CETTE LISTE TRAÇAIT DÉJÀ : ce qui se DÉFAIT peut entrer dans le
+ * menu, ce qui ne se défait pas en reste dehors. La corbeille se défait de deux façons — trente jours chez Google,
+ * et tout de suite par le bouton « Annuler » de la fenêtre. « supprimer » reste donc dans la liste, et il y restera :
+ * `files.delete` et `emptyTrash` n'existent nulle part dans ce dépôt, et un test statique les y cherche.
+ *
+ * ⚠️ LE MOT « corbeille » PEUT DÉSORMAIS S'ÉCRIRE DANS CE FICHIER, mais seulement dans l'entrée prévue — l'épreuve
+ * qui balaie le code cherche toujours « renommer », « supprimer », « partager », « trashed » et « permissions ».
  */
 export const ACTIONS_JAMAIS = [
-  'renommer', 'corbeille', 'supprimer', 'partager',
+  'renommer', 'supprimer', 'partager',
 ] as const;
 
 /**
@@ -467,6 +482,22 @@ export function menuFichier(o: {
   avecLien: boolean;
   /** `null` (ou absent) = ce menu ne propose pas la mémoire tampon du tout. */
   presse?: DroitsPresse | null;
+  /**
+   * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « SUPPRIMER » (mise à la corbeille) ════════════════════
+   *
+   * `null` ou ABSENT ⇒ L'ENTRÉE N'EXISTE PAS, et le menu est EXACTEMENT celui d'avant ce lot. C'est le cas quand
+   * les migrations manquent, et surtout quand le fichier est sous « Documents clients scannés » : Arno demande
+   * que l'entrée n'APPARAISSE PAS là-bas, et non qu'elle y soit éteinte.
+   *
+   * 🔴 ABSENTE, ET NON ÉTEINTE — C'EST UNE EXCEPTION ASSUMÉE à la règle de ce menu (« dans un menu qui s'ouvre
+   * sur une ligne précise, une entrée éteinte avec son motif se lit comme une règle »). Une entrée « Supprimer »
+   * grisée sur un document d'archive ANNONCE que le geste existe là-bas et qu'il suffirait d'un droit de plus. On
+   * ne montre pas la porte d'un endroit où l'on ne doit jamais entrer.
+   *
+   * ⚠️ ET CE N'EST PAS LA PROTECTION : c'est la route qui refuse, par ascendance de dossiers lue chez Google.
+   * Ceci n'est que ce que l'écran propose.
+   */
+  corbeille?: { autorise: boolean; motifInactif: string | null } | null;
 }): EntreeMenu[] {
   const refus = o.motifRefus ?? 'La lecture du contenu est refusée ici.';
   return [
@@ -500,6 +531,17 @@ export function menuFichier(o: {
      * qui contient cette ligne. C'est le geste du Finder — on ne va pas chercher une zone vide pour coller.
      */
     ...entreesPresse(o.presse ?? null),
+    /**
+     * 🔴🔴 « Supprimer » EST EN DERNIER, ET SÉPARÉ DE TOUT CE QUI PRÉCÈDE. C'est le seul geste de ce menu qui
+     * retire un document d'un dossier où quelqu'un ira le chercher : il ne doit pas se trouver sous le doigt qui
+     * visait « Coller ». Le mot du bouton est celui d'Arno (« Supprimer ») ; la confirmation, elle, dit ce que le
+     * geste FAIT réellement — « Mettre à la corbeille du Drive » (voir `driveCorbeille.phraseCorbeille`).
+     */
+    ...(o.corbeille == null ? [] : [{
+      action: 'mettre_corbeille' as const,
+      libelle: 'Supprimer',
+      motifInactif: o.corbeille.autorise ? null : (o.corbeille.motifInactif ?? 'Ce geste est indisponible ici.'),
+    }]),
   ];
 }
 

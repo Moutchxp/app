@@ -1,5 +1,5 @@
 import { query } from '../db/client';
-import { journalMouvementDriveDisponible } from './schema';
+import { corbeilleDriveDisponible, journalMouvementDriveDisponible } from './schema';
 
 /**
  * LOT DRIVE-DEPLACER — CE QUE LA BASE GARDE DES DÉPLACEMENTS ET DES COPIES. IMPUR (SQL).
@@ -15,12 +15,26 @@ import { journalMouvementDriveDisponible } from './schema';
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+/**
+ * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LES QUATRE GESTES QUE LE JOURNAL SAIT DIRE ═════════════════
+ *
+ * « corbeille » et « restaurer » s'ajoutent à « deplacer » et « copier ». Ils ne sont inscriptibles QUE si la
+ * migration 295 est appliquée : la base refuserait la ligne sans elle, et on n'écrit pas dans le Drive ce qu'on ne
+ * saurait pas consigner (règle du lot DRIVE-DEPLACER).
+ *
+ * ⚠️ « restaurer » EST UNE ACTION À PART, et non une corbeille à l'envers : le journal se relit des mois plus tard
+ * par quelqu'un qui cherche où est passé un document, et deux lignes « corbeille » dont l'une voudrait dire le
+ * contraire de l'autre seraient illisibles.
+ */
+export type ActionMouvement = 'deplacer' | 'copier' | 'corbeille' | 'restaurer';
+
 export interface MouvementInscrit {
   id: number;
-  action: 'deplacer' | 'copier';
+  action: ActionMouvement;
   driveId: string;
   nom: string;
   parentOrigine: string;
+  /** VIDE pour « corbeille » et « restaurer » : ces gestes-là n'ont pas de destination dans l'arborescence. */
   parentCible: string;
   copieDriveId: string | null;
 }
@@ -34,11 +48,12 @@ export interface MouvementInscrit {
  * visible (le fichier n'est plus où on le cherche) et réparable à la main, ce qu'un mensonge n'est pas.
  */
 export async function inscrireMouvement(o: {
-  action: 'deplacer' | 'copier';
+  action: ActionMouvement;
   driveId: string;
   nom: string;
   estDossier: boolean;
   parentOrigine: string;
+  /** VIDE (chaîne vide) pour « corbeille » et « restaurer » : la migration 295 l'autorise pour elles seules. */
   parentCible: string;
   copieDriveId: string | null;
   auteurId: number | null;
@@ -46,6 +61,13 @@ export async function inscrireMouvement(o: {
   compteGoogle: string | null;
 }): Promise<number | null> {
   if (!await journalMouvementDriveDisponible()) return null;
+  /**
+   * 🔴🔴 SANS LA MIGRATION 295, ON N'INSCRIT PAS UNE CORBEILLE — ET ON NE LAISSE PAS LA BASE LA REFUSER À NOTRE
+   * PLACE. Une contrainte violée lèverait une exception au milieu d'une route qui vient d'écrire chez Google : le
+   * fichier serait à la corbeille, sans ligne de journal, donc sans « Annuler ». On répond `null` AVANT, et la
+   * route refuse le geste en entier — c'est la seule issue qui ne laisse rien derrière elle.
+   */
+  if ((o.action === 'corbeille' || o.action === 'restaurer') && !await corbeilleDriveDisponible()) return null;
   const { rows } = await query<{ id: string }>(
     `INSERT INTO gestion_drive_mouvement
        (action, drive_id, nom, est_dossier, parent_origine, parent_cible, copie_drive_id,
@@ -58,10 +80,17 @@ export async function inscrireMouvement(o: {
 }
 
 /**
- * LES DÉPLACEMENTS D'UN LOT, RELUS POUR « ANNULER ».
+ * LES GESTES D'UN LOT, RELUS POUR « ANNULER ».
  *
- * ⚠️ SEULEMENT LES DÉPLACEMENTS, et seulement ceux qui n'ont pas déjà été annulés : annuler une COPIE voudrait dire
- * SUPPRIMER la copie, et l'application ne supprime rien. Le bandeau d'une copie ne propose donc pas de retour.
+ * ⚠️ UNE COPIE NE S'ANNULE PAS, et c'est inchangé : l'annuler voudrait dire SUPPRIMER la copie — la suppression
+ * DÉFINITIVE, celle que ce dépôt n'écrit nulle part. Le bandeau d'une copie ne propose donc pas de retour.
+ *
+ * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — UNE CORBEILLE, SI. Arno : « “Annuler le dernier déplacement”
+ * sait aussi annuler une mise à la corbeille (restauration). » Elle entre donc dans cette lecture, au même titre
+ * qu'un déplacement, et pour la même raison : elle se défait exactement.
+ *
+ * ⚠️ « restaurer » N'Y ENTRE PAS : annuler une restauration remettrait le document à la corbeille, c'est-à-dire
+ * referait le geste qu'on vient de défaire. On ne construit pas une bascule sans fin dans un bouton d'annulation.
  */
 export async function mouvementsAnnulables(ids: readonly number[]): Promise<MouvementInscrit[]> {
   if (ids.length === 0 || !await journalMouvementDriveDisponible()) return [];
@@ -71,10 +100,10 @@ export async function mouvementsAnnulables(ids: readonly number[]): Promise<Mouv
   }>(
     `SELECT id::int AS id, action, drive_id, nom, parent_origine, parent_cible, copie_drive_id
        FROM gestion_drive_mouvement
-      WHERE id = ANY($1::bigint[]) AND action = 'deplacer' AND annule_le IS NULL
+      WHERE id = ANY($1::bigint[]) AND action IN ('deplacer', 'corbeille') AND annule_le IS NULL
       ORDER BY id`, [ids]);
   return rows.map((r) => ({
-    id: Number(r.id), action: r.action as 'deplacer' | 'copier', driveId: r.drive_id, nom: r.nom,
+    id: Number(r.id), action: r.action as ActionMouvement, driveId: r.drive_id, nom: r.nom,
     parentOrigine: r.parent_origine, parentCible: r.parent_cible, copieDriveId: r.copie_drive_id,
   }));
 }
