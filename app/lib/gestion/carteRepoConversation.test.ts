@@ -11,6 +11,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 vi.mock('./schema', () => ({
+  /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la 296 n'est pas le sujet de ce fichier : ABSENTE, la colonne
+     `integree` n'est nommée nulle part et le SQL inspecté ici reste celui d'avant ce lot. */
+  pieceIntegreeDisponible: async () => false,
   deplacementsDeMailsDisponibles: async () => false,
   destinatairesSeparesDisponibles: async () => avecDest,
   // LOT ENVOI-DIAG — la conversation demande désormais les avis de non-remise de ses messages. Ici la migration 261

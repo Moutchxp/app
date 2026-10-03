@@ -586,6 +586,23 @@ export function etoileGmailDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — LA MIGRATION 296 EST-ELLE APPLIQUÉE ? ═══════════════════════════════════
+ *
+ * Elle porte `gestion_piece.integree` : « les octets de cette image sont déjà posés dans le corps du message »,
+ * c'est-à-dire « ce n'est pas une pièce jointe » (règle d'Arno du 03/10/2026).
+ *
+ * 🔴 LE CRITÈRE NE SE CALCULE PAS DANS UN `WHERE` — il faut décoder du base64 et hacher. On le range donc une
+ * fois pour toutes, au dépôt et par une passe de rattrapage.
+ *
+ * Tant que cette sonde répond « non » : la colonne n'est nommée nulle part, et le tri des pièces retombe mot pour
+ * mot sur la règle de nom/taille qui existait avant ce lot. Rien ne casse, et rien ne ment — simplement, les
+ * 2 345 images intégrées que cette règle ne reconnaît pas restent comptées.
+ */
+export function pieceIntegreeDisponible(): Promise<boolean> {
+  return memoiser('piece.integree', () => colonneExiste('gestion_piece', 'integree'));
+}
+
+/**
  * ══ LOT REDACTION-GMAIL — LA MIGRATION 265 EST-ELLE APPLIQUÉE ? ════════════════════════════════════════════════
  * Elle porte DEUX choses indépendantes, et elles se sondent SÉPARÉMENT : l'une peut exister sans l'autre si
  * quelqu'un applique la migration à moitié, et une sonde unique mentirait alors dans un sens ou dans l'autre.

@@ -38,7 +38,7 @@ import { sqlNomAffiche } from './nomUsageSql';
 import { fusionnerNonEnvoyes, type MentionNonEnvoye } from './fileEnvoi';
 import {
   corbeilleGmailDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible, etoileGmailDisponible,
-  interneDisponible,
+  interneDisponible, pieceIntegreeDisponible,
 } from './schema';
 import { etoilesDesFils } from './etoileRepo';
 /**
@@ -56,7 +56,7 @@ import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
  */
 import { sqlSortesBien } from './statutClassement';
 // LOT LECTURE-HTML-FIL-TROMBONE — la MÊME règle que la conversation pour distinguer une pièce d'un logo de signature.
-import { trierPieces, type PieceATrier } from './lisibilite';
+import { sqlEstVraiePiece, trierPieces, type PieceATrier } from './lisibilite';
 // LOT BOITE-INTERNE-CORBEILLE — « nous », c'est `gestion_config.adresse_gestion`, lue à la MÊME source que la capture.
 import { chargerConfigGestion } from './config';
 import { sqlExtraitLisible } from './imagesIntegrees';
@@ -791,6 +791,12 @@ export function sqlPageBoite(
    * PART et la requête est mot pour mot celle d'avant ce lot, ce qui garde les épreuves de forme existantes.
    */
   interne = false,
+  /**
+   * 🔴 LOT ETOILE-SIGNATURES-PIECES — la migration 296 est-elle là ? Elle porte `gestion_piece.integree` :
+   * « les octets de cette image sont déjà dans le corps », donc ce n'est pas une pièce jointe. Sans elle, la
+   * colonne n'est NOMMÉE NULLE PART et le compteur retombe sur la règle de nom/taille d'avant ce lot.
+   */
+  pieceIntegree = false,
 ): string {
   /**
    * 🔴 LOT LISTE-PAGINATION — LE PRÉDICAT VIENT DE `predicatsBoite`, PARTAGÉ AVEC `sqlCompteBoite`. Ce qui suit ne
@@ -881,8 +887,12 @@ export function sqlPageBoite(
             (SELECT count(*) FROM gestion_message c WHERE c.fil_id = p.fil_id AND c.exclu_le IS NULL)::int AS nb_lisibles,
             -- LOT LISTE-GMAIL — le NOMBRE de pièces de l'échange, et non plus seulement « y en a-t-il ? ». Une
             --   seule lecture, servie par l'index (message_id) de gestion_piece ; le booléen s'en déduit.
+            -- 🔴 LOT ETOILE-SIGNATURES-PIECES — le compteur dit ce que l'écran MONTRERA : ni les images posées
+            --    dans le corps, ni les logos de signature, ni les jumeaux macOS. La MEME regle que le trombone
+            --    et que la conversation (sqlEstVraiePiece), rendue en SQL pour entrer dans le WHERE.
+            --    AUCUN ACCENT GRAVE ICI : ce commentaire vit dans un litteral de gabarit (piege TS1005 du depot).
             (SELECT count(*) FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
-              WHERE pm.fil_id = p.fil_id)::int AS nb_pieces,
+              WHERE pm.fil_id = p.fil_id AND ${sqlEstVraiePiece('pc', pieceIntegree)})::int AS nb_pieces,
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = p.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
             (f.etat = 'sans_suite') AS sans_suite,
@@ -1056,7 +1066,7 @@ export async function lireBoiteMail(
     ? null : 4 + paramsEtiquette.length + (rangAdresse === null ? 0 : 1);
   const { rows } = await query<LigneDB>(
     sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true, rattachements,
-      horsGestion, rangAdresse, etoileGmail, interne),
+      horsGestion, rangAdresse, etoileGmail, interne, await pieceIntegreeDisponible()),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
       ...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
@@ -1249,12 +1259,15 @@ export async function piecesVraiesDesFils(
 ): Promise<Map<number, Map<number, PieceATrier[]>>> {
   const parFil = new Map<number, Map<number, PieceATrier[]>>();
   if (filIds.length === 0) return parFil;
+  /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la colonne n'est NOMMÉE que si la migration 296 est là (patron du dépôt). */
+  const avecIntegree = await pieceIntegreeDisponible();
   const { rows } = await query<{
     fil_id: string; message_id: string; nom_fichier: string; type_mime: string | null;
-    taille_octets: string | null;
+    taille_octets: string | null; integree: boolean | null;
   }>(
     `SELECT m.fil_id::text, p.message_id::text, ${await sqlNomAffiche('p')} AS nom_fichier,
-            p.type_mime, p.taille_octets::text
+            p.type_mime, p.taille_octets::text,
+            ${avecIntegree ? 'p.integree' : 'NULL::boolean AS integree'}
        FROM gestion_piece p
        JOIN gestion_message m ON m.id = p.message_id
       WHERE m.fil_id = ANY($1::bigint[])
@@ -1268,6 +1281,7 @@ export async function piecesVraiesDesFils(
       typeMime: r.type_mime,
       // ⚠️ `bigint` en CHAÎNE avec pg : sans conversion, la comparaison de taille de `trierPieces` serait textuelle.
       tailleOctets: r.taille_octets === null ? null : Number(r.taille_octets),
+      integree: r.integree,
     };
     // 🔴 LA MÊME RÈGLE QUE L'ÉCRAN D'UN MESSAGE : on ne garde que ce que `trierPieces` appelle une VRAIE pièce.
     if (trierPieces([piece]).vraies.length === 0) continue;

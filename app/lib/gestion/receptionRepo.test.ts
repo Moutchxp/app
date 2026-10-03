@@ -23,6 +23,9 @@ const migration257 = vi.fn(async () => true);
 /** LOT STATUT-HORS-GESTION — la 266, pilotée séparément : les deux migrations n'arrivent pas ensemble. */
 const migration266 = vi.fn(async () => true);
 vi.mock('./schema', () => ({
+  /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la 296 n'est pas le sujet de ce fichier : ABSENTE, la colonne
+     `integree` n'est nommée nulle part et le SQL inspecté ici reste celui d'avant ce lot. */
+  pieceIntegreeDisponible: async () => false,
   rattachementsDisponibles: () => migration257(), horsGestionDisponible: () => migration266(),
   // 🔴 LOT RATTACHER-EN-ECRIVANT — migration 281 absente : la table n'est nommée nulle part.
   interneDisponible: async () => false,

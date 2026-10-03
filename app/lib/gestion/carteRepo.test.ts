@@ -3,6 +3,20 @@ import { readFileSync } from 'node:fs';
 
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
+/**
+ * 🔴 LOT ETOILE-SIGNATURES-PIECES — LES SONDES DE SCHÉMA SONT MUETTES ICI, et il le faut : sans ce double, elles
+ * interrogeraient `information_schema` par le MÊME `queryMock`, consommeraient la première réponse de la file et
+ * décaleraient toutes les suivantes. Déclarées ABSENTES, les requêtes examinées sont celles d'avant ce lot.
+ */
+vi.mock('./schema', () => ({
+  copiePiecesDisponible: async () => false,
+  destinatairesSeparesDisponibles: async () => false,
+  nomUsageDisponible: async () => false,
+  nonRemiseDisponible: async () => false,
+  copieDisparueDisponible: async () => false,
+  pieceIntegreeDisponible: async () => false,
+  vidageDisponible: async () => false,
+}));
 
 import { lireCarte, lireMessagesDuFil, lirePieceAServir, MAX_MESSAGES } from './carteRepo';
 
@@ -220,11 +234,15 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     //   `./imagesMail` : module PUR (aucune base, aucun réseau, aucun DOM) qui dit ce qu'est une image intégrée,
     //   ce qui est sûr, et rend des FRAGMENTS DE SQL. Il ne manipule aucun octet de pièce jointe, et c'est son
     //   passage obligé ici qui garantit qu'une charge base64 n'atteint jamais l'écran sous forme de texte.
+    // 🔴 LOT ETOILE-SIGNATURES-PIECES — `./lisibilite` rejoint la liste, pour la MÊME raison que les précédents :
+    //   module PUR qui dit « cette pièce est-elle une VRAIE pièce ? », en TypeScript et en FRAGMENT DE SQL. Il ne
+    //   lit aucun octet et n'ouvre aucun stockage. Son passage obligé ici est ce qui garantit que le compteur de
+    //   l'écran et celui de la liste comptent la MÊME chose — une seule définition, pas deux.
     expect(imports).toEqual([
       // 🔴🔴 LOT CADRE-ISOLE-MAILS — `./cadreMail` est un module PUR (il extrait et filtre les <style> d'en-tête
       //   d'un mail). Il ne nomme ni stockage, ni signature d'URL : il entre donc dans cette liste sans l'ouvrir.
       '../db/client', './nomUsageSql', './copieDisparueSql', './htmlMail', './cadreMail',
-      './imagesMail', './imagesIntegrees',
+      './imagesMail', './imagesIntegrees', './lisibilite',
       './attente', './partenaires', './schema', './nonRemiseRepo',
     ]);
     expect(imports).not.toContain('../stockage');

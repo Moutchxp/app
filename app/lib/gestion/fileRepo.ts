@@ -12,6 +12,8 @@
  * ce qui attend passe devant ce qui n'attend pas, puis du plus ANCIEN au plus récent.
  */
 import { query } from '../db/client';
+import { sqlEstVraiePiece } from './lisibilite';
+import { pieceIntegreeDisponible } from './schema';
 import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, jointuresAttente } from './attente';
 import { chargerConfigGestion } from './config';
 import { toleranceVeilleValide, VEILLE_INTERVALLES_DEFAUT, type VeilleReleve } from './ecran';
@@ -151,6 +153,9 @@ export async function lireFile(
   page = 0,
 ): Promise<{ lignes: LigneFile[]; total: number; tropAnciens: number }> {
   const adresses = adressesDe(ctx.partenaires);
+  /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la colonne `integree` n'est NOMMÉE que si la migration 296 est là.
+     Sans elle, le compteur retombe mot pour mot sur la règle de nom/taille d'avant ce lot. */
+  const avecPieceIntegree = await pieceIntegreeDisponible();
   const { rows } = await query<LigneFileDB>(
     `WITH ${ctesAttente('$3', '$4', ctx.deplacements, ctx.spam === true, ctx.corbeille === true)}
      SELECT f.id::int AS fil_id,
@@ -162,7 +167,8 @@ export async function lireFile(
               ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am2 WHERE am2.message_id = m2.id AND am2.actif)' : ''})::int AS nb_messages,
             (SELECT count(*) FROM gestion_piece p JOIN gestion_message m3 ON m3.id = p.message_id
               WHERE m3.fil_id = f.id AND m3.exclu_le IS NULL
-              ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am3 WHERE am3.message_id = m3.id AND am3.actif)' : ''})::int AS nb_pieces,
+              ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am3 WHERE am3.message_id = m3.id AND am3.actif)' : ''}
+              AND ${sqlEstVraiePiece('p', avecPieceIntegree)})::int AS nb_pieces,
             ${ATTEND} AS attend
        FROM gestion_fil f
        JOIN dernier d ON d.fil_id = f.id

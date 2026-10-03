@@ -26,12 +26,16 @@ import { reecrireImages, type PieceIntegree } from './imagesMail';
 import {
   decouperTexteAImages, sqlExtraitLisible, sqlSansChargeImage, texteAUneImage,
 } from './imagesIntegrees';
+// 🔴 LOT ETOILE-SIGNATURES-PIECES — « cette pièce est-elle une VRAIE pièce ? », rendu en SQL. Une seule règle.
+import { sqlEstVraiePiece } from './lisibilite';
 import { ATTEND, ctesAttente, jointuresAttente } from './attente';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 // ⚠️ UN SEUL IMPORT DE `./schema`, STATIQUE. `destinatairesSeparesDisponibles` était chargée dynamiquement au
 //   milieu d'une fonction (lot 5b) : deux façons d'importer le même module, donc deux endroits à tenir. Le garde
 //   d'imports de ce fichier a attrapé le doublon dès qu'un second besoin de sonde est apparu (lot DRIVE-3).
-import { copiePiecesDisponible, destinatairesSeparesDisponibles, vidageDisponible } from './schema';
+import {
+  copiePiecesDisponible, destinatairesSeparesDisponibles, pieceIntegreeDisponible, vidageDisponible,
+} from './schema';
 // LOT ENVOI-DIAG — lecture seule elle aussi (SELECT sur `gestion_non_remise`). Elle rejoint la liste blanche du
 //   garde d'imports de ce fichier pour la même raison que `./schema` : elle ne manipule aucun octet de pièce jointe.
 import { nonRemisesDesMessages, type MentionNonRemise } from './nonRemiseRepo';
@@ -181,6 +185,12 @@ export interface PieceDeMessage {
   disponible: boolean;
   motifNonStocke: string | null;
   /**
+   * 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — les octets de cette image sont DÉJÀ posés dans le corps du message : ce
+   * n'est donc pas une pièce jointe (règle d'Arno). `null` = non décidé, et la pièce reste comptée. Lue seulement
+   * si la migration 296 est appliquée ; `trierPieces` s'en sert, l'écran n'a rien à savoir.
+   */
+  integree?: boolean | null;
+  /**
    * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — `nomFichier` EST LE NOM D'USAGE ══════════════════════════════════════
    *
    * Sa valeur change, son nom de champ non : c'est ce qui fait que les dix écrans qui l'affichent montrent le
@@ -240,6 +250,9 @@ export async function lireCarte(
 
   // L'attente se calcule avec la MÊME définition que la file (`attente.ts`) : les deux colonnes de l'écran ne
   //   doivent pas pouvoir se contredire sur un même échange.
+  /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la colonne `integree` n'est NOMMÉE que si la migration 296 est là.
+     Sans elle, le compteur retombe mot pour mot sur la règle de nom/taille d'avant ce lot. */
+  const avecPieceIntegree = await pieceIntegreeDisponible();
   const { rows: fils } = await query<{
     fil_id: number; objet: string | null; interlocuteur: string | null; de_adresse: string; dernier_le: string;
     nb_messages: number; nb_pieces: number; attend: boolean;
@@ -252,7 +265,8 @@ export async function lireCarte(
               ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am2 WHERE am2.message_id = m2.id AND am2.actif)' : ''})::int AS nb_messages,
             (SELECT count(*) FROM gestion_piece p JOIN gestion_message m3 ON m3.id = p.message_id
               WHERE m3.fil_id = f.id AND m3.exclu_le IS NULL
-              ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am3 WHERE am3.message_id = m3.id AND am3.actif)' : ''})::int AS nb_pieces,
+              ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am3 WHERE am3.message_id = m3.id AND am3.actif)' : ''}
+              AND ${sqlEstVraiePiece('p', avecPieceIntegree)})::int AS nb_pieces,
             ${ATTEND} AS attend
        FROM gestion_affectation a
        JOIN gestion_fil f ON f.id = a.fil_id
@@ -563,12 +577,14 @@ const champsPieceDeMessage = async (): Promise<string> =>
   `p.id::int AS piece_id, p.message_id::int AS message_id,
    ${await sqlNomAffiche('p')} AS nom_fichier, ${sqlNomOrigine('p')} AS nom_origine,
    p.type_mime, p.taille_octets, (p.cle_stockage IS NOT NULL) AS disponible, p.motif_non_stocke,
-   p.empreinte_sha256`;
+   p.empreinte_sha256,
+   ${/* 🔴 LOT ETOILE-SIGNATURES-PIECES — nommée seulement si la migration 296 est là. */
+     await pieceIntegreeDisponible() ? 'p.integree' : 'NULL::boolean AS integree'}`;
 
 interface LignePieceDeMessage {
   piece_id: number; message_id: number; nom_fichier: string; nom_origine: string; type_mime: string | null;
   taille_octets: string | number | null; disponible: boolean; motif_non_stocke: string | null;
-  empreinte_sha256: string | null;
+  empreinte_sha256: string | null; integree: boolean | null;
 }
 
 /** Les pièces d'un ensemble de messages, rangées par message. Une seule requête, quel que soit le nombre de messages. */
@@ -585,7 +601,7 @@ async function lirePiecesDesMessages(messageIds: readonly number[]): Promise<Map
       // `bigint` revient en CHAÎNE avec pg : sans conversion, les tailles se compareraient comme du texte.
       tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets),
       disponible: p.disponible === true, motifNonStocke: p.motif_non_stocke,
-      empreinte: p.empreinte_sha256,
+      empreinte: p.empreinte_sha256, integree: p.integree,
     });
     parMessage.set(p.message_id, liste);
   }
@@ -674,7 +690,7 @@ export async function lireMessagesDuFil(
       //   comparaisons de taille mentiraient. Piège connu du dépôt.
       tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets),
       disponible: p.disponible === true, motifNonStocke: p.motif_non_stocke,
-      empreinte: p.empreinte_sha256,
+      empreinte: p.empreinte_sha256, integree: p.integree,
     });
     parMessage.set(p.message_id, liste);
   }

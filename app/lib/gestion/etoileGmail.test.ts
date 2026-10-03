@@ -33,7 +33,11 @@ vi.mock('../db/client', () => ({
 }));
 /** ⚠️ Variable du fichier, relue à chaque appel : les deux mondes (migration là / pas là) s'éprouvent tous deux. */
 let migration277 = true;
-vi.mock('./schema', () => ({ etoileGmailDisponible: async () => migration277 }));
+vi.mock('./schema', () => ({
+  etoileGmailDisponible: async () => migration277,
+  /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la 296 n'est pas le sujet ici : absente, le SQL est celui d'avant. */
+  pieceIntegreeDisponible: async () => false,
+}));
 
 import {
   compterFilsEtoiles, ecrireEtoileMessage, filsEtoiles, messagesEtoilesDuFil, reconcilierEtoiles,

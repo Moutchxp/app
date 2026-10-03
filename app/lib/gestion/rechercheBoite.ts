@@ -33,7 +33,7 @@ import { nonRemisesDesFils } from './nonRemiseRepo';
 import { sqlEstVraiePiece } from './lisibilite';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — la recherche trouve la pièce par ses DEUX noms (usage et origine).
 import { nomsCherchablesAvec } from './nomUsageSql';
-import { nomUsageDisponible } from './schema';
+import { nomUsageDisponible, pieceIntegreeDisponible } from './schema';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 import {
@@ -448,6 +448,9 @@ export async function chercherDansLeCourrier(
   const curseurSql = curseur === null ? '' :
     `WHERE (t.recu_le, t.fil_id) < (${lier(curseur.dernierLe)}::timestamptz, ${lier(curseur.filId)}::bigint)`;
 
+  /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la colonne `integree` n'est NOMMÉE que si la migration 296 est là.
+     Sans elle, le compteur retombe mot pour mot sur la règle de nom/taille d'avant ce lot. */
+  const avecPieceIntegree = await pieceIntegreeDisponible();
   const { rows } = await query<LigneDB>(
     `WITH trouves AS (
        -- UN message par échange : le plus récent de ceux qui correspondent. C'est lui qui date le résultat.
@@ -476,7 +479,7 @@ export async function chercherDansLeCourrier(
             -- LOT LISTE-GMAIL — le NOMBRE, comme dans la liste : les deux écrans montrent la même ligne, ils
             --   doivent la calculer pareil.
             (SELECT count(*) FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
-              WHERE pm.fil_id = t.fil_id)::int AS nb_pieces,
+              WHERE pm.fil_id = t.fil_id AND ${sqlEstVraiePiece('pc', avecPieceIntegree)})::int AS nb_pieces,
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = t.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
             (f.etat = 'sans_suite') AS sans_suite,

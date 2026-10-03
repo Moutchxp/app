@@ -14,6 +14,8 @@ import {
 } from './schema';
 import { chargerConfigGestion, type ConfigGestion } from './config';
 import type { DepsCapture, MessageAEcrire, MessageBrut, PieceBrute, FilResolu } from './capture';
+// 🔴 LOT ETOILE-SIGNATURES-PIECES — le critère « ses octets sont déjà dans le corps ». Module PUR.
+import { estPoseeDansLeCorps } from './imageDansLeCorps';
 import type { RegleExclusion } from './regles';
 import type { ClientDossier } from './clientSurveille';
 import { destinatairesDe } from './typologie';
@@ -330,10 +332,50 @@ async function miniatureALArrivee(
   }
 }
 
+/**
+ * ══ 🔴 LES EMPREINTES DES IMAGES DU CORPS, OU `null` QUAND LA QUESTION NE SE POSE PAS ═══════════════════════════
+ *
+ * `null` veut dire « on ne marquera rien » — soit la migration 296 n'est pas appliquée, soit aucune des pièces
+ * n'est une image, soit le message n'a pas de HTML. L'insertion retombe alors exactement sur celle d'avant ce lot.
+ *
+ * ⚠️ ELLE NE LÈVE JAMAIS. Un marquage raté n'a pas à faire perdre une pièce jointe : on rend `null`, la pièce est
+ * déposée sans marque, et la passe de rattrapage la reprendra.
+ */
+async function empreintesDuCorpsDuMessage(
+  messageId: number, pieces: readonly PieceBrute[],
+): Promise<Set<string> | null> {
+  try {
+    const { pieceIntegreeDisponible } = await import('./schema');
+    if (!(await pieceIntegreeDisponible())) return null;
+    const uneImage = pieces.some((p) => (p.typeMime ?? '').toLowerCase().startsWith('image/'));
+    if (!uneImage) return null;
+    const { rows } = await query<{ corps_html: string | null }>(
+      'SELECT corps_html FROM gestion_message WHERE id = $1', [messageId]);
+    const html = rows[0]?.corps_html ?? null;
+    if (html === null || html === '') return null;
+    const { empreintesDesImagesDuCorps } = await import('./imageDansLeCorpsReel');
+    return empreintesDesImagesDuCorps(html);
+  } catch (e) {
+    console.error('[gestion/piece] marque « image intégrée » impossible', { messageId, e });
+    return null;
+  }
+}
+
 export async function deposerPiecesMessage(
   messageId: number, pieces: readonly PieceBrute[], config: ConfigGestion,
 ): Promise<{ deposees: number; nonDeposees: number }> {
   const { deposerPieceGestion } = await import('../stockage'); // import DYNAMIQUE : garde le SDK S3 hors du graphe des tests
+  /**
+   * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — ON MARQUE L'IMAGE INTÉGRÉE AU MOMENT OÙ ON LA DÉPOSE ════════════════
+   *
+   * RÈGLE D'ARNO : une image posée dans le corps n'est pas une pièce jointe. Le critère est exact — l'empreinte
+   * de la pièce figure parmi celles des images `data:` du corps — mais il demande de décoder du base64 et de
+   * hacher : impensable à chaque ligne de liste. On le calcule donc ICI, une fois, et on le range.
+   *
+   * ⚠️ UNE SEULE LECTURE DU CORPS, et seulement s'il y a une IMAGE à juger. Un mail qui ne porte que des PDF ne
+   * paie rien du tout — c'est la quasi-totalité du courrier qui arrive avec des pièces.
+   */
+  const empreintesDuCorps = await empreintesDuCorpsDuMessage(messageId, pieces);
   let deposees = 0, nonDeposees = 0;
   for (const p of pieces) {
     try {
@@ -341,10 +383,20 @@ export async function deposerPiecesMessage(
         messageId, typesAcceptes: config.typesPiecesAcceptes, tailleMaxOctets: config.pieceTailleMaxOctets,
       });
       if (res.depose) {
-        const { rows } = await query<{ id: string }>(
-          `INSERT INTO gestion_piece (message_id, nom_fichier, type_mime, taille_octets, cle_stockage, empreinte_sha256, stocke_le)
-           VALUES ($1,$2,$3,$4,$5,$6, now()) RETURNING id::text`,
-          [messageId, p.nomFichier, p.typeMime, res.taille, res.cle, res.empreinte]);
+        /* 🔴 LA COLONNE N'EST NOMMÉE QUE SI LA MIGRATION 296 EST LÀ : patron du dépôt, une sonde voyage avec ce
+           qu'elle conditionne. Sans elle, l'insertion est mot pour mot celle d'avant ce lot. */
+        const integree = empreintesDuCorps === null
+          ? null
+          : estPoseeDansLeCorps(res.empreinte, empreintesDuCorps);
+        const { rows } = integree === null
+          ? await query<{ id: string }>(
+            `INSERT INTO gestion_piece (message_id, nom_fichier, type_mime, taille_octets, cle_stockage, empreinte_sha256, stocke_le)
+             VALUES ($1,$2,$3,$4,$5,$6, now()) RETURNING id::text`,
+            [messageId, p.nomFichier, p.typeMime, res.taille, res.cle, res.empreinte])
+          : await query<{ id: string }>(
+            `INSERT INTO gestion_piece (message_id, nom_fichier, type_mime, taille_octets, cle_stockage, empreinte_sha256, stocke_le, integree)
+             VALUES ($1,$2,$3,$4,$5,$6, now(), $7) RETURNING id::text`,
+            [messageId, p.nomFichier, p.typeMime, res.taille, res.cle, res.empreinte, integree]);
         deposees += 1;
         // 🔴 LOT MINIATURES-COMPLÈTES — L'APERÇU EST FABRIQUÉ ICI, TOUT DE SUITE. Voir l'encadré de `miniatureALArrivee`.
         await miniatureALArrivee(Number(rows[0].id), p.contenu, p.typeMime, p.nomFichier);

@@ -95,6 +95,18 @@ export interface PieceATrier {
   nomFichier: string;
   typeMime: string | null;
   tailleOctets: number | null;
+  /**
+   * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — « LES OCTETS SONT DÉJÀ DANS LE CORPS » ═════════════════════════════
+   *
+   * `gestion_piece.integree` (migration 296), calculée une fois au dépôt : l'empreinte de cette image figure
+   * parmi celles des images `data:` du corps. C'est le critère EXACT d'Arno — « référencée par un cid: du
+   * HTML » —, lu à travers ce que mailparser a déjà fait pour nous (voir `imageDansLeCorps.ts`).
+   *
+   * ⚠️ ABSENTE OU `null` ⇒ COMPORTEMENT D'AVANT CE LOT, À LA LETTRE. Sans la migration 296, sans la passe de
+   * rattrapage, ou sur une pièce sans empreinte, on retombe sur la règle de nom/taille ci-dessous. Ne pas savoir
+   * n'est pas une raison de retirer une pièce d'un compteur.
+   */
+  integree?: boolean | null;
 }
 
 /** Au-delà, une image n'est plus un logo de signature : c'est une photo qu'on a voulu envoyer. */
@@ -137,15 +149,23 @@ const EXTENSION_IMAGE_FINALE = new RegExp(`\\.${EXTENSIONS_IMAGE}$`, 'i');
  * ⚠️ `~*` (insensible à la casse) ET NON `~` : les mêmes noms arrivent en « IMAGE001.PNG » aussi souvent qu'en
  * minuscules, et le motif JavaScript porte déjà le drapeau `i`.
  */
-export function sqlEstVraiePiece(alias = 'p'): string {
+export function sqlEstVraiePiece(alias = 'p', avecIntegree = false): string {
   const estImage = `(lower(coalesce(${alias}.type_mime, '')) LIKE 'image/%'`
     + ` OR ${alias}.nom_fichier ~* '\\.${EXTENSIONS_IMAGE}$')`;
   const nomDeSignature = `${alias}.nom_fichier ~* '^${PREFIXES_DE_SIGNATURE}[\\w.-]*\\.${EXTENSIONS_IMAGE}$'`;
   const tropPetite = `(${alias}.taille_octets IS NOT NULL AND ${alias}.taille_octets > 0`
     + ` AND ${alias}.taille_octets < ${TAILLE_MAX_SIGNATURE})`;
+  /**
+   * 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — LA MÊME UNION QU'EN TypeScript, DANS LE MÊME ORDRE.
+   *
+   * ⚠️ `avecIntegree` EST UN DRAPEAU, PAS UNE SONDE : cette fonction est PURE (elle rend du texte), et une sonde
+   * la rendrait asynchrone pour tous ses appelants. C'est l'appelant qui interroge le schéma et le dit ici —
+   * exactement le patron de `sqlNomAffiche`.
+   */
+  const integree = avecIntegree ? `coalesce(${alias}.integree, false) OR ` : '';
   // Une pièce est VRAIE quand elle n'est pas un jumeau macOS, et qu'elle n'est pas une image de signature.
   return `${alias}.nom_fichier NOT LIKE '._%'`
-    + ` AND NOT (${estImage} AND (${nomDeSignature} OR ${tropPetite}))`;
+    + ` AND NOT (${estImage} AND (${integree}${nomDeSignature} OR ${tropPetite}))`;
 }
 
 /**
@@ -163,6 +183,19 @@ export function estImageDeSignature(p: PieceATrier): boolean {
   const nom = (p.nomFichier ?? '').trim();
   const estImage = type.startsWith('image/') || EXTENSION_IMAGE_FINALE.test(nom);
   if (!estImage) return false;
+  /**
+   * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — LE CRITÈRE EXACT PASSE EN PREMIER ═══════════════════════════════════
+   *
+   * « Ses octets sont déjà posés dans le corps » ne se devine pas : cela se vérifie, empreinte contre empreinte.
+   * Quand on le sait, on n'a plus besoin de juger sur un nom ni sur une taille.
+   *
+   * 🔴 LES DEUX RÈGLES SE RÉUNISSENT, ELLES NE SE REMPLACENT PAS, et c'est un choix. Le recensement du
+   * 03/10/2026 dit pourquoi : la règle exacte seule ÉCARTERAIT 2 345 images de plus (des pictos de 150 ko qu'on
+   * comptait à tort), mais REMETTRAIT 871 au compte — des `wink.png` de 3 ko dont le corps ne porte pas les
+   * octets, parce que le mail les désigne par une adresse distante. Les remettre serait une régression qu'Arno
+   * n'a pas demandée. L'union n'écarte donc jamais moins qu'avant ce lot : aucune pièce ne RÉAPPARAÎT.
+   */
+  if (p.integree === true) return true;
   if (NOMS_DE_SIGNATURE.test(nom)) return true;
   return p.tailleOctets !== null && p.tailleOctets > 0 && p.tailleOctets < TAILLE_MAX_SIGNATURE;
 }
