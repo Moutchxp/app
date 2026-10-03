@@ -364,6 +364,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     if (redaction === null) return;
     setBrouillon(ouvrirRedaction(voie, [m], filId, redaction, maintenant, heritageDe(m.messageId)));
     setBrouillonSous(m.messageId);
+    /* 🔴 ICI ON A DEMANDÉ L'ÉDITEUR : il s'amène sous les yeux, comme avant ce lot (lot REPONSE-VISIBLE). */
+    setCalerLaReponse(true);
   };
   /**
    * LOT 5-FIDÈLE — l'état de chaque message DANS GMAIL (étoile, non lu). Relu à l'ouverture, jamais mémorisé en base :
@@ -658,6 +660,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
         setBrouillon(reprendreBrouillon(d.brouillon));
         // Sous le message auquel il répond ; à défaut, au pied de la conversation, comme un message neuf.
         setBrouillonSous(d.brouillon.repondAMessageId);
+        /* 🔴 UN BROUILLON CLIQUÉ DANS LA LISTE DES BROUILLONS EST UNE DEMANDE : c'est le défaut qu'Arno avait
+           nommé (« la conversation s'ouvrait, et l'éditeur n'y était pas »). On l'amène donc sous les yeux. */
+        setCalerLaReponse(true);
       } catch { /* un brouillon qu'on n'a pas pu relire ne doit pas casser la conversation */ }
     })();
     return () => { annule = true; };
@@ -739,6 +744,23 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const [fermetureReponse, setFermetureReponse] = useState(0);
 
+  /**
+   * ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 1 — QUI A DEMANDÉ L'ÉDITEUR ? ════════════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « ouvrir un mail qui a un brouillon de réponse en attente l'affiche comme un mail
+   * normal, positionné au DÉBUT du mail, sans défilement automatique vers la zone de réponse. La zone de réponse
+   * reste rouverte en bas avec le brouillon. »
+   *
+   * 🔴 L'ÉDITEUR S'AMÈNE SOUS LES YEUX QUAND ON L'A DEMANDÉ, et pas autrement. « Répondre », « Transférer », un
+   * brouillon cliqué dans la liste des brouillons : ce sont des demandes, et le lot REPONSE-VISIBLE a mesuré
+   * pourquoi il faut alors défiler (« un bouton dont l'effet est invisible est un bouton cassé »). OUVRIR UN MAIL
+   * POUR LE LIRE n'en est pas une : la zone se rouvre en bas, et la page reste au début du mail.
+   *
+   * ⚠️ `false` NE VAUT QUE POUR CETTE OUVERTURE-LÀ : le drapeau redevient `true` à la demande suivante, sans quoi
+   * un « Répondre » cliqué juste après n'amènerait plus nulle part.
+   */
+  const [calerLaReponse, setCalerLaReponse] = useState(true);
+
   async function basculer(m: MessageDeFil) {
     const ouvert = deplies.has(m.messageId);
     /* 🔴 ON REPLIE LE MAIL QUI PORTE L'ÉDITEUR : on demande sa fermeture, il enregistre, et il s'en va. */
@@ -757,7 +779,13 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
      */
     if (!ouvert && brouillon === null && redaction !== null) {
       const sien = brouillonsDuFil.find((b) => b.repondAMessageId === m.messageId);
-      if (sien !== undefined) { setBrouillon(reprendreBrouillon(sien)); setBrouillonSous(m.messageId); }
+      if (sien !== undefined) {
+        setBrouillon(reprendreBrouillon(sien));
+        setBrouillonSous(m.messageId);
+        /* 🔴🔴 CETTE OUVERTURE-CI NE DEMANDAIT PAS L'ÉDITEUR : on le rouvre parce que le brouillon est vivant,
+           pas pour y emmener. Voir `calerAVue` dans `Redaction`. */
+        setCalerLaReponse(false);
+      }
     }
     setDeplies((s) => { const n = new Set(s); if (ouvert) n.delete(m.messageId); else n.add(m.messageId); return n; });
     // On ne va chercher un corps qu'UNE fois, et seulement s'il en manque un : replier puis redéplier ne recharge rien.
@@ -767,6 +795,21 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     if (!ouvert && (e.v === 'a_charger' || e.v === 'html_a_charger')) {
       const c = await chargerCorps(m.messageId);
       setCorps((s) => new Map(s).set(m.messageId, c ?? { texte: null, html: null }));
+    }
+    /**
+     * 🔴🔴 « POSITIONNÉ AU DÉBUT DU MAIL » (Arno). On amène l'EN-TÊTE du mail qu'on vient d'ouvrir en haut de la
+     * zone visible : c'est là que commence ce qu'on est venu lire.
+     *
+     * ⚠️ APRÈS LA MISE EN PAGE, et après le corps : un mail déplié fait dix fois la hauteur d'une ligne repliée,
+     * et défiler avant qu'il ait sa taille viserait l'ancienne position.
+     *
+     * ⚠️ FACULTATIF PARTOUT (`?.`) : `requestAnimationFrame` et `scrollIntoView` n'existent pas dans tous les
+     * environnements de rendu, et lire un mail ne doit jamais échouer faute d'avoir pu défiler.
+     */
+    if (!ouvert) {
+      globalThis.requestAnimationFrame?.(() => {
+        filRef.current?.querySelector(`[data-message="${m.messageId}"]`)?.scrollIntoView?.({ block: 'start' });
+      });
     }
   }
 
@@ -1281,8 +1324,14 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               <div hidden={!deplies.has(m.messageId)}>
                 <Redaction brouillon={brouillon} contexte={redaction}
                   fermetureDemandee={fermetureReponse}
+                  /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — l'éditeur rouvert par l'OUVERTURE du mail
+                     ne tire pas la page a lui : on voulait lire le mail. Voir `calerLaReponse`. */
+                  calerAVue={calerLaReponse}
                   onChange={setBrouillon}
-                  onFerme={() => { setBrouillon(null); setBrouillonSous(null); void relireBrouillons(); }}
+                  onFerme={() => {
+                    setBrouillon(null); setBrouillonSous(null); setCalerLaReponse(true);
+                    void relireBrouillons();
+                  }}
                   onEnvoye={() => {
                     setBrouillon(null); setBrouillonSous(null); void recharger(); void relireBrouillons();
                   }}
@@ -1360,6 +1409,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                         setBrouillon(ouvrirRedaction(voie, messages, fil.filId, redaction, maintenant,
                           heritageDuDernier(messages)));
                         setBrouillonSous(null); // le pied répond au plus récent : il s'ouvre à SA place, en bas
+                        setCalerLaReponse(true); // 🔴 un bouton du pied est une demande : on amène l'éditeur
                       }}>
                       <IconeVoie voie={voie} />
                       <span>{voie === 'repondre' ? 'Répondre' : voie === 'repondre_tous' ? 'Répondre à tous' : 'Transférer'}</span>

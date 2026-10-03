@@ -307,7 +307,7 @@ export function ChampDestinataires({
 
 export function Redaction({
   brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false, fermetureDemandee = 0,
-  reduite = false,
+  reduite = false, calerAVue = true,
 }: {
   brouillon: BrouillonEcran;
   contexte: ContexteRedactionEcran;
@@ -333,6 +333,21 @@ export function Redaction({
    * quand on réduit (il perdrait le texte non enregistré), il est seulement caché — il peut donc s'enregistrer.
    */
   reduite?: boolean;
+  /**
+   * ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 1 — L'ÉDITEUR S'AMÈNE-T-IL SOUS LES YEUX ? ═════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « ouvrir un mail qui a un brouillon de réponse en attente l'affiche comme un mail
+   * normal, positionné au DÉBUT du mail, sans défilement automatique vers la zone de réponse. »
+   *
+   * 🔴 LA DIFFÉRENCE EST CELLE DE L'INTENTION, pas du contenu. Cliquer « Répondre », ou cliquer un brouillon dans
+   * la liste des brouillons, c'est DEMANDER l'éditeur : l'amener sous les yeux est alors le service rendu (lot
+   * REPONSE-VISIBLE — « un bouton dont l'effet est invisible est un bouton cassé »). Ouvrir un mail pour le LIRE
+   * n'est pas cette demande-là : l'éditeur se rouvre en bas parce que le brouillon est vivant, mais il n'a pas à
+   * tirer la page à lui — on voulait lire le mail.
+   *
+   * `true` (le défaut) = le comportement d'avant ce lot, mot pour mot, pour tous les autres points d'entrée.
+   */
+  calerAVue?: boolean;
 }) {
   /**
    * 🔴 LES MOTS DU GESTE QUI JETTE, TIRÉS D'UNE SEULE SOURCE. Ils dépendent de la migration 276 : sans elle, rien
@@ -432,6 +447,14 @@ export function Redaction({
         el.scrollIntoView({ block: 'start', behavior: doux ? 'smooth' : 'auto' });
       }
     };
+    /**
+     * 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — ON NE TIRE PAS LA PAGE QUAND PERSONNE N'A DEMANDÉ L'ÉDITEUR.
+     *
+     * Ouvrir un mail qui porte un brouillon rouvre sa zone de réponse (c'est la règle du lot précédent), mais ce
+     * geste-là voulait LIRE le mail : les trois calages l'emmenaient en bas, et Arno se retrouvait dans l'éditeur
+     * sans l'avoir demandé. Le surlignage, lui, RESTE — il ne déplace rien, et il dit où est la zone.
+     */
+    if (!calerAVue) { const fin0 = setTimeout(() => setOuvre(false), 1100); return () => clearTimeout(fin0); }
     const apresMiseEnPage = (f: () => void): ReturnType<typeof setTimeout> | number =>
       (typeof globalThis.requestAnimationFrame === 'function'
         ? globalThis.requestAnimationFrame(f)
@@ -475,7 +498,7 @@ export function Redaction({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : SEULE une nouvelle ouverture doit
     //   déclencher tout cela. Ajouter `brouillon` ferait sauter l'écran à chaque frappe.
-  }, [cleOuverture]);
+  }, [cleOuverture, calerAVue]);
 
   const modifier = (p: Partial<BrouillonEcran>) => onChange({ ...brouillon, ...p });
 

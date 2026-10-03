@@ -485,9 +485,18 @@ describe('🔴 l’éditeur s’ouvre SOUS le message, se montre, et prend le cu
      * navigateur). Le test attend donc, lui aussi, ce que le composant attend.
      */
     await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
-    expect(defilements).toHaveLength(1);
-    expect(defilements[0].cible.classList.contains('red')).toBe(true);
-    expect(defilements[0].options).toMatchObject({ block: 'start' });
+    /**
+     * 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — IL Y A MAINTENANT DEUX DÉFILEMENTS, et le second est
+     * toujours celui-ci. Depuis ce lot, OUVRIR un mail amène son début en haut de la zone visible (règle d'Arno :
+     * « positionné au DÉBUT du mail ») : le clic sur la ligne en produit un, le clic sur « Répondre » le sien.
+     * Ce test garde ce qu'il a toujours gardé — l'éditeur DEMANDÉ vient sous les yeux, calé en haut.
+     */
+    const versEditeur = defilements.filter((d) => d.cible.classList.contains('red'));
+    expect(versEditeur).toHaveLength(1);
+    expect(versEditeur[0].options).toMatchObject({ block: 'start' });
+    /* ⚠️ ET L'AUTRE EST BIEN L'OUVERTURE DU MAIL, pas un défilement de plus venu d'ailleurs. */
+    expect(defilements).toHaveLength(2);
+    expect(defilements[0].cible.getAttribute('data-message')).toBe('11');
   });
 
   /**
