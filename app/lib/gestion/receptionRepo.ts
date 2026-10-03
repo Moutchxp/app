@@ -1,5 +1,6 @@
 import { query } from '../db/client';
 import {
+  corbeilleGmailDisponible,
   rattachementsDisponibles, horsGestionDisponible, interneDisponible, pieceIntegreeDisponible,
 } from './schema';
 import { sqlEstVraiePiece } from './lisibilite';
@@ -172,12 +173,38 @@ function filtreSql(f: FiltreReception, avecRattachements: boolean, avecHorsGesti
 }
 
 /**
+ * ══ 🔴🔴 LOT RECEPTION-UNE-SEULE-SOURCE — LA CORBEILLE EST ÉCARTÉE, COMME DANS LA BOÎTE ═══════════════════════════
+ *
+ * CONSTAT D'ARNO (03/10/2026) : « la Boîte de réception de l'écran partagé et la Réception plein écran ne montrent
+ * pas la même chose […] j'ai l'impression qu'un mail manque. »
+ *
+ * 🔴 MESURÉ : les dix premiers échanges que l'écran partagé montrait et que la Réception plein écran ne montre pas
+ * étaient TOUS à la corbeille de Gmail (fils 36641, 36642, 36643, 36648, 36650, 36655, 36662, 36664, 36668,
+ * 36677 — un mail chacun, `corbeille_le` non nul). La boîte plein écran les écarte depuis le lot
+ * BOITE-INTERNE-CORBEILLE ; cette lecture-ci ne le faisait pas, et remontait donc dans la « boîte de réception »
+ * du courrier qu'on venait de jeter. C'était un OUBLI, pas une règle : aucune décision n'a jamais demandé qu'un
+ * mail supprimé reste dans la boîte de réception.
+ *
+ * 🔴 L'EXPRESSION EST CELLE DE LA BOÎTE, mot pour mot (`m.corbeille_le IS NULL`) : deux écritures « équivalentes »
+ * finiraient par se contredire et laisseraient un message visible d'un côté, invisible de l'autre.
+ *
+ * ⚠️ SANS LA MIGRATION 275, LA COLONNE N'EST NOMMÉE NULLE PART — même règle que la boîte, et pour la même raison :
+ * nommer une colonne absente ferait échouer TOUTE la lecture, pas seulement l'exclusion.
+ */
+function sqlHorsCorbeille(avecCorbeille: boolean): string {
+  return avecCorbeille ? 'AND m.corbeille_le IS NULL' : '';
+}
+
+/**
  * UNE PAGE DE LA BOÎTE DE RÉCEPTION, du plus récent au plus ancien. LECTURE SEULE.
  *
  * ⚠️ LES MAILS REÇUS SEULEMENT (`sens = 'recu'`). Nos propres envois ont leur liste — « Envoyés ». Les mêler ici
  * remplirait la colonne de notre propre courrier : 70 % du flux est sortant.
  *
  * ⚠️ ET SANS LE SPAM. Gmail l'a déjà écarté ; le remonter ici le ferait rentrer par la porte de service.
+ *
+ * ⚠️ NI LA CORBEILLE — voir `sqlHorsCorbeille` : c'est le périmètre de la boîte plein écran, et l'écart qu'Arno a
+ * constaté le 03/10/2026.
  */
 export async function lireMailsRecus(
   curseur: CurseurReception | null,
@@ -194,6 +221,8 @@ export async function lireMailsRecus(
   /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la colonne `integree` n'est NOMMÉE que si la migration 296 est là.
      Sans elle, le compteur retombe mot pour mot sur la règle de nom/taille d'avant ce lot. */
   const avecPieceIntegree = await pieceIntegreeDisponible();
+  // 🔴 LOT RECEPTION-UNE-SEULE-SOURCE — même patron que les autres sondes : sans la 275, rien n'est nommé.
+  const avecCorbeille = await corbeilleGmailDisponible();
   const { rows } = await query<LigneDB>(
     `SELECT m.id::text AS message_id, m.fil_id::text AS fil_id, m.de_adresse, m.de_nom, m.objet,
             left(coalesce(m.corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait,
@@ -209,6 +238,7 @@ export async function lireMailsRecus(
        ${sqlJointureInterne(avecItn, 'm')}
       WHERE m.sens = 'recu'
         AND m.spam_le IS NULL
+        ${sqlHorsCorbeille(avecCorbeille)}
         AND (m.recu_le, m.id) < ($1::timestamptz, $2::bigint)
         ${filtreSql(filtre, avec, avecHg)}
       ORDER BY m.recu_le DESC, m.id DESC
@@ -256,7 +286,7 @@ export async function lireMailsRecus(
       };
     }),
     suivant: aSuite && dernier ? { recuLe: dernier.recu_le, messageId: dernier.message_id } : null,
-    total: curseur === null ? await compterMailsRecus(filtre, avec, avecHg) : null,
+    total: curseur === null ? await compterMailsRecus(filtre, avec, avecHg, avecCorbeille) : null,
   };
 }
 
@@ -266,12 +296,21 @@ export async function lireMailsRecus(
  */
 export async function compterMailsRecus(
   filtre: FiltreReception, avec: boolean, avecHg = false,
+  /**
+   * 🔴 LOT RECEPTION-UNE-SEULE-SOURCE — LE COMPTEUR ÉCARTE CE QUE LA LISTE ÉCARTE. Le dépôt a déjà payé cette
+   * leçon : « un compteur calculé autrement mais équivalent annonce tôt ou tard un nombre que la liste ne montre
+   * pas — et c'est toujours le compteur qu'on croit ». Le même fragment sert donc aux deux.
+   *
+   * ⚠️ DÉFAUT PAR PRUDENCE : `false` = on ne nomme pas la colonne. Un appelant d'hier compte comme hier.
+   */
+  avecCorbeille = false,
 ): Promise<number> {
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM gestion_message m
        ${jointureRattachements(avec)}
        ${jointureHorsGestion(avecHg)}
-      WHERE m.sens = 'recu' AND m.spam_le IS NULL ${filtreSql(filtre, avec, avecHg)}`);
+      WHERE m.sens = 'recu' AND m.spam_le IS NULL ${sqlHorsCorbeille(avecCorbeille)}
+        ${filtreSql(filtre, avec, avecHg)}`);
   return rows[0]?.n ?? 0;
 }

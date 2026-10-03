@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 /**
  * 🔴 LOT STATUT-PAR-MAIL — LA BOÎTE DE RÉCEPTION : UN MAIL PAR LIGNE, PAGINÉE.
@@ -22,6 +23,12 @@ vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }))
 const migration257 = vi.fn(async () => true);
 /** LOT STATUT-HORS-GESTION — la 266, pilotée séparément : les deux migrations n'arrivent pas ensemble. */
 const migration266 = vi.fn(async () => true);
+/**
+ * 🔴🔴 LOT RECEPTION-UNE-SEULE-SOURCE — LA 275 (corbeille de Gmail), pilotée séparément elle aussi : c'est elle qui
+ * décide si la colonne `corbeille_le` peut être NOMMÉE. Sans elle, la requête doit être mot pour mot celle d'avant
+ * ce lot — nommer une colonne absente ferait échouer TOUTE la lecture.
+ */
+const migration275 = vi.fn(async () => true);
 vi.mock('./schema', () => ({
   /* 🔴 LOT FENETRES-INDEPENDANTES — le dédoublonnage du compteur passe par le nom d'USAGE : la sonde de la
      migration 286 est donc interrogée ici aussi. ABSENTE ⇒ le fragment rend `nom_fichier`, comme avant. */
@@ -32,6 +39,8 @@ vi.mock('./schema', () => ({
   rattachementsDisponibles: () => migration257(), horsGestionDisponible: () => migration266(),
   // 🔴 LOT RATTACHER-EN-ECRIVANT — migration 281 absente : la table n'est nommée nulle part.
   interneDisponible: async () => false,
+  // 🔴🔴 LOT RECEPTION-UNE-SEULE-SOURCE — la corbeille de Gmail (migration 275).
+  corbeilleGmailDisponible: () => migration275(),
 }));
 
 import { lireMailsRecus, compterMailsRecus, PAGE_RECEPTION } from './receptionRepo';
@@ -66,7 +75,70 @@ const appelPage = () => queryMock.mock.calls.find((c) => !String(c[0]).includes(
 const sqlPage = () => String(appelPage()?.[0] ?? '').replace(/\s+/g, ' ');
 const paramsPage = () => (appelPage()?.[1] ?? []) as unknown[];
 
-beforeEach(() => { migration257.mockResolvedValue(true); migration266.mockResolvedValue(true); rendre([]); });
+beforeEach(() => {
+  migration257.mockResolvedValue(true); migration266.mockResolvedValue(true);
+  migration275.mockResolvedValue(true); rendre([]);
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RECEPTION-UNE-SEULE-SOURCE — LE PÉRIMÈTRE EST CELUI DE LA BOÎTE PLEIN ÉCRAN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (03/10/2026) : « la Boîte de réception de l'écran partagé et la Réception plein écran ne montrent
+   pas la même chose […] j'ai l'impression qu'un mail manque. »
+
+   🔴 MESURÉ SUR LA BASE D'ARNO : les dix premiers échanges que l'écran partagé montrait et que la Réception plein
+   écran ne montre pas étaient TOUS à la corbeille de Gmail (fils 36641 → 36677). La boîte les écarte depuis le lot
+   BOITE-INTERNE-CORBEILLE ; cette lecture-ci ne le faisait pas. Compteur « Tous » : 17 016 → 16 980 ;
+   « À classer » : 10 322 → 10 286.
+
+   ⚠️ C'ÉTAIT UN OUBLI, PAS UNE RÈGLE : aucune décision n'a jamais demandé qu'un mail jeté reste dans la boîte de
+   réception. Les autres écarts (un MAIL par ligne contre une CONVERSATION par ligne) relèvent, eux, d'une règle
+   validée — ils ne sont pas touchés ici. */
+
+describe('🔴🔴 la corbeille est écartée, comme dans la boîte plein écran', () => {
+  it('🔴🔴 la LISTE ne montre pas ce qui est à la corbeille', async () => {
+    await lireMailsRecus(null, { limite: 10 });
+    expect(sqlPage()).toContain('AND m.corbeille_le IS NULL');
+  });
+
+  /**
+   * 🔴 LE COMPTEUR ÉCARTE CE QUE LA LISTE ÉCARTE. Leçon déjà payée par le dépôt : « un compteur calculé autrement
+   * mais équivalent annonce tôt ou tard un nombre que la liste ne montre pas — et c'est toujours le compteur
+   * qu'on croit ».
+   */
+  it('🔴🔴 le COMPTEUR aussi', async () => {
+    await lireMailsRecus(null, { limite: 10 });
+    const compte = queryMock.mock.calls.find((c) => String(c[0]).includes(COMPTE));
+    expect(String(compte?.[0] ?? '').replace(/\s+/g, ' ')).toContain('AND m.corbeille_le IS NULL');
+  });
+
+  /** ⚠️ SANS LA MIGRATION 275, LA COLONNE N'EST NOMMÉE NULLE PART — requête mot pour mot celle d'avant ce lot. */
+  it('⚠️ sans la migration 275, la colonne n’est pas nommée', async () => {
+    migration275.mockResolvedValue(false);
+    await lireMailsRecus(null, { limite: 10 });
+    expect(sqlPage()).not.toContain('corbeille_le');
+    const compte = queryMock.mock.calls.find((c) => String(c[0]).includes(COMPTE));
+    expect(String(compte?.[0] ?? '')).not.toContain('corbeille_le');
+  });
+
+  /**
+   * 🔴 LA MÊME EXPRESSION QUE LA BOÎTE, mot pour mot. Deux écritures « équivalentes » finiraient par se
+   * contredire et laisseraient un message visible d'un côté, invisible de l'autre.
+   */
+  it('🔴 c’est l’expression de la boîte, pas une seconde écriture', async () => {
+    const src = readFileSync('app/lib/gestion/boiteRepo.ts', 'utf8');
+    expect(src).toContain("const filtreCorbeille = !corbeille || montreLaCorbeille ? '' : 'AND m.corbeille_le IS NULL';");
+    await lireMailsRecus(null, { limite: 10 });
+    expect(sqlPage()).toContain('AND m.corbeille_le IS NULL');
+  });
+
+  /** ⚠️ ET LE SPAM RESTE ÉCARTÉ : ce lot n'ajoute une exclusion, il n'en retire aucune. */
+  it('⚠️ le spam reste écarté', async () => {
+    await lireMailsRecus(null, { limite: 10 });
+    expect(sqlPage()).toContain('m.spam_le IS NULL');
+  });
+});
 
 describe('🔴 un MAIL par ligne, pas une conversation', () => {
   it('lit les messages, et ne regroupe rien par échange', async () => {
