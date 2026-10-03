@@ -1710,6 +1710,14 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           filId={filId}
           dossierDepart={dossierDeLEmplacement(emplacementAVoir)}
           documentEnEvidence={{ driveFileId: emplacementAVoir.driveFileId }}
+          /* ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE ══════════════════════════════════════════════
+              Arno : « on ne voit pas où l'on se trouve dans l'arborescence ». On arrive donc à la RACINE,
+              branche dépliée jusqu'au document, les autres dossiers repliés à côté.
+              🔴 LA MÊME ARRIVÉE POUR LE MENU « N EMPLACEMENTS CONNUS », et c'est une règle d'Arno : « même
+              comportement pour chaque entrée du menu ». Ce composant sert les deux (un emplacement unique
+              ouvre directement, plusieurs passent par le menu) — le mode est donc posé au seul endroit où
+              la fenêtre est montée, et aucune des deux voies ne peut l'oublier. */
+          arrivee="arborescence"
           onFermer={() => setEmplacementAVoir(null)} />
       )}
     </section>

@@ -176,6 +176,19 @@ describe('🔒 ③ aucune écriture Drive', () => {
       const bloc = src.slice(src.lastIndexOf('<SelecteurFichierDrive', i), src.indexOf('/>', i) + 2);
       expect(bloc, nom).toContain('dossierDepart={dossierDeLEmplacement(');
       expect(bloc, nom).toContain('documentEnEvidence={{ driveFileId:');
+      /**
+       * 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — LES DEUX ÉCRANS ARRIVENT EN ARBORESCENCE.
+       *
+       * Constat d'Arno : « on ne voit pas où l'on se trouve dans l'arborescence ». ET LES DEUX DOIVENT LE
+       * FAIRE : le picto d'une pièce vit dans `PiecesJointes`, celui du récapitulatif de la conversation dans
+       * `Conversation`. En oublier un aurait donné deux arrivées différentes pour le MÊME geste, selon l'écran
+       * d'où l'on clique — exactement le genre d'écart qu'on ne remarque qu'au bout de six mois.
+       *
+       * ⚠️ ET C'EST AUSSI CE QUI COUVRE LE MENU « N EMPLACEMENTS CONNUS » (règle d'Arno : « même comportement
+       * pour chaque entrée du menu ») : le picto appelle le MÊME `onOuvrir` pour l'emplacement unique et pour
+       * chaque ligne du menu, et la fenêtre n'est montée qu'ici. Aucune des deux voies ne peut l'oublier.
+       */
+      expect(bloc, nom).toContain('arrivee="arborescence"');
       /* 🔒 AUCUN DROIT DONNÉ, ET AUCUNE PIÈCE EMPORTÉE : on vient regarder, pas prendre ni poser. */
       for (const interdit of ['joindreAutorise', 'creerAutorise', 'peutDeposer', 'onChoisir', 'pieces=']) {
         expect(bloc, `${nom} / ${interdit}`).not.toContain(interdit);

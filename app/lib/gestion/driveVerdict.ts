@@ -1,4 +1,5 @@
 import { chaineParents, chercherDossiers, nomDuDrive } from './drive';
+import { racineRemontee, type SorteRacine } from './arriveeArbre';
 import {
   DOSSIER_INTERDIT_LECTURE, indexerMaillons, peutCreerDossier, peutDeposer, peutJoindre, type Maillon,
 } from './driveLectureFichier';
@@ -123,12 +124,31 @@ export async function verdictCreer(jeton: string, parentId: string): Promise<Ver
  */
 export async function verdictsDossier(
   sujet: string, jeton: string, id: string,
-): Promise<{ joindre: VerdictJoindre; creer: VerdictCreer; chaine: { id: string; nom: string }[] }> {
+): Promise<{
+  joindre: VerdictJoindre; creer: VerdictCreer; chaine: { id: string; nom: string }[];
+  racine: SorteRacine | null;
+}> {
   const maillons = await chaineDuDossierMemo(sujet, jeton, id, { fetch });
   const index = indexerMaillons(maillons);
   const j = peutJoindre(id, index);
   const c = peutCreerDossier(id, index);
   return {
+    /**
+     * ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — SOUS QUELLE RACINE DU SÉLECTEUR ? ══════════════════════
+     *
+     * La fenêtre Drive affiche trois entrées en haut (« Mon Drive », « Drives partagés », « Partagés avec moi »),
+     * et la chaîne ci-dessous ne les connaît pas : elle commence à la racine de Google, pas à la nôtre. Pour
+     * arriver EN ARBORESCENCE, l'écran doit savoir laquelle de ces trois lignes déplier en premier.
+     *
+     * 🔴 LA RÉPONSE SE LIT SUR `driveId`, ET ELLE EST ICI PARCE QUE C'EST ICI QU'ON L'A. Les maillons portent
+     * `driveId` (renseigné par l'API sur tout élément d'un Drive partagé, racine comprise) ; la chaîne rendue à
+     * l'écran, elle, est réduite à `{ id, nom }`. Laisser l'écran deviner l'aurait fait deviner sur le NOM — et
+     * la racine d'un Drive partagé s'appelle « Drive », celle de Mon Drive s'appelle « Mon Drive » ou « My
+     * Drive » selon la langue du compte. Deux noms sur lesquels on ne peut rien fonder.
+     *
+     * ⚠️ AUCUN APPEL DE PLUS : ce sont les maillons qu'on vient déjà de remonter pour les deux verdicts.
+     */
+    racine: racineRemontee(maillons),
     joindre: j.joindre ? { joindre: true, motif: null } : { joindre: false, motif: j.motif },
     creer: c.creer ? { creer: true, motif: null } : { creer: false, motif: c.motif },
     /**

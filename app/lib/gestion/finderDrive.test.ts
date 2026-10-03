@@ -554,6 +554,38 @@ describe('⑦ le dépliage sur place', () => {
       (id) => chaine(Number(id.slice(1)) + 1), TRI_DEFAUT);
     expect(r.length).toBeLessThanOrEqual(PROFONDEUR_MAX + 1);
   });
+
+  /**
+   * ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — LA BORNE SE DESSERRE POUR UNE BRANCHE ════════════════════
+   *
+   * La borne visait le dépliage EN CASCADE, jamais UNE branche ouverte exprès pour montrer où vit un document.
+   * Sans ce desserrement, l'arrivée en arborescence aurait échoué sur les chemins de plus de six crans — ceux du
+   * Drive du cabinet, qui en fait treize — et sans rien dire, puisque chaque cran reste marqué « déplié ».
+   */
+  it('🔴🔴 une profondeur demandée plus grande descend plus loin', () => {
+    const chaine = (n: number): EntreeDrive[] => [d(`N${n}`, { id: `N${n}` })];
+    const ouverts = new Set(Array.from({ length: 20 }, (_, i) => `N${i}`));
+    const r = aplatir(chaine(0), ouverts, (id) => chaine(Number(id.slice(1)) + 1), TRI_DEFAUT,
+      { profondeurMax: 11 });
+    expect(r.length).toBe(12);
+  });
+
+  /** ⚠️ ET ELLE NE SE RESSERRE JAMAIS : une valeur plus petite que le défaut ne réduit pas la borne existante. */
+  it('⚠️ une profondeur demandée plus petite ne resserre pas le défaut', () => {
+    const chaine = (n: number): EntreeDrive[] => [d(`N${n}`, { id: `N${n}` })];
+    const ouverts = new Set(Array.from({ length: 20 }, (_, i) => `N${i}`));
+    const r = aplatir(chaine(0), ouverts, (id) => chaine(Number(id.slice(1)) + 1), TRI_DEFAUT,
+      { profondeurMax: 2 });
+    expect(r.length).toBe(PROFONDEUR_MAX + 1);
+  });
+
+  /** ⚠️ ET UN APPEL SANS OPTION SE COMPORTE EXACTEMENT COMME AVANT CE LOT. */
+  it('⚠️ sans option, le défaut est inchangé', () => {
+    const chaine = (n: number): EntreeDrive[] => [d(`N${n}`, { id: `N${n}` })];
+    const ouverts = new Set(Array.from({ length: 20 }, (_, i) => `N${i}`));
+    expect(aplatir(chaine(0), ouverts, (id) => chaine(Number(id.slice(1)) + 1), TRI_DEFAUT).length)
+      .toBe(PROFONDEUR_MAX + 1);
+  });
 });
 
 describe('⑧ la virtualisation', () => {

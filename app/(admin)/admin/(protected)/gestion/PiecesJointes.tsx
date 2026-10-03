@@ -271,6 +271,12 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
           filId={filId ?? null}
           dossierDepart={dossierDeLEmplacement(aVoirDansLeDrive)}
           documentEnEvidence={{ driveFileId: aVoirDansLeDrive.driveFileId }}
+          /* ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE ══════════════════════════════════════════════
+              Arno : « on ne voit pas où l'on se trouve dans l'arborescence ». On arrive donc à la RACINE,
+              avec la branche dépliée jusqu'au document et les autres dossiers repliés à côté. Le mode est
+              passé explicitement : seules les arrivées par le picto changent, les autres points d'entrée de
+              la fenêtre gardent `'dossier'`. */
+          arrivee="arborescence"
           onFermer={() => setAVoirDansLeDrive(null)}
         />
       )}

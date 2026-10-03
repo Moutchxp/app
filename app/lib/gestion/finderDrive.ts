@@ -732,22 +732,40 @@ export interface LigneAplatie {
  */
 export const PROFONDEUR_MAX = 6;
 
+/**
+ * ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — LA BORNE SE DESSERRE POUR UNE BRANCHE, PAS POUR TOUTES ════════
+ *
+ * La borne existe contre un dépliage EN CASCADE : des dizaines de dossiers ouverts à six niveaux produisent une
+ * liste que personne ne peut lire et que rien ne sait rendre assez vite. Elle n'a jamais visé le cas inverse — UNE
+ * seule branche, ouverte exprès, pour montrer où vit un document.
+ *
+ * 🔴 ET SANS CE DESSERREMENT, L'ARRIVÉE AURAIT ÉCHOUÉ LÀ OÙ ELLE SERT LE PLUS. Le Drive du cabinet fait treize
+ * niveaux (mesuré le 25/09/2026) : au-delà du sixième, l'aplatissement se serait arrêté AVANT le document, et la
+ * fenêtre se serait ouverte sur une branche ouverte dans le vide — sans rien dire, puisque chaque cran est bien
+ * marqué « déplié ». Un défaut muet, et réservé aux chemins profonds.
+ *
+ * ⚠️ LE DÉFAUT NE BOUGE PAS D'UN IOTA : les appelants qui ne passent rien gardent exactement `PROFONDEUR_MAX`. Le
+ * paramètre est une OPTION en cinquième position, avant les paramètres de récursion — un appel à quatre arguments
+ * se comporte comme avant ce lot.
+ */
 export function aplatir(
   racine: readonly EntreeDrive[],
   ouverts: ReadonlySet<string>,
   enfantsDe: (id: string) => readonly EntreeDrive[] | undefined,
   tri: Tri,
+  o: { profondeurMax?: number } = {},
   profondeur = 0,
   parent: { id: string; nom: string } | null = null,
 ): LigneAplatie[] {
+  const max = Math.max(PROFONDEUR_MAX, o.profondeurMax ?? 0);
   const out: LigneAplatie[] = [];
   for (const e of trier(racine, tri)) {
     out.push({ entree: e, profondeur, parent });
-    if (!e.dossier || !ouverts.has(e.id) || profondeur >= PROFONDEUR_MAX) continue;
+    if (!e.dossier || !ouverts.has(e.id) || profondeur >= max) continue;
     const enfants = enfantsDe(e.id);
     if (enfants === undefined) continue;
     // Les enfants d'un dossier déplié ont CE dossier pour parent — et c'est ce qui les rend visables.
-    out.push(...aplatir(enfants, ouverts, enfantsDe, tri, profondeur + 1, { id: e.id, nom: e.nom }));
+    out.push(...aplatir(enfants, ouverts, enfantsDe, tri, o, profondeur + 1, { id: e.id, nom: e.nom }));
   }
   return out;
 }

@@ -229,7 +229,9 @@ export async function GET(request: Request): Promise<Response> {
        * arborescence qui fait treize niveaux (mesuré le 25/09/2026). La règle, elle, est la même dans les deux cas.
        */
       const t1 = Date.now();
-      const { joindre: v, creer: c, chaine } = await verdictsDossier(jeton.compteGoogle, jeton.jeton, parent);
+      const {
+        joindre: v, creer: c, chaine, racine,
+      } = await verdictsDossier(jeton.compteGoogle, jeton.jeton, parent);
       const tVerdict = Date.now() - t1;
       /**
        * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 2 — L'INDEX S'ALIMENTE ICI, GRATUITEMENT ════════
@@ -272,6 +274,21 @@ export async function GET(request: Request): Promise<Response> {
          * résultat de recherche), qui ne connaît qu'un identifiant et ne savait donc pas remonter.
          */
         chaine,
+        /**
+         * ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — PAR OÙ ENTRER DANS L'ARBRE ════════════════════════
+         *
+         * `'mon_drive'`, `'drive_partage'`, ou `null` quand la remontée n'a pas atteint le haut (un ancêtre
+         * illisible, « Partagés avec moi »). L'écran s'en sert pour savoir laquelle des trois lignes de la
+         * racine du sélecteur déplier en premier — la chaîne, elle, commence à la racine de GOOGLE, pas à la
+         * nôtre, et ne porte donc pas cette information.
+         *
+         * 🔴 IL VOYAGE DANS CETTE RÉPONSE, ET PAS DANS UN APPEL À PART : règle du module (sonde de schéma, lot
+         * COULEUR-ROUGE) — ce qui conditionne un affichage arrive avec lui, sinon l'écran prend sa valeur par
+         * défaut et la fonction disparaît sans qu'aucune erreur ne s'affiche.
+         *
+         * ⚠️ AUCUN APPEL DRIVE DE PLUS : il se lit sur les maillons que le verdict vient déjà de remonter.
+         */
+        racine,
         /**
          * 🔴 LOT DRIVE-FACON-FINDER — ON DIT QUAND LA LISTE EST INCOMPLÈTE. Jusqu'à ce lot, un dossier de plus de
          * 200 entrées était tronqué EN SILENCE : « 1 Propriétaires » en compte plus de 300, on en voyait 200, et

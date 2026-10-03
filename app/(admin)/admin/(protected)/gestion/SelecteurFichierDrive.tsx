@@ -15,6 +15,11 @@ import {
 } from '../../../../lib/gestion/dossierEnLigne';
 // 🔴 « Drives partagés » et « Partagés avec moi » ne sont pas des dossiers : on n'y dépose pas, et on le DIT.
 import { estRegroupement } from '../../../../lib/gestion/cibleDepot';
+import {
+  arriveeArbre, brancheAtteignable, cheminEcrit, defilementPourCentrer, messageAncetreInaccessible,
+  messageDocumentAbsent, messageRacineInconnue, MOT_CHEMIN_DOCUMENT,
+  type ArriveeDrive, type EtapeArbre, type SorteRacine,
+} from '../../../../lib/gestion/arriveeArbre';
 // 🔴 LOT DRIVE-FACON-FINDER — toutes les RÈGLES du navigateur (tri, icônes, historique, sélection, menu) : module PUR.
 // 🔴 LOT DRIVE-DEPLACER — la règle du déplacement, la presse-papiers et les fichiers « ._ ». Module PUR.
 import {
@@ -264,6 +269,12 @@ interface Listing {
    * Vide quand il n'y en a pas (la racine, un regroupement, une recherche) : l'écran garde alors ce qu'il a.
    */
   chaine: { id: string; nom: string }[];
+  /**
+   * 🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — SOUS QUELLE RACINE DU SÉLECTEUR CE DOSSIER VIT-IL. `null` quand
+   * la remontée n'a pas atteint le haut (ancêtre illisible, « Partagés avec moi ») : on ne sait alors pas quelle
+   * ligne de la racine déplier, et l'arrivée se replie en le disant. Voir `arriveeArbre`.
+   */
+  racine: SorteRacine | null;
 }
 
 type Vue =
@@ -324,7 +335,7 @@ interface DossierRecent {
 export function SelecteurFichierDrive({
   onChoisir, onFermer, filId = null, lots = [],
   mode = 'joindre', messageId = null, pieces = [], onRangement, dossierDepart = null,
-  documentEnEvidence = null,
+  documentEnEvidence = null, arrivee = 'dossier',
 }: {
   /**
    * Ajoute la pièce au brouillon. ⚠️ NE FERME PAS la fenêtre : c'est « Terminé » ou la croix qui ferme.
@@ -384,6 +395,43 @@ export function SelecteurFichierDrive({
    * encore être mise en évidence là où on la croise.
    */
   documentEnEvidence?: { driveFileId: string } | null;
+  /**
+   * ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — COMMENT LA FENÊTRE ARRIVE ══════════════════════════════════
+   *
+   * CONSTAT D'ARNO (03/10/2026, fil 36669 / message 57427, « test gigout.pdf ») : « un clic sur le picto vert
+   * ouvre la fenêtre À L'INTÉRIEUR du dossier qui contient le document. On ne voit pas où l'on se trouve dans
+   * l'arborescence. Je veux arriver en VUE ARBORESCENCE : la racine visible avec les dossiers de même niveau
+   * repliés, chaque ancêtre déplié jusqu'au dossier qui le contient, le document surligné et centré. »
+   *
+   * `'dossier'` (le DÉFAUT) = exactement le comportement d'avant ce lot : on se pose DANS le dossier. C'est ce
+   * que gardent « Récents », « Dossier du bien » et les autres points d'entrée — Arno : « c'est seulement le mode
+   * d'ARRIVÉE par le picto ; les autres entrées de la fenêtre Drive et la vue liste ne changent pas ».
+   *
+   * 🔴 UNE PROP EXPLICITE, ET NON DÉDUITE DE `documentEnEvidence`. Les deux vont ensemble aujourd'hui (les deux
+   * seuls appelants qui mettent un document en évidence sont le picto et son menu d'emplacements), mais ils
+   * répondent à deux questions : « quoi surligner » et « comment arriver ». Les confondre interdirait, demain, de
+   * surligner un document là où on le croise sans repartir de la racine — et personne ne saurait pourquoi.
+   *
+   * ═══ ⚠️ CE QUE L'ARBORESCENCE NE FAIT PAS, ET IL FAUT LE DIRE ═══════════════════════════════════════════════
+   *
+   * Arno demandait aussi « le fil d'Ariane en haut indique le chemin complet ». LE FIL D'ARIANE N'EST PAS
+   * DÉTOURNÉ, et le chemin est affiché juste à côté, dans son propre bandeau (`.sfd-chemin-doc`). La raison est
+   * un PIÈGE, pas une préférence :
+   *
+   *   · le fil d'Ariane dit OÙ L'ON EST. Tout en dépend : « Déposer ici », le lâcher dans la zone vide sous la
+   *     liste, « Nouveau dossier », et surtout `joindreAutorise` — le droit de joindre, rendu par le serveur POUR
+   *     LE DOSSIER AFFICHÉ ;
+   *   · en arborescence, la liste montre la RACINE, pas le dossier du document. Faire dire au fil d'Ariane
+   *     « Drives partagés › Test › _MESURE » aurait donc fait viser `_MESURE` à un lâcher dans le vide pendant
+   *     qu'on regarde la racine — et aurait appliqué le droit de joindre de `_MESURE` à des lignes venues de
+   *     « Catherine » ou de « COMPTABILITE ». C'est-à-dire : proposer « Joindre » sur un fichier de « Documents
+   *     clients scannés », parce qu'un AUTRE dossier le permettait.
+   *
+   * 🔴 LE CHEMIN COMPLET EST DONC BIEN EN HAUT, ET LISIBLE — mais dans un bandeau qui dit ce qu'il est (« Ce
+   * document est ici : … »), à côté d'un fil d'Ariane qui continue de dire la vérité sur l'endroit où l'on est.
+   * Chaque cran du bandeau est cliquable et navigue normalement : rien n'est retiré.
+   */
+  arrivee?: ArriveeDrive;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   /**
@@ -393,11 +441,22 @@ export function SelecteurFichierDrive({
    *
    * ⚠️ LE PREMIER CRAN RESTE LA RACINE dans la pile : « ‹ » remonte donc au Drive entier, comme partout ailleurs.
    */
-  const [histo, setHisto] = useState<Historique>(() => (dossierDepart === null
+  /**
+   * ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — EN ARBORESCENCE, ON PART DE LA RACINE ════════════════════
+   *
+   * Et c'est tout l'objet du lot : se poser DANS le dossier ne montre pas où l'on est. On part donc de la racine
+   * du sélecteur, et c'est le dépliage de la branche qui amène le document sous les yeux.
+   *
+   * 🔴 UN SEUL « OÙ L'ON EST », ET C'EST LA RACINE. Voir l'encadré de la prop `arrivee` : faire croire au reste
+   * de la fenêtre qu'on est dans `_MESURE` pendant que la liste montre la racine aurait fait viser le mauvais
+   * dossier à un lâcher, et appliqué le droit de joindre d'un dossier aux lignes d'un autre.
+   */
+  const enArborescence = arrivee === 'arborescence' && dossierDepart !== null;
+  const [histo, setHisto] = useState<Historique>(() => (dossierDepart === null || enArborescence
     ? HISTORIQUE_DEPART
     : naviguerVers(HISTORIQUE_DEPART, [{ id: dossierDepart.id, nom: dossierDepart.nom }])));
   /** Le dossier à charger au montage, figé une fois : la fenêtre ne doit pas repartir ailleurs à un rendu de plus. */
-  const departInitial = useRef<string>(dossierDepart?.id ?? '');
+  const departInitial = useRef<string>(enArborescence ? '' : (dossierDepart?.id ?? ''));
   const [tri, setTri] = useState<Tri>(TRI_DEFAUT);
   const [selection, setSelection] = useState<Selection>(SELECTION_VIDE);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -468,6 +527,36 @@ export function SelecteurFichierDrive({
     } catch { return new Set(); }
   });
   const [enfants, setEnfants] = useState<Map<string, Fichier[]>>(new Map());
+  /**
+   * ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — L'ÉTAT DE L'ARRIVÉE ══════════════════════════════════════
+   *
+   * `'hors'` = ce n'est pas une arrivée en arborescence (tous les autres points d'entrée).
+   * `'deplie'` = on lit la branche. L'arbre n'est PAS encore montré — voir l'encadré ci-dessous.
+   * `'pose'` = la branche est dépliée, aussi loin qu'on a pu ; `message` dit ce qui a manqué, ou `null`.
+   *
+   * ═══ 🔴🔴 « NE FAIS PAS APPARAÎTRE L'ARBRE À MOITIÉ DÉPLIÉ » (Arno, mot pour mot) ═════════════════════════════
+   *
+   * C'est pour cela que cet état existe au lieu de laisser les crans s'ouvrir au fil des réponses. La branche
+   * demande plusieurs `files.list` (un par ancêtre) ; les laisser arriver un par un aurait donné un arbre qui
+   * pousse par saccades, avec un défilement qui court après le document à chaque nouveau cran. Tant qu'on
+   * `deplie`, l'écran garde son squelette — celui qu'il montre déjà pour toute liste qui charge.
+   */
+  type EtatArrivee =
+    | { e: 'hors' }
+    | { e: 'deplie' }
+    | { e: 'pose'; chemin: readonly EtapeArbre[]; profondeur: number; message: string | null };
+  const [etatArrivee, setEtatArrivee] = useState<EtatArrivee>(enArborescence ? { e: 'deplie' } : { e: 'hors' });
+  /**
+   * ⚠️ CE QU'ON A DÉJÀ TENTÉ DE LIRE — pas ce qu'on a obtenu. Un dossier disparu du Drive entre deux ouvertures ne
+   * rend aucun enfant : sans cette mémoire, on le redemanderait à chaque rendu, pour toujours. Voir l'effet qui
+   * veille sur `ouverts`, plus bas.
+   *
+   * 🔴 DÉCLARÉE ICI, ET PAS À CÔTÉ DE CET EFFET : l'arrivée en arborescence la marque aussi, et elle vit plus
+   * haut dans le fichier. Une `const` lue avant sa ligne de déclaration passe au travers de TypeScript (elle est
+   * dans une fermeture) mais c'est exactement le genre de piège qu'un jour on ne voit plus — on la pose donc
+   * avant ses DEUX lecteurs.
+   */
+  const enfantsDemandes = useRef<Set<string>>(new Set());
   /* ══ 🔴🔴 LOT DRIVE-DEPLACER ═══════════════════════════════════════════════════════════════════════════════
      Décision d'Arno : l'application peut désormais DÉPLACER et COPIER dans le Drive. Elle ne supprime, ne renomme,
      ne met à la corbeille et ne partage toujours RIEN. */
@@ -682,6 +771,7 @@ export function SelecteurFichierDrive({
       etat?: string; message?: string; fichiers?: Fichier[]; joindreAutorise?: boolean; motifRefus?: string | null;
       creerAutorise?: boolean; motifCreation?: string | null; tronque?: boolean;
       chaine?: { id: string; nom: string }[];
+      racine?: string | null;
     };
     if (d.etat !== 'ok') return { erreur: d.message ?? 'Drive indisponible.' };
     /**
@@ -706,6 +796,12 @@ export function SelecteurFichierDrive({
       recherche: false,
       tronque: d.tronque === true,
       chaine: (d.chaine ?? []).filter((e) => typeof e?.id === 'string' && typeof e?.nom === 'string'),
+      /**
+       * ⚠️ LA RACINE N'EST RETENUE QUE SI ELLE EST L'UNE DES DEUX ATTENDUES. Un serveur plus ancien n'envoie rien,
+       * un serveur plus récent pourrait envoyer un troisième mot : dans les deux cas `null`, c'est-à-dire « on ne
+       * sait pas par où entrer » — et l'arrivée se replie en le DISANT, au lieu de déplier une branche au hasard.
+       */
+      racine: d.racine === 'mon_drive' || d.racine === 'drive_partage' ? d.racine : null,
     };
   }, []);
 
@@ -777,6 +873,138 @@ export function SelecteurFichierDrive({
     queueMicrotask(() => { if (!annule) void charger(departInitial.current); });
     return () => { annule = true; };
   }, [charger]);
+
+  /**
+   * ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — ON LIT LA BRANCHE, PUIS ON LA MONTRE ══════════════════════
+   *
+   * DEMANDE D'ARNO : « charge seulement les ancêtres et leurs enfants directs (quelques appels files.list), en
+   * parallèle si possible. Affiche un état “chargement” propre. Ne fais pas apparaître l'arbre à moitié déplié. »
+   *
+   * ═══ CE QUI SE PASSE, DANS L'ORDRE ════════════════════════════════════════════════════════════════════════════
+   *
+   *   ① LE DOSSIER QUI CONTIENT LE DOCUMENT, D'ABORD. Un seul appel, et il rapporte TROIS choses : la CHAÎNE de
+   *      ses parents (le serveur venait de la remonter pour ses verdicts — aucun appel de plus), la RACINE sous
+   *      laquelle il vit, et son CONTENU, c'est-à-dire la ligne du document lui-même. Sans lui on ne saurait ni
+   *      par où entrer, ni quels dossiers déplier.
+   *
+   *   ② LES ANCÊTRES, TOUS EN MÊME TEMPS. `Promise.all` sur la branche : un ancêtre ne dépend pas du précédent
+   *      puisque la chaîne est déjà connue. Sur un chemin de quatre crans, c'est un aller-retour réseau au lieu
+   *      de quatre en file — et le Drive du cabinet répond entre 300 ms et 1,5 s par appel.
+   *
+   *   ③ ET SEULEMENT ALORS ON DÉPLIE. `setOuverts` reçoit la branche ENTIÈRE d'un coup, une fois tous les
+   *      contenus en main. C'est ce qui tient le « pas d'arbre à moitié déplié » : il n'existe aucun rendu
+   *      intermédiaire où certains crans seraient ouverts et d'autres pas.
+   *
+   * 🔴🔴 `setOuverts` REMPLACE, IL N'AJOUTE PAS. L'arbre est retenu d'une ouverture à l'autre
+   * (`sessionStorage`) : fusionner aurait laissé ouverts des dossiers d'un classement précédent, à côté de la
+   * branche — alors qu'Arno demande justement les autres dossiers REPLIÉS, pour qu'on voie la branche.
+   *
+   * ⚠️ LE CONTENU EST ÉCRIT DANS `enfants` ET DANS LE CACHE. Dans `enfants`, c'est ce que l'arbre affiche ; dans
+   * le cache, c'est ce qui rend gratuit le clic suivant sur l'un de ces dossiers. Et sans le premier, l'effet qui
+   * veille sur `ouverts` redemanderait à Google ce qu'on vient de lire (défaut du 29/09/2026 : état déplié sans
+   * contenu, des dossiers marqués ouverts et RIEN dessous).
+   *
+   * ⚠️ `enfantsDemandes` EST MARQUÉ POUR LA BRANCHE : c'est la mémoire de cet effet-là, et sans elle il
+   * relancerait une lecture pour les ancêtres dont la réponse a été refusée.
+   *
+   * ═══ 🔴🔴 PAS DE DRAPEAU D'ANNULATION ICI, ET CE N'EST PAS UN OUBLI — DÉFAUT VU À L'ÉCRAN ════════════════════
+   *
+   * CE QUE J'AVAIS ÉCRIT, et qui est le réflexe : un `let annule = false`, mis à `true` par la fonction de
+   * nettoyage, testé avant chaque `setState`. LA FENÊTRE EST RESTÉE SUR SON SQUELETTE, INDÉFINIMENT. Constaté en
+   * vrai le 04/10/2026 sur « test gigout.pdf », et trouvé en lisant les appels réseau : le dossier du document
+   * ET la racine étaient bien lus, puis plus rien — aucun appel pour les ancêtres, aucun message, aucune erreur.
+   *
+   * LA CAUSE : React monte DEUX FOIS en développement. Premier montage, l'effet part et pose
+   * `arriveeLancee = true` ; nettoyage, `annule = true` ; second montage, la référence dit « déjà lancé » et
+   * l'effet ne fait RIEN. La lecture du premier montage, elle, se terminait bien — et jetait son résultat parce
+   * que son `annule` valait `true`. Les deux gardes, chacune raisonnable, s'annulaient l'une l'autre.
+   *
+   * 🔴 LA RÉFÉRENCE SUFFIT, ET ELLE EST LA BONNE GARDE : elle survit au remontage, donc la branche n'est lue
+   * qu'UNE fois, ce qui est exactement ce qu'on veut (ce sont des appels à Google). Un `setState` sur un
+   * composant démonté est un non-événement sous React 19 — ni avertissement, ni fuite. C'est d'ailleurs ce que
+   * fait déjà l'effet voisin qui pose le repère de la loupe (`evidencePosee`), et pour la même raison.
+   */
+  const arriveeLancee = useRef(false);
+  useEffect(() => {
+    if (!enArborescence || dossierDepart === null || arriveeLancee.current) return;
+    arriveeLancee.current = true;
+    const cible = { id: dossierDepart.id, nom: dossierDepart.nom };
+
+    /**
+     * 🔴 LE REPLI, EN UN SEUL ENDROIT : on se pose DANS le dossier — c'est-à-dire exactement l'arrivée d'avant ce
+     * lot — et l'on DIT pourquoi. « Pas d'écran vide » (règle d'Arno) : le comportement de repli est celui qui
+     * marchait déjà, jamais un écran à part qu'il faudrait éprouver en plus.
+     */
+    const seReplier = (message: string): void => {
+      departInitial.current = cible.id;
+      setHisto(naviguerVers(HISTORIQUE_DEPART, [cible]));
+      setEtatArrivee({ e: 'pose', chemin: [], profondeur: 0, message });
+      void charger(cible.id);
+    };
+
+    void (async () => {
+      let direct: Listing;
+      try {
+        const r = await lireListing(cible.id, new AbortController().signal);
+        if ('erreur' in r) { seReplier(messageRacineInconnue(cible.nom)); return; }
+        direct = r;
+      } catch { seReplier(messageRacineInconnue(cible.nom)); return; }
+      cache.current.set(cible.id, direct);
+
+      const a = arriveeArbre(direct.chaine, direct.racine);
+      // ⚠️ RACINE INDÉTERMINÉE : on ne sait pas quelle ligne du haut déplier. On le dit, et l'on se pose dedans.
+      if (a === null) { seReplier(messageRacineInconnue(cible.nom)); return; }
+
+      /* ② Les ancêtres, tous en même temps. Le dossier du document est déjà lu : on ne le repaie pas. */
+      const lues = await Promise.all(a.chemin.map(async (e) => {
+        if (e.id === cible.id) return { e, r: direct as Listing | null };
+        const connu = cache.current.get(e.id);
+        if (connu !== undefined) return { e, r: connu };
+        try {
+          const r = await lireListing(e.id, new AbortController().signal);
+          return { e, r: 'erreur' in r ? null : r };
+        } catch { return { e, r: null }; }
+      }));
+
+      const lus = new Set(lues.filter((x) => x.r !== null).map((x) => x.e.id));
+      const branche = brancheAtteignable(a.chemin, lus);
+      /* ⚠️ MÊME PAS LE PREMIER CRAN : la racine n'a rien rendu. Se poser dans le dossier reste utile. */
+      if (branche.atteints.length === 0) {
+        seReplier(messageAncetreInaccessible(branche.premierManquant?.nom ?? cible.nom));
+        return;
+      }
+
+      const atteints = new Set(branche.atteints.map((e) => e.id));
+      const contenus = new Map<string, Fichier[]>();
+      for (const { e, r } of lues) {
+        if (r === null) continue;
+        cache.current.set(e.id, r);
+        if (atteints.has(e.id)) contenus.set(e.id, r.fichiers);
+        enfantsDemandes.current.add(e.id);
+      }
+
+      /**
+       * 🔴 LE MESSAGE DIT CE QUI A MANQUÉ, ET RIEN D'AUTRE. Trois situations, trois phrases (voir `arriveeArbre`) :
+       * un ancêtre refusé est une question de DROITS, un document absent est un déplacement. Les confondre aurait
+       * fait chercher la panne au mauvais endroit.
+       */
+      const dernier = branche.atteints.at(-1);
+      const documentId = documentEnEvidence?.driveFileId ?? '';
+      const dansLeDossier = dernier === undefined || documentId === ''
+        || (contenus.get(dernier.id) ?? []).some((f) => f.id === documentId);
+      const message = branche.premierManquant !== null
+        ? messageAncetreInaccessible(branche.premierManquant.nom)
+        : dansLeDossier ? null : messageDocumentAbsent(dernier?.nom ?? cible.nom);
+
+      /* ③ Et seulement alors : la branche entière, d'un coup. */
+      setEnfants((m) => { const n = new Map(m); for (const [k, v] of contenus) n.set(k, v); return n; });
+      setOuverts(new Set(atteints));
+      setEtatArrivee({
+        e: 'pose', chemin: branche.atteints, profondeur: a.profondeurDocument, message,
+      });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- une seule fois, gardée par `arriveeLancee` : voir l'encadré.
+  }, [enArborescence]);
 
   /**
    * ══ 🔴 « RÉCENTS » ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -856,6 +1084,8 @@ export function SelecteurFichierDrive({
             tronque: false,
             // Des résultats venus de quarante dossiers n'ont pas de chemin commun : il n'y a rien à reconstruire.
             chaine: [],
+            // ⚠️ ET DONC PAS DE RACINE NON PLUS : sans chemin commun, la question « par où entrer » n'a pas d'objet.
+            racine: null,
           });
         } catch { if (!annule) setVue({ v: 'indisponible', message: 'Le Drive n’a pas répondu.' }); }
       })();
@@ -1148,7 +1378,6 @@ export function SelecteurFichierDrive({
    * disparu du Drive entre deux ouvertures ne rend aucun enfant : sans cette mémoire, on le redemanderait à
    * chaque rendu, pour toujours.
    */
-  const enfantsDemandes = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (vue.v !== 'ok') return;
     for (const id of ouverts) {
@@ -1226,7 +1455,14 @@ export function SelecteurFichierDrive({
    * ⚠️ ELLE NE PARAÎT QUE POUR UN DOSSIER DONT ON N'A VRAIMENT RIEN : dès que le cache a servi (le cas le plus
    * courant depuis ce lot), les enfants sont là au même rendu et le squelette ne s'affiche jamais.
    */
-  const lignesBrutes = aplatir(racineListe, ouverts, (id) => enfants.get(id), tri);
+  /**
+   * 🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — LA BORNE DE PROFONDEUR SE DESSERRE POUR CETTE BRANCHE, et pour
+   * elle seule. Le Drive du cabinet fait treize niveaux : au-delà du sixième, l'aplatissement se serait arrêté
+   * AVANT le document, et la fenêtre se serait ouverte sur une branche ouverte dans le vide — sans rien dire,
+   * puisque chaque cran reste marqué « déplié ». Voir l'encadré d'`aplatir`.
+   */
+  const lignesBrutes = aplatir(racineListe, ouverts, (id) => enfants.get(id), tri,
+    { profondeurMax: etatArrivee.e === 'pose' ? etatArrivee.profondeur : 0 });
   const lignes = (() => {
     const out: LigneAplatie[] = [];
     for (const l of lignesBrutes) {
@@ -1246,6 +1482,37 @@ export function SelecteurFichierDrive({
   const ordre = lignes.map((l) => l.entree.id);
   const fenetre = fenetreVisible(lignes.length, scrollTop, hauteurVue);
   const visibles = lignes.slice(fenetre.debut, fenetre.fin);
+
+  /**
+   * ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — « LA LISTE DÉFILE JUSQU'À LUI, CENTRÉ » ════════════════════
+   *
+   * 🔴 IL FAUT CALCULER, ET NON APPELER `scrollIntoView`. La liste est VIRTUALISÉE (`fenetreVisible`) : la ligne
+   * du document n'existe PAS dans le document HTML tant qu'on n'a pas défilé jusqu'à elle. Il n'y a donc aucun
+   * élément sur lequel appeler `scrollIntoView` — c'est la première chose que j'ai essayée, et elle ne pouvait
+   * pas marcher. Le centre se déduit de l'indice de la ligne et de la hauteur de ligne, tous deux connus
+   * (`defilementPourCentrer`, module pur, éprouvé aux deux bords).
+   *
+   * ⚠️ LES DEUX ENSEMBLE : le noeud (`scene.current.scrollTop`), qui fait défiler pour de vrai, et l'état
+   * (`setScrollTop`), qui décide de la fenêtre virtualisée. Poser l'un sans l'autre aurait soit défilé devant une
+   * liste qui ne rend pas les lignes voulues, soit rendu les bonnes lignes sans bouger la barre.
+   *
+   * ⚠️ UNE SEULE FOIS, GARDÉE PAR UNE RÉFÉRENCE. `lignes` est un tableau NEUF à chaque rendu : sans ce garde,
+   * l'effet repartirait à chaque frappe et ramènerait la vue sur le document alors qu'on défile ailleurs.
+   */
+  const defilementArriveeFait = useRef(false);
+  useEffect(() => {
+    if (etatArrivee.e !== 'pose' || defilementArriveeFait.current) return;
+    const id = documentEnEvidence?.driveFileId ?? '';
+    if (id === '') return;
+    const i = lignes.findIndex((l) => l.entree.id === id);
+    // ⚠️ PAS ENCORE LÀ : la ligne n'apparaît qu'au rendu où les enfants du dernier cran sont posés. On repassera.
+    if (i < 0) return;
+    defilementArriveeFait.current = true;
+    const y = defilementPourCentrer(i, lignes.length, hauteurVue, HAUTEUR_LIGNE);
+    if (scene.current !== null) scene.current.scrollTop = y;
+    setScrollTop(y);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `lignes` est neuf à chaque rendu : voir l'encadré.
+  }, [etatArrivee, lignes.length, hauteurVue, documentEnEvidence]);
   /**
    * 🔴 LOT RANGER-ARBRE-2 — CE QUE VISE UN LÂCHER DANS LE VIDE, sous la dernière ligne : le dossier AFFICHÉ.
    * `null` là où il n'y a pas d'endroit — la racine, un regroupement (« Drives partagés » n'est pas un dossier :
@@ -3701,6 +3968,51 @@ export function SelecteurFichierDrive({
           </span>
         </div>
 
+        {/* ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — LE CHEMIN COMPLET DU DOCUMENT ═══════════════════════
+            Arno : « le fil d'Ariane en haut indique le chemin complet ». IL EST BIEN EN HAUT, et c'est bien le
+            chemin complet — mais dans SON PROPRE bandeau, pas à la place du fil d'Ariane. La raison est un piège,
+            pas une préférence : le fil d'Ariane dit OÙ L'ON EST, et tout en dépend — « Déposer ici », le lâcher
+            dans le vide, « Nouveau dossier », et le DROIT DE JOINDRE que le serveur rend pour le dossier affiché.
+            En arborescence, la liste montre la racine : lui faire dire « Drives partagés › Test › _MESURE » aurait
+            appliqué le droit de joindre de « _MESURE » à des lignes venues de « COMPTABILITE ». Voir l'encadré de
+            la prop `arrivee`.
+
+            🔴 CHAQUE CRAN NAVIGUE NORMALEMENT (`allerA`) : rien n'est retiré, et l'on peut entrer dans le dossier
+            d'un clic si c'est ce qu'on veut.
+
+            ⚠️ ET LE BANDEAU RESTE ENSUITE, DÉLIBÉRÉMENT. J'avais d'abord voulu le faire disparaître à la première
+            navigation — « l'arrivée est finie ». Deux raisons de ne pas le faire, et la première suffit : CE
+            BANDEAU N'EST PAS UN « OÙ SUIS-JE », c'est un FAIT sur le document qu'on vient de cliquer, et ce fait
+            reste vrai où qu'on aille. Il est justement utile quand on part regarder ailleurs et qu'on veut encore
+            savoir d'où l'on vient. La seconde : l'effacer aurait demandé de le faire dans les QUATRE portes de
+            navigation de cette fenêtre (`allerA`, les deux flèches, l'entrée depuis une recherche) — il suffit
+            d'en oublier une pour que le bandeau survive par endroits et pas par d'autres. Un état qu'on n'éteint
+            jamais ne peut pas s'éteindre à moitié.
+
+            ⚠️ LE MESSAGE EST DANS LE MÊME BANDEAU, et pas dans la bannière d'erreur : ce n'est pas une panne, c'est
+            une PRÉCISION sur le chemin qu'on est en train de lire. La bannière d'erreur, elle, sert aux gestes
+            refusés — l'y mettre aurait fait croire que l'ouverture avait échoué. */}
+        {etatArrivee.e === 'pose' && (etatArrivee.chemin.length > 0 || etatArrivee.message !== null) && (
+          <div className="sfd-chemin-doc">
+            {etatArrivee.chemin.length > 0 && (
+              <nav className="sfd-chemin-doc-fil" aria-label={`${MOT_CHEMIN_DOCUMENT} : ${cheminEcrit(etatArrivee.chemin)}`}>
+                <span className="sfd-chemin-doc-mot">{MOT_CHEMIN_DOCUMENT}</span>
+                {etatArrivee.chemin.map((e, i) => (
+                  <span key={`${e.id}:${i}`} className="sfd-chemin-doc-pas">
+                    {i > 0 && <span className="sfd-chevron" aria-hidden="true">›</span>}
+                    <button type="button" className="sfd-chemin-doc-bouton"
+                      title={`Ouvrir « ${e.nom} »`}
+                      onClick={() => allerA(etatArrivee.chemin.slice(0, i + 1))}>{e.nom}</button>
+                  </span>
+                ))}
+              </nav>
+            )}
+            {etatArrivee.message !== null && (
+              <p className="sfd-chemin-doc-motif" role="status">{etatArrivee.message}</p>
+            )}
+          </div>
+        )}
+
         {loupeOuverte && (
           <label className="sfd-champ">
             <span className="svv-label">Chercher un fichier ou un dossier, dans tout le Drive</span>
@@ -4232,9 +4544,14 @@ export function SelecteurFichierDrive({
                     </li>
                   ))}
                 </ul>
-              ) : vue.v === 'charge' ? (
+              ) : vue.v === 'charge' || etatArrivee.e === 'deplie' ? (
                 /* 🔴 LE SQUELETTE : des lignes grises tout de suite, jamais un écran figé ni un vide. C'est ce qui
-                   fait la différence entre « ça répond » et « ça rame » quand le Drive met une seconde. */
+                   fait la différence entre « ça répond » et « ça rame » quand le Drive met une seconde.
+                   🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — IL COUVRE AUSSI LE DÉPLIAGE DE LA BRANCHE. Arno :
+                   « ne fais pas apparaître l'arbre à moitié déplié ». Les ancêtres arrivent en parallèle, mais pas
+                   tous en même temps : sans ce squelette, l'arbre aurait poussé par saccades et le défilement
+                   aurait couru après le document à chaque nouveau cran. Et c'est le squelette qui EXISTE DÉJÀ :
+                   un second état « chargement » aurait donné deux attentes différentes dans la même fenêtre. */
                 <ul className="sfd-squelette" aria-hidden="true">
                   {Array.from({ length: 14 }, (_, i) => <li key={i} className="sfd-ligne sfd-ligne--squelette" />)}
                 </ul>
@@ -4772,6 +5089,38 @@ export const CSS_SELECTEUR_FICHIER = `
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sfd-ariane-bouton:hover{background:var(--color-svv-surface)}
 .sfd-ariane-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+/* ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE — LE BANDEAU DU CHEMIN DU DOCUMENT ════════════════════════════
+   Arno : « le fil d'Ariane en haut indique le chemin complet ». Il est en haut, juste sous la barre d'outils, et
+   il porte le chemin entier — mais c'est SON bandeau, pas le fil d'Ariane : celui-la dit ou l'on EST, et le droit
+   de joindre que le serveur rend depend de cet endroit-la. Voir l'encadre de la prop « arrivee ».
+
+   L'ETIQUETTE DIT DE QUOI C'EST LE CHEMIN (« Ce document est ici »), et sans elle les deux fils se liraient comme
+   deux versions du meme — l'un court, l'autre long — au lieu de deux informations differentes.
+
+   LA TEINTE EST CELLE DU REPERE DE LA LOUPE (#f0a202), et c'est voulu : le document surligne dans la liste porte
+   deja cette couleur. Le bandeau et la ligne se repondent, l'oeil fait le lien sans qu'on l'explique.
+   🔴 ET ELLE TIENT DANS LES DEUX THEMES : color-mix melange l'ambre au FOND courant, donc le resultat suit le
+   theme — jaune pale sur blanc, ocre profond sur noir — et le texte garde son contraste. Meme methode que
+   « sfd-ligne--trouve », pour que ce soit litteralement la meme couleur percue.
+
+   flex-wrap — un chemin de treize crans passe a la ligne plutot que de pousser la fenetre : il est la pour etre
+   LU, pas pour tenir sur une ligne.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot, vu 12 fois). */
+.sfd-chemin-doc{flex:0 0 auto;padding:6px 12px 7px;
+  background:color-mix(in srgb, #f0a202 12%, transparent);
+  border-bottom:1px solid var(--color-svv-line)}
+.sfd-chemin-doc-fil{display:flex;align-items:center;flex-wrap:wrap;gap:2px;min-width:0;font-size:.8rem}
+.sfd-chemin-doc-mot{margin-right:4px;flex:0 0 auto;
+  font-size:.68rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--color-svv-muted)}
+.sfd-chemin-doc-pas{display:inline-flex;align-items:center;gap:2px;min-width:0}
+.sfd-chemin-doc-bouton{max-width:18rem;padding:1px 5px;font:inherit;font-size:.8rem;font-weight:600;
+  color:var(--color-svv-ink);background:transparent;border:0;border-radius:.3rem;cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sfd-chemin-doc-bouton:hover{background:var(--color-svv-surface)}
+.sfd-chemin-doc-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+/* LE MOTIF : ce n'est PAS une panne, c'est une precision sur le chemin qu'on lit. D'ou le ton discret, et sa
+   place dans ce bandeau plutot que dans la banniere d'erreur. */
+.sfd-chemin-doc-motif{margin:3px 0 0;font-size:.74rem;line-height:1.35;color:var(--color-svv-muted)}
 .sfd-outils-droite{display:flex;align-items:center;gap:4px;margin-left:auto;flex:0 0 auto}
 .sfd-plus{position:relative}
 .sfd-menu--outils{position:absolute;right:0;top:34px;left:auto}
