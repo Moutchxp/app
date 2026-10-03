@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 // LOT DRIVE-DOSSIER-DU-BIEN — le dossier du propriétaire du bien rattaché, proposé en première position.
 import {
   dossiersPrioritaires, mentionNbBiens, titreDossierPrioritaire, type BienDuMail, type DossierPrioritaire,
@@ -69,7 +69,7 @@ import {
   type Occurrence, type Surlignage,
 } from '../../../../lib/gestion/localisationDrive';
 import {
-  aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder, entreeDupliquer,
+  aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder, recadrerMenu,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
   iconeEntree, menuDossier, menuFichier, menuVide, motType, naviguerVers, peutAvancer, peutReculer, reculer,
   remplacerCheminCourant, SELECTION_VIDE, selectionSuivante, tailleFinder, titreDuChemin, TRI_DEFAUT,
@@ -351,6 +351,12 @@ export function SelecteurFichierDrive({
   const [ligneNeuve, setLigneNeuve] = useState<LigneNeuve>(LIGNE_FERMEE);
   const [motDeLaCreation, setMotDeLaCreation] = useState<string | null>(null);
   const [menu, setMenu] = useState<CibleMenu | null>(null);
+  /**
+   * 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LA POSE RECADRÉE DU MENU, une fois sa taille MESURÉE. `null` = pas encore
+   * mesuré : le menu est alors rendu invisible, le temps d'un rendu, pour qu'on ne le voie pas sauter.
+   */
+  const cadreMenu = useRef<HTMLUListElement | null>(null);
+  const [poseMenu, setPoseMenu] = useState<{ x: number; y: number } | null>(null);
   const [outils, setOutils] = useState(false);
   /**
    * 🔴 LE DÉPLIAGE SUR PLACE : les dossiers ouverts, et leurs enfants déjà lus.
@@ -2406,6 +2412,29 @@ export function SelecteurFichierDrive({
   }, [menu]);
 
   /**
+   * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — ON MESURE, PUIS ON RECADRE ═══════════════════════════════════════════
+   *
+   * `useLayoutEffect` et non `useEffect` : la mesure et le recadrage doivent avoir lieu AVANT que le navigateur
+   * peigne, sans quoi on verrait le menu apparaître au mauvais endroit puis sauter. Le menu est rendu invisible
+   * tant que `poseMenu` est `null`, ce qui couvre le cas où la mesure n'aboutirait pas.
+   *
+   * ⚠️ `getBoundingClientRect` SUR LE MENU LUI-MÊME : c'est la seule taille vraie. L'estimer à partir du nombre
+   * d'entrées se tromperait justement quand un motif de refus tient sur trois lignes — c'est-à-dire dans le cas
+   * qui déborde.
+   */
+  useLayoutEffect(() => {
+    if (menu === null) { setPoseMenu(null); return; }
+    const el = cadreMenu.current;
+    if (el === null) return;
+    const r = el.getBoundingClientRect();
+    setPoseMenu(recadrerMenu(
+      { x: menu.x, y: menu.y },
+      { largeur: r.width, hauteur: r.height },
+      { largeur: window.innerWidth, hauteur: window.innerHeight },
+    ));
+  }, [menu]);
+
+  /**
    * 🔴 CE QUE LE MENU A LE DROIT DE PROPOSER POUR LA MÉMOIRE TAMPON. Sans la migration 274, les trois entrées sont
    * ÉTEINTES avec leur motif — et non absentes : la fonction existe et attend quelque chose, ce n'est pas la même
    * information qu'un geste qui n'existe pas.
@@ -2441,7 +2470,17 @@ export function SelecteurFichierDrive({
       avecLien: (f.lien ?? '') !== '',
       presse: droitsPresse(),
       corbeille: droitsCorbeille(),
-    }).concat(entreeDupliquer(droitsDupliquer(f))));
+      dupliquer: droitsDupliquer(f),
+      /**
+       * 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — « EN COURS D'ÉCRITURE » SE LIT DANS LE MODE, ET NULLE PART AILLEURS.
+       *
+       * `mode === 'joindre'` est exactement « la fenêtre a été ouverte depuis un message qu'on rédige » : c'est
+       * l'éditeur (`Redaction.tsx`) et lui seul qui ouvre la fenêtre ainsi — nouveau message, réponse, transfert,
+       * brouillon repris. Les deux autres appelants (`PiecesJointes`, `Conversation`) rangent des pièces d'un
+       * mail REÇU et passent `mode="ranger"`.
+       */
+      ecriture: mode === 'joindre',
+    }));
 
   /**
    * ══ 🔴🔴 QUAND « Dupliquer en vignette » EXISTE-T-IL ? ═══════════════════════════════════════════════════════
@@ -2458,7 +2497,24 @@ export function SelecteurFichierDrive({
     if (mode !== 'ranger') return null;
     if (listing !== null && listing.joindreAutorise !== true) return null;
     if (estFichierSystemeMac(f.nom)) return null;
-    return { deja: dejaDupliquee(vignettes, f.id) };
+    /**
+     * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — ABSENTE SI CE DOCUMENT EST DÉJÀ EN VIGNETTE ════════════════════════
+     *
+     * DEMANDE D'ARNO : « “Dupliquer en vignette” n'apparaît PAS si ce document (même source OU même empreinte)
+     * est déjà en vignette dans la colonne de gauche. »
+     *
+     * 🔴 LES DEUX CRITÈRES, ET LE SECOND COMPTE AUTANT QUE LE PREMIER. « Même source » attrape le fichier qu'on
+     * vient de dupliquer ; « même empreinte » attrape SA COPIE, rangée ailleurs sous un autre identifiant et
+     * parfois sous un autre nom. Sans lui, on poserait deux vignettes du MÊME document sans s'en apercevoir, et
+     * on le copierait deux fois.
+     *
+     * ⚠️ ABSENTE, ET NON ÉTEINTE (c'est le masquage qu'Arno demande) : il n'y a rien à expliquer, la vignette est
+     * sous les yeux, à gauche. Une entrée grisée de plus allongerait le menu sans rien apprendre.
+     */
+    const memeEmpreinte = (f.md5 ?? '') !== ''
+      && vignettes.some((v) => (v.md5 ?? '') !== '' && v.md5 === f.md5);
+    if (dejaDupliquee(vignettes, f.id) || memeEmpreinte) return null;
+    return { deja: false };
   };
 
   /**
@@ -2566,6 +2622,9 @@ export function SelecteurFichierDrive({
       setVignettes((v) => ajouterVignette(v, {
         cle: cleVignette(f.id), driveFileId: f.id, nom: f.nom,
         tailleOctets: f.tailleOctets, typeMime: f.typeMime, lien: f.lien ?? null,
+        /* 🔴 L'EMPREINTE VOYAGE AVEC LA VIGNETTE : c'est elle qui permet de reconnaître une COPIE du même
+           document ailleurs dans l'arbre, et donc de ne pas en poser une seconde vignette. */
+        md5: f.md5 ?? null,
       }));
       return;
     }
@@ -4145,10 +4204,22 @@ export function SelecteurFichierDrive({
       <>
         <div className="sfd-menu-voile" role="presentation" onClick={() => setMenu(null)}
           onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
-        <ul className="sfd-menu" role="menu" style={{ left: menu.x, top: menu.y }}
+        {/* ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — IL RESTE ENTIÈREMENT VISIBLE ═══════════════════════════════
+            Constat d'Arno : sur une ligne en BAS de la liste, le menu sortait de l'écran et ses dernières entrées
+            étaient coupées — « Supprimer » compris. On le MESURE après le premier rendu, puis on le recadre :
+            retourné vers le haut (ou la gauche) s'il déborde, collé au bord si la fenêtre est plus courte que lui.
+
+            🔴 MESURÉ, ET NON ESTIMÉ À PARTIR DU NOMBRE D'ENTRÉES : un motif de refus tient parfois sur trois
+            lignes, et l'estimation se tromperait précisément dans le cas qui déborde. */}
+        <ul className="sfd-menu" role="menu" ref={cadreMenu}
+          style={{ left: poseMenu?.x ?? menu.x, top: poseMenu?.y ?? menu.y,
+            /* ⚠️ INVISIBLE LE TEMPS DE LA MESURE : sans cela on verrait le menu sauter de sa position brute à sa
+               position recadrée. Un seul rendu d'écart, mais il se voit. */
+            visibility: poseMenu === null ? 'hidden' : undefined }}
           aria-label={menu.entree === null ? 'Actions sur ce dossier' : `Actions sur ${menu.entree.nom}`}>
           {entreesDuMenu(menu.entree).map((e) => (
-            <li key={e.action} role="none">
+            <li key={e.action} role="none"
+              className={e.separateurAvant === true ? 'sfd-menu-li--separe' : undefined}>
               <button type="button" role="menuitem" className="sfd-menu-item"
                 disabled={e.motifInactif !== null} title={e.motifInactif ?? undefined}
                 onClick={() => agirMenu(e.action, menu.entree)}>
@@ -4404,6 +4475,10 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-menu-item:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 /* Un refus se DIT : l'entree eteinte porte son motif, en petit, sous elle. */
 .sfd-menu-motif{margin:0 0 4px;padding:0 10px;font-size:.7rem;color:var(--color-svv-muted)}
+/* 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE FILET AU-DESSUS DE « Supprimer ». C'est le seul geste du menu qui retire
+   un document d'un dossier ou quelqu'un ira le chercher : il ne doit pas se trouver au ras du doigt qui visait
+   « Coller ici ». Une separation VISUELLE, pas une categorie. */
+.sfd-menu-li--separe{margin-top:4px;padding-top:4px;border-top:1px solid var(--color-svv-line)}
 
 /* ── LE PIED ──────────────────────────────────────────────────────────────────────────────────────────────── */
 .sfd-pied{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;flex:0 0 auto;

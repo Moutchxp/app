@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   ACTIONS_JAMAIS, aplatir, ariane, avancer, cheminCourant, cliquerLigne, COLONNES, comparerNoms, dateFinder,
-  entreesPresse, menuVide,
+  entreesPresse, MARGE_MENU, menuVide, recadrerMenu,
   dossierDuChemin, entreesLaterales, fenetreVisible, flecheTri, HAUTEUR_LIGNE,
   HISTORIQUE_DEPART, iconeEntree, memeChemin, menuDossier, menuFichier, motType, naviguerVers, peutAvancer,
   peutReculer, PROFONDEUR_MAX, reculer, SELECTION_VIDE, selectionSuivante, SEUIL_VIRTUALISATION,
@@ -330,6 +330,58 @@ describe('🔴🔴 le menu contextuel ne porte QUE ce que l’application sait f
     expect(avec.find((e) => e.action === 'mettre_corbeille')?.motifInactif).toBe('migration 295 absente');
   });
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — L'ORDRE, LES DEUX ENTRÉES D'ÉCRITURE, ET LE RECADRAGE
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /** 🔴🔴 « 1. Visualiser 2. Dupliquer en vignette 3. le reste […] “Supprimer” en dernier, séparé » (Arno). */
+  it('🔴🔴 l’ordre du menu est celui d’Arno', () => {
+    const m = menuFichier({
+      ...permis,
+      presse: { autorise: true, motif: null, motColler: 'Coller ici', presseVide: false },
+      dupliquer: { deja: false },
+      corbeille: { autorise: true, motifInactif: null },
+    });
+    expect(m.map((e) => e.action)).toEqual([
+      'visualiser', 'dupliquer_vignette', 'joindre', 'lien', 'ouvrir_google',
+      'couper', 'copier', 'coller', 'mettre_corbeille',
+    ]);
+    // 🔴 ET « Supprimer » PORTE LE FILET : il ne doit pas être au ras du doigt qui visait « Coller ici ».
+    expect(m[m.length - 1].separateurAvant).toBe(true);
+    expect(m.filter((e) => e.separateurAvant === true)).toHaveLength(1);
+  });
+
+  /**
+   * ══ 🔴🔴 LES DEUX ENTRÉES QUI N'ONT DE SENS QU'EN ÉCRITURE ═════════════════════════════════════════════════
+   *
+   * Arno : « “Joindre au message” n'apparaît QUE si la fenêtre a été ouverte depuis un message EN COURS
+   * D'ÉCRITURE. […] Si d'autres entrées sont propres à l'écriture, même règle. »
+   *
+   * 🔴 IL Y EN A DEUX, ET LA SECONDE EST « Insérer un lien » : les deux appellent le MÊME rappel (`onChoisir`),
+   * celui qui écrit dans le message qu'on rédige. En mode « ranger » ce rappel n'existe pas — elles étaient donc
+   * AFFICHÉES ET SANS EFFET.
+   */
+  it('🔴🔴 « Joindre » et « Insérer un lien » n’existent qu’en écriture', () => {
+    const enEcriture = menuFichier({ ...permis, ecriture: true }).map((e) => e.action);
+    expect(enEcriture).toContain('joindre');
+    expect(enEcriture).toContain('lien');
+
+    const enRangement = menuFichier({ ...permis, ecriture: false }).map((e) => e.action);
+    expect(enRangement).not.toContain('joindre');
+    expect(enRangement).not.toContain('lien');
+    // ⚠️ ABSENTES, PAS ÉTEINTES : il n'y a pas de message où écrire, donc aucun motif à expliquer.
+    expect(menuFichier({ ...permis, ecriture: false }).map((e) => e.libelle).join(' '))
+      .not.toContain('message');
+    // ⚠️ ET LE RESTE NE BOUGE PAS : visualiser, ouvrir, et la mémoire tampon restent.
+    expect(enRangement).toContain('visualiser');
+    expect(enRangement).toContain('ouvrir_google');
+  });
+
+  /** ⚠️ ABSENT ⇒ ÉCRITURE : tous les appels écrits avant ce lot gardent les deux entrées. */
+  it('⚠️ sans `ecriture`, le menu est celui d’avant ce lot', () => {
+    expect(menuFichier(permis).map((e) => e.action)).toContain('joindre');
+  });
+
   /** 🔴🔴 ET JAMAIS SUR UN DOSSIER : `menuDossier` ne connaît même pas l'option. */
   it('🔴🔴 un DOSSIER n’a jamais « Supprimer »', () => {
     const tous = [
@@ -530,5 +582,55 @@ describe('⑧ la virtualisation', () => {
 
   it('le seuil est nommé une seule fois', () => {
     expect(fenetreVisible(SEUIL_VIRTUALISATION, 0, 600).fin).toBe(SEUIL_VIRTUALISATION);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE MENU RESTE ENTIÈREMENT VISIBLE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le recadrage du menu', () => {
+  const FENETRE = { largeur: 1000, hauteur: 800 };
+  const TAILLE = { largeur: 240, hauteur: 300 };
+
+  it('au milieu de la fenêtre, il ne bouge pas', () => {
+    expect(recadrerMenu({ x: 100, y: 100 }, TAILLE, FENETRE)).toEqual({ x: 100, y: 100 });
+  });
+
+  /**
+   * 🔴🔴 LE CONSTAT D'ARNO : sur une ligne EN BAS de la liste, le menu sortait de l'écran et ses dernières
+   * entrées étaient coupées — « Supprimer » compris. Il se retourne désormais vers le haut.
+   */
+  it('🔴🔴 trop bas : il se retourne vers le haut', () => {
+    const r = recadrerMenu({ x: 100, y: 700 }, TAILLE, FENETRE);
+    expect(r.y).toBe(400);                       // 700 - 300
+    expect(r.y + TAILLE.hauteur).toBeLessThanOrEqual(FENETRE.hauteur - MARGE_MENU);
+  });
+
+  it('🔴 trop à droite : il se retourne vers la gauche', () => {
+    const r = recadrerMenu({ x: 900, y: 100 }, TAILLE, FENETRE);
+    expect(r.x).toBe(660);                       // 900 - 240
+    expect(r.x + TAILLE.largeur).toBeLessThanOrEqual(FENETRE.largeur - MARGE_MENU);
+  });
+
+  /**
+   * ⚠️ FENÊTRE PLUS COURTE QUE LE MENU : on le colle au bord haut plutôt que de le laisser déborder des deux
+   * côtés. Mieux vaut un menu qui commence trop haut qu'un menu dont on ne voit pas la fin.
+   */
+  it('⚠️ fenêtre trop courte : il se colle au bord, jamais en négatif', () => {
+    const r = recadrerMenu({ x: 10, y: 150 }, { largeur: 240, hauteur: 400 }, { largeur: 1000, hauteur: 300 });
+    expect(r.y).toBeGreaterThanOrEqual(MARGE_MENU);
+    expect(r.x).toBeGreaterThanOrEqual(MARGE_MENU);
+  });
+
+  /** ⚠️ JAMAIS DE COORDONNÉE NÉGATIVE : un menu posé à -40 px se coupe en haut, le défaut de l'autre côté. */
+  it('⚠️ aucune coordonnée négative, dans aucun cas', () => {
+    for (const y of [0, 5, 50, 400, 799, 2000]) {
+      for (const x of [0, 5, 50, 900, 999, 3000]) {
+        const r = recadrerMenu({ x, y }, TAILLE, FENETRE);
+        expect(r.x).toBeGreaterThanOrEqual(0);
+        expect(r.y).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 });

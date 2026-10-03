@@ -146,14 +146,18 @@ describe('🔴🔴 dupliquer', () => {
     expect(titre.toLowerCase()).not.toContain('déplac');
   });
 
-  /** 🔴 IDEMPOTENT : une seconde duplication ne pose pas une seconde vignette, et le menu le DIT. */
-  it('🔴 dupliquer deux fois le même fichier ne pose qu’une vignette', async () => {
+  /**
+   * 🔴🔴 L'ENTRÉE DISPARAÎT QUAND LE DOCUMENT EST DÉJÀ EN VIGNETTE.
+   *
+   * ⚠️ RÉÉCRIT LE 03/10/2026 (lot DRIVE-LOUPE-MENU-VITESSE) : elle était ÉTEINTE avec le motif « déjà dans la
+   * colonne ». Arno demande qu'elle soit ABSENTE — il n'y a rien à expliquer, la vignette est sous les yeux, à
+   * gauche, et une entrée grisée de plus allongerait le menu sans rien apprendre.
+   */
+  it('🔴🔴 l’entrée disparaît quand ce document est déjà en vignette', async () => {
     await monter();
     await dupliquer();
     await souris('0851_001.pdf', 'contextmenu');
-    const e = entreeMenu('Dupliquer en vignette');
-    expect((e as HTMLButtonElement).disabled).toBe(true);
-    expect(container.querySelector('.sfd-menu')?.textContent).toContain('déjà');
+    expect(entreeMenu('Dupliquer en vignette')).toBeUndefined();
     expect(vignettes()).toHaveLength(1);
   });
 
@@ -341,5 +345,63 @@ describe('🔴🔴 la vignette, après le lot DRIVE-LOUPE-MENU-VITESSE', () => {
     const posts = postsDrive();
     expect(posts).toHaveLength(1);
     expect(posts[0].corps).toMatchObject({ action: 'copier', elements: [{ id: 'f1' }] });
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE MENU À L'ÉCRAN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le menu contextuel', () => {
+  /** 🔴🔴 L'ORDRE D'ARNO, lu dans le DOM : Visualiser, Dupliquer, … et « Supprimer » en dernier, séparé. */
+  it('🔴🔴 l’ordre est celui d’Arno, et « Supprimer » porte le filet', async () => {
+    await monter();
+    await souris('0851_001.pdf', 'contextmenu');
+    const mots = [...container.querySelectorAll('.sfd-menu [role="menuitem"]')].map((b) => b.textContent);
+    expect(mots[0]).toBe('Visualiser');
+    expect(mots[1]).toBe('Dupliquer en vignette');
+    expect(mots[mots.length - 1]).toBe('Supprimer');
+    const dernier = [...container.querySelectorAll('.sfd-menu li')].at(-1);
+    expect(dernier?.className).toContain('sfd-menu-li--separe');
+  });
+
+  /**
+   * 🔴🔴 EN MODE « RANGER » (un mail REÇU), « Joindre au message » et « Insérer un lien » n'existent pas : elles
+   * appellent le rappel qui écrit dans le message qu'on rédige, et il n'y a pas de message en cours.
+   */
+  it('🔴🔴 « Joindre » et « Insérer un lien » sont absents en rangement', async () => {
+    await monter();
+    await souris('0851_001.pdf', 'contextmenu');
+    const mots = [...container.querySelectorAll('.sfd-menu [role="menuitem"]')].map((b) => b.textContent);
+    expect(mots).not.toContain('Joindre au message');
+    expect(mots).not.toContain('Insérer un lien');
+  });
+
+  /** 🔴 ET ELLES SONT LÀ EN ÉCRITURE : c'est le mode « joindre », celui de l'éditeur de message. */
+  it('🔴 elles sont présentes quand la fenêtre est ouverte depuis un message en écriture', async () => {
+    await act(async () => {
+      root.render(createElement(SelecteurFichierDrive, {
+        mode: 'joindre', onChoisir: () => {}, onFermer: () => {},
+      } as never));
+    });
+    await calmer();
+    await souris('0851_001.pdf', 'contextmenu');
+    const mots = [...container.querySelectorAll('.sfd-menu [role="menuitem"]')].map((b) => b.textContent);
+    expect(mots).toContain('Joindre au message');
+    expect(mots).toContain('Insérer un lien');
+    // ⚠️ ET « Dupliquer en vignette » N'Y EST PAS : hors du mode « ranger », il n'y a pas de colonne où la poser.
+    expect(mots).not.toContain('Dupliquer en vignette');
+  });
+
+  /** 🔴 LE MENU EST RECADRÉ APRÈS MESURE : il porte une position, et il est visible. */
+  it('🔴 le menu est posé après mesure, et devient visible', async () => {
+    await monter();
+    await souris('0851_001.pdf', 'contextmenu');
+    const menu = container.querySelector('.sfd-menu') as HTMLElement | null;
+    expect(menu).not.toBeNull();
+    // jsdom rend des tailles nulles : le recadrage pose alors la marge, et le menu n'est plus masqué.
+    expect(menu?.style.visibility).not.toBe('hidden');
+    expect(Number.parseFloat(menu?.style.top ?? '-1')).toBeGreaterThanOrEqual(0);
+    expect(Number.parseFloat(menu?.style.left ?? '-1')).toBeGreaterThanOrEqual(0);
   });
 });

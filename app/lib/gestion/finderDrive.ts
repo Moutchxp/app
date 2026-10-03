@@ -410,6 +410,14 @@ export interface EntreeMenu {
   libelle: string;
   /** `null` = l'entrée est active. Sinon, elle est présentée éteinte AVEC ce motif : un refus se dit. */
   motifInactif: string | null;
+  /**
+   * 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — UN FILET AU-DESSUS DE CETTE ENTRÉE.
+   *
+   * Une seule s'en sert : « Supprimer ». C'est le seul geste du menu qui retire un document d'un dossier où
+   * quelqu'un ira le chercher ; il ne doit pas se trouver au ras du doigt qui visait « Coller ici ». Le filet est
+   * une SÉPARATION VISUELLE, pas une catégorie : rien d'autre n'en dépend.
+   */
+  separateurAvant?: boolean;
 }
 
 /**
@@ -499,6 +507,27 @@ export function menuFichier(o: {
   /** `null` (ou absent) = ce menu ne propose pas la mémoire tampon du tout. */
   presse?: DroitsPresse | null;
   /**
+   * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LES DEUX ENTRÉES QUI N'ONT DE SENS QU'EN ÉCRITURE ═══════════════════
+   *
+   * DEMANDE D'ARNO : « “Joindre au message” n'apparaît QUE si la fenêtre Drive a été ouverte depuis un message EN
+   * COURS D'ÉCRITURE (nouveau message, réponse, transfert, brouillon). Jamais en lecture d'un mail reçu ou en
+   * rangement de pièces. Si d'autres entrées sont propres à l'écriture, même règle. »
+   *
+   * 🔴 IL Y EN A DEUX, ET LA SECONDE EST « Insérer un lien ». Les deux appellent le MÊME rappel (`onChoisir`),
+   * celui qui écrit dans le message qu'on est en train de rédiger. En mode « ranger », ce rappel n'existe pas :
+   * les deux entrées étaient donc AFFICHÉES ET SANS EFFET — on cliquait, et rien ne se passait. C'est exactement
+   * le défaut que ce masquage répare, et c'est pourquoi la règle vaut pour les deux.
+   *
+   * ⚠️ FAUX ⇒ LES DEUX SONT ABSENTES, pas éteintes : il n'y a pas de message où écrire, donc aucun motif à
+   * expliquer. Une entrée grisée laisserait croire qu'un réglage pourrait l'activer.
+   */
+  ecriture?: boolean;
+  /**
+   * 🔴🔴 « Dupliquer en vignette » — `null` ⇒ ABSENTE. Voir `entreeDupliquer` : elle disparaît hors du mode
+   * « ranger », sous l'archive, et quand ce document est DÉJÀ dans la colonne de gauche.
+   */
+  dupliquer?: { deja: boolean; motifInactif?: string | null } | null;
+  /**
    * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « SUPPRIMER » (mise à la corbeille) ════════════════════
    *
    * `null` ou ABSENT ⇒ L'ENTRÉE N'EXISTE PAS, et le menu est EXACTEMENT celui d'avant ce lot. C'est le cas quand
@@ -516,6 +545,12 @@ export function menuFichier(o: {
   corbeille?: { autorise: boolean; motifInactif: string | null } | null;
 }): EntreeMenu[] {
   const refus = o.motifRefus ?? 'La lecture du contenu est refusée ici.';
+  /**
+   * 🔴🔴 L'ORDRE EST CELUI D'ARNO : « 1. Visualiser 2. Dupliquer en vignette 3. le reste dans l'ordre actuel,
+   * avec “Supprimer” en dernier, séparé. » Les deux premiers sont les gestes qu'on fait dix fois par heure ; les
+   * suivants, de temps en temps ; le dernier, rarement et jamais par mégarde.
+   */
+  const ecriture = o.ecriture !== false;
   return [
     {
       action: 'visualiser',
@@ -527,16 +562,18 @@ export function menuFichier(o: {
        */
       motifInactif: !o.joindreAutorise ? refus : null,
     },
-    {
-      action: 'joindre',
+    // 🔴 EN DEUXIÈME POSITION, juste après « Visualiser » (ordre demandé par Arno).
+    ...entreeDupliquer(o.dupliquer ?? null),
+    ...(!ecriture ? [] : [{
+      action: 'joindre' as const,
       libelle: o.dejaAjoute ? 'Déjà joint au message' : 'Joindre au message',
       motifInactif: !o.joindreAutorise ? refus : o.dejaAjoute ? 'Cette pièce est déjà jointe.' : null,
-    },
-    {
-      action: 'lien',
+    }]),
+    ...(!ecriture ? [] : [{
+      action: 'lien' as const,
       libelle: 'Insérer un lien',
       motifInactif: o.avecLien ? null : 'Ce fichier n’a pas d’adresse Drive partageable.',
-    },
+    }]),
     {
       action: 'ouvrir_google',
       libelle: 'Ouvrir dans Google Drive',
@@ -557,6 +594,8 @@ export function menuFichier(o: {
       action: 'mettre_corbeille' as const,
       libelle: 'Supprimer',
       motifInactif: o.corbeille.autorise ? null : (o.corbeille.motifInactif ?? 'Ce geste est indisponible ici.'),
+      /* 🔴 LE FILET : « Supprimer » en dernier ET séparé (Arno). Voir `separateurAvant`. */
+      separateurAvant: true,
     }]),
   ];
 }
@@ -794,4 +833,49 @@ export function ariane(c: Chemin): { id: string; nom: string; index: number }[] 
     { id: '', nom: 'Google Drive', index: 0 },
     ...c.map((e, i) => ({ id: e.id, nom: e.nom, index: i + 1 })),
   ];
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE MENU RESTE ENTIÈREMENT VISIBLE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 OÙ POSER LE MENU POUR QU'IL TIENNE EN ENTIER. PUR. ═════════════════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO (capture du 03/10/2026) : sur une ligne en BAS de la liste, le menu s'ouvrait vers le bas et
+ * sortait de l'écran — ses dernières entrées étaient coupées, « Supprimer » compris. Un menu dont on ne voit pas
+ * le bas est un menu dont on ignore ce qu'il propose.
+ *
+ * LA RÈGLE, dans cet ordre :
+ *   ① s'il dépasse EN BAS, on le RETOURNE vers le haut (il s'ouvre au-dessus du curseur) — c'est le geste des
+ *      menus système, et il garde le curseur sur le même bord ;
+ *   ② s'il dépasse encore (fenêtre plus courte que le menu), on le COLLE au bord avec une petite marge : mieux
+ *      vaut un menu qui commence trop haut qu'un menu dont on ne voit pas la fin ;
+ *   ③ même chose à DROITE, en le retournant vers la gauche.
+ *
+ * ⚠️ JAMAIS DE COORDONNÉE NÉGATIVE : un menu posé à -40 px se coupe en haut, ce qui est le défaut qu'on répare,
+ * de l'autre côté.
+ *
+ * ⚠️ LA TAILLE VIENT DU DOM, MESURÉE APRÈS LE PREMIER RENDU — on ne la devine pas à partir du nombre d'entrées :
+ * un motif de refus tient parfois sur trois lignes, et l'estimation se tromperait précisément dans le cas qui
+ * déborde.
+ */
+export const MARGE_MENU = 8;
+
+export function recadrerMenu(
+  pose: { x: number; y: number },
+  taille: { largeur: number; hauteur: number },
+  fenetre: { largeur: number; hauteur: number },
+): { x: number; y: number } {
+  const place = (
+    pos: number, dim: number, max: number,
+  ): number => {
+    // ① ET ② : on retourne, puis on colle au bord — et jamais au-delà de la marge.
+    const apres = pos + dim <= max - MARGE_MENU ? pos : pos - dim;
+    return Math.max(MARGE_MENU, Math.min(apres, Math.max(MARGE_MENU, max - dim - MARGE_MENU)));
+  };
+  return {
+    x: place(pose.x, taille.largeur, fenetre.largeur),
+    y: place(pose.y, taille.hauteur, fenetre.hauteur),
+  };
 }

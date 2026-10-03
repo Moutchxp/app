@@ -40,6 +40,16 @@ export interface VignetteDupliquee {
   typeMime: string | null;
   /** L'adresse Drive du fichier source, quand on la connaît : elle sert au lien « ouvrir », à rien d'autre. */
   lien?: string | null;
+  /**
+   * 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — L'EMPREINTE DE CONTENU DU DOCUMENT SOURCE.
+   *
+   * Elle sert à UNE chose : reconnaître qu'un AUTRE fichier de l'arbre est le même document, pour ne pas en
+   * poser une seconde vignette (demande d'Arno : « même source OU même empreinte »).
+   *
+   * ⚠️ `null` EST NORMAL : un document Google natif n'a pas d'empreinte. On ne reconnaît alors que par la source,
+   * et c'est la bonne réponse — on ne devine pas.
+   */
+  md5?: string | null;
 }
 
 /**
