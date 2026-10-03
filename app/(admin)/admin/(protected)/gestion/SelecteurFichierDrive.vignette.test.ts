@@ -27,6 +27,8 @@ let container: HTMLDivElement;
 let root: Root;
 let appels: { url: string; corps: unknown }[];
 let contenu: Record<string, unknown>;
+/** Ce que le registre annonce pour le compteur vert. 0 = le document n'est rangé nulle part. */
+let comptePart: number;
 
 const PIECE = { pieceId: 7, nom: 'quittance.pdf', tailleOctets: 4096, typeMime: 'application/pdf' };
 
@@ -40,6 +42,7 @@ beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   try { globalThis.sessionStorage?.clear(); } catch { /* pas de stockage : l'arbre part vide */ }
   appels = [];
+  comptePart = 0;
   contenu = {
     etat: 'ok', joindreAutorise: true, motifRefus: null, creerAutorise: true, motifCreation: null,
     fichiers: [fichier('d1', 'Test', true), fichier('f1', '0851_001.pdf')],
@@ -60,6 +63,10 @@ beforeEach(() => {
     }
     if (url.includes('/drive/corbeille')) {
       return new Response(JSON.stringify({ etat: 'ok', disponible: true, motif: null }), { status: 200 });
+    }
+    /* 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — le compteur VERT : combien d'emplacements le registre connaît-il ? */
+    if (url.includes('/drive/localiser')) {
+      return new Response(JSON.stringify({ etat: 'ok', nombre: comptePart, md5: null, occurrences: [] }), { status: 200 });
     }
     if (url.includes('/pieces-recentes')) {
       return new Response(JSON.stringify({ etat: 'ok', disponible: false, lignes: [] }), { status: 200 });
@@ -267,5 +274,72 @@ describe('🔴🔴 ranger une vignette', () => {
     await cliquer(croix);
     expect(vignettes()).toHaveLength(0);
     expect(postsDrive()).toHaveLength(0);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ③ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LA LIGNE DES PICTOS, LE COMPTEUR VERT, ET « DÉPOSER ICI »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 la vignette, après le lot DRIVE-LOUPE-MENU-VITESSE', () => {
+  /**
+   * 🔴 LES TROIS PICTOS SUR UNE SEULE LIGNE, COLLÉS À DROITE (Arno). Avant ce lot ils flottaient dans le texte :
+   * le crayon passait à la ligne dès que le nom était long, et la vignette changeait de hauteur.
+   */
+  it('🔴 les pictos sont groupés dans une seule rangée', async () => {
+    await monter();
+    await dupliquer();
+    const gestes = vignettes()[0].querySelector('.sfd-piece-gestes');
+    expect(gestes).not.toBeNull();
+    // L'œil, le crayon, la croix de retrait et la loupe y sont — et nulle part ailleurs dans la ligne.
+    expect(gestes?.querySelectorAll('button').length).toBeGreaterThanOrEqual(3);
+    expect(vignettes()[0].querySelector('.sfd-piece-ligne > .sfd-piece-oeil')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LE COMPTEUR VERT : « Rangé N fois dans le Drive ». MASQUÉ À ZÉRO — un « 0 » vert se lirait comme une
+   * bonne nouvelle alors qu'il dit le contraire.
+   */
+  it('🔴🔴 le compteur vert est MASQUÉ quand le document n’est rangé nulle part', async () => {
+    comptePart = 0;
+    await monter();
+    await dupliquer();
+    expect(container.querySelector('.sfd-piece-range')).toBeNull();
+  });
+
+  /** 🔴 ET IL PARAÎT, AVEC SON NOMBRE ET SA BULLE, dès que le registre connaît au moins un emplacement. */
+  it('🔴🔴 le compteur vert annonce « Rangé N fois dans le Drive »', async () => {
+    comptePart = 2;
+    await monter();
+    const vert = container.querySelector('.sfd-piece-range');
+    expect(vert?.textContent).toBe('2');
+    expect(vert?.getAttribute('title')).toBe('Rangé 2 fois dans le Drive');
+  });
+
+  /** ⚠️ ET IL EST DEMANDÉ PAR LE MODE RAPIDE, celui qui ne fait aucun appel Google. */
+  it('⚠️ le compteur passe par `compte=1`', async () => {
+    await monter();
+    expect(appels.some((a) => a.url.includes('/drive/localiser') && a.url.includes('compte=1'))).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 « DÉPOSER ICI » RANGE AUSSI LES VIGNETTES (Arno). Deux chemins qui ne font pas la même chose sont un
+   * piège tendu à qui apprend le geste par l'un des deux.
+   */
+  it('🔴🔴 « Déposer ici » copie aussi les vignettes dupliquées', async () => {
+    await monter();
+    await dupliquer();
+    /* ⚠️ IL FAUT ÊTRE DANS UN DOSSIER : à la racine du sélecteur, « Déposer ici » est éteint — « Google Drive »
+       et ses regroupements ne sont pas des dossiers, et Google refuserait le dépôt après coup. */
+    await souris('Test', 'dblclick');
+    const bouton = [...container.querySelectorAll('button')]
+      .find((b) => (b.textContent ?? '').startsWith('Déposer ici'));
+    // ⚠️ LE COMPTE ANNONCE CE QUI PARTIRA : la pièce du message ET la copie.
+    expect(bouton?.textContent).toContain('(2)');
+    expect((bouton as HTMLButtonElement).disabled).toBe(false);
+    await cliquer(bouton);
+    const posts = postsDrive();
+    expect(posts).toHaveLength(1);
+    expect(posts[0].corps).toMatchObject({ action: 'copier', elements: [{ id: 'f1' }] });
   });
 });

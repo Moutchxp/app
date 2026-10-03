@@ -65,7 +65,7 @@ import {
  * côté du compteur, et non dans une aide qu'il faudrait aller chercher.
  */
 import {
-  AIDE_LOUPE, motCompteur, phraseMethode, surlignageDe, SURLIGNAGE_VIDE,
+  AIDE_LOUPE, bulleCompteurRange, motCompteur, phraseMethode, surlignageDe, SURLIGNAGE_VIDE,
   type Occurrence, type Surlignage,
 } from '../../../../lib/gestion/localisationDrive';
 import {
@@ -1184,6 +1184,21 @@ export function SelecteurFichierDrive({
   /** La vignette dont le crayon ✎ vient d'être cliqué : l'aperçu s'ouvre alors DIRECTEMENT sur le champ. */
   const [renommerVignette, setRenommerVignette] = useState<string | null>(null);
 
+  /**
+   * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE COMPTEUR VERT DE CHAQUE VIGNETTE ═══════════════════════════════════
+   *
+   * Arno : « nombre d'emplacements où ce document est déjà rangé dans le Drive (même source que la loupe) ».
+   *
+   * 🔴 IL PASSE PAR `?compte=1`, QUI NE FAIT AUCUN APPEL GOOGLE : il lit le registre en base. Demander à chaque
+   * vignette ce que demande la loupe — un `files.get` et une remontée de parents par emplacement — aurait fait
+   * partir des dizaines d'appels pour afficher un chiffre.
+   *
+   * ⚠️ CLÉ = celle de la vignette, ou `piece:<id>` pour une pièce du message : les deux sortes cohabitent dans la
+   * même colonne, et un identifiant Drive ne peut pas se confondre avec un numéro de pièce.
+   */
+  const [comptesRanges, setComptesRanges] = useState<Map<string, number>>(new Map());
+  const comptesDemandes = useRef<Set<string>>(new Set());
+
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
      🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LA LOUPE « OÙ EST CE DOCUMENT ? »
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1857,8 +1872,20 @@ export function SelecteurFichierDrive({
    */
   const lotDuBouton = piecesEmportees(null, idsChoisis, pieces,
     piecesARanger.length > 0 ? piecesARanger : pieces);
+  /**
+   * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — « DÉPOSER ICI » RANGE AUSSI LES VIGNETTES DUPLIQUÉES ═════════════════
+   *
+   * Demande d'Arno. Jusqu'ici, seule le glisser-déposer savait ranger une vignette : « Déposer ici » — la seconde
+   * voie, celle du tactile et de qui ne glisse pas — les ignorait en silence. Deux chemins qui ne font pas la
+   * même chose sont un piège tendu à qui apprend le geste par l'un des deux.
+   *
+   * ⚠️ LES PIÈCES D'ABORD, LES COPIES ENSUITE, et chacune par SA route : une pièce se dépose
+   * (`/pieces/{id}/drive`), une vignette se COPIE (`files.copy`). Le bouton fait les deux d'un geste ; ce sont les
+   * mêmes appels que ceux du glisser, pas une troisième écriture.
+   */
   const deposerToutIci = (cibleId: string, cibleNom: string) => {
     void rangerLot(lotDuBouton, cibleId, cibleNom);
+    for (const v of vignettes) void rangerVignette(v, cibleId, cibleNom);
   };
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -2761,6 +2788,35 @@ export function SelecteurFichierDrive({
   const dossiersLus = listesParDossier().length;
 
   /**
+   * 🔴 LE COMPTEUR VERT SE DEMANDE UNE FOIS PAR VIGNETTE, et jamais deux. `comptesDemandes` retient ce qui est
+   * parti : sans lui, chaque rendu de la colonne relancerait autant de requêtes qu'elle porte de vignettes.
+   *
+   * ⚠️ IL NE BLOQUE RIEN : tant que la réponse n'est pas là, la vignette s'affiche sans compteur — ce qui est
+   * aussi ce qu'elle affichera si le document n'est rangé nulle part.
+   */
+  useEffect(() => {
+    if (mode !== 'ranger') return;
+    const aDemander: { cle: string; adresse: string }[] = [
+      ...pieces.map((x) => ({ cle: `piece:${x.pieceId}`, adresse: `piece=${x.pieceId}` })),
+      ...vignettes.map((v) => ({ cle: v.cle, adresse: `source=${encodeURIComponent(v.driveFileId)}` })),
+    ].filter((x) => !comptesDemandes.current.has(x.cle));
+    if (aDemander.length === 0) return;
+    for (const d of aDemander) comptesDemandes.current.add(d.cle);
+    void (async () => {
+      for (const d of aDemander) {
+        try {
+          const res = await fetch(`/api/admin/gestion/drive/localiser?${d.adresse}&compte=1`, { cache: 'no-store' });
+          const r = (await res.json()) as { etat?: string; nombre?: number };
+          if (r.etat !== 'ok') continue;
+          setComptesRanges((m) => new Map(m).set(d.cle, r.nombre ?? 0));
+        } catch { /* un compteur absent n'est pas une panne : la vignette s'affiche sans lui */ }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `comptesDemandes` est une référence, pas un état :
+    //   seules la liste des pièces et celle des vignettes doivent déclencher une demande.
+  }, [mode, pieces, vignettes]);
+
+  /**
    * 🔴🔴 LA PHRASE QUI DIT CE QU'ON A CHERCHÉ, ET CE QU'ON N'A PAS CHERCHÉ. Elle vit dans le module PUR, et elle
    * s'affiche en infobulle du compteur — à côté du nombre, jamais dans une aide qu'il faudrait aller chercher :
    * une limite qu'on lit après avoir conclu ne sert à rien.
@@ -3390,6 +3446,22 @@ export function SelecteurFichierDrive({
                               et pour un type sans aperçu — promettre une fenêtre vide serait pire que rien. */}
                           <span className="sfd-piece-ligne">
                             <span className="sfd-piece-taille">{tailleFinder(x.tailleOctets, false)}</span>
+                            {/* ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE COMPTEUR VERT ════════════════════════
+                                « Rangé N fois dans le Drive » (Arno). VERT parce que c'est un état d'ARRIVÉE —
+                                il ne dit pas « à faire », il dit « c'est déjà quelque part ».
+                                ⚠️ MASQUÉ À ZÉRO : un « 0 » vert se lirait comme une bonne nouvelle alors qu'il
+                                dit le contraire (ce document n'est rangé nulle part). */}
+                            {(comptesRanges.get(`piece:${x.pieceId}`) ?? 0) > 0 && (
+                              <span className="sfd-piece-range"
+                                title={bulleCompteurRange(comptesRanges.get(`piece:${x.pieceId}`) ?? 0)}
+                                aria-label={bulleCompteurRange(comptesRanges.get(`piece:${x.pieceId}`) ?? 0)}>
+                                {comptesRanges.get(`piece:${x.pieceId}`)}
+                              </span>
+                            )}
+                            {/* 🔴 LES TROIS PICTOS SUR UNE SEULE LIGNE, COLLÉS À DROITE (demande d'Arno) : c'est
+                                `sfd-piece-gestes`, poussé par `margin-left:auto`. Avant ce lot ils flottaient
+                                dans le texte, et le crayon passait à la ligne dès que le nom était long. */}
+                            <span className="sfd-piece-gestes">
                             {(() => {
                               const refus = motifSansApercuPiece(x);
                               return (
@@ -3442,6 +3514,7 @@ export function SelecteurFichierDrive({
                               }}>
                               <span aria-hidden="true">🔎</span>
                             </button>
+                            </span>
                           </span>
                           {/* 🔴 LE COMPTEUR ET LA MÉTHODE, à côté de la loupe et jamais ailleurs : la limite doit
                               se lire AU MOMENT où l'on regarde le nombre. */}
@@ -3510,6 +3583,15 @@ export function SelecteurFichierDrive({
                           )}
                           <span className="sfd-piece-ligne">
                             <span className="sfd-piece-taille">{tailleFinder(v.tailleOctets, false)}</span>
+                            {/* 🔴🔴 LE MÊME COMPTEUR VERT que sur une pièce du message : même source, même mot. */}
+                            {(comptesRanges.get(v.cle) ?? 0) > 0 && (
+                              <span className="sfd-piece-range"
+                                title={bulleCompteurRange(comptesRanges.get(v.cle) ?? 0)}
+                                aria-label={bulleCompteurRange(comptesRanges.get(v.cle) ?? 0)}>
+                                {comptesRanges.get(v.cle)}
+                              </span>
+                            )}
+                            <span className="sfd-piece-gestes">
                             {/* L'ŒIL — il ouvre le fichier SOURCE dans l'aperçu du Drive, en lecture seule. */}
                             <button type="button" className="sfd-piece-oeil"
                               title="Visualiser" aria-label={`Visualiser ${v.nom}`}
@@ -3559,6 +3641,7 @@ export function SelecteurFichierDrive({
                               onClick={(e) => { e.stopPropagation(); void basculerLoupe(v.cle, v.driveFileId, null); }}>
                               <span aria-hidden="true">🔎</span>
                             </button>
+                            </span>
                           </span>
                           {loupeSur === v.cle && (
                             <span className="sfd-piece-etat sfd-loupe-compte"
@@ -4017,7 +4100,9 @@ export function SelecteurFichierDrive({
               }}>
               {/* 🔴 LOT RANGER-ARBRE-2 — LE NOMBRE EST CELUI DU LOT QUI PARTIRA, sélection comprise : c'est
                   `piecesEmportees` qui le dit, et le clic range EXACTEMENT ces pièces-là. */}
-              {motDeposerIci(lotDuBouton.length)}
+              {/* ⚠️ LE COMPTE DIT CE QUI PARTIRA : les pièces du message ET les copies à ranger. Annoncer le seul
+                     nombre de pièces ferait croire qu'on en oublie. */}
+              {motDeposerIci(lotDuBouton.length + vignettes.length)}
             </button>
           )}
           {/* 🔴 « JOINDRE LA SÉLECTION » : la suite naturelle du Cmd+clic et du Maj+clic. Absent là où la lecture
@@ -4483,6 +4568,17 @@ export const CSS_SELECTEUR_FICHIER = `
   border-radius:999px;font-size:.7rem;line-height:1.5;
   color:var(--color-svv-ink);background:color-mix(in srgb, #f0a202 55%, transparent)}
 .sfd-repere-nb{font-weight:700}
+/* ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LES TROIS PICTOS SUR UNE LIGNE, COLLES A DROITE ═══════════════════════
+   Demande d'Arno. Avant ce lot ils flottaient dans le texte de la ligne : le crayon passait a la ligne des que le
+   nom etait long, et la vignette changeait de hauteur d'un fichier a l'autre. margin-left:auto les pousse a
+   droite, flex-wrap:nowrap les garde ensemble, et flex:0 0 auto les empeche de se comprimer.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.sfd-piece-gestes{display:inline-flex;align-items:center;gap:2px;flex:0 0 auto;margin-left:auto;flex-wrap:nowrap}
+/* LE COMPTEUR VERT : « range N fois dans le Drive ». Un etat d'ARRIVEE, donc la couleur des capsules vertes du
+   module. Masque a zero — un 0 vert se lirait comme une bonne nouvelle alors qu'il dit le contraire. */
+.sfd-piece-range{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+  min-width:16px;height:16px;padding:0 4px;border-radius:999px;font-size:.68rem;font-weight:700;
+  color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 .sfd-piece--cochee{border-color:var(--color-svv-red);
   background:color-mix(in srgb, var(--color-svv-red) 10%, var(--color-svv-surface))}
 .sfd-piece-case{flex:0 0 auto;width:14px;height:14px;accent-color:var(--color-svv-red);cursor:pointer}

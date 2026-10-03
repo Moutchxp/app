@@ -74,6 +74,22 @@ export async function GET(request: Request): Promise<Response> {
   if (source === '' && !(Number.isSafeInteger(piece) && piece > 0)) {
     return json({ etat: 'refus', message: 'Aucun document désigné.' }, 422);
   }
+  /**
+   * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — `?compte=1` : LE NOMBRE SEUL, SANS UN SEUL APPEL GOOGLE ═══════════════
+   *
+   * Le COMPTEUR VERT de chaque vignette (« Rangé N fois dans le Drive ») est demandé pour TOUTES les vignettes de
+   * la colonne, dès qu'elles paraissent. Lui faire payer ce que paie la loupe — un `files.get` et une remontée de
+   * parents PAR EMPLACEMENT — ferait partir des dizaines d'appels pour afficher un chiffre.
+   *
+   * Ce mode ne lit donc que le REGISTRE, en base : combien d'emplacements cette application connaît-elle pour ce
+   * document ? C'est exact (on relit ce qu'on a fait), c'est instantané, et c'est ce que la bulle annonce.
+   *
+   * ⚠️ IL NE VÉRIFIE PAS QUE CHAQUE EMPLACEMENT EXISTE ENCORE, et c'est la différence avec la loupe — qui, elle,
+   * écarte les copies disparues. Le compteur peut donc annoncer un emplacement de plus que la loupe le jour où
+   * quelqu'un a supprimé une copie dans Google Drive. C'est le prix d'un chiffre instantané, et la loupe reste là
+   * pour dire la vérité du moment.
+   */
+  const compteSeul = params.get('compte') === '1';
 
   const jeton = await jetonPourRequete(request);
   if (jeton.etat !== 'ok') return json({ etat: 'indisponible', message: jeton.motif }, 200);
@@ -91,6 +107,24 @@ export async function GET(request: Request): Promise<Response> {
       ? (await Promise.all(departs.map((d) => copiesDuDocument(d)))).flat()
       : [];
     const ids = [...new Set(departs.flatMap((d) => fermetureCopies(d, liens)))].slice(0, OCCURRENCES_MAX);
+
+    /* ── `?compte=1` : on s'arrête ici. Rien n'est demandé à Google (sauf l'empreinte, et seulement si la base ne
+          l'a pas déjà). C'est ce qui rend le compteur vert gratuit sur une colonne de dix vignettes. ───────── */
+    if (compteSeul) {
+      const md5Base = source === ''
+        ? (await fichiersDriveDeLaPiece(piece)).map((x) => x.md5).find((x) => (x ?? '') !== '') ?? null
+        : null;
+      const md5 = md5Base ?? (source === ''
+        ? null
+        : await (async () => {
+          const m = await metadonneesMemo(jeton.compteGoogle, jeton.jeton, source, { fetch });
+          return m.ok ? m.valeur.md5 ?? null : null;
+        })());
+      return json({
+        etat: 'ok', source: source === '' ? String(piece) : source,
+        md5, occurrences: [], parRegistre: ids.length, nombre: ids.length,
+      });
+    }
 
     /* ── ② CHAQUE OCCURRENCE : EXISTE-T-ELLE ENCORE, ET OÙ ? ───────────────────────────────────────────────── */
     const occurrences: Occurrence[] = [];

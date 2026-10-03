@@ -227,3 +227,23 @@ export function phraseMethode(o: {
       + 'copie rangée ailleurs à la main n’apparaît pas ici.';
   return `${debut}${comment}.${limite}`;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE COMPTEUR VERT D'UNE VIGNETTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LA BULLE DU COMPTEUR VERT. PUR.
+ *
+ * Arno : « Compteur VERT dans la vignette : nombre d'emplacements où ce document est déjà rangé dans le Drive.
+ * Masqué si 0. Bulle au survol : “Rangé N fois dans le Drive”. »
+ *
+ * 🔴 VERT, ET C'EST UN ÉTAT D'ARRIVÉE. Il ne dit pas « à faire » : il dit « c'est déjà quelque part ». C'est la
+ * même grammaire que la capsule « Classé » du module — le vert y signifie toujours « c'est traité ».
+ *
+ * ⚠️ MASQUÉ À ZÉRO, et c'est une règle, pas un détail d'affichage : un « 0 » vert se lirait comme une bonne
+ * nouvelle alors qu'il dit exactement le contraire (ce document n'est rangé nulle part).
+ */
+export function bulleCompteurRange(n: number): string {
+  return n > 1 ? `Rangé ${n} fois dans le Drive` : 'Rangé 1 fois dans le Drive';
+}
