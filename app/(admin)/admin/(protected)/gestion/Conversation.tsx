@@ -69,8 +69,10 @@ import {
 } from '../../../../lib/gestion/brouillonEnAttente';
 /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — de quel CÔTÉ le repère se pose, et ce que sa pastille explique. */
 import {
-  AIDE_PASTILLE_REPERE, comparatifRepere, coteDuRepere,
+  AIDE_PASTILLE_REPERE, comparatifRepere, coteDuRepere, nbMailsCouverts,
 } from '../../../../lib/gestion/repereFenetre';
+/* 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — la pastille « i » du repère ouvre cette fenêtre, au clic. */
+import { ModaleChangementSuivi, type MailDuRepere } from './ModaleChangementSuivi';
 /* 🔴 LA PASTILLE « i » DES BIENS, employée telle quelle avec un autre contenu : voir son encadré `lignes`. */
 import { InfoBien, CSS_INFO_BIEN } from './InfoBien';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
@@ -1164,7 +1166,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               Il se pose désormais du côté qui PRÉCÈDE CHRONOLOGIQUEMENT (`coteDuRepere`). */}
           {coteDuRepere(ordre) === 'dessus' && reperes
             .filter((r) => r.avantMessageId === m.messageId)
-            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessus" />)}
+            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessus"
+              /* 🔴 LE MAIL QUI OUVRE LA FENÊTRE, pour le pied de la modale : c'est CE mail-ci, celui
+                 que le repère annonce. Aucune recherche, aucune requête — il est déjà là. */
+              mail={m} />)}
           <MessageConversation message={m} maintenant={maintenant} filId={filId}
             /* 🔴 LOT SUIVI-CONVERSATION — « Un mail en exception porte une petite mention “exception : <biens>”
                dans son en-tête. » Le mot vient du module pur : trois sortes, une seule façon de les écrire. */
@@ -1288,7 +1293,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               l'encadré du côté opposé, et `coteDuRepere`. */}
           {coteDuRepere(ordre) === 'dessous' && reperes
             .filter((r) => r.avantMessageId === m.messageId)
-            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessous" />)}
+            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessous"
+              /* 🔴 LE MAIL QUI OUVRE LA FENÊTRE, pour le pied de la modale : c'est CE mail-ci, celui
+                 que le repère annonce. Aucune recherche, aucune requête — il est déjà là. */
+              mail={m} />)}
           </Fragment>
         ))}
       </ol>
@@ -1614,13 +1622,19 @@ function ouvrirRedaction(
  * changement de taille, par un `ResizeObserver`.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-function LigneRepere({ repere: r, suivi, cote }: {
+function LigneRepere({ repere: r, suivi, cote, mail }: {
   repere: RepereFil;
   suivi: { mails: number[]; periodes: Periode[]; exceptions: ExceptionMail[] } | null;
   cote: 'dessus' | 'dessous';
+  /**
+   * 🔴 LE MAIL QUI OUVRE LA FENÊTRE — pour le pied de la modale (« sur quel mail : expéditeur, date, objet »).
+   * C'est le mail voisin de la ligne, celui que l'écran tient déjà en main : rien n'est rechargé pour l'afficher.
+   */
+  mail: MailDuRepere | null;
 }) {
   const li = useRef<HTMLLIElement | null>(null);
   const [hauteur, setHauteur] = useState(0);
+  const [ouverte, setOuverte] = useState(false);
 
   /**
    * 🔴 LA HAUTEUR DU MAIL VOISIN, MESURÉE. Au-dessus du mail, le voisin est le SUIVANT ; en dessous, le
@@ -1641,25 +1655,18 @@ function LigneRepere({ repere: r, suivi, cote }: {
   /**
    * 🔴🔴 CE QUE LA PASTILLE EXPLIQUE : un AVANT / APRÈS, composé par le module PUR. `null` = on ne sait pas
    * (migration 290 absente, ou fenêtre introuvable) : la pastille ne s'affiche alors pas du tout, plutôt que
-   * d'ouvrir une bulle vide.
+   * d'ouvrir une fenêtre vide.
+   *
+   * 🔴 MÊME SOURCE QU'AVANT, mot pour mot la demande d'Arno (« données identiques à celles de la bulle actuelle »).
+   * Seule la MISE EN FORME a changé de maison : la bulle composait ses lignes ici, la modale les demande à
+   * `lignesComparatif` — qui lit le MÊME comparatif.
    */
   const c = suivi === null ? null
     : comparatifRepere({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
-  const lignesBulle = c === null ? undefined : [
-    ...(c.avant === null
-      ? [{ libelle: 'Avant', valeur: 'rien avant — c’est la première fenêtre de cet échange' }]
-      : [
-        { libelle: 'Avant · statut', valeur: c.avant.statut },
-        { libelle: 'Avant · biens', valeur: c.avant.biens },
-        { libelle: 'Avant · personnes', valeur: c.avant.personnes },
-      ]),
-    { libelle: 'Après · statut', valeur: c.apres.statut },
-    { libelle: 'Après · biens', valeur: c.apres.biens },
-    { libelle: 'Après · personnes', valeur: c.apres.personnes },
-    { libelle: 'Choix', valeur: c.choix },
-    ...(c.qui === null ? [] : [{ libelle: 'Par', valeur: c.qui }]),
-    ...(c.quand === null ? [] : [{ libelle: 'Le', valeur: dateHeureComplete(c.quand) }]),
-  ];
+
+  /** 🔴 LA PORTÉE DE LA FENÊTRE, comptée sur les mails de l'échange. Module pur, aucune requête. */
+  const nbMails = suivi === null ? 0
+    : nbMailsCouverts({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
 
   return (
     <li className={`cnv-repere cnv-repere--${cote}`} ref={li}
@@ -1678,11 +1685,28 @@ function LigneRepere({ repere: r, suivi, cote }: {
             {r.parLibelle}
           </span>
         )}
-        {/* 🔴 LA PASTILLE, AU BOUT DE LA PHRASE : le MÊME composant que celle des biens — survol, grâce, Échap,
-            clavier, portail. Voir l'encadré de `lignes` dans `InfoBien`. */}
-        {lignesBulle !== undefined && (
-          <InfoBien cle="" titre={`À partir d’ici : ${r.versQuoi}`} aide={AIDE_PASTILLE_REPERE}
-            lignes={lignesBulle} />
+        {/* ══ 🔴🔴 LA PASTILLE, AU BOUT DE LA PHRASE — ELLE OUVRE AU CLIC, PLUS AU SURVOL ═══════════════════════
+            Arno : « la pastille s'ouvre au CLIC (et à Entrée ou Espace au clavier), plus au survol. Bulle “Voir le
+            détail du changement” au survol seulement. »
+
+            🔴 UN VRAI `<button>`, ET C'EST TOUT CE QU'IL FAUT POUR LE CLAVIER : Entrée et Espace déclenchent
+            nativement son `onClick`. Un `onKeyDown` de plus l'aurait ouvert DEUX fois sur Entrée — le navigateur
+            émet le clic, et le gestionnaire aurait tiré en même temps.
+
+            🔴 LE SURVOL NE FAIT PLUS QU'UNE CHOSE : dire ce que le clic va ouvrir (`title`). Le même mot sert de
+            nom au bouton (`aria-label`), pour qui ne voit pas la bulle. */}
+        {c !== null && (
+          <button type="button" className="cnv-repere-i" aria-haspopup="dialog" aria-expanded={ouverte}
+            title={AIDE_PASTILLE_REPERE} aria-label={AIDE_PASTILLE_REPERE}
+            onClick={() => setOuverte(true)}>
+            <span aria-hidden="true">i</span>
+          </button>
+        )}
+        {/* ⚠️ LA MODALE EST RENDUE DANS LA LIGNE, mais son voile est `position:fixed` : elle est donc centrée sur
+            l'ÉCRAN, et aucun conteneur de la conversation ne peut la rogner. */}
+        {c !== null && ouverte && (
+          <ModaleChangementSuivi comparatif={c} mail={mail} nbMails={nbMails}
+            onFermer={() => setOuverte(false)} />
         )}
       </span>
       <span className="cnv-repere-bras cnv-repere-bras--droite" aria-hidden="true" />
@@ -2499,6 +2523,17 @@ export const CSS_CONVERSATION = `
 .cnv-repere-mot{font-size:.76rem;font-weight:700;letter-spacing:.01em;color:var(--color-svv-red);
   overflow-wrap:anywhere}
 .cnv-repere-qui{font-size:.72rem;color:var(--color-svv-red);opacity:.75}
+/* 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — LA PASTILLE "i" EST UN BOUTON, et elle OUVRE une fenetre.
+   Meme dessin que la pastille des biens (.ifb-pastille), au rouge du repere pres : c'est la meme promesse ("il y a
+   plus a lire ici"), donc le meme objet a l'oeil. Elle n'est plus une bulle au survol : voir ModaleChangementSuivi. */
+.cnv-repere-i{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;
+  margin:0 0 0 .1rem;font:inherit;font-size:.68rem;font-weight:700;font-style:italic;line-height:1;
+  color:var(--color-svv-red);background:transparent;border:1px solid var(--color-svv-red);border-radius:50%;
+  cursor:pointer;flex:0 0 auto;opacity:.8}
+.cnv-repere-i:hover{opacity:1}
+.cnv-repere-i:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;opacity:1}
+/* ⚠️ CIBLE TACTILE : 24 px au doigt, comme partout dans le module. */
+@media (pointer:coarse){.cnv-repere-i{width:24px;height:24px;font-size:.78rem}}
 /* Les bras : hauteur zero dans la grille, le trace vit dans leur ::before. */
 .cnv-repere-bras{position:relative;height:0;min-width:0}
 .cnv-repere-bras::before{content:"";position:absolute;left:0;right:0;

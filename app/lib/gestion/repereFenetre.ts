@@ -67,11 +67,42 @@ export interface EtatClassement {
 export const AUCUN_BIEN = 'aucun bien';
 export const AUCUNE_PERSONNE = 'aucune personne nommée';
 
-/** Le STATUT d'un classement, en un mot. PUR. */
+/**
+ * ══ 🔴 LE STATUT D'UN CLASSEMENT, EN UN MOT. PUR. ════════════════════════════════════════════════════════════════
+ *
+ * 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — « À CLASSER » REJOINT LES TROIS AUTRES, et Arno les nomme tous
+ * les quatre : « statut (Classé / Interne / Hors gestion / À classer) ».
+ *
+ * Une fenêtre « biens » SANS aucun bien ne classe rien : l'annoncer « Classé » était faux, et c'est précisément
+ * le cas d'Arno sur le fil 3490 (la fenêtre du 01/10 à 20:12, « aucun bien »). C'est le même vocabulaire que la
+ * capsule de la liste, où « À classer » veut déjà dire exactement cela.
+ */
+export const STATUT_CLASSE = 'Classé';
+export const STATUT_A_CLASSER = 'À classer';
+export const STATUT_INTERNE = 'Interne';
+export const STATUT_HORS_GESTION = 'Hors gestion';
+
 export function motStatutClassement(c: Classement): string {
-  if (c.sorte === 'interne') return 'Interne';
-  if (c.sorte === 'hors_gestion') return 'Hors gestion';
-  return 'Classé';
+  if (c.sorte === 'interne') return STATUT_INTERNE;
+  if (c.sorte === 'hors_gestion') return STATUT_HORS_GESTION;
+  return c.biens.length === 0 ? STATUT_A_CLASSER : STATUT_CLASSE;
+}
+
+/**
+ * ══ 🔴 LES PERSONNES, AVEC LEUR RÔLE. PUR. ═══════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « personnes concernées (avec rôle) ». Un nom seul ne dit pas si l'on parle du bailleur ou de l'occupant,
+ * et c'est exactement ce qu'on cherche en lisant un changement de suivi.
+ */
+export function motRolePersonne(sorte: 'proprietaire' | 'locataire'): string {
+  return sorte === 'proprietaire' ? 'propriétaire' : 'locataire';
+}
+
+export function personnesAvecRole(c: Classement): string {
+  const noms = (c.personnes ?? [])
+    .map((p) => `${p.libelle.trim()} (${motRolePersonne(p.sorte)})`)
+    .filter((l) => l.trim() !== '');
+  return noms.length === 0 ? AUCUNE_PERSONNE : noms.join(', ');
 }
 
 /** Les BIENS d'un classement, écrits. PUR. */
@@ -87,8 +118,15 @@ export function motPersonnes(c: Classement): string {
   return noms.length === 0 ? AUCUNE_PERSONNE : noms.join(', ');
 }
 
+/**
+ * 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — LES PERSONNES PORTENT DÉSORMAIS LEUR RÔLE dans le comparatif
+ * (`personnesAvecRole`), parce qu'Arno l'a demandé ligne à ligne : « personnes concernées (avec rôle) ».
+ *
+ * ⚠️ `motPersonnes` RESTE : c'est le nom seul, et le bloc « Suivi dans la conversation » l'écrit ainsi depuis
+ * toujours. Deux lectures d'une même donnée, chacune pour un écran — pas une duplication à réduire.
+ */
 export function etatDuClassement(c: Classement): EtatClassement {
-  return { statut: motStatutClassement(c), biens: motBiens(c), personnes: motPersonnes(c) };
+  return { statut: motStatutClassement(c), biens: motBiens(c), personnes: personnesAvecRole(c) };
 }
 
 /**
@@ -163,5 +201,98 @@ export function phraseRepere(c: Classement): string {
   return `À partir d’ici : ${motClassement(c)}`;
 }
 
-/** Le nom de la pastille, pour les lecteurs d'écran. PUR. */
-export const AIDE_PASTILLE_REPERE = 'Ce qui change à partir d’ici';
+/**
+ * ══ 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — LA PASTILLE OUVRE UNE MODALE, PLUS UNE BULLE ════════════════
+ *
+ * DÉCISION D'ARNO (03/10/2026) : « la pastille s'ouvre au CLIC (et à Entrée ou Espace au clavier), plus au
+ * survol. Bulle “Voir le détail du changement” au survol seulement. »
+ *
+ * 🔴 POURQUOI LE CHANGEMENT EST JUSTE. Une bulle au survol se referme dès qu'on s'en éloigne : elle convient à un
+ * descriptif qu'on consulte d'un coup d'œil, pas à un comparatif en deux colonnes qu'on LIT, qu'on compare ligne
+ * à ligne, et dont on veut relire le pied. Le contenu a changé de nature ; le geste suit.
+ */
+export const AIDE_PASTILLE_REPERE = 'Voir le détail du changement';
+
+/** Le titre de la modale. PUR. `null` = la date est inconnue, et on ne l'invente pas. */
+export function titreModaleChangement(quandFr: string | null): string {
+  return quandFr === null ? 'Changement de suivi' : `Changement de suivi — ${quandFr}`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LES LIGNES DU COMPARATIF — CE QUE LA MODALE MET EN REGARD
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Une ligne du tableau : le même intitulé, l'état d'avant, celui d'après, et s'ils diffèrent. */
+export interface LigneComparatif {
+  libelle: string;
+  avant: string;
+  apres: string;
+  /** 🔴 C'EST ELLE QUI SE MET EN ÉVIDENCE. Vraie dès que les deux côtés ne disent pas la même chose. */
+  modifie: boolean;
+}
+
+/** Ce qu'on écrit quand il n'y a rien avant : la fenêtre est la première de l'échange. */
+export const RIEN_AVANT = '—';
+
+/**
+ * ══ 🔴🔴 LE COMPARATIF, LIGNE À LIGNE. PUR. ══════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « DEUX colonnes, “Avant” à gauche, “Après” à droite, lignes ALIGNÉES pour comparer : statut, bien(s)
+ * (adresse, type, lot), personnes concernées (avec rôle), choix de suivi ; les lignes qui DIFFÈRENT sont mises en
+ * évidence. »
+ *
+ * 🔴 LES QUATRE LIGNES SONT TOUJOURS RENDUES, même identiques — c'est ce qui rend la comparaison lisible : on lit
+ * une grille, pas une liste de différences. Ce sont les lignes MODIFIÉES qui se signalent, pas les autres qui
+ * disparaissent.
+ *
+ * ⚠️ « CHOIX DE SUIVI » N'A PAS D'AVANT : c'est le geste qui a produit CETTE fenêtre, pas un état antérieur. On
+ * écrit donc un tiret à gauche, et la ligne n'est jamais marquée « modifié » — elle ne compare rien.
+ */
+export function lignesComparatif(c: ComparatifRepere): LigneComparatif[] {
+  const ligne = (libelle: string, avant: string | null, apres: string): LigneComparatif => ({
+    libelle,
+    avant: avant ?? RIEN_AVANT,
+    apres,
+    modifie: avant !== null && avant !== apres,
+  });
+  return [
+    ligne('Statut', c.avant?.statut ?? null, c.apres.statut),
+    ligne('Bien(s)', c.avant?.biens ?? null, c.apres.biens),
+    ligne('Personnes concernées', c.avant?.personnes ?? null, c.apres.personnes),
+    { libelle: 'Choix de suivi', avant: RIEN_AVANT, apres: c.choix, modifie: false },
+  ];
+}
+
+/**
+ * ══ 🔴 COMBIEN DE MAILS CETTE FENÊTRE COUVRE. PUR. ═══════════════════════════════════════════════════════════════
+ *
+ * Arno : « le nombre de mails couverts par la nouvelle fenêtre ».
+ *
+ * 🔴 ELLE COURT DE SON MAIL JUSQU'À LA FENÊTRE SUIVANTE, celle-ci exclue — c'est la définition même d'une période
+ * (« à partir de ce mail, inclus »). Sans fenêtre suivante, elle va jusqu'au dernier mail de l'échange.
+ *
+ * ⚠️ ON COMPTE LES MAILS DE L'ÉCHANGE, pas les jours : c'est ce qu'on veut savoir en lisant « à partir d'ici ».
+ */
+export function nbMailsCouverts(o: {
+  mails: readonly number[];
+  periodes: readonly Periode[];
+  periodeId: number;
+}): number {
+  const rang = new Map(o.mails.map((m, i) => [m, i]));
+  const moi = o.periodes.find((p) => p.id === o.periodeId);
+  if (moi === undefined) return 0;
+  const debut = rang.get(moi.depuisMessageId);
+  if (debut === undefined) return 0;
+  const suivants = o.periodes
+    .filter((p) => p.id !== moi.id)
+    .map((p) => rang.get(p.depuisMessageId))
+    .filter((r): r is number => r !== undefined && r > debut)
+    .sort((a, b) => a - b);
+  const fin = suivants[0] ?? o.mails.length;
+  return Math.max(0, fin - debut);
+}
+
+/** Le mot du compte, au pluriel juste. PUR. */
+export function motMailsCouverts(n: number): string {
+  return n <= 1 ? '1 mail couvert par cette fenêtre' : `${n} mails couverts par cette fenêtre`;
+}

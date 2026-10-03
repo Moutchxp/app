@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  AUCUN_BIEN, AUCUNE_PERSONNE, CHOIX_CONVERSATION, CHOIX_SUITE,
-  comparatifRepere, coteDuRepere, etatDuClassement, motChoixFenetre, phraseRepere,
+  AIDE_PASTILLE_REPERE, AUCUN_BIEN, AUCUNE_PERSONNE, CHOIX_CONVERSATION, CHOIX_SUITE,
+  comparatifRepere, coteDuRepere, etatDuClassement, lignesComparatif, motChoixFenetre,
+  motMailsCouverts, nbMailsCouverts, personnesAvecRole, phraseRepere, RIEN_AVANT,
+  STATUT_A_CLASSER, titreModaleChangement,
 } from './repereFenetre';
 import { reperesDuFil, type Periode } from './periodesConversation';
 
@@ -83,7 +85,10 @@ describe('🔴🔴 ② le comparatif avant / après', () => {
       biens: '2 Square Henri Régnault, Courbevoie — lot 484',
       personnes: AUCUNE_PERSONNE,
     });
-    expect(c?.apres).toEqual({ statut: 'Classé', biens: AUCUN_BIEN, personnes: AUCUNE_PERSONNE });
+    /* 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — « À CLASSER », et non plus « Classé » : une fenêtre
+       « biens » SANS aucun bien ne classe rien, et Arno nomme ce statut dans sa liste des quatre. C'est
+       exactement la fenêtre du 01/10 20:12 du fil 3490. */
+    expect(c?.apres).toEqual({ statut: STATUT_A_CLASSER, biens: AUCUN_BIEN, personnes: AUCUNE_PERSONNE });
     expect(c?.choix).toBe(CHOIX_SUITE);
     expect(c?.qui).toBe('a.jorel@sansvisavis.com');
     expect(c?.quand).toBe('2026-10-01T20:12:36+02:00');
@@ -113,18 +118,26 @@ describe('🔴🔴 ② le comparatif avant / après', () => {
     expect(comparatifRepere({ mails: MAILS, periodes: PERIODES, periodeId: 123 })).toBeNull();
   });
 
-  it('🔴 les trois statuts s’écrivent en toutes lettres', () => {
+  /** 🔴🔴 LES QUATRE STATUTS D'ARNO, mot pour mot : « Classé / Interne / Hors gestion / À classer ». */
+  it('🔴🔴 les QUATRE statuts s’écrivent en toutes lettres', () => {
     expect(etatDuClassement({ sorte: 'interne', biens: [] }).statut).toBe('Interne');
     expect(etatDuClassement({ sorte: 'hors_gestion', biens: [] }).statut).toBe('Hors gestion');
-    expect(etatDuClassement({ sorte: 'biens', biens: [] }).statut).toBe('Classé');
+    /* 🔴 LA DISTINCTION QUI MANQUAIT : avec un bien c'est classé, sans aucun bien il reste à classer. */
+    expect(etatDuClassement({ sorte: 'biens', biens: [{ cle: '1', libelle: 'A' }] }).statut).toBe('Classé');
+    expect(etatDuClassement({ sorte: 'biens', biens: [] }).statut).toBe('À classer');
   });
 
-  it('🔴 les personnes du classement sont nommées quand il y en a', () => {
+  /** 🔴🔴 « PERSONNES CONCERNÉES (AVEC RÔLE) » (Arno) : un nom seul ne dit pas si c'est le bailleur ou l'occupant. */
+  it('🔴🔴 les personnes du comparatif portent leur rôle', () => {
     const e = etatDuClassement({
       sorte: 'biens', biens: [{ cle: '1', libelle: 'A' }],
-      personnes: [{ sorte: 'proprietaire', cle: 'p1', libelle: 'FORERO Marie-Yvonne' }],
+      personnes: [
+        { sorte: 'proprietaire', cle: 'p1', libelle: 'FORERO Marie-Yvonne' },
+        { sorte: 'locataire', cle: 'l1', libelle: 'DUPONT Jean' },
+      ],
     });
-    expect(e.personnes).toBe('FORERO Marie-Yvonne');
+    expect(e.personnes).toBe('FORERO Marie-Yvonne (propriétaire), DUPONT Jean (locataire)');
+    expect(personnesAvecRole({ sorte: 'biens', biens: [] })).toBe(AUCUNE_PERSONNE);
   });
 
   it('🔴 le type de choix se déduit du rang du mail', () => {
@@ -194,11 +207,32 @@ describe('🔴 ③ ce que l’écran dessine', () => {
     expect(src).toContain('.cnv-repere--dessous .cnv-repere-bras::before{bottom:0;border-bottom-width:1px}');
   });
 
-  /** 🔴 LA PASTILLE EST CELLE DES BIENS, pas un jumeau : c'est `InfoBien`, avec un contenu fourni. */
-  it('🔴🔴 la pastille est le composant des biens', () => {
-    expect(src).toContain('<InfoBien cle=""');
-    expect(src).toContain('lignes={lignesBulle}');
-    expect(src).toContain('AIDE_PASTILLE_REPERE');
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES, POINT 2 — LA PASTILLE OUVRE AU CLIC, PLUS AU SURVOL
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * 🔴🔴 LE CLIC OUVRE LA MODALE. Arno : « la pastille s'ouvre au CLIC (et à Entrée ou Espace au clavier), plus
+   * au survol ».
+   *
+   * 🔴 ET C'EST UN VRAI `<button>` : Entrée et Espace déclenchent nativement son `onClick`. Un `onKeyDown` de
+   * plus l'aurait ouvert DEUX fois sur Entrée (le navigateur émet aussi le clic) — c'est pour cela qu'on fige
+   * ici le bouton natif, et pas un gestionnaire de touches.
+   */
+  it('🔴🔴 la pastille est un bouton, et le clic ouvre la modale', () => {
+    expect(src).toContain('<button type="button" className="cnv-repere-i" aria-haspopup="dialog"');
+    expect(src).toContain('onClick={() => setOuverte(true)}');
+    expect(src).toContain('<ModaleChangementSuivi comparatif={c} mail={mail} nbMails={nbMails}');
+    expect(src).toContain('{c !== null && ouverte && (');
+  });
+
+  /** 🔴 LE SURVOL NE FAIT PLUS QU'UNE CHOSE : dire ce que le clic va ouvrir. Et la bulle d'avant a disparu. */
+  it('🔴🔴 au survol, seulement « Voir le détail du changement »', () => {
+    expect(AIDE_PASTILLE_REPERE).toBe('Voir le détail du changement');
+    expect(src).toContain('title={AIDE_PASTILLE_REPERE} aria-label={AIDE_PASTILLE_REPERE}');
+    /* ⚠️ PLUS AUCUNE BULLE SUR LE REPÈRE : les lignes qu'elle composait sont parties dans la modale. */
+    expect(src).not.toContain('lignes={lignesBulle}');
+    expect(src).not.toContain('<InfoBien cle=""');
   });
 
   /**
