@@ -2,6 +2,22 @@
  * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 2 — L'INDEX DES EMPREINTES. Module PUR ═══════════════════
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * ══ 🔴🔴🔴 LE PRINCIPE, VALIDÉ PAR ARNO LE 03/10/2026 — IL GOUVERNE TOUT CE FICHIER ═══════════════════════════════
+ *
+ *   ① L'IDENTITÉ D'UN DOCUMENT EST SON EMPREINTE DE CONTENU (md5), JAMAIS SON NOM.
+ *   ② CHAQUE COPIE DANS LE DRIVE EST DÉSIGNÉE PAR SON IDENTIFIANT DRIVE.
+ *   ③ LES NOMS — celui d'origine comme les suivants — SONT GARDÉS EN HISTORIQUE, pour la RECHERCHE et pour
+ *      l'AFFICHAGE. JAMAIS POUR IDENTIFIER.
+ *
+ * Ce n'est pas une préférence de conception : c'est ce que le cas d'Arno a démontré. Un document parti de notre
+ * Drive, renommé, envoyé puis renvoyé revient avec un autre nom et les MÊMES octets. Tout ce qui juge sur le nom
+ * se trompe alors deux fois — il ne reconnaît pas ce qui est le même, et il confondrait deux contenus différents
+ * portant le même nom. Un nom est une étiquette que l'on change ; une empreinte est ce que le fichier EST.
+ *
+ * ⚠️ D'OÙ LA DISCIPLINE DE CE MODULE : `nom` est transporté, rangé, affiché — et n'entre dans AUCUNE comparaison
+ * d'identité. La seule égalité qui décide est celle de `md5` ; la seule clé est `drive_file_id`.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ *
  * RÈGLE D'ARNO (03/10/2026) : « une pièce dont le CONTENU est déjà dans le Drive doit être reconnue, quel que soit
  * son nom. » Le niveau 1 reconnaît ce que l'APPLICATION a rangé ; celui-ci reconnaît ce qu'elle n'a jamais touché.
  *
