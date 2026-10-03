@@ -675,9 +675,29 @@ export interface MetaFichier {
   md5: string | null;
 }
 
-/** Les MÉTADONNÉES d'un élément : nom, type, taille, parents, vignette, empreinte. LECTURE SEULE. */
+/**
+ * Les MÉTADONNÉES d'un élément : nom, type, taille, parents, vignette, empreinte. LECTURE SEULE.
+ *
+ * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — `inclureCorbeille`, ET LE DÉFAUT QU'IL RÉPARE ═════════════════════════════
+ *
+ * CONSTAT SUR LE VRAI DRIVE (03/10/2026, dossier « Test ») : la mise à la corbeille fonctionnait, et « Annuler »
+ * répondait « Emplacement incomplet : par précaution, cette mise à la corbeille est refusée ». La restauration
+ * était donc IMPOSSIBLE — exactement ce qui rendait le geste réversible.
+ *
+ * 🔴 LA CAUSE ÉTAIT ICI, ET ELLE EST LOGIQUE : cette fonction REFUSE un élément à la corbeille (voir plus bas).
+ * Or, pour restaurer, le fichier EST à la corbeille — par définition. `chaineParents` cassait donc à son premier
+ * maillon, le verdict ne savait pas situer le fichier, et « ne pas savoir vaut interdit » faisait le reste.
+ *
+ * 🔴 LE REFUS PAR DÉFAUT NE BOUGE PAS D'UN IOTA, et c'est important : partout ailleurs (joindre, visualiser,
+ * déplacer, copier), un fichier à la corbeille ne doit pas être traité comme présent. Seul le chemin de
+ * RESTAURATION demande `inclureCorbeille`, et il le demande parce qu'il sait ce qu'il cherche.
+ *
+ * ⚠️ CELA NE RELÂCHE AUCUN GARDE-FOU : le verdict reste rendu sur la chaîne RÉELLE des parents, et un fichier de
+ * « Documents clients scannés » reste refusé, à la corbeille comme ailleurs. On lit mieux, on n'autorise pas plus.
+ */
 export async function lireMetadonnees(
   accessToken: string, id: string, deps: DepsGoogle,
+  o: { inclureCorbeille?: boolean } = {},
 ): Promise<Resultat<MetaFichier>> {
   const p = new URLSearchParams({
     fields: 'id,name,mimeType,size,parents,webViewLink,trashed,thumbnailLink,driveId,md5Checksum',
@@ -690,7 +710,9 @@ export async function lireMetadonnees(
     id?: string; name?: string; mimeType?: string; size?: string; parents?: string[];
     webViewLink?: string; trashed?: boolean; thumbnailLink?: string; driveId?: string; md5Checksum?: string;
   };
-  if (b.trashed === true) return { ok: false, motif: 'Ce fichier est à la corbeille du Drive.' };
+  if (b.trashed === true && o.inclureCorbeille !== true) {
+    return { ok: false, motif: 'Ce fichier est à la corbeille du Drive.' };
+  }
   return {
     ok: true,
     valeur: {
@@ -721,6 +743,17 @@ export interface MaillonParent { id: string; nom: string; parentId: string | nul
 
 export async function chaineParents(
   accessToken: string, depart: string, deps: DepsGoogle, max = 32,
+  /**
+   * 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — remonter la chaîne D'UN ÉLÉMENT À LA CORBEILLE. Faux par défaut : tous les
+   * appelants d'avant ce lot se comportent à l'identique. Seule la RESTAURATION le passe à vrai, parce qu'elle
+   * part justement d'un fichier à la corbeille — sans quoi « Annuler » ne peut rien défaire (défaut constaté sur
+   * le vrai Drive le 03/10/2026).
+   *
+   * ⚠️ IL NE VAUT QUE POUR LE PREMIER MAILLON EN PRATIQUE : un fichier à la corbeille garde ses parents, qui eux
+   * ne le sont pas. On le passe quand même à toute la remontée, parce qu'un dossier parent mis à la corbeille
+   * avec son contenu est un cas réel, et qu'une chaîne coupée au milieu redonnerait le même refus.
+   */
+  o: { inclureCorbeille?: boolean } = {},
 ): Promise<MaillonParent[]> {
   const chaine: MaillonParent[] = [];
   const vus = new Set<string>();
@@ -728,7 +761,7 @@ export async function chaineParents(
   for (let i = 0; i < max && courant !== null; i += 1) {
     if (vus.has(courant)) break;
     vus.add(courant);
-    const m: Resultat<MetaFichier> = await lireMetadonnees(accessToken, courant, deps);
+    const m: Resultat<MetaFichier> = await lireMetadonnees(accessToken, courant, deps, o);
     if (!m.ok) break;
     const parent = m.valeur.parents[0] ?? null;
     chaine.push({ id: courant, nom: m.valeur.nom, parentId: parent, driveId: m.valeur.driveId });

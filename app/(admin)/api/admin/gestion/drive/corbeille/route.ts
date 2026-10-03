@@ -205,7 +205,22 @@ async function restaurer(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<
   const remis: string[] = [];
   const refuses: { id: string; nom: string; motif: string }[] = [];
   for (const l of lignes) {
-    const chaine = await chaineParents(jeton.jeton, l.driveId, { fetch });
+    /**
+     * ══ 🔴🔴 ON REMONTE LA CHAÎNE D'UN FICHIER **À LA CORBEILLE**, ET IL FAUT LE DEMANDER ═════════════════════
+     *
+     * DÉFAUT CONSTATÉ SUR LE VRAI DRIVE le 03/10/2026, dossier « Test » : la mise à la corbeille marchait, et
+     * « Annuler » répondait « Emplacement incomplet : par précaution, cette mise à la corbeille est refusée ».
+     * Le geste n'était donc PAS réversible — c'est-à-dire que la condition même qui avait permis à Arno de lever
+     * l'interdit de suppression n'était pas tenue.
+     *
+     * 🔴 LA CAUSE : `lireMetadonnees` refuse par défaut un élément à la corbeille, et c'est juste partout
+     * ailleurs. Mais ici le fichier EST à la corbeille — par définition. La chaîne revenait donc vide, le verdict
+     * ne savait pas le situer, et « ne pas savoir vaut interdit » faisait le reste.
+     *
+     * 🔒 LE GARDE-FOU NE BOUGE PAS : on lit la chaîne RÉELLE, et `peutMettreCorbeille` refuse toujours un fichier
+     * de « Documents clients scannés » — à la corbeille comme ailleurs. On lit mieux, on n'autorise pas plus.
+     */
+    const chaine = await chaineParents(jeton.jeton, l.driveId, { fetch }, 32, { inclureCorbeille: true });
     const v = peutMettreCorbeille(
       { cibleId: l.driveId, estDossier: false, sorte: 'restaurer' },
       {

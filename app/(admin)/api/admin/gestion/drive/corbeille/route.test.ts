@@ -55,7 +55,8 @@ vi.mock('../../../../../../lib/gestion/driveVerdict', () => ({
 }));
 vi.mock('../../../../../../lib/gestion/drive', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../../../lib/gestion/drive')>()),
-  chaineParents: (_j: string, depart: string) => chaineMock(depart),
+  /* ⚠️ LES OPTIONS SONT CAPTURÉES, et non ignorées : c'est par elles que passe le correctif de la restauration. */
+  chaineParents: (_j: string, depart: string, _d: unknown, _max?: number, o?: unknown) => chaineMock(depart, o),
 }));
 vi.mock('../../../../../../lib/gestion/driveMemoire', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../../../lib/gestion/driveMemoire')>()),
@@ -93,6 +94,9 @@ const ARBRE: Record<string, { nom: string; parentId: string | null; dossier: boo
 
 const MIME_DOSSIER = 'application/vnd.google-apps.folder';
 
+/** Les fichiers que le DOUBLE tient pour « à la corbeille » : illisibles sans `inclureCorbeille`, comme chez Google. */
+const ALA_CORBEILLE = new Set<string>();
+
 function chaineDepuis(depart: string): Maillon[] {
   const out: Maillon[] = [];
   let courant: string | null = depart;
@@ -115,6 +119,7 @@ const jeter = (id: string) => POST(demande({ action: 'corbeille', elements: [{ i
 beforeEach(() => {
   vi.clearAllMocks();
   oublierLeDrive();
+  ALA_CORBEILLE.clear();
   gardeMock.mockResolvedValue(null);
   jetonMock.mockResolvedValue({ etat: 'ok', jeton: 'JETON', compteGoogle: 'a.jorel@sansvisavis.com' });
   journalDispoMock.mockResolvedValue(true);
@@ -124,7 +129,16 @@ beforeEach(() => {
     protegesEtAncetres: new Set(['interdit', 'drive', 'racine']),
     maillons: chaineDepuis('interdit'),
   });
-  chaineMock.mockImplementation(async (depart: string) => chaineDepuis(depart));
+  /**
+   * 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE DOUBLE IMITE LE VRAI DRIVE : un fichier À LA CORBEILLE n'est lisible
+   * QUE si l'appelant le demande (`inclureCorbeille`). C'est exactement ce que fait `lireMetadonnees`, et c'est ce
+   * qui avait cassé la restauration sur le vrai Drive le 03/10/2026 : la chaîne revenait vide, le verdict ne
+   * savait pas situer le fichier, et « ne pas savoir vaut interdit » refusait l'annulation.
+   */
+  chaineMock.mockImplementation(async (depart: string, o?: { inclureCorbeille?: boolean }) => {
+    if (ALA_CORBEILLE.has(depart) && o?.inclureCorbeille !== true) return [];
+    return chaineDepuis(depart);
+  });
   metaMock.mockImplementation(async (id: string) => {
     const n = ARBRE[id];
     if (n === undefined) return { ok: false, motif: 'introuvable' };
@@ -303,6 +317,47 @@ describe('🔴 « Annuler » restaure', () => {
       { id: 43, action: 'corbeille', driveId: 'aF', nom: 'avis.pdf', parentOrigine: 'n2', parentCible: '', copieDriveId: null },
     ]);
     const r = await POST(demande({ action: 'restaurer', mouvements: [43] }));
+    const d = (await r.json()) as { remis: string[]; refuses: unknown[] };
+    expect(d.remis).toHaveLength(0);
+    expect(d.refuses).toHaveLength(1);
+    expect(basculerMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ══ 🔴🔴 LA NON-RÉGRESSION DU 03/10/2026 — « ANNULER » DOIT POUVOIR LIRE UN FICHIER À LA CORBEILLE ═══════════
+   *
+   * DÉFAUT CONSTATÉ SUR LE VRAI DRIVE, dossier « Test » : la mise à la corbeille fonctionnait, et « Annuler »
+   * répondait « Emplacement incomplet : par précaution, cette mise à la corbeille est refusée ». Le geste n'était
+   * donc PAS réversible — c'est-à-dire que la condition même qui avait permis à Arno de lever l'interdit de
+   * suppression n'était pas tenue, et aucun test ne le voyait : tous les doubles rendaient la chaîne d'un fichier
+   * à la corbeille comme s'il était encore en place.
+   *
+   * 🔴 LE DOUBLE IMITE DÉSORMAIS LE VRAI DRIVE, et c'est la moitié du correctif : sans cela, le test passerait
+   * encore si quelqu'un retirait `inclureCorbeille`.
+   */
+  it('🔴🔴 un fichier À LA CORBEILLE est bien restauré (régression du 03/10/2026)', async () => {
+    ALA_CORBEILLE.add('bail');
+    annulablesMock.mockResolvedValue([
+      { id: 42, action: 'corbeille', driveId: 'bail', nom: 'bail.pdf', parentOrigine: 'travaux', parentCible: '', copieDriveId: null },
+    ]);
+    const r = await POST(demande({ action: 'restaurer', mouvements: [42] }));
+    const d = (await r.json()) as { remis: string[]; refuses: { motif: string }[] };
+    expect(d.refuses).toHaveLength(0);
+    expect(d.remis).toEqual(['bail']);
+    // 🔴 ET C'EST BIEN PAR `inclureCorbeille` QUE ÇA PASSE : la chaîne a été demandée en le précisant.
+    expect(chaineMock).toHaveBeenCalledWith('bail', { inclureCorbeille: true });
+  });
+
+  /**
+   * 🔒 ET LE GARDE-FOU N'EST PAS RELÂCHÉ POUR AUTANT : un document d'archive mis à la corbeille ne se restaure
+   * pas davantage. On lit mieux, on n'autorise pas plus.
+   */
+  it('🔒 même à la corbeille, un fichier d’archive n’est pas restauré', async () => {
+    ALA_CORBEILLE.add('aF');
+    annulablesMock.mockResolvedValue([
+      { id: 44, action: 'corbeille', driveId: 'aF', nom: 'avis.pdf', parentOrigine: 'n2', parentCible: '', copieDriveId: null },
+    ]);
+    const r = await POST(demande({ action: 'restaurer', mouvements: [44] }));
     const d = (await r.json()) as { remis: string[]; refuses: unknown[] };
     expect(d.remis).toHaveLength(0);
     expect(d.refuses).toHaveLength(1);
