@@ -2325,6 +2325,12 @@ ${CSS_CADRE_MAIL}
 .iim-detail{color:var(--color-svv-muted)}
 .iim-lien{color:var(--color-svv-red);text-decoration:underline;text-underline-offset:2px}
 /* Une image intégrée qu'on n'a pas su retrouver : son MOT, dans un cadre discret — jamais une image cassée. */
+/* 🔴🔴 LOT TRANSFERT-AVEC-PIECES — CE GRIS RESTE ECRIT EN DUR, ET C'EST LA BONNE REPONSE. Je l'avais passe aux
+   jetons en croyant corriger un oubli de theme ; c'etait une erreur, et l'encadre de cnv-html ci-dessus dit
+   pourquoi : ce cadre vit SUR LA FEUILLE BLANCHE du mail, qui ne suit JAMAIS le theme (decision d'Arno,
+   « lisible en Sombre sans inverser les images »). Un jeton y mettrait du gris clair sur du blanc en theme
+   Sombre — donc un cadre invisible, a l'endroit meme qui doit se lire puisqu'il remplace une image absente.
+   AUCUN ACCENT GRAVE ICI : ce commentaire vit dans un litteral de gabarit (piege TS1005 du depot, 9e fois). */
 .cnv-html img[data-absente]{display:inline-block;min-width:1.2rem;min-height:1.2rem;padding:1px 6px;
   border:1px dashed #bbb;border-radius:4px;font-size:.72rem;color:#666;font-style:italic}
 .cnv-html table{max-width:100%;border-collapse:collapse}
