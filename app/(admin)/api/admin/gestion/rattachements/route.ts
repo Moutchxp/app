@@ -126,7 +126,13 @@ export async function GET(request: Request): Promise<Response> {
      */
     const fiche = identifiant(url.searchParams.get('fiche'));
     if (fiche !== null) {
-      const f = await ficheRattachementDuFil(fiche);
+      /**
+       * 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — `&message=M` DIT DE QUEL MAIL LA FENÊTRE PARLE.
+       *
+       * Absent ⇒ le mail le plus récent de l'échange, c'est-à-dire celui que la ligne de liste affiche (règle
+       * d'Arno). La fiche elle-même est inchangée : seul son `enTete` suit le mail demandé.
+       */
+      const f = await ficheRattachementDuFil(fiche, identifiant(url.searchParams.get('message')));
       return Response.json({ etat: f.disponible ? 'ok' : 'sans_schema', data: f }, { headers: ENTETES });
     }
 

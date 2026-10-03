@@ -11,10 +11,18 @@ import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 import {
   adresseDossierDrive, adresseFicheAnnuaire, motNbMails, motPeriode, motRole, motSansLocataire, motStatutBien,
   motSurface, qualitePersonne,
-  AUCUN_BIEN_DU_MAIL, biensDuMail, MENTION_AJOUT_PONCTUEL, MOT_AJOUTER_A_UN_AUTRE_BIEN,
-  TITRE_BIENS_DE_L_ECHANGE, TITRE_BIENS_DU_MAIL,
+  AUCUN_BIEN_DU_MAIL, biensDuMail, ENCADRE_EXCEPTION_CE_MAIL, MENTION_AJOUT_PONCTUEL, motEnTeteMail,
+  MOT_CHANGER_REGLE_SUIVI, MOT_MODIFIER_BIENS_DU_MAIL, resumeModificationBiens, TITRE_BIENS_DU_MAIL,
   type BienRattache, type FicheRattachementFil, type PersonneRattachement,
 } from '../../../../lib/gestion/ficheRattachement';
+/* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — LA RÈGLE DE SUIVI ET SON ALERTE VIENNENT DE LA SOURCE.
+   `CHOIX_SUIVI` vit dans `EncartRattachement` depuis le lot BROUILLONS-APERCU-TYPES-LIBELLES, et il y est exporté
+   précisément pour cela : les mots et les aides ne se recopient pas d'un écran à l'autre. */
+import { CHOIX_SUIVI } from './EncartRattachement';
+import {
+  alerteTouteLaConversation, motClassement,
+  type ChoixSuivi, type Classement, type ExceptionMail,
+} from '../../../../lib/gestion/periodesConversation';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 
 /**
@@ -52,23 +60,23 @@ type Etat =
   | { v: 'sans_schema' }
   | { v: 'erreur'; message: string };
 
+/** Ce que la fenêtre montre : la fiche du mail, ou l'un de ses deux panneaux de modification. */
+type Panneau = 'aucun' | 'exception' | 'suivi';
+
 export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, onGeste }: {
   filId: number;
   /** L'objet de l'échange, connu de la liste. La fiche en rend un aussi ; celui-ci sert de repli. */
   titre?: string | null;
   /**
-   * ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — LE MAIL D'OÙ L'ON VIENT ════════════════════════════════════
+   * ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 2 — LE MAIL DONT CETTE FENÊTRE PARLE ═════════════
    *
-   * RÈGLE D'ARNO (03/10/2026) : « la fenêtre ouverte depuis “Visualiser / Modifier” D'UN MAIL n'affiche QUE le ou
-   * les biens rattachés à CE mail (lien vivant). […] Plus de cartes “À trancher” des autres biens possibles. »
+   * RÈGLE D'ARNO (03/10/2026) : « une SEULE fenêtre, quel que soit le point d'entrée. Elle porte sur UN mail
+   * précis : le mail cliqué, ou depuis une ligne de liste le mail affiché sur la ligne (le plus récent de
+   * l'échange). »
    *
-   * 🔴 CE QU'IL A VU, ET POURQUOI. Le moteur pose un lien `propose` sur CHAQUE mail pour CHAQUE bien possible de
-   * l'expéditeur : sur le fil 3490, le mail 57472 en porte cinq, plus le bien confirmé. La fenêtre les affichait
-   * tous, marqués « À trancher », à côté du seul bien réellement rattaché.
-   *
-   * ⚠️ `null` ⇒ LA FENÊTRE DE LA LISTE, INCHANGÉE. Elle s'ouvre depuis une ligne de conversation, pas depuis un
-   * mail : elle n'a aucun mail à montrer, et la restreindre n'aurait aucun sens. Titre, contenu et gestes y sont
-   * exactement ceux d'avant ce lot.
+   * ⚠️ `null` NE VEUT PLUS DIRE « LA FENÊTRE DE L'ÉCHANGE », il veut dire « le mail de la ligne » — c'est-à-dire
+   * le plus récent, que le serveur désigne lui-même (`fiche.enTete`). C'est tout le lot : il n'y a plus deux
+   * fenêtres à corriger séparément, il n'y en a plus qu'une.
    */
   messageId?: number | null;
   onFerme: () => void;
@@ -76,7 +84,15 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
-  const [rattache, setRattache] = useState(false);
+  const [panneau, setPanneau] = useState<Panneau>('aucun');
+  /** Le choix du bloc « Suivi dans la conversation », quand il est ouvert. Deux options, jamais trois (voir plus bas). */
+  const [choixSuivi, setChoixSuivi] = useState<ChoixSuivi>('suite');
+  const [confirme, setConfirme] = useState(false);
+  /** La sélection en cours dans le panneau, remontée par le menu : elle écrit la phrase et nourrit l'alerte. */
+  const [selection, setSelection] = useState<readonly string[] | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  /** Les périodes et exceptions vivantes de l'échange — pour l'alerte de « Toute la conversation ». */
+  const [suivi, setSuivi] = useState<{ mails: number[]; exceptions: ExceptionMail[] } | null>(null);
   /**
    * 🔴 LES DOSSIERS DRIVE DES BIENS, par clé de lot. Lus À PART, et APRÈS le reste.
    *
@@ -91,8 +107,10 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
     try {
       // LES DEUX ENSEMBLE : la fiche (les biens et leurs parties) et les liens bruts (le détail par mail et les
       //   gestes). Les enchaîner doublerait l'attente pour un résultat identique.
+      /* 🔴 `&message=` DIT DE QUEL MAIL ON PARLE. Absent, le serveur prend le plus récent — celui de la ligne. */
+      const q = messageId === null ? '' : `&message=${messageId}`;
       const [rf, rl] = await Promise.all([
-        fetch(`/api/admin/gestion/rattachements?fiche=${filId}`, { cache: 'no-store' }),
+        fetch(`/api/admin/gestion/rattachements?fiche=${filId}${q}`, { cache: 'no-store' }),
         fetch(`/api/admin/gestion/rattachements?fil=${filId}`, { cache: 'no-store' }),
       ]);
       const df = (await rf.json()) as { etat?: string; data?: FicheRattachementFil; message?: string };
@@ -112,9 +130,32 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
     } catch {
       setEtat({ v: 'erreur', message: 'La lecture des rattachements n’a pas abouti.' });
     }
-  }, [filId]);
+  }, [filId, messageId]);
 
   useEffect(() => { void charger(); }, [charger]);
+
+  /**
+   * ══ 🔴 LE SUIVI DE LA CONVERSATION — POUR L'ALERTE, ET POUR ELLE SEULE ═══════════════════════════════════════
+   *
+   * L'alerte de « Toute la conversation » annonce COMBIEN de mails seront reclassés et combien d'exceptions
+   * survivent : sans les mails ni les exceptions, elle ne peut pas être composée, et une alerte approximative ne
+   * se lit plus (voir `alerteTouteLaConversation`).
+   *
+   * ⚠️ SON ABSENCE N'EMPÊCHE RIEN : sans migration 290, la route répond « sans_schema », le bloc de suivi ne
+   * s'ouvre pas, et la fenêtre reste exactement ce qu'elle est — une fiche de lecture avec son exception.
+   */
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/gestion/suivi?fil=${filId}`, { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; mails?: number[]; exceptions?: ExceptionMail[] };
+        if (annule || d.etat !== 'ok') return;
+        setSuivi({ mails: d.mails ?? [], exceptions: d.exceptions ?? [] });
+      } catch { /* l'alerte se taira : voir l'encadré */ }
+    })();
+    return () => { annule = true; };
+  }, [filId]);
 
   /**
    * ══ 🔒 LE DOSSIER DU BIEN DANS LE DRIVE — LECTURE SEULE, ET AU MIEUX-EFFORT ═══════════════════════════════════
@@ -162,15 +203,82 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
   const liensParId = new Map(tousLesLiens.map((l) => [l.id, l]));
   const objet = fiche?.objet ?? titre ?? null;
   /**
-   * 🔴🔴 LES BIENS QUE CETTE FENÊTRE MONTRE. Ouverte depuis un MAIL, elle se restreint à ses liens vivants et
-   * confirmés — voir l'encadré de `messageId` et le module pur `biensDuMail`. Ouverte depuis la liste, elle
-   * rend exactement ce qu'elle rendait avant ce lot.
+   * 🔴🔴 LE MAIL DE LA FENÊTRE — UN SEUL CHEMIN, ET C'EST LE LOT. Le mail cliqué s'il y en a un ; sinon celui que
+   * le serveur a désigné comme le plus récent, c'est-à-dire celui que la ligne de liste affiche.
    */
-  const biens = fiche === null
+  const mailId = messageId ?? fiche?.enTete?.messageId ?? null;
+  /**
+   * 🔴🔴 LES BIENS QUE CETTE FENÊTRE MONTRE : ceux qui sont rattachés OFFICIELLEMENT à ce mail — lien vivant et
+   * CONFIRMÉ, jamais une proposition. C'est `biensDuMail`, et il n'y a plus de second chemin : c'est pour cela
+   * que la fenêtre de la liste montrait encore les cartes « À trancher » après le lot a7f5f968.
+   */
+  const biens = fiche === null || mailId === null
     ? []
-    : (messageId === null
-      ? fiche.biens.map((b) => ({ ...b, ponctuel: false }))
-      : biensDuMail(fiche.biens, tousLesLiens, messageId));
+    : biensDuMail(fiche.biens, tousLesLiens, mailId);
+  /** L'état de départ du panneau : exactement les biens ci-dessus, cochés. */
+  const clesDuMail = biens.map((b) => b.cle);
+  const libellesDuMail: Record<string, string> = {};
+  for (const b of biens) libellesDuMail[b.cle] = `${b.adresseComplete} — lot ${b.numeroLot}`;
+
+  /**
+   * ══ 🔴🔴 CE QUE « VALIDER » ÉCRIT — UNE SEULE REQUÊTE, ET LA RÈGLE EST CELLE DU SERVEUR ══════════════════════
+   *
+   * RÈGLE D'ARNO : « Valider fixe les biens de CE mail (ajouts ET retraits) comme une EXCEPTION “Ce mail
+   * uniquement” (même mécanisme que l'option existante). Aucune période créée, fermée ou modifiée ; aucun effet
+   * sur les autres mails. Un retour à la configuration de la fenêtre en vigueur supprime l'exception (règle du
+   * dernier choix, rien d'écrit). »
+   *
+   * 🔴 LES QUATRE PROMESSES TIENNENT PARCE QU'ON N'ÉCRIT RIEN ICI. On envoie la DÉCISION à `/api/admin/gestion/suivi`
+   * — le même appel que le bloc « Suivi dans la conversation » depuis le lot SUIVI-CONVERSATION — et c'est
+   * `effetDuChoix` qui en tire les écritures :
+   *   · `choix: 'mail'` ⇒ une EXCEPTION, et rien d'autre : `nouvellePeriode` vaut `null` par construction ;
+   *   · la règle 2 du lot SUIVI-DERNIER-CHOIX RETIRE l'exception quand le résultat est identique à la
+   *     configuration en vigueur juste avant ce mail — c'est, mot pour mot, le « retour à la configuration de la
+   *     fenêtre » d'Arno, et il n'a fallu l'écrire nulle part.
+   *
+   * ⚠️ UNE SEULE REQUÊTE POUR LES AJOUTS ET LES RETRAITS : on envoie la LISTE VOULUE, pas une suite de gestes.
+   * Un `POST` par ajout et un `PATCH` par retrait auraient laissé, en cas d'échec au milieu, un mail à moitié
+   * reclassé — et personne pour dire lequel.
+   */
+  const ecrire = async (voulus: readonly { cle: string; libelle: string }[], choix: ChoixSuivi): Promise<void> => {
+    if (mailId === null) return;
+    setErreur(null);
+    const classement: Classement = { sorte: 'biens', biens: voulus.map((b) => ({ ...b })) };
+    try {
+      const res = await fetch('/api/admin/gestion/suivi', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filId, messageId: mailId, classement, choix }),
+      });
+      const d = (await res.json()) as { ok?: boolean; erreur?: string };
+      if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return; }
+      onGeste?.(choix === 'mail'
+        ? `Exception posée sur ce mail : ${motClassement(classement)}.`
+        : (choix === 'conversation'
+          ? `Toute la conversation reclassée : ${motClassement(classement)}.`
+          : `Nouvelle période à partir de ce mail : ${motClassement(classement)}.`));
+      setPanneau('aucun');
+      setSelection(null);
+      setConfirme(false);
+      await charger();
+    } catch {
+      setErreur('Le serveur n’a pas répondu.');
+    }
+  };
+
+  /**
+   * 🔴🔴 L'ALERTE DE « TOUTE LA CONVERSATION », composée par le module PUR — et sa confirmation obligatoire.
+   * Comportement existant, repris sans une virgule de changement (lot SUIVI-CONVERSATION).
+   */
+  const alerte = suivi === null || mailId === null ? '' : alerteTouteLaConversation({
+    mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId,
+    versQuoi: motClassement({
+      sorte: 'biens',
+      biens: (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle })),
+    }),
+  });
+  const bloquee = panneau === 'suivi' && choixSuivi === 'conversation' && !confirme
+    ? 'Cochez la confirmation ci-dessus pour reclasser toute la conversation.'
+    : null;
 
   return (
     <div className="mrt-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFerme(); }}>
@@ -180,14 +288,16 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
       <div className="mrt rdf" role="dialog" aria-modal="true" aria-labelledby="rdf-titre"
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFerme(); } }}>
 
-        {/* ══ 🔴 EN TÊTE : L'OBJET, ET COMBIEN DE MAILS (demande d'Arno) ══════════════════════════════════════
-            Sans l'objet, on ne sait plus quelle ligne on a ouverte ; sans le nombre de mails, on ne sait pas si
-            « sur 3 mails » plus bas veut dire « tous » ou « trois sur douze ». */}
-        {/* 🔴 LE TITRE DIT CE QUE LA FENÊTRE MONTRE, et ce n'est pas la même chose selon d'où on l'ouvre. */}
-        <h2 className="mrt-titre" id="rdf-titre">
-          {messageId === null ? TITRE_BIENS_DE_L_ECHANGE : TITRE_BIENS_DU_MAIL}
-        </h2>
-        {objet !== null && objet !== '' && <p className="rdf-objet">{objet}</p>}
+        {/* ══ 🔴🔴 EN TÊTE : DE QUEL MAIL ON PARLE — expéditeur, date, objet (demande d'Arno) ═════════════════
+            🔴 UN SEUL TITRE DÉSORMAIS. « Bien(s) de cet échange » a disparu avec la fenêtre qui le portait : un
+            rattachement se pose sur un MAIL, et « les biens de l'échange » était une somme — or une somme ne se
+            modifie pas. */}
+        <h2 className="mrt-titre" id="rdf-titre">{TITRE_BIENS_DU_MAIL}</h2>
+        {fiche?.enTete != null && (
+          <p className="rdf-entete">{motEnTeteMail(fiche.enTete, dateHeureComplete(fiche.enTete.recuLe))}</p>
+        )}
+        {/* ⚠️ L'OBJET DE L'ÉCHANGE RESTE, en repli : il sert quand l'en-tête du mail n'a pas pu être lu. */}
+        {fiche?.enTete == null && objet !== null && objet !== '' && <p className="rdf-objet">{objet}</p>}
         {fiche !== null && <p className="rdf-detail">{motNbMails(fiche.nbMailsDuFil)}</p>}
 
         {etat.v === 'charge' && <p className="gst-info" role="status">Lecture des rattachements…</p>}
@@ -205,20 +315,14 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
         {fiche !== null && biens.length === 0 && (
           <div className="rdf-vide">
             <p className="rdf-vide-mot">
-              {/* 🔴 OUVERTE SUR UN MAIL, LA PHRASE PARLE DU MAIL (demande d'Arno). « Hors gestion » reste une
-                  propriété de l'ÉCHANGE, et se dit telle quelle dans les deux cas. */}
               {fiche.horsGestion
                 ? 'Cet échange est marqué « Hors gestion » : il ne concerne aucun bien.'
-                : (messageId === null
-                  ? 'Cet échange n’est rattaché à aucun bien pour l’instant.'
-                  : AUCUN_BIEN_DU_MAIL)}
+                : AUCUN_BIEN_DU_MAIL}
             </p>
             <p className="rdf-detail">
               {fiche.horsGestion
                 ? 'La marque se lève d’elle-même si vous le rattachez à un bien.'
-                : (messageId === null
-                  ? 'Il a pu être retiré depuis l’affichage de la liste, ou n’avoir jamais été classé.'
-                  : 'Les autres mails de la conversation peuvent l’être, eux.')}
+                : 'Les autres mails de la conversation peuvent l’être, eux.'}
             </p>
           </div>
         )}
@@ -227,36 +331,108 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
         {biens.map((b) => (
           <BlocBien key={b.cle} bien={b} dossierId={dossiers[b.cle] ?? b.dossierDriveId}
             ponctuel={b.ponctuel}
-            /* 🔴 OUVERTE SUR UN MAIL, LA CARTE NE PARLE QUE DE LUI : « sur 1 mail », et le détail ne montre que
+            /* 🔴 LA FENÊTRE NE PARLE QUE D'UN MAIL : « sur 1 mail » n'apprend rien, et le détail ne montre que
                ses liens à lui. Voir `biensDuMail`. */
-            surUnSeulMail={messageId !== null}
+            surUnSeulMail
             liens={b.lienIds.map((id) => liensParId.get(id)).filter((l): l is LienAffiche => l !== undefined)}
             onModifier={setModifie} />
         ))}
 
-        {/* ══ 🔴🔴 « RATTACHER À UN BIEN » / « + AJOUTER CE MAIL À UN AUTRE BIEN » ═══════════════════════════
-            Le MÊME menu dans les deux cas — propositions du moteur et moteur de recherche —, jamais une seconde
-            implémentation. Seule la PORTÉE change, et c'est tout le sens du lot :
+        {/* ══ 🔴🔴 LE GRAND BOUTON, ET CE QU'IL OUVRE DANS LA MÊME FENÊTRE ═══════════════════════════════════
+            RÈGLE D'ARNO : « Sous les biens, un grand bouton “Modifier les biens de ce mail”. Il ouvre, dans la
+            même fenêtre : a) les propositions automatiques s'il y en a (décochées, sauf les biens déjà
+            rattachés, qui sont cochés) ; b) le moteur de recherche (tous les biens de la base) ; c) un encadré
+            clair. »
 
-              · depuis la LISTE, le geste porte sur le mail le plus récent de l'échange, comme avant ;
-              · depuis un MAIL, il pose un AJOUT PONCTUEL sur CE mail, en plus de ses biens actuels, sans
-                toucher à une seule période (voir `MOTIF_AJOUT_PONCTUEL`). */}
-        {fiche !== null && (messageId ?? fiche.messageRecentId) !== null && (
-          rattache
-            ? (
-              <MenuRattachementBien messageId={(messageId ?? fiche.messageRecentId) as number} filId={filId}
-                ponctuel={messageId !== null}
-                onFerme={() => setRattache(false)}
-                onGeste={onGeste}
-                onChange={async () => { await charger(); }}
-                onHorsGestion={() => setRattache(false)} />
-            )
-            : (
-              <button type="button" className="gst-lien-bouton rdf-rattacher" onClick={() => setRattache(true)}>
-                {messageId === null ? 'Rattacher à un bien' : MOT_AJOUTER_A_UN_AUTRE_BIEN}
-              </button>
-            )
+            🔴 LES DEUX ZONES SONT CELLES DU MENU EXISTANT (`MenuRattachementBien`), réemployé tel quel : une
+            seconde liste de propositions aurait fini par ne plus dire la même chose que la première. Seules la
+            pré-coche, le pied et l'écriture changent — et c'est exactement ce que le menu accepte désormais. */}
+        {mailId !== null && panneau === 'aucun' && (
+          <button type="button" className="svv-btn svv-btn-primary gst-btn rdf-modifier"
+            onClick={() => { setPanneau('exception'); setSelection(clesDuMail); setErreur(null); }}>
+            {MOT_MODIFIER_BIENS_DU_MAIL}
+          </button>
         )}
+
+        {mailId !== null && panneau !== 'aucun' && (
+          <MenuRattachementBien messageId={mailId} filId={filId}
+            preCoches={clesDuMail}
+            libellesConnus={libellesDuMail}
+            onSelection={setSelection}
+            motValider={panneau === 'exception' ? 'Valider les biens de ce mail' : 'Valider le suivi'}
+            validationBloquee={bloquee}
+            onValider={(voulus) => ecrire(voulus, panneau === 'exception' ? 'mail' : choixSuivi)}
+            onFerme={() => { setPanneau('aucun'); setSelection(null); setConfirme(false); }}
+            onGeste={onGeste}
+            onChange={async () => { await charger(); }}
+            /* ⚠️ PAS DE « Hors gestion, ou classer par pièce… » ICI : il ouvre LA fenêtre de classement, et deux
+               boîtes de dialogue empilées sont injouables au clavier. Le bouton n'est donc pas rendu — plutôt
+               qu'un bouton qui se contenterait de refermer le panneau, c'est-à-dire un bouton qui ment. */
+            pied={(
+              <div className="rdf-pied-panneau">
+                {panneau === 'exception' ? (
+                  <>
+                    {/* 🔴🔴 c) L'ENCADRÉ CLAIR, mot pour mot celui d'Arno. */}
+                    <p className="rdf-encadre" role="note">{ENCADRE_EXCEPTION_CE_MAIL}</p>
+                    {/* 🔴 LE LIEN QUI OUVRE L'AUTRE RÈGLE — dans la MÊME fenêtre, et sans perdre la sélection. */}
+                    <button type="button" className="gst-lien-bouton"
+                      onClick={() => { setPanneau('suivi'); setConfirme(false); }}>
+                      {MOT_CHANGER_REGLE_SUIVI}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* ══ 🔴🔴 LE BLOC « SUIVI DANS LA CONVERSATION », À DEUX OPTIONS ═══════════════════════
+                        RÈGLE D'ARNO : « il ouvre dans la même fenêtre le bloc “Suivi dans la conversation” avec
+                        “Ce mail et la conversation à venir” et “Toute la conversation” (comportements existants
+                        inchangés, avertissement de “Toute la conversation” compris) ».
+
+                        ⚠️ DEUX OPTIONS, PAS TROIS, et c'est volontaire : « Ce mail uniquement » est déjà ce que
+                        fait le grand bouton. L'offrir ici une seconde fois ferait deux chemins pour un seul
+                        geste — et c'est précisément ce que ce lot défait.
+
+                        🔴 LES MOTS ET LES AIDES VIENNENT DE LA SOURCE (`CHOIX_SUIVI`), jamais d'une copie : deux
+                        listes recopiées divergent au premier ajustement, sans que rien ne le dise. */}
+                    <fieldset className="rdf-suivi">
+                      <legend className="rdf-suivi-titre">Suivi dans la conversation</legend>
+                      {CHOIX_SUIVI.filter((c) => c.cle !== 'mail').map((c) => (
+                        <label className="rdf-choix" key={c.cle}>
+                          <input type="radio" name="rdf-suivi" checked={choixSuivi === c.cle}
+                            onChange={() => { setChoixSuivi(c.cle); setConfirme(false); }} />
+                          <span>
+                            <span className="rdf-suivi-mot">{c.mot}</span>
+                            <span className="rdf-suivi-aide">{c.aide}</span>
+                          </span>
+                        </label>
+                      ))}
+                      {choixSuivi === 'conversation' && (
+                        <p className="rdf-alerte" role="status">
+                          <span className="rdf-alerte-texte">{alerte}</span>
+                          <label className="rdf-choix">
+                            <input type="checkbox" checked={confirme} onChange={() => setConfirme((v) => !v)} />
+                            <span>Je confirme le reclassement de toute la conversation.</span>
+                          </label>
+                        </p>
+                      )}
+                    </fieldset>
+                    <button type="button" className="gst-lien-bouton"
+                      onClick={() => { setPanneau('exception'); setConfirme(false); }}>
+                      ← Revenir à l’exception sur ce seul mail
+                    </button>
+                  </>
+                )}
+                {/* 🔴 CE QUE LA VALIDATION VA ÉCRIRE, DIT AVANT DE LA FAIRE — « Aucun changement » compris. */}
+                {/* ⚠️ `rdf-bilan`, PAS `rdf-resume` : ce dernier est déjà le dépliant « Voir le détail par mail »
+                    de chaque bien. Deux sens pour une classe, c'est un style qu'on croit changer ici et qui
+                    bouge là-bas. */}
+                <p className="rdf-detail rdf-bilan" role="status">
+                  {resumeModificationBiens({ avant: clesDuMail, apres: selection ?? clesDuMail })}
+                </p>
+              </div>
+            )} />
+        )}
+
+        {erreur !== null && <p className="gst-tronc" role="alert">{erreur}</p>}
 
         <div className="mrt-boutons">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>Fermer</button>
@@ -471,6 +647,32 @@ export const CSS_RATTACHEMENTS_FIL = `
   border-left:3px solid var(--color-svv-red);border-radius:0 .5rem .5rem 0;background:var(--color-svv-field)}
 .rdf-vide-mot{margin:0;font-size:.88rem;font-weight:700;color:var(--color-svv-ink)}
 .rdf-rattacher{align-self:flex-start;font-size:.84rem;font-weight:700}
+/* ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — L'EN-TETE DU MAIL, LE GRAND BOUTON, LES DEUX PANNEAUX ═══
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot, vu 12 fois). */
+/* De quel mail la fenetre parle : expediteur, date, objet. C'est la premiere chose qu'on y cherche. */
+.rdf-entete{margin:-6px 0 2px;font-size:.85rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* 🔴 UN GRAND BOUTON, et il prend toute la largeur : c'est le geste principal de la fenetre, pas un lien de plus. */
+.rdf-modifier{width:100%;justify-content:center;margin:2px 0 4px;font-weight:700}
+.rdf-pied-panneau{display:flex;flex-direction:column;gap:6px;margin:8px 0 0;min-width:0}
+/* c) L'ENCADRE CLAIR : il dit ce que « Valider » va faire, AVANT de le faire. */
+.rdf-encadre{margin:0;padding:8px 10px;border-radius:0 .5rem .5rem 0;
+  border-left:3px solid var(--color-svv-red);background:var(--color-svv-field);
+  font-size:.8rem;line-height:1.45;color:var(--color-svv-ink)}
+/* Le bloc de suivi : MEME dessin que celui de l'encart du mail, parce que c'est le meme bloc. */
+.rdf-suivi{margin:0;padding:6px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem;min-width:0}
+.rdf-suivi-titre{font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--color-svv-muted)}
+.rdf-choix{display:flex;align-items:flex-start;gap:.5rem;padding:3px 0;font-size:.85rem;
+  color:var(--color-svv-ink);cursor:pointer;min-width:0}
+.rdf-choix>span{display:flex;flex-direction:column;gap:1px;min-width:0}
+.rdf-suivi-mot{font-weight:600}
+.rdf-suivi-aide{font-size:.74rem;color:var(--color-svv-muted);line-height:1.35}
+/* L'alerte de « toute la conversation » : un liseré rouge ET le texte. Jamais la couleur seule. */
+.rdf-alerte{display:flex;flex-direction:column;gap:.2rem;margin:.4rem 0 0;padding:6px 8px;
+  border-radius:0 .5rem .5rem 0;border-left:3px solid var(--color-svv-red);background:var(--color-svv-field)}
+.rdf-alerte-texte{font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}
+/* Ce que la validation va ecrire, en une phrase — « Aucun changement » compris. */
+.rdf-bilan{font-weight:600;color:var(--color-svv-ink)}
 /* LOT STATUT-PAR-MAIL — le detail par mail, REPLIE. On ne cache rien : on cesse de repeter. */
 .rdf-detail-mails{margin-top:2px}
 .rdf-resume{font-size:.78rem;color:var(--color-svv-muted);cursor:pointer}

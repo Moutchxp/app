@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  AUCUN_BIEN_DU_MAIL, biensDuMail, MENTION_AJOUT_PONCTUEL, MOTIF_AJOUT_PONCTUEL,
-  MOT_AJOUTER_A_UN_AUTRE_BIEN, TITRE_BIENS_DE_L_ECHANGE, TITRE_BIENS_DU_MAIL,
+  AUCUN_BIEN_DU_MAIL, biensDuMail, MENTION_AJOUT_PONCTUEL, MOTIF_AJOUT_PONCTUEL, TITRE_BIENS_DU_MAIL,
 } from './ficheRattachement';
 import { MOTIF_POSE_PAR_SUIVI } from './periodeRepo';
 
@@ -136,15 +135,21 @@ describe('🔴🔴 ③ un ajout ponctuel ne touche à aucune période', () => {
     expect(code).toContain('ponctuel\n                ? MOTIF_AJOUT_PONCTUEL');
   });
 
-  /** 🔴 ET LA PORTÉE EST FIGÉE : « ponctuel » veut dire ce mail, et le choix n'est pas offert. */
+  /**
+   * 🔴 ET LA PORTÉE EST FIGÉE : « ponctuel » veut dire ce mail, et le choix n'est pas offert.
+   *
+   * ⚠️ LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — LE PIED EST DÉSORMAIS FOURNISSABLE PAR L'APPELANT (`pied`),
+   * et la fenêtre « Visualiser / Modifier » s'en sert pour son encadré d'exception. Le mode ponctuel, lui, est
+   * intact : c'est la branche qui suit, et c'est elle qu'on fige ici.
+   */
   it('🔴 aucune portée à choisir en ajout ponctuel', () => {
-    expect(code).toContain('{ponctuel ? (');
+    expect(code).toContain('pied !== undefined ? pied : ponctuel ? (');
     expect(code).toContain('mrb-ponctuel');
   });
 
   /** 🔴 LES PROPOSITIONS SONT DÉCOCHÉES : on ajoute un bien qu'on a en tête, on ne valide pas le moteur. */
   it('🔴 aucune pré-coche en ajout ponctuel', () => {
-    expect(code).toContain('setCoches(ponctuel ? []');
+    expect(code).toContain('(ponctuel ? [] : (d.contexte.biens ?? []).filter((b) => b.recommande)');
   });
 });
 
@@ -155,17 +160,40 @@ describe('🔴🔴 ③ un ajout ponctuel ne touche à aucune période', () => {
 describe('🔴 ④ ce que la fenêtre écrit', () => {
   const src = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
 
-  it('🔴 les deux titres, selon d’où l’on vient', () => {
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 2 — IL N'Y A PLUS QU'UNE FENÊTRE
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+     CONSTAT D'ARNO (03/10/2026) : « depuis la LIGNE de la Réception (fil 3490), la fenêtre “Bien(s) de cet
+     échange” affiche ENCORE tous les biens proposés pour l'expéditeur (lots 247, 282, 169, 491, 4 — “À
+     trancher”). Ton lot a7f5f968 n'a corrigé que la fenêtre ouverte depuis un mail. »
+
+     🔴 LA CAUSE TENAIT À LA CONDITION QUE CE FICHIER FIGEAIT : `messageId === null ? … : …`. Deux
+     comportements dans une seule fenêtre, et l'un des deux rendait `fiche.biens` tel quel — propositions
+     comprises. Corriger un seul des deux chemins ne pouvait pas suffire ; il fallait qu'il n'y en ait plus
+     qu'un. Les trois épreuves qui figeaient les DEUX comportements sont donc remplacées par celles qui
+     figent l'UNIQUE.
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  it('🔴🔴 un seul titre, et il parle du MAIL', () => {
     expect(TITRE_BIENS_DU_MAIL).toBe('Bien(s) de ce mail');
-    expect(TITRE_BIENS_DE_L_ECHANGE).toBe('Bien(s) de cet échange');
-    expect(src).toContain('messageId === null ? TITRE_BIENS_DE_L_ECHANGE : TITRE_BIENS_DU_MAIL');
+    expect(src).toContain('<h2 className="mrt-titre" id="rdf-titre">{TITRE_BIENS_DU_MAIL}</h2>');
+    /* 🔴 ET « Bien(s) de cet échange » N'EST PLUS EMPLOYÉ NULLE PART : un rattachement se pose sur un MAIL,
+       « les biens de l'échange » était une somme — et une somme ne se modifie pas. */
+    expect(src).not.toContain('TITRE_BIENS_DE_L_ECHANGE');
   });
 
-  it('🔴 « Aucun bien rattaché à ce mail », et le bouton d’ajout', () => {
+  it('🔴🔴 les biens affichés sont TOUJOURS ceux du mail, sans condition', () => {
+    expect(src).toContain('biensDuMail(fiche.biens, tousLesLiens, mailId)');
+    /* 🔴 PLUS AUCUN SECOND CHEMIN : c'est lui qui laissait passer les cartes « À trancher » depuis la liste. */
+    expect(src).not.toContain('fiche.biens.map((b) => ({ ...b, ponctuel: false }))');
+  });
+
+  it('🔴 « Aucun bien rattaché à ce mail », dans les deux points d’entrée', () => {
     expect(AUCUN_BIEN_DU_MAIL).toBe('Aucun bien rattaché à ce mail');
-    expect(MOT_AJOUTER_A_UN_AUTRE_BIEN).toBe('+ Ajouter ce mail à un autre bien');
     expect(src).toContain('AUCUN_BIEN_DU_MAIL');
-    expect(src).toContain('MOT_AJOUTER_A_UN_AUTRE_BIEN');
+    /* ⚠️ ET LA PHRASE DE L'ÉCHANGE A DISPARU AVEC LA FENÊTRE QUI LA PORTAIT. */
+    expect(src).not.toContain('Cet échange n’est rattaché à aucun bien pour l’instant.');
   });
 
   it('🔴 la mention « ajout ponctuel » est écrite, jamais seulement colorée', () => {
@@ -174,17 +202,21 @@ describe('🔴 ④ ce que la fenêtre écrit', () => {
   });
 
   /**
-   * ⚠️ LA FENÊTRE DE LA LISTE EST INCHANGÉE, et c'est une non-régression : elle s'ouvre depuis une ligne de
-   * conversation, pas depuis un mail, et Arno n'a rien demandé de ce côté.
+   * 🔴🔴 LES DEUX POINTS D'ENTRÉE DONNENT LEUR MAIL — c'est tout le lot, et c'est en deux lignes de JSX.
+   *
+   * ⚠️ CE TEST DIT L'INVERSE DE CELUI QU'IL REMPLACE (« la liste n'envoie aucun mail »), et c'est exactement
+   * la demande d'Arno : « une SEULE fenêtre, quel que soit le point d'entrée […] le mail cliqué, ou depuis une
+   * ligne de liste le mail affiché sur la ligne ».
    */
-  it('⚠️ la liste n’envoie aucun mail, donc rien ne change pour elle', () => {
+  it('🔴🔴 la liste passe le mail AFFICHÉ sur la ligne', () => {
     const boite = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
     const i = boite.indexOf('<RattachementsDuFil');
     expect(i).toBeGreaterThan(0);
-    expect(boite.slice(i, i + 300)).not.toContain('messageId');
+    expect(boite.slice(i, i + 400)).toContain('messageId={rattachementsDe.messageId}');
+    /* 🔴 ET C'EST BIEN `messageAffiche`, pas « le dernier de l'échange » : sous Envoyés, ce n'est pas le même. */
+    expect(boite).toContain('messageId: l.messageAffiche');
   });
 
-  /** 🔴 ET LA CONVERSATION, ELLE, LE PASSE — c'est tout ce qui déclenche le nouveau comportement. */
   it('🔴 la conversation passe le mail ouvert', () => {
     const cnv = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
     const i = cnv.indexOf('<RattachementsDuFil');

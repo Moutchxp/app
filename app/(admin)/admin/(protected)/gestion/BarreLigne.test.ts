@@ -582,7 +582,14 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     await monter();
     await cliquer(boutonFin());
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) de cet échange');
+    /**
+     * 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — UN SEUL TITRE, ET IL PARLE DU MAIL.
+     *
+     * Constat d'Arno (03/10/2026) : depuis la LIGNE, « Bien(s) de cet échange » montrait encore les biens
+     * PROPOSÉS pour l'expéditeur. Il n'y a plus deux fenêtres : celle-ci porte sur le mail affiché sur la ligne,
+     * d'où qu'on l'ouvre.
+     */
+    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) de ce mail');
     // 🔴 LOT FICHE-RATTACHEMENT — l'objet et le nombre de mails en tête (demande d'Arno).
     expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Fuite salle de bain');
     expect(container.querySelector('[role="dialog"]')?.textContent).toContain('3 mails dans la conversation');
@@ -609,11 +616,24 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
       libelle: `lien ${id}`, origine: 'automatique', statut: 'confirme', confiance: null, regle: 'a',
       motif: null, adresses: [], parUnHumain: false, creeLe: null, creePar: null, statutLe: null, statutPar: null,
     });
-    rattachements = { etat: 'ok', data: [lien(1, 901), lien(2, 902)] };
+    /**
+     * 🔴🔴 LES DEUX LIENS SONT SUR LE MAIL DE LA LIGNE (8123), ET C'EST LE LOT.
+     *
+     * La fenêtre ne montre plus « les biens de l'échange » mais ceux du mail affiché : deux liens posés sur deux
+     * mails différents donneraient désormais UNE carte, et ce test ne protégerait plus rien. Ce qu'il protège —
+     * « plusieurs rattachements se listent TOUS, n'en montrer qu'un ferait modifier le mauvais » — reste vrai,
+     * et se vérifie maintenant sur un mail.
+     */
+    rattachements = { etat: 'ok', data: [lien(1, 8123), lien(2, 8123)] };
     ficheFil = {
       etat: 'ok',
       data: {
         filId: 7, objet: 'Fuite salle de bain', nbMailsDuFil: 3, horsGestion: false, messageRecentId: 8123,
+        /* 🔴 L'EN-TÊTE DU MAIL DONT LA FENÊTRE PARLE : expéditeur, date, objet (demande d'Arno). */
+        enTete: {
+          messageId: 8123, de: 'martin@orange.fr', deNom: 'Mme Martin',
+          recuLe: '2026-09-20T12:00:00Z', objet: 'Fuite salle de bain',
+        },
         disponible: true,
         biens: [
           {
@@ -631,7 +651,10 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
           },
           {
             cle: '514', adresseComplete: '14 rue des Lilas, 92400 COURBEVOIE', numeroLot: '514',
-            nature: null, typeBien: null, surfaceM2: null, statut: 'a_trancher',
+            /* 🔴🔴 PLUS JAMAIS « À trancher » DANS CETTE FENÊTRE : seuls des liens CONFIRMÉS y entrent, et le
+               statut d'un bien dont un lien est confirmé n'est jamais « à trancher » (voir `statutDesLiens`).
+               C'est exactement ce qu'Arno demande — « JAMAIS les propositions ni les cartes À trancher ». */
+            nature: null, typeBien: null, surfaceM2: null, statut: 'auto',
             dateMail: '2026-09-20', nbMails: 1, dossierDriveId: null, lienIds: [2], personnes: [],
           },
         ],
@@ -660,10 +683,13 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     expect(items[0].textContent).toContain('Expéditeur');
     // 🔴 « VACANT À CETTE DATE » est une RÉPONSE, pas un vide.
     expect(items[0].textContent).toContain('Vacant à cette date');
-    expect(items[1].textContent).toContain('À trancher');
+    expect(items[1].textContent).toContain('Auto');
+    /* 🔴🔴 ET AUCUNE CARTE « À trancher », nulle part : c'est le défaut nommé par Arno, et la fenêtre de la
+       LISTE est celle qui le portait encore après le lot a7f5f968. */
+    expect(container.querySelector('[role="dialog"]')?.textContent).not.toContain('À trancher');
 
     // Le MAIL dont vient chaque lien reste dit, sous le détail : c'est lui qui est rattaché, jamais l'échange.
-    expect(items[0].textContent).toContain('mail nº 901');
+    expect(items[0].textContent).toContain('mail nº 8123');
     expect(items.every((i) => /Modifier ce rattachement/.test(i.textContent ?? ''))).toBe(true);
   });
 
@@ -674,6 +700,10 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
       data: {
         filId: 7, objet: 'Publicité', nbMailsDuFil: 1, biens: [], horsGestion: true,
         messageRecentId: 8123, disponible: true,
+        enTete: {
+          messageId: 8123, de: 'pub@exemple.test', deNom: null,
+          recuLe: '2026-09-20T12:00:00Z', objet: 'Publicité',
+        },
       },
     };
     ligneCourante = LIGNE({ classement: CLASSE });
@@ -681,8 +711,10 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     await cliquer(boutonFin());
     const boite = container.querySelector('[role="dialog"]');
     expect(boite?.textContent).toContain('Hors gestion');
+    /* 🔴🔴 LE GESTE POUR EN SORTIR EST LE GRAND BOUTON D'ARNO — « Rattacher à un bien » a été remplacé par
+       « Modifier les biens de ce mail », qui fait la même chose et davantage (il retire aussi). */
     expect([...container.querySelectorAll('button')]
-      .some((b) => /Rattacher à un bien/.test(b.textContent ?? ''))).toBe(true);
+      .some((b) => /Modifier les biens de ce mail/.test(b.textContent ?? ''))).toBe(true);
   });
 
   /** ⚠️ La migration 257 absente est un ÉTAT, pas une panne : on le DIT plutôt que de montrer une liste vide. */
@@ -701,6 +733,7 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     const appels = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
     expect(appels.some((u) => u.includes('/rattachements?fil=7'))).toBe(true);
     // LOT FICHE-RATTACHEMENT — et la FICHE du même échange, dans la même route.
-    expect(appels.some((u) => u.includes('/rattachements?fiche=7'))).toBe(true);
+    /* 🔴🔴 ET AVEC LE MAIL DE LA LIGNE : c'est lui qui décide des biens montrés et de l'en-tête. */
+    expect(appels.some((u) => u.includes('/rattachements?fiche=7&message=8123'))).toBe(true);
   });
 });

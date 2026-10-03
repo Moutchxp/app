@@ -88,6 +88,13 @@ export interface FicheRattachementFil {
    * décide des parties. `null` quand l'échange est vide, ce qui ne devrait pas arriver mais se dit quand même.
    */
   messageRecentId: number | null;
+  /**
+   * 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — L'EN-TÊTE DU MAIL DONT LA FENÊTRE PARLE.
+   *
+   * Le mail demandé, ou à défaut le plus récent de l'échange — celui que la ligne de liste affiche. `null` quand
+   * l'échange est vide, ou quand les rattachements ne sont pas installés.
+   */
+  enTete: EnTeteMailFenetre | null;
   /** `false` = migration 257 ou annuaire absents : l'écran le dit au lieu de montrer une liste vide. */
   disponible: boolean;
 }
@@ -266,9 +273,21 @@ export function motNbMails(n: number): string {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export const TITRE_BIENS_DU_MAIL = 'Bien(s) de ce mail';
-export const TITRE_BIENS_DE_L_ECHANGE = 'Bien(s) de cet échange';
 export const AUCUN_BIEN_DU_MAIL = 'Aucun bien rattaché à ce mail';
-export const MOT_AJOUTER_A_UN_AUTRE_BIEN = '+ Ajouter ce mail à un autre bien';
+
+/**
+ * ══ ⚠️ DEUX MOTS RETIRÉS AU LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, ET IL FAUT DIRE POURQUOI ═════════════════
+ *
+ * `TITRE_BIENS_DE_L_ECHANGE` (« Bien(s) de cet échange ») et `MOT_AJOUTER_A_UN_AUTRE_BIEN` (« + Ajouter ce mail à
+ * un autre bien ») nommaient la SECONDE fenêtre et le geste d'ajout ponctuel. Arno les a l'un et l'autre
+ * explicitement remplacés le 03/10/2026 : « une SEULE fenêtre, quel que soit le point d'entrée » et « l'“ajout
+ * ponctuel” du lot a7f5f968 est remplacé par ce mécanisme d'exception ».
+ *
+ * 🔴 CE QU'ILS NOMMAIENT N'EXISTE PLUS : les garder aurait laissé, dans le vocabulaire du module, deux mots que
+ * plus aucun écran n'écrit — et c'est ainsi qu'on finit par rouvrir un chemin qu'on croyait fermé. Les LIENS déjà
+ * posés en ajout ponctuel, eux, sont intacts : ils gardent `MOTIF_AJOUT_PONCTUEL` et s'affichent toujours comme
+ * des biens du mail, avec leur mention `MENTION_AJOUT_PONCTUEL` (ci-dessous).
+ */
 
 /**
  * ══ 🔴🔴 LE MOTIF D'UN AJOUT PONCTUEL — ET C'EST LUI QUI GARANTIT LA PROMESSE D'ARNO ═════════════════════════════
@@ -338,4 +357,98 @@ export function biensDuMail<T extends {
     });
   }
   return sortie;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 2 — UNE SEULE FENÊTRE, QUEL QUE SOIT LE POINT D'ENTRÉE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (03/10/2026) : « depuis la LIGNE de la Réception (fil 3490), la fenêtre “Bien(s) de cet échange”
+   affiche encore tous les biens proposés pour l'expéditeur (lots 247, 282, 169, 491, 4 — “À trancher”). Le lot
+   a7f5f968 n'a corrigé que la fenêtre ouverte depuis un mail. »
+
+   🔴 LA CAUSE, EN UNE LIGNE DE CODE : la fenêtre avait DEUX comportements selon qu'on lui donnait un mail ou non.
+   Ouverte depuis une ligne de liste, elle rendait `fiche.biens` tel quel — c'est-à-dire les liens PROPOSÉS du
+   moteur avec les liens confirmés. Corriger un seul des deux chemins ne pouvait pas suffire : il fallait qu'il
+   n'y en ait plus qu'un.
+
+   RÈGLE D'ARNO :
+     · une SEULE fenêtre, quel que soit le point d'entrée (ligne de liste dans tous les dossiers, recherche, ligne
+       de mail dans la conversation, mail ouvert) ;
+     · elle porte sur UN mail précis : le mail cliqué, ou depuis une ligne de liste LE MAIL AFFICHÉ SUR LA LIGNE
+       (le plus récent de l'échange). En tête : expéditeur, date, objet de ce mail ;
+     · elle n'affiche QUE les biens rattachés officiellement à ce mail (lien vivant confirmé), avec leurs parties.
+       JAMAIS les propositions ni les cartes « À trancher ».
+
+   🔴 CE QUE CELA SUPPRIME DÉFINITIVEMENT : la notion de « biens de l'échange ». Un rattachement se pose sur un
+   MAIL (convention du lot RATTACHEMENT-1) ; « les biens de l'échange » était une somme, et une somme ne se
+   modifie pas. C'est d'ailleurs ce qui rendait l'ancienne fenêtre impossible à corriger à moitié.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** L'en-tête de la fenêtre : de quel mail elle parle. Rien de plus que ce qu'il faut pour le reconnaître. */
+export interface EnTeteMailFenetre {
+  messageId: number;
+  de: string;
+  deNom: string | null;
+  recuLe: string;
+  objet: string | null;
+}
+
+/** Le grand bouton, et le lien qui lui fait pendant. Écrits ici, lus par l'écran — jamais recopiés. */
+export const MOT_MODIFIER_BIENS_DU_MAIL = 'Modifier les biens de ce mail';
+export const MOT_CHANGER_REGLE_SUIVI =
+  'Changer plutôt la règle de suivi de la conversation à partir de ce mail';
+
+/**
+ * ══ 🔴🔴 L'ENCADRÉ QUI DIT CE QUE « VALIDER » VA FAIRE ═══════════════════════════════════════════════════════════
+ *
+ * Mot pour mot la demande d'Arno : « un encadré clair : “Ce changement ne concerne que ce mail (exception). La
+ * règle de suivi de la conversation reste inchangée pour les autres mails.” »
+ *
+ * 🔴 IL EST ÉCRIT AVANT LE GESTE, PAS APRÈS. C'est la règle de la maison (« personne ne doit découvrir l'effet
+ * après coup ») et c'est d'autant plus vrai ici : la différence entre une exception et une règle de suivi ne se
+ * voit pas à l'écran une fois le geste fait — elle se voit trois mails plus loin.
+ */
+export const ENCADRE_EXCEPTION_CE_MAIL =
+  'Ce changement ne concerne que ce mail (exception). La règle de suivi de la conversation reste inchangée pour '
+  + 'les autres mails.';
+
+/**
+ * ══ CE QUE LA MODIFICATION VA ÉCRIRE, EN UNE PHRASE. PUR. ════════════════════════════════════════════════════════
+ *
+ * 🔴🔴 « AUCUN CHANGEMENT » EST UNE RÉPONSE, et la plus importante des trois. Arno : « un retour à la
+ * configuration de la fenêtre en vigueur SUPPRIME l'exception (règle du dernier choix, rien d'écrit) ». L'écran
+ * doit donc pouvoir dire « rien ne sera écrit » — sans quoi on cliquerait « Valider » en croyant poser quelque
+ * chose.
+ *
+ * ⚠️ ON COMPTE LES DEUX SENS : ajoutés ET retirés. Une modification qui n'annoncerait que les ajouts cacherait
+ * exactement la moitié du geste — et c'est la moitié qui défait.
+ */
+export function resumeModificationBiens(o: {
+  avant: readonly string[];
+  apres: readonly string[];
+}): string {
+  const avant = new Set(o.avant);
+  const apres = new Set(o.apres);
+  const ajoutes = [...apres].filter((c) => !avant.has(c)).length;
+  const retires = [...avant].filter((c) => !apres.has(c)).length;
+  if (ajoutes === 0 && retires === 0) return 'Aucun changement : rien ne sera écrit.';
+  const bouts: string[] = [];
+  if (ajoutes > 0) bouts.push(`${ajoutes} bien${ajoutes > 1 ? 's' : ''} ajouté${ajoutes > 1 ? 's' : ''}`);
+  if (retires > 0) bouts.push(`${retires} bien${retires > 1 ? 's' : ''} retiré${retires > 1 ? 's' : ''}`);
+  return `${bouts.join(', ')} sur ce mail.`;
+}
+
+/**
+ * ══ L'EN-TÊTE DE LA FENÊTRE, ÉCRIT. PUR. ═════════════════════════════════════════════════════════════════════════
+ *
+ * « En tête : expéditeur, date, objet de ce mail » (Arno). Trois faits, dans cet ordre : on ouvre cette fenêtre
+ * pour savoir de quel mail on parle, et c'est l'expéditeur qu'on reconnaît en premier.
+ *
+ * ⚠️ UN OBJET VIDE SE DIT, il ne se saute pas : une fenêtre qui n'affiche rien à cette place laisse croire
+ * qu'elle n'a pas fini de charger.
+ */
+export function motEnTeteMail(e: EnTeteMailFenetre, dateEcrite: string): string {
+  const qui = (e.deNom ?? '').trim() === '' ? e.de : (e.deNom as string);
+  return `${qui} · ${dateEcrite} · ${(e.objet ?? '').trim() === '' ? '(sans objet)' : (e.objet as string)}`;
 }

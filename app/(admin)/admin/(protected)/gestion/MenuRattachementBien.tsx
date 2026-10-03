@@ -38,14 +38,56 @@ import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
  */
 export function MenuRattachementBien({
   messageId, filId, onFerme, onGeste, onChange, onHorsGestion, ponctuel = false,
+  preCoches = null, pied, onValider, motValider, validationBloquee = null, onSelection, libellesConnus,
 }: {
   messageId: number;
   filId: number | null;
   onFerme: () => void;
   onGeste?: (message: string) => void;
   onChange: () => void | Promise<void>;
-  /** Ouvre LA fenêtre de classement, qui porte « Hors gestion » et le classement par pièce. */
-  onHorsGestion: () => void;
+  /**
+   * Ouvre LA fenêtre de classement, qui porte « Hors gestion » et le classement par pièce.
+   *
+   * ⚠️ FACULTATIF DEPUIS LE LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT : la fenêtre « Visualiser / Modifier »
+   * n'a pas de seconde boîte à ouvrir par-dessus elle-même, et un bouton qui se contenterait de refermer le
+   * panneau serait un bouton qui ment. Absent ⇒ il n'est pas rendu du tout.
+   */
+  onHorsGestion?: () => void;
+  /* ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 2 — LE MENU DEVIENT UN SÉLECTEUR ════════════════
+     La fenêtre « Visualiser / Modifier » a besoin des DEUX zones d'Arno (« a) les propositions automatiques […]
+     b) le moteur de recherche ») mais écrit, elle, par une tout autre porte : une EXCEPTION de suivi, en un seul
+     appel. Les cinq options ci-dessous permettent de réemployer ce menu tel quel plutôt que d'en recopier une
+     seconde version — ce qui aurait donné, un jour, deux listes de propositions qui ne disent pas la même chose.
+
+     ⚠️ TOUTES ABSENTES ⇒ COMPORTEMENT D'AVANT CE LOT, À LA LIGNE PRÈS : pré-coche du moteur, fieldset de portée,
+     écriture lien par lien par ce composant. */
+
+  /**
+   * 🔴 LA PRÉ-COCHE IMPOSÉE. `null` = celle du moteur (les biens recommandés), comme avant ce lot. Une liste =
+   * exactement ces biens-là, et c'est ce que demande Arno pour la fenêtre : « propositions décochées, SAUF les
+   * biens déjà rattachés, qui sont cochés ».
+   */
+  preCoches?: readonly string[] | null;
+  /** Ce qui remplace le choix de portée, au-dessus des boutons : l'encadré d'exception, ou le bloc de suivi. */
+  pied?: React.ReactNode;
+  /**
+   * 🔴🔴 QUI ÉCRIT. Donné, ce menu N'ÉCRIT PLUS RIEN lui-même : il rend la sélection, et l'appelant décide. C'est
+   * la règle de la maison appliquée à l'envers du lot BIEN-RATTACHE — un seul geste, une seule implémentation :
+   * ici, la règle de suivi vit dans la fenêtre et sa route, pas dans un menu de sélection.
+   */
+  onValider?: (biens: readonly { cle: string; libelle: string }[]) => Promise<void>;
+  /**
+   * Les libellés des biens que l'appelant a pré-cochés. Sans eux, un bien déjà rattaché mais absent des
+   * propositions ET des résultats de recherche repartirait avec sa CLÉ pour nom — illisible trois mois plus tard
+   * dans une période.
+   */
+  libellesConnus?: Readonly<Record<string, string>>;
+  /** Le mot du bouton, quand ce n'est plus « Rattacher ». */
+  motValider?: string;
+  /** Un motif non nul BLOQUE la validation et s'affiche : c'est la confirmation de « Toute la conversation ». */
+  validationBloquee?: string | null;
+  /** La sélection en cours, remontée à chaque changement — l'appelant en tire sa phrase et ses alertes. */
+  onSelection?: (cles: readonly string[]) => void;
   /**
    * ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — L'AJOUT PONCTUEL ══════════════════════════════════════════
    *
@@ -79,6 +121,18 @@ export function MenuRattachementBien({
   const [cherche, setCherche] = useState(false);
   const champ = useRef<HTMLInputElement | null>(null);
 
+  /**
+   * ══ 🔴🔴 LA PRÉ-COCHE SE SUIT PAR SON CONTENU, JAMAIS PAR L'IDENTITÉ DU TABLEAU ══════════════════════════════
+   *
+   * ⚠️ DÉFAUT MESURÉ À L'ÉCRITURE DE CE LOT, et il est sournois : l'appelant recompose sa liste à chaque rendu,
+   * donc le tableau change d'identité à chaque frappe. Pris tel quel en dépendance, l'effet de chargement se
+   * rejouait, et `setCoches(preCoches)` REMETTAIT la sélection de départ — on cochait une case, elle se
+   * décochait seule, et « Valider » n'avait plus rien à écrire.
+   *
+   * 🔴 ON DÉPEND DONC DU CONTENU, trié et joint : deux listes qui disent la même chose ne relancent rien.
+   */
+  const clePreCoches = preCoches === null ? null : [...preCoches].sort().join('|');
+
   const charger = useCallback(async () => {
     try {
       const res = await fetch(`/api/admin/gestion/classement?message=${messageId}`, { cache: 'no-store' });
@@ -91,11 +145,14 @@ export function MenuRattachementBien({
        * 🔴🔴 SAUF EN AJOUT PONCTUEL : Arno demande des propositions DÉCOCHÉES. On ajoute alors un bien qu'on a en
        * tête ; pré-cocher ferait partir un rattachement qu'on n'a pas demandé.
        */
-      setCoches(ponctuel ? [] : (d.contexte.biens ?? []).filter((b) => b.recommande).map((b) => b.cle));
+      /* 🔴🔴 ET LA PRÉ-COCHE IMPOSÉE L'EMPORTE SUR LES DEUX : c'est l'état RÉEL du mail, pas une suggestion. */
+      setCoches(clePreCoches !== null
+        ? (clePreCoches === '' ? [] : clePreCoches.split('|'))
+        : (ponctuel ? [] : (d.contexte.biens ?? []).filter((b) => b.recommande).map((b) => b.cle)));
     } catch {
       setEtat({ v: 'rien' });
     }
-  }, [messageId, ponctuel]);
+  }, [messageId, ponctuel, clePreCoches]);
 
   useEffect(() => { void charger(); }, [charger]);
   useEffect(() => { champ.current?.focus(); }, []);
@@ -138,7 +195,12 @@ export function MenuRattachementBien({
   /** …puis rangés en deux groupes titrés. Le tri et la règle « jamais deux fois » vivent dans le module PUR. */
   const groupes = grouperResultats(trouves);
 
-  const basculer = (cle: string) => setCoches((c) => (c.includes(cle) ? c.filter((x) => x !== cle) : [...c, cle]));
+  const basculer = (cle: string) => setCoches((c) => {
+    const n = c.includes(cle) ? c.filter((x) => x !== cle) : [...c, cle];
+    /* 🔴 L'APPELANT SUIT LA SÉLECTION EN DIRECT : c'est de là que viennent sa phrase de résumé et son alerte. */
+    onSelection?.(n);
+    return n;
+  });
 
   /** Le plan des DEUX zones réunies : c'est lui qui écrit la phrase, jamais un compte fait à la main. */
   const plan = planClassement({
@@ -146,10 +208,36 @@ export function MenuRattachementBien({
     mailsSansManuel: [messageId, ...(contexte?.filId !== null && portee === 'conversation' ? [] : [])],
     selection: coches, existants: [],
   });
-  const aFaire = coches.length > 0;
+  /**
+   * 🔴🔴 CE QU'IL Y A À FAIRE — ET CE N'EST PAS LA MÊME QUESTION DANS LES DEUX MODES.
+   *
+   * En rattachement, on AJOUTE : sans case cochée, il n'y a rien à poser. En modification des biens d'un mail, on
+   * FIXE une liste : tout décocher est un geste plein (« ce mail ne concerne aucun bien »), et c'est le seul
+   * moyen de retirer un bien. C'est donc l'ÉCART à l'état de départ qui décide.
+   */
+  /**
+   * 🔴 LE NOM D'UN BIEN, D'OÙ QU'IL VIENNE. Les propositions et les résultats de recherche le portent ; un bien
+   * déjà rattaché, lui, peut n'être dans ni l'un ni l'autre — c'est l'appelant qui le nomme alors.
+   */
+  const libelleDe = (cle: string): string =>
+    propositions.find((b) => b.cle === cle)?.libelle
+    ?? (resultats?.lignes ?? []).find((b) => b.cle === cle)?.libelle
+    ?? libellesConnus?.[cle]
+    ?? cle;
+
+  const memeQuAuDepart = clePreCoches !== null && [...coches].sort().join('|') === clePreCoches;
+  const aFaire = onValider === undefined ? coches.length > 0 : !memeQuAuDepart;
 
   const valider = async () => {
-    if (!aFaire) return;
+    if (!aFaire || validationBloquee !== null) return;
+    /* 🔴 L'ÉCRITURE DÉLÉGUÉE : ce menu ne connaît ni les périodes, ni les exceptions, et n'a pas à les connaître. */
+    if (onValider !== undefined) {
+      setEnvoi({ en_cours: true, erreur: null });
+      try {
+        await onValider(coches.map((cle) => ({ cle, libelle: libelleDe(cle) })));
+      } finally { setEnvoi({ en_cours: false, erreur: null }); }
+      return;
+    }
     setEnvoi({ en_cours: true, erreur: null });
     /**
      * ⚠️ LA PORTÉE « TOUTE LA CONVERSATION » PASSE PAR LA MÊME PORTE, avec la liste des mails que le serveur a
@@ -276,7 +364,7 @@ export function MenuRattachementBien({
           🔴🔴 EN AJOUT PONCTUEL, IL N'Y A PAS DE PORTÉE À CHOISIR : « ponctuel » VEUT DIRE ce mail, et rien
           d'autre. Offrir « toute la conversation » ici contredirait le bouton qu'on vient de cliquer — et une
           portée qu'on peut changer après coup n'est plus une promesse. On l'ÉCRIT plutôt que de l'offrir. */}
-      {ponctuel ? (
+      {pied !== undefined ? pied : ponctuel ? (
         <p className="mrb-ponctuel" role="note">
           Ce mail uniquement — ajout ponctuel, en plus de ses biens actuels.
           Aucune fenêtre de suivi n’est touchée, et les autres mails ne changent pas.
@@ -297,22 +385,31 @@ export function MenuRattachementBien({
       )}
 
       <div className="pdb-boutons">
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={fige || !aFaire}
+        <button type="button" className="svv-btn svv-btn-primary gst-btn"
+          disabled={fige || !aFaire || validationBloquee !== null}
           onClick={() => void valider()}>
-          {fige ? 'Enregistrement…' : (ponctuel ? 'Ajouter à ce mail' : 'Rattacher')}
+          {fige ? 'Enregistrement…' : (motValider ?? (ponctuel ? 'Ajouter à ce mail' : 'Rattacher'))}
         </button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={fige} onClick={onFerme}>
           Annuler
         </button>
         {/* « Hors gestion » reste accessible d'ici, par LA fenêtre de classement — une seule implémentation. */}
-        <button type="button" className="gst-lien-bouton" disabled={fige} onClick={onHorsGestion}>
-          Hors gestion, ou classer par pièce…
-        </button>
-        <span className="pdb-resume" role="status">
-          {aFaire ? plan.resume : 'Aucun bien coché : rien ne sera rattaché.'}
-        </span>
+        {onHorsGestion !== undefined && (
+          <button type="button" className="gst-lien-bouton" disabled={fige} onClick={onHorsGestion}>
+            Hors gestion, ou classer par pièce…
+          </button>
+        )}
+        {/* ⚠️ EN MODE DÉLÉGUÉ, LA PHRASE EST CELLE DE L'APPELANT : lui seul sait ce que « valider » va écrire.
+            Ce menu dirait « rattaché », et ce serait faux — c'est une exception de suivi qu'il pose. */}
+        {onValider === undefined && (
+          <span className="pdb-resume" role="status">
+            {aFaire ? plan.resume : 'Aucun bien coché : rien ne sera rattaché.'}
+          </span>
+        )}
       </div>
 
+      {/* 🔴 LE MOTIF DU BLOCAGE SE LIT : un bouton grisé sans raison est un bouton cassé. */}
+      {validationBloquee !== null && <p className="gst-info" role="status">{validationBloquee}</p>}
       {envoi.erreur !== null && <p className="gst-tronc" role="alert">{envoi.erreur}</p>}
     </div>
   );

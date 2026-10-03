@@ -75,10 +75,25 @@ export function statutDesLiens(
  * ⚠️ SANS ANNUAIRE OU SANS RATTACHEMENTS, on rend `disponible: false` plutôt qu'une liste vide. Une liste vide se
  * lirait « cet échange n'est rattaché à rien », ce qui serait faux : on n'a simplement pas pu regarder.
  */
-export async function ficheRattachementDuFil(filId: number): Promise<FicheRattachementFil> {
+export async function ficheRattachementDuFil(
+  filId: number,
+  /**
+   * ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 2 — DE QUEL MAIL LA FENÊTRE PARLE ════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « elle porte sur UN mail précis : le mail cliqué, ou depuis une ligne de liste le
+   * mail affiché sur la ligne (le plus récent de l'échange). En tête : expéditeur, date, objet de ce mail. »
+   *
+   * 🔴 LE REPLI EST LE MAIL LE PLUS RÉCENT, et c'est exactement ce que la ligne de liste montre. `null` dit donc
+   * « celui de la ligne », pas « aucun » : la fenêtre a toujours un mail, c'est tout l'objet du lot.
+   *
+   * ⚠️ UN MAIL D'UN AUTRE ÉCHANGE EST IGNORÉ (la requête le borne à `fil_id = $1`) : on ne compose pas un en-tête
+   * à partir d'un identifiant qui ne vient pas de cette conversation.
+   */
+  messageId: number | null = null,
+): Promise<FicheRattachementFil> {
   const vide: FicheRattachementFil = {
     filId, objet: null, nbMailsDuFil: 0, biens: [], horsGestion: false, messageRecentId: null,
-    disponible: false,
+    enTete: null, disponible: false,
   };
   if (!(await rattachementsDisponibles()) || !(await annuaireDisponible())) return vide;
 
@@ -92,6 +107,29 @@ export async function ficheRattachementDuFil(filId: number): Promise<FicheRattac
   const objet = fil[0]?.objet ?? null;
   const nbMailsDuFil = fil[0]?.nb ?? 0;
   const messageRecentId = fil[0]?.recent == null ? null : Number(fil[0].recent);
+
+  /**
+   * 🔴🔴 L'EN-TÊTE DU MAIL DONT LA FENÊTRE PARLE — expéditeur, date, objet. UNE requête, bornée à l'échange.
+   *
+   * ⚠️ `COALESCE($2, recent)` PLUTÔT QU'UNE SECONDE BRANCHE : un seul chemin de lecture, donc un seul
+   * comportement à éprouver. Et l'en-tête est `null` quand l'échange est vide — ce qui ne devrait pas arriver,
+   * mais se dit plutôt que de s'inventer.
+   */
+  const cible = messageId !== null && Number.isSafeInteger(messageId) && messageId > 0
+    ? messageId : messageRecentId;
+  const { rows: tete } = cible === null ? { rows: [] } : await query<{
+    id: string; de: string | null; de_nom: string | null; recu_le: string; objet: string | null;
+  }>(
+    `SELECT m.id::text, m.de_adresse AS de, m.de_nom,
+            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le, m.objet
+       FROM gestion_message m WHERE m.id = $2 AND m.fil_id = $1`, [filId, cible]);
+  const enTete = tete[0] === undefined ? null : {
+    messageId: Number(tete[0].id),
+    de: tete[0].de ?? '',
+    deNom: tete[0].de_nom,
+    recuLe: tete[0].recu_le,
+    objet: tete[0].objet,
+  };
 
   /**
    * ── ② LES LIENS VIVANTS DE L'ÉCHANGE ─────────────────────────────────────────────────────────────────────────
@@ -116,7 +154,9 @@ export async function ficheRattachementDuFil(filId: number): Promise<FicheRattac
     : false;
 
   if (liens.length === 0) {
-    return { filId, objet, nbMailsDuFil, biens: [], horsGestion, messageRecentId, disponible: true };
+    return {
+      filId, objet, nbMailsDuFil, biens: [], horsGestion, messageRecentId, enTete, disponible: true,
+    };
   }
 
   // ── ③ LES LOTS CONCERNÉS, ET LEUR PROPRIÉTAIRE ──────────────────────────────────────────────────────────────
@@ -304,7 +344,8 @@ export async function ficheRattachementDuFil(filId: number): Promise<FicheRattac
   }
 
   return {
-    filId, objet, nbMailsDuFil, biens: ordonnerBiens(biens), horsGestion, messageRecentId, disponible: true,
+    filId, objet, nbMailsDuFil, biens: ordonnerBiens(biens), horsGestion, messageRecentId, enTete,
+    disponible: true,
   };
 }
 

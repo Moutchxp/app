@@ -622,7 +622,18 @@ export function BoiteMail({
    * ⚠️ Gardé ICI, dans la liste, et non dans chaque barre : c'est ce qui garantit qu'il n'y en a jamais DEUX
    *    ouvertes — même règle que la confirmation de corbeille juste au-dessus.
    */
-  const [rattachementsDe, setRattachementsDe] = useState<{ filId: number; objet: string | null } | null>(null);
+  /**
+   * 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — LA LIGNE DONNE SON MAIL À LA FENÊTRE.
+   *
+   * RÈGLE D'ARNO : « depuis une ligne de liste, [la fenêtre porte sur] le mail affiché sur la ligne ». C'est
+   * exactement `messageAffiche` (lot MESSAGE-CLIQUÉ) : sous Réception le dernier message REÇU, sous Envoyés le
+   * dernier ENVOYÉ — celui dont la ligne montre la date, l'expéditeur et l'extrait.
+   *
+   * ⚠️ ET NON « LE DERNIER DE L'ÉCHANGE », qui serait faux sous Envoyés : on ouvrirait la fenêtre sur un mail
+   * qu'on n'a pas sous les yeux.
+   */
+  const [rattachementsDe, setRattachementsDe] =
+    useState<{ filId: number; objet: string | null; messageId: number } | null>(null);
   useEffect(() => {
     let annule = false;
     void (async () => {
@@ -1665,7 +1676,9 @@ export function BoiteMail({
                     /* 🔴 VISUALISER N'EST PAS CLASSER : on n'ouvre pas l'échange, on ouvre une fenêtre de
                        CONSULTATION par-dessus la liste. Ouvrir l'échange ferait perdre la place dans la liste
                        pour une question à laquelle on répond en deux secondes. */
-                    onVisualiser={() => setRattachementsDe({ filId: l.filId, objet: l.objet })} />
+                    onVisualiser={() => setRattachementsDe({
+                      filId: l.filId, objet: l.objet, messageId: l.messageAffiche,
+                    })} />
                 )}
                 </MenuLigne>
               </li>
@@ -1694,6 +1707,8 @@ export function BoiteMail({
           existante — laquelle garde sa validation obligatoire. */}
       {rattachementsDe !== null && (
         <RattachementsDuFil filId={rattachementsDe.filId} titre={nettoyerObjet(rattachementsDe.objet ?? '') || null}
+          /* 🔴🔴 UNE SEULE FENÊTRE : elle porte sur LE MAIL DE LA LIGNE, comme depuis un mail ouvert. */
+          messageId={rattachementsDe.messageId}
           onFerme={() => setRattachementsDe(null)}
           /* Un rattachement vient de changer : la CAPSULE de la ligne n'est plus à jour. On relit la première
              page — c'est le seul endroit qui la calcule, et la recalculer à la main ici donnerait deux vérités. */
