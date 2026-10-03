@@ -199,7 +199,23 @@ export async function GET(request: Request): Promise<Response> {
     // ── ① LE CONTENU D'UN DOSSIER ────────────────────────────────────────────────────────────────────────────
     if (fichier === '') {
       const parent = dossier === '' ? RACINE_MON_DRIVE : dossier;
+      /**
+       * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE CHRONOMÈTRE DE LA ROUTE ═══════════════════════════════════════
+       *
+       * Arno : « mesure d'abord […] répartition client / serveur / appel Google ». On ne répare pas une lenteur
+       * qu'on n'a pas mesurée, et on ne prouve pas une amélioration sans le chiffre d'avant.
+       *
+       * 🔴 IL RESTE DANS LE CODE, comme celui de la route de déplacement, et pour la même raison : il coûte deux
+       * `Date.now()` et une poignée d'octets, et il permet de rejouer la mesure n'importe quand, depuis la console
+       * du navigateur, sur le VRAI Drive — ce qu'aucun test ne saura faire, parce que la lenteur vient du réseau
+       * de Google, pas de notre code.
+       *
+       * ⚠️ IL NE MESURE QUE LE SERVEUR. Le temps « clic → liste à l'écran » se mesure dans la page, et c'est lui
+       * qui compte pour la main qui tient la souris.
+       */
+      const t0 = Date.now();
       const liste = await listerContenu(jeton.jeton, { parentId: parent }, { fetch });
+      const tListe = Date.now() - t0;
       if (!liste.ok) return json({ etat: 'indisponible', message: liste.motif }, 200);
       /**
        * ⚠️ LE VERDICT EST RENDU POUR LE DOSSIER COURANT, pas pour chacun de ses fichiers. Un fichier hérite de
@@ -212,8 +228,16 @@ export async function GET(request: Request): Promise<Response> {
        * la même chaîne de parents — jusqu'à vingt-six `files.get` au lieu de treize pour afficher une page, sur une
        * arborescence qui fait treize niveaux (mesuré le 25/09/2026). La règle, elle, est la même dans les deux cas.
        */
+      const t1 = Date.now();
       const { joindre: v, creer: c, chaine } = await verdictsDossier(jeton.compteGoogle, jeton.jeton, parent);
+      const tVerdict = Date.now() - t1;
       return json({
+        /**
+         * 🔴 LES DEUX TEMPS, SÉPARÉS : `liste` est l'appel `files.list` (le contenu), `verdict` la remontée des
+         * parents (mémoïsée 60 s par dossier). C'est cette séparation qui dit où va le temps — et elle a montré
+         * que la remontée coûte la moitié d'un affichage à froid, et rien du tout à chaud.
+         */
+        temps: { liste: tListe, verdict: tVerdict, total: Date.now() - t0 },
         etat: 'ok', fichiers: liste.valeur.fichiers, joindreAutorise: v.joindre, motifRefus: v.motif,
         /**
          * 🔴 LOT RANGER-ARBRE-2 — LE VRAI CHEMIN DU DOSSIER AFFICHÉ, du haut jusqu'à lui. Il vient de la remontée

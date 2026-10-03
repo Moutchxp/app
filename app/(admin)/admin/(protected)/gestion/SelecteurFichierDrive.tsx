@@ -1016,8 +1016,28 @@ export function SelecteurFichierDrive({
    * doit jamais refermer un dossier déjà ouvert sous le curseur. Les deux gestes partagent donc la lecture, et
    * elle n'existe qu'une fois.
    */
+  /**
+   * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — OUVRIR UN DOSSIER DÉJÀ LU NE DOIT RIEN COÛTER ════════════════════════
+   *
+   * CONSTAT D'ARNO : « au moins 1 s par dossier ». MESURÉ sur le vrai Drive le 03/10/2026, aller-retour serveur
+   * vu du navigateur, sur dix dossiers : **685 ms de médiane à froid, 360 ms à chaud**.
+   *
+   * 🔴 LA CAUSE PREMIÈRE ÉTAIT ICI, ET ELLE EST COURTE À DIRE : ce dépliage ne regardait QUE `enfants`, jamais
+   * `cache.current`. Or le survol d'un dossier remplit DÉJÀ le cache (`precharger`, depuis le lot DRIVE-RETOUCHES)
+   * — et ce travail était intégralement jeté : on approchait la souris, la requête partait, puis le clic en
+   * relançait une seconde pour la même liste. Le préchargement ne servait à rien pour le geste qu'on fait le plus.
+   *
+   * 🔴 DÉSORMAIS : si le cache connaît ce dossier, on le pose IMMÉDIATEMENT (aucun appel), puis on revalide EN
+   * SILENCE. C'est le patron de `charger` juste au-dessus — « ce qu'on sait déjà, tout de suite ; puis la vérité,
+   * sans que l'écran bouge » — appliqué au dépliage, qui en avait été oublié.
+   *
+   * ⚠️ LA REVALIDATION RESTE : une liste de 60 s peut avoir vieilli, et on ne veut pas afficher un dossier dont
+   * le contenu a changé. Elle ne fait que ne plus FAIRE ATTENDRE.
+   */
   const chargerEnfantsSiBesoin = useCallback((id: string) => {
     if (enfants.has(id)) return;
+    const connu = cache.current.get(id);
+    if (connu !== undefined) setEnfants((m) => (m.has(id) ? m : new Map(m).set(id, connu.fichiers)));
     void (async () => {
       try {
         const r = await lireListing(id, new AbortController().signal);
@@ -1067,6 +1087,38 @@ export function SelecteurFichierDrive({
     chargerEnfantsSiBesoin(f.id);
   }, [chargerEnfantsSiBesoin]);
 
+  /**
+   * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — ON PRÉPARE LE CRAN SUIVANT PENDANT QU'ON LIT CELUI-CI ════════════════
+   *
+   * Arno : « préchargement des sous-dossiers visibles au survol ou à l'ouverture du parent ». Le survol existait
+   * déjà (`precharger`) ; l'ouverture du parent, non. Dès qu'un dossier s'ouvre, ses SOUS-DOSSIERS sont demandés
+   * en arrière-plan : le clic suivant trouve alors sa liste dans le cache, et ne coûte rien.
+   *
+   * ⚠️ BORNÉ, ET IL FAUT L'ÊTRE. Un dossier de cent sous-dossiers lancerait cent requêtes pour une liste qu'on ne
+   * regardera pas : Google les compterait comme un abus, et il répondrait 403 sur celles qui comptent vraiment.
+   * Huit, c'est ce qu'on voit à l'écran sans défiler.
+   *
+   * ⚠️ ET SEULEMENT CE QUI N'EST PAS DÉJÀ CONNU : `precharger` écarte de lui-même ce que le cache porte.
+   */
+  const PRECHARGE_ENFANTS_MAX = 8;
+  const prechargerLesSousDossiers = useCallback((enfantsDu: readonly Fichier[]) => {
+    let n = 0;
+    for (const f of enfantsDu) {
+      if (!f.dossier) continue;
+      if (n >= PRECHARGE_ENFANTS_MAX) break;
+      n += 1;
+      precharger(f.id);
+    }
+  }, [precharger]);
+
+  /**
+   * 🔴 IL PART QUAND LA LISTE D'UN SOUS-NIVEAU ARRIVE, et jamais avant : précharger les petits-enfants d'un
+   * dossier qu'on n'a pas encore ouvert serait du travail pour rien.
+   */
+  useEffect(() => {
+    for (const [, liste] of enfants) prechargerLesSousDossiers(liste);
+  }, [enfants, prechargerLesSousDossiers]);
+
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
      LA LISTE : aplatie, triée, virtualisée
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -1079,7 +1131,37 @@ export function SelecteurFichierDrive({
    */
   const racineListe = listing === null ? []
     : listing.recherche ? [...listing.dossiers, ...listing.fichiers] : listing.fichiers;
-  const lignes = aplatir(racineListe, ouverts, (id) => enfants.get(id), tri);
+  /**
+   * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE DÉPLIAGE EST IMMÉDIAT, AVEC SON SQUELETTE ════════════════════════
+   *
+   * Arno : « dépliage immédiat avec squelette ». Avant ce lot, ouvrir un dossier jamais lu ne montrait RIEN
+   * pendant la demi-seconde de Google : le triangle tournait vers le bas, et la liste restait identique. On ne
+   * savait pas si le clic avait porté, alors on recliquait — ce qui refermait le dossier.
+   *
+   * 🔴 LA LIGNE D'ATTENTE EST POSÉE ICI, APRÈS L'APLATISSEMENT, et non dans `aplatir` : cette fonction PURE
+   * répond à « quelles entrées sont visibles ? », et une ligne qui n'est pas une entrée du Drive n'a rien à y
+   * faire. Elle est marquée `attente`, et le rendu la dessine en grisé, sans geste ni cible de dépôt.
+   *
+   * ⚠️ ELLE NE PARAÎT QUE POUR UN DOSSIER DONT ON N'A VRAIMENT RIEN : dès que le cache a servi (le cas le plus
+   * courant depuis ce lot), les enfants sont là au même rendu et le squelette ne s'affiche jamais.
+   */
+  const lignesBrutes = aplatir(racineListe, ouverts, (id) => enfants.get(id), tri);
+  const lignes = (() => {
+    const out: LigneAplatie[] = [];
+    for (const l of lignesBrutes) {
+      out.push(l);
+      if (!l.entree.dossier || !ouverts.has(l.entree.id) || enfants.has(l.entree.id)) continue;
+      out.push({
+        entree: {
+          id: `attente:${l.entree.id}`, nom: 'Chargement…', typeMime: '', tailleOctets: null,
+          modifieLe: null, lien: null, dossier: false, parentId: l.entree.id,
+        },
+        profondeur: l.profondeur + 1,
+        parent: { id: l.entree.id, nom: l.entree.nom },
+      });
+    }
+    return out;
+  })();
   const ordre = lignes.map((l) => l.entree.id);
   const fenetre = fenetreVisible(lignes.length, scrollTop, hauteurVue);
   const visibles = lignes.slice(fenetre.debut, fenetre.fin);
@@ -3899,6 +3981,23 @@ export function SelecteurFichierDrive({
                          lirait comme « désactivée », « sélectionnée » ou « coupée » selon l'écran et selon l'œil. */
                       const enVol = enMouvement.has(f.id);
                       const lisible = joindreOk && !systeme;
+                      /**
+                       * 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LA LIGNE D'ATTENTE N'EST PAS UNE ENTRÉE DU DRIVE.
+                       * Elle ne se sélectionne pas, ne se glisse pas, ne reçoit aucun dépôt et n'ouvre aucun
+                       * menu : elle dit seulement « ça arrive ». La traiter comme une ligne ordinaire aurait
+                       * permis de déposer une pièce sur un fichier qui n'existe pas.
+                       */
+                      if (f.id.startsWith('attente:')) {
+                        return (
+                          <li key={f.id} className="sfd-ligne sfd-ligne--attente" aria-hidden="true"
+                            style={{ ...grille, paddingLeft: 6 + profondeur * 16 }}>
+                            <span className="sfd-col-nom">
+                              <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />
+                              <span className="sfd-nom">Chargement…</span>
+                            </span>
+                          </li>
+                        );
+                      }
                       return (
                         <li key={f.id} role="option" aria-selected={choisie}
                           /**
@@ -4479,6 +4578,10 @@ export const CSS_SELECTEUR_FICHIER = `
    un document d'un dossier ou quelqu'un ira le chercher : il ne doit pas se trouver au ras du doigt qui visait
    « Coller ici ». Une separation VISUELLE, pas une categorie. */
 .sfd-menu-li--separe{margin-top:4px;padding-top:4px;border-top:1px solid var(--color-svv-line)}
+/* 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LA LIGNE D'ATTENTE D'UN DOSSIER QUI S'OUVRE. Grisee et en italique : on
+   voit tout de suite que ce n'est pas un fichier, et que quelque chose arrive. Aucune animation : le
+   clignotement d'un squelette anime se remarque plus que l'attente qu'il masque. */
+.sfd-ligne--attente{opacity:.55;font-style:italic;cursor:default;pointer-events:none}
 
 /* ── LE PIED ──────────────────────────────────────────────────────────────────────────────────────────────── */
 .sfd-pied{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;flex:0 0 auto;
