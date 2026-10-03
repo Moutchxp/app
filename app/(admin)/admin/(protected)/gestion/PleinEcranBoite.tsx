@@ -246,6 +246,22 @@ export function PleinEcranBoite({
   /** Incrémenté après un geste de corbeille : la liste doit être relue, l'échange n'y est plus (ou y revient). */
   const [versionListe, setVersionListe] = useState(0);
   /**
+   * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — « MONTRE-MOI CE DOSSIER » ═════════════════════════════════
+   *
+   * Chaque clic sur une entrée de la colonne l'incrémente, et la liste y lit « on me demande le DOSSIER, pas la
+   * recherche en cours ». Voir `retourAuDossier` dans `BoiteMail` — c'est là qu'est écrit le défaut qu'il répare.
+   *
+   * 🔴 UN NOMBRE PLUTÔT QUE L'ÉTIQUETTE : depuis une recherche faite DANS « Réception », cliquer « Réception »
+   * ne change pas l'étiquette. C'est précisément ce cas-là qui ne marchait pas.
+   */
+  const [retourAuDossier, setRetourAuDossier] = useState(0);
+  /** Le geste complet d'une entrée de colonne : on va au dossier, et l'on quitte la recherche. */
+  const allerAuDossier = (e: Etiquette): void => {
+    onEtiquette(e);
+    setRetourAuDossier((n) => n + 1);
+    setPanneauMobile('contenu');
+  };
+  /**
    * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LE BATTEMENT DU STATUT ═══════════════════════════════════════════
    *
    * Incrémenté quand un classement est validé DANS la conversation (Rattacher, Interne, Hors gestion, étape 2
@@ -690,21 +706,21 @@ export function PleinEcranBoite({
                   <div className={`cm-entree cm-entree--recep${active ? ' cm-entree--active' : ''}`}>
                     <button type="button" className="cm-nom-bouton"
                       aria-current={active ? 'true' : undefined}
-                      onClick={() => { onEtiquette(e.etiquette); setPanneauMobile('contenu'); }}>
+                      onClick={() => allerAuDossier(e.etiquette)}>
                       <span className="cm-nom"><span className="cm-texte">{e.libelle}</span></span>
                     </button>
                     <span className="cm-sels">
                       <button type="button"
                         className={`cm-sel${filtre === 'non-lus' ? ' cm-sel--actif' : ''}`}
                         aria-pressed={filtre === 'non-lus'}
-                        onClick={() => { onEtiquette(e.etiquette); onFiltre('non-lus'); setPanneauMobile('contenu'); }}>
+                        onClick={() => { allerAuDossier(e.etiquette); onFiltre('non-lus'); }}>
                         {e.nonLusPartiel ? 'au moins ' : ''}{nonLus} non lu{nonLus > 1 ? 's' : ''}
                       </button>
                       {e.compte !== null && (
                         <button type="button"
                           className={`cm-sel cm-sel--total${filtre === null ? ' cm-sel--actif' : ''}`}
                           aria-pressed={filtre === null}
-                          onClick={() => { onEtiquette(e.etiquette); onFiltre(null); setPanneauMobile('contenu'); }}>
+                          onClick={() => { allerAuDossier(e.etiquette); onFiltre(null); }}>
                           {e.compte}
                         </button>
                       )}
@@ -717,7 +733,7 @@ export function PleinEcranBoite({
               <li key={`${e.etiquette.sorte}-${e.etiquette.evenementId ?? 0}`}>
                 <button type="button" className={`cm-entree${active ? ' cm-entree--active' : ''}`}
                   aria-current={active ? 'true' : undefined}
-                  onClick={() => { onEtiquette(e.etiquette); setPanneauMobile('contenu'); }}>
+                  onClick={() => allerAuDossier(e.etiquette)}>
                   <span className="cm-nom">
                     {/* La référence d'une carte passe DEVANT son titre : c'est elle qu'on cherche des yeux, et c'est
                         elle qu'on retrouve dans un mail ou dans un échange déjà classé. */}
@@ -949,6 +965,8 @@ export function PleinEcranBoite({
               </p>
             )}
             <BoiteMail key={versionListe} etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
+              /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — cliquer un dossier sort de la recherche. */
+              retourAuDossier={retourAuDossier}
               onRelever={onRelever} releveEnCours={releveEnCours} filtre={filtre}
               etoile={etoile} onEtoileFiltre={onEtoileFiltre}
               auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus}

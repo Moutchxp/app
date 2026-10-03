@@ -34,7 +34,15 @@ const VIDE: PageFile = {
   lignes: [], totaux: { aTrier: 0, sansCandidat: 0, automatiques: 0, nonExamines: 0 }, tronque: false,
 };
 
-export function FileATrier({ onRetour, onOuvrirFil, onGeste }: {
+export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
+  /**
+   * 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — ALLER À LA RÉCEPTION DEPUIS CET ÉCRAN.
+   *
+   * Cet écran n'a pas la colonne de gauche, donc pas de tuile « Réception » : sans ce bouton, retrouver son
+   * courrier demandait deux gestes (écran partagé, puis la boîte). Absent ⇒ le bouton n'est pas rendu, et
+   * l'écran est exactement celui d'avant ce lot.
+   */
+  onReception?: () => void;
   onRetour: () => void;
   /** Ouvrir l'échange du mail, pour le lire avant de trancher. Absent = pas de lien. */
   /**
@@ -148,6 +156,22 @@ export function FileATrier({ onRetour, onOuvrirFil, onGeste }: {
 
       <div className="fat-entete">
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onRetour}>← Écran partagé</button>
+        {/**
+          * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — LA RÉCEPTION EST JOIGNABLE D'ICI ══════════════════
+          *
+          * RÈGLE D'ARNO (03/10/2026) : « la liste Réception, depuis N'IMPORTE QUEL écran ».
+          *
+          * 🔴 CET ÉCRAN N'A PAS LA COLONNE DE GAUCHE, donc pas de tuile « Réception ». Vérifié à l'écran : la
+          * seule sortie menait à l'écran partagé — d'où il fallait un second geste pour retrouver son courrier.
+          *
+          * ⚠️ RIEN N'EST RETIRÉ : « ← Écran partagé » reste, à sa place, et dit toujours où il va. On AJOUTE le
+          * chemin qui manquait, à côté.
+          */}
+        {onReception !== undefined && (
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onReception}>
+            Réception
+          </button>
+        )}
         {/* 🔴 LOT ERGO-BOITE-2 — LE COMPTEUR DU TITRE COMPTE LES MAILS À TRANCHER, et dit les autres À CÔTÉ.
             Il affichait `aTrier + sansCandidat`, soit 19 108 là où 3 261 mails seulement ont une proposition à
             confirmer ou rejeter. Un seul nombre pour deux travaux très différents (trancher d'un clic / inventer

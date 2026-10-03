@@ -359,7 +359,7 @@ export function BoiteMail({
   onOuvrir, onRouvrirBrouillon, onApercuBrouillon, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
   dense = false, onNonLus, onTotalEtiquette, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
   versionDonnees = 0, versionStatuts = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
-  etoile = false, onEtoileFiltre, selection,
+  etoile = false, onEtoileFiltre, selection, retourAuDossier = 0,
 }: {
   /**
    * ══ 🔴 LOT MESSAGE-CLIQUÉ — ON OUVRE L'ÉCHANGE **ET** LE MESSAGE DE LA LIGNE ══════════════════════════════════
@@ -454,6 +454,22 @@ export function BoiteMail({
    * `0` (le défaut) = aucun battement : la liste se comporte exactement comme avant ce lot.
    */
   versionDonnees?: number;
+  /**
+   * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — « MONTRE-MOI CE DOSSIER » EFFACE LA RECHERCHE ════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « clic sur la tuile (nom ou total) → la liste Réception, DEPUIS N'IMPORTE QUEL
+   * ÉCRAN (mail ouvert, fiche, annuaire, recherche, autre dossier) ».
+   *
+   * 🔴 LE DÉFAUT, VU À L'ÉCRAN. Depuis une RECHERCHE faite dans « Réception », cliquer la tuile « Réception » ne
+   * faisait rien : l'étiquette ne changeait pas (on y était déjà), l'adresse non plus — et la liste continuait
+   * d'afficher les résultats de « facture ». La tuile promettait un dossier et rendait une recherche.
+   *
+   * 🔴 UN NOMBRE, ET NON UN BOOLÉEN. Deux clics successifs sur la MÊME tuile doivent agir deux fois ; un drapeau
+   * serait resté à `true` et le second clic n'aurait rien déclenché.
+   *
+   * ⚠️ ABSENT OU `0` ⇒ COMPORTEMENT D'AVANT CE LOT : la recherche n'est jamais effacée toute seule.
+   */
+  retourAuDossier?: number;
   /**
    * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LE BATTEMENT DU STATUT ═══════════════════════════════════════════
    *
@@ -743,6 +759,25 @@ export function BoiteMail({
   // `filtre` entre dans les dépendances : changer de sélecteur relit la première page, comme changer d'étiquette.
   useEffect(() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre, etoile); },
     [premiere, auto, critere, cleEtiquette, filtre, etoile]);
+
+  /**
+   * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — CLIQUER UN DOSSIER SORT DE LA RECHERCHE ══════════════════
+   *
+   * Vu à l'écran : depuis une recherche faite dans « Réception », cliquer la tuile « Réception » ne faisait rien —
+   * l'étiquette ne changeait pas (on y était déjà), et la liste continuait d'afficher les résultats de « facture ».
+   * La tuile promettait un dossier et rendait une recherche.
+   *
+   * 🔴 ON VIDE LES DEUX : la saisie (ce qu'on voit dans le champ) ET le critère (ce qui commande la liste). N'en
+   * vider qu'un laisserait soit un champ qui ment, soit une liste qui ne correspond plus à ce qu'il affiche.
+   *
+   * ⚠️ `0` AU MONTAGE NE DÉCLENCHE RIEN — c'est la valeur par défaut, et une recherche tapée puis conservée au
+   * remontage ne doit pas s'effacer toute seule.
+   */
+  useEffect(() => {
+    if (retourAuDossier === 0) return;
+    setSaisie(CRITERE_VIDE);
+    setCritere(CRITERE_VIDE);
+  }, [retourAuDossier]);
 
   /**
    * ══ 🔴 LOT ÉCRAN-VIVANT — LA LISTE SE RELIT QUAND DU COURRIER ARRIVE, SI ELLE PEUT LE FAIRE SANS RIEN PERDRE ══

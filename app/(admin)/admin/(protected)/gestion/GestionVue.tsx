@@ -1046,6 +1046,8 @@ export function GestionVue({ intro }: {
             /* ⚠️ « ← » DOIT NOMMER SON ÉCRAN. Depuis le lot ERGO-BOITE, `ETAT_DEFAUT` EST la boîte : s'en remettre à
              lui ferait un bouton de retour qui ne sort de nulle part. */
           onRetour={() => aller({ ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE })}
+          /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — même raison qu'au-dessus : pas de colonne ici. */
+          onReception={() => aller({ ...ETAT_DEFAUT, ecran: 'boite', etiquette: ETIQUETTE_RECEPTION })}
             onCible={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
             onOuvrirFil={(id, messageId) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null })}
             onGeste={(m) => surGeste(m)} />
@@ -1063,6 +1065,9 @@ export function GestionVue({ intro }: {
              colonne). Auparavant il menait à l'écran partagé, parce que le bouton y vivait. Rien n'est perdu :
              l'écran partagé reste à un clic depuis la colonne. */
           onRetour={() => aller({ ...ETAT_DEFAUT })}
+          /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — « la liste Réception, depuis n'importe quel
+             écran » : cet écran n'a pas la colonne, donc pas de tuile. On lui donne le chemin. */
+          onReception={() => aller({ ...ETAT_DEFAUT, ecran: 'boite', etiquette: ETIQUETTE_RECEPTION })}
           /* Lire l'échange avant de trancher : on part dans la boîte, où vit la conversation en pleine page. */
           onOuvrirFil={(id, messageId) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null })}
           onGeste={(m) => surGeste(m)} />
