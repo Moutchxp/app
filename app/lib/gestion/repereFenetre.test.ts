@@ -152,19 +152,46 @@ describe('🔴 ③ ce que l’écran dessine', () => {
     expect(src).toContain("coteDuRepere(ordre) === 'dessous' && reperes");
   });
 
-  /** 🔴 LA PHRASE EST ROUGE ET CENTRÉE, et les traits partent de ses deux côtés (demande d'Arno). */
-  it('🔴 phrase rouge, centrée, encadrée de deux liserés', () => {
-    expect(src).toContain('justify-content:center');
+  /** 🔴 LA PHRASE EST ROUGE ET CENTRÉE, entre les deux bras du cadre (demande d'Arno). */
+  it('🔴 phrase rouge, centrée entre les deux bras', () => {
+    expect(src).toContain('grid-template-columns:1fr auto 1fr');
     expect(src).toContain('.cnv-repere-mot{font-size:.76rem;font-weight:700;letter-spacing:.01em;color:var(--color-svv-red)');
-    expect(src).toContain('.cnv-repere::before,.cnv-repere::after{content:"";flex:1 1 auto;height:1px;background:var(--color-svv-red)}');
+    expect(src).toContain('cnv-repere-bras cnv-repere-bras--gauche');
+    expect(src).toContain('cnv-repere-bras cnv-repere-bras--droite');
   });
 
-  /** 🔴 LES MONTANTS LONGENT LE MAIL SUR LA MOITIÉ DE SA HAUTEUR, mesurée — jamais une valeur figée. */
-  it('🔴🔴 les montants font la moitié de la hauteur MESURÉE du mail', () => {
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — LE LISERÉ EST CONTINU, ET SES ANGLES SONT ARRONDIS ═══════════════
+   *
+   * CONSTAT D'ARNO (03/10/2026) : « liseré CONTINU, sans coupure aux angles, avec des angles ARRONDIS ».
+   *
+   * 🔴 LA SEULE FAÇON D'Y ARRIVER SANS COUPURE : UNE SEULE BOÎTE PAR CÔTÉ, qui porte les DEUX bordures et le
+   * rayon qui les joint. La version d'avant dessinait quatre traits indépendants — deux horizontaux en
+   * pseudo-éléments, deux verticaux en `span` — et il restait au coin un décroché d'un pixel, visible à l'œil.
+   * Deux traits qui se rejoignent ne font pas un trait.
+   */
+  it('🔴🔴 un seul trait par côté : deux bordures et un rayon sur la même boîte', () => {
+    expect(src).toContain('.cnv-repere-bras::before{content:"";position:absolute;left:0;right:0;');
+    expect(src).toContain('border:0 solid var(--color-svv-red)');
+    expect(src).toContain('.cnv-repere--dessus .cnv-repere-bras--gauche::before{border-left-width:1px;border-top-left-radius:10px}');
+    expect(src).toContain('.cnv-repere--dessous .cnv-repere-bras--droite::before{border-right-width:1px;border-bottom-right-radius:10px}');
+    /* 🔴 ET PLUS AUCUN TRAIT SÉPARÉ : les anciens montants et les filets horizontaux ont disparu. */
+    expect(src).not.toContain('cnv-repere-montant');
+    expect(src).not.toContain('.cnv-repere::before,.cnv-repere::after');
+  });
+
+  /** 🔴 LE BRAS FAIT LA MOITIÉ DE LA HAUTEUR MESURÉE DU MAIL, jamais une valeur figée. */
+  it('🔴🔴 le bras fait la moitié de la hauteur MESURÉE du mail', () => {
     expect(src).toContain('height:calc(var(--cnv-repere-h) / 2)');
     expect(src).toContain('new ResizeObserver(mesurer)');
-    expect(src).toContain(".cnv-repere--dessus > .cnv-repere-montant{top:100%}");
-    expect(src).toContain(".cnv-repere--dessous > .cnv-repere-montant{bottom:100%}");
+    /* ⚠️ ET IL NE PÈSE RIEN DANS LA MISE EN PAGE : hauteur zéro, le tracé déborde par le ::before. */
+    expect(src).toContain('.cnv-repere-bras{position:relative;height:0;min-width:0}');
+  });
+
+  /** 🔴 LE SENS SUIT LE CÔTÉ : au-dessus le trait descend, en dessous il monte. */
+  it('🔴🔴 le trait descend au-dessus du mail, et monte en dessous', () => {
+    expect(src).toContain('.cnv-repere--dessus .cnv-repere-bras::before{top:0;border-top-width:1px}');
+    expect(src).toContain('.cnv-repere--dessous .cnv-repere-bras::before{bottom:0;border-bottom-width:1px}');
   });
 
   /** 🔴 LA PASTILLE EST CELLE DES BIENS, pas un jumeau : c'est `InfoBien`, avec un contenu fourni. */

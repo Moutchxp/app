@@ -1664,10 +1664,11 @@ function LigneRepere({ repere: r, suivi, cote }: {
   return (
     <li className={`cnv-repere cnv-repere--${cote}`} ref={li}
       style={{ ['--cnv-repere-h' as string]: `${Math.round(hauteur)}px` }}>
-      {/* 🔴 LES DEUX MONTANTS DU CADRE : ils longent le mail voisin sur la moitié de sa hauteur. Ils sont posés
-          par la LIGNE, jamais par le message — rien de la mise en page d'un mail n'est touché. */}
-      <span className="cnv-repere-montant cnv-repere-montant--gauche" aria-hidden="true" />
-      <span className="cnv-repere-montant cnv-repere-montant--droite" aria-hidden="true" />
+      {/* 🔴🔴 LES DEUX BRAS DU CADRE — UN SEUL TRAIT CHACUN, SANS COUPURE À L'ANGLE.
+          Chaque bras est UNE boîte qui porte deux bordures (l'horizontale et la verticale) et un rayon sur
+          l'angle qui les joint : le trait est donc continu par construction, et arrondi. Deux traits séparés
+          laissaient un décroché d'un pixel au coin — c'est le défaut qu'Arno a vu. */}
+      <span className="cnv-repere-bras cnv-repere-bras--gauche" aria-hidden="true" />
       <span className="cnv-repere-phrase">
         <span className="cnv-repere-mot">À partir d’ici : {r.versQuoi}</span>
         {(r.parLibelle !== null || r.le !== null) && (
@@ -1684,6 +1685,7 @@ function LigneRepere({ repere: r, suivi, cote }: {
             lignes={lignesBulle} />
         )}
       </span>
+      <span className="cnv-repere-bras cnv-repere-bras--droite" aria-hidden="true" />
     </li>
   );
 }
@@ -2449,45 +2451,47 @@ export const CSS_CONVERSATION = `
 /* ══ 🔴🔴 LOT SUIVI-CONVERSATION — LE REPERE DE PERIODE, ET LA MENTION D'EXCEPTION ═════════════════════════════
    « une fine ligne de separation » (Arno) : fine, donc, et grise — elle separe, elle n'alerte pas. Le MOT porte
    l'information ; le trait n'est qu'un renfort, regle du module depuis la premiere capsule. */
-/* ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — LE REPERE ENCADRE SON MAIL ═════════════════════════════════════
-   Demande d'Arno : « phrase en ROUGE, CENTREE horizontalement ; de chaque cote part un lisere rouge fin, qui
-   longe le mail concerne de chaque cote et s'arrete a MI-HAUTEUR de la ligne de ce mail. »
+/* ══ 🔴🔴 LE REPERE ENCADRE SON MAIL — UN SEUL TRAIT PAR COTE, ANGLES ARRONDIS ═══════════════════════════════════
+   Demande d'Arno (lot VISUALISER-MAIL-ET-REPERE-FENETRE, puis BROUILLON-REPONSE-ET-REPERE) : « phrase en ROUGE,
+   CENTREE ; de chaque cote part un lisere rouge fin, qui longe le mail concerne et s'arrete a MI-HAUTEUR de la
+   ligne de ce mail », et « lisere CONTINU, sans coupure aux angles, avec des angles ARRONDIS ».
 
-   🔴 TROIS TRAITS, ET PAS UN DE PLUS : les deux horizontaux sont les ::before/::after de la ligne (ils partent de
-   la phrase vers les bords) ; les deux verticaux sont ceux du conteneur, poses en absolu le long du mail voisin.
-   Leur hauteur est la MOITIE de --cnv-repere-h, c'est-a-dire de la hauteur MESUREE du mail.
+   🔴 CHAQUE BRAS EST UNE SEULE BOITE, et c'est ce qui supprime la coupure. Elle porte DEUX bordures — celle du
+   haut (ou du bas) et celle du cote — plus un rayon sur l'angle qui les joint : le trait est continu PAR
+   CONSTRUCTION, et arrondi. La version d'avant dessinait quatre traits independants, et il restait un decroche
+   d'un pixel au coin, visible a l'oeil.
 
-   ⚠️ LE SENS SUIT LE COTE : au-dessus du mail ils descendent (top:100%), en dessous ils montent (bottom:100%).
-   Un seul dessin aurait encadre le mauvais mail dans l'un des deux tris.
+   🔴 LES BRAS NE PESENT RIEN DANS LA MISE EN PAGE : hauteur zero, et c'est leur ::before qui deborde. Sans cela,
+   une boite de la moitie de la hauteur d'un mail deplie ferait une ligne de repere haute de plusieurs centimetres.
+
+   ⚠️ LE SENS SUIT LE COTE : au-dessus du mail le trait DESCEND (bordure du haut, boite vers le bas), en dessous
+   il MONTE. Un seul dessin aurait encadre le mauvais mail dans l'un des deux tris.
+
+   ⚠️ --cnv-repere-h PORTE LA HAUTEUR MESUREE DU MAIL (voir le ResizeObserver de LigneRepere) : un mail deplie
+   fait dix fois la hauteur d'un mail replie, et une valeur figee aurait trace un trait trop court ou debordant.
 
    ⚠️ COULEUR : var(--color-svv-red), un JETON — lisible en Clair comme en Sombre, jamais une couleur en dur.
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
-.cnv-repere{position:relative;display:flex;align-items:center;justify-content:center;
+.cnv-repere{position:relative;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
   margin:.6rem 0 .4rem;padding:0;list-style:none;--cnv-repere-h:0px}
-/* Les deux traits HORIZONTAUX, de la phrase vers les bords. */
-.cnv-repere::before,.cnv-repere::after{content:"";flex:1 1 auto;height:1px;background:var(--color-svv-red)}
-/* Les deux traits VERTICAUX, le long du mail voisin, sur la moitie de sa hauteur. */
-.cnv-repere--dessus::before,.cnv-repere--dessus::after,
-.cnv-repere--dessous::before,.cnv-repere--dessous::after{position:relative}
-.cnv-repere--dessus{box-shadow:none}
 .cnv-repere-phrase{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:.2rem .5rem;
-  flex:0 1 auto;padding:0 .6rem;text-align:center;min-width:0}
+  padding:0 .6rem;text-align:center;min-width:0}
 /* 🔴 LA PHRASE EST ROUGE, et le reste de la mention la suit en plus discret : c'est une seule information. */
 .cnv-repere-mot{font-size:.76rem;font-weight:700;letter-spacing:.01em;color:var(--color-svv-red);
   overflow-wrap:anywhere}
 .cnv-repere-qui{font-size:.72rem;color:var(--color-svv-red);opacity:.75}
-/* Les montants du cadre. Poses sur la ligne elle-meme, donc jamais sur le mail : rien de la mise en page du
-   message n'est touche. */
-.cnv-repere--dessus > .cnv-repere-phrase::before,.cnv-repere--dessus > .cnv-repere-phrase::after,
-.cnv-repere--dessous > .cnv-repere-phrase::before,.cnv-repere--dessous > .cnv-repere-phrase::after{content:none}
-.cnv-repere--dessus{--cnv-repere-sens:1}
-.cnv-repere--dessous{--cnv-repere-sens:-1}
-.cnv-repere > .cnv-repere-montant{position:absolute;width:1px;background:var(--color-svv-red);
-  height:calc(var(--cnv-repere-h) / 2)}
-.cnv-repere--dessus > .cnv-repere-montant{top:100%}
-.cnv-repere--dessous > .cnv-repere-montant{bottom:100%}
-.cnv-repere > .cnv-repere-montant--gauche{left:0}
-.cnv-repere > .cnv-repere-montant--droite{right:0}
+/* Les bras : hauteur zero dans la grille, le trace vit dans leur ::before. */
+.cnv-repere-bras{position:relative;height:0;min-width:0}
+.cnv-repere-bras::before{content:"";position:absolute;left:0;right:0;
+  height:calc(var(--cnv-repere-h) / 2);border:0 solid var(--color-svv-red)}
+/* AU-DESSUS DU MAIL : le trait part de la phrase et DESCEND le long du mail. */
+.cnv-repere--dessus .cnv-repere-bras::before{top:0;border-top-width:1px}
+.cnv-repere--dessus .cnv-repere-bras--gauche::before{border-left-width:1px;border-top-left-radius:10px}
+.cnv-repere--dessus .cnv-repere-bras--droite::before{border-right-width:1px;border-top-right-radius:10px}
+/* EN DESSOUS DU MAIL : le trait part de la phrase et MONTE le long du mail. */
+.cnv-repere--dessous .cnv-repere-bras::before{bottom:0;border-bottom-width:1px}
+.cnv-repere--dessous .cnv-repere-bras--gauche::before{border-left-width:1px;border-bottom-left-radius:10px}
+.cnv-repere--dessous .cnv-repere-bras--droite::before{border-right-width:1px;border-bottom-right-radius:10px}
 /* La mention d'exception : discrete, a cote de la capsule, et jamais a sa place — ce sont deux informations. */
 .cnv-exception{display:inline-flex;align-items:center;min-height:22px;padding:.05rem .4rem;border-radius:999px;
   font-size:.7rem;font-weight:700;color:var(--color-svv-muted);border:1px dashed var(--color-svv-line-strong);
