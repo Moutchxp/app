@@ -107,9 +107,15 @@ describe('🔴🔴 l’état déplié n’apparaît qu’une fois entier', () =>
   /** 🔴 LE SQUELETTE COUVRE LE DÉPLIAGE : c'est la demande d'Arno, mot pour mot, et c'est cette ligne qui la tient. */
   it('🔴 le squelette couvre le dépliage de la branche', () => {
     expect(vif).toContain("vue.v === 'charge' || etatArrivee.e === 'deplie' ?");
-    /* ⚠️ ET C'EST LE SQUELETTE QUI EXISTAIT DÉJÀ : un second état d'attente aurait donné deux attentes
-       différentes dans la même fenêtre. On compte la LISTE rendue, pas la classe — la règle CSS la nomme aussi. */
-    expect((vif.match(/<ul className="sfd-squelette"/g) ?? []).length).toBe(1);
+    /**
+     * ⚠️ ET C'EST LE SQUELETTE QUI EXISTAIT DÉJÀ. La propriété voulue n'est pas « il n'apparaît qu'une fois » —
+     * c'est « il n'y a qu'UN DESSIN d'attente dans cette fenêtre ». J'avais d'abord écrit le compte, et le lot
+     * CORBEILLE-DRIVE-REELLE-ET-SCROLL l'a fait rougir en réutilisant LE MÊME squelette pour la liste de la
+     * corbeille : c'était pourtant exactement le comportement voulu. On éprouve donc la règle, pas le compte.
+     */
+    expect(vif).toContain('<ul className="sfd-squelette"');
+    const classesDAttente = new Set((vif.match(/className="sfd-[a-z-]*squelette[a-z-]*"/g) ?? []));
+    expect([...classesDAttente]).toEqual(['className="sfd-squelette"']);
   });
 
   /**

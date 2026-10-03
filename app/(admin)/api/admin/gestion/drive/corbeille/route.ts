@@ -2,11 +2,18 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
-import { chaineParents } from '../../../../../../lib/gestion/drive';
-import { metadonneesMemo, oublierChaine, oublierElement } from '../../../../../../lib/gestion/driveMemoire';
+import {
+  chaineParents, lireEntreeCorbeille, listerCorbeille, MIME_DOSSIER, nomDuDrive,
+} from '../../../../../../lib/gestion/drive';
+import {
+  chaineDuDossierMemo, metadonneesMemo, nomDuDriveMemo, oublierChaine, oublierElement,
+} from '../../../../../../lib/gestion/driveMemoire';
 import { idsProteges } from '../../../../../../lib/gestion/driveVerdict';
 import { indexerMaillons } from '../../../../../../lib/gestion/driveLectureFichier';
 import { motifRefusCorbeille, peutMettreCorbeille } from '../../../../../../lib/gestion/driveCorbeille';
+import {
+  parJetLePlusRecent, peutReintegrer, type LigneCorbeille,
+} from '../../../../../../lib/gestion/corbeilleDriveListe';
 import { basculerCorbeille } from '../../../../../../lib/gestion/driveCorbeilleReel';
 import { inscrireMouvement, marquerAnnule, mouvementsAnnulables } from '../../../../../../lib/gestion/driveMouvementRepo';
 import { corbeilleDriveDisponible, journalMouvementDriveDisponible } from '../../../../../../lib/gestion/schema';
@@ -103,6 +110,8 @@ interface Demande {
   elements?: { id: string; nom?: string }[];
   /** Pour « Annuler » : les lignes de journal rendues par un appel précédent. */
   mouvements?: number[];
+  /** Pour « Réintégrer » : l'identifiant Drive du fichier à sortir de la corbeille. */
+  id?: string;
 }
 
 /**
@@ -113,8 +122,133 @@ interface Demande {
 export async function GET(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
+
+  /**
+   * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — LA LISTE DE LA CORBEILLE ══════════════════════════════
+   *
+   * `?liste=1` rend la corbeille ; sans ce paramètre, la route répond exactement comme avant (la sonde des deux
+   * migrations). Deux questions dans une route, parce que c'est la MÊME ressource — et parce que l'écran interroge
+   * déjà celle-ci au montage.
+   */
+  if (new URL(request.url).searchParams.get('liste') === '1') return await listeCorbeille(request);
+
   const disponible = await journalMouvementDriveDisponible() && await corbeilleDriveDisponible();
   return json({ etat: 'ok', disponible, motif: disponible ? null : MOTIF_SANS_MIGRATION });
+}
+
+/**
+ * ══ 🔴🔴 CE QUE LA LISTE COÛTE, ET POURQUOI ELLE EST BORNÉE ══════════════════════════════════════════════════════
+ *
+ * Chaque ligne demande DEUX choses que `files.list` ne donne pas : le NOM de son dossier d'origine, et si ce
+ * dossier est sous « Documents clients scannés ». Les deux se lisent sur la CHAÎNE DE PARENTS, qui coûte un
+ * `files.get` par cran.
+ *
+ * 🔴 LA CHAÎNE EST DEMANDÉE PAR DOSSIER, ET MÉMOÏSÉE (`chaineDuDossierMemo`) : les fichiers d'un même dossier la
+ * partagent. Mesuré sur la corbeille du cabinet : les entrées se regroupent sur une poignée de dossiers, donc on
+ * paie quelques remontées, pas une par ligne.
+ *
+ * ⚠️ ET LA PAGE EST BORNÉE À 50. Sans borne, une corbeille de mille fichiers aurait demandé mille remontées pour
+ * afficher un écran — Google les aurait comptées comme un abus, et aurait refusé celles qui comptent vraiment.
+ * `pageSuivante` est rendu tel quel : l'écran dit « au moins N » plutôt qu'un compte exact qu'il n'a pas.
+ */
+const CORBEILLE_PAR_PAGE = 25;
+
+/**
+ * ⚠️ COMBIEN DE REMONTÉES EN PARALLÈLE. Mesuré le 04/10/2026 : à 50 lignes et des remontées EN FILE, la liste
+ * mettait 21,5 SECONDES — inutilisable. Les dossiers distincts sont indépendants une fois la page reçue, donc ils
+ * se remontent ensemble ; huit à la fois, c'est la même borne que le préchargement des sous-dossiers, et pour la
+ * même raison (au-delà, Google compte un abus et refuse les appels qui comptent).
+ */
+const REMONTEES_EN_PARALLELE = 8;
+
+async function listeCorbeille(request: Request): Promise<Response> {
+  const jeton = await jetonPourRequete(request);
+  if (jeton.etat !== 'ok') return json({ etat: 'indisponible', message: jeton.motif }, 200);
+
+  const pageToken = (new URL(request.url).searchParams.get('page') ?? '').trim();
+  const r = await listerCorbeille(jeton.jeton, { fetch }, { pageSize: CORBEILLE_PAR_PAGE, pageToken });
+  if (!r.ok) return json({ etat: 'indisponible', message: r.motif }, 200);
+
+  /**
+   * 🔴🔴 L'ARCHIVE EST RÉSOLUE AVANT TOUT, ET SON ÉCHEC NE VIDE PAS L'ÉCRAN. Ne pas savoir où elle est, c'est ne
+   * pas pouvoir affirmer qu'un fichier n'en vient pas : on affiche alors la liste en marquant TOUT comme protégé
+   * — lecture seule, aucun bouton. C'est le même « dans le doute, on n'écrit pas » que partout ailleurs, mais
+   * sans écran vide (règle d'Arno).
+   */
+  const proteges = await idsProteges(jeton.compteGoogle, jeton.jeton);
+
+  const nomsDossiers = new Map<string, { nom: string; protege: boolean }>();
+  const resoudre = async (parentId: string): Promise<{ nom: string; protege: boolean }> => {
+    const deja = nomsDossiers.get(parentId);
+    if (deja !== undefined) return deja;
+    if (proteges === null) {
+      const inconnu = { nom: '', protege: true };
+      nomsDossiers.set(parentId, inconnu);
+      return inconnu;
+    }
+    /* ⚠️ `inclureCorbeille` N'EST PAS DEMANDÉ ICI : le dossier d'origine d'un fichier jeté n'est, lui, pas à la
+       corbeille dans le cas courant. Quand il l'est, la chaîne revient courte — et `jeteDirectement` aura déjà
+       dit que le fichier ne se réintègre pas seul. */
+    const chaine = await chaineDuDossierMemo(jeton.compteGoogle, jeton.jeton, parentId, { fetch });
+    const sousArchive = chaine.some((m) => proteges.proteges.has(m.id));
+    const valeur = { nom: chaine.at(-1)?.nom ?? '', protege: sousArchive };
+    /* 🔴 LE CHEMIN COMPLET, DU HAUT VERS LE BAS : deux dossiers « Documents » ne se distinguent que par là. */
+    /**
+     * 🔴🔴 « Drive » N'EST LE NOM DE RIEN — même mesure que `nommerLaRacine` au lot RANGER-ARBRE-2 : `files.get`
+     * sur la racine d'un Drive partagé rend le mot générique « Drive », jamais le nom que tout le monde lit
+     * (« Test », « GESTION LOCATIVE »). Sans ce rattrapage, la colonne « emplacement d'origine » aurait affiché
+     * « Drive » pour la moitié de la corbeille du cabinet — constaté à l'écran avant correction.
+     *
+     * ⚠️ UN SEUL APPEL DE PLUS, ET SEULEMENT POUR UNE TÊTE GÉNÉRIQUE. Mémoïsé par Drive.
+     */
+    const maillons = [...chaine].reverse();
+    const tete = maillons[0];
+    if (tete !== undefined && tete.nom === 'Drive') {
+      const vrai = await nomDuDriveMemo(jeton.jeton, tete.id, (x) => nomDuDrive(jeton.jeton, x, { fetch }));
+      if (vrai !== null) maillons[0] = { ...tete, nom: vrai };
+    }
+    const chemin = maillons.map((m) => m.nom).join(' / ');
+    const avecChemin = { nom: chemin === '' ? valeur.nom : chemin, protege: sousArchive };
+    nomsDossiers.set(parentId, avecChemin);
+    return avecChemin;
+  };
+
+  /**
+   * 🔴🔴 LES DOSSIERS DISTINCTS SONT REMONTÉS EN PARALLÈLE, PAR PAQUETS — et c'est ce qui rend la liste
+   * utilisable. Mesuré avant : 21,5 s pour 50 lignes, remontées en file. Les entrées se regroupent sur une
+   * poignée de dossiers, et une fois la page reçue ces dossiers ne dépendent plus les uns des autres.
+   */
+  const parentsDistincts = [...new Set(r.valeur.entrees.map((e) => e.parents[0] ?? '').filter((x) => x !== ''))];
+  for (let i = 0; i < parentsDistincts.length; i += REMONTEES_EN_PARALLELE) {
+    await Promise.all(parentsDistincts.slice(i, i + REMONTEES_EN_PARALLELE).map((id) => resoudre(id)));
+  }
+
+  const lignes: LigneCorbeille[] = [];
+  for (const e of r.valeur.entrees) {
+    const parentId = e.parents[0] ?? '';
+    const ou = parentId === '' ? { nom: '', protege: proteges === null } : await resoudre(parentId);
+    lignes.push({
+      id: e.id,
+      nom: e.nom,
+      origine: ou.nom,
+      origineId: parentId,
+      jeteLe: e.jeteLe,
+      tailleOctets: e.tailleOctets,
+      dossier: e.typeMime === MIME_DOSSIER,
+      jeteDirectement: e.jeteDirectement,
+      protege: ou.protege,
+    });
+  }
+
+  return json({
+    etat: 'ok',
+    lignes: parJetLePlusRecent(lignes),
+    pageSuivante: r.valeur.pageSuivante,
+    /* ⚠️ L'ÉCRAN DOIT SAVOIR QU'IL N'A PAS TOUT VU : c'est ce qui lui fait écrire « au moins N ». */
+    tronque: r.valeur.pageSuivante !== null,
+    /* 🔴 ET QUE L'ARCHIVE N'A PAS PU ÊTRE SITUÉE : toutes les lignes sont alors en lecture seule, avec ce motif. */
+    archiveSituee: proteges !== null,
+  });
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -136,6 +270,12 @@ export async function POST(request: Request): Promise<Response> {
   const auteur = await auteurDeLaRequete(request);
   try {
     if (corps.action === 'restaurer') return await restaurer(corps, jeton, auteur);
+    /**
+     * 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — « Réintégrer » depuis la LISTE de la corbeille. Ce
+     * n'est pas « Annuler » : celui-là part d'une ligne de NOTRE journal, et ne sait donc rien faire d'un fichier
+     * que l'application n'a pas jeté elle-même — c'est-à-dire la quasi-totalité de la corbeille du cabinet.
+     */
+    if (corps.action === 'reintegrer') return await reintegrer(corps, jeton, auteur);
     if (corps.action !== 'corbeille') return json({ etat: 'refus', message: 'Action inconnue.' }, 422);
     return await mettre(corps, jeton, auteur);
   } catch (e) {
@@ -248,6 +388,96 @@ async function mettre(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<Res
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    RESTAURER — c'est « Annuler le dernier déplacement », appliqué à une corbeille
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — RÉINTÉGRER UN FICHIER DE LA CORBEILLE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   Arno : « Réintégrer remet le fichier à son emplacement d'origine (même mot que pour les mails). »
+
+   🔴 POURQUOI UNE SECONDE ACTION, ET PAS « restaurer ». Celui-là part d'une ligne de NOTRE journal des mouvements
+   et ne sait donc rien faire d'un fichier que l'application n'a pas jeté elle-même — c'est-à-dire la quasi-
+   totalité de la corbeille du cabinet (mesuré : 100 entrées, dont 2 jetées depuis cet outil). Les deux partagent
+   en revanche tout ce qui compte : le MÊME verdict, prononcé sur la chaîne RÉELLE, et le MÊME journal.
+
+   🔴🔴 ET LE GARDE-FOU DE L'ARCHIVE EST PRONONCÉ ICI, PAS DANS L'ÉCRAN. L'écran n'affiche pas de bouton pour une
+   ligne protégée — c'est du confort, et un écran se modifie. Cette route REFUSE, sur la chaîne remontée chez
+   Google à chaque appel : une requête forgée, un vieil onglet ou une capture rejouée tombent sur le même mur. */
+
+async function reintegrer(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<Response> {
+  const id = (corps.id ?? '').trim();
+  if (id === '') return json({ etat: 'refus', message: 'Aucun fichier désigné.' }, 422);
+
+  const proteges = await idsProteges(jeton.compteGoogle, jeton.jeton);
+  if (proteges === null) {
+    return json({
+      etat: 'refus',
+      message: 'Refusé : impossible de situer « Documents clients scannés » en ce moment. Par précaution, rien '
+        + 'n’est réintégré tant que l’archive n’a pas été localisée.',
+    }, 409);
+  }
+
+  /**
+   * ⚠️ `inclureCorbeille` EST INDISPENSABLE : le fichier EST à la corbeille, par définition. C'est exactement le
+   * défaut corrigé pour « Annuler » le 03/10/2026 — sans ce drapeau la lecture refuse, la chaîne revient vide, et
+   * « ne pas savoir vaut interdit » rendait le geste impossible.
+   */
+  const entree = await lireEntreeCorbeille(jeton.jeton, id, { fetch });
+  if (!entree.ok) return json({ etat: 'refus', message: entree.motif }, 200);
+  /* ⚠️ DÉJÀ SORTI : le dire plutôt que de rejouer un geste sans objet — c'est la leçon du point 1. */
+  if (!entree.valeur.aLaCorbeille) {
+    return json({ etat: 'refus', message: 'Ce fichier n’est plus à la corbeille du Drive.' }, 200);
+  }
+  const chaine = await chaineParents(jeton.jeton, id, { fetch }, 32, { inclureCorbeille: true });
+  if (chaine.length === 0) {
+    return json({ etat: 'refus', message: 'L’emplacement de ce fichier n’a pas pu être remonté.' }, 200);
+  }
+  const nom = entree.valeur.nom;
+  const parentOrigine = entree.valeur.parents[0] ?? '';
+
+  /* 🔴 ① LE VERDICT DE L'ARCHIVE — le MÊME module pur, sur la chaîne RÉELLE, comme pour « Annuler ». */
+  const v = peutMettreCorbeille(
+    { cibleId: id, estDossier: false, sorte: 'restaurer' },
+    {
+      index: indexerMaillons([...chaine, ...proteges.maillons]),
+      proteges: proteges.proteges, protegesEtAncetres: proteges.protegesEtAncetres,
+    },
+  );
+  if (!v.ok) return json({ etat: 'refus', message: v.motif }, 200);
+
+  /**
+   * 🔴 ② LE VERDICT DE LA LIGNE — le MÊME module pur que l'écran (`peutReintegrer`), et c'est tout l'intérêt : le
+   * bouton absent à l'écran et le refus de la route disent la même phrase, parce qu'ils viennent du même endroit.
+   *
+   * ⚠️ `protege` EST RECALCULÉ ICI sur la chaîne qu'on vient de remonter, jamais pris du navigateur.
+   */
+  const protege = chaine.some((m) => proteges.proteges.has(m.id));
+  const verdictLigne = peutReintegrer({
+    protege,
+    /* 🔴 LE VRAI CHAMP DE GOOGLE (`explicitlyTrashed`), jamais une déduction : un fichier emporté par son dossier
+       ne se réintègre pas seul — il reviendrait dans un dossier lui aussi à la corbeille. */
+    jeteDirectement: entree.valeur.jeteDirectement,
+    origineId: parentOrigine,
+    origine: '',
+  });
+  if (!verdictLigne.ok) return json({ etat: 'refus', message: verdictLigne.motif }, 200);
+
+  const r = await basculerCorbeille(jeton.jeton, { id, versLaCorbeille: false }, { fetch });
+  oublierElement(jeton.compteGoogle, id);
+  oublierChaine(jeton.compteGoogle, parentOrigine);
+  if (!r.ok) return json({ etat: 'refus', message: r.motif }, 200);
+
+  /* 🔴 LE GESTE A SA LIGNE AU JOURNAL, comme tous les autres : un fichier revenu sans trace serait un fichier
+     qu'on ne saurait pas expliquer. */
+  await inscrireMouvement({
+    action: 'restaurer', driveId: id, nom, estDossier: false,
+    parentOrigine, parentCible: '', copieDriveId: null,
+    auteurId: auteur.id, auteurLibelle: `${auteur.libelle} (réintégration)`, compteGoogle: jeton.compteGoogle,
+  });
+  await refletCorbeille([id], false);
+
+  return json({ etat: 'ok', action: 'reintegrer', id, nom, dossiers: parentOrigine === '' ? [] : [parentOrigine] });
+}
 
 /**
  * 🔴 LA RESTAURATION RELIT LE JOURNAL, jamais ce que le navigateur affirme. Et elle repasse par le MÊME verdict :

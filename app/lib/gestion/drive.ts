@@ -711,6 +711,128 @@ export async function chercherFichiers(
   return { ok: true, valeur: versFichiers(await res.json().catch(() => ({}))) };
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — LIRE LA CORBEILLE. LECTURE SEULE.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Une entrée de la corbeille, telle que Google la rend. Aucun contenu : des métadonnées, et rien de plus. */
+export interface EntreeCorbeille {
+  id: string;
+  nom: string;
+  parents: readonly string[];
+  /** La date de mise à la corbeille, en ISO. `null` quand l'API ne la donne pas. */
+  jeteLe: string | null;
+  tailleOctets: number | null;
+  typeMime: string;
+  driveId: string | null;
+  /**
+   * 🔴 VRAI quand le fichier a été jeté LUI-MÊME ; faux quand il est à la corbeille parce qu'un de ses dossiers y
+   * est. Mesuré sur le vrai Drive : les deux cas coexistent, et Google les affiche pareil.
+   */
+  jeteDirectement: boolean;
+}
+
+/**
+ * ══ 🔴🔴 LA CORBEILLE, « MON DRIVE » ET CHAQUE DRIVE PARTAGÉ ACCESSIBLE. LECTURE SEULE. ══════════════════════════
+ *
+ * MESURÉ SUR LE VRAI DRIVE LE 04/10/2026, et chaque détail de cette requête vient d'une mesure :
+ *
+ *   · `corpora=allDrives` + `q=trashed = true` rend bien les deux à la fois. 100 entrées pour le cabinet, dont
+ *     ZÉRO pour « Mon Drive », qui est vide — ce qui aurait pu faire croire à tort que la requête ne voit pas les
+ *     Drives partagés si l'on avait lu l'inverse ;
+ *   · `trashedTime` est renseigné sur les 100 entrées. C'est la date qu'Arno demande ;
+ *   · 🔴 `orderBy=trashedTime` est REFUSÉ — HTTP 400, « Invalid Value ». On ne demande donc AUCUN tri à Google
+ *     sur cette date, et le tri « les plus récents d'abord » se fait chez nous (`parJetLePlusRecent`). Demander
+ *     `orderBy=recency` aurait donné un ordre plausible et FAUX — c'est la date du dernier accès, pas du jet.
+ *
+ * ⚠️ LA PAGE EST BORNÉE ET LE DIT. `nextPageToken` est rendu tel quel : la corbeille du cabinet en a un, et
+ * l'écran doit pouvoir annoncer « au moins N » plutôt que de laisser croire à un compte exact.
+ *
+ * 🔒 AUCUNE ÉCRITURE, ET AUCUNE POSSIBLE ICI : un `files.list`, des métadonnées, pas un octet de contenu.
+ */
+export async function listerCorbeille(
+  accessToken: string, deps: DepsGoogle, o: { pageSize?: number; pageToken?: string } = {},
+): Promise<Resultat<{ entrees: EntreeCorbeille[]; pageSuivante: string | null }>> {
+  const p = new URLSearchParams({
+    q: 'trashed = true',
+    fields: 'nextPageToken,files(id,name,parents,trashedTime,size,mimeType,driveId,explicitlyTrashed)',
+    pageSize: String(Math.max(1, Math.min(o.pageSize ?? 50, 100))),
+    corpora: 'allDrives',
+    ...PARTAGES,
+  });
+  if ((o.pageToken ?? '') !== '') p.set('pageToken', o.pageToken as string);
+  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de la corbeille') };
+  const b = await res.json().catch(() => ({})) as {
+    nextPageToken?: string;
+    files?: {
+      id?: string; name?: string; parents?: string[]; trashedTime?: string; size?: string;
+      mimeType?: string; driveId?: string; explicitlyTrashed?: boolean;
+    }[];
+  };
+  return {
+    ok: true,
+    valeur: {
+      entrees: (b.files ?? [])
+        .filter((f): f is { id: string } & typeof f => typeof f.id === 'string' && f.id !== '')
+        .map((f) => ({
+          id: f.id,
+          nom: (f.name ?? '').trim() || '(sans nom)',
+          parents: f.parents ?? [],
+          jeteLe: f.trashedTime ?? null,
+          tailleOctets: f.size === undefined ? null : Number(f.size),
+          typeMime: f.mimeType ?? '',
+          driveId: f.driveId ?? null,
+          /* ⚠️ L'ABSENCE VAUT « JETÉ LUI-MÊME » : c'est le cas le plus courant, et le refus qu'entraîne le
+             contraire (voir `peutReintegrer`) ne doit pas tomber sur une simple absence de champ. */
+          jeteDirectement: f.explicitlyTrashed !== false,
+        })),
+      pageSuivante: b.nextPageToken ?? null,
+    },
+  };
+}
+
+/**
+ * ══ 🔴🔴 LIRE UNE SEULE ENTRÉE DE LA CORBEILLE. LECTURE SEULE. ═══════════════════════════════════════════════════
+ *
+ * 🔴 POURQUOI ELLE EXISTE, ET CE QU'ELLE RÉPARE. `lireMetadonnees` REFUSE par défaut un fichier à la corbeille —
+ * et c'est juste partout ailleurs. Ici le fichier EST à la corbeille, par définition : on ne peut donc pas s'en
+ * servir pour savoir s'il a été jeté LUI-MÊME ou emporté par son dossier. J'avais d'abord déduit cette réponse de
+ * la longueur de sa chaîne de parents : c'était FAUX, parce que `lireMetadonnees` rend toujours un refus ici, et
+ * la déduction se réduisait à « il a un parent » — vrai de presque tout fichier.
+ *
+ * ⚠️ MÊMES CHAMPS QUE LA LISTE, exactement : les deux réponses doivent pouvoir être comparées sans traduction.
+ */
+export async function lireEntreeCorbeille(
+  accessToken: string, id: string, deps: DepsGoogle,
+): Promise<Resultat<EntreeCorbeille & { aLaCorbeille: boolean }>> {
+  const p = new URLSearchParams({
+    fields: 'id,name,parents,trashedTime,size,mimeType,driveId,explicitlyTrashed,trashed',
+    ...PARTAGES,
+  });
+  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de ce fichier de la corbeille') };
+  const b = await res.json().catch(() => ({})) as {
+    id?: string; name?: string; parents?: string[]; trashedTime?: string; size?: string;
+    mimeType?: string; driveId?: string; explicitlyTrashed?: boolean; trashed?: boolean;
+  };
+  return {
+    ok: true,
+    valeur: {
+      id: b.id ?? id,
+      nom: (b.name ?? '').trim() || '(sans nom)',
+      parents: b.parents ?? [],
+      jeteLe: b.trashedTime ?? null,
+      tailleOctets: b.size === undefined ? null : Number(b.size),
+      typeMime: b.mimeType ?? '',
+      driveId: b.driveId ?? null,
+      jeteDirectement: b.explicitlyTrashed !== false,
+      aLaCorbeille: b.trashed === true,
+    },
+  };
+}
+
 /** Ce que `lireMetadonnees` rend. La VIGNETTE y a rejoint le reste au lot APERCU-RAPIDE — voir ci-dessous. */
 export interface MetaFichier {
   id: string;

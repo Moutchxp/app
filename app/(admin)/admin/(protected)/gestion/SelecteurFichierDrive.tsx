@@ -15,6 +15,12 @@ import {
 } from '../../../../lib/gestion/dossierEnLigne';
 // 🔴 « Drives partagés » et « Partagés avec moi » ne sont pas des dossiers : on n'y dépose pas, et on le DIT.
 import { estRegroupement } from '../../../../lib/gestion/cibleDepot';
+// 🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — les mots et les règles de la corbeille du Drive. Module PUR.
+import {
+  aideReintegrerDrive, EMOJI_CORBEILLE_DRIVE, joursRestants, LIBELLE_REINTEGRER_DRIVE,
+  MENTION_DOSSIER_PROTEGE, MENTION_SANS_SUPPRESSION, MOT_CORBEILLE_DRIVE, motReintegreDrive, peutReintegrer,
+  phraseJoursRestants, titreCorbeilleDrive, type LigneCorbeille,
+} from '../../../../lib/gestion/corbeilleDriveListe';
 import {
   arriveeArbre, brancheAtteignable, cheminEcrit, defilementPourCentrer, messageAncetreInaccessible,
   messageDocumentAbsent, messageRacineInconnue, MOT_CHEMIN_DOCUMENT,
@@ -809,6 +815,22 @@ export function SelecteurFichierDrive({
    * « Annuler » repose, sans attendre que Google les reliste. Vidée au fur et à mesure des retours.
    */
   const retireesCorbeille = useRef<Map<string, Fichier>>(new Map());
+  /**
+   * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — LA CORBEILLE DU DRIVE ══════════════════════════════
+   *
+   * `null` = jamais demandée. `'charge'` = en cours. Sinon la page reçue, avec ce qu'elle sait d'elle-même : la
+   * liste est-elle tronquée, et l'archive a-t-elle pu être située (sinon TOUT est en lecture seule).
+   *
+   * ⚠️ ELLE N'EST PAS DEMANDÉE AU MONTAGE. Mesuré : la liste coûte ~4,9 s, parce que chaque ligne demande le
+   * CHEMIN de son dossier d'origine. La payer à chaque ouverture de la fenêtre Drive, pour une catégorie qu'on
+   * ouvre rarement, aurait ralenti tout le reste. On la lit au premier clic, et on la garde ensuite.
+   */
+  const [corbeilleOuverte, setCorbeilleOuverte] = useState(false);
+  const [corbeille, setCorbeille] = useState<
+    'charge' | { erreur: string } | { lignes: LigneCorbeille[]; tronque: boolean; archiveSituee: boolean } | null
+  >(null);
+  /** La ligne dont la réintégration est en cours : son bouton s'éteint, et lui seul. */
+  const [reintegreEnCours, setReintegreEnCours] = useState<string | null>(null);
   const cache = useRef<Map<string, Listing>>(new Map());
   const enVol = useRef<AbortController | null>(null);
   /** L'endroit qu'on est en train de charger : une réponse qui n'est plus la sienne est jetée. */
@@ -1936,6 +1958,12 @@ export function SelecteurFichierDrive({
    * ⚠️ EN TÊTE DU DOSSIER, et sans doublon : si Google l'a déjà relisté, la sienne fait foi et la nôtre ne
    * s'ajoute pas. Même règle que la réinjection d'un dépôt.
    */
+  /** 🔴 OUBLIER UN RETRAIT, sans rien reposer : la réintégration depuis la corbeille n'a pas de ligne gardée. */
+  const oublierRetraitsDe = (ids: readonly string[]) => {
+    const rendus = new Set(ids);
+    retraitsConfirmes.current = retraitsConfirmes.current.filter((r) => !rendus.has(r.id));
+  };
+
   const rendreLesLignes = (ids: readonly string[], dossiers: readonly string[]) => {
     const rendus = new Set(ids);
     retraitsConfirmes.current = retraitsConfirmes.current.filter((r) => !rendus.has(r.id));
@@ -1963,6 +1991,61 @@ export function SelecteurFichierDrive({
     }
     depotsConfirmes.current = [...depotsVivants(depotsConfirmes.current, Date.now()), ...retours];
     for (const id of rendus) retireesCorbeille.current.delete(id);
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — LIRE LA CORBEILLE, ET RÉINTÉGRER
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  const lireLaCorbeille = async (): Promise<void> => {
+    setCorbeille('charge');
+    try {
+      const res = await fetch('/api/admin/gestion/drive/corbeille?liste=1', { cache: 'no-store' });
+      const d = (await res.json()) as {
+        etat?: string; message?: string; lignes?: LigneCorbeille[]; tronque?: boolean; archiveSituee?: boolean;
+      };
+      if (d.etat !== 'ok') { setCorbeille({ erreur: d.message ?? 'La corbeille du Drive n’a pas pu être lue.' }); return; }
+      setCorbeille({
+        lignes: d.lignes ?? [], tronque: d.tronque === true,
+        /* ⚠️ `!== false` ET NON `=== true` : un serveur plus ancien ne dit rien, et tout marquer « protégé »
+           éteindrait toutes les réintégrations sans raison. Le garde-fou qui compte est dans la ROUTE. */
+        archiveSituee: d.archiveSituee !== false,
+      });
+    } catch { setCorbeille({ erreur: 'Le Drive n’a pas répondu.' }); }
+  };
+
+  /**
+   * ══ 🔴🔴 RÉINTÉGRER — LE MÊME MOT QUE POUR LES MAILS, ET LE MÊME ESPRIT ═════════════════════════════════════
+   *
+   * ⚠️ L'ÉCRAN N'ACCORDE RIEN. Il n'affiche pas de bouton là où `peutReintegrer` dit non — c'est du confort — et
+   * c'est la ROUTE qui refuse, sur la chaîne remontée chez Google à chaque appel. Un écran se modifie ; une
+   * requête se forge.
+   *
+   * 🔴 ET LA LIGNE QUITTE LA CORBEILLE TOUT DE SUITE, comme elle quittait sa place au point 1 : attendre que
+   * Google cesse de la lister ferait croire que le geste n'a pas porté. Le dossier d'origine est revalidé, et la
+   * ligne y reparaît par le même mécanisme que les dépôts.
+   */
+  const reintegrerDeLaCorbeille = async (l: LigneCorbeille): Promise<void> => {
+    setErreur(null);
+    setReintegreEnCours(l.id);
+    try {
+      const res = await fetch('/api/admin/gestion/drive/corbeille', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reintegrer', id: l.id }),
+      });
+      const d = (await res.json()) as { etat?: string; message?: string; dossiers?: string[] };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'La réintégration n’a pas pu être faite.'); return; }
+      setCorbeille((c) => (c !== null && typeof c === 'object' && 'lignes' in c
+        ? { ...c, lignes: c.lignes.filter((x) => x.id !== l.id) }
+        : c));
+      setBandeau({ mot: motReintegreDrive(l.nom, l.origine), mouvements: [], sorte: 'corbeille' });
+      /* 🔴 LE REGISTRE ET L'INDEX VIENNENT D'ÊTRE MIS À JOUR PAR LA ROUTE : la pastille et le picto doivent le
+         savoir, exactement comme après « Annuler ». */
+      relireComptes();
+      annoncerPiecesDrive();
+      oublierRetraitsDe([l.id]);
+      revaliderEnSilence([...new Set([...(d.dossiers ?? []), dossierCourant?.id ?? ''])].filter((x) => x !== ''));
+    } catch { setErreur('Le Drive n’a pas répondu.'); } finally { setReintegreEnCours(null); }
   };
 
   /** Marque (ou démarque) des lignes « en cours » : c'est l'indicateur discret demandé. */
@@ -4687,6 +4770,38 @@ export function SelecteurFichierDrive({
                 )}
               </>
             )}
+
+            {/* ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — LA CORBEILLE, COLLÉE EN BAS ══════════════
+                Arno : « en bas de la colonne de gauche, collée en bas, juste au-dessus du texte “Choisissez un
+                dossier…”. Elle a exactement la présentation des trois catégories du haut : même icône par emoji
+                (🗑), même police, même hauteur, même survol. Elle reste visible quand on fait défiler. »
+
+                🔴 C'EST LA MÊME CLASSE (`sfd-cote-item`) QUE LES TROIS DU HAUT, et c'est ce qui tient la
+                promesse « exactement la même présentation » : police, hauteur, survol et liseré de focus ne sont
+                pas recopiés, ils sont HÉRITÉS. Les redéfinir aurait divergé au premier ajustement de l'un.
+
+                🔴 « COLLÉE EN BAS » ET « TOUJOURS VISIBLE » sont deux choses, et il faut les deux : `margin-top:
+                auto` la pousse en bas de la colonne, et c'est l'ASIDE qui défile — la catégorie, elle, est dans
+                son pied non défilant (`.sfd-cote-pied`). Sans cela, une liste de raccourcis longue l'aurait
+                emportée hors de l'écran, c'est-à-dire exactement ce qu'Arno demande d'éviter. */}
+            <div className="sfd-cote-pied">
+              <button type="button"
+                className={`sfd-cote-item${compact ? ' sfd-cote-item--compact' : ''}`}
+                aria-pressed={corbeilleOuverte}
+                title={MENTION_SANS_SUPPRESSION}
+                onClick={() => {
+                  const n = !corbeilleOuverte;
+                  setCorbeilleOuverte(n);
+                  /* ⚠️ ON NE LA RELIT QUE SI ON NE L'A PAS : revenir dessus doit être instantané. Le bouton
+                     « Actualiser » du panneau, lui, force la relecture. */
+                  if (n && corbeille === null) void lireLaCorbeille();
+                }}>
+                <span className="sfd-cote-icone" aria-hidden="true">{EMOJI_CORBEILLE_DRIVE}</span>
+                <span className="sfd-cote-mots">
+                  <span className="sfd-cote-libelle">{MOT_CORBEILLE_DRIVE}</span>
+                </span>
+              </button>
+            </div>
           </aside>
 
           {/* ══ 🔴 LA POIGNÉE (demande d'Arno) ═══════════════════════════════════════════════════════════════
@@ -4772,8 +4887,102 @@ export function SelecteurFichierDrive({
                 setSelection(SELECTION_VIDE);
                 setMenu({ x: e.clientX, y: e.clientY, entree: null });
               }}>
-              {/* ══ 🔴 « RÉCENTS », quand on le demande dans la barre latérale ═════════════════════════════════ */}
-              {montrerRecents ? (
+              {/* ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — LA CORBEILLE DU DRIVE ═══════════════════
+                  Arno : « nom, emplacement d'origine, date de mise à la corbeille, jours restants avant
+                  suppression définitive (30 jours). Chaque ligne propose : 👁 aperçu, et “Réintégrer”. Pas de
+                  suppression définitive, pas de “vider la corbeille”. »
+
+                  🔴🔴 LES LIGNES PROTÉGÉES SONT AFFICHÉES, ET NE PROPOSENT RIEN. Un fichier venu de « Documents
+                  clients scannés » se lit — métadonnées seulement — et porte la mention « Dossier protégé ». Le
+                  masquer aurait été pire : on chercherait un document qu'on ne voit pas, sans savoir pourquoi.
+                  Mesuré sur la corbeille réelle : 1 ligne sur 25 est dans ce cas.
+
+                  🔴 ET 14 SUR 25 SONT LÀ PARCE QUE LEUR DOSSIER Y EST (mesuré, `explicitlyTrashed` faux). Celles-là
+                  non plus ne proposent pas « Réintégrer » : les sortir seules les remettrait dans un dossier lui
+                  aussi à la corbeille. La phrase le dit, et elle dit quoi faire à la place. */}
+              {corbeilleOuverte ? (
+                <div className="sfd-corbeille">
+                  {corbeille === 'charge' ? (
+                    <ul className="sfd-squelette" aria-hidden="true">
+                      {Array.from({ length: 8 }, (_, i) => <li key={i} className="sfd-ligne sfd-ligne--squelette" />)}
+                    </ul>
+                  ) : corbeille === null || 'erreur' in corbeille ? (
+                    <p className="gst-tronc sfd-vide" role="alert">
+                      {corbeille === null ? 'Corbeille non demandée.' : corbeille.erreur}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="sfd-corbeille-titre">
+                        {titreCorbeilleDrive(corbeille.lignes.length, corbeille.tronque)}
+                        {' '}
+                        <button type="button" className="sfd-corbeille-relire" onClick={() => void lireLaCorbeille()}>
+                          Actualiser
+                        </button>
+                      </p>
+                      {/* ⚠️ DIT À L'ÉCRAN, et pas seulement en infobulle : qui cherche « vider la corbeille » doit
+                          comprendre qu'il n'existe pas ici, et non croire qu'il ne l'a pas trouvé. */}
+                      <p className="sfd-corbeille-mention">{MENTION_SANS_SUPPRESSION}</p>
+                      {!corbeille.archiveSituee && (
+                        <p className="sfd-corbeille-mention" role="alert">
+                          « Documents clients scannés » n’a pas pu être situé : par précaution, aucune
+                          réintégration n’est proposée.
+                        </p>
+                      )}
+                      <ul className="sfd-corbeille-liste">
+                        {corbeille.lignes.map((l) => {
+                          const jours = joursRestants(l.jeteLe, Date.now());
+                          const v = peutReintegrer(corbeille.archiveSituee ? l : { ...l, protege: true });
+                          return (
+                            <li key={l.id} className="sfd-corbeille-ligne">
+                              <span className="sfd-corbeille-nom">
+                                <span aria-hidden="true">{l.dossier ? '📁' : '📕'}</span>
+                                {' '}
+                                {l.nom}
+                              </span>
+                              {/* ⚠️ LE CHEMIN ENTIER RESTE LISIBLE EN INFOBULLE : il est coupé à deux lignes
+                                  pour que les gestes tiennent dans le cadre, pas pour être perdu. */}
+                              <span className="sfd-corbeille-ou"
+                                title={l.origine === '' ? undefined : l.origine}>
+                                {l.origine === '' ? 'emplacement d’origine inconnu' : l.origine}
+                              </span>
+                              <span className="sfd-corbeille-quand">
+                                {l.jeteLe === null ? 'date inconnue' : dateFinder(l.jeteLe)}
+                                {' · '}
+                                {phraseJoursRestants(jours)}
+                              </span>
+                              <span className="sfd-corbeille-actions">
+                                {/* 🔴 L'APERÇU RESTE PERMIS PARTOUT : c'est une LECTURE, et la route le vérifie
+                                    elle-même. C'est même le seul geste qu'une ligne protégée propose. */}
+                                <button type="button" className="sfd-corbeille-oeil"
+                                  aria-label={`Aperçu de ${l.nom}`} title="Aperçu"
+                                  onClick={() => setAVoir({
+                                    id: l.id, nom: l.nom, typeMime: '', lien: null, parentId: l.origineId,
+                                  })}>
+                                  <span aria-hidden="true">👁</span>
+                                </button>
+                                {v.ok ? (
+                                  <button type="button" className="sfd-corbeille-reintegrer"
+                                    disabled={reintegreEnCours !== null}
+                                    title={aideReintegrerDrive(l.origine)}
+                                    onClick={() => void reintegrerDeLaCorbeille(l)}>
+                                    {reintegreEnCours === l.id ? '…' : LIBELLE_REINTEGRER_DRIVE}
+                                  </button>
+                                ) : (
+                                  <span className="sfd-corbeille-motif" title={v.motif}>
+                                    {l.protege || !corbeille.archiveSituee
+                                      ? MENTION_DOSSIER_PROTEGE
+                                      : 'dossier à réintégrer'}
+                                  </span>
+                                )}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              ) : montrerRecents ? (
                 <ul className="sfd-recents">
                   {recentsDrive.map((r) => (
                     <li key={`${r.sorte}|${r.cle}`}>
@@ -5368,6 +5577,64 @@ export const CSS_SELECTEUR_FICHIER = `
 /* LE MOTIF : ce n'est PAS une panne, c'est une precision sur le chemin qu'on lit. D'ou le ton discret, et sa
    place dans ce bandeau plutot que dans la banniere d'erreur. */
 .sfd-chemin-doc-motif{margin:3px 0 0;font-size:.74rem;line-height:1.35;color:var(--color-svv-muted)}
+/* ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — LA CATEGORIE « CORBEILLE », COLLEE EN BAS ═════════════
+   Arno : « collee en bas, juste au-dessus du texte “Choisissez un dossier…”. Elle a exactement la presentation
+   des trois categories du haut : meme icone par emoji, meme police, meme hauteur, meme survol. Elle reste visible
+   quand on fait defiler. »
+
+   🔴 ELLE REUTILISE « sfd-cote-item » : police, hauteur, survol et lisere de focus sont HERITES, pas recopies.
+   Les redefinir aurait diverge au premier ajustement de l'un des deux.
+
+   🔴 « COLLEE EN BAS » ET « TOUJOURS VISIBLE » SONT DEUX CHOSES. margin-top:auto la pousse en bas ; et c'est son
+   pied qui ne defile PAS, pendant que la liste des raccourcis defile au-dessus. Sans cela une longue liste de
+   raccourcis l'aurait emportee hors de l'ecran — exactement ce qu'Arno demande d'eviter.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot, vu 12 fois). */
+.sfd-cote-pied{margin-top:auto;flex:0 0 auto;position:sticky;bottom:-8px;z-index:2;
+  padding:6px 0 8px;margin-bottom:-8px;
+  border-top:1px solid var(--color-svv-line);background:var(--color-svv-field)}
+/* ══ LE PANNEAU DE LA CORBEILLE ═══════════════════════════════════════════════════════════════════════════════
+   Une seule zone qui defile, celle de la liste : ce panneau remplit la meme boite que la liste des fichiers, et
+   ne cree donc PAS un second defilement imbrique (voir le point 3 de ce lot, qui corrige exactement cela). */
+.sfd-corbeille{padding:8px 12px 12px}
+.sfd-corbeille-titre{margin:0 0 2px;font-size:.84rem;font-weight:600;color:var(--color-svv-ink)}
+.sfd-corbeille-relire{margin-left:6px;padding:1px 6px;font:inherit;font-size:.74rem;font-weight:600;
+  color:var(--color-svv-ink);background:var(--color-svv-field);border:1px solid var(--color-svv-line);
+  border-radius:.3rem;cursor:pointer}
+.sfd-corbeille-relire:hover{background:var(--color-svv-surface)}
+.sfd-corbeille-mention{margin:0 0 8px;font-size:.74rem;line-height:1.4;color:var(--color-svv-muted)}
+.sfd-corbeille-liste{list-style:none;margin:0;padding:0}
+/* Une ligne = quatre informations et deux gestes. Elle se replie en colonne sous 760 px : la corbeille doit se
+   lire sur un telephone comme le reste du module (exigence transverse du depot). */
+/* 🔴 LES DEUX COLONNES DE TEXTE SONT BORNEES, ET LES GESTES PASSENT EN PREMIER. Defaut vu a l'ecran : un chemin
+   de sept crans (« SANSVISAVIS / DOSSIERS COLLABORATEURS / Pierre / … ») faisait une ligne de huit hauteurs et
+   poussait « Reintegrer » hors du cadre — un bouton qu'on ne peut pas atteindre n'existe pas. Le chemin est donc
+   coupe a deux lignes, et il reste ENTIER dans son infobulle : on ne perd pas l'information, on la plie. */
+.sfd-corbeille-ligne{display:grid;grid-template-columns:minmax(7rem,1.3fr) minmax(6rem,1.1fr) auto auto;
+  align-items:center;gap:6px 8px;padding:6px 2px;border-bottom:1px solid var(--color-svv-line);font-size:.8rem}
+.sfd-corbeille-nom{font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sfd-corbeille-ou{color:var(--color-svv-muted);font-size:.72rem;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sfd-corbeille-quand{color:var(--color-svv-muted);font-size:.72rem;max-width:9rem}
+.sfd-corbeille-actions{display:inline-flex;align-items:center;gap:6px;justify-self:end}
+.sfd-corbeille-oeil{min-width:30px;min-height:30px;padding:0 6px;font:inherit;background:none;
+  border:1px solid var(--color-svv-line);border-radius:.3rem;cursor:pointer;color:var(--color-svv-ink)}
+.sfd-corbeille-oeil:hover{background:var(--color-svv-field)}
+.sfd-corbeille-reintegrer{min-height:30px;padding:0 10px;font:inherit;font-size:.78rem;font-weight:600;
+  color:var(--color-svv-ink);background:var(--color-svv-field);border:1px solid var(--color-svv-line-strong);
+  border-radius:.3rem;cursor:pointer;white-space:nowrap}
+.sfd-corbeille-reintegrer:hover:not(:disabled){background:var(--color-svv-surface)}
+.sfd-corbeille-reintegrer:disabled{opacity:.5;cursor:default}
+/* 🔴🔴 LA MENTION D'UNE LIGNE QU'ON NE PEUT QUE REGARDER. Elle n'est PAS un bouton eteint : un bouton grise
+   laisse croire qu'un reglage pourrait l'activer, alors que c'est une REGLE. C'est la meme distinction que
+   « Nouveau dossier » sous l'archive, tranchee au lot DRIVE-VISUALISER-ET-DOSSIERS. */
+.sfd-corbeille-motif{font-size:.72rem;font-weight:600;color:var(--color-svv-muted);white-space:nowrap;
+  padding:2px 6px;border-radius:999px;background:var(--color-svv-field)}
+@media (max-width:760px){
+  .sfd-corbeille-ligne{grid-template-columns:1fr}
+  .sfd-corbeille-quand{white-space:normal}
+  .sfd-corbeille-actions{justify-self:start}
+}
 .sfd-outils-droite{display:flex;align-items:center;gap:4px;margin-left:auto;flex:0 0 auto}
 .sfd-plus{position:relative}
 .sfd-menu--outils{position:absolute;right:0;top:34px;left:auto}
@@ -5389,7 +5656,12 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-poignee::after{content:"";position:absolute;top:0;bottom:0;left:-3px;right:-3px}
 .sfd-poignee:hover,.sfd-poignee:focus-visible{background:var(--color-svv-red)}
 .sfd-poignee:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-1px}
-.sfd-cote{overflow-y:auto;padding:8px 6px;background:var(--color-svv-field);border-right:1px solid var(--color-svv-line)}
+/* 🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL — LA COLONNE DEVIENT UNE COLONNE FLEX, pour que son pied puisse etre
+   POUSSE en bas (margin-top:auto). Sans cela « collee en bas » n'avait aucun effet. Le defilement reste sur la
+   colonne elle-meme, et le pied est « sticky » : il reste donc visible meme quand la liste des raccourcis est
+   longue — les deux moities de la demande d'Arno, et elles ne sont pas la meme chose. */
+.sfd-cote{display:flex;flex-direction:column;overflow-y:auto;padding:8px 6px;
+  background:var(--color-svv-field);border-right:1px solid var(--color-svv-line)}
 .sfd-cote-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
 .sfd-cote-item{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:4px 8px;
   font:inherit;font-size:.82rem;text-align:left;color:var(--color-svv-ink);background:transparent;border:0;
