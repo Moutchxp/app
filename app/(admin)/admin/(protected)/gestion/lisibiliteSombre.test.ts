@@ -197,3 +197,116 @@ describe('⚠️ les conteneurs', () => {
     for (const c of ['.cnv-html', '.edr-zone', '.gst-msg-corps']) expect(CONTENEURS).toContain(c);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — LA PASSE NE DOIT PAS SE CONTREDIRE ELLE-MÊME
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (03/10/2026) : « Nouveau message » en thème Sombre, la ligne « 2 rue Mars et Roty, 92800
+   Puteaux » de la signature reste NOIRE sur fond sombre, alors que « Service Gestion » et les téléphones sont
+   bien clairs.
+
+   🔴🔴 LA CAUSE, MESURÉE DANS LE NAVIGATEUR : la passe lisait `getComputedStyle(el).color`, c'est-à-dire la
+   couleur TELLE QU'ELLE EST MAINTENANT — marque comprise. Or la marque rend justement cette couleur claire. Au
+   tour suivant, l'élément se lisait « clair », la marque était retirée, et le noir revenait. Relevé en rejouant
+   la passe quatre fois sur la vraie page : marqué, non marqué, marqué, non marqué. La lisibilité dépendait de la
+   PARITÉ du nombre de passes.
+
+   ⚠️ ET POURQUOI LE TEST « deux passes ne s'accumulent pas » NE L'AVAIT PAS VU : jsdom N'APPLIQUE AUCUNE FEUILLE
+   DE STYLE. La marque n'y change pas la couleur calculée, donc l'oscillation ne pouvait pas s'y produire. Le
+   bloc ci-dessous REPRODUIT la cascade — un élément marqué rend la couleur d'encre du thème — et c'est ce qui le
+   rend capable d'attraper le défaut.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 la passe est idempotente, même quand sa propre marque change la couleur', () => {
+  const ENCRE = 'rgb(232, 235, 239)';
+  let vrai: typeof window.getComputedStyle;
+
+  beforeEach(() => {
+    vrai = window.getComputedStyle;
+    /**
+     * 🔴 LA CASCADE DU NAVIGATEUR, EN TROIS LIGNES : `[data-svv-sombre]{color:var(--color-svv-ink) !important}`.
+     * Un élément marqué rend l'encre du thème ; les autres rendent ce que leur `style` porte.
+     */
+    (window as unknown as { getComputedStyle: typeof window.getComputedStyle }).getComputedStyle =
+      ((el: Element, pe?: string | null) => {
+        const reel = vrai.call(window, el, pe ?? undefined);
+        if (!(el instanceof HTMLElement) || !el.hasAttribute(MARQUE)) return reel;
+        return new Proxy(reel, { get: (c, p) => (p === 'color' ? ENCRE : Reflect.get(c, p)) });
+      }) as typeof window.getComputedStyle;
+  });
+  afterEach(() => {
+    (window as unknown as { getComputedStyle: typeof window.getComputedStyle }).getComputedStyle = vrai;
+  });
+
+  /** 🔴🔴 LE CAS D'ARNO, REPRODUIT : quatre passes de suite, et la ligne noire reste relevée à chaque fois. */
+  it('🔴🔴 quatre passes de suite laissent le même résultat', () => {
+    const etats: boolean[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      releverDans(zone);
+      etats.push(zone.querySelector('[style="color:#000000"]')?.hasAttribute(MARQUE) === true);
+    }
+    expect(etats).toEqual([true, true, true, true]);
+  });
+
+  /** 🔴 ET LE DOCUMENT ENTIER EST STABLE : deux passes rendent exactement le même HTML. */
+  it('🔴 le HTML après deux passes est identique', () => {
+    releverDans(zone);
+    const apres1 = zone.innerHTML;
+    releverDans(zone);
+    expect(zone.innerHTML).toBe(apres1);
+  });
+
+  /**
+   * 🔴 LA MESURE PORTE SUR LA COULEUR DU MAIL, PAS SUR LA NÔTRE. C'est la formulation directe de la correction :
+   * la passe efface ses marques avant de juger, donc une couleur vive reste épargnée même après dix passages.
+   */
+  it('🔴 le lien et le rouge de la marque ne sont jamais rattrapés, même après dix passes', () => {
+    for (let i = 0; i < 10; i += 1) releverDans(zone);
+    expect(zone.querySelector('[style="color:#1a73e8"]')?.hasAttribute(MARQUE)).toBe(false);
+    expect(zone.querySelector('[style="color:#a30402"]')?.hasAttribute(MARQUE)).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LA PASSE SUIT LE CONTENU QUI ARRIVE APRÈS COUP
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   L'éditeur est un `contentEditable` dans lequel on écrit IMPÉRATIVEMENT : signature chargée après coup, contenu
+   inséré par un bouton, collage. Ces écritures ne changent AUCUNE dépendance React — sans observateur de contenu,
+   la passe ne repasse jamais et les éléments arrivés depuis gardent leur noir.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 un contenu inséré après le montage est relevé lui aussi', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function Zone() {
+    const ref = useRef<HTMLDivElement | null>(null);
+    useLisibiliteSombre(ref, []);
+    return createElement('div', { ref, className: 'edr-zone' });
+  }
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    racine.appendChild(container);
+    root = createRoot(container);
+  });
+  afterEach(() => { act(() => { root.unmount(); }); });
+
+  it('🔴🔴 une signature écrite dans la zone APRÈS le montage est relevée', async () => {
+    racine.setAttribute('data-theme', 'dark');
+    await act(async () => { root.render(createElement(Zone)); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    const z = container.querySelector('.edr-zone') as HTMLElement;
+    expect(z.querySelectorAll(`[${MARQUE}]`)).toHaveLength(0);
+
+    // 🔴 L'ÉCRITURE IMPÉRATIVE, celle que React ne voit pas.
+    await act(async () => { z.innerHTML = SIGNATURE; });
+    await act(async () => { await new Promise((r) => setTimeout(r, 40)); });
+    expect(z.querySelector('[style="color:#000000"]')?.hasAttribute(MARQUE)).toBe(true);
+    expect(z.querySelector('[style="color:#333"]')?.hasAttribute(MARQUE)).toBe(true);
+    // ⚠️ ET LES COULEURS VIVES RESTENT ÉPARGNÉES.
+    expect(z.querySelector('[style="color:#1a73e8"]')?.hasAttribute(MARQUE)).toBe(false);
+  });
+});

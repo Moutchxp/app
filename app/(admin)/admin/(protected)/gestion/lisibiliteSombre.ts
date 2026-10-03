@@ -59,8 +59,37 @@ export function sombreMaintenant(racine: Element | null): boolean {
  *
  * ⚠️ LES IMAGES NE SONT JAMAIS TOUCHÉES : on ne pose la marque que sur des éléments qui portent du texte, et la
  * règle CSS ne parle que de `color`. Arno le demande explicitement.
+ *
+ * ═══ 🔴🔴 ELLE EFFACE SES PROPRES MARQUES AVANT DE MESURER — ET C'EST LA CORRECTION DU LOT ═══════════════════
+ * ═══ EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES ═════════════════════════════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO (03/10/2026) : « Nouveau message » en thème Sombre, la ligne « 2 rue Mars et Roty, 92800
+ * Puteaux » de la signature reste NOIRE, alors que « Service Gestion » et les téléphones sont clairs.
+ *
+ * 🔴🔴 LA CAUSE, MESURÉE DANS LE NAVIGATEUR, EST QUE CETTE PASSE N'ÉTAIT PAS IDEMPOTENTE. Elle lit
+ * `getComputedStyle(el).color` — c'est-à-dire la couleur TELLE QU'ELLE EST MAINTENANT, marque comprise. Or la
+ * marque rend justement cette couleur claire. Au tour suivant, l'élément se lisait donc « clair », la marque
+ * était retirée, et le noir revenait. Relevé en rejouant la passe quatre fois de suite sur la vraie page :
+ *
+ *     avant         noir   non marqué
+ *     après passe 1 clair  MARQUÉ
+ *     après passe 2 noir   non marqué
+ *     après passe 3 clair  MARQUÉ
+ *     après passe 4 noir   non marqué
+ *
+ * La lisibilité de la signature dépendait donc de la PARITÉ du nombre de passes — autant dire du hasard. Et
+ * comme la passe se rejoue à chaque bascule de thème et à chaque changement de contenu, le hasard était fréquent.
+ *
+ * 🔴 ON EFFACE DONC TOUT AVANT DE MESURER : la passe juge alors les couleurs DU MAIL, jamais les siennes. Deux
+ * passes de suite donnent exactement le même résultat, et c'est ce qu'un test exige maintenant.
+ *
+ * ⚠️ L'EFFACEMENT ET LE MARQUAGE SONT DANS LE MÊME TOUR SYNCHRONE : rien n'est peint entre les deux, donc aucun
+ * clignotement. Et l'héritage continue de fonctionner comme avant — un ancêtre relevé éclaircit ses descendants
+ * qui n'imposent pas leur propre couleur, et ceux-là restent sans marque, ce qui est juste.
  */
 export function releverDans(conteneur: Element): void {
+  /* 🔴 D'ABORD EFFACER : voir l'encadré. Sans cette ligne, la passe se contredit un tour sur deux. */
+  nettoyerDans(conteneur);
   const elements = [conteneur, ...Array.from(conteneur.querySelectorAll('*'))];
   for (const el of elements) {
     if (!(el instanceof HTMLElement)) continue;
@@ -114,10 +143,35 @@ export const CSS_LISIBILITE_SOMBRE = `
 /**
  * ══ 🔴 LA PASSE, BRANCHÉE SUR UN CONTENEUR VIVANT ═══════════════════════════════════════════════════════════
  *
- * Elle se rejoue à trois moments, et il faut les trois :
+ * Elle se rejoue à quatre moments, et il faut les quatre :
  *   ① au montage et à chaque changement du contenu (`versions`) — un mail qu'on déplie, une signature insérée ;
- *   ② à chaque bascule de thème — l'attribut `data-theme` change sur la racine, sans que le contenu bouge ;
- *   ③ quand le système bascule, si le thème est réglé sur « Système ».
+ *   ② 🔴🔴 à chaque fois que le CONTENU DU CONTENEUR CHANGE RÉELLEMENT, quelle qu'en soit la cause ;
+ *   ③ à chaque bascule de thème — l'attribut `data-theme` change sur la racine, sans que le contenu bouge ;
+ *   ④ quand le système bascule, si le thème est réglé sur « Système ».
+ *
+ * ═══ 🔴🔴 POURQUOI ② A DÛ ÊTRE AJOUTÉ — LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES ══════════════════════════
+ *
+ * CONSTAT D'ARNO (03/10/2026) : « Nouveau message » en thème Sombre, la ligne « 2 rue Mars et Roty, 92800
+ * Puteaux » de la signature reste NOIRE sur fond sombre, alors que « Service Gestion » et les téléphones sont
+ * bien clairs.
+ *
+ * 🔴 LA RÈGLE N'ÉTAIT PAS EN CAUSE, ET C'EST MESURÉ, pas supposé. Relevé dans le navigateur sur l'élément
+ * fautif : couleur calculée `rgb(0, 0, 0)`, luminance 0, vivacité 0, aucun fond clair sur sa branche — donc
+ * « à relever » sans l'ombre d'un doute. Et pourtant il ne portait PAS la marque. En rejouant la passe à
+ * l'identique, à la main, dans la page : il la reçoit, et sa couleur passe à `rgb(232, 235, 239)`.
+ *
+ * 🔴 LE DÉFAUT ÉTAIT DONC UN DÉFAUT DE MOMENT, PAS DE CRITÈRE. La passe tournait sur `[htmlInitial]` ; or
+ * l'éditeur est un `contentEditable` dans lequel on écrit IMPÉRATIVEMENT — signature chargée après coup, contenu
+ * inséré par un bouton, collage, nœuds remplacés par le navigateur. Ces écritures-là ne changent aucune
+ * dépendance React : la passe ne repassait jamais, et les éléments arrivés depuis gardaient leur noir.
+ *
+ * ⚠️ UN `MutationObserver` PLUTÔT QU'UNE DÉPENDANCE DE PLUS, et c'est le fond de la correction : on ne peut pas
+ * énumérer d'avance toutes les façons dont ce conteneur change. Observer le conteneur lui-même les couvre
+ * toutes, présentes et à venir — y compris celles qu'on n'a pas encore inventées.
+ *
+ * ⚠️ ET IL NE PEUT PAS BOUCLER SUR LUI-MÊME : la passe ne touche QUE `data-svv-sombre`, qui n'est pas dans
+ * `attributeFilter`. Ses propres écritures ne réveillent donc pas l'observateur. Le `requestAnimationFrame`
+ * groupe en outre les rafales (une insertion produit des dizaines de mutations) en un seul passage.
  *
  * ⚠️ ET ELLE NETTOIE EN THÈME CLAIR. Sans cela, une bascule Sombre → Clair laisserait des marques derrière elle,
  * et le `!important` du CSS ne serait plus là pour les rendre inoffensives.
@@ -138,25 +192,47 @@ export function useLisibiliteSombre(
       if (sombreMaintenant(racine)) releverDans(zone);
       else nettoyerDans(zone);
     };
+    /**
+     * ⚠️ UNE SEULE PASSE EN ATTENTE À LA FOIS. Une insertion de signature produit des dizaines de mutations ; sans
+     * ce verrou, chacune programmerait sa propre passe sur le document entier.
+     */
+    let prevue = false;
     const differer = (): void => {
-      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(passer);
-      else passer();
+      if (prevue) return;
+      prevue = true;
+      const tour = (): void => { prevue = false; passer(); };
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(tour);
+      else tour();
     };
     differer();
 
-    /* ② LA BASCULE DE THÈME : `data-theme` change sur la racine, le contenu ne bouge pas. Sans cet observateur,
+    /**
+     * ② 🔴🔴 LE CONTENU DU CONTENEUR CHANGE — ET C'EST LE SEUL SIGNAL QUI LES ATTRAPE TOUS.
+     *
+     * Voir l'encadré au-dessus : la signature chargée après coup échappait à toute dépendance React, et sa ligne
+     * d'adresse restait noire sur fond sombre. On observe donc le conteneur lui-même.
+     *
+     * ⚠️ `data-svv-sombre` N'EST PAS DANS `attributeFilter` : la passe ne peut pas se réveiller elle-même.
+     */
+    const surContenu = typeof MutationObserver === 'function' ? new MutationObserver(differer) : null;
+    surContenu?.observe(zone, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'color', 'class'],
+    });
+
+    /* ③ LA BASCULE DE THÈME : `data-theme` change sur la racine, le contenu ne bouge pas. Sans cet observateur,
        il faudrait rouvrir le mail pour que la correction s'applique. */
     const racine = document.querySelector('.svv-adm-root');
     const obs = racine !== null && typeof MutationObserver === 'function'
       ? new MutationObserver(differer) : null;
     obs?.observe(racine as Node, { attributes: true, attributeFilter: ['data-theme'] });
 
-    /* ③ LE RÉGLAGE « SYSTÈME » : c'est l'ordinateur qui bascule, et aucun attribut ne change chez nous. */
+    /* ④ LE RÉGLAGE « SYSTÈME » : c'est l'ordinateur qui bascule, et aucun attribut ne change chez nous. */
     const media = typeof window.matchMedia === 'function'
       ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     media?.addEventListener?.('change', differer);
 
     return () => {
+      surContenu?.disconnect();
       obs?.disconnect();
       media?.removeEventListener?.('change', differer);
     };
