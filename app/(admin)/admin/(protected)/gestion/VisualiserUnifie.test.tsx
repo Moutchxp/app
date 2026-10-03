@@ -210,12 +210,19 @@ describe('🔴🔴 ② le grand bouton ouvre les deux zones, dans la même fenê
     await cliquer(b as Element);
   };
 
-  it('🔴🔴 a) les biens rattachés, b) les autres proposés, la recherche, et l’encadré', async () => {
+  it('🔴🔴 les cartes du haut, les autres proposés, la recherche, et l’encadré', async () => {
     await ouvrir();
     /* ⚠️ TOUJOURS UNE SEULE BOÎTE DE DIALOGUE : deux fenêtres empilées sont injouables au clavier. */
     expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
-    /* 🔴🔴 DEUX ZONES NETTEMENT SÉPARÉES (Arno) : chacune a son titre ET son propre bloc. */
-    expect(container.querySelector('.mrb-zone--a')?.textContent).toContain(ZONE_DEJA_RATTACHES);
+    /**
+     * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA ZONE « Bien(s) déjà rattaché(s) » A DISPARU.
+     * Elle répétait les cartes du haut, ligne par ligne, avec une croix qui faisait le même geste que la case
+     * qu'elles portent maintenant. Un même état montré à deux endroits finit toujours par se contredire.
+     */
+    expect(container.querySelector('.mrb-zone--a')).toBeNull();
+    expect(container.textContent).not.toContain(ZONE_DEJA_RATTACHES);
+    /* 🔴 LA DÉCISION SE PREND SUR LA CARTE, là où le bien est décrit. */
+    expect(container.querySelectorAll('.rdf-item input.rdf-garde')).toHaveLength(1);
     expect(container.querySelector('.mrb-zone--b')?.textContent).toContain(ZONE_AUTRES_PROPOSES);
     // le moteur de recherche, sur TOUS les biens de la base
     expect(container.querySelector('input[type="search"]')).not.toBeNull();
@@ -240,33 +247,39 @@ describe('🔴🔴 ② le grand bouton ouvre les deux zones, dans la même fenê
     await ouvrir();
     const b = container.querySelector('.mrb-zone--b')?.textContent ?? '';
     expect(b).not.toContain('2 rue Fictive');
-    const a = container.querySelector('.mrb-zone--a')?.textContent ?? '';
-    expect(a).toContain('2 rue Fictive');
+    /* 🔴🔴 IL EST SUR SA CARTE, EN HAUT, avec sa case — la zone qui le répétait a disparu (point 3). */
+    const carte = container.querySelector('.rdf-item')?.textContent ?? '';
+    expect(carte).toContain('2 rue Fictive');
     /* ⚠️ ET IL N'EST PLUS ANNONCÉ « À trancher » : le fait l'emporte sur l'estimation du moteur (décision
        d'Arno). La pastille reste là où elle informe — sur un bien qu'on PEUT ajouter, en zone (b). */
-    expect(a).not.toContain('À trancher');
+    expect(carte).not.toContain('À trancher');
     expect(b).toContain('À trancher');
   });
 
-  /** 🔴🔴 LE ✕ RETIRE — et le bien reste affiché, barré, avec « Remettre » : un retrait doit pouvoir se défaire. */
-  it('🔴🔴 le ✕ retire le bien, et « Remettre » le ramène', async () => {
+  /**
+   * 🔴🔴 LA CASE DE LA CARTE EST COCHÉE PAR DÉFAUT (= reste rattaché), et la décocher annonce le retrait : la
+   * carte s'estompe et porte « sera retiré ». La recocher rétablit.
+   *
+   * ⚠️ CE TEST REMPLACE CELUI DU ✕ DE LA ZONE « déjà rattachés », supprimée par Arno : c'est le MÊME geste, pris
+   * là où le bien est décrit (avec son adresse, son lot, ses personnes) plutôt que sur une ligne répétée.
+   */
+  it('🔴🔴 décocher la carte annonce le retrait, recocher rétablit', async () => {
     await ouvrir();
-    const croix = container.querySelector('.mrb-croix') as HTMLButtonElement;
-    expect(croix).not.toBeNull();
-    await cliquer(croix);
-    expect(container.querySelector('.mrb-deja-item--retire')).not.toBeNull();
+    const c = container.querySelector('.rdf-item input.rdf-garde') as HTMLInputElement;
+    expect(c.checked).toBe(true);
+    await cocher(c);
+    expect(container.querySelector('.rdf-item--retire')).not.toBeNull();
+    expect(container.textContent).toContain('sera retiré');
     expect(container.querySelector('.rdf-bilan')?.textContent).toBe('1 bien retiré sur ce mail.');
-    const remettre = [...container.querySelectorAll('.mrb-zone--a button')]
-      .find((b) => (b.textContent ?? '').includes('Remettre')) as HTMLButtonElement;
-    await cliquer(remettre);
-    expect(container.querySelector('.mrb-deja-item--retire')).toBeNull();
+    await cocher(container.querySelector('.rdf-item input.rdf-garde') as HTMLInputElement);
+    expect(container.querySelector('.rdf-item--retire')).toBeNull();
     expect(container.querySelector('.rdf-bilan')?.textContent).toBe('Aucun changement : rien ne sera écrit.');
   });
 
-  /** 🔴🔴 ✕ PUIS VALIDER → le classement envoyé ne porte plus ce bien, et rien d'autre ne change. */
-  it('🔴🔴 ✕ puis Valider retire le bien du mail, en une exception', async () => {
+  /** 🔴🔴 DÉCOCHER PUIS VALIDER → le classement envoyé ne porte plus ce bien, et rien d'autre ne change. */
+  it('🔴🔴 décocher puis Valider retire le bien du mail, en une exception', async () => {
     await ouvrir();
-    await cliquer(container.querySelector('.mrb-croix') as Element);
+    await cocher(container.querySelector('.rdf-item input.rdf-garde') as HTMLInputElement);
     await cliquer(bouton(/Valider les biens de ce mail/) as Element);
     expect(ecritures).toHaveLength(1);
     const corps = ecritures[0].corps as { choix: string; classement: { biens: { cle: string }[] } };
@@ -275,17 +288,16 @@ describe('🔴🔴 ② le grand bouton ouvre les deux zones, dans la même fenê
   });
 
   /**
-   * 🔴🔴 LA SÉLECTION DE DÉPART EST L'ÉTAT RÉEL DU MAIL, et elle se lit dans la zone (a) — plus dans une case.
+   * 🔴🔴 L'ÉTAT DE DÉPART EST L'ÉTAT RÉEL DU MAIL, et il se lit sur la CARTE — plus dans une zone répétée.
    *
-   * ⚠️ CE TEST A ÉTÉ RÉÉCRIT AU LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS : il figeait « une case cochée », ce
-   * qu'Arno a remplacé par deux zones (« toutes décochées par défaut » en (b)). Ce qu'il protégeait reste
-   * éprouvé : c'est l'état RÉEL qui commande, pas la recommandation du moteur — lequel, dans ce décor,
-   * recommande les DEUX biens alors qu'un seul est rattaché.
+   * ⚠️ C'EST L'ÉTAT RÉEL QUI COMMANDE, PAS LA RECOMMANDATION DU MOTEUR : dans ce décor, le moteur recommande les
+   * DEUX biens alors qu'un seul est rattaché.
    */
   it('🔴🔴 l’état de départ est l’état réel du mail, pas la recommandation du moteur', async () => {
     await ouvrir();
-    expect([...container.querySelectorAll('.mrb-deja-item')]).toHaveLength(1);
-    expect(container.querySelector('.mrb-zone--a')?.textContent).toContain('2 rue Fictive');
+    expect(container.querySelectorAll('.rdf-item')).toHaveLength(1);
+    expect(container.querySelector('.rdf-item')?.textContent).toContain('2 rue Fictive');
+    expect((container.querySelector('.rdf-item input.rdf-garde') as HTMLInputElement).checked).toBe(true);
     expect(container.querySelector('.rdf-bilan')?.textContent).toBe('Aucun changement : rien ne sera écrit.');
   });
 

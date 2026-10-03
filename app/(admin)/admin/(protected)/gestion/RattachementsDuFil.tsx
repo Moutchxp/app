@@ -331,6 +331,13 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
         {biens.map((b) => (
           <BlocBien key={b.cle} bien={b} dossierId={dossiers[b.cle] ?? b.dossierDriveId}
             ponctuel={b.ponctuel}
+            /* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — la case n'existe QUE pendant la
+               modification : hors du panneau, la carte est exactement celle d'avant ce lot. */
+            garde={panneau === 'aucun' ? undefined : (selection ?? clesDuMail).includes(b.cle)}
+            onGarder={panneau === 'aucun' ? undefined : () => setSelection((avant) => {
+              const courant = avant ?? clesDuMail;
+              return courant.includes(b.cle) ? courant.filter((c) => c !== b.cle) : [...courant, b.cle];
+            })}
             /* 🔴 LA FENÊTRE NE PARLE QUE D'UN MAIL : « sur 1 mail » n'apprend rien, et le détail ne montre que
                ses liens à lui. Voir `biensDuMail`. */
             surUnSeulMail
@@ -358,9 +365,14 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
           <MenuRattachementBien messageId={mailId} filId={filId}
             preCoches={clesDuMail}
             libellesConnus={libellesDuMail}
-            /* 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LA ZONE (a) D'ARNO : ce qui EST rattaché, avec son ✕.
-               La fenêtre est seule à le savoir : c'est elle qui lit les liens vivants du mail. */
-            dejaRattaches={biens.map((b) => ({ cle: b.cle, libelle: libellesDuMail[b.cle] ?? b.cle }))}
+            /**
+             * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA SÉLECTION EST TENUE ICI.
+             *
+             * Elle se coche désormais sur les CARTES du haut autant que dans le menu : il n'y a donc qu'un seul
+             * endroit possible pour la garder, et c'est la fenêtre. Le menu, lui, la reçoit et la rend.
+             */
+            cochesImposees={selection ?? clesDuMail}
+            onCochesChange={setSelection}
             onSelection={setSelection}
             motValider={panneau === 'exception' ? 'Valider les biens de ce mail' : 'Valider le suivi'}
             validationBloquee={bloquee}
@@ -446,7 +458,9 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
 }
 
 /** UN BIEN : sa fiche, ses personnes, ses gestes. */
-function BlocBien({ bien, dossierId, liens, onModifier, ponctuel = false, surUnSeulMail = false }: {
+function BlocBien({
+  bien, dossierId, liens, onModifier, ponctuel = false, surUnSeulMail = false, garde, onGarder,
+}: {
   bien: BienRattache;
   dossierId: string | null;
   liens: LienAffiche[];
@@ -455,12 +469,39 @@ function BlocBien({ bien, dossierId, liens, onModifier, ponctuel = false, surUnS
   ponctuel?: boolean;
   /** Ouverte sur un mail : la carte ne parle que de lui, et n'annonce pas « sur N mails de la conversation ». */
   surUnSeulMail?: boolean;
+  /**
+   * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA CASE DE LA CARTE ════════════════════════════════
+   *
+   * DEMANDE D'ARNO (03/10/2026) : « quand on clique “Modifier les biens rattachés à ce mail”, chaque CARTE de
+   * bien du haut reçoit une CASE, cochée par défaut (= reste rattaché), à gauche de l'adresse. La décocher = ce
+   * bien sera retiré à la validation (carte estompée, mention “sera retiré”). La recocher = rétabli. »
+   *
+   * 🔴 C'EST LA MÊME DÉCISION QUE LA ZONE QU'ELLE REMPLACE, mais prise LÀ OÙ LE BIEN EST DÉCRIT : on décoche le
+   * bien qu'on a sous les yeux, avec son adresse, son lot, ses personnes — et non une ligne d'adresse répétée
+   * trente centimètres plus bas.
+   *
+   * ⚠️ `undefined` ⇒ AUCUNE CASE, et la carte est exactement celle d'avant ce lot : c'est son état hors du
+   * panneau de modification, et celui de tous les autres écrans qui l'emploient.
+   */
+  garde?: boolean;
+  onGarder?: () => void;
 }) {
   const drive = adresseDossierDrive(dossierId);
+  const avecCase = garde !== undefined && onGarder !== undefined;
+  /* 🔴 LA CARTE S'ESTOMPE quand elle ne sera plus là : la mention le DIT, l'opacité ne fait que l'appuyer. */
+  const retire = avecCase && garde === false;
   return (
-    <section className="rdf-item" aria-label={bien.adresseComplete}>
+    <section className={retire ? 'rdf-item rdf-item--retire' : 'rdf-item'} aria-label={bien.adresseComplete}>
       <div className="rdf-tete">
+        {avecCase && (
+          <input type="checkbox" className="rdf-garde" checked={garde} onChange={onGarder}
+            title={garde ? 'Décocher pour retirer ce bien de ce mail' : 'Recocher pour le garder'}
+            aria-label={`Garder « ${bien.adresseComplete} » rattaché à ce mail`} />
+        )}
         <span className="rdf-cible">{bien.adresseComplete}</span>
+        {/* 🔴 « SERA RETIRÉ » EST ÉCRIT, jamais seulement grisé : un aplat ne se lit ni en niveaux de gris, ni au
+            lecteur d'écran — et c'est une décision qu'on vient de prendre, elle doit se relire. */}
+        {retire && <span className="rdf-sera-retire">sera retiré</span>}
         {/* 🔴 L'AJOUT PONCTUEL SE DIT EN MOTS, à côté du statut : il ne se devine à aucune couleur, et c'est la
             seule façon de savoir pourquoi ce bien est là alors que la conversation ne le porte pas. */}
         {ponctuel && <span className="rdf-ponctuel">{MENTION_AJOUT_PONCTUEL}</span>}
@@ -600,6 +641,16 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-item{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;padding:10px;
   border:1px solid var(--color-svv-line);border-radius:.6rem;background:var(--color-svv-surface);min-width:0}
 .rdf-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;min-width:0}
+/* ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA CASE DE LA CARTE ════════════════════════════════
+   Elle vit A GAUCHE DE L'ADRESSE (demande d'Arno), et n'existe que pendant la modification.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+.rdf-garde{flex:0 0 auto;width:18px;height:18px;margin:0;cursor:pointer;align-self:center}
+.rdf-garde:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* 🔴 LA CARTE QUI SERA RETIREE S'ESTOMPE — et le MOT « sera retiré » le dit : l'opacite ne fait que l'appuyer,
+   elle ne se lit ni en niveaux de gris, ni au lecteur d'ecran. */
+.rdf-item--retire{opacity:.55;border-style:dashed}
+.rdf-sera-retire{flex:0 0 auto;padding:.05rem .45rem;border-radius:999px;font-size:.7rem;font-weight:700;
+  line-height:1.6;color:var(--color-svv-red);border:1px solid var(--color-svv-red);white-space:nowrap}
 .rdf-sorte{font-size:.68rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
   color:var(--color-svv-muted)}
 .rdf-cible{flex:1 1 14rem;font-size:.95rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}

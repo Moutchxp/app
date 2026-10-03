@@ -419,9 +419,23 @@ export const MOT_CHANGER_REGLE_SUIVI =
  * après coup ») et c'est d'autant plus vrai ici : la différence entre une exception et une règle de suivi ne se
  * voit pas à l'écran une fois le geste fait — elle se voit trois mails plus loin.
  */
-/** Les titres des DEUX zones du panneau. Écrits ici, lus par l'écran — jamais recopiés d'un composant à l'autre. */
-export const ZONE_DEJA_RATTACHES = 'Bien(s) déjà rattaché(s) à ce mail';
+/**
+ * Le titre de la zone des propositions du panneau. Écrit ici, lu par l'écran — jamais recopié d'un composant à
+ * l'autre.
+ */
 export const ZONE_AUTRES_PROPOSES = 'Autres biens proposés';
+
+/**
+ * ══ ⚠️ CE TITRE NE S'AFFICHE PLUS NULLE PART, ET C'EST VOULU (LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS) ═══════════
+ *
+ * DÉCISION D'ARNO (03/10/2026) : « supprime la zone “Bien(s) déjà rattaché(s) à ce mail” du panneau de
+ * modification : elle répète les cartes du haut. » La décision se prend désormais SUR la carte, par une case —
+ * là où le bien est décrit, avec son adresse, son lot et ses personnes.
+ *
+ * 🔴 IL RESTE EXPORTÉ POUR UNE SEULE RAISON : une épreuve vérifie qu'il n'apparaît PLUS à l'écran. Un garde qui
+ * recopierait la phrase cesserait de garder quoi que ce soit le jour où quelqu'un la reformulerait.
+ */
+export const ZONE_DEJA_RATTACHES = 'Bien(s) déjà rattaché(s) à ce mail';
 
 export const ENCADRE_EXCEPTION_CE_MAIL =
   'Ce changement ne concerne que ce mail (exception). La règle de suivi de la conversation reste inchangée pour '

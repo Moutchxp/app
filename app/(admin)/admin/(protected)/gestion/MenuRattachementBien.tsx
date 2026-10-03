@@ -43,7 +43,7 @@ import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
 export function MenuRattachementBien({
   messageId, filId, onFerme, onGeste, onChange, onHorsGestion, ponctuel = false,
   preCoches = null, pied, onValider, motValider, validationBloquee = null, onSelection, libellesConnus,
-  dejaRattaches,
+  cochesImposees, onCochesChange,
 }: {
   messageId: number;
   filId: number | null;
@@ -88,23 +88,20 @@ export function MenuRattachementBien({
    */
   libellesConnus?: Readonly<Record<string, string>>;
   /**
-   * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LA ZONE (a), « BIEN(S) DÉJÀ RATTACHÉ(S) À CE MAIL » ══════════
+   * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA SÉLECTION EST TENUE PAR L'APPELANT ══════════════
    *
-   * RÈGLE D'ARNO (03/10/2026) : « Panneau de modification, DEUX ZONES NETTEMENT SÉPARÉES : a) “Bien(s) déjà
-   * rattaché(s) à ce mail” : les biens actuels, avec un ✕ pour retirer chacun ; b) “Autres biens proposés” : les
-   * propositions de l'automatisation SAUF les biens déjà rattachés, TOUTES DÉCOCHÉES par défaut. »
+   * DEMANDE D'ARNO (03/10/2026) : « supprime la zone “Bien(s) déjà rattaché(s) à ce mail” du panneau : elle
+   * répète les cartes du haut. À la place, chaque CARTE de bien du haut reçoit une CASE, cochée par défaut. »
    *
-   * 🔴 POURQUOI DEUX ZONES PLUTÔT QU'UNE LISTE DE CASES. Une seule liste mêlait deux choses de nature différente :
-   * ce qui EST (un fait, écrit en base) et ce qu'on PROPOSE (une estimation du moteur). On y cherchait, parmi six
-   * lignes cochables, laquelle était déjà posée — et c'est exactement ce qu'on vient voir.
+   * 🔴 LA CONSÉQUENCE EST STRUCTURELLE : la sélection ne peut plus vivre dans ce menu, puisqu'elle se coche en
+   * DEHORS de lui. Donnée, elle est commandée par l'appelant ; absente, le menu garde la sienne et se comporte
+   * exactement comme avant ce lot (c'est le cas de la modale « Rattacher ce mail à… »).
    *
-   * ⚠️ UN BIEN RETIRÉ RESTE AFFICHÉ, barré, avec « Remettre » : le ✕ ne le fait pas disparaître. Sans quoi un
-   * retrait fait par erreur serait irrattrapable sans refermer la fenêtre — et l'on ne saurait même pas ce qu'on
-   * vient de retirer.
-   *
-   * ⚠️ ABSENT ⇒ COMPORTEMENT D'AVANT CE LOT : pas de zone (a), et les propositions ne sont filtrées de rien.
+   * ⚠️ UNE SEULE VÉRITÉ : quand l'appelant commande, le menu n'en garde AUCUNE copie. Deux états pour une
+   * sélection, c'est une case qui se décoche toute seule au rendu suivant.
    */
-  dejaRattaches?: readonly { cle: string; libelle: string }[];
+  cochesImposees?: readonly string[];
+  onCochesChange?: (cles: readonly string[]) => void;
   /** Le mot du bouton, quand ce n'est plus « Rattacher ». */
   motValider?: string;
   /** Un motif non nul BLOQUE la validation et s'affiche : c'est la confirmation de « Toute la conversation ». */
@@ -133,7 +130,17 @@ export function MenuRattachementBien({
   const [etat, setEtat] = useState<
     { v: 'charge' } | { v: 'ok'; contexte: ContexteClassement } | { v: 'rien' }
   >({ v: 'charge' });
-  const [coches, setCoches] = useState<string[]>([]);
+  /**
+   * 🔴 LA SÉLECTION, QUAND LE MENU LA TIENT LUI-MÊME. Elle est ignorée dès que l'appelant commande
+   * (`cochesImposees`) — voir l'encadré de cette option.
+   */
+  const [cochesLocales, setCochesLocales] = useState<string[]>([]);
+  const commande = cochesImposees !== undefined;
+  const coches: readonly string[] = cochesImposees ?? cochesLocales;
+  const poserCoches = (n: readonly string[]): void => {
+    if (commande) onCochesChange?.(n); else setCochesLocales([...n]);
+    onSelection?.(n);
+  };
   const [portee, setPortee] = useState<'mail' | 'conversation'>('mail');
   const [envoi, setEnvoi] = useState<{ en_cours: boolean; erreur: string | null }>(
     { en_cours: false, erreur: null });
@@ -169,13 +176,18 @@ export function MenuRattachementBien({
        * tête ; pré-cocher ferait partir un rattachement qu'on n'a pas demandé.
        */
       /* 🔴🔴 ET LA PRÉ-COCHE IMPOSÉE L'EMPORTE SUR LES DEUX : c'est l'état RÉEL du mail, pas une suggestion. */
-      setCoches(clePreCoches !== null
+      /**
+       * ⚠️ RIEN À POSER QUAND L'APPELANT COMMANDE : c'est LUI qui a ouvert le panneau avec l'état réel du mail, et
+       * le lui réécrire d'ici effacerait les cases qu'il vient peut-être de décocher.
+       */
+      if (commande) return;
+      setCochesLocales(clePreCoches !== null
         ? (clePreCoches === '' ? [] : clePreCoches.split('|'))
         : (ponctuel ? [] : (d.contexte.biens ?? []).filter((b) => b.recommande).map((b) => b.cle)));
     } catch {
       setEtat({ v: 'rien' });
     }
-  }, [messageId, ponctuel, clePreCoches]);
+  }, [messageId, ponctuel, clePreCoches, commande]);
 
   useEffect(() => { void charger(); }, [charger]);
   useEffect(() => { champ.current?.focus(); }, []);
@@ -192,7 +204,13 @@ export function MenuRattachementBien({
    * ⚠️ ON FILTRE SUR LA LISTE D'OUVERTURE, pas sur la sélection en cours : un bien retiré par le ✕ ne doit pas
    * réapparaître ici d'un coup, il se remet par « Remettre », là où on vient de le retirer.
    */
-  const clesDeja = new Set((dejaRattaches ?? []).map((b) => b.cle));
+  /**
+   * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LES BIENS DÉJÀ RATTACHÉS VIENNENT DE `preCoches`.
+   *
+   * Ils étaient donnés à part (`dejaRattaches`) pour alimenter la zone que ce point SUPPRIME. Or c'est la même
+   * liste : `preCoches` EST l'état d'ouverture du mail. En garder deux aurait fini par en laisser une mentir.
+   */
+  const clesDeja = new Set(preCoches ?? []);
   const propositions: BienProposable[] = (contexte?.biens ?? []).filter((b) => !clesDeja.has(b.cle));
   const dateMail = contexte?.dateMail ?? null;
 
@@ -236,12 +254,9 @@ export function MenuRattachementBien({
   /** …puis rangés en deux groupes titrés. Le tri et la règle « jamais deux fois » vivent dans le module PUR. */
   const groupes = grouperResultats(trouves);
 
-  const basculer = (cle: string) => setCoches((c) => {
-    const n = c.includes(cle) ? c.filter((x) => x !== cle) : [...c, cle];
-    /* 🔴 L'APPELANT SUIT LA SÉLECTION EN DIRECT : c'est de là que viennent sa phrase de résumé et son alerte. */
-    onSelection?.(n);
-    return n;
-  });
+  /** 🔴 L'APPELANT SUIT LA SÉLECTION EN DIRECT : c'est de là que viennent sa phrase, son alerte et son compteur. */
+  const basculer = (cle: string): void =>
+    poserCoches(coches.includes(cle) ? coches.filter((x) => x !== cle) : [...coches, cle]);
 
   /** Le plan des DEUX zones réunies : c'est lui qui écrit la phrase, jamais un compte fait à la main. */
   const plan = planClassement({
@@ -336,51 +351,17 @@ export function MenuRattachementBien({
 
       {etat.v === 'charge' && <p className="gst-info" role="status">Lecture des biens possibles…</p>}
 
-      {/* ══ 🔴🔴 (a) LES BIENS DÉJÀ RATTACHÉS À CE MAIL — LE FAIT, AVANT L'ESTIMATION ════════════════════════
-          Demande d'Arno, mot pour mot : « les biens actuels, avec un ✕ pour retirer chacun ».
-
-          ⚠️ UN BIEN RETIRÉ RESTE LÀ, BARRÉ, avec « Remettre » : le ✕ retire du geste à venir, il n'efface rien
-          à l'écran. Un retrait fait par erreur doit pouvoir se défaire sans refermer la fenêtre. */}
-      {dejaRattaches !== undefined && dejaRattaches.length > 0 && (
-        <section className="mrb-zone mrb-zone--a" aria-label="Biens déjà rattachés à ce mail">
-          <p className="mrb-titre mrb-titre--zone">
-            {dejaRattaches.length === 1 ? ZONE_DEJA_RATTACHES : `${ZONE_DEJA_RATTACHES} — ${dejaRattaches.length}`}
-          </p>
-          <ul className="mrb-deja">
-            {dejaRattaches.map((b) => {
-              const garde = coches.includes(b.cle);
-              return (
-                <li key={b.cle} className={garde ? 'mrb-deja-item' : 'mrb-deja-item mrb-deja-item--retire'}>
-                  <span className="mrb-deja-nom">{b.libelle}</span>
-                  {garde
-                    ? (
-                      <button type="button" className="mrb-croix" disabled={fige}
-                        aria-label={`Retirer ${b.libelle} de ce mail`} title="Retirer de ce mail"
-                        onClick={() => basculer(b.cle)}>
-                        <span aria-hidden="true">✕</span>
-                      </button>
-                    )
-                    : (
-                      <>
-                        <span className="mrb-deja-mot">retiré</span>
-                        <button type="button" className="gst-lien-bouton" disabled={fige}
-                          onClick={() => basculer(b.cle)}>Remettre</button>
-                      </>
-                    )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {/* ══ ① (b) LES PROPOSITIONS DE L'AUTOMATISATION — absentes s'il n'y en a aucune ═══════════════════════
-          🔴🔴 SAUF LES BIENS DÉJÀ RATTACHÉS (Arno) : ils sont au-dessus, dans la zone (a), et les montrer une
-          seconde fois avec une case à cocher ferait croire qu'il reste quelque chose à décider à leur sujet. */}
+      {/* ⚠️ LA ZONE « Bien(s) déjà rattaché(s) à ce mail » A ÉTÉ RETIRÉE ICI (demande d'Arno, 03/10/2026) :
+          elle répétait les cartes du haut de la fenêtre, ligne par ligne, avec une croix qui faisait le même
+          geste que la case qu'elles portent maintenant. Un même état montré à deux endroits finit toujours par
+          se contredire — et c'était déjà deux gestes pour une seule décision. */}
+      {/* ══ ① LES PROPOSITIONS DE L'AUTOMATISATION — absentes s'il n'y en a aucune ═════════════════════════════
+          🔴🔴 SAUF LES BIENS DÉJÀ RATTACHÉS (Arno) : ils sont au-dessus, sur les CARTES de la fenêtre, avec leur
+          case ; les montrer une seconde fois ici ferait croire qu'il reste quelque chose à décider à leur sujet. */}
       {propositions.length > 0 && (
         <section className="mrb-zone mrb-zone--b" aria-label="Autres biens proposés">
           <p className="mrb-titre mrb-titre--zone">
-            {dejaRattaches === undefined
+            {preCoches === null
               ? (propositions.length === 1 ? 'Une proposition de l’automatisation' : `${propositions.length} propositions de l’automatisation`)
               : (propositions.length === 1 ? ZONE_AUTRES_PROPOSES : `${ZONE_AUTRES_PROPOSES} — ${propositions.length}`)}
             {contexte?.examen && <span className="pdb-examen"> — {contexte.examen.motif}</span>}
