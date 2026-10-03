@@ -9,7 +9,8 @@ import { MenuRattachementBien } from './MenuRattachementBien';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 // LOT FICHE-RATTACHEMENT — les mots et les ordres vivent dans un module PUR, éprouvé sans écran.
 import {
-  adresseDossierDrive, adresseFicheAnnuaire, motNbMails, motPeriode, motRole, motSansLocataire, motStatutBien,
+  adresseDossierDrive, adresseFicheAnnuaire, motNbBiensRattaches, motPeriode, motRole, motSansLocataire,
+  motStatutBien,
   motSurface, qualitePersonne,
   AUCUN_BIEN_DU_MAIL, biensDuMail, ENCADRE_EXCEPTION_CE_MAIL, MENTION_AJOUT_PONCTUEL, motEnTeteMail,
   MOT_CHANGER_REGLE_SUIVI, MOT_MODIFIER_BIENS_DU_MAIL, resumeModificationBiens, TITRE_BIENS_DU_MAIL,
@@ -298,7 +299,23 @@ export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, on
         )}
         {/* ⚠️ L'OBJET DE L'ÉCHANGE RESTE, en repli : il sert quand l'en-tête du mail n'a pas pu être lu. */}
         {fiche?.enTete == null && objet !== null && objet !== '' && <p className="rdf-objet">{objet}</p>}
-        {fiche !== null && <p className="rdf-detail">{motNbMails(fiche.nbMailsDuFil)}</p>}
+        {/**
+          * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 2 — LE COMPTEUR, EN DIRECT ═══════════════════════
+          *
+          * Il compte CE QUI SERA RATTACHÉ SI L'ON VALIDE : les cartes du haut restées cochées, plus les biens
+          * cochés dans les propositions ou dans la recherche. C'est exactement la liste que « Valider » enverra,
+          * et c'est pour cela qu'elle est lue au même endroit qu'elle — `selection`.
+          *
+          * ⚠️ HORS MODIFICATION, `selection` EST `null` et l'on compte l'état ENREGISTRÉ (`clesDuMail`). Après
+          * une validation, la fenêtre relit la base : le compteur reflète donc ce qui est écrit, sans que rien
+          * n'ait à le lui dire.
+          *
+          * ⚠️ ON NE L'AFFICHE PAS QUAND LE BLOC « aucun bien » EST LÀ : il dirait la même chose deux fois, à deux
+          * centimètres d'écart.
+          */}
+        {fiche !== null && !(biens.length === 0 && panneau === 'aucun') && (
+          <p className="rdf-detail rdf-compteur">{motNbBiensRattaches((selection ?? clesDuMail).length)}</p>
+        )}
 
         {etat.v === 'charge' && <p className="gst-info" role="status">Lecture des rattachements…</p>}
         {etat.v === 'erreur' && <p className="gst-tronc" role="alert">{etat.message}</p>}
@@ -638,6 +655,9 @@ function CartePersonne({ personne }: { personne: PersonneRattachement }) {
 
 export const CSS_RATTACHEMENTS_FIL = `
 .rdf-objet{margin:-6px 0 2px;font-size:.85rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+/* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 2 — le compteur en tete. Il BOUGE pendant qu'on modifie :
+   on le met donc un peu en avant, pour que l'oeil le retrouve apres chaque case cochee. */
+.rdf-compteur{font-weight:700;color:var(--color-svv-ink)}
 .rdf-item{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;padding:10px;
   border:1px solid var(--color-svv-line);border-radius:.6rem;background:var(--color-svv-surface);min-width:0}
 .rdf-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;min-width:0}

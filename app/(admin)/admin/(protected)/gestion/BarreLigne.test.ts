@@ -590,9 +590,17 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
      * d'où qu'on l'ouvre.
      */
     expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) rattaché(s) à ce mail');
-    // 🔴 LOT FICHE-RATTACHEMENT — l'objet et le nombre de mails en tête (demande d'Arno).
+    // 🔴 LOT FICHE-RATTACHEMENT — l'objet en tête (demande d'Arno).
     expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Fuite salle de bain');
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('3 mails dans la conversation');
+    /**
+     * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 2 — « N mails dans la conversation » A ÉTÉ REMPLACÉ par
+     * « N bien(s) rattaché(s) à ce mail » (demande d'Arno) : le nombre de mails de l'échange répondait à une
+     * question qu'on ne se pose pas dans une fenêtre qui parle d'UN mail et de ses biens.
+     *
+     * ⚠️ ICI, AUCUN BIEN n'est rattaché dans le décor de ce test : c'est le bloc « aucun bien » qui parle, et le
+     * compteur se tait pour ne pas dire la même chose deux fois.
+     */
+    expect(container.querySelector('[role="dialog"]')?.textContent).not.toContain('mails dans la conversation');
     expect(ouverts).toEqual([]);   // la liste reste en place
     expect(actions).toEqual([]);   // et aucun « classer » n'est demandé
   });

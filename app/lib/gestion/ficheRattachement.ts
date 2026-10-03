@@ -253,6 +253,29 @@ export function motNbMails(n: number): string {
   return n <= 1 ? '1 mail dans la conversation' : `${n} mails dans la conversation`;
 }
 
+/**
+ * ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 2 — LE COMPTEUR EN TÊTE DE LA FENÊTRE ════════════════════
+ *
+ * DEMANDE D'ARNO (03/10/2026) : « remplace “N mails dans la conversation” par “N bien(s) rattaché(s) à ce mail”.
+ * Il se met à jour EN DIRECT pendant la modification : il compte les biens qui seront rattachés si l'on valide
+ * (cartes du haut cochées + biens cochés dans les propositions ou la recherche). Après validation, il reflète
+ * l'état enregistré. »
+ *
+ * 🔴 POURQUOI LE CHANGEMENT EST JUSTE. « N mails dans la conversation » répondait à une question qu'on ne se pose
+ * pas dans cette fenêtre-ci : elle parle d'UN mail, et de ses biens. Le nombre de mails de l'échange y était un
+ * reste de l'époque où la fenêtre montrait « les biens de cet échange ».
+ *
+ * ⚠️ « À CE MAIL », PAS « À CET ÉCHANGE » : c'est la même précision que le titre, et c'est elle qui distingue
+ * cette fenêtre de tout le reste du module.
+ *
+ * ⚠️ `motNbMails` RESTE : la fenêtre n'est pas seule à compter des mails, et ce lot ne retire rien d'autre que
+ * son emploi ici.
+ */
+export function motNbBiensRattaches(n: number): string {
+  if (n <= 0) return 'Aucun bien rattaché à ce mail';
+  return n === 1 ? '1 bien rattaché à ce mail' : `${n} biens rattachés à ce mail`;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE, POINT 1 — « BIEN(S) DE CE MAIL »
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
