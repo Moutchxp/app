@@ -214,8 +214,11 @@ describe('🔴🔴 la liste défile jusqu’au document', () => {
    * rendu les bonnes lignes sans bouger la barre.
    */
   it('⚠️ le nœud ET l’état de défilement sont posés', () => {
-    expect(vif).toContain('if (scene.current !== null) scene.current.scrollTop = y;');
-    expect(vif).toContain('setScrollTop(y);');
+    /* ⚠️ RECADRÉ PAR LE POINT 3 DU LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL : on pose la valeur dans le nœud, PUIS
+       on relit ce que le navigateur a vraiment retenu (il borne au contenu existant), et c'est cette lecture qui
+       part dans l'état. Voir l'épreuve « l'état reçoit ce que le navigateur a VRAIMENT posé ». */
+    expect(vif).toContain('scene.current.scrollTop = y;');
+    expect(vif).toContain('setScrollTop(pose);');
   });
 
   /** ⚠️ UNE SEULE FOIS : `lignes` est un tableau neuf à chaque rendu, sans garde la vue serait ramenée sans cesse. */
@@ -227,6 +230,56 @@ describe('🔴🔴 la liste défile jusqu’au document', () => {
   /** ⚠️ ET IL ATTEND QUE LA LIGNE EXISTE : elle n'apparaît qu'au rendu où les enfants du dernier cran sont posés. */
   it('⚠️ il ne force rien quand la ligne n’est pas encore là', () => {
     expect(vif).toContain('if (i < 0) return;');
+  });
+
+  /**
+   * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 3 — LA MAIN DE LA PERSONNE A TOUJOURS RAISON ══════════════
+   *
+   * RÈGLE D'ARNO : « le centrage se fait UNE SEULE FOIS par arrivée, et il est ABANDONNÉ dès que l'utilisateur
+   * agit (molette, trackpad, toucher, clavier, glisser la barre). »
+   *
+   * CE QUE CELA RÉPARE, ET POURQUOI C'ÉTAIT INÉVITABLE SANS ÇA : le centrage ATTEND que la ligne du document
+   * existe, donc une à deux secondes après le clic. Si la personne défile pendant ce temps, le centrage arrivait
+   * APRÈS et ramenait la vue de force. Du siège de celui qui tient la souris, cela se voit exactement comme
+   * « ça vibre, puis ça se fige » : la liste se bat contre la main.
+   *
+   * MESURÉ À L'ÉCRAN, les deux sens :
+   *   · sans geste            → scrollTop 134, document centré (272 px contre 255 de centre de zone) ;
+   *   · molette pendant l'arrivée → scrollTop 0, AUCUN centrage. Le geste a gagné.
+   */
+  it('🔴🔴 les cinq gestes abandonnent le centrage', () => {
+    for (const geste of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+      expect(vif, geste).toContain(`el.addEventListener('${geste}', abandonner, o)`);
+      expect(vif, `${geste} / retiré`).toContain(`el.removeEventListener('${geste}', abandonner, o)`);
+    }
+    /* 🔴 ET L'ABANDON DÉCLARE L'ARRIVÉE FINIE : le préchargement reporté démarre, au lieu d'attendre un centrage
+       qui n'aura plus lieu. On ne suspend pas une fonction sur une attente qu'on vient d'annuler. */
+    expect(vif).toContain('defilementArriveeFait.current = true;\n      setArriveeAchevee(true);');
+  });
+
+  /** ⚠️ ON N'EMPÊCHE RIEN ET ON NE RETARDE RIEN : écouteurs passifs, en capture. */
+  it('⚠️ les écouteurs sont passifs — ils apprennent, ils n’interviennent pas', () => {
+    expect(vif).toContain('const o = { passive: true, capture: true } as const;');
+    const ecoute = vif.slice(vif.indexOf('const abandonner = (): void =>'), vif.indexOf("el.addEventListener('wheel'"));
+    expect(ecoute).not.toContain('preventDefault');
+    expect(ecoute).not.toContain('stopPropagation');
+  });
+
+  /**
+   * ══ 🔴🔴 L'ÉTAT ET LE NŒUD NE PEUVENT PLUS SE CONTREDIRE ══════════════════════════════════════════════════════
+   *
+   * On posait la même valeur dans le nœud ET dans l'état. Mais le navigateur BORNE un `scrollTop` au contenu qui
+   * existe à cet instant — et à l'arrivée, le contenu grandit encore. Le nœud se retrouvait donc à une position
+   * et l'état à une autre. Or c'est l'ÉTAT qui décide des lignes rendues (`fenetreVisible`) : la liste calculait
+   * sa fenêtre pour un endroit où la barre n'était pas, et l'on voyait une zone VIDE à la place des lignes.
+   *
+   * ⚠️ DEVINER LA BORNE (`scrollHeight - clientHeight`) AURAIT RECOPIÉ UNE RÈGLE DU NAVIGATEUR. On la lui demande.
+   */
+  it('🔴🔴 l’état reçoit ce que le navigateur a VRAIMENT posé', () => {
+    expect(vif).toContain('pose = scene.current.scrollTop;');
+    expect(vif).toContain('setScrollTop(pose);');
+    /* 🔴 ET PLUS LA VALEUR VOULUE : c'est le défaut qu'on vient de retirer. */
+    expect(vif).not.toContain('setScrollTop(y);');
   });
 });
 
@@ -264,8 +317,12 @@ describe('🔴🔴 le préchargement attend la fin de l’arrivée', () => {
    */
   it('🔴🔴 l’arrivée se termine aussi quand il n’y a rien à centrer', () => {
     expect(vif).toContain("if (id === '' || etatArrivee.message !== null) {");
-    /* Les DEUX sorties posent la fin : celle du centrage, et celle du « rien à centrer ». */
-    expect((vif.match(/setArriveeAchevee\(true\);/g) ?? []).length).toBe(2);
+    /**
+     * ⚠️ TROIS SORTIES POSENT LA FIN DE L'ARRIVÉE, et il faut les trois : le centrage lui-même, le cas « rien à
+     * centrer », et — ajouté au point 3 — l'ABANDON quand la personne agit. En oublier une suspendrait le
+     * préchargement pour toute la vie de la fenêtre.
+     */
+    expect((vif.match(/setArriveeAchevee\(true\);/g) ?? []).length).toBe(3);
   });
 
   /** ⚠️ UN ÉTAT, ET NON UNE RÉFÉRENCE : une référence ne provoque pas de rendu, donc l'effet ne repartirait pas. */

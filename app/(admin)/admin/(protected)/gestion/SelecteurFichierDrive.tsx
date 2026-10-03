@@ -1632,8 +1632,25 @@ export function SelecteurFichierDrive({
     if (i < 0) return;
     defilementArriveeFait.current = true;
     const y = defilementPourCentrer(i, lignes.length, hauteurVue, HAUTEUR_LIGNE);
-    if (scene.current !== null) scene.current.scrollTop = y;
-    setScrollTop(y);
+    /**
+     * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 3 — ON RELIT CE QUE LE NAVIGATEUR A VRAIMENT FAIT ═════
+     *
+     * 🔴 LE DÉFAUT QUE CELA RÉPARE. On posait la même valeur dans le nœud ET dans l'état. Mais le navigateur
+     * BORNE un `scrollTop` au contenu qui existe à cet instant — et à l'arrivée, le contenu grandit encore (les
+     * enfants d'un cran arrivent, la liste s'allonge). Le nœud se retrouvait donc à une position, et l'état à une
+     * autre. Or c'est l'ÉTAT qui décide des lignes rendues (`fenetreVisible`) : la liste calculait sa fenêtre
+     * pour un endroit où la barre n'était pas, et l'on voyait une zone vide à la place des lignes.
+     *
+     * ⚠️ LIRE APRÈS ÉCRIRE EST UNE LECTURE FORCÉE DE LA MISE EN PAGE, et c'est assumé : une fois par arrivée, au
+     * moment précis où l'on veut que les deux soient d'accord. Deviner la borne (`scrollHeight - clientHeight`)
+     * aurait recopié une règle du navigateur — et c'est lui qui l'applique.
+     */
+    let pose = y;
+    if (scene.current !== null) {
+      scene.current.scrollTop = y;
+      pose = scene.current.scrollTop;
+    }
+    setScrollTop(pose);
     /* 🔴 L'ARRIVÉE EST FINIE ICI, ET PAS AVANT : « arbre déplié + document centré » (Arno). C'est cette ligne qui
        libère le préchargement des sous-dossiers, reporté jusque-là. */
     setArriveeAchevee(true);
@@ -1685,6 +1702,50 @@ export function SelecteurFichierDrive({
     const obs = typeof ResizeObserver === 'function' ? new ResizeObserver(mesurer) : null;
     obs?.observe(el);
     return () => obs?.disconnect();
+  }, []);
+
+  /**
+   * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 3 — LA MAIN DE LA PERSONNE A TOUJOURS RAISON ════════════
+   *
+   * RÈGLE D'ARNO : « le centrage se fait UNE SEULE FOIS par arrivée, et il est ABANDONNÉ dès que l'utilisateur
+   * agit (molette, trackpad, toucher, clavier, glisser la barre). »
+   *
+   * 🔴 CE QUE CELA RÉPARE, ET POURQUOI C'ÉTAIT INÉVITABLE SANS ÇA. Le centrage attend que la ligne du document
+   * existe — elle n'apparaît qu'au rendu où les enfants du dernier cran sont posés, donc une à deux secondes
+   * après le clic. Si la personne commence à défiler pendant ce temps, le centrage arrivait APRÈS et ramenait la
+   * vue de force. Du siège de celui qui tient la souris, cela se voit exactement comme « ça vibre, puis ça se
+   * fige » : la liste se bat contre la main.
+   *
+   * ⚠️ LES CINQ GESTES, ET PAS SEULEMENT LA MOLETTE. `wheel` (molette, trackpad), `touchstart` (toucher),
+   * `keydown` (flèches, Page suiv., Début/Fin) et `pointerdown` (saisir la barre de défilement) : en oublier un
+   * laisserait le centrage gagner sur ce geste-là, et le défaut reviendrait par un seul chemin — le plus
+   * difficile à retrouver.
+   *
+   * ⚠️ `passive` ET `capture` : on n'empêche RIEN et on ne retarde rien. On se contente d'apprendre que la
+   * personne a agi, avant que le geste ne produise son effet.
+   *
+   * 🔴 ET L'ARRIVÉE EST DÉCLARÉE FINIE : le préchargement reporté démarre, au lieu d'attendre un centrage qui
+   * n'aura plus lieu. On ne suspend pas une fonction sur une attente qu'on vient d'annuler.
+   */
+  useEffect(() => {
+    const el = scene.current;
+    if (el === null) return undefined;
+    const abandonner = (): void => {
+      if (defilementArriveeFait.current) return;
+      defilementArriveeFait.current = true;
+      setArriveeAchevee(true);
+    };
+    const o = { passive: true, capture: true } as const;
+    el.addEventListener('wheel', abandonner, o);
+    el.addEventListener('touchstart', abandonner, o);
+    el.addEventListener('pointerdown', abandonner, o);
+    el.addEventListener('keydown', abandonner, o);
+    return () => {
+      el.removeEventListener('wheel', abandonner, o);
+      el.removeEventListener('touchstart', abandonner, o);
+      el.removeEventListener('pointerdown', abandonner, o);
+      el.removeEventListener('keydown', abandonner, o);
+    };
   }, []);
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
