@@ -108,6 +108,7 @@
     "gestion:classement:plan": "tsx app/scripts/plan-classement.ts",
     "gestion:vidage:audit": "tsx app/scripts/audit-vidage.ts",
     "gestion:miniatures:completer": "tsx app/scripts/completer-miniatures.ts",
+    "gestion:pieces:rattraper-refusees": "tsx app/scripts/rattraper-pieces-refusees.ts",
     "gestion:periodes:reprise": "tsx app/scripts/periodes-reprise.ts",
     "gestion:propositions:agence": "tsx app/scripts/recalculer-propositions-agence.ts",
     "gestion:propositions:contenu": "tsx app/scripts/propositions-contenu.ts",

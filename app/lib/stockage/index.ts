@@ -291,6 +291,9 @@ const EXTENSIONS_GESTION: Record<string, string> = {
   'image/heif': 'heif',
   'image/tiff': 'tiff',
   'video/mp4': 'mp4',
+  // 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — `.mov` autorisé le 03/10/2026 (accord d'Arno). Sans cette ligne il
+  //   serait déposé en `.bin` : accepté, mais sous un nom qui ne dit plus ce qu'il est.
+  'video/quicktime': 'mov',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'application/msword': 'doc',

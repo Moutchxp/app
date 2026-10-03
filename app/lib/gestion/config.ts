@@ -69,6 +69,17 @@ export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
     // LOT 3-quinquies (migration 231) — invitations de rendez-vous : une invitation est une pièce comme une autre, et la
     //   refuser laissait une ligne « type non autorisé » là où il y avait un rendez-vous.
     'text/calendar', 'application/ics',
+    /**
+     * 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 0 — `video/quicktime` (ACCORD D'ARNO, 03/10/2026).
+     *
+     * CE QUE LA BASE DISAIT CE JOUR-LÀ : 37 pièces `.mov` (337 Mo) REFUSÉES À LA RELÈVE, motif « type non
+     * autorisé pour la gestion : “video/quicktime” ». Aucune n'avait d'octets : ni dans MinIO, ni ailleurs. Un
+     * `.mp4` passait, le même film filmé par un iPhone en `.mov` était perdu.
+     *
+     * ⚠️ UN `.mov` EST UNE VIDÉO COMME UNE AUTRE, et le lot précédent lui a déjà donné son lecteur et son
+     * message quand le navigateur ne sait pas le décoder. Ce qui manquait était en amont : garder les octets.
+     */
+    'video/quicktime',
   ],
   pieceTailleMaxOctets: 25 * 1024 * 1024,
   conservationCarteCloseMois: 60,

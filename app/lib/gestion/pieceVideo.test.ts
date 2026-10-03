@@ -4,6 +4,8 @@ import { estVideo, MESSAGE_VIDEO_ILLISIBLE, sortePiece } from './pieces';
 import { sorteApercu, typeServi } from './apercuDrive';
 import { genererMiniature, MOTIF_MINIATURE_NAVIGATEUR, DEPOT_MAX_OCTETS } from './miniature';
 import { echecDefinitif, peutAvoirMiniature } from './miniatureCompletion';
+import { CONFIG_GESTION_DEFAUT } from './config';
+import { extensionGestion } from '../stockage';
 
 /**
  * ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS, POINT 2 — LES VIDÉOS EN PIÈCE JOINTE ══════════════════════════════
@@ -73,6 +75,32 @@ describe('🔴🔴 ① une vidéo est reconnue comme telle', () => {
   it('🔴 une vidéo est servie sous son propre type', () => {
     expect(typeServi('video/mp4')).toBe('video/mp4');
     expect(typeServi('video/quicktime')).toBe('video/quicktime');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ①bis 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — LA RELÈVE GARDE AUSSI LES `.mov`
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ①bis la relève garde les .mov (accord d’Arno du 03/10/2026)', () => {
+  /**
+   * 🔴 CE QUE LA BASE DISAIT CE JOUR-LÀ : 37 pièces `.mov` (337 Mo) REFUSÉES, motif « type non autorisé pour la
+   * gestion : “video/quicktime” ». Aucune n'avait d'octets, nulle part. Un `.mp4` passait, le même film filmé
+   * par un iPhone en `.mov` était perdu.
+   *
+   * ⚠️ LA LISTE QUI COMMANDE EST CELLE DE `gestion_config` (pilotage sans code) : celle-ci n'est que le REPLI,
+   * employé quand la base ne répond pas. Les deux doivent dire la même chose, sans quoi un redémarrage sans base
+   * se remettrait à refuser ce qu'Arno vient d'autoriser.
+   */
+  it('🔴🔴 `video/quicktime` est dans la liste de repli', () => {
+    expect(CONFIG_GESTION_DEFAUT.typesPiecesAcceptes).toContain('video/quicktime');
+    expect(CONFIG_GESTION_DEFAUT.typesPiecesAcceptes).toContain('video/mp4');
+  });
+
+  /** 🔴 ET IL EST DÉPOSÉ SOUS SON EXTENSION : sans cette ligne, le fichier s'appellerait `.bin` sur le stockage. */
+  it('🔴 un .mov est déposé en « mov », pas en « bin »', () => {
+    expect(extensionGestion('video/quicktime')).toBe('mov');
+    expect(extensionGestion('video/mp4')).toBe('mp4');
   });
 });
 
