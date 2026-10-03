@@ -61,8 +61,14 @@ import type { Cible } from '../../../../lib/gestion/rattachement';
 import { classementHerite, type ClassementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 // 🔴🔴 LOT SUIVI-CONVERSATION — les repères de période dans le fil. Décidés dans un module PUR.
 import {
-  motClassement, reperesDuFil, type ExceptionMail, type Periode,
+  motClassement, reperesDuFil, type ExceptionMail, type Periode, type RepereFil,
 } from '../../../../lib/gestion/periodesConversation';
+/* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — de quel CÔTÉ le repère se pose, et ce que sa pastille explique. */
+import {
+  AIDE_PASTILLE_REPERE, comparatifRepere, coteDuRepere,
+} from '../../../../lib/gestion/repereFenetre';
+/* 🔴 LA PASTILLE « i » DES BIENS, employée telle quelle avec un autre contenu : voir son encadré `lignes`. */
+import { InfoBien, CSS_INFO_BIEN } from './InfoBien';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
 /**
@@ -949,7 +955,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
 
   return (
     <section className="cnv" aria-labelledby={`cnv-titre-${fil.filId}`}>
-      <style>{CSS_CONVERSATION}{CSS_PIECES}{CSS_PIECES_CONVERSATION}</style>
+      {/* 🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — la feuille de la pastille « i » : le repère emploie LA pastille
+          des biens, et elle a besoin de son style. Montée ici, jamais dans la pastille (voir son encadré). */}
+      <style>{CSS_CONVERSATION}{CSS_PIECES}{CSS_PIECES_CONVERSATION}{CSS_INFO_BIEN}</style>
 
       {/* ══ LE BANDEAU DU HAUT : NOS FONCTIONS MAISON ══════════════════════════════════════════════════════════════
           Elles appellent les routes EXISTANTES, sans réécrire une ligne de leur logique — donc même journal, même
@@ -1107,22 +1115,16 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               ⚠️ ELLE SE POSE AVANT LE MAIL QUI OUVRE LA PÉRIODE, et seulement là : c'est la définition d'une
               période (« à partir de ce mail, inclus »). La décision — quelles lignes, et laquelle sauter —
               vient du module PUR (`reperesDuFil`), qui écarte celle du premier mail : « À partir d'ici » en
-              tête de conversation ne sépare rien. */}
-          {reperes.filter((r) => r.avantMessageId === m.messageId).map((r) => (
-            /* 🔴 LA CLÉ EST CELLE DE LA PÉRIODE, PAS CELLE DU MAIL : plusieurs périodes peuvent commencer au
-               même mail (le fil 3490 en a trois sur le 57368), et la clé du mail les confondait — React
-               prévenait que des lignes pouvaient être dupliquées ou OMISES. */
-            <li className="cnv-repere" key={`rep-${r.id}`}>
-              <span className="cnv-repere-mot">À partir d’ici : {r.versQuoi}</span>
-              {(r.parLibelle !== null || r.le !== null) && (
-                <span className="cnv-repere-qui">
-                  {r.le !== null && dateHeureComplete(r.le)}
-                  {r.le !== null && r.parLibelle !== null ? ' · ' : ''}
-                  {r.parLibelle}
-                </span>
-              )}
-            </li>
-          ))}
+              tête de conversation ne sépare rien.
+
+              ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — ET LE CÔTÉ SUIT LE TRI ═══════════════════════
+              Jusqu'ici la ligne était rendue AVANT son mail quel que soit l'ordre. En « Plus récent d'abord »,
+              « avant » veut dire PLUS TARD : relevé à l'écran sur le fil 3490, le repère de la fenêtre du mail
+              57368 (01/10 12:46) paraissait entre le 03/10 14:31 et lui, donc rattaché au mauvais mail.
+              Il se pose désormais du côté qui PRÉCÈDE CHRONOLOGIQUEMENT (`coteDuRepere`). */}
+          {coteDuRepere(ordre) === 'dessus' && reperes
+            .filter((r) => r.avantMessageId === m.messageId)
+            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessus" />)}
           <MessageConversation message={m} maintenant={maintenant} filId={filId}
             /* 🔴 LOT SUIVI-CONVERSATION — « Un mail en exception porte une petite mention “exception : <biens>”
                dans son en-tête. » Le mot vient du module pur : trois sortes, une seule façon de les écrire. */
@@ -1232,6 +1234,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                 }}
                 onGeste={(t) => onGeste(t)} />
             ) : null} />
+          {/* 🔴🔴 EN ORDRE « PLUS RÉCENT D'ABORD », CE QUI PRÉCÈDE CHRONOLOGIQUEMENT EST EN DESSOUS. Voir
+              l'encadré du côté opposé, et `coteDuRepere`. */}
+          {coteDuRepere(ordre) === 'dessous' && reperes
+            .filter((r) => r.avantMessageId === m.messageId)
+            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessous" />)}
           </Fragment>
         ))}
       </ol>
@@ -1535,6 +1542,102 @@ function ouvrirRedaction(
  * VISIONNEUSE QUE LES MAILS (demande d'Arno). C'est le seul endroit où la règle de lisibilité en thème sombre et
  * le clic d'agrandissement des images sont écrits : la recopier ailleurs les ferait diverger au premier correctif.
  */
+/**
+ * ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE, POINT 2 — LE REPÈRE « À PARTIR D'ICI », REDESSINÉ ════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (03/10/2026) : « phrase en ROUGE, CENTRÉE horizontalement dans la zone des mails (texte, date,
+ * auteur conservés) ; de chaque côté de la phrase part un liseré rouge fin, qui longe le mail concerné de chaque
+ * côté et s'arrête à mi-hauteur de la ligne de ce mail (le mail est “encadré” par le repère) ; au bout de la
+ * phrase, avant le liseré de droite, une pastille “i”. »
+ *
+ * 🔴 COMMENT LE « CADRE » EST FAIT, ET POURQUOI AINSI. La ligne porte deux traits HORIZONTAUX (ses deux
+ * `::before`/`::after`), et deux traits VERTICAUX qui descendent — ou montent — le long du mail voisin. Ces
+ * derniers sont posés par la ligne elle-même, en `position:absolute`, et leur hauteur est la MOITIÉ de celle du
+ * mail : c'est exactement « s'arrête à mi-hauteur de la ligne de ce mail ».
+ *
+ * ⚠️ LE SENS DÉPEND DU CÔTÉ, et c'est la même règle que le placement : au-dessus du mail, les traits DESCENDENT ;
+ * en dessous, ils MONTENT. Un seul dessin pour les deux tris aurait encadré le mail voisin, pas le bon.
+ *
+ * ⚠️ `--cnv-repere-h` PORTE LA HAUTEUR DU MAIL, mesurée à l'écran : un mail déplié fait dix fois la hauteur d'un
+ * mail replié, et une valeur figée aurait tracé un trait trop court ou débordant. On la relit à chaque
+ * changement de taille, par un `ResizeObserver`.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function LigneRepere({ repere: r, suivi, cote }: {
+  repere: RepereFil;
+  suivi: { mails: number[]; periodes: Periode[]; exceptions: ExceptionMail[] } | null;
+  cote: 'dessus' | 'dessous';
+}) {
+  const li = useRef<HTMLLIElement | null>(null);
+  const [hauteur, setHauteur] = useState(0);
+
+  /**
+   * 🔴 LA HAUTEUR DU MAIL VOISIN, MESURÉE. Au-dessus du mail, le voisin est le SUIVANT ; en dessous, le
+   * PRÉCÉDENT. On ne devine pas : on lit ce que le navigateur a disposé.
+   */
+  useEffect(() => {
+    const noeud = li.current;
+    if (noeud === null || typeof ResizeObserver !== 'function') return undefined;
+    const voisin = (cote === 'dessus' ? noeud.nextElementSibling : noeud.previousElementSibling) as HTMLElement | null;
+    if (voisin === null) return undefined;
+    const mesurer = (): void => setHauteur(voisin.getBoundingClientRect().height);
+    mesurer();
+    const obs = new ResizeObserver(mesurer);
+    obs.observe(voisin);
+    return () => obs.disconnect();
+  }, [cote]);
+
+  /**
+   * 🔴🔴 CE QUE LA PASTILLE EXPLIQUE : un AVANT / APRÈS, composé par le module PUR. `null` = on ne sait pas
+   * (migration 290 absente, ou fenêtre introuvable) : la pastille ne s'affiche alors pas du tout, plutôt que
+   * d'ouvrir une bulle vide.
+   */
+  const c = suivi === null ? null
+    : comparatifRepere({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
+  const lignesBulle = c === null ? undefined : [
+    ...(c.avant === null
+      ? [{ libelle: 'Avant', valeur: 'rien avant — c’est la première fenêtre de cet échange' }]
+      : [
+        { libelle: 'Avant · statut', valeur: c.avant.statut },
+        { libelle: 'Avant · biens', valeur: c.avant.biens },
+        { libelle: 'Avant · personnes', valeur: c.avant.personnes },
+      ]),
+    { libelle: 'Après · statut', valeur: c.apres.statut },
+    { libelle: 'Après · biens', valeur: c.apres.biens },
+    { libelle: 'Après · personnes', valeur: c.apres.personnes },
+    { libelle: 'Choix', valeur: c.choix },
+    ...(c.qui === null ? [] : [{ libelle: 'Par', valeur: c.qui }]),
+    ...(c.quand === null ? [] : [{ libelle: 'Le', valeur: dateHeureComplete(c.quand) }]),
+  ];
+
+  return (
+    <li className={`cnv-repere cnv-repere--${cote}`} ref={li}
+      style={{ ['--cnv-repere-h' as string]: `${Math.round(hauteur)}px` }}>
+      {/* 🔴 LES DEUX MONTANTS DU CADRE : ils longent le mail voisin sur la moitié de sa hauteur. Ils sont posés
+          par la LIGNE, jamais par le message — rien de la mise en page d'un mail n'est touché. */}
+      <span className="cnv-repere-montant cnv-repere-montant--gauche" aria-hidden="true" />
+      <span className="cnv-repere-montant cnv-repere-montant--droite" aria-hidden="true" />
+      <span className="cnv-repere-phrase">
+        <span className="cnv-repere-mot">À partir d’ici : {r.versQuoi}</span>
+        {(r.parLibelle !== null || r.le !== null) && (
+          <span className="cnv-repere-qui">
+            {r.le !== null && dateHeureComplete(r.le)}
+            {r.le !== null && r.parLibelle !== null ? ' · ' : ''}
+            {r.parLibelle}
+          </span>
+        )}
+        {/* 🔴 LA PASTILLE, AU BOUT DE LA PHRASE : le MÊME composant que celle des biens — survol, grâce, Échap,
+            clavier, portail. Voir l'encadré de `lignes` dans `InfoBien`. */}
+        {lignesBulle !== undefined && (
+          <InfoBien cle="" titre={`À partir d’ici : ${r.versQuoi}`} aide={AIDE_PASTILLE_REPERE}
+            lignes={lignesBulle} />
+        )}
+      </span>
+    </li>
+  );
+}
+
 export function CorpsHtmlMail({ html, onVisualiser }: {
   html: string;
   /**
@@ -2261,11 +2364,45 @@ export const CSS_CONVERSATION = `
 /* ══ 🔴🔴 LOT SUIVI-CONVERSATION — LE REPERE DE PERIODE, ET LA MENTION D'EXCEPTION ═════════════════════════════
    « une fine ligne de separation » (Arno) : fine, donc, et grise — elle separe, elle n'alerte pas. Le MOT porte
    l'information ; le trait n'est qu'un renfort, regle du module depuis la premiere capsule. */
-.cnv-repere{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .6rem;margin:.5rem 0 .3rem;
-  padding:.2rem 0 .3rem;border-top:1px solid var(--color-svv-line-strong);list-style:none}
-.cnv-repere-mot{font-size:.76rem;font-weight:700;letter-spacing:.01em;color:var(--color-svv-ink);
+/* ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — LE REPERE ENCADRE SON MAIL ═════════════════════════════════════
+   Demande d'Arno : « phrase en ROUGE, CENTREE horizontalement ; de chaque cote part un lisere rouge fin, qui
+   longe le mail concerne de chaque cote et s'arrete a MI-HAUTEUR de la ligne de ce mail. »
+
+   🔴 TROIS TRAITS, ET PAS UN DE PLUS : les deux horizontaux sont les ::before/::after de la ligne (ils partent de
+   la phrase vers les bords) ; les deux verticaux sont ceux du conteneur, poses en absolu le long du mail voisin.
+   Leur hauteur est la MOITIE de --cnv-repere-h, c'est-a-dire de la hauteur MESUREE du mail.
+
+   ⚠️ LE SENS SUIT LE COTE : au-dessus du mail ils descendent (top:100%), en dessous ils montent (bottom:100%).
+   Un seul dessin aurait encadre le mauvais mail dans l'un des deux tris.
+
+   ⚠️ COULEUR : var(--color-svv-red), un JETON — lisible en Clair comme en Sombre, jamais une couleur en dur.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+.cnv-repere{position:relative;display:flex;align-items:center;justify-content:center;
+  margin:.6rem 0 .4rem;padding:0;list-style:none;--cnv-repere-h:0px}
+/* Les deux traits HORIZONTAUX, de la phrase vers les bords. */
+.cnv-repere::before,.cnv-repere::after{content:"";flex:1 1 auto;height:1px;background:var(--color-svv-red)}
+/* Les deux traits VERTICAUX, le long du mail voisin, sur la moitie de sa hauteur. */
+.cnv-repere--dessus::before,.cnv-repere--dessus::after,
+.cnv-repere--dessous::before,.cnv-repere--dessous::after{position:relative}
+.cnv-repere--dessus{box-shadow:none}
+.cnv-repere-phrase{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:.2rem .5rem;
+  flex:0 1 auto;padding:0 .6rem;text-align:center;min-width:0}
+/* 🔴 LA PHRASE EST ROUGE, et le reste de la mention la suit en plus discret : c'est une seule information. */
+.cnv-repere-mot{font-size:.76rem;font-weight:700;letter-spacing:.01em;color:var(--color-svv-red);
   overflow-wrap:anywhere}
-.cnv-repere-qui{font-size:.72rem;color:var(--color-svv-muted)}
+.cnv-repere-qui{font-size:.72rem;color:var(--color-svv-red);opacity:.75}
+/* Les montants du cadre. Poses sur la ligne elle-meme, donc jamais sur le mail : rien de la mise en page du
+   message n'est touche. */
+.cnv-repere--dessus > .cnv-repere-phrase::before,.cnv-repere--dessus > .cnv-repere-phrase::after,
+.cnv-repere--dessous > .cnv-repere-phrase::before,.cnv-repere--dessous > .cnv-repere-phrase::after{content:none}
+.cnv-repere--dessus{--cnv-repere-sens:1}
+.cnv-repere--dessous{--cnv-repere-sens:-1}
+.cnv-repere > .cnv-repere-montant{position:absolute;width:1px;background:var(--color-svv-red);
+  height:calc(var(--cnv-repere-h) / 2)}
+.cnv-repere--dessus > .cnv-repere-montant{top:100%}
+.cnv-repere--dessous > .cnv-repere-montant{bottom:100%}
+.cnv-repere > .cnv-repere-montant--gauche{left:0}
+.cnv-repere > .cnv-repere-montant--droite{right:0}
 /* La mention d'exception : discrete, a cote de la capsule, et jamais a sa place — ce sont deux informations. */
 .cnv-exception{display:inline-flex;align-items:center;min-height:22px;padding:.05rem .4rem;border-radius:999px;
   font-size:.7rem;font-weight:700;color:var(--color-svv-muted);border:1px dashed var(--color-svv-line-strong);

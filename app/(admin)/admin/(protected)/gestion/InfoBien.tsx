@@ -81,8 +81,12 @@ export function hoteDeLaBulle(): HTMLElement {
   return document.querySelector<HTMLElement>('.svv-adm-root') ?? document.body;
 }
 
-export function InfoBien({ cle, titre, surLaLigne }: {
-  /** La clé WIPPIMMO du lot. C'est tout ce que les écrans de rattachement connaissent du bien. */
+export function InfoBien({ cle, titre, surLaLigne, lignes: lignesFournies, aide }: {
+  /**
+   * La clé WIPPIMMO du lot. C'est tout ce que les écrans de rattachement connaissent du bien.
+   *
+   * ⚠️ VIDE AVEC `lignes` : voir l'encadré de `lignes`. Aucune fiche n'est alors demandée.
+   */
   cle: string;
   /** Le titre affiché à côté, repris dans l'en-tête de la fenêtre : on doit savoir de quel bien on parle. */
   titre: string;
@@ -94,6 +98,26 @@ export function InfoBien({ cle, titre, surLaLigne }: {
    * information : le doute profite à ce qui se voit.
    */
   surLaLigne?: string | null;
+  /**
+   * ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — LA MÊME PASTILLE, AVEC UN AUTRE CONTENU ════════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026), sur le repère « À partir d'ici » : « une pastille “i” (MÊME COMPOSANT que la
+   * pastille des biens : survol, reste ouverte tant que la souris est dessus, Échap, clavier). »
+   *
+   * 🔴 C'EST DONC CE COMPOSANT-CI, ET PAS UN JUMEAU. Tout ce qui fait sa valeur est ici et nulle part ailleurs :
+   * l'ouverture au survol et son délai, la grâce qui la laisse ouverte quand on va vers la bulle, le registre
+   * « une seule bulle à la fois », le portail qui l'empêche d'être rognée, la mesure de sa place au défilement,
+   * Échap qui rend le focus au picto, la tabulation conduite à la main. Écrire une seconde pastille aurait
+   * demandé de refaire ces sept réglages — et d'en oublier au moins un.
+   *
+   * ⚠️ FOURNIES ⇒ AUCUNE FICHE N'EST LUE : le contenu est déjà là, il n'y a rien à aller chercher. Le lien
+   * « Ouvrir la fiche du bien » ne s'affiche pas non plus — il n'y a pas de bien.
+   *
+   * ⚠️ ABSENTES ⇒ COMPORTEMENT D'AVANT CE LOT, À LA LETTRE : on lit la fiche du lot `cle` et on l'affiche.
+   */
+  lignes?: readonly { libelle: string; valeur: string }[];
+  /** Le nom de la pastille pour les lecteurs d'écran. Absent ⇒ « Descriptif du bien — <titre> », comme avant. */
+  aide?: string;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const [etat, setEtat] = useState<
@@ -179,8 +203,9 @@ export function InfoBien({ cle, titre, surLaLigne }: {
     monFermeur.current = () => { setOuvert(false); setPlace(null); };
     fermerLaBulleOuverte = monFermeur.current;
     setOuvert(true);
-    if (etat.v === 'repos') void charger();
-  }, [annuler, charger, etat.v, ouvert]);
+    /* 🔴 RIEN À LIRE QUAND LE CONTENU EST FOURNI (voir l'encadré de `lignes`). */
+    if (etat.v === 'repos' && lignesFournies === undefined) void charger();
+  }, [annuler, charger, etat.v, ouvert, lignesFournies]);
 
   // ⚠️ UN COMPTE À REBOURS QUI SURVIT AU COMPOSANT OUVRIRAIT UNE BULLE DÉMONTÉE : on les coupe au démontage.
   useEffect(() => annuler, [annuler]);
@@ -366,7 +391,7 @@ export function InfoBien({ cle, titre, surLaLigne }: {
   });
 
   /** 🔴 CE QUI N'EST PAS DÉJÀ SOUS LES YEUX — et rien d'autre (demande d'Arno, point 3). */
-  const horsLigne = descriptifHorsLigne(lignes, surLaLigne ?? null);
+  const horsLigne = lignesFournies ?? descriptifHorsLigne(lignes, surLaLigne ?? null);
 
   const contenuBulle = (
     <div className="ifb-bulle" role="dialog" aria-label={`Descriptif — ${titre}`} ref={bulle}
@@ -390,10 +415,27 @@ export function InfoBien({ cle, titre, surLaLigne }: {
         </button>
       </div>
 
-      {etat.v === 'charge' && <span className="ifb-note" role="status">Lecture de la fiche…</span>}
-      {etat.v === 'erreur' && <span className="ifb-note" role="alert">{etat.message}</span>}
+      {lignesFournies === undefined && etat.v === 'charge' && (
+        <span className="ifb-note" role="status">Lecture de la fiche…</span>
+      )}
+      {lignesFournies === undefined && etat.v === 'erreur' && (
+        <span className="ifb-note" role="alert">{etat.message}</span>
+      )}
 
-      {fiche !== null && (
+      {/* 🔴🔴 LE CONTENU FOURNI : la MÊME liste, le MÊME style, sans fiche à lire ni lien de bien à proposer.
+          Voir l'encadré de `lignes`. */}
+      {lignesFournies !== undefined && (
+        <dl className="ifb-liste">
+          {lignesFournies.map((l) => (
+            <div className="ifb-ligne" key={`${l.libelle}-${l.valeur}`}>
+              <dt className="ifb-libelle">{l.libelle}</dt>
+              <dd className="ifb-valeur">{l.valeur}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {lignesFournies === undefined && fiche !== null && (
         <>
           <dl className="ifb-liste">
             {horsLigne.map((l) => (
@@ -438,7 +480,7 @@ export function InfoBien({ cle, titre, surLaLigne }: {
           🔴 PLUS D'ATTRIBUT `title` (demande d'Arno) : l'infobulle du navigateur se SUPERPOSAIT à la bulle, en
           doublant son nom. L'`aria-label` dit la même chose aux lecteurs d'écran, sans rien dessiner. */}
       <button type="button" className="ifb-pastille" ref={picto} aria-expanded={ouvert}
-        aria-label={`Descriptif du bien — ${titre}`}
+        aria-label={aide ?? `Descriptif du bien — ${titre}`}
         onPointerDown={(e) => { auToucher.current = e.pointerType !== 'mouse'; }}
         onMouseDown={retenir} onClick={basculer} onKeyDown={auClavierDuPicto}>
         <span aria-hidden="true">i</span>
