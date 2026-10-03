@@ -108,13 +108,16 @@ export function PictoDansLeDrive({ emplacements, nomPiece, classe, onOuvrir }: {
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
           setPose({ droite: Math.max(8, window.innerWidth - r.right), haut: r.bottom + 2 });
         }}>
-        {/* ══ 🔴🔴 LOT DRIVE-HABILLAGE, POINT 3 — L'ICÔNE SEULE EN VERT ═══════════════════════════════════════
-            DEMANDE D'ARNO (03/10/2026) : « l'icône seule en VERT (même vert que la pastille), la case qui
-            l'entoure inchangée ».
+        {/* ══ 🔴🔴 LOT PICTO-VERT-FRANC — L'ICÔNE SEULE, DANS LE VERT FRANC ══════════════════════════════════
+            DEMANDE D'ARNO (03/10/2026) : « l'icône seule en VERT […], la case qui l'entoure inchangée ». Puis,
+            après l'avoir vue à l'écran : « l'icône cylindre apparaît NOIRE. `--color-svv-green-ink` est trop
+            foncé pour se distinguer du noir. Mets l'icône dans le vert FRANC de la pastille (même couleur de
+            remplissage que la pastille verte, pas la teinte d'encre). »
 
-            🔴 LE VERT EST CELUI DE LA PASTILLE, AU JETON PRÈS : `--color-svv-green-ink`, exactement ce que
-            `.sfd-piece-range` emploie. Les deux disent la MÊME chose — « ce document est déjà quelque part dans
-            le Drive » — et deux verts voisins mais différents feraient douter qu'il s'agisse du même état.
+            🔴 LE VERT EST DONC `--color-svv-green` — la couleur de REMPLISSAGE de la charte, celle que le dépôt
+            nomme déjà « VERT franc » là où elle sert à remplir. `--color-svv-green-ink` est une ENCRE : faite
+            pour porter du TEXTE sur un fond pâle (son emploi dans `.sfd-piece-range`), elle se lit noire sur un
+            tracé de 1,8 px — un trait fin n'a pas la surface d'une lettre. Voir l'encadré de `.pdd-icone`.
 
             🔴 LE VERT PORTE SUR UN ENROBAGE, PAS SUR LE BOUTON : la case (fond, bordure, survol, cible de 44 px)
             reste celle de tous les autres pictos de la carte. Teindre le bouton aurait changé sa couleur au
@@ -157,12 +160,24 @@ export function PictoDansLeDrive({ emplacements, nomPiece, classe, onOuvrir }: {
  */
 export const CSS_PICTO_DANS_LE_DRIVE = `
 .pdd{position:relative;display:inline-flex}
-/* ══ LOT DRIVE-HABILLAGE, POINT 3 — L'ICONE SEULE EN VERT ═══════════════════════════════════════════════════════
-   Arno : « l'icone seule en VERT (meme vert que la pastille), la case qui l'entoure inchangee ».
+/* ══ LOT PICTO-VERT-FRANC — L'ICONE SEULE, DANS LE VERT **FRANC** ═══════════════════════════════════════════════
+   Arno, point 3 du lot precedent : « l'icone seule en VERT (meme vert que la pastille), la case qui l'entoure
+   inchangee ». Puis, apres l'avoir vue a l'ecran (fil 36670 / message 57428, « test marty.pdf ») : « l'icone
+   cylindre apparait NOIRE. --color-svv-green-ink est trop fonce pour se distinguer du noir. Mets l'icone dans le
+   vert FRANC de la pastille (meme couleur de remplissage que la pastille verte, pas la teinte d'encre). »
 
-   LE MEME JETON QUE LA PASTILLE DU COMPTEUR : --color-svv-green-ink, exactement ce que .sfd-piece-range emploie.
-   Les deux disent la MEME chose — « ce document est deja quelque part dans le Drive » — et deux verts voisins mais
-   differents feraient douter qu'il s'agisse du meme etat.
+   CE QUI A ETE VERIFIE AVANT DE TOUCHER A LA COULEUR, et c'est la premiere chose qu'Arno demandait :
+     · le commit 1097b304 EST bien servi — le trace portait stroke rgb(30,122,61), soit #1e7a3d, soit
+       --color-svv-green-ink. Ce n'etait donc pas un serveur non recharge ;
+     · il vise bien LA BONNE MINIATURE — mesure dans le DOM, le picto est le 4e enfant de .pj-actions, apres
+       l'oeil (BUTTON.pj-action), le telechargement (A.pj-action) et le triangle Drive (BUTTON.pj-action).
+
+   LA CAUSE ETAIT DONC LA SEULE COULEUR. #1e7a3d est une ENCRE : elle est faite pour porter du TEXTE sur un fond
+   pale (c'est son emploi dans .sfd-piece-range, ou elle ecrit un chiffre sur --color-svv-green-soft). Sur un
+   trace de 1,8 px a 17 px de cote, elle se lit noire — un trait fin n'a pas la surface d'une lettre.
+
+   LE VERT FRANC EST --color-svv-green, et c'est bien « la couleur de REMPLISSAGE » : #2e9e5b en Clair, #4ade80 en
+   Sombre. Le depot le nomme deja ainsi la ou il sert a remplir (voir CarteRail : « sur ce rail — VERT franc »).
 
    LA REGLE PORTE SUR L'ENROBAGE DE L'ICONE, JAMAIS SUR LE BOUTON : la case garde son fond, sa bordure, son survol
    et sa cible de 44 px, comme tous les autres pictos de la carte. Teindre le bouton aurait aussi teint son liseré
@@ -170,7 +185,7 @@ export const CSS_PICTO_DANS_LE_DRIVE = `
 
    display:inline-flex — l'enrobage ne doit pas ajouter de hauteur de ligne autour du trace, sinon le picto ne
    s'aligne plus avec l'oeil et le telechargement, a sa gauche. */
-.pdd-icone{display:inline-flex;align-items:center;justify-content:center;color:var(--color-svv-green-ink)}
+.pdd-icone{display:inline-flex;align-items:center;justify-content:center;color:var(--color-svv-green)}
 /* 🔴 LE MENU SORT DU FLUX : la rangee d'actions ne doit pas grandir quand on l'ouvre, sinon toute la grille de
    vignettes saute d'un cran au moment precis ou l'on vise une ligne. */
 /* 🔴🔴 « fixed », PAS « absolute » : la carte d'une piece porte « overflow:hidden » (lot 5-PJ-A, pour que la vignette

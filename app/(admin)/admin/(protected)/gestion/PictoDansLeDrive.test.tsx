@@ -218,15 +218,31 @@ describe('🔴🔴 ⑥ l’icône est verte, la case ne bouge pas', () => {
   });
 
   /**
-   * 🔴🔴 LE MÊME VERT QUE LA PASTILLE DU COMPTEUR, AU JETON PRÈS. Les deux disent « ce document est déjà quelque
-   * part dans le Drive » : deux verts voisins mais différents feraient douter qu'il s'agisse du même état. On
-   * compare donc les deux SOURCES, pas deux copies d'une valeur.
+   * ══ 🔴🔴 RÉÉCRIT PAR LE LOT PICTO-VERT-FRANC — L'ENCRE NE CONVIENT PAS À UN TRAIT ═══════════════════════════
+   *
+   * CE QUI ÉTAIT EXIGÉ ICI : `--color-svv-green-ink`, « le jeton de la pastille », au nom de « deux verts voisins
+   * mais différents feraient douter qu'il s'agisse du même état ».
+   *
+   * 🔴 L'ÉCRAN A TRANCHÉ. Arno, après l'avoir vue sur le message 57428 : « l'icône cylindre apparaît NOIRE.
+   * `--color-svv-green-ink` est trop foncé pour se distinguer du noir. Mets l'icône dans le vert FRANC de la
+   * pastille (même couleur de remplissage que la pastille verte, pas la teinte d'encre). »
+   *
+   * 🔴 ET L'INTENTION D'ORIGINE EST RESPECTÉE, PAS ABANDONNÉE : une ENCRE est faite pour porter du TEXTE sur un
+   * fond pâle — c'est son emploi dans `.sfd-piece-range`, où elle écrit un chiffre sur `green-soft`. Sur un tracé
+   * de 1,8 px, elle se lit noire : un trait fin n'a pas la surface d'une lettre. Le vert de REMPLISSAGE
+   * (`--color-svv-green`) est celui qui dit « vert » à cette taille.
+   *
+   * ⚠️ LES DEUX RESTENT DE LA MÊME FAMILLE DE CHARTE, et c'est ce qui tient la promesse « même état » : le dépôt
+   * nomme `--color-svv-green` « VERT franc » là où il sert à remplir (`CarteRail`).
    */
-  it('🔴🔴 c’est le jeton de la pastille verte, pas un vert voisin', () => {
+  it('🔴🔴 c’est le vert FRANC de la charte, jamais l’encre', () => {
     const css = readFileSync('app/(admin)/admin/(protected)/gestion/PictoDansLeDrive.tsx', 'utf8');
     expect(css).toContain('.pdd-icone{');
-    expect(css).toContain('color:var(--color-svv-green-ink)');
-    /* 🔴 ET C'EST BIEN CELUI DE `.sfd-piece-range`, lu dans sa source : si quelqu'un change l'un, ce test tombe. */
+    expect(css).toContain('color:var(--color-svv-green)}');
+    // 🔴 EN NÉGATIF : l'encre ne doit plus teinter le tracé, c'est tout le propos de ce lot.
+    expect(css).not.toContain('.pdd-icone{display:inline-flex;align-items:center;justify-content:center;color:var(--color-svv-green-ink)}');
+    /* 🔴 LA PASTILLE DU COMPTEUR, ELLE, GARDE SON COUPLE encre + fond pâle : elle porte un CHIFFRE, pas un
+       tracé. Lu dans sa source — si quelqu'un l'aligne par erreur sur le vert franc, ce test tombe. */
     const fenetre = readFileSync('app/(admin)/admin/(protected)/gestion/SelecteurFichierDrive.tsx', 'utf8');
     expect(fenetre).toContain('color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)');
     // ⚠️ AUCUNE COULEUR EN DUR : le picto bascule seul en Clair et en Sombre.
