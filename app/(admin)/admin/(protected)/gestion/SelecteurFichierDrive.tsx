@@ -511,6 +511,20 @@ export function SelecteurFichierDrive({
   const signature = useMemo(
     () => signatureSession({ mode, messageId, pieces }), [mode, messageId, pieces]);
   const [ouverts, setOuverts] = useState<Set<string>>(() => {
+    /**
+     * ══ 🔴🔴 EN ARRIVÉE PAR LE PICTO, ON NE RESTAURE RIEN — MESURÉ LE 04/10/2026 ═══════════════════════════════
+     *
+     * L'arbre déplié est retenu d'une ouverture à l'autre (`sessionStorage`). En arrivée par le picto, l'effet
+     * qui veille sur `ouverts` partait donc chercher les enfants des dossiers de la session PRÉCÉDENTE — mesuré :
+     * 19 `files.list` — et l'arrivée les jetait un instant plus tard en posant sa propre branche. Du réseau
+     * dépensé pour un arbre qu'on ne verra jamais, et disputé à la branche qu'on attend.
+     *
+     * 🔴 RIEN N'EST RETIRÉ : la mémoire de l'arbre sert tous les AUTRES points d'entrée, exactement comme avant.
+     * Ici, et ici seulement, elle est sans objet — `setOuverts` va de toute façon REMPLACER le contenu par la
+     * branche du document (voir l'effet d'arrivée). C'est le même arbitrage qu'Arno a posé pour le
+     * préchargement : on ne dispute pas le réseau à l'arrivée, et l'on ne bride rien pour autant.
+     */
+    if (enArborescence) return new Set();
     try {
       /**
        * 🔴🔴 ON NE RESTAURE QUE POUR LES MÊMES PIÈCES (décision d'Arno du 02/10/2026). Des pièces NEUVES ouvrent
@@ -546,6 +560,20 @@ export function SelecteurFichierDrive({
     | { e: 'deplie' }
     | { e: 'pose'; chemin: readonly EtapeArbre[]; profondeur: number; message: string | null };
   const [etatArrivee, setEtatArrivee] = useState<EtatArrivee>(enArborescence ? { e: 'deplie' } : { e: 'hors' });
+  /**
+   * ══ 🔴🔴 L'ARRIVÉE EST-ELLE FINIE ? ═════════════════════════════════════════════════════════════════════════
+   *
+   * « Finie » a un sens précis, celui d'Arno : arbre déplié ET document centré. C'est ce qui libère le
+   * préchargement des sous-dossiers (voir son effet), reporté jusque-là pour qu'il ne dispute pas le réseau à la
+   * branche qu'on attend.
+   *
+   * 🔴 VRAI DÈS LE PREMIER RENDU HORS ARRIVÉE EN ARBORESCENCE : les autres points d'entrée de la fenêtre ne
+   * doivent rien attendre, et ne voient donc aucune différence.
+   *
+   * ⚠️ UN ÉTAT, ET NON LA RÉFÉRENCE DU DÉFILEMENT : une référence ne provoque pas de rendu, donc l'effet du
+   * préchargement ne repartirait jamais — il resterait suspendu pour toute la vie de la fenêtre.
+   */
+  const [arriveeAchevee, setArriveeAchevee] = useState<boolean>(!enArborescence);
   /**
    * ⚠️ CE QU'ON A DÉJÀ TENTÉ DE LIRE — pas ce qu'on a obtenu. Un dossier disparu du Drive entre deux ouvertures ne
    * rend aucun enfant : sans cette mémoire, on le redemanderait à chaque rendu, pour toujours. Voir l'effet qui
@@ -1426,8 +1454,26 @@ export function SelecteurFichierDrive({
    * dossier qu'on n'a pas encore ouvert serait du travail pour rien.
    */
   useEffect(() => {
+    /**
+     * ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 0 — REPORTÉ, JAMAIS BRIDÉ ════════════════════════════
+     *
+     * ARBITRAGE D'ARNO (04/10/2026), après la mesure du lot précédent : « le préchargement à l'arrivée par le
+     * picto n'est ni retiré ni bridé. Il est REPORTÉ jusqu'à ce que l'arrivée soit finie (arbre déplié + document
+     * centré). Ensuite il démarre normalement. »
+     *
+     * CE QUI AVAIT ÉTÉ MESURÉ : une arrivée en arborescence coûtait 4 `files.list` pour sa branche, et 38 de plus
+     * de préchargement. Déplier « Drives partagés » expose les dix Drives partagés, et le préchargement part
+     * alors sur huit d'entre eux — puis sur les enfants de chaque cran posé. Ces 38 appels partaient PENDANT que
+     * l'arrivée se montait : ils disputaient le réseau à la branche, qu'on attend, pour des dossiers qu'on ne
+     * regarde pas encore.
+     *
+     * 🔴 RIEN N'EST RETIRÉ : dès que l'arrivée est finie, l'effet repart et précharge exactement comme avant. Et
+     * hors arrivée en arborescence, `arriveeAchevee` vaut vrai dès le premier rendu — les autres points d'entrée
+     * de la fenêtre ne voient donc aucune différence.
+     */
+    if (!arriveeAchevee) return;
     for (const [, liste] of enfants) prechargerLesSousDossiers(liste);
-  }, [enfants, prechargerLesSousDossiers]);
+  }, [enfants, prechargerLesSousDossiers, arriveeAchevee]);
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
      LA LISTE : aplatie, triée, virtualisée
@@ -1503,7 +1549,27 @@ export function SelecteurFichierDrive({
   useEffect(() => {
     if (etatArrivee.e !== 'pose' || defilementArriveeFait.current) return;
     const id = documentEnEvidence?.driveFileId ?? '';
-    if (id === '') return;
+    /**
+     * ══ 🔴🔴 RIEN À CENTRER — ET L'ARRIVÉE EST FINIE QUAND MÊME ════════════════════════════════════════════════
+     *
+     * Deux cas, et il FAUT les traiter ici : sans eux, `arriveeAchevee` resterait faux pour la vie de la fenêtre
+     * et le préchargement ne repartirait JAMAIS. On ne suspend pas une fonction sur une attente qui n'aura pas
+     * lieu.
+     *
+     *   · aucun document à mettre en évidence (la fenêtre a été ouverte sans) ;
+     *   · l'arrivée porte un MESSAGE, c'est-à-dire qu'elle s'est repliée : ancêtre inaccessible, document
+     *     déplacé, chaîne irremontable. Dans les trois cas la ligne du document n'existe pas dans l'arbre, et
+     *     l'attendre serait attendre pour rien.
+     *
+     * 🔴 ET QUAND LE MESSAGE EST `null`, LA LIGNE VIENDRA : on a vérifié, avant de poser la branche, que le
+     * document est bien dans le contenu du dernier cran. L'attente ci-dessous est donc bornée à UN rendu — celui
+     * où `enfants` porte ce contenu — et non ouverte.
+     */
+    if (id === '' || etatArrivee.message !== null) {
+      defilementArriveeFait.current = true;
+      setArriveeAchevee(true);
+      return;
+    }
     const i = lignes.findIndex((l) => l.entree.id === id);
     // ⚠️ PAS ENCORE LÀ : la ligne n'apparaît qu'au rendu où les enfants du dernier cran sont posés. On repassera.
     if (i < 0) return;
@@ -1511,6 +1577,9 @@ export function SelecteurFichierDrive({
     const y = defilementPourCentrer(i, lignes.length, hauteurVue, HAUTEUR_LIGNE);
     if (scene.current !== null) scene.current.scrollTop = y;
     setScrollTop(y);
+    /* 🔴 L'ARRIVÉE EST FINIE ICI, ET PAS AVANT : « arbre déplié + document centré » (Arno). C'est cette ligne qui
+       libère le préchargement des sous-dossiers, reporté jusque-là. */
+    setArriveeAchevee(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `lignes` est neuf à chaque rendu : voir l'encadré.
   }, [etatArrivee, lignes.length, hauteurVue, documentEnEvidence]);
   /**

@@ -225,6 +225,51 @@ describe('🔴🔴 la liste défile jusqu’au document', () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④ bis 🔴🔴 LE PRÉCHARGEMENT EST REPORTÉ, JAMAIS BRIDÉ (arbitrage d'Arno, 04/10/2026)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le préchargement attend la fin de l’arrivée', () => {
+  /**
+   * ARBITRAGE D'ARNO, après la mesure du lot précédent : « le préchargement à l'arrivée par le picto n'est ni
+   * retiré ni bridé. Il est REPORTÉ jusqu'à ce que l'arrivée soit finie (arbre déplié + document centré). Ensuite
+   * il démarre normalement. »
+   *
+   * CE QUI AVAIT ÉTÉ MESURÉ : 4 `files.list` pour la branche, et 38 de plus de préchargement — partis PENDANT que
+   * l'arrivée se montait, donc en concurrence du réseau avec la branche qu'on attend.
+   */
+  it('🔴 l’effet de préchargement est gardé par la fin de l’arrivée', () => {
+    expect(vif).toContain('if (!arriveeAchevee) return;');
+    expect(vif).toContain('for (const [, liste] of enfants) prechargerLesSousDossiers(liste);');
+    expect(vif).toContain('}, [enfants, prechargerLesSousDossiers, arriveeAchevee]);');
+  });
+
+  /**
+   * 🔴 RIEN N'EST RETIRÉ : hors arrivée en arborescence, l'état vaut VRAI dès le premier rendu, donc les autres
+   * points d'entrée de la fenêtre ne voient aucune différence. C'est ce que « ni retiré ni bridé » exige.
+   */
+  it('🔴 hors arborescence, rien n’attend', () => {
+    expect(vif).toContain('useState<boolean>(!enArborescence)');
+  });
+
+  /**
+   * 🔴 L'ARRIVÉE SE TERMINE AU CENTRAGE, et aussi quand il n'y a RIEN à centrer. Sans ce second cas,
+   * `arriveeAchevee` resterait faux pour la vie de la fenêtre et le préchargement ne repartirait jamais — on ne
+   * suspend pas une fonction sur une attente qui n'aura pas lieu.
+   */
+  it('🔴🔴 l’arrivée se termine aussi quand il n’y a rien à centrer', () => {
+    expect(vif).toContain("if (id === '' || etatArrivee.message !== null) {");
+    /* Les DEUX sorties posent la fin : celle du centrage, et celle du « rien à centrer ». */
+    expect((vif.match(/setArriveeAchevee\(true\);/g) ?? []).length).toBe(2);
+  });
+
+  /** ⚠️ UN ÉTAT, ET NON UNE RÉFÉRENCE : une référence ne provoque pas de rendu, donc l'effet ne repartirait pas. */
+  it('⚠️ c’est un état, pas une référence', () => {
+    expect(vif).toContain('const [arriveeAchevee, setArriveeAchevee] = useState');
+    expect(vif).not.toContain('arriveeAchevee.current');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑤ 🔴🔴 LE REPLI — « pas d'écran vide »
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
