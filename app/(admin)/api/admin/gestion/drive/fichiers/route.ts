@@ -231,6 +231,32 @@ export async function GET(request: Request): Promise<Response> {
       const t1 = Date.now();
       const { joindre: v, creer: c, chaine } = await verdictsDossier(jeton.compteGoogle, jeton.jeton, parent);
       const tVerdict = Date.now() - t1;
+      /**
+       * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 2 — L'INDEX S'ALIMENTE ICI, GRATUITEMENT ════════
+       *
+       * Arno : « alimenté à chaque dossier ouvert ». L'empreinte de chaque ligne est DÉJÀ dans la réponse qu'on
+       * vient de recevoir — elle voyage dans le même appel que les noms. La ranger ne coûte pas un octet de
+       * réseau, et elle couvre exactement les endroits où l'on travaille.
+       *
+       * ⚠️ AU MIEUX-EFFORT, ET SANS FAIRE ATTENDRE LA LISTE. Un index qui ne se remplit pas est un index moins
+       * complet ; une liste qui n'arrive pas est un écran cassé. On ne mélange pas les deux enjeux : la réponse
+       * part, le rangement se fait à côté, et son échec n'est que journalisé.
+       *
+       * 🔴🔴 « Documents clients scannés » Y ENTRE EN MÉTADONNÉES, ET SEULEMENT EN MÉTADONNÉES — ce que cette
+       * route lisait déjà pour afficher la liste. Aucune écriture Drive n'est faite ni possible d'ici.
+       */
+      void (async () => {
+        try {
+          const { ligneDepuisEntreeAffichee } = await import('../../../../../../lib/gestion/indexEmpreintesDrive');
+          const { noterFichiersVus } = await import('../../../../../../lib/gestion/empreinteDriveRepo');
+          const lignes = liste.valeur.fichiers
+            .map((f) => ligneDepuisEntreeAffichee(f, parent))
+            .filter((l): l is NonNullable<typeof l> => l !== null);
+          if (lignes.length > 0) await noterFichiersVus(lignes);
+        } catch (e) {
+          console.error('[api/admin/gestion/drive/fichiers] index des empreintes non alimenté', e);
+        }
+      })();
       return json({
         /**
          * 🔴 LES DEUX TEMPS, SÉPARÉS : `liste` est l'appel `files.list` (le contenu), `verdict` la remontée des

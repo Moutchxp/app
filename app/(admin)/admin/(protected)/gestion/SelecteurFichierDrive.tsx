@@ -1298,6 +1298,12 @@ export function SelecteurFichierDrive({
   /** Ce que la route a trouvé pour la vignette active. Vide tant qu'elle n'a pas répondu. */
   const [localisation, setLocalisation] = useState<{
     md5: string | null; occurrences: Occurrence[]; parRegistre: number;
+    /**
+     * 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 2 — combien d'empreintes du Drive sont indexées.
+     * `undefined` ou 0 ⇒ aucun index : la phrase de la fenêtre reste CELLE D'AVANT, « le Drive n'est pas
+     * balayé », parce que c'est alors la vérité.
+     */
+    indexes?: number;
   } | null>(null);
 
   /**
@@ -2941,11 +2947,12 @@ export function SelecteurFichierDrive({
       const res = await fetch(`/api/admin/gestion/drive/localiser?${adresse}`, { cache: 'no-store' });
       const d = (await res.json()) as {
         etat?: string; message?: string; md5?: string | null;
-        occurrences?: Occurrence[]; parRegistre?: number;
+        occurrences?: Occurrence[]; parRegistre?: number; indexes?: number;
       };
       if (d.etat !== 'ok') { setErreur(d.message ?? 'La localisation n’a pas abouti.'); setLoupeSur(null); return; }
       setLocalisation({
         md5: d.md5 ?? null, occurrences: d.occurrences ?? [], parRegistre: d.parRegistre ?? 0,
+        indexes: d.indexes ?? 0,
       });
     } catch {
       setErreur('Le Drive n’a pas répondu.');
@@ -3039,6 +3046,7 @@ export function SelecteurFichierDrive({
     parEmpreinte: Math.max(0, surlignage.nombre - (localisation?.parRegistre ?? 0)),
     empreinteConnue: (localisation?.md5 ?? '') !== '',
     dossiersLus,
+    fichiersIndexes: localisation?.indexes ?? null,
   });
 
   const sortirDeLaCorbeille = async (mouvements: number[]): Promise<void> => {

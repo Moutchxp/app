@@ -29,6 +29,14 @@ const chaineMock = vi.fn();
  * deux voies réunies : le lien de dépôt, et l'empreinte du contenu. Voir le dernier bloc de ce fichier.
  */
 const piecesMock = vi.fn();
+/**
+ * 🔴🔴 NIVEAU 2 — l'index des empreintes du Drive. Il couvre les 181 001 fichiers que l'application n'a JAMAIS
+ * touchés, et c'est la seule voie possible : `files.list` avec `q=md5Checksum='…'` répond HTTP 400.
+ */
+const md5PieceMock = vi.fn();
+const md5IndexMock = vi.fn();
+const memeEmpreinteMock = vi.fn();
+const etatIndexMock = vi.fn();
 
 vi.mock('../../../../../../lib/admin/garde', () => ({
   exigerCompteActif: (...a: unknown[]) => gardeMock(...a),
@@ -42,6 +50,12 @@ vi.mock('../../../../../../lib/gestion/schema', () => ({
 vi.mock('../../../../../../lib/gestion/driveMouvementRepo', () => ({
   copiesDuDocument: (...a: unknown[]) => copiesMock(...a),
   fichiersDriveDeLaPiece: (...a: unknown[]) => piecesMock(...a),
+}));
+vi.mock('../../../../../../lib/gestion/empreinteDriveRepo', () => ({
+  md5DeLaPiece: (...a: unknown[]) => md5PieceMock(...a),
+  md5IndexeDuFichier: (...a: unknown[]) => md5IndexMock(...a),
+  fichiersDeMemeEmpreinte: (...a: unknown[]) => memeEmpreinteMock(...a),
+  etatDeLIndex: () => etatIndexMock(),
 }));
 vi.mock('../../../../../../lib/gestion/driveMemoire', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../../../lib/gestion/driveMemoire')>()),
@@ -90,6 +104,11 @@ beforeEach(() => {
   journalMock.mockResolvedValue(true);
   copiesMock.mockResolvedValue([{ source: 'source', copie: 'copie' }]);
   piecesMock.mockResolvedValue([]);
+  /** ⚠️ PAR DÉFAUT, AUCUN INDEX : les cas d'avant ce lot doivent se comporter exactement comme avant. */
+  md5PieceMock.mockResolvedValue(null);
+  md5IndexMock.mockResolvedValue(null);
+  memeEmpreinteMock.mockResolvedValue([]);
+  etatIndexMock.mockResolvedValue({ fichiers: 0, releveLe: null });
   chaineMock.mockImplementation(async (depart: string) => chaineDepuis(depart));
   metaMock.mockImplementation(async (id: string) => {
     const n = ARBRE[id];
@@ -259,6 +278,83 @@ describe('🔴🔴 une pièce reconnue par son CONTENU, pas par son nom', () => 
     // 🔴 AUCUNE MÉTADONNÉE DEMANDÉE : ni `files.get`, ni remontée de parents.
     expect(metaMock).not.toHaveBeenCalled();
     expect(chaineMock).not.toHaveBeenCalled();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 NIVEAU 2 — UN FICHIER QUE L'APPLICATION N'A JAMAIS TOUCHÉ, MAIS QUI EST INDEXÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   C'est l'immense majorité du Drive : 181 001 fichiers recensés le 03/10/2026, contre 26 552 copies au registre.
+   Et c'est la seule voie possible, parce que `files.list` avec `q=md5Checksum='…'` répond HTTP 400 « Invalid
+   Value » — mesuré sur les 10 drives partagés visibles et avec `corpora=allDrives`.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 l’index retrouve ce que le registre ignore', () => {
+  /**
+   * 🔴🔴 LE CAS QUE LE NIVEAU 1 NE SAIT PAS TRAITER : le contenu est dans le Drive, mais aucune de ses copies
+   * n'est passée par l'application. Sans index, la pièce est introuvable par son contenu, pour toujours.
+   */
+  it('🔴🔴 aucun dépôt, aucune copie au registre : l’index seul répond', async () => {
+    piecesMock.mockResolvedValue([]);
+    copiesMock.mockResolvedValue([]);
+    md5PieceMock.mockResolvedValue('empreinte');
+    memeEmpreinteMock.mockResolvedValue([{ driveFileId: 'copie' }]);
+    etatIndexMock.mockResolvedValue({ fichiers: 181001, releveLe: new Date('2026-10-03T14:00:00Z') });
+    const d = (await (await surLaPiece(27125)).json()) as {
+      parRegistre: number; indexes: number;
+      occurrences: { id: string; voie: string; chemin: { nom: string }[] }[];
+    };
+    expect(d.occurrences.map((o) => o.id)).toEqual(['copie']);
+    expect(d.occurrences[0].voie).toBe('empreinte');
+    expect(d.occurrences[0].chemin.map((c) => c.nom)).toEqual(['Quittances', 'Bien B', 'Biens', 'Racine']);
+    expect(d.parRegistre).toBe(0);
+    /** 🔴 L'ÉTENDUE DE L'INDEX REMONTE À L'ÉCRAN : c'est elle qui lui donne le droit de ne plus dire
+     *  « le Drive n'est pas balayé ». Sans ce nombre, la fenêtre sous-estimerait ce qu'elle sait. */
+    expect(d.indexes).toBe(181001);
+  });
+
+  /**
+   * ⚠️ L'INDEX NE FAIT QUE TROUVER DES CANDIDATS : chaque emplacement est VÉRIFIÉ chez Google comme n'importe
+   * quel autre. Un reflet périmé ne doit pas faire annoncer un fichier qui n'est plus là.
+   */
+  it('⚠️ un fichier indexé mais disparu du Drive n’est pas annoncé', async () => {
+    md5PieceMock.mockResolvedValue('empreinte');
+    memeEmpreinteMock.mockResolvedValue([{ driveFileId: 'envolee' }]);
+    copiesMock.mockResolvedValue([]);
+    const d = (await (await surLaPiece(27125)).json()) as { occurrences: unknown[] };
+    expect(d.occurrences).toEqual([]);
+  });
+
+  /**
+   * 🔴 POUR UNE VIGNETTE, L'EMPREINTE VIENT DE L'INDEX, SANS APPEL GOOGLE. C'est ce qui rend la pastille gratuite
+   * sur une colonne entière : si l'index a vu le fichier, on connaît son empreinte sans rien demander.
+   */
+  it('🔴 l’empreinte d’une vignette est lue dans l’index, pas chez Google', async () => {
+    md5IndexMock.mockResolvedValue('empreinte');
+    memeEmpreinteMock.mockResolvedValue([{ driveFileId: 'copie' }]);
+    copiesMock.mockResolvedValue([]);
+    const r = await GET(new Request('http://local/api/admin/gestion/drive/localiser?source=source&compte=1'));
+    const d = (await r.json()) as { nombre: number; md5: string | null };
+    expect(d.md5).toBe('empreinte');
+    expect(d.nombre).toBe(2);                 // la vignette elle-même, plus l'emplacement trouvé par l'index
+    expect(metaMock).not.toHaveBeenCalled();  // 🔴 ZÉRO APPEL GOOGLE
+  });
+
+  /**
+   * 🔴🔴 SANS LA MIGRATION 299, TOUT EST COMME AVANT. Les deux lectures d'index rendent « rien », l'index annonce
+   * zéro empreinte, et la phrase de la fenêtre dit encore — à juste titre — que le Drive n'est pas balayé.
+   */
+  it('🔴🔴 sans index, la route retombe exactement sur le niveau 1', async () => {
+    piecesMock.mockResolvedValue([{ driveFileId: 'source', md5: 'EMPREINTE', parEmpreinte: false }]);
+    copiesMock.mockResolvedValue([]);
+    const d = (await (await surLaPiece(27125)).json()) as {
+      occurrences: { id: string; voie: string }[]; parRegistre: number; indexes: number;
+    };
+    expect(d.occurrences.map((o) => o.id)).toEqual(['source']);
+    expect(d.parRegistre).toBe(1);
+    expect(d.indexes).toBe(0);
+    expect(memeEmpreinteMock).toHaveBeenCalledWith(null);
   });
 });
 

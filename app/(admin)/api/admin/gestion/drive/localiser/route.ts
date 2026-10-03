@@ -6,6 +6,9 @@ import {
   fermetureCopies, OCCURRENCES_MAX, type LienCopie, type Occurrence,
 } from '../../../../../../lib/gestion/localisationDrive';
 import { copiesDuDocument, fichiersDriveDeLaPiece } from '../../../../../../lib/gestion/driveMouvementRepo';
+import {
+  etatDeLIndex, fichiersDeMemeEmpreinte, md5DeLaPiece, md5IndexeDuFichier,
+} from '../../../../../../lib/gestion/empreinteDriveRepo';
 import { journalMouvementDriveDisponible } from '../../../../../../lib/gestion/schema';
 import { mapConcurrenceBornee } from '../../../../../../lib/concurrence';
 
@@ -108,13 +111,38 @@ export async function GET(request: Request): Promise<Response> {
      * exactes, elles ne disent pas la même chose, et les confondre ferait mentir la phrase.
      */
     const parPiece = source !== '' ? [] : await fichiersDriveDeLaPiece(piece);
-    const departs: { id: string; voie: 'registre' | 'empreinte' }[] = source !== ''
-      ? [{ id: source, voie: 'registre' }]
-      : parPiece.map((x) => ({ id: x.driveFileId, voie: x.parEmpreinte ? 'empreinte' as const : 'registre' as const }));
+    /**
+     * ══ 🔴🔴 NIVEAU 2 — L'INDEX DES EMPREINTES, POUR CE QUE L'APPLICATION N'A JAMAIS TOUCHÉ ═══════════════════
+     *
+     * Le niveau 1 reconnaît ce qu'on a rangé ; celui-ci reconnaît les 181 001 fichiers du Drive qu'on n'a jamais
+     * touchés — l'immense majorité. C'est la seule voie possible : `files.list` avec `q=md5Checksum='…'` répond
+     * HTTP 400 « Invalid Value », mesuré sur les 10 drives partagés et avec `corpora=allDrives`.
+     *
+     * 🔴 L'EMPREINTE SE CONNAÎT SANS UN SEUL APPEL GOOGLE, dans les deux cas : pour une pièce, la migration 298
+     * l'a rangée à la capture ; pour une vignette, l'index la porte déjà s'il a vu le fichier. C'est ce qui
+     * permet à la pastille de paraître à l'ouverture de la fenêtre.
+     *
+     * ⚠️ L'INDEX NE FAIT QUE TROUVER DES CANDIDATS. Chaque emplacement est ensuite VÉRIFIÉ chez Google comme
+     * n'importe quel autre, et le chemin est tracé comme aujourd'hui : un index est un reflet, et un reflet
+     * périmé ne doit pas faire annoncer un fichier qui n'est plus là.
+     *
+     * ⚠️ SANS LA MIGRATION 299, ces deux appels rendent « rien » : la route retombe exactement sur le niveau 1.
+     */
+    const md5Connu = source === '' ? await md5DeLaPiece(piece) : await md5IndexeDuFichier(source);
+    const parIndex = await fichiersDeMemeEmpreinte(md5Connu);
+    const departs: { id: string; voie: 'registre' | 'empreinte' }[] = [
+      ...(source !== ''
+        ? [{ id: source, voie: 'registre' as const }]
+        : parPiece.map((x) => ({
+          id: x.driveFileId, voie: x.parEmpreinte ? 'empreinte' as const : 'registre' as const,
+        }))),
+      ...parIndex.map((x) => ({ id: x.driveFileId, voie: 'empreinte' as const })),
+    ];
     if (departs.length === 0) {
       return json({
         etat: 'ok', source: source === '' ? String(piece) : source,
-        md5: null, occurrences: [], parRegistre: 0, nombre: 0,
+        md5: md5Connu, occurrences: [], parRegistre: 0, nombre: 0,
+        indexes: (await etatDeLIndex()).fichiers,
       });
     }
     const avecJournal = await journalMouvementDriveDisponible();
@@ -135,9 +163,14 @@ export async function GET(request: Request): Promise<Response> {
     /* ── `?compte=1` : on s'arrête ici. Rien n'est demandé à Google (sauf l'empreinte, et seulement si la base ne
           l'a pas déjà). C'est ce qui rend le compteur vert gratuit sur une colonne de dix vignettes. ───────── */
     if (compteSeul) {
-      const md5Base = source === ''
+      /**
+       * 🔴 TROIS SOURCES D'EMPREINTE, DE LA MOINS COÛTEUSE À LA PLUS COÛTEUSE, et l'appel Google n'arrive qu'en
+       * dernier : l'empreinte de la pièce ou de l'index (niveaux 1 et 2, en base), puis celle du registre, puis
+       * — pour une vignette que l'index n'a pas encore vue — un `files.get`.
+       */
+      const md5Base = md5Connu ?? (source === ''
         ? parPiece.map((x) => x.md5).find((x) => (x ?? '') !== '') ?? null
-        : null;
+        : null);
       const md5 = md5Base ?? (source === ''
         ? null
         : await (async () => {
@@ -146,7 +179,15 @@ export async function GET(request: Request): Promise<Response> {
         })());
       return json({
         etat: 'ok', source: source === '' ? String(piece) : source,
-        md5, occurrences: [], parRegistre: ids.length, nombre: ids.length,
+        md5, occurrences: [],
+        /**
+         * ⚠️ `parRegistre` COMPTE CE QUI VIENT DU REGISTRE, pas tout : la pastille ne dit qu'un nombre, mais la
+         * loupe, elle, distingue les voies — et deux chiffres qui se contredisent d'un geste à l'autre feraient
+         * douter des deux.
+         */
+        parRegistre: ids.filter((id) => voieDe.get(id) === 'registre').length,
+        nombre: ids.length,
+        indexes: (await etatDeLIndex()).fichiers,
       });
     }
 
@@ -199,6 +240,12 @@ export async function GET(request: Request): Promise<Response> {
        * dire « par le registre des copies de l'application » d'un fichier que l'application n'a jamais touché.
        */
       parRegistre: occurrences.filter((o) => o.voie === 'registre').length,
+      /**
+       * 🔴🔴 NIVEAU 2 — COMBIEN D'EMPREINTES DU DRIVE NOUS CONNAISSONS. C'est ce qui donne à l'écran le droit de
+       * dire autre chose que « le Drive n'est pas balayé » : sans ce nombre, la fenêtre sous-estimerait ce
+       * qu'elle sait, ou — bien pire — promettrait une exhaustivité qu'un index n'a jamais.
+       */
+      indexes: (await etatDeLIndex()).fichiers,
     });
   } catch (e) {
     console.error('[api/admin/gestion/drive/localiser] échec', e);

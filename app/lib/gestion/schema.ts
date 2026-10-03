@@ -621,6 +621,23 @@ export function pieceMd5Disponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 2 — LA MIGRATION 299 EST-ELLE APPLIQUÉE ? ══════════════
+ *
+ * Elle porte `gestion_drive_empreinte` : le reflet, en LECTURE SEULE, des empreintes du Drive — y compris celles
+ * des fichiers que l'application n'a JAMAIS touchés (181 001 fichiers recensés, contre 26 552 copies au registre).
+ *
+ * 🔴 ELLE EXISTE PARCE QUE GOOGLE NE SAIT PAS CHERCHER PAR EMPREINTE : `files.list` avec `q=md5Checksum='…'`
+ * répond HTTP 400. Sans index, un fichier posé à la main dans le Drive est introuvable par son contenu.
+ *
+ * Tant que cette sonde répond « non » : la table n'est NOMMÉE NULLE PART, l'index ne s'alimente pas, et la loupe
+ * comme la pastille s'en tiennent au niveau 1 (ce que l'application a rangé). La phrase de la fenêtre dit alors,
+ * exactement comme avant, que le Drive n'est pas balayé.
+ */
+export function indexEmpreintesDriveDisponible(): Promise<boolean> {
+  return memoiser('table.drive_empreinte', () => tableExiste('gestion_drive_empreinte'));
+}
+
+/**
  * ══ LOT REDACTION-GMAIL — LA MIGRATION 265 EST-ELLE APPLIQUÉE ? ════════════════════════════════════════════════
  * Elle porte DEUX choses indépendantes, et elles se sondent SÉPARÉMENT : l'une peut exister sans l'autre si
  * quelqu'un applique la migration à moitié, et une sonde unique mentirait alors dans un sens ou dans l'autre.
