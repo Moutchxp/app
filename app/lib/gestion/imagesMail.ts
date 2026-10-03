@@ -42,7 +42,16 @@ import {
 } from './imagesIntegrees';
 
 /** Ce qu'on sait d'une pièce pour résoudre un `cid:`. */
-export interface PieceIntegree { pieceId: number; nomFichier: string }
+export interface PieceIntegree {
+  pieceId: number;
+  nomFichier: string;
+  /**
+   * 🔴 LOT ETOILE-SIGNATURES-PIECES — LE TYPE, quand on le connaît. Il ne sert qu'au DERNIER recours de la
+   * résolution (voir `resoudreCids`) : choisir, parmi les pièces de la conversation, celles qui sont des IMAGES.
+   * Absent ⇒ on se rabat sur l'extension du nom, comme partout ailleurs dans ce module.
+   */
+  typeMime?: string | null;
+}
 
 /**
  * LES ADRESSES `src` DE TOUTES LES IMAGES, DANS L'ORDRE DU DOCUMENT. PUR.
@@ -110,11 +119,106 @@ export function pieceDuCid(cid: string, pieces: readonly PieceIntegree[]): Piece
 }
 
 /**
+ * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — RÉSOUDRE LES `cid:` D'UN DOCUMENT, EN TROIS TEMPS ═══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (03/10/2026) : dans un mail qui lui revient, la signature « Service Gestion » affiche
+ * « image intégrée non retrouvée » à la place des trois pictos.
+ *
+ * ═══ 🔴 LA CAUSE, LUE CHEZ GOOGLE ET NON SUPPOSÉE ══════════════════════════════════════════════════════════════
+ *
+ * Le message revenu (Gmail 1a1011cca965f9fd) est un `multipart/alternative` de DEUX parties : `text/plain` et
+ * `text/html`. **Il ne porte aucune image.** Son HTML cite pourtant trois `cid:1d0ecfbd47378a46_0.0.{1,2,3}` —
+ * des identifiants que GMAIL a réécrits, et qui ne désignent que des parties de l'original, resté chez lui.
+ *
+ * Notre envoi d'origine (1a100d7a8d14e269), lui, les porte bel et bien : trois `image/png` `Content-Disposition:
+ * inline`, `Content-ID: <sig0…@criterimmo.fr>`, `<sig1…>`, `<sig2…>`.
+ *
+ * 🔴 LA RÉSOLUTION PAR LE NOM NE POUVAIT DONC PAS MARCHER, et aucune ruse sur l'identifiant ne la sauvera : il n'y
+ * a rien à retrouver DANS ce message, et le `cid` de Gmail n'a aucun rapport avec le nôtre.
+ *
+ * ═══ 🔴🔴 LES TROIS TEMPS, DU PLUS SÛR AU PLUS FAIBLE ═══════════════════════════════════════════════════════════
+ *
+ *   ① LE NOM, DANS CE MESSAGE — `pieceDuCid`. Exact quand le `cid` porte le nom du fichier
+ *      (« image003.png@01DC579B »), ce que font Outlook et consorts. Inchangé.
+ *   ② LE NOM, DANS LA CONVERSATION — la même règle, élargie aux autres messages de l'échange. C'est la demande
+ *      d'Arno : « puis, à défaut, vers les autres messages de la même conversation (notre envoi d'origine) ».
+ *   ③ LE RANG, DANS LA CONVERSATION — et UNIQUEMENT sous une condition stricte.
+ *
+ * 🔴🔴 LA CONDITION DU TEMPS ③, ET POURQUOI ELLE EST SI DURE. Le rang est un rapprochement par POSITION : la
+ * première image non résolue du corps cité est la première image de la conversation, la deuxième la deuxième.
+ * C'est vrai quand le corps cité EST une copie de notre envoi — le cas d'Arno — et faux dès qu'il en manque une.
+ * On n'y recourt donc QUE si les deux comptes tombent juste : autant d'images non résolues que d'images
+ * candidates. Un seul écart, et l'on s'abstient entièrement.
+ *
+ * ⚠️ POSER LA MAUVAISE IMAGE SERAIT PIRE QUE N'EN POSER AUCUNE. Une signature sans picto se remarque à peine ;
+ * le logo d'un correspondant posé dans la signature d'un autre est un faux, et il se propagerait au transfert
+ * suivant. C'est tout le sens de la condition : en cas de doute, l'emplacement reste vide.
+ *
+ * 🔒 LES CANDIDATES VIENNENT DE LA CONVERSATION, et de rien d'autre. Jamais d'un autre échange, jamais d'une
+ * bibliothèque d'images : on ne peut donc pas faire apparaître dans un mail une image qu'il n'a jamais côtoyée.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+const EXTENSION_IMAGE = /\.(png|jpe?g|gif|bmp|webp|svg)$/i;
+
+/** Cette pièce est-elle une image ? Par son type quand on le connaît, par son nom sinon. PUR. */
+export function pieceEstImage(p: PieceIntegree): boolean {
+  const t = (p.typeMime ?? '').trim().toLowerCase();
+  if (t !== '') return t.startsWith('image/');
+  return EXTENSION_IMAGE.test((p.nomFichier ?? '').trim());
+}
+
+/**
+ * LA TABLE `cid` → pièce, pour TOUT le document. PUR.
+ *
+ * ⚠️ LA CLÉ EST LE `cid` EN MINUSCULES : un même identifiant écrit deux fois avec des casses différentes doit
+ * désigner la même pièce, sans quoi la seconde occurrence retomberait au temps ③ et consommerait une candidate.
+ */
+export function resoudreCids(
+  html: string,
+  pieces: readonly PieceIntegree[],
+  conversation: readonly PieceIntegree[] = [],
+): Map<string, number> {
+  const table = new Map<string, number>();
+  /* Les `cid` du document, dans l'ordre, sans doublon : c'est l'ordre qui fera foi au temps ③. */
+  const cids: string[] = [];
+  for (const src of adressesDesImages(html)) {
+    const cid = identifiantCid(src);
+    if (cid === null) continue;
+    const cle = cid.trim().toLowerCase();
+    if (cle !== '' && !cids.includes(cle)) cids.push(cle);
+  }
+  if (cids.length === 0) return table;
+
+  const pris = new Set<number>();
+  const restants: string[] = [];
+  for (const cid of cids) {
+    //  ① puis ② : la MÊME règle de nom, d'abord ici, ensuite dans l'échange.
+    const trouve = pieceDuCid(cid, pieces) ?? pieceDuCid(cid, conversation);
+    if (trouve === null) { restants.push(cid); continue; }
+    table.set(cid, trouve.pieceId);
+    pris.add(trouve.pieceId);
+  }
+  if (restants.length === 0) return table;
+
+  /* ③ LE RANG — et seulement si les comptes tombent juste. Voir l'encadré : au moindre écart, on s'abstient. */
+  const candidates = conversation.filter((p) => pieceEstImage(p) && !pris.has(p.pieceId));
+  if (candidates.length !== restants.length) return table;
+  restants.forEach((cid, i) => table.set(cid, candidates[i].pieceId));
+  return table;
+}
+
+/**
  * L'IMAGE QU'ON MET À LA PLACE D'UNE IMAGE INTÉGRÉE INTROUVABLE.
  *
- * 🔴 PAS UNE IMAGE CASSÉE, ET PAS UN TROU MUET. Une image cassée fait croire à une panne ; un trou fait croire
- * qu'il n'y avait rien. On laisse une marque discrète, avec le mot — c'est la règle du module : ce qu'on ne peut
- * pas montrer, on le DIT.
+ * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — LE MOT PASSE DANS L'INFOBULLE, PLUS DANS LA PAGE ════════════════════════
+ *
+ * ARNO (03/10/2026) : « si vraiment introuvable : rien d'affiché ou un petit emplacement neutre, pas le texte
+ * “image intégrée non retrouvée” en gras au milieu de la signature. »
+ *
+ * 🔴 CE QUI CHANGE, ET CE QUI NE CHANGE PAS. Le mot reste — il est dans le `title`, donc au survol, et la marque
+ * `data-absente` le dit toujours au code. Ce qui disparaît, c'est le TEXTE DANS LA PAGE : un `alt` vide laisse un
+ * petit rectangle neutre, et la signature redevient lisible. On n'a pas cessé de le dire ; on a cessé de le crier.
  */
 export const MENTION_IMAGE_INTROUVABLE = 'image intégrée non retrouvée';
 
@@ -133,6 +237,14 @@ export function reecrireImages(
   o: {
     /** Les pièces du message, pour résoudre les `cid:`. Vide = on ne résout rien (le message n'en a aucune). */
     pieces?: readonly PieceIntegree[];
+    /**
+     * 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — LES PIÈCES DES AUTRES MESSAGES DE L'ÉCHANGE.
+     *
+     * Elles servent au second et au troisième temps de `resoudreCids` : un mail qui nous revient cite les images
+     * de NOTRE envoi sans les porter, et c'est là qu'elles sont. Absente ⇒ comportement d'avant ce lot, à la
+     * lettre : on ne cherche que dans le message.
+     */
+    conversation?: readonly PieceIntegree[];
     /** L'adresse de NOTRE route de pièce jointe, pour un `cid:` résolu. */
     piece: (pieceId: number) => string;
     /** L'adresse de NOTRE relais, pour la `rang`-ième image du document. `null` = on n'affiche pas l'image. */
@@ -148,6 +260,10 @@ export function reecrireImages(
   },
 ): string {
   const pieces = o.pieces ?? [];
+  /* 🔴 LA TABLE EST CALCULÉE UNE FOIS, AVANT LE PARCOURS : le troisième temps (le rang) a besoin de connaître
+     TOUTES les images non résolues du document pour décider s'il s'applique. Résoudre balise par balise ne
+     pourrait jamais le savoir. */
+  const table = resoudreCids(html, pieces, o.conversation ?? []);
   let rang = -1;
   return html.replace(/<img\b[^>]*>/gi, (balise) => {
     rang += 1;
@@ -156,10 +272,10 @@ export function reecrireImages(
 
     const cid = identifiantCid(src);
     if (cid !== null) {
-      const piece = pieceDuCid(cid, pieces);
-      return piece === null
-        ? marque(balise, MENTION_IMAGE_INTROUVABLE)
-        : remplacerSrc(balise, o.piece(piece.pieceId));
+      const pieceId = table.get(cid.trim().toLowerCase());
+      return pieceId === undefined
+        ? marqueNeutre(balise, MENTION_IMAGE_INTROUVABLE)
+        : remplacerSrc(balise, o.piece(pieceId));
     }
     if (estDistante(src)) {
       return o.relais === null ? marque(balise, 'image distante non affichée') : remplacerSrc(balise, o.relais(rang));
@@ -214,4 +330,23 @@ function marque(balise: string, mot: string): string {
     .replace(/\balt\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '')
     .replace(/\btitle\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '');
   return sans.replace(/^<img\b/i, `<img data-absente="1" alt="${mot}" title="${mot}"`);
+}
+
+/**
+ * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — LA MARQUE QUI NE SE LIT PAS DANS LA PAGE ════════════════════════════════
+ *
+ * La même marque que `marque`, à une chose près : l'`alt` est VIDE. Le navigateur ne peint donc aucun texte à
+ * l'emplacement de l'image — il reste un petit rectangle neutre —, tandis que le `title` garde le mot pour qui
+ * survole, et `data-absente` le garde pour le code (la visionneuse ne s'ouvre pas sur une image absente).
+ *
+ * 🔴 POURQUOI PAS RIEN DU TOUT. Arno laisse les deux (« rien d'affiché ou un petit emplacement neutre »). On
+ * garde l'emplacement parce qu'une signature a une mise en page : retirer la balise ferait sauter la ligne et
+ * donnerait l'impression d'un mail abîmé, ce qui est l'inverse du but.
+ */
+function marqueNeutre(balise: string, mot: string): string {
+  const sans = balise
+    .replace(/\bsrc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '')
+    .replace(/\balt\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '')
+    .replace(/\btitle\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i, '');
+  return sans.replace(/^<img\b/i, `<img data-absente="1" alt="" title="${mot}"`);
 }

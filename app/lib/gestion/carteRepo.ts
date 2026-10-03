@@ -441,9 +441,22 @@ export async function htmlPourLEcran(messageId: number, brut: string | null | un
   const propre = htmlAffichable(brut);
   if (propre === null) return null;
   // Les pièces ne sont lues que s'il y a un `cid:` à résoudre — la quasi-totalité des mails n'en a aucun.
-  const pieces = propre.toLowerCase().includes('cid:') ? await piecesIntegrees(messageId) : [];
+  const avecCid = propre.toLowerCase().includes('cid:');
+  const pieces = avecCid ? await piecesIntegrees(messageId) : [];
+  /**
+   * 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — ET LES PIÈCES DE L'ÉCHANGE, pour les `cid:` que ce message ne porte pas.
+   *
+   * Un mail qui nous revient cite les images de NOTRE envoi sans les emporter : Gmail garde les `<img src="cid:…">`
+   * du corps cité et laisse les parties chez lui. Elles sont alors dans un AUTRE message de la conversation, et
+   * c'est là qu'on va les chercher (voir `resoudreCids`).
+   *
+   * ⚠️ UNE SECONDE REQUÊTE, ET SEULEMENT S'IL Y A UN `cid:` — c'est-à-dire sur 64 messages de la base, pas sur
+   * 57 466. La quasi-totalité des mails ne paie rien.
+   */
+  const conversation = avecCid ? await piecesDeLaConversation(messageId) : [];
   return reecrireImages(propre, {
     pieces,
+    conversation,
     piece: (pieceId) => `/api/admin/gestion/pieces/${pieceId}`,
     relais: (rang) => `/api/admin/gestion/messages/${messageId}/image?rang=${rang}`,
     /**
@@ -457,9 +470,31 @@ export async function htmlPourLEcran(messageId: number, brut: string | null | un
 
 /** Les pièces d'un message, réduites à ce qui permet de résoudre un `cid:`. LECTURE SEULE. */
 async function piecesIntegrees(messageId: number): Promise<PieceIntegree[]> {
-  const { rows } = await query<{ id: number; nom_fichier: string }>(
-    `SELECT id::int AS id, nom_fichier FROM gestion_piece WHERE message_id = $1 ORDER BY id`, [messageId]);
-  return rows.map((r) => ({ pieceId: r.id, nomFichier: r.nom_fichier }));
+  const { rows } = await query<{ id: number; nom_fichier: string; type_mime: string | null }>(
+    `SELECT id::int AS id, nom_fichier, type_mime FROM gestion_piece WHERE message_id = $1 ORDER BY id`,
+    [messageId]);
+  return rows.map((r) => ({ pieceId: r.id, nomFichier: r.nom_fichier, typeMime: r.type_mime }));
+}
+
+/**
+ * ══ 🔴 LES PIÈCES DES **AUTRES** MESSAGES DE L'ÉCHANGE. LECTURE SEULE. ══════════════════════════════════════════
+ *
+ * ⚠️ « AUTRES » AU SENS STRICT : celles du message lui-même sont déjà passées au premier temps, et les laisser
+ * entrer ici les ferait compter deux fois parmi les candidates du rang — donc décaler tout le rapprochement.
+ *
+ * ⚠️ ORDONNÉES PAR (date du message, id de pièce) : c'est l'ordre dans lequel les images ont été écrites, donc
+ * celui du corps cité. Trier par id de pièce seul reviendrait presque au même, mais « presque » ne suffit pas
+ * quand on rapproche par position.
+ */
+async function piecesDeLaConversation(messageId: number): Promise<PieceIntegree[]> {
+  const { rows } = await query<{ id: number; nom_fichier: string; type_mime: string | null }>(
+    `SELECT p.id::int AS id, p.nom_fichier, p.type_mime
+       FROM gestion_piece p
+       JOIN gestion_message m ON m.id = p.message_id
+      WHERE m.fil_id = (SELECT fil_id FROM gestion_message WHERE id = $1)
+        AND p.message_id <> $1
+      ORDER BY m.recu_le ASC, m.id ASC, p.id ASC`, [messageId]);
+  return rows.map((r) => ({ pieceId: r.id, nomFichier: r.nom_fichier, typeMime: r.type_mime }));
 }
 
 /**
