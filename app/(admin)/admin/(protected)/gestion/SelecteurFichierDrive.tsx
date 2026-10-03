@@ -21,6 +21,11 @@ import {
   DUREE_ANNULATION_MS, empiler, estCoupe, estFichierSystemeMac, infobulleFichierSysteme, motColler,
   motMouvementFait, motProchaineAnnulation, MOT_FICHIER_SYSTEME, type PasAnnulable, type Presse,
 } from '../../../../lib/gestion/driveDeplacement';
+/**
+ * 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — « le statut Drive des pièces vient de changer », annoncé aux AUTRES écrans.
+ * Module sans I/O (aucun `pg`, aucun React) : importable d'ici sans risque pour le bundle du navigateur.
+ */
+import { annoncerPiecesDrive } from '../../../../lib/gestion/signalPieceDrive';
 // 🔴 LOT DRIVE-DEPLACER-RAPIDE — l'écran qui répond au lâcher, et qui sait se dédire. Module PUR.
 import {
   annuler as annulerLocalement, appliquer as appliquerLocalement, MOT_EN_COURS, motMouvementEnCours,
@@ -1328,6 +1333,49 @@ export function SelecteurFichierDrive({
    */
   const [comptesRanges, setComptesRanges] = useState<Map<string, number>>(new Map());
   const comptesDemandes = useRef<Set<string>>(new Set());
+  /**
+   * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LE TOUR DE RELECTURE DES COMPTEURS VERTS ═══════════════════════════════
+   *
+   * CONSTAT D'ARNO (03/10/2026, « test gigout.pdf ») : « après un glisser-déposer dans Test / Test creation
+   * dossier drive (✓ Rangée dans…), la vignette n'affiche pas la pastille verte ».
+   *
+   * 🔴 LA CAUSE, LUE DANS LE CODE : `comptesDemandes` (juste au-dessus) retient ce qui est DÉJÀ parti, pour qu'un
+   * rendu de la colonne ne relance pas une requête par vignette. Excellent — et définitif : une fois la clé
+   * dedans, le compteur n'était PLUS JAMAIS redemandé. La pastille restait donc à la valeur qu'elle avait à
+   * l'ouverture de la fenêtre, c'est-à-dire absente (0) pour une pièce qu'on n'avait pas encore rangée.
+   *
+   * 🔴 CE NUMÉRO EST LA SORTIE. Un geste retire sa clé du `Set` et incrémente ce numéro : l'effet repart, pour
+   * cette clé seulement. Rien n'est demandé deux fois sans raison, et plus rien n'est figé pour de bon.
+   */
+  const [versionComptes, setVersionComptes] = useState(0);
+
+  /**
+   * ══ 🔴🔴 « MISE À JOUR OPTIMISTE, PUIS RELECTURE SERVEUR » (ARNO, 03/10/2026) ═══════════════════════════════
+   *
+   * `bougerCompte` applique tout de suite ce qu'on SAIT du geste ; `relireComptes` redemande au serveur, qui
+   * tranche. Les deux temps, et pour la raison déjà mesurée au lot COMPTEURS : un quart de seconde d'immobilité
+   * se lit « il ne s'est rien passé », et c'est exactement la plainte à laquelle ce lot répond.
+   *
+   * ⚠️ JAMAIS SOUS ZÉRO : mieux vaut montrer 0 une demi-seconde — et laisser la relecture corriger — qu'un
+   * « −1 emplacement », qui ferait douter de tout l'écran.
+   */
+  const bougerCompte = (cle: string, delta: number): void => {
+    setComptesRanges((m) => new Map(m).set(cle, Math.max(0, (m.get(cle) ?? 0) + delta)));
+  };
+
+  /**
+   * REDEMANDE AU SERVEUR les compteurs désignés — ou TOUS quand on ne sait pas lesquels ont bougé.
+   *
+   * ⚠️ « TOUS » EST LE CAS D'UN GESTE SUR UN FICHIER DU DRIVE (corbeille, restauration, annulation) : l'écran ne
+   * sait pas de quelle pièce ce fichier est la copie — le registre le sait, lui. On redemande donc la colonne
+   * entière, ce qui coûte une lecture EN BASE par vignette, sur un geste rare et délibéré. Deviner le SENS aurait
+   * affiché un nombre faux, et un nombre faux est pire qu'un nombre qui attend 100 ms.
+   */
+  const relireComptes = (cles?: readonly string[]): void => {
+    if (cles === undefined) comptesDemandes.current.clear();
+    else for (const c of cles) comptesDemandes.current.delete(c);
+    setVersionComptes((v) => v + 1);
+  };
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
      🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LA LOUPE « OÙ EST CE DOCUMENT ? »
@@ -1582,6 +1630,18 @@ export function SelecteurFichierDrive({
         nombre: faits.length,
         origineNom: nomDuDossier(source) ?? 'son dossier d’origine',
       }));
+      /**
+       * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — UN DÉPLACEMENT NE CHANGE PAS LE NOMBRE, IL CHANGE LE CHEMIN ═════
+       *
+       * Un fichier déplacé reste UN emplacement : la pastille ne doit pas bouger, et c'est bien pour cela qu'on
+       * n'applique AUCUN delta ici. Mais le picto du mail, lui, annonce « Drive › … › dossier » : le chemin
+       * vient de changer, et un chemin faux envoie chercher un document là où il n'est plus.
+       *
+       * ⚠️ UNE COPIE, EN REVANCHE, CRÉE UN EMPLACEMENT. On ne devine pas lequel des deux gestes a touché quelle
+       * pièce (l'écran ne le sait pas) : on redemande, et le registre tranche.
+       */
+      relireComptes();
+      annoncerPiecesDrive();
       // ③ ET L'ON SE MET D'ACCORD AVEC LE DRIVE, SANS QUE L'ÉCRAN BOUGE.
       revaliderEnSilence([cibleId, source ?? '', dossierCourant?.id ?? '']);
     } catch {
@@ -1623,6 +1683,11 @@ export function SelecteurFichierDrive({
       if ((d.refuses ?? []).length > 0) {
         setErreur((d.refuses ?? []).map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
       }
+      /* 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — « “Annuler le dernier déplacement” […] fait redescendre le compteur »
+         (Arno). Le chemin du picto repart à sa place, et si le pas annulé avait fait naître ou disparaître un
+         emplacement, le registre le dit. On redemande ; on ne devine pas le sens. */
+      relireComptes();
+      annoncerPiecesDrive();
       revaliderEnSilence(retour === null ? [dossierCourant?.id ?? ''] : [retour.cible, retour.source ?? '']);
     } catch {
       if (retour !== null) marquerEnVol(retour.elements.map((e) => e.id), false);
@@ -1867,6 +1932,27 @@ export function SelecteurFichierDrive({
         n.set(piece.pieceId, { dossierId: cibleId, dossierNom: cibleNom, lien: r.lien ?? null });
         return n;
       });
+      /**
+       * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA PASTILLE VERTE BOUGE ICI, DANS LA SECONDE ════════════════════
+       *
+       * CONSTAT D'ARNO : « ✓ Rangée dans… s'affiche, mais la vignette n'affiche pas la pastille verte. »
+       *
+       * 🔴 `+1` SEULEMENT SUR UN VRAI DÉPÔT (`depose`). Un `deja` veut dire que cette pièce était DÉJÀ dans ce
+       * dossier : l'emplacement existait, il ne s'en crée pas un second (index unique `(piece_id,
+       * drive_dossier_id)`). Compter quand même aurait fait monter la pastille puis la faire redescendre à la
+       * relecture — un clignotement que personne ne saurait interpréter.
+       *
+       * 🔴 PUIS LA RELECTURE SERVEUR, qui tranche : elle lit le registre et l'index, et c'est elle la vérité.
+       */
+      if (r.etat === 'depose') bougerCompte(`piece:${piece.pieceId}`, 1);
+      relireComptes([`piece:${piece.pieceId}`]);
+      /**
+       * 🔴🔴 ET LES ÉCRANS QUI MONTRENT CETTE PIÈCE AILLEURS SONT PRÉVENUS — c'est la seconde moitié du constat
+       * d'Arno : « de retour dans le mail, la miniature n'a pas le picto cylindre ». Voir l'encadré de
+       * `signalPieceDrive` : le statut Drive des pièces est tenu à DEUX endroits indépendants (les cartes du mail
+       * et le récapitulatif de la conversation), et chacun n'était rafraîchi que par SA PROPRE fenêtre.
+       */
+      annoncerPiecesDrive([piece.pieceId]);
       /* 🔴 ON REVALIDE EN SILENCE, ON NE RECHARGE PLUS. `charger` vidait l'écran, remettait le défilement en haut
          et repassait par « chargement » — pour un dossier qu'on vient de mettre à jour ligne par ligne. La
          revalidation, elle, relit en arrière-plan et ne remplace que si l'on est toujours au même endroit. */
@@ -2884,6 +2970,17 @@ export function SelecteurFichierDrive({
         origineNom: cible.parentNom,
         sorte: 'corbeille',
       }));
+      /**
+       * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — « LA CORBEILLE FAIT REDESCENDRE LE COMPTEUR » (ARNO) ════════════
+       *
+       * 🔴 AUCUN DELTA DEVINÉ ICI, ET C'EST DÉLIBÉRÉ : l'écran ne sait pas de quelle(s) pièce(s) ce fichier est
+       * la copie — donc pas quelle pastille baisse. Le registre le sait, lui : la route vient de marquer la copie
+       * « disparue » et de retirer la ligne de l'index, et la relecture lit exactement cela. On redemande donc,
+       * sans rien inventer. Même raison que `DELTA` absent pour « un MAIL à la corbeille » au lot COMPTEURS :
+       * « un delta faux afficherait un chiffre qui saute, et c'est pire qu'un chiffre qui attend 150 ms ».
+       */
+      relireComptes();
+      annoncerPiecesDrive();
       revaliderEnSilence([dossierCourant?.id ?? '']);
     } catch {
       setErreur('Le Drive n’a pas répondu.');
@@ -2952,6 +3049,20 @@ export function SelecteurFichierDrive({
         n.set(v.cle, { dossierNom: cibleNom, lien: null, nb: (avant?.nb ?? 0) + 1 });
         return n;
       });
+      /**
+       * 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA PASTILLE DE LA VIGNETTE DUPLIQUÉE SUIT LE MÊME GESTE. Arno l'a
+       * nommée dans la liste des chemins : « glisser, “Déposer ici”, copie d'une vignette dupliquée ».
+       *
+       * ⚠️ `+1` SANS CONDITION ICI, et c'est exact : `files.copy` CRÉE un fichier à chaque appel — il n'existe
+       * pas de « déjà là » pour une copie, et c'est pourquoi la vignette se range « autant de fois que voulu ».
+       *
+       * ⚠️ LE SIGNAL PART SANS LISTE DE PIÈCES : ce fichier du Drive peut être la copie d'une pièce que nous
+       * connaissons, et l'écran ne sait pas laquelle. « On ne sait pas lesquelles » fait relire tout le monde —
+       * voir l'encadré de `concernePieces`.
+       */
+      bougerCompte(v.cle, 1);
+      relireComptes([v.cle]);
+      annoncerPiecesDrive();
       setBandeau({ mot: motCopieRangee(choisi === '' ? v.nom : choisi, cibleNom), mouvements: [] });
       // ⚠️ ON SE MET D'ACCORD AVEC LE DRIVE : la copie vient de naître dans la cible.
       revaliderEnSilence([cibleId, dossierCourant?.id ?? '']);
@@ -3088,13 +3199,22 @@ export function SelecteurFichierDrive({
           const res = await fetch(`/api/admin/gestion/drive/localiser?${d.adresse}&compte=1`, { cache: 'no-store' });
           const r = (await res.json()) as { etat?: string; nombre?: number };
           if (r.etat !== 'ok') continue;
+          /**
+           * 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA RELECTURE SERVEUR GAGNE, TOUJOURS. C'est elle la vérité (le
+           * registre et l'index), et la mise à jour optimiste n'a servi qu'à combler le temps de l'aller-retour.
+           * Même règle que les compteurs de la colonne (lot COMPTEURS) : « si les deux divergent, c'est la
+           * relecture qui gagne — elle vient de la même source que les listes ».
+           */
           setComptesRanges((m) => new Map(m).set(d.cle, r.nombre ?? 0));
         } catch { /* un compteur absent n'est pas une panne : la vignette s'affiche sans lui */ }
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `comptesDemandes` est une référence, pas un état :
-    //   seules la liste des pièces et celle des vignettes doivent déclencher une demande.
-  }, [mode, pieces, vignettes]);
+    /* ⚠️ `comptesDemandes` EST UNE RÉFÉRENCE, PAS UN ÉTAT : seules la liste des pièces, celle des vignettes et le
+       TOUR DE RELECTURE (`versionComptes`, lot PASTILLE-DRIVE-EN-DIRECT) doivent déclencher une demande.
+       ⚠️ LA DIRECTIVE `eslint-disable` QUI VIVAIT ICI A ÉTÉ RETIRÉE PAR CE LOT, et pas par distraction : la règle
+       `exhaustive-deps` ne demandait plus rien (ESLint la signalait comme « directive inutilisée »). Garder une
+       dérogation qui ne déroge à rien fait croire qu'une règle est tenue en échec alors qu'elle est satisfaite. */
+  }, [mode, pieces, vignettes, versionComptes]);
 
   /**
    * 🔴🔴 LA PHRASE QUI DIT CE QU'ON A CHERCHÉ, ET CE QU'ON N'A PAS CHERCHÉ. Elle vit dans le module PUR, et elle
@@ -3122,6 +3242,11 @@ export function SelecteurFichierDrive({
       if ((d.refuses ?? []).length > 0) {
         setErreur((d.refuses ?? []).map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
       }
+      /* 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LE RETOUR FAIT REMONTER LE COMPTEUR. La route vient de lever la marque
+         « disparue » au registre et dans l'index ; sans cette relecture, la pastille resterait éteinte sur un
+         document parfaitement revenu — un compteur qui ne sait que baisser finit à zéro et ne dit plus rien. */
+      relireComptes();
+      annoncerPiecesDrive();
       revaliderEnSilence([dossierCourant?.id ?? '']);
     } catch {
       setErreur('Le Drive n’a pas répondu.');

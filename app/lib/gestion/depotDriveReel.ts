@@ -68,6 +68,24 @@ export function depsReellesDepot(lire?: LecteurDossier): DepsDepot {
     depotExistant: lireDepotExistant,
     deposer: (jeton, o) => deposerFichier(jeton, o, { fetch }),
     memoriser: memoriserDepot,
+    /**
+     * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — L'INDEX DES EMPREINTES, ALIMENTÉ PAR LE DÉPÔT LUI-MÊME ════════════
+     *
+     * C'est la MÊME fonction que le balayage de fond et que chaque dossier ouvert dans la fenêtre
+     * (`noterFichiersVus`, `empreinteDriveRepo`) — pas une seconde écriture. Son `ON CONFLICT … DO UPDATE` fait
+     * que revoir le fichier plus tard par `changes.list` ne contredit rien : il remet la même ligne à jour.
+     *
+     * 🔒 ELLE N'ÉCRIT RIEN DANS LE DRIVE, et c'est une propriété de son code : `empreinteDriveRepo` n'importe
+     * aucun module Drive et n'émet aucun `fetch` — un garde statique le vérifie. Elle range des métadonnées
+     * qu'on vient de recevoir.
+     *
+     * ⚠️ `est_dossier: false` EN DUR, ET C'EST EXACT : une pièce jointe déposée est un FICHIER. Le dépôt ne crée
+     * jamais de dossier (c'est `creerDossier`, ailleurs, et sous son propre garde-fou).
+     */
+    noterAuIndex: async (l) => {
+      const { noterFichiersVus } = await import('./empreinteDriveRepo');
+      await noterFichiersVus([{ ...l, estDossier: false }]);
+    },
     infosDossier: async (jeton: string, dossierId: string) => {
       const d = await (lire ? lire(dossierId) : lireDossier(jeton, dossierId, { fetch }));
       // Un nom illisible n'empêche PAS de déposer : on perdrait le confort d'afficher « dossier X », pas le geste.

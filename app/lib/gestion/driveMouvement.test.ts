@@ -169,3 +169,57 @@ describe('🔴 aucune porte dérobée dans driveMouvement', () => {
     expect(code).not.toMatch(/--force|forcer|ignorerGarde|sansGarde|bypass/i);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — `files.copy` RAPPORTE L'EMPREINTE DE LA COPIE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   🔴 POURQUOI CETTE VOIE COMPTE AUTANT QUE L'AUTRE. Depuis le lot RANGER-INSTANTANE-ET-NOM, `files.copy` est la
+   voie ORDINAIRE du rangement d'une pièce : presque toutes ont déjà une copie dans « 00 Arrivée des mails », et
+   copier de dossier à dossier ne fait transiter aucun octet. Si elle ne rapportait pas son `md5Checksum` là où
+   `deposerFichier` rapporte le sien, la même pièce entrerait au registre AVEC son empreinte par un chemin et SANS
+   elle par l'autre — selon qu'une copie d'arrivée existe ou non.
+
+   ⚠️ UN DÉPLACEMENT, LUI, NE CRÉE RIEN : il n'a aucune métadonnée neuve à faire entrer dans l'index, et il n'en
+   demande pas. C'est éprouvé en négatif ci-dessous.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 copier — les métadonnées de la copie', () => {
+  const COPIE = {
+    id: 'C1', name: 'bail.pdf', parents: ['CIBLE'], webViewLink: 'https://drive/C1',
+    md5Checksum: '7b2364ff4527e7a55365f506f98bf888', size: '4096',
+    mimeType: 'application/pdf', modifiedTime: '2026-10-03T19:37:35.000Z', driveId: 'DRV',
+  };
+
+  it('🔴🔴 elle les DEMANDE, et elle les rend', async () => {
+    const { deps, appels } = faux(COPIE);
+    const r = await copierFichier('j', { id: 'F1', parentCible: 'CIBLE' }, deps);
+    expect(appels[0].url).toContain('md5Checksum');
+    expect(r.ok && r.valeur).toMatchObject({
+      id: 'C1', md5: COPIE.md5Checksum, tailleOctets: 4096,
+      typeMime: 'application/pdf', modifieLe: COPIE.modifiedTime, driveId: 'DRV',
+    });
+  });
+
+  /** ⚠️ `size` EN CHAÎNE : illisible ⇒ `null`, jamais `NaN` — qui ferait échouer l'`INSERT` du registre. */
+  it('⚠️ une taille illisible rend `null`, jamais `NaN`', async () => {
+    const { deps } = faux({ ...COPIE, size: 'beaucoup' });
+    const r = await copierFichier('j', { id: 'F1', parentCible: 'CIBLE' }, deps);
+    expect(r.ok && r.valeur.tailleOctets).toBeNull();
+  });
+
+  /** ⚠️ UN DOCUMENT GOOGLE NATIF N'A PAS D'EMPREINTE : `null`, et la copie réussit quand même. */
+  it('⚠️ pas d’empreinte ⇒ `null`, et la copie réussit', async () => {
+    const { deps } = faux({ id: 'C1', name: 'a', parents: ['CIBLE'] });
+    const r = await copierFichier('j', { id: 'F1', parentCible: 'CIBLE' }, deps);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.valeur.md5).toBeNull();
+  });
+
+  /** 🔴 LE DÉPLACEMENT NE DEMANDE RIEN DE TOUT CELA : il ne crée aucun fichier. */
+  it('🔴 un déplacement ne demande pas d’empreinte', async () => {
+    const { deps, appels } = faux({ id: 'F1', name: 'bail.pdf', parents: ['CIBLE'] });
+    await deplacerVers('j', { id: 'F1', parentOrigine: 'SOURCE', parentCible: 'CIBLE' }, deps);
+    expect(appels[0].url).not.toContain('md5Checksum');
+  });
+});

@@ -85,6 +85,9 @@ import { InfoBien, CSS_INFO_BIEN } from './InfoBien';
 import {
   dossierDeLEmplacement, type EmplacementPiece, type StatutPieceDrive,
 } from '../../../../lib/gestion/pieceDansLeDrive';
+/* 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — « le picto cylindre et son menu d'emplacements apparaissent sans
+   rechargement » (Arno). Le récapitulatif des pièces s'abonne au même signal que les cartes du mail. */
+import { ecouterPiecesDrive } from '../../../../lib/gestion/signalPieceDrive';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
 /**
@@ -467,6 +470,24 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const piecesRegardees = recapPieces || pieceVue !== null;
   useEffect(() => { if (piecesRegardees) void relireDepotsFil(); }, [piecesRegardees, relireDepotsFil]);
+
+  /**
+   * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LE RÉCAPITULATIF RELIT, LUI AUSSI, QUAND UNE AUTRE FENÊTRE A RANGÉ ═════
+   *
+   * L'autre moitié du constat d'Arno : ranger depuis la carte d'une pièce DANS le mail laissait le récapitulatif
+   * « Pièces jointes de la conversation » sur son image d'avant, exactement comme l'inverse laissait la carte du
+   * mail sur la sienne. Deux caches indépendants, chacun rafraîchi par sa seule fenêtre.
+   *
+   * ⚠️ ON NE RELIT QUE SI L'UNE DES DEUX FENÊTRES DE PIÈCES EST OUVERTE : le reste du temps, cette lecture ne sert
+   * à rien — c'est déjà la règle de l'effet juste au-dessus, et elle ne change pas.
+   *
+   * ⚠️ SANS FILTRE SUR LES PIÈCES, et c'est voulu : la lecture porte sur TOUT l'échange (`/fils/[id]/pieces-drive`),
+   * donc n'importe quelle pièce de n'importe lequel de ses messages la concerne.
+   */
+  useEffect(() => {
+    if (!piecesRegardees) return undefined;
+    return ecouterPiecesDrive(() => { void relireDepotsFil(); });
+  }, [piecesRegardees, relireDepotsFil]);
 
   /**
    * @param o.silencieux LOT RANGER-INSTANTANE-ET-NOM — relire SANS vider l'écran.
@@ -1661,10 +1682,16 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
            * ⚠️ LE FIL N'EST RELU QUE SI UN NOM A VRAIMENT CHANGÉ. Le relire à chaque rangement ferait une requête
            * de plus sur le geste le plus courant, pour un cas qui n'arrive que quand on a touché au stylo.
            */
-          onRangement={(o) => {
-            void relireDepotsFil();
-            if (o?.nomChange === true) void recharger({ silencieux: true });
-          }}
+          /**
+           * 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA RELECTURE DU STATUT PASSE PAR LE SIGNAL, ET PAR LUI SEUL (voir
+           * l'effet d'abonnement plus haut). Elle était ici, et nulle part ailleurs : c'est pour cela que les
+           * cartes du mail et ce récapitulatif ne se rafraîchissaient pas l'un l'autre.
+           *
+           * ⚠️ `nomChange` RESTE ICI : c'est une AUTRE information, et elle demande de relire le FIL, pas le
+           * statut Drive. Le fil n'est relu que si un nom a VRAIMENT changé — le relire à chaque rangement ferait
+           * une requête de plus sur le geste le plus courant.
+           */
+          onRangement={(o) => { if (o?.nomChange === true) void recharger({ silencieux: true }); }}
           onFermer={() => setRangerPiece(null)} />
       )}
 

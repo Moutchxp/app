@@ -12,9 +12,11 @@
 import { query } from '../db/client';
 import { nombreRecentsValide, RECENTS_DEFAUT, type CandidatRecent } from './dossiersRecents';
 import {
-  compteGoogleDuDepotDisponible, depotsDriveDisponibles, journalPieceDriveDisponible, nomDeposeDisponible,
-  reglageRecentsDisponible,
+  compteGoogleDuDepotDisponible, copiePiecesDisponible, depotsDriveDisponibles, journalPieceDriveDisponible,
+  nomDeposeDisponible, reglageRecentsDisponible,
 } from './schema';
+// 🔴 LOT PASTILLE-DRIVE-EN-DIRECT — la MÊME normalisation d'empreinte que l'index (module PUR).
+import { empreinteNormalisee } from './indexEmpreintesDrive';
 
 /** Un dépôt, tel que l'écran l'affiche : « Dans le Drive · ouvrir », avec le nom du dossier. */
 export interface DepotDrive {
@@ -193,6 +195,27 @@ export interface ADeposer {
    * ⚠️ SANS LA MIGRATION 280, la colonne n'est NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant.
    */
   nomDepose?: string | null;
+  /**
+   * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — L'EMPREINTE DE LA COPIE, ÉCRITE AU DÉPÔT ════════════════════════════
+   *
+   * DEMANDE D'ARNO (03/10/2026) : « enregistrer IMMÉDIATEMENT la copie (fileId, md5, parents, nom) au registre
+   * et dans l'index ».
+   *
+   * 🔴 LA COLONNE EXISTAIT DEPUIS LA MIGRATION 255, ET SEULE LA COPIE AUTOMATIQUE LA REMPLISSAIT
+   * (`enregistrerCopie`, `copiePiecesReel.ts`). Un rangement à la main écrivait donc une ligne à `md5` NULL —
+   * vérifié en base sur le cas d'Arno : `gestion_piece_drive` id 26554, déposée le 03/10 à 21:37:35, `md5` vide.
+   *
+   * 🔴 CE QUE CELA COÛTAIT. `fichiersDriveDeLaPiece` et `emplacementsDesPieces` cherchent « le même contenu »
+   * par `lower(d.md5)` : une copie sans empreinte n'est retrouvée que par son lien `piece_id`. La MÊME pièce
+   * revenue plus tard sous un autre nom — c'est-à-dire tout le lot EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE — ne
+   * pouvait donc PAS reconnaître notre propre copie avant que l'agent `changes.list` n'ait indexé le fichier.
+   *
+   * ⚠️ SANS LA MIGRATION 255, LA COLONNE N'EST NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant ce
+   * lot — même règle que `compte_google` et `nom_depose` ci-dessus, et pour la même raison.
+   * ⚠️ `null` EST NORMAL : un document Google natif n'a pas d'empreinte. On n'écrit alors rien, plutôt qu'une
+   * chaîne vide qui s'apparierait avec les autres chaînes vides.
+   */
+  md5?: string | null;
 }
 
 /** Ce que l'écriture rapporte. `doublon` = la base a refusé : le fichier était déjà là, et c'est une bonne nouvelle. */
@@ -221,10 +244,17 @@ export async function memoriserDepot(d: ADeposer): Promise<IssueMemorisation> {
      n'est NOMMÉE NULLE PART, sinon la requête entière échouerait alors que le dépôt a bien eu lieu dans le Drive. */
   const nomDepose = (d.nomDepose ?? '').trim();
   const avecNom = nomDepose !== '' && await nomDeposeDisponible();
+  /* 🔴 LOT PASTILLE-DRIVE-EN-DIRECT — l'empreinte, sous la sonde de la migration 255 (`copiePiecesDisponible`
+     sonde `verifie_le`, créée par la MÊME migration que `md5` : elles arrivent ensemble). Normalisée par le
+     module PUR de l'index, pour que les deux côtés de la comparaison soient écrits une seule fois. */
+  const md5 = empreinteNormalisee(d.md5);
+  const avecMd5 = md5 !== null && await copiePiecesDisponible();
   const colonnes = ['piece_id', 'drive_file_id', 'drive_dossier_id', 'dossier_nom', 'drive_id', 'web_view_link',
-    'depose_par', 'depose_par_libelle', ...(avecCompte ? ['compte_google'] : []), ...(avecNom ? ['nom_depose'] : [])];
+    'depose_par', 'depose_par_libelle', ...(avecCompte ? ['compte_google'] : []), ...(avecNom ? ['nom_depose'] : []),
+    ...(avecMd5 ? ['md5'] : [])];
   const valeurs: unknown[] = [d.pieceId, d.driveFileId, d.dossierId, d.dossierNom, d.driveId, d.webViewLink,
-    d.auteurId, d.auteurLibelle, ...(avecCompte ? [d.compteGoogle ?? null] : []), ...(avecNom ? [nomDepose] : [])];
+    d.auteurId, d.auteurLibelle, ...(avecCompte ? [d.compteGoogle ?? null] : []), ...(avecNom ? [nomDepose] : []),
+    ...(avecMd5 ? [md5] : [])];
   const { rowCount } = await query(
     `INSERT INTO gestion_piece_drive
        (${colonnes.join(', ')})

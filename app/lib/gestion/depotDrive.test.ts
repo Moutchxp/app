@@ -425,3 +425,99 @@ describe('🔴 le nom sous lequel la copie part', () => {
     expect(d2.deposes).toEqual(['piece-1.pdf']);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA COPIE ENTRE AU REGISTRE *ET* DANS L'INDEX, TOUT DE SUITE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (03/10/2026) : « à chaque dépôt réussi (glisser, “Déposer ici”, copie d'une vignette dupliquée),
+   enregistrer IMMÉDIATEMENT la copie (fileId, md5, parents, nom) au registre et dans l'index ».
+
+   🔴 CE QU'ON ATTENDAIT AVANT : l'agent `launchd` qui tient l'index à jour par `changes.list`. MESURÉ sur le cas
+   d'Arno (pièce 27085, « test gigout.pdf ») : dépôt confirmé à 21:37:35, entrée dans `gestion_drive_empreinte` à
+   21:50:12 — 12 min 37 s pendant lesquelles le document était dans le Drive et l'application ne savait pas le
+   reconnaître par son contenu.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 l’index des empreintes, alimenté par le dépôt', () => {
+  const META = {
+    md5: '7b2364ff4527e7a55365f506f98bf888', parentId: 'DOS', tailleOctets: 4096,
+    typeMime: 'application/pdf', modifieLe: '2026-10-03T19:37:35.000Z', driveId: 'DRV',
+  };
+  /** Un dépôt qui rapporte ses métadonnées, comme `deposerFichier` et `files.copy` le font depuis ce lot. */
+  const avecMeta = (): DepsDepot['deposer'] =>
+    async (_j, x) => ({ ok: true, valeur: { id: 'F1', nom: x.nom, webViewLink: 'https://drive/F1', ...META } });
+
+  it('🔴🔴 l’empreinte part au REGISTRE', async () => {
+    const vus: unknown[] = [];
+    const d = deps({ depot: avecMeta(), memoriser: async (x) => { vus.push(x); return { etat: 'enregistre' }; } });
+    await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(vus[0]).toMatchObject({ pieceId: 1, driveFileId: 'F1', md5: META.md5 });
+  });
+
+  it('🔴🔴 et la copie entre dans l’INDEX, avec son parent réel et son nom', async () => {
+    const indexes: unknown[] = [];
+    const d = { ...deps({ depot: avecMeta() }), noterAuIndex: async (l: unknown) => { indexes.push(l); } };
+    await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(indexes).toHaveLength(1);
+    expect(indexes[0]).toEqual({
+      driveFileId: 'F1', md5: META.md5, nom: 'piece-1.pdf', parentId: 'DOS', driveId: 'DRV',
+      typeMime: 'application/pdf', tailleOctets: 4096, modifieLe: META.modifieLe,
+    });
+  });
+
+  /**
+   * 🔴 LE PARENT VIENT DE GOOGLE, et `dossierId` n'est qu'un REPLI. Les deux coïncident normalement — mais
+   * inventer un parent ferait tracer un chemin faux dans l'index, et un chemin faux envoie chercher un document
+   * là où il n'est pas.
+   */
+  it('🔴 sans parent rendu par Google, le dossier visé sert de repli', async () => {
+    const indexes: { parentId: string | null }[] = [];
+    const d = {
+      ...deps({ depot: async (_j, x) => ({ ok: true, valeur: { id: 'F1', nom: x.nom, webViewLink: null } }) }),
+      noterAuIndex: async (l: { parentId: string | null }) => { indexes.push(l); },
+    };
+    await deposerPieces(d, 'jeton', [1], 'CIBLE', AUTEUR);
+    expect(indexes[0].parentId).toBe('CIBLE');
+  });
+
+  /**
+   * 🔴🔴 AU MIEUX-EFFORT : UN INDEX EN ÉCHEC NE FAIT PAS RATER LE DÉPÔT. Le fichier EST dans le Drive — dire le
+   * dépôt raté parce qu'on n'a pas su rafraîchir un reflet enverrait le déposer une seconde fois. Même règle que
+   * `consignerNomDuDepot` et que le journal de `memoriserDepot`.
+   */
+  it('🔴🔴 un index en échec ne change RIEN au verdict du dépôt', async () => {
+    const d = {
+      ...deps({ depot: avecMeta() }),
+      noterAuIndex: async () => { throw new Error('base indisponible'); },
+    };
+    const i = await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['depose']);
+  });
+
+  /** ⚠️ UN APPELANT SANS `noterAuIndex` (doublure, ou code d'avant ce lot) se comporte exactement comme avant. */
+  it('⚠️ `noterAuIndex` absent : comportement d’avant ce lot', async () => {
+    const i = await deposerPieces(deps({ depot: avecMeta() }), 'jeton', [1], 'DOS', AUTEUR);
+    expect(etats(i)).toEqual(['depose']);
+  });
+
+  /**
+   * ⚠️ ET LA VOIE `files.copy` RAPPORTE AUSSI SON EMPREINTE. C'est la voie ORDINAIRE depuis le lot
+   * RANGER-INSTANTANE-ET-NOM : la laisser muette aurait fait entrer la même pièce au registre avec son empreinte
+   * par un chemin et sans elle par l'autre.
+   */
+  it('⚠️ la copie Drive → Drive indexe aussi', async () => {
+    const indexes: { md5: string | null }[] = [];
+    const d = {
+      ...deps({
+        pieces: { 1: { nomFichier: 'a.pdf', typeMime: null, cleStockage: 'k1', stockageVide: true, driveFileId: 'SRC' } },
+        copier: async (_j, x) => ({
+          ok: true, valeur: { id: 'C1', nom: x.nom, webViewLink: null, md5: META.md5, parentId: x.dossierId },
+        }),
+      }),
+      noterAuIndex: async (l: { md5: string | null }) => { indexes.push(l); },
+    };
+    await deposerPieces(d, 'jeton', [1], 'DOS', AUTEUR);
+    expect(indexes[0]?.md5).toBe(META.md5);
+  });
+});

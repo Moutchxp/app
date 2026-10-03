@@ -28,6 +28,13 @@ import { CSS_PICTO_DANS_LE_DRIVE, PictoDansLeDrive } from './PictoDansLeDrive';
 import {
   dossierDeLEmplacement, emplacementsDe, type EmplacementPiece, type StatutPieceDrive,
 } from '../../../../lib/gestion/pieceDansLeDrive';
+/**
+ * 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — « au retour dans le mail […] le picto cylindre et son menu d'emplacements
+ * apparaissent sans rechargement » (Arno). Voir l'encadré de `signalPieceDrive` : ce composant est monté AUTANT DE
+ * FOIS qu'il y a de messages dépliés, et dans trois écrans (la conversation, l'historique d'une cible, la vie d'un
+ * bien). Chacun tient son propre `statuts`, et aucun ne pouvait savoir qu'une autre fenêtre venait de ranger.
+ */
+import { concernePieces, ecouterPiecesDrive } from '../../../../lib/gestion/signalPieceDrive';
 
 /**
  * LOT 5-PJ-A — LES PIÈCES JOINTES, COMME DANS GMAIL. Composant PARTAGÉ : un seul endroit rend les pièces, partout où
@@ -158,6 +165,31 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
 
   useEffect(() => { void relireDepots(); void relireGoogle(); }, [relireDepots, relireGoogle]);
 
+  /**
+   * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — ON RELIT QUAND UNE AUTRE FENÊTRE A RANGÉ ═══════════════════════════════
+   *
+   * CONSTAT D'ARNO (03/10/2026) : « de retour dans le mail, la miniature n'a pas le picto cylindre ».
+   *
+   * 🔴 LA CAUSE, LUE DANS LE CODE : `onRangement` ne prévenait QUE le composant qui avait ouvert la fenêtre. Ranger
+   * depuis le récapitulatif « Pièces jointes de la conversation » laissait donc les cartes du mail sur leur image
+   * d'avant — et inversement. MESURÉ EN BASE : la ligne du registre existait bien
+   * (`gestion_piece_drive` id 26554, pièce 27085, déposée à 21:37:35). Le serveur savait ; l'écran ne lui avait
+   * rien redemandé.
+   *
+   * ⚠️ ON NE RELIT QUE SI LE SIGNAL NOUS CONCERNE. Une conversation peut avoir douze messages dépliés, donc douze
+   * instances de ce composant : les faire toutes relire pour une pièce qui n'appartient qu'à l'une d'elles ferait
+   * douze requêtes au lieu d'une. Le signal nomme les pièces touchées quand il les connaît ; quand il ne les
+   * connaît pas (un geste sur un FICHIER du Drive), tout le monde relit — c'est la bonne réponse, et c'est rare.
+   *
+   * ⚠️ LA CLÉ DES DÉPENDANCES EST UNE CHAÎNE, pas le tableau : `vraies` et `signatures` sont recréés à chaque
+   * rendu du parent, et un tableau en dépendance réabonnerait l'auditeur à chaque fois.
+   */
+  const clePieces = [...vraies, ...signatures].map((p) => p.pieceId).join(',');
+  useEffect(() => {
+    const miennes = clePieces === '' ? [] : clePieces.split(',').map(Number);
+    return ecouterPiecesDrive((s) => { if (concernePieces(s, miennes)) void relireDepots(); });
+  }, [clePieces, relireDepots]);
+
   if (vraies.length === 0 && signatures.length === 0) return null;
   const depotDe = (pieceId: number): DepotAffiche | undefined => depots.find((d) => d.pieceId === pieceId);
   // LOT 5-PJ-C2 — il n'y a PLUS AUCUN GESTE à proposer : soit l'accès fonctionne au nom de l'adresse de session,
@@ -208,10 +240,17 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
           messageId={messageId}
           filId={filId ?? null}
           pieces={aRanger(demande, vraies, signatures)}
-          onRangement={(o) => {
-            void relireDepots();
-            if (o?.nomChange === true) onNomChange?.();
-          }}
+          /**
+           * 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA RELECTURE DU STATUT PASSE DÉSORMAIS PAR LE SIGNAL, ET PAR LUI
+           * SEUL. Elle était ici (`void relireDepots()`) ET nulle part ailleurs : c'est exactement pour cela que
+           * le récapitulatif et les cartes du mail ne se rafraîchissaient pas l'un l'autre. Deux chemins pour la
+           * même relecture auraient fait deux requêtes sur le geste le plus courant — et le jour où l'un des deux
+           * serait oublié, on chercherait longtemps lequel.
+           *
+           * ⚠️ `nomChange` RESTE ICI, et c'est une AUTRE information : le nom d'usage de la pièce vient de
+           * changer, donc le FIL doit être relu. Le signal, lui, ne parle que du statut Drive.
+           */
+          onRangement={(o) => { if (o?.nomChange === true) onNomChange?.(); }}
           onFermer={() => setDemande(null)}
         />
       )}

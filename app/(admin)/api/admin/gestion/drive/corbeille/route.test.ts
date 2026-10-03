@@ -36,6 +36,15 @@ const basculerMock = vi.fn();
 const inscrireMock = vi.fn();
 const annulablesMock = vi.fn();
 const marquerMock = vi.fn();
+/**
+ * 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LE REFLET EN BASE DU GESTE. La route marque la copie « disparue » au
+ * registre et retire la ligne de l'index : c'est ce qui fait descendre le compteur vert et éteindre le picto du
+ * mail. Les quatre écritures sont doublées pour être OBSERVÉES — jamais pour être supposées.
+ */
+const copieDisparueMock = vi.fn();
+const copieRevenueMock = vi.fn();
+const indexDisparusMock = vi.fn();
+const indexRevusMock = vi.fn();
 
 vi.mock('../../../../../../lib/admin/garde', () => ({
   exigerCompteActif: (...a: unknown[]) => gardeMock(...a),
@@ -70,8 +79,16 @@ vi.mock('../../../../../../lib/gestion/driveMouvementRepo', () => ({
   mouvementsAnnulables: (...a: unknown[]) => annulablesMock(...a),
   marquerAnnule: (...a: unknown[]) => marquerMock(...a),
 }));
+vi.mock('../../../../../../lib/gestion/nomUsageRepo', () => ({
+  marquerCopieDisparue: (...a: unknown[]) => copieDisparueMock(...a),
+  marquerCopieRevenue: (...a: unknown[]) => copieRevenueMock(...a),
+}));
+vi.mock('../../../../../../lib/gestion/empreinteDriveRepo', () => ({
+  noterFichiersDisparus: (...a: unknown[]) => indexDisparusMock(...a),
+  noterFichiersRevus: (...a: unknown[]) => indexRevusMock(...a),
+}));
 
-import { GET, POST } from './route';
+import { GET, POST, MOTIF_CORBEILLE_OUTIL } from './route';
 
 /**
  * L'ARBORESCENCE D'ESSAI :
@@ -150,6 +167,12 @@ beforeEach(() => {
   basculerMock.mockResolvedValue({ ok: true, valeur: { id: 'x', nom: 'x', aLaCorbeille: true } });
   inscrireMock.mockResolvedValue(42);
   annulablesMock.mockResolvedValue([]);
+  // 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — le reflet en base rend « rien n'a changé » par défaut : les épreuves qui
+  //   s'y intéressent l'observent, les autres ne doivent pas en dépendre.
+  copieDisparueMock.mockResolvedValue(false);
+  copieRevenueMock.mockResolvedValue(false);
+  indexDisparusMock.mockResolvedValue(0);
+  indexRevusMock.mockResolvedValue(0);
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -394,3 +417,88 @@ function beforeEachMocks(): void {
   });
   inscrireMock.mockResolvedValue(42);
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LE REGISTRE ET L'INDEX SUIVENT LE GESTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (03/10/2026) : « “Annuler le dernier déplacement” et la corbeille font redescendre le compteur ».
+
+   🔴 ET POUR QUE LE COMPTEUR PUISSE DESCENDRE, IL FAUT QUE LA BASE LE SACHE. Le compteur vert et le picto du mail
+   lisent `gestion_piece_drive` et `gestion_drive_empreinte` en écartant ce qui porte `disparu_le` ; cette route
+   mettait un fichier à la corbeille chez Google sans jamais le dire ni à l'un ni à l'autre. La pastille annonçait
+   donc un emplacement où l'on n'irait plus rien trouver — jusqu'au passage de l'agent `changes.list`, mesuré à
+   plus de douze minutes sur le cas d'Arno.
+
+   🔒 ET AUCUNE ÉCRITURE DRIVE DE PLUS : les deux appels ne touchent que NOTRE base.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le reflet en base', () => {
+  it('🔴🔴 une mise à la corbeille marque la copie « disparue » et retire la ligne de l’index', async () => {
+    const r = await jeter('bail');
+    expect(r.status).toBe(200);
+    expect(copieDisparueMock).toHaveBeenCalledWith('bail', MOTIF_CORBEILLE_OUTIL);
+    expect(indexDisparusMock).toHaveBeenCalledWith(['bail']);
+    // ⚠️ ET SURTOUT PAS L'INVERSE : rien ne doit « revenir » sur une mise à la corbeille.
+    expect(copieRevenueMock).not.toHaveBeenCalled();
+    expect(indexRevusMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴 LE MOTIF DIT QUE C'EST NOTRE GESTE, et non une suppression subie. Les deux ne se réparent pas pareil, et
+   * le journal doit permettre de les distinguer — même raison que les deux motifs de `motifDisparition`, qui
+   * séparent le 404 du 403.
+   */
+  it('🔴 le motif dit que c’est notre geste', () => {
+    expect(MOTIF_CORBEILLE_OUTIL).toContain('corbeille');
+    expect(MOTIF_CORBEILLE_OUTIL).toContain('application');
+  });
+
+  /**
+   * 🔴🔴 ET LE RETOUR LÈVE LA MARQUE. Un compteur qui ne sait que baisser finit à zéro et ne dit plus rien : une
+   * mise à la corbeille annulée dans la seconde éteindrait la pastille pour toujours, sur un document
+   * parfaitement présent.
+   */
+  it('🔴🔴 une restauration lève la marque, des DEUX côtés', async () => {
+    ALA_CORBEILLE.add('bail');
+    annulablesMock.mockResolvedValue([
+      { id: 44, action: 'corbeille', driveId: 'bail', nom: 'bail.pdf', parentOrigine: 'travaux', parentCible: '', copieDriveId: null },
+    ]);
+    const r = await POST(demande({ action: 'restaurer', mouvements: [44] }));
+    expect(r.status).toBe(200);
+    expect(copieRevenueMock).toHaveBeenCalledWith('bail');
+    expect(indexRevusMock).toHaveBeenCalledWith(['bail']);
+    expect(copieDisparueMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴🔴 UN REFUS N'ÉCRIT RIEN. Marquer « disparue » une copie qu'on n'a PAS retirée l'effacerait du registre
+   * alors qu'elle est bien là — et on ne la retrouverait plus jamais. C'est la faute à ne pas commettre, et c'est
+   * la raison pour laquelle le reflet ne porte que sur les fichiers RÉELLEMENT basculés (`faits`).
+   */
+  it('🔴🔴 un fichier REFUSÉ n’est marqué nulle part', async () => {
+    const r = await jeter('aF'); // sous « Documents clients scannés » : refusé par le verdict
+    const d = (await r.json()) as { faits: unknown[]; refuses: unknown[] };
+    expect(d.faits).toHaveLength(0);
+    expect(d.refuses).toHaveLength(1);
+    expect(basculerMock).not.toHaveBeenCalled();
+    expect(copieDisparueMock).not.toHaveBeenCalled();
+    expect(indexDisparusMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ⚠️ AU MIEUX-EFFORT, ET JAMAIS ATTENDU PAR LE VERDICT. Le fichier EST à la corbeille chez Google : refuser le
+   * geste parce qu'on n'a pas su mettre notre reflet à jour laisserait un document retiré ET une route en échec,
+   * c'est-à-dire la pire des deux situations.
+   */
+  it('⚠️ une base muette ne fait pas échouer le geste', async () => {
+    const erreur = vi.spyOn(console, 'error').mockImplementation(() => {});
+    copieDisparueMock.mockRejectedValue(new Error('base indisponible'));
+    indexDisparusMock.mockRejectedValue(new Error('base indisponible'));
+    const r = await jeter('bail');
+    expect(r.status).toBe(200);
+    const d = (await r.json()) as { faits: unknown[] };
+    expect(d.faits).toHaveLength(1);
+    erreur.mockRestore();
+  });
+});

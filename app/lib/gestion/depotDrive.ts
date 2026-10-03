@@ -72,6 +72,27 @@ export interface DepsDepot {
    */
   copierDepuisDrive?(jeton: string, o: { driveFileId: string; nom: string; dossierId: string }): Promise<Resultat<FichierDepose>>;
   memoriser(d: ADeposer): Promise<IssueMemorisation>;
+  /**
+   * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA COPIE ENTRE DANS L'INDEX DES EMPREINTES, TOUT DE SUITE ═══════════
+   *
+   * DEMANDE D'ARNO (03/10/2026) : « à chaque dépôt réussi […] enregistrer IMMÉDIATEMENT la copie (fileId, md5,
+   * parents, nom) au registre ET dans l'index ».
+   *
+   * 🔴 CE QU'ON ATTENDAIT AVANT : l'agent `launchd` qui tient l'index à jour par `changes.list`. MESURÉ sur le
+   * cas d'Arno (pièce 27085, « test gigout.pdf ») : dépôt confirmé à 21:37:35, entrée dans
+   * `gestion_drive_empreinte` à 21:50:12 — **12 min 37 s**. Pendant ce temps, le document était dans le Drive et
+   * l'application ne savait pas le reconnaître par son contenu.
+   *
+   * 🔴 AU MIEUX-EFFORT, ET JAMAIS ATTENDU PAR LE VERDICT. Le fichier EST dans le Drive : dire le dépôt raté
+   * parce qu'on n'a pas su rafraîchir un index enverrait le déposer une seconde fois. C'est exactement la règle
+   * de `consignerNomDuDepot` (route du dépôt) et de `memoriserDepot` pour son journal.
+   *
+   * ⚠️ FACULTATIVE : un appelant écrit avant ce lot (ou une doublure de test) se comporte à l'identique.
+   */
+  noterAuIndex?(l: {
+    driveFileId: string; md5: string | null; nom: string; parentId: string | null; driveId: string | null;
+    typeMime: string | null; tailleOctets: number | null; modifieLe: string | null;
+  }): Promise<void>;
   /** Le nom du dossier au moment du dépôt, et son Drive. `null` si le Drive ne le dit pas : on déposera quand même. */
   infosDossier(jeton: string, dossierId: string): Promise<{ nom: string; driveId: string | null } | null>;
 }
@@ -233,7 +254,39 @@ export async function deposerPieces(
         compteGoogle: auteur.compteGoogle ?? null,
         // 🔴 LA TRACE DU RENOMMAGE. `null` quand le nom n'a pas changé : voir `ADeposer.nomDepose`.
         nomDepose: nomCopie === piece.nomFichier ? null : nomCopie,
+        /* 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — L'EMPREINTE DE LA COPIE, telle que Google vient de la rendre, par
+           l'une OU l'AUTRE voie d'envoi (`deposerFichier` ou `files.copy` : les deux la rapportent depuis ce
+           lot). `null` reste normal — un document Google natif n'en a pas. Voir `ADeposer.md5`. */
+        md5: envoi.valeur.md5 ?? null,
       });
+      /**
+       * 🔴🔴 ET L'INDEX DES EMPREINTES, DANS LA SECONDE. Voir l'encadré de `DepsDepot.noterAuIndex` : sans cela,
+       * la reconnaissance par CONTENU attendait le passage de l'agent `changes.list` — 12 min 37 s, mesurées.
+       *
+       * ⚠️ APRÈS `memoriser`, ET AU MIEUX-EFFORT. Le registre est la source forte (« nous avons déposé ici ») ;
+       * l'index n'est qu'un reflet. Si l'index échoue, le dépôt reste acquis, la pastille compte quand même par
+       * le registre, et l'agent rattrapera le reflet à son prochain passage.
+       *
+       * ⚠️ `parentId` VIENT DE GOOGLE, et `dossierId` n'est qu'un REPLI : c'est le parent RÉEL de la copie qui
+       * trace le chemin de l'index. Les deux coïncident normalement — mais inventer un parent ferait afficher un
+       * chemin faux, et un chemin faux est pire qu'un chemin absent.
+       */
+      if (deps.noterAuIndex !== undefined) {
+        try {
+          await deps.noterAuIndex({
+            driveFileId: envoi.valeur.id,
+            md5: envoi.valeur.md5 ?? null,
+            nom: envoi.valeur.nom || nomCopie,
+            parentId: envoi.valeur.parentId ?? dossierId,
+            driveId: envoi.valeur.driveId ?? infos?.driveId ?? null,
+            typeMime: envoi.valeur.typeMime ?? piece.typeMime,
+            tailleOctets: envoi.valeur.tailleOctets ?? null,
+            modifieLe: envoi.valeur.modifieLe ?? null,
+          });
+        } catch (e) {
+          console.error('[gestion/depot] copie déposée mais NON indexée', { pieceId, e });
+        }
+      }
       issues.push({
         // ⚠️ LE NOM RENDU EST CELUI SOUS LEQUEL LA PIÈCE EST PARTIE : c'est lui que l'écran annonce, et c'est lui
         //   qu'on retrouvera dans le Drive. Rendre le nom d'origine ferait chercher un fichier qui n'existe pas.

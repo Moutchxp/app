@@ -38,6 +38,22 @@ export interface ElementDeplace {
   parentId: string;
   /** LOT RANGER-PJ-FIABLE — l'adresse à ouvrir, quand Google la rend. `null` n'est pas un échec. */
   lien?: string | null;
+  /**
+   * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — CE QUE LA COPIE RAPPORTE D'ELLE-MÊME ════════════════════════════════
+   *
+   * Une pièce dont les octets locaux ont été libérés se range par `files.copy` (voir `depotDrive`), et c'est
+   * devenu la voie ORDINAIRE depuis le lot RANGER-INSTANTANE-ET-NOM. Si elle ne rapportait pas son empreinte là
+   * où l'envoi par octets rapporte la sienne, la même pièce entrerait au registre avec son `md5` par un chemin
+   * et sans lui par l'autre — selon qu'elle a déjà une copie dans « 00 Arrivée des mails » ou non.
+   *
+   * ⚠️ FACULTATIFS, ET SEULE `files.copy` LES REMPLIT. `deplacerVers` ne les rend pas : un déplacement ne crée
+   * aucun fichier, il n'a donc rien de neuf à faire entrer dans l'index.
+   */
+  md5?: string | null;
+  tailleOctets?: number | null;
+  typeMime?: string | null;
+  modifieLe?: string | null;
+  driveId?: string | null;
 }
 
 function motif(statut: number, quoi: string): string {
@@ -126,7 +142,15 @@ export async function copierFichier(
    * PAR CETTE COPIE : sans ce champ, l'écran affichait « ✓ Rangée dans X » sans le « · ouvrir » qu'il affiche pour
    * toutes les autres — le rangement avait l'air moins abouti qu'il ne l'était. Il ne coûte rien de plus.
    */
-  const p = new URLSearchParams({ fields: 'id,name,parents,webViewLink', ...PARTAGES });
+  /**
+   * ⚠️ LOT PASTILLE-DRIVE-EN-DIRECT — `md5Checksum,size,mimeType,modifiedTime,driveId` S'AJOUTENT, ET NE COÛTENT
+   * RIEN : ils voyagent dans la réponse que `files.copy` rend déjà. Sans eux, la copie Drive → Drive entrait au
+   * registre sans son empreinte et restait invisible à l'index jusqu'au passage de l'agent — douze minutes et
+   * demie, mesurées sur le cas d'Arno.
+   */
+  const p = new URLSearchParams({
+    fields: 'id,name,parents,webViewLink,md5Checksum,size,mimeType,modifiedTime,driveId', ...PARTAGES,
+  });
   let res: Response;
   try {
     res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(o.id)}/copy?${p}`, {
@@ -148,15 +172,24 @@ export async function copierFichier(
   }
   const j = (await res.json().catch(() => ({}))) as {
     id?: string; name?: string; parents?: string[]; webViewLink?: string;
+    md5Checksum?: string; size?: string; mimeType?: string; modifiedTime?: string; driveId?: string;
   };
   if (typeof j.id !== 'string' || j.id === '') {
     return { ok: false, motif: 'Google n’a pas rendu l’identifiant de la copie.' };
   }
+  /* ⚠️ `size` ARRIVE EN CHAÎNE (entier 64 bits) : illisible ⇒ `null`, jamais `NaN` — qui traverserait jusqu'à un
+     `INSERT` et ferait échouer l'écriture du registre après une copie parfaitement réussie. */
+  const taille = Number(j.size ?? '');
   return {
     ok: true,
     valeur: {
       id: j.id, nom: j.name ?? '', parentId: j.parents?.[0] ?? o.parentCible,
       lien: j.webViewLink ?? null,
+      md5: j.md5Checksum ?? null,
+      tailleOctets: Number.isFinite(taille) && (j.size ?? '') !== '' ? taille : null,
+      typeMime: j.mimeType ?? null,
+      modifieLe: j.modifiedTime ?? null,
+      driveId: j.driveId ?? null,
     },
   };
 }

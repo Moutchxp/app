@@ -296,8 +296,45 @@ export async function filAriane(accessToken: string, dossierId: string, deps: De
   return { ok: true, valeur: etapes.reverse() };
 }
 
-/** Ce qu'on sait d'un fichier déposé. `webViewLink` est le SEUL lien qu'on montre — jamais une URL de stockage. */
-export interface FichierDepose { id: string; nom: string; webViewLink: string | null }
+/**
+ * Ce qu'on sait d'un fichier déposé. `webViewLink` est le SEUL lien qu'on montre — jamais une URL de stockage.
+ *
+ * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA COPIE RAPPORTE SON EMPREINTE, SON PARENT ET SA TAILLE ════════════════
+ *
+ * DEMANDE D'ARNO (03/10/2026) : « à chaque dépôt réussi […] enregistrer IMMÉDIATEMENT la copie (fileId, md5,
+ * parents, nom) au registre et dans l'index ».
+ *
+ * 🔴 CE QUI MANQUAIT, ET IL NE MANQUAIT QU'UN MOT DANS UNE URL. Les deux envois demandaient
+ * `fields=id,name,webViewLink` : Google renvoie `md5Checksum` GRATUITEMENT dans la même réponse, et nous ne le
+ * demandions pas. Le registre gardait donc des lignes à `md5` NULL (vérifié en base : `gestion_piece_drive`
+ * id 26554, déposée le 03/10 à 21:37:35, `md5` vide), et la reconnaissance par CONTENU de notre propre copie
+ * devenait impossible — il fallait attendre que l'agent `changes.list` passe. MESURÉ sur le cas d'Arno : dépôt à
+ * 21:37:35, entrée dans `gestion_drive_empreinte` à 21:50:12, soit **12 min 37 s** d'aveuglement.
+ *
+ * ⚠️ TOUS CES CHAMPS SONT FACULTATIFS, et c'est voulu : un appelant écrit avant ce lot compile et se comporte à
+ * l'identique, et un Google qui n'en rendrait pas (document natif sans empreinte) n'est pas un échec.
+ */
+export interface FichierDepose {
+  id: string;
+  nom: string;
+  webViewLink: string | null;
+  /** `null` = document Google natif, ou champ non rendu. Ce n'est PAS une erreur : on ne devine pas une empreinte. */
+  md5?: string | null;
+  /** Le dossier où la copie est née, tel que Google le nomme — et non celui qu'on a demandé. */
+  parentId?: string | null;
+  tailleOctets?: number | null;
+  typeMime?: string | null;
+  modifieLe?: string | null;
+  driveId?: string | null;
+}
+
+/**
+ * 🔴 LES CHAMPS DEMANDÉS À CHAQUE DÉPÔT, ÉCRITS UNE SEULE FOIS. Les deux voies d'envoi (reprenable et multipart)
+ * doivent rapporter EXACTEMENT la même chose : sans cela, la même pièce entrerait au registre avec son empreinte
+ * par un chemin et sans elle par l'autre, selon sa taille. C'est le genre de divergence qu'on ne découvre que six
+ * mois plus tard, sur un fichier de 6 Mo.
+ */
+const CHAMPS_DEPOT = 'id,name,webViewLink,md5Checksum,parents,size,mimeType,modifiedTime,driveId';
 
 /** Taille d'un morceau d'envoi reprenable. Multiple de 256 Kio, comme l'exige l'API ; 8 Mio est le compromis usuel. */
 export const MORCEAU_OCTETS = 8 * 1024 * 1024;
@@ -341,7 +378,7 @@ export async function deposerFichier(
   if (o.octets.byteLength > 0 && o.octets.byteLength <= SIMPLE_JUSQUA_OCTETS) {
     return deposerEnUneRequete(accessToken, { ...o, typeMime: type }, deps);
   }
-  const p = new URLSearchParams({ uploadType: 'resumable', fields: 'id,name,webViewLink', ...PARTAGES });
+  const p = new URLSearchParams({ uploadType: 'resumable', fields: CHAMPS_DEPOT, ...PARTAGES });
 
   // ── ① Ouvrir la session. Les métadonnées (nom, parent) partent ici, et NULLE PART ailleurs. ──
   const ouverture = await deps.fetch(`${API_TELEVERSEMENT}?${p}`, {
@@ -398,9 +435,29 @@ function corps(vue: Uint8Array): ArrayBuffer {
   return vue.buffer.slice(vue.byteOffset, vue.byteOffset + vue.byteLength) as ArrayBuffer;
 }
 
+/**
+ * 🔴 LOT PASTILLE-DRIVE-EN-DIRECT — ET C'EST ICI QUE LES MÉTADONNÉES ENTRENT, pour les DEUX voies d'envoi : les
+ * deux passent par cette fonction, donc aucune ne peut l'oublier.
+ *
+ * ⚠️ `size` ARRIVE EN CHAÎNE (Google rend les entiers 64 bits en chaîne, comme `pg` rend les `bigint` — le même
+ * piège, consigné dans AGENTS.md). Une taille illisible rend `null`, jamais `NaN` : `NaN` traverserait jusqu'à un
+ * `INSERT` et ferait échouer l'écriture du registre après un dépôt parfaitement réussi.
+ */
 function versFichier(j: unknown): FichierDepose {
-  const f = j as { id?: string; name?: string; webViewLink?: string };
-  return { id: f.id ?? '', nom: (f.name ?? '').trim(), webViewLink: f.webViewLink ?? null };
+  const f = j as {
+    id?: string; name?: string; webViewLink?: string; md5Checksum?: string; parents?: string[];
+    size?: string; mimeType?: string; modifiedTime?: string; driveId?: string;
+  };
+  const taille = Number(f.size ?? '');
+  return {
+    id: f.id ?? '', nom: (f.name ?? '').trim(), webViewLink: f.webViewLink ?? null,
+    md5: f.md5Checksum ?? null,
+    parentId: f.parents?.[0] ?? null,
+    tailleOctets: Number.isFinite(taille) && (f.size ?? '') !== '' ? taille : null,
+    typeMime: f.mimeType ?? null,
+    modifieLe: f.modifiedTime ?? null,
+    driveId: f.driveId ?? null,
+  };
 }
 
 /**
@@ -440,7 +497,7 @@ Content-Type: ${o.typeMime}
   charge.set(o.octets, tete.byteLength);
   charge.set(pied, tete.byteLength + o.octets.byteLength);
 
-  const p = new URLSearchParams({ uploadType: 'multipart', fields: 'id,name,webViewLink', ...PARTAGES });
+  const p = new URLSearchParams({ uploadType: 'multipart', fields: CHAMPS_DEPOT, ...PARTAGES });
   const res = await deps.fetch(`${API_TELEVERSEMENT}?${p}`, {
     method: 'POST',
     headers: {

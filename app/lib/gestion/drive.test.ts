@@ -159,7 +159,12 @@ describe('déposer un PETIT fichier — une seule requête (multipart)', () => {
     const d = faussefetch([rep({ id: 'F1', name: 'bail.pdf', webViewLink: 'https://drive/F1' })]);
     const r = await deposerFichier(
       'j', { nom: 'bail.pdf', typeMime: 'application/pdf', octets: new Uint8Array(10), dossierId: 'DOS' }, d);
-    expect(r.ok && r.valeur).toEqual({ id: 'F1', nom: 'bail.pdf', webViewLink: 'https://drive/F1' });
+    /**
+     * ⚠️ RETOUCHÉ PAR LE LOT PASTILLE-DRIVE-EN-DIRECT : le verdict porte désormais six champs de plus (empreinte,
+     * parent, taille, type, date, Drive). On éprouve donc ce qui COMPTE ici — l'identité du fichier déposé — et
+     * les métadonnées ont leur propre bloc plus bas, où elles sont vraiment renseignées.
+     */
+    expect(r.ok && r.valeur).toMatchObject({ id: 'F1', nom: 'bail.pdf', webViewLink: 'https://drive/F1' });
     expect(d.appels).toHaveLength(1);
     expect(d.appels[0].url).toContain('uploadType=multipart');
     expect(d.appels[0].url).toContain('supportsAllDrives=true');
@@ -207,7 +212,8 @@ describe('déposer un GROS fichier — envoi REPRENABLE', () => {
     const d = faussefetch([ouverture(), rep({ id: 'F1', name: 'bail.pdf', webViewLink: 'https://drive/F1' })]);
     const r = await deposerFichier(
       'j', { nom: 'bail.pdf', typeMime: 'application/pdf', octets: gros(), dossierId: 'DOS' }, d);
-    expect(r.ok && r.valeur).toEqual({ id: 'F1', nom: 'bail.pdf', webViewLink: 'https://drive/F1' });
+    /* ⚠️ `toMatchObject` depuis le lot PASTILLE-DRIVE-EN-DIRECT — même raison que pour l'envoi multipart. */
+    expect(r.ok && r.valeur).toMatchObject({ id: 'F1', nom: 'bail.pdf', webViewLink: 'https://drive/F1' });
     expect(d.appels[0].url).toContain('uploadType=resumable');
     expect(d.appels[1].url).toBe('https://upload/session-1');
   });
@@ -273,5 +279,91 @@ describe('les motifs, écrits pour un humain', () => {
   it('429 et 5xx disent d’attendre, pas de corriger', () => {
     expect(motifHttp(429, 'x')).toContain('réessayer');
     expect(motifHttp(503, 'x')).toContain('réessayer');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA COPIE DÉPOSÉE RAPPORTE SON EMPREINTE, PAR LES DEUX VOIES
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (03/10/2026) : « à chaque dépôt réussi […] enregistrer IMMÉDIATEMENT la copie (fileId, md5,
+   parents, nom) au registre et dans l'index ».
+
+   🔴 CE QUI MANQUAIT, ET IL NE MANQUAIT QU'UN MOT DANS UNE URL : les deux envois demandaient
+   `fields=id,name,webViewLink`. Google rend `md5Checksum` GRATUITEMENT dans la MÊME réponse. Le registre gardait
+   donc des lignes à `md5` NULL (vérifié en base : `gestion_piece_drive` id 26554, déposée le 03/10 à 21:37:35), et
+   la reconnaissance par CONTENU de notre propre copie attendait le passage de l'agent `changes.list` — mesuré à
+   12 min 37 s sur le cas d'Arno.
+
+   ⚠️ LES DEUX VOIES SONT ÉPROUVÉES SÉPARÉMENT. Une seule couverte aurait laissé la même pièce entrer au registre
+   avec son empreinte par un chemin et sans elle par l'autre, SELON SA TAILLE — c'est-à-dire un défaut qu'on ne
+   découvre que six mois plus tard, sur un fichier de 6 Mo.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 les métadonnées de la copie déposée', () => {
+  const META = {
+    id: 'F1', name: 'bail.pdf', webViewLink: 'https://drive/F1',
+    md5Checksum: '7B2364FF4527E7A55365F506F98BF888', parents: ['DOS'], size: '4096',
+    mimeType: 'application/pdf', modifiedTime: '2026-10-03T19:37:35.000Z', driveId: 'DRV',
+  };
+  const petit = new Uint8Array(10);
+  const gros = new Uint8Array(SIMPLE_JUSQUA_OCTETS + 10);
+  const ouverture = (): Response => new Response('', { status: 200, headers: { Location: 'https://upload/s' } });
+
+  it('🔴🔴 l’envoi multipart les DEMANDE et les rapporte', async () => {
+    const d = faussefetch([rep(META)]);
+    const r = await deposerFichier(
+      'j', { nom: 'bail.pdf', typeMime: 'application/pdf', octets: petit, dossierId: 'DOS' }, d);
+    expect(lisible(d.appels[0].url)).toContain('md5Checksum');
+    expect(r.ok && r.valeur).toMatchObject({
+      md5: '7B2364FF4527E7A55365F506F98BF888', parentId: 'DOS', tailleOctets: 4096,
+      typeMime: 'application/pdf', modifieLe: '2026-10-03T19:37:35.000Z', driveId: 'DRV',
+    });
+  });
+
+  it('🔴🔴 l’envoi reprenable aussi — EXACTEMENT les mêmes champs', async () => {
+    const d = faussefetch([ouverture(), rep(META)]);
+    const r = await deposerFichier(
+      'j', { nom: 'bail.pdf', typeMime: 'application/pdf', octets: gros, dossierId: 'DOS' }, d);
+    expect(lisible(d.appels[0].url)).toContain('md5Checksum');
+    expect(r.ok && r.valeur).toMatchObject({ md5: META.md5Checksum, parentId: 'DOS', tailleOctets: 4096 });
+  });
+
+  /**
+   * 🔴 LES DEUX VOIES DEMANDENT LA MÊME CHOSE, AU CARACTÈRE PRÈS. C'est la propriété qui empêche la divergence par
+   * la taille du fichier : deux listes de champs écrites séparément auraient fini par ne plus coïncider.
+   */
+  it('🔴 les deux voies demandent la même liste de champs', async () => {
+    const champs = (url: string): string => (lisible(url).match(/fields=([^&]+)/) ?? [])[1] ?? '';
+    const m = faussefetch([rep(META)]);
+    await deposerFichier('j', { nom: 'a', typeMime: null, octets: petit, dossierId: 'D' }, m);
+    const g = faussefetch([ouverture(), rep(META)]);
+    await deposerFichier('j', { nom: 'a', typeMime: null, octets: gros, dossierId: 'D' }, g);
+    expect(champs(m.appels[0].url)).toBe(champs(g.appels[0].url));
+    expect(champs(m.appels[0].url)).not.toBe('');
+  });
+
+  /**
+   * ⚠️ `size` ARRIVE EN CHAÎNE (entier 64 bits, comme les `bigint` de `pg` — même piège, consigné dans AGENTS.md).
+   * Illisible ou absente ⇒ `null`, JAMAIS `NaN` : un `NaN` traverserait jusqu'à l'`INSERT` du registre et ferait
+   * échouer l'écriture après un dépôt parfaitement réussi.
+   */
+  it('⚠️ une taille absente ou illisible rend `null`, jamais `NaN`', async () => {
+    for (const size of [undefined, '', 'beaucoup']) {
+      const d = faussefetch([rep({ id: 'F1', name: 'a', size })]);
+      const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: petit, dossierId: 'D' }, d);
+      expect(r.ok && r.valeur.tailleOctets).toBeNull();
+    }
+  });
+
+  /**
+   * ⚠️ UN DOCUMENT GOOGLE NATIF N'A PAS D'EMPREINTE, et ce n'est PAS un échec : `null` se lit « on ne sait pas »,
+   * et `empreinteNormalisee` refusera de l'apparier avec une autre absence.
+   */
+  it('⚠️ pas d’empreinte ⇒ `null`, et le dépôt réussit quand même', async () => {
+    const d = faussefetch([rep({ id: 'F1', name: 'a', webViewLink: null })]);
+    const r = await deposerFichier('j', { nom: 'a', typeMime: null, octets: petit, dossierId: 'D' }, d);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.valeur.md5).toBeNull();
   });
 });

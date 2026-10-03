@@ -225,6 +225,35 @@ export async function marquerCopieDisparue(driveFileId: string, motif: string): 
 }
 
 /**
+ * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA COPIE EST REVENUE : ON LÈVE LA MARQUE ═══════════════════════════════
+ *
+ * DEMANDE D'ARNO (03/10/2026) : « “Annuler le dernier déplacement” et la corbeille font redescendre le compteur ».
+ * Faire DESCENDRE le compteur suppose de pouvoir le faire REMONTER : une restauration qui laisserait la copie
+ * marquée « disparue » éteindrait la pastille pour toujours, et le document serait pourtant là, bien visible dans
+ * son dossier. Un compteur qui ne sait que baisser finit à zéro et ne dit plus rien.
+ *
+ * ⚠️ LE MOTIF EST EFFACÉ AVEC LA DATE : garder « mis à la corbeille » sur une copie revenue ferait lire, six mois
+ * plus tard, une disparition qui n'a pas eu lieu.
+ *
+ * ⚠️ MÊMES RÈGLES QUE SA SŒUR CI-DESSUS : elle ne lève jamais, elle n'est jamais attendue par un verdict, et elle
+ * est idempotente (`disparu_le IS NOT NULL` dans le `WHERE`).
+ */
+export async function marquerCopieRevenue(driveFileId: string): Promise<boolean> {
+  const id = driveFileId.trim();
+  if (id === '' || !(await copieDisparueDisponible())) return false;
+  try {
+    const { rowCount } = await query(
+      `UPDATE gestion_piece_drive
+          SET disparu_le = NULL, disparu_motif = NULL
+        WHERE drive_file_id = $1 AND disparu_le IS NOT NULL`, [id]);
+    return (rowCount ?? 0) > 0;
+  } catch (e) {
+    console.error('[gestion/copie-drive] levée de la marque « disparue » impossible', e);
+    return false;
+  }
+}
+
+/**
  * ══ 🔴 LE JOURNAL — QUI, QUAND, ANCIEN ET NOUVEAU NOM, IDS DRIVE TOUCHÉS ═════════════════════════════════════
  *
  * Demande d'Arno, mot pour mot. Append-only : rien n'y est jamais modifié ni supprimé.

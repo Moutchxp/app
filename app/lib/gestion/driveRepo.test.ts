@@ -7,6 +7,12 @@ const journalMock = vi.fn();
 const compteColonneMock = vi.fn();
 /** LOT 5-PJ-D — le réglage du nombre de dossiers récents n'existe qu'après la migration 248. Même précaution. */
 const reglageRecentsMock = vi.fn();
+/**
+ * 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — la colonne `md5` du registre n'existe qu'avec la migration 255 (la MÊME que
+ * `verifie_le`, que `copiePiecesDisponible` sonde : elles arrivent ensemble). Elle est donc nommée SOUS SONDE,
+ * comme `compte_google` et `nom_depose`.
+ */
+const md5ColonneMock = vi.fn();
 vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...a),
   withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
@@ -17,6 +23,9 @@ vi.mock('./schema', () => ({
   journalPieceDriveDisponible: () => journalMock(),
   compteGoogleDuDepotDisponible: () => compteColonneMock(),
   reglageRecentsDisponible: () => reglageRecentsMock(),
+  copiePiecesDisponible: () => md5ColonneMock(),
+  // ⚠️ Non sollicitée par ces épreuves (aucune ne passe de `nomDepose`), mais exportée pour que le module charge.
+  nomDeposeDisponible: async () => false,
 }));
 
 import {
@@ -33,9 +42,9 @@ const aDeposer = {
 
 beforeEach(() => {
   queryMock.mockReset(); schemaMock.mockReset(); journalMock.mockReset(); compteColonneMock.mockReset();
-  reglageRecentsMock.mockReset();
+  reglageRecentsMock.mockReset(); md5ColonneMock.mockReset();
   schemaMock.mockResolvedValue(true); journalMock.mockResolvedValue(true); compteColonneMock.mockResolvedValue(true);
-  reglageRecentsMock.mockResolvedValue(true);
+  reglageRecentsMock.mockResolvedValue(true); md5ColonneMock.mockResolvedValue(true);
 });
 
 describe('sans la migration 245', () => {
@@ -233,5 +242,75 @@ describe('mémoriser un dépôt', () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
       .mockRejectedValueOnce(new Error('journal refusé'));
     expect(await memoriserDepot(aDeposer)).toEqual({ etat: 'enregistre' });
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — L'EMPREINTE DE LA COPIE ENTRE AU REGISTRE, AU DÉPÔT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (03/10/2026) : « à chaque dépôt réussi […] enregistrer IMMÉDIATEMENT la copie (fileId, md5,
+   parents, nom) au registre et dans l'index ».
+
+   🔴 CE QUI ÉTAIT ÉCRIT : la colonne existait depuis la migration 255, et SEULE la copie automatique la
+   remplissait (`enregistrerCopie`, `copiePiecesReel.ts`). Un rangement à la main écrivait donc une ligne à `md5`
+   NULL — vérifié en base sur le cas d'Arno : `gestion_piece_drive` id 26554, déposée le 03/10 à 21:37:35, `md5`
+   vide. `fichiersDriveDeLaPiece` et `emplacementsDesPieces` cherchent « le même contenu » par `lower(d.md5)` : une
+   copie sans empreinte n'était retrouvable que par son lien `piece_id`.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 l’empreinte au registre', () => {
+  const MD5 = '7b2364ff4527e7a55365f506f98bf888';
+
+  it('🔴🔴 elle est écrite, et c’est un paramètre LIÉ', async () => {
+    queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    await memoriserDepot({ ...aDeposer, md5: MD5 });
+    expect(sql(0)).toContain('md5');
+    expect(params(0)).toContain(MD5);
+  });
+
+  /**
+   * 🔴 NORMALISÉE PAR LE MÊME MODULE QUE L'INDEX (`empreinteNormalisee`). Google rend le md5 en minuscules, mais
+   * rien ne le garantit par contrat, et les index SQL portent sur `lower(md5)` : deux normalisations différentes
+   * des deux côtés feraient rater la comparaison que tout ce lot existe pour rendre possible.
+   */
+  it('🔴 une empreinte en MAJUSCULES est rangée en minuscules', async () => {
+    queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    await memoriserDepot({ ...aDeposer, md5: MD5.toUpperCase() });
+    expect(params(0)).toContain(MD5);
+  });
+
+  /**
+   * ⚠️ SANS LA MIGRATION 255, LA COLONNE N'EST NOMMÉE NULLE PART. Nommer une colonne absente ferait échouer la
+   * requête ENTIÈRE — alors que le fichier EST déjà dans le Drive. Règle du module, et elle a déjà coûté une fois.
+   */
+  it('⚠️ sans la migration 255, « md5 » n’est pas nommé', async () => {
+    md5ColonneMock.mockResolvedValue(false);
+    queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    await memoriserDepot({ ...aDeposer, md5: MD5 });
+    expect(sql(0)).not.toContain('md5');
+    expect(params(0)).not.toContain(MD5);
+  });
+
+  /**
+   * ⚠️ PAS D'EMPREINTE ⇒ PAS DE COLONNE, et surtout pas une chaîne vide : une empreinte absente et une empreinte
+   * vide ne doivent pas pouvoir s'apparier entre elles. « Deux documents Google natifs n'ont pas le même
+   * contenu » (encadré d'`empreinteNormalisee`).
+   */
+  it('⚠️ un document sans empreinte n’écrit rien, et le dépôt réussit', async () => {
+    queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    for (const md5 of [undefined, null, '', '   ']) {
+      queryMock.mockClear();
+      const r = await memoriserDepot({ ...aDeposer, md5 });
+      expect(r.etat).toBe('enregistre');
+      expect(sql(0)).not.toContain('md5');
+    }
+  });
+
+  /** ⚠️ ET UN APPELANT D'AVANT CE LOT (aucun `md5`) ÉCRIT EXACTEMENT CE QU'IL ÉCRIVAIT. */
+  it('⚠️ un appelant d’avant ce lot est inchangé', async () => {
+    queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    await memoriserDepot(aDeposer);
+    expect(sql(0)).not.toContain('md5');
   });
 });

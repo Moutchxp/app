@@ -10,6 +10,22 @@ import { peutMettreCorbeille } from '../../../../../../lib/gestion/driveCorbeill
 import { basculerCorbeille } from '../../../../../../lib/gestion/driveCorbeilleReel';
 import { inscrireMouvement, marquerAnnule, mouvementsAnnulables } from '../../../../../../lib/gestion/driveMouvementRepo';
 import { corbeilleDriveDisponible, journalMouvementDriveDisponible } from '../../../../../../lib/gestion/schema';
+/**
+ * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LE REGISTRE ET L'INDEX SUIVENT CE GESTE ══════════════════════════════════
+ *
+ * DEMANDE D'ARNO (03/10/2026) : « “Annuler le dernier déplacement” et la corbeille font redescendre le compteur ».
+ *
+ * 🔴 ET POUR QUE LE COMPTEUR PUISSE DESCENDRE, IL FAUT QUE LA BASE LE SACHE. Le compteur vert et le picto lisent
+ * `gestion_piece_drive` et `gestion_drive_empreinte` en écartant ce qui porte `disparu_le` ; cette route mettait
+ * un fichier à la corbeille chez Google sans jamais le dire ni à l'un ni à l'autre. La pastille annonçait donc un
+ * emplacement où l'on n'irait plus rien trouver — jusqu'au passage de l'agent `changes.list`, mesuré à plus de
+ * douze minutes sur le cas d'Arno.
+ *
+ * 🔒 AUCUNE ÉCRITURE DRIVE DE PLUS : ces deux appels ne touchent que NOTRE base. La seule écriture Google de cette
+ * route reste `basculerCorbeille`, et son test statique énumère ce qu'elle a le droit de faire.
+ */
+import { marquerCopieDisparue, marquerCopieRevenue } from '../../../../../../lib/gestion/nomUsageRepo';
+import { noterFichiersDisparus, noterFichiersRevus } from '../../../../../../lib/gestion/empreinteDriveRepo';
 
 /**
  * /api/admin/gestion/drive/corbeille — LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE : METTRE UN FICHIER À LA CORBEILLE.
@@ -55,6 +71,32 @@ export const MOTIF_SANS_MIGRATION =
 
 /** Au plus dix fichiers d'un coup : c'est un geste à l'unité, pas un ménage de masse. */
 const MAX_PAR_APPEL = 10;
+
+/**
+ * 🔴 LE MOTIF GARDÉ AU REGISTRE. Il dit que la disparition est NOTRE geste, et non une suppression subie : les
+ * deux ne se réparent pas pareil, et le journal doit permettre de les distinguer (même raison que les deux motifs
+ * de `copieDisparue.motifDisparition`, qui séparent le 404 du 403).
+ */
+export const MOTIF_CORBEILLE_OUTIL = 'mis à la corbeille depuis la fenêtre Drive de l’application';
+
+/**
+ * ⚠️ AU MIEUX-EFFORT, ET JAMAIS ATTENDU PAR LE VERDICT. Le fichier EST à la corbeille chez Google : refuser le
+ * geste parce qu'on n'a pas su mettre notre reflet à jour laisserait un document retiré ET une route en échec,
+ * c'est-à-dire la pire des deux situations. On note l'incident au journal du SERVEUR et l'on continue.
+ */
+async function refletCorbeille(ids: readonly string[], versLaCorbeille: boolean): Promise<void> {
+  if (ids.length === 0) return;
+  try {
+    await Promise.all([
+      ...ids.map((id) => (versLaCorbeille
+        ? marquerCopieDisparue(id, MOTIF_CORBEILLE_OUTIL)
+        : marquerCopieRevenue(id))),
+      versLaCorbeille ? noterFichiersDisparus(ids) : noterFichiersRevus(ids),
+    ]);
+  } catch (e) {
+    console.error('[api/admin/gestion/drive/corbeille] reflet en base non mis à jour', { ids, versLaCorbeille, e });
+  }
+}
 
 interface Demande {
   action?: string;
@@ -173,6 +215,10 @@ async function mettre(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<Res
     faits.push({ id, nom, mouvementId });
   }
 
+  /* 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — le reflet en base, pour les fichiers RÉELLEMENT retirés. Voir l'encadré
+     de `refletCorbeille` : c'est ce qui fait descendre le compteur vert et éteindre le picto du mail. */
+  await refletCorbeille(faits.map((f) => f.id), true);
+
   return json({
     etat: 'ok', action: 'corbeille', faits, refuses,
     mouvements: faits.map((f) => f.mouvementId).filter((x): x is number => x !== null),
@@ -244,6 +290,10 @@ async function restaurer(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<
     await marquerAnnule(l.id);
     remis.push(l.driveId);
   }
+
+  /* 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — et le reflet INVERSE : un document revenu doit faire remonter le
+     compteur. Un compteur qui ne sait que baisser finit à zéro et ne dit plus rien. */
+  await refletCorbeille(remis, false);
 
   return json({ etat: 'ok', action: 'restaurer', remis, refuses });
 }

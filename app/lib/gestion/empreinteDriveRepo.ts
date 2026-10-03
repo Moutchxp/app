@@ -219,6 +219,29 @@ export async function noterFichiersDisparus(ids: readonly string[]): Promise<num
   return rowCount ?? 0;
 }
 
+/**
+ * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — ET LE RETOUR : UN FICHIER SORTI DE LA CORBEILLE N'EST PLUS DISPARU ══════
+ *
+ * DEMANDE D'ARNO (03/10/2026) : « “Annuler le dernier déplacement” et la corbeille font redescendre le compteur ».
+ * Le compteur doit donc aussi REMONTER quand on défait le geste — sinon une mise à la corbeille annulée dans la
+ * seconde éteindrait la pastille définitivement, sur un document parfaitement présent.
+ *
+ * 🔴 ON NE RÉÉCRIT NI LE NOM NI L'EMPREINTE : le fichier n'a pas changé, on ne fait que lever une marque. Passer
+ * par `noterFichiersVus` aurait exigé de relire ses métadonnées chez Google pour reposer ce qu'on avait déjà.
+ *
+ * ⚠️ `releve_le` N'EST PAS TOUCHÉ, délibérément : cette date dit « je l'ai VU », et on ne vient pas de le voir —
+ * on vient d'apprendre qu'il est revenu. La mentir ferait croire l'index plus frais qu'il n'est.
+ */
+export async function noterFichiersRevus(ids: readonly string[]): Promise<number> {
+  const propres = [...new Set(ids.map((x) => (x ?? '').trim()).filter((x) => x !== ''))];
+  if (propres.length === 0) return 0;
+  if (!(await indexEmpreintesDriveDisponible())) return 0;
+  const { rowCount } = await query(
+    `UPDATE gestion_drive_empreinte SET disparu_le = NULL
+      WHERE drive_file_id = ANY($1::text[]) AND disparu_le IS NOT NULL`, [propres]);
+  return rowCount ?? 0;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ④ OÙ EN EST L'INDEX, CORPUS PAR CORPUS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
