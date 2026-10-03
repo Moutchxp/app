@@ -108,7 +108,22 @@ export function PictoDansLeDrive({ emplacements, nomPiece, classe, onOuvrir }: {
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
           setPose({ droite: Math.max(8, window.innerWidth - r.right), haut: r.bottom + 2 });
         }}>
-        <BaseDeDonnees taille={17} />
+        {/* ══ 🔴🔴 LOT DRIVE-HABILLAGE, POINT 3 — L'ICÔNE SEULE EN VERT ═══════════════════════════════════════
+            DEMANDE D'ARNO (03/10/2026) : « l'icône seule en VERT (même vert que la pastille), la case qui
+            l'entoure inchangée ».
+
+            🔴 LE VERT EST CELUI DE LA PASTILLE, AU JETON PRÈS : `--color-svv-green-ink`, exactement ce que
+            `.sfd-piece-range` emploie. Les deux disent la MÊME chose — « ce document est déjà quelque part dans
+            le Drive » — et deux verts voisins mais différents feraient douter qu'il s'agisse du même état.
+
+            🔴 LE VERT PORTE SUR UN ENROBAGE, PAS SUR LE BOUTON : la case (fond, bordure, survol, cible de 44 px)
+            reste celle de tous les autres pictos de la carte. Teindre le bouton aurait changé sa couleur au
+            survol et son liseré de focus — c'est-à-dire la case, qu'Arno demande explicitement de ne pas toucher.
+
+            ⚠️ LE TRACÉ SUIT `currentColor` (voir `BaseDeDonnees`) : il n'y a donc rien à passer à l'icône, et
+            c'est aussi ce qui la fait basculer seule en Clair et en Sombre. Un emoji, lui, aurait ignoré la
+            couleur — c'est la raison pour laquelle ce picto est un SVG depuis le lot PICTO-PIECE-DANS-LE-DRIVE. */}
+        <span className="pdd-icone" aria-hidden="true"><BaseDeDonnees taille={17} /></span>
       </button>
 
       {pose !== null && !unSeul && (
@@ -142,6 +157,20 @@ export function PictoDansLeDrive({ emplacements, nomPiece, classe, onOuvrir }: {
  */
 export const CSS_PICTO_DANS_LE_DRIVE = `
 .pdd{position:relative;display:inline-flex}
+/* ══ LOT DRIVE-HABILLAGE, POINT 3 — L'ICONE SEULE EN VERT ═══════════════════════════════════════════════════════
+   Arno : « l'icone seule en VERT (meme vert que la pastille), la case qui l'entoure inchangee ».
+
+   LE MEME JETON QUE LA PASTILLE DU COMPTEUR : --color-svv-green-ink, exactement ce que .sfd-piece-range emploie.
+   Les deux disent la MEME chose — « ce document est deja quelque part dans le Drive » — et deux verts voisins mais
+   differents feraient douter qu'il s'agisse du meme etat.
+
+   LA REGLE PORTE SUR L'ENROBAGE DE L'ICONE, JAMAIS SUR LE BOUTON : la case garde son fond, sa bordure, son survol
+   et sa cible de 44 px, comme tous les autres pictos de la carte. Teindre le bouton aurait aussi teint son liseré
+   de focus et son survol — c'est-a-dire la case, qu'Arno demande de ne pas toucher.
+
+   display:inline-flex — l'enrobage ne doit pas ajouter de hauteur de ligne autour du trace, sinon le picto ne
+   s'aligne plus avec l'oeil et le telechargement, a sa gauche. */
+.pdd-icone{display:inline-flex;align-items:center;justify-content:center;color:var(--color-svv-green-ink)}
 /* 🔴 LE MENU SORT DU FLUX : la rangee d'actions ne doit pas grandir quand on l'ouvre, sinon toute la grille de
    vignettes saute d'un cran au moment precis ou l'on vise une ligne. */
 /* 🔴🔴 « fixed », PAS « absolute » : la carte d'une piece porte « overflow:hidden » (lot 5-PJ-A, pour que la vignette

@@ -195,3 +195,63 @@ describe('🔒 ③ aucune écriture Drive', () => {
     expect(SFD).toContain('if (id === \'\' || evidencePosee.current) return;');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-HABILLAGE, POINT 3 — L'ICÔNE SEULE EN VERT, LA CASE INCHANGÉE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (03/10/2026) : « l'icône seule en VERT (même vert que la pastille), la case qui l'entoure
+   inchangée ».
+
+   🔴 LES DEUX MOITIÉS COMPTENT AUTANT. Teindre le bouton aurait été plus court d'une ligne — et aurait teint du
+   même coup son survol et son liseré de focus, c'est-à-dire la case qu'Arno demande explicitement de ne pas
+   toucher.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑥ l’icône est verte, la case ne bouge pas', () => {
+  it('🔴🔴 le tracé est enrobé d’un élément vert', () => {
+    monter([emplacement()]);
+    const icone = container.querySelector('.pdd-icone');
+    expect(icone).not.toBeNull();
+    // 🔴 L'ENROBAGE PORTE LE SVG, et le SVG suit `currentColor` : rien n'est passé à l'icône.
+    expect(icone?.querySelector('svg')).not.toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LE MÊME VERT QUE LA PASTILLE DU COMPTEUR, AU JETON PRÈS. Les deux disent « ce document est déjà quelque
+   * part dans le Drive » : deux verts voisins mais différents feraient douter qu'il s'agisse du même état. On
+   * compare donc les deux SOURCES, pas deux copies d'une valeur.
+   */
+  it('🔴🔴 c’est le jeton de la pastille verte, pas un vert voisin', () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/PictoDansLeDrive.tsx', 'utf8');
+    expect(css).toContain('.pdd-icone{');
+    expect(css).toContain('color:var(--color-svv-green-ink)');
+    /* 🔴 ET C'EST BIEN CELUI DE `.sfd-piece-range`, lu dans sa source : si quelqu'un change l'un, ce test tombe. */
+    const fenetre = readFileSync('app/(admin)/admin/(protected)/gestion/SelecteurFichierDrive.tsx', 'utf8');
+    expect(fenetre).toContain('color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)');
+    // ⚠️ AUCUNE COULEUR EN DUR : le picto bascule seul en Clair et en Sombre.
+    expect(css).not.toMatch(/\.pdd-icone\{[^}]*#[0-9a-f]{3}/i);
+  });
+
+  /**
+   * 🔴🔴 LA CASE EST INCHANGÉE : le bouton ne porte AUCUNE couleur propre. Sa classe vient de l'appelant
+   * (`pj-action` sur les deux écrans), et c'est elle qui tient le fond, la bordure, le survol et la cible de
+   * 44 px — exactement comme l'œil, le téléchargement et le Drive ▲ à sa gauche.
+   */
+  it('🔴🔴 le bouton ne reçoit aucune teinte', () => {
+    monter([emplacement()]);
+    const b = picto() as HTMLElement;
+    expect(b.style.color).toBe('');
+    expect(b.className).toBe('pj-action');
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/PictoDansLeDrive.tsx', 'utf8');
+    // 🔴 EN NÉGATIF : aucune règle ne teinte `.pj-action` depuis ce fichier.
+    expect(css).not.toContain('.pj-action{');
+    expect(css).not.toContain('.pj-action ');
+  });
+
+  /** ⚠️ ET LE VERT NE DÉPEND PAS DU NOMBRE D'EMPLACEMENTS : un seul ou neuf, c'est le même état. */
+  it('⚠️ le vert vaut pour un emplacement comme pour neuf', () => {
+    monter([emplacement(), emplacement({ driveFileId: 'F2' })]);
+    expect(container.querySelector('.pdd-icone')).not.toBeNull();
+  });
+});
