@@ -367,6 +367,49 @@ export async function deplacerCopieAuRegistre(
   }
 }
 
+/**
+ * ══ 🔴🔴 QUI OCCUPE DÉJÀ CET EMPLACEMENT POUR CETTE PIÈCE ? ═══════════════════════════════════════════════════════
+ *
+ * AJOUTÉ APRÈS UN DÉFAUT MESURÉ LE 04/10/2026. `deplacerCopieAuRegistre` ci-dessus laisse volontairement passer un
+ * conflit d'unicité — « un conflit n'est pas une panne » — mais il rend alors `0` sans dire POURQUOI, et le
+ * nettoyage des fantômes comptait quand même une correction. Trois passes du balayage automatique ont ainsi
+ * journalisé « 2 corrigé(s) » en n'écrivant rien.
+ *
+ * 🔴 CETTE LECTURE NOMME LA LIGNE QUI BLOQUE, et dit si sa copie est DISPARUE — ce qui est tout le cas d'Arno : une
+ * copie mise à la corbeille réservait la place à une copie vivante, parce que l'index
+ * `(piece_id, drive_dossier_id)` ne distingue pas les deux. La migration 301 lève cette cause ; ce diagnostic,
+ * lui, reste utile pour le conflit LÉGITIME (deux copies vivantes de la même pièce au même endroit).
+ *
+ * ⚠️ `saufLigne` ÉCARTE LA LIGNE QU'ON EST EN TRAIN DE CORRIGER : sans elle, une ligne déjà juste se déclarerait
+ * bloquée par elle-même.
+ *
+ * ⚠️ SANS LA MIGRATION 245 la table n'est NOMMÉE NULLE PART — règle du module : on rend `null`, c'est-à-dire
+ * « personne n'occupe », et l'écriture décidera. Ne pas conclure « bloqué » d'une sonde négative.
+ */
+export async function occupantDuSlot(
+  pieceId: number, dossierId: string, saufLigne: number,
+): Promise<{ id: number; driveFileId: string; disparu: boolean } | null> {
+  const dossier = dossierId.trim();
+  if (dossier === '' || !Number.isFinite(pieceId)) return null;
+  if (!await depotsDriveDisponibles()) return null;
+  try {
+    const { rows } = await query<{ id: string; drive_file_id: string; disparu: boolean }>(
+      `SELECT id::text, drive_file_id, (disparu_le IS NOT NULL) AS disparu
+         FROM gestion_piece_drive
+        WHERE piece_id = $1 AND drive_dossier_id = $2 AND id <> $3
+        ORDER BY id
+        LIMIT 1`,
+      [pieceId, dossier, saufLigne]);
+    const r = rows[0];
+    return r === undefined
+      ? null
+      : { id: Number(r.id), driveFileId: r.drive_file_id, disparu: r.disparu === true };
+  } catch (e) {
+    console.error('[gestion/drive] occupant de l’emplacement non lu', { pieceId, dossierId: dossier, e });
+    return null;
+  }
+}
+
 /** Le message qui porte une pièce — repli du journal quand la migration 245 n'a pas encore élargi la liste d'entités. */
 async function messageDeLaPiece(pieceId: number): Promise<number> {
   const { rows } = await query<{ message_id: number }>(

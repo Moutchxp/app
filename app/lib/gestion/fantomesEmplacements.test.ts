@@ -28,8 +28,18 @@ const disparueMock = vi.fn();
 const indexDisparusMock = vi.fn();
 const registreMock = vi.fn();
 const indexParentMock = vi.fn();
+/**
+ * 🔴 L'OCCUPANT DE L'EMPLACEMENT — doublé lui aussi, et il le FAUT. C'est la lecture qui dit si une autre ligne de
+ * la même pièce tient déjà le dossier de destination : sans elle doublée, la fabrique de `./driveRepo` rendrait
+ * `undefined` et le nettoyage tomberait à l'appel (piège déjà rencontré dans ce dépôt : une fabrique `vi.mock`
+ * oubliée derrière un export neuf).
+ */
+const occupantMock = vi.fn();
 vi.mock('./nomUsageRepo', () => ({ marquerCopieDisparue: (...a: unknown[]) => disparueMock(...a) }));
-vi.mock('./driveRepo', () => ({ deplacerCopieAuRegistre: (...a: unknown[]) => registreMock(...a) }));
+vi.mock('./driveRepo', () => ({
+  deplacerCopieAuRegistre: (...a: unknown[]) => registreMock(...a),
+  occupantDuSlot: (...a: unknown[]) => occupantMock(...a),
+}));
 vi.mock('./empreinteDriveRepo', () => ({
   noterFichiersDisparus: (...a: unknown[]) => indexDisparusMock(...a),
   noterParentDeplace: (...a: unknown[]) => indexParentMock(...a),
@@ -65,7 +75,9 @@ function porte(reponses: Record<string, { trashed?: boolean; parents?: string[] 
 
 beforeEach(() => {
   queryMock.mockReset(); disparueMock.mockReset(); indexDisparusMock.mockReset();
-  registreMock.mockReset(); indexParentMock.mockReset();
+  registreMock.mockReset(); indexParentMock.mockReset(); occupantMock.mockReset();
+  /* ⚠️ PAR DÉFAUT, LA PLACE EST LIBRE : c'est le cas ordinaire, et le cas « occupée » s'arme test par test. */
+  occupantMock.mockResolvedValue(null);
   registreMock.mockResolvedValue(1);
   indexParentMock.mockResolvedValue(1);
   disparueMock.mockResolvedValue(true);
@@ -91,7 +103,7 @@ describe('🔴🔴 la présélection', () => {
     expect(sql).toContain("coalesce(e.parent_id, '') <> d.drive_dossier_id");
     // ⚠️ ET AUCUN APPEL GOOGLE QUAND IL N'Y A RIEN À VÉRIFIER.
     expect(p.demandes).toEqual([]);
-    expect(b).toEqual({ candidats: 0, verifies: 0, corriges: 0, disparus: 0, intacts: 0 });
+    expect(b).toEqual({ candidats: 0, verifies: 0, corriges: 0, disparus: 0, intacts: 0, bloques: 0 });
   });
 
   /** ⚠️ LES LIGNES DÉJÀ MARQUÉES « DISPARUES » SONT HORS SUJET : on ne défait pas un constat daté. */
@@ -114,10 +126,64 @@ describe('🔴🔴 les verdicts', () => {
   it('🔴🔴 parent différent → on CORRIGE, avec le parent RÉEL et son nom', async () => {
     queryMock.mockResolvedValue({ rows: [ligne(1)] });
     const b = await nettoyerFantomes(porte({ F1: { parents: ['REEL'] } }), { appliquer: true });
-    expect(b).toMatchObject({ candidats: 1, verifies: 1, corriges: 1, disparus: 0, intacts: 0 });
+    expect(b).toMatchObject({ candidats: 1, verifies: 1, corriges: 1, disparus: 0, intacts: 0, bloques: 0 });
     expect(registreMock).toHaveBeenCalledWith('F1', 'REEL', 'Nouveau dossier');
     expect(indexParentMock).toHaveBeenCalledWith('F1', 'REEL');
     expect(disparueMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ══ 🔴🔴 LE MENSONGE MESURÉ LE 04/10/2026 — « 2 corrigé(s) », ZÉRO LIGNE ÉCRITE ════════════════════════════════
+   *
+   * En appliquant la correction qu'Arno venait d'autoriser, PostgreSQL a refusé l'écriture :
+   * `duplicate key value violates unique constraint "gestion_piece_drive_unique_idx"`. Le bilan annonçait quand
+   * même une correction, et le journal de la base l'a répété à TROIS passes du balayage automatique
+   * (23:59:20, 00:14:25, 00:29:30). Un journal qui affirme un fait qui n'a pas eu lieu est pire qu'un journal vide.
+   *
+   * LA CAUSE DU COMPTAGE FAUX : on incrémentait AVANT d'écrire, sans regarder ce que l'écriture rendait.
+   * LA CAUSE DU REFUS : l'index unique `(piece_id, drive_dossier_id)` ne distingue pas les copies DISPARUES, si
+   * bien qu'une copie mise à la corbeille réservait la place à une copie vivante. Levée par la migration 301.
+   */
+  it('🔴🔴 écriture bloquée → BLOQUÉE, et SURTOUT pas « corrigée »', async () => {
+    queryMock.mockResolvedValue({ rows: [ligne(1)] });
+    occupantMock.mockResolvedValue({ id: 26545, driveFileId: 'AUTRE', disparu: true });
+    const b = await nettoyerFantomes(porte({ F1: { parents: ['REEL'] } }), { appliquer: true });
+    expect(b).toMatchObject({ candidats: 1, verifies: 1, corriges: 0, bloques: 1 });
+    /* 🔴 ET RIEN N'EST ÉCRIT, NI AU REGISTRE NI À L'INDEX : on ne note pas un déplacement qu'on n'a pas fait. */
+    expect(registreMock).not.toHaveBeenCalled();
+    expect(indexParentMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ⚠️ ET SI L'OCCUPANT N'EST PAS VU MAIS QUE L'ÉCRITURE REND 0 : même verdict. `deplacerCopieAuRegistre` avale
+   * volontairement les conflits d'unicité (« un conflit n'est pas une panne ») et rend `0` ; c'est ce `0` qui
+   * décide, jamais l'intention.
+   */
+  it('⚠️ zéro ligne écrite → BLOQUÉE, même sans occupant détecté', async () => {
+    queryMock.mockResolvedValue({ rows: [ligne(1)] });
+    registreMock.mockResolvedValue(0);
+    const b = await nettoyerFantomes(porte({ F1: { parents: ['REEL'] } }), { appliquer: true });
+    expect(b).toMatchObject({ corriges: 0, bloques: 1 });
+    expect(indexParentMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴 EN SIMULATION, LE CHIFFRE ANNONCE UNE INTENTION — et c'est juste : on n'écrit rien, donc rien ne peut
+   * buter. La place n'est même pas interrogée : ce serait une requête pour une question sans objet.
+   */
+  it('🔴 en simulation, la correction est comptée sans interroger la place', async () => {
+    queryMock.mockResolvedValue({ rows: [ligne(1)] });
+    const b = await nettoyerFantomes(porte({ F1: { parents: ['REEL'] } }), { appliquer: false });
+    expect(b).toMatchObject({ corriges: 1, bloques: 0 });
+    expect(occupantMock).not.toHaveBeenCalled();
+    expect(registreMock).not.toHaveBeenCalled();
+  });
+
+  /** ⚠️ L'OCCUPANT EST CHERCHÉ POUR LA BONNE PIÈCE, LE BON DOSSIER, ET EN S'ÉCARTANT SOI-MÊME. */
+  it('⚠️ la place est interrogée pour cette pièce, ce dossier, hors de sa propre ligne', async () => {
+    queryMock.mockResolvedValue({ rows: [ligne(7)] });
+    await nettoyerFantomes(porte({ F7: { parents: ['REEL'] } }), { appliquer: true });
+    expect(occupantMock).toHaveBeenCalledWith(27085, 'REEL', 7);
   });
 
   it('🔴 fichier à la corbeille → DISPARUE, au registre comme à l’index', async () => {
@@ -149,7 +215,7 @@ describe('🔴🔴 les verdicts', () => {
       queryMock.mockResolvedValue({ rows: [ligne(1)] });
       disparueMock.mockClear(); registreMock.mockClear();
       const b = await nettoyerFantomes(porte({ F1: statut }), { appliquer: true });
-      expect(b, String(statut)).toMatchObject({ corriges: 0, disparus: 0, intacts: 1 });
+      expect(b, String(statut)).toMatchObject({ corriges: 0, disparus: 0, intacts: 1, bloques: 0 });
       expect(disparueMock, String(statut)).not.toHaveBeenCalled();
       expect(registreMock, String(statut)).not.toHaveBeenCalled();
     }
@@ -159,7 +225,7 @@ describe('🔴🔴 les verdicts', () => {
   it('🔴 parent conforme → INTACTE, et rien n’est écrit', async () => {
     queryMock.mockResolvedValue({ rows: [ligne(1)] });
     const b = await nettoyerFantomes(porte({ F1: { parents: ['VIEUX'] } }), { appliquer: true });
-    expect(b).toMatchObject({ corriges: 0, disparus: 0, intacts: 1 });
+    expect(b).toMatchObject({ corriges: 0, disparus: 0, intacts: 1, bloques: 0 });
     expect(registreMock).not.toHaveBeenCalled();
     expect(disparueMock).not.toHaveBeenCalled();
   });
@@ -214,7 +280,7 @@ describe('🔒🔒 sans `appliquer`, rien n’est écrit', () => {
 describe('🔴🔴 le journal', () => {
   it('🔴🔴 il trace candidats, corrections et disparitions', async () => {
     queryMock.mockResolvedValue({ rows: [] });
-    await journaliserFantomes({ candidats: 7, verifies: 7, corriges: 3, disparus: 2, intacts: 2 }, true);
+    await journaliserFantomes({ candidats: 7, verifies: 7, corriges: 3, disparus: 2, intacts: 2, bloques: 0 }, true);
     const sql = String(queryMock.mock.calls[0][0]).replace(/\s+/g, ' ');
     expect(sql).toContain('INSERT INTO gestion_journal');
     const params = queryMock.mock.calls[0][1] as string[];
@@ -231,7 +297,7 @@ describe('🔴🔴 le journal', () => {
    */
   it('⚠️ une entité que la base accepte déjà, et aucune migration', async () => {
     queryMock.mockResolvedValue({ rows: [] });
-    await journaliserFantomes({ candidats: 1, verifies: 1, corriges: 1, disparus: 0, intacts: 0 }, true);
+    await journaliserFantomes({ candidats: 1, verifies: 1, corriges: 1, disparus: 0, intacts: 0, bloques: 0 }, true);
     expect(String(queryMock.mock.calls[0][0])).toContain("'piece_drive'");
   });
 
@@ -240,7 +306,7 @@ describe('🔴🔴 le journal', () => {
    * sous 96 lignes par jour qui ne disent rien. On consigne ce qui s'est passé, pas le fait d'avoir regardé.
    */
   it('⚠️ aucune ligne quand il n’y a rien à dire', async () => {
-    await journaliserFantomes({ candidats: 0, verifies: 0, corriges: 0, disparus: 0, intacts: 0 }, true);
+    await journaliserFantomes({ candidats: 0, verifies: 0, corriges: 0, disparus: 0, intacts: 0, bloques: 0 }, true);
     expect(queryMock).not.toHaveBeenCalled();
   });
 
@@ -248,18 +314,18 @@ describe('🔴🔴 le journal', () => {
   it('⚠️ une base muette ne fait pas échouer la passe', async () => {
     const erreur = vi.spyOn(console, 'error').mockImplementation(() => {});
     queryMock.mockRejectedValue(new Error('entité refusée'));
-    await expect(journaliserFantomes({ candidats: 1, verifies: 1, corriges: 0, disparus: 1, intacts: 0 }, true))
+    await expect(journaliserFantomes({ candidats: 1, verifies: 1, corriges: 0, disparus: 1, intacts: 0, bloques: 0 }, true))
       .resolves.toBeUndefined();
     erreur.mockRestore();
   });
 
   /** La phrase est écrite UNE fois : le journal du serveur et celui de la base disent la même chose. */
   it('la phrase du bilan dit les trois nombres', () => {
-    const p = phraseBilanFantomes({ candidats: 1, verifies: 1, corriges: 1, disparus: 0, intacts: 0 }, true);
+    const p = phraseBilanFantomes({ candidats: 1, verifies: 1, corriges: 1, disparus: 0, intacts: 0, bloques: 0 }, true);
     expect(p).toContain('1 candidat,');
     expect(p).toContain('1 correction,');
     expect(p).toContain('0 disparition,');
-    expect(phraseBilanFantomes({ candidats: 2, verifies: 2, corriges: 0, disparus: 0, intacts: 2 }, false))
+    expect(phraseBilanFantomes({ candidats: 2, verifies: 2, corriges: 0, disparus: 0, intacts: 2, bloques: 0 }, false))
       .toContain('Simulation');
   });
 });

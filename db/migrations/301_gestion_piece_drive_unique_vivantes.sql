@@ -1,0 +1,115 @@
+-- 301_gestion_piece_drive_unique_vivantes.sql — MODULE « GESTION » : l'unicité d'un emplacement ne vaut que pour
+-- les copies VIVANTES. Une copie DISPARUE ne doit plus réserver la place.
+-- LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 0.
+--
+-- 🔴 TU NE L'APPLIQUES PAS DEPUIS L'AGENT — migration LIVRÉE NON APPLIQUÉE, Arno l'applique à la main (commande plus bas).
+--
+-- ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+-- CE QUI A ÉTÉ MESURÉ LE 04/10/2026, ET QUI A RÉVÉLÉ LE DÉFAUT.
+--
+-- Arno demande d'appliquer la correction des emplacements fantômes. Une des deux lignes refuse de s'écrire, et
+-- PostgreSQL dit exactement pourquoi :
+--
+--     duplicate key value violates unique constraint "gestion_piece_drive_unique_idx"
+--
+-- L'index est `UNIQUE (piece_id, drive_dossier_id)`, SANS condition. Les cinq lignes de la pièce 26994 :
+--
+--     26545 · 1rQrM0TY… · 0AJbf9smGcnxEUk9PVA « Drive »                      · DISPARUE le 03/10 23:56
+--     26546 · 1HT4cjXb… · 1dCY-AXE… « Test creation dossier drive »          · vivante
+--     26547 · 1kaACyqG… · 1TeRWWp6… « _MESURE dossier instantane »           · vivante
+--     26548 · 1U21W6lK… · 1EsD2E_i… « _MESURE nom immediat »                 · vivante — ET FAUSSE
+--     26551 · 1fY-Gkxk… · 1LSJnkeg… « _MESURE ligne arbre »                  · vivante
+--
+-- Le fichier 1U21W6lK… est en vérité à la RACINE du Drive partagé « Test » (`files.get` : parents =
+-- [0AJbf9smGcnxEUk9PVA]). Corriger la ligne 26548 demande donc d'y écrire ce parent — or la place
+-- (26994, 0AJbf9smGcnxEUk9PVA) est déjà tenue par la ligne 26545, qui enregistre une copie MISE À LA CORBEILLE.
+--
+-- 🔴 LA CORRECTION ÉTAIT DONC STRUCTURELLEMENT IMPOSSIBLE, et elle l'est restée à chaque passe du nettoyage
+-- automatique (23:59:20, 00:14:25, 00:29:30 — trois passes, zéro ligne écrite).
+--
+-- ═══ POURQUOI L'INDEX A TORT, ET PAS LA DONNÉE ════════════════════════════════════════════════════════════════
+--
+-- Une ligne de `gestion_piece_drive` dit un FAIT DATÉ : « une copie de cette pièce a été déposée ici, ce jour-là ».
+-- Quand le fichier part à la corbeille, on ne supprime pas la ligne — on DATE sa disparition (`disparu_le`), parce
+-- que le fait reste vrai. C'est la règle du module, et elle est juste.
+--
+-- Mais alors DEUX faits datés peuvent parfaitement concerner le même dossier : une copie y a vécu puis a été jetée,
+-- une autre y vit aujourd'hui. L'unicité « une copie par pièce et par dossier » ne décrit bien que le PRÉSENT. En
+-- l'appliquant aussi au passé, l'index laisse une ligne morte réserver indéfiniment une place aux vivantes.
+--
+-- ⚠️ ET CE N'EST PAS UN CAS DE LABORATOIRE : il suffit de jeter une copie puis d'en redéposer une au même endroit,
+-- ce qui est exactement le geste « je me suis trompé de version ».
+--
+-- ═══ CE QUE FAIT LE CODE SANS CETTE MIGRATION ═════════════════════════════════════════════════════════════════
+--
+-- Il ne se tait plus. Le nettoyage détecte l'occupant, ne compte PAS une correction qui n'a pas eu lieu, et écrit
+-- dans son journal « bloquée » avec la ligne fautive. Avant ce lot, il annonçait « 2 corrigé(s) » en n'écrivant
+-- rien — c'était un mensonge, répété trois fois dans le journal.
+-- ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+--
+-- SÛR : remplace un index UNIQUE par le MÊME index rendu PARTIEL (`WHERE disparu_le IS NULL`). Aucune donnée
+--   touchée : pas un INSERT, pas un UPDATE, pas un DELETE. La contrainte est RESSERRÉE sur les vivantes et LEVÉE
+--   sur les disparues — elle ne peut donc rien rejeter qui passait avant. Aucune colonne modifiée. Ne touche NI le
+--   module Permis, NI le moteur SVAV, NI le verdict, NI le golden Asnières (29.107259068449615). Une transaction.
+--   Rejouable (IF EXISTS / IF NOT EXISTS).
+--
+-- ⚠️ L'ORDRE COMPTE, ET IL EST VOLONTAIRE : on crée le nouvel index AVANT de retirer l'ancien, pour qu'il n'existe
+--   À AUCUN INSTANT de fenêtre sans protection d'unicité sur les copies vivantes. En transaction, personne ne voit
+--   l'intervalle — mais si la création échoue, l'ancien est toujours là.
+--
+-- ⚠️ `CREATE INDEX` SANS `CONCURRENTLY`, donc un verrou court en écriture sur la table. Mesuré : 26 553 lignes,
+--   l'index actuel fait 1 776 kB. C'est l'affaire de quelques centaines de millisecondes. `CONCURRENTLY` serait
+--   impossible ici : il interdit la transaction, et l'on ne veut pas de fenêtre sans protection.
+--
+-- Application MANUELLE (Arno), arrêt au 1er échec :
+--   cd /Users/macbookprom4arnaud/sansvisavis/app && export $(grep -E '^DATABASE_URL=' .env | xargs)
+--   export PAGER=cat
+--   psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/301_gestion_piece_drive_unique_vivantes.sql
+-- DRY-RUN (ne rien persister) : remplacer le « COMMIT; » final par « ROLLBACK; » avant de lancer.
+-- Vérification : voir le bloc en fin de fichier. Rollback : voir tout en bas.
+
+BEGIN;
+
+-- ① LE NOUVEL INDEX, PARTIEL : l'unicité d'un emplacement ne vaut que pour les copies VIVANTES.
+CREATE UNIQUE INDEX IF NOT EXISTS gestion_piece_drive_unique_vivantes_idx
+    ON gestion_piece_drive (piece_id, drive_dossier_id)
+ WHERE disparu_le IS NULL;
+
+-- ② L'ANCIEN, RETIRÉ ENSUITE. Il portait la même unicité, mais sur le passé AUSSI.
+DROP INDEX IF EXISTS gestion_piece_drive_unique_idx;
+
+COMMIT;
+
+-- ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+-- VÉRIFICATION (après COMMIT) :
+--   SELECT indexname, indexdef FROM pg_indexes
+--    WHERE tablename = 'gestion_piece_drive' AND indexname LIKE '%unique%';
+--     → une seule ligne, « gestion_piece_drive_unique_vivantes_idx », avec « WHERE (disparu_le IS NULL) »
+--
+--   -- La correction jusque-là impossible doit maintenant passer (SIMULATION d'abord) :
+--   npx tsx --env-file=.env app/scripts/nettoyer-emplacements-fantomes.ts
+--   npx tsx --env-file=.env app/scripts/nettoyer-emplacements-fantomes.ts --appliquer
+--     → « 1 candidat, 1 correction », et la ligne 26548 doit porter drive_dossier_id = 0AJbf9smGcnxEUk9PVA
+--
+--   -- L'unicité des VIVANTES tient toujours (doit ÉCHOUER) :
+--   BEGIN;
+--   INSERT INTO gestion_piece_drive (piece_id, drive_file_id, drive_dossier_id, depose_par_libelle)
+--   SELECT piece_id, 'essai-unicite', drive_dossier_id, 'essai'
+--     FROM gestion_piece_drive WHERE disparu_le IS NULL LIMIT 1;
+--   ROLLBACK;  -- ⚠️ quel que soit le résultat
+--     → doit rendre « duplicate key value violates unique constraint »
+--
+-- ROLLBACK (revenir à l'index d'avant) :
+--   BEGIN;
+--   -- ⚠️ À LIRE AVANT : si des corrections ont eu lieu depuis, il peut désormais exister DEUX lignes de même
+--   --    (piece_id, drive_dossier_id) dont une disparue. L'ancien index les refuserait, et sa création
+--   --    ÉCHOUERAIT. La requête ci-dessous dit s'il y en a, et lesquelles :
+--   --      SELECT piece_id, drive_dossier_id, count(*), array_agg(id)
+--   --        FROM gestion_piece_drive GROUP BY 1, 2 HAVING count(*) > 1;
+--   --    S'il y en a, NE PAS revenir en arrière sans décider quoi faire de ces faits datés — et surtout ne rien
+--   --    supprimer : c'est la règle du module.
+--   CREATE UNIQUE INDEX IF NOT EXISTS gestion_piece_drive_unique_idx
+--       ON gestion_piece_drive (piece_id, drive_dossier_id);
+--   DROP INDEX IF EXISTS gestion_piece_drive_unique_vivantes_idx;
+--   COMMIT;
+-- ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════

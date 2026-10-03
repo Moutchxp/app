@@ -1,6 +1,6 @@
 import { query } from '../db/client';
 import { estDisparition, motifDisparition } from './copieDisparue';
-import { deplacerCopieAuRegistre } from './driveRepo';
+import { deplacerCopieAuRegistre, occupantDuSlot } from './driveRepo';
 import { marquerCopieDisparue } from './nomUsageRepo';
 import { noterFichiersDisparus, noterParentDeplace } from './empreinteDriveRepo';
 
@@ -75,6 +75,23 @@ export interface BilanFantomes {
   disparus: number;
   /** Le registre disait vrai : c'était l'index qui était en retard. */
   intacts: number;
+  /**
+   * ══ 🔴🔴 LES CORRECTIONS QUI N'ONT PAS PU S'ÉCRIRE — AJOUTÉ APRÈS UN MENSONGE MESURÉ ═══════════════════════════
+   *
+   * DÉFAUT CONSTATÉ LE 04/10/2026, en appliquant la correction qu'Arno venait d'autoriser. PostgreSQL refusait
+   * l'écriture — `duplicate key value violates unique constraint "gestion_piece_drive_unique_idx"` — et ce bilan
+   * annonçait quand même « 2 corrigé(s) ». Le journal de la base l'a répété à trois passes du balayage
+   * automatique (23:59:20, 00:14:25, 00:29:30) : trois lignes affirmant deux corrections, zéro ligne écrite.
+   *
+   * 🔴 LA CAUSE DU COMPTAGE FAUX ÉTAIT DANS L'ORDRE DES DEUX GESTES : on incrémentait AVANT d'écrire, et sans
+   * regarder ce que l'écriture rendait. C'était d'autant plus trompeur qu'en SIMULATION le chiffre est juste —
+   * il annonce une intention. En APPLICATION, il doit annoncer un fait.
+   *
+   * ⚠️ UN QUATRIÈME NOMBRE, ET NON UN « corriges » DIMINUÉ EN SILENCE : « 1 candidat, 0 correction » ferait
+   * chercher une erreur de détection, alors que la détection avait raison et que c'est l'écriture qui a buté.
+   * La cause (l'index unique qui ne distingue pas les copies disparues) est levée par la migration 301.
+   */
+  bloques: number;
 }
 
 /** Au plus tant de `files.get` par passe. Au-delà, on veut un chiffre avant de continuer. */
@@ -169,7 +186,7 @@ export async function nettoyerFantomes(
   const max = Math.max(1, Math.min(o.max ?? VERIFICATIONS_MAX, VERIFICATIONS_MAX));
   const aVerifier = liste.slice(0, max);
   const bilan: BilanFantomes = {
-    candidats: liste.length, verifies: aVerifier.length, corriges: 0, disparus: 0, intacts: 0,
+    candidats: liste.length, verifies: aVerifier.length, corriges: 0, disparus: 0, intacts: 0, bloques: 0,
   };
   if (liste.length === 0) return bilan;
   if (aVerifier.length < liste.length) {
@@ -189,15 +206,41 @@ export async function nettoyerFantomes(
       }
       continue;
     }
-    bilan.corriges += 1;
     dire(`${tete} → CORRIGER le parent`);
     dire(`        registre : ${c.registreDossier} « ${c.registreNom ?? '?'} »`);
     dire(`        réel     : ${v.parentReel} « ${v.parentNom ?? '?'} »`);
-    if (o.appliquer) {
-      const n = await deplacerCopieAuRegistre(c.driveFileId, v.parentReel, v.parentNom);
-      await noterParentDeplace(c.driveFileId, v.parentReel);
-      dire(`        ↳ ${n} ligne(s) de registre mise(s) à jour`);
+    /* 🔴 EN SIMULATION, LE CHIFFRE ANNONCE UNE INTENTION ; EN APPLICATION, IL DOIT ANNONCER UN FAIT. Voir
+       l'encadré de `bloques` : incrémenter avant d'écrire, et sans regarder ce que l'écriture rend, a fait
+       annoncer « 2 corrigé(s) » à trois passes qui n'avaient rien écrit. */
+    if (!o.appliquer) { bilan.corriges += 1; continue; }
+
+    /**
+     * ⚠️ L'OCCUPANT EST CHERCHÉ AVANT D'ÉCRIRE, et non après l'échec : l'index unique
+     * `(piece_id, drive_dossier_id)` ne distingue pas les copies DISPARUES des vivantes, si bien qu'une ligne
+     * morte réserve la place. Tenter quand même remplirait le journal du serveur d'une trace d'exception pour
+     * une situation parfaitement prévisible — et on ne saurait toujours pas QUELLE ligne bloque.
+     *
+     * 🔴 ET CETTE LECTURE RESTE JUSTE APRÈS LA MIGRATION 301 : avec l'index devenu partiel, une ligne disparue
+     * n'est plus un occupant, `occupantDuSlot` ne la rend plus, et la correction passe. Le code n'a donc pas à
+     * savoir quel schéma est en place — il demande « la place est-elle prise ? » et la base répond.
+     */
+    const occupant = await occupantDuSlot(c.pieceId, v.parentReel, c.id);
+    if (occupant !== null) {
+      bilan.bloques += 1;
+      dire(`        ↳ 🔴 BLOQUÉE : la ligne ${occupant.id} (fichier ${occupant.driveFileId}) occupe déjà cet `
+        + `emplacement pour cette pièce${occupant.disparu ? ', alors que sa copie est DISPARUE' : ''}.`);
+      dire('           Cause : index unique (piece_id, drive_dossier_id) sans condition. Levée par la migration 301.');
+      continue;
     }
+    const n = await deplacerCopieAuRegistre(c.driveFileId, v.parentReel, v.parentNom);
+    if (n === 0) {
+      bilan.bloques += 1;
+      dire('        ↳ 🔴 BLOQUÉE : le registre n’a pas accepté l’écriture (voir le journal du serveur).');
+      continue;
+    }
+    bilan.corriges += 1;
+    await noterParentDeplace(c.driveFileId, v.parentReel);
+    dire(`        ↳ ${n} ligne(s) de registre mise(s) à jour`);
   }
   return bilan;
 }
@@ -207,7 +250,11 @@ export function phraseBilanFantomes(b: BilanFantomes, appliquer: boolean): strin
   return `${appliquer ? 'Nettoyage' : 'Simulation'} des emplacements fantômes : ${b.candidats} candidat`
     + `${b.candidats > 1 ? 's' : ''}, ${b.verifies} vérifié${b.verifies > 1 ? 's' : ''} chez Google, `
     + `${b.corriges} correction${b.corriges > 1 ? 's' : ''}, ${b.disparus} disparition`
-    + `${b.disparus > 1 ? 's' : ''}, ${b.intacts} intacte${b.intacts > 1 ? 's' : ''}.`;
+    + `${b.disparus > 1 ? 's' : ''}, ${b.intacts} intacte${b.intacts > 1 ? 's' : ''}`
+    /* 🔴 LE QUATRIÈME NOMBRE N'EST ÉCRIT QUE S'IL Y EN A, et jamais en simulation : « 0 bloquée » à chaque passe
+       serait du bruit permanent, et c'est précisément le bruit qui fait cesser de lire les journaux. */
+    + (b.bloques > 0 ? `, ${b.bloques} BLOQUÉE${b.bloques > 1 ? 'S' : ''} (écriture refusée par le registre)` : '')
+    + '.';
 }
 
 /**
@@ -238,7 +285,8 @@ export async function journaliserFantomes(b: BilanFantomes, appliquer: boolean):
        VALUES ('piece_drive', 0, 'nettoyage_fantomes', $1, $2, $3, NULL, $4)`,
       [
         `${b.candidats} candidat(s)`,
-        `${b.corriges} corrigé(s) · ${b.disparus} disparu(s) · ${b.intacts} intacte(s)`,
+        `${b.corriges} corrigé(s) · ${b.disparus} disparu(s) · ${b.intacts} intacte(s)`
+          + (b.bloques > 0 ? ` · ${b.bloques} BLOQUÉE(S)` : ''),
         phraseBilanFantomes(b, appliquer)
           + ' Détection par comparaison du registre des dépôts à l’index des empreintes, puis vérification de'
           + ' chaque candidat chez Google en LECTURE SEULE. Aucune ligne n’est supprimée : un parent est corrigé,'
