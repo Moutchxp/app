@@ -35,6 +35,14 @@ const creerCopieMock = vi.fn();
 const inscrireMock = vi.fn();
 const annulablesMock = vi.fn();
 const marquerMock = vi.fn();
+/**
+ * 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — LE REFLET EN BASE D'UN DÉPLACEMENT. Un déplacement met à jour les parents
+ * de l'entrée EXISTANTE du registre et de l'index ; il n'en crée jamais une seconde. Les trois écritures sont
+ * doublées pour être OBSERVÉES — jamais pour être supposées.
+ */
+const registreDeplaceMock = vi.fn();
+const indexParentMock = vi.fn();
+const indexVusMock = vi.fn();
 
 vi.mock('../../../../../../lib/admin/garde', () => ({
   exigerCompteActif: (...a: unknown[]) => gardeMock(...a),
@@ -66,6 +74,14 @@ vi.mock('../../../../../../lib/gestion/driveMouvementRepo', () => ({
   inscrireMouvement: (...a: unknown[]) => inscrireMock(...a),
   mouvementsAnnulables: (...a: unknown[]) => annulablesMock(...a),
   marquerAnnule: (...a: unknown[]) => marquerMock(...a),
+}));
+
+vi.mock('../../../../../../lib/gestion/driveRepo', () => ({
+  deplacerCopieAuRegistre: (...a: unknown[]) => registreDeplaceMock(...a),
+}));
+vi.mock('../../../../../../lib/gestion/empreinteDriveRepo', () => ({
+  noterParentDeplace: (...a: unknown[]) => indexParentMock(...a),
+  noterFichiersVus: (...a: unknown[]) => indexVusMock(...a),
 }));
 
 import { GET, POST } from './route';
@@ -123,6 +139,11 @@ beforeEach(() => {
   gardeMock.mockResolvedValue(null);
   jetonMock.mockResolvedValue({ etat: 'ok', jeton: 'JETON', compteGoogle: 'a.jorel@sansvisavis.com' });
   journalDispoMock.mockResolvedValue(true);
+  // 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — le reflet rend « rien n'a changé » par défaut : les épreuves qui s'y
+  //   intéressent l'observent, les autres ne doivent pas en dépendre.
+  registreDeplaceMock.mockResolvedValue(0);
+  indexParentMock.mockResolvedValue(0);
+  indexVusMock.mockResolvedValue(0);
   protegesMock.mockResolvedValue({
     proteges: new Set(['interdit']),
     protegesEtAncetres: new Set(['interdit', 'drive', 'racine']),
@@ -601,5 +622,125 @@ describe('🔴 « Annuler »', () => {
     const res = await POST(demande({ action: 'annuler', mouvements: [102] }));
     expect(res.status).toBe(409);
     expect(deplacerMock).not.toHaveBeenCalled();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — UN DÉPLACEMENT SUIT L'ENTRÉE, IL N'EN CRÉE PAS UNE SECONDE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   RÈGLE D'ARNO (03/10/2026) : « un DÉPLACEMENT (glisser, “Déposer ici” d'un fichier déjà dans le Drive,
+   annulation) met à jour les parents de l'entrée existante du registre et de l'index. Il ne crée jamais une
+   seconde entrée. Après un déplacement, un seul emplacement connu : le dernier. Seule une COPIE réelle
+   (rangement d'une pièce jointe ou d'une vignette dupliquée) ajoute un emplacement. »
+
+   🔴 LE DÉFAUT MESURÉ : Arno a déplacé « test gigout.pdf » dans la fenêtre Drive ; `files.update` a bien déplacé
+   le fichier, et la ligne 26554 du registre a gardé `drive_dossier_id = 1dCY-…` (« Test creation dossier
+   drive ») alors que `files.get` rend `1EsD2E_…` (« _MESURE nom immediat »). Le picto du mail annonçait donc un
+   chemin FAUX, et ouvrait la fenêtre sur un dossier où le document n'est plus.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le reflet d’un déplacement', () => {
+  const deplacer = (cible = 'travaux', id = 'bail') =>
+    POST(demande({ action: 'deplacer', cible, elements: [{ id }] }));
+
+  it('🔴🔴 le registre et l’index suivent le fichier, vers la CIBLE', async () => {
+    const r = await deplacer();
+    expect(r.status).toBe(200);
+    expect(deplacerMock).toHaveBeenCalled();
+    // 🔴 LE PARENT ÉCRIT EST LA CIBLE, et le NOM du dossier voyage avec — sinon le menu dirait un identifiant.
+    expect(registreDeplaceMock).toHaveBeenCalledWith('bail', 'travaux', 'Travaux');
+    expect(indexParentMock).toHaveBeenCalledWith('bail', 'travaux');
+  });
+
+  /**
+   * 🔴🔴 LA PREUVE EN NÉGATIF, ET C'EST ELLE QUI PORTE LA RÈGLE : un déplacement n'INSCRIT RIEN de neuf. Ni au
+   * registre (pas de second dépôt), ni à l'index (pas de second fichier). Il MET À JOUR, et c'est tout.
+   */
+  it('🔴🔴 un déplacement n’ajoute AUCUNE entrée', async () => {
+    await deplacer();
+    expect(indexVusMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴🔴 UNE COPIE, ELLE, AJOUTE UN EMPLACEMENT — et la copie neuve entre dans l'index TOUT DE SUITE. C'est la
+   * moitié qui manquait au lot PASTILLE-DRIVE-EN-DIRECT : le dépôt d'une PIÈCE indexait sa copie, la copie d'une
+   * VIGNETTE DUPLIQUÉE (qui passe par cette route) attendait l'agent `changes.list` — 12 min 37 s mesurées.
+   */
+  it('🔴🔴 une COPIE indexe le fichier neuf, et ne déplace aucune entrée', async () => {
+    copierMock.mockResolvedValue({
+      ok: true,
+      valeur: {
+        id: 'copie', nom: 'bail.pdf', parentId: 'travaux', lien: null,
+        md5: 'abc', tailleOctets: 4096, typeMime: 'application/pdf',
+        modifieLe: '2026-10-03T20:00:00Z', driveId: 'DRV',
+      },
+    });
+    await POST(demande({ action: 'copier', cible: 'travaux', elements: [{ id: 'bail' }] }));
+    expect(indexVusMock).toHaveBeenCalledWith([expect.objectContaining({
+      driveFileId: 'copie', md5: 'abc', parentId: 'travaux', estDossier: false, tailleOctets: 4096,
+    })]);
+    // 🔴 ET SURTOUT : l'ORIGINAL n'a pas bougé, donc aucun reflet de déplacement.
+    expect(registreDeplaceMock).not.toHaveBeenCalled();
+    expect(indexParentMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴🔴 L'ANNULATION EST UN DÉPLACEMENT : même reflet, vers le parent d'ORIGINE. Arno l'a nommée. Sans cela,
+   * défaire un déplacement laisserait le registre sur la destination qu'on vient d'abandonner.
+   */
+  it('🔴🔴 une annulation remet le registre sur le parent d’ORIGINE', async () => {
+    /* ⚠️ L'ÉTAT DU DRIVE AU MOMENT DE L'ANNULATION : le bail a DÉJÀ été déplacé, il est donc dans « Travaux ».
+       Le journal, lui, se rappelle qu'il venait de « Base de données locative » — c'est cet écart qu'on répare. */
+    chaineMock.mockImplementation(async (depart: string) => (depart === 'bail'
+      ? [{ id: 'bail', nom: 'bail.pdf', parentId: 'travaux' }, ...chaineDepuis('travaux')]
+      : chaineDepuis(depart)));
+    annulablesMock.mockResolvedValue([
+      { id: 9, action: 'deplacer', driveId: 'bail', nom: 'bail.pdf', parentOrigine: 'base', parentCible: 'travaux', copieDriveId: null },
+    ]);
+    const r = await POST(demande({ action: 'annuler', mouvements: [9] }));
+    expect(r.status).toBe(200);
+    expect(registreDeplaceMock).toHaveBeenCalledWith('bail', 'base', 'Base de données locative');
+    expect(indexParentMock).toHaveBeenCalledWith('bail', 'base');
+  });
+
+  /**
+   * ⚠️ UN DOSSIER DÉPLACÉ NE TOUCHE PAS LE REGISTRE DES PIÈCES, et c'est exact : ce registre indexe des FICHIERS
+   * déposés, pas des dossiers, et le parent IMMÉDIAT de ses lignes n'a pas changé. L'index, lui, porte aussi les
+   * dossiers : son parent à lui suit.
+   */
+  it('⚠️ déplacer un DOSSIER ne touche pas le registre des pièces, mais bien l’index', async () => {
+    deplacerMock.mockResolvedValue({ ok: true, valeur: { id: 'travaux', nom: 'Travaux', parentId: 'drive' } });
+    // « Travaux » (sous « Base de données locative ») remonte d'un cran, dans « GESTION LOCATIVE ».
+    const r = await POST(demande({ action: 'deplacer', cible: 'drive', elements: [{ id: 'travaux' }] }));
+    const d = (await r.json()) as { faits: unknown[] };
+    expect(d.faits).toHaveLength(1);
+    expect(registreDeplaceMock).not.toHaveBeenCalled();
+    expect(indexParentMock).toHaveBeenCalledWith('travaux', 'drive');
+  });
+
+  /**
+   * ⚠️ AU MIEUX-EFFORT : UNE BASE MUETTE NE FAIT PAS ÉCHOUER LE GESTE. Le fichier EST déplacé chez Google —
+   * refuser le geste parce qu'on n'a pas su mettre notre reflet à jour laisserait un fichier déplacé ET une route
+   * en échec, c'est-à-dire la pire des deux situations.
+   */
+  it('⚠️ une base muette ne fait pas échouer le déplacement', async () => {
+    const erreur = vi.spyOn(console, 'error').mockImplementation(() => {});
+    registreDeplaceMock.mockRejectedValue(new Error('base indisponible'));
+    const r = await deplacer();
+    expect(r.status).toBe(200);
+    const d = (await r.json()) as { faits: unknown[] };
+    expect(d.faits).toHaveLength(1);
+    erreur.mockRestore();
+  });
+
+  /** 🔴 ET UN DÉPLACEMENT REFUSÉ N'ÉCRIT RIEN : le fichier n'a pas bougé, son parent non plus. */
+  it('🔴 un déplacement REFUSÉ ne touche ni le registre ni l’index', async () => {
+    const r = await POST(demande({ action: 'deplacer', cible: 'n2', elements: [{ id: 'bail' }] }));
+    const d = (await r.json()) as { faits?: unknown[]; refuses?: unknown[]; message?: string };
+    expect((d.faits ?? []).length + 0).toBe(0);
+    expect(deplacerMock).not.toHaveBeenCalled();
+    expect(registreDeplaceMock).not.toHaveBeenCalled();
+    expect(indexParentMock).not.toHaveBeenCalled();
   });
 });

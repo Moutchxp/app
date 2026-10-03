@@ -242,6 +242,35 @@ export async function noterFichiersRevus(ids: readonly string[]): Promise<number
   return rowCount ?? 0;
 }
 
+/**
+ * ══ 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — UN DÉPLACEMENT CHANGE LE PARENT, ET RIEN D'AUTRE ════════════════════════
+ *
+ * RÈGLE D'ARNO : « un DÉPLACEMENT met à jour les parents de l'entrée existante du registre ET DE L'INDEX. Il ne
+ * crée jamais une seconde entrée. »
+ *
+ * 🔴 POURQUOI PAS `noterFichiersVus` : elle exige la ligne ENTIÈRE (nom, empreinte, taille, dates). Un
+ * déplacement ne change aucune de ces choses — il faudrait donc relire le fichier chez Google pour reposer ce
+ * qu'on a déjà. Et `releve_le` sauterait à `now()`, ce qui ferait croire l'index plus frais qu'il n'est : la date
+ * dit « je l'ai VU », pas « on me l'a raconté ».
+ *
+ * ⚠️ L'INDEX SE RÉPARE DE LUI-MÊME au prochain `changes.list` (ou au prochain dossier ouvert dans la fenêtre) :
+ * ce n'est donc pas lui le point critique, c'est le REGISTRE, qui ne se répare jamais seul. On le met tout de
+ * même à jour, parce que quinze minutes d'un chemin faux sont quinze minutes de trop.
+ *
+ * ⚠️ UN FICHIER QUE L'INDEX NE CONNAÎT PAS N'EST PAS AJOUTÉ ICI : on n'a ni son empreinte ni sa taille, et une
+ * ligne d'index incomplète vaudrait moins que pas de ligne. Le balayage l'ajoutera.
+ */
+export async function noterParentDeplace(driveFileId: string, parentId: string): Promise<number> {
+  const id = (driveFileId ?? '').trim();
+  const parent = (parentId ?? '').trim();
+  if (id === '' || parent === '') return 0;
+  if (!(await indexEmpreintesDriveDisponible())) return 0;
+  const { rowCount } = await query(
+    `UPDATE gestion_drive_empreinte SET parent_id = $2
+      WHERE drive_file_id = $1 AND coalesce(parent_id, '') <> $2`, [id, parent]);
+  return rowCount ?? 0;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ④ OÙ EN EST L'INDEX, CORPUS PAR CORPUS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */

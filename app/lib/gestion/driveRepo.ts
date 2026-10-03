@@ -17,6 +17,8 @@ import {
 } from './schema';
 // 🔴 LOT PASTILLE-DRIVE-EN-DIRECT — la MÊME normalisation d'empreinte que l'index (module PUR).
 import { empreinteNormalisee } from './indexEmpreintesDrive';
+/* 🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — « cette copie existe-t-elle encore ? », écrit UNE fois pour tout le module. */
+import { sqlCopieVivante } from './copieDisparueSql';
 
 /** Un dépôt, tel que l'écran l'affiche : « Dans le Drive · ouvrir », avec le nom du dossier. */
 export interface DepotDrive {
@@ -29,10 +31,30 @@ export interface DepotDrive {
   deposePar: string;
 }
 
-/** Les dépôts connus pour un ensemble de pièces. Une seule requête pour tout un message : pas une par carte. */
+/**
+ * Les dépôts connus pour un ensemble de pièces. Une seule requête pour tout un message : pas une par carte.
+ *
+ * ══ 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — UNE COPIE DISPARUE N'EST PLUS UN DÉPÔT ═════════════════════════════════
+ *
+ * 🔴 DÉFAUT TROUVÉ EN INSTRUISANT LE POINT 1, SUR LE VRAI DRIVE. Cette lecture était le SEUL des huit endroits du
+ * module à joindre `gestion_piece_drive` SANS le fragment `sqlCopieVivante` (migration 288). Conséquences, les
+ * deux mesurées le 03/10/2026 après avoir mis une copie à la corbeille depuis la fenêtre :
+ *
+ *   ① la carte de la pièce annonçait encore « Dans le Drive · _MESURE dossier instantane · ouvrir » — un lien
+ *      vers un fichier qui est à la corbeille (c'est la ligne la plus RÉCENTE qui gagne, `ORDER BY depose_le
+ *      DESC`, et c'était justement celle qu'on venait de jeter) ;
+ *   ② `lireDepotExistant` — qui s'appuie sur cette lecture — aurait répondu « déjà là » pour ce dossier :
+ *      autrement dit, l'application aurait REFUSÉ de ranger de nouveau un document qui n'y est plus. C'est la
+ *      conséquence la plus coûteuse, parce qu'elle est silencieuse.
+ *
+ * ⚠️ LA LIGNE RESTE EN BASE, et c'est intact : elle dit un fait daté (« nous avons déposé une copie ici, ce
+ * jour-là »). On cesse de la LIRE, on ne l'efface pas — règle du lot FICHE-SAISIE-UNIFORME.
+ * ⚠️ SANS LA MIGRATION 288, le fragment rend `true` et la requête est mot pour mot celle d'avant ce lot.
+ */
 export async function lireDepotsDesPieces(pieceIds: readonly number[]): Promise<DepotDrive[]> {
   if (pieceIds.length === 0) return [];
   if (!await depotsDriveDisponibles()) return []; // migration 245 absente : aucun dépôt ne peut exister
+  const vivante = await sqlCopieVivante('gestion_piece_drive');
   const { rows } = await query<{
     piece_id: number; drive_file_id: string; drive_dossier_id: string; dossier_nom: string | null;
     web_view_link: string | null; depose_le: string; depose_par_libelle: string;
@@ -41,6 +63,7 @@ export async function lireDepotsDesPieces(pieceIds: readonly number[]): Promise<
             to_char(depose_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS depose_le, depose_par_libelle
        FROM gestion_piece_drive
       WHERE piece_id = ANY($1::bigint[])
+        AND ${vivante}
       ORDER BY piece_id, depose_le DESC`,
     [pieceIds],
   );
@@ -286,6 +309,62 @@ export async function memoriserDepot(d: ADeposer): Promise<IssueMemorisation> {
     console.error('[gestion/drive] dépôt enregistré mais NON journalisé', { pieceId: d.pieceId, e });
   }
   return { etat: 'enregistre' };
+}
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — UN DÉPLACEMENT SUIT L'ENTRÉE, IL N'EN CRÉE PAS UNE SECONDE ═════════════
+ *
+ * RÈGLE D'ARNO (03/10/2026) : « un DÉPLACEMENT (glisser, “Déposer ici” d'un fichier déjà dans le Drive,
+ * annulation) met à jour les parents de l'entrée existante du registre et de l'index. Il ne crée jamais une
+ * seconde entrée. Après un déplacement, un seul emplacement connu : le dernier. Seule une COPIE réelle ajoute un
+ * emplacement. »
+ *
+ * ═══ 🔴 LE DÉFAUT QUE CELA CORRIGE, MESURÉ SUR LE VRAI DRIVE LE 03/10/2026 ═══════════════════════════════════════
+ *
+ * Arno a déplacé « test gigout.pdf » de « Test creation dossier drive » vers « _MESURE nom immediat » dans la
+ * fenêtre Drive (journal `gestion_drive_mouvement` 158 → 162). `files.update` a bien déplacé le fichier — et la
+ * ligne 26554 du registre a gardé `drive_dossier_id = 1dCY-…` (« Test creation dossier drive »), alors que le
+ * parent RÉEL lu par `files.get` est `1EsD2E_…` (« _MESURE nom immediat »).
+ *
+ * 🔴 CE QUE CE MENSONGE COÛTE, ET IL COÛTE DEUX FOIS :
+ *   ① le picto du mail annonce un chemin FAUX — `emplacementsDesPieces` prend `drive_dossier_id` comme parent de
+ *      l'emplacement, et c'est de là qu'il trace le chemin et qu'il ouvre la fenêtre. On va chercher le document
+ *      dans un dossier où il n'est plus ;
+ *   ② ranger la MÊME pièce dans le dossier où elle est DÉJÀ ne serait pas reconnu comme un doublon
+ *      (`lireDepotExistant` interroge `(piece_id, drive_dossier_id)`) : un second fichier naîtrait, et le
+ *      compteur annoncerait deux emplacements pour un seul document.
+ *
+ * ⚠️ ON NE TOUCHE QU'À LA LIGNE DE CE FICHIER : `drive_file_id` est la clé du geste. Deux pièces différentes
+ * peuvent très bien pointer le même fichier (une pièce revenue renommée), et les deux doivent suivre.
+ *
+ * ⚠️ UN CONFLIT D'UNICITÉ N'EST PAS UNE PANNE. L'index `(piece_id, drive_dossier_id)` interdit deux lignes de la
+ * même pièce dans le même dossier : si une ligne y est déjà, on laisse celle-ci telle quelle plutôt que de faire
+ * échouer un déplacement qui a EU LIEU chez Google. Le nettoyage des fantômes, lui, le verra.
+ *
+ * ⚠️ SANS LA MIGRATION 245 la table n'est NOMMÉE NULLE PART — règle du module, inchangée.
+ */
+export async function deplacerCopieAuRegistre(
+  driveFileId: string, dossierId: string, dossierNom: string | null,
+): Promise<number> {
+  const fichier = driveFileId.trim();
+  const dossier = dossierId.trim();
+  if (fichier === '' || dossier === '') return 0;
+  if (!await depotsDriveDisponibles()) return 0;
+  try {
+    /* 🔴 `dossier_nom` SUIT LE DOSSIER, et `coalesce` le garde quand on ne connaît pas le nom de la cible : un nom
+       vide se lirait « Emplacement connu » alors qu'on sait parfaitement où le fichier est. */
+    const { rowCount } = await query(
+      `UPDATE gestion_piece_drive
+          SET drive_dossier_id = $2,
+              dossier_nom = coalesce(nullif(btrim($3), ''), dossier_nom)
+        WHERE drive_file_id = $1 AND drive_dossier_id <> $2`,
+      [fichier, dossier, dossierNom ?? '']);
+    return rowCount ?? 0;
+  } catch (e) {
+    console.error('[gestion/drive] parent du registre NON mis à jour après un déplacement',
+      { driveFileId: fichier, dossierId: dossier, e });
+    return 0;
+  }
 }
 
 /** Le message qui porte une pièce — repli du journal quand la migration 245 n'a pas encore élargi la liste d'entités. */

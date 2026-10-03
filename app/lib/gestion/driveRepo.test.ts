@@ -13,6 +13,7 @@ const reglageRecentsMock = vi.fn();
  * comme `compte_google` et `nom_depose`.
  */
 const md5ColonneMock = vi.fn();
+const copieDisparueMock = vi.fn();
 vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...a),
   withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
@@ -24,12 +25,19 @@ vi.mock('./schema', () => ({
   compteGoogleDuDepotDisponible: () => compteColonneMock(),
   reglageRecentsDisponible: () => reglageRecentsMock(),
   copiePiecesDisponible: () => md5ColonneMock(),
+  /**
+   * 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — la colonne `disparu_le` (migration 288). C'est elle qui fait qu'une copie
+   * mise à la corbeille cesse d'être annoncée comme un dépôt. Pilotée à part : sans elle, le fragment rend `true`
+   * et la requête est mot pour mot celle d'avant ce lot.
+   */
+  copieDisparueDisponible: () => copieDisparueMock(),
   // ⚠️ Non sollicitée par ces épreuves (aucune ne passe de `nomDepose`), mais exportée pour que le module charge.
   nomDeposeDisponible: async () => false,
 }));
 
 import {
-  dernierDossierDuFil, dossiersRecentsDeposes, lireDepotsDesPieces, lireMaxDossiersRecents, memoriserDepot,
+  deplacerCopieAuRegistre, dernierDossierDuFil, dossiersRecentsDeposes, lireDepotExistant, lireDepotsDesPieces,
+  lireMaxDossiersRecents, memoriserDepot,
 } from './driveRepo';
 
 const sql = (i: number): string => String(queryMock.mock.calls[i][0]).replace(/\s+/g, ' ');
@@ -42,7 +50,8 @@ const aDeposer = {
 
 beforeEach(() => {
   queryMock.mockReset(); schemaMock.mockReset(); journalMock.mockReset(); compteColonneMock.mockReset();
-  reglageRecentsMock.mockReset(); md5ColonneMock.mockReset();
+  reglageRecentsMock.mockReset(); md5ColonneMock.mockReset(); copieDisparueMock.mockReset();
+  copieDisparueMock.mockResolvedValue(true);
   schemaMock.mockResolvedValue(true); journalMock.mockResolvedValue(true); compteColonneMock.mockResolvedValue(true);
   reglageRecentsMock.mockResolvedValue(true); md5ColonneMock.mockResolvedValue(true);
 });
@@ -312,5 +321,116 @@ describe('🔴🔴 l’empreinte au registre', () => {
     queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
     await memoriserDepot(aDeposer);
     expect(sql(0)).not.toContain('md5');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — UN DÉPLACEMENT SUIT L'ENTRÉE, IL N'EN CRÉE PAS UNE SECONDE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   RÈGLE D'ARNO (03/10/2026) : « un DÉPLACEMENT met à jour les parents de l'entrée EXISTANTE du registre et de
+   l'index. Il ne crée jamais une seconde entrée. Après un déplacement, un seul emplacement connu : le dernier. »
+
+   🔴 MESURÉ SUR LA BASE D'ARNO : 26 555 lignes vives, UNE SEULE divergente — la ligne 26554, où le registre dit
+   « Test creation dossier drive » et `files.get` dit « _MESURE nom immediat ». Le picto du mail annonçait donc un
+   chemin faux et ouvrait la fenêtre là où le document n'est plus.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le parent du registre suit un déplacement', () => {
+  it('🔴🔴 c’est un UPDATE sur le FICHIER, et jamais un INSERT', async () => {
+    queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    expect(await deplacerCopieAuRegistre('F1', 'CIBLE', 'Travaux')).toBe(1);
+    expect(sql(0)).toContain('UPDATE gestion_piece_drive');
+    expect(sql(0)).not.toContain('INSERT');
+    expect(sql(0)).toContain('WHERE drive_file_id = $1');
+    expect(params(0)).toEqual(['F1', 'CIBLE', 'Travaux']);
+  });
+
+  /**
+   * 🔴 LE NOM DU DOSSIER SUIT LE DOSSIER. Sans lui, le menu d'emplacements afficherait l'ANCIEN nom à côté du
+   * nouvel identifiant — deux vérités sur une seule ligne.
+   */
+  it('🔴 `dossier_nom` suit, et un nom vide ne l’écrase pas', async () => {
+    queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    await deplacerCopieAuRegistre('F1', 'CIBLE', null);
+    expect(sql(0)).toContain("coalesce(nullif(btrim($3), ''), dossier_nom)");
+    expect(params(0)).toEqual(['F1', 'CIBLE', '']);
+  });
+
+  /** ⚠️ LA LIGNE DÉJÀ À LA BONNE PLACE N'EST PAS RÉÉCRITE : `drive_dossier_id <> $2` dans le `WHERE`. */
+  it('⚠️ aucune écriture quand le parent est déjà le bon', async () => {
+    queryMock.mockResolvedValue({ rowCount: 0, rows: [] });
+    expect(await deplacerCopieAuRegistre('F1', 'CIBLE', 'Travaux')).toBe(0);
+    expect(sql(0)).toContain('drive_dossier_id <> $2');
+  });
+
+  /** ⚠️ UN IDENTIFIANT VIDE N'INTERROGE PAS LA BASE : il ne désigne ni fichier ni dossier. */
+  it('⚠️ un identifiant vide n’émet aucune requête', async () => {
+    expect(await deplacerCopieAuRegistre('   ', 'CIBLE', null)).toBe(0);
+    expect(await deplacerCopieAuRegistre('F1', '  ', null)).toBe(0);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  /** ⚠️ SANS LA MIGRATION 245, la table n'est NOMMÉE NULLE PART — règle du module, inchangée. */
+  it('⚠️ sans la migration 245, aucune requête', async () => {
+    schemaMock.mockResolvedValue(false);
+    expect(await deplacerCopieAuRegistre('F1', 'CIBLE', 'Travaux')).toBe(0);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ⚠️ UN CONFLIT D'UNICITÉ N'EST PAS UNE PANNE. L'index `(piece_id, drive_dossier_id)` interdit deux lignes de la
+   * même pièce dans le même dossier : si une ligne y est déjà, on laisse celle-ci telle quelle plutôt que de faire
+   * échouer un déplacement qui a EU LIEU chez Google. Le nettoyage des fantômes, lui, le verra.
+   */
+  it('⚠️ un conflit d’unicité ne lève pas : le déplacement a eu lieu chez Google', async () => {
+    const erreur = vi.spyOn(console, 'error').mockImplementation(() => {});
+    queryMock.mockRejectedValue(new Error('duplicate key value violates unique constraint'));
+    expect(await deplacerCopieAuRegistre('F1', 'CIBLE', 'Travaux')).toBe(0);
+    erreur.mockRestore();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — UNE COPIE DISPARUE N'EST PLUS UN DÉPÔT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   🔴 DÉFAUT TROUVÉ SUR LE VRAI DRIVE le 03/10/2026, en instruisant le point 1 : `lireDepotsDesPieces` était le
+   SEUL des huit endroits du module à joindre `gestion_piece_drive` SANS le fragment `sqlCopieVivante`
+   (migration 288). Après avoir mis une copie à la corbeille depuis la fenêtre :
+
+     ① la carte de la pièce annonçait encore « Dans le Drive · _MESURE dossier instantane · ouvrir » — un lien
+        vers un fichier à la corbeille, et c'était la ligne la plus RÉCENTE qui gagnait (`depose_le DESC`) ;
+     ② `lireDepotExistant`, qui s'appuie sur cette lecture, aurait répondu « déjà là » pour ce dossier : autrement
+        dit l'application aurait REFUSÉ, en silence, de ranger un document qui n'y est plus.
+
+   ⚠️ LA LIGNE RESTE EN BASE : on cesse de la LIRE, on ne l'efface pas. Elle dit un fait daté.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 les dépôts écartent les copies disparues', () => {
+  it('🔴🔴 la lecture porte le fragment « copie vivante »', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await lireDepotsDesPieces([7]);
+    expect(sql(0)).toContain('disparu_le IS NULL');
+    // 🔴 ET LE PARAMÈTRE RESTE LIÉ : le fragment ne doit pas déplacer les numéros de paramètre.
+    expect(params(0)).toEqual([[7]]);
+  });
+
+  /**
+   * 🔴🔴 `lireDepotExistant` EN HÉRITE, et c'est l'essentiel : c'est lui qui décide si un rangement est un
+   * doublon. Il n'a pas sa propre requête — il lit celle-ci, ce qui garantit qu'ils ne peuvent pas diverger.
+   */
+  it('🔴🔴 le détecteur de doublon lit la MÊME requête', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await lireDepotExistant(7, 'DOS');
+    expect(sql(0)).toContain('disparu_le IS NULL');
+  });
+
+  /** ⚠️ SANS LA MIGRATION 288, la colonne n'est pas nommée : requête mot pour mot celle d'avant ce lot. */
+  it('⚠️ sans la migration 288, « disparu_le » n’est pas nommé', async () => {
+    copieDisparueMock.mockResolvedValue(false);
+    queryMock.mockResolvedValue({ rows: [] });
+    await lireDepotsDesPieces([7]);
+    expect(sql(0)).not.toContain('disparu_le');
   });
 });

@@ -16,6 +16,23 @@ import {
   inscrireMouvement, marquerAnnule, mouvementsAnnulables,
 } from '../../../../../../lib/gestion/driveMouvementRepo';
 import { journalMouvementDriveDisponible } from '../../../../../../lib/gestion/schema';
+/**
+ * ══ 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — LE REFLET D'UN DÉPLACEMENT, EN BASE ═════════════════════════════════════
+ *
+ * RÈGLE D'ARNO (03/10/2026) : « un DÉPLACEMENT met à jour les parents de l'entrée existante du registre et de
+ * l'index. Il ne crée jamais une seconde entrée. Après un déplacement, un seul emplacement connu : le dernier.
+ * Seule une COPIE réelle ajoute un emplacement. »
+ *
+ * 🔴 MESURÉ SUR LA BASE D'ARNO : 26 555 lignes vives au registre, **UNE SEULE** divergente — celle qu'Arno vient
+ * de créer en déplaçant « test gigout.pdf » (ligne 26554 : le registre dit « Test creation dossier drive »,
+ * `files.get` dit « _MESURE nom immediat »). Le défaut est donc réel et rare : déplacer DANS la fenêtre un fichier
+ * que l'application a déposé n'arrive pas souvent. Il n'en est pas moins un mensonge, et il se répare ici.
+ *
+ * 🔒 AUCUNE ÉCRITURE DRIVE DE PLUS : ces deux appels ne touchent que NOTRE base. La seule écriture Google de cette
+ * route reste `deplacerVers`/`copierFichier`, dans `driveMouvement.ts` et sous son test statique.
+ */
+import { deplacerCopieAuRegistre } from '../../../../../../lib/gestion/driveRepo';
+import { noterParentDeplace } from '../../../../../../lib/gestion/empreinteDriveRepo';
 
 /**
  * /api/admin/gestion/drive/deplacer — LOT DRIVE-DEPLACER : DÉPLACER ET COPIER DANS LE DRIVE.
@@ -45,6 +62,31 @@ import { journalMouvementDriveDisponible } from '../../../../../../lib/gestion/s
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export const runtime = 'nodejs';
+
+/**
+ * ══ 🔴🔴 LE REFLET D'UN DÉPLACEMENT — APPELÉ APRÈS GOOGLE, ET JAMAIS AVANT ═══════════════════════════════════════
+ *
+ * ⚠️ AU MIEUX-EFFORT, ET JAMAIS ATTENDU PAR LE VERDICT. Le fichier EST déplacé chez Google : refuser le geste
+ * parce qu'on n'a pas su mettre notre reflet à jour laisserait un fichier déplacé ET une route en échec — la pire
+ * des deux situations. On note l'incident au journal du SERVEUR et l'on continue. C'est la règle du module depuis
+ * le lot DRIVE-DEPLACER (le journal lui-même est au mieux-effort), et celle du reflet de la corbeille.
+ *
+ * ⚠️ UN DOSSIER DÉPLACÉ NE TOUCHE PAS LE REGISTRE DES PIÈCES, et c'est exact : le registre indexe des FICHIERS
+ * déposés, pas des dossiers. Ses lignes continuent de désigner le bon parent immédiat — qui, lui, n'a pas changé.
+ * L'index, en revanche, porte aussi les dossiers : son parent à lui suit.
+ */
+async function refletDeplacement(
+  o: { driveFileId: string; dossierId: string; dossierNom: string | null; estDossier: boolean },
+): Promise<void> {
+  try {
+    await Promise.all([
+      o.estDossier ? Promise.resolve(0) : deplacerCopieAuRegistre(o.driveFileId, o.dossierId, o.dossierNom),
+      noterParentDeplace(o.driveFileId, o.dossierId),
+    ]);
+  } catch (e) {
+    console.error('[api/admin/gestion/drive/deplacer] reflet en base non mis à jour', { ...o, e });
+  }
+}
 
 const SANS_CACHE = 'private, no-store';
 function json(corps: unknown, status = 200): Response {
@@ -329,10 +371,22 @@ async function mouvoir(
         parentOrigine: p.parentOrigine, parentCible: cible, copieDriveId: null,
         auteurId: auteur.id, auteurLibelle: auteur.libelle, compteGoogle: jeton.compteGoogle,
       });
+      /* 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — L'ENTRÉE EXISTANTE SUIT LE FICHIER. Voir l'encadré de
+         `refletDeplacement` : sans cela le registre garde l'ANCIEN dossier, le picto du mail annonce un chemin
+         faux, et ranger la pièce là où elle est déjà créerait un second fichier. */
+      await refletDeplacement({
+        driveFileId: p.id, dossierId: cible, dossierNom: nomCible, estDossier: p.estDossier,
+      });
       return { ok: true as const, id: p.id, nom: p.nom, mouvementId, copieId: null };
     }
-    const copie = p.estDossier
-      ? await copierDossier(jeton.jeton, { id: p.id, nom: p.nom, parentCible: cible })
+    /**
+     * 🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — LE RÉSULTAT DU FICHIER EST TENU À PART, et ce n'est pas du rangement :
+     * `copierDossier` ne rend qu'un identifiant et un nom, `copierFichier` rend en plus les métadonnées de la
+     * copie (empreinte, parent, taille) depuis le lot PASTILLE-DRIVE-EN-DIRECT. Les fondre dans une seule
+     * variable empêcherait TypeScript de voir lesquelles existent — et nous ferait lire des champs absents.
+     */
+    const copieFichier = p.estDossier
+      ? null
       /* ⚠️ `nom` N'EST PASSÉ QUE S'IL Y EN A UN : absent, Google nomme la copie comme l'original — mot pour mot
          le comportement d'avant ce lot, et celui du « Copier/Coller » du navigateur de fichiers. */
       : await copierFichier(
@@ -340,6 +394,8 @@ async function mouvoir(
         { id: p.id, parentCible: cible, ...(p.nomCible === null ? {} : { nom: p.nomCible }) },
         deps,
       );
+    const copie = copieFichier
+      ?? await copierDossier(jeton.jeton, { id: p.id, nom: p.nom, parentCible: cible });
     // La cible a un enfant de plus : ce qu'on sait d'elle ne vaut plus. (L'original, lui, n'a pas bougé.)
     oublierChaine(jeton.compteGoogle, cible);
     if (!copie.ok) return { ok: false as const, id: p.id, nom: p.nom, motif: copie.motif };
@@ -351,6 +407,42 @@ async function mouvoir(
       parentOrigine: p.parentOrigine, parentCible: cible, copieDriveId: copie.valeur.id,
       auteurId: auteur.id, auteurLibelle: auteur.libelle, compteGoogle: jeton.compteGoogle,
     });
+    /**
+     * ══ 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — LA COPIE NEUVE ENTRE DANS L'INDEX, TOUT DE SUITE ═══════════════════
+     *
+     * RÈGLE D'ARNO : « seule une COPIE réelle (rangement d'une pièce jointe ou d'une vignette dupliquée) ajoute un
+     * emplacement ». Pour qu'elle en AJOUTE un, encore faut-il pouvoir le connaître.
+     *
+     * 🔴 C'EST LA MOITIÉ QUI MANQUAIT AU LOT PASTILLE-DRIVE-EN-DIRECT. Le dépôt d'une PIÈCE indexait sa copie
+     * (`DepsDepot.noterAuIndex`) ; la copie d'une VIGNETTE DUPLIQUÉE, qui passe par cette route-ci, ne l'indexait
+     * pas — elle restait invisible au picto jusqu'au passage de l'agent `changes.list`, soit les 12 min 37 s
+     * mesurées sur le cas d'Arno. Les deux chemins de copie se comportent désormais pareil.
+     *
+     * ⚠️ SEULEMENT UN FICHIER : un DOSSIER copié récursivement crée des dizaines de fichiers dont cette réponse ne
+     * dit rien. Les indexer d'ici demanderait de reparcourir la copie chez Google ; le balayage le fait déjà, et
+     * un dossier d'archives n'est pas une pièce jointe qu'on cherche dans un mail.
+     *
+     * ⚠️ AU MIEUX-EFFORT, comme le reflet d'un déplacement : la copie EXISTE chez Google.
+     */
+    if (copieFichier !== null && copieFichier.ok) {
+      const f = copieFichier.valeur;
+      try {
+        const { noterFichiersVus } = await import('../../../../../../lib/gestion/empreinteDriveRepo');
+        await noterFichiersVus([{
+          driveFileId: f.id,
+          md5: f.md5 ?? null,
+          nom: f.nom || p.nomCible || p.nom,
+          parentId: f.parentId || cible,
+          driveId: f.driveId ?? null,
+          estDossier: false,
+          typeMime: f.typeMime ?? null,
+          tailleOctets: f.tailleOctets ?? null,
+          modifieLe: f.modifieLe ?? null,
+        }]);
+      } catch (e) {
+        console.error('[api/admin/gestion/drive/deplacer] copie faite mais NON indexée', { copie: f.id, e });
+      }
+    }
     return { ok: true as const, id: p.id, nom: p.nom, mouvementId, copieId: copie.valeur.id };
   });
   chrono.top('drive');
@@ -527,6 +619,14 @@ async function annuler(corps: Demande, jeton: Jeton, auteur: Auteur): Promise<Re
       action: 'deplacer', driveId: l.driveId, nom: l.nom, estDossier,
       parentOrigine: meta.parentId, parentCible: l.parentOrigine, copieDriveId: null,
       auteurId: auteur.id, auteurLibelle: `${auteur.libelle} (annulation)`, compteGoogle: jeton.compteGoogle,
+    });
+    /* 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — UNE ANNULATION EST UN DÉPLACEMENT : elle a le MÊME reflet, vers le
+       parent d'ORIGINE cette fois. Arno l'a nommée explicitement (« glisser, “Déposer ici”, annulation »). Sans
+       cela, défaire un déplacement laisserait le registre sur la destination qu'on vient justement d'abandonner.
+       ⚠️ LE NOM VIENT DE LA CHAÎNE DÉJÀ LUE (`chaineCible[0]`), pas d'un appel de plus. */
+    await refletDeplacement({
+      driveFileId: l.driveId, dossierId: l.parentOrigine,
+      dossierNom: chaineCible[0]?.nom ?? null, estDossier,
     });
     await marquerAnnule(l.id);
     remis.push(l.driveId);
