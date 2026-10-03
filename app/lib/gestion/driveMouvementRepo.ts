@@ -1,5 +1,5 @@
 import { query } from '../db/client';
-import { corbeilleDriveDisponible, journalMouvementDriveDisponible } from './schema';
+import { copiePiecesDisponible, corbeilleDriveDisponible, journalMouvementDriveDisponible } from './schema';
 
 /**
  * LOT DRIVE-DEPLACER — CE QUE LA BASE GARDE DES DÉPLACEMENTS ET DES COPIES. IMPUR (SQL).
@@ -118,4 +118,66 @@ export async function mouvementsAnnulables(ids: readonly number[]): Promise<Mouv
 export async function marquerAnnule(id: number): Promise<void> {
   if (!await journalMouvementDriveDisponible()) return;
   await query(`UPDATE gestion_drive_mouvement SET annule_le = now() WHERE id = $1 AND annule_le IS NULL`, [id]);
+}
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LES COPIES D'UN DOCUMENT, LUES DANS LE JOURNAL ═══════════════
+ *
+ * C'est le « registre de l'appli » dont parle la loupe « Où est ce document ? ». Chaque copie faite par cette
+ * application a laissé ici une ligne portant la SOURCE (`drive_id`) et la COPIE (`copie_drive_id`) : les retrouver
+ * ne demande aucun appel à Google, et la réponse est EXACTE — on ne devine pas, on relit ce qu'on a fait.
+ *
+ * 🔴 ON REND LES LIENS, PAS LA RÉPONSE. La fermeture (copies, copies de copies, et l'original) est calculée par le
+ * module PUR `localisationDrive.fermetureCopies`, qui la borne en profondeur et en nombre. Une requête récursive
+ * en SQL aurait mis cette règle hors de portée d'un test sans base.
+ *
+ * ⚠️ DEUX SENS, ET IL FAUT LES DEUX : on part aussi bien d'un original que d'une copie. Chercher seulement
+ * `drive_id = $1` n'aurait rien trouvé quand on ouvre la loupe sur la copie — c'est-à-dire la moitié des cas.
+ *
+ * ⚠️ UNE LIGNE ANNULÉE COMPTE QUAND MÊME : « annulé » ne vaut que pour un DÉPLACEMENT (il est revenu) ou une
+ * CORBEILLE (elle a été défaite). Une copie, elle, ne s'annule pas — la ligne dit qu'elle a eu lieu, et le
+ * fichier existe. C'est l'appelant qui vérifiera chez Google si chaque occurrence est encore là.
+ *
+ * 🔒 LECTURE SEULE. Et bornée : un document très recopié ne doit pas ramener dix mille lignes.
+ */
+export async function copiesDuDocument(driveId: string, limite = 300): Promise<{ source: string; copie: string }[]> {
+  const id = driveId.trim();
+  if (id === '' || !await journalMouvementDriveDisponible()) return [];
+  const { rows } = await query<{ source: string; copie: string }>(
+    `SELECT drive_id AS source, copie_drive_id AS copie
+       FROM gestion_drive_mouvement
+      WHERE action = 'copier' AND copie_drive_id IS NOT NULL
+        AND (drive_id = $1 OR copie_drive_id = $1)
+      ORDER BY id
+      LIMIT $2`, [id, limite]);
+  return rows.map((r) => ({ source: r.source, copie: r.copie }));
+}
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LES DÉPÔTS DRIVE D'UNE PIÈCE JOINTE ══════════════════════════
+ *
+ * L'autre moitié du « registre de l'appli ». Une pièce jointe de mail n'a pas d'identifiant Drive tant qu'on ne
+ * l'a pas rangée ; `gestion_piece_drive` garde chaque dépôt — c'est par là que la loupe part quand on l'ouvre sur
+ * une pièce du message plutôt que sur une vignette dupliquée.
+ *
+ * ⚠️ TOUS LES DÉPÔTS, QUELLE QUE SOIT LEUR ORIGINE : un rangement à la main et une copie faite par le programme
+ * désignent le même document. Ce qui les distingue intéresse l'audit, pas la question « où est-il ? ».
+ *
+ * ⚠️ `md5` EST RENDU QUAND ON L'A : il évite un `files.get` à l'appelant pour les pièces, et c'est l'empreinte
+ * que la comparaison de contenu utilisera.
+ *
+ * 🔒 LECTURE SEULE, et bornée.
+ */
+export async function fichiersDriveDeLaPiece(
+  pieceId: number, limite = 50,
+): Promise<{ driveFileId: string; md5: string | null }[]> {
+  if (!Number.isSafeInteger(pieceId) || pieceId <= 0) return [];
+  if (!await copiePiecesDisponible()) return [];
+  const { rows } = await query<{ drive_file_id: string; md5: string | null }>(
+    `SELECT drive_file_id, md5
+       FROM gestion_piece_drive
+      WHERE piece_id = $1 AND btrim(drive_file_id) <> ''
+      ORDER BY id
+      LIMIT $2`, [pieceId, limite]);
+  return rows.map((r) => ({ driveFileId: r.drive_file_id, md5: r.md5 }));
 }

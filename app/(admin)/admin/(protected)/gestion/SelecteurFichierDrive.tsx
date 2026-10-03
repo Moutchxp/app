@@ -59,6 +59,15 @@ import {
   aideVignette, ajouterVignette, cleVignette, dejaDupliquee, motCopieRangee, resumeVignettes,
   type VignetteDupliquee,
 } from '../../../../lib/gestion/vignetteDrive';
+/**
+ * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « OÙ EST CE DOCUMENT ? ». Module PUR : il dit ce qu'il faut
+ * surligner, à chaque niveau de l'arbre, et il DIT LES LIMITES de la méthode — qui doivent se lire à l'écran, à
+ * côté du compteur, et non dans une aide qu'il faudrait aller chercher.
+ */
+import {
+  AIDE_LOUPE, motCompteur, phraseMethode, surlignageDe, SURLIGNAGE_VIDE,
+  type Occurrence, type Surlignage,
+} from '../../../../lib/gestion/localisationDrive';
 import {
   aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder, entreeDupliquer,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
@@ -1175,6 +1184,19 @@ export function SelecteurFichierDrive({
   /** La vignette dont le crayon ✎ vient d'être cliqué : l'aperçu s'ouvre alors DIRECTEMENT sur le champ. */
   const [renommerVignette, setRenommerVignette] = useState<string | null>(null);
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LA LOUPE « OÙ EST CE DOCUMENT ? »
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+     🔴 UNE SEULE ACTIVE À LA FOIS (demande d'Arno). Deux localisations simultanées surligneraient deux jeux de
+     chemins dans le même arbre, sans qu'on puisse dire lequel appartient à quoi — c'est-à-dire un arbre tout
+     surligné, qui n'apprend plus rien. La clé de la vignette active, donc, et rien de plus. */
+  const [loupeSur, setLoupeSur] = useState<string | null>(null);
+  /** Ce que la route a trouvé pour la vignette active. Vide tant qu'elle n'a pas répondu. */
+  const [localisation, setLocalisation] = useState<{
+    md5: string | null; occurrences: Occurrence[]; parRegistre: number;
+  } | null>(null);
+
   /**
    * ⚠️ PAS DE `useCallback` ICI, ET C'EST DÉLIBÉRÉ (même raison qu'à la liste, plus haut) : le compilateur React
    * refuse d'optimiser un composant dont il ne peut pas préserver la mémorisation manuelle — il juge `chemin`
@@ -1293,6 +1315,45 @@ export function SelecteurFichierDrive({
     if ((dossierCourant?.id ?? '') === dossierId) {
       setVue((v) => (v.v === 'ok' ? { ...v, fichiers: transformer(v.fichiers) } : v));
     }
+  };
+
+  /**
+   * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — TOUT CE QUE LA FENÊTRE A DÉJÀ LU ════════════════════════
+   *
+   * La liste affichée, plus chaque sous-dossier déplié. C'est l'étendue EXACTE de la comparaison par empreinte :
+   * l'API Drive ne sait pas chercher par `md5Checksum`, donc la seule comparaison possible sans balayer le Drive
+   * porte sur ce qu'on a déjà sous la main — et qu'on a lu dans le MÊME appel que la liste, donc gratuitement.
+   *
+   * ⚠️ C'EST AUSSI LA LIMITE QU'ON ANNONCE À L'ÉCRAN : « la comparaison n'a porté que sur les N dossiers déjà
+   * ouverts ». Le nombre vient d'ici, et il est donc toujours vrai.
+   */
+  const listesParDossier = (): [string, readonly Fichier[]][] => {
+    const out: [string, readonly Fichier[]][] = [];
+    const ici = dossierCourant?.id ?? '';
+    /**
+     * ⚠️ LA LISTE AFFICHÉE ENTRE MÊME À LA RACINE DU SÉLECTEUR, où il n'y a pas de « dossier courant ». Ses
+     * fichiers sont bel et bien lus et sous les yeux : les écarter aurait fait passer à côté du document qu'on a
+     * justement devant soi. Leur chemin est alors vide — ils sont comptés et surlignés, sans surligner de
+     * dossier, ce qui est exact : il n'y en a aucun au-dessus d'eux à montrer.
+     */
+    if (vue.v === 'ok') out.push([ici, vue.fichiers]);
+    for (const [id, liste] of enfants) if (id !== ici) out.push([id, liste]);
+    return out;
+  };
+
+  /**
+   * LA CHAÎNE D'UN DOSSIER QU'ON A SOUS LES YEUX, du plus proche à la racine.
+   *
+   * ⚠️ ELLE NE DEMANDE RIEN À GOOGLE : on la reconstitue avec ce que l'écran affiche déjà — le fil d'Ariane pour
+   * le dossier courant, et les lignes dépliées pour les sous-dossiers. Un `files.get` par fichier comparé aurait
+   * été exactement le balayage qu'Arno exclut.
+   */
+  const cheminDuDossier = (dossierId: string): { id: string; nom: string }[] => {
+    const ici = dossierCourant?.id ?? '';
+    const base = [...chemin].reverse().map((e) => ({ id: e.id, nom: e.nom }));
+    if (dossierId === ici) return base;
+    const ligne = lignes.find((l) => l.entree.id === dossierId);
+    return ligne === undefined ? base : [{ id: dossierId, nom: ligne.entree.nom }, ...base];
   };
 
   /** Le nom d'un dossier qu'on a sous la main : le courant, un parent du bandeau, ou une ligne de la liste. */
@@ -2614,6 +2675,93 @@ export function SelecteurFichierDrive({
     }
   };
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LA LOUPE — ACTIVER, DÉSACTIVER, ET CE QU'ELLE SURLIGNE
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * 🔴 UN INTERRUPTEUR, PAS UN BOUTON D'ACTION (Arno : « clic = active ou désactive »). Recliquer sur la même
+   * loupe éteint le surlignage ; cliquer sur une autre déplace la localisation, sans jamais en laisser deux.
+   *
+   * 🔒 LECTURE SEULE : la route ne fait que des `files.get` et une lecture du journal. Rien n'est écrit, nulle
+   * part — y compris quand une occurrence se trouve dans « Documents clients scannés », dont les ANCÊTRES
+   * peuvent être lus (un nom, un parent) mais jamais modifiés.
+   */
+  const basculerLoupe = async (
+    cle: string, driveFileId: string, pieceId: number | null = null,
+  ): Promise<void> => {
+    if (loupeSur === cle) { setLoupeSur(null); setLocalisation(null); return; }
+    setLoupeSur(cle);
+    setLocalisation(null);
+    try {
+      /* 🔴 DEUX PORTES, UNE SEULE ROUTE : une vignette dupliquée EST un fichier du Drive ; une pièce du message
+         n'en est pas un tant qu'elle n'a pas été rangée, et c'est le registre des dépôts qui la situe. */
+      const adresse = driveFileId !== ''
+        ? `source=${encodeURIComponent(driveFileId)}`
+        : `piece=${encodeURIComponent(String(pieceId ?? 0))}`;
+      const res = await fetch(`/api/admin/gestion/drive/localiser?${adresse}`, { cache: 'no-store' });
+      const d = (await res.json()) as {
+        etat?: string; message?: string; md5?: string | null;
+        occurrences?: Occurrence[]; parRegistre?: number;
+      };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'La localisation n’a pas abouti.'); setLoupeSur(null); return; }
+      setLocalisation({
+        md5: d.md5 ?? null, occurrences: d.occurrences ?? [], parRegistre: d.parRegistre ?? 0,
+      });
+    } catch {
+      setErreur('Le Drive n’a pas répondu.');
+      setLoupeSur(null);
+    }
+  };
+
+  /**
+   * ══ 🔴🔴 CE QUE L'ARBRE DOIT SURLIGNER, À CHAQUE NIVEAU ════════════════════════════════════════════════════
+   *
+   * Deux apports, et ils se complètent :
+   *   ① LES OCCURRENCES DU REGISTRE, avec leur chaîne complète de dossiers — rendues par la route ;
+   *   ② 🔴 LES FICHIERS DÉJÀ LISTÉS QUI PORTENT LA MÊME EMPREINTE. L'API Drive ne sait pas chercher par
+   *      empreinte : la seule comparaison possible sans balayer le Drive porte sur ce que la fenêtre a DÉJÀ lu —
+   *      et elle l'a lu dans le même appel que la liste, donc sans un octet de plus.
+   *
+   * ⚠️ LEUR CHEMIN EST CELUI DU DOSSIER OÙ ON LES A VUS : on connaît leur parent (chaque ligne le porte), et la
+   * chaîne de ce parent est celle qu'on est en train d'afficher. On ne redemande donc rien à Google.
+   */
+  const surlignage: Surlignage = (() => {
+    if (loupeSur === null || localisation === null) return SURLIGNAGE_VIDE;
+    const occurrences: Occurrence[] = [...localisation.occurrences];
+    const md5 = (localisation.md5 ?? '').trim();
+    if (md5 !== '') {
+      const deja = new Set(occurrences.map((o) => o.id));
+      for (const [parentId, liste] of listesParDossier()) {
+        for (const f of liste) {
+          if (f.dossier || deja.has(f.id) || (f.md5 ?? '') === '' || f.md5 !== md5) continue;
+          deja.add(f.id);
+          occurrences.push({
+            id: f.id, nom: f.nom, voie: 'empreinte',
+            chemin: cheminDuDossier(parentId),
+          });
+        }
+      }
+    }
+    return surlignageDe(occurrences);
+  })();
+
+  /** Combien de dossiers la fenêtre a déjà lus : c'est l'étendue de la comparaison par empreinte, et on le DIT. */
+  const dossiersLus = listesParDossier().length;
+
+  /**
+   * 🔴🔴 LA PHRASE QUI DIT CE QU'ON A CHERCHÉ, ET CE QU'ON N'A PAS CHERCHÉ. Elle vit dans le module PUR, et elle
+   * s'affiche en infobulle du compteur — à côté du nombre, jamais dans une aide qu'il faudrait aller chercher :
+   * une limite qu'on lit après avoir conclu ne sert à rien.
+   */
+  const phraseMethodeCourante = (): string => phraseMethode({
+    nombre: surlignage.nombre,
+    parRegistre: localisation?.parRegistre ?? 0,
+    parEmpreinte: Math.max(0, surlignage.nombre - (localisation?.parRegistre ?? 0)),
+    empreinteConnue: (localisation?.md5 ?? '') !== '',
+    dossiersLus,
+  });
+
   const sortirDeLaCorbeille = async (mouvements: number[]): Promise<void> => {
     setBandeau(null);
     try {
@@ -3267,7 +3415,31 @@ export function SelecteurFichierDrive({
                                 </button>
                               );
                             })()}
+                            {/* ══ 🔴🔴 LA LOUPE « OÙ EST CE DOCUMENT ? » ═══════════════════════════════════════
+                                Arno : « sur chaque vignette de la colonne de gauche (pièce jointe ou vignette
+                                dupliquée), ajoute un picto loupe (aria-label “Localiser dans le Drive”). Clic =
+                                active ou désactive la localisation pour cette vignette (une seule active à la
+                                fois). »
+                                🔒 LECTURE SEULE : elle ne fait que demander où se trouve ce document. */}
+                            <button type="button"
+                              className={`sfd-piece-oeil${loupeSur === `piece:${x.pieceId}` ? ' sfd-piece-oeil--actif' : ''}`}
+                              aria-pressed={loupeSur === `piece:${x.pieceId}`}
+                              title={AIDE_LOUPE} aria-label={`${AIDE_LOUPE} — ${x.nom}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void basculerLoupe(`piece:${x.pieceId}`, '', x.pieceId);
+                              }}>
+                              <span aria-hidden="true">🔎</span>
+                            </button>
                           </span>
+                          {/* 🔴 LE COMPTEUR ET LA MÉTHODE, à côté de la loupe et jamais ailleurs : la limite doit
+                              se lire AU MOMENT où l'on regarde le nombre. */}
+                          {loupeSur === `piece:${x.pieceId}` && (
+                            <span className="sfd-piece-etat sfd-loupe-compte"
+                              role="status" title={phraseMethodeCourante()}>
+                              🔎 {motCompteur(surlignage.nombre)}
+                            </span>
+                          )}
                           {occupee && <span className="sfd-piece-etat">Rangement…</span>}
                           {ou !== null && !occupee && (
                             <span className="sfd-piece-etat sfd-piece-etat--ok">
@@ -3367,7 +3539,22 @@ export function SelecteurFichierDrive({
                               }}>
                               <span aria-hidden="true">✕</span>
                             </button>
+                            {/* 🔴🔴 LA MÊME LOUPE QUE SUR UNE PIÈCE DU MESSAGE : même picto, même libellé, même
+                                interrupteur — une seule active à la fois, toutes vignettes confondues. */}
+                            <button type="button"
+                              className={`sfd-piece-oeil${loupeSur === v.cle ? ' sfd-piece-oeil--actif' : ''}`}
+                              aria-pressed={loupeSur === v.cle}
+                              title={AIDE_LOUPE} aria-label={`${AIDE_LOUPE} — ${v.nom}`}
+                              onClick={(e) => { e.stopPropagation(); void basculerLoupe(v.cle, v.driveFileId, null); }}>
+                              <span aria-hidden="true">🔎</span>
+                            </button>
                           </span>
+                          {loupeSur === v.cle && (
+                            <span className="sfd-piece-etat sfd-loupe-compte"
+                              role="status" title={phraseMethodeCourante()}>
+                              🔎 {motCompteur(surlignage.nombre)}
+                            </span>
+                          )}
                           {occupee && <span className="sfd-piece-etat">Copie…</span>}
                           {ou !== null && !occupee && (
                             <span className="sfd-piece-etat sfd-piece-etat--ok">
@@ -3561,9 +3748,23 @@ export function SelecteurFichierDrive({
                       const lisible = joindreOk && !systeme;
                       return (
                         <li key={f.id} role="option" aria-selected={choisie}
+                          /**
+                           * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LE SURLIGNAGE DE LA LOUPE.
+                           *
+                           * Deux marques, et elles ne disent pas la même chose :
+                           *   · `--trouve` : CETTE LIGNE EST le document (ou l'une de ses copies) ;
+                           *   · `--chemin` : ce DOSSIER contient une occurrence, directement ou plus bas. On
+                           *     l'ouvre, et le sous-dossier concerné porte à son tour la marque — jusqu'au
+                           *     fichier. C'est ce qu'Arno demande « à chaque niveau de l'arbre ».
+                           *
+                           * ⚠️ DISTINCTES DE LA SÉLECTION (`--choisie`), et c'est une exigence : deux teintes
+                           * différentes, sans quoi on ne saurait plus ce qu'on a coché et ce qu'on a trouvé.
+                           */
                           className={`sfd-ligne${choisie ? ' sfd-ligne--choisie' : ''}`
                             + `${coupee ? ' sfd-ligne--coupee' : ''}${systeme ? ' sfd-ligne--systeme' : ''}`
-                            + `${survole === f.id ? ' sfd-ligne--vise' : ''}${enVol ? ' sfd-ligne--envol' : ''}`}
+                            + `${survole === f.id ? ' sfd-ligne--vise' : ''}${enVol ? ' sfd-ligne--envol' : ''}`
+                            + `${surlignage.fichiers.has(f.id) ? ' sfd-ligne--trouve' : ''}`
+                            + `${f.dossier && surlignage.dossiers.has(f.id) ? ' sfd-ligne--chemin' : ''}`}
                           /* 🔴 L'INDENTATION EST UN PADDING, pas une marge : la ligne garde toute sa largeur, donc
                              toute sa surface de dépôt. Un dossier profond ne doit pas être plus dur à viser. */
                           style={{ ...grille, paddingLeft: 6 + profondeur * 16 }}
@@ -4212,6 +4413,31 @@ export const CSS_SELECTEUR_FICHIER = `
    (« N copies a ranger ») — jamais porte par la seule couleur.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 .sfd-piece--copie{border-left:3px solid var(--color-svv-line-strong)}
+/* ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LA LOUPE ACTIVE, ET CE QU'ELLE SURLIGNE ═══════════════════
+   🔴 UNE COULEUR DISTINCTE DE LA SELECTION (demande d'Arno). La selection est ROUGE (la couleur de la maison) ;
+   la localisation est AMBREE. Deux teintes franchement differentes : sans cela, on ne saurait plus ce qu'on a
+   coche et ce qu'on a trouve.
+   🔴 ET ELLE TIENT EN CLAIR COMME EN SOMBRE. On ne pose pas une teinte opaque : color-mix melange l'ambre au
+   FOND courant, donc le resultat suit le theme — pale sur blanc, profond sur noir — et le texte garde son
+   contraste dans les deux cas. Le lisere gauche, lui, est le MEME dans les deux themes : c'est une forme, et une
+   forme ne depend pas de la luminosite.
+   (Aucun accent GRAVE dans ce bloc : il vit DANS un litteral gabarit, qu'un seul terminerait — piege consigne
+   plusieurs fois dans ce depot, dont deja dans ce fichier.)
+   ⚠️ LE MOT EST TOUJOURS ECRIT A COTE DE LA LOUPE (« N emplacement(s) connu(s) ») : l'information n'est jamais
+   portee par la seule couleur — regle du module, et seule facon de rester lisible en niveaux de gris.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.sfd-loupe-ambre{--sfd-loupe:#b45309}
+.sfd-piece-oeil--actif{background:color-mix(in srgb, #b45309 22%, transparent);border-radius:.3rem}
+.sfd-loupe-compte{color:var(--color-svv-ink);font-weight:600}
+/* LE DOSSIER QUI MENE AU DOCUMENT : un liseré, et un fond tres leger. Il reste lisible sous la selection. */
+.sfd-ligne--chemin{box-shadow:inset 3px 0 0 #b45309;
+  background:color-mix(in srgb, #b45309 9%, transparent)}
+/* LE DOCUMENT LUI-MEME : la meme teinte, plus franche — c'est le bout du chemin. */
+.sfd-ligne--trouve{box-shadow:inset 3px 0 0 #b45309;
+  background:color-mix(in srgb, #b45309 20%, transparent);font-weight:600}
+/* ⚠️ LA SELECTION GARDE LE DESSUS quand les deux se superposent : c'est elle qui commande les gestes. */
+.sfd-ligne--choisie.sfd-ligne--trouve,.sfd-ligne--choisie.sfd-ligne--chemin{
+  background:color-mix(in srgb, var(--color-svv-red) 16%, transparent)}
 .sfd-piece--cochee{border-color:var(--color-svv-red);
   background:color-mix(in srgb, var(--color-svv-red) 10%, var(--color-svv-surface))}
 .sfd-piece-case{flex:0 0 auto;width:14px;height:14px;accent-color:var(--color-svv-red);cursor:pointer}

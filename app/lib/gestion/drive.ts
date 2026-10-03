@@ -471,8 +471,19 @@ export function motifHttp(status: number, quoi: string): string {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** Ce qu'on demande d'un FICHIER : de quoi l'afficher, le juger et, le cas échéant, le joindre. */
+/**
+ * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — `md5Checksum` S'AJOUTE À LA LISTE, ET IL NE COÛTE RIEN.
+ *
+ * C'est un champ de plus dans un appel qu'on faisait déjà : aucune requête supplémentaire, aucun octet de contenu
+ * lu (une empreinte n'est pas le document). Il permet à la loupe « Où est ce document ? » de reconnaître une copie
+ * faite À LA MAIN dans Google Drive, qui n'a laissé aucune trace dans notre registre — et de la reconnaître SANS
+ * balayer le Drive, puisque l'empreinte voyage avec chaque ligne déjà listée.
+ *
+ * ⚠️ ABSENT POUR LES DOCUMENTS GOOGLE NATIFS (Doc, Sheet) : Google n'en calcule pas. `null` est donc normal, et
+ * l'écran le DIT au lieu de laisser croire à un échec.
+ */
 const CHAMPS_FICHIERS =
-  'files(id,name,driveId,mimeType,size,modifiedTime,webViewLink,parents,'
+  'files(id,name,driveId,mimeType,size,modifiedTime,webViewLink,parents,md5Checksum,'
   + 'shortcutDetails(targetId,targetMimeType))';
 
 export interface FichierDrive {
@@ -498,6 +509,12 @@ export interface FichierDrive {
    * dans cette liste-là qu'on navigue.
    */
   parentId: string | null;
+  /**
+   * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — L'EMPREINTE DE CONTENU, pour reconnaître le MÊME document
+   * quel que soit son nom. Elle arrive dans le même appel que la liste : zéro requête de plus.
+   * `null` = document Google natif (Google n'en calcule pas), ou champ non rendu.
+   */
+  md5: string | null;
 }
 
 function versFichiers(j: unknown): FichierDrive[] {
@@ -505,7 +522,7 @@ function versFichiers(j: unknown): FichierDrive[] {
   return brut.map((f) => {
     const o = f as {
       id?: string; name?: string; driveId?: string | null; mimeType?: string; size?: string;
-      modifiedTime?: string; webViewLink?: string; parents?: string[];
+      modifiedTime?: string; webViewLink?: string; parents?: string[]; md5Checksum?: string;
       shortcutDetails?: { targetId?: string; targetMimeType?: string };
     };
     // Un RACCOURCI est suivi jusqu'à sa cible : c'est elle qu'on affiche, qu'on joint ou qu'on lie.
@@ -521,6 +538,9 @@ function versFichiers(j: unknown): FichierDrive[] {
       lien: o.webViewLink ?? null,
       dossier: type === MIME_DOSSIER,
       parentId: o.parents?.[0] ?? null,
+      /* ⚠️ POUR UN RACCOURCI, l'empreinte rendue est celle du RACCOURCI (souvent absente), pas celle de sa cible :
+         Google ne nous donne pas la seconde ici. `null` est donc la bonne réponse — on ne devine pas. */
+      md5: o.md5Checksum ?? null,
     };
   }).filter((f) => f.id !== '');
 }
@@ -639,14 +659,28 @@ export interface MetaFichier {
    * un second appel (270 à 440 ms mesurées, cf. `driveMemoire`).
    */
   driveId: string | null;
+  /**
+   * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — L'EMPREINTE DE CONTENU ══════════════════════════════════
+   *
+   * Elle répond à « est-ce le MÊME document ? », quel que soit son nom : deux fichiers de même empreinte ont les
+   * mêmes octets. C'est ce qui permet à la loupe de retrouver une copie faite À LA MAIN dans Google Drive, qui
+   * n'a laissé aucune trace dans notre registre.
+   *
+   * ⚠️ `null` EST NORMAL, ET FRÉQUENT : Google n'en calcule pas pour ses documents natifs (Doc, Sheet, Slide),
+   * qui n'ont pas d'octets figés. L'écran le DIT alors, au lieu de laisser croire à un échec.
+   *
+   * ⚠️ ELLE NE COÛTE RIEN : c'est un champ de plus dans un `files.get` qu'on faisait déjà. Aucun appel
+   * supplémentaire, aucun octet de contenu lu — une empreinte n'est pas le document.
+   */
+  md5: string | null;
 }
 
-/** Les MÉTADONNÉES d'un élément : nom, type, taille, parents, vignette. LECTURE SEULE — jamais le contenu. */
+/** Les MÉTADONNÉES d'un élément : nom, type, taille, parents, vignette, empreinte. LECTURE SEULE. */
 export async function lireMetadonnees(
   accessToken: string, id: string, deps: DepsGoogle,
 ): Promise<Resultat<MetaFichier>> {
   const p = new URLSearchParams({
-    fields: 'id,name,mimeType,size,parents,webViewLink,trashed,thumbnailLink,driveId',
+    fields: 'id,name,mimeType,size,parents,webViewLink,trashed,thumbnailLink,driveId,md5Checksum',
     ...PARTAGES,
   });
   const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
@@ -654,7 +688,7 @@ export async function lireMetadonnees(
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du fichier') };
   const b = await res.json().catch(() => ({})) as {
     id?: string; name?: string; mimeType?: string; size?: string; parents?: string[];
-    webViewLink?: string; trashed?: boolean; thumbnailLink?: string; driveId?: string;
+    webViewLink?: string; trashed?: boolean; thumbnailLink?: string; driveId?: string; md5Checksum?: string;
   };
   if (b.trashed === true) return { ok: false, motif: 'Ce fichier est à la corbeille du Drive.' };
   return {
@@ -668,6 +702,7 @@ export async function lireMetadonnees(
       lien: b.webViewLink ?? null,
       vignette: b.thumbnailLink ?? null,
       driveId: b.driveId ?? null,
+      md5: b.md5Checksum ?? null,
     },
   };
 }

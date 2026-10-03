@@ -33,6 +33,16 @@ export interface EntreeDrive {
   lien: string | null;
   dossier: boolean;
   parentId?: string | null;
+  /**
+   * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — L'EMPREINTE DE CONTENU, quand Google la fournit.
+   *
+   * Elle sert à UNE chose : reconnaître le MÊME document sous un autre nom, pour la loupe « Où est ce
+   * document ? ». Elle voyage avec la ligne, dans le même appel que la liste — aucune requête de plus.
+   *
+   * ⚠️ FACULTATIVE : une réponse d'API plus ancienne que ce lot ne la porte pas, et un document Google natif n'en
+   * a pas. Absente ⇒ ce fichier n'est jamais reconnu par empreinte, et c'est la bonne réponse : on ne devine pas.
+   */
+  md5?: string | null;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
