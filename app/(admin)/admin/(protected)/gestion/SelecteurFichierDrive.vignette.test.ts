@@ -61,6 +61,15 @@ beforeEach(() => {
       }
       return new Response(JSON.stringify({ etat: 'ok', disponible: true, motif: null }), { status: 200 });
     }
+    /**
+     * 🔴🔴 LOT ETOILE-SIGNATURES-PIECES, POINT 0 — LA ROUTE QUI RENOMME LE FICHIER SOURCE.
+     * Elle fait le pont entre un identifiant Drive et la pièce dont il est une copie, puis renomme la pièce ET
+     * toutes ses copies connues. Le double rend « ok » : ce qu'on éprouve ici, c'est que le geste y PART.
+     */
+    if (url.includes('/drive/renommer')) {
+      return new Response(JSON.stringify({ etat: 'ok', nom: 'x', faits: ['f1'], refus: [], pieceId: 11 }),
+        { status: 200 });
+    }
     if (url.includes('/drive/corbeille')) {
       return new Response(JSON.stringify({ etat: 'ok', disponible: true, motif: null }), { status: 200 });
     }
@@ -403,5 +412,107 @@ describe('🔴🔴 le menu contextuel', () => {
     expect(menu?.style.visibility).not.toBe('hidden');
     expect(Number.parseFloat(menu?.style.top ?? '-1')).toBeGreaterThanOrEqual(0);
     expect(Number.parseFloat(menu?.style.left ?? '-1')).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤ LOT ETOILE-SIGNATURES-PIECES, POINT 0 — LE CRAYON D'UNE VIGNETTE RENOMME AUSSI LA SOURCE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 DÉCISION D'ARNO DU 03/10/2026, QUI TRANCHE UNE QUESTION LAISSÉE OUVERTE ════════════════════════════════
+ *
+ * « UN DOCUMENT = UN SEUL NOM gagne. Le crayon ✎ d'une vignette dupliquée renomme AUSSI le fichier source et
+ * toutes les copies connues (même mécanisme files.update, jamais de copie). »
+ *
+ * AVANT, le crayon d'une vignette ne retenait, DANS LE NAVIGATEUR, que le nom sous lequel la future copie
+ * naîtrait. Le fichier source gardait le sien, et le nom choisi se perdait si l'on ne rangeait pas — c'est
+ * exactement ce qu'Arno a vécu : « reco renomage » n'existait nulle part.
+ *
+ * ⚠️ CE QUI NE CHANGE PAS : dupliquer n'écrit toujours RIEN, et ranger crée toujours une COPIE de plus. Ce qui
+ * bouge désormais est le NOM, et lui seul.
+ */
+describe('🔴🔴 ⑤ le crayon de la vignette renomme la source', () => {
+  const stylo = () => vignettes()[0]?.querySelector('.sfd-piece-stylo') as HTMLButtonElement | undefined;
+  const champ = () => container.querySelector('.apd-champ-nom') as HTMLInputElement | null;
+  const boutonDe = (m: RegExp) => [...container.querySelectorAll('button')].find((b) => m.test(b.textContent ?? ''));
+  const taper = async (valeur: string) => {
+    const c = champ();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(c, valeur);
+    await act(async () => { c?.dispatchEvent(new Event('input', { bubbles: true })); });
+    await calmer();
+  };
+  const renommages = () => appels.filter((a) => a.url.includes('/drive/renommer'));
+
+  it('🔴🔴 valider un nouveau nom appelle la route de renommage, avec l’identifiant Drive de la SOURCE', async () => {
+    await monter();
+    await dupliquer();
+    await cliquer(stylo());
+    await taper('Recommandé M KHARRAT');
+    await cliquer(boutonDe(/^Valider$/));
+    const r = renommages();
+    expect(r).toHaveLength(1);
+    expect((r[0].corps as { driveFileId?: string }).driveFileId).toBe('f1');
+    // 🔴 L'EXTENSION EST CONSERVÉE (lot précédent) : le nom part complet, pas nu.
+    expect((r[0].corps as { nom?: string }).nom).toBe('Recommandé M KHARRAT.pdf');
+  });
+
+  /** ⚠️ ET LE NOM RESTE AFFICHÉ SUR LA VIGNETTE : l'écran ne doit pas attendre le réseau pour suivre le geste. */
+  it('⚠️ la vignette porte aussitôt le nouveau nom', async () => {
+    await monter();
+    await dupliquer();
+    await cliquer(stylo());
+    await taper('Recommandé M KHARRAT');
+    await cliquer(boutonDe(/^Valider$/));
+    expect(vignettes()[0].querySelector('.sfd-piece-nom')?.textContent).toBe('Recommandé M KHARRAT.pdf');
+  });
+
+  /**
+   * 🔴 RENDRE SON NOM ACTUEL N'ENVOIE RIEN : ce n'est pas un renommage, c'est un abandon. Partir quand même
+   * écrirait une ligne de journal pour un geste qui n'a rien changé.
+   */
+  it('🔴 revenir au nom d’origine n’appelle aucune route', async () => {
+    await monter();
+    await dupliquer();
+    await cliquer(stylo());
+    await taper('0851_001');
+    await cliquer(boutonDe(/^Valider$/));
+    expect(renommages()).toHaveLength(0);
+  });
+
+  /**
+   * ══ 🔴🔴 DÉFAUT TROUVÉ À L'ÉPREUVE RÉELLE, LE 03/10/2026 — L'ALLER-RETOUR ═════════════════════════════════
+   *
+   * Après avoir renommé la source, REMETTRE le nom d'avant ne partait plus : la garde « ne rien envoyer si le
+   * nom n'a pas changé » comparait au nom que la vignette portait À SA CRÉATION. Le second geste paraissait
+   * être un non-geste, et il se perdait en silence — exactement ce que ce lot répare ailleurs.
+   *
+   * 🔴 LA VIGNETTE PORTE DÉSORMAIS LE NOM DU FICHIER, pas celui d'un instant passé.
+   */
+  it('🔴🔴 renommer puis REVENIR en arrière part bien deux fois', async () => {
+    await monter();
+    await dupliquer();
+    await cliquer(stylo());
+    await taper('epreuve vignette source');
+    await cliquer(boutonDe(/^Valider$/));
+    await cliquer(container.querySelector('.apd-croix'));
+
+    await cliquer(stylo());
+    expect(champ()?.value).toBe('epreuve vignette source');
+    await taper('0851_001');
+    await cliquer(boutonDe(/^Valider$/));
+    const r = renommages();
+    expect(r).toHaveLength(2);
+    expect((r[1].corps as { nom?: string }).nom).toBe('0851_001.pdf');
+  });
+
+  /** 🔒 ET AUCUNE COPIE N'EST FAITE AU PASSAGE : renommer n'est pas ranger. */
+  it('🔒 renommer n’écrit rien dans /drive/deplacer', async () => {
+    await monter();
+    await dupliquer();
+    await cliquer(stylo());
+    await taper('Recommandé M KHARRAT');
+    await cliquer(boutonDe(/^Valider$/));
+    expect(postsDrive()).toHaveLength(0);
   });
 });

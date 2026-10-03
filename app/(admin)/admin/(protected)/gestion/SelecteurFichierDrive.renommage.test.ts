@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
-import { MOTIF_DEJA_RANGEE } from '../../../../lib/gestion/renommagePiece';
 
 /**
  * LOT RENOMMER-AVANT-RANGER — RENOMMER UNE PIÈCE, PUIS LA RANGER SOUS CE NOM.
@@ -26,6 +25,8 @@ let container: HTMLDivElement;
 let root: Root;
 /** Ce qui est parti aux routes de dépôt : le seul endroit où un geste devient une copie dans le Drive. */
 let depots: { pieceId: string; corps: Record<string, unknown> }[];
+/** 🔴 LOT ETOILE-SIGNATURES-PIECES — ce qui est parti aux routes de RENOMMAGE (pièce ou fichier du Drive). */
+let renommages: { url: string; corps: Record<string, unknown> }[];
 
 const PIECES = [
   { pieceId: 11, nom: '0836_001.pdf', tailleOctets: 84_213, typeMime: 'application/pdf' },
@@ -42,8 +43,14 @@ beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   try { globalThis.sessionStorage?.clear(); globalThis.localStorage?.clear(); } catch { /* sans stockage, tout part neuf */ }
   depots = [];
+  renommages = [];
   vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: RequestInit) => {
     const url = String(u);
+    /* 🔴 LES DEUX ROUTES DE RENOMMAGE RÉEL : celle d'une pièce, et celle d'un fichier du Drive (vignette). */
+    if ((init?.method ?? 'GET') === 'PATCH' && (/\/pieces\/\d+\/nom/.test(url) || url.includes('/drive/renommer'))) {
+      renommages.push({ url, corps: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown> });
+      return new Response(JSON.stringify({ etat: 'ok', nom: 'x', faits: ['F1'], refus: [] }), { status: 200 });
+    }
     const m = /\/api\/admin\/gestion\/pieces\/(\d+)\/drive/.exec(url);
     if (m !== null && (init?.method ?? 'GET') === 'POST') {
       depots.push({ pieceId: m[1], corps: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown> });
@@ -272,26 +279,67 @@ describe('🔴 « Précédent / Suivant » : le bandeau suit la pièce affichée
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   ③ CE QU'ON NE RENOMME PAS
+   ③ UNE PIÈCE DÉJÀ RANGÉE SE RENOMME — ET LE RENOMMAGE PART POUR DE VRAI
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('🔴 ③ une pièce déjà rangée ne se renomme plus', () => {
-  /**
-   * 🔴 ON NE RENOMME JAMAIS UN FICHIER EXISTANT DU DRIVE (demande d'Arno). L'application déplace et copie
-   * là-bas, elle n'y renomme rien : laisser le champ ouvert donnerait un nom qui ne partirait nulle part.
-   */
-  it('🔴 le stylo est grisé, avec son motif', async () => {
-    await monter();
-    // On range la première pièce : elle passe à « ✓ Rangée ».
+/**
+ * ══ 🔴🔴 CETTE ÉPREUVE EST RETOURNÉE, ET C'EST UNE DÉCISION D'ARNO ══════════════════════════════════════════════
+ *
+ * AVANT (lot RENOMMER-AVANT-RANGER) : « pièce déjà rangée : le stylo est grisé, avec l'infobulle “Déjà rangée —
+ * renommez-la dans le Drive”. On ne renomme jamais un fichier existant du Drive. »
+ *
+ * MAINTENANT (03/10/2026) : « UN DOCUMENT = UN SEUL NOM gagne. Le crayon est ALLUMÉ sur une pièce déjà rangée :
+ * il renomme toutes ses copies. » L'application SAIT renommer dans le Drive depuis le lot NOM-UNIQUE-DES-PIECES
+ * — `files.update(name)` sur les seuls fichiers de notre registre. Le motif d'extinction était devenu faux.
+ *
+ * ⚠️ L'ÉPREUVE N'EST PAS AFFAIBLIE, ELLE EST INVERSÉE : elle vérifie maintenant que le geste ABOUTIT, et sur
+ * quelle route il part. Un test qui se contenterait de ne plus vérifier le grisé ne prouverait rien.
+ */
+describe('🔴🔴 ③ le crayon est allumé sur une pièce déjà rangée', () => {
+  /** Ranger la première pièce, puis rendre la main : elle passe à « ✓ Rangée ». */
+  const rangerLaPremiere = async () => {
     await act(async () => { ligneDe('Artisans')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
     await calmer();
     await cliquer(boutonDe(/^Déposer ici/));
     expect(depots.length).toBeGreaterThan(0);
+  };
 
+  it('🔴🔴 le stylo n’est plus grisé, et son infobulle est celle de tous les autres', async () => {
+    await monter();
+    await rangerLaPremiere();
     const s = stylo('0836_001.pdf');
-    expect(s?.disabled).toBe(true);
-    expect(s?.title).toBe(MOTIF_DEJA_RANGEE);
-    expect(MOTIF_DEJA_RANGEE).toContain('renommez-la dans le Drive');
+    expect(s?.disabled).toBe(false);
+    expect(s?.title).toBe('Renommer avant de ranger');
+  });
+
+  /**
+   * 🔴🔴 L'ÉPREUVE QUI COMPTE : le nom part sur la route qui renomme POUR DE VRAI — la pièce et toutes ses
+   * copies connues. Tout le reste ne serait qu'un affichage, et c'est précisément le défaut qu'on répare.
+   */
+  it('🔴🔴 renommer une pièce rangée appelle la route de renommage', async () => {
+    await monter();
+    await rangerLaPremiere();
+    await cliquer(stylo('0836_001.pdf'));
+    await taper('Quittance septembre 2026');
+    await cliquer(boutonDe(/^Valider$/));
+    const appel = renommages.find((r) => r.url.includes('/pieces/11/nom'));
+    expect(appel).toBeDefined();
+    expect(appel?.corps.nom).toBe('Quittance septembre 2026.pdf');
+    // 🔴 L'ORIGINE DIT LE GESTE : ce renommage vient de la fenêtre du Drive, et le journal doit le relire.
+    expect(appel?.url).toContain('origine=visionneuse_drive');
+  });
+
+  /**
+   * ⚠️ ET UNE PIÈCE PAS ENCORE RANGÉE NE DÉCLENCHE RIEN : il n'existe aucun fichier à renommer là-bas. Le nom
+   * est retenu pour le dépôt à venir — comportement d'avant ce lot, mot pour mot.
+   */
+  it('⚠️ une pièce NON rangée ne part sur aucune route de renommage', async () => {
+    await monter();
+    await cliquer(stylo('0836_001.pdf'));
+    await taper('Quittance septembre 2026');
+    await cliquer(boutonDe(/^Valider$/));
+    expect(renommages).toEqual([]);
+    expect(pieceDe('Quittance septembre 2026.pdf')).toBeDefined();
   });
 });
 

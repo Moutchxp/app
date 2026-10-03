@@ -63,6 +63,30 @@ export async function lirePieceANommer(pieceId: number): Promise<PieceANommer | 
 }
 
 /**
+ * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES — DE QUELLE PIÈCE CE FICHIER DRIVE EST-IL UNE COPIE ? ═════════════════════
+ *
+ * Le pont que la fenêtre du Drive ne peut pas faire elle-même : elle ne connaît que l'identifiant Google, la
+ * correspondance vit dans NOTRE registre. `null` = ce fichier n'est pas à nous, et l'appelant le DIT plutôt que
+ * de renommer le document d'un correspondant.
+ *
+ * ⚠️ UNE COPIE DISPARUE NE COMPTE PAS : écrire dans un fichier supprimé du Drive ne peut produire qu'un refus de
+ * Google. On préfère dire « ce fichier n'est pas à nous » que de laisser partir une écriture vouée à l'échec.
+ *
+ * ⚠️ S'IL Y EN A PLUSIEURS — un même identifiant Drive rangé sous deux pièces ne devrait pas exister, mais le
+ * registre ne l'interdit pas —, on prend la PLUS ANCIENNE : c'est le dépôt d'origine, celui dont les autres
+ * descendent.
+ */
+export async function pieceDuFichierDrive(driveFileId: string): Promise<number | null> {
+  const id = driveFileId.trim();
+  if (id === '') return null;
+  const { rows } = await query<{ piece_id: string }>(
+    `SELECT piece_id::text AS piece_id FROM gestion_piece_drive
+      WHERE drive_file_id = $1 AND ${await sqlCopieVivante('gestion_piece_drive')}
+      ORDER BY depose_le ASC, id ASC LIMIT 1`, [id]);
+  return rows[0] === undefined ? null : Number(rows[0].piece_id);
+}
+
+/**
  * ══ 🔒 LE REGISTRE : LES IDENTIFIANTS QUE LE PROGRAMME A LUI-MÊME CRÉÉS ═══════════════════════════════════════
  *
  * 🔴🔴 C'EST LA GARANTIE CENTRALE DU LOT, et elle tient en une requête. Un identifiant qui n'est pas ici n'est

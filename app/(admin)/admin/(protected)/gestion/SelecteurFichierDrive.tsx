@@ -40,7 +40,7 @@ import {
 } from '../../../../lib/gestion/rangementDrive';
 // 🔴 LOT RENOMMER-AVANT-RANGER — le nom sous lequel une pièce partira. Module PUR, partagé avec la route.
 import {
-  estRenommee, INFOBULLE_RENOMMER, mentionNomOrigine, MOTIF_DEJA_RANGEE, nomDeDepot,
+  estRenommee, INFOBULLE_RENOMMER, mentionNomOrigine, nomDeDepot,
 } from '../../../../lib/gestion/renommagePiece';
 /**
  * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « Supprimer » = METTRE À LA CORBEILLE DU DRIVE. Module PUR : la
@@ -1873,19 +1873,33 @@ export function SelecteurFichierDrive({
   };
 
   /**
-   * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — POURQUOI UNE PIÈCE DÉJÀ RANGÉE NE SE RENOMME PLUS ════════════════════
+   * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES, POINT 0 — LE CRAYON NE S'ÉTEINT PLUS SUR UNE PIÈCE RANGÉE ══════════
    *
-   * Arno : « pièce déjà rangée : le stylo est grisé, avec l'infobulle “Déjà rangée — renommez-la dans le Drive”.
-   * On ne renomme jamais un fichier existant du Drive. »
+   * ANCIENNE RÈGLE (lot RENOMMER-AVANT-RANGER) : « pièce déjà rangée : le stylo est grisé, avec l'infobulle
+   * “Déjà rangée — renommez-la dans le Drive”. On ne renomme jamais un fichier existant du Drive. »
    *
-   * 🔴 CE N'EST PAS UNE PRÉCAUTION, C'EST LA RÈGLE DU MODULE : l'application déplace et copie dans le Drive, elle
-   * n'y renomme rien. Laisser le champ ouvert donnerait un nom qui ne partirait nulle part — le fichier est
-   * déjà là-bas, sous l'ancien — et l'on croirait l'avoir renommé.
+   * 🔴 CETTE RÈGLE EST LEVÉE PAR ARNO LE 03/10/2026 : « UN DOCUMENT = UN SEUL NOM gagne. Le crayon est ALLUMÉ
+   * sur une pièce déjà rangée : il renomme toutes ses copies. » L'application SAIT renommer dans le Drive depuis
+   * le lot NOM-UNIQUE-DES-PIECES — `files.update(name)` sur les seuls fichiers de notre registre, chaîne de
+   * parents remontée avant chaque écriture. Le motif d'extinction était devenu faux.
+   *
+   * ⚠️ IL N'Y A DONC PLUS AUCUN REFUS À OPPOSER ICI, et la fonction disparaît. Les refus RÉELS (hors registre,
+   * dossier protégé, Drive muet) sont prononcés par le SERVEUR, qui seul peut les connaître — et ils se disent
+   * après coup, en clair, plutôt que d'éteindre un bouton par précaution.
    */
-  const refusRenommage = (x: PieceARanger): string | null =>
-    (rangees.has(x.pieceId) ? MOTIF_DEJA_RANGEE : null);
 
-  /** Ce qu'on retient d'un renommage. Vide ou égal au nom reçu ⇒ on OUBLIE l'entrée : « pas renommée » est un état. */
+  /**
+   * ══ 🔴🔴 LE CRAYON D'UNE PIÈCE : DEUX GESTES, SELON QU'ELLE EST DÉJÀ DANS LE DRIVE OU NON ═══════════════════
+   *
+   *   · PAS ENCORE RANGÉE — on retient le nom pour le DÉPÔT à venir, en mémoire d'écran. Rien n'existe là-bas
+   *     qu'on puisse renommer, et c'est le comportement d'avant ce lot, mot pour mot.
+   *   · DÉJÀ RANGÉE — le fichier existe : on renomme POUR DE VRAI, la pièce et toutes ses copies connues. C'est
+   *     la décision d'Arno, et c'est le même appel que la visionneuse du mail.
+   *
+   * ⚠️ L'ÉCRAN SUIT DANS LES DEUX CAS, tout de suite : le nom choisi est affiché sans attendre la réponse du
+   * réseau. Si le serveur refuse, il le DIT (`setErreur`) et le nom d'écran reste celui qu'on a voulu — on ne
+   * remet pas l'ancien en silence, ce qui ferait croire à un clic manqué.
+   */
   const renommerPiece = (pieceId: number, nomOrigine: string, nom: string) => {
     setNomsChoisis((m) => {
       const n = new Map(m);
@@ -1894,6 +1908,63 @@ export function SelecteurFichierDrive({
     });
     // La barre de titre de l'aperçu porte le nom : elle doit suivre, sans quoi on lirait l'ancien juste au-dessus.
     setAVoir((v) => (v !== null && v.source === 'piece' && v.id === String(pieceId) ? { ...v, nom } : v));
+    if (rangees.has(pieceId) && nom.trim() !== '') void renommerPourDeVrai({ pieceId }, nom);
+  };
+
+  /**
+   * ══ 🔴🔴 LE RENOMMAGE RÉEL — LE MÊME MÉCANISME POUR UNE PIÈCE ET POUR UNE VIGNETTE ══════════════════════════
+   *
+   * `files.update(name)` sur des fichiers EXISTANTS, jamais une copie ni un envoi neuf. Les deux chemins ne
+   * diffèrent que par la porte d'entrée : une pièce se désigne par son identifiant chez nous, une vignette par
+   * son identifiant Drive — et c'est le SERVEUR qui fait le pont, par le registre.
+   *
+   * 🔒 UN FICHIER HORS REGISTRE EST REFUSÉ, et le refus se LIT : « ce fichier n'a pas été créé par l'application ».
+   * C'est le cas des fichiers posés dans le Drive par autre chose que nous.
+   */
+  const renommerPourDeVrai = async (
+    quoi: { pieceId: number } | { driveFileId: string }, nom: string,
+  ): Promise<void> => {
+    try {
+      const res = 'pieceId' in quoi
+        ? await fetch(`/api/admin/gestion/pieces/${quoi.pieceId}/nom?origine=visionneuse_drive`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nom }),
+        })
+        : await fetch('/api/admin/gestion/drive/renommer', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ driveFileId: quoi.driveFileId, nom }),
+        });
+      const d = (await res.json().catch(() => ({}))) as {
+        etat?: string; message?: string; refus?: { motif: string }[];
+      };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'Le renommage n’a pas abouti.'); return; }
+      const refus = d.refus ?? [];
+      /* ⚠️ UN REFUS PARTIEL SE DIT. La pièce EST renommée chez nous ; une copie qu'on n'a pas pu toucher n'est
+         pas une panne du geste, mais le taire laisserait croire que tout a suivi. */
+      setErreur(refus.length === 0 ? null : `${refus.length} copie(s) du Drive n’ont pas suivi : ${refus[0].motif}`);
+      /**
+       * ══ 🔴🔴 LA VIGNETTE APPREND SON NOUVEAU NOM, ET C'EST INDISPENSABLE ════════════════════════════════════
+       *
+       * DÉFAUT TROUVÉ À L'ÉPREUVE RÉELLE, le 03/10/2026 : après avoir renommé la source en « epreuve vignette
+       * source.pdf », REMETTRE « test renomage.pdf » ne partait plus. La garde « ne rien envoyer si le nom n'a
+       * pas changé » comparait au nom que la vignette portait À SA CRÉATION — resté « test renomage.pdf ». Le
+       * second geste paraissait donc être un non-geste, et il se perdait en silence.
+       *
+       * 🔴 LE NOM DE LA VIGNETTE EST DÉSORMAIS CELUI DU FICHIER, pas celui d'un instant passé. La garde compare
+       * alors ce qu'il faut, et l'aller-retour fonctionne dans les deux sens.
+       */
+      if ('driveFileId' in quoi) {
+        setVignettes((liste) => liste.map((x) => (x.driveFileId === quoi.driveFileId ? { ...x, nom } : x)));
+        setNomsVignettes((m) => { const n = new Map(m); n.delete(cleVignette(quoi.driveFileId)); return n; });
+      }
+      /* ⚠️ LE DOSSIER AFFICHÉ PORTE PEUT-ÊTRE LE FICHIER RENOMMÉ : on OUBLIE sa page en mémoire et on la relit,
+         sans quoi la ligne garderait l'ancien nom jusqu'à ce qu'on change de dossier. */
+      const id = dossierCourant?.id ?? '';
+      cache.current.delete(id);
+      void charger(id);
+    } catch {
+      setErreur('Le renommage n’a pas abouti : le réseau n’a pas répondu.');
+    }
   };
 
   /** Le voisinage du tour : les pièces visualisables du mail, et rien d'autre. */
@@ -3626,19 +3697,15 @@ export function SelecteurFichierDrive({
                                 ⚠️ IL RESTE ACTIF MÊME SANS APERÇU POSSIBLE (un type sans visuel) : on renomme
                                 aussi bien un fichier qu'on ne peut pas afficher, et la fenêtre dira simplement
                                 « aperçu indisponible » à la place du visuel.
-                                ⚠️ ÉTEINT SUR UNE PIÈCE DÉJÀ RANGÉE, avec son motif : voir `refusRenommage`. */}
-                            {(() => {
-                              const refus = refusRenommage(x);
-                              return (
-                                <button type="button" className="sfd-piece-stylo"
-                                  disabled={refus !== null}
-                                  title={refus ?? INFOBULLE_RENOMMER}
-                                  aria-label={refus ?? `${INFOBULLE_RENOMMER} — ${x.nom}`}
-                                  onClick={(e) => { e.stopPropagation(); if (refus === null) voirPiece(x, true); }}>
-                                  <span aria-hidden="true">✎</span>
-                                </button>
-                              );
-                            })()}
+                                🔴🔴 LOT ETOILE-SIGNATURES-PIECES — IL EST ALLUMÉ MÊME SUR UNE PIÈCE DÉJÀ RANGÉE
+                                (décision d'Arno du 03/10/2026 : « un document = un seul nom » gagne). Le
+                                renommage part alors pour de vrai, sur la pièce ET sur toutes ses copies. */}
+                            <button type="button" className="sfd-piece-stylo"
+                              title={INFOBULLE_RENOMMER}
+                              aria-label={`${INFOBULLE_RENOMMER} — ${x.nom}`}
+                              onClick={(e) => { e.stopPropagation(); voirPiece(x, true); }}>
+                              <span aria-hidden="true">✎</span>
+                            </button>
                             {/* ══ 🔴🔴 LA LOUPE « OÙ EST CE DOCUMENT ? » ═══════════════════════════════════════
                                 Arno : « sur chaque vignette de la colonne de gauche (pièce jointe ou vignette
                                 dupliquée), ajoute un picto loupe (aria-label “Localiser dans le Drive”). Clic =
@@ -4389,7 +4456,7 @@ export function SelecteurFichierDrive({
               nomOrigine: x.nom,
               nomChoisi: nomsChoisis.get(x.pieceId) ?? null,
               editerDabord: renommerDabord === x.pieceId,
-              refus: refusRenommage(x),
+              refus: null,
               onRenommer: (nom: string) => renommerPiece(x.pieceId, x.nom, nom),
             };
           }
@@ -4408,6 +4475,22 @@ export function SelecteurFichierDrive({
               });
               // La barre de titre porte le nom : elle doit suivre, sans quoi on lirait l'ancien juste au-dessus.
               setAVoir((a) => (a !== null && a.id === v.driveFileId ? { ...a, nom } : a));
+              /**
+               * ══ 🔴🔴 LOT ETOILE-SIGNATURES-PIECES, POINT 0 — LE CRAYON RENOMME AUSSI LA SOURCE ═══════════
+               *
+               * DÉCISION D'ARNO (03/10/2026) : « le crayon ✎ d'une vignette dupliquée renomme AUSSI le fichier
+               * source et toutes les copies connues (même mécanisme files.update, jamais de copie) ».
+               *
+               * 🔴 CE QUI CHANGE DU CONTRAT DE LA VIGNETTE. « L'original ne bouge pas » valait pour ses
+               * EMPLACEMENTS — dupliquer puis ranger ne déplace toujours rien, et crée bien une copie de plus.
+               * Ce qui bouge désormais, c'est son NOM, et c'est précisément ce qu'Arno a tranché : un document
+               * ne peut pas s'appeler autrement selon l'endroit d'où on le regarde.
+               *
+               * ⚠️ LE NOM RESTE AUSSI RETENU POUR LA COPIE (`nomsVignettes`). Ce n'est pas un doublon : si le
+               * serveur refuse le renommage de la source (fichier hors registre, dossier protégé), la copie
+               * part quand même sous le nom voulu — exactement comme avant ce lot.
+               */
+              if (nom.trim() !== '' && nom !== v.nom) void renommerPourDeVrai({ driveFileId: v.driveFileId }, nom);
             },
           };
         }}
