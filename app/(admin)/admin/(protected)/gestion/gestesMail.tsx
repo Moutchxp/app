@@ -15,8 +15,27 @@ import { ChoisirEvenement } from './ChoisirEvenement';
  * 🔒 AUCUNE LOGIQUE N'A CHANGÉ : mêmes routes, mêmes messages, même réversibilité qu'avant ce lot.
  */
 
-/** Comment un geste rend compte : un message pour l'écran, et s'il faut relire tout le reste. */
-export type Rapport = (message: string, options?: { rechargerTout?: boolean }) => void;
+import type { DeltaCompteurs } from '../../../../lib/gestion/compteursColonne';
+
+/**
+ * Comment un geste rend compte : un message pour l'écran, et s'il faut relire tout le reste.
+ *
+ * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — `compteurs` : CE QUE LE GESTE DÉPLACE DANS LA COLONNE ═══════════════
+ *
+ * CONSTAT D'ARNO (03/10/2026) : « mettre un brouillon à la corbeille ne met pas à jour les compteurs. Il faut
+ * recharger la page. » La règle est désormais : TOUS les compteurs suivent TOUTE action, immédiatement.
+ *
+ * 🔴 L'ÉCRAN RELIT LE SERVEUR APRÈS CHAQUE GESTE — c'est la vérité, et elle vaut pour tous les gestes, y compris
+ * ceux qui ne portent aucun delta. Ce champ-ci ne sert qu'à faire bouger le chiffre TOUT DE SUITE, pendant les
+ * ~150 ms de la relecture (mesurés sur la base d'Arno).
+ *
+ * ⚠️ FACULTATIF, ET IL DOIT LE RESTER : un geste dont l'effet dépend du contexte (le dernier message d'un
+ * échange mis à la corbeille retire-t-il la ligne de la Réception ?) n'en porte PAS. Deviner afficherait un
+ * chiffre qui saute ; attendre 150 ms ne se voit presque pas.
+ */
+export type Rapport = (
+  message: string, options?: { rechargerTout?: boolean; compteurs?: DeltaCompteurs },
+) => void;
 
 /**
  * Déplace UN mail vers une autre carte, ou l'y remet. Le mail n'est JAMAIS copié ni supprimé : seul son rattachement

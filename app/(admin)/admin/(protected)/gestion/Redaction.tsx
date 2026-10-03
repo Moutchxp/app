@@ -1,6 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+/* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — ce qu'un geste de rédaction déplace dans la colonne. Module PUR. */
+import {
+  DELTA_BROUILLON_ABANDONNE, DELTA_BROUILLON_CORBEILLE, DELTA_BROUILLON_RESTAURE, DELTA_ENVOI,
+  type DeltaCompteurs,
+} from '../../../../lib/gestion/compteursColonne';
 import { CSS_PIECES_BROUILLON, PiecesBrouillon } from './PiecesBrouillon';
 /* 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — la MÊME visionneuse que la lecture d'un mail, ouverte par
    l'œil d'une vignette de l'éditeur. En écrire une seconde aurait fait deux écrans à corriger au premier défaut. */
@@ -314,7 +319,13 @@ export function Redaction({
   onChange: (b: BrouillonEcran) => void;
   onFerme: () => void;
   onEnvoye: () => void;
-  onGeste: (message: string) => void;
+  /**
+   * 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — LE COMPTE RENDU PORTE CE QUE LE GESTE DÉPLACE. Un brouillon jeté,
+   * réintégré ou envoyé change les compteurs de la colonne : il le DIT, au lieu de laisser l'écran le découvrir
+   * au prochain rechargement (c'est le constat d'Arno). Les options sont facultatives — un appelant qui n'en
+   * passe pas se comporte exactement comme avant.
+   */
+  onGeste: (message: string, options?: { rechargerTout?: boolean; compteurs?: DeltaCompteurs }) => void;
   /**
    * LOT REDACTION-GMAIL — l'éditeur est-il rendu DANS une fenêtre flottante ? Alors la fenêtre porte déjà le titre
    * et la croix : on ne les répète pas. `false` (le défaut) = rendu en place, sous un message — l'en-tête reste,
@@ -986,12 +997,19 @@ export function Redaction({
      * ⚠️ SANS IDENTIFIANT (brouillon jamais enregistré, donc jamais en base), il n'y a rien à réintégrer : on
      * ferme sans promettre un retour impossible.
      */
-    if (id === null) { onGeste('Brouillon abandonné.'); onFerme(); return; }
+    if (id === null) { onGeste('Brouillon abandonné.', { compteurs: DELTA_BROUILLON_ABANDONNE }); onFerme(); return; }
     /**
      * 🔴 ET SANS LA MIGRATION 276, AUCUN BANDEAU : il n'y a pas de corbeille des brouillons, donc rien à
      * réintégrer. On ferme en disant ce qui s'est passé, exactement comme avant ce lot.
      */
-    if (!motsJeter.reversible) { onGeste(motsJeter.compteRendu); onFerme(); return; }
+    /* ⚠️ SANS LA MIGRATION 276 LE BROUILLON NE VA PAS EN CORBEILLE, il disparaît : le delta le dit, et c'est
+       pour cela qu'il y a deux constantes plutôt qu'une. */
+    if (!motsJeter.reversible) {
+      onGeste(motsJeter.compteRendu, { compteurs: DELTA_BROUILLON_ABANDONNE });
+      onFerme();
+      return;
+    }
+    onGeste(motsJeter.compteRendu, { compteurs: DELTA_BROUILLON_CORBEILLE });
     setEtat({ v: 'jete', brouillonId: id });
   };
 
@@ -1014,7 +1032,8 @@ export function Redaction({
     try {
       const res = await fetch(`/api/admin/gestion/brouillons?id=${id}`, { method: 'PATCH' });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; erreur?: string };
-      onGeste(d.ok === true ? (d.message ?? 'Brouillon réintégré.') : (d.erreur ?? 'Réintégration impossible.'));
+      onGeste(d.ok === true ? (d.message ?? 'Brouillon réintégré.') : (d.erreur ?? 'Réintégration impossible.'),
+        d.ok === true ? { compteurs: DELTA_BROUILLON_RESTAURE } : undefined);
       // 🔴 ON REVIENT À L'ÉCRITURE : le brouillon est de nouveau vivant, la fenêtre doit le montrer.
       if (d.ok === true) { setEtat({ v: 'ecriture' }); return; }
     } catch {
@@ -1160,9 +1179,10 @@ export function Redaction({
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ filIds: [b.filId] }),
             });
-            onGeste('Message envoyé — conversation marquée « interne ».');
+            onGeste('Message envoyé — conversation marquée « interne ».', { compteurs: DELTA_ENVOI });
           } catch {
-            onGeste('Message envoyé. La marque « interne » n’a pas pu être posée : à refaire depuis la conversation.');
+            onGeste('Message envoyé. La marque « interne » n’a pas pu être posée : à refaire depuis la conversation.',
+              { compteurs: DELTA_ENVOI });
           }
         } else {
           /**
@@ -1176,10 +1196,10 @@ export function Redaction({
            * une phrase prudente qu'une promesse que la base ne tiendra pas.
            */
           onGeste('Message envoyé. La conversation sera marquée « interne » à la prochaine relève, dès qu’elle '
-            + 'existera — sinon, marquez-la depuis « Classer ».');
+            + 'existera — sinon, marquez-la depuis « Classer ».', { compteurs: DELTA_ENVOI });
         }
       } else {
-        onGeste('Message envoyé.');
+        onGeste('Message envoyé.', { compteurs: DELTA_ENVOI });
       }
       onEnvoye();
     } catch {

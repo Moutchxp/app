@@ -37,6 +37,10 @@ import {
 import { HistoriqueCible } from './HistoriqueCible';
 import { cibleDepuisTexte, texteCible } from '../../../../lib/gestion/historique';
 import type { ContexteRedactionEcran } from './Redaction';
+/* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — les compteurs de la colonne suivent toute action. Module PUR. */
+import {
+  appliquerDelta, appliquerDeltaBrouillons, type DeltaCompteurs,
+} from '../../../../lib/gestion/compteursColonne';
 
 /**
  * LOT 2/3/4b — l'écran à deux côtés, et les DEUX GESTES.
@@ -244,6 +248,24 @@ export function GestionVue({ intro }: {
    */
   const [redaction, setRedaction] = useState<ContexteRedactionEcran | null>(null);
   const [brouillonsTotal, setBrouillonsTotal] = useState<number | null>(null);
+  /**
+   * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — LE TOTAL DES BROUILLONS SE RELIT ═══════════════════════════════════
+   *
+   * Il arrivait avec le contexte de rédaction, lu UNE fois au montage : jeter un brouillon ne le faisait donc pas
+   * bouger. C'est le constat exact d'Arno. On extrait la lecture pour pouvoir la rejouer — la route est la même,
+   * et c'est bien la même source de vérité que l'écran des brouillons.
+   *
+   * ⚠️ ON NE TOUCHE QUE CE NOMBRE : le reste du contexte (signature, droits, sondes de migration) ne change pas
+   * pendant qu'on travaille, et le réécrire ferait repartir l'éditeur ouvert sur un objet neuf.
+   */
+  const chargerBrouillonsTotal = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/gestion/redaction', { cache: 'no-store' });
+      if (!res.ok) return;
+      const c = (await res.json()) as { brouillons?: number };
+      if (typeof c.brouillons === 'number') setBrouillonsTotal(c.brouillons);
+    } catch { /* un compteur qu'on n'a pas pu relire garde sa valeur : jamais d'écran vidé pour si peu */ }
+  }, []);
   const { ecran, etiquette, filOuvert } = etatUrl;
 
   /**
@@ -277,6 +299,70 @@ export function GestionVue({ intro }: {
     window.addEventListener('popstate', relire);
     return () => window.removeEventListener('popstate', relire);
   }, []);
+
+  /**
+   * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 1 — TOUS LES COMPTEURS SUIVENT TOUTE ACTION ════════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (03/10/2026) : « mettre un brouillon à la corbeille ne met pas à jour les compteurs
+   * (Brouillons, Corbeille…). Il faut recharger la page. »
+   *
+   * 🔴 LA CAUSE : les sept nombres de la colonne venaient d'UNE lecture gardée par un numéro de version, et UN
+   * SEUL geste la redemandait (le classement, lot STATUT-LIGNE-APRES-CLASSEMENT). Tous les autres la laissaient
+   * telle quelle. Le compteur n'était pas faux, il était VIEUX — ce qui est pire, parce que rien ne le dit.
+   *
+   * RÈGLE D'ARNO : corbeille et restauration (mail ou brouillon), envoi, création et suppression de brouillon,
+   * classement, lu/non lu, spam — TOUS mettent les compteurs à jour IMMÉDIATEMENT. « Mise à jour optimiste, puis
+   * relecture serveur pour confirmer (même source de vérité que les listes). »
+   *
+   * ═══ LES DEUX TEMPS, ET POURQUOI IL EN FAUT DEUX ═════════════════════════════════════════════════════════════
+   *
+   *   ① LE DELTA, TOUT DE SUITE. Mesuré le 03/10/2026 : `comptesBoite()` prend 123 à 258 ms sur la base d'Arno
+   *      (57 476 messages). C'est peu pour une page, c'est beaucoup pour un chiffre qui doit bouger sous le
+   *      doigt — un quart de seconde d'immobilité se lit comme « il ne s'est rien passé ».
+   *   ② LA RELECTURE, DANS LA FOULÉE, et c'est elle qui fait foi : même source que les listes. Si les deux
+   *      divergent (un autre onglet a travaillé, la relève a posé un mail), c'est elle qui gagne.
+   *
+   * ⚠️ LE DELTA EST FACULTATIF, et beaucoup de gestes n'en portent pas : l'effet d'un mail mis à la corbeille sur
+   * « Réception » dépend de ce qui reste dans l'échange, ce que l'écran ne sait pas. On s'abstient alors de
+   * deviner — la relecture dira juste, 150 ms plus tard.
+   *
+   * 🔴 TROIS LECTURES, PARCE QUE LES NOMBRES VIENNENT DE TROIS ENDROITS : la colonne (`/boite/comptes`), les
+   * brouillons (le contexte de rédaction) et « À rattacher » (les chiffres de rattachement). Les réunir en une
+   * route serait un autre chantier ; les relire ensemble suffit, et garde chaque nombre à sa source.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const rafraichirComptes = useCallback((delta?: DeltaCompteurs) => {
+    // ① OPTIMISTE — ce qu'on sait du geste, posé immédiatement.
+    if (delta !== undefined) {
+      setComptesBoite((avant) => appliquerDelta(avant, delta));
+      setBrouillonsTotal((avant) => appliquerDeltaBrouillons(avant, delta));
+    }
+    // ② CONFIRMATION — la vérité, demandée aux trois sources.
+    setVersionComptes((v) => v + 1);
+    void chargerBrouillonsTotal();
+    void chargerARattacher();
+  }, [chargerBrouillonsTotal, chargerARattacher]);
+
+  /**
+   * ══ LE COMPTE RENDU D'UN GESTE, EN UN SEUL ENDROIT ═══════════════════════════════════════════════════════════
+   *
+   * ⚠️ IL ÉTAIT ÉCRIT SIX FOIS, à six endroits de ce fichier, et c'est exactement pour cela que les compteurs ne
+   * suivaient qu'à un seul : il suffisait d'en oublier cinq. Une seule fonction, et plus aucun geste ne peut
+   * passer à côté.
+   */
+  const surGeste = useCallback((
+    message: string, options?: { rechargerTout?: boolean; compteurs?: DeltaCompteurs },
+  ) => {
+    /**
+     * ⚠️ UN MESSAGE VIDE NE S'AFFICHE PAS, MAIS LE GESTE COMPTE QUAND MÊME. Certains gestes portent déjà leur
+     * propre bandeau (« Mis à la corbeille — Annuler ») : un second compte rendu par-dessus serait du bruit. Ils
+     * appellent tout de même cette porte, pour que les compteurs suivent — c'est exactement l'oubli qui a produit
+     * le constat d'Arno, et on le rend impossible plutôt que de compter sur la vigilance.
+     */
+    if (message !== '') setGeste({ ton: 'ok', texte: message });
+    rafraichirComptes(options?.compteurs);
+  }, [rafraichirComptes]);
 
   /** Aller à un écran : on l'affiche, ET on l'écrit dans l'adresse. Les deux ensemble, toujours, ou l'un mentirait. */
   const aller = useCallback((brut: EtatEcranUrl) => {
@@ -635,7 +721,10 @@ export function GestionVue({ intro }: {
         setGeste({ ton: 'erreur', texte: data.erreur ?? (res.status === 403 ? 'Droit retiré : reconnectez-vous.' : 'Geste impossible.') });
         return;
       }
-      setGeste({ ton: 'ok', texte: succes });
+      /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — `agir` est la porte des gestes de la FILE (sans suite, affectation,
+         rattachement) : ils déplacent « À classer » et « À rattacher ». Ils passent donc par la même porte que les
+         autres, et les compteurs suivent. */
+      surGeste(succes);
       setPanneau(null);
       await charger();
     } catch {
@@ -710,7 +799,7 @@ export function GestionVue({ intro }: {
             occupe={gesteEnCours}
             onAffecter={() => setPanneau(panneau === f.filId ? null : f.filId)}
             onSansSuite={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'POST', 'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', {})}
-            onFait={(m) => { setGeste({ ton: 'ok', texte: m }); setPanneau(null); void charger(); }}
+            onFait={(m) => { surGeste(m); setPanneau(null); void charger(); }}
             onAnnuler={() => setPanneau(null)} />
         ))}
       </ul>
@@ -724,7 +813,7 @@ export function GestionVue({ intro }: {
       /* LOT RATTACHEMENT-2 — la carte est le troisième point d'entrée de l'historique, avec l'annuaire et le bandeau. */
       onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
       onGeste={(message, options) => {
-        setGeste({ ton: 'ok', texte: message });
+        surGeste(message, options);
         // Un détachement change AUSSI la file (l'échange y revient) : là, tout l'écran est relu. Une
         //   correction ou un changement d'état ne concernent que la carte — la relire elle seule évite
         //   de replier le dossier qu'on est en train de lire.
@@ -959,7 +1048,7 @@ export function GestionVue({ intro }: {
           onRetour={() => aller({ ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE })}
             onCible={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
             onOuvrirFil={(id, messageId) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null })}
-            onGeste={(m) => setGeste({ ton: 'ok', texte: m })} />
+            onGeste={(m) => surGeste(m)} />
         ) : (
           <p className="gst-tronc">
             L’adresse ne désigne aucun logement, propriétaire ni événement.{' '}
@@ -976,7 +1065,7 @@ export function GestionVue({ intro }: {
           onRetour={() => aller({ ...ETAT_DEFAUT })}
           /* Lire l'échange avant de trancher : on part dans la boîte, où vit la conversation en pleine page. */
           onOuvrirFil={(id, messageId) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null })}
-          onGeste={(m) => setGeste({ ton: 'ok', texte: m })} />
+          onGeste={(m) => surGeste(m)} />
       ) : ecran === 'annuaire' ? (
         <Annuaire
           fiche={etatUrl.fiche ?? null}
@@ -1045,7 +1134,7 @@ export function GestionVue({ intro }: {
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */
           onRelever={() => void releverMaintenant()} releveEnCours={releveEnCours}
-          onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) void charger(); }}
+          onGeste={(m, o) => { surGeste(m, o); if (o?.rechargerTout) void charger(); }}
           /**
            * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LES COMPTEURS DE LA COLONNE SUIVENT LE CLASSEMENT.
            *
@@ -1082,7 +1171,7 @@ export function GestionVue({ intro }: {
                 onFerme={retour}
                 onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
                 onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
-                onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
+                onGeste={(m, o) => { surGeste(m, o); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
             </section>
           )}
           {d.evenements.length === 0
@@ -1096,7 +1185,7 @@ export function GestionVue({ intro }: {
             onFerme={retour}
             onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
             onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
-            onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
+            onGeste={(m, o) => { surGeste(m, o); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
         </section>
       ) : (
       /* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite. */

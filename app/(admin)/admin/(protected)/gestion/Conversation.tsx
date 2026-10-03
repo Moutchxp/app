@@ -1335,7 +1335,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                   onEnvoye={() => {
                     setBrouillon(null); setBrouillonSous(null); void recharger(); void relireBrouillons();
                   }}
-                  onGeste={(t) => onGeste(t)} />
+                  /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — LES OPTIONS TRAVERSENT. Un relais qui ne passe que
+                     le message perdrait le delta des compteurs, et le chiffre n'aurait bougé nulle part. */
+                  onGeste={(t, o) => onGeste(t, o)} />
               </div>
             ) : null} />
           {/* 🔴🔴 EN ORDRE « PLUS RÉCENT D'ABORD », CE QUI PRÉCÈDE CHRONOLOGIQUEMENT EST EN DESSOUS. Voir
@@ -1375,7 +1377,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             onChange={setBrouillon}
             onFerme={() => setBrouillon(null)}
             onEnvoye={() => { setBrouillon(null); void recharger(); }}
-            onGeste={(m) => onGeste(m)} />
+            /* 🔴 LES OPTIONS TRAVERSENT ICI AUSSI : voir le relais de l'éditeur, plus haut. */
+            onGeste={(m, o) => onGeste(m, o)} />
         ) : brouillon !== null || !piedUtile(messages, ordre, deplies) ? null : (
           <div className="cnv-ecrire">
             {!redaction.schemaPret && (

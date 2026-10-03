@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+/* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — ce qu'un geste de ligne déplace dans la colonne. Module PUR. */
+import {
+  DELTA_BROUILLON_JETE, DELTA_ENVOI, DELTA_FIL_CORBEILLE, DELTA_FIL_RESTAURE,
+} from '../../../../lib/gestion/compteursColonne';
 import { BoiteMail } from './BoiteMail';
 import { PanneauAffecter } from './PanneauAffecter';
 import { ColonneMode, type PanneauMobile } from './ColonneMode';
@@ -378,6 +382,12 @@ export function PleinEcranBoite({
     }
     if (action === 'lu' || action === 'non_lu') {
       const r = await marquerLectureLigne(filId, action === 'lu');
+      /**
+       * 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — AUCUN DELTA ICI, ET C'EST UN CHOIX. « N non lus » est un nombre
+       * d'ÉCHANGES, pas de messages : marquer un mail lu ne fait baisser le compteur que si c'était le dernier
+       * non lu de son échange, ce que l'écran ne sait pas. La relecture, elle, le sait — et elle part de toute
+       * façon, parce que `onGeste` la déclenche à chaque geste.
+       */
       onGeste(r.message);
       if (r.ok) setMarquage((m) => ({ filId, nonLu: action === 'non_lu', cle: m.cle + 1 }));
       return;
@@ -392,7 +402,16 @@ export function PleinEcranBoite({
     if (filOuvert === filId) onFermerFil();
     // Le bandeau porte l'annulation ; une restauration, elle, se dit dans le compte rendu ordinaire.
     setCorbeilleFaite(versLaCorbeille ? { filId } : null);
-    if (!versLaCorbeille) onGeste(r.message);
+    /**
+     * 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — LES COMPTEURS SUIVENT DANS LES DEUX SENS.
+     *
+     * ⚠️ LE COMPTE RENDU, LUI, NE S'AFFICHE QUE DANS UN SENS (une mise à la corbeille a son bandeau « Annuler »,
+     * et un second message par-dessus serait du bruit) — mais le GESTE doit rafraîchir les deux fois. C'est
+     * précisément le genre d'oubli qui a produit le constat d'Arno : on branche sur le geste, jamais sur
+     * l'affichage du message.
+     */
+    onGeste(versLaCorbeille ? '' : r.message,
+      { compteurs: versLaCorbeille ? DELTA_FIL_CORBEILLE : DELTA_FIL_RESTAURE });
   };
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -578,9 +597,22 @@ export function PleinEcranBoite({
           fermetures={fen.fermetures}
           onChange={fen.majBrouillon}
           onEtat={fen.changerLEtat}
-          onFermer={fen.fermerLa}
+          /**
+           * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — FERMER UNE FENÊTRE EST AUSSI UN GESTE ════════════════════
+           *
+           * MESURÉ À L'ÉCRAN LE 03/10/2026 : on écrit un message, on clique « Garder en brouillon », la fenêtre
+           * se ferme — et « Brouillons » restait à 12. Le brouillon était pourtant bien en base (ligne 109). La
+           * cause : la fermeture passe par `onFermer`, pas par `onGeste`, et seul `onGeste` rafraîchissait.
+           *
+           * 🔴 C'EST EXACTEMENT LA MOITIÉ OUBLIÉE DU CONSTAT D'ARNO (« création ou suppression de brouillon ») :
+           * un brouillon NAÎT en se fermant, et le compteur doit le dire tout de suite.
+           *
+           * ⚠️ SANS MESSAGE : la fermeture n'a rien à annoncer, elle n'a qu'à faire compter. `surGeste` sait
+           * traiter le message vide — voir son encadré.
+           */
+          onFermer={(cle) => { fen.fermerLa(cle); onGeste('', { compteurs: undefined }); }}
           onDemanderFermeture={fen.demanderFermeture}
-          onEnvoye={(cle) => { fen.fermerLa(cle); }}
+          onEnvoye={(cle) => { fen.fermerLa(cle); onGeste('', { compteurs: DELTA_ENVOI }); }}
           onGeste={onGeste} />
       )}
 
@@ -810,7 +842,17 @@ export function PleinEcranBoite({
                * place naturelle — il n'y a pas de conversation où le poser.
                */
               onReprendre={reprendreCeBrouillon}
-              onChange={() => onEtiquette(etiquette)} />
+              /**
+               * 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — METTRE UN BROUILLON À LA CORBEILLE DEPUIS SA LISTE.
+               *
+               * C'est LE geste du constat d'Arno, et il passait par `onChange` — une relecture de la liste, et
+               * rien d'autre. Les compteurs ne bougeaient donc pas, et il fallait recharger la page. Il passe
+               * désormais aussi par la porte des gestes, avec son delta.
+               *
+               * ⚠️ SANS MESSAGE : la ligne disparaît sous les yeux, c'est assez clair ; un bandeau de plus
+               * serait du bruit. `surGeste` sait traiter le message vide.
+               */
+              onChange={() => { onEtiquette(etiquette); onGeste('', { compteurs: DELTA_BROUILLON_JETE }); }} />
           ) : aClasser ? (
             <>
               <h3 className="gst-titre">
