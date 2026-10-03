@@ -61,6 +61,15 @@ import {
 import {
   etatDeLIndex, etatsDesCorpus, noterBalayage, noterFichiersDisparus, noterFichiersVus, noterIncrement,
 } from '../lib/gestion/empreinteDriveRepo';
+/**
+ * 🔴🔴 LOT FANTOMES-APRES-INDEXATION — le nettoyage des entrées fantômes du registre, lancé APRÈS la passe.
+ *
+ * 🔒 CE MODULE N'ÉMET AUCUN `fetch` : il reçoit la porte de ce fichier par injection (`portePourFantomes`). Les
+ * gardes statiques de ce balayage — un seul `fetch`, aucun module d'écriture Drive — ne sont pas effleurés.
+ */
+import {
+  journaliserFantomes, nettoyerFantomes, phraseBilanFantomes, type DepsFantomes,
+} from '../lib/gestion/fantomesEmplacements';
 
 /** 🔒 Le compte qui LIT. Celui de la maison, avec la délégation qui existe déjà — il voit les 10 drives partagés. */
 const SUJET = 'a.jorel@sansvisavis.com';
@@ -76,11 +85,72 @@ let appels = 0;
 
 interface Corpus { cle: string; nom: string; driveId: string | null }
 
+/**
+ * ⚠️ LOT FANTOMES-APRES-INDEXATION — L'ERREUR PORTE SON CODE HTTP, en plus de son message.
+ *
+ * 🔴 POURQUOI C'EST NÉCESSAIRE : le nettoyage des fantômes ne conclut « cette copie a disparu » que sur DEUX
+ * codes nommés (404, 403 — `estDisparition`). Un 429 ou un 503 ne conclut rien. Lire le code dans la CHAÎNE du
+ * message aurait voulu dire l'extraire par une expression régulière — c'est-à-dire décider d'un geste
+ * irréversible sur un `slice` de texte.
+ *
+ * ⚠️ ET SURTOUT : ON NE ROUVRE PAS UNE SECONDE PORTE. Ce fichier n'a qu'UN SEUL `fetch`, et trois gardes
+ * statiques le vérifient (`indexEmpreintesDrive.test.ts`) — c'est la preuve qu'il ne sait pas écrire dans le
+ * Drive. Le nettoyage reçoit donc CETTE porte par injection, au lieu d'en ouvrir une à lui.
+ */
+class ErreurDrive extends Error {
+  constructor(public readonly statut: number, message: string) { super(message); this.name = 'ErreurDrive'; }
+}
+
 async function lire(h: HeadersInit, chemin: string): Promise<Record<string, unknown>> {
   appels += 1;
   const r = await fetch(`${API}/${chemin}`, { headers: h });
-  if (!r.ok) throw new Error(`HTTP ${r.status} — ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new ErreurDrive(r.status, `HTTP ${r.status} — ${(await r.text()).slice(0, 200)}`);
   return (await r.json()) as Record<string, unknown>;
+}
+
+/**
+ * ══ 🔴🔴 LA PORTE DU BALAYAGE, PRÊTÉE AU NETTOYAGE DES FANTÔMES ═════════════════════════════════════════════════
+ *
+ * DÉCISION D'ARNO (03/10/2026) : « relance automatiquement la détection et la correction des entrées fantômes du
+ * registre juste après chaque passe d'indexation (changes.list), et pas en continu. […] Lecture seule sur le
+ * Drive. »
+ *
+ * 🔴 LES DEUX LECTURES PASSENT PAR `lire`, donc par le `fetch` UNIQUE de ce fichier, sans option de méthode : la
+ * propriété « ce chemin ne sait que lire » n'est pas affaiblie d'un pouce, et les gardes statiques tiennent.
+ *
+ * ⚠️ LE NOM DES DOSSIERS EST MÉMORISÉ : plusieurs fantômes peuvent partager le même dossier d'arrivée.
+ */
+function portePourFantomes(h: HeadersInit): DepsFantomes {
+  const noms = new Map<string, string>();
+  return {
+    lireFichier: async (id) => {
+      try {
+        const j = await lire(h, `files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name,parents,trashed`);
+        return {
+          ok: true,
+          valeur: {
+            nom: String(j.name ?? ''),
+            parents: (j.parents as string[] | undefined) ?? [],
+            trashed: j.trashed === true,
+          },
+        };
+      } catch (e) {
+        /* ⚠️ UN CODE INCONNU VAUT 0, ET 0 NE CONCLUT RIEN : `estDisparition` ne rend `true` que sur 404 et 403.
+           Une panne réseau (pas de réponse HTTP du tout) ne doit pas faire marquer une copie disparue. */
+        return { ok: false, statut: e instanceof ErreurDrive ? e.statut : 0 };
+      }
+    },
+    nomDossier: async (id) => {
+      const deja = noms.get(id);
+      if (deja !== undefined) return deja;
+      try {
+        const j = await lire(h, `files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name`);
+        const nom = String(j.name ?? '').trim();
+        if (nom !== '') noms.set(id, nom);
+        return nom === '' ? null : nom;
+      } catch { return null; }
+    },
+  };
 }
 
 async function corpusVisibles(h: HeadersInit): Promise<Corpus[]> {
@@ -237,6 +307,26 @@ async function main(): Promise<void> {
       }
     }
     console.log(`\nappels Drive émis : ${appels}`);
+    /**
+     * ══ 🔴🔴 ET LE NETTOYAGE DES FANTÔMES, JUSTE APRÈS — décision d'Arno ═══════════════════════════════════════
+     *
+     * 🔴 C'EST LE SEUL MOMENT OÙ IL PEUT APPRENDRE QUELQUE CHOSE. La détection compare le registre des dépôts à
+     * l'INDEX, et l'index est précisément ce que `changes.list` vient de rafraîchir. En continu, il relirait un
+     * index inchangé ; après la passe, il voit exactement ce qui a bougé.
+     *
+     * ⚠️ IL SUIT LE MÊME MODE QUE LA PASSE : en simulation (`--changements` seul), il compte sans écrire.
+     * ⚠️ ET IL NE PEUT PAS FAIRE ÉCHOUER L'INCRÉMENT : la passe est faite, son jeton de reprise est consigné.
+     *    Un nettoyage qui tombe laisse l'index à jour — et la passe suivante le relancera.
+     */
+    try {
+      const bilan = await nettoyerFantomes(portePourFantomes(h), {
+        appliquer, dire: (l) => console.log(l),
+      });
+      console.log(`\n${phraseBilanFantomes(bilan, appliquer)}`);
+      if (appliquer) await journaliserFantomes(bilan, true);
+    } catch (e) {
+      console.log(`! nettoyage des fantômes impossible — ${e instanceof Error ? e.message : String(e)}`);
+    }
     return;
   }
 

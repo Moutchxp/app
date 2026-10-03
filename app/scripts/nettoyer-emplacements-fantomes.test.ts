@@ -2,26 +2,26 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 /**
- * ══ 🔴🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — LE NETTOYAGE DES ENTRÉES FANTÔMES, ET CE QU'IL NE SAIT PAS FAIRE ════════
+ * ══ 🔴🔴 LA LIGNE DE COMMANDE DU NETTOYAGE — SA PORTE, ET SON MODE ═══════════════════════════════════════════════
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * RÈGLE D'ARNO (03/10/2026) : « nettoie les entrées fantômes existantes (simulation, nombre et exemples, puis
- * application). Une entrée fantôme = fileId dont les parents réels Drive ne correspondent plus, ou fichier à la
- * corbeille ou absent. »
+ * ⚠️ RECADRÉ PAR LE LOT FANTOMES-APRES-INDEXATION, ET IL FAUT DIRE POURQUOI. Ce fichier éprouvait la RÈGLE de
+ * détection, qui vivait dans le script. Elle a déménagé dans `lib/gestion/fantomesEmplacements`, parce que le
+ * BALAYAGE l'appelle désormais après chaque passe `changes.list` (décision d'Arno) : deux écritures de la même
+ * détection auraient fini par ne plus corriger la même chose — et c'est la ligne de commande, celle qu'on lance
+ * rarement, qui aurait pris du retard.
  *
- * 🔴 CE FICHIER NE DOUBLE PAS LE SCRIPT, IL GARDE SES PROPRIÉTÉS — celles qu'un test de comportement ne verrait
- * pas, et qui sont les seules qui comptent pour un outil qui touche 26 555 lignes de registre :
- *   ① il ne SAIT PAS écrire dans le Drive (aucun verbe, aucun module d'écriture importé) ;
- *   ② il n'écrit RIEN sans `--appliquer` ;
- *   ③ il ne SUPPRIME JAMAIS une ligne de base — il corrige un parent, ou il DATE une disparition ;
- *   ④ il ne conclut « disparu » que sur les DEUX codes que le module PUR nomme (404, 403) — jamais sur un 503.
+ * 🔴 LA RÈGLE EST DONC ÉPROUVÉE LÀ OÙ ELLE VIT MAINTENANT, et bien mieux qu'ici : `fantomesEmplacements.test.ts`
+ * monte les QUATRE verdicts avec des doublures, sans réseau ni Drive — ce qui était impossible tant que la règle
+ * était dans un script. Il reste à ce fichier ce qui appartient à la ligne de commande : sa PORTE vers Google, et
+ * le fait qu'elle n'écrive rien sans qu'on le demande.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
 const CHEMIN = 'app/scripts/nettoyer-emplacements-fantomes.ts';
 const code = readFileSync(CHEMIN, 'utf8');
 
-describe('🔒🔒 le nettoyage ne sait pas écrire dans le Drive', () => {
+describe('🔒🔒 la ligne de commande ne sait pas écrire dans le Drive', () => {
   it('🔒🔒 aucun verbe d’écriture', () => {
     for (const mot of ["method: 'POST'", "method: 'PATCH'", "method: 'PUT'", "method: 'DELETE'",
       'files.copy', 'trashed: true', 'addParents', 'removeParents', 'emptyTrash']) {
@@ -37,13 +37,13 @@ describe('🔒🔒 le nettoyage ne sait pas écrire dans le Drive', () => {
   });
 
   /**
-   * 🔒🔒 DEUX PORTES, ET LES DEUX NE SAVENT QUE LIRE : le `files.get` du verdict, et celui qui va chercher le NOM
-   * du dossier réel. Aucune ne pose d'option de méthode, donc toutes deux sont des `GET`. Ce test compte les
-   * portes plutôt que d'énumérer les chemins — une troisième le ferait rougir.
+   * 🔒🔒 UNE SEULE PORTE, ET ELLE NE SAIT QUE LIRE. Les deux usages (les métadonnées d'un fichier, le nom d'un
+   * dossier) passent par la même fonction `lire`, qui ne pose aucune option de méthode — donc un `GET`. Ce test
+   * compte les portes plutôt que d'énumérer les chemins : une seconde le ferait rougir.
    */
-  it('🔒🔒 deux `fetch`, et pas un de plus', () => {
-    expect(code.match(/fetch\(/g) ?? []).toHaveLength(2);
-    expect(code).toContain('{ headers: h }');
+  it('🔒🔒 un seul `fetch`, et il ne sait que lire', () => {
+    expect(code.match(/fetch\(/g) ?? []).toHaveLength(1);
+    expect(code).toContain('const r = await fetch(`${API}/${chemin}`, { headers: h });');
   });
 
   /** 🔒 LES CHAMPS DEMANDÉS NE PORTENT AUCUN CONTENU : un identifiant, un nom, un parent, un état. */
@@ -51,49 +51,42 @@ describe('🔒🔒 le nettoyage ne sait pas écrire dans le Drive', () => {
     expect(code).toContain("const CHAMPS = 'id,name,parents,trashed'");
     expect(code).not.toContain('alt=media');
   });
+
+  /**
+   * 🔴 LE CODE HTTP REMONTE TEL QUEL, et c'est ce qui permet au module de ne conclure « disparu » que sur 404 et
+   * 403. Transformer le refus en message aurait obligé à retrouver le code dans une chaîne.
+   */
+  it('🔴 le refus rend son code, pas un message', () => {
+    expect(code).toContain('return { ok: false, statut: r.status };');
+  });
 });
 
 describe('🔴🔴 rien n’est écrit sans `--appliquer`', () => {
   it('🔴🔴 le mode par défaut est la SIMULATION', () => {
     expect(code).toContain("const APPLIQUER = process.argv.includes('--appliquer')");
-    /* 🔴 LES TROIS ÉCRITURES SONT SOUS LA MÊME GARDE : une seule oubliée, et le script écrirait en simulant. */
-    expect(code).toContain('if (APPLIQUER) {\n        await marquerCopieDisparue(');
-    expect(code).toContain('if (APPLIQUER) {\n      const n = await deplacerCopieAuRegistre(');
+    // 🔴 LE DRAPEAU EST PASSÉ AU MODULE, qui porte la garde — une seule garde, au lieu de quatre recopiées.
+    expect(code).toContain('appliquer: APPLIQUER,');
+    expect(code).toContain("else console.log('Aucune écriture. Relancer avec --appliquer pour corriger.');");
+  });
+
+  /** 🔴 LE JOURNAL N'EST ÉCRIT QUE QUAND ON APPLIQUE : une simulation ne laisse aucune trace en base. */
+  it('🔴 le journal suit le mode', () => {
+    expect(code).toContain('if (APPLIQUER) await journaliserFantomes(bilan, true);');
   });
 
   /**
-   * 🔴🔴 AUCUNE SUPPRESSION DE LIGNE, JAMAIS. Une ligne de `gestion_piece_drive` dit un fait daté (« nous avons
-   * déposé une copie ici, ce jour-là ») et ce fait reste vrai après la disparition du fichier — c'est même le seul
-   * moment où l'on a envie de le relire. On CORRIGE un parent, ou l'on DATE une disparition.
+   * 🔴🔴 LA RÈGLE N'EST PLUS ICI, et c'est la propriété que ce fichier garde désormais : si quelqu'un la
+   * réécrivait dans le script, les deux détections divergeraient. On l'interdit en négatif.
    */
-  it('🔴🔴 il ne sait pas supprimer une ligne', () => {
-    for (const mot of ['DELETE FROM', 'TRUNCATE', 'DROP ']) {
+  it('🔴🔴 la détection n’est pas réécrite ici', () => {
+    expect(code).toContain("from '../lib/gestion/fantomesEmplacements'");
+    for (const mot of ['gestion_piece_drive d', 'LEFT JOIN gestion_drive_empreinte', 'estDisparition']) {
       expect(code, mot).not.toContain(mot);
     }
   });
 
-  /**
-   * 🔴 LE VERDICT « DISPARU » VIENT DU MODULE PUR, pas d'un test de code écrit ici. `estDisparition` ne rend `true`
-   * que sur 404 et 403 : marquer sur un 429 ou un 503 effacerait du registre une copie parfaitement vivante, et
-   * l'on ne la retrouverait plus jamais.
-   */
-  it('🔴 « disparu » se décide par `estDisparition`, pas par un seuil écrit ici', () => {
-    expect(code).toContain("import { estDisparition, motifDisparition } from '../lib/gestion/copieDisparue'");
-    expect(code).toContain('if (estDisparition(r.status))');
-    expect(code).not.toContain('r.status === 404');
-  });
-
-  /**
-   * 🔴 LA PRÉSÉLECTION EST EN BASE, LE VERDICT CHEZ GOOGLE. L'index est un REFLET : corriger la base à partir
-   * d'un reflet serait corriger une base à partir d'une copie. C'est `files.get` qui donne le parent qu'on écrit.
-   */
-  it('🔴 le parent écrit vient de Google, pas de l’index', () => {
-    expect(code).toContain('const parentReel = parents[0];');
-    expect(code).toContain('deplacerCopieAuRegistre(c.driveFileId, v.parentReel, v.parentNom)');
-  });
-
-  /** ⚠️ ET LES LIGNES DÉJÀ MARQUÉES « DISPARUES » SONT HORS SUJET : on ne défait pas un constat daté. */
-  it('⚠️ les lignes déjà disparues ne sont pas reprises', () => {
-    expect(code).toContain('WHERE d.disparu_le IS NULL');
+  /** ⚠️ ET AUCUNE SUPPRESSION DE LIGNE, JAMAIS — ni ici, ni dans le module. */
+  it('⚠️ il ne sait pas supprimer une ligne', () => {
+    for (const mot of ['DELETE FROM', 'TRUNCATE', 'DROP ']) expect(code, mot).not.toContain(mot);
   });
 });
