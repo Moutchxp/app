@@ -245,3 +245,97 @@ export function adresseFicheAnnuaire(p: Pick<PersonneRattachement, 'role' | 'id'
 export function motNbMails(n: number): string {
   return n <= 1 ? '1 mail dans la conversation' : `${n} mails dans la conversation`;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE, POINT 1 — « BIEN(S) DE CE MAIL »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (03/10/2026), fil 3490 (« Réfrigérateur-congélateur en panne… », TCS) : il a rattaché un mail à
+   UN SEUL bien (2 Square Henri Régnault, lot 484), et la fenêtre « Visualiser / Modifier » lui montrait AUSSI
+   tous les biens possibles de l'expéditeur — lots 247, 282, 169, 491, 4 — marqués « À trancher ». « On n'y
+   comprend rien. »
+
+   🔴 CE QUE LA BASE DIT, ET QUI EXPLIQUE TOUT. Le moteur pose un lien `statut='propose'` sur CHAQUE mail pour
+   CHAQUE bien possible de l'expéditeur : relevé sur ce fil, le mail 57472 en porte cinq, plus le bien confirmé.
+   Ces propositions sont utiles — elles alimentent la modale « Rattacher ce mail à… » — mais elles n'ont rien à
+   faire dans une fenêtre qui prétend dire à quoi ce mail EST rattaché.
+
+   RÈGLE D'ARNO : « la fenêtre ouverte depuis “Visualiser / Modifier” d'un mail n'affiche QUE le ou les biens
+   rattachés à CE mail (lien vivant) […]. Plus de cartes “À trancher” des autres biens possibles dans cette
+   fenêtre. »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export const TITRE_BIENS_DU_MAIL = 'Bien(s) de ce mail';
+export const TITRE_BIENS_DE_L_ECHANGE = 'Bien(s) de cet échange';
+export const AUCUN_BIEN_DU_MAIL = 'Aucun bien rattaché à ce mail';
+export const MOT_AJOUTER_A_UN_AUTRE_BIEN = '+ Ajouter ce mail à un autre bien';
+
+/**
+ * ══ 🔴🔴 LE MOTIF D'UN AJOUT PONCTUEL — ET C'EST LUI QUI GARANTIT LA PROMESSE D'ARNO ═════════════════════════════
+ *
+ * RÈGLE D'ARNO : « ce rattachement ponctuel n'a AUCUNE influence sur les fenêtres de suivi : aucune période
+ * créée, modifiée ou fermée, aucun repère “À partir d'ici”, aucun effet sur les mails suivants ni précédents. »
+ *
+ * 🔴 LA PROMESSE NE TIENT PAS À UNE INTENTION, ELLE TIENT À DEUX FAITS DU CODE :
+ *   ① le geste POSE UN LIEN, et rien d'autre : il n'écrit ni période ni exception, donc il n'y a rien qui
+ *      puisse produire un repère ni déplacer une fenêtre ;
+ *   ② `projeterLeFil` NE RETIRE QUE CE QU'ELLE A POSÉ ELLE-MÊME (`motif = MOTIF_POSE_PAR_SUIVI`). Un lien portant
+ *      CE motif-ci n'est donc jamais touché par une projection — ni défait au prochain geste de suivi.
+ *
+ * ⚠️ IL EST DISTINCT DE « rattaché à la main » À DESSEIN : c'est lui qui permet d'ÉCRIRE « ajout ponctuel » sur
+ * la carte. Un motif partagé aurait fait porter la mention à des liens qui ne sont pas ponctuels du tout.
+ */
+export const MOTIF_AJOUT_PONCTUEL = 'ajout ponctuel à ce mail';
+export const MENTION_AJOUT_PONCTUEL = 'ajout ponctuel';
+
+/** Ce qu'il faut savoir d'un lien pour décider s'il rattache CE mail. */
+export interface LienDuMail {
+  id: number;
+  messageId: number;
+  statut: string;
+  motif?: string | null;
+}
+
+/**
+ * ══ 🔴🔴 LES BIENS RATTACHÉS À **CE** MAIL. PUR. ═════════════════════════════════════════════════════════════════
+ *
+ * Deux conditions, et il faut les deux :
+ *   ① le lien porte sur CE mail — c'est la demande littérale d'Arno ;
+ *   ② il est CONFIRMÉ. Un lien `propose` est une proposition du moteur, pas un rattachement : c'est précisément
+ *      ce qui produisait les cartes « À trancher » qu'Arno ne comprenait pas. Un lien `retire` est, lui, mort.
+ *
+ * ⚠️ `nbMails` ET `lienIds` SONT RECALCULÉS SUR CE SEUL MAIL : sans cela, la carte annoncerait « sur 6 mails de
+ * la conversation » dans une fenêtre qui ne parle que d'un, et « Voir le détail par mail » montrerait les autres.
+ *
+ * ⚠️ LE `statut` DE LA CARTE EST RECALCULÉ LUI AUSSI, sur les seuls liens retenus : une carte ne peut plus être
+ * « À trancher » ici, par construction, et c'est ce qu'on veut lire.
+ */
+export function biensDuMail<T extends {
+  lienIds: number[]; nbMails: number; statut: BienRattache['statut'];
+}>(
+  biens: readonly T[], liens: readonly LienDuMail[], messageId: number,
+): (T & { ponctuel: boolean })[] {
+  const retenus = new Map(liens
+    .filter((l) => l.messageId === messageId && l.statut === 'confirme')
+    .map((l) => [l.id, l]));
+  const sortie: (T & { ponctuel: boolean })[] = [];
+  for (const b of biens) {
+    const siens = b.lienIds.filter((id) => retenus.has(id));
+    if (siens.length === 0) continue;
+    sortie.push({
+      ...b,
+      lienIds: siens,
+      nbMails: 1,
+      /* 🔴 PLUS JAMAIS « À trancher » DANS CETTE FENÊTRE : seuls des liens confirmés y entrent. */
+      statut: siens.some((id) => (retenus.get(id)?.motif ?? '') === MOTIF_AJOUT_PONCTUEL) ? 'classe' : b.statut,
+      /**
+       * 🔴 « Il est marqué “ajout ponctuel” dans la fenêtre » (Arno). Un bien n'est ponctuel que si TOUS ses
+       * liens sur ce mail le sont : un bien rattaché par le suivi ET réajouté ponctuellement reste un bien de
+       * la conversation, et l'annoncer comme ponctuel ferait croire qu'il s'en ira tout seul.
+       */
+      ponctuel: siens.length > 0
+        && siens.every((id) => (retenus.get(id)?.motif ?? '') === MOTIF_AJOUT_PONCTUEL),
+    });
+  }
+  return sortie;
+}

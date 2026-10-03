@@ -1756,6 +1756,9 @@ export function MessageConversation({
           Elle se rend AU NIVEAU DU MESSAGE, jamais dans son en-tête : celui-ci est une rangée serrée de boutons. */}
       {voirRattachements && filId !== null && (
         <RattachementsDuFil filId={filId} titre={nettoyerObjet(message.objet ?? '') || null}
+          /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — ouverte depuis CE mail, elle ne montre que SES biens.
+             Voir l'encadré de `messageId` dans `RattachementsDuFil`. */
+          messageId={message.messageId}
           onFerme={() => setVoirRattachements(false)}
           onGeste={() => { setVoirRattachements(false); void onRattachement?.(); }} />
       )}

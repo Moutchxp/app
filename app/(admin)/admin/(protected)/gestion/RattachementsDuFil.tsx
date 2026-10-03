@@ -11,6 +11,8 @@ import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 import {
   adresseDossierDrive, adresseFicheAnnuaire, motNbMails, motPeriode, motRole, motSansLocataire, motStatutBien,
   motSurface, qualitePersonne,
+  AUCUN_BIEN_DU_MAIL, biensDuMail, MENTION_AJOUT_PONCTUEL, MOT_AJOUTER_A_UN_AUTRE_BIEN,
+  TITRE_BIENS_DE_L_ECHANGE, TITRE_BIENS_DU_MAIL,
   type BienRattache, type FicheRattachementFil, type PersonneRattachement,
 } from '../../../../lib/gestion/ficheRattachement';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
@@ -50,10 +52,25 @@ type Etat =
   | { v: 'sans_schema' }
   | { v: 'erreur'; message: string };
 
-export function RattachementsDuFil({ filId, titre, onFerme, onGeste }: {
+export function RattachementsDuFil({ filId, titre, messageId = null, onFerme, onGeste }: {
   filId: number;
   /** L'objet de l'échange, connu de la liste. La fiche en rend un aussi ; celui-ci sert de repli. */
   titre?: string | null;
+  /**
+   * ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — LE MAIL D'OÙ L'ON VIENT ════════════════════════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « la fenêtre ouverte depuis “Visualiser / Modifier” D'UN MAIL n'affiche QUE le ou
+   * les biens rattachés à CE mail (lien vivant). […] Plus de cartes “À trancher” des autres biens possibles. »
+   *
+   * 🔴 CE QU'IL A VU, ET POURQUOI. Le moteur pose un lien `propose` sur CHAQUE mail pour CHAQUE bien possible de
+   * l'expéditeur : sur le fil 3490, le mail 57472 en porte cinq, plus le bien confirmé. La fenêtre les affichait
+   * tous, marqués « À trancher », à côté du seul bien réellement rattaché.
+   *
+   * ⚠️ `null` ⇒ LA FENÊTRE DE LA LISTE, INCHANGÉE. Elle s'ouvre depuis une ligne de conversation, pas depuis un
+   * mail : elle n'a aucun mail à montrer, et la restreindre n'aurait aucun sens. Titre, contenu et gestes y sont
+   * exactement ceux d'avant ce lot.
+   */
+  messageId?: number | null;
   onFerme: () => void;
   onGeste?: (message: string) => void;
 }) {
@@ -141,8 +158,19 @@ export function RattachementsDuFil({ filId, titre, onFerme, onGeste }: {
   }
 
   const fiche = etat.v === 'ok' ? etat.fiche : null;
-  const liensParId = new Map((etat.v === 'ok' ? etat.liens : []).map((l) => [l.id, l]));
+  const tousLesLiens = etat.v === 'ok' ? etat.liens : [];
+  const liensParId = new Map(tousLesLiens.map((l) => [l.id, l]));
   const objet = fiche?.objet ?? titre ?? null;
+  /**
+   * 🔴🔴 LES BIENS QUE CETTE FENÊTRE MONTRE. Ouverte depuis un MAIL, elle se restreint à ses liens vivants et
+   * confirmés — voir l'encadré de `messageId` et le module pur `biensDuMail`. Ouverte depuis la liste, elle
+   * rend exactement ce qu'elle rendait avant ce lot.
+   */
+  const biens = fiche === null
+    ? []
+    : (messageId === null
+      ? fiche.biens.map((b) => ({ ...b, ponctuel: false }))
+      : biensDuMail(fiche.biens, tousLesLiens, messageId));
 
   return (
     <div className="mrt-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFerme(); }}>
@@ -155,7 +183,10 @@ export function RattachementsDuFil({ filId, titre, onFerme, onGeste }: {
         {/* ══ 🔴 EN TÊTE : L'OBJET, ET COMBIEN DE MAILS (demande d'Arno) ══════════════════════════════════════
             Sans l'objet, on ne sait plus quelle ligne on a ouverte ; sans le nombre de mails, on ne sait pas si
             « sur 3 mails » plus bas veut dire « tous » ou « trois sur douze ». */}
-        <h2 className="mrt-titre" id="rdf-titre">Bien(s) de cet échange</h2>
+        {/* 🔴 LE TITRE DIT CE QUE LA FENÊTRE MONTRE, et ce n'est pas la même chose selon d'où on l'ouvre. */}
+        <h2 className="mrt-titre" id="rdf-titre">
+          {messageId === null ? TITRE_BIENS_DE_L_ECHANGE : TITRE_BIENS_DU_MAIL}
+        </h2>
         {objet !== null && objet !== '' && <p className="rdf-objet">{objet}</p>}
         {fiche !== null && <p className="rdf-detail">{motNbMails(fiche.nbMailsDuFil)}</p>}
 
@@ -171,33 +202,50 @@ export function RattachementsDuFil({ filId, titre, onFerme, onGeste }: {
         {/* ══ 🔴 HORS GESTION, OU AUCUN BIEN : ON LE DIT, ET ON PROPOSE LE GESTE ═════════════════════════════
             Un cadre vide se lit comme une panne. Ces deux états sont des RÉPONSES — « ce mail ne concerne aucun
             bien », « il n'est rattaché à rien pour l'instant » — et chacun a sa suite naturelle. */}
-        {fiche !== null && fiche.biens.length === 0 && (
+        {fiche !== null && biens.length === 0 && (
           <div className="rdf-vide">
             <p className="rdf-vide-mot">
+              {/* 🔴 OUVERTE SUR UN MAIL, LA PHRASE PARLE DU MAIL (demande d'Arno). « Hors gestion » reste une
+                  propriété de l'ÉCHANGE, et se dit telle quelle dans les deux cas. */}
               {fiche.horsGestion
                 ? 'Cet échange est marqué « Hors gestion » : il ne concerne aucun bien.'
-                : 'Cet échange n’est rattaché à aucun bien pour l’instant.'}
+                : (messageId === null
+                  ? 'Cet échange n’est rattaché à aucun bien pour l’instant.'
+                  : AUCUN_BIEN_DU_MAIL)}
             </p>
             <p className="rdf-detail">
               {fiche.horsGestion
                 ? 'La marque se lève d’elle-même si vous le rattachez à un bien.'
-                : 'Il a pu être retiré depuis l’affichage de la liste, ou n’avoir jamais été classé.'}
+                : (messageId === null
+                  ? 'Il a pu être retiré depuis l’affichage de la liste, ou n’avoir jamais été classé.'
+                  : 'Les autres mails de la conversation peuvent l’être, eux.')}
             </p>
           </div>
         )}
 
         {/* ══ 🔴 UN BLOC PAR BIEN ════════════════════════════════════════════════════════════════════════════ */}
-        {fiche !== null && fiche.biens.map((b) => (
+        {biens.map((b) => (
           <BlocBien key={b.cle} bien={b} dossierId={dossiers[b.cle] ?? b.dossierDriveId}
+            ponctuel={b.ponctuel}
+            /* 🔴 OUVERTE SUR UN MAIL, LA CARTE NE PARLE QUE DE LUI : « sur 1 mail », et le détail ne montre que
+               ses liens à lui. Voir `biensDuMail`. */
+            surUnSeulMail={messageId !== null}
             liens={b.lienIds.map((id) => liensParId.get(id)).filter((l): l is LienAffiche => l !== undefined)}
             onModifier={setModifie} />
         ))}
 
-        {/* ══ « RATTACHER À UN BIEN » — le MÊME menu que dans le fil, jamais une seconde implémentation ══════ */}
-        {fiche !== null && fiche.messageRecentId !== null && (
+        {/* ══ 🔴🔴 « RATTACHER À UN BIEN » / « + AJOUTER CE MAIL À UN AUTRE BIEN » ═══════════════════════════
+            Le MÊME menu dans les deux cas — propositions du moteur et moteur de recherche —, jamais une seconde
+            implémentation. Seule la PORTÉE change, et c'est tout le sens du lot :
+
+              · depuis la LISTE, le geste porte sur le mail le plus récent de l'échange, comme avant ;
+              · depuis un MAIL, il pose un AJOUT PONCTUEL sur CE mail, en plus de ses biens actuels, sans
+                toucher à une seule période (voir `MOTIF_AJOUT_PONCTUEL`). */}
+        {fiche !== null && (messageId ?? fiche.messageRecentId) !== null && (
           rattache
             ? (
-              <MenuRattachementBien messageId={fiche.messageRecentId} filId={filId}
+              <MenuRattachementBien messageId={(messageId ?? fiche.messageRecentId) as number} filId={filId}
+                ponctuel={messageId !== null}
                 onFerme={() => setRattache(false)}
                 onGeste={onGeste}
                 onChange={async () => { await charger(); }}
@@ -205,7 +253,7 @@ export function RattachementsDuFil({ filId, titre, onFerme, onGeste }: {
             )
             : (
               <button type="button" className="gst-lien-bouton rdf-rattacher" onClick={() => setRattache(true)}>
-                Rattacher à un bien
+                {messageId === null ? 'Rattacher à un bien' : MOT_AJOUTER_A_UN_AUTRE_BIEN}
               </button>
             )
         )}
@@ -219,17 +267,24 @@ export function RattachementsDuFil({ filId, titre, onFerme, onGeste }: {
 }
 
 /** UN BIEN : sa fiche, ses personnes, ses gestes. */
-function BlocBien({ bien, dossierId, liens, onModifier }: {
+function BlocBien({ bien, dossierId, liens, onModifier, ponctuel = false, surUnSeulMail = false }: {
   bien: BienRattache;
   dossierId: string | null;
   liens: LienAffiche[];
   onModifier: (l: LienAffiche) => void;
+  /** 🔴 « Il est marqué “ajout ponctuel” dans la fenêtre » (Arno). Voir `MOTIF_AJOUT_PONCTUEL`. */
+  ponctuel?: boolean;
+  /** Ouverte sur un mail : la carte ne parle que de lui, et n'annonce pas « sur N mails de la conversation ». */
+  surUnSeulMail?: boolean;
 }) {
   const drive = adresseDossierDrive(dossierId);
   return (
     <section className="rdf-item" aria-label={bien.adresseComplete}>
       <div className="rdf-tete">
         <span className="rdf-cible">{bien.adresseComplete}</span>
+        {/* 🔴 L'AJOUT PONCTUEL SE DIT EN MOTS, à côté du statut : il ne se devine à aucune couleur, et c'est la
+            seule façon de savoir pourquoi ce bien est là alors que la conversation ne le porte pas. */}
+        {ponctuel && <span className="rdf-ponctuel">{MENTION_AJOUT_PONCTUEL}</span>}
         {/* Le MOT est toujours écrit ; la couleur ne fait que l'appuyer. */}
         <span className={`rdf-statut rdf-statut--${bien.statut}`}>{motStatutBien(bien.statut)}</span>
       </div>
@@ -241,7 +296,9 @@ function BlocBien({ bien, dossierId, liens, onModifier }: {
         {bien.nature !== null && <span>{bien.nature}</span>}
         {bien.typeBien !== null && <span>{bien.typeBien}</span>}
         <span className={bien.surfaceM2 === null ? 'rdf-absent' : undefined}>{motSurface(bien.surfaceM2)}</span>
-        <span>sur {bien.nbMails} mail{bien.nbMails > 1 ? 's' : ''} de la conversation</span>
+        {!surUnSeulMail && (
+          <span>sur {bien.nbMails} mail{bien.nbMails > 1 ? 's' : ''} de la conversation</span>
+        )}
       </p>
 
       {/* 🔒 LE DOSSIER DU BIEN : une ADRESSE que le navigateur ouvre, jamais un appel de l'application à Google.
@@ -368,6 +425,8 @@ export const CSS_RATTACHEMENTS_FIL = `
   color:var(--color-svv-muted)}
 .rdf-cible{flex:1 1 14rem;font-size:.95rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
 /* Le mot est TOUJOURS écrit : la couleur ne fait que l'appuyer. */
+.rdf-ponctuel{font-size:.7rem;font-weight:700;letter-spacing:.02em;color:var(--color-svv-muted);
+  padding:1px 6px;border:1px dashed var(--color-svv-line-strong);border-radius:999px;white-space:nowrap}
 .rdf-statut{padding:.05rem .45rem;border-radius:999px;font-size:.7rem;font-weight:700;line-height:1.6;
   border:1px solid transparent;white-space:nowrap}
 .rdf-statut--classe{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink)}

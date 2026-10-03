@@ -337,8 +337,15 @@ describe('🔴 LOT BARRE-STATUT — « Visualiser / Modifier » dans l’en-têt
     };
     await monter();
     await cliquer(declencheur());
-    // 🔴 LOT FICHE-RATTACHEMENT — le titre dit des BIENS, parce qu'il n'y a plus que des biens dessous.
-    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) de cet échange');
+    /**
+     * 🔴 LOT FICHE-RATTACHEMENT — le titre dit des BIENS, parce qu'il n'y a plus que des biens dessous.
+     *
+     * 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — ET IL DIT « DE CE MAIL », parce que c'est de là qu'on vient.
+     * Ouverte depuis l'en-tête d'un message, la fenêtre ne montre plus que les biens rattachés à CE mail :
+     * Arno voyait, à côté de son unique bien, les cinq autres biens possibles de l'expéditeur marqués
+     * « À trancher ». La fenêtre de la LISTE, elle, garde son titre et son contenu d'avant.
+     */
+    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) de ce mail');
     expect(container.querySelector('.rdf-item')?.textContent).toContain('12 rue des Lilas, 92400 COURBEVOIE');
     // …et surtout PAS le panneau de classement, qui répond à l'autre question.
     expect(classements).toEqual([]);

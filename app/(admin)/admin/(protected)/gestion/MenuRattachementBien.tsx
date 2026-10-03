@@ -6,6 +6,8 @@ import { groupesParProprietaire } from '../../../../lib/gestion/ficheBien';
 import { grouperResultats, messageAucunBien, motRaison, sansLesProposes } from '../../../../lib/gestion/rechercheBien';
 import { ColonneBien, ColonneLocataires, CartePersonne, CSS_PROPOSITIONS_BIENS } from './PropositionsDeBiens';
 import { CSS_BOUTON_COPIER } from './BoutonCopier';
+/* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — le motif qui fait d'un lien un AJOUT PONCTUEL. Voir son encadré. */
+import { MOTIF_AJOUT_PONCTUEL } from '../../../../lib/gestion/ficheRattachement';
 import type { BienProposable, ContexteClassement } from '../../../../lib/gestion/classementBien';
 import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
 
@@ -34,7 +36,9 @@ import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : les types passent par `import type`, effacés à la compilation.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function MenuRattachementBien({ messageId, filId, onFerme, onGeste, onChange, onHorsGestion }: {
+export function MenuRattachementBien({
+  messageId, filId, onFerme, onGeste, onChange, onHorsGestion, ponctuel = false,
+}: {
   messageId: number;
   filId: number | null;
   onFerme: () => void;
@@ -42,6 +46,24 @@ export function MenuRattachementBien({ messageId, filId, onFerme, onGeste, onCha
   onChange: () => void | Promise<void>;
   /** Ouvre LA fenêtre de classement, qui porte « Hors gestion » et le classement par pièce. */
   onHorsGestion: () => void;
+  /**
+   * ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — L'AJOUT PONCTUEL ══════════════════════════════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « un bouton “+ Ajouter ce mail à un autre bien” qui ouvre une sélection
+   * (propositions du moteur, DÉCOCHÉES, et moteur de recherche, MÊMES COMPOSANTS que la modale). Il crée un
+   * rattachement PONCTUEL de CE seul mail au bien choisi, EN PLUS de ses biens actuels. »
+   *
+   * Trois différences, et trois seulement :
+   *   ① AUCUNE PRÉ-COCHE. Ici on AJOUTE un bien qu'on a en tête, on ne valide pas ce que le moteur propose —
+   *      pré-cocher ferait partir un rattachement qu'on n'a pas demandé d'un simple clic sur « Rattacher » ;
+   *   ② AUCUNE PORTÉE À CHOISIR : « ponctuel » VEUT DIRE ce mail, et rien d'autre. Offrir « toute la
+   *      conversation » ici contredirait le bouton qui vient d'être cliqué ;
+   *   ③ LE MOTIF EST `MOTIF_AJOUT_PONCTUEL`, et c'est lui qui tient la promesse d'Arno — aucune période touchée,
+   *      et `projeterLeFil` ne retire jamais ce qu'elle n'a pas posé.
+   *
+   * ⚠️ ABSENT ⇒ COMPORTEMENT D'AVANT CE LOT, À LA LETTRE : pré-coche du moteur, portée au choix, motif habituel.
+   */
+  ponctuel?: boolean;
 }) {
   const [etat, setEtat] = useState<
     { v: 'charge' } | { v: 'ok'; contexte: ContexteClassement } | { v: 'rien' }
@@ -63,12 +85,17 @@ export function MenuRattachementBien({ messageId, filId, onFerme, onGeste, onCha
       const d = (await res.json()) as { etat?: string; contexte?: ContexteClassement };
       if (d.etat !== 'ok' || !d.contexte || !d.contexte.disponible) { setEtat({ v: 'rien' }); return; }
       setEtat({ v: 'ok', contexte: d.contexte });
-      /** 🔴 LA PRÉ-COCHE VIENT DU MOTEUR, et n'est posée QU'UNE FOIS : la recalculer recocherait ce qu'on décoche. */
-      setCoches((d.contexte.biens ?? []).filter((b) => b.recommande).map((b) => b.cle));
+      /**
+       * 🔴 LA PRÉ-COCHE VIENT DU MOTEUR, et n'est posée QU'UNE FOIS : la recalculer recocherait ce qu'on décoche.
+       *
+       * 🔴🔴 SAUF EN AJOUT PONCTUEL : Arno demande des propositions DÉCOCHÉES. On ajoute alors un bien qu'on a en
+       * tête ; pré-cocher ferait partir un rattachement qu'on n'a pas demandé.
+       */
+      setCoches(ponctuel ? [] : (d.contexte.biens ?? []).filter((b) => b.recommande).map((b) => b.cle));
     } catch {
       setEtat({ v: 'rien' });
     }
-  }, [messageId]);
+  }, [messageId, ponctuel]);
 
   useEffect(() => { void charger(); }, [charger]);
   useEffect(() => { champ.current?.focus(); }, []);
@@ -146,7 +173,12 @@ export function MenuRattachementBien({ messageId, filId, onFerme, onGeste, onCha
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               messageId: m, cible: { sorte: 'lot', cle },
-              motif: portee === 'conversation' ? 'rattaché à la main (toute la conversation)' : 'rattaché à la main',
+              /* 🔴 LE MOTIF DIT CE QUE LE GESTE EST, et il est LU : « ajout ponctuel » s'écrit sur la carte, et
+                 il tient surtout la promesse d'Arno — la projection du suivi ne retire jamais ce qu'elle n'a
+                 pas posé elle-même. */
+              motif: ponctuel
+                ? MOTIF_AJOUT_PONCTUEL
+                : (portee === 'conversation' ? 'rattaché à la main (toute la conversation)' : 'rattaché à la main'),
             }),
           });
           if (res.ok) faits += 1; else ratés.push(`${cle} / mail ${m}`);
@@ -240,24 +272,34 @@ export function MenuRattachementBien({ messageId, filId, onFerme, onGeste, onCha
         <p className="pdb-vide">Seuls les premiers biens sont affichés — précisez votre recherche.</p>
       )}
 
-      {/* ══ ③ UNE SEULE VALIDATION POUR LES DEUX ZONES ═══════════════════════════════════════════════════════ */}
-      <fieldset className="mrb-portee">
-        <legend className="pdb-groupe-titre">Portée</legend>
-        <label className="mrb-choix">
-          <input type="radio" name="mrb-portee" checked={portee === 'mail'} onChange={() => setPortee('mail')} />
-          <span>Ce mail uniquement</span>
-        </label>
-        <label className={`mrb-choix${filId === null ? ' mrb-choix--inactif' : ''}`}>
-          <input type="radio" name="mrb-portee" checked={portee === 'conversation'} disabled={filId === null}
-            onChange={() => setPortee('conversation')} />
-          <span>Toute la conversation{filId === null ? ' — échange inconnu' : ''}</span>
-        </label>
-      </fieldset>
+      {/* ══ ③ UNE SEULE VALIDATION POUR LES DEUX ZONES ═══════════════════════════════════════════════════════
+          🔴🔴 EN AJOUT PONCTUEL, IL N'Y A PAS DE PORTÉE À CHOISIR : « ponctuel » VEUT DIRE ce mail, et rien
+          d'autre. Offrir « toute la conversation » ici contredirait le bouton qu'on vient de cliquer — et une
+          portée qu'on peut changer après coup n'est plus une promesse. On l'ÉCRIT plutôt que de l'offrir. */}
+      {ponctuel ? (
+        <p className="mrb-ponctuel" role="note">
+          Ce mail uniquement — ajout ponctuel, en plus de ses biens actuels.
+          Aucune fenêtre de suivi n’est touchée, et les autres mails ne changent pas.
+        </p>
+      ) : (
+        <fieldset className="mrb-portee">
+          <legend className="pdb-groupe-titre">Portée</legend>
+          <label className="mrb-choix">
+            <input type="radio" name="mrb-portee" checked={portee === 'mail'} onChange={() => setPortee('mail')} />
+            <span>Ce mail uniquement</span>
+          </label>
+          <label className={`mrb-choix${filId === null ? ' mrb-choix--inactif' : ''}`}>
+            <input type="radio" name="mrb-portee" checked={portee === 'conversation'} disabled={filId === null}
+              onChange={() => setPortee('conversation')} />
+            <span>Toute la conversation{filId === null ? ' — échange inconnu' : ''}</span>
+          </label>
+        </fieldset>
+      )}
 
       <div className="pdb-boutons">
         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={fige || !aFaire}
           onClick={() => void valider()}>
-          {fige ? 'Enregistrement…' : 'Rattacher'}
+          {fige ? 'Enregistrement…' : (ponctuel ? 'Ajouter à ce mail' : 'Rattacher')}
         </button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={fige} onClick={onFerme}>
           Annuler
@@ -344,6 +386,9 @@ export const CSS_MENU_RATTACHEMENT = `
 .mrb-resultats .pdb-item{border-top:0}
 .mrb-couple{margin:0;padding:0 10px 8px;font-size:.8rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .mrb-portee{margin:8px 0;padding:6px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem;min-width:0}
+/* 🔴 L'ajout ponctuel n'a pas de portee a choisir : on l'ECRIT. Meme encadre, ton de note. */
+.mrb-ponctuel{margin:8px 0;padding:6px 10px;border:1px dashed var(--color-svv-line-strong);border-radius:.6rem;
+  font-size:.78rem;color:var(--color-svv-muted);line-height:1.4}
 .mrb-choix{display:flex;align-items:center;gap:.5rem;min-height:32px;font-size:.85rem;color:var(--color-svv-ink);
   cursor:pointer}
 .mrb-choix--inactif{color:var(--color-svv-muted);cursor:default}
