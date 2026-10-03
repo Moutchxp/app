@@ -186,6 +186,48 @@ describe('🔴🔴 le surlignage', () => {
   });
 
   /**
+   * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — UN SEUL REPÈRE PAR CHEMIN, ET IL PORTE SON NOMBRE ═══════════════════
+   *
+   * Constat d'Arno : la première version allumait TOUS les ancêtres à la fois. Ici, « Bien A » et « Bien B » sont
+   * le nœud visible le plus profond de leur chemin (leurs sous-dossiers sont repliés) : chacun porte UN repère,
+   * et aucun ancêtre au-dessus n'en porte.
+   */
+  it('🔴🔴 le repère est une pastille, posée sur le nœud visible le plus profond', async () => {
+    await monter();
+    await dupliquer();
+    await cliquer(loupeVignette());
+    // Deux branches + le fichier reconnu par empreinte = trois repères, pas un de plus.
+    expect(container.querySelectorAll('.sfd-ligne .sfd-repere')).toHaveLength(3);
+    expect(ligneDe('Bien A')?.querySelector('.sfd-repere')?.getAttribute('title'))
+      .toContain('quelque part dans ce dossier');
+    // 🔴 LE DOCUMENT LUI-MÊME LE DIT AUTREMENT : « Ce document est ici ».
+    expect(ligneDe('0851_001.pdf')?.querySelector('.sfd-repere')?.getAttribute('title'))
+      .toBe('Ce document est ici');
+  });
+
+  /**
+   * 🔴🔴 DEUX EMPLACEMENTS DERRIÈRE LE MÊME DOSSIER FERMÉ : UN SEUL REPÈRE, AVEC « 2 » — la demande d'Arno mot
+   * pour mot. Ils se sépareront quand on ouvrira le dossier.
+   */
+  it('🔴🔴 deux emplacements derrière le même dossier : un repère avec son nombre', async () => {
+    reponseLocaliser = {
+      etat: 'ok', source: 'f1', md5: null, parRegistre: 2,
+      occurrences: [
+        { id: 'c1', nom: 'x.pdf', voie: 'registre', chemin: [{ id: 'sousA', nom: 'Sous A' }, { id: 'bienA', nom: 'Bien A' }] },
+        { id: 'c2', nom: 'x.pdf', voie: 'registre', chemin: [{ id: 'sousB', nom: 'Sous B' }, { id: 'bienA', nom: 'Bien A' }] },
+      ],
+    };
+    await monter();
+    await dupliquer();
+    await cliquer(loupeVignette());
+    const repere = ligneDe('Bien A')?.querySelector('.sfd-repere');
+    expect(repere?.querySelector('.sfd-repere-nb')?.textContent).toBe('2');
+    expect(repere?.getAttribute('title')).toContain('2 emplacements');
+    // ⚠️ ET UN SEUL REPÈRE EN TOUT : les deux chemins passent par le même dossier fermé.
+    expect(container.querySelectorAll('.sfd-ligne .sfd-repere')).toHaveLength(1);
+  });
+
+  /**
    * 🔴🔴 ET LA LIGNE DU FICHIER LUI-MÊME, quand il est sous les yeux. Ici, `0851_001.pdf` porte l'empreinte
    * « EMPREINTE », la même que le document cherché : il est donc reconnu SANS être dans le registre — c'est la
    * seconde voie, celle qui rattrape une copie faite à la main dans Google Drive.

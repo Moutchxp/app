@@ -2743,7 +2743,18 @@ export function SelecteurFichierDrive({
         }
       }
     }
-    return surlignageDe(occurrences);
+    /**
+     * 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LES LIGNES RÉELLEMENT AFFICHÉES DÉCIDENT DU REPÈRE.
+     *
+     * C'est ce qui fait descendre le repère tout seul quand on déplie : la ligne de l'enfant apparaît dans
+     * `lignes`, elle devient le nœud visible le plus profond, et le repère quitte le parent sans qu'on ait rien à
+     * calculer. On n'y ajoute QUE le dossier courant — il n'est pas une ligne de la liste, mais il est bien à
+     * l'écran (c'est le dossier qu'on regarde), et un emplacement qui s'y trouve doit pouvoir s'y marquer.
+     */
+    const affichees = new Set<string>(lignes.map((l) => l.entree.id));
+    const ici = dossierCourant?.id ?? '';
+    if (ici !== '') affichees.add(ici);
+    return surlignageDe(occurrences, affichees);
   })();
 
   /** Combien de dossiers la fenêtre a déjà lus : c'est l'étendue de la comparaison par empreinte, et on le DIT. */
@@ -3764,7 +3775,7 @@ export function SelecteurFichierDrive({
                             + `${coupee ? ' sfd-ligne--coupee' : ''}${systeme ? ' sfd-ligne--systeme' : ''}`
                             + `${survole === f.id ? ' sfd-ligne--vise' : ''}${enVol ? ' sfd-ligne--envol' : ''}`
                             + `${surlignage.fichiers.has(f.id) ? ' sfd-ligne--trouve' : ''}`
-                            + `${f.dossier && surlignage.dossiers.has(f.id) ? ' sfd-ligne--chemin' : ''}`}
+                            + `${surlignage.reperes.has(f.id) && !surlignage.fichiers.has(f.id) ? ' sfd-ligne--chemin' : ''}`}
                           /* 🔴 L'INDENTATION EST UN PADDING, pas une marge : la ligne garde toute sa largeur, donc
                              toute sa surface de dépôt. Un dossier profond ne doit pas être plus dur à viser. */
                           style={{ ...grille, paddingLeft: 6 + profondeur * 16 }}
@@ -3856,6 +3867,28 @@ export function SelecteurFichierDrive({
                             ) : <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />}
                             <span className="sfd-icone" aria-hidden="true">{iconeEntree(f)}</span>
                             <span className="sfd-nom" title={f.nom}>{f.nom}</span>
+                            {/* ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE REPÈRE DE LA LOUPE, ET SON NOMBRE ═══════
+                                UN SEUL repère par chemin, posé sur le nœud VISIBLE le plus profond. Le nombre ne
+                                s'affiche qu'au-delà de un : « 2 » dit que deux emplacements passent par ce dossier
+                                fermé, et il disparaît dès qu'on l'ouvre et qu'ils se séparent.
+
+                                🔴 LE MOT EST ÉCRIT, JAMAIS PORTÉ PAR LA SEULE COULEUR : l'infobulle dit ce que le
+                                repère signifie, et le lecteur d'écran l'annonce. C'est la règle du module. */}
+                            {surlignage.reperes.has(f.id) && (() => {
+                              const n = surlignage.reperes.get(f.id) ?? 1;
+                              const ici = surlignage.fichiers.has(f.id);
+                              const mot = ici
+                                ? 'Ce document est ici'
+                                : n > 1
+                                  ? `${n} emplacements de ce document passent par ce dossier — ouvrez-le pour les séparer`
+                                  : 'Ce document est quelque part dans ce dossier — ouvrez-le pour descendre';
+                              return (
+                                <span className="sfd-repere" role="img" title={mot} aria-label={mot}>
+                                  <span aria-hidden="true">🔎</span>
+                                  {n > 1 && <span className="sfd-repere-nb" aria-hidden="true">{n}</span>}
+                                </span>
+                              );
+                            })()}
                             {enVol && (
                               <span className="sfd-envol" title={MOT_EN_COURS} aria-label={MOT_EN_COURS}>
                                 <span aria-hidden="true">•</span>
@@ -4429,15 +4462,27 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-loupe-ambre{--sfd-loupe:#b45309}
 .sfd-piece-oeil--actif{background:color-mix(in srgb, #b45309 22%, transparent);border-radius:.3rem}
 .sfd-loupe-compte{color:var(--color-svv-ink);font-weight:600}
-/* LE DOSSIER QUI MENE AU DOCUMENT : un liseré, et un fond tres leger. Il reste lisible sous la selection. */
-.sfd-ligne--chemin{box-shadow:inset 3px 0 0 #b45309;
-  background:color-mix(in srgb, #b45309 9%, transparent)}
+/* ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — UN AMBRE FRANC, PLUS DU TOUT SAUMON ══════════════════════════════════
+   Constat d'Arno : la premiere teinte (#b45309 a 9 %) tirait vers le saumon sur fond clair, trop proche du rouge
+   de la selection. On passe a un JAUNE AMBRE franc (#f0a202), a une opacite plus forte, et le lisere gauche monte
+   a 4 px : deux couleurs qu'on ne confond plus, meme du coin de l'oeil.
+   🔴 ET IL TIENT DANS LES DEUX THEMES : color-mix melange l'ambre au FOND courant, donc le resultat suit le theme
+   — jaune pale sur blanc, ocre profond sur noir — et le texte garde son contraste.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+/* LE DOSSIER QUI MENE AU DOCUMENT : un lisere, et un fond leger. Il reste lisible sous la selection. */
+.sfd-ligne--chemin{box-shadow:inset 4px 0 0 #f0a202;
+  background:color-mix(in srgb, #f0a202 14%, transparent)}
 /* LE DOCUMENT LUI-MEME : la meme teinte, plus franche — c'est le bout du chemin. */
-.sfd-ligne--trouve{box-shadow:inset 3px 0 0 #b45309;
-  background:color-mix(in srgb, #b45309 20%, transparent);font-weight:600}
+.sfd-ligne--trouve{box-shadow:inset 4px 0 0 #f0a202;
+  background:color-mix(in srgb, #f0a202 26%, transparent);font-weight:600}
 /* ⚠️ LA SELECTION GARDE LE DESSUS quand les deux se superposent : c'est elle qui commande les gestes. */
 .sfd-ligne--choisie.sfd-ligne--trouve,.sfd-ligne--choisie.sfd-ligne--chemin{
   background:color-mix(in srgb, var(--color-svv-red) 16%, transparent)}
+/* LE REPERE LUI-MEME : une pastille ambre a cote du nom, avec son nombre quand il y en a plusieurs. */
+.sfd-repere{display:inline-flex;align-items:center;gap:2px;flex:0 0 auto;margin-left:4px;padding:0 5px;
+  border-radius:999px;font-size:.7rem;line-height:1.5;
+  color:var(--color-svv-ink);background:color-mix(in srgb, #f0a202 55%, transparent)}
+.sfd-repere-nb{font-weight:700}
 .sfd-piece--cochee{border-color:var(--color-svv-red);
   background:color-mix(in srgb, var(--color-svv-red) 10%, var(--color-svv-surface))}
 .sfd-piece-case{flex:0 0 auto;width:14px;height:14px;accent-color:var(--color-svv-red);cursor:pointer}

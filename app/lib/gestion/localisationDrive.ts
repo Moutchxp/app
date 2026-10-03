@@ -103,43 +103,83 @@ export function fermetureCopies(depart: string, liens: readonly LienCopie[]): st
    ② CE QUE L'ARBRE DOIT SURLIGNER
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** Ce que l'écran consulte pour savoir s'il doit surligner une ligne. */
+/**
+ * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — UN SEUL REPÈRE PAR CHEMIN ════════════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO (03/10/2026) : la première version surlignait TOUS les ancêtres à la fois — « Test »,
+ * « _MESURE dossier instantane », « _MESURE ligne arbre », le fichier… Trop de repères : l'arbre entier s'allume,
+ * et un arbre tout surligné n'apprend plus rien.
+ *
+ * LA RÈGLE DEVIENT :
+ *   · UN repère, et un seul, sur le nœud VISIBLE LE PLUS PROFOND du chemin vers chaque emplacement ;
+ *   · dossier fermé → le repère est sur lui ; on l'ouvre → le repère QUITTE ce dossier et descend d'un cran,
+ *     jusqu'au document lui-même ;
+ *   · plusieurs emplacements qui passent par le même dossier fermé → UN SEUL repère, avec un petit nombre ;
+ *     ils se séparent dès qu'on ouvre.
+ *
+ * 🔴 « VISIBLE » EST LA SEULE NOTION QUI COMPTE, et elle se lit à l'écran : une ligne est rendue, ou elle ne l'est
+ * pas. Un dossier ouvert rend ses enfants ; un dossier fermé ne rend rien en dessous de lui. Le repère tombe donc
+ * de lui-même sur le bon nœud, sans qu'il faille raisonner sur les dépliages — c'est l'affichage qui décide.
+ */
 export interface Surlignage {
-  /** Les FICHIERS trouvés : leur ligne est surlignée, c'est le bout du chemin. */
+  /**
+   * Le nœud qui porte le repère → combien d'emplacements passent par lui. Un seul par chemin, par construction :
+   * c'est une Map, et deux occurrences du même dossier fermé s'y additionnent au lieu de s'empiler.
+   */
+  reperes: ReadonlyMap<string, number>;
+  /** Les FICHIERS trouvés qui sont eux-mêmes visibles : leur ligne est le bout du chemin, et se marque autrement. */
   fichiers: ReadonlySet<string>;
-  /** Les DOSSIERS qui contiennent une occurrence, directement ou plus bas. Tous les niveaux y sont. */
-  dossiers: ReadonlySet<string>;
-  /** Combien d'emplacements connus. C'est le nombre du petit compteur, à côté de la loupe. */
+  /** Combien d'emplacements connus EN TOUT — y compris ceux dont aucun nœud n'est visible. */
   nombre: number;
 }
 
-export const SURLIGNAGE_VIDE: Surlignage = { fichiers: new Set(), dossiers: new Set(), nombre: 0 };
+export const SURLIGNAGE_VIDE: Surlignage = { reperes: new Map(), fichiers: new Set(), nombre: 0 };
 
 /**
- * ══ 🔴🔴 LE SURLIGNAGE, À CHAQUE NIVEAU. PUR. ═══════════════════════════════════════════════════════════════════
+ * ══ 🔴🔴 LE REPÈRE D'UNE OCCURRENCE : SON NŒUD VISIBLE LE PLUS PROFOND. PUR. ════════════════════════════════════
  *
- * Arno : « chaque dossier qui contient (directement ou plus bas) une occurrence du document est surligné. On
- * l'ouvre : le sous-dossier concerné est surligné, et ainsi de suite jusqu'à la ligne du fichier. »
+ * On descend la liste [le fichier, son parent, son grand-parent, … la racine] et l'on s'arrête au PREMIER élément
+ * qui est affiché. Comme la liste part du plus profond, le premier affiché EST le plus profond affiché.
  *
- * 🔴 C'EST LA CHAÎNE ENTIÈRE QUI ENTRE, pas seulement le dossier immédiat. Sans cela, un document rangé six
- * niveaux plus bas ne surlignerait RIEN tant qu'on ne serait pas déjà arrivé à côté de lui — c'est-à-dire que la
- * loupe ne servirait qu'à ceux qui savent déjà où chercher.
- *
- * ⚠️ PLUSIEURS EMPLACEMENTS ⇒ PLUSIEURS CHEMINS, et ils se mélangent sans se gêner : deux branches surlignées
- * côte à côte est exactement ce qu'Arno demande (« plusieurs emplacements → plusieurs chemins surlignés »).
- *
- * ⚠️ UNE OCCURRENCE SANS CHEMIN EST COMPTÉE MAIS NE SURLIGNE RIEN : on n'a pas su remonter ses parents, et
- * inventer un emplacement serait pire que de n'en montrer aucun.
+ * ⚠️ `null` = RIEN N'EST VISIBLE sur ce chemin (l'emplacement est dans une branche qu'on ne regarde pas du tout).
+ * L'occurrence reste COMPTÉE dans le total — elle existe — mais elle ne pose aucun repère : marquer une ligne au
+ * hasard serait pire que n'en marquer aucune.
  */
-export function surlignageDe(occurrences: readonly Occurrence[]): Surlignage {
+export function repereDe(o: Occurrence, affichees: ReadonlySet<string>): string | null {
+  if (o.id.trim() !== '' && affichees.has(o.id)) return o.id;
+  for (const d of o.chemin) {
+    if (d.id.trim() !== '' && affichees.has(d.id)) return d.id;
+  }
+  return null;
+}
+
+/**
+ * ══ 🔴🔴 LES REPÈRES DE TOUTES LES OCCURRENCES. PUR. ════════════════════════════════════════════════════════════
+ *
+ * ⚠️ `affichees` EST L'ENSEMBLE DES LIGNES RENDUES à cet instant — pas les dossiers « ouverts », pas les chemins
+ * « connus ». C'est ce qui fait descendre le repère tout seul quand on déplie : la ligne de l'enfant apparaît,
+ * elle devient le nœud visible le plus profond, et le repère quitte le parent sans qu'on ait rien à calculer.
+ *
+ * ⚠️ DEUX OCCURRENCES DU MÊME DOSSIER FERMÉ COMPTENT POUR DEUX sur ce dossier (le petit nombre « 2 » d'Arno), et
+ * se séparent dès qu'on l'ouvre : chacune trouve alors son propre sous-dossier.
+ */
+export function surlignageDe(
+  occurrences: readonly Occurrence[],
+  affichees: ReadonlySet<string> = new Set(),
+): Surlignage {
+  const reperes = new Map<string, number>();
   const fichiers = new Set<string>();
-  const dossiers = new Set<string>();
+  let nombre = 0;
   for (const o of occurrences) {
     if (o.id.trim() === '') continue;
-    fichiers.add(o.id);
-    for (const d of o.chemin) if (d.id.trim() !== '') dossiers.add(d.id);
+    nombre += 1;
+    const ou = repereDe(o, affichees);
+    if (ou === null) continue;
+    reperes.set(ou, (reperes.get(ou) ?? 0) + 1);
+    // 🔴 LE BOUT DU CHEMIN SE MARQUE AUTREMENT : c'est le document, pas un dossier qui y mène.
+    if (ou === o.id) fichiers.add(o.id);
   }
-  return { fichiers, dossiers, nombre: fichiers.size };
+  return { reperes, fichiers, nombre };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

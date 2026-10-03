@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  AIDE_LOUPE, fermetureCopies, motCompteur, OCCURRENCES_MAX, phraseMethode, SAUTS_MAX,
+  AIDE_LOUPE, fermetureCopies, motCompteur, OCCURRENCES_MAX, phraseMethode, repereDe, SAUTS_MAX,
   surlignageDe, SURLIGNAGE_VIDE, type Occurrence,
 } from './localisationDrive';
 
@@ -67,49 +67,90 @@ describe('🔴 la fermeture du registre', () => {
    LE SURLIGNAGE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('🔴🔴 le surlignage, à chaque niveau', () => {
+describe('🔴🔴 UN SEUL repère, sur le nœud visible le plus profond', () => {
   /**
-   * 🔴🔴 LA DEMANDE D'ARNO, MOT POUR MOT : « chaque dossier qui contient (directement ou plus bas) une occurrence
-   * est surligné […] et ainsi de suite jusqu'à la ligne du fichier, surlignée elle aussi ». Sans la chaîne
-   * ENTIÈRE, la loupe ne servirait qu'à ceux qui savent déjà où chercher.
+   * ══ 🔴🔴 LE CONSTAT D'ARNO DU 03/10/2026 ═══════════════════════════════════════════════════════════════════
+   *
+   * La première version surlignait TOUS les ancêtres à la fois — « Test », « _MESURE dossier instantane »,
+   * « _MESURE ligne arbre », le fichier. Trop de repères : l'arbre entier s'allume, et un arbre tout surligné
+   * n'apprend plus rien. La règle devient : UN repère, sur le nœud VISIBLE le plus profond.
    */
-  it('🔴🔴 toute la chaîne de dossiers est surlignée, pas seulement le parent', () => {
-    const s = surlignageDe([occ('fichier', ['n6', 'n5', 'n4', 'n3', 'n2', 'n1'])]);
-    expect(s.fichiers.has('fichier')).toBe(true);
-    for (const d of ['n1', 'n2', 'n3', 'n4', 'n5', 'n6']) expect(s.dossiers.has(d)).toBe(true);
-    expect(s.nombre).toBe(1);
+  it('🔴🔴 dossier fermé : le repère est sur LUI, et sur lui seul', () => {
+    // Seuls les deux premiers niveaux sont affichés : le reste est replié.
+    const s = surlignageDe([occ('fichier', ['n3', 'n2', 'n1'])], new Set(['n1', 'n2']));
+    expect([...s.reperes.keys()]).toEqual(['n2']);
+    expect(s.reperes.get('n2')).toBe(1);
+    // ⚠️ ET SURTOUT : l'ancêtre « n1 » n'est PAS marqué. C'est tout l'objet du lot.
+    expect(s.reperes.has('n1')).toBe(false);
+    expect(s.fichiers.size).toBe(0);
   });
 
-  /** 🔴 « plusieurs emplacements → plusieurs chemins surlignés » (Arno). Les deux branches coexistent. */
-  it('🔴 deux emplacements surlignent deux branches', () => {
-    const s = surlignageDe([
-      occ('f1', ['Travaux', 'Bien A', 'Biens']),
-      occ('f2', ['Quittances', 'Bien B', 'Biens']),
-    ]);
-    expect(s.nombre).toBe(2);
-    expect([...s.dossiers].sort()).toEqual(['Bien A', 'Bien B', 'Biens', 'Quittances', 'Travaux']);
-    expect(s.fichiers.has('f1') && s.fichiers.has('f2')).toBe(true);
+  /** 🔴 ON OUVRE : le repère QUITTE le dossier et descend d'un cran. */
+  it('🔴 on ouvre : le repère descend, il ne se duplique pas', () => {
+    const chemin = ['n3', 'n2', 'n1'];
+    const ferme = surlignageDe([occ('fichier', chemin)], new Set(['n1', 'n2']));
+    expect([...ferme.reperes.keys()]).toEqual(['n2']);
+    // On déplie « n2 » : « n3 » devient visible.
+    const unCran = surlignageDe([occ('fichier', chemin)], new Set(['n1', 'n2', 'n3']));
+    expect([...unCran.reperes.keys()]).toEqual(['n3']);
+    // On déplie « n3 » : le FICHIER devient visible, et le repère arrive au bout du chemin.
+    const auBout = surlignageDe([occ('fichier', chemin)], new Set(['n1', 'n2', 'n3', 'fichier']));
+    expect([...auBout.reperes.keys()]).toEqual(['fichier']);
+    expect(auBout.fichiers.has('fichier')).toBe(true);
   });
 
   /**
-   * ⚠️ UNE OCCURRENCE SANS CHEMIN EST COMPTÉE MAIS NE SURLIGNE RIEN. On n'a pas su remonter ses parents ;
-   * inventer un emplacement serait pire que de n'en montrer aucun.
+   * 🔴🔴 PLUSIEURS EMPLACEMENTS PAR LE MÊME DOSSIER FERMÉ : UN SEUL REPÈRE, AVEC SON NOMBRE (Arno : « un petit
+   * nombre “2” »). Ils se séparent dès qu'on ouvre.
    */
-  it('⚠️ une occurrence sans chemin compte, mais ne surligne aucun dossier', () => {
-    const s = surlignageDe([occ('f1', [])]);
-    expect(s.nombre).toBe(1);
-    expect(s.dossiers.size).toBe(0);
+  it('🔴🔴 deux emplacements derrière le même dossier fermé : un repère « 2 »', () => {
+    const deux = [occ('f1', ['a1', 'Biens']), occ('f2', ['a2', 'Biens'])];
+    const fusion = surlignageDe(deux, new Set(['Biens']));
+    expect([...fusion.reperes.entries()]).toEqual([['Biens', 2]]);
+
+    // On ouvre « Biens » : les deux sous-dossiers paraissent, et les repères se séparent.
+    const separes = surlignageDe(deux, new Set(['Biens', 'a1', 'a2']));
+    expect([...separes.reperes.entries()].sort()).toEqual([['a1', 1], ['a2', 1]]);
   });
 
-  it('⚠️ aucune occurrence : rien n’est surligné', () => {
-    expect(surlignageDe([]).nombre).toBe(0);
+  /** 🔴 DEUX BRANCHES DÉJÀ VISIBLES : deux repères, un par chemin — jamais plus. */
+  it('🔴 deux branches visibles donnent deux repères', () => {
+    const s = surlignageDe(
+      [occ('f1', ['Travaux', 'Bien A']), occ('f2', ['Quittances', 'Bien B'])],
+      new Set(['Bien A', 'Bien B']),
+    );
+    expect([...s.reperes.entries()].sort()).toEqual([['Bien A', 1], ['Bien B', 1]]);
+  });
+
+  /**
+   * ⚠️ RIEN DE VISIBLE SUR LE CHEMIN ⇒ AUCUN REPÈRE, mais l'emplacement reste COMPTÉ. Marquer une ligne au hasard
+   * serait pire que n'en marquer aucune ; ne pas le compter ferait mentir le compteur.
+   */
+  it('⚠️ un emplacement hors de vue est compté, sans repère', () => {
+    const s = surlignageDe([occ('f1', ['ailleurs', 'tres-loin'])], new Set(['Biens']));
+    expect(s.nombre).toBe(1);
+    expect(s.reperes.size).toBe(0);
+  });
+
+  it('⚠️ une occurrence sans chemin : comptée, et marquée seulement si elle est elle-même visible', () => {
+    expect(surlignageDe([occ('f1', [])], new Set()).nombre).toBe(1);
+    expect(surlignageDe([occ('f1', [])], new Set()).reperes.size).toBe(0);
+    expect([...surlignageDe([occ('f1', [])], new Set(['f1'])).reperes.keys()]).toEqual(['f1']);
+  });
+
+  it('⚠️ aucune occurrence : rien', () => {
+    expect(surlignageDe([], new Set()).nombre).toBe(0);
     expect(SURLIGNAGE_VIDE.nombre).toBe(0);
+    expect(SURLIGNAGE_VIDE.reperes.size).toBe(0);
   });
 
-  /** ⚠️ UN MÊME DOSSIER PARTAGÉ PAR DEUX CHEMINS N'EST COMPTÉ QU'UNE FOIS : c'est un ensemble, pas une liste. */
-  it('⚠️ les chemins qui se croisent ne doublent rien', () => {
-    const s = surlignageDe([occ('f1', ['A', 'Racine']), occ('f2', ['B', 'Racine'])]);
-    expect([...s.dossiers].sort()).toEqual(['A', 'B', 'Racine']);
+  /** ⚠️ `repereDe` SEULE : le premier élément affiché en partant du plus profond. */
+  it('⚠️ `repereDe` rend le nœud visible le plus profond', () => {
+    const o = occ('fichier', ['n3', 'n2', 'n1']);
+    expect(repereDe(o, new Set(['n1', 'n2', 'n3', 'fichier']))).toBe('fichier');
+    expect(repereDe(o, new Set(['n1', 'n2', 'n3']))).toBe('n3');
+    expect(repereDe(o, new Set(['n1']))).toBe('n1');
+    expect(repereDe(o, new Set())).toBeNull();
   });
 });
 
