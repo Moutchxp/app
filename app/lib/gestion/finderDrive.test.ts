@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   ACTIONS_JAMAIS, aplatir, ariane, avancer, cheminCourant, cliquerLigne, COLONNES, comparerNoms, dateFinder,
+  guidesNiveaux, RETRAIT_NIVEAU_PX, retraitLigne,
   entreesPresse, MARGE_MENU, menuVide, recadrerMenu,
   dossierDuChemin, entreesLaterales, fenetreVisible, flecheTri, HAUTEUR_LIGNE,
   HISTORIQUE_DEPART, iconeEntree, memeChemin, menuDossier, menuFichier, motType, naviguerVers, peutAvancer,
@@ -632,5 +633,106 @@ describe('🔴🔴 le recadrage du menu', () => {
         expect(r.y).toBeGreaterThanOrEqual(0);
       }
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-NIVEAUX — LE RETRAIT ET LES TRAITS QUI RELIENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (03/10/2026) : « je crois voir deux catégories de fichiers dans un même dossier ».
+
+   🔴 MESURÉ DANS LE DOM, sur l'arbre réel du Drive « Test » : 6 px à la racine, 22 au niveau 1, 38 au niveau 2,
+   54 au niveau 3 — un pas EXACT de 16 px, et chaque ligne sous son VRAI parent. Aucun niveau n'était faux ; c'est
+   le pas, trop petit, et l'absence de trait qui faisaient lire les enfants d'un sous-dossier déplié et les
+   fichiers du dossier parent comme deux groupes du même dossier.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le retrait d’un niveau', () => {
+  it('🔴🔴 le pas est de 20 px, et la racine reste à 6', () => {
+    expect(RETRAIT_NIVEAU_PX).toBe(20);
+    expect(retraitLigne(0)).toBe(6);
+    expect(retraitLigne(1)).toBe(26);
+    expect(retraitLigne(3)).toBe(66);
+  });
+
+  /**
+   * 🔴 20 ET NON 16 : c'est plus que la largeur du triangle (18 px). À 16, le triangle d'un enfant chevauchait la
+   * colonne du triangle de son parent — la marche était écrasée par la seule géométrie.
+   */
+  it('🔴 le pas dépasse la largeur du triangle', () => {
+    expect(RETRAIT_NIVEAU_PX).toBeGreaterThan(18);
+  });
+
+  /** ⚠️ UNE PROFONDEUR ABSURDE NE RECULE PAS LA LIGNE : un négatif retombe sur la racine. */
+  it('⚠️ une profondeur négative vaut la racine', () => {
+    expect(retraitLigne(-3)).toBe(retraitLigne(0));
+  });
+});
+
+describe('🔴🔴 les traits verticaux', () => {
+  /** 🔴 UN TRAIT PAR ANCÊTRE : on compte la profondeur sans lire. */
+  it('🔴🔴 autant de traits que d’ancêtres', () => {
+    expect(guidesNiveaux(0).nombre).toBe(0);
+    expect(guidesNiveaux(1).nombre).toBe(1);
+    expect(guidesNiveaux(4).nombre).toBe(4);
+  });
+
+  /** 🔴 ILS PARTENT DU CENTRE DU TRIANGLE DE L'ANCÊTRE : c'est de là qu'on a déplié. */
+  it('🔴 le premier est au centre du triangle de la racine', () => {
+    expect(guidesNiveaux(2).depart).toBe(15);
+    expect(guidesNiveaux(2).pas).toBe(RETRAIT_NIVEAU_PX);
+  });
+
+  /**
+   * 🔴🔴 LA PROPRIÉTÉ QUI COMPTE, ET QU'ON NE VOIT PAS À L'ŒIL : AUCUN TRAIT NE RECOUVRE LE TEXTE. Le dernier
+   * trait d'une ligne de profondeur n est à `depart + (n-1) × pas` ; le texte, lui, commence à `retraitLigne(n)`.
+   * Si les deux se croisaient, un trait passerait au travers d'un triangle ou d'une icône.
+   */
+  it('🔴🔴 le dernier trait reste AVANT le retrait de la ligne, à toute profondeur', () => {
+    for (let n = 1; n <= 13; n += 1) {
+      const g = guidesNiveaux(n);
+      const dernier = g.depart + (g.nombre - 1) * g.pas;
+      expect(dernier, `profondeur ${n}`).toBeLessThan(retraitLigne(n));
+    }
+  });
+
+  /** ⚠️ UNE LIGNE RACINE N'EN PORTE AUCUN : un trait posé là ressemblerait à une bordure de la fenêtre. */
+  it('⚠️ une ligne racine ne porte aucun trait', () => {
+    expect(guidesNiveaux(0).nombre).toBe(0);
+    expect(guidesNiveaux(-2).nombre).toBe(0);
+  });
+});
+
+/**
+ * ══ 🔴 « DOSSIERS AVANT FICHIERS À CHAQUE NIVEAU » (ARNO : « déjà le cas, garde-le ») ═════════════════════════════
+ *
+ * Elle était tenue par `trier`, sans épreuve qui la NOMME. Ce lot la nomme : c'est elle qui fait que les
+ * sous-dossiers d'un dossier précèdent ses fichiers, donc elle qui produit la succession « dossiers puis
+ * fichiers » qu'Arno a prise pour deux catégories. La changer serait changer la lecture de l'arbre.
+ */
+describe('🔴 les dossiers passent avant les fichiers, à chaque niveau', () => {
+  const e = (id: string, nom: string, dossier: boolean) => ({
+    id, nom, dossier, typeMime: dossier ? 'application/vnd.google-apps.folder' : 'application/pdf',
+    tailleOctets: dossier ? null : 10, modifieLe: null, lien: null,
+  });
+
+  it('🔴 un dossier nommé « z » passe devant un fichier nommé « a »', () => {
+    const l = trier([e('1', 'a.pdf', false), e('2', 'z', true)], TRI_DEFAUT);
+    expect(l.map((x) => x.nom)).toEqual(['z', 'a.pdf']);
+  });
+
+  /** 🔴 ET À CHAQUE NIVEAU, pas seulement à la racine : `aplatir` trie chaque palier par le même `trier`. */
+  it('🔴🔴 la règle tient DANS un dossier déplié, et les niveaux sont exacts', () => {
+    const racine = [e('d', 'Test', true), e('f', 'fichier-racine.pdf', false)];
+    const enfants = [e('g', 'sous-dossier', true), e('h', 'enfant.pdf', false)];
+    const lignes = aplatir(racine, new Set(['d']), (id) => (id === 'd' ? enfants : undefined), TRI_DEFAUT);
+    expect(lignes.map((l) => [l.entree.nom, l.profondeur])).toEqual([
+      ['Test', 0],
+      ['sous-dossier', 1],
+      ['enfant.pdf', 1],
+      // 🔴 ET LE FICHIER DE LA RACINE REVIENT AU NIVEAU 0 : c'est exactement la succession qu'Arno a vue.
+      ['fichier-racine.pdf', 0],
+    ]);
   });
 });

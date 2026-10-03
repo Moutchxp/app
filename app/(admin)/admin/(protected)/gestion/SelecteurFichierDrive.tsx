@@ -74,7 +74,8 @@ import {
   type Occurrence, type Surlignage,
 } from '../../../../lib/gestion/localisationDrive';
 import {
-  aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder, recadrerMenu,
+  aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder, guidesNiveaux, recadrerMenu,
+  retraitLigne,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
   iconeEntree, menuDossier, menuFichier, menuVide, motType, naviguerVers, peutAvancer, peutReculer, reculer,
   remplacerCheminCourant, SELECTION_VIDE, selectionSuivante, tailleFinder, titreDuChemin, TRI_DEFAUT,
@@ -202,6 +203,39 @@ const CLE_SESSION = 'svv.gestion.selecteurDrive.session';
  * lit une attente.
  */
 const DELAI_DEPLIAGE_MS = 220;
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-NIVEAUX — CE QU'UNE LIGNE PORTE DE SA PROFONDEUR ══════════════════════════════════════════════
+ *
+ * CONSTAT D'ARNO (03/10/2026) : « je crois voir deux catégories de fichiers dans un même dossier ». Mesuré dans le
+ * DOM : les niveaux étaient EXACTS (6 / 22 / 38 / 54 px, chaque ligne sous son vrai parent) — c'est le PAS de
+ * 16 px, sans aucun trait, qui faisait lire les enfants d'un sous-dossier déplié et les fichiers du parent comme
+ * deux groupes du même dossier.
+ *
+ * 🔴 LE RETRAIT ET LES TRAITS VIENNENT DU MODULE PUR (`retraitLigne`, `guidesNiveaux`) : les QUATRE sortes de
+ * lignes — ordinaire, d'attente, en création, en échec de création — passent par ici, donc par le même calcul.
+ * Quatre expressions recopiées auraient fini par donner quatre alignements, et c'est l'alignement qui porte
+ * l'information.
+ *
+ * ⚠️ LES TRAITS SONT DES VARIABLES CSS, PAS DES ÉLÉMENTS : un `::before` unique les peint tous (voir
+ * `.sfd-ligne::before`). Un `<span>` par niveau aurait ajouté jusqu'à treize nœuds par ligne sur un Drive de
+ * treize niveaux de profondeur, dans une liste virtualisée qui en peint une centaine.
+ *
+ * ⚠️ RIEN DE CE QUI SE PASSE NE CHANGE : c'est un style, et rien qu'un style. La surface de dépôt reste la ligne
+ * ENTIÈRE (le retrait est un `padding`, jamais une marge — règle du lot DRIVE-RETOUCHES-1).
+ */
+function styleNiveau(profondeur: number): React.CSSProperties {
+  const g = guidesNiveaux(profondeur);
+  return {
+    paddingLeft: retraitLigne(profondeur),
+    // ⚠️ Des propriétés personnalisées : TypeScript ne les connaît pas dans `CSSProperties`, d'où le cast.
+    ...({
+      '--sfd-guides': String(g.nombre),
+      '--sfd-guide-depart': `${g.depart}px`,
+      '--sfd-guide-pas': `${g.pas}px`,
+    } as React.CSSProperties),
+  };
+}
 
 /** Le minimum dont la route a besoin : elle relit tout chez Google de toute façon. */
 function fichierMinimal(o: { id: string; nom?: string; dossier?: boolean }): Fichier {
@@ -3289,7 +3323,7 @@ export function SelecteurFichierDrive({
     if (ligneNeuve.c === 'ferme') return null;
     if (ligneNeuve.c === 'echec') {
       return (
-        <li className="sfd-ligne sfd-ligne--neuve" style={{ ...grille, paddingLeft: 6 + indentation * 16 }}>
+        <li className="sfd-ligne sfd-ligne--neuve" style={{ ...grille, ...styleNiveau(indentation) }}>
           <span className="sfd-col-nom">
             <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />
             <span className="sfd-icone" aria-hidden="true">📁</span>
@@ -3300,7 +3334,7 @@ export function SelecteurFichierDrive({
     }
     const enCreation = ligneNeuve.c === 'creation';
     return (
-      <li className="sfd-ligne sfd-ligne--neuve" style={{ ...grille, paddingLeft: 6 + indentation * 16 }}>
+      <li className="sfd-ligne sfd-ligne--neuve" style={{ ...grille, ...styleNiveau(indentation) }}>
         <span className="sfd-col-nom">
           <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />
           <span className="sfd-icone" aria-hidden="true">📁</span>
@@ -4251,7 +4285,7 @@ export function SelecteurFichierDrive({
                       if (f.id.startsWith('attente:')) {
                         return (
                           <li key={f.id} className="sfd-ligne sfd-ligne--attente" aria-hidden="true"
-                            style={{ ...grille, paddingLeft: 6 + profondeur * 16 }}>
+                            style={{ ...grille, ...styleNiveau(profondeur) }}>
                             <span className="sfd-col-nom">
                               <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />
                               <span className="sfd-nom">Chargement…</span>
@@ -4280,7 +4314,7 @@ export function SelecteurFichierDrive({
                             + `${surlignage.reperes.has(f.id) && !surlignage.fichiers.has(f.id) ? ' sfd-ligne--chemin' : ''}`}
                           /* 🔴 L'INDENTATION EST UN PADDING, pas une marge : la ligne garde toute sa largeur, donc
                              toute sa surface de dépôt. Un dossier profond ne doit pas être plus dur à viser. */
-                          style={{ ...grille, paddingLeft: 6 + profondeur * 16 }}
+                          style={{ ...grille, ...styleNiveau(profondeur) }}
                           title={systeme ? infobulleFichierSysteme(f.nom) : undefined}
                           /* 🔴 SAISISSABLE — c'est ce qui manquait : « je ne peux pas saisir un fichier ou un
                              document pour le glisser-déposer » (Arno). */
@@ -4810,6 +4844,28 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-ligne{min-height:28px;padding:0 6px;font-size:.82rem;color:var(--color-svv-ink);
   border-bottom:1px solid color-mix(in srgb, var(--color-svv-line) 55%, transparent);cursor:default;
   user-select:none;position:relative}
+/* ══ LOT DRIVE-NIVEAUX — LES TRAITS QUI RELIENT UN ENFANT A SON DOSSIER OUVERT ════════════════════════════════
+   Arno : « trait vertical fin reliant les enfants a leur dossier ouvert ». UN trait par ANCETRE : une ligne au
+   niveau 3 en porte trois, on compte la profondeur sans lire.
+
+   UN SEUL PSEUDO-ELEMENT LES PEINT TOUS, par un degrade qui se repete. Un noeud par niveau aurait ajoute jusqu'a
+   treize elements par ligne sur un Drive de treize niveaux, dans une liste virtualisee qui en peint cent.
+
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois).
+
+   LA VARIABLE DU NOMBRE DE GUIDES A ZERO (une ligne racine) DONNE UNE LARGEUR NULLE : rien n'est peint, et il n'y
+   a rien a masquer. Un trait pose a la racine ressemblerait a une bordure de la fenetre.
+
+   LES TRAITS NE RECOUVRENT JAMAIS LE TEXTE : le dernier est a depart + (n-1) x pas, soit 5 px AVANT le retrait de
+   la ligne (qui vaut 6 + n x 20). Le calcul vit dans guidesNiveaux, et c'est pour cela qu'il y vit.
+
+   pointer-events:none — le trait ne vole ni un clic, ni un survol, ni un lacher de glisser-deposer. La surface de
+   depot reste la ligne entiere. */
+.sfd-ligne::before{content:'';position:absolute;top:0;bottom:0;left:var(--sfd-guide-depart,15px);
+  width:calc(var(--sfd-guides,0) * var(--sfd-guide-pas,20px));pointer-events:none;
+  background-image:repeating-linear-gradient(to right,
+    color-mix(in srgb, var(--color-svv-line-strong) 70%, transparent) 0 1px,
+    transparent 1px var(--sfd-guide-pas,20px))}
 .sfd-liste>.sfd-ligne:nth-child(even){background:color-mix(in srgb, var(--color-svv-field) 55%, transparent)}
 .sfd-ligne:hover{background:var(--color-svv-field)}
 /* La SELECTION est aux couleurs de la charte, et elle porte un MOT pour le lecteur d'ecran (aria-selected). */

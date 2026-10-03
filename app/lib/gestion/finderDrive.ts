@@ -791,6 +791,65 @@ export function cibleDeDepot(
 
 /** La hauteur d'une ligne, en pixels. Nommée ici parce que le calcul et le style doivent dire la même chose. */
 export const HAUTEUR_LIGNE = 28;
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-NIVEAUX — LE RETRAIT D'UN NIVEAU, ET LES TRAITS QUI RELIENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (03/10/2026) : « je crois voir deux catégories de fichiers dans un même dossier ».
+
+   🔴 CE QU'IL VOYAIT, ET LE NIVEAU N'ÉTAIT PAS FAUX. Mesuré dans le DOM sur l'arbre réel du Drive « Test » :
+   `padding-left` de 6 px à la racine, 22 px au niveau 1, 38 px au niveau 2, 54 px au niveau 3 — soit un pas
+   EXACT de 16 px, et chaque ligne sous son VRAI parent (les deux fichiers de « _MESURE nom immediat » à 54 px,
+   « Test creation dossier drive » et les fichiers du drive « Test » à 38 px). Rien n'était à un niveau faux.
+
+   🔴 CE QUI TROMPAIT : 16 px entre deux niveaux, et AUCUN trait. Les enfants d'un sous-dossier déplié suivis des
+   fichiers du dossier parent se lisaient donc comme deux groupes d'un même dossier — « deux catégories ».
+
+   ⚠️ LE PAS ET LE TRAIT SONT NOMMÉS ICI, et non dans le composant : la ligne de la liste, la ligne en cours de
+   création (`ligneNeuve`) et la ligne d'attente emploient le même retrait. Trois calculs recopiés auraient fini
+   par donner trois alignements — et c'est précisément l'alignement qui porte l'information.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LE PAS D'UN NIVEAU, en pixels. Arno : « retrait nettement plus grand par niveau (environ 20 px) ».
+ *
+ * ⚠️ 20 ET NON 16 : c'est 25 % de plus, et surtout c'est plus que la largeur du triangle (18 px) — à 16 px, le
+ * triangle d'un enfant chevauchait la colonne du triangle de son parent, ce qui écrasait visuellement la marche.
+ */
+export const RETRAIT_NIVEAU_PX = 20;
+
+/** Le retrait de la RACINE. Il ne change pas : c'est le padding ordinaire d'une ligne. */
+export const RETRAIT_BASE_PX = 6;
+
+/** LE RETRAIT D'UNE LIGNE, à partir de sa profondeur. PUR. */
+export function retraitLigne(profondeur: number): number {
+  return RETRAIT_BASE_PX + Math.max(0, profondeur) * RETRAIT_NIVEAU_PX;
+}
+
+/**
+ * ══ LES TRAITS VERTICAUX D'UNE LIGNE : COMBIEN, ET OÙ COMMENCE LE PREMIER. PUR. ══════════════════════════════════
+ *
+ * Arno : « trait vertical fin reliant les enfants à leur dossier ouvert ».
+ *
+ * 🔴 UN TRAIT PAR ANCÊTRE, et c'est ce qui rend la profondeur LISIBLE d'un coup d'œil : une ligne au niveau 3
+ * porte trois traits, on compte sans lire. Un seul trait (celui du parent immédiat) aurait dit « j'ai un parent »
+ * sans jamais dire lequel, ni combien.
+ *
+ * 🔴 ILS SONT ALIGNÉS SUR LE TRIANGLE DE L'ANCÊTRE, pas sur son texte : le triangle est le point d'où l'on a
+ * déplié, donc l'endroit d'où le trait doit partir. Le triangle fait 18 px et commence au retrait de sa ligne —
+ * son centre est donc à `retrait + 9`.
+ *
+ * ⚠️ UNE LIGNE RACINE N'EN PORTE AUCUN : `nombre: 0`. Il n'y a rien au-dessus d'elle à relier, et un trait posé
+ * là ressemblerait à une bordure de la fenêtre.
+ */
+export function guidesNiveaux(profondeur: number): { nombre: number; depart: number; pas: number } {
+  return {
+    nombre: Math.max(0, profondeur),
+    depart: RETRAIT_BASE_PX + Math.floor(18 / 2),
+    pas: RETRAIT_NIVEAU_PX,
+  };
+}
 /**
  * En dessous de ce nombre de lignes, on rend tout : virtualiser une liste de quarante lignes coûte plus cher que
  * de la peindre, et introduit un saut de défilement pour rien.

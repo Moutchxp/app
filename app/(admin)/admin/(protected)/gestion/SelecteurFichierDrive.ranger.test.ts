@@ -4,6 +4,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
 import { MIME_PIECE, signatureSession } from '../../../../lib/gestion/rangementDrive';
+// 🔴 LOT DRIVE-NIVEAUX — le retrait d'un niveau vit dans le module pur : l'épreuve le LIT, elle ne le recopie pas.
+import { retraitLigne } from '../../../../lib/gestion/finderDrive';
 
 /**
  * LOT DRIVE-UNIQUE — LA MÊME FENÊTRE, EN MODE « RANGER ».
@@ -535,8 +537,15 @@ describe('🔴 ④ l’arborescence compacte', () => {
     await cliquer(ligneDe('Baux')?.querySelector('.sfd-triangle'));
     const noms = [...container.querySelectorAll('.sfd-nom')].map((x) => x.textContent);
     expect(noms).toEqual(['Artisans', 'devis-artisan.pdf', 'Baux', 'bail-2024.pdf', 'bail.pdf']);
-    // Le contenu est INDENTÉ d'un cran sous son dossier, et le dossier voisin n'a pas disparu.
-    expect((ligneDe('devis-artisan.pdf') as HTMLElement).style.paddingLeft).toBe('22px');
+    /**
+     * Le contenu est INDENTÉ d'un cran sous son dossier, et le dossier voisin n'a pas disparu.
+     *
+     * ⚠️ 26 px ET NON 22 px DEPUIS LE LOT DRIVE-NIVEAUX : le pas d'un niveau passe de 16 à 20 px (Arno :
+     * « retrait nettement plus grand par niveau, environ 20 px »), et la racine reste à 6. Le NOMBRE n'est pas
+     * recopié ici : il vient de `retraitLigne`, le module pur, pour que l'épreuve suive le jour où il bouge.
+     */
+    expect((ligneDe('devis-artisan.pdf') as HTMLElement).style.paddingLeft).toBe(`${retraitLigne(1)}px`);
+    expect(retraitLigne(1)).toBe(26);
     expect(ligneDe('Baux')).toBeDefined();
   });
 
