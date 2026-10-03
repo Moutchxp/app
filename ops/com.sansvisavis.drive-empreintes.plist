@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 2 — L'INDEX DES EMPREINTES SE TIENT À JOUR.
+
+  ✅ ACTIVÉ LE 03/10/2026, sur décision d'Arno : « Puis active la mise à jour par changes.list. »
+
+  POURQUOI CE JOB EXISTE. L'index répond à la question que Google REFUSE : « quels fichiers du Drive portent cette
+  empreinte ? » (`files.list` avec `q=md5Checksum='…'` rend HTTP 400 « Invalid Value »). Le balayage initial du
+  03/10/2026 y a rangé 201 998 entrées et 176 130 empreintes en 8 min 59 s et 459 appels. Mais un index est un
+  REFLET : sans mise à jour, il vieillit, et un reflet périmé ferait annoncer un document là où il n'est plus.
+
+  🔴 `changes.list` ET NON UN SECOND BALAYAGE, et l'écart est tout : l'incrément ne demande que ce qui a CHANGÉ
+  depuis le jeton de reprise. Mesuré juste après le balayage : 12 appels, moins d'une seconde, contre 459 appels et
+  neuf minutes pour tout rebalayer. C'est ce qui permet de le faire souvent sans rien coûter.
+
+  ⚠️ `StartInterval` ET NON `KeepAlive`, contrairement à la relève du courrier. La différence est la même qu'avec
+  la veille Sitadel : ce job fait UNE passe et rend la main. `KeepAlive` le relancerait en boucle sans interruption.
+
+  ⚠️ LE JETON DE REPRISE VIT EN BASE (`gestion_drive_index_etat.page_token`), et c'est lui qui rend ce job
+  reprenable : une passe manquée n'est jamais une perte, la suivante rattrape depuis le même point. Un job qui
+  meurt ne laisse donc rien à moitié fait.
+
+  🔒 LECTURE SEULE DU DRIVE, ET C'EST UNE PROPRIÉTÉ DU CODE, PAS UNE INTENTION. Le script n'émet que des lectures
+  (`files.list`, `changes.getStartPageToken`, `changes.list`) : il n'a qu'UN SEUL `fetch` dans tout le fichier, sans
+  option de méthode, et n'importe aucun module d'écriture Drive. Trois gardes statiques le vérifient
+  (`indexEmpreintesDrive.test.ts`). 🔴🔴 « Documents clients scannés » n'y entre qu'en MÉTADONNÉES — un nom, un
+  parent, une empreinte —, ce qu'il faut pour DIRE qu'un document y est déjà rangé sans jamais en ouvrir le contenu.
+
+  🔒 AUCUN SECRET DANS CE FICHIER. Les accès Google et `DATABASE_URL` restent dans `.env`, que le script charge
+  lui-même depuis sa propre position.
+
+  ⚠️ LaunchAgent : ne tourne que machine allumée et session ouverte. Le 24/24 suppose un hébergement — pas ce Mac.
+
+  ACTIVER :
+    cp ops/com.sansvisavis.drive-empreintes.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sansvisavis.drive-empreintes.plist
+  VÉRIFIER :
+    launchctl list | grep drive-empreintes
+    tail -f ~/Library/Logs/svav-drive-empreintes.log
+  ARRÊTER :
+    launchctl bootout gui/$(id -u)/com.sansvisavis.drive-empreintes
+
+  Chemins à adapter si le dépôt ou l'utilisateur diffèrent (cf. ops/README.md).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sansvisavis.drive-empreintes</string>
+
+  <!-- node ABSOLU → lanceur tsx DU DÉPÔT → point d'entrée DU DÉPÔT. Aucun shell, aucun PATH à deviner.
+       C'est la leçon du 25/09/2026 : une panne d'ordonnanceur est SILENCIEUSE, donc zéro relais. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/macbookprom4arnaud/sansvisavis/app/node_modules/tsx/dist/cli.mjs</string>
+    <string>/Users/macbookprom4arnaud/sansvisavis/app/app/scripts/indexer-empreintes-drive.ts</string>
+    <string>--changements</string>
+    <string>--appliquer</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/macbookprom4arnaud/sansvisavis/app</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Le PATH de launchd ne contient PAS /usr/local/bin : on le remet. -->
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <!-- Sans eux : FATAL 28000, connexion PostgreSQL refusée — `DATABASE_URL` ne porte pas de nom d'utilisateur. -->
+    <key>USER</key>
+    <string>macbookprom4arnaud</string>
+    <key>LOGNAME</key>
+    <string>macbookprom4arnaud</string>
+  </dict>
+
+  <!-- Un quart d'heure, comme la veille : l'incrément coûte une douzaine d'appels et moins d'une seconde. -->
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/macbookprom4arnaud/Library/Logs/svav-drive-empreintes.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/macbookprom4arnaud/Library/Logs/svav-drive-empreintes.log</string>
+</dict>
+</plist>
