@@ -3,6 +3,8 @@ import {
   rattachementsDisponibles, horsGestionDisponible, interneDisponible, pieceIntegreeDisponible,
 } from './schema';
 import { sqlEstVraiePiece } from './lisibilite';
+import { sqlNomAffiche } from './nomUsageSql';
+import { sqlCleIdentitePiece } from './piecesConversation';
 import { capsuleDuMessage, sqlSortesBien, type CapsuleStatut } from './statutClassement';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
@@ -196,7 +198,7 @@ export async function lireMailsRecus(
     `SELECT m.id::text AS message_id, m.fil_id::text AS fil_id, m.de_adresse, m.de_nom, m.objet,
             left(coalesce(m.corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait,
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le,
-            (SELECT count(*) FROM gestion_piece p
+            (SELECT count(DISTINCT ${sqlCleIdentitePiece('p', await sqlNomAffiche('p'))}) FROM gestion_piece p
               WHERE p.message_id = m.id AND ${sqlEstVraiePiece('p', avecPieceIntegree)})::int AS nb_pieces,
             ${avec ? 'rb.biens AS r_biens, rb.manuel AS r_manuel' : 'NULL::text[] AS r_biens, NULL::boolean AS r_manuel'},
             ${avecHg ? 'hg.marque AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'},

@@ -28,6 +28,7 @@ import {
 } from './imagesIntegrees';
 // 🔴 LOT ETOILE-SIGNATURES-PIECES — « cette pièce est-elle une VRAIE pièce ? », rendu en SQL. Une seule règle.
 import { sqlEstVraiePiece } from './lisibilite';
+import { sqlCleIdentitePiece } from './piecesConversation';
 import { ATTEND, ctesAttente, jointuresAttente } from './attente';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 // ⚠️ UN SEUL IMPORT DE `./schema`, STATIQUE. `destinatairesSeparesDisponibles` était chargée dynamiquement au
@@ -263,7 +264,7 @@ export async function lireCarte(
             -- Les compteurs disent ce que l'écran MONTRERA : un mail déplacé vers une autre carte n'est plus ici.
             (SELECT count(*) FROM gestion_message m2 WHERE m2.fil_id = f.id AND m2.exclu_le IS NULL
               ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am2 WHERE am2.message_id = m2.id AND am2.actif)' : ''})::int AS nb_messages,
-            (SELECT count(*) FROM gestion_piece p JOIN gestion_message m3 ON m3.id = p.message_id
+            (SELECT count(DISTINCT ${sqlCleIdentitePiece('p', await sqlNomAffiche('p'))}) FROM gestion_piece p JOIN gestion_message m3 ON m3.id = p.message_id
               WHERE m3.fil_id = f.id AND m3.exclu_le IS NULL
               ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am3 WHERE am3.message_id = m3.id AND am3.actif)' : ''}
               AND ${sqlEstVraiePiece('p', avecPieceIntegree)})::int AS nb_pieces,

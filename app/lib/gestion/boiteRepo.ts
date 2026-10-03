@@ -57,6 +57,8 @@ import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 import { sqlSortesBien } from './statutClassement';
 // LOT LECTURE-HTML-FIL-TROMBONE — la MÊME règle que la conversation pour distinguer une pièce d'un logo de signature.
 import { sqlEstVraiePiece, trierPieces, type PieceATrier } from './lisibilite';
+// 🔴 LOT FENETRES-INDEPENDANTES — la clé d'identité d'une pièce, la MÊME qu'au récapitulatif. Module PUR.
+import { cleIdentitePiece, sqlCleIdentitePiece } from './piecesConversation';
 // LOT BOITE-INTERNE-CORBEILLE — « nous », c'est `gestion_config.adresse_gestion`, lue à la MÊME source que la capture.
 import { chargerConfigGestion } from './config';
 import { sqlExtraitLisible } from './imagesIntegrees';
@@ -797,6 +799,14 @@ export function sqlPageBoite(
    * colonne n'est NOMMÉE NULLE PART et le compteur retombe sur la règle de nom/taille d'avant ce lot.
    */
   pieceIntegree = false,
+  /**
+   * 🔴🔴 LOT FENETRES-INDEPENDANTES — LA CLÉ D'IDENTITÉ D'UNE PIÈCE, DÉJÀ RENDUE (`sqlCleIdentitePiece`).
+   *
+   * ⚠️ ELLE ARRIVE TOUTE PRÊTE parce qu'elle a besoin du nom d'USAGE, et que le fragment qui le rend est
+   * ASYNCHRONE (il sonde la migration 286) alors que cette fonction est pure. Vide ⇒ le compteur compte les
+   * exemplaires, comme avant ce lot : les épreuves de forme écrites avant restent vraies à la lettre.
+   */
+  clePiece = '',
 ): string {
   /**
    * 🔴 LOT LISTE-PAGINATION — LE PRÉDICAT VIENT DE `predicatsBoite`, PARTAGÉ AVEC `sqlCompteBoite`. Ce qui suit ne
@@ -891,7 +901,8 @@ export function sqlPageBoite(
             --    dans le corps, ni les logos de signature, ni les jumeaux macOS. La MEME regle que le trombone
             --    et que la conversation (sqlEstVraiePiece), rendue en SQL pour entrer dans le WHERE.
             --    AUCUN ACCENT GRAVE ICI : ce commentaire vit dans un litteral de gabarit (piege TS1005 du depot).
-            (SELECT count(*) FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
+            (SELECT count(${clePiece === '' ? '*' : `DISTINCT ${clePiece}`})
+               FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
               WHERE pm.fil_id = p.fil_id AND ${sqlEstVraiePiece('pc', pieceIntegree)})::int AS nb_pieces,
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = p.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
@@ -1066,7 +1077,8 @@ export async function lireBoiteMail(
     ? null : 4 + paramsEtiquette.length + (rangAdresse === null ? 0 : 1);
   const { rows } = await query<LigneDB>(
     sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true, rattachements,
-      horsGestion, rangAdresse, etoileGmail, interne, await pieceIntegreeDisponible()),
+      horsGestion, rangAdresse, etoileGmail, interne, await pieceIntegreeDisponible(),
+      sqlCleIdentitePiece('pc', await sqlNomAffiche('pc'))),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
       ...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
@@ -1263,16 +1275,32 @@ export async function piecesVraiesDesFils(
   const avecIntegree = await pieceIntegreeDisponible();
   const { rows } = await query<{
     fil_id: string; message_id: string; nom_fichier: string; type_mime: string | null;
-    taille_octets: string | null; integree: boolean | null;
+    taille_octets: string | null; integree: boolean | null; empreinte_sha256: string | null;
   }>(
     `SELECT m.fil_id::text, p.message_id::text, ${await sqlNomAffiche('p')} AS nom_fichier,
-            p.type_mime, p.taille_octets::text,
+            p.type_mime, p.taille_octets::text, p.empreinte_sha256,
             ${avecIntegree ? 'p.integree' : 'NULL::boolean AS integree'}
        FROM gestion_piece p
        JOIN gestion_message m ON m.id = p.message_id
       WHERE m.fil_id = ANY($1::bigint[])
         AND p.nom_fichier NOT LIKE '._%'
       ORDER BY p.id`, [[...filIds]]);
+  /**
+   * ══ 🔴🔴 LOT FENETRES-INDEPENDANTES — LE TROMBONE COMPTE LES DOCUMENTS, PAS LES EXEMPLAIRES ═══════════════════
+   *
+   * DÉCISION D'ARNO (03/10/2026). L'échange 36694 annonçait « 📎 4 » là où la conversation disait « 3 pièces » :
+   * la quatrième était le MÊME document, réattaché par notre propre transfert (même empreinte sha256). Le
+   * dédoublonnage existait déjà au récapitulatif ; il manquait ici.
+   *
+   * 🔴 LA MÊME CLÉ QUE LE RÉCAPITULATIF, `cleIdentitePiece`, et pas une seconde écriture : c'est elle qui décide
+   * qu'une empreinte est une preuve et un nom une présomption. Deux définitions auraient fini par compter
+   * autrement — c'est exactement le défaut qu'on répare.
+   *
+   * ⚠️ LE DÉDOUBLONNAGE PORTE SUR TOUT L'ÉCHANGE, pas sur chaque message, et il le faut : le doublon vit
+   * précisément d'un message à l'autre. On garde la PREMIÈRE apparition (l'ordre `p.id` est celui du temps),
+   * exactement comme le récapitulatif garde la plus ancienne.
+   */
+  const vues = new Map<number, Set<string>>();
   for (const r of rows) {
     const fil = Number(r.fil_id);
     const message = Number(r.message_id);
@@ -1285,6 +1313,13 @@ export async function piecesVraiesDesFils(
     };
     // 🔴 LA MÊME RÈGLE QUE L'ÉCRAN D'UN MESSAGE : on ne garde que ce que `trierPieces` appelle une VRAIE pièce.
     if (trierPieces([piece]).vraies.length === 0) continue;
+    const { cle } = cleIdentitePiece({
+      nomFichier: piece.nomFichier, tailleOctets: piece.tailleOctets, empreinte: r.empreinte_sha256,
+    });
+    const dejaVues = vues.get(fil) ?? new Set<string>();
+    if (dejaVues.has(cle)) continue;
+    dejaVues.add(cle);
+    vues.set(fil, dejaVues);
     const parMessage = parFil.get(fil) ?? new Map<number, PieceATrier[]>();
     parMessage.set(message, [...(parMessage.get(message) ?? []), piece]);
     parFil.set(fil, parMessage);
@@ -1523,3 +1558,4 @@ export async function comptesBoite(): Promise<{
     corbeille: rows[0]?.corbeille ?? null,
   };
 }
+

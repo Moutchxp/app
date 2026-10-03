@@ -196,12 +196,60 @@ export interface PieceDedoublonnee extends PieceDeConversation {
  * doit JAMAIS être confondue avec une pièce identifiée par son nom : la première est une preuve, la seconde une
  * présomption, et les mélanger ferait passer la présomption pour la preuve.
  */
-export function cleIdentitePiece(p: PiecePortee): { cle: string; parNomEtTaille: boolean } {
+/**
+ * ⚠️ LE PARAMÈTRE EST RÉDUIT À CE QU'ELLE LIT (lot FENETRES-INDEPENDANTES) : nom, taille, empreinte. Elle n'a
+ * jamais eu besoin du reste d'une `PiecePortee`, et l'exiger empêchait de l'appeler depuis la liste — qui ne
+ * lit pas les mêmes colonnes. Tout appelant existant continue de passer, une `PiecePortee` ayant ces trois-là.
+ */
+export function cleIdentitePiece(
+  p: Pick<PiecePortee, 'nomFichier' | 'tailleOctets' | 'empreinte'>,
+): { cle: string; parNomEtTaille: boolean } {
   const taille = p.tailleOctets === null ? '?' : String(p.tailleOctets);
   const e = (p.empreinte ?? '').trim().toLowerCase();
   if (e !== '') return { cle: `e:${e}|${taille}`, parNomEtTaille: false };
-  // Le nom est normalisé (espaces, casse) : « Bail.PDF » et « bail.pdf » sont le même nom pour un humain.
-  return { cle: `n:${p.nomFichier.trim().toLowerCase()}|${taille}`, parNomEtTaille: true };
+  /* Le nom est normalisé (espaces, casse) : « Bail.PDF » et « bail.pdf » sont le même nom pour un humain.
+     ⚠️ `?? ''` : un nom absent ne doit pas faire tomber un COMPTEUR de liste. Deux pièces sans nom ni empreinte
+     se confondraient alors sur la même clé — c'est le bon comportement : on ne sait rien qui les distingue. */
+  return { cle: `n:${(p.nomFichier ?? '').trim().toLowerCase()}|${taille}`, parNomEtTaille: true };
+}
+
+/**
+ * ══ 🔴🔴 LOT FENETRES-INDEPENDANTES-ET-DEFILEMENT-DRIVE — LA MÊME CLÉ, RENDUE EN SQL ════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DÉCISION D'ARNO (03/10/2026) : « dédoublonne le compteur de pièces de la ligne de liste par empreinte, comme la
+ * conversation le fait déjà, dans les cinq compteurs. »
+ *
+ * LE DÉFAUT QUE ÇA FERME, mesuré la veille sur l'échange 36694 : la ligne annonçait 4 pièces, la conversation 3.
+ * La quatrième était `test renomage.pdf` (pièce 27121), qui porte EXACTEMENT la même empreinte sha256 que
+ * `0851_001.pdf` (pièce 27087) — le même document, réattaché par notre propre transfert.
+ *
+ * 🔴 CE N'EST PAS UNE SECONDE ÉCRITURE DE LA RÈGLE, C'EST LA MÊME, RENDUE DANS L'AUTRE LANGUE — exactement le
+ * patron de `sqlEstVraiePiece` dans `lisibilite.ts`. Les deux espaces de noms (`e:` et `n:`), la normalisation du
+ * nom et le repli `'?'` sur une taille inconnue sont reproduits au caractère près, et une épreuve les tient
+ * ensemble sur une table de cas. Une « équivalence » approximative aurait fini par compter autrement, et l'on
+ * aurait repayé le défaut qu'on répare.
+ *
+ * ⚠️ POURQUOI UNE CHAÎNE ET NON UN `DISTINCT (empreinte, taille)` : une pièce SANS empreinte doit compter pour
+ * elle-même, par son nom. Un `DISTINCT` sur deux colonnes dont l'une est `NULL` les ferait toutes se confondre —
+ * ou toutes se séparer, selon le dialecte. Une clé unique, construite explicitement, ne laisse pas ce choix.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function sqlCleIdentitePiece(alias: string, sqlNomAffiche: string): string {
+  const taille = `coalesce(${alias}.taille_octets::text, '?')`;
+  const empreinte = `lower(btrim(coalesce(${alias}.empreinte_sha256, '')))`;
+  /**
+   * 🔴🔴 LE NOM EST CELUI D'USAGE, ET IL ARRIVE DÉJÀ RENDU. C'est la raison pour laquelle cette fonction prend un
+   * second argument au lieu de nommer la colonne : en TypeScript, `cleIdentitePiece` reçoit `nomFichier`, qui EST
+   * le nom d'usage (lot NOM-UNIQUE-DES-PIECES). Lire `nom_fichier` en SQL donnerait le nom d'ARRIVÉE — donc une
+   * clé différente des deux côtés dès qu'une pièce a été renommée, et un dédoublonnage qui ne dédoublonne plus.
+   *
+   * ⚠️ `sqlNomAffiche` EST ASYNCHRONE CHEZ L'APPELANT (il sonde la migration 286) : ce module est PUR et ne peut
+   * pas l'appeler lui-même. On le reçoit tout prêt, et le garde du module l'exige à l'appel.
+   */
+  const nom = `lower(btrim(coalesce(${sqlNomAffiche}, '')))`;
+  return `CASE WHEN ${empreinte} <> '' THEN 'e:' || ${empreinte} || '|' || ${taille}`
+    + ` ELSE 'n:' || ${nom} || '|' || ${taille} END`;
 }
 
 /**

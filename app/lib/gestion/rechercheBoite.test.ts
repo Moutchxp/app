@@ -60,7 +60,7 @@ const paramsPage = () => (queryMock.mock.calls.find((c) => String(c[0]).includes
 const repond = (lignes: unknown[] = []) => {
   queryMock.mockReset();
   queryMock.mockImplementation(async (sql: string) =>
-    (String(sql).includes('count(DISTINCT') ? { rows: [{ n: 0 }] } : { rows: lignes }));
+    (String(sql).includes('count(DISTINCT m.fil_id)') ? { rows: [{ n: 0 }] } : { rows: lignes }));
 };
 
 beforeEach(() => {
@@ -184,9 +184,12 @@ describe('le courrier automatique : même règle que la liste', () => {
   it('le nombre de résultats masqués est compté, pour être dit en toutes lettres', async () => {
     queryMock.mockReset();
     queryMock.mockImplementation(async (sql: string) => {
-      if (String(sql).includes('count(DISTINCT')) {
+      /* ⚠️ `count(DISTINCT m.fil_id)` ET NON « count(DISTINCT » TOUT COURT (lot FENETRES-INDEPENDANTES) : le
+         compteur de PIÈCES de chaque ligne en porte un aussi depuis que la liste dédoublonne par empreinte, et
+         un double trop large prenait la requête de résultats pour un comptage. */
+      if (String(sql).includes('count(DISTINCT m.fil_id)')) {
         // 1er appel = AVEC l'automatique, 2e = SANS. La différence est ce qu'on masque.
-        const n = queryMock.mock.calls.filter((c) => String(c[0]).includes('count(DISTINCT')).length;
+        const n = queryMock.mock.calls.filter((c) => String(c[0]).includes('count(DISTINCT m.fil_id)')).length;
         return { rows: [{ n: n === 1 ? 120 : 30 }] };
       }
       return { rows: [] };
@@ -270,7 +273,7 @@ describe('un résultat = UN ÉCHANGE, pas un message', () => {
     queryMock.mockReset();
     queryMock.mockImplementation(async (sql: string) => {
       const q = String(sql);
-      if (q.includes('count(DISTINCT')) return { rows: [{ n: 0 }] };
+      if (q.includes('count(DISTINCT m.fil_id)')) return { rows: [{ n: 0 }] };
       // La lecture des pièces, partagée avec la liste : deux pièces sur le message trouvé, une ailleurs.
       if (q.includes('FROM gestion_piece p')) {
         return { rows: [
@@ -656,7 +659,7 @@ describe('LOT RECHERCHE-AVANCEE — le compte du courrier automatique masqué su
   it('les deux comptes diffèrent quand les listes portent la décision', async () => {
     repond([]);
     await chercherDansLeCourrier({ saisie: 'fuite', listes: ['reception'] }, null, [], 5);
-    const comptes = queryMock.mock.calls.filter((c) => String(c[0]).includes('count(DISTINCT')).map((c) => plat(String(c[0])));
+    const comptes = queryMock.mock.calls.filter((c) => String(c[0]).includes('count(DISTINCT m.fil_id)')).map((c) => plat(String(c[0])));
     expect(comptes).toHaveLength(2);
     expect(comptes.filter((s) => s.includes('m.exclu_le IS NOT NULL'))).toHaveLength(1);
   });

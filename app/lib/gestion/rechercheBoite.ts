@@ -31,8 +31,9 @@ import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils } from './nonRemiseRepo';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la règle « vraie pièce », rendue en SQL depuis sa définition UNIQUE.
 import { sqlEstVraiePiece } from './lisibilite';
+import { sqlCleIdentitePiece } from './piecesConversation';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — la recherche trouve la pièce par ses DEUX noms (usage et origine).
-import { nomsCherchablesAvec } from './nomUsageSql';
+import { nomsCherchablesAvec, sqlNomAffiche } from './nomUsageSql';
 import { nomUsageDisponible, pieceIntegreeDisponible } from './schema';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
@@ -478,7 +479,8 @@ export async function chercherDansLeCourrier(
             (SELECT count(*) FROM gestion_message c WHERE c.fil_id = t.fil_id AND c.exclu_le IS NULL)::int AS nb_lisibles,
             -- LOT LISTE-GMAIL — le NOMBRE, comme dans la liste : les deux écrans montrent la même ligne, ils
             --   doivent la calculer pareil.
-            (SELECT count(*) FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
+            (SELECT count(DISTINCT ${sqlCleIdentitePiece('pc', await sqlNomAffiche('pc'))})
+               FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
               WHERE pm.fil_id = t.fil_id AND ${sqlEstVraiePiece('pc', avecPieceIntegree)})::int AS nb_pieces,
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = t.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,

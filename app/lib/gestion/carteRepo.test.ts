@@ -242,7 +242,11 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
       // 🔴🔴 LOT CADRE-ISOLE-MAILS — `./cadreMail` est un module PUR (il extrait et filtre les <style> d'en-tête
       //   d'un mail). Il ne nomme ni stockage, ni signature d'URL : il entre donc dans cette liste sans l'ouvrir.
       '../db/client', './nomUsageSql', './copieDisparueSql', './htmlMail', './cadreMail',
-      './imagesMail', './imagesIntegrees', './lisibilite',
+      // 🔴 LOT FENETRES-INDEPENDANTES — `./piecesConversation` rejoint la liste, pour la MÊME raison que
+      //   `./lisibilite` : module PUR qui rend la clé d'identité d'une pièce, en TypeScript et en fragment de
+      //   SQL. Son passage obligé ici est ce qui garantit que la liste et le récapitulatif dédoublonnent de la
+      //   MÊME façon — une seule définition, pas deux.
+      './imagesMail', './imagesIntegrees', './lisibilite', './piecesConversation',
       './attente', './partenaires', './schema', './nonRemiseRepo',
     ]);
     expect(imports).not.toContain('../stockage');

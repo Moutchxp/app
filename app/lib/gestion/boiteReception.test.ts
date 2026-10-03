@@ -30,6 +30,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 vi.mock('./schema', () => ({
+  /* 🔴 LOT FENETRES-INDEPENDANTES — le dédoublonnage du compteur passe par le nom d'USAGE : la sonde de la
+     migration 286 est donc interrogée ici aussi. ABSENTE ⇒ le fragment rend `nom_fichier`, comme avant. */
+  nomUsageDisponible: async () => false,
   /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la 296 n'est pas le sujet de ce fichier : ABSENTE, la colonne
      `integree` n'est nommée nulle part et le SQL inspecté ici reste celui d'avant ce lot. */
   pieceIntegreeDisponible: async () => false,
