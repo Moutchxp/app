@@ -1333,7 +1333,10 @@ export function Redaction({
           l'encadré de l'effet d'ouverture). */}
       <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={(a) => modifier({ a })}
         suggestions={suggestions} onChercher={chercherCorrespondants}
-        autoFocus={brouillon.a.length === 0 && brouillon.voie !== 'repondre' && brouillon.voie !== 'repondre_tous'}
+        /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — `calerAVue` COUPE AUSSI LE CURSEUR. Voir l'encadré
+           du champ MESSAGE, plus bas : prendre le focus, c'est faire défiler. */
+        autoFocus={calerAVue && brouillon.a.length === 0
+          && brouillon.voie !== 'repondre' && brouillon.voie !== 'repondre_tous'}
         /* 🔴 LOT BROUILLONS-GMAIL — les deux boutons DANS le champ, collés à droite, comme dans Gmail. Un clic
            ouvre le champ correspondant ; `aria-expanded` dit s'il est déjà ouvert, pour qui ne voit pas l'écran. */
         actions={(
@@ -1385,7 +1388,21 @@ export function Redaction({
             /* ⚠️ LE CURSEUR DANS LE MESSAGE POUR UNE RÉPONSE, au tout début — règle du lot REPONSE-VISIBLE,
                reprise telle quelle. Pour un transfert ou un message neuf, c'est le champ « À » qui le prend :
                il est vide, et c'est lui qu'il faut remplir d'abord. */
-            autoFocus={brouillon.voie === 'repondre' || brouillon.voie === 'repondre_tous'}
+            /**
+             * ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — PRENDRE LE FOCUS, C'EST FAIRE DÉFILER ═══════
+             *
+             * MESURÉ DANS LE NAVIGATEUR LE 03/10/2026 (fil 36671, mail 57471). Les trois calages coupés, la page
+             * descendait ENCORE dans la zone de réponse à l'ouverture du mail — et `scrollIntoView` n'était
+             * appelé nulle part : relevé à zéro appel, pour un défilement de 790 px. C'est `focus()` qui déplace
+             * la page, le navigateur amenant d'office l'élément focalisé sous les yeux.
+             *
+             * 🔴 UN ÉDITEUR QU'ON N'A PAS DEMANDÉ NE PREND DONC PAS LE CURSEUR. On ouvrait un mail pour le LIRE :
+             * le curseur dans la zone de réponse déplace la page ET détourne la frappe suivante.
+             *
+             * ⚠️ `preventScroll` AURAIT ÉTÉ PIRE : le curseur serait dans une zone qu'on ne voit pas — on taperait
+             * dans un brouillon sans savoir où va le texte.
+             */
+            autoFocus={calerAVue && (brouillon.voie === 'repondre' || brouillon.voie === 'repondre_tous')}
             onPret={(api) => { editeur.current = api; }}
             onChange={(v) => modifier({ corpsHtml: v.html, corps: v.texte })} />
         </div>

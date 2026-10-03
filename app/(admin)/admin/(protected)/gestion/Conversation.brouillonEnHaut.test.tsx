@@ -164,6 +164,22 @@ describe('🔴🔴 ① ouvrir un mail qui a un brouillon', () => {
     expect(editeur?.querySelector('input')).not.toBeNull();
   });
 
+  /**
+   * ══ 🔴🔴 ET LE CURSEUR NE PART PAS NON PLUS DANS LA ZONE DE RÉPONSE ═══════════════════════════════════════════
+   *
+   * MESURÉ DANS LE NAVIGATEUR (fil 36671, mail 57471, 03/10/2026) : les trois calages coupés, la page descendait
+   * ENCORE de 790 px à l'ouverture — et `scrollIntoView` n'était appelé NULLE PART (relevé à zéro appel). C'est
+   * `focus()` qui déplaçait la page, le navigateur amenant d'office l'élément focalisé sous les yeux.
+   *
+   * 🔴 LE DÉFILEMENT ET LE CURSEUR SONT DONC LA MÊME DÉCISION, et ils suivent la même option.
+   */
+  it('🔴🔴 le curseur reste hors de la zone de réponse', async () => {
+    await monter();
+    await ouvrirLeMail();
+    const editeur = ligne(11).querySelector('section.red');
+    expect(editeur?.contains(document.activeElement)).toBe(false);
+  });
+
   /** ⚠️ ET LE MAIL EST BIEN OUVERT : on vérifie qu'on n'a pas mesuré l'absence de défilement d'un geste raté. */
   it('⚠️ le mail est bien déplié', async () => {
     await monter();
@@ -205,6 +221,8 @@ describe('🔴 ③ une DEMANDE d’éditeur l’amène toujours sous les yeux', 
     const red = readFileSync('app/(admin)/admin/(protected)/gestion/Redaction.tsx', 'utf8');
     expect(red).toContain('calerAVue = true');
     expect(red).toContain('if (!calerAVue) {');
+    /* 🔴 ET LE CURSEUR SUIT LA MÊME OPTION : prendre le focus, c'est faire défiler. */
+    expect(red).toContain('autoFocus={calerAVue && (brouillon.voie === \'repondre\'');
     const conv = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
     expect(conv).toContain('calerAVue={calerLaReponse}');
     /* 🔴 UN SEUL ENDROIT LE MET À « non » : la reprise par OUVERTURE du mail. */
