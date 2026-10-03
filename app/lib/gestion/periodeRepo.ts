@@ -554,12 +554,44 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
    */
   await retirerInterventionsSansBien(mails, auteur);
 
-  // LA MARQUE « INTERNE » DE L'ÉCHANGE : elle suit la période EN COURS, qui est celle du fil tout entier.
+  /**
+   * ══ 🔴🔴 LOT FENETRES-INDEPENDANTES — UNE FENÊTRE NE TOUCHE PLUS À CE QUI LA PRÉCÈDE ═══════════════════════
+   *
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * RÈGLE D'ARNO (03/10/2026) : « Chaque fenêtre est TOTALEMENT indépendante des autres : ni la distribution des
+   * mails aux biens, ni le statut (Classé / Interne / Hors gestion / À classer), ni les personnes d'une fenêtre
+   * ne sont modifiés par la création ou la modification d'une autre fenêtre. »
+   *
+   * CE QUE CES LIGNES FAISAIENT, ET LE DÉFAUT EXACT. La marque « Interne » suivait la période EN COURS — la
+   * DERNIÈRE —, et elle porte sur l'ÉCHANGE TOUT ENTIER (`gestion_fil_interne.fil_id`). Ouvrir une fenêtre
+   * « biens » au mail N la retirait donc à TOUS les mails, 1 à N-1 compris.
+   *
+   * MESURÉ EN PRODUCTION, échange 36671 : marque posée à 10:18:14 par notre envoi, RETIRÉE à 10:19:37 avec le
+   * motif « suivi de la conversation » — c'est-à-dire par ces lignes-ci, et par rien d'autre.
+   *
+   * ═══ 🔴 CE QUI CHANGE, ET CE QUI NE CHANGE PAS ═════════════════════════════════════════════════════════════
+   *
+   * · UNE FENÊTRE « interne » POSE TOUJOURS LA MARQUE — c'est son rôle, et il est inchangé ;
+   * · UNE FENÊTRE D'UNE AUTRE NATURE NE LA RETIRE PLUS. Elle ne décide rien sur les mails qu'elle ne couvre pas,
+   *   et la marque d'un échange n'est pas à elle.
+   *
+   * 🔴 ET L'ÉCRAN RESTE JUSTE SANS RIEN D'AUTRE, parce que la capsule d'un mail regarde ses biens EN PREMIER
+   * (`capsuleDuMessage`) : un mail rattaché au lot 26 est « Classé » même si son échange porte la marque, et un
+   * mail qui n'a aucun bien retombe sur « Interne ». C'est exactement ce qu'Arno décrit — mail 1 Interne,
+   * mail 2 Classé — sans qu'il faille une seule migration.
+   *
+   * ⚠️ CE N'EST PAS LE MODÈLE COMPLET, ET IL NE FAUT PAS LE CROIRE. « Interne » reste une marque d'ÉCHANGE : on
+   * ne peut pas encore écrire « interne du mail 1 au mail 4, puis plus ». Le modèle entier demande une marque
+   * PAR MAIL, donc une migration — livrée (297) et NON APPLIQUÉE, en attente de l'accord d'Arno. Ces lignes
+   * ferment le défaut qui efface un statut ; elles n'ouvrent pas la fenêtre qui le borne.
+   *
+   * ⚠️ RETIRER LA MARQUE RESTE POSSIBLE, et par le geste qui l'a posée : la case « Interne » de l'échange. Ce
+   * qu'on refuse ici, c'est qu'une décision prise sur UN mail en défasse une autre, prise ailleurs.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
   const encours = periodeEnCours(mails, periodes);
-  if (encours !== null) {
-    const issue = encours.classement.sorte === 'interne'
-      ? await marquerInterne({ filIds: [filId], auteur })
-      : await annulerInterne({ filIds: [filId], auteur, motif: 'suivi de la conversation' });
+  if (encours !== null && encours.classement.sorte === 'interne') {
+    const issue = await marquerInterne({ filIds: [filId], auteur });
     if (issue.ok && issue.nb > 0) gestes += 1;
   }
   return gestes;

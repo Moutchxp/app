@@ -364,7 +364,36 @@ describe('🔴 ⑤ Interne et Hors gestion se projettent chacun à leur grain', 
     base.periodes = [{ id: '1', depuis: 10, sorte: 'hors_gestion', biens: null }];
     await projeterLeFil(4, AUTEUR);
     expect(marquerHorsGestion).toHaveBeenCalledTimes(2);
-    expect(annulerInterne).toHaveBeenCalledTimes(1); // la période en cours n'est pas « interne »
+  });
+
+  /**
+   * ══ 🔴🔴 LOT FENETRES-INDEPENDANTES — ÉPREUVE RETOURNÉE, ET C'EST UNE DÉCISION D'ARNO ══════════════════════
+   *
+   * AVANT, cette ligne attendait `annulerInterne` dès que la période en cours n'était pas « interne » : la
+   * projection RETIRAIT la marque de l'échange entier. Mesuré en production sur le fil 36671 — marque posée à
+   * 10:18:14, retirée à 10:19:37 avec le motif « suivi de la conversation », c'est-à-dire par la projection.
+   *
+   * ARNO (03/10/2026) : « Chaque fenêtre est TOTALEMENT indépendante des autres : ni la distribution des mails
+   * aux biens, ni le statut […] ne sont modifiés par la création ou la modification d'une autre fenêtre. »
+   *
+   * ⚠️ L'ÉPREUVE N'EST PAS AFFAIBLIE, ELLE EST INVERSÉE : elle vérifie maintenant qu'on ne retire RIEN.
+   */
+  it('🔴🔴 une fenêtre d’une AUTRE nature ne retire plus la marque « Interne »', async () => {
+    base.mails = [10, 20];
+    base.periodes = [{ id: '1', depuis: 10, sorte: 'hors_gestion', biens: null }];
+    await projeterLeFil(4, AUTEUR);
+    expect(annulerInterne).not.toHaveBeenCalled();
+  });
+
+  /** 🔴🔴 LE CAS D'ARNO, MOT POUR MOT : une fenêtre « biens » ouverte au mail 2 ne touche pas au mail 1. */
+  it('🔴🔴 une fenêtre « biens » ouverte au 2ᵉ mail ne retire pas « Interne »', async () => {
+    base.mails = [10, 20];
+    base.periodes = [{ id: '1', depuis: 20, sorte: 'biens', biens: [BIEN] }];
+    await projeterLeFil(4, AUTEUR);
+    expect(annulerInterne).not.toHaveBeenCalled();
+    // ⚠️ ET LE MAIL 1 N'EST TOUCHÉ PAR RIEN : il est antérieur à toute fenêtre.
+    expect(rattacher).toHaveBeenCalledTimes(1);
+    expect(rattacher).toHaveBeenCalledWith(expect.objectContaining({ messageId: 20 }));
   });
 
   /** 🔴 UNE EXCEPTION « HORS GESTION » NE FAIT PAS BASCULER L'ÉCHANGE : elle ne concerne que son mail. */
