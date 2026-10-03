@@ -6,6 +6,7 @@ import { depsReellesDepot, piecesDeposablesDuMessage } from '../../../../../../.
 import { deposerPieces, resumerDepot } from '../../../../../../../lib/gestion/depotDrive';
 import { lireDossier, memoiserLecture } from '../../../../../../../lib/gestion/drive';
 import { lireDepotsDesPieces } from '../../../../../../../lib/gestion/driveRepo';
+import { emplacementsDesPieces } from '../../../../../../../lib/gestion/pieceDansLeDriveRepo';
 import { verdictDeposer } from '../../../../../../../lib/gestion/driveVerdict';
 import { jetonPourRequete, messageAcces } from '../../../../../../../lib/gestion/jetonCollaborateur';
 import { depotsDriveDisponibles } from '../../../../../../../lib/gestion/schema';
@@ -48,15 +49,36 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
 
   // Sans la migration 245, il ne PEUT pas y avoir de dépôt : on rend une liste vide plutôt qu'une erreur, et l'écran
   //   affiche simplement des cartes sans mention Drive. Rien ne casse.
-  if (!await depotsDriveDisponibles()) return json({ etat: 'sans_schema', depots: [] });
+  if (!await depotsDriveDisponibles()) return json({ etat: 'sans_schema', depots: [], emplacements: [] });
 
   try {
     const pieces = await piecesDeposablesDuMessage(messageId);
-    const depots = pieces.length === 0 ? [] : await lireDepotsDesPieces(pieces);
-    return json({ etat: 'ok', depots });
+    /**
+     * ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — LE STATUT DE TOUTES LES PIÈCES, DANS LA MÊME RÉPONSE ══════
+     *
+     * CONTRAINTE D'ARNO : « le statut de toutes les pièces d'un mail est lu en une seule requête, sans appel
+     * Google à l'ouverture du mail ». Il arrive donc par la route que l'écran appelle DÉJÀ au dépliage : pas un
+     * aller-retour de plus, pas un `fetch` de plus à synchroniser avec le premier.
+     *
+     * 🔴 LES DEUX CHAMPS NE DISENT PAS LA MÊME CHOSE, et c'est pourquoi `depots` reste tel quel :
+     *   · `depots`        = ce que NOUS avons rangé pour CETTE pièce → la mention « Dans le Drive · dossier » ;
+     *   · `emplacements`  = partout où ce CONTENU se trouve, nom compris → le picto « base de données ».
+     * Un document revenu renommé n'a aucun dépôt à son nom et plusieurs emplacements : fondre les deux aurait
+     * fait disparaître l'un des deux renseignements.
+     *
+     * 🔒 ZÉRO APPEL GOOGLE ICI : tout vient de la base (registre, empreintes, index). C'est ce qui permet au picto
+     * de paraître à l'ouverture du mail sans rien ralentir.
+     */
+    const [depots, emplacements] = await Promise.all([
+      pieces.length === 0 ? Promise.resolve([]) : lireDepotsDesPieces(pieces),
+      /* ⚠️ LE MESSAGE, PAS `pieces` : une pièce non conservée n'est pas « déposable », et son contenu peut
+         pourtant être déjà dans le Drive. Le picto doit le dire. */
+      emplacementsDesPieces({ messageId }),
+    ]);
+    return json({ etat: 'ok', depots, emplacements });
   } catch (e) {
     console.error('[gestion/message/drive] lecture des dépôts impossible', e);
-    return json({ etat: 'erreur', depots: [] }, 503);
+    return json({ etat: 'erreur', depots: [], emplacements: [] }, 503);
   }
 }
 

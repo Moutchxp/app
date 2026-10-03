@@ -80,6 +80,11 @@ import {
 import { ModaleChangementSuivi, type MailDuRepere } from './ModaleChangementSuivi';
 /* 🔴 LA PASTILLE « i » DES BIENS, employée telle quelle avec un autre contenu : voir son encadré `lignes`. */
 import { InfoBien, CSS_INFO_BIEN } from './InfoBien';
+/* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — le statut « deja dans le Drive » des pieces de l'echange, et ou
+   la fenetre Drive doit s'ouvrir pour un emplacement donne. Module PUR. */
+import {
+  dossierDeLEmplacement, type EmplacementPiece, type StatutPieceDrive,
+} from '../../../../lib/gestion/pieceDansLeDrive';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
 /**
@@ -433,14 +438,27 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * visionneuse. Lire une conversation ne doit rien coûter de plus qu'avant ce lot.
    */
   const [depotsFil, setDepotsFil] = useState<ReadonlyMap<number, DepotAffiche>>(new Map());
+  /**
+   * 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — OÙ CHAQUE CONTENU SE TROUVE DÉJÀ, pour tout l'échange.
+   *
+   * ⚠️ IL ARRIVE PAR LA MÊME REQUÊTE QUE `depotsFil`, et c'est la contrainte d'Arno : « une seule requête, sans
+   * appel Google ». Deux `fetch` auraient aussi pu se répondre dans le désordre, et la fenêtre aurait affiché un
+   * picto pour une liste de pièces qui n'était plus celle-là.
+   */
+  const [emplacementsFil, setEmplacementsFil] =
+    useState<ReadonlyMap<number, readonly EmplacementPiece[]>>(new Map());
+  /** L'emplacement qu'on vient de demander à voir dans notre fenêtre Drive. `null` = aucune fenêtre ouverte. */
+  const [emplacementAVoir, setEmplacementAVoir] = useState<EmplacementPiece | null>(null);
   const relireDepotsFil = useCallback(async (): Promise<void> => {
     try {
       const res = await fetch(`/api/admin/gestion/fils/${filId}/pieces-drive`, { cache: 'no-store' });
-      const d = (await res.json()) as { depots?: DepotAffiche[] };
+      const d = (await res.json()) as { depots?: DepotAffiche[]; emplacements?: StatutPieceDrive[] };
       setDepotsFil(new Map((d.depots ?? []).map((x) => [x.pieceId, x])));
+      setEmplacementsFil(new Map((d.emplacements ?? []).map((x) => [x.pieceId, x.emplacements])));
     } catch {
       // Silence volontaire : on perd la mention « Dans le Drive », jamais la liste des pièces.
       setDepotsFil(new Map());
+      setEmplacementsFil(new Map());
     }
   }, [filId]);
   /**
@@ -1554,12 +1572,16 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           onOrdre={() => setOrdrePieces(ordrePiecesSuivant(ordrePieces))}
           sansEmpreinte={recap.sansEmpreinte}
           depots={depotsFil}
+          emplacements={emplacementsFil}
           maintenant={maintenant}
           /* 🔴 ÉCHAP NE FERME QUE LA FENÊTRE DU DESSUS : voir l'encadré de la prop dans le composant. */
-          ecouterEchap={pieceVue === null && rangerPiece === null}
+          /* 🔴 ÉCHAP NE FERME QUE LA FENÊTRE DU DESSUS : la fenêtre Drive de consultation s'y ajoute, au même
+             titre que la visionneuse et que « Ranger ». */
+          ecouterEchap={pieceVue === null && rangerPiece === null && emplacementAVoir === null}
           gestes={{
             onVoir: (id) => setPieceVue(id),
             onRanger: ouvrirRangement,
+            onVoirDansLeDrive: setEmplacementAVoir,
             onAllerAuMessage: (id) => void allerAuMessage(id),
           }}
           onFermer={() => setRecapPieces(false)} />
@@ -1644,6 +1666,24 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             if (o?.nomChange === true) void recharger({ silencieux: true });
           }}
           onFermer={() => setRangerPiece(null)} />
+      )}
+
+      {/* ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — LA FENÊTRE DRIVE, EN CONSULTATION ═══════════════════
+          Arno : « ouvre NOTRE fenêtre Drive (mode consulter), positionnée dans le dossier qui contient le
+          document, arbre déplié jusqu'à lui, le fichier mis en évidence (même repère que la loupe) ».
+
+          🔴 C'EST LA MÊME FENÊTRE QUE CELLE DU RANGEMENT, dans un autre mode : les gardes de « Documents clients
+          scannés » sont celles du SERVEUR, et elles ne sont ni contournées ni redites ici.
+
+          ⚠️ ELLE S'EMPILE AU-DESSUS DU RÉCAPITULATIF, qui reste monté derrière : fermer ne « revient » donc pas à
+          la liste — on n'en était jamais parti, et l'ordre et le défilement n'ont pas bougé. */}
+      {emplacementAVoir !== null && (
+        <SelecteurFichierDrive
+          mode="consulter"
+          filId={filId}
+          dossierDepart={dossierDeLEmplacement(emplacementAVoir)}
+          documentEnEvidence={{ driveFileId: emplacementAVoir.driveFileId }}
+          onFermer={() => setEmplacementAVoir(null)} />
       )}
     </section>
   );

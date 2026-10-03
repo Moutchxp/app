@@ -56,17 +56,23 @@ const MESSAGES: MessagePorteur[] = [
 
 let container: HTMLDivElement;
 let root: Root;
-const gestes = { onVoir: vi.fn(), onRanger: vi.fn(), onAllerAuMessage: vi.fn() };
+/* 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — un cinquième geste : « voir cet emplacement dans le Drive ». */
+const gestes = {
+  onVoir: vi.fn(), onRanger: vi.fn(), onAllerAuMessage: vi.fn(), onVoirDansLeDrive: vi.fn(),
+};
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   gestes.onVoir.mockReset(); gestes.onRanger.mockReset(); gestes.onAllerAuMessage.mockReset();
+  gestes.onVoirDansLeDrive.mockReset();
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); });
 
 const monter = (o: {
   ordre?: 'recent' | 'ancien';
   depots?: Map<number, { pieceId: number; dossierNom: string | null; webViewLink: string | null }>;
+  /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — où chaque CONTENU se trouve déjà. Absent ⇒ aucun picto. */
+  emplacements?: Map<number, unknown[]>;
   /** 🔴 LOT RECAP-SANS-DOUBLON — la fenêtre reçoit ce que l'écran lui donne : une liste DÉJÀ dédoublonnée. */
   messages?: MessagePorteur[];
 } = {}) => {
@@ -79,6 +85,7 @@ const monter = (o: {
       ordre,
       onOrdre: () => {},
       depots: o.depots ?? new Map(),
+      emplacements: o.emplacements ?? new Map(),
       maintenant: new Date('2026-09-30T12:00:00Z'),
       gestes,
       ecouterEchap: true,

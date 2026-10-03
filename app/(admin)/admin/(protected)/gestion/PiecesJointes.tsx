@@ -22,6 +22,12 @@ import { Oeil } from './Oeil';
 import { sorteApercu } from '../../../../lib/gestion/apercuDrive';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
 import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
+/* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — le picto « base de donnees » et son petit menu, ecrits UNE fois
+   pour les deux ecrans qui montrent des miniatures de pieces recues. */
+import { CSS_PICTO_DANS_LE_DRIVE, PictoDansLeDrive } from './PictoDansLeDrive';
+import {
+  dossierDeLEmplacement, emplacementsDe, type EmplacementPiece, type StatutPieceDrive,
+} from '../../../../lib/gestion/pieceDansLeDrive';
 
 /**
  * LOT 5-PJ-A — LES PIÈCES JOINTES, COMME DANS GMAIL. Composant PARTAGÉ : un seul endroit rend les pièces, partout où
@@ -102,7 +108,17 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
   onVisualiser?: (pieceId: number) => void;
 }) {
   const [depots, setDepots] = useState<DepotAffiche[]>([]);
+  /**
+   * 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — OÙ CHAQUE PIÈCE SE TROUVE DÉJÀ DANS LE DRIVE.
+   *
+   * ⚠️ CE N'EST PAS `depots`, ET LES DEUX SONT NÉCESSAIRES : `depots` dit ce que NOUS avons rangé pour CETTE
+   * pièce (la mention « Dans le Drive · dossier ») ; ceci dit partout où ce CONTENU se trouve, sous quelque nom
+   * que ce soit (le picto). Un document revenu renommé n'a aucun dépôt et plusieurs emplacements.
+   */
+  const [statuts, setStatuts] = useState<StatutPieceDrive[]>([]);
   const [demande, setDemande] = useState<Demande | null>(null);
+  /** L'emplacement qu'on vient de demander à voir. `null` = aucune fenêtre de consultation ouverte. */
+  const [aVoirDansLeDrive, setAVoirDansLeDrive] = useState<EmplacementPiece | null>(null);
   const [indisponible, setIndisponible] = useState<string | null>(null);
   /**
    * LOT 5-PJ-C2 — l'état de l'accès Drive. `ok` = les boutons agissent, au nom de l'adresse de session ; tout le
@@ -115,13 +131,18 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
   const relireDepots = useCallback(async (): Promise<void> => {
     try {
       const res = await fetch(`/api/admin/gestion/messages/${messageId}/drive`, { cache: 'no-store' });
-      const d = (await res.json()) as { etat?: string; depots?: DepotAffiche[]; message?: string };
+      const d = (await res.json()) as {
+        etat?: string; depots?: DepotAffiche[]; emplacements?: StatutPieceDrive[]; message?: string;
+      };
       setDepots(d.depots ?? []);
+      /* 🔴 LA MÊME RÉPONSE, PAS UN SECOND APPEL : contrainte d'Arno (« une seule requête, sans appel Google »). */
+      setStatuts(d.emplacements ?? []);
       // « sans_schema » n'est pas une panne : la migration n'est simplement pas encore appliquée. On le DIT sur le
       //   bouton plutôt que de le laisser échouer au clic.
       setIndisponible(d.etat === 'sans_schema' ? 'Bientôt disponible — une mise à jour de la base est nécessaire' : null);
     } catch {
       setDepots([]);
+      setStatuts([]);
     }
   }, [messageId]);
 
@@ -149,6 +170,8 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
       {vraies.length > 0 && (
         <BlocPieces
           messageId={messageId} pieces={vraies} depotDe={depotDe} indisponible={empeche}
+          emplacementsDePiece={(id) => emplacementsDe(statuts, id)}
+          onVoirDansLeDrive={setAVoirDansLeDrive}
           onDrive={(d) => setDemande(d)} onVisualiser={onVisualiser}
         />
       )}
@@ -164,6 +187,8 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
               pièce absente du tour — compteur « 0 / 7 » sur une image bien affichée. */}
           <BlocPieces
             messageId={messageId} pieces={signatures} archive={false} depotDe={depotDe} indisponible={empeche}
+            emplacementsDePiece={(id) => emplacementsDe(statuts, id)}
+            onVoirDansLeDrive={setAVoirDansLeDrive}
             onDrive={(d) => setDemande(d)}
           />
         </details>
@@ -188,6 +213,26 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
             if (o?.nomChange === true) onNomChange?.();
           }}
           onFermer={() => setDemande(null)}
+        />
+      )}
+
+      {/* ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — LA FENÊTRE DRIVE, EN CONSULTATION ═══════════════════
+          Arno : « ouvre NOTRE fenêtre Drive (mode consulter), positionnée dans le dossier qui contient le
+          document, arbre déplié jusqu'à lui, le fichier mis en évidence (même repère que la loupe) ».
+
+          🔴 C'EST LA MÊME FENÊTRE QU'AU-DESSUS, dans un autre mode : les refus du serveur, l'aperçu, le menu et
+          les gardes de « Documents clients scannés » sont ceux qui sont déjà éprouvés. Rien n'est réécrit, et
+          aucun droit n'est accordé ici — c'est le serveur qui autorise ou refuse, dossier par dossier.
+
+          ⚠️ `dossierDepart` PEUT ÊTRE `null` : quand on ne connaît pas le dossier, on s'ouvre à la racine plutôt
+          que d'inventer un identifiant qui mènerait à une erreur Google. Le repère, lui, reste posé. */}
+      {aVoirDansLeDrive !== null && (
+        <SelecteurFichierDrive
+          mode="consulter"
+          filId={filId ?? null}
+          dossierDepart={dossierDeLEmplacement(aVoirDansLeDrive)}
+          documentEnEvidence={{ driveFileId: aVoirDansLeDrive.driveFileId }}
+          onFermer={() => setAVoirDansLeDrive(null)}
         />
       )}
     </div>
@@ -231,13 +276,19 @@ export function aRanger(d: Demande, vraies: PieceAffichee[], signatures: PieceAf
   }));
 }
 
-function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, onDrive, onVisualiser }: {
+function BlocPieces({
+  messageId, pieces, archive = true, depotDe, indisponible, onDrive, onVisualiser,
+  emplacementsDePiece, onVoirDansLeDrive,
+}: {
   messageId: number; pieces: PieceAffichee[]; archive?: boolean;
   depotDe: (pieceId: number) => DepotAffiche | undefined;
   /** `null` = les boutons Drive agissent. Sinon, le MOTIF, affiché tel quel : c'est un constat, pas un geste. */
   indisponible: string | null;
   onDrive: (d: Demande) => void;
   onVisualiser?: (pieceId: number) => void;
+  /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — où ce CONTENU se trouve déjà. Liste vide ⇒ aucun picto sur la carte. */
+  emplacementsDePiece: (pieceId: number) => readonly EmplacementPiece[];
+  onVoirDansLeDrive: (e: EmplacementPiece) => void;
 }) {
   const dispo = pieces.filter((p) => p.disponible);
   const refusees = pieces.filter((p) => !p.disponible);
@@ -278,6 +329,8 @@ function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, 
         {dispo.map((p) => (
           <CartePiece
             key={p.pieceId} piece={p} depot={depotDe(p.pieceId)} indisponible={indisponible}
+            emplacements={emplacementsDePiece(p.pieceId)}
+            onVoirDansLeDrive={onVoirDansLeDrive}
             onDrive={() => onDrive({ quoi: 'piece', pieceId: p.pieceId, nom: p.nomFichier })}
             onVisualiser={onVisualiser}
           />
@@ -307,9 +360,14 @@ function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, 
  * `loading="lazy"` + dimensions réservées : vingt pièces ne déclenchent pas vingt requêtes au chargement, et la page
  * ne saute pas quand les images arrivent.
  */
-function CartePiece({ piece: p, depot, indisponible, onDrive, onVisualiser }: {
+function CartePiece({
+  piece: p, depot, indisponible, onDrive, onVisualiser, emplacements, onVoirDansLeDrive,
+}: {
   piece: PieceAffichee; depot: DepotAffiche | undefined; indisponible: string | null; onDrive: () => void;
   onVisualiser?: (pieceId: number) => void;
+  /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — vide ⇒ la carte est EXACTEMENT celle d'avant ce lot. */
+  emplacements: readonly EmplacementPiece[];
+  onVoirDansLeDrive: (e: EmplacementPiece) => void;
 }) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
   const [vignetteMorte, setVignetteMorte] = useState(false);
@@ -452,6 +510,12 @@ function CartePiece({ piece: p, depot, indisponible, onDrive, onVisualiser }: {
             <span aria-hidden="true">▲</span>
           </span>
         )}
+        {/* ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — « À DROITE DES PICTOS EXISTANTS » (Arno) ═══════════
+            Il est le DERNIER de la rangée, et il n'y paraît QUE si cette pièce est déjà dans le Drive : c'est un
+            CONSTAT, pas une action à proposer. Les trois autres, eux, sont toujours là — l'ordre ne bouge pas. */}
+        <PictoDansLeDrive
+          emplacements={emplacements} nomPiece={p.nomFichier} classe="pj-action"
+          onOuvrir={onVoirDansLeDrive} />
       </div>
     </li>
   );
@@ -462,6 +526,7 @@ function CartePiece({ piece: p, depot, indisponible, onDrive, onVisualiser }: {
  * en colonne étroite sur un iPhone en portrait (390 px).
  */
 export const CSS_PIECES = `
+${CSS_PICTO_DANS_LE_DRIVE}
 .pj{margin-top:.6rem;min-width:0}
 /* ── LA BARRE ── prête à recevoir un second bouton (Drive, lot B) sans rien déplacer. */
 .pj-barre{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:.45rem}

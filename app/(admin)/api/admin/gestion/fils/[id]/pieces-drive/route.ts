@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { lireDepotsDuFil } from '../../../../../../../lib/gestion/driveRepo';
+import { emplacementsDesPieces } from '../../../../../../../lib/gestion/pieceDansLeDriveRepo';
 import { depotsDriveDisponibles } from '../../../../../../../lib/gestion/schema';
 
 /**
@@ -42,13 +43,22 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   const filId = Number((await ctx.params).id);
   if (!Number.isInteger(filId) || filId <= 0) return json({ erreur: 'Échange inconnu.' }, 400);
 
-  if (!await depotsDriveDisponibles()) return json({ etat: 'sans_schema', depots: [] });
+  if (!await depotsDriveDisponibles()) return json({ etat: 'sans_schema', depots: [], emplacements: [] });
 
   try {
-    const depots = await lireDepotsDuFil(filId);
-    return json({ etat: 'ok', depots });
+    /**
+     * 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — « vaut PARTOUT où les miniatures de pièces reçues
+     * apparaissent » (Arno). Le récapitulatif de la conversation en fait partie, et il reçoit le statut par la
+     * MÊME route qu'il appelle déjà : une seule requête pour tout l'échange, et aucun appel Google.
+     *
+     * ⚠️ `depots` ET `emplacements` RESTENT DEUX CHOSES — voir l'encadré de la route d'un message.
+     */
+    const [depots, emplacements] = await Promise.all([
+      lireDepotsDuFil(filId), emplacementsDesPieces({ filId }),
+    ]);
+    return json({ etat: 'ok', depots, emplacements });
   } catch (e) {
     console.error('[gestion/fil/pieces-drive] lecture des dépôts impossible', e);
-    return json({ etat: 'erreur', depots: [] }, 503);
+    return json({ etat: 'erreur', depots: [], emplacements: [] }, 503);
   }
 }

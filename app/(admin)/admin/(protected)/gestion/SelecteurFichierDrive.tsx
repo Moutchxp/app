@@ -285,6 +285,7 @@ interface DossierRecent {
 export function SelecteurFichierDrive({
   onChoisir, onFermer, filId = null, lots = [],
   mode = 'joindre', messageId = null, pieces = [], onRangement, dossierDepart = null,
+  documentEnEvidence = null,
 }: {
   /**
    * Ajoute la pièce au brouillon. ⚠️ NE FERME PAS la fenêtre : c'est « Terminé » ou la croix qui ferme.
@@ -329,6 +330,21 @@ export function SelecteurFichierDrive({
    * lot RANGER-ARBRE-2, celui des raccourcis « Récents » et « Dossier du bien » — on n'en ajoute pas un second.
    */
   dossierDepart?: { id: string; nom: string } | null;
+  /**
+   * ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — LE DOCUMENT À METTRE EN ÉVIDENCE À L'OUVERTURE ══════════════
+   *
+   * Arno : « ouvre notre fenêtre Drive, positionnée dans le dossier qui contient le document, arbre déplié
+   * jusqu'à lui, LE FICHIER MIS EN ÉVIDENCE (même repère que la loupe) ».
+   *
+   * 🔴 « MÊME REPÈRE QUE LA LOUPE » EST PRIS AU PIED DE LA LETTRE : on allume l'état de la loupe, avec la même
+   * route et le même surlignage. Un second mécanisme de mise en évidence aurait donné deux dessins pour la même
+   * idée — et il aurait fallu les faire vivre ensemble, dans le même arbre.
+   *
+   * ⚠️ C'EST LE DOCUMENT, PAS LE DOSSIER : `dossierDepart` dit OÙ l'on se pose, celui-ci dit QUOI chercher. Les
+   * deux vont ensemble ici, mais ils répondent à deux questions, et une pièce dont on ignore le dossier peut
+   * encore être mise en évidence là où on la croise.
+   */
+  documentEnEvidence?: { driveFileId: string } | null;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   /**
@@ -2985,6 +3001,25 @@ export function SelecteurFichierDrive({
       setLoupeSur(null);
     }
   };
+
+  /**
+   * ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — LE REPÈRE, DÈS L'OUVERTURE ═══════════════════════════════
+   *
+   * On allume la MÊME loupe, par le MÊME chemin : il n'y a donc qu'un dessin de mise en évidence dans tout
+   * l'écran, et il est déjà éprouvé.
+   *
+   * ⚠️ UNE SEULE FOIS, GARDÉE PAR UNE RÉFÉRENCE. `basculerLoupe` est un interrupteur : rappelé, il ÉTEINDRAIT
+   * ce qu'on vient d'allumer. Et comme la fonction se recrée à chaque rendu, la mettre en dépendance aurait
+   * rallumé puis éteint le repère en boucle.
+   */
+  const evidencePosee = useRef(false);
+  useEffect(() => {
+    const id = documentEnEvidence?.driveFileId ?? '';
+    if (id === '' || evidencePosee.current) return;
+    evidencePosee.current = true;
+    void basculerLoupe(`evidence:${id}`, id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- interrupteur : voir l'encadré ci-dessus.
+  }, [documentEnEvidence]);
 
   /**
    * ══ 🔴🔴 CE QUE L'ARBRE DOIT SURLIGNER, À CHAQUE NIVEAU ════════════════════════════════════════════════════

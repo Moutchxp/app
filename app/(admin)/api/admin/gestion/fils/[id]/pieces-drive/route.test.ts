@@ -6,6 +6,11 @@ const repo = { lireDepotsDuFil: vi.fn() };
 vi.mock('../../../../../../../lib/gestion/driveRepo', () => ({
   lireDepotsDuFil: (...a: unknown[]) => repo.lireDepotsDuFil(...a),
 }));
+/* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — la MÊME route rend aussi « où ce contenu se trouve déjà ». */
+const statuts = { emplacementsDesPieces: vi.fn() };
+vi.mock('../../../../../../../lib/gestion/pieceDansLeDriveRepo', () => ({
+  emplacementsDesPieces: (...a: unknown[]) => statuts.emplacementsDesPieces(...a),
+}));
 const schema = { depotsDriveDisponibles: vi.fn() };
 vi.mock('../../../../../../../lib/gestion/schema', () => ({
   depotsDriveDisponibles: () => schema.depotsDriveDisponibles(),
@@ -32,9 +37,18 @@ const DEPOT = {
   webViewLink: 'https://drive.example/F1', deposeLe: '2026-09-20T08:00:00Z', deposePar: 'arno',
 };
 
+const STATUT = {
+  pieceId: 20,
+  emplacements: [{
+    driveFileId: 'F9', nom: 'Recommandé M X.pdf', dossierId: 'D9', dossierNom: 'Locataires',
+    chemin: [{ id: 'D9', nom: 'Locataires' }], voie: 'empreinte' as const,
+  }],
+};
+
 beforeEach(() => {
   gardeMock.mockReset(); gardeMock.mockResolvedValue(null);
   repo.lireDepotsDuFil.mockReset(); repo.lireDepotsDuFil.mockResolvedValue([DEPOT]);
+  statuts.emplacementsDesPieces.mockReset(); statuts.emplacementsDesPieces.mockResolvedValue([STATUT]);
   schema.depotsDriveDisponibles.mockReset(); schema.depotsDriveDisponibles.mockResolvedValue(true);
 });
 
@@ -51,7 +65,23 @@ describe('🔴 les dépôts d’un échange', () => {
     const res = await GET(req(), ctx('5'));
     expect(res.status).toBe(200);
     expect(repo.lireDepotsDuFil.mock.calls).toEqual([[5]]);
-    expect(await res.json()).toEqual({ etat: 'ok', depots: [DEPOT] });
+    expect(await res.json()).toEqual({ etat: 'ok', depots: [DEPOT], emplacements: [STATUT] });
+  });
+
+  /**
+   * ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — DEUX CHOSES, UNE SEULE REQUÊTE ═══════════════════════════
+   *
+   * CONTRAINTE D'ARNO : « le statut de toutes les pièces d'un mail est lu en une seule requête, sans appel
+   * Google ». Le statut arrive donc par la route que l'écran appelle DÉJÀ — pas un `fetch` de plus.
+   *
+   * 🔴 ET `depots` RESTE À CÔTÉ, il n'est pas remplacé : il dit ce que NOUS avons rangé pour CETTE pièce (la
+   * mention « Dans le Drive · dossier »), quand `emplacements` dit partout où ce CONTENU est, sous quelque nom
+   * que ce soit. Un document revenu renommé n'a aucun dépôt et plusieurs emplacements : les fondre aurait fait
+   * disparaître l'un des deux renseignements.
+   */
+  it('🔴🔴 le statut « déjà dans le Drive » arrive par la MÊME requête, pour tout l’échange', async () => {
+    await GET(req(), ctx('5'));
+    expect(statuts.emplacementsDesPieces.mock.calls).toEqual([[{ filId: 5 }]]);
   });
 
   /**
@@ -78,7 +108,7 @@ describe('🔴 les dépôts d’un échange', () => {
     schema.depotsDriveDisponibles.mockResolvedValue(false);
     const res = await GET(req(), ctx('5'));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ etat: 'sans_schema', depots: [] });
+    expect(await res.json()).toEqual({ etat: 'sans_schema', depots: [], emplacements: [] });
     expect(repo.lireDepotsDuFil).not.toHaveBeenCalled();
   });
 
@@ -87,6 +117,6 @@ describe('🔴 les dépôts d’un échange', () => {
     repo.lireDepotsDuFil.mockRejectedValue(new Error('pg down'));
     const res = await GET(req(), ctx('5'));
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ etat: 'erreur', depots: [] });
+    expect(await res.json()).toEqual({ etat: 'erreur', depots: [], emplacements: [] });
   });
 });

@@ -14,6 +14,10 @@ import { messageSansApercu, sorteApercu } from '../../../../lib/gestion/apercuDr
 /* 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — la vignette d'une vidéo, extraite par le navigateur. */
 import { useMiniatureVideo } from './miniatureVideoNavigateur';
 import type { DepotAffiche } from './PiecesJointes';
+/* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — « vaut partout ou les miniatures de pieces recues apparaissent »
+   (Arno) : le recapitulatif en fait partie, et il recoit le MEME picto, ecrit une seule fois. */
+import { CSS_PICTO_DANS_LE_DRIVE, PictoDansLeDrive } from './PictoDansLeDrive';
+import type { EmplacementPiece } from '../../../../lib/gestion/pieceDansLeDrive';
 
 /**
  * LOT PIECES-DE-LA-CONVERSATION — LE RÉCAPITULATIF DES PIÈCES D'UN ÉCHANGE.
@@ -70,10 +74,17 @@ export interface GestesPiece {
   onRanger: (piece: PieceDeConversation) => void;
   /** Ferme la fenêtre et déplie le message dans le fil (demande d'Arno). */
   onAllerAuMessage: (messageId: number) => void;
+  /**
+   * 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — voir où ce CONTENU se trouve déjà, dans notre fenêtre Drive.
+   *
+   * ⚠️ RENDU PAR L'ÉCRAN PARENT, comme tous les autres gestes de cette fenêtre : la fenêtre Drive s'empile
+   * au-dessus de celle-ci, et c'est la conversation qui tient cet empilement (et l'écoute d'Échap qui va avec).
+   */
+  onVoirDansLeDrive: (e: EmplacementPiece) => void;
 }
 
 export function ModalePiecesConversation({
-  pieces, ordre, onOrdre, sansEmpreinte, depots, maintenant, gestes, ecouterEchap, onFermer,
+  pieces, ordre, onOrdre, sansEmpreinte, depots, emplacements, maintenant, gestes, ecouterEchap, onFermer,
 }: {
   /**
    * DÉJÀ CLASSÉES **ET DÉJÀ DÉDOUBLONNÉES** par le module pur : cette fenêtre ne trie rien et ne rapproche rien.
@@ -90,6 +101,13 @@ export function ModalePiecesConversation({
   sansEmpreinte: number;
   /** Les dépôts connus, par pièce. Vide = migration 245 absente, ou aucune pièce rangée : aucune mention. */
   depots: ReadonlyMap<number, DepotAffiche>;
+  /**
+   * 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — où chaque CONTENU se trouve déjà. Absent pour une pièce ⇒ aucun picto.
+   *
+   * ⚠️ DISTINCT DE `depots`, et il faut les deux : l'un dit ce que NOUS avons rangé pour cette pièce, l'autre
+   * partout où ce contenu est, sous quelque nom que ce soit.
+   */
+  emplacements: ReadonlyMap<number, readonly EmplacementPiece[]>;
   maintenant: Date;
   gestes: GestesPiece;
   /**
@@ -159,6 +177,13 @@ export function ModalePiecesConversation({
                    * Drive. Les montrer tous n'apprendrait rien et allongerait la carte.
                    */
                   <CartePieceConversation key={p.pieceId} piece={p} maintenant={maintenant} gestes={gestes}
+                    /* 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — MÊME REPLI QUE LE DÉPÔT, et pour la même raison : les
+                       autres apparitions sont le MÊME fichier, donc le même contenu, donc les mêmes
+                       emplacements. Ne lire que la pièce affichée priverait de picto la copie d'un message
+                       plus ancien, alors que le document est bien dans le Drive. */
+                    emplacements={emplacements.get(p.pieceId)
+                      ?? p.autresApparitions.map((a) => emplacements.get(a.pieceId)).find((e) => e !== undefined)
+                      ?? []}
                     depot={depots.get(p.pieceId)
                       ?? p.autresApparitions.map((a) => depots.get(a.pieceId)).find((d) => d !== undefined)} />
                 ))}
@@ -197,9 +222,11 @@ export function ModalePiecesConversation({
  * ⚠️ `loading="lazy"` + hauteur réservée : une conversation de quarante pièces ne déclenche pas quarante requêtes à
  * l'ouverture, et la grille ne saute pas quand les images arrivent.
  */
-function CartePieceConversation({ piece: p, depot, maintenant, gestes }: {
+function CartePieceConversation({ piece: p, depot, emplacements, maintenant, gestes }: {
   piece: PieceDedoublonnee;
   depot: DepotAffiche | undefined;
+  /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — vide ⇒ la carte est EXACTEMENT celle d'avant ce lot. */
+  emplacements: readonly EmplacementPiece[];
   maintenant: Date;
   gestes: GestesPiece;
 }) {
@@ -347,6 +374,13 @@ function CartePieceConversation({ piece: p, depot, maintenant, gestes }: {
           <span className="pdc-action pdc-action--muette" role="note"
             title="Pièce non conservée : rien à ranger."><span aria-hidden="true">▲</span></span>
         )}
+        {/* ══ 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — « À DROITE DES PICTOS EXISTANTS » (Arno) ═══════════
+            Il vient après ▲ et avant « Aller au message », qui n'est pas un picto mais un mot : la rangée garde
+            donc ses trois pictos dans le même ordre, et le quatrième s'ajoute à leur droite. Il n'y paraît QUE
+            si cette pièce est déjà dans le Drive. */}
+        <PictoDansLeDrive
+          emplacements={emplacements} nomPiece={p.nomFichier} classe="pdc-action"
+          onOuvrir={gestes.onVoirDansLeDrive} />
         {/* 🔴 « ALLER AU MESSAGE » : la fenêtre se ferme et le message se déplie dans le fil (demande d'Arno). Une
             pièce ne se comprend souvent qu'avec le courrier qui l'accompagne. */}
         <button type="button" className="pdc-action pdc-action--mot"
@@ -367,6 +401,7 @@ function CartePieceConversation({ piece: p, depot, maintenant, gestes }: {
  * terminerait au milieu du CSS (piège déjà payé une vingtaine de fois dans ce module).
  */
 export const CSS_PIECES_CONVERSATION = `
+${CSS_PICTO_DANS_LE_DRIVE}
 /* ── LE TROMBONE ── Discret, mais c'est un BOUTON : il en a la cible (44 px de haut) et le focus visible. */
 .pdc-trombone{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;padding:0 .5rem;border-radius:.5rem;
   font:inherit;font-size:.82rem;color:var(--color-svv-ink);background:transparent;
