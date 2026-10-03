@@ -81,9 +81,78 @@ export interface PieceBrouillonAffichee {
   taille: number;
   /** `reprise` = elle vient du message d'origine (transfert) ; `ajoutee` = un fichier pris sur l'ordinateur. */
   origine: 'ajoutee' | 'reprise';
+  /**
+   * ══ 🔴🔴 LOT TRANSFERT-AVEC-PIECES — LA CASE DE CETTE PIÈCE ════════════════════════════════════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « chaque pièce reprise a une case : on la décoche pour ne pas l'envoyer, on la
+   * recoche. Seules les pièces cochées partent. »
+   *
+   * 🔴 DÉCOCHER, C'EST `retire_le` ; RECOCHER, C'EST LE REMETTRE À `NULL`. Aucune colonne de plus, donc aucune
+   * migration : l'envoi ne lit déjà que les lignes non retirées, et la règle « une pièce retirée ne revient pas
+   * toute seule » tient toujours — c'est la REPRISE automatique qui ne la ressuscite pas, pas la personne qui
+   * reclique sur sa case.
+   *
+   * ⚠️ ABSENTE ⇒ COCHÉE. Les appelants d'avant ce lot ne connaissent que des pièces jointes, et c'est ce que
+   * `true` veut dire.
+   */
+  cochee?: boolean;
+  /**
+   * 🔴 SES OCTETS SONT-ILS ATTEIGNABLES ? `false` ⇒ la ligne est GRISÉE et jamais cochée : Arno veut la voir —
+   * « jamais un envoi qui échoue en silence » — mais elle ne doit pas partir.
+   *
+   * ⚠️ ABSENTE ⇒ DISPONIBLE : c'est le cas de toutes les pièces d'avant ce lot, qui n'étaient reprises QUE si
+   * leurs octets étaient là.
+   */
+  disponible?: boolean;
 }
 
 /** Le total joint, pour l'écran comme pour la vérification. PUR. */
 export function totalJoint(pieces: readonly { taille: number }[]): number {
   return pieces.reduce((n, p) => n + p.taille, 0);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT TRANSFERT-AVEC-PIECES — LES MOTS DES CASES
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LE COMPTEUR DEMANDÉ PAR ARNO, mot pour mot : « un compteur “N pièce(s) jointe(s) sur M” ». PUR.
+ *
+ * ⚠️ IL DIT TOUJOURS LES DEUX NOMBRES, même quand ils sont égaux : « 3 sur 3 » apprend qu'il n'y a rien d'autre,
+ * là où « 3 pièces jointes » laisse se demander s'il en manque une.
+ */
+export function motCasesPieces(cochees: number, total: number): string {
+  const s = cochees > 1 ? 's' : '';
+  return `${cochees} pièce${s} jointe${s} sur ${total}`;
+}
+
+/** Le lien qui bascule tout. PUR — il dit ce qu'il VA faire, jamais l'état courant. */
+export function motToutCocher(toutesCochees: boolean): string {
+  return toutesCochees ? 'Tout décocher' : 'Tout cocher';
+}
+
+/**
+ * CE QU'ON ÉCRIT SUR UNE PIÈCE DONT LES OCTETS SONT INTROUVABLES. PUR.
+ *
+ * 🔴 ARNO : « ligne grisée “Pièce indisponible”, non cochée, avec un message clair. Jamais un envoi qui échoue en
+ * silence. » Les trois comptent : on la MONTRE (elle a existé dans le courrier), on la grise (elle ne partira
+ * pas), et on DIT pourquoi — sans quoi on chercherait longtemps une case qui refuse de se cocher.
+ */
+export const MENTION_PIECE_INDISPONIBLE = 'Pièce indisponible';
+export const AIDE_PIECE_INDISPONIBLE =
+  'Ses octets sont introuvables (ni chez nous, ni dans le Drive, ni dans Gmail) : elle ne peut pas être jointe.';
+
+/** Celles qui partiront vraiment. PUR — l'écran et le compteur lisent la MÊME liste. */
+export function piecesCochees<T extends { cochee?: boolean }>(pieces: readonly T[]): T[] {
+  return pieces.filter((p) => p.cochee !== false);
+}
+
+/**
+ * ⚠️ UNE PIÈCE INDISPONIBLE N'ENTRE PAS DANS LE TOTAL DE TAILLE : elle ne partira pas, et la compter ferait
+ * refuser un envoi parfaitement acceptable pour un fichier qu'on n'envoie même pas.
+ */
+export function tailleQuiPartira(
+  pieces: readonly { taille: number; cochee?: boolean }[],
+): number {
+  return totalJoint(piecesCochees(pieces));
 }

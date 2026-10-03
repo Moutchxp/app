@@ -870,6 +870,33 @@ export function Redaction({
   }, [brouillon.id, onChange]);
 
   /**
+   * ══ 🔴🔴 LOT TRANSFERT-AVEC-PIECES — UN TRANSFERT NAÎT AVEC SES PIÈCES ═════════════════════════════════════
+   *
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (03/10/2026) : « Transférer sur un mail reçu avec pièces ouvre l'éditeur SANS AUCUNE pièce
+   * jointe. »
+   *
+   * 🔴 LA CAUSE, ET ELLE N'EST PAS CELLE QU'ON CROIT. La reprise des pièces existait, et elle marchait : le
+   * brouillon 101 (transfert du message 57429) porte bien ses 3 pièces en base. Mais elle est faite par
+   * l'ENREGISTREMENT du brouillon — et un brouillon qu'on vient d'ouvrir n'est pas encore enregistré
+   * (`id: null`). Tant qu'on n'avait pas tapé une lettre, il n'existait pas, donc ses pièces non plus, et la
+   * zone des pièces jointes était vide. On fermait l'éditeur en croyant que le transfert ne les emportait pas.
+   *
+   * 🔴 D'OÙ CET APPEL, ET SEULEMENT POUR UN TRANSFERT. Répondre et Répondre à tous ne reprennent RIEN (règle
+   * d'Arno, comme Gmail) : leur créer un brouillon d'avance poserait une ligne vide dans « Brouillons » pour un
+   * message qu'on n'a pas commencé à écrire. Un transfert, lui, a déjà un contenu — les pièces.
+   *
+   * ⚠️ UNE SEULE FOIS, ET SEULEMENT SUR UN BROUILLON NEUF : `brouillon.id === null` le dit, et `assurerBrouillon`
+   * est de toute façon idempotent (il rend l'identifiant existant, et sérialise les créations concurrentes).
+   */
+  const transfertNeuf = brouillon.voie === 'transferer' && brouillon.id === null
+    && brouillon.repondALeMessageId !== null;
+  useEffect(() => {
+    if (!transfertNeuf) return;
+    void assurerBrouillon();
+  }, [transfertNeuf, assurerBrouillon]);
+
+  /**
    * ══ 🔴🔴 LOT ENVOI-ARRIERE-PLAN — JOINDRE UNE PIÈCE DU DRIVE, SANS ATTENDRE SES OCTETS ═══════════════════════
    *
    * On n'envoie plus que l'IDENTIFIANT Drive. Le serveur lit les métadonnées (un appel court), inscrit la pièce et

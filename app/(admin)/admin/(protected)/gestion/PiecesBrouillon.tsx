@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  TAILLE_MAX_TOTALE, taillePourHumain, totalJoint, verifierPiece,
+  AIDE_PIECE_INDISPONIBLE, MENTION_PIECE_INDISPONIBLE, motCasesPieces, motToutCocher, piecesCochees,
+  tailleQuiPartira, TAILLE_MAX_TOTALE, taillePourHumain, verifierPiece,
   type PieceBrouillonAffichee,
 } from '../../../../lib/gestion/piecesEnvoi';
 
@@ -73,7 +74,13 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
 
   useEffect(() => { void relire(); }, [relire]);
   // Le compte remonte à l'éditeur À CHAQUE changement — y compris après un retrait.
-  useEffect(() => { if (onChange) onChange(pieces.length); }, [onChange, pieces.length]);
+  /**
+   * 🔴🔴 LOT TRANSFERT-AVEC-PIECES — LE COMPTE QUI REMONTE EST CELUI DES PIÈCES **COCHÉES**, et c'est ce qui
+   * compte : c'est lui que le bouton « Envoyer (N pièces jointes) » affiche, et il doit annoncer ce qui PART.
+   * Remonter le total ferait promettre trois pièces pour un envoi qui en porte deux.
+   */
+  const nbCochees = piecesCochees(pieces).length;
+  useEffect(() => { if (onChange) onChange(nbCochees); }, [onChange, nbCochees]);
 
   /**
    * ══ 🔴 « RÉCENTS » — LES PIÈCES DÉJÀ ENVOYÉES DEPUIS L'ORDINATEUR ════════════════════════════════════════════
@@ -97,7 +104,9 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
     return () => { annule = true; };
   }, []);
 
-  const total = totalJoint(pieces);
+  /* ⚠️ LE POIDS EST CELUI DE CE QUI PARTIRA : une pièce décochée ou indisponible ne pèse rien dans l'envoi, et
+     la compter ferait refuser un message parfaitement acceptable. */
+  const total = tailleQuiPartira(pieces);
 
   /** L'identifiant du brouillon, créé à la demande s'il n'existe pas encore. Voir l'encadré du composant. */
   const brouillonPret = async (): Promise<number | null> => {
@@ -177,6 +186,41 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
     setOccupe(false);
   };
 
+  /**
+   * ══ 🔴🔴 LOT TRANSFERT-AVEC-PIECES — COCHER OU DÉCOCHER ════════════════════════════════════════════════════
+   *
+   * ⚠️ L'ÉCRAN SUIT TOUT DE SUITE, puis on relit. Attendre le serveur pour bouger la case ferait un clic qui
+   * « ne répond pas » sur un geste qu'on enchaîne trois fois de suite ; et la relecture, elle, dit la vérité —
+   * y compris quand le serveur a refusé (une pièce sans octets ne se recoche pas).
+   */
+  const cocher = async (id: number, cochee: boolean): Promise<void> => {
+    if (brouillonId === null) return;
+    setMessage(null);
+    setPieces((liste) => liste.map((p) => (p.id === id ? { ...p, cochee } : p)));
+    try {
+      const res = await fetch(`/api/admin/gestion/brouillons/${brouillonId}/pieces`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ piece: id, cochee }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { etat?: string; message?: string };
+      if (d.etat !== 'ok' && typeof d.message === 'string') setMessage(d.message);
+      await relire();
+    } catch {
+      setMessage('Le changement n’a pas abouti : le serveur n’a pas répondu.');
+      await relire();
+    }
+  };
+
+  /** 🔴 TOUT COCHER / TOUT DÉCOCHER — demandé par Arno. Les indisponibles sont sautées : elles ne peuvent pas. */
+  const toutBasculer = async (): Promise<void> => {
+    const basculables = pieces.filter((p) => p.disponible !== false);
+    const toutesCochees = basculables.length > 0 && basculables.every((p) => p.cochee !== false);
+    for (const p of basculables) {
+      if ((p.cochee !== false) === !toutesCochees) continue;
+      await cocher(p.id, !toutesCochees);
+    }
+  };
+
   const retirer = async (id: number): Promise<void> => {
     if (brouillonId === null) return;
     setMessage(null);
@@ -250,21 +294,51 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
 
       {pieces.length > 0 && (
         <ul className="pjb-liste">
-          {pieces.map((p) => (
-            <li key={p.id} className="pjb-item">
-              <span className="pjb-nom" title={p.nom}>{p.nom}</span>
-              <span className="pjb-taille">{taillePourHumain(p.taille)}</span>
-              {/* Une pièce REPRISE d'un transfert le DIT : on sait alors pourquoi elle est là sans l'avoir ajoutée. */}
-              {p.origine === 'reprise' && <span className="pjb-origine">du message d’origine</span>}
-              <button
-                type="button" className="pjb-retirer" onClick={() => void retirer(p.id)}
-                aria-label={`Retirer la pièce ${p.nom}`} title="Retirer"
-              >
-                ✕
-              </button>
-            </li>
-          ))}
+          {pieces.map((p) => {
+            const indisponible = p.disponible === false;
+            const cochee = p.cochee !== false;
+            return (
+              <li key={p.id} className={`pjb-item${indisponible ? ' pjb-item--indisponible' : ''}`}>
+                {/* ══ 🔴🔴 LA CASE — « on la décoche pour ne pas l'envoyer, on la recoche » (Arno) ════════════
+                    ⚠️ UNE VRAIE CASE À COCHER, pas un bouton déguisé : elle s'atteint au clavier, elle s'annonce
+                    toute seule aux lecteurs d'écran, et son état est celui que le navigateur connaît déjà. */}
+                <input type="checkbox" className="pjb-case" checked={cochee} disabled={indisponible}
+                  id={`pjb-case-${p.id}`}
+                  aria-label={`Joindre ${p.nom}`}
+                  title={indisponible ? AIDE_PIECE_INDISPONIBLE : 'Joindre cette pièce'}
+                  onChange={(e) => void cocher(p.id, e.currentTarget.checked)} />
+                <label className="pjb-nom" htmlFor={`pjb-case-${p.id}`} title={p.nom}>{p.nom}</label>
+                <span className="pjb-taille">{taillePourHumain(p.taille)}</span>
+                {/* Une pièce REPRISE d'un transfert le DIT : on sait alors pourquoi elle est là sans l'avoir ajoutée. */}
+                {p.origine === 'reprise' && <span className="pjb-origine">du message d’origine</span>}
+                {/* 🔴 ET SI SES OCTETS SONT INTROUVABLES, ON LE DIT — jamais un envoi qui échoue en silence. */}
+                {indisponible && (
+                  <span className="pjb-indisponible" title={AIDE_PIECE_INDISPONIBLE}>{MENTION_PIECE_INDISPONIBLE}</span>
+                )}
+                <button
+                  type="button" className="pjb-retirer" onClick={() => void retirer(p.id)}
+                  aria-label={`Retirer la pièce ${p.nom}`} title="Retirer"
+                >
+                  ✕
+                </button>
+              </li>
+            );
+          })}
         </ul>
+      )}
+
+      {/* ══ 🔴🔴 LE COMPTEUR ET LE LIEN, demandés par Arno : « N pièce(s) jointe(s) sur M » et « Tout cocher ».
+          ⚠️ ILS N'APPARAISSENT QUE S'IL Y A PLUS D'UNE PIÈCE : sur une seule, la case dit déjà tout, et un
+          compteur « 1 sur 1 » avec un lien « Tout cocher » serait du bruit au-dessus d'une ligne. */}
+      {pieces.length > 1 && (
+        <p className="pjb-compte">
+          <span>{motCasesPieces(piecesCochees(pieces).length, pieces.length)}</span>
+          {pieces.some((p) => p.disponible !== false) && (
+            <button type="button" className="pjb-tout" onClick={() => void toutBasculer()}>
+              {motToutCocher(pieces.filter((p) => p.disponible !== false).every((p) => p.cochee !== false))}
+            </button>
+          )}
+        </p>
       )}
 
       {/* Un refus DIT pourquoi, avec le nom du fichier et le chiffre en cause. Jamais « fichier invalide ». */}
@@ -274,6 +348,18 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
 }
 
 export const CSS_PIECES_BROUILLON = `
+/* 🔴 LOT TRANSFERT-AVEC-PIECES — la case, le compteur, et la ligne grisee d'une piece introuvable.
+   AUCUN ACCENT GRAVE ICI : ce bloc vit dans un litteral de gabarit (piege TS1005 du depot). */
+.pjb-case{width:16px;height:16px;flex:0 0 auto;accent-color:var(--color-svv-red);cursor:pointer}
+.pjb-case:disabled{cursor:not-allowed}
+.pjb-item--indisponible{opacity:.55}
+.pjb-item--indisponible .pjb-nom{text-decoration:line-through}
+.pjb-indisponible{font-size:.74rem;font-weight:700;color:var(--color-svv-red)}
+.pjb-compte{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0;font-size:.78rem;
+  color:var(--color-svv-muted)}
+.pjb-tout{padding:0;font:inherit;font-size:.78rem;color:var(--color-svv-red);background:none;border:0;
+  text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.pjb-tout:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .pjb{display:flex;flex-direction:column;gap:6px;padding:10px;border:1px dashed var(--color-svv-line-strong);
   border-radius:10px;background:var(--color-svv-surface)}
 /* La zone DIT qu'elle accepte le dépôt — par un cadre plein, jamais par la seule couleur. */

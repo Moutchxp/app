@@ -19,6 +19,13 @@ import { query } from '../db/client';
  * ferait diverger ce qu'on voit dans le brouillon de ce qui part vraiment.
  */
 import { sqlNomAffiche } from './nomUsageSql';
+/**
+ * 🔴🔴 LOT TRANSFERT-AVEC-PIECES — « PAS LES IMAGES INTÉGRÉES : MÊME CRITÈRE QUE LE COMPTEUR » (Arno). C'est
+ * `sqlEstVraiePiece` qui le dit, et c'est le MÊME fragment que les cinq compteurs et que le trombone. En écrire
+ * un second ferait partir dans un transfert ce que la ligne ne compte pas — exactement l'incohérence qu'on évite.
+ */
+import { sqlEstVraiePiece } from './lisibilite';
+import { pieceIntegreeDisponible } from './schema';
 import { fileEnvoiDisponible, piecesEnvoiDisponibles } from './schema';
 import type { PieceBrouillonAffichee } from './piecesEnvoi';
 
@@ -54,18 +61,36 @@ export interface PiecePourEnvoi {
   pieceId: number | null;
 }
 
-/** Les pièces AFFICHABLES d'un brouillon — sans aucune clé de stockage. */
+/**
+ * ══ 🔴🔴 LOT TRANSFERT-AVEC-PIECES — LES PIÈCES AFFICHABLES, COCHÉES **ET** DÉCOCHÉES ══════════════════════════
+ *
+ * AVANT, cette lecture écartait les lignes `retire_le IS NOT NULL` : une pièce décochée disparaissait de l'écran,
+ * et l'on ne pouvait plus la recocher. Elles sont toutes rendues ; c'est `cochee` qui dit laquelle part.
+ *
+ * 🔒 AUCUNE CLÉ DE STOCKAGE NE SORT D'ICI, et ce lot n'en fait pas sortir : `disponible` est un BOOLÉEN calculé
+ * en SQL, jamais le chemin de l'objet.
+ *
+ * ⚠️ `disponible` EST VRAI POUR UN FICHIER AJOUTÉ : ses octets sont sur le stockage, posés par le dépôt lui-même.
+ * Il n'est faux que pour une pièce REPRISE dont le message d'origine n'a plus d'octets chez nous.
+ */
 export async function listerPieces(brouillonId: number): Promise<PieceBrouillonAffichee[]> {
   if (!await piecesEnvoiDisponibles()) return [];
-  const { rows } = await query<{ id: number; nom_fichier: string; type_mime: string | null; taille_octets: string; piece_id: string | null }>(
-    `SELECT id::int AS id, nom_fichier, type_mime, taille_octets::text, piece_id::text
-       FROM gestion_brouillon_piece
-      WHERE brouillon_id = $1 AND retire_le IS NULL
-      ORDER BY id`,
+  const { rows } = await query<{
+    id: number; nom_fichier: string; type_mime: string | null; taille_octets: string;
+    piece_id: string | null; cochee: boolean; disponible: boolean;
+  }>(
+    `SELECT bp.id::int AS id, bp.nom_fichier, bp.type_mime, bp.taille_octets::text, bp.piece_id::text,
+            (bp.retire_le IS NULL) AS cochee,
+            (bp.piece_id IS NULL OR p.cle_stockage IS NOT NULL) AS disponible
+       FROM gestion_brouillon_piece bp
+       LEFT JOIN gestion_piece p ON p.id = bp.piece_id
+      WHERE bp.brouillon_id = $1
+      ORDER BY bp.id`,
     [brouillonId]);
   return rows.map((r) => ({
     id: r.id, nom: r.nom_fichier, typeMime: r.type_mime, taille: Number(r.taille_octets),
     origine: r.piece_id === null ? 'ajoutee' : 'reprise',
+    cochee: r.cochee === true, disponible: r.disponible === true,
   }));
 }
 
@@ -143,15 +168,63 @@ export async function inscrirePieceDrive(
  */
 export async function reprendrePiecesDuMessage(brouillonId: number, messageId: number): Promise<number> {
   if (!await piecesEnvoiDisponibles()) return 0;
+  /**
+   * ══ 🔴🔴 LOT TRANSFERT-AVEC-PIECES — DEUX CHANGEMENTS, ET CHACUN EST UNE RÈGLE D'ARNO ════════════════════
+   *
+   * ① LES IMAGES INTÉGRÉES NE SUIVENT PAS. « Pas les images intégrées (signatures, logos) : même critère que le
+   *    compteur. » C'est `sqlEstVraiePiece` — le MÊME fragment que les cinq compteurs et le trombone, pas une
+   *    seconde écriture. Sans lui, un transfert emportait les trois pictos de notre propre signature.
+   *
+   * ② UNE PIÈCE SANS OCTETS EST QUAND MÊME REPRISE, mais DÉCOCHÉE. « Si une pièce est introuvable : ligne grisée
+   *    “Pièce indisponible”, non cochée, avec un message clair. Jamais un envoi qui échoue en silence. » Avant,
+   *    la condition `cle_stockage IS NOT NULL` la faisait disparaître : on ne savait même pas qu'elle existait.
+   *    `retire_le` posé à la naissance = case décochée, donc rien ne part — et la ligne se voit.
+   *
+   * ⚠️ IDEMPOTENT, et il le reste : `NOT EXISTS` regarde la ligne, pas son `retire_le`. Une pièce décochée à la
+   * main n'est donc pas ressuscitée par l'enregistrement suivant — c'est la règle d'avant ce lot, intacte.
+   */
+  const avecIntegree = await pieceIntegreeDisponible();
   const { rowCount } = await query(
-    `INSERT INTO gestion_brouillon_piece (brouillon_id, nom_fichier, type_mime, taille_octets, piece_id)
-     SELECT $1, ${await sqlNomAffiche('p')}, p.type_mime, coalesce(p.taille_octets, 0), p.id
+    `INSERT INTO gestion_brouillon_piece
+       (brouillon_id, nom_fichier, type_mime, taille_octets, piece_id, retire_le)
+     SELECT $1, ${await sqlNomAffiche('p')}, p.type_mime, coalesce(p.taille_octets, 0), p.id,
+            CASE WHEN p.cle_stockage IS NULL THEN now() END
        FROM gestion_piece p
-      WHERE p.message_id = $2 AND p.cle_stockage IS NOT NULL
+      WHERE p.message_id = $2
+        AND ${sqlEstVraiePiece('p', avecIntegree)}
         AND NOT EXISTS (SELECT 1 FROM gestion_brouillon_piece b
                          WHERE b.brouillon_id = $1 AND b.piece_id = p.id)`,
     [brouillonId, messageId]);
   return rowCount ?? 0;
+}
+
+/**
+ * ══ 🔴🔴 LOT TRANSFERT-AVEC-PIECES — COCHER OU DÉCOCHER UNE PIÈCE ═══════════════════════════════════════════════
+ *
+ * Décocher pose `retire_le`, recocher le remet à `NULL`. C'est le MÊME champ que « retirer », et c'est voulu :
+ * l'envoi ne lit que les lignes non retirées, et il n'avait donc rien à apprendre de ce lot.
+ *
+ * 🔒 ON NE RECOCHE JAMAIS UNE PIÈCE SANS OCTETS. La condition est en SQL, pas à l'écran : une requête forgée ne
+ * doit pas pouvoir faire partir un envoi voué à l'échec. C'est la demande d'Arno — « jamais un envoi qui échoue
+ * en silence » — tenue à l'endroit qui ne se contourne pas.
+ */
+export async function cocherPiece(
+  brouillonId: number, pieceId: number, cochee: boolean,
+): Promise<boolean> {
+  if (!await piecesEnvoiDisponibles()) return false;
+  const { rowCount } = await query(
+    cochee
+      ? `UPDATE gestion_brouillon_piece bp
+            SET retire_le = NULL
+           FROM (SELECT 1) AS _
+          WHERE bp.id = $1 AND bp.brouillon_id = $2 AND bp.retire_le IS NOT NULL
+            AND (bp.piece_id IS NULL
+                 OR EXISTS (SELECT 1 FROM gestion_piece p
+                             WHERE p.id = bp.piece_id AND p.cle_stockage IS NOT NULL))`
+      : `UPDATE gestion_brouillon_piece SET retire_le = now()
+          WHERE id = $1 AND brouillon_id = $2 AND retire_le IS NULL`,
+    [pieceId, brouillonId]);
+  return (rowCount ?? 0) > 0;
 }
 
 /** RETIRE une pièce — sans effacer sa ligne. Rend `false` si elle n'appartient pas à ce brouillon. */

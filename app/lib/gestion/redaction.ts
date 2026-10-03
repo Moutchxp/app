@@ -379,7 +379,8 @@ export const MENTION_SANS_SIGNATURE =
  * aurait fait joindre des pièces en affirmant le contraire, ce qui est pire que de ne rien dire.
  */
 export const MENTION_PIECES_NON_JOINTES =
-  'Les pièces jointes du message d’origine ont été reprises ci-dessous : retirez celles que vous ne voulez pas envoyer.';
+  'Les pièces jointes du message d’origine ont été reprises ci-dessous, cochées : décochez celles que vous ne '
+  + 'voulez pas envoyer.';
 
 // ── Ce qu'on peut envoyer, et ce qu'on refuse ─────────────────────────────────────────────────────────────────────
 

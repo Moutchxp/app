@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import {
-  ajouterPieceFichier, inscrirePieceDrive, listerPieces, retirerPiece,
+  ajouterPieceFichier, cocherPiece, inscrirePieceDrive, listerPieces, retirerPiece,
 } from '../../../../../../../lib/gestion/brouillonPieceRepo';
 // LOT ENVOI-ARRIERE-PLAN — la pièce du Drive s'inscrit tout de suite, ses octets suivent en tâche de fond.
 import { lireMetadonnees } from '../../../../../../../lib/gestion/drive';
@@ -250,6 +250,52 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   } catch (e) {
     console.error('[gestion/brouillon/pieces] dépôt impossible', e);
     return json({ etat: 'erreur', message: 'La pièce n’a pas pu être jointe.' }, 503);
+  }
+}
+
+/**
+ * ══ 🔴🔴 LOT TRANSFERT-AVEC-PIECES — COCHER OU DÉCOCHER UNE PIÈCE ═══════════════════════════════════════════════
+ *
+ * RÈGLE D'ARNO (03/10/2026) : « chaque pièce reprise a une case : on la décoche pour ne pas l'envoyer, on la
+ * recoche. Seules les pièces cochées partent. »
+ *
+ * 🔴 PAS UN SECOND « RETIRER », ET C'EST LA DIFFÉRENCE QUI COMPTE. `DELETE` retire une pièce qu'on ne veut plus
+ * voir ; ce verbe-ci change une CASE, dans les deux sens, et la ligne reste à l'écran. Les deux écrivent le même
+ * champ (`retire_le`), parce que c'est lui que l'envoi lit — mais ils ne disent pas la même chose à qui regarde.
+ *
+ * 🔒 LE SERVEUR REFUSE DE RECOCHER UNE PIÈCE SANS OCTETS (condition en SQL, voir `cocherPiece`). L'écran la grise
+ * déjà ; une requête forgée ne doit pas pouvoir faire partir un envoi voué à l'échec.
+ */
+export async function PATCH(request: Request, ctx: Contexte): Promise<Response> {
+  const refus = await exigerCompteActif(request, 'gestion');
+  if (refus) return refus;
+  const brouillonId = await brouillonDeLaRequete(ctx);
+  if (brouillonId === null) return json({ erreur: 'Brouillon inconnu.' }, 400);
+  if (!await piecesEnvoiDisponibles()) return json({ etat: 'sans_schema' }, 409);
+
+  const corps = (await request.json().catch(() => null)) as { piece?: unknown; cochee?: unknown } | null;
+  const pieceId = Number(corps?.piece ?? '');
+  if (!Number.isInteger(pieceId) || pieceId <= 0) return json({ erreur: 'Pièce inconnue.' }, 400);
+  /* ⚠️ `=== true` / `=== false` ET NON UNE CONVERSION : une valeur floue venue du navigateur ne doit pas décider
+     qu'un document part. Tout ce qui n'est pas un booléen est refusé, et le dit. */
+  if (corps?.cochee !== true && corps?.cochee !== false) {
+    return json({ erreur: 'État de la case non reconnu.' }, 400);
+  }
+
+  try {
+    const fait = await cocherPiece(brouillonId, pieceId, corps.cochee);
+    if (fait) return json({ etat: 'ok', cochee: corps.cochee });
+    /* Déjà dans cet état, pièce d'un autre brouillon, ou pièce SANS OCTETS qu'on voulait recocher : aucun de ces
+       trois n'est une panne, et le mot le dit plutôt qu'un 500. */
+    return json({
+      etat: 'refuse',
+      message: corps.cochee
+        ? 'Cette pièce ne peut pas être jointe : ses octets sont introuvables.'
+        : 'Cette pièce n’est pas (ou plus) jointe.',
+    }, 409);
+  } catch (e) {
+    console.error('[gestion/brouillon/pieces] case impossible', e);
+    return json({ etat: 'erreur', message: 'Le changement n’a pas abouti.' }, 503);
   }
 }
 
