@@ -2,9 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  etatArchive, etiquetteType, formaterTaille, sortePiece, tronquerNom,
+  AIDE_DOUBLE_CLIC, AIDE_OEIL_PIECE, etatArchive, etiquetteType, formaterTaille, lienDocumentEntier,
+  sortePiece, tronquerNom,
   type PieceAffichee,
 } from '../../../../lib/gestion/pieces';
+// 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — l'œil est un TRACÉ, jamais un emoji : « 👁 » est rendu par une police EN
+//    COULEUR qui ignore `color`, et resterait de la même teinte en Clair et en Sombre (leçon du trombone).
+import { Oeil } from './Oeil';
 // 🔴 LOT DRIVE-UNIQUE — UNE SEULE FENÊTRE DRIVE, PARTOUT. Le panneau en ligne qui vivait ici est remplacé par la
 //    fenêtre façon Finder, ouverte en mode « ranger ». Aucune de ses fonctions n'est perdue : le dernier dossier de
 //    l'échange, les dossiers récents datés et « Déposer ici » y sont, dans la barre latérale et dans le pied.
@@ -66,7 +70,7 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
   vraies: PieceAffichee[];
   signatures: PieceAffichee[];
   /**
-   * ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LA VIGNETTE OUVRE LA VISIONNEUSE MAISON ═══════════════════════════
+   * ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — QUI OUVRE LA VISIONNEUSE MAISON ═══════════════════════════════════
    *
    * Arno : « côté MAIL (pièces d'un message, modale de récapitulatif, carte “N pièces jointes”), les boutons
    * ◀ Précédent / Suivant ▶ et les flèches ← → parcourent TOUTES les pièces de la conversation. »
@@ -74,11 +78,13 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
    * 🔴 C'EST LA CONVERSATION QUI TIENT LA VISIONNEUSE, et c'est la seule façon d'y parvenir : le tour couvre les
    * pièces de TOUS les messages, et ce bloc-ci n'en connaît qu'un. Il se contente donc de DEMANDER l'ouverture.
    *
-   * ⚠️ ABSENT ⇒ LE COMPORTEMENT D'AVANT CE LOT, MOT POUR MOT : la vignette est un lien qui ouvre le fichier dans
-   * un nouvel onglet. C'est le cas des écrans qui affichent des messages venus de PLUSIEURS échanges (l'historique
-   * d'une cible, la vie d'un bien) : il n'y a pas là de « conversation » dont on pourrait faire le tour, et
-   * inventer un tour qui sauterait d'un échange à un autre ferait passer, sans prévenir, du bail d'un logement à
-   * la pièce d'identité d'un autre client.
+   * 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — C'EST L'ŒIL QUI L'OUVRE, PLUS LA MINIATURE. La miniature, elle, ouvre le
+   * document entier dans un onglet au DOUBLE-CLIC (voir l'encadré de `CartePiece`).
+   *
+   * ⚠️ ABSENT ⇒ AUCUN ŒIL, et la miniature garde son double-clic. C'est le cas des écrans qui affichent des
+   * messages venus de PLUSIEURS échanges (l'historique d'une cible, la vie d'un bien) : il n'y a pas là de
+   * « conversation » dont on pourrait faire le tour, et inventer un tour qui sauterait d'un échange à un autre
+   * ferait passer, sans prévenir, du bail d'un logement à la pièce d'identité d'un autre client.
    */
   onVisualiser?: (pieceId: number) => void;
 }) {
@@ -139,9 +145,10 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
           <summary className="pj-signatures-titre">
             {signatures.length} image{signatures.length > 1 ? 's' : ''} de signature
           </summary>
-          {/* ⚠️ LES SIGNATURES N'ENTRENT PAS DANS LE TOUR DE LA CONVERSATION (elles n'y sont pas comptées) : leur
-              vignette garde donc le lien d'avant, et ouvre l'image dans un onglet. Lui donner la visionneuse
-              l'aurait posée sur une pièce absente du tour — compteur « 0 / 7 » sur une image bien affichée. */}
+          {/* ⚠️ LES SIGNATURES N'ENTRENT PAS DANS LE TOUR DE LA CONVERSATION (elles n'y sont pas comptées) : elles
+              n'ont donc PAS d'œil, et leur vignette ouvre l'image dans un onglet au double-clic, comme partout
+              ailleurs depuis le lot PIECES-OEIL-DOUBLE-CLIC. Leur donner la visionneuse l'aurait posée sur une
+              pièce absente du tour — compteur « 0 / 7 » sur une image bien affichée. */}
           <BlocPieces
             messageId={messageId} pieces={signatures} archive={false} depotDe={depotDe} indisponible={empeche}
             onDrive={(d) => setDemande(d)}
@@ -296,68 +303,75 @@ function CartePiece({ piece: p, depot, indisponible, onDrive, onVisualiser }: {
   const avecVignette = sorte !== 'autre' && !vignetteMorte;
   const etiquette = etiquetteType(p.nomFichier, p.typeMime);
   const lien = `/api/admin/gestion/pieces/${p.pieceId}`;
-  // Un PDF et une image s'OUVRENT (nouvel onglet) ; tout le reste se TÉLÉCHARGE — ouvrir un .xml dans un onglet
-  //   n'apprend rien, et ouvrir un type inconnu revient à laisser le navigateur décider quoi en faire.
-  const ouvrable = sorte !== 'autre';
   /**
-   * ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LA VIGNETTE OUVRE LA VISIONNEUSE MAISON ═══════════════════════════
+   * ══ 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — DEUX GESTES, DEUX DESTINATIONS, PLUS AUCUNE AMBIGUÏTÉ ═══════════════
    *
-   * 🔴 LA MÊME QUE PARTOUT AILLEURS : miniatures de pages, priorité à la page 1, « Précédent / Suivant » sur
-   * TOUTE la conversation, « Ranger dans le Drive » dans son pied. Le nouvel onglet ouvrait le lecteur PDF du
-   * navigateur, qui ne sait rien de tout cela — et qui attend le fichier entier avant le premier pixel.
+   * DÉCISION D'ARNO (03/10/2026). Jusqu'ici, la miniature OUVRAIT la visionneuse d'un simple clic sur les écrans
+   * qui en ont une, et un nouvel onglet sur les autres : le même geste faisait deux choses différentes selon
+   * l'écran, et aucune des deux n'était annoncée.
    *
-   * ⚠️ LA CONDITION EST `sorteApercu`, ET NON `sortePiece` : c'est elle qui décide de l'entrée dans le TOUR
-   * (`voisinsVisualisables`). Les deux listes diffèrent — un .txt a un aperçu et pas de miniature — et se fier à
-   * la mauvaise aurait posé la visionneuse sur une pièce absente du tour, donc un compteur « 0 / 7 ».
+   *   · l'ŒIL (rangée d'actions, à côté de ⤓ et ▲) → la VISIONNEUSE MAISON ;
+   *   · le DOUBLE-CLIC sur la miniature → le DOCUMENT ENTIER dans un nouvel onglet (`lienDocumentEntier`) ;
+   *   · le CLIC SIMPLE ne fait plus rien. Il ne servait à rien d'autre ICI — pas de sélection, pas de
+   *     glisser-déposer (ceux-là vivent dans la fenêtre Drive, où ils ne sont pas touchés).
    *
-   * ⚠️ SANS RAPPEL, RIEN NE CHANGE : le lien d'avant, vers un nouvel onglet.
+   * 🔴 LA MINIATURE RESTE UN `<button>`, ET CE N'EST PAS UN DÉTAIL. Un `<div onDoubleClick>` n'est atteignable ni
+   * au clavier ni au lecteur d'écran : les écrans sans œil (l'historique d'une cible, la vie d'un bien) auraient
+   * PERDU leur seul accès au document au clavier, alors que ce lot ne retire rien. Le bouton garde donc le focus,
+   * et « Entrée » y ouvre l'onglet — exactement ce que le lien d'avant faisait.
+   *
+   * ⚠️ `onClick` NE FAIT RIEN, ET IL EST ÉCRIT QUAND MÊME : un double-clic émet D'ABORD deux `click`. Les laisser
+   * tomber dans le vide est le comportement voulu ; ne pas écrire le gestionnaire aurait laissé croire à un oubli.
+   */
+  const ouvrirOnglet = () => { window.open(lienDocumentEntier(p.pieceId), '_blank', 'noopener,noreferrer'); };
+  /**
+   * ⚠️ LA CONDITION DE L'ŒIL EST `sorteApercu`, ET NON `sortePiece` : c'est elle qui décide de l'entrée dans le
+   * TOUR de la visionneuse (`voisinsVisualisables`). Les deux listes diffèrent — un .txt a un aperçu et pas de
+   * miniature — et se fier à la mauvaise poserait la visionneuse sur une pièce absente du tour, donc un compteur
+   * « 0 / 7 ».
+   *
+   * ⚠️ SANS RAPPEL, PAS D'ŒIL : c'est le cas des écrans qui montrent des messages venus de PLUSIEURS échanges
+   * (l'historique d'une cible, la vie d'un bien). Il n'y a pas là de « conversation » dont on puisse faire le
+   * tour, et promettre un bouton qui n'ouvrirait rien est pire que de ne rien montrer.
    */
   const voirIci = onVisualiser !== undefined && sorteApercu(p.typeMime ?? '') !== 'aucun';
 
   return (
     <li className="pj-carte">
-      {voirIci ? (
-        <button
-          type="button"
-          className="pj-apercu pj-apercu--bouton"
-          onClick={() => onVisualiser?.(p.pieceId)}
-          aria-label={`Visualiser ${p.nomFichier} (${etiquette}, ${formaterTaille(p.tailleOctets)})`}
-        >
-          {avecVignette ? (
-            // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
-            <img
-              className="pj-vignette" src={`${lien}/miniature`} alt="" height={VIGNETTE_H}
-              loading="lazy" decoding="async" onError={() => setVignetteMorte(true)}
-            />
-          ) : (
-            <span className="pj-type" aria-hidden="true">{etiquette}</span>
-          )}
-        </button>
-      ) : (
-        <a
-          className="pj-apercu"
-          href={ouvrable ? lien : `${lien}?telecharger=1`}
-          {...(ouvrable ? { target: '_blank', rel: 'noreferrer' } : {})}
-          aria-label={`${ouvrable ? 'Ouvrir' : 'Télécharger'} ${p.nomFichier} (${etiquette}, ${formaterTaille(p.tailleOctets)})`}
-        >
-          {avecVignette ? (
-            // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
-            <img
-              className="pj-vignette"
-              src={`${lien}/miniature`}
-              alt=""
-              height={VIGNETTE_H}
-              loading="lazy"
-              decoding="async"
-              // Pas de vignette (migration 244 non appliquée, type sans image, fichier illisible) : on retombe sur
-              //   l'étiquette de type, sans jamais laisser une image cassée à l'écran.
-              onError={() => setVignetteMorte(true)}
-            />
-          ) : (
-            <span className="pj-type" aria-hidden="true">{etiquette}</span>
-          )}
-        </a>
-      )}
+      <button
+        type="button"
+        className="pj-apercu pj-apercu--bouton"
+        onClick={() => { /* 🔴 LE CLIC SIMPLE NE FAIT PLUS RIEN (décision d'Arno) — voir l'encadré ci-dessus. */ }}
+        onDoubleClick={ouvrirOnglet}
+        /* « Entrée » et « Espace » ouvrent l'onglet : le clavier garde l'accès que le lien d'avant lui donnait. */
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          ouvrirOnglet();
+        }}
+        title={AIDE_DOUBLE_CLIC}
+        aria-label={`Ouvrir ${p.nomFichier} dans un nouvel onglet (${etiquette}, ${formaterTaille(p.tailleOctets)})`}
+      >
+        {avecVignette ? (
+          // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
+          <img
+            className="pj-vignette"
+            src={`${lien}/miniature`}
+            alt=""
+            height={VIGNETTE_H}
+            loading="lazy"
+            decoding="async"
+            /* 🔴 UNE IMAGE EST SAISISSABLE NATIVEMENT : sans cela, un double-clic un peu traînant démarre le
+               glisser de l'IMAGE au lieu d'ouvrir le document. Même précaution que la fenêtre Drive. */
+            draggable={false}
+            // Pas de vignette (migration 244 non appliquée, type sans image, fichier illisible) : on retombe sur
+            //   l'étiquette de type, sans jamais laisser une image cassée à l'écran.
+            onError={() => setVignetteMorte(true)}
+          />
+        ) : (
+          <span className="pj-type" aria-hidden="true">{etiquette}</span>
+        )}
+      </button>
 
       <div className="pj-pied">
         <span className="pj-nom" title={p.nomFichier}>{tronquerNom(p.nomFichier)}</span>
@@ -374,6 +388,24 @@ function CartePiece({ piece: p, depot, indisponible, onDrive, onVisualiser }: {
       {/* ══ LA RANGÉE D'ACTIONS ══ Toujours visible, jamais au survol. Le bouton « Drive » du lot B viendra ICI, à
           côté de celui-ci, sans rien réorganiser. */}
       <div className="pj-actions">
+        {/* ══ 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — L'ŒIL, À CÔTÉ DE ⤓ ET ▲ ═══════════════════════════════════════
+            Arno : « un picto “œil” à côté des deux pictos existants, même taille et même style, aria-label
+            “Visualiser”. Il ouvre la visionneuse existante. »
+
+            🔴 IL EST EN PREMIER, et c'est le geste le plus courant des trois : on regarde une pièce bien plus
+            souvent qu'on ne la télécharge ou qu'on ne la range. L'ordre de la rangée suit l'usage.
+
+            ⚠️ ABSENT QUAND IL N'Y A RIEN À OUVRIR (pas de rappel, ou type sans aperçu) : la rangée est alors
+            EXACTEMENT celle d'avant ce lot. Un bouton qui n'ouvrirait rien est pire que pas de bouton — c'est la
+            règle de ce fichier depuis le lot 5-PJ-A, et elle vaut ici comme pour le bouton Drive. */}
+        {voirIci && (
+          <button
+            type="button" className="pj-action" onClick={() => onVisualiser?.(p.pieceId)}
+            aria-label={`${AIDE_OEIL_PIECE} ${p.nomFichier}`} title={AIDE_OEIL_PIECE}
+          >
+            <Oeil taille={17} />
+          </button>
+        )}
         <a className="pj-action" href={`${lien}?telecharger=1`} aria-label={`Télécharger ${p.nomFichier}`} title="Télécharger">
           <span aria-hidden="true">⤓</span>
         </a>

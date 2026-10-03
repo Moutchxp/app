@@ -6,7 +6,9 @@ import {
   mentionExpediteurPiece, motPieces, TITRE_PIECES_CONVERSATION,
   type OrdrePieces, type PieceDeConversation, type PieceDedoublonnee,
 } from '../../../../lib/gestion/piecesConversation';
-import { etiquetteType, formaterTaille, sortePiece, tronquerNom } from '../../../../lib/gestion/pieces';
+import {
+  AIDE_DOUBLE_CLIC, etiquetteType, formaterTaille, lienDocumentEntier, sortePiece, tronquerNom,
+} from '../../../../lib/gestion/pieces';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { messageSansApercu, sorteApercu } from '../../../../lib/gestion/apercuDrive';
 import type { DepotAffiche } from './PiecesJointes';
@@ -214,15 +216,43 @@ function CartePieceConversation({ piece: p, depot, maintenant, gestes }: {
     ? (p.motifNonStocke ?? 'Pièce non conservée : il n’y a rien à afficher.')
     : (sorteApercu(p.typeMime ?? '') === 'aucun' ? messageSansApercu(p.typeMime ?? '') : null);
 
+  /**
+   * ══ 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — LA MÊME RÈGLE QUE DANS LE MAIL ══════════════════════════════════════
+   *
+   * DÉCISION D'ARNO : le clic simple sur une miniature n'ouvre plus la visionneuse. Ici, l'œil existe DÉJÀ dans la
+   * rangée d'actions juste en dessous (lot PIECES-DE-LA-CONVERSATION) : il n'y a rien à ajouter, seulement le
+   * geste de la miniature à aligner sur celui du bloc d'un message.
+   *
+   * ⚠️ UNE PIÈCE NON CONSERVÉE N'OUVRE RIEN DU TOUT : il n'y a pas d'octets à servir, et un onglet vide se lirait
+   * comme une panne. Le double-clic n'est donc posé que sur ce qui est `disponible` — c'est une condition plus
+   * large que `refusApercu`, qui refuse AUSSI les types sans aperçu (un .docx n'a pas de visionneuse, mais il a
+   * bien un document à ouvrir dans un onglet).
+   */
+  const ouvrirOnglet = !p.disponible
+    ? undefined
+    : () => { window.open(lienDocumentEntier(p.pieceId), '_blank', 'noopener,noreferrer'); };
+
   return (
     <li className="pdc-carte">
-      {refusApercu === null ? (
-        <button type="button" className="pdc-apercu" onClick={() => gestes.onVoir(p.pieceId)}
-          aria-label={`Visualiser ${p.nomFichier} (${etiquette}, ${formaterTaille(p.tailleOctets)})`}>
+      {ouvrirOnglet !== undefined ? (
+        <button type="button" className="pdc-apercu"
+          /* 🔴 LE CLIC SIMPLE NE FAIT PLUS RIEN : l'œil de la rangée d'actions ouvre la visionneuse. */
+          onClick={() => { /* volontairement vide — voir l'encadré ci-dessus */ }}
+          onDoubleClick={ouvrirOnglet}
+          /* « Entrée » et « Espace » gardent au clavier l'accès que le clic simple avait avant ce lot. */
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            ouvrirOnglet();
+          }}
+          title={AIDE_DOUBLE_CLIC}
+          aria-label={`Ouvrir ${p.nomFichier} dans un nouvel onglet (${etiquette}, ${formaterTaille(p.tailleOctets)})`}>
           {avecVignette ? (
             // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
             <img className="pdc-vignette" src={`${lien}/miniature`} alt="" height={VIGNETTE_H}
               loading="lazy" decoding="async"
+              /* Une image est saisissable nativement : sans cela, un double-clic traînant démarre son glisser. */
+              draggable={false}
               // Pas de vignette (migration 244 non appliquée, type sans image, fichier illisible) : on retombe sur
               //   l'étiquette de type, sans jamais laisser une image cassée à l'écran.
               onError={() => setVignetteMorte(true)} />
@@ -231,7 +261,8 @@ function CartePieceConversation({ piece: p, depot, maintenant, gestes }: {
           )}
         </button>
       ) : (
-        <span className="pdc-apercu pdc-apercu--muet" role="note" title={refusApercu}>
+        <span className="pdc-apercu pdc-apercu--muet" role="note"
+          title={p.motifNonStocke ?? 'Pièce non conservée : il n’y a rien à afficher.'}>
           <span className="pdc-type" aria-hidden="true">{etiquette}</span>
         </span>
       )}

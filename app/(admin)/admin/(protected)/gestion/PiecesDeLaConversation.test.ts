@@ -169,11 +169,39 @@ describe('🔴🔴 la fenêtre « Pièces jointes de la conversation »', () => 
       .toBe('/api/admin/gestion/pieces/20?telecharger=1');
   });
 
-  /** 🔴 LA VIGNETTE EST AUSSI UN BOUTON : c'est le geste qu'on fait d'instinct sur une image. */
-  it('🔴 cliquer la vignette ouvre la visionneuse sur cette pièce', () => {
+  /**
+   * ══ 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — LE CLIC SIMPLE N'OUVRE PLUS LA VISIONNEUSE ═══════════════════════════
+   *
+   * DÉCISION D'ARNO (03/10/2026). Ce test disait l'inverse avant ce lot (« la vignette est aussi un bouton :
+   * c'est le geste qu'on fait d'instinct ») — il est RETOURNÉ, pas supprimé : la règle a changé, et le défaut
+   * qu'on veut interdire désormais est qu'un clic distrait ouvre une fenêtre.
+   *
+   * 🔴 LES DEUX GESTES RESTENT, CHACUN LE SIEN : l'œil de la rangée d'actions ouvre la visionneuse (éprouvé juste
+   * au-dessus), le double-clic ouvre le document entier dans un onglet (éprouvé juste en dessous).
+   */
+  it('🔴🔴 cliquer la vignette n’ouvre PLUS la visionneuse', () => {
     monter();
     act(() => { (cartes()[0].querySelector('.pdc-apercu') as HTMLElement).click(); });
-    expect(gestes.onVoir).toHaveBeenCalledWith(20);
+    expect(gestes.onVoir).not.toHaveBeenCalled();
+  });
+
+  /** 🔴🔴 LE DOUBLE-CLIC OUVRE LE DOCUMENT ENTIER, DANS UN NOUVEL ONGLET ET EN INLINE (aucun `?telecharger=1`). */
+  it('🔴🔴 double-cliquer la vignette ouvre le document dans un nouvel onglet', () => {
+    monter();
+    const ouvre = vi.fn();
+    const avant = window.open;
+    (window as unknown as { open: unknown }).open = ouvre;
+    try {
+      act(() => {
+        (cartes()[0].querySelector('.pdc-apercu') as HTMLElement)
+          .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      });
+    } finally {
+      (window as unknown as { open: unknown }).open = avant;
+    }
+    expect(ouvre).toHaveBeenCalledWith('/api/admin/gestion/pieces/20', '_blank', 'noopener,noreferrer');
+    // ⚠️ ET LA VISIONNEUSE N'EST PAS OUVERTE AU PASSAGE : un double-clic émet d'abord deux `click`.
+    expect(gestes.onVoir).not.toHaveBeenCalled();
   });
 
   /**

@@ -285,8 +285,19 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
     const vraies = [...container.querySelectorAll('.pj-grille')][0];
     expect(vraies?.textContent).toContain('constat.pdf');
     expect(vraies?.textContent).not.toContain('image001.png');
-    // …mais elle est bien là, servie par l'application comme les autres.
-    expect(liens().some((a) => a.getAttribute('href') === '/api/admin/gestion/pieces/9')).toBe(true);
+    /**
+     * …mais elle est bien là, SERVIE PAR L'APPLICATION comme les autres — jamais par une URL de stockage, qui est
+     * l'exigence de fond de ce test et qui ne bouge pas.
+     *
+     * 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — CE QU'ON REGARDE A CHANGÉ, PAS CE QU'ON EXIGE. La miniature était un
+     * LIEN (`<a href=…/pieces/9>`) qu'un clic simple ouvrait ; elle est devenue un BOUTON qu'un double-clic ouvre
+     * (décision d'Arno du 03/10/2026). Le lien de TÉLÉCHARGEMENT, lui, n'a pas bougé d'un caractère : c'est donc
+     * sur lui qu'on vérifie désormais que la pièce passe bien par notre route.
+     */
+    expect(liens().some((a) => a.getAttribute('href') === '/api/admin/gestion/pieces/9?telecharger=1')).toBe(true);
+    // ⚠️ ET LA MINIATURE EST BIEN LE BOUTON du nouveau geste, pas un lien oublié en route.
+    const signatures = [...container.querySelectorAll('.pj-grille')][1];
+    expect(signatures?.querySelector('button.pj-apercu')).not.toBeNull();
   });
 
   it('un message sans texte le DIT, et le sens de chaque message est dit par un MOT', async () => {

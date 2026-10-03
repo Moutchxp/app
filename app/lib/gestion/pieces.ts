@@ -187,3 +187,50 @@ export function nomsSansDoublon(noms: readonly string[]): string[] {
     return `${base} (${n + 1})${suffixe}`;
   });
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — DEUX GESTES DISTINCTS SUR UNE MINIATURE, ÉCRITS UNE SEULE FOIS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (03/10/2026) : « Le clic simple sur la miniature n'ouvre plus la visionneuse. » Les deux gestes
+   deviennent explicites et SÉPARÉS :
+
+     · l'ŒIL, dans la rangée d'actions → la VISIONNEUSE MAISON (colonne des pages, page 1 d'abord, Précédent /
+       Suivant sur toute la conversation) ;
+     · le DOUBLE-CLIC sur la miniature → le DOCUMENT ENTIER dans un NOUVEL ONGLET, rendu par le navigateur.
+
+   🔴 POURQUOI UNE ADRESSE ÉCRITE ICI PLUTÔT QUE DANS CHAQUE ÉCRAN. Deux écrans montrent des miniatures de pièces
+   (le bloc d'un message, le récapitulatif de la conversation) et ils doivent ouvrir EXACTEMENT la même chose. Une
+   adresse recopiée dérive : il a suffi d'un `?telecharger=1` de trop pour qu'un écran force l'enregistrement là où
+   l'autre affiche.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * L'ADRESSE DU DOCUMENT ENTIER, tel qu'un onglet doit l'afficher. PUR.
+ *
+ * 🔴 SANS `?telecharger=1`, ET C'EST TOUT L'OBJET DE CETTE FONCTION. La route sert `Content-Disposition: inline`
+ * par défaut et bascule en `attachment` avec ce paramètre : le poser ici ferait enregistrer le fichier au lieu de
+ * l'afficher, ce qu'Arno exclut explicitement (« contenu servi en inline, pas en téléchargement forcé »).
+ *
+ * 🔴 ET C'EST LA MÊME SOURCE QUE LE TÉLÉCHARGEMENT : la route lit MinIO, puis notre copie Drive, puis Gmail en
+ * dernier recours, et répond sous le NOM D'USAGE (celui du stylo ✎) quand il y en a un. Rien à redire ici — tout
+ * cela vit côté serveur, et le dupliquer donnerait deux vérités.
+ *
+ * ⚠️ ELLE VAUT POUR TOUS LES TYPES. Un PDF et une image s'affichent ; un `.xml` ou un `.docx` suivent le
+ * comportement du navigateur, qui l'enregistre le plus souvent. C'est la règle qu'Arno demande, et la seule qui
+ * n'oblige pas à tenir une seconde liste de types à côté de `sortePiece`.
+ */
+export function lienDocumentEntier(pieceId: number): string {
+  return `/api/admin/gestion/pieces/${pieceId}`;
+}
+
+/**
+ * CE QUE LA MINIATURE PROMET, en infobulle. PUR.
+ *
+ * ⚠️ IL FAUT L'ÉCRIRE. Un double-clic ne se devine pas : sans ce mot, la miniature devient une image inerte pour
+ * qui ne tente pas le geste — et l'œil juste en dessous, lui, ne dit rien du nouvel onglet.
+ */
+export const AIDE_DOUBLE_CLIC = 'Double-cliquez pour ouvrir le document dans un nouvel onglet';
+
+/** Le mot de l'œil, écrit une fois : il est le MÊME dans les deux écrans qui en portent un. PUR. */
+export const AIDE_OEIL_PIECE = 'Visualiser';
