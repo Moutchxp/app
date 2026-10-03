@@ -50,8 +50,17 @@ import {
 import {
   BOUTON_ANNULER_CORBEILLE, BOUTON_CONFIRMER_CORBEILLE, motCorbeilleFaite, phraseCorbeille,
 } from '../../../../lib/gestion/driveCorbeille';
+/**
+ * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « DUPLIQUER EN VIGNETTE ». Module PUR : il tient l'identité
+ * d'une vignette et ses mots. Il ne sait RIEN écrire — la copie, elle, passe par la route de déplacement, celle
+ * qui porte déjà le verdict de l'archive.
+ */
 import {
-  aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder,
+  aideVignette, ajouterVignette, cleVignette, dejaDupliquee, motCopieRangee, resumeVignettes,
+  type VignetteDupliquee,
+} from '../../../../lib/gestion/vignetteDrive';
+import {
+  aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder, entreeDupliquer,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
   iconeEntree, menuDossier, menuFichier, menuVide, motType, naviguerVers, peutAvancer, peutReculer, reculer,
   remplacerCheminCourant, SELECTION_VIDE, selectionSuivante, tailleFinder, titreDuChemin, TRI_DEFAUT,
@@ -409,7 +418,18 @@ export function SelecteurFichierDrive({
    * `setGlisse` n'est pas appliqué avant la fin du gestionnaire de `dragstart`, si bien que le premier `dragover`
    * refusait la cible et que Chrome n'émettait jamais le `drop`.
    */
-  const enMainRef = useRef<{ sorte: 'drive'; ids: string[] } | { sorte: 'piece'; pieceIds: number[] } | null>(null);
+  /**
+   * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — UNE TROISIÈME SORTE : LA VIGNETTE DUPLIQUÉE. Elle ne peut pas
+   * voyager comme une pièce (elle n'a pas de `pieceId`) ni comme un élément du Drive (son lâcher doit COPIER, pas
+   * déplacer). Un type à part, donc, et un `MIME` à part : confondre les deux aurait fait DÉPLACER un fichier du
+   * cabinet là où l'on croyait en poser une copie.
+   */
+  const enMainRef = useRef<
+    { sorte: 'drive'; ids: string[] } | { sorte: 'piece'; pieceIds: number[] }
+    | { sorte: 'vignette'; cles: string[] } | null
+  >(null);
+  /** Le type de transfert des vignettes. À NOUS, comme `MIME_PIECE` : rien ne sort de l'application. */
+  const MIME_VIGNETTE = 'application/x-svav-vignette-drive';
   /** Les dossiers dépliés PAR LE RESSORT pendant ce glisser : on les referme si le geste est abandonné. */
   const depliagesDuGlisser = useRef<Set<string>>(new Set());
   /**
@@ -1129,6 +1149,32 @@ export function SelecteurFichierDrive({
   const [aJeter, setAJeter] = useState<{ id: string; nom: string; chemin: string; parentNom: string } | null>(null);
   const [jetEnCours, setJetEnCours] = useState(false);
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LES VIGNETTES DUPLIQUÉES
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+     🔴 ELLES VIVENT DANS LEUR PROPRE ÉTAT, ET C'EST UNE GARANTIE, PAS UN RANGEMENT. Arno : « la vignette
+     dupliquée reste dans la session en cours. Elle ne change pas la signature de session (l'arbre ne se referme
+     pas). » `signatureSession` est calculée sur les `pieces` du MESSAGE — tant que les vignettes n'y entrent pas,
+     elle ne PEUT pas bouger. C'est vrai par construction, pas par précaution d'écriture.
+
+     ⚠️ ET ELLES NE SONT PAS COMPTÉES AVEC LES PIÈCES À RANGER : ce ne sont pas des pièces du poste de tri, elles
+     ne quittent aucune file et ne manqueront à personne si l'on ferme la fenêtre. */
+  const [vignettes, setVignettes] = useState<readonly VignetteDupliquee[]>([]);
+  /** Le nom choisi au crayon ✎ pour une vignette, par clé. Vide ⇒ la copie part sous le nom de l'original. */
+  const [nomsVignettes, setNomsVignettes] = useState<Map<string, string>>(new Map());
+  /** Les clés dont une copie est en vol : la ligne le dit, et un second clic ne repart pas. */
+  const [vignettesEnCours, setVignettesEnCours] = useState<Set<string>>(new Set());
+  /**
+   * Où chaque vignette a été copiée, et COMBIEN DE FOIS. Arno : « autant de fois que voulu » — la vignette reste
+   * donc après un rangement, et la ligne annonce le dernier dossier plus le compte.
+   */
+  const [vignettesRangees, setVignettesRangees] = useState<Map<string, { dossierNom: string; lien: string | null; nb: number }>>(new Map());
+  /** Les vignettes en cours de glisser : même rôle que `piecesGlissees`, pour l'autre sorte d'objet. */
+  const [vignettesGlissees, setVignettesGlissees] = useState<readonly VignetteDupliquee[]>([]);
+  /** La vignette dont le crayon ✎ vient d'être cliqué : l'aperçu s'ouvre alors DIRECTEMENT sur le champ. */
+  const [renommerVignette, setRenommerVignette] = useState<string | null>(null);
+
   /**
    * ⚠️ PAS DE `useCallback` ICI, ET C'EST DÉLIBÉRÉ (même raison qu'à la liste, plus haut) : le compilateur React
    * refuse d'optimiser un composant dont il ne peut pas préserver la mémorisation manuelle — il juge `chemin`
@@ -1774,6 +1820,8 @@ export function SelecteurFichierDrive({
    * un dossier »). Ceux d'un geste RÉUSSI restent ouverts : on vient d'y poser quelque chose, on veut le voir.
    */
   const finGlisse = (abandonne = false) => {
+    // 🔴 LES VIGNETTES EN VOL S'ÉTEIGNENT COMME LES PIÈCES : sans cela, la ligne resterait estompée pour toujours.
+    setVignettesGlissees([]);
     if (abandonne && depliagesDuGlisser.current.size > 0) {
       const aRefermer = depliagesDuGlisser.current;
       setOuverts((o) => {
@@ -1991,6 +2039,40 @@ export function SelecteurFichierDrive({
     } catch { /* un navigateur qui refuse le transfert ne doit pas casser le panneau */ }
   };
 
+  /**
+   * 🔴🔴 LE GLISSER D'UNE VIGNETTE DUPLIQUÉE. Même geste que celui d'une pièce, autre transfert et autre effet :
+   * le lâcher COPIERA le fichier source dans le dossier visé.
+   *
+   * ⚠️ UNE SEULE À LA FOIS, et c'est voulu : une vignette se range « autant de fois que voulu », donc il n'y a
+   * pas de sélection multiple à emporter — et un fantôme « 3 copies » promettrait trois copies d'un coup, ce que
+   * personne n'a demandé.
+   */
+  const demarrerGlisseDeVignette = (e: React.DragEvent, v: VignetteDupliquee) => {
+    enMainRef.current = { sorte: 'vignette', cles: [v.cle] };
+    depliagesDuGlisser.current = new Set();
+    setVignettesGlissees([v]);
+    setGlisse(null);
+    try {
+      e.dataTransfer.setData(MIME_VIGNETTE, JSON.stringify({ cles: [v.cle] }));
+      e.dataTransfer.effectAllowed = 'copy';
+    } catch { /* un navigateur qui refuse le transfert ne doit pas casser le panneau */ }
+  };
+
+  /** Les vignettes portées par ce transfert. Vide si c'en est un autre. */
+  const vignettesDuGlisse = (e: React.DragEvent): VignetteDupliquee[] => {
+    let brut = '';
+    try { brut = e.dataTransfer.getData(MIME_VIGNETTE); } catch { brut = ''; }
+    if (brut !== '') {
+      try {
+        const lu = JSON.parse(brut) as { cles?: string[] };
+        const trouvees = vignettes.filter((x) => (lu.cles ?? []).includes(x.cle));
+        if (trouvees.length > 0) return trouvees;
+      } catch { /* un transfert illisible se rattrape par l'état ci-dessous */ }
+    }
+    // ⚠️ MÊME REPLI QUE POUR LES PIÈCES : jsdom et quelques navigateurs ne rendent pas les données en `dragover`.
+    return [...vignettesGlissees];
+  };
+
   /** Ce qui a été saisi, relu du transfert — et à défaut, de ce que l'écran se rappelle. */
   const elementsDuGlisse = (e: React.DragEvent): Fichier[] => {
     let brut = '';
@@ -2016,6 +2098,15 @@ export function SelecteurFichierDrive({
   const deposerSur = (e: React.DragEvent, cible: { id: string; nom: string }) => {
     e.preventDefault();
     e.stopPropagation();
+    /* 🔴🔴 LES VIGNETTES D'ABORD, ET L'ORDRE COMPTE : une vignette se COPIE, un élément du Drive se DÉPLACE.
+       Les examiner après aurait laissé le cas « vignette » tomber dans la branche du déplacement le jour où un
+       transfert porterait les deux types — et l'on aurait déplacé un fichier du cabinet en croyant le copier. */
+    const lotVignettes = vignettesDuGlisse(e);
+    if (lotVignettes.length > 0) {
+      finGlisse();
+      if (cible.id !== '') void rangerVignette(lotVignettes[0], cible.id, cible.nom);
+      return;
+    }
     const lotPieces = piecesDuGlisse(e);
     if (lotPieces.length > 0) {
       finGlisse();
@@ -2262,7 +2353,25 @@ export function SelecteurFichierDrive({
       avecLien: (f.lien ?? '') !== '',
       presse: droitsPresse(),
       corbeille: droitsCorbeille(),
-    }));
+    }).concat(entreeDupliquer(droitsDupliquer(f))));
+
+  /**
+   * ══ 🔴🔴 QUAND « Dupliquer en vignette » EXISTE-T-IL ? ═══════════════════════════════════════════════════════
+   *
+   * `null` ⇒ ABSENT. Trois cas, et chacun a sa raison :
+   *   ① HORS DU MODE « ranger » : il n'y a pas de colonne de gauche où poser la vignette ;
+   *   ② SOUS « Documents clients scannés » (`joindreAutorise` faux) : la vignette n'existe que pour être copiée,
+   *      et rien ne sort de l'archive. On ne montre pas la porte d'un endroit où l'on ne doit jamais entrer ;
+   *   ③ SUR UN « ._ » de macOS : il ne contient pas le document, sa copie ne vaudrait rien.
+   *
+   * ⚠️ ÉTEINT AVEC SON MOTIF quand la vignette est DÉJÀ posée : une seule se range autant de fois qu'on veut.
+   */
+  const droitsDupliquer = (f: Fichier): { deja: boolean; motifInactif?: string | null } | null => {
+    if (mode !== 'ranger') return null;
+    if (listing !== null && listing.joindreAutorise !== true) return null;
+    if (estFichierSystemeMac(f.nom)) return null;
+    return { deja: dejaDupliquee(vignettes, f.id) };
+  };
 
   /**
    * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — QUAND L'ENTRÉE « Supprimer » EXISTE-T-ELLE ? ═════════════
@@ -2358,6 +2467,20 @@ export function SelecteurFichierDrive({
      * fichier et UN chemin. Étendre le geste à une sélection qu'on ne nommerait pas ferait partir à la corbeille
      * des fichiers que la phrase n'a pas annoncés.
      */
+    /**
+     * ══ 🔴🔴 « DUPLIQUER EN VIGNETTE » — AUCUNE ÉCRITURE N'A LIEU ICI ════════════════════════════════════════
+     *
+     * Le clic pose une vignette dans la colonne de gauche, et rien d'autre. Le fichier d'origine ne bouge pas,
+     * ses rangements existants non plus : rien n'est envoyé à Google. L'écriture n'arrivera qu'au RANGEMENT de
+     * cette vignette, et ce sera une COPIE vers un dossier qu'on aura désigné.
+     */
+    if (a === 'dupliquer_vignette') {
+      setVignettes((v) => ajouterVignette(v, {
+        cle: cleVignette(f.id), driveFileId: f.id, nom: f.nom,
+        tailleOctets: f.tailleOctets, typeMime: f.typeMime, lien: f.lien ?? null,
+      }));
+      return;
+    }
     if (a === 'mettre_corbeille') {
       const ou = cibleDeLaLigne(f);
       setAJeter({
@@ -2429,6 +2552,68 @@ export function SelecteurFichierDrive({
    * est un geste sur ce fichier, et il n'a droit à aucun régime de faveur — sans quoi « je l'y mets, je l'en
    * sors » deviendrait une porte de sortie de l'archive.
    */
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 RANGER UNE VIGNETTE DUPLIQUÉE = COPIER LE FICHIER SOURCE
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+     🔴 PAR LA ROUTE DE DÉPLACEMENT, EN MODE « copier », ET C'EST DÉLIBÉRÉ. C'est « le même mécanisme de copie que
+     l'existant » (Arno) : le même `files.copy`, le même verdict d'archive remonté chez Google à chaque appel, et
+     le même journal. Écrire une seconde voie de copie aurait voulu dire une seconde écriture du garde-fou.
+
+     🔴 ET C'EST CE JOURNAL QUI EST « LE REGISTRE DE L'APPLI ». Chaque copie y laisse une ligne `copier` portant
+     `drive_id` = LA SOURCE et `copie_drive_id` = la copie : toutes les copies d'un même document partagent donc
+     la même source, « rattachées au même document source » comme Arno le demande. C'est aussi ce qui permettra à
+     la loupe de les retrouver.
+
+     ⚠️ LA VIGNETTE RESTE APRÈS LE RANGEMENT : « autant de fois que voulu ». On ne la retire pas, on compte.
+     ⚠️ L'ORIGINAL NE BOUGE JAMAIS : `files.copy` ne touche pas la source, et la route n'émet rien d'autre. */
+  const rangerVignette = async (
+    v: VignetteDupliquee, cibleId: string, cibleNom: string,
+  ): Promise<void> => {
+    if (cibleId === '' || vignettesEnCours.has(v.cle)) return;
+    setErreur(null);
+    setVignettesEnCours((s) => new Set(s).add(v.cle));
+    try {
+      const choisi = (nomsVignettes.get(v.cle) ?? '').trim();
+      const res = await fetch('/api/admin/gestion/drive/deplacer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'copier',
+          cible: cibleId,
+          /* ⚠️ `nomCible` N'EST ENVOYÉ QUE S'IL Y EN A UN : absent, Google nomme la copie comme l'original —
+             mot pour mot le comportement du « Copier / Coller » du navigateur de fichiers. */
+          elements: [{
+            id: v.driveFileId, nom: v.nom, dossier: false,
+            ...(choisi === '' || choisi === v.nom ? {} : { nomCible: choisi }),
+          }],
+        }),
+      });
+      const d = (await res.json()) as {
+        etat?: string; message?: string; nomCible?: string;
+        faits?: { id: string; nom: string; copieId?: string | null }[];
+        refuses?: { nom: string; motif: string }[];
+      };
+      if (d.etat !== 'ok') { setErreur(d.message ?? 'La copie n’a pas abouti.'); return; }
+      if ((d.refuses ?? []).length > 0) {
+        setErreur((d.refuses ?? []).map((r) => `« ${r.nom} » : ${r.motif}`).join(' · '));
+      }
+      if ((d.faits ?? []).length === 0) return;
+      setVignettesRangees((m) => {
+        const n = new Map(m);
+        const avant = n.get(v.cle);
+        n.set(v.cle, { dossierNom: cibleNom, lien: null, nb: (avant?.nb ?? 0) + 1 });
+        return n;
+      });
+      setBandeau({ mot: motCopieRangee(choisi === '' ? v.nom : choisi, cibleNom), mouvements: [] });
+      // ⚠️ ON SE MET D'ACCORD AVEC LE DRIVE : la copie vient de naître dans la cible.
+      revaliderEnSilence([cibleId, dossierCourant?.id ?? '']);
+    } catch {
+      setErreur('Le Drive n’a pas répondu.');
+    } finally {
+      setVignettesEnCours((s) => { const n = new Set(s); n.delete(v.cle); return n; });
+    }
+  };
+
   const sortirDeLaCorbeille = async (mouvements: number[]): Promise<void> => {
     setBandeau(null);
     try {
@@ -3099,6 +3284,104 @@ export function SelecteurFichierDrive({
                 </ul>
               </section>
             )}
+            {/* ══ 🔴🔴 LES VIGNETTES DUPLIQUÉES — « À COPIER », SOUS LES PIÈCES DU MESSAGE ══════════════════════
+                Arno : « crée dans la colonne de gauche une vignette “pièce à ranger”, identique à celle d'une
+                pièce jointe qui vient d'arriver (miniature, nom, taille, œil, crayon ✎, case). »
+
+                🔴 UNE SECTION À PART, ET SON PROPRE RÉSUMÉ. Ce ne sont pas des pièces du message : elles ne
+                quittent aucune file, et les additionner au compteur « N pièces à ranger » aurait annoncé un
+                travail à faire qui n'existe pas. Même ligne, même style, même geste — autre nature, dit en mots.
+
+                ⚠️ CETTE SECTION NE CHANGE PAS LA SIGNATURE DE SESSION : elle lit `vignettes`, qui n'entre pas
+                dans `signatureSession` (calculée sur les pièces du message). L'arbre ne se referme donc pas. */}
+            {mode === 'ranger' && vignettes.length > 0 && (
+              <section className="sfd-ranger" aria-label="Copies à ranger">
+                <p className="sfd-ranger-titre" role="status">{resumeVignettes(vignettes.length)}</p>
+                <ul className="sfd-ranger-liste">
+                  {vignettes.map((v) => {
+                    const ou = vignettesRangees.get(v.cle) ?? null;
+                    const occupee = vignettesEnCours.has(v.cle);
+                    const nomAffiche = (nomsVignettes.get(v.cle) ?? '').trim() === ''
+                      ? v.nom : (nomsVignettes.get(v.cle) ?? v.nom);
+                    return (
+                      <li key={v.cle}
+                        className={`sfd-piece sfd-piece--copie${ou !== null ? ' sfd-piece--rangee' : ''}`
+                          + `${vignettesGlissees.some((g) => g.cle === v.cle) ? ' sfd-piece--enVol' : ''}`}
+                        title={aideVignette(v.nom)}
+                        draggable
+                        onDragStart={(e) => demarrerGlisseDeVignette(e, v)}
+                        onDragEnd={() => finGlisse(true)}>
+                        {/* 🔴 LA MINIATURE VIENT DU DRIVE, par la route d'aperçu qui sert déjà la liste — jamais
+                            par l'adresse signée de Google, qui sortirait de l'application.
+                            🔴 `draggable={false}` : une image est saisissable nativement, et le glisser de
+                            l'IMAGE aurait remplacé celui de la ligne (défaut déjà payé sur les pièces). */}
+                        {/* eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route */}
+                        <img className="sfd-piece-vignette" alt="" draggable={false}
+                          src={`/api/admin/gestion/drive/apercu?fichier=${encodeURIComponent(v.driveFileId)}&vignette=1`}
+                          loading="lazy" decoding="async"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }} />
+                        <span className="sfd-piece-mots">
+                          <span className="sfd-piece-nom" title={nomAffiche}>{nomAffiche}</span>
+                          {nomAffiche !== v.nom && (
+                            <span className="sfd-piece-origine" title={v.nom}>{mentionNomOrigine(v.nom)}</span>
+                          )}
+                          <span className="sfd-piece-ligne">
+                            <span className="sfd-piece-taille">{tailleFinder(v.tailleOctets, false)}</span>
+                            {/* L'ŒIL — il ouvre le fichier SOURCE dans l'aperçu du Drive, en lecture seule. */}
+                            <button type="button" className="sfd-piece-oeil"
+                              title="Visualiser" aria-label={`Visualiser ${v.nom}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAVoir({
+                                  id: v.driveFileId, nom: nomAffiche, typeMime: v.typeMime ?? '',
+                                  lien: v.lien ?? null, parentId: null,
+                                });
+                              }}>
+                              <span aria-hidden="true">👁</span>
+                            </button>
+                            {/* ══ 🔴 LE CRAYON ✎ — LE NOM SOUS LEQUEL **LA COPIE** NAÎTRA ═════════════════════
+                                🔒 CE N'EST PAS UN RENOMMAGE : le fichier d'origine garde son nom, et la copie
+                                n'existe pas encore. On ne renomme jamais un fichier existant du Drive — c'est la
+                                règle du module, et elle n'est pas touchée. */}
+                            <button type="button" className="sfd-piece-stylo"
+                              title={INFOBULLE_RENOMMER}
+                              aria-label={`${INFOBULLE_RENOMMER} — ${v.nom}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRenommerVignette(v.cle);
+                                setAVoir({
+                                  id: v.driveFileId, nom: nomAffiche, typeMime: v.typeMime ?? '',
+                                  lien: v.lien ?? null, parentId: null,
+                                });
+                              }}>
+                              <span aria-hidden="true">✎</span>
+                            </button>
+                            {/* 🔴 ET LE RETRAIT : la vignette est un objet d'écran, elle se retire d'un clic.
+                                ⚠️ IL NE SUPPRIME RIEN : ni le fichier source, ni les copies déjà rangées. */}
+                            <button type="button" className="sfd-piece-oeil"
+                              title="Retirer cette vignette (le fichier et ses copies ne sont pas touchés)"
+                              aria-label={`Retirer la vignette ${v.nom}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setVignettes((liste) => liste.filter((x) => x.cle !== v.cle));
+                              }}>
+                              <span aria-hidden="true">✕</span>
+                            </button>
+                          </span>
+                          {occupee && <span className="sfd-piece-etat">Copie…</span>}
+                          {ou !== null && !occupee && (
+                            <span className="sfd-piece-etat sfd-piece-etat--ok">
+                              {`✓ Copiée dans « ${ou.dossierNom} »${ou.nb > 1 ? ` (${ou.nb} copies)` : ''}`}
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+
             {/* ══ LES EMPLACEMENTS : d'où l'on part. Ils restent en tête, toujours visibles. ═════════════════ */}
             <ul className="sfd-cote-liste">
               {emplacements.map((l) => ligneLaterale(l))}
@@ -3589,18 +3872,48 @@ export function SelecteurFichierDrive({
             La prop est donc absente dans ce cas, et l'aperçu est celui d'avant ce lot, mot pour mot.
             ⚠️ `pieces.find` ET NON LA PIÈCE CLIQUÉE : « Précédent / Suivant » change de pièce dans la même
             fenêtre, et le bandeau doit suivre celle qui est AFFICHÉE (demande d'Arno). */
-        renommage={aVoir.source !== 'piece' ? undefined : (idAffiche) => {
-          const x = pieces.find((p) => String(p.pieceId) === idAffiche);
-          if (x === undefined) return undefined;
+        renommage={(idAffiche) => {
+          /**
+           * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LE BANDEAU SERT AUSSI LES VIGNETTES ═══════════
+           *
+           * Une vignette dupliquée porte le crayon ✎ comme une pièce jointe : son nom choisi est celui sous
+           * lequel LA COPIE naîtra. Le fichier source, lui, garde le sien — on ne renomme jamais un fichier
+           * existant du Drive, et c'est pourquoi il n'y a ici aucun refus à opposer : il n'existe pas encore
+           * de fichier à renommer.
+           *
+           * ⚠️ LES PIÈCES D'ABORD : l'identifiant d'une pièce est un nombre, celui d'une vignette une chaîne
+           * Drive — ils ne peuvent pas se confondre, mais l'ordre fixe la réponse si cela arrivait un jour.
+           */
+          if (aVoir.source === 'piece') {
+            const x = pieces.find((p) => String(p.pieceId) === idAffiche);
+            if (x === undefined) return undefined;
+            return {
+              nomOrigine: x.nom,
+              nomChoisi: nomsChoisis.get(x.pieceId) ?? null,
+              editerDabord: renommerDabord === x.pieceId,
+              refus: refusRenommage(x),
+              onRenommer: (nom: string) => renommerPiece(x.pieceId, x.nom, nom),
+            };
+          }
+          const v = vignettes.find((x) => x.driveFileId === idAffiche);
+          if (v === undefined) return undefined;
           return {
-            nomOrigine: x.nom,
-            nomChoisi: nomsChoisis.get(x.pieceId) ?? null,
-            editerDabord: renommerDabord === x.pieceId,
-            refus: refusRenommage(x),
-            onRenommer: (nom: string) => renommerPiece(x.pieceId, x.nom, nom),
+            nomOrigine: v.nom,
+            nomChoisi: nomsVignettes.get(v.cle) ?? null,
+            editerDabord: renommerVignette === v.cle,
+            refus: null,
+            onRenommer: (nom: string) => {
+              setNomsVignettes((m) => {
+                const n = new Map(m);
+                if (nom.trim() === '' || nom === v.nom) n.delete(v.cle); else n.set(v.cle, nom);
+                return n;
+              });
+              // La barre de titre porte le nom : elle doit suivre, sans quoi on lirait l'ancien juste au-dessus.
+              setAVoir((a) => (a !== null && a.id === v.driveFileId ? { ...a, nom } : a));
+            },
           };
         }}
-        onFermer={() => { setAVoir(null); setRenommerDabord(null); }} />
+        onFermer={() => { setAVoir(null); setRenommerDabord(null); setRenommerVignette(null); }} />
     )}
     </>
   );
@@ -3893,6 +4206,12 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-piece:hover{border-color:var(--color-svv-line-strong)}
 .sfd-piece--enVol{opacity:.5}
 /* 🔴 LOT RANGER-ARBRE-2 — une piece COCHEE part avec les autres : elle le dit par la couleur ET par sa case. */
+/* 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — UNE VIGNETTE DUPLIQUEE SE DISTINGUE D'UNE PIECE DU MESSAGE.
+   Un LISERE a gauche, pas une couleur de fond : le fond est deja pris par la selection et par l'etat « rangee »,
+   et superposer trois teintes rendrait la colonne illisible. Le mot, lui, est ecrit dans le resume de la section
+   (« N copies a ranger ») — jamais porte par la seule couleur.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.sfd-piece--copie{border-left:3px solid var(--color-svv-line-strong)}
 .sfd-piece--cochee{border-color:var(--color-svv-red);
   background:color-mix(in srgb, var(--color-svv-red) 10%, var(--color-svv-surface))}
 .sfd-piece-case{flex:0 0 auto;width:14px;height:14px;accent-color:var(--color-svv-red);cursor:pointer}

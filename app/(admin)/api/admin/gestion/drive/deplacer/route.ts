@@ -105,7 +105,25 @@ function reunir(...chaines: readonly Maillon[][]): Map<string, Maillon> {
 interface Demande {
   action?: string;
   /** Les éléments à déplacer ou copier. */
-  elements?: { id: string; nom?: string; dossier?: boolean; parentId?: string | null }[];
+  elements?: {
+    id: string; nom?: string; dossier?: boolean; parentId?: string | null;
+    /**
+     * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LE NOM SOUS LEQUEL LA **COPIE** NAÎT ═════════════════
+     *
+     * Une vignette dupliquée porte le crayon ✎ comme une pièce jointe : le nom choisi doit donc suivre jusqu'à
+     * Google, sans quoi la copie arriverait sous le nom de l'original et le renommage aurait l'air d'avoir été
+     * ignoré. `copierFichier` savait déjà le faire (lot RANGER-INSTANTANE-ET-NOM) ; cette route ne le lui
+     * passait simplement pas.
+     *
+     * 🔒 ET CE N'EST PAS UN RENOMMAGE. Le fichier NAÎT de l'appel : il n'a pas encore de nom à défaire. Le nom de
+     * la SOURCE n'est jamais touché — c'est ce que le garde statique de `driveMouvement` continue de vérifier,
+     * en comptant les `name:` autorisés.
+     *
+     * ⚠️ IGNORÉ POUR UN DÉPLACEMENT, et il faut le dire : déplacer en renommant serait deux gestes en un, dont
+     * le second ne serait annoncé nulle part. Absent ou vide ⇒ comportement d'avant ce lot, mot pour mot.
+     */
+    nomCible?: string | null;
+  }[];
   cible?: string;
   /** Pour « Annuler » : les lignes de journal rendues par un appel précédent. */
   mouvements?: number[];
@@ -254,7 +272,7 @@ async function mouvoir(
 
   /* ── ④ LE VERDICT, ÉLÉMENT PAR ÉLÉMENT. PUR, donc gratuit — et c'est bien pour cela qu'il n'y a aucune raison
         de l'économiser. Rien n'est écrit tant que tous les verdicts ne sont pas rendus. */
-  type Prete = { id: string; nom: string; estDossier: boolean; parentOrigine: string };
+  type Prete = { id: string; nom: string; estDossier: boolean; parentOrigine: string; nomCible: string | null };
   const pretes: Prete[] = [];
   const refuses: { id: string; nom: string; motif: string }[] = [];
 
@@ -281,7 +299,12 @@ async function mouvoir(
       { index, proteges: proteges.proteges, protegesEtAncetres: proteges.protegesEtAncetres },
     );
     if (!v.ok) { refuses.push({ id: m.id, nom, motif: v.motif }); continue; }
-    pretes.push({ id: m.id, nom, estDossier, parentOrigine });
+    /* 🔴 LE NOM CHOISI VOYAGE AVEC L'ÉLÉMENT, pas avec la demande : chaque vignette a le sien. */
+    const demande = elements.find((e) => e.id.trim() === m.id);
+    pretes.push({
+      id: m.id, nom, estDossier, parentOrigine,
+      nomCible: (demande?.nomCible ?? '').trim() === '' ? null : (demande?.nomCible ?? '').trim(),
+    });
   }
 
   /* ── ⑤ LES ÉCRITURES, EN PARALLÈLE ─────────────────────────────────────────────────────────────────────────
@@ -310,12 +333,21 @@ async function mouvoir(
     }
     const copie = p.estDossier
       ? await copierDossier(jeton.jeton, { id: p.id, nom: p.nom, parentCible: cible })
-      : await copierFichier(jeton.jeton, { id: p.id, parentCible: cible }, deps);
+      /* ⚠️ `nom` N'EST PASSÉ QUE S'IL Y EN A UN : absent, Google nomme la copie comme l'original — mot pour mot
+         le comportement d'avant ce lot, et celui du « Copier/Coller » du navigateur de fichiers. */
+      : await copierFichier(
+        jeton.jeton,
+        { id: p.id, parentCible: cible, ...(p.nomCible === null ? {} : { nom: p.nomCible }) },
+        deps,
+      );
     // La cible a un enfant de plus : ce qu'on sait d'elle ne vaut plus. (L'original, lui, n'a pas bougé.)
     oublierChaine(jeton.compteGoogle, cible);
     if (!copie.ok) return { ok: false as const, id: p.id, nom: p.nom, motif: copie.motif };
     const mouvementId = await inscrireMouvement({
-      action: 'copier', driveId: p.id, nom: p.nom, estDossier: p.estDossier,
+      /* 🔴 LE JOURNAL RETIENT LA SOURCE (`driveId`) **ET** LA COPIE (`copieDriveId`). C'est ce couple qui fait du
+         journal le REGISTRE des copies d'un document : toutes les lignes `copier` d'un même `drive_id` sont les
+         copies d'une même source — c'est ainsi que la loupe « Où est ce document ? » les retrouvera. */
+      action: 'copier', driveId: p.id, nom: p.nomCible ?? p.nom, estDossier: p.estDossier,
       parentOrigine: p.parentOrigine, parentCible: cible, copieDriveId: copie.valeur.id,
       auteurId: auteur.id, auteurLibelle: auteur.libelle, compteGoogle: jeton.compteGoogle,
     });

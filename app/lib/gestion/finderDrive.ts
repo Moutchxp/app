@@ -387,7 +387,13 @@ export type ActionMenu =
   'visualiser' | 'joindre' | 'lien' | 'ouvrir' | 'nouveau_dossier' | 'ouvrir_google'
   | 'couper' | 'copier' | 'coller' | 'actualiser'
   /* 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — sur une ligne de FICHIER uniquement. Voir l'encadré. */
-  | 'mettre_corbeille';
+  | 'mettre_corbeille'
+  /**
+   * 🔴 « Dupliquer en vignette » — ET CE N'EST PAS LE « Dupliquer » DE DRIVE. Drive appelle ainsi la copie SUR
+   * PLACE, dans le même dossier ; celui-ci ne copie RIEN au clic : il pose une vignette dans la colonne de
+   * gauche, et c'est le rangement de cette vignette qui copiera, vers un dossier qu'on aura désigné.
+   */
+  | 'dupliquer_vignette';
 
 export interface EntreeMenu {
   action: ActionMenu;
@@ -543,6 +549,33 @@ export function menuFichier(o: {
       motifInactif: o.corbeille.autorise ? null : (o.corbeille.motifInactif ?? 'Ce geste est indisponible ici.'),
     }]),
   ];
+}
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — L'ENTRÉE « Dupliquer en vignette » ═══════════════════════════
+ *
+ * Elle s'ajoute au menu d'un fichier, mais seulement là où une colonne de gauche existe pour accueillir la
+ * vignette : c'est-à-dire en mode « ranger ». Ailleurs (le sélecteur ouvert pour JOINDRE une pièce à un mail), la
+ * vignette n'aurait nulle part où se poser.
+ *
+ * 🔴 ELLE EST RENDUE PAR UNE FONCTION À PART, et non ajoutée dans `menuFichier` : ce menu est appelé par deux
+ * modes, et l'entrée ne concerne que l'un d'eux. Un paramètre de plus dans `menuFichier` aurait obligé chaque
+ * appelant à dire « non » explicitement — et celui qui oublie dit « oui » par accident.
+ *
+ * ⚠️ ABSENTE SOUS « Documents clients scannés », pour la même raison que « Supprimer » : la vignette n'existe que
+ * pour être copiée, et rien ne sort de l'archive. L'appelant passe `null`, et l'entrée n'existe pas.
+ */
+export function entreeDupliquer(
+  o: { deja: boolean; motifInactif?: string | null } | null,
+): EntreeMenu[] {
+  if (o == null) return [];
+  return [{
+    action: 'dupliquer_vignette',
+    libelle: 'Dupliquer en vignette',
+    /* ⚠️ DÉJÀ POSÉE : on le DIT plutôt que de reposer la même vignette. Une seule se range autant de fois qu'on
+       veut — une seconde doublerait la case, le compteur et le fantôme du glisser, sans rien apporter. */
+    motifInactif: o.motifInactif ?? (o.deja ? 'Cette vignette est déjà dans la colonne de gauche.' : null),
+  }];
 }
 
 /**
