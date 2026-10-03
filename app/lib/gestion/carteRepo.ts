@@ -23,6 +23,8 @@ import { assainirHtml, echapperTexte, htmlVide } from './htmlMail';
 import { stylesDuMail } from './cadreMail';
 // LOT LECTURE-HTML-FIL-TROMBONE — les images d'un mail passent par NOS routes : voir `imagesMail`.
 import { reecrireImages, type PieceIntegree } from './imagesMail';
+/** 🔴🔴 LOT SIGNATURE-ECHELLE — la taille que l'auteur d'une image lui a donnée. Voir `dimensionsDOrigine`. */
+import { dimensionsParRang, type Dimensions } from './tailleImageMail';
 import {
   decouperTexteAImages, sqlExtraitLisible, sqlSansChargeImage, texteAUneImage,
 } from './imagesIntegrees';
@@ -485,10 +487,23 @@ export async function htmlPourLEcran(messageId: number, brut: string | null | un
 
 /** Les pièces d'un message, réduites à ce qui permet de résoudre un `cid:`. LECTURE SEULE. */
 async function piecesIntegrees(messageId: number): Promise<PieceIntegree[]> {
-  const { rows } = await query<{ id: number; nom_fichier: string; type_mime: string | null }>(
-    `SELECT id::int AS id, nom_fichier, type_mime FROM gestion_piece WHERE message_id = $1 ORDER BY id`,
+  const { rows } = await query<{
+    id: number; nom_fichier: string; type_mime: string | null; taille_octets: string | null;
+  }>(
+    `SELECT id::int AS id, nom_fichier, type_mime, taille_octets::text
+       FROM gestion_piece WHERE message_id = $1 ORDER BY id`,
     [messageId]);
-  return rows.map((r) => ({ pieceId: r.id, nomFichier: r.nom_fichier, typeMime: r.type_mime }));
+  /**
+   * ⚠️ PAS DE `dimensions` ICI, ET CE N'EST PAS UN OUBLI : pour une image du message lui-même, la balise qu'on
+   * est en train de réécrire EST celle de l'auteur. Lui opposer une « origine » tirée du même document n'aurait
+   * aucun sens. Seul le POIDS sert — il permet au repli d'icône de reconnaître une signature sans dimensions.
+   */
+  return rows.map((r) => ({
+    pieceId: r.id,
+    nomFichier: r.nom_fichier,
+    typeMime: r.type_mime,
+    tailleOctets: r.taille_octets === null ? null : Number(r.taille_octets),
+  }));
 }
 
 /**
@@ -502,14 +517,71 @@ async function piecesIntegrees(messageId: number): Promise<PieceIntegree[]> {
  * quand on rapproche par position.
  */
 async function piecesDeLaConversation(messageId: number): Promise<PieceIntegree[]> {
-  const { rows } = await query<{ id: number; nom_fichier: string; type_mime: string | null }>(
-    `SELECT p.id::int AS id, p.nom_fichier, p.type_mime
+  const { rows } = await query<{
+    id: number; nom_fichier: string; type_mime: string | null; taille_octets: string | null;
+    message_id: number; corps_html: string | null; integree: boolean | null;
+  }>(
+    `SELECT p.id::int AS id, p.nom_fichier, p.type_mime, p.taille_octets::text,
+            p.message_id::int AS message_id,
+            left(${sqlSansChargeImage('m.corps_html')}, ${MAX_HTML}) AS corps_html,
+            ${await pieceIntegreeDisponible() ? 'p.integree' : 'NULL::boolean'} AS integree
        FROM gestion_piece p
        JOIN gestion_message m ON m.id = p.message_id
       WHERE m.fil_id = (SELECT fil_id FROM gestion_message WHERE id = $1)
         AND p.message_id <> $1
       ORDER BY m.recu_le ASC, m.id ASC, p.id ASC`, [messageId]);
-  return rows.map((r) => ({ pieceId: r.id, nomFichier: r.nom_fichier, typeMime: r.type_mime }));
+  const tailles = dimensionsDOrigine(rows);
+  return rows.map((r) => ({
+    pieceId: r.id,
+    nomFichier: r.nom_fichier,
+    typeMime: r.type_mime,
+    tailleOctets: r.taille_octets === null ? null : Number(r.taille_octets),
+    dimensions: tailles.get(r.id) ?? null,
+  }));
+}
+
+/**
+ * ══ 🔴🔴 LOT SIGNATURE-ECHELLE — LA TAILLE QUE L'AUTEUR A DONNÉE À CHAQUE IMAGE INTÉGRÉE ════════════════════════
+ *
+ * Pour chaque message de l'échange, on apparie SES `<img>` (dans l'ordre du document) avec SES images intégrées
+ * (dans l'ordre des pièces). C'est EXACTEMENT la convention de rang que le relais `/messages/[id]/integree?rang=N`
+ * emploie déjà pour servir les octets : on ne pose pas une seconde hypothèse, on réemploie celle qui est en
+ * service, et les deux lisent le même HTML assaini (`sqlSansChargeImage` retire les octets, jamais les balises).
+ *
+ * 🔴 CE QUE ÇA RAPPORTE : notre envoi 57464 publie ses icônes en `width="20" height="20"`. La réponse d'Arno les
+ * cite en `style="width:240px"`. Sans cette table, on n'aurait aucun moyen de savoir laquelle des deux tailles
+ * est celle de l'auteur — et l'on afficherait une épingle de 240 px au milieu d'un texte de 13 px.
+ *
+ * ⚠️ ON N'APPARIE QUE LES IMAGES **INTÉGRÉES**, et seulement celles-là : une pièce jointe ordinaire (un PDF, une
+ * photo envoyée en pièce) n'a pas de balise dans le corps, et la faire entrer dans le comptage décalerait tout
+ * l'appariement. Sans la migration 296 (`integree` à `NULL`), on se rabat sur « c'est une image », qui est la
+ * règle d'avant — au pire on apparie quelques images de trop, jamais l'inverse.
+ *
+ * ⚠️ ET L'APPARIEMENT EST ABANDONNÉ SI LES DEUX COMPTES DIFFÈRENT : un message dont le corps porte trois images
+ * et qui n'a que deux pièces intégrées ne se laisse pas apparier sans deviner. On préfère ne rien dire.
+ */
+function dimensionsDOrigine(
+  rows: readonly {
+    id: number; message_id: number; corps_html: string | null; type_mime: string | null;
+    nom_fichier: string; integree: boolean | null;
+  }[],
+): Map<number, Dimensions> {
+  const parMessage = new Map<number, { html: string | null; pieces: number[] }>();
+  for (const r of rows) {
+    const estImage = (r.type_mime ?? '').toLowerCase().startsWith('image/');
+    const retenue = r.integree === null ? estImage : r.integree === true;
+    const e = parMessage.get(r.message_id) ?? { html: r.corps_html, pieces: [] };
+    if (retenue) e.pieces.push(r.id);
+    parMessage.set(r.message_id, e);
+  }
+  const out = new Map<number, Dimensions>();
+  for (const { html, pieces } of parMessage.values()) {
+    if (html === null || pieces.length === 0) continue;
+    const dims = dimensionsParRang(htmlAffichable(html) ?? '');
+    if (dims.length !== pieces.length) continue;          // voir l'encadré : on ne devine pas
+    pieces.forEach((pieceId, i) => out.set(pieceId, dims[i]));
+  }
+  return out;
 }
 
 /**

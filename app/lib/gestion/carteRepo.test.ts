@@ -246,7 +246,11 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
       //   `./lisibilite` : module PUR qui rend la clé d'identité d'une pièce, en TypeScript et en fragment de
       //   SQL. Son passage obligé ici est ce qui garantit que la liste et le récapitulatif dédoublonnent de la
       //   MÊME façon — une seule définition, pas deux.
-      './imagesMail', './imagesIntegrees', './lisibilite', './piecesConversation',
+      // 🔴🔴 LOT SIGNATURE-ECHELLE — `./tailleImageMail` rejoint la liste, pour la MÊME raison que les
+      //   précédents : module PUR (ni base, ni réseau, ni DOM) qui lit et réécrit la taille d'une balise
+      //   `<img>`. Son passage obligé ici est ce qui garantit qu'une icône de signature citée par Gmail à
+      //   240 px retrouve les 20 px que son AUTEUR lui avait donnés — et qu'une photo, elle, n'est pas touchée.
+      './imagesMail', './tailleImageMail', './imagesIntegrees', './lisibilite', './piecesConversation',
       './attente', './partenaires', './schema', './nonRemiseRepo',
     ]);
     expect(imports).not.toContain('../stockage');

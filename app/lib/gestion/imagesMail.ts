@@ -40,6 +40,12 @@
 import {
   lireDataImage, octetsDeLaCharge, refusDeLImage, tailleLisible, vignetteImage,
 } from './imagesIntegrees';
+/**
+ * 🔴🔴 LOT SIGNATURE-ECHELLE — la taille d'une image citée. Voir l'encadré de `tailleImageMail.ts` : le défaut
+ * n'est pas chez nous (Gmail réécrit `width="20"` en `width:240px`), mais la correction l'est, parce que nous
+ * avons la taille d'origine dans notre propre message.
+ */
+import { appliquerTaille, consigneDeTaille, type Dimensions } from './tailleImageMail';
 
 /** Ce qu'on sait d'une pièce pour résoudre un `cid:`. */
 export interface PieceIntegree {
@@ -51,6 +57,25 @@ export interface PieceIntegree {
    * Absent ⇒ on se rabat sur l'extension du nom, comme partout ailleurs dans ce module.
    */
   typeMime?: string | null;
+  /**
+   * 🔴 LOT SIGNATURE-ECHELLE — LE POIDS, pour reconnaître une image de signature quand rien ne dit sa taille.
+   * Absent ⇒ la règle de repli d'icône ne s'applique pas, et l'image reste telle quelle.
+   */
+  tailleOctets?: number | null;
+  /**
+   * ══ 🔴🔴 LOT SIGNATURE-ECHELLE — LA TAILLE QUE SON AUTEUR LUI A DONNÉE ═══════════════════════════════════════
+   *
+   * Les dimensions de la balise `<img>` du message qui PORTE réellement cette image — notre propre envoi, pour
+   * un `cid:` que seule la conversation sait résoudre.
+   *
+   * 🔴 ELLE EXISTE PARCE QUE GMAIL RÉÉCRIT. Mesuré sur le fil 36671 : notre envoi (57464) publie ses icônes en
+   * `width="20" height="20"` ; la réponse d'Arno (57465), écrite depuis Gmail, cite les mêmes images en
+   * `style="width:240px"` — douze fois trop grand. Les dimensions de l'auteur font foi devant celles d'un
+   * client citant, et c'est ce champ qui les transporte.
+   *
+   * ⚠️ ABSENT ⇒ COMPORTEMENT D'AVANT CE LOT, À LA LETTRE : on ne touche à aucune taille.
+   */
+  dimensions?: Dimensions | null;
 }
 
 /**
@@ -264,6 +289,13 @@ export function reecrireImages(
      TOUTES les images non résolues du document pour décider s'il s'applique. Résoudre balise par balise ne
      pourrait jamais le savoir. */
   const table = resoudreCids(html, pieces, o.conversation ?? []);
+  /**
+   * 🔴🔴 LOT SIGNATURE-ECHELLE — DE QUOI JUGER DE LA TAILLE D'UNE IMAGE RÉSOLUE. Les deux listes réunies : la
+   * taille d'origine d'une image citée vit dans la CONVERSATION (c'est le message qui la porte vraiment), et
+   * celle d'une image du message lui-même dans `pieces`.
+   */
+  const parPiece = new Map<number, PieceIntegree>();
+  for (const p of [...pieces, ...(o.conversation ?? [])]) if (!parPiece.has(p.pieceId)) parPiece.set(p.pieceId, p);
   let rang = -1;
   return html.replace(/<img\b[^>]*>/gi, (balise) => {
     rang += 1;
@@ -273,9 +305,20 @@ export function reecrireImages(
     const cid = identifiantCid(src);
     if (cid !== null) {
       const pieceId = table.get(cid.trim().toLowerCase());
-      return pieceId === undefined
-        ? marqueNeutre(balise, MENTION_IMAGE_INTROUVABLE)
-        : remplacerSrc(balise, o.piece(pieceId));
+      if (pieceId === undefined) return marqueNeutre(balise, MENTION_IMAGE_INTROUVABLE);
+      /**
+       * 🔴🔴 LOT SIGNATURE-ECHELLE — ON REMET LA TAILLE AVANT DE REMPLACER L'ADRESSE. L'ordre est indifférent au
+       * résultat, mais pas à la lecture : `appliquerTaille` juge sur la balise telle qu'elle est ARRIVÉE, avec
+       * le `width:240px` que Gmail y a mis — c'est précisément ce qu'elle doit voir pour le corriger.
+       *
+       * ⚠️ ET ELLE NE FAIT RIEN DANS LA QUASI-TOTALITÉ DES CAS : sans dimensions d'origine connues et hors image
+       * de signature, `consigneDeTaille` rend `null` et la balise ressort telle quelle.
+       */
+      const p = parPiece.get(pieceId) ?? null;
+      const dimensionnee = appliquerTaille(balise, consigneDeTaille({
+        balise, origine: p?.dimensions ?? null, piece: p,
+      }));
+      return remplacerSrc(dimensionnee, o.piece(pieceId));
     }
     if (estDistante(src)) {
       return o.relais === null ? marque(balise, 'image distante non affichée') : remplacerSrc(balise, o.relais(rang));
