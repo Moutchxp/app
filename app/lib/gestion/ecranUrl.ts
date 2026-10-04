@@ -187,6 +187,29 @@ export interface EtatEcranUrl {
    */
   bloc?: 'vie' | null;
   /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — LE JETON DE RETOUR À « L'HISTORIQUE DU BIEN » ══════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « Le bouton RETOUR du navigateur, et un bouton “← Retour à l'historique du
+   * bien” dans la conversation, ramènent EXACTEMENT au même état : même fiche, même période, mêmes parties
+   * cochées, mêmes options, même texte de recherche, même position de défilement, et le mail d'où l'on est parti
+   * surligné brièvement. L'état vit dans l'adresse de la page (paramètres d'URL) pour survivre au retour. »
+   *
+   * 🔴🔴 CE QUI VOYAGE ICI EST UN **JETON**, ET NON L'ÉTAT LUI-MÊME. C'est un écart assumé à la lettre de la
+   * demande, et il a une raison que je ne peux pas taire : l'état contient les ADRESSES DES PERSONNES cochées et
+   * le texte de recherche (souvent un nom). Les écrire dans une adresse les met dans l'historique du navigateur,
+   * dans les journaux du serveur, et dans tout lien copié-collé — ce que ce dépôt refuse partout ailleurs. Le
+   * jeton est une clé courte et anonyme ; l'état complet vit dans le `sessionStorage` de l'onglet, sous cette
+   * clé. L'EXIGENCE, elle, est tenue : le retour du navigateur et le bouton de la conversation retrouvent
+   * exactement le même écran, parce que l'adresse porte de quoi le retrouver.
+   *
+   * ⚠️ IL VAUT SUR DEUX ÉCRANS, et c'est ce qui fait le va-et-vient : sur `annuaire` il dit au bloc quel état
+   * reprendre ; sur `boite` il dit à la conversation qu'elle a un historique de bien où revenir, et lequel.
+   *
+   * ⚠️ BORNÉ ET NETTOYÉ À LA LECTURE : seuls des caractères de clé sont retenus (lettres, chiffres, tiret), et
+   * 64 au plus. Une adresse abîmée vaut `null` — l'écran s'ouvre alors tel quel, jamais en erreur.
+   */
+  hdb?: string | null;
+  /**
    * LOT RATTACHEMENT-2 — la cible de l'historique, écrite `lot-282` / `proprio-339` / `carte-12`. `null` ailleurs que
    * dans l'écran `historique`.
    *
@@ -267,6 +290,9 @@ export const ETAT_DEFAUT: EtatEcranUrl = {
   ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, messageOuvert: null, brouillonOuvert: null,
   fiche: null, bloc: null, cible: null,
   filtre: null, etoile: false,
+  /* 🔴 LOT HISTORIQUE-BIEN-3 — le jeton de retour fait partie du défaut, à `null` : sans cela, `lireEtatUrl`
+     rendait un champ que `ETAT_DEFAUT` n'avait pas, et les deux cessaient d'être comparables. */
+  hdb: null,
 };
 
 const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique'];
@@ -368,6 +394,9 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
        seule la valeur connue est retenue : voir `bloc`. */
     bloc: ecran === 'annuaire' && ficheDepuisTexte(p.get('fiche')) !== null && p.get('bloc') === 'vie'
       ? 'vie' : null,
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-3 — le jeton de retour : voir l'encadré de `hdb`. Lu sur les DEUX écrans du
+       va-et-vient, et nettoyé (une clé, rien d'autre) — un paramètre abîmé n'ouvre jamais une erreur. */
+    hdb: (ecran === 'annuaire' || ecran === 'boite') ? jetonPropre(p.get('hdb')) : null,
     // LOT RATTACHEMENT-2 — idem pour la cible de l'historique. Elle est rendue TELLE QUELLE (bornée) : c'est
     //   `cibleDepuisTexte` dans `historique.ts` qui juge si elle désigne quelque chose, et lui seul.
     cible: ecran === 'historique' ? cibleBrute(p.get('cible')) : null,
@@ -416,6 +445,10 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
   // 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — écrit UNIQUEMENT avec sa fiche, et jamais seul : voir `bloc`.
   if (e.ecran === 'annuaire' && e.fiche != null && e.bloc === 'vie') p.set('bloc', 'vie');
+  /* 🔴 LE JETON DE RETOUR, sur les deux écrans du va-et-vient, et jamais ailleurs : voir l'encadré de `hdb`. */
+  if ((e.ecran === 'annuaire' || e.ecran === 'boite') && jetonPropre(e.hdb) !== null) {
+    p.set('hdb', jetonPropre(e.hdb) as string);
+  }
   if (e.ecran === 'historique' && e.cible != null && e.cible !== '') p.set('cible', e.cible);
   // Seul `non-lus` s'écrit : « tous » est le défaut, et un défaut écrit dans l'adresse n'est plus un défaut.
   if (e.ecran === 'boite' && e.filtre === 'non-lus') p.set('filtre', 'non-lus');
@@ -450,6 +483,28 @@ export function autoImposeParEtiquette(e: Etiquette): boolean | null {
  * ⚠️ LOT MESSAGE-CLIQUÉ — LE MESSAGE VISÉ ENTRE DANS LA COMPARAISON. Deux messages différents du même échange sont
  * deux endroits différents : sans cela, passer de l'un à l'autre écraserait l'entrée d'historique, et « Précédent »
  * ne ramènerait pas au message d'où l'on vient. Il n'est comparé que dans la boîte, où il existe.
+ */
+/**
+ * ══ 🔴 UN JETON DE RETOUR, NETTOYÉ ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Une clé opaque : lettres, chiffres et tiret, 64 caractères au plus. Tout le reste vaut `null`.
+ *
+ * ⚠️ POURQUOI UNE LISTE BLANCHE ET NON UNE LISTE NOIRE. Ce jeton sert de clé dans le `sessionStorage` ; une
+ * valeur venue de l'adresse ne doit pas pouvoir y désigner autre chose que ce qu'on y a rangé. Filtrer ce qui
+ * est PERMIS ferme la question une fois pour toutes ; filtrer ce qui est interdit la rouvre à chaque idée neuve.
+ */
+export function jetonPropre(v: string | null | undefined): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (t === '' || t.length > 64) return null;
+  return /^[A-Za-z0-9-]+$/.test(t) ? t : null;
+}
+
+/**
+ * ⚠️ `hdb` N'ENTRE PAS DANS CETTE COMPARAISON, ET C'EST VOULU (lot HISTORIQUE-BIEN-3) : le jeton ne dit pas quel
+ * ÉCRAN on regarde, il dit seulement où revenir. Le compter ici aurait empilé une entrée d'historique au moment
+ * où le bloc pose son jeton — et le bouton « Précédent » aurait alors ramené à la même fiche sans son état,
+ * c'est-à-dire exactement ce que ce jeton existe pour éviter.
  */
 export function memeEtat(a: EtatEcranUrl, b: EtatEcranUrl): boolean {
   return a.ecran === b.ecran && a.filOuvert === b.filOuvert

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   ecrireEtatUrl, etiquetteDepuisTexte, ETAT_DEFAUT, ETIQUETTE_ARRIVEE, ETIQUETTE_RECEPTION,
-  autoImposeParEtiquette, lireEtatUrl, memeEtat, memeEtiquette, texteEtiquette,
+  autoImposeParEtiquette, jetonPropre, lireEtatUrl, memeEtat, memeEtiquette, texteEtiquette,
   type EtatEcranUrl, type Etiquette,
 } from './ecranUrl';
 
@@ -251,5 +251,58 @@ describe('garanties STATIQUES', () => {
     const code = readFileSync('app/lib/gestion/ecranUrl.ts', 'utf8')
       .split('\n').filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l.trim())).join('\n');
     expect(/useState|fetch\(|query\(|gestion_/.test(code)).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — LE JETON DE RETOUR À « L'HISTORIQUE DU BIEN »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le jeton de retour (hdb)', () => {
+  /**
+   * DEMANDE D'ARNO (05/10/2026) : « L'état vit dans l'adresse de la page (paramètres d'URL) pour survivre au
+   * retour. » Ce qui voyage est un JETON — une clé courte et anonyme — et non l'état lui-même : l'état porte les
+   * adresses des personnes cochées et le texte de recherche, que ce dépôt refuse d'écrire dans une adresse.
+   */
+  it('🔴 il se lit et s’écrit sur les DEUX écrans du va-et-vient', () => {
+    const a = lireEtatUrl('?ecran=annuaire&fiche=lot-31&hdb=abc123');
+    expect(a.hdb).toBe('abc123');
+    expect(ecrireEtatUrl(a)).toContain('hdb=abc123');
+
+    const b = lireEtatUrl('?ecran=boite&fil=12&hdb=abc123');
+    expect(b.hdb).toBe('abc123');
+    expect(ecrireEtatUrl(b)).toContain('hdb=abc123');
+  });
+
+  /** ⚠️ ET NULLE PART AILLEURS : un jeton traîné sur un écran qui n'en fait rien est un paramètre mort. */
+  it('⚠️ il ne vaut rien sur les autres écrans', () => {
+    expect(lireEtatUrl('?ecran=historique&cible=lot-31&hdb=abc123').hdb).toBeNull();
+    expect(lireEtatUrl('?ecran=a_trier&hdb=abc123').hdb).toBeNull();
+    expect(ecrireEtatUrl({ ...ETAT_DEFAUT, ecran: 'historique', cible: 'lot-31', hdb: 'abc123' }))
+      .not.toContain('hdb=');
+  });
+
+  /**
+   * 🔴🔴 IL EST NETTOYÉ PAR UNE LISTE BLANCHE. Ce jeton sert de clé dans le `sessionStorage` : une valeur venue
+   * de l'adresse ne doit pas pouvoir y désigner autre chose que ce qu'on y a rangé. Filtrer ce qui est PERMIS
+   * ferme la question ; filtrer ce qui est interdit la rouvre à chaque idée neuve.
+   */
+  it('🔴🔴 une valeur abîmée vaut null, et n’ouvre jamais une erreur', () => {
+    for (const v of ['', '   ', 'a b', 'a/b', '../../etc', 'a:b', '<x>', 'é', 'x'.repeat(65)]) {
+      expect(jetonPropre(v)).toBeNull();
+      expect(lireEtatUrl(`?ecran=annuaire&fiche=lot-31&hdb=${encodeURIComponent(v)}`).hdb).toBeNull();
+    }
+    expect(jetonPropre('A-1b2C3')).toBe('A-1b2C3');
+    expect(jetonPropre('x'.repeat(64))).toBe('x'.repeat(64));
+  });
+
+  /**
+   * 🔴🔴 `hdb` N'ENTRE PAS DANS `memeEtat`, ET C'EST TOUT LE MÉCANISME. Le jeton ne dit pas quel ÉCRAN on
+   * regarde : le compter aurait empilé une entrée d'historique au moment où le bloc pose son jeton, et
+   * « Précédent » aurait alors ramené à la même fiche SANS son état — exactement le défaut qu'Arno signale.
+   */
+  it('🔴🔴 poser un jeton ne change pas d’écran', () => {
+    const avant = lireEtatUrl('?ecran=annuaire&fiche=lot-31');
+    expect(memeEtat(avant, { ...avant, hdb: 'abc123' })).toBe(true);
   });
 });

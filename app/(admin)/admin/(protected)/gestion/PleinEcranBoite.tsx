@@ -101,7 +101,7 @@ export function PleinEcranBoite({
   versionDonnees = 0, onListeRelue,
   onRattacher, aRattacher = null, aRattacherSansCandidat = null, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
-  onClassementChange,
+  onClassementChange, onRetourHistoriqueBien,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -203,6 +203,11 @@ export function PleinEcranBoite({
    * prochain chargement de l'écran.
    */
   onClassementChange?: () => void;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — le retour vers « l'historique du bien », passé tel quel à la
+   * conversation. `undefined` quand on ne vient pas de là : le bouton n'est alors pas rendu.
+   */
+  onRetourHistoriqueBien?: () => void;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -1119,6 +1124,10 @@ export function PleinEcranBoite({
               brouillonRepris={brouillonOuvert}
               voieInitiale={voieDemandee}
               onFerme={onFermerFil} barreActions onClassement={(voie) => setClassement(voie)}
+              /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — « ← Retour à l'historique du bien », offert SEULEMENT
+                 quand on vient de là. C'est CE montage-ci que l'écran « boîte » emploie — celui où l'on arrive
+                 en cliquant « Voir la conversation d'origine → » dans le bloc d'une fiche de bien. */
+              onRetourHistoriqueBien={onRetourHistoriqueBien}
               redaction={redaction} onGeste={onGeste}
               // LOT ANNUAIRE-1 — l'encart « Propriétaire de … » mène à la fiche, dans l'écran Annuaire.
               onFicheAnnuaire={onFicheAnnuaire}

@@ -1334,6 +1334,128 @@ describe('⑤-sexies 🔴🔴 les capsules se déplacent d’une catégorie à l
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤-septies 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — LES DEUX LISERÉS, ET LE RETOUR EXACT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑤-septies 🔴🔴 les liserés des deux côtés, et revenir exactement', () => {
+  /**
+   * 🔴🔴 LES DEUX LISERÉS SONT DÉCLARÉS ENSEMBLE, dans la même règle : Arno veut « même épaisseur, même couleur,
+   * même arrondi » des deux côtés. Deux déclarations séparées auraient pu divergEr d'un pixel, et c'est
+   * exactement ce qu'on ne verrait qu'une fois livré.
+   */
+  it('🔴🔴 chaque mail porte son liseré à GAUCHE et à DROITE', () => {
+    expect(SRC).toContain('.hdb-barre{border-left:3px solid transparent;border-right:3px solid transparent');
+    for (const ton of ['rouge', 'vert', 'bleu']) {
+      expect(SRC).toContain(`.hdb-barre--${ton}{border-left-color:`);
+      expect(SRC).toContain('border-right-color:');
+    }
+    /* 🔴 L'AGENCE RESTE SANS COULEUR, DES DEUX CÔTÉS : les bords restent transparents, donc la largeur du
+       listing ne saute pas d'un mail à l'autre — ce qui serait pire qu'une couleur de trop. */
+    expect(SRC).toContain('.hdb-barre--nous{border-left-color:transparent;border-right-color:transparent}');
+  });
+
+  /** 🔴 LE LIBELLÉ D'ARNO, DANS LE COMPOSANT PARTAGÉ : « Voir la conversation d'origine → ». */
+  it('🔴 « Voir la conversation d’origine → » remplace « Ouvrir l’échange → »', () => {
+    const vie = readFileSync('app/(admin)/admin/(protected)/gestion/VieDuBien.tsx', 'utf8');
+    expect(vie).toContain('Voir la conversation d’origine →');
+    expect(vie).not.toContain('Ouvrir l’échange →');
+  });
+
+  /**
+   * ══ 🔴🔴 PARTIR EN POSANT DE QUOI REVENIR ═════════════════════════════════════════════════════════════════════
+   *
+   * L'ORDRE EST TOUT LE MÉCANISME : on range l'état et on pose le jeton sur l'adresse COURANTE — celle de la
+   * fiche — AVANT de naviguer. L'entrée d'historique qu'on quitte porte alors le jeton, et « Précédent » y
+   * revient avec de quoi tout retrouver. Poser le jeton après aurait écrit sur l'adresse de la CONVERSATION.
+   */
+  it('🔴🔴 ouvrir une conversation range l’état et pose le jeton AVANT de naviguer', async () => {
+    const ordre: string[] = [];
+    const jetons: string[] = [];
+    await monter({
+      onPoserJeton: (j) => { jetons.push(j); ordre.push('jeton'); },
+      onOuvrirFil: () => { ordre.push('navigation'); },
+    });
+    /* On déplie un mail pour atteindre « Voir la conversation d'origine → ». */
+    await cliquer(hote.querySelector('.vdb-ligne') ?? undefined);
+    await cliquer(parMot('Voir la conversation d’origine'));
+
+    expect(ordre).toEqual(['jeton', 'navigation']);
+    expect(jetons).toHaveLength(1);
+    /* 🔴 ET L'ÉTAT EST BIEN RANGÉ SOUS CETTE CLÉ, avec la fiche, pour pouvoir être vérifié au retour. */
+    const brut = window.sessionStorage.getItem(`hdb-retour:${jetons[0]}`);
+    expect(brut).not.toBeNull();
+    const e = JSON.parse(String(brut)) as { fiche: string; mail: number | null };
+    expect(e.fiche).toBe('155');
+    /* ⚠️ C'EST LE MAIL DÉPLIÉ, ET LE PREMIER DU FIL EST LE PLUS RÉCENT (ordre par défaut) : le message 2, du
+       15/03. Le ranger permet au retour de le surligner — c'est exactement ce qu'Arno demande. */
+    expect(e.mail).toBe(2);
+  });
+
+  /**
+   * 🔴🔴 AU RETOUR, TOUT EST REPRIS : période, parties cochées, options, recherche — et le mail d'où l'on est
+   * parti est surligné.
+   */
+  it('🔴🔴 revenir avec un jeton reprend l’écran exact', async () => {
+    window.sessionStorage.setItem('hdb-retour:J1', JSON.stringify({
+      fiche: '155',
+      reglages: {
+        periode: { sorte: 'dates', du: '2025-05-01', au: '2026-09-28' },
+        parties: ['assureur@fictif.test'],
+        toutesLesParties: false,
+        pieces: 'avec',
+        ordre: 'ancien',
+        grouper: false,
+        texte: 'quittance',
+        evenementOuvert: false,
+      },
+      defile: 0, mail: 2, page: 0,
+    }));
+    await monter({ jeton: 'J1' });
+
+    /* La période est reprise, et elle est ÉCRITE en clair. */
+    expect(texte()).toContain('du 01/05/2025 au 28/09/2026');
+    /* La recherche est reprise, dans le champ ET dans les réglages. */
+    expect((hote.querySelector('.hdb-recherche') as HTMLInputElement).value).toBe('quittance');
+    /* Les options sont reprises. */
+    expect(parMot('Avec pièces jointes')?.getAttribute('aria-pressed')).toBe('true');
+    expect(parMot('Plus ancien en haut')).toBeDefined();
+    /* L'interrupteur « tous les mails » est relevé, et la personne cochée l'est. */
+    const maitre = hote.querySelector('.hdb-case--large input') as HTMLInputElement;
+    expect(maitre.checked).toBe(false);
+    /* 🔴 LE MAIL D'OÙ L'ON EST PARTI EST SURLIGNÉ. */
+    const surlignee = hote.querySelector('.hdb-ancre--surlignee') as HTMLElement;
+    expect(surlignee).not.toBeNull();
+    expect(surlignee.id).toBe('hdb-mail-2');
+  });
+
+  /**
+   * 🔴🔴 UN JETON QUI DÉSIGNE L'ÉTAT D'UN **AUTRE** BIEN EST ÉCARTÉ, pas appliqué. C'est le genre de confusion
+   * qu'un copier-coller d'adresse produit tout seul — et appliquer la période d'un autre logement serait un
+   * mensonge d'écran.
+   */
+  it('🔴🔴 un jeton d’un autre bien est ignoré', async () => {
+    window.sessionStorage.setItem('hdb-retour:J2', JSON.stringify({
+      fiche: '999',
+      reglages: {
+        periode: { sorte: 'dates', du: '2020-01-01', au: '2020-12-31' },
+        parties: [], toutesLesParties: true, pieces: 'toutes', ordre: 'recent',
+        grouper: false, texte: '', evenementOuvert: false,
+      },
+      defile: 0, mail: null, page: 0,
+    }));
+    await monter({ jeton: 'J2' });
+    expect(texte()).toContain('tous les échanges, sans borne de date');
+    expect(texte()).not.toContain('du 01/01/2020');
+  });
+
+  /** ⚠️ UN JETON INCONNU N'EMPÊCHE RIEN : l'écran s'ouvre tel quel, jamais en erreur. */
+  it('⚠️ un jeton inconnu ouvre l’écran par défaut', async () => {
+    await monter({ jeton: 'JAMAIS-VU' });
+    expect(texte()).toContain('tous les échanges, sans borne de date');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑥ 🔴🔴 LE GARDE : LES DEUX COMPOSANTS SONT **IMPORTÉS**, PAS RECOPIÉS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

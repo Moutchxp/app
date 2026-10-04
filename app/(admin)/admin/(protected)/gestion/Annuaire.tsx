@@ -102,6 +102,7 @@ const ATTENTE_FRAPPE_MS = 250;
 
 export function Annuaire({
   fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil, poserSurVie = false,
+  jetonHistorique = null, onPoserJeton,
 }: {
   fiche: FicheUrl | null;
   onFiche: (f: FicheUrl | null) => void;
@@ -111,6 +112,9 @@ export function Annuaire({
    * `false` (le défaut) = la fiche s'ouvre par le haut, exactement comme avant ce lot.
    */
   poserSurVie?: boolean;
+  /** LOT HISTORIQUE-BIEN-3, POINT 4 — le jeton de retour vers « l'historique du bien », lu dans l'adresse. */
+  jetonHistorique?: string | null;
+  onPoserJeton?: (jeton: string) => void;
   /**
    * 🔴 LOT FICHES-ANNUAIRE étape B — l'heure de référence de l'écran, pour que « il y a 3 h » soit le même partout.
    * Par défaut, maintenant : une fiche ouverte sans référence n'a pas à afficher des dates fausses.
@@ -460,6 +464,8 @@ export function Annuaire({
                   ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} onEcrire={onEcrire}
                     maintenant={refTemps} onOuvrirFil={onOuvrirFil} gestes={gestes} onCreer={creerEtRattacher}
                     poserSurVieDuBien={vieDuBienVisee === detail.data.id}
+                    jetonHistorique={jetonHistorique}
+                    onPoserJeton={onPoserJeton}
                     onVieDuBienPosee={() => setVieDuBienVisee(null)}
                     filtreVie={filtreVie} onFiltreVie={setFiltreVie}
                     onDepart={(occupationId, sortie) => envoyer({ action: 'depart', occupationId, sortie })} />
@@ -1146,7 +1152,7 @@ function BlocOccupant({ o, ouvrir, onEcrire }: {
  */
 function VueLot({
   f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onCreer, onDepart,
-  poserSurVieDuBien, onVieDuBienPosee, filtreVie, onFiltreVie,
+  poserSurVieDuBien, onVieDuBienPosee, filtreVie, onFiltreVie, jetonHistorique, onPoserJeton,
 }: {
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
   onEcrire?: (email: string) => void;
@@ -1168,6 +1174,9 @@ function VueLot({
    */
   filtreVie: FiltreVie;
   onFiltreVie: (f: FiltreVie) => void;
+  /** LOT HISTORIQUE-BIEN-3 — le jeton de retour lu dans l'adresse, et comment l'y écrire. */
+  jetonHistorique?: string | null;
+  onPoserJeton?: (jeton: string) => void;
 }) {
   const actuels = f.occupations.filter((o) => o.encours);
   const passes = f.occupations.filter((o) => !o.encours);
@@ -1351,6 +1360,10 @@ function VueLot({
           periodes={periodesDesParties(f)}
           evenementOuvertInitial={filtreVie === 'evenement'}
           onOuvrirFil={onOuvrirFil}
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — le va-et-vient avec la conversation : le bloc pose son jeton
+             dans l'adresse AVANT de partir, et le reprend au retour. Voir l'encadré de `hdb` dans `ecranUrl`. */
+          jeton={jetonHistorique ?? null}
+          onPoserJeton={onPoserJeton}
           onEcranComplet={onHistorique === undefined
             ? undefined
             : () => onHistorique({ sorte: 'lot', cle: f.numero, id: null })} />

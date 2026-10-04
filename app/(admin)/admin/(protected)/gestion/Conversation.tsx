@@ -221,7 +221,7 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon, onClassementChange }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon, onClassementChange, onRetourHistoriqueBien }: {
   filId: number;
   /**
    * 🔴 LOT LIGNE-NON-ENVOYE — rouvre le brouillon d'un mail de cet échange qui n'est pas parti. Absent ⇒ la
@@ -320,6 +320,18 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * conversation est exactement celle d'avant ce lot. Ces écrans remontent leur liste au retour, qui se relit.
    */
   onClassementChange?: () => void;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — « ← RETOUR À L'HISTORIQUE DU BIEN » ═══════════════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « un bouton “← Retour à l'historique du bien” dans la conversation [ramène]
+   * EXACTEMENT au même état : même fiche, même période, mêmes parties cochées, mêmes options, même texte de
+   * recherche, même position de défilement, et le mail d'où l'on est parti surligné brièvement. »
+   *
+   * ⚠️ `undefined` QUAND ON NE VIENT PAS DE LÀ, et le bouton n'est alors pas rendu. Un bouton toujours présent
+   * aurait proposé de « revenir » à un écran où l'on n'est jamais allé. C'est l'écran parent qui sait d'où l'on
+   * vient — le jeton est dans l'adresse — et la conversation ne fait que rendre ce qu'on lui donne.
+   */
+  onRetourHistoriqueBien?: () => void;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
@@ -1224,6 +1236,17 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               </button>
             )
             : <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>← Retour</button>)}
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — RETOUR À « L'HISTORIQUE DU BIEN » ═══════════════════════════
+              Arno : « un bouton “← Retour à l'historique du bien” dans la conversation ». Il est À CÔTÉ du
+              retour ordinaire, et non à sa place : les deux sorties ne mènent pas au même endroit, et remplacer
+              l'une par l'autre aurait fait perdre le chemin par lequel on est vraiment arrivé.
+
+              ⚠️ IL N'APPARAÎT QUE SI L'ON VIENT DE LÀ (la prop est alors définie). Un bouton toujours présent
+              aurait proposé de « revenir » à un écran où l'on n'est jamais allé. */}
+          {onRetourHistoriqueBien !== undefined && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn"
+              onClick={onRetourHistoriqueBien}>← Retour à l’historique du bien</button>
+          )}
           {fil.reference && <span className="cnv-ref">{fil.reference}</span>}
           {fil.etat === 'sans_suite' && <span className="cnv-etiquette">classé sans suite</span>}
 

@@ -7,7 +7,8 @@ import {
   SEUIL_REPLI_CARTES, trierFil, type CategoriePartie, type Reglages,
   bornesDuChoix, ciblesDeplacement, compteCacheesEnBas, compteCacheesEnHaut, dernierLocataire,
   GROUPES_EN_BANDE, GROUPES_EN_ENCART, LEGENDE_BARRES, motAgenceEcartee, motCacheesEnBas, motCacheesEnHaut,
-  motDeplacement, MOTIF_NON_DEPLACABLE, motPeriodeEffective, occupationOuverte, partieDeplacable,
+  etatRetourDepuisBrut, motDeplacement, MOTIF_NON_DEPLACABLE, motPeriodeEffective, MS_SURLIGNE_RETOUR,
+  occupationOuverte, partieDeplacable,
   periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, SECONDES_ANNULER_DEPLACEMENT, tonDeLExpediteur, tonDuGroupe,
   type OccupationPeriode, type PositionCapsule,
 } from './historiqueBien';
@@ -947,5 +948,105 @@ describe('⑭ 🔴🔴 le glisser-déposer : les contacts oui, les clients non',
     /* ⚠️ HUIT SECONDES : le temps de lire, de comprendre qu'on s'est trompé, et de viser. Même convention que
        le lot INTERNE-ANNULER, pour que « quelques secondes » veuille dire la même chose partout. */
     expect(SECONDES_ANNULER_DEPLACEMENT).toBe(8);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑮ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — RELIRE UN ÉTAT DE RETOUR, EN SE MÉFIANT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑮ 🔴🔴 l’état de retour, relu et vérifié', () => {
+  const COMPLET = {
+    fiche: '155',
+    reglages: {
+      periode: { sorte: 'dates', du: '2025-05-01', au: '2026-09-28' },
+      parties: ['a@fictif.test', 'b@fictif.test'],
+      toutesLesParties: false,
+      pieces: 'avec',
+      ordre: 'ancien',
+      grouper: true,
+      texte: 'chaudière',
+      evenementOuvert: true,
+    },
+    defile: 1240,
+    mail: 77,
+    page: 2,
+  };
+
+  /**
+   * DEMANDE D'ARNO (05/10/2026) : le retour ramène « même fiche, même période, mêmes parties cochées, mêmes
+   * options, même texte de recherche, même position de défilement, et le mail d'où l'on est parti surligné ».
+   * Les huit champs sont donc relus, un par un.
+   */
+  it('🔴🔴 un état complet revient entier', () => {
+    const e = etatRetourDepuisBrut(COMPLET);
+    expect(e).not.toBeNull();
+    expect(e?.fiche).toBe('155');
+    expect(e?.reglages.periode).toEqual({ sorte: 'dates', du: '2025-05-01', au: '2026-09-28' });
+    expect(e?.reglages.parties).toEqual(['a@fictif.test', 'b@fictif.test']);
+    expect(e?.reglages.toutesLesParties).toBe(false);
+    expect(e?.reglages.pieces).toBe('avec');
+    expect(e?.reglages.ordre).toBe('ancien');
+    expect(e?.reglages.grouper).toBe(true);
+    expect(e?.reglages.texte).toBe('chaudière');
+    expect(e?.reglages.evenementOuvert).toBe(true);
+    expect(e?.defile).toBe(1240);
+    expect(e?.mail).toBe(77);
+    expect(e?.page).toBe(2);
+  });
+
+  /**
+   * 🔴🔴 UN SEUL CHAMP ESSENTIEL ABÎMÉ FAIT RENDRE `null`. Appliquer un état à moitié lu donnerait un écran qui
+   * ne ressemble ni à celui qu'on a quitté ni au défaut — le pire des trois.
+   */
+  it('🔴🔴 sans fiche, sans réglages, ou avec une période inconnue : null', () => {
+    expect(etatRetourDepuisBrut(null)).toBeNull();
+    expect(etatRetourDepuisBrut('pas un objet')).toBeNull();
+    expect(etatRetourDepuisBrut({ ...COMPLET, fiche: '' })).toBeNull();
+    expect(etatRetourDepuisBrut({ ...COMPLET, reglages: undefined })).toBeNull();
+    expect(etatRetourDepuisBrut({ ...COMPLET, reglages: { ...COMPLET.reglages, periode: { sorte: 'lune' } } }))
+      .toBeNull();
+  });
+
+  /**
+   * ⚠️ LES CHAMPS ACCESSOIRES, EUX, RETOMBENT SUR LE DÉFAUT plutôt que de tout jeter : une option illisible ne
+   * justifie pas de perdre la période et les parties cochées, qui sont le travail de la personne.
+   */
+  it('⚠️ une option illisible retombe sur son défaut, sans tout jeter', () => {
+    const e = etatRetourDepuisBrut({
+      ...COMPLET,
+      reglages: { ...COMPLET.reglages, pieces: 'bleu', ordre: 'zigzag', texte: 42, parties: 'pas un tableau' },
+      defile: -5, mail: 0, page: 1.7,
+    });
+    expect(e).not.toBeNull();
+    expect(e?.reglages.pieces).toBe('toutes');
+    expect(e?.reglages.ordre).toBe('recent');
+    expect(e?.reglages.texte).toBe('');
+    expect(e?.reglages.parties).toEqual([]);
+    expect(e?.defile).toBe(0);
+    expect(e?.mail).toBeNull();
+    expect(e?.page).toBe(1);
+  });
+
+  /** ⚠️ UNE DATE ABÎMÉE EST ÉCARTÉE, PAS DEVINÉE — même règle que partout dans ce module. */
+  it('⚠️ une borne illisible devient null', () => {
+    const e = etatRetourDepuisBrut({
+      ...COMPLET, reglages: { ...COMPLET.reglages, periode: { sorte: 'dates', du: '03/07/2024', au: null } },
+    });
+    expect(e?.reglages.periode).toEqual({ sorte: 'dates', du: null, au: null });
+  });
+
+  /** ⚠️ LES PARTIES SONT BORNÉES : le bien le plus fourni en compte 76 ; 200 ferme la porte à un stockage abîmé. */
+  it('⚠️ les parties cochées sont bornées à 200', () => {
+    const e = etatRetourDepuisBrut({
+      ...COMPLET,
+      reglages: { ...COMPLET.reglages, parties: Array.from({ length: 500 }, (_, i) => `p${i}@fictif.test`) },
+    });
+    expect(e?.reglages.parties).toHaveLength(200);
+  });
+
+  /** ⚠️ « BRIÈVEMENT » : la durée d'un regard, pas d'une sélection. */
+  it('⚠️ le surlignage du retour dure deux secondes et demie', () => {
+    expect(MS_SURLIGNE_RETOUR).toBe(2500);
   });
 });

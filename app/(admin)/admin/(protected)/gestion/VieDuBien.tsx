@@ -311,9 +311,18 @@ export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil }: {
             <PiecesJointes messageId={l.messageId} filId={l.filId} vraies={vraies} signatures={signatures}
               gmailDuMail={lienGmail(COMPTE_GESTION_DEFAUT, { messageIdRfc: l.messageIdRfc })} />
           )}
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — LE MOT D'ARNO ════════════════════════════════════════════
+              « “Ouvrir l'échange →” devient “Voir la conversation d'origine →”. Il ouvre la conversation dont le
+              mail est tiré. »
+
+              🔴 LE LIBELLÉ CHANGE ICI, DONC AUX DEUX ENDROITS QUI MONTENT CETTE LIGNE — le bloc « Historique »
+              d'une fiche de bien et le listing de la fiche d'un LOCATAIRE. C'est voulu : c'est le même geste et
+              la même destination, et deux libellés pour une même action se mettraient à divergEr. Le nouveau mot
+              est d'ailleurs le plus juste des deux partout : il dit qu'on quitte une LISTE pour aller voir la
+              conversation D'OÙ le mail est tiré. */}
           {onOuvrirFil && (
             <button type="button" className="gst-lien-bouton"
-              onClick={() => onOuvrirFil(l.filId, l.messageId)}>Ouvrir l’échange →</button>
+              onClick={() => onOuvrirFil(l.filId, l.messageId)}>Voir la conversation d’origine →</button>
           )}
           {l.pieces.length === 0 && (
             <p className="ann-gris">

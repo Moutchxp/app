@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CarteEvenement, EtatEcran, LigneFile } from '../../../../lib/gestion/fileRepo';
 import {
   depuis, etatVeille, formaterDateFr, libelleEtat, LIBELLE_CLASSER, mentionTroncature, messageErreurHttp,
@@ -8,9 +8,12 @@ import {
 } from '../../../../lib/gestion/ecran';
 import {
   ecrireEtatUrl, ETAT_DEFAUT, ETIQUETTE_ARRIVEE, ETIQUETTE_RECEPTION, lireEtatUrl, memeEtat,
-  type EtatEcranUrl, type Etiquette,
+  type EtatEcranUrl, type Etiquette, type FicheUrl,
 } from '../../../../lib/gestion/ecranUrl';
 import { decisionRetour, lireMemoire, memoirePour } from '../../../../lib/gestion/retourEcran';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — de quoi relire l'état rangé derrière le jeton de retour. Le module
+   est PUR : l'importer ici ne tire ni `pg` ni React. */
+import { CLE_RETOUR_BIEN, etatRetourDepuisBrut } from '../../../../lib/gestion/historiqueBien';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { useReleveGestion } from './useReleveGestion';
@@ -411,6 +414,46 @@ export function GestionVue({ intro }: {
    * ⚠️ SANS RIEN DERRIÈRE (adresse collée, nouvel onglet), on ne sort jamais de l'application : on remonte d'un
    * cran logique — le dossier du mail, la liste de l'annuaire, l'écran partagé.
    */
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — REVENIR À « L'HISTORIQUE DU BIEN » DEPUIS LA CONVERSATION ══════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « un bouton “← Retour à l'historique du bien” dans la conversation [ramène]
+   * EXACTEMENT au même état ».
+   *
+   * 🔴 `undefined` QUAND ON NE VIENT PAS DE LÀ, et c'est ce qui fait que le bouton n'existe pas alors. Un bouton
+   * toujours présent aurait proposé de « revenir » à un écran où l'on n'est jamais allé.
+   *
+   * 🔴 LA FICHE EST RELUE DANS L'ÉTAT RANGÉ, et non devinée : la conversation ne sait pas de quel bien elle a
+   * été ouverte, et le jeton, lui, le sait. Deviner la fiche depuis le fil aurait pu ramener sur un AUTRE bien
+   * — un même échange peut porter plusieurs logements.
+   *
+   * ⚠️ `pousser: true` : on AJOUTE une entrée d'historique plutôt que de reculer, parce qu'on peut être arrivé
+   * dans la conversation par un autre chemin que le bloc (un clic dans la boîte, puis une navigation). Reculer
+   * aurait alors quitté un écran qu'on n'avait pas ouvert depuis la fiche.
+   */
+  /**
+   * 🔴 LE DERNIER JETON POSÉ PAR LE BLOC « HISTORIQUE DU BIEN ». Une référence et non un état : il est lu dans
+   * le MÊME geste que celui qui le pose, avant tout nouveau rendu. Voir la correction notée sur `onOuvrirFil`.
+   */
+  const jetonPose = useRef<string | null>(null);
+
+  const retourHistoriqueBien = useMemo(() => {
+    const j = etatUrl.hdb ?? null;
+    if (j === null || typeof window === 'undefined') return undefined;
+    let fiche: FicheUrl | null = null;
+    try {
+      const brut = window.sessionStorage.getItem(`${CLE_RETOUR_BIEN}${j}`);
+      const e = brut === null ? null : etatRetourDepuisBrut(JSON.parse(brut));
+      /* La clé rangée est la clé WIPPIMMO du bien : l'adresse de la fiche l'écrit `bien-<n>` (lot
+         HISTORIQUES-UNE-SEULE-REGLE, point 6), la seule forme qui marche avec un numéro de lot. */
+      const n = e === null ? Number.NaN : Number(e.fiche);
+      if (Number.isSafeInteger(n) && n > 0) fiche = { sorte: 'bien', id: n };
+    } catch { fiche = null; }
+    if (fiche === null) return undefined;
+    const cible = fiche;
+    return () => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: cible, hdb: j });
+  }, [etatUrl.hdb, aller]);
+
   const retour = useCallback(() => {
     if (typeof window === 'undefined') return;
     const courant = lireEtatUrl(window.location.search);
@@ -1082,9 +1125,25 @@ export function GestionVue({ intro }: {
           /* 🔴 LOT FICHES-ANNUAIRE étape B — l'heure de référence de l'écran, et le chemin vers un échange :
              « la vie du bien » liste les mails du logement, et un clic doit pouvoir en ouvrir un dans la boîte. */
           maintenant={ref}
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — LE JETON SUIT JUSQU'À LA CONVERSATION. Sans lui, la
+             conversation ne saurait pas qu'elle a un « historique du bien » où revenir, et le bouton « ← Retour
+             à l'historique du bien » n'aurait rien à viser. `etatUrl.hdb` a été posé juste avant, par
+             `onPoserJeton`, sur l'adresse de la FICHE — c'est elle que « Précédent » retrouve. */
           onOuvrirFil={(id, messageId) => aller({
             ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null,
+            /**
+             * 🔴🔴 LE JETON VIENT DE LA **RÉFÉRENCE**, ET NON DE `etatUrl` — correction mesurée dans Chrome.
+             * Le bloc pose son jeton puis ouvre la conversation dans le MÊME geste : à cet instant, `setEtatUrl`
+             * n'a pas encore re-rendu, et `etatUrl` porte donc encore l'état d'AVANT (jeton nul). La conversation
+             * arrivait sans jeton, et son bouton « ← Retour à l'historique du bien » n'avait rien à viser.
+             * Une référence, elle, est à jour immédiatement.
+             */
+            hdb: jetonPose.current ?? etatUrl.hdb ?? null,
           })}
+          /* 🔴 LE JETON S'ÉCRIT DANS L'ADRESSE COURANTE, SANS EMPILER D'ENTRÉE. `memeEtat` ignore `hdb`
+             exprès : `aller` fait donc un `replaceState`, et l'entrée qu'on quitte porte le jeton. */
+          jetonHistorique={etatUrl.hdb ?? null}
+          onPoserJeton={(j) => { jetonPose.current = j; aller({ ...etatUrl, hdb: j }); }}
           /* 🔴🔴 LOT FLECHES-RETOUR — « ← Retour » revient à l'écran précédent RÉELLEMENT visité : la liste de
              l'annuaire quand on y a ouvert une fiche, le MAIL quand on est venu d'un mail. Avant ce lot, il
              ramenait toujours à la boîte — le second défaut constaté par Arno. */
@@ -1107,6 +1166,9 @@ export function GestionVue({ intro }: {
              perdre, sinon elle l'annonce. Le compteur retombe à zéro dès qu'elle s'est relue. */
           versionDonnees={courrierNouveau} onListeRelue={() => setCourrierNouveau(0)}
           etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — voir `retourHistoriqueBien` : c'est l'écran « boîte » qui
+             rend la conversation ouverte depuis « Voir la conversation d'origine → ». */
+          onRetourHistoriqueBien={retourHistoriqueBien}
           /* LOT MESSAGE-CLIQUÉ — le message que la ligne cliquée représentait, lu dans l'adresse. */
           messageOuvert={messageOuvert}
           auto={auto} onAuto={setAuto} onNonLus={majNonLus} onTotalEtiquette={majTotalEtiquette}
@@ -1178,6 +1240,9 @@ export function GestionVue({ intro }: {
               <Conversation filId={filOuvert} maintenant={ref} messageVise={messageOuvert}
                 /* 🔴 LOT FLECHES-RETOUR — le MÊME retour que partout ailleurs. */
                 onFerme={retour}
+                /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — « ← Retour à l'historique du bien », offert SEULEMENT
+                   quand on vient de là (le jeton est dans l'adresse). Voir `retourHistoriqueBien`. */
+                onRetourHistoriqueBien={retourHistoriqueBien}
                 onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
                 onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
                 onGeste={(m, o) => { surGeste(m, o); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
@@ -1192,6 +1257,8 @@ export function GestionVue({ intro }: {
           <Conversation filId={filOuvert} maintenant={ref} messageVise={messageOuvert}
             /* 🔴 LOT FLECHES-RETOUR — le MÊME retour que partout ailleurs. */
             onFerme={retour}
+            /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — voir `retourHistoriqueBien`. */
+            onRetourHistoriqueBien={retourHistoriqueBien}
             onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
             onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
             onGeste={(m, o) => { surGeste(m, o); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />

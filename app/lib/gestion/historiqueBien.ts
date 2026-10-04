@@ -834,6 +834,107 @@ export function motPeriodeEffective(p: ChoixPeriode): string {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤-bis 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — REVENIR EXACTEMENT OÙ L'ON ÉTAIT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 TOUT CE QU'IL FAUT POUR RETROUVER L'ÉCRAN AU PIXEL ═════════════════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : « Le bouton RETOUR du navigateur, et un bouton “← Retour à l'historique du bien”
+ * dans la conversation, ramènent EXACTEMENT au même état : même fiche, même période, mêmes parties cochées,
+ * mêmes options, même texte de recherche, même position de défilement, et le mail d'où l'on est parti surligné
+ * brièvement. L'état vit dans l'adresse de la page (paramètres d'URL) pour survivre au retour. »
+ *
+ * 🔴🔴 CE QUI VOYAGE DANS L'ADRESSE EST UN **JETON**, PAS CET OBJET — ET C'EST UN ÉCART QUE JE DOIS DIRE. Cet
+ * état porte les ADRESSES DES PERSONNES cochées, et le texte de recherche (souvent un nom). Les écrire dans une
+ * adresse les met dans l'historique du navigateur, dans les journaux du serveur et dans tout lien copié : ce
+ * dépôt refuse cela partout ailleurs, et je ne vais pas l'autoriser ici pour une commodité de navigation.
+ * L'adresse porte donc une clé courte et anonyme ; CET objet vit dans le `sessionStorage` de l'onglet, sous
+ * cette clé. L'exigence d'Arno est tenue — le retour retrouve l'écran exact — par un chemin qui ne publie rien.
+ *
+ * ⚠️ `fiche` EST GARDÉE ET VÉRIFIÉE AU RETOUR : un jeton qui désignerait l'état d'un AUTRE bien doit être
+ * ignoré, pas appliqué. C'est le genre de confusion qu'un copier-coller d'adresse produit tout seul.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface EtatRetourBien {
+  /** La clé WIPPIMMO du bien dont c'est l'état. Vérifiée au retour : un état d'un autre bien est écarté. */
+  fiche: string;
+  reglages: Reglages;
+  /** Le défilement de la PAGE, en pixels. `0` = le haut. */
+  defile: number;
+  /** Le mail d'où l'on est parti : il sera surligné brièvement au retour. */
+  mail: number | null;
+  /** Le rang de page du fil, pour ne pas revenir sur la première quand on lisait la troisième. */
+  page: number;
+}
+
+/** Le préfixe des clés du `sessionStorage`. Nommé ici pour que l'écriture et la lecture ne puissent pas divergEr. */
+export const CLE_RETOUR_BIEN = 'hdb-retour:';
+
+/**
+ * ══ 🔴 RELIRE UN ÉTAT DE RETOUR, EN SE MÉFIANT ══════════════════════════════════════════════════════════════════
+ *
+ * Il vient du `sessionStorage`, donc d'une version antérieure de l'application aussi bien que de la nôtre.
+ * Chaque champ est donc VÉRIFIÉ, et un seul champ abîmé fait rendre `null` : appliquer un état à moitié lu
+ * donnerait un écran qui ne ressemble ni à celui qu'on a quitté ni au défaut — le pire des trois.
+ *
+ * ⚠️ `parties` EST BORNÉE À 200 ADRESSES : le bien le plus fourni en compte 76, et une borne empêche un
+ * `sessionStorage` abîmé de faire une requête démesurée.
+ */
+export function etatRetourDepuisBrut(v: unknown): EtatRetourBien | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const r = o.reglages as Record<string, unknown> | undefined;
+  if (typeof o.fiche !== 'string' || o.fiche === '' || typeof r !== 'object' || r === null) return null;
+
+  const p = r.periode as Record<string, unknown> | undefined;
+  if (typeof p !== 'object' || p === null) return null;
+  const sorte = p.sorte;
+  if (sorte !== 'tous' && sorte !== 'dates' && sorte !== 'occupation' && sorte !== 'evenement') return null;
+  const jour = (x: unknown): string | null => (typeof x === 'string' ? jourValide(x) : null);
+  const periode: ChoixPeriode = sorte === 'tous'
+    ? { sorte: 'tous' }
+    : sorte === 'evenement'
+      ? {
+        sorte: 'evenement',
+        evenementId: typeof p.evenementId === 'number' && Number.isSafeInteger(p.evenementId) ? p.evenementId : 0,
+        du: jour(p.du), au: jour(p.au),
+      }
+      : { sorte, du: jour(p.du), au: jour(p.au) };
+
+  const pieces = r.pieces;
+  const ordre = r.ordre;
+  const nombre = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? Math.floor(x) : 0);
+  return {
+    fiche: o.fiche,
+    reglages: {
+      periode,
+      parties: Array.isArray(r.parties)
+        ? r.parties.filter((x): x is string => typeof x === 'string').slice(0, 200)
+        : [],
+      toutesLesParties: r.toutesLesParties !== false,
+      pieces: pieces === 'avec' || pieces === 'sans' ? pieces : 'toutes',
+      ordre: ordre === 'ancien' ? 'ancien' : 'recent',
+      grouper: r.grouper === true,
+      texte: typeof r.texte === 'string' ? r.texte.slice(0, 200) : '',
+      evenementOuvert: r.evenementOuvert === true,
+    },
+    defile: nombre(o.defile),
+    mail: typeof o.mail === 'number' && Number.isSafeInteger(o.mail) && o.mail > 0 ? o.mail : null,
+    page: nombre(o.page),
+  };
+}
+
+/**
+ * Combien de temps le mail d'où l'on vient reste surligné au retour.
+ *
+ * ⚠️ « BRIÈVEMENT » (Arno) : assez pour que l'œil le trouve, assez peu pour qu'il ne reste pas marqué comme s'il
+ * avait un état particulier. Deux secondes et demie — la durée d'un regard, pas d'une sélection.
+ */
+export const MS_SURLIGNE_RETOUR = 2500;
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑥ LES RÉGLAGES, RENDUS EN PARAMÈTRES POUR LA ROUTE EXISTANTE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

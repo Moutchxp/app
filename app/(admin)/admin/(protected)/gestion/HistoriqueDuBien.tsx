@@ -43,9 +43,10 @@ import {
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
   ciblesDeplacement, compteCacheesEnBas, compteCacheesEnHaut, GROUPES_EN_BANDE, GROUPES_EN_ENCART,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
-  SECONDES_ANNULER_DEPLACEMENT,
+  CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
   replierLesCartes, SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
-  type CategoriePartie, type CleGroupeParties, type GroupeParties, type OccupationPeriode,
+  type CategoriePartie, type CleGroupeParties, type EtatRetourBien, type GroupeParties,
+  type OccupationPeriode,
   type PeriodePartie, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
 /**
@@ -108,7 +109,7 @@ const ATTENTE_FRAPPE_MS = 250;
 
 export function HistoriqueDuBien({
   lotCle, maintenant, occupations, categories, periodes = new Map(),
-  evenementOuvertInitial = false, onOuvrirFil, onEcranComplet,
+  evenementOuvertInitial = false, onOuvrirFil, onEcranComplet, jeton = null, onPoserJeton,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
   lotCle: string;
@@ -161,22 +162,56 @@ export function HistoriqueDuBien({
    * ⚠️ FACULTATIVE : sans elle, le lien n'est pas rendu. La fiche ne la passe que si elle sait où mener.
    */
   onEcranComplet?: () => void;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — LE VA-ET-VIENT AVEC LA CONVERSATION ════════════════════════════════
+   *
+   * `jeton` : la clé lue dans l'adresse. Non nulle ⇒ on REVIENT d'une conversation, et l'état complet est à
+   * reprendre dans le `sessionStorage` de l'onglet.
+   *
+   * `onPoserJeton` : demande à l'écran parent d'écrire cette clé dans l'adresse, SANS empiler d'entrée
+   * d'historique. C'est l'entrée qu'on quitte qui doit la porter — sinon « Précédent » ramènerait à la fiche
+   * SANS son état, c'est-à-dire exactement le défaut qu'Arno a signalé.
+   */
+  jeton?: string | null;
+  onPoserJeton?: (jeton: string) => void;
 }) {
+  /**
+   * ══ 🔴🔴 L'ÉTAT REPRIS AU RETOUR, LU UNE FOIS, AVANT TOUT (lot HISTORIQUE-BIEN-3, point 4) ═══════════════════
+   *
+   * 🔴 LU DANS L'INITIALISEUR DE `useState`, ET NON DANS UN EFFET. Dans un effet, le bloc se serait affiché une
+   * fraction de seconde avec les réglages PAR DÉFAUT, aurait lancé la requête correspondante, puis se serait
+   * corrigé : deux requêtes, un clignotement, et un fil qui saute sous les yeux. Ici, le premier rendu est déjà
+   * le bon.
+   *
+   * ⚠️ LA FICHE EST VÉRIFIÉE : un jeton qui désignerait l'état d'un AUTRE bien est écarté, pas appliqué — c'est
+   * le genre de confusion qu'un copier-coller d'adresse produit tout seul.
+   */
+  const repris = useMemo((): EtatRetourBien | null => {
+    if (jeton === null || typeof window === 'undefined') return null;
+    try {
+      const brut = window.sessionStorage.getItem(`${CLE_RETOUR_BIEN}${jeton}`);
+      if (brut === null) return null;
+      const e = etatRetourDepuisBrut(JSON.parse(brut));
+      return e !== null && e.fiche === lotCle ? e : null;
+    } catch { return null; }
+  }, [jeton, lotCle]);
+
   const [reglages, setReglages] = useState<Reglages>(
-    evenementOuvertInitial ? { ...REGLAGES_DEFAUT, evenementOuvert: true } : REGLAGES_DEFAUT);
+    repris?.reglages
+    ?? (evenementOuvertInitial ? { ...REGLAGES_DEFAUT, evenementOuvert: true } : REGLAGES_DEFAUT));
   /**
    * ⚠️ LA SAISIE ET LE RÉGLAGE SONT DEUX ÉTATS, ET IL LE FAUT. Le champ doit répondre à chaque lettre (sinon il
    * paraît cassé) ; la REQUÊTE, elle, n'part qu'après le silence. Les confondre aurait donné l'un ou l'autre
    * défaut : un champ qui saute, ou une requête par caractère.
    */
-  const [saisie, setSaisie] = useState('');
+  const [saisie, setSaisie] = useState(repris?.reglages.texte ?? '');
   useEffect(() => {
     const t = setTimeout(
       () => setReglages((r) => (r.texte === saisie ? r : { ...r, texte: saisie })),
       saisie.trim() === '' ? 0 : ATTENTE_FRAPPE_MS);
     return () => clearTimeout(t);
   }, [saisie]);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(repris?.page ?? 0);
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [deplie, setDeplie] = useState<Set<number>>(new Set());
   const [evenements, setEvenements] = useState<EvenementDuBien[]>([]);
@@ -189,6 +224,8 @@ export function HistoriqueDuBien({
    * repli — on sait s'il y a quelque chose à ouvrir avant de l'ouvrir.
    */
   const [resumeHaut, setResumeHaut] = useState(false);
+  /** Le mail d'où l'on est parti, surligné BRIÈVEMENT au retour (demande d'Arno). */
+  const [mailSurligne, setMailSurligne] = useState<number | null>(repris?.mail ?? null);
 
   /**
    * ══ 🔴 LE REPLI DES GROUPES : UN ENSEMBLE DE **BASCULES**, PAS D'ÉTATS ═══════════════════════════════════════
@@ -495,6 +532,71 @@ export function HistoriqueDuBien({
     const t = setTimeout(() => setDernierGeste(null), SECONDES_ANNULER_DEPLACEMENT * 1000);
     return () => clearTimeout(t);
   }, [dernierGeste]);
+
+  /**
+   * ══ 🔴🔴 QUITTER VERS LA CONVERSATION — EN POSANT DE QUOI REVENIR (lot HISTORIQUE-BIEN-3, point 4) ═══════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * DEMANDE D'ARNO : « Le bouton RETOUR du navigateur, et un bouton “← Retour à l'historique du bien” dans la
+   * conversation, ramènent EXACTEMENT au même état : même fiche, même période, mêmes parties cochées, mêmes
+   * options, même texte de recherche, même position de défilement, et le mail d'où l'on est parti surligné
+   * brièvement. »
+   *
+   * 🔴 L'ORDRE DES DEUX GESTES EST TOUT LE MÉCANISME. On RANGE l'état et on POSE le jeton dans l'adresse
+   * COURANTE — celle de la fiche — AVANT de naviguer. L'entrée d'historique qu'on quitte porte alors le jeton, et
+   * « Précédent » y revient avec de quoi tout retrouver. Poser le jeton après aurait écrit sur l'adresse de la
+   * CONVERSATION : le retour serait revenu à une fiche nue, c'est-à-dire au défaut qu'Arno signale.
+   *
+   * 🔴 LE DÉFILEMENT EST LU AU DERNIER MOMENT, et celui de la PAGE, pas du bloc : c'est la page qui défile quand
+   * on lit un fil. Le lire plus tôt (à chaque rendu, par exemple) aurait rangé une position périmée.
+   *
+   * ⚠️ UNE CLÉ ALÉATOIRE PAR DÉPART. Réutiliser une clé fixe aurait fait qu'un second aller-retour écrase l'état
+   * du premier — et le « Précédent » profond serait revenu sur un écran qui n'était pas le sien.
+   *
+   * ⚠️ `sessionStorage` PEUT REFUSER (navigation privée, quota, données de site bloquées) : on NE casse rien. Le
+   * mail s'ouvre quand même, et le retour retombe sur le comportement d'avant ce lot.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const ouvrirLaConversation = useCallback((filId: number, messageId?: number | null): void => {
+    if (typeof window !== 'undefined' && onPoserJeton !== undefined) {
+      try {
+        const cle = (window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`)
+          .replace(/[^A-Za-z0-9-]/g, '').slice(0, 32);
+        const etatRetour: EtatRetourBien = {
+          fiche: lotCle,
+          reglages,
+          defile: Math.round(window.scrollY),
+          mail: messageId ?? null,
+          page,
+        };
+        window.sessionStorage.setItem(`${CLE_RETOUR_BIEN}${cle}`, JSON.stringify(etatRetour));
+        onPoserJeton(cle);
+      } catch {
+        /* Silence volontaire : on perd le retour exact, jamais l'ouverture du mail. */
+      }
+    }
+    onOuvrirFil?.(filId, messageId);
+  }, [lotCle, onOuvrirFil, onPoserJeton, page, reglages]);
+
+  /**
+   * ══ 🔴 AU RETOUR : LE DÉFILEMENT, PUIS LE SURLIGNAGE QUI S'EFFACE ════════════════════════════════════════════
+   *
+   * ⚠️ LE DÉFILEMENT ATTEND QUE LE FIL SOIT LÀ. Restaurer la position avant que les mails soient rendus aurait
+   * fait défiler une page encore courte — on serait retombé en bas, ou nulle part. On attend donc le premier
+   * rendu `ok` du fil.
+   */
+  const defileRepris = useRef(false);
+  useEffect(() => {
+    if (repris === null || defileRepris.current || etat.v !== 'ok' || typeof window === 'undefined') return;
+    defileRepris.current = true;
+    window.scrollTo({ top: repris.defile });
+  }, [repris, etat.v]);
+
+  useEffect(() => {
+    if (mailSurligne === null) return undefined;
+    const t = setTimeout(() => setMailSurligne(null), MS_SURLIGNE_RETOUR);
+    return () => clearTimeout(t);
+  }, [mailSurligne]);
 
   /**
    * Régler la période sur le bail d'un locataire, depuis sa capsule. 🔴 C'est le geste du lot 1 — choisir la
@@ -1178,14 +1280,14 @@ export function HistoriqueDuBien({
                       <span className="gst-compte">{c.lignes.length}</span>
                     </h5>
                     <FilDeMails lignes={c.lignes} maintenant={maintenant} deplie={deplie}
-                      categories={categoriesFusionnees}
-                      onBasculer={basculerMail} onOuvrirFil={onOuvrirFil} />
+                      categories={categoriesFusionnees} surligne={mailSurligne}
+                      onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation} />
                   </section>
                 ))
                 : (
                   <FilDeMails lignes={lignes} maintenant={maintenant} deplie={deplie}
-                    categories={categoriesFusionnees}
-                    onBasculer={basculerMail} onOuvrirFil={onOuvrirFil} />
+                    categories={categoriesFusionnees} surligne={mailSurligne}
+                    onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation} />
                 )}
 
               <div className="vdb-pages">
@@ -1592,12 +1694,14 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
  * importé tel quel et n'a pas de prop `id` (et lui en ajouter une aurait touché « Vie du bien », ce qui est
  * interdit). Un `ol > li > ol > li` est du HTML valide ; l'enveloppe ne porte aucun style propre.
  */
-function FilDeMails({ lignes, maintenant, deplie, categories, onBasculer, onOuvrirFil }: {
+function FilDeMails({ lignes, maintenant, deplie, categories, surligne, onBasculer, onOuvrirFil }: {
   lignes: readonly LigneHistorique[];
   maintenant: Date;
   deplie: ReadonlySet<number>;
   /** Pour la BARRE DE COULEUR : la catégorie retenue de chaque adresse, clé en minuscules. */
   categories: ReadonlyMap<string, CategoriePartie>;
+  /** Le mail d'où l'on est parti, surligné brièvement au retour d'une conversation. */
+  surligne: number | null;
   onBasculer: (messageId: number) => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
 }) {
@@ -1616,7 +1720,8 @@ function FilDeMails({ lignes, maintenant, deplie, categories, onBasculer, onOuvr
          * message » porte donc la barre, en `border-right` — zéro élément de plus dans le document.
          */
         <li key={l.messageId} id={`hdb-mail-${l.messageId}`}
-          className={`hdb-ancre hdb-barre hdb-barre--${tonDeLExpediteur(l, categories)}`}>
+          className={`hdb-ancre hdb-barre hdb-barre--${tonDeLExpediteur(l, categories)}`
+            + `${surligne === l.messageId ? ' hdb-ancre--surlignee' : ''}`}>
           <ol className="vdb-liste">
             <LigneVie l={l} maintenant={maintenant} ouvert={deplie.has(l.messageId)}
               onBasculer={() => onBasculer(l.messageId)} onOuvrirFil={onOuvrirFil} />
@@ -1931,28 +2036,42 @@ ${CSS_PIECES}
 .hdb-legende-barres{display:flex;flex-wrap:wrap;gap:.2rem .8rem;margin:.4rem 0 .3rem;font-size:.7rem;
   color:var(--color-svv-muted);min-width:0}
 .hdb-legende-item{display:inline-flex;align-items:center;gap:.3rem}
-.hdb-legende-pastille{display:inline-block;width:3px;height:12px;border-radius:2px;flex:0 0 auto}
-.hdb-legende-pastille--rouge{background:var(--color-svv-red)}
-.hdb-legende-pastille--vert{background:var(--color-svv-green)}
-.hdb-legende-pastille--bleu{background:var(--color-svv-blue)}
+/* LA PASTILLE DE LEGENDE montre les DEUX liseres, comme le mail : un seul trait aurait decrit autre chose que
+   ce qu'on voit. 9 px de large pour deux traits de 3 px et leur intervalle. */
+.hdb-legende-pastille{display:inline-block;width:9px;height:12px;border-radius:2px;flex:0 0 auto;
+  border-left:3px solid transparent;border-right:3px solid transparent}
+.hdb-legende-pastille--rouge{border-left-color:var(--color-svv-red);border-right-color:var(--color-svv-red)}
+.hdb-legende-pastille--vert{border-left-color:var(--color-svv-green);border-right-color:var(--color-svv-green)}
+.hdb-legende-pastille--bleu{border-left-color:var(--color-svv-blue);border-right-color:var(--color-svv-blue)}
 /* GRIS POINTILLE : un trait discontinu, et non un gris plein — il dit qu'il reste un geste a faire. */
-.hdb-legende-pastille--gris{background:none;border-right:3px dashed var(--color-svv-line-strong);width:3px}
+.hdb-legende-pastille--gris{border-left:3px dashed var(--color-svv-line-strong);
+  border-right:3px dashed var(--color-svv-line-strong)}
 /* « NOUS » N'A AUCUNE COULEUR (demande d'Arno) : la pastille est donc VIDE, et le mot porte tout. */
-.hdb-legende-pastille--nous{background:none}
+.hdb-legende-pastille--nous{border-left-color:transparent;border-right-color:transparent}
 
 /* ── LE FIL ── La liste exterieure porte l'ancre de « Aller au message » ET la barre de couleur. */
 .hdb-liste{list-style:none;margin:0;padding:0}
 .hdb-ancre{min-width:0;scroll-margin-top:12px}
-/* ══ LA BARRE VERTICALE, A DROITE DE CHAQUE MAIL ══ Portee par l'enveloppe du mail, en border-right : zero
-   element de plus dans le document, et LigneVie n'est pas touchee (elle sert aussi un autre ecran).
-   ⚠️ 3 px ET UN COIN ARRONDI A DROITE : assez pour se voir du coin de l'oeil, assez peu pour ne pas peser. */
-.hdb-barre{border-right:3px solid transparent;border-radius:0 10px 10px 0}
-.hdb-barre--rouge{border-right-color:var(--color-svv-red)}
-.hdb-barre--vert{border-right-color:var(--color-svv-green)}
-.hdb-barre--bleu{border-right-color:var(--color-svv-blue)}
-.hdb-barre--gris{border-right-style:dashed;border-right-color:var(--color-svv-line-strong)}
-/* « nous » : AUCUNE couleur. La barre reste transparente, donc la largeur ne saute pas d'un mail a l'autre. */
-.hdb-barre--nous{border-right-color:transparent}
+/* ══ LE MAIL D'OU L'ON EST PARTI, SURLIGNE BRIEVEMENT AU RETOUR (lot HISTORIQUE-BIEN-3, point 4) ══════════════
+   ⚠️ UN FOND, ET NON UNE BORDURE : les deux bords portent deja le lisere de categorie, et une troisieme couleur
+   de bord se serait lue comme une categorie de plus. Le fond, lui, ne se confond avec rien. */
+.hdb-ancre--surlignee{background:var(--color-svv-amber-soft);border-radius:10px}
+/* ══ LES DEUX LISERES, A GAUCHE **ET** A DROITE DE CHAQUE MAIL (lot HISTORIQUE-BIEN-3, point 4) ════════════════
+   DEMANDE D'ARNO : « Lisere de couleur des DEUX cotes de la capsule du mail (gauche ET droite), meme epaisseur,
+   meme couleur, meme arrondi que celui d'aujourd'hui. » L'arrondi est donc symetrique, et les deux bords
+   partagent la meme declaration : une seule regle, impossible de les faire diverger d'un pixel.
+   ⚠️ 3 px DE CHAQUE COTE : assez pour se voir du coin de l'oeil, assez peu pour ne pas peser.
+   Portes par l'enveloppe du mail : zero element de plus dans le document, et LigneVie n'est pas touchee
+   (elle sert aussi la fiche d'un locataire). */
+.hdb-barre{border-left:3px solid transparent;border-right:3px solid transparent;border-radius:10px}
+.hdb-barre--rouge{border-left-color:var(--color-svv-red);border-right-color:var(--color-svv-red)}
+.hdb-barre--vert{border-left-color:var(--color-svv-green);border-right-color:var(--color-svv-green)}
+.hdb-barre--bleu{border-left-color:var(--color-svv-blue);border-right-color:var(--color-svv-blue)}
+.hdb-barre--gris{border-left-style:dashed;border-right-style:dashed;
+  border-left-color:var(--color-svv-line-strong);border-right-color:var(--color-svv-line-strong)}
+/* « nous » : AUCUNE couleur, des deux cotes. Les bords restent transparents, donc la largeur du listing ne
+   saute pas d'un mail a l'autre — ce qui serait pire qu'une couleur de trop. */
+.hdb-barre--nous{border-left-color:transparent;border-right-color:transparent}
 /* ── REGROUPER PAR CONVERSATION ── L'objet de l'echange au-dessus de ses mails, comme un intertitre. */
 .hdb-conv{margin:0 0 10px;min-width:0}
 .hdb-conv-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:0 0 .3rem;font-size:.8rem;
