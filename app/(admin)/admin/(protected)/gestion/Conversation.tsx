@@ -1966,12 +1966,20 @@ function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
     : nbMailsCouverts({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
 
   return (
-    <li className={`cnv-repere cnv-repere--${cote}`} ref={li}
+    <li className={`cnv-repere cnv-repere--${cote}${hauteur > 0 ? ' cnv-repere--mesure' : ''}`} ref={li}
       style={{ ['--cnv-repere-h' as string]: `${Math.round(hauteur)}px` }}>
       {/* 🔴🔴 LES DEUX BRAS DU CADRE — UN SEUL TRAIT CHACUN, SANS COUPURE À L'ANGLE.
           Chaque bras est UNE boîte qui porte deux bordures (l'horizontale et la verticale) et un rayon sur
           l'angle qui les joint : le trait est donc continu par construction, et arrondi. Deux traits séparés
-          laissaient un décroché d'un pixel au coin — c'est le défaut qu'Arno a vu. */}
+          laissaient un décroché d'un pixel au coin — c'est le défaut qu'Arno a vu.
+
+          🔴 ET CHACUN PORTE, AU BOUT, UNE PETITE FLÈCHE ROUGE (lot RENOMMER-PARTOUT-ET-FINITIONS, point 3). Elle
+          est dessinée par le `::after` du bras, et pointe dans le sens où la branche va — donc toujours vers le
+          mail concerné. Elle s'inverse avec le tri sans rien savoir du tri : voir la feuille.
+
+          ⚠️ `cnv-repere--mesure` N'EST PAS DÉCORATIF : tant que le `ResizeObserver` n'a pas mesuré le mail voisin
+          — et pour toujours s'il n'y a pas de voisin — la hauteur vaut 0, la branche ne se voit pas, et une flèche
+          posée là flotterait seule à côté de la phrase. Elle n'apparaît donc qu'avec sa branche. */}
       <span className="cnv-repere-bras cnv-repere-bras--gauche" aria-hidden="true" />
       <span className="cnv-repere-phrase">
         <span className="cnv-repere-mot">À partir d’ici : {r.versQuoi}</span>
@@ -2933,6 +2941,46 @@ export const CSS_CONVERSATION = `
 .cnv-repere--dessous .cnv-repere-bras::before{bottom:0;border-bottom-width:1px}
 .cnv-repere--dessous .cnv-repere-bras--gauche::before{border-left-width:1px;border-bottom-left-radius:10px}
 .cnv-repere--dessous .cnv-repere-bras--droite::before{border-right-width:1px;border-bottom-right-radius:10px}
+/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 3 — UNE PETITE FLECHE AU BOUT DE CHAQUE BRANCHE ═════════════
+   Demande d'Arno (04/10/2026) : « tout reste identique. Ajoute seulement une petite fleche rouge a l'extremite de
+   chaque branche (gauche et droite), qui pointe vers le cote de la conversation concerne par le changement. Les
+   fleches suivent l'ordre d'affichage : elles s'inversent avec Plus recent d'abord / Plus ancien d'abord. »
+
+   🔴 LES FLECHES NE CONNAISSENT PAS LE TRI, ET C'EST TOUT L'INTERET. Elles pendent des memes variantes --dessus /
+   --dessous que le trace, et c'est deja coteDuRepere(ordre) qui decide de ce cote : l'inversion est donc acquise
+   PAR CONSTRUCTION. Une seconde regle qui aurait relu l'ordre d'affichage aurait fait une deuxieme verite a tenir,
+   et le point 4 de ce meme lot dit assez ce que deux verites coutent (la modale disait le contraire de la liste).
+
+   🔴 LA FLECHE POINTE DANS LE SENS OU LA BRANCHE VA : vers le BAS quand le repere est au-dessus du mail (sa
+   branche descend le long de ce mail), vers le HAUT quand il est en dessous. C'est donc toujours le mail concerne
+   par le changement qu'elle designe, dans les deux tris, sans cas particulier.
+
+   LE DESSIN : le triangle CSS — une boite de taille nulle, quatre bordures transparentes, une seule coloree. Le
+   ::before du bras portant deja le trace de la branche, c'est son ::after qui porte la pointe.
+
+   ⚠️ LA POINTE TOMBE EXACTEMENT AU BOUT DU TRAIT. Un triangle de bordure a son sommet au CENTRE de la boite, pas
+   sur son bord : la boite commence donc 5 px (sa demi-taille) avant la mi-hauteur du mail. Sans ce retrait, la
+   fleche depassait la branche de 5 px.
+   ⚠️ ELLE EST CENTREE SUR LE TRAIT D'1 PX : -4,5 px, soit la demi-largeur du triangle moins la demi-bordure. A
+   gauche on compte depuis le bord gauche du bras, a droite depuis son bord droit — d'ou les deux regles.
+
+   ⚠️ ET CE CENTRAGE DEBORDE DE 4,5 PX DE CHAQUE COTE DE LA COLONNE, c'est assume et c'est mesure. Un trait pose
+   sur le bord d'une boite ne peut pas porter une pointe SYMETRIQUE sans la depasser d'une demi-largeur : la seule
+   autre facon etait de rentrer la fleche de 5 px, et a l'ecran elle se lit alors comme un fanion accroche a cote
+   du trait, plus comme une pointe. Mesure sur le fil 3490 (fleche seule, retiree puis remise) : la colonne passe
+   de 1232 a 1237 px de contenu, et la PAGE ne defile pas pour autant (scrollWidth = clientWidth = 1512). En
+   largeur telephone, le debordement mesure est le MEME avec et sans la fleche : elle n'en ajoute aucun.
+   ⚠️ ELLE N'APPARAIT QU'AVEC SA BRANCHE (.cnv-repere--mesure) : voir le commentaire du JSX.
+   ⚠️ COULEUR : var(--color-svv-red), le MEME jeton que le trace — lisible en Clair comme en Sombre, jamais une
+   couleur en dur.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+.cnv-repere-bras::after{content:"";position:absolute;width:0;height:0;border:5px solid transparent}
+.cnv-repere--mesure.cnv-repere--dessus .cnv-repere-bras::after{top:calc(var(--cnv-repere-h) / 2 - 5px);
+  border-top-color:var(--color-svv-red)}
+.cnv-repere--mesure.cnv-repere--dessous .cnv-repere-bras::after{bottom:calc(var(--cnv-repere-h) / 2 - 5px);
+  border-bottom-color:var(--color-svv-red)}
+.cnv-repere-bras--gauche::after{left:-4.5px}
+.cnv-repere-bras--droite::after{right:-4.5px}
 /* La mention d'exception : discrete, a cote de la capsule, et jamais a sa place — ce sont deux informations. */
 .cnv-exception{display:inline-flex;align-items:center;min-height:22px;padding:.05rem .4rem;border-radius:999px;
   font-size:.7rem;font-weight:700;color:var(--color-svv-muted);border:1px dashed var(--color-svv-line-strong);

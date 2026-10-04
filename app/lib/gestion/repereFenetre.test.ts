@@ -208,6 +208,66 @@ describe('🔴 ③ ce que l’écran dessine', () => {
   });
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 3 — LA PETITE FLÈCHE AU BOUT DE CHAQUE BRANCHE
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+     Arno : « une petite flèche rouge à l'extrémité de chaque branche (gauche et droite), qui pointe vers le côté
+     de la conversation concerné par le changement », et « elles s'inversent avec Plus récent d'abord / Plus
+     ancien d'abord ». */
+
+  /**
+   * 🔴🔴 CE QUI EST FIGÉ ICI N'EST PAS UN DESSIN, C'EST UNE ABSENCE DE SECONDE RÈGLE. Les flèches pendent des
+   * variantes `--dessus` / `--dessous` — celles que `coteDuRepere(ordre)` pose déjà —, donc l'inversion avec le
+   * tri est acquise par construction. Si quelqu'un relisait un jour l'ordre d'affichage pour orienter la flèche,
+   * il y aurait deux vérités à tenir, et le point 4 de ce même lot a montré ce qu'il arrive quand elles divergent.
+   */
+  it('🔴🔴 la flèche s’inverse par la variante du côté, et non par une seconde lecture du tri', () => {
+    expect(src).toContain('.cnv-repere--mesure.cnv-repere--dessus .cnv-repere-bras::after{');
+    expect(src).toContain('.cnv-repere--mesure.cnv-repere--dessous .cnv-repere-bras::after{');
+    /* ⚠️ AUCUNE RÈGLE DE FLÈCHE NE NOMME L'ORDRE : pas de classe de tri sur le repère. */
+    expect(src).not.toContain('.cnv-repere--recent');
+    expect(src).not.toContain('.cnv-repere--ancien');
+  });
+
+  /**
+   * 🔴 ELLE POINTE DANS LE SENS OÙ LA BRANCHE VA, donc vers le mail concerné : vers le bas quand le repère est
+   * au-dessus (`border-top-color` → triangle vers le bas), vers le haut quand il est en dessous.
+   */
+  it('🔴🔴 au-dessus la flèche pointe vers le bas, en dessous vers le haut', () => {
+    expect(src).toContain('border-top-color:var(--color-svv-red)}');
+    expect(src).toContain('border-bottom-color:var(--color-svv-red)}');
+    /* 🔴 LES DEUX BRANCHES EN PORTENT UNE, chacune centrée sur son propre trait. */
+    expect(src).toContain('.cnv-repere-bras--gauche::after{left:-4.5px}');
+    expect(src).toContain('.cnv-repere-bras--droite::after{right:-4.5px}');
+  });
+
+  /**
+   * ⚠️ LA POINTE TOMBE AU BOUT DU TRAIT, PAS 5 PX APRÈS. Le sommet d'un triangle de bordure est au CENTRE de sa
+   * boîte : d'où le retrait d'une demi-flèche sur la mi-hauteur du mail. C'est la seule arithmétique du dessin, et
+   * c'est précisément celle qu'une retouche à la main casserait sans que rien ne la rattrape.
+   */
+  it('⚠️ la pointe est posée sur la fin du trait, demi-flèche retirée', () => {
+    expect(src).toContain('top:calc(var(--cnv-repere-h) / 2 - 5px)');
+    expect(src).toContain('bottom:calc(var(--cnv-repere-h) / 2 - 5px)');
+    expect(src).toContain('.cnv-repere-bras::after{content:"";position:absolute;width:0;height:0;'
+      + 'border:5px solid transparent}');
+  });
+
+  /**
+   * 🔴🔴 PAS DE FLÈCHE SANS SA BRANCHE. Tant que le `ResizeObserver` n'a pas mesuré le mail voisin — et pour
+   * toujours s'il n'y a pas de voisin — `--cnv-repere-h` vaut 0 : la branche ne se voit pas. Une flèche posée là
+   * flotterait seule à côté de la phrase, sans rien désigner. `cnv-repere--mesure` est ce garde-fou, et les deux
+   * règles orientées en dépendent.
+   */
+  it('🔴🔴 la flèche n’apparaît qu’avec sa branche (hauteur mesurée)', () => {
+    expect(src).toContain("cnv-repere--${cote}${hauteur > 0 ? ' cnv-repere--mesure' : ''}");
+    /* ⚠️ ET AUCUNE RÈGLE ORIENTÉE NE S'ÉCHAPPE DU GARDE-FOU : on les énumère, et chacune le porte. */
+    const orientees = [...src.matchAll(/\.cnv-repere[^{\n]*--(?:dessus|dessous)[^{\n]*\.cnv-repere-bras::after/g)];
+    expect(orientees).toHaveLength(2);
+    for (const m of orientees) expect(m[0], m[0]).toContain('--mesure');
+  });
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
      🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES, POINT 2 — LA PASTILLE OUVRE AU CLIC, PLUS AU SURVOL
      ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
