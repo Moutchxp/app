@@ -687,6 +687,25 @@ export function interneDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — LA MIGRATION 297 EST-ELLE CÂBLÉE ? ════════════════════════
+ *
+ * Elle porte « INTERNE PAR MAIL » (`gestion_message_interne`, jumeau exact de `gestion_hors_gestion`).
+ *
+ * 🔴 ELLE A ÉTÉ LIVRÉE LE 03/10/2026 PAR LE COMMIT 559d394a, QUI S'EST ARRÊTÉ VOLONTAIREMENT. Son message le dit
+ * mot pour mot : « Le modèle complet demande une marque PAR MAIL, donc la MIGRATION 297 […], LIVRÉE ET NON
+ * APPLIQUÉE. Je m'arrête là et je demande l'accord d'Arno. » Le code n'a donc jamais été écrit — rien n'a été
+ * perdu. Vérifié : `git log -S"gestion_message_interne"` ne rend que deux commits, celui de la migration et un
+ * commentaire du 04/10.
+ *
+ * 🔴 TANT QUE LA TABLE MANQUE, elle n'est NOMMÉE NULLE PART, et « interne » se comporte exactement comme avant ce
+ * lot : la marque d'ÉCHANGE (`gestion_fil_interne`) répond seule. C'est la règle du module depuis l'incident du
+ * lot 4a — nommer une table absente ferait échouer TOUTE la boîte, pas seulement la fonction nouvelle.
+ */
+export function interneDuMessageDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_message_interne', () => tableExiste('gestion_message_interne'));
+}
+
+/**
  * 🔴 LOT RATTACHER-EN-ECRIVANT — la migration 282 est-elle appliquée ? Elle porte les BIENS COCHÉS PENDANT
  * L'ÉCRITURE, en attente que la relève capture le message envoyé.
  *

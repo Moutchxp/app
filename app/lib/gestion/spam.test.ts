@@ -54,6 +54,11 @@ vi.mock('./schema', () => ({
   // 🔴 LOT NOM-UNIQUE-DES-PIECES — la sonde du nom d'usage (migration 286). Fausse ici : ces épreuves
   //   portent sur autre chose, et le SQL qu'elles inspectent reste celui d'avant ce lot.
   nomUsageDisponible: async () => false,
+  /* 🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — la sonde de la migration 297. ⚠️ UNE FABRIQUE `vi.mock`
+     QUI OUBLIE UN EXPORT NEUF FAIT TOMBER LE MODULE À L'APPEL, pas à l'import : le piège est déjà consigné
+     plusieurs fois dans ce dépôt. Elle rend `false` : la table n'est alors nommée nulle part, et les
+     épreuves de FORME du SQL écrites avant ce lot restent vraies à la lettre. */
+  interneDuMessageDisponible: async () => false,
 }));
 
 let spamConnu = true;

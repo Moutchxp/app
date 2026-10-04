@@ -73,6 +73,11 @@ import {
   DELAI_BANDEAU_CORBEILLE_MS, MENTION_BROUILLON_VOIR_EN_BAS, PICTO_BROUILLON,
 } from '../../../../lib/gestion/brouillonEnAttente';
 /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — de quel CÔTÉ le repère se pose, et ce que sa pastille explique. */
+/**
+ * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — la règle du repli « interne », écrite UNE fois. Module PUR :
+ * ni réseau, ni base, ni React — importable d'ici sans rien tirer derrière lui.
+ */
+import { interneDuMail } from '../../../../lib/gestion/interneDuMail';
 import {
   AIDE_PASTILLE_REPERE, comparatifRepere, coteDuRepere, nbMailsCouverts,
 } from '../../../../lib/gestion/repereFenetre';
@@ -409,6 +414,12 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const [interne, setInterne] = useState<boolean | null>(null);
   /**
+   * 🔴 POINT 7 — CE QUE LA BASE SAIT DE CHAQUE MAIL. Une entrée ABSENTE veut dire « personne ne s'est prononcé »,
+   * et c'est alors la marque d'échange qui répond ; une entrée présente avec `vivante: false` veut dire « non »,
+   * et le repli ne la contredit pas. Les deux ne se confondent jamais.
+   */
+  const [interneParMail, setInterneParMail] = useState<ReadonlyMap<number, { vivante: boolean }>>(new Map());
+  /**
    * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LES PÉRIODES DE CETTE CONVERSATION ═══════════════════════════════════════
    *
    * Demande d'Arno (point 4) : « Entre deux mails, quand la période change, une fine ligne de séparation : “À
@@ -608,11 +619,34 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     }
   }, []);
 
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — « INTERNE » PAR MAIL ══════════════════════════════════
+   *
+   * La marque d'échange ci-dessus reste lue : elle est le REPLI. Ce qui s'ajoute est ce que la base sait de CHAQUE
+   * mail — vivante, retirée, ou rien du tout — parce que ces trois états ne se lisent pas pareil (voir
+   * `interneDuMail`). C'est la même forme que `chargerRattachements` : une requête pour toute la conversation.
+   *
+   * ⚠️ `sans_schema_message` (migration 297 non appliquée) LAISSE LA CARTE VIDE : la règle retombe alors sur le
+   * repli, c'est-à-dire sur le comportement d'avant ce lot, sans qu'une ligne de rendu ait à le savoir.
+   */
+  const chargerInterneDesMails = useCallback(async (ids: readonly number[]) => {
+    if (ids.length === 0) { setInterneParMail(new Map()); return; }
+    try {
+      const res = await fetch(`/api/admin/gestion/interne?messages=${ids.join(',')}`, { cache: 'no-store' });
+      const d = (await res.json()) as { etat?: string; data?: Record<string, { vivante?: boolean }> };
+      if (d.etat !== 'ok') { setInterneParMail(new Map()); return; }
+      setInterneParMail(new Map(Object.entries(d.data ?? {})
+        .map(([k, v]) => [Number(k), { vivante: v?.vivante === true }])));
+    } catch { setInterneParMail(new Map()); }
+  }, []);
+
   const idsMessages = vue.v === 'ok' ? vue.messages.map((m) => m.messageId) : [];
   // Une clé STABLE : sans elle, un tableau recréé à chaque rendu relancerait la requête en boucle.
   const cleMessages = idsMessages.join(',');
   useEffect(() => {
     void chargerRattachements(cleMessages === '' ? [] : cleMessages.split(',').map(Number));
+    /* 🔴 POINT 7 — la marque « interne » de chaque mail, lue avec les rattachements : même clé stable, même rythme. */
+    void chargerInterneDesMails(cleMessages === '' ? [] : cleMessages.split(',').map(Number));
   }, [cleMessages, chargerRattachements]);
   /**
    * ⚠️ UN EFFET À PART, ET SUR `filId` SEUL. La marque « Interne » porte sur l'ÉCHANGE : la relire à chaque
@@ -1374,17 +1408,40 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             /* LOT RATTACHEMENT-1 — « Rattaché à … », dans le mail OUVERT. `null` = 257 absente : aucun bandeau. */
             rattachements={rattachements === null ? null : (rattachements.get(m.messageId) ?? [])}
             horsGestion={horsGestion === null ? null : (horsGestion.get(m.messageId) ?? false)}
-            /* 🔴 LOT RATTACHER-EN-ECRIVANT — la marque de l'ÉCHANGE, donc LA MÊME pour tous ses messages. C'est
-               ce qui fait que la réponse d'un collègue porte la capsule sans qu'on ait rien fait de plus. */
-            interne={interne}
+            /**
+             * ══ 🔴🔴 POINT 7 — LE STATUT DE **CE** MAIL, AVEC L'ÉCHANGE EN REPLI ═══════════════════════════════
+             *
+             * Avant ce lot, la marque d'ÉCHANGE était la même pour tous les messages — et c'est précisément ce
+             * qui rendait impossible « Interne du mail 1 au mail 4, puis plus » (constat du commit 559d394a).
+             * Depuis le câblage de la migration 297, chaque mail porte son statut, et la marque d'échange ne
+             * répond que si personne ne s'est prononcé sur ce mail-là.
+             *
+             * ⚠️ `null` RESTE `null` : « on ne sait rien » (migration 281 absente, ou lecture en échec) n'est pas
+             * « ce mail n'est pas interne ». La capsule ne s'affiche alors pas, au lieu d'affirmer un état.
+             */
+            interne={interne === null ? null : interneDuMail({
+              marqueDuMailVivante: interneParMail.get(m.messageId)?.vivante === true,
+              marqueDuMailConnue: interneParMail.has(m.messageId),
+              marqueDeLEchange: interne === true,
+            })}
             onInterne={async (actif) => {
               if (filId === null) return;
               await fetch('/api/admin/gestion/interne', {
                 method: actif ? 'POST' : 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filIds: [filId] }),
+                /**
+                 * 🔴🔴 POINT 7 — LE GESTE EMPORTE SA PORTÉE. La case du bandeau a toujours porté sur l'ÉCHANGE :
+                 * son choix reste donc « toute la conversation », et les mails de l'échange partent avec, dans
+                 * l'ORDRE CHRONOLOGIQUE, pour que la route sache lesquels couvrir. Les trois fenêtres plus fines
+                 * passent, elles, par le bloc « Suivi dans la conversation » — que la projection applique
+                 * désormais mail par mail.
+                 */
+                body: JSON.stringify({
+                  filIds: [filId], messageId: m.messageId, mails: idsMessages, choix: 'conversation',
+                }),
               });
               await chargerInterne(filId);
+              await chargerInterneDesMails(idsMessages);
               onGeste(actif
                 ? 'Échange marqué « interne » : il n’y a pas de bien à y rattacher.'
                 : 'Marque « interne » retirée.');

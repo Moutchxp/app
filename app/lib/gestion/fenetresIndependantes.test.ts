@@ -38,6 +38,11 @@ vi.mock('./schema', () => ({
   periodesDisponibles: async () => true,
   rattachementsDisponibles: async () => true,
   interventionsDisponibles: async () => false,
+  /* 🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — la sonde de la migration 297. ⚠️ UNE FABRIQUE `vi.mock`
+     QUI OUBLIE UN EXPORT NEUF FAIT TOMBER LE MODULE À L'APPEL, pas à l'import : le piège est déjà consigné
+     plusieurs fois dans ce dépôt. Elle rend `false` : la table n'est alors nommée nulle part, et les
+     épreuves de FORME du SQL écrites avant ce lot restent vraies à la lettre. */
+  interneDuMessageDisponible: async () => false,
 }));
 const rattacher = vi.fn(async (_o: { messageId: number; cible: { cle: string } }) => ({ ok: true }));
 const changerStatut = vi.fn(async (_o: { lienId: number; statut: string }) => ({ ok: true }));

@@ -41,7 +41,7 @@ import { sqlNomAffiche } from './nomUsageSql';
 import { fusionnerNonEnvoyes, type MentionNonEnvoye } from './fileEnvoi';
 import {
   corbeilleGmailDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible, etoileGmailDisponible,
-  interneDisponible, pieceIntegreeDisponible,
+  interneDisponible, interneDuMessageDisponible, pieceIntegreeDisponible,
 } from './schema';
 import { etoilesDesFils } from './etoileRepo';
 /**
@@ -52,6 +52,15 @@ import { etoilesDesFils } from './etoileRepo';
 import { filsEtoiles } from './etoileGmailRepo';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'échange : jointure et colonne, écrites UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
+/**
+ * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — « INTERNE » PAR MAIL (migration 297), et la règle du REPLI.
+ *
+ * La liste affiche le statut du mail REPRÉSENTATIF de l'échange. Depuis le câblage de la 297, ce statut se lit
+ * d'abord sur le mail, et la marque d'échange ne répond que si personne ne s'est prononcé sur ce mail-là. La règle
+ * est écrite UNE fois, dans le module pur `interneDuMail` — la base la rend par le même fragment SQL.
+ */
+import { sqlColonnesInterneMessage, sqlJointureInterneMessage } from './interneMessageRepo';
+import { interneDuMail } from './interneDuMail';
 /**
  * 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — « QU'EST-CE QU'UN BIEN ? », LUE AU MÊME ENDROIT QUE LA PASTILLE DU MAIL.
  * Ce fichier en nommait sa propre version (`'lot', 'proprietaire'`), et les deux ont divergé. Voir l'encadré de
@@ -315,6 +324,9 @@ interface LigneDB {
   hg_marque: boolean | null;
   /** LOT RATTACHER-EN-ECRIVANT — `null` quand la migration 281 est absente : la table n'est nommée nulle part. */
   itn_marque: boolean | null;
+  /** 🔴 POINT 7 — la marque PAR MAIL du mail représentatif : `null` = personne ne s'est prononcé sur lui. */
+  itm_vivante: boolean | null;
+  itm_connue: boolean;
   hg_motif: string | null;
 }
 
@@ -861,6 +873,16 @@ export function sqlPageBoite(
    * exemplaires, comme avant ce lot : les épreuves de forme écrites avant restent vraies à la lettre.
    */
   clePiece = '',
+  /**
+   * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — la migration 297 est-elle là ? Elle porte « interne » PAR
+   * MAIL (`gestion_message_interne`). Sans elle, la table n'est NOMMÉE NULLE PART, les deux colonnes rendent
+   * `NULL` / `false`, et la règle du repli retombe exactement sur la marque d'échange — c'est-à-dire sur le
+   * comportement d'avant ce lot, au bit près.
+   *
+   * ⚠️ EN DERNIÈRE POSITION, ET DÉLIBÉRÉMENT : l'insérer à côté de `interne` aurait décalé tous les arguments
+   * suivants de l'unique appel, pour un gain d'esthétique et un risque réel de se tromper d'un cran.
+   */
+  interneMessage = false,
 ): string {
   /**
    * 🔴 LOT LISTE-PAGINATION — LE PRÉDICAT VIENT DE `predicatsBoite`, PARTAGÉ AVEC `sqlCompteBoite`. Ce qui suit ne
@@ -915,6 +937,8 @@ export function sqlPageBoite(
   // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois dans
   //   `interneRepo`. Sans la 281, elle rend une chaîne vide et la requête est celle d'avant ce lot.
   const jointureInterne = sqlJointureInterne(interne, 'p');
+  /* 🔴 POINT 7 — et la marque PAR MAIL du mail représentatif. Chaîne vide sans la 297 : requête inchangée. */
+  const jointureInterneMessage = sqlJointureInterneMessage(interneMessage, 'p');
 
   return `WITH page AS (
        SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires, m.dest_a,
@@ -973,7 +997,8 @@ export function sqlPageBoite(
             p.est_spam AS est_spam,
             cl.n AS cl_n, cl.humain AS cl_humain, cl.detail AS cl_detail,
             ${horsGestion ? 'hg.motif IS NOT NULL AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'},
-            ${sqlColonneInterne(interne)}
+            ${sqlColonneInterne(interne)},
+            ${sqlColonnesInterneMessage(interneMessage)}
        FROM page p JOIN gestion_fil f ON f.id = p.fil_id
        ${jointureClassement}
        ${jointureHorsGestion}
@@ -1138,7 +1163,9 @@ export async function lireBoiteMail(
   const { rows } = await query<LigneDB>(
     sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true, rattachements,
       horsGestion, rangAdresse, etoileGmail, interne, await pieceIntegreeDisponible(),
-      sqlCleIdentitePiece('pc', await sqlNomAffiche('pc'))),
+      sqlCleIdentitePiece('pc', await sqlNomAffiche('pc')),
+      /* 🔴 POINT 7 — la marque « interne » PAR MAIL, si la 297 est appliquée. */
+      await interneDuMessageDisponible()),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
       ...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
@@ -1253,8 +1280,21 @@ export async function lireBoiteMail(
       // LOT STATUT-HORS-GESTION — `false` quand la migration 266 manque : aucune capsule grise, jamais par défaut.
       horsGestion: r.hg_marque === true,
       motifHorsGestion: r.hg_motif,
-      // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque de l'ÉCHANGE. `false` sans la 281 : jamais un état inventé.
-      interne: r.itn_marque === true,
+      /**
+       * ══ 🔴🔴 POINT 7 — LE STATUT DU MAIL, PUIS LE REPLI SUR L'ÉCHANGE ══════════════════════════════════════
+       *
+       * La règle vient du module PUR `interneDuMail`, et elle n'est écrite nulle part ailleurs : une marque par
+       * mail vivante gagne ; une marque par mail RETIRÉE veut dire « non », et la marque d'échange ne la
+       * ressuscite pas ; sinon, et seulement sinon, la marque d'échange répond.
+       *
+       * ⚠️ SANS LA 297, `itm_connue` VAUT `false` ET `itm_vivante` VAUT `NULL` : la règle retombe donc exactement
+       * sur `itn_marque`, c'est-à-dire sur le comportement d'avant ce lot, au bit près.
+       */
+      interne: interneDuMail({
+        marqueDuMailVivante: r.itm_vivante === true,
+        marqueDuMailConnue: r.itm_connue === true,
+        marqueDeLEchange: r.itn_marque === true,
+      }),
       /**
        * 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — UNE RÉPONSE EST COMMENCÉE SUR CET ÉCHANGE.
        *

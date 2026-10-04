@@ -59,6 +59,11 @@ vi.mock('./schema', () => ({
   // ⚠️ « Envoyés » AJOUTE les mails qui ne sont PAS partis (lot LIGNE-NON-ENVOYE). Ce n'est pas le sujet ici :
   //    sonde à faux ⇒ aucune table nommée, et la liste est celle de `gestion_message` seule.
   fileEnvoiDisponible: async () => false,
+  /* 🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — la sonde de la migration 297. ⚠️ UNE FABRIQUE `vi.mock`
+     QUI OUBLIE UN EXPORT NEUF FAIT TOMBER LE MODULE À L'APPEL, pas à l'import : le piège est déjà consigné
+     plusieurs fois dans ce dépôt. Elle rend `false` : la table n'est alors nommée nulle part, et les
+     épreuves de FORME du SQL écrites avant ce lot restent vraies à la lettre. */
+  interneDuMessageDisponible: async () => false,
 }));
 /** L'adresse vient de `gestion_config`, jamais d'une constante : c'est la même source que la capture. */
 vi.mock('./config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@criterimmo.fr' }) }));

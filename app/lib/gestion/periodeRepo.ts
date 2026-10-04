@@ -8,6 +8,12 @@ import {
 import { rattacher, changerStatut } from './rattachementRepo';
 import { marquerInterne, annulerInterne } from './interneRepo';
 import { marquerHorsGestion, annulerHorsGestion } from './horsGestionRepo';
+/**
+ * 🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — « interne » par MAIL, jumeau de « hors gestion ». La règle du
+ * repli, elle, vit dans le module PUR `interneDuMail` : une seule écriture pour la liste, la modale et l'écran.
+ */
+import { marquerInterneDesMessages, annulerInterneDesMessages } from './interneMessageRepo';
+import { MOTIF_INTERNE_PAR_SUIVI } from './interneDuMail';
 import type { Auteur } from './gestes';
 // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — « ce mail est-il un de nos envois automatiques ? ». Module PUR.
 import { estDocumentEnvoye } from './documentsAuto';
@@ -520,13 +526,42 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
       if (issue.ok) gestes += 1;
     }
 
-    // ⚠️ « INTERNE » PORTE SUR L'ÉCHANGE (migration 281) : on le pose ou on le retire une fois, pas par mail.
-    // ⚠️ « HORS GESTION » PORTE SUR LE MAIL (migration 266) : lui se projette mail par mail.
+    // ⚠️ « HORS GESTION » PORTE SUR LE MAIL (migration 266) : il se projette mail par mail.
     if (c.sorte === 'hors_gestion') {
       const issue = await marquerHorsGestion({ messageIds: [m], auteur });
       if (issue.ok && issue.nb > 0) gestes += 1;
     } else {
       const issue = await annulerHorsGestion({ messageIds: [m], auteur, motif: 'suivi de la conversation' });
+      if (issue.ok && issue.nb > 0) gestes += 1;
+    }
+
+    /**
+     * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — « INTERNE » SE PROJETTE MAIL PAR MAIL ════════════════
+     *
+     * RÈGLE D'ARNO (04/10/2026) : « Interne est un statut PAR MAIL. Le choix fait sur un mail s'applique selon les
+     * 3 fenêtres. Un choix ultérieur ne doit JAMAIS effacer le statut Interne d'un mail antérieur. »
+     *
+     * 🔴 ET LA SECONDE PHRASE EST TENUE PAR LA FORME MÊME DE CETTE BOUCLE, pas par une précaution ajoutée : on
+     * écrit ce que la fenêtre qui COUVRE CE MAIL demande, et rien d'autre. Une fenêtre « biens » ouverte au mail N
+     * ne couvre que les mails ≥ N ; les mails 1…N-1 restent sous leur propre fenêtre, et gardent donc leur
+     * « interne ». C'est exactement ce que le commit 559d394a n'avait pas pu faire — la marque était alors une
+     * marque d'ÉCHANGE, et la retirer la retirait partout.
+     *
+     * ⚠️ `voulu.get(m)` EST `undefined` POUR UN MAIL ANTÉRIEUR À TOUTE FENÊTRE : la boucle est sortie plus haut
+     * (`continue`), donc on ne touche à rien. Ces mails-là relèvent du REPLI sur la marque d'échange, et c'est
+     * `interneDuMail` qui le dit — jamais une écriture.
+     *
+     * 🔴 LA MARQUE D'ÉCHANGE N'EST PLUS TOUCHÉE ICI, ET SURTOUT PAS RETIRÉE. C'est la correction du 03/10
+     * (559d394a) et elle ne bouge pas d'un iota : elle reste le repli, et un repli qu'une projection effacerait ne
+     * serait pas un repli.
+     */
+    if (c.sorte === 'interne') {
+      const issue = await marquerInterneDesMessages({ messageIds: [m], auteur });
+      if (issue.ok && issue.nb > 0) gestes += 1;
+    } else {
+      const issue = await annulerInterneDesMessages({
+        messageIds: [m], auteur, motif: MOTIF_INTERNE_PAR_SUIVI,
+      });
       if (issue.ok && issue.nb > 0) gestes += 1;
     }
   }
