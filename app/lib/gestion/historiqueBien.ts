@@ -484,6 +484,65 @@ export const LEGENDE_BARRES: readonly { ton: TonMail; mot: string }[] = [
 ];
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④-ter 🔴🔴 LOT HISTORIQUE-BIEN-3 — L'ENCART NE GRANDIT JAMAIS : IL DÉFILE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * La position d'une capsule dans son encart, en pixels, telle que le navigateur la donne.
+ * `haut` = `offsetTop`, `hauteur` = `offsetHeight`.
+ */
+export interface PositionCapsule { haut: number; hauteur: number }
+
+/**
+ * ══ 🔴🔴 COMBIEN DE CAPSULES SONT CACHÉES SOUS LE BAS DE L'ENCART ? PUR. ════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « Chaque encart garde la hauteur actuelle. Il ne grandit jamais. S'il y a plus de
+ * contacts, son listing DÉFILE à l'intérieur de l'encart. Quand des contacts sont cachés sous le bas de l'encart,
+ * une petite puce flottante en bas, centrée, “↓ 3 autres”, invite à défiler. »
+ *
+ * 🔴 « CACHÉE » VEUT DIRE « PAS ENTIÈREMENT VISIBLE », et c'est le seul seuil honnête. Une capsule dont on voit
+ * trois pixels n'est pas lisible : l'annoncer comme visible aurait fait dire « ↓ 2 autres » là où il en reste
+ * trois à lire, et le compte d'une puce qui invite à défiler doit être juste, sinon elle cesse d'être crue.
+ *
+ * ⚠️ LA TOLÉRANCE D'UN PIXEL N'EST PAS DE LA COQUETTERIE : les hauteurs rendues sont fractionnaires (un écran à
+ * 2× donne des `offsetTop` en demi-pixels). Sans elle, la dernière capsule serait comptée « cachée » alors
+ * qu'elle touche exactement le bas — et la puce ne disparaîtrait jamais.
+ */
+export const TOLERANCE_DEFILEMENT_PX = 1;
+
+export function compteCacheesEnBas(
+  positions: readonly PositionCapsule[], scrollTop: number, hauteurVisible: number,
+): number {
+  const bas = scrollTop + hauteurVisible + TOLERANCE_DEFILEMENT_PX;
+  return positions.filter((p) => p.haut + p.hauteur > bas).length;
+}
+
+/** Combien de capsules sont passées AU-DESSUS du haut de l'encart. PUR. */
+export function compteCacheesEnHaut(
+  positions: readonly PositionCapsule[], scrollTop: number,
+): number {
+  return positions.filter((p) => p.haut + p.hauteur < scrollTop - TOLERANCE_DEFILEMENT_PX).length;
+}
+
+/**
+ * ══ 🔴 LE MOT DE LA PUCE, ET IL DIT UN NOMBRE ═══════════════════════════════════════════════════════════════════
+ *
+ * Arno écrit « ↓ 3 autres ». Le NOMBRE est l'information : une flèche seule dirait « il y a autre chose » sans
+ * dire s'il reste un contact ou quarante — or c'est précisément ce qui décide de défiler ou de replier.
+ *
+ * ⚠️ `null` QUAND IL N'Y A RIEN À MONTRER : la puce n'est alors pas rendue du tout. Une puce grisée aurait
+ * occupé la place et fait croire à un bouton en panne.
+ */
+export function motCacheesEnBas(n: number): string | null {
+  return n <= 0 ? null : `↓ ${n} autre${n > 1 ? 's' : ''}`;
+}
+
+/** La puce du haut ne compte pas : une fois défilé, « remonter » suffit, et le nombre déjà lu n'intéresse personne. */
+export function motCacheesEnHaut(n: number): string | null {
+  return n <= 0 ? null : '↑ remonter';
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑤ 🔴🔴 LE VERROU : « EN PLACE » NE S'ÉCRIT JAMAIS SUR UN LOGEMENT VACANT
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

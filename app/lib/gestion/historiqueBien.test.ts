@@ -5,8 +5,9 @@ import {
   motDeuxCompteurs, motLocataireDeLaPeriode, ordreFilSuivant, periodeDeLEvenement, periodeDeLOccupation,
   reglagesActifs, REGLAGES_DEFAUT, reglagesEnFiltres, reglagesEnParametres, replierLesCartes,
   SEUIL_REPLI_CARTES, trierFil, type CategoriePartie, type Reglages,
-  bornesDuChoix, dernierLocataire, LEGENDE_BARRES, motAgenceEcartee, motPeriodeEffective, occupationOuverte,
-  periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, tonDuGroupe, type OccupationPeriode,
+  bornesDuChoix, compteCacheesEnBas, compteCacheesEnHaut, dernierLocataire, LEGENDE_BARRES, motAgenceEcartee,
+  motCacheesEnBas, motCacheesEnHaut, motPeriodeEffective, occupationOuverte, periodeDuDernierLocataire,
+  SANS_LOCATAIRE_CONNU, tonDeLExpediteur, tonDuGroupe, type OccupationPeriode, type PositionCapsule,
 } from './historiqueBien';
 import { INTERLOCUTEURS_MAX, type Interlocuteur, type LigneHistorique } from './historique';
 /** 🔴 LA SOURCE DU SEUIL : on vérifie l'IDENTITÉ, pas une égalité de valeur recopiée. */
@@ -801,5 +802,72 @@ describe('⑫ 🔴🔴 la couleur de la barre, selon la catégorie de l’expéd
       expect(tons.has(tonDeLExpediteur({ sens: 'recu', de }, CAT))).toBe(true);
     }
     expect(tons.has(tonDeLExpediteur({ sens: 'envoye', de: 'nous@fictif.test' }, CAT))).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑬ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 1 — L'ENCART NE GRANDIT JAMAIS : IL DÉFILE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑬ 🔴🔴 ce qui est caché sous le bas de l’encart', () => {
+  /** Six capsules de 44 px, séparées de 2 px : 0, 46, 92, 138, 184, 230. L'encart en montre trois (138 px). */
+  const SIX: PositionCapsule[] = Array.from({ length: 6 }, (_, i) => ({ haut: i * 46, hauteur: 44 }));
+  const HAUTEUR = 138;
+
+  /**
+   * DEMANDE D'ARNO (05/10/2026) : « Quand des contacts sont cachés sous le bas de l'encart, une petite puce
+   * flottante en bas, centrée, “↓ 3 autres”, invite à défiler ; elle disparaît quand on est en bas. »
+   */
+  it('🔴🔴 en haut de la liste, trois capsules sont visibles et trois sont cachées', () => {
+    expect(compteCacheesEnBas(SIX, 0, HAUTEUR)).toBe(3);
+    expect(compteCacheesEnHaut(SIX, 0)).toBe(0);
+    expect(motCacheesEnBas(3)).toBe('↓ 3 autres');
+  });
+
+  /** 🔴 ELLE DISPARAÎT QUAND ON EST EN BAS — c'est la condition d'Arno, mot pour mot. */
+  it('🔴🔴 arrivé en bas, plus rien n’est caché dessous', () => {
+    const basTotal = 6 * 46 - 2; // la dernière capsule finit à 274
+    expect(compteCacheesEnBas(SIX, basTotal - HAUTEUR, HAUTEUR)).toBe(0);
+    expect(motCacheesEnBas(0)).toBeNull();
+  });
+
+  /** 🔴 ET LA PUCE DU HAUT APPARAÎT DÈS QU'ON A DÉFILÉ. */
+  it('🔴 une fois défilé, le haut en cache à son tour', () => {
+    expect(compteCacheesEnHaut(SIX, 92)).toBe(2);
+    expect(motCacheesEnHaut(2)).toBe('↑ remonter');
+    expect(motCacheesEnHaut(0)).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 « CACHÉE » VEUT DIRE « PAS ENTIÈREMENT VISIBLE ». Une capsule dont on voit trois pixels n'est pas
+   * lisible : l'annoncer visible aurait fait dire « ↓ 2 autres » là où il en reste trois à lire, et une puce dont
+   * le compte est faux cesse d'être crue.
+   */
+  it('🔴🔴 une capsule à moitié visible compte comme cachée', () => {
+    // On descend de 20 px : la 4e capsule (haut 138, bas 182) dépasse encore le bas de l'encart (158).
+    expect(compteCacheesEnBas(SIX, 20, HAUTEUR)).toBe(3);
+  });
+
+  /**
+   * ⚠️ LA TOLÉRANCE D'UN PIXEL N'EST PAS DE LA COQUETTERIE : sur un écran à 2×, les hauteurs rendues sont
+   * fractionnaires. Sans elle, la dernière capsule serait comptée « cachée » alors qu'elle touche exactement le
+   * bas — et la puce ne disparaîtrait jamais.
+   */
+  it('⚠️ un demi-pixel de débordement ne fait pas apparaître la puce', () => {
+    const presque: PositionCapsule[] = [{ haut: 0, hauteur: 44 }, { haut: 46, hauteur: 92.5 }];
+    expect(compteCacheesEnBas(presque, 0, HAUTEUR)).toBe(0);
+  });
+
+  /** ⚠️ UNE LISTE QUI TIENT ENTIÈREMENT N'AFFICHE AUCUNE PUCE : rien à inviter. */
+  it('⚠️ une liste courte n’a aucune puce', () => {
+    const deux: PositionCapsule[] = [{ haut: 0, hauteur: 44 }, { haut: 46, hauteur: 44 }];
+    expect(compteCacheesEnBas(deux, 0, HAUTEUR)).toBe(0);
+    expect(compteCacheesEnHaut(deux, 0)).toBe(0);
+  });
+
+  /** ⚠️ LE SINGULIER EST ÉCRIT : « ↓ 1 autre », pas « 1 autres ». */
+  it('⚠️ le singulier et le pluriel', () => {
+    expect(motCacheesEnBas(1)).toBe('↓ 1 autre');
+    expect(motCacheesEnBas(12)).toBe('↓ 12 autres');
   });
 });

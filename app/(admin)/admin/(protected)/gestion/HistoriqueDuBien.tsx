@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 /**
  * ══ 🔴🔴 LES DEUX COMPOSANTS SONT **IMPORTÉS**, JAMAIS RECOPIÉS ═══════════════════════════════════════════════════
  *
@@ -41,6 +41,7 @@ import {
   bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAgenceEcartee,
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
+  compteCacheesEnBas, compteCacheesEnHaut, motCacheesEnBas, motCacheesEnHaut,
   replierLesCartes, SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
   type CategoriePartie, type CleGroupeParties, type OccupationPeriode, type PeriodePartie, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
@@ -852,12 +853,12 @@ export function HistoriqueDuBien({
                     </label>
                   </div>
                   {ouvert && (
-                    <ul className="hdb-personnes">
+                    <ListeDefilante etiquette={g.titre}>
                       {g.interlocuteurs.map((i) => {
                         const cle = i.adresse.trim().toLowerCase();
                         const periode = periodes.get(cle) ?? null;
                         return (
-                          <li key={i.adresse} className="hdb-personne-ligne">
+                          <li key={i.adresse} className="hdb-personne-ligne" data-capsule="">
                             <label className="hdb-case">
                               <input type="checkbox" checked={reglages.parties.includes(cle)}
                                 onChange={() => basculerPartie(i.adresse)} />
@@ -898,7 +899,7 @@ export function HistoriqueDuBien({
                           </li>
                         );
                       })}
-                    </ul>
+                    </ListeDefilante>
                   )}
                 </section>
               );
@@ -1169,6 +1170,89 @@ export function HistoriqueDuBien({
 }
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 1 — L'ENCART NE GRANDIT JAMAIS : IL DÉFILE ══════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026), mot pour mot : « Chaque encart garde la hauteur actuelle (celle de la capture
+ * d'Arno, 3 lignes visibles). Il ne grandit jamais. S'il y a plus de contacts, son listing DÉFILE à l'intérieur de
+ * l'encart. Quand des contacts sont cachés sous le bas de l'encart, une petite puce flottante en bas, centrée,
+ * “↓ 3 autres”, invite à défiler (un clic fait défiler) ; elle disparaît quand on est en bas. Même chose vers le
+ * haut (“↑”) si on a défilé. »
+ *
+ * 🔴 POURQUOI LA HAUTEUR FIXE CHANGE TOUT. Le bien 155 porte 56 adresses côté propriétaire. Déplié, l'encart
+ * poussait le fil — ce qu'on vient lire — à plus de deux écrans du tableau de bord. Le repli derrière un compteur
+ * (lot 1) répondait au cas extrême ; la hauteur fixe répond au cas ORDINAIRE, celui des huit ou dix contacts.
+ *
+ * 🔴 LES DEUX PUCES SONT DES BOUTONS, PAS DES DÉCORS. « un clic fait défiler » : chacune avance d'un plein
+ * encart. Une flèche purement indicative aurait obligé à viser une barre de défilement de quelques pixels — et
+ * il n'y en a aucune sur un téléphone.
+ *
+ * ⚠️ LE COMPTE EST CALCULÉ PAR LE MODULE PUR (`compteCacheesEnBas`), et il ne compte QUE les capsules
+ * ENTIÈREMENT cachées. Une capsule dont on voit trois pixels n'est pas lisible : l'annoncer visible aurait fait
+ * dire « ↓ 2 autres » là où il en reste trois, et une puce dont le compte est faux cesse d'être crue.
+ *
+ * ⚠️ ON MESURE À TROIS MOMENTS, ET IL FAUT LES TROIS : au montage, à chaque défilement, et à chaque changement
+ * de contenu (cocher une case réécrit les lignes). Mesurer au seul montage aurait figé « ↓ 3 autres » sur un
+ * encart devenu court — le défaut classique de ce genre de puce.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquette: string }) {
+  const boite = useRef<HTMLDivElement | null>(null);
+  const [enBas, setEnBas] = useState(0);
+  const [enHaut, setEnHaut] = useState(0);
+
+  const mesurer = useCallback((): void => {
+    const el = boite.current;
+    if (el === null) return;
+    const positions = [...el.querySelectorAll('[data-capsule]')].map((x) => ({
+      haut: (x as HTMLElement).offsetTop, hauteur: (x as HTMLElement).offsetHeight,
+    }));
+    setEnBas(compteCacheesEnBas(positions, el.scrollTop, el.clientHeight));
+    setEnHaut(compteCacheesEnHaut(positions, el.scrollTop));
+  }, []);
+
+  /* ⚠️ `children` EST DANS LES DÉPENDANCES EXPRÈS : cocher une case recrée les lignes, et le compte doit suivre. */
+  useEffect(() => { mesurer(); }, [mesurer, children]);
+
+  /**
+   * ══ 🔴 LE CLIC DÉFILE D'UN PLEIN ENCART, ET IL RÈGLE `scrollTop` DIRECTEMENT ═════════════════════════════════
+   *
+   * ⚠️ PAS `scrollBy`, ET C'EST UNE CORRECTION MESURÉE DANS CHROME. Avec `scrollBy({ top })`, la position était
+   * bien atteinte mais la puce gardait son ancien nombre : l'événement `scroll` du navigateur arrive APRÈS les
+   * étapes de rendu, et une mesure programmée en `requestAnimationFrame` le précédait — elle lisait la position
+   * d'avant. L'affectation de `scrollTop` est, elle, prise en compte immédiatement pour la mise en page : on peut
+   * donc mesurer dans le même souffle, et la puce dit juste dès le premier clic. (Le défilement à la molette
+   * passe, lui, par `onScroll` — vérifié dans Chrome : « ↓ 43 autres · ↑ remonter ».)
+   */
+  const pousser = (sens: 1 | -1): void => {
+    const el = boite.current;
+    if (el === null) return;
+    el.scrollTop += sens * el.clientHeight;
+    mesurer();
+  };
+
+  const motBas = motCacheesEnBas(enBas);
+  const motHaut = motCacheesEnHaut(enHaut);
+
+  return (
+    <div className="hdb-boite">
+      <div className="hdb-defile" ref={boite} onScroll={mesurer}>
+        <ul className="hdb-personnes">{children}</ul>
+      </div>
+      {motHaut !== null && (
+        <button type="button" className="hdb-puce hdb-puce--haut"
+          aria-label={`Remonter dans le groupe ${etiquette}`} onClick={() => pousser(-1)}>{motHaut}</button>
+      )}
+      {motBas !== null && (
+        <button type="button" className="hdb-puce hdb-puce--bas"
+          aria-label={`${enBas} autre${enBas > 1 ? 's' : ''} dans le groupe ${etiquette} — défiler`}
+          onClick={() => pousser(1)}>{motBas}</button>
+      )}
+    </div>
+  );
+}
+
+/**
  * ══ LE FIL DE MAILS — `LigneVie`, UNE PAR MAIL ════════════════════════════════════════════════════════════════════
  *
  * 🔴 ÉCRIT UNE FOIS, APPELÉ DEUX FOIS (fil plat, et fil regroupé par conversation). Deux montages recopiés
@@ -1372,7 +1456,34 @@ ${CSS_PIECES}
 @media (prefers-reduced-motion:reduce){.hdb-triangle{transition:none}}
 /* 🔴 LOT HISTORIQUE-BIEN-2 — .hdb-tout est RETIREE AVEC SON BOUTON : « tout le groupe » est devenu une CASE
    a trois etats (demande d'Arno), et plus aucun element ne rendait ce bouton. */
-.hdb-personnes{list-style:none;margin:.2rem 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
+.hdb-personnes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+/* ══ L'ENCART NE GRANDIT JAMAIS : IL DEFILE (lot HISTORIQUE-BIEN-3, point 1) ══════════════════════════════════
+   DEMANDE D'ARNO : « Chaque encart garde la hauteur actuelle (3 lignes visibles). Il ne grandit jamais. »
+
+   🔴 LA HAUTEUR EST UN JETON NOMME, et non un nombre glisse dans une regle : trois capsules de 44 px plus leurs
+   deux interlignes de 2 px. L'ecrire ainsi dit POURQUOI c'est cette valeur, et un jour ou la capsule changera de
+   hauteur, il n'y aura qu'un endroit a corriger.
+
+   ⚠️ L'overscroll-behavior: contain EMPECHE LE DEFILEMENT DE FUIR VERS LA PAGE : sans lui, arriver en bas de
+   l'encart emporte la page entiere, et l'on perd le tableau de bord qu'on etait en train de regler. */
+.hdb-boite{position:relative;min-width:0;margin-top:.2rem}
+.hdb-defile{max-height:var(--hdb-liste-h);overflow-y:auto;overscroll-behavior:contain;min-width:0;
+  scrollbar-width:thin}
+.hdb-groupe{--hdb-liste-h:8.75rem}
+/* ══ LA PUCE FLOTTANTE ── centree, petite, et c'est un BOUTON : un clic fait defiler d'un plein encart.
+   Une fleche purement indicative aurait oblige a viser une barre de defilement de quelques pixels — et il n'y en
+   a aucune sur un telephone. */
+/* 🔴 AUCUNE OMBRE, ET C'EST UN CHOIX CONTRAINT : ce depot n'a pas de jeton d'ombre, et le garde de ce fichier
+   interdit toute couleur en dur dans ses propres regles (il a raison : un rgba ecrit ici serait la meme teinte
+   dans les deux themes). La puce se detache donc par un bord EPAIS et un fond de surface surelevee — deux
+   jetons, lisibles en Clair comme en Sombre. */
+.hdb-puce{position:absolute;left:50%;transform:translateX(-50%);z-index:1;min-height:22px;padding:0 .55rem;
+  border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface-raised);
+  font:inherit;font-size:.66rem;font-weight:700;color:var(--color-svv-ink);cursor:pointer;white-space:nowrap}
+.hdb-puce:hover{border-color:var(--color-svv-red);color:var(--color-svv-red)}
+.hdb-puce:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.hdb-puce--bas{bottom:-3px}
+.hdb-puce--haut{top:-3px}
 .hdb-case{display:flex;align-items:center;gap:.45rem;min-height:44px;padding:.1rem .3rem;font-size:.8rem;
   color:var(--color-svv-ink);cursor:pointer;min-width:0;border-radius:.4rem}
 .hdb-case:hover{background:var(--color-svv-field)}

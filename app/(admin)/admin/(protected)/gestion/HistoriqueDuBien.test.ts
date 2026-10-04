@@ -848,6 +848,128 @@ describe('⑤-quater 🔴🔴 « Écran historique complet »', () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤-quinquies 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 1 — L'ENCART DÉFILE, ET SA PUCE LE DIT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑤-quinquies 🔴🔴 l’encart ne grandit jamais : il défile', () => {
+  /**
+   * ⚠️ JSDOM NE MESURE RIEN : `offsetTop`, `offsetHeight` et `clientHeight` y valent tous zéro, et aucune
+   * hauteur de CSS n'est calculée. On les POSE donc, sur les prototypes, pour la durée du cas — c'est la seule
+   * façon d'éprouver une puce dont l'existence dépend d'une mesure. Ce qui est vérifié ici, c'est le CÂBLAGE
+   * (mesure → module pur → rendu) ; l'arithmétique elle-même est éprouvée dans `historiqueBien.test.ts` ⑬, et
+   * la hauteur réelle l'a été dans Chrome.
+   */
+  const poserLesMesures = (hauteurVisible: number, scrollTop = 0): (() => void) => {
+    const li = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop');
+    const lh = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    const ch = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight');
+    let rang = 0;
+    const rangs = new WeakMap<Element, number>();
+    Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (!rangs.has(this)) rangs.set(this, rang++);
+        return (rangs.get(this) ?? 0) * 46;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 44 });
+    Object.defineProperty(Element.prototype, 'clientHeight', { configurable: true, get: () => hauteurVisible });
+    Object.defineProperty(Element.prototype, 'scrollTop', { configurable: true, value: scrollTop, writable: true });
+    return () => {
+      if (li) Object.defineProperty(HTMLElement.prototype, 'offsetTop', li);
+      if (lh) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', lh);
+      if (ch) Object.defineProperty(Element.prototype, 'clientHeight', ch);
+    };
+  };
+
+  /** Huit parties non affectées : de quoi dépasser les trois lignes visibles. */
+  const servirHuit = (): void => {
+    const huit = Array.from({ length: 8 }, (_, i) => inter({ adresse: `p${i}@fictif.test`, nbMails: 8 - i }));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) {
+        return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      }
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: huit, interlocuteursTronques: false,
+        },
+      });
+    }));
+  };
+
+  /**
+   * 🔴🔴 LA LISTE EST DANS UN CONTENEUR QUI DÉFILE, et la hauteur est bornée par un jeton nommé — trois capsules
+   * de 44 px et leurs interlignes. Sans borne, l'encart du bien 155 (56 adresses) poussait le fil à plus de deux
+   * écrans du tableau de bord : c'est le défaut que ce point corrige.
+   */
+  it('🔴🔴 la liste des parties vit dans un conteneur défilant, à hauteur bornée', async () => {
+    servirHuit();
+    await monter({ categories: new Map() });
+    const groupe = hote.querySelector('.hdb-groupe') as HTMLElement;
+    /* Le groupe est REPLIÉ au-delà de six (règle du lot 1) : on le déplie pour voir la liste. */
+    await cliquer(groupe.querySelector('.hdb-replier') ?? undefined);
+    const boite = hote.querySelector('.hdb-defile') as HTMLElement;
+    expect(boite).not.toBeNull();
+    expect(boite.querySelector('ul.hdb-personnes')).not.toBeNull();
+    expect(SRC).toContain('max-height:var(--hdb-liste-h)');
+    expect(SRC).toContain('overflow-y:auto');
+    /* ⚠️ `overscroll-behavior: contain` : sans lui, arriver en bas de l'encart emporte la page entière. */
+    expect(SRC).toContain('overscroll-behavior:contain');
+  });
+
+  /**
+   * 🔴🔴 LA PUCE DIT LE NOMBRE CACHÉ, et c'est un BOUTON : « un clic fait défiler » (Arno). Une flèche purement
+   * indicative aurait obligé à viser une barre de défilement de quelques pixels — il n'y en a aucune sur un
+   * téléphone.
+   */
+  it('🔴🔴 « ↓ 5 autres » apparaît quand cinq capsules sont cachées, et c’est un bouton', async () => {
+    const rendre = poserLesMesures(138);
+    try {
+      servirHuit();
+      await monter({ categories: new Map() });
+      await cliquer((hote.querySelector('.hdb-groupe') as HTMLElement).querySelector('.hdb-replier') ?? undefined);
+      const puce = hote.querySelector('.hdb-puce--bas') as HTMLButtonElement;
+      expect(puce).not.toBeNull();
+      expect(puce.tagName).toBe('BUTTON');
+      expect(puce.textContent).toBe('↓ 5 autres');
+      /* ⚠️ L'INTITULÉ POUR LE LECTEUR D'ÉCRAN DIT LE GROUPE : « ↓ 5 autres » seul ne dit pas de quoi. */
+      expect(puce.getAttribute('aria-label')).toContain('Non affectés');
+      /* …et aucune puce du haut : on n'a pas encore défilé. */
+      expect(hote.querySelector('.hdb-puce--haut')).toBeNull();
+    } finally { rendre(); }
+  });
+
+  /** 🔴 UNE LISTE QUI TIENT ENTIÈREMENT N'A AUCUNE PUCE : rien à inviter. */
+  it('🔴 un encart qui montre tout n’a pas de puce', async () => {
+    const rendre = poserLesMesures(2000);
+    try {
+      servirHuit();
+      await monter({ categories: new Map() });
+      await cliquer((hote.querySelector('.hdb-groupe') as HTMLElement).querySelector('.hdb-replier') ?? undefined);
+      expect(hote.querySelector('.hdb-puce--bas')).toBeNull();
+      expect(hote.querySelector('.hdb-puce--haut')).toBeNull();
+    } finally { rendre(); }
+  });
+
+  /** 🔴 UNE FOIS DÉFILÉ, LA PUCE DU HAUT APPARAÎT — « Même chose vers le haut si on a défilé » (Arno). */
+  it('🔴🔴 une fois défilé, « ↑ remonter » apparaît', async () => {
+    const rendre = poserLesMesures(138, 92);
+    try {
+      servirHuit();
+      await monter({ categories: new Map() });
+      await cliquer((hote.querySelector('.hdb-groupe') as HTMLElement).querySelector('.hdb-replier') ?? undefined);
+      const haut = hote.querySelector('.hdb-puce--haut') as HTMLButtonElement;
+      expect(haut).not.toBeNull();
+      expect(haut.textContent).toBe('↑ remonter');
+    } finally { rendre(); }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑥ 🔴🔴 LE GARDE : LES DEUX COMPOSANTS SONT **IMPORTÉS**, PAS RECOPIÉS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
