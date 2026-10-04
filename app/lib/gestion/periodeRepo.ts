@@ -8,13 +8,21 @@ import {
   type Simplification,
 } from './periodesConversation';
 import { rattacher, changerStatut } from './rattachementRepo';
-import { marquerInterne, annulerInterne } from './interneRepo';
+import { marquerInterne, annulerInterne, lireInterne } from './interneRepo';
 import { marquerHorsGestion, annulerHorsGestion } from './horsGestionRepo';
 /**
  * 🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — « interne » par MAIL, jumeau de « hors gestion ». La règle du
  * repli, elle, vit dans le module PUR `interneDuMail` : une seule écriture pour la liste, la modale et l'écran.
  */
-import { marquerInterneDesMessages, annulerInterneDesMessages } from './interneMessageRepo';
+/**
+ * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 2 — `declarerNonInterneDesMessages` écrit la ligne NÉE RETIRÉE qui dit
+ * « on s'est prononcé sur ce mail ». C'est elle qui empêche le REPLI sur la marque d'échange de redonner
+ * « Interne » à un mail — présent ou À VENIR — qu'une fenêtre a classé sur un bien. Voir son encadré, et celui de
+ * la boucle de projection.
+ */
+import {
+  marquerInterneDesMessages, annulerInterneDesMessages, declarerNonInterneDesMessages,
+} from './interneMessageRepo';
 import { MOTIF_INTERNE_PAR_SUIVI } from './interneDuMail';
 /**
  * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — le motif que `rattacher()` écrit quand il lève la marque d'un mail
@@ -567,10 +575,13 @@ export async function annulerClassement(o: {
    * 🔴 ON ROUVRE DONC CES MARQUES, et SEULEMENT pour les mails que la décision RESTAURÉE ne couvre plus : ceux
    * que la fenêtre couvre encore doivent évidemment rester non interne — c'est ce que leur fenêtre dit.
    *
-   * 🔴🔴 LE MOTIF EST CELUI DE LA LEVÉE, ET C'EST MESURÉ, PAS DEVINÉ. En posant le bien, la projection appelle
-   * `rattacher()`, qui lève lui-même la marque du mail (lot PHOTOS-ET-INTERNE-INVERSE) : la ligne écrite pendant
-   * le geste porte donc `MOTIF_LEVE_PAR_RATTACHEMENT`. Le diagnostic du 04/10/2026 l'a montré — un filtre sur un
-   * autre motif ne rouvrait RIEN.
+   * 🔴🔴 DEUX MOTIFS, ET IL EN FAUT DEUX — MESURÉ, PAS DEVINÉ. En posant le bien, la projection appelle
+   * `rattacher()`, qui lève lui-même la marque du mail (lot PHOTOS-ET-INTERNE-INVERSE) : la ligne porte alors
+   * `MOTIF_LEVE_PAR_RATTACHEMENT`, et la ligne de la projection n'est jamais écrite — `declarerNon…` ne
+   * double pas une ligne existante. Le diagnostic du 04/10/2026 l'a montré : les lignes trouvées après le geste
+   * portaient « levé en rattachant un bien à ce mail », et un filtre sur le seul motif de la projection ne
+   * rouvrait donc RIEN. Les deux motifs désignent le même fait — « ce geste-ci a écarté la marque » — et l'on
+   * défait les deux.
    *
    * 🔴 ET SEULEMENT CELLES-LÀ, reconnues à leur motif et à leur fraîcheur : une marque retirée à la main, ou il y
    * a une heure, n'a pas à ressusciter ici.
@@ -601,7 +612,7 @@ export async function annulerClassement(o: {
                AND NOT EXISTS (SELECT 1 FROM gestion_message_interne x
                                 WHERE x.message_id = mi.message_id AND x.retire_le IS NULL)
              ORDER BY mi.message_id, mi.retire_le DESC, mi.id DESC)`,
-        [orphelins, [MOTIF_LEVE_PAR_RATTACHEMENT]]);
+        [orphelins, [MOTIF_INTERNE_PAR_SUIVI, MOTIF_LEVE_PAR_RATTACHEMENT]]);
     }
   }
 
@@ -720,6 +731,16 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
   if (periodes.length === 0 && exceptions.length === 0) return 0;
   // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — lus UNE fois pour toute la conversation (voir la boucle de pose plus bas).
   const documents = await documentsDuFil(filId);
+  /**
+   * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 2 — LA MARQUE D'ÉCHANGE EST-ELLE VIVANTE ? Lue UNE fois ici, et
+   * utilisée tout en bas de la boucle (voir son encadré) : c'est elle qui dit si le REPLI a quelque chose à dire
+   * sur les mails de cette conversation, et donc s'il faut écrire « on s'est prononcé » pour l'empêcher de
+   * répondre là où une fenêtre a parlé.
+   *
+   * ⚠️ SANS LA MIGRATION 281, `lireInterne` REND UNE CARTE VIDE sans nommer la table : le garde vaut `false`, et
+   * la projection se comporte exactement comme avant ce lot.
+   */
+  const echangeInterne = (await lireInterne([filId])).has(filId);
   const voulu = projeter(mails, periodes, exceptions);
 
   // CE QUE LA BASE PORTE AUJOURD'HUI : les liens « lot » CONFIRMÉS de chaque mail du fil.
@@ -816,6 +837,58 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
         messageIds: [m], auteur, motif: MOTIF_INTERNE_PAR_SUIVI,
       });
       if (issue.ok && issue.nb > 0) gestes += 1;
+      /**
+       * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 2 — LA FENÊTRE VAUT AUSSI CONTRE LE **REPLI** ═════════════
+       *
+       * ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+       * DÉCISION D'ARNO (04/10/2026) : « fenêtre “Ce mail et la conversation à venir” ou “Toute la
+       * conversation” : les mails À VENIR suivent le nouveau choix (le bien) et n'héritent plus de la marque
+       * Interne. C'est le même principe que pour le suivi des biens : le dernier choix vaut pour la suite. »
+       *
+       * ═══ 🔴🔴 LE TROU QUE CES TROIS LIGNES FERMENT ══════════════════════════════════════════════════════════
+       *
+       * `annulerInterneDesMessages` ne sait RETIRER qu'une marque qui existe. Or un mail peut être « interne »
+       * SANS porter aucune marque par mail : c'est le cas ③ d'`interneDuMail`, le REPLI sur la marque de
+       * l'ÉCHANGE. Sur un tel mail, l'`UPDATE` ci-dessus ne trouve rien, ne lève rien — et ne le dit pas.
+       *
+       * 🔴 CONSÉQUENCE MESURÉE AVANT CORRECTION : une conversation marquée interne par la case du bandeau, puis
+       * classée sur un bien « pour la suite », redonnait « Interne » à chaque RÉPONSE À VENIR. Le dernier choix
+       * ne valait pas pour la suite — il ne valait que pour les mails qui portaient déjà une marque.
+       *
+       * 🔴 ON ÉCRIT DONC UNE LIGNE NÉE RETIRÉE, qui dit « on s'est prononcé sur ce mail » : le repli ne répond
+       * plus pour lui. C'est le MÊME mécanisme que la levée après un rattachement humain
+       * (`declarerNonInterneDesMessages`), au même grain, avec le motif de la projection.
+       *
+       * 🔴🔴 ET C'EST LA FENÊTRE SEULE QUI DÉCIDE, SANS UNE LIGNE DE PLUS :
+       *   · « Ce mail et la conversation à venir » / « Toute la conversation » posent une PÉRIODE — un mail à
+       *     venir est donc COUVERT, la boucle passe ici, et il n'hérite plus de la marque ;
+       *   · « Ce mail uniquement » pose une EXCEPTION — un mail à venir n'est couvert par rien, la boucle sort
+       *     plus haut (`c === undefined` ⇒ `continue`), et la conversation garde sa marque pour la suite.
+       * C'est exactement la règle d'Arno, et elle est TENUE PAR LE MÉCANISME EXISTANT, pas par un second chemin.
+       *
+       * ⚠️ LA MARQUE D'ÉCHANGE N'EST TOUJOURS PAS TOUCHÉE (correction du 03/10, juste au-dessus) : elle reste le
+       * repli pour les conversations et les mails dont personne ne s'est occupé. On ne la retire pas, on cesse
+       * de la laisser répondre là où une fenêtre a parlé.
+       *
+       * ⚠️ RIEN POUR UN MAIL QUI S'EST DÉJÀ PRONONCÉ : `declarerNonInterneDesMessages` n'écrit que si le mail ne
+       * porte AUCUNE ligne (`NOT EXISTS`). Un mail dont la marque vient d'être retirée juste au-dessus, ou qui
+       * en porte une vivante, n'en reçoit pas une seconde — et la projection reste un diff.
+       */
+      /**
+       * 🔴🔴 ET SEULEMENT SI LE REPLI A QUELQUE CHOSE À DIRE, ce qui est la différence entre une correction et
+       * une écriture de masse. Sans ce garde, la prochaine projection de CHAQUE conversation classée sur un bien
+       * écrirait une ligne « on s'est prononcé » sur chacun de ses mails — plus de onze mille lignes, pour dire
+       * « ce mail n'est pas interne » là où personne n'avait jamais prétendu le contraire.
+       *
+       * Lu UNE fois pour toute la conversation, avant la boucle : la marque d'échange ne change pas en cours de
+       * projection, et une requête par mail coûterait un aller-retour par ligne.
+       */
+      if (echangeInterne) {
+        const aussi = await declarerNonInterneDesMessages({
+          messageIds: [m], auteur, motif: MOTIF_INTERNE_PAR_SUIVI,
+        });
+        if (aussi.ok && aussi.nb > 0) gestes += 1;
+      }
     }
   }
 

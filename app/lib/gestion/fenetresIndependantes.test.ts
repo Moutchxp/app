@@ -55,6 +55,11 @@ const annulerInterne = vi.fn(async (_o: { filIds: number[] }) => ({ ok: true, nb
 vi.mock('./interneRepo', () => ({
   marquerInterne: (...a: unknown[]) => marquerInterne(...(a as [never])),
   annulerInterne: (...a: unknown[]) => annulerInterne(...(a as [never])),
+  /* 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 2 — la projection lit la marque d'ÉCHANGE une fois par fil : elle
+     décide si le REPLI a quelque chose à dire sur ses mails. ⚠️ UNE FABRIQUE `vi.mock` QUI OUBLIE UN EXPORT NEUF
+     FAIT TOMBER LE MODULE À L'APPEL, pas à l'import — piège déjà consigné plusieurs fois ici. Carte VIDE = aucune
+     conversation marquée, donc projection mot pour mot celle d'avant ce lot. */
+  lireInterne: async () => new Map(),
 }));
 const marquerHorsGestion = vi.fn(async (_o: { messageIds: number[] }) => ({ ok: true, nb: 1 }));
 const annulerHorsGestion = vi.fn(async (_o: { messageIds: number[] }) => ({ ok: true, nb: 1 }));

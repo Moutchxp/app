@@ -40,7 +40,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { query, closePool } from '../db/client';
 import {
-  annulerClassement, mailsDuFil, poserClassement, suiviDuFil, type TraceClassement,
+  annulerClassement, heriterLesNouveauxMails, mailsDuFil, poserClassement, suiviDuFil,
+  type TraceClassement,
 } from './periodeRepo';
 import { lireInterne, marquerInterne } from './interneRepo';
 import { lireInterneDesMessages } from './interneMessageRepo';
@@ -64,6 +65,7 @@ const AUTEUR = { id: null, libelle: 'épreuve interne-annuler-et-suite' };
 const LOTS = ['LOT-INT-A', 'LOT-INT-B'] as const;
 const bien = (cle: string) => ({ cle, libelle: `Bien fictif ${cle}` });
 const biens = (cle: string) => ({ sorte: 'biens' as const, biens: [bien(cle)] });
+const INTERNE = { sorte: 'interne' as const, biens: [] };
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    LE DÉCOR
@@ -171,6 +173,121 @@ beforeEach(async () => {
   await query('DELETE FROM gestion_message_exception');
   await query('DELETE FROM gestion_fil_periode_bien');
   await query('DELETE FROM gestion_fil_periode');
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 POINT 2 — LES MAILS À VENIR SUIVENT LE DERNIER CHOIX
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 POINT 2 — « le dernier choix vaut pour la suite », marque Interne comprise', () => {
+  /**
+   * 🔴🔴 LE TÉMOIN NÉGATIF D'ABORD, et il est indispensable : sans lui, tout ce qui suit passerait aussi sur une
+   * base où « interne » ne marcherait plus du tout. On vérifie donc que les trois mails SONT interne, par le
+   * seul REPLI, avant d'avoir rien classé.
+   */
+  it('🔴🔴 au départ : les trois mails sont interne PAR LE REPLI, et aucun ne porte de marque propre', async () => {
+    const { filId, mails } = await conversationInterne(3);
+    expect(await interneDesMails(filId, mails)).toEqual([true, true, true]);
+    const parMail = await lireInterneDesMessages(mails);
+    expect(parMail.size, 'aucune marque PAR MAIL ne doit exister').toBe(0);
+  });
+
+  it('🔴🔴 « Ce mail et la conversation à venir » : ce mail, les suivants ET le mail À VENIR perdent la marque',
+    async () => {
+      const { filId, mails, cle } = await conversationInterne(3);
+      await poserClassement({
+        filId, messageId: mails[1], classement: biens('LOT-INT-A'), choix: 'suite', auteur: AUTEUR,
+      });
+
+      // ① Le mail AVANT la fenêtre n'est pas couvert : il garde la marque de l'échange.
+      // ② Le mail de la fenêtre et le suivant la perdent, et portent le bien.
+      expect(await interneDesMails(filId, mails)).toEqual([true, false, false]);
+      expect(await biensDuMail(mails[0])).toEqual([]);
+      expect(await biensDuMail(mails[1])).toEqual(['LOT-INT-A']);
+      expect(await biensDuMail(mails[2])).toEqual(['LOT-INT-A']);
+
+      // ③ 🔴🔴 LE MAIL À VENIR — simulé par un message de plus, puis l'héritage que la relève déclenche.
+      const futur = await ajouterMail(filId, cle, 4);
+      expect(await heriterLesNouveauxMails(filId, AUTEUR)).toBeGreaterThan(0);
+      expect(await interneDesMails(filId, [futur])).toEqual([false]);
+      expect(await biensDuMail(futur)).toEqual(['LOT-INT-A']);
+    });
+
+  it('🔴🔴 « Toute la conversation » : tous les mails et le mail À VENIR perdent la marque', async () => {
+    const { filId, mails, cle } = await conversationInterne(3);
+    await poserClassement({
+      filId, messageId: mails[1], classement: biens('LOT-INT-A'), choix: 'conversation', auteur: AUTEUR,
+    });
+    expect(await interneDesMails(filId, mails)).toEqual([false, false, false]);
+
+    const futur = await ajouterMail(filId, cle, 4);
+    await heriterLesNouveauxMails(filId, AUTEUR);
+    expect(await interneDesMails(filId, [futur])).toEqual([false]);
+    expect(await biensDuMail(futur)).toEqual(['LOT-INT-A']);
+  });
+
+  /**
+   * 🔴🔴 ET « TOUTE LA CONVERSATION » RESPECTE LES EXCEPTIONS « CE MAIL UNIQUEMENT » — mot pour mot la seconde
+   * phrase d'Arno. Le mail qui porte une exception « interne » la garde, et reste interne, pendant que les
+   * autres passent au bien.
+   */
+  it('🔴🔴 « Toute la conversation » respecte une exception « Ce mail uniquement »', async () => {
+    const { filId, mails } = await conversationInterne(3);
+    // ① une exception « interne » posée sur le 1er mail, pour elle seule
+    await poserClassement({ filId, messageId: mails[0], classement: INTERNE, choix: 'mail', auteur: AUTEUR });
+    // ② puis toute la conversation sur un bien
+    await poserClassement({
+      filId, messageId: mails[1], classement: biens('LOT-INT-A'), choix: 'conversation', auteur: AUTEUR,
+    });
+    expect(await interneDesMails(filId, mails)).toEqual([true, false, false]);
+    expect(await biensDuMail(mails[0])).toEqual([]);
+    expect(await biensDuMail(mails[1])).toEqual(['LOT-INT-A']);
+    /* 🔴 ET L'EXCEPTION EST TOUJOURS VIVANTE : « Toute la conversation » ne l'a pas emportée. */
+    const { exceptions } = await suiviDuFil(filId);
+    expect(exceptions.map((e) => e.messageId)).toEqual([mails[0]]);
+  });
+
+  /**
+   * 🔴🔴 LA SECONDE RÈGLE D'ARNO, ET C'EST ELLE QUI DISTINGUE UNE EXCEPTION D'UNE FENÊTRE : « Fenêtre “Ce mail
+   * uniquement” : c'est une exception, la conversation garde sa marque Interne pour la suite. »
+   */
+  it('🔴🔴 « Ce mail uniquement » : le mail À VENIR reste INTERNE', async () => {
+    const { filId, mails, cle } = await conversationInterne(3);
+    await poserClassement({
+      filId, messageId: mails[1], classement: biens('LOT-INT-A'), choix: 'mail', auteur: AUTEUR,
+    });
+    // ① seul le mail visé change : les deux autres gardent la marque de l'échange
+    expect(await interneDesMails(filId, mails)).toEqual([true, false, true]);
+    expect(await biensDuMail(mails[1])).toEqual(['LOT-INT-A']);
+    expect(await biensDuMail(mails[2])).toEqual([]);
+
+    // ② 🔴 ET LE MAIL À VENIR RESTE INTERNE : aucune fenêtre ne le couvre, le repli répond pour lui.
+    const futur = await ajouterMail(filId, cle, 4);
+    await heriterLesNouveauxMails(filId, AUTEUR);
+    expect(await interneDesMails(filId, [futur])).toEqual([true]);
+    expect(await biensDuMail(futur)).toEqual([]);
+  });
+
+  /**
+   * ⚠️ ET RIEN N'EST ÉCRIT SUR UNE CONVERSATION QUI N'EST PAS MARQUÉE — c'est la différence entre une correction
+   * et une écriture de masse. Sans ce garde, la prochaine projection de CHAQUE conversation classée sur un bien
+   * écrirait une ligne « on s'est prononcé » sur chacun de ses mails.
+   */
+  it('⚠️ sans marque d’échange, aucune ligne « on s’est prononcé » n’est écrite', async () => {
+    compteur += 1;
+    const cle = `sans-marque-${Date.now()}-${compteur}`;
+    const { rows: f } = await query<{ id: string }>(
+      "INSERT INTO gestion_fil (cle, etat) VALUES ($1, 'a_classer') RETURNING id::text", [cle]);
+    const filId = Number(f[0].id);
+    const mails = [await ajouterMail(filId, cle, 1), await ajouterMail(filId, cle, 2)];
+
+    await poserClassement({
+      filId, messageId: mails[0], classement: biens('LOT-INT-A'), choix: 'conversation', auteur: AUTEUR,
+    });
+    expect(await interneDesMails(filId, mails)).toEqual([false, false]);
+    const parMail = await lireInterneDesMessages(mails);
+    expect(parMail.size, 'aucune marque par mail ne doit être écrite').toBe(0);
+  });
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

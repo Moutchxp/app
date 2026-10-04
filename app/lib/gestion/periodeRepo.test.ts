@@ -38,6 +38,8 @@ let migration257 = true;
  * (Le cas « 293 présente » est éprouvé à part, dans `contactsExternes.suivi.test.ts` : un fichier NOUVEAU.)
  */
 let migration293 = false;
+/** Le libellé de l'auteur, nommé avant les fabriques `vi.mock` qui le citent (elles sont hissées en tête). */
+const AUTEUR_LIBELLE = 'a.jorel@sansvisavis.com';
 vi.mock('./schema', () => ({
   periodesDisponibles: async () => migration290,
   rattachementsDisponibles: async () => migration257,
@@ -57,9 +59,23 @@ vi.mock('./rattachementRepo', () => ({
 }));
 const marquerInterne = vi.fn(async () => ({ ok: true, nb: 0 }));
 const annulerInterne = vi.fn(async () => ({ ok: true, nb: 0 }));
+/**
+ * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 2 — LA MARQUE D'ÉCHANGE, LUE UNE FOIS PAR PROJECTION.
+ *
+ * Elle décide si le REPLI a quelque chose à dire sur les mails de cette conversation, donc s'il faut écrire
+ * « on s'est prononcé » pour l'empêcher de redonner « Interne » à un mail qu'une fenêtre a classé sur un bien.
+ *
+ * ⚠️ `echangeMarqueInterne` PILOTE LA RÉPONSE, et le défaut est `false` : sans marque d'échange, la projection
+ * est mot pour mot celle d'avant ce lot — c'est ce que les épreuves de FORME du SQL écrites avant vérifient.
+ */
+let echangeMarqueInterne = false;
+const lireInterne = vi.fn(async (fils: readonly number[]) => (echangeMarqueInterne
+  ? new Map(fils.map((f) => [f, { filId: f, poseLe: '2026-10-01T09:00:00Z', posePar: AUTEUR_LIBELLE }]))
+  : new Map()));
 vi.mock('./interneRepo', () => ({
   marquerInterne: (...a: unknown[]) => marquerInterne(...(a as [])),
   annulerInterne: (...a: unknown[]) => annulerInterne(...(a as [])),
+  lireInterne: (...a: unknown[]) => lireInterne(...(a as [readonly number[]])),
 }));
 const marquerHorsGestion = vi.fn(async () => ({ ok: true, nb: 0 }));
 const annulerHorsGestion = vi.fn(async () => ({ ok: true, nb: 0 }));
@@ -72,7 +88,7 @@ import {
   heriterLesNouveauxMails, poserClassement, projeterLeFil, reprendreExistant, MOTIF_POSE_PAR_SUIVI,
 } from './periodeRepo';
 
-const AUTEUR = { id: 7, libelle: 'a.jorel@sansvisavis.com' };
+const AUTEUR = { id: 7, libelle: AUTEUR_LIBELLE };
 
 /** La conversation que la fausse base raconte : ses mails, ses périodes, ses exceptions, ses liens posés. */
 interface FausseBase {
