@@ -49,6 +49,15 @@ export interface PersonneRattachement {
   expediteur: boolean;
 }
 
+/**
+ * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — UN OCCUPANT D'AUJOURD'HUI, pour la ligne « Aujourd'hui : … ».
+ *
+ * ⚠️ `id` EST L'IDENTIFIANT INTERNE, pas la clé WIPPIMMO : c'est lui qui ouvre la fiche annuaire
+ * (`?fiche=locataire-<id>`), comme pour `PersonneRattachement`. `null` = la fiche n'est pas atteignable, et la
+ * ligne se lit alors sans lien plutôt que de mener nulle part.
+ */
+export interface OccupantDuJour { cle: string; id: number | null; nom: string }
+
 /** Un bien rattaché à l'échange, avec tout ce qu'on veut savoir sans rouvrir WIPPIMMO. */
 export interface BienRattache {
   cle: string;
@@ -75,8 +84,24 @@ export interface BienRattache {
   surfaceM2: number | null;
   /** `auto` = posé par le moteur · `classe` = posé ou confirmé à la main · `a_trancher` = proposé, pas encore tranché. */
   statut: 'auto' | 'classe' | 'a_trancher';
-  /** La date des mails dont ce rattachement vient — c'est elle qui décide QUI était locataire. */
+  /**
+   * La date du MAIL AFFICHÉ — c'est elle qui décide QUI était locataire.
+   *
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — « À LA DATE DU MAIL AFFICHÉ » ════════════════════════════
+   *
+   * RÈGLE D'ARNO (04/10/2026), née de l'audit : « la fenêtre et l'historique nomment le locataire en place à la
+   * date du MAIL AFFICHÉ (`enTete.recuLe`), et non celui du dernier mail de la conversation. »
+   *
+   * 🔴 AVANT CE POINT, C'ÉTAIT LA DATE DU MAIL LE PLUS RÉCENT qui portait ce rattachement. Sur une conversation
+   * qui traverse un changement de locataire, la fenêtre ouverte sur un mail ancien nommait donc l'occupant de la
+   * FIN de la conversation : 89 couples (mail, bien) nommaient la mauvaise personne, mesuré sur 11 706.
+   */
   dateMail: string | null;
+  /**
+   * 🔴 LES OCCUPANTS D'AUJOURD'HUI, quand ils diffèrent de ceux de la date du mail. Liste VIDE = vacant
+   * aujourd'hui ; c'est une réponse, pas une absence de données. Voir `occupantsAujourdhuiADire`.
+   */
+  occupantsAujourdhui: OccupantDuJour[];
   /** Combien de mails de la conversation portent ce rattachement. */
   nbMails: number;
   /** L'identifiant du dossier Drive du bien, quand on a su le trouver. `null` = pas de lien proposé. */
@@ -149,6 +174,50 @@ export function motStatutBien(s: BienRattache['statut']): string {
  */
 export function motSansLocataire(dateMail: string | null): string {
   return dateMail === null ? 'Vacant (aucune date de mail connue)' : `Vacant à cette date (${dateFr(dateMail)})`;
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — FAUT-IL DIRE « AUJOURD'HUI » ? PUR. ══════════════════════════
+ *
+ * DEMANDE D'ARNO : « Si l'occupant d'aujourd'hui est différent, ajoute une petite ligne discrète “Aujourd'hui :
+ * <nom>” avec sa fiche annuaire. »
+ *
+ * 🔴 `null` VEUT DIRE « NE RIEN AJOUTER », et c'est le cas le plus fréquent : quand l'occupant n'a pas changé, la
+ * ligne serait un bruit qui répète ce qui est déjà écrit juste au-dessus. La fenêtre ne doit pas grossir de 365
+ * lignes inutiles pour 89 cas utiles.
+ *
+ * 🔴 UN TABLEAU VIDE N'EST PAS `null` : il veut dire « plus personne aujourd'hui », donc « Aujourd'hui : vacant ».
+ * Les confondre tairait le départ d'un locataire — exactement l'information qu'on vient voir.
+ *
+ * ⚠️ LA COMPARAISON PORTE SUR LES CLÉS, PAS SUR LES NOMS. Un ré-import WIPPIMMO retouche les noms (casse, accents,
+ * « Représentée par »), jamais la clé : comparer les noms ferait apparaître la ligne sur un simple changement
+ * d'orthographe.
+ */
+export function occupantsAujourdhuiADire(
+  locatairesDuMail: readonly { cle: string }[],
+  /**
+   * ⚠️ `undefined` EST ADMIS, ET IL NE VEUT PAS DIRE « vacant ». Une page déjà ouverte au moment d'une mise en
+   * service reçoit une réponse sans ce champ ; le traiter comme une liste vide ferait écrire « Aujourd'hui :
+   * vacant » sur un logement habité. Faute de savoir, on se TAIT — c'est la règle du module (« rien n'est
+   * inventé »), et c'est aussi ce qui garde les épreuves d'écran antérieures valides sans les retoucher.
+   */
+  occupantsAujourdhui: readonly OccupantDuJour[] | undefined,
+): OccupantDuJour[] | null {
+  if (occupantsAujourdhui === undefined) return null;
+  const alors = new Set(locatairesDuMail.map((p) => p.cle));
+  const aujourdhui = new Set(occupantsAujourdhui.map((o) => o.cle));
+  if (alors.size === aujourdhui.size && [...alors].every((c) => aujourdhui.has(c))) return null;
+  return [...occupantsAujourdhui];
+}
+
+/**
+ * LA LIGNE « AUJOURD'HUI », ÉCRITE. PUR.
+ *
+ * 🔴 « VACANT » EST UN MOT, JAMAIS UN BLANC — règle du module. Une ligne « Aujourd'hui : » suivie de rien se
+ * lirait « on n'a pas cherché ».
+ */
+export function motAujourdhui(occupants: readonly OccupantDuJour[]): string {
+  return occupants.length === 0 ? 'Aujourd’hui : vacant' : `Aujourd’hui : ${occupants.map((o) => o.nom).join(', ')}`;
 }
 
 /** Une date ISO (AAAA-MM-JJ) en date française. Rend la chaîne telle quelle si elle n'a pas cette forme. PUR. */

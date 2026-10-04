@@ -27,7 +27,9 @@ const bien = (p: Partial<BienRattache>): BienRattache => ({
      « 100 ». C'est tout l'écart que `adresseHistoriqueDuBien` protège, et il est écrit ici exprès. */
   lotId: 7,
   nature: 'Appartement', typeBien: 'Type 2', surfaceM2: null, statut: 'auto',
-  dateMail: '2026-09-20', nbMails: 1, dossierDriveId: null, personnes: [], lienIds: [], ...p,
+  dateMail: '2026-09-20', nbMails: 1, dossierDriveId: null, personnes: [], lienIds: [],
+  /* 🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — par défaut, personne aujourd'hui ; chaque cas dit le sien. */
+  occupantsAujourdhui: [], ...p,
 });
 
 describe('🔴 la surface — « ne jamais l’inventer »', () => {

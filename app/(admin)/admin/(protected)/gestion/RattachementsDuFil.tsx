@@ -10,8 +10,8 @@ import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 // LOT FICHE-RATTACHEMENT — les mots et les ordres vivent dans un module PUR, éprouvé sans écran.
 import {
   adresseFicheAnnuaire, adresseHistoriqueDuBien, idDossierDrive,
-  motNbBiensRattaches, motPeriode, motRole, motSansLocataire,
-  motStatutBien,
+  motAujourdhui, motNbBiensRattaches, motPeriode, motRole, motSansLocataire,
+  motStatutBien, occupantsAujourdhuiADire,
   motSurface, qualitePersonne,
   AIDE_DRIVE_ABSENT, AIDE_DRIVE_DU_BIEN, AIDE_HISTORIQUE_ABSENT, AIDE_HISTORIQUE_DU_BIEN,
   AUCUN_BIEN_DU_MAIL, biensDuMail, ENCADRE_EXCEPTION_CE_MAIL, MENTION_AJOUT_PONCTUEL, motEnTeteMail,
@@ -560,6 +560,16 @@ function BlocBien({
   /** L'adresse de la fiche du bien, ou `null` : celle du second. */
   const histo = adresseHistoriqueDuBien(bien.lotId);
   const avecCase = garde !== undefined && onGarder !== undefined;
+  /**
+   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — FAUT-IL AJOUTER « Aujourd'hui : … » ?
+   *
+   * `null` = non, et c'est le cas le plus fréquent : l'occupant n'a pas changé depuis le mail, la ligne ne
+   * répéterait que ce qui est écrit juste au-dessus. La décision est PURE et éprouvée sans écran — la carte ne
+   * fait que l'écrire.
+   */
+  const aujourdhui = occupantsAujourdhuiADire(
+    bien.personnes.filter((p) => p.role === 'locataire'), bien.occupantsAujourdhui,
+  );
   /* 🔴 LA CARTE S'ESTOMPE quand elle ne sera plus là : la mention le DIT, l'opacité ne fait que l'appuyer. */
   const retire = avecCase && garde === false;
   return (
@@ -645,6 +655,39 @@ function BlocBien({
       {/* 🔴 « VACANT À CETTE DATE » EST UNE RÉPONSE, pas un vide : il explique pourquoi le mail vient du bailleur. */}
       {bien.personnes.filter((p) => p.role === 'locataire').length === 0 && (
         <p className="rdf-detail rdf-absent">{motSansLocataire(bien.dateMail)}</p>
+      )}
+      {/* ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — « AUJOURD'HUI », QUAND CE N'EST PLUS LA MÊME PERSONNE ══
+
+          DEMANDE D'ARNO : « Si l'occupant d'aujourd'hui est différent, ajoute une petite ligne discrète
+          “Aujourd'hui : <nom>” avec sa fiche annuaire. »
+
+          🔴 ELLE N'APPARAÎT QUE QUAND ELLE APPREND QUELQUE CHOSE. Sans ce filtre, la fenêtre porterait la ligne
+          sur les 11 617 couples où rien n'a changé pour servir les 89 où quelque chose a changé.
+
+          🔴 « vacant » EST UN MOT, et il compte autant qu'un nom : il dit qu'on ne peut plus joindre personne à
+          cette adresse aujourd'hui, ce que le silence laisserait croire l'inverse.
+
+          ⚠️ LE NOM EST CLIQUABLE QUAND LA FICHE EXISTE, et seulement alors — `adresseFicheAnnuaire` rend `null`
+          sans identifiant interne, et un lien mort serait pire que du texte. */}
+      {aujourdhui !== null && (
+        <p className="rdf-detail rdf-aujourdhui">
+          {aujourdhui.length === 0 ? motAujourdhui(aujourdhui) : (
+            <>
+              {'Aujourd’hui : '}
+              {aujourdhui.map((o, i) => {
+                const vers = adresseFicheAnnuaire({ role: 'locataire', id: o.id });
+                return (
+                  <span key={`${o.cle}-${o.id ?? 'x'}`}>
+                    {i > 0 && ', '}
+                    {vers === null ? o.nom : (
+                      <a href={vers} className="rdf-lien" title={`Fiche annuaire de ${o.nom}`}>{o.nom}</a>
+                    )}
+                  </span>
+                );
+              })}
+            </>
+          )}
+        </p>
       )}
 
       {/* LE DÉTAIL PAR MAIL, REPLIÉ : chaque mail, sa règle, sa date, son auteur, et son propre « Modifier ». */}
@@ -792,6 +835,12 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-caract > span + span::before{content:'· ';color:var(--color-svv-line-strong)}
 /* Une donnée ABSENTE est dite, et se distingue d'une donnée présente — par le mot d'abord, l'italique ensuite. */
 .rdf-absent{font-style:italic}
+/* ══ 🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — « Aujourd'hui : … » : DISCRET, demande d'Arno ════════════════
+   AUCUNE COULEUR PROPRE, ET C'EST VOLONTAIRE : la ligne porte deja .rdf-detail, dont la couleur
+   (--color-svv-muted) bascule seule en Clair et en Sombre. Une teinte en dur aurait ete juste dans un theme et
+   fausse dans l'autre. Seul un demi-cran d'air la detache de la personne du mail, pour qu'on ne lise pas les deux
+   comme une meme phrase. */
+.rdf-aujourdhui{margin-top:.15rem}
 .rdf-note{font-size:.74rem;color:var(--color-svv-muted)}
 .rdf-lien{font-size:.78rem;font-weight:600;color:var(--color-svv-red)}
 .rdf-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}

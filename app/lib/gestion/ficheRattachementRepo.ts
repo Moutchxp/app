@@ -188,40 +188,84 @@ export async function ficheRattachementDuFil(
   const parCle = new Map(lots.map((l) => [l.cle, l]));
 
   /**
-   * ── ④ LES LOCATAIRES, À LA DATE DU MAIL LE PLUS RÉCENT QUI PORTE CE RATTACHEMENT ─────────────────────────────
+   * ── ④ LES LOCATAIRES, À LA DATE DU MAIL AFFICHÉ ──────────────────────────────────────────────────────────────
    *
    * 🔴 « À LA DATE », ET NON « AUJOURD'HUI ». Un échange d'août 2025 parle du locataire d'août 2025 ; afficher
-   * l'occupant actuel ferait rappeler quelqu'un qui n'habitait pas là. Les liens sont déjà triés du plus récent
-   * au plus ancien : la première date rencontrée pour un lot est la bonne.
+   * l'occupant actuel ferait rappeler quelqu'un qui n'habitait pas là.
+   *
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — LA DATE EST CELLE DU MAIL AFFICHÉ ════════════════════════
+   *
+   * RÈGLE D'ARNO (04/10/2026) : « la fenêtre et l'historique nomment le locataire en place à la date du MAIL
+   * AFFICHÉ (`enTete.recuLe`), et non celui du dernier mail de la conversation. »
+   *
+   * 🔴 CE QUE CETTE LIGNE REMPLACE, ET L'ÉCART QU'ELLE FERME. On prenait la date du mail LE PLUS RÉCENT portant
+   * ce rattachement (les liens étant triés `recu_le DESC`, la première date rencontrée pour un lot). Sur une
+   * conversation qui traverse un changement de locataire, la fenêtre ouverte sur un mail ancien nommait donc
+   * l'occupant de la FIN de la conversation. Mesuré par l'audit du 04/10/2026 : **89** couples (mail, bien) sur
+   * 11 706 nommaient la mauvaise personne — dont fil 36475 / message 57119, qui disait « vacant » là où
+   * « LEON GUIMAREY DI FIORE Isabella et Hugo » occupait le logement au 28/09/2026.
+   *
+   * 🔴 UNE SEULE DATE POUR TOUTE LA FENÊTRE, et non une par bien : la fenêtre PORTE sur un mail (convention du
+   * lot VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT), son en-tête le nomme, et « à cette date » ne peut pas désigner
+   * six dates différentes dans une même fenêtre.
+   *
+   * ⚠️ REPLI SUR LA DATE DU MAIL LE PLUS RÉCENT quand l'en-tête manque (échange vide) : la requête ② n'a alors
+   * rendu aucun lien, donc aucun bien — le repli ne sert qu'à ne pas laisser un `null` décider à notre place.
    */
+  const dateAffichee = enTete === null ? null : enTete.recuLe.slice(0, 10);
   const dateParCle = new Map<string, string | null>();
   for (const l of liens) {
     const cle = l.cible_cle as string;
-    if (!dateParCle.has(cle)) dateParCle.set(cle, l.date_mail);
+    if (!dateParCle.has(cle)) dateParCle.set(cle, dateAffichee ?? l.date_mail);
   }
 
   const occupations = new Map<string, {
     locataireId: string; cle: string; nom: string; depuis: string | null; jusqua: string | null;
   }[]>();
+  /**
+   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — LES OCCUPANTS D'AUJOURD'HUI, pour la ligne « Aujourd'hui : … ».
+   * Toujours relevés, même quand ils sont les mêmes : c'est le module PUR (`occupantsAujourdhuiADire`) qui décide
+   * s'il y a quelque chose à dire. Le dépôt rapporte, il ne tranche pas.
+   */
+  const occupantsDuJour = new Map<string, { cle: string; id: number | null; nom: string }[]>();
   for (const cle of cles) {
     const lot = parCle.get(cle);
     if (lot === undefined) continue;
     const { rows } = await query<{
       locataire_id: string; cle: string; nom: string; depuis: string | null; jusqua: string | null;
+      a_la_date: boolean; aujourdhui: boolean;
     }>(
-      // ⚠️ PAS DE CIVILITÉ POUR UN LOCATAIRE : l'export WIPPIMMO n'en porte pas (la table n'a pas la colonne).
-      //    On ne l'invente donc pas — la carte affiche le nom seul, comme partout ailleurs dans le module.
+      /**
+       * ⚠️ PAS DE CIVILITÉ POUR UN LOCATAIRE : l'export WIPPIMMO n'en porte pas (la table n'a pas la colonne).
+       *    On ne l'invente donc pas — la carte affiche le nom seul, comme partout ailleurs dans le module.
+       *
+       * 🔴🔴 LES DEUX DATES DANS UNE SEULE REQUÊTE, et c'est délibéré : la boucle fait déjà un aller-retour par
+       * lot, et une fenêtre à six biens en aurait fait DOUZE. Les deux appartenances sont rendues en colonnes
+       * plutôt qu'en deux requêtes, et le tri reste celui d'avant.
+       *
+       * 🔴 « AUJOURD'HUI » EST UN JOUR DE PARIS, pas de l'horloge du serveur : `now() AT TIME ZONE 'Europe/Paris'`.
+       * Un bail qui finit le 31 ne doit pas se lire fini le 30 parce que la machine pense en UTC.
+       */
       `SELECT lc.id::text AS locataire_id, lc.wippimmo_id AS cle, lc.nom,
-              o.entree::text AS depuis, o.sortie::text AS jusqua
+              o.entree::text AS depuis, o.sortie::text AS jusqua,
+              ((o.entree IS NULL OR o.entree <= $2::date)
+               AND (o.sortie IS NULL OR o.sortie >= $2::date)) AS a_la_date,
+              ((o.entree IS NULL OR o.entree <= (now() AT TIME ZONE 'Europe/Paris')::date)
+               AND (o.sortie IS NULL OR o.sortie >= (now() AT TIME ZONE 'Europe/Paris')::date)) AS aujourdhui
          FROM gestion_annuaire_occupation o
          JOIN gestion_annuaire_locataire lc ON lc.id = o.locataire_id
         WHERE o.lot_id = $1
-          AND (o.entree IS NULL OR o.entree <= $2::date)
-          AND (o.sortie IS NULL OR o.sortie >= $2::date)
+          AND (((o.entree IS NULL OR o.entree <= $2::date)
+                AND (o.sortie IS NULL OR o.sortie >= $2::date))
+            OR ((o.entree IS NULL OR o.entree <= (now() AT TIME ZONE 'Europe/Paris')::date)
+                AND (o.sortie IS NULL OR o.sortie >= (now() AT TIME ZONE 'Europe/Paris')::date)))
         ORDER BY o.entree DESC NULLS LAST, o.id DESC`,
       [lot.id, dateParCle.get(cle) ?? null]);
-    occupations.set(cle, rows.map((r) => ({
+    occupations.set(cle, rows.filter((r) => r.a_la_date).map((r) => ({
       locataireId: r.locataire_id, cle: r.cle, nom: r.nom, depuis: r.depuis, jusqua: r.jusqua,
+    })));
+    occupantsDuJour.set(cle, rows.filter((r) => r.aujourdhui).map((r) => ({
+      cle: r.cle, id: Number(r.locataire_id), nom: r.nom,
     })));
   }
 
@@ -354,6 +398,9 @@ export async function ficheRattachementDuFil(
       surfaceM2: null,
       statut: statutDesLiens(siens),
       dateMail: dateParCle.get(cle) ?? null,
+      /* 🔴🔴 POINT 2 — on RAPPORTE les occupants du jour ; c'est `occupantsAujourdhuiADire` qui dira s'il y a lieu
+         d'en parler. Mettre la décision ici l'aurait rendue intestable sans base. */
+      occupantsAujourdhui: occupantsDuJour.get(cle) ?? [],
       nbMails: new Set(siens.map((l) => l.message_id)).size,
       dossierDriveId: lot.drive_dossier_id,
       personnes: ordonnerPersonnes(personnes),
