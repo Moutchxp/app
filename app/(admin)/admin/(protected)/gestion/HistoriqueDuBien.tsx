@@ -44,7 +44,7 @@ import {
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
   ciblesDeplacement, compteCacheesEnBas, compteCacheesEnHaut, filtrerParMots, GROUPES_EN_BANDE,
-  GROUPES_EN_ENCART, motCompteurRecherche, motsRecherches,
+  GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
   replierLesCartes, SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
@@ -226,7 +226,18 @@ export function HistoriqueDuBien({
    * compte en toutes lettres SUR le bouton : « 📎 7 pièces » se lit sans un clic, et c'est tout l'intérêt du
    * repli — on sait s'il y a quelque chose à ouvrir avant de l'ouvrir.
    */
-  const [resumeHaut, setResumeHaut] = useState(false);
+  /**
+   * ══ 🔴🔴 UN SEUL ÉTAT POUR LES DEUX RÉSUMÉS (lot HISTORIQUE-BIEN-4, point 4) ═════════════════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « Le MÊME bouton est ajouté EN BAS du listing des mails : il ouvre et ferme le
+   * même résumé (un seul état partagé). »
+   *
+   * 🔴 CE QUI CHANGE PAR RAPPORT AU LOT 1, et il faut le dire : le résumé du bas était ALORS toujours ouvert, et
+   * celui du haut replié — c'était la demande d'Arno à l'époque. Un seul état les lie désormais : le bouton du
+   * haut et celui du bas montrent et masquent la même chose. Deux états auraient fait deux vérités pour un même
+   * contenu, et c'est le genre d'écran où l'on finit par ne plus savoir si l'on a déjà regardé.
+   */
+  const [resumeOuvert, setResumeOuvert] = useState(false);
   /** Le mail d'où l'on est parti, surligné BRIÈVEMENT au retour (demande d'Arno). */
   const [mailSurligne, setMailSurligne] = useState<number | null>(repris?.mail ?? null);
 
@@ -1339,11 +1350,7 @@ export function HistoriqueDuBien({
       {/* ══ LE RÉSUMÉ DES PIÈCES, EN HAUT — REPLIÉ, AVEC SON COMPTE LISIBLE SANS CLIC ══════════════════════════ */}
       {totalPieces > 0 && (
         <div className="hdb-resume hdb-resume--haut">
-          <button type="button" className="pdc-trombone" aria-expanded={resumeHaut}
-            onClick={() => setResumeHaut((v) => !v)}>
-            <span aria-hidden="true">📎</span> {motPieces(totalPieces)}
-            <span className="hdb-resume-mot">{resumeHaut ? ' — replier' : ' — voir les pièces'}</span>
-          </button>
+          <BasculeResume n={totalPieces} ouvert={resumeOuvert} onBasculer={() => setResumeOuvert((v) => !v)} />
           {/* ══ 🔴🔴 QUAND LA SÉLECTION DÉPASSE LE PLAFOND, ON LE DIT (lot HISTORIQUE-BIEN-4, point 1) ══════════
               Le listing charge la sélection entière jusqu'au plafond de la route (100 mails). Au-delà, le résumé
               ne porte que sur ces 100 — et le taire aurait reproduit, en plus grand, le défaut même qu'Arno a
@@ -1354,9 +1361,10 @@ export function HistoriqueDuBien({
               {' '}{lignes.length} mails affichés. « Voir la suite → » en montre les suivants.
             </p>
           )}
-          {resumeHaut && (
+          {resumeOuvert && (
             <ResumePieces groupes={groupesPieces} depots={depots} emplacements={emplacements}
-              maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte} />
+              maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
+              categories={categoriesFusionnees} />
           )}
         </div>
       )}
@@ -1413,15 +1421,19 @@ export function HistoriqueDuBien({
                 )}
               </div>
 
-              {/* ══ LE RÉSUMÉ DES PIÈCES, EN BAS — OUVERT (demande d'Arno) ═══════════════════════════════════ */}
+              {/* ══ 🔴🔴 LE MÊME BOUTON, EN BAS DU LISTING (lot HISTORIQUE-BIEN-4, point 4) ═══════════════════
+                  Arno : « Le MÊME bouton est ajouté EN BAS du listing des mails : il ouvre et ferme le même
+                  résumé (un seul état partagé). » Après avoir lu quarante mails, on est en bas : remonter
+                  chercher le bouton du haut était un aller-retour pour rien. */}
               {totalPieces > 0 && (
                 <div className="hdb-resume hdb-resume--bas">
-                  <h5 className="hdb-resume-titre">
-                    <span aria-hidden="true">📎</span> Pièces jointes des mails affichés
-                    <span className="gst-compte">{totalPieces}</span>
-                  </h5>
-                  <ResumePieces groupes={groupesPieces} depots={depots} emplacements={emplacements}
-                    maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte} />
+                  <BasculeResume n={totalPieces} ouvert={resumeOuvert}
+                    onBasculer={() => setResumeOuvert((v) => !v)} />
+                  {resumeOuvert && (
+                    <ResumePieces groupes={groupesPieces} depots={depots} emplacements={emplacements}
+                      maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
+                      categories={categoriesFusionnees} />
+                  )}
                 </div>
               )}
             </>
@@ -1937,6 +1949,29 @@ function FilDeMails({ lignes, maintenant, deplie, categories, surligne, mots, on
 }
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 4 — LA BASCULE DU RÉSUMÉ, ÉCRITE UNE FOIS ══════════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « Le bouton “13 pièces — voir les pièces” devient “13 pièces dans cette
+ * sélection — les voir” (et “— les masquer” quand elles sont ouvertes). Il ouvre et ferme le résumé. Le MÊME
+ * bouton est ajouté EN BAS du listing des mails. »
+ *
+ * 🔴 « LE MÊME BOUTON » EST PRIS AU MOT : un seul composant, monté deux fois, lié au même état. Deux boutons
+ * recopiés auraient divergé au premier ajustement de libellé — et c'est celui du bas, qu'on voit moins souvent,
+ * qui aurait gardé l'ancien mot.
+ *
+ * ⚠️ LES TROIS MOTS AJOUTÉS (« dans cette sélection ») SONT LA CORRECTION DU POINT 1, DITE À L'ÉCRAN : le résumé
+ * couvre la sélection, pas la page — et c'est l'ancien libellé qui avait fait croire le contraire.
+ */
+function BasculeResume({ n, ouvert, onBasculer }: { n: number; ouvert: boolean; onBasculer: () => void }) {
+  return (
+    <button type="button" className="pdc-trombone" aria-expanded={ouvert} onClick={onBasculer}>
+      <span aria-hidden="true">📎</span> {motPiecesSelection(n)}
+      <span className="hdb-resume-mot"> {motBasculeResume(ouvert)}</span>
+    </button>
+  );
+}
+
+/**
  * ══ 🔴🔴 LE RÉSUMÉ, EN LIGNE ET SANS FENÊTRE ══════════════════════════════════════════════════════════════════════
  *
  * Le MÊME montage que `ModalePiecesConversation` — groupes par message sous la date, `CartePieceConversation`
@@ -1949,7 +1984,7 @@ function FilDeMails({ lignes, maintenant, deplie, categories, surligne, mots, on
  * l'on rangerait une seconde fois un fichier déjà rangé.
  */
 function ResumePieces({
-  groupes, depots, emplacements, maintenant, gestes, sansEmpreinte,
+  groupes, depots, emplacements, maintenant, gestes, sansEmpreinte, categories,
 }: {
   groupes: readonly GroupeDePieces<PieceDedoublonnee>[];
   depots: ReadonlyMap<number, DepotAffiche>;
@@ -1957,11 +1992,24 @@ function ResumePieces({
   maintenant: Date;
   gestes: GestesPiece;
   sansEmpreinte: number;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 4 — LE LISERÉ DE CATÉGORIE JUSQUE DANS LE RÉSUMÉ ══════════════════════
+   *
+   * DEMANDE D'ARNO : « Dans le résumé, chaque groupe de pièces (par mail) et chaque miniature porte le même
+   * liseré de couleur que les mails, des deux côtés, selon la catégorie de l'expéditeur : rouge propriétaire,
+   * vert locataire, bleu tiers, sans couleur pour nous. »
+   *
+   * 🔴 C'EST LA MÊME RÈGLE, PAR LA MÊME FONCTION (`tonDeLExpediteur`), et le groupe porte déjà ce qu'elle
+   * demande : `sens` et `de`. Recalculer la catégorie ici aurait fait un second juge — et un document aurait pu
+   * être rouge dans le listing et bleu dans le résumé, pour le même mail.
+   */
+  categories: ReadonlyMap<string, CategoriePartie>;
 }) {
   return (
     <div className="hdb-pieces">
       {groupes.map((g) => (
-        <section key={g.messageId} className="pdc-groupe">
+        <section key={g.messageId}
+          className={`pdc-groupe hdb-barre hdb-barre--${tonDeLExpediteur(g, categories)}`}>
           <h6 className="pdc-groupe-titre">
             <span className="pdc-groupe-date">{dateHeureCourte(g.recuLe, maintenant)}</span>
             <span className="pdc-groupe-qui" title={dateHeureComplete(g.recuLe)}> · {mentionExpediteurPiece(g)}</span>
@@ -1969,7 +2017,11 @@ function ResumePieces({
               <span className="pdc-groupe-objet"> · {nettoyerObjet(g.objet ?? '')}</span>
             )}
           </h6>
-          <ul className="pdc-grille">
+          {/* ⚠️ LE LISERÉ EST POSÉ SUR LA GRILLE, DONC SUR CHAQUE MINIATURE PAR UNE VARIABLE : la carte
+              `CartePieceConversation` est importée telle quelle (elle sert aussi la fenêtre d'une
+              conversation), et lui ajouter une prop de couleur l'aurait modifiée pour les deux écrans. La
+              grille pose la teinte, les cartes l'héritent. */}
+          <ul className={`pdc-grille hdb-grille-ton hdb-grille-ton--${tonDeLExpediteur(g, categories)}`}>
             {g.pieces.map((p) => (
               <CartePieceConversation key={p.pieceId} piece={p} maintenant={maintenant} gestes={gestes}
                 emplacements={emplacements.get(p.pieceId)
@@ -2316,6 +2368,23 @@ ${CSS_PIECES}
 
 /* ── LE RESUME DES PIECES ── */
 .hdb-resume{margin:.5rem 0;min-width:0}
+/* ══ LE LISERE DE CATEGORIE JUSQUE DANS LE RESUME (lot HISTORIQUE-BIEN-4, point 4) ════════════════════════════
+   DEMANDE D'ARNO : « chaque groupe de pieces (par mail) et chaque miniature porte le meme lisere de couleur que
+   les mails, des deux cotes ». Le groupe reutilise .hdb-barre, exactement comme un mail — meme epaisseur, meme
+   arrondi, meme jeton. La grille, elle, transmet la teinte a chaque miniature par une VARIABLE : la carte est
+   importee telle quelle (elle sert aussi la fenetre d'une conversation), et lui ajouter une prop de couleur
+   l'aurait modifiee pour les deux ecrans. */
+.hdb-pieces .pdc-groupe{padding:.2rem .3rem}
+.hdb-grille-ton{--hdb-ton:transparent}
+.hdb-grille-ton--rouge{--hdb-ton:var(--color-svv-red)}
+.hdb-grille-ton--vert{--hdb-ton:var(--color-svv-green)}
+.hdb-grille-ton--bleu{--hdb-ton:var(--color-svv-blue)}
+.hdb-grille-ton--gris{--hdb-ton:var(--color-svv-line-strong)}
+/* « nous » n'a AUCUNE couleur : la variable reste transparente, donc la largeur ne saute pas d'une miniature a
+   l'autre — meme regle que pour les mails. */
+.hdb-grille-ton--nous{--hdb-ton:transparent}
+.hdb-grille-ton>*{border-left:3px solid var(--hdb-ton);border-right:3px solid var(--hdb-ton);
+  border-radius:10px}
 .hdb-resume-mot{font-size:.76rem;color:var(--color-svv-muted)}
 .hdb-resume-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.2rem 0 .4rem;
   font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}

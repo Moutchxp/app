@@ -164,6 +164,19 @@ async function deplierGroupe(titre: string): Promise<void> {
   if (b !== undefined && b.getAttribute('aria-expanded') === 'false') await cliquer(b);
 }
 
+/**
+ * ══ 🔴 OUVRIR LE RÉSUMÉ DES PIÈCES (lot HISTORIQUE-BIEN-4, point 4) ═════════════════════════════════════════════
+ *
+ * ⚠️ POURQUOI CETTE AIDE EXISTE MAINTENANT. Les deux résumés (haut et bas) partagent UN SEUL état depuis le lot
+ * 4, et il démarre REPLIÉ : le bouton promet « — les voir ». Les cas qui lisaient les miniatures sans cliquer
+ * cherchaient donc dans le vide — ce n'est pas une régression, c'est l'état partagé qu'Arno a demandé.
+ */
+async function ouvrirLeResume(): Promise<void> {
+  const b = [...hote.querySelectorAll('.pdc-trombone')] as HTMLButtonElement[];
+  const ferme = b.find((x) => x.getAttribute('aria-expanded') === 'false');
+  if (ferme !== undefined) await cliquer(ferme);
+}
+
 /** Les deux événements du jeu d'essai, nommés : un identifiant écrit en clair dans un test se relit mal. */
 const ID_EVT_EN_COURS = 7;
 const ID_EVT_CLOS = 4;
@@ -513,25 +526,73 @@ describe('⑤ le fil et les pièces', () => {
   });
 
   /** 🔴 LE RÉSUMÉ DU HAUT EST REPLIÉ, SON COMPTE LISIBLE SANS CLIC ; CELUI DU BAS EST OUVERT. */
-  it('🔴🔴 le résumé du HAUT est replié avec son compte, celui du BAS est ouvert', async () => {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 4 — UN SEUL ÉTAT, ET LE MÊME BOUTON EN HAUT ET EN BAS ═══════════════════
+   *
+   * ═══ CE QUE CE CAS ATTENDAIT, ET POURQUOI C'ÉTAIT JUSTE ══════════════════════════════════════════════════════
+   * Que le résumé du HAUT soit replié et celui du BAS toujours ouvert. C'était la demande d'Arno au lot 1, mot
+   * pour mot : « Le résumé du haut est REPLIÉ, celui du bas est OUVERT ».
+   *
+   * ═══ 🔴 CE QU'ARNO A TRANCHÉ LE 05/10/2026 ═══════════════════════════════════════════════════════════════════
+   * « Le MÊME bouton est ajouté EN BAS du listing des mails : il ouvre et ferme le même résumé (un seul état
+   * partagé). » Deux états auraient fait deux vérités pour un même contenu — l'écran où l'on finit par ne plus
+   * savoir si l'on a déjà regardé. Le compte, lui, se lit toujours SANS clic : c'est tout l'intérêt du repli.
+   */
+  it('🔴🔴 un seul état partagé, et le compte se lit sans clic', async () => {
     await monter();
-    const haut = hote.querySelector('.hdb-resume--haut') as HTMLElement;
-    const bouton = haut.querySelector('button') as HTMLButtonElement;
-    expect(bouton.getAttribute('aria-expanded')).toBe('false');
-    // LE COMPTE SE LIT SANS CLIC.
-    expect(bouton.textContent).toContain('2 pièces');
-    expect(haut.querySelectorAll('.pdc-carte')).toHaveLength(0);
+    const boutons = [...hote.querySelectorAll('.pdc-trombone')] as HTMLButtonElement[];
+    /* LE MÊME BOUTON, DEUX FOIS : en haut du bloc et en bas du listing. */
+    expect(boutons).toHaveLength(2);
+    for (const b of boutons) {
+      expect(b.getAttribute('aria-expanded')).toBe('false');
+      /* 🔴 LE LIBELLÉ DIT SON PÉRIMÈTRE : « dans cette sélection » — la correction du point 1, dite à l'écran. */
+      expect(b.textContent).toContain('2 pièces dans cette sélection');
+      expect(b.textContent).toContain('— les voir');
+    }
+    expect(hote.querySelectorAll('.pdc-carte')).toHaveLength(0);
 
-    const bas = hote.querySelector('.hdb-resume--bas') as HTMLElement;
-    expect(bas.querySelectorAll('.pdc-carte')).toHaveLength(2);
+    /* UN CLIC EN HAUT OUVRE LES DEUX, et les deux boutons le disent. */
+    await cliquer(boutons[0]);
+    for (const b of [...hote.querySelectorAll('.pdc-trombone')] as HTMLButtonElement[]) {
+      expect(b.getAttribute('aria-expanded')).toBe('true');
+      expect(b.textContent).toContain('— les masquer');
+    }
+    expect(hote.querySelectorAll('.pdc-carte').length).toBeGreaterThan(0);
 
-    await cliquer(bouton);
-    expect(haut.querySelectorAll('.pdc-carte')).toHaveLength(2);
+    /* …ET UN CLIC EN BAS LES REFERME. */
+    const enBas = ([...hote.querySelectorAll('.pdc-trombone')] as HTMLButtonElement[])[1];
+    await cliquer(enBas);
+    expect(hote.querySelectorAll('.pdc-carte')).toHaveLength(0);
+  });
+
+  /**
+   * 🔴🔴 LE LISERÉ DE CATÉGORIE JUSQUE DANS LE RÉSUMÉ, DES DEUX CÔTÉS (demande d'Arno). Le groupe réemploie la
+   * MÊME classe que les mails (`hdb-barre`) et la MÊME fonction de ton : un document ne peut donc pas être rouge
+   * dans le listing et bleu dans le résumé.
+   */
+  it('🔴🔴 chaque groupe et chaque miniature du résumé portent le liseré de sa catégorie', async () => {
+    await monter();
+    await ouvrirLeResume();
+    const groupes = [...hote.querySelectorAll('.hdb-pieces .pdc-groupe')] as HTMLElement[];
+    expect(groupes.length).toBeGreaterThan(0);
+    for (const g of groupes) {
+      expect(g.className).toContain('hdb-barre');
+      expect(g.className).toMatch(/hdb-barre--(rouge|vert|bleu|gris|nous)/);
+      /* …et la grille transmet la teinte à chaque miniature. */
+      const grille = g.querySelector('.hdb-grille-ton') as HTMLElement;
+      expect(grille).not.toBeNull();
+      expect(grille.className).toMatch(/hdb-grille-ton--(rouge|vert|bleu|gris|nous)/);
+    }
+    /* 🔴 LE MAIL DU PROPRIÉTAIRE EST ROUGE DANS LE RÉSUMÉ, comme dans le listing. */
+    expect(groupes.some((g) => g.className.includes('hdb-barre--rouge'))).toBe(true);
+    /* ⚠️ ET LE LISERÉ EST BIEN DES DEUX CÔTÉS : c'est la règle des mails, réemployée. */
+    expect(SRC).toContain('.hdb-grille-ton>*{border-left:3px solid var(--hdb-ton);border-right:3px solid var(--hdb-ton)');
   });
 
   /** 🔴 LES MINIATURES PORTENT LES TROIS GESTES D'ARNO : l'œil, le téléchargement, le picto Drive (vide ici). */
   it('🔴 chaque miniature porte « Visualiser » et « Télécharger »', async () => {
     await monter();
+    await ouvrirLeResume();
     const bas = hote.querySelector('.hdb-resume--bas') as HTMLElement;
     expect(bas.querySelector('[aria-label^="Visualiser"]')).not.toBeNull();
     expect(bas.querySelector('[aria-label^="Télécharger"]')).not.toBeNull();
@@ -1699,6 +1760,7 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
   it('🔴🔴 « tous les mails du bien » → les pièces des trois familles', async () => {
     servirSelonLaSelection();
     await monter();
+    await ouvrirLeResume();
     expect(piecesDuResume())
       .toEqual(expect.arrayContaining(['charges-2026.pdf', 'etat-des-lieux.pdf', 'decompte.pdf']));
   });
@@ -1709,6 +1771,7 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     await monter();
     await cliquer(hote.querySelector('.hdb-case--large input') ?? undefined);
     await cocherGroupe('Propriétaire');
+    await ouvrirLeResume();
     const noms = piecesDuResume();
     expect(noms).toContain('charges-2026.pdf');
     /* 🔴 « Les pièces envoyées par l'agence dans ces échanges en font partie » (Arno) : le décompte est dans
@@ -1723,6 +1786,7 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     await monter();
     await cliquer(hote.querySelector('.hdb-case--large input') ?? undefined);
     await cocherGroupe('Locataire');
+    await ouvrirLeResume();
     const noms = piecesDuResume();
     expect(noms).toEqual(['etat-des-lieux.pdf']);
   });
@@ -1736,6 +1800,7 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     await cliquer(hote.querySelector('.hdb-case--large input') ?? undefined);
     await cocherGroupe('Propriétaire');
     await cocherGroupe('Locataire');
+    await ouvrirLeResume();
     const noms = piecesDuResume();
     expect(noms).toContain('charges-2026.pdf');
     expect(noms).toContain('etat-des-lieux.pdf');
@@ -1788,6 +1853,7 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     expect(hote.querySelectorAll('.vdb-trombone')).toHaveLength(2);
     /* …mais UN seul document dans le résumé. */
     expect(texte()).toContain('1 pièce');
+    await ouvrirLeResume();
     expect(piecesDuResume()).toHaveLength(1);
   });
 });

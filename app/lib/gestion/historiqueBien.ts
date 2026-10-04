@@ -1232,6 +1232,35 @@ export function decouperPourSurligner(texte: string, mots: readonly string[]): M
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑦-ter 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 4 — LE MOT DU RÉSUMÉ, ET SA BASCULE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 « 13 PIÈCES DANS CETTE SÉLECTION » ═════════════════════════════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « Le bouton “13 pièces — voir les pièces” devient “13 pièces dans cette
+ * sélection — les voir” (et “— les masquer” quand elles sont ouvertes). »
+ *
+ * 🔴 LES TROIS MOTS AJOUTÉS SONT LA CORRECTION DU POINT 1, DITE À L'ÉCRAN. Le résumé couvre la SÉLECTION, pas la
+ * page : c'est précisément ce que l'ancien libellé laissait croire, et ce qui a fait croire à Arno que les pièces
+ * de la locataire avaient disparu. Un libellé qui dit son périmètre vaut mieux qu'une note en dessous.
+ */
+export function motPiecesSelection(n: number): string {
+  return `${n} pièce${n > 1 ? 's' : ''} dans cette sélection`;
+}
+
+/**
+ * Le mot de la bascule. PUR.
+ *
+ * ⚠️ IL DIT CE QUE LE CLIC VA FAIRE, et non l'état en cours — convention inverse de celle du bouton d'ordre, et
+ * c'est voulu : « Plus récent en haut » DÉCRIT un tri qu'on lit, « les voir » PROMET une action. Confondre les
+ * deux ferait un bouton qui annonce « les masquer » sur un résumé déjà masqué.
+ */
+export function motBasculeResume(ouvert: boolean): string {
+  return ouvert ? '— les masquer' : '— les voir';
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑧ CE QUE L'ÉCRAN DIT QUAND IL N'Y A RIEN
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
