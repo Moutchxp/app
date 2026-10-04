@@ -1590,6 +1590,201 @@ describe('⑤-octies 🔴🔴 une seule rangée d’options, et la recherche dan
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤-nonies 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 1 — LE RÉSUMÉ SUIT LA SÉLECTION, DANS LES QUATRE COMBINAISONS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () => {
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (05/10/2026), sur lot-47 : « propriétaire ET locataire cochés → le résumé ne montre que les
+   * pièces du propriétaire ».
+   *
+   * 🔴 CE QUI N'ÉTAIT PAS LA CAUSE, et je l'ai mesuré avant de toucher quoi que ce soit : le résumé ne se
+   * trompait pas. Dans les trois combinaisons il valait exactement la somme des trombones des mails AFFICHÉS
+   * (15 = 15, 10 = 10, 13 = 13), et il lisait déjà la même liste que le listing — il n'y a jamais eu de second
+   * calcul.
+   *
+   * 🔴🔴 LA CAUSE ÉTAIT LA PAGE DE 25. La sélection « propriétaire + locataire » compte 49 mails ; le listing
+   * n'en chargeait que 25, les plus récents. Dans cette page, deux mails de la locataire seulement, et aucun ne
+   * portait de pièce : ses 10 pièces étaient sur les pages suivantes. Le résumé disait la vérité de la PAGE, pas
+   * celle de la SÉLECTION.
+   *
+   * 🔴 LA CORRECTION tient en une taille demandée : le listing charge la sélection entière, jusqu'au plafond que
+   * la route s'est fixé (100). Ce groupe éprouve les quatre combinaisons demandées par Arno.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+
+  /** Trois familles, trois pièces : le propriétaire, la locataire, et un mail que NOUS avons écrit. */
+  const MAIL_PROPRIO = ligne({
+    messageId: 10, filId: 100, recuLe: '2026-03-01T09:00:00Z', objet: 'Charges 2026',
+    de: 'proprio@fictif.test', deNom: 'M. ROI Nathan',
+    pieces: [piece({ pieceId: 101, nomFichier: 'charges-2026.pdf', empreinte: 'sha-101' })],
+  });
+  const MAIL_LOCATAIRE = ligne({
+    messageId: 11, filId: 110, recuLe: '2026-02-01T09:00:00Z', objet: 'État des lieux',
+    de: 'locataire@fictif.test', deNom: 'MARTY Jean-François',
+    pieces: [piece({ pieceId: 111, nomFichier: 'etat-des-lieux.pdf', empreinte: 'sha-111' })],
+  });
+  const MAIL_AGENCE = ligne({
+    messageId: 12, filId: 100, recuLe: '2026-01-15T09:00:00Z', objet: 'Charges 2026', sens: 'envoye',
+    de: 'gestion@criterimmo.fr', deNom: 'Gestion CRITERIMMO',
+    pieces: [piece({ pieceId: 121, nomFichier: 'decompte.pdf', empreinte: 'sha-121' })],
+  });
+
+  /** Le serveur rend ce que la sélection désigne : c'est le `avec=` de l'adresse qui décide. */
+  const servirSelonLaSelection = (): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return reponse({ etat: 'ok', geste: null });
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      /* ⚠️ ON LIT LE `avec=` DE L'ADRESSE, comme le ferait la route : c'est ce qui rend l'épreuve honnête —
+         elle n'impose pas la réponse, elle la DÉDUIT de ce que l'écran a demandé. */
+      const avec = new URL(u, 'http://local').searchParams.get('avec') ?? '';
+      const choisies = avec === '' ? null : avec.split(',');
+      const tous = [MAIL_PROPRIO, MAIL_LOCATAIRE, MAIL_AGENCE];
+      const lignes = choisies === null
+        ? tous
+        : tous.filter((l) => choisies.includes(l.de) || l.filId === 100 && choisies.includes('proprio@fictif.test'));
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes, suite: false, entete: { nbMails: lignes.length },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  };
+
+  /**
+   * Les noms de fichiers du résumé. C'est la seule lecture qui dise ce qu'il CONTIENT.
+   *
+   * ⚠️ BORNÉE AU RÉSUMÉ DU BAS, et c'est une correction : le bloc en rend DEUX (haut replié, bas ouvert — demande
+   * d'Arno au lot 1). Lire les deux comptait chaque pièce deux fois, et ma première version de cette aide a
+   * échoué pour cette raison — pas pour un défaut du produit.
+   */
+  const piecesDuResume = (): string[] =>
+    [...hote.querySelectorAll('.hdb-resume--bas .pdc-grille > li')]
+      .map((x) => (x.querySelector('.pcv-nom, [class*="nom"]')?.textContent
+        ?? (x.textContent ?? '').trim().split('\n')[0]).trim());
+
+  const cocherGroupe = async (titre: string): Promise<void> => {
+    const g = ([...hote.querySelectorAll('.hdb-groupe')] as HTMLElement[])
+      .find((x) => (x.querySelector('.hdb-replier')?.textContent ?? '').includes(titre));
+    await cliquer(g?.querySelector('.hdb-case--groupe input') ?? undefined);
+  };
+
+  /**
+   * 🔴🔴 LA CORRECTION ELLE-MÊME : le listing demande la SÉLECTION, et non 25 mails. C'est la seule ligne qui a
+   * changé, et c'est elle qui faisait disparaître une famille entière du résumé.
+   */
+  it('🔴🔴 le listing demande la sélection entière, jusqu’au plafond de la route', async () => {
+    servirSelonLaSelection();
+    await monter();
+    expect(appels.some((a) => a.includes('taille=100'))).toBe(true);
+    expect(appels.some((a) => a.includes('taille=25'))).toBe(false);
+  });
+
+  /** ① « Tous les mails du bien » → toutes les pièces, les trois familles. */
+  it('🔴🔴 « tous les mails du bien » → les pièces des trois familles', async () => {
+    servirSelonLaSelection();
+    await monter();
+    expect(piecesDuResume())
+      .toEqual(expect.arrayContaining(['charges-2026.pdf', 'etat-des-lieux.pdf', 'decompte.pdf']));
+  });
+
+  /** ② Propriétaire seul → ses pièces, et celles que NOUS avons envoyées dans SES échanges (demande d'Arno). */
+  it('🔴🔴 propriétaire seul → ses pièces, celles de l’agence dans ses échanges comprises', async () => {
+    servirSelonLaSelection();
+    await monter();
+    await cliquer(hote.querySelector('.hdb-case--large input') ?? undefined);
+    await cocherGroupe('Propriétaire');
+    const noms = piecesDuResume();
+    expect(noms).toContain('charges-2026.pdf');
+    /* 🔴 « Les pièces envoyées par l'agence dans ces échanges en font partie » (Arno) : le décompte est dans
+       l'échange du propriétaire (même `filId`), donc il est là. */
+    expect(noms).toContain('decompte.pdf');
+    expect(noms).not.toContain('etat-des-lieux.pdf');
+  });
+
+  /** ③ Locataire seul → ses pièces, et rien du propriétaire. */
+  it('🔴🔴 locataire seul → ses pièces seulement', async () => {
+    servirSelonLaSelection();
+    await monter();
+    await cliquer(hote.querySelector('.hdb-case--large input') ?? undefined);
+    await cocherGroupe('Locataire');
+    const noms = piecesDuResume();
+    expect(noms).toEqual(['etat-des-lieux.pdf']);
+  });
+
+  /**
+   * ④ 🔴🔴 LES DEUX → LES DEUX FAMILLES. C'est le cas qu'Arno a signalé, et celui que la page de 25 cassait.
+   */
+  it('🔴🔴 les deux cochés → les DEUX familles de pièces', async () => {
+    servirSelonLaSelection();
+    await monter();
+    await cliquer(hote.querySelector('.hdb-case--large input') ?? undefined);
+    await cocherGroupe('Propriétaire');
+    await cocherGroupe('Locataire');
+    const noms = piecesDuResume();
+    expect(noms).toContain('charges-2026.pdf');
+    expect(noms).toContain('etat-des-lieux.pdf');
+    expect(noms).toContain('decompte.pdf');
+  });
+
+  /**
+   * 🔴🔴 LE RÉSUMÉ ET LE LISTING VIENNENT DE LA MÊME LISTE, ET C'EST ÉPROUVÉ SUR LE CODE : un seul calcul,
+   * `lignes`, lu par les deux. Deux calculs auraient pu divergEr — et c'est précisément ce qu'Arno interdit.
+   */
+  it('🔴🔴 un seul calcul : le résumé lit la même liste que le listing', () => {
+    const code = codeSeul(SRC);
+    /* Le résumé part de `lignes`… */
+    expect(code).toContain('piecesDeLaConversation(messagesDuFil(lignes)');
+    /* …et le listing aussi. */
+    expect(code).toContain('<FilDeMails lignes={lignes}');
+    /* ⚠️ ET `lignes` N'A QU'UNE SOURCE : la page reçue, triée, puis filtrée par la recherche. */
+    expect(code).toContain('filtrerParMots(lignesPage, reglages.texte)');
+  });
+
+  /**
+   * 🔴🔴 CE QUE LE RÉSUMÉ COMPTE : DES DOCUMENTS DISTINCTS, ET NON DES OCCURRENCES. Le dédoublonnage par CONTENU
+   * est la décision d'Arno au lot RECAP-SANS-DOUBLON (« le récapitulatif annonçait 30 pièces » pour 8 fichiers).
+   * Mesuré sur lot-47, les deux cochés : 32 trombones pour 26 documents distincts — six occurrences d'un même
+   * document reçu puis transféré. La somme des trombones et le compte du résumé ne peuvent donc PAS être égales,
+   * et c'est voulu.
+   */
+  it('🔴🔴 un même document reçu DEUX fois ne compte qu’une', async () => {
+    const memeContenu = ligne({
+      messageId: 13, filId: 130, recuLe: '2026-04-01T09:00:00Z', objet: 'Transfert',
+      de: 'locataire@fictif.test', deNom: 'MARTY Jean-François',
+      /* ⚠️ MÊME EMPREINTE, AUTRE NOM : c'est le CONTENU qui décide, jamais le nom. */
+      pieces: [piece({ pieceId: 131, nomFichier: 'charges-2026-copie.pdf', empreinte: 'sha-101' })],
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: [MAIL_PROPRIO, memeContenu], suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+    /* Deux trombones à l'écran… */
+    expect(hote.querySelectorAll('.vdb-trombone')).toHaveLength(2);
+    /* …mais UN seul document dans le résumé. */
+    expect(texte()).toContain('1 pièce');
+    expect(piecesDuResume()).toHaveLength(1);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑥ 🔴🔴 LE GARDE : LES DEUX COMPOSANTS SONT **IMPORTÉS**, PAS RECOPIÉS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

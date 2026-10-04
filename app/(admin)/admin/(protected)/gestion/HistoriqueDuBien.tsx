@@ -27,7 +27,9 @@ import { lienDocumentEntier } from '../../../../lib/gestion/pieces';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { formaterDateIso } from '../../../../lib/gestion/annuaireRecherche';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
-import { libelleInterlocuteur, PAGE_HISTORIQUE, type Interlocuteur, type LigneHistorique } from '../../../../lib/gestion/historique';
+import {
+  libelleInterlocuteur, PAGE_HISTORIQUE_MAX, type Interlocuteur, type LigneHistorique,
+} from '../../../../lib/gestion/historique';
 import {
   dedoublonnerPieces, grouperParMessage, mentionExpediteurPiece, motPieces, piecesDeLaConversation,
   type GroupeDePieces, type PieceDedoublonnee,
@@ -249,8 +251,40 @@ export function HistoriqueDuBien({
    * ⚠️ TOUT CHANGEMENT DE RÉGLAGE REMET À LA PREMIÈRE PAGE. Sans cela, filtrer depuis la page 3 afficherait
    * « aucun résultat » sur un fil qui en a douze — et l'on croirait les réglages vides.
    */
-  const parametres = reglagesEnParametres(reglages, page, PAGE_HISTORIQUE);
-  const parametresSansPage = reglagesEnParametres({ ...reglages }, 0, PAGE_HISTORIQUE);
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 1 — LE LISTING CHARGE LA **SÉLECTION**, ET NON 25 MAILS ═════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (05/10/2026), sur lot-47 : « propriétaire ET locataire cochés → le résumé ne montre que les
+   * pièces du propriétaire ».
+   *
+   * ═══ 🔴 CE QUE J'AI MESURÉ, ET CE QUI N'ÉTAIT PAS LA CAUSE ════════════════════════════════════════════════════
+   * Le résumé ne se trompait PAS. Mesuré à l'écran, dans les trois combinaisons, il valait exactement la somme
+   * des trombones des mails affichés : propriétaire seul 15 = 15, locataire seul 10 = 10, les deux 13 = 13. Et il
+   * lisait déjà la même liste que le listing — il n'y a jamais eu de second calcul.
+   *
+   * ═══ 🔴🔴 LA CAUSE : LA PAGE DE 25 ════════════════════════════════════════════════════════════════════════════
+   * La sélection « propriétaire + locataire » compte **49 mails** ; le listing n'en chargeait que **25** — la
+   * première page, du plus récent au plus ancien. Dans cette page il n'y avait que deux mails de la locataire, et
+   * aucun des deux ne portait de pièce jointe : ses 10 pièces vivaient sur les pages suivantes. Le résumé disait
+   * donc la vérité de la PAGE, pas celle de la SÉLECTION — et le même défaut frappait « Tous les mails du bien ».
+   *
+   * ═══ 🔴 LA CORRECTION, ET POURQUOI C'EST CELLE-LÀ ═════════════════════════════════════════════════════════════
+   * Le listing demande désormais la SÉLECTION ENTIÈRE, jusqu'au plafond que la route s'est fixé
+   * (`PAGE_HISTORIQUE_MAX`, 100). Trois choses tombent juste du même coup :
+   *   · « les deux → les deux familles » (demande d'Arno) : les deux sont à l'écran, donc dans le résumé ;
+   *   · « le résumé = la somme des trombones des mails affichés » (sa vérification) reste vrai AU CARACTÈRE ;
+   *   · « le résumé et le listing calculés à partir de la MÊME sélection, pas de second calcul » : inchangé —
+   *     le résumé lit `lignes`, comme avant. La correction ne touche QUE la taille demandée.
+   * La pagination n'est pas retirée : elle reprend au-delà de 100 mails, et son libellé est le même.
+   *
+   * ⚠️ LE COÛT A ÉTÉ MESURÉ AVANT, et non supposé : sur le bien le plus fourni (cible 421, 325 mails), la route
+   * rend 100 lignes en **27 à 34 ms** — contre 144 ms pour la première demande de 25. Charger la sélection ne
+   * coûte donc rien de perceptible ; c'est la requête elle-même qui coûte, pas les lignes.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const parametres = reglagesEnParametres(reglages, page, PAGE_HISTORIQUE_MAX);
+  const parametresSansPage = reglagesEnParametres({ ...reglages }, 0, PAGE_HISTORIQUE_MAX);
   useEffect(() => { setPage(0); }, [parametresSansPage]);
 
   // ── ① LES ÉVÉNEMENTS DU BIEN, UNE FOIS ────────────────────────────────────────────────────────────────────────
@@ -1310,6 +1344,16 @@ export function HistoriqueDuBien({
             <span aria-hidden="true">📎</span> {motPieces(totalPieces)}
             <span className="hdb-resume-mot">{resumeHaut ? ' — replier' : ' — voir les pièces'}</span>
           </button>
+          {/* ══ 🔴🔴 QUAND LA SÉLECTION DÉPASSE LE PLAFOND, ON LE DIT (lot HISTORIQUE-BIEN-4, point 1) ══════════
+              Le listing charge la sélection entière jusqu'au plafond de la route (100 mails). Au-delà, le résumé
+              ne porte que sur ces 100 — et le taire aurait reproduit, en plus grand, le défaut même qu'Arno a
+              signalé : un résumé qui annonce « cette sélection » sans la couvrir. */}
+          {etat.v === 'ok' && (etat.suite || page > 0) && (
+            <p className="gst-note hdb-note">
+              Cette sélection compte plus de {PAGE_HISTORIQUE_MAX} mails : le résumé porte sur les
+              {' '}{lignes.length} mails affichés. « Voir la suite → » en montre les suivants.
+            </p>
+          )}
           {resumeHaut && (
             <ResumePieces groupes={groupesPieces} depots={depots} emplacements={emplacements}
               maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte} />
