@@ -15,6 +15,8 @@ import { parametreNomFichier } from '../../../../../../lib/gestion/envoiGmail';
 import { lireIntervalle } from '../../../../../../lib/gestion/apercuDrive';
 // 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — seules les vidéos annoncent les tranches : voir l'encadré plus bas.
 import { estVideo } from '../../../../../../lib/gestion/pieces';
+// 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — un zip ou un binaire ne se sert JAMAIS « inline ».
+import { telechargementSeulement } from '../../../../../../lib/gestion/pieceSecurite';
 
 /**
  * /api/admin/gestion/pieces/[id] (lot 4c) — LES OCTETS D'UNE PIÈCE JOINTE, servis PAR L'APPLICATION.
@@ -198,9 +200,24 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
      * ⚠️ UNE DEMANDE ILLISIBLE OU HORS BORNES REND LE FICHIER ENTIER (200), jamais une erreur : c'est ce que fait
      * `lireIntervalle` en rendant `null`, et c'est le comportement d'avant ce lot — donc rien ne peut casser.
      */
+    /**
+     * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — JAMAIS « inline » SUR UN ZIP OU UN BINAIRE ══
+     *
+     * DÉCISION D'ARNO (04/10/2026) : « zip et application/octet-stream : […] proposés en TÉLÉCHARGEMENT SEULEMENT
+     * (jamais ouverts, prévisualisés ni décompressés par l'application) ».
+     *
+     * 🔴 LA RÈGLE EST TENUE ICI, PAS SEULEMENT À L'ÉCRAN. La carte n'offre ni œil ni ouverture d'onglet pour ces
+     * fichiers — mais une adresse se tape à la main, et `Content-Disposition: inline` laisserait alors le
+     * navigateur décider du sort du fichier. Un navigateur qui décide finit par exécuter.
+     *
+     * ⚠️ `X-Content-Type-Options: nosniff` ÉTAIT DÉJÀ LÀ et reste indispensable : il interdit de RE-DEVINER le
+     * type. Les deux gardes répondent à deux questions différentes — « quel type ? » et « ouvrir ou enregistrer ? ».
+     */
+    const forcerTelechargement = telechargement
+      || telechargementSeulement({ nom: piece.nomFichier, typeMime: piece.typeMime });
     const entetes = {
       'Content-Type': piece.typeMime || TYPE_PAR_DEFAUT,
-      'Content-Disposition': disposition(piece.nomFichier, telechargement),
+      'Content-Disposition': disposition(piece.nomFichier, forcerTelechargement),
       'Cache-Control': CACHE_PRIVE,
       // Le navigateur ne doit pas re-deviner le type : un `.txt` renommé ne devient pas du HTML exécutable.
       'X-Content-Type-Options': 'nosniff',

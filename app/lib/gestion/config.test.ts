@@ -79,7 +79,19 @@ describe('le repli dit EXACTEMENT ce que dit la migration 228', () => {
   it('profondeur de rattrapage, plafond, taille et conservation', () => {
     expect(new RegExp(`rattrapage_jours\\s+integer\\s+NOT NULL DEFAULT ${CONFIG_GESTION_DEFAUT.rattrapageJours}\\b`).test(sql)).toBe(true);
     expect(new RegExp(`plafond_par_passe\\s+integer\\s+NOT NULL DEFAULT ${CONFIG_GESTION_DEFAUT.plafondParPasse}\\b`).test(sql)).toBe(true);
-    expect(new RegExp(`piece_taille_max_mo\\s+integer\\s+NOT NULL DEFAULT ${CONFIG_GESTION_DEFAUT.pieceTailleMaxOctets / (1024 * 1024)}\\b`).test(sql)).toBe(true);
+    /**
+     * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — LE PLAFOND A ÉTÉ RELEVÉ, ET ÇA SE PROUVE ═══
+     *
+     * La migration 228 a SEMÉ 25 Mo ; la 302 l'a porté à 50 (accord d'Arno du 04/10/2026 : « plafond relevé à
+     * 50 Mo pour les 5 pièces trop volumineuses »). Le repli du code suit la base, comme pour la liste de types
+     * juste en dessous — et chaque relèvement se prouve dans SA migration, jamais sur parole.
+     */
+    const PLAFOND_SEME_PAR_228 = 25;
+    expect(new RegExp(`piece_taille_max_mo\\s+integer\\s+NOT NULL DEFAULT ${PLAFOND_SEME_PAR_228}\\b`).test(sql))
+      .toBe(true);
+    expect(CONFIG_GESTION_DEFAUT.pieceTailleMaxOctets / (1024 * 1024)).toBe(50);
+    expect(readFileSync('db/migrations/302_gestion_piece_heif_zip_octets_50mo.sql', 'utf8'))
+      .toContain('SET piece_taille_max_mo = 50');
     expect(new RegExp(`conservation_carte_close_mois integer\\s+NOT NULL DEFAULT ${CONFIG_GESTION_DEFAUT.conservationCarteCloseMois}\\b`).test(sql)).toBe(true);
   });
 
@@ -96,6 +108,15 @@ describe('le repli dit EXACTEMENT ce que dit la migration 228', () => {
       ['text/calendar', 'db/migrations/231_gestion_uid_et_pieces_calendrier.sql'],
       ['application/ics', 'db/migrations/231_gestion_uid_et_pieces_calendrier.sql'],
       ['video/quicktime', 'db/migrations/300_gestion_piece_quicktime.sql'],
+      /**
+       * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE — les trois familles d'Arno (migration 302, accord du
+       * 04/10/2026). 394 pièces sans octets : 28 `image/heif`, 42 zip (dont 29 annoncés par Windows
+       * `application/x-zip-compressed`), 90 `application/octet-stream`.
+       */
+      ['image/heif', 'db/migrations/302_gestion_piece_heif_zip_octets_50mo.sql'],
+      ['application/zip', 'db/migrations/302_gestion_piece_heif_zip_octets_50mo.sql'],
+      ['application/x-zip-compressed', 'db/migrations/302_gestion_piece_heif_zip_octets_50mo.sql'],
+      ['application/octet-stream', 'db/migrations/302_gestion_piece_heif_zip_octets_50mo.sql'],
     ]);
     const semesPar228 = CONFIG_GESTION_DEFAUT.typesPiecesAcceptes.filter((t) => !AJOUTS.has(t));
     for (const t of semesPar228) expect(sql).toContain(t);

@@ -545,9 +545,41 @@ export function ApercuFichierDrive({
               {(etat.e === 'charge' || (etat.e === 'pret' && etat.sorte === 'pdf' && !page1Peinte)) && (
                 <p className="apd-attente" role="status">Lecture du fichier…</p>
               )}
+              {/* ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — UNE IMAGE QUE LE NAVIGATEUR NE
+                  SAIT PAS DÉCODER, ET CE N'EST PLUS UN CADRE VIDE ══════════════════════════════════════════════
+
+                  DÉCISION D'ARNO (04/10/2026) : les HEIF/HEIC sont désormais gardés, avec « aperçu converti comme
+                  pour les vidéos HEVC si possible, sinon téléchargement ».
+
+                  🔴 « SI POSSIBLE » EST MESURÉ, PAS SUPPOSÉ. La miniature est bien convertie par `sharp` pour la
+                  plupart (66 fabriquées au rattrapage du 04/10/2026), MAIS 11 photos iPhone sont refusées par
+                  libheif : « Number of references in iref box (45) exceeds the security limits of 16 ». Et dans
+                  la visionneuse, Chrome ne décode pas `image/heic` du tout.
+
+                  🔴 LE « SINON » EST DONC INDISPENSABLE, et il est EXACTEMENT celui de la vidéo HEVC, juste en
+                  dessous : la même phrase, la même note, le même bouton. Sans lui, l'œil ouvrait une image
+                  cassée — un cadre vide se lit comme une panne de l'outil, alors que le fichier est intact. */}
               {etat.e === 'pret' && etat.sorte === 'image' && (
-                <img className="apd-image" src={adresseApercu(vu.id, 'octets', source)} alt={vu.nom}
-                  style={{ width: `${zoom * 100}%` }} />
+                illisible
+                  ? (
+                    <div className="apd-video-refus" role="status">
+                      <p className="apd-sans">{MESSAGE_VIDEO_ILLISIBLE}</p>
+                      <p className="apd-video-note">
+                        Le fichier est intact : il s’ouvre sur votre ordinateur, ou dans un autre navigateur.
+                      </p>
+                      <a className="svv-btn svv-btn-primary gst-btn" download={vu.nom}
+                        href={`${adresseApercu(vu.id, 'octets', source)}${source === 'piece' ? '?telecharger=1' : ''}`}>
+                        Télécharger l’image
+                      </a>
+                    </div>
+                  )
+                  : (
+                    <img className="apd-image" src={adresseApercu(vu.id, 'octets', source)} alt={vu.nom}
+                      style={{ width: `${zoom * 100}%` }}
+                      /* 🔴 LE MÊME MÉCANISME QUE LA VIDÉO : on TENTE, et `onError` nous dit que le navigateur
+                         n'a pas su. On ne devine pas d'avance ce que Chrome ou Safari savent décoder. */
+                      onError={() => setIllisible(true)} />
+                  )
               )}
               {/*
                 🔴🔴 LE PDF EST LU CHEZ NOUS, PAGE PAR PAGE. Le lecteur natif de Chrome attendait le fichier entier

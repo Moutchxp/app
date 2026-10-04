@@ -26,6 +26,13 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash, randomUUID } from 'node:crypto';
 import { lireConfigStockage, type ConfigStockage } from './config';
+/**
+ * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — LE REFUS DE SÉCURITÉ, NON CONFIGURABLE.
+ *
+ * ⚠️ MODULE PUR, DONC IMPORTABLE ICI SANS RIEN CASSER : `pieceSecurite` n'a aucune I/O, aucune base, aucun réseau.
+ * Le garde de graphe (`clientBoundary.guard.test.ts`) tient la frontière dans l'autre sens.
+ */
+import { verdictPiece } from '../gestion/pieceSecurite';
 
 /** Erreur de base du module (permet un `catch` typé côté appelant). */
 export class ErreurStockage extends Error {}
@@ -328,6 +335,23 @@ export interface OptionsDepotGestion {
   messageId: number;
   typesAcceptes: readonly string[]; // lue dans gestion_config — JAMAIS codée ici
   tailleMaxOctets: number;          // idem
+  /**
+   * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — LE NOM DU FICHIER ═══════════════════════════
+   *
+   * DÉCISION D'ARNO (04/10/2026) : « tout exécutable ou script […] quel que soit le type annoncé. Décide sur
+   * l'EXTENSION **et** sur le contenu réel (signature du fichier), pas sur le type annoncé. »
+   *
+   * 🔴 SANS LE NOM, LA MOITIÉ DE LA RÈGLE EST IMPOSSIBLE. Un `.msi` et un `.doc` partagent la même signature OLE
+   * (`D0CF11E0`) : seule l'extension les distingue. Refuser sur la signature aurait refusé tous les documents
+   * Word pour attraper zéro installeur.
+   *
+   * ⚠️ LE NOM NE SERT QU'À REFUSER, JAMAIS À NOMMER LA CLÉ. Celle-ci reste un UUID : un nom venu d'un tiers
+   * n'entre jamais dans un chemin de stockage (règle du module depuis le premier jour).
+   *
+   * ⚠️ ABSENT ⇒ seule la signature joue. Le dépôt reste donc possible pour un appelant qui ne connaît pas le nom,
+   * et il est simplement un peu moins sévère — jamais plus permissif qu'avant ce lot.
+   */
+  nomFichier?: string | null;
 }
 
 /**
@@ -339,7 +363,33 @@ export interface OptionsDepotGestion {
 export async function deposerPieceGestion(
   contenu: Buffer | Uint8Array, typeMime: string | null, opts: OptionsDepotGestion,
 ): Promise<ResultatDepotEntrant> {
-  const type = typeMimeNormalise(typeMime);
+  /**
+   * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — LE REFUS DE SÉCURITÉ, AVANT TOUT LE RESTE ═══
+   *
+   * DEUX COUCHES, DANS CET ORDRE, ET L'ORDRE EST LA RÈGLE :
+   *
+   *   ① `verdictPiece` — un programme, un script, la signature électronique du mail. **NON CONFIGURABLE**, écrit
+   *      dans `pieceSecurite.ts`. Posé en PREMIER : un exécutable renommé « photo.jpg » ne doit pas être sauvé
+   *      par le fait que `image/jpeg` soit dans la liste blanche.
+   *   ② LA LISTE BLANCHE (`opts.typesAcceptes`, lue dans `gestion_config`) — ce qu'on accepte de garder. Elle se
+   *      RÈGLE, et c'est bien ainsi : élargir ou restreindre les types est une décision d'exploitation.
+   *
+   * 🔴 LES MÉLANGER AURAIT PERMIS DE DÉBRANCHER UNE RÈGLE DE SÉCURITÉ PAR UN `UPDATE` SUR UNE TABLE. C'est tout
+   * l'objet de la séparation.
+   *
+   * 🔴 ET LE VERDICT PEUT REDRESSER LE TYPE, quand celui annoncé est vague (`application/octet-stream`, ou
+   * absent) et que les octets disent clairement autre chose — 8 photos `.heic` de cette base étaient annoncées
+   * ainsi. C'est le type RETENU qui passe ensuite devant la liste blanche, et c'est lui qui est stocké : sans
+   * cela, une photo aurait été rangée parmi les « fichiers à ouvrir avec précaution ».
+   *
+   * ⚠️ CETTE PORTE EST LA SEULE, pour la relève comme pour le rattrapage des pièces refusées. Il n'y a donc pas
+   * un chemin « normal » et un chemin « de reprise » qui pourraient diverger — condition d'Arno.
+   */
+  const octets = contenu instanceof Uint8Array ? contenu : new Uint8Array(contenu);
+  const verdict = verdictPiece({ nom: opts.nomFichier, typeMime, octets });
+  if (!verdict.garder) return { depose: false, motif: verdict.motif };
+
+  const type = verdict.typeRetenu;
   const acceptes = opts.typesAcceptes.map((t) => t.trim().toLowerCase());
   if (type === '' || !acceptes.includes(type)) {
     return { depose: false, motif: `type non autorisé pour la gestion : « ${typeMime ?? '(inconnu)'} »` };

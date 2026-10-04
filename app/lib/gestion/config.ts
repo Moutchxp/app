@@ -80,8 +80,32 @@ export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
      * message quand le navigateur ne sait pas le décoder. Ce qui manquait était en amont : garder les octets.
      */
     'video/quicktime',
+    /**
+     * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — ACCORD D'ARNO (04/10/2026) ════════════════
+     *
+     * « À RÉCUPÉRER : images HEIF/HEIC ; zip et application/octet-stream : stockés tels quels, proposés en
+     * TÉLÉCHARGEMENT SEULEMENT (jamais ouverts, prévisualisés ni décompressés par l'application), avec la
+     * mention “Fichier à ouvrir avec précaution” ; plafond relevé à 50 Mo. »
+     *
+     * CE QUE LA BASE DISAIT CE JOUR-LÀ : 394 pièces sans octets sur 27 143. `image/heif` 28 (52 Mo),
+     * `application/x-zip-compressed` 29 (113 Mo), `application/zip` 13 (20 Mo), `application/octet-stream`
+     * 90 (18 Mo). Un `.heic` d'iPhone était perdu là où un `.jpg` passait.
+     *
+     * ⚠️ `application/x-zip-compressed` EST LE MÊME FORMAT, annoncé par Outlook et Windows : 29 des 42 zip de la
+     * base le portent. N'autoriser que `application/zip` aurait laissé les deux tiers dehors.
+     *
+     * 🔒 CE QUE CETTE LIGNE N'OUVRE PAS : le refus des programmes, des scripts et des signatures électroniques
+     * (`pieceSecurite.ts`) s'applique AVANT cette liste, et il n'est PAS configurable. Un `.exe` arrivé en
+     * `application/octet-stream` reste refusé.
+     */
+    'image/heif', 'application/zip', 'application/x-zip-compressed', 'application/octet-stream',
   ],
-  pieceTailleMaxOctets: 25 * 1024 * 1024,
+  /**
+   * 🔴 50 Mo — ACCORD D'ARNO (04/10/2026), « plafond relevé à 50 Mo pour les 5 pièces trop volumineuses ». Les
+   * cinq pesaient 25,6 à 29,1 Mo : le plafond de 25 Mo les écartait de peu. Mesuré : aucune pièce de la base ne
+   * dépasse 50 Mo, le nouveau plafond suffit donc aux cinq.
+   */
+  pieceTailleMaxOctets: 50 * 1024 * 1024,
   conservationCarteCloseMois: 60,
   reconnexionsMax: 3,
   reconnexionDelaiS: 5,

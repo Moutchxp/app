@@ -398,6 +398,9 @@ export async function deposerPiecesMessage(
     try {
       const res = await deposerPieceGestion(p.contenu, p.typeMime, {
         messageId, typesAcceptes: config.typesPiecesAcceptes, tailleMaxOctets: config.pieceTailleMaxOctets,
+        /* 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — le NOM sert au refus de sécurité : un `.msi`
+           ne se distingue d'un `.doc` que par lui. Voir `OptionsDepotGestion.nomFichier`. */
+        nomFichier: p.nomFichier,
       });
       if (res.depose) {
         /* 🔴 LA COLONNE N'EST NOMMÉE QUE SI LA MIGRATION 296 EST LÀ : patron du dépôt, une sonde voyage avec ce

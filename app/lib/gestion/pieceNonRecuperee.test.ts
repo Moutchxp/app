@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { lienGmail, COMPTE_GESTION_DEFAUT } from './gmailMenu';
+import { MENTION_DEFAUT } from './pieceSecurite';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — « PIÈCE NON RÉCUPÉRÉE — VOIR DANS GMAIL » ══════════════════════
@@ -37,9 +38,26 @@ describe('🔴🔴 ① le mot d’Arno, au caractère près', () => {
    * l'avons pas gardée. Sans lui, on croirait à une panne de la relève et on la relancerait en vain.
    */
   it('🔴🔴 « — Pièce non récupérée — » puis le lien, puis le motif', () => {
-    expect(PJ).toContain("{' — Pièce non récupérée — '}");
+    /**
+     * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — LA PHRASE VIENT MAINTENANT D'UN MODULE PUR
+     *
+     * Elle était écrite en clair dans le composant ; Arno en a demandé DEUX AUTRES (« Signature électronique du
+     * mail — pas un document », « Programme non récupéré par sécurité — voir dans Gmail »). Trois phrases dans
+     * un JSX auraient fait trois conditions à relire ; `mentionPieceRefusee` les décide, et l'écran les écrit.
+     *
+     * 🔴 LA PHRASE D'ORIGINE EST INCHANGÉE AU CARACTÈRE PRÈS, et c'est ce que `MENTION_DEFAUT` fige.
+     */
+    expect(MENTION_DEFAUT.mention).toBe('Pièce non récupérée — voir dans Gmail');
+    expect(MENTION_DEFAUT.avecLienGmail).toBe(true);
+    expect(PJ).toContain('const r = mentionPieceRefusee(p.motifNonStocke);');
     expect(PJ).toContain('voir dans Gmail ↗');
-    expect(PJ).toContain("{p.motifNonStocke ? ` (${p.motifNonStocke})` : ''}");
+    /* 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — le motif n'est écrit que SOUS LA PHRASE PAR
+       DÉFAUT. Sous les deux phrases de sécurité il ne faisait que les répéter, et c'était illisible à l'écran :
+       « Signature électronique du mail — pas un document (signature électronique du mail (pkcs7) : ce n'est pas
+       un document) ». Le motif garde tout son sens là où il apprend quelque chose. */
+    expect(PJ).toContain(
+      "{r.mention === MENTION_DEFAUT.mention && p.motifNonStocke ? ` (${p.motifNonStocke})` : ''}",
+    );
   });
 
   /**
@@ -47,14 +65,21 @@ describe('🔴🔴 ① le mot d’Arno, au caractère près', () => {
    * (`pj-refusee`), jamais sur une carte de pièce disponible. Une seule occurrence dans tout le fichier.
    */
   it('🔴🔴 la mention n’existe que dans la liste des pièces refusées', () => {
-    /* ⚠️ ON COMPTE DANS LE CODE, PAS DANS LA PROSE : l'encadré qui explique la règle la CITE, forcément. Même
-       leçon que les gardes de ce dépôt, qui se dénonçaient sur leur propre documentation. */
+    /**
+     * 🔴🔴 LA PHRASE N'EST PLUS ÉCRITE DANS L'ÉCRAN DU TOUT — elle vient du module pur. L'assertion devient donc
+     * plus forte qu'avant : zéro occurrence dans le code du composant, et le verdict lu à UN seul endroit, dans
+     * la liste des pièces refusées.
+     *
+     * ⚠️ ON COMPTE DANS LE CODE, PAS DANS LA PROSE : l'encadré qui explique la règle la CITE, forcément. Même
+     * leçon que les gardes de ce dépôt, qui se dénonçaient sur leur propre documentation.
+     */
     const code = PJ.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ');
-    expect((code.match(/Pièce non récupérée/g) ?? [])).toHaveLength(1);
+    expect((code.match(/Pièce non récupérée/g) ?? [])).toHaveLength(0);
+    expect((code.match(/mentionPieceRefusee\(/g) ?? [])).toHaveLength(1);
     const debut = PJ.indexOf('<li key={p.pieceId} className="pj-refusee">');
     const fin = PJ.indexOf('</li>', debut);
     expect(debut).toBeGreaterThan(0);
-    expect(PJ.slice(debut, fin)).toContain('Pièce non récupérée');
+    expect(PJ.slice(debut, fin)).toContain('mentionPieceRefusee(p.motifNonStocke)');
   });
 
   /**
@@ -62,7 +87,7 @@ describe('🔴🔴 ① le mot d’Arno, au caractère près', () => {
    * la mauvaise boîte, et `lienGmail` rend `null` quand il ne sait pas où pointer.
    */
   it('⚠️ sans adresse Gmail, la mention est un mot, pas un lien', () => {
-    expect(PJ).toContain('gmailDuMail === null ? (');
+    expect(PJ).toContain('const lien = r.avecLienGmail && gmailDuMail !== null;');
     expect(PJ).toContain('<span className="pj-refusee-gmail">voir dans Gmail</span>');
   });
 

@@ -6,6 +6,14 @@ import {
   sortePiece, tronquerNom,
   type PieceAffichee,
 } from '../../../../lib/gestion/pieces';
+/**
+ * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — les deux décisions d'Arno sur les pièces, prises dans
+ * un module PUR : quelles pièces ne se téléchargent QUE (zip, octet-stream), et quelle phrase porte une pièce qu'on
+ * n'a pas gardée (programme, signature électronique, ou le reste).
+ */
+import {
+  mentionPieceRefusee, telechargementSeulement, MENTION_DEFAUT, MENTION_PRECAUTION,
+} from '../../../../lib/gestion/pieceSecurite';
 // 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — la hauteur de vignette est PARTAGÉE avec la grille de
 //    l'éditeur : Arno veut « mêmes dimensions et même style ». Une seule constante, donc.
 import { HAUTEUR_VIGNETTE } from '../../../../lib/gestion/piecesEnvoi';
@@ -420,16 +428,42 @@ function BlocPieces({
 
                   ⚠️ SANS LIEN, LA MENTION RESTE : un constat nu vaut mieux qu'un lien qui ouvrirait la mauvaise
                   boîte. `lienGmail` rend `null` quand il ne sait pas où pointer. */}
-              {' — Pièce non récupérée — '}
-              {gmailDuMail === null ? (
-                <span className="pj-refusee-gmail">voir dans Gmail</span>
-              ) : (
-                <a className="pj-refusee-gmail" href={gmailDuMail} target="_blank" rel="noreferrer"
-                  title="Ouvrir ce mail dans Gmail — la pièce y est encore">
-                  voir dans Gmail ↗
-                </a>
-              )}
-              {p.motifNonStocke ? ` (${p.motifNonStocke})` : ''}
+              {/* ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — TROIS PHRASES, PAS UNE ══════════
+
+                  DÉCISIONS D'ARNO (04/10/2026) : une signature électronique affiche « Signature électronique du
+                  mail — pas un document » ; un programme ou un script, « Programme non récupéré par sécurité —
+                  voir dans Gmail ». Le reste garde la phrase du lot précédent.
+
+                  🔴 LE LIEN SUIT LA PHRASE. Une signature n'est pas un document perdu : il n'y a RIEN à aller
+                  chercher, et sa phrase ne mentionne pas Gmail — le lien ne s'affiche donc pas. Un lien sous une
+                  phrase qui n'en parle pas est aussi faux qu'une phrase qui renvoie à Gmail sans lien.
+
+                  🔴 ET C'EST UN MODULE PUR QUI DÉCIDE (`mentionPieceRefusee`), à partir du MOTIF écrit en base par
+                  la porte de dépôt. L'écran n'interprète pas un motif à sa façon : il lit un verdict. */}
+              {(() => {
+                const r = mentionPieceRefusee(p.motifNonStocke);
+                const lien = r.avecLienGmail && gmailDuMail !== null;
+                return (
+                  <>
+                    {` — ${r.mention.replace(/ — voir dans Gmail$/, '')}`}
+                    {r.avecLienGmail && ' — '}
+                    {r.avecLienGmail && (lien ? (
+                      <a className="pj-refusee-gmail" href={gmailDuMail} target="_blank" rel="noreferrer"
+                        title="Ouvrir ce mail dans Gmail — la pièce y est encore">
+                        voir dans Gmail ↗
+                      </a>
+                    ) : (
+                      <span className="pj-refusee-gmail">voir dans Gmail</span>
+                    ))}
+                    {/* 🔴 LE MOTIF N'EST ÉCRIT QUE S'IL APPREND QUELQUE CHOSE. Sous la phrase par défaut, il dit
+                        POURQUOI (« type non autorisé », « trop volumineuse ») et il est indispensable. Sous les
+                        deux phrases de sécurité, il ne fait que les répéter — vu à l'écran : « Signature
+                        électronique du mail — pas un document (signature électronique du mail (pkcs7) : ce n'est
+                        pas un document) ». Une phrase dite deux fois se lit moins bien qu'une fois. */}
+                    {r.mention === MENTION_DEFAUT.mention && p.motifNonStocke ? ` (${p.motifNonStocke})` : ''}
+                  </>
+                );
+              })()}
             </li>
           ))}
         </ul>
@@ -458,6 +492,22 @@ function CartePiece({
   const [vignetteMorte, setVignetteMorte] = useState(false);
   const etiquette = etiquetteType(p.nomFichier, p.typeMime);
   const lien = `/api/admin/gestion/pieces/${p.pieceId}`;
+  /**
+   * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — « TÉLÉCHARGEMENT SEULEMENT » ════════════════
+   *
+   * DÉCISION D'ARNO (04/10/2026) : « zip et application/octet-stream : stockés tels quels, proposés en
+   * TÉLÉCHARGEMENT SEULEMENT (jamais ouverts, prévisualisés ni décompressés par l'application), avec la mention
+   * “Fichier à ouvrir avec précaution” ».
+   *
+   * 🔴 TROIS CONSÉQUENCES SUR CETTE CARTE, ET ELLES VONT ENSEMBLE : pas d'œil (rien à visualiser), le
+   * double-clic TÉLÉCHARGE au lieu d'ouvrir un onglet, et la mention est écrite sous le nom. En retirer une
+   * laisserait une porte ouverte : un double-clic qui ouvre un onglet, c'est le navigateur qui décide du sort du
+   * fichier — exactement ce que cette décision évite.
+   *
+   * ⚠️ LA ROUTE LE TIENT AUSSI, DE SON CÔTÉ (`Content-Disposition: attachment` forcé). Deux gardes pour la même
+   * règle : un écran se contourne par une adresse tapée à la main, une route non.
+   */
+  const precaution = telechargementSeulement({ nom: p.nomFichier, typeMime: p.typeMime });
   /**
    * 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — LA VIGNETTE D'UNE VIDÉO SE FABRIQUE DANS LE NAVIGATEUR.
    *
@@ -490,7 +540,12 @@ function CartePiece({
    * ⚠️ `onClick` NE FAIT RIEN, ET IL EST ÉCRIT QUAND MÊME : un double-clic émet D'ABORD deux `click`. Les laisser
    * tomber dans le vide est le comportement voulu ; ne pas écrire le gestionnaire aurait laissé croire à un oubli.
    */
-  const ouvrirOnglet = () => { window.open(lienDocumentEntier(p.pieceId), '_blank', 'noopener,noreferrer'); };
+  const ouvrirOnglet = () => {
+    /* 🔴🔴 POINT 1 — UN FICHIER « À OUVRIR AVEC PRÉCAUTION » NE S'OUVRE PAS DANS UN ONGLET : il se télécharge.
+       `?telecharger=1` est exactement ce que fait le picto ⤓ juste en dessous. */
+    const vers = precaution ? `${lien}?telecharger=1` : lienDocumentEntier(p.pieceId);
+    window.open(vers, '_blank', 'noopener,noreferrer');
+  };
   /**
    * ⚠️ LA CONDITION DE L'ŒIL EST `sorteApercu`, ET NON `sortePiece` : c'est elle qui décide de l'entrée dans le
    * TOUR de la visionneuse (`voisinsVisualisables`). Les deux listes diffèrent — un .txt a un aperçu et pas de
@@ -501,7 +556,7 @@ function CartePiece({
    * (l'historique d'une cible, la vie d'un bien). Il n'y a pas là de « conversation » dont on puisse faire le
    * tour, et promettre un bouton qui n'ouvrirait rien est pire que de ne rien montrer.
    */
-  const voirIci = onVisualiser !== undefined && sorteApercu(p.typeMime ?? '') !== 'aucun';
+  const voirIci = onVisualiser !== undefined && sorteApercu(p.typeMime ?? '') !== 'aucun' && !precaution;
 
   return (
     <li className="pj-carte">
@@ -516,8 +571,10 @@ function CartePiece({
           e.preventDefault();
           ouvrirOnglet();
         }}
-        title={AIDE_DOUBLE_CLIC}
-        aria-label={`Ouvrir ${p.nomFichier} dans un nouvel onglet (${etiquette}, ${formaterTaille(p.tailleOctets)})`}
+        title={precaution ? `Double-cliquez pour télécharger — ${MENTION_PRECAUTION}` : AIDE_DOUBLE_CLIC}
+        aria-label={precaution
+          ? `Télécharger ${p.nomFichier} (${etiquette}, ${formaterTaille(p.tailleOctets)}) — ${MENTION_PRECAUTION}`
+          : `Ouvrir ${p.nomFichier} dans un nouvel onglet (${etiquette}, ${formaterTaille(p.tailleOctets)})`}
       >
         {avecVignette ? (
           // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route, jamais optimisable par Next
@@ -549,6 +606,9 @@ function CartePiece({
       <div className="pj-pied">
         <span className="pj-nom" title={p.nomFichier}>{tronquerNom(p.nomFichier)}</span>
         <span className="pj-taille">{formaterTaille(p.tailleOctets)}</span>
+        {/* 🔴🔴 POINT 1 — la mention d'Arno, mot pour mot, et SEULEMENT sur ces fichiers-là. Elle n'alarme pas :
+            elle dit ce que l'application ne fera pas à notre place. */}
+        {precaution && <span className="pj-precaution">{MENTION_PRECAUTION}</span>}
         {/* DÉJÀ DANS LE DRIVE : dit en MOTS, avec le nom du dossier, et un lien pour y aller. */}
         {depot && (
           <span className="pj-drive-mention">
@@ -656,6 +716,11 @@ ${CSS_PICTO_DANS_LE_DRIVE}
 .pj-pied{display:flex;flex-direction:column;gap:2px;padding:.4rem .5rem 0;min-width:0}
 .pj-nom{font-size:.8rem;color:var(--color-svv-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pj-taille{font-size:.74rem;color:var(--color-svv-ink-soft)}
+/* ══ 🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — « Fichier a ouvrir avec precaution » ══════════════
+   AMBRE, PAS ROUGE : ce n'est pas une alerte, c'est un RENSEIGNEMENT. Le rouge du module dit « quelque chose ne va
+   pas » ; ici tout va bien, on previent simplement que l'application n'ouvrira pas ce fichier a notre place. Jeton
+   du theme, donc lisible en Clair comme en Sombre, et le MOT porte l'information — jamais la seule couleur. */
+.pj-precaution{font-size:.72rem;font-weight:600;color:var(--color-svv-amber);overflow-wrap:anywhere}
 
 /* Les actions : TOUJOURS visibles (jamais au survol seul), cible de 44 px. */
 .pj-actions{display:flex;align-items:center;gap:2px;padding:.2rem .35rem .35rem;margin-top:auto}

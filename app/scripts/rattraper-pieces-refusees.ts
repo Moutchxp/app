@@ -51,8 +51,35 @@ import { deposerPieceGestion } from '../lib/stockage';
 import { lireIdentifiants, rafraichirJeton } from '../lib/gestion/google';
 import { lireJeton } from '../lib/gestion/googleJeton';
 import { pieceMd5Disponible } from '../lib/gestion/schema';
+/**
+ * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — LE REFUS DE SÉCURITÉ, NON CONFIGURABLE.
+ *
+ * La MÊME fonction que la porte de dépôt (`deposerPieceGestion` l'appelle aussi) : programmes, scripts et
+ * signatures électroniques sont refusés, quel que soit le type annoncé. Ici elle sert DEUX fois : à dire en
+ * simulation ce qui serait refusé, et à écrire le bon MOTIF sur les pièces qu'on ne récupérera jamais.
+ */
+import {
+  estProgrammeParLeNom, estSignatureElectronique, verdictPiece, MOTIF_PROGRAMME, MOTIF_SIGNATURE,
+} from '../lib/gestion/pieceSecurite';
+import { writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const P = '[pieces:rattraper-refusees]';
+
+/**
+ * ══ 🔴🔴 LE JOURNAL, DEMANDÉ PAR ARNO — « avec un journal (récupérées, refusées, échecs, et pourquoi) » ══════════
+ *
+ * Tout ce que la commande dit à l'écran est AUSSI écrit dans un fichier du Bureau. Deux sorties, une seule source :
+ * un journal reconstitué à la fin aurait fini par ne plus dire ce que l'écran avait dit.
+ */
+const JOURNAL: string[] = [];
+const dire = (ligne: string): void => { console.log(ligne); JOURNAL.push(ligne); };
+function ecrireJournal(nom: string): void {
+  const dest = join(homedir(), 'Desktop', nom);
+  writeFileSync(dest, `${JOURNAL.join('\n')}\n`, 'utf8');
+  console.log(`${P} journal → ${dest}`);
+}
 /** Un jeton Google vit une heure ; on le renouvelle bien avant, pour ne pas échouer au milieu d'un lot. */
 const MARGE_JETON_MS = 45 * 60 * 1000;
 
@@ -76,14 +103,53 @@ const mo = (n: number): string => `${(n / (1024 * 1024)).toFixed(1)} Mo`;
 async function principal(): Promise<void> {
   const config = await chargerConfigGestion();
   const permis = config.typesPiecesAcceptes.map((t) => t.trim().toLowerCase());
-  console.log(`${P} types acceptés par la configuration : ${permis.join(', ')}`);
+  dire(`${P} types acceptés par la configuration : ${permis.join(', ')}`);
   if (typeVoulu !== '' && !permis.includes(typeVoulu)) {
-    console.log(`${P} ⛔ « ${typeVoulu} » n'est PAS dans la liste de « gestion_config ». Rien à faire : c'est la`
+    dire(`${P} ⛔ « ${typeVoulu} » n'est PAS dans la liste de « gestion_config ». Rien à faire : c'est la`
       + ' configuration qui autorise, jamais cette commande.');
     return;
   }
 
   /**
+   * ══ 🔴🔴 PHASE ① — LES REFUS DE SÉCURITÉ, SANS ALLER CHERCHER UN SEUL OCTET ═════════════════════════════════
+   *
+   * DÉCISION D'ARNO (04/10/2026) : une signature `pkcs7` affiche « Signature électronique du mail — pas un
+   * document » ; un programme ou un script affiche « Programme non récupéré par sécurité — voir dans Gmail ».
+   *
+   * 🔴 CES PIÈCES-LÀ PORTENT AUJOURD'HUI LE MAUVAIS MOTIF (« type non autorisé pour la gestion : “…” »), et
+   * l'écran ne peut donc pas dire la phrase d'Arno. On réécrit le motif — rien d'autre : aucune ligne créée,
+   * aucune supprimée, aucun octet demandé à Gmail.
+   *
+   * ⚠️ ON NE JUGE ICI QUE SUR LE NOM ET LE TYPE, pas sur le contenu : il n'y a pas d'octets à lire pour une
+   * pièce qu'on ne récupérera jamais, et aller les chercher chez Gmail pour les jeter aussitôt serait absurde.
+   * Le contrôle sur les octets, lui, vit dans la porte de dépôt et joue à la phase ②.
+   */
+  const { rows: securite } = await query<{ id: string; nom_fichier: string; type_mime: string | null }>(
+    `SELECT p.id::text, p.nom_fichier, p.type_mime
+       FROM gestion_piece p WHERE p.stocke_le IS NULL ORDER BY p.id`);
+  const aMarquer = securite
+    .map((r) => ({
+      id: Number(r.id),
+      nom: r.nom_fichier,
+      motif: estProgrammeParLeNom(r.nom_fichier) ? MOTIF_PROGRAMME
+        : estSignatureElectronique({ nom: r.nom_fichier, typeMime: r.type_mime }) ? MOTIF_SIGNATURE : null,
+    }))
+    .filter((x): x is { id: number; nom: string; motif: string } => x.motif !== null);
+
+  dire(`${P} ── phase ① refus de sécurité (nom et type seuls) ──────`);
+  dire(`${P} ${aMarquer.length} pièce(s) à ne JAMAIS récupérer :`);
+  for (const x of aMarquer) dire(`${P}   · ${x.id} « ${x.nom} » → ${x.motif}`);
+  if (appliquer) {
+    for (const x of aMarquer) {
+      await query('UPDATE gestion_piece SET motif_non_stocke = $2 WHERE id = $1 AND stocke_le IS NULL',
+        [x.id, x.motif]);
+    }
+    dire(`${P} motifs réécrits : ${aMarquer.length}`);
+  }
+
+  /**
+   * ══ 🔴🔴 PHASE ② — LE RATTRAPAGE ═══════════════════════════════════════════════════════════════════════════
+   *
    * 🔴 ON NE PREND QUE CE QUI EST ENCORE SANS OCTETS, et dont le type est MAINTENANT permis. Les deux conditions
    * comptent : la première rend la commande reprenable, la seconde interdit de rattraper ce que la configuration
    * refuse toujours.
@@ -107,9 +173,9 @@ async function principal(): Promise<void> {
   }));
 
   const poids = refusees.reduce((t: number, p: Refusee) => t + (p.taille ?? 0), 0);
-  console.log(`${P} ${refusees.length} pièce(s) à rattraper, ${mo(poids)} au total`);
-  console.log(`${P} ${appliquer ? '🔴 APPLICATION : la base et le stockage SERONT écrits' : 'SIMULATION : rien ne sera écrit'}`);
-  if (refusees.length === 0) { console.log(`${P} rien à faire.`); return; }
+  dire(`${P} ${refusees.length} pièce(s) à rattraper, ${mo(poids)} au total`);
+  dire(`${P} ${appliquer ? '🔴 APPLICATION : la base et le stockage SERONT écrits' : 'SIMULATION : rien ne sera écrit'}`);
+  if (refusees.length === 0) { dire(`${P} rien à faire.`); return; }
 
   let jeton = ''; let obtenuA = 0;
   const jetonGmail = async (): Promise<string | null> => {
@@ -117,17 +183,18 @@ async function principal(): Promise<void> {
     const stocke = lireJeton();
     const ids = lireIdentifiants();
     if (stocke === null || ids === null) {
-      console.log(`${P} ⚠️ aucun jeton Gmail enregistré pour gestion@ : rien ne peut être relu.`);
+      dire(`${P} ⚠️ aucun jeton Gmail enregistré pour gestion@ : rien ne peut être relu.`);
       return null;
     }
     const j = await rafraichirJeton({ identifiants: ids, refreshToken: stocke.refreshToken }, { fetch });
-    if (!j.ok) { console.log(`${P} ⚠️ jeton Gmail indisponible : ${j.motif}`); return null; }
+    if (!j.ok) { dire(`${P} ⚠️ jeton Gmail indisponible : ${j.motif}`); return null; }
     jeton = j.valeur; obtenuA = Date.now(); return jeton;
   };
   const deps = depsOctetsPiece(jetonGmail);
   const avecMd5 = await pieceMd5Disponible();
 
-  let lus = 0; let deposes = 0; const echecs: { id: number; nom: string; motif: string }[] = [];
+  let lus = 0; let deposes = 0; let redresses = 0;
+  const echecs: { id: number; nom: string; motif: string }[] = [];
 
   for (const p of refusees) {
     /* 🔴 LE LECTEUR CENTRAL : MinIO (vide ici), puis la copie Drive (il n'y en a pas), puis le message d'origine
@@ -139,21 +206,33 @@ async function principal(): Promise<void> {
     const lu = await lireOctetsPiece(aLire, deps);
     if (!lu.ok) {
       echecs.push({ id: p.id, nom: p.nomFichier, motif: lu.motif });
-      console.log(`${P}   ✗ ${p.id} « ${p.nomFichier} » — ${lu.motif}`);
+      dire(`${P}   ✗ ${p.id} « ${p.nomFichier} » — ${lu.motif}`);
       continue;
     }
     lus += 1;
-    console.log(`${P}   ✓ ${p.id} « ${p.nomFichier} » — ${mo(lu.octets.byteLength)} lus depuis ${lu.source}`);
+    /**
+     * 🔴🔴 LE VERDICT DE SÉCURITÉ, DIT MÊME EN SIMULATION. Sans cela, l'essai annoncerait « ✓ lus » sur un
+     * exécutable que le dépôt refuserait trois lignes plus loin — et l'essai, qui sert justement à décider, ne
+     * servirait à rien. C'est la MÊME fonction que la porte de dépôt.
+     */
+    const v = verdictPiece({ nom: p.nomFichier, typeMime: p.typeMime, octets: lu.octets });
+    const dit = v.garder
+      ? (v.redresse ? ` → type redressé sur le CONTENU : ${p.typeMime ?? '(aucun)'} → ${v.typeRetenu}` : '')
+      : ` → REFUSÉ : ${v.motif}`;
+    dire(`${P}   ✓ ${p.id} « ${p.nomFichier} » — ${mo(lu.octets.byteLength)} lus depuis ${lu.source}${dit}`);
+    if (v.garder && v.redresse) redresses += 1;
     if (!appliquer) continue;
 
     const res = await deposerPieceGestion(lu.octets, p.typeMime, {
       messageId: p.messageId,
       typesAcceptes: config.typesPiecesAcceptes,
       tailleMaxOctets: config.pieceTailleMaxOctets,
+      /* 🔴🔴 POINT 1 — le NOM, pour que le refus de sécurité d'Arno s'applique ici EXACTEMENT comme à la relève. */
+      nomFichier: p.nomFichier,
     });
     if (!res.depose) {
       echecs.push({ id: p.id, nom: p.nomFichier, motif: res.motif });
-      console.log(`${P}   ✗ ${p.id} dépôt refusé : ${res.motif}`);
+      dire(`${P}   ✗ ${p.id} dépôt refusé : ${res.motif}`);
       /* ⚠️ ON RÉÉCRIT LE MOTIF, pour qu'il dise la raison D'AUJOURD'HUI (la taille, par exemple) et non celle
          d'hier (le type) — sans quoi la prochaine passe reposerait la même question. */
       await query('UPDATE gestion_piece SET motif_non_stocke = $2 WHERE id = $1', [p.id, res.motif]);
@@ -164,27 +243,58 @@ async function principal(): Promise<void> {
      * bougent pas. On ne pose que ce qui manquait — la clé, l'empreinte, la taille réelle, la date — et l'on
      * EFFACE le motif de refus, qui n'a plus d'objet.
      */
+    /**
+     * ══ 🔴🔴 LE TYPE REDRESSÉ S'INSCRIT AUSSI, ET IL LE FAUT ═════════════════════════════════════════════════
+     *
+     * ⚠️ DÉFAUT VU À L'ÉCRAN AU PREMIER ESSAI (04/10/2026) : la pièce 3112, « Rib Serrurerie Patito.heic »,
+     * annoncée `application/octet-stream`, a été STOCKÉE sous `image/jpeg` (clé `…​.jpg`, bon Content-Type) — mais
+     * sa ligne en base gardait `application/octet-stream`. L'écran lit la BASE : une photo parfaitement
+     * affichable serait restée rangée parmi les « fichiers à ouvrir avec précaution ».
+     *
+     * 🔴 ON N'ÉCRIT LE TYPE QUE S'IL A ÉTÉ REDRESSÉ, et seulement depuis un type VAGUE vers un format que les
+     * octets désignent sans ambiguïté (voir `typeReelSiVague`). Un type précis n'est jamais contredit.
+     */
+    const typeRedresse = v.garder && v.redresse ? v.typeRetenu : null;
+    /**
+     * ⚠️ LA LISTE SE CONSTRUIT, ET CHAQUE VALEUR REND SON NUMÉRO. Deux colonnes sont CONDITIONNELLES (`md5` selon
+     * la migration 296, `type_mime` selon le redressement) : écrire les numéros à la main aurait lié une valeur
+     * sans que la requête la nomme, et PostgreSQL refuse alors tout — « bind message supplies N parameters, but
+     * prepared statement requires M ». C'est l'incident que le lot précédent a payé sur l'historique ; on ne le
+     * repaie pas ici.
+     */
+    const params: unknown[] = [p.id, res.cle, res.empreinte, res.taille];
+    const ajouter = (valeur: unknown): string => `$${params.push(valeur)}`;
+    const colonnes = [
+      ...(avecMd5 ? [`md5 = ${ajouter(createHash('md5').update(lu.octets).digest('hex'))}`] : []),
+      ...(typeRedresse === null ? [] : [`type_mime = ${ajouter(typeRedresse)}`]),
+    ];
     await query(
       `UPDATE gestion_piece
           SET cle_stockage = $2, empreinte_sha256 = $3, taille_octets = $4,
-              stocke_le = now(), motif_non_stocke = NULL
-              ${avecMd5 ? ', md5 = $5' : ''}
-        WHERE id = $1 AND stocke_le IS NULL`,
-      avecMd5
-        ? [p.id, res.cle, res.empreinte, res.taille, createHash('md5').update(lu.octets).digest('hex')]
-        : [p.id, res.cle, res.empreinte, res.taille]);
+              stocke_le = now(), motif_non_stocke = NULL${colonnes.length === 0 ? '' : `, ${colonnes.join(', ')}`}
+        WHERE id = $1 AND stocke_le IS NULL`, params);
     deposes += 1;
   }
 
-  console.log(`${P} ── bilan ──────────────────────────────────────────────`);
-  console.log(`${P} octets retrouvés : ${lus} / ${refusees.length}`);
-  console.log(`${P} ${appliquer ? `déposées et inscrites : ${deposes}` : '(simulation : aucun dépôt)'}`);
+  dire(`${P} ── bilan ──────────────────────────────────────────────`);
+  dire(`${P} refus de sécurité (phase ①) : ${aMarquer.length}`);
+  dire(`${P} octets retrouvés : ${lus} / ${refusees.length}`);
+  dire(`${P} types redressés sur le contenu : ${redresses}`);
+  dire(`${P} ${appliquer ? `déposées et inscrites : ${deposes}` : '(simulation : aucun dépôt)'}`);
   if (echecs.length > 0) {
-    console.log(`${P} ${echecs.length} en échec :`);
-    for (const e of echecs) console.log(`${P}   · ${e.id} « ${e.nom} » — ${e.motif}`);
+    dire(`${P} ${echecs.length} en échec :`);
+    for (const e of echecs) dire(`${P}   · ${e.id} « ${e.nom} » — ${e.motif}`);
   }
 }
 
 principal()
-  .catch((e) => { console.error(`${P} ⛔`, e); process.exitCode = 1; })
-  .finally(() => void closePool());
+  .catch((e) => { console.error(`${P} ⛔`, e); JOURNAL.push(`${P} ⛔ ${String(e)}`); process.exitCode = 1; })
+  .finally(() => {
+    /* 🔴 LE JOURNAL S'ÉCRIT MÊME EN CAS D'ERREUR : c'est précisément là qu'on en a besoin. Et son nom dit si la
+       passe a écrit ou non — un journal de simulation ne doit pas se confondre avec un journal d'application. */
+    const cible = typeVoulu === '' ? '' : `-${typeVoulu.replace(/[^a-z0-9]+/g, '-')}`;
+    ecrireJournal(appliquer
+      ? `journal-rattrapage-pieces${cible}-applique.txt`
+      : `journal-rattrapage-pieces${cible}-simulation.txt`);
+    void closePool();
+  });
