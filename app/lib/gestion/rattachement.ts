@@ -218,8 +218,48 @@ export function examinerMessage(o: {
    */
   sens?: string | null;
   exclusionRegleId?: number | null;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 4 — LA MARQUE « INTERNE », ET LE CHEMIN QU'ELLE FERME ════════
+   *
+   * Le verdict du module pur `interneDuMail` : marque par mail vivante, sinon marque retirée, sinon marque de
+   * l'échange. On ne refait pas la règle ici, on la REÇOIT.
+   *
+   * ═══ 🔴🔴 LE CHEMIN QUI CONTOURNAIT LA RÈGLE, ET COMMENT JE L'AI TROUVÉ ═════════════════════════════════════
+   *
+   * Le module savait déjà arbitrer le conflit « un bien ET interne » : `leverInterneApresRattachement` LÈVE la
+   * marque quand un bien est rattaché — « un rattachement l'emporte sur Interne ». Mais cette levée exige un
+   * auteur HUMAIN (`auteurHumainInterne`), et c'est juste : seule une décision peut défaire une décision.
+   *
+   * 🔴 D'OÙ LE TROU : la passe AUTOMATIQUE, elle, ne lève rien — et ne regardait pas la marque non plus. Elle
+   * pouvait donc poser un bien confirmé sur un mail qu'Arno venait de marquer « interne », sans lever la marque
+   * ni laisser de trace de l'arbitrage. L'état interdit naissait en silence.
+   *
+   * 🔴 MESURÉ, PAS SUPPOSÉ (04/10/2026) : le mail 57433 de l'échange 36665 — marqué « interne » par Arno le
+   * 03/10 à 15:37 — rendait encore `issue=automatique, certain=448` quand on le repassait au moteur. Le chemin
+   * était ouvert, et il l'était pour tout mail à venir de ces 9 échanges.
+   *
+   * ⚠️ CE REFUS NE TOUCHE PAS LE GESTE HUMAIN. Rattacher un bien à la main reste permis, et lève la marque comme
+   * avant : l'arbitrage reste possible, il reste simplement RÉSERVÉ À QUELQU'UN. Absent ⇒ le moteur se comporte
+   * exactement comme avant ce lot.
+   */
+  interne?: boolean;
 }): Examen {
   const utiles = adressesUtiles(o.adressesEchange.filter((a) => a.messageId === o.messageId)).length;
+
+  /**
+   * 🔴🔴 UN MAIL MARQUÉ « INTERNE » N'A PAS DE BIEN, ET LE REFUS EST ICI — AVANT TOUT CALCUL. Comme pour les
+   * documents envoyés juste en dessous : le mail n'est pas ambigu, il est HORS SUJET. Refuser en amont évite
+   * aussi d'écrire une ligne d'examen « à trier » qui ferait réapparaître ces échanges dans la file.
+   *
+   * ⚠️ `sans_candidat` ET NON « a_trier » : rien n'est à trancher. Un mail interne ne devient pas le courrier
+   * d'un logement parce qu'une adresse de l'échange en désigne un.
+   */
+  if (o.interne === true) {
+    return {
+      issue: 'sans_candidat', certain: null, candidats: [], adressesUtiles: utiles,
+      motif: 'mail marqué « interne » par une personne : il ne concerne aucun bien',
+    };
+  }
 
   /**
    * ══ 🔴🔴 UN « Document CRITERIMMO » QUE NOUS AVONS ENVOYÉ N'A JAMAIS DE BIEN ═══════════════════════════════════

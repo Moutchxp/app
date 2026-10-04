@@ -458,7 +458,30 @@ async function examinerLePaquet(
    */
   const { classementParMail } = await import('./periodeRepo');
   const fenetres = await classementParMail(paquet.fils);
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 4 — LA MARQUE « INTERNE » ENTRE DANS LA PASSE ════════════════
+   *
+   * DEUX LECTURES POUR TOUT LE PAQUET, jamais une par mail : les marques PAR MAIL et celles des ÉCHANGES. Le
+   * verdict est rendu par le module PUR `interneDuMail`, qui porte la règle des trois cas d'Arno — et il la porte
+   * SEUL : la réécrire ici en ferait une seconde vérité, exactement ce que le point 1 de ce lot vient de défaire.
+   *
+   * ⚠️ IMPORTS DIFFÉRÉS, comme `periodeRepo` juste au-dessus : les deux dépôts sondent leur migration (281, 297)
+   * et un import en tête de fichier ferait tomber les commandes de ligne qui n'en ont pas besoin.
+   */
+  const { lireInterneDesMessages } = await import('./interneMessageRepo');
+  const { lireInterne } = await import('./interneRepo');
+  const { interneDuMail } = await import('./interneDuMail');
+  const [marquesParMail, marquesDesFils] = await Promise.all([
+    lireInterneDesMessages(paquet.messages.map((m) => m.id)),
+    lireInterne(paquet.fils),
+  ]);
   for (const m of paquet.messages) {
+    const marque = marquesParMail.get(m.id);
+    const interne = interneDuMail({
+      marqueDuMailVivante: marque?.vivante === true,
+      marqueDuMailConnue: marque !== undefined,
+      marqueDeLEchange: marquesDesFils.has(m.filId),
+    });
     const examen = examinerMessage({
       messageId: m.id,
       adressesEchange: paquet.adresses.get(m.filId) ?? [],
@@ -468,6 +491,8 @@ async function examinerLePaquet(
       contenu,
       // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — le moteur doit pouvoir reconnaître NOS envois automatiques et les refuser.
       sens: m.sens, exclusionRegleId: m.exclusionRegleId,
+      /* 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 4 — et la décision humaine « interne », qu'il ignorait. */
+      interne,
     });
 
     c.messagesVus += 1;
