@@ -22,8 +22,29 @@ export const PAGE_HISTORIQUE = 25;
 /** Plafond de sûreté d'une page demandée par l'adresse. Au-delà, on borne — un `taille=100000` n'est pas une demande. */
 export const PAGE_HISTORIQUE_MAX = 100;
 
-/** Combien d'interlocuteurs au plus dans le filtre. Au-delà, l'écran DIT qu'il y en a d'autres. */
-export const INTERLOCUTEURS_MAX = 60;
+/**
+ * Combien d'interlocuteurs au plus dans le filtre. Au-delà, l'écran DIT qu'il y en a d'autres.
+ *
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — RELEVÉ DE **60 À 120**, SUR UNE MESURE ════════════════════════════════════════
+ *
+ * MESURÉ EN BASE LE 04/10/2026, sur les rattachements confirmés de chaque logement : le bien le plus fourni —
+ * le lot WIPPIMMO **155**, 130 mails — compte **76 adresses distinctes**. Les suivants en comptent 28, 22, 22,
+ * 21… ; 76 est donc un cas réel, et nettement détaché.
+ *
+ * 🔴 CE QUE L'ANCIEN PLAFOND COÛTAIT, ET POURQUOI C'ÉTAIT GRAVE. À 60, la liste de CE bien-là perdait
+ * **16 personnes**. Or `tronque` ne dit QUE « il y en a d'autres » : il ne les nomme pas et ne les rend pas
+ * cochables. Le nouveau tableau de bord « PARTIES » coche des personnes pour filtrer le fil — une personne
+ * absente de la liste est donc une personne qu'on ne peut PAS retrouver, sans qu'aucun écran ne dise laquelle.
+ * C'est exactement la faute que le module s'interdit ailleurs (« la fenêtre de 30 jours DIT combien d'échanges
+ * elle laisse de côté »).
+ *
+ * ⚠️ 120 ET NON 76 : on ne cale pas un plafond sur la mesure du jour. 120 laisse la place au double du cas réel
+ * le plus fourni, et la mention `tronque` reste écrite pour le jour où même cela ne suffira pas.
+ *
+ * ⚠️ IL BORNE AUSSI `avec=` (voir `lireFiltres`) : cocher 76 personnes doit pouvoir s'écrire dans l'adresse,
+ * sinon le filtre se tronquerait à la relecture — et l'écran montrerait un fil qui ne correspond plus aux cases.
+ */
+export const INTERLOCUTEURS_MAX = 120;
 
 // ── LA CIBLE, DANS L'ADRESSE ────────────────────────────────────────────────────────────────────────────────────
 
@@ -195,6 +216,23 @@ export interface PieceHistorique {
   tailleOctets: number | null;
   disponible: boolean;
   motifNonStocke: string | null;
+  /**
+   * ══ 🔴 LOT HISTORIQUE-BIEN-1 — L'EMPREINTE DU CONTENU, POUR LE RÉSUMÉ DES PIÈCES ═════════════════════════════
+   *
+   * Le bloc « Historique » résume en miniatures toutes les pièces des mails affichés, par `dedoublonnerPieces`
+   * (`piecesConversation.ts`). Cette fonction identifie une pièce par son EMPREINTE quand elle en a une, et
+   * retombe sinon sur « nom + taille » — un rapprochement qu'elle marque alors comme PRÉSOMPTION.
+   *
+   * 🔴 SANS CE CHAMP, TOUT LE RÉSUMÉ PASSAIT PAR LA PRÉSOMPTION, et deux documents DIFFÉRENTS de même nom et de
+   * même taille (deux « facture.pdf » de deux fournisseurs) auraient fondu en un — une pièce manquante, qui ne
+   * se voit pas. L'empreinte existe déjà en base (`gestion_piece.empreinte_sha256`, renseignée pour toutes les
+   * pièces qui ont des octets) : il n'y avait rien à calculer, seulement à la faire voyager.
+   *
+   * ⚠️ CHAMP **FACULTATIF**, comme `interventions` sur une ligne : une réponse d'API plus ancienne que ce lot ne
+   * le porte pas, et tout ce qui construit une pièce d'historique ailleurs doit continuer de compiler. `null` et
+   * `undefined` veulent dire la même chose — « pas d'empreinte connue », donc rapprochement par nom et taille.
+   */
+  empreinte?: string | null;
 }
 
 export interface LigneHistorique {
@@ -301,6 +339,27 @@ export interface Interlocuteur {
   /** Le nom d'affichage le plus fréquent pour cette adresse, ou `null` si elle n'en a jamais porté. */
   nom: string | null;
   nbMails: number;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — LES DEUX COMPTEURS D'UNE PERSONNE ═══════════════════════════════════════════
+   *
+   * DEMANDE D'ARNO (04/10/2026) : chaque adresse du tableau « PARTIES » porte ses deux compteurs, « a écrit » et
+   * « en copie / destinataire ». `nbMails` ne distinguait pas les deux : une adresse à 40 mails pouvait n'avoir
+   * jamais écrit une ligne, et rien ne le disait.
+   *
+   * 🔴 UN MAIL NE COMPTE QU'UNE FOIS PAR ADRESSE, LA PRÉSENCE LA PLUS FORTE L'EMPORTANT (« a écrit » gagne sur
+   * « destinataire/copie »). MESURÉ EN BASE LE 04/10/2026 : **248 couples (adresse, message)** portent les DEUX
+   * rôles à la fois, sur **61 adresses distinctes** — un auto-envoi, une réponse à soi-même, un transfert. Sans
+   * cette règle, ces 248 mails seraient comptés deux fois et la somme des deux compteurs dépasserait `nbMails`.
+   *
+   * ⚠️ ET LA SOMME PEUT ÊTRE **INFÉRIEURE** À `nbMails`, ce qui est exact et voulu : `aEcrit` lit le rôle
+   * `expediteur`, `enCopie` les rôles `destinataire` et `copie` — restent `repondre_a` et `transfere`, qui ne
+   * sont ni l'un ni l'autre. MESURÉ : **5 191 couples (adresse, message)** n'ont QUE ces rôles-là. Une adresse
+   * qui n'apparaît que comme « répondre à » est bien dans l'échange sans y avoir écrit ni été écrite ; gonfler
+   * l'un des deux compteurs pour faire tomber l'addition juste aurait menti sur son rôle.
+   */
+  aEcrit: number;
+  /** Destinataire ou en copie, hors mails où cette adresse a AUSSI écrit (voir `aEcrit`). */
+  enCopie: number;
   /** Une de NOS adresses ? On les montre — elles font partie de l'échange — mais on les distingue. */
   interne: boolean;
 }

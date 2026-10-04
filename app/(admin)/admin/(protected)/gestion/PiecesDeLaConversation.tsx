@@ -222,7 +222,22 @@ export function ModalePiecesConversation({
  * ⚠️ `loading="lazy"` + hauteur réservée : une conversation de quarante pièces ne déclenche pas quarante requêtes à
  * l'ouverture, et la grille ne saute pas quand les images arrivent.
  */
-function CartePieceConversation({ piece: p, depot, emplacements, maintenant, gestes }: {
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — EXPORTÉE, ET POUR UNE SEULE RAISON ═══════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (04/10/2026) : « LES PIÈCES JOINTES : un résumé en HAUT et en BAS du fil, de toutes les pièces
+ * des mails affichés, en MINIATURES (**réutilise le composant de miniature des mails** : œil, téléchargement,
+ * picto Drive vert), triées par date et par expéditeur comme dans les conversations. »
+ *
+ * 🔴 C'EST CETTE CARTE-CI, ET PAS UNE AUTRE. Elle porte déjà les trois gestes qu'Arno nomme — l'œil, le
+ * téléchargement, le picto vert quand le contenu est déjà dans le Drive — et la mention des autres apparitions
+ * d'un même contenu. En redessiner une seconde aurait fait deux miniatures qui vieillissent séparément.
+ *
+ * ⚠️ AUCUN CONTENU N'A CHANGÉ ICI : seul le mot-clé `export` a été ajouté. La fenêtre
+ * `ModalePiecesConversation` continue de l'appeler exactement comme avant, sans savoir que le bloc
+ * « Historique » de la fiche l'appelle aussi, en ligne et sans fenêtre.
+ */
+export function CartePieceConversation({ piece: p, depot, emplacements, maintenant, gestes }: {
   piece: PieceDedoublonnee;
   depot: DepotAffiche | undefined;
   /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — vide ⇒ la carte est EXACTEMENT celle d'avant ce lot. */

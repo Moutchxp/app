@@ -1,0 +1,530 @@
+import { FUSEAU_AFFICHAGE } from './ecran';
+import { formaterDateIso } from './annuaireRecherche';
+import {
+  ecrireFiltres, FILTRES_VIDES, jourValide, PAGE_HISTORIQUE,
+  type ChoixPieces, type FiltresHistorique, type Interlocuteur, type LigneHistorique,
+} from './historique';
+import type { MessagePorteur, OrdrePieces } from './piecesConversation';
+/**
+ * 🔴🔴 LE SEUIL DE REPLI ET LE VOCABULAIRE DES CATÉGORIES VIENNENT DE `partieCategorie.ts`, ET DE LÀ SEULEMENT.
+ *
+ * Ce module-là est le juge du rangement des parties (livré par le chantier PARALLÈLE du même jour). Recopier son
+ * `6` ou sa liste de catégories aurait fait deux vérités à tenir — et c'est toujours celle qu'on relit le moins
+ * qui se périme. `replierLesCartes` porte même la comparaison (`> SEUIL`), ce qui ferme aussi l'erreur de borne.
+ *
+ * ⚠️ IL EST PUR ET N'IMPORTE RIEN : ce fichier-ci est atteint par le navigateur, et l'importer ne tire pas `pg`.
+ */
+import { replierLesCartes, SEUIL_REPLI_CARTES, type Categorie } from './partieCategorie';
+
+/**
+ * MODULE « GESTION » — LOT HISTORIQUE-BIEN-1 : LES DÉCISIONS DU BLOC « HISTORIQUE » D'UNE FICHE DE BIEN. PUR.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 CE QU'IL RÉPOND. « Montre-moi l'histoire de ce logement, pour la période qui m'intéresse, avec les personnes
+ * qui m'intéressent. » Le bloc « Vie du bien » répond déjà à « tous ses mails » ; celui-ci répond à la question
+ * d'APRÈS, celle qu'on se pose un dossier en main : *pendant le sinistre de février*, *entre le propriétaire et
+ * l'assureur*, *qu'est-ce qui s'est dit, et quelles pièces ont circulé ?*
+ *
+ * 🔴 AUCUNE I/O, AUCUN `pg`, AUCUN REACT, ET C'EST SA GARANTIE. Ce fichier est atteint par le navigateur (il est
+ * importé par un composant `'use client'`) : un seul import qui tirerait `pg` ferait tomber TOUTE l'application,
+ * écran de connexion compris — incident du 24/09/2026, surveillé par `clientBoundary.guard.test.ts`.
+ *
+ * 🔴 LES DÉCISIONS NE SONT ÉCRITES QU'ICI. L'écran (`HistoriqueDuBien.tsx`) place et peint ; il ne décide ni d'une
+ * période, ni d'un groupe, ni d'un mot. C'est ce qui permet d'éprouver le verdict « logement vacant » sans monter
+ * un navigateur — et c'est exactement ce verdict-là qu'une maquette a déjà fait mentir (voir plus bas).
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ① LE SEUIL DE REPLI
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴 LE SEUIL DE REPLI, RÉEXPORTÉ — JAMAIS REDÉFINI ════════════════════════════════════════════════════════════
+ *
+ * Au-delà de ce nombre de personnes, un groupe du tableau « PARTIES » s'affiche REPLIÉ : un bien réel compte
+ * jusqu'à 76 adresses (mesuré sur le lot 155 le 04/10/2026), et quatre groupes dépliés d'emblée auraient poussé
+ * le fil hors de l'écran — c'est-à-dire caché ce qu'on est venu lire.
+ *
+ * 🔴 IL VIENT DE `partieCategorie.ts`, ET IL N'EST PAS RECOPIÉ. Il est réexporté ici pour que l'écran n'ait qu'un
+ * module à lire ; la valeur, elle, n'a qu'un seul endroit où elle vit.
+ */
+export { SEUIL_REPLI_CARTES, replierLesCartes };
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ② LES RÉGLAGES — CE QUE LE TABLEAU DE BORD TIENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Comment la période est choisie. `evenement` garde l'identifiant, pour que l'écran sache lequel est allumé. */
+export type ChoixPeriode =
+  | { sorte: 'tous' }
+  | { sorte: 'dates'; du: string | null; au: string | null }
+  | { sorte: 'evenement'; evenementId: number; du: string | null; au: string | null };
+
+/** L'ordre du fil. Le plus récent en haut par défaut : c'est le dernier état du dossier qu'on vient chercher. */
+export type OrdreFil = OrdrePieces;
+export const ORDRE_FIL_DEFAUT: OrdreFil = 'recent';
+
+export interface Reglages {
+  periode: ChoixPeriode;
+  /**
+   * Les adresses COCHÉES, en forme canonique (minuscules). Vide + `toutesLesParties` éteint = aucune personne
+   * choisie : l'écran le DIT et ne filtre rien, plutôt que de rendre un fil vide qui se lirait « rien ne s'est dit ».
+   */
+  parties: string[];
+  /**
+   * 🔴 « TOUS LES MAILS DU BIEN PENDANT LA PÉRIODE » — IGNORE LE CHOIX DES PARTIES, sans l'effacer. Demande
+   * d'Arno : l'interrupteur se relève et l'on retrouve ses cases telles qu'on les avait laissées. Vider `parties`
+   * à l'allumage aurait obligé à tout recocher pour comparer les deux lectures.
+   */
+  toutesLesParties: boolean;
+  pieces: ChoixPieces;
+  ordre: OrdreFil;
+  /**
+   * « Regrouper par conversation ». DÉCOCHÉ par défaut : le fil est chronologique, c'est sa raison d'être.
+   *
+   * ⚠️ CE N'EST **PAS** LE `grouper=1` DE LA ROUTE, ET LES CONFONDRE AURAIT ÉTÉ UN DÉFAUT SILENCIEUX. Le
+   * paramètre de la route regroupe par **CIBLE** — il sert à l'historique d'un PROPRIÉTAIRE, pour séparer ses
+   * logements. Sur une cible `lot-…` il n'y a qu'une cible : le paramètre n'aurait rien regroupé, et il aurait en
+   * plus fait passer la requête d'un `DISTINCT ON (message_id)` à un `DISTINCT` (un mail qui entre par deux axes
+   * compterait deux fois). Ce réglage-ci regroupe par ÉCHANGE (`filId`), à l'écran, sur la page reçue — voir
+   * `grouperParConversation`.
+   */
+  grouper: boolean;
+}
+
+/** L'état de départ : tout le bien, toutes les parties, toutes les pièces, le plus récent en haut, non regroupé. */
+export const REGLAGES_DEFAUT: Reglages = {
+  periode: { sorte: 'tous' },
+  parties: [],
+  toutesLesParties: true,
+  pieces: 'toutes',
+  ordre: ORDRE_FIL_DEFAUT,
+  grouper: false,
+};
+
+/** Un réglage est-il actif ? Sert à n'offrir « tout remettre à plat » que quand il y a quelque chose à défaire. PUR. */
+export function reglagesActifs(r: Reglages): boolean {
+  return r.periode.sorte !== 'tous' || !r.toutesLesParties || r.pieces !== 'toutes'
+    || r.ordre !== ORDRE_FIL_DEFAUT || r.grouper;
+}
+
+/** L'inversion de l'ordre, écrite une fois. PUR. */
+export function ordreFilSuivant(o: OrdreFil): OrdreFil {
+  return o === 'recent' ? 'ancien' : 'recent';
+}
+
+/**
+ * LE BOUTON DIT L'ORDRE EN COURS, pas celui qu'il donnerait. PUR.
+ *
+ * ⚠️ MÊME CONVENTION QUE `libelleOrdrePieces` ET QUE L'ORDRE DE LECTURE DES MESSAGES, et c'est pour cela qu'elle
+ * est recopiée en mots et non en appel : le sujet n'est pas le même (« plus récent » parle d'un MAIL, pas d'une
+ * pièce), mais la règle de lecture doit l'être. Deux conventions opposées dans le même écran seraient pires que
+ * l'une ou l'autre.
+ */
+export function libelleOrdreFil(o: OrdreFil): string {
+  return o === 'recent' ? 'Plus récent en haut' : 'Plus ancien en haut';
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ③ LA PÉRIODE D'UN ÉVÉNEMENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Le jour civil, à PARIS. Les bornes d'un filtre se lisent comme une personne les lit, pas en UTC. PUR. */
+export function jourParis(d: Date): string {
+  /* ⚠️ `en-CA` REND DÉJÀ `AAAA-MM-JJ` : c'est la seule locale courante qui le fasse, et cela évite de recoller
+     trois morceaux à la main — recollage où l'on oublie toujours le zéro du mois. */
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: FUSEAU_AFFICHAGE, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+/** Un événement, tel que la période se lit dessus. `closLe === null` ⇒ il n'est pas clos. */
+export interface EvenementBorne {
+  ouvertLe: string | null;
+  closLe: string | null;
+}
+
+/**
+ * ══ 🔴🔴 LA PÉRIODE D'UN ÉVÉNEMENT : DE SON OUVERTURE À SA CLÔTURE, OU JUSQU'À MAINTENANT. PUR. ══════════════════
+ *
+ * DEMANDE D'ARNO : choisir un événement RÈGLE les deux dates. Un événement clos borne les deux côtés ; un
+ * événement en cours borne le début et court jusqu'à aujourd'hui.
+ *
+ * 🔴 ELLE **PROPOSE**, ELLE N'IMPOSE PAS. Les deux dates restent modifiables à la main juste après : c'est la
+ * demande d'Arno, mot pour mot, et c'est aussi ce qui évite le piège de l'événement dont la date d'ouverture est
+ * postérieure au premier mail (un sinistre déclaré huit jours après le dégât). Une période verrouillée aurait
+ * caché ces huit jours sans jamais dire qu'elle les cachait.
+ *
+ * ⚠️ UNE OUVERTURE INCONNUE RESTE `null`, ELLE NE DEVIENT PAS « AUJOURD'HUI ». Une borne basse inventée vaut une
+ * période fausse ; `null` se lit « pas de borne de ce côté », et le fil montre tout ce qui précède.
+ *
+ * ⚠️ UNE DATE ABÎMÉE EST ÉCARTÉE, PAS DEVINÉE (`jourValide`) : « 03/07/2024 » n'est pas une date ISO, et la
+ * tolérance qui la lirait quand même finirait par lire « 03/07 » comme le 7 mars.
+ */
+export function periodeDeLEvenement(
+  e: EvenementBorne, maintenant: Date,
+): { du: string | null; au: string | null } {
+  const du = jourValide((e.ouvertLe ?? '').slice(0, 10));
+  const clos = jourValide((e.closLe ?? '').slice(0, 10));
+  return { du, au: clos ?? jourParis(maintenant) };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④ LES PARTIES, EN TROIS GROUPES — PLUS « À RÉPARTIR »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LES TROIS CATÉGORIES DE PARTIE — DÉRIVÉES DE `partieCategorie.ts`, PAS RECOPIÉES.
+ *
+ * 🔴 `Exclude<Categorie, 'a_repartir'>` ET NON UNE LISTE ÉCRITE À LA MAIN : le jour où une quatrième catégorie
+ * naît là-bas, le compilateur l'amène ici (et signale le titre manquant dans `TITRES_GROUPES`). Une liste
+ * recopiée se serait contentée de l'ignorer en silence, et la nouvelle catégorie serait tombée « à répartir ».
+ */
+export type CategoriePartie = Exclude<Categorie, 'a_repartir'>;
+
+/**
+ * Les quatre groupes du tableau « PARTIES », toujours dans cet ordre.
+ *
+ * ⚠️ `a_repartir` EST UNE VALEUR DE `Categorie` LÀ-BAS, et c'est exact : « à répartir » est l'état d'une adresse
+ * qu'on n'a pas encore rangée, pas l'absence d'information. Ici il nomme donc le quatrième groupe.
+ */
+export type CleGroupeParties = Categorie;
+
+export interface GroupeParties {
+  cle: CleGroupeParties;
+  titre: string;
+  interlocuteurs: Interlocuteur[];
+  /** Combien de personnes dans ce groupe. Lisible SANS déplier — c'est tout l'intérêt du repli. */
+  nb: number;
+}
+
+const TITRES_GROUPES: Record<CleGroupeParties, string> = {
+  proprietaire: 'Propriétaire',
+  locataire: 'Locataire',
+  independant: 'Indépendant',
+  /**
+   * 🔴 « À RÉPARTIR » EST LE QUATRIÈME GROUPE, ET IL N'EST PAS UN FOURRE-TOUT HONTEUX. C'est là que tombent les
+   * assureurs, les syndics, les artisans, les voisins — tout ce que l'annuaire ne rattache ni au propriétaire ni
+   * au locataire. Les fondre dans un des trois autres aurait écrit noir sur blanc une appartenance fausse ; les
+   * cacher aurait rendu leurs mails introuvables. On les NOMME, et le nom dit qu'il reste un geste à faire.
+   */
+  a_repartir: 'À répartir',
+};
+
+/**
+ * ══ 🔴🔴 LES INTERLOCUTEURS, EN QUATRE GROUPES. PUR. ═════════════════════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO : « PARTIES en trois groupes repliables […] plus “À répartir”, chaque adresse portant ses deux
+ * compteurs. Jamais une seule liste interminable. »
+ *
+ * 🔴 POURQUOI PAS UNE LISTE. Mesuré le 04/10/2026 : le lot 155 porte 76 adresses distinctes. Une liste de 76
+ * cases à cocher, ordonnée par nombre de mails, oblige à lire les 76 pour trouver « l'assureur » — et le
+ * propriétaire du bien peut s'y trouver en 41e position parce qu'il écrit peu.
+ *
+ * ⚠️ LES QUATRE GROUPES SONT **TOUJOURS RENDUS**, même vides, et dans le même ordre. Un groupe qui apparaît et
+ * disparaît selon le bien déplace les cases d'un clic à l'autre : on coche alors « Locataire » en croyant cocher
+ * « Propriétaire ». C'est l'écran qui décide de ne pas PEINDRE un groupe vide ; la liste, elle, ne bouge pas.
+ *
+ * ⚠️ L'ORDRE À L'INTÉRIEUR D'UN GROUPE EST CELUI REÇU, jamais retrié ici : la route rend déjà les interlocuteurs
+ * du plus bavard au moins bavard, et un second tri aurait donné deux vérités sur « qui parle le plus ».
+ */
+export function grouperParCategorie(
+  interlocuteurs: readonly Interlocuteur[],
+  categories: ReadonlyMap<string, CategoriePartie>,
+): GroupeParties[] {
+  const ordre: CleGroupeParties[] = ['proprietaire', 'locataire', 'independant', 'a_repartir'];
+  const groupes = new Map<CleGroupeParties, Interlocuteur[]>(ordre.map((c) => [c, []]));
+  for (const i of interlocuteurs) {
+    /* ⚠️ LA CLÉ EST NORMALISÉE DES DEUX CÔTÉS : « Jean.PONS@… » et « jean.pons@… » sont la même personne, et une
+       comparaison sensible à la casse l'aurait rangée « à répartir » alors que l'annuaire la connaît. */
+    const cle = categories.get(i.adresse.trim().toLowerCase()) ?? 'a_repartir';
+    groupes.get(cle)?.push(i);
+  }
+  return ordre.map((cle) => {
+    const liste = groupes.get(cle) ?? [];
+    return { cle, titre: TITRES_GROUPES[cle], interlocuteurs: liste, nb: liste.length };
+  });
+}
+
+/**
+ * LES DEUX COMPTEURS D'UNE PERSONNE, dans les mots d'Arno : « a écrit : 3 · en copie : 2 ». PUR.
+ *
+ * ⚠️ LES DEUX SONT TOUJOURS ÉCRITS, MÊME À ZÉRO. « a écrit : 0 · en copie : 23 » est une information précieuse —
+ * c'est le voisin qu'on met en copie et qui n'a jamais répondu. N'afficher que les compteurs non nuls aurait
+ * laissé croire à une donnée manquante.
+ */
+export function motDeuxCompteurs(i: { aEcrit: number; enCopie: number }): string {
+  return `a écrit : ${i.aEcrit} · en copie : ${i.enCopie}`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤ 🔴🔴 LE VERROU : « EN PLACE » NE S'ÉCRIT JAMAIS SUR UN LOGEMENT VACANT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Une tranche d'occupation, telle que la fiche et la route la donnent. `jusqua === null` ⇒ encore là. */
+export interface OccupationPeriode {
+  /** Le NOM de la personne. C'est lui qu'on écrit ; jamais une clé technique. */
+  libelle: string;
+  /** `AAAA-MM-JJ`, ou `null` quand l'export ne donne pas la date d'entrée. JAMAIS devinée. */
+  depuis: string | null;
+  /** `AAAA-MM-JJ` de sortie, ou `null` quand le bail court toujours. */
+  jusqua: string | null;
+}
+
+/** « entré le 01/05/2025 », ou le constat que la date n'est pas connue. Jamais une date inventée. PUR. */
+function motEntree(depuis: string | null): string {
+  const d = formaterDateIso(depuis);
+  return d === '' ? 'date d’entrée non renseignée' : `entré le ${d}`;
+}
+
+/**
+ * ══ 🔴🔴 QUI OCCUPE CE LOGEMENT, SUR LA PÉRIODE ? ET S'IL EST VACANT, ON LE DIT. PUR. ════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 LE DÉFAUT QUE CETTE FONCTION EXISTE POUR INTERDIRE, VU DANS LA MAQUETTE DE L'ÉTUDE. L'écran annonçait
+ * « locataire en place depuis le 08/06/2025 » sur un logement **vacant depuis le 28/09/2026**. Deux mensonges
+ * dans une seule phrase :
+ *   ① « en place » — il n'y avait PERSONNE dans le logement ;
+ *   ② « 08/06/2025 » — une date DEVINÉE : la vraie entrée était le **01/05/2025**.
+ *
+ * 🔴 CE QUE ÇA COÛTE, ET POURQUOI C'EST PIRE QU'UN ÉCRAN VIDE. On écrit au locataire « en place » pour un état
+ * des lieux, une régularisation de charges, un préavis. La phrase est lue, crue, et sert à agir — alors qu'elle
+ * décrit un logement vide depuis une semaine. Un écran qui ne dirait rien aurait fait ouvrir la fiche ; celui-là
+ * fait écrire à quelqu'un qui est parti.
+ *
+ * 🔴 LA RÈGLE, SANS EXCEPTION : « EN PLACE » NE PEUT S'ÉCRIRE QUE S'IL EXISTE UNE OCCUPATION OUVERTE. Une
+ * occupation est ouverte quand elle n'a pas de sortie, ou quand sa sortie n'est pas encore passée (le jour de la
+ * sortie, il a encore les clés — même convention de borne haute INCLUSE que tout le module).
+ *
+ * ⚠️ « VACANT DEPUIS » EST LA DATE DE SORTIE DU DERNIER LOCATAIRE, TELLE QUELLE — pas le lendemain. Calculer un
+ * lendemain, c'est produire une date que la base ne porte pas ; et la seule date qu'on puisse montrer sans
+ * mentir est celle qu'on a. Elle est donc écrite avec le mot qui dit ce qu'elle est.
+ *
+ * ⚠️ AUCUNE OCCUPATION CONNUE N'EST PAS « VACANT » : c'est « on ne sait pas ». Un logement sans occupation en
+ * base peut être occupé par quelqu'un que l'export n'a jamais nommé — l'écrire vacant serait affirmer une
+ * absence qu'on n'a pas vérifiée (piège du lot 71 : l'ensemble vide n'est pas une réponse satisfaite).
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function motLocataireDeLaPeriode(
+  occupations: readonly OccupationPeriode[], maintenant: Date,
+): string {
+  if (occupations.length === 0) return 'Aucun locataire connu pour ce logement.';
+
+  const aujourdhui = jourParis(maintenant);
+  const ouverte = (o: OccupationPeriode): boolean => {
+    const fin = jourValide((o.jusqua ?? '').slice(0, 10));
+    /* ⚠️ UNE SORTIE ABÎMÉE N'OUVRE PAS LE BAIL : `jusqua` renseignée mais illisible veut dire « il y a eu une
+       sortie ». La lire comme `null` aurait écrit « en place » sur la foi d'une donnée cassée — exactement le
+       sens de l'erreur qu'on refuse. */
+    if ((o.jusqua ?? '').trim() !== '' && fin === null) return false;
+    return fin === null || fin >= aujourdhui;
+  };
+
+  const enPlace = occupations.filter(ouverte);
+  if (enPlace.length > 0) {
+    const noms = enPlace.map((o) => `${o.libelle} (${motEntree(o.depuis)})`).join(' · ');
+    return enPlace.length === 1
+      ? `Locataire en place : ${noms}`
+      : `Locataires en place : ${noms}`;
+  }
+
+  /* LE DERNIER PARTI : celui dont la sortie est la plus récente. L'égalité se tranche sur l'entrée, puis sur le
+     nom — jamais laissée au hasard du tri, qui changerait l'affichage d'un rendu à l'autre. */
+  const dernier = [...occupations].sort((a, b) => {
+    const s = (b.jusqua ?? '').localeCompare(a.jusqua ?? '');
+    if (s !== 0) return s;
+    const e = (b.depuis ?? '').localeCompare(a.depuis ?? '');
+    return e !== 0 ? e : a.libelle.localeCompare(b.libelle);
+  })[0];
+
+  const sortie = formaterDateIso(dernier.jusqua);
+  const quand = sortie === '' ? 'date de sortie non renseignée' : `depuis le ${sortie}`;
+  return `Logement vacant ${quand} · dernier locataire ${dernier.libelle}, ${motEntree(dernier.depuis)}`;
+}
+
+/**
+ * LES ANCIENS LOCATAIRES SONT **VISIBLES ET SÉLECTIONNABLES**, CHACUN AVEC SA PÉRIODE. PUR.
+ *
+ * Demande d'Arno. Ce qui se choisit, c'est une PÉRIODE : cliquer « MARTY Jean-François (du 01/05/2025 au
+ * 28/09/2026) » règle les deux dates du tableau de bord sur SON bail. C'est la question qu'on pose vraiment —
+ * « qu'est-ce qui s'est dit du temps de ce locataire ? ».
+ *
+ * ⚠️ UNE OCCUPATION SANS AUCUNE DATE RESTE PROPOSÉE, et son choix ne règle alors RIEN (`du` et `au` à `null`) :
+ * l'écarter de la liste aurait fait disparaître un locataire réel parce que l'export est incomplet.
+ */
+export function periodeDeLOccupation(o: OccupationPeriode): { du: string | null; au: string | null } {
+  return {
+    du: jourValide((o.depuis ?? '').slice(0, 10)),
+    au: jourValide((o.jusqua ?? '').slice(0, 10)),
+  };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑥ LES RÉGLAGES, RENDUS EN PARAMÈTRES POUR LA ROUTE EXISTANTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴 LES RÉGLAGES, TRADUITS EN FILTRES DE LA ROUTE. PUR. ═══════════════════════════════════════════════════════
+ *
+ * 🔴 IL RÉEMPLOIE `ecrireFiltres`, SANS LE MODIFIER D'UNE VIRGULE. La route sait déjà lire `avec`, `du`, `au`,
+ * `pieces` et `grouper` ; en écrire une seconde sérialisation aurait fait deux grammaires d'adresse pour la même
+ * question — et c'est toujours celle qu'on relit le moins qui se périme.
+ *
+ * ⚠️ `toutesLesParties` ALLUMÉ ⇒ **AUCUN** `avec`, et les cases cochées sont conservées dans `Reglages` sans être
+ * envoyées. C'est la demande d'Arno : l'interrupteur IGNORE le choix des parties, il ne l'efface pas.
+ *
+ * ⚠️ L'ORDRE N'EST **PAS** UN PARAMÈTRE DE ROUTE, ET C'EST EXACT : la route rend toujours le plus récent d'abord.
+ * L'inversion se fait à l'écran, sur la page reçue. Lui inventer un `ordre=` aurait promis à l'adresse un tri que
+ * le serveur ne sait pas faire — un paramètre ignoré en silence est pire qu'un paramètre absent.
+ */
+export function reglagesEnFiltres(r: Reglages, page = 0, taille = PAGE_HISTORIQUE): FiltresHistorique {
+  const bornes = r.periode.sorte === 'tous' ? { du: null, au: null } : { du: r.periode.du, au: r.periode.au };
+  return {
+    ...FILTRES_VIDES,
+    interlocuteurs: r.toutesLesParties
+      ? []
+      : [...new Set(r.parties.map((a) => a.trim().toLowerCase()).filter((a) => a !== ''))],
+    du: jourValide(bornes.du),
+    au: jourValide(bornes.au),
+    pieces: r.pieces,
+    /**
+     * 🔴 `grouper` RESTE **FAUX**, TOUJOURS, ET CE N'EST PAS UN OUBLI. Le `grouper=1` de la route regroupe par
+     * CIBLE (l'historique d'un propriétaire, séparé par logement) ; le réglage « Regrouper par conversation »
+     * regroupe par ÉCHANGE, à l'écran. Les relier aurait donné un regroupement qui ne regroupe rien sur un bien,
+     * ET transformé le `DISTINCT ON (message_id)` de la requête en `DISTINCT` — un mail arrivant par deux axes
+     * aurait alors été listé deux fois. Voir l'encadré de `Reglages.grouper`.
+     */
+    grouper: false,
+    page,
+    taille,
+  };
+}
+
+/** La chaîne de requête, prête à coller après `?cible=lot-…`. Vide quand rien n'est filtré. PUR. */
+export function reglagesEnParametres(r: Reglages, page = 0, taille = PAGE_HISTORIQUE): string {
+  return ecrireFiltres(reglagesEnFiltres(r, page, taille));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑦ LE FIL, ET LE RÉSUMÉ DES PIÈCES
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LE FIL, DANS L'ORDRE DEMANDÉ. PUR.
+ *
+ * 🔴 TRI À LA SECONDE, ET L'ÉGALITÉ TRANCHÉE PAR L'IDENTIFIANT — exactement comme `piecesDeLaConversation`, et
+ * pour la même raison : deux mails horodatés à la même seconde (un envoi automatique en rafale) donneraient
+ * sinon un ordre qui change d'un affichage à l'autre, et l'on croirait la liste instable.
+ *
+ * ⚠️ UNE DATE ILLISIBLE SE COMPORTE COMME LA PLUS ANCIENNE, jamais comme « maintenant » : un mail dont
+ * l'horodatage est abîmé ne doit pas s'imposer en tête du fil.
+ */
+export function trierFil(lignes: readonly LigneHistorique[], ordre: OrdreFil): LigneHistorique[] {
+  const sens = ordre === 'recent' ? -1 : 1;
+  return [...lignes]
+    .map((l) => ({ l, t: Date.parse(l.recuLe) }))
+    .sort((a, b) => {
+      const ta = Number.isNaN(a.t) ? -Infinity : a.t;
+      const tb = Number.isNaN(b.t) ? -Infinity : b.t;
+      if (ta !== tb) return (ta - tb) * sens;
+      return (a.l.messageId - b.l.messageId) * sens;
+    })
+    .map((x) => x.l);
+}
+
+/** Un échange du fil regroupé : son identifiant, son objet le plus récent, et ses mails dans l'ordre demandé. */
+export interface ConversationDuFil {
+  filId: number;
+  /**
+   * L'objet du PREMIER mail du groupe DANS L'ORDRE AFFICHÉ — c'est sous ce nom qu'on reconnaît l'échange.
+   *
+   * ⚠️ IL PEUT DONC CHANGER QUAND ON INVERSE L'ORDRE, et c'est exact : en « plus récent en haut » on lit l'objet
+   * du dernier état de l'échange, en « plus ancien en haut » celui qui l'a ouvert. Figer l'un des deux aurait
+   * obligé à retrier à l'intérieur du groupe — donc à décider de l'ordre à un second endroit.
+   */
+  objet: string | null;
+  lignes: LigneHistorique[];
+}
+
+/**
+ * ══ 🔴 LE FIL, REGROUPÉ PAR CONVERSATION. PUR. ═══════════════════════════════════════════════════════════════════
+ *
+ * Demande d'Arno : « Regrouper par conversation », décoché par défaut.
+ *
+ * ⚠️ L'ORDRE DES GROUPES SUIT L'ORDRE DEMANDÉ, APPLIQUÉ AU PREMIER MAIL DE CHACUN — jamais l'ordre alphabétique
+ * ni l'identifiant d'échange. En « plus récent en haut », l'échange qui a bougé en dernier est en haut : c'est
+ * « où en est-on ? », la question qu'on pose en regroupant. À l'intérieur d'un groupe, l'ordre reçu est conservé.
+ *
+ * ⚠️ ELLE NE RETRIE RIEN : elle reçoit un fil DÉJÀ classé par `trierFil` et ne fait que le découper. Un second
+ * tri ici aurait donné deux endroits où l'ordre se décide, et le bouton d'inversion aurait pu cesser d'agir sur
+ * les groupes sans que rien ne le dise.
+ */
+export function grouperParConversation(lignes: readonly LigneHistorique[]): ConversationDuFil[] {
+  const out: ConversationDuFil[] = [];
+  const index = new Map<number, number>();
+  for (const l of lignes) {
+    const place = index.get(l.filId);
+    if (place === undefined) {
+      index.set(l.filId, out.push({ filId: l.filId, objet: l.objet, lignes: [l] }) - 1);
+      continue;
+    }
+    out[place].lignes.push(l);
+  }
+  return out;
+}
+
+/**
+ * ══ 🔴 LES LIGNES DU FIL, RENDUES LISIBLES PAR `piecesDeLaConversation`. PUR. ════════════════════════════════════
+ *
+ * 🔴 UNE ADAPTATION, PAS UN SECOND TRI. Le classement « par date et par expéditeur » des pièces vit UNE fois,
+ * dans `piecesConversation.ts` (`piecesDeLaConversation`, `dedoublonnerPieces`, `grouperParMessage`), et c'est
+ * lui qui alimente déjà le récapitulatif d'une conversation. Cette fonction ne fait que présenter les lignes
+ * d'historique sous la forme que ce module attend — et c'est précisément ce qui garantit que le résumé du bloc
+ * « Historique » range les pièces exactement comme celui d'une conversation.
+ *
+ * ⚠️ `empreinte` VOYAGE, ET IL FALLAIT. Sans elle, `dedoublonnerPieces` identifie un fichier par « nom + taille »
+ * et marque le rapprochement comme une PRÉSOMPTION. `PieceHistorique.empreinte` est facultative (réponse d'API
+ * antérieure au lot) : `?? null` est donc la valeur que le repli attend, pas un oubli.
+ */
+export function messagesDuFil(lignes: readonly LigneHistorique[]): MessagePorteur[] {
+  return lignes.map((l) => ({
+    messageId: l.messageId,
+    recuLe: l.recuLe,
+    sens: l.sens,
+    de: l.de,
+    deNom: l.deNom,
+    objet: l.objet,
+    pieces: l.pieces.map((p) => ({
+      pieceId: p.pieceId,
+      nomFichier: p.nomFichier,
+      typeMime: p.typeMime,
+      tailleOctets: p.tailleOctets,
+      disponible: p.disponible,
+      motifNonStocke: p.motifNonStocke,
+      empreinte: p.empreinte ?? null,
+    })),
+  }));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑧ CE QUE L'ÉCRAN DIT QUAND IL N'Y A RIEN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴 « AUCUN RÉSULTAT » DOIT ACCUSER LES RÉGLAGES, JAMAIS LE BIEN. PUR. ════════════════════════════════════════
+ *
+ * Un fil vide se lit spontanément « on n'a jamais rien écrit à propos de ce logement » — et c'est faux dès qu'un
+ * réglage est actif. Le mot dit donc LEQUEL des deux on regarde, et l'écran pose à côté le bouton qui défait tout.
+ *
+ * ⚠️ LE CAS « AUCUNE PARTIE COCHÉE » EST DIT À PART, parce que son remède n'est pas le même : il ne s'agit pas
+ * d'élargir une période, mais de cocher quelqu'un (ou de relever « tous les mails du bien »).
+ */
+export function motAucunResultat(r: Reglages): string {
+  if (!r.toutesLesParties && r.parties.length === 0) {
+    return 'Aucune personne n’est cochée : le fil est vide parce que le filtre ne désigne personne. '
+      + 'Cochez une partie, ou relevez « Tous les mails du bien pendant la période ».';
+  }
+  if (!reglagesActifs(r)) return 'Aucun mail rattaché à ce bien.';
+  return 'Aucun mail ne correspond à ces réglages — ce sont les réglages qui cachent, pas le bien.';
+}

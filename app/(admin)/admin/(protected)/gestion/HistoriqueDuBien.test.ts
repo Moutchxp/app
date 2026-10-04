@@ -1,0 +1,552 @@
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { HistoriqueDuBien } from './HistoriqueDuBien';
+import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
+import type { Interlocuteur, LigneHistorique, PieceHistorique } from '../../../../lib/gestion/historique';
+
+/**
+ * LOT HISTORIQUE-BIEN-1 — LE BLOC EST RENDU, ET IL DIT TOUT CE QU'ARNO A DEMANDÉ.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 CE QUE CE FICHIER PROTÈGE, ET QUE `historiqueBien.test.ts` NE PEUT PAS PROTÉGER. Le module pur dit quelle
+ * période, quels groupes et quels mots ; il ne dit pas que le tableau de bord ARRIVE À L'ÉCRAN, que les deux
+ * compteurs sont écrits sous chaque nom, que le résumé du haut est replié et celui du bas ouvert — ni, surtout,
+ * que `LigneVie` et `CartePieceConversation` sont bien **IMPORTÉS** et non recopiés (section ⑥).
+ *
+ * ⚠️ CE QU'IL NE PEUT PAS PROUVER : la mise en page (jsdom ne calcule aucune hauteur), ni le rendu réel des
+ * vignettes (aucune requête d'image n'aboutit ici). Ce qui est vérifié, c'est la PRÉSENCE et la STRUCTURE.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const MAINTENANT = new Date('2026-10-04T08:00:00Z');
+
+const piece = (o: Partial<PieceHistorique> = {}): PieceHistorique => ({
+  pieceId: 1, nomFichier: 'bail.pdf', typeMime: 'application/pdf', tailleOctets: 120_000,
+  disponible: true, motifNonStocke: null, empreinte: `sha-${o.pieceId ?? 1}`, ...o,
+});
+
+const ligne = (o: Partial<LigneHistorique> = {}): LigneHistorique => ({
+  messageId: 1, filId: 10, messageIdRfc: null, recuLe: '2026-02-01T09:00:00Z', sens: 'recu',
+  de: 'proprio@fictif.test', deNom: 'M. ROI Nathan', destinataires: [], objet: 'Quittance de février',
+  extrait: 'Bonjour, voici la quittance.', pieces: [],
+  parCible: { sorte: 'lot', cle: '155', id: null }, cibleLibelle: 'Lot 155', source: 'rattachement',
+  evenements: [], statut: null, statutDetail: null, ...o,
+});
+
+const inter = (o: Partial<Interlocuteur> = {}): Interlocuteur => ({
+  adresse: 'qui@fictif.test', nom: null, nbMails: 1, aEcrit: 1, enCopie: 0, interne: false, ...o,
+});
+
+const LIGNES: LigneHistorique[] = [
+  ligne({
+    messageId: 1, filId: 10, recuLe: '2026-02-01T09:00:00Z', objet: 'Quittance de février',
+    pieces: [piece({ pieceId: 11, nomFichier: 'quittance-fevrier.pdf' })],
+  }),
+  ligne({
+    messageId: 2, filId: 20, recuLe: '2026-03-15T09:00:00Z', objet: 'Dégât des eaux',
+    de: 'assureur@fictif.test', deNom: 'AXA', pieces: [piece({ pieceId: 22, nomFichier: 'constat.pdf' })],
+  }),
+];
+
+const INTERLOCUTEURS: Interlocuteur[] = [
+  inter({ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', nbMails: 40, aEcrit: 3, enCopie: 2 }),
+  inter({ adresse: 'locataire@fictif.test', nom: 'MARTY Jean-François', nbMails: 20, aEcrit: 20, enCopie: 0 }),
+  inter({ adresse: 'assureur@fictif.test', nom: 'AXA', nbMails: 9, aEcrit: 5, enCopie: 4 }),
+];
+
+const CATEGORIES = new Map<string, CategoriePartie>([
+  ['proprio@fictif.test', 'proprietaire'],
+  ['locataire@fictif.test', 'locataire'],
+]);
+
+/** Le logement est VACANT depuis le 28/09/2026 — les dates du défaut de la maquette (voir le module pur). */
+const OCCUPATIONS: OccupationPeriode[] = [
+  { libelle: 'MARTY Jean-François', depuis: '2025-05-01', jusqua: '2026-09-28' },
+  { libelle: 'ANCIEN Paul', depuis: '2020-01-01', jusqua: '2024-06-30' },
+];
+
+const EVENEMENTS = [
+  {
+    id: 7, reference: 'EV-2026-007', objet: 'Dégât des eaux', etat: 'en_cours', ouvert: true,
+    ouvertLe: '2026-02-03T07:15:00Z', closLe: null, nbMails: 6,
+  },
+  {
+    id: 4, reference: 'EV-2025-004', objet: 'Chaudière', etat: 'traite', ouvert: false,
+    ouvertLe: '2025-11-02T07:15:00Z', closLe: '2025-12-20T10:00:00Z', nbMails: 3,
+  },
+];
+
+let hote: HTMLDivElement;
+let racine: Root;
+/** Les adresses appelées, dans l'ordre : c'est ce qui prouve « une seule requête » pour le statut Drive. */
+let appels: string[] = [];
+
+function reponse(corps: unknown): Response {
+  return { ok: true, json: async () => corps } as unknown as Response;
+}
+
+beforeEach(() => {
+  appels = [];
+  hote = document.createElement('div');
+  document.body.appendChild(hote);
+  racine = createRoot(hote);
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    appels.push(String(url));
+    if (String(url).includes('/historique/evenements')) {
+      return reponse({ etat: 'ok', evenements: EVENEMENTS, tronque: false });
+    }
+    if (String(url).includes('/pieces-drive')) {
+      return reponse({ etat: 'ok', depots: [], emplacements: [] });
+    }
+    return reponse({
+      etat: 'ok',
+      data: {
+        lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+        interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+      },
+    });
+  }));
+  // jsdom ne sait pas ouvrir d'onglet : on le remplace, sinon chaque clic sur l'œil crie « not implemented ».
+  vi.stubGlobal('open', vi.fn());
+});
+
+afterEach(() => {
+  act(() => racine.unmount());
+  hote.remove();
+  vi.unstubAllGlobals();
+});
+
+async function monter(props: Partial<Parameters<typeof HistoriqueDuBien>[0]> = {}): Promise<void> {
+  await act(async () => {
+    racine.render(createElement(HistoriqueDuBien, {
+      lotCle: '155', maintenant: MAINTENANT, occupations: OCCUPATIONS, categories: CATEGORIES, ...props,
+    }));
+  });
+}
+
+const texte = (): string => hote.textContent ?? '';
+const boutons = (): HTMLButtonElement[] => [...hote.querySelectorAll('button')];
+const parMot = (mot: string): HTMLButtonElement | undefined =>
+  boutons().find((b) => (b.textContent ?? '').includes(mot));
+async function cliquer(el: Element | undefined): Promise<void> {
+  await act(async () => { (el as HTMLElement).click(); });
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ① LE HAUT DU BLOC : L'ÉVÉNEMENT EN COURS, ET QUI OCCUPE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('① le haut du bloc', () => {
+  it('🔴 le titre de l’ÉVÉNEMENT EN COURS est écrit (demande d’Arno)', async () => {
+    await monter();
+    expect(texte()).toContain('Événement en cours');
+    expect(texte()).toContain('EV-2026-007 — Dégât des eaux');
+  });
+
+  /** 🔴🔴 LE VERROU, VU À L'ÉCRAN : la phrase vient du module pur, et elle ne peut pas dire « en place ». */
+  it('🔴🔴 sur un logement vacant, l’écran NE dit PAS « en place »', async () => {
+    await monter();
+    expect(texte()).toContain('Logement vacant depuis le 28/09/2026');
+    expect(texte()).toContain('entré le 01/05/2025');
+    expect(texte()).not.toContain('en place depuis');
+  });
+
+  /** 🔴 PAS DE BANDEAU DE NAVIGATION : Arno n'en veut pas. */
+  it('🔴 aucun bandeau « 1 · En-tête … 8 · Historique »', async () => {
+    await monter();
+    expect(texte()).not.toContain('vous êtes ici');
+    expect(texte()).not.toMatch(/\d\s·\sEn-tête/);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ② LA PÉRIODE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('② la période', () => {
+  it('🔴 « Tous les échanges » est le départ, et les deux dates ne s’affichent qu’au besoin', async () => {
+    await monter();
+    expect(parMot('Tous les échanges')?.getAttribute('aria-pressed')).toBe('true');
+    expect(hote.querySelectorAll('input[type="date"]')).toHaveLength(0);
+    await cliquer(parMot('Entre deux dates'));
+    expect(hote.querySelectorAll('input[type="date"]')).toHaveLength(2);
+  });
+
+  it('🔴 un événement, EN COURS ou CLOS, et son état est écrit en MOTS', async () => {
+    await monter();
+    expect(texte()).toContain('EV-2025-004');
+    expect(texte()).toContain('clos');
+    expect(texte()).toContain('en cours');
+  });
+
+  it('🔴🔴 choisir un événement RÈGLE les deux dates — et elles restent modifiables', async () => {
+    await monter();
+    await cliquer(parMot('EV-2025-004'));
+    const dates = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
+    expect(dates.map((d) => d.value)).toEqual(['2025-11-02', '2025-12-20']);
+    // ⚠️ MODIFIABLES : ce sont des champs ouverts, pas un affichage figé.
+    expect(dates.every((d) => !d.disabled && !d.readOnly)).toBe(true);
+  });
+
+  it('🔴 un événement EN COURS court jusqu’à aujourd’hui', async () => {
+    await monter();
+    await cliquer(parMot('EV-2026-007'));
+    const dates = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
+    expect(dates.map((d) => d.value)).toEqual(['2026-02-03', '2026-10-04']);
+  });
+
+  /** 🔴 LES ANCIENS LOCATAIRES SONT VISIBLES **ET SÉLECTIONNABLES**, CHACUN AVEC SA PÉRIODE (demande d'Arno). */
+  it('🔴🔴 les anciens locataires sont là, avec leur période, et leur clic règle les dates', async () => {
+    await monter();
+    expect(texte()).toContain('ANCIEN Paul');
+    expect(texte()).toContain('du 01/01/2020 au 30/06/2024');
+    await cliquer(parMot('ANCIEN Paul'));
+    const dates = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
+    expect(dates.map((d) => d.value)).toEqual(['2020-01-01', '2024-06-30']);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ③ LES PARTIES, EN GROUPES, AVEC LEURS DEUX COMPTEURS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('③ les parties', () => {
+  it('🔴 les groupes non vides sont nommés, avec leur compte — et « À répartir » existe', async () => {
+    await monter();
+    expect(texte()).toContain('Propriétaire');
+    expect(texte()).toContain('Locataire');
+    expect(texte()).toContain('À répartir');
+  });
+
+  /** 🔴🔴 LES DEUX COMPTEURS SONT ÉCRITS SOUS CHAQUE NOM, jamais dans une infobulle seule. */
+  it('🔴🔴 chaque adresse porte « a écrit : N · en copie : N », en toutes lettres', async () => {
+    await monter();
+    expect(texte()).toContain('a écrit : 3 · en copie : 2');
+    expect(texte()).toContain('a écrit : 20 · en copie : 0');
+    // ⚠️ AUCUNE INFOBULLE NE PORTE SEULE CETTE INFORMATION : elle est dans le texte du document.
+    expect(hote.querySelector('.hdb-compteurs')?.textContent).toContain('a écrit');
+  });
+
+  it('🔴 « Tous les mails du bien pendant la période » est COCHÉ au départ, et ignore les parties', async () => {
+    await monter();
+    const cases = [...hote.querySelectorAll('.hdb-case input')] as HTMLInputElement[];
+    expect(cases[0].checked).toBe(true);
+  });
+
+  /** 🔴 COCHER UNE PERSONNE NE DÉMONTE PAS LA CASE : le focus reste là où il était. */
+  it('🔴🔴 cocher une personne garde le focus sur la case cochée', async () => {
+    await monter();
+    const personnes = [...hote.querySelectorAll('.hdb-personnes input')] as HTMLInputElement[];
+    expect(personnes.length).toBeGreaterThan(0);
+    const premiere = personnes[0];
+    premiere.focus();
+    await cliquer(premiere);
+    // La MÊME case est toujours dans le document, cochée, et porte encore le focus.
+    expect(premiere.isConnected).toBe(true);
+    expect(premiere.checked).toBe(true);
+    expect(document.activeElement).toBe(premiere);
+  });
+
+  it('🔴 « Tout le groupe » coche tout le groupe, puis le décoche', async () => {
+    await monter();
+    const tout = parMot('Tout le groupe');
+    await cliquer(tout);
+    expect((parMot('Décocher le groupe')?.getAttribute('aria-pressed'))).toBe('true');
+    await cliquer(parMot('Décocher le groupe'));
+    expect(parMot('Tout le groupe')).toBeDefined();
+  });
+
+  /**
+   * 🔴 LE REPLI : un groupe de plus de six personnes s'ouvre REPLIÉ, et son compte se lit SANS clic.
+   * ⚠️ On monte ici un groupe « À répartir » de sept personnes — le cas réel du lot 155 (76 adresses).
+   */
+  it('🔴🔴 un groupe au-delà de six personnes s’ouvre REPLIÉ, compte lisible sans clic', async () => {
+    const sept = Array.from({ length: 7 }, (_, i) => inter({ adresse: `x${i}@fictif.test`, nbMails: 7 - i }));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: sept, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter({ categories: new Map() });
+    const replier = hote.querySelector('.hdb-replier') as HTMLButtonElement;
+    expect(replier.getAttribute('aria-expanded')).toBe('false');
+    // LE COMPTE EST LÀ, REPLIÉ : c'est tout l'intérêt du repli.
+    expect(replier.textContent).toContain('7');
+    expect(hote.querySelectorAll('.hdb-personnes input')).toHaveLength(0);
+    await cliquer(replier);
+    expect(hote.querySelectorAll('.hdb-personnes input')).toHaveLength(7);
+  });
+
+  it('🔴 un groupe de six ou moins s’ouvre DÉPLIÉ, et se referme quand même', async () => {
+    await monter();
+    const replier = hote.querySelector('.hdb-replier') as HTMLButtonElement;
+    expect(replier.getAttribute('aria-expanded')).toBe('true');
+    await cliquer(replier);
+    expect(replier.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④ LES OPTIONS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('④ les options', () => {
+  it('🔴 les trois filtres de pièces sont offerts, et « Toutes » est le départ', async () => {
+    await monter();
+    expect(parMot('Toutes')?.getAttribute('aria-pressed')).toBe('true');
+    await cliquer(parMot('Avec pièces jointes'));
+    expect(appels.some((a) => a.includes('pieces=avec'))).toBe(true);
+    await cliquer(parMot('Sans pièce jointe'));
+    expect(appels.some((a) => a.includes('pieces=sans'))).toBe(true);
+  });
+
+  it('🔴 le plus récent en haut est le DÉFAUT, et un bouton inverse', async () => {
+    await monter();
+    expect(parMot('Plus récent en haut')).toBeDefined();
+    await cliquer(parMot('Plus récent en haut'));
+    expect(parMot('Plus ancien en haut')).toBeDefined();
+  });
+
+  it('🔴 l’inversion change VRAIMENT l’ordre des mails à l’écran', async () => {
+    await monter();
+    const avant = [...hote.querySelectorAll('.hdb-ancre')].map((n) => n.id);
+    expect(avant).toEqual(['hdb-mail-2', 'hdb-mail-1']);
+    await cliquer(parMot('Plus récent en haut'));
+    expect([...hote.querySelectorAll('.hdb-ancre')].map((n) => n.id))
+      .toEqual(['hdb-mail-1', 'hdb-mail-2']);
+  });
+
+  it('🔴 « Regrouper par conversation » est DÉCOCHÉ par défaut, et regroupe quand on le coche', async () => {
+    await monter();
+    const grouper = [...hote.querySelectorAll('.hdb-case input')].at(-1) as HTMLInputElement;
+    expect(grouper.checked).toBe(false);
+    expect(hote.querySelectorAll('.hdb-conv')).toHaveLength(0);
+    await cliquer(grouper);
+    // Deux échanges distincts (fils 10 et 20) ⇒ deux groupes.
+    expect(hote.querySelectorAll('.hdb-conv')).toHaveLength(2);
+    expect(texte()).toContain('Dégât des eaux');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤ LE FIL, LE RÉSUMÉ DES PIÈCES, ET « AUCUN RÉSULTAT »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑤ le fil et les pièces', () => {
+  it('🔴 un mail par ligne, dans la présentation de « Vie du bien »', async () => {
+    await monter();
+    // `.vdb-item` est rendu par `LigneVie` : sa présence prouve que c'est bien CE composant qui rend la ligne.
+    expect(hote.querySelectorAll('.vdb-item')).toHaveLength(2);
+    expect(texte()).toContain('Objet : Quittance de février');
+  });
+
+  /** 🔴 LE RÉSUMÉ DU HAUT EST REPLIÉ, SON COMPTE LISIBLE SANS CLIC ; CELUI DU BAS EST OUVERT. */
+  it('🔴🔴 le résumé du HAUT est replié avec son compte, celui du BAS est ouvert', async () => {
+    await monter();
+    const haut = hote.querySelector('.hdb-resume--haut') as HTMLElement;
+    const bouton = haut.querySelector('button') as HTMLButtonElement;
+    expect(bouton.getAttribute('aria-expanded')).toBe('false');
+    // LE COMPTE SE LIT SANS CLIC.
+    expect(bouton.textContent).toContain('2 pièces');
+    expect(haut.querySelectorAll('.pdc-carte')).toHaveLength(0);
+
+    const bas = hote.querySelector('.hdb-resume--bas') as HTMLElement;
+    expect(bas.querySelectorAll('.pdc-carte')).toHaveLength(2);
+
+    await cliquer(bouton);
+    expect(haut.querySelectorAll('.pdc-carte')).toHaveLength(2);
+  });
+
+  /** 🔴 LES MINIATURES PORTENT LES TROIS GESTES D'ARNO : l'œil, le téléchargement, le picto Drive (vide ici). */
+  it('🔴 chaque miniature porte « Visualiser » et « Télécharger »', async () => {
+    await monter();
+    const bas = hote.querySelector('.hdb-resume--bas') as HTMLElement;
+    expect(bas.querySelector('[aria-label^="Visualiser"]')).not.toBeNull();
+    expect(bas.querySelector('[aria-label^="Télécharger"]')).not.toBeNull();
+    expect(texte()).toContain('quittance-fevrier.pdf');
+    expect(texte()).toContain('constat.pdf');
+  });
+
+  /** 🔴 UNE SEULE REQUÊTE DE STATUT DRIVE POUR TOUTE LA PAGE, et non une par échange. */
+  it('🔴 le statut Drive est demandé en UNE requête pour toutes les pièces de la page', async () => {
+    await monter();
+    const drive = appels.filter((a) => a.includes('/pieces-drive'));
+    expect(drive).toHaveLength(1);
+    expect(drive[0]).toContain('pieces=11,22');
+  });
+
+  /**
+   * ⚠️ INVERSER L'ORDRE NE REDEMANDE PAS LE STATUT DRIVE. L'adresse ne dépend que de l'ENSEMBLE des pièces : si
+   * elle suivait l'ordre d'affichage, chaque inversion relancerait une requête pour la MÊME réponse.
+   */
+  it('⚠️ inverser l’ordre du fil ne relance pas la requête de statut Drive', async () => {
+    await monter();
+    expect(appels.filter((a) => a.includes('/pieces-drive'))).toHaveLength(1);
+    await cliquer(parMot('Plus récent en haut'));
+    expect(appels.filter((a) => a.includes('/pieces-drive'))).toHaveLength(1);
+  });
+
+  it('🔴 « aucun résultat » accuse les réglages, et un bouton remet tout à plat', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      return reponse({
+        etat: 'ok',
+        data: { lignes: [], suite: false, entete: { nbMails: 0 }, interlocuteurs: [], interlocuteursTronques: false },
+      });
+    }));
+    await monter();
+    await cliquer(parMot('Avec pièces jointes'));
+    expect(texte()).toContain('ce sont les réglages qui cachent');
+    const remettre = parMot('Tout remettre à plat');
+    expect(remettre).toBeDefined();
+    await cliquer(remettre);
+    expect(parMot('Toutes')?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('⚠️ une réponse en échec le DIT, elle ne rend pas un historique vide', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'erreur', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      return reponse({ etat: 'erreur' });
+    }));
+    await monter();
+    expect(texte()).toContain('n’a pas pu être lu');
+    expect(texte()).toContain('Les événements de ce bien n’ont pas pu être lus');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑥ 🔴🔴 LE GARDE : LES DEUX COMPOSANTS SONT **IMPORTÉS**, PAS RECOPIÉS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+const SRC = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBien.tsx', 'utf8');
+const ANNUAIRE = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+
+/**
+ * LE CODE SEUL, SANS COMMENTAIRE NI LITTÉRAL CSS. Un nom de classe cité dans un encadré ne prouve rien, et le
+ * littéral `CSS_HISTORIQUE_DU_BIEN` contient par construction les styles des composants réutilisés.
+ */
+function codeSeul(src: string): string {
+  const sansCss = src.split('export const CSS_HISTORIQUE_DU_BIEN')[0];
+  return sansCss.replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n').filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//')).join('\n');
+}
+
+describe('⑥ 🔴🔴 les composants existants sont réutilisés, jamais redessinés', () => {
+  it('🔴🔴 `LigneVie` est IMPORTÉE de « Vie du bien »', () => {
+    expect(SRC).toMatch(/import \{[^}]*LigneVie[^}]*\} from '\.\/VieDuBien'/);
+    expect(codeSeul(SRC)).toContain('<LigneVie');
+  });
+
+  it('🔴🔴 `CartePieceConversation` est IMPORTÉE du récapitulatif des pièces', () => {
+    expect(SRC).toMatch(/import \{[^}]*CartePieceConversation[^}]*\} from '\.\/PiecesDeLaConversation'/);
+    expect(codeSeul(SRC)).toContain('<CartePieceConversation');
+  });
+
+  /**
+   * 🔴🔴 AUCUNE BALISE DES DEUX COMPOSANTS N'EST DUPLIQUÉE ICI. Si l'une de ces classes apparaissait dans le code
+   * de ce fichier, c'est qu'on aurait redessiné la ligne ou la carte au lieu de l'appeler — exactement ce
+   * qu'Arno interdit, et exactement ce que ce dépôt a déjà payé plusieurs fois.
+   *
+   * ⚠️ `vdb-liste`, `vdb-pages` ET `pdc-groupe*` / `pdc-grille` NE SONT PAS DANS CETTE LISTE, et c'est voulu : ce
+   * sont les CONTENEURS que les deux écrans partagent (la liste, la pagination, le groupe de pièces sous sa
+   * date), pas le rendu de la ligne ni celui de la carte.
+   */
+  it('🔴🔴 ni la ligne ni la carte ne sont redessinées (aucune de leurs balises ici)', () => {
+    const code = codeSeul(SRC);
+    for (const classe of [
+      'vdb-item', 'vdb-rangee', 'vdb-ligne', 'vdb-triangle', 'vdb-capsule', 'vdb-objet', 'vdb-extrait',
+      'vdb-trombone', 'vdb-detail', 'vdb-qui', 'vdb-quand',
+      'pdc-carte', 'pdc-apercu', 'pdc-vignette', 'pdc-actions', 'pdc-action', 'pdc-pied-carte', 'pdc-aussi',
+    ]) {
+      expect(code, `la classe ${classe} ne doit pas être redessinée ici`).not.toContain(classe);
+    }
+  });
+
+  /**
+   * 🔴🔴 LE SEUIL DE REPLI N'EST PAS RECOPIÉ DANS L'ÉCRAN : ni le chiffre, ni la comparaison. C'est
+   * `replierLesCartes` (de `partieCategorie.ts`, réexporté par le module pur) qui décide — écrire `> 6` ici
+   * aurait fait un second juge pour la même borne, et c'est sur les bornes qu'on se trompe.
+   */
+  it('🔴🔴 ni le seuil de repli ni sa comparaison ne sont écrits dans l’écran', () => {
+    const code = codeSeul(SRC);
+    expect(code).toContain('replierLesCartes(g.nb)');
+    expect(code).not.toMatch(/[<>]=?\s*6\b/);
+    expect(code).not.toContain('SEUIL_REPLI_CARTES');
+  });
+
+  /** 🔴 LE TRI DES PIÈCES VIENT DU MODULE EXISTANT : aucun `sort` de pièces n'est écrit ici. */
+  it('🔴 le tri et le dédoublonnage des pièces viennent de `piecesConversation`', () => {
+    expect(SRC).toMatch(/from '\.\.\/\.\.\/\.\.\/\.\.\/lib\/gestion\/piecesConversation'/);
+    expect(codeSeul(SRC)).toContain('piecesDeLaConversation(');
+    expect(codeSeul(SRC)).toContain('dedoublonnerPieces(');
+    expect(codeSeul(SRC)).toContain('grouperParMessage(');
+  });
+
+  /** 🔴 AUCUNE COULEUR INVENTÉE : le CSS n'emploie que des jetons `--color-svv-*`. */
+  it('🔴 aucune couleur en dur, et rien sur `:root`', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    /* ⚠️ ON NE REGARDE QUE LES RÈGLES PROPRES À CE BLOC (après la dernière interpolation de CSS importé) : les
+       styles empruntés sont éprouvés chez eux, et les relire ici ferait un second juge pour le même code. */
+    const propre = css.split('.hdb{')[1] ?? '';
+    expect(propre).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(propre).not.toMatch(/\brgba?\(/);
+    expect(propre).not.toContain(':root');
+    expect(propre).toContain('--color-svv-');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑦ 🔴🔴 LE MONTAGE : EN DERNIER, ET LE HAUT DE LA FICHE N'A PAS BOUGÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑦ 🔴🔴 le montage dans la fiche d’un bien', () => {
+  it('🔴🔴 le bloc est monté APRÈS le lien « Tout l’historique des échanges »', () => {
+    const lien = ANNUAIRE.indexOf('<BoutonHistorique cible={{ sorte: \'lot\'');
+    const bloc = ANNUAIRE.indexOf('<HistoriqueDuBien');
+    expect(lien).toBeGreaterThan(0);
+    expect(bloc).toBeGreaterThan(lien);
+  });
+
+  /**
+   * 🔴🔴 LE HAUT DE LA FICHE NE BOUGE PAS. On vérifie que les six blocs d'avant sont TOUJOURS LÀ, dans le MÊME
+   * ordre, et AVANT le nouveau. C'est la condition qu'Arno a posée, et la seule que le code puisse porter.
+   */
+  it('🔴🔴 les blocs d’avant sont tous là, dans le même ordre, et avant le nouveau', () => {
+    const places = [
+      '<header className="ann-tete">',
+      '<CartoucheEvenement nb={f.evenementsOuverts}',
+      'id="ann-prop"',
+      'id="ann-occ"',
+      'id="ann-histo-loc"',
+      '<VieDuBien key={filtreVie}',
+      '<BoutonHistorique cible={{ sorte: \'lot\'',
+      '<HistoriqueDuBien',
+    ].map((m) => ANNUAIRE.indexOf(m));
+    expect(places.every((p) => p > 0)).toBe(true);
+    expect([...places].sort((a, b) => a - b)).toEqual(places);
+  });
+
+  it('🔴 le CSS du bloc est injecté comme les autres', () => {
+    expect(ANNUAIRE).toContain('<style>{CSS_HISTORIQUE_DU_BIEN}</style>');
+    expect(ANNUAIRE).toContain('<style>{CSS_VIE_DU_BIEN}</style>');
+  });
+
+  /** 🔴 LES OCCUPATIONS PASSENT PAR LA FICHE : la route ne les rend pas pour une cible `lot-…`. */
+  it('🔴 les occupations et les catégories sont fournies par la fiche', () => {
+    expect(ANNUAIRE).toContain('occupations={occupationsPourHistorique(f)}');
+    expect(ANNUAIRE).toContain('categories={categoriesDesParties(f)}');
+    expect(ANNUAIRE).toContain('f.occupations.map((o) => ({ libelle: o.nom, depuis: o.entree, jusqua: o.sortie }))');
+  });
+});

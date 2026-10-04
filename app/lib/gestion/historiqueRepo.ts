@@ -705,17 +705,26 @@ async function piecesDesMessages(ids: readonly number[]): Promise<Map<number, Pi
   if (ids.length === 0) return m;
   const { rows } = await query<{
     message_id: string; id: string; nom_fichier: string; type_mime: string | null; taille_octets: string | null;
-    cle_stockage: string | null; motif_non_stocke: string | null;
+    cle_stockage: string | null; motif_non_stocke: string | null; empreinte: string | null;
   }>(
+    /**
+     * 🔴 LOT HISTORIQUE-BIEN-1 — `empreinte_sha256` VOYAGE AVEC LA PIÈCE. Le résumé en miniatures du bloc
+     * « Historique » dédoublonne par `dedoublonnerPieces`, qui identifie un fichier par son CONTENU. Sans cette
+     * colonne, il retombait sur « nom + taille » pour TOUTES les pièces — donc deux documents différents de même
+     * nom et de même taille fondus en un seul, et une pièce qui disparaît sans se voir (voir `PieceHistorique`).
+     *
+     * ⚠️ AUCUNE MIGRATION : la colonne existe depuis le lot de capture, et elle est renseignée pour toutes les
+     * pièces qui ont des octets. Les autres rendent `null`, ce qui est la valeur que le repli attend.
+     */
     `SELECT message_id, id, ${await sqlNomAffiche('gestion_piece')} AS nom_fichier,
-            type_mime, taille_octets::text, cle_stockage, motif_non_stocke
+            type_mime, taille_octets::text, cle_stockage, motif_non_stocke, empreinte_sha256 AS empreinte
        FROM gestion_piece WHERE message_id = ANY($1::bigint[]) ORDER BY message_id, id`, [ids]);
   for (const r of rows) {
     const cle = Number(r.message_id);
     m.set(cle, [...(m.get(cle) ?? []), {
       pieceId: Number(r.id), nomFichier: r.nom_fichier, typeMime: r.type_mime,
       tailleOctets: r.taille_octets === null ? null : Number(r.taille_octets),
-      disponible: r.cle_stockage !== null, motifNonStocke: r.motif_non_stocke,
+      disponible: r.cle_stockage !== null, motifNonStocke: r.motif_non_stocke, empreinte: r.empreinte,
     }]);
   }
   return m;
@@ -776,19 +785,56 @@ export async function interlocuteursHistorique(
   const cond = conditions({ ...f, interlocuteurs: [] }, decalage(c));
   const pLimite = base.length + 1 + cond.params.length;
 
-  const { rows } = await query<{ adresse: string; interne: boolean; n: string; nom: string | null }>(
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — LES DEUX COMPTEURS, DANS **LA MÊME** REQUÊTE ════════════════════════════════
+   *
+   * DEMANDE D'ARNO : chaque adresse du tableau « PARTIES » dit « a écrit : 3 · en copie : 2 ». Et la règle du
+   * module, non négociable : **une seule requête pour toute la liste**, jamais une par adresse — 76 adresses
+   * (lot 155, mesuré) auraient fait 76 allers-retours pour un panneau qui s'ouvre d'un clic.
+   *
+   * 🔴 D'OÙ LE PALIER `par_mail` : UN MAIL NE PEUT COMPTER QU'UNE FOIS PAR ADRESSE. La table porte une ligne par
+   * (message, adresse, rôle) : une adresse à la fois expéditeur et destinataire d'un même mail y a DEUX lignes,
+   * et deux `count(DISTINCT …)` séparés l'auraient comptée dans les deux colonnes. MESURÉ LE 04/10/2026 :
+   * **248 couples (adresse, message)** portent les deux rôles, sur **61 adresses**. On réduit donc d'abord à un
+   * couple (adresse, message) avec deux booléens, puis on compte ces couples — et `NOT p.a_ecrit` fait gagner la
+   * présence la plus forte, comme Arno l'a demandé.
+   *
+   * ⚠️ `count(*)` SUR `par_mail` EST **EXACTEMENT** L'ANCIEN `count(DISTINCT a.message_id)`, puisque `par_mail`
+   * tient un seul enregistrement par (adresse, interne, message). Le total, l'ordre et le plafond ne changent
+   * donc pas d'une ligne — seules deux colonnes s'ajoutent.
+   *
+   * ⚠️ LE NOM EST CALCULÉ DANS SON PROPRE PALIER, ET IL FALLAIT. `mode()` rend la valeur la PLUS FRÉQUENTE : la
+   * calculer au-dessus de `par_mail` aurait pris le mode d'un mode (un nom par mail, puis le nom le plus fréquent
+   * de ces modes), c'est-à-dire une autre statistique. `noms` lit la même population qu'avant ce lot, avec la
+   * même expression au caractère près : le nom affiché est inchangé.
+   */
+  const { rows } = await query<{
+    adresse: string; interne: boolean; n: string; n_ecrit: string; n_copie: string; nom: string | null;
+  }>(
     `WITH ${cte},
-     mails AS (SELECT m.id FROM choisis ch JOIN gestion_message m ON m.id = ch.message_id WHERE true${cond.sql})
-     SELECT a.adresse, a.interne, count(DISTINCT a.message_id)::text AS n,
-            -- Le nom d'affichage le plus fréquent pour cette adresse. La colonne adresse_brute porte « Nom <adr> » :
-            -- on en retire la partie entre chevrons, et ce qui reste est le nom (vide quand il n'y en avait pas).
-            mode() WITHIN GROUP (
-              ORDER BY nullif(btrim(regexp_replace(coalesce(a.adresse_brute, ''), '<[^>]*>', '', 'g')), '')
-            ) AS nom
-       FROM gestion_message_adresse a
-       JOIN mails ON mails.id = a.message_id
-      GROUP BY a.adresse, a.interne
-      ORDER BY count(DISTINCT a.message_id) DESC, a.adresse
+     mails AS (SELECT m.id FROM choisis ch JOIN gestion_message m ON m.id = ch.message_id WHERE true${cond.sql}),
+     adr AS (SELECT a.adresse, a.interne, a.message_id, a.adresse_brute, a.role
+               FROM gestion_message_adresse a JOIN mails ON mails.id = a.message_id),
+     par_mail AS (
+       SELECT adresse, interne, message_id,
+              bool_or(role = 'expediteur') AS a_ecrit,
+              bool_or(role IN ('destinataire', 'copie')) AS en_copie
+         FROM adr GROUP BY adresse, interne, message_id),
+     -- Le nom d'affichage le plus fréquent pour cette adresse. La colonne adresse_brute porte « Nom <adr> » :
+     -- on en retire la partie entre chevrons, et ce qui reste est le nom (vide quand il n'y en avait pas).
+     noms AS (
+       SELECT adresse, interne,
+              mode() WITHIN GROUP (
+                ORDER BY nullif(btrim(regexp_replace(coalesce(adresse_brute, ''), '<[^>]*>', '', 'g')), '')
+              ) AS nom
+         FROM adr GROUP BY adresse, interne)
+     SELECT p.adresse, p.interne, count(*)::text AS n,
+            count(*) FILTER (WHERE p.a_ecrit)::text AS n_ecrit,
+            count(*) FILTER (WHERE p.en_copie AND NOT p.a_ecrit)::text AS n_copie,
+            n.nom
+       FROM par_mail p JOIN noms n ON n.adresse = p.adresse AND n.interne = p.interne
+      GROUP BY p.adresse, p.interne, n.nom
+      ORDER BY count(*) DESC, p.adresse
       LIMIT $${pLimite}`,
     [...base, ...cond.params, INTERLOCUTEURS_MAX + 1]);
 
@@ -797,6 +843,7 @@ export async function interlocuteursHistorique(
     tronque,
     liste: rows.slice(0, INTERLOCUTEURS_MAX).map((r) => ({
       adresse: r.adresse, nom: r.nom, nbMails: Number(r.n), interne: r.interne,
+      aEcrit: Number(r.n_ecrit), enCopie: Number(r.n_copie),
     })),
   };
 }

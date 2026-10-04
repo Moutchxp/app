@@ -5,11 +5,20 @@ import {
   analyserTerme, formaterDateIso, messageRechercheVide, periodeOccupation, titreLogement,
 } from '../../../../lib/gestion/annuaireRecherche';
 import type {
-  BienDuProprietaire, FicheLocataire, FicheLot, FicheProprietaire,
+  BienDuProprietaire, ContactAffiche, FicheLocataire, FicheLot, FicheProprietaire,
   LogementDuLocataire, OccupationDuLot, PersonneTrouvee, RolePersonne,
 } from '../../../../lib/gestion/annuaireRepo';
 // LOT FICHES-ANNUAIRE étape B — « la vie du bien » : tous ses mails, dans l'idiome de la boîte.
 import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
+/**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-1 — « L'HISTORIQUE DU BIEN », AJOUTÉ **EN DERNIER** DANS LA FICHE D'UN LOGEMENT.
+ *
+ * ⚠️ RIEN N'EST RETIRÉ, MASQUÉ, DÉPLACÉ NI RESTYLÉ AU-DESSUS : l'en-tête, les cartes PROPRIÉTAIRE / LOCATAIRE EN
+ * PLACE / HISTORIQUE DES LOCATAIRES, le bloc « Vie du bien » et le lien « Tout l'historique des échanges → »
+ * restent exactement ce qu'ils étaient. Ce bloc s'ajoute APRÈS ce lien, en bas de la fiche.
+ */
+import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien } from './HistoriqueDuBien';
+import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
 // 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
 import { DocumentsAutomatiques } from './DocumentsAutomatiques';
 // 🔴🔴 LOT CONTACTS-EXTERNES — les échanges de cette personne passés par un intermédiaire. Liste DISTINCTE.
@@ -364,6 +373,10 @@ export function Annuaire({
       <style>{CSS_ANNUAIRE}</style>
       <style>{CSS_VIE_DU_BIEN}</style>
       <style>{CSS_CARTES}</style>
+      {/* 🔴🔴 LOT HISTORIQUE-BIEN-1 — monté comme les autres, à la suite. Il emporte ses dépendances de style
+          (miniatures de pièces, picto Drive) : un style qu'un autre bloc monterait « plus haut dans la page »
+          serait une dépendance invisible, qui tomberait le jour où ce bloc-là quitte la fiche. */}
+      <style>{CSS_HISTORIQUE_DU_BIEN}</style>
 
       {/* ══ 🔴🔴 LOT FICHES-ANNUAIRE — LE HAUT DE LA FICHE : UN RETOUR, ET LA RECHERCHE ════════════════════════
           Arno, sur la fiche de M. ROI Nathan : « elle est nulle, il faut totalement la restructurer ». La fiche
@@ -1310,8 +1323,78 @@ function VueLot({
       <p className="ann-discret">
         <BoutonHistorique cible={{ sorte: 'lot', cle: f.numero, id: null }} onHistorique={onHistorique} />
       </p>
+
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — « L'HISTORIQUE DU BIEN », EN DERNIER ═══════════════════════════════════
+          Demande d'Arno (04/10/2026) : un bloc qui répond à la question d'APRÈS « tous les mails de ce bien » —
+          « pendant TELLE période, entre TELLES personnes, qu'est-ce qui s'est dit et quelles pièces ont
+          circulé ? ». Il est AJOUTÉ : rien au-dessus n'est touché.
+
+          🔴 LES OCCUPATIONS VIENNENT DE LA FICHE, ET IL FALLAIT. La route `/historique` ne renseigne
+          `occupations` que pour une cible `locataire-…` (`etendreCible`) ; pour un `lot-…` elle rend un tableau
+          VIDE. La fiche les a déjà TOUTES, passées comprises — c'est ce qui rend les anciens locataires
+          sélectionnables avec leur période, comme demandé. */}
+      <HistoriqueDuBien
+        lotCle={f.numero}
+        maintenant={maintenant}
+        occupations={occupationsPourHistorique(f)}
+        categories={categoriesDesParties(f)}
+        onOuvrirFil={onOuvrirFil} />
     </>
   );
+}
+
+/**
+ * ══ 🔴 LES OCCUPATIONS DE LA FICHE, DANS LA FORME DU MODULE PUR ═══════════════════════════════════════════════
+ *
+ * ⚠️ ON LES PREND **TOUTES**, en cours ET passées : c'est ce qui permet au tableau de bord d'offrir la période
+ * d'un ancien locataire, et c'est aussi ce qui permet à `motLocataireDeLaPeriode` de dire « logement vacant
+ * depuis le … · dernier locataire … » plutôt que d'inventer un occupant.
+ *
+ * ⚠️ `nom` DEVIENT `libelle`, `entree`/`sortie` DEVIENNENT `depuis`/`jusqua` : le module pur parle de TRANCHES,
+ * avec le vocabulaire que la route emploie déjà pour un locataire (`CibleEtendue.occupations`). Une seule forme
+ * pour les deux provenances — sans quoi la fonction aurait eu deux lectures à tenir.
+ */
+function occupationsPourHistorique(f: FicheLot): OccupationPeriode[] {
+  return f.occupations.map((o) => ({ libelle: o.nom, depuis: o.entree, jusqua: o.sortie }));
+}
+
+/**
+ * ══ 🔴 À QUELLE CATÉGORIE APPARTIENT CHAQUE ADRESSE DE CETTE FICHE ════════════════════════════════════════════
+ *
+ * Les propriétaires du bien donnent le groupe « Propriétaire » ; les occupants et les anciens occupants donnent
+ * « Locataire ». Tout le reste — assureur, syndic, artisan, voisin — tombe dans « À répartir », ce que l'écran
+ * DIT en toutes lettres.
+ *
+ * 🔴 CE QUE CETTE FONCTION NE REND **PAS**, ET OÙ LE RESTE EST LU. Elle ne connaît que les deux catégories que la
+ * fiche PORTE : la table `gestion_message_adresse` a une colonne `partie` limitée à `proprietaire | locataire`.
+ * La troisième — « Indépendant » — ne vit que dans `gestion_partie_categorie` (migration 304), et le bloc la lit
+ * lui-même par `/api/admin/gestion/historique/parties`, puis FUSIONNE les deux lectures.
+ *
+ * ⚠️ DANS CETTE FUSION, CE QUE REND CETTE FONCTION L'EMPORTE, et c'est voulu : un propriétaire ou un occupant de
+ * CETTE fiche est un CLIENT, et aucun rangement de parties — fût-il « vérifié » — ne doit le faire basculer dans
+ * un autre groupe. Un client n'est jamais un contact (règle d'Arno) ; la fiche est l'autorité sur les siens.
+ * Deviner « indépendant » depuis un nom de domaine, en revanche, aurait rangé des gens dans une catégorie fausse,
+ * ce qui est pire que de les laisser « à répartir » : « à répartir » dit qu'il reste un geste à faire.
+ *
+ * ⚠️ LES CLÉS SONT EN MINUSCULES : la table des adresses porte la forme canonique, et une comparaison sensible à
+ * la casse aurait rangé « Jean.PONS@… » « à répartir » alors que l'annuaire le connaît.
+ */
+function categoriesDesParties(f: FicheLot): ReadonlyMap<string, CategoriePartie> {
+  const m = new Map<string, CategoriePartie>();
+  const poser = (contacts: readonly ContactAffiche[], c: CategoriePartie): void => {
+    for (const x of contacts) {
+      if (x.sorte !== 'email') continue;
+      const a = x.valeur.trim().toLowerCase();
+      /* ⚠️ LE PREMIER POSÉ GAGNE : une adresse partagée (un couple propriétaire-occupant) ne doit pas changer de
+         groupe selon l'ordre de lecture. Les propriétaires sont posés d'abord, exprès. */
+      if (a !== '' && !m.has(a)) m.set(a, c);
+    }
+  };
+  for (const p of f.proprietaires) poser(p.contacts, 'proprietaire');
+  poser(f.proprietaireContacts, 'proprietaire');
+  for (const p of f.occupants) poser(p.contacts, 'locataire');
+  for (const o of f.occupations) poser(o.contacts, 'locataire');
+  return m;
 }
 
 /**

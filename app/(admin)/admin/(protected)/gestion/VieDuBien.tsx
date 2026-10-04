@@ -180,7 +180,21 @@ export function VieDuBien({ lotCle, maintenant, onOuvrirFil, filtreInitial = 'to
  * Le triangle est invisible au clavier (`tabIndex=-1`, `aria-hidden`) : l'action vit déjà sur la ligne, qui porte
  * `aria-expanded`. Deux arrêts de tabulation pour un seul geste, et un lecteur d'écran annoncerait deux boutons.
  */
-function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil }: {
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — EXPORTÉE, ET POUR UNE SEULE RAISON ═══════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (04/10/2026) : « LE FIL : même présentation que les mails de “Vie du bien” (“reçu de…” / “nous
+ * avons écrit…”, badge de statut, objet, aperçu, trombone, date). **RÉUTILISE ce composant, ne le recopie pas.** »
+ *
+ * 🔴 LA RECOPIE ÉTAIT LE PIÈGE. Deux rendus d'une même ligne de courrier divergent au premier ajustement — et
+ * c'est le second qu'on oublie. Ce dépôt l'a déjà payé plusieurs fois (deux listes de domaines, deux règles de
+ * repli, trois listes de types d'images). Le nouveau bloc « Historique » rend donc EXACTEMENT cette ligne-ci.
+ *
+ * ⚠️ AUCUN CONTENU N'A CHANGÉ ICI : ni le rendu, ni les classes, ni les props, ni une virgule du corps. Seul le
+ * mot-clé `export` a été ajouté — même geste que `CHOIX_SUIVI` au lot BROUILLONS-APERCU-TYPES-LIBELLES, et pour
+ * la même raison. « Vie du bien » continue de l'appeler sans savoir qu'un autre écran l'appelle aussi.
+ */
+export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
 }) {

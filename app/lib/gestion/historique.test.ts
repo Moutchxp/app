@@ -168,12 +168,17 @@ describe('le regroupement par cible', () => {
   });
 
   it('un interlocuteur sans nom est désigné par son adresse', () => {
-    expect(libelleInterlocuteur({ adresse: 'a@fictif.fr', nom: null, nbMails: 3, interne: false }))
-      .toBe('a@fictif.fr');
-    expect(libelleInterlocuteur({ adresse: 'a@fictif.fr', nom: '  Jean PONS ', nbMails: 3, interne: false }))
-      .toBe('Jean PONS');
-    expect(libelleInterlocuteur({ adresse: 'a@fictif.fr', nom: '   ', nbMails: 3, interne: false }))
-      .toBe('a@fictif.fr');
+    /* ⚠️ LOT HISTORIQUE-BIEN-1 — `aEcrit` et `enCopie` sont AJOUTÉS aux trois littéraux, rien d'autre ne change :
+       `libelleInterlocuteur` ne les lit pas, et c'est le compilateur qui a exigé de les nommer. */
+    expect(libelleInterlocuteur({
+      adresse: 'a@fictif.fr', nom: null, nbMails: 3, aEcrit: 2, enCopie: 1, interne: false,
+    })).toBe('a@fictif.fr');
+    expect(libelleInterlocuteur({
+      adresse: 'a@fictif.fr', nom: '  Jean PONS ', nbMails: 3, aEcrit: 2, enCopie: 1, interne: false,
+    })).toBe('Jean PONS');
+    expect(libelleInterlocuteur({
+      adresse: 'a@fictif.fr', nom: '   ', nbMails: 3, aEcrit: 2, enCopie: 1, interne: false,
+    })).toBe('a@fictif.fr');
   });
 });
 
