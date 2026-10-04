@@ -25,7 +25,7 @@ import {
 import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
 import { lienDocumentEntier } from '../../../../lib/gestion/pieces';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
-import { formaterDateIso, periodeOccupation } from '../../../../lib/gestion/annuaireRecherche';
+import { formaterDateIso } from '../../../../lib/gestion/annuaireRecherche';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { libelleInterlocuteur, PAGE_HISTORIQUE, type Interlocuteur, type LigneHistorique } from '../../../../lib/gestion/historique';
 import {
@@ -38,9 +38,10 @@ import {
  * place », qui est précisément celle qu'une maquette a fait mentir (voir `motLocataireDeLaPeriode`).
  */
 import {
-  grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAucunResultat,
-  motDeuxCompteurs, motLocataireDeLaPeriode, ordreFilSuivant, periodeDeLEvenement, periodeDeLOccupation,
-  reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres, replierLesCartes, trierFil,
+  bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAucunResultat,
+  motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant, periodeDeLEvenement,
+  periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres, replierLesCartes,
+  SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, trierFil,
   type CategoriePartie, type CleGroupeParties, type OccupationPeriode, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
 import type { EvenementDuBien } from '../../../../lib/gestion/historiqueBienRepo';
@@ -397,6 +398,16 @@ export function HistoriqueDuBien({
     () => grouperParCategorie(interlocuteurs, categoriesFusionnees),
     [interlocuteurs, categoriesFusionnees]);
 
+  /**
+   * ══ 🔴 « DEPUIS L'ENTRÉE DU DERNIER LOCATAIRE » — CALCULÉE UNE FOIS ═══════════════════════════════════════════
+   *
+   * `null` quand le logement n'a aucun locataire connu : c'est CE `null` qui grise le bouton et qui écrit son
+   * motif. La règle — qui est « le dernier », et quelles bornes son bail donne — vit dans le module pur, parce
+   * que c'est exactement le verdict qui a déjà été fait mentir une fois par une maquette.
+   */
+  const periodeLocataire = useMemo(
+    () => periodeDuDernierLocataire(occupations, maintenant), [occupations, maintenant]);
+
   const evenementOuvert = evenements.find((e) => e.ouvert) ?? null;
 
   /** Cocher ou décocher une personne. Les cases restent montées : le focus ne quitte pas celle qu'on vient de cliquer. */
@@ -482,99 +493,147 @@ export function HistoriqueDuBien({
       {/* ══ LE TABLEAU DE BORD ══ Rendu HORS du commutateur d'état : cocher une case ne démonte jamais la case,
           donc le focus et la position de défilement ne bougent pas. */}
       <div className="hdb-bord">
-        {/* ── PÉRIODE ─────────────────────────────────────────────────────────────────────────────────────────── */}
-        <fieldset className="hdb-pave">
+        {/* ══ 🔴🔴 BLOC 1 — « PÉRIODE », HORIZONTAL ET PLEINE LARGEUR (lot HISTORIQUE-BIEN-2) ═══════════════════
+            DEMANDE D'ARNO (04/10/2026) : « Arno n'aime pas la mise en page actuelle en colonne : refonte
+            complète en blocs horizontaux empilés. » Le pavé occupe donc toute la largeur, et son contenu
+            s'étale : les quatre choix à gauche, la période effective à droite.
+
+            🔴 QUATRE CHOIX EXCLUSIFS EN BOUTONS SEGMENTÉS, et l'exclusivité est tenue par le TYPE
+            (`ChoixPeriode`, une union discriminée), pas par la discipline de l'écran. */}
+        <fieldset className="hdb-pave hdb-pave--bande">
           <legend className="hdb-legende">Période</legend>
-          <div className="hdb-boutons">
-            <button type="button" className={`hdb-choix${reglages.periode.sorte === 'tous' ? ' hdb-choix--actif' : ''}`}
-              aria-pressed={reglages.periode.sorte === 'tous'}
-              onClick={() => setReglages((r) => ({ ...r, periode: { sorte: 'tous' } }))}>
-              Tous les échanges
-            </button>
-            <button type="button" className={`hdb-choix${reglages.periode.sorte === 'dates' ? ' hdb-choix--actif' : ''}`}
-              aria-pressed={reglages.periode.sorte === 'dates'}
-              onClick={() => setReglages((r) => ({
-                ...r,
-                periode: {
-                  sorte: 'dates',
-                  du: r.periode.sorte === 'tous' ? null : r.periode.du,
-                  au: r.periode.sorte === 'tous' ? null : r.periode.au,
-                },
-              }))}>
-              Entre deux dates
-            </button>
+
+          <div className="hdb-bande">
+            <div className="hdb-segments" role="group" aria-label="Choisir la période">
+              <button type="button" aria-pressed={reglages.periode.sorte === 'tous'}
+                className={`hdb-seg${reglages.periode.sorte === 'tous' ? ' hdb-seg--actif' : ''}`}
+                onClick={() => setReglages((r) => ({ ...r, periode: { sorte: 'tous' } }))}>
+                Tous les échanges
+              </button>
+
+              {/* ══ 🔴🔴 « DEPUIS L'ENTRÉE DU DERNIER LOCATAIRE » ═══════════════════════════════════════════
+                  Arno : « début = sa date d'entrée, fin = sa sortie ou aujourd'hui ; si le bien n'a jamais eu
+                  de locataire, bouton grisé avec une info-bulle explicative ».
+
+                  🔴 `disabled` ET `title`, PAS UNE COULEUR : un bouton pâle ne dit pas POURQUOI il est pâle.
+                  Le motif vient du module pur (`SANS_LOCATAIRE_CONNU`) et il est aussi écrit SOUS la bande,
+                  parce qu'une infobulle n'existe pas sur un téléphone — règle tenue partout dans ce bloc. */}
+              <button type="button" aria-pressed={reglages.periode.sorte === 'occupation'}
+                disabled={periodeLocataire === null}
+                title={periodeLocataire === null ? SANS_LOCATAIRE_CONNU : undefined}
+                className={`hdb-seg${reglages.periode.sorte === 'occupation' ? ' hdb-seg--actif' : ''}`}
+                onClick={() => setReglages((r) => (periodeLocataire === null ? r : {
+                  ...r, periode: { sorte: 'occupation', du: periodeLocataire.du, au: periodeLocataire.au },
+                }))}>
+                Depuis l’entrée du dernier locataire
+              </button>
+
+              {/* ⚠️ « UN ÉVÉNEMENT » EST UN BOUTON **ET** UNE LISTE : le bouton dit le choix, la liste dit
+                  lequel. Il est grisé quand le bien n'a aucun événement — même règle que ci-dessus. */}
+              <button type="button" aria-pressed={reglages.periode.sorte === 'evenement'}
+                disabled={evenements.length === 0}
+                title={evenements.length === 0 ? SANS_EVENEMENT : undefined}
+                className={`hdb-seg${reglages.periode.sorte === 'evenement' ? ' hdb-seg--actif' : ''}`}
+                onClick={() => setReglages((r) => {
+                  const e = evenements[0];
+                  if (e === undefined) return r;
+                  const b = periodeDeLEvenement(e, maintenant);
+                  return { ...r, periode: { sorte: 'evenement', evenementId: e.id, du: b.du, au: b.au } };
+                })}>
+                Un événement
+              </button>
+
+              <button type="button" aria-pressed={reglages.periode.sorte === 'dates'}
+                className={`hdb-seg${reglages.periode.sorte === 'dates' ? ' hdb-seg--actif' : ''}`}
+                onClick={() => setReglages((r) => ({
+                  ...r, periode: { sorte: 'dates', ...bornesDuChoix(r.periode) },
+                }))}>
+                Dates personnalisées
+              </button>
+            </div>
+
+            {/* ══ 🔴🔴 LA PÉRIODE EFFECTIVE, TOUJOURS ÉCRITE, À DROITE ═══════════════════════════════════════
+                Arno : « La période effective est toujours affichée en clair à droite (“du 01/05/2025 au
+                04/10/2026”). » C'est la seule chose qui rende visible qu'un événement a réglé deux dates — et
+                la seule qui montre qu'on a ensuite modifié une borne à la main. La phrase vient du module pur,
+                et elle lit les MÊMES bornes que celles envoyées au serveur (`bornesDuChoix`). */}
+            <p className="hdb-effective" role="status">
+              <span className="hdb-effective-mot">Période retenue</span>
+              <strong className="hdb-effective-valeur">{motPeriodeEffective(reglages.periode)}</strong>
+            </p>
           </div>
 
-          {/* ⚠️ LES DEUX DATES SONT TOUJOURS MODIFIABLES, même après le choix d'un événement : c'est la demande
-              d'Arno — l'événement PROPOSE une période, il ne l'impose pas. */}
+          {/* ── LA LISTE DÉROULANTE DES ÉVÉNEMENTS — EN COURS ET CLOS ────────────────────────────────────── */}
+          {reglages.periode.sorte === 'evenement' && evenements.length > 0 && (
+            <label className="hdb-select-ligne">
+              <span className="svv-label">L’événement</span>
+              {/* ⚠️ UN VRAI `select` : sur un bien chargé, la liste des événements est longue, et une rangée de
+                  boutons poussait le fil hors de l'écran — c'est ce qu'Arno a demandé de changer. Le natif
+                  apporte en outre la recherche au clavier et le bon comportement sur téléphone. */}
+              <select className="ann-champ hdb-select"
+                value={reglages.periode.sorte === 'evenement' ? String(reglages.periode.evenementId) : ''}
+                onChange={(ev) => setReglages((r) => {
+                  const e = evenements.find((x) => String(x.id) === ev.target.value);
+                  if (e === undefined) return r;
+                  const b = periodeDeLEvenement(e, maintenant);
+                  return { ...r, periode: { sorte: 'evenement', evenementId: e.id, du: b.du, au: b.au } };
+                })}>
+                {evenements.map((e) => (
+                  /* LE MOT DIT L'ÉTAT, pas seulement la place dans la liste : « en cours » / « clos ». */
+                  <option key={e.id} value={String(e.id)}>
+                    {e.reference} — {nettoyerObjet(e.objet) || '(sans objet)'}
+                    {' · '}{e.ouvert ? 'en cours' : 'clos'} · {e.nbMails} mail{e.nbMails > 1 ? 's' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {/* ── LES DEUX DATES ───────────────────────────────────────────────────────────────────────────────
+              ⚠️ ELLES APPARAISSENT DÈS QU'UNE PÉRIODE EST CHOISIE, et pas seulement sur « Dates
+              personnalisées » : c'est la règle posée au lot précédent et qu'Arno n'a pas défaite —
+              « l'événement PROPOSE une période, il ne l'impose pas ». Toucher une borne bascule sur
+              « Dates personnalisées », ce qui est la vérité : ce n'est plus la période de l'événement. */}
           {reglages.periode.sorte !== 'tous' && (
             <div className="hdb-dates">
               <label className="hdb-date">
                 <span className="svv-label">Du</span>
                 <input type="date" className="ann-champ hdb-champ-date"
-                  value={reglages.periode.du ?? ''}
-                  onChange={(e) => setReglages((r) => (r.periode.sorte === 'tous' ? r : {
-                    ...r, periode: { ...r.periode, du: e.target.value === '' ? null : e.target.value },
+                  value={bornesDuChoix(reglages.periode).du ?? ''}
+                  onChange={(e) => setReglages((r) => ({
+                    ...r,
+                    periode: {
+                      sorte: 'dates',
+                      du: e.target.value === '' ? null : e.target.value,
+                      au: bornesDuChoix(r.periode).au,
+                    },
                   }))} />
               </label>
               <label className="hdb-date">
                 <span className="svv-label">Au</span>
                 <input type="date" className="ann-champ hdb-champ-date"
-                  value={reglages.periode.au ?? ''}
-                  onChange={(e) => setReglages((r) => (r.periode.sorte === 'tous' ? r : {
-                    ...r, periode: { ...r.periode, au: e.target.value === '' ? null : e.target.value },
+                  value={bornesDuChoix(reglages.periode).au ?? ''}
+                  onChange={(e) => setReglages((r) => ({
+                    ...r,
+                    periode: {
+                      sorte: 'dates',
+                      du: bornesDuChoix(r.periode).du,
+                      au: e.target.value === '' ? null : e.target.value,
+                    },
                   }))} />
               </label>
             </div>
           )}
 
-          {/* ── UN ÉVÉNEMENT, EN COURS OU CLOS — LE CHOISIR RÈGLE LES DATES ──────────────────────────────────── */}
-          {evenements.length > 0 && (
-            <div className="hdb-evts" role="group" aria-label="Choisir un événement comme période">
-              {evenements.map((e) => {
-                const actif = reglages.periode.sorte === 'evenement' && reglages.periode.evenementId === e.id;
-                return (
-                  <button key={e.id} type="button" aria-pressed={actif}
-                    className={`hdb-choix hdb-choix--evt${actif ? ' hdb-choix--actif' : ''}`}
-                    onClick={() => setReglages((r) => {
-                      const p = periodeDeLEvenement(e, maintenant);
-                      return { ...r, periode: { sorte: 'evenement', evenementId: e.id, du: p.du, au: p.au } };
-                    })}>
-                    <span className="hdb-evt-ref">{e.reference}</span>
-                    <span className="hdb-evt-objet">{nettoyerObjet(e.objet) || '(sans objet)'}</span>
-                    {/* LE MOT DIT L'ÉTAT, pas seulement la couleur : « en cours » / « clos », en toutes lettres. */}
-                    <span className="hdb-evt-etat">{e.ouvert ? 'en cours' : 'clos'} · {e.nbMails} mail{e.nbMails > 1 ? 's' : ''}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          {/* LES DEUX MOTIFS DE GRISAGE, ÉCRITS — une information portée par une seule infobulle n'existe pas. */}
+          {periodeLocataire === null && <p className="gst-note hdb-note">{SANS_LOCATAIRE_CONNU}</p>}
           {evenementsIllisibles && (
             <p className="gst-note hdb-note" role="status">
               Les événements de ce bien n’ont pas pu être lus — les deux dates restent utilisables.
             </p>
           )}
-
-          {/* ── LES LOCATAIRES, CHACUN AVEC SA PÉRIODE (anciens COMPRIS) ────────────────────────────────────── */}
-          {occupations.length > 0 && (
-            <div className="hdb-occs" role="group" aria-label="Choisir la période d’un locataire">
-              {occupations.map((o) => {
-                const p = periodeDeLOccupation(o);
-                const actif = reglages.periode.sorte !== 'tous'
-                  && reglages.periode.du === p.du && reglages.periode.au === p.au
-                  && (p.du !== null || p.au !== null);
-                return (
-                  <button key={`${o.libelle}|${o.depuis ?? ''}|${o.jusqua ?? ''}`} type="button" aria-pressed={actif}
-                    className={`hdb-choix hdb-choix--occ${actif ? ' hdb-choix--actif' : ''}`}
-                    onClick={() => setReglages((r) => ({ ...r, periode: { sorte: 'dates', du: p.du, au: p.au } }))}>
-                    <span className="hdb-occ-nom">{o.libelle}</span>
-                    {/* ⚠️ LA PÉRIODE EST ÉCRITE PAR `periodeOccupation`, la fonction que les trois fiches emploient
-                        déjà : « du … au … », « depuis le … », ou « dates inconnues » — jamais une date devinée. */}
-                    <span className="hdb-occ-periode">{periodeOccupation(o.depuis, o.jusqua)}</span>
-                  </button>
-                );
-              })}
-            </div>
+          {!evenementsIllisibles && evenements.length === 0 && (
+            <p className="gst-note hdb-note">{SANS_EVENEMENT}</p>
           )}
         </fieldset>
 
@@ -946,8 +1005,33 @@ ${CSS_PIECES}
 .hdb-evt-date{font-size:.76rem;color:var(--color-svv-muted)}
 .hdb-occupant{margin:0 0 .6rem;font-size:.85rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 
-/* ── LE TABLEAU DE BORD ── auto-fit : trois paves cote a cote sur un ecran large, UN seul a 390 px. */
-.hdb-bord{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));margin-bottom:.7rem}
+/* ══ LE TABLEAU DE BORD — DES BANDES HORIZONTALES EMPILEES (lot HISTORIQUE-BIEN-2) ═══════════════════════════
+   DEMANDE D'ARNO : « Arno n'aime pas la mise en page actuelle en colonne : refonte complete en blocs
+   horizontaux empiles. » Les trois paves ne se partagent donc plus la largeur en colonnes etroites : chacun la
+   prend toute, et c'est SON CONTENU qui s'etale. Sur un telephone, chaque bande se replie d'elle-meme. */
+.hdb-bord{display:flex;flex-direction:column;gap:8px;margin-bottom:.7rem;min-width:0}
+.hdb-pave--bande{width:100%}
+/* La bande : les choix a gauche, la periode retenue a droite ; elle passe dessous quand la largeur manque. */
+.hdb-bande{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;min-width:0}
+.hdb-segments{display:flex;flex-wrap:wrap;gap:.35rem;min-width:0;flex:1 1 20rem}
+/* LES BOUTONS SEGMENTES — 44 px de cible, l'etat dit par l'aspect ET par aria-pressed. */
+.hdb-seg{min-height:44px;padding:.35rem .8rem;border-radius:.5rem;border:1px solid var(--color-svv-line-strong);
+  font:inherit;font-size:.8rem;text-align:left;color:var(--color-svv-muted);background:var(--color-svv-surface);
+  cursor:pointer;min-width:0;max-width:100%}
+.hdb-seg:hover:not(:disabled){color:var(--color-svv-ink);border-color:var(--color-svv-line-strong-hover)}
+.hdb-seg:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.hdb-seg--actif{background:var(--color-svv-ink);border-color:var(--color-svv-ink);color:var(--color-svv-surface);
+  font-weight:700}
+/* GRISE : l'oeil le voit, et le MOTIF est ecrit sous la bande — une infobulle n'existe pas sur un telephone. */
+.hdb-seg:disabled{opacity:.5;cursor:not-allowed}
+/* LA PERIODE RETENUE — toujours ecrite, jamais devinee d'apres les champs de date. */
+.hdb-effective{display:flex;flex-direction:column;gap:0;margin:0;flex:0 1 auto;min-width:0;text-align:right}
+.hdb-effective-mot{font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--color-svv-muted)}
+.hdb-effective-valeur{font-size:.86rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* LA LISTE DEROULANTE DES EVENEMENTS — pleine largeur : les references et les objets sont longs. */
+.hdb-select-ligne{display:flex;flex-direction:column;gap:.15rem;margin-top:.45rem;min-width:0}
+.hdb-select{min-height:44px;font-size:.82rem;width:100%;min-width:0}
 .hdb-pave{min-width:0;margin:0;padding:.5rem .6rem .6rem;border:1px solid var(--color-svv-line);
   border-radius:.6rem;background:var(--color-svv-surface)}
 .hdb-legende{padding:0 .3rem;font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
@@ -965,15 +1049,12 @@ ${CSS_PIECES}
 /* L'ETAT ACTIF se dit par son ASPECT *et* par aria-pressed : une couleur seule ne dit rien a qui ne la voit pas. */
 .hdb-choix--actif{background:var(--color-svv-ink);border-color:var(--color-svv-ink);color:var(--color-svv-surface);
   font-weight:700}
-.hdb-choix--evt,.hdb-choix--occ{flex:1 1 15rem}
-.hdb-evt-ref{font-weight:700;font-size:.78rem}
-.hdb-evt-objet,.hdb-occ-nom{font-size:.78rem;overflow-wrap:anywhere}
-.hdb-occ-nom{font-weight:700}
-.hdb-evt-etat,.hdb-occ-periode{font-size:.72rem;opacity:.85}
+/* 🔴 LOT HISTORIQUE-BIEN-2 — LES REGLES DES ANCIENNES RANGEES DE BOUTONS (un bouton par evenement, un par
+   locataire) ONT ETE RETIREES AVEC ELLES : la periode se choisit maintenant par quatre boutons segmentes et une
+   liste deroulante. Plus aucun element ne rendait .hdb-choix--evt, --occ, .hdb-evts, .hdb-occs ni leurs mots. */
 .hdb-dates{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.4rem}
 .hdb-date{display:flex;flex-direction:column;gap:.15rem;min-width:0;flex:1 1 9rem}
 .hdb-champ-date{min-height:44px;font-size:.82rem;min-width:0;width:100%}
-.hdb-evts,.hdb-occs{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.4rem;min-width:0}
 .hdb-note{margin:.3rem 0 0}
 
 /* ── LES PARTIES ── */

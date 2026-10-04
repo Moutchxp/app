@@ -55,11 +55,39 @@ export { SEUIL_REPLI_CARTES, replierLesCartes };
    ② LES RÉGLAGES — CE QUE LE TABLEAU DE BORD TIENT
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** Comment la période est choisie. `evenement` garde l'identifiant, pour que l'écran sache lequel est allumé. */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — LES QUATRE CHOIX DE PÉRIODE, EXCLUSIFS PAR CONSTRUCTION ════════════════════════
+ *
+ * DEMANDE D'ARNO (04/10/2026), mot pour mot : « Choix exclusifs en boutons segmentés : “Tous les échanges” ·
+ * “Depuis l'entrée du dernier locataire” · “Un événement” · “Dates personnalisées”. »
+ *
+ * 🔴 UNE UNION DISCRIMINÉE, ET PAS QUATRE BOOLÉENS. Il n'existe AUCUN état où deux choix seraient allumés, et le
+ * compilateur refuse d'en oublier un. Quatre drapeaux côte à côte auraient permis l'état absurde — et c'est
+ * toujours celui-là qui finit à l'écran, un jour, sans qu'aucun test ne l'ait prévu.
+ *
+ * ⚠️ `occupation` ET `evenement` PORTENT LEURS BORNES, parce que le choix **propose** une période, il ne l'impose
+ * pas : les deux dates restent modifiables juste après (demande d'Arno au lot précédent, reprise telle quelle).
+ * `evenement` garde en plus l'identifiant, pour que l'écran sache lequel est allumé dans la liste déroulante.
+ */
 export type ChoixPeriode =
   | { sorte: 'tous' }
   | { sorte: 'dates'; du: string | null; au: string | null }
+  | { sorte: 'occupation'; du: string | null; au: string | null }
   | { sorte: 'evenement'; evenementId: number; du: string | null; au: string | null };
+
+/** Les bornes d'une période, telles que le tableau de bord et la route les emploient. */
+export interface BornesPeriode { du: string | null; au: string | null }
+
+/**
+ * Les bornes du choix en cours, quel qu'il soit. « Tous les échanges » n'en a aucune. PUR.
+ *
+ * 🔴 ÉCRITE UNE FOIS, LUE PAR `reglagesEnFiltres` ET PAR `motPeriodeEffective` : la phrase affichée à droite du
+ * bloc et les bornes envoyées au serveur doivent dire LA MÊME CHOSE. Deux lectures séparées auraient pu
+ * divergEr — on aurait lu « du 01/05/2025 au 04/10/2026 » sur un fil filtré autrement, et rien ne l'aurait dit.
+ */
+export function bornesDuChoix(p: ChoixPeriode): BornesPeriode {
+  return p.sorte === 'tous' ? { du: null, au: null } : { du: p.du, au: p.au };
+}
 
 /** L'ordre du fil. Le plus récent en haut par défaut : c'est le dernier état du dossier qu'on vient chercher. */
 export type OrdreFil = OrdrePieces;
@@ -340,16 +368,7 @@ export function motLocataireDeLaPeriode(
   if (occupations.length === 0) return 'Aucun locataire connu pour ce logement.';
 
   const aujourdhui = jourParis(maintenant);
-  const ouverte = (o: OccupationPeriode): boolean => {
-    const fin = jourValide((o.jusqua ?? '').slice(0, 10));
-    /* ⚠️ UNE SORTIE ABÎMÉE N'OUVRE PAS LE BAIL : `jusqua` renseignée mais illisible veut dire « il y a eu une
-       sortie ». La lire comme `null` aurait écrit « en place » sur la foi d'une donnée cassée — exactement le
-       sens de l'erreur qu'on refuse. */
-    if ((o.jusqua ?? '').trim() !== '' && fin === null) return false;
-    return fin === null || fin >= aujourdhui;
-  };
-
-  const enPlace = occupations.filter(ouverte);
+  const enPlace = occupations.filter((o) => occupationOuverte(o, aujourdhui));
   if (enPlace.length > 0) {
     const noms = enPlace.map((o) => `${o.libelle} (${motEntree(o.depuis)})`).join(' · ');
     return enPlace.length === 1
@@ -388,6 +407,119 @@ export function periodeDeLOccupation(o: OccupationPeriode): { du: string | null;
   };
 }
 
+/**
+ * ══ 🔴🔴 UN BAIL EST-IL OUVERT CE JOUR-LÀ ? PUR. ═════════════════════════════════════════════════════════════════
+ *
+ * 🔴 EXTRAITE AU LOT HISTORIQUE-BIEN-2, ET LE MOT « EXTRAITE » COMPTE : ce prédicat vivait DANS
+ * `motLocataireDeLaPeriode`. « Depuis l'entrée du dernier locataire » a besoin exactement du même verdict, et le
+ * recopier aurait fait deux juges pour « y a-t-il quelqu'un dans le logement ? » — c'est-à-dire, un jour, un
+ * bouton qui propose la période d'un locataire parti pendant que la phrase du dessus annonce qu'il est en place.
+ * Le corps n'a pas changé d'un caractère ; seul son emplacement l'a fait.
+ *
+ * ⚠️ UNE SORTIE ABÎMÉE N'OUVRE PAS LE BAIL : `jusqua` renseignée mais illisible veut dire « il y a eu une
+ * sortie ». La lire comme `null` aurait écrit « en place » sur la foi d'une donnée cassée.
+ *
+ * ⚠️ BORNE HAUTE **INCLUSE** : le jour de la sortie, il a encore les clés. Même convention que tout le module.
+ */
+export function occupationOuverte(o: OccupationPeriode, jour: string): boolean {
+  const fin = jourValide((o.jusqua ?? '').slice(0, 10));
+  if ((o.jusqua ?? '').trim() !== '' && fin === null) return false;
+  return fin === null || fin >= jour;
+}
+
+/**
+ * ══ 🔴🔴 QUI EST « LE DERNIER LOCATAIRE » ? PUR. ═════════════════════════════════════════════════════════════════
+ *
+ * Celui qui est là s'il y a quelqu'un ; sinon le dernier parti. C'est la lecture qu'une personne fait du mot, et
+ * c'est celle qu'il faut : sur un logement occupé, « le dernier locataire » désigne l'occupant, pas son
+ * prédécesseur.
+ *
+ * ⚠️ L'ÉGALITÉ EST TOUJOURS TRANCHÉE, jamais laissée au hasard du tri. Parmi les occupants en place, on prend
+ * l'entrée la plus récente ; parmi les partis, la sortie la plus récente, puis l'entrée, puis le nom. Un
+ * comparateur qui laisse des ex æquo rend un bouton qui change de période d'un affichage à l'autre.
+ *
+ * ⚠️ `null` QUAND LE LOGEMENT N'A JAMAIS EU DE LOCATAIRE CONNU, et c'est ce `null` qui grise le bouton. Rendre
+ * une période vide aurait donné un bouton cliquable qui ne filtre rien — pire qu'un bouton éteint, parce qu'on
+ * croit avoir filtré.
+ */
+export function dernierLocataire(
+  occupations: readonly OccupationPeriode[], maintenant: Date,
+): OccupationPeriode | null {
+  if (occupations.length === 0) return null;
+  const aujourdhui = jourParis(maintenant);
+  const enPlace = occupations.filter((o) => occupationOuverte(o, aujourdhui));
+  if (enPlace.length > 0) {
+    return [...enPlace].sort((a, b) => {
+      const e = (b.depuis ?? '').localeCompare(a.depuis ?? '');
+      return e !== 0 ? e : a.libelle.localeCompare(b.libelle);
+    })[0];
+  }
+  return [...occupations].sort((a, b) => {
+    const srt = (b.jusqua ?? '').localeCompare(a.jusqua ?? '');
+    if (srt !== 0) return srt;
+    const e = (b.depuis ?? '').localeCompare(a.depuis ?? '');
+    return e !== 0 ? e : a.libelle.localeCompare(b.libelle);
+  })[0];
+}
+
+/**
+ * ══ 🔴🔴 « DEPUIS L'ENTRÉE DU DERNIER LOCATAIRE » : SA PÉRIODE. PUR. ═════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO, mot pour mot : « début = sa date d'entrée, fin = sa sortie ou aujourd'hui ». C'est donc la
+ * période de SON bail, et non « depuis son entrée jusqu'à maintenant » : sur un logement vacant, le fil
+ * s'arrête à sa sortie, et ce qui s'est dit après (la remise en location) ne se mêle pas à son dossier.
+ *
+ * ⚠️ UNE ENTRÉE INCONNUE RESTE `null`, ELLE NE DEVIENT PAS UNE DATE DEVINÉE : c'est exactement l'erreur que la
+ * maquette de l'étude avait commise (« en place depuis le 08/06/2025 » pour une entrée réelle au 01/05/2025).
+ * Le fil montre alors tout ce qui précède la sortie, et la phrase de droite dit « jusqu'au … » — honnêtement.
+ *
+ * ⚠️ `null` QUAND IL N'Y A AUCUN LOCATAIRE CONNU : c'est le cas que le bouton grise, avec son explication.
+ */
+export function periodeDuDernierLocataire(
+  occupations: readonly OccupationPeriode[], maintenant: Date,
+): BornesPeriode | null {
+  const o = dernierLocataire(occupations, maintenant);
+  if (o === null) return null;
+  const p = periodeDeLOccupation(o);
+  return { du: p.du, au: p.au ?? jourParis(maintenant) };
+}
+
+/**
+ * Pourquoi « Un événement » est grisé. Dit en toutes lettres, jamais une couleur seule.
+ *
+ * ⚠️ « AUCUN ÉVÉNEMENT » N'EST PAS « ILLISIBLE », et l'écran distingue les deux : un bien sans événement est un
+ * fait ordinaire, une lecture qui a échoué est une panne. Les confondre aurait fait passer une panne pour un
+ * logement calme — piège du lot 71, l'ensemble vide n'est pas une réponse satisfaite.
+ */
+export const SANS_EVENEMENT = 'Ce bien ne porte aucun événement, ni en cours ni clos.';
+
+/** Pourquoi « Depuis l'entrée du dernier locataire » est grisé. Dit en toutes lettres, jamais une couleur seule. */
+export const SANS_LOCATAIRE_CONNU =
+  'Ce logement n’a aucun locataire connu dans l’annuaire : il n’y a pas d’entrée à partir de laquelle compter.';
+
+/**
+ * ══ 🔴🔴 LA PÉRIODE EFFECTIVE, ÉCRITE EN CLAIR. PUR. ═════════════════════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO : « La période effective est toujours affichée en clair à droite (“du 01/05/2025 au
+ * 04/10/2026”). »
+ *
+ * 🔴 « TOUJOURS », ET C'EST TOUT L'INTÉRÊT. Quatre boutons proposent des périodes qu'on ne voit pas : choisir un
+ * événement règle deux dates qu'il faut aller lire dans les champs, et choisir un locataire aussi. La phrase les
+ * rend lisibles d'un coup d'œil — et elle est la SEULE chose qui rende visible le fait qu'on a, ensuite, modifié
+ * une borne à la main.
+ *
+ * ⚠️ LES QUATRE CAS SONT DITS, Y COMPRIS LES DEMI-BORNES. Une période ouverte d'un côté est fréquente (un bail
+ * en cours, une entrée inconnue) ; écrire « du … au … » avec un trou aurait produit « du au 04/10/2026 ».
+ */
+export function motPeriodeEffective(p: ChoixPeriode): string {
+  const { du, au } = bornesDuChoix(p);
+  const d = formaterDateIso(jourValide(du));
+  const a = formaterDateIso(jourValide(au));
+  if (d === '' && a === '') return 'tous les échanges, sans borne de date';
+  if (d !== '' && a !== '') return `du ${d} au ${a}`;
+  return d !== '' ? `depuis le ${d}` : `jusqu’au ${a}`;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑥ LES RÉGLAGES, RENDUS EN PARAMÈTRES POUR LA ROUTE EXISTANTE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -407,7 +539,9 @@ export function periodeDeLOccupation(o: OccupationPeriode): { du: string | null;
  * le serveur ne sait pas faire — un paramètre ignoré en silence est pire qu'un paramètre absent.
  */
 export function reglagesEnFiltres(r: Reglages, page = 0, taille = PAGE_HISTORIQUE): FiltresHistorique {
-  const bornes = r.periode.sorte === 'tous' ? { du: null, au: null } : { du: r.periode.du, au: r.periode.au };
+  /* 🔴 LES BORNES PASSENT PAR `bornesDuChoix`, ET PAR RIEN D'AUTRE (lot HISTORIQUE-BIEN-2) : la phrase affichée
+     à droite du bloc PÉRIODE lit la même fonction. Deux lectures séparées auraient pu divergEr en silence. */
+  const bornes = bornesDuChoix(r.periode);
   return {
     ...FILTRES_VIDES,
     interlocuteurs: r.toutesLesParties

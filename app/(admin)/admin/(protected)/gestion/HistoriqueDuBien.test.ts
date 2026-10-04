@@ -136,6 +136,24 @@ async function cliquer(el: Element | undefined): Promise<void> {
   await act(async () => { (el as HTMLElement).click(); });
 }
 
+/**
+ * ⚠️ CHANGER UNE VALEUR **PAR LE SETTER NATIF**, et pas par `el.value = …`. React mémorise la dernière valeur
+ * qu'il a posée sur le nœud ; une écriture directe la contourne, et `onChange` ne part pas — l'épreuve passerait
+ * alors en ne prouvant rien. Le setter du prototype est la seule voie que React observe.
+ */
+async function changer(el: HTMLInputElement | HTMLSelectElement, valeur: string): Promise<void> {
+  const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+  await act(async () => {
+    setter?.call(el, valeur);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+/** Les deux événements du jeu d'essai, nommés : un identifiant écrit en clair dans un test se relit mal. */
+const ID_EVT_EN_COURS = 7;
+const ID_EVT_CLOS = 4;
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ① LE HAUT DU BLOC : L'ÉVÉNEMENT EN COURS, ET QUI OCCUPE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -167,46 +185,110 @@ describe('① le haut du bloc', () => {
    ② LA PÉRIODE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('② la période', () => {
+describe('② la période — quatre choix exclusifs, en bande horizontale', () => {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — CE GROUPE A ÉTÉ RÉÉCRIT, ET VOICI CE QU'IL DISAIT ═════════════════════════════
+   *
+   * DEMANDE D'ARNO (04/10/2026) : « Choix exclusifs en boutons segmentés : “Tous les échanges” · “Depuis
+   * l'entrée du dernier locataire” · “Un événement” (liste déroulante des événements en cours et clos) ·
+   * “Dates personnalisées”. La période effective est toujours affichée en clair à droite. »
+   *
+   * ═══ CE QUE CES CINQ CAS ATTENDAIENT, ET POURQUOI C'ÉTAIT JUSTE ALORS ════════════════════════════════════════
+   * Le bloc d'avant offrait DEUX boutons (« Tous les échanges », « Entre deux dates ») puis deux rangées : un
+   * bouton par événement, un bouton par occupation. Les cas éprouvaient donc le clic sur « EV-2025-004 », sur
+   * « EV-2026-007 » et sur « ANCIEN Paul ». Ces rangées poussaient le fil hors de l'écran sur un bien chargé —
+   * c'est précisément ce qu'Arno a demandé de refondre.
+   *
+   * ═══ 🔴 CE QUI EST ÉPROUVÉ MAINTENANT, ET CE QUI NE SE PERD PAS ══════════════════════════════════════════════
+   * · le libellé « Entre deux dates » devient « Dates personnalisées » (mot d'Arno) ;
+   * · les événements passent d'une rangée de boutons à une LISTE DÉROULANTE — leur état reste écrit en MOTS
+   *   (« en cours » / « clos »), et les choisir règle toujours les deux dates, qui restent modifiables ;
+   * · le choix par occupation devient « Depuis l'entrée du dernier locataire », grisé AVEC SON MOTIF quand le
+   *   logement n'a aucun locataire connu.
+   * 🔭 LE CLIC SUR UN ANCIEN LOCATAIRE POUR RÉGLER SES DATES est repris au point 2, dans le bloc PARTIES, où
+   *    Arno place désormais « locataire en place et anciens locataires, chacun avec sa période ». Il est éprouvé
+   *    là-bas : rien ne se perd, le geste change d'endroit.
+   */
   it('🔴 « Tous les échanges » est le départ, et les deux dates ne s’affichent qu’au besoin', async () => {
     await monter();
     expect(parMot('Tous les échanges')?.getAttribute('aria-pressed')).toBe('true');
     expect(hote.querySelectorAll('input[type="date"]')).toHaveLength(0);
-    await cliquer(parMot('Entre deux dates'));
+    await cliquer(parMot('Dates personnalisées'));
     expect(hote.querySelectorAll('input[type="date"]')).toHaveLength(2);
   });
 
-  it('🔴 un événement, EN COURS ou CLOS, et son état est écrit en MOTS', async () => {
+  /**
+   * 🔴🔴 « TOUJOURS AFFICHÉE EN CLAIR », et c'est la seule chose qui rende visible la période qu'un bouton a
+   * réglée sans qu'on ait à aller lire les champs de date.
+   */
+  it('🔴🔴 la période effective est écrite en clair, dans les quatre états', async () => {
     await monter();
-    expect(texte()).toContain('EV-2025-004');
-    expect(texte()).toContain('clos');
-    expect(texte()).toContain('en cours');
+    expect(texte()).toContain('tous les échanges, sans borne de date');
+    await cliquer(parMot('Depuis l’entrée du dernier locataire'));
+    expect(texte()).toContain('du 01/05/2025 au 28/09/2026');
   });
 
-  it('🔴🔴 choisir un événement RÈGLE les deux dates — et elles restent modifiables', async () => {
+  /**
+   * 🔴🔴 « DEPUIS L'ENTRÉE DU DERNIER LOCATAIRE » : début = son entrée, fin = sa sortie ou aujourd'hui.
+   * Le dernier locataire de ce logement est MARTY Jean-François, parti le 28/09/2026 : la borne haute est donc
+   * SA SORTIE, et non aujourd'hui — ce qui s'est dit après son départ n'appartient pas à son dossier.
+   */
+  it('🔴🔴 « Depuis l’entrée du dernier locataire » règle les deux dates sur SON bail', async () => {
     await monter();
-    await cliquer(parMot('EV-2025-004'));
+    await cliquer(parMot('Depuis l’entrée du dernier locataire'));
     const dates = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
-    expect(dates.map((d) => d.value)).toEqual(['2025-11-02', '2025-12-20']);
-    // ⚠️ MODIFIABLES : ce sont des champs ouverts, pas un affichage figé.
+    expect(dates.map((d) => d.value)).toEqual(['2025-05-01', '2026-09-28']);
+    // ⚠️ MODIFIABLES : le choix PROPOSE une période, il ne l'impose pas.
     expect(dates.every((d) => !d.disabled && !d.readOnly)).toBe(true);
   });
 
-  it('🔴 un événement EN COURS court jusqu’à aujourd’hui', async () => {
+  /** 🔴 LA LISTE DÉROULANTE PORTE LES DEUX SORTES, et l'état est écrit en MOTS, pas seulement par la place. */
+  it('🔴 un événement, EN COURS ou CLOS, dans une liste déroulante', async () => {
     await monter();
-    await cliquer(parMot('EV-2026-007'));
-    const dates = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
-    expect(dates.map((d) => d.value)).toEqual(['2026-02-03', '2026-10-04']);
+    await cliquer(parMot('Un événement'));
+    const select = hote.querySelector('select.hdb-select') as HTMLSelectElement | null;
+    expect(select).not.toBeNull();
+    const mots = [...(select?.options ?? [])].map((o) => o.textContent ?? '').join(' | ');
+    expect(mots).toContain('EV-2025-004');
+    expect(mots).toContain('EV-2026-007');
+    expect(mots).toContain('clos');
+    expect(mots).toContain('en cours');
   });
 
-  /** 🔴 LES ANCIENS LOCATAIRES SONT VISIBLES **ET SÉLECTIONNABLES**, CHACUN AVEC SA PÉRIODE (demande d'Arno). */
-  it('🔴🔴 les anciens locataires sont là, avec leur période, et leur clic règle les dates', async () => {
+  /**
+   * 🔴🔴 CHOISIR UN ÉVÉNEMENT RÈGLE LES DEUX DATES. Le premier de la liste est pris d'emblée au clic sur le
+   * bouton ; en changer dans la liste règle les dates de celui-là.
+   */
+  it('🔴🔴 choisir un événement règle les deux dates — clos, puis en cours', async () => {
     await monter();
-    expect(texte()).toContain('ANCIEN Paul');
-    expect(texte()).toContain('du 01/01/2020 au 30/06/2024');
-    await cliquer(parMot('ANCIEN Paul'));
-    const dates = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
-    expect(dates.map((d) => d.value)).toEqual(['2020-01-01', '2024-06-30']);
+    await cliquer(parMot('Un événement'));
+    const select = hote.querySelector('select.hdb-select') as HTMLSelectElement;
+    const dates = (): string[] =>
+      ([...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[]).map((d) => d.value);
+
+    await changer(select, String(ID_EVT_CLOS));
+    expect(dates()).toEqual(['2025-11-02', '2025-12-20']);
+
+    /* 🔴 UN ÉVÉNEMENT EN COURS COURT JUSQU'À AUJOURD'HUI — ici le 04/10/2026, figé par le `maintenant` du test. */
+    await changer(select, String(ID_EVT_EN_COURS));
+    expect(dates()).toEqual(['2026-02-03', '2026-10-04']);
+  });
+
+  /**
+   * 🔴🔴 MODIFIER UNE BORNE BASCULE SUR « DATES PERSONNALISÉES », et c'est la vérité : ce n'est plus la période
+   * de l'événement. Laisser le bouton « Un événement » allumé aurait annoncé une période que le fil ne suit pas.
+   */
+  it('🔴🔴 toucher une date bascule sur « Dates personnalisées »', async () => {
+    await monter();
+    await cliquer(parMot('Un événement'));
+    const champ = hote.querySelector('input[type="date"]') as HTMLInputElement;
+    await changer(champ, '2026-01-15');
+    expect(parMot('Dates personnalisées')?.getAttribute('aria-pressed')).toBe('true');
+    expect(parMot('Un événement')?.getAttribute('aria-pressed')).toBe('false');
+    /* ⚠️ LA BORNE HAUTE EST CONSERVÉE : on a touché « Du », pas « Au ». L'événement en cours avait réglé « Au »
+       sur aujourd'hui (04/10/2026), et basculer sur « Dates personnalisées » ne doit pas effacer ce qu'on n'a
+       pas touché — sans quoi un ajustement d'une borne élargirait silencieusement la période de l'autre côté. */
+    expect(texte()).toContain('du 15/01/2026 au 04/10/2026');
   });
 });
 

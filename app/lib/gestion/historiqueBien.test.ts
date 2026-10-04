@@ -5,6 +5,8 @@ import {
   motDeuxCompteurs, motLocataireDeLaPeriode, ordreFilSuivant, periodeDeLEvenement, periodeDeLOccupation,
   reglagesActifs, REGLAGES_DEFAUT, reglagesEnFiltres, reglagesEnParametres, replierLesCartes,
   SEUIL_REPLI_CARTES, trierFil, type CategoriePartie, type Reglages,
+  bornesDuChoix, dernierLocataire, motPeriodeEffective, occupationOuverte, periodeDuDernierLocataire,
+  SANS_LOCATAIRE_CONNU, type OccupationPeriode,
 } from './historiqueBien';
 import { INTERLOCUTEURS_MAX, type Interlocuteur, type LigneHistorique } from './historique';
 /** 🔴 LA SOURCE DU SEUIL : on vérifie l'IDENTITÉ, pas une égalité de valeur recopiée. */
@@ -554,5 +556,105 @@ describe('⑩ 🔴🔴 la reprise de « Vie du bien » — recherche et événem
     expect(motAucunResultat(REGLAGES_DEFAUT)).toBe('Aucun mail rattaché à ce bien.');
     expect(motAucunResultat({ ...REGLAGES_DEFAUT, pieces: 'avec' }))
       .toBe('Aucun mail ne correspond à ces réglages — ce sont les réglages qui cachent, pas le bien.');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑪ 🔴🔴 LOT HISTORIQUE-BIEN-2 — LES QUATRE CHOIX DE PÉRIODE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑪ 🔴🔴 « Depuis l’entrée du dernier locataire », et la période écrite en clair', () => {
+  const LE_4_OCTOBRE = new Date('2026-10-04T09:00:00Z');
+  const o = (libelle: string, depuis: string | null, jusqua: string | null): OccupationPeriode =>
+    ({ libelle, depuis, jusqua });
+
+  /**
+   * 🔴🔴 LE PRÉDICAT « BAIL OUVERT » EST LE MÊME QUE CELUI DE LA PHRASE DU HAUT. Il a été EXTRAIT, non recopié :
+   * deux juges pour « y a-t-il quelqu'un dans le logement ? » auraient fini par se contredire — un bouton
+   * proposant la période d'un parti pendant que la phrase annonce qu'il est en place.
+   */
+  it('🔴🔴 un bail sans sortie est ouvert ; une sortie ABÎMÉE ne l’ouvre pas', () => {
+    expect(occupationOuverte(o('A', '2020-01-01', null), '2026-10-04')).toBe(true);
+    expect(occupationOuverte(o('B', '2020-01-01', '2026-10-04'), '2026-10-04')).toBe(true); // borne INCLUSE
+    expect(occupationOuverte(o('C', '2020-01-01', '2026-10-03'), '2026-10-04')).toBe(false);
+    /* ⚠️ « 03/07/2024 » n'est pas une date ISO : renseignée mais illisible veut dire « il y a eu une sortie ». */
+    expect(occupationOuverte(o('D', '2020-01-01', '03/07/2024'), '2026-10-04')).toBe(false);
+  });
+
+  /** 🔴 LE DERNIER LOCATAIRE, C'EST L'OCCUPANT S'IL Y EN A UN — pas son prédécesseur. */
+  it('🔴🔴 sur un logement occupé, « le dernier » est celui qui est là', () => {
+    const d = dernierLocataire([
+      o('ANCIEN Paul', '2020-01-01', '2024-06-30'),
+      o('EN PLACE Zoé', '2024-07-01', null),
+    ], LE_4_OCTOBRE);
+    expect(d?.libelle).toBe('EN PLACE Zoé');
+    expect(periodeDuDernierLocataire([
+      o('ANCIEN Paul', '2020-01-01', '2024-06-30'),
+      o('EN PLACE Zoé', '2024-07-01', null),
+    ], LE_4_OCTOBRE)).toEqual({ du: '2024-07-01', au: '2026-10-04' });
+  });
+
+  /**
+   * 🔴🔴 SUR UN LOGEMENT VACANT, LA BORNE HAUTE EST SA SORTIE, PAS AUJOURD'HUI. Arno : « fin = sa sortie ou
+   * aujourd'hui ». Ce qui s'est dit après son départ — la remise en location — n'appartient pas à son dossier.
+   */
+  it('🔴🔴 sur un logement vacant, la période s’arrête à la sortie', () => {
+    const occ = [o('PARTI Marc', '2025-05-01', '2026-09-28'), o('ANCIEN Paul', '2020-01-01', '2024-06-30')];
+    expect(dernierLocataire(occ, LE_4_OCTOBRE)?.libelle).toBe('PARTI Marc');
+    expect(periodeDuDernierLocataire(occ, LE_4_OCTOBRE)).toEqual({ du: '2025-05-01', au: '2026-09-28' });
+  });
+
+  /**
+   * 🔴🔴 AUCUN LOCATAIRE CONNU ⇒ `null`, ET C'EST CE `null` QUI GRISE LE BOUTON. Rendre une période vide aurait
+   * donné un bouton cliquable qui ne filtre rien — pire qu'un bouton éteint, parce qu'on croit avoir filtré.
+   */
+  it('🔴🔴 aucun locataire connu : pas de période, et un motif écrit', () => {
+    expect(dernierLocataire([], LE_4_OCTOBRE)).toBeNull();
+    expect(periodeDuDernierLocataire([], LE_4_OCTOBRE)).toBeNull();
+    expect(SANS_LOCATAIRE_CONNU).toContain('aucun locataire connu');
+  });
+
+  /** ⚠️ UNE ENTRÉE INCONNUE RESTE `null` : c'est l'erreur exacte qu'une maquette a commise (08/06/2025 deviné). */
+  it('🔴 une entrée inconnue n’est pas devinée', () => {
+    expect(periodeDuDernierLocataire([o('SANS DATE', null, null)], LE_4_OCTOBRE))
+      .toEqual({ du: null, au: '2026-10-04' });
+  });
+
+  /** 🔴 LES BORNES DU CHOIX, LUES À UN SEUL ENDROIT — la phrase affichée et la requête disent la même chose. */
+  it('🔴 les bornes du choix, pour les quatre sortes', () => {
+    expect(bornesDuChoix({ sorte: 'tous' })).toEqual({ du: null, au: null });
+    expect(bornesDuChoix({ sorte: 'dates', du: '2026-01-01', au: null })).toEqual({ du: '2026-01-01', au: null });
+    expect(bornesDuChoix({ sorte: 'occupation', du: '2025-05-01', au: '2026-09-28' }))
+      .toEqual({ du: '2025-05-01', au: '2026-09-28' });
+    expect(bornesDuChoix({ sorte: 'evenement', evenementId: 7, du: '2026-02-03', au: '2026-10-04' }))
+      .toEqual({ du: '2026-02-03', au: '2026-10-04' });
+  });
+
+  /**
+   * 🔴🔴 LA PHRASE DIT LES QUATRE CAS, DEMI-BORNES COMPRISES. Une période ouverte d'un côté est fréquente (un
+   * bail en cours, une entrée inconnue) : écrire « du … au … » avec un trou aurait produit « du au 04/10/2026 ».
+   */
+  it('🔴🔴 la période effective, écrite en clair, dans les quatre cas', () => {
+    expect(motPeriodeEffective({ sorte: 'tous' })).toBe('tous les échanges, sans borne de date');
+    expect(motPeriodeEffective({ sorte: 'dates', du: '2025-05-01', au: '2026-10-04' }))
+      .toBe('du 01/05/2025 au 04/10/2026');
+    expect(motPeriodeEffective({ sorte: 'dates', du: '2025-05-01', au: null })).toBe('depuis le 01/05/2025');
+    expect(motPeriodeEffective({ sorte: 'dates', du: null, au: '2026-10-04' })).toBe('jusqu’au 04/10/2026');
+  });
+
+  /** ⚠️ UNE DATE ABÎMÉE N'EST PAS AFFICHÉE COMME UNE DATE : elle est écartée, jamais devinée. */
+  it('🔴 une borne illisible ne s’affiche pas', () => {
+    expect(motPeriodeEffective({ sorte: 'dates', du: '03/07/2024', au: null }))
+      .toBe('tous les échanges, sans borne de date');
+  });
+
+  /** 🔴 ET LE CHOIX « occupation » PART BIEN DANS L'ADRESSE, comme les autres. */
+  it('🔴 le choix « occupation » écrit ses deux bornes dans l’adresse', () => {
+    const r: Reglages = {
+      ...REGLAGES_DEFAUT, periode: { sorte: 'occupation', du: '2025-05-01', au: '2026-09-28' },
+    };
+    expect(reglagesEnFiltres(r).du).toBe('2025-05-01');
+    expect(reglagesEnFiltres(r).au).toBe('2026-09-28');
+    expect(reglagesActifs(r)).toBe(true);
   });
 });
