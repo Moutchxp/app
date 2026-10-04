@@ -740,7 +740,31 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
    * ⚠️ SANS LA MIGRATION 281, `lireInterne` REND UNE CARTE VIDE sans nommer la table : le garde vaut `false`, et
    * la projection se comporte exactement comme avant ce lot.
    */
-  const echangeInterne = (await lireInterne([filId])).has(filId);
+  /**
+   * ══ 🔴🔴 LOT ORDRE-DE-LA-PROJECTION (04/10/2026) — « VA-T-ELLE L'ÊTRE ? » COMPTE AUTANT QUE « L'EST-ELLE ? » ══
+   *
+   * ═══ LE DÉFAUT CORRIGÉ, ET IL ÉTAIT UN ORDRE, PAS UNE RÈGLE ════════════════════════════════════════════════
+   *
+   * La marque d'ÉCHANGE est LUE ici, avant la boucle, et POSÉE tout en bas (`marquerInterne`, quand la fenêtre en
+   * cours est « interne »). Sur la passe qui rend une conversation interne, la lecture répondait donc « non » :
+   * le garde `echangeInterne` était faux, la ligne « on s'est prononcé » n'était PAS écrite sur les mails qu'une
+   * fenêtre « biens » couvre — et ces mails-là se lisaient « interne » TOUT EN PORTANT UN BIEN, par le REPLI,
+   * jusqu'à la passe suivante. Mesuré par le scénario S8 de `suiviConversation.itest.ts`.
+   *
+   * ═══ 🔴 LA CORRECTION : ON DEMANDE AUSSI CE QUE CETTE PASSE VA POSER ═══════════════════════════════════════
+   *
+   * L'information est déjà là : `periodeEnCours` est PUR et ne lit que `mails` et `periodes`, tous deux chargés
+   * au-dessus. Le garde vaut donc vrai dès que le repli AURA quelque chose à dire à la fin de cette passe.
+   *
+   * ⚠️ RIEN N'A ÉTÉ DÉPLACÉ NI RETIRÉ : la POSE reste en bas, la marque d'échange n'est toujours pas retirée par
+   * la projection (correction du 03/10, commit 559d394a, confirmée par Arno le 04/10), et
+   * `declarerNonInterneDesMessages` n'écrit que sur un mail qui ne porte AUCUNE ligne — la passe reste un diff.
+   */
+  const encoursEstInterne = (() => {
+    const p = periodeEnCours(mails, periodes);
+    return p !== null && p.classement.sorte === 'interne';
+  })();
+  const echangeInterne = (await lireInterne([filId])).has(filId) || encoursEstInterne;
   const voulu = projeter(mails, periodes, exceptions);
 
   // CE QUE LA BASE PORTE AUJOURD'HUI : les liens « lot » CONFIRMÉS de chaque mail du fil.
@@ -950,8 +974,12 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
    * qu'on refuse ici, c'est qu'une décision prise sur UN mail en défasse une autre, prise ailleurs.
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
-  const encours = periodeEnCours(mails, periodes);
-  if (encours !== null && encours.classement.sorte === 'interne') {
+  /**
+   * ⚠️ LA MÊME QUESTION QUE LE GARDE DU HAUT, ET UNE SEULE RÉPONSE (lot ORDRE-DE-LA-PROJECTION) : `encoursEstInterne`
+   * est calculé avant la boucle et réutilisé ici. La POSE n'a pas bougé d'une ligne — seule la LECTURE sait
+   * désormais ce que cette passe va poser. Deux expressions séparées pourraient diverger ; celle-ci ne peut pas.
+   */
+  if (encoursEstInterne) {
     const issue = await marquerInterne({ filIds: [filId], auteur });
     if (issue.ok && issue.nb > 0) gestes += 1;
   }

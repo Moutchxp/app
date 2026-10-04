@@ -30,7 +30,11 @@ import {
 } from './periodeRepo';
 import { projeter, mailsDuBien, reperesDuFil, periodeEnCours } from './periodesConversation';
 import { changerStatut, rattacher } from './rattachementRepo';
-import { lireInterne } from './interneRepo';
+/**
+ * ⚠️ `marquerInterne` EST LE GESTE DE LA CASE DU BANDEAU, et le scénario S8-bis en a besoin : la marque d'ÉCHANGE
+ * posée à la main est l'état de départ sur lequel l'invariant « jamais interne ET un bien » doit tenir.
+ */
+import { lireInterne, marquerInterne } from './interneRepo';
 /**
  * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE — « CE MAIL EST-IL INTERNE ? » SE DEMANDE À LA RÈGLE, PAS À UNE TABLE.
  *
@@ -468,20 +472,29 @@ describe('S8 — « Interne » et « Hors gestion » suivent la même logique', 
     // 🔴 LA MARQUE D'ÉCHANGE EST POSÉE (migration 281), et les mails que la fenêtre couvre portent la leur.
     expect((await lireInterne([filId])).get(filId)).toBeDefined();
     /**
-     * ══ ⚠️⚠️ ET LES MAILS 1-2 LA LISENT AUSSI, LE TEMPS D'UNE PASSE. CE N'EST PAS CE QU'ON VOUDRAIT ═══════════
+     * ══ 🔴🔴 ET LES MAILS 1-2 NE LA LISENT PAS, DÈS CETTE PASSE — LOT ORDRE-DE-LA-PROJECTION (04/10/2026) ══════
      *
-     * Ils portent LOT-A et sont couverts par la première fenêtre : ils ne devraient pas se lire « interne ». Ils
-     * le font pourtant à cet instant précis, et la raison est un ORDRE, pas une règle :
-     * `projeterLeFil` lit « cet échange est-il marqué ? » AVANT sa boucle, et POSE la marque d'échange APRÈS
-     * (quand la fenêtre en cours est « interne »). Pendant cette passe-là, la réponse était donc « non », et la
-     * ligne « on s'est prononcé » qui les protégerait n'a pas été écrite.
+     * ═══ CE QUE CETTE LIGNE ATTENDAIT JUSQU'AU 04/10, ET POURQUOI C'ÉTAIT UN DÉFAUT ════════════════════════════
      *
-     * 🔴 ÇA SE RATTRAPE À LA PASSE SUIVANTE, et l'assertion d'après le prouve : au geste suivant, les mails 1-2
-     * sortent de la liste. Avant le lot INTERNE-ANNULER-ET-SUITE, ils n'en sortaient JAMAIS — aucun mécanisme
-     * n'écrivait cette ligne. Le transitoire est donc un reste, pas une régression ; il est figé ici pour qu'une
-     * correction de l'ordre de la projection se voie, au lieu de passer pour une régression.
+     * Elle attendait `[1, 2, 3, 4, 5, 6]` : les mails 1-2, qui portent LOT-A et sont couverts par la première
+     * fenêtre, se lisaient « interne » TOUT EN PORTANT UN BIEN, le temps d'une passe. La raison était un ORDRE,
+     * pas une règle : `projeterLeFil` LISAIT « cet échange est-il marqué ? » avant sa boucle, et POSAIT la marque
+     * d'échange après — donc, sur la passe qui rend la conversation interne, la lecture répondait « non » et la
+     * ligne « on s'est prononcé » qui protège les mails 1-2 du REPLI n'était pas écrite. Ça se rattrapait à la
+     * passe suivante (l'assertion du bas le montrait déjà) ; le transitoire était figé ici EXPRÈS, pour qu'une
+     * correction de l'ordre se voie au lieu de passer pour une régression.
+     *
+     * ═══ 🔴 CE QUI A ÉTÉ CORRIGÉ, ET CE QUI N'A PAS BOUGÉ ══════════════════════════════════════════════════════
+     *
+     * La projection demande désormais aussi « cette passe VA-T-ELLE la poser ? » — `periodeEnCours` est pur et
+     * l'information est déjà là avant la boucle. La POSE de la marque n'a pas été déplacée, et la projection ne
+     * RETIRE toujours pas la marque d'échange (correction du 03/10, commit 559d394a, confirmée le 04/10).
+     *
+     * 🔴 L'INVARIANT QU'ARNO VEUT, ET QUI TIENT MAINTENANT DÈS LA PREMIÈRE PASSE : aucun mail ne se lit
+     * « interne » en portant un bien. Les mails 3 à 6 sont les SEULS internes — ce sont exactement ceux que la
+     * fenêtre « interne » couvre, et ils ne portent aucun bien. Le scénario S8-bis l'éprouve en propre.
      */
-    expect(await rangsInternes(filId, mails)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(await rangsInternes(filId, mails)).toEqual([3, 4, 5, 6]);
 
     // …puis un bien rouvre une fenêtre « biens » à partir du 5e mail.
     await poserClassement({ filId, messageId: mails[4], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
@@ -513,6 +526,89 @@ describe('S8 — « Interne » et « Hors gestion » suivent la même logique', 
       `SELECT count(*)::int AS n FROM gestion_hors_gestion
         WHERE message_id = $1 AND retire_le IS NULL`, [mails[2]]);
     expect(rows[0].n).toBe(1);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   S8-bis — L'INVARIANT : AUCUN MAIL NE SE LIT « INTERNE » EN PORTANT UN BIEN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 LOT ORDRE-DE-LA-PROJECTION (04/10/2026) — CE QU'ARNO DEMANDE, ÉPROUVÉ EN PROPRE ════════════════════════
+ *
+ * RÈGLE D'ARNO : « un mail classé sur un bien ne se lit JAMAIS “Interne”, et pas même le temps d'une passe. »
+ *
+ * ═══ POURQUOI UN SCÉNARIO À PART, ALORS QUE S8 LE MONTRE DÉJÀ ══════════════════════════════════════════════════
+ *
+ * S8 fige des RANGS : il dit quels mails sont internes dans UNE configuration. Il casserait donc aussi bien pour
+ * une bonne raison (une règle qui change) que pour la mauvaise (le défaut d'ordre qui revient). Ce scénario-ci
+ * n'affirme qu'une CONTRADICTION INTERDITE — l'intersection de « porte un bien » et de « se lit interne » est
+ * vide — et il la vérifie DÈS LA PREMIÈRE PASSE, celle du geste lui-même. C'est l'invariant, pas une photographie.
+ *
+ * ═══ 🔴 LE DÉFAUT QU'IL ATTRAPE, ET QU'IL A ATTRAPÉ ═════════════════════════════════════════════════════════════
+ *
+ * `projeterLeFil` LISAIT la marque d'échange avant sa boucle et la POSAIT après : sur la passe qui rend une
+ * conversation interne, les mails qu'une fenêtre « biens » couvre n'étaient pas protégés du REPLI, et se lisaient
+ * « interne » en portant un bien jusqu'à la passe suivante. La lecture demande désormais aussi « cette passe
+ * va-t-elle la poser ? ». La POSE n'a pas bougé ; la marque d'échange n'est toujours pas retirée par la projection.
+ */
+describe('S8-bis — un mail classé sur un bien ne se lit jamais « Interne »', () => {
+  /** Les RANGS des mails qui portent au moins un bien CONFIRMÉ — lus en base, comme le fait l'écran. */
+  async function rangsAvecBien(filId: number, mails: readonly number[]): Promise<number[]> {
+    const { rows } = await query<{ message_id: string }>(
+      `SELECT DISTINCT r.message_id::text FROM gestion_rattachement r
+         JOIN gestion_message m ON m.id = r.message_id
+        WHERE m.fil_id = $1 AND r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL`,
+      [filId]);
+    return rangs(mails, rows.map((r) => Number(r.message_id)));
+  }
+
+  /** 🔴 L'INVARIANT LUI-MÊME : les deux listes n'ont aucun rang en commun. */
+  async function aucuneContradiction(filId: number, mails: readonly number[]): Promise<void> {
+    const avecBien = await rangsAvecBien(filId, mails);
+    const internes = await rangsInternes(filId, mails);
+    expect(
+      avecBien.filter((r) => internes.includes(r)),
+      `ces mails portent un bien ET se lisent « interne » (biens: ${avecBien}, internes: ${internes})`,
+    ).toEqual([]);
+  }
+
+  /**
+   * 🔴🔴 LE CAS QUI ÉTAIT ROUGE : la marque d'échange est posée PAR LA PASSE ELLE-MÊME.
+   *
+   * Une fenêtre « biens » couvre toute la conversation, puis une fenêtre « interne » s'ouvre au 3e mail — et c'est
+   * ce second geste, et sa seule passe de projection, qui pose la marque d'échange. Avant la correction, les mails
+   * 1-2 se lisaient « interne » en portant LOT-A à cet instant précis.
+   */
+  it('🔴🔴 la fenêtre « interne » pose la marque dans la passe même : les mails classés ne la lisent pas', async () => {
+    const { filId, mails } = await conversation(6);
+    await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+    await poserClassement({ filId, messageId: mails[2], classement: INTERNE, choix: 'suite', auteur: AUTEUR });
+
+    // La marque d'échange vient d'être posée par cette passe — c'est elle qui faisait répondre le REPLI.
+    expect((await lireInterne([filId])).get(filId)).toBeDefined();
+    expect(await rangsAvecBien(filId, mails)).toEqual([1, 2]);
+    expect(await rangsInternes(filId, mails)).toEqual([3, 4, 5, 6]);
+    await aucuneContradiction(filId, mails);
+  });
+
+  /**
+   * 🔴 ET DEPUIS L'AUTRE BOUT : la conversation est DÉJÀ marquée par la case du bandeau, et un classement sur un
+   * bien arrive ensuite. Les mails que la fenêtre couvre sortent d'« interne » dès cette passe ; ceux qu'AUCUNE
+   * fenêtre ne couvre (les mails 1-2) restent internes par le REPLI — c'est voulu, et ils ne portent aucun bien.
+   */
+  it('🔴 marquée par le bandeau, puis classée sur un bien : les mails classés sortent dès la première passe', async () => {
+    const { filId, mails } = await conversation(5);
+    const pose = await marquerInterne({ filIds: [filId], auteur: AUTEUR });
+    expect(pose.ok, 'la marque du bandeau doit être posée').toBe(true);
+
+    await poserClassement({ filId, messageId: mails[2], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
+
+    expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([3, 4, 5]);
+    expect(await rangsInternes(filId, mails)).toEqual([1, 2]);
+    await aucuneContradiction(filId, mails);
+    // ⚠️ LA MARQUE D'ÉCHANGE SURVIT (correction du 03/10) : elle reste le repli des mails 1-2.
+    expect((await lireInterne([filId])).get(filId)).toBeDefined();
   });
 });
 
