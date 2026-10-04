@@ -1,4 +1,6 @@
 import { query } from '../db/client';
+// 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 1 — LA règle du lien de bien, écrite une seule fois.
+import { sqlLiensDuBien } from './rattachement';
 import { rattachementsDisponibles } from './schema';
 import type { BienDuMail } from './dossierDuBien';
 
@@ -68,6 +70,21 @@ export async function biensDuMail(o: {
   /**
    * 🔴 LES RATTACHEMENTS DE L'ÉCHANGE, seulement s'il y en a un et si la base sait les tenir. On prend l'ordre de
    * POSE : c'est celui dans lequel on les a rattachés, donc celui auquel on s'attend en rouvrant le mail.
+   *
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 1 — LE PRÉDICAT VIENT DU FRAGMENT UNIQUE ════════════════════
+   *
+   * 🔴 C'ÉTAIT LE QUATRIÈME ENDROIT à réécrire « qu'est-ce qu'un bien rattaché à ce mail », après la fenêtre
+   * « Visualiser / Modifier » et les deux historiques. Arno n'en avait nommé que trois — je l'ai trouvé en écrivant
+   * le test de garde, qui refusait de passer tant qu'un endroit écrivait la règle à la main. L'exempter aurait vidé
+   * le garde de son objet : il n'a de valeur que si AUCUN endroit n'a le droit de la réécrire.
+   *
+   * 🔴 LA FERMETURE EST SANS EFFET, ET C'EST MESURÉ SUR TOUTE LA TABLE, pas sur un échantillon : le fragment ajoute
+   * `piece_id IS NULL`, et `gestion_rattachement` ne contient AUCUNE ligne dont `piece_id` soit non nul (0 sur
+   * 172 472, mesuré le 04/10/2026). Les deux prédicats sélectionnent donc exactement les mêmes lignes, pour tout
+   * échange — ce n'est pas un pari sur un cas, c'est une égalité d'ensembles.
+   *
+   * ⚠️ LE `DISTINCT ON` NE BOUGE PAS NON PLUS : il ne rend que `cible_cle`, et seul l'ENSEMBLE des clés pourrait
+   * changer — ce que le compte à zéro ci-dessus exclut.
    */
   let duFil: string[] = [];
   if (filId !== null && (await rattachementsDisponibles())) {
@@ -75,10 +92,7 @@ export async function biensDuMail(o: {
       `SELECT DISTINCT ON (r.cible_cle) r.cible_cle AS cle
          FROM gestion_rattachement r
          JOIN gestion_message m ON m.id = r.message_id
-        WHERE m.fil_id = $1
-          AND r.cible_sorte = 'lot'
-          AND r.cible_cle IS NOT NULL
-          AND r.statut = 'confirme'
+        WHERE m.fil_id = $1 AND ${sqlLiensDuBien('r')}
         ORDER BY r.cible_cle, r.cree_le`, [filId]);
     duFil = rows.map((r) => r.cle);
   }

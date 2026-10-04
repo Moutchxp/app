@@ -1,4 +1,6 @@
 import { query } from '../db/client';
+// 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 1 — LA regle du lien de bien, ecrite une seule fois.
+import { sqlLiensDuBien } from './rattachement';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { decortiquerNumero, formaterTelephone } from './telephoneAffichage';
 import { annuaireDisponible, horsGestionDisponible, libelleSourceContactDisponible, rattachementsDisponibles } from './schema';
@@ -133,17 +135,30 @@ export async function ficheRattachementDuFil(
 
   /**
    * ── ② LES LIENS VIVANTS DE L'ÉCHANGE ─────────────────────────────────────────────────────────────────────────
+   *
    * ⚠️ `cible_sorte = 'lot'` SEULEMENT. Un reste d'ancien modèle (« propriétaire ») n'a pas de bien à décrire :
-   * il est montré, tel qu'il est, par l'encart du mail — jamais présenté ici comme un bien rattaché. C'est la
-   * règle du lot, et c'est la raison pour laquelle cette requête ne cherche pas à « traduire » ces lignes.
+   * il est montré, tel qu'il est, par l'encart du mail — jamais présenté ici comme un bien rattaché.
+   *
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 1 — LE PRÉDICAT VIENT DU FRAGMENT UNIQUE ════════════════════
+   *
+   * `sqlLiensDuBien` porte désormais LA règle « qu'est-ce qu'un bien rattaché à un mail », et l'historique du
+   * bien comme celui du propriétaire lisent la MÊME. Elle était écrite ici une première fois et là-bas une
+   * seconde : les deux concordaient, mais parce que personne n'avait encore posé de lien confirmé sur une pièce
+   * jointe (voir l'encadré du fragment).
+   *
+   * ⚠️ `avecPropositions: true` RESTE INDISPENSABLE ICI : le panneau « Modifier les biens rattachés » propose à
+   * cocher les biens PROPOSÉS par le moteur. Ce que la fenêtre AFFICHE, lui, est réduit aux liens confirmés par
+   * le module pur `biensDuMail` — c'est là, et nulle part ailleurs, que se fait ce tri.
+   *
+   * 🔴 ET LE FRAGMENT AJOUTE `piece_id IS NULL`, QUE CETTE REQUÊTE N'AVAIT PAS. Invisible : la table ne contient
+   * aucune ligne avec `piece_id` non nul (0 sur 172 472, mesuré avant la modification).
    */
   const { rows: liens } = await query<LienDB>(
     `SELECT r.id::text, r.message_id::text, r.cible_cle, r.statut, r.origine, r.statut_par_libelle,
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date_mail
        FROM gestion_rattachement r
        JOIN gestion_message m ON m.id = r.message_id
-      WHERE m.fil_id = $1 AND r.statut IN ('propose', 'confirme') AND r.cible_sorte = 'lot'
-        AND r.cible_cle IS NOT NULL
+      WHERE m.fil_id = $1 AND ${sqlLiensDuBien('r', { avecPropositions: true })}
       ORDER BY m.recu_le DESC, r.id`, [filId]);
 
   const horsGestion = (await horsGestionDisponible())

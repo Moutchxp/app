@@ -323,3 +323,62 @@ export function statutInverse(s: Statut): Statut | null {
   if (s === 'confirme') return 'retire';
   return null;   // un candidat proposé n'a rien à défaire : on le confirme ou on le rejette
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 1 — « QU'EST-CE QU'UN BIEN RATTACHÉ À UN MAIL ? », ÉCRIT UNE FOIS
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (04/10/2026), après l'audit HISTORIQUE-DES-BIENS : « Arno est d'accord pour réunir la règle en un
+   seul code (sqlLiensDuBien lu par la fenêtre “Visualiser / Modifier”, l'historique du bien, l'historique
+   propriétaire), À CONDITION qu'il ne voie STRICTEMENT AUCUN changement, ni fonctionnel ni graphique. »
+
+   ═══ 🔴🔴 CE QUE L'AUDIT AVAIT TROUVÉ, ET QUE CE FRAGMENT FERME ═══════════════════════════════════════════════════
+
+   Les écrans lisaient la MÊME table en écrivant la MÊME règle à PLUSIEURS endroits :
+     · la fenêtre  : `statut IN ('propose','confirme') AND cible_sorte = 'lot' AND cible_cle IS NOT NULL` ;
+     · l'historique: `statut = 'confirme' AND cible_sorte = 'lot' AND cible_cle = ANY(...) AND piece_id IS NULL`.
+
+   🔴 ET IL Y EN AVAIT UN QUATRIÈME, QUE LE TEST DE GARDE A TROUVÉ : `dossierDuBienRepo.biensDuMail`, qui alimente
+   la fenêtre Drive (« Ranger une pièce dans le Drive » → « Dossier du bien »). Arno n'en avait nommé que trois ;
+   celui-là écrivait la règle à la main lui aussi, sans `piece_id`. Je l'ai replié sur le fragment plutôt que de
+   l'exempter : un garde avec une liste d'exemptions ne garde rien — il suffirait d'y inscrire son fichier.
+
+   Elles concordaient — 0 écart sur 11 706 couples (mail, bien) — mais PAR ACCIDENT HEUREUX : la fenêtre ne
+   filtrait pas `piece_id`. Le premier lien confirmé posé sur une pièce jointe les aurait fait diverger en
+   silence, sans qu'aucun test ne s'en aperçoive. C'est cette divergence DORMANTE que le fragment supprime.
+
+   ⚠️ ET SA FERMETURE EST PROUVABLEMENT INVISIBLE : mesuré le 04/10/2026, `gestion_rattachement` ne contient
+   **AUCUNE** ligne avec `piece_id` non nul — 0 sur 172 472. Ajouter cette condition à la fenêtre ne change donc
+   pas une seule ligne de son résultat, aujourd'hui. C'est ce qui permet de tenir la condition d'Arno tout en
+   réparant le fond.
+
+   ═══ 🔴 CE QUE LE FRAGMENT NE PREND PAS EN CHARGE, ET POURQUOI ═══════════════════════════════════════════════════
+
+     · LE CIBLAGE (`cible_cle = ANY(...)`) reste chez l'appelant : « quel bien je regarde » n'est pas « qu'est-ce
+       qu'un bien rattaché ». Les mêler aurait obligé le fragment à connaître les numéros de paramètres de chaque
+       requête, c'est-à-dire à devenir illisible pour éviter une duplication qui n'existe pas.
+     · LES AXES « propriétaire » ET « carte » de l'historique gardent leur propre condition : ce ne sont pas des
+       biens. Les faire passer par ce fragment aurait voulu dire qu'un nom de personne est un bien — alors que
+       l'invariant du module est justement « une cible de rattachement est TOUJOURS un bien (ou une carte) ».
+
+   ⚠️ `avecPropositions` EST UN PARAMÈTRE, ET CE N'EST PAS UNE CONCESSION. La fenêtre a BESOIN des propositions :
+   son panneau « Modifier les biens rattachés » les propose à cocher. Ce qu'elle AFFICHE, en revanche, est réduit
+   aux liens confirmés par le module pur `biensDuMail`. Les deux écrans affichent donc bien la même chose ; ils ne
+   LISENT pas la même chose, et c'est voulu.
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 🔴 LE PRÉDICAT SQL D'UN LIEN DE BIEN. PUR (une chaîne, aucun paramètre lié).
+ *
+ * `alias` est l'alias de `gestion_rattachement` dans la requête appelante.
+ *
+ * ⚠️ AUCUNE VALEUR N'EST INTERPOLÉE ICI — seulement un alias que l'appelant écrit en dur dans son propre source.
+ * Un fragment qui accepterait une valeur serait une porte d'injection, et ce module est lu par tout le dépôt.
+ */
+export function sqlLiensDuBien(alias: string, o: { avecPropositions?: boolean } = {}): string {
+  const statut = o.avecPropositions === true
+    ? `${alias}.statut IN ('propose', 'confirme')`
+    : `${alias}.statut = 'confirme'`;
+  return `${statut} AND ${alias}.cible_sorte = 'lot' AND ${alias}.cible_cle IS NOT NULL`
+    + ` AND ${alias}.piece_id IS NULL`;
+}

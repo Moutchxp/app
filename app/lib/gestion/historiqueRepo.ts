@@ -18,6 +18,8 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query } from '../db/client';
+// 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 1 — LA regle du lien de bien, ecrite une seule fois.
+import { sqlLiensDuBien } from './rattachement';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche } from './nomUsageSql';
 import { adressesDuChamp } from './adressesMessage';
@@ -203,16 +205,31 @@ function cteMessages(o: { avecCarte: boolean; deplacements: boolean; grouper: bo
       WHERE af.actif AND af.evenement_id = ANY($3::bigint[])`
     : '';
 
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 1 — L'AXE « BIEN » PASSE PAR LE FRAGMENT UNIQUE ═══════════════
+   *
+   * `sqlLiensDuBien('r')` porte LA règle « qu'est-ce qu'un bien rattaché à un mail » — statut confirmé, cible de
+   * sorte « lot », clé non nulle, lien posé sur le MAIL et non sur une pièce. La fenêtre « Visualiser / Modifier »
+   * lit exactement la même, depuis `ficheRattachementRepo`. Elle était écrite deux fois ; elle l'est une.
+   *
+   * ⚠️ LA SORTIE EST IDENTIQUE AU CARACTÈRE PRÈS à ce que cette requête produisait : le prédicat global
+   * (`statut = 'confirme' AND piece_id IS NULL`) est redescendu DANS chacune des trois branches, ce qui est la
+   * même condition logique, simplement écrite là où elle s'applique.
+   *
+   * 🔴 LES DEUX AUTRES AXES GARDENT LEUR PROPRE CONDITION, ET CE N'EST PAS UN OUBLI : un propriétaire et une
+   * carte ne sont pas des biens. Les faire passer par un fragment nommé « liens du bien » aurait écrit noir sur
+   * blanc qu'un nom de personne est un bien — la confusion exacte que la liste blanche de `rattachement.ts` a
+   * coûté une nuit à défaire, le 28/09/2026.
+   */
+  const vivantConfirme = "r.statut = 'confirme' AND r.piece_id IS NULL";
   return `liens AS (
      SELECT r.message_id, r.cible_sorte, r.cible_cle, r.cible_id, r.cible_libelle,
             CASE r.cible_sorte WHEN 'lot' THEN 1 WHEN 'proprietaire' THEN 2 ELSE 3 END AS prio,
             'rattachement'::text AS source
        FROM gestion_rattachement r
-      WHERE r.statut = 'confirme'
-        AND ((r.cible_sorte = 'lot'          AND r.cible_cle = ANY($1::text[]))
-          OR (r.cible_sorte = 'proprietaire' AND r.cible_cle = ANY($2::text[]))
-          OR (r.cible_sorte = 'evenement'    AND r.cible_id  = ANY($3::bigint[])))
-        AND r.piece_id IS NULL${carte}
+      WHERE ((${sqlLiensDuBien('r')} AND r.cible_cle = ANY($1::text[]))
+          OR (${vivantConfirme} AND r.cible_sorte = 'proprietaire' AND r.cible_cle = ANY($2::text[]))
+          OR (${vivantConfirme} AND r.cible_sorte = 'evenement'    AND r.cible_id  = ANY($3::bigint[])))${carte}
    ),
    choisis AS (
      ${o.grouper
