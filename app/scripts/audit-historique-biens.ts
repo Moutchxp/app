@@ -283,13 +283,33 @@ async function main(): Promise<void> {
               WHERE NOT EXISTS (SELECT 1 FROM his h
                                  WHERE h.message_id = a.message_id AND h.cible_cle = a.cible_cle))::text AS ecarts`);
 
-  const criterimmo = await un<{ mails: string; avec_bien: string }>(
-    `SELECT count(*)::text AS mails,
-            count(*) FILTER (WHERE EXISTS (
+  /**
+   * ══ 🔴🔴 CORRECTION DE MON PROPRE AUDIT (04/10/2026) — LE SENS COMPTE AUTANT QUE L'OBJET ═════════════════════
+   *
+   * Ma premiere version comptait sur l'OBJET SEUL et denoncait **8** mails « avec bien » a retirer. Les 8
+   * etaient du VRAI COURRIER CLIENT : des reponses a nos documents, renvoyees depuis une messagerie qui n'ajoute
+   * pas « Re: » (le mail 8453 demande « Est ce que ce document est simplement informatif, ou doit-on regler
+   * quelque chose ? — Emmanuel AUVINET »).
+   *
+   * 🔴 ET LA REGLE D'ARNO LES PROTEGE EXPLICITEMENT : « CELA NE CONCERNE QUE NOS ENVOIS. Une REPONSE humaine a
+   * un document est du vrai courrier client : elle repasse par le moteur normalement et garde ses biens. » Les
+   * retirer aurait efface du courrier client de 5 historiques de biens, sur la foi d'une erreur de comptage.
+   *
+   * 🔴 LA REGLE EST DONC COMPTEE COMME LE MOTEUR LA LIT : nos envois seulement.
+   */
+  const criterimmo = await un<{ mails: string; avec_bien: string; recus: string; recus_avec_bien: string }>(
+    `SELECT count(*) FILTER (WHERE m.sens = 'envoye')::text AS mails,
+            count(*) FILTER (WHERE m.sens = 'envoye' AND EXISTS (
               SELECT 1 FROM gestion_rattachement r
                WHERE r.message_id = m.id AND r.statut = 'confirme' AND r.cible_sorte = 'lot'
-            ))::text AS avec_bien
-       FROM gestion_message m WHERE m.objet LIKE 'Document CRITERIMMO%'`);
+            ))::text AS avec_bien,
+            count(*) FILTER (WHERE m.sens <> 'envoye')::text AS recus,
+            count(*) FILTER (WHERE m.sens <> 'envoye' AND EXISTS (
+              SELECT 1 FROM gestion_rattachement r
+               WHERE r.message_id = m.id AND r.statut = 'confirme' AND r.cible_sorte = 'lot'
+            ))::text AS recus_avec_bien
+       FROM gestion_message m
+      WHERE m.objet ILIKE '%Document CRITERIMMO%' OR m.exclu_par_regle_id IS NOT NULL`);
 
   /* 🔴 LE DÉTAIL DES ANOMALIES DE RÈGLE (e), pour que le CSV les porte nommément. */
   const { rows: exInterne } = await query<{ fil_id: string; message_id: string; cible_cle: string; objet: string }>(
@@ -331,6 +351,21 @@ async function main(): Promise<void> {
    * On mesure donc : combien de mails rattachés à un bien tombent dans une période où le lot a changé
    * d'occupant — ce sont ceux où les deux mécanismes peuvent diverger.
    */
+  /**
+   * ══ 🔴🔴 CORRECTION DE MON PROPRE AUDIT (04/10/2026, lot HISTORIQUES-UNE-SEULE-REGLE) ════════════════════════
+   *
+   * La premiere version de ce rapport affirmait : « aucun rattachement ne vise une personne ». C'ETAIT FAUX, et
+   * je m'etais appuye sur un commentaire de code du 29/09/2026 qui n'est plus vrai, au lieu de compter.
+   *
+   * 🔴 ON COMPTE DONC, ICI, POUR DE BON. Et la consequence n'est pas mince : l'historique d'un proprietaire
+   * n'est PAS seulement l'union de ceux de ses biens — il porte aussi ses liens DIRECTS.
+   */
+  const cibles = await un<{ prop: string; loc: string; lot: string }>(
+    `SELECT count(*) FILTER (WHERE cible_sorte = 'proprietaire' AND statut = 'confirme')::text AS prop,
+            count(*) FILTER (WHERE cible_sorte = 'locataire'    AND statut = 'confirme')::text AS loc,
+            count(*) FILTER (WHERE cible_sorte = 'lot'          AND statut = 'confirme')::text AS lot
+       FROM gestion_rattachement`);
+
   const personnes = await un<{
     interventions: string; avec_role: string; sans_role: string; lots_multi_occup: string; mails_concernes: string;
   }>(
@@ -518,6 +553,14 @@ async function main(): Promise<void> {
   dire('Pour chaque mail, on a mis côte à côte **la liste des biens que montre la fenêtre « Bien(s) rattaché(s) à');
   dire('ce mail »** et **la liste des biens dont l’historique contient ce mail**. Les deux doivent être identiques.');
   dire();
+  dire('> ⚠️ **CE QUE CE RAPPORT EST, ET CE QU’IL N’EST PAS.** Les CHIFFRES ci-dessous sont mesurés à chaque');
+  dire('> relance : ils disent l’état du jour. La PROSE de la cartographie et de la correction proposée, elle, a');
+  dire('> été écrite le 04/10/2026 au matin et décrit l’état **AVANT** le lot HISTORIQUES-UNE-SEULE-REGLE. Les');
+  dire('> six points qu’elle propose ont depuis été faits : la règle est réunie dans `sqlLiensDuBien`, la fenêtre');
+  dire('> nomme le locataire du mail affiché, l’historique par locataire existe, les rattachements contraires aux');
+  dire('> règles sont retirés, les pièces non récupérées disent où les retrouver, et un seul numéro ouvre les deux');
+  dire('> adresses d’un bien. Ne pas relire cette prose comme un constat d’aujourd’hui.');
+  dire();
   dire('## 1) Cartographie — qui décide quoi');
   dire();
   dire('### La fenêtre « Bien(s) rattaché(s) à ce mail »');
@@ -541,8 +584,12 @@ async function main(): Promise<void> {
   dire();
   dire('- **Propriétaire** : `cible=proprio-<clé>`. `etendreCible()` remplace le propriétaire par la liste de ses');
   dire('  logements (`avecLogements`, allumé par défaut) et réutilise **exactement la même** `cteMessages()`.');
-  dire('  L’historique d’un propriétaire est donc l’union de ceux de ses biens — ce qui est juste, puisque');
-  dire('  **aucun** rattachement ne vise une personne (vérifié : 0 lien `cible_sorte = \'proprietaire\'` confirmé).');
+  dire('  L’historique d’un propriétaire est donc l’union de ceux de ses biens **ET** de ses liens DIRECTS.');
+  dire();
+  dire('  ⚠️ **CORRECTION DE MA PREMIÈRE VERSION.** Elle affirmait « aucun rattachement ne vise une personne ».');
+  dire('  C’est **faux** : je m’étais fié à un commentaire de code du 29/09/2026 au lieu de compter. Mesuré ce');
+  dire(`  jour : **${nombre(cibles.prop)}** liens « propriétaire » confirmés et **${nombre(cibles.loc)}** liens`);
+  dire(`  « locataire » confirmés, contre **${nombre(cibles.lot)}** liens « lot ».`);
   dire('- **Locataire** : *il n’existe pas*. Voir le point f).');
   dire();
   dire('### Est-ce le même code ?');
@@ -642,7 +689,10 @@ async function main(): Promise<void> {
   dire(`| Mails marqués « Interne » (par mail) | ${nombre(interne.marques)} | **${nombre(interne.avec_bien)}** |`);
   dire(`| Mails d’un échange marqué « Interne » | ${nombre(interneEchange.fils)} échange(s) |`
     + ` **${nombre(interneEchange.mails_avec_bien)}** |`);
-  dire(`| Mails « Document CRITERIMMO… » | ${nombre(criterimmo.mails)} | **${nombre(criterimmo.avec_bien)}** |`);
+  dire(`| Documents CRITERIMMO que NOUS envoyons | ${nombre(criterimmo.mails)}`
+    + ` | **${nombre(criterimmo.avec_bien)}** |`);
+  dire(`| Réponses de clients à un document (elles GARDENT leurs biens) | ${nombre(criterimmo.recus)}`
+    + ` | ${nombre(criterimmo.recus_avec_bien)} — et c’est normal |`);
   dire();
   dire(`**Auto** : ${nombre(auto.liens)} rattachement(s) automatique(s) jamais touché(s) par une personne,`);
   dire(`sur ${nombre(auto.mails)} mail(s). Écarts entre fenêtre et historique sur ces liens : **${nombre(auto.ecarts)}**.`);
@@ -666,7 +716,14 @@ async function main(): Promise<void> {
   dire(`Sur **${nombre(locataire.couples)}** couples (mail, bien), la fenêtre nomme **un autre locataire que celui`);
   dire(`en place à la date du mail** dans **${nombre(locataire.divergents)}** cas.`);
   dire();
-  dire('La cause est précise : la fenêtre cherche l’occupant à la date du mail **le plus récent de l’échange** qui');
+  dire('> 🔴🔴 **CE CHIFFRE MESURE LA RÈGLE D’AVANT, PAS LE CODE D’AUJOURD’HUI.** Cette section réécrit en SQL la');
+  dire('> règle que la fenêtre appliquait le 04/10/2026 au matin (l’occupant à la date du mail le plus récent de');
+  dire('> l’échange) : elle rendra donc toujours 89, même corrigée. La mesure du CODE RÉEL se fait par');
+  dire('> `app/scripts/verifier-locataire-a-la-date.ts`, qui appelle `ficheRattachementDuFil()` sur les 11 699');
+  dire('> couples et rend **0** depuis le point 2 du lot. Corriger la requête ci-dessous aurait rendu 0 **par');
+  dire('> construction** : on aurait changé l’instrument au lieu de mesurer la correction.');
+  dire();
+  dire('La cause est précise : la fenêtre cherchait l’occupant à la date du mail **le plus récent de l’échange** qui');
   dire('porte ce bien, et non à la date du mail affiché en tête. Ouverte sur un mail ancien d’une conversation qui');
   dire('traverse un changement de locataire, elle nomme donc l’occupant de la fin de la conversation.');
   if (exLocataire.length > 0) {
@@ -678,7 +735,15 @@ async function main(): Promise<void> {
     if (exLocataire.length > EXEMPLES) dire(`- … et ${exLocataire.length - EXEMPLES} autre(s)`);
   }
   dire();
-  dire('### 🔴 Il n’existe aucun historique de locataire');
+  dire('### ✅ L’historique de locataire — il n’existait pas, il existe');
+  dire();
+  dire('> 🔴 **FAIT AU POINT 3 DU LOT HISTORIQUES-UNE-SEULE-REGLE (04/10/2026).** La cible `locataire-<clé>`');
+  dire('> existe, la fiche annuaire du locataire y mène (« Son historique à lui, période par période »), et le');
+  dire('> contenu est borné à ses périodes d’occupation. Éprouvé sur toute la base : 510 locataires,');
+  dire('> 40 046 lignes, 33 489 mails distincts — 0 ligne hors période, 0 ligne hors sujet.');
+  dire('> Le paragraphe ci-dessous décrit l’état **AVANT** ce point ; il est gardé pour mémoire.');
+  dire();
+  dire('#### Pour mémoire — l’état d’avant');
   dire();
   dire('L’historique accepte trois cibles, et trois seulement : un **logement** (`lot-…`), un **propriétaire**');
   dire('(`proprio-…`) et une **carte** (`carte-…`) — voir `historique.PREFIXES`. Il n’y a pas de cible');
