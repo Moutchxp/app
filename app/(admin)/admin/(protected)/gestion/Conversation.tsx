@@ -48,7 +48,9 @@ import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/r
 // LOT BROUILLONS-GMAIL — la traduction « brouillon en base → brouillon d'éditeur », PURE.
 import { reprendreBrouillon, type BrouillonEnregistre } from '../../../../lib/gestion/brouillonReprise';
 import { heureGmail } from '../../../../lib/gestion/ecran';
-import { lienGmail, libelleEtoile, menuMessage, type ActionMessage } from '../../../../lib/gestion/gmailMenu';
+import {
+  lienGmail, libelleEtoile, menuMessage, COMPTE_GESTION_DEFAUT, type ActionMessage,
+} from '../../../../lib/gestion/gmailMenu';
 import { PanneauAffecter } from './PanneauAffecter';
 import { EncartAnnuaire } from './EncartAnnuaire';
 // Le bandeau porte son propre CSS en ligne, comme `EncartAnnuaire` : rien à ajouter à `CSS_CONVERSATION`.
@@ -1119,7 +1121,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const agirSurLeMessage = async (a: ActionMessage, m: MessageDeFil) => {
     const ouvrirDansGmail = () => {
-      const lien = lienGmail(redaction?.adresseGestion ?? 'gestion@criterimmo.fr', { messageIdRfc: m.messageIdRfc });
+      const lien = lienGmail(redaction?.adresseGestion ?? COMPTE_GESTION_DEFAUT, { messageIdRfc: m.messageIdRfc });
       if (lien === null) { onGeste('Impossible d’ouvrir ce message dans Gmail : son identifiant est inconnu.'); return; }
       window.open(lien, '_blank', 'noopener');
     };
@@ -2722,8 +2724,12 @@ export function MessageConversation({
               la vignette garde le lien d'avant : il n'y a pas là de conversation dont on pourrait faire le tour. */}
           {/* 🔴 LOT RANGER-INSTANTANE-ET-NOM — une pièce renommée au stylo puis rangée change de nom dans la base :
               seule la conversation sait relire le fil, et c'est de là que vient le nom affiché sur la carte. */}
+          {/* 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — l'adresse de CE mail dans Gmail. Elle ne sert qu'aux
+              pièces que nous n'avons PAS conservées (« voir dans Gmail »), et le même module pur la construit que
+              pour le menu « Ouvrir dans Gmail » du coin : une seule façon de pointer vers Gmail dans ce module. */}
           <PiecesJointes messageId={message.messageId} filId={filId} vraies={vraies} signatures={signatures}
-            onVisualiser={onVisualiser} onNomChange={onNomChange} />
+            onVisualiser={onVisualiser} onNomChange={onNomChange}
+            gmailDuMail={lienGmail(COMPTE_GESTION_DEFAUT, { messageIdRfc: message.messageIdRfc })} />
 
           {/* ══ 🔴 LOT FIL-LECTURE — RÉPONDRE À **CE** MESSAGE, PAS AU DERNIER DU FIL ═══════════════════════════
               Les trois gestes sous CHAQUE message déplié, et non plus seulement la flèche du coin. Chacun porte sur

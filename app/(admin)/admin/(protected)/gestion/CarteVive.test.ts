@@ -209,8 +209,24 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
     // La consultation : un bouton nommé, qui ouvre la visionneuse maison (lot PIECES-DE-LA-CONVERSATION).
     const voir = boutons().find((b) => (b.getAttribute('aria-label') ?? '').includes('Visualiser constat.pdf'));
     expect(voir).toBeDefined();
-    // 🔒 ET RIEN, NULLE PART, NE POINTE VERS LE STOCKAGE : c'est l'exigence d'Arno, inchangée depuis le lot 4c.
-    for (const a of liens()) expect(a.getAttribute('href') ?? '').not.toMatch(/^https?:|minio|amazonaws|X-Amz/i);
+    /**
+     * 🔒 ET RIEN, NULLE PART, NE POINTE VERS LE STOCKAGE : c'est l'exigence d'Arno, inchangée depuis le lot 4c.
+     *
+     * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — LA SEULE ADRESSE EXTERNE PERMISE ═══════════════════════
+     *
+     * L'assertion interdisait TOUT `https:`. C'était un instrument plus large que la règle qu'il protège — le
+     * commentaire ci-dessus le dit : « aucune URL de STOCKAGE ». Arno a demandé le 04/10/2026 qu'une pièce non
+     * conservée porte « voir dans Gmail » avec un lien ; ce lien est forcément en `https:`.
+     *
+     * 🔴 ON RESSERRE DONC L'ASSERTION SUR SON INTENTION, SANS L'AFFAIBLIR : aucune URL de stockage (hôte, clé
+     * pré-signée), et la SEULE adresse externe tolérée est `mail.google.com`. Un lien vers n'importe quel autre
+     * hôte fait toujours échouer ce test. Élargir à `^https?:` tout court, là, aurait ouvert la porte en grand.
+     */
+    for (const a of liens()) {
+      const href = a.getAttribute('href') ?? '';
+      expect(href).not.toMatch(/minio|amazonaws|X-Amz|blob:|data:/i);
+      if (href.startsWith('http')) expect(href).toMatch(/^https:\/\/mail\.google\.com\//);
+    }
     // Les octets restent servis par NOTRE route, et par elle seule.
     expect(liens().some((a) => (a.getAttribute('href') ?? '').startsWith('/api/admin/gestion/pieces/7'))).toBe(true);
   });
@@ -220,9 +236,20 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
     expect(liens().some((a) => a.getAttribute('href') === '/api/admin/gestion/pieces/7?telecharger=1')).toBe(true);
   });
 
-  it('une pièce NON conservée est dite telle, avec son motif, et SANS lien mort', async () => {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — LE MOT A CHANGÉ, LA PROPRIÉTÉ GARDÉE EST LA MÊME ═════════
+   *
+   * DEMANDE D'ARNO (04/10/2026) : « affiche sur ces seules pièces “Pièce non récupérée — voir dans Gmail” avec un
+   * lien. » La mention « — non conservée » devient donc « — Pièce non récupérée — voir dans Gmail », et le MOTIF
+   * reste écrit à côté : il dit POURQUOI nous ne l'avons pas gardée, sans quoi on croirait à une panne.
+   *
+   * 🔴 CE QUE CE TEST CONTINUE DE TENIR, ET C'EST L'ESSENTIEL : le NOM de la pièce n'est jamais un lien. Il n'y a
+   * pas d'octets derrière — un lien sur le nom serait un lien mort, et c'est le défaut que ce test ferme depuis
+   * son premier jour.
+   */
+  it('une pièce NON conservée est dite telle, avec son motif, et SANS lien mort sur son nom', async () => {
     await ouvrirTout();
-    expect(container.textContent).toContain('video.mov — non conservée (type refusé)');
+    expect(container.textContent).toContain('video.mov — Pièce non récupérée — voir dans Gmail (type refusé)');
     expect(liens().some((a) => a.textContent?.includes('video.mov'))).toBe(false);
   });
 

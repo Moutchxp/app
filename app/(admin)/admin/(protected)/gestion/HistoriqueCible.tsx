@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CSS_PIECES, PiecesJointes } from './PiecesJointes';
 import { motSorte, CSS_ENCART_RATTACHEMENT } from './EncartRattachement';
+// 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — « voir dans Gmail » sur une piece non conservee.
+import { lienGmail, COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailMenu';
 import { dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
@@ -504,7 +506,8 @@ function Frise({ lignes, maintenant, deplie, setDeplie, onOuvrirFil, avecCible }
 
             {l.pieces.length > 0 && (
               ouvert ? (
-                <PiecesJointes messageId={l.messageId} filId={l.filId} vraies={vraies} signatures={signatures} />
+                <PiecesJointes messageId={l.messageId} filId={l.filId} vraies={vraies} signatures={signatures}
+                  gmailDuMail={lienGmail(COMPTE_GESTION_DEFAUT, { messageIdRfc: l.messageIdRfc })} />
               ) : (
                 <button type="button" className="gst-lien-bouton" onClick={() => {
                   const s = new Set(deplie);

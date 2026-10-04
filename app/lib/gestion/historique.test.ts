@@ -145,6 +145,9 @@ describe('le regroupement par cible', () => {
     messageId: id, filId: 1, recuLe: date, sens: 'recu', de: 'a@fictif.fr', deNom: null, destinataires: [],
     objet: null, extrait: null, pieces: [], parCible: cibleLot(cle), cibleLibelle: `lot ${cle}`,
     source: 'rattachement',
+    /* 🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — le Message-ID RFC. `null` ici : ce groupe n'éprouve que le
+       regroupement, et une ligne sans Message-ID est un cas réel (la mention « voir dans Gmail » reste nue). */
+    messageIdRfc: null,
     // ⚠️ LOT FICHES-ANNUAIRE — une ligne porte désormais les événements de son ÉCHANGE. Vide = aucun, ce qui est
     //    le cas de la très grande majorité des mails : l'événement est facultatif dans ce module.
     evenements: [],

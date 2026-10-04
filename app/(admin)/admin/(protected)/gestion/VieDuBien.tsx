@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { CSS_PIECES, PiecesJointes } from './PiecesJointes';
+// 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — « voir dans Gmail » sur une piece non conservee.
+import { lienGmail, COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailMenu';
 import { dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
 import { corpsLisible, etatTrombone, motTrombone, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
@@ -261,7 +263,8 @@ function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil }: {
             </p>
           )}
           {l.pieces.length > 0 && (
-            <PiecesJointes messageId={l.messageId} filId={l.filId} vraies={vraies} signatures={signatures} />
+            <PiecesJointes messageId={l.messageId} filId={l.filId} vraies={vraies} signatures={signatures}
+              gmailDuMail={lienGmail(COMPTE_GESTION_DEFAUT, { messageIdRfc: l.messageIdRfc })} />
           )}
           {onOuvrirFil && (
             <button type="button" className="gst-lien-bouton"

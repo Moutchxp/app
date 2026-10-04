@@ -524,10 +524,12 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
     message_id: string; fil_id: string; recu_le: string; sens: string; de: string; de_nom: string | null;
     objet: string | null; extrait: string | null; dest_a: string | null; dest_cc: string | null;
     cible_sorte: string; cible_cle: string | null; cible_id: string | null; cible_libelle: string | null;
-    source: string;
+    source: string; message_id_rfc: string | null;
   }>(
     `WITH ${cte}
      SELECT m.id AS message_id, m.fil_id,
+            -- 🔴🔴 POINT 5 — le Message-ID RFC : il ne sert qu'a « voir dans Gmail » sur une piece non conservee.
+            m.message_id AS message_id_rfc,
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le,
             m.sens, m.de_adresse AS de, m.de_nom, m.objet,
             left(coalesce(m.corps_texte, ''), ${EXTRAIT_MAX}) AS extrait,
@@ -571,6 +573,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
             : cibleProprietaire(r.cible_cle ?? '');
       return {
         messageId: Number(r.message_id), filId: Number(r.fil_id), recuLe: r.recu_le,
+        messageIdRfc: r.message_id_rfc,
         sens: r.sens === 'envoye' ? 'envoye' : 'recu',
         de: r.de, deNom: r.de_nom, objet: r.objet,
         extrait: (r.extrait ?? '').trim() === '' ? null : (r.extrait ?? '').trim(),

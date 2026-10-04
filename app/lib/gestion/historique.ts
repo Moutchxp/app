@@ -200,6 +200,16 @@ export interface PieceHistorique {
 export interface LigneHistorique {
   messageId: number;
   filId: number;
+  /**
+   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — LE `Message-ID` RFC, pour retrouver le mail DANS GMAIL.
+   *
+   * Il ne sert qu'à une chose : construire « voir dans Gmail » sur les pièces que nous n'avons PAS conservées
+   * (`lienGmail`). Rien d'autre à l'écran ne le lit.
+   *
+   * ⚠️ `null` ⇒ PAS DE LIEN, et la mention reste nue. On ne devine pas une adresse Gmail : un lien qui ouvre la
+   * mauvaise boîte est pire qu'un constat.
+   */
+  messageIdRfc: string | null;
   recuLe: string;
   sens: 'recu' | 'envoye';
   de: string;

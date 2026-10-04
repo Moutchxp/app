@@ -101,6 +101,18 @@ export function ecritDansGmail(a: ActionMessage): boolean {
 const GMAIL = 'https://mail.google.com/mail/u/';
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — LE COMPTE PAR DÉFAUT, ÉCRIT UNE SEULE FOIS ══════════════════
+ *
+ * `authuser` présélectionne le compte Google : sans lui, quelqu'un connecté à deux comptes tombe dans la mauvaise
+ * boîte. La conversation connaît l'adresse de session et la passe ; les écrans qui ne la connaissent pas (la frise
+ * d'un historique, la vie d'un bien) emploient celle-ci.
+ *
+ * 🔴 ELLE EST ICI PARCE QU'ELLE ÉTAIT DÉJÀ ÉCRITE EN DUR DANS `Conversation.tsx`. Une seconde copie en aurait fait
+ * deux vérités, et le jour où l'adresse de gestion change, c'est celle qu'on ne voit pas qui reste fausse.
+ */
+export const COMPTE_GESTION_DEFAUT = 'gestion@criterimmo.fr';
+
+/**
  * L'ADRESSE DU MESSAGE DANS GMAIL, pour l'ouvrir dans un onglet.
  *
  * DEUX FORMES, dans cet ordre : par identifiant de fil quand on le connaît (Gmail y va directement) ; sinon par

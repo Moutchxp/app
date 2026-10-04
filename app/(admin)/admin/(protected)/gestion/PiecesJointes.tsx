@@ -76,8 +76,23 @@ export interface DepotAffiche {
 /** Ce que le clic sur un bouton Drive demande : une pièce, ou tout le message. */
 export type Demande = { quoi: 'piece'; pieceId: number; nom: string } | { quoi: 'message' };
 
-export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualiser, onNomChange }: {
+export function PiecesJointes({
+  messageId, filId, vraies, signatures, onVisualiser, onNomChange, gmailDuMail = null,
+}: {
   messageId: number;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — OÙ RETROUVER UNE PIÈCE QU'ON N'A PAS GARDÉE ═════════════
+   *
+   * DEMANDE D'ARNO (04/10/2026) : « Sinon, affiche sur ces seules pièces “Pièce non récupérée — voir dans Gmail”
+   * avec un lien. »
+   *
+   * L'adresse du mail dans Gmail, construite par `lienGmail` (module pur, déjà employé par le menu de la
+   * conversation). Elle ne sert QU'aux pièces non conservées, et nulle part ailleurs sur la carte.
+   *
+   * ⚠️ `null` ⇒ LA MENTION SANS LIEN. Mieux vaut un constat nu qu'un lien qui ouvrirait la mauvaise boîte : sans
+   * `Message-ID`, on ne sait pas où pointer, et `lienGmail` rend `null` plutôt que d'improviser.
+   */
+  gmailDuMail?: string | null;
   /** Sert à rouvrir le sélecteur sur le dernier dossier utilisé pour CET échange. */
   filId?: number | null;
   /**
@@ -202,6 +217,7 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
       {vraies.length > 0 && (
         <BlocPieces
           messageId={messageId} pieces={vraies} depotDe={depotDe} indisponible={empeche}
+          gmailDuMail={gmailDuMail}
           emplacementsDePiece={(id) => emplacementsDe(statuts, id)}
           onVoirDansLeDrive={setAVoirDansLeDrive}
           onDrive={(d) => setDemande(d)} onVisualiser={onVisualiser}
@@ -219,6 +235,7 @@ export function PiecesJointes({ messageId, filId, vraies, signatures, onVisualis
               pièce absente du tour — compteur « 0 / 7 » sur une image bien affichée. */}
           <BlocPieces
             messageId={messageId} pieces={signatures} archive={false} depotDe={depotDe} indisponible={empeche}
+            gmailDuMail={gmailDuMail}
             emplacementsDePiece={(id) => emplacementsDe(statuts, id)}
             onVoirDansLeDrive={setAVoirDansLeDrive}
             onDrive={(d) => setDemande(d)}
@@ -323,9 +340,11 @@ export function aRanger(d: Demande, vraies: PieceAffichee[], signatures: PieceAf
 
 function BlocPieces({
   messageId, pieces, archive = true, depotDe, indisponible, onDrive, onVisualiser,
-  emplacementsDePiece, onVoirDansLeDrive,
+  emplacementsDePiece, onVoirDansLeDrive, gmailDuMail,
 }: {
   messageId: number; pieces: PieceAffichee[]; archive?: boolean;
+  /** 🔴🔴 POINT 5 — l'adresse du mail dans Gmail, pour les pièces non conservées. Voir `PiecesJointes`. */
+  gmailDuMail: string | null;
   depotDe: (pieceId: number) => DepotAffiche | undefined;
   /** `null` = les boutons Drive agissent. Sinon, le MOTIF, affiché tel quel : c'est un constat, pas un geste. */
   indisponible: string | null;
@@ -389,7 +408,28 @@ function BlocPieces({
           {refusees.map((p) => (
             <li key={p.pieceId} className="pj-refusee">
               <span className="pj-refusee-nom" title={p.nomFichier}>{tronquerNom(p.nomFichier, 40)}</span>
-              {' — non conservée'}{p.motifNonStocke ? ` (${p.motifNonStocke})` : ''}
+              {/* ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — « voir dans Gmail », ET SEULEMENT ICI ══════
+
+                  DEMANDE D'ARNO : « affiche sur ces seules pièces “Pièce non récupérée — voir dans Gmail” avec un
+                  lien. » Le lien mène au MAIL, pas à la pièce : Gmail n'adresse pas une pièce jointe isolément,
+                  et prétendre le contraire donnerait un lien mort.
+
+                  🔴 LE MOTIF RESTE ÉCRIT À CÔTÉ, et ce n'est pas du bavardage : il dit POURQUOI nous ne l'avons
+                  pas gardée (« type non autorisé pour la gestion », « pièce trop volumineuse »). Sans lui, on
+                  croirait à une panne de la relève et on la relancerait en vain.
+
+                  ⚠️ SANS LIEN, LA MENTION RESTE : un constat nu vaut mieux qu'un lien qui ouvrirait la mauvaise
+                  boîte. `lienGmail` rend `null` quand il ne sait pas où pointer. */}
+              {' — Pièce non récupérée — '}
+              {gmailDuMail === null ? (
+                <span className="pj-refusee-gmail">voir dans Gmail</span>
+              ) : (
+                <a className="pj-refusee-gmail" href={gmailDuMail} target="_blank" rel="noreferrer"
+                  title="Ouvrir ce mail dans Gmail — la pièce y est encore">
+                  voir dans Gmail ↗
+                </a>
+              )}
+              {p.motifNonStocke ? ` (${p.motifNonStocke})` : ''}
             </li>
           ))}
         </ul>
@@ -627,6 +667,12 @@ ${CSS_PICTO_DANS_LE_DRIVE}
 
 .pj-refusees{list-style:none;margin:.45rem 0 0;padding:0;display:flex;flex-direction:column;gap:.2rem}
 .pj-refusee{font-size:.78rem;color:var(--color-svv-ink-soft)}
+/* 🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — « voir dans Gmail » : un LIEN, qui se voit comme un lien (souligne
+   et teinte), et un simple mot quand il n'y a nulle part a pointer. Meme jeton que les autres liens du module,
+   donc lisible en Clair comme en Sombre. */
+.pj-refusee-gmail{font-weight:600;color:var(--color-svv-red);text-decoration:underline}
+a.pj-refusee-gmail:hover{text-decoration:none}
+span.pj-refusee-gmail{color:var(--color-svv-muted);text-decoration:none;font-style:italic}
 .pj-refusee-nom{color:var(--color-svv-ink)}
 
 .pj-signatures{margin-top:.5rem}
