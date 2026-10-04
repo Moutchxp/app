@@ -56,9 +56,16 @@ import {
   arbreARestaurer, piecesEmportees, resumeARanger, signatureSession, titreFenetre,
   type ModeDrive, type PieceARanger, type Rangee,
 } from '../../../../lib/gestion/rangementDrive';
-// 🔴 LOT RENOMMER-AVANT-RANGER — le nom sous lequel une pièce partira. Module PUR, partagé avec la route.
+/**
+ * 🔴 LOT RENOMMER-AVANT-RANGER — le nom sous lequel une pièce partira. Module PUR, partagé avec la route.
+ *
+ * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 1 — `eclaterNom` ET `verifierNom` ARRIVENT ICI. Ce sont EXACTEMENT
+ * les deux fonctions que la route `/api/admin/gestion/drive/renommer` appelle avant d'écrire : l'écran juge donc la
+ * saisie avec la règle du serveur, et non avec une règle qui lui ressemble. Si l'écran disait oui là où le serveur
+ * dit non, on verrait un nom s'afficher puis un refus — ou l'inverse, ce qui est pire.
+ */
 import {
-  estRenommee, INFOBULLE_RENOMMER, mentionNomOrigine, nomDeDepot,
+  eclaterNom, estRenommee, INFOBULLE_RENOMMER, mentionNomOrigine, nomDeDepot, NOM_MAX, verifierNom,
 } from '../../../../lib/gestion/renommagePiece';
 /**
  * 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — « Supprimer » = METTRE À LA CORBEILLE DU DRIVE. Module PUR : la
@@ -493,6 +500,35 @@ export function SelecteurFichierDrive({
   const [nomsChoisis, setNomsChoisis] = useState<ReadonlyMap<number, string>>(new Map());
   /** La pièce dont l'aperçu doit s'ouvrir DIRECTEMENT sur le champ (arrivée par le stylo). */
   const [renommerDabord, setRenommerDabord] = useState<number | null>(null);
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 1a — LA LIGNE QU'ON RENOMME SUR PLACE ════════════════════
+   *
+   * Demande d'Arno (04/10/2026) : « un picto ✏️ “Renommer” dans la petite barre qui apparaît au survol d'une
+   * ligne, à côté de 👁, 📎 et 🔗 […] seule la partie SANS l'extension est sélectionnée, et l'extension n'est
+   * jamais modifiable. Entrée valide, Échap annule. Nom vide ou caractères interdits refusés, avec un message
+   * clair. »
+   *
+   * 🔴 L'EXTENSION EST DANS CET ÉTAT, PAS RECALCULÉE AU RENDU. Elle est décidée UNE FOIS, à l'ouverture, par
+   * `eclaterNom(nom, typeMime)` — le même module pur que la visionneuse et que le serveur. La recalculer à
+   * chaque frappe la ferait changer sous les doigts : taper « Bail 2026.03 » sur un PDF verrait « .03 » devenir
+   * l'extension au milieu de la saisie, et la fin du nom cesserait d'être modifiable.
+   *
+   * 🔴 `base` EST LA SEULE CHOSE QU'ON SAISIT. L'extension s'affiche à côté du champ, en gris, et se recolle à
+   * la validation — c'est `verifierNom` qui le fait, pas cet écran.
+   *
+   * ⚠️ LA CLÉ EST L'IDENTIFIANT DRIVE : deux fichiers d'un dossier peuvent porter le même nom (Google l'autorise,
+   * et l'agence en a), et les confondre renommerait l'autre.
+   */
+  const [renommageLigne, setRenommageLigne] = useState<{
+    fileId: string; nomOrigine: string; base: string; extension: string; erreur: string | null;
+  } | null>(null);
+  /**
+   * ⚠️ LE MÊME PIÈGE QUE LA LIGNE NEUVE, ET IL A DÉJÀ COÛTÉ UN LOT : le champ est CONTRÔLÉ, donc sa référence est
+   * rappelée à chaque frappe. Sélectionner à chaque passage resélectionnerait tout après chaque lettre, et la
+   * suivante l'écraserait — on taperait quarante caractères, il en resterait UN. Le drapeau borne le geste au
+   * premier montage.
+   */
+  const baseDejaSelectionnee = useRef(false);
   /** La ligne de dossier en cours de création, s'il y en a une. */
   const [ligneNeuve, setLigneNeuve] = useState<LigneNeuve>(LIGNE_FERMEE);
   const [motDeLaCreation, setMotDeLaCreation] = useState<string | null>(null);
@@ -2702,6 +2738,13 @@ export function SelecteurFichierDrive({
    */
   const renommerPourDeVrai = async (
     quoi: { pieceId: number } | { driveFileId: string }, nom: string,
+    /**
+     * ⚠️ LA REMARQUE DE LA SAISIE, QUAND IL Y EN A UNE (lot RENOMMER-PARTOUT-ET-FINITIONS, point 1a). « Caractères
+     * retirés : / — ils sont interdits » n'est PAS un refus : le nom est parti, et il n'est simplement pas
+     * exactement celui qu'on a tapé. Elle est passée ICI parce que ce geste finit par écrire `setErreur` : la
+     * poser avant l'appel l'aurait effacée au retour du réseau, et le nom aurait changé sans un mot.
+     */
+    remarque: string | null = null,
   ): Promise<void> => {
     try {
       const res = 'pieceId' in quoi
@@ -2719,8 +2762,13 @@ export function SelecteurFichierDrive({
       if (d.etat !== 'ok') { setErreur(d.message ?? 'Le renommage n’a pas abouti.'); return; }
       const refus = d.refus ?? [];
       /* ⚠️ UN REFUS PARTIEL SE DIT. La pièce EST renommée chez nous ; une copie qu'on n'a pas pu toucher n'est
-         pas une panne du geste, mais le taire laisserait croire que tout a suivi. */
-      setErreur(refus.length === 0 ? null : `${refus.length} copie(s) du Drive n’ont pas suivi : ${refus[0].motif}`);
+         pas une panne du geste, mais le taire laisserait croire que tout a suivi.
+         🔴 C'EST ICI QUE LA COPIE SOUS « Documents clients scannés » SE SIGNALE, et c'est la demande d'Arno mot
+         pour mot : « elle est ignorée et signalée ». Le refus est prononcé par le SERVEUR, qui remonte la chaîne
+         de parents chez Google avant chaque écriture ; l'écran ne fait que le lire à voix haute. */
+      const motRefus = refus.length === 0 ? null
+        : `${refus.length} copie(s) du Drive n’ont pas suivi : ${refus[0].motif}`;
+      const aDire = [remarque, motRefus].filter((x) => x !== null).join(' ') || null;
       /**
        * ══ 🔴🔴 LA VIGNETTE APPREND SON NOUVEAU NOM, ET C'EST INDISPENSABLE ════════════════════════════════════
        *
@@ -2741,9 +2789,87 @@ export function SelecteurFichierDrive({
       const id = dossierCourant?.id ?? '';
       cache.current.delete(id);
       void charger(id);
+      /**
+       * ══ 🔴🔴 LE MESSAGE SE POSE **APRÈS** LA RELECTURE, ET C'EST UN CORRECTIF ═══════════════════════════════
+       *
+       * DÉFAUT TROUVÉ À L'ÉPREUVE RÉELLE, le 04/10/2026 (lot RENOMMER-PARTOUT-ET-FINITIONS, point 1). Le
+       * renommage de « Recommandé M Ahmed KHARRAT.pdf » a réussi sur QUATRE copies et en a refusé UNE (chaîne de
+       * parents illisible) — la réponse du serveur le disait noir sur blanc. L'écran, lui, n'a rien affiché : le
+       * message partait avant `charger`, dont la toute première instruction est `setErreur(null)`. La mise en
+       * garde était donc écrite, puis effacée dans le même tour de rendu, et jamais lue.
+       *
+       * 🔴 CE N'EST PAS UN DÉTAIL D'AFFICHAGE : c'est exactement la phrase qu'Arno demande pour une copie sous
+       * « Documents clients scannés » — « elle est ignorée et signalée ». Signalée dans une variable que personne
+       * ne voit ne l'est pas.
+       *
+       * ⚠️ L'ORDRE EST LA CORRECTION, ET IL EST FRAGILE : `charger` remet l'erreur à zéro de façon SYNCHRONE,
+       * avant son premier `await`. Poser le message juste après son lancement le laisse donc en place. Remettre
+       * ces deux lignes dans l'autre sens ferait revenir le défaut, sans qu'aucun type ne s'en plaigne — d'où le
+       * test qui fige l'ordre.
+       */
+      setErreur(aDire);
     } catch {
       setErreur('Le renommage n’a pas abouti : le réseau n’a pas répondu.');
     }
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 1a — RENOMMER UNE LIGNE SUR PLACE
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+     Trois gestes seulement : ouvrir, valider, abandonner. Aucun n'écrit quoi que ce soit lui-même — la validation
+     passe par `renommerPourDeVrai`, celui que la vignette utilise déjà. C'est tout l'objet du point : UN SEUL
+     chemin d'écriture, pour que la règle ne puisse pas se dédoubler. */
+
+  /**
+   * OUVRIR L'ÉDITION SUR UNE LIGNE.
+   *
+   * 🔴 L'EXTENSION EST FIGÉE ICI, par `eclaterNom(nom, typeMime)` — le nom d'abord, le TYPE en secours quand le
+   * nom n'en porte pas (c'est la règle du lot RENOMMAGE-UN-SEUL-NOM, et c'est elle qui empêche « reco renomage »
+   * de partir nu).
+   *
+   * ⚠️ LE DRAPEAU DE SÉLECTION EST REMIS À ZÉRO À CHAQUE OUVERTURE, sinon la deuxième ligne qu'on renomme
+   * s'ouvrirait sans rien de sélectionné — et il faudrait tout effacer à la main.
+   */
+  const ouvrirRenommageLigne = (f: EntreeDrive): void => {
+    const { base, extension } = eclaterNom(f.nom, f.typeMime);
+    baseDejaSelectionnee.current = false;
+    setRenommageLigne({ fileId: f.id, nomOrigine: f.nom, base, extension, erreur: null });
+  };
+
+  /** ABANDONNER : Échap, et rien d'autre. Aucune écriture n'a eu lieu, il n'y a donc rien à défaire. */
+  const annulerRenommageLigne = (): void => setRenommageLigne(null);
+
+  /**
+   * VALIDER.
+   *
+   * 🔴 LE JUGE EST `verifierNom`, LE MÊME QUE LA ROUTE. Un refus (nom vide, nom réduit à l'extension) RESTE dans
+   * le champ avec son message : on ne ferme pas une saisie refusée, sinon le nom tapé serait perdu et le refus
+   * illisible. Une REMARQUE (caractères interdits retirés, nom raccourci) ne refuse rien — elle se dit après coup,
+   * comme pour la vignette.
+   *
+   * ⚠️ UN NOM INCHANGÉ FERME SANS ÉCRIRE. Envoyer quand même ferait une écriture Drive, une ligne de journal et
+   * une relecture de dossier pour rien — et, surtout, cela ferait mentir le journal sur ce qui s'est passé.
+   *
+   * 🔴🔴 UN REFUS NE SE TRAITE PAS PAREIL SELON LE GESTE, ET C'EST UN PIÈGE QU'IL FAUT NOMMER. Sur ENTRÉE, on
+   * garde le champ ouvert avec son message : la personne a demandé à valider, elle doit pouvoir corriger sans
+   * retaper. Sur un CLIC AILLEURS, on ABANDONNE : le champ n'a plus le focus, donc Échap ne lui parviendrait plus
+   * — il remonterait à la fenêtre et fermerait le Drive entier. Un champ en erreur dont on ne peut plus sortir que
+   * par la fermeture de la fenêtre est un cul-de-sac, et rien n'est perdu en abandonnant puisque rien n'a été
+   * écrit. C'est aussi ce que fait le Finder.
+   */
+  const validerRenommageLigne = (parClicAilleurs = false): void => {
+    const r = renommageLigne;
+    if (r === null) return;
+    const verdict = verifierNom(r.base, r.extension);
+    if (verdict.refus !== null) {
+      if (parClicAilleurs) { setRenommageLigne(null); return; }
+      setRenommageLigne({ ...r, erreur: verdict.refus });
+      return;
+    }
+    setRenommageLigne(null);
+    if (verdict.nom === r.nomOrigine) { setErreur(verdict.remarque); return; }
+    void renommerPourDeVrai({ driveFileId: r.fileId }, verdict.nom, verdict.remarque);
   };
 
   /** Le voisinage du tour : les pièces visualisables du mail, et rien d'autre. */
@@ -5236,7 +5362,59 @@ export function SelecteurFichierDrive({
                               </button>
                             ) : <span className="sfd-triangle sfd-triangle--vide" aria-hidden="true" />}
                             <span className="sfd-icone" aria-hidden="true">{iconeEntree(f)}</span>
-                            <span className="sfd-nom" title={f.nom}>{f.nom}</span>
+                            {/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 1a — LE NOM, OU SA SAISIE ══════
+                                L'édition se fait SUR PLACE, à la place exacte du nom : c'est ce qui rend évident
+                                quel fichier on renomme. Une boîte de dialogue aurait fait perdre la ligne de vue.
+
+                                🔴 L'EXTENSION EST À CÔTÉ DU CHAMP, ET HORS DU CHAMP. Elle n'est donc pas
+                                modifiable — pas « difficilement », pas « déconseillée » : elle n'est pas saisie.
+                                Un « .pdf » devenu « .pdff » est un fichier que rien n'ouvre, et la faute ne se
+                                voit qu'au moment où l'on en a besoin.
+
+                                ⚠️ LE CLIC DANS LE CHAMP NE DOIT PAS ATTEINDRE LA LIGNE : la ligne sélectionne,
+                                déplie et, au double-clic, ouvre la visionneuse. Sans ce `stopPropagation`, poser
+                                le curseur au milieu du nom ouvrait l'aperçu par-dessus la saisie. */}
+                            {renommageLigne?.fileId === f.id ? (
+                              <span className="sfd-renom" onClick={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => e.stopPropagation()}>
+                                <input
+                                  className="sfd-renom-champ" type="text"
+                                  value={renommageLigne.base}
+                                  maxLength={Math.max(1, NOM_MAX - renommageLigne.extension.length)}
+                                  aria-label={`Nouveau nom de ${f.nom}`}
+                                  aria-invalid={renommageLigne.erreur !== null}
+                                  onChange={(e) => setRenommageLigne((x) => (x === null ? null
+                                    : { ...x, base: e.target.value, erreur: null }))}
+                                  /* 🔴 ENTRÉE VALIDE, ÉCHAP ANNULE (demande d'Arno). Échap est arrêté ICI : sans
+                                     cela il remonterait jusqu'à la fenêtre, dont Échap ferme TOUT — on perdrait
+                                     le Drive entier pour avoir abandonné un nom. */
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') { e.preventDefault(); validerRenommageLigne(); return; }
+                                    if (e.key === 'Escape') {
+                                      e.preventDefault(); e.stopPropagation(); annulerRenommageLigne();
+                                    }
+                                  }}
+                                  /* ⚠️ LE CLIC AILLEURS VALIDE, comme sur la ligne de création d'un dossier juste
+                                     à côté — et comme dans le Finder. Deux lignes voisines qui ne réagiraient pas
+                                     pareil au même geste seraient un piège. Un nom REFUSÉ, lui, est abandonné
+                                     plutôt que laissé en erreur sans focus : voir `validerRenommageLigne`. */
+                                  onBlur={() => validerRenommageLigne(true)}
+                                  ref={(el) => {
+                                    if (el === null || baseDejaSelectionnee.current) return;
+                                    baseDejaSelectionnee.current = true;
+                                    el.focus();
+                                    /* 🔴 SEULE LA PARTIE SANS L'EXTENSION EST SÉLECTIONNÉE — elle l'est tout
+                                       entière, parce que le champ NE CONTIENT QUE cette partie. */
+                                    el.select();
+                                  }} />
+                                <span className="sfd-renom-ext" aria-hidden="true">{renommageLigne.extension}</span>
+                                {/* 🔴 LE REFUS SE LIT À CÔTÉ DU CHAMP, et le champ reste ouvert : c'est la seule
+                                    façon de corriger sans retaper. `role="alert"` le fait annoncer. */}
+                                {renommageLigne.erreur !== null && (
+                                  <span className="sfd-renom-refus" role="alert">{renommageLigne.erreur}</span>
+                                )}
+                              </span>
+                            ) : <span className="sfd-nom" title={f.nom}>{f.nom}</span>}
                             {/* ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE REPÈRE DE LA LOUPE, ET SON NOMBRE ═══════
                                 UN SEUL repère par chemin, posé sur le nœud VISIBLE le plus profond. Le nombre ne
                                 s'affiche qu'au-delà de un : « 2 » dit que deux emplacements passent par ce dossier
@@ -5304,6 +5482,36 @@ export function SelecteurFichierDrive({
                                 aria-label={`Insérer un lien vers ${f.nom}`} onClick={() => lier(f)}>
                                 <span aria-hidden="true">🔗</span>
                               </button>
+                              {/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 1a — LE CRAYON ✏️ ════════════
+                                  Arno : « un picto ✏️ “Renommer” dans la petite barre qui apparaît au survol
+                                  d'une ligne, à côté de 👁, 📎 et 🔗 ».
+
+                                  🔴🔴 IL SUIT `lisible`, ET C'EST LA RÈGLE DE L'ARCHIVE, PAS UNE PRÉCAUTION.
+                                  `lisible` est faux dans exactement deux cas, et tous deux interdisent le
+                                  renommage par avance :
+                                    · sous 🔴🔴 « Documents clients scannés », où le serveur refuse TOUT (Arno :
+                                      « une copie située là n'est JAMAIS renommée ») — c'est le seul endroit où
+                                      l'écran SAIT que le refus est certain, parce que le serveur le lui dit pour
+                                      le dossier entier (`joindreAutorise`) ;
+                                    · sur un « ._ » de macOS, jumeau technique qui n'est ni dans notre registre
+                                      ni un document — le renommer ne voudrait rien dire.
+                                  Offrir un geste dont on SAIT qu'il sera refusé, dans le dossier le plus
+                                  sensible du Drive, serait pire qu'inutile : cela ferait croire que l'archive
+                                  s'écrit.
+
+                                  🔴 PARTOUT AILLEURS IL EST ALLUMÉ, et ce n'est pas un oubli. Le dernier refus
+                                  possible — « ce fichier n'est pas dans notre registre » — demande NOTRE base :
+                                  l'écran ne l'a pas. Éteindre le bouton « au cas où » reviendrait à deviner, et
+                                  à interdire des renommages parfaitement légitimes ; le refus se dit APRÈS, en
+                                  clair. C'est le raisonnement déjà tenu pour le crayon des pièces au lot
+                                  ETOILE-SIGNATURES-PIECES. */}
+                              {lisible && (
+                                <button type="button" className="sfd-geste" title="Renommer"
+                                  aria-label={`Renommer ${f.nom}`}
+                                  onClick={() => ouvrirRenommageLigne(f)}>
+                                  <span aria-hidden="true">✏️</span>
+                                </button>
+                              )}
                             </span>
                           )}
                         </li>
@@ -5497,9 +5705,12 @@ export function SelecteurFichierDrive({
             modifieLe: null, lien: f.lien, dossier: false,
           });
         }}
-        /* ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE BANDEAU DE NOM, SEULEMENT SUR UNE PIÈCE REÇUE ═══════════════
-            Un fichier du DRIVE ne se renomme pas ici : il existe déjà là-bas, et l'application n'y renomme rien.
-            La prop est donc absente dans ce cas, et l'aperçu est celui d'avant ce lot, mot pour mot.
+        /* ══ 🔴🔴 LE BANDEAU DE NOM DE LA VISIONNEUSE — TROIS SORTES DE DOCUMENTS ═════════════════════════════
+            CE QUI ÉTAIT ÉCRIT ICI, ET QUI EST FAUX DEPUIS LE 04/10/2026 : « un fichier du DRIVE ne se renomme pas
+            ici : il existe déjà là-bas, et l'application n'y renomme rien. La prop est donc absente dans ce cas. »
+            C'était la règle du lot RENOMMER-AVANT-RANGER ; Arno l'a levée au point 1 du lot
+            RENOMMER-PARTOUT-ET-FINITIONS, et le bandeau sert désormais les TROIS : une pièce reçue, une vignette
+            dupliquée, et un fichier qui vit déjà dans le Drive.
             ⚠️ `pieces.find` ET NON LA PIÈCE CLIQUÉE : « Précédent / Suivant » change de pièce dans la même
             fenêtre, et le bandeau doit suivre celle qui est AFFICHÉE (demande d'Arno). */
         renommage={(idAffiche) => {
@@ -5526,7 +5737,50 @@ export function SelecteurFichierDrive({
             };
           }
           const v = vignettes.find((x) => x.driveFileId === idAffiche);
-          if (v === undefined) return undefined;
+          /**
+           * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 1b — LA VISIONNEUSE RENOMME AUSSI UN FICHIER DU
+           *    DRIVE ════════════════════════════════════════════════════════════════════════════════════════════
+           *
+           * Demande d'Arno (04/10/2026) : « dans la visionneuse ouverte depuis cette fenêtre (👁) : le module de
+           * changement de nom au-dessus de l'image. Réutilise le composant […] ne le recopie pas. »
+           *
+           * 🔴 IL N'Y A RIEN À RECOPIER, ET C'EST TOUT LE POINT. Le module de nom de `ApercuFichierDrive` existe
+           * depuis le lot RENOMMER-AVANT-RANGER ; il est piloté par CETTE prop, et par elle seule. Il suffisait
+           * donc de la RENDRE pour un fichier du Drive — ce que le commentaire d'au-dessus refusait au nom d'une
+           * règle (« l'application ne renomme rien dans le Drive ») qu'Arno a levée depuis.
+           *
+           * 🔴 ET C'EST LE MÊME ÉCRIVAIN QUE LE CRAYON ✏️ DE LA LIGNE : `renommerPourDeVrai`, donc la même route,
+           * donc le même `verifierNom` côté serveur. Les deux nouveaux moyens n'ont pas un chemin chacun.
+           *
+           * ⚠️ `nomChoisi` RESTE `null`, ET CE N'EST PAS UN OUBLI. « Nom choisi » veut dire « nom sous lequel la
+           * copie naîtra plus tard » : pour un fichier qui EXISTE déjà, le nom affiché EST son nom. Y mettre
+           * quelque chose ferait apparaître « reçue sous : … » sous un fichier que personne n'a reçu.
+           * ⚠️ `refus: null` : les refus réels sont prononcés par le serveur, qui seul connaît le registre et la
+           * chaîne de parents. Voir l'encadré du crayon ✏️ de la ligne.
+           *
+           * 🔴🔴 LE NOM EST CHERCHÉ PAR `idAffiche`, JAMAIS LU DANS `aVoir` — et c'est le piège que l'encadré de
+           * la prop annonce depuis le 30/09/2026 : « Précédent / Suivant » change de document DANS la visionneuse
+           * sans que cette fenêtre en sache rien. Lire `aVoir.nom` aurait affiché le nom du PREMIER document
+           * au-dessus du troisième, et renommé le mauvais fichier. On relit donc la liste — la même que celle
+           * qu'on passe en `voisinage`, donc le même périmètre — et `aVoir` ne sert que de dernier recours.
+           */
+          if (v === undefined) {
+            const nomVu = [...listing.dossiers, ...listing.fichiers].find((x) => x.id === idAffiche)?.nom
+              ?? (aVoir.id === idAffiche ? aVoir.nom : null);
+            if (nomVu === null) return undefined;
+            return {
+              nomOrigine: nomVu,
+              nomChoisi: null,
+              editerDabord: false,
+              refus: null,
+              onRenommer: (nom: string) => {
+                if (nom.trim() === '' || nom === nomVu) return;
+                // La barre de titre porte le nom : elle doit suivre, sinon on lirait l'ancien juste au-dessus.
+                setAVoir((a) => (a !== null && a.id === idAffiche ? { ...a, nom } : a));
+                void renommerPourDeVrai({ driveFileId: idAffiche }, nom);
+              },
+            };
+          }
           return {
             nomOrigine: v.nom,
             nomChoisi: nomsVignettes.get(v.cle) ?? null,
@@ -6115,6 +6369,43 @@ export const CSS_SELECTEUR_FICHIER = `
 @media (prefers-reduced-motion:reduce){
   .sfd-ligne--neuve{animation:none}
 }
+
+/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 1a — RENOMMER UNE LIGNE SUR PLACE ════════════════════════════
+   Arno : « seule la partie SANS l'extension est selectionnee, et l'extension n'est jamais modifiable ».
+
+   🔴 L'EXTENSION EST UN TEXTE, PAS UN CHAMP, et c'est la seule facon de tenir cette promesse : un champ
+   « desactive » se contourne (un outil de developpement, une requete forgee), un TEXTE n'existe pas comme saisie.
+   Le serveur la recolle de son cote, par le meme verifierNom — l'ecran ne fait que dire la verite a l'avance.
+
+   🔴 LE CHAMP REPREND LE DESSIN DE LA LIGNE DE CREATION (meme hauteur, meme liseré, meme rayon) : c'est le meme
+   geste a un endroit different, et deux dessins pour un meme geste donneraient a croire a deux mecanismes.
+
+   ⚠️ min-width:0 SUR LA ZONE ET SUR LE CHAMP : sans lui, un nom long pousse la colonne et fait deborder la
+   grille de la liste — le defaut classique d'un flex dans une grille.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+/* ══ 🔴🔴 LA SAISIE S'ARRETE AVANT LA BARRE DE SURVOL — DEFAUT MESURE A L'ECRAN ═════════════════════════════════
+   CONSTAT (04/10/2026, dossier « Test », en Sombre) : l'extension « .pdf » s'affichait tronquee en « .pc ». La
+   barre de gestes est posee en ABSOLU sur la droite de la ligne, et elle passait par-dessus la fin de la zone de
+   saisie. Or l'extension est precisement ce qu'on doit pouvoir LIRE, puisqu'on ne peut pas la modifier.
+
+   🔴 ON RESERVE LA PLACE, ON NE MASQUE RIEN. Cacher la barre pendant l'edition aurait retire quatre gestes de
+   l'ecran — et c'est exactement ce qu'on ne fait pas sans l'accord d'Arno. Le champ, lui, est elastique : il
+   rend la place sans que rien d'autre bouge.
+
+   ⚠️ L'ARITHMETIQUE EST CELLE DE LA BARRE, et elle est ecrite pour qu'un cinquieme bouton se voie : quatre
+   boutons de 24 px, trois gouttieres de 2 px, 2 px de cadre et 6 px de marge droite = 110 px, arrondis a 112.
+   LA BARRE EST TOUJOURS VISIBLE PENDANT L'EDITION (le champ a le focus, donc :focus-within) : cette place n'est
+   donc jamais perdue pour rien. */
+.sfd-renom{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0;padding-right:112px}
+.sfd-renom-champ{flex:1 1 auto;min-width:0;height:22px;padding:0 4px;font:inherit;font-size:.82rem;
+  color:var(--color-svv-ink);background:var(--color-svv-surface);
+  border:1px solid var(--color-svv-line-strong);border-radius:.25rem}
+.sfd-renom-champ:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+/* 🔴 LE REFUS DU NOM TEINTE LE CHAMP, ET LE MOT LE DIT A COTE : jamais la couleur seule. */
+.sfd-renom-champ[aria-invalid="true"]{border-color:var(--color-svv-red)}
+.sfd-renom-ext{flex:0 0 auto;font-size:.82rem;color:var(--color-svv-muted)}
+.sfd-renom-refus{flex:0 1 auto;min-width:0;font-size:.72rem;color:var(--color-svv-red);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ══ 🔴 LOT DRIVE-RETOUCHES-2 — L'INDICATEUR DE CIBLE, PRES DU CURSEUR ═════════════════════════════════════
    ⚠️ pointer-events:none EST INDISPENSABLE : il suit le curseur, donc il serait SOUS lui a chaque instant.

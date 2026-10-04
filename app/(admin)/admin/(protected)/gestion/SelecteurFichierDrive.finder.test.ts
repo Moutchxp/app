@@ -270,10 +270,17 @@ describe('🔴 ③ la liste, façon Finder', () => {
     expect(indentees.length).toBeGreaterThan(0);
   });
 
-  /** ⚠️ Les actions de ligne restent TOUTES là — elles ne sont plus trois liens rouges permanents. */
-  it('🔴 les trois gestes sont en icônes, dans l’ordre, avec leur infobulle', async () => {
+  /**
+   * ⚠️ Les actions de ligne restent TOUTES là — elles ne sont plus des liens rouges permanents.
+   *
+   * 🔴🔴 ELLES SONT QUATRE DEPUIS LE 04/10/2026 (lot RENOMMER-PARTOUT-ET-FINITIONS, point 1a). Arno : « un picto
+   * ✏️ “Renommer” dans la petite barre qui apparaît au survol d'une ligne, à côté de 👁, 📎 et 🔗 ». Cette
+   * assertion disait « les trois gestes » et a donc rougi : c'est elle qui avait vieilli, pas la barre. L'ORDRE
+   * reste ce qui dit l'usage — on REGARDE, on joint, on lie, et le renommage vient après, parce qu'il écrit.
+   */
+  it('🔴 les quatre gestes sont en icônes, dans l’ordre, avec leur infobulle', async () => {
     await monter();
-    expect(gestesDe('bail.pdf')).toEqual(['Visualiser', 'Joindre au message', 'Insérer un lien']);
+    expect(gestesDe('bail.pdf')).toEqual(['Visualiser', 'Joindre au message', 'Insérer un lien', 'Renommer']);
   });
 });
 

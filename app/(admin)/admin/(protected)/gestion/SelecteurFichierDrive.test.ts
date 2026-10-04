@@ -650,11 +650,16 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
    * n'a pas changé d'un cran, et c'est lui qui dit l'usage : on REGARDE, puis on joint, puis — à défaut — on met
    * un lien. On le cherche donc par le MOT que chaque icône porte pour le lecteur d'écran.
    */
-  it('② les trois gestes sont dans l’ordre : Visualiser, Joindre, Insérer un lien', async () => {
+  /**
+   * 🔴🔴 ET ILS SONT QUATRE DEPUIS LE 04/10/2026 (lot RENOMMER-PARTOUT-ET-FINITIONS, point 1a) : le crayon ✏️
+   * ferme la barre. Il vient en DERNIER, et c'est volontaire — les trois premiers lisent ou citent, le quatrième
+   * ÉCRIT dans le Drive. Cette assertion figeait trois gestes et a rougi : c'est elle qui avait vieilli.
+   */
+  it('② les quatre gestes sont dans l’ordre : Visualiser, Joindre, Insérer un lien, Renommer', async () => {
     await monter();
     const mots = [...(ligneDe('bail.pdf')?.querySelectorAll('.sfd-geste') ?? [])]
       .map((b) => b.getAttribute('title'));
-    expect(mots).toEqual(['Visualiser', 'Joindre au message', 'Insérer un lien']);
+    expect(mots).toEqual(['Visualiser', 'Joindre au message', 'Insérer un lien', 'Renommer']);
     // ⚠️ Et chacune porte AUSSI un libellé accessible nommant le fichier : une icône muette est injouable.
     const labels = [...(ligneDe('bail.pdf')?.querySelectorAll('.sfd-geste') ?? [])]
       .map((b) => b.getAttribute('aria-label'));
