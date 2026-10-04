@@ -1,4 +1,4 @@
-import { chaineParents, chercherDossiers, nomDuDrive } from './drive';
+import { chaineParents, chercherDossiers, nomDuDrive, NOM_GENERIQUE_RACINE_DRIVE } from './drive';
 import { racineRemontee, type SorteRacine } from './arriveeArbre';
 import {
   DOSSIER_INTERDIT_LECTURE, indexerMaillons, peutCreerDossier, peutDeposer, peutJoindre, type Maillon,
@@ -181,12 +181,12 @@ export async function verdictsDossier(
  * maillon n'a pas de parent et porte le nom générique). Dans « Mon Drive », rien n'est demandé.
  * ⚠️ ET SI L'APPEL ÉCHOUE, ON GARDE CE QU'ON A : un nom générique vaut mieux qu'un fil d'Ariane amputé.
  */
-const NOM_GENERIQUE_DRIVE = 'Drive';
+/* 🔴 LE MOT VIENT DE `drive.ts`, et il n'y en a qu'un : voir son encadré. Trois endroits en dépendent. */
 async function nommerLaRacine(
   jeton: string, chaine: { id: string; nom: string }[],
 ): Promise<{ id: string; nom: string }[]> {
   const tete = chaine[0];
-  if (tete === undefined || tete.nom !== NOM_GENERIQUE_DRIVE) return chaine;
+  if (tete === undefined || tete.nom !== NOM_GENERIQUE_RACINE_DRIVE) return chaine;
   const vrai = await nomDuDriveMemo(jeton, tete.id, (id) => nomDuDrive(jeton, id, { fetch }));
   if (vrai === null) return chaine;
   return [{ id: tete.id, nom: vrai }, ...chaine.slice(1)];

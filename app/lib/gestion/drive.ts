@@ -46,6 +46,20 @@ const CHAMPS_DOSSIERS = 'files(id,name,driveId,mimeType,shortcutDetails(targetId
 /** Dossiers ET raccourcis, jamais la corbeille. Le tri du bon grain se fait ensuite, sur le type de la CIBLE. */
 const FILTRE_DOSSIERS_ET_RACCOURCIS = `(mimeType = '${MIME_DOSSIER}' or mimeType = '${MIME_RACCOURCI}') and trashed = false`;
 
+/**
+ * ══ 🔴🔴 « Drive » N'EST LE NOM DE RIEN ═══════════════════════════════════════════════════════════════════════════
+ *
+ * MESURÉ le 30/09/2026 sur le Drive du cabinet, et reconfirmé le 04/10 : `files.get` sur la RACINE d'un Drive
+ * partagé rend le mot générique « Drive », jamais le nom que tout le monde lit (« Test », « GESTION LOCATIVE »).
+ * Le vrai nom s'obtient par `drives/{id}`.
+ *
+ * 🔴 UNE SEULE DÉFINITION, ICI, parce que TROIS endroits en dépendent : le fil d'Ariane (`nommerLaRacine`), la
+ * liste de la corbeille, et le nom de dossier que le nettoyage des fantômes écrit au registre. Trois copies
+ * auraient divergé — et la troisième, écrite en base, aurait fait afficher « Drive » dans le menu des
+ * emplacements d'une pièce. Constaté le 04/10 : la ligne 26548 portait « Drive » après sa correction.
+ */
+export const NOM_GENERIQUE_RACINE_DRIVE = 'Drive';
+
 /** Les paramètres que TOUTE requête doit porter pour voir les Drive partagés. Oubliés, les dossiers d'équipe sont invisibles. */
 const PARTAGES = { supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' } as const;
 

@@ -53,6 +53,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { jetonPourSubject } from '../lib/gestion/driveDelegue';
+import { NOM_GENERIQUE_RACINE_DRIVE } from '../lib/gestion/drive';
 import { indexEmpreintesDriveDisponible } from '../lib/gestion/schema';
 import {
   chiffrageBalayage, ligneIndexable, motChiffrage, motDuree, TAILLE_PAGE_INDEX,
@@ -145,7 +146,15 @@ function portePourFantomes(h: HeadersInit): DepsFantomes {
       if (deja !== undefined) return deja;
       try {
         const j = await lire(h, `files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name`);
-        const nom = String(j.name ?? '').trim();
+        let nom = String(j.name ?? '').trim();
+        /* 🔴🔴 MÊME RATTRAPAGE QUE DANS LA LIGNE DE COMMANDE, et pour la même raison : ce nom est ÉCRIT EN BASE,
+           et « Drive » s'afficherait dans le menu des emplacements d'une pièce. Voir `NOM_GENERIQUE_RACINE_DRIVE`. */
+        if (nom === NOM_GENERIQUE_RACINE_DRIVE) {
+          try {
+            const d = await lire(h, `drives/${encodeURIComponent(id)}?fields=id,name`);
+            nom = String(d.name ?? '').trim() || nom;
+          } catch { /* le vrai nom reste inconnu : « Drive » vaut mieux qu'un nom vide */ }
+        }
         if (nom !== '') noms.set(id, nom);
         return nom === '' ? null : nom;
       } catch { return null; }

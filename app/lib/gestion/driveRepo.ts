@@ -361,8 +361,22 @@ export async function deplacerCopieAuRegistre(
       [fichier, dossier, dossierNom ?? '']);
     return rowCount ?? 0;
   } catch (e) {
-    console.error('[gestion/drive] parent du registre NON mis à jour après un déplacement',
-      { driveFileId: fichier, dossierId: dossier, e });
+    /**
+     * ══ ⚠️ UNE VIOLATION D'UNICITÉ N'EST PAS UNE PANNE, ET NE DOIT PAS SALIR LE JOURNAL ═══════════════════════
+     *
+     * Le code PostgreSQL `23505` dit « cette place est déjà prise pour cette pièce ». C'est une situation
+     * PRÉVISIBLE — une copie a été jetée puis une autre déposée au même endroit — que le nettoyage des fantômes
+     * sait diagnostiquer et NOMMER (`occupantDuSlot`). Écrire une trace d'exception pour elle noierait le journal
+     * du serveur, et c'est le bruit qui fait cesser de lire les journaux.
+     *
+     * 🔴 LES AUTRES ERREURS Y RESTENT, et c'est le point : une colonne absente, une connexion perdue, un type
+     * refusé ne sont pas prévisibles, et il faut les voir.
+     */
+    const code = (e as { code?: string } | null)?.code;
+    if (code !== '23505') {
+      console.error('[gestion/drive] parent du registre NON mis à jour après un déplacement',
+        { driveFileId: fichier, dossierId: dossier, e });
+    }
     return 0;
   }
 }

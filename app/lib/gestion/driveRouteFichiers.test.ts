@@ -303,10 +303,15 @@ describe('🔴 le droit de créer voyage AVEC le contenu du dossier', () => {
    */
   it('🔴 la racine d’un Drive partagé est renommée avec son VRAI nom, et l’appel est mémorisé', () => {
     const partage = code('app/lib/gestion/driveVerdict.ts');
-    expect(partage).toContain("NOM_GENERIQUE_DRIVE = 'Drive'");
+    /* ⚠️ RECADRÉ PAR LE LOT RENOMMER-PARTOUT-ET-FINITIONS : le mot générique ne vit plus ici, il vient de
+       `drive.ts` — TROIS endroits en dépendent désormais (ce fil d'Ariane, la liste de la corbeille, et le nom
+       de dossier que le nettoyage des fantômes écrit au registre). Trois copies auraient divergé, et la
+       troisième, écrite en base, faisait afficher « Drive » dans le menu des emplacements d'une pièce. */
+    expect(partage).toContain('NOM_GENERIQUE_RACINE_DRIVE');
+    expect(code('app/lib/gestion/drive.ts')).toContain("export const NOM_GENERIQUE_RACINE_DRIVE = 'Drive';");
     expect(partage).toContain('nomDuDriveMemo(');
     // ⚠️ SEULEMENT POUR UNE TÊTE DE CHAÎNE GÉNÉRIQUE : un chemin dans « Mon Drive » ne déclenche aucun appel.
-    expect(partage).toContain('tete.nom !== NOM_GENERIQUE_DRIVE) return chaine');
+    expect(partage).toContain('tete.nom !== NOM_GENERIQUE_RACINE_DRIVE) return chaine');
     // 🔒 ET C'EST UNE LECTURE : `drives.get` avec le seul champ `name`.
     expect(code('app/lib/gestion/drive.ts')).toContain('?fields=name');
   });

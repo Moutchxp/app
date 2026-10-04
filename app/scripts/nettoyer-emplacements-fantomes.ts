@@ -26,6 +26,7 @@
  */
 import { jetonPourSubject } from '../lib/gestion/driveDelegue';
 import { query } from '../lib/db/client';
+import { NOM_GENERIQUE_RACINE_DRIVE } from '../lib/gestion/drive';
 import {
   journaliserFantomes, nettoyerFantomes, phraseBilanFantomes, VERIFICATIONS_MAX, type DepsFantomes,
 } from '../lib/gestion/fantomesEmplacements';
@@ -71,7 +72,17 @@ export function depsReelles(jeton: string): DepsFantomes {
       if (deja !== undefined) return deja;
       const r = await lire(`files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=id,name`);
       if (!r.ok) return null;
-      const nom = String(r.j.name ?? '').trim();
+      let nom = String(r.j.name ?? '').trim();
+      /**
+       * 🔴🔴 « Drive » N'EST LE NOM DE RIEN. `files.get` sur la RACINE d'un Drive partagé rend ce mot générique,
+       * jamais « Test » ou « GESTION LOCATIVE » (mesuré). Et ce nom-là est ÉCRIT EN BASE par la correction : sans
+       * ce rattrapage, le menu des emplacements d'une pièce affichait « Drive · <nom du fichier> ». Constaté le
+       * 04/10/2026 sur la ligne 26548, juste après sa correction.
+       */
+      if (nom === NOM_GENERIQUE_RACINE_DRIVE) {
+        const d = await lire(`drives/${encodeURIComponent(id)}?fields=id,name`);
+        if (d.ok) nom = String(d.j.name ?? '').trim() || nom;
+      }
       if (nom !== '') noms.set(id, nom);
       return nom === '' ? null : nom;
     },

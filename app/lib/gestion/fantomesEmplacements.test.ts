@@ -144,14 +144,37 @@ describe('🔴🔴 les verdicts', () => {
    * LA CAUSE DU REFUS : l'index unique `(piece_id, drive_dossier_id)` ne distingue pas les copies DISPARUES, si
    * bien qu'une copie mise à la corbeille réservait la place à une copie vivante. Levée par la migration 301.
    */
-  it('🔴🔴 écriture bloquée → BLOQUÉE, et SURTOUT pas « corrigée »', async () => {
+  it('🔴🔴 écriture refusée → BLOQUÉE, et SURTOUT pas « corrigée »', async () => {
     queryMock.mockResolvedValue({ rows: [ligne(1)] });
+    /* 🔴 C'EST LA BASE QUI TRANCHE : elle refuse (0 ligne écrite), et l'occupant ne sert qu'à le NOMMER. */
+    registreMock.mockResolvedValue(0);
     occupantMock.mockResolvedValue({ id: 26545, driveFileId: 'AUTRE', disparu: true });
     const b = await nettoyerFantomes(porte({ F1: { parents: ['REEL'] } }), { appliquer: true });
     expect(b).toMatchObject({ candidats: 1, verifies: 1, corriges: 0, bloques: 1 });
-    /* 🔴 ET RIEN N'EST ÉCRIT, NI AU REGISTRE NI À L'INDEX : on ne note pas un déplacement qu'on n'a pas fait. */
-    expect(registreMock).not.toHaveBeenCalled();
+    /* 🔴 ET L'INDEX N'EST PAS TOUCHÉ : on ne note pas un déplacement que le registre a refusé. */
     expect(indexParentMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ══ 🔴🔴 L'ORDRE DES DEUX GESTES — CORRIGÉ LE 04/10/2026, LE JOUR DE LA MIGRATION 301 ════════════════════════
+   *
+   * J'avais cherché l'occupant AVANT d'écrire, pour éviter une trace d'exception au journal du serveur. Mon
+   * commentaire affirmait que « cette lecture reste juste après la migration 301 ». C'ÉTAIT FAUX :
+   * `occupantDuSlot` interroge TOUTES les lignes de la pièce dans ce dossier, sans distinguer les disparues —
+   * alors que l'index, devenu partiel, ne compte plus que les vivantes. Le garde refusait donc encore une
+   * écriture que la base acceptait. Mesuré après l'application : « 1 BLOQUÉE », ligne 26548 inchangée.
+   *
+   * 🔴 LA SEULE FORME QUI NE PEUT PAS SE TROMPER DE SCHÉMA : on tente, et c'est la BASE qui tranche. Elle connaît
+   * son index ; nous n'avons pas à le deviner.
+   */
+  it('🔴🔴 on ÉCRIT d’abord, et l’on ne diagnostique qu’en cas de refus', async () => {
+    queryMock.mockResolvedValue({ rows: [ligne(1)] });
+    registreMock.mockResolvedValue(1);
+    const b = await nettoyerFantomes(porte({ F1: { parents: ['REEL'] } }), { appliquer: true });
+    expect(b).toMatchObject({ corriges: 1, bloques: 0 });
+    /* 🔴 L'ÉCRITURE A ÉTÉ TENTÉE, ET LA PLACE N'A PAS ÉTÉ INTERROGÉE : elle n'avait rien à dire. */
+    expect(registreMock).toHaveBeenCalledWith('F1', 'REEL', 'Nouveau dossier');
+    expect(occupantMock).not.toHaveBeenCalled();
   });
 
   /**
@@ -179,9 +202,10 @@ describe('🔴🔴 les verdicts', () => {
     expect(registreMock).not.toHaveBeenCalled();
   });
 
-  /** ⚠️ L'OCCUPANT EST CHERCHÉ POUR LA BONNE PIÈCE, LE BON DOSSIER, ET EN S'ÉCARTANT SOI-MÊME. */
+  /** ⚠️ ET QUAND ON LE CHERCHE, C'EST POUR LA BONNE PIÈCE, LE BON DOSSIER, EN S'ÉCARTANT SOI-MÊME. */
   it('⚠️ la place est interrogée pour cette pièce, ce dossier, hors de sa propre ligne', async () => {
     queryMock.mockResolvedValue({ rows: [ligne(7)] });
+    registreMock.mockResolvedValue(0);
     await nettoyerFantomes(porte({ F7: { parents: ['REEL'] } }), { appliquer: true });
     expect(occupantMock).toHaveBeenCalledWith(27085, 'REEL', 7);
   });

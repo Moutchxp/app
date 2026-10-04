@@ -215,27 +215,34 @@ export async function nettoyerFantomes(
     if (!o.appliquer) { bilan.corriges += 1; continue; }
 
     /**
-     * ⚠️ L'OCCUPANT EST CHERCHÉ AVANT D'ÉCRIRE, et non après l'échec : l'index unique
-     * `(piece_id, drive_dossier_id)` ne distingue pas les copies DISPARUES des vivantes, si bien qu'une ligne
-     * morte réserve la place. Tenter quand même remplirait le journal du serveur d'une trace d'exception pour
-     * une situation parfaitement prévisible — et on ne saurait toujours pas QUELLE ligne bloque.
+     * ══ 🔴🔴 ON ÉCRIT D'ABORD, ET L'ON NE DIAGNOSTIQUE QU'EN CAS DE REFUS — CORRIGÉ LE 04/10/2026 ══════════════
      *
-     * 🔴 ET CETTE LECTURE RESTE JUSTE APRÈS LA MIGRATION 301 : avec l'index devenu partiel, une ligne disparue
-     * n'est plus un occupant, `occupantDuSlot` ne la rend plus, et la correction passe. Le code n'a donc pas à
-     * savoir quel schéma est en place — il demande « la place est-elle prise ? » et la base répond.
+     * J'avais fait l'inverse : chercher l'occupant AVANT d'écrire, pour éviter une trace d'exception dans le
+     * journal du serveur. C'ÉTAIT UN DÉFAUT, et la migration 301 l'a révélé le jour de son application. Mon
+     * commentaire affirmait que « cette lecture reste juste après la migration 301 » : c'était FAUX.
+     * `occupantDuSlot` interroge toutes les lignes de la pièce dans ce dossier, SANS distinguer les disparues —
+     * alors que l'index, devenu partiel, ne compte plus que les vivantes. Le garde refusait donc encore une
+     * écriture que la base acceptait désormais. Mesuré : « 1 BLOQUÉE » après la migration, et la ligne 26548
+     * inchangée.
+     *
+     * 🔴 LA SEULE FORME QUI NE PEUT PAS SE TROMPER DE SCHÉMA EST CELLE-CI : on tente, et c'est la BASE qui
+     * tranche. Elle connaît son index ; nous, nous n'avons pas à le deviner. Le diagnostic ne sert plus qu'à
+     * NOMMER la ligne fautive quand le refus est tombé — c'est-à-dire exactement quand il est utile.
+     *
+     * ⚠️ ET LA TRACE D'EXCEPTION NE REVIENT PAS POUR AUTANT : `deplacerCopieAuRegistre` reconnaît la violation
+     * d'unicité (code PostgreSQL 23505) et rend `0` sans écrire au journal du serveur. Les autres erreurs, elles,
+     * y restent — c'est seulement ce cas-là qui est prévisible.
      */
-    const occupant = await occupantDuSlot(c.pieceId, v.parentReel, c.id);
-    if (occupant !== null) {
-      bilan.bloques += 1;
-      dire(`        ↳ 🔴 BLOQUÉE : la ligne ${occupant.id} (fichier ${occupant.driveFileId}) occupe déjà cet `
-        + `emplacement pour cette pièce${occupant.disparu ? ', alors que sa copie est DISPARUE' : ''}.`);
-      dire('           Cause : index unique (piece_id, drive_dossier_id) sans condition. Levée par la migration 301.');
-      continue;
-    }
     const n = await deplacerCopieAuRegistre(c.driveFileId, v.parentReel, v.parentNom);
     if (n === 0) {
       bilan.bloques += 1;
-      dire('        ↳ 🔴 BLOQUÉE : le registre n’a pas accepté l’écriture (voir le journal du serveur).');
+      const occupant = await occupantDuSlot(c.pieceId, v.parentReel, c.id);
+      if (occupant === null) {
+        dire('        ↳ 🔴 BLOQUÉE : le registre n’a pas accepté l’écriture (voir le journal du serveur).');
+      } else {
+        dire(`        ↳ 🔴 BLOQUÉE : la ligne ${occupant.id} (fichier ${occupant.driveFileId}) occupe déjà cet `
+          + `emplacement pour cette pièce${occupant.disparu ? ', alors que sa copie est DISPARUE' : ''}.`);
+      }
       continue;
     }
     bilan.corriges += 1;
