@@ -188,11 +188,33 @@ export function estCoupe(presse: Presse | null, id: string): boolean {
 }
 
 /** Le mot du menu « Coller ici », qui dit ce qui va se passer. PUR. */
-export function motColler(presse: Presse | null): string {
-  if (presse === null) return 'Coller ici';
+export function motColler(presse: Presse | null, nomCible?: string | null): string {
+  /**
+   * ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 3 — « COLLER ICI » NOMME SA CIBLE ═════════════════════════
+   *
+   * DEMANDE D'ARNO (04/10/2026), née de mon propre constat au lot précédent : « dans le menu contextuel de la
+   * fenêtre Drive, “Coller ici” devient “Coller dans « <nom du dossier> »”. Il colle exactement dans le dossier
+   * nommé, avec la même logique de cible que celle corrigée pour “Déposer ici”. »
+   *
+   * 🔴 CE QUE « ICI » COÛTAIT, ET JE L'AI PAYÉ MOI-MÊME. En éprouvant le point 5 du lot précédent, j'ai fait un
+   * clic droit sur une LIGNE DE DOSSIER et cliqué « Coller ici » en croyant coller dans le dossier affiché. Le
+   * menu a collé DANS ce dossier — ce qu'il annonce depuis toujours dans son code, et jamais à l'écran. Le
+   * fichier est parti au bon endroit selon la règle, et au mauvais selon moi.
+   *
+   * 🔴 LA RÈGLE N'A PAS CHANGÉ D'UN CRAN : sur un dossier on colle DEDANS, sur un fichier dans le dossier qui le
+   * contient, dans le vide dans le dossier affiché (ou le dossier sélectionné, comme « Déposer ici »). Ce point
+   * ne corrige pas un comportement, il corrige un MOT — et un mot qui désigne mal est un comportement faux pour
+   * qui le lit.
+   *
+   * ⚠️ `nomCible` ABSENT OU VIDE ⇒ « Coller ici », le mot d'avant, au caractère près. C'est le repli d'un appelant
+   * qui ne sait pas où il collerait : mieux vaut un mot vague qu'un nom inventé.
+   */
+  const ou = (nomCible ?? '').trim();
+  const dans = ou === '' ? 'Coller ici' : `Coller dans « ${ou} »`;
+  if (presse === null) return dans;
   const n = presse.ids.length;
   const quoi = n > 1 ? `${n} éléments` : '1 élément';
-  return presse.mode === 'couper' ? `Coller ici (déplacer ${quoi})` : `Coller ici (copier ${quoi})`;
+  return presse.mode === 'couper' ? `${dans} (déplacer ${quoi})` : `${dans} (copier ${quoi})`;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

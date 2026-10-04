@@ -312,12 +312,23 @@ describe('🔴 ④ le menu contextuel', () => {
     ]);
   });
 
+  /**
+   * 🔴🔴 ASSERTION RECADRÉE LE 04/10/2026 (lot REINTEGRER-PARTOUT-ET-BANDEAU, point 3). Elle attendait « Coller
+   * ici » ; sur un DOSSIER, le menu nomme désormais sa cible — « Coller dans « Artisans » » —, et c'est tout
+   * l'objet du point : le menu collait DANS ce dossier depuis toujours, sans jamais le dire. Le comportement n'a
+   * pas changé d'un cran ; le mot, si.
+   *
+   * ⚠️ SUR UN FICHIER, L'ÉPREUVE D'AU-DESSUS LIT ENCORE « Coller ici », ET C'EST JUSTE : dans ce jeu d'essai la
+   * ligne n'a pas de parent connu, la cible est donc inconnue — et le repli est précisément « ici » plutôt qu'un
+   * nom inventé. Les deux assertions, côte à côte, disent la règle entière.
+   */
   it('sur un dossier : Ouvrir, Nouveau dossier, Ouvrir dans Google Drive, puis la mémoire tampon', async () => {
     await monter();
     await souris('Artisans', 'contextmenu');
     const mots = [...container.querySelectorAll('.sfd-menu [role="menuitem"]')].map((b) => b.textContent);
     expect(mots).toEqual([
-      'Ouvrir', 'Nouveau dossier', 'Ouvrir dans Google Drive', 'Couper', 'Copier', 'Coller ici',
+      'Ouvrir', 'Nouveau dossier', 'Ouvrir dans Google Drive', 'Couper', 'Copier',
+      'Coller dans « Artisans »',
     ]);
   });
 

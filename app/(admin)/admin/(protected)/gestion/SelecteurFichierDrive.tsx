@@ -3520,26 +3520,50 @@ export function SelecteurFichierDrive({
    * ÉTEINTES avec leur motif — et non absentes : la fonction existe et attend quelque chose, ce n'est pas la même
    * information qu'un geste qui n'existe pas.
    */
-  const droitsPresse = (): DroitsPresse => ({
+  const droitsPresse = (cible: { id: string; nom: string } | null): DroitsPresse => ({
     autorise: journalPret === true,
     motif: journalPret === true ? null
       : journalPret === null ? 'Vérification en cours…' : MOTIF_SANS_JOURNAL,
-    motColler: motColler(presse),
+    /**
+     * 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 3 — LE MOT NOMME LA CIBLE, et c'est la MÊME cible que le clic
+     * utilisera. Arno : « il colle exactement dans le dossier nommé ».
+     *
+     * 🔴 C'EST MOI QUI AI PAYÉ CE DÉFAUT, en éprouvant le point 5 du lot précédent : clic droit sur une ligne de
+     * DOSSIER, « Coller ici », et le fichier est parti dans ce dossier-là — ce que le menu annonce depuis toujours
+     * dans son code, et n'annonçait nulle part à l'écran. La règle était juste ; le mot désignait autre chose.
+     */
+    motColler: motColler(presse, cible?.nom ?? null),
     presseVide: presse === null,
   });
+
+  /**
+   * ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 3 — OÙ « COLLER » COLLERAIT, POUR LE DIRE ═════════════════════
+   *
+   * 🔴 UNE SEULE FONCTION POUR LE MOT ET POUR LE GESTE. Le menu d'une LIGNE colle dans `cibleDeLaLigne(f)` — sur un
+   * dossier, dedans ; sur un fichier, dans le dossier qui le contient. Le menu du VIDE colle là où « Déposer ici »
+   * dépose, c'est-à-dire par `cibleDeposerIci` : le dossier affiché, ou le dossier SÉLECTIONNÉ quand l'affiché
+   * n'en est pas un (lot RENOMMER-PARTOUT-ET-FINITIONS, point 5). Arno : « avec la même logique de cible que celle
+   * corrigée pour “Déposer ici” ».
+   *
+   * ⚠️ LE LIBELLÉ ET LE CLIC LISENT CECI, tous les deux. C'est la seule façon que le mot ne puisse pas mentir :
+   * s'ils calculaient chacun leur cible, le jour où l'une change, l'autre annoncerait encore l'ancienne.
+   */
+  const cibleDuMenu = (f: Fichier | null): { id: string; nom: string } | null => (f === null
+    ? cibleDeposerIci(dossierCourant, dossiersChoisis).cible
+    : cibleDeLaLigne(f));
 
   const entreesDuMenu = (f: Fichier | null): EntreeMenu[] => (f === null
     ? menuVide({
       creerAutorise: listing?.creerAutorise === true,
       motifCreation: listing?.motifCreation ?? null,
-      presse: droitsPresse(),
+      presse: droitsPresse(cibleDuMenu(null)),
     })
     : f.dossier
     ? menuDossier({
       creerAutorise: listing?.creerAutorise === true,
       motifCreation: listing?.motifCreation ?? null,
       avecLien: (f.lien ?? '') !== '',
-      presse: droitsPresse(),
+      presse: droitsPresse(cibleDuMenu(f)),
     })
     /* 🔴🔴 UN FICHIER « ._ » EST TRAITÉ COMME UN ENDROIT OÙ LA LECTURE EST REFUSÉE : « Visualiser » et « Joindre »
        éteints, avec pour motif l'infobulle qui renvoie au VRAI fichier. Le reste — lien, Drive, couper, copier,
@@ -3549,7 +3573,7 @@ export function SelecteurFichierDrive({
       motifRefus: estFichierSystemeMac(f.nom) ? infobulleFichierSysteme(f.nom) : (listing?.motifRefus ?? null),
       dejaAjoute: ajoutes.includes(f.id),
       avecLien: (f.lien ?? '') !== '',
-      presse: droitsPresse(),
+      presse: droitsPresse(cibleDuMenu(f)),
       corbeille: droitsCorbeille(),
       dupliquer: droitsDupliquer(f),
       /**
@@ -3639,8 +3663,13 @@ export function SelecteurFichierDrive({
         return;
       }
       if (a === 'coller') {
-        const cible = dossierCourant?.id ?? '';
-        if (cible !== '') coller(cible, dossierCourant?.nom ?? 'ce dossier');
+        /* 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 3 — LA MÊME CIBLE QUE CELLE QUE LE MOT ANNONCE.
+           Elle lisait « le dossier affiché » et lui seul : dans l'arbre, où l'affiché est la racine — un
+           REGROUPEMENT qui n'existe pas chez Google —, le collage ne partait nulle part alors que le menu
+           l'offrait. `cibleDuMenu` répond désormais comme « Déposer ici » : l'affiché, ou le dossier
+           SÉLECTIONNÉ quand l'affiché n'en est pas un. Une seule fonction pour le mot et pour le geste. */
+        const ou = cibleDuMenu(null);
+        if (ou !== null && ou.id !== '') coller(ou.id, ou.nom);
         return;
       }
       if (a === 'actualiser') revaliderEnSilence([dossierCourant?.id ?? '']);
