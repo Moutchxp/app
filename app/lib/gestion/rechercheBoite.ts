@@ -624,6 +624,20 @@ export async function chercherDansLeCourrier(
     pleinTexte,
     // Combien de résultats la règle « pas de courrier automatique » écarte : dit en toutes lettres, comme dans la liste.
     automatiquesMasques: comptes.masques,
+    /**
+     * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 6 — LE MÊME NOMBRE, SOUS LE NOM PARTAGÉ.
+     *
+     * La RECHERCHE calculait déjà ce nombre correctement, et par la même astuce : deux comptes avec le MÊME
+     * prédicat, seul le drapeau change. C'est la LISTE qui ne le faisait pas — elle affichait le nombre global du
+     * cabinet, 22 096 échanges entièrement automatiques, dont AUCUN n'est reçu et qui n'avaient donc rien à voir
+     * avec Réception.
+     *
+     * ⚠️ LES DEUX CHAMPS PORTENT LA MÊME VALEUR, et c'est volontaire pour ce lot : `automatiquesMasques` est lu
+     * par l'écran de recherche depuis des mois, `automatiquesIci` est le nom que la liste et la recherche
+     * partagent désormais. Les fondre en un seul demanderait de toucher l'écran de recherche, ce qui n'est pas
+     * l'objet de ce point — et deux noms pour une MÊME valeur ne peuvent pas diverger.
+     */
+    automatiquesIci: comptes.masques,
   };
 }
 

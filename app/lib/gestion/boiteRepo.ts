@@ -243,6 +243,21 @@ export interface PageBoite {
   suivant: CurseurBoite | null;
   /** Nombre TOTAL d'échanges de la boîte. Calculé à part, et seulement à la première page. */
   total: number | null;
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 6 — CE QUE L'INTERRUPTEUR AJOUTERAIT **ICI** ═══════════════
+   *
+   * CONSTAT D'ARNO : « “Afficher aussi le courrier automatique” — je ne vois aucun changement. » Il avait raison,
+   * et ce n'était pas l'interrupteur : mesuré en base, les 24 891 messages automatiques sont TOUS `sens =
+   * 'envoye'`. Réception ne montre que du reçu — il n'y a donc, ici, rien à ajouter.
+   *
+   * Le bandeau affichait pourtant `comptesBoite.automatiques` (22 096), calculé sur TOUTE la base sans égard au
+   * sens ni à l'étiquette. Ce nombre-ci est celui de CETTE liste, obtenu par le MÊME prédicat avec le seul
+   * drapeau qui change. Zéro ⇒ l'écran n'affiche ni la phrase ni le bouton.
+   *
+   * `null` = on ne l'a pas recompté (pas la première page, ou lecture en échec) : l'écran garde alors le nombre
+   * global d'avant ce lot, plutôt que de disparaître sur une panne.
+   */
+  automatiquesIci: number | null;
 }
 
 /**
@@ -938,7 +953,9 @@ export function sqlPageBoite(
   //   `interneRepo`. Sans la 281, elle rend une chaîne vide et la requête est celle d'avant ce lot.
   const jointureInterne = sqlJointureInterne(interne, 'p');
   /* 🔴 POINT 7 — et la marque PAR MAIL du mail représentatif. Chaîne vide sans la 297 : requête inchangée. */
-  const jointureInterneMessage = sqlJointureInterneMessage(interneMessage, 'p');
+  /* 🔴 LA COLONNE, PAS L'ALIAS : le CTE `page` expose `m.id AS message_id`. Voir l'encadré du fragment — écrire
+     `p.id` a fait répondre « Lecture impossible » à toute la boîte. */
+  const jointureInterneMessage = sqlJointureInterneMessage(interneMessage, 'p.message_id');
 
   return `WITH page AS (
        SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires, m.dest_a,
@@ -1003,6 +1020,7 @@ export function sqlPageBoite(
        ${jointureClassement}
        ${jointureHorsGestion}
        ${jointureInterne}
+       ${jointureInterneMessage}
        -- La jointure latérale sert encore : aux autres étiquettes (où le message de la ligne peut être un envoi
        --   comme une réception) pour trouver le correspondant, et à Envoyés pour retrouver le NOM du destinataire.
        --   Elle ne sert plus à Réception, où le message de la ligne EST le dernier reçu : rien à chercher.
@@ -1197,6 +1215,55 @@ export async function lireBoiteMail(
       ...(retenus === undefined ? [] : [[...retenus]])],
   )).rows[0]?.n ?? 0;
 
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 6 — COMBIEN L'INTERRUPTEUR AJOUTERAIT **ICI** ════════════════
+   *
+   * CONSTAT D'ARNO : « “Afficher aussi le courrier automatique” — je ne vois aucun changement, que l'option soit
+   * activée ou non. »
+   *
+   * ═══ CE QUE LA MESURE A MONTRÉ, ET C'EST LE BANDEAU QUI MENTAIT ══════════════════════════════════════════════
+   *
+   * À l'écran, en plein écran Réception : le libellé s'inverse, `aria-pressed` passe de `false` à `true`, la
+   * phrase change — et la LISTE est identique : 25 lignes avant comme après, mêmes cinq dates. Le compteur
+   * « 10232 conversations » ne bouge pas non plus.
+   *
+   * 🔴 LA CAUSE N'EST PAS DANS L'INTERRUPTEUR. Mesuré en base : les 24 891 messages « automatiques »
+   * (`exclu_le IS NOT NULL`) sont TOUS `sens = 'envoye'` — **zéro** est reçu. Réception ne montre que du courrier
+   * REÇU : il n'existe donc, par construction des données, aucune ligne que cet interrupteur puisse ajouter ici.
+   *
+   * 🔴 CE QUI ÉTAIT FAUX, C'EST LE NOMBRE DU BANDEAU. `comptesBoite.automatiques` vaut `total - lisibles` sur
+   * TOUTE la base, sans égard ni au sens ni à l'étiquette : 22 096 échanges entièrement automatiques, qui sont du
+   * courrier SORTANT. Le bandeau de Réception affirmait donc « 22096 échanges […] ne sont pas affichés ici »
+   * alors qu'ils n'y seraient pas de toute façon, et proposait un bouton qui ne pouvait rien changer.
+   *
+   * 🔴 CE NOMBRE-CI EST CELUI DE CETTE LISTE, ET IL EST OBTENU PAR LE MÊME PRÉDICAT : c'est la différence entre le
+   * compte « courrier automatique inclus » et le compte « exclu ». Autrement dit, exactement « combien de lignes
+   * l'interrupteur ajouterait ». Zéro ⇒ l'écran n'affiche ni la phrase ni le bouton, et plus personne ne cherche
+   * un changement qui ne peut pas avoir lieu.
+   *
+   * ⚠️ UNE REQUÊTE DE PLUS, ET SEULEMENT SUR LA PREMIÈRE PAGE (`curseur === null`), comme le compte de la barre
+   * juste au-dessus : les pages suivantes n'affichent pas le bandeau.
+   *
+   * ⚠️ ET ELLE NE FAIT PAS TOMBER LA LISTE : en cas d'échec on rend `null`, qui se lit « on ne sait pas » — le
+   * bandeau garde alors le nombre global d'avant ce lot plutôt que de disparaître sur une panne.
+   */
+  const automatiquesIci = curseur !== null ? null : await (async (): Promise<number | null> => {
+    try {
+      const compte = async (avecAuto: boolean): Promise<number> => (await query<{ n: number }>(
+        sqlCompteBoite(avecAuto, etiquette, corbeille, spam, rangRetenusCompte, options.etoilesSeules === true,
+          rangAdresseCompte, etoileGmail, 1, rattachements, horsGestion, interne),
+        [...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
+          ...(retenus === undefined ? [] : [[...retenus]])],
+      )).rows[0]?.n ?? 0;
+      /* 🔴 LE MÊME PRÉDICAT, DEUX FOIS, AVEC LE SEUL DRAPEAU QUI CHANGE : aucune seconde écriture de la règle. */
+      const [avec, sans] = await Promise.all([compte(true), compte(false)]);
+      return Math.max(0, avec - sans);
+    } catch (e) {
+      console.error('[gestion/boite] compte du courrier automatique de cette liste illisible', e);
+      return null;
+    }
+  })();
+
   const aSuite = rows.length === aLire;
   const gardees = aSuite ? rows.slice(0, aLire - 1) : rows;
   const dernier = gardees[gardees.length - 1];
@@ -1364,6 +1431,12 @@ export async function lireBoiteMail(
      * ⚠️ `null` GARDE SON SENS EXACT : « pas la première page », donc « on ne l'a pas recompté ». Jamais zéro.
      */
     total: compteDeLaListe,
+    /**
+     * 🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 6 — COMBIEN DE LIGNES L'INTERRUPTEUR AJOUTERAIT **ICI**. Voir
+     * l'encadré de son calcul : le nombre global mentait sur Réception, parce que tout le courrier automatique du
+     * cabinet est SORTANT. `null` = on ne l'a pas recompté (pas la première page, ou lecture en échec).
+     */
+    automatiquesIci,
   };
 }
 

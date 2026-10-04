@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 /**
  * LOT BOITE-INTERNE-CORBEILLE — UN ENVOI N'EST EN RÉCEPTION QUE S'IL NOUS EST ADRESSÉ.
@@ -213,5 +214,83 @@ describe('les autres étiquettes ignorent la règle, comme avant', () => {
   it.each(['a_classer', 'sans_suite', 'automatique', 'spam'])('« %s » ne nomme aucun destinataire', async (sorte) => {
     await lireBoiteMail(null, [], 30, { etiquette: etiq(sorte) });
     expect(page()?.sql).not.toContain('dest_cci');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 6 — LE NOMBRE DU BANDEAU EST CELUI DE **CETTE** LISTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO : « “Afficher aussi le courrier automatique” — je ne vois aucun changement, que l'option soit
+   activée ou non. »
+
+   ═══ CE QUE LA MESURE A MONTRÉ, ET CE N'ÉTAIT PAS L'INTERRUPTEUR ══════════════════════════════════════════════
+
+   À l'écran, plein écran Réception : le libellé s'inverse, `aria-pressed` passe de `false` à `true`, la phrase
+   change — et la LISTE est identique : 25 lignes avant comme après, mêmes cinq dates, compteur inchangé.
+
+   🔴 EN BASE : les 24 891 messages automatiques (`exclu_le IS NOT NULL`) sont TOUS `sens = 'envoye'`. ZÉRO est
+   reçu. Réception ne montre que du courrier reçu — il n'existe donc, par construction des données, aucune ligne
+   que cet interrupteur puisse ajouter ici.
+
+   🔴 CE QUI MENTAIT, C'EST LE NOMBRE DU BANDEAU : `comptesBoite.automatiques` vaut `total - lisibles` sur TOUTE la
+   base, sans égard ni au sens ni à l'étiquette. Le bandeau de Réception affirmait « 22096 échanges ne sont pas
+   affichés ici » alors qu'ils n'y seraient pas de toute façon.
+
+   VÉRIFIÉ APRÈS CORRECTION : sur Réception, le bandeau et le bouton DISPARAISSENT (rien à ajouter). Sur Envoyés,
+   l'interrupteur fait passer le compteur de 9 657 à 32 852 conversations — exactement les 23 195 annoncés — et un
+   automatique s'insère à sa date (« 2 oct. 18:00 » devient « 2 oct. 18:04 »). */
+
+describe('🔴🔴 le courrier automatique de CETTE liste', () => {
+  /**
+   * 🔴🔴 LE NOMBRE VIENT DU MÊME PRÉDICAT, AVEC LE SEUL DRAPEAU QUI CHANGE. C'est ce qui garantit qu'il dit
+   * exactement « combien de lignes l'interrupteur ajouterait » : aucune seconde écriture de la règle, donc aucune
+   * divergence possible entre ce que le bandeau annonce et ce que la liste fait.
+   */
+  it('🔴🔴 il est obtenu par deux comptes du même prédicat', () => {
+    const src = readFileSync('app/lib/gestion/boiteRepo.ts', 'utf8');
+    expect(src).toContain('const [avec, sans] = await Promise.all([compte(true), compte(false)]);');
+    expect(src).toContain('return Math.max(0, avec - sans);');
+    /* 🔴 ET LE COMPTE UTILISÉ EST `sqlCompteBoite`, celui de la barre de pages : le même prédicat, à la lettre. */
+    const bloc = src.slice(src.indexOf('const automatiquesIci ='), src.indexOf('const aSuite ='));
+    expect(bloc).toContain('sqlCompteBoite(avecAuto, etiquette, corbeille, spam');
+  });
+
+  /** ⚠️ SEULEMENT À LA PREMIÈRE PAGE, comme le compte de la barre : les suivantes n'affichent pas le bandeau. */
+  it('⚠️ il n’est recompté qu’à la première page', () => {
+    const src = readFileSync('app/lib/gestion/boiteRepo.ts', 'utf8');
+    expect(src).toContain('const automatiquesIci = curseur !== null ? null :');
+  });
+
+  /**
+   * 🔴 ZÉRO ⇒ NI LA PHRASE, NI LE BOUTON. Un bouton qui ne peut rien changer est pire qu'un bouton absent : on
+   * clique, rien ne bouge, et l'on finit par douter de tout l'écran. C'est exactement ce qu'Arno a vécu.
+   */
+  it('🔴 l’écran n’affiche le bandeau que s’il y a quelque chose à ajouter', () => {
+    const ecran = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
+    expect(ecran).toContain('automatiquesAffiches > 0 && (');
+    /* 🔴 LE NOMBRE EST DÉRIVÉ UNE FOIS : les trois mentions de la phrase et la condition doivent dire le même
+       chiffre, sans quoi le bandeau se contredirait d'une ligne à l'autre. */
+    expect(ecran).toContain('const automatiquesAffiches = etat.v !== \'ok\' ? 0');
+    expect(ecran).not.toContain('etat.comptes.automatiques > 0 &&');
+  });
+
+  /**
+   * ⚠️ `null` GARDE LE COMPORTEMENT D'AVANT CE LOT : pas la première page, ou lecture en échec. On retombe sur le
+   * nombre global plutôt que de faire disparaître le bandeau sur une panne — une panne ne doit pas se déguiser en
+   * « il n'y a rien ».
+   */
+  it('⚠️ un compte indisponible ne fait pas disparaître le bandeau', () => {
+    const ecran = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
+    expect(ecran).toContain('(etat.automatiquesIci ?? etat.comptes?.automatiques ?? 0)');
+  });
+
+  /**
+   * 🔴 LA RECHERCHE LE FAISAIT DÉJÀ BIEN, et par la même astuce : c'est la LISTE qui ne le faisait pas. Les deux
+   * portent désormais le même champ, donc le même sens — deux noms pour une MÊME valeur ne peuvent pas diverger.
+   */
+  it('🔴 la recherche et la liste portent le même champ', () => {
+    const rech = readFileSync('app/lib/gestion/rechercheBoite.ts', 'utf8');
+    expect(rech).toContain('automatiquesIci: comptes.masques,');
   });
 });

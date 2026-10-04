@@ -220,6 +220,8 @@ interface ReponseBoite {
   /** LOT 5c — présent sur une réponse de recherche : `false` quand la migration 237 n'est pas appliquée. */
   pleinTexte?: boolean;
   automatiquesMasques?: number | null;
+  /** 🔴 POINT 6 — le nombre propre à CETTE liste. Voir l'encadré du bandeau. */
+  automatiquesIci?: number | null;
   /** LOT RECHERCHE-AVANCEE — les brouillons trouvés, cherchés à part (ils ne vivent pas dans la même table). */
   brouillons?: { lignes: BrouillonTrouveEcran[]; tronque: boolean };
 }
@@ -246,6 +248,12 @@ type Etat =
        */
       v: 'ok'; lignes: LigneEcran[]; suivant: CurseurBoite | null; total: number | null; comptes: ComptesBoite | null;
       pleinTexte: boolean; automatiquesMasques: number | null;
+      /**
+       * 🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 6 — combien de lignes l'interrupteur ajouterait DANS CETTE
+       * LISTE. `null` = non recompté (pas la première page, ou lecture en échec) : on retombe alors sur le nombre
+       * global, c'est-à-dire sur le comportement d'avant ce lot.
+       */
+      automatiquesIci: number | null;
       brouillons: { lignes: BrouillonTrouveEcran[]; tronque: boolean };
       nonLus: Set<number>; nonLusTotal: number | null; nonLusPartiel: boolean;
     }
@@ -709,6 +717,15 @@ export function BoiteMail({
   //   l'interrupteur redevient maître — un bouton qui ne fait rien est pire qu'un bouton absent.
   const impose = cherche ? null : autoImposeParEtiquette(etiquette);
   const auto = impose ?? autoPilote ?? autoInterne;
+  /**
+   * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 6 — LE NOMBRE QUE LE BANDEAU ANNONCE.
+   *
+   * Celui de CETTE liste quand on l'a recompté ; le nombre global sinon. Dérivé UNE fois : les trois endroits de
+   * la phrase et la condition d'affichage doivent dire le même chiffre, sans quoi le bandeau se contredirait
+   * lui-même d'une ligne à l'autre.
+   */
+  const automatiquesAffiches = etat.v !== 'ok' ? 0
+    : (etat.automatiquesIci ?? etat.comptes?.automatiques ?? 0);
   const basculerAuto = (v: boolean) => { if (onAuto) onAuto(v); else setAutoInterne(v); };
   // L'étiquette sert de clé de rechargement : changer d'étiquette relit la première page, comme changer de critère.
   const cleEtiquette = texteEtiquette(etiquette);
@@ -751,6 +768,7 @@ export function BoiteMail({
       // 🔴 `?? null` : la route de RECHERCHE ne rend aucun compte. Voir l'encadré du champ `comptes`.
       v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? null, comptes: r.comptes ?? null,
       pleinTexte: r.pleinTexte !== false, automatiquesMasques: r.automatiquesMasques ?? null,
+      automatiquesIci: r.automatiquesIci ?? null,
       brouillons: r.brouillons ?? { lignes: [], tronque: false },
       nonLus: new Set(r.nonLus ?? []), nonLusTotal: r.nonLusTotal ?? null, nonLusPartiel: r.nonLusPartiel === true,
     });
@@ -1194,11 +1212,26 @@ export function BoiteMail({
 
             ⚠️ UN `span`, PAS UN `p` : ce bloc vit dans un `h2`, et un paragraphe dans un titre est du HTML
             invalide. Le bouton, lui, y est parfaitement légitime. */}
-        {!cherche && impose === null && etat.comptes !== null && etat.comptes.automatiques > 0 && (
+        {/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 6 — LE NOMBRE DE **CETTE** LISTE ═══════════════════
+            CONSTAT D'ARNO : « je ne vois aucun changement, que l'option soit activée ou non ». Il avait raison,
+            et ce n'était pas l'interrupteur : mesuré en base, les 24 891 messages automatiques sont TOUS
+            `sens = 'envoye'` — zéro est reçu. Réception ne montre que du reçu, donc il n'y a RIEN à y ajouter.
+
+            🔴 CE QUI MENTAIT, C'EST LE NOMBRE. `etat.comptes.automatiques` vaut 22 096 : les échanges
+            entièrement automatiques de TOUTE la base, sans égard au sens ni à l'étiquette. Le bandeau affirmait
+            donc « 22096 échanges ne sont pas affichés ici » alors qu'ils n'y seraient pas de toute façon, et
+            proposait un bouton qui ne pouvait rien changer.
+
+            🔴 `automatiquesIci` EST CELUI DE CETTE LISTE, obtenu par le MÊME prédicat avec le seul drapeau qui
+            change. Zéro ⇒ ni la phrase, ni le bouton : plus personne ne cherche un changement impossible.
+
+            ⚠️ `null` GARDE LE COMPORTEMENT D'AVANT CE LOT (pas la première page, ou lecture en échec) : on
+            retombe sur le nombre global plutôt que de faire disparaître le bandeau sur une panne. */}
+        {!cherche && impose === null && etat.comptes !== null && automatiquesAffiches > 0 && (
           <span className="bte-tait">
             {auto
-              ? <>Le courrier automatique est inclus : {etat.comptes.automatiques} échange{etat.comptes.automatiques > 1 ? 's' : ''} ne contien{etat.comptes.automatiques > 1 ? 'nent' : 't'} que des messages tenus hors de la file par une règle.</>
-              : <>{etat.comptes.automatiques} échange{etat.comptes.automatiques > 1 ? 's' : ''} ne contien{etat.comptes.automatiques > 1 ? 'nent' : 't'} que du courrier automatique et {etat.comptes.automatiques > 1 ? 'ne sont pas affichés' : 'n’est pas affiché'} ici. Rien n’est supprimé.</>}
+              ? <>Le courrier automatique est inclus : {automatiquesAffiches} échange{automatiquesAffiches > 1 ? 's' : ''} ne contien{automatiquesAffiches > 1 ? 'nent' : 't'} que des messages tenus hors de la file par une règle.</>
+              : <>{automatiquesAffiches} échange{automatiquesAffiches > 1 ? 's' : ''} ne contien{automatiquesAffiches > 1 ? 'nent' : 't'} que du courrier automatique et {automatiquesAffiches > 1 ? 'ne sont pas affichés' : 'n’est pas affiché'} ici. Rien n’est supprimé.</>}
             {' '}
             <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => basculerAuto(!auto)}>
               {auto ? 'Masquer le courrier automatique' : 'Afficher aussi le courrier automatique'}
