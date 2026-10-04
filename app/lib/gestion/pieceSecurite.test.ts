@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   estProgrammeParLeContenu, estProgrammeParLeNom, estSignatureElectronique, extensionDe,
-  mentionPieceRefusee, telechargementSeulement, typeReelSiVague, verdictPiece,
+  mentionPieceRefusee, telechargementSeulement, typeCanonique, typeReelSiVague, verdictPiece,
   EXTENSIONS_PROGRAMME, MENTION_DEFAUT, MENTION_PRECAUTION, MENTION_PROGRAMME, MENTION_SIGNATURE,
   MOTIF_PROGRAMME, MOTIF_SIGNATURE,
 } from './pieceSecurite';
@@ -313,5 +313,73 @@ describe('🔴🔴 ⑦ les trois phrases de l’écran', () => {
   it('⚠️ un motif voisin ne prend pas la phrase d’un autre', () => {
     expect(mentionPieceRefusee('programme')).toEqual(MENTION_DEFAUT);
     expect(mentionPieceRefusee('signature')).toEqual(MENTION_DEFAUT);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — LES ORTHOGRAPHES ANCIENNES D'UN MÊME TYPE ══════════════════════
+ *
+ * DÉCISION D'ARNO (04/10/2026) : « autorise image/jpg, image/x-png et image/webp (synonymes de jpeg/png, à
+ * ajouter dans la liste blanche unique), puis rattrape les 11 photos. »
+ *
+ * ═══ 🔴 POURQUOI NORMALISER, ET PAS SEULEMENT AUTORISER ═══════════════════════════════════════════════════════
+ *
+ * `image/jpg` et `image/x-png` sont des synonymes EXACTS de `image/jpeg` et `image/png`, encore écrits par
+ * certains clients de messagerie. Les AUTORISER sans les normaliser aurait obligé à les inscrire dans TROIS
+ * autres listes pour qu'une photo se comporte comme une photo — miniatures, aperçu Drive, extension de fichier —
+ * et une orthographe oubliée dans l'une des trois donnait une icône au lieu d'une image, sans rien signaler.
+ *
+ * ⚠️ `image/webp` N'EST PAS UN SYNONYME : c'est un format à lui. Il est autorisé, jamais réécrit. Cette
+ * distinction est l'objet de la dernière épreuve — la confondre reviendrait à stocker du webp sous `.png`.
+ */
+describe('🔴🔴 ⑧ les orthographes anciennes d’un même type d’image', () => {
+  it('🔴 les synonymes de jpeg et de png sont ramenés à leur forme canonique', () => {
+    expect(typeCanonique('image/jpg')).toBe('image/jpeg');
+    expect(typeCanonique('image/pjpeg')).toBe('image/jpeg');
+    expect(typeCanonique('image/x-png')).toBe('image/png');
+  });
+
+  it('⚠️ le paramètre et la casse ne font pas échouer la reconnaissance', () => {
+    expect(typeCanonique('IMAGE/JPG')).toBe('image/jpeg');
+    expect(typeCanonique('image/x-png; name="logo 2.png"')).toBe('image/png');
+    expect(typeCanonique('  image/jpg  ')).toBe('image/jpeg');
+  });
+
+  it('un type déjà canonique, un type inconnu et un type absent sortent inchangés', () => {
+    expect(typeCanonique('image/jpeg')).toBe('image/jpeg');
+    expect(typeCanonique('application/pdf')).toBe('application/pdf');
+    expect(typeCanonique(null)).toBe('');
+    expect(typeCanonique(undefined)).toBe('');
+  });
+
+  it('🔴 `image/webp` N’EST PAS un synonyme : il est gardé TEL QUEL, jamais réécrit en png', () => {
+    expect(typeCanonique('image/webp')).toBe('image/webp');
+  });
+
+  /**
+   * 🔴 LE VERDICT DIT QU'IL A REDRESSÉ. Sans ce drapeau, l'appelant ne saurait pas qu'il doit réécrire le
+   * `type_mime` en base — et la pièce serait stockée sous la bonne extension en annonçant l'ancienne
+   * orthographe. C'est exactement le défaut mesuré sur la pièce 3112 au lot précédent.
+   */
+  it('🔴 `verdictPiece` garde la photo, rend la forme canonique ET signale le redressement', () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+    expect(verdictPiece({ nom: 'IMG_9622.jpg', typeMime: 'image/jpg', octets: jpeg }))
+      .toEqual({ garder: true, typeRetenu: 'image/jpeg', redresse: true });
+  });
+
+  it('un type déjà canonique ne se déclare PAS redressé — sinon on réécrirait la base pour rien', () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+    expect(verdictPiece({ nom: 'photo.jpg', typeMime: 'image/jpeg', octets: jpeg }))
+      .toEqual({ garder: true, typeRetenu: 'image/jpeg', redresse: false });
+  });
+
+  /**
+   * 🔒 CE QUE L'ÉLARGISSEMENT N'OUVRE PAS, et c'est la garde la plus importante de ce lot : un exécutable
+   * renommé en photo reste refusé. La sécurité passe AVANT la normalisation, pas après.
+   */
+  it('🔒 un exécutable annoncé `image/jpg` est REFUSÉ — la normalisation ne le sauve pas', () => {
+    const windows = new Uint8Array([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00]);
+    expect(verdictPiece({ nom: 'photo.jpg', typeMime: 'image/jpg', octets: windows }))
+      .toEqual({ garder: false, motif: MOTIF_PROGRAMME });
   });
 });

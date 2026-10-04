@@ -117,6 +117,14 @@ describe('le repli dit EXACTEMENT ce que dit la migration 228', () => {
       ['application/zip', 'db/migrations/302_gestion_piece_heif_zip_octets_50mo.sql'],
       ['application/x-zip-compressed', 'db/migrations/302_gestion_piece_heif_zip_octets_50mo.sql'],
       ['application/octet-stream', 'db/migrations/302_gestion_piece_heif_zip_octets_50mo.sql'],
+      /**
+       * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE — les trois synonymes d'images (migration 303, accord du 04/10/2026).
+       * Onze photos ordinaires étaient perdues pour une orthographe de type MIME : 5 `image/jpg`, 4 `image/x-png`,
+       * 2 `image/webp`.
+       */
+      ['image/jpg', 'db/migrations/303_gestion_piece_synonymes_images.sql'],
+      ['image/x-png', 'db/migrations/303_gestion_piece_synonymes_images.sql'],
+      ['image/webp', 'db/migrations/303_gestion_piece_synonymes_images.sql'],
     ]);
     const semesPar228 = CONFIG_GESTION_DEFAUT.typesPiecesAcceptes.filter((t) => !AJOUTS.has(t));
     for (const t of semesPar228) expect(sql).toContain(t);

@@ -70,7 +70,9 @@ describe('l’ordre des sources : MinIO, puis NOTRE copie Drive, puis le message
     const r = await lireOctetsPiece(
       piece({ stockageVide: true, messageIdRfc: '<abc@mail>' }), { ...depsMuettes(), gmail });
     expect(r.ok && r.source).toBe('gmail');
-    expect(gmail).toHaveBeenCalledWith('<abc@mail>', 'constat.pdf');
+    /* ⚠️ LOT PHOTOS-ET-INTERNE-INVERSE : un 3e argument est passé depuis ce lot — le repère de secours d'une
+       pièce sans nom. Il est FACULTATIF pour le câblage, mais toujours fourni par le lecteur. */
+    expect(gmail).toHaveBeenCalledWith('<abc@mail>', 'constat.pdf', { typeMime: null, taille: null });
 
     // Sans dépendance `gmail`, le recours n'existe pas — et le motif le DIT plutôt que de se taire.
     const sans = await lireOctetsPiece(piece({ stockageVide: true, messageIdRfc: '<abc@mail>' }), depsMuettes());
@@ -235,5 +237,93 @@ describe('🔒 l’identifiant Drive ne peut désigner QUE une copie faite par l
     // Nommer une table absente ferait échouer TOUT envoi, y compris ceux qui marchaient la minute d'avant.
     expect(source).toContain('vidageDisponible()');
     expect(source).toContain('copiePiecesDisponible()');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — UNE PIÈCE « (SANS NOM) » SE RETROUVE QUAND MÊME ════════════════
+ *
+ * CE QUE CES ÉPREUVES TIENNENT, et le défaut EXACT qu'elles auraient attrapé :
+ *
+ * ⚠️ `lireOctetsPiece` NORMALISE la pièce reçue en la RECOPIANT CHAMP PAR CHAMP. `typeMime` avait été ajouté à
+ * `PieceALire` et au dernier recours, mais PAS à cette recopie : le repère arrivait donc toujours vide, le
+ * câblage rendait `null` sans regarder les pièces du message, et le refus disait « la pièce n'y a pas été
+ * retrouvée » — ce qui était vrai, et n'apprenait rien. Deux essais de rattrapage ont été perdus là.
+ *
+ * 🔴 LA PREMIÈRE ÉPREUVE EST DONC CELLE DE LA RECOPIE : elle lit le repère REÇU PAR `deps.gmail`, pas le
+ * résultat. Un test qui ne regarderait que l'issue passerait dès qu'on triche sur le nom.
+ */
+describe('🔴🔴 le second repère d’une pièce sans nom traverse bien la normalisation', () => {
+  it('🔴 le type annoncé ARRIVE au dernier recours — c’est le champ qui manquait', async () => {
+    const vus: Array<{ typeMime?: string | null; taille?: number | null } | undefined> = [];
+    const deps: DepsOctetsPiece = {
+      ...depsMuettes(),
+      gmail: vi.fn(async (_id: string, _nom: string, repere?: { typeMime?: string | null; taille?: number | null }) => {
+        vus.push(repere);
+        return CONSTAT;
+      }),
+    };
+    const r = await lireOctetsPiece(piece({
+      nomFichier: '(sans nom)', cleStockage: null, messageIdRfc: '<m@ex>',
+      typeMime: 'image/jpg', tailleAttendue: CONSTAT.length,
+    }), deps);
+    expect(r.ok).toBe(true);
+    expect(vus).toEqual([{ typeMime: 'image/jpg', taille: CONSTAT.length }]);
+  });
+
+  it('⚠️ un appelant qui n’annonce aucun type passe un repère VIDE, sans planter — comportement d’avant le lot',
+    async () => {
+      const vus: Array<{ typeMime?: string | null; taille?: number | null } | undefined> = [];
+      const deps: DepsOctetsPiece = {
+        ...depsMuettes(),
+        gmail: vi.fn(async (_i: string, _n: string, repere?: { typeMime?: string | null; taille?: number | null }) => {
+          vus.push(repere); return null;
+        }),
+      };
+      const r = await lireOctetsPiece(
+        piece({ cleStockage: null, messageIdRfc: '<m@ex>' }), deps);
+      expect(r.ok).toBe(false);
+      expect(vus).toEqual([{ typeMime: null, taille: null }]);
+    });
+
+  /**
+   * 🔴 LE NOM RESTE LA CLÉ. Le couple (type, taille) est un repère de SECOURS : si le nom désigne quelque chose,
+   * c'est lui qui gagne — il est plus sûr. Cette épreuve tient l'ordre, pas seulement l'existence du secours.
+   */
+  it('le nom d’ORIGINE est toujours ce qu’on donne à chercher, le repère ne le remplace pas', async () => {
+    const noms: string[] = [];
+    const deps: DepsOctetsPiece = {
+      ...depsMuettes(),
+      gmail: vi.fn(async (_id: string, nom: string) => { noms.push(nom); return CONSTAT; }),
+    };
+    await lireOctetsPiece(piece({
+      nomFichier: 'Quittance', nomOrigine: 'scan_0042.pdf', cleStockage: null,
+      messageIdRfc: '<m@ex>', typeMime: 'application/pdf', tailleAttendue: CONSTAT.length,
+    }), deps);
+    expect(noms).toEqual(['scan_0042.pdf']);
+  });
+});
+
+/**
+ * ══ 🔴 CE QUE LE CÂBLAGE RÉEL FAIT DU REPÈRE — lu dans sa SOURCE, faute de pouvoir ouvrir Gmail en test ════════
+ *
+ * Le câblage parle à Gmail : une épreuve ne peut pas l'exécuter. On tient donc ses TROIS garde-fous par lecture,
+ * parce que leur disparition serait silencieuse et rouvrirait exactement le trou qu'on vient de fermer.
+ */
+describe('🔒 les garde-fous du repère de secours, dans le câblage', () => {
+  const source = readFileSync(join(process.cwd(), 'app/lib/gestion/octetsPieceCablage.ts'), 'utf8');
+
+  it('le secours ne sert QUE pour un nom qui ne désigne rien', () => {
+    expect(source).toContain('SANS_NOM');
+    expect(source).toContain('if (!SANS_NOM.includes(voulu)) return null;');
+  });
+
+  it('🔴 il exige UNE SEULE pièce candidate : deux pièces identiques ne sont jamais départagées au hasard', () => {
+    expect(source.replace(/\s+/g, ' ')).toContain('candidats.length === 1');
+  });
+
+  it('⚠️ sans type ni taille connus, il ne devine pas — il renonce', () => {
+    expect(source.replace(/\s+/g, ' '))
+      .toContain('if (type === \'\' || taille === null || taille <= 0) return null;');
   });
 });

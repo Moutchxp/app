@@ -295,6 +295,11 @@ const EXTENSIONS_GESTION: Record<string, string> = {
   'image/png': 'png',
   'image/gif': 'gif',
   'image/heic': 'heic',
+  /* 🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — `image/webp` est autorisé (accord d'Arno du 04/10/2026). Sans cette
+     ligne il serait déposé en `.bin` : accepté, mais sous un nom qui ne dit plus ce qu'il est. ⚠️ `image/jpg` et
+     `image/x-png` ne figurent PAS ici, et c'est normal : ils sont normalisés vers `image/jpeg` et `image/png`
+     AVANT d'arriver à cette table (voir `pieceSecurite.typeCanonique`). */
+  'image/webp': 'webp',
   'image/heif': 'heif',
   'image/tiff': 'tiff',
   'video/mp4': 'mp4',

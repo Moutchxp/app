@@ -78,6 +78,13 @@ export interface PieceALire {
   /** La taille connue, en octets. Comparée elle aussi quand on l'a : deux gardes valent mieux qu'un. */
   tailleAttendue: number | null;
   /**
+   * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — LE TYPE ANNONCÉ, second repère quand le nom ne désigne rien.
+   *
+   * ⚠️ FACULTATIF, et il ne sert QUE pour une pièce « (sans nom) » : une partie MIME sans nom ne peut pas être
+   * retrouvée par son nom chez Gmail (voir le dernier recours). Absent ⇒ comportement d'avant ce lot.
+   */
+  typeMime?: string | null;
+  /**
    * Le `Message-ID` RFC du message qui portait la pièce — l'ancre vers Gmail, pour le dernier recours.
    * `null` ⇒ ce recours n'est pas tenté (et le motif le dit).
    */
@@ -102,7 +109,9 @@ export interface DepsOctetsPiece {
    * DERNIER RECOURS : la pièce nommée, dans le message d'origine tel qu'il est AUJOURD'HUI dans Gmail.
    * Absent ⇒ ce recours n'existe pas pour cet appelant, et le motif le dira.
    */
-  gmail?(messageIdRfc: string, nomFichier: string): Promise<Buffer | null>;
+  gmail?(messageIdRfc: string, nomFichier: string, repere?: {
+    typeMime?: string | null; taille?: number | null;
+  }): Promise<Buffer | null>;
 }
 
 const md5De = (b: Buffer): string => createHash('md5').update(b).digest('hex');
@@ -140,6 +149,19 @@ export async function lireOctetsPiece(brute: PieceALire, deps: DepsOctetsPiece):
     driveFileId: brute.driveFileId ?? null,
     md5Attendu: brute.md5Attendu ?? null,
     tailleAttendue: brute.tailleAttendue ?? null,
+    /**
+     * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — CE CHAMP MANQUAIT ICI, ET SON ABSENCE A COÛTÉ DEUX ESSAIS.
+     *
+     * Cette normalisation RECOPIE CHAMP PAR CHAMP : tout champ oublié vaut donc `undefined` POUR LA SUITE DE LA
+     * FONCTION, même quand l'appelant l'avait parfaitement renseigné. Le dernier recours recevait `typeMime`
+     * absent, son repère de type valait la chaîne vide, et il rendait `null` sans jamais regarder les pièces du
+     * message — alors que les octets étaient là. Le refus disait « la pièce n'y a pas été retrouvée », ce qui
+     * était vrai et n'apprenait rien.
+     *
+     * ⚠️ TOUT CHAMP AJOUTÉ À `PieceALire` DOIT ÊTRE AJOUTÉ ICI. C'est le prix de la normalisation explicite ;
+     * l'oubli ne provoque aucune erreur de typage, seulement une branche qui se tait.
+     */
+    typeMime: brute.typeMime ?? null,
     messageIdRfc: brute.messageIdRfc ?? null,
   };
 
@@ -197,7 +219,23 @@ export async function lireOctetsPiece(brute: PieceALire, deps: DepsOctetsPiece):
   } else {
     try {
       // 🔴 LE NOM D'ORIGINE, JAMAIS LE NOM D'USAGE : dans Gmail la pièce n'a jamais changé de nom.
-      const octets = await deps.gmail(p.messageIdRfc, p.nomOrigine ?? p.nomFichier);
+      /**
+       * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — UNE PIÈCE SANS NOM SE RECONNAÎT AUTREMENT ═══════════════
+       *
+       * ⚠️ CAUSE EXACTE DE 7 ÉCHECS DE RATTRAPAGE, MESURÉE : la recherche chez Gmail compare les NOMS DE FICHIER
+       * (`piece.filename`). Une partie MIME sans nom est enregistrée « (sans nom) » chez nous — la comparaison
+       * `'' === '(sans nom)'` ne peut JAMAIS aboutir, et la pièce était déclarée introuvable alors qu'elle est là.
+       * Trois des onze photos d'Arno étaient dans ce cas, et quatre pièces du lot précédent aussi.
+       *
+       * 🔴 ON DONNE DONC UN SECOND REPÈRE : le type et la taille attendus. Le câblage ne s'en sert QUE si le nom
+       * ne désigne rien — un nom qui désigne reste la clé, et il est plus sûr qu'un couple (type, taille).
+       *
+       * ⚠️ LE REPÈRE EST FACULTATIF POUR L'APPELANT : un câblage qui ne le lit pas se comporte exactement comme
+       * avant ce lot.
+       */
+      const octets = await deps.gmail(p.messageIdRfc, p.nomOrigine ?? p.nomFichier, {
+        typeMime: p.typeMime ?? null, taille: p.tailleAttendue,
+      });
       if (octets === null) {
         essais.push('message d’origine : la pièce n’y a pas été retrouvée');
       } else {

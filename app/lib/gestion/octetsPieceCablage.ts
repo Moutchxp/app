@@ -4,6 +4,17 @@ import { jetonPourSubject } from './driveDelegue';
 import { lireContenuDrive } from './pieceDriveLecture';
 import { chercherParMessageId, lireOriginalGmailOctets } from './google';
 import { copiePiecesDisponible, vidageDisponible } from './schema';
+
+/**
+ * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — LES LIBELLÉS QUI NE DÉSIGNENT AUCUN NOM.
+ *
+ * Une partie MIME sans `filename` est enregistrée chez nous sous un libellé de remplacement. Chercher ce libellé
+ * dans Gmail ne peut rien trouver : là-bas, la pièce n'a pas de nom du tout.
+ *
+ * ⚠️ LA LISTE EST FERMÉE ET EN MINUSCULES : on compare au libellé normalisé, jamais à un motif approximatif. Un
+ * fichier réellement nommé « (sans nom).pdf » garde donc son chemin ordinaire.
+ */
+const SANS_NOM: readonly string[] = ['', '(sans nom)', '(sans titre)'];
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le nom d'USAGE pour les messages, le nom d'ORIGINE pour retrouver dans Gmail.
 import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
 // 🔴 LOT FICHE-SAISIE-UNIFORME — une copie supprimée du Drive ne doit plus être servie : elle produirait une
@@ -53,13 +64,16 @@ export async function lirePiecesALire(pieceIds: readonly number[]): Promise<Map<
   const { rows } = await query<{
     id: string; nom_fichier: string; nom_origine: string; cle_stockage: string | null; taille_octets: string | null;
     vide: boolean; drive_file_id: string | null; md5: string | null; message_id_rfc: string | null;
+    type_mime: string | null;
   }>(
     `SELECT p.id::text, ${await sqlNomAffiche('p')} AS nom_fichier,
             ${sqlNomOrigine('p')} AS nom_origine, p.cle_stockage, p.taille_octets::text,
             ${avecVidage ? 'EXISTS (SELECT 1 FROM gestion_piece_vidage v WHERE v.piece_id = p.id)' : 'false'} AS vide,
             ${avecCopie ? 'd.drive_file_id' : 'NULL::text'} AS drive_file_id,
             ${avecCopie ? 'd.md5' : 'NULL::text'} AS md5,
-            m.message_id AS message_id_rfc
+            m.message_id AS message_id_rfc,
+            -- 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — second repere d'une piece SANS NOM chez Gmail.
+            p.type_mime
        FROM gestion_piece p
        JOIN gestion_message m ON m.id = p.message_id
        ${avecCopie
@@ -80,6 +94,8 @@ export async function lirePiecesALire(pieceIds: readonly number[]): Promise<Map<
       md5Attendu: r.md5,
       tailleAttendue: r.taille_octets === null ? null : Number(r.taille_octets),
       messageIdRfc: r.message_id_rfc,
+      /* 🔴🔴 POINT 1 — il ne sert QUE si le nom ne désigne rien. Voir le dernier recours de `lireOctetsPiece`. */
+      typeMime: r.type_mime,
     });
   }
   return m;
@@ -129,7 +145,9 @@ export function depsOctetsPiece(jetonGmail?: () => Promise<string | null>): Deps
    * MIME n'ait pas changé entre la capture et aujourd'hui, ce que rien ne garantit.
    */
   if (jetonGmail !== undefined) {
-    deps.gmail = async (messageIdRfc: string, nomFichier: string) => {
+    deps.gmail = async (messageIdRfc: string, nomFichier: string, repere?: {
+      typeMime?: string | null; taille?: number | null;
+    }) => {
       const jeton = await jetonGmail();
       if (jeton === null) return null;
       const trouve = await chercherParMessageId(jeton, messageIdRfc, { fetch });
@@ -139,11 +157,40 @@ export function depsOctetsPiece(jetonGmail?: () => Promise<string | null>): Deps
       // Import DYNAMIQUE : `mailparser` ne doit pas entrer dans le graphe des appelants qui ne s'en servent pas.
       const { simpleParser } = await import('mailparser');
       const analyse = await simpleParser(brut.valeur);
+      const pieces = analyse.attachments ?? [];
       const voulu = (nomFichier ?? '').trim().toLowerCase();
-      for (const piece of analyse.attachments ?? []) {
+      for (const piece of pieces) {
         if ((piece.filename ?? '').trim().toLowerCase() === voulu) return Buffer.from(piece.content);
       }
-      return null;
+
+      /**
+       * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — LE SECOND REPÈRE, QUAND LE NOM NE DÉSIGNE RIEN ══════════
+       *
+       * ⚠️ CAUSE EXACTE DE 7 ÉCHECS DE RATTRAPAGE, MESURÉE : une partie MIME SANS NOM est enregistrée chez nous
+       * sous le libellé « (sans nom) ». La boucle ci-dessus compare ce libellé au `filename` de Gmail, qui est
+       * vide : `'' === '(sans nom)'` ne peut JAMAIS aboutir. Trois des onze photos d'Arno étaient dans ce cas,
+       * et quatre pièces du lot précédent aussi — toutes déclarées « introuvables » alors qu'elles sont là.
+       *
+       * 🔴 CE SECOND PASSAGE NE SERT QU'À CE CAS-LÀ, et il faut que ce soit strict : il ne s'ouvre QUE si le nom
+       * voulu ne désigne rien (vide, ou le libellé de remplacement), et il exige que le type ET la taille
+       * correspondent. Un nom qui désigne reste la clé — il est plus sûr qu'un couple (type, taille).
+       *
+       * ⚠️ IL EXIGE LES DEUX, ET LA TAILLE EXACTE. Le type seul attraperait la première image du message ; la
+       * taille seule, n'importe quelle pièce du même poids. Ensemble, sur une pièce sans nom, l'ambiguïté est
+       * négligeable — et `verifierTaille`, côté appelant, recontrôle de toute façon ce qui revient.
+       *
+       * ⚠️ S'ILS SONT PLUSIEURS À CORRESPONDRE, ON NE CHOISIT PAS : deux parties sans nom, de même type et de même
+       * taille, sont indiscernables. Rendre la première serait deviner, et une pièce qui serait celle du voisin
+       * est exactement ce que ce module s'interdit depuis le premier jour.
+       */
+      if (!SANS_NOM.includes(voulu)) return null;
+      const type = (repere?.typeMime ?? '').split(';')[0].trim().toLowerCase();
+      const taille = repere?.taille ?? null;
+      if (type === '' || taille === null || taille <= 0) return null;
+      const candidats = pieces.filter((piece) => (piece.filename ?? '').trim() === ''
+        && (piece.contentType ?? '').split(';')[0].trim().toLowerCase() === type
+        && piece.content?.length === taille);
+      return candidats.length === 1 ? Buffer.from(candidats[0].content) : null;
     };
   }
   return deps;

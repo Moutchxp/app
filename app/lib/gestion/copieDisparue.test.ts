@@ -119,7 +119,10 @@ describe('🔴🔴 « marque la copie disparue » : les trois écritures sont br
     expect(readFileSync('app/lib/gestion/depotDrive.ts', 'utf8'))
       .toContain('ET SI LA COPIE ÉCHOUE, ON RETOMBE SUR NOS OCTETS');
     const lecteur = readFileSync('app/lib/gestion/octetsPiece.ts', 'utf8');
-    expect(lecteur).toContain('deps.gmail(p.messageIdRfc, p.nomOrigine ?? p.nomFichier)');
+    /* ⚠️ Fragment sans la parenthèse fermante : l'appel porte un 3e argument depuis le lot
+       PHOTOS-ET-INTERNE-INVERSE (le repère d'une pièce sans nom). Ce garde surveille la CHAÎNE DE RECOURS,
+       pas la signature de l'appel. */
+    expect(lecteur).toContain('deps.gmail(p.messageIdRfc, p.nomOrigine ?? p.nomFichier');
   });
 });
 

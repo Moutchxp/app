@@ -59,7 +59,8 @@ import { pieceMd5Disponible } from '../lib/gestion/schema';
  * simulation ce qui serait refusé, et à écrire le bon MOTIF sur les pièces qu'on ne récupérera jamais.
  */
 import {
-  estProgrammeParLeNom, estSignatureElectronique, verdictPiece, MOTIF_PROGRAMME, MOTIF_SIGNATURE,
+  estProgrammeParLeNom, estSignatureElectronique, typeCanonique, verdictPiece,
+  MOTIF_PROGRAMME, MOTIF_SIGNATURE,
 } from '../lib/gestion/pieceSecurite';
 import { writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -216,8 +217,18 @@ async function principal(): Promise<void> {
      * servirait à rien. C'est la MÊME fonction que la porte de dépôt.
      */
     const v = verdictPiece({ nom: p.nomFichier, typeMime: p.typeMime, octets: lu.octets });
+    /**
+     * 🔴 DEUX REDRESSEMENTS, ET DEUX MOTS DIFFÉRENTS. Le verdict peut retenir un autre type pour DEUX raisons, et
+     * les confondre ferait mentir le journal :
+     *   · le CONTENU dément un type vague (`application/octet-stream` sur un `.heic`) ;
+     *   · le type est une ORTHOGRAPHE ancienne du même format (`image/x-png` → `image/png`).
+     * Mesuré : la première passe disait « redressé sur le CONTENU » pour un synonyme, ce qui était faux.
+     */
     const dit = v.garder
-      ? (v.redresse ? ` → type redressé sur le CONTENU : ${p.typeMime ?? '(aucun)'} → ${v.typeRetenu}` : '')
+      ? (v.redresse
+        ? ` → type redressé (${typeCanonique(p.typeMime) === v.typeRetenu ? 'ORTHOGRAPHE' : 'CONTENU'}) : `
+          + `${p.typeMime ?? '(aucun)'} → ${v.typeRetenu}`
+        : '')
       : ` → REFUSÉ : ${v.motif}`;
     dire(`${P}   ✓ ${p.id} « ${p.nomFichier} » — ${mo(lu.octets.byteLength)} lus depuis ${lu.source}${dit}`);
     if (v.garder && v.redresse) redresses += 1;
@@ -279,7 +290,7 @@ async function principal(): Promise<void> {
   dire(`${P} ── bilan ──────────────────────────────────────────────`);
   dire(`${P} refus de sécurité (phase ①) : ${aMarquer.length}`);
   dire(`${P} octets retrouvés : ${lus} / ${refusees.length}`);
-  dire(`${P} types redressés sur le contenu : ${redresses}`);
+  dire(`${P} types redressés (contenu ou orthographe) : ${redresses}`);
   dire(`${P} ${appliquer ? `déposées et inscrites : ${deposes}` : '(simulation : aucun dépôt)'}`);
   if (echecs.length > 0) {
     dire(`${P} ${echecs.length} en échec :`);

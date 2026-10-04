@@ -108,7 +108,11 @@ describe('🔴 chaque endroit qui affiche un nom de pièce passe par le fragment
    */
   it('🔴🔴 le dernier recours Gmail cherche par le nom d’ORIGINE', () => {
     const src = readFileSync('app/lib/gestion/octetsPiece.ts', 'utf8');
-    expect(src).toContain('deps.gmail(p.messageIdRfc, p.nomOrigine ?? p.nomFichier)');
+    /* ⚠️ LE FRAGMENT S'ARRÊTE AVANT LA PARENTHÈSE FERMANTE, DEPUIS LE LOT PHOTOS-ET-INTERNE-INVERSE : l'appel
+       porte maintenant un 3e argument (le repère d'une pièce sans nom). Ce qui est tenu ici est le NOM CHERCHÉ,
+       et lui seul — figer la fin de l'appel aurait fait rougir ce garde à chaque argument ajouté, pour une
+       raison qui n'a rien à voir avec ce qu'il surveille. */
+    expect(src).toContain('deps.gmail(p.messageIdRfc, p.nomOrigine ?? p.nomFichier');
     expect(readFileSync('app/lib/gestion/octetsPieceCablage.ts', 'utf8')).toContain('sqlNomOrigine');
   });
 

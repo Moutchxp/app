@@ -99,6 +99,24 @@ export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
      * `application/octet-stream` reste refusé.
      */
     'image/heif', 'application/zip', 'application/x-zip-compressed', 'application/octet-stream',
+    /**
+     * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — ACCORD D'ARNO (04/10/2026) ══════════════════════════════
+     *
+     * « autorise image/jpg, image/x-png et image/webp (synonymes de jpeg/png, à ajouter dans la liste blanche
+     * unique), puis rattrape les 11 photos. »
+     *
+     * CE QUE LA BASE DISAIT : onze photos ordinaires sans octets, perdues pour une ORTHOGRAPHE de type MIME —
+     * 5 `image/jpg` (dont une de 2,1 Mo), 4 `image/x-png` (« logo 2.png »), 2 `image/webp`.
+     *
+     * 🔴 LES DEUX PREMIERS SONT NORMALISÉS PAR LE CODE vers `image/jpeg` et `image/png`
+     * (`pieceSecurite.typeCanonique`) : sans cela il aurait fallu inscrire `image/x-png` dans trois autres listes
+     * (miniature, aperçu, extension de stockage) pour qu'une photo se comporte comme une photo. Ils restent ICI
+     * comme REGISTRE DE LA DÉCISION — ils autoriseraient ces types même si la normalisation disparaissait.
+     *
+     * ⚠️ `image/webp` N'EST PAS UN SYNONYME : c'est un format à lui, déjà connu des deux listes d'affichage. Il
+     * ne manquait qu'à la liste blanche.
+     */
+    'image/jpg', 'image/x-png', 'image/webp',
   ],
   /**
    * 🔴 50 Mo — ACCORD D'ARNO (04/10/2026), « plafond relevé à 50 Mo pour les 5 pièces trop volumineuses ». Les

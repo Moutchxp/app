@@ -258,6 +258,54 @@ export function typeReelSiVague(o: { typeMime?: string | null; octets: Uint8Arra
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤ bis — LES SYNONYMES D'UN MÊME FORMAT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (04/10/2026) : « autorise image/jpg, image/x-png et image/webp (synonymes de jpeg/png, à ajouter
+   dans la liste blanche unique), puis rattrape les 11 photos. »
+
+   🔴 DEUX DES TROIS SONT DES SYNONYMES EXACTS, ET LES TRAITER COMME TELS ÉVITE TROIS AUTRES LISTES. `image/jpg` et
+   `image/x-png` désignent le MÊME format que `image/jpeg` et `image/png` — ce sont des orthographes anciennes,
+   encore écrites par certains clients de messagerie. Mesuré sur cette base : 5 pièces `image/jpg`, 4 `image/x-png`,
+   2 `image/webp`, toutes des photos ordinaires, perdues pour une orthographe.
+
+   ⚠️ CE QUE LA NORMALISATION ÉVITE, ET CE N'EST PAS UNE COMMODITÉ. Sans elle, il aurait fallu inscrire
+   `image/x-png` dans TROIS listes de plus pour qu'une photo se comporte comme une photo :
+     · `pieces.IMAGES_MINIATURABLES` (sinon : une icône au lieu d'une miniature) ;
+     · `apercuDrive.IMAGES` (sinon : pas d'œil, pas de visionneuse) ;
+     · `stockage.EXTENSIONS_GESTION` (sinon : le fichier stocké s'appelle `.bin`).
+   Trois listes à tenir d'accord pour une orthographe : c'est exactement la duplication que ce dépôt passe son
+   temps à défaire.
+
+   🔴 ET LA LISTE BLANCHE PORTE QUAND MÊME LES TROIS, comme Arno l'a demandé : elle est le REGISTRE DE LA DÉCISION,
+   et elle autoriserait ces types même si cette normalisation disparaissait un jour. Elle n'est donc pas du poids
+   mort — c'est une ceinture en plus de la bretelle.
+
+   ⚠️ `image/webp` N'EST PAS UN SYNONYME : c'est un format à lui. Il n'est pas normalisé, il est simplement
+   autorisé — et il était déjà connu des deux listes d'affichage, il ne manquait qu'à la liste blanche. */
+
+/** Les orthographes anciennes d'un format, et sa forme canonique. PUR. */
+const SYNONYMES_TYPE: Readonly<Record<string, string>> = {
+  'image/jpg': 'image/jpeg',
+  'image/pjpeg': 'image/jpeg',
+  'image/x-png': 'image/png',
+  'image/x-citrix-jpeg': 'image/jpeg',
+  'image/x-citrix-png': 'image/png',
+};
+
+/**
+ * LA FORME CANONIQUE D'UN TYPE MIME. PUR.
+ *
+ * ⚠️ ELLE NE DEVINE RIEN : c'est une table d'orthographes, pas une heuristique. Un type absent de la table est
+ * rendu tel quel. Deviner reviendrait à contredire l'expéditeur, ce que `typeReelSiVague` s'interdit déjà pour un
+ * type précis.
+ */
+export function typeCanonique(typeMime: string | null | undefined): string {
+  const t = typeNu(typeMime);
+  return SYNONYMES_TYPE[t] ?? t;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑥ LE VERDICT — l'unique point d'entrée de la porte de dépôt
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
@@ -288,9 +336,20 @@ export function verdictPiece(o: {
     return { garder: false, motif: MOTIF_SIGNATURE };
   }
   const reel = typeReelSiVague({ typeMime: o.typeMime, octets: o.octets });
-  return reel === null
-    ? { garder: true, typeRetenu: typeNu(o.typeMime), redresse: false }
-    : { garder: true, typeRetenu: reel, redresse: true };
+  if (reel !== null) return { garder: true, typeRetenu: reel, redresse: true };
+  /**
+   * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 1 — L'ORTHOGRAPHE ANCIENNE EST RAMENÉE À LA CANONIQUE.
+   *
+   * `image/jpg` → `image/jpeg`, `image/x-png` → `image/png`. C'est un REDRESSEMENT, et il est annoncé comme tel
+   * (`redresse: true`) : le type stocké n'est pas celui que le mail annonçait, et le rattrapage l'inscrit en base
+   * pour que les écrans traitent la pièce comme la photo qu'elle est.
+   *
+   * ⚠️ RIEN N'EST DEVINÉ : voir la table `SYNONYMES_TYPE`. Un type inconnu de la table ressort tel quel.
+   */
+  const canonique = typeCanonique(o.typeMime);
+  return canonique === typeNu(o.typeMime)
+    ? { garder: true, typeRetenu: canonique, redresse: false }
+    : { garder: true, typeRetenu: canonique, redresse: true };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
