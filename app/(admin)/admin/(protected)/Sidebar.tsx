@@ -99,6 +99,32 @@ const CSS = `
 .svv-adm-content{flex:1;display:flex;flex-direction:column;min-width:0}
 .svv-adm-bandeau{border-bottom:1px solid var(--color-svv-line);padding:.6rem 1rem;font-size:.8rem;color:var(--color-svv-muted);background:var(--color-svv-field)}
 .svv-adm-main{flex:1;padding:1.25rem;min-width:0}
+/* ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 2 — LE BOUTON DRIVE ET L'HEURE DE PARIS ══════════════════════
+   Arno : « discret, meme style que le bandeau », et « lisible en Clair et en Sombre, et a toutes les largeurs
+   (rien ne passe a la ligne de travers) ».
+
+   🔴 LE BANDEAU SAIT DEJA SE REPLIER : il est en flex avec gouttiere. Ce qui manquait pour qu'il se replie SANS
+   casser, c'est flex-wrap et un row-gap — sans eux, a 400 px les quatre elements se serrent jusqu'a ce que le nom
+   du collaborateur se coupe en plein milieu. Avec eux, le groupe de droite passe a la ligne ENTIER et reste pousse
+   a droite : c'est le repli qu'on lit, pas celui qu'on subit.
+
+   🔴 LE BOUTON PORTE LA HAUTEUR TACTILE DU MODULE : 32 px a la souris, 44 px au doigt (voir la requete de media
+   plus bas). C'est la regle transverse des interfaces internes, et un bandeau d'une ligne n'en est pas dispense.
+
+   ⚠️ L'HEURE EST EN CHIFFRES TABULAIRES (font-variant-numeric) : sans cela, 10:58 puis 11:11 n'ont pas la meme
+   largeur, et le groupe de droite TREMBLE a chaque minute. Defaut classique d'une horloge posee dans une barre.
+   ⚠️ AUCUNE COULEUR EN DUR : les jetons basculent seuls en Clair et en Sombre.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot, vu deux fois
+   dans ce lot meme apres l'avoir ecrit en garde). */
+.svv-adm-bandeau{flex-wrap:wrap;row-gap:.4rem}
+.svv-adm-drive{display:inline-flex;align-items:center;gap:.35rem;min-height:32px;padding:.2rem .55rem;
+  font:inherit;font-size:.78rem;font-weight:600;color:var(--color-svv-ink);
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.5rem;
+  cursor:pointer;flex:0 0 auto}
+.svv-adm-drive:hover{border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
+.svv-adm-drive:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.svv-adm-heure{font-variant-numeric:tabular-nums;font-size:.8rem;color:var(--color-svv-muted);flex:0 0 auto}
+@media (pointer:coarse){.svv-adm-drive{min-height:44px}}
 
 .svv-adm-sidebar{background:var(--color-svv-surface);border-bottom:1px solid var(--color-svv-line)}
 .svv-adm-brand-row{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;min-height:56px}
