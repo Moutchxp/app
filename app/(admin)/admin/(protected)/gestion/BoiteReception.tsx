@@ -7,6 +7,12 @@ import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { bulleCapsuleMessage, motCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 // 🔴🔴 LOT OPTION-C — le MOT de l'unité comptée, écrit une seule fois pour les deux écrans (module PUR).
 import { motMailsRecus } from '../../../../lib/gestion/uniteListe';
+/**
+ * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — les MOTS de l'interrupteur du courrier automatique, écrits une
+ * seule fois pour les deux écrans. Module PUR : il porte aussi le prédicat SQL que les deux dépôts appliquent, ce
+ * qui est la seule façon de garantir qu'un même courrier est filtré pareil des deux côtés.
+ */
+import { motBasculeAutomatique, phraseCourrierAutomatique } from '../../../../lib/gestion/courrierAutomatique';
 
 /**
  * LOT STATUT-PAR-MAIL — LA BOÎTE DE RÉCEPTION DE `gestion@criterimmo.fr`, UN MAIL PAR LIGNE.
@@ -54,6 +60,11 @@ type Etat =
       v: 'ok'; lignes: LigneMail[]; suivant: { recuLe: string; messageId: string } | null; total: number | null;
       /** La migration 266 est-elle appliquée ? Sinon le filtre « Hors gestion » n'est pas proposé. */
       horsGestion: boolean;
+      /**
+       * 🔴🔴 POINT 8 — COMBIEN **CETTE** LISTE TAIT, rendu par la route. `null` = on ne sait pas (hors première
+       * page, ou serveur plus ancien) : on se tait alors, plutôt que d'annoncer un nombre inventé.
+       */
+      automatiquesIci: number | null;
     }
   | { v: 'erreur'; message: string };
 
@@ -73,8 +84,22 @@ const FILTRES: readonly { cle: Filtre; mot: string; aide: string; exigeHorsGesti
   },
 ];
 
-export function BoiteReception({ maintenant, onOuvrir, onPleinEcran, onFileEchanges, compteEchanges }: {
+export function BoiteReception({
+  maintenant, onOuvrir, onPleinEcran, onFileEchanges, compteEchanges, auto = false, onAuto,
+}: {
   maintenant: Date;
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — L'ÉTAT EST PARTAGÉ, PAS DUPLIQUÉ ════════════════════════
+   *
+   * Arno : « MÊME état partagé entre les deux écrans (activé d'un côté = activé de l'autre) ». Il est donc tenu
+   * par `GestionVue`, qui rend LES DEUX colonnes — et passé ici comme il est déjà passé au plein écran. Un
+   * `useState` local aurait donné deux interrupteurs qui se contredisent, ce qui est pire qu'un seul.
+   *
+   * ⚠️ `auto = false` PAR DÉFAUT : un appelant qui l'ignore se comporte comme avant ce point.
+   */
+  auto?: boolean;
+  /** `undefined` ⇒ le bouton n'est pas rendu : on ne propose pas un geste qui n'irait nulle part. */
+  onAuto?: (v: boolean) => void;
   /** Ouvre le mail — déplié dans sa conversation, par la règle du lot MESSAGE-CLIQUÉ. */
   onOuvrir: (filId: number, messageId: number) => void;
   /**
@@ -92,35 +117,44 @@ export function BoiteReception({ maintenant, onOuvrir, onPleinEcran, onFileEchan
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [suite, setSuite] = useState(false);
 
-  const charger = useCallback(async (f: Filtre) => {
+  /* 🔴 POINT 8 — `?auto=1`, LE MÊME PARAMÈTRE QUE LE PLEIN ÉCRAN, écrit ici une seule fois pour les deux appels. */
+  const charger = useCallback(async (f: Filtre, tous: boolean) => {
     setEtat({ v: 'charge' });
     try {
-      const res = await fetch(`/api/admin/gestion/reception?filtre=${f}`, { cache: 'no-store' });
+      const p = new URLSearchParams({ filtre: f, ...(tous ? { auto: '1' } : {}) });
+      const res = await fetch(`/api/admin/gestion/reception?${p}`, { cache: 'no-store' });
       const d = (await res.json()) as { etat?: string; message?: string } & Omit<Etat & { v: 'ok' }, 'v'>;
       if (d.etat !== 'ok') { setEtat({ v: 'erreur', message: d.message ?? 'Lecture impossible.' }); return; }
       setEtat({
         v: 'ok', lignes: d.lignes ?? [], suivant: d.suivant ?? null, total: d.total ?? null,
-        horsGestion: d.horsGestion === true,
+        horsGestion: d.horsGestion === true, automatiquesIci: d.automatiquesIci ?? null,
       });
     } catch {
       setEtat({ v: 'erreur', message: 'La boîte n’a pas répondu.' });
     }
   }, []);
 
-  useEffect(() => { void charger(filtre); }, [charger, filtre]);
+  /* 🔴 L'INTERRUPTEUR RELIT LA LISTE, comme le filtre : `auto` est donc une dépendance de l'effet, et non un
+     drapeau qu'on lirait au prochain geste. Sans cela, le bouton changerait d'état sans changer la liste. */
+  useEffect(() => { void charger(filtre, auto); }, [charger, filtre, auto]);
 
   /** « Voir les mails plus anciens » : on AJOUTE à la liste, on ne la remplace pas. */
   const voirPlus = async (): Promise<void> => {
     if (etat.v !== 'ok' || etat.suivant === null || suite) return;
     setSuite(true);
     try {
-      const p = new URLSearchParams({ filtre, avant: etat.suivant.recuLe, apres: etat.suivant.messageId });
+      /* ⚠️ LE DRAPEAU VOYAGE AVEC LA PAGE SUIVANTE. Sans lui, « voir plus » rendrait une page filtrée autrement
+         que celle qu'on lit : des mails apparaîtraient ou manqueraient au milieu de la liste, et l'ordre
+         chronologique strict qu'Arno demande serait rompu sur l'ensemble. */
+      const p = new URLSearchParams({
+        filtre, avant: etat.suivant.recuLe, apres: etat.suivant.messageId, ...(auto ? { auto: '1' } : {}),
+      });
       const res = await fetch(`/api/admin/gestion/reception?${p}`, { cache: 'no-store' });
       const d = (await res.json()) as { etat?: string } & Omit<Etat & { v: 'ok' }, 'v'>;
       if (d.etat === 'ok') {
         setEtat({
           v: 'ok', lignes: [...etat.lignes, ...(d.lignes ?? [])], suivant: d.suivant ?? null, total: etat.total,
-          horsGestion: etat.horsGestion,
+          horsGestion: etat.horsGestion, automatiquesIci: etat.automatiquesIci,
         });
       }
     } catch { /* on garde ce qui est déjà affiché : une page de plus qui manque ne doit pas vider la liste */ }
@@ -143,6 +177,30 @@ export function BoiteReception({ maintenant, onOuvrir, onPleinEcran, onFileEchan
               PUR), écrit une seule fois pour les deux écrans. */}
           {etat.v === 'ok' && etat.total !== null && (
             <span className="gst-compte">{motMailsRecus(etat.total)}</span>
+          )}
+          {/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — L'INTERRUPTEUR, À LA MÊME PLACE QU'AU PLEIN
+              ÉCRAN : sur la ligne du titre, poussé à droite, en plus petit. Même libellé, mêmes mots, même état.
+
+              🔴 ET IL NE PARAÎT QUE S'IL PEUT CHANGER QUELQUE CHOSE — c'est l'arbitrage rendu par Arno au point 6
+              de ce même lot : « zéro ⇒ ni la phrase, ni le bouton », pour que plus personne ne cherche un
+              changement impossible.
+
+              ⚠️ ET AUJOURD'HUI IL NE PARAÎT PAS, pour une raison mesurée et non par prudence : hors spam, 17 017
+              messages sont REÇUS et **aucun** n'est écarté par une règle (les 24 891 écartés sont tous des
+              ENVOIS). Le câblage est pourtant complet — route `?auto=1`, même prédicat SQL, compteur jumeau,
+              état partagé — et il parlera le jour où une règle écartera un message reçu.
+
+              ⚠️ UN `span`, PAS UN `p` : ce bloc vit dans un `h2`, et un paragraphe dans un titre est du HTML
+              invalide. Le bouton, lui, y est parfaitement légitime. */}
+          {etat.v === 'ok' && onAuto !== undefined && etat.automatiquesIci !== null
+            && etat.automatiquesIci > 0 && (
+            <span className="brc-tait">
+              {phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')}{' '}
+              <button type="button" className="gst-lien-bouton" aria-pressed={auto}
+                onClick={() => onAuto(!auto)}>
+                {motBasculeAutomatique(auto)}
+              </button>
+            </span>
           )}
         </h2>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onPleinEcran}>
@@ -234,6 +292,15 @@ export function BoiteReception({ maintenant, onOuvrir, onPleinEcran, onFileEchan
 export const CSS_BOITE_RECEPTION = `
 .brc{display:flex;flex-direction:column;gap:8px;min-width:0}
 .brc-adresse{font-weight:400;font-size:.8rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — CE QUE LA LISTE NE MONTRE PAS, SUR LA LIGNE DU TITRE ═════
+   LE MEME DESSIN QUE .bte-tait DU PLEIN ECRAN, au caractere pres : meme taille, meme graisse, meme couleur,
+   meme poussee a droite. Arno demande « meme libelle, meme place » — deux dessins differents pour un meme geste
+   donneraient a croire a deux mecanismes, et c'est exactement ce que ce point repare ailleurs.
+   ⚠️ margin-left:auto POUSSE A DROITE SANS RIEN DEPLACER : le titre et le compteur ne bougent pas d'un pixel.
+   ⚠️ AUCUNE COULEUR EN DUR : le jeton bascule seul en Clair et en Sombre.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+.brc-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
+  color:var(--color-svv-muted);flex:0 1 auto;min-width:0}
 .brc-filtres{display:flex;flex-wrap:wrap;gap:6px}
 .brc-filtre{min-height:36px;padding:.25rem .7rem;font:inherit;font-size:.8rem;color:var(--color-svv-ink);
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:999px;cursor:pointer}

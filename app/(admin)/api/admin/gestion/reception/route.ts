@@ -21,6 +21,18 @@ import { horsGestionDisponible } from '../../../../../lib/gestion/schema';
  * LES QUESTIONS :
  *   · `?filtre=tous|a_classer|classes|hors_gestion`  le filtre rapide de la colonne (défaut : `tous`)
  *   · `?avant=<ISO>&apres=<id>`         le curseur de pagination, rendu par la page précédente
+ *   · `?auto=1`                         inclure le courrier automatique
+ *
+ * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — `?auto=1`, LE MÊME PARAMÈTRE QUE `/boite` ═════════════════
+ *
+ * Arno : « la route /reception accepte le même paramètre que /boite, par le même code SQL : pas de second
+ * chemin. » Même nom (`auto`), même valeur reconnue (`'1'`), même prédicat
+ * (`courrierAutomatique.sqlSansCourrierAutomatique`), même compteur jumeau (`automatiquesIci`).
+ *
+ * 🔴 ET CE N'ÉTAIT PAS UN OUBLI DE PARAMÈTRE, C'ÉTAIT UN FILTRE ABSENT : cette liste n'écartait RIEN. Les deux
+ * écrans filtraient donc différemment le même courrier, et l'écran partagé montrait par défaut ce que le plein
+ * écran cachait. Mesuré, l'écart est aujourd'hui de ZÉRO mail — aucun message REÇU n'est écarté par une règle —
+ * mais le jour où une règle en écartera un, les deux écrans en diront la même chose.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export const runtime = 'nodejs';
@@ -50,6 +62,8 @@ export async function GET(request: Request): Promise<Response> {
     const page = await lireMailsRecus(curseur, {
       filtre: lireFiltre(url.searchParams.get('filtre')),
       limite: PAGE_RECEPTION,
+      /* 🔴 LE MÊME NOM ET LA MÊME VALEUR QUE `/boite` : `?auto=1`. Toute autre valeur vaut « non », comme là-bas. */
+      inclureAutomatiques: url.searchParams.get('auto') === '1',
       // Le libellé d'un partenaire interne prime sur le nom porté par le mail, ici comme partout dans le module.
       partenaires: await lirePartenairesInternes().catch(() => []),
     });

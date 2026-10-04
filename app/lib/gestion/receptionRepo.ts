@@ -1,4 +1,6 @@
 import { query } from '../db/client';
+// 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — le MEME predicat que la boite. Pas de second chemin.
+import { sqlSansCourrierAutomatique } from './courrierAutomatique';
 import {
   corbeilleGmailDisponible,
   rattachementsDisponibles, horsGestionDisponible, interneDisponible, pieceIntegreeDisponible,
@@ -82,6 +84,19 @@ export interface PageReception {
   suivant: CurseurReception | null;
   /** Le nombre TOTAL de mails reçus correspondant au filtre. Compté seulement à la première page. */
   total: number | null;
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — COMBIEN **CETTE** LISTE TAIT ════════════════════════════
+   *
+   * Le nombre de mails reçus que la règle du courrier automatique écarte D'ICI — obtenu par le MÊME prédicat, avec
+   * le seul drapeau qui change. C'est le jumeau d'`automatiquesIci` de la boîte, et il existe pour la même
+   * raison : au point 6 de ce lot, le bandeau annonçait un compte GLOBAL (22 096) sur une liste où ces échanges
+   * n'auraient de toute façon pas figuré. Un nombre juste, ou rien.
+   *
+   * ⚠️ `null` HORS PREMIÈRE PAGE : comme `total`, il ne se recompte pas à chaque « voir plus ».
+   * 🔴 ZÉRO ⇒ NI PHRASE, NI BOUTON (arbitrage d'Arno au point 6). Et zéro est, aujourd'hui, la valeur réelle :
+   *   aucun message REÇU n'est écarté par une règle. Voir l'encadré de `courrierAutomatique.ts`.
+   */
+  automatiquesIci: number | null;
 }
 
 /** Longueur de l'extrait affiché sous l'objet. La même que la boîte : une seule habitude de lecture. */
@@ -208,7 +223,14 @@ function sqlHorsCorbeille(avecCorbeille: boolean): string {
  */
 export async function lireMailsRecus(
   curseur: CurseurReception | null,
-  o: { filtre?: FiltreReception; limite?: number; partenaires?: readonly PartenaireInterne[] } = {},
+  o: {
+    filtre?: FiltreReception; limite?: number; partenaires?: readonly PartenaireInterne[];
+    /**
+     * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — LE MÊME PARAMÈTRE QUE LA BOÎTE, et le même nom.
+     * Absent/`false` ⇒ le courrier automatique est écarté, comme dans la boîte par défaut.
+     */
+    inclureAutomatiques?: boolean;
+  } = {},
 ): Promise<PageReception> {
   const avec = await rattachementsDisponibles();
   // LOT STATUT-HORS-GESTION — même patron : sans la 266, la table n'est nommée nulle part et rien ne change.
@@ -216,6 +238,8 @@ export async function lireMailsRecus(
   // 🔴 LOT RATTACHER-EN-ECRIVANT — même patron : sans la 281, la table n'est nommée nulle part.
   const avecItn = await interneDisponible();
   const filtre = o.filtre ?? 'tous';
+  /* 🔴🔴 POINT 8 — LE MÊME MOT QUE LA BOÎTE (`tous`), pour que les deux lectures se relisent l'une l'autre. */
+  const tous = o.inclureAutomatiques === true;
   const aLire = Math.min(Math.max(1, o.limite ?? PAGE_RECEPTION), 100) + 1;
 
   /* 🔴 LOT ETOILE-SIGNATURES-PIECES — la colonne `integree` n'est NOMMÉE que si la migration 296 est là.
@@ -239,6 +263,7 @@ export async function lireMailsRecus(
       WHERE m.sens = 'recu'
         AND m.spam_le IS NULL
         ${sqlHorsCorbeille(avecCorbeille)}
+        ${sqlSansCourrierAutomatique(tous, 'm')}
         AND (m.recu_le, m.id) < ($1::timestamptz, $2::bigint)
         ${filtreSql(filtre, avec, avecHg)}
       ORDER BY m.recu_le DESC, m.id DESC
@@ -286,7 +311,24 @@ export async function lireMailsRecus(
       };
     }),
     suivant: aSuite && dernier ? { recuLe: dernier.recu_le, messageId: dernier.message_id } : null,
-    total: curseur === null ? await compterMailsRecus(filtre, avec, avecHg, avecCorbeille) : null,
+    total: curseur === null ? await compterMailsRecus(filtre, avec, avecHg, avecCorbeille, tous) : null,
+    /**
+     * 🔴🔴 POINT 8 — COMBIEN CETTE LISTE TAIT : la DIFFÉRENCE entre les deux comptes, par le MÊME prédicat avec le
+     * seul drapeau qui change. C'est la méthode exacte de la boîte, et c'est ce qui garantit que le nombre
+     * annoncé est celui que le bouton ramènerait — jamais un compte voisin « équivalent ».
+     *
+     * ⚠️ `Math.max(0, …)` : si les deux comptes se croisaient (relève entre les deux requêtes), un nombre négatif
+     * ferait une phrase absurde. Zéro veut dire « rien à dire », et c'est le bon repli.
+     * ⚠️ EN PARALLÈLE, et seulement à la première page : deux `count(*)` sur 17 000 messages ne se paient pas à
+     * chaque « voir plus ».
+     */
+    automatiquesIci: curseur !== null ? null : await (async () => {
+      const [avecAuto, sansAuto] = await Promise.all([
+        compterMailsRecus(filtre, avec, avecHg, avecCorbeille, true),
+        compterMailsRecus(filtre, avec, avecHg, avecCorbeille, false),
+      ]);
+      return Math.max(0, avecAuto - sansAuto);
+    })(),
   };
 }
 
@@ -304,6 +346,14 @@ export async function compterMailsRecus(
    * ⚠️ DÉFAUT PAR PRUDENCE : `false` = on ne nomme pas la colonne. Un appelant d'hier compte comme hier.
    */
   avecCorbeille = false,
+  /**
+   * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — LE COMPTEUR ÉCARTE CE QUE LA LISTE ÉCARTE, ici aussi, et par
+   * le MÊME fragment. Un compteur qui ignorerait l'interrupteur annoncerait « 1–30 sur N » avec un N que la liste
+   * ne peut pas atteindre : la dernière page serait vide. Même leçon, même ligne.
+   *
+   * ⚠️ DÉFAUT `false` : un appelant d'hier compte comme hier.
+   */
+  tous = false,
 ): Promise<number> {
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n
@@ -311,6 +361,7 @@ export async function compterMailsRecus(
        ${jointureRattachements(avec)}
        ${jointureHorsGestion(avecHg)}
       WHERE m.sens = 'recu' AND m.spam_le IS NULL ${sqlHorsCorbeille(avecCorbeille)}
+        ${sqlSansCourrierAutomatique(tous, 'm')}
         ${filtreSql(filtre, avec, avecHg)}`);
   return rows[0]?.n ?? 0;
 }

@@ -28,6 +28,8 @@
  * les deux qui servent existent depuis la migration 228.
  */
 import { query } from '../db/client';
+// 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — le predicat du courrier automatique, partage avec la Reception.
+import { sqlSansCourrierAutomatique } from './courrierAutomatique';
 import { autoImposeParEtiquette, type Etiquette } from './ecranUrl';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
@@ -772,8 +774,12 @@ function predicatsBoite(
 } {
   // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
-  const filtreM = inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL';
-  const filtreM2 = inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL';
+  /* 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — LE PRÉDICAT VIENT DU MODULE PARTAGÉ. Il était écrit ici, et
+     la colonne de réception de l'écran partagé n'en avait AUCUN : les deux écrans filtraient donc différemment le
+     même courrier. Arno : « par le même code SQL : pas de second chemin ». La sortie est identique au caractère
+     près à ce que ces deux lignes composaient — les épreuves qui figent la forme du SQL restent justes. */
+  const filtreM = sqlSansCourrierAutomatique(inclureAutomatiques, 'm');
+  const filtreM2 = sqlSansCourrierAutomatique(inclureAutomatiques, 'm2');
   // 🔴🔴 LOT DOSSIER-A-CLASSER — les sondes voyagent jusqu'au prédicat de l'étiquette : lui seul en a besoin, et
   //   seulement pour « À classer ». Les autres étiquettes rendent la même chaîne qu'avant ce lot.
   const filtreEtiquette = sqlEtiquette(etiquette, corbeille, spam, rangEtiquette, sondes);
@@ -1565,7 +1571,7 @@ export async function compterBoite(
     `SELECT count(*)::int AS n
        FROM gestion_message m
       WHERE ${appartenanceM}
-        ${inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL'}
+        ${sqlSansCourrierAutomatique(inclureAutomatiques, 'm')}
         ${horsSpamM}
         ${seulementEtoiles}
         ${horsCorbeille}
@@ -1573,7 +1579,7 @@ export async function compterBoite(
         AND NOT EXISTS (
               SELECT 1 FROM gestion_message m2
                WHERE m2.fil_id = m.fil_id AND ${appartenanceM2}
-                 ${inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL'}
+                 ${sqlSansCourrierAutomatique(inclureAutomatiques, 'm2')}
                  ${horsSpamM2}
                  ${horsCorbeilleM2}
                  AND (m2.recu_le, m2.id) > (m.recu_le, m.id))`,

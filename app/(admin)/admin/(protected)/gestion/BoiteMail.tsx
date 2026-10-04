@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+// 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — les MOTS de l'interrupteur, partages avec l'ecran partage.
+import { motBasculeAutomatique, phraseCourrierAutomatique } from '../../../../lib/gestion/courrierAutomatique';
 import type { CurseurBoite, LigneBoite } from '../../../../lib/gestion/boiteRepo';
 // 🔴 `rechercheTermes` et NON `rechercheBoite` : le second contient le SQL et tire `pg` → `dns`, que le navigateur
 //   n'a pas. L'importer ici a fait tomber TOUTE l'application le 24/09/2026, page de connexion comprise.
@@ -1229,12 +1231,15 @@ export function BoiteMail({
             retombe sur le nombre global plutôt que de faire disparaître le bandeau sur une panne. */}
         {!cherche && impose === null && etat.comptes !== null && automatiquesAffiches > 0 && (
           <span className="bte-tait">
-            {auto
-              ? <>Le courrier automatique est inclus : {automatiquesAffiches} échange{automatiquesAffiches > 1 ? 's' : ''} ne contien{automatiquesAffiches > 1 ? 'nent' : 't'} que des messages tenus hors de la file par une règle.</>
-              : <>{automatiquesAffiches} échange{automatiquesAffiches > 1 ? 's' : ''} ne contien{automatiquesAffiches > 1 ? 'nent' : 't'} que du courrier automatique et {automatiquesAffiches > 1 ? 'ne sont pas affichés' : 'n’est pas affiché'} ici. Rien n’est supprimé.</>}
+            {/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — LES MOTS VIENNENT DU MODULE PARTAGÉ ════════
+                Ils étaient écrits ici, en JSX, et la colonne de l'écran partagé n'en avait aucun. Arno demande
+                « même libellé » aux deux écrans : la seule façon de le tenir est de n'avoir qu'une source.
+                ⚠️ LA PHRASE EST IDENTIQUE AU CARACTÈRE PRÈS à ce que ce JSX composait — elle a changé de maison,
+                pas de contenu, et une épreuve la fige mot pour mot. */}
+            {phraseCourrierAutomatique(automatiquesAffiches, auto, 'echange')}
             {' '}
             <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => basculerAuto(!auto)}>
-              {auto ? 'Masquer le courrier automatique' : 'Afficher aussi le courrier automatique'}
+              {motBasculeAutomatique(auto)}
             </button>
           </span>
         )}

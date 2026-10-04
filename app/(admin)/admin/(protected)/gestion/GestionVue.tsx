@@ -1223,7 +1223,16 @@ export function GestionVue({ intro }: {
               aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, messageOuvert: null });
             }}
             onFileEchanges={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}
-            compteEchanges={d.filsTotal} />
+            compteEchanges={d.filsTotal}
+            /**
+             * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — LE MÊME `auto` QUE LE PLEIN ÉCRAN ═════════════
+             *
+             * Arno : « MÊME état partagé entre les deux écrans (activé d'un côté = activé de l'autre) ». C'est
+             * littéralement la MÊME variable d'état : celle qui part déjà à `PleinEcranBoite` quelques lignes plus
+             * haut. Un second `useState` dans la colonne aurait donné deux interrupteurs capables de se
+             * contredire — et c'est l'un des deux qu'on aurait cru.
+             */
+            auto={auto} onAuto={setAuto} />
 
           {/* LA FILE DES ÉCHANGES SANS ÉVÉNEMENT — conservée telle quelle, repliée par défaut. Elle garde son
               plein écran, sa fenêtre d'activité, ses gestes et son compteur : aucun n'est retiré. */}
