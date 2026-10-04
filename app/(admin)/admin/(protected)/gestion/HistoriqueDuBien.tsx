@@ -1659,12 +1659,17 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
           <span className="hdb-personne-nom">{nomLisible}</span>
           <span className="hdb-compteurs">
             {motDeuxCompteurs(i)}
-            {/* 🔴 « ET LA DATE POUR LES LOCATAIRES » (Arno) : elle est dans la capsule, sur la même ligne que
-                les compteurs, et elle reste CLIQUABLE — elle règle la période sur ce bail. */}
+            {/* ══ 🔴🔴 LA DATE D'UN LOCATAIRE, EN PETIT TEXTE SUR LA LIGNE DES COMPTEURS ════════════════════
+                DEMANDE D'ARNO (05/10/2026) : « La date “depuis le 02/09/2022” des locataires passe en petit
+                texte sur la ligne des compteurs, pas en encadré. »
+
+                🔴 ELLE RESTE CLIQUABLE — elle règle la période sur ce bail, geste acquis au lot 2 — mais elle
+                n'a plus de cadre : un encadré dans une capsule faisait deux objets là où il n'y a qu'une
+                information, et c'est ce qui donnait aux capsules de locataires une hauteur à part. */}
             {periode !== null && (
               <>
                 {' · '}
-                <button type="button" className="hdb-periode-partie"
+                <button type="button" className="hdb-periode-mot"
                   title="Régler la période sur ce bail"
                   onClick={(e) => { e.preventDefault(); p.onPeriode(periode); }}>{periode.mot}</button>
               </>
@@ -1686,24 +1691,114 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
 
       {/* ══ LE MENU « DÉPLACER VERS… » — LE CHEMIN CLAVIER ══════════════════════════════════════════════════ */}
       {deplacable && (
-        <span className="hdb-menu-boite">
-          <button type="button" className="hdb-menu-bouton" aria-expanded={menuOuvert}
-            aria-label={`Déplacer ${nomLisible} vers une autre catégorie`}
-            title="Déplacer vers…"
-            onClick={() => p.onMenu(menuOuvert ? null : cle)}>⋯</button>
-          {menuOuvert && (
-            <span className="hdb-menu" role="group" aria-label={`Déplacer ${nomLisible} vers…`}>
-              {ciblesDeplacement(g.cle).map((c) => (
-                <button key={c.cle} type="button" className="hdb-menu-item"
-                  onClick={() => { void p.onDeplacer(i.adresse, c.cle, nomLisible, c.titre); }}>
-                  {c.titre}
-                </button>
-              ))}
-            </span>
-          )}
-        </span>
+        <MenuDeplacer cle={cle} nom={nomLisible} depuis={g.cle} ouvert={menuOuvert}
+          onOuvrir={() => p.onMenu(menuOuvert ? null : cle)} onFermer={() => p.onMenu(null)}
+          onChoisir={(vers, titre) => { void p.onDeplacer(i.adresse, vers, nomLisible, titre); }} />
       )}
     </li>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 2 — LE MENU « DÉPLACER VERS… », ENTIÈREMENT VISIBLE ════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : « Le menu ouvert par “…” est entièrement visible : il s'ouvre vers le haut ou
+ * vers la gauche s'il manque de place, ne déborde jamais de l'encart, passe au-dessus du défilement de l'encart,
+ * et se ferme par Échap ou par un clic à côté. »
+ *
+ * 🔴🔴 IL EST EN POSITION **FIXE**, ET C'EST LA SEULE FAÇON DE TENIR LA PROMESSE. L'encart a `overflow-y: auto`
+ * (hauteur fixe, lot 3) : tout élément positionné À L'INTÉRIEUR y est ROGNÉ, et aucun `z-index` n'y change
+ * quoi que ce soit — un conteneur qui défile découpe ses enfants, c'est sa définition. Le menu sort donc du flux
+ * et se place par rapport à la FENÊTRE, aux coordonnées du bouton. C'est aussi ce qui le fait « passer au-dessus
+ * du défilement de l'encart », littéralement.
+ *
+ * 🔴 IL SE REPLIE VERS LE HAUT OU VERS LA GAUCHE, et le calcul est fait à l'OUVERTURE, sur des mesures réelles
+ * (`getBoundingClientRect`) — jamais sur une supposition de place. Un menu qui déborde en bas de l'écran est
+ * inatteignable au doigt ; un menu qui déborde à droite coupe les libellés.
+ *
+ * ⚠️ ÉCHAP ET LE CLIC À CÔTÉ SONT DEUX SORTIES, et il faut les deux : Échap pour le clavier, le clic pour la
+ * souris. Sans la seconde, un menu ouvert par erreur se referme en choisissant quelque chose — c'est-à-dire en
+ * faisant un geste qu'on ne voulait pas.
+ *
+ * ⚠️ ON ÉCOUTE `mousedown` ET NON `click` POUR LE CLIC À CÔTÉ : avec `click`, le relâchement d'un clic commencé
+ * AILLEURS ferme le menu avant que le bouton d'un item ne reçoive le sien — et le choix se perd.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function MenuDeplacer({ cle, nom, depuis, ouvert, onOuvrir, onFermer, onChoisir }: {
+  cle: string;
+  nom: string;
+  depuis: CleGroupeParties;
+  ouvert: boolean;
+  onOuvrir: () => void;
+  onFermer: () => void;
+  onChoisir: (vers: CleGroupeParties, titre: string) => void;
+}) {
+  const bouton = useRef<HTMLButtonElement | null>(null);
+  const panneau = useRef<HTMLDivElement | null>(null);
+  const [place, setPlace] = useState<{ haut: number; gauche: number } | null>(null);
+
+  /**
+   * ⚠️ LA MESURE SE FAIT APRÈS LE PREMIER RENDU DU PANNEAU, parce qu'il faut sa taille RÉELLE pour savoir s'il
+   * déborde. Il est donc rendu une fois hors de l'écran (`place === null` ⇒ `visibility: hidden`), mesuré, puis
+   * posé. Sans cela on le verrait sauter de sa position naïve à la bonne.
+   */
+  useEffect(() => {
+    if (!ouvert) { setPlace(null); return; }
+    const b = bouton.current;
+    const pan = panneau.current;
+    if (b === null || pan === null) return;
+    const rb = b.getBoundingClientRect();
+    const rp = pan.getBoundingClientRect();
+    const marge = 8;
+    const placeEnBas = window.innerHeight - rb.bottom;
+    /* VERS LE HAUT s'il manque de place en bas ET qu'il y en a davantage au-dessus. */
+    const haut = placeEnBas < rp.height + marge && rb.top > placeEnBas
+      ? Math.max(marge, rb.top - rp.height - 2)
+      : rb.bottom + 2;
+    /* VERS LA GAUCHE s'il déborderait à droite. On l'aligne alors sur le bord droit du bouton. */
+    const gaucheNaive = rb.left;
+    const gauche = gaucheNaive + rp.width + marge > window.innerWidth
+      ? Math.max(marge, rb.right - rp.width)
+      : gaucheNaive;
+    setPlace({ haut, gauche });
+  }, [ouvert]);
+
+  /** Échap et le clic à côté : les deux sorties. */
+  useEffect(() => {
+    if (!ouvert) return undefined;
+    const surTouche = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
+    const surClic = (e: MouseEvent): void => {
+      const c = e.target as Node | null;
+      if (bouton.current?.contains(c) === true || panneau.current?.contains(c) === true) return;
+      onFermer();
+    };
+    document.addEventListener('keydown', surTouche);
+    document.addEventListener('mousedown', surClic);
+    return () => {
+      document.removeEventListener('keydown', surTouche);
+      document.removeEventListener('mousedown', surClic);
+    };
+  }, [ouvert, onFermer]);
+
+  return (
+    <>
+      <button ref={bouton} type="button" className="hdb-menu-bouton" aria-expanded={ouvert}
+        aria-label={`Déplacer ${nom} vers une autre catégorie`} title="Déplacer vers…"
+        onClick={onOuvrir}>⋯</button>
+      {ouvert && (
+        <div ref={panneau} className="hdb-menu" role="group" aria-label={`Déplacer ${nom} vers…`}
+          data-pour={cle}
+          style={place === null
+            ? { visibility: 'hidden', top: 0, left: 0 }
+            : { top: `${place.haut}px`, left: `${place.gauche}px` }}>
+          {ciblesDeplacement(depuis).map((c) => (
+            <button key={c.cle} type="button" className="hdb-menu-item"
+              onClick={() => onChoisir(c.cle, c.titre)}>{c.titre}</button>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -2107,28 +2202,46 @@ ${CSS_PIECES}
    🔴 ELLE EST DEPLACABLE A LA SOURIS. Le draggable vit sur l'enveloppe et non sur le label : pose sur le
    label, il capture dans certains navigateurs le clic qui coche la case — c'est-a-dire le geste le plus frequent
    du bloc. */
-.hdb-capsule{display:flex;flex-wrap:wrap;align-items:center;gap:.2rem .3rem;min-width:0;
-  border-radius:999px;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);
-  padding:.1rem .35rem .1rem .1rem;cursor:grab}
+/* ══ LOT HISTORIQUE-BIEN-4, POINT 2 — UN SEUL FORMAT POUR TOUTES LES CAPSULES ═════════════════════════════════
+   DEMANDE D'ARNO : « Retire le lisere de couleur en arc de cercle a gauche des capsules. TOUTES les capsules
+   prennent le format des capsules cote proprietaire : nom sur une ligne, compteurs en dessous, “…” a droite.
+   Meme hauteur pour toutes. »
+
+   🔴 LE LISERE PARTAIT EN ARC parce qu'un bord gauche de 3 px sur un rayon de 999 px suit la courbe : il se
+   lisait comme une rognure, pas comme une couleur. La categorie est deja dite par l'encart qui porte la
+   capsule — la repeter sur chaque pastille etait du bruit.
+
+   🔴 UNE SEULE HAUTEUR, NOMMEE : --hdb-caps. C'est ce qui aligne les quatre groupes cote a cote ; trois valeurs
+   recopiees auraient suffi a donner aux locataires une hauteur a part, ce qui etait justement le defaut. */
+.hdb-capsule{--hdb-caps:46px;display:flex;flex-wrap:nowrap;align-items:center;gap:.3rem;min-width:0;
+  min-height:var(--hdb-caps);border-radius:999px;border:1px solid var(--color-svv-line);
+  background:var(--color-svv-surface);padding:.1rem .35rem .1rem .1rem;cursor:grab}
 .hdb-capsule:active{cursor:grabbing}
 .hdb-capsule:hover{border-color:var(--color-svv-line-strong)}
 /* LES CLIENTS NE SE DEPLACENT PAS : curseur « interdit », et l'infobulle dit POURQUOI (mot d'Arno). */
 .hdb-capsule--fixe{cursor:not-allowed;background:var(--color-svv-field)}
-.hdb-capsule--rouge{border-left:3px solid var(--color-svv-red)}
-.hdb-capsule--vert{border-left:3px solid var(--color-svv-green)}
-.hdb-capsule--bleu{border-left:3px solid var(--color-svv-blue)}
-.hdb-capsule--gris{border-left:3px dashed var(--color-svv-line-strong)}
-.hdb-case--capsule{flex:1 1 9rem;min-width:0;min-height:40px}
+.hdb-case--capsule{flex:1 1 auto;min-width:0;min-height:calc(var(--hdb-caps) - 4px)}
+/* LE NOM SUR UNE LIGNE, LES COMPTEURS EN DESSOUS (format de la capture d'Arno). */
+.hdb-personne-nom{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* LA DATE D'UN LOCATAIRE : petit texte sur la ligne des compteurs, SANS cadre (demande d'Arno). */
+.hdb-periode-mot{border:0;background:none;padding:0;margin:0;font:inherit;font-size:inherit;
+  color:var(--color-svv-muted);text-decoration:underline;text-decoration-style:dotted;cursor:pointer}
+.hdb-periode-mot:hover{color:var(--color-svv-ink)}
+.hdb-periode-mot:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 /* ══ LE MENU « DEPLACER VERS… » ── le chemin clavier, indispensable : le glisser n'existe ni au clavier ni sous
    un doigt. Il passe par la MEME porte d'ecriture. */
-.hdb-menu-boite{position:relative;flex:0 0 auto}
 .hdb-menu-bouton{width:28px;min-height:28px;border-radius:999px;border:1px solid var(--color-svv-line);
   background:transparent;font:inherit;font-size:.9rem;line-height:1;color:var(--color-svv-muted);cursor:pointer}
 .hdb-menu-bouton:hover{color:var(--color-svv-ink);background:var(--color-svv-field)}
 .hdb-menu-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.hdb-menu{position:absolute;right:0;top:calc(100% + 2px);z-index:3;display:flex;flex-direction:column;
-  min-width:11rem;border-radius:.5rem;border:1px solid var(--color-svv-line-strong);
-  background:var(--color-svv-surface-raised);overflow:hidden}
+/* ══ LE MENU EST EN POSITION **FIXE** (lot HISTORIQUE-BIEN-4, point 2) ════════════════════════════════════════
+   L'encart a overflow-y: auto : tout element positionne A L'INTERIEUR y est ROGNE, et aucun z-index n'y change
+   quoi que ce soit — un conteneur qui defile decoupe ses enfants, c'est sa definition. Le menu sort donc du flux
+   et se place par rapport a la FENETRE, aux coordonnees mesurees du bouton. C'est aussi ce qui le fait « passer
+   au-dessus du defilement de l'encart », litteralement. */
+.hdb-menu{position:fixed;z-index:60;display:flex;flex-direction:column;
+  min-width:11rem;max-width:min(18rem,calc(100vw - 16px));border-radius:.5rem;
+  border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface-raised);overflow:hidden}
 .hdb-menu-item{min-height:40px;padding:0 .7rem;border:0;background:none;font:inherit;font-size:.78rem;
   text-align:left;color:var(--color-svv-ink);cursor:pointer;white-space:nowrap}
 .hdb-menu-item:hover{background:var(--color-svv-field)}

@@ -807,10 +807,18 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
     expect(texte()).toContain('du 01/05/2025 au 28/09/2026');
   });
 
-  /** ⚠️ UNE PARTIE SANS BAIL N'AFFICHE AUCUNE PÉRIODE : l'assureur n'en a pas, et lui en inventer une mentirait. */
+  /**
+   * ⚠️ UNE PARTIE SANS BAIL N'AFFICHE AUCUNE PÉRIODE : l'assureur n'en a pas, et lui en inventer une mentirait.
+   *
+   * ⚠️ LA CLASSE A CHANGÉ AU LOT 4 (`.hdb-periode-mot`) : Arno a demandé que la date passe « en petit texte sur
+   * la ligne des compteurs, pas en encadré ». L'encadré portait `.hdb-periode-partie` ; le petit texte porte un
+   * autre nom, parce que ce n'est plus le même objet.
+   */
   it('🔴 une partie sans bail n’affiche aucune période', async () => {
     await monter({ periodes: PERIODES });
-    expect(hote.querySelectorAll('.hdb-periode-partie')).toHaveLength(1);
+    expect(hote.querySelectorAll('.hdb-periode-mot')).toHaveLength(1);
+    /* …et plus aucun encadré : l'ancien objet a disparu avec son cadre. */
+    expect(hote.querySelectorAll('.hdb-periode-partie')).toHaveLength(0);
   });
 });
 
@@ -1781,6 +1789,159 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     /* …mais UN seul document dans le résumé. */
     expect(texte()).toContain('1 pièce');
     expect(piecesDuResume()).toHaveLength(1);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤-decies 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 2 — CAPSULES UNIFORMES, ET UN MENU ENTIÈREMENT VISIBLE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑤-decies 🔴🔴 le format des capsules, et le menu « … »', () => {
+  const PERIODES = new Map([
+    ['locataire@fictif.test', { mot: 'depuis le 02/09/2022', du: '2022-09-02', au: null }],
+  ]);
+
+  /**
+   * 🔴 LE LISERÉ EN ARC A DISPARU. Arno : « Retire le liseré de couleur en arc de cercle à gauche des
+   * capsules. » Un bord gauche de 3 px sur un rayon de 999 px suit la courbe : il se lisait comme une rognure,
+   * pas comme une couleur. La catégorie est déjà dite par l'encart qui porte la capsule.
+   */
+  it('🔴🔴 plus aucun liseré de couleur sur les capsules', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    for (const ton of ['rouge', 'vert', 'bleu', 'gris']) {
+      expect(css).not.toContain(`.hdb-capsule--${ton}{border-left`);
+    }
+  });
+
+  /**
+   * 🔴🔴 UN SEUL FORMAT, UNE SEULE HAUTEUR. « TOUTES les capsules prennent le format des capsules côté
+   * propriétaire : nom sur une ligne, compteurs en dessous, “…” à droite. Même hauteur pour toutes. » La
+   * hauteur est NOMMÉE une fois : trois valeurs recopiées auraient suffi à donner aux locataires une hauteur à
+   * part — ce qui était justement le défaut.
+   */
+  it('🔴🔴 une hauteur unique, nommée une fois, pour toutes les capsules', async () => {
+    expect(SRC).toContain('--hdb-caps:46px');
+    expect(SRC).toContain('min-height:var(--hdb-caps)');
+    await monter({ periodes: PERIODES });
+    /* Le nom sur une ligne, les compteurs en dessous : la structure est la même partout. */
+    for (const c of [...hote.querySelectorAll('.hdb-capsule')] as HTMLElement[]) {
+      expect(c.querySelector('.hdb-personne-nom')).not.toBeNull();
+      expect(c.querySelector('.hdb-compteurs')).not.toBeNull();
+    }
+  });
+
+  /** 🔴 LA DATE EST UN PETIT TEXTE SUR LA LIGNE DES COMPTEURS, et non un encadré. */
+  it('🔴🔴 la date d’un locataire est dans la ligne des compteurs, sans cadre', async () => {
+    await monter({ periodes: PERIODES });
+    const date = hote.querySelector('.hdb-periode-mot') as HTMLElement;
+    expect(date).not.toBeNull();
+    expect(date.textContent).toBe('depuis le 02/09/2022');
+    /* 🔴 ELLE EST DANS LA LIGNE DES COMPTEURS, pas à côté. */
+    expect(date.closest('.hdb-compteurs')).not.toBeNull();
+    /* …et elle reste cliquable : elle règle la période sur ce bail (geste acquis au lot 2). */
+    await cliquer(date);
+    const dates = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
+    expect(dates[0]?.value).toBe('2022-09-02');
+  });
+
+  /**
+   * ══ 🔴🔴 LE MENU EST EN POSITION FIXE, ET C'EST LA SEULE FAÇON DE TENIR LA PROMESSE ══════════════════════════
+   *
+   * L'encart a `overflow-y: auto` (hauteur fixe, lot 3) : tout élément positionné À L'INTÉRIEUR y est ROGNÉ, et
+   * aucun `z-index` n'y change quoi que ce soit. Le menu sort donc du flux et se place par rapport à la FENÊTRE.
+   * C'est aussi ce qui le fait « passer au-dessus du défilement de l'encart », littéralement.
+   */
+  it('🔴🔴 le menu est posé par rapport à la fenêtre, pas dans l’encart qui défile', async () => {
+    await monter({ periodes: PERIODES });
+    await deplierGroupe('Non affectés');
+    const capsule = ([...hote.querySelectorAll('.hdb-capsule')] as HTMLElement[])
+      .find((c) => (c.textContent ?? '').includes('AXA')) as HTMLElement;
+    await cliquer(capsule.querySelector('.hdb-menu-bouton') ?? undefined);
+    const menu = hote.querySelector('.hdb-menu') as HTMLElement;
+    expect(menu).not.toBeNull();
+    expect(SRC).toContain('.hdb-menu{position:fixed');
+    /**
+     * ⚠️ IL RESTE UN ENFANT DU DOM, ET C'EST NORMAL — ma première version de ce cas attendait le contraire, à
+     * tort. Un élément `position: fixed` est placé par rapport à la FENÊTRE et n'est PAS rogné par le
+     * `overflow` d'un ancêtre : il n'a pas besoin de sortir de l'arbre pour sortir du cadre. Ce qui compte est
+     * donc le mode de positionnement, et il est vérifié ci-dessus.
+     *
+     * ⚠️ CE QUE CETTE ÉPREUVE NE PEUT PAS PROUVER : que rien ne soit rogné. jsdom ne calcule aucune mise en
+     * page. Le non-rognage a été vérifié dans Chrome, menu ouvert sur la dernière capsule d'un encart plein.
+     */
+    expect(menu.getAttribute('data-pour')).toBe('assureur@fictif.test');
+    /* ⚠️ ET UN SEUL ANCÊTRE À TRANSFORMATION SUFFIRAIT À LE REFIXER DANS L'ENCART : aucune règle du bloc ne
+       pose `transform` sur un conteneur de capsules, et ce contrôle le rappelle à qui en ajouterait une. */
+    expect(SRC).not.toContain('.hdb-defile{transform');
+    expect(SRC).not.toContain('.hdb-groupe{transform');
+  });
+
+  /** 🔴🔴 ÉCHAP FERME LE MENU — la sortie du clavier. */
+  it('🔴🔴 Échap ferme le menu', async () => {
+    await monter({ periodes: PERIODES });
+    await deplierGroupe('Non affectés');
+    const capsule = ([...hote.querySelectorAll('.hdb-capsule')] as HTMLElement[])
+      .find((c) => (c.textContent ?? '').includes('AXA')) as HTMLElement;
+    await cliquer(capsule.querySelector('.hdb-menu-bouton') ?? undefined);
+    expect(hote.querySelector('.hdb-menu')).not.toBeNull();
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(hote.querySelector('.hdb-menu')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 UN CLIC À CÔTÉ FERME LE MENU — la sortie de la souris. Sans elle, un menu ouvert par erreur se referme
+   * en choisissant quelque chose, c'est-à-dire en faisant un geste qu'on ne voulait pas.
+   */
+  it('🔴🔴 un clic à côté ferme le menu', async () => {
+    await monter({ periodes: PERIODES });
+    await deplierGroupe('Non affectés');
+    const capsule = ([...hote.querySelectorAll('.hdb-capsule')] as HTMLElement[])
+      .find((c) => (c.textContent ?? '').includes('AXA')) as HTMLElement;
+    await cliquer(capsule.querySelector('.hdb-menu-bouton') ?? undefined);
+    expect(hote.querySelector('.hdb-menu')).not.toBeNull();
+    await act(async () => {
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+    expect(hote.querySelector('.hdb-menu')).toBeNull();
+  });
+
+  /**
+   * ⚠️ UN CLIC **DANS** LE MENU NE LE FERME PAS, et c'est ce qui rend le choix possible. On écoute `mousedown`
+   * et non `click` précisément pour cela : avec `click`, le relâchement d'un clic commencé ailleurs fermait le
+   * menu avant que l'item ne reçoive le sien — et le choix se perdait.
+   */
+  it('⚠️ un clic dans le menu ne le ferme pas : le choix part', async () => {
+    const envois: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        envois.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return reponse({ etat: 'ok', geste: null });
+      }
+      const u = String(url);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter({ periodes: PERIODES });
+    await deplierGroupe('Non affectés');
+    const capsule = ([...hote.querySelectorAll('.hdb-capsule')] as HTMLElement[])
+      .find((c) => (c.textContent ?? '').includes('AXA')) as HTMLElement;
+    await cliquer(capsule.querySelector('.hdb-menu-bouton') ?? undefined);
+    const item = hote.querySelector('.hdb-menu-item') as HTMLButtonElement;
+    await act(async () => { item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(hote.querySelector('.hdb-menu')).not.toBeNull();
+    await cliquer(item);
+    expect(envois).toHaveLength(1);
+    expect(envois[0].categorie).toBe('proprietaire');
   });
 });
 
