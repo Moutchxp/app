@@ -452,12 +452,21 @@ describe('③ les parties', () => {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 describe('④ les options', () => {
+  /**
+   * ══ 🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LES LIBELLÉS SE RACCOURCISSENT ═══════════════════════════════════════
+   *
+   * Ce cas attendait « Avec pièces jointes » et « Sans pièce jointe », les libellés du lot 1. Arno a demandé
+   * (05/10/2026) « un contrôle segmenté “Pièces jointes : Toutes · Avec · Sans” » : l'intitulé du groupe porte
+   * désormais le mot « Pièces jointes », et les trois boutons n'en gardent que ce qui les distingue. Rien n'est
+   * perdu — le mot est écrit une fois au lieu de trois, et la rangée tient sur une ligne.
+   */
   it('🔴 les trois filtres de pièces sont offerts, et « Toutes » est le départ', async () => {
     await monter();
+    expect(texte()).toContain('Pièces jointes');
     expect(parMot('Toutes')?.getAttribute('aria-pressed')).toBe('true');
-    await cliquer(parMot('Avec pièces jointes'));
+    await cliquer(parMot('Avec'));
     expect(appels.some((a) => a.includes('pieces=avec'))).toBe(true);
-    await cliquer(parMot('Sans pièce jointe'));
+    await cliquer(parMot('Sans'));
     expect(appels.some((a) => a.includes('pieces=sans'))).toBe(true);
   });
 
@@ -479,7 +488,9 @@ describe('④ les options', () => {
 
   it('🔴 « Regrouper par conversation » est DÉCOCHÉ par défaut, et regroupe quand on le coche', async () => {
     await monter();
-    const grouper = [...hote.querySelectorAll('.hdb-case input')].at(-1) as HTMLInputElement;
+    /* ⚠️ LA BASCULE A SA PROPRE CLASSE DEPUIS LE POINT 5 (`.hdb-bascule`) : elle n'est plus une `.hdb-case`
+       parmi les cases de parties, parce qu'elle vit dans la rangée d'options et doit en garder la hauteur. */
+    const grouper = hote.querySelector('.hdb-bascule input') as HTMLInputElement;
     expect(grouper.checked).toBe(false);
     expect(hote.querySelectorAll('.hdb-conv')).toHaveLength(0);
     await cliquer(grouper);
@@ -557,7 +568,7 @@ describe('⑤ le fil et les pièces', () => {
       });
     }));
     await monter();
-    await cliquer(parMot('Avec pièces jointes'));
+    await cliquer(parMot('Avec'));
     expect(texte()).toContain('ce sont les réglages qui cachent');
     const remettre = parMot('Tout remettre à plat');
     expect(remettre).toBeDefined();
@@ -1415,9 +1426,9 @@ describe('⑤-septies 🔴🔴 les liserés des deux côtés, et revenir exactem
     /* La période est reprise, et elle est ÉCRITE en clair. */
     expect(texte()).toContain('du 01/05/2025 au 28/09/2026');
     /* La recherche est reprise, dans le champ ET dans les réglages. */
-    expect((hote.querySelector('.hdb-recherche') as HTMLInputElement).value).toBe('quittance');
+    expect((hote.querySelector('.hdb-champ-recherche') as HTMLInputElement).value).toBe('quittance');
     /* Les options sont reprises. */
-    expect(parMot('Avec pièces jointes')?.getAttribute('aria-pressed')).toBe('true');
+    expect(parMot('Avec')?.getAttribute('aria-pressed')).toBe('true');
     expect(parMot('Plus ancien en haut')).toBeDefined();
     /* L'interrupteur « tous les mails » est relevé, et la personne cochée l'est. */
     const maitre = hote.querySelector('.hdb-case--large input') as HTMLInputElement;
@@ -1452,6 +1463,129 @@ describe('⑤-septies 🔴🔴 les liserés des deux côtés, et revenir exactem
   it('⚠️ un jeton inconnu ouvre l’écran par défaut', async () => {
     await monter({ jeton: 'JAMAIS-VU' });
     expect(texte()).toContain('tous les échanges, sans borne de date');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤-octies 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LA RANGÉE D'OPTIONS, ET LA RECHERCHE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑤-octies 🔴🔴 une seule rangée d’options, et la recherche dans l’affiché', () => {
+  const chercher = async (q: string): Promise<void> => {
+    const champ = hote.querySelector('.hdb-champ-recherche') as HTMLInputElement;
+    await changer(champ, q);
+    /* ⚠️ LE DÉLAI DE FRAPPE : 250 ms avant que le réglage ne bouge. On l'avance. */
+    await act(async () => { await new Promise((r) => setTimeout(r, 320)); });
+  };
+
+  /**
+   * 🔴🔴 LA RANGÉE PORTE LES CINQ CONTRÔLES, ET CHACUN EST UN GROUPE INDIVISIBLE. « Aucun bouton qui passe seul
+   * à la ligne » (Arno) est tenu par la STRUCTURE : c'est entre les groupes que la rangée se casse. Un
+   * `flex-wrap` sur des boutons nus aurait laissé « Sans » tomber seul sous ses deux voisins.
+   */
+  it('🔴🔴 une rangée, cinq groupes, et des hauteurs identiques', async () => {
+    await monter();
+    const rangee = hote.querySelector('.hdb-rangee') as HTMLElement;
+    expect(rangee).not.toBeNull();
+    expect(rangee.querySelectorAll('.hdb-opt').length).toBe(5);
+    /* La loupe, le champ, et le ✕ vivent dans le MÊME cadre — comme une messagerie. */
+    const rech = rangee.querySelector('.hdb-opt--recherche') as HTMLElement;
+    expect(rech.querySelector('.hdb-loupe')).not.toBeNull();
+    expect((rech.querySelector('.hdb-champ-recherche') as HTMLInputElement).placeholder)
+      .toBe('Rechercher dans les mails affichés…');
+    /* 🔴 UNE SEULE HAUTEUR, NOMMÉE UNE FOIS : trois valeurs recopiées auraient désaligné la rangée. */
+    expect(SRC).toContain('--hdb-h:38px');
+    expect(SRC).toContain('height:var(--hdb-h)');
+  });
+
+  /** ⚠️ LE ✕ N'APPARAÎT QUE S'IL Y A QUELQUE CHOSE À EFFACER, et il efface vraiment. */
+  it('🔴🔴 le ✕ apparaît avec le texte, et l’efface', async () => {
+    await monter();
+    expect(hote.querySelector('.hdb-effacer')).toBeNull();
+    await chercher('quittance');
+    expect(hote.querySelector('.hdb-effacer')).not.toBeNull();
+    await cliquer(hote.querySelector('.hdb-effacer') ?? undefined);
+    expect((hote.querySelector('.hdb-champ-recherche') as HTMLInputElement).value).toBe('');
+    expect(hote.querySelector('.hdb-effacer')).toBeNull();
+  });
+
+  /**
+   * ══ 🔴🔴 LA RECHERCHE NE PART PLUS AU SERVEUR : ELLE FILTRE L'ÉCRAN ══════════════════════════════════════════
+   *
+   * Arno : « UNIQUEMENT dans la sélection déjà affichée ». L'épreuve vérifie les deux moitiés : aucune requête
+   * ne porte `q=`, et le fil se réduit à l'écran.
+   */
+  it('🔴🔴 elle filtre les mails affichés, sans rien demander au serveur', async () => {
+    await monter();
+    expect(hote.querySelectorAll('.hdb-ancre')).toHaveLength(2);
+    const avantFil = appels.filter((a) => a.includes('/historique?') || a.includes('/historique&')).length;
+    /* ⚠️ « février » EST DANS L'OBJET DU SEUL MAIL 1 — « quittance », lui, est dans l'aperçu des DEUX (le jeu
+       d'essai leur donne le même corps). Un mot non discriminant aurait fait passer l'épreuve sans rien prouver. */
+    await chercher('fevrier');
+    expect(hote.querySelectorAll('.hdb-ancre')).toHaveLength(1);
+    expect(hote.querySelector('.hdb-ancre')?.id).toBe('hdb-mail-1');
+    /**
+     * 🔴 AUCUNE REQUÊTE DE FIL DE PLUS, ET AUCUN `q=` : la recherche ne va plus chercher, elle retire.
+     *
+     * ⚠️ ON COMPTE LES REQUÊTES DE **FIL**, ET NON TOUTES — et la nuance est une vérification, pas une
+     * tolérance. Le statut Drive des pièces, lui, EST redemandé : le résumé suit les mails visibles, donc la
+     * liste des pièces change. Compter toutes les requêtes aurait fait échouer l'épreuve sur un comportement
+     * juste, et m'aurait fait « corriger » ce qui ne l'était pas.
+     */
+    expect(appels.filter((a) => a.includes('/historique?') || a.includes('/historique&')).length)
+      .toBe(avantFil);
+    expect(appels.some((a) => a.includes('q='))).toBe(false);
+  });
+
+  /** 🔴 « N MAILS SUR M », EN DIRECT — et rien quand on ne cherche pas. */
+  it('🔴🔴 le compteur « N mails sur M » apparaît et se met à jour', async () => {
+    await monter();
+    expect(hote.querySelector('.hdb-compte-recherche')).toBeNull();
+    await chercher('fevrier');
+    expect(hote.querySelector('.hdb-compte-recherche')?.textContent).toBe('1 mail sur 2');
+    await chercher('bonjour');
+    expect(hote.querySelector('.hdb-compte-recherche')?.textContent).toBe('2 mails sur 2');
+  });
+
+  /** 🔴🔴 LES MOTS TROUVÉS SONT SURLIGNÉS DANS L'APERÇU, par des `<mark>` posés par React — jamais du HTML. */
+  it('🔴🔴 les mots trouvés sont surlignés dans l’aperçu', async () => {
+    await monter();
+    await chercher('quittance');
+    const marques = [...hote.querySelectorAll('mark.vdb-trouve')] as HTMLElement[];
+    expect(marques.length).toBeGreaterThan(0);
+    for (const x of marques) expect(x.textContent?.toLowerCase()).toBe('quittance');
+  });
+
+  /** 🔴 ACCENTS ET MAJUSCULES IGNORÉS, à l'écran comme dans le module pur. */
+  /** 🔴 « FÉVRIER » sans accent, en majuscules, avec accent : les trois trouvent le même mail. */
+  it('🔴🔴 accents et majuscules ignorés, à l’écran aussi', async () => {
+    await monter();
+    for (const q of ['FEVRIER', 'février', 'Février']) {
+      await chercher(q);
+      expect(hote.querySelectorAll('.hdb-ancre')).toHaveLength(1);
+      expect(hote.querySelector('.hdb-ancre')?.id).toBe('hdb-mail-1');
+    }
+  });
+
+  /**
+   * 🔴 QUAND LA RECHERCHE NE REND RIEN, LE MOT ACCUSE LES RÉGLAGES ET RÉPÈTE CE QU'ON A CHERCHÉ. Sur un
+   * téléphone, le champ est souvent sorti de l'écran quand on lit la réponse.
+   */
+  it('🔴🔴 une recherche sans résultat accuse les réglages, et répète le mot', async () => {
+    await monter();
+    await chercher('zzzz-introuvable');
+    expect(hote.querySelectorAll('.hdb-ancre')).toHaveLength(0);
+    expect(texte()).toContain('zzzz-introuvable');
+    expect(texte()).toContain('ce sont les réglages qui cachent, pas le bien');
+  });
+
+  /** ⚠️ LE RÉSUMÉ DES PIÈCES SUIT LA RECHERCHE : il annonce les pièces des mails VISIBLES, pas de la page. */
+  it('⚠️ le résumé des pièces ne compte que les mails visibles', async () => {
+    await monter();
+    expect(texte()).toContain('2 pièces');
+    await chercher('fevrier');
+    expect(texte()).toContain('1 pièce');
+    expect(texte()).not.toContain('2 pièces');
   });
 });
 
@@ -1605,14 +1739,17 @@ describe('⑦ 🔴🔴 le montage dans la fiche d’un bien', () => {
    * sélection d'un mail. »
    */
   it('🔴🔴 la suppression ne perd RIEN des cinq fonctions nommées', () => {
-    // ① la recherche, dans l'objet ET le texte — le même intitulé que le bloc supprimé.
-    expect(SRC).toContain('Chercher dans l’objet et le texte…');
+    /* ① la recherche. ⚠️ SON INTITULÉ A CHANGÉ AU POINT 5 : « Rechercher dans les mails affichés… », parce
+       qu'elle filtre désormais la sélection déjà affichée au lieu d'interroger le serveur. Ce qu'elle couvre
+       s'est ÉLARGI (objet, texte, expéditeur, nom des pièces) — rien n'est perdu, le mot est plus juste. */
+    expect(SRC).toContain('Rechercher dans les mails affichés…');
     expect(SRC).toContain('setSaisie(e.target.value)');
-    // ② les pièces jointes, avec leur complément.
-    expect(SRC).toContain("['avec', 'Avec pièces jointes']");
-    expect(SRC).toContain("['sans', 'Sans pièce jointe']");
+    // ② les pièces jointes : l'intitulé du groupe porte le mot, les boutons gardent ce qui les distingue.
+    expect(SRC).toContain('Pièces jointes');
+    expect(SRC).toContain("['avec', 'Avec']");
+    expect(SRC).toContain("['sans', 'Sans']");
     // ③ l'événement ouvert, et le cartouche qui y arrive déjà allumé.
-    expect(SRC).toContain('Avec événement ouvert');
+    expect(SRC).toContain('Événement ouvert');
     expect(SRC).toContain('evenementOuvert: !r.evenementOuvert');
     expect(ANNUAIRE).toContain("evenementOuvertInitial={filtreVie === 'evenement'}");
     // ④ le dépliage par le triangle : c'est `LigneVie`, importée et non recopiée.

@@ -965,13 +965,20 @@ export function reglagesEnFiltres(r: Reglages, page = 0, taille = PAGE_HISTORIQU
     au: jourValide(bornes.au),
     pieces: r.pieces,
     /**
-     * 🔴 LA RECHERCHE ET LE FILTRE D'ÉVÉNEMENT, REPRIS DE « VIE DU BIEN » (lot HISTORIQUE-BIEN-2). La route les
-     * lit déjà (`q`, `evt=ouvert`) : rien de neuf côté serveur, et le bloc supprimé ne laisse donc aucun trou.
+     * ══ 🔴🔴 LA RECHERCHE NE PART PLUS AU SERVEUR (lot HISTORIQUE-BIEN-3, point 5) ═══════════════════════════
      *
-     * ⚠️ `trim()` ICI ET PAS AILLEURS : une recherche réduite à des espaces est une recherche VIDE, et l'envoyer
-     * aurait produit `q=` dans l'adresse — donc un réglage « actif » invisible, qu'on ne saurait pas défaire.
+     * DEMANDE D'ARNO (05/10/2026) : « La RECHERCHE filtre par mots-clés UNIQUEMENT dans la sélection déjà
+     * affichée (période + parties + options) : objet, texte, nom de l'expéditeur, nom des pièces. »
+     *
+     * 🔴 ELLE NE VA DONC PLUS CHERCHER DE MAILS, ELLE EN RETIRE — et c'est ce qui permet d'ajouter l'expéditeur
+     * et le nom des pièces, deux champs que la route ne sait pas interroger. `texte` reste VIDE dans les
+     * filtres : l'envoyer aurait fait deux tamis pour une seule question, et le compteur « N sur M » aurait
+     * compté sur une sélection que la route avait déjà réduite.
+     *
+     * ⚠️ LE RÉGLAGE, LUI, EXISTE TOUJOURS (`Reglages.texte`) : c'est l'écran qui l'applique, par
+     * `filtrerParMots`. Et il compte toujours comme un réglage ACTIF, pour qu'on puisse le défaire.
      */
-    texte: r.texte.trim(),
+    texte: '',
     evenementOuvert: r.evenementOuvert,
     /**
      * 🔴 `grouper` RESTE **FAUX**, TOUJOURS, ET CE N'EST PAS UN OUBLI. Le `grouper=1` de la route regroupe par
@@ -1090,6 +1097,138 @@ export function messagesDuFil(lignes: readonly LigneHistorique[]): MessagePorteu
       empreinte: p.empreinte ?? null,
     })),
   }));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑦-bis 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LA RECHERCHE, DANS LA SÉLECTION DÉJÀ AFFICHÉE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴 NORMALISER UN TEXTE POUR LA COMPARAISON : SANS ACCENT, SANS CASSE. PUR. ══════════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « accents et majuscules ignorés ».
+ *
+ * 🔴 `NFD` PUIS RETRAIT DES DIACRITIQUES, et non une table de correspondances écrite à la main. Une table
+ * oublie toujours un caractère — le « ÿ », le « œ », les accents des noms d'Europe centrale qu'on croise dans un
+ * immeuble. La décomposition Unicode, elle, ne demande à personne d'avoir pensé à tout.
+ */
+export function normaliserRecherche(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/**
+ * Les mots cherchés, normalisés et dédoublonnés. Vide quand il n'y a rien à chercher.
+ *
+ * ⚠️ BORNÉ À HUIT MOTS : au-delà, ce n'est plus une recherche, et chaque mot coûte un parcours de tout l'écran.
+ */
+export function motsRecherches(texte: string): string[] {
+  return [...new Set(normaliserRecherche(texte).split(/\s+/).filter((m) => m !== ''))].slice(0, 8);
+}
+
+/** Ce sur quoi la recherche porte, pour un mail. Assemblé une fois, lu autant de fois qu'il y a de mots. */
+function matiereDuMail(l: LigneHistorique): string {
+  return normaliserRecherche([
+    l.objet ?? '',
+    l.extrait ?? '',
+    l.deNom ?? '',
+    l.de,
+    ...l.pieces.map((p) => p.nomFichier),
+  ].join(' '));
+}
+
+/**
+ * ══ 🔴🔴 FILTRER LES MAILS AFFICHÉS PAR MOTS-CLÉS. PUR. ══════════════════════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO, mot pour mot : « La RECHERCHE filtre par mots-clés UNIQUEMENT dans la sélection déjà affichée
+ * (période + parties + options) : objet, texte, nom de l'expéditeur, nom des pièces. Plusieurs mots = tous
+ * présents ; accents et majuscules ignorés. »
+ *
+ * 🔴 CE QUI CHANGE PAR RAPPORT AU LOT PRÉCÉDENT, ET IL FAUT LE DIRE. La recherche partait au SERVEUR (`q=`), qui
+ * cherchait dans l'objet et le texte de TOUT le bien. Elle devient un filtre de l'écran : elle ne va plus
+ * chercher de mails, elle en RETIRE. C'est ce qu'Arno demande (« uniquement dans la sélection déjà affichée »),
+ * et c'est ce qui permet d'ajouter l'expéditeur et le nom des pièces — deux champs que la route ne sait pas
+ * interroger. La contrepartie est réelle et doit être dite : elle ne porte que sur la PAGE affichée.
+ *
+ * 🔴 « TOUS PRÉSENTS », et non « au moins un ». C'est ce qui rend la recherche utile sur un bien bavard :
+ * « fuite cuisine » doit rendre les mails qui parlent des deux, pas la somme des deux listes.
+ *
+ * ⚠️ UN MOT PEUT ÊTRE TROUVÉ DANS DES CHAMPS DIFFÉRENTS : « rosky » dans l'expéditeur et « bail » dans l'objet
+ * suffisent. Exiger les deux dans le MÊME champ aurait écarté le cas le plus fréquent.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function filtrerParMots(
+  lignes: readonly LigneHistorique[], texte: string,
+): LigneHistorique[] {
+  const mots = motsRecherches(texte);
+  if (mots.length === 0) return [...lignes];
+  return lignes.filter((l) => {
+    const m = matiereDuMail(l);
+    return mots.every((x) => m.includes(x));
+  });
+}
+
+/**
+ * ══ 🔴 « N MAILS SUR M » ════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « le compteur “N mails sur M” se met à jour en direct ».
+ *
+ * ⚠️ `null` QUAND AUCUNE RECHERCHE N'EST EN COURS : le compteur du titre dit déjà le total, et un « 25 mails sur
+ * 25 » permanent serait du bruit qu'on apprend à ne plus lire.
+ */
+export function motCompteurRecherche(trouves: number, affiches: number, cherche: boolean): string | null {
+  if (!cherche) return null;
+  return `${trouves} mail${trouves > 1 ? 's' : ''} sur ${affiches}`;
+}
+
+/**
+ * ══ 🔴🔴 DÉCOUPER UN TEXTE POUR SURLIGNER LES MOTS TROUVÉS. PUR. ════════════════════════════════════════════════
+ *
+ * Arno : « les mots trouvés sont surlignés dans l'aperçu ».
+ *
+ * 🔴 ELLE REND DES MORCEAUX, PAS DU HTML. Rendre une chaîne balisée aurait obligé l'écran à l'injecter sans
+ * échappement — c'est-à-dire à faire confiance au corps d'un mail reçu. Les morceaux, eux, sont posés par React,
+ * qui échappe tout. Ce n'est pas une précaution de style : l'aperçu vient d'un courrier que n'importe qui envoie.
+ *
+ * ⚠️ LA RECHERCHE EST SANS ACCENT, MAIS LE TEXTE RENDU GARDE LES SIENS : on cherche sur une copie normalisée et
+ * l'on découpe le texte D'ORIGINE aux mêmes positions. La normalisation employée ne change aucune longueur
+ * (elle retire des diacritiques combinants, pas des caractères de base), ce qui rend les positions comparables ;
+ * un repli garde le texte entier si jamais elles divergent.
+ */
+export interface MorceauSurligne { texte: string; trouve: boolean }
+
+export function decouperPourSurligner(texte: string, mots: readonly string[]): MorceauSurligne[] {
+  if (texte === '' || mots.length === 0) return [{ texte, trouve: false }];
+  const plat = normaliserRecherche(texte);
+  if (plat.length !== texte.length) return [{ texte, trouve: false }];
+
+  /* Les intervalles trouvés, fusionnés : deux mots qui se chevauchent ne doivent pas produire deux balises. */
+  const bornes: { a: number; b: number }[] = [];
+  for (const m of mots) {
+    let i = plat.indexOf(m);
+    while (i !== -1) {
+      bornes.push({ a: i, b: i + m.length });
+      i = plat.indexOf(m, i + m.length);
+    }
+  }
+  if (bornes.length === 0) return [{ texte, trouve: false }];
+  bornes.sort((x, y) => x.a - y.a);
+  const fusion: { a: number; b: number }[] = [];
+  for (const x of bornes) {
+    const dernier = fusion[fusion.length - 1];
+    if (dernier !== undefined && x.a <= dernier.b) dernier.b = Math.max(dernier.b, x.b);
+    else fusion.push({ ...x });
+  }
+
+  const out: MorceauSurligne[] = [];
+  let pos = 0;
+  for (const x of fusion) {
+    if (x.a > pos) out.push({ texte: texte.slice(pos, x.a), trouve: false });
+    out.push({ texte: texte.slice(x.a, x.b), trouve: true });
+    pos = x.b;
+  }
+  if (pos < texte.length) out.push({ texte: texte.slice(pos), trouve: false });
+  return out;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

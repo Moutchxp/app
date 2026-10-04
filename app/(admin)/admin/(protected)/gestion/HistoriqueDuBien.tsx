@@ -41,7 +41,8 @@ import {
   bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAgenceEcartee,
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
-  ciblesDeplacement, compteCacheesEnBas, compteCacheesEnHaut, GROUPES_EN_BANDE, GROUPES_EN_ENCART,
+  ciblesDeplacement, compteCacheesEnBas, compteCacheesEnHaut, filtrerParMots, GROUPES_EN_BANDE,
+  GROUPES_EN_ENCART, motCompteurRecherche, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
   replierLesCartes, SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
@@ -395,9 +396,24 @@ export function HistoriqueDuBien({
   }, [lotCle, parametres]);
 
   // ── ③ LE FIL, LES PIÈCES, LE RÉSUMÉ ───────────────────────────────────────────────────────────────────────────
-  const lignes = useMemo(
+  /** La page REÇUE, triée. C'est le dénominateur du « N mails sur M » : la sélection déjà affichée. */
+  const lignesPage = useMemo(
     () => (etat.v === 'ok' ? trierFil(etat.lignes, reglages.ordre) : []),
     [etat, reglages.ordre]);
+
+  /**
+   * ══ 🔴🔴 LA RECHERCHE EST UN FILTRE DE L'ÉCRAN (lot HISTORIQUE-BIEN-3, point 5) ══════════════════════════════
+   *
+   * DEMANDE D'ARNO : « La RECHERCHE filtre par mots-clés UNIQUEMENT dans la sélection déjà affichée (période +
+   * parties + options) : objet, texte, nom de l'expéditeur, nom des pièces. »
+   *
+   * 🔴 ELLE S'APPLIQUE APRÈS LE TRI ET AVANT TOUT LE RESTE — le résumé des pièces, le regroupement par
+   * conversation et le compteur lisent donc tous `lignes`, c'est-à-dire ce qui est RÉELLEMENT à l'écran. Si le
+   * résumé avait lu la page entière, il aurait annoncé des pièces qu'aucun mail visible ne porte.
+   */
+  const motsCherches = useMemo(() => motsRecherches(reglages.texte), [reglages.texte]);
+  const lignes = useMemo(
+    () => filtrerParMots(lignesPage, reglages.texte), [lignesPage, reglages.texte]);
 
   /**
    * 🔴 LE TRI DES PIÈCES « PAR DATE ET PAR EXPÉDITEUR » N'EST PAS RÉÉCRIT ICI : il vit dans
@@ -1178,48 +1194,94 @@ export function HistoriqueDuBien({
           )}
         </fieldset>
 
-        {/* ── OPTIONS ─────────────────────────────────────────────────────────────────────────────────────────── */}
-        <fieldset className="hdb-pave">
+        {/* ══ 🔴🔴 BLOC 3 — « OPTIONS » : UNE SEULE RANGÉE, PROPRE ET ALIGNÉE (lot HISTORIQUE-BIEN-3, point 5)
+            DEMANDE D'ARNO (05/10/2026), qui juge l'actuel « immonde » : « Une seule rangée horizontale, propre,
+            alignée : à gauche, le champ de recherche (icône loupe, texte “Rechercher dans les mails affichés…”,
+            bouton ✕ pour effacer) ; puis un contrôle segmenté “Pièces jointes : Toutes · Avec · Sans” ; une
+            puce bascule “Événement ouvert” ; un bouton d'ordre “↓ Plus récent en haut” ; une bascule “Regrouper
+            par conversation”. Hauteurs identiques, espacements réguliers, aucun bouton qui passe seul à la
+            ligne ; sur écran étroit, retour à la ligne propre par groupes. »
+
+            🔴 « AUCUN BOUTON QUI PASSE SEUL À LA LIGNE » EST TENU PAR LA STRUCTURE, pas par des réglages de
+            largeur : chaque contrôle est un GROUPE indivisible (`hdb-opt`), et c'est entre les groupes que la
+            rangée se casse. Un `flex-wrap` sur des boutons nus aurait laissé « Sans » tomber seul sous ses deux
+            voisins — le défaut exact qu'Arno a sous les yeux. */}
+        <fieldset className="hdb-pave hdb-pave--bande">
           <legend className="hdb-legende">Options</legend>
-          {/* ══ 🔴🔴 LA RECHERCHE, REPRISE DE « VIE DU BIEN » (lot HISTORIQUE-BIEN-2) ══════════════════════════
-              Même champ, même intitulé, même portée — « dans l'objet ET le texte ». Le bloc supprimé ne laisse
-              donc aucun trou : c'est la première des cinq choses qu'Arno a nommées comme devant être reprises. */}
-          <input type="search" className="ann-champ hdb-recherche" value={saisie} autoComplete="off"
-            aria-label="Chercher dans les mails de ce bien"
-            placeholder="Chercher dans l’objet et le texte…"
-            onChange={(e) => setSaisie(e.target.value)} />
-          <div className="hdb-boutons" role="group" aria-label="Pièces jointes">
-            {([['toutes', 'Toutes'], ['avec', 'Avec pièces jointes'], ['sans', 'Sans pièce jointe']] as const)
-              .map(([cle, mot]) => (
-                <button key={cle} type="button" aria-pressed={reglages.pieces === cle}
-                  className={`hdb-choix${reglages.pieces === cle ? ' hdb-choix--actif' : ''}`}
-                  onClick={() => setReglages((r) => ({ ...r, pieces: cle }))}>{mot}</button>
-              ))}
+          <div className="hdb-rangee">
+
+            {/* ── LA RECHERCHE, À GAUCHE ───────────────────────────────────────────────────────────────────── */}
+            <div className="hdb-opt hdb-opt--recherche">
+              <span className="hdb-loupe" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 14 14">
+                  <circle cx="6" cy="6" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                  <path d="M9.2 9.2 L12.5 12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </span>
+              <input type="search" className="hdb-champ-recherche" value={saisie} autoComplete="off"
+                aria-label="Rechercher dans les mails affichés"
+                placeholder="Rechercher dans les mails affichés…"
+                onChange={(e) => setSaisie(e.target.value)} />
+              {/* ⚠️ LE ✕ N'APPARAÎT QUE S'IL Y A QUELQUE CHOSE À EFFACER : un bouton éteint occupe la place et
+                  fait croire à une panne. Il est dans le même cadre que le champ, comme une messagerie. */}
+              {saisie !== '' && (
+                <button type="button" className="hdb-effacer" aria-label="Effacer la recherche"
+                  title="Effacer la recherche" onClick={() => setSaisie('')}>✕</button>
+              )}
+            </div>
+
+            {/* ── LES PIÈCES JOINTES, EN CONTRÔLE SEGMENTÉ ─────────────────────────────────────────────────── */}
+            <div className="hdb-opt">
+              <span className="hdb-opt-mot">Pièces jointes</span>
+              <div className="hdb-segs" role="group" aria-label="Pièces jointes">
+                {([['toutes', 'Toutes'], ['avec', 'Avec'], ['sans', 'Sans']] as const).map(([cle, mot]) => (
+                  <button key={cle} type="button" aria-pressed={reglages.pieces === cle}
+                    className={`hdb-petit${reglages.pieces === cle ? ' hdb-petit--actif' : ''}`}
+                    onClick={() => setReglages((r) => ({ ...r, pieces: cle }))}>{mot}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── LA PUCE « ÉVÉNEMENT OUVERT » ─────────────────────────────────────────────────────────────── */}
+            <div className="hdb-opt">
+              <button type="button" aria-pressed={reglages.evenementOuvert}
+                className={`hdb-puce-bascule${reglages.evenementOuvert ? ' hdb-puce-bascule--actif' : ''}`}
+                onClick={() => setReglages((r) => ({ ...r, evenementOuvert: !r.evenementOuvert }))}>
+                Événement ouvert
+              </button>
+            </div>
+
+            {/* ── L'ORDRE ──────────────────────────────────────────────────────────────────────────────────────
+                🔴 LE BOUTON DIT L'ORDRE EN COURS, pas celui qu'il donnerait — convention de tout le module. La
+                flèche d'Arno (« ↓ Plus récent en haut ») le dit deux fois, et c'est bien : la flèche se voit du
+                coin de l'œil, le mot se lit. */}
+            <div className="hdb-opt">
+              <button type="button" className="hdb-petit hdb-petit--large"
+                onClick={() => setReglages((r) => ({ ...r, ordre: ordreFilSuivant(r.ordre) }))}
+                title="Inverser l’ordre du fil">
+                <span aria-hidden="true">{reglages.ordre === 'recent' ? '↓' : '↑'}</span>{' '}
+                {libelleOrdreFil(reglages.ordre)}
+              </button>
+            </div>
+
+            {/* ── REGROUPER PAR CONVERSATION ───────────────────────────────────────────────────────────────── */}
+            <div className="hdb-opt">
+              <label className="hdb-bascule">
+                <input type="checkbox" checked={reglages.grouper}
+                  onChange={(e) => setReglages((r) => ({ ...r, grouper: e.target.checked }))} />
+                <span>Regrouper par conversation</span>
+              </label>
+            </div>
+
+            {/* ══ 🔴 « N MAILS SUR M », EN DIRECT ═══════════════════════════════════════════════════════════
+                Arno : « le compteur “N mails sur M” se met à jour en direct ». Il n'apparaît que pendant une
+                recherche : un « 25 sur 25 » permanent serait du bruit qu'on apprend à ne plus lire. */}
+            {motCompteurRecherche(lignes.length, lignesPage.length, motsCherches.length > 0) !== null && (
+              <p className="hdb-compte-recherche" role="status">
+                {motCompteurRecherche(lignes.length, lignesPage.length, true)}
+              </p>
+            )}
           </div>
-          <div className="hdb-boutons">
-            {/* ══ 🔴🔴 « AVEC ÉVÉNEMENT OUVERT », REPRIS DE « VIE DU BIEN » (lot HISTORIQUE-BIEN-2) ═══════════
-                C'est aussi le point d'arrivée du cartouche « Événement en cours » des cartes de bien et de la
-                tête de fiche : il menait au bloc supprimé, il mène ici, et il arrive DÉJÀ allumé. */}
-            <button type="button" aria-pressed={reglages.evenementOuvert}
-              className={`hdb-choix${reglages.evenementOuvert ? ' hdb-choix--actif' : ''}`}
-              onClick={() => setReglages((r) => ({ ...r, evenementOuvert: !r.evenementOuvert }))}>
-              Avec événement ouvert
-            </button>
-          </div>
-          <div className="hdb-boutons">
-            {/* 🔴 LE BOUTON DIT L'ORDRE EN COURS, pas celui qu'il donnerait — même convention que partout ailleurs
-                dans le module. Le plus récent en haut est le défaut. */}
-            <button type="button" className="hdb-choix" aria-pressed={reglages.ordre === 'recent'}
-              onClick={() => setReglages((r) => ({ ...r, ordre: ordreFilSuivant(r.ordre) }))}
-              title="Inverser l’ordre du fil">
-              {libelleOrdreFil(reglages.ordre)} ⇅
-            </button>
-          </div>
-          <label className="hdb-case">
-            <input type="checkbox" checked={reglages.grouper}
-              onChange={(e) => setReglages((r) => ({ ...r, grouper: e.target.checked }))} />
-            <span>Regrouper par conversation</span>
-          </label>
         </fieldset>
       </div>
 
@@ -1280,13 +1342,13 @@ export function HistoriqueDuBien({
                       <span className="gst-compte">{c.lignes.length}</span>
                     </h5>
                     <FilDeMails lignes={c.lignes} maintenant={maintenant} deplie={deplie}
-                      categories={categoriesFusionnees} surligne={mailSurligne}
+                      categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                       onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation} />
                   </section>
                 ))
                 : (
                   <FilDeMails lignes={lignes} maintenant={maintenant} deplie={deplie}
-                    categories={categoriesFusionnees} surligne={mailSurligne}
+                    categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                     onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation} />
                 )}
 
@@ -1694,7 +1756,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
  * importé tel quel et n'a pas de prop `id` (et lui en ajouter une aurait touché « Vie du bien », ce qui est
  * interdit). Un `ol > li > ol > li` est du HTML valide ; l'enveloppe ne porte aucun style propre.
  */
-function FilDeMails({ lignes, maintenant, deplie, categories, surligne, onBasculer, onOuvrirFil }: {
+function FilDeMails({ lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil }: {
   lignes: readonly LigneHistorique[];
   maintenant: Date;
   deplie: ReadonlySet<number>;
@@ -1702,6 +1764,8 @@ function FilDeMails({ lignes, maintenant, deplie, categories, surligne, onBascul
   categories: ReadonlyMap<string, CategoriePartie>;
   /** Le mail d'où l'on est parti, surligné brièvement au retour d'une conversation. */
   surligne: number | null;
+  /** Les mots cherchés, surlignés dans l'aperçu de chaque ligne (point 5). */
+  mots: readonly string[];
   onBasculer: (messageId: number) => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
 }) {
@@ -1724,6 +1788,7 @@ function FilDeMails({ lignes, maintenant, deplie, categories, surligne, onBascul
             + `${surligne === l.messageId ? ' hdb-ancre--surlignee' : ''}`}>
           <ol className="vdb-liste">
             <LigneVie l={l} maintenant={maintenant} ouvert={deplie.has(l.messageId)}
+              surligner={mots}
               onBasculer={() => onBasculer(l.messageId)} onOuvrirFil={onOuvrirFil} />
           </ol>
         </li>
@@ -1845,8 +1910,62 @@ ${CSS_PIECES}
 .hdb-legende{padding:0 .3rem;font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
   color:var(--color-svv-muted)}
 .hdb-boutons{display:flex;flex-wrap:wrap;gap:.35rem;min-width:0}
-/* LA RECHERCHE, reprise de « Vie du bien » : pleine largeur du pave, 44 px de haut comme tout ce qui se touche. */
-.hdb-recherche{display:block;width:100%;min-width:0;min-height:44px;font-size:.84rem;margin:.1rem 0 .4rem}
+/* ══ BLOC OPTIONS ── UNE SEULE RANGEE, PROPRE ET ALIGNEE (lot HISTORIQUE-BIEN-3, point 5) ═════════════════════
+   DEMANDE D'ARNO, qui juge l'actuel « immonde » : « Hauteurs identiques, espacements reguliers, aucun bouton qui
+   passe seul a la ligne ; sur ecran etroit, retour a la ligne propre par groupes. »
+
+   🔴 « AUCUN BOUTON SEUL A LA LIGNE » EST TENU PAR LA STRUCTURE : chaque controle est un GROUPE indivisible
+   (.hdb-opt), et c'est ENTRE les groupes que la rangee se casse. Un flex-wrap sur des boutons nus aurait laisse
+   « Sans » tomber seul sous ses deux voisins — le defaut exact qu'Arno a sous les yeux.
+
+   🔴 UNE SEULE HAUTEUR, NOMMEE UNE FOIS : --hdb-h. Trois valeurs recopiees auraient suffi a desaligner la
+   rangee d'un pixel, et c'est tout ce qu'il faut pour qu'elle paraisse bricolee. */
+.hdb-rangee{--hdb-h:38px;display:flex;flex-wrap:wrap;align-items:center;gap:.45rem .6rem;min-width:0}
+.hdb-opt{display:flex;align-items:center;gap:.35rem;min-width:0;flex:0 0 auto}
+.hdb-opt-mot{font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--color-svv-muted);white-space:nowrap}
+/* LA RECHERCHE prend la place qui reste, et jamais moins de 14 rem : en dessous, le texte d'invite se coupe. */
+.hdb-opt--recherche{flex:1 1 14rem;min-width:0;position:relative}
+.hdb-opt--recherche{height:var(--hdb-h);border-radius:999px;border:1px solid var(--color-svv-line-strong);
+  background:var(--color-svv-field);padding:0 .3rem 0 .6rem}
+.hdb-opt--recherche:focus-within{border-color:var(--color-svv-red)}
+.hdb-loupe{display:inline-flex;flex:0 0 auto;color:var(--color-svv-muted)}
+/* LE CHAMP est NU dans son cadre : un second bord a l'interieur du premier se voit, et se voit mal. */
+.hdb-champ-recherche{flex:1 1 auto;min-width:0;height:100%;border:0;background:none;font:inherit;
+  font-size:.82rem;color:var(--color-svv-ink);outline:none}
+.hdb-champ-recherche::-webkit-search-cancel-button{display:none}
+.hdb-effacer{flex:0 0 auto;width:26px;height:26px;border-radius:999px;border:0;background:none;font:inherit;
+  font-size:.75rem;color:var(--color-svv-muted);cursor:pointer}
+.hdb-effacer:hover{background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.hdb-effacer:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+/* LE CONTROLE SEGMENTE : des boutons colles dans un seul cadre, comme une bascule de messagerie. */
+.hdb-segs{display:inline-flex;flex:0 0 auto;border-radius:999px;border:1px solid var(--color-svv-line-strong);
+  overflow:hidden;height:var(--hdb-h)}
+.hdb-petit{height:var(--hdb-h);padding:0 .7rem;border:0;background:var(--color-svv-surface);font:inherit;
+  font-size:.78rem;color:var(--color-svv-muted);cursor:pointer;white-space:nowrap}
+.hdb-segs .hdb-petit+.hdb-petit{border-left:1px solid var(--color-svv-line)}
+.hdb-petit:hover{color:var(--color-svv-ink)}
+.hdb-petit:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.hdb-petit--actif{background:var(--color-svv-ink);color:var(--color-svv-surface);font-weight:700}
+/* L'ORDRE est un bouton seul : il porte donc son propre cadre arrondi, a la MEME hauteur. */
+.hdb-petit--large{border-radius:999px;border:1px solid var(--color-svv-line-strong)}
+.hdb-petit--large:hover{border-color:var(--color-svv-line-strong-hover)}
+/* LA PUCE BASCULE : un seul etat a dire, donc un seul bouton — et l'etat se lit par l'aspect ET par
+   aria-pressed, parce qu'une couleur seule ne dit rien a qui ne la voit pas. */
+.hdb-puce-bascule{height:var(--hdb-h);padding:0 .8rem;border-radius:999px;
+  border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);font:inherit;
+  font-size:.78rem;color:var(--color-svv-muted);cursor:pointer;white-space:nowrap}
+.hdb-puce-bascule:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong-hover)}
+.hdb-puce-bascule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.hdb-puce-bascule--actif{background:var(--color-svv-amber-soft);border-color:var(--color-svv-amber);
+  color:var(--color-svv-amber);font-weight:700}
+/* LA BASCULE A CASE garde la MEME hauteur que ses voisins : sans cela, la rangee se decale d'un pixel. */
+.hdb-bascule{display:inline-flex;align-items:center;gap:.4rem;height:var(--hdb-h);padding:0 .2rem;
+  font-size:.78rem;color:var(--color-svv-ink);cursor:pointer;white-space:nowrap}
+.hdb-bascule input{width:18px;height:18px;flex:0 0 auto;accent-color:var(--color-svv-red)}
+/* « N MAILS SUR M », en direct. Pousse a droite de la rangee : c'est un resultat, pas un reglage. */
+.hdb-compte-recherche{margin:0 0 0 auto;font-size:.74rem;font-weight:700;color:var(--color-svv-red);
+  white-space:nowrap}
 /* 44 px de cible sur TOUT ce qui se clique : sur un telephone, 36 px se rate une fois sur trois. */
 .hdb-choix{display:inline-flex;flex-direction:column;align-items:flex-start;gap:.1rem;min-height:44px;
   padding:.35rem .7rem;border-radius:.5rem;border:1px solid var(--color-svv-line-strong);font:inherit;

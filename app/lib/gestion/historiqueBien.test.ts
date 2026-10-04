@@ -7,7 +7,8 @@ import {
   SEUIL_REPLI_CARTES, trierFil, type CategoriePartie, type Reglages,
   bornesDuChoix, ciblesDeplacement, compteCacheesEnBas, compteCacheesEnHaut, dernierLocataire,
   GROUPES_EN_BANDE, GROUPES_EN_ENCART, LEGENDE_BARRES, motAgenceEcartee, motCacheesEnBas, motCacheesEnHaut,
-  etatRetourDepuisBrut, motDeplacement, MOTIF_NON_DEPLACABLE, motPeriodeEffective, MS_SURLIGNE_RETOUR,
+  decouperPourSurligner, etatRetourDepuisBrut, filtrerParMots, motCompteurRecherche, motDeplacement,
+  MOTIF_NON_DEPLACABLE, motPeriodeEffective, motsRecherches, MS_SURLIGNE_RETOUR, normaliserRecherche,
   occupationOuverte, partieDeplacable,
   periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, SECONDES_ANNULER_DEPLACEMENT, tonDeLExpediteur, tonDuGroupe,
   type OccupationPeriode, type PositionCapsule,
@@ -572,10 +573,27 @@ describe('⑩ 🔴🔴 la reprise de « Vie du bien » — recherche et événem
    * n'est perdu ». Deux de ses cinq fonctions n'existaient pas dans les réglages : la recherche et le filtre
    * « Avec événement ouvert ». Ce groupe est ce qui empêche la promesse de rester une promesse.
    */
-  it('🔴🔴 la recherche part bien dans l’adresse, en `q`', () => {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LA RECHERCHE A CHANGÉ DE CÔTÉ ══════════════════════════════════════
+   *
+   * ═══ CE QUE CE CAS ATTENDAIT, ET POURQUOI C'ÉTAIT JUSTE ══════════════════════════════════════════════════════
+   * Que `texte` parte au SERVEUR en `q=`, comme le faisait « Vie du bien » : la route cherchait alors dans
+   * l'objet et le texte de TOUT le bien, et c'était exactement la reprise demandée au lot 2.
+   *
+   * ═══ 🔴 CE QU'ARNO A TRANCHÉ LE 05/10/2026 ═══════════════════════════════════════════════════════════════════
+   * « La RECHERCHE filtre par mots-clés UNIQUEMENT dans la sélection déjà affichée (période + parties +
+   * options) : objet, texte, nom de l'expéditeur, nom des pièces. » Elle ne va donc plus CHERCHER de mails, elle
+   * en RETIRE — et c'est ce qui permet d'ajouter l'expéditeur et le nom des pièces, deux champs que la route ne
+   * sait pas interroger. `texte` reste donc VIDE dans les filtres envoyés.
+   *
+   * ⚠️ LA CONTREPARTIE EST RÉELLE, et elle est dite : la recherche ne porte plus que sur la PAGE affichée.
+   */
+  it('🔴🔴 la recherche ne part PLUS au serveur : elle filtre l’écran', () => {
     const r: Reglages = { ...REGLAGES_DEFAUT, texte: 'chaudière' };
-    expect(reglagesEnFiltres(r).texte).toBe('chaudière');
-    expect(reglagesEnParametres(r)).toContain('q=chaudi');
+    expect(reglagesEnFiltres(r).texte).toBe('');
+    expect(reglagesEnParametres(r)).not.toContain('q=');
+    /* …mais elle reste un réglage ACTIF, pour qu'on puisse la défaire. */
+    expect(reglagesActifs(r)).toBe(true);
   });
 
   /**
@@ -584,7 +602,6 @@ describe('⑩ 🔴🔴 la reprise de « Vie du bien » — recherche et événem
    */
   it('🔴 des espaces seuls ne sont pas une recherche', () => {
     const r: Reglages = { ...REGLAGES_DEFAUT, texte: '   ' };
-    expect(reglagesEnFiltres(r).texte).toBe('');
     expect(reglagesEnParametres(r)).not.toContain('q=');
     expect(reglagesActifs(r)).toBe(false);
   });
@@ -1048,5 +1065,132 @@ describe('⑮ 🔴🔴 l’état de retour, relu et vérifié', () => {
   /** ⚠️ « BRIÈVEMENT » : la durée d'un regard, pas d'une sélection. */
   it('⚠️ le surlignage du retour dure deux secondes et demie', () => {
     expect(MS_SURLIGNE_RETOUR).toBe(2500);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑯ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LA RECHERCHE DANS LA SÉLECTION AFFICHÉE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑯ 🔴🔴 la recherche par mots-clés', () => {
+  const m = (o: Partial<LigneHistorique>): LigneHistorique => ligne(o);
+  const LISTE: LigneHistorique[] = [
+    m({
+      messageId: 1, objet: 'Fuite d’eau à la cuisine', extrait: 'Bonjour, le robinet goutte.',
+      de: 'locataire@fictif.test', deNom: 'Irène PALYNSKA',
+    }),
+    m({
+      messageId: 2, objet: 'Quittance de février', extrait: 'Veuillez trouver la quittance.',
+      de: 'gestion@criterimmo.fr', deNom: 'Gestion CRITERIMMO',
+      pieces: [{
+        pieceId: 9, nomFichier: 'quittance-fevrier.pdf', typeMime: 'application/pdf',
+        tailleOctets: 1000, disponible: true, motifNonStocke: null, empreinte: null,
+      }],
+    }),
+    m({ messageId: 3, objet: 'Chaudière — devis', extrait: 'Le devis est joint.', de: 'plombier@fictif.test', deNom: null }),
+  ];
+
+  /**
+   * DEMANDE D'ARNO (05/10/2026) : « La RECHERCHE filtre par mots-clés UNIQUEMENT dans la sélection déjà affichée
+   * (période + parties + options) : objet, texte, nom de l'expéditeur, nom des pièces. Plusieurs mots = tous
+   * présents ; accents et majuscules ignorés. »
+   */
+  it('🔴🔴 elle cherche dans l’objet, le texte, l’expéditeur ET le nom des pièces', () => {
+    expect(filtrerParMots(LISTE, 'cuisine').map((l) => l.messageId)).toEqual([1]);      // l'objet
+    expect(filtrerParMots(LISTE, 'robinet').map((l) => l.messageId)).toEqual([1]);      // le texte
+    expect(filtrerParMots(LISTE, 'palynska').map((l) => l.messageId)).toEqual([1]);     // le nom de l'expéditeur
+    expect(filtrerParMots(LISTE, 'criterimmo').map((l) => l.messageId)).toEqual([2]);   // l'adresse
+    expect(filtrerParMots(LISTE, 'fevrier.pdf').map((l) => l.messageId)).toEqual([2]);  // le nom de la pièce
+  });
+
+  /**
+   * 🔴🔴 « TOUS PRÉSENTS », ET NON « AU MOINS UN ». C'est ce qui rend la recherche utile sur un bien bavard :
+   * « fuite cuisine » doit rendre les mails qui parlent des deux, pas la somme des deux listes.
+   */
+  it('🔴🔴 plusieurs mots : TOUS doivent être présents', () => {
+    expect(filtrerParMots(LISTE, 'fuite cuisine').map((l) => l.messageId)).toEqual([1]);
+    expect(filtrerParMots(LISTE, 'fuite quittance')).toHaveLength(0);
+  });
+
+  /** ⚠️ UN MOT PEUT ÊTRE DANS UN CHAMP ET L'AUTRE DANS UN AUTRE : exiger le même champ aurait écarté le cas
+      le plus fréquent (« palynska robinet » = cette personne, à propos de cela). */
+  it('⚠️ les mots peuvent venir de champs différents', () => {
+    expect(filtrerParMots(LISTE, 'palynska robinet').map((l) => l.messageId)).toEqual([1]);
+  });
+
+  /**
+   * 🔴🔴 ACCENTS ET MAJUSCULES IGNORÉS (demande d'Arno). La décomposition Unicode, et non une table écrite à la
+   * main : une table oublie toujours un caractère — le « ÿ », le « œ », les accents d'Europe centrale qu'on
+   * croise dans un immeuble.
+   */
+  it('🔴🔴 « CHAUDIERE », « chaudière » et « Chaudiere » trouvent la même chose', () => {
+    for (const q of ['CHAUDIERE', 'chaudière', 'Chaudiere', 'chaudiere']) {
+      expect(filtrerParMots(LISTE, q).map((l) => l.messageId)).toEqual([3]);
+    }
+    expect(normaliserRecherche('Irène ÉLÈVE Œuf ÿ')).toBe('irene eleve œuf y');
+  });
+
+  /** ⚠️ UNE RECHERCHE VIDE NE FILTRE RIEN — et des espaces seuls sont une recherche vide. */
+  it('⚠️ rien à chercher ⇒ rien n’est retiré', () => {
+    expect(filtrerParMots(LISTE, '')).toHaveLength(3);
+    expect(filtrerParMots(LISTE, '   ')).toHaveLength(3);
+    expect(motsRecherches('  ')).toEqual([]);
+  });
+
+  /** ⚠️ LES MOTS SONT DÉDOUBLONNÉS ET BORNÉS : au-delà de huit, ce n'est plus une recherche. */
+  it('⚠️ les mots sont dédoublonnés et bornés à huit', () => {
+    expect(motsRecherches('fuite fuite CUISINE')).toEqual(['fuite', 'cuisine']);
+    expect(motsRecherches('a b c d e f g h i j')).toHaveLength(8);
+  });
+
+  /** 🔴 « N MAILS SUR M », et rien quand on ne cherche pas. */
+  it('🔴🔴 le compteur dit N sur M, et se tait sans recherche', () => {
+    expect(motCompteurRecherche(3, 25, true)).toBe('3 mails sur 25');
+    expect(motCompteurRecherche(1, 25, true)).toBe('1 mail sur 25');
+    expect(motCompteurRecherche(25, 25, false)).toBeNull();
+  });
+
+  /**
+   * ══ 🔴🔴 LE SURLIGNAGE REND DES MORCEAUX, PAS DU HTML ════════════════════════════════════════════════════════
+   *
+   * Rendre une chaîne balisée aurait obligé l'écran à l'injecter sans échappement — c'est-à-dire à faire
+   * confiance au corps d'un courrier que n'importe qui envoie. Les morceaux, eux, sont posés par React.
+   */
+  it('🔴🔴 le découpage marque les mots trouvés, et laisse le reste intact', () => {
+    expect(decouperPourSurligner('Le robinet goutte', ['robinet'])).toEqual([
+      { texte: 'Le ', trouve: false },
+      { texte: 'robinet', trouve: true },
+      { texte: ' goutte', trouve: false },
+    ]);
+  });
+
+  /** 🔴 LE TEXTE RENDU GARDE SES ACCENTS, même si la recherche les ignore. */
+  it('🔴🔴 on cherche sans accent, on rend le texte d’origine', () => {
+    expect(decouperPourSurligner('La chaudière fuit', ['chaudiere'])).toEqual([
+      { texte: 'La ', trouve: false },
+      { texte: 'chaudière', trouve: true },
+      { texte: ' fuit', trouve: false },
+    ]);
+  });
+
+  /** ⚠️ DEUX MOTS QUI SE CHEVAUCHENT NE FONT QU'UNE MARQUE : sinon on aurait deux balises imbriquées. */
+  it('⚠️ les intervalles qui se chevauchent sont fusionnés', () => {
+    expect(decouperPourSurligner('abcdef', ['abc', 'bcd'])).toEqual([
+      { texte: 'abcd', trouve: true },
+      { texte: 'ef', trouve: false },
+    ]);
+  });
+
+  /** ⚠️ TOUTES LES OCCURRENCES SONT MARQUÉES, pas seulement la première. */
+  it('⚠️ toutes les occurrences sont marquées', () => {
+    expect(decouperPourSurligner('fuite puis fuite', ['fuite'])
+      .filter((x) => x.trouve)).toHaveLength(2);
+  });
+
+  /** ⚠️ RIEN À MARQUER ⇒ UN SEUL MORCEAU, et le texte est rendu tel quel. */
+  it('⚠️ sans mot trouvé, le texte est rendu d’un bloc', () => {
+    expect(decouperPourSurligner('Le robinet goutte', ['chaudiere']))
+      .toEqual([{ texte: 'Le robinet goutte', trouve: false }]);
+    expect(decouperPourSurligner('', ['x'])).toEqual([{ texte: '', trouve: false }]);
   });
 });

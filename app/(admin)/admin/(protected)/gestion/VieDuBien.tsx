@@ -11,6 +11,9 @@ import { motCapsule, tonCapsule, type CapsuleStatut } from '../../../../lib/gest
 // 🔴🔴 LOT CONTACTS-EXTERNES — le mot du rôle instantané, écrit UNE fois dans le module PUR.
 import { motRoleInstantane } from '../../../../lib/gestion/contactExterne';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
+/* 🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — le découpage des mots surlignés vit dans le module PUR : il est
+   éprouvé sans écran, et il ne rend jamais de HTML. */
+import { decouperPourSurligner } from '../../../../lib/gestion/historiqueBien';
 
 /**
  * LOT FICHES-ANNUAIRE (étape B) — « LA VIE DU BIEN » : TOUS SES MAILS, DANS LA FICHE.
@@ -225,9 +228,22 @@ export function VieDuBien({ lotCle, maintenant, onOuvrirFil, filtreInitial = 'to
  * mot-clé `export` a été ajouté — même geste que `CHOIX_SUIVI` au lot BROUILLONS-APERCU-TYPES-LIBELLES, et pour
  * la même raison. « Vie du bien » continue de l'appeler sans savoir qu'un autre écran l'appelle aussi.
  */
-export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil }: {
+export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [] }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LES MOTS CHERCHÉS, SURLIGNÉS DANS L'APERÇU ═════════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « les mots trouvés sont surlignés dans l'aperçu ».
+   *
+   * ⚠️ VIDE PAR DÉFAUT, DONC AUCUN CHANGEMENT LÀ OÙ PERSONNE NE CHERCHE : la fiche d'un LOCATAIRE monte cette
+   * même ligne et ne passe rien — son aperçu est, au caractère près, celui d'avant ce lot.
+   *
+   * 🔴 DES MORCEAUX, ET NON DU HTML. `decouperPourSurligner` rend des morceaux que React pose et échappe ; une
+   * chaîne balisée aurait obligé à l'injecter sans échappement, c'est-à-dire à faire confiance au corps d'un
+   * courrier que n'importe qui envoie.
+   */
+  surligner?: readonly string[];
 }) {
   const { vraies, signatures } = trierPieces(l.pieces);
   const lisible = l.extrait === null ? null : corpsLisible(l.extrait);
@@ -285,7 +301,15 @@ export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil }: {
             </span>
           )}
           {!ouvert && lisible !== null && lisible.visible !== '' && (
-            <span className="vdb-extrait">{lisible.visible}</span>
+            <span className="vdb-extrait">
+              {surligner.length === 0
+                ? lisible.visible
+                : decouperPourSurligner(lisible.visible, surligner).map((m, i) => (
+                  m.trouve
+                    ? <mark key={`${i}-${m.texte}`} className="vdb-trouve">{m.texte}</mark>
+                    : <span key={`${i}-${m.texte}`}>{m.texte}</span>
+                ))}
+            </span>
           )}
         </button>
       </div>
@@ -372,6 +396,10 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-objet{font-size:.84rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .vdb-extrait{font-size:.8rem;color:var(--color-svv-muted);overflow:hidden;text-overflow:ellipsis;
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
+/* LES MOTS TROUVES, surlignes dans l'apercu (lot HISTORIQUE-BIEN-3, point 5). Jetons seulement : lisible dans
+   les deux themes, et c'est un <mark>, donc un lecteur d'ecran l'annonce comme une mise en valeur. */
+.vdb-trouve{background:var(--color-svv-amber-soft);color:var(--color-svv-ink);font-weight:700;
+  border-radius:3px;padding:0 1px}
 /* 🔴🔴 LOT CONTACTS-EXTERNES — « pour MARTY Jean-Francois (locataire sortant) · via Me Martin, avocat ».
    Elle s'enroule d'elle-meme quand la largeur manque : sur un telephone, une ligne de plus vaut mieux qu'un nom
    tronque au milieu. Le ROLE est entre parentheses et le contact en italique — deux informations de nature
