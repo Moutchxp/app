@@ -31,6 +31,15 @@ import {
 import { projeter, mailsDuBien, reperesDuFil, periodeEnCours } from './periodesConversation';
 import { changerStatut, rattacher } from './rattachementRepo';
 import { lireInterne } from './interneRepo';
+/**
+ * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE — « CE MAIL EST-IL INTERNE ? » SE DEMANDE À LA RÈGLE, PAS À UNE TABLE.
+ *
+ * Les scénarios S8 et S12 posaient la question à `gestion_fil_interne` seule. Depuis la migration 297, la vérité
+ * est la marque PAR MAIL, et la marque d'échange n'est plus qu'un REPLI : regarder une seule des deux tables fait
+ * conclure à côté. `interneDuMail` porte les trois cas, et c'est lui que l'application lit.
+ */
+import { lireInterneDesMessages } from './interneMessageRepo';
+import { interneDuMail } from './interneDuMail';
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴🔴 LE GARDE : CETTE ÉPREUVE ÉCRIT, ELLE NE DOIT TOUCHER QU'UNE BASE JETABLE
@@ -93,6 +102,27 @@ async function historique(filId: number, cle: string): Promise<number[]> {
       WHERE m.fil_id = $1 AND r.cible_cle = $2 AND r.statut = 'confirme' AND r.piece_id IS NULL
       ORDER BY m.recu_le, m.id`, [filId, cle]);
   return rows.map((r) => Number(r.message_id));
+}
+
+/**
+ * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE — LES MAILS « INTERNE » D'UNE CONVERSATION, PAR LEUR RANG ════════════════
+ *
+ * Rend les RANGS des mails qu'un écran afficherait « Interne », en appliquant la règle du repli mail par mail :
+ * marque par mail vivante → interne ; marque par mail retirée → PAS interne, et la marque d'échange ne le
+ * ressuscite pas ; aucune marque par mail → la marque d'échange répond.
+ *
+ * ⚠️ UNE SEULE PAIRE DE LECTURES POUR TOUTE LA CONVERSATION : on ne demande pas mail par mail.
+ */
+async function rangsInternes(filId: number, mails: readonly number[]): Promise<number[]> {
+  const parMail = await lireInterneDesMessages(mails);
+  const echange = (await lireInterne([filId])).has(filId);
+  return mails
+    .filter((m) => interneDuMail({
+      marqueDuMailVivante: parMail.get(m)?.vivante === true,
+      marqueDuMailConnue: parMail.has(m),
+      marqueDeLEchange: echange,
+    }))
+    .map((m) => mails.indexOf(m) + 1);
 }
 
 /** La position d'un mail dans sa conversation (1, 2, 3…), pour des attendus lisibles. */
@@ -404,20 +434,72 @@ describe('🔴🔴 T7 — ajouter un bien « à venir » n’efface pas celui qu
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 describe('S8 — « Interne » et « Hors gestion » suivent la même logique', () => {
+  /**
+   * ══ 🔴🔴 ATTENDUS RÉÉCRITS LE 04/10/2026 — LOT INTERNE-ANNULER-ET-SUITE ══════════════════════════════════════
+   *
+   * DÉCISION D'ARNO : « on garde la correction du 03/10. Réécris les attendus des scénarios S8 et S12 pour qu'ils
+   * décrivent le comportement validé actuel. »
+   *
+   * ═══ CE QUE CE SCÉNARIO ATTENDAIT, ET POURQUOI IL AVAIT RAISON À L'ÉPOQUE ═══════════════════════════════════
+   *
+   * Il attendait qu'une fenêtre « biens » posée après une fenêtre « interne » fasse TOMBER LA MARQUE DE
+   * L'ÉCHANGE (`gestion_fil_interne`). C'était vrai quand « interne » n'existait QUE sur l'échange : il n'y avait
+   * pas d'autre endroit où dire « ces mails-ci ne sont plus internes ».
+   *
+   * ═══ 🔴🔴 CE QUE DEUX CORRECTIONS ONT CHANGÉ, ET POURQUOI L'ANCIEN ATTENDU EST DEVENU FAUX ═══════════════════
+   *
+   *   ① MIGRATION 297 (03/10) — « Interne » devient un statut PAR MAIL, et la marque d'échange n'est plus qu'un
+   *      REPLI : elle répond pour les mails dont personne ne s'est occupé. La projection écrit donc la vérité au
+   *      grain du MAIL, et n'a plus besoin de toucher l'échange.
+   *   ② COMMIT 559d394a (03/10) — la projection a cessé de RETIRER la marque d'échange, avec ce motif, écrit dans
+   *      `periodeRepo` : « elle reste le repli, et un repli qu'une projection effacerait ne serait pas un repli ».
+   *      Une fenêtre qui l'effacerait priverait de leur statut tous les mails qu'AUCUNE fenêtre ne couvre.
+   *
+   * 🔴 L'ANCIEN ATTENDU DEMANDAIT DONC EXACTEMENT CE QUE LA CORRECTION INTERDIT. Il est remplacé par la question
+   * qui compte vraiment — et que l'écran pose : QUELS MAILS sont interne ? La marque d'échange, elle, survit, et
+   * c'est voulu.
+   */
   it('🔴 à partir de ce mail la conversation devient interne, puis un bien la rouvre', async () => {
     const { filId, mails } = await conversation(6);
     await poserClassement({ filId, messageId: mails[0], classement: biens('LOT-A'), choix: 'suite', auteur: AUTEUR });
     await poserClassement({ filId, messageId: mails[2], classement: INTERNE, choix: 'suite', auteur: AUTEUR });
 
     expect(rangs(mails, await historique(filId, 'LOT-A'))).toEqual([1, 2]);
-    // 🔴 « INTERNE » PORTE SUR L'ÉCHANGE (migration 281) : c'est le fil entier qui est marqué.
-    const interne = await lireInterne([filId]);
-    expect(interne.get(filId)).toBeDefined();
+    // 🔴 LA MARQUE D'ÉCHANGE EST POSÉE (migration 281), et les mails que la fenêtre couvre portent la leur.
+    expect((await lireInterne([filId])).get(filId)).toBeDefined();
+    /**
+     * ══ ⚠️⚠️ ET LES MAILS 1-2 LA LISENT AUSSI, LE TEMPS D'UNE PASSE. CE N'EST PAS CE QU'ON VOUDRAIT ═══════════
+     *
+     * Ils portent LOT-A et sont couverts par la première fenêtre : ils ne devraient pas se lire « interne ». Ils
+     * le font pourtant à cet instant précis, et la raison est un ORDRE, pas une règle :
+     * `projeterLeFil` lit « cet échange est-il marqué ? » AVANT sa boucle, et POSE la marque d'échange APRÈS
+     * (quand la fenêtre en cours est « interne »). Pendant cette passe-là, la réponse était donc « non », et la
+     * ligne « on s'est prononcé » qui les protégerait n'a pas été écrite.
+     *
+     * 🔴 ÇA SE RATTRAPE À LA PASSE SUIVANTE, et l'assertion d'après le prouve : au geste suivant, les mails 1-2
+     * sortent de la liste. Avant le lot INTERNE-ANNULER-ET-SUITE, ils n'en sortaient JAMAIS — aucun mécanisme
+     * n'écrivait cette ligne. Le transitoire est donc un reste, pas une régression ; il est figé ici pour qu'une
+     * correction de l'ordre de la projection se voie, au lieu de passer pour une régression.
+     */
+    expect(await rangsInternes(filId, mails)).toEqual([1, 2, 3, 4, 5, 6]);
 
-    // …puis un bien rouvre une fenêtre « biens » : la marque interne tombe.
+    // …puis un bien rouvre une fenêtre « biens » à partir du 5e mail.
     await poserClassement({ filId, messageId: mails[4], classement: biens('LOT-B'), choix: 'suite', auteur: AUTEUR });
     expect(rangs(mails, await historique(filId, 'LOT-B'))).toEqual([5, 6]);
-    expect((await lireInterne([filId])).get(filId)).toBeUndefined();
+
+    /**
+     * 🔴🔴 CE QUI TOMBE, C'EST LE STATUT DES MAILS QUE LA NOUVELLE FENÊTRE COUVRE — et eux seuls. Les mails 3 et
+     * 4 restent sous la fenêtre « interne » : leur statut n'a aucune raison de changer, et c'est la règle
+     * d'indépendance des fenêtres (lot FENETRES-INDEPENDANTES).
+     */
+    expect(await rangsInternes(filId, mails)).toEqual([3, 4]);
+
+    /**
+     * 🔴🔴 ET LA MARQUE DE L'ÉCHANGE SURVIT, DÉLIBÉRÉMENT. Elle n'est plus la vérité d'un mail mais son REPLI :
+     * la retirer ici priverait de leur statut les mails qu'aucune fenêtre ne couvre — et il n'existe aucun autre
+     * endroit pour le leur rendre. C'est l'arbitrage du 03/10, confirmé par Arno le 04/10.
+     */
+    expect((await lireInterne([filId])).get(filId)).toBeDefined();
   });
 
   it('🔴 une exception « hors gestion » au milieu d’une fenêtre de biens', async () => {
@@ -692,18 +774,52 @@ describe('🔴🔴 S12 — la fenêtre gagne, l’expéditeur devient une propos
   });
 
   /**
-   * 🔴 ET UNE FENÊTRE « INTERNE » OU « HORS GESTION » NE CONFIRME RIEN NON PLUS. Elle dit que l'échange ne concerne
-   * aucun bien : confirmer le bien de l'expéditeur par-dessus serait la contredire.
+   * ══ 🔴🔴 ATTENDU RÉÉCRIT LE 04/10/2026 — LOT INTERNE-ANNULER-ET-SUITE ════════════════════════════════════════
+   *
+   * DÉCISION D'ARNO : « on garde la correction du 03/10. Réécris les attendus des scénarios S8 et S12 pour qu'ils
+   * décrivent le comportement validé actuel. »
+   *
+   * ═══ CE QUE CE SCÉNARIO ATTENDAIT, ET CE QUI L'A DÉPASSÉ ════════════════════════════════════════════════════
+   *
+   * Il attendait que le bien de l'expéditeur reste en PROPOSITION décochée : « rien n'est perdu, c'est à un
+   * clic ». C'était la règle de S12 — la fenêtre gagne, l'autre bien se propose — appliquée à une fenêtre
+   * « interne ».
+   *
+   * 🔴🔴 UNE RÈGLE PLUS FORTE EST PASSÉE DEPUIS, ET ELLE VIENT D'ARNO AUSSI (lot HISTORIQUES-UNE-SEULE-REGLE,
+   * point 4) : « la passe automatique ne pose jamais de bien sur un mail Interne ». Le moteur ne propose donc
+   * plus RIEN sur un tel mail — ni lien, ni candidat à trancher — et il écrit POURQUOI. Ce n'est pas une
+   * proposition perdue : c'est une proposition qui n'a jamais eu lieu, sur un mail dont une personne a dit qu'il
+   * ne concerne aucun bien.
+   *
+   * ⚠️ LE MAIL ENTRANT EST INTERNE PARCE QUE LA FENÊTRE LE COUVRE, et c'est la migration 297 qui le permet : la
+   * projection lui écrit SA marque, au grain du mail. Avant elle, seul l'échange portait la marque — le moteur
+   * n'avait aucun moyen de savoir que ce mail-ci était interne, et il proposait.
+   *
+   * 🔴 ON ÉPROUVE DONC LES TROIS FAITS, ET PAS SEULEMENT L'ABSENCE : le mail est interne, le moteur n'a rien
+   * posé, et son refus est MOTIVÉ. Un attendu qui se contenterait d'une liste vide passerait aussi sur un moteur
+   * en panne.
    */
-  it('🔴 une fenêtre « interne » laisse le bien de l’expéditeur en proposition', async () => {
+  it('🔴 une fenêtre « interne » ne laisse RIEN poser sur le mail entrant, et dit pourquoi', async () => {
     const { filId, mails } = await conversation(3);
     await poserClassement({ filId, messageId: mails[0], classement: INTERNE, choix: 'suite', auteur: AUTEUR });
     const entrant = await mailEntrant(filId, 'LOT-C');
 
     await releve(filId);
 
+    // ① LA FENÊTRE A ÉCRIT SON STATUT SUR LE MAIL ENTRANT : il est interne, par sa propre marque.
+    expect(await rangsInternes(filId, [entrant])).toEqual([1]);
+    // ② AUCUN LIEN, AUCUNE PROPOSITION : ni dans l'historique du bien, ni en attente de tri.
     expect(await historique(filId, 'LOT-C')).toEqual([]);
-    expect(await liens(entrant, 'LOT-C')).toEqual(['propose (automatique)']);
+    expect(await liens(entrant, 'LOT-C')).toEqual([]);
+    /**
+     * ③ 🔴 ET LE REFUS EST MOTIVÉ, EN BASE. C'est ce qui permet à la file « À trier » de dire pourquoi elle n'a
+     * rien à proposer, au lieu de laisser croire que le moteur n'a pas vu le mail.
+     */
+    const { rows } = await query<{ issue: string; motif: string | null }>(
+      'SELECT issue, motif FROM gestion_rattachement_examen WHERE message_id = $1', [entrant]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].issue).toBe('sans_candidat');
+    expect(rows[0].motif).toBe('mail marqué « interne » par une personne : il ne concerne aucun bien');
   });
 
   /**
