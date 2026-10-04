@@ -18,7 +18,7 @@ import {
 // 🔴 LOT PASTILLE-DRIVE-EN-DIRECT — la MÊME normalisation d'empreinte que l'index (module PUR).
 import { empreinteNormalisee } from './indexEmpreintesDrive';
 /* 🔴 LOT DRIVE-NIVEAUX-DEPLACEMENT — « cette copie existe-t-elle encore ? », écrit UNE fois pour tout le module. */
-import { sqlCopieVivante } from './copieDisparueSql';
+import { sqlConflitCopieVivante, sqlCopieVivante } from './copieDisparueSql';
 
 /** Un dépôt, tel que l'écran l'affiche : « Dans le Drive · ouvrir », avec le nom du dossier. */
 export interface DepotDrive {
@@ -282,7 +282,7 @@ export async function memoriserDepot(d: ADeposer): Promise<IssueMemorisation> {
     `INSERT INTO gestion_piece_drive
        (${colonnes.join(', ')})
      VALUES (${colonnes.map((_, i) => `$${i + 1}`).join(', ')})
-     ON CONFLICT (piece_id, drive_dossier_id) DO NOTHING`,
+     ON CONFLICT (piece_id, drive_dossier_id)${await sqlConflitCopieVivante()} DO NOTHING`,
     valeurs,
   );
   if ((rowCount ?? 0) === 0) return { etat: 'doublon' };

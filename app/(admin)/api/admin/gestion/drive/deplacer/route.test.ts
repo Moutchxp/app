@@ -56,8 +56,20 @@ vi.mock('../../../../../../lib/gestion/auteur', () => ({
 vi.mock('../../../../../../lib/gestion/schema', () => ({
   journalMouvementDriveDisponible: () => journalDispoMock(),
 }));
+/**
+ * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 5 — `nommerLaRacine` AJOUTÉE À LA FABRIQUE.
+ *
+ * La route s'en sert pour nommer sa cible : `files.get` sur la racine d'un Drive partagé rend le nom GÉNÉRIQUE
+ * « Drive », et le bandeau annonçait « déplacé vers “Drive” » pour un déplacement vers « Test ». Son absence de
+ * cette fabrique faisait tomber la route AU MOMENT DE L'APPEL, pas à l'import — le piège habituel.
+ *
+ * ⚠️ ELLE REND LA CHAÎNE TELLE QUELLE : ces épreuves ne portent pas sur le nom de la racine (elles n'appellent
+ * jamais Google pour un Drive), et un faux nom ici masquerait les assertions qui comptent. Le comportement réel
+ * de la fonction est éprouvé par `driveVerdict`, et le câblage par `deposerEtAnnuler.test.ts`.
+ */
 vi.mock('../../../../../../lib/gestion/driveVerdict', () => ({
   idsProteges: (...a: unknown[]) => protegesMock(...a),
+  nommerLaRacine: async (_j: string, chaine: unknown) => chaine,
 }));
 vi.mock('../../../../../../lib/gestion/drive', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../../../lib/gestion/drive')>()),

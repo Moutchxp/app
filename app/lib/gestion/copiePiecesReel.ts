@@ -19,6 +19,8 @@ import { createHash } from 'node:crypto';
 import { query } from '../db/client';
 import { recuperer } from '../stockage';
 import { copiePiecesDisponible } from './schema';
+// 🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 5 — le predicat de l'ON CONFLICT suit l'index REELLEMENT present.
+import { sqlConflitCopieVivante } from './copieDisparueSql';
 import { MIME_DOSSIER } from './drive';
 import {
   indexer, nettoyerNom, verifierEcriture, type IndexArbre, type NoeudArbre,
@@ -279,7 +281,7 @@ export async function enregistrerCopie(o: {
        (piece_id, drive_file_id, drive_dossier_id, dossier_nom, web_view_link, depose_par_libelle,
         md5, taille_octets, verifie_le, origine, regle_tri, confiance_tri, compte_google)
      VALUES ($1,$2,$3,$4,$5,'copie automatique',$6,$7,${'$8'},'copie',$9,$10,$11)
-     ON CONFLICT (piece_id, drive_dossier_id) DO UPDATE SET
+     ON CONFLICT (piece_id, drive_dossier_id)${await sqlConflitCopieVivante()} DO UPDATE SET
        drive_file_id = EXCLUDED.drive_file_id, web_view_link = EXCLUDED.web_view_link,
        md5 = EXCLUDED.md5, taille_octets = EXCLUDED.taille_octets, verifie_le = EXCLUDED.verifie_le,
        regle_tri = EXCLUDED.regle_tri, confiance_tri = EXCLUDED.confiance_tri, depose_le = now()`,

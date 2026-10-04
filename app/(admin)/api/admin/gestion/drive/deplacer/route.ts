@@ -8,7 +8,7 @@ import {
   chaineDuDossierMemo, metadonneesMemo, oublierChaine, oublierElement,
 } from '../../../../../../lib/gestion/driveMemoire';
 import { mapConcurrenceBornee } from '../../../../../../lib/concurrence';
-import { idsProteges } from '../../../../../../lib/gestion/driveVerdict';
+import { idsProteges, nommerLaRacine } from '../../../../../../lib/gestion/driveVerdict';
 import { indexerMaillons, type Maillon } from '../../../../../../lib/gestion/driveLectureFichier';
 import { peutMouvoir, verdictCopieRecursive } from '../../../../../../lib/gestion/driveDeplacement';
 import { copierFichier, creerDossierPourCopie, deplacerVers } from '../../../../../../lib/gestion/driveMouvement';
@@ -292,7 +292,21 @@ async function mouvoir(
         + 'déplacement n’est fait tant que l’archive n’a pas été localisée.',
     }, 409);
   }
-  const nomCible = chaineCible[0]?.nom ?? 'ce dossier';
+  /**
+   * ══ 🔴🔴 LE NOM DE LA CIBLE PASSE PAR LA CORRECTION DU NOM GÉNÉRIQUE DE RACINE ══════════════════════════════
+   *
+   * DÉFAUT MESURÉ À L'ÉCRAN LE 04/10/2026 (lot RENOMMER-PARTOUT-ET-FINITIONS, point 5). Un déplacement vers la
+   * racine du Drive partagé « Test » faisait afficher « 1 élément déplacé vers “Drive” ». La cause est le piège
+   * que ce dépôt connaît déjà par cœur : `files.get` sur la racine d'un Drive partagé rend le nom GÉNÉRIQUE
+   * « Drive », et non le nom du Drive.
+   *
+   * 🔴 ET LE PIRE EST QUE L'ÉCRAN SAVAIT : il avait passé « Test » dans sa demande. Mais le nom du serveur gagne
+   * — à juste titre, puisque lui seul a relu la cible — et il était faux. On corrige donc à la SOURCE.
+   *
+   * ⚠️ UN SEUL APPEL DE PLUS, ET SEULEMENT QUAND LA TÊTE PORTE LE NOM GÉNÉRIQUE : `nommerLaRacine` ne demande
+   * rien dans tous les autres cas. Et son échec garde le nom générique, qui est vague mais pas faux.
+   */
+  const nomCible = (await nommerLaRacine(jeton.jeton, chaineCible))[0]?.nom ?? 'ce dossier';
 
   // ── ② LES MÉTADONNÉES DE CHAQUE ÉLÉMENT, en parallèle. Elles donnent le nom, le type ET le parent. ──────────
   const metas = await mapConcurrenceBornee(elements, MOUVEMENTS_SIMULTANES, async (e) => ({

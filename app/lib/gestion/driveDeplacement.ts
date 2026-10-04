@@ -163,6 +163,21 @@ export interface Presse {
   dossiers: string[];
   /** D'où ils viennent — utile au message, et à rien d'autre : la route revérifie tout. */
   parentSource: string | null;
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 5 — LE NOM DE CHACUN, RETENU À LA PRISE ══════════════════
+   *
+   * MÊME RAISON QUE `dossiers`, ET MÊME DÉFAUT CORRIGÉ DEUX FOIS : entre la prise et le collage, on a pu changer
+   * de dossier, et la ligne n'est plus à l'écran pour qu'on lui demande son nom.
+   *
+   * 🔴 CE QUE SON ABSENCE COÛTAIT, MESURÉ À L'ÉCRAN LE 04/10/2026 (dossier « Test ») : après « Couper » puis
+   * navigation dans le sous-dossier puis « Coller ici », le bouton annonçait « Remettre «  » dans “Test creation
+   * dossier drive” » — un nom VIDE, et le dossier d'ARRIVÉE présenté comme l'origine. Le déplacement, lui, était
+   * juste : seul le mot mentait, c'est-à-dire la seule chose qu'on lit avant de cliquer.
+   *
+   * ⚠️ FACULTATIF, pour que les appelants plus anciens restent valides : à défaut, le mot dira « son dossier
+   * d'origine », ce qui est vague mais vrai — jamais le mauvais dossier.
+   */
+  noms?: Record<string, string>;
 }
 
 export const PRESSE_VIDE: Presse | null = null;

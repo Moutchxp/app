@@ -250,9 +250,24 @@ export function motFantome(pieces: readonly PieceARanger[]): string {
   return pieces.length === 1 ? pieces[0].nom : `${pieces.length} pièces`;
 }
 
-/** Le mot du bouton « Déposer ici », avec son compte quand il y en a plusieurs. PUR. */
-export function motDeposerIci(nb: number): string {
-  return nb > 1 ? `Déposer ici (${nb})` : 'Déposer ici';
+/**
+ * Le mot du bouton « Déposer ici », avec son compte quand il y en a plusieurs. PUR.
+ *
+ * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 5 — IL NOMME SA CIBLE QUAND CE N'EST PAS « ICI » ═════════════
+ *
+ * Le bouton vise d'ordinaire le dossier AFFICHÉ : « ici » est alors exact, et le mot ne change pas d'un caractère.
+ * Mais depuis ce point il sait aussi viser un dossier DÉPLIÉ ET SÉLECTIONNÉ en arborescence, où il était mort
+ * (voir `cibleDeposerIci`). Dans ce cas, « ici » désignerait la racine qu'on affiche, et non le dossier visé.
+ *
+ * 🔴 UN BOUTON QUI SE TROMPE DE MOT EST PIRE QU'UN BOUTON ÉTEINT : le dépôt partirait au bon endroit en ayant
+ * annoncé le mauvais, et personne ne le relirait. Il se nomme donc « Déposer dans “Test” ».
+ *
+ * ⚠️ `cible` ABSENTE ⇒ LE MOT D'AVANT, À LA LETTRE : aucun appelant qui l'ignore ne change de résultat.
+ */
+export function motDeposerIci(nb: number, cible?: string | null): string {
+  const compte = nb > 1 ? ` (${nb})` : '';
+  const nom = (cible ?? '').trim();
+  return nom === '' ? `Déposer ici${compte}` : `Déposer dans « ${nom} »${compte}`;
 }
 
 /** Le mot de la case « Tout sélectionner », qui devient « Tout désélectionner » une fois tout coché. PUR. */

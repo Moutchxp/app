@@ -181,8 +181,12 @@ export async function verdictsDossier(
  * maillon n'a pas de parent et porte le nom générique). Dans « Mon Drive », rien n'est demandé.
  * ⚠️ ET SI L'APPEL ÉCHOUE, ON GARDE CE QU'ON A : un nom générique vaut mieux qu'un fil d'Ariane amputé.
  */
-/* 🔴 LE MOT VIENT DE `drive.ts`, et il n'y en a qu'un : voir son encadré. Trois endroits en dépendent. */
-async function nommerLaRacine(
+/* 🔴 LE MOT VIENT DE `drive.ts`, et il n'y en a qu'un : voir son encadré. Trois endroits en dépendent.
+   🔴🔴 EXPORTÉE LE 04/10/2026 (lot RENOMMER-PARTOUT-ET-FINITIONS, point 5) : la route de déplacement nommait sa
+   cible sans cette correction, et son bandeau annonçait « 1 élément déplacé vers “Drive” » pour un dépôt dans
+   « Test ». Mesuré à l'écran. Elle est EXPORTÉE plutôt que recopiée — c'est la quatrième fois que ce piège se
+   présente, et une quatrième copie aurait été la copie qu'on oublie de corriger. */
+export async function nommerLaRacine(
   jeton: string, chaine: { id: string; nom: string }[],
 ): Promise<{ id: string; nom: string }[]> {
   const tete = chaine[0];

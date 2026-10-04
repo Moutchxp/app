@@ -1,5 +1,7 @@
 import 'server-only';
-import { deposerFichier, lireDossier, type LecteurDossier } from './drive';
+import {
+  deposerFichier, lireDossier, nomDuDrive, NOM_GENERIQUE_RACINE_DRIVE, type LecteurDossier,
+} from './drive';
 import { lireDepotExistant, memoriserDepot } from './driveRepo';
 import { copierFichier } from './driveMouvement';
 import { motifDisparition } from './copieDisparue';
@@ -89,7 +91,28 @@ export function depsReellesDepot(lire?: LecteurDossier): DepsDepot {
     infosDossier: async (jeton: string, dossierId: string) => {
       const d = await (lire ? lire(dossierId) : lireDossier(jeton, dossierId, { fetch }));
       // Un nom illisible n'empêche PAS de déposer : on perdrait le confort d'afficher « dossier X », pas le geste.
-      return d.ok ? { nom: d.valeur.nom, driveId: d.valeur.driveId } : null;
+      if (!d.ok) return null;
+      /**
+       * ══ 🔴🔴 LA RACINE D'UN DRIVE PARTAGÉ NE S'APPELLE PAS « Drive » ════════════════════════════════════════
+       *
+       * DÉFAUT MESURÉ LE 04/10/2026 (lot RENOMMER-PARTOUT-ET-FINITIONS, point 5) : après un dépôt réel dans le
+       * Drive partagé « Test », le registre portait `dossier_nom = 'Drive'`. C'est le piège que ce module
+       * connaît déjà par cœur — `files.get` sur la racine d'un Drive partagé rend le nom GÉNÉRIQUE —, et c'est
+       * sa CINQUIÈME apparition : fil d'Ariane, index des empreintes, nettoyage des fantômes, bandeau de
+       * déplacement, et maintenant le registre lui-même.
+       *
+       * 🔴 ET ICI IL COÛTE PLUS CHER QU'AILLEURS, parce qu'il s'ÉCRIT. Un nom d'affichage faux se corrige en
+       * rechargeant ; une ligne de registre fausse ment pour toujours — c'est précisément ce que le nettoyage des
+       * emplacements fantômes du point 0 de ce lot a passé une nuit à réparer.
+       *
+       * ⚠️ UN SEUL APPEL DE PLUS, ET SEULEMENT SUR LE NOM GÉNÉRIQUE. Partout ailleurs, rien n'est demandé.
+       * ⚠️ ET SON ÉCHEC GARDE LE NOM GÉNÉRIQUE : vague, mais pas faux, et le dépôt ne doit pas échouer pour un nom.
+       */
+      if (d.valeur.nom !== NOM_GENERIQUE_RACINE_DRIVE || d.valeur.driveId === null) {
+        return { nom: d.valeur.nom, driveId: d.valeur.driveId };
+      }
+      const vrai = await nomDuDrive(jeton, d.valeur.driveId, { fetch }).catch(() => null);
+      return { nom: vrai ?? d.valeur.nom, driveId: d.valeur.driveId };
     },
   };
 }

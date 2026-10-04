@@ -33,6 +33,16 @@ vi.mock('./schema', () => ({
   copieDisparueDisponible: () => copieDisparueMock(),
   // ⚠️ Non sollicitée par ces épreuves (aucune ne passe de `nomDepose`), mais exportée pour que le module charge.
   nomDeposeDisponible: async () => false,
+  /**
+   * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 5 — la sonde de l'INDEX de la migration 301. Elle décide du
+   * prédicat de l'`ON CONFLICT`, et son absence de cette fabrique faisait tomber le module AU MOMENT DE L'APPEL,
+   * pas à l'import : c'est le piège des fabriques `vi.mock` que ce dépôt a déjà payé cinq fois.
+   *
+   * ⚠️ `false` EXPRÈS : les assertions de ce fichier figent le SQL d'AVANT la 301, et elles ont raison de le
+   * faire — c'est le SQL qu'une base sans la 301 doit recevoir. Le cas « 301 appliquée » est éprouvé à part,
+   * dans `conflitRegistreCopies.test.ts`, qui pilote la sonde dans les deux sens.
+   */
+  uniciteCopiesVivantesDisponible: async () => false,
 }));
 
 import {

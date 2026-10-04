@@ -273,6 +273,47 @@ export function nomDeposeDisponible(): Promise<boolean> {
   return memoiser('piece_drive.nom_depose', () => colonneExiste('gestion_piece_drive', 'nom_depose'));
 }
 
+/**
+ * ══ 🔴🔴 MIGRATION 301 — L'UNICITÉ DU REGISTRE NE PORTE PLUS QUE SUR LES COPIES VIVANTES ═══════════════════════
+ *
+ * CE QUE LA 301 A FAIT : `gestion_piece_drive_unique_idx` (sur `piece_id, drive_dossier_id`, TOUTES les lignes) a
+ * été remplacé par `gestion_piece_drive_unique_vivantes_idx`, le MÊME couple de colonnes mais PARTIEL
+ * (`WHERE disparu_le IS NULL`). C'était le correctif du point 0 de ce lot : une ligne MORTE bloquait la
+ * réécriture d'un emplacement corrigé.
+ *
+ * ═══ 🔴🔴 CE QU'ELLE A CASSÉ, ET QUE CE LOT RÉPARE ═══════════════════════════════════════════════════════════════
+ *
+ * DÉFAUT MESURÉ À L'ÉCRAN LE 04/10/2026, en déposant une pièce dans « Test » : le fichier est bien arrivé chez
+ * Google, et l'écran a affiché l'erreur SQL BRUTE « there is no unique or exclusion constraint matching the ON
+ * CONFLICT specification ». Le registre, lui, n'a rien enregistré.
+ *
+ * 🔴 LA RAISON EST UNE RÈGLE DE POSTGRESQL, PAS UN BOGUE : pour viser un index PARTIEL, un `ON CONFLICT` doit
+ * répéter SON PRÉDICAT. `ON CONFLICT (piece_id, drive_dossier_id)` ne désigne plus aucun index depuis la 301 — et
+ * PostgreSQL le dit sèchement, sans nommer la table ni l'index.
+ *
+ * 🔴 D'OÙ CETTE SONDE, ET POURQUOI ELLE NE PEUT PAS ÊTRE UNE CONSTANTE. Le prédicat doit suivre l'index
+ * RÉELLEMENT présent : avec la 301 il est obligatoire, sans elle il est INTERDIT (il ne correspondrait pas à
+ * l'ancien index total, et l'on aurait la même erreur en miroir). Une base où la 301 n'est pas appliquée doit
+ * continuer d'écrire le SQL d'avant, mot pour mot.
+ *
+ * ⚠️ ELLE LIT LE CATALOGUE `pg_indexes`, PAS LA TABLE : aucun risque de nommer une colonne absente, et la réponse
+ * est vraie même si la table est vide.
+ */
+export function uniciteCopiesVivantesDisponible(): Promise<boolean> {
+  return memoiser('piece_drive.unique_vivantes', () => indexExiste('gestion_piece_drive_unique_vivantes_idx'));
+}
+
+/** Un index existe-t-il, par son NOM ? Catalogue seulement. Base injoignable ⇒ « non », donc le SQL le plus ancien. */
+async function indexExiste(nom: string): Promise<boolean> {
+  try {
+    const { rows } = await query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, [nom]);
+    return (rows[0]?.n ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Pour les tests : oublie ce qu'on croyait savoir du schéma. N'a aucun effet en production, où rien ne l'appelle. */
 export function oublierSchema(): void {
   memoire.oublier();

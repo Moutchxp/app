@@ -14,7 +14,12 @@ import {
   DUREE_ECHEC_MS, infobulleChemin, LIGNE_FERMEE, NOM_PAR_DEFAUT, ouvrirLigne, verdictNom, type LigneNeuve,
 } from '../../../../lib/gestion/dossierEnLigne';
 // 🔴 « Drives partagés » et « Partagés avec moi » ne sont pas des dossiers : on n'y dépose pas, et on le DIT.
-import { estRegroupement } from '../../../../lib/gestion/cibleDepot';
+/**
+ * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 5 — `cibleDeposerIci` dit OÙ « Déposer ici » pose, et pourquoi il
+ * est parfois éteint. Module PUR : l'écran n'invente plus sa propre règle de cible, et le serveur la revérifie de
+ * son côté (`verifierCibleDepot`, même fichier).
+ */
+import { cibleDeposerIci, estRegroupement } from '../../../../lib/gestion/cibleDepot';
 // 🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — les mots et les règles de la corbeille du Drive. Module PUR.
 import {
   aideReintegrerDrive, EMOJI_CORBEILLE_DRIVE, joursRestants, LIBELLE_REINTEGRER_DRIVE,
@@ -257,11 +262,17 @@ function styleNiveau(profondeur: number): React.CSSProperties {
   };
 }
 
-/** Le minimum dont la route a besoin : elle relit tout chez Google de toute façon. */
-function fichierMinimal(o: { id: string; nom?: string; dossier?: boolean }): Fichier {
+/**
+ * Le minimum dont la route a besoin : elle relit tout chez Google de toute façon.
+ *
+ * ⚠️ `parentId` N'EST PAS LÀ POUR LA ROUTE, MAIS POUR LE MOT DE L'ANNULATION (lot
+ * RENOMMER-PARTOUT-ET-FINITIONS, point 5). Voir `coller` : sans lui, un collage fait après avoir changé de
+ * dossier annonçait de remettre le fichier dans le dossier où il venait d'arriver.
+ */
+function fichierMinimal(o: { id: string; nom?: string; dossier?: boolean; parentId?: string | null }): Fichier {
   return {
     id: o.id, nom: o.nom ?? '', typeMime: '', tailleOctets: null, modifieLe: null, lien: null,
-    dossier: o.dossier === true,
+    dossier: o.dossier === true, parentId: o.parentId ?? null,
   };
 }
 
@@ -2493,8 +2504,18 @@ export function SelecteurFichierDrive({
     /* ⚠️ LES ÉLÉMENTS PEUVENT NE PLUS ÊTRE À L'ÉCRAN (on a changé de dossier depuis la prise) : on reconstruit
        alors le minimum dont la route a besoin — elle relit tout chez Google de toute façon. Ce qu'on ne peut PAS
        reconstruire, c'est « est-ce un dossier » : c'est pour cela que la prise l'a retenu. */
+    /**
+     * 🔴🔴 LE NOM ET LE PARENT VIENNENT DE LA PRISE (lot RENOMMER-PARTOUT-ET-FINITIONS, point 5), et pas d'un
+     * défaut vide. Mesuré à l'écran le 04/10/2026 dans « Test » : « Couper », puis entrer dans le sous-dossier,
+     * puis « Coller ici » annonçait « Remettre «  » dans “Test creation dossier drive” » — nom vide, et le
+     * dossier d'ARRIVÉE donné pour l'origine, parce que `mouvoir` se rabat sur le dossier affiché quand
+     * l'élément n'a pas de `parentId`. Le déplacement était juste ; seul le mot mentait.
+     */
     const liste = presse.ids.map((id) => entreeParId(id)
-      ?? fichierMinimal({ id, dossier: presse.dossiers.includes(id) }));
+      ?? fichierMinimal({
+        id, nom: presse.noms?.[id] ?? '', dossier: presse.dossiers.includes(id),
+        parentId: presse.parentSource,
+      }));
     if (presse.mode === 'couper') { void mouvoir('deplacer', liste, cibleId, cibleNom); return; }
     void lancerCopie(liste, cibleId, cibleNom);
   };
@@ -3409,6 +3430,8 @@ export function SelecteurFichierDrive({
         ids: [...selection.ids],
         dossiers: pris.filter((x) => x.dossier).map((x) => x.id),
         parentSource: dossierCourant?.id ?? null,
+        // 🔴 LES NOMS, RETENUS ICI : au collage, les lignes ne sont peut-être plus à l'écran. Voir `Presse.noms`.
+        noms: Object.fromEntries(pris.map((x) => [x.id, x.nom])),
       });
       return;
     }
@@ -3647,6 +3670,8 @@ export function SelecteurFichierDrive({
         ids: pris.map((x) => x.id),
         dossiers: pris.filter((x) => x.dossier).map((x) => x.id),
         parentSource: dossierCourant?.id ?? null,
+        // 🔴 LES NOMS, RETENUS ICI : au collage, les lignes ne sont peut-être plus à l'écran. Voir `Presse.noms`.
+        noms: Object.fromEntries(pris.map((x) => [x.id, x.nom])),
       });
       return;
     }
@@ -4157,6 +4182,21 @@ export function SelecteurFichierDrive({
 
   const recentsDrive = (recents?.lignes ?? []).filter((r) => r.sorte !== 'locale');
   const joindreOk = listing?.joindreAutorise === true;
+  /**
+   * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 5 — OÙ « DÉPOSER ICI » POSE ════════════════════════════════
+   *
+   * 🔴 LES DOSSIERS SÉLECTIONNÉS SE LISENT DANS `lignes`, l'arbre APLATI — et non dans la seule fenêtre
+   * virtualisée (`visibles`). Un dossier sélectionné puis sorti du champ par un défilement reste sélectionné :
+   * le lire dans la fenêtre visible aurait fait disparaître la cible en défilant, ce qui est précisément le genre
+   * de bouton qui s'éteint sans raison apparente.
+   *
+   * ⚠️ LES FICHIERS SONT ÉCARTÉS ICI : on ne dépose pas dans un fichier. Le module pur ne saurait pas le dire —
+   * il ne reçoit que des dossiers, et c'est volontaire : il décide d'une cible, il ne trie pas une liste.
+   */
+  const dossiersChoisis = lignes
+    .filter((l) => l.entree.dossier && selection.ids.includes(l.entree.id))
+    .map((l) => ({ id: l.entree.id, nom: l.entree.nom }));
+  const cibleDepot = cibleDeposerIci(dossierCourant, dossiersChoisis);
   const selectionJoignable = selection.ids
     .map((id) => entreeParId(id))
     .filter((f): f is Fichier => f !== null && !f.dossier && !ajoutes.includes(f.id));
@@ -5582,22 +5622,28 @@ export function SelecteurFichierDrive({
           {/* ══ 🔴 « DÉPOSER ICI » — la seconde voie, pour le tactile et pour qui ne glisse pas ══════════════
               ⚠️ ÉTEINT À LA RACINE : « Google Drive », « Drives partagés » et « Partagés avec moi » ne sont pas
               des dossiers — Google refuserait le dépôt APRÈS le téléversement. Un bouton qui promet cela ment. */}
+          {/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 5 — LA CIBLE EST DÉCIDÉE PAR UN MODULE PUR ═══════
+              Le bouton ne tranche plus lui-même : `cibleDeposerIci` dit où l'on pose, pourquoi on ne peut pas, et
+              si la cible vient de la SÉLECTION. C'est ce qui le réveille en arborescence, où il était éteint sur
+              un dossier déplié ET sélectionné — en disant « choisissez un dossier dedans », c'est-à-dire ce qu'on
+              venait de faire. Mesuré à l'écran dans « Test » le 04/10/2026. */}
           {mode === 'ranger' && pieces.length > 0 && (
             <button type="button" className="svv-btn svv-btn-outline gst-btn"
-              disabled={dossierCourant === null || estRegroupement(dossierCourant.id)}
-              title={dossierCourant === null ? 'Entrez dans un dossier du Drive.'
-                : estRegroupement(dossierCourant.id)
-                  ? 'Ce n’est pas un dossier, c’est un regroupement : ouvrez-le et choisissez un dossier dedans.'
-                  : undefined}
+              disabled={cibleDepot.cible === null}
+              title={cibleDepot.refus ?? undefined}
+              aria-label={cibleDepot.refus ?? undefined}
               onClick={() => {
-                if (dossierCourant === null) return;
-                deposerToutIci(dossierCourant.id, dossierCourant.nom);
+                const c = cibleDepot.cible;
+                if (c === null) return;
+                deposerToutIci(c.id, c.nom);
               }}>
               {/* 🔴 LOT RANGER-ARBRE-2 — LE NOMBRE EST CELUI DU LOT QUI PARTIRA, sélection comprise : c'est
                   `piecesEmportees` qui le dit, et le clic range EXACTEMENT ces pièces-là. */}
               {/* ⚠️ LE COMPTE DIT CE QUI PARTIRA : les pièces du message ET les copies à ranger. Annoncer le seul
                      nombre de pièces ferait croire qu'on en oublie. */}
-              {motDeposerIci(lotDuBouton.length + vignettes.length)}
+              {/* 🔴 ET LE MOT NOMME LA CIBLE QUAND CE N'EST PAS LE DOSSIER AFFICHÉ : « ici » serait alors faux. */}
+              {motDeposerIci(lotDuBouton.length + vignettes.length,
+                cibleDepot.parLaSelection ? cibleDepot.cible?.nom : null)}
             </button>
           )}
           {/* 🔴 « JOINDRE LA SÉLECTION » : la suite naturelle du Cmd+clic et du Maj+clic. Absent là où la lecture
