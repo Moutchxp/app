@@ -19,6 +19,13 @@ import { mailsCouvertsParLeChoix, type ChoixInterne } from '../../../../../lib/g
 import {
   biensADetacher, detacherBiensApresInterne, remettreBiensDetaches,
 } from '../../../../../lib/gestion/interneRepo';
+/**
+ * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'AUTRE SENS : rattacher un bien LÈVE la marque « interne » du
+ * mail, selon la même fenêtre. Et un « Annuler » remet l'état d'avant — la marque ET le rattachement.
+ */
+import {
+  mailsInternesParmi, remettreInterneApresAnnulation, retirerBiensApresAnnulationLevee,
+} from '../../../../../lib/gestion/interneRepo';
 import { interneDisponible, interneDuMessageDisponible } from '../../../../../lib/gestion/schema';
 
 /**
@@ -35,7 +42,12 @@ import { interneDisponible, interneDuMessageDisponible } from '../../../../../li
  *
  * LES VERBES — tous RÉVERSIBLES, aucun ne supprime rien :
  *   · GET    ?fils=1,2,3        les marques vivantes de ces échanges
- *   · POST   { filIds }         marquer
+ *   · GET    ?messages=1,2,3    ce que la base sait de chaque mail (marque vivante, marque connue)
+ *   · GET    ?detacherait=1     les biens que « marquer interne » détacherait, nommés (aperçu, lecture seule)
+ *   · GET    ?leverait=1        les mails dont un rattachement lèverait la marque (aperçu, lecture seule)
+ *   · POST   { filIds }         marquer — et détacher les biens des mails couverts par la fenêtre
+ *   · POST   { remettreLevee }  l'« Annuler » de l'autre sens : retire les liens nommés, repose les marques
+ *     (🔴 la LEVÉE elle-même n'est pas un verbe de cette route : `rattacher()` la fait, voir son encadré)
  *   · DELETE { filIds, motif? } annuler (écrit `retire_le` ; la ligne reste, datée et signée)
  *
  * ⚠️ `sans_schema` (migration 281 non appliquée) N'EST PAS UNE ERREUR : c'est un état, rendu en 200. L'écran grise
@@ -92,6 +104,38 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     /**
+     * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'APERÇU DE LA LEVÉE, POUR LA CONFIRMATION ═══════════════
+     *
+     * `?leverait=1&messageId=…&mails=…&choix=…` rend les mails dont le rattachement retirerait la marque
+     * « interne ».
+     *
+     * 🔴 C'EST LE SERVEUR QUI RÉPOND, et pour deux raisons que l'écran ne peut pas tenir seul :
+     *   ① la RÈGLE DU REPLI (`interneDuMail`) demande les deux tables — un mail peut être interne sans porter
+     *      aucune marque par mail, par la seule marque de l'échange ;
+     *   ② la FENÊTRE peut couvrir des mails dont l'écran n'a pas les marques.
+     * Une confirmation qui ne regarderait que le mail affiché annoncerait moins qu'elle ne fait.
+     *
+     * 🔒 LECTURE SEULE : `mailsInternesParmi` n'écrit rien. C'est le POST qui agit.
+     */
+    if (url.searchParams.get('leverait') === '1') {
+      const n = Number(url.searchParams.get('messageId'));
+      const messageId = Number.isSafeInteger(n) && n > 0 ? n : null;
+      const choixBrut = url.searchParams.get('choix');
+      const couverts = mailsDuGeste({
+        messageId,
+        mails: lireFilIds(url.searchParams.get('mails')),
+        choix: choixBrut === 'mail' || choixBrut === 'suite' ? choixBrut : 'conversation',
+      });
+      /* ⚠️ SANS LISTE DE MAILS, LA QUESTION PORTE SUR LE SEUL MAIL VISÉ : « on ne devine pas une portée » (règle
+         de `mailsDuGeste`), mais on ne refuse pas de répondre pour autant — l'écran a besoin de savoir si CE
+         mail est interne, même quand il n'a pas chargé la conversation. */
+      const vises = couverts.length > 0 ? couverts : (messageId === null ? [] : [messageId]);
+      const internes = await mailsInternesParmi(vises);
+      return Response.json(
+        { etat: 'ok', interne: internes.includes(messageId ?? 0), mails: internes }, { headers: ENTETES });
+    }
+
+    /**
      * ══ 🔴🔴 POINT 7 — LA LECTURE AU GRAIN DU MAIL ════════════════════════════════════════════════════════════
      *
      * `?messages=1,2,3` rend, pour chaque mail, ce que la base sait de lui : la marque est-elle VIVANTE, et a-t-on
@@ -132,11 +176,28 @@ async function corpsDuGeste(request: Request): Promise<{
   messageId: number | null; mails: number[]; choix: ChoixInterne;
   /** 🔴🔴 POINT 2 — les liens que l'« Annuler » demande à remettre. Vide = le verbe d'avant ce lot. */
   remettre: number[];
+  /**
+   * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — LES TROIS CHAMPS DE L'AUTRE SENS ═══════════════════════════
+   *
+   * · `remettreLevee` — ce POST est l'ANNULATION d'une levée : il retire les liens nommés (`remettre`) et
+   *                     repose la marque sur les mails nommés (`marques`).
+   *
+   * ⚠️ IL N'Y A PAS DE VERBE « LEVER », ET C'EST VOULU : la levée est faite par `rattacher()` lui-même, la seule
+   * porte d'écriture d'un rattachement. Un verbe de route en plus aurait été une SECONDE façon de lever, donc une
+   * seconde règle à tenir d'accord — et la première oubliée aurait suffi à recréer l'état interdit.
+   * · `marques`       — les mails dont la marque doit revenir. 🔴 CE N'EST PAS `mails` : `mails` est la
+   *                     conversation ENTIÈRE, dans l'ordre chronologique, qui sert à découper la fenêtre. Ce que
+   *                     l'annulation doit remettre, ce sont les mails que la levée a RÉELLEMENT touchés — elle
+   *                     les a rendus, et l'écran les renvoie. Confondre les deux aurait marqué « interne » toute
+   *                     une conversation pour annuler un geste qui n'avait levé qu'un mail.
+   */
+  remettreLevee: boolean;
+  marques: number[];
 } | null> {
   try {
     const c = (await request.json()) as {
       filIds?: unknown; motif?: unknown; messageId?: unknown; mails?: unknown; choix?: unknown;
-      remettre?: unknown;
+      remettre?: unknown; remettreLevee?: unknown; marques?: unknown;
     };
     const n = Number(c.messageId);
     return {
@@ -152,6 +213,10 @@ async function corpsDuGeste(request: Request): Promise<{
          et plafonnés. Un identifiant de lien n'est pas un identifiant d'échange, mais la règle de lecture est la
          même — et c'est elle qui compte ici. */
       remettre: lireFilIds(c.remettre),
+      /* ⚠️ `=== true` ET NON UNE VÉRITÉ APPROCHÉE : une chaîne vide, un zéro ou un objet ne déclenchent pas un
+         verbe d'écriture par accident. */
+      remettreLevee: c.remettreLevee === true,
+      marques: lireFilIds(c.marques),
     };
   } catch { return null; }
 }
@@ -176,6 +241,36 @@ export async function POST(request: Request): Promise<Response> {
 
   const corps = await corpsDuGeste(request);
   if (corps === null) return Response.json({ erreur: 'Requête illisible.' }, { status: 400, headers: ENTETES });
+
+  /**
+   * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — LES DEUX VERBES DE L'AUTRE SENS ════════════════════════════
+   *
+   * Ils sont posés AVANT le garde « aucun échange désigné » parce qu'ils ne portent pas sur un échange : leur
+   * cible est un MAIL et sa fenêtre. Les confondre avec le marquage aurait obligé l'écran à inventer un `filIds`
+   * pour un geste qui n'en a pas besoin.
+   *
+   * ⚠️ DEUX NOMS DISTINCTS, ET PAS UN DRAPEAU SUR LE MARQUAGE : « lever » et « remettre après annulation » ne
+   * font pas la même chose que « marquer », et un verbe qui changerait de sens selon un champ du corps serait
+   * illisible dans six mois — et impossible à éprouver proprement.
+   */
+  if (corps.remettreLevee) {
+    try {
+      const auteur = await auteurDeLaRequete(request);
+      /**
+       * 🔴 LES LIENS D'ABORD, LA MARQUE ENSUITE, ET L'ORDRE EST LA RÈGLE : reposer « interne » sur un mail qui
+       * porte encore son bien reconstruirait, le temps d'une requête, l'état même que ce lot ferme. Si le retrait
+       * échoue, la marque ne revient pas — on préfère un geste à moitié défait et visible à un état interdit.
+       */
+      const liens = await retirerBiensApresAnnulationLevee(corps.remettre, auteur);
+      const marques = await remettreInterneApresAnnulation({ messageIds: corps.marques, auteur });
+      return Response.json({ ok: true, liens, marques }, { headers: ENTETES });
+    } catch (e) {
+      console.error('[api/admin/gestion/interne] annulation de la levée impossible', e);
+      return Response.json({ erreur: 'Annulation impossible : erreur interne du serveur.' },
+        { status: 503, headers: ENTETES });
+    }
+  }
+
   if (corps.filIds.length === 0) {
     return Response.json({ erreur: 'Aucun échange désigné.' }, { status: 400, headers: ENTETES });
   }

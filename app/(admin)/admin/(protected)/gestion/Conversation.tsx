@@ -57,6 +57,8 @@ import { PanneauAffecter } from './PanneauAffecter';
 import { EncartAnnuaire } from './EncartAnnuaire';
 // Le bandeau porte son propre CSS en ligne, comme `EncartAnnuaire` : rien à ajouter à `CSS_CONVERSATION`.
 import { EncartRattachement } from './EncartRattachement';
+/* 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — le délai de l'« Annuler » d'une levée, dans un module PUR. */
+import { SECONDES_ANNULER_LEVEE } from '../../../../lib/gestion/interneLevee';
 // LOT LIGNE-NON-ENVOYE — la capsule « Non envoyé » de cet échange, avec sa cause et le retour au brouillon.
 import { BandeauEnvois } from './BandeauEnvois';
 // LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », partagée avec la liste.
@@ -2246,6 +2248,22 @@ export function MessageConversation({
   const [actions, setActions] = useState(false);
   /** LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », ouverte depuis l'en-tête de CE message. */
   const [voirRattachements, setVoirRattachements] = useState(false);
+  /**
+   * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'« ANNULER » D'UNE LEVÉE, RENDU SOUS LE MAIL ═════════════
+   *
+   * ⚠️ IL NE PEUT PAS VIVRE DANS LA FENÊTRE QUI L'A DÉCLENCHÉ : « Visualiser / Modifier » se ferme à chaque geste
+   * (la ligne `onGeste` juste en dessous le fait depuis le lot BARRE-STATUT), et la sortie disparaissait avec
+   * elle — mesuré à l'écran le 04/10/2026. Elle est donc confiée au bloc « Classer ce mail », qui reste là et qui
+   * porte déjà le même panneau pour le sens inverse.
+   */
+  const [leveeAAnnuler, setLeveeAAnnuler] = useState<{ mails: number[]; liens: number[] } | null>(null);
+
+  /** La sortie ne reste offerte que quelques secondes — le même délai que le geste fait dans le bloc lui-même. */
+  useEffect(() => {
+    if (leveeAAnnuler === null) return undefined;
+    const t = setTimeout(() => setLeveeAAnnuler(null), SECONDES_ANNULER_LEVEE * 1000);
+    return () => clearTimeout(t);
+  }, [leveeAAnnuler]);
   /** 🔴 LOT BROUILLON-REPONSE-ET-REPERE — le pied du message, cible du défilement de la mention du haut. */
   const pied = useRef<HTMLDivElement | null>(null);
   /**
@@ -2345,7 +2363,15 @@ export function MessageConversation({
              Voir l'encadré de `messageId` dans `RattachementsDuFil`. */
           messageId={message.messageId}
           onFerme={() => setVoirRattachements(false)}
-          onGeste={() => { setVoirRattachements(false); void onRattachement?.(); }} />
+          onGeste={() => { setVoirRattachements(false); void onRattachement?.(); }}
+          /* 🔴🔴 POINT 2 — la fenêtre a levé une marque : c'est le bloc sous le mail qui offrira l'« Annuler ».
+             ⚠️ ELLE SE FERME AUSSI, parce qu'elle ne rappelle pas `onGeste` dans ce cas : on la ferme ici, et on
+             recharge, pour que le mail montre son nouvel état derrière la sortie. */
+          onLeveeFaite={(fait) => {
+            setVoirRattachements(false);
+            setLeveeAAnnuler(fait);
+            void onRattachement?.();
+          }} />
       )}
 
       {/* 🔴 LOT STATUT-PAR-MAIL — « Classer ce mail » : portée, biens, parties à la date du mail. Rien n'est écrit
@@ -2713,6 +2739,9 @@ export function MessageConversation({
                  CHRONOLOGIQUE, et la fenêtre de la case du bandeau (« toute la conversation », son sens depuis
                  toujours). Ils servent à DEMANDER au serveur ce que le geste détacherait. */
               mailsDuFil={mailsDuFil}
+              /* 🔴🔴 POINT 2 — la sortie d'une levée faite dans « Visualiser / Modifier ». Voir son encadré. */
+              leveeExterne={leveeAAnnuler}
+              onLeveeAnnulee={() => setLeveeAAnnuler(null)}
               onChange={onRattachement} onGeste={onGesteRattachement} onHistorique={onHistorique} />
           )}
 

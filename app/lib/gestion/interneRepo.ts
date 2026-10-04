@@ -1,5 +1,19 @@
 import { query } from '../db/client';
-import { interneDisponible, rattachementsDisponibles } from './schema';
+import { interneDisponible, interneDuMessageDisponible, rattachementsDisponibles } from './schema';
+/**
+ * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'AUTRE SENS. La règle du repli (`interneDuMail`) et les mots de
+ * la levée (`interneLevee`) viennent de modules PURS : le navigateur lit la même phrase que celle qui est
+ * journalisée en base.
+ *
+ * ⚠️ `interneMessageRepo` EST IMPORTÉ STATIQUEMENT, et c'est sûr : il ne connaît que `../db/client` et `./schema`,
+ * il n'importe donc pas ce fichier. Seule `rattachementRepo` exige l'import dynamique (voir juste en dessous).
+ */
+import { interneDuMail } from './interneDuMail';
+import {
+  annulerInterneDesMessages, declarerNonInterneDesMessages, lireInterneDesMessages,
+  marquerInterneDesMessages,
+} from './interneMessageRepo';
+import { MOTIF_LEVE_PAR_RATTACHEMENT, MOTIF_RATTACHEMENT_ANNULE } from './interneLevee';
 /**
  * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — LA PORTE EXISTANTE, ET LA RÈGLE DU LIEN DE BIEN.
  *
@@ -409,4 +423,224 @@ export function sqlJointureInterne(avec: boolean, alias: string): string {
 /** La colonne que la jointure ci-dessus rend. `NULL` quand la migration manque : jamais `false`, qui mentirait. */
 export function sqlColonneInterne(avec: boolean): string {
   return avec ? 'itn.marque AS itn_marque' : 'NULL::boolean AS itn_marque';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'AUTRE SENS : RATTACHER UN BIEN LÈVE LA MARQUE « INTERNE »
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (04/10/2026) : « Quand un HUMAIN rattache un bien à un mail marqué Interne, la marque Interne est
+   levée pour ce mail, selon la même fenêtre choisie. »
+
+   🔴 LES DEUX SENS SONT MAINTENANT CÂBLÉS, et ils vivent côte à côte dans ce fichier :
+     · marquer interne  → détache les biens          (`detacherBiensApresInterne`, lot précédent) ;
+     · rattacher un bien → lève la marque interne    (`leverInterneApresRattachementHumain`, ici).
+
+   🔴🔴 LES MOTS, LES MOTIFS ET LE CHOIX DE LA FENÊTRE VIVENT DANS `interneLevee` (module PUR) : le navigateur lit
+   la même phrase que celle que la base journalise. Deux écritures du même mot auraient divergé.
+
+   ⚠️ CE QUI N'EST **PAS** CÂBLÉ, ET IL FAUT LE SAVOIR : la passe AUTOMATIQUE de rattachement ne passe JAMAIS par
+   ici. Elle ne lève aucune marque, et elle ne pose aucun bien sur un mail interne — garde éprouvé par
+   `mailInterneSansBien.test.ts`, conservé. Tout ce fichier exige `auteurHumainInterne`, qui refuse « automatique ».
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LESQUELS DE CES MAILS SONT « INTERNE » AUJOURD'HUI ? LECTURE SEULE, AUCUNE ÉCRITURE.
+ *
+ * 🔴 LA RÈGLE EST CELLE DU MODULE PUR `interneDuMail`, ET ELLE N'EST PAS RÉÉCRITE ICI : marque par mail vivante →
+ * interne ; marque par mail retirée → PAS interne (la marque d'échange ne le ressuscite pas) ; aucune marque par
+ * mail → la marque d'échange répond. Trois cas, un seul endroit où ils sont écrits.
+ *
+ * ⚠️ LES DEUX TABLES SONT SONDÉES SÉPARÉMENT, et aucune n'est nommée quand sa migration manque. Sans la 297, seul
+ * le repli répond — c'est-à-dire le comportement d'avant la marque par mail, et non une liste vide.
+ */
+export async function mailsInternesParmi(messageIds: readonly number[]): Promise<number[]> {
+  const ids = idsPropres(messageIds);
+  if (ids.length === 0) return [];
+  const [avecEchange, avecMail] = await Promise.all([interneDisponible(), interneDuMessageDisponible()]);
+  if (!avecEchange && !avecMail) return [];
+
+  /* ⚠️ CHAQUE FRAGMENT EST CONDITIONNEL : nommer une table absente ferait échouer le geste entier, alors que la
+     question a une réponse parfaitement honnête sans elle. */
+  const vivante = avecMail
+    ? `EXISTS (SELECT 1 FROM gestion_message_interne mi
+                WHERE mi.message_id = m.id AND mi.retire_le IS NULL)`
+    : 'false';
+  const connue = avecMail
+    ? 'EXISTS (SELECT 1 FROM gestion_message_interne mi WHERE mi.message_id = m.id)'
+    : 'false';
+  const echange = avecEchange
+    ? `EXISTS (SELECT 1 FROM gestion_fil_interne fi
+                WHERE fi.fil_id = m.fil_id AND fi.retire_le IS NULL)`
+    : 'false';
+
+  const { rows } = await query<{ id: string; vivante: boolean; connue: boolean; echange: boolean }>(
+    `SELECT m.id::text, ${vivante} AS vivante, ${connue} AS connue, ${echange} AS echange
+       FROM gestion_message m
+      WHERE m.id = ANY($1::bigint[])
+      ORDER BY m.id`, [ids]);
+
+  return rows
+    .filter((r) => interneDuMail({
+      marqueDuMailVivante: r.vivante === true,
+      marqueDuMailConnue: r.connue === true,
+      marqueDeLEchange: r.echange === true,
+    }))
+    .map((r) => Number(r.id));
+}
+
+/**
+ * ══ 🔴🔴 LÈVE LA MARQUE « INTERNE » DE CES MAILS, APRÈS UN RATTACHEMENT HUMAIN ══════════════════════════════════
+ *
+ * Rend les mails dont la marque a été levée — c'est ce que l'« Annuler » devra remettre.
+ *
+ * ═══ 🔴🔴 OÙ ELLE EST APPELÉE, ET POURQUOI C'EST LÀ ET NULLE PART AILLEURS ══════════════════════════════════════
+ *
+ * Elle est appelée par `rattacher()` (rattachementRepo), après la transaction, exactement comme sa jumelle
+ * `leverHorsGestionApresRattachement`. 🔴 ET CE N'EST PAS UN CHOIX D'ÉLÉGANCE : `rattacher()` est la SEULE porte
+ * d'écriture d'un rattachement humain — vérifié le 04/10/2026, les SEPT écrans qui rattachent un bien passent
+ * tous par elle (bloc « Classer ce mail », « Visualiser / Modifier », la fenêtre de classement complète, la file
+ * « À trier », les propositions, l'historique d'un bien, « Modifier »), et la PROJECTION des fenêtres aussi
+ * (`periodeRepo` ligne ~522). Câbler la levée dans les écrans un par un en aurait oublié un — et c'est l'oublié
+ * qui aurait reconstruit l'état interdit.
+ *
+ * 🔴 LA FENÊTRE SUIT TOUTE SEULE, et c'est la conséquence de ce choix : `rattacher()` est appelée UNE FOIS PAR
+ * MAIL COUVERT. Quand la fenêtre est « toute la conversation », l'appelant boucle sur les mails de la
+ * conversation, donc la marque est levée sur chacun — « selon la même fenêtre choisie », sans qu'aucune ligne ne
+ * parle de fenêtre ici.
+ *
+ * 🔴 DEUX ÉCRITURES POSSIBLES PAR MAIL, ET ELLES NE SONT PAS INTERCHANGEABLES :
+ *   ① le mail porte une marque PAR MAIL vivante → on la RETIRE (`annulerInterneDesMessages`) ;
+ *   ② le mail est interne par le REPLI seulement → il n'y a RIEN à retirer, et l'on écrit une ligne NÉE RETIRÉE
+ *      (`declarerNonInterneDesMessages`), qui dit « on s'est prononcé sur ce mail ».
+ * Sans ②, un mail interne par le repli resterait interne avec un bien rattaché — exactement ce que le point e) de
+ * l'audit doit voir à zéro. Et le défaut ne se verrait pas : l'`UPDATE` du cas ① ne trouverait aucune ligne, ne
+ * lèverait rien, et ne le dirait pas.
+ *
+ * ⚠️ UN ÉCHEC NE FAIT PAS ÉCHOUER LE RATTACHEMENT : il est déjà posé quand on arrive ici, et c'est le geste que la
+ * personne a demandé. On rend ce qu'on a pu faire. Même discipline que `leverHorsGestionApresRattachement`.
+ */
+export async function leverInterneApresRattachementHumain(o: {
+  messageIds: readonly number[]; auteur: Auteur;
+}): Promise<number[]> {
+  try {
+    if (!auteurHumainInterne(o.auteur)) return [];
+    const internes = await mailsInternesParmi(o.messageIds);
+    if (internes.length === 0) return [];
+
+    const marques = await lireInterneDesMessages(internes);
+    const vivantes = internes.filter((id) => marques.get(id)?.vivante === true);
+    const parLeRepli = internes.filter((id) => !marques.has(id));
+
+    if (vivantes.length > 0) {
+      await annulerInterneDesMessages({
+        messageIds: vivantes, auteur: o.auteur, motif: MOTIF_LEVE_PAR_RATTACHEMENT,
+      });
+    }
+    if (parLeRepli.length > 0) {
+      await declarerNonInterneDesMessages({
+        messageIds: parLeRepli, auteur: o.auteur, motif: MOTIF_LEVE_PAR_RATTACHEMENT,
+      });
+    }
+    return internes;
+  } catch (e) {
+    console.error('[gestion/interne] levée après rattachement humain impossible', e);
+    return [];
+  }
+}
+
+/**
+ * ══ 🔴🔴 L'« ANNULER » DES SECONDES QUI SUIVENT : REMETTRE LA MARQUE ════════════════════════════════════════════
+ *
+ * Arno : « “Annuler” quelques secondes, qui remet exactement l'état d'avant. »
+ *
+ * 🔴 LA MARQUE REVIENT SUR LES MAILS NOMMÉS, par la porte existante (`marquerInterneDesMessages`).
+ *
+ * ⚠️ UNE CHOSE NE REVIENT PAS À L'IDENTIQUE, ET IL FAUT LE SAVOIR — c'est la même réserve que le sens inverse :
+ * la marque remise est une NOUVELLE ligne, donc sa date de pose est celle de l'annulation, et non celle du jour
+ * où quelqu'un avait décidé « interne ». La règle du module l'impose (« rien n'est supprimé : on date et on
+ * signe ») et elle est préférable — un historique qui s'effacerait quand on annule ne serait plus un historique.
+ * Le STATUT du mail, lui, est exactement celui d'avant.
+ *
+ * ⚠️ ET LE MAIL QUI ÉTAIT INTERNE PAR LE REPLI redevient interne par SA PROPRE marque, et non par celle de
+ * l'échange. L'écran dit la même chose ; la provenance, elle, est plus précise qu'avant. On ne peut pas faire
+ * autrement sans supprimer une ligne, ce que ce module ne fait jamais.
+ */
+export async function remettreInterneApresAnnulation(o: {
+  messageIds: readonly number[]; auteur: Auteur;
+}): Promise<number> {
+  try {
+    if (!auteurHumainInterne(o.auteur)) return 0;
+    const ids = idsPropres(o.messageIds);
+    if (ids.length === 0) return 0;
+    const parMail = await marquerInterneDesMessages({ messageIds: ids, auteur: o.auteur });
+    return parMail.ok ? parMail.nb : 0;
+  } catch (e) {
+    console.error('[gestion/interne] remise de la marque après annulation impossible', e);
+    return 0;
+  }
+}
+
+/**
+ * ══ 🔴🔴 L'« ANNULER » DÉFAIT AUSSI LE RATTACHEMENT QUI VENAIT D'ÊTRE POSÉ ══════════════════════════════════════
+ *
+ * 🔴 POURQUOI CE N'EST PAS FACULTATIF. Remettre la marque « interne » SANS retirer le bien reconstruirait
+ * précisément l'état que ce lot ferme — « Interne avec un bien rattaché », celui que le point e) de l'audit doit
+ * voir à zéro. L'annulation doit donc défaire les DEUX moitiés du geste, ou aucune.
+ *
+ * 🔴 DEUX GARDES, ET CHACUN SERT :
+ *   ① LE LIEN DOIT ÊTRE VIVANT ET VISER UN BIEN. On n'annule pas une proposition, ni un lien déjà retiré, ni une
+ *      intervention.
+ *   ② IL DOIT AVOIR ÉTÉ CRÉÉ À L'INSTANT. L'« Annuler » n'est offert que quelques secondes ; une marge de deux
+ *      minutes couvre largement un clic tardif, et refuse un identifiant qui désignerait un rattachement
+ *      ancien — posé un autre jour, par quelqu'un d'autre, pour une autre raison. Sans ce garde, un appel forgé
+ *      pourrait retirer n'importe quel rattachement de la base en se faisant passer pour une annulation.
+ *
+ * ══ ⚠️⚠️ LA SEULE CHOSE QUE CET « ANNULER » NE DÉFAIT PAS, ET IL FAUT LA DIRE À ARNO ════════════════════════════
+ *
+ * LA DÉCISION DE SUIVI RESTE. Quand le rattachement a été posé par le chemin des périodes — c'est le cas des deux
+ * écrans —, l'annulation retire les LIENS, et non l'EXCEPTION (ou la période) que le geste a écrite.
+ *
+ * 🔴 CE QUE ÇA DONNE À L'ÉCRAN, MESURÉ LE 04/10/2026 sur le mail d'essai : le mail est bien revenu à « Interne »
+ * sans aucun bien rattaché — mais l'en-tête de son bandeau continue d'annoncer « exception : <le bien> ». Les deux
+ * lignes se contredisent, et c'est la décision de suivi qui a tort : plus aucun lien vivant ne la suit.
+ *
+ * 🔴 POURQUOI JE NE L'AI PAS DÉFAITE ICI. La défaire proprement demande de REJOUER la décision d'AVANT (l'ancienne
+ * liste de biens, ses personnes, et la même fenêtre) par la route du suivi — c'est le seul chemin qui respecte la
+ * « règle du dernier choix ». Un raccourci — poser une décision VIDE — retirerait l'exception dans le cas simple
+ * et en CRÉERAIT une fausse (« aucun bien ») dès qu'une période existe par ailleurs. Entre une ligne d'en-tête
+ * périmée et une décision de suivi inventée, la première est de loin la moins grave, et la seule qui se répare
+ * d'un clic (revalider les biens du mail).
+ *
+ * ⚠️ ET CE N'EST PAS L'ÉTAT INTERDIT : aucun lien vivant, donc « Interne avec bien » reste à zéro. Conséquence
+ * secondaire à connaître, en revanche : un mail À VENIR de cette conversation pourra hériter du bien par la
+ * décision restée en place.
+ *
+ * 👉 À TRANCHER PAR ARNO : faut-il que l'« Annuler » rejoue aussi la décision de suivi d'avant ? C'est faisable,
+ * mais c'est un geste de plus sur les périodes, et il ne doit pas être pris sans son accord.
+ */
+export async function retirerBiensApresAnnulationLevee(
+  lienIds: readonly number[], auteur: Auteur,
+): Promise<number> {
+  try {
+    const ids = idsPropres(lienIds);
+    if (ids.length === 0 || !(await rattachementsDisponibles())) return 0;
+    const { changerStatut } = await import('./rattachementRepo');
+    const { rows } = await query<{ id: string }>(
+      `SELECT id::text FROM gestion_rattachement
+        WHERE id = ANY($1::bigint[]) AND statut = 'confirme' AND cible_sorte = 'lot'
+          AND cree_le > now() - interval '2 minutes'
+        ORDER BY id`, [ids]);
+    let retires = 0;
+    for (const r of rows) {
+      const issue = await changerStatut({
+        lienId: Number(r.id), statut: 'retire', auteur, motif: MOTIF_RATTACHEMENT_ANNULE,
+      });
+      if (issue.ok) retires += 1;
+    }
+    return retires;
+  } catch (e) {
+    console.error('[gestion/interne] retrait du rattachement après annulation impossible', e);
+    return 0;
+  }
 }

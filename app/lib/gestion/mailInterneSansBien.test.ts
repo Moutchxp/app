@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { examinerMessage } from './rattachement';
 import { interneDuMail } from './interneDuMail';
+/* 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — le garde « un humain, et lui seul » de la levée. */
+import { auteurHumainInterne } from './interneRepo';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 4 — UN MAIL « INTERNE » N'A PAS DE BIEN ═══════════════════════════
@@ -30,8 +32,14 @@ import { interneDuMail } from './interneDuMail';
  * 🔴 MESURÉ AVANT CORRECTION (04/10/2026) : repassé au moteur, le mail 57433 de l'échange 36665 — marqué interne le
  * 03/10 à 15:37:59 — rendait encore `issue=automatique, certain=448`.
  *
- * ⚠️ CE QUE LE REFUS NE TOUCHE PAS : le geste HUMAIN. Rattacher un bien à la main reste permis, et lève la marque
- * comme avant. L'arbitrage reste possible ; il est simplement RÉSERVÉ À QUELQU'UN.
+ * ⚠️ CE QUE LE REFUS NE TOUCHE PAS : le geste HUMAIN. Rattacher un bien à la main reste permis. L'arbitrage reste
+ * possible ; il est simplement RÉSERVÉ À QUELQU'UN.
+ *
+ * 🔴🔴 SUITE DU 04/10/2026 (lot PHOTOS-ET-INTERNE-INVERSE, POINT 2) : l'arbitrage HUMAIN existe désormais pour de
+ * vrai. Rattacher un bien à la main LÈVE la marque du mail, selon la fenêtre choisie, après une confirmation qui
+ * annonce ce qu'elle fait (`interneLevee`, `leverInterneApresRattachementHumain`). La phrase « et lève la marque
+ * comme avant » figurait ici : elle était fausse, puisque rien ne la levait. Le groupe ④ ci-dessous tient
+ * l'essentiel — la passe AUTOMATIQUE, elle, n'en lève aucune.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -192,5 +200,76 @@ describe('🔴🔴 ③ ce que le point 4 n’a PAS retiré, et pourquoi', () => 
     expect(envoye.issue).toBe('sans_candidat');
     expect(envoye.motif)
       .toBe('document automatique envoyé par l’agence : il se range dans une fiche, jamais dans un bien');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — ④ LA PASSE AUTOMATIQUE NE LÈVE JAMAIS LA MARQUE ════════════════
+ *
+ * DEMANDE D'ARNO (04/10/2026) : « La passe AUTOMATIQUE ne lève jamais la marque et ne pose jamais de bien sur un
+ * mail Interne (garde le test). »
+ *
+ * 🔴 DEUX MOITIÉS, ET LES DEUX SONT GARDÉES ICI :
+ *   · « ne pose jamais de bien sur un mail Interne » → les groupes ① et ② ci-dessus, inchangés ;
+ *   · « ne lève jamais la marque »                   → ce groupe-ci.
+ *
+ * 🔴🔴 POURQUOI UNE LECTURE DE SOURCE ET NON UN APPEL : la passe tourne sur la base, et l'absence d'un appel ne se
+ * prouve pas en l'exécutant une fois. Ce qu'on tient, c'est que le code de la passe NE NOMME PAS le verbe de la
+ * levée — ce qui est exactement la garantie demandée, et elle se casserait bruyamment le jour où quelqu'un
+ * l'ajouterait.
+ */
+describe('🔴🔴 ④ la passe automatique ne lève aucune marque « interne »', () => {
+  const REPO = readFileSync('app/lib/gestion/rattachementRepo.ts', 'utf8');
+  const INTERNE = readFileSync('app/lib/gestion/interneRepo.ts', 'utf8');
+
+  /**
+   * ══ 🔴🔴 CE QUI SÉPARE LE GESTE HUMAIN DE LA PASSE, ALORS QUE LES DEUX VIVENT DANS LE MÊME FICHIER ══════════
+   *
+   * ⚠️ LA LEVÉE EST APPELÉE PAR `rattacher()` — la porte du geste HUMAIN — et `rattachementRepo` porte AUSSI la
+   * passe automatique. Un garde qui se contenterait de chercher le nom dans le fichier ne prouverait donc plus
+   * rien : il faut regarder OÙ l'appel est, et CE QUI le refuse.
+   *
+   * 🔴 TROIS BARRIÈRES, ET CHACUNE SUFFIRAIT :
+   *   ① la passe ne propose AUCUN bien sur un mail interne (groupes ① et ② ci-dessus) : elle n'atteint donc
+   *      jamais `rattacher` pour un tel mail ;
+   *   ② la levée refuse un auteur non humain en première ligne — et la passe signe « automatique » ;
+   *   ③ la levée est appelée dans `leverLaMarque`, c'est-à-dire sur le chemin du geste manuel, après la
+   *      transaction, et jamais depuis la boucle d'examen.
+   */
+  it('🔴🔴 ② la levée refuse un auteur non humain, et le dit en première ligne', () => {
+    const corps = INTERNE.slice(INTERNE.indexOf('export async function leverInterneApresRattachementHumain'));
+    const premiere = corps.slice(0, corps.indexOf('const internes'));
+    expect(premiere).toContain('if (!auteurHumainInterne(o.auteur)) return [];');
+  });
+
+  it('⚠️ un auteur « automatique » n’est pas un humain', () => {
+    expect(auteurHumainInterne({ libelle: 'automatique' })).toBe(false);
+    expect(auteurHumainInterne({ libelle: 'Automatique' })).toBe(false);
+    expect(auteurHumainInterne({ libelle: '' })).toBe(false);
+    expect(auteurHumainInterne({ libelle: 'Arnaud JOREL' })).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 ③ L'APPEL EST SUR LE CHEMIN DU GESTE MANUEL, ET NULLE PART AILLEURS : une seule occurrence dans tout le
+   * fichier, dans `leverLaMarque`, aux côtés de sa jumelle « hors gestion ». Une seconde occurrence — dans la
+   * boucle d'examen, par exemple — ferait rougir cette épreuve.
+   */
+  it('🔴🔴 ③ un seul appel, dans `leverLaMarque`, après la transaction', () => {
+    expect((REPO.match(/leverInterneApresRattachementHumain/g) ?? []).length).toBe(2); // l'import et l'appel
+    const bloc = REPO.slice(REPO.indexOf('const leverLaMarque = async'));
+    const corps = bloc.slice(0, bloc.indexOf('};'));
+    expect(corps).toContain('leverInterneApresRattachementHumain({ messageIds: [o.messageId], auteur: o.auteur })');
+    expect(REPO).toContain('if (issue.ok) await leverLaMarque();');
+    /* ⚠️ ET JAMAIS POUR UN ÉVÉNEMENT : poser une carte ne dit rien des biens. */
+    expect(corps).toContain("if (o.cible.sorte === 'evenement') return;");
+  });
+
+  /** 🔴 LA PASSE, ELLE, NE FAIT QUE LIRE LA MARQUE — et par le module pur (groupe ② ci-dessus). */
+  it('🔴 la passe ne nomme aucun verbe d’écriture de la marque', () => {
+    const passe = REPO.slice(REPO.indexOf('lireInterneDesMessages(paquet.messages'));
+    const jusquAuGeste = passe.slice(0, passe.indexOf('// ── LES GESTES'));
+    expect(jusquAuGeste).not.toContain('leverInterneApresRattachementHumain');
+    expect(jusquAuGeste).not.toContain('annulerInterneDesMessages');
+    expect(jusquAuGeste).not.toContain('declarerNonInterneDesMessages');
   });
 });

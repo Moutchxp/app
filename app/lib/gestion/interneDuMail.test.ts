@@ -199,8 +199,16 @@ describe('🔒 le câblage de la migration 297', () => {
    * ⚠️ SANS LA MIGRATION, LA TABLE N'EST NOMMÉE NULLE PART. Chaque fonction sonde d'abord — règle du module depuis
    * l'incident du lot 4a : nommer une table absente ferait échouer TOUTE la boîte, pas seulement la fonction neuve.
    */
+  /**
+   * 🔴 LE NOMBRE SUIT LES FONCTIONS, ET IL EST COMPTÉ AU LIEU D'ÊTRE ÉCRIT : une quatrième fonction est arrivée
+   * avec le lot PHOTOS-ET-INTERNE-INVERSE (`declarerNonInterneDesMessages`, la ligne née retirée). Figer « 3 »
+   * aurait fait rougir ce garde pour une bonne raison — une fonction de plus, qui sonde comme les autres — au lieu
+   * de la seule qui l'intéresse : une fonction qui NE sonderait PAS.
+   */
   it('⚠️ chaque lecture et chaque écriture sonde la migration', () => {
-    expect((depot.match(/await interneDuMessageDisponible\(\)/g) ?? []).length).toBe(3);
+    const fonctions = (depot.match(/^export async function /gm) ?? []).length;
+    expect(fonctions).toBe(4);
+    expect((depot.match(/await interneDuMessageDisponible\(\)/g) ?? []).length).toBe(fonctions);
     expect(depot).toContain('migration 297');
   });
 });

@@ -928,9 +928,36 @@ export async function rattacher(o: {
    * ⚠️ APRÈS LA TRANSACTION, ET SANS LA FAIRE ÉCHOUER : c'est un rattrapage d'état, pas le geste lui-même. La
    * fonction appelée avale ses propres erreurs et sonde la migration 266 avant de nommer sa table.
    */
+  /**
+   * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — ET LA MARQUE « INTERNE » DE CE MAIL PART AUSSI ═════════════
+   *
+   * DÉCISION D'ARNO (04/10/2026) : « Quand un HUMAIN rattache un bien à un mail marqué Interne, la marque Interne
+   * est levée pour ce mail, selon la même fenêtre choisie. »
+   *
+   * 🔴🔴 C'EST ICI, ET NULLE PART AILLEURS, PARCE QUE C'EST LA SEULE PORTE. Les SEPT écrans qui rattachent un
+   * bien passent tous par `rattacher` (bloc « Classer ce mail », « Visualiser / Modifier », la fenêtre de
+   * classement complète, la file « À trier », les propositions, l'historique d'un bien, « Modifier »), et la
+   * PROJECTION des fenêtres aussi (`periodeRepo`). Un câblage écran par écran en aurait oublié un, et c'est
+   * l'oublié qui aurait continué de créer « Interne avec un bien ».
+   *
+   * 🔴 LA FENÊTRE SUIT TOUTE SEULE : cette fonction est appelée UNE FOIS PAR MAIL COUVERT. « Toute la
+   * conversation » boucle sur ses mails, donc chacun perd sa marque — et aucune ligne d'ici ne parle de fenêtre.
+   *
+   * ⚠️ LA CONFIRMATION, ELLE, EST À L'ÉCRAN, et elle ne peut pas être ici : une fonction de dépôt ne demande rien
+   * à personne. Les deux écrans où l'on rattache un bien à un mail déjà marqué interne la posent (bloc « Classer
+   * ce mail » et « Visualiser / Modifier »), avec l'« Annuler » qui suit. Les autres portes — la file « À trier »,
+   * les propositions — lèvent la marque sans la demander : elles n'ont pas de place pour une question, et laisser
+   * l'état interdit y naître serait pire.
+   *
+   * ⚠️ JAMAIS POUR UN ÉVÉNEMENT, et jamais pour un auteur non humain : la fonction appelée refuse « automatique »
+   * en première ligne, et la passe automatique ne propose de toute façon aucun bien sur un mail interne
+   * (`mailInterneSansBien.test.ts`).
+   */
   const leverLaMarque = async (): Promise<void> => {
     if (o.cible.sorte === 'evenement') return;
     await leverHorsGestionApresRattachement([o.messageId], o.auteur);
+    const { leverInterneApresRattachementHumain } = await import('./interneRepo');
+    await leverInterneApresRattachementHumain({ messageIds: [o.messageId], auteur: o.auteur });
   };
 
   const issue = await withTransaction<IssueGeste>(async (q) => {

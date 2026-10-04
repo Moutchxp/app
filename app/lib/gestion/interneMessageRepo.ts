@@ -157,6 +157,55 @@ export async function annulerInterneDesMessages(o: {
   return { ok: true, nb: rows.length };
 }
 
+/**
+ * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — DIRE « CE MAIL N'EST PAS INTERNE », SANS MARQUE À RETIRER ══════
+ *
+ * ═══ LE CAS EXACT, ET POURQUOI `annulerInterneDesMessages` NE PEUT PAS LE TRAITER ════════════════════════════════
+ *
+ * Un mail peut être « interne » SANS porter aucune marque par mail : c'est le cas ③ de `interneDuMail`, le REPLI
+ * sur la marque de l'ÉCHANGE. Il n'y a alors RIEN à retirer — `UPDATE … WHERE retire_le IS NULL` ne trouve aucune
+ * ligne, et le mail reste interne. Rattacher un bien n'aurait donc aucun effet sur son statut, et l'on
+ * reconstruirait exactement l'état qu'Arno veut voir à zéro : « Interne avec bien ».
+ *
+ * 🔴 CE QU'ON ÉCRIT : UNE LIGNE NÉE RETIRÉE. C'est le mécanisme pour lequel le cas ② de `interneDuMail` a été
+ * conçu, et son encadré le dit déjà mot pour mot : « cette ligne retirée COMPTE : elle dit “quelqu'un s'est
+ * prononcé sur ce mail”, ce qui empêche la marque d'échange de le ressusciter ». On ne touche PAS la marque
+ * d'échange : elle couvre d'autres mails, et les décider ici dépasserait la fenêtre choisie.
+ *
+ * ⚠️ `pose_par_libelle` PORTE LE NOM DE LA PERSONNE QUI A RATTACHÉ, ET IL FAUT LE LIRE POUR CE QU'IL EST : la
+ * table n'a pas de colonne « motif de pose » (migration 297), et cette ligne n'est pas la trace d'un marquage
+ * qu'on aurait posé puis retiré — c'est la trace d'une DÉCISION PRISE SUR CE MAIL, ouverte et fermée par le même
+ * geste. Le `retire_motif` dit laquelle. Ajouter une colonne pour la seule élégance du journal coûterait une
+ * migration à une table que ce lot n'a aucune raison de changer.
+ *
+ * 🔴 JAMAIS AUTOMATIQUE, comme les deux autres verbes : la contrainte `gestion_message_interne_humain_chk` le
+ * refuse de son côté, et le garde applicatif le refuse ici.
+ */
+export async function declarerNonInterneDesMessages(o: {
+  messageIds: readonly number[]; auteur: Auteur; motif: string;
+}): Promise<IssueInterneMessage> {
+  if (!(await interneDuMessageDisponible())) return { ok: false, motif: SANS_MIGRATION };
+  if (!auteurHumainInterneMessage(o.auteur)) {
+    return { ok: false, motif: 'L’auteur du geste doit être identifié.' };
+  }
+  const ids = idsPropres(o.messageIds);
+  if (ids.length === 0) return { ok: false, motif: 'Aucun mail désigné.' };
+
+  const { rows } = await query<{ id: string }>(
+    /* ⚠️ `NOT EXISTS` : un mail qui porte DÉJÀ une ligne (vivante ou retirée) s'est déjà prononcé. Lui en ajouter
+       une seconde n'apprendrait rien et brouillerait le `DISTINCT ON` de la lecture. Le retrait d'une marque
+       vivante, lui, est le travail d'`annulerInterneDesMessages` — appelé avant celui-ci. */
+    `INSERT INTO gestion_message_interne
+       (message_id, pose_par, pose_par_libelle, retire_le, retire_par, retire_par_libelle, retire_motif)
+     SELECT m.id, $2, $3, now(), $2, $3, $4
+       FROM gestion_message m
+      WHERE m.id = ANY($1::bigint[])
+        AND NOT EXISTS (SELECT 1 FROM gestion_message_interne x WHERE x.message_id = m.id)
+     RETURNING id`,
+    [ids, o.auteur.id, o.auteur.libelle, o.motif.trim().slice(0, 300)]);
+  return { ok: true, nb: rows.length };
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴🔴 LE FRAGMENT SQL — LA MÊME RÈGLE QUE `interneDuMail`, RENDUE PAR LA BASE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */

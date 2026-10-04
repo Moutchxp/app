@@ -8,6 +8,13 @@ import { useEffect, useRef, useState } from 'react';
 import {
   messageDetachement, motApresDetachement, SECONDES_ANNULER, type BienDetache,
 } from '../../../../lib/gestion/interneDetache';
+/**
+ * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'AUTRE SENS : les mots de « Ce mail est marqué Interne : rattacher
+ * ce bien retirera la marque Interne », dans un module PUR lui aussi.
+ */
+import {
+  messageLeveeInterne, motApresAnnulationLevee, motApresLevee,
+} from '../../../../lib/gestion/interneLevee';
 import type { ChoixInterne } from '../../../../lib/gestion/interneDuMail';
 import { CSS_CHOISIR_CIBLE } from './ChoisirCible';
 import { ModifierRattachement } from './ModifierRattachement';
@@ -106,9 +113,27 @@ function motDuGeste(choix: ChoixSuivi, c: Classement): string {
   return `Nouvelle période à partir de ce mail : ${quoi}.`;
 }
 
+/**
+ * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — LE GESTE MIS EN ATTENTE PENDANT LA QUESTION ════════════════════
+ *
+ * Les arguments exacts de `ecrireClassement`, gardés le temps de poser la question « Ce mail est marqué Interne :
+ * rattacher ce bien retirera la marque Interne ».
+ *
+ * 🔴 DES DONNÉES, PAS UNE FERMETURE. Une fonction mémorisée aurait figé les états de React au moment de la
+ * question ; le panneau, lui, reste ouvert pendant que la conversation continue de se rafraîchir (la relève tourne
+ * chaque minute). En rejouant les ARGUMENTS, le geste confirmé est celui qu'on a demandé, sur l'état d'aujourd'hui.
+ */
+interface ArgumentsClassement {
+  choisies: readonly CibleBrouillon[];
+  personnes: readonly PersonneClassee[];
+  suiviContact: 'auto' | 'ponctuel' | null;
+  expediteurNonVerifie: boolean;
+}
+
 export function EncartRattachement({
   messageId, filId, liens, interne = null, horsGestion = false, onInterne, onHorsGestion,
-  onChange, onGeste, onHistorique, mailsDuFil = [], choixInterne = 'conversation',
+  onChange, onGeste, onHistorique, mailsDuFil = [], choixInterne = 'conversation', leveeExterne = null,
+  onLeveeAnnulee,
 }: {
   messageId: number;
   /**
@@ -147,6 +172,20 @@ export function EncartRattachement({
    */
   mailsDuFil?: readonly number[];
   choixInterne?: ChoixInterne;
+  /**
+   * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'« ANNULER » D'UNE LEVÉE FAITE AILLEURS ═══════════════════
+   *
+   * Une levée déclenchée par la fenêtre « Visualiser / Modifier », dont la SORTIE est rendue ici.
+   *
+   * ⚠️ POURQUOI ELLE ARRIVE D'AILLEURS : cette fenêtre-là se ferme à chaque geste, et un « Annuler » rendu dedans
+   * disparaissait avec elle — mesuré à l'écran. Ce bloc, lui, reste sous le mail, et il porte déjà exactement le
+   * même panneau pour le sens inverse. Un seul dessin, un seul comportement, deux portes.
+   *
+   * ⚠️ `null`/absent ⇒ RIEN NE CHANGE : seul le geste fait DANS ce bloc offre une sortie, comme avant.
+   */
+  leveeExterne?: { mails: number[]; liens: number[] } | null;
+  /** Prévient l'appelant que sa sortie a été prise (ou qu'elle n'a plus lieu d'être), pour qu'il l'oublie. */
+  onLeveeAnnulee?: () => void;
   /** Retire la marque « hors gestion » de ce mail (`false`). Absent ⇒ la case verte ne se défait pas d'ici. */
   onHorsGestion?: (actif: boolean) => void | Promise<void>;
   /** L'échange de ce mail, pour la portée « toute la conversation » du bloc « Événement rattaché ». */
@@ -367,6 +406,44 @@ export function EncartRattachement({
     return () => clearTimeout(t);
   }, [detachesInterne]);
 
+  /**
+   * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'AUTRE SENS, ET SES TROIS ÉTATS ═════════════════════════
+   *
+   * DÉCISION D'ARNO (04/10/2026) : « Quand un HUMAIN rattache un bien à un mail marqué Interne, la marque Interne
+   * est levée pour ce mail, selon la même fenêtre choisie. — Avant d'appliquer : “Ce mail est marqué Interne :
+   * rattacher ce bien retirera la marque Interne” avec Confirmer / Annuler. Après : “Annuler” quelques secondes,
+   * qui remet exactement l'état d'avant. »
+   *
+   * 🔴 `demandeLevee` GARDE LES ARGUMENTS DU GESTE, PAS UNE FONCTION. Le geste est différé entre la question et
+   * la réponse : il faut donc pouvoir le rejouer à l'identique. Mémoriser une FERMETURE aurait figé des états de
+   * React qui, eux, continuent de changer pendant que le panneau est ouvert.
+   *
+   * 🔴 `leveeFaite` PORTE CE QU'IL FAUT POUR DÉFAIRE : les mails dont la marque a été levée, les liens qui
+   * viennent d'être posés, et si la marque de l'ÉCHANGE est partie avec. Sans ces trois, « remet exactement
+   * l'état d'avant » ne serait qu'une phrase.
+   */
+  const [demandeLevee, setDemandeLevee] = useState<{
+    message: string; mails: number[]; geste: ArgumentsClassement;
+  } | null>(null);
+  const [leveeFaite, setLeveeFaite] = useState<{ mails: number[]; liens: number[] } | null>(null);
+
+  /**
+   * ══ 🔴 LA SORTIE AFFICHÉE : LA NÔTRE, OU CELLE QU'ON NOUS CONFIE ══════════════════════════════════════════
+   *
+   * ⚠️ ON NE RECOPIE PAS `leveeExterne` DANS UN ÉTAT, et c'est volontaire : écrire un état depuis un effet pour
+   * suivre une propriété déclenche un second rendu en cascade — React le signale, et ce bloc n'a pas besoin d'un
+   * état de plus pour afficher une donnée qu'il reçoit déjà. Chacun garde donc SON délai : le nôtre juste en
+   * dessous, le sien chez l'appelant, qui l'oublie au bout du même temps.
+   */
+  const levee = leveeFaite ?? leveeExterne;
+
+  /** Le même délai que le sens inverse, et pour la même raison : un « Annuler » éternel n'acquitte jamais rien. */
+  useEffect(() => {
+    if (leveeFaite === null) return undefined;
+    const t = setTimeout(() => setLeveeFaite(null), SECONDES_ANNULER * 1000);
+    return () => clearTimeout(t);
+  }, [leveeFaite]);
+
   if (liens === null) return null;
 
   /**
@@ -487,6 +564,106 @@ export function EncartRattachement({
     await ecrireClassement(choisies, [], null, verdict.echec);
   };
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — RATTACHER UN BIEN LÈVE LA MARQUE « INTERNE »
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * L'APERÇU, POUR LA QUESTION. Rend `null` si la lecture échoue — et dans ce cas on classe sans rien lever.
+   *
+   * 🔒 LECTURE SEULE : `?leverait=1` n'écrit rien.
+   */
+  const apercuLevee = async (
+    choixLevee: ChoixInterne,
+  ): Promise<{ interne: boolean; mails: number[] } | null> => {
+    try {
+      const p = new URLSearchParams({ leverait: '1', messageId: String(messageId), choix: choixLevee });
+      if (mailsDuFil.length > 0) p.set('mails', mailsDuFil.join(','));
+      const res = await fetch(`/api/admin/gestion/interne?${p.toString()}`, { cache: 'no-store' });
+      const d = (await res.json().catch(() => ({}))) as { interne?: boolean; mails?: number[] };
+      if (d.interne !== true) return { interne: false, mails: [] };
+      return { interne: true, mails: Array.isArray(d.mails) ? d.mails : [] };
+    } catch { return null; }
+  };
+
+  /**
+   * ══ 🔴🔴 LES LIENS QUE LE GESTE VIENT DE POSER, RELUS EN BASE ══════════════════════════════════════════════
+   *
+   * ⚠️ POURQUOI UNE RELECTURE, ET NON LES `liens` DE LA PROPRIÉTÉ : l'écriture passe par deux chemins, et le
+   * chemin des périodes ne rend AUCUN identifiant de lien — il rend un nombre de projections. Or l'« Annuler »
+   * doit nommer les liens qu'il retire, un par un. On les relit donc, en ne gardant que ceux qui visent les
+   * clés que ce geste a ajoutées.
+   *
+   * ⚠️ ET SUR LES MAILS COUVERTS, PAS SEULEMENT CELUI-CI : « toute la conversation » pose le bien sur plusieurs
+   * mails. N'en retirer qu'un laisserait les autres — et l'état d'avant ne serait pas revenu.
+   */
+  const liensPosesPour = async (cles: readonly string[], mails: readonly number[]): Promise<number[]> => {
+    try {
+      const vises = mails.length > 0 ? mails : [messageId];
+      const res = await fetch(`/api/admin/gestion/rattachements?messages=${vises.join(',')}`,
+        { cache: 'no-store' });
+      const d = (await res.json().catch(() => ({}))) as {
+        etat?: string; data?: Record<string, LienAffiche[]>;
+      };
+      if (d.etat !== 'ok' || d.data === undefined) return [];
+      const voulues = new Set(cles);
+      const ids = new Set<number>();
+      for (const liste of Object.values(d.data)) {
+        for (const l of liste) {
+          if (l.statut === 'confirme' && l.cible.sorte === 'lot' && voulues.has(l.cible.cle ?? '')) ids.add(l.id);
+        }
+      }
+      return [...ids];
+    } catch { return []; }
+  };
+
+  /**
+   * ══ 🔴🔴 APRÈS LE CLASSEMENT : ON N'A RIEN À LEVER, ON A UNE SORTIE À OFFRIR ════════════════════════════════
+   *
+   * 🔴 LA MARQUE EST DÉJÀ LEVÉE QUAND ON ARRIVE ICI, et pas par cet écran : `rattacher()` l'a fait, côté serveur,
+   * pour chaque mail qu'il vient de rattacher. C'est voulu — il est la SEULE porte d'écriture d'un rattachement,
+   * donc le seul endroit où la règle ne peut pas être oubliée. Voir son encadré.
+   *
+   * CE QUI RESTE À FAIRE ICI EST DONC UNIQUEMENT L'« ANNULER » : relire les liens qui viennent d'être posés, et
+   * garder sous la main les mails qui étaient interne — les deux moitiés que l'annulation devra défaire.
+   */
+  const offrirAnnulationDeLaLevee = async (
+    cles: readonly string[], mailsLeves: readonly number[],
+  ): Promise<void> => {
+    setOccupeInterne(true);
+    try {
+      const liensPoses = await liensPosesPour(cles, mailsDuFil.length > 0 ? mailsDuFil : [messageId]);
+      onGeste?.(motApresLevee(mailsLeves.length));
+      setLeveeFaite({ mails: [...mailsLeves], liens: liensPoses });
+    } finally {
+      setOccupeInterne(false);
+    }
+  };
+
+  /** L'« ANNULER » DES SECONDES QUI SUIVENT : il retire le rattachement ET repose la marque, par les mêmes portes. */
+  const annulerLevee = async (): Promise<void> => {
+    const fait = levee;
+    if (fait === null || fait === undefined) return;
+    setLeveeFaite(null);
+    /* 🔴 L'APPELANT DOIT OUBLIER SA SORTIE, sinon elle réapparaîtrait au rendu suivant : c'est LUI qui la porte. */
+    onLeveeAnnulee?.();
+    setOccupeInterne(true);
+    try {
+      const res = await fetch('/api/admin/gestion/interne', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ remettreLevee: true, remettre: fait.liens, marques: fait.mails }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; liens?: number };
+      if (d.ok === true) onGeste?.(motApresAnnulationLevee(typeof d.liens === 'number' ? d.liens : 0));
+      await onChange();
+    } catch {
+      setErreur('Le serveur n’a pas répondu.');
+    } finally {
+      setOccupeInterne(false);
+    }
+  };
+
   /**
    * ══ 🔴🔴 ÉCRIRE LE CLASSEMENT — LES DEUX CHEMINS D'AVANT, PLUS LES PERSONNES ════════════════════════════════
    *
@@ -507,11 +684,64 @@ export function EncartRattachement({
     personnes: readonly PersonneClassee[],
     suiviContact: 'auto' | 'ponctuel' | null,
     expediteurNonVerifie = false,
+    /**
+     * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — LA CONFIRMATION, ET CE QU'ELLE A VU.
+     *
+     * `null` = pas encore confirmée. Sinon : LES MAILS QUI ÉTAIENT INTERNE au moment de la question, et c'est
+     * exactement ce que l'« Annuler » devra remettre.
+     *
+     * 🔴 POURQUOI LA LISTE, ET PAS UN SIMPLE `true` : la levée est faite par `rattacher()` côté serveur, pendant
+     * l'écriture. Après coup, plus aucun de ces mails n'est interne — les redemander rendrait une liste vide, et
+     * l'« Annuler » n'aurait rien à remettre. La seule occasion de les connaître est AVANT.
+     *
+     * ⚠️ `null` PAR DÉFAUT, ET C'EST CE QUI REND LE GESTE SÛR : tout appelant qui ne connaît pas ce lot — et il y
+     * en a trois — passe d'abord par la question. On n'oublie pas une confirmation par omission.
+     */
+    leveeConfirmee: readonly number[] | null = null,
   ): Promise<void> => {
     const voulues = new Set(choisies.filter((c) => c.sorte === 'lot').map((c) => c.cle ?? ''));
     /** ⚠️ `?? ''` NE SUFFIRAIT PAS : une mention honnête vaut mieux qu'un silence sur une vérification sautée. */
     const mention = expediteurNonVerifie
       ? ' (expéditeur non vérifié : la lecture des fiches n’a pas abouti)' : '';
+
+    /**
+     * ══ 🔴🔴 POINT 2 — ON DEMANDE AVANT, QUAND LE MAIL EST MARQUÉ « INTERNE » ET QU'UN BIEN S'AJOUTE ══════════
+     *
+     * 🔴 « QU'UN BIEN S'AJOUTE » EST LA CONDITION, et non « qu'on valide la fenêtre ». Retirer un bien, changer
+     * une personne ou revalider la même sélection ne lève aucune marque et ne doit donc poser aucune question :
+     * c'est la règle d'Arno du sens inverse appliquée ici — « si rien n'est concerné, comportement actuel
+     * inchangé, sans message ».
+     *
+     * 🔴 LA FENÊTRE DE LA LEVÉE EST CELLE DU CLASSEMENT, et elle est calculée ICI, une fois, pour les deux : la
+     * levée « selon la même fenêtre choisie » n'a de sens que si c'est littéralement la même valeur.
+     *
+     * ⚠️ ET SI L'APERÇU NE RÉPOND PAS, ON CLASSE QUAND MÊME, SANS RIEN LEVER. Refuser le rattachement parce
+     * qu'une lecture a échoué conditionnerait une fonction existante à une requête nouvelle — ce qu'on ne fait
+     * pas. La marque resterait vivante, l'affichage resterait juste (un rattachement l'emporte sur « Interne »),
+     * et le prochain geste reposerait la question.
+     */
+    const presentesAvant = new Set(biensRattaches.map((c) => c.cle ?? ''));
+    const clesAjoutees = [...voulues].filter((c) => c !== '' && !presentesAvant.has(c));
+    const choixDeLaLevee: ChoixInterne = suivi !== null && filId != null
+      ? (blocVisible || suiviContact === null ? choix : choixSuiviDeContact(suiviContact))
+      : 'mail';
+
+    if (leveeConfirmee === null && clesAjoutees.length > 0) {
+      const apercu = await apercuLevee(choixDeLaLevee);
+      if (apercu !== null && apercu.interne) {
+        setDemandeLevee({
+          message: messageLeveeInterne(true) ?? '',
+          mails: apercu.mails,
+          geste: { choisies, personnes, suiviContact, expediteurNonVerifie },
+        });
+        return;
+      }
+    }
+    /** Ce que l'« Annuler » devra défaire. Appelé APRÈS l'écriture, et seulement si la levée a été confirmée. */
+    const offrirLAnnulation = async (): Promise<void> => {
+      if (leveeConfirmee === null || leveeConfirmee.length === 0 || clesAjoutees.length === 0) return;
+      await offrirAnnulationDeLaLevee(clesAjoutees, leveeConfirmee);
+    };
 
     // ① LE CHEMIN DES PÉRIODES : une seule requête, qui porte la décision entière.
     if (suivi !== null && filId != null) {
@@ -538,6 +768,9 @@ export function EncartRattachement({
         setAjout(false);
         setEtape2(null);
         setCiblesEnCours(null);
+        /* 🔴🔴 POINT 2 — APRÈS LE CLASSEMENT, ET JAMAIS AVANT : on ne lève pas une marque pour un geste qui
+           n'aurait pas abouti. Le `return` au-dessus, en cas d'erreur, garantit qu'on ne passe pas ici. */
+        await offrirLAnnulation();
       } catch {
         setErreur('Le serveur n’a pas répondu.');
       } finally {
@@ -561,6 +794,7 @@ export function EncartRattachement({
     setAjout(false);
     setEtape2(null);
     setCiblesEnCours(null);
+    await offrirLAnnulation();
   };
 
   /**
@@ -1041,6 +1275,64 @@ export function EncartRattachement({
             <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupeInterne}
               onClick={() => { void annulerInterne(); }}>
               Annuler — remettre {detachesInterne.length === 1 ? 'ce bien' : 'ces biens'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'AUTRE SENS, SA QUESTION ET SA SORTIE ═══════════════
+          DÉCISION D'ARNO : « Avant d'appliquer : “Ce mail est marqué Interne : rattacher ce bien retirera la
+          marque Interne” avec Confirmer / Annuler. Après : “Annuler” quelques secondes, qui remet exactement
+          l'état d'avant. »
+
+          🔴 LA PHRASE EST CELLE DU MODULE PUR, mot pour mot celle d'Arno. Elle n'est pas réécrite ici.
+
+          ⚠️ PAS DE CHOIX DE FENÊTRE DANS CE PANNEAU-CI, et c'est la différence avec son jumeau : la fenêtre est
+          DÉJÀ choisie — c'est celle du classement qu'on est en train de valider, et Arno écrit « selon la MÊME
+          fenêtre choisie ». En offrir une seconde ici aurait permis de classer sur toute la conversation et de ne
+          lever la marque que sur un mail : deux décisions contradictoires dans un seul geste. */}
+      {demandeLevee !== null && (
+        <div className="ert-interne-panneau" role="group" aria-label="Confirmer la levée de la marque « interne »">
+          <p className="ert-interne-mot">{demandeLevee.message}</p>
+          <p className="ert-interne-note">
+            {demandeLevee.mails.length > 1
+              ? `La fenêtre choisie porte sur ${demandeLevee.mails.length} mails marqués « interne » : la marque `
+                + 'sera retirée de chacun.'
+              : 'La marque sera retirée de ce mail.'}
+            {' La marque de la CONVERSATION n’est pas touchée : si elle en porte une, les réponses à venir '
+              + 'resteront internes — un clic sur la case verte la retire.'}
+          </p>
+          <p className="ert-interne-note">
+            Rien n’est supprimé : la marque reste en base, datée et signée, et « Annuler » la remet.
+          </p>
+          <div className="ert-interne-boutons">
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={occupe || occupeInterne}
+              onClick={() => {
+                const g = demandeLevee.geste;
+                const leves = demandeLevee.mails;
+                setDemandeLevee(null);
+                void ecrireClassement(g.choisies, g.personnes, g.suiviContact, g.expediteurNonVerifie, leves);
+              }}>
+              Confirmer
+            </button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe || occupeInterne}
+              onClick={() => setDemandeLevee(null)}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🔴 APRÈS LE GESTE : la sortie, quelques secondes. Elle défait les DEUX moitiés — le rattachement qui
+          vient d'être posé ET la marque qui vient d'être levée. Remettre l'une sans l'autre reconstruirait
+          « Interne avec un bien », l'état même que ce lot ferme. */}
+      {levee !== null && levee !== undefined && (
+        <div className="ert-interne-panneau ert-interne-panneau--fait" role="status">
+          <p className="ert-interne-mot">{motApresLevee(levee.mails.length)}</p>
+          <div className="ert-interne-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupeInterne}
+              onClick={() => { void annulerLevee(); }}>
+              Annuler — remettre la marque « interne »
             </button>
           </div>
         </div>
