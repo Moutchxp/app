@@ -63,6 +63,9 @@ export async function GET(request: Request): Promise<Response> {
         libelles: Object.fromEntries(etendue.data.libelles),
         proprietaireDuLot: etendue.data.proprietaireDuLot,
         logementsDuProprietaire: etendue.data.logementsDuProprietaire,
+        /* 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — les tranches d'occupation, pour que l'écran DISE ce
+           qu'il recouvre. Tableau vide pour toute autre cible : aucune autre n'est bornée dans le temps. */
+        occupations: etendue.data.occupations,
         lignes: page.lignes,
         suite: page.suite,
         entete: entete.filtre,

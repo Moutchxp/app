@@ -148,6 +148,10 @@ export async function chargerCatalogueBiens(): Promise<BienConnu[]> {
 export function libelleCible(c: Cible, l: LibellesCibles): string {
   if (c.sorte === 'lot') return l.lots.get(c.cle ?? '') ?? `lot ${c.cle ?? '?'}`;
   if (c.sorte === 'proprietaire') return l.proprietaires.get(c.cle ?? '') ?? `propriétaire ${c.cle ?? '?'}`;
+  /* 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — sans cette branche, un locataire se serait lu « carte n° ? » :
+     la chaîne retombait sur la carte pour toute sorte non nommée. Le libellé vient de l'historique lui-même
+     (`CibleEtendue.libelles`), ce repli ne servant qu'à ne jamais afficher un vide. */
+  if (c.sorte === 'locataire') return `locataire ${c.cle ?? '?'}`;
   return `carte n° ${c.id ?? '?'}`;
 }
 

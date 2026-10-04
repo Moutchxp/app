@@ -101,6 +101,16 @@ export function cibleCourte(c: Cible): string {
 
 export function cibleLot(cle: string): Cible { return { sorte: 'lot', cle, id: null }; }
 export function cibleProprietaire(cle: string): Cible { return { sorte: 'proprietaire', cle, id: null }; }
+/**
+ * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — UNE CIBLE D'HISTORIQUE, PAS DE RATTACHEMENT.
+ *
+ * ⚠️ UN LOCATAIRE N'EST TOUJOURS PAS UNE CIBLE DE RATTACHEMENT, et `SORTES_RATTACHEMENT_PERMISES` ne l'accueille
+ * pas. Il déménage ; le logement, non — c'est la règle centrale du module, et ce point ne l'entame pas d'un cran.
+ * Ce qu'Arno a demandé est un POINT DE LECTURE : « l'historique par locataire, sur le modèle de l'historique
+ * propriétaire ». On ne POSE rien sur une personne ; on RASSEMBLE ce qui la concerne, et seulement pendant qu'elle
+ * occupait les lieux.
+ */
+export function cibleLocataire(cle: string): Cible { return { sorte: 'locataire', cle, id: null }; }
 export function cibleEvenement(id: number): Cible { return { sorte: 'evenement', cle: null, id }; }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════

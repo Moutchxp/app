@@ -27,7 +27,9 @@ import { nomBien, nomProprietaire } from './driveArbre';
 import { deplacementsDeMailsDisponibles, horsGestionDisponible, rattachementsDisponibles } from './schema';
 // LOT FICHES-ANNUAIRE — LA MÊME fonction pure que la boîte : un seul verdict de statut pour tout le module.
 import { capsuleStatut, sqlSortesBien, type CapsuleStatut } from './statutClassement';
-import { cibleEvenement, cibleLot, cibleProprietaire, type Cible } from './rattachement';
+import { cibleEvenement, cibleLocataire, cibleLot, cibleProprietaire, type Cible } from './rattachement';
+// 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — une adresse retirée d'un ré-import ne ramasse plus de courrier.
+import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { libelleCible, type LienAffiche } from './rattachementRepo';
 // 🔴🔴 LOT CONTACTS-EXTERNES — « via Me Martin, avocat » sur la ligne d'un mail de « Vie du bien ».
 import { interventionsDesMessages } from './contactExterneRepo';
@@ -63,6 +65,30 @@ export interface CibleEtendue {
   proprietaireDuLot: { cle: string; libelle: string } | null;
   /** Les logements du propriétaire demandé — sert à proposer l'interrupteur et le regroupement. */
   logementsDuProprietaire: { cle: string; libelle: string }[];
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — L'OCCUPATION, AXE PROPRE AU LOCATAIRE ════════════════════
+   *
+   * RÈGLE D'ARNO (04/10/2026) : « Contenu : les mails rattachés aux biens qu'il occupe, UNIQUEMENT pendant sa
+   * période d'occupation (entrée → sortie, ou aujourd'hui), plus les mails dont il est lui-même l'expéditeur ou
+   * le destinataire. Jamais le courrier de ses prédécesseurs ou successeurs. »
+   *
+   * 🔴 CE N'EST PAS UNE LISTE DE LOTS, ET C'EST TOUTE LA DIFFÉRENCE AVEC `lots`. L'axe `lots` prend TOUT le
+   * courrier d'un logement, de sa première à sa dernière ligne — c'est ce qu'on veut pour un bien ou pour son
+   * propriétaire, qui le possède sans interruption. Un locataire, lui, n'a droit qu'à SA tranche : chaque lot
+   * vient donc avec ses deux bornes, et un locataire de plusieurs biens (TATA CONSULTANCY) porte plusieurs
+   * tranches à la fois.
+   *
+   * ⚠️ `jusqua: null` VEUT DIRE « ENCORE LÀ », pas « depuis toujours » : la borne haute est alors absente, et
+   * l'axe court jusqu'au dernier mail. Un `depuis: null` est l'inverse — un bail dont l'export ne donne pas
+   * l'entrée —, et il ouvre la tranche vers le passé plutôt que de la refermer à zéro mail.
+   */
+  occupations: { cle: string; libelle: string; depuis: string | null; jusqua: string | null }[];
+  /**
+   * 🔴 LES ADRESSES DE LA PERSONNE — le second axe d'Arno : « plus les mails dont il est lui-même l'expéditeur ou
+   * le destinataire ». Sans bornes de date, et c'est voulu : un mail qu'il a écrit lui-même le concerne, qu'il
+   * ait déjà rendu les clés ou pas encore signé.
+   */
+  adresses: string[];
 }
 
 /**
@@ -80,6 +106,7 @@ export async function etendreCible(cible: Cible, f: FiltresHistorique): Promise<
   const vide: CibleEtendue = {
     cible, titre: '', sousTitre: null, lots: [], proprietaires: [], evenements: [],
     libelles: new Map(), proprietaireDuLot: null, logementsDuProprietaire: [],
+    occupations: [], adresses: [],
   };
 
   if (cible.sorte === 'evenement') {
@@ -127,6 +154,84 @@ export async function etendreCible(cible: Cible, f: FiltresHistorique): Promise<
         lots: [cible.cle ?? ''],
         proprietaires: f.avecProprietaire && proprietaireDuLot !== null ? [proprietaireDuLot.cle] : [],
         libelles, proprietaireDuLot,
+      },
+    };
+  }
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — UN LOCATAIRE ═════════════════════════════════════════════
+   *
+   * DEMANDE D'ARNO : « HISTORIQUE PAR LOCATAIRE (nouveau) : sur le modèle de l'historique propriétaire, même
+   * présentation, accessible depuis la fiche annuaire du locataire, avec le même fragment unique. »
+   *
+   * 🔴 LA DIFFÉRENCE AVEC LE PROPRIÉTAIRE TIENT EN UN MOT : LES BORNES. Un propriétaire reçoit `lots: [...]` et
+   * voit tout le courrier de ses logements. Un locataire reçoit `occupations: [...]` — les mêmes logements, mais
+   * chacun avec sa tranche de temps. Remplir `lots` pour lui lui montrerait le courrier de ses prédécesseurs et
+   * de ses successeurs, ce qu'Arno interdit explicitement.
+   *
+   * ⚠️ `lots` RESTE DONC VIDE, et ce n'est pas un oubli : c'est ce qui garantit qu'aucun mail hors période ne
+   * puisse entrer par cet axe-là.
+   *
+   * 🔴 ON PREND TOUTES SES OCCUPATIONS, PASSÉES COMPRISES. « entrée → sortie, ou aujourd'hui » : un bail terminé
+   * reste une tranche légitime de SON histoire. Ne garder que les baux en cours effacerait l'ancien locataire
+   * dont on cherche justement ce qu'on lui avait écrit.
+   */
+  if (cible.sorte === 'locataire') {
+    const { rows: lc } = await query<{ id: string; nom: string; absent: boolean }>(
+      `SELECT id::text, nom, (absent_le IS NOT NULL) AS absent
+         FROM gestion_annuaire_locataire WHERE wippimmo_id = $1`, [cible.cle ?? '']);
+    if (lc.length === 0) return { etat: 'inconnue' };
+    const titre = lc[0].nom.trim() === '' ? `locataire ${cible.cle ?? ''}` : lc[0].nom;
+
+    const { rows: occ } = await query<{
+      cle: string; adresse: string | null; cp: string | null; commune: string | null;
+      nature: string | null; type_bien: string | null; prop: string | null;
+      depuis: string | null; jusqua: string | null;
+    }>(
+      `SELECT lo.wippimmo_id AS cle, lo.adresse, lo.code_postal AS cp, lo.commune, lo.nature, lo.type_bien,
+              pr.wippimmo_id AS prop, o.entree::text AS depuis, o.sortie::text AS jusqua
+         FROM gestion_annuaire_occupation o
+         JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
+         LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
+        WHERE o.locataire_id = $1
+        ORDER BY o.entree DESC NULLS LAST, lo.wippimmo_id`, [lc[0].id]);
+
+    const occupations = occ.map((o) => ({
+      cle: o.cle,
+      libelle: nomBien({
+        wippimmoId: o.cle, proprietaireWippimmoId: o.prop, adresse: o.adresse, codePostal: o.cp,
+        commune: o.commune, nature: o.nature, typeBien: o.type_bien,
+      }),
+      depuis: o.depuis, jusqua: o.jusqua,
+    }));
+
+    /**
+     * 🔴 SES ADRESSES ÉLECTRONIQUES VIVANTES, et elles seules. `absent_le IS NULL` + la condition de coordonnée
+     * vivante : une adresse qu'un ré-import a retirée ne doit pas continuer à ramasser du courrier dans son
+     * historique — c'est la même règle que les cartes de la fenêtre.
+     */
+    const { rows: ads } = await query<{ valeur: string }>(
+      `SELECT DISTINCT valeur FROM gestion_annuaire_contact
+        WHERE sujet = 'locataire' AND sujet_id = $1 AND sorte = 'email'
+          AND absent_le IS NULL${await conditionCoordonneeVivante()}`, [lc[0].id]);
+
+    const libelles = new Map([[texteCible(cible), titre]]);
+    for (const o of occupations) libelles.set(texteCible(cibleLot(o.cle)), o.libelle);
+
+    const nbLots = new Set(occupations.map((o) => o.cle)).size;
+    return {
+      etat: 'ok',
+      data: {
+        ...vide, titre,
+        sousTitre: lc[0].absent
+          ? 'ce locataire n’est plus dans l’export de gestion'
+          : nbLots === 0
+            ? 'aucun logement connu pour cette personne'
+            : `${nbLots} logement${nbLots > 1 ? 's' : ''} occupé${nbLots > 1 ? 's' : ''}`,
+        /* 🔴 `lots` VIDE À DESSEIN — voir l'encadré ci-dessus. Tout passe par les tranches. */
+        occupations,
+        adresses: ads.map((a) => a.valeur),
+        libelles,
       },
     };
   }
@@ -191,7 +296,22 @@ function libelleEtat(e: string): string {
  * propriétaire) : c'est celle qui renseigne le plus. En mode GROUPÉ, au contraire, on garde les deux lignes — un mail
  * qui concerne deux logements doit apparaître sous les deux.
  */
-function cteMessages(o: { avecCarte: boolean; deplacements: boolean; grouper: boolean }): string {
+function cteMessages(o: {
+  avecCarte: boolean; deplacements: boolean; grouper: boolean;
+  /**
+   * ══ 🔴🔴 POINT 3 — LES DEUX AXES DU LOCATAIRE, OU AUCUN. UN SEUL INTERRUPTEUR, ET C'EST VOULU ═════════════════
+   *
+   * ⚠️ POSTGRESQL REFUSE UNE REQUÊTE QU'ON SUR-ALIMENTE : « bind message supplies 8 parameters, but prepared
+   * statement requires 3 ». Les cinq paramètres du locataire ($4 à $8) ne peuvent donc pas être liés « au cas
+   * où » : ils doivent être NOMMÉS par la requête exactement quand ils sont fournis.
+   *
+   * 🔴 D'OÙ UN SEUL DRAPEAU POUR LES DEUX AXES. Deux drapeaux indépendants auraient fait quatre combinaisons de
+   * numérotation ($4-$6 seuls, $4-$5 pour les adresses si l'occupation manque…), et un placeholder décalé lie une
+   * valeur au mauvais endroit SANS ERREUR visible. Avec un seul drapeau, la base compte 3 paramètres ou 8, jamais
+   * autre chose. Les tableaux VIDES ne coûtent rien : `unnest('{}')` et `= ANY('{}')` ne rendent aucune ligne.
+   */
+  avecLocataire?: boolean;
+}): string {
   const carte = o.avecCarte
     ? `
      UNION ALL
@@ -222,6 +342,64 @@ function cteMessages(o: { avecCarte: boolean; deplacements: boolean; grouper: bo
    * coûté une nuit à défaire, le 28/09/2026.
    */
   const vivantConfirme = "r.statut = 'confirme' AND r.piece_id IS NULL";
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — L'AXE « OCCUPATION » ═════════════════════════════════════
+   *
+   * LE MÊME FRAGMENT QUE LES TROIS AUTRES ÉCRANS (`sqlLiensDuBien`) — condition d'Arno, et c'est aussi ce qui
+   * rend ce nouvel axe digne de confiance : il ne redéfinit pas « un mail rattaché à un bien », il le réutilise.
+   * Il n'ajoute QUE la tranche de temps.
+   *
+   * 🔴 LA TRANCHE EST JOINTE PAR LOT, PAS APPLIQUÉE GLOBALEMENT. `unnest($4, $5, $6)` déplie les triplets
+   * (clé, entrée, sortie) : un locataire de plusieurs biens — TATA CONSULTANCY — voit chacun sur SA période.
+   * Une seule paire de bornes pour tout le monde aurait mélangé les baux et laissé entrer le courrier d'un autre
+   * logement à une date où il n'y habitait pas encore.
+   *
+   * ⚠️ LES BORNES SE COMPARENT EN JOUR CIVIL UTC, comme partout dans le module (`recu_le AT TIME ZONE 'UTC'`), et
+   * la borne haute est INCLUSE : un mail du jour de la sortie est encore le sien — c'est le jour où il rend les
+   * clés, et souvent celui de l'état des lieux.
+   *
+   * ⚠️ UNE BORNE NULLE N'EST PAS ZÉRO. `entrée` absente ouvre la tranche vers le passé ; `sortie` absente la
+   * laisse courir jusqu'au dernier mail (« ou aujourd'hui », dit Arno). Les traiter comme des dates nulles
+   * aurait rendu un historique vide pour tout bail dont l'export ne donne pas les deux dates.
+   */
+  const occupation = o.avecLocataire === true
+    ? `
+     UNION ALL
+     SELECT ro.message_id, 'lot'::text AS cible_sorte, ro.cible_cle, NULL::bigint AS cible_id,
+            NULL::text AS cible_libelle, 1 AS prio, 'rattachement'::text AS source
+       FROM gestion_rattachement ro
+       JOIN gestion_message mo ON mo.id = ro.message_id
+       JOIN unnest($4::text[], $5::date[], $6::date[]) AS per(cle, d1, d2) ON per.cle = ro.cible_cle
+      WHERE ${sqlLiensDuBien('ro')}
+        AND (per.d1 IS NULL OR (mo.recu_le AT TIME ZONE 'UTC')::date >= per.d1)
+        AND (per.d2 IS NULL OR (mo.recu_le AT TIME ZONE 'UTC')::date <= per.d2)`
+    : '';
+
+  /**
+   * ══ 🔴🔴 POINT 3 — L'AXE « CORRESPONDANCE » : « les mails dont il est lui-même l'expéditeur ou le destinataire »
+   *
+   * 🔴 `gestion_message_adresse` PORTE LES DEUX SENS, et c'est pour cela qu'on l'interroge plutôt que
+   * `de_adresse` : un mail qu'on lui a ÉCRIT le concerne autant qu'un mail qu'il a écrit. C'est la même table que
+   * le filtre « interlocuteurs » de l'écran, donc le même périmètre, déjà éprouvé.
+   *
+   * ⚠️ SANS BORNES DE DATE, À DESSEIN. Un mail signé de sa main le concerne, qu'il ait déjà rendu les clés ou
+   * pas encore signé le bail — et c'est ce qu'Arno a écrit : les bornes portent sur les mails DU BIEN, pas sur
+   * son propre courrier.
+   *
+   * 🔴 LA LIGNE SE DIT « locataire », PAS « lot ». Un mail qui n'est rattaché à aucun bien n'a pas de bien à
+   * nommer : lui en inventer un serait écrire un rattachement qui n'existe pas. `prio 1` le laisse perdre contre
+   * une ligne de bien quand le même mail arrive par les deux axes — on préfère nommer le logement.
+   */
+  const correspondance = o.avecLocataire === true
+    ? `
+     UNION ALL
+     SELECT ia.message_id, 'locataire'::text AS cible_sorte, $8::text AS cible_cle, NULL::bigint AS cible_id,
+            NULL::text AS cible_libelle, 2 AS prio, 'rattachement'::text AS source
+       FROM gestion_message_adresse ia
+      WHERE ia.adresse = ANY($7::text[])`
+    : '';
+
   return `liens AS (
      SELECT r.message_id, r.cible_sorte, r.cible_cle, r.cible_id, r.cible_libelle,
             CASE r.cible_sorte WHEN 'lot' THEN 1 WHEN 'proprietaire' THEN 2 ELSE 3 END AS prio,
@@ -229,7 +407,7 @@ function cteMessages(o: { avecCarte: boolean; deplacements: boolean; grouper: bo
        FROM gestion_rattachement r
       WHERE ((${sqlLiensDuBien('r')} AND r.cible_cle = ANY($1::text[]))
           OR (${vivantConfirme} AND r.cible_sorte = 'proprietaire' AND r.cible_cle = ANY($2::text[]))
-          OR (${vivantConfirme} AND r.cible_sorte = 'evenement'    AND r.cible_id  = ANY($3::bigint[])))${carte}
+          OR (${vivantConfirme} AND r.cible_sorte = 'evenement'    AND r.cible_id  = ANY($3::bigint[])))${carte}${occupation}${correspondance}
    ),
    choisis AS (
      ${o.grouper
@@ -248,11 +426,18 @@ function cteMessages(o: { avecCarte: boolean; deplacements: boolean; grouper: bo
  * « argument of LIMIT must be type bigint, not type text[] » (mesuré sur le cluster jetable le 26/09/2026). Un
  * placeholder calculé à la main est un défaut qui attend son heure ; ici il ne peut plus diverger de sa valeur.
  */
-function conditions(f: FiltresHistorique): { sql: string; params: unknown[] } {
+function conditions(f: FiltresHistorique, apres: number): { sql: string; params: unknown[] } {
   const bouts: string[] = [];
   const params: unknown[] = [];
-  /** Ajoute une valeur et rend SON placeholder. Les deux ne peuvent plus se désaccorder. */
-  const ajouter = (v: unknown): string => `$${params.push(v) + 3}`;
+  /**
+   * Ajoute une valeur et rend SON placeholder. Les deux ne peuvent plus se désaccorder.
+   *
+   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — `apres` REMPLACE LE 3 EN DUR. L'historique d'un locataire lie
+   * cinq paramètres de base de plus ; un décalage figé à 3 aurait lié le premier filtre par-dessus la clé du
+   * locataire, SANS erreur de PostgreSQL — juste un historique faux. Le nombre vient donc de `decalage(cible)`,
+   * c'est-à-dire du même endroit que la liste des valeurs.
+   */
+  const ajouter = (v: unknown): string => `$${params.push(v) + apres}`;
 
   if (f.interlocuteurs.length > 0) {
     bouts.push(`EXISTS (SELECT 1 FROM gestion_message_adresse ia
@@ -285,6 +470,37 @@ function clesDe(c: CibleEtendue): [string[], string[], number[]] {
   return [c.lots, c.proprietaires, c.evenements];
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — LES PARAMÈTRES DE BASE, EN UN SEUL ENDROIT ════════════════════
+ *
+ * 🔴 TROIS POUR TOUTE CIBLE, HUIT POUR UN LOCATAIRE. Les cinq de plus ($4 à $8) ne sont liés QUE quand la requête
+ * les nomme : PostgreSQL refuse une requête sur-alimentée (« bind message supplies 8 parameters, but prepared
+ * statement requires 3 »). Voir l'encadré d'`avecLocataire` dans `cteMessages`.
+ *
+ * 🔴 ET C'EST LA MÊME FONCTION POUR LES TROIS QUESTIONS DE L'ÉCRAN — la frise, le compteur, les interlocuteurs.
+ * Trois listes recopiées finiraient par ne plus être dans le même ordre, et un placeholder décalé lie une valeur
+ * au mauvais endroit SANS la moindre erreur : le filtre d'interlocuteurs deviendrait un `LIMIT`. C'est exactement
+ * l'incident du 26/09/2026, documenté dans `conditions`.
+ */
+function baseParams(c: CibleEtendue): unknown[] {
+  const base: unknown[] = [c.lots, c.proprietaires, c.evenements];
+  if (!estLocataire(c)) return base;
+  return [
+    ...base,
+    c.occupations.map((o) => o.cle),
+    c.occupations.map((o) => o.depuis),
+    c.occupations.map((o) => o.jusqua),
+    c.adresses,
+    c.cible.cle ?? '',
+  ];
+}
+
+/** La cible demandée EST un locataire ⇒ les deux axes de plus, et les cinq paramètres qui vont avec. */
+function estLocataire(c: CibleEtendue): boolean { return c.cible.sorte === 'locataire'; }
+
+/** Combien de paramètres de base la requête lie, donc à partir d'où les filtres numérotent les leurs. */
+function decalage(c: CibleEtendue): number { return estLocataire(c) ? 8 : 3; }
+
 // ── LES TROIS QUESTIONS ─────────────────────────────────────────────────────────────────────────────────────────
 
 export interface PageHistorique {
@@ -295,12 +511,15 @@ export interface PageHistorique {
 
 /** UNE PAGE DE LA FRISE, la plus récente en haut. LECTURE SEULE. */
 export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Promise<PageHistorique> {
-  const cond = conditions(f);
-  const [lots, props, evs] = clesDe(c);
+  const cond = conditions(f, decalage(c));
+  const [, , evs] = clesDe(c);
+  const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
-  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: f.grouper });
+  const cte = cteMessages({
+    avecCarte: evs.length > 0, deplacements, grouper: f.grouper, avecLocataire: estLocataire(c),
+  });
 
-  const pTaille = 4 + cond.params.length;
+  const pTaille = base.length + 1 + cond.params.length;
   const { rows } = await query<{
     message_id: string; fil_id: string; recu_le: string; sens: string; de: string; de_nom: string | null;
     objet: string | null; extrait: string | null; dest_a: string | null; dest_cc: string | null;
@@ -320,7 +539,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
       ORDER BY m.recu_le DESC, m.id DESC
       LIMIT $${pTaille} OFFSET $${pTaille + 1}`,
     // UNE ligne de plus que la page : sa présence, et elle seule, dit qu'il y a une suite.
-    [lots, props, evs, ...cond.params, f.taille + 1, f.page * f.taille]);
+    [...base, ...cond.params, f.taille + 1, f.page * f.taille]);
 
   const suite = rows.length > f.taille;
   const gardees = rows.slice(0, f.taille);
@@ -339,9 +558,17 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   return {
     suite,
     lignes: gardees.map((r) => {
+      /**
+       * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — LA BRANCHE « locataire » EST OBLIGATOIRE ICI. Sans elle,
+       * une ligne venue de l'axe « correspondance » (un mail qu'il a écrit, rattaché à aucun bien) aurait été
+       * rendue comme un PROPRIÉTAIRE — le dernier terme de la chaîne attrapant tout ce qui n'est ni carte ni lot.
+       * On aurait affiché un nom de locataire sous l'étiquette « propriétaire ».
+       */
       const parCible: Cible = r.cible_sorte === 'evenement'
         ? cibleEvenement(r.cible_id === null ? 0 : Number(r.cible_id))
-        : r.cible_sorte === 'lot' ? cibleLot(r.cible_cle ?? '') : cibleProprietaire(r.cible_cle ?? '');
+        : r.cible_sorte === 'lot' ? cibleLot(r.cible_cle ?? '')
+          : r.cible_sorte === 'locataire' ? cibleLocataire(r.cible_cle ?? '')
+            : cibleProprietaire(r.cible_cle ?? '');
       return {
         messageId: Number(r.message_id), filId: Number(r.fil_id), recuLe: r.recu_le,
         sens: r.sens === 'envoye' ? 'envoye' : 'recu',
@@ -500,10 +727,11 @@ async function piecesDesMessages(ids: readonly number[]): Promise<Map<number, Pi
 export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): Promise<{
   filtre: EnteteHistorique; total: EnteteHistorique;
 }> {
-  const [lots, props, evs] = clesDe(c);
+  const [, , evs] = clesDe(c);
+  const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   // Le compteur ne GROUPE jamais : un mail compte pour un, même s'il concerne deux logements.
-  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false });
+  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
 
   const compter = async (cond: { sql: string; params: unknown[] }): Promise<EnteteHistorique> => {
     const { rows } = await query<{ mails: string; pieces: string; premier: string | null; dernier: string | null }>(
@@ -514,7 +742,7 @@ export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): P
               to_char(max(m.recu_le) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS dernier
          FROM choisis ch JOIN gestion_message m ON m.id = ch.message_id
         WHERE true${cond.sql}`,
-      [lots, props, evs, ...cond.params]);
+      [...base, ...cond.params]);
     const r = rows[0];
     return {
       nbMails: Number(r.mails), nbPieces: Number(r.pieces), premierLe: r.premier, dernierLe: r.dernier,
@@ -522,7 +750,7 @@ export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): P
   };
 
   const [filtre, total] = await Promise.all([
-    compter(conditions(f)),
+    compter(conditions(f, decalage(c))),
     compter({ sql: '', params: [] }),
   ]);
   return { filtre, total };
@@ -538,11 +766,12 @@ export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): P
 export async function interlocuteursHistorique(
   c: CibleEtendue, f: FiltresHistorique,
 ): Promise<{ liste: Interlocuteur[]; tronque: boolean }> {
-  const [lots, props, evs] = clesDe(c);
+  const [, , evs] = clesDe(c);
+  const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
-  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false });
-  const cond = conditions({ ...f, interlocuteurs: [] });
-  const pLimite = 4 + cond.params.length;
+  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
+  const cond = conditions({ ...f, interlocuteurs: [] }, decalage(c));
+  const pLimite = base.length + 1 + cond.params.length;
 
   const { rows } = await query<{ adresse: string; interne: boolean; n: string; nom: string | null }>(
     `WITH ${cte},
@@ -558,7 +787,7 @@ export async function interlocuteursHistorique(
       GROUP BY a.adresse, a.interne
       ORDER BY count(DISTINCT a.message_id) DESC, a.adresse
       LIMIT $${pLimite}`,
-    [lots, props, evs, ...cond.params, INTERLOCUTEURS_MAX + 1]);
+    [...base, ...cond.params, INTERLOCUTEURS_MAX + 1]);
 
   const tronque = rows.length > INTERLOCUTEURS_MAX;
   return {

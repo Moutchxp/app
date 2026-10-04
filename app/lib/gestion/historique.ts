@@ -35,11 +35,22 @@ export const INTERLOCUTEURS_MAX = 60;
  * clés non numériques, casserait silencieusement ces cibles-là.
  */
 export function texteCible(c: Cible): string {
-  const prefixe = c.sorte === 'lot' ? 'lot' : c.sorte === 'proprietaire' ? 'proprio' : 'carte';
+  /**
+   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — LA BRANCHE « locataire » EST EXPLICITE, et il le fallait : la
+   * chaîne de conditions d'avant retombait sur « carte » pour TOUTE sorte qui n'était ni `lot` ni `proprietaire`.
+   * Un locataire se serait écrit `carte-<clé>`, et l'adresse aurait désigné une carte inexistante.
+   */
+  const prefixe = c.sorte === 'lot' ? 'lot'
+    : c.sorte === 'proprietaire' ? 'proprio'
+      : c.sorte === 'locataire' ? 'locataire' : 'carte';
   return `${prefixe}-${c.sorte === 'evenement' ? String(c.id ?? 0) : c.cle ?? ''}`;
 }
 
-const PREFIXES: Record<string, CibleSorte> = { lot: 'lot', proprio: 'proprietaire', carte: 'evenement' };
+const PREFIXES: Record<string, CibleSorte> = {
+  lot: 'lot', proprio: 'proprietaire', carte: 'evenement',
+  // 🔴🔴 POINT 3 — l'historique par locataire. Voir `cibleLocataire` : une cible de LECTURE, jamais d'écriture.
+  locataire: 'locataire',
+};
 
 /** La cible portée par une adresse. Valeur inconnue ⇒ `null`, jamais une erreur. PUR. */
 export function cibleDepuisTexte(brut: string | null | undefined): Cible | null {

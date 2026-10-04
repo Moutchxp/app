@@ -1424,13 +1424,30 @@ function VueLocataire({
       )}
 
       {/* LOT RATTACHEMENT-2 — un LOCATAIRE n'est pas une cible de rattachement (il déménage ; le logement, non) :
-          l'entrée de l'historique passe donc par son logement, et jamais par lui. */}
+          l'entrée de l'historique DU BIEN passe donc par son logement, et jamais par lui. */}
       {logementDesMails !== null && !logementDesMails.horsGestion && (
         <p className="ann-discret">
           <BoutonHistorique cible={{ sorte: 'lot', cle: logementDesMails.numero, id: null }}
             onHistorique={onHistorique} />
         </p>
       )}
+
+      {/* ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — ET SON HISTOIRE À LUI ═══════════════════════════════
+
+          DEMANDE D'ARNO (04/10/2026) : « HISTORIQUE PAR LOCATAIRE (nouveau) : sur le modèle de l'historique
+          propriétaire, même présentation, accessible depuis la fiche annuaire du locataire. »
+
+          🔴 DEUX BOUTONS QUI NE DISENT PAS LA MÊME CHOSE, ET C'EST POUR CELA QU'ILS COEXISTENT. Celui du dessus
+          ouvre TOUT le courrier du logement — prédécesseurs et successeurs compris. Celui-ci n'ouvre que SA
+          tranche : les mails de ses biens pendant qu'il les occupait, plus ceux qu'il a écrits ou reçus. Les
+          confondre ferait lire le courrier d'un autre locataire comme le sien.
+
+          ⚠️ IL S'AFFICHE MÊME SANS LOGEMENT EN COURS, là où celui du dessus ne peut pas : un ancien locataire
+          garde son histoire, et c'est souvent pour elle qu'on ouvre sa fiche. */}
+      <p className="ann-discret">
+        <BoutonHistorique cible={{ sorte: 'locataire', cle: f.cle, id: null }} onHistorique={onHistorique}
+          mot="Son historique à lui, période par période →" />
+      </p>
 
       {/* 🔴🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — quittances, avis d'échéance, relances : ils sont adressés à CETTE
           personne, et c'est chez elle qu'ils se rangent. Sans la migration 291, rien ne s'affiche. */}
@@ -1539,12 +1556,22 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
  * ⚠️ IL NE S'AFFICHE QUE SI LE PARENT SAIT OÙ ALLER (`onHistorique` fourni) et si la cible a une clé. Un bouton qui
  * n'irait nulle part est pire qu'un bouton absent : on clique, rien ne se passe, et on cherche la panne.
  */
-function BoutonHistorique({ cible, onHistorique }: { cible: Cible; onHistorique?: (c: Cible) => void }) {
+function BoutonHistorique({ cible, onHistorique, mot }: {
+  cible: Cible;
+  onHistorique?: (c: Cible) => void;
+  /**
+   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — LE MOT SE CHOISIT, le bouton ne se recopie pas. Sur une fiche
+   * de locataire il y a DEUX historiques atteignables, et deux boutons portant le même libellé seraient un piège :
+   * on cliquerait au hasard et on lirait le courrier d'un autre. Sans `mot`, c'est le libellé d'avant, au
+   * caractère près — tous les appelants antérieurs restent inchangés.
+   */
+  mot?: string;
+}) {
   if (onHistorique === undefined || cible.cle === null || cible.cle === '') return null;
   return (
     <button type="button" className="svv-btn svv-btn-outline gst-btn ann-histo"
       onClick={() => onHistorique(cible)}>
-      Tout l’historique des échanges →
+      {mot ?? 'Tout l’historique des échanges →'}
     </button>
   );
 }

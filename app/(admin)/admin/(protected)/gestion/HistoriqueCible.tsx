@@ -6,6 +6,8 @@ import { motSorte, CSS_ENCART_RATTACHEMENT } from './EncartRattachement';
 import { dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
+// 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — les dates des tranches d'occupation, écrites comme partout ailleurs.
+import { dateFr } from '../../../../lib/gestion/ficheRattachement';
 import {
   ecrireFiltres, filtreActif, grouperParCible, libelleInterlocuteur, resumeEntete, texteCible,
   FILTRES_VIDES, PAGE_HISTORIQUE,
@@ -55,6 +57,12 @@ interface Donnees {
   libelles: Record<string, string>;
   proprietaireDuLot: { cle: string; libelle: string } | null;
   logementsDuProprietaire: { cle: string; libelle: string }[];
+  /**
+   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — SES BIENS, CHACUN AVEC SA TRANCHE. Vide pour toute autre
+   * cible. L'écran les ÉCRIT : un historique borné qu'on ne dit pas borné se lit comme un historique incomplet,
+   * et c'est alors l'outil qu'on soupçonne.
+   */
+  occupations: { cle: string; libelle: string; depuis: string | null; jusqua: string | null }[];
   lignes: LigneHistorique[];
   suite: boolean;
   entete: EnteteHistorique;
@@ -258,6 +266,48 @@ export function HistoriqueCible({ cible, maintenant, onRetour, onReception, onOu
                   <span>Regrouper par logement</span>
                 </label>
               </>
+            )}
+            {/* ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — CE QUE CET HISTORIQUE RECOUVRE, EN CLAIR ══════
+
+                DEMANDE D'ARNO : « les mails rattachés aux biens qu'il occupe, UNIQUEMENT pendant sa période
+                d'occupation (entrée → sortie, ou aujourd'hui), plus les mails dont il est lui-même l'expéditeur
+                ou le destinataire. Jamais le courrier de ses prédécesseurs ou successeurs. »
+
+                🔴 CE BLOC EST LA CONTREPARTIE DE CETTE RÈGLE. Un historique de locataire est forcément plus
+                court que celui du logement : s'il ne DISAIT pas pourquoi, le premier réflexe serait de croire
+                qu'il manque des mails. Chaque bien est écrit avec ses deux bornes, et « encore en place » quand
+                la sortie n'est pas connue.
+
+                ⚠️ PAS D'INTERRUPTEUR ICI, et c'est volontaire : « voir aussi hors période » rendrait le
+                courrier des prédécesseurs, exactement ce qu'Arno interdit. Pour tout le courrier d'un logement,
+                il y a le bouton de son historique, et il porte son nom. */}
+            {cible.sorte === 'locataire' && d.occupations.length > 0 && (
+              <div className="hst-tranches">
+                <p className="hst-tranches-titre">
+                  Ne sont montrés que les mails de ses {d.occupations.length} logement(s) PENDANT son occupation,
+                  et ceux qu’il a écrits ou reçus.
+                </p>
+                <ul className="hst-tranches-liste">
+                  {d.occupations.map((o) => (
+                    <li key={`${o.cle}-${o.depuis ?? ''}`}>
+                      {o.libelle}{' — '}
+                      <span className="hst-tranche-dates">
+                        {o.depuis === null ? 'entrée inconnue' : `du ${dateFr(o.depuis)}`}
+                        {o.jusqua === null ? ', encore en place' : ` au ${dateFr(o.jusqua)}`}
+                      </span>
+                      {onCible && (
+                        <>
+                          {' '}
+                          <button type="button" className="gst-lien-bouton" disabled={occupe}
+                            onClick={() => onCible({ sorte: 'lot', cle: o.cle, id: null })}>
+                            tout l’historique de ce logement →
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             {cible.sorte === 'lot' && d.proprietaireDuLot !== null && onCible && (
               <button type="button" className="gst-lien-bouton" disabled={occupe}
@@ -493,6 +543,16 @@ export const CSS_HISTORIQUE = `
   color:var(--color-svv-muted)}
 .hst-titre{margin:0;font-size:1.05rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .hst-sous{margin:2px 0 0;font-size:.82rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+/* ══ 🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — CE QUE L'HISTORIQUE D'UN LOCATAIRE RECOUVRE ══════════════════
+   MEME GRAMMAIRE QUE LE RESTE DU BANDEAU : les jetons du theme, aucune couleur en dur, donc lisible en Clair
+   comme en Sombre. Mobile d'abord : la liste casse en fin de ligne, chaque bien sur sa ligne, aucun debordement. */
+.hst-tranches{width:100%;padding:.4rem .55rem;border:1px solid var(--color-svv-line);border-radius:.5rem;
+  background:var(--color-svv-surface)}
+.hst-tranches-titre{margin:0 0 .25rem;font-size:.78rem;font-weight:700;color:var(--color-svv-ink);
+  overflow-wrap:anywhere}
+.hst-tranches-liste{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:.2rem;
+  font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.hst-tranche-dates{font-weight:600;color:var(--color-svv-ink)}
 .hst-compte{margin:0;font-size:.85rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .hst-sur{font-weight:400;color:var(--color-svv-muted)}
 .hst-perimetre{display:flex;flex-direction:column;gap:.25rem}

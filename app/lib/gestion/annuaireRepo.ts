@@ -926,6 +926,14 @@ export interface LogementDuLocataire {
 
 export interface FicheLocataire {
   id: number; nom: string; adresse: string | null; commune: string | null; codePostal: string | null;
+  /**
+   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — LA CLÉ WIPPIMMO, pour atteindre SON historique.
+   *
+   * ⚠️ CE N'EST PAS `id`, ET LES CONFONDRE OUVRIRAIT L'HISTORIQUE DE QUELQU'UN D'AUTRE. La fiche s'adresse par
+   * l'identifiant INTERNE (`?fiche=locataire-457`) ; l'historique, par la clé WIPPIMMO (`?cible=locataire-254`).
+   * C'est la même asymétrie que `lotId` / `cle` sur un bien, et elle a déjà coûté une confusion au lot 4.
+   */
+  cle: string;
   absent: boolean; contacts: ContactAffiche[];
   occupations: { lotId: number | null; numero: string; adresse: string | null; commune: string | null;
     entree: string | null; sortie: string | null; encours: boolean; horsGestion: boolean }[];
@@ -1616,8 +1624,8 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
   const { rows } = await query<{
     id: string; nom: string; adresse: string | null; commune: string | null; code_postal: string | null;
-    absent_le: string | null;
-  }>(`SELECT id, nom, adresse, commune, code_postal, absent_le::text
+    absent_le: string | null; cle: string;
+  }>(`SELECT id, nom, adresse, commune, code_postal, absent_le::text, wippimmo_id AS cle
         FROM gestion_annuaire_locataire pe
        WHERE id = $1 AND ${await sqlPersonneVivante('pe')}`, [id]);
   const p = rows[0];
@@ -1678,6 +1686,8 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
     etat: 'ok',
     data: {
       id: Number(p.id), nom: p.nom, adresse: p.adresse, commune: p.commune, codePostal: p.code_postal,
+      /* 🔴🔴 POINT 3 — la clé WIPPIMMO, seule adresse valable de son historique. Voir `FicheLocataire.cle`. */
+      cle: p.cle,
       absent: p.absent_le !== null,
       contacts: await contactsDe('locataire', Number(p.id)),
       occupations: occ.map((o) => ({
