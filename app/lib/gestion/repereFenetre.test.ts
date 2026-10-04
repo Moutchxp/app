@@ -286,3 +286,95 @@ describe('🔴 ③ ce que l’écran dessine', () => {
     expect((src.match(/key=\{`rep-\$\{r\.id\}`\}/g) ?? [])).toHaveLength(2);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 4 — LA MODALE DISAIT « À CLASSER », LA LISTE DISAIT « INTERNE »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (04/10/2026) : « dans la fenêtre ouverte par le ⓘ de la ligne rouge, le statut “après” s'affiche
+   À CLASSER, alors que les mails concernés affichent INTERNE dans la liste. Trouve laquelle des deux affirmations
+   est fausse, avec la base comme juge. »
+
+   CE QUE LA BASE A DIT, FIL 3490 :
+     · `gestion_fil_interne` — ligne 75 ACTIVE depuis le 04/10 à 01:28:30 : l'échange EST marqué interne ;
+     · `gestion_fil_periode` — les CINQ fenêtres du fil sont de sorte « biens ». Aucune n'est « interne ». Et sur
+       TOUTE la base, les 23 819 fenêtres vivantes sont de sorte « biens » : le mécanisme de fenêtre n'a jamais
+       porté « interne » ;
+     · `gestion_message_interne` (migration 297, appliquée) — VIDE, et la table n'est NOMMÉE NULLE PART dans le
+       code. La projection par mail n'a jamais été câblée : ce n'est pas une source vivante.
+
+   🔴 VERDICT : LA LISTE AVAIT RAISON, LA MODALE AVAIT TORT. La liste lit la marque d'échange (`capsuleStatut`, qui
+   place « interne » juste après les deux verts) ; la modale ne lisait QUE les fenêtres, et une fenêtre « biens »
+   sans bien se lit « À classer ». Elle omettait une source.
+
+   ÉTENDUE MESURÉE : 9 échanges portent une marque « Interne » active ; 3 d'entre eux ont aussi une fenêtre vivante
+   (donc une ligne rouge avec son ⓘ) ; et ces 3 avaient le défaut. */
+
+describe('🔴🔴 la marque « Interne » de l’échange est le repli du statut', () => {
+  const sansBien: Periode['classement'] = { sorte: 'biens', biens: [] };
+  const avecBien: Periode['classement'] = {
+    sorte: 'biens', biens: [{ cle: 'L484', libelle: '2 Square Henri Régnault — lot 484' }],
+  };
+
+  /** 🔴 LE DÉFAUT EXACT D'ARNO : une fenêtre « biens » sans bien, sur un échange marqué interne. */
+  it('🔴🔴 une fenêtre sans bien, sur un échange interne, se lit « Interne » et non « À classer »', () => {
+    expect(etatDuClassement(sansBien).statut).toBe(STATUT_A_CLASSER);
+    expect(etatDuClassement(sansBien, true).statut).toBe('Interne');
+  });
+
+  /**
+   * 🔴 L'ORDRE EST CELUI DE LA CAPSULE DE LA LISTE, AU MOT PRÈS : des biens valent « Classé », et la marque
+   * d'échange ne s'y substitue JAMAIS. Deux ordres différents auraient fait diverger la liste et la modale sur un
+   * autre cas, un autre jour.
+   */
+  it('🔴 des biens l’emportent toujours sur la marque d’échange', () => {
+    expect(etatDuClassement(avecBien, true).statut).toBe('Classé');
+  });
+
+  /** 🔴 ET UNE FENÊTRE QUI PARLE D'ELLE-MÊME GARDE SON MOT : la marque ne recouvre pas une décision explicite. */
+  it('🔴 une fenêtre « hors gestion » reste « Hors gestion », même sur un échange interne', () => {
+    expect(etatDuClassement({ sorte: 'hors_gestion', biens: [] }, true).statut).toBe('Hors gestion');
+    expect(etatDuClassement({ sorte: 'interne', biens: [] }, false).statut).toBe('Interne');
+  });
+
+  /**
+   * 🔴🔴 LA MARQUE S'APPLIQUE AUX DEUX CÔTÉS DU COMPARATIF, et c'est important : elle ne commence pas à cette
+   * fenêtre, elle couvre tout l'échange. Ne l'appliquer qu'à l'« après » aurait FABRIQUÉ un changement qui n'a
+   * pas eu lieu — « À classer → Interne » — c'est-à-dire remplacé une incohérence par une autre.
+   */
+  it('🔴🔴 le comparatif l’applique à l’avant comme à l’après', () => {
+    const periodes = [
+      PERIODE(1, 5495, sansBien),
+      PERIODE(2, 57368, sansBien),
+    ];
+    const sans = comparatifRepere({ mails: MAILS, periodes, periodeId: 2 });
+    expect(sans?.avant?.statut).toBe(STATUT_A_CLASSER);
+    expect(sans?.apres.statut).toBe(STATUT_A_CLASSER);
+
+    const avec = comparatifRepere({ mails: MAILS, periodes, periodeId: 2, interneDeLEchange: true });
+    expect(avec?.avant?.statut).toBe('Interne');
+    expect(avec?.apres.statut).toBe('Interne');
+    /* 🔴 ET LA LIGNE N'EST DONC PAS MARQUÉE « MODIFIÉE » : rien n'a changé à cet endroit du fil. */
+    const l = lignesComparatif(avec as NonNullable<typeof avec>).find((x) => x.libelle === 'Statut');
+    expect(l?.modifie).toBe(false);
+  });
+
+  /** ⚠️ ET SANS LA MARQUE, LE COMPORTEMENT D'AVANT CE LOT EST INCHANGÉ : le paramètre est facultatif. */
+  it('⚠️ le défaut du paramètre ne change rien pour les appelants existants', () => {
+    const periodes = [PERIODE(1, 5495, avecBien), PERIODE(2, 57368, sansBien)];
+    const c = comparatifRepere({ mails: MAILS, periodes, periodeId: 2 });
+    expect(c?.avant?.statut).toBe('Classé');
+    expect(c?.apres.statut).toBe(STATUT_A_CLASSER);
+  });
+
+  /**
+   * 🔒 L'ÉCRAN PASSE LA MARQUE QU'IL TIENT DÉJÀ, et n'en lit pas une seconde : une seule source pour la case du
+   * bandeau, la capsule du mail et cette modale.
+   */
+  it('🔒 la conversation passe sa propre marque, sans requête de plus', () => {
+    const cnv = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+    expect(cnv).toContain('interneDeLEchange={interne === true}');
+    expect((cnv.match(/interneDeLEchange=\{interne === true\}/g) ?? []).length).toBe(2);
+    expect(cnv).toContain('periodeId: r.id, interneDeLEchange,');
+  });
+});

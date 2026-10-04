@@ -1342,6 +1342,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           {coteDuRepere(ordre) === 'dessus' && reperes
             .filter((r) => r.avantMessageId === m.messageId)
             .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessus"
+              interneDeLEchange={interne === true}
               /* 🔴 LE MAIL QUI OUVRE LA FENÊTRE, pour le pied de la modale : c'est CE mail-ci, celui
                  que le repère annonce. Aucune recherche, aucune requête — il est déjà là. */
               mail={m} />)}
@@ -1480,6 +1481,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           {coteDuRepere(ordre) === 'dessous' && reperes
             .filter((r) => r.avantMessageId === m.messageId)
             .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessous"
+              interneDeLEchange={interne === true}
               /* 🔴 LE MAIL QUI OUVRE LA FENÊTRE, pour le pied de la modale : c'est CE mail-ci, celui
                  que le repère annonce. Aucune recherche, aucune requête — il est déjà là. */
               mail={m} />)}
@@ -1846,10 +1848,22 @@ function ouvrirRedaction(
  * changement de taille, par un `ResizeObserver`.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-function LigneRepere({ repere: r, suivi, cote, mail }: {
+function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
   repere: RepereFil;
   suivi: { mails: number[]; periodes: Periode[]; exceptions: ExceptionMail[] } | null;
   cote: 'dessus' | 'dessous';
+  /**
+   * ══ 🔴🔴 LA MARQUE « INTERNE » DE L'ÉCHANGE — CORRECTION DU 04/10/2026 ════════════════════════════════════════
+   *
+   * CONSTAT D'ARNO : la modale du ⓘ annonçait « À classer » là où la liste affichait « Interne ». La base a
+   * tranché (fil 3490) : la marque d'échange `gestion_fil_interne` est ACTIVE, aucune des cinq fenêtres n'est de
+   * sorte « interne », et la table par mail de la migration 297 est vide ET nommée nulle part. La liste avait donc
+   * raison, et la modale omettait une source.
+   *
+   * 🔴 ELLE EST PASSÉE DEPUIS L'ÉCRAN, QUI LA TIENT DÉJÀ (l'état `interne`, lu par `/api/admin/gestion/interne`) :
+   * aucune requête de plus, et une seule source pour la case du bandeau, la capsule et cette modale.
+   */
+  interneDeLEchange: boolean;
   /**
    * 🔴 LE MAIL QUI OUVRE LA FENÊTRE — pour le pied de la modale (« sur quel mail : expéditeur, date, objet »).
    * C'est le mail voisin de la ligne, celui que l'écran tient déjà en main : rien n'est rechargé pour l'afficher.
@@ -1886,7 +1900,9 @@ function LigneRepere({ repere: r, suivi, cote, mail }: {
    * `lignesComparatif` — qui lit le MÊME comparatif.
    */
   const c = suivi === null ? null
-    : comparatifRepere({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
+    : comparatifRepere({
+      mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id, interneDeLEchange,
+    });
 
   /** 🔴 LA PORTÉE DE LA FENÊTRE, comptée sur les mails de l'échange. Module pur, aucune requête. */
   const nbMails = suivi === null ? 0

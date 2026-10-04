@@ -82,10 +82,38 @@ export const STATUT_A_CLASSER = 'À classer';
 export const STATUT_INTERNE = 'Interne';
 export const STATUT_HORS_GESTION = 'Hors gestion';
 
-export function motStatutClassement(c: Classement): string {
+/**
+ * ══ 🔴🔴 LA MARQUE « INTERNE » DE L'ÉCHANGE EST LE REPLI — DÉFAUT MESURÉ LE 04/10/2026 ═══════════════════════════
+ *
+ * CONSTAT D'ARNO : « dans la fenêtre ouverte par le ⓘ de la ligne rouge, le statut “après” s'affiche À CLASSER,
+ * alors que les mails concernés affichent INTERNE dans la liste. »
+ *
+ * CE QUE LA BASE DIT, ET C'EST ELLE QUI TRANCHE (fil 3490) :
+ *   · `gestion_fil_interne` — ligne 75 ACTIVE depuis le 04/10 à 01:28:30 : l'échange EST marqué interne ;
+ *   · `gestion_fil_periode` — les CINQ fenêtres du fil sont de sorte « biens », aucune n'est « interne » ;
+ *   · `gestion_message_interne` (migration 297, appliquée) — VIDE, et la table n'est NOMMÉE NULLE PART dans le
+ *     code : la projection par mail n'a jamais été câblée. Ce n'est donc pas une source vivante.
+ *
+ * 🔴 LA LISTE A DONC RAISON, ET LA MODALE AVAIT TORT. La liste lit la marque d'échange (`capsuleStatut`, qui place
+ * « interne » juste après les deux verts) ; la modale ne lisait QUE les fenêtres, et une fenêtre « biens » sans
+ * bien se lit « À classer ». Elle omettait une source, et affirmait donc un statut qui n'était pas celui des mails.
+ *
+ * ⚠️ ET C'EST EXACTEMENT CE QUE LA MIGRATION 297 ANNONÇAIT : « elle ne touche pas `gestion_fil_interne`, qui reste
+ * la marque de l'ÉCHANGE. Les deux cohabitent : la marque d'échange est le repli quand aucune fenêtre ne couvre
+ * le mail. » Le repli était décrit, il n'était pas appliqué ici.
+ *
+ * 🔴 L'ORDRE EST CELUI DE LA CAPSULE DE LA LISTE, AU MOT PRÈS (`capsuleStatut`) : une fenêtre qui dit « interne »
+ * ou « hors gestion » parle d'elle-même ; des biens valent « Classé » ; et c'est seulement quand il n'y a rien à
+ * dire que la marque d'échange répond. Deux ordres différents auraient fait diverger la liste et la modale sur
+ * un autre cas, un autre jour.
+ *
+ * ⚠️ LE PARAMÈTRE EST FACULTATIF ET VAUT `false` : tout le code écrit avant ce lot se comporte à l'identique.
+ */
+export function motStatutClassement(c: Classement, interneDeLEchange = false): string {
   if (c.sorte === 'interne') return STATUT_INTERNE;
   if (c.sorte === 'hors_gestion') return STATUT_HORS_GESTION;
-  return c.biens.length === 0 ? STATUT_A_CLASSER : STATUT_CLASSE;
+  if (c.biens.length > 0) return STATUT_CLASSE;
+  return interneDeLEchange ? STATUT_INTERNE : STATUT_A_CLASSER;
 }
 
 /**
@@ -125,8 +153,12 @@ export function motPersonnes(c: Classement): string {
  * ⚠️ `motPersonnes` RESTE : c'est le nom seul, et le bloc « Suivi dans la conversation » l'écrit ainsi depuis
  * toujours. Deux lectures d'une même donnée, chacune pour un écran — pas une duplication à réduire.
  */
-export function etatDuClassement(c: Classement): EtatClassement {
-  return { statut: motStatutClassement(c), biens: motBiens(c), personnes: personnesAvecRole(c) };
+export function etatDuClassement(c: Classement, interneDeLEchange = false): EtatClassement {
+  return {
+    statut: motStatutClassement(c, interneDeLEchange),
+    biens: motBiens(c),
+    personnes: personnesAvecRole(c),
+  };
 }
 
 /**
@@ -174,6 +206,13 @@ export function comparatifRepere(o: {
   mails: readonly number[];
   periodes: readonly Periode[];
   periodeId: number;
+  /**
+   * 🔴 LA MARQUE « INTERNE » DE L'ÉCHANGE, qui sert de REPLI quand la fenêtre n'a rien à dire. Voir l'encadré de
+   * `motStatutClassement` : sans elle, la modale annonçait « À classer » là où la liste affichait « Interne ».
+   *
+   * ⚠️ FACULTATIVE : les appelants d'avant ce lot se comportent à l'identique.
+   */
+  interneDeLEchange?: boolean;
 }): ComparatifRepere | null {
   const rang = new Map(o.mails.map((m, i) => [m, i]));
   const moi = o.periodes.find((p) => p.id === o.periodeId);
@@ -188,8 +227,10 @@ export function comparatifRepere(o: {
     .at(-1) ?? null;
 
   return {
-    avant: avant === null ? null : etatDuClassement(avant.classement),
-    apres: etatDuClassement(moi.classement),
+    /* 🔴 LA MARQUE D'ÉCHANGE S'APPLIQUE AUX DEUX CÔTÉS : elle ne commence pas à cette fenêtre, elle couvre tout
+       l'échange. L'appliquer au seul « après » aurait fabriqué un changement qui n'a pas eu lieu. */
+    avant: avant === null ? null : etatDuClassement(avant.classement, o.interneDeLEchange === true),
+    apres: etatDuClassement(moi.classement, o.interneDeLEchange === true),
     choix: motChoixFenetre(monRang),
     qui: moi.parLibelle ?? null,
     quand: moi.le ?? null,
