@@ -96,7 +96,23 @@ export interface LigneCarte {
   creePar: string;
 }
 
-export type IssuePartieCategorie = { ok: true; id: number | null; nb: number } | { ok: false; motif: string };
+/**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-3 — `retires` PORTE LES IDENTIFIANTS QUE LE GESTE A RETIRÉS.
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « après le dépôt, petit message “Fanny Rosky → Locataire” avec “Annuler”
+ * quelques secondes. »
+ *
+ * 🔴 SANS CES IDENTIFIANTS, « ANNULER » NE POUVAIT PAS ÊTRE EXACT. Reposer la catégorie d'avant aurait laissé une
+ * ligne `manuel` là où il n'y avait qu'une PROPOSITION — c'est-à-dire aurait transformé l'annulation en une
+ * seconde décision humaine, que l'automatisation ne reprendra plus jamais. L'annulation ROUVRE donc exactement
+ * la ligne que le geste avait retirée, et retire celle qu'il avait posée. C'est la convention de ce dépôt
+ * (« rien n'est supprimé ») appliquée dans les deux sens.
+ *
+ * ⚠️ FACULTATIF, pour que les appelants d'avant ce lot restent inchangés.
+ */
+export type IssuePartieCategorie =
+  | { ok: true; id: number | null; nb: number; retires?: readonly number[] }
+  | { ok: false; motif: string };
 
 const SANS_304 = 'Mise à jour de la base à appliquer (migration 304) : le rangement des parties n’est pas encore '
   + 'installé.';
@@ -300,14 +316,19 @@ export async function poserCategorieAlaMain(o: {
   }
   const motif = texteCourt(o.motif);
 
+  const retires: number[] = [];
   const id = await withTransaction(async (q) => {
-    /* ① LA LIGNE VIVANTE EN PLACE EST RETIRÉE — datée, signée, jamais supprimée. */
-    await q(
+    /* ① LA LIGNE VIVANTE EN PLACE EST RETIRÉE — datée, signée, jamais supprimée.
+       🔴 ET SON IDENTIFIANT EST GARDÉ (lot HISTORIQUE-BIEN-3) : c'est lui, et lui seul, qui permet à « Annuler »
+          de ROUVRIR exactement la ligne d'avant au lieu d'en reposer une nouvelle à la main. */
+    const { rows: anciens } = await q<{ id: string }>(
       `UPDATE gestion_partie_categorie
           SET retire_le = now(), retire_par = $3, retire_par_libelle = $4,
               retire_motif = coalesce($5, 'remplacée par un rangement manuel')
-        WHERE retire_le IS NULL AND adresse = $1 AND coalesce(lot_cle, '') = coalesce($2, '')`,
+        WHERE retire_le IS NULL AND adresse = $1 AND coalesce(lot_cle, '') = coalesce($2, '')
+        RETURNING id::text`,
       [adresse, lot, o.auteur.id, o.auteur.libelle, motif]);
+    for (const r of anciens) retires.push(Number(r.id));
 
     /* ② PUIS LA NOUVELLE. `origine` est en dur : cette fonction est le geste manuel, et rien d'autre. */
     const { rows } = await q<{ id: string }>(
@@ -320,7 +341,7 @@ export async function poserCategorieAlaMain(o: {
     return Number(rows[0]?.id ?? 0);
   });
 
-  return { ok: true, id: id === 0 ? null : id, nb: 1 };
+  return { ok: true, id: id === 0 ? null : id, nb: 1, retires };
 }
 
 /**
@@ -430,4 +451,110 @@ export async function marquerCarteVerifiee(o: { id: number; auteur: Auteur }): P
       WHERE id = $1 AND retire_le IS NULL
       RETURNING id::text`, [o.id, o.auteur.id, o.auteur.libelle]);
   return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT HISTORIQUE-BIEN-3 — ANNULER UN RANGEMENT, EXACTEMENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Ce qu'un geste de rangement a touché. Rendu par la route, renvoyé par elle pour annuler. */
+export interface GesteDeRangement {
+  categoriesPosees: readonly number[];
+  categoriesRetirees: readonly number[];
+  cartesPosees: readonly number[];
+  cartesRetirees: readonly number[];
+}
+
+/**
+ * ══ 🔴🔴 ANNULER UN RANGEMENT : RETIRER CE QU'IL A POSÉ, ROUVRIR CE QU'IL A RETIRÉ ══════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : « après le dépôt, petit message “Fanny Rosky → Locataire” avec “Annuler”
+ * quelques secondes. »
+ *
+ * 🔴 POURQUOI « ANNULER » NE PEUT PAS ÊTRE « REPOSER LA CATÉGORIE D'AVANT ». Reposer aurait écrit une ligne
+ * `manuel` là où il n'y avait qu'une PROPOSITION de la règle à trois étages. Or un rangement manuel PRIME pour
+ * toujours : l'annulation aurait donc gelé la proposition en décision humaine, et l'automatisation n'aurait plus
+ * jamais repris cette adresse. C'est l'inverse de ce qu'« Annuler » promet.
+ *
+ * 🔴 L'ORDRE DES DEUX MOITIÉS EST LA RÈGLE, ET PAS UN DÉTAIL DE STYLE. On RETIRE d'abord ce que le geste a posé,
+ * on ROUVRE ensuite ce qu'il avait retiré. L'inverse violerait l'index unique partiel sur les lignes VIVANTES
+ * (une seule par clé) : la réouverture se heurterait à la ligne encore vivante, et toute l'annulation échouerait
+ * — en laissant l'état à moitié défait, ce qui est pire que de n'avoir rien annulé.
+ *
+ * 🔴 UNE SEULE TRANSACTION. Les quatre écritures sont une seule décision ; un échec au milieu laisserait une
+ * catégorie annulée avec sa carte en place, c'est-à-dire exactement la désynchronisation que ce lot existe pour
+ * empêcher.
+ *
+ * ⚠️ ROUVRIR EFFACE LA SIGNATURE DE RETRAIT, ET C'EST JUSTE : la ligne n'a plus été retirée. Ce n'est PAS une
+ * suppression — la ligne, elle, n'a jamais cessé d'exister, et c'est le geste d'annulation qui est, lui, tracé
+ * sur la ligne qu'il retire.
+ *
+ * ⚠️ LA GARDE N'EST PAS RELÂCHÉE : annuler est un geste humain, donc l'auteur doit être identifié — même règle
+ * que poser. Sans elle, une passe automatique aurait pu défaire un rangement fait à la main.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function annulerGesteDeRangement(o: {
+  geste: GesteDeRangement; auteur: Auteur;
+}): Promise<IssuePartieCategorie> {
+  if (!(await partieCategorieDisponible())) return { ok: false, motif: SANS_304 };
+  if (!auteurHumainPartieCategorie(o.auteur)) {
+    return { ok: false, motif: 'Annuler est un geste humain : l’auteur doit être identifié.' };
+  }
+  const nombres = (v: readonly number[]): number[] =>
+    [...new Set(v)].filter((n) => Number.isSafeInteger(n) && n > 0);
+
+  const catPosees = nombres(o.geste.categoriesPosees);
+  const catRetirees = nombres(o.geste.categoriesRetirees);
+  const cartPosees = nombres(o.geste.cartesPosees);
+  const cartRetirees = nombres(o.geste.cartesRetirees);
+  if (catPosees.length + catRetirees.length + cartPosees.length + cartRetirees.length === 0) {
+    return { ok: false, motif: 'Rien à annuler.' };
+  }
+
+  const MOTIF = 'rangement annulé';
+  const nb = await withTransaction(async (q) => {
+    let n = 0;
+    /* ① CE QUE LE GESTE A POSÉ EST RETIRÉ — daté, signé, motivé. */
+    if (catPosees.length > 0) {
+      const { rows } = await q<{ id: string }>(
+        `UPDATE gestion_partie_categorie
+            SET retire_le = now(), retire_par = $2, retire_par_libelle = $3, retire_motif = $4
+          WHERE retire_le IS NULL AND id = ANY($1::bigint[])
+          RETURNING id::text`,
+        [catPosees, o.auteur.id, o.auteur.libelle, MOTIF]);
+      n += rows.length;
+    }
+    if (cartPosees.length > 0) {
+      const { rows } = await q<{ id: string }>(
+        `UPDATE gestion_contact_carte
+            SET retire_le = now(), retire_par = $2, retire_par_libelle = $3, retire_motif = $4
+          WHERE retire_le IS NULL AND id = ANY($1::bigint[])
+          RETURNING id::text`,
+        [cartPosees, o.auteur.id, o.auteur.libelle, MOTIF]);
+      n += rows.length;
+    }
+    /* ② PUIS CE QU'IL AVAIT RETIRÉ EST ROUVERT. La clé est libre, puisque ① vient de la libérer. */
+    if (catRetirees.length > 0) {
+      const { rows } = await q<{ id: string }>(
+        `UPDATE gestion_partie_categorie
+            SET retire_le = NULL, retire_par = NULL, retire_par_libelle = NULL, retire_motif = NULL
+          WHERE retire_le IS NOT NULL AND id = ANY($1::bigint[])
+          RETURNING id::text`,
+        [catRetirees]);
+      n += rows.length;
+    }
+    if (cartRetirees.length > 0) {
+      const { rows } = await q<{ id: string }>(
+        `UPDATE gestion_contact_carte
+            SET retire_le = NULL, retire_par = NULL, retire_par_libelle = NULL, retire_motif = NULL
+          WHERE retire_le IS NOT NULL AND id = ANY($1::bigint[])
+          RETURNING id::text`,
+        [cartRetirees]);
+      n += rows.length;
+    }
+    return n;
+  });
+
+  return { ok: true, id: null, nb };
 }

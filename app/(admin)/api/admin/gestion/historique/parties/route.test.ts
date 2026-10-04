@@ -10,11 +10,15 @@ const categoriesMock = vi.fn();
 const cartesMock = vi.fn();
 const poserCategorieMock = vi.fn();
 const poserCarteMock = vi.fn();
+const retirerCarteMock = vi.fn();
+const annulerMock = vi.fn();
 vi.mock('../../../../../../lib/gestion/partieCategorieRepo', () => ({
   lireCategoriesDuBien: (...a: unknown[]) => categoriesMock(...a),
   lireCartesDuBien: (...a: unknown[]) => cartesMock(...a),
   poserCategorieAlaMain: (...a: unknown[]) => poserCategorieMock(...a),
   poserCarteAlaMain: (...a: unknown[]) => poserCarteMock(...a),
+  retirerCarte: (...a: unknown[]) => retirerCarteMock(...a),
+  annulerGesteDeRangement: (...a: unknown[]) => annulerMock(...a),
 }));
 
 import { GET, POST } from './route';
@@ -47,6 +51,8 @@ beforeEach(() => {
   cartesMock.mockReset(); cartesMock.mockResolvedValue([]);
   poserCategorieMock.mockReset(); poserCategorieMock.mockResolvedValue({ ok: true, id: 1, nb: 1 });
   poserCarteMock.mockReset(); poserCarteMock.mockResolvedValue({ ok: true, id: 2, nb: 1 });
+  retirerCarteMock.mockReset(); retirerCarteMock.mockResolvedValue({ ok: true, id: 9, nb: 1 });
+  annulerMock.mockReset(); annulerMock.mockResolvedValue({ ok: true, id: null, nb: 4 });
 });
 
 describe('🔒 le droit, et l’auteur', () => {
@@ -83,11 +89,30 @@ describe('🔴 ce qu’elle refuse', () => {
   });
 
   /**
-   * 🔴🔴 « NON AFFECTÉE » N'EST PAS UNE CATÉGORIE QU'ON POSE : c'est l'absence de rangement. L'accepter aurait
-   * permis d'écrire « à répartir » à la main par-dessus une proposition — c'est-à-dire de figer un non-choix.
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3 — « NON AFFECTÉS » EST DEVENUE POSABLE, ET C'EST UN CHANGEMENT DE SENS ═════════
+   *
+   * ═══ CE QUE CE CAS ATTENDAIT, ET POURQUOI C'ÉTAIT JUSTE ══════════════════════════════════════════════════════
+   * Que `a_repartir` soit REFUSÉE, au même titre qu'une catégorie inconnue. C'était exact au lot 2 : « non
+   * affectée » y était l'ABSENCE de rangement, et la figer à la main n'avait aucun sens pour le bouton « + » —
+   * on aurait écrit noir sur blanc un non-choix.
+   *
+   * ═══ 🔴 CE QU'ARNO A TRANCHÉ LE 05/10/2026 ═══════════════════════════════════════════════════════════════════
+   * « Les capsules des CONTACTS se glissent-déposent d'une catégorie à l'autre : Propriétaire ⇄ Locataire ⇄
+   * Tiers indépendant ⇄ Non affectés. » « Non affectés » devient une ZONE DE DÉPÔT : y glisser un contact est
+   * une décision — « ce n'est ni l'un ni l'autre, et je le dis ». Elle est donc posée `manuel` comme les trois
+   * autres, et l'automatisation ne la reprendra plus (« le choix manuel prime »).
+   *
+   * Ce qui reste refusé : l'absence de catégorie, et toute valeur hors des quatre.
    */
-  it('🔴🔴 une catégorie absente, inconnue, ou « a_repartir »', async () => {
-    for (const categorie of [undefined, '', 'a_repartir', 'syndic', 42]) {
+  it('🔴🔴 les quatre catégories sont posables ; tout le reste est refusé', async () => {
+    for (const categorie of ['proprietaire', 'locataire', 'independant', 'a_repartir']) {
+      poserCategorieMock.mockClear();
+      const r = await POST(poste({ ...BASE, categorie }));
+      expect(r.status).toBe(200);
+      expect(poserCategorieMock.mock.calls[0][0].categorie).toBe(categorie);
+    }
+    poserCategorieMock.mockClear();
+    for (const categorie of [undefined, '', 'syndic', 42, 'a-repartir']) {
       const r = await POST(poste({ ...BASE, categorie }));
       expect(r.status).toBe(400);
       expect((await r.json()).motif).toContain('Choisissez une catégorie');
@@ -169,6 +194,147 @@ describe('🔴🔴 ce qu’elle fait quand le dépôt refuse', () => {
     const r = await POST(poste(BASE));
     expect(r.status).toBe(503);
     expect((await r.json()).motif).toContain('n’a pas répondu');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT HISTORIQUE-BIEN-3 — LE DÉPLACEMENT : LA CARTE SUIT LA CATÉGORIE, ET « ANNULER » DÉFAIT EXACTEMENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 la carte de contact suit la catégorie', () => {
+  const carte = (o: Partial<{ id: number; cote: string; adresse: string; nom: string | null; telephone: string | null }>) => ({
+    id: 70, lotCle: '155', cote: 'proprietaire', adresse: 'assureur@fictif.test',
+    nom: 'Sophie AXA', telephone: '06 11 22 33 44', origine: 'manuel',
+    verifieLe: null, verifiePar: null, creeLe: '2026-10-04', creePar: 'x', ...o,
+  });
+
+  /**
+   * 🔴🔴 « DÉPLACÉE » = L'ANCIENNE RETIRÉE, LA NOUVELLE POSÉE AVEC SON NOM ET SON TÉLÉPHONE. La clé de la table
+   * est (bien, côté, adresse) : changer de côté EST une autre ligne, il n'y a pas d'`UPDATE` possible. Sans le
+   * report du nom et du numéro, déplacer un contact lui faisait perdre le travail de vérification déjà fait.
+   */
+  it('🔴🔴 déplacer d’un côté à l’autre retire l’ancienne carte et reporte nom et téléphone', async () => {
+    cartesMock.mockResolvedValue([carte({ cote: 'proprietaire' })]);
+    await POST(poste({ ...BASE, categorie: 'locataire' }));
+    expect(retirerCarteMock.mock.calls[0][0]).toMatchObject({ id: 70 });
+    expect(retirerCarteMock.mock.calls[0][0].motif).toContain('déplacé côté locataire');
+    expect(poserCarteMock.mock.calls[0][0]).toMatchObject({
+      cote: 'locataire', nom: 'Sophie AXA', telephone: '06 11 22 33 44',
+    });
+  });
+
+  /**
+   * 🔴🔴 GLISSER VERS TIERS NE CRÉE AUCUNE CARTE, ET RETIRE CELLE QUI EXISTAIT. Arno : « Glisser vers Tiers ne
+   * crée aucune carte côté propriétaire ou locataire. » Un tiers n'est pas un contact de CE bien : il travaille
+   * pour nous sur beaucoup de biens.
+   */
+  it('🔴🔴 vers « Tiers indépendant » : la carte est retirée, aucune n’est posée', async () => {
+    cartesMock.mockResolvedValue([carte({ cote: 'locataire' })]);
+    const r = await POST(poste({ ...BASE, categorie: 'independant' }));
+    expect(r.status).toBe(200);
+    expect(retirerCarteMock).toHaveBeenCalledTimes(1);
+    expect(retirerCarteMock.mock.calls[0][0].motif).toContain('n’est pas un contact de ce bien');
+    expect(poserCarteMock).not.toHaveBeenCalled();
+  });
+
+  /** 🔴 MÊME CHOSE VERS « NON AFFECTÉS » : plus aucune carte ne subsiste pour cette adresse sur ce bien. */
+  it('🔴🔴 vers « Non affectés » : la carte est retirée aussi', async () => {
+    cartesMock.mockResolvedValue([carte({ cote: 'proprietaire' })]);
+    await POST(poste({ ...BASE, categorie: 'a_repartir' }));
+    expect(retirerCarteMock).toHaveBeenCalledTimes(1);
+    expect(poserCarteMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ══ 🔴🔴 ON NE REPOSE PAS UNE CARTE DÉJÀ DU BON CÔTÉ, ET LE PIÈGE EST SÉRIEUX ════════════════════════════════
+   *
+   * `poserCarteAlaMain` est un `ON CONFLICT DO UPDATE` : reposer aurait rendu l'identifiant d'une carte
+   * PRÉEXISTANTE, qui entrerait alors dans « posées » — et « Annuler » l'aurait RETIRÉE, détruisant une carte que
+   * le geste n'avait pas créée. C'est exactement le genre de dégât qu'une annulation ne doit jamais faire.
+   */
+  it('🔴🔴 une carte déjà du bon côté n’est pas reposée, et n’entre pas dans « posées »', async () => {
+    cartesMock.mockResolvedValue([carte({ cote: 'locataire', id: 71 })]);
+    const r = await POST(poste({ ...BASE, categorie: 'locataire' }));
+    expect(poserCarteMock).not.toHaveBeenCalled();
+    expect(retirerCarteMock).not.toHaveBeenCalled();
+    expect((await r.json()).geste.cartesPosees).toEqual([]);
+  });
+
+  /** ⚠️ …SAUF SI LE GESTE APPORTE UN NOM OU UN TÉLÉPHONE : c'est alors une mise à jour voulue. */
+  it('⚠️ un nom fourni met à jour la carte déjà du bon côté', async () => {
+    cartesMock.mockResolvedValue([carte({ cote: 'locataire', id: 71 })]);
+    const r = await POST(poste({ ...BASE, categorie: 'locataire', nom: 'Sophie A.' }));
+    expect(poserCarteMock.mock.calls[0][0].nom).toBe('Sophie A.');
+    /* …mais elle n'est toujours pas « posée » : elle existait. */
+    expect((await r.json()).geste.cartesPosees).toEqual([]);
+  });
+
+  /** ⚠️ UNE CARTE D'UNE AUTRE ADRESSE N'EST JAMAIS TOUCHÉE. */
+  it('⚠️ seules les cartes de CETTE adresse sont touchées', async () => {
+    cartesMock.mockResolvedValue([carte({ adresse: 'quelqun-autre@fictif.test', cote: 'proprietaire' })]);
+    await POST(poste({ ...BASE, categorie: 'independant' }));
+    expect(retirerCarteMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴🔴 le geste est rendu, et « Annuler » le défait', () => {
+  /**
+   * 🔴 LE GESTE EST CE QUE L'ÉCRAN GARDE DERRIÈRE « ANNULER » : ce qui a été posé, ce qui a été retiré. Sans ces
+   * identifiants, annuler aurait voulu dire « reposer la catégorie d'avant » — ce qui aurait figé une PROPOSITION
+   * en décision humaine, que l'automatisation ne reprendrait plus jamais.
+   */
+  it('🔴🔴 la réponse porte les quatre listes du geste', async () => {
+    poserCategorieMock.mockResolvedValue({ ok: true, id: 101, nb: 1, retires: [100] });
+    cartesMock.mockResolvedValue([]);
+    poserCarteMock.mockResolvedValue({ ok: true, id: 202, nb: 1 });
+    const d = await (await POST(poste({ ...BASE, categorie: 'locataire' }))).json();
+    expect(d.geste).toEqual({
+      categoriesPosees: [101], categoriesRetirees: [100], cartesPosees: [202], cartesRetirees: [],
+    });
+  });
+
+  it('🔴 « Annuler » passe le geste au dépôt, et ne range rien de neuf', async () => {
+    const geste = {
+      categoriesPosees: [101], categoriesRetirees: [100], cartesPosees: [202], cartesRetirees: [9],
+    };
+    const r = await POST(poste({ action: 'annuler', geste }));
+    expect(r.status).toBe(200);
+    expect(annulerMock.mock.calls[0][0].geste).toEqual(geste);
+    expect(poserCategorieMock).not.toHaveBeenCalled();
+    expect(poserCarteMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴🔴 LES IDENTIFIANTS DU CORPS SONT FILTRÉS SUR LEUR FORME. Le navigateur renvoie ce que la route lui a
+   * donné, mais rien n'oblige à le croire : une chaîne, un nombre négatif ou un flottant ne désignent aucune
+   * ligne, et les laisser passer aurait fait écrire du SQL sur des valeurs non vérifiées.
+   */
+  it('🔴🔴 les identifiants mal formés sont écartés', async () => {
+    await POST(poste({
+      action: 'annuler',
+      geste: {
+        categoriesPosees: [101, '102', -3, 0, 1.5, null],
+        categoriesRetirees: 'pas un tableau',
+        cartesPosees: [202],
+        cartesRetirees: [],
+      },
+    }));
+    expect(annulerMock.mock.calls[0][0].geste).toEqual({
+      categoriesPosees: [101], categoriesRetirees: [], cartesPosees: [202], cartesRetirees: [],
+    });
+  });
+
+  it('🔒 annuler exige le droit « gestion », comme poser', async () => {
+    gardeMock.mockResolvedValue(new Response(null, { status: 403 }));
+    expect((await POST(poste({ action: 'annuler', geste: { categoriesPosees: [1] } }))).status).toBe(403);
+    expect(annulerMock).not.toHaveBeenCalled();
+  });
+
+  it('⚠️ un refus du dépôt est rendu tel quel', async () => {
+    annulerMock.mockResolvedValue({ ok: false, motif: 'Rien à annuler.' });
+    const r = await POST(poste({ action: 'annuler', geste: { categoriesPosees: [1] } }));
+    expect(r.status).toBe(409);
+    expect((await r.json()).motif).toBe('Rien à annuler.');
   });
 });
 

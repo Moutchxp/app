@@ -4,7 +4,8 @@ import { cibleDepuisTexte } from '../../../../../../lib/gestion/historique';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { coteDeLaCategorie, type Categorie } from '../../../../../../lib/gestion/partieCategorie';
 import {
-  lireCartesDuBien, lireCategoriesDuBien, poserCarteAlaMain, poserCategorieAlaMain,
+  annulerGesteDeRangement, lireCartesDuBien, lireCategoriesDuBien, poserCarteAlaMain, poserCategorieAlaMain,
+  retirerCarte, type GesteDeRangement,
 } from '../../../../../../lib/gestion/partieCategorieRepo';
 
 /**
@@ -119,13 +120,91 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
-/** Les trois catégories qu'un humain peut poser depuis ce bloc. « Non affectée » n'en est pas une : c'est l'absence. */
-const CATEGORIES_POSABLES: readonly Categorie[] = ['proprietaire', 'locataire', 'independant'];
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3 — LES QUATRE CATÉGORIES QU'UN HUMAIN PEUT POSER ══════════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « Les capsules des CONTACTS se glissent-déposent d'une catégorie à l'autre :
+ * Propriétaire ⇄ Locataire ⇄ Tiers indépendant ⇄ Non affectés. » et « SYNCHRONISATION STRICTE : un déplacement
+ * passe par la MÊME porte d'écriture que le choix de catégorie du “+” (aucun second chemin). »
+ *
+ * 🔴 « NON AFFECTÉS » DEVIENT POSABLE, ET C'EST UN CHANGEMENT DE SENS ASSUMÉ. Au lot 2, cette route la refusait :
+ * « non affectée » y était l'ABSENCE de rangement, et la figer n'aurait eu aucun sens pour le bouton « + ».
+ * Arno en fait maintenant une zone de DÉPÔT : y glisser un contact est une décision — « ce n'est ni l'un ni
+ * l'autre, et je le dis ». Elle est donc posée `manuel`, comme les trois autres, et l'automatisation ne la
+ * reprendra plus (« le choix manuel prime »).
+ */
+const CATEGORIES_POSABLES: readonly Categorie[] = ['proprietaire', 'locataire', 'independant', 'a_repartir'];
 
 function texteCourt(v: unknown, max: number): string | null {
   if (typeof v !== 'string') return null;
   const t = v.trim();
   return t === '' ? null : t.slice(0, max);
+}
+
+/** Les identifiants d'un geste, relus du corps de la requête — jamais faits confiance au-delà de leur forme. */
+function identifiants(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is number => typeof x === 'number' && Number.isSafeInteger(x) && x > 0).slice(0, 50);
+}
+
+/**
+ * ══ 🔴🔴 LA CARTE DE CONTACT SUIT LA CATÉGORIE : CRÉÉE, DÉPLACÉE, OU RETIRÉE ════════════════════════════════════
+ *
+ * DEMANDE D'ARNO, mot pour mot : « La carte de contact suit la catégorie : créée, déplacée ou retirée (statut
+ * 'retire', jamais supprimée) côté propriétaire / locataire. […] Glisser vers Tiers ne crée aucune carte côté
+ * propriétaire ou locataire. »
+ *
+ * 🔴 TROIS CAS, ET UN SEUL ENDROIT OÙ ILS SONT DÉCIDÉS :
+ *   · vers Propriétaire ou Locataire → la carte existe du BON côté (créée si elle manquait, déplacée sinon) ;
+ *   · vers Tiers indépendant ou Non affectés → aucune carte ne subsiste pour cette adresse sur ce bien.
+ * Le côté vient de `coteDeLaCategorie` — le juge du rangement — et non d'une condition écrite ici. C'est ce
+ * `null` qui interdit la carte d'un tiers, sans qu'aucun `if` ne le répète.
+ *
+ * 🔴 « DÉPLACÉE » = L'ANCIENNE EST RETIRÉE, LA NOUVELLE EST POSÉE AVEC LE NOM ET LE TÉLÉPHONE DE L'ANCIENNE.
+ * Sans ce report, déplacer un contact d'un côté à l'autre lui faisait perdre son nom et son numéro — c'est-à-dire
+ * le travail de vérification déjà fait. La clé de la table est (bien, côté, adresse) : changer de côté EST donc
+ * une autre ligne, et il n'y a pas d'`UPDATE` possible.
+ *
+ * ⚠️ ON NE REPOSE PAS UNE CARTE QUI EST DÉJÀ DU BON CÔTÉ, sauf si le geste apporte un nom ou un téléphone.
+ * `poserCarteAlaMain` est un `ON CONFLICT DO UPDATE` : reposer aurait rendu l'identifiant d'une carte
+ * PRÉEXISTANTE, et « Annuler » l'aurait alors retirée — en détruisant une carte que le geste n'avait pas créée.
+ */
+async function faireSuivreLaCarte(o: {
+  lotCle: string; adresse: string; categorie: Categorie; nom: string | null; telephone: string | null;
+  auteur: Awaited<ReturnType<typeof auteurDeLaRequete>>;
+}): Promise<{ posees: number[]; retirees: number[]; refus: string | null }> {
+  const posees: number[] = [];
+  const retirees: number[] = [];
+  const cle = o.adresse.trim().toLowerCase();
+  const cote = coteDeLaCategorie(o.categorie);
+
+  const cartes = (await lireCartesDuBien(o.lotCle)).filter((c) => c.adresse.trim().toLowerCase() === cle);
+  const aDeplacer = cartes.filter((c) => c.cote !== cote);
+  const dejaBonCote = cote === null ? undefined : cartes.find((c) => c.cote === cote);
+
+  for (const c of aDeplacer) {
+    const r = await retirerCarte({
+      id: c.id,
+      auteur: o.auteur,
+      motif: cote === null
+        ? `la partie est désormais rangée « ${o.categorie} » : elle n’est pas un contact de ce bien`
+        : `contact déplacé côté ${cote}`,
+    });
+    if (r.ok && r.id !== null) retirees.push(r.id);
+  }
+
+  if (cote !== null) {
+    const nom = o.nom ?? aDeplacer[0]?.nom ?? null;
+    const telephone = o.telephone ?? aDeplacer[0]?.telephone ?? null;
+    const aCreer = dejaBonCote === undefined;
+    if (aCreer || o.nom !== null || o.telephone !== null) {
+      const r = await poserCarteAlaMain({ lotCle: o.lotCle, cote, adresse: o.adresse, nom, telephone, auteur: o.auteur });
+      if (!r.ok) return { posees, retirees, refus: r.motif };
+      /* ⚠️ SEULE UNE CARTE RÉELLEMENT CRÉÉE ENTRE DANS « posées » : voir l'encadré ci-dessus. */
+      if (aCreer && r.id !== null) posees.push(r.id);
+    }
+  }
+  return { posees, retirees, refus: null };
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -135,6 +214,32 @@ export async function POST(request: Request): Promise<Response> {
   let corps: unknown;
   try { corps = await request.json(); } catch { corps = null; }
   const c = (corps ?? {}) as Record<string, unknown>;
+
+  const auteur = await auteurDeLaRequete(request);
+
+  /* ══ 🔴 « ANNULER » — LE GESTE SE DÉFAIT PAR SES IDENTIFIANTS, PAS EN DEVINANT L'ÉTAT D'AVANT ════════════════
+     Voir l'encadré de `annulerGesteDeRangement` : reposer la catégorie d'avant aurait figé une PROPOSITION en
+     décision humaine, que l'automatisation ne reprendrait plus jamais. */
+  if (c.action === 'annuler') {
+    const g = (c.geste ?? {}) as Record<string, unknown>;
+    const geste: GesteDeRangement = {
+      categoriesPosees: identifiants(g.categoriesPosees),
+      categoriesRetirees: identifiants(g.categoriesRetirees),
+      cartesPosees: identifiants(g.cartesPosees),
+      cartesRetirees: identifiants(g.cartesRetirees),
+    };
+    try {
+      const r = await annulerGesteDeRangement({ geste, auteur });
+      return r.ok
+        ? Response.json({ etat: 'ok', nb: r.nb }, { headers: ENTETES })
+        : Response.json({ etat: 'refus', motif: r.motif }, { status: 409, headers: ENTETES });
+    } catch (e) {
+      console.error('[api/admin/gestion/historique/parties] annulation impossible', e);
+      return Response.json(
+        { etat: 'refus', motif: 'L’annulation n’a pas pu être enregistrée : la base n’a pas répondu.' },
+        { status: 503, headers: ENTETES });
+    }
+  }
 
   const cible = cibleDepuisTexte(typeof c.cible === 'string' ? c.cible : null);
   if (cible === null || cible.sorte !== 'lot' || (cible.cle ?? '') === '') {
@@ -149,29 +254,30 @@ export async function POST(request: Request): Promise<Response> {
   const categorie = CATEGORIES_POSABLES.find((x) => x === c.categorie);
   if (categorie === undefined) {
     return Response.json(
-      { etat: 'refus', motif: 'Choisissez une catégorie : Propriétaire, Locataire ou Tiers indépendant.' },
+      { etat: 'refus', motif: 'Choisissez une catégorie : Propriétaire, Locataire, Tiers indépendant ou Non affectés.' },
       { status: 400, headers: ENTETES });
   }
 
   try {
-    const auteur = await auteurDeLaRequete(request);
     /* 🔴 LE RANGEMENT D'ABORD : c'est lui qui fait changer la partie de groupe, et c'est ce qu'Arno a demandé. */
     const range = await poserCategorieAlaMain({ adresse, lotCle, categorie, auteur });
     if (!range.ok) {
       return Response.json({ etat: 'refus', motif: range.motif }, { status: 409, headers: ENTETES });
     }
 
-    /* ⚠️ `coteDeLaCategorie` REND `null` POUR UN INDÉPENDANT : pas de carte, et aucun `if` de plus à tenir ici. */
-    const cote = coteDeLaCategorie(categorie);
-    const nom = texteCourt(c.nom, 200);
-    const telephone = texteCourt(c.telephone, 40);
-    let carte: string | null = null;
-    if (cote !== null) {
-      const posee = await poserCarteAlaMain({ lotCle, cote, adresse, nom, telephone, auteur });
-      /* ⚠️ UN ÉCHEC DE LA CARTE NE DÉFAIT PAS LE RANGEMENT : il est DIT, et la partie reste rangée. */
-      if (!posee.ok) carte = posee.motif;
-    }
-    return Response.json({ etat: 'ok', carteRefusee: carte }, { headers: ENTETES });
+    const carte = await faireSuivreLaCarte({
+      lotCle, adresse, categorie,
+      nom: texteCourt(c.nom, 200), telephone: texteCourt(c.telephone, 40), auteur,
+    });
+
+    /* 🔴 LE GESTE EST RENDU : c'est ce que l'écran garde quelques secondes derrière « Annuler ». */
+    const geste: GesteDeRangement = {
+      categoriesPosees: range.id === null ? [] : [range.id],
+      categoriesRetirees: range.retires ?? [],
+      cartesPosees: carte.posees,
+      cartesRetirees: carte.retirees,
+    };
+    return Response.json({ etat: 'ok', carteRefusee: carte.refus, geste }, { headers: ENTETES });
   } catch (e) {
     console.error('[api/admin/gestion/historique/parties] écriture impossible', e);
     return Response.json(

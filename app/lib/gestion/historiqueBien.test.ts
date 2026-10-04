@@ -5,9 +5,11 @@ import {
   motDeuxCompteurs, motLocataireDeLaPeriode, ordreFilSuivant, periodeDeLEvenement, periodeDeLOccupation,
   reglagesActifs, REGLAGES_DEFAUT, reglagesEnFiltres, reglagesEnParametres, replierLesCartes,
   SEUIL_REPLI_CARTES, trierFil, type CategoriePartie, type Reglages,
-  bornesDuChoix, compteCacheesEnBas, compteCacheesEnHaut, dernierLocataire, LEGENDE_BARRES, motAgenceEcartee,
-  motCacheesEnBas, motCacheesEnHaut, motPeriodeEffective, occupationOuverte, periodeDuDernierLocataire,
-  SANS_LOCATAIRE_CONNU, tonDeLExpediteur, tonDuGroupe, type OccupationPeriode, type PositionCapsule,
+  bornesDuChoix, ciblesDeplacement, compteCacheesEnBas, compteCacheesEnHaut, dernierLocataire,
+  GROUPES_EN_BANDE, GROUPES_EN_ENCART, LEGENDE_BARRES, motAgenceEcartee, motCacheesEnBas, motCacheesEnHaut,
+  motDeplacement, MOTIF_NON_DEPLACABLE, motPeriodeEffective, occupationOuverte, partieDeplacable,
+  periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, SECONDES_ANNULER_DEPLACEMENT, tonDeLExpediteur, tonDuGroupe,
+  type OccupationPeriode, type PositionCapsule,
 } from './historiqueBien';
 import { INTERLOCUTEURS_MAX, type Interlocuteur, type LigneHistorique } from './historique';
 /** 🔴 LA SOURCE DU SEUIL : on vérifie l'IDENTITÉ, pas une égalité de valeur recopiée. */
@@ -869,5 +871,81 @@ describe('⑬ 🔴🔴 ce qui est caché sous le bas de l’encart', () => {
   it('⚠️ le singulier et le pluriel', () => {
     expect(motCacheesEnBas(1)).toBe('↓ 1 autre');
     expect(motCacheesEnBas(12)).toBe('↓ 12 autres');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑭ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 2 — QUI SE DÉPLACE, ET VERS OÙ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑭ 🔴🔴 le glisser-déposer : les contacts oui, les clients non', () => {
+  /** La carte de la FICHE : ses propriétaires et ses occupants. Ce sont eux, les clients. */
+  const FICHE = new Map<string, CategoriePartie>([
+    ['proprio@fictif.test', 'proprietaire'],
+    ['locataire@fictif.test', 'locataire'],
+  ]);
+
+  /**
+   * DEMANDE D'ARNO (05/10/2026) : « Les capsules des CLIENTS eux-mêmes (propriétaire(s), locataire en place,
+   * anciens locataires) et celles de l'agence ne se déplacent pas : curseur “interdit” et info-bulle “Client du
+   * bien — non déplaçable”. »
+   *
+   * 🔴 ET DÉPLACER UN CLIENT N'AURAIT MÊME PAS TENU : la fusion le remettrait dans son groupe au rendu suivant,
+   * puisque la fiche l'emporte sur tout rangement de base. L'interdiction n'est pas une précaution d'ergonomie,
+   * c'est la vérité de l'arbitrage — et c'est pourquoi l'info-bulle dit POURQUOI, et pas seulement « non ».
+   */
+  it('🔴🔴 un client de la fiche ne se déplace pas', () => {
+    expect(partieDeplacable('proprio@fictif.test', FICHE)).toBe(false);
+    expect(partieDeplacable('locataire@fictif.test', FICHE)).toBe(false);
+    expect(MOTIF_NON_DEPLACABLE).toBe('Client du bien — non déplaçable');
+  });
+
+  it('🔴🔴 un contact, un tiers, une adresse inconnue : tous déplaçables', () => {
+    expect(partieDeplacable('assureur@fictif.test', FICHE)).toBe(true);
+    expect(partieDeplacable('plombier@fictif.test', FICHE)).toBe(true);
+    expect(partieDeplacable('inconnu@fictif.test', new Map())).toBe(true);
+  });
+
+  /** ⚠️ LA CASSE NE REND PERSONNE DÉPLAÇABLE PAR ERREUR : « Proprio@… » est le même client. */
+  it('⚠️ la casse ne rend pas un client déplaçable', () => {
+    expect(partieDeplacable('Proprio@Fictif.Test', FICHE)).toBe(false);
+  });
+
+  /**
+   * ⚠️ L'AGENCE N'EST PAS LISTÉE DU TOUT depuis le lot 2 : aucune capsule ne la porte. La règle est écrite quand
+   * même — le jour où Arno voudrait revoir ces adresses dans les listes, l'interdiction est déjà là.
+   */
+  it('⚠️ une adresse interne ne se déplace pas non plus', () => {
+    expect(partieDeplacable('gestion@criterimmo.fr', new Map(), true)).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 LE MENU CLAVIER OFFRE LES TROIS AUTRES, JAMAIS CELLE D'ORIGINE. Proposer « déplacer vers là où tu es
+   * déjà » est un piège à clic — et le dépôt sur place aurait écrit un rangement manuel identique à celui qui
+   * existait, donc gelé une proposition sans que personne ne l'ait voulu.
+   */
+  it('🔴🔴 « Déplacer vers… » écarte la catégorie d’origine', () => {
+    expect(ciblesDeplacement('proprietaire').map((c) => c.cle)).toEqual(['locataire', 'independant', 'a_repartir']);
+    expect(ciblesDeplacement('a_repartir').map((c) => c.cle)).toEqual(['proprietaire', 'locataire', 'independant']);
+    /* …et les titres sont ceux d'Arno, pris au même endroit que les groupes. */
+    expect(ciblesDeplacement('proprietaire').map((c) => c.titre))
+      .toEqual(['Locataire', 'Tiers indépendant', 'Non affectés']);
+  });
+
+  /** 🔴 LES QUATRE CATÉGORIES SONT ATTEIGNABLES : deux encarts, deux bandes, et rien d'oublié. */
+  it('🔴 deux encarts et deux bandes couvrent les quatre groupes', () => {
+    expect([...GROUPES_EN_ENCART, ...GROUPES_EN_BANDE])
+      .toEqual(['proprietaire', 'locataire', 'independant', 'a_repartir']);
+  });
+
+  /**
+   * 🔴 LE MESSAGE DIT LE NOM **ET** LA DESTINATION : c'est la seule phrase qui permette de vérifier qu'on n'a
+   * pas lâché la capsule une rangée trop bas.
+   */
+  it('🔴🔴 le message d’après-dépôt, mot pour mot', () => {
+    expect(motDeplacement('Fanny Rosky', 'Locataire')).toBe('Fanny Rosky → Locataire');
+    /* ⚠️ HUIT SECONDES : le temps de lire, de comprendre qu'on s'est trompé, et de viser. Même convention que
+       le lot INTERNE-ANNULER, pour que « quelques secondes » veuille dire la même chose partout. */
+    expect(SECONDES_ANNULER_DEPLACEMENT).toBe(8);
   });
 });

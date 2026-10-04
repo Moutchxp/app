@@ -484,6 +484,91 @@ export const LEGENDE_BARRES: readonly { ton: TonMail; mot: string }[] = [
 ];
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④-quater 🔴🔴 LOT HISTORIQUE-BIEN-3 — QUI SE DÉPLACE, ET VERS OÙ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 LES DEUX ENCARTS, ET LES DEUX BANDES ════════════════════════════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « “Tiers indépendant” : une ligne déployable SOUS les deux encarts, pleine
+ * largeur, bleue, repliée par défaut (“Tiers indépendant · 4 ▸”), qui reste une zone de dépôt même repliée […]
+ * Même chose pour “Non affectés” (grise). »
+ *
+ * 🔴 LA RÉPARTITION EST ÉCRITE ICI, UNE FOIS. L'écran lit ces deux listes et ne décide pas lui-même qui est un
+ * encart : une seconde liste côté écran aurait pu diverger de l'ordre des groupes, et une catégorie se serait
+ * retrouvée rendue deux fois — ou pas du tout.
+ */
+export const GROUPES_EN_ENCART: readonly CleGroupeParties[] = ['proprietaire', 'locataire'];
+export const GROUPES_EN_BANDE: readonly CleGroupeParties[] = ['independant', 'a_repartir'];
+
+/**
+ * ══ 🔴🔴 QUI PEUT SE DÉPLACER ? PUR. ════════════════════════════════════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO : « Les capsules des CONTACTS se glissent-déposent d'une catégorie à l'autre. Les capsules des
+ * CLIENTS eux-mêmes (propriétaire(s), locataire en place, anciens locataires) et celles de l'agence ne se
+ * déplacent pas : curseur “interdit” et info-bulle “Client du bien — non déplaçable”. »
+ *
+ * 🔴 « CLIENT » SE LIT SUR LA FICHE, ET SUR ELLE SEULE. `categoriesFiche` est la carte que la fiche du bien
+ * fournit : ses propriétaires, ses occupants d'hier et d'aujourd'hui, et leurs contacts déjà connus de
+ * l'annuaire. C'est la même carte qui, dans la fusion, l'emporte sur tout rangement de base — « un client n'est
+ * jamais un contact » (règle d'Arno au lot 1). Déduire « client » d'autre chose aurait fait deux définitions,
+ * et c'est celle qu'on relit le moins qui aurait fini par autoriser à déplacer un propriétaire.
+ *
+ * 🔴 ET DÉPLACER UN CLIENT N'AURAIT MÊME PAS TENU : la fusion le remettrait dans son groupe au rendu suivant,
+ * puisque la fiche l'emporte. L'interdiction n'est donc pas une précaution d'ergonomie, c'est la vérité de
+ * l'arbitrage — et c'est pourquoi l'info-bulle dit POURQUOI, et pas seulement « non ».
+ *
+ * ⚠️ L'AGENCE N'EST PAS LISTÉE DU TOUT depuis le lot 2 (`grouperParCategorie` l'écarte, et le dit) : aucune
+ * capsule ne la porte, donc la règle n'a rien à refuser de ce côté. Elle est écrite quand même — le jour où
+ * Arno voudrait revoir ces adresses dans les listes, l'interdiction sera déjà là.
+ */
+export const MOTIF_NON_DEPLACABLE = 'Client du bien — non déplaçable';
+
+export function partieDeplacable(
+  adresse: string, categoriesFiche: ReadonlyMap<string, CategoriePartie>, interne = false,
+): boolean {
+  if (interne) return false;
+  return !categoriesFiche.has(adresse.trim().toLowerCase());
+}
+
+/**
+ * ══ 🔴 CE QUE LE MESSAGE DIT APRÈS UN DÉPÔT ═════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « après le dépôt, petit message “Fanny Rosky → Locataire” avec “Annuler” quelques secondes. »
+ *
+ * 🔴 LE NOM **ET** LA DESTINATION, parce que c'est la seule phrase qui permette de vérifier qu'on n'a pas lâché
+ * la capsule une rangée trop bas. Un simple « Déplacé » aurait obligé à retrouver la capsule pour le savoir — et
+ * c'est précisément ce qu'on vient de faire disparaître de l'écran.
+ */
+export function motDeplacement(nom: string, titreCible: string): string {
+  return `${nom} → ${titreCible}`;
+}
+
+/**
+ * Combien de secondes « Annuler » reste offert.
+ *
+ * ⚠️ HUIT SECONDES, ET NON DEUX : le temps de lire la phrase, de comprendre qu'on s'est trompé, et de viser.
+ * C'est la durée retenue au lot INTERNE-ANNULER pour le même genre de geste — une seule convention dans
+ * l'application, pour que « quelques secondes » veuille dire la même chose partout.
+ */
+export const SECONDES_ANNULER_DEPLACEMENT = 8;
+
+/**
+ * ══ 🔴 LES DESTINATIONS OFFERTES AU CLAVIER ═════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « Accessible au clavier aussi (menu “Déplacer vers…” sur la capsule). » Le glisser-déposer n'existe pas
+ * au clavier, et il n'existe pas non plus sous un doigt sur un téléphone : ce menu n'est donc pas une
+ * concession, c'est le SECOND chemin indispensable — et il passe par la même porte d'écriture.
+ *
+ * ⚠️ LA CATÉGORIE D'ORIGINE EST ÉCARTÉE : proposer « déplacer vers là où tu es déjà » est un piège à clic.
+ */
+export function ciblesDeplacement(depuis: CleGroupeParties): { cle: CleGroupeParties; titre: string }[] {
+  return [...GROUPES_EN_ENCART, ...GROUPES_EN_BANDE]
+    .filter((c) => c !== depuis)
+    .map((c) => ({ cle: c, titre: TITRES_GROUPES[c] }));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ④-ter 🔴🔴 LOT HISTORIQUE-BIEN-3 — L'ENCART NE GRANDIT JAMAIS : IL DÉFILE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

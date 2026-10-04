@@ -150,6 +150,20 @@ async function changer(el: HTMLInputElement | HTMLSelectElement, valeur: string)
   });
 }
 
+/**
+ * ══ 🔴 DÉPLIER UN GROUPE PAR SON TITRE (lot HISTORIQUE-BIEN-3) ══════════════════════════════════════════════════
+ *
+ * ⚠️ POURQUOI CETTE AIDE EXISTE MAINTENANT. « Tiers indépendant » et « Non affectés » sont devenues des BANDES
+ * repliées par défaut (demande d'Arno) : leurs capsules ne sont pas dans le document tant qu'on ne les a pas
+ * dépliées. Les cas qui visaient une capsule de « Non affectés » cherchaient donc dans le vide — ce n'est pas
+ * une régression, c'est la nouvelle mise en page, et les épreuves doivent faire le geste qu'une personne fait.
+ */
+async function deplierGroupe(titre: string): Promise<void> {
+  const tete = [...hote.querySelectorAll('.hdb-replier')] as HTMLButtonElement[];
+  const b = tete.find((x) => (x.textContent ?? '').includes(titre));
+  if (b !== undefined && b.getAttribute('aria-expanded') === 'false') await cliquer(b);
+}
+
 /** Les deux événements du jeu d'essai, nommés : un identifiant écrit en clair dans un test se relit mal. */
 const ID_EVT_EN_COURS = 7;
 const ID_EVT_CLOS = 4;
@@ -389,6 +403,7 @@ describe('③ les parties', () => {
       });
     }));
     await monter({ categories: new Map() });
+    await deplierGroupe('Non affectés');
     const personnes = [...hote.querySelectorAll('.hdb-personnes input')] as HTMLInputElement[];
     await cliquer(personnes[0]);
     const groupe = hote.querySelector('.hdb-case--groupe input') as HTMLInputElement;
@@ -579,9 +594,13 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
    */
   it('🔴🔴 le « + » n’est offert que sur les parties non affectées', async () => {
     await monter({ periodes: PERIODES });
+    await deplierGroupe('Non affectés');
     const plus = [...hote.querySelectorAll('.hdb-plus')] as HTMLButtonElement[];
     expect(plus).toHaveLength(1);
-    expect(plus[0].getAttribute('aria-label')).toContain('assureur@fictif.test');
+    /* ⚠️ L'INTITULÉ DIT LE NOM LISIBLE, PAS L'ADRESSE (changé au lot HISTORIQUE-BIEN-3) : la capsule affiche
+       « AXA », et un lecteur d'écran qui annoncerait « assureur@fictif.test » nommerait autre chose que ce
+       qu'on voit. `libelleInterlocuteur` est la même fonction qui écrit le nom dans la capsule. */
+    expect(plus[0].getAttribute('aria-label')).toContain('AXA');
   });
 
   /**
@@ -590,6 +609,7 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
    */
   it('🔴🔴 la carte pré-remplit l’adresse, laisse la catégorie vide, et refuse de valider', async () => {
     await monter({ periodes: PERIODES });
+    await deplierGroupe('Non affectés');
     await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
     const carte = hote.querySelector('.hdb-creation') as HTMLElement;
     expect(carte).not.toBeNull();
@@ -608,6 +628,7 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
    */
   it('🔴🔴 l’écran dit ce que chaque catégorie fera, avant le clic', async () => {
     await monter({ periodes: PERIODES });
+    await deplierGroupe('Non affectés');
     await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
     const select = hote.querySelector('.hdb-creation select') as HTMLSelectElement;
 
@@ -646,6 +667,7 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
       });
     }));
     await monter({ periodes: PERIODES });
+    await deplierGroupe('Non affectés');
     await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
     const carte = hote.querySelector('.hdb-creation') as HTMLElement;
     await changer(carte.querySelectorAll('input')[1] as HTMLInputElement, 'Sophie AXA');
@@ -685,6 +707,7 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
       });
     }));
     await monter({ periodes: PERIODES });
+    await deplierGroupe('Non affectés');
     await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
     await changer(hote.querySelector('.hdb-creation select') as HTMLSelectElement, 'proprietaire');
     await cliquer(parMot('Valider'));
@@ -966,6 +989,282 @@ describe('⑤-quinquies 🔴🔴 l’encart ne grandit jamais : il défile', () 
       expect(haut).not.toBeNull();
       expect(haut.textContent).toBe('↑ remonter');
     } finally { rendre(); }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤-sexies 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 2 — CAPSULES, GLISSER-DÉPOSER, SYNCHRONISATION, ANNULER
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑤-sexies 🔴🔴 les capsules se déplacent d’une catégorie à l’autre', () => {
+  /** Les écritures parties au serveur, dans l'ordre : c'est ce qui prouve « une seule porte, aucun second chemin ». */
+  let envois: { url: string; corps: Record<string, unknown> }[] = [];
+
+  const servir = (): void => {
+    envois = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        envois.push({ url: String(url), corps: JSON.parse(String(init.body)) as Record<string, unknown> });
+        return reponse({
+          etat: 'ok',
+          geste: {
+            categoriesPosees: [101], categoriesRetirees: [100], cartesPosees: [202], cartesRetirees: [],
+          },
+        });
+      }
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) {
+        return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      }
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  };
+
+  /** Une capsule par son nom affiché. */
+  const capsule = (nom: string): HTMLElement | undefined =>
+    ([...hote.querySelectorAll('.hdb-capsule')] as HTMLElement[])
+      .find((x) => (x.textContent ?? '').includes(nom));
+
+  /**
+   * ══ 🔴🔴 LE GLISSER-DÉPOSER, SIMULÉ COMME LE NAVIGATEUR LE FAIT ═══════════════════════════════════════════════
+   *
+   * ⚠️ JSDOM N'A PAS DE `DataTransfer` : on en pose un minimal. Ce qui est éprouvé, c'est le CÂBLAGE des trois
+   * temps du geste (`dragstart` → `dragover` → `drop`) et ce qui PART au serveur — pas la mécanique du
+   * navigateur, qui n'est pas la nôtre.
+   */
+  const transfert = (): DataTransfer => {
+    const m = new Map<string, string>();
+    return {
+      setData: (k: string, v: string) => { m.set(k, v); },
+      getData: (k: string) => m.get(k) ?? '',
+      effectAllowed: 'move',
+    } as unknown as DataTransfer;
+  };
+
+  async function glisserVers(nomCapsule: string, titreGroupe: string): Promise<void> {
+    const dt = transfert();
+    const source = capsule(nomCapsule) as HTMLElement;
+    const zone = ([...hote.querySelectorAll('.hdb-groupe')] as HTMLElement[])
+      .find((x) => (x.textContent ?? '').includes(titreGroupe)) as HTMLElement;
+    await act(async () => {
+      source.dispatchEvent(Object.assign(new Event('dragstart', { bubbles: true }), { dataTransfer: dt }));
+    });
+    await act(async () => {
+      zone.dispatchEvent(Object.assign(new Event('dragover', { bubbles: true, cancelable: true }), { dataTransfer: dt }));
+    });
+    await act(async () => {
+      zone.dispatchEvent(Object.assign(new Event('drop', { bubbles: true, cancelable: true }), { dataTransfer: dt }));
+    });
+  }
+
+  /**
+   * 🔴🔴 UN CONTACT SE DÉPLACE, ET LE DÉPLACEMENT PASSE PAR LA MÊME PORTE QUE LE « + ». Arno :
+   * « SYNCHRONISATION STRICTE : un déplacement passe par la MÊME porte d'écriture que le choix de catégorie du
+   * “+” (aucun second chemin). »
+   */
+  it('🔴🔴 glisser un contact vers « Locataire » poste la catégorie, par la porte unique', async () => {
+    servir();
+    await monter();
+    await deplierGroupe('Non affectés');
+    await glisserVers('AXA', 'Locataire');
+
+    expect(envois).toHaveLength(1);
+    expect(envois[0].url).toContain('/api/admin/gestion/historique/parties');
+    expect(envois[0].corps).toEqual({
+      cible: 'lot-155', adresse: 'assureur@fictif.test', categorie: 'locataire',
+    });
+    /* ⚠️ NI NOM NI TÉLÉPHONE : la carte, si elle existe, emporte les siens — c'est le SERVEUR qui les reporte.
+       Les envoyer d'ici aurait fait un second endroit où ce report se décide. */
+    expect(Object.keys(envois[0].corps).sort()).toEqual(['adresse', 'categorie', 'cible']);
+  });
+
+  /** 🔴 ON RELIT APRÈS : c'est la relecture qui fait changer la capsule de groupe, et non une devinette locale. */
+  it('🔴🔴 après le déplacement, les rangements sont relus', async () => {
+    servir();
+    await monter();
+    await deplierGroupe('Non affectés');
+    const avant = appels.filter((a) => a.includes('/historique/parties')).length;
+    await glisserVers('AXA', 'Locataire');
+    expect(appels.filter((a) => a.includes('/historique/parties')).length).toBe(avant + 1);
+  });
+
+  /**
+   * 🔴🔴 LE MESSAGE « Fanny Rosky → Locataire » ET SON « ANNULER ». Le nom ET la destination : c'est la seule
+   * phrase qui permette de vérifier qu'on n'a pas lâché la capsule une rangée trop bas.
+   */
+  it('🔴🔴 le message d’après-dépôt nomme la partie et sa destination, avec « Annuler »', async () => {
+    servir();
+    await monter();
+    await deplierGroupe('Non affectés');
+    await glisserVers('AXA', 'Locataire');
+    const fait = hote.querySelector('.hdb-fait') as HTMLElement;
+    expect(fait).not.toBeNull();
+    expect(fait.textContent).toContain('AXA → Locataire');
+    expect(parMot('Annuler')).toBeDefined();
+  });
+
+  /**
+   * 🔴🔴 « ANNULER » DÉFAIT LE GESTE PAR SES IDENTIFIANTS, et non en reposant la catégorie d'avant : reposer
+   * aurait figé une PROPOSITION en décision humaine, que l'automatisation ne reprendrait plus jamais.
+   */
+  it('🔴🔴 « Annuler » renvoie le geste, et rien d’autre', async () => {
+    servir();
+    await monter();
+    await deplierGroupe('Non affectés');
+    await glisserVers('AXA', 'Locataire');
+    await cliquer(parMot('Annuler'));
+
+    expect(envois).toHaveLength(2);
+    expect(envois[1].corps.action).toBe('annuler');
+    expect(envois[1].corps.geste).toEqual({
+      categoriesPosees: [101], categoriesRetirees: [100], cartesPosees: [202], cartesRetirees: [],
+    });
+    /* ⚠️ AUCUNE CATÉGORIE N'EST REPOSÉE : le corps de l'annulation ne porte pas de `categorie`. */
+    expect(envois[1].corps.categorie).toBeUndefined();
+    // …et le message disparaît.
+    expect(hote.querySelector('.hdb-fait')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 UN CLIENT NE SE DÉPLACE PAS : la capsule n'est pas `draggable`, elle porte le motif en info-bulle, et
+   * un `dragstart` forcé n'envoie RIEN. Les trois ensemble, parce qu'une seule des trois se contourne.
+   */
+  it('🔴🔴 une capsule de CLIENT refuse le déplacement, et dit pourquoi', async () => {
+    servir();
+    await monter();
+    const client = capsule('M. ROI Nathan') as HTMLElement;
+    expect(client.getAttribute('draggable')).toBe('false');
+    expect(client.getAttribute('title')).toBe('Client du bien — non déplaçable');
+    expect(client.className).toContain('hdb-capsule--fixe');
+
+    await glisserVers('M. ROI Nathan', 'Non affectés');
+    expect(envois).toHaveLength(0);
+  });
+
+  /** 🔴 ET AUCUN MENU « DÉPLACER VERS… » SUR UN CLIENT : le chemin clavier est fermé lui aussi. */
+  it('🔴🔴 pas de menu « Déplacer vers… » sur un client', async () => {
+    servir();
+    await monter();
+    await deplierGroupe('Non affectés');
+    const client = capsule('M. ROI Nathan') as HTMLElement;
+    expect(client.querySelector('.hdb-menu-bouton')).toBeNull();
+    const contact = capsule('AXA') as HTMLElement;
+    expect(contact.querySelector('.hdb-menu-bouton')).not.toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LE CHEMIN CLAVIER EXISTE ET MÈNE AU MÊME ENDROIT. Le glisser-déposer n'existe ni au clavier ni sous un
+   * doigt : ce menu n'est pas une concession, c'est le second chemin indispensable — et il passe par la MÊME
+   * porte d'écriture.
+   */
+  it('🔴🔴 le menu « Déplacer vers… » poste exactement comme le glisser', async () => {
+    servir();
+    await monter();
+    await deplierGroupe('Non affectés');
+    const contact = capsule('AXA') as HTMLElement;
+    await cliquer(contact.querySelector('.hdb-menu-bouton') ?? undefined);
+    const items = [...hote.querySelectorAll('.hdb-menu-item')] as HTMLButtonElement[];
+    /* ⚠️ TROIS DESTINATIONS, SANS CELLE D'ORIGINE : AXA est « Non affectés », donc les trois autres. */
+    expect(items.map((x) => x.textContent)).toEqual(['Propriétaire', 'Locataire', 'Tiers indépendant']);
+    await cliquer(items[1]);
+    expect(envois[0].corps).toEqual({
+      cible: 'lot-155', adresse: 'assureur@fictif.test', categorie: 'locataire',
+    });
+  });
+
+  /** 🔴 LES DEUX BANDES SONT REPLIÉES PAR DÉFAUT, pleine largeur, sous les deux encarts (demande d'Arno). */
+  it('🔴🔴 « Tiers indépendant » et « Non affectés » sont des bandes repliées', async () => {
+    servir();
+    await monter();
+    const bandes = [...hote.querySelectorAll('.hdb-groupe--bande')] as HTMLElement[];
+    const titres = bandes.map((b) => (b.querySelector('.hdb-replier')?.textContent ?? '').trim());
+    expect(titres.some((t) => t.includes('Non affectés'))).toBe(true);
+    for (const b of bandes) {
+      expect(b.querySelector('.hdb-replier')?.getAttribute('aria-expanded')).toBe('false');
+    }
+    /* …et les encarts, eux, sont dans la grille à deux colonnes. */
+    expect(hote.querySelector('.hdb-encarts')).not.toBeNull();
+    expect(hote.querySelectorAll('.hdb-groupe--encart').length).toBeGreaterThan(0);
+  });
+
+  /**
+   * 🔴🔴 UNE BANDE REPLIÉE RESTE UNE ZONE DE DÉPÔT, ET S'OUVRE AU SURVOL. Sans cela, déposer dans « Tiers
+   * indépendant » aurait demandé de la déplier AVANT de commencer le glisser — c'est-à-dire de savoir où l'on
+   * va avant de partir.
+   */
+  it('🔴🔴 une bande repliée s’ouvre au survol pendant un glisser, et accepte le dépôt', async () => {
+    servir();
+    await monter();
+    await deplierGroupe('Non affectés');
+    const dt = transfert();
+    const source = capsule('AXA') as HTMLElement;
+
+    /**
+     * ⚠️ LA BANDE « TIERS INDÉPENDANT » EST VIDE DANS CE JEU D'ESSAI, et elle n'est donc rendue QUE pendant un
+     * glisser — c'est voulu : une zone de dépôt qui n'existe pas tant qu'elle est vide est une zone où l'on ne
+     * peut jamais rien déposer, et c'est le premier geste qu'on voudrait faire sur un bien tout neuf. On
+     * commence donc le glisser, PUIS on la cherche.
+     */
+    await act(async () => {
+      source.dispatchEvent(Object.assign(new Event('dragstart', { bubbles: true }), { dataTransfer: dt }));
+    });
+    const bande = ([...hote.querySelectorAll('.hdb-groupe--bande')] as HTMLElement[])
+      .find((x) => (x.textContent ?? '').includes('Tiers indépendant')) as HTMLElement;
+    expect(bande).not.toBeUndefined();
+    expect(bande.querySelector('.hdb-replier')?.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => {
+      bande.dispatchEvent(Object.assign(
+        new Event('dragover', { bubbles: true, cancelable: true }), { dataTransfer: dt }));
+    });
+    const ouverte = ([...hote.querySelectorAll('.hdb-groupe--bande')] as HTMLElement[])
+      .find((x) => (x.textContent ?? '').includes('Tiers indépendant')) as HTMLElement;
+    expect(ouverte.querySelector('.hdb-replier')?.getAttribute('aria-expanded')).toBe('true');
+    /* 🔴 ET ELLE SE SURLIGNE DANS SA COULEUR (demande d'Arno). */
+    expect(ouverte.className).toContain('hdb-groupe--cible');
+  });
+
+  /** ⚠️ ON NE SE DÉPOSE PAS SUR SON PROPRE GROUPE : poser un rangement identique gèlerait une proposition. */
+  it('⚠️ déposer sur son propre groupe n’écrit rien', async () => {
+    servir();
+    await monter();
+    await deplierGroupe('Non affectés');
+    await glisserVers('AXA', 'Non affectés');
+    expect(envois).toHaveLength(0);
+  });
+
+  /** ⚠️ UN REFUS DU SERVEUR EST DIT, et aucun message de réussite n'est affiché. */
+  it('⚠️ un refus du serveur est affiché tel quel', async () => {
+    envois = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        return reponse({ etat: 'refus', motif: 'Adresse illisible.' });
+      }
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) {
+        return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      }
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+    await deplierGroupe('Non affectés');
+    await glisserVers('AXA', 'Locataire');
+    expect(texte()).toContain('Adresse illisible.');
+    expect(hote.querySelector('.hdb-fait')).toBeNull();
   });
 });
 
