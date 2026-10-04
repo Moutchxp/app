@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { CSS_PIECES, PiecesJointes } from './PiecesJointes';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 5 — LA MÊME LECTURE QUE LA CONVERSATION, et pas un second chemin :
+   la fonction a été DÉPLACÉE dans ce module partagé, elle n'a pas été recopiée. */
+import { chargerCorpsDuMessage } from './chargerCorps';
 // 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — « voir dans Gmail » sur une piece non conservee.
 import { lienGmail, COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailMenu';
 import { dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
@@ -246,7 +249,48 @@ export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surli
   surligner?: readonly string[];
 }) {
   const { vraies, signatures } = trierPieces(l.pieces);
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 5 — LE MAIL DÉPLIÉ MONTRE TOUT LE MESSAGE ══════════════════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (05/10/2026) : « Le mail déplié affiche l'INTÉGRALITÉ du nouveau message (aujourd'hui il est
+   * coupé : “Par ailleurs, avez-vou”), SANS l'historique cité en dessous. »
+   *
+   * 🔴 LA CAUSE N'ÉTAIT PAS LA DÉTECTION DE CITATION — elle marchait déjà, et c'est `corpsLisible`, celle de la
+   * Conversation. La cause était en amont : la route de l'historique n'envoie que les **240 premiers
+   * caractères** du corps (`EXTRAIT_MAX`), parce que cet extrait sert à reconnaître un mail dans une frise de
+   * cent lignes. « Par ailleurs, avez-vou » EST le 240e caractère. Il n'y avait donc aucune citation à écarter :
+   * elle commençait après la coupure.
+   *
+   * 🔴 LE CORPS COMPLET SE CHARGE AU DÉPLIAGE, et par la porte qui existe déjà — celle que la Conversation
+   * emploie pour la même raison (« les autres arrivent avec `extrait` et se chargent au dépliage »). Un fil de
+   * cent mails ne traverse pas le réseau pour qu'on en lise un.
+   *
+   * ⚠️ ON NE CHARGE QU'UNE FOIS, et seulement à l'ouverture : replier puis rouvrir ne redemande rien.
+   *
+   * ⚠️ EN CAS D'ÉCHEC, ON GARDE L'EXTRAIT — et surtout on n'affiche pas un vide. C'est la règle d'Arno pour la
+   * citation (« si elle échoue sur un cas, affiche tout plutôt que de couper »), appliquée au chargement.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const [corpsEntier, setCorpsEntier] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ouvert || corpsEntier !== null) return undefined;
+    let vivant = true;
+    void (async () => {
+      const d = await chargerCorpsDuMessage(l.messageId);
+      if (!vivant || d === undefined || d.texte === null || d.texte.trim() === '') return;
+      setCorpsEntier(d.texte);
+    })();
+    return () => { vivant = false; };
+  }, [ouvert, corpsEntier, l.messageId]);
+
+  /**
+   * 🔴 LA LIGNE REPLIÉE GARDE SON EXTRAIT (c'est tout ce qu'il faut pour reconnaître un mail) ; la ligne DÉPLIÉE
+   * lit le corps entier dès qu'il est là. La même fonction écarte la citation dans les deux cas — une seule
+   * règle, et c'est celle de la Conversation.
+   */
   const lisible = l.extrait === null ? null : corpsLisible(l.extrait);
+  const lisibleOuvert = corpsEntier !== null ? corpsLisible(corpsEntier) : lisible;
   // 🔴 LA MÊME RÈGLE QUE LA BOÎTE : les « ._ » et les images de signature ne comptent pas comme pièces.
   const trombone = etatTrombone(vraies.length, 0);
   const motDuTrombone = motTrombone(trombone);
@@ -321,7 +365,9 @@ export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surli
             <p className="vdb-dest">À : {l.destinataires.slice(0, 6).join(', ')}
               {l.destinataires.length > 6 && ' et d’autres'}</p>
           )}
-          {lisible !== null && lisible.visible !== '' && <p className="vdb-corps">{lisible.visible}</p>}
+          {lisibleOuvert !== null && lisibleOuvert.visible !== '' && (
+            <p className="vdb-corps">{lisibleOuvert.visible}</p>
+          )}
           {l.evenements.length > 0 && (
             <p className="vdb-evts">
               {l.evenements.map((e) => (
@@ -343,7 +389,8 @@ export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surli
               d'une fiche de bien et le listing de la fiche d'un LOCATAIRE. C'est voulu : c'est le même geste et
               la même destination, et deux libellés pour une même action se mettraient à divergEr. Le nouveau mot
               est d'ailleurs le plus juste des deux partout : il dit qu'on quitte une LISTE pour aller voir la
-              conversation D'OÙ le mail est tiré. */}
+              conversation D'OÙ le mail est tiré.
+ */}
           {onOuvrirFil && (
             <button type="button" className="gst-lien-bouton"
               onClick={() => onOuvrirFil(l.filId, l.messageId)}>Voir la conversation d’origine →</button>

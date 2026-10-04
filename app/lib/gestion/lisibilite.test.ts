@@ -198,3 +198,77 @@ describe('④ « vraie pièce » en SQL : la même règle, dans l’autre langue
     expect(sqlEstVraiePiece('p')).toMatch(/LIKE 'image\/%'[\s\S]*AND[\s\S]*taille_octets/);
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 5 — L'ATTRIBUTION QUE GMAIL REPLIE EN DEUX LIGNES ═════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * MESURÉ EN BASE LE 05/10/2026, et c'est la mesure qui a justifié d'y toucher : sur les 11 253 messages portant
+ * une attribution, **5 374 — presque la moitié — l'ont coupée en deux lignes**, parce que Gmail replie son texte
+ * à 72 colonnes sans se soucier de la phrase (544 de plus sur « wrote : »).
+ *
+ * 🔴 CE QUE ÇA COÛTAIT. Le motif est ancré aux deux bouts : coupée en deux, la phrase ne matchait plus. Quand la
+ * citation était préfixée de « > », on s'en tirait avec deux lignes d'en-tête traînant sous la signature. Quand
+ * elle ne l'était PAS — Gmail en « rich text » reconverti, iPhone —, rien ne la signalait et TOUT l'historique
+ * s'affichait comme si on venait de l'écrire.
+ *
+ * 🔴 CE QUE LA CORRECTION A CHANGÉ, EN REJOUANT LES 55 883 CORPS DE LA BASE : 7 033 raccourcis (609 355 octets
+ * d'historique retirés, jusqu'à 7 063 pour un seul message), ZÉRO phrase écrite perdue — tout ce qui disparaît
+ * est un en-tête d'attribution —, et 18 corps RALLONGÉS, qui sont la prudence ci-dessous : un mail qui n'est QUE
+ * de la citation s'affiche en entier.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('separerCitation — l’attribution repliée par Gmail', () => {
+  it('🔴 reconnaît « … a » + « écrit : » sur deux lignes', () => {
+    const r = separerCitation(
+      'Bien à vous,\nPaul\n\nLe mar. 29 sept. 2026 à 16:36, Gestion <gestion@exemple.test> a\nécrit :\n\nBonjour,\n',
+    );
+    expect(r.visible).toBe('Bien à vous,\nPaul');
+    expect(r.cite).toContain('Le mar. 29 sept. 2026');
+    expect(r.cite).toContain('Bonjour,');
+  });
+
+  it('🔴 reconnaît « … » + « wrote : » sur deux lignes', () => {
+    const r = separerCitation(
+      'Thanks,\nMichael\n\nOn Fri, Oct 2, 2026 at 9:54 AM Brigitte <b@exemple.test>\nwrote:\n\nDear Mr X,\n',
+    );
+    expect(r.visible).toBe('Thanks,\nMichael');
+    expect(r.cite).toContain('wrote:');
+  });
+
+  it('⚠️ TIENT SUR TROIS LIGNES : une adresse longue occupe un repli à elle seule', () => {
+    const r = separerCitation(
+      'Merci,\nAnna\n\nLe lun. 22 sept. 2025 à 13:08, Christelle Le Berrigaud <\nchristelle.le.berrigaud@exemple.test> a\nécrit :\n\nBonjour,\n',
+    );
+    expect(r.visible).toBe('Merci,\nAnna');
+    expect(r.cite).toContain('christelle.le.berrigaud@exemple.test');
+  });
+
+  it('⚠️ AU-DELÀ DE DEUX REPLIS, ON NE RECOLLE PLUS : la borne est tenue', () => {
+    const r = separerCitation(
+      'Merci,\nAnna\n\nLe lun. 22 sept. 2025 à 13:08, Christelle <\nchristelle@exemple.test>\nen copie Jean\na\nécrit :\n',
+    );
+    // Rien ne coupe : le corps s'affiche tel quel plutôt que d'être tronqué au hasard.
+    expect(r.cite).toBeNull();
+    expect(r.visible).toContain('écrit :');
+  });
+
+  it('⚠️ AUCUN FAUX POSITIF : une phrase écrite qui parle d’un courrier n’est pas repliée', () => {
+    const r = separerCitation(
+      'Bonjour,\n\nLe syndic nous a transmis le devis que le plombier\navait rédigé en août : il est bien reçu.\n\nCordialement,\n',
+    );
+    expect(r.cite).toBeNull();
+    expect(r.visible).toContain('il est bien reçu');
+  });
+
+  /**
+   * ⚠️ LA PRUDENCE DÉJÀ ÉCRITE DANS `separerCitation` VAUT AUSSI POUR LE RECOLLAGE, et c'est la règle d'Arno :
+   * « si elle échoue sur un cas, affiche tout plutôt que de couper ». Les 18 corps « rallongés » de la mesure
+   * sont exactement ce cas-là.
+   */
+  it('🔴 un corps qui n’est QUE l’attribution repliée et sa citation s’affiche en entier', () => {
+    const r = separerCitation('Le 3 oct. 2026 à 10:18, Gestion <gestion@exemple.test> a\nécrit :\n\n> Bonjour,\n');
+    expect(r.cite).toBeNull();
+    expect(r.visible).toContain('Bonjour,');
+  });
+});

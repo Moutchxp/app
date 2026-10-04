@@ -1,4 +1,5 @@
 'use client';
+import { chargerCorpsDuMessage } from './chargerCorps';
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la corbeille d'UN message : même route, même journal, même
@@ -148,31 +149,14 @@ async function chargerConversation(filId: number): Promise<Vue> {
 }
 
 /**
- * Le corps d'UN message, au dépliage. `null` = rien à afficher ; `undefined` = la lecture a échoué.
+ * ══ 🔴 LOT HISTORIQUE-BIEN-4, POINT 5 — `chargerCorps` A ÉTÉ **DÉPLACÉE**, PAS RECOPIÉE ══════════════════════════
  *
- * 🔴 LOT BIEN-RATTACHE — ELLE RAMÈNE AUSSI LE HTML, DÉJÀ ASSAINI PAR LE SERVEUR. 1 180 mails en base n'ont QUE de
- * la mise en forme ; ils affichaient « affichage à venir » au lieu de leur contenu.
+ * Elle vivait ici, sans être exportée. Le bloc « Historique du bien » en a désormais besoin pour afficher
+ * l'intégralité d'un mail déplié : Arno a demandé « pas de second chemin ». Elle vit donc dans
+ * `./chargerCorps`, et cet écran l'appelle comme avant — son corps n'a pas changé d'un caractère, seul son
+ * emplacement l'a fait. Voir l'encadré de ce fichier pour les deux autres options écartées.
  */
-async function chargerCorps(
-  messageId: number,
-): Promise<{ texte: string | null; html: string | null; cssMail?: string } | undefined> {
-  try {
-    const res = await fetch(`/api/admin/gestion/messages/${messageId}/corps`, { cache: 'no-store' });
-    if (!res.ok) return undefined;
-    /**
-     * 🔴🔴 LOT CADRE-ISOLE-MAILS — `cssMail` EST LA FEUILLE D'EN-TÊTE DU MAIL, déjà filtrée par le serveur
-     * (`@import`, `url(` externe, `expression(` et toute sortie de balise refusés). Elle n'est posée QUE dans le
-     * cadre isolé, jamais dans la page.
-     *
-     * ⚠️ ABSENTE D'UNE RÉPONSE PLUS ANCIENNE QUE CE LOT ⇒ chaîne vide : le cadre s'affiche alors sans la feuille
-     * du mail, c'est-à-dire exactement comme avant ce lot.
-     */
-    const d = (await res.json()) as { corps?: string | null; html?: string | null; cssMail?: string | null };
-    return { texte: d.corps ?? null, html: d.html ?? null, cssMail: d.cssMail ?? '' };
-  } catch {
-    return undefined;
-  }
-}
+const chargerCorps = chargerCorpsDuMessage;
 
 /**
  * Un geste sur l'échange. Les routes sont CELLES QUI EXISTENT : ce lot ne réécrit aucune logique métier.

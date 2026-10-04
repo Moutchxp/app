@@ -55,6 +55,49 @@ const DEBUTS_DE_CITATION: RegExp[] = [
   /^\s*From\s*:\s*\S/i,
 ];
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 5 — L'ATTRIBUTION QUE GMAIL COUPE EN DEUX ═══════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUE LA MESURE DIT (base du 05/10/2026, sur les 11 253 messages portant une attribution) :
+ *   · 5 374 — soit presque LA MOITIÉ — l'ont coupée en deux lignes, parce que Gmail replie son texte à 72
+ *     colonnes sans se soucier de la phrase : « Le mar. 29 sept. 2026 à 16:36, Gestion <…> a » puis « écrit : ».
+ *   · 544 font la même chose sur « wrote : ».
+ *
+ * 🔴 CONSÉQUENCE AVANT CE LOT : la coupure ne se faisait pas sur l'attribution (aucune ligne ne matchait), mais
+ * une ligne plus bas, sur le premier « > ». L'historique partait donc bien — mais les DEUX LIGNES D'EN-TÊTE
+ * restaient collées sous la signature, et on lisait « Philippe Douaud / 92800 Puteaux / Le mar. 29 sept. 2026 à
+ * 16:36, Gestion CRITERIMMO <gestion@criterimmo.fr> a / écrit : ». Mesuré sur cinq mails réels.
+ *
+ * 🔴 LA RÈGLE NE CHANGE PAS, SON APPLICATION DEVIENT INSENSIBLE AU REPLI : les deux motifs d'attribution sont
+ * essayés aussi sur la ligne RECOLLÉE avec la suivante, et avec les deux suivantes (une adresse longue peut
+ * occuper un repli à elle seule). Ce ne sont pas de nouveaux motifs : ce sont les mêmes, sur un texte dont on a
+ * défait le repli.
+ *
+ * ⚠️ POURQUOI SEULEMENT CES DEUX MOTIFS. Ils sont ANCRÉS AUX DEUX BOUTS (`^…$`) : le recollage ne peut donc
+ * reconnaître qu'une phrase qui commence par « Le »/« On » ET se termine par « a écrit : »/« wrote : ». Les
+ * autres motifs n'ont pas d'ancre finale (`De :`, la barre Outlook) — les recoller élargirait ce qu'ils
+ * acceptent, et on se mettrait à replier du texte écrit. Un repli ne se défait que là où il est sans risque.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+const ATTRIBUTIONS_REPLIABLES: RegExp[] = [
+  /^\s*Le\s.+\s+a\s+écrit\s*:\s*$/i,
+  /^\s*On\s.+\s+wrote\s*:\s*$/i,
+];
+/** Nombre de lignes suivantes qu'on accepte de recoller pour reconnaître UNE attribution repliée. */
+const REPLIS_RECOLLES = 2;
+
+/** `true` si la ligne `i`, seule ou recollée avec la ou les suivantes, est un début de citation. */
+function estDebutDeCitation(lignes: readonly string[], i: number): boolean {
+  if (DEBUTS_DE_CITATION.some((m) => m.test(lignes[i]))) return true;
+  let recollee = lignes[i];
+  for (let j = 1; j <= REPLIS_RECOLLES && i + j < lignes.length; j += 1) {
+    recollee = `${recollee.trimEnd()} ${lignes[i + j].trim()}`;
+    if (ATTRIBUTIONS_REPLIABLES.some((m) => m.test(recollee))) return true;
+  }
+  return false;
+}
+
 /** Bornes de sûreté : au-delà, on n'analyse plus, on affiche. */
 const MAX_LIGNES = 400;
 
@@ -74,7 +117,7 @@ export function separerCitation(texte: string | null | undefined): CorpsLisible 
   const lignes = brut.split('\n');
   if (lignes.length > MAX_LIGNES) return { visible: brut.trim(), cite: null };
 
-  const coupure = lignes.findIndex((l) => DEBUTS_DE_CITATION.some((m) => m.test(l)));
+  const coupure = lignes.findIndex((_l, i) => estDebutDeCitation(lignes, i));
   if (coupure === -1) return { visible: brut.trim(), cite: null };
 
   const visible = lignes.slice(0, coupure).join('\n').trim();
