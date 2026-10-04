@@ -581,82 +581,37 @@ describe('⑤ le fil et les pièces', () => {
    ⑤-bis 🔴🔴 LOT HISTORIQUE-BIEN-2 — LE « + », ET LA PÉRIODE D'UNE PARTIE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’un locataire', () => {
-  /** Le jeu d'essai : AXA est « Non affectée », le locataire a un bail, le propriétaire est rangé. */
-  const PERIODES = new Map([
-    ['locataire@fictif.test', { mot: 'du 01/05/2025 au 28/09/2026', du: '2025-05-01', au: '2026-09-28' }],
-  ]);
-
+describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la période d’un locataire', () => {
   /**
-   * 🔴🔴 LE « + » N'APPARAÎT QUE SUR « NON AFFECTÉS », et c'est la condition d'Arno mot pour mot : « Pour chaque
-   * partie NON encore affectée à une catégorie ». Le proposer partout aurait invité à reclasser un propriétaire
-   * — or un client n'est jamais un contact, et un rangement manuel PRIME sur tout le reste.
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 3 — CE GROUPE A ÉTÉ RÉÉCRIT ; VOICI CE QU'IL DISAIT ═════════════════════
+   *
+   * ═══ CE QU'IL ATTENDAIT, ET POURQUOI C'ÉTAIT JUSTE ═══════════════════════════════════════════════════════════
+   * Que le « + » n'apparaisse QUE sur les parties de « Non affectés » (règle du lot 2 : « Pour chaque partie NON
+   * encore affectée à une catégorie : un bouton “+” »). Son rôle était alors de RANGER la partie : la carte de
+   * création demandait la catégorie, puisque personne ne la connaissait.
+   *
+   * ═══ 🔴 CE QU'ARNO A TRANCHÉ LE 05/10/2026 ═══════════════════════════════════════════════════════════════════
+   * « En face de chaque capsule de contact Propriétaire ou Locataire qui N'A PAS encore de carte de contact : un
+   * “+” rouge dans un cercle rouge. Il ouvre la carte de création avec la catégorie PRÉ-REMPLIE. Pas de “+” pour
+   * les Tiers indépendants, l'agence ni les clients. Le “+” disparaît dès que la carte existe. »
+   *
+   * Le « + » ne sert donc plus à RANGER — le glisser-déposer s'en charge — mais à COMPLÉTER : créer la carte de
+   * contact qui manque à une partie déjà rangée du côté d'un client. Et le rangement des parties non affectées
+   * passe désormais par le glisser ou par le menu « Déplacer vers… ».
    */
-  it('🔴🔴 le « + » n’est offert que sur les parties non affectées', async () => {
-    await monter({ periodes: PERIODES });
-    await deplierGroupe('Non affectés');
-    const plus = [...hote.querySelectorAll('.hdb-plus')] as HTMLButtonElement[];
-    expect(plus).toHaveLength(1);
-    /* ⚠️ L'INTITULÉ DIT LE NOM LISIBLE, PAS L'ADRESSE (changé au lot HISTORIQUE-BIEN-3) : la capsule affiche
-       « AXA », et un lecteur d'écran qui annoncerait « assureur@fictif.test » nommerait autre chose que ce
-       qu'on voit. `libelleInterlocuteur` est la même fonction qui écrit le nom dans la capsule. */
-    expect(plus[0].getAttribute('aria-label')).toContain('AXA');
-  });
 
-  /**
-   * 🔴🔴 LA CARTE PRÉ-REMPLIT L'ADRESSE, ET LAISSE LA CATÉGORIE VIDE QUAND RIEN N'A ÉTÉ DÉDUIT. Pré-cocher
-   * « Propriétaire » par défaut aurait fait ranger des gens dans une catégorie fausse d'un clic distrait.
-   */
-  it('🔴🔴 la carte pré-remplit l’adresse, laisse la catégorie vide, et refuse de valider', async () => {
-    await monter({ periodes: PERIODES });
-    await deplierGroupe('Non affectés');
-    await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
-    const carte = hote.querySelector('.hdb-creation') as HTMLElement;
-    expect(carte).not.toBeNull();
-    const adresse = carte.querySelector('input[type="email"]') as HTMLInputElement;
-    expect(adresse.value).toBe('assureur@fictif.test');
-    // ⚠️ NON MODIFIABLE : c'est l'adresse qu'on range, pas une saisie libre.
-    expect(adresse.readOnly).toBe(true);
-    expect((carte.querySelector('select') as HTMLSelectElement).value).toBe('');
-    expect(texte()).toContain('elle n’a pas été déduite pour cette adresse');
-    expect((parMot('Valider') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  /**
-   * 🔴🔴 UN TIERS INDÉPENDANT NE REÇOIT AUCUNE CARTE, et l'écran le DIT AVANT de valider : la règle du lot
-   * précédent est inchangée, et la surprise après le clic est évitée.
-   */
-  it('🔴🔴 l’écran dit ce que chaque catégorie fera, avant le clic', async () => {
-    await monter({ periodes: PERIODES });
-    await deplierGroupe('Non affectés');
-    await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
-    const select = hote.querySelector('.hdb-creation select') as HTMLSelectElement;
-
-    await changer(select, 'independant');
-    expect(texte()).toContain('rangé une fois pour TOUS les biens');
-    expect(texte()).toContain('ne sert jamais à l’automatisation');
-
-    await changer(select, 'locataire');
-    expect(texte()).toContain('Rangée côté locataire de ce bien');
-    expect((parMot('Valider') as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  /**
-   * 🔴🔴 VALIDER POSTE, PUIS **RELIT** — et c'est la relecture qui fait changer la partie de groupe. Poser la
-   * catégorie dans l'état local aurait affiché un rangement que le serveur a peut-être refusé en partie.
-   */
-  it('🔴🔴 valider poste la catégorie et la carte, puis relit les rangements', async () => {
-    const envois: { url: string; corps: unknown }[] = [];
+  /** AXA est rangée côté PROPRIÉTAIRE par la base — c'est un CONTACT du propriétaire, pas un client. */
+  const servirAvecContact = (cartes: { cote: string; adresse: string; verifie: boolean }[] = []): void => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') {
-        envois.push({ url: String(url), corps: JSON.parse(String(init.body)) });
-        return reponse({ etat: 'ok', carteRefusee: null });
-      }
+      if (init?.method === 'POST') return reponse({ etat: 'ok', geste: null });
       appels.push(String(url));
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
-        return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+        return reponse({
+          etat: 'ok',
+          data: { parties: [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }], cartes },
+        });
       }
       return reponse({
         etat: 'ok',
@@ -666,24 +621,132 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
         },
       });
     }));
-    await monter({ periodes: PERIODES });
+  };
+
+  const PERIODES = new Map([
+    ['locataire@fictif.test', { mot: 'du 01/05/2025 au 28/09/2026', du: '2025-05-01', au: '2026-09-28' }],
+  ]);
+
+  /**
+   * 🔴🔴 LES TROIS CONDITIONS D'ARNO, ÉPROUVÉES ENSEMBLE : un CONTACT (ni client ni agence), d'un côté CLIENT
+   * (ni Tiers ni Non affectés), SANS carte. Le propriétaire et la locataire de la fiche sont des clients : ils
+   * n'ont pas de « + », et c'est la même règle que celle du glisser — deux définitions de « client » auraient
+   * fini par diverger, et le « + » serait apparu sur un propriétaire.
+   */
+  it('🔴🔴 le « + » cerclé n’est offert qu’au CONTACT d’un côté client, sans carte', async () => {
+    servirAvecContact();
+    await monter();
+    const plus = [...hote.querySelectorAll('.hdb-plus')] as HTMLButtonElement[];
+    expect(plus).toHaveLength(1);
+    expect(plus[0].className).toContain('hdb-plus--cercle');
+    expect(plus[0].getAttribute('aria-label')).toContain('AXA');
+    /* …et il est bien DANS la capsule d'AXA, côté Propriétaire. */
+    const capsule = plus[0].closest('.hdb-capsule') as HTMLElement;
+    expect(capsule.textContent).toContain('AXA');
+    /* 🔴 AUCUN « + » SUR UN CLIENT : ni le propriétaire, ni la locataire. */
+    const clients = ([...hote.querySelectorAll('.hdb-capsule')] as HTMLElement[])
+      .filter((c) => /ROI Nathan|MARTY/.test(c.textContent ?? ''));
+    expect(clients.length).toBeGreaterThan(0);
+    for (const c of clients) expect(c.querySelector('.hdb-plus')).toBeNull();
+  });
+
+  /** 🔴🔴 IL DISPARAÎT DÈS QUE LA CARTE EXISTE — mot d'Arno, et c'est tout l'intérêt du signe. */
+  it('🔴🔴 le « + » disparaît dès que la carte existe, du bon côté', async () => {
+    servirAvecContact([{ cote: 'proprietaire', adresse: 'assureur@fictif.test', verifie: false }]);
+    await monter();
+    expect(hote.querySelectorAll('.hdb-plus')).toHaveLength(0);
+  });
+
+  /**
+   * 🔴🔴 LE CÔTÉ COMPTE, PAS SEULEMENT L'ADRESSE. Une carte côté LOCATAIRE ne dispense pas d'en avoir une côté
+   * PROPRIÉTAIRE, où la partie est rangée : la clé de la table est (bien, côté, adresse). Sans ce contrôle, le
+   * « + » aurait disparu à tort, et la carte manquante serait restée invisible.
+   */
+  it('🔴🔴 une carte de l’autre côté ne fait pas disparaître le « + »', async () => {
+    servirAvecContact([{ cote: 'locataire', adresse: 'assureur@fictif.test', verifie: false }]);
+    await monter();
+    expect(hote.querySelectorAll('.hdb-plus')).toHaveLength(1);
+  });
+
+  /** 🔴 PAS DE « + » SUR UN TIERS INDÉPENDANT NI SUR « NON AFFECTÉS » : ils n'ont pas de côté client. */
+  it('🔴🔴 pas de « + » dans les deux bandes', async () => {
+    await monter();
     await deplierGroupe('Non affectés');
+    expect(hote.querySelectorAll('.hdb-plus')).toHaveLength(0);
+  });
+
+  /**
+   * 🔴🔴 LA CATÉGORIE EST PRÉ-REMPLIE PAR LE GROUPE D'OÙ L'ON CLIQUE. On sait où la partie est rangée : la
+   * redemander serait une question dont l'écran connaît la réponse.
+   */
+  it('🔴🔴 la carte s’ouvre avec l’adresse et la catégorie pré-remplies', async () => {
+    servirAvecContact();
+    await monter();
+    await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
+    const carte = hote.querySelector('.hdb-creation') as HTMLElement;
+    expect(carte).not.toBeNull();
+    const adresse = carte.querySelector('input[type="email"]') as HTMLInputElement;
+    expect(adresse.value).toBe('assureur@fictif.test');
+    /* ⚠️ NON MODIFIABLE : c'est l'adresse qu'on complète, pas une saisie libre. */
+    expect(adresse.readOnly).toBe(true);
+    expect((carte.querySelector('select') as HTMLSelectElement).value).toBe('proprietaire');
+    expect(texte()).toContain('Rangée côté propriétaire de ce bien');
+    /* …et « Valider » est donc offert d'emblée : plus rien ne manque. */
+    expect((parMot('Valider') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  /** 🔴 LA CATÉGORIE RESTE MODIFIABLE : pré-remplie n'est pas imposée (mot d'Arno au lot 2, inchangé). */
+  it('🔴 la catégorie pré-remplie reste modifiable', async () => {
+    servirAvecContact();
+    await monter();
+    await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
+    const select = hote.querySelector('.hdb-creation select') as HTMLSelectElement;
+    await changer(select, 'independant');
+    expect(texte()).toContain('rangé une fois pour TOUS les biens');
+  });
+
+  /**
+   * 🔴🔴 VALIDER POSTE PAR LA MÊME PORTE, PUIS RELIT. Poser la catégorie dans l'état local aurait affiché un
+   * rangement que le serveur a peut-être refusé en partie.
+   */
+  it('🔴🔴 valider poste la catégorie et la carte, puis relit les rangements', async () => {
+    const envois: { corps: Record<string, unknown> }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        envois.push({ corps: JSON.parse(String(init.body)) as Record<string, unknown> });
+        return reponse({ etat: 'ok', carteRefusee: null, geste: null });
+      }
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) {
+        return reponse({
+          etat: 'ok',
+          data: { parties: [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }], cartes: [] },
+        });
+      }
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
     await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
     const carte = hote.querySelector('.hdb-creation') as HTMLElement;
     await changer(carte.querySelectorAll('input')[1] as HTMLInputElement, 'Sophie AXA');
     await changer(carte.querySelectorAll('input')[2] as HTMLInputElement, '06 11 22 33 44');
-    await changer(carte.querySelector('select') as HTMLSelectElement, 'locataire');
     const avant = appels.filter((a) => a.includes('/historique/parties')).length;
     await cliquer(parMot('Valider'));
 
     expect(envois).toHaveLength(1);
     expect(envois[0].corps).toEqual({
-      cible: 'lot-155', adresse: 'assureur@fictif.test', categorie: 'locataire',
+      cible: 'lot-155', adresse: 'assureur@fictif.test', categorie: 'proprietaire',
       nom: 'Sophie AXA', telephone: '06 11 22 33 44',
     });
-    /* 🔴 LA RELECTURE A BIEN EU LIEU : une requête de plus sur la route des parties, après le POST. */
     expect(appels.filter((a) => a.includes('/historique/parties')).length).toBe(avant + 1);
-    // …et la carte s'est fermée.
     expect(hote.querySelector('.hdb-creation')).toBeNull();
   });
 
@@ -696,7 +759,10 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
-        return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+        return reponse({
+          etat: 'ok',
+          data: { parties: [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }], cartes: [] },
+        });
       }
       return reponse({
         etat: 'ok',
@@ -706,10 +772,8 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
         },
       });
     }));
-    await monter({ periodes: PERIODES });
-    await deplierGroupe('Non affectés');
+    await monter();
     await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
-    await changer(hote.querySelector('.hdb-creation select') as HTMLSelectElement, 'proprietaire');
     await cliquer(parMot('Valider'));
     expect(texte()).toContain('l’auteur doit être identifié');
     expect(hote.querySelector('.hdb-creation')).not.toBeNull();
@@ -718,13 +782,14 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
   /**
    * ══ 🔴🔴 « CHACUN AVEC SA PÉRIODE », ET LE CLIC LA RÈGLE ════════════════════════════════════════════════════
    *
-   * C'est ici que le geste du lot précédent — choisir la période d'un locataire — est repris, à l'endroit où
-   * Arno place désormais cette information. Le groupe ② le dit : rien ne se perd, le geste change d'endroit.
+   * C'est le geste du lot 1 — choisir la période d'un locataire — à l'endroit où Arno place cette date depuis le
+   * lot 2 : dans la capsule. Il est resté au même endroit au lot 3, dans la capsule arrondie.
    */
-  it('🔴🔴 la période d’un locataire est écrite sous son nom, et son clic règle les dates', async () => {
+  it('🔴🔴 la période d’un locataire est dans sa capsule, et son clic règle les dates', async () => {
     await monter({ periodes: PERIODES });
     const bouton = parMot('du 01/05/2025 au 28/09/2026');
     expect(bouton).toBeDefined();
+    expect(bouton?.closest('.hdb-capsule')).not.toBeNull();
     await cliquer(bouton);
     const dates = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
     expect(dates.map((d) => d.value)).toEqual(['2025-05-01', '2026-09-28']);

@@ -504,6 +504,29 @@ export function HistoriqueDuBien({
     setReglages((r) => ({ ...r, periode: { sorte: 'dates', du: b.du, au: b.au } }));
   }, []);
 
+  /**
+   * ══ 🔴🔴 QUELLES ADRESSES ONT DÉJÀ UNE CARTE, ET DE QUEL CÔTÉ (lot HISTORIQUE-BIEN-3, point 3) ═══════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « En face de chaque capsule de contact Propriétaire ou Locataire qui N'A PAS
+   * encore de carte de contact : un “+” rouge dans un cercle rouge. […] Le “+” disparaît dès que la carte
+   * existe. »
+   *
+   * 🔴 LE CÔTÉ COMPTE, PAS SEULEMENT L'ADRESSE. Une même personne peut être contact du propriétaire sur un bien
+   * et du locataire sur un autre ; et sur CE bien, avoir une carte côté propriétaire ne dispense pas d'en avoir
+   * une côté locataire si elle y est rangée. La clé de la table est (bien, côté, adresse) : la carte des cartes
+   * doit l'être aussi, sinon le « + » disparaîtrait à tort.
+   */
+  const cartesParAdresse = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const c of cartesContact) {
+      const cle = c.adresse.trim().toLowerCase();
+      const s0 = m.get(cle) ?? new Set<string>();
+      s0.add(c.cote);
+      m.set(cle, s0);
+    }
+    return m as ReadonlyMap<string, ReadonlySet<string>>;
+  }, [cartesContact]);
+
   /** Déplier ou replier un groupe. Écrit une fois : les encarts et les bandes s'en servent. */
   const basculerRepli = useCallback((cle: CleGroupeParties): void => setBascules((s0) => {
     const n = new Set(s0);
@@ -609,15 +632,22 @@ export function HistoriqueDuBien({
   const [refusCreation, setRefusCreation] = useState<string | null>(null);
   const [creationEnCours, setCreationEnCours] = useState(false);
 
-  const ouvrirCreation = useCallback((adresse: string): void => {
+  const ouvrirCreation = useCallback((adresse: string, imposee?: CleGroupeParties): void => {
     const cle = adresse.trim().toLowerCase();
     const deduite = proposees.get(cle);
+    /**
+     * 🔴🔴 LA CATÉGORIE DU GROUPE D'OÙ L'ON CLIQUE L'EMPORTE (lot HISTORIQUE-BIEN-3, point 3). Arno : « Il ouvre
+     * la carte de création avec la catégorie pré-remplie. » Le « + » cerclé vit en face d'une capsule DÉJÀ
+     * rangée : on sait où elle est, et la redemander serait une question dont l'écran connaît la réponse.
+     *
+     * ⚠️ `a_repartir` N'EST PAS UNE DÉDUCTION, ni imposée ni proposée : c'est le constat qu'on n'a pas su
+     * trancher. Le choix reste alors VIDE — pré-cocher « Propriétaire » au hasard se valide sans être lu.
+     */
+    const choisie = imposee ?? deduite;
     setRefusCreation(null);
     setACreer({
       adresse,
-      /* 🔴 PRÉ-REMPLIE SEULEMENT SI ELLE A ÉTÉ DÉDUITE. « a_repartir » n'est pas une déduction : c'est le constat
-         qu'on n'a pas su trancher. Le choix reste donc vide, et il faut le poser. */
-      categorie: deduite === undefined || deduite === 'a_repartir' ? '' : deduite,
+      categorie: choisie === undefined || choisie === 'a_repartir' ? '' : choisie,
       nom: '',
       telephone: '',
     });
@@ -930,7 +960,7 @@ export function HistoriqueDuBien({
               if (g === undefined || g.nb === 0) return null;
               return (
                 <GroupeDeParties key={cle} g={g} forme="encart" reglages={reglages} bascules={bascules}
-                  periodes={periodes} categoriesFiche={categories}
+                  periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse}
                   survol={survol} glisse={glisse} menu={menu}
                   onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
                   onCreer={ouvrirCreation} onMenu={setMenu} onGlisse={setGlisse} onSurvol={setSurvol}
@@ -948,7 +978,7 @@ export function HistoriqueDuBien({
             if (g === undefined || (g.nb === 0 && glisse === null)) return null;
             return (
               <GroupeDeParties key={cle} g={g} forme="bande" reglages={reglages} bascules={bascules}
-                periodes={periodes} categoriesFiche={categories}
+                periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse}
                 survol={survol} glisse={glisse} menu={menu}
                 onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
                 onCreer={ouvrirCreation} onMenu={setMenu} onGlisse={setGlisse} onSurvol={setSurvol}
@@ -1242,13 +1272,15 @@ interface PropsGroupe {
   periodes: ReadonlyMap<string, PeriodePartie>;
   /** Les CLIENTS de la fiche : eux seuls ne se déplacent pas. */
   categoriesFiche: ReadonlyMap<string, CategoriePartie>;
+  /** Par adresse, les côtés où une carte de contact existe déjà. Décide de la présence du « + » cerclé. */
+  cartesParAdresse: ReadonlyMap<string, ReadonlySet<string>>;
   survol: CleGroupeParties | null;
   glisse: { adresse: string; depuis: CleGroupeParties } | null;
   menu: string | null;
   onBasculerRepli: (cle: CleGroupeParties) => void;
   onBasculerPartie: (adresse: string) => void;
   onBasculerGroupe: (adresses: readonly string[]) => void;
-  onCreer: (adresse: string) => void;
+  onCreer: (adresse: string, categorie?: CleGroupeParties) => void;
   onMenu: (adresse: string | null) => void;
   onGlisse: (g: { adresse: string; depuis: CleGroupeParties } | null) => void;
   onSurvol: (cle: CleGroupeParties | null) => void;
@@ -1384,6 +1416,21 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
   const nomLisible = libelleInterlocuteur(i);
   const deplacable = partieDeplacable(i.adresse, p.categoriesFiche, i.interne);
   const menuOuvert = p.menu === cle;
+  /**
+   * ══ 🔴🔴 LE « + » CERCLÉ : UN CONTACT, D'UN CÔTÉ CLIENT, QUI N'A PAS ENCORE SA CARTE ═════════════════════════
+   *
+   * Arno : « En face de chaque capsule de contact Propriétaire ou Locataire qui N'A PAS encore de carte de
+   * contact […] Pas de “+” pour les Tiers indépendants, l'agence ni les clients. Le “+” disparaît dès que la
+   * carte existe. »
+   *
+   * 🔴 LES TROIS CONDITIONS SONT LES TROIS PHRASES D'ARNO, dans l'ordre :
+   *   · `coteDuGroupe !== null` → ni Tiers indépendant, ni Non affectés (c'est `coteDeLaCategorie` qui le dit) ;
+   *   · `deplacable` → ni un client, ni l'agence — exactement la même règle que le glisser, et c'est voulu :
+   *     deux définitions de « client » auraient fini par diverger, et le « + » serait apparu sur un propriétaire ;
+   *   · pas de carte de ce côté → il disparaît dès qu'elle existe.
+   */
+  const coteDuGroupe = coteDeLaCategorie(g.cle);
+  const sansCarte = coteDuGroupe !== null && !(p.cartesParAdresse.get(cle)?.has(coteDuGroupe) ?? false);
 
   return (
     <li className={`hdb-capsule hdb-capsule--${g.ton}${deplacable ? '' : ' hdb-capsule--fixe'}`}
@@ -1418,13 +1465,15 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
         </span>
       </label>
 
-      {/* ⚠️ LE « + » EST CELUI DU LOT 2, INCHANGÉ ICI : il n'apparaît que sur « Non affectés ». Sa refonte —
-          en face de chaque contact Propriétaire ou Locataire SANS carte, et cerclé de rouge — est le point 3. */}
-      {g.cle === 'a_repartir' && (
-        <button type="button" className="hdb-plus"
-          aria-label={`Ranger ${nomLisible} et créer son contact`}
-          title="Ranger cette partie et créer son contact"
-          onClick={() => p.onCreer(i.adresse)}>+</button>
+      {/* ══ LE « + » ROUGE CERCLÉ — POINT 3 ═══════════════════════════════════════════════════════════════════
+          ⚠️ LA CATÉGORIE EST PRÉ-REMPLIE PAR LE GROUPE D'OÙ L'ON CLIQUE, et c'est la demande d'Arno : « Il ouvre
+          la carte de création avec la catégorie pré-remplie. » On sait où la personne est rangée — la redemander
+          aurait été une question dont l'écran connaît déjà la réponse. */}
+      {deplacable && sansCarte && (
+        <button type="button" className="hdb-plus hdb-plus--cercle"
+          aria-label={`Créer la carte de contact de ${nomLisible}`}
+          title="Créer sa carte de contact"
+          onClick={() => p.onCreer(i.adresse, g.cle)}>+</button>
       )}
 
       {/* ══ LE MENU « DÉPLACER VERS… » — LE CHEMIN CLAVIER ══════════════════════════════════════════════════ */}
@@ -1845,6 +1894,14 @@ ${CSS_PIECES}
   background:transparent;font:inherit;font-size:1rem;font-weight:700;color:var(--color-svv-red);cursor:pointer}
 .hdb-plus:hover{background:var(--color-svv-field);border-color:var(--color-svv-line-strong)}
 .hdb-plus:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* ══ LE « + » ROUGE DANS UN CERCLE ROUGE (lot HISTORIQUE-BIEN-3, point 3) ═════════════════════════════════════
+   DEMANDE D'ARNO : « un “+” rouge dans un cercle rouge (reprends le + de la capture et ajoute le cercle) ».
+   Le signe et le trait sont donc la MEME couleur, et le cercle est un vrai rond : 28 px, bord de 2 px.
+   ⚠️ LA CIBLE TACTILE RESTE DE 36 px grace au padding de la capsule : un rond de 28 px se rate, mais la zone
+   cliquable, elle, garde sa taille. */
+.hdb-plus--cercle{width:28px;height:28px;min-height:28px;border-radius:999px;border:2px solid var(--color-svv-red);
+  display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0}
+.hdb-plus--cercle:hover{background:var(--color-svv-red-soft);border-color:var(--color-svv-red)}
 
 /* ══ LA CARTE DE CREATION D'UN CONTACT ── MEME TRAME ORANGE que les cartes creees automatiquement : ce qui est
    en attente de verification se voit, et se voit pareil partout. */
