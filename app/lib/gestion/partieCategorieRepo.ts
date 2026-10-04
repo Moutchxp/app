@@ -1,0 +1,433 @@
+import { query, withTransaction } from '../db/client';
+import { contactCarteDisponible, partieCategorieDisponible } from './schema';
+import { normaliserEmail } from './annuaire';
+/**
+ * 🔴🔴 LA RÈGLE UNIQUE DU LIEN DE BIEN, et c'est le fragment du dépôt — jamais une condition réécrite. Elle sert
+ * ici à répondre à UNE question : « quelles adresses touchent ce bien ? ». Voir l'encadré de la lecture.
+ */
+import { sqlLiensDuBien } from './rattachement';
+import { categorieRetenue } from './partieCategorie';
+import type { Categorie, CategorieRangee, Cote, Origine } from './partieCategorie';
+import type { Auteur } from './gestes';
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — LE CÂBLAGE DE LA MIGRATION 304 ══════════════════════════════════════════════════
+ *
+ * ⚠️ PAS DE `import 'server-only'` ICI. Les commandes de ligne (`tsx`) importent les dépôts du module, et
+ * `server-only` lève hors du bundle react-server. La frontière client/serveur est tenue par
+ * `app/lib/garde/serverOnly.guard.test.ts` et `clientBoundary.guard.test.ts` — convention du module, voir
+ * `interneMessageRepo.ts` et `horsGestionRepo.ts`.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 LA RÈGLE N'EST PAS ÉCRITE ICI. Elle vit dans le module PUR `partieCategorie.ts`, lu par le navigateur comme
+ * par le serveur. Ce fichier ne fait que LIRE et ÉCRIRE : il n'a aucune opinion sur ce qu'une adresse est, et
+ * surtout il ne REFAIT pas la résolution en SQL. Deux écritures de la même règle — une en TypeScript pour l'écran,
+ * une en SQL pour la liste — divergent au premier ajustement ; c'est exactement le défaut que le lot
+ * RENOMMER-PARTOUT a payé (la modale lisait les fenêtres, la liste la marque d'échange, et les deux se
+ * contredisaient sur 3 conversations).
+ *
+ * ═══ 🔒 SANS LA MIGRATION 304, AUCUNE DES DEUX TABLES NEUVES N'EST NOMMÉE ═════════════════════════════════════════
+ *
+ * Chaque fonction SONDE d'abord, et répond comme avant ce lot : une lecture rend vide, une écriture refuse en
+ * disant pourquoi. La leçon est écrite en toutes lettres dans l'en-tête de `schema.ts` et elle a coûté cher ici :
+ * nommer une table absente ne casse pas la fonction nouvelle, il casse TOUT l'écran.
+ *
+ * ⚠️ LA SONDE SE FAIT HORS TRANSACTION, jamais à l'intérieur : PostgreSQL abandonne toute la transaction à la
+ * première erreur, et un repli placé après une requête qui vient d'échouer ne peut plus s'exécuter.
+ *
+ * ═══ 🔒 TOUT GESTE EXIGE UN AUTEUR HUMAIN NOMMÉ ═══════════════════════════════════════════════════════════════════
+ *
+ * Poser une catégorie à la main, poser ou retirer une carte, marquer « Vérifié » : ce sont des DÉCISIONS, et une
+ * décision a un auteur. Un auteur anonyme ou littéralement « automatique » est refusé ICI **et** par la base
+ * (`gestion_partie_categorie_auteur_chk`, `gestion_contact_carte_auteur_chk`) — deux gardes pour la même règle,
+ * parce qu'un garde applicatif se contourne au prochain script et une contrainte non.
+ *
+ * ⚠️ LA PASSE DE REPRISE, ELLE, N'EST PAS UN GESTE : elle écrit des `origine = 'defaut'` / `'propose'` et des
+ * cartes `origine = 'auto'`, signées « automatique », ce qui est la vérité. Elle n'emprunte donc AUCUNE des
+ * fonctions de ce fichier — elle a ses propres instructions, dans son script, et ne peut pas poser de `manuel`.
+ *
+ * 🔴 RIEN N'EST JAMAIS SUPPRIMÉ. Aucun `DELETE` dans ce fichier : retirer écrit une date, un auteur et un motif.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ① CE QUE L'ÉCRAN LIT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Une catégorie vivante, telle que la base la porte. */
+export interface LigneCategorie {
+  id: number;
+  adresse: string;
+  /** `null` = catégorie GLOBALE (`independant`), rangée une fois pour tous les biens. */
+  lotCle: string | null;
+  categorie: Categorie;
+  origine: Origine;
+  verifieLe: string | null;
+  verifiePar: string | null;
+  poseLe: string;
+  posePar: string;
+}
+
+/**
+ * CE QU'ON SAIT D'UNE ADRESSE SUR UN BIEN : les deux lignes possibles, et ce qui l'emporte.
+ *
+ * ⚠️ `retenue` EST CALCULÉE PAR LE MODULE PUR, jamais par la requête : l'écran et le serveur doivent répondre
+ * pareil, et une seule écriture de la règle le garantit.
+ */
+export interface CategorieDuBien {
+  adresse: string;
+  parBien: LigneCategorie | null;
+  globale: LigneCategorie | null;
+  retenue: CategorieRangee | null;
+}
+
+/** Une carte de contact vivante. */
+export interface LigneCarte {
+  id: number;
+  lotCle: string;
+  cote: Cote;
+  adresse: string;
+  nom: string | null;
+  telephone: string | null;
+  origine: 'auto' | 'manuel';
+  verifieLe: string | null;
+  verifiePar: string | null;
+  creeLe: string;
+  creePar: string;
+}
+
+export type IssuePartieCategorie = { ok: true; id: number | null; nb: number } | { ok: false; motif: string };
+
+const SANS_304 = 'Mise à jour de la base à appliquer (migration 304) : le rangement des parties n’est pas encore '
+  + 'installé.';
+const SANS_304_CARTES = 'Mise à jour de la base à appliquer (migration 304) : les cartes de contact ne sont pas '
+  + 'encore installées.';
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ② LES GARDES COMMUNS — PURS, ET DONC TESTABLES SANS BASE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 🔒 L'AUTEUR EST-IL UN HUMAIN NOMMÉ ? La même règle que `auteurHumainInterneMessage`, au mot près — et la même
+ * raison : « automatique » n'est pas quelqu'un, et un libellé vide ne se défend pas six mois plus tard.
+ */
+export function auteurHumainPartieCategorie(a: { libelle?: string | null } | null | undefined): boolean {
+  const l = (a?.libelle ?? '').trim();
+  return l !== '' && l.toLowerCase() !== 'automatique';
+}
+
+/**
+ * L'ADRESSE, NORMALISÉE COMME PARTOUT AILLEURS (`normaliserEmail`), ou `null` si elle n'est pas une adresse.
+ *
+ * ⚠️ UNE SEULE DÉFINITION DE « LA MÊME ADRESSE » DANS TOUT LE MODULE. Si l'on normalisait ici autrement que le
+ * relevé des adresses d'un message, une catégorie posée à la main ne retrouverait jamais le courrier qu'elle
+ * concerne — et la base, dont la contrainte exige des minuscules, refuserait l'écriture sans dire pourquoi.
+ */
+function adressePropre(brut: string | null | undefined): string | null {
+  return normaliserEmail(brut ?? '');
+}
+
+/** Une clé de lot propre, ou `null`. Bornée : on refuse un payload absurde, pas une saisie. */
+function lotPropre(brut: string | null | undefined): string | null {
+  const s = (brut ?? '').trim();
+  return s === '' || s.length > 200 ? null : s;
+}
+
+/** Un texte court, borné, ou `null`. Jamais de chaîne vide en base : l'absence se dit `NULL`. */
+function texteCourt(brut: string | null | undefined, max = 300): string | null {
+  const s = (brut ?? '').trim();
+  return s === '' ? null : s.slice(0, max);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ③ LIRE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+const HORODATAGE = `to_char(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+const ts = (col: string): string => HORODATAGE.replace('%s', col);
+
+function ligneCategorie(r: {
+  id: string; adresse: string; lot_cle: string | null; categorie: string; origine: string;
+  verifie_le: string | null; verifie_par: string | null; pose_le: string; pose_par: string;
+}): LigneCategorie {
+  return {
+    id: Number(r.id), adresse: r.adresse, lotCle: r.lot_cle,
+    categorie: r.categorie as Categorie, origine: r.origine as Origine,
+    verifieLe: r.verifie_le, verifiePar: r.verifie_par, poseLe: r.pose_le, posePar: r.pose_par,
+  };
+}
+
+/**
+ * LES CATÉGORIES QUI CONCERNENT UN BIEN — celles POSÉES SUR CE BIEN, et les GLOBALES des mêmes adresses.
+ *
+ * 🔴 LES DEUX SONT INDISPENSABLES, et c'est tout l'intérêt de la lecture : sans la ligne globale, un prestataire
+ * rangé `independant` une fois pour toutes réapparaîtrait comme « contact du propriétaire » sur chaque bien où une
+ * ligne par défaut a été posée. La résolution (`categorieRetenue`) a besoin des deux pour trancher.
+ *
+ * ⚠️ UNE SEULE REQUÊTE POUR TOUTE LA FICHE : règle du module. Elle rend aussi les adresses qui n'ont QU'une ligne
+ * globale et aucune ligne sur ce bien — un indépendant vu sur ce bien est une information utile à l'écran
+ * (« 2 indépendants vus »), même s'il n'y est pas rattaché.
+ */
+export async function lireCategoriesDuBien(lotCle: string): Promise<CategorieDuBien[]> {
+  const lot = lotPropre(lotCle);
+  if (lot === null || !(await partieCategorieDisponible())) return [];
+
+  const { rows } = await query<{
+    id: string; adresse: string; lot_cle: string | null; categorie: string; origine: string;
+    verifie_le: string | null; verifie_par: string | null; pose_le: string; pose_par: string;
+  }>(
+    /* ⚠️ LES GLOBALES SONT BORNÉES AUX ADRESSES QUI TOUCHENT CE BIEN (la sous-requête `adresses`), jamais « toutes
+       les globales » : il y en a 65 aujourd'hui, et rien ne dit qu'il n'y en aura pas mille. */
+    /**
+     * ══ 🔴🔴 DÉFAUT TROUVÉ À L'ÉCRAN, ET IL VIDAIT LE GROUPE « INDÉPENDANT » ENTIER ════════════════════════════
+     *
+     * La première écriture de cette requête définissait « les adresses qui touchent ce bien » comme **celles qui
+     * portent déjà une ligne de catégorie sur ce bien**. Or la reprise donne à une adresse **soit** une ligne
+     * globale `independant`, **soit** une ligne par bien — jamais les deux. Mesuré en base le 04/10/2026 :
+     * **65 indépendants globaux**, et **0 adresse** possédant à la fois une ligne sur un lot et une ligne
+     * globale. La sous-requête était donc toujours vide de ces adresses-là : **aucun indépendant ne pouvait
+     * jamais sortir de cette lecture**, et le groupe « Indépendant » de l'écran restait vide quoi qu'on range.
+     *
+     * 🔴 L'ENCADRÉ DE CETTE FONCTION PROMETTAIT POURTANT LE CONTRAIRE (« elle rend aussi les adresses qui n'ont
+     * QU'une ligne globale et aucune ligne sur ce bien »). C'est le pire genre de défaut : la documentation
+     * disait l'intention, le SQL faisait autre chose, et rien ne rougissait.
+     *
+     * 🔴 LA BONNE DÉFINITION EST LE COURRIER : une adresse touche ce bien si elle apparaît dans un mail rattaché
+     * à ce bien. On l'écrit avec `sqlLiensDuBien`, le fragment unique du dépôt — pas avec une condition
+     * recopiée. Et l'on garde l'union avec les lignes posées sur ce lot : une adresse rangée à la main doit
+     * rester lisible même si son dernier mail a été détaché depuis.
+     */
+    `WITH adresses AS (
+        SELECT DISTINCT lower(btrim(a.adresse)) AS adresse
+          FROM gestion_rattachement r
+          JOIN gestion_message_adresse a ON a.message_id = r.message_id
+         WHERE r.cible_cle = $1 AND ${sqlLiensDuBien('r')}
+        UNION
+        SELECT DISTINCT adresse FROM gestion_partie_categorie
+         WHERE retire_le IS NULL AND lot_cle = $1
+      )
+      SELECT c.id::text, c.adresse, c.lot_cle, c.categorie, c.origine,
+             ${ts('c.verifie_le')} AS verifie_le, c.verifie_par_libelle AS verifie_par,
+             ${ts('c.pose_le')} AS pose_le, c.pose_par_libelle AS pose_par
+        FROM gestion_partie_categorie c
+       WHERE c.retire_le IS NULL
+         AND (c.lot_cle = $1 OR (c.lot_cle IS NULL AND c.adresse IN (SELECT adresse FROM adresses)))
+       ORDER BY c.adresse, c.lot_cle NULLS LAST`, [lot]);
+
+  const par = new Map<string, CategorieDuBien>();
+  for (const r of rows) {
+    const l = ligneCategorie(r);
+    const e = par.get(l.adresse) ?? { adresse: l.adresse, parBien: null, globale: null, retenue: null };
+    if (l.lotCle === null) e.globale = l; else e.parBien = l;
+    par.set(l.adresse, e);
+  }
+  /* 🔴 LA RÉSOLUTION EST FAITE PAR LE MODULE PUR, après la lecture. Jamais en SQL. */
+  for (const e of par.values()) {
+    e.retenue = categorieRetenue({
+      parBien: e.parBien === null ? null : { categorie: e.parBien.categorie, origine: e.parBien.origine },
+      globale: e.globale === null ? null : { categorie: e.globale.categorie, origine: e.globale.origine },
+    });
+  }
+  return [...par.values()];
+}
+
+/**
+ * LES CARTES DE CONTACT D'UN BIEN, les deux côtés.
+ *
+ * ⚠️ LES VÉRIFIÉES D'ABORD : ce sont les seules qui s'affichent d'emblée, les autres étant repliées derrière leur
+ * nombre au-delà de six (`SEUIL_REPLI_CARTES`). L'ordre de la requête épargne un tri à l'écran, et surtout il
+ * épargne DEUX tris qui divergeraient.
+ */
+export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
+  const lot = lotPropre(lotCle);
+  if (lot === null || !(await contactCarteDisponible())) return [];
+
+  const { rows } = await query<{
+    id: string; lot_cle: string; cote: string; adresse: string; nom: string | null; telephone: string | null;
+    origine: string; verifie_le: string | null; verifie_par: string | null; cree_le: string; cree_par: string;
+  }>(
+    `SELECT id::text, lot_cle, cote, adresse, nom, telephone, origine,
+            ${ts('verifie_le')} AS verifie_le, verifie_par_libelle AS verifie_par,
+            ${ts('cree_le')} AS cree_le, cree_par_libelle AS cree_par
+       FROM gestion_contact_carte
+      WHERE retire_le IS NULL AND lot_cle = $1
+      ORDER BY cote, (verifie_le IS NULL), coalesce(nom, adresse), id`, [lot]);
+
+  return rows.map((r) => ({
+    id: Number(r.id), lotCle: r.lot_cle, cote: r.cote as Cote, adresse: r.adresse,
+    nom: r.nom, telephone: r.telephone, origine: r.origine as 'auto' | 'manuel',
+    verifieLe: r.verifie_le, verifiePar: r.verifie_par, creeLe: r.cree_le, creePar: r.cree_par,
+  }));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④ ÉCRIRE — À LA MAIN, ET SEULEMENT À LA MAIN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * POSER UNE CATÉGORIE À LA MAIN. `origine = 'manuel'`, toujours — cette fonction ne sait rien écrire d'autre.
+ *
+ * 🔴 LE CHOIX MANUEL PRIME, ET C'EST ÉCRIT DANS LA DONNÉE, pas seulement dans l'ordre d'affichage : la reprise
+ * saute les lignes `manuel`, et `categorieRetenue` les place devant. Poser à la main est donc définitif jusqu'au
+ * prochain geste humain.
+ *
+ * 🔴 LA PORTÉE EST DÉDUITE DE LA CATÉGORIE, JAMAIS DEMANDÉE À L'APPELANT : `independant` est GLOBAL
+ * (`lot_cle = NULL`), toute autre catégorie porte le bien. La base refuse l'autre combinaison
+ * (`gestion_partie_categorie_portee_chk`), et déduire ici évite à chaque appelant d'avoir à y penser — c'est-à-dire
+ * d'avoir à se tromper.
+ *
+ * ⚠️ UNE SEULE TRANSACTION, ET LE RETRAIT AVANT LA POSE : l'index d'unicité ne tolère qu'une ligne vivante par
+ * (adresse, lot). Les deux instructions doivent donc être indissociables — sinon un échec entre les deux laisserait
+ * l'adresse sans aucune catégorie.
+ *
+ * ⚠️ PIÈGE `withTransaction` (déjà payé ailleurs) : la transaction COMMITTE au retour normal. Tous les refus sont
+ * donc rendus AVANT d'ouvrir la transaction, jamais à l'intérieur après une écriture.
+ */
+export async function poserCategorieAlaMain(o: {
+  adresse: string; lotCle: string | null; categorie: Categorie; auteur: Auteur; motif?: string | null;
+}): Promise<IssuePartieCategorie> {
+  if (!(await partieCategorieDisponible())) return { ok: false, motif: SANS_304 };
+  if (!auteurHumainPartieCategorie(o.auteur)) {
+    return { ok: false, motif: 'Ce rangement se fait à la main : l’auteur du geste doit être identifié.' };
+  }
+  const adresse = adressePropre(o.adresse);
+  if (adresse === null) return { ok: false, motif: 'Adresse illisible.' };
+
+  const global = o.categorie === 'independant';
+  const lot = global ? null : lotPropre(o.lotCle);
+  if (!global && lot === null) {
+    return { ok: false, motif: 'Un contact du propriétaire ou du locataire se range toujours sur un bien.' };
+  }
+  const motif = texteCourt(o.motif);
+
+  const id = await withTransaction(async (q) => {
+    /* ① LA LIGNE VIVANTE EN PLACE EST RETIRÉE — datée, signée, jamais supprimée. */
+    await q(
+      `UPDATE gestion_partie_categorie
+          SET retire_le = now(), retire_par = $3, retire_par_libelle = $4,
+              retire_motif = coalesce($5, 'remplacée par un rangement manuel')
+        WHERE retire_le IS NULL AND adresse = $1 AND coalesce(lot_cle, '') = coalesce($2, '')`,
+      [adresse, lot, o.auteur.id, o.auteur.libelle, motif]);
+
+    /* ② PUIS LA NOUVELLE. `origine` est en dur : cette fonction est le geste manuel, et rien d'autre. */
+    const { rows } = await q<{ id: string }>(
+      `INSERT INTO gestion_partie_categorie
+         (adresse, lot_cle, categorie, origine, pose_par, pose_par_libelle,
+          verifie_le, verifie_par, verifie_par_libelle)
+       VALUES ($1, $2, $3, 'manuel', $4, $5, now(), $4, $5)
+       RETURNING id::text`,
+      [adresse, lot, o.categorie, o.auteur.id, o.auteur.libelle]);
+    return Number(rows[0]?.id ?? 0);
+  });
+
+  return { ok: true, id: id === 0 ? null : id, nb: 1 };
+}
+
+/**
+ * MARQUER UNE CATÉGORIE « VÉRIFIÉ ». Elle ne CHANGE PAS la catégorie : elle retire la mention « à vérifier ».
+ *
+ * 🔴 ET ELLE N'OUVRE RIEN. Vérifier un `independant` veut dire « oui, c'est bien un prestataire » : il ne sert pas
+ * davantage à l'automatisation après qu'avant (`sertALAutomatisation` ne lit pas l'origine, exprès). L'intuition
+ * inverse — « vérifié donc de confiance donc automatisable » — est l'erreur que tout ce lot existe pour empêcher.
+ */
+export async function marquerCategorieVerifiee(o: {
+  id: number; auteur: Auteur;
+}): Promise<IssuePartieCategorie> {
+  if (!(await partieCategorieDisponible())) return { ok: false, motif: SANS_304 };
+  if (!auteurHumainPartieCategorie(o.auteur)) {
+    return { ok: false, motif: 'Vérifier est un geste humain : l’auteur doit être identifié.' };
+  }
+  if (!Number.isSafeInteger(o.id) || o.id <= 0) return { ok: false, motif: 'Aucune catégorie désignée.' };
+
+  const { rows } = await query<{ id: string }>(
+    `UPDATE gestion_partie_categorie
+        SET verifie_le = now(), verifie_par = $2, verifie_par_libelle = $3
+      WHERE id = $1 AND retire_le IS NULL
+      RETURNING id::text`, [o.id, o.auteur.id, o.auteur.libelle]);
+  return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
+}
+
+/**
+ * POSER UNE CARTE DE CONTACT À LA MAIN sur un côté d'un bien (`origine = 'manuel'`).
+ *
+ * ⚠️ UNE CARTE POSÉE À LA MAIN NAÎT VÉRIFIÉE : quelqu'un vient de la regarder et de l'écrire. Laisser la mention
+ * « à vérifier » sur ce qu'on vient de saisir soi-même ferait du libellé un bruit de fond — et le repli au-delà de
+ * six la masquerait, alors qu'elle est justement celle qu'on veut voir.
+ *
+ * ⚠️ `ON CONFLICT … DO UPDATE` SUR L'INDEX PARTIEL DES VIVANTES, AVEC SON PRÉDICAT RÉPÉTÉ : sans le prédicat,
+ * PostgreSQL rend « there is no unique or exclusion constraint matching the ON CONFLICT specification » — erreur
+ * payée une fois le 04/10/2026 sur `gestion_piece_drive`. Reposer la même carte COMPLÈTE donc la précédente au
+ * lieu d'échouer : c'est le geste attendu quand on ajoute un téléphone à une carte née sans nom.
+ */
+export async function poserCarteAlaMain(o: {
+  lotCle: string; cote: Cote; adresse: string; nom?: string | null; telephone?: string | null; auteur: Auteur;
+}): Promise<IssuePartieCategorie> {
+  if (!(await contactCarteDisponible())) return { ok: false, motif: SANS_304_CARTES };
+  if (!auteurHumainPartieCategorie(o.auteur)) {
+    return { ok: false, motif: 'Une carte se pose à la main : l’auteur du geste doit être identifié.' };
+  }
+  const lot = lotPropre(o.lotCle);
+  if (lot === null) return { ok: false, motif: 'Aucun bien désigné.' };
+  const adresse = adressePropre(o.adresse);
+  if (adresse === null) return { ok: false, motif: 'Adresse illisible.' };
+  if (o.cote !== 'proprietaire' && o.cote !== 'locataire') {
+    return { ok: false, motif: 'Une carte se range du côté du propriétaire ou du côté du locataire.' };
+  }
+
+  const { rows } = await query<{ id: string }>(
+    `INSERT INTO gestion_contact_carte
+       (lot_cle, cote, adresse, nom, telephone, origine, cree_par, cree_par_libelle,
+        verifie_le, verifie_par, verifie_par_libelle)
+     VALUES ($1, $2, $3, $4, $5, 'manuel', $6, $7, now(), $6, $7)
+     ON CONFLICT (lot_cle, cote, adresse) WHERE retire_le IS NULL DO UPDATE
+       SET nom = coalesce(EXCLUDED.nom, gestion_contact_carte.nom),
+           telephone = coalesce(EXCLUDED.telephone, gestion_contact_carte.telephone),
+           origine = 'manuel',
+           verifie_le = now(), verifie_par = EXCLUDED.verifie_par,
+           verifie_par_libelle = EXCLUDED.verifie_par_libelle
+     RETURNING id::text`,
+    [lot, o.cote, adresse, texteCourt(o.nom), texteCourt(o.telephone, 60), o.auteur.id, o.auteur.libelle]);
+
+  return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
+}
+
+/**
+ * RETIRER UNE CARTE. 🔴 AUCUN `DELETE` : la ligne reste, avec qui l'a retirée, quand et pourquoi.
+ *
+ * ⚠️ POURQUOI LE MOTIF COMPTE ICI PLUS QU'AILLEURS. Une carte retirée est presque toujours une carte MAL RANGÉE —
+ * un indépendant pris pour un contact du propriétaire. Le motif est ce qui permettra, plus tard, de distinguer
+ * « ce n'est pas le contact de cette partie » de « cette personne n'a plus rien à voir avec le bien ».
+ */
+export async function retirerCarte(o: {
+  id: number; auteur: Auteur; motif?: string | null;
+}): Promise<IssuePartieCategorie> {
+  if (!(await contactCarteDisponible())) return { ok: false, motif: SANS_304_CARTES };
+  if (!auteurHumainPartieCategorie(o.auteur)) {
+    return { ok: false, motif: 'L’auteur du geste doit être identifié.' };
+  }
+  if (!Number.isSafeInteger(o.id) || o.id <= 0) return { ok: false, motif: 'Aucune carte désignée.' };
+
+  const { rows } = await query<{ id: string }>(
+    `UPDATE gestion_contact_carte
+        SET retire_le = now(), retire_par = $2, retire_par_libelle = $3, retire_motif = $4
+      WHERE id = $1 AND retire_le IS NULL
+      RETURNING id::text`,
+    [o.id, o.auteur.id, o.auteur.libelle, texteCourt(o.motif)]);
+  return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
+}
+
+/** MARQUER UNE CARTE « VÉRIFIÉ » : elle sort du repli et s'affiche d'emblée. Geste humain, comme les autres. */
+export async function marquerCarteVerifiee(o: { id: number; auteur: Auteur }): Promise<IssuePartieCategorie> {
+  if (!(await contactCarteDisponible())) return { ok: false, motif: SANS_304_CARTES };
+  if (!auteurHumainPartieCategorie(o.auteur)) {
+    return { ok: false, motif: 'Vérifier est un geste humain : l’auteur doit être identifié.' };
+  }
+  if (!Number.isSafeInteger(o.id) || o.id <= 0) return { ok: false, motif: 'Aucune carte désignée.' };
+
+  const { rows } = await query<{ id: string }>(
+    `UPDATE gestion_contact_carte
+        SET verifie_le = now(), verifie_par = $2, verifie_par_libelle = $3
+      WHERE id = $1 AND retire_le IS NULL
+      RETURNING id::text`, [o.id, o.auteur.id, o.auteur.libelle]);
+  return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
+}

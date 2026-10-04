@@ -1044,3 +1044,38 @@ export function corbeilleDriveDisponible(): Promise<boolean> {
     }
   });
 }
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — LA MIGRATION 304 EST-ELLE APPLIQUÉE ? ═══════════════════════════════════════════
+ *
+ * Elle porte `gestion_partie_categorie` : DE QUI une adresse est le contact — du propriétaire de ce bien, de son
+ * locataire, de personne (`independant`, catégorie GLOBALE jamais rattachée à un bien), ou pas encore tranché
+ * (`a_repartir`).
+ *
+ * 🔴 TANT QU'ELLE RÉPOND « NON », LA TABLE N'EST NOMMÉE NULLE PART : aucune catégorie n'est lue, aucun rangement
+ * n'est posé, la reprise s'arrête en le DISANT, et tout le module se comporte exactement comme avant ce lot. C'est
+ * la règle du module depuis l'incident du lot 4a — nommer une table absente ne casse pas la fonction nouvelle, il
+ * casse TOUT l'écran, y compris pour qui arrive par une vieille adresse.
+ *
+ * ⚠️ DEUX SONDES SÉPARÉES POUR UNE SEULE MIGRATION, contrairement à l'habitude du module. La raison n'est pas la
+ * crainte d'une migration appliquée à moitié (elle crée les deux tables dans UNE transaction) : c'est que les deux
+ * tables servent à des choses INDÉPENDANTES. La catégorie est un jugement, lisible sans aucune carte ; la carte est
+ * un contenu d'écran. Une sonde unique aurait lié le sort de l'une au sort de l'autre sans nécessité.
+ */
+export function partieCategorieDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_partie_categorie', () => tableExiste('gestion_partie_categorie'));
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — LA MIGRATION 304, VERSANT CARTES ════════════════════════════════════════════════
+ *
+ * Elle porte `gestion_contact_carte` : la carte de contact affichée du côté propriétaire ou locataire d'UN bien,
+ * avec le nom deviné et le téléphone quand on les a.
+ *
+ * 🔴 TANT QU'ELLE RÉPOND « NON », la table n'est nommée nulle part, aucune carte n'est lue ni créée, et les fiches
+ * de bien sont exactement celles d'avant ce lot. Les cartes CLIENTS (propriétaires, locataires de l'annuaire) ne
+ * dépendent pas d'elle et ne changent pas d'un pixel — elles ne passent par aucune de ces deux tables.
+ */
+export function contactCarteDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_contact_carte', () => tableExiste('gestion_contact_carte'));
+}
