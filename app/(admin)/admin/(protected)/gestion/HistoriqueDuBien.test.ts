@@ -512,30 +512,85 @@ describe('⑥ 🔴🔴 les composants existants sont réutilisés, jamais redess
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 describe('⑦ 🔴🔴 le montage dans la fiche d’un bien', () => {
-  it('🔴🔴 le bloc est monté APRÈS le lien « Tout l’historique des échanges »', () => {
-    const lien = ANNUAIRE.indexOf('<BoutonHistorique cible={{ sorte: \'lot\'');
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — CE GROUPE DÉCRIT MAINTENANT LA SUPPRESSION, ET IL DIT CE QU'IL ATTENDAIT ═════
+   *
+   * ACCORD EXPLICITE D'ARNO (04/10/2026) : « le bloc “Vie du bien” est SUPPRIMÉ (deux listings de mails, c'est un
+   * de trop). Le moteur de recherche prend SA PLACE (juste sous “Historique des locataires”). »
+   *
+   * ═══ CE QUE CES DEUX ÉPREUVES ATTENDAIENT AU LOT PRÉCÉDENT ═════════════════════════════════════════════════
+   * Que le moteur soit monté **APRÈS** le lien « Tout l'historique des échanges », et que la suite
+   * `… → Historique des locataires → VieDuBien → lien → HistoriqueDuBien` se lise dans cet ordre. C'était juste :
+   * le bloc était alors AJOUTÉ tout en bas, et rien au-dessus ne devait bouger.
+   *
+   * ═══ 🔴 CE QUI EST VRAI MAINTENANT, ET POURQUOI CE N'EST PAS UN RELÂCHEMENT ═════════════════════════════════
+   * Le moteur occupe le rang de « Vie du bien », DANS la même enveloppe `ancreVie` ; le lien passe donc APRÈS
+   * lui. Ce que l'épreuve garde — et c'est l'exigence d'Arno, inchangée — c'est que **les blocs du haut sont
+   * tous là, dans le même ordre, et avant le moteur**. La preuve d'empreintes du haut de fiche (avant = après,
+   * rang par rang, sur trois fiches réelles) est l'autre moitié : celle-ci tient le code, celle-là le rendu.
+   */
+  it('🔴🔴 le moteur prend la PLACE de « Vie du bien », dans la même ancre', () => {
+    /* Il est DANS l'enveloppe qui porte l'ancre : un second ancrage aurait fait deux endroits où le défilement
+       se décide, et `?bloc=vie` comme le cartouche visent celui-là. */
+    const ancre = ANNUAIRE.indexOf('<div ref={ancreVie}>');
     const bloc = ANNUAIRE.indexOf('<HistoriqueDuBien');
-    expect(lien).toBeGreaterThan(0);
-    expect(bloc).toBeGreaterThan(lien);
+    const lien = ANNUAIRE.indexOf('Tout l’historique des échanges →');
+    expect(ancre).toBeGreaterThan(0);
+    expect(bloc).toBeGreaterThan(ancre);
+    expect(lien).toBeGreaterThan(bloc);
   });
 
   /**
-   * 🔴🔴 LE HAUT DE LA FICHE NE BOUGE PAS. On vérifie que les six blocs d'avant sont TOUJOURS LÀ, dans le MÊME
-   * ordre, et AVANT le nouveau. C'est la condition qu'Arno a posée, et la seule que le code puisse porter.
+   * 🔴🔴 LA FICHE D'UN BIEN NE MONTE PLUS « VIE DU BIEN ». On le vérifie sur `VueLot` et non sur le fichier
+   * entier : le composant RESTE monté par `VueLocataire`, où il est le seul listing et où Arno n'a rien ouvert.
+   * Chercher `<VieDuBien` dans tout le fichier aurait donc interdit ce qui doit rester.
    */
-  it('🔴🔴 les blocs d’avant sont tous là, dans le même ordre, et avant le nouveau', () => {
+  it('🔴🔴 plus aucun second listing de mails dans la fiche d’un bien', () => {
+    const vueLot = ANNUAIRE.slice(
+      ANNUAIRE.indexOf('function VueLot'), ANNUAIRE.indexOf('function occupationsPourHistorique'));
+    expect(vueLot).not.toContain('<VieDuBien');
+    expect(vueLot).toContain('<HistoriqueDuBien');
+    /* …et il reste monté là où il est seul : la fiche d'un locataire. */
+    expect(ANNUAIRE).toContain('<VieDuBien lotCle={logementDesMails.numero}');
+  });
+
+  /** 🔴 LE HAUT DE LA FICHE NE BOUGE PAS : les blocs d'avant, tous là, dans le même ordre, et avant le moteur. */
+  it('🔴🔴 les blocs d’avant sont tous là, dans le même ordre, et avant le moteur', () => {
     const places = [
       '<header className="ann-tete">',
       '<CartoucheEvenement nb={f.evenementsOuverts}',
       'id="ann-prop"',
       'id="ann-occ"',
       'id="ann-histo-loc"',
-      '<VieDuBien key={filtreVie}',
-      '<BoutonHistorique cible={{ sorte: \'lot\'',
+      '<div ref={ancreVie}>',
       '<HistoriqueDuBien',
     ].map((m) => ANNUAIRE.indexOf(m));
     expect(places.every((p) => p > 0)).toBe(true);
     expect([...places].sort((a, b) => a - b)).toEqual(places);
+  });
+
+  /**
+   * 🔴🔴 LES CINQ CHOSES QU'ARNO A NOMMÉES SONT REPRISES, et c'est ici qu'on refuse la perte. « Tout ce que
+   * faisait “Vie du bien” est repris dans le moteur, rien n'est perdu : recherche dans l'objet et le texte,
+   * filtre “Avec pièces jointes”, filtre “Avec événement ouvert”, dépliage d'un mail par le triangle ▸,
+   * sélection d'un mail. »
+   */
+  it('🔴🔴 la suppression ne perd RIEN des cinq fonctions nommées', () => {
+    // ① la recherche, dans l'objet ET le texte — le même intitulé que le bloc supprimé.
+    expect(SRC).toContain('Chercher dans l’objet et le texte…');
+    expect(SRC).toContain('setSaisie(e.target.value)');
+    // ② les pièces jointes, avec leur complément.
+    expect(SRC).toContain("['avec', 'Avec pièces jointes']");
+    expect(SRC).toContain("['sans', 'Sans pièce jointe']");
+    // ③ l'événement ouvert, et le cartouche qui y arrive déjà allumé.
+    expect(SRC).toContain('Avec événement ouvert');
+    expect(SRC).toContain('evenementOuvert: !r.evenementOuvert');
+    expect(ANNUAIRE).toContain("evenementOuvertInitial={filtreVie === 'evenement'}");
+    // ④ le dépliage par le triangle : c'est `LigneVie`, importée et non recopiée.
+    expect(SRC).toContain("import { CSS_VIE_DU_BIEN, LigneVie } from './VieDuBien'");
+    expect(SRC).toContain('<LigneVie l={l}');
+    // ⑤ la sélection d'un mail.
+    expect(SRC).toContain('onOuvrirFil={onOuvrirFil}');
   });
 
   it('🔴 le CSS du bloc est injecté comme les autres', () => {

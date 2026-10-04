@@ -91,6 +91,26 @@ export interface Reglages {
    * `grouperParConversation`.
    */
   grouper: boolean;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — REPRIS DE « VIE DU BIEN », QUI EST SUPPRIMÉ ══════════════════════════════════
+   *
+   * ACCORD EXPLICITE D'ARNO (04/10/2026) : « le bloc “Vie du bien” est SUPPRIMÉ (deux listings de mails, c'est un
+   * de trop). Le moteur de recherche prend SA PLACE. » Et : « Tout ce que faisait “Vie du bien” est repris dans le
+   * moteur, **rien n'est perdu** : recherche dans l'objet et le texte, filtre “Avec pièces jointes”, filtre “Avec
+   * événement ouvert”, dépliage d'un mail par le triangle ▸, sélection d'un mail. »
+   *
+   * 🔴 CES DEUX RÉGLAGES SONT LA PART QUI MANQUAIT. Le moteur savait déjà filtrer les pièces, déplier et
+   * sélectionner ; il ne savait ni chercher, ni isoler les échanges qui portent un événement ouvert. Les ajouter
+   * ICI plutôt que dans l'écran est ce qui rend la reprise ÉPROUVABLE sans navigateur : `reglagesEnFiltres` doit
+   * produire `q=` et `evt=ouvert`, et c'est un test qui le dit.
+   *
+   * ⚠️ LA ROUTE LES CONNAÎT DÉJÀ, ET RIEN N'EST DONC INVENTÉ : `FiltresHistorique` porte `texte` et
+   * `evenementOuvert` depuis l'origine, et « Vie du bien » les écrivait à la main (`p.set('q', …)`,
+   * `p.set('evt', 'ouvert')`). On passe d'une écriture à la main à la sérialisation commune — une grammaire
+   * d'adresse de moins à tenir.
+   */
+  texte: string;
+  evenementOuvert: boolean;
 }
 
 /** L'état de départ : tout le bien, toutes les parties, toutes les pièces, le plus récent en haut, non regroupé. */
@@ -101,12 +121,20 @@ export const REGLAGES_DEFAUT: Reglages = {
   pieces: 'toutes',
   ordre: ORDRE_FIL_DEFAUT,
   grouper: false,
+  texte: '',
+  evenementOuvert: false,
 };
 
-/** Un réglage est-il actif ? Sert à n'offrir « tout remettre à plat » que quand il y a quelque chose à défaire. PUR. */
+/**
+ * Un réglage est-il actif ? Sert à n'offrir « tout remettre à plat » que quand il y a quelque chose à défaire. PUR.
+ *
+ * ⚠️ LA RECHERCHE ET LE FILTRE D'ÉVÉNEMENT EN FONT PARTIE (lot HISTORIQUE-BIEN-2) : sans eux, taper trois lettres
+ * puis ne rien trouver n'aurait offert aucun moyen de revenir en arrière — et le fil vide aurait accusé le bien.
+ */
 export function reglagesActifs(r: Reglages): boolean {
   return r.periode.sorte !== 'tous' || !r.toutesLesParties || r.pieces !== 'toutes'
-    || r.ordre !== ORDRE_FIL_DEFAUT || r.grouper;
+    || r.ordre !== ORDRE_FIL_DEFAUT || r.grouper
+    || r.texte.trim() !== '' || r.evenementOuvert;
 }
 
 /** L'inversion de l'ordre, écrite une fois. PUR. */
@@ -389,6 +417,15 @@ export function reglagesEnFiltres(r: Reglages, page = 0, taille = PAGE_HISTORIQU
     au: jourValide(bornes.au),
     pieces: r.pieces,
     /**
+     * 🔴 LA RECHERCHE ET LE FILTRE D'ÉVÉNEMENT, REPRIS DE « VIE DU BIEN » (lot HISTORIQUE-BIEN-2). La route les
+     * lit déjà (`q`, `evt=ouvert`) : rien de neuf côté serveur, et le bloc supprimé ne laisse donc aucun trou.
+     *
+     * ⚠️ `trim()` ICI ET PAS AILLEURS : une recherche réduite à des espaces est une recherche VIDE, et l'envoyer
+     * aurait produit `q=` dans l'adresse — donc un réglage « actif » invisible, qu'on ne saurait pas défaire.
+     */
+    texte: r.texte.trim(),
+    evenementOuvert: r.evenementOuvert,
+    /**
      * 🔴 `grouper` RESTE **FAUX**, TOUJOURS, ET CE N'EST PAS UN OUBLI. Le `grouper=1` de la route regroupe par
      * CIBLE (l'historique d'un propriétaire, séparé par logement) ; le réglage « Regrouper par conversation »
      * regroupe par ÉCHANGE, à l'écran. Les relier aurait donné un regroupement qui ne regroupe rien sur un bien,
@@ -526,5 +563,11 @@ export function motAucunResultat(r: Reglages): string {
       + 'Cochez une partie, ou relevez « Tous les mails du bien pendant la période ».';
   }
   if (!reglagesActifs(r)) return 'Aucun mail rattaché à ce bien.';
+  /* 🔴 LA RECHERCHE EST NOMMÉE, ET LE MOT CHERCHÉ EST RÉPÉTÉ (lot HISTORIQUE-BIEN-2) : « aucun résultat » après
+     une frappe se lit « ce bien n'a rien » tant qu'on ne relit pas son propre champ — et sur un téléphone, le
+     champ est souvent sorti de l'écran. */
+  if (r.texte.trim() !== '') {
+    return `Aucun mail ne contient « ${r.texte.trim()} » avec ces réglages — ce sont les réglages qui cachent, pas le bien.`;
+  }
   return 'Aucun mail ne correspond à ces réglages — ce sont les réglages qui cachent, pas le bien.';
 }

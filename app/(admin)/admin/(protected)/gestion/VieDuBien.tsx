@@ -37,6 +37,37 @@ import type { LigneHistorique } from '../../../../lib/gestion/historique';
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — OÙ CE BLOC EST SUPPRIMÉ, ET OÙ IL RESTE LE SEUL LISTING ════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * ACCORD EXPLICITE D'ARNO, 04/10/2026, mot pour mot : « le bloc “Vie du bien” est SUPPRIMÉ (deux listings de
+ * mails, c'est un de trop). Le moteur de recherche prend SA PLACE (**juste sous “Historique des locataires”**). »
+ *
+ * 🔴 CET ACCORD PORTE SUR LA FICHE D'UN **BIEN**, ET SUR ELLE SEULE — « juste sous Historique des locataires » est
+ * une place qui n'existe que là. C'est là qu'il y avait DEUX listings de mails (celui-ci et le moteur), et c'est
+ * ce doublon qui est supprimé : `VueLot` ne monte plus ce composant, le moteur occupe son rang et son ancre.
+ *
+ * 🔴 SUR LA FICHE D'UN **LOCATAIRE**, IL EST LE SEUL LISTING, ET IL RESTE. `VueLocataire` le monte pour montrer
+ * « les échanges de SON logement » — il n'y a là aucun doublon, donc rien de ce qu'Arno a motivé. Le retirer
+ * aurait supprimé une fonctionnalité qu'il n'a pas ouverte, ce que la consigne permanente interdit en toutes
+ * lettres : « Hors de “Vie du bien” (accord donné), ne retire, ne masque et ne conditionne aucune fonctionnalité
+ * sans l'accord d'Arno. » 🔭 **Question posée à Arno** : veut-il le moteur là aussi, ou ce listing tel quel ?
+ *
+ * 🔴 ET CE FICHIER PORTE CE QUE LE MOTEUR RÉUTILISE. `LigneVie` est LA ligne de courrier du moteur (« reçu de… » /
+ * « nous avons écrit… », capsules, trombone, date, triangle ▸, dépliage sur place), et `CSS_VIE_DU_BIEN` son
+ * style, qu'emporte `CSS_HISTORIQUE_DU_BIEN`. Les déménager aurait été une recopie déguisée — même code, nouvel
+ * endroit, deux historiques de modification à relire le jour d'un défaut.
+ *
+ * ⚠️ CE QUE LE MOTEUR A REPRIS, UN À UN, pour que « rien n'est perdu » soit vérifiable et non promis :
+ *   · la recherche « dans l'objet et le texte » → `Reglages.texte` + le champ du pavé OPTIONS ;
+ *   · le filtre « Avec pièces jointes »        → `Reglages.pieces`, avec son complément « Sans pièce jointe » ;
+ *   · le filtre « Avec événement ouvert »      → `Reglages.evenementOuvert` + son bouton, et le cartouche y
+ *                                                 arrive DÉJÀ allumé (`evenementOuvertInitial`) ;
+ *   · le dépliage par le triangle ▸            → `LigneVie`, inchangée ;
+ *   · la sélection d'un mail                   → `onOuvrirFil`, passée telle quelle.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 /** Les trois filtres d'Arno, et rien de plus : un filtre qu'on n'utilise pas est un filtre qu'on relit. */
 export type FiltreVie = 'tous' | 'pieces' | 'evenement';
 

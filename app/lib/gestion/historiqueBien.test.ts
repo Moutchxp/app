@@ -490,3 +490,69 @@ describe('⑨ les pièces du fil, et le mot quand il n’y a rien', () => {
     expect(mot).toContain('Tous les mails du bien pendant la période');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑩ 🔴🔴 LOT HISTORIQUE-BIEN-2 — « VIE DU BIEN » EST SUPPRIMÉ : CE QU'IL SAVAIT FAIRE EST ICI
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑩ 🔴🔴 la reprise de « Vie du bien » — recherche et événement ouvert', () => {
+  /**
+   * ACCORD D'ARNO (04/10/2026) : le bloc est supprimé, « tout ce qu'il faisait est repris dans le moteur, RIEN
+   * n'est perdu ». Deux de ses cinq fonctions n'existaient pas dans les réglages : la recherche et le filtre
+   * « Avec événement ouvert ». Ce groupe est ce qui empêche la promesse de rester une promesse.
+   */
+  it('🔴🔴 la recherche part bien dans l’adresse, en `q`', () => {
+    const r: Reglages = { ...REGLAGES_DEFAUT, texte: 'chaudière' };
+    expect(reglagesEnFiltres(r).texte).toBe('chaudière');
+    expect(reglagesEnParametres(r)).toContain('q=chaudi');
+  });
+
+  /**
+   * 🔴 UNE RECHERCHE RÉDUITE À DES ESPACES EST UNE RECHERCHE VIDE. L'envoyer aurait produit `q=` dans l'adresse :
+   * un réglage « actif » invisible, que « Tout remettre à plat » aurait semblé ne pas défaire.
+   */
+  it('🔴 des espaces seuls ne sont pas une recherche', () => {
+    const r: Reglages = { ...REGLAGES_DEFAUT, texte: '   ' };
+    expect(reglagesEnFiltres(r).texte).toBe('');
+    expect(reglagesEnParametres(r)).not.toContain('q=');
+    expect(reglagesActifs(r)).toBe(false);
+  });
+
+  it('🔴🔴 « Avec événement ouvert » part en `evt=ouvert` — le filtre du cartouche', () => {
+    const r: Reglages = { ...REGLAGES_DEFAUT, evenementOuvert: true };
+    expect(reglagesEnFiltres(r).evenementOuvert).toBe(true);
+    expect(reglagesEnParametres(r)).toContain('evt=ouvert');
+    expect(reglagesActifs(r)).toBe(true);
+  });
+
+  /** ⚠️ ÉTEINT, IL N'ÉCRIT RIEN : un paramètre toujours présent aurait rendu toute adresse « filtrée ». */
+  it('🔴 éteint, il n’écrit rien', () => {
+    expect(reglagesEnParametres(REGLAGES_DEFAUT)).not.toContain('evt=');
+    expect(reglagesActifs(REGLAGES_DEFAUT)).toBe(false);
+  });
+
+  /**
+   * 🔴 LES DEUX COMPTENT COMME RÉGLAGES ACTIFS, et c'est ce qui donne droit à « Tout remettre à plat ». Sans
+   * cela, taper trois lettres puis ne rien trouver n'offrait aucun moyen de revenir en arrière.
+   */
+  it('🔴 une recherche seule rend les réglages « actifs »', () => {
+    expect(reglagesActifs({ ...REGLAGES_DEFAUT, texte: 'fuite' })).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 « AUCUN RÉSULTAT » RÉPÈTE LE MOT CHERCHÉ. Sur un téléphone, le champ est souvent sorti de l'écran quand
+   * on lit la réponse : sans le mot, « aucun résultat » se lit « ce bien n'a rien ».
+   */
+  it('🔴🔴 le mot « aucun résultat » répète ce qu’on a cherché, et accuse les réglages', () => {
+    const mot = motAucunResultat({ ...REGLAGES_DEFAUT, texte: 'chaudière' });
+    expect(mot).toContain('chaudière');
+    expect(mot).toContain('ce sont les réglages qui cachent, pas le bien');
+  });
+
+  /** ⚠️ ET SANS RECHERCHE, LE MOT D'AVANT NE CHANGE PAS D'UN CARACTÈRE. */
+  it('🔴 sans recherche, le mot d’avant est intact', () => {
+    expect(motAucunResultat(REGLAGES_DEFAUT)).toBe('Aucun mail rattaché à ce bien.');
+    expect(motAucunResultat({ ...REGLAGES_DEFAUT, pieces: 'avec' }))
+      .toBe('Aucun mail ne correspond à ces réglages — ce sont les réglages qui cachent, pas le bien.');
+  });
+});

@@ -85,8 +85,18 @@ interface DemandeRangement {
   pieces: PieceARanger[];
 }
 
+/**
+ * ══ 🔴🔴 LE TEMPS DE SILENCE APRÈS LA DERNIÈRE FRAPPE ═════════════════════════════════════════════════════════════
+ *
+ * Repris de « Vie du bien » au caractère près (lot HISTORIQUE-BIEN-2) : 250 ms, assez court pour paraître
+ * instantané, assez long pour ne pas lancer une requête par lettre. Sans lui, « chaudière » aurait produit neuf
+ * requêtes dont huit jetées — et sur le bien le plus fourni (325 mails), les réponses seraient revenues dans le
+ * désordre.
+ */
+const ATTENTE_FRAPPE_MS = 250;
+
 export function HistoriqueDuBien({
-  lotCle, maintenant, occupations, categories, onOuvrirFil,
+  lotCle, maintenant, occupations, categories, evenementOuvertInitial = false, onOuvrirFil,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
   lotCle: string;
@@ -107,9 +117,32 @@ export function HistoriqueDuBien({
    * « À répartir », ce qui est un fait affiché, jamais un silence.
    */
   categories: ReadonlyMap<string, CategoriePartie>;
+  /**
+   * 🔴 LOT HISTORIQUE-BIEN-2 — LE CARTOUCHE « ÉVÉNEMENT EN COURS » ARRIVE ICI FILTRÉ. Il menait à « Vie du bien »
+   * avec son filtre `'evenement'` ; « Vie du bien » n'existe plus, et la promesse du cartouche doit tenir : on
+   * arrive sur les échanges qui portent un événement ouvert, pas sur la liste entière à filtrer soi-même.
+   *
+   * ⚠️ C'EST UN DÉPART, PAS UNE CONTRAINTE — exactement la convention de `filtreInitial` à qui il succède : le
+   * bouton reste cliquable, et le premier clic reprend la main. Un filtre imposé ferait croire que le bien n'a
+   * que ces échanges-là.
+   */
+  evenementOuvertInitial?: boolean;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
 }) {
-  const [reglages, setReglages] = useState<Reglages>(REGLAGES_DEFAUT);
+  const [reglages, setReglages] = useState<Reglages>(
+    evenementOuvertInitial ? { ...REGLAGES_DEFAUT, evenementOuvert: true } : REGLAGES_DEFAUT);
+  /**
+   * ⚠️ LA SAISIE ET LE RÉGLAGE SONT DEUX ÉTATS, ET IL LE FAUT. Le champ doit répondre à chaque lettre (sinon il
+   * paraît cassé) ; la REQUÊTE, elle, n'part qu'après le silence. Les confondre aurait donné l'un ou l'autre
+   * défaut : un champ qui saute, ou une requête par caractère.
+   */
+  const [saisie, setSaisie] = useState('');
+  useEffect(() => {
+    const t = setTimeout(
+      () => setReglages((r) => (r.texte === saisie ? r : { ...r, texte: saisie })),
+      saisie.trim() === '' ? 0 : ATTENTE_FRAPPE_MS);
+    return () => clearTimeout(t);
+  }, [saisie]);
   const [page, setPage] = useState(0);
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [deplie, setDeplie] = useState<Set<number>>(new Set());
@@ -290,6 +323,18 @@ export function HistoriqueDuBien({
   }, [lignes, reglages.ordre]);
   const groupesPieces = useMemo(() => grouperParMessage(recap.pieces), [recap.pieces]);
   const conversations = useMemo(() => grouperParConversation(lignes), [lignes]);
+
+  /**
+   * ⚠️ « TOUT REMETTRE À PLAT » EFFACE AUSSI LA SAISIE, et c'est précisément ce qu'un oubli aurait laissé derrière
+   * (lot HISTORIQUE-BIEN-2). `reglages.texte` revient à vide par `REGLAGES_DEFAUT` ; sans la ligne ci-dessous, le
+   * CHAMP garderait les lettres tapées — puis l'effet de silence les repousserait aussitôt dans les réglages, et
+   * le bouton n'aurait eu l'air de rien faire. Écrit une fois, appelé aux deux endroits qui l'offrent.
+   */
+  const remettreAPlat = useCallback((): void => {
+    setReglages(REGLAGES_DEFAUT);
+    setBascules(new Set());
+    setSaisie('');
+  }, []);
 
   /** Déplier ou replier un mail. Écrit une fois : les deux montages du fil (groupé ou non) s'en servent. */
   const basculerMail = useCallback((messageId: number): void => setDeplie((s) => {
@@ -642,6 +687,13 @@ export function HistoriqueDuBien({
         {/* ── OPTIONS ─────────────────────────────────────────────────────────────────────────────────────────── */}
         <fieldset className="hdb-pave">
           <legend className="hdb-legende">Options</legend>
+          {/* ══ 🔴🔴 LA RECHERCHE, REPRISE DE « VIE DU BIEN » (lot HISTORIQUE-BIEN-2) ══════════════════════════
+              Même champ, même intitulé, même portée — « dans l'objet ET le texte ». Le bloc supprimé ne laisse
+              donc aucun trou : c'est la première des cinq choses qu'Arno a nommées comme devant être reprises. */}
+          <input type="search" className="ann-champ hdb-recherche" value={saisie} autoComplete="off"
+            aria-label="Chercher dans les mails de ce bien"
+            placeholder="Chercher dans l’objet et le texte…"
+            onChange={(e) => setSaisie(e.target.value)} />
           <div className="hdb-boutons" role="group" aria-label="Pièces jointes">
             {([['toutes', 'Toutes'], ['avec', 'Avec pièces jointes'], ['sans', 'Sans pièce jointe']] as const)
               .map(([cle, mot]) => (
@@ -649,6 +701,16 @@ export function HistoriqueDuBien({
                   className={`hdb-choix${reglages.pieces === cle ? ' hdb-choix--actif' : ''}`}
                   onClick={() => setReglages((r) => ({ ...r, pieces: cle }))}>{mot}</button>
               ))}
+          </div>
+          <div className="hdb-boutons">
+            {/* ══ 🔴🔴 « AVEC ÉVÉNEMENT OUVERT », REPRIS DE « VIE DU BIEN » (lot HISTORIQUE-BIEN-2) ═══════════
+                C'est aussi le point d'arrivée du cartouche « Événement en cours » des cartes de bien et de la
+                tête de fiche : il menait au bloc supprimé, il mène ici, et il arrive DÉJÀ allumé. */}
+            <button type="button" aria-pressed={reglages.evenementOuvert}
+              className={`hdb-choix${reglages.evenementOuvert ? ' hdb-choix--actif' : ''}`}
+              onClick={() => setReglages((r) => ({ ...r, evenementOuvert: !r.evenementOuvert }))}>
+              Avec événement ouvert
+            </button>
           </div>
           <div className="hdb-boutons">
             {/* 🔴 LE BOUTON DIT L'ORDRE EN COURS, pas celui qu'il donnerait — même convention que partout ailleurs
@@ -690,7 +752,7 @@ export function HistoriqueDuBien({
               <p className="ann-gris">{motAucunResultat(reglages)}</p>
               {reglagesActifs(reglages) && (
                 <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                  onClick={() => { setReglages(REGLAGES_DEFAUT); setBascules(new Set()); }}>
+                  onClick={remettreAPlat}>
                   Tout remettre à plat
                 </button>
               )}
@@ -726,7 +788,7 @@ export function HistoriqueDuBien({
                 )}
                 {reglagesActifs(reglages) && (
                   <button type="button" className="gst-lien-bouton"
-                    onClick={() => { setReglages(REGLAGES_DEFAUT); setBascules(new Set()); }}>
+                    onClick={remettreAPlat}>
                     Tout remettre à plat
                   </button>
                 )}
@@ -891,6 +953,8 @@ ${CSS_PIECES}
 .hdb-legende{padding:0 .3rem;font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
   color:var(--color-svv-muted)}
 .hdb-boutons{display:flex;flex-wrap:wrap;gap:.35rem;min-width:0}
+/* LA RECHERCHE, reprise de « Vie du bien » : pleine largeur du pave, 44 px de haut comme tout ce qui se touche. */
+.hdb-recherche{display:block;width:100%;min-width:0;min-height:44px;font-size:.84rem;margin:.1rem 0 .4rem}
 /* 44 px de cible sur TOUT ce qui se clique : sur un telephone, 36 px se rate une fois sur trois. */
 .hdb-choix{display:inline-flex;flex-direction:column;align-items:flex-start;gap:.1rem;min-height:44px;
   padding:.35rem .7rem;border-radius:.5rem;border:1px solid var(--color-svv-line-strong);font:inherit;

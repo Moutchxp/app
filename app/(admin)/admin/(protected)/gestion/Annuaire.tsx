@@ -8,7 +8,16 @@ import type {
   BienDuProprietaire, ContactAffiche, FicheLocataire, FicheLot, FicheProprietaire,
   LogementDuLocataire, OccupationDuLot, PersonneTrouvee, RolePersonne,
 } from '../../../../lib/gestion/annuaireRepo';
-// LOT FICHES-ANNUAIRE étape B — « la vie du bien » : tous ses mails, dans l'idiome de la boîte.
+/**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-2 — `VieDuBien` N'EST PLUS MONTÉ SUR LA FICHE D'UN **BIEN** (accord d'Arno,
+ * 04/10/2026 : « deux listings de mails, c'est un de trop » ; le moteur prend sa place, juste sous « Historique
+ * des locataires »). Il reste monté sur la fiche d'un **LOCATAIRE**, où il est le SEUL listing et où aucun
+ * doublon ne justifiait de le retirer — voir l'encadré de `VieDuBien.tsx`.
+ *
+ * ⚠️ `CSS_VIE_DU_BIEN` RESTE MONTÉ ICI, et il le faut davantage qu'avant : le moteur rend `LigneVie` pour chacun
+ * de ses mails, donc il lui faut ces règles. `CSS_HISTORIQUE_DU_BIEN` les emporte aussi — un style monté deux
+ * fois est inoffensif, un style manquant ferait un listing sans mise en forme.
+ */
 import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
 /**
  * 🔴🔴 LOT HISTORIQUE-BIEN-1 — « L'HISTORIQUE DU BIEN », AJOUTÉ **EN DERNIER** DANS LA FICHE D'UN LOGEMENT.
@@ -1313,32 +1322,49 @@ function VueLot({
         ))}
       </section>
 
-      <div ref={ancreVie}>
-        {/* 🔴 LE FILTRE DEMANDÉ EST APPLIQUÉ D'EMBLÉE : arriver par le cartouche « Événement en cours » doit
-            montrer LES ÉCHANGES QUI PORTENT UN ÉVÉNEMENT, pas la liste entière à filtrer soi-même. */}
-        <VieDuBien key={filtreVie} lotCle={f.numero} maintenant={maintenant} onOuvrirFil={onOuvrirFil}
-          filtreInitial={filtreVie} />
-      </div>
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — LE MOTEUR PREND LA PLACE DE « VIE DU BIEN » ═══════════════════════════
+          ACCORD EXPLICITE D'ARNO (04/10/2026) : « le bloc “Vie du bien” est SUPPRIMÉ (deux listings de mails,
+          c'est un de trop). Le moteur de recherche prend SA PLACE (juste sous “Historique des locataires”). »
 
-      <p className="ann-discret">
-        <BoutonHistorique cible={{ sorte: 'lot', cle: f.numero, id: null }} onHistorique={onHistorique} />
-      </p>
-
-      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — « L'HISTORIQUE DU BIEN », EN DERNIER ═══════════════════════════════════
-          Demande d'Arno (04/10/2026) : un bloc qui répond à la question d'APRÈS « tous les mails de ce bien » —
-          « pendant TELLE période, entre TELLES personnes, qu'est-ce qui s'est dit et quelles pièces ont
-          circulé ? ». Il est AJOUTÉ : rien au-dessus n'est touché.
+          🔴 IL EST MONTÉ DANS LA MÊME ENVELOPPE `ancreVie`, ET CE N'EST PAS UN DÉTAIL. C'est elle que
+          `?bloc=vie` et le cartouche « Événement en cours » visent pour poser la page : un second ancrage
+          aurait fait deux endroits où le défilement se décide, et l'un des deux aurait cessé de viser juste.
+          C'est aussi ce qui garde au bloc le MÊME RANG dans la fiche qu'avant ce lot — la preuve d'empreintes
+          du haut de fiche compare rang par rang.
 
           🔴 LES OCCUPATIONS VIENNENT DE LA FICHE, ET IL FALLAIT. La route `/historique` ne renseigne
           `occupations` que pour une cible `locataire-…` (`etendreCible`) ; pour un `lot-…` elle rend un tableau
           VIDE. La fiche les a déjà TOUTES, passées comprises — c'est ce qui rend les anciens locataires
-          sélectionnables avec leur période, comme demandé. */}
-      <HistoriqueDuBien
-        lotCle={f.numero}
-        maintenant={maintenant}
-        occupations={occupationsPourHistorique(f)}
-        categories={categoriesDesParties(f)}
-        onOuvrirFil={onOuvrirFil} />
+          sélectionnables avec leur période, et ce qui alimente « Depuis l'entrée du dernier locataire ».
+
+          ⚠️ LA CLÉ PORTE LE FILTRE, comme elle le portait pour « Vie du bien » : c'est ce qui fait repartir le
+          moteur sur le filtre voulu quand on clique un cartouche après être déjà sur la fiche. Sans elle, son
+          état interne garderait les réglages d'avant — et le clic n'aurait l'air de rien faire. */}
+      <div ref={ancreVie}>
+        <HistoriqueDuBien
+          key={filtreVie}
+          lotCle={f.numero}
+          maintenant={maintenant}
+          occupations={occupationsPourHistorique(f)}
+          categories={categoriesDesParties(f)}
+          evenementOuvertInitial={filtreVie === 'evenement'}
+          onOuvrirFil={onOuvrirFil} />
+      </div>
+
+      {/* ══ 🔴🔴 « TOUT L'HISTORIQUE DES ÉCHANGES → » MÈNE AU NOUVEAU BLOC ═════════════════════════════════════
+          DEMANDE D'ARNO (04/10/2026) : « Les liens ?bloc=vie et “Tout l'historique des échanges →” mènent au
+          nouveau bloc. » Les deux visent donc la même ancre, et le lien n'ouvre plus l'écran d'historique
+          global — c'est ce qu'Arno a tranché, le moteur juste au-dessus répondant à la même question pour un
+          bien, et mieux (période, parties, pièces).
+
+          ⚠️ `BoutonHistorique` N'EST PAS TOUCHÉ : il sert encore la fiche d'un LOCATAIRE, où les deux
+          historiques atteignables sont distincts. Le modifier aurait changé un écran qu'Arno n'a pas ouvert. */}
+      <p className="ann-discret">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn ann-histo"
+          onClick={() => ancreVie.current?.scrollIntoView({ block: 'start' })}>
+          Tout l’historique des échanges →
+        </button>
+      </p>
     </>
   );
 }

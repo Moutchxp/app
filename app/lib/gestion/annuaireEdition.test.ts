@@ -832,11 +832,27 @@ describe('🔴 le cartouche « Événement en cours »', () => {
     expect(c).toContain("nb > 1 ? `${nb} événements en cours` : 'Événement en cours'");
   });
 
-  it('🔴 un clic ouvre les événements DE CE BIEN — la vie du bien, filtrée', () => {
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-2 — LE CARTOUCHE MÈNE MAINTENANT AU MOTEUR, ET IL Y ARRIVE DÉJÀ FILTRÉ.
+   *
+   * ═══ CE QUE CETTE ÉPREUVE VÉRIFIAIT AVANT, ET POURQUOI ELLE NE SUFFIT PLUS ═══════════════════════════════════
+   * Elle lisait `filtreInitial` et `useState<FiltreVie>(filtreInitial)` dans `VieDuBien.tsx`. C'était juste tant
+   * que le cartouche menait à ce bloc. « Vie du bien » n'est plus monté sur la fiche d'un BIEN (accord d'Arno du
+   * 04/10/2026) : ces deux lignes existent encore — le composant sert la fiche d'un LOCATAIRE — mais elles ne
+   * prouvent plus rien sur la destination du cartouche. L'épreuve aurait continué de passer en décrivant un
+   * chemin mort, ce qui est le pire état d'un test.
+   *
+   * ═══ 🔴 CE QU'ELLE VÉRIFIE MAINTENANT ════════════════════════════════════════════════════════════════════════
+   * Que la demande voyage BOUT À BOUT : le cartouche pose `'evenement'`, la fiche le traduit pour le moteur, et
+   * le moteur démarre avec le filtre allumé. Trois maillons, trois assertions — c'est le maillon du milieu qui
+   * manquait, et c'est lui qui a changé.
+   */
+  it('🔴🔴 un clic ouvre les événements DE CE BIEN — le moteur, déjà filtré', () => {
     expect(src).toContain("ouvrirVieDuBien(lotId, 'evenement')");
-    const vie = readFileSync('app/(admin)/admin/(protected)/gestion/VieDuBien.tsx', 'utf8');
-    expect(vie).toContain('filtreInitial');
-    expect(vie).toContain('useState<FiltreVie>(filtreInitial)');
+    expect(src).toContain("evenementOuvertInitial={filtreVie === 'evenement'}");
+    const moteur = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBien.tsx', 'utf8');
+    expect(moteur).toContain('evenementOuvertInitial = false');
+    expect(moteur).toContain('evenementOuvertInitial ? { ...REGLAGES_DEFAUT, evenementOuvert: true } : REGLAGES_DEFAUT');
   });
 
   it('🔴 le MÊME cartouche en tête de la fiche du bien', () => {
