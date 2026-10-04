@@ -104,7 +104,7 @@ const ATTENTE_FRAPPE_MS = 250;
 
 export function HistoriqueDuBien({
   lotCle, maintenant, occupations, categories, periodes = new Map(),
-  evenementOuvertInitial = false, onOuvrirFil,
+  evenementOuvertInitial = false, onOuvrirFil, onEcranComplet,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
   lotCle: string;
@@ -144,6 +144,19 @@ export function HistoriqueDuBien({
    */
   periodes?: ReadonlyMap<string, PeriodePartie>;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3 — L'ÉCRAN « HISTORIQUE » COMPLET RESTE ATTEIGNABLE ════════════════════════════
+   *
+   * DÉCISION D'ARNO (05/10/2026), en réponse à ma question du lot précédent : « L'écran plein “Historique” reste
+   * accessible : petit lien discret “Écran historique complet” en bas du nouveau bloc. »
+   *
+   * 🔴 POURQUOI LA QUESTION SE POSAIT. Au lot 2, « Tout l'historique des échanges → » a cessé d'ouvrir cet écran
+   * pour défiler vers ce bloc — demande d'Arno. La fiche d'un bien perdait alors sa dernière porte vers l'écran
+   * plein, qui existe toujours et que ce bloc ne remplace pas en tout point (il est borné à un bien).
+   *
+   * ⚠️ FACULTATIVE : sans elle, le lien n'est pas rendu. La fiche ne la passe que si elle sait où mener.
+   */
+  onEcranComplet?: () => void;
 }) {
   const [reglages, setReglages] = useState<Reglages>(
     evenementOuvertInitial ? { ...REGLAGES_DEFAUT, evenementOuvert: true } : REGLAGES_DEFAUT);
@@ -1116,6 +1129,19 @@ export function HistoriqueDuBien({
             </>
           )}
 
+      {/* ══ 🔴 LE LIEN DISCRET VERS L'ÉCRAN PLEIN, TOUT EN BAS (lot HISTORIQUE-BIEN-3) ═════════════════════════
+          Arno : « petit lien discret “Écran historique complet” en bas du nouveau bloc ».
+
+          ⚠️ EN BAS, ET DISCRET, PARCE QUE C'EST UNE SORTIE, PAS UNE ACTION. Le mettre en tête aurait proposé de
+          quitter le bloc avant de l'avoir lu ; le mettre en gros aurait suggéré qu'il y a mieux ailleurs. */}
+      {onEcranComplet !== undefined && (
+        <p className="hdb-sortie">
+          <button type="button" className="gst-lien-bouton" onClick={onEcranComplet}>
+            Écran historique complet →
+          </button>
+        </p>
+      )}
+
       {/* ══ LA FENÊTRE DRIVE, EN MODE « RANGER » ══ La MÊME que partout : mêmes refus, même arborescence. */}
       {aRanger !== null && (
         <SelecteurFichierDrive
@@ -1429,4 +1455,7 @@ ${CSS_PIECES}
   font-weight:700;color:var(--color-svv-ink);padding-bottom:.2rem;
   border-bottom:1px solid var(--color-svv-line);overflow-wrap:anywhere}
 .hdb-vide{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;min-width:0}
+/* ── LA SORTIE VERS L'ECRAN PLEIN ── discrete : en bas, en petit, alignee a droite. C'est une sortie, pas une
+   action : la mettre en tete aurait propose de quitter le bloc avant de l'avoir lu. */
+.hdb-sortie{margin:.7rem 0 0;text-align:right;font-size:.74rem}
 `;

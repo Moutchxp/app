@@ -807,6 +807,47 @@ describe('⑤-ter 🔴🔴 la barre de couleur à droite de chaque mail', () => 
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤-quater 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 0 — LA SORTIE VERS L'ÉCRAN PLEIN
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑤-quater 🔴🔴 « Écran historique complet »', () => {
+  /**
+   * DÉCISION D'ARNO (05/10/2026), en réponse à ma question du lot précédent : « L'écran plein “Historique” reste
+   * accessible : petit lien discret “Écran historique complet” en bas du nouveau bloc. »
+   *
+   * 🔴 POURQUOI CETTE ÉPREUVE EXISTE. Au lot 2, « Tout l'historique des échanges → » a cessé d'ouvrir cet écran
+   * pour défiler vers le bloc — demande d'Arno. La fiche d'un bien perdait alors sa dernière porte vers l'écran
+   * plein. Ce cas est le garde qui empêche cette porte de se refermer une seconde fois sans qu'on le voie.
+   */
+  it('🔴🔴 le lien est rendu, en bas du bloc, et il appelle l’écran plein', async () => {
+    const vers = vi.fn();
+    await monter({ onEcranComplet: vers });
+    const lien = parMot('Écran historique complet');
+    expect(lien).toBeDefined();
+    await cliquer(lien);
+    expect(vers).toHaveBeenCalledTimes(1);
+
+    /* ⚠️ EN BAS : il suit le listing dans le document. En tête, il aurait proposé de quitter le bloc avant de
+       l'avoir lu. */
+    const liste = hote.querySelector('.hdb-liste') as HTMLElement;
+    expect(liste.compareDocumentPosition(lien as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  /** ⚠️ SANS DESTINATION, PAS DE LIEN : un bouton qui ne mène nulle part est pire qu'un bouton absent. */
+  it('⚠️ sans destination, le lien n’est pas rendu', async () => {
+    await monter();
+    expect(parMot('Écran historique complet')).toBeUndefined();
+  });
+
+  /** 🔴 ET LA FICHE SAIT OÙ MENER : elle passe la cible du bien, celle que l'écran plein attend. */
+  it('🔴 la fiche branche la sortie sur la cible du bien', () => {
+    expect(ANNUAIRE).toContain("onHistorique({ sorte: 'lot', cle: f.numero, id: null })");
+    /* …et le bouton du haut continue de défiler vers l'ancre, comme Arno l'a reconfirmé. */
+    expect(ANNUAIRE).toContain("ancreVie.current?.scrollIntoView({ block: 'start' })");
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑥ 🔴🔴 LE GARDE : LES DEUX COMPOSANTS SONT **IMPORTÉS**, PAS RECOPIÉS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

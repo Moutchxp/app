@@ -1350,14 +1350,24 @@ function VueLot({
           categories={categoriesDesParties(f)}
           periodes={periodesDesParties(f)}
           evenementOuvertInitial={filtreVie === 'evenement'}
-          onOuvrirFil={onOuvrirFil} />
+          onOuvrirFil={onOuvrirFil}
+          onEcranComplet={onHistorique === undefined
+            ? undefined
+            : () => onHistorique({ sorte: 'lot', cle: f.numero, id: null })} />
       </div>
 
       {/* ══ 🔴🔴 « TOUT L'HISTORIQUE DES ÉCHANGES → » MÈNE AU NOUVEAU BLOC ═════════════════════════════════════
           DEMANDE D'ARNO (04/10/2026) : « Les liens ?bloc=vie et “Tout l'historique des échanges →” mènent au
           nouveau bloc. » Les deux visent donc la même ancre, et le lien n'ouvre plus l'écran d'historique
           global — c'est ce qu'Arno a tranché, le moteur juste au-dessus répondant à la même question pour un
-          bien, et mieux (période, parties, pièces).
+          bien, et mieux (période, parties, pièces). CONFIRMÉ au lot HISTORIQUE-BIEN-3 : « Le lien “Tout
+          l'historique des échanges →” continue de défiler vers le bloc. »
+
+          🔴 ET L'ÉCRAN PLEIN RESTE ATTEIGNABLE, par un lien discret EN BAS du bloc. C'était ma question au lot
+          précédent — en retargetant ce bouton-ci, la fiche d'un bien perdait sa dernière porte vers l'écran
+          « Historique » complet. Arno a tranché (05/10/2026) : « L'écran plein “Historique” reste accessible :
+          petit lien discret “Écran historique complet” en bas du nouveau bloc. » La porte est donc rouverte,
+          là où elle ne gêne pas la lecture — voir `onEcranComplet` ci-dessus.
 
           ⚠️ `BoutonHistorique` N'EST PAS TOUCHÉ : il sert encore la fiche d'un LOCATAIRE, où les deux
           historiques atteignables sont distincts. Le modifier aurait changé un écran qu'Arno n'a pas ouvert. */}
