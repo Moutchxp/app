@@ -1,6 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+/**
+ * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — les mots et le délai de « Marquer interne détachera :
+ * … », dans un module PUR. L'écran les écrit, il ne les invente pas.
+ */
+import {
+  messageDetachement, motApresDetachement, SECONDES_ANNULER, type BienDetache,
+} from '../../../../lib/gestion/interneDetache';
+import type { ChoixInterne } from '../../../../lib/gestion/interneDuMail';
 import { CSS_CHOISIR_CIBLE } from './ChoisirCible';
 import { ModifierRattachement } from './ModifierRattachement';
 // 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE MÊME MODULE QUE LA FENÊTRE DE RÉDACTION, à l'extrémité droite du bloc.
@@ -100,7 +108,7 @@ function motDuGeste(choix: ChoixSuivi, c: Classement): string {
 
 export function EncartRattachement({
   messageId, filId, liens, interne = null, horsGestion = false, onInterne, onHorsGestion,
-  onChange, onGeste, onHistorique,
+  onChange, onGeste, onHistorique, mailsDuFil = [], choixInterne = 'conversation',
 }: {
   messageId: number;
   /**
@@ -117,8 +125,28 @@ export function EncartRattachement({
   interne?: boolean | null;
   /** Ce MAIL porte-t-il une marque « hors gestion » vivante ? */
   horsGestion?: boolean;
-  /** Pose (`true`) ou retire (`false`) la marque « interne » de l'ÉCHANGE. Absent ⇒ la case blanche est inerte. */
-  onInterne?: (actif: boolean) => void | Promise<void>;
+  /**
+   * Pose (`true`) ou retire (`false`) la marque « interne » de l'ÉCHANGE. Absent ⇒ la case blanche est inerte.
+   *
+   * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — ELLE REND CE QU'ELLE A DÉTACHÉ ══════════════
+   *
+   * Marquer « interne » détache désormais les biens des mails couverts (décision d'Arno). L'appelant rend donc la
+   * liste des liens retirés : sans leurs identifiants, l'« Annuler » des secondes qui suivent ne saurait pas quoi
+   * remettre.
+   *
+   * ⚠️ `remettre` AU RETRAIT : les liens à remettre, quand c'est l'« Annuler » qui appelle. Vide (ou absent) ⇒ le
+   * geste est EXACTEMENT celui d'avant ce lot — on retire la marque, on ne touche à aucun rattachement.
+   */
+  onInterne?: (actif: boolean, remettre?: readonly number[], choix?: ChoixInterne) =>
+  void | Promise<void> | Promise<readonly BienDetache[] | void>;
+  /**
+   * 🔴🔴 POINT 2 — LES MAILS DE L'ÉCHANGE, dans l'ordre CHRONOLOGIQUE, et la fenêtre choisie. Ils servent à
+   * demander au serveur ce que le geste détacherait — la fenêtre peut couvrir plus que le mail affiché.
+   *
+   * ⚠️ VIDE ⇒ L'APERÇU NE PORTE QUE SUR CE MAIL, et le geste reste celui d'avant. On ne devine pas une portée.
+   */
+  mailsDuFil?: readonly number[];
+  choixInterne?: ChoixInterne;
   /** Retire la marque « hors gestion » de ce mail (`false`). Absent ⇒ la case verte ne se défait pas d'ici. */
   onHorsGestion?: (actif: boolean) => void | Promise<void>;
   /** L'échange de ce mail, pour la portée « toute la conversation » du bloc « Événement rattaché ». */
@@ -307,6 +335,37 @@ export function EncartRattachement({
   const [verification, setVerification] = useState(false);
   const [occupeEtape2, setOccupeEtape2] = useState(false);
   const [erreurEtape2, setErreurEtape2] = useState<string | null>(null);
+
+  /**
+   * ⚠️ LES ÉTATS DU PANNEAU « INTERNE » SONT DÉCLARÉS **AVANT** LE PREMIER `return`, et ce n'est pas une
+   * question de style : React exige que le nombre de `useState`/`useEffect` d'un rendu soit TOUJOURS le même.
+   * Posés après `if (liens === null) return null`, ils ont fait tomber 16 épreuves d'un coup — « Rendered fewer
+   * hooks than expected ». Le défaut était le mien, et il ne se voit qu'à l'exécution.
+   */
+  /**
+   * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — LE PANNEAU DE « MARQUER INTERNE » ════════════
+   *
+   * DÉCISION D'ARNO (04/10/2026) : « AVANT d'appliquer, un message clair : “Marquer interne détachera : <liste des
+   * biens>” avec Confirmer / Annuler. Après : “Annuler” pendant quelques secondes, qui remet exactement les
+   * rattachements d'avant. — Si aucun bien n'est rattaché : comportement actuel inchangé, sans message. »
+   *
+   * 🔴 TROIS ÉTATS, ET UN SEUL À LA FOIS : rien · on demande (la liste et deux boutons) · c'est fait (le compte
+   * rendu et l'« Annuler », qui s'efface au bout de quelques secondes).
+   *
+   * 🔴 LA LISTE VIENT DU SERVEUR, pas de cet écran. Il connaît les biens du mail AFFICHÉ ; la fenêtre choisie,
+   * elle, peut couvrir toute la conversation — donc des mails dont il n'a pas les liens. Une confirmation qui ne
+   * nommerait que ce qu'il voit promettrait moins qu'elle ne fait.
+   */
+  const [demandeInterne, setDemandeInterne] = useState<{ choix: ChoixInterne; biens: BienDetache[] } | null>(null);
+  const [detachesInterne, setDetachesInterne] = useState<BienDetache[] | null>(null);
+  const [occupeInterne, setOccupeInterne] = useState(false);
+
+  /** L'« Annuler » ne reste offert que quelques secondes : passé ce délai, le geste est acquis. */
+  useEffect(() => {
+    if (detachesInterne === null) return undefined;
+    const t = setTimeout(() => setDetachesInterne(null), SECONDES_ANNULER * 1000);
+    return () => clearTimeout(t);
+  }, [detachesInterne]);
 
   if (liens === null) return null;
 
@@ -546,6 +605,93 @@ export function EncartRattachement({
    * Demande d'Arno : « Pour un mail reçu, le statut repasse à “À classer” tant qu'un nouveau choix n'est pas
    * fait. » C'est exactement ce que fait chacun des trois : il RETIRE, il ne remplace pas.
    */
+  /**
+   * 🔴🔴 LE CLIC SUR « INTERNE » — IL DEMANDE D'ABORD, QUAND IL Y A QUELQUE CHOSE À DÉTACHER.
+   *
+   * ⚠️ AUCUN MESSAGE QUAND IL N'Y A RIEN À DÉTACHER, et c'est la seconde phrase d'Arno : le cas le plus fréquent
+   * garde le comportement d'avant, au clic près.
+   *
+   * ⚠️ ET SI L'APERÇU NE RÉPOND PAS, ON MARQUE QUAND MÊME. Refuser le geste parce qu'une lecture a échoué
+   * conditionnerait une fonction existante à une requête nouvelle — ce qu'on ne fait pas. La confirmation est une
+   * précaution, pas un péage.
+   */
+  const apercuDetachement = async (choix: ChoixInterne): Promise<BienDetache[] | null> => {
+    try {
+      const p = new URLSearchParams({ detacherait: '1', messageId: String(messageId), choix });
+      if (mailsDuFil.length > 0) p.set('mails', mailsDuFil.join(','));
+      const res = await fetch(`/api/admin/gestion/interne?${p.toString()}`, { cache: 'no-store' });
+      const d = (await res.json().catch(() => ({}))) as { biens?: BienDetache[] };
+      return Array.isArray(d.biens) ? d.biens : [];
+    } catch { return null; }
+  };
+
+  const cliquerInterne = async (): Promise<void> => {
+    if (onInterne === undefined) return;
+    setOccupeInterne(true);
+    try {
+      const biens = await apercuDetachement(choixInterne);
+      /* ⚠️ APERÇU EN ÉCHEC (`null`) ⇒ ON MARQUE QUAND MÊME : la confirmation est une précaution, pas un péage. */
+      if (biens === null || biens.length === 0) { await appliquerInterne(choixInterne, []); return; }
+      setDemandeInterne({ choix: choixInterne, biens });
+    } finally {
+      setOccupeInterne(false);
+    }
+  };
+
+  /**
+   * ══ 🔴🔴 CHANGER DE FENÊTRE DANS LE PANNEAU, ET LA LISTE SUIT ══════════════════════════════════════════════
+   *
+   * DÉCISION D'ARNO : le détachement se fait « selon la fenêtre choisie (Ce mail uniquement / Ce mail et la
+   * conversation à venir / Toute la conversation) ».
+   *
+   * 🔴 LES TROIS FENÊTRES EXISTAIENT DÉJÀ dans la route et dans le module pur (`mailsCouvertsParLeChoix`), mais
+   * AUCUN écran ne les offrait pour « interne » : la case du bandeau a toujours porté sur l'ÉCHANGE entier. Elles
+   * sont donc offertes ICI, dans la confirmation — l'endroit où l'on décide, et le seul où la liste des biens
+   * concernés peut suivre le choix en direct.
+   *
+   * ⚠️ LA LISTE EST RE-DEMANDÉE AU SERVEUR À CHAQUE CHANGEMENT, et ce n'est pas un luxe : « ce mail uniquement »
+   * et « toute la conversation » ne détachent pas les mêmes biens. Une liste figée promettrait autre chose que ce
+   * que le bouton ferait.
+   */
+  const changerFenetreInterne = async (choix: ChoixInterne): Promise<void> => {
+    setOccupeInterne(true);
+    try {
+      const biens = await apercuDetachement(choix);
+      setDemandeInterne({ choix, biens: biens ?? [] });
+    } finally {
+      setOccupeInterne(false);
+    }
+  };
+
+  /** LE GESTE, une fois confirmé (ou d'emblée, s'il n'y avait rien à détacher). */
+  const appliquerInterne = async (
+    choix: ChoixInterne, annonces: readonly BienDetache[],
+  ): Promise<void> => {
+    setDemandeInterne(null);
+    setOccupeInterne(true);
+    try {
+      const faits = await onInterne?.(true, undefined, choix);
+      /* 🔴 ON N'OFFRE L'« ANNULER » QUE SI QUELQUE CHOSE A ÉTÉ DÉTACHÉ. Sinon il n'y a rien à remettre, et la
+         marque se retire déjà d'un clic sur la case verte — le geste d'avant, inchangé. */
+      const liste = Array.isArray(faits) ? faits : annonces;
+      setDetachesInterne(liste.length > 0 ? [...liste] : null);
+    } finally {
+      setOccupeInterne(false);
+    }
+  };
+
+  /** L'« ANNULER » DES SECONDES QUI SUIVENT : il retire la marque ET remet les liens, par la même porte. */
+  const annulerInterne = async (): Promise<void> => {
+    const liste = detachesInterne ?? [];
+    setDetachesInterne(null);
+    setOccupeInterne(true);
+    try {
+      await onInterne?.(false, liste.map((b) => b.lienId));
+    } finally {
+      setOccupeInterne(false);
+    }
+  };
+
   const reinitialiser = async (): Promise<void> => {
     if (biensRattaches.length > 0) { await appliquerCibles([]); return; }
     if (interne === true) { await onInterne?.(false); return; }
@@ -819,9 +965,86 @@ export function EncartRattachement({
         /* ⚠️ GRISÉE SI L'ON NE SAIT PAS : `interne === null` veut dire migration 281 absente, ou lecture en
            échec. Proposer un geste dont on sait qu'il ne pourra pas aboutir serait pire que l'absence. */
         interneDisponible={interne !== null && onInterne !== undefined}
-        onInterne={() => { void onInterne?.(true); }}
+        /* 🔴🔴 POINT 2 — il DEMANDE d'abord, quand il y a des biens à détacher. Sans bien, rien ne change. */
+        onInterne={() => { void cliquerInterne(); }}
         onReinitialiser={() => { void reinitialiser(); }} />
       </div>
+
+      {/* ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — LA CONFIRMATION, PUIS L'« ANNULER » ══════
+
+          DÉCISION D'ARNO (04/10/2026) : « AVANT d'appliquer, un message clair : “Marquer interne détachera :
+          <liste des biens>” avec Confirmer / Annuler. Après : “Annuler” pendant quelques secondes, qui remet
+          exactement les rattachements d'avant. »
+
+          🔴 LA LISTE EST NOMMÉE, JAMAIS COMPTÉE. « détachera 3 biens » n'apprend rien : on ne peut pas décider
+          sans savoir LESQUELS. C'est tout l'objet de la confirmation, et c'est aussi ce qui autorise ce geste à
+          toucher un lien posé à la main — la même raison que « Toute la conversation ».
+
+          ⚠️ LE PANNEAU EST ICI, SOUS LES DEUX CASES, et non dans une fenêtre modale : on décide en voyant le mail
+          et ses biens, pas devant un voile qui les cache. */}
+      {demandeInterne !== null && (
+        <div className="ert-interne-panneau" role="group" aria-label="Confirmer le marquage « interne »">
+          {/* 🔴🔴 LES TROIS FENÊTRES D'ARNO, ET LES MÊMES MOTS QU'AILLEURS (`CHOIX_SUIVI`) : « Ce mail uniquement »,
+              « Ce mail et la conversation à venir », « Toute la conversation ». En écrire une seconde série aurait
+              donné deux vocabulaires pour une même notion. */}
+          <p className="ert-interne-mot">Jusqu’où ce marquage porte-t-il ?</p>
+          <div className="ert-interne-fenetres" role="radiogroup" aria-label="Portée du marquage">
+            {CHOIX_SUIVI.map((c) => (
+              <label key={c.cle} className="ert-interne-fenetre" title={c.aide}>
+                <input type="radio" name={`ert-interne-${messageId}`} checked={demandeInterne.choix === c.cle}
+                  disabled={occupeInterne}
+                  onChange={() => { void changerFenetreInterne(c.cle); }} />
+                <span>{c.mot}</span>
+              </label>
+            ))}
+          </div>
+          {/* 🔴 ET LA LISTE SUIT LE CHOIX, en direct : « ce mail uniquement » et « toute la conversation » ne
+              détachent pas les mêmes biens. Une liste figée promettrait autre chose que ce que le bouton ferait. */}
+          {demandeInterne.biens.length === 0 ? (
+            <p className="ert-interne-note">
+              Aucun bien à détacher avec cette portée : le marquage ne retirera aucun rattachement.
+            </p>
+          ) : (
+            <>
+              <p className="ert-interne-mot">{messageDetachement(demandeInterne.biens)}</p>
+              <ul className="ert-interne-liste">
+                {demandeInterne.biens.map((b) => <li key={b.lienId}>{b.libelle}</li>)}
+              </ul>
+              <p className="ert-interne-note">
+                Les rattachements sont RETIRÉS, jamais supprimés : ils restent datés et signés, et « Annuler » les
+                remet.
+              </p>
+            </>
+          )}
+          <div className="ert-interne-boutons">
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={occupeInterne}
+              onClick={() => { void appliquerInterne(demandeInterne.choix, demandeInterne.biens); }}>
+              Confirmer
+            </button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupeInterne}
+              onClick={() => setDemandeInterne(null)}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🔴 APRÈS LE GESTE : le compte rendu, et la sortie — quelques secondes, puis elle s'efface d'elle-même.
+          Un « Annuler » qui resterait indéfiniment ferait croire que le geste n'est jamais acquis. */}
+      {detachesInterne !== null && (
+        <div className="ert-interne-panneau ert-interne-panneau--fait" role="status">
+          <p className="ert-interne-mot">{motApresDetachement(detachesInterne.length)}</p>
+          <ul className="ert-interne-liste">
+            {detachesInterne.map((b) => <li key={b.lienId}>{b.libelle}</li>)}
+          </ul>
+          <div className="ert-interne-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupeInterne}
+              onClick={() => { void annulerInterne(); }}>
+              Annuler — remettre {detachesInterne.length === 1 ? 'ce bien' : 'ces biens'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ══ 🔴🔴 UN RESTE D'ANCIEN MODÈLE : DIT POUR CE QU'IL EST, ET JAMAIS SOUS LE TITRE DES BIENS ═════════
           Il porte les mêmes gestes qu'avant — « Modifier » mène au sélecteur de bien, « Retirer » l'enlève — mais
@@ -1132,6 +1355,23 @@ export const CSS_ENCART_RATTACHEMENT = `
 .ert-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .ert-source,.ert-motif{font-size:.74rem;color:var(--color-svv-muted)}
 .ert-motif{font-style:italic}
+/* ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — LE PANNEAU « MARQUER INTERNE DÉTACHERA » ═══════
+   AMBRE POUR LA DEMANDE (on s'apprete a retirer quelque chose), NEUTRE POUR LE COMPTE RENDU (c'est fait, il reste
+   une sortie). Jetons du theme dans les deux cas : lisible en Clair comme en Sombre, et le MOT porte toujours
+   l'information — jamais la seule couleur.
+   Mobile d'abord : la liste casse en fin de ligne, les boutons font 44 px et passent a la ligne si besoin. */
+.ert-interne-panneau{margin:.4rem 0 0;padding:.5rem .6rem;border:1px solid var(--color-svv-amber);
+  border-radius:.5rem;background:var(--color-svv-amber-soft)}
+.ert-interne-panneau--fait{border-color:var(--color-svv-line-strong);background:var(--color-svv-surface)}
+.ert-interne-mot{margin:0;font-size:.8rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.ert-interne-liste{margin:.25rem 0 0;padding-left:1.1rem;display:flex;flex-direction:column;gap:.15rem;
+  font-size:.78rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.ert-interne-note{margin:.3rem 0 0;font-size:.72rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.ert-interne-boutons{margin:.45rem 0 0;display:flex;flex-wrap:wrap;gap:.4rem}
+/* Les trois fenetres : une par ligne, cible tactile de 44 px, aucune dependance au survol. */
+.ert-interne-fenetres{margin:.3rem 0 .35rem;display:flex;flex-direction:column;gap:.1rem}
+.ert-interne-fenetre{display:flex;align-items:center;gap:.4rem;min-height:44px;font-size:.78rem;
+  color:var(--color-svv-ink);cursor:pointer}
 .ert-defait{font-size:.8rem;font-style:italic;color:var(--color-svv-muted)}
 .ert-ajouter{align-self:baseline;flex:0 0 auto}
 

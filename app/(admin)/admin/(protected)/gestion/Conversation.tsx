@@ -51,6 +51,8 @@ import { heureGmail } from '../../../../lib/gestion/ecran';
 import {
   lienGmail, libelleEtoile, menuMessage, COMPTE_GESTION_DEFAUT, type ActionMessage,
 } from '../../../../lib/gestion/gmailMenu';
+/* 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — les mots du compte rendu, dans un module PUR. */
+import { motApresAnnulation, motApresDetachement } from '../../../../lib/gestion/interneDetache';
 import { PanneauAffecter } from './PanneauAffecter';
 import { EncartAnnuaire } from './EncartAnnuaire';
 // Le bandeau porte son propre CSS en ligne, comme `EncartAnnuaire` : rien à ajouter à `CSS_CONVERSATION`.
@@ -1391,6 +1393,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                  que le repère annonce. Aucune recherche, aucune requête — il est déjà là. */
               mail={m} />)}
           <MessageConversation message={m} maintenant={maintenant} filId={filId}
+            /* 🔴🔴 POINT 2 — l'ordre est CHRONOLOGIQUE : c'est lui que la fenêtre d'Arno découpe. */
+            mailsDuFil={idsMessages}
             /* 🔴 LOT SUIVI-CONVERSATION — « Un mail en exception porte une petite mention “exception : <biens>”
                dans son en-tête. » Le mot vient du module pur : trois sortes, une seule façon de les écrire. */
             exception={exceptionDe(m.messageId)}
@@ -1438,9 +1442,23 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               marqueDuMailConnue: interneParMail.has(m.messageId),
               marqueDeLEchange: interne === true,
             })}
-            onInterne={async (actif) => {
+            onInterne={async (actif, remettre, choix) => {
               if (filId === null) return;
-              await fetch('/api/admin/gestion/interne', {
+              /**
+               * ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — LE GESTE REND CE QU'IL A DÉTACHÉ ══
+               *
+               * DÉCISION D'ARNO (04/10/2026) : « marquer Interne DÉTACHE les biens de ce mail, selon la fenêtre
+               * choisie […]. Après : “Annuler” pendant quelques secondes, qui remet exactement les rattachements
+               * d'avant. »
+               *
+               * 🔴 LA LISTE REMONTE JUSQU'AU PANNEAU, et c'est ce qui rend l'« Annuler » possible : sans les
+               * identifiants des liens, l'écran ne saurait pas quoi remettre.
+               *
+               * 🔴 ET `remettre` REDESCEND AU RETRAIT. Le serveur ne remet que les liens que CE geste-là avait
+               * retirés (il vérifie le motif en base) : un lien retiré par le suivi d'une conversation ne
+               * ressuscite pas parce qu'on annule un marquage « interne ».
+               */
+              const reponse = await fetch('/api/admin/gestion/interne', {
                 method: actif ? 'POST' : 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 /**
@@ -1451,17 +1469,36 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                  * désormais mail par mail.
                  */
                 body: JSON.stringify({
-                  filIds: [filId], messageId: m.messageId, mails: idsMessages, choix: 'conversation',
+                  filIds: [filId], messageId: m.messageId, mails: idsMessages,
+                  /* 🔴🔴 POINT 2 — LA FENÊTRE VIENT DU PANNEAU DE CONFIRMATION. « toute la conversation » reste le
+                     défaut : c'est le sens de la case du bandeau depuis toujours, et un défaut plus étroit aurait
+                     changé en silence ce que ce clic fait depuis des mois. */
+                  choix: choix ?? 'conversation',
+                  ...(remettre !== undefined && remettre.length > 0 ? { remettre: [...remettre] } : {}),
                 }),
               });
+              const d = (await reponse.json().catch(() => ({}))) as {
+                detaches?: { lienId: number; libelle: string }[]; remis?: number;
+              };
               await chargerInterne(filId);
               await chargerInterneDesMails(idsMessages);
+              /* 🔴 LES RATTACHEMENTS ONT CHANGÉ : la liste du bloc doit suivre, sinon l'écran montrerait des biens
+                 qui viennent d'être détachés. */
+              await chargerRattachements(idsMessages);
+              const detaches = Array.isArray(d.detaches) ? d.detaches : [];
+              const remis = typeof d.remis === 'number' ? d.remis : 0;
               onGeste(actif
-                ? 'Échange marqué « interne » : il n’y a pas de bien à y rattacher.'
-                : 'Marque « interne » retirée.');
+                ? (detaches.length === 0
+                  ? 'Échange marqué « interne » : il n’y a pas de bien à y rattacher.'
+                  : motApresDetachement(detaches.length))
+                : motApresAnnulation(remis));
               // 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — LA LIGNE DE LISTE DOIT SUIVRE. C'est le geste même du
               //   constat d'Arno sur le fil 36691 : voir l'encadré de `onClassementChange`.
               onClassementChange?.();
+              /* 🔴🔴 POINT 2 — et la liste remonte au panneau, APRÈS les rechargements : c'est elle qui rend
+                 l'« Annuler » possible. Un `return` posé plus haut aurait laissé le rappel ci-dessus en code
+                 mort — défaut que l'épreuve « trois validations de classement » a attrapé aussitôt. */
+              return detaches;
             }}
             /**
              * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — RETIRER « HORS GESTION » DEPUIS LE BLOC DU MAIL.
@@ -2071,9 +2108,18 @@ export function MessageConversation({
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
   brouillonEnAttente = false,
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
+  mailsDuFil = [],
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
   onReintegrerMessage,
 }: {
+  /**
+   * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — LES MAILS DE L'ÉCHANGE, dans l'ordre
+   * CHRONOLOGIQUE. Ils ne servent qu'à une chose : demander au serveur ce que « Marquer interne » détacherait,
+   * la fenêtre pouvant couvrir plus que ce mail-ci.
+   *
+   * ⚠️ VIDE ⇒ L'APERÇU NE PORTE QUE SUR CE MAIL. On ne devine pas une portée.
+   */
+  mailsDuFil?: readonly number[];
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
   /**
    * 🔴 LOT RANGER-INSTANTANE-ET-NOM — une pièce vient d'être renommée EN BASE (stylo, puis rangement). Le nom
@@ -2174,7 +2220,12 @@ export function MessageConversation({
    */
   interne?: boolean | null;
   /** Poser ou retirer la marque. Absent ⇒ aucun bouton : l'écran est alors celui d'avant ce lot. */
-  onInterne?: (actif: boolean) => void | Promise<void>;
+  /**
+   * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — le geste rend ce qu'il a DÉTACHÉ, et accepte au
+   * retrait les liens à REMETTRE. Voir l'encadré du même nom dans `EncartRattachement`.
+   */
+  onInterne?: (actif: boolean, remettre?: readonly number[], choix?: 'mail' | 'suite' | 'conversation') =>
+  void | Promise<void> | Promise<readonly { lienId: number; libelle: string }[] | void>;
   /**
    * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — pose (`true`) ou retire (`false`) la marque « hors gestion » de CE mail.
    * Absent ⇒ la case verte « Hors gestion » s'affiche mais ne se défait pas d'ici.
@@ -2658,6 +2709,10 @@ export function MessageConversation({
               horsGestion={marque !== null}
               onInterne={onInterne}
               onHorsGestion={onHorsGestion}
+              /* 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — les mails de l'échange, dans l'ordre
+                 CHRONOLOGIQUE, et la fenêtre de la case du bandeau (« toute la conversation », son sens depuis
+                 toujours). Ils servent à DEMANDER au serveur ce que le geste détacherait. */
+              mailsDuFil={mailsDuFil}
               onChange={onRattachement} onGeste={onGesteRattachement} onHistorique={onHistorique} />
           )}
 

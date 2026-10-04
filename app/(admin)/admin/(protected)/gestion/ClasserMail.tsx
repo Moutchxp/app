@@ -8,6 +8,8 @@ import {
 } from '../../../../lib/gestion/gesteClassement';
 import { MOTIFS_HORS_GESTION } from '../../../../lib/gestion/statutClassement';
 import type { ContexteClassement } from '../../../../lib/gestion/classementBien';
+/* 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — « Marquer interne détachera : <liste> », module PUR. */
+import { messageDetachement } from '../../../../lib/gestion/interneDetache';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 
 /**
@@ -614,6 +616,31 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
 
             {/* ══ CE QUE LA VALIDATION VA FAIRE, DIT AVANT DE LA FAIRE ══════════════════════════════════════════ */}
             {plan && <p className="clm-resume" role="status">{plan.resume}</p>}
+            {/* ══ 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — LES BIENS SONT NOMMÉS, PAS COMPTÉS ══
+
+                DÉCISION D'ARNO (04/10/2026) : « AVANT d'appliquer, un message clair : “Marquer interne détachera :
+                <liste des biens>” ».
+
+                🔴 CETTE FENÊTRE DÉTACHAIT DÉJÀ LES BIENS quand on coche « Interne » : choisir cette réponse vide
+                la sélection, et `planClassement` met alors tous les liens du mail dans `aRetirer`. Ce qui manquait
+                est le MOT : son résumé disait « 2 rattachements retirés », un compte dont on ne peut rien déduire.
+                On ne décide pas de détacher sans savoir QUOI.
+
+                ⚠️ LE RÉSUMÉ RESTE AU-DESSUS, inchangé : il porte les autres conséquences du geste (mails classés,
+                marques levées, pièces rangées). Cette phrase s'ajoute, elle ne remplace rien. */}
+            {plan !== null && reponse === 'interne' && plan.aRetirer.length > 0 && etat.v === 'ok' && (
+              <p className="clm-resume clm-resume--detache" role="status">
+                {/* ⚠️ LE LIBELLÉ VIENT DU CATALOGUE DE CETTE FENÊTRE, avec repli sur le numéro de lot : `LienExistant`
+                    ne porte que la clé, et c'est voulu — il sert au PLAN, pas à l'affichage. Inventer un nom ici
+                    serait pire qu'un numéro. */}
+                {messageDetachement(etat.existants
+                  .filter((l) => plan.aRetirer.includes(l.id))
+                  .map((l) => ({
+                    lienId: l.id,
+                    libelle: etat.contexte.biens.find((b) => b.cle === l.cle)?.libelle ?? `lot ${l.cle}`,
+                  })))}
+              </p>
+            )}
           </>
         )}
 
@@ -688,4 +715,8 @@ export const CSS_CLASSER_MAIL = `
 .clm-piece-label{font-size:.72rem;font-weight:700;color:var(--color-svv-muted)}
 .clm-resume{margin:0 0 12px;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-line);
   background:var(--color-svv-field);font-size:.85rem;font-weight:600;color:var(--color-svv-ink)}
+/* 🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — la phrase qui NOMME les biens detaches. Ambre : on
+   s'apprete a retirer quelque chose, et ce n'est pas la meme nature d'information que le resume au-dessus. Jeton
+   du theme, donc lisible en Clair comme en Sombre ; le MOT porte l'information, jamais la seule couleur. */
+.clm-resume--detache{border-color:var(--color-svv-amber);background:var(--color-svv-amber-soft);font-weight:600}
 `;

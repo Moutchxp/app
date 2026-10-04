@@ -12,6 +12,13 @@ import {
   annulerInterneDesMessages, lireInterneDesMessages, marquerInterneDesMessages,
 } from '../../../../../lib/gestion/interneMessageRepo';
 import { mailsCouvertsParLeChoix, type ChoixInterne } from '../../../../../lib/gestion/interneDuMail';
+/**
+ * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — marquer « interne » DÉTACHE les biens du mail,
+ * selon la fenêtre choisie, par la porte existante. Et un « Annuler » les remet, dans les secondes qui suivent.
+ */
+import {
+  biensADetacher, detacherBiensApresInterne, remettreBiensDetaches,
+} from '../../../../../lib/gestion/interneRepo';
 import { interneDisponible, interneDuMessageDisponible } from '../../../../../lib/gestion/schema';
 
 /**
@@ -63,6 +70,28 @@ export async function GET(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     /**
+     * ══ 🔴🔴 POINT 2 — L'APERÇU DU DÉTACHEMENT, POUR LA CONFIRMATION ═══════════════════════════════════════════
+     *
+     * `?detacherait=1&messageId=…&mails=…&choix=…` rend les biens que « Marquer interne » détacherait, nommés.
+     *
+     * 🔴 C'EST LE SERVEUR QUI RÉPOND, ET NON L'ÉCRAN QUI DEVINE. L'écran connaît les biens du mail AFFICHÉ ; la
+     * fenêtre choisie, elle, peut couvrir toute la conversation — donc des mails dont il n'a pas les liens. Une
+     * confirmation qui ne nommerait que les biens visibles promettrait moins qu'elle ne fait.
+     *
+     * 🔒 LECTURE SEULE : `biensADetacher` n'écrit rien. C'est le POST qui agit.
+     */
+    if (url.searchParams.get('detacherait') === '1') {
+      const n = Number(url.searchParams.get('messageId'));
+      const choixBrut = url.searchParams.get('choix');
+      const couverts = mailsDuGeste({
+        messageId: Number.isSafeInteger(n) && n > 0 ? n : null,
+        mails: lireFilIds(url.searchParams.get('mails')),
+        choix: choixBrut === 'mail' || choixBrut === 'suite' ? choixBrut : 'conversation',
+      });
+      return Response.json({ etat: 'ok', biens: await biensADetacher(couverts) }, { headers: ENTETES });
+    }
+
+    /**
      * ══ 🔴🔴 POINT 7 — LA LECTURE AU GRAIN DU MAIL ════════════════════════════════════════════════════════════
      *
      * `?messages=1,2,3` rend, pour chaque mail, ce que la base sait de lui : la marque est-elle VIVANTE, et a-t-on
@@ -101,10 +130,13 @@ async function corpsDuGeste(request: Request): Promise<{
   filIds: number[]; motif: string | null;
   /** 🔴 POINT 7 — le geste AU GRAIN DU MAIL : le mail visé, les mails de l'échange, et le choix de fenêtre. */
   messageId: number | null; mails: number[]; choix: ChoixInterne;
+  /** 🔴🔴 POINT 2 — les liens que l'« Annuler » demande à remettre. Vide = le verbe d'avant ce lot. */
+  remettre: number[];
 } | null> {
   try {
     const c = (await request.json()) as {
       filIds?: unknown; motif?: unknown; messageId?: unknown; mails?: unknown; choix?: unknown;
+      remettre?: unknown;
     };
     const n = Number(c.messageId);
     return {
@@ -116,6 +148,10 @@ async function corpsDuGeste(request: Request): Promise<{
       /* ⚠️ LE DÉFAUT EST « toute la conversation », et c'est le sens de la case du bandeau : elle a toujours porté
          sur l'ÉCHANGE. Un défaut plus étroit aurait changé, en silence, ce que ce clic fait depuis des mois. */
       choix: c.choix === 'mail' || c.choix === 'suite' ? c.choix : 'conversation',
+      /* ⚠️ MÊME LECTURE BORNÉE QUE LES AUTRES LISTES : `lireFilIds` ne garde que des entiers positifs, dédoublonnés
+         et plafonnés. Un identifiant de lien n'est pas un identifiant d'échange, mais la règle de lecture est la
+         même — et c'est elle qui compte ici. */
+      remettre: lireFilIds(c.remettre),
     };
   } catch { return null; }
 }
@@ -156,9 +192,23 @@ export async function POST(request: Request): Promise<Response> {
      * ⚠️ SON ÉCHEC NE FAIT PAS ÉCHOUER LE GESTE : la marque d'échange est posée, l'écran est donc déjà juste par
      * le repli. On rend le nombre, et l'appelant peut le dire.
      */
-    const parMail = await marquerInterneDesMessages({ messageIds: mailsDuGeste(corps), auteur });
+    const couverts = mailsDuGeste(corps);
+    const parMail = await marquerInterneDesMessages({ messageIds: couverts, auteur });
+    /**
+     * ══ 🔴🔴 POINT 2 — ET LES BIENS PARTENT AVEC, par la porte existante ═══════════════════════════════════════
+     *
+     * DÉCISION D'ARNO (04/10/2026) : « marquer Interne DÉTACHE les biens de ce mail, selon la fenêtre choisie […],
+     * par la porte existante (statut 'retire'), tracé. »
+     *
+     * 🔴 APRÈS LE MARQUAGE, ET JAMAIS AVANT. Si le marquage échoue, rien n'est détaché : on ne retire pas des
+     * rattachements pour un geste qui n'a pas abouti.
+     *
+     * 🔴 LA LISTE EST RENDUE À L'APPELANT, et c'est elle qui rend l'« Annuler » possible : sans les identifiants
+     * des liens, l'écran ne saurait pas quoi remettre.
+     */
+    const detaches = await detacherBiensApresInterne(couverts, auteur);
     return Response.json(
-      { ok: true, nb: issue.nb, nbMails: parMail.ok ? parMail.nb : 0 }, { headers: ENTETES });
+      { ok: true, nb: issue.nb, nbMails: parMail.ok ? parMail.nb : 0, detaches }, { headers: ENTETES });
   } catch (e) {
     console.error('[api/admin/gestion/interne] marquage impossible', e);
     return Response.json({ erreur: 'Marquage impossible : erreur interne du serveur.' },
@@ -193,8 +243,22 @@ export async function DELETE(request: Request): Promise<Response> {
     const parMail = await annulerInterneDesMessages({
       messageIds: mailsDuGeste(corps), auteur, motif: corps.motif,
     });
+    /**
+     * ══ 🔴🔴 POINT 2 — ET L'« ANNULER » REMET LES BIENS DÉTACHÉS ════════════════════════════════════════════════
+     *
+     * DÉCISION D'ARNO : « Après : “Annuler” pendant quelques secondes, qui remet EXACTEMENT les rattachements
+     * d'avant. »
+     *
+     * 🔴 ON NE REMET QUE CE QUE L'APPELANT NOMME, **ET** que ce geste-là avait retiré : `remettreBiensDetaches`
+     * vérifie le motif en base avant de remettre. Un lien retiré par le suivi d'une conversation, ou à la main,
+     * n'a pas à ressusciter parce qu'on annule un marquage « interne ».
+     *
+     * ⚠️ `remettre` ABSENT ⇒ LE VERBE EST EXACTEMENT CELUI D'AVANT CE LOT : la case du bandeau, qui retire la
+     * marque et ne touche à aucun rattachement.
+     */
+    const remis = corps.remettre.length === 0 ? 0 : await remettreBiensDetaches(corps.remettre, auteur);
     return Response.json(
-      { ok: true, nb: issue.nb, nbMails: parMail.ok ? parMail.nb : 0 }, { headers: ENTETES });
+      { ok: true, nb: issue.nb, nbMails: parMail.ok ? parMail.nb : 0, remis }, { headers: ENTETES });
   } catch (e) {
     console.error('[api/admin/gestion/interne] annulation impossible', e);
     return Response.json({ erreur: 'Annulation impossible : erreur interne du serveur.' },

@@ -226,13 +226,19 @@ export function examinerMessage(o: {
    *
    * ═══ 🔴🔴 LE CHEMIN QUI CONTOURNAIT LA RÈGLE, ET COMMENT JE L'AI TROUVÉ ═════════════════════════════════════
    *
-   * Le module savait déjà arbitrer le conflit « un bien ET interne » : `leverInterneApresRattachement` LÈVE la
-   * marque quand un bien est rattaché — « un rattachement l'emporte sur Interne ». Mais cette levée exige un
-   * auteur HUMAIN (`auteurHumainInterne`), et c'est juste : seule une décision peut défaire une décision.
+   * Le module CROYAIT arbitrer le conflit « un bien ET interne » : `leverInterneApresRattachement` est écrite
+   * pour LEVER la marque quand un bien est rattaché — « un rattachement l'emporte sur Interne ».
    *
-   * 🔴 D'OÙ LE TROU : la passe AUTOMATIQUE, elle, ne lève rien — et ne regardait pas la marque non plus. Elle
-   * pouvait donc poser un bien confirmé sur un mail qu'Arno venait de marquer « interne », sans lever la marque
-   * ni laisser de trace de l'arbitrage. L'état interdit naissait en silence.
+   * ⚠️ CORRECTION DU 04/10/2026 (lot PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE) : **cette fonction n'a jamais eu
+   * d'appelant.** Vérifié sur tout le dépôt et depuis son commit d'origine (68f8a254) : seule sa jumelle
+   * `leverHorsGestionApresRattachement` est câblée. L'arbitrage décrit ici n'a donc jamais tourné, et mon
+   * encadré d'origine l'affirmait à tort. Rattacher un bien à un mail interne laisse aujourd'hui les deux états
+   * vivants. Signalé à Arno comme une décision à prendre.
+   *
+   * 🔴 LE TROU QUE CE PARAMÈTRE FERME RESTE ENTIER, ET IL EST MÊME PLUS LARGE QUE JE NE L'AVAIS ÉCRIT : la passe
+   * AUTOMATIQUE ne regardait pas la marque, et personne ne levait la marque derrière elle. Elle pouvait donc
+   * poser un bien confirmé sur un mail qu'Arno venait de marquer « interne », sans arbitrage et sans trace.
+   * L'état interdit naissait en silence.
    *
    * 🔴 MESURÉ, PAS SUPPOSÉ (04/10/2026) : le mail 57433 de l'échange 36665 — marqué « interne » par Arno le
    * 03/10 à 15:37 — rendait encore `issue=automatique, certain=448` quand on le repassait au moteur. Le chemin

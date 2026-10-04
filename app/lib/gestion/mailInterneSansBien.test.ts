@@ -17,12 +17,15 @@ import { interneDuMail } from './interneDuMail';
  * rattachement quand on marque un mail « interne », et ce n'est pas un défaut : c'est un arbitrage qui n'a jamais
  * été tranché dans ce sens.
  *
- * 🔴 LE VRAI TROU ÉTAIT AILLEURS, ET IL ÉTAIT OUVERT POUR L'AVENIR. Le module sait arbitrer ce conflit :
- * `leverInterneApresRattachement` LÈVE la marque quand un HUMAIN rattache un bien — « un rattachement l'emporte sur
- * Interne ». Cette levée exige un auteur humain, et c'est juste : seule une décision défait une décision. Mais la
- * passe AUTOMATIQUE ne levait rien ET ne regardait pas la marque. Elle pouvait donc poser un bien confirmé sur un
- * mail qu'Arno venait de marquer interne — sans arbitrage, sans trace, et sans que la marque disparaisse. L'état
- * interdit naissait en silence.
+ * 🔴 LE VRAI TROU ÉTAIT AILLEURS, ET IL ÉTAIT OUVERT POUR L'AVENIR : la passe AUTOMATIQUE ne regardait pas la
+ * marque. Elle pouvait donc poser un bien confirmé sur un mail qu'Arno venait de marquer interne — sans arbitrage
+ * et sans trace. L'état interdit naissait en silence.
+ *
+ * ⚠️ CORRECTION DU 04/10/2026 (lot PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE) : mon encadré d'origine ajoutait que
+ * « le module sait arbitrer ce conflit » parce que `leverInterneApresRattachement` lève la marque quand un HUMAIN
+ * rattache un bien. **C'était faux : cette fonction n'a jamais eu d'appelant** (vérifié sur tout le dépôt et
+ * depuis son commit d'origine). L'arbitrage décrit n'a jamais tourné — je m'étais fié à un nom de fonction et à
+ * son encadré au lieu de chercher qui l'appelle.
  *
  * 🔴 MESURÉ AVANT CORRECTION (04/10/2026) : repassé au moteur, le mail 57433 de l'échange 36665 — marqué interne le
  * 03/10 à 15:37:59 — rendait encore `issue=automatique, certain=448`.
