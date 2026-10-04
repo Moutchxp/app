@@ -5,8 +5,8 @@ import {
   motDeuxCompteurs, motLocataireDeLaPeriode, ordreFilSuivant, periodeDeLEvenement, periodeDeLOccupation,
   reglagesActifs, REGLAGES_DEFAUT, reglagesEnFiltres, reglagesEnParametres, replierLesCartes,
   SEUIL_REPLI_CARTES, trierFil, type CategoriePartie, type Reglages,
-  bornesDuChoix, dernierLocataire, motAgenceEcartee, motPeriodeEffective, occupationOuverte,
-  periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, tonDuGroupe, type OccupationPeriode,
+  bornesDuChoix, dernierLocataire, LEGENDE_BARRES, motAgenceEcartee, motPeriodeEffective, occupationOuverte,
+  periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, tonDuGroupe, type OccupationPeriode,
 } from './historiqueBien';
 import { INTERLOCUTEURS_MAX, type Interlocuteur, type LigneHistorique } from './historique';
 /** 🔴 LA SOURCE DU SEUIL : on vérifie l'IDENTITÉ, pas une égalité de valeur recopiée. */
@@ -721,5 +721,85 @@ describe('⑪ 🔴🔴 « Depuis l’entrée du dernier locataire », et la pér
     expect(reglagesEnFiltres(r).du).toBe('2025-05-01');
     expect(reglagesEnFiltres(r).au).toBe('2026-09-28');
     expect(reglagesActifs(r)).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑫ 🔴🔴 LOT HISTORIQUE-BIEN-2 — LA BARRE DE COULEUR D'UN MAIL
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑫ 🔴🔴 la couleur de la barre, selon la catégorie de l’expéditeur', () => {
+  /**
+   * DEMANDE D'ARNO (04/10/2026) : « ROUGE = propriétaire ou contact du propriétaire ; VERT = locataire ou
+   * contact du locataire ; BLEU = tiers indépendant ; AUCUNE couleur = nous (agence) ; gris pointillé = non
+   * affecté. »
+   */
+  const CAT = new Map<string, CategoriePartie>([
+    ['proprio@fictif.test', 'proprietaire'],
+    ['contact-proprio@fictif.test', 'proprietaire'],
+    ['locataire@fictif.test', 'locataire'],
+    ['plombier@fictif.test', 'independant'],
+  ]);
+
+  it('🔴🔴 les quatre couleurs suivent la catégorie retenue', () => {
+    expect(tonDeLExpediteur({ sens: 'recu', de: 'proprio@fictif.test' }, CAT)).toBe('rouge');
+    expect(tonDeLExpediteur({ sens: 'recu', de: 'locataire@fictif.test' }, CAT)).toBe('vert');
+    expect(tonDeLExpediteur({ sens: 'recu', de: 'plombier@fictif.test' }, CAT)).toBe('bleu');
+  });
+
+  /**
+   * 🔴🔴 UN CONTACT DU PROPRIÉTAIRE PORTE LA COULEUR DU PROPRIÉTAIRE, et ce n'est pas un raccourci : la carte
+   * des catégories range précisément ainsi (un contact rangé côté propriétaire A la catégorie `proprietaire`).
+   * Une cinquième couleur pour les contacts aurait doublé la légende sans qu'Arno l'ait demandée.
+   */
+  it('🔴🔴 un contact du propriétaire est rouge, comme le propriétaire', () => {
+    expect(tonDeLExpediteur({ sens: 'recu', de: 'contact-proprio@fictif.test' }, CAT)).toBe('rouge');
+  });
+
+  /**
+   * 🔴🔴 « NOUS » SE LIT SUR LE SENS, PAS SUR UNE LISTE D'ADRESSES. `sens === 'envoye'` est déjà ce que la ligne
+   * AFFICHE (« nous avons écrit ») : c'est la même vérité, et non un second juge qui divergerait au premier
+   * collègue changeant d'adresse. Il attrape même un envoi depuis une adresse que la liste des interlocuteurs
+   * de CE bien ne porte pas.
+   */
+  it('🔴🔴 un mail que NOUS avons écrit n’a aucune couleur, quelle que soit l’adresse', () => {
+    expect(tonDeLExpediteur({ sens: 'envoye', de: 'gestion@criterimmo.fr' }, CAT)).toBe('nous');
+    // …même si l'adresse est par ailleurs rangée : le SENS l'emporte, parce qu'il dit qui parle.
+    expect(tonDeLExpediteur({ sens: 'envoye', de: 'proprio@fictif.test' }, CAT)).toBe('nous');
+  });
+
+  /**
+   * 🔴🔴 UNE ADRESSE INCONNUE EST GRISE, PAS « NOUS ». C'est le cas le plus fréquent au départ (90 adresses non
+   * affectées sur la base) : la confondre avec « aucune couleur » aurait fait passer un tiers inconnu pour un
+   * collègue — exactement l'erreur de lecture qu'on veut éviter sur un dossier.
+   */
+  it('🔴🔴 une adresse inconnue est GRISE, jamais « nous »', () => {
+    expect(tonDeLExpediteur({ sens: 'recu', de: 'inconnu@fictif.test' }, CAT)).toBe('gris');
+    expect(tonDeLExpediteur({ sens: 'recu', de: '' }, CAT)).toBe('gris');
+    expect(tonDeLExpediteur({ sens: 'recu', de: 'inconnu@fictif.test' }, new Map())).toBe('gris');
+  });
+
+  /** ⚠️ LA CASSE NE CHANGE PAS LA COULEUR : « Proprio@Fictif.Test » est le même expéditeur. */
+  it('⚠️ la casse ne change pas la couleur', () => {
+    expect(tonDeLExpediteur({ sens: 'recu', de: 'Proprio@Fictif.Test' }, CAT)).toBe('rouge');
+  });
+
+  /**
+   * 🔴 LA LÉGENDE COUVRE LES CINQ CAS, ET DANS L'ORDRE DES GROUPES. Une couleur sans légende n'est pas une
+   * information : elle se devine. « nous » vient en dernier parce qu'il est l'absence de couleur — le dire après
+   * les quatre autres évite de chercher une teinte qui n'existe pas.
+   */
+  it('🔴 la légende dit les cinq cas, « nous » en dernier', () => {
+    expect(LEGENDE_BARRES.map((x) => x.ton)).toEqual(['rouge', 'vert', 'bleu', 'gris', 'nous']);
+    expect(LEGENDE_BARRES.map((x) => x.mot)).toEqual([
+      'propriétaire', 'locataire', 'tiers indépendant', 'non affecté', 'nous',
+    ]);
+    /* ⚠️ CHAQUE TON RENDU PAR LA RÈGLE A SON ENTRÉE DANS LA LÉGENDE : sans ce contrôle, un cinquième ton
+       ajouté un jour se serait affiché sans jamais être expliqué. */
+    const tons = new Set(LEGENDE_BARRES.map((x) => x.ton));
+    for (const de of ['proprio@fictif.test', 'locataire@fictif.test', 'plombier@fictif.test', 'x@fictif.test']) {
+      expect(tons.has(tonDeLExpediteur({ sens: 'recu', de }, CAT))).toBe(true);
+    }
+    expect(tons.has(tonDeLExpediteur({ sens: 'envoye', de: 'nous@fictif.test' }, CAT))).toBe(true);
   });
 });

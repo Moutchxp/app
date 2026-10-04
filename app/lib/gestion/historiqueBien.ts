@@ -430,6 +430,60 @@ export function motDeuxCompteurs(i: { aEcrit: number; enCopie: number }): string
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④-bis 🔴🔴 LOT HISTORIQUE-BIEN-2 — LA BARRE DE COULEUR D'UN MAIL
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 DE QUELLE COULEUR EST LA BARRE D'UN MAIL ? PUR. ═════════════════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (04/10/2026), mot pour mot : « Une petite BARRE VERTICALE de couleur, à DROITE de chaque mail,
+ * selon la catégorie de l'expéditeur : ROUGE = propriétaire ou contact du propriétaire ; VERT = locataire ou
+ * contact du locataire ; BLEU = tiers indépendant ; AUCUNE couleur = nous (agence) ; gris pointillé = non
+ * affecté. »
+ *
+ * 🔴 « NOUS » SE LIT SUR LE SENS DU MAIL, ET NON SUR UNE LISTE D'ADRESSES INTERNES. `sens === 'envoye'` veut dire
+ * « nous avons écrit » — c'est déjà le mot que la ligne affiche (`libelleSens`), et c'est la même vérité. Croiser
+ * l'expéditeur avec une liste de nos adresses aurait été un second juge pour « qui est des nôtres ? », qui aurait
+ * divergé du premier au premier collègue changeant d'adresse. Et il aurait raté le cas d'un mail que nous avons
+ * envoyé depuis une adresse que l'annuaire des interlocuteurs ne liste pas sur CE bien.
+ *
+ * 🔴 « CONTACT DU PROPRIÉTAIRE » PORTE LA MÊME COULEUR QUE LE PROPRIÉTAIRE, et ce n'est pas un raccourci : la
+ * carte des catégories range précisément ainsi — un contact rangé côté propriétaire a la catégorie
+ * `proprietaire`. La couleur suit donc la catégorie RETENUE, sans distinction client/contact, exactement comme
+ * les quatre groupes du bloc PARTIES. Une cinquième couleur pour les contacts aurait demandé de les distinguer
+ * à l'œil, ce qu'Arno n'a pas demandé — et aurait doublé la légende.
+ *
+ * ⚠️ UNE ADRESSE INCONNUE DONNE « gris », PAS « nous ». C'est le cas le plus fréquent au départ (90 adresses non
+ * affectées sur la base), et le gris POINTILLÉ dit exactement ce qu'il est : il reste un geste à faire. Le
+ * confondre avec « aucune couleur » aurait fait passer un tiers inconnu pour un collègue.
+ */
+export type TonMail = TonGroupe | 'nous';
+
+export function tonDeLExpediteur(
+  l: Pick<LigneHistorique, 'sens' | 'de'>,
+  categories: ReadonlyMap<string, CategoriePartie>,
+): TonMail {
+  if (l.sens === 'envoye') return 'nous';
+  const c = categories.get((l.de ?? '').trim().toLowerCase());
+  return c === undefined ? 'gris' : TONS_GROUPES[c];
+}
+
+/**
+ * ══ 🔴 LA LÉGENDE, ÉCRITE UNE FOIS ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « avec une légende discrète au-dessus du listing ». Une couleur sans légende n'est pas une information :
+ * elle se devine, et on se trompe. Les cinq entrées sont dans l'ordre des groupes, « nous » en dernier parce
+ * qu'il est l'absence de couleur — le dire après les quatre autres évite de chercher une teinte qui n'existe pas.
+ */
+export const LEGENDE_BARRES: readonly { ton: TonMail; mot: string }[] = [
+  { ton: 'rouge', mot: 'propriétaire' },
+  { ton: 'vert', mot: 'locataire' },
+  { ton: 'bleu', mot: 'tiers indépendant' },
+  { ton: 'gris', mot: 'non affecté' },
+  { ton: 'nous', mot: 'nous' },
+];
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑤ 🔴🔴 LE VERROU : « EN PLACE » NE S'ÉCRIT JAMAIS SUR UN LOGEMENT VACANT
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

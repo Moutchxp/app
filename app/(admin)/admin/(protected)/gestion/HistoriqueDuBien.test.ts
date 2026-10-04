@@ -716,6 +716,97 @@ describe('⑤-bis 🔴🔴 ranger une partie non affectée, et la période d’u
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤-ter 🔴🔴 LOT HISTORIQUE-BIEN-2 — LA BARRE DE COULEUR, ET SA LÉGENDE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑤-ter 🔴🔴 la barre de couleur à droite de chaque mail', () => {
+  /**
+   * Le jeu d'essai porte deux mails REÇUS : l'un du propriétaire (rangé), l'autre d'AXA (non affectée). La
+   * barre doit donc être rouge sur l'un et grise sur l'autre.
+   */
+  it('🔴🔴 chaque mail porte la couleur de la catégorie de son expéditeur', async () => {
+    await monter();
+    const barres = [...hote.querySelectorAll('.hdb-barre')] as HTMLElement[];
+    expect(barres).toHaveLength(2);
+    const classes = barres.map((b) => b.className);
+    expect(classes.some((c) => c.includes('hdb-barre--rouge'))).toBe(true);
+    expect(classes.some((c) => c.includes('hdb-barre--gris'))).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 LA BARRE EST PORTÉE PAR L'ENVELOPPE, ET `LigneVie` N'EST PAS TOUCHÉE. Ce composant sert aussi la fiche
+   * d'un locataire : lui ajouter une prop de couleur l'aurait modifié pour les deux écrans, alors que la
+   * consigne est de le réutiliser tel quel. L'épreuve vérifie que la classe vit sur le `li` d'ancrage — celui
+   * qui portait déjà « Aller au message » — et non sur la ligne elle-même.
+   */
+  it('🔴🔴 la barre vit sur l’enveloppe du mail, pas dans « LigneVie »', async () => {
+    await monter();
+    const barre = hote.querySelector('.hdb-barre') as HTMLElement;
+    expect(barre.tagName).toBe('LI');
+    expect(barre.className).toContain('hdb-ancre');
+    expect(barre.id).toMatch(/^hdb-mail-\d+$/);
+    // …et aucune ligne de courrier ne porte elle-même une classe de barre.
+    expect(hote.querySelector('.vdb-ligne.hdb-barre')).toBeNull();
+    // 🔴 `LigneVie` reste importée, pas recopiée (le garde ⑥ l'éprouve aussi) : aucune prop de couleur.
+    expect(SRC).not.toContain('<LigneVie l={l} ton');
+  });
+
+  /** 🔴 UN MAIL QUE NOUS AVONS ÉCRIT N'A AUCUNE COULEUR — la classe existe, la teinte est transparente. */
+  it('🔴🔴 un mail sortant porte la classe « nous », sans couleur', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) {
+        return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      }
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: [ligne({ messageId: 9, sens: 'envoye', de: 'gestion@criterimmo.fr' })],
+          suite: false, entete: { nbMails: 1 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+    expect((hote.querySelector('.hdb-barre') as HTMLElement).className).toContain('hdb-barre--nous');
+  });
+
+  /**
+   * 🔴🔴 LA LÉGENDE EST LÀ, ET CHAQUE ENTRÉE PORTE SON MOT. Une couleur sans légende n'est pas une information :
+   * elle se devine, et l'on se trompe. Le mot informe, la couleur appuie — règle de tout ce module.
+   */
+  it('🔴🔴 une légende discrète, au-dessus du listing, avec les cinq mots', async () => {
+    await monter();
+    const legende = hote.querySelector('.hdb-legende-barres') as HTMLElement;
+    expect(legende).not.toBeNull();
+    for (const mot of ['propriétaire', 'locataire', 'tiers indépendant', 'non affecté', 'nous']) {
+      expect(legende.textContent).toContain(mot);
+    }
+    /* ⚠️ LA LÉGENDE EST AU-DESSUS DU LISTING : elle précède le premier mail dans le document. */
+    const liste = hote.querySelector('.hdb-liste') as HTMLElement;
+    expect(legende.compareDocumentPosition(liste) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  /** ⚠️ AUCUN MAIL ⇒ AUCUNE LÉGENDE : expliquer des couleurs qu'on ne voit pas est du bruit. */
+  it('⚠️ pas de listing, pas de légende', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) {
+        return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      }
+      return reponse({
+        etat: 'ok',
+        data: { lignes: [], suite: false, entete: { nbMails: 0 }, interlocuteurs: [], interlocuteursTronques: false },
+      });
+    }));
+    await monter();
+    expect(hote.querySelector('.hdb-legende-barres')).toBeNull();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑥ 🔴🔴 LE GARDE : LES DEUX COMPOSANTS SONT **IMPORTÉS**, PAS RECOPIÉS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

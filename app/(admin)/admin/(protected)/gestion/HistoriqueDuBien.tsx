@@ -41,7 +41,7 @@ import {
   bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAgenceEcartee,
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
-  replierLesCartes, SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, trierFil,
+  replierLesCartes, SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
   type CategoriePartie, type CleGroupeParties, type OccupationPeriode, type PeriodePartie, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
 /**
@@ -1018,6 +1018,23 @@ export function HistoriqueDuBien({
         </fieldset>
       </div>
 
+      {/* ══ 🔴🔴 LA LÉGENDE DES BARRES, DISCRÈTE, AU-DESSUS DU LISTING (lot HISTORIQUE-BIEN-2) ═════════════════
+          Arno : « Les couleurs sont lisibles en Clair et en Sombre, avec une légende discrète au-dessus du
+          listing. » Une couleur sans légende n'est pas une information : elle se devine, et on se trompe.
+
+          ⚠️ CHAQUE ENTRÉE PORTE SON MOT, pas seulement sa pastille : c'est le mot qui informe, la couleur ne
+          fait que l'appuyer — même règle que les capsules de statut dans tout ce module. */}
+      {lignes.length > 0 && (
+        <p className="hdb-legende-barres">
+          {LEGENDE_BARRES.map((x) => (
+            <span key={x.ton} className="hdb-legende-item">
+              <span aria-hidden="true" className={`hdb-legende-pastille hdb-legende-pastille--${x.ton}`} />
+              {x.mot}
+            </span>
+          ))}
+        </p>
+      )}
+
       {/* ══ LE RÉSUMÉ DES PIÈCES, EN HAUT — REPLIÉ, AVEC SON COMPTE LISIBLE SANS CLIC ══════════════════════════ */}
       {totalPieces > 0 && (
         <div className="hdb-resume hdb-resume--haut">
@@ -1058,11 +1075,13 @@ export function HistoriqueDuBien({
                       <span className="gst-compte">{c.lignes.length}</span>
                     </h5>
                     <FilDeMails lignes={c.lignes} maintenant={maintenant} deplie={deplie}
+                      categories={categoriesFusionnees}
                       onBasculer={basculerMail} onOuvrirFil={onOuvrirFil} />
                   </section>
                 ))
                 : (
                   <FilDeMails lignes={lignes} maintenant={maintenant} deplie={deplie}
+                    categories={categoriesFusionnees}
                     onBasculer={basculerMail} onOuvrirFil={onOuvrirFil} />
                 )}
 
@@ -1133,17 +1152,31 @@ export function HistoriqueDuBien({
  * importé tel quel et n'a pas de prop `id` (et lui en ajouter une aurait touché « Vie du bien », ce qui est
  * interdit). Un `ol > li > ol > li` est du HTML valide ; l'enveloppe ne porte aucun style propre.
  */
-function FilDeMails({ lignes, maintenant, deplie, onBasculer, onOuvrirFil }: {
+function FilDeMails({ lignes, maintenant, deplie, categories, onBasculer, onOuvrirFil }: {
   lignes: readonly LigneHistorique[];
   maintenant: Date;
   deplie: ReadonlySet<number>;
+  /** Pour la BARRE DE COULEUR : la catégorie retenue de chaque adresse, clé en minuscules. */
+  categories: ReadonlyMap<string, CategoriePartie>;
   onBasculer: (messageId: number) => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
 }) {
   return (
     <ol className="vdb-liste hdb-liste">
       {lignes.map((l) => (
-        <li key={l.messageId} id={`hdb-mail-${l.messageId}`} className="hdb-ancre">
+        /**
+         * ══ 🔴🔴 LA BARRE DE COULEUR EST PORTÉE PAR L'ENVELOPPE, PAS PAR `LigneVie` (lot HISTORIQUE-BIEN-2) ═══
+         *
+         * Arno : « Une petite BARRE VERTICALE de couleur, à DROITE de chaque mail, selon la catégorie de
+         * l'expéditeur ».
+         *
+         * 🔴 AUCUNE PROP N'EST AJOUTÉE À `LigneVie`, ET C'EST VOULU. Ce composant est importé TEL QUEL et sert
+         * aussi la fiche d'un locataire ; lui ajouter une couleur l'aurait modifié pour les deux écrans, et la
+         * consigne est de le réutiliser, pas de le retoucher. Le `li` qui portait déjà l'ancre de « Aller au
+         * message » porte donc la barre, en `border-right` — zéro élément de plus dans le document.
+         */
+        <li key={l.messageId} id={`hdb-mail-${l.messageId}`}
+          className={`hdb-ancre hdb-barre hdb-barre--${tonDeLExpediteur(l, categories)}`}>
           <ol className="vdb-liste">
             <LigneVie l={l} maintenant={maintenant} ouvert={deplie.has(l.messageId)}
               onBasculer={() => onBasculer(l.messageId)} onOuvrirFil={onOuvrirFil} />
@@ -1364,9 +1397,32 @@ ${CSS_PIECES}
   font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}
 .hdb-pieces{display:flex;flex-direction:column;gap:12px;min-width:0}
 
-/* ── LE FIL ── La liste exterieure ne porte que l'ancre de « Aller au message » : aucun style propre. */
+/* ══ LA LEGENDE DES BARRES ── discrete : un mot et une pastille, en petit, au-dessus du listing. */
+.hdb-legende-barres{display:flex;flex-wrap:wrap;gap:.2rem .8rem;margin:.4rem 0 .3rem;font-size:.7rem;
+  color:var(--color-svv-muted);min-width:0}
+.hdb-legende-item{display:inline-flex;align-items:center;gap:.3rem}
+.hdb-legende-pastille{display:inline-block;width:3px;height:12px;border-radius:2px;flex:0 0 auto}
+.hdb-legende-pastille--rouge{background:var(--color-svv-red)}
+.hdb-legende-pastille--vert{background:var(--color-svv-green)}
+.hdb-legende-pastille--bleu{background:var(--color-svv-blue)}
+/* GRIS POINTILLE : un trait discontinu, et non un gris plein — il dit qu'il reste un geste a faire. */
+.hdb-legende-pastille--gris{background:none;border-right:3px dashed var(--color-svv-line-strong);width:3px}
+/* « NOUS » N'A AUCUNE COULEUR (demande d'Arno) : la pastille est donc VIDE, et le mot porte tout. */
+.hdb-legende-pastille--nous{background:none}
+
+/* ── LE FIL ── La liste exterieure porte l'ancre de « Aller au message » ET la barre de couleur. */
 .hdb-liste{list-style:none;margin:0;padding:0}
 .hdb-ancre{min-width:0;scroll-margin-top:12px}
+/* ══ LA BARRE VERTICALE, A DROITE DE CHAQUE MAIL ══ Portee par l'enveloppe du mail, en border-right : zero
+   element de plus dans le document, et LigneVie n'est pas touchee (elle sert aussi un autre ecran).
+   ⚠️ 3 px ET UN COIN ARRONDI A DROITE : assez pour se voir du coin de l'oeil, assez peu pour ne pas peser. */
+.hdb-barre{border-right:3px solid transparent;border-radius:0 10px 10px 0}
+.hdb-barre--rouge{border-right-color:var(--color-svv-red)}
+.hdb-barre--vert{border-right-color:var(--color-svv-green)}
+.hdb-barre--bleu{border-right-color:var(--color-svv-blue)}
+.hdb-barre--gris{border-right-style:dashed;border-right-color:var(--color-svv-line-strong)}
+/* « nous » : AUCUNE couleur. La barre reste transparente, donc la largeur ne saute pas d'un mail a l'autre. */
+.hdb-barre--nous{border-right-color:transparent}
 /* ── REGROUPER PAR CONVERSATION ── L'objet de l'echange au-dessus de ses mails, comme un intertitre. */
 .hdb-conv{margin:0 0 10px;min-width:0}
 .hdb-conv-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:0 0 .3rem;font-size:.8rem;
