@@ -83,7 +83,40 @@ export interface Etiquette {
  * ⚠️ LE TEXTE TAPÉ DANS LA RECHERCHE, LUI, N'Y EST PAS — c'est la règle du fichier : l'adresse dit OÙ l'on est, pas
  * ce qu'on est en train de taper.
  */
-export type SorteFiche = 'proprietaire' | 'lot' | 'locataire';
+/**
+ * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 6 — DEUX NUMÉROS POUR UN MÊME BIEN ════════════════════════════════
+ *
+ * CONSTAT D'ARNO (04/10/2026) : « DEUX NUMÉROS POUR UN MÊME BIEN (fiche=lot-336 vs cible=lot-478) : les deux
+ * adresses doivent mener au même bien. Correction INVISIBLE : aucun libellé ni affichage ne change, aucun lien
+ * existant ne casse. »
+ *
+ * ═══ 🔴🔴 CE QUE J'AI MESURÉ AVANT DE TOUCHER QUOI QUE CE SOIT ════════════════════════════════════════════════════
+ *
+ * Les deux adresses de son exemple mènent DÉJÀ au même bien : `fiche=lot-336` est l'identifiant INTERNE de
+ * l'annuaire, `cible=lot-478` est la clé WIPPIMMO — et ce bien-là porte les deux (id 336, clé 478). Le défaut n'est
+ * donc pas qu'elles divergent : c'est qu'un même bien se désigne par DEUX nombres selon l'écran, et que le nombre
+ * qu'on LIT à l'écran (« lot 478 ») ne marche que dans l'une des deux.
+ *
+ * 🔴 ET CE NOMBRE NU EST IRRÉMÉDIABLEMENT AMBIGU. Mesuré sur les 365 lots du 04/10/2026 :
+ *   · identifiants internes : 1 à 365 · clés WIPPIMMO : 2 à 516 ;
+ *   · **AUCUN** lot n'a `id = clé` ;
+ *   · **228** nombres sont valides dans LES DEUX espaces — et dans les **228** cas ils désignent des biens
+ *     DIFFÉRENTS.
+ *
+ * ⚠️ UN REPLI AURAIT DONC ÉTÉ UN PIÈGE, et c'est la solution que j'ai écartée : « si l'identifiant n'existe pas,
+ * essayer la clé » marche pour les clés 366 à 516 et se trompe SILENCIEUSEMENT pour les 228 autres. Un raccourci
+ * qui marche la moitié du temps est pire que pas de raccourci : on finit par s'y fier.
+ *
+ * 🔴 D'OÙ UNE FORME QUI DIT CE QU'ELLE PORTE : `bien-478` désigne le bien par le NUMÉRO DE LOT, celui qu'on lit à
+ * l'écran et celui de `cible=lot-478`. Un seul nombre marche désormais dans les deux adresses :
+ *   · `?ecran=annuaire&fiche=bien-478`   → la fiche de ce bien ;
+ *   · `?ecran=historique&cible=lot-478`  → son historique.
+ *
+ * ⚠️ `lot-<n>` NE CHANGE PAS D'UN CRAN, et c'est la condition d'Arno : tous les liens déjà posés — ceux de
+ * `adresseHistoriqueDuBien`, des cartes de biens, des signets — continuent de désigner exactement le même bien.
+ * On AJOUTE une porte, on n'en déplace aucune.
+ */
+export type SorteFiche = 'proprietaire' | 'lot' | 'locataire' | 'bien';
 export interface FicheUrl { sorte: SorteFiche; id: number }
 
 export interface EtatEcranUrl {
@@ -187,7 +220,19 @@ export interface EtatEcranUrl {
   etoile?: boolean;
 }
 
-const SORTES_FICHE: readonly SorteFiche[] = ['proprietaire', 'lot', 'locataire'];
+const SORTES_FICHE: readonly SorteFiche[] = ['proprietaire', 'lot', 'locataire', 'bien'];
+
+/**
+ * 🔴🔴 POINT 6 — LES SORTES QUI S'ADRESSENT PAR LA CLÉ WIPPIMMO, et non par l'identifiant interne. Écrit ici
+ * plutôt que deviné à l'écran : c'est la même liste qui choisit le paramètre de la route et le rendu de la fiche,
+ * et deux listes auraient fini par ne plus dire la même chose.
+ */
+export const SORTES_FICHE_PAR_CLE: readonly SorteFiche[] = ['bien'];
+
+/** 🔴 CETTE FICHE S'ADRESSE-T-ELLE PAR LA CLÉ WIPPIMMO ? PUR. */
+export function ficheParCle(sorte: SorteFiche): boolean {
+  return (SORTES_FICHE_PAR_CLE as readonly string[]).includes(sorte);
+}
 
 /** La fiche portée par une adresse (« lot-12 »). Valeur inconnue ⇒ aucune fiche, jamais une erreur. */
 export function ficheDepuisTexte(brut: string | null): FicheUrl | null {

@@ -97,7 +97,12 @@ describe('🔴🔴 ③ le cartouche et l’adresse se rejoignent', () => {
     const c = code(ANNUAIRE);
     expect(c).toContain('poserSurVie = false,');
     expect(c).toContain('poserSurVie?: boolean;');
-    expect(c).toContain("if (!poserSurVie || fiche === null || fiche.sorte !== 'lot') return;");
+    /* 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 6 — la garde accueille `bien`, l'autre nom de la MÊME fiche de
+       bien (adressée par la clé WIPPIMMO au lieu de l'identifiant interne). Sans elle, « Vie du bien » ne se
+       serait posée que sur l'une des deux adresses, pour un seul et même écran. */
+    expect(c).toContain(
+      "if (!poserSurVie || fiche === null || (fiche.sorte !== 'lot' && fiche.sorte !== 'bien')) return;",
+    );
     expect(c).toContain('setVieDuBienVisee(fiche.id);');
     /**
      * ⚠️ L'EFFET DE DÉFILEMENT RESTE CELUI D'ORIGINE, inchangé — on lui donne une seconde source, pas un second

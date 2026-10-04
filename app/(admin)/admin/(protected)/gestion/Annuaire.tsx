@@ -14,6 +14,8 @@ import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
 import { DocumentsAutomatiques } from './DocumentsAutomatiques';
 // 🔴🔴 LOT CONTACTS-EXTERNES — les échanges de cette personne passés par un intermédiaire. Liste DISTINCTE.
 import { InterventionsDeLaFiche } from './InterventionsDeLaFiche';
+// 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 6 — `fiche=bien-478` demande la fiche par la CLÉ WIPPIMMO.
+import { ficheParCle } from '../../../../lib/gestion/ecranUrl';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 // LOT FICHES-ANNUAIRE étape C — les personnes en CARTES côte à côte, modifiables sur place.
@@ -187,7 +189,8 @@ export function Annuaire({
    * qui n'est pas là ferait un défilement vers nulle part.
    */
   useEffect(() => {
-    if (!poserSurVie || fiche === null || fiche.sorte !== 'lot') return;
+    /* 🔴 POINT 6 — `bien` est une fiche de bien, elle aussi : « Vie du bien » doit s'y poser pareil. */
+    if (!poserSurVie || fiche === null || (fiche.sorte !== 'lot' && fiche.sorte !== 'bien')) return;
     setVieDuBienVisee(fiche.id);
   }, [poserSurVie, fiche]);
 
@@ -231,13 +234,28 @@ export function Annuaire({
     setDetail({ etat: 'charge' });
     void (async () => {
       try {
-        const res = await fetch(`/api/admin/gestion/annuaire?${fiche.sorte}=${fiche.id}`, { cache: 'no-store' });
+        /**
+         * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 6 — `bien-478` DEMANDE LA FICHE PAR LA CLÉ WIPPIMMO.
+         *
+         * La route sait déjà le faire depuis le lot MODALE-RATTACHER-PROPRE (`?lotCle=`, qui résout la clé puis
+         * appelle la MÊME `ficheLot`) : il n'y a donc ni requête de plus, ni seconde lecture de « la fiche d'un
+         * bien ». Seule l'ADRESSE gagne une porte.
+         *
+         * ⚠️ `lot-<id>` CONTINUE DE PASSER PAR `?lot=` : aucun lien déjà posé ne change de sens. Voir l'encadré
+         * de `SorteFiche` et les 228 nombres ambigus qu'il mesure.
+         */
+        const parametre = ficheParCle(fiche.sorte) ? 'lotCle' : fiche.sorte;
+        const res = await fetch(`/api/admin/gestion/annuaire?${parametre}=${fiche.id}`, { cache: 'no-store' });
         const d = (await res.json()) as { etat?: string; data?: unknown };
         if (!vivant) return;
         if (d.etat === 'inconnu') { setDetail({ etat: 'erreur', message: 'Cette fiche n’existe pas (ou plus) dans l’annuaire.' }); return; }
         if (d.etat !== 'ok') { setDetail({ etat: 'erreur', message: 'Fiche illisible.' }); return; }
         if (fiche.sorte === 'proprietaire') setDetail({ etat: 'proprietaire', data: d.data as FicheProprietaire });
-        else if (fiche.sorte === 'lot') setDetail({ etat: 'lot', data: d.data as FicheLot });
+        /* 🔴🔴 POINT 6 — `bien` rend LA MÊME `FicheLot` que `lot` : c'est la même fiche, demandée par l'autre
+           numéro. Les rendre différemment aurait créé un second écran de fiche de bien. */
+        else if (fiche.sorte === 'lot' || fiche.sorte === 'bien') {
+          setDetail({ etat: 'lot', data: d.data as FicheLot });
+        }
         else setDetail({ etat: 'locataire', data: d.data as FicheLocataire });
       } catch {
         if (vivant) setDetail({ etat: 'erreur', message: 'Fiche illisible : le serveur n’a pas répondu.' });
