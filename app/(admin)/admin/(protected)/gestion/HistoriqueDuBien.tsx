@@ -38,12 +38,18 @@ import {
  * place », qui est précisément celle qu'une maquette a fait mentir (voir `motLocataireDeLaPeriode`).
  */
 import {
-  bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAucunResultat,
-  motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant, periodeDeLEvenement,
-  periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres, replierLesCartes,
-  SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, trierFil,
-  type CategoriePartie, type CleGroupeParties, type OccupationPeriode, type Reglages,
+  bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAgenceEcartee,
+  motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
+  periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
+  replierLesCartes, SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, trierFil,
+  type CategoriePartie, type CleGroupeParties, type OccupationPeriode, type PeriodePartie, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
+/**
+ * 🔴 LE VOCABULAIRE DES CATÉGORIES ET LE CÔTÉ D'UNE CARTE VIENNENT DU MODULE QUI EN EST LE JUGE
+ * (`partieCategorie.ts`), jamais d'une liste recopiée ici : `coteDeLaCategorie` décide si une carte de contact
+ * se range côté propriétaire ou côté locataire, et c'est la même fonction que la reprise a employée.
+ */
+import { coteDeLaCategorie, type Categorie } from '../../../../lib/gestion/partieCategorie';
 import type { EvenementDuBien } from '../../../../lib/gestion/historiqueBienRepo';
 
 /**
@@ -97,7 +103,8 @@ interface DemandeRangement {
 const ATTENTE_FRAPPE_MS = 250;
 
 export function HistoriqueDuBien({
-  lotCle, maintenant, occupations, categories, evenementOuvertInitial = false, onOuvrirFil,
+  lotCle, maintenant, occupations, categories, periodes = new Map(),
+  evenementOuvertInitial = false, onOuvrirFil,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
   lotCle: string;
@@ -128,6 +135,14 @@ export function HistoriqueDuBien({
    * que ces échanges-là.
    */
   evenementOuvertInitial?: boolean;
+  /**
+   * ══ 🔴🔴 LA PÉRIODE DE CHAQUE PARTIE QUI EN A UNE — « chacun avec sa période » ═══════════════════════════════
+   *
+   * Clé en minuscules, comme `categories`. Elle vient de la FICHE, qui seule connaît les baux : la route rend un
+   * tableau d'occupations VIDE pour une cible `lot-…`. Une adresse absente n'affiche rien — la plupart des
+   * parties (assureur, syndic, artisan) n'ont pas de bail, et leur inventer une période serait un mensonge.
+   */
+  periodes?: ReadonlyMap<string, PeriodePartie>;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
 }) {
   const [reglages, setReglages] = useState<Reglages>(
@@ -226,40 +241,56 @@ export function HistoriqueDuBien({
   const [categoriesRangees, setCategoriesRangees] =
     useState<ReadonlyMap<string, CategoriePartie>>(new Map());
   const [cartesContact, setCartesContact] = useState<{ cote: string; verifie: boolean }[]>([]);
+  /**
+   * ══ 🔴🔴 CE QUE LA RÈGLE À TROIS ÉTAGES A **PROPOSÉ**, Y COMPRIS « non affectée » ══════════════════════════════
+   *
+   * DEMANDE D'ARNO (04/10/2026) : « La catégorie est PRÉ-REMPLIE quand elle a été déduite (règle à trois étages),
+   * et reste modifiable. »
+   *
+   * 🔴 POURQUOI UNE SECONDE CARTE, ET NON `categoriesRangees`. Celle-là ne garde que les trois catégories
+   * RETENUES, parce que c'est tout ce dont les groupes ont besoin. La carte de création, elle, a besoin de la
+   * PROPOSITION même quand elle vaut « non affectée » — et surtout de savoir qu'il n'y en a aucune, pour laisser
+   * le choix vide plutôt que de pré-cocher « Propriétaire » par défaut. Pré-remplir au hasard est pire que ne
+   * rien pré-remplir : on valide sans lire.
+   */
+  const [proposees, setProposees] = useState<ReadonlyMap<string, Categorie>>(new Map());
 
-  useEffect(() => {
-    let vivant = true;
-    void (async () => {
-      try {
-        const res = await fetch(
-          `/api/admin/gestion/historique/parties?cible=lot-${encodeURIComponent(lotCle)}`,
-          { cache: 'no-store' });
-        const d = (await res.json()) as {
-          etat?: string;
-          data?: {
-            parties?: { adresse: string; categorie: string | null }[];
-            cartes?: { cote: string; verifie: boolean }[];
-          };
+  /** Relire les rangements. Appelée au montage ET après une création : la partie doit changer de groupe en direct. */
+  const relireParties = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch(
+        `/api/admin/gestion/historique/parties?cible=lot-${encodeURIComponent(lotCle)}`,
+        { cache: 'no-store' });
+      const d = (await res.json()) as {
+        etat?: string;
+        data?: {
+          parties?: { adresse: string; categorie: string | null }[];
+          cartes?: { cote: string; verifie: boolean }[];
         };
-        if (!vivant) return;
-        const m = new Map<string, CategoriePartie>();
-        for (const x of d.data?.parties ?? []) {
-          /* ⚠️ « à répartir » N'EST PAS UN GROUPE DE PARTIE : c'est l'absence de rangement, et le module pur
-             l'exprime en ne connaissant pas l'adresse. On ne la pose donc pas dans la carte. */
-          if (x.categorie === 'proprietaire' || x.categorie === 'locataire' || x.categorie === 'independant') {
-            m.set(x.adresse.trim().toLowerCase(), x.categorie);
-          }
+      };
+      const m = new Map<string, CategoriePartie>();
+      const prop = new Map<string, Categorie>();
+      for (const x of d.data?.parties ?? []) {
+        const cle = x.adresse.trim().toLowerCase();
+        if (x.categorie === 'proprietaire' || x.categorie === 'locataire' || x.categorie === 'independant') {
+          /* ⚠️ « non affectée » N'EST PAS UN GROUPE DE PARTIE : c'est l'absence de rangement, et le module pur
+             l'exprime en ne connaissant pas l'adresse. On ne la pose donc pas dans la carte des groupes. */
+          m.set(cle, x.categorie);
+          prop.set(cle, x.categorie);
+        } else if (x.categorie === 'a_repartir') {
+          prop.set(cle, 'a_repartir');
         }
-        setCategoriesRangees(m);
-        setCartesContact(d.data?.cartes ?? []);
-      } catch {
-        if (!vivant) return;
-        setCategoriesRangees(new Map());
-        setCartesContact([]);
       }
-    })();
-    return () => { vivant = false; };
+      setCategoriesRangees(m);
+      setProposees(prop);
+      setCartesContact(d.data?.cartes ?? []);
+    } catch {
+      setCategoriesRangees(new Map());
+      setProposees(new Map());
+      setCartesContact([]);
+    }
   }, [lotCle]);
+  useEffect(() => { void relireParties(); }, [relireParties]);
 
   // ── ② LE FIL ──────────────────────────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -394,7 +425,7 @@ export function HistoriqueDuBien({
     return m as ReadonlyMap<string, CategoriePartie>;
   }, [categories, categoriesRangees]);
 
-  const groupes = useMemo(
+  const parties = useMemo(
     () => grouperParCategorie(interlocuteurs, categoriesFusionnees),
     [interlocuteurs, categoriesFusionnees]);
 
@@ -416,6 +447,82 @@ export function HistoriqueDuBien({
     const dedans = r.parties.includes(a);
     return { ...r, parties: dedans ? r.parties.filter((x) => x !== a) : [...r.parties, a] };
   });
+
+  /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LE « + » — RANGER UNE PARTIE NON AFFECTÉE, ET LUI FAIRE UNE CARTE DE CONTACT
+     ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * DEMANDE D'ARNO (04/10/2026) : « Pour chaque partie NON encore affectée à une catégorie : un bouton “+” qui
+   * ouvre une petite carte de création de contact (nom, adresse mail pré-remplie, téléphone, et un choix de
+   * catégorie Propriétaire / Locataire / Tiers indépendant). La catégorie est PRÉ-REMPLIE quand elle a été
+   * déduite (règle à trois étages), et reste modifiable. Valider range la partie dans le bon groupe en direct. »
+   *
+   * ⚠️ `categorie` PEUT ÊTRE VIDE, et le formulaire refuse alors d'être validé. Pré-cocher « Propriétaire » par
+   * défaut aurait fait ranger des gens dans une catégorie fausse d'un clic distrait — et un rangement manuel
+   * PRIME sur tout le reste, donc il ne se corrige pas tout seul à la passe suivante.
+   */
+  const [aCreer, setACreer] = useState<{
+    adresse: string; categorie: Categorie | ''; nom: string; telephone: string;
+  } | null>(null);
+  const [refusCreation, setRefusCreation] = useState<string | null>(null);
+  const [creationEnCours, setCreationEnCours] = useState(false);
+
+  const ouvrirCreation = useCallback((adresse: string): void => {
+    const cle = adresse.trim().toLowerCase();
+    const deduite = proposees.get(cle);
+    setRefusCreation(null);
+    setACreer({
+      adresse,
+      /* 🔴 PRÉ-REMPLIE SEULEMENT SI ELLE A ÉTÉ DÉDUITE. « a_repartir » n'est pas une déduction : c'est le constat
+         qu'on n'a pas su trancher. Le choix reste donc vide, et il faut le poser. */
+      categorie: deduite === undefined || deduite === 'a_repartir' ? '' : deduite,
+      nom: '',
+      telephone: '',
+    });
+  }, [proposees]);
+
+  /**
+   * ══ 🔴 VALIDER : LE RANGEMENT, PUIS LA CARTE — ET LA RELECTURE QUI FAIT CHANGER DE GROUPE ═══════════════════
+   *
+   * ⚠️ UNE SEULE PORTE D'ÉCRITURE, ET C'EST LE SERVEUR QUI DÉCIDE. L'écran n'écrit pas en base : il POSTE, et il
+   * affiche le refus tel quel. Les règles (un contact du propriétaire se range toujours sur un bien, un
+   * indépendant est global, l'auteur doit être identifié) vivent dans `partieCategorieRepo`, qui les tenait déjà
+   * pour la reprise — en réécrire une ici aurait fait deux juges pour un même rangement.
+   *
+   * ⚠️ ON RELIT APRÈS, PLUTÔT QUE DE DEVINER LE NOUVEL ÉTAT. Poser la catégorie « à la main » dans l'état local
+   * aurait affiché un rangement que le serveur a peut-être refusé en partie (la carte sans la catégorie, par
+   * exemple) — et l'écran aurait menti jusqu'au rechargement.
+   */
+  const enregistrerCreation = useCallback(async (): Promise<void> => {
+    if (aCreer === null || aCreer.categorie === '') return;
+    setCreationEnCours(true);
+    setRefusCreation(null);
+    try {
+      const res = await fetch('/api/admin/gestion/historique/parties', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cible: `lot-${lotCle}`,
+          adresse: aCreer.adresse,
+          categorie: aCreer.categorie,
+          nom: aCreer.nom.trim() === '' ? null : aCreer.nom.trim(),
+          telephone: aCreer.telephone.trim() === '' ? null : aCreer.telephone.trim(),
+        }),
+      });
+      const d = (await res.json()) as { etat?: string; motif?: string };
+      if (d.etat !== 'ok') {
+        setRefusCreation(d.motif ?? 'Le rangement n’a pas pu être enregistré.');
+        return;
+      }
+      setACreer(null);
+      await relireParties();
+    } catch {
+      setRefusCreation('Le rangement n’a pas pu être enregistré : le serveur n’a pas répondu.');
+    } finally {
+      setCreationEnCours(false);
+    }
+  }, [aCreer, lotCle, relireParties]);
 
   /** Tout un groupe d'un geste. Déjà tout coché ⇒ on décoche : un bouton qui ne fait qu'ajouter se bloque vite. */
   const basculerGroupe = (adresses: readonly string[]): void => setReglages((r) => {
@@ -637,16 +744,20 @@ export function HistoriqueDuBien({
           )}
         </fieldset>
 
-        {/* ── PARTIES ─────────────────────────────────────────────────────────────────────────────────────────── */}
-        <fieldset className="hdb-pave">
+        {/* ══ 🔴🔴 BLOC 2 — « PARTIES », HORIZONTAL, SOUS LA PÉRIODE (lot HISTORIQUE-BIEN-2) ═════════════════════
+            DEMANDE D'ARNO (04/10/2026) : « Quatre rangées ou groupes, côte à côte si la largeur le permet,
+            sinon empilés : Propriétaire (rouge) · Locataire (vert ; locataire en place et anciens locataires,
+            chacun avec sa période) · Tiers indépendant (bleu) · Non affectés (gris). Une case “tout le groupe”
+            par groupe, et une puce cochable par personne ou adresse, avec les deux compteurs. » */}
+        <fieldset className="hdb-pave hdb-pave--bande">
           <legend className="hdb-legende">Parties</legend>
 
-          {/* 🔴 « TOUS LES MAILS DU BIEN PENDANT LA PÉRIODE » IGNORE LE CHOIX DES PARTIES, SANS L'EFFACER : on le
-              relève et l'on retrouve ses cases telles qu'on les avait laissées (demande d'Arno). */}
+          {/* 🔴 « TOUS LES MAILS DU BIEN SUR LA PÉRIODE » IGNORE LE CHOIX DES PARTIES, SANS L'EFFACER : on le
+              relève et l'on retrouve ses cases telles qu'on les avait laissées (demande d'Arno, inchangée). */}
           <label className="hdb-case hdb-case--large">
             <input type="checkbox" checked={reglages.toutesLesParties}
               onChange={(e) => setReglages((r) => ({ ...r, toutesLesParties: e.target.checked }))} />
-            <span>Tous les mails du bien pendant la période</span>
+            <span>Tous les mails du bien sur la période</span>
           </label>
           {reglages.toutesLesParties && reglages.parties.length > 0 && (
             <p className="gst-note hdb-note">
@@ -656,12 +767,20 @@ export function HistoriqueDuBien({
             </p>
           )}
 
-          {/* ══ 🔴 LES CARTES DE CONTACT DE CE BIEN, DITES ICI ET SEULEMENT ICI ═══════════════════════════════
-              La reprise a pré-rempli des cartes de contact (485 sur toute la base). Elles sont destinées aux
-              carrousels de la fiche, et ce bloc ne les y met pas : il se CONTENTE de dire combien ce bien en a
-              et combien restent à vérifier. Un compte affiché vaut mieux qu'un travail invisible.
+          {/* ══ 🔴🔴 NOTRE AGENCE N'EST PAS UN GROUPE — ET ON LE DIT ═══════════════════════════════════════════
+              Arno : « Notre agence n'est pas un groupe sélectionnable : ses mails apparaissent dès qu'ils font
+              partie d'un échange avec une partie sélectionnée. » Écartées, donc, mais COMPTÉES et nommées : les
+              faire disparaître sans un mot aurait laissé croire que le bien compte moins d'interlocuteurs. */}
+          {motAgenceEcartee(parties.nousEcartees) !== null && (
+            <p className="gst-note hdb-note">{motAgenceEcartee(parties.nousEcartees)}</p>
+          )}
 
-              ⚠️ RIEN N'EST ÉCRIT NI DÉPLACÉ PAR CETTE LIGNE : elle lit, elle compte, elle le dit. */}
+          {/* ══ LES CARTES DE CONTACT DE CE BIEN, DITES ICI ET SEULEMENT ICI ═══════════════════════════════════
+              DÉCISION D'ARNO (04/10/2026) : « les cartes de contact restent dans le bloc Parties, JAMAIS dans
+              les carrousels PROPRIÉTAIRE / LOCATAIRE du haut, qui ne bougent pas. » Ce bloc dit donc combien ce
+              bien en a et combien restent à vérifier — un compte affiché vaut mieux qu'un travail invisible.
+
+              ⚠️ RIEN N'EST DÉPLACÉ PAR CETTE LIGNE : elle lit, elle compte, elle le dit. */}
           {cartesContact.length > 0 && (
             <p className="gst-note hdb-note">
               {(() => {
@@ -675,64 +794,175 @@ export function HistoriqueDuBien({
             </p>
           )}
 
-          {groupes.map((g) => {
-            /* ⚠️ UN GROUPE VIDE N'EST PAS PEINT, MAIS IL EXISTE : `grouperParCategorie` rend toujours les quatre,
-               dans le même ordre, pour que les cases ne se déplacent pas d'un bien à l'autre. */
-            if (g.nb === 0) return null;
-            const adresses = g.interlocuteurs.map((i) => i.adresse);
-            /* ⚠️ `length > 0` AVANT `every` : `[].every(…)` vaut VRAI, et le bouton aurait annoncé « Décocher le
-               groupe » sur un groupe vide (piège consigné au lot 71 — l'ensemble vide n'est pas satisfait). */
-            const toutCoche = adresses.length > 0
-              && adresses.every((a) => reglages.parties.includes(a.trim().toLowerCase()));
-            /* LE DÉFAUT DÉPEND DU SEUIL ; LA BASCULE L'INVERSE. Voir l'encadré de `bascules`.
-               🔴 LA COMPARAISON ELLE-MÊME VIENT DE `partieCategorie.ts` (`replierLesCartes`) : écrire `> 6` ici
-                  aurait été un second juge pour la même borne, et c'est sur les bornes qu'on se trompe. */
-            const ouvertParDefaut = !replierLesCartes(g.nb);
-            const ouvert = bascules.has(g.cle) ? !ouvertParDefaut : ouvertParDefaut;
-            return (
-              <div key={g.cle} className="hdb-groupe">
-                <div className="hdb-groupe-tete">
-                  <button type="button" className="hdb-replier" aria-expanded={ouvert}
-                    onClick={() => setBascules((s) => {
-                      const n = new Set(s);
-                      if (n.has(g.cle)) n.delete(g.cle); else n.add(g.cle);
-                      return n;
-                    })}>
-                    <span aria-hidden="true" className={`hdb-triangle${ouvert ? ' hdb-triangle--ouvert' : ''}`}>▶</span>
-                    {g.titre}
-                    {/* LE COMPTE EST LISIBLE SANS DÉPLIER — c'est tout l'intérêt du repli. */}
-                    <span className="gst-compte">{g.nb}</span>
-                  </button>
-                  <button type="button" className="hdb-tout" aria-pressed={toutCoche}
-                    onClick={() => basculerGroupe(adresses)}>
-                    {toutCoche ? 'Décocher le groupe' : 'Tout le groupe'}
-                  </button>
-                </div>
-                {ouvert && (
-                  <ul className="hdb-personnes">
-                    {g.interlocuteurs.map((i) => (
-                      <li key={i.adresse}>
-                        <label className="hdb-case">
-                          <input type="checkbox"
-                            checked={reglages.parties.includes(i.adresse.trim().toLowerCase())}
-                            onChange={() => basculerPartie(i.adresse)} />
-                          <span className="hdb-personne">
-                            <span className="hdb-personne-nom">
-                              {libelleInterlocuteur(i)}
-                              {i.interne && <span className="hdb-interne">nous</span>}
-                            </span>
-                            {/* 🔴 LES DEUX COMPTEURS, ÉCRITS PAR LE MODULE PUR. Jamais dans une infobulle seule :
-                                une information portée par un survol n'existe pas sur un téléphone. */}
-                            <span className="hdb-compteurs">{motDeuxCompteurs(i)}</span>
-                          </span>
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+          {/* ⚠️ `auto-fit` : les quatre groupes côte à côte sur un écran large, UN SEUL par rangée à 390 px —
+              exactement « côte à côte si la largeur le permet, sinon empilés ». */}
+          <div className="hdb-groupes">
+            {parties.groupes.map((g) => {
+              /* ⚠️ UN GROUPE VIDE N'EST PAS PEINT, MAIS IL EXISTE : `grouperParCategorie` rend toujours les
+                 quatre, dans le même ordre, pour que les cases ne se déplacent pas d'un bien à l'autre. */
+              if (g.nb === 0) return null;
+              const adresses = g.interlocuteurs.map((i) => i.adresse);
+              const cochees = adresses.filter((a) => reglages.parties.includes(a.trim().toLowerCase())).length;
+              /* ⚠️ `length > 0` AVANT la comparaison : un groupe vide aurait été « tout coché » (piège du lot 71,
+                 l'ensemble vide n'est pas satisfait) — et la case aurait proposé de le décocher. */
+              const toutCoche = adresses.length > 0 && cochees === adresses.length;
+              const partiel = cochees > 0 && !toutCoche;
+              /* LE DÉFAUT DÉPEND DU SEUIL ; LA BASCULE L'INVERSE. Voir l'encadré de `bascules`.
+                 🔴 LA COMPARAISON VIENT DE `partieCategorie.ts` (`replierLesCartes`) : écrire `> 6` ici aurait
+                    été un second juge pour la même borne, et c'est sur les bornes qu'on se trompe. */
+              const ouvertParDefaut = !replierLesCartes(g.nb);
+              const ouvert = bascules.has(g.cle) ? !ouvertParDefaut : ouvertParDefaut;
+              return (
+                <section key={g.cle} className={`hdb-groupe hdb-groupe--${g.ton}`}>
+                  <div className="hdb-groupe-tete">
+                    <button type="button" className="hdb-replier" aria-expanded={ouvert}
+                      onClick={() => setBascules((s) => {
+                        const n = new Set(s);
+                        if (n.has(g.cle)) n.delete(g.cle); else n.add(g.cle);
+                        return n;
+                      })}>
+                      <span aria-hidden="true" className={`hdb-triangle${ouvert ? ' hdb-triangle--ouvert' : ''}`}>▶</span>
+                      {g.titre}
+                      {/* LE COMPTE EST LISIBLE SANS DÉPLIER — c'est tout l'intérêt du repli. */}
+                      <span className="gst-compte">{g.nb}</span>
+                    </button>
+                    {/* ══ 🔴 UNE **CASE** « TOUT LE GROUPE », ET NON UN BOUTON (demande d'Arno) ═══════════════
+                        🔴 ELLE PORTE TROIS ÉTATS, et le troisième comptait : `indeterminate` quand une partie
+                        seulement du groupe est cochée. Une case à deux états aurait affiché « vide » sur un
+                        groupe à demi coché — donc annoncé « personne » là où trois personnes étaient choisies. */}
+                    <label className="hdb-case hdb-case--groupe">
+                      <input type="checkbox" checked={toutCoche}
+                        ref={(el) => { if (el !== null) el.indeterminate = partiel; }}
+                        aria-label={`Tout le groupe ${g.titre}`}
+                        onChange={() => basculerGroupe(adresses)} />
+                      <span>tout le groupe</span>
+                    </label>
+                  </div>
+                  {ouvert && (
+                    <ul className="hdb-personnes">
+                      {g.interlocuteurs.map((i) => {
+                        const cle = i.adresse.trim().toLowerCase();
+                        const periode = periodes.get(cle) ?? null;
+                        return (
+                          <li key={i.adresse} className="hdb-personne-ligne">
+                            <label className="hdb-case">
+                              <input type="checkbox" checked={reglages.parties.includes(cle)}
+                                onChange={() => basculerPartie(i.adresse)} />
+                              <span className="hdb-personne">
+                                <span className="hdb-personne-nom">{libelleInterlocuteur(i)}</span>
+                                {/* 🔴 LES DEUX COMPTEURS, ÉCRITS PAR LE MODULE PUR. Jamais dans une infobulle
+                                    seule : une information portée par un survol n'existe pas sur un téléphone. */}
+                                <span className="hdb-compteurs">{motDeuxCompteurs(i)}</span>
+                              </span>
+                            </label>
+                            {/* ══ 🔴🔴 « CHACUN AVEC SA PÉRIODE » — ET LE CLIC LA RÈGLE ═══════════════════════
+                                Arno : « Locataire (vert ; locataire en place et anciens locataires, chacun avec
+                                sa période) ». La période est ÉCRITE sous le nom, et cliquable : c'est ainsi que
+                                le geste du lot précédent — choisir la période d'un ancien locataire — se
+                                retrouve, à l'endroit où Arno place désormais cette information. */}
+                            {periode !== null && (
+                              <button type="button" className="hdb-periode-partie"
+                                title="Régler la période sur ce bail"
+                                onClick={() => setReglages((r) => ({
+                                  ...r, periode: { sorte: 'dates', du: periode.du, au: periode.au },
+                                }))}>
+                                {periode.mot}
+                              </button>
+                            )}
+                            {/* ══ 🔴🔴 LE « + » : RANGER CETTE PARTIE, ET LUI FAIRE UNE CARTE ════════════════
+                                Arno : « Pour chaque partie NON encore affectée à une catégorie : un bouton “+”
+                                qui ouvre une petite carte de création de contact. »
+
+                                ⚠️ SEULEMENT SUR « NON AFFECTÉS », et c'est la condition d'Arno mot pour mot :
+                                une partie déjà rangée n'a rien à affecter. Le proposer partout aurait invité à
+                                reclasser un propriétaire — or un client n'est jamais un contact. */}
+                            {g.cle === 'a_repartir' && (
+                              <button type="button" className="hdb-plus"
+                                aria-label={`Ranger ${i.adresse} et créer son contact`}
+                                title="Ranger cette partie et créer son contact"
+                                onClick={() => ouvrirCreation(i.adresse)}>+</button>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+          {/* ══ 🔴🔴 LA PETITE CARTE DE CRÉATION DE CONTACT ═══════════════════════════════════════════════════
+              Arno : « une petite carte de création de contact (nom, adresse mail pré-remplie, téléphone, et un
+              choix de catégorie Propriétaire / Locataire / Tiers indépendant) ». Elle s'ouvre SOUS les groupes,
+              dans la page — pas dans une fenêtre à fermer.
+
+              ⚠️ ELLE PORTE LA MÊME TRAME ORANGE que les cartes créées automatiquement, et pour la même raison :
+              ce qui est en attente de vérification se voit. Les cartes « créées automatiquement — à vérifier »
+              livrées au lot précédent ne changent pas d'un pixel. */}
+          {aCreer !== null && (
+            <div className="hdb-creation" role="group" aria-label="Ranger cette partie et créer son contact">
+              <p className="hdb-creation-titre">
+                Ranger <strong>{aCreer.adresse}</strong> pour ce bien
+              </p>
+              <div className="hdb-creation-champs">
+                <label className="hdb-creation-champ">
+                  <span className="svv-label">Adresse mail</span>
+                  {/* ⚠️ PRÉ-REMPLIE ET NON MODIFIABLE : c'est l'adresse de la partie qu'on range, pas une
+                      saisie libre. La rendre modifiable aurait permis de ranger quelqu'un d'autre sans le voir. */}
+                  <input type="email" className="ann-champ" value={aCreer.adresse} readOnly />
+                </label>
+                <label className="hdb-creation-champ">
+                  <span className="svv-label">Nom</span>
+                  <input type="text" className="ann-champ" value={aCreer.nom} autoComplete="off"
+                    placeholder="facultatif"
+                    onChange={(e) => setACreer((c) => (c === null ? c : { ...c, nom: e.target.value }))} />
+                </label>
+                <label className="hdb-creation-champ">
+                  <span className="svv-label">Téléphone</span>
+                  <input type="tel" className="ann-champ" value={aCreer.telephone} autoComplete="off"
+                    placeholder="facultatif"
+                    onChange={(e) => setACreer((c) => (c === null ? c : { ...c, telephone: e.target.value }))} />
+                </label>
+                <label className="hdb-creation-champ">
+                  <span className="svv-label">Catégorie</span>
+                  <select className="ann-champ" value={aCreer.categorie}
+                    onChange={(e) => setACreer((c) => (c === null ? c
+                      : { ...c, categorie: e.target.value as Categorie | '' }))}>
+                    {/* ⚠️ L'OPTION VIDE EXISTE, et elle est le défaut quand rien n'a été déduit : un choix
+                        pré-coché au hasard se valide sans être lu. */}
+                    <option value="">— à choisir —</option>
+                    <option value="proprietaire">Propriétaire</option>
+                    <option value="locataire">Locataire</option>
+                    <option value="independant">Tiers indépendant</option>
+                  </select>
+                </label>
               </div>
-            );
-          })}
+
+              {/* 🔴 CE QUE CHAQUE CHOIX FAIT, ÉCRIT AVANT DE VALIDER. Un « Tiers indépendant » est GLOBAL et ne
+                  reçoit AUCUNE carte de contact (règle du lot précédent, inchangée) ; les deux autres se rangent
+                  sur CE bien et reçoivent une carte du bon côté. Le dire évite la surprise après le clic. */}
+              <p className="gst-note hdb-note">
+                {aCreer.categorie === 'independant'
+                  ? 'Un tiers indépendant est rangé une fois pour TOUS les biens, ne reçoit pas de carte de contact, '
+                    + 'et ne sert jamais à l’automatisation.'
+                  : aCreer.categorie === ''
+                    ? 'Choisissez une catégorie : elle n’a pas été déduite pour cette adresse.'
+                    : `Rangée côté ${coteDeLaCategorie(aCreer.categorie) === 'proprietaire' ? 'propriétaire' : 'locataire'} `
+                      + 'de ce bien, avec une carte de contact à vérifier.'}
+              </p>
+              {refusCreation !== null && <p className="gst-erreur" role="status">{refusCreation}</p>}
+
+              <div className="hdb-boutons">
+                <button type="button" className="svv-btn gst-btn"
+                  disabled={aCreer.categorie === '' || creationEnCours}
+                  onClick={() => { void enregistrerCreation(); }}>
+                  {creationEnCours ? 'Enregistrement…' : 'Valider'}
+                </button>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                  onClick={() => { setACreer(null); setRefusCreation(null); }}>Annuler</button>
+              </div>
+            </div>
+          )}
           {etat.v === 'ok' && etat.tronques && (
             <p className="gst-note hdb-note" role="status">
               Ce bien compte plus de personnes que la liste n’en montre : les moins présentes ne sont pas listées.
@@ -1057,8 +1287,22 @@ ${CSS_PIECES}
 .hdb-champ-date{min-height:44px;font-size:.82rem;min-width:0;width:100%}
 .hdb-note{margin:.3rem 0 0}
 
-/* ── LES PARTIES ── */
-.hdb-groupe{margin-top:.45rem;min-width:0}
+/* ══ LES PARTIES — QUATRE GROUPES COTE A COTE, EMPILES QUAND LA LARGEUR MANQUE ════════════════════════════════
+   DEMANDE D'ARNO : « Quatre rangees ou groupes, cote a cote si la largeur le permet, sinon empiles. »
+   auto-fit fait exactement cela, sans point de rupture ecrit a la main : quatre colonnes sur un grand ecran,
+   deux sur une tablette, UNE a 390 px. Un minmax plus etroit aurait coupe les adresses en deux. */
+.hdb-groupes{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-top:.5rem;
+  min-width:0}
+/* ── LES QUATRE TONS ── Le bord gauche porte la couleur du groupe : la MEME que la barre des mails qui en
+   viennent. Les jetons vivent dans globals.css ; aucune couleur en dur ici, donc rien d'illisible en sombre. */
+.hdb-groupe{margin:0;min-width:0;padding:.3rem .4rem .4rem .55rem;border-radius:.5rem;
+  border:1px solid var(--color-svv-line);border-left-width:4px;background:var(--color-svv-surface)}
+.hdb-groupe--rouge{border-left-color:var(--color-svv-red)}
+.hdb-groupe--vert{border-left-color:var(--color-svv-green)}
+/* LE BLEU EST UN JETON DU DEPOT (--color-svv-blue, defini dans les DEUX modes) : rien n'est invente ici.
+   Un #rrggbb ecrit a la main aurait produit un bleu illisible en sombre — ce que le depot interdit et verifie. */
+.hdb-groupe--bleu{border-left-color:var(--color-svv-blue)}
+.hdb-groupe--gris{border-left-color:var(--color-svv-line-strong)}
 .hdb-groupe-tete{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;min-width:0}
 .hdb-replier{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;padding:0 .4rem;flex:1 1 8rem;
   border:0;background:none;font:inherit;font-size:.82rem;font-weight:700;color:var(--color-svv-ink);
@@ -1067,20 +1311,49 @@ ${CSS_PIECES}
 .hdb-triangle{display:inline-block;font-size:.7rem;color:var(--color-svv-red);transition:transform .15s ease}
 .hdb-triangle--ouvert{transform:rotate(90deg)}
 @media (prefers-reduced-motion:reduce){.hdb-triangle{transition:none}}
-.hdb-tout{min-height:44px;padding:0 .6rem;border-radius:.5rem;border:1px solid var(--color-svv-line);
-  background:transparent;font:inherit;font-size:.74rem;color:var(--color-svv-muted);cursor:pointer}
-.hdb-tout:hover{color:var(--color-svv-ink);background:var(--color-svv-field)}
-.hdb-tout:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* 🔴 LOT HISTORIQUE-BIEN-2 — .hdb-tout est RETIREE AVEC SON BOUTON : « tout le groupe » est devenu une CASE
+   a trois etats (demande d'Arno), et plus aucun element ne rendait ce bouton. */
 .hdb-personnes{list-style:none;margin:.2rem 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
 .hdb-case{display:flex;align-items:center;gap:.45rem;min-height:44px;padding:.1rem .3rem;font-size:.8rem;
   color:var(--color-svv-ink);cursor:pointer;min-width:0;border-radius:.4rem}
 .hdb-case:hover{background:var(--color-svv-field)}
 .hdb-case input{width:18px;height:18px;flex:0 0 auto;accent-color:var(--color-svv-red)}
 .hdb-case--large{font-weight:700}
+/* LA CASE « tout le groupe » — trois etats, dont indeterminate quand une partie seulement est cochee. */
+.hdb-case--groupe{font-size:.72rem;color:var(--color-svv-muted);min-height:36px;flex:0 0 auto}
+/* Une ligne de personne : la case a gauche, la periode et le « + » a droite.
+   ⚠️ ELLE S'ENROULE. Les quatre groupes sont des colonnes etroites, et un nom reel y tient rarement sur une
+   ligne (« NADKARNI BHARGAVA Esha Rajan et Sanjana »). Sans enroulement, la periode ecrasait le nom sur trois
+   lignes de deux mots — mesure faite a l'ecran sur le bien 155. La periode passe donc dessous quand il faut. */
+.hdb-personne-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:.2rem .3rem;min-width:0}
+.hdb-personne-ligne>.hdb-case{flex:1 1 9rem;min-width:0}
+/* LA PERIODE D'UN LOCATAIRE, cliquable : elle regle le tableau de bord sur SON bail.
+   Le margin-left l'aligne sous le NOM et non sous la case : elle parle de la personne, pas de la coche. */
+.hdb-periode-partie{flex:0 0 auto;margin-left:1.65rem;min-height:36px;padding:0 .4rem;border-radius:.4rem;
+  border:1px solid var(--color-svv-line);background:transparent;font:inherit;font-size:.68rem;
+  color:var(--color-svv-muted);cursor:pointer;white-space:nowrap}
+.hdb-periode-partie:hover{color:var(--color-svv-ink);background:var(--color-svv-field)}
+.hdb-periode-partie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* LE « + » — 36 px au moins, et un aria-label complet : un « + » seul ne dit rien a un lecteur d'ecran. */
+.hdb-plus{flex:0 0 auto;width:36px;min-height:36px;border-radius:.4rem;border:1px solid var(--color-svv-line);
+  background:transparent;font:inherit;font-size:1rem;font-weight:700;color:var(--color-svv-red);cursor:pointer}
+.hdb-plus:hover{background:var(--color-svv-field);border-color:var(--color-svv-line-strong)}
+.hdb-plus:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+
+/* ══ LA CARTE DE CREATION D'UN CONTACT ── MEME TRAME ORANGE que les cartes creees automatiquement : ce qui est
+   en attente de verification se voit, et se voit pareil partout. */
+.hdb-creation{margin-top:.6rem;padding:.5rem .6rem .6rem;border-radius:.5rem;min-width:0;
+  border:1px solid var(--color-svv-amber);border-left-width:4px;background:var(--color-svv-amber-soft)}
+.hdb-creation-titre{margin:0 0 .4rem;font-size:.82rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.hdb-creation-champs{display:grid;gap:.45rem;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  min-width:0}
+.hdb-creation-champ{display:flex;flex-direction:column;gap:.15rem;min-width:0}
+.hdb-creation-champ input,.hdb-creation-champ select{min-height:44px;font-size:.82rem;width:100%;min-width:0}
 .hdb-personne{display:flex;flex-direction:column;gap:0;min-width:0}
 .hdb-personne-nom{display:flex;align-items:center;gap:.3rem;font-size:.8rem;overflow-wrap:anywhere;min-width:0}
-.hdb-interne{font-size:.64rem;font-weight:700;border-radius:999px;padding:0 .35rem;flex:0 0 auto;
-  background:var(--color-svv-field);color:var(--color-svv-muted);border:1px solid var(--color-svv-line)}
+/* 🔴 LOT HISTORIQUE-BIEN-2 — .hdb-interne EST RETIREE AVEC LA PASTILLE « nous » : notre agence n'est plus un
+   groupe selectionnable (demande d'Arno), ses adresses ne figurent donc plus dans les listes de parties. Le
+   nombre d'adresses ecartees est DIT sous l'interrupteur, par motAgenceEcartee. */
 /* LES DEUX COMPTEURS SONT ECRITS, jamais dans une infobulle : un survol n'existe pas sur un telephone. */
 .hdb-compteurs{font-size:.7rem;color:var(--color-svv-muted)}
 

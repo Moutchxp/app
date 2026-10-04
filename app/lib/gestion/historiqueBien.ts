@@ -250,23 +250,82 @@ export type CleGroupeParties = Categorie;
 export interface GroupeParties {
   cle: CleGroupeParties;
   titre: string;
+  /** Le ton du groupe, le MÊME que celui de la barre des mails qui en viennent. */
+  ton: TonGroupe;
   interlocuteurs: Interlocuteur[];
   /** Combien de personnes dans ce groupe. Lisible SANS déplier — c'est tout l'intérêt du repli. */
   nb: number;
 }
 
+/** Ce que `grouperParCategorie` rend : les quatre groupes, et ce qui en a été écarté. */
+export interface PartiesRangees {
+  groupes: GroupeParties[];
+  /**
+   * 🔴🔴 LES ADRESSES DE NOTRE AGENCE, MISES À PART — ET COMPTÉES POUR QU'ON PUISSE LE DIRE.
+   *
+   * DEMANDE D'ARNO (04/10/2026) : « Notre agence n'est pas un groupe sélectionnable : ses mails apparaissent dès
+   * qu'ils font partie d'un échange avec une partie sélectionnée. »
+   *
+   * ⚠️ ÉCARTÉES, PAS CACHÉES. Le nombre est rendu pour que l'écran l'écrive : « N adresses de notre agence ne
+   * sont pas listées ». Les faire disparaître sans un mot aurait laissé croire que le bien compte moins
+   * d'interlocuteurs qu'il n'en a — et, sur un bien où nous écrivons beaucoup, le compte des groupes aurait
+   * semblé faux sans qu'on sache pourquoi.
+   */
+  nousEcartees: number;
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — LE VOCABULAIRE D'ARNO, ET IL REMPLACE L'ANCIEN PARTOUT ══════════════════════════
+ *
+ * DEMANDE D'ARNO (04/10/2026) : « “Tiers indépendant” REMPLACE le libellé “Indépendant” partout (même catégorie,
+ * mêmes règles : jamais d'automatisation). » Et pour le quatrième groupe : « Non affectés (gris) ».
+ *
+ * 🔴 LES CLÉS NE CHANGENT PAS, ET IL NE FAUT SURTOUT PAS QU'ELLES CHANGENT. `independant` et `a_repartir` sont
+ * écrites EN BASE (`gestion_partie_categorie`, migration 304, 640 lignes posées) et dans la contrainte CHECK de
+ * la table. Renommer la clé aurait demandé une migration de données pour un mot d'écran — et un `CHECK` à
+ * refaire. Seul le LIBELLÉ change, et il n'a toujours qu'un seul endroit où il vit.
+ *
+ * ⚠️ « MÊME CATÉGORIE, MÊMES RÈGLES » : `sertALAutomatisation` continue de refuser `independant`, et le garde qui
+ * l'éprouve n'a pas bougé d'une ligne. Un nouveau mot ne crée pas une nouvelle règle.
+ */
 const TITRES_GROUPES: Record<CleGroupeParties, string> = {
   proprietaire: 'Propriétaire',
   locataire: 'Locataire',
-  independant: 'Indépendant',
+  independant: 'Tiers indépendant',
   /**
-   * 🔴 « À RÉPARTIR » EST LE QUATRIÈME GROUPE, ET IL N'EST PAS UN FOURRE-TOUT HONTEUX. C'est là que tombent les
+   * 🔴 « NON AFFECTÉS » EST LE QUATRIÈME GROUPE, ET IL N'EST PAS UN FOURRE-TOUT HONTEUX. C'est là que tombent les
    * assureurs, les syndics, les artisans, les voisins — tout ce que l'annuaire ne rattache ni au propriétaire ni
    * au locataire. Les fondre dans un des trois autres aurait écrit noir sur blanc une appartenance fausse ; les
-   * cacher aurait rendu leurs mails introuvables. On les NOMME, et le nom dit qu'il reste un geste à faire.
+   * cacher aurait rendu leurs mails introuvables. On les NOMME, et le nom dit qu'il reste un geste à faire —
+   * c'est d'ailleurs sur eux, et sur eux seuls, que le bouton « + » de création de contact apparaît.
    */
-  a_repartir: 'À répartir',
+  a_repartir: 'Non affectés',
 };
+
+/**
+ * ══ 🔴🔴 LA COULEUR DE CHAQUE GROUPE, NOMMÉE UNE FOIS ════════════════════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO : « Propriétaire (rouge) · Locataire (vert) · Tiers indépendant (bleu) · Non affectés (gris) ».
+ * Ce sont les mêmes quatre tons que la barre verticale du listing, et c'est tout l'intérêt : la case cochée et
+ * la barre du mail qui en vient portent la MÊME couleur, sans qu'on ait à l'apprendre.
+ *
+ * 🔴 UN NOM DE TON, PAS UNE COULEUR. La valeur réelle vit dans `globals.css` sous un jeton `--color-svv-…`, et
+ * l'écran ne fait que composer une classe. Écrire un `#rrggbb` ici aurait créé une couleur hors du thème, donc
+ * illisible dans l'un des deux modes — ce que le dépôt interdit et vérifie.
+ */
+export type TonGroupe = 'rouge' | 'vert' | 'bleu' | 'gris';
+
+const TONS_GROUPES: Record<CleGroupeParties, TonGroupe> = {
+  proprietaire: 'rouge',
+  locataire: 'vert',
+  independant: 'bleu',
+  a_repartir: 'gris',
+};
+
+/** Le ton d'un groupe. PUR. */
+export function tonDuGroupe(cle: CleGroupeParties): TonGroupe {
+  return TONS_GROUPES[cle];
+}
 
 /**
  * ══ 🔴🔴 LES INTERLOCUTEURS, EN QUATRE GROUPES. PUR. ═════════════════════════════════════════════════════════════
@@ -288,19 +347,75 @@ const TITRES_GROUPES: Record<CleGroupeParties, string> = {
 export function grouperParCategorie(
   interlocuteurs: readonly Interlocuteur[],
   categories: ReadonlyMap<string, CategoriePartie>,
-): GroupeParties[] {
+): PartiesRangees {
   const ordre: CleGroupeParties[] = ['proprietaire', 'locataire', 'independant', 'a_repartir'];
   const groupes = new Map<CleGroupeParties, Interlocuteur[]>(ordre.map((c) => [c, []]));
+  let nousEcartees = 0;
   for (const i of interlocuteurs) {
+    /**
+     * ══ 🔴🔴 NOTRE AGENCE N'EST PAS UN GROUPE SÉLECTIONNABLE (lot HISTORIQUE-BIEN-2) ═══════════════════════════
+     *
+     * Demande d'Arno, mot pour mot. Elle n'est pas une PARTIE : elle est celle qui tient le dossier. Lui donner
+     * une case à cocher aurait proposé un filtre qui n'a pas de sens — « les mails où nous sommes », c'est-à-dire
+     * presque tous — et l'aurait mise sur le même plan qu'un propriétaire ou qu'un locataire.
+     *
+     * ⚠️ SES MAILS NE DISPARAISSENT PAS POUR AUTANT : ils entrent dès que l'ÉCHANGE porte une partie cochée,
+     * puisque nous y sommes expéditeur ou destinataire. Cocher « le locataire » ramène donc bien ce qu'on lui a
+     * écrit, et pas seulement ce qu'il a écrit.
+     *
+     * ⚠️ `interne` VIENT DU DÉPÔT, pas d'une liste de domaines recopiée ici : `interlocuteursDuBien` le rend avec
+     * chaque adresse. Une seconde règle « qui est des nôtres ? » aurait divergé de la première au premier
+     * collègue qui change d'adresse.
+     */
+    if (i.interne) { nousEcartees += 1; continue; }
     /* ⚠️ LA CLÉ EST NORMALISÉE DES DEUX CÔTÉS : « Jean.PONS@… » et « jean.pons@… » sont la même personne, et une
-       comparaison sensible à la casse l'aurait rangée « à répartir » alors que l'annuaire la connaît. */
+       comparaison sensible à la casse l'aurait rangée « non affectée » alors que l'annuaire la connaît. */
     const cle = categories.get(i.adresse.trim().toLowerCase()) ?? 'a_repartir';
     groupes.get(cle)?.push(i);
   }
-  return ordre.map((cle) => {
-    const liste = groupes.get(cle) ?? [];
-    return { cle, titre: TITRES_GROUPES[cle], interlocuteurs: liste, nb: liste.length };
-  });
+  return {
+    groupes: ordre.map((cle) => {
+      const liste = groupes.get(cle) ?? [];
+      return {
+        cle, titre: TITRES_GROUPES[cle], ton: TONS_GROUPES[cle], interlocuteurs: liste, nb: liste.length,
+      };
+    }),
+    nousEcartees,
+  };
+}
+
+/**
+ * ══ 🔴 « N ADRESSES DE NOTRE AGENCE NE SONT PAS LISTÉES » ════════════════════════════════════════════════════════
+ *
+ * La phrase dit ce qui a été écarté ET pourquoi ce n'est pas une perte. `null` quand il n'y a rien à dire : une
+ * note permanente sur un bien où nous n'avons jamais écrit serait du bruit.
+ */
+export function motAgenceEcartee(nousEcartees: number): string | null {
+  if (nousEcartees <= 0) return null;
+  const n = nousEcartees === 1
+    ? 'Une adresse de notre agence n’est pas listée'
+    : `${nousEcartees} adresses de notre agence ne sont pas listées`;
+  return `${n} : nos mails apparaissent dès qu’ils font partie d’un échange avec une partie sélectionnée.`;
+}
+
+/**
+ * ══ 🔴🔴 LA PÉRIODE D'UNE PARTIE — « CHACUN AVEC SA PÉRIODE » ════════════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (04/10/2026) : « Locataire (vert ; locataire en place et anciens locataires, chacun avec sa
+ * période) ».
+ *
+ * 🔴 ELLE PORTE SON MOT **ET** SES DEUX BORNES, et les deux servent : le mot s'affiche sous le nom (« du
+ * 01/01/2020 au 30/06/2024 »), les bornes règlent le tableau de bord quand on clique dessus. C'est ainsi que le
+ * geste du lot précédent — choisir la période d'un ancien locataire — se retrouve à l'endroit où Arno place
+ * désormais cette information, au lieu d'être perdu avec la rangée de boutons qu'il a demandé de retirer.
+ *
+ * ⚠️ LE MOT EST ÉCRIT PAR `periodeOccupation`, la fonction que les trois fiches emploient déjà — « du … au … »,
+ * « depuis le … » ou « dates inconnues ». Jamais une date devinée, jamais une seconde mise en forme.
+ */
+export interface PeriodePartie {
+  mot: string;
+  du: string | null;
+  au: string | null;
 }
 
 /**

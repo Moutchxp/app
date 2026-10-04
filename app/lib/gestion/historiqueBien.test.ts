@@ -5,13 +5,14 @@ import {
   motDeuxCompteurs, motLocataireDeLaPeriode, ordreFilSuivant, periodeDeLEvenement, periodeDeLOccupation,
   reglagesActifs, REGLAGES_DEFAUT, reglagesEnFiltres, reglagesEnParametres, replierLesCartes,
   SEUIL_REPLI_CARTES, trierFil, type CategoriePartie, type Reglages,
-  bornesDuChoix, dernierLocataire, motPeriodeEffective, occupationOuverte, periodeDuDernierLocataire,
-  SANS_LOCATAIRE_CONNU, type OccupationPeriode,
+  bornesDuChoix, dernierLocataire, motAgenceEcartee, motPeriodeEffective, occupationOuverte,
+  periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, tonDuGroupe, type OccupationPeriode,
 } from './historiqueBien';
 import { INTERLOCUTEURS_MAX, type Interlocuteur, type LigneHistorique } from './historique';
 /** 🔴 LA SOURCE DU SEUIL : on vérifie l'IDENTITÉ, pas une égalité de valeur recopiée. */
 import {
-  replierLesCartes as replierPartie, SEUIL_REPLI_CARTES as SEUIL_PARTIE,
+  coteDeLaCategorie, replierLesCartes as replierPartie, SEUIL_REPLI_CARTES as SEUIL_PARTIE,
+  sertALAutomatisation,
 } from './partieCategorie';
 
 /**
@@ -84,7 +85,24 @@ describe('① la période d’un événement', () => {
    ② LES QUATRE GROUPES DE PARTIES
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('② les parties, en trois groupes PLUS « À répartir »', () => {
+describe('② les parties — quatre groupes, l’agence écartée, le vocabulaire d’Arno', () => {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — CE GROUPE A ÉTÉ RÉÉCRIT ; VOICI CE QU'IL DISAIT ET CE QUI A CHANGÉ ════════════
+   *
+   * ═══ CE QU'IL ATTENDAIT ══════════════════════════════════════════════════════════════════════════════════════
+   * Que `grouperParCategorie` rende un TABLEAU de quatre groupes, titrés « Propriétaire · Locataire ·
+   * Indépendant · À répartir », et que TOUS les interlocuteurs y tombent — notre agence comprise, qui portait
+   * alors une pastille « nous » dans les listes.
+   *
+   * ═══ 🔴 CE QU'ARNO A TRANCHÉ LE 04/10/2026, ET QUI CHANGE DEUX CHOSES ═════════════════════════════════════════
+   * ① LE VOCABULAIRE : « “Tiers indépendant” REMPLACE le libellé “Indépendant” partout », et le quatrième groupe
+   *   devient « Non affectés ». Les CLÉS ne changent pas — `independant` et `a_repartir` sont écrites en base
+   *   (640 lignes, migration 304) et dans la contrainte CHECK de la table ; renommer la clé aurait demandé une
+   *   migration de données pour un mot d'écran.
+   * ② L'AGENCE N'EST PLUS UNE PARTIE : « Notre agence n'est pas un groupe sélectionnable : ses mails
+   *   apparaissent dès qu'ils font partie d'un échange avec une partie sélectionnée. » La fonction rend donc
+   *   `{ groupes, nousEcartees }` — le nombre écarté, pour que l'écran le DISE au lieu de le taire.
+   */
   const liste = [
     inter({ adresse: 'proprio@fictif.test', nbMails: 40, aEcrit: 12, enCopie: 28 }),
     inter({ adresse: 'locataire@fictif.test', nbMails: 20, aEcrit: 20, enCopie: 0 }),
@@ -97,38 +115,85 @@ describe('② les parties, en trois groupes PLUS « À répartir »', () => {
     ['plombier@fictif.test', 'independant'],
   ]);
 
-  it('🔴 quatre groupes, toujours, et dans le même ordre', () => {
-    const g = grouperParCategorie(liste, categories);
+  it('🔴 quatre groupes, toujours, et dans le même ordre — avec le vocabulaire d’Arno', () => {
+    const { groupes: g } = grouperParCategorie(liste, categories);
     expect(g.map((x) => x.cle)).toEqual(['proprietaire', 'locataire', 'independant', 'a_repartir']);
-    expect(g.map((x) => x.titre)).toEqual(['Propriétaire', 'Locataire', 'Indépendant', 'À répartir']);
+    expect(g.map((x) => x.titre)).toEqual(['Propriétaire', 'Locataire', 'Tiers indépendant', 'Non affectés']);
   });
 
-  it('🔴 chaque groupe porte son compte, et l’inconnu tombe dans « À répartir »', () => {
-    const g = grouperParCategorie(liste, categories);
+  /** 🔴🔴 LES QUATRE TONS, ET CE SONT CEUX DE LA BARRE DES MAILS : la case cochée et le mail qui en vient
+      portent la même couleur, sans qu'on ait à l'apprendre. */
+  it('🔴🔴 chaque groupe porte son ton : rouge, vert, bleu, gris', () => {
+    const { groupes: g } = grouperParCategorie(liste, categories);
+    expect(g.map((x) => x.ton)).toEqual(['rouge', 'vert', 'bleu', 'gris']);
+    expect(tonDuGroupe('proprietaire')).toBe('rouge');
+    expect(tonDuGroupe('a_repartir')).toBe('gris');
+  });
+
+  it('🔴 chaque groupe porte son compte, et l’inconnu tombe dans « Non affectés »', () => {
+    const { groupes: g } = grouperParCategorie(liste, categories);
     expect(g.map((x) => x.nb)).toEqual([1, 1, 1, 1]);
     expect(g[3].interlocuteurs.map((i) => i.adresse)).toEqual(['assureur@fictif.test']);
   });
 
+  /**
+   * 🔴🔴 NOTRE AGENCE EST ÉCARTÉE DES QUATRE GROUPES, ET COMPTÉE. Lui donner une case aurait proposé un filtre
+   * sans sens — « les mails où nous sommes », c'est-à-dire presque tous — et l'aurait mise sur le même plan
+   * qu'un propriétaire. La faire disparaître sans un mot aurait fait paraître le compte des groupes faux.
+   */
+  it('🔴🔴 l’agence n’est dans aucun groupe, et le nombre écarté est rendu', () => {
+    const avecNous = [
+      ...liste,
+      inter({ adresse: 'gestion@criterimmo.fr', nbMails: 99, aEcrit: 99, enCopie: 0, interne: true }),
+      inter({ adresse: 'service@criterimmo.fr', nbMails: 12, aEcrit: 12, enCopie: 0, interne: true }),
+    ];
+    const { groupes: g, nousEcartees } = grouperParCategorie(avecNous, categories);
+    expect(nousEcartees).toBe(2);
+    expect(g.map((x) => x.nb)).toEqual([1, 1, 1, 1]);
+    const toutes = g.flatMap((x) => x.interlocuteurs.map((i) => i.adresse));
+    expect(toutes).not.toContain('gestion@criterimmo.fr');
+    expect(toutes).not.toContain('service@criterimmo.fr');
+  });
+
+  /** 🔴 ET LE MOT LE DIT, avec sa raison — sinon le compte paraîtrait faux sans qu'on sache pourquoi. */
+  it('🔴 le mot de l’agence écartée dit aussi pourquoi ce n’est pas une perte', () => {
+    expect(motAgenceEcartee(0)).toBeNull();
+    expect(motAgenceEcartee(1)).toContain('Une adresse de notre agence n’est pas listée');
+    const m = motAgenceEcartee(2) ?? '';
+    expect(m).toContain('2 adresses');
+    expect(m).toContain('dès qu’ils font partie d’un échange avec une partie sélectionnée');
+  });
+
   /** 🔴 LES QUATRE SONT RENDUS MÊME VIDES : des cases qui se déplacent d'un bien à l'autre se cochent de travers. */
-  it('🔴 aucune catégorie connue ⇒ les quatre groupes existent quand même, tout « à répartir »', () => {
-    const g = grouperParCategorie(liste, new Map());
+  it('🔴 aucune catégorie connue ⇒ les quatre groupes existent quand même, tout « Non affectés »', () => {
+    const { groupes: g } = grouperParCategorie(liste, new Map());
     expect(g).toHaveLength(4);
     expect(g.map((x) => x.nb)).toEqual([0, 0, 0, 4]);
   });
 
-  it('⚠️ la casse ne range personne « à répartir » par erreur', () => {
-    const g = grouperParCategorie([inter({ adresse: 'Proprio@Fictif.Test' })], categories);
+  it('⚠️ la casse ne range personne « Non affectés » par erreur', () => {
+    const { groupes: g } = grouperParCategorie([inter({ adresse: 'Proprio@Fictif.Test' })], categories);
     expect(g[0].nb).toBe(1);
     expect(g[3].nb).toBe(0);
   });
 
   /** ⚠️ L'ORDRE REÇU EST CONSERVÉ : la route rend du plus bavard au moins bavard, et c'est la seule vérité. */
   it('⚠️ l’ordre à l’intérieur d’un groupe est celui reçu, jamais retrié', () => {
-    const g = grouperParCategorie([
+    const { groupes: g } = grouperParCategorie([
       inter({ adresse: 'b@fictif.test', nbMails: 9 }),
       inter({ adresse: 'a@fictif.test', nbMails: 3 }),
     ], new Map());
     expect(g[3].interlocuteurs.map((i) => i.adresse)).toEqual(['b@fictif.test', 'a@fictif.test']);
+  });
+
+  /**
+   * 🔴🔴 « MÊME CATÉGORIE, MÊMES RÈGLES » (Arno). Le mot change, la règle NON : un tiers indépendant ne sert
+   * jamais à l'automatisation, et c'est toujours le même juge qui le dit.
+   */
+  it('🔴🔴 le nouveau libellé ne crée aucune nouvelle règle', () => {
+    expect(sertALAutomatisation('independant')).toBe(false);
+    expect(sertALAutomatisation('proprietaire')).toBe(true);
+    expect(coteDeLaCategorie('independant')).toBeNull();
   });
 
   /**

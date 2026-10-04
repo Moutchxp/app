@@ -27,7 +27,8 @@ import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
  * restent exactement ce qu'ils étaient. Ce bloc s'ajoute APRÈS ce lien, en bas de la fiche.
  */
 import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien } from './HistoriqueDuBien';
-import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
+import { type CategoriePartie, type OccupationPeriode, type PeriodePartie }
+  from '../../../../lib/gestion/historiqueBien';
 // 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
 import { DocumentsAutomatiques } from './DocumentsAutomatiques';
 // 🔴🔴 LOT CONTACTS-EXTERNES — les échanges de cette personne passés par un intermédiaire. Liste DISTINCTE.
@@ -1347,6 +1348,7 @@ function VueLot({
           maintenant={maintenant}
           occupations={occupationsPourHistorique(f)}
           categories={categoriesDesParties(f)}
+          periodes={periodesDesParties(f)}
           evenementOuvertInitial={filtreVie === 'evenement'}
           onOuvrirFil={onOuvrirFil} />
       </div>
@@ -1382,6 +1384,38 @@ function VueLot({
  */
 function occupationsPourHistorique(f: FicheLot): OccupationPeriode[] {
   return f.occupations.map((o) => ({ libelle: o.nom, depuis: o.entree, jusqua: o.sortie }));
+}
+
+/**
+ * ══ 🔴🔴 LA PÉRIODE DE BAIL DE CHAQUE ADRESSE DE LOCATAIRE — « chacun avec sa période » ═══════════════════════════
+ *
+ * DEMANDE D'ARNO (04/10/2026) : le groupe « Locataire » du bloc PARTIES porte « locataire en place et anciens
+ * locataires, chacun avec sa période ».
+ *
+ * 🔴 SEULE LA FICHE PEUT LA DONNER. La route `/historique` rend un tableau d'occupations VIDE pour une cible
+ * `lot-…` (un bien n'est pas borné dans le temps) ; la fiche, elle, porte toutes les occupations ET les contacts
+ * de chacune. C'est le même constat qui a fait passer `occupations` par ici au lot précédent.
+ *
+ * ⚠️ UNE ADRESSE ABSENTE N'AFFICHE RIEN, et c'est voulu : l'assureur, le syndic et l'artisan n'ont pas de bail.
+ * Leur inventer une période aurait été un mensonge d'écran — et celui-là se recopie dans un courrier.
+ *
+ * ⚠️ LE MOT EST ÉCRIT PAR `periodeOccupation`, celle que les trois fiches emploient déjà : « du … au … »,
+ * « depuis le … » ou « dates inconnues ». Jamais une seconde mise en forme des dates.
+ *
+ * ⚠️ LA PLUS RÉCENTE GAGNE quand une même adresse a occupé deux fois le logement : c'est la période qu'on a en
+ * tête. Les occupations arrivent de la plus récente à la plus ancienne, donc le PREMIER posé est conservé.
+ */
+function periodesDesParties(f: FicheLot): ReadonlyMap<string, PeriodePartie> {
+  const m = new Map<string, PeriodePartie>();
+  for (const o of f.occupations) {
+    const p: PeriodePartie = { mot: periodeOccupation(o.entree, o.sortie), du: o.entree, au: o.sortie };
+    for (const x of o.contacts) {
+      if (x.sorte !== 'email') continue;
+      const a = x.valeur.trim().toLowerCase();
+      if (a !== '' && !m.has(a)) m.set(a, p);
+    }
+  }
+  return m;
 }
 
 /**
