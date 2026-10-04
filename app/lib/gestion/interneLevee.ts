@@ -122,3 +122,36 @@ export function motApresAnnulationLevee(nbLiens: number): string {
  * Arno à les régler ensemble. Les tenir égaux aujourd'hui est une cohérence, pas une contrainte.
  */
 export const SECONDES_ANNULER_LEVEE = 12;
+
+/**
+ * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — CE QU'UNE SORTIE DOIT PORTER POUR TOUT DÉFAIRE ══════════════════
+ *
+ * DÉCISION D'ARNO (04/10/2026) : « “Annuler” REJOUE AUSSI LA DÉCISION DE SUIVI D'AVANT. Après Annuler, l'état est
+ * exactement celui d'avant le geste : liens, interventions, marque Interne, ET décision de suivi (fenêtre,
+ * personnes, en-tête du bandeau). »
+ *
+ * 🔴 TROIS CHOSES, ET IL EN FAUT TROIS :
+ *   · `mails` — les mails dont la marque « interne » a été levée, à remarquer ;
+ *   · `liens` — les rattachements posés, à retirer quand aucune décision de suivi ne s'en charge ;
+ *   · `trace` — ce que la DÉCISION de suivi a écrit et fermé, pour le défaire à l'identifiant près. `null` quand
+ *     le geste n'est pas passé par les périodes (le chemin direct du bloc, sur une conversation sans suivi).
+ *
+ * ⚠️ LE TYPE DE LA TRACE N'EST PAS RÉÉCRIT ICI : il vit dans `periodeRepo` (`TraceClassement`), et ce module est
+ * atteint par le navigateur — il ne peut pas l'importer sans tirer `pg`. On le décrit donc par sa FORME, et une
+ * épreuve de `interneLevee.test.ts` vérifie que les deux disent la même chose, champ pour champ.
+ */
+export interface TraceSuivi {
+  filId: number;
+  messageId: number;
+  periodeCreee: number | null;
+  exceptionCreee: number | null;
+  periodesRemplacees: number[];
+  exceptionsRetirees: number[];
+}
+
+/** Ce que l'« Annuler » d'une levée doit défaire — les trois moitiés, nommées. */
+export interface SortieLevee {
+  mails: number[];
+  liens: number[];
+  trace: TraceSuivi | null;
+}

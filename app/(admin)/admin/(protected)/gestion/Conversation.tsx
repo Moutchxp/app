@@ -58,7 +58,7 @@ import { EncartAnnuaire } from './EncartAnnuaire';
 // Le bandeau porte son propre CSS en ligne, comme `EncartAnnuaire` : rien à ajouter à `CSS_CONVERSATION`.
 import { EncartRattachement } from './EncartRattachement';
 /* 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — le délai de l'« Annuler » d'une levée, dans un module PUR. */
-import { SECONDES_ANNULER_LEVEE } from '../../../../lib/gestion/interneLevee';
+import { SECONDES_ANNULER_LEVEE, type SortieLevee } from '../../../../lib/gestion/interneLevee';
 // LOT LIGNE-NON-ENVOYE — la capsule « Non envoyé » de cet échange, avec sa cause et le retour au brouillon.
 import { BandeauEnvois } from './BandeauEnvois';
 // LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », partagée avec la liste.
@@ -2256,7 +2256,7 @@ export function MessageConversation({
    * elle — mesuré à l'écran le 04/10/2026. Elle est donc confiée au bloc « Classer ce mail », qui reste là et qui
    * porte déjà le même panneau pour le sens inverse.
    */
-  const [leveeAAnnuler, setLeveeAAnnuler] = useState<{ mails: number[]; liens: number[] } | null>(null);
+  const [leveeAAnnuler, setLeveeAAnnuler] = useState<SortieLevee | null>(null);
 
   /** La sortie ne reste offerte que quelques secondes — le même délai que le geste fait dans le bloc lui-même. */
   useEffect(() => {

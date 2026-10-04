@@ -37,7 +37,10 @@ import { CHOIX_SUIVI } from './EncartRattachement';
  */
 import {
   messageLeveeInterne, motApresAnnulationLevee, motApresLevee, SECONDES_ANNULER_LEVEE,
+  type SortieLevee, type TraceSuivi,
 } from '../../../../lib/gestion/interneLevee';
+/* 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — l'« Annuler » complet, écrit une seule fois pour les deux écrans. */
+import { annulerLaLevee } from './annulationLevee';
 import {
   alerteTouteLaConversation, motClassement,
   type ChoixSuivi, type Classement, type ExceptionMail,
@@ -113,7 +116,7 @@ export function RattachementsDuFil({
    * image. L'appelant qui a un bloc « Classer ce mail » sous le mail le lui confie ; celui qui n'en a pas ne
    * passe pas cette propriété, et la fenêtre garde son panneau local.
    */
-  onLeveeFaite?: (fait: { mails: number[]; liens: number[] }) => void;
+  onLeveeFaite?: (fait: SortieLevee) => void;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
@@ -138,7 +141,7 @@ export function RattachementsDuFil({
     message: string; mails: number[];
     geste: { voulus: readonly { cle: string; libelle: string }[]; choix: ChoixSuivi };
   } | null>(null);
-  const [leveeFaite, setLeveeFaite] = useState<{ mails: number[]; liens: number[] } | null>(null);
+  const [leveeFaite, setLeveeFaite] = useState<SortieLevee | null>(null);
 
   /**
    * ══ 🔴🔴 POURQUOI L'« ANNULER » EST REMONTÉ AU PARENT QUAND IL PEUT LE PRENDRE ═══════════════════════════════
@@ -390,21 +393,15 @@ export function RattachementsDuFil({
   };
 
   /** L'« ANNULER » DES SECONDES QUI SUIVENT : il retire le rattachement ET repose la marque, par les mêmes portes. */
+  /** L'« ANNULER » DES SECONDES QUI SUIVENT : il défait la décision de suivi, le rattachement ET la marque. */
   const annulerLevee = async (): Promise<void> => {
     const fait = leveeFaite;
     if (fait === null) return;
     setLeveeFaite(null);
-    try {
-      const res = await fetch('/api/admin/gestion/interne', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ remettreLevee: true, remettre: fait.liens, marques: fait.mails }),
-      });
-      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; liens?: number };
-      if (d.ok === true) onGeste?.(motApresAnnulationLevee(typeof d.liens === 'number' ? d.liens : 0));
-      await charger();
-    } catch {
-      setErreur('Le serveur n’a pas répondu.');
-    }
+    const issue = await annulerLaLevee(fait);
+    if (issue.ok) onGeste?.(motApresAnnulationLevee(issue.liens));
+    else setErreur('Le serveur n’a pas répondu.');
+    await charger();
   };
 
   const ecrire = async (
@@ -444,7 +441,7 @@ export function RattachementsDuFil({
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filId, messageId: mailId, classement, choix }),
       });
-      const d = (await res.json()) as { ok?: boolean; erreur?: string };
+      const d = (await res.json()) as { ok?: boolean; erreur?: string; trace?: TraceSuivi };
       if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return; }
       onGeste?.(choix === 'mail'
         ? `Exception posée sur ce mail : ${motClassement(classement)}.`
@@ -458,7 +455,13 @@ export function RattachementsDuFil({
       /* 🔴🔴 POINT 2 — APRÈS L'ÉCRITURE, ET JAMAIS AVANT : la marque est déjà levée par `rattacher()`. Ce qui
          reste à faire est d'offrir la SORTIE, avec les deux moitiés qu'elle devra défaire. */
       if (leveeConfirmee !== null && leveeConfirmee.length > 0 && ajoutes.length > 0) {
-        const fait = { mails: [...leveeConfirmee], liens: await liensPosesPour(ajoutes, suivi?.mails ?? []) };
+        const fait: SortieLevee = {
+          mails: [...leveeConfirmee],
+          liens: await liensPosesPour(ajoutes, suivi?.mails ?? []),
+          /* 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — LA TRACE DE LA DÉCISION, telle que le serveur l'a
+             rendue. Sans elle, « Annuler » ne pourrait que REJOUER une décision, donc en inventer une. */
+          trace: d.trace ?? null,
+        };
         if (onLeveeFaite !== undefined) onLeveeFaite(fait); else setLeveeFaite(fait);
       }
     } catch {

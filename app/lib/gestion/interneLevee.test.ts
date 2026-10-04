@@ -182,7 +182,13 @@ describe('🔴🔴 ⑥ une seule porte pour la règle, deux écrans pour la ques
     expect(PERIODES.replace(/\s+/g, ' ')).toContain('const issue = await rattacher({ messageId: m,');
   });
 
-  /** ⚠️ ET AUCUN ÉCRAN NE LÈVE LUI-MÊME : un second chemin serait une seconde règle à tenir d'accord. */
+  /**
+   * ⚠️ ET AUCUN ÉCRAN NE LÈVE LUI-MÊME : un second chemin serait une seconde règle à tenir d'accord.
+   *
+   * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE — ILS N'ANNULENT PLUS EUX-MÊMES NON PLUS. L'annulation est devenue un geste
+   * en DEUX appels, dans un ordre qui est la fonctionnalité (la décision de suivi, puis la marque) : écrite deux
+   * fois, elle aurait divergé au premier ajustement. Les deux écrans appellent donc `annulerLaLevee`.
+   */
   it('⚠️ aucun écran n’appelle la levée : ils demandent, ils ne lèvent pas', () => {
     for (const f of [
       'app/(admin)/admin/(protected)/gestion/EncartRattachement.tsx',
@@ -191,10 +197,28 @@ describe('🔴🔴 ⑥ une seule porte pour la règle, deux écrans pour la ques
       const src = readFileSync(f, 'utf8');
       expect(src, f).not.toContain('lever: true');
       expect(src, f).not.toContain('leverInterneApresRattachementHumain');
-      /* …mais ils POSENT la question, et ils offrent la sortie. */
+      /* …mais ils POSENT la question, et ils offrent la sortie par le module partagé. */
       expect(src, f).toContain('messageLeveeInterne(true)');
-      expect(src, f).toContain('remettreLevee: true');
+      expect(src, f).toContain('annulerLaLevee(fait)');
+      expect(src, f).not.toContain('remettreLevee: true');
     }
+  });
+
+  /**
+   * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — L'ORDRE DE L'ANNULATION EST LA FONCTIONNALITÉ ══════════════
+   *
+   * 🔴 LA DÉCISION DE SUIVI D'ABORD, LA MARQUE ENSUITE. Reposer « interne » sur un mail qui porte encore son
+   * bien reconstruirait, le temps d'une requête, l'état même que ce lot ferme.
+   */
+  it('🔴🔴 l’annulation défait la décision de suivi AVANT de remettre la marque', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/annulationLevee.ts', 'utf8');
+    const iSuivi = src.indexOf('const suivi = await defaireLaDecisionDeSuivi(fait.trace);');
+    const iMarque = src.indexOf('remettreLevee: true');
+    expect(iSuivi).toBeGreaterThan(0);
+    expect(iMarque).toBeGreaterThan(0);
+    expect(iSuivi).toBeLessThan(iMarque);
+    /* 🔴 ET LA DÉCISION EST DÉFAITE PAR SA TRACE, jamais rejouée : rejouer en inventerait une. */
+    expect(src.replace(/\s+/g, ' ')).toContain("body: JSON.stringify({ annuler: trace })");
   });
 });
 
@@ -244,12 +268,73 @@ describe('🔴🔴 ⑦ les deux écrans qui posent la question, et ce qu’ils d
     }
   });
 
-  /** 🔴 ET L'« ANNULER » DÉFAIT LES DEUX MOITIÉS : la marque seule laisserait « Interne avec un bien ». */
-  it('🔴 l’annulation retire les liens ET repose les marques', () => {
+  /**
+   * 🔴 ET L'« ANNULER » DÉFAIT LES TROIS MOITIÉS : la marque seule laisserait « Interne avec un bien », et le
+   * lien seul laisserait une décision de suivi que plus aucun lien ne suit (point 1 de ce lot).
+   */
+  it('🔴 l’annulation passe par le module partagé, qui défait les trois', () => {
+    const partage = readFileSync('app/(admin)/admin/(protected)/gestion/annulationLevee.ts', 'utf8')
+      .replace(/\s+/g, ' ');
+    expect(partage).toContain('remettreLevee: true, remettre: fait.liens, marques: fait.mails');
+    expect(partage).toContain('defaireLaDecisionDeSuivi(fait.trace)');
+    for (const f of ECRANS) {
+      expect(readFileSync(f, 'utf8'), f).toContain('annulerLaLevee(fait)');
+    }
+  });
+
+  /**
+   * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — LA SORTIE PORTE LA TRACE, ET ELLE VIENT DU SERVEUR ════════
+   *
+   * ⚠️ LA TRACE NE SE FABRIQUE PAS À L'ÉCRAN : elle est rendue par le POST qui a écrit la décision. Un écran qui
+   * la reconstruirait devinerait des identifiants — et l'annulation toucherait des lignes au hasard.
+   */
+  it('🔴🔴 la trace de la décision vient de la réponse du serveur', () => {
     for (const f of ECRANS) {
       const plat = readFileSync(f, 'utf8').replace(/\s+/g, ' ');
-      expect(plat, f)
-        .toContain('remettreLevee: true, remettre: fait.liens, marques: fait.mails');
+      expect(plat, f).toContain('trace?: TraceSuivi');
+      expect(plat, f).toContain('d.trace ?? null');
+    }
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — LES DEUX ÉCRITURES DE LA TRACE DISENT LA MÊME CHOSE ════════════
+ *
+ * ⚠️ POURQUOI IL Y EN A DEUX, ET POURQUOI C'EST ACCEPTABLE ICI. `TraceClassement` vit dans `periodeRepo`, qui
+ * tire `pg` : le navigateur ne peut pas l'importer. `TraceSuivi` en est la forme, côté écran. C'est exactement le
+ * genre de doublon dont ce dépôt a déjà payé plusieurs exemplaires — deux listes de domaines, deux règles de
+ * repli, trois listes de types d'images — et la parade est la même : une épreuve qui compare les deux À LA SOURCE,
+ * champ pour champ, au lieu de les recopier.
+ */
+describe('🔴🔴 ⑧ la trace de la décision de suivi, des deux côtés de la frontière', () => {
+  /** Les noms de champs déclarés dans un bloc `interface X { … }`, lus dans la source. */
+  const champsDe = (fichier: string, nom: string): string[] => {
+    const src = readFileSync(fichier, 'utf8');
+    const debut = src.indexOf(`export interface ${nom} {`);
+    expect(debut, `${nom} introuvable dans ${fichier}`).toBeGreaterThan(-1);
+    const corps = src.slice(debut, src.indexOf('\n}', debut));
+    return [...corps.matchAll(/^\s{2}([A-Za-z]\w*)\??:/gm)].map((m) => m[1]).sort();
+  };
+
+  it('🔴🔴 `TraceSuivi` (écran) et `TraceClassement` (dépôt) portent EXACTEMENT les mêmes champs', () => {
+    const ecran = champsDe('app/lib/gestion/interneLevee.ts', 'TraceSuivi');
+    const depot = champsDe('app/lib/gestion/periodeRepo.ts', 'TraceClassement');
+    expect(ecran).toEqual(depot);
+    /* 🔴 ET LES SIX SONT NOMMÉS ICI : un champ ajouté d'un seul côté fait rougir l'épreuve au-dessus ; un champ
+       ajouté des DEUX côtés sans être compris fait rougir celle-ci. */
+    expect(depot).toEqual([
+      'exceptionCreee', 'exceptionsRetirees', 'filId', 'messageId', 'periodeCreee', 'periodesRemplacees',
+    ]);
+  });
+
+  /** ⚠️ Et la route les relit un par un : un champ oublié là arriverait `null`, donc jamais défait. */
+  it('⚠️ la route lit les six champs de la trace', () => {
+    const src = readFileSync('app/(admin)/api/admin/gestion/suivi/route.ts', 'utf8');
+    const debut = src.indexOf('export function traceRecue');
+    const corps = src.slice(debut, src.indexOf('\n}', debut));
+    for (const champ of ['filId', 'messageId', 'periodeCreee', 'exceptionCreee',
+      'periodesRemplacees', 'exceptionsRetirees']) {
+      expect(corps, champ).toContain(champ);
     }
   });
 });

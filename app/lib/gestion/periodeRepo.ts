@@ -1,5 +1,7 @@
 import { query, withTransaction } from '../db/client';
-import { periodesDisponibles, rattachementsDisponibles, interventionsDisponibles } from './schema';
+import {
+  periodesDisponibles, rattachementsDisponibles, interventionsDisponibles, interneDuMessageDisponible,
+} from './schema';
 import {
   effetDuChoix, periodeEnCours, projeter, reprendre, repriseFidele, simplifierLeSuivi,
   type ChoixSuivi, type Classement, type ExceptionMail, type Periode, type PersonneClassee,
@@ -14,6 +16,12 @@ import { marquerHorsGestion, annulerHorsGestion } from './horsGestionRepo';
  */
 import { marquerInterneDesMessages, annulerInterneDesMessages } from './interneMessageRepo';
 import { MOTIF_INTERNE_PAR_SUIVI } from './interneDuMail';
+/**
+ * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — le motif que `rattacher()` écrit quand il lève la marque d'un mail
+ * auquel on vient de rattacher un bien. L'annulation doit le reconnaître : c'est lui, et non celui de la
+ * projection, que portent les lignes écrites pendant le geste (voir l'encadré de la réouverture).
+ */
+import { MOTIF_LEVE_PAR_RATTACHEMENT } from './interneLevee';
 import type { Auteur } from './gestes';
 // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — « ce mail est-il un de nos envois automatiques ? ». Module PUR.
 import { estDocumentEnvoye } from './documentsAuto';
@@ -265,7 +273,56 @@ async function documentsDuFil(filId: number): Promise<Set<number>> {
    🔴🔴 L'ÉCRITURE : POSER UN CLASSEMENT AVEC SON SUIVI
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-export type IssueSuivi = { ok: true; projetes: number } | { ok: false; motif: string };
+/**
+ * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — CE QU'UN CLASSEMENT A ÉCRIT, POUR POUVOIR LE DÉFAIRE ════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DÉCISION D'ARNO (04/10/2026) : « “Annuler” REJOUE AUSSI LA DÉCISION DE SUIVI D'AVANT. Après Annuler, l'état est
+ * exactement celui d'avant le geste : liens, interventions, marque Interne, ET décision de suivi (fenêtre,
+ * personnes, en-tête du bandeau). Aucune “décision vide” ni fausse exception ne doit rester. »
+ *
+ * ═══ 🔴🔴 POURQUOI UNE TRACE D'IDENTIFIANTS, ET PAS UN « REJOUER LA DÉCISION D'AVANT » ══════════════════════════
+ *
+ * La tentation était de reposer l'ancienne décision par `poserClassement`. Elle ne tient pas, et c'est mesuré :
+ * reposer une décision est un GESTE, qui passe par `effetDuChoix` — donc par la « règle du dernier choix ». Sur le
+ * mail d'essai du lot précédent, reposer une décision VIDE a créé une exception « aucun bien » là où il n'y en
+ * avait AUCUNE : la fausse exception que ce point interdit, fabriquée par la tentative de l'éviter.
+ *
+ * 🔴 ON DÉFAIT DONC LES ÉCRITURES, UNE PAR UNE, PAR LEUR IDENTIFIANT : on retire les lignes que le geste a
+ * créées, et l'on ROUVRE celles qu'il avait fermées. L'état revient alors au bit près — mêmes lignes, mêmes
+ * dates, mêmes auteurs, même en-tête de bandeau — ce qu'aucun nouveau geste ne peut faire.
+ *
+ * ⚠️ ET OUI, ROUVRIR EFFACE UNE DATE DE FERMETURE, ce qui est la seule exception du module à « on ne défait
+ * jamais, on date et on signe ». Elle est bornée à ce que ce geste-ci a fermé, dans les deux minutes, sur sa
+ * propre conversation — trois gardes, vérifiés en SQL. La trace de l'aller-retour reste lisible : la période
+ * créée garde sa ligne, datée et refermée. Garder la fermeture aurait laissé la conversation sans aucune décision
+ * vivante — c'est-à-dire un état que personne n'a choisi, et pire que celui qu'on répare.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface TraceClassement {
+  filId: number;
+  messageId: number;
+  /** La période que le geste a insérée, s'il en a inséré une. */
+  periodeCreee: number | null;
+  /** L'exception que le geste a insérée, s'il en a inséré une. */
+  exceptionCreee: number | null;
+  /** Les périodes que le geste a DATÉES (`remplacee_le`) — à rouvrir. */
+  periodesRemplacees: number[];
+  /** Les exceptions que le geste a RETIRÉES (`retiree_le`) — à rouvrir. */
+  exceptionsRetirees: number[];
+}
+
+/** Une trace vide : le geste n'a rien écrit du tout (règle 2 d'`effetDuChoix` sur une configuration identique). */
+export function traceVide(filId: number, messageId: number): TraceClassement {
+  return {
+    filId, messageId, periodeCreee: null, exceptionCreee: null,
+    periodesRemplacees: [], exceptionsRetirees: [],
+  };
+}
+
+export type IssueSuivi =
+  | { ok: true; projetes: number; trace: TraceClassement }
+  | { ok: false; motif: string };
 
 /**
  * ══ 🔴🔴 POSER UN CLASSEMENT, AVEC LE SUIVI CHOISI ════════════════════════════════════════════════════════════
@@ -324,19 +381,32 @@ export async function poserClassement(o: {
     periodes: avant.periodes, exceptions: avant.exceptions, mails,
   });
 
+  /**
+   * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — LA TRACE EST REMPLIE PAR LES ÉCRITURES ELLES-MÊMES.
+   *
+   * ⚠️ `RETURNING id` SUR CHAQUE `UPDATE`, ET NON LA LISTE DEMANDÉE À `effetDuChoix` : les deux ne sont pas la
+   * même chose. `effetDuChoix` dit ce qu'il FAUT fermer ; le `RETURNING` dit ce qui a RÉELLEMENT été fermé — une
+   * période déjà remplacée entre-temps, ou une exception déjà retirée, ne figure pas dans la seconde. Rouvrir
+   * d'après la première ressusciterait une ligne que ce geste-ci n'avait pas fermée.
+   */
+  const trace = traceVide(o.filId, o.messageId);
+
   await withTransaction(async (q) => {
     // ① « Toute la conversation » : les périodes existantes sont DATÉES, jamais supprimées.
     if (effet.periodesRemplacees.length > 0) {
-      await q(
+      const { rows } = await q<{ id: string }>(
         `UPDATE gestion_fil_periode SET remplacee_le = now(), remplacee_par_libelle = $2
-          WHERE id = ANY($1::bigint[]) AND remplacee_le IS NULL`,
+          WHERE id = ANY($1::bigint[]) AND remplacee_le IS NULL RETURNING id::text`,
         [effet.periodesRemplacees, libelle]);
+      trace.periodesRemplacees = rows.map((r) => Number(r.id));
     }
     // ② L'exception du mail qu'on reclasse en période : retirée, sinon elle masquerait la règle qu'on pose.
     if (effet.exceptionRetiree !== null) {
-      await q(
-        'UPDATE gestion_message_exception SET retiree_le = now() WHERE message_id = $1 AND retiree_le IS NULL',
+      const { rows } = await q<{ id: string }>(
+        `UPDATE gestion_message_exception SET retiree_le = now()
+          WHERE message_id = $1 AND retiree_le IS NULL RETURNING id::text`,
         [effet.exceptionRetiree]);
+      trace.exceptionsRetirees = rows.map((r) => Number(r.id));
     }
     // ③ LA NOUVELLE PÉRIODE. « Toute la conversation » part du PREMIER mail de la conversation.
     if (effet.nouvellePeriode !== null) {
@@ -345,6 +415,7 @@ export async function poserClassement(o: {
         `INSERT INTO gestion_fil_periode (fil_id, depuis_message_id, sorte, cree_par, cree_par_libelle)
          VALUES ($1, $2, $3, $4, $5) RETURNING id::text`,
         [o.filId, depuis, o.classement.sorte, o.auteur.id, libelle]);
+      trace.periodeCreee = Number(rows[0].id);
       await ecrireBiens(q, 'gestion_fil_periode_bien', 'periode_id', Number(rows[0].id), o.classement);
       // 🔴 LOT CONTACTS-EXTERNES — les personnes que cette fenêtre porte. Sans la 293, la fonction sort avant sa
       //   requête : aucune table nouvelle n'est nommée, et la fenêtre ne porte que ses biens, comme avant.
@@ -353,13 +424,19 @@ export async function poserClassement(o: {
     }
     // ④ LA NOUVELLE EXCEPTION. Une seule vivante par mail — l'index unique partiel le garantit.
     if (effet.nouvelleException !== null) {
-      await q(
-        'UPDATE gestion_message_exception SET retiree_le = now() WHERE message_id = $1 AND retiree_le IS NULL',
+      /* ⚠️ CE RETRAIT-CI COMPTE AUSSI DANS LA TRACE : il ferme l'exception précédente du mail, et `effetDuChoix`
+         ne le dit pas (`exceptionRetiree` vaut `null` pour « ce mail uniquement », parce que l'écriture s'en
+         charge). Sans cette ligne, l'annulation rouvrirait la nouvelle et laisserait l'ancienne fermée. */
+      const { rows: fermees } = await q<{ id: string }>(
+        `UPDATE gestion_message_exception SET retiree_le = now()
+          WHERE message_id = $1 AND retiree_le IS NULL RETURNING id::text`,
         [o.messageId]);
+      trace.exceptionsRetirees = [...trace.exceptionsRetirees, ...fermees.map((r) => Number(r.id))];
       const { rows } = await q<{ id: string }>(
         `INSERT INTO gestion_message_exception (message_id, sorte, cree_par, cree_par_libelle)
          VALUES ($1, $2, $3, $4) RETURNING id::text`,
         [o.messageId, o.classement.sorte, o.auteur.id, libelle]);
+      trace.exceptionCreee = Number(rows[0].id);
       await ecrireBiens(q, 'gestion_message_exception_bien', 'exception_id', Number(rows[0].id), o.classement);
       await ecrirePersonnes(q, 'gestion_message_exception_personne', 'exception_id', Number(rows[0].id),
         o.classement, avecPersonnes);
@@ -370,7 +447,183 @@ export async function poserClassement(o: {
     // 🔴 SEUL « Toute la conversation » remplace un lien posé à la main — et il l'annonce avant (voir la modale).
     remplacerLesLiensManuels: o.choix === 'conversation',
   });
-  return { ok: true, projetes };
+  return { ok: true, projetes, trace };
+}
+
+/**
+ * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — DÉFAIRE UN CLASSEMENT, EXACTEMENT ══════════════════════════════
+ *
+ * Arno : « Après Annuler, l'état est exactement celui d'avant le geste : liens, interventions, marque Interne, ET
+ * décision de suivi (fenêtre, personnes, en-tête du bandeau). »
+ *
+ * ═══ 🔴 CE QU'ELLE FAIT, DANS CET ORDRE, ET POURQUOI CET ORDRE ══════════════════════════════════════════════════
+ *
+ *   ① ON RETIRE CE QUE LE GESTE A CRÉÉ (la période, l'exception). D'ABORD, et c'est la base qui l'impose :
+ *      `gestion_message_exception_vivante_idx` n'accepte QU'UNE exception vivante par mail. Rouvrir l'ancienne
+ *      avant de refermer la nouvelle échouerait sur l'index unique.
+ *   ② ON ROUVRE CE QUE LE GESTE A FERMÉ (les périodes remplacées, les exceptions retirées).
+ *   ③ ON REPROJETTE. 🔴🔴 ET C'EST LA CLÉ DU POINT : les LIENS et les INTERVENTIONS n'ont pas à être restaurés
+ *      un par un — la projection est un DIFF vers la décision vivante. La décision étant redevenue celle
+ *      d'avant, elle retire les liens que le geste avait posés, remet ceux qu'il avait retirés, et la cascade de
+ *      la migration 293 suit pour les interventions. Un second chemin qui restaurerait les liens à la main
+ *      divergerait de la projection au premier ajustement.
+ *
+ * ═══ 🔒 LES TROIS GARDES DE LA RÉOUVERTURE ══════════════════════════════════════════════════════════════════════
+ *
+ * Rouvrir une ligne fermée est la seule exception du module à « on ne défait jamais ». Elle est donc bornée :
+ *   · aux identifiants que l'appelant NOMME (ceux que `poserClassement` a rendus) ;
+ *   · à la CONVERSATION de la trace (`fil_id`, et pour une exception le `fil_id` de son mail) ;
+ *   · aux fermetures de MOINS DE DEUX MINUTES. L'« Annuler » n'est offert que douze secondes ; deux minutes
+ *     couvrent largement un clic tardif, et refusent un appel forgé qui voudrait ressusciter une décision
+ *     d'hier.
+ *
+ * ⚠️ ELLE N'EST JAMAIS AUTOMATIQUE : comme `poserClassement`, elle refuse un auteur anonyme ou « automatique ».
+ */
+export async function annulerClassement(o: {
+  trace: TraceClassement; auteur: Auteur;
+}): Promise<IssueSuivi> {
+  if (!(await periodesDisponibles())) {
+    return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 290).' };
+  }
+  const libelle = (o.auteur.libelle ?? '').trim();
+  if (libelle === '' || libelle.toLowerCase() === 'automatique') {
+    return { ok: false, motif: 'Annuler un suivi de conversation ne se fait qu’à la main.' };
+  }
+  const t = o.trace;
+  if (!Number.isSafeInteger(t.filId) || t.filId <= 0) return { ok: false, motif: 'Conversation inconnue.' };
+  const ids = (l: readonly number[]): number[] =>
+    [...new Set(l.filter((n) => Number.isSafeInteger(n) && n > 0))].slice(0, 500);
+
+  await withTransaction(async (q) => {
+    // ① CE QUE LE GESTE A CRÉÉ — refermé, jamais supprimé : la ligne reste, datée et signée.
+    if (t.periodeCreee !== null) {
+      await q(
+        `UPDATE gestion_fil_periode SET remplacee_le = now(), remplacee_par_libelle = $3
+          WHERE id = $1 AND fil_id = $2 AND remplacee_le IS NULL
+            AND cree_le > now() - interval '2 minutes'`,
+        [t.periodeCreee, t.filId, libelle]);
+    }
+    if (t.exceptionCreee !== null) {
+      await q(
+        `UPDATE gestion_message_exception e SET retiree_le = now()
+          WHERE e.id = $1 AND e.retiree_le IS NULL AND e.cree_le > now() - interval '2 minutes'
+            AND EXISTS (SELECT 1 FROM gestion_message m WHERE m.id = e.message_id AND m.fil_id = $2)`,
+        [t.exceptionCreee, t.filId]);
+    }
+    // ② CE QUE LE GESTE A FERMÉ — rouvert, sous les trois gardes.
+    const periodes = ids(t.periodesRemplacees);
+    if (periodes.length > 0) {
+      await q(
+        `UPDATE gestion_fil_periode SET remplacee_le = NULL, remplacee_par_libelle = NULL
+          WHERE id = ANY($1::bigint[]) AND fil_id = $2
+            AND remplacee_le IS NOT NULL AND remplacee_le > now() - interval '2 minutes'`,
+        [periodes, t.filId]);
+    }
+    const exceptions = ids(t.exceptionsRetirees);
+    if (exceptions.length > 0) {
+      await q(
+        `UPDATE gestion_message_exception e SET retiree_le = NULL
+          WHERE e.id = ANY($1::bigint[])
+            AND e.retiree_le IS NOT NULL AND e.retiree_le > now() - interval '2 minutes'
+            AND EXISTS (SELECT 1 FROM gestion_message m WHERE m.id = e.message_id AND m.fil_id = $2)`,
+        [exceptions, t.filId]);
+    }
+  });
+
+  /**
+   * ③ ON REPROJETTE, et `remplacerLesLiensManuels` EST VRAI : le geste qu'on défait a pu être « Toute la
+   * conversation », qui déplace les liens posés à la main. Sans cette permission, l'annulation ne pourrait pas
+   * les rendre — elle laisserait exactement les liens que le geste avait posés par-dessus eux.
+   */
+  const projetes = await projeterLeFil(t.filId, o.auteur, { remplacerLesLiensManuels: true });
+
+  /**
+   * ══ 🔴🔴 LE CAS QUE LA PROJECTION SEULE NE PEUT PAS TRAITER, ET IL EST FRÉQUENT ════════════════════════════
+   *
+   * ⚠️ `projeterLeFil` SORT À ZÉRO QUAND LA CONVERSATION N'A PLUS AUCUNE DÉCISION VIVANTE (« if (periodes.length
+   * === 0 && exceptions.length === 0) return 0 »), et c'est juste : sans fenêtre, elle n'a rien à dire. Or
+   * c'est exactement l'état où l'annulation nous laisse quand le geste avait posé la PREMIÈRE décision de la
+   * conversation — le cas du mail d'essai du lot précédent. La projection ne retirerait alors AUCUN lien, et le
+   * bien posé resterait, avec ses interventions.
+   *
+   * 🔴 ON LE FAIT DONC ICI, ET SOUS LES MÊMES GARDES : les liens que la PROJECTION a posés (son motif, écrit
+   * nulle part ailleurs), créés dans les deux dernières minutes, sur les mails de cette conversation. Un lien
+   * posé à la main, ou posé hier, n'est pas touché — ce ne sont pas ceux que ce geste-ci a créés.
+   *
+   * 🔴 PUIS LA CASCADE DES INTERVENTIONS, dans le même ordre que la projection : la base refuse une intervention
+   * sans lien vivant vers un bien sur le même mail (migration 293).
+   */
+  const restant = await suiviDuFil(t.filId);
+  const tousLesMails = await mailsDuFil(t.filId);
+
+  /**
+   * ══ 🔴🔴 ET LA MARQUE « INTERNE » QUE LA PROJECTION DU GESTE AVAIT ÉCARTÉE ═════════════════════════════════
+   *
+   * ⚠️ DÉFAUT TROUVÉ PAR L'ÉPREUVE, PAS PAR UN RAISONNEMENT (`interneAnnulerEtSuite.itest.ts`, scénario « une
+   * conversation SANS décision ») : le point 2 de ce lot fait écrire à la projection, sur chaque mail couvert
+   * d'une conversation marquée interne, une ligne qui dit « on s'est prononcé ». Après l'annulation, ces lignes
+   * restaient — et les mails restaient NON interne, alors que plus aucune fenêtre ne les couvrait.
+   *
+   * 🔴 ON ROUVRE DONC CES MARQUES, et SEULEMENT pour les mails que la décision RESTAURÉE ne couvre plus : ceux
+   * que la fenêtre couvre encore doivent évidemment rester non interne — c'est ce que leur fenêtre dit.
+   *
+   * 🔴🔴 LE MOTIF EST CELUI DE LA LEVÉE, ET C'EST MESURÉ, PAS DEVINÉ. En posant le bien, la projection appelle
+   * `rattacher()`, qui lève lui-même la marque du mail (lot PHOTOS-ET-INTERNE-INVERSE) : la ligne écrite pendant
+   * le geste porte donc `MOTIF_LEVE_PAR_RATTACHEMENT`. Le diagnostic du 04/10/2026 l'a montré — un filtre sur un
+   * autre motif ne rouvrait RIEN.
+   *
+   * 🔴 ET SEULEMENT CELLES-LÀ, reconnues à leur motif et à leur fraîcheur : une marque retirée à la main, ou il y
+   * a une heure, n'a pas à ressusciter ici.
+   *
+   * ⚠️ UNE CHOSE NE REVIENT PAS À L'IDENTIQUE, ET IL FAUT LE SAVOIR : un mail qui était interne par le REPLI
+   * redevient interne par SA PROPRE marque — la ligne que la projection avait écrite est rouverte au lieu d'être
+   * effacée. L'écran dit exactement la même chose (`interneDuMail` rend « interne » dans les deux cas) ; la
+   * provenance, elle, est plus précise qu'avant. C'est la même réserve que `remettreInterneApresAnnulation`, et
+   * elle vient de la même règle : ce module ne supprime jamais une ligne.
+   *
+   * 🔒 `DISTINCT ON` ET LE `NOT EXISTS` : l'index unique partiel n'accepte qu'UNE marque vivante par mail. On ne
+   * rouvre donc que la PLUS RÉCENTE, et jamais si le mail porte déjà une marque vivante.
+   */
+  if (tousLesMails.length > 0) {
+    const couverts = projeter(tousLesMails, restant.periodes, restant.exceptions);
+    const orphelins = tousLesMails.filter((m) => couverts.get(m) === undefined);
+    if (orphelins.length > 0 && (await interneDuMessageDisponible())) {
+      await query(
+        `UPDATE gestion_message_interne
+            SET retire_le = NULL, retire_par = NULL, retire_par_libelle = NULL, retire_motif = NULL
+          WHERE id IN (
+            SELECT DISTINCT ON (mi.message_id) mi.id
+              FROM gestion_message_interne mi
+             WHERE mi.message_id = ANY($1::bigint[])
+               AND mi.retire_le IS NOT NULL
+               AND mi.retire_le > now() - interval '2 minutes'
+               AND coalesce(mi.retire_motif, '') = ANY($2::text[])
+               AND NOT EXISTS (SELECT 1 FROM gestion_message_interne x
+                                WHERE x.message_id = mi.message_id AND x.retire_le IS NULL)
+             ORDER BY mi.message_id, mi.retire_le DESC, mi.id DESC)`,
+        [orphelins, [MOTIF_LEVE_PAR_RATTACHEMENT]]);
+    }
+  }
+
+  if (restant.periodes.length === 0 && restant.exceptions.length === 0) {
+    const mails = tousLesMails;
+    if (mails.length > 0) {
+      const { changerStatut } = await import('./rattachementRepo');
+      const { rows } = await query<{ id: string }>(
+        `SELECT id::text FROM gestion_rattachement
+          WHERE message_id = ANY($1::bigint[]) AND cible_sorte = 'lot' AND piece_id IS NULL
+            AND statut = 'confirme' AND coalesce(motif, '') = $2
+            AND cree_le > now() - interval '2 minutes'
+          ORDER BY id`, [mails, MOTIF_POSE_PAR_SUIVI]);
+      for (const r of rows) {
+        await changerStatut({
+          lienId: Number(r.id), statut: 'retire', auteur: o.auteur, motif: MOTIF_RETIRE_PAR_SUIVI,
+        });
+      }
+      await retirerInterventionsSansBien(mails, o.auteur);
+    }
+  }
+  return { ok: true, projetes, trace: traceVide(t.filId, t.messageId) };
 }
 
 type Requete = Parameters<Parameters<typeof withTransaction>[0]>[0];

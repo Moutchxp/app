@@ -2,7 +2,8 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
-  filRattache, mailsDuFil, poserClassement, suiviDuFil,
+  annulerClassement, filRattache, mailsDuFil, poserClassement, suiviDuFil,
+  type TraceClassement,
 } from '../../../../../lib/gestion/periodeRepo';
 // 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — « cet expéditeur est-il connu des fiches ? » (règle ② d'Arno).
 import { expediteurConnuDesFiches } from '../../../../../lib/gestion/contactExterneRepo';
@@ -20,6 +21,9 @@ import type { ChoixSuivi, Classement, SorteClassement } from '../../../../../lib
  * LES VERBES :
  *   · GET  ?fil=N        les périodes et exceptions vivantes de cette conversation, et ses mails dans l'ordre
  *   · POST { filId, messageId, classement, choix }   poser un classement avec son suivi
+ *   · POST { annuler: <trace> }                      DÉFAIRE ce classement, exactement (lot
+ *     INTERNE-ANNULER-ET-SUITE) : la trace est celle que le POST ci-dessus a rendue. Voir l'encadré
+ *     d'`annulerClassement` — on retire ce qui a été créé, on rouvre ce qui a été fermé, on reprojette.
  *
  * ⚠️ `sans_schema` (migration 290 non appliquée) N'EST PAS UNE ERREUR : c'est un état, rendu en 200. L'écran ne
  * rend alors pas le bloc « Suivi dans la conversation » et se comporte exactement comme avant ce lot.
@@ -121,6 +125,35 @@ export function choixRecu(brut: unknown): ChoixSuivi {
   return brut === 'mail' || brut === 'conversation' ? brut : 'suite';
 }
 
+/**
+ * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — LA TRACE REÇUE DU NAVIGATEUR. PUR. ═════════════════════════════
+ *
+ * Rend `null` dès qu'elle n'est pas une trace propre : la conversation est obligatoire, les identifiants sont des
+ * entiers positifs, et les listes sont bornées.
+ *
+ * 🔴 ELLE VIENT DU NAVIGATEUR, DONC ON NE LUI FAIT AUCUNE CONFIANCE. Elle ne peut rien faire d'autre que NOMMER
+ * des lignes : les trois gardes qui décident si on y touche vraiment — appartenance à la conversation, fermeture
+ * de moins de deux minutes, auteur humain — sont en SQL, dans `annulerClassement`, et non ici. Un garde de
+ * lecture se contourne en forgeant une requête ; une clause `WHERE` non.
+ */
+export function traceRecue(brut: unknown): TraceClassement | null {
+  if (brut === null || typeof brut !== 'object') return null;
+  const o = brut as Record<string, unknown>;
+  const filId = entier(o.filId);
+  const messageId = entier(o.messageId);
+  if (filId === null || messageId === null) return null;
+  const liste = (v: unknown): number[] => (Array.isArray(v) ? v : [])
+    .map((x) => entier(x)).filter((n): n is number => n !== null).slice(0, 500);
+  return {
+    filId,
+    messageId,
+    periodeCreee: entier(o.periodeCreee),
+    exceptionCreee: entier(o.exceptionCreee),
+    periodesRemplacees: liste(o.periodesRemplacees),
+    exceptionsRetirees: liste(o.exceptionsRetirees),
+  };
+}
+
 export async function GET(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
@@ -168,6 +201,26 @@ export async function POST(request: Request): Promise<Response> {
   try { corps = (await request.json()) as Record<string, unknown>; }
   catch { return Response.json({ erreur: 'Requête invalide.' }, { status: 422, headers: ENTETES }); }
 
+  /**
+   * ══ 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — L'ANNULATION, AVANT TOUT LE RESTE ═════════════════════════
+   *
+   * Elle est lue ICI parce qu'elle ne porte NI classement NI choix : sa cible est la TRACE du geste à défaire.
+   * La faire passer par les gardes du classement l'obligerait à inventer une décision — ce que ce point
+   * interdit précisément.
+   */
+  const trace = traceRecue(corps.annuler);
+  if (trace !== null) {
+    try {
+      const issue = await annulerClassement({ trace, auteur: await auteurDeLaRequete(request) });
+      if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
+      return Response.json({ ok: true, projetes: issue.projetes }, { headers: ENTETES });
+    } catch (e) {
+      console.error('[gestion/suivi] annulation impossible (fil=%d)', trace.filId, e);
+      return Response.json({ erreur: 'L’annulation n’a pas abouti : la base n’a pas répondu.' },
+        { status: 503, headers: ENTETES });
+    }
+  }
+
   const filId = entier(corps.filId);
   const messageId = entier(corps.messageId);
   const classement = classementRecu(corps.classement);
@@ -181,7 +234,10 @@ export async function POST(request: Request): Promise<Response> {
       auteur: await auteurDeLaRequete(request),
     });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
-    return Response.json({ ok: true, projetes: issue.projetes }, { headers: ENTETES });
+    /* 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE — LA TRACE EST RENDUE À L'ÉCRAN, et c'est elle qui rend l'« Annuler »
+       exact : sans les identifiants de ce qui a été écrit et fermé, on ne pourrait que REJOUER une décision,
+       donc en inventer une. */
+    return Response.json({ ok: true, projetes: issue.projetes, trace: issue.trace }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/suivi] écriture impossible (fil=%d, mail=%d)', filId, messageId, e);
     return Response.json({ erreur: 'Le geste n’a pas abouti : la base n’a pas répondu.' },

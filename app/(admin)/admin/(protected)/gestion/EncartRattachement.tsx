@@ -14,7 +14,10 @@ import {
  */
 import {
   messageLeveeInterne, motApresAnnulationLevee, motApresLevee,
+  type SortieLevee, type TraceSuivi,
 } from '../../../../lib/gestion/interneLevee';
+/* 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — l'« Annuler » complet, écrit une seule fois pour les deux écrans. */
+import { annulerLaLevee } from './annulationLevee';
 import type { ChoixInterne } from '../../../../lib/gestion/interneDuMail';
 import { CSS_CHOISIR_CIBLE } from './ChoisirCible';
 import { ModifierRattachement } from './ModifierRattachement';
@@ -183,7 +186,7 @@ export function EncartRattachement({
    *
    * ⚠️ `null`/absent ⇒ RIEN NE CHANGE : seul le geste fait DANS ce bloc offre une sortie, comme avant.
    */
-  leveeExterne?: { mails: number[]; liens: number[] } | null;
+  leveeExterne?: SortieLevee | null;
   /** Prévient l'appelant que sa sortie a été prise (ou qu'elle n'a plus lieu d'être), pour qu'il l'oublie. */
   onLeveeAnnulee?: () => void;
   /** Retire la marque « hors gestion » de ce mail (`false`). Absent ⇒ la case verte ne se défait pas d'ici. */
@@ -425,7 +428,7 @@ export function EncartRattachement({
   const [demandeLevee, setDemandeLevee] = useState<{
     message: string; mails: number[]; geste: ArgumentsClassement;
   } | null>(null);
-  const [leveeFaite, setLeveeFaite] = useState<{ mails: number[]; liens: number[] } | null>(null);
+  const [leveeFaite, setLeveeFaite] = useState<SortieLevee | null>(null);
 
   /**
    * ══ 🔴 LA SORTIE AFFICHÉE : LA NÔTRE, OU CELLE QU'ON NOUS CONFIE ══════════════════════════════════════════
@@ -628,13 +631,15 @@ export function EncartRattachement({
    * garder sous la main les mails qui étaient interne — les deux moitiés que l'annulation devra défaire.
    */
   const offrirAnnulationDeLaLevee = async (
-    cles: readonly string[], mailsLeves: readonly number[],
+    cles: readonly string[], mailsLeves: readonly number[], trace: TraceSuivi | null,
   ): Promise<void> => {
     setOccupeInterne(true);
     try {
       const liensPoses = await liensPosesPour(cles, mailsDuFil.length > 0 ? mailsDuFil : [messageId]);
       onGeste?.(motApresLevee(mailsLeves.length));
-      setLeveeFaite({ mails: [...mailsLeves], liens: liensPoses });
+      /* 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — LA TRACE PART AVEC LA SORTIE. Sans elle, « Annuler » ne
+         pourrait que rejouer une décision, donc en inventer une — la fausse exception qu'Arno interdit. */
+      setLeveeFaite({ mails: [...mailsLeves], liens: liensPoses, trace });
     } finally {
       setOccupeInterne(false);
     }
@@ -649,16 +654,10 @@ export function EncartRattachement({
     onLeveeAnnulee?.();
     setOccupeInterne(true);
     try {
-      const res = await fetch('/api/admin/gestion/interne', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ remettreLevee: true, remettre: fait.liens, marques: fait.mails }),
-      });
-      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; liens?: number };
-      if (d.ok === true) onGeste?.(motApresAnnulationLevee(typeof d.liens === 'number' ? d.liens : 0));
+      const issue = await annulerLaLevee(fait);
+      if (issue.ok) onGeste?.(motApresAnnulationLevee(issue.liens));
+      else setErreur('Le serveur n’a pas répondu.');
       await onChange();
-    } catch {
-      setErreur('Le serveur n’a pas répondu.');
     } finally {
       setOccupeInterne(false);
     }
@@ -737,10 +736,16 @@ export function EncartRattachement({
         return;
       }
     }
-    /** Ce que l'« Annuler » devra défaire. Appelé APRÈS l'écriture, et seulement si la levée a été confirmée. */
-    const offrirLAnnulation = async (): Promise<void> => {
+    /**
+     * Ce que l'« Annuler » devra défaire. Appelé APRÈS l'écriture, et seulement si la levée a été confirmée.
+     *
+     * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE — `trace` EST LA DÉCISION DE SUIVI ÉCRITE PAR LE GESTE, telle que le
+     * serveur l'a rendue. `null` sur le chemin direct (une conversation sans suivi) : il n'y a alors aucune
+     * décision à défaire, et l'annulation retire les liens par leur identifiant, comme au lot précédent.
+     */
+    const offrirLAnnulation = async (trace: TraceSuivi | null): Promise<void> => {
       if (leveeConfirmee === null || leveeConfirmee.length === 0 || clesAjoutees.length === 0) return;
-      await offrirAnnulationDeLaLevee(clesAjoutees, leveeConfirmee);
+      await offrirAnnulationDeLaLevee(clesAjoutees, leveeConfirmee, trace);
     };
 
     // ① LE CHEMIN DES PÉRIODES : une seule requête, qui porte la décision entière.
@@ -761,7 +766,7 @@ export function EncartRattachement({
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filId, messageId, classement, choix: choixRetenu }),
         });
-        const d = (await res.json()) as { ok?: boolean; erreur?: string };
+        const d = (await res.json()) as { ok?: boolean; erreur?: string; trace?: TraceSuivi };
         if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return; }
         onGeste?.(`${motDuGeste(choixRetenu, classement)}${mention}`);
         await onChange();
@@ -770,7 +775,7 @@ export function EncartRattachement({
         setCiblesEnCours(null);
         /* 🔴🔴 POINT 2 — APRÈS LE CLASSEMENT, ET JAMAIS AVANT : on ne lève pas une marque pour un geste qui
            n'aurait pas abouti. Le `return` au-dessus, en cas d'erreur, garantit qu'on ne passe pas ici. */
-        await offrirLAnnulation();
+        await offrirLAnnulation(d.trace ?? null);
       } catch {
         setErreur('Le serveur n’a pas répondu.');
       } finally {
@@ -794,7 +799,8 @@ export function EncartRattachement({
     setAjout(false);
     setEtape2(null);
     setCiblesEnCours(null);
-    await offrirLAnnulation();
+    /* ⚠️ LE CHEMIN DIRECT N'ÉCRIT AUCUNE DÉCISION DE SUIVI : la trace est `null`, et il n'y a rien à rouvrir. */
+    await offrirLAnnulation(null);
   };
 
   /**
