@@ -7,14 +7,15 @@ import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
 
 /**
- * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 5 — LE MAIL DÉPLIÉ MONTRE TOUT LE MESSAGE ══════════════════════════════════
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINTS 5 ET 6 — LE MAIL DÉPLIÉ ══════════════════════════════════════════════════
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * DEMANDE D'ARNO (05/10/2026) :
- *   « Le mail déplié (triangle ▸) affiche l'INTÉGRALITÉ du nouveau message (aujourd'hui il est coupé : “Par
- *     ailleurs, avez-vou”), SANS l'historique cité en dessous. Réutilise la détection de citation déjà utilisée
- *     dans la Conversation, pas de second chemin. Si elle échoue sur un cas, affiche tout plutôt que de couper.
- *     Tests sur 5 mails réels (Gmail, Outlook, iPhone, transfert, réponse courte). »
+ * DEUX DEMANDES D'ARNO (05/10/2026) :
+ *   ⑤ « Le mail déplié (triangle ▸) affiche l'INTÉGRALITÉ du nouveau message (aujourd'hui il est coupé : “Par
+ *      ailleurs, avez-vou”), SANS l'historique cité en dessous. Réutilise la détection de citation déjà utilisée
+ *      dans la Conversation, pas de second chemin. Si elle échoue sur un cas, affiche tout plutôt que de couper.
+ *      Tests sur 5 mails réels (Gmail, Outlook, iPhone, transfert, réponse courte). »
+ *   ⑥ « “Voir la conversation d'origine →” est placé EN BAS À DROITE du mail déplié. »
  *
  * ═══ 🔴 LA CAUSE DU POINT 5, MESURÉE AVANT D'ÊTRE CORRIGÉE ════════════════════════════════════════════════════════
  *
@@ -369,5 +370,38 @@ describe('Point 5 — la ligne dépliée affiche tout le message, et rien de l�
     reponse = { corps: null, html: null };
     await monter(true, { ...LIGNE, extrait: null });
     expect(container.querySelector('.vdb-corps')).toBeNull();
+  });
+});
+
+describe('Point 6 — « Voir la conversation d’origine → » est en bas à droite', () => {
+  it('c’est le DERNIER élément du mail déplié', async () => {
+    await monter(true);
+    const detail = container.querySelector('.vdb-detail');
+    expect(detail).not.toBeNull();
+    const dernier = detail?.lastElementChild;
+    expect(dernier?.className).toBe('vdb-sortie');
+    expect(dernier?.textContent).toContain('Voir la conversation d’origine');
+  });
+
+  it('son enveloppe le pousse à droite', async () => {
+    await monter(true);
+    const sortie = container.querySelector('.vdb-sortie');
+    expect(sortie).not.toBeNull();
+    expect(sortie?.querySelector('button')).not.toBeNull();
+  });
+
+  it('🔴 LA RÈGLE EST ÉCRITE DANS LA FEUILLE, PAS DEVINÉE PAR LE RENDU', async () => {
+    const { CSS_VIE_DU_BIEN } = await import('./VieDuBien');
+    const regle = CSS_VIE_DU_BIEN.split('.vdb-sortie{')[1]?.split('}')[0] ?? '';
+    expect(regle).toContain('justify-content:flex-end');
+  });
+
+  it('sans `onOuvrirFil` (la fiche d’un locataire n’en passe pas), aucune sortie n’est rendue', async () => {
+    await act(async () => {
+      root.render(createElement(LigneVie, {
+        l: LIGNE, maintenant: new Date('2026-10-05T12:00:00.000Z'), ouvert: true, onBasculer: () => {},
+      }));
+    });
+    expect(container.querySelector('.vdb-sortie')).toBeNull();
   });
 });

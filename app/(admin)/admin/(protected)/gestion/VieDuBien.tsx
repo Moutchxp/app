@@ -390,14 +390,19 @@ export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surli
               la même destination, et deux libellés pour une même action se mettraient à divergEr. Le nouveau mot
               est d'ailleurs le plus juste des deux partout : il dit qu'on quitte une LISTE pour aller voir la
               conversation D'OÙ le mail est tiré.
- */}
-          {onOuvrirFil && (
-            <button type="button" className="gst-lien-bouton"
-              onClick={() => onOuvrirFil(l.filId, l.messageId)}>Voir la conversation d’origine →</button>
-          )}
+
+              🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 6 — IL EST EN BAS À DROITE DU MAIL DÉPLIÉ (demande d'Arno). Il
+              est donc rendu EN DERNIER dans le détail, et poussé à droite par son enveloppe : c'est une SORTIE,
+              et une sortie se place là où le regard finit, pas au milieu de ce qu'on lit. */}
           {l.pieces.length === 0 && (
             <p className="ann-gris">
               {formaterTaille(0) === '' ? '' : ''}Aucune pièce jointe.
+            </p>
+          )}
+          {onOuvrirFil && (
+            <p className="vdb-sortie">
+              <button type="button" className="gst-lien-bouton"
+                onClick={() => onOuvrirFil(l.filId, l.messageId)}>Voir la conversation d’origine →</button>
             </p>
           )}
         </div>
@@ -474,4 +479,10 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-corps{margin:0;font-size:.86rem;color:var(--color-svv-ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .vdb-evts{margin:0;display:flex;flex-wrap:wrap;gap:.35rem}
 .vdb-pages{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.2rem}
+/* 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 6 — LA SORTIE VERS LA CONVERSATION EST EN BAS A DROITE DU MAIL DEPLIE.
+   Le detail est une colonne : cette ligne est la derniere, et son contenu est pousse a droite. Un
+   margin-top:auto n'a rien a faire ici (la colonne n'a pas de hauteur imposee) ; c'est l'ORDRE dans le JSX
+   qui met la sortie en bas, et justify-content qui la met a droite. Sur un telephone elle reste a droite :
+   c'est un seul bouton, il ne deborde pas. */
+.vdb-sortie{margin:0;display:flex;justify-content:flex-end}
 `;
