@@ -171,13 +171,23 @@ export async function annulerInterneDesMessages(o: {
  *
  * ⚠️ `avec` FAUX (migration 297 absente) ⇒ CHAÎNE VIDE : la table n'est nommée nulle part, et la requête est mot
  * pour mot celle d'avant ce lot.
+ *
+ * ══ 🔴🔴 ELLE REÇOIT LA COLONNE, PAS UN ALIAS — ET C'EST UN DÉFAUT QUE L'ÉCRAN A ATTRAPÉ ═════════════════════════
+ *
+ * J'avais écrit `${alias}.id`, par symétrie avec la jointure de l'échange (`${alias}.fil_id`). La boîte a répondu
+ * « Lecture impossible », et PostgreSQL a dit pourquoi : « column p.id does not exist ». L'alias `p` de la liste
+ * est un CTE qui expose `m.id AS message_id` — il porte donc `message_id`, et pas `id`.
+ *
+ * 🔴 LE PARAMÈTRE EST DONC L'EXPRESSION COMPLÈTE DE LA COLONNE, jamais un alias dont on devinerait le nom de
+ * colonne. Deviner marchait pour `fil_id` par chance : les deux CTE le nomment pareil. Ici non, et c'est
+ * exactement le genre de coïncidence qui fait écrire du code faux avec l'air d'être juste.
  */
-export function sqlJointureInterneMessage(avec: boolean, alias: string): string {
+export function sqlJointureInterneMessage(avec: boolean, colonneMessage: string): string {
   if (!avec) return '';
   return `LEFT JOIN LATERAL (
        SELECT (mi.retire_le IS NULL) AS vivante
          FROM gestion_message_interne mi
-        WHERE mi.message_id = ${alias}.id
+        WHERE mi.message_id = ${colonneMessage}
         ORDER BY mi.pose_le DESC, mi.id DESC
         LIMIT 1
      ) itm ON true`;
