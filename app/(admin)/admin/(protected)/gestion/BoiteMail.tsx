@@ -1785,12 +1785,29 @@ export function BoiteMail({
                          réponse de serveur d'hier) ⇒ `undefined`, et la barre garde « Classer ». */
                       statut: l.classement && etiquette.sorte !== 'spam' && etiquette.sorte !== 'brouillons'
                         ? capsuleDeLaLigne(l) : undefined,
+                      /**
+                       * ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — DANS LA CORBEILLE, LA CORBEILLE
+                       *    DEVIENT « RÉINTÉGRER » ═══════════════════════════════════════════════════════════
+                       *
+                       * 🔴 LES DEUX SIGNAUX SONT CEUX QUE LE MENU « … » UTILISE DÉJÀ, aux mêmes lignes de code :
+                       * l'étiquette ouverte, et `boiteOrigine` calculée sur les trois colonnes de la ligne. Une
+                       * seconde façon de répondre à « ce mail est-il à la corbeille ? » aurait pu dire le
+                       * contraire du menu posé deux centimètres plus loin.
+                       */
+                      enCorbeille: etiquette.sorte === 'corbeille',
+                      boiteOrigine: etiquette.sorte === 'corbeille'
+                        ? boiteOrigine({ sens: l.dernierSens, spam: l.spam === true, lisibles: l.nbLisibles })
+                        : null,
                     }}
                     confirme={confirmeSur === l.filId}
                     onConfirmer={(ouvrir) => setConfirmeSur(ouvrir ? l.filId : null)}
                     onEtoile={(e) => void basculerEtoile(l.filId, e)}
                     onLecture={(lu) => onActionLigne(l.filId, lu ? 'lu' : 'non_lu')}
                     onCorbeille={() => onActionLigne(l.filId, 'corbeille')}
+                    /* 🔴🔴 POINT 1 — `restaurer` : LA CLÉ DU MENU « … », DONC LE MÊME CODE SERVEUR ET LE MÊME
+                       « Annuler ». `agirSurLigne` ne distingue que `corbeille` des autres : tout le reste part
+                       en réintégration, avec son bandeau. Rien n'est réécrit ici. */
+                    onReintegrer={() => onActionLigne(l.filId, 'restaurer')}
                     onClasser={() => onActionLigne(l.filId, 'classer')}
                     /* 🔴 VISUALISER N'EST PAS CLASSER : on n'ouvre pas l'échange, on ouvre une fenêtre de
                        CONSULTATION par-dessus la liste. Ouvrir l'échange ferait perdre la place dans la liste

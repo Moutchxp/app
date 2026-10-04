@@ -126,3 +126,67 @@ export function bandeauReintegre(b: BoiteOrigine | null): string {
     ? 'Mail réintégré : il a retrouvé sa place.'
     : `Mail réintégré dans « ${nomBoiteOrigine(b)} », avec son statut et son étoile.`;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — L'ICÔNE « RÉINTÉGRER », LÀ OÙ LA CORBEILLE ÉTAIT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (04/10/2026, fil 36698 / message 57477, « _TEST corbeille », ouvert depuis la Corbeille) : « la
+   grande icône corbeille du bloc gris De/À/Date est toujours là. C'est illogique pour un mail déjà à la corbeille. »
+
+   SA DEMANDE : « partout où une icône “mettre à la corbeille” apparaît (grande icône de l'en-tête du message,
+   barre de survol des lignes de la liste Corbeille, barre d'actions de la sélection multiple) : remplace-la par
+   une icône “Réintégrer” (flèche qui sort de la corbeille ↩), même case blanche, même taille, info-bulle
+   “Réintégrer dans <nom de la boîte d'origine>”. Le geste est le même que “Réintégrer” du menu “…”, avec le même
+   code serveur et le même Annuler. Hors de la Corbeille, rien ne change. »
+
+   🔴 POURQUOI CES MOTS VIVENT ICI, avec `LIBELLE_REINTEGRER` et `aideReintegrer`. Ce sont TROIS endroits de
+   l'écran qui vont les afficher. Trois chaînes écrites sur place auraient divergé — et c'est déjà arrivé dans ce
+   module : « Restaurer » et « Réintégrer » ont désigné le même geste pendant deux lots.
+
+   ⚠️ L'INFOBULLE DE L'ICÔNE N'EST PAS CELLE DU MENU, ET C'EST VOULU. Le menu a la place d'une phrase (« Le mail
+   revient à sa place d'origine : Réception. ») ; une icône n'a que trois mots. Les deux disent la même chose,
+   chacune à sa longueur, et toutes deux nomment la MÊME boîte — c'est cela qui compte.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 🔴 LE GLYPHE : une flèche qui SORT, en demi-tour. « ↩ » dit le retour en arrière, qui est exactement le geste —
+ * et c'est le caractère qu'Arno a écrit dans sa demande. Pas une corbeille barrée : une corbeille barrée se lit
+ * « supprimer définitivement », l'inverse de ce que le bouton fait.
+ */
+export const PICTO_REINTEGRER = '↩';
+
+/**
+ * L'INFOBULLE DE L'ICÔNE, mot pour mot celle d'Arno : « Réintégrer dans <nom de la boîte d'origine> ». PUR.
+ *
+ * ⚠️ `null` ⇒ ON NE NOMME PAS DE BOÎTE, pour la même raison qu'`aideReintegrer` : un écran qui ne connaît pas les
+ * signaux (ou la migration 263 absente, qui rend la marque spam illisible) ne doit pas deviner « Réception »
+ * parce que c'est le cas le plus fréquent. Le libellé reste vrai et s'arrête là.
+ */
+export function aideIconeReintegrer(b: BoiteOrigine | null): string {
+  return b === null ? LIBELLE_REINTEGRER : `${LIBELLE_REINTEGRER} dans « ${nomBoiteOrigine(b)} »`;
+}
+
+/**
+ * ══ 🔴🔴 LA BOÎTE D'ORIGINE D'UN **MESSAGE**, et non d'un échange. PUR. ═════════════════════════════════════════
+ *
+ * La fenêtre de conversation ne tient pas les signaux d'une LIGNE de liste (elle n'en est pas une) : elle a le
+ * message, et c'est tout ce qu'il faut.
+ *
+ * 🔴 LA TRADUCTION, EN DEUX SIGNAUX :
+ *   · `horsFile` — une règle tient ce mail hors de la file ⇒ sa boîte est « Courrier automatique ». C'est le même
+ *     prédicat que `lisibles <= 0` de `boiteOrigine`, vu au grain du message plutôt qu'à celui de l'échange, et
+ *     c'est le bon grain ici : on réintègre UN mail.
+ *   · `sens` — sinon, Réception ou Envoyés.
+ *
+ * ⚠️ LE SPAM N'EST PAS CONNU AU GRAIN DU MESSAGE DANS UN FIL, et on ne l'invente pas : `boiteOrigine` reçoit donc
+ * `spam: false`. Conséquence assumée et bornée — sur un mail à la fois spam ET à la corbeille, l'info-bulle
+ * nommera la boîte que son sens désigne au lieu de « Spam ». Le geste, lui, est exact dans tous les cas : il
+ * retire la marque de corbeille, et le mail retrouve la liste à laquelle ses colonnes le destinent.
+ *
+ * ⚠️ PARAMÈTRE STRUCTUREL, PAS `MessageDeFil` : ce module est lu par le navigateur, et `MessageDeFil` vit dans un
+ * dépôt qui tire `pg`. L'importer ferait tomber la construction entière — c'est l'incident du 24/09/2026.
+ */
+export function boiteDuMessage(m: { sens: 'recu' | 'envoye'; horsFile: boolean }): BoiteOrigine {
+  return boiteOrigine({ sens: m.sens, spam: false, lisibles: m.horsFile ? 0 : 1 });
+}

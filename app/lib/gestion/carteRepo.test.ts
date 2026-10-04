@@ -16,6 +16,15 @@ vi.mock('./schema', () => ({
   copieDisparueDisponible: async () => false,
   pieceIntegreeDisponible: async () => false,
   vidageDisponible: async () => false,
+  /**
+   * 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — la sonde de la migration 275 (`corbeille_le`). Son absence
+   * de cette fabrique faisait tomber `lireMessagesDuFil` AU MOMENT DE L'APPEL, pas à l'import : le piège des
+   * fabriques `vi.mock` que ce dépôt a déjà payé six fois.
+   *
+   * ⚠️ `false` EXPRÈS : les assertions de ce fichier figent le SQL d'une base SANS la 275, et elles ont raison —
+   * c'est le SQL qu'une telle base doit recevoir. Le cas « 275 appliquée » est éprouvé à part.
+   */
+  corbeilleGmailDisponible: async () => false,
 }));
 
 import { lireCarte, lireMessagesDuFil, lirePieceAServir, MAX_MESSAGES } from './carteRepo';

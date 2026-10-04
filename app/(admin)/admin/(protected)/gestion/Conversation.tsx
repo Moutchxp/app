@@ -72,6 +72,14 @@ import {
   AIDE_BROUILLON_EN_ATTENTE, AIDE_CORBEILLE_MESSAGE, BANDEAU_MESSAGE_CORBEILLE,
   DELAI_BANDEAU_CORBEILLE_MS, MENTION_BROUILLON_VOIR_EN_BAS, PICTO_BROUILLON,
 } from '../../../../lib/gestion/brouillonEnAttente';
+/**
+ * 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — les mots et le glyphe de « Réintégrer », et la boîte d'origine
+ * d'un MESSAGE. Module PUR : il est lu par cette fenêtre comme par la barre d'une ligne de liste, et c'est ce qui
+ * garantit que les deux disent la même chose.
+ */
+import {
+  aideIconeReintegrer, boiteDuMessage, PICTO_REINTEGRER,
+} from '../../../../lib/gestion/boiteOrigine';
 /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — de quel CÔTÉ le repère se pose, et ce que sa pastille explique. */
 /**
  * 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 7 — la règle du repli « interne », écrite UNE fois. Module PUR :
@@ -1403,6 +1411,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la grande corbeille du bloc d'en-tête. Elle ne
                s'affiche que là où les gestes sont permis, comme l'étoile et « Répondre » juste au-dessus. */
             onCorbeilleMessage={barreActions ? () => void corbeilleDuMessage(m) : undefined}
+            /* 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LE GESTE INVERSE, PAR LA MÊME PORTE.
+               `annulerCorbeilleDuMessage` EST `gesteCorbeilleMessage(id, false)` : c'est déjà ce qu'« Annuler »
+               appelle. Le bouton de l'en-tête ne fait donc rien de neuf — il offre ce geste là où il manquait. */
+            onReintegrerMessage={barreActions ? () => void annulerCorbeilleDuMessage(m.messageId) : undefined}
             onDeplacer={() => setDeplacer(m.messageId)}
             onRemettre={() => void agirSurLeMail(m.messageId, null, onGeste)}
             /* LOT RATTACHEMENT-1 — « Rattaché à … », dans le mail OUVERT. `null` = 257 absente : aucun bandeau. */
@@ -2058,6 +2070,7 @@ export function MessageConversation({
   brouillonEnAttente = false,
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
+  onReintegrerMessage,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
   /**
@@ -2129,6 +2142,20 @@ export function MessageConversation({
    * affichent un message sans pouvoir agir dessus (une carte, un aperçu).
    */
   onCorbeilleMessage?: () => void;
+  /**
+   * ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LE GESTE INVERSE, SUR UN MAIL DÉJÀ À LA CORBEILLE ════
+   *
+   * CONSTAT D'ARNO (04/10/2026, fil 36698 / message 57477, « _TEST corbeille », ouvert depuis la Corbeille) :
+   * « la grande icône corbeille du bloc gris De/À/Date est toujours là. C'est illogique pour un mail déjà à la
+   * corbeille. »
+   *
+   * 🔴 C'EST LE MESSAGE QUI DÉCIDE, PAS L'ÉCRAN D'OÙ L'ON VIENT : `message.aLaCorbeille`, rendu par la base.
+   * Un échange peut mêler un mail jeté et un mail vivant — « _TEST corbeille » en est un —, et déduire l'état de
+   * « la conversation a été ouverte depuis la Corbeille » l'aurait donc dit faux une ligne sur deux.
+   *
+   * ⚠️ ABSENTE ⇒ LA CORBEILLE RESTE, même sur un mail jeté : on ne montre pas un bouton qui n'irait nulle part.
+   */
+  onReintegrerMessage?: () => void;
   /**
    * LOT RATTACHEMENT-1 — les liens de CE mail, déjà chargés par la conversation. `null` (le défaut) = aucun bandeau :
    * c'est le cas des écrans qui n'ont pas besoin des rattachements, et celui d'une migration 257 non appliquée.
@@ -2586,7 +2613,27 @@ export function MessageConversation({
                 🔴🔴 LOT DRIVE-HABILLAGE, POINT 4 — ELLE EST MAINTENANT DANS LE BLOC, à l'extrême droite, dans sa
                 case au fond de carte. Le geste et son « Annuler » sont EXACTEMENT ceux d'avant : seul le
                 `className` du conteneur change, l'appel ne bouge pas. */}
-            {onCorbeilleMessage !== undefined && (
+            {/* ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LA CORBEILLE, OU « RÉINTÉGRER » ═══════════
+                Sur un mail DÉJÀ à la corbeille, la grande icône change de sens : même case blanche, même taille,
+                même place (demande d'Arno), et une info-bulle qui NOMME la boîte d'origine.
+
+                🔴 LE GESTE EST CELUI DU MENU « … », par la même porte : `gesteCorbeilleMessage(id, false)`, celle
+                qu'« Annuler » emprunte déjà. Aucun second appel n'est écrit pour ce bouton.
+
+                ⚠️ LA BOÎTE D'ORIGINE SE DÉDUIT DU MESSAGE LUI-MÊME : son sens, et le fait qu'une règle le tienne
+                hors de la file. `spam: false` est la seule chose que ce fil ne sait pas — il ne porte aucune
+                marque spam par message — et c'est pourquoi l'encadré d'`aideIconeReintegrer` prévoit ce cas :
+                mieux vaut nommer la boîte que le sens désigne que taire l'information. */}
+            {message.aLaCorbeille && onReintegrerMessage !== undefined ? (
+              <div className="cnv-entete-corbeille">
+                <button type="button" className="cnv-corbeille cnv-corbeille--retour"
+                  title={aideIconeReintegrer(boiteDuMessage(message))}
+                  aria-label={aideIconeReintegrer(boiteDuMessage(message))}
+                  onClick={onReintegrerMessage}>
+                  <span aria-hidden="true">{PICTO_REINTEGRER}</span>
+                </button>
+              </div>
+            ) : onCorbeilleMessage !== undefined && (
               <div className="cnv-entete-corbeille">
                 <button type="button" className="cnv-corbeille"
                   title={AIDE_CORBEILLE_MESSAGE} aria-label={AIDE_CORBEILLE_MESSAGE}
@@ -2911,6 +2958,20 @@ export const CSS_CONVERSATION = `
   font:inherit;font-size:1.25rem;line-height:1;color:var(--color-svv-muted);background:var(--color-svv-surface);
   border:1px solid var(--color-svv-line);border-radius:.5rem;cursor:pointer}
 .cnv-corbeille:hover{color:var(--color-svv-red);border-color:var(--color-svv-red);
+  background:var(--color-svv-field)}
+/* ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LA MEME CASE, UN SURVOL QUI N'ALERTE PAS ════════════════
+   Arno : « meme case blanche, meme taille ». Elle ne bouge donc pas d'un pixel — seule la couleur du SURVOL
+   change.
+
+   🔴 ET C'EST UNE INFORMATION, PAS UNE coquetterie : le rouge du survol de la corbeille dit « ce geste retire ».
+   Reintegrer REMET. Garder le rouge aurait fait hesiter sur un geste sans danger, et aurait menti sur son sens.
+   Le vert est celui des jetons de l'application, pas une couleur en dur.
+
+   ⚠️ LE GLYPHE EST UN PEU PLUS GRAND : « ↩ » est dessine plus petit que « 🗑 » dans la plupart des polices, et a
+   taille egale la case paraissait vide. Mesure a l'oeil, assumee.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
+.cnv-corbeille--retour{font-size:1.35rem}
+.cnv-corbeille--retour:hover{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink);
   background:var(--color-svv-field)}
 .cnv-corbeille:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* Le bandeau « Message mis a la corbeille — Annuler ». Un lisere rouge, et le MOT : jamais la couleur seule. */

@@ -118,11 +118,22 @@ describe('🔴🔴 ② l’icône dans le bloc d’en-tête', () => {
     expect(CONV).toContain('<div className="cnv-entete-corbeille">');
   });
 
-  /** ⚠️ ABSENTE LÀ OÙ LES GESTES NE SONT PAS PERMIS : comme l'étoile et « Répondre » juste au-dessus. */
+  /**
+   * ⚠️ ABSENTE LÀ OÙ LES GESTES NE SONT PAS PERMIS : comme l'étoile et « Répondre » juste au-dessus.
+   *
+   * 🔴🔴 ASSERTION RECADRÉE LE 04/10/2026 (lot REINTEGRER-PARTOUT-ET-BANDEAU, point 1). Elle figeait la FORME
+   * `{onCorbeilleMessage !== undefined && (` ; la case porte désormais DEUX boutons possibles — la corbeille, ou
+   * « Réintégrer » sur un mail déjà jeté —, donc un ternaire. La RÈGLE, elle, n'a pas bougé d'un cran : sans
+   * rappel, pas de bouton. C'est elle qu'on fige, et non la ponctuation qui l'exprime.
+   */
   it('⚠️ pas d’icône là où l’on ne peut pas agir', () => {
     expect(CONV).toContain('onCorbeilleMessage?: () => void;');
-    expect(CONV).toContain('{onCorbeilleMessage !== undefined && (');
+    expect(CONV).toContain(': onCorbeilleMessage !== undefined && (');
     expect(CONV).toContain('onCorbeilleMessage={barreActions ? () => void corbeilleDuMessage(m) : undefined}');
+    /* 🔴 ET LA MÊME RÈGLE POUR LE GESTE INVERSE : `onReintegrerMessage` absent ⇒ la corbeille reste, plutôt
+       qu'un bouton qui n'irait nulle part. */
+    expect(CONV).toContain('{message.aLaCorbeille && onReintegrerMessage !== undefined ? (');
+    expect(CONV).toContain('onReintegrerMessage?: () => void;');
   });
 
   /** 🔴 AUCUNE COULEUR EN DUR : les jetons basculent seuls en Clair et en Sombre. */

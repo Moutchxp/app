@@ -37,7 +37,8 @@ import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 //   milieu d'une fonction (lot 5b) : deux façons d'importer le même module, donc deux endroits à tenir. Le garde
 //   d'imports de ce fichier a attrapé le doublon dès qu'un second besoin de sonde est apparu (lot DRIVE-3).
 import {
-  copiePiecesDisponible, destinatairesSeparesDisponibles, pieceIntegreeDisponible, vidageDisponible,
+  copiePiecesDisponible, corbeilleGmailDisponible, destinatairesSeparesDisponibles, pieceIntegreeDisponible,
+  vidageDisponible,
 } from './schema';
 // LOT ENVOI-DIAG — lecture seule elle aussi (SELECT sur `gestion_non_remise`). Elle rejoint la liste blanche du
 //   garde d'imports de ce fichier pour la même raison que `./schema` : elle ne manipule aucun octet de pièce jointe.
@@ -105,6 +106,16 @@ export interface MessageDeFil {
    * par un MOT — même logique que Gmail, qui range les promotions ailleurs sans les retirer du fil.
    */
   horsFile: boolean;
+  /**
+   * ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — CE MESSAGE EST À LA CORBEILLE ════════════════════════
+   *
+   * Constat d'Arno : sur un mail DÉJÀ à la corbeille, la grande icône corbeille de l'en-tête reste proposée.
+   * C'est le signal qui la remplace par « Réintégrer ».
+   *
+   * ⚠️ `false` SANS LA MIGRATION 275, et c'est le bon repli : l'écran se comporte alors comme avant ce lot, au
+   * lieu d'annoncer « Réintégrer » sur un mail dont on ne sait rien.
+   */
+  aLaCorbeille: boolean;
   /** Le motif de la règle, en clair. `null` quand le message n'est pas écarté. */
   motifHorsFile: string | null;
   /**
@@ -342,6 +353,13 @@ async function lireMailsDeplaces(
       automatique: r.automatique === true,
       pieces: pieces.get(r.message_id) ?? [],
       horsFile: false, // la requête ci-dessus les exclut déjà (`m.exclu_le IS NULL`)
+      /**
+       * 🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — `false` ICI, ET C'EST EXACT : ce sont les mails DÉPLACÉS
+       * vers une carte, affichés en lecture dans la fiche de l'événement. Ils n'y portent aucune corbeille, donc
+       * aucun « Réintégrer » n'a de sens. Lire la colonne aurait ajouté une question à une requête qui n'en a pas
+       * besoin, pour un geste que cet écran n'offre pas.
+       */
+      aLaCorbeille: false,
       motifHorsFile: null,
       nonRemises: avisPartis.get(r.message_id) ?? [],
       destA: null,
@@ -714,15 +732,35 @@ export async function lireMessagesDuFil(
   //   TRI (fileRepo n'est pas touché, ses compteurs non plus) : c'est la logique de Gmail, qui range les promotions
   //   ailleurs sans les retirer de la conversation. Sans eux, un fil montrait une réponse sans la question.
   const avecDest = await destinatairesSeparesDisponibles();
+  /* 🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — la sonde de la migration 275. Même patron que les autres :
+     sans elle, `corbeille_le` n'est nommée nulle part et le fil se lit mot pour mot comme avant. */
+  const avecCorbeille = await corbeilleGmailDisponible();
   const { rows } = await query<{
     message_id: number; message_id_rfc: string; sens: string; de_adresse: string; de_nom: string | null; recu_le: string;
     objet: string | null; corps: string | null; extrait: string | null; automatique: boolean;
     hors_file: boolean; motif_hors_file: string | null; a_html: boolean; corps_html: string | null;
     dest_a: unknown; dest_cc: unknown; destinataires: string | null; est_dernier: boolean;
+    /** 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — « false » partout sans la migration 275. */
+    a_la_corbeille: boolean;
   }>(
     `WITH msg AS (
        SELECT id, message_id, sens, de_adresse, de_nom, recu_le, objet, corps_texte, corps_html, automatique,
               exclu_le, exclu_motif, destinataires${avecDest ? ', dest_a, dest_cc' : ''},
+              /**
+               * ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — CE MESSAGE EST-IL À LA CORBEILLE ? ═══════
+               *
+               * CONSTAT D'ARNO (fil 36698 / message 57477, « _TEST corbeille ») : « la grande icône corbeille du
+               * bloc gris est toujours là. C'est illogique pour un mail déjà à la corbeille. »
+               *
+               * 🔴 L'ÉCRAN DEMANDE LA DONNÉE, PAS LA NAVIGATION. On aurait pu déduire « il est à la corbeille »
+               * de « la conversation a été ouverte depuis la Corbeille » — c'est faux dès qu'un échange mêle un
+               * mail jeté et un mail vivant, ce qui est précisément le cas de « _TEST corbeille ». La question
+               * porte sur CE message, et seule la base y répond.
+               *
+               * ⚠️ SANS LA MIGRATION 275, LA COLONNE N'EST NOMMÉE NULLE PART et l'expression vaut « false » : le
+               * fil se lit exactement comme avant ce lot, et l'icône reste la corbeille. Discipline des sondes.
+               */
+              ${avecCorbeille ? '(corbeille_le IS NOT NULL)' : 'false'} AS a_la_corbeille,
               -- Le DERNIER message est celui qu'on déplie d'emblée : c'est le seul dont le corps part tout de suite.
               (row_number() OVER (ORDER BY recu_le DESC, id DESC) = 1) AS est_dernier
          FROM gestion_message
@@ -744,7 +782,7 @@ export async function lireMessagesDuFil(
             --    temps d'un aller-retour : un clignotement à CHAQUE ouverture de conversation, pour rien.
             CASE WHEN est_dernier THEN left(${sqlSansChargeImage('corps_html')}, ${MAX_HTML}) END AS corps_html,
             ${avecDest ? 'dest_a, dest_cc' : 'NULL::jsonb AS dest_a, NULL::jsonb AS dest_cc'},
-            destinataires, est_dernier
+            destinataires, est_dernier, a_la_corbeille
        FROM msg
       ORDER BY recu_le ASC, message_id ASC`, [filId]);
 
@@ -800,6 +838,13 @@ export async function lireMessagesDuFil(
     pieces: parMessage.get(m.message_id) ?? [],
     horsFile: m.hors_file === true,
     motifHorsFile: m.motif_hors_file,
+    /**
+     * 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — CE MESSAGE EST-IL À LA CORBEILLE ?
+     *
+     * C'est lui qui décide si l'écran montre une corbeille ou un « Réintégrer » — par la DONNÉE, et non par
+     * l'endroit d'où l'on a ouvert la conversation. Voir l'encadré de la requête.
+     */
+    aLaCorbeille: m.a_la_corbeille === true,
     nonRemises: avisParMessage.get(m.message_id) ?? [],
     // `null` (jamais analysé) et `[]` (analysé, personne) ne se confondent pas — c'est tout l'objet de la migration 235.
     destA: adressesDe(m.dest_a),

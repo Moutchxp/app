@@ -2,6 +2,14 @@
 
 // LOT BARRE-STATUT — le statut de la capsule décide du dernier bouton. Module PUR : aucun import qui tire `pg`.
 import { actionDeLaCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
+/**
+ * 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — les mots et le glyphe de « Réintégrer », écrits une seule
+ * fois pour les trois endroits qui les affichent (l'en-tête d'un message, cette barre, le menu « … »). Module PUR :
+ * aucun import ne tire `pg`, comme l'exige l'encadré de ce fichier.
+ */
+import {
+  aideIconeReintegrer, PICTO_REINTEGRER, type BoiteOrigine,
+} from '../../../../lib/gestion/boiteOrigine';
 
 /**
  * LOT LISTE-GMAIL — LA BARRE D'ACTIONS D'UNE LIGNE, AU SURVOL.
@@ -40,6 +48,26 @@ export interface EtatBarreLigne {
   /** La corbeille est-elle disponible (migration 251) ? Sinon, pas de bouton — le geste n'existe pas. */
   corbeilleDisponible: boolean;
   /**
+   * ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — CET ÉCHANGE EST DÉJÀ À LA CORBEILLE ══════════════════
+   *
+   * CONSTAT D'ARNO (04/10/2026) : sur une ligne de la liste Corbeille, la barre de survol proposait « Mettre à la
+   * corbeille ». Vu à l'écran sur « _TEST corbeille » : l'info-bulle le disait mot pour mot, sur un mail qui y
+   * était déjà.
+   *
+   * 🔴 LE BOUTON NE DISPARAÎT PAS, IL CHANGE DE SENS. La barre garde exactement le même nombre de commandes, à la
+   * même place et à la même taille — c'est la règle de cette barre depuis le lot BARRE-STATUT, et elle vaut ici
+   * pour la même raison : la cible du clic ne doit pas se déplacer sous le doigt.
+   *
+   * ⚠️ `false` PARTOUT AILLEURS, et rien ne change hors de la Corbeille (demande d'Arno, mot pour mot).
+   */
+  enCorbeille?: boolean;
+  /**
+   * 🔴 LA BOÎTE D'OÙ CE MAIL VIENT, pour que l'info-bulle la NOMME (« Réintégrer dans “Réception” »). `null` =
+   * on ne la connaît pas : l'info-bulle dit alors « Réintégrer » et s'arrête là, plutôt que d'envoyer chercher
+   * dans la mauvaise liste. C'est la règle d'`aideIconeReintegrer`.
+   */
+  boiteOrigine?: BoiteOrigine | null;
+  /**
    * LOT BARRE-STATUT — LE STATUT DE LA CAPSULE de cette ligne, qui décide du dernier bouton de la barre.
    * `undefined` = pas de capsule (Brouillons, Spam, ou réponse de serveur plus ancienne que le lot CAPSULE-STATUT) :
    * on garde alors « Classer », parce qu'on ne devine pas un état qu'on n'a pas lu.
@@ -47,7 +75,9 @@ export interface EtatBarreLigne {
   statut?: CapsuleStatut;
 }
 
-export function BarreLigne({ etat, confirme, onConfirmer, onEtoile, onLecture, onCorbeille, onClasser, onVisualiser }: {
+export function BarreLigne({
+  etat, confirme, onConfirmer, onEtoile, onLecture, onCorbeille, onClasser, onVisualiser, onReintegrer,
+}: {
   etat: EtatBarreLigne;
   /**
    * 🔴 LA CONFIRMATION DE CORBEILLE EST PILOTÉE PAR LA LISTE, pas gardée ici. C'est ce qui garantit qu'il n'y en a
@@ -59,6 +89,17 @@ export function BarreLigne({ etat, confirme, onConfirmer, onEtoile, onLecture, o
   onEtoile: (etoilee: boolean) => void;
   onLecture: (lu: boolean) => void;
   onCorbeille: () => void;
+  /**
+   * 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LE GESTE INVERSE, par la MÊME porte que le menu « … ».
+   *
+   * L'appelant branche l'action `restaurer` — celle que l'entrée « Réintégrer » du menu envoie déjà. Donc la même
+   * route, le même journal, le même bandeau « Annuler ». Écrire un second appel ici aurait fait deux chemins pour
+   * un geste, et c'est exactement ce que ce lot passe son temps à refermer ailleurs.
+   *
+   * ⚠️ ABSENT ⇒ LE BOUTON RESTE LA CORBEILLE, même si `enCorbeille` est vrai : on ne montre jamais un bouton qui
+   * n'irait nulle part.
+   */
+  onReintegrer?: () => void;
   onClasser: () => void;
   /**
    * LOT BARRE-STATUT — ouvre la fenêtre « Visualiser / Modifier » des rattachements. N'est appelé que quand la
@@ -128,13 +169,37 @@ export function BarreLigne({ etat, confirme, onConfirmer, onEtoile, onLecture, o
         <Enveloppe ouverte={etat.nonLu} />
       </button>
 
-      {/* d. LA CORBEILLE — interne, réversible, et TOUJOURS confirmée. */}
+      {/* ══ 🔴🔴 d. LA CORBEILLE — OU « RÉINTÉGRER », QUAND LE MAIL Y EST DÉJÀ ════════════════════════════════
+             (lot REINTEGRER-PARTOUT-ET-BANDEAU, point 1)
+
+             CE QUI ÉTAIT ÉCRIT ICI : « LA CORBEILLE — interne, réversible, et TOUJOURS confirmée. » Vrai pour un
+             mail vivant ; absurde dans la liste Corbeille, où le bouton proposait de jeter ce qui était jeté.
+
+             🔴 DEUX DIFFÉRENCES, ET UNE SEULE PLACE :
+               · LE SENS — `onReintegrer` au lieu de `onCorbeille`, par l'action `restaurer` du menu « … » ;
+               · PAS DE CONFIRMATION — le menu « Réintégrer » n'en demande pas non plus, et pour une raison :
+                 le geste se défait d'un clic (bandeau « Annuler »). Confirmer un geste réversible fait deux
+                 questions là où il n'y en a aucune. La corbeille, elle, GARDE sa confirmation.
+
+             ⚠️ MÊME CASE, MÊME TAILLE, MÊME CLASSE (`brl-icone`) : demande d'Arno. Seuls le glyphe et le mot
+             changent. */}
       {etat.corbeilleDisponible && (
-        <button type="button" className="brl-icone"
-          aria-label="Mettre à la corbeille" title="Mettre à la corbeille"
-          onClick={geste(() => onConfirmer(true))}>
-          <Corbeille />
-        </button>
+        etat.enCorbeille === true && onReintegrer !== undefined
+          ? (
+            <button type="button" className="brl-icone"
+              aria-label={aideIconeReintegrer(etat.boiteOrigine ?? null)}
+              title={aideIconeReintegrer(etat.boiteOrigine ?? null)}
+              onClick={geste(onReintegrer)}>
+              <span aria-hidden="true">{PICTO_REINTEGRER}</span>
+            </button>
+          )
+          : (
+            <button type="button" className="brl-icone"
+              aria-label="Mettre à la corbeille" title="Mettre à la corbeille"
+              onClick={geste(() => onConfirmer(true))}>
+              <Corbeille />
+            </button>
+          )
       )}
 
       {/* ══ 🔴 e. LE BOUTON DE FIN DE BARRE SUIT LA CAPSULE — lot BARRE-STATUT, demande d'Arno ═══════════════════

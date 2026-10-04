@@ -23,6 +23,15 @@ vi.mock('./schema', () => ({
   // 🔴 LOT NOM-UNIQUE-DES-PIECES — la sonde du nom d'usage (migration 286). Fausse ici : ces épreuves
   //   portent sur autre chose, et le SQL qu'elles inspectent reste celui d'avant ce lot.
   nomUsageDisponible: async () => false,
+  /**
+   * 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — la sonde de la migration 275 (`corbeille_le`). FAUSSE ici,
+   * pour la même raison que les trois précédentes : le SQL inspecté par ce fichier reste celui d'avant ce lot,
+   * et c'est bien le SQL qu'une base sans la 275 doit recevoir.
+   *
+   * ⚠️ SON ABSENCE DE CETTE FABRIQUE FAISAIT TOMBER `lireMessagesDuFil` AU MOMENT DE L'APPEL, pas à l'import.
+   * C'est le piège des fabriques `vi.mock`, et c'est la sixième fois qu'il se referme dans ce dépôt.
+   */
+  corbeilleGmailDisponible: async () => false,
 }));
 
 let avecDest = true;

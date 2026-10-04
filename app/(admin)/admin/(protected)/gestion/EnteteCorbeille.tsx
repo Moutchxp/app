@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+/* 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — le mot « Réintégrer », écrit une seule fois pour les quatre
+   endroits qui l'affichent. Module PUR : rien ne tire `pg` derrière lui. */
+import { LIBELLE_REINTEGRER } from '../../../../lib/gestion/boiteOrigine';
 
 /**
  * LOT BOITE-INTERNE-CORBEILLE — L'EN-TÊTE DE LA CORBEILLE : ce qu'on sélectionne, et les deux gestes.
@@ -105,7 +108,11 @@ export function EnteteCorbeille({
         <span className="ecb-boutons">
           <button type="button" className="svv-btn svv-btn-outline gst-btn"
             disabled={rien || occupe} onClick={onReintegrer}>
-            Réintégrer
+            {/* 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LE MOT VIENT DU MODULE PUR, comme partout
+                ailleurs. Il était écrit en dur ici : c'est la quatrième place où ce mot s'affiche (menu « … »,
+                grande icône de l'en-tête, barre de survol d'une ligne, et cette barre), et une seule doit le
+                dire. Le mot ne change pas d'un caractère — il change de maison. */}
+            {LIBELLE_REINTEGRER}
           </button>
           {/* 🔴 DÉSACTIVÉ, PAS ABSENT — et l'info-bulle dit POURQUOI. Un bouton manquant se lit « cette application
               ne sait pas faire » ; un bouton grisé qui s'explique se lit « il manque un droit », ce qui est vrai
