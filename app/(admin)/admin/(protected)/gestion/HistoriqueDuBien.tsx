@@ -2032,7 +2032,18 @@ ${CSS_PIECES}
   cursor:pointer;min-width:0;max-width:100%}
 .hdb-seg:hover:not(:disabled){color:var(--color-svv-ink);border-color:var(--color-svv-line-strong-hover)}
 .hdb-seg:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.hdb-seg--actif{background:var(--color-svv-ink);border-color:var(--color-svv-ink);color:var(--color-svv-surface);
+/* ══ L'ETAT SELECTIONNE EST ROUGE (lot HISTORIQUE-BIEN-4, point 3) ════════════════════════════════════════════
+   DEMANDE D'ARNO : « Dans tout le bloc (Periode, Options, Pieces jointes Toutes/Avec/Sans…), l'etat selectionne
+   est ROUGE (la couleur d'accent de l'application), pas noir. Contraste lisible en Clair et en Sombre. »
+
+   🔴 LE TEXTE EST --color-svv-surface, ET NON UN BLANC EN DUR. Le garde de ce fichier interdit toute couleur
+   ecrite a la main dans ses propres regles — et il m'a arrete ici, jusque dans ce commentaire, ce qui est juste :
+   il ne distingue pas un commentaire d'une regle, et une couleur citee finit par etre recopiee.
+
+   Le raisonnement, en mots : le rouge du depot est FONCE en Clair et CLAIR en Sombre ; la surface fait l'inverse.
+   Les deux jetons varient donc en sens contraire, et le contraste tient des deux cotes — texte clair sur rouge
+   fonce en Clair, texte fonce sur rouge clair en Sombre. Un blanc fixe n'aurait tenu que d'un cote. */
+.hdb-seg--actif{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface);
   font-weight:700}
 /* GRISE : l'oeil le voit, et le MOTIF est ecrit sous la bande — une infobulle n'existe pas sur un telephone. */
 .hdb-seg:disabled{opacity:.5;cursor:not-allowed}
@@ -2085,7 +2096,7 @@ ${CSS_PIECES}
 .hdb-segs .hdb-petit+.hdb-petit{border-left:1px solid var(--color-svv-line)}
 .hdb-petit:hover{color:var(--color-svv-ink)}
 .hdb-petit:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
-.hdb-petit--actif{background:var(--color-svv-ink);color:var(--color-svv-surface);font-weight:700}
+.hdb-petit--actif{background:var(--color-svv-red);color:var(--color-svv-surface);font-weight:700}
 /* L'ORDRE est un bouton seul : il porte donc son propre cadre arrondi, a la MEME hauteur. */
 .hdb-petit--large{border-radius:999px;border:1px solid var(--color-svv-line-strong)}
 .hdb-petit--large:hover{border-color:var(--color-svv-line-strong-hover)}
@@ -2096,8 +2107,10 @@ ${CSS_PIECES}
   font-size:.78rem;color:var(--color-svv-muted);cursor:pointer;white-space:nowrap}
 .hdb-puce-bascule:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong-hover)}
 .hdb-puce-bascule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.hdb-puce-bascule--actif{background:var(--color-svv-amber-soft);border-color:var(--color-svv-amber);
-  color:var(--color-svv-amber);font-weight:700}
+/* LA PUCE BASCULE ALLUMEE EST UNE SELECTION COMME LES AUTRES : elle passe donc au rouge, et non a l'ambre.
+   Un second ton pour un meme etat aurait oblige a apprendre deux codes pour une seule idee. */
+.hdb-puce-bascule--actif{background:var(--color-svv-red);border-color:var(--color-svv-red);
+  color:var(--color-svv-surface);font-weight:700}
 /* LA BASCULE A CASE garde la MEME hauteur que ses voisins : sans cela, la rangee se decale d'un pixel. */
 .hdb-bascule{display:inline-flex;align-items:center;gap:.4rem;height:var(--hdb-h);padding:0 .2rem;
   font-size:.78rem;color:var(--color-svv-ink);cursor:pointer;white-space:nowrap}
@@ -2113,7 +2126,7 @@ ${CSS_PIECES}
 .hdb-choix:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong-hover)}
 .hdb-choix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* L'ETAT ACTIF se dit par son ASPECT *et* par aria-pressed : une couleur seule ne dit rien a qui ne la voit pas. */
-.hdb-choix--actif{background:var(--color-svv-ink);border-color:var(--color-svv-ink);color:var(--color-svv-surface);
+.hdb-choix--actif{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface);
   font-weight:700}
 /* 🔴 LOT HISTORIQUE-BIEN-2 — LES REGLES DES ANCIENNES RANGEES DE BOUTONS (un bouton par evenement, un par
    locataire) ONT ETE RETIREES AVEC ELLES : la periode se choisit maintenant par quatre boutons segmentes et une
