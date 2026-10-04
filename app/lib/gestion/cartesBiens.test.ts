@@ -53,10 +53,24 @@ describe('🔴🔴 ① les six marques demandées par Arno', () => {
     expect(PDB).toContain('export function ColonneBien({ bien }: { bien: BienProposable }) {');
   });
 
-  /** ⚠️ MÊME LANGAGE QUE LES CARTES DU HAUT : même rayon, même bordure, même fond. */
-  it('⚠️ le même langage visuel que les cartes du haut de la fenêtre', () => {
-    expect(RDF).toContain('border:1px solid var(--color-svv-line);border-radius:.6rem;'
-      + 'background:var(--color-svv-surface)');
+  /**
+   * ⚠️ MÊME LANGAGE QUE LES CARTES DU HAUT : même rayon, même fond, mêmes jetons.
+   *
+   * 🔴🔴 LA BORDURE, ELLE, A ÉTÉ ÉPAISSIE EXPRÈS (lot RENOMMER-PARTOUT-ET-FINITIONS, point 2). Arno : « le liseré
+   * gris qui entoure TOUT le bloc d'un bien devient plus épais (environ 2 px) et plus contrasté ». Ce test figeait
+   * `1px solid var(--color-svv-line)` et il a donc rougi : c'est lui qui avait tort, pas le nouveau dessin. On le
+   * recadre au lieu de le contourner, et on garde ce qui n'a PAS changé — le rayon, le fond, et le fait que tout
+   * passe par des jetons.
+   */
+  it('⚠️ le même langage visuel que les cartes du haut, bordure épaissie exprès', () => {
+    /* ⚠️ LA RÈGLE TIENT SUR TROIS LIGNES DANS LA SOURCE : on lit le BLOC, puis ses déclarations — jamais la mise
+       en page de la feuille, qu'un simple retour à la ligne aurait suffi à faire rougir. */
+    const bloc = RDF.slice(RDF.indexOf('.rdf-item{'), RDF.indexOf('.rdf-tete{'));
+    expect(bloc).toContain('border:2px solid var(--color-svv-line-strong)');
+    expect(bloc).toContain('border-radius:.6rem');
+    expect(bloc).toContain('background:var(--color-svv-surface)');
+    /* ⚠️ ET PLUS LE FILET D'AVANT : une seule épaisseur de liseré sur ce bloc, jamais deux règles qui se suivent. */
+    expect(bloc).not.toContain('border:1px solid var(--color-svv-line)');
   });
 
   /** 🔴 AUCUNE COULEUR EN DUR : les jetons basculent seuls en Clair et en Sombre. */

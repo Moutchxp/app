@@ -746,8 +746,24 @@ export const CSS_RATTACHEMENTS_FIL = `
 /* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 2 — le compteur en tete. Il BOUGE pendant qu'on modifie :
    on le met donc un peu en avant, pour que l'oeil le retrouve apres chaque case cochee. */
 .rdf-compteur{font-weight:700;color:var(--color-svv-ink)}
+/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 2 — LE LISERE QUI SEPARE UN BIEN DU SUIVANT ═══════════════════
+   DEMANDE D'ARNO (04/10/2026, fil 3490 / message 57473) : « le lisere gris qui entoure TOUT le bloc d'un bien
+   devient plus epais (environ 2 px) et plus contraste, pour bien separer un bien du suivant. Il doit etre lisible
+   en Clair et en Sombre. Rien d'autre ne bouge. »
+
+   🔴 DEUX CHANGEMENTS, ET DEUX SEULEMENT : 1 px → 2 px, et « line » → « line-strong ». Le jeton fort existe deja
+   et sert partout ou une bordure doit se voir (les cartouches de statut juste en dessous s'en servent) : prendre
+   une couleur en dur aurait ete juste dans un theme et faux dans l'autre, alors que le jeton bascule seul.
+
+   ⚠️ L'EPAISSEUR EST SUR LES QUATRE COTES, parce qu'Arno dit « entoure TOUT le bloc ». Un lisere epaissi d'un
+   seul cote se lirait comme un marqueur d'etat — c'est deja le langage du repere ambre et du liseré rouge.
+
+   ⚠️ LE RESTE NE BOUGE PAS : padding, rayon, fond, espacement. Et « rdf-item--retire » garde son trait
+   DISCONTINU, qui dit « ce lien va partir » : il est juste deux fois plus visible, comme les autres.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot, vu 12 fois). */
 .rdf-item{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;padding:10px;
-  border:1px solid var(--color-svv-line);border-radius:.6rem;background:var(--color-svv-surface);min-width:0}
+  border:2px solid var(--color-svv-line-strong);border-radius:.6rem;
+  background:var(--color-svv-surface);min-width:0}
 .rdf-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;min-width:0}
 /* ══ 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA CASE DE LA CARTE ════════════════════════════════
    Elle vit A GAUCHE DE L'ADRESSE (demande d'Arno), et n'existe que pendant la modification.
