@@ -893,7 +893,8 @@ async function piecesDesMessages(ids: readonly number[]): Promise<Map<number, Pi
   const m = new Map<number, PieceHistorique[]>();
   if (ids.length === 0) return m;
   const { rows } = await query<{
-    message_id: string; id: string; nom_fichier: string; type_mime: string | null; taille_octets: string | null;
+    message_id: string; id: string; nom_fichier: string; nom_origine: string;
+    type_mime: string | null; taille_octets: string | null;
     cle_stockage: string | null; motif_non_stocke: string | null; empreinte: string | null;
   }>(
     /**
@@ -905,13 +906,24 @@ async function piecesDesMessages(ids: readonly number[]): Promise<Map<number, Pi
      * ⚠️ AUCUNE MIGRATION : la colonne existe depuis le lot de capture, et elle est renseignée pour toutes les
      * pièces qui ont des octets. Les autres rendent `null`, ce qui est la valeur que le repli attend.
      */
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — `nom_origine` VOYAGE AUSSI, pour que le renommage DISE VRAI.
+     *
+     * La visionneuse rétablie dans « Historique du bien » porte le bandeau de renommage, et ce bandeau annonce
+     * « reçue sous : … ». Sans cette colonne il aurait fallu replier sur le nom AFFICHÉ — c'est-à-dire annoncer
+     * comme nom d'origine le nom choisi, et effacer à l'écran la trace du renommage qu'on vient de faire.
+     *
+     * ⚠️ `nom_fichier` EST LE NOM REÇU ; `nom_usage` est celui qu'on a choisi. `sqlNomAffiche` rend déjà le
+     * second quand il existe : les deux colonnes se lisent donc dans la même ligne, sans migration.
+     */
     `SELECT message_id, id, ${await sqlNomAffiche('gestion_piece')} AS nom_fichier,
+            nom_fichier AS nom_origine,
             type_mime, taille_octets::text, cle_stockage, motif_non_stocke, empreinte_sha256 AS empreinte
        FROM gestion_piece WHERE message_id = ANY($1::bigint[]) ORDER BY message_id, id`, [ids]);
   for (const r of rows) {
     const cle = Number(r.message_id);
     m.set(cle, [...(m.get(cle) ?? []), {
-      pieceId: Number(r.id), nomFichier: r.nom_fichier, typeMime: r.type_mime,
+      pieceId: Number(r.id), nomFichier: r.nom_fichier, nomOrigine: r.nom_origine, typeMime: r.type_mime,
       tailleOctets: r.taille_octets === null ? null : Number(r.taille_octets),
       disponible: r.cle_stockage !== null, motifNonStocke: r.motif_non_stocke, empreinte: r.empreinte,
     }]);

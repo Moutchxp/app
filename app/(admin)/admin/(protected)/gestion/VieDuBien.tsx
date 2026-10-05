@@ -314,7 +314,7 @@ function AdressesDuMail({ l, tonDe }: {
 }
 
 export function LigneVie({
-  l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi,
+  l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, onVisualiser,
 }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
@@ -333,6 +333,21 @@ export function LigneVie({
    * sur chacune des cent lignes repliées d'un fil serait une rangée de boutons rouges qu'on finit par cliquer.
    */
   sortieDuSuivi?: { aide: string; onSortir: () => void };
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — L'ŒIL DU MAIL DÉPLIÉ ═════════════════════════════════════════════
+   *
+   * CONSTAT D'ARNO : la visionneuse doit être « rétablie PARTOUT où l'œil existe », mail déplié compris.
+   *
+   * 🔴 ET SANS CETTE PROPRIÉTÉ, L'ŒIL N'EXISTAIT PAS ICI. `PiecesJointes` ne l'affiche que si on lui passe un
+   * rappel (`voirIci`), et la raison écrite là-bas était la même que celle qui a cassé le résumé : « il n'y a
+   * pas de conversation dont on puisse faire le tour » sur un écran qui mêle plusieurs échanges. C'était la
+   * même confusion — le tour vaut ce qu'on lui donne, et « les pièces de cette sélection » est un tour légitime.
+   *
+   * ⚠️ FACULTATIVE ⇒ LES TROIS AUTRES ÉCRANS NE BOUGENT PAS D'UN PIXEL. Cette ligne est montée par quatre
+   * écrans ; seul « Historique du bien » a une visionneuse à ouvrir. C'est déjà la règle de `tonDe`, de
+   * `surligner` et de `sortieDuSuivi` juste au-dessus.
+   */
+  onVisualiser?: (pieceId: number) => void;
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LA CATÉGORIE D'UNE ADRESSE, DEMANDÉE À L'APPELANT ═══════════════
    *
@@ -510,6 +525,7 @@ export function LigneVie({
           )}
           {l.pieces.length > 0 && (
             <PiecesJointes messageId={l.messageId} filId={l.filId} vraies={vraies} signatures={signatures}
+              onVisualiser={onVisualiser}
               gmailDuMail={lienGmail(COMPTE_GESTION_DEFAUT, { messageIdRfc: l.messageIdRfc })} />
           )}
           {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — LE MOT D'ARNO ════════════════════════════════════════════

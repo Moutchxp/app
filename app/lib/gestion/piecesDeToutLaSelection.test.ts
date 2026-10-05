@@ -130,14 +130,31 @@ describe('🔴 ① bis les porteurs venus de la base entrent dans le résumé te
         disponible: false, motifNonStocke: 'trop grosse', empreinte: 'sha-4',
       }],
     })]);
+    /**
+     * ⚠️ `nomOrigine` S'EST AJOUTÉ AU LOT HISTORIQUE-BIEN-14, POINT 3, et il replie ici sur `nomFichier`.
+     *
+     * La visionneuse rétablie dans « Historique du bien » écrit au-dessus du document « reçue sous : … » : il
+     * lui faut le nom REÇU, distinct du nom AFFICHÉ dès qu'on a renommé. Le porteur de ce cas-ci n'en porte pas,
+     * et le repli sur le nom affiché est exact tant que personne n'a renommé — c'est la même convention que
+     * l'empreinte facultative juste au-dessus.
+     */
     expect(m).toEqual({
       messageId: 7, recuLe: '2026-09-01T08:00:00Z', sens: 'recu', de: 'proprio@x.fr', deNom: null,
       objet: 'Quittance',
       pieces: [{
-        pieceId: 4, nomFichier: 'bail.pdf', typeMime: null, tailleOctets: null,
+        pieceId: 4, nomFichier: 'bail.pdf', nomOrigine: 'bail.pdf', typeMime: null, tailleOctets: null,
         disponible: false, motifNonStocke: 'trop grosse', empreinte: 'sha-4',
       }],
     });
+
+    /** 🔴 ET QUAND LE NOM REÇU DIFFÈRE, IL EST GARDÉ TEL QUEL : c'est lui que le bandeau annonce. */
+    const [renommee] = messagesDesPorteurs([porteur({
+      pieces: [{
+        pieceId: 5, nomFichier: 'Bail signé.pdf', nomOrigine: '0836_001.pdf', typeMime: null,
+        tailleOctets: null, disponible: true, motifNonStocke: null, empreinte: 'sha-5',
+      }],
+    })]);
+    expect(renommee.pieces[0].nomOrigine).toBe('0836_001.pdf');
   });
 
   /** ⚠️ UNE PIÈCE NON CONSERVÉE COMPTE QUAND MÊME : elle a existé dans le courrier, et l'écran doit le dire. */

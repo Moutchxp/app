@@ -1887,6 +1887,9 @@ export function messagesDuFil(lignes: readonly LigneHistorique[]): MessagePorteu
     pieces: l.pieces.map((p) => ({
       pieceId: p.pieceId,
       nomFichier: p.nomFichier,
+      /* 🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — le nom REÇU suit la pièce : le bandeau de renommage de la
+         visionneuse l'écrit (« reçue sous : … »), et replie sur le nom affiché quand il manque. */
+      nomOrigine: p.nomOrigine ?? p.nomFichier,
       typeMime: p.typeMime,
       tailleOctets: p.tailleOctets,
       disponible: p.disponible,
@@ -1923,6 +1926,9 @@ export function messagesDesPorteurs(
     pieces: m.pieces.map((p) => ({
       pieceId: p.pieceId,
       nomFichier: p.nomFichier,
+      /* 🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — le nom REÇU suit la pièce : le bandeau de renommage de la
+         visionneuse l'écrit (« reçue sous : … »), et replie sur le nom affiché quand il manque. */
+      nomOrigine: p.nomOrigine ?? p.nomFichier,
       typeMime: p.typeMime,
       tailleOctets: p.tailleOctets,
       disponible: p.disponible,

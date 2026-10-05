@@ -4899,3 +4899,62 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
     expect(hote.querySelectorAll('.hdb-anciens')).toHaveLength(0);
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — L'ŒIL OUVRE LA VISIONNEUSE, ÉPROUVÉ À L'ÉCRAN ════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO : « dans le résumé des pièces, l'œil ouvre le document directement en plein écran au lieu de la
+ * visionneuse habituelle. » Cause : commit `801e9133` (lot 1, point 2), un arbitrage écrit qui branchait l'œil
+ * sur `window.open` parce que le tour de la visionneuse était cru borné à un échange.
+ *
+ * 🔴 CE QUE CE BLOC PROUVE, ET QUE LE GARDE DE TEXTE (`visionneuseOeil.test.ts`) NE PEUT PAS PROUVER : que la
+ * fenêtre ARRIVE VRAIMENT au clic, et que l'onglet ne s'ouvre PAS. `window.open` est bouchonné dans ce fichier
+ * (jsdom ne sait pas ouvrir d'onglet) : on peut donc compter ses appels, et zéro est un verdict.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑭ 🔴🔴 l’œil ouvre la visionneuse maison, jamais un onglet', () => {
+  const oeilDuResume = (): HTMLButtonElement | undefined =>
+    [...hote.querySelectorAll('.hdb-resume--bas .pdc-action')]
+      .find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Visualiser')) as HTMLButtonElement | undefined;
+
+  it('🔴🔴 le clic sur 👁 ouvre la fenêtre, et n’ouvre AUCUN onglet', async () => {
+    await monter();
+    await ouvrirLeResume();
+    const oeil = oeilDuResume();
+    expect(oeil, 'l’œil doit exister dans le résumé').toBeDefined();
+    expect(hote.querySelector('.apd[role="dialog"]')).toBeNull();
+    await cliquer(oeil);
+    /* 🔴 LA FENÊTRE EST LÀ — même composant que la conversation, l'éditeur de mail et le Drive. */
+    expect(hote.querySelector('.apd[role="dialog"]')).not.toBeNull();
+    /* 🔴🔴 ET L'ONGLET N'A PAS ÉTÉ OUVERT : c'est le défaut exact qu'Arno a signalé. */
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it('🔴 « Fermer » la referme, et rien ne reste ouvert', async () => {
+    await monter();
+    await ouvrirLeResume();
+    await cliquer(oeilDuResume());
+    const fermer = [...hote.querySelectorAll('.apd button')]
+      .find((b) => (b.getAttribute('aria-label') ?? b.textContent ?? '').toLowerCase().includes('fermer'));
+    await cliquer(fermer);
+    expect(hote.querySelector('.apd[role="dialog"]')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LE TOUR PORTE PLUSIEURS ÉCHANGES, et c'est tout le point de la correction : les deux pièces du jeu
+   * d'essai viennent de DEUX fils différents (10 et 20). Un tour borné à un échange en aurait montré une seule,
+   * et c'est exactement le raisonnement qui avait fait brancher l'œil sur un onglet.
+   */
+  it('🔴🔴 le tour couvre les pièces de PLUSIEURS échanges', async () => {
+    await monter();
+    await ouvrirLeResume();
+    await cliquer(oeilDuResume());
+    const apd = hote.querySelector('.apd') as HTMLElement;
+    /* 🔴 LE COMPTEUR DU TOUR : « 1 / 2 ». Les deux pièces viennent des fils 10 et 20 — un tour borné à un
+       échange aurait affiché « 1 / 1 », et c'est très exactement l'arbitrage qui avait cassé l'œil. */
+    expect(apd.textContent ?? '').toContain('1 / 2');
+    /* L'étiquette du parcours nomme ce qu'on feuillette, pour qui ne voit pas l'écran. */
+    expect(apd.innerHTML).toContain('Pièces de la sélection');
+  });
+});

@@ -291,6 +291,17 @@ export interface PieceHistorique {
    * `undefined` veulent dire la même chose — « pas d'empreinte connue », donc rapprochement par nom et taille.
    */
   empreinte?: string | null;
+  /**
+   * ══ 🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — LE NOM SOUS LEQUEL LA PIÈCE EST ARRIVÉE ════════════════════════════
+   *
+   * `nomFichier` ci-dessus est le nom AFFICHÉ (le nom choisi s'il y en a un) ; celui-ci est le nom REÇU. La
+   * visionneuse rétablie dans « Historique du bien » l'écrit au-dessus du document : « reçue sous : … ».
+   *
+   * ⚠️ FACULTATIF, comme `empreinte` juste au-dessus, et pour la même raison : tout ce qui construit une pièce
+   * d'historique ailleurs doit continuer de compiler. Absent ⇒ le bandeau replie sur le nom affiché, ce qui est
+   * exact tant que personne n'a renommé.
+   */
+  nomOrigine?: string;
 }
 
 /**

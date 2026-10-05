@@ -19,11 +19,13 @@ import { CSS_VIE_DU_BIEN, LigneVie } from './VieDuBien';
 import { CartePieceConversation, CSS_PIECES_CONVERSATION, type GestesPiece } from './PiecesDeLaConversation';
 import { CSS_PIECES, type DepotAffiche } from './PiecesJointes';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — LA VISIONNEUSE MAISON, IMPORTÉE ET NON RECOPIÉE. C'est le composant que
+   la conversation, l'éditeur de mail et la fenêtre Drive montent déjà. */
+import { ApercuFichierDrive } from './ApercuFichierDrive';
 import {
   dossierDeLEmplacement, PIECES_DRIVE_MAX, type EmplacementPiece, type StatutPieceDrive,
 } from '../../../../lib/gestion/pieceDansLeDrive';
 import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
-import { lienDocumentEntier } from '../../../../lib/gestion/pieces';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { formaterDateIso } from '../../../../lib/gestion/annuaireRecherche';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
@@ -44,7 +46,7 @@ import {
 } from '../../../../lib/gestion/historique';
 import {
   dedoublonnerPieces, grouperParMessage, idsDesPiecesEtDeLeursJumelles, mentionExpediteurPiece, motPieces,
-  piecesDeLaConversation,
+  piecesDeLaConversation, PARENT_PIECES_CONVERSATION, voisinagePiecesConversation,
   type GroupeDePieces, type MessagePorteur, type PieceDedoublonnee,
 } from '../../../../lib/gestion/piecesConversation';
 /**
@@ -455,6 +457,14 @@ export function HistoriqueDuBien({
   const [emplacements, setEmplacements] =
     useState<ReadonlyMap<number, readonly EmplacementPiece[]>>(new Map());
   const [aRanger, setARanger] = useState<DemandeRangement | null>(null);
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — LA VISIONNEUSE EST DE RETOUR ═════════════════════════════════════
+   *
+   * La pièce ouverte dans la visionneuse maison, ou `null`. Voir l'encadré des gestes : l'œil ouvrait un onglet.
+   */
+  const [pieceVue, setPieceVue] = useState<number | null>(null);
+  /** Ce que le renommage a répondu, dit sous la ligne d'état. `null` = rien à dire. */
+  const [motRenommage, setMotRenommage] = useState<string | null>(null);
   const [aVoirDansLeDrive, setAVoirDansLeDrive] = useState<EmplacementPiece | null>(null);
 
   /**
@@ -825,6 +835,28 @@ export function HistoriqueDuBien({
     return { ...dedoublonnerPieces(classees), surToutLaSelection, nbEcartees };
   }, [lignes, etatPieces, motsCherches.length, reglages.ordre, reglages.parties]);
   const groupesPieces = useMemo(() => grouperParMessage(recap.pieces), [recap.pieces]);
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — LE TOUR DE LA VISIONNEUSE : CE QUI EST À L'ÉCRAN ══════════════════
+   *
+   * 🔴 DÉFAUT TROUVÉ EN L'ÉCRIVANT, ET IL AURAIT ÉTÉ VISIBLE. Mon premier jet donnait pour tour les seules pièces
+   * du RÉSUMÉ. Or deux portes ouvrent cette visionneuse, et la seconde est l'œil d'une miniature du MAIL DÉPLIÉ :
+   * une pièce que le point 1 vient d'écarter du résumé (celle d'une partie non cochée) s'ouvre encore là, et le
+   * tour ne l'aurait pas contenue. La visionneuse se serait affichée sur un document absent de son propre
+   * parcours — un compteur « 0 / 7 », et « Suivant » qui saute ailleurs.
+   *
+   * 🔴 LE TOUR EST DONC « LES PIÈCES AFFICHÉES DANS CE BLOC » : celles du résumé, puis celles des mails chargés
+   * qui n'y sont pas. Rien n'y entre qui ne soit visible à l'écran, et le résumé garde son propre compte — ce
+   * sont deux questions différentes, et c'est la seconde qui doit gouverner un parcours.
+   *
+   * ⚠️ LE PARENT INVENTÉ RESTE CELUI DES PIÈCES DE COURRIER : la frontière qu'il tient est courrier / Drive, et
+   * elle est tenue — aucun fichier du Drive ne peut entrer dans ce tour, aucune pièce n'en sort.
+   */
+  const piecesVisionnables = useMemo(() => {
+    const vues = new Set(recap.pieces.map((p) => p.pieceId));
+    const duFil = piecesDeLaConversation(messagesDuFil(lignes), reglages.ordre);
+    return [...recap.pieces, ...duFil.filter((p) => !vues.has(p.pieceId))];
+  }, [recap.pieces, lignes, reglages.ordre]);
   const conversations = useMemo(() => grouperParConversation(lignes), [lignes]);
 
   /**
@@ -1673,24 +1705,72 @@ export function HistoriqueDuBien({
   });
 
   /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — RENOMMER DEPUIS LA VISIONNEUSE ═══════════════════════════════════
+   *
+   * Arno décrit la visionneuse habituelle comme « la fenêtre avec le document, LE RENOMMAGE au-dessus, la
+   * navigation et la fermeture ». Le renommage en fait donc partie, et il passe par la MÊME route que la
+   * conversation (`PATCH /pieces/:id/nom`) — celle qui fait suivre les copies du Drive.
+   *
+   * ⚠️ LA PAGE EST REDEMANDÉE ENSUITE, et non corrigée de mémoire : `rechargement` est une dépendance des DEUX
+   * lectures (le fil et les pièces), donc le nouveau nom arrive partout — miniatures du mail déplié comprises —
+   * tel que le serveur le connaît.
+   */
+  const renommerLaPiece = async (pieceId: number, nom: string): Promise<void> => {
+    try {
+      const res = await fetch(`/api/admin/gestion/pieces/${pieceId}/nom`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nom }),
+      });
+      const d = (await res.json().catch(() => ({}))) as {
+        etat?: string; message?: string; refus?: { motif: string }[];
+      };
+      if (d.etat !== 'ok') { setMotRenommage(d.message ?? 'Le renommage n’a pas abouti.'); return; }
+      const refus = d.refus ?? [];
+      setMotRenommage(refus.length === 0
+        ? 'Pièce renommée — les copies du Drive portent le même nom.'
+        : `Pièce renommée. ${refus.length} copie(s) du Drive n’ont pas suivi : ${refus[0].motif}`);
+      setRechargement((n) => n + 1);
+    } catch {
+      setMotRenommage('Le renommage n’a pas abouti : le réseau n’a pas répondu.');
+    }
+  };
+
+  /**
    * ══ 🔴 LES GESTES D'UNE MINIATURE, DANS LA FICHE ═══════════════════════════════════════════════════════════════
    *
    * 🔴 « RANGER » ET LE PICTO DRIVE OUVRENT **LA** FENÊTRE DRIVE, celle de l'application, dans ses deux modes
    * déjà éprouvés (`ranger` et `consulter`) — exactement ce que fait le bloc des pièces d'un message. Aucun droit
    * n'est accordé ici : c'est le serveur qui autorise ou refuse, dossier par dossier.
    *
-   * ⚠️ `onVoir` OUVRE LE DOCUMENT DANS UN ONGLET, ET NON LA VISIONNEUSE — et c'est dit, parce que c'est une
-   * différence avec la fenêtre d'une conversation. La visionneuse a besoin du TOUR des pièces de l'échange
-   * (`voisinagePiecesConversation`, parent inventé) ; ici le résumé rassemble les pièces de jusqu'à 25 échanges
-   * DIFFÉRENTS, et un tour qui les mélangerait franchirait la frontière que ce parent existe pour tenir. Ouvrir
-   * l'onglet est le même geste que le double-clic sur la miniature : aucune promesse n'est faite qui ne soit
-   * tenue. Le tour complet reste à un clic — « Ouvrir l'échange → », dans le détail du mail.
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — `onVoir` OUVRE LA VISIONNEUSE, ET VOICI CE QUI ÉTAIT ÉCRIT ICI ══
+   *
+   * CONSTAT D'ARNO (05/10/2026) : « dans le résumé des pièces, l'œil ouvre le document directement en plein
+   * écran au lieu de la visionneuse habituelle. »
+   *
+   * 🔴 LA CAUSE, TROUVÉE DANS `git log` : commit `801e9133` (lot HISTORIQUE-BIEN-1, point 2), celui qui a créé
+   * ce bloc. Ce n'est pas un accident de code — c'était un ARBITRAGE ÉCRIT, et il tenait en ceci : « la
+   * visionneuse a besoin du TOUR des pièces de l'ÉCHANGE (`voisinagePiecesConversation`, parent inventé) ; ici
+   * le résumé rassemble les pièces de jusqu'à 25 échanges DIFFÉRENTS, et un tour qui les mélangerait
+   * franchirait la frontière que ce parent existe pour tenir. »
+   *
+   * 🔴 CET ARBITRAGE ÉTAIT FAUX, ET VOICI POURQUOI. Le parent inventé existe pour tenir UNE frontière : qu'aucun
+   * fichier du DRIVE n'entre dans le tour d'une pièce de courrier, et réciproquement. Il n'a jamais eu pour rôle
+   * de borner le tour à un échange — c'est la LISTE passée en voisinage qui le borne, et elle vaut ce qu'on lui
+   * donne. Ici, la bonne liste est le résumé lui-même : « les pièces de cette sélection ». J'avais confondu la
+   * frontière à tenir (courrier / Drive) avec un périmètre qui n'en est pas une.
+   *
+   * Et le prix de l'erreur était celui qu'Arno a payé : le MÊME œil, dans le MÊME composant, faisait deux choses
+   * différentes selon l'écran qui le monte — sans le dire. C'est exactement le défaut que le lot
+   * PIECES-OEIL-DOUBLE-CLIC avait fermé trois jours plus tôt, rouvert ailleurs.
+   *
+   * ⚠️ AUCUNE COPIE : c'est `ApercuFichierDrive`, le composant que la conversation, l'éditeur de mail et la
+   * fenêtre Drive montent déjà. Le renommage, les miniatures de pages, « Précédent / Suivant », Échap et le clic
+   * sur le voile viennent avec, sans une ligne de plus.
    *
    * ⚠️ `onAllerAuMessage` DÉPLIE LE MAIL DANS LE FIL CI-DESSOUS, sur place : c'est le geste qu'Arno a demandé
    * dans la fenêtre de conversation, et il a le même sens ici.
    */
   const gestes: GestesPiece = {
-    onVoir: (pieceId) => { window.open(lienDocumentEntier(pieceId), '_blank', 'noopener,noreferrer'); },
+    onVoir: (pieceId) => setPieceVue(pieceId),
     onRanger: (p) => setARanger({
       messageId: p.messageId,
       filId: filDuMessage.get(p.messageId) ?? null,
@@ -2070,6 +2150,11 @@ export function HistoriqueDuBien({
             </p>
           )}
           {refusDeplacement !== null && <p className="gst-erreur" role="status">{refusDeplacement}</p>}
+          {/* 🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — ce que le renommage a répondu. Il DIT si les copies du Drive
+              ont suivi : un renommage à moitié fait, muet, laisse croire que tout porte le même nom. */}
+          {motRenommage !== null && (
+            <p className="gst-note hdb-note" role="status">{motRenommage}</p>
+          )}
 
           {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE « + » OUVRE LE FORMULAIRE DES CLIENTS, LE MÊME ═════════
               DEMANDE D'ARNO : « Le formulaire du “+” doit être le MÊME que celui des clients (“Nouvelle fiche” /
@@ -2322,6 +2407,7 @@ export function HistoriqueDuBien({
                     <FilDeMails lignes={c.lignes} maintenant={maintenant} deplie={deplie}
                       categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                       onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
+                      onVisualiser={setPieceVue}
                       sortieDuSuivi={sortieOfferte} />
                   </section>
                 ))
@@ -2329,6 +2415,7 @@ export function HistoriqueDuBien({
                   <FilDeMails lignes={lignes} maintenant={maintenant} deplie={deplie}
                     categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                     onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
+                    onVisualiser={setPieceVue}
                     sortieDuSuivi={sortieOfferte} />
                 )}
 
@@ -2416,6 +2503,65 @@ export function HistoriqueDuBien({
             </p>
           </div>
         </div>
+      )}
+
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — LA VISIONNEUSE, RÉTABLIE ═══════════════════════════════════
+          CONSTAT D'ARNO : « l'œil ouvre le document directement en plein écran au lieu de la visionneuse
+          habituelle (fenêtre avec le document, le renommage au-dessus, la navigation et la fermeture) ».
+
+          🔴 C'EST LE MÊME COMPOSANT QUE PARTOUT AILLEURS — la conversation, l'éditeur de mail, la fenêtre
+          Drive. Aucune copie, aucune variante : seuls le TOUR et l'étiquette de navigation changent.
+
+          🔴 LE TOUR EST CELUI DU RÉSUMÉ, ET C'EST LA CORRECTION DE MON ARBITRAGE DE DÉPART. Il porte les pièces
+          de toute la sélection — donc de plusieurs échanges — et c'est exactement ce qu'on vient y chercher :
+          feuilleter les documents du bien. Le parent inventé reste celui des pièces de courrier, parce que la
+          frontière qu'il tient est courrier / Drive, et elle est tenue : aucun fichier du Drive n'entre ici.
+
+          ⚠️ LE TOUR EST `piecesVisionnables` — voir son encadré : les pièces du résumé ET celles des mails
+          chargés, parce que l'œil du mail déplié ouvre la MÊME fenêtre. Un tour borné au seul résumé aurait
+          affiché un document absent de son propre parcours. */}
+      {pieceVue !== null && (
+        <ApercuFichierDrive
+          fichier={(() => {
+            const p = piecesVisionnables.find((x) => x.pieceId === pieceVue);
+            return {
+              id: String(pieceVue), nom: p?.nomFichier ?? '', typeMime: p?.typeMime ?? '', lien: null,
+              parentId: PARENT_PIECES_CONVERSATION, source: 'piece' as const,
+            };
+          })()}
+          voisinage={voisinagePiecesConversation(piecesVisionnables)}
+          /* ⚠️ UNE FONCTION DE L'IDENTIFIANT AFFICHÉ, et non un objet figé : « Précédent / Suivant » change la
+             pièce DANS la visionneuse sans que ce parent en sache rien (défaut vu à l'écran le 30/09/2026). */
+          renommage={(idAffiche) => {
+            const p = piecesVisionnables.find((x) => String(x.pieceId) === idAffiche);
+            if (p === undefined) return undefined;
+            const origine = p.nomOrigine ?? p.nomFichier;
+            return {
+              nomOrigine: origine,
+              nomChoisi: p.nomFichier === origine ? null : p.nomFichier,
+              /* L'ŒIL N'OUVRE PAS SUR LE CHAMP (demande d'Arno) : c'est le stylo qui le fait. */
+              editerDabord: false,
+              refus: null,
+              onRenommer: (nom: string) => void renommerLaPiece(p.pieceId, nom),
+            };
+          }}
+          etiquetteNav="Pièces de la sélection"
+          joindreAutorise
+          motJoindre={{ action: 'Ranger dans le Drive', deja: '✓ dans le Drive' }}
+          estDeja={(id) => depots.has(Number(id))}
+          onJoindre={(f) => {
+            const p = piecesVisionnables.find((x) => String(x.pieceId) === f.id);
+            if (p === undefined) return;
+            setARanger({
+              messageId: p.messageId,
+              filId: filDuMessage.get(p.messageId) ?? null,
+              pieces: [{
+                pieceId: p.pieceId, nom: p.nomFichier,
+                tailleOctets: p.tailleOctets, typeMime: p.typeMime,
+              }],
+            });
+          }}
+          onFermer={() => setPieceVue(null)} />
       )}
 
       {/* ══ LA FENÊTRE DRIVE, EN MODE « RANGER » ══ La MÊME que partout : mêmes refus, même arborescence. */}
@@ -3181,6 +3327,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
  */
 function FilDeMails({
   lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi,
+  onVisualiser,
 }: {
   lignes: readonly LigneHistorique[];
   maintenant: Date;
@@ -3198,6 +3345,8 @@ function FilDeMails({
    * par un rattachement. Rend `undefined` pour les autres : voir `sortieOfferte` dans le bloc principal.
    */
   sortieDuSuivi: (l: LigneHistorique) => { aide: string; onSortir: () => void } | undefined;
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — l'œil d'une miniature du mail déplié ouvre la visionneuse. */
+  onVisualiser: (pieceId: number) => void;
 }) {
   return (
     <ol className="vdb-liste hdb-liste">
@@ -3237,6 +3386,9 @@ function FilDeMails({
                 ? 'nous'
                 : tonDeLExpediteur({ sens: 'recu', de: adresse }, categories))}
               onBasculer={() => onBasculer(l.messageId)} onOuvrirFil={onOuvrirFil}
+              /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — l'œil du mail déplié ouvre LA MÊME visionneuse que le
+                 résumé, avec LE MÊME tour. Deux portes, une seule fenêtre. */
+              onVisualiser={onVisualiser}
               sortieDuSuivi={sortieDuSuivi(l)} />
           </ol>
         </li>
