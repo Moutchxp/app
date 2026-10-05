@@ -3722,3 +3722,84 @@ describe('⑤-vicies 🔴🔴 l’ordre des bandes, et les deux encarts ouverts'
     }
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 4 — LE COMPTEUR DE LA LIGNE D'ÉTAT, EN DIRECT ═════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « À la suite du message […] ajoute le nombre de mails affichés : “— 326 mails”.
+ * Il se met à jour en direct à chaque case cochée ou décochée, à chaque changement de période, d'options ou de
+ * recherche. C'est le MÊME nombre que celui du listing (même calcul), même au-delà des 100 mails chargés. »
+ */
+describe('⑤-unvicies 🔴🔴 le compteur de la ligne d’état', () => {
+  /** Le serveur rend un TOTAL plus grand que la page : c'est tout l'enjeu du « même au-delà des 100 ». */
+  const servir = (total: number, selon: (avec: string[]) => number): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return reponse({ etat: 'ok', geste: null });
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      const avec = (new URL(u, 'http://local').searchParams.get('avec') ?? '').split(',').filter((x) => x !== '');
+      const n = avec.length === 0 ? total : selon(avec);
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: true, entete: { nbMails: n },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  };
+
+  const ligne = (): string => hote.querySelector('.hdb-selection-mot')?.textContent ?? '';
+
+  /**
+   * 🔴🔴 LE NOMBRE EST CELUI DE LA SÉLECTION, PAS DE LA PAGE. Le serveur rend 326 avec deux lignes seulement :
+   * écrire `lignes.length` aurait affiché « 2 mails » — et sur un vrai bien, « 100 mails » sur 326.
+   */
+  it('🔴🔴 LE COMPTE EST CELUI DE LA SÉLECTION, au-delà des mails chargés', async () => {
+    servir(326, () => 198);
+    await monter();
+    expect(ligne()).toContain('Aucune partie cochée');
+    expect(ligne()).toContain('— 326 mails');
+    /* ⚠️ Et c'est bien le MÊME nombre que le titre du bloc. */
+    expect(hote.querySelector('.hdb-titre .gst-compte')?.textContent ?? ligne()).toContain('326');
+  });
+
+  it('🔴🔴 IL SE MET À JOUR À CHAQUE CASE COCHÉE', async () => {
+    servir(326, () => 198);
+    await monter();
+    const personnes = [...hote.querySelectorAll('.hdb-personnes input')] as HTMLInputElement[];
+    await cliquer(personnes[0]);
+    expect(ligne()).toContain('1 partie cochée');
+    expect(ligne()).toContain('— 198 mails');
+  });
+
+  /**
+   * ⚠️ PENDANT UNE RECHERCHE, C'EST LE NOMBRE TROUVÉ : le listing affiche « N mails sur M », et la ligne d'état
+   * doit dire la même chose que lui. La recherche ne filtre que la page chargée (règle du lot 3, point 5).
+   */
+  it('⚠️ PENDANT UNE RECHERCHE, LE COMPTE EST CELUI DES MAILS TROUVÉS', async () => {
+    servir(326, () => 198);
+    await monter();
+    const champ = hote.querySelector('.hdb-champ-recherche') as HTMLInputElement;
+    await changer(champ, 'constat');
+    await new Promise((r) => { setTimeout(r, 350); });
+    /* ⚠️ « constat » NE SE TROUVE QUE DANS LA PIÈCE DU SECOND MAIL — les deux partagent le même extrait, et
+       chercher « quittance » les aurait ramenés tous les deux. La recherche lit aussi le nom des pièces. */
+    expect(ligne()).toContain('— 1 mail');
+    expect(ligne()).not.toContain('326');
+  });
+
+  /** ⚠️ RIEN N'EST ANNONCÉ TANT QUE LA PREMIÈRE RÉPONSE N'EST PAS LÀ : pas de « 0 mail » au chargement. */
+  it('⚠️ AUCUN COMPTE PENDANT LE CHARGEMENT', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Promise(() => {})));
+    await act(async () => {
+      racine.render(createElement(HistoriqueDuBien, {
+        lotCle: '155', maintenant: MAINTENANT, occupations: [], categories: CATEGORIES,
+      }));
+    });
+    expect(ligne()).not.toContain('—');
+  });
+});

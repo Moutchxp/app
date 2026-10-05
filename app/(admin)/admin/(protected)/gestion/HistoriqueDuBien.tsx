@@ -1432,7 +1432,26 @@ export function HistoriqueDuBien({
               ⚠️ LA PHRASE EST UN `role="status"` : elle change sans que le focus bouge, et un lecteur d'écran
               l'annonce. Une règle automatique qu'on ne voit pas serait le défaut inverse de celui qu'on répare. */}
           <div className="hdb-selection" role="status">
-            <span className="hdb-selection-mot">{motSelectionDesParties(reglages.parties.length)}</span>
+            {/* 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 4 — LE COMPTE EST CELUI DU LISTING, ET C'EST LE MÊME ÉTAT QUI
+                LE PORTE (`etat.total` = `entete.nbMails` de la route). Il suit donc les cases, la période et les
+                options sans rien de plus : il vient de la même réponse que le fil.
+
+                🔴 AU-DELÀ DES 100 CHARGÉS, C'EST BIEN LA SÉLECTION ENTIÈRE : la route compte sur toute la
+                sélection, pas sur la page. Écrire `lignes.length` ici aurait affiché « 100 mails » sur un bien
+                qui en a 326 — exactement le genre de nombre qu'on croit.
+
+                ⚠️ PENDANT UNE RECHERCHE, C'EST LE NOMBRE TROUVÉ : le listing affiche alors « N mails sur M », et
+                la ligne d'état doit dire la même chose que lui. La recherche, elle, ne filtre que la page
+                chargée (règle du lot 3, point 5) — c'est pourquoi les deux nombres diffèrent, et c'est dit ici.
+
+                ⚠️ `undefined` TANT QUE LA PREMIÈRE RÉPONSE N'EST PAS LÀ : « — 0 mail » pendant le chargement
+                aurait annoncé un bien vide à chaque ouverture de fiche. */}
+            <span className="hdb-selection-mot">
+              {motSelectionDesParties(
+                reglages.parties.length,
+                etat.v !== 'ok' ? undefined : motsCherches.length > 0 ? lignes.length : etat.total,
+              )}
+            </span>
             {/* 🔴 LE BOUTON N'APPARAÎT QUE S'IL Y A QUELQUE CHOSE À DÉCOCHER : un bouton qui ne fait rien
                 apprend à ne plus lire la ligne qui le porte. Il remet AUSSI l'agence (tout recoché). */}
             {(reglages.parties.length > 0 || reglages.agenceEcartee.length > 0) && (

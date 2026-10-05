@@ -458,6 +458,30 @@ describe('⑥ les réglages, traduits pour la route existante', () => {
    * 🔴🔴 LA LIGNE D'ÉTAT DIT LAQUELLE DES DEUX LECTURES ON REGARDE. Une règle automatique qu'on ne voit pas
    * serait le défaut inverse de celui qu'on répare : on ne saurait plus pourquoi le listing a changé.
    */
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 4 — LE COMPTE EST DANS LA MÊME PHRASE ═════════════════════════════════
+   *
+   * DEMANDE D'ARNO : « À la suite du message […] ajoute le nombre de mails affichés : “— 326 mails”. »
+   *
+   * 🔴 DANS LA MÊME FONCTION, et non collé par l'écran : les deux disent une seule chose — « voilà ce que vous
+   * regardez, et voilà combien ça fait ». Deux morceaux assemblés au rendu auraient fini par se désaccorder,
+   * l'un parlant de la sélection et l'autre de la page chargée.
+   */
+  it('🔴🔴 LE COMPTE SUIT LA PHRASE, et le pluriel est juste', () => {
+    expect(motSelectionDesParties(0, 326)).toBe(
+      'Aucune partie cochée : tous les mails du bien sont affichés. — 326 mails');
+    expect(motSelectionDesParties(2, 1)).toContain('— 1 mail');
+    expect(motSelectionDesParties(2, 1)).not.toContain('1 mails');
+    /* ⚠️ ZÉRO SE DIT AU SINGULIER : « 0 mail », comme partout dans ce dépôt. */
+    expect(motSelectionDesParties(1, 0)).toContain('— 0 mail');
+  });
+
+  /** ⚠️ SANS NOMBRE, LA PHRASE SEULE : c'est l'état tant que la première réponse n'est pas revenue. */
+  it('⚠️ SANS NOMBRE, AUCUN TIRET — on n’annonce pas « 0 mail » pendant le chargement', () => {
+    expect(motSelectionDesParties(0)).not.toContain('—');
+    expect(motSelectionDesParties(3)).not.toContain('—');
+  });
+
   it('🔴🔴 LA LIGNE D’ÉTAT NOMME LA RÈGLE, dans ses deux cas', () => {
     expect(motSelectionDesParties(0)).toBe('Aucune partie cochée : tous les mails du bien sont affichés.');
     expect(motSelectionDesParties(1)).toContain('1 partie cochée');

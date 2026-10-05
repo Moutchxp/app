@@ -512,11 +512,29 @@ export function motGroupeAgence(nb: number): string | null {
  */
 export const MOT_TOUT_DECOCHER = 'Tout décocher';
 
-export function motSelectionDesParties(nbCochees: number): string {
-  if (nbCochees <= 0) return 'Aucune partie cochée : tous les mails du bien sont affichés.';
-  return nbCochees === 1
-    ? '1 partie cochée : seuls ses échanges sont affichés.'
-    : `${nbCochees} parties cochées : seuls leurs échanges sont affichés.`;
+export function motSelectionDesParties(nbCochees: number, nbMails?: number): string {
+  const phrase = nbCochees <= 0
+    ? 'Aucune partie cochée : tous les mails du bien sont affichés.'
+    : nbCochees === 1
+      ? '1 partie cochée : seuls ses échanges sont affichés.'
+      : `${nbCochees} parties cochées : seuls leurs échanges sont affichés.`;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 4 — LE COMPTE, À LA SUITE DE LA PHRASE ════════════════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « À la suite du message […] ajoute le nombre de mails affichés : “— 326
+   * mails”. Il se met à jour en direct à chaque case cochée ou décochée, à chaque changement de période,
+   * d'options ou de recherche. C'est le MÊME nombre que celui du listing (même calcul), même au-delà des 100
+   * mails chargés. »
+   *
+   * 🔴 IL EST DANS LA MÊME FONCTION QUE LA PHRASE, et non collé par l'écran : les deux disent une seule chose —
+   * « voilà ce que vous regardez, et voilà combien ça fait ». Deux morceaux assemblés au rendu auraient fini par
+   * se désaccorder, l'un parlant de la sélection et l'autre de la page chargée.
+   *
+   * ⚠️ `undefined` ⇒ LA PHRASE SEULE, et c'est le cas tant que la première réponse n'est pas revenue. Écrire
+   * « — 0 mail » pendant le chargement aurait annoncé un bien vide une fraction de seconde, à chaque ouverture.
+   */
+  if (nbMails === undefined) return phrase;
+  return `${phrase} — ${nbMails} mail${nbMails > 1 ? 's' : ''}`;
 }
 
 /**
