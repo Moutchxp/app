@@ -43,6 +43,7 @@ import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
 export function MenuRattachementBien({
   messageId, filId, onFerme, onGeste, onChange, onHorsGestion, ponctuel = false,
   preCoches = null, pied, onValider, motValider, validationBloquee = null, onSelection, libellesConnus,
+  aussiAValider = false,
   cochesImposees, onCochesChange,
 }: {
   messageId: number;
@@ -106,6 +107,17 @@ export function MenuRattachementBien({
   motValider?: string;
   /** Un motif non nul BLOQUE la validation et s'affiche : c'est la confirmation de « Toute la conversation ». */
   validationBloquee?: string | null;
+  /**
+   * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — L'APPELANT A QUELQUE CHOSE À ÉCRIRE QUE CE MENU NE VOIT PAS.
+   *
+   * La fenêtre « Bien(s) rattaché(s) à ce mail » porte désormais, dans son pied, un événement à lier ou à créer.
+   * Ce menu ne connaît que les BIENS : sans cette propriété, il grisait « Valider le suivi » parce que la
+   * sélection de biens n'avait pas bougé — et l'événement devenait impossible à poser seul.
+   *
+   * ⚠️ `false`/absent ⇒ LE MENU EST EXACTEMENT CELUI D'AVANT : c'est la sélection de biens, et elle seule, qui
+   * décide s'il y a quelque chose à valider.
+   */
+  aussiAValider?: boolean;
   /** La sélection en cours, remontée à chaque changement — l'appelant en tire sa phrase et ses alertes. */
   onSelection?: (cles: readonly string[]) => void;
   /**
@@ -282,7 +294,12 @@ export function MenuRattachementBien({
     ?? cle;
 
   const memeQuAuDepart = clePreCoches !== null && [...coches].sort().join('|') === clePreCoches;
-  const aFaire = onValider === undefined ? coches.length > 0 : !memeQuAuDepart;
+  /**
+   * ⚠️ `aussiAValider` (lot CLASSER-PAR-LA-MODALE, point 3) : l'appelant peut avoir quelque chose à écrire que
+   * ce menu ne voit pas — un événement à lier ou à créer. Sans lui, « Valider le suivi » restait grisé dès que
+   * les biens n'avaient pas changé, et l'on ne pouvait plus poser un événement seul.
+   */
+  const aFaire = onValider === undefined ? coches.length > 0 : (!memeQuAuDepart || aussiAValider);
 
   const valider = async () => {
     if (!aFaire || validationBloquee !== null) return;

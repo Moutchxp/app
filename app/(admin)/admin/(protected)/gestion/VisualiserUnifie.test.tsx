@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 import { RattachementsDuFil } from './RattachementsDuFil';
 import {
   ENCADRE_EXCEPTION_CE_MAIL, MOT_CHANGER_REGLE_SUIVI, MOT_MODIFIER_BIENS_DU_MAIL,
@@ -478,5 +479,237 @@ describe('🔴🔴 ③ le bloc « Suivi dans la conversation », à TROIS option
     await cocher(radios()[2]);
     await cocher(radios()[0]);
     expect(container.querySelector('.rdf-bilan')?.textContent).toBe(bilan);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ④ 🔴🔴 OUVRIR UN ÉVÉNEMENT DEPUIS LA FENÊTRE (LOT CLASSER-PAR-LA-MODALE, POINT 3)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (06/10/2026) : « Dans la ligne “ÉVÉNEMENT RATTACHÉ” de la fenêtre : “Lier à un événement”
+   (liste des événements du ou des biens cochés) et “Créer un événement”. La création ouvre dans la fenêtre le
+   formulaire de création existant […] : réutilise le formulaire actuel, sans copie. L'événement créé est lié au
+   mail et au(x) bien(s) choisis au moment de “Valider le suivi”. “Annuler” ne crée rien. »
+
+   🔴 CE QUE CE BLOC PROUVE, ET QU'AUCUN MODULE PUR NE PEUT PROUVER : que rien n'est écrit avant « Valider le
+   suivi », que la création part APRÈS les biens (et avec eux), que « Annuler » ne laisse rien, et que la liste
+   proposée est bornée aux événements des biens cochés.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ④ la ligne « Événement rattaché » de la fenêtre', () => {
+  const ouvrir = async () => {
+    await monter(MAIL);
+    await cliquer(bouton(new RegExp(MOT_MODIFIER_BIENS_DU_MAIL)) as Element);
+  };
+  const ligneEvt = () => container.querySelector('.rdf-evt') as HTMLElement | null;
+  const voulu = () => container.querySelector('.rdf-evt-voulu')?.textContent ?? null;
+
+  it('🔴🔴 la ligne est là, avec ses deux gestes, et « aucun » est une réponse', async () => {
+    await ouvrir();
+    expect(ligneEvt()).not.toBeNull();
+    expect(ligneEvt()?.textContent).toContain('Événement rattaché');
+    expect(ligneEvt()?.textContent).toContain('aucun — l’événement est facultatif');
+    expect(bouton(/^Lier à un événement$/)).toBeDefined();
+    expect(bouton(/^Créer un événement$/)).toBeDefined();
+  });
+
+  /**
+   * 🔴🔴 « RÉUTILISE LE FORMULAIRE ACTUEL, SANS COPIE » : c'est `ChampsEvenement`, extrait du bloc
+   * « Événement rattaché » de l'encart. Le garde lit la source — une recopie passerait les épreuves d'écran.
+   */
+  it('🔴🔴 « Créer un événement » ouvre LE formulaire existant, pas une copie', async () => {
+    await ouvrir();
+    await cliquer(bouton(/^Créer un événement$/) as Element);
+    expect(container.querySelector('.rdf-evt-forme')).not.toBeNull();
+    expect(container.querySelector('.rdf-evt-forme .bev-saisie')).not.toBeNull();
+    expect(container.textContent).toContain('Titre');
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
+    expect(src).toContain("import { ChampsEvenement, CSS_BLOC_EVENEMENT } from './BlocEvenement'");
+    /* ⚠️ ET LE BLOC DE L'ENCART MONTE LE MÊME COMPOSANT : une seule écriture, deux écrans. */
+    const bev = readFileSync('app/(admin)/admin/(protected)/gestion/BlocEvenement.tsx', 'utf8');
+    expect(bev).toContain('<ChampsEvenement titre={titre} onTitre={setTitre}');
+  });
+
+  /** 🔴 LE TITRE PART DU BIEN COCHÉ : ce qu'on écrirait à la main neuf fois sur dix. Et il reste modifiable. */
+  it('🔴 le titre est prérempli avec le bien coché', async () => {
+    await ouvrir();
+    await cliquer(bouton(/^Créer un événement$/) as Element);
+    const titre = container.querySelector('.rdf-evt-forme .bev-saisie') as HTMLInputElement;
+    expect(titre.value).toContain('2 rue Fictive');
+  });
+
+  /** 🔴🔴 RIEN N'EST ÉCRIT AVANT « Valider le suivi » — demande d'Arno, mot pour mot. */
+  it('🔴🔴 remplir le formulaire n’écrit RIEN', async () => {
+    await ouvrir();
+    await cliquer(bouton(/^Créer un événement$/) as Element);
+    await cliquer(bouton(/^Garder pour la validation$/) as Element);
+    expect(ecritures).toEqual([]);
+    /* …mais la fenêtre DIT ce qu'elle écrira. */
+    expect(voulu()).toContain('à créer');
+  });
+
+  /**
+   * 🔴🔴 ET LA CRÉATION PART APRÈS LES BIENS, par la route du bloc de l'encart, avec les biens cochés et leurs
+   * personnes. C'est l'ordre qui compte : l'inverse aurait ouvert une carte sans bien.
+   */
+  it('🔴🔴 « Valider le suivi » écrit les biens PUIS l’événement, avec les biens cochés', async () => {
+    await ouvrir();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await cocher(cases.find((c) => !c.checked) as HTMLInputElement);   // on coche aussi L-247
+    await cliquer(bouton(/^Créer un événement$/) as Element);
+    await cliquer(bouton(/^Garder pour la validation$/) as Element);
+    await cliquer(bouton(/^Valider les biens de ce mail$/) as Element);
+
+    expect(ecritures).toHaveLength(2);
+    /* ① les biens, par la porte du suivi — inchangée. */
+    expect(ecritures[0].url).toContain('/api/admin/gestion/suivi');
+    /* ② l'événement, par la route que le bloc de l'encart emploie déjà. */
+    expect(ecritures[1].url).toBe(`/api/admin/gestion/messages/${MAIL}/affectation`);
+    const corps = ecritures[1].corps as {
+      nouveau: { objet: string; parties: { sorte: string; cle: string }[] };
+    };
+    expect(corps.nouveau.objet).toContain('2 rue Fictive');
+    /* 🔴 LES DEUX BIENS COCHÉS, et pas seulement celui qui était déjà rattaché. */
+    expect(corps.nouveau.parties.filter((p) => p.sorte === 'lot').map((p) => p.cle).sort())
+      .toEqual(['L-247', 'L-484']);
+  });
+
+  /** 🔴🔴 « ANNULER » NE CRÉE RIEN, ET NE GARDE RIEN — demande d'Arno, mot pour mot. */
+  it('🔴🔴 « Annuler » ne crée rien, et la fenêtre n’annonce plus d’événement', async () => {
+    await ouvrir();
+    await cliquer(bouton(/^Créer un événement$/) as Element);
+    await cliquer(bouton(/^Annuler$/) as Element);
+    expect(ecritures).toEqual([]);
+    expect(voulu()).toBeNull();
+    expect(container.querySelector('.rdf-evt-forme')).toBeNull();
+  });
+
+  /** 🔴 ET SE DÉDIRE APRÈS AVOIR GARDÉ RESTE POSSIBLE : la validation n'écrit alors que les biens. */
+  it('🔴 « Annuler l’événement » après l’avoir gardé : la validation n’écrit que les biens', async () => {
+    await ouvrir();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await cocher(cases.find((c) => !c.checked) as HTMLInputElement);
+    await cliquer(bouton(/^Créer un événement$/) as Element);
+    await cliquer(bouton(/^Garder pour la validation$/) as Element);
+    await cliquer(bouton(/^Annuler l’événement$/) as Element);
+    await cliquer(bouton(/^Valider les biens de ce mail$/) as Element);
+    expect(ecritures).toHaveLength(1);
+    expect(ecritures[0].url).toContain('/api/admin/gestion/suivi');
+  });
+
+  /**
+   * 🔴🔴 UN ÉVÉNEMENT SEUL EST VALIDABLE. Sans `aussiAValider`, le menu grisait « Valider » parce que la
+   * sélection de biens n'avait pas bougé — et l'événement devenait impossible à poser.
+   */
+  it('🔴🔴 un événement SEUL, sans changer les biens, reste validable', async () => {
+    await ouvrir();
+    expect((bouton(/^Valider les biens de ce mail$/) as HTMLButtonElement).disabled).toBe(true);
+    await cliquer(bouton(/^Créer un événement$/) as Element);
+    await cliquer(bouton(/^Garder pour la validation$/) as Element);
+    expect((bouton(/^Valider les biens de ce mail$/) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  /* ══ 🔴🔴 « LIER À UN ÉVÉNEMENT » — LA LISTE DES ÉVÉNEMENTS DES BIENS COCHÉS ════════════════════════════════
+
+     Arno : « “Lier à un événement” (liste des événements du ou des biens cochés) ».
+
+     ⚠️ LE BOUCHON SERT LES DEUX ROUTES SÉPARÉMENT, et c'est tout l'objet : la RECHERCHE rend trois événements,
+     et « les événements du bien » n'en rend qu'un. Servir le même contenu aux deux n'aurait rien éprouvé. */
+  const servirLesEvenements = (duBien: readonly number[]) => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/historique/evenements')) {
+        lectures.push(u);
+        return {
+          ok: true,
+          json: async () => ({ etat: 'ok', evenements: duBien.map((id) => ({ id })) }),
+        } as unknown as Response;
+      }
+      if (u.includes('/gestion/evenements?q=')) {
+        lectures.push(u);
+        return {
+          ok: true,
+          json: async () => ({
+            evenements: [11, 12, 13].map((id) => ({
+              id, reference: `GES-2026-0000${id}`, objet: `objet ${id}`, demandeur: null,
+              adresseLibre: null, etat: 'en_cours', nbFils: 1,
+            })),
+            max: 50,
+          }),
+        } as unknown as Response;
+      }
+      return (avant as (u: unknown, i?: unknown) => Promise<Response>)(url, init);
+    }) as unknown as typeof fetch;
+  };
+  const resultats = () =>
+    [...container.querySelectorAll('.rdf-evt-forme .gst-resultat')].map((b) => b.textContent ?? '');
+  /**
+   * ⚠️ POURQUOI UNE ATTENTE BORNÉE ICI, ET PAS AILLEURS. La liste des événements des biens cochés demande UNE
+   * lecture PAR BIEN, enchaînées : le nombre de tours de boucle à laisser passer dépend donc du décor, et
+   * `calmer()` (quatorze tours) suffisait seul mais plus sous la charge de la suite entière — l'épreuve est
+   * passée au vert isolée et rouge dans `npm test`. On attend donc la CONDITION, jamais un nombre de tours.
+   */
+  const attendre = async (pret: () => boolean) => {
+    for (let i = 0; i < 20 && !pret(); i += 1) await calmer();
+  };
+
+  it('🔴🔴 SEULS LES ÉVÉNEMENTS DES BIENS COCHÉS sont proposés, pas toute la recherche', async () => {
+    servirLesEvenements([12]);
+    await ouvrir();
+    await cliquer(bouton(/^Lier à un événement$/) as Element);
+    await attendre(() => resultats().length === 1);
+    expect(resultats()).toHaveLength(1);
+    expect(resultats()[0]).toContain('GES-2026-000012');
+    /* 🔴 ET LA LISTE EST BIEN LUE PAR LA ROUTE QUI RÉPOND DÉJÀ À CETTE QUESTION, sur le bien coché. */
+    expect(lectures.some((u) => u.includes('/historique/evenements?cible=lot-L-484'))).toBe(true);
+  });
+
+  it('🔴🔴 le choisir NOTE l’événement par son nom, et n’écrit rien', async () => {
+    servirLesEvenements([12]);
+    await ouvrir();
+    await cliquer(bouton(/^Lier à un événement$/) as Element);
+    await attendre(() => resultats().length === 1);
+    await cliquer(container.querySelector('.rdf-evt-forme .gst-resultat') as Element);
+    expect(voulu()).toBe('à lier : GES-2026-000012 · objet 12');
+    expect(ecritures).toEqual([]);
+  });
+
+  it('🔴🔴 et « Valider le suivi » l’écrit par la route d’affectation, en `evenementId`', async () => {
+    servirLesEvenements([12]);
+    await ouvrir();
+    await cliquer(bouton(/^Lier à un événement$/) as Element);
+    await attendre(() => resultats().length === 1);
+    await cliquer(container.querySelector('.rdf-evt-forme .gst-resultat') as Element);
+    await cliquer(bouton(/^Valider les biens de ce mail$/) as Element);
+    expect(ecritures).toHaveLength(2);
+    expect(ecritures[1].url).toBe(`/api/admin/gestion/messages/${MAIL}/affectation`);
+    expect(ecritures[1].corps).toEqual({ evenementId: 12 });
+  });
+
+  /**
+   * ⚠️ AUCUN ÉVÉNEMENT SUR LES BIENS COCHÉS : on le DIT, et l'on renvoie vers la création. Une liste vide sans
+   * un mot se lit comme une panne de recherche.
+   */
+  it('⚠️ aucun événement sur les biens cochés : la fenêtre le dit', async () => {
+    servirLesEvenements([]);
+    await ouvrir();
+    await cliquer(bouton(/^Lier à un événement$/) as Element);
+    await attendre(() => container.textContent?.includes('Aucun événement sur le ou les biens') === true);
+    expect(resultats()).toEqual([]);
+    expect(container.textContent).toContain('Aucun événement sur le ou les biens cochés');
+  });
+
+  /** ⚠️ UN TITRE VIDE NE SE GARDE PAS : une carte sans titre est une carte qu'on ne retrouve pas. */
+  it('⚠️ sans titre, on ne peut rien garder', async () => {
+    await ouvrir();
+    await cliquer(bouton(/^Créer un événement$/) as Element);
+    const titre = container.querySelector('.rdf-evt-forme .bev-saisie') as HTMLInputElement;
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    await act(async () => {
+      set?.call(titre, '   ');
+      titre.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect((bouton(/^Garder pour la validation$/) as HTMLButtonElement).disabled).toBe(true);
   });
 });

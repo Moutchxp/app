@@ -48,6 +48,11 @@ import {
   type ChoixSuivi, type Classement, type ExceptionMail,
 } from '../../../../lib/gestion/periodesConversation';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
+/* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — le formulaire de création et la recherche d'événements, RÉEMPLOYÉS
+   et non recopiés (voir l'encadré de `ChampsEvenement`). Le type vient du module PUR. */
+import { ChampsEvenement, CSS_BLOC_EVENEMENT } from './BlocEvenement';
+import { ChoisirEvenement } from './ChoisirEvenement';
+import type { EvenementDuMail } from '../../../../lib/gestion/evenementQualite';
 
 /**
  * LOT BARRE-STATUT, REFAIT AU LOT FICHE-RATTACHEMENT — « VISUALISER / MODIFIER » : CE QUE DIT UN ÉCHANGE CLASSÉ.
@@ -216,8 +221,60 @@ export function RattachementsDuFil({
    * de dialogue empilées sont injouables au clavier, et un lecteur d'écran ne sait plus laquelle est active.
    */
   const [driveDuBien, setDriveDuBien] = useState<{ id: string; nom: string } | null>(null);
+  /**
+   * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — OUVRIR UN ÉVÉNEMENT DEPUIS LA FENÊTRE ══════════════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * DEMANDE D'ARNO (06/10/2026) : « Dans la ligne “ÉVÉNEMENT RATTACHÉ” de la fenêtre : “Lier à un événement”
+   * (liste des événements du ou des biens cochés) et “Créer un événement”. […] L'événement créé est lié au mail
+   * et au(x) bien(s) choisis au moment de “Valider le suivi”. “Annuler” ne crée rien. »
+   *
+   * 🔴 C'EST UNE **INTENTION**, PAS UN GESTE, et c'est tout le point. La carte neuve doit être rattachée aux
+   * biens qu'on vient de cocher, avec leur propriétaire et leur locataire — or ces biens ne sont pas encore
+   * écrits quand on remplit le formulaire, et leurs personnes ne sont donc pas connues. Créer tout de suite
+   * aurait ouvert une carte sans bien, ou avec les biens d'AVANT la modification.
+   *
+   * 🔴 ELLE S'ÉCRIT PAR LES MÊMES ROUTES QUE LE BLOC « Événement rattaché » de l'encart
+   * (`/messages/<id>/affectation`), avec le même corps. Aucune porte d'écriture nouvelle, aucun geste réécrit.
+   *
+   * ⚠️ `null` ⇒ RIEN À ÉCRIRE : « Annuler » la remet à `null`, et « Valider le suivi » n'écrit alors que les
+   * biens, exactement comme avant ce lot.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const [evtVoulu, setEvtVoulu] = useState<
+    { sorte: 'lier'; evenementId: number; mot: string }
+    | { sorte: 'creer'; objet: string; categorie: string; urgence: string }
+    | null
+  >(null);
+  /** Le panneau ouvert sous la ligne « Événement rattaché » : la recherche, le formulaire, ou rien. */
+  const [panneauEvt, setPanneauEvt] = useState<'aucun' | 'lier' | 'creer'>('aucun');
+  /** Les champs du formulaire partagé (`ChampsEvenement`). Rien n'est écrit tant qu'on n'a pas validé. */
+  const [evtTitre, setEvtTitre] = useState('');
+  const [evtCategorie, setEvtCategorie] = useState('');
+  const [evtUrgence, setEvtUrgence] = useState('');
+  /**
+   * L'événement DÉJÀ posé sur ce mail, et si la migration 268 est là. Lus par la route que le bloc de l'encart
+   * emploie déjà — une seule question, une seule réponse.
+   */
+  const [evtDuMail, setEvtDuMail] = useState<{ evenement: EvenementDuMail | null; qualifie: boolean } | null>(null);
+  /**
+   * 🔴 LES ÉVÉNEMENTS DES BIENS COCHÉS, par la route qui répond DÉJÀ à cette question
+   * (`/historique/evenements?cible=lot-…`). `null` = pas encore lu, ou aucun bien coché ⇒ aucune restriction.
+   */
+  const [evtsDesBiens, setEvtsDesBiens] = useState<number[] | null>(null);
+  /** Un tour de compteur relit l'événement du mail — après une écriture, et seulement là. */
+  const [rafraichirEvt, setRafraichirEvt] = useState(0);
 
-  const charger = useCallback(async () => {
+  /**
+   * 🔴🔴 ELLE REND LA FICHE QU'ELLE VIENT DE LIRE (lot CLASSER-PAR-LA-MODALE, point 3), et `null` si la lecture
+   * a échoué. Elle pose aussi l'état, comme avant : c'est le MÊME appel, et il n'y en a pas deux.
+   *
+   * ⚠️ POURQUOI UNE VALEUR DE RETOUR. L'événement créé doit être rattaché « au mail et au(x) bien(s) choisis »,
+   * avec leur propriétaire et leur locataire. Ces personnes ne sont connues qu'une fois les biens ÉCRITS — et à
+   * cet instant l'état de React n'est pas encore à jour. Lire la réponse plutôt que l'état évite d'attendre un
+   * rendu pour écrire, c'est-à-dire d'écrire d'après une liste d'avant.
+   */
+  const charger = useCallback(async (): Promise<FicheRattachementFil | null> => {
     setEtat({ v: 'charge' });
     try {
       // LES DEUX ENSEMBLE : la fiche (les biens et leurs parties) et les liens bruts (le détail par mail et les
@@ -230,7 +287,7 @@ export function RattachementsDuFil({
       ]);
       const df = (await rf.json()) as { etat?: string; data?: FicheRattachementFil; message?: string };
       const dl = (await rl.json()) as { etat?: string; data?: LienAffiche[] };
-      if (df.etat === 'sans_schema' || dl.etat === 'sans_schema') { setEtat({ v: 'sans_schema' }); return; }
+      if (df.etat === 'sans_schema' || dl.etat === 'sans_schema') { setEtat({ v: 'sans_schema' }); return null; }
       /**
        * ⚠️ ON VÉRIFIE LA FORME, PAS SEULEMENT L'ÉTAT. Une réponse « ok » dont le corps n'a pas la forme attendue
        * (un serveur plus ancien, un onglet resté ouvert pendant un déploiement) doit donner un message lisible,
@@ -239,15 +296,18 @@ export function RattachementsDuFil({
       const f = df.data;
       if (df.etat !== 'ok' || !f || !Array.isArray(f.biens)) {
         setEtat({ v: 'erreur', message: df.message ?? 'Lecture impossible : réponse inattendue du serveur.' });
-        return;
+        return null;
       }
       setEtat({ v: 'ok', fiche: f, liens: dl.etat === 'ok' && Array.isArray(dl.data) ? dl.data : [] });
+      return f;
     } catch {
       setEtat({ v: 'erreur', message: 'La lecture des rattachements n’a pas abouti.' });
+      return null;
     }
   }, [filId, messageId]);
 
   useEffect(() => { void charger(); }, [charger]);
+
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — ELLE REFLÈTE « SORTIR DU SUIVI » ═════════════════════════════════
@@ -321,6 +381,104 @@ export function RattachementsDuFil({
    * ⚠️ LA FENÊTRE DE MODIFICATION PREND TOUTE LA PLACE quand elle s'ouvre : deux boîtes de dialogue empilées sont
    * injouables au clavier, et un lecteur d'écran ne sait plus laquelle est active. On rend donc l'une OU l'autre.
    */
+  /* ⚠️ CES DÉRIVATIONS SONT REMONTÉES **AVANT** LES RETOURS ANTICIPÉS (lot CLASSER-PAR-LA-MODALE, point 3) :
+     les deux lectures qui suivent en ont besoin, et un `useEffect` placé après un `return` conditionnel n'est
+     pas exécuté au même rendu que les autres — React refuse alors de rendre le composant (« Rendered fewer
+     hooks than expected »). Défaut attrapé par `RaccourcisCarteBien.test.tsx`. Ce ne sont que des dérivations
+     de l'état déjà lu : rien n'a changé dans ce qu'elles calculent. */
+  const fiche = etat.v === 'ok' ? etat.fiche : null;
+  const tousLesLiens = etat.v === 'ok' ? etat.liens : [];
+  const liensParId = new Map(tousLesLiens.map((l) => [l.id, l]));
+  const objet = fiche?.objet ?? titre ?? null;
+  /**
+   * 🔴🔴 LE MAIL DE LA FENÊTRE — UN SEUL CHEMIN, ET C'EST LE LOT. Le mail cliqué s'il y en a un ; sinon celui que
+   * le serveur a désigné comme le plus récent, c'est-à-dire celui que la ligne de liste affiche.
+   */
+  const mailId = messageId ?? fiche?.enTete?.messageId ?? null;
+  /**
+   * 🔴🔴 LES BIENS QUE CETTE FENÊTRE MONTRE : ceux qui sont rattachés OFFICIELLEMENT à ce mail — lien vivant et
+   * CONFIRMÉ, jamais une proposition. C'est `biensDuMail`, et il n'y a plus de second chemin : c'est pour cela
+   * que la fenêtre de la liste montrait encore les cartes « À trancher » après le lot a7f5f968.
+   */
+  const biens = fiche === null || mailId === null
+    ? []
+    : biensDuMail(fiche.biens, tousLesLiens, mailId);
+  /** L'état de départ du panneau : exactement les biens ci-dessus, cochés. */
+  const clesDuMail = biens.map((b) => b.cle);
+  const libellesDuMail: Record<string, string> = {};
+  for (const b of biens) libellesDuMail[b.cle] = `${b.adresseComplete} — lot ${b.numeroLot}`;
+
+  /**
+   * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — L'ÉVÉNEMENT DÉJÀ POSÉ SUR CE MAIL, et la migration 268.
+   *
+   * ⚠️ LA MÊME ROUTE QUE LE BLOC DE L'ENCART, et pour la raison écrite dans son encadré : la donnée et sa
+   * condition arrivent ENSEMBLE. Un composant qui affirmerait « mise à jour 268 à appliquer » sans l'avoir
+   * demandé au serveur mentirait — c'est le défaut du 28/09/2026.
+   *
+   * ⚠️ SILENCE EN CAS D'ÉCHEC : la ligne dit « aucun », et les deux gestes restent offerts. Une erreur rouge
+   * au-dessus des biens ferait croire que les RATTACHEMENTS ont un problème.
+   */
+  useEffect(() => {
+    if (mailId === null) return undefined;
+    let vivant = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/gestion/messages/${mailId}/affectation`, { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; evenement?: EvenementDuMail | null; qualifie?: boolean };
+        if (!vivant) return;
+        setEvtDuMail({
+          evenement: d.etat === 'ok' ? (d.evenement ?? null) : null,
+          qualifie: d.etat === 'ok' && d.qualifie === true,
+        });
+      } catch {
+        if (vivant) setEvtDuMail({ evenement: null, qualifie: false });
+      }
+    })();
+    return () => { vivant = false; };
+  }, [mailId, rafraichirEvt]);
+
+  /**
+   * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — LES ÉVÉNEMENTS DU OU DES BIENS COCHÉS ══════════════════════════
+   *
+   * Arno : « “Lier à un événement” (liste des événements du ou des biens cochés) ».
+   *
+   * 🔴 PAR LA ROUTE QUI RÉPOND DÉJÀ À CETTE QUESTION (`/historique/evenements?cible=lot-…`, lot
+   * HISTORIQUE-BIEN-1) : « les événements d'un bien » a UNE définition dans ce dépôt, et en écrire une seconde
+   * dans la recherche aurait donné deux listes qui se contredisent un jour.
+   *
+   * ⚠️ AUCUN BIEN COCHÉ ⇒ AUCUNE RESTRICTION (`null`) : la recherche est alors celle de partout ailleurs. On ne
+   * peut pas restreindre à l'ensemble vide une liste dont on ne sait rien — et un mail qu'on classe sans bien
+   * peut parfaitement mériter une carte.
+   *
+   * ⚠️ UNE LECTURE PAR BIEN COCHÉ, et seulement quand le panneau « Lier » est ouvert : cette question ne se pose
+   * qu'à cet instant, et la poser à chaque coche aurait rechargé pour rien.
+   */
+  const clesCochees = (selection ?? clesDuMail).join(',');
+  useEffect(() => {
+    if (panneauEvt !== 'lier') return undefined;
+    const cles = clesCochees === '' ? [] : clesCochees.split(',');
+    if (cles.length === 0) { setEvtsDesBiens(null); return undefined; }
+    let vivant = true;
+    void (async () => {
+      const ids = new Set<number>();
+      for (const cle of cles) {
+        try {
+          const res = await fetch(
+            `/api/admin/gestion/historique/evenements?cible=lot-${encodeURIComponent(cle)}`,
+            { cache: 'no-store' },
+          );
+          const d = (await res.json()) as { etat?: string; evenements?: { id: number }[] };
+          if (d.etat === 'ok') for (const e of d.evenements ?? []) ids.add(e.id);
+        } catch {
+          /* ⚠️ UNE LECTURE EN ÉCHEC N'EST PAS « AUCUN ÉVÉNEMENT » : on ne retire rien de la liste à cause
+             d'elle, les autres biens comptent quand même. */
+        }
+      }
+      if (vivant) setEvtsDesBiens([...ids]);
+    })();
+    return () => { vivant = false; };
+  }, [panneauEvt, clesCochees]);
+
   if (modifie !== null) {
     return (
       <ModifierRattachement lien={modifie} messageId={modifie.messageId}
@@ -360,27 +518,8 @@ export function RattachementsDuFil({
     );
   }
 
-  const fiche = etat.v === 'ok' ? etat.fiche : null;
-  const tousLesLiens = etat.v === 'ok' ? etat.liens : [];
-  const liensParId = new Map(tousLesLiens.map((l) => [l.id, l]));
-  const objet = fiche?.objet ?? titre ?? null;
-  /**
-   * 🔴🔴 LE MAIL DE LA FENÊTRE — UN SEUL CHEMIN, ET C'EST LE LOT. Le mail cliqué s'il y en a un ; sinon celui que
-   * le serveur a désigné comme le plus récent, c'est-à-dire celui que la ligne de liste affiche.
-   */
-  const mailId = messageId ?? fiche?.enTete?.messageId ?? null;
-  /**
-   * 🔴🔴 LES BIENS QUE CETTE FENÊTRE MONTRE : ceux qui sont rattachés OFFICIELLEMENT à ce mail — lien vivant et
-   * CONFIRMÉ, jamais une proposition. C'est `biensDuMail`, et il n'y a plus de second chemin : c'est pour cela
-   * que la fenêtre de la liste montrait encore les cartes « À trancher » après le lot a7f5f968.
-   */
-  const biens = fiche === null || mailId === null
-    ? []
-    : biensDuMail(fiche.biens, tousLesLiens, mailId);
-  /** L'état de départ du panneau : exactement les biens ci-dessus, cochés. */
-  const clesDuMail = biens.map((b) => b.cle);
-  const libellesDuMail: Record<string, string> = {};
-  for (const b of biens) libellesDuMail[b.cle] = `${b.adresseComplete} — lot ${b.numeroLot}`;
+
+
 
   /**
    * ══ 🔴🔴 CE QUE « VALIDER » ÉCRIT — UNE SEULE REQUÊTE, ET LA RÈGLE EST CELLE DU SERVEUR ══════════════════════
@@ -455,6 +594,82 @@ export function RattachementsDuFil({
     await charger();
   };
 
+  /**
+   * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — L'ÉVÉNEMENT VOULU, ÉCRIT APRÈS LES BIENS ═══════════════════════
+   *
+   * Arno : « L'événement créé est lié au mail et au(x) bien(s) choisis au moment de “Valider le suivi”. »
+   *
+   * 🔴 LES MÊMES ROUTES QUE LE BLOC « Événement rattaché » DE L'ENCART, avec le même corps : `{ evenementId }`
+   * pour lier, `{ nouveau: { objet, categorie, urgence, parties } }` pour créer. Aucune porte d'écriture neuve,
+   * aucune logique recopiée — donc même journal et même réversibilité (« Délier » défait l'un comme l'autre).
+   *
+   * 🔴 LES PARTIES VIENNENT DE LA FICHE **FRAÎCHE**, celle que la lecture d'après l'écriture vient de rendre.
+   * C'est la seule qui connaisse les personnes des biens tout juste rattachés ; prendre l'état de React aurait
+   * donné les biens d'AVANT la modification.
+   *
+   * ⚠️ UN ÉCHEC NE DÉFAIT PAS LES BIENS : ils sont écrits, et c'est un geste réussi. On le DIT, et l'événement
+   * reste voulu — on peut réessayer sans recommencer la sélection.
+   */
+  const ecrireLEvenementVoulu = async (
+    fraiche: FicheRattachementFil | null, voulus: readonly { cle: string; libelle: string }[],
+  ): Promise<void> => {
+    const voulu = evtVoulu;
+    if (voulu === null || mailId === null) return;
+    const corps = voulu.sorte === 'lier'
+      ? { evenementId: voulu.evenementId }
+      : {
+        nouveau: {
+          objet: voulu.objet.trim(),
+          /* ⚠️ SANS LA MIGRATION 268, ces deux champs n'ont nulle part où s'écrire : on ne les envoie pas. */
+          ...(evtDuMail?.qualifie === true
+            ? { categorie: voulu.categorie === '' ? null : voulu.categorie } : {}),
+          ...(evtDuMail?.qualifie === true
+            ? { urgence: voulu.urgence === '' ? null : voulu.urgence } : {}),
+          parties: partiesDesBiens(fraiche, voulus),
+        },
+      };
+    try {
+      const res = await fetch(`/api/admin/gestion/messages/${mailId}/affectation`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
+      });
+      const d = (await res.json()) as { erreur?: string };
+      if (!res.ok) { setErreur(d.erreur ?? 'Les biens sont enregistrés, mais l’événement n’a pas abouti.'); return; }
+      setEvtVoulu(null);
+      setPanneauEvt('aucun');
+      setRafraichirEvt((n) => n + 1);
+      onGeste?.(voulu.sorte === 'lier'
+        ? 'Mail lié à l’événement.'
+        : 'Événement créé et lié à ce mail.');
+    } catch {
+      setErreur('Les biens sont enregistrés, mais le serveur n’a pas répondu pour l’événement.');
+    }
+  };
+
+  /**
+   * 🔴 SUR QUOI PORTE LA CARTE NEUVE : le bien, son propriétaire, son locataire — la même règle que le bloc de
+   * l'encart (demande d'Arno au lot CONTACTS-ET-EVENEMENT), lue sur la fiche fraîche.
+   */
+  const partiesDesBiens = (
+    fraiche: FicheRattachementFil | null,
+    voulus: readonly { cle: string; libelle: string }[],
+  ): { sorte: 'lot' | 'proprietaire' | 'locataire'; cle: string; libelle: string }[] => {
+    const out: { sorte: 'lot' | 'proprietaire' | 'locataire'; cle: string; libelle: string }[] = [];
+    /* 🔴 LES BIENS VOULUS, DANS L'ORDRE VOULU — et leurs personnes lues sur la fiche fraîche. Un bien qu'elle ne
+       porte pas encore (lecture en échec) garde quand même sa ligne « lot » : la carte sera rattachée au bien,
+       même si l'on n'a pas su nommer son propriétaire. */
+    const parCle = new Map((fraiche?.biens ?? []).map((b) => [b.cle, b]));
+    for (const v of voulus) {
+      const b = parCle.get(v.cle);
+      out.push({ sorte: 'lot', cle: v.cle, libelle: v.libelle });
+      for (const p of b?.personnes ?? []) {
+        if (p.role === 'proprietaire' || p.role === 'locataire') {
+          out.push({ sorte: p.role, cle: p.cle, libelle: p.nom });
+        }
+      }
+    }
+    return out;
+  };
+
   const ecrire = async (
     voulus: readonly { cle: string; libelle: string }[], choix: ChoixSuivi,
     /**
@@ -502,7 +717,10 @@ export function RattachementsDuFil({
       setPanneau('aucun');
       setSelection(null);
       setConfirme(false);
-      await charger();
+      const fraiche = await charger();
+      /* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — l'événement voulu s'écrit MAINTENANT, et pas avant : la carte
+         neuve reçoit ainsi les biens qu'on vient d'écrire, avec leur propriétaire et leur locataire. */
+      await ecrireLEvenementVoulu(fraiche, voulus);
       /* 🔴🔴 POINT 2 — APRÈS L'ÉCRITURE, ET JAMAIS AVANT : la marque est déjà levée par `rattacher()`. Ce qui
          reste à faire est d'offrir la SORTIE, avec les deux moitiés qu'elle devra défaire. */
       if (leveeConfirmee !== null && leveeConfirmee.length > 0 && ajoutes.length > 0) {
@@ -540,6 +758,10 @@ export function RattachementsDuFil({
       <style>{CSS_MODIFIER_RATTACHEMENT}</style>
       <style>{CSS_BOUTON_COPIER}</style>
       <style>{CSS_RATTACHEMENTS_FIL}</style>
+      {/* 🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — la feuille du formulaire partagé (`ChampsEvenement`, classes
+          `bev-…`). Elle est montée ici parce que ce sont SES champs qu'on affiche ; la recopier aurait donné
+          deux formulaires qui ne se ressemblent plus au premier ajustement. */}
+      <style>{CSS_BLOC_EVENEMENT}</style>
       <div className="mrt rdf" role="dialog" aria-modal="true" aria-labelledby="rdf-titre"
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFerme(); } }}>
 
@@ -658,6 +880,10 @@ export function RattachementsDuFil({
                aurait effacé la différence que l'encadré prend soin d'expliquer. */
             motValider={choixSuivi === 'mail' ? 'Valider les biens de ce mail' : 'Valider le suivi'}
             validationBloquee={bloquee}
+            /* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — un événement voulu EST quelque chose à valider, même si
+               les biens n'ont pas bougé. Sans cela, « Valider le suivi » restait grisé et l'événement
+               inatteignable. */
+            aussiAValider={evtVoulu !== null}
             onValider={(voulus) => ecrire(voulus, choixSuivi)}
             onFerme={() => { setPanneau('aucun'); setSelection(null); setConfirme(false); }}
             onGeste={onGeste}
@@ -709,6 +935,126 @@ export function RattachementsDuFil({
                     </p>
                   )}
                 </fieldset>
+                {/* ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — LA LIGNE « ÉVÉNEMENT RATTACHÉ » ══════════════
+                    DEMANDE D'ARNO : « Dans la ligne “ÉVÉNEMENT RATTACHÉ” de la fenêtre : “Lier à un événement”
+                    (liste des événements du ou des biens cochés) et “Créer un événement”. […] L'événement créé
+                    est lié au mail et au(x) bien(s) choisis au moment de “Valider le suivi”. “Annuler” ne crée
+                    rien. »
+
+                    🔴 LES DEUX MORCEAUX SONT RÉEMPLOYÉS, JAMAIS RECOPIÉS : `ChoisirEvenement` (la recherche de
+                    partout ailleurs) et `ChampsEvenement` (le formulaire du bloc de l'encart, extrait pour cela).
+                    Deux formulaires recopiés auraient divergé au premier ajustement.
+
+                    ⚠️ RIEN N'EST ÉCRIT ICI : on note ce qu'on VEUT, et « Valider le suivi » l'écrit après les
+                    biens — c'est à cette seule condition que la carte neuve peut recevoir les biens cochés, leur
+                    propriétaire et leur locataire. */}
+                <div className="rdf-evt">
+                  <p className="rdf-evt-tete">
+                    <span className="rdf-suivi-titre">Événement rattaché</span>
+                    {evtDuMail === null && <span className="rdf-detail">lecture…</span>}
+                    {evtDuMail !== null && evtDuMail.evenement !== null && (
+                      <span className="rdf-evt-nom">
+                        {evtDuMail.evenement.reference} · {evtDuMail.evenement.objet}
+                      </span>
+                    )}
+                    {/* 🔴 « Aucun » EST UNE RÉPONSE : l'événement est facultatif, et il ne change jamais la
+                        capsule de statut d'un mail (règle du lot STATUT-HORS-GESTION). */}
+                    {evtDuMail !== null && evtDuMail.evenement === null && evtVoulu === null && (
+                      <span className="rdf-detail">aucun — l’événement est facultatif</span>
+                    )}
+                    {/* 🔴 CE QUI SERA ÉCRIT À LA VALIDATION, DIT AVANT DE LA FAIRE. */}
+                    {evtVoulu !== null && (
+                      <span className="rdf-evt-voulu">
+                        {evtVoulu.sorte === 'lier'
+                          ? `à lier : ${evtVoulu.mot}`
+                          : `à créer : « ${evtVoulu.objet.trim()} »`}
+                      </span>
+                    )}
+                    {panneauEvt === 'aucun' && evtVoulu === null && (
+                      <>
+                        <button type="button" className="gst-lien-bouton"
+                          onClick={() => { setPanneauEvt('lier'); setErreur(null); }}>
+                          Lier à un événement
+                        </button>
+                        <button type="button" className="gst-lien-bouton"
+                          onClick={() => {
+                            setErreur(null);
+                            /* Le titre part du premier bien coché : c'est ce qu'on écrirait à la main neuf
+                               fois sur dix. Il reste entièrement modifiable. */
+                            const premiere = (selection ?? clesDuMail)[0];
+                            setEvtTitre(premiere === undefined ? '' : (libellesDuMail[premiere] ?? premiere));
+                            setPanneauEvt('creer');
+                          }}>
+                          Créer un événement
+                        </button>
+                      </>
+                    )}
+                    {/* ⚠️ SE DÉDIRE EST TOUJOURS POSSIBLE, ET RIEN N'A ÉTÉ ÉCRIT : « Annuler ne crée rien ». */}
+                    {evtVoulu !== null && (
+                      <button type="button" className="gst-lien-bouton"
+                        onClick={() => { setEvtVoulu(null); setPanneauEvt('aucun'); }}>
+                        Annuler l’événement
+                      </button>
+                    )}
+                  </p>
+
+                  {panneauEvt === 'lier' && (
+                    <div className="rdf-evt-forme">
+                      {/* 🔴 LA LISTE EST BORNÉE AUX ÉVÉNEMENTS DES BIENS COCHÉS (demande d'Arno) — par la route
+                          qui répond déjà à cette question. Aucun bien coché ⇒ aucune restriction : on ne peut
+                          pas borner à l'ensemble vide une liste dont on ne sait rien. */}
+                      <ChoisirEvenement choisi={null} autoFocus
+                        exclure={evtDuMail?.evenement?.evenementId ?? null}
+                        restreindreA={evtsDesBiens}
+                        motSiRestreintVide="Aucun événement sur le ou les biens cochés — « Créer un événement » en ouvre un."
+                        onChoisir={(id, trouve) => {
+                          if (id === null) return;
+                          /* 🔴 ON LE NOMME AVEC SES PROPRES MOTS : « à lier : GES-2026-000012 · Fuite ». Un
+                             numéro seul n'aurait rien dit avant de valider. */
+                          setEvtVoulu({
+                            sorte: 'lier',
+                            evenementId: id,
+                            mot: trouve == null ? `événement n° ${id}` : `${trouve.reference} · ${trouve.objet}`,
+                          });
+                          setPanneauEvt('aucun');
+                        }} />
+                      <div className="rdf-evt-boutons">
+                        <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                          onClick={() => setPanneauEvt('aucun')}>
+                          Annuler
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {panneauEvt === 'creer' && (
+                    <div className="rdf-evt-forme">
+                      <ChampsEvenement titre={evtTitre} onTitre={setEvtTitre}
+                        categorie={evtCategorie} onCategorie={setEvtCategorie}
+                        urgence={evtUrgence} onUrgence={setEvtUrgence}
+                        qualifieDisponible={evtDuMail?.qualifie === true}
+                        libellesDesBiens={(selection ?? clesDuMail).map((c) => libellesDuMail[c] ?? c)} />
+                      <div className="rdf-evt-boutons">
+                        {/* ⚠️ « Annuler » NE CRÉE RIEN, et ne garde rien : demande d'Arno, mot pour mot. */}
+                        <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                          onClick={() => { setPanneauEvt('aucun'); setEvtVoulu(null); }}>
+                          Annuler
+                        </button>
+                        {/* 🔴 IL NE CRÉE PAS : il NOTE. La création part avec « Valider le suivi ». */}
+                        <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                          disabled={evtTitre.trim() === ''}
+                          onClick={() => {
+                            setEvtVoulu({
+                              sorte: 'creer', objet: evtTitre, categorie: evtCategorie, urgence: evtUrgence,
+                            });
+                            setPanneauEvt('aucun');
+                          }}>
+                          Garder pour la validation
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 {/* 🔴 CE QUE LA VALIDATION VA ÉCRIRE, DIT AVANT DE LA FAIRE — « Aucun changement » compris. */}
                 {/* ⚠️ `rdf-bilan`, PAS `rdf-resume` : ce dernier est déjà le dépliant « Voir le détail par mail »
                     de chaque bien. Deux sens pour une classe, c'est un style qu'on croit changer ici et qui
@@ -1159,6 +1505,17 @@ export const CSS_RATTACHEMENTS_FIL = `
 /* 🔴 UN GRAND BOUTON, et il prend toute la largeur : c'est le geste principal de la fenetre, pas un lien de plus. */
 .rdf-modifier{width:100%;justify-content:center;margin:2px 0 4px;font-weight:700}
 .rdf-pied-panneau{display:flex;flex-direction:column;gap:6px;margin:8px 0 0;min-width:0}
+/* LOT CLASSER-PAR-LA-MODALE, POINT 3 — LA LIGNE « EVENEMENT RATTACHE » DU PIED.
+   Meme dessin que la ligne du bloc de l'encart : un titre, l'etat, puis les gestes en liens discrets. Les
+   formes qui s'ouvrent dessous sont encadrees, comme la-bas — on voit ce qui est ouvert, et sur quoi. */
+.rdf-evt{min-width:0;padding-top:6px;border-top:1px solid var(--color-svv-line)}
+.rdf-evt-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .6rem;margin:0;min-width:0}
+.rdf-evt-nom{font-size:.84rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* CE QUI SERA ECRIT A LA VALIDATION : en ambre, le ton des evenements dans tout cet ecran. */
+.rdf-evt-voulu{font-size:.78rem;font-weight:700;color:var(--color-svv-amber);overflow-wrap:anywhere}
+.rdf-evt-forme{margin:6px 0 0;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem;
+  background:var(--color-svv-surface);min-width:0}
+.rdf-evt-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:8px}
 /* c) L'ENCADRE CLAIR : il dit ce que « Valider » va faire, AVANT de le faire. */
 .rdf-encadre{margin:0;padding:8px 10px;border-radius:0 .5rem .5rem 0;
   border-left:3px solid var(--color-svv-red);background:var(--color-svv-field);

@@ -248,42 +248,14 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange }: {
       {panneau === 'creer' && (
         <div className="bev-forme">
           <p className="bev-legende">Créer un événement</p>
-          <label className="bev-champ">
-            <span className="bev-label">Titre</span>
-            <input className="bev-saisie" value={titre} onChange={(e) => setTitre(e.target.value)}
-              placeholder="Ce dont il s’agit, en une ligne" />
-          </label>
-
-          {/* ⚠️ SANS LA MIGRATION 268, ces deux champs n'auraient nulle part où s'écrire : on ne les propose pas. */}
-          {qualifieDisponible ? (
-            <div className="bev-deux">
-              <label className="bev-champ">
-                <span className="bev-label">Catégorie</span>
-                <select className="bev-saisie" value={categorie} onChange={(e) => setCategorie(e.target.value)}>
-                  <option value="">non précisée</option>
-                  {CATEGORIES_EVENEMENT.map((c) => <option key={c} value={c}>{motCategorie(c)}</option>)}
-                </select>
-              </label>
-              <label className="bev-champ">
-                <span className="bev-label">Urgence</span>
-                <select className="bev-saisie" value={urgence} onChange={(e) => setUrgence(e.target.value)}>
-                  <option value="">non précisée</option>
-                  {URGENCES_EVENEMENT.map((u) => <option key={u} value={u}>{motUrgence(u)}</option>)}
-                </select>
-              </label>
-            </div>
-          ) : (
-            <p className="bev-note">
-              Catégorie et urgence ne sont pas encore installées sur cette base (mise à jour 268 à appliquer).
-            </p>
-          )}
-
-          {/* 🔴 CE À QUOI LA CARTE SERA RATTACHÉE, DIT AVANT DE VALIDER. */}
-          <p className="bev-note">
-            {biens.length === 0
-              ? 'Aucun bien classé sur ce mail : la carte sera ouverte sans bien rattaché.'
-              : `Sera rattaché à ${biens.map((b) => b.libelle).join(', ')}, à son propriétaire et à son locataire.`}
-          </p>
+          {/* 🔴🔴 LE FORMULAIRE EST UN COMPOSANT À PART DEPUIS LE LOT CLASSER-PAR-LA-MODALE (POINT 3) — voir son
+              encadré. Il n'a pas changé d'une virgule : il a changé d'ADRESSE, pour que la fenêtre
+              « Bien(s) rattaché(s) à ce mail » l'emploie sans le recopier. */}
+          <ChampsEvenement titre={titre} onTitre={setTitre}
+            categorie={categorie} onCategorie={setCategorie}
+            urgence={urgence} onUrgence={setUrgence}
+            qualifieDisponible={qualifieDisponible}
+            libellesDesBiens={biens.map((b) => b.libelle)} />
 
           <div className="bev-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe}
@@ -300,6 +272,82 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange }: {
 
       {erreur !== null && <p className="gst-tronc" role="alert">{erreur}</p>}
     </div>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — LE FORMULAIRE DE CRÉATION, EXTRAIT POUR ÊTRE RÉEMPLOYÉ ════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (06/10/2026) : « La création ouvre dans la fenêtre le formulaire de création existant […] :
+ * réutilise le formulaire actuel, sans copie. »
+ *
+ * 🔴 « SANS COPIE » EST LA CONSIGNE, ET VOILÀ COMMENT ELLE EST TENUE : les champs sont sortis d'ici sans qu'une
+ * ligne change, et DEUX écrans les montent — le bloc « Événement rattaché » de l'encart (juste au-dessus) et la
+ * fenêtre « Bien(s) rattaché(s) à ce mail ». Deux formulaires recopiés auraient divergé au premier ajustement, et
+ * c'est celui qu'on regarde le moins qui aurait gardé l'ancienne version.
+ *
+ * 🔴 IL NE PORTE AUCUN BOUTON, ET C'EST VOLONTAIRE : ici « Créer et lier » écrit tout de suite ; dans la fenêtre,
+ * la création attend « Valider le suivi » (pour que la carte neuve reçoive les biens qu'on vient de cocher). Un
+ * bouton commun aurait donc dû mentir dans l'un des deux cas.
+ *
+ * ⚠️ IL N'ÉCRIT RIEN ET NE LIT RIEN : il rend des champs et remonte leur valeur. C'est l'appelant qui écrit, par
+ * la route qu'il employait déjà.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function ChampsEvenement({
+  titre, onTitre, categorie, onCategorie, urgence, onUrgence, qualifieDisponible, libellesDesBiens,
+}: {
+  titre: string;
+  onTitre: (v: string) => void;
+  categorie: string;
+  onCategorie: (v: string) => void;
+  urgence: string;
+  onUrgence: (v: string) => void;
+  /** Migration 268 appliquée ? Sinon on ne propose pas deux champs qui n'auraient nulle part où s'écrire. */
+  qualifieDisponible: boolean;
+  /** Les biens auxquels la carte neuve sera rattachée — dits AVANT de valider. Vide = aucune. */
+  libellesDesBiens: readonly string[];
+}) {
+  return (
+    <>
+      <label className="bev-champ">
+        <span className="bev-label">Titre</span>
+        <input className="bev-saisie" value={titre} onChange={(e) => onTitre(e.target.value)}
+          placeholder="Ce dont il s’agit, en une ligne" />
+      </label>
+
+      {/* ⚠️ SANS LA MIGRATION 268, ces deux champs n'auraient nulle part où s'écrire : on ne les propose pas. */}
+      {qualifieDisponible ? (
+        <div className="bev-deux">
+          <label className="bev-champ">
+            <span className="bev-label">Catégorie</span>
+            <select className="bev-saisie" value={categorie} onChange={(e) => onCategorie(e.target.value)}>
+              <option value="">non précisée</option>
+              {CATEGORIES_EVENEMENT.map((c) => <option key={c} value={c}>{motCategorie(c)}</option>)}
+            </select>
+          </label>
+          <label className="bev-champ">
+            <span className="bev-label">Urgence</span>
+            <select className="bev-saisie" value={urgence} onChange={(e) => onUrgence(e.target.value)}>
+              <option value="">non précisée</option>
+              {URGENCES_EVENEMENT.map((u) => <option key={u} value={u}>{motUrgence(u)}</option>)}
+            </select>
+          </label>
+        </div>
+      ) : (
+        <p className="bev-note">
+          Catégorie et urgence ne sont pas encore installées sur cette base (mise à jour 268 à appliquer).
+        </p>
+      )}
+
+      {/* 🔴 CE À QUOI LA CARTE SERA RATTACHÉE, DIT AVANT DE VALIDER. */}
+      <p className="bev-note">
+        {libellesDesBiens.length === 0
+          ? 'Aucun bien classé sur ce mail : la carte sera ouverte sans bien rattaché.'
+          : `Sera rattaché à ${libellesDesBiens.join(', ')}, à son propriétaire et à son locataire.`}
+      </p>
+    </>
   );
 }
 

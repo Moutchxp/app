@@ -27,14 +27,39 @@ export interface EvenementTrouve {
 
 const DELAI_FRAPPE_MS = 250;
 
-export function ChoisirEvenement({ choisi, onChoisir, onNouveau, exclure, autoFocus = false }: {
+export function ChoisirEvenement({
+  choisi, onChoisir, onNouveau, exclure, autoFocus = false, restreindreA = null, motSiRestreintVide,
+}: {
   choisi: number | null;
-  onChoisir: (id: number | null) => void;
+  /**
+   * ⚠️ LE SECOND ARGUMENT EST FACULTATIF (lot CLASSER-PAR-LA-MODALE, point 3) : l'événement TROUVÉ, pour
+   * l'appelant qui doit le NOMMER avant de l'écrire (« à lier : GES-… · objet »). Les trois autres gestes qui
+   * montent ce composant l'ignorent, et rien ne change pour eux.
+   */
+  onChoisir: (id: number | null, trouve?: EvenementTrouve | null) => void;
   /** Fourni → une entrée « + Nouvel événement » apparaît DANS la liste, à sa place naturelle. */
   onNouveau?: () => void;
   /** L'événement d'où l'on part, quand on DÉPLACE : le proposer comme destination n'aurait pas de sens. */
   exclure?: number | null;
   autoFocus?: boolean;
+  /**
+   * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — N'OFFRIR QUE LES ÉVÉNEMENTS DES BIENS COCHÉS ═══════════════════
+   *
+   * DEMANDE D'ARNO (06/10/2026) : « “Lier à un événement” (liste des événements du ou des biens cochés) ».
+   *
+   * 🔴 LA RESTRICTION SE FAIT SUR DES IDENTIFIANTS, et non par un nouveau filtre de recherche côté serveur, pour
+   * une raison précise : « les événements d'un bien » est une question DÉJÀ répondue par une route existante
+   * (`/historique/evenements?cible=lot-…`, lot HISTORIQUE-BIEN-1). Y ajouter un second prédicat dans la recherche
+   * aurait donné deux définitions de « les événements de ce bien », et c'est celle qu'on regarde le moins qui
+   * aurait fini par mentir. L'appelant lit la route, et passe la liste.
+   *
+   * ⚠️ `null` ⇒ AUCUNE RESTRICTION : la recherche est exactement celle d'avant ce lot, pour les trois autres
+   * gestes qui montent ce composant. Une liste VIDE, elle, veut dire « aucun événement » — ce n'est pas la même
+   * chose, et elle se dit avec `motSiRestreintVide`.
+   */
+  restreindreA?: readonly number[] | null;
+  /** Ce qu'on dit quand la restriction ne laisse rien. Absent ⇒ la phrase ordinaire. */
+  motSiRestreintVide?: string;
 }) {
   const [saisie, setSaisie] = useState('');
   const [resultats, setResultats] = useState<EvenementTrouve[]>([]);
@@ -75,8 +100,14 @@ export function ChoisirEvenement({ choisi, onChoisir, onNouveau, exclure, autoFo
 
   useEffect(() => { if (autoFocus) champ.current?.focus(); }, [autoFocus]);
 
-  const visibles = resultats.filter((e) => e.id !== exclure);
-  const choisirLe = useCallback((id: number) => onChoisir(id === choisi ? null : id), [choisi, onChoisir]);
+  const visibles = resultats
+    .filter((e) => e.id !== exclure)
+    /* 🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — hors des biens cochés, l'événement n'est pas proposé. */
+    .filter((e) => restreindreA === null || restreindreA.includes(e.id));
+  const choisirLe = useCallback(
+    (id: number, trouve: EvenementTrouve) => onChoisir(id === choisi ? null : id, trouve),
+    [choisi, onChoisir],
+  );
 
   return (
     <div className="gst-choix">
@@ -101,7 +132,7 @@ export function ChoisirEvenement({ choisi, onChoisir, onNouveau, exclure, autoFo
           <li key={e.id}>
             <button type="button" role="option" aria-selected={choisi === e.id}
               className={`gst-resultat${choisi === e.id ? ' gst-resultat--choisi' : ''}`}
-              onClick={() => choisirLe(e.id)}>
+              onClick={() => choisirLe(e.id, e)}>
               <span className="gst-resultat-haut">
                 <span className="gst-objet">{e.objet}</span>
                 <span className="gst-ref">{e.reference}</span>
@@ -119,7 +150,11 @@ export function ChoisirEvenement({ choisi, onChoisir, onNouveau, exclure, autoFo
 
       {/* On dit toujours ce qu'on montre et ce qu'on tait — ici comme dans la file. */}
       {etat === 'ok' && visibles.length === 0 && (
-        <p className="gst-note">{saisie.trim() === '' ? 'Aucun événement pour l’instant.' : 'Aucun événement ne correspond.'}</p>
+        <p className="gst-note">
+          {restreindreA !== null && motSiRestreintVide !== undefined && saisie.trim() === ''
+            ? motSiRestreintVide
+            : (saisie.trim() === '' ? 'Aucun événement pour l’instant.' : 'Aucun événement ne correspond.')}
+        </p>
       )}
       {plein && <p className="gst-note">Seuls les {resultats.length} premiers sont affichés — précisez votre recherche.</p>}
     </div>
