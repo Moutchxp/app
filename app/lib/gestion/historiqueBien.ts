@@ -1141,13 +1141,36 @@ export const SANS_LOCATAIRE_CONNU =
  * ⚠️ LES QUATRE CAS SONT DITS, Y COMPRIS LES DEMI-BORNES. Une période ouverte d'un côté est fréquente (un bail
  * en cours, une entrée inconnue) ; écrire « du … au … » avec un trou aurait produit « du au 04/10/2026 ».
  */
-export function motPeriodeEffective(p: ChoixPeriode): string {
+export function motPeriodeEffective(p: ChoixPeriode, maintenant?: Date): string {
   const { du, au } = bornesDuChoix(p);
   const d = formaterDateIso(jourValide(du));
   const a = formaterDateIso(jourValide(au));
   if (d === '' && a === '') return 'tous les échanges, sans borne de date';
-  if (d !== '' && a !== '') return `du ${d} au ${a}`;
-  return d !== '' ? `depuis le ${d}` : `jusqu’au ${a}`;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 4 — « AUJOURD'HUI » AU LIEU DE LA DATE DU JOUR ═══════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « quand la date de fin est aujourd'hui, écrire “aujourd'hui” au lieu de la
+   * date (ex. “du 01/02/2025 à aujourd'hui”). Même règle dans les choix “Depuis l'entrée du dernier locataire”,
+   * “Un événement” (en cours) et “Dates personnalisées”. »
+   *
+   * 🔴 LES TROIS CHOIX PASSENT DÉJÀ PAR ICI, ET C'EST POURQUOI UNE SEULE CORRECTION SUFFIT. Aucun des trois
+   * boutons n'affiche de date lui-même : ils RÈGLENT les bornes, et c'est cette phrase — « Période retenue » —
+   * qui les écrit. Un événement EN COURS borne au jour même (`periodeDeLEvenement`), un bail en cours ne borne
+   * pas du tout (`au: null` ⇒ « depuis le … »), et « Dates personnalisées » prend ce qu'on y saisit.
+   *
+   * 🔴 LA PRÉPOSITION CHANGE AVEC LE MOT, et c'est la phrase d'Arno qui le dit : « du 01/02/2025 **à**
+   * aujourd'hui », et non « au aujourd'hui ». De même « jusqu'à aujourd'hui » et non « jusqu'au aujourd'hui ».
+   *
+   * ⚠️ `maintenant` EST FACULTATIF, et sans lui la phrase est celle d'avant ce lot, au caractère près : une date
+   * en clair. Les deux appelants qui ne connaissent pas l'heure (un test de bornes, un rendu hors écran) ne
+   * changent donc pas de comportement — et surtout, cette fonction reste PURE : elle ne lit pas l'horloge
+   * elle-même. Une fonction qui appellerait `new Date()` ne pourrait pas être éprouvée deux jours de suite.
+   */
+  const cejour = maintenant === undefined ? '' : formaterDateIso(jourParis(maintenant));
+  const finAujourdhui = cejour !== '' && a === cejour;
+  if (d !== '' && a !== '') return finAujourdhui ? `du ${d} à aujourd’hui` : `du ${d} au ${a}`;
+  if (d !== '') return `depuis le ${d}`;
+  return finAujourdhui ? 'jusqu’à aujourd’hui' : `jusqu’au ${a}`;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

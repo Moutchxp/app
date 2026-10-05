@@ -1522,3 +1522,94 @@ describe('point 2 — une adresse qui ne peut rien filtrer', () => {
     expect(r.nousEcartees).toBe(1);
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 4 — « AUJOURD'HUI » AU LIEU DE LA DATE DU JOUR ════════════════════════════
+ *
+ * DEMANDE D'ARNO : « quand la date de fin est aujourd'hui, écrire “aujourd'hui” au lieu de la date (ex. “du
+ * 01/02/2025 à aujourd'hui”). Même règle dans les choix “Depuis l'entrée du dernier locataire”, “Un événement”
+ * (en cours) et “Dates personnalisées”. »
+ *
+ * 🔴 LES TROIS CHOIX PASSENT PAR LA MÊME PHRASE, et c'est pourquoi une seule correction suffit : aucun des trois
+ * boutons n'écrit de date, ils règlent les bornes que « Période retenue » affiche.
+ */
+describe('motPeriodeEffective — « aujourd’hui » plutôt que la date du jour', () => {
+  const MIDI = new Date('2026-10-05T10:00:00Z');
+
+  it('🔴🔴 L’EXEMPLE D’ARNO, AU MOT PRÈS', () => {
+    const p = { sorte: 'dates', du: '2025-02-01', au: '2026-10-05' } as const;
+    expect(motPeriodeEffective(p, MIDI)).toBe('du 01/02/2025 à aujourd’hui');
+  });
+
+  it('🔴 LA PRÉPOSITION SUIT LE MOT : « à aujourd’hui », jamais « au aujourd’hui »', () => {
+    const p = { sorte: 'dates', du: '2025-02-01', au: '2026-10-05' } as const;
+    expect(motPeriodeEffective(p, MIDI)).not.toContain('au aujourd’hui');
+    expect(motPeriodeEffective({ sorte: 'dates', du: null, au: '2026-10-05' }, MIDI))
+      .toBe('jusqu’à aujourd’hui');
+  });
+
+  it('⚠️ UNE AUTRE DATE DE FIN RESTE UNE DATE', () => {
+    expect(motPeriodeEffective({ sorte: 'dates', du: '2025-02-01', au: '2026-09-28' }, MIDI))
+      .toBe('du 01/02/2025 au 28/09/2026');
+  });
+
+  it('🔴 « UN ÉVÉNEMENT » EN COURS BORNE AU JOUR MÊME, et la phrase dit « aujourd’hui »', () => {
+    const b = periodeDeLEvenement(
+      { ouvertLe: '2026-09-23T07:00:00Z', closLe: null }, MIDI);
+    expect(motPeriodeEffective({ sorte: 'evenement', evenementId: 1, du: b.du, au: b.au }, MIDI))
+      .toBe('du 23/09/2026 à aujourd’hui');
+  });
+
+  it('🔴 UN ÉVÉNEMENT CLOS GARDE SA DATE DE CLÔTURE', () => {
+    const b = periodeDeLEvenement(
+      { ouvertLe: '2025-11-02T07:00:00Z', closLe: '2025-12-20T10:00:00Z' },
+      MIDI);
+    expect(motPeriodeEffective({ sorte: 'evenement', evenementId: 1, du: b.du, au: b.au }, MIDI))
+      .toBe('du 02/11/2025 au 20/12/2025');
+  });
+
+  /**
+   * 🔴🔴 « DEPUIS L'ENTRÉE DU DERNIER LOCATAIRE » BORNE AU JOUR MÊME, ET C'EST BIEN LE CAS D'ARNO. J'attendais
+   * d'abord « depuis le 01/05/2025 » : `periodeDuDernierLocataire` remplace en fait une sortie absente par le
+   * jour de Paris (`au: p.au ?? jourParis(maintenant)`), exactement comme un événement en cours. Le choix de
+   * bail en cours donne donc, mot pour mot, la phrase de l'exemple d'Arno.
+   */
+  it('🔴🔴 « DEPUIS L’ENTRÉE DU DERNIER LOCATAIRE » : un bail en cours dit « à aujourd’hui »', () => {
+    const occ: OccupationPeriode[] = [{ libelle: 'MARTY', depuis: '2025-05-01', jusqua: null }];
+    const b = periodeDuDernierLocataire(occ, MIDI);
+    expect(b).not.toBeNull();
+    expect(b?.au).toBe('2026-10-05');
+    expect(motPeriodeEffective({ sorte: 'occupation', du: b?.du ?? null, au: b?.au ?? null }, MIDI))
+      .toBe('du 01/05/2025 à aujourd’hui');
+  });
+
+  it('🔴 UN BAIL TERMINÉ GARDE SA DATE DE SORTIE', () => {
+    const occ: OccupationPeriode[] = [{ libelle: 'MARTY', depuis: '2025-05-01', jusqua: '2026-09-28' }];
+    const b = periodeDuDernierLocataire(occ, MIDI);
+    expect(motPeriodeEffective({ sorte: 'occupation', du: b?.du ?? null, au: b?.au ?? null }, MIDI))
+      .toBe('du 01/05/2025 au 28/09/2026');
+  });
+
+  it('⚠️ SANS BORNE DU TOUT, LA PHRASE NE CHANGE PAS', () => {
+    expect(motPeriodeEffective({ sorte: 'tous' }, MIDI)).toBe('tous les échanges, sans borne de date');
+  });
+
+  /**
+   * ⚠️ LA FONCTION RESTE **PURE** : elle ne lit pas l'horloge, elle la reçoit. Sans `maintenant`, la phrase est
+   * celle d'avant ce lot au caractère près — un appelant qui ne connaît pas l'heure ne change pas de
+   * comportement, et le cas s'éprouve deux jours de suite sans bouger.
+   */
+  it('🔴🔴 SANS `maintenant`, LE COMPORTEMENT EST CELUI D’AVANT CE LOT', () => {
+    expect(motPeriodeEffective({ sorte: 'dates', du: '2025-02-01', au: '2026-10-05' }))
+      .toBe('du 01/02/2025 au 05/10/2026');
+    expect(motPeriodeEffective({ sorte: 'dates', du: null, au: '2026-10-05' })).toBe('jusqu’au 05/10/2026');
+  });
+
+  it('⚠️ LE JOUR EST CELUI DE PARIS, pas celui de l’UTC — 00h30 à Paris est encore « aujourd’hui »', () => {
+    /* 2026-10-04T23:30:00Z = 2026-10-05 01h30 à Paris : le jour de Paris est bien le 5. */
+    const nuit = new Date('2026-10-04T23:30:00Z');
+    expect(jourParis(nuit)).toBe('2026-10-05');
+    expect(motPeriodeEffective({ sorte: 'dates', du: '2025-02-01', au: '2026-10-05' }, nuit))
+      .toBe('du 01/02/2025 à aujourd’hui');
+  });
+});

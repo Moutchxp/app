@@ -316,8 +316,13 @@ describe('② la période — quatre choix exclusifs, en bande horizontale', () 
     expect(parMot('Un événement')?.getAttribute('aria-pressed')).toBe('false');
     /* ⚠️ LA BORNE HAUTE EST CONSERVÉE : on a touché « Du », pas « Au ». L'événement en cours avait réglé « Au »
        sur aujourd'hui (04/10/2026), et basculer sur « Dates personnalisées » ne doit pas effacer ce qu'on n'a
-       pas touché — sans quoi un ajustement d'une borne élargirait silencieusement la période de l'autre côté. */
-    expect(texte()).toContain('du 15/01/2026 au 04/10/2026');
+       pas touché — sans quoi un ajustement d'une borne élargirait silencieusement la période de l'autre côté.
+
+       🔴 MIS À JOUR AU LOT HISTORIQUE-BIEN-6, POINT 4 : la borne haute est toujours là, mais elle s'ÉCRIT
+       désormais « à aujourd'hui », parce que c'est le jour même (demande d'Arno). Ce que ce cas protège — la
+       borne conservée — est donc vérifié deux fois : par la phrase, et par la valeur du champ. */
+    expect(texte()).toContain('du 15/01/2026 à aujourd’hui');
+    expect((hote.querySelectorAll('input[type="date"]')[1] as HTMLInputElement).value).toBe('2026-10-04');
   });
 });
 
@@ -2638,6 +2643,62 @@ describe('⑤-quaterdecies 🔴🔴 un client dont l’adresse ne peut rien filt
   it('⚠️ AUCUNE PASTILLE « + » SUR UNE ADRESSE À CORRIGER : ce n’est pas un contact', async () => {
     await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'C. J.', categorie: 'proprietaire', fiche: null }]);
     expect(capsuleProprio().querySelector('.hdb-plus')).toBeNull();
+  });
+});
+
+describe('⑤-quindecies 🔴🔴 « Période retenue » dit « aujourd’hui » au lieu de la date du jour', () => {
+  /**
+   * DEMANDE D'ARNO (lot 6, point 4) : « quand la date de fin est aujourd'hui, écrire “aujourd'hui” au lieu de la
+   * date (ex. “du 01/02/2025 à aujourd'hui”). Même règle dans les choix “Depuis l'entrée du dernier locataire”,
+   * “Un événement” (en cours) et “Dates personnalisées”. »
+   *
+   * 🔴 UNE SEULE CORRECTION COUVRE LES TROIS CHOIX : aucun des trois boutons n'écrit de date, ils RÈGLENT les
+   * bornes que cette phrase affiche. Le cas ci-dessous les emprunte tous les trois, sur le vrai écran.
+   */
+  const retenue = (): string => hote.querySelector('.hdb-effective-valeur')?.textContent ?? '';
+
+  it('🔴 L’HEURE DESCEND JUSQU’À LA PHRASE : `maintenant` est passé au module pur', () => {
+    expect(SRC).toContain('motPeriodeEffective(reglages.periode, maintenant)');
+  });
+
+  it('🔴🔴 « UN ÉVÉNEMENT » EN COURS : « du 03/02/2026 à aujourd’hui »', async () => {
+    await monter();
+    /* L'événement 7 est ouvert le 03/02/2026 et n'est pas clos ; MAINTENANT est le 04/10/2026. */
+    await cliquer([...hote.querySelectorAll('.hdb-seg')].find((b) => b.textContent === 'Un événement'));
+    expect(retenue()).toBe('du 03/02/2026 à aujourd’hui');
+  });
+
+  it('🔴🔴 « DEPUIS L’ENTRÉE DU DERNIER LOCATAIRE » : la même règle', async () => {
+    await monter({
+      occupations: [{ libelle: 'MARTY Jean-François', depuis: '2025-05-01', jusqua: null }],
+    });
+    await cliquer([...hote.querySelectorAll('.hdb-seg')]
+      .find((b) => (b.textContent ?? '').includes('dernier locataire')));
+    expect(retenue()).toBe('du 01/05/2025 à aujourd’hui');
+  });
+
+  it('🔴🔴 « DATES PERSONNALISÉES » : la même règle, et la date de fin saisie est bien celle du jour', async () => {
+    await monter();
+    await cliquer([...hote.querySelectorAll('.hdb-seg')].find((b) => b.textContent === 'Dates personnalisées'));
+    const champs = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
+    expect(champs).toHaveLength(2);
+    await changer(champs[0], '2025-02-01');
+    await changer(champs[1], '2026-10-04');
+    expect(retenue()).toBe('du 01/02/2025 à aujourd’hui');
+  });
+
+  it('⚠️ UNE AUTRE DATE DE FIN RESTE UNE DATE', async () => {
+    await monter();
+    await cliquer([...hote.querySelectorAll('.hdb-seg')].find((b) => b.textContent === 'Dates personnalisées'));
+    const champs = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
+    await changer(champs[0], '2025-02-01');
+    await changer(champs[1], '2026-09-28');
+    expect(retenue()).toBe('du 01/02/2025 au 28/09/2026');
+  });
+
+  it('⚠️ « TOUS LES ÉCHANGES » NE CHANGE PAS', async () => {
+    await monter();
+    expect(retenue()).toBe('tous les échanges, sans borne de date');
   });
 });
 

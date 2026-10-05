@@ -1072,7 +1072,9 @@ export function HistoriqueDuBien({
                 et elle lit les MÊMES bornes que celles envoyées au serveur (`bornesDuChoix`). */}
             <p className="hdb-effective" role="status">
               <span className="hdb-effective-mot">Période retenue</span>
-              <strong className="hdb-effective-valeur">{motPeriodeEffective(reglages.periode)}</strong>
+              {/* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 4 — `maintenant` entre ici pour que « la date du jour » s'écrive
+                  « aujourd'hui ». Le module pur ne lit jamais l'horloge lui-même : il la reçoit. */}
+              <strong className="hdb-effective-valeur">{motPeriodeEffective(reglages.periode, maintenant)}</strong>
             </p>
           </div>
 
