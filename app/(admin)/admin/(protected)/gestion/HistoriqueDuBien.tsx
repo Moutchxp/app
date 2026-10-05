@@ -45,7 +45,7 @@ import {
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
   adresseACorriger, BUT_DU_PLUS, ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut,
   MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable,
-  completerAvecLesClients, motPastille, pastilleDeCapsule, sorteDeCapsule,
+  completerAvecLesClients, motPastille, ordonnerLesCapsules, pastilleDeCapsule, sorteDeCapsule,
   filtrerParMots, GROUPES_EN_BANDE,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
@@ -656,9 +656,32 @@ export function HistoriqueDuBien({
     return e as ReadonlySet<string>;
   }, [clients]);
 
-  const parties = useMemo(
-    () => grouperParCategorie(interlocuteursEtClients, categoriesFusionnees, adressesClientes),
-    [interlocuteursEtClients, categoriesFusionnees, adressesClientes]);
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 4 — L'ORDRE DES CAPSULES, GROUPE PAR GROUPE ═════════════════════════════
+   *
+   * RÈGLE D'ARNO : « D'abord les CLIENTS, triés par “a écrit” décroissant ; puis les CONTACTS, triés par “a
+   * écrit” décroissant ; à égalité, par “en copie” décroissant, puis par nom. L'ordre se recalcule quand la
+   * période change. »
+   *
+   * 🔴 IL SE RECALCULE AVEC LA PÉRIODE SANS RIEN DE PLUS : ce `useMemo` dépend de `interlocuteursEtClients`, qui
+   * vient de la route — et la route calcule `aEcrit` et `enCopie` SUR LA PÉRIODE DEMANDÉE. Changer les bornes
+   * change les compteurs, donc l'ordre. Trier en SQL aurait exigé de le refaire à chaque borne, avec le risque
+   * d'afficher un ordre calculé sur une autre période que celle qu'on montre.
+   *
+   * ⚠️ `categories` ET NON `categoriesFusionnees` : la sorte d'une capsule se lit sur la carte de la FICHE,
+   * exactement comme le font `sorteDeCapsule` pour la pastille et `partieDeplacable` pour le glisser. Lire la
+   * carte fusionnée ici aurait fait passer pour client un contact rangé en base, et il serait remonté en tête.
+   */
+  const parties = useMemo(() => {
+    const r = grouperParCategorie(interlocuteursEtClients, categoriesFusionnees, adressesClientes);
+    return {
+      ...r,
+      groupes: r.groupes.map((g) => ({
+        ...g,
+        interlocuteurs: ordonnerLesCapsules(g.interlocuteurs, g.cle, categories),
+      })),
+    };
+  }, [interlocuteursEtClients, categoriesFusionnees, adressesClientes, categories]);
 
   /** La fiche d'annuaire de chaque client, pour le lien « adresse à corriger ». */
   const fichesClientes = useMemo(() => {

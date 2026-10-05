@@ -1,7 +1,7 @@
 import { FUSEAU_AFFICHAGE } from './ecran';
 import { formaterDateIso } from './annuaireRecherche';
 import {
-  ecrireFiltres, FILTRES_VIDES, jourValide, PAGE_HISTORIQUE,
+  ecrireFiltres, FILTRES_VIDES, jourValide, libelleInterlocuteur, PAGE_HISTORIQUE,
   type ChoixPieces, type FiltresHistorique, type Interlocuteur, type LigneHistorique,
 } from './historique';
 import type { MessagePorteur, OrdrePieces } from './piecesConversation';
@@ -776,6 +776,66 @@ export function pastilleDeCapsule(
    */
   const aUneCarte = cote === null ? cotesAvecCarte.size > 0 : cotesAvecCarte.has(cote);
   return aUneCarte ? 'fiche' : 'plus';
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 4 — L'ORDRE DES CAPSULES DANS UN GROUPE. PUR. ══════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (05/10/2026), mot pour mot : « D'abord les CLIENTS, triés par “a écrit” décroissant ; puis les
+ * CONTACTS, triés par “a écrit” décroissant ; à égalité, par “en copie” décroissant, puis par nom. L'ordre se
+ * recalcule quand la période change. »
+ *
+ * 🔴 POURQUOI LES CLIENTS D'ABORD, ET POURQUOI CE N'ÉTAIT PAS LE CAS. Jusqu'ici l'ordre était celui du dépôt —
+ * du plus bavard au moins bavard, clients et contacts mêlés. Sur un bien où le secrétariat du propriétaire écrit
+ * plus que le propriétaire (le cas du lot 29 : 9 mails contre 33, mais sur bien d'autres l'inverse), le CLIENT
+ * se retrouvait sous ses propres contacts. Or c'est lui qu'on vient voir : un encart « Propriétaire » doit
+ * commencer par le propriétaire.
+ *
+ * 🔴 ET LE TRI SE RECALCULE AVEC LA PÉRIODE SANS RIEN DE PLUS, parce qu'il lit `aEcrit` et `enCopie` — deux
+ * compteurs que la route calcule SUR LA PÉRIODE DEMANDÉE. Changer les bornes change les compteurs, donc l'ordre.
+ * C'est la raison pour laquelle le tri est ici et non en SQL : en base, il aurait fallu le refaire à chaque
+ * borne, et l'écran aurait pu afficher un ordre calculé sur une autre période que celle qu'il montre.
+ *
+ * ⚠️ LA SORTE EST LUE PAR `sorteDeCapsule`, ET PAR ELLE SEULE : c'est la même fonction qui décide de la pastille
+ * et du glisser. Un second test « est-ce un client ? » écrit ici aurait fini par classer un propriétaire parmi
+ * les contacts — et il serait passé sous eux, c'est-à-dire exactement le défaut qu'on corrige.
+ *
+ * ⚠️ L'AGENCE ET LES TIERS SONT TRIÉS AVEC LES CONTACTS, et c'est sans conséquence : l'agence n'est pas listée
+ * (règle du lot 2, sauf un client interne — qui est alors un CLIENT, donc en tête), et un groupe « Tiers
+ * indépendant » ne contient que des tiers. Leur donner un rang à part aurait été une règle pour un ensemble
+ * vide.
+ *
+ * ⚠️ LE TRI EST STABLE PAR CONSTRUCTION : à égalité parfaite sur les trois critères, l'ordre reçu est conservé
+ * (`Array.prototype.sort` l'est depuis ES2019). Deux capsules identiques ne sautent donc pas d'un rendu à
+ * l'autre.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function ordonnerLesCapsules(
+  interlocuteurs: readonly Interlocuteur[],
+  groupe: CleGroupeParties,
+  categoriesFiche: ReadonlyMap<string, CategoriePartie>,
+): Interlocuteur[] {
+  /** 0 pour un client, 1 pour tout le reste : c'est le premier critère, et il n'a que deux valeurs. */
+  const rang = (i: Interlocuteur): number =>
+    sorteDeCapsule(i.adresse, groupe, categoriesFiche, i.interne) === 'client' ? 0 : 1;
+
+  return [...interlocuteurs].sort((a, b) => {
+    const r = rang(a) - rang(b);
+    if (r !== 0) return r;
+    /* « a écrit » décroissant — le critère d'Arno, et le plus parlant : qui a pris la plume. */
+    if (b.aEcrit !== a.aEcrit) return b.aEcrit - a.aEcrit;
+    /* puis « en copie » décroissant : à défaut d'avoir écrit, qui a été mis dans la boucle. */
+    if (b.enCopie !== a.enCopie) return b.enCopie - a.enCopie;
+    /**
+     * puis le NOM, et c'est lui qui rend l'ordre reproductible d'un rendu à l'autre.
+     *
+     * ⚠️ ON COMPARE CE QUI S'AFFICHE (`libelleInterlocuteur`), et non `nom ?? adresse` écrit à la main : une
+     * capsule sans nom montre son adresse, et trier sur un nom vide l'aurait mise au hasard parmi les autres.
+     * `localeCompare` range « Élodie » avec les E, ce qu'un `<` ne fait pas.
+     */
+    return libelleInterlocuteur(a).localeCompare(libelleInterlocuteur(b), 'fr');
+  });
 }
 
 /** Les mots de la pastille, écrits une fois — info-bulle et intitulé pour le lecteur d'écran. PUR. */

@@ -2844,6 +2844,50 @@ describe('⑤-quindecies 🔴🔴 « Période retenue » dit « aujourd’hui »
   });
 });
 
+describe('⑤-sexdecies 🔴🔴 l’ordre des capsules : les clients d’abord', () => {
+  /**
+   * RÈGLE D'ARNO (lot 8, point 4) : « D'abord les CLIENTS, triés par “a écrit” décroissant ; puis les CONTACTS,
+   * triés par “a écrit” décroissant ; à égalité, par “en copie” décroissant, puis par nom. L'ordre se recalcule
+   * quand la période change. »
+   *
+   * 🔴 CE QUI ÉTAIT FAUX : l'ordre était celui du dépôt — du plus bavard au moins bavard, clients et contacts
+   * mêlés. Sur lot-47, le propriétaire (13 écrits) passait donc AVANT son secrétariat (5) ; mais sur un bien où
+   * le secrétariat écrit plus, le client se retrouvait sous ses propres contacts.
+   */
+  it('🔴🔴 LE CLIENT PASSE DEVANT SON CONTACT PLUS BAVARD, sur le vrai écran', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) {
+        return reponse({ etat: 'ok', data: { parties: [{ adresse: 'secretariat@fictif.test', categorie: 'proprietaire' }], cartes: [] } });
+      }
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          /* Le secrétariat écrit DIX FOIS plus que le propriétaire — et il doit passer après lui. */
+          interlocuteurs: [
+            inter({ adresse: 'secretariat@fictif.test', nom: 'Secrétariat', nbMails: 40, aEcrit: 40 }),
+            inter({ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', nbMails: 4, aEcrit: 4 }),
+          ],
+          interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+    const prop = [...hote.querySelectorAll('.hdb-groupe--encart')][0] as HTMLElement;
+    const noms = [...prop.querySelectorAll('.hdb-personne-nom')].map((e) => e.textContent);
+    expect(noms).toEqual(['M. ROI Nathan', 'Secrétariat']);
+  });
+
+  it('🔒 L’ORDRE VIENT DU MODULE PUR, et il lit la carte de la FICHE — pas la carte fusionnée', () => {
+    expect(SRC).toContain('ordonnerLesCapsules(g.interlocuteurs, g.cle, categories)');
+    /* ⚠️ `categoriesFusionnees` ICI aurait fait passer pour client un contact rangé en base. */
+    expect(SRC).not.toContain('ordonnerLesCapsules(g.interlocuteurs, g.cle, categoriesFusionnees)');
+  });
+});
+
 describe('⑥ 🔴🔴 les composants existants sont réutilisés, jamais redessinés', () => {
   it('🔴🔴 `LigneVie` est IMPORTÉE de « Vie du bien »', () => {
     expect(SRC).toMatch(/import \{[^}]*LigneVie[^}]*\} from '\.\/VieDuBien'/);

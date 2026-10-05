@@ -12,7 +12,7 @@ import {
   occupationOuverte, partieDeplacable,
   periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, SECONDES_ANNULER_DEPLACEMENT, tonDeLExpediteur, tonDuGroupe,
   clientConnuPour, completerAvecLesClients, motEncartVide,
-  BUT_DU_PLUS, motPastille, pastilleDeCapsule, sorteDeCapsule,
+  BUT_DU_PLUS, motPastille, ordonnerLesCapsules, pastilleDeCapsule, sorteDeCapsule,
   adresseACorriger, MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable,
   type ClientDuBien, type CleGroupeParties, type OccupationPeriode, type PositionCapsule,
 } from './historiqueBien';
@@ -1620,5 +1620,110 @@ describe('motPeriodeEffective — « aujourd’hui » plutôt que la date du jou
     expect(jourParis(nuit)).toBe('2026-10-05');
     expect(motPeriodeEffective({ sorte: 'dates', du: '2025-02-01', au: '2026-10-05' }, nuit))
       .toBe('du 01/02/2025 à aujourd’hui');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 4 — L'ORDRE DES CAPSULES ═══════════════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (05/10/2026), mot pour mot : « D'abord les CLIENTS, triés par “a écrit” décroissant ; puis les
+ * CONTACTS, triés par “a écrit” décroissant ; à égalité, par “en copie” décroissant, puis par nom. L'ordre se
+ * recalcule quand la période change. »
+ *
+ * 🔴 CE QUI ÉTAIT FAUX AVANT : l'ordre était celui du dépôt — du plus bavard au moins bavard, clients et
+ * contacts mêlés. Sur un bien où le secrétariat du propriétaire écrit plus que le propriétaire, le CLIENT se
+ * retrouvait sous ses propres contacts. Or c'est lui qu'on vient voir.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('ordonnerLesCapsules — les clients d’abord, puis les contacts', () => {
+  const FICHE = new Map<string, CategoriePartie>([
+    ['proprio@fictif.test', 'proprietaire'],
+    ['ancien@fictif.test', 'proprietaire'],
+  ]);
+  const i = (adresse: string, aEcrit: number, enCopie = 0, nom: string | null = null): Interlocuteur =>
+    ({ adresse, nom, nbMails: aEcrit + enCopie, aEcrit, enCopie, interne: false });
+
+  it('🔴🔴 UN CLIENT PASSE DEVANT UN CONTACT PLUS BAVARD — le défaut corrigé', () => {
+    const r = ordonnerLesCapsules(
+      [i('secretariat@fictif.test', 40), i('proprio@fictif.test', 3)], 'proprietaire', FICHE);
+    expect(r.map((x) => x.adresse)).toEqual(['proprio@fictif.test', 'secretariat@fictif.test']);
+  });
+
+  it('🔴 DANS CHAQUE MOITIÉ, « a écrit » DÉCROISSANT', () => {
+    const r = ordonnerLesCapsules([
+      i('b@fictif.test', 5), i('proprio@fictif.test', 2), i('a@fictif.test', 9),
+      i('ancien@fictif.test', 7),
+    ], 'proprietaire', FICHE);
+    /* Les deux clients d'abord (7 puis 2), puis les deux contacts (9 puis 5). */
+    expect(r.map((x) => x.adresse))
+      .toEqual(['ancien@fictif.test', 'proprio@fictif.test', 'a@fictif.test', 'b@fictif.test']);
+  });
+
+  it('🔴 À ÉGALITÉ SUR « a écrit », « en copie » DÉCROISSANT', () => {
+    const r = ordonnerLesCapsules(
+      [i('peu@fictif.test', 3, 1), i('bcp@fictif.test', 3, 20)], 'a_repartir', FICHE);
+    expect(r.map((x) => x.adresse)).toEqual(['bcp@fictif.test', 'peu@fictif.test']);
+  });
+
+  it('🔴 PUIS LE NOM, et c’est lui qui rend l’ordre reproductible', () => {
+    const r = ordonnerLesCapsules([
+      i('z@fictif.test', 2, 2, 'Zoé Martin'), i('a@fictif.test', 2, 2, 'Alain Dupont'),
+    ], 'a_repartir', FICHE);
+    expect(r.map((x) => x.nom)).toEqual(['Alain Dupont', 'Zoé Martin']);
+  });
+
+  /**
+   * ⚠️ ON COMPARE CE QUI S'AFFICHE, et non `nom ?? adresse` écrit à la main : une capsule sans nom montre son
+   * adresse, et trier sur un nom vide l'aurait mise au hasard parmi les autres.
+   */
+  it('⚠️ UNE CAPSULE SANS NOM SE TRIE SUR SON ADRESSE, celle qui s’affiche', () => {
+    const r = ordonnerLesCapsules([
+      i('zebre@fictif.test', 1, 1), i('abeille@fictif.test', 1, 1),
+    ], 'a_repartir', FICHE);
+    expect(r.map((x) => x.adresse)).toEqual(['abeille@fictif.test', 'zebre@fictif.test']);
+  });
+
+  it('⚠️ LE TRI RANGE LES ACCENTS EN FRANÇAIS : « Élodie » avec les E', () => {
+    const r = ordonnerLesCapsules([
+      i('f@fictif.test', 1, 1, 'Fabrice'), i('e@fictif.test', 1, 1, 'Élodie'),
+      i('d@fictif.test', 1, 1, 'Denis'),
+    ], 'a_repartir', FICHE);
+    expect(r.map((x) => x.nom)).toEqual(['Denis', 'Élodie', 'Fabrice']);
+  });
+
+  it('⚠️ IL NE MODIFIE PAS LA LISTE REÇUE : un tri en place aurait changé l’ordre sous un autre lecteur', () => {
+    const recue = [i('b@fictif.test', 1), i('a@fictif.test', 9)];
+    const copie = [...recue];
+    ordonnerLesCapsules(recue, 'a_repartir', FICHE);
+    expect(recue).toEqual(copie);
+  });
+
+  it('⚠️ UNE LISTE VIDE OU D’UN SEUL ÉLÉMENT PASSE SANS RIEN CHANGER', () => {
+    expect(ordonnerLesCapsules([], 'proprietaire', FICHE)).toEqual([]);
+    const un = [i('a@fictif.test', 1)];
+    expect(ordonnerLesCapsules(un, 'proprietaire', FICHE)).toEqual(un);
+  });
+
+  /**
+   * 🔴 L'ORDRE SE RECALCULE AVEC LA PÉRIODE, et c'est ce cas qui le montre : les mêmes personnes, deux jeux de
+   * compteurs (ceux que la route calcule sur deux périodes), deux ordres.
+   */
+  it('🔴🔴 CHANGER LA PÉRIODE CHANGE L’ORDRE, parce qu’il lit les compteurs de la période', () => {
+    const surUnAn = [i('syndic@fictif.test', 12), i('artisan@fictif.test', 3)];
+    const surUnMois = [i('syndic@fictif.test', 0, 1), i('artisan@fictif.test', 2)];
+    expect(ordonnerLesCapsules(surUnAn, 'a_repartir', FICHE).map((x) => x.adresse))
+      .toEqual(['syndic@fictif.test', 'artisan@fictif.test']);
+    expect(ordonnerLesCapsules(surUnMois, 'a_repartir', FICHE).map((x) => x.adresse))
+      .toEqual(['artisan@fictif.test', 'syndic@fictif.test']);
+  });
+
+  it('⚠️ UN CLIENT INTERNE RESTE UN… AGENCE, donc trié avec les contacts — et il n’est de toute façon pas listé', () => {
+    /* Règle du lot 6 : « agence » l'emporte sur « client » pour la SORTE. Il passe donc après les clients. */
+    const r = ordonnerLesCapsules([
+      { adresse: 'proprio@fictif.test', nom: null, nbMails: 1, aEcrit: 0, enCopie: 1, interne: true },
+      i('autre@fictif.test', 0, 0),
+    ], 'proprietaire', FICHE);
+    expect(r).toHaveLength(2);
   });
 });
