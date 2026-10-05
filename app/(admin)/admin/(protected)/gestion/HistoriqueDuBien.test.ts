@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { HistoriqueDuBien } from './HistoriqueDuBien';
-import { BUT_DU_PLUS, GROUPES_EN_BANDE, GROUPES_EN_ENCART, motDeuxCompteurs }
+import { BANDES_SOUS_LES_ENCARTS, BUT_DU_PLUS, GROUPES_EN_BANDE, GROUPES_EN_ENCART, motDeuxCompteurs }
   from '../../../../lib/gestion/historiqueBien';
 import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
 import type { Interlocuteur, LigneHistorique, PieceHistorique } from '../../../../lib/gestion/historique';
@@ -2491,8 +2491,17 @@ describe('⑤-duodecies 🔴🔴 les deux bandes sont TOUJOURS là, même à zé
   });
 
   it('🔴🔴 L’ORDRE VIENT DU MODULE PUR, PAS DE L’ÉCRAN', () => {
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 2 — L'ORDRE EST CELUI D'ARNO : « Tiers indépendant, puis Notre agence,
+     * puis Non affectés en DERNIER ». L'agence s'intercale ENTRE les deux catégories — c'est pour cela que la
+     * liste parcourue par l'écran la contient, au lieu que l'écran la pose à la main après la boucle.
+     *
+     * ⚠️ `GROUPES_EN_BANDE` RESTE et garde son emploi : il répond à « quelles CATÉGORIES se rendent en bande ? »
+     * (c'est lui que le garde de couverture des quatre groupes additionne à `GROUPES_EN_ENCART`).
+     */
     expect(GROUPES_EN_BANDE).toEqual(['independant', 'a_repartir']);
-    expect(SRC).toContain('GROUPES_EN_BANDE.map');
+    expect(BANDES_SOUS_LES_ENCARTS).toEqual(['independant', 'agence', 'a_repartir']);
+    expect(SRC).toContain('BANDES_SOUS_LES_ENCARTS.map');
     /* 🔴 LE GARDE : plus aucune condition ne fait dépendre leur existence d'un glisser en cours. */
     expect(SRC).not.toContain('g.nb === 0 && glisse === null');
   });
@@ -3133,10 +3142,20 @@ describe('⑥ 🔴🔴 les composants existants sont réutilisés, jamais redess
    * aurait fait un second juge pour la même borne, et c'est sur les bornes qu'on se trompe.
    */
   it('🔴🔴 ni le seuil de repli ni sa comparaison ne sont écrits dans l’écran', () => {
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 3 — `replierLesCartes` A DISPARU DE CET ÉCRAN, et c'est la correction :
+     * Arno veut « les deux encarts dépliés à l'arrivée sur la fiche ». Le seuil de six refermait l'encart
+     * Locataire (sept capsules sur lot-290) pendant que Propriétaire, à trois, restait ouvert.
+     *
+     * ⚠️ CE QUE CE GARDE PROTÈGE RESTE INTACT : aucune comparaison à 6 n'est écrite ici, et le seuil n'est pas
+     * recopié. Il vit toujours dans `partieCategorie.ts`, pour le repli des cartes d'un carrousel.
+     */
     const code = codeSeul(SRC);
-    expect(code).toContain('replierLesCartes(g.nb)');
+    expect(code).not.toContain('replierLesCartes');
     expect(code).not.toMatch(/[<>]=?\s*6\b/);
     expect(code).not.toContain('SEUIL_REPLI_CARTES');
+    /* 🔴 ET L'ENCART EST OUVERT PAR DÉFAUT, LA BANDE REPLIÉE — la règle, en une ligne. */
+    expect(code).toContain("const ouvertParDefaut = forme !== 'bande'");
   });
 
   /** 🔴 LE TRI DES PIÈCES VIENT DU MODULE EXISTANT : aucun `sort` de pièces n'est écrit ici. */
@@ -3617,5 +3636,89 @@ describe('⑤-novodecies 🔴🔴 le compteur et le filtre, un seul calcul', () 
     const avecs = appels.filter((a) => a.includes('avec=')).map((a) => new URL(a, 'http://l').searchParams.get('avec'));
     expect(avecs.length).toBeGreaterThan(0);
     for (const a of avecs) expect(a, a ?? '').not.toContain('gestion@criterimmo.fr');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINTS 2 ET 3 — L'ORDRE DES LIGNES, ET LES DEUX ENCARTS OUVERTS ═════════════════
+ *
+ * DEMANDES D'ARNO (05/10/2026) :
+ *   · point 2 : « ORDRE DES LIGNES SOUS LES ENCARTS : Tiers indépendant, puis Notre agence, puis Non affectés en
+ *     DERNIER. »
+ *   · point 3 : « ENCART LOCATAIRE OUVERT PAR DÉFAUT, comme l'encart Propriétaire (les deux dépliés à l'arrivée
+ *     sur la fiche). »
+ */
+describe('⑤-vicies 🔴🔴 l’ordre des bandes, et les deux encarts ouverts', () => {
+  /** Une liste d'interlocuteurs qui remplit les deux encarts, dont le LOCATAIRE au-delà de l'ancien seuil de six. */
+  const PEUPLE_LARGE: Interlocuteur[] = [
+    inter({ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', nbMails: 40, aEcrit: 3, enCopie: 2 }),
+    ...Array.from({ length: 7 }, (_, i) => inter({
+      adresse: `loc${i}@fictif.test`, nom: `Locataire ${i}`, nbMails: 5, aEcrit: 5, enCopie: 0,
+    })),
+    inter({ adresse: 'gestion@criterimmo.fr', nom: 'Gestion', nbMails: 9, aEcrit: 9, enCopie: 0, interne: true }),
+  ];
+  const CATS_LARGE = new Map<string, CategoriePartie>([
+    ['proprio@fictif.test', 'proprietaire'],
+    ...Array.from({ length: 7 }, (_, i) => [`loc${i}@fictif.test`, 'locataire'] as const),
+  ]);
+
+  const servir = (): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return reponse({ etat: 'ok', geste: null });
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: PEUPLE_LARGE, interlocuteursTronques: false,
+        },
+      });
+    }));
+  };
+
+  /** 🔴🔴 POINT 2 — les trois lignes, dans l'ordre d'Arno. */
+  it('🔴🔴 TIERS INDÉPENDANT, PUIS NOTRE AGENCE, PUIS NON AFFECTÉS', async () => {
+    servir();
+    await monter({ categories: CATS_LARGE });
+    const bandes = [...hote.querySelectorAll('.hdb-groupe--bande')]
+      .map((b) => (b.querySelector('.hdb-replier')?.textContent ?? '').replace(/[▶▼]/g, '').trim());
+    expect(bandes[0]).toContain('Tiers indépendant');
+    expect(bandes[1]).toContain('Notre agence');
+    expect(bandes[2]).toContain('Non affectés');
+    /* 🔴 ET « NON AFFECTÉS » EST BIEN LA DERNIÈRE : c'est ce qu'Arno souligne. */
+    expect(bandes).toHaveLength(3);
+  });
+
+  /**
+   * 🔴🔴 POINT 3 — LES DEUX ENCARTS SONT OUVERTS, Y COMPRIS CELUI QUI DÉPASSE L'ANCIEN SEUIL DE SIX. C'est
+   * exactement le cas de lot-290 : Propriétaire à trois (ouvert), Locataire à sept (fermé) — deux encarts de
+   * même largeur dont un seul montrait son contenu, et l'on croyait le bien sans locataire.
+   */
+  it('🔴🔴 LES DEUX ENCARTS SONT DÉPLIÉS À L’ARRIVÉE, même au-delà de six capsules', async () => {
+    servir();
+    await monter({ categories: CATS_LARGE });
+    const encarts = [...hote.querySelectorAll('.hdb-groupe--encart')] as HTMLElement[];
+    expect(encarts).toHaveLength(2);
+    for (const e of encarts) {
+      expect(e.querySelector('.hdb-replier')?.getAttribute('aria-expanded'), e.textContent ?? '').toBe('true');
+      expect(e.querySelectorAll('.hdb-capsule').length).toBeGreaterThan(0);
+    }
+    /* 🔴 LE LOCATAIRE MONTRE SES SEPT CAPSULES, et non un titre seul. */
+    expect(encarts[1].querySelectorAll('.hdb-capsule')).toHaveLength(7);
+  });
+
+  /** ⚠️ ET LES BANDES RESTENT REPLIÉES : la demande du lot 5 n'est pas défaite. */
+  it('⚠️ LES BANDES, ELLES, RESTENT REPLIÉES', async () => {
+    servir();
+    await monter({ categories: CATS_LARGE });
+    for (const b of [...hote.querySelectorAll('.hdb-groupe--bande')]) {
+      const r = b.querySelector('.hdb-replier');
+      /* ⚠️ « Notre agence » n'a pas de capsule tant qu'elle est repliée : son `aria-expanded` est faux. */
+      expect(r?.getAttribute('aria-expanded'), b.textContent ?? '').toBe('false');
+    }
   });
 });

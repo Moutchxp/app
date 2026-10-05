@@ -640,6 +640,25 @@ export const GROUPES_EN_ENCART: readonly CleGroupeParties[] = ['proprietaire', '
 export const GROUPES_EN_BANDE: readonly CleGroupeParties[] = ['independant', 'a_repartir'];
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 2 — L'ORDRE DES LIGNES SOUS LES ENCARTS ═══════════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026), mot pour mot : « Tiers indépendant, puis Notre agence, puis Non affectés en
+ * DERNIER. »
+ *
+ * 🔴 L'AGENCE EST **ENTRE** LES DEUX, ET C'EST POUR CELA QUE CETTE LISTE EXISTE. `GROUPES_EN_BANDE` ne porte que
+ * des CATÉGORIES, et l'agence n'en est pas une (ni « + », ni glisser, ni rangement — lot 9). L'écran aurait donc
+ * dû intercaler la bande à la main, c'est-à-dire décider d'un ordre que ce module existe pour tenir. La liste
+ * ci-dessous dit l'ordre COMPLET, agence comprise, et l'écran se contente de la parcourir.
+ *
+ * ⚠️ `GROUPES_EN_BANDE` RESTE, et il n'est pas un doublon : il répond à « quelles CATÉGORIES se rendent en
+ * bande ? » (c'est lui que le garde de couverture des quatre groupes additionne à `GROUPES_EN_ENCART`). Celle-ci
+ * répond à « dans quel ORDRE les lignes s'empilent-elles ? ». Deux questions, deux listes — et la seconde se lit
+ * comme la capture d'Arno.
+ */
+export const BANDES_SOUS_LES_ENCARTS: readonly (CleGroupeParties | 'agence')[] =
+  ['independant', 'agence', 'a_repartir'];
+
+/**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LE CLIENT DU BIEN A SA CAPSULE, MÊME SANS UN SEUL MAIL ═════════════════
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════

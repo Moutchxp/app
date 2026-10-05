@@ -49,11 +49,11 @@ import {
   adresseACorriger, BUT_DU_PLUS, ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut,
   MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable,
   completerAvecLesClients, motPastille, ordonnerLesCapsules, pastilleDeCapsule, sorteDeCapsule,
-  filtrerParMots, GROUPES_EN_BANDE,
+  BANDES_SOUS_LES_ENCARTS, filtrerParMots,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
-  replierLesCartes, SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
+  SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
   type CategoriePartie, type CleGroupeParties, type ClientDuBien, type EtatRetourBien, type GroupeParties,
   type OccupationPeriode,
   type PeriodePartie, type Reglages,
@@ -1502,7 +1502,24 @@ export function HistoriqueDuBien({
               ⚠️ UNE BANDE REPLIÉE EST DÉJÀ UNE ZONE DE DÉPÔT, et elle l'était avant ce lot : les trois gestes
               (`onDragOver`, `onDragLeave`, `onDrop`) sont posés sur la `section` entière, pas sur la liste. Le
               repli ne cache que les capsules. Et le survol pendant un glisser l'ouvre sans le mémoriser. */}
-          {GROUPES_EN_BANDE.map((cle) => {
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 2 — L'ORDRE DES TROIS LIGNES ════════════════════════════════
+              DEMANDE D'ARNO (05/10/2026) : « Tiers indépendant, puis Notre agence, puis Non affectés en
+              DERNIER. »
+
+              🔴 L'ORDRE VIENT DU MODULE PUR (`BANDES_SOUS_LES_ENCARTS`), agence comprise. L'intercaler ici à la
+              main aurait fait décider à l'écran d'un ordre que ce module existe pour tenir — et il aurait fallu
+              le retrouver le jour d'un quatrième groupe.
+
+              ⚠️ « NOTRE AGENCE » N'EST PAS UNE CATÉGORIE : pas de « + », pas de glisser, pas de rangement
+              (lot 9). Elle a donc son propre composant, et c'est la seule raison de ce `if` dans la boucle. */}
+          {BANDES_SOUS_LES_ENCARTS.map((cle) => {
+            if (cle === 'agence') {
+              return (
+                <BandeAgence key="agence" adresses={parties.agence} ecartees={reglages.agenceEcartee}
+                  ouvert={bascules.has('agence')} onBasculerRepli={() => basculerRepli('agence')}
+                  onBasculer={basculerAgence} onToutLeGroupe={basculerToutLagence} />
+              );
+            }
             const g = parties.groupes.find((x) => x.cle === cle);
             if (g === undefined) return null;
             return (
@@ -1515,18 +1532,6 @@ export function HistoriqueDuBien({
                 onDeplacer={deplacer} onPeriode={reglerPeriodeSurLeBail} />
             );
           })}
-
-          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — « NOTRE AGENCE », SOUS LES DEUX BANDES ═══════════════════
-              DEMANDE D'ARNO (05/10/2026) : « Nouveau groupe “Notre agence” (gris neutre, ligne dépliable sous
-              “Non affectés”) : nos adresses, avec compteurs, COCHÉES PAR DÉFAUT, décochables (“tout le groupe”
-              compris). Agence décochée → les mails écrits par nous sont retirés du listing. Pas de “+”, pas de
-              glisser-déposer pour l'agence. »
-
-              🔴 ELLE N'APPARAÎT QUE SI NOUS AVONS ÉCRIT SUR CE BIEN — comme tous les autres groupes de ce bloc,
-              et contrairement aux deux encarts : une ligne « Notre agence · 0 » n'apprend rien. */}
-          <BandeAgence adresses={parties.agence} ecartees={reglages.agenceEcartee}
-            ouvert={bascules.has('agence')} onBasculerRepli={() => basculerRepli('agence')}
-            onBasculer={basculerAgence} onToutLeGroupe={basculerToutLagence} />
 
           {/* ══ 🔴🔴 LE MESSAGE D'APRÈS-DÉPÔT, ET SON « ANNULER » ═══════════════════════════════════════════════
               Arno : « après le dépôt, petit message “Fanny Rosky → Locataire” avec “Annuler” quelques secondes. »
@@ -2043,9 +2048,25 @@ function GroupeDeParties(p: PropsGroupe) {
   const toutCoche = adresses.length > 0 && cochees === adresses.length;
   const partiel = cochees > 0 && !toutCoche;
 
-  /* LE DÉFAUT DÉPEND DU SEUIL ; LA BASCULE L'INVERSE. Une BANDE, elle, est repliée par défaut (demande d'Arno).
-     🔴 LA COMPARAISON VIENT DE `partieCategorie.ts` : écrire `> 6` ici aurait été un second juge pour la borne. */
-  const ouvertParDefaut = forme === 'bande' ? false : !replierLesCartes(g.nb);
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 3 — LES DEUX ENCARTS SONT OUVERTS À L'ARRIVÉE ════════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « ENCART LOCATAIRE OUVERT PAR DÉFAUT, comme l'encart Propriétaire (les deux
+   * dépliés à l'arrivée sur la fiche). »
+   *
+   * 🔴 CE QUI LE REFERMAIT : `!replierLesCartes(g.nb)`, c'est-à-dire « replié au-delà de six ». Sur lot-290, le
+   * groupe Locataire en compte SEPT — il arrivait donc fermé pendant que Propriétaire, à trois, était ouvert.
+   * Deux encarts côte à côte, de même largeur, dont un seul montre son contenu : on croit que le bien n'a pas de
+   * locataire.
+   *
+   * ⚠️ UN ENCART LONG NE DÉBORDE PAS POUR AUTANT : il a sa propre hauteur fixe et son défilement interne
+   * (`.hdb-defile`, lot 3 point 1 — « il ne grandit jamais »). Le repli n'était donc pas ce qui protégeait la
+   * page, et l'ouvrir ne lui fait rien risquer.
+   *
+   * ⚠️ UNE BANDE RESTE REPLIÉE PAR DÉFAUT (demande d'Arno au lot 5), et `replierLesCartes` garde son emploi
+   * ailleurs — le repli des cartes de contact d'un carrousel, pour lequel il a été écrit.
+   */
+  const ouvertParDefaut = forme !== 'bande';
   const basculee = p.bascules.has(g.cle);
   const ouvertParChoix = basculee ? !ouvertParDefaut : ouvertParDefaut;
   /* 🔴 LE SURVOL PENDANT UN GLISSER OUVRE, SANS MÉMORISER : la bande se referme dès qu'on en sort. */
