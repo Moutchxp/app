@@ -354,6 +354,35 @@ export function roleDeContactPermis(role: string): boolean {
   return !ROLES_INTERDITS_AUX_CONTACTS.includes(r);
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 3 — LA COULEUR DU BADGE D'UN CLIENT ══════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « le badge “PROPRIÉTAIRE” passe en ROUGE (fond rouge clair, texte rouge foncé, la
+ * couleur de la catégorie propriétaire) et le badge “EN PLACE” en VERT (fond vert clair, texte vert foncé). »
+ *
+ * 🔴 LE TON SE DÉDUIT DU MOT, ET LE MOT RESTE LA SEULE SOURCE. Le badge reçoit déjà son libellé par une
+ * propriété (`role`), écrite au point de montage — « Propriétaire », « En place », « Parti », « Locataire »… Y
+ * ajouter une seconde propriété « et voici sa couleur » aurait fait deux vérités à tenir d'accord, et c'est
+ * toujours la couleur qui aurait fini par contredire le mot.
+ *
+ * 🔴 LA MÊME LISTE QUE LE GARDE JUSTE AU-DESSUS, et ce n'est pas un hasard : ce sont précisément les rôles
+ * RÉSERVÉS AUX CLIENTS (`ROLES_INTERDITS_AUX_CONTACTS`). Une carte de contact ne peut donc pas récupérer la
+ * couleur d'un client — le garde l'empêche de porter le mot, et la couleur suit le mot.
+ *
+ * ⚠️ `null` POUR TOUT LE RESTE : « Parti », « Même logement », « CONTACT DU PROPRIÉTAIRE »… gardent le badge
+ * gris d'aujourd'hui. Arno : « Rien d'autre ne change sur les cartes. »
+ *
+ * ⚠️ COMPARAISON SUR LE LIBELLÉ **ENTIER**, jamais par inclusion : « CONTACT DU PROPRIÉTAIRE » contient le mot
+ * « PROPRIÉTAIRE », et une comparaison par inclusion l'aurait peint en rouge — c'est le piège que
+ * `roleDeContactPermis` documente trois lignes plus haut, et il se referme ici de la même façon.
+ */
+export function tonDuRoleClient(role: string): 'proprietaire' | 'en_place' | null {
+  const r = role.trim().toUpperCase();
+  if (r === 'PROPRIÉTAIRE') return 'proprietaire';
+  if (r === 'EN PLACE') return 'en_place';
+  return null;
+}
+
 /** Le libellé du côté d'une carte. Un seul endroit où le mot se choisit. */
 export function libelleDuCote(cote: Cote): string {
   return cote === 'proprietaire' ? LIBELLE_CONTACT_PROPRIETAIRE : LIBELLE_CONTACT_LOCATAIRE;

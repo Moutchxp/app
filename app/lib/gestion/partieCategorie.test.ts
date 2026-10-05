@@ -7,6 +7,7 @@ import {
   roleDeContactPermis, ROLES_INTERDITS_AUX_CONTACTS,
   carteMonteAuCarrousel, etatDeLaCarte,
   LIBELLE_CONTACT_PROPRIETAIRE, LIBELLE_INDEPENDANT_PROPOSE, SEUIL_REPLI_CARTES,
+  tonDuRoleClient,
 } from './partieCategorie';
 import type { Categorie, Origine } from './partieCategorie';
 
@@ -581,6 +582,55 @@ describe('une carte PROPOSÉE n’est pas une carte CRÉÉE', () => {
       /* ⚠️ ET AUCUN TEST RECOPIÉ : `origine === 'manuel'` écrit dans un écran serait la seconde vérité. */
       expect(sansCommentaires(src)).not.toContain("origine === 'manuel'");
       expect(sansCommentaires(src)).not.toContain("origine === 'auto'");
+    }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 3 — LA COULEUR DU BADGE SUIT LE MOT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le ton du badge d’un client', () => {
+  /**
+   * DEMANDE D'ARNO (05/10/2026) : « le badge “PROPRIÉTAIRE” passe en ROUGE […] et le badge “EN PLACE” en VERT ».
+   *
+   * 🔴 LE TON SE DÉDUIT DU MOT, et le mot reste la seule source : pas de seconde propriété « et voici sa
+   * couleur » à tenir d'accord avec le libellé.
+   */
+  it('🔴🔴 « Propriétaire » est rouge, « En place » est vert', () => {
+    expect(tonDuRoleClient('Propriétaire')).toBe('proprietaire');
+    expect(tonDuRoleClient('En place')).toBe('en_place');
+  });
+
+  /** ⚠️ LA CASSE ET LES ESPACES NE COMPTENT PAS : le mot est écrit en capitales par le CSS, pas par la donnée. */
+  it('⚠️ la casse et les espaces ne changent rien', () => {
+    expect(tonDuRoleClient('  PROPRIÉTAIRE ')).toBe('proprietaire');
+    expect(tonDuRoleClient('en place')).toBe('en_place');
+  });
+
+  /**
+   * 🔴🔴 LE PIÈGE QUE CE CAS FERME : « CONTACT DU PROPRIÉTAIRE » **contient** le mot « PROPRIÉTAIRE ». Une
+   * comparaison par inclusion aurait peint en rouge le badge d'un artisan — exactement le défaut que
+   * `roleDeContactPermis` documente, et qu'Arno a fait corriger au lot 7.
+   */
+  it('🔴🔴 un libellé de CONTACT ne prend jamais la couleur d’un client', () => {
+    expect(tonDuRoleClient(LIBELLE_CONTACT_PROPRIETAIRE)).toBeNull();
+    expect(tonDuRoleClient(LIBELLE_CONTACT_LOCATAIRE)).toBeNull();
+  });
+
+  /** ⚠️ « Rien d'autre ne change sur les cartes » (Arno) : tout autre rôle garde le badge gris d'aujourd'hui. */
+  it('⚠️ les autres rôles gardent le gris', () => {
+    for (const r of ['Parti', 'Locataire', 'Même logement', '']) expect(tonDuRoleClient(r), r).toBeNull();
+  });
+
+  /**
+   * 🔴 LES DEUX RÔLES COLORÉS SONT EXACTEMENT CEUX QUE LE GARDE RÉSERVE AUX CLIENTS. Ce n'est pas une
+   * coïncidence : une carte de contact ne peut pas porter le mot, donc elle ne peut pas prendre la couleur.
+   */
+  it('🔴 les rôles colorés sont ceux réservés aux clients', () => {
+    for (const r of ['PROPRIÉTAIRE', 'EN PLACE']) {
+      expect(roleDeContactPermis(r), r).toBe(false);
+      expect(tonDuRoleClient(r), r).not.toBeNull();
     }
   });
 });

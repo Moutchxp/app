@@ -27,7 +27,7 @@ import {
  */
 import {
   CONTACTS_MONTRES, LIBELLE_CARTE_AUTO, libelleDuCote, motAutresContacts, motContactsDuCarrousel,
-  MOT_REPLIER_CONTACTS, roleDeContactPermis,
+  MOT_REPLIER_CONTACTS, roleDeContactPermis, tonDuRoleClient,
 } from '../../../../lib/gestion/partieCategorie';
 /** La carte telle que le dépôt la rend. Importée en TYPE : rien de `pg` n'entre dans ce paquet. */
 import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/partieCategorieRepo';
@@ -412,7 +412,16 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer }: {
         <div className="cp-tete-mots">
           <p className="cp-nom">{nomAvecCivilite(p.civilite, nomAfficheFormate(p))}</p>
           <p className="cp-tete-caps">
-            <span className="cp-role">{role}</span>
+            {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 3 — LE BADGE PREND LA COULEUR DE SA CATÉGORIE ═════════════
+              Arno : « “PROPRIÉTAIRE” en ROUGE (fond rouge clair, texte rouge foncé, la couleur de la catégorie
+              propriétaire) et “EN PLACE” en VERT (fond vert clair, texte vert foncé). »
+
+              🔴 LE TON SE DÉDUIT DU MOT (`tonDuRoleClient`), et le mot reste la seule source : aucune seconde
+              propriété « et voici sa couleur » à tenir d'accord avec le libellé. Tout autre rôle — « Parti »,
+              « Même logement », « CONTACT DU … » — garde le gris d'aujourd'hui. */}
+          <span className={`cp-role${tonDuRoleClient(role) === null ? '' : ` cp-role--${tonDuRoleClient(role)}`}`}>
+            {role}
+          </span>
             {p.archive && <span className="cp-caps cp-caps--absent">archivée</span>}
             {p.absent && <span className="cp-caps cp-caps--absent">absente de l’export</span>}
           </p>
@@ -1687,6 +1696,23 @@ export const CSS_CARTES = `
 .cp-role{display:inline-flex;align-items:center;min-height:1.15rem;padding:.05rem .4rem;border-radius:.6rem;
   font-size:.7rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;
   background:var(--color-svv-field);color:var(--color-svv-muted)}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 3 — LE BADGE PREND LA COULEUR DE SA CATEGORIE ═══════════════════════════
+   Arno : « le badge PROPRIETAIRE passe en ROUGE (fond rouge clair, texte rouge foncé, la couleur de la catégorie
+   propriétaire) et le badge EN PLACE en VERT (fond vert clair, texte vert foncé). »
+
+   🔴 LES MEMES PAIRES DE JETONS QUE PARTOUT AILLEURS, ET SURTOUT PAS DES COULEURS NEUVES : red-soft / red-dark et
+   green-soft / green-ink. Ce sont celles de la capsule de rôle des lignes de recherche (.ann-pers-role--*), celles
+   des pastilles de « Vie du bien » (.vdb-capsule--rouge / --vert) et celles des interventions. Un rouge inventé
+   ici aurait fait deux rouges « propriétaire » dans le même écran.
+
+   🔴 ET CE SONT DES JETONS, DONC LE THEME SOMBRE SUIT SANS UNE LIGNE DE PLUS : red-soft passe de #fbeceb à
+   #3a1e21 et red-dark de #850302 à #ff8a8a (globals.css). Un fond clair en dur serait resté clair la nuit.
+
+   ⚠️ LE GABARIT NE CHANGE PAS — ni la taille, ni le rayon, ni la casse, ni la graisse : seules la couleur de fond
+   et celle du texte. Arno : « Rien d'autre ne change sur les cartes. »
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
+.cp-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
+.cp-role--en_place{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .cp-tete-actions{display:flex;gap:.25rem;flex:0 0 auto}
 /* Cible tactile >= 44 px en hauteur reelle grace au padding : l'icone reste petite, la zone cliquable non. */
 .cp-icone{min-width:2rem;min-height:2rem;display:inline-flex;align-items:center;justify-content:center;
