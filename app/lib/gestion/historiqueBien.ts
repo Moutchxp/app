@@ -775,6 +775,61 @@ export function completerAvecLesClients(
 }
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — LES CONTACTS DE LA LOCATION REGARDÉE, AVEC LEURS COMPTEURS ════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 POURQUOI IL FAUT LES **AJOUTER**, ET PAS SEULEMENT FILTRER. Choisir un ancien locataire règle la période sur
+ * son occupation ; or ses contacts annexes écrivent souvent APRÈS son départ — c'est tout le cas d'Arno, un dépôt
+ * de garantie réglé onze mois plus tard. Ces adresses sont donc ABSENTES de la liste que la route rend sur cette
+ * période : un filtre, si juste soit-il, n'aurait rien eu à garder. Elles sont posées ici.
+ *
+ * 🔴 LEURS COMPTEURS SONT CEUX DES MAILS **PARTAGÉS** AVEC LA CARTE, et c'est la seule arithmétique honnête : les
+ * compter sur la période en vigueur aurait affiché « a écrit : 0 · en copie : 0 » sous une capsule bien présente.
+ * On montre ce qui JUSTIFIE la présence.
+ *
+ * ⚠️ UNE ADRESSE DÉJÀ LÀ EST **RÉÉCRITE**, pas doublée : la route l'a peut-être comptée sur la période, et deux
+ * capsules de la même personne avec deux nombres différents est pire que l'absence. Une seule vérité par adresse.
+ *
+ * ⚠️ RIEN POUR LE LOCATAIRE EN PLACE QUAND LA PÉRIODE EST LIBRE ? Si : la règle est la même pour lui. Sa carte
+ * réclame ses contacts comme une autre, et c'est ce qui empêche ceux d'un ancien de venir chez lui.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function completerAvecLesContactsDuLocataire(
+  interlocuteurs: readonly Interlocuteur[],
+  contacts: readonly ContactDeLocataire[],
+  cartes: readonly CarteLocataireBien[],
+  choix: ChoixLocataire,
+): Interlocuteur[] {
+  const choisies = choix.sorte === 'en_place'
+    ? cartes.filter((c) => c.enPlace).map((c) => c.cle)
+    : [choix.cle];
+  if (choisies.length === 0) return [...interlocuteurs];
+  /* ⚠️ LE PLUS FOURNI GAGNE quand deux cartes choisies réclament la même adresse (un couple en place, deux
+     cartes) : c'est le compte le plus complet des mails partagés, et non le premier rencontré. */
+  const par = new Map<string, ContactDeLocataire>();
+  for (const c of contacts) {
+    if (!choisies.includes(c.cle)) continue;
+    const a = c.adresse.trim().toLowerCase();
+    if (a === '') continue;
+    const vu = par.get(a);
+    if (vu === undefined || c.nbMails > vu.nbMails) par.set(a, c);
+  }
+  const out = interlocuteurs.map((i) => {
+    const c = par.get(i.adresse.trim().toLowerCase());
+    return c === undefined ? i
+      : { ...i, nbMails: c.nbMails, aEcrit: c.aEcrit, enCopie: c.enCopie };
+  });
+  const deja = new Set(interlocuteurs.map((i) => i.adresse.trim().toLowerCase()));
+  for (const [a, c] of par) {
+    if (deja.has(a)) continue;
+    out.push({
+      adresse: c.adresse, nom: c.nom, nbMails: c.nbMails, aEcrit: c.aEcrit, enCopie: c.enCopie, interne: false,
+    });
+  }
+  return out;
+}
+
+/**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — CE QUE DIT UN ENCART VIDE. PUR. ════════════════════════════════════════
  *
  * DEMANDE D'ARNO : « Un encart sans capsule reste affiché, avec un texte discret (“Aucun échange avec le
@@ -1632,6 +1687,24 @@ export interface CarteLocataireBien {
   adresses: readonly string[];
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — UN CONTACT ANNEXE, ET LA LOCATION QUI LE RÉCLAME ══════════════════════
+ *
+ * ⚠️ LA FORME EST REDITE ICI, ET NON IMPORTÉE DU DÉPÔT : ce module est atteint par le navigateur, et importer
+ * `historiqueRepo` y tirerait `pg`. C'est la règle du garde de frontière, et c'est déjà ce que font
+ * `Interlocuteur` et `LigneHistorique`. La route rend exactement cette forme.
+ */
+export interface ContactDeLocataire {
+  /** La clé de la carte de locataire, dans la forme de l'écran : `occ-<id d'occupation>`. */
+  cle: string;
+  adresse: string;
+  nom: string | null;
+  /** Compteurs sur les mails PARTAGÉS avec cette carte — voir `contactsParLocataire`. */
+  aEcrit: number;
+  enCopie: number;
+  nbMails: number;
+}
+
 /** Ce que l'encart montre : le locataire en place, ou la carte d'un ancien. */
 export type ChoixLocataire = { sorte: 'en_place' } | { sorte: 'ancien'; cle: string };
 
@@ -1801,19 +1874,53 @@ export function carteChoisie(
  * et l'encart est EXACTEMENT celui d'avant ce lot. C'est ce qui rend le changement gratuit pour les biens dont
  * la fiche ne porte aucune occupation.
  */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — LA RÈGLE S'ÉTEND AUX CONTACTS ANNEXES ═════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (lot-146) : `louisvaglio@live.fr` paraissait avec le locataire ACTUEL et DISPARAISSAIT avec
+ * VAGLIO ARNAUD, à qui il appartient.
+ *
+ * 🔴 CE QU'UNE CARTE « PORTE » NE SE LIMITAIT QU'À SES PROPRES ADRESSES — celles du bail. Les contacts ANNEXES
+ * (une seconde adresse du locataire, un proche, un garant) n'y figurent pas : rien ne les rattachait à une
+ * location, et c'est la période en vigueur qui décidait seule de leur présence. D'où le défaut, exactement.
+ *
+ * 🔴 ON LEUR AJOUTE DONC UNE SECONDE SOURCE : la CO-PARTICIPATION, mesurée en base — les adresses qui paraissent
+ * dans les mails où paraissent celles de la carte (voir `contactsParLocataire`). Les deux sources alimentent la
+ * MÊME règle à trois cas ci-dessous : une adresse réclamée par une carte suit cette carte, et aucune autre.
+ *
+ * ⚠️ `contacts` VIDE ⇒ COMPORTEMENT D'AVANT CE LOT, AU CARACTÈRE PRÈS. C'est la valeur par défaut, et c'est ce
+ * qui laisse intacts les écrans et les épreuves qui ne la passent pas.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function clesDesCartesDeLadresse(
+  adresse: string,
+  cartes: readonly CarteLocataireBien[],
+  contacts: readonly ContactDeLocataire[] = [],
+): string[] {
+  const a = adresse.trim().toLowerCase();
+  if (a === '') return [];
+  const cles = new Set<string>();
+  for (const c of cartes) if (c.adresses.includes(a)) cles.add(c.cle);
+  for (const c of contacts) if (c.adresse.trim().toLowerCase() === a) cles.add(c.cle);
+  return [...cles];
+}
+
 export function adresseGardeeDansLencart(
   adresse: string, cartes: readonly CarteLocataireBien[], choix: ChoixLocataire,
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-16 — les contacts annexes que chaque carte réclame. Vide ⇒ règle d'avant ce lot. */
+  contacts: readonly ContactDeLocataire[] = [],
 ): boolean {
   const a = adresse.trim().toLowerCase();
   if (a === '') return true;
-  const porteuses = cartes.filter((c) => c.adresses.includes(a));
-  // ② Aucune carte ne la porte : aucune période ne peut l'exclure.
+  const porteuses = clesDesCartesDeLadresse(a, cartes, contacts);
+  // ② Aucune carte ne la réclame : aucune période ne peut l'exclure.
   if (porteuses.length === 0) return true;
   // ① Elle appartient à la carte choisie.
   const choisies = choix.sorte === 'en_place'
-    ? cartes.filter((c) => c.enPlace)
-    : cartes.filter((c) => c.cle === choix.cle);
-  return porteuses.some((c) => choisies.some((x) => x.cle === c.cle));
+    ? cartes.filter((c) => c.enPlace).map((c) => c.cle)
+    : [choix.cle];
+  return porteuses.some((cle) => choisies.includes(cle));
 }
 
 /**

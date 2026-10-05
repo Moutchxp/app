@@ -81,6 +81,8 @@ import {
   motBoutonAnciensLocataires, MOT_LOCATAIRES_ACTUELS,
   motAncienLocataire, periodeDuChoixLocataire,
   type CarteLocataireBien, type ChoixLocataire,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — les contacts annexes suivent leur location. */
+  completerAvecLesContactsDuLocataire, type ContactDeLocataire,
   type CategoriePartie, type CleGroupeParties, type ClientDuBien, type EtatRetourBien, type GroupeParties,
   type ChoixPeriode, type OccupationPeriode,
   type PeriodePartie, type Reglages,
@@ -568,6 +570,17 @@ export function HistoriqueDuBien({
    */
   const [cartesContact, setCartesContact] = useState<CarteProposee[]>([]);
   /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — QUELLE LOCATION RÉCLAME QUEL CONTACT ANNEXE ══════════════════════
+   *
+   * Constat d'Arno (lot-146) : `louisvaglio@live.fr` paraissait avec le locataire ACTUEL et disparaissait avec
+   * VAGLIO ARNAUD, à qui il appartient. La cause, et pourquoi la période ne peut pas la corriger, sont dans
+   * l'encadré de `contactsParLocataire`.
+   *
+   * ⚠️ IL VIENT DE `/historique/parties`, LA ROUTE DEMANDÉE UNE FOIS PAR FICHE : ce rattachement ne dépend ni de
+   * la période, ni des cases cochées, ni de la page. Vide ⇒ comportement d'avant ce lot.
+   */
+  const [contactsLocataires, setContactsLocataires] = useState<ContactDeLocataire[]>([]);
+  /**
    * ══ 🔴🔴 CE QUE LA RÈGLE À TROIS ÉTAGES A **PROPOSÉ**, Y COMPRIS « non affectée » ══════════════════════════════
    *
    * DEMANDE D'ARNO (04/10/2026) : « La catégorie est PRÉ-REMPLIE quand elle a été déduite (règle à trois étages),
@@ -618,6 +631,8 @@ export function HistoriqueDuBien({
           /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — ce que la carte du « + » pré-remplit.
              🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — et l'ADRESSE POSTALE trouvée dans la même signature. */
           coordonnees?: CoordonneesTrouvees[];
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — quelle location réclame quel contact annexe. */
+          contactsLocataires?: ContactDeLocataire[];
         };
       };
       const m = new Map<string, CategoriePartie>();
@@ -636,6 +651,7 @@ export function HistoriqueDuBien({
       setCategoriesRangees(m);
       setProposees(prop);
       setCartesContact(d.data?.cartes ?? []);
+      setContactsLocataires(d.data?.contactsLocataires ?? []);
       const co = new Map<string, CoordonneesTrouvees>();
       for (const c of d.data?.coordonnees ?? []) co.set(c.adresse.trim().toLowerCase(), c);
       setCoordonnees(co);
@@ -1147,22 +1163,6 @@ export function HistoriqueDuBien({
    * que tout le monde (la fusion des catégories, où la fiche l'emporte), et atterrit dans son encart sans qu'on
    * ait à le poser à la main. Le poser après aurait fait un second juge du groupe d'une personne.
    */
-  const interlocuteursEtClients = useMemo(
-    () => completerAvecLesClients(interlocuteurs, clients), [interlocuteurs, clients]);
-
-  /**
-   * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — LES ADRESSES CLIENTES, POUR QU'UNE DES NÔTRES NE SOIT PAS ÉCARTÉE.
-   * Décision d'Arno : le propriétaire client de lot-299 garde sa capsule même en `@sansvisavis.com`.
-   */
-  const adressesClientes = useMemo(() => {
-    const e = new Set<string>();
-    for (const c of clients) {
-      const a = (c.adresse ?? '').trim().toLowerCase();
-      if (a !== '') e.add(a);
-    }
-    return e as ReadonlySet<string>;
-  }, [clients]);
-
   /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
      🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — QUEL LOCATAIRE PEUPLE L'ENCART
      ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -1220,6 +1220,36 @@ export function HistoriqueDuBien({
   };
 
   /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — LES CONTACTS DE LA LOCATION REGARDÉE ENTRENT ICI ═════════════════
+   *
+   * 🔴 **AVANT** `grouperParCategorie`, comme les clients juste au-dessus, et pour la même raison : un contact
+   * ajouté passe par la MÊME règle de rangement que tout le monde (il ira dans « Locataire » s'il y est rangé,
+   * dans « Non affectés » sinon). Le poser après aurait fait un second juge du groupe d'une personne.
+   *
+   * 🔴 ET IL FAUT LES AJOUTER, PAS SEULEMENT FILTRER : choisir un ancien locataire règle la période sur son
+   * occupation, et ses contacts annexes écrivent souvent APRÈS son départ — c'est tout le cas d'Arno. Ils sont
+   * donc absents de la liste que la route rend sur cette période.
+   */
+  const interlocuteursEtClients = useMemo(
+    () => completerAvecLesContactsDuLocataire(
+      completerAvecLesClients(interlocuteurs, clients),
+      contactsLocataires, cartesLocataires, choixLocataire),
+    [interlocuteurs, clients, contactsLocataires, cartesLocataires, choixLocataire]);
+
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — LES ADRESSES CLIENTES, POUR QU'UNE DES NÔTRES NE SOIT PAS ÉCARTÉE.
+   * Décision d'Arno : le propriétaire client de lot-299 garde sa capsule même en `@sansvisavis.com`.
+   */
+  const adressesClientes = useMemo(() => {
+    const e = new Set<string>();
+    for (const c of clients) {
+      const a = (c.adresse ?? '').trim().toLowerCase();
+      if (a !== '') e.add(a);
+    }
+    return e as ReadonlySet<string>;
+  }, [clients]);
+
+  /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 4 — L'ORDRE DES CAPSULES, GROUPE PAR GROUPE ═════════════════════════════
    *
    * RÈGLE D'ARNO : « D'abord les CLIENTS, triés par “a écrit” décroissant ; puis les CONTACTS, triés par “a
@@ -1255,9 +1285,19 @@ export function HistoriqueDuBien({
          * `nb` du module aurait affiché « Locataire 6 » au-dessus de deux capsules — le défaut d'origine, en
          * pire, puisqu'il aurait été invisible à la lecture du code.
          */
-        const gardes = g.cle === 'locataire'
+        /**
+         * 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — LE FILTRE S'ÉTEND À « NON AFFECTÉS ».
+         *
+         * Arno : « les contacts annexes affichés côté Locataire ET dans "Non affectés" ». Et c'est bien là qu'il
+         * a vu le défaut : `louisvaglio@live.fr` était dans « Non affectés », pas dans l'encart Locataire.
+         *
+         * ⚠️ LES TROIS AUTRES GROUPES NE BOUGENT PAS, et c'est écrit noir sur blanc dans sa demande : « Le côté
+         * Propriétaire, Tiers indépendant et Notre agence ne changent pas. » Un propriétaire paraît dans les
+         * mails de TOUTES les locations — l'y soumettre l'aurait fait disparaître de son propre encart.
+         */
+        const gardes = g.cle === 'locataire' || g.cle === 'a_repartir'
           ? g.interlocuteurs.filter(
-            (i) => adresseGardeeDansLencart(i.adresse, cartesLocataires, choixLocataire))
+            (i) => adresseGardeeDansLencart(i.adresse, cartesLocataires, choixLocataire, contactsLocataires))
           : g.interlocuteurs;
         return { ...g, nb: gardes.length, interlocuteurs: ordonnerLesCapsules(gardes, g.cle, categories) };
       }),
@@ -1281,10 +1321,11 @@ export function HistoriqueDuBien({
        */
       nbLocatairesActuels: !ilYAUnLocataireEnPlace(cartesLocataires) ? 0
         : (r.groupes.find((g) => g.cle === 'locataire')?.interlocuteurs ?? [])
-          .filter((i) => adresseGardeeDansLencart(i.adresse, cartesLocataires, CHOIX_LOCATAIRE_DEFAUT)).length,
+          .filter((i) => adresseGardeeDansLencart(
+            i.adresse, cartesLocataires, CHOIX_LOCATAIRE_DEFAUT, contactsLocataires)).length,
     };
   }, [interlocuteursEtClients, categoriesFusionnees, adressesClientes, categories,
-    cartesLocataires, choixLocataire]);
+    cartesLocataires, choixLocataire, contactsLocataires]);
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — À QUELLE PARTIE AVONS-NOUS ENVOYÉ CE MAIL ? ══════════════════════

@@ -12,6 +12,8 @@ import {
 } from '../../../../../../lib/gestion/partieCategorieRepo';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — la MÊME relecture pour le corps de la requête et pour le `jsonb`. */
 import { coordonneesDeLaCarte } from '../../../../../../lib/gestion/ficheContact';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — quelle location réclame quel contact annexe. Voir son encadré. */
+import { contactsParLocataire } from '../../../../../../lib/gestion/historiqueRepo';
 
 /**
  * /api/admin/gestion/historique/parties — LOT HISTORIQUE-BIEN-1 : LA CATÉGORIE DE CHAQUE ADRESSE D'UN BIEN.
@@ -94,13 +96,25 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     /* ⚠️ LES DEUX EN PARALLÈLE : elles ne dépendent pas l'une de l'autre, et l'écran les veut ensemble. */
-    const [parties, cartes, coordonnees] = await Promise.all([
+    const [parties, cartes, coordonnees, contactsLocataires] = await Promise.all([
       lireCategoriesDuBien(cible.cle ?? ''),
       lireCartesDuBien(cible.cle ?? ''),
       /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — le nom et le telephone a PRE-REMPLIR dans la carte du « + ».
          Ils arrivent AVEC la liste : le « + » n'a donc rien a demander au moment du clic, et aucune adresse
          personnelle ne voyage dans une chaine de requete. */
       coordonneesDesParties(cible.cle ?? ''),
+      /**
+       * ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — QUELLE LOCATION RÉCLAME QUEL CONTACT ANNEXE ═══════════════════
+       *
+       * Constat d'Arno : `louisvaglio@live.fr` paraissait avec le locataire ACTUEL et disparaissait avec VAGLIO,
+       * à qui il appartient. La raison, et pourquoi la période ne peut pas la corriger, sont dans l'encadré de
+       * `contactsParLocataire`.
+       *
+       * 🔴 ELLE VOYAGE AVEC CETTE ROUTE-CI, ET NON AVEC `/historique`, pour la raison déjà écrite en tête de
+       * fichier : ce rattachement ne dépend NI de la période, NI des cases cochées, NI de la page. Le demander
+       * avec le fil l'aurait fait recalculer à chaque frappe, pour une réponse toujours identique.
+       */
+      contactsParLocataire(cible.cle ?? ''),
     ]);
     return Response.json({
       etat: 'ok',
@@ -136,6 +150,12 @@ export async function GET(request: Request): Promise<Response> {
          * s'afficher ni se rouvrir — et un formulaire qui perd la moitié de ce qu'on y a saisi est pire que
          * pas de formulaire.
          */
+        /**
+         * 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — les contacts annexes, avec la carte de locataire qui les
+         * réclame et leurs compteurs sur les mails PARTAGÉS avec elle. L'écran s'en sert pour deux choses :
+         * n'afficher que les contacts de la location regardée, et montrer les compteurs qui vont avec.
+         */
+        contactsLocataires,
         cartes: cartes.map((c) => ({
           id: c.id, cote: c.cote, adresse: c.adresse, nom: c.nom, telephone: c.telephone,
           origine: c.origine, verifie: c.verifieLe !== null,

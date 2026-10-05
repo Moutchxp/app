@@ -78,6 +78,18 @@ export const PORTEURS_DE_PIECES_MAX = 2000;
  */
 export const INTERLOCUTEURS_MAX = 120;
 
+/**
+ * ══ 🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — LE PLAFOND DES CONTACTS RATTACHÉS À UNE LOCATION ════════════════════════
+ *
+ * `contactsParLocataire` rend un couple (carte, adresse) par ligne : c'est donc un plafond sur la SOMME de toutes
+ * les cartes du bien, pas sur chacune.
+ *
+ * ⚠️ MESURÉ : le pire bien du portefeuille (421) en produit **12** ; lot-146, qui porte trois locations, en
+ * produit **10**. 500 laisse quarante fois la place du cas réel le plus fourni — et comme `INTERLOCUTEURS_MAX`,
+ * il n'est pas calé sur la mesure du jour.
+ */
+export const CONTACTS_PAR_LOCATAIRE_MAX = 500;
+
 // ── LA CIBLE, DANS L'ADRESSE ────────────────────────────────────────────────────────────────────────────────────
 
 /**

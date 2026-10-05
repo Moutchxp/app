@@ -5266,3 +5266,168 @@ describe('⑮ 🔴🔴 nos envois disent à quelle partie ils sont allés', () =
     expect(hote.querySelectorAll('.ddp-ligne')).toHaveLength(0);
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — LES CONTACTS ANNEXES SUIVENT LEUR LOCATION ════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (lot-146) : `louisvaglio@live.fr` paraissait dans « Non affectés » avec le locataire ACTUEL, et
+ * DISPARAISSAIT quand on choisissait VAGLIO ARNAUD, à qui il appartient.
+ *
+ * 🔴 CE QUE CE BLOC PROUVE, ET QUE `contactsParLocataire.test.ts` NE PEUT PAS PROUVER : que la route est LUE, que
+ * le filtre porte bien sur les DEUX groupes qu'Arno nomme (Locataire ET Non affectés) et sur aucun autre, que le
+ * contact ABSENT de la période est bel et bien POSÉ à l'écran, et que la chaîne entière suit — le compteur du
+ * bouton, le retour au locataire actuel, le logement vacant.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑯ 🔴🔴 un contact annexe ne passe pas d’une location à l’autre', () => {
+  const EN_PLACE16 = {
+    cle: 'occ-92', libelle: 'BRASSET Mathilde et BRUERE Thomas',
+    depuis: '2025-10-22', jusqua: null, enPlace: true, adresses: ['enplace@fictif.test'],
+  };
+  const ANCIEN16 = {
+    cle: 'occ-503', libelle: 'VAGLIO ARNAUD Aurélie et Louis',
+    depuis: '2025-02-06', jusqua: '2025-10-22', enPlace: false, adresses: ['ancien@fictif.test'],
+  };
+  /** Le contact du constat : réclamé par la SEULE carte de l'ancien locataire, et par aucune autre. */
+  const LIVE16 = {
+    cle: 'occ-503', adresse: 'live@fictif.test', nom: 'Louis Vaglio',
+    aEcrit: 3, enCopie: 2, nbMails: 5,
+  };
+
+  const CATS16 = new Map<string, CategoriePartie>([
+    ['proprio@fictif.test', 'proprietaire'],
+    ['enplace@fictif.test', 'locataire'],
+    ['ancien@fictif.test', 'locataire'],
+  ]);
+
+  /**
+   * ⚠️ `live@fictif.test` N'EST RANGÉE NULLE PART : elle tombe donc dans « Non affectés », exactement comme
+   * l'adresse du constat. C'est là qu'Arno l'a vue, et c'est là qu'il faut l'éprouver.
+   */
+  function servir16(): void {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) {
+        return reponse({ etat: 'ok', data: { parties: [], cartes: [], contactsLocataires: [LIVE16] } });
+      }
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          /* 🔴 LA ROUTE REND `live@fictif.test` SUR LA PÉRIODE LIBRE, et PAS sur celle de l'ancien locataire —
+             c'est tout le cas d'Arno : ses mails sont postérieurs au bail. Le bouchon le reproduit en lisant
+             les bornes de l'adresse, comme le ferait le serveur. */
+          interlocuteurs: new URL(u, 'http://local').searchParams.get('du') === null
+            ? [
+              inter({ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', nbMails: 4, aEcrit: 4 }),
+              inter({ adresse: 'enplace@fictif.test', nom: 'BRASSET Mathilde', nbMails: 20, aEcrit: 20 }),
+              inter({ adresse: 'live@fictif.test', nom: 'Louis Vaglio', nbMails: 4, aEcrit: 2, enCopie: 2 }),
+            ]
+            : [
+              inter({ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', nbMails: 2, aEcrit: 2 }),
+              inter({ adresse: 'ancien@fictif.test', nom: 'VAGLIO Aurélie', nbMails: 9, aEcrit: 9 }),
+            ],
+          interlocuteursTronques: false,
+        },
+      });
+    }));
+  }
+
+  const encart = (i: number): HTMLElement =>
+    [...hote.querySelectorAll('.hdb-groupe--encart')][i] as HTMLElement;
+  const bande = (titre: string): HTMLElement | undefined =>
+    ([...hote.querySelectorAll('.hdb-groupe--bande')] as HTMLElement[])
+      .find((x) => (x.querySelector('.hdb-groupe-tete')?.textContent ?? '').includes(titre));
+  const nomsDe = (e: HTMLElement | undefined): (string | null)[] =>
+    [...(e?.querySelectorAll('.hdb-personne-nom') ?? [])].map((x) => x.textContent);
+  const ongletAnciens = (): HTMLButtonElement =>
+    [...encart(1).querySelectorAll('.hdb-onglet')][1] as HTMLButtonElement;
+
+  async function monter16(): Promise<void> {
+    servir16();
+    await monter({ categories: CATS16, cartesLocataires: [EN_PLACE16, ANCIEN16] });
+  }
+
+  /** 🔴🔴 LE DÉFAUT D'ARNO, PREMIÈRE MOITIÉ : avec le locataire actuel, le contact de l'ancien n'est plus là. */
+  it('🔴🔴 locataire actuel : le contact de l’ancien a quitté « Non affectés »', async () => {
+    await monter16();
+    await deplierGroupe('Non affectés');
+    expect(nomsDe(bande('Non affectés'))).not.toContain('Louis Vaglio');
+    expect(bande('Non affectés')?.querySelector('.gst-compte')?.textContent).toBe('0');
+  });
+
+  /** 🔴🔴 LE DÉFAUT D'ARNO, SECONDE MOITIÉ : avec VAGLIO, il est là — alors que la période ne le rend plus. */
+  it('🔴🔴 ancien choisi : le contact est POSÉ, avec les compteurs des mails partagés', async () => {
+    await monter16();
+    await cliquer(ongletAnciens());
+    await act(async () => {
+      (hote.querySelector('.hdb-anciens-choix input') as HTMLInputElement).click();
+    });
+    await deplierGroupe('Non affectés');
+    const b = bande('Non affectés');
+    expect(nomsDe(b)).toContain('Louis Vaglio');
+    /* 🔴 LES COMPTEURS SONT CEUX DES MAILS PARTAGÉS (3 / 2), et non ceux d'une période qui l'exclut. */
+    expect(b?.textContent ?? '').toContain('a écrit : 3');
+    expect(b?.textContent ?? '').toContain('en copie : 2');
+  });
+
+  /** 🔴 LE RETOUR REFERME LE CAS : on repart de l'état d'avant, sans traîner le contact de l'ancien. */
+  it('🔴 retour au locataire actuel : le contact repart avec lui', async () => {
+    await monter16();
+    await cliquer(ongletAnciens());
+    await act(async () => {
+      (hote.querySelector('.hdb-anciens-choix input') as HTMLInputElement).click();
+    });
+    await cliquer([...encart(1).querySelectorAll('.hdb-onglet')][0]);
+    await deplierGroupe('Non affectés');
+    expect(nomsDe(bande('Non affectés'))).not.toContain('Louis Vaglio');
+  });
+
+  /**
+   * 🔴🔴 LES TROIS AUTRES GROUPES NE BOUGENT PAS — Arno l'écrit : « Le côté Propriétaire, Tiers indépendant et
+   * Notre agence ne changent pas. » Un propriétaire paraît dans les mails de TOUTES les locations : le soumettre
+   * à cette règle l'aurait fait disparaître de son propre encart.
+   */
+  it('🔴🔴 le propriétaire reste, quel que soit le locataire regardé', async () => {
+    await monter16();
+    expect(nomsDe(encart(0))).toContain('M. ROI Nathan');
+    await cliquer(ongletAnciens());
+    await act(async () => {
+      (hote.querySelector('.hdb-anciens-choix input') as HTMLInputElement).click();
+    });
+    expect(nomsDe(encart(0))).toContain('M. ROI Nathan');
+  });
+
+  /**
+   * ⚠️ SANS CONTACTS RENDUS PAR LA ROUTE, L'ÉCRAN EST CELUI D'AVANT CE LOT. C'est ce qui rend le changement
+   * gratuit partout où la lecture ne porte rien — et ce qui protège le jour où la route échoue.
+   */
+  it('⚠️ aucun contact rendu : « Non affectés » est celui d’avant ce lot', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: [
+            inter({ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', nbMails: 4, aEcrit: 4 }),
+            inter({ adresse: 'live@fictif.test', nom: 'Louis Vaglio', nbMails: 4, aEcrit: 2, enCopie: 2 }),
+          ],
+          interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter({ categories: CATS16, cartesLocataires: [EN_PLACE16, ANCIEN16] });
+    await deplierGroupe('Non affectés');
+    expect(nomsDe(bande('Non affectés'))).toContain('Louis Vaglio');
+  });
+});

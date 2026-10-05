@@ -38,7 +38,7 @@ import { libelleCible, type LienAffiche } from './rattachementRepo';
 // 🔴🔴 LOT CONTACTS-EXTERNES — « via Me Martin, avocat » sur la ligne d'un mail de « Vie du bien ».
 import { interventionsDesMessages } from './contactExterneRepo';
 import {
-  texteCible, INTERLOCUTEURS_MAX, PORTEURS_DE_PIECES_MAX,
+  texteCible, CONTACTS_PAR_LOCATAIRE_MAX, INTERLOCUTEURS_MAX, PORTEURS_DE_PIECES_MAX,
   type EnteteHistorique, type EvenementDeLigne, type FiltresHistorique, type Interlocuteur,
   type LigneHistorique, type MessagePorteurDePieces, type PieceHistorique,
 } from './historique';
@@ -1122,4 +1122,127 @@ export async function propositionsHistorique(c: CibleEtendue): Promise<{
       };
     }),
   };
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — LES CONTACTS ANNEXES, RATTACHÉS À LEUR LOCATION ═══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (05/10/2026, lot-146) : « locataire actuel (BRASSET / BRUERE) sélectionné → "Non affectés" montre
+ * louisvaglio@live.fr (a écrit 2, en copie 2), qui appartient à la location VAGLIO ARNAUD. Quand on choisit
+ * l'ancien locataire VAGLIO ARNAUD, cette adresse DISPARAÎT. C'est l'inverse de ce qu'il faut. »
+ *
+ * ═══ 🔴 LE DIAGNOSTIC, MESURÉ EN BASE ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Les SEPT mails de `louisvaglio@live.fr` sur ce bien tiennent dans UN SEUL FIL (3366, « Dépôt de garantie ») et
+ * vont du **11/11/2025 au 30/09/2026**. L'occupation de VAGLIO, elle, s'est achevée le **22/10/2025** : tous ces
+ * mails sont donc POSTÉRIEURS à son départ — ce qui est le cours normal des choses, un dépôt de garantie se règle
+ * après la sortie. Cinq de ces sept mails portent `aurelie.arnaud1402@gmail.com`, une adresse de SA carte ;
+ * aucun ne porte la moindre adresse de BRASSET / BRUERE.
+ *
+ * Les capsules, elles, sont bâties par `interlocuteursHistorique` sur la PÉRIODE EN VIGUEUR. D'où exactement ce
+ * qu'Arno voit : locataire actuel ⇒ période « tous les échanges » ⇒ l'adresse est là ; VAGLIO choisi ⇒ période
+ * 06/02/2025–22/10/2025 ⇒ elle n'y est plus.
+ *
+ * ═══ 🔴🔴 POURQUOI LA RÈGLE DEMANDÉE NE POUVAIT PAS MARCHER, ET CE QUI LA REMPLACE ═══════════════════════════════
+ *
+ * Arno demande : « UNIQUEMENT les adresses qui ont participé à des mails du bien DANS LA PÉRIODE D'OCCUPATION de
+ * ce locataire ». Appliquée à la lettre, cette règle échoue sur SON PROPRE cas d'épreuve, et des deux côtés :
+ *   · avec VAGLIO, les sept mails sont HORS de son occupation ⇒ l'adresse resterait absente ;
+ *   · avec BRASSET (22/10/2025 → aujourd'hui), ces mêmes sept mails sont DANS sa période ⇒ elle resterait là.
+ * C'est l'exact contraire de ce qu'il demande d'éprouver (« présent avec VAGLIO, absent avec BRASSET »).
+ *
+ * 🔴 LA PÉRIODE N'EST PAS LE BON AXE. Ce qui rattache cette adresse à VAGLIO est mesurable, mais c'est la
+ * CO-PARTICIPATION : elle paraît dans les mails où paraissent les adresses de SA carte, et dans aucun autre.
+ * C'est d'ailleurs la même personne — `louisvaglio@live.fr` et `louis.vaglio@audencia.com`.
+ *
+ * Cette fonction rend donc, pour chaque carte de locataire du bien, les adresses qui participent aux mails où sa
+ * carte participe, avec leurs compteurs calculés SUR CES MAILS-LÀ. L'écran garde ensuite la règle de période pour
+ * tout ce qu'aucune carte ne réclame (un artisan qui n'écrit qu'à nous), et la co-participation pour le reste.
+ *
+ * ═══ ⚠️ CE QU'ELLE NE FAIT PAS ══════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ AUCUNE CONDITION DE PÉRIODE ICI, ET C'EST TOUT LE POINT : le rattachement d'un contact à une location ne
+ * dépend pas de ce qu'on regarde. Le calculer sous la période en vigueur aurait reproduit le défaut d'Arno.
+ *
+ * ⚠️ LES ADRESSES INTERNES SONT ÉCARTÉES : nous paraissons dans tous les mails de toutes les locations, et nous
+ * serions donc « contact annexe » de chacune. « Notre agence » a son propre groupe, qui ne change pas.
+ *
+ * ⚠️ LA MÊME RÈGLE DE SÉLECTION QUE LES TROIS AUTRES ÉCRANS (`sqlLiensDuBien`) : cette lecture ne redéfinit pas
+ * « un mail rattaché à un bien ».
+ *
+ * ⚠️ MESURÉ SUR LE PIRE BIEN (421, 326 mails, 142 porteurs) : **258 ms**, et la route qui la porte est demandée
+ * UNE fois par fiche — pas à chaque frappe ni à chaque changement de filtre.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface ContactDeLocataire {
+  /** La clé de la carte, dans la forme de l'écran : `occ-<id d'occupation>`. */
+  cle: string;
+  adresse: string;
+  nom: string | null;
+  /** Combien des mails PARTAGÉS avec cette carte l'adresse a écrits, et dans combien elle n'était qu'en copie. */
+  aEcrit: number;
+  enCopie: number;
+  nbMails: number;
+}
+
+export async function contactsParLocataire(lotCle: string): Promise<ContactDeLocataire[]> {
+  const cle = (lotCle ?? '').trim();
+  if (cle === '') return [];
+  const { rows } = await query<{
+    occ: string; adresse: string; nom: string | null; n: string; n_ecrit: string; n_copie: string;
+  }>(
+    `WITH mails AS (
+       SELECT DISTINCT r.message_id
+         FROM gestion_rattachement r
+        WHERE ${sqlLiensDuBien('r')} AND r.cible_cle = $1
+     ),
+     cartes AS (
+       SELECT o.id AS occ, lower(btrim(c.valeur)) AS adresse
+         FROM gestion_annuaire_occupation o
+         JOIN gestion_annuaire_lot l ON l.id = o.lot_id AND l.wippimmo_id = $1
+         JOIN gestion_annuaire_contact c
+           ON c.sujet = 'locataire' AND c.sujet_id = o.locataire_id
+          AND c.sorte = 'email' AND c.absent_le IS NULL
+        WHERE o.absent_le IS NULL AND btrim(c.valeur) <> ''
+     ),
+     -- Les mails où une adresse de la carte participe, à quelque titre que ce soit.
+     partages AS (
+       SELECT DISTINCT ca.occ, a.message_id
+         FROM cartes ca
+         JOIN gestion_message_adresse a ON a.adresse = ca.adresse
+         JOIN mails ON mails.message_id = a.message_id
+     ),
+     /* Le palier « un mail ne compte qu'une fois par adresse » : la table porte une ligne par (message, adresse,
+        rôle), et une adresse à la fois expéditrice et destinataire d'un même mail y figure deux fois. C'est le
+        même palier que \`interlocuteursHistorique\`, pour que les deux compteurs veuillent dire la même chose. */
+     par_mail AS (
+       SELECT p.occ, a.adresse, a.message_id, a.adresse_brute,
+              bool_or(a.role = '${ROLE_EXPEDITEUR}') AS a_ecrit,
+              bool_or(a.role IN (${ROLES_RECEPTION.map((r) => "'" + r + "'").join(', ')})) AS en_copie
+         FROM partages p
+         JOIN gestion_message_adresse a ON a.message_id = p.message_id
+        WHERE a.interne = false
+        GROUP BY p.occ, a.adresse, a.message_id, a.adresse_brute
+     )
+     SELECT occ::text AS occ, adresse,
+            mode() WITHIN GROUP (
+              ORDER BY nullif(btrim(regexp_replace(coalesce(adresse_brute, ''), '<[^>]*>', '', 'g')), '')
+            ) AS nom,
+            count(DISTINCT message_id)::text AS n,
+            count(DISTINCT message_id) FILTER (WHERE a_ecrit)::text AS n_ecrit,
+            count(DISTINCT message_id) FILTER (WHERE en_copie AND NOT a_ecrit)::text AS n_copie
+       FROM par_mail
+      GROUP BY occ, adresse
+      ORDER BY occ, count(DISTINCT message_id) DESC, adresse
+      LIMIT $2`,
+    [cle, CONTACTS_PAR_LOCATAIRE_MAX]);
+  return rows.map((r) => ({
+    cle: `occ-${r.occ}`,
+    adresse: r.adresse,
+    nom: r.nom === null || r.nom.trim() === '' ? null : r.nom.trim(),
+    aEcrit: Number(r.n_ecrit),
+    enCopie: Number(r.n_copie),
+    nbMails: Number(r.n),
+  }));
 }
