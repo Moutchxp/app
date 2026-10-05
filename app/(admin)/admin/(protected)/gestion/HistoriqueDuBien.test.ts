@@ -5717,3 +5717,126 @@ describe('⑰-bis 🔴🔴 la frise chronologique', () => {
     expect(hote.querySelector('.frs-periode')).not.toBeNull();
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES NOMS DE PIÈCES CITÉS, À L'ÉCRAN ══════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO : le mail de Louis Vaglio du 30/06/2026 (fil 3366) affiche trois noms de fichiers et aucune
+ * pièce jointe. VÉRIFIÉ DANS GMAIL : ce mail n'en porte AUCUNE (18 118 octets en tout). Les noms sont ceux du
+ * mail CITÉ du 11/11/2025, dont les fichiers existent chez nous sur quatre mails du même fil.
+ *
+ * 🔴 CE QUE CE BLOC PROUVE, ET QUE `piecesCitees.test.ts` NE PEUT PAS PROUVER : que les pièces de la
+ * CONVERSATION arrivent jusqu'à la ligne, que le lien est rendu, qu'il ouvre la visionneuse, et qu'AUCUNE pièce
+ * n'est ajoutée au mail — le trombone du mail reste à zéro.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑱ 🔴🔴 un nom de pièce cité ouvre la pièce de la conversation', () => {
+  /** Le mail qui PORTE les fichiers (11/11/2025), et celui qui les CITE sans en porter (30/06/2026). */
+  const PORTEUR = ligne({
+    messageId: 26914, filId: 3366, recuLe: '2025-11-11T19:08:47Z', sens: 'recu',
+    de: 'blandine.piriou@gmail.com', deNom: 'Blandine Piriou', objet: 'Fwd: Dépôt de garantie',
+    pieces: [piece({ pieceId: 2601, nomFichier: 'RIB..pdf', empreinte: 'sha-rib' })],
+  });
+  /**
+   * ══ 🔴🔴 LE CORPS DE CE DOUBLE NE PORTE PAS D'EN-TÊTE DE CITATION, ET C'EST VOULU ══════════════════════════
+   *
+   * 🔴 CORRECTION D'UNE PREMIÈRE VERSION QUI ÉPROUVAIT LA MAUVAISE SURFACE. Le vrai mail 5231 porte
+   * « Le 11 nov. 2025 … a écrit : », et `corpsLisible` met alors TOUT ce qui suit dans la partie CITÉE — que
+   * le bloc « Historique du bien » n'affiche pas. Les trois noms d'Arno paraissent donc dans la fenêtre de
+   * CONVERSATION, seule à rendre la citation, et c'est là qu'ils sont éprouvés (`Conversation.*.test.ts`).
+   *
+   * Ici on éprouve l'AUTRE surface : un corps dont la citation n'est pas détectée (un transfert recopié à la
+   * main, par exemple), où les noms restent dans la partie visible. Le même module les traite, et le même lien
+   * doit s'y ouvrir.
+   */
+  const CITANT = ligne({
+    messageId: 5231, filId: 3366, recuLe: '2026-06-30T15:27:32Z', sens: 'recu',
+    de: 'louisvaglio@live.fr', deNom: 'Louis Vaglio', objet: 'Re: Dépôt de garantie',
+    pieces: [],
+    extrait: 'Bonjour, vous trouverez les documents reçus en novembre 2025 : <RIB..pdf>. Bien à vous.',
+  });
+
+  function servirLeFil(): void {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/frise')) return reponse({ etat: 'ok', data: { mails: [], tronque: false } });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis([PORTEUR, CITANT]));
+      if (u.includes('/messages/') || u.includes('/corps')) return reponse({ etat: 'ok', corps: CITANT.extrait });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: [CITANT, PORTEUR], suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  }
+
+  const lienCite = (): HTMLButtonElement | undefined =>
+    hote.querySelector('.vdb-piece-citee') as HTMLButtonElement | null ?? undefined;
+
+  /** 🔴🔴 LE NOM CITÉ DEVIENT UN LIEN, AVEC L'INFO-BULLE D'ARNO. */
+  it('🔴🔴 « <RIB..pdf> » devient un lien vers la pièce du mail du 11/11/2025', async () => {
+    servirLeFil();
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-5231 button') ?? undefined);
+    const l = lienCite();
+    expect(l).toBeDefined();
+    expect(l?.textContent).toContain('RIB..pdf');
+    expect(l?.getAttribute('title')).toBe('pièce du mail du 11/11/2025');
+  });
+
+  /** 🔴🔴 ET IL OUVRE LA VISIONNEUSE sur cette pièce — pas un onglet, pas rien. */
+  it('🔴🔴 le lien ouvre la visionneuse sur la pièce citée', async () => {
+    servirLeFil();
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-5231 button') ?? undefined);
+    expect(hote.querySelector('.apd[role="dialog"]')).toBeNull();
+    await cliquer(lienCite());
+    const apd = hote.querySelector('.apd[role="dialog"]');
+    expect(apd).not.toBeNull();
+    expect(apd?.getAttribute('aria-label')).toContain('RIB..pdf');
+  });
+
+  /**
+   * 🔴🔴 AUCUNE PIÈCE N'EST AJOUTÉE AU MAIL. C'est la demande d'Arno, et c'est aussi ce qui protège le reste :
+   * lui en inventer une aurait fait mentir le trombone, le résumé des pièces et le compteur.
+   */
+  it('🔴🔴 le mail qui cite ne gagne aucune pièce', async () => {
+    servirLeFil();
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-5231 button') ?? undefined);
+    const mail = hote.querySelector('#hdb-mail-5231') as HTMLElement;
+    expect(mail.querySelectorAll('.pj-carte')).toHaveLength(0);
+    expect(mail.querySelector('.vdb-trombone')).toBeNull();
+  });
+
+  /** 🔴 SANS CORRESPONDANCE, LE TEXTE RESTE TEL QUEL — demande d'Arno. */
+  it('🔴 un nom qu’aucune pièce ne porte reste du texte', async () => {
+    const sansCorrespondance = { ...CITANT, extrait: 'Voici <inconnu-total.pdf> pour vous.' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/frise')) return reponse({ etat: 'ok', data: { mails: [], tronque: false } });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis([PORTEUR]));
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: [sansCorrespondance, PORTEUR], suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-5231 button') ?? undefined);
+    expect(hote.querySelector('.vdb-piece-citee')).toBeNull();
+    expect(texte()).toContain('<inconnu-total.pdf>');
+  });
+});

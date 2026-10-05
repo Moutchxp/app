@@ -456,6 +456,29 @@ export function CartePieceConversation({
  */
 export const CSS_PIECES_CONVERSATION = `
 ${CSS_DESTINATAIRES_PIECE}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LE PETIT LIEN D'UN NOM DE PIECE CITE ════════════════════════════════
+   DEMANDE D'ARNO : « un petit lien DISCRET (trombone + nom) ».
+
+   🔴 DISCRET VEUT DIRE « DANS LE FIL DU TEXTE », pas invisible : meme taille, meme ligne, souligne en pointille
+   pour qu'on devine qu'il se clique. Un bouton colore aurait fait trois taches dans un corps de mail.
+
+   ⚠️ CIBLE TACTILE : le trace reste dans le texte, mais un ::after deborde la cible — viser un nom de fichier
+   au doigt sur une ligne de corps est impossible sans cela.
+
+   ⚠️ DESACTIVE QUAND AUCUNE VISIONNEUSE N'EST OFFERTE (les trois autres ecrans qui montent cette ligne) : il
+   garde son habillage de texte et perd son soulignement, plutot que de promettre une porte qui n'ouvre rien. */
+.vdb-piece-citee{display:inline;padding:0;margin:0;border:0;background:none;font:inherit;
+  color:var(--color-svv-lien-source);cursor:pointer;position:relative;
+  text-decoration:underline dotted;text-underline-offset:2px}
+.vdb-piece-citee > span{margin-right:.2rem;font-size:.8em}
+.vdb-piece-citee::after{content:"";position:absolute;inset:-8px -2px}
+.vdb-piece-citee:hover{text-decoration:underline solid}
+.vdb-piece-citee:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.vdb-piece-citee:disabled{color:inherit;cursor:default;text-decoration:none}
+/* ⚠️ CETTE REGLE VIT ICI, ET NON DANS LA FEUILLE DE « Historique du bien » : les noms cites paraissent dans DEUX
+   fenetres — le corps d'un message de la CONVERSATION (ou vit la partie citee) et le mail deplie de l'historique.
+   Les deux embarquent cette feuille ; l'ecrire deux fois aurait donne deux liens qui divergent au premier
+   correctif. */
 ${CSS_PICTO_DANS_LE_DRIVE}
 /* ── LE TROMBONE ── Discret, mais c'est un BOUTON : il en a la cible (44 px de haut) et le focus visible. */
 .pdc-trombone{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;padding:0 .5rem;border-radius:.5rem;

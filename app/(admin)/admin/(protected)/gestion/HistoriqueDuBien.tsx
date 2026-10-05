@@ -22,6 +22,7 @@ import { SelecteurFichierDrive } from './SelecteurFichierDrive';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — la frise chronologique de la vie du bien. */
 import { CSS_FRISE_DU_BIEN, FriseDuBien } from './FriseDuBien';
 import type { MailDeLaFrise } from '../../../../lib/gestion/friseBien';
+import type { PieceCitable } from '../../../../lib/gestion/piecesCitees';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — LA VISIONNEUSE MAISON, IMPORTÉE ET NON RECOPIÉE. C'est le composant que
    la conversation, l'éditeur de mail et la fenêtre Drive montent déjà. */
 import { ApercuFichierDrive } from './ApercuFichierDrive';
@@ -1115,6 +1116,46 @@ export function HistoriqueDuBien({
   /** Par mail, le fil d'où il vient — la fenêtre « Ranger » en a besoin, et le fil change d'un mail à l'autre. */
   const filDuMessage = useMemo(
     () => new Map(lignes.map((l) => [l.messageId, l.filId])), [lignes]);
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES PIÈCES DE CHAQUE CONVERSATION, POUR LES NOMS CITÉS ═══════════
+   *
+   * CONSTAT D'ARNO : le mail de Louis Vaglio du 30/06/2026 affiche trois noms de fichiers et aucune pièce.
+   * Vérifié dans Gmail : ce mail n'en porte AUCUNE — les noms sont ceux du mail CITÉ du 11/11/2025, dont les
+   * fichiers existent chez nous, sur quatre mails du MÊME fil.
+   *
+   * 🔴 LA SOURCE EST `recap.pieces`, DÉJÀ CALCULÉE : le résumé des pièces couvre toute la sélection et porte,
+   * pour chaque pièce, le mail qui l'a apportée, sa date et son expéditeur. Tout ce qu'il manquait était le FIL
+   * de ce mail, et `filDuMessage` le donne. Aucune lecture de plus.
+   *
+   * ⚠️ `piecesAvantDedoublonnage` ET NON `recap.pieces` : le dédoublonnage ne garde qu'UNE copie par contenu, et
+   * c'est exactement ce qu'il ne faut pas ici — les quatre copies du RIB sont sur quatre mails, et c'est celle
+   * du mail CITÉ qu'il faut pouvoir désigner. Les apparitions écartées sont donc reprises.
+   */
+  const piecesParFil = useMemo(() => {
+    const m = new Map<number, PieceCitable[]>();
+    const poser = (p: {
+      pieceId: number; nomFichier: string; messageId: number; recuLe: string; de: string;
+    }): void => {
+      const fil = filDuMessage.get(p.messageId);
+      if (fil === undefined) return;
+      m.set(fil, [...(m.get(fil) ?? []), {
+        pieceId: p.pieceId, nomFichier: p.nomFichier, messageId: p.messageId, recuLe: p.recuLe, de: p.de,
+      }]);
+    };
+    for (const p of recap.pieces) {
+      poser(p);
+      /**
+       * 🔴 LES AUTRES APPARITIONS DU MÊME CONTENU : ce sont elles qui portent les copies des autres mails.
+       *
+       * ⚠️ ELLES REPRENNENT LE NOM DE LA PREMIÈRE, et c'est exact : une « autre apparition » est le MÊME
+       * contenu (rapproché par empreinte), donc le même fichier. Le nom cité dans un corps désigne ce
+       * fichier-là, quel que soit le mail qui le portait.
+       */
+      for (const a of p.autresApparitions) poser({ ...a, nomFichier: p.nomFichier });
+    }
+    return m as ReadonlyMap<number, PieceCitable[]>;
+  }, [recap.pieces, filDuMessage]);
 
   // ── ④ CE QUI EST DÉJÀ DANS LE DRIVE, EN UNE SEULE REQUÊTE POUR TOUTE LA PAGE ───────────────────────────────────
   /**
@@ -2622,6 +2663,7 @@ export function HistoriqueDuBien({
                       categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                       onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                       onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
+                      piecesCitables={piecesParFil}
                       sortieDuSuivi={sortieOfferte} />
                   </section>
                 ))
@@ -2630,6 +2672,7 @@ export function HistoriqueDuBien({
                     categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                     onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                     onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
+                    piecesCitables={piecesParFil}
                     sortieDuSuivi={sortieOfferte} />
                 )}
 
@@ -3625,7 +3668,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
  */
 function FilDeMails({
   lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi,
-  onVisualiser, destinataires,
+  onVisualiser, destinataires, piecesCitables,
 }: {
   lignes: readonly LigneHistorique[];
   maintenant: Date;
@@ -3647,6 +3690,8 @@ function FilDeMails({
   onVisualiser: (pieceId: number) => void;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
   destinataires: ReadonlyMap<number, PartieDestinataire[]>;
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les pièces de chaque conversation, par fil. */
+  piecesCitables: ReadonlyMap<number, PieceCitable[]>;
 }) {
   return (
     <ol className="vdb-liste hdb-liste">
@@ -3691,6 +3736,8 @@ function FilDeMails({
               onVisualiser={onVisualiser}
               /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … » sous les miniatures du mail. */
               destinataires={destinataires.get(l.messageId) ?? []}
+              /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les pièces de SA conversation, pour les noms cités. */
+              piecesCitables={piecesCitables.get(l.filId) ?? []}
               sortieDuSuivi={sortieDuSuivi(l)} />
           </ol>
         </li>

@@ -1,5 +1,7 @@
 'use client';
 import { chargerCorpsDuMessage } from './chargerCorps';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les noms de pièces cités dans le corps. Voir l'encadré du module. */
+import { decouperLesPiecesCitees, type PieceCitable } from '../../../../lib/gestion/piecesCitees';
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la corbeille d'UN message : même route, même journal, même
@@ -1105,6 +1107,15 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const recap = dedoublonnerPieces(piecesDeLaConversation(messages, ordrePieces));
   const piecesFil = recap.pieces;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — toutes les copies, dédoublonnage DÉFAIT. Voir la prop du message.
+   */
+  const piecesCitees: PieceCitable[] = piecesFil.flatMap((p) => [
+    { pieceId: p.pieceId, nomFichier: p.nomFichier, messageId: p.messageId, recuLe: p.recuLe, de: p.de },
+    ...p.autresApparitions.map((a) => ({
+      pieceId: a.pieceId, nomFichier: p.nomFichier, messageId: a.messageId, recuLe: a.recuLe, de: a.de,
+    })),
+  ]);
   const nbPieces = piecesFil.length;
   /** La pièce affichée dans la visionneuse, retrouvée dans la liste classée. */
   const pieceAffichee = pieceVue === null ? undefined : piecesFil.find((p) => p.pieceId === pieceVue);
@@ -1611,6 +1622,16 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             /* 🔴 LOT PIECES-DE-LA-CONVERSATION — la vignette d'une pièce ouvre la visionneuse maison, avec le tour
                de toute la conversation. */
             onVisualiser={(id) => setPieceVue(id)}
+            /**
+             * 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES PIÈCES DE LA CONVERSATION, pour les noms cités dans le
+             * corps. La source est `piecesFil`, déjà calculée pour le récapitulatif et pour le tour de la
+             * visionneuse : aucune lecture de plus.
+             *
+             * ⚠️ LES AUTRES APPARITIONS SONT REPRISES : le dédoublonnage ne garde qu'UNE copie par contenu, et
+             * c'est exactement ce qu'il ne faut pas ici — sur le fil 3366, les trois fichiers sont sur quatre
+             * mails, et c'est celui que la citation NOMME qu'il faut pouvoir désigner.
+             */
+            piecesCitables={piecesCitees}
             /* 🔴 LOT RANGER-INSTANTANE-ET-NOM — « le nouveau nom s'affiche immédiatement partout à l'écran, sans
                recharger la page » (Arno). `silencieux` : on relit le fil SANS le faire clignoter, pendant qu'on
                est encore en train de ranger. */
@@ -2141,6 +2162,45 @@ function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
   );
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — UN CORPS, AVEC SES NOMS DE PIÈCES CITÉS ══════════════════════════════
+ *
+ * DEMANDE D'ARNO : « chaque nom cité "<fichier.ext>" qui correspond à une pièce réelle de la MÊME conversation
+ * devient un petit lien discret (trombone + nom) qui ouvre cette pièce dans la visionneuse, avec l'info-bulle
+ * "pièce du mail du 11/11/2025". Sans correspondance, le texte reste tel quel. »
+ *
+ * 🔴 DES MORCEAUX, ET NON DU HTML : le corps d'un mail est écrit par n'importe qui. Rendre une chaîne balisée
+ * aurait obligé à l'injecter sans échappement, c'est-à-dire à faire confiance à l'expéditeur. C'est la règle de
+ * `decouperPourSurligner`, et elle vaut double ici.
+ *
+ * ⚠️ SANS VISIONNEUSE À OUVRIR, LE LIEN RESTE DU TEXTE : le bouton est désactivé et perd son soulignement,
+ * plutôt que de promettre une porte qui n'ouvre rien.
+ */
+function MorceauxDuCorps({ texte, pieces, quand, onVisualiser }: {
+  texte: string;
+  pieces: readonly PieceCitable[];
+  /** La date du mail qui cite — elle départage les copies. Voir `copieCitee`. */
+  quand: string;
+  onVisualiser?: (pieceId: number) => void;
+}) {
+  return (
+    <>
+      {decouperLesPiecesCitees(texte, pieces, quand).map((m, i) => (
+        m.sorte === 'texte'
+          ? <Fragment key={i}>{m.texte}</Fragment>
+          : (
+            <button key={i} type="button" className="vdb-piece-citee" title={m.aide}
+              aria-label={`${m.texte} — ${m.aide}`}
+              disabled={onVisualiser === undefined}
+              onClick={() => onVisualiser?.(m.pieceId)}>
+              <span aria-hidden="true">📎</span>{m.texte}
+            </button>
+          )
+      ))}
+    </>
+  );
+}
+
 export function CorpsHtmlMail({ html, onVisualiser }: {
   html: string;
   /**
@@ -2181,8 +2241,21 @@ export function MessageConversation({
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
   mailsDuFil = [],
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
-  onReintegrerMessage, etoileDuFil,
+  onReintegrerMessage, etoileDuFil, piecesCitables = [],
 }: {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES PIÈCES DE LA CONVERSATION, POUR LES NOMS CITÉS ═══════════════
+   *
+   * CONSTAT D'ARNO : le mail de Louis Vaglio du 30/06/2026 (fil 3366) affiche trois noms de fichiers sans
+   * pièce jointe. VÉRIFIÉ DANS GMAIL : ce mail n'en porte AUCUNE — ce sont les noms des pièces du mail CITÉ
+   * du 11/11/2025, qu'Apple Mail écrit entre chevrons dans le texte brut.
+   *
+   * 🔴 ET C'EST BIEN ICI QUE CES NOMS S'AFFICHENT : ils vivent dans la partie CITÉE du corps, et cette fenêtre
+   * est la seule qui la rende (`gst-cite-bloc`). Le bloc « Historique du bien », lui, écarte la citation.
+   *
+   * ⚠️ VIDE PAR DÉFAUT ⇒ LE CORPS EST RENDU D'UN BLOC, exactement comme avant ce lot.
+   */
+  piecesCitables?: readonly PieceCitable[];
   /**
    * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — LES MAILS DE L'ÉCHANGE, dans l'ordre
    * CHRONOLOGIQUE. Ils ne servent qu'à une chose : demander au serveur ce que « Marquer interne » détacherait,
@@ -2868,7 +2941,11 @@ export function MessageConversation({
             <>
               {/* Quand l'avis a été isolé, le corps reprend À LA PARTIE TECHNIQUE : la répéter au-dessus en rouge
                   PUIS en noir afficherait deux fois la même phrase. Sinon, le corps entier, comme avant ce lot. */}
-              <p className="gst-msg-corps">{(avis !== null ? avis.technique : lisible.visible) || '(message sans texte)'}</p>
+              {/* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les noms de pièces cités deviennent de petits liens. */}
+              <p className="gst-msg-corps">
+                <MorceauxDuCorps texte={(avis !== null ? avis.technique : lisible.visible) || '(message sans texte)'}
+                  pieces={piecesCitables} quand={message.recuLe} onVisualiser={onVisualiser} />
+              </p>
               {/* ══ 🔴 LOT LECTURE-HTML-FIL-TROMBONE — LA CITATION EST VISIBLE, EN RETRAIT ═══════════════════════
                   Elle vivait dans un `<details>` : « Afficher le message cité », replié par défaut. Arno l'a fait
                   retirer, et il a raison — une conversation se lit d'un bout à l'autre, et ce repli obligeait à
@@ -2879,7 +2956,10 @@ export function MessageConversation({
                   fermer, à retenir entre deux rendus. C'est un retrait de code autant qu'un changement d'écran. */}
               {lisible.cite && (
                 <blockquote className="gst-cite-bloc">
-                  <p className="gst-msg-corps gst-cite-corps">{lisible.cite}</p>
+                  <p className="gst-msg-corps gst-cite-corps">
+                    <MorceauxDuCorps texte={lisible.cite} pieces={piecesCitables}
+                      quand={message.recuLe} onVisualiser={onVisualiser} />
+                  </p>
                 </blockquote>
               )}
             </>

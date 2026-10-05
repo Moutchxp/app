@@ -11,6 +11,8 @@ import { dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/ge
 import { corpsLisible, etatTrombone, motTrombone, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import type { PartieDestinataire } from '../../../../lib/gestion/historiqueBien';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les noms de pièces cités dans le corps. Voir l'encadré du module. */
+import { decouperLesPiecesCitees, type PieceCitable } from '../../../../lib/gestion/piecesCitees';
 import { motCapsule, tonCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 // 🔴🔴 LOT CONTACTS-EXTERNES — le mot du rôle instantané, écrit UNE fois dans le module PUR.
 import { motRoleInstantane } from '../../../../lib/gestion/contactExterne';
@@ -316,7 +318,7 @@ function AdressesDuMail({ l, tonDe }: {
 
 export function LigneVie({
   l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, onVisualiser,
-  destinataires = [],
+  destinataires = [], piecesCitables = [],
 }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
@@ -358,6 +360,17 @@ export function LigneVie({
    * catégories d'un bien ; la fiche d'un locataire n'en a aucune à lire. Même règle que `tonDe`.
    */
   destinataires?: readonly PartieDestinataire[];
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES PIÈCES DE LA CONVERSATION, POUR LES NOMS CITÉS ═══════════════
+   *
+   * CONSTAT D'ARNO : le mail de Louis Vaglio du 30/06/2026 affiche trois noms de fichiers sans pièce jointe.
+   * Vérifié dans Gmail : ce mail n'en porte AUCUNE — les noms sont ceux du mail CITÉ du 11/11/2025, et les
+   * fichiers existent, sur d'autres mails du même fil.
+   *
+   * ⚠️ VIDE PAR DÉFAUT ⇒ LE CORPS EST RENDU D'UN BLOC, exactement comme avant ce lot. Les trois autres écrans
+   * qui montent cette ligne ne connaissent pas les pièces d'une conversation : ils ne passent rien.
+   */
+  piecesCitables?: readonly PieceCitable[];
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LA CATÉGORIE D'UNE ADRESSE, DEMANDÉE À L'APPELANT ═══════════════
    *
@@ -521,8 +534,30 @@ export function LigneVie({
               ⚠️ LES LISTES SONT COMPLÈTES, SANS BORNE. Mesuré : le pire mail du dépôt porte 52 destinataires,
               et la moyenne est de 1,15. C'est une ligne qui se replie, pas une liste qui explose. */}
           <AdressesDuMail l={l} tonDe={tonDe} />
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES NOMS DE PIÈCES CITÉS DEVIENNENT DE PETITS LIENS ════
+              DEMANDE D'ARNO : « chaque nom cité "<fichier.ext>" qui correspond à une pièce réelle de la MÊME
+              conversation devient un petit lien discret (trombone + nom) qui ouvre cette pièce dans la
+              visionneuse, avec l'info-bulle "pièce du mail du 11/11/2025". Sans correspondance, le texte reste
+              tel quel. Aucun ajout de pièce au mail lui-même. »
+
+              🔴 DES MORCEAUX, ET NON DU HTML : le corps d'un mail est écrit par n'importe qui. Rendre une
+              chaîne balisée aurait obligé à l'injecter sans échappement, c'est-à-dire à faire confiance à
+              l'expéditeur. C'est la règle de `decouperPourSurligner`, et elle vaut double ici. */}
           {lisibleOuvert !== null && lisibleOuvert.visible !== '' && (
-            <p className="vdb-corps">{lisibleOuvert.visible}</p>
+            <p className="vdb-corps">
+              {decouperLesPiecesCitees(lisibleOuvert.visible, piecesCitables, l.recuLe).map((m, i) => (
+                m.sorte === 'texte'
+                  ? <span key={i}>{m.texte}</span>
+                  : (
+                    <button key={i} type="button" className="vdb-piece-citee" title={m.aide}
+                      aria-label={`${m.texte} — ${m.aide}`}
+                      disabled={onVisualiser === undefined}
+                      onClick={() => onVisualiser?.(m.pieceId)}>
+                      <span aria-hidden="true">📎</span>{m.texte}
+                    </button>
+                  )
+              ))}
+            </p>
           )}
           {l.evenements.length > 0 && (
             <p className="vdb-evts">
