@@ -786,6 +786,48 @@ export async function poserCarteAlaMain(o: {
    */
   const retires: number[] = [];
   const id = await withTransaction(async (q) => {
+    /**
+     * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 1 — CHANGER DE CÔTÉ **DÉPLACE** LA CARTE, IL NE LA DOUBLE PAS ═══════
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+     * CONSTAT D'ARNO (05/10/2026) : « après un changement de catégorie, la carte apparaît dans la nouvelle
+     * catégorie MAIS reste dans l'ancienne. a.bruneel@grospiron.com est à la fois CONTACT DU PROPRIÉTAIRE et
+     * CONTACT DU LOCATAIRE. » Sa règle : « pour un bien donné, une adresse n'a qu'UNE carte active. Changer de
+     * catégorie DÉPLACE la carte : l'ancienne passe en 'retire' (motif “changée de catégorie”), DANS LA MÊME
+     * TRANSACTION. »
+     *
+     * 🔴 LE DÉFAUT MESURÉ VENAIT D'AILLEURS — des deux écritures d'une même adresse (`mailto:a.bruneel@…` et
+     * `a.bruneel@…`), que la migration 308 a fusionnées : 7 doublons de catégorie sur 7 et 5 de carte sur 5
+     * venaient de cette seule cause. Le chemin, lui, retirait bien l'ancienne (`faireSuivreLaCarte`) — mais il
+     * ne la VOYAIT pas, puisqu'elle portait une autre chaîne.
+     *
+     * 🔴 ALORS POURQUOI CE BLOC, SI LA CAUSE EST FERMÉE ? Parce que le retrait vivait chez l'APPELANT, et
+     * qu'un appelant s'oublie. Il vit maintenant dans la porte d'écriture elle-même, et dans SA transaction :
+     * quel que soit le chemin — glisser, « Changer de côté », le « + » du bloc, le « + » du carrousel, un
+     * script —, poser une carte d'un côté retire celle de l'autre, atomiquement. L'invariant d'Arno devient
+     * une propriété de la porte, et non une discipline de ses usagers.
+     *
+     * ⚠️ IL NE PEUT PLUS ÊTRE CONTOURNÉ NON PLUS : la migration 309 pose un index unique (bien, adresse) sur
+     * les lignes vivantes. Le code dit la règle, la base la tient — et c'est la base qui a le dernier mot.
+     *
+     * ⚠️ LES IDENTIFIANTS RETIRÉS PARTENT DANS `retires`, donc dans `cartesRetirees` du geste : « Annuler »
+     * rouvre exactement la carte d'avant. Sans cela, le déplacement aurait été irréversible.
+     * ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+     */
+    const { rows: autreCote } = await q<{ id: string }>(
+      `SELECT id::text FROM gestion_contact_carte
+        WHERE retire_le IS NULL AND lot_cle = $1 AND adresse = $2 AND cote <> $3
+        FOR UPDATE`, [lot, adresse, o.cote]);
+    for (const c of autreCote) {
+      const { rows } = await q<{ id: string }>(
+        `UPDATE gestion_contact_carte
+            SET retire_le = now(), retire_par = $2, retire_par_libelle = $3, retire_motif = $4
+          WHERE id = $1 AND retire_le IS NULL
+          RETURNING id::text`,
+        [Number(c.id), o.auteur.id, o.auteur.libelle, 'changée de catégorie']);
+      if (rows.length > 0) retires.push(Number(rows[0].id));
+    }
+
     const { rows: proposition } = await q<{ id: string }>(
       `SELECT id::text FROM gestion_contact_carte
         WHERE retire_le IS NULL AND lot_cle = $1 AND cote = $2 AND adresse = $3 AND origine = 'auto'

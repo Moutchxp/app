@@ -576,7 +576,11 @@ describe('🔴🔴 ⑦ la fiche d’un contact voyage jusqu’à la base', () =>
   it('🔴🔴 VALIDER UNE PROPOSITION LA RETIRE ET POSE UNE CARTE NEUVE — la trace reste', async () => {
     /* ① la proposition existe (origine « auto ») ; ② son retrait rend son identifiant ; ③ la carte neuve naît. */
     txMock.mockReset();
+    /* ① aucune carte de l'autre côté ; ② la proposition existe ; ③ son retrait ; ④ la carte neuve.
+       🔴🔴 LOT HISTORIQUE-BIEN-10 — la PREMIÈRE instruction est désormais la recherche de l'autre côté : poser
+       une carte d'un côté retire celle de l'autre, dans la même transaction (règle d'Arno). */
     txMock
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: '480' }] })
       .mockResolvedValueOnce({ rows: [{ id: '480' }] })
       .mockResolvedValueOnce({ rows: [{ id: '1470' }] });
@@ -591,12 +595,12 @@ describe('🔴🔴 ⑦ la fiche d’un contact voyage jusqu’à la base', () =>
 
     const tout = sqls();
     /* 🔴 ELLE EST CHERCHÉE `FOR UPDATE` : on lit avant d'écrire (piège `withTransaction` du dépôt). */
-    expect(tout[0]).toContain("origine = 'auto'");
-    expect(tout[0]).toContain('FOR UPDATE');
+    expect(tout[1]).toContain("origine = 'auto'");
+    expect(tout[1]).toContain('FOR UPDATE');
     /* 🔴 ET RETIRÉE AVEC SON MOTIF — jamais un DELETE : la trace de la passe automatique reste. */
-    expect(tout[1]).toContain('SET retire_le = now()');
-    expect(params()[1]).toContain('proposition validée à la main');
-    expect(tout[2]).toContain('INSERT INTO gestion_contact_carte');
+    expect(tout[2]).toContain('SET retire_le = now()');
+    expect(params()[2]).toContain('proposition validée à la main');
+    expect(tout[3]).toContain('INSERT INTO gestion_contact_carte');
     /* ⚠️ LES TROIS INSTRUCTIONS SONT DANS LA MÊME TRANSACTION : sans elle, un échec de l'insertion laisserait le
        bien SANS proposition ET sans carte — on aurait détruit un pré-remplissage en croyant le valider. */
     expect(queryMock).not.toHaveBeenCalled();
@@ -609,8 +613,9 @@ describe('🔴🔴 ⑦ la fiche d’un contact voyage jusqu’à la base', () =>
    */
   it('⚠️ UNE CARTE DÉJÀ MANUELLE N’EST NI RETIRÉE NI RECRÉÉE', async () => {
     txMock.mockReset();
-    /* Aucune proposition : la recherche ne rend rien. */
-    txMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: '1465' }] });
+    /* Aucune carte de l'autre côté, aucune proposition : les deux recherches ne rendent rien. */
+    txMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: '1465' }] });
     const r = await poserCarteAlaMain({
       lotCle: '421', cote: 'proprietaire', adresse: 'a.bruneel@fictif.test', nom: 'BRUNEEL',
       auteur: AUTEUR,
@@ -839,5 +844,84 @@ describe('🔴🔴 ⑨ la fusion des adresses « mailto: » ne perd rien', () =>
   /** ⚠️ `adresse_brute` EST L'EN-TÊTE REÇU : la corriger reviendrait à réécrire le courrier lui-même. */
   it('⚠️ L’EN-TÊTE REÇU N’EST PAS TOUCHÉ', () => {
     expect(code).not.toContain('adresse_brute =');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑩ LOT HISTORIQUE-BIEN-10, POINT 1 — UNE SEULE CARTE VIVANTE PAR BIEN ET PAR ADRESSE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO : « après un changement de catégorie, la carte apparaît dans la nouvelle catégorie MAIS reste
+   dans l'ancienne. a.bruneel@grospiron.com est à la fois CONTACT DU PROPRIÉTAIRE et CONTACT DU LOCATAIRE. »
+   SA RÈGLE : « Changer de catégorie DÉPLACE la carte : l'ancienne passe en 'retire' (motif “changée de
+   catégorie”), dans la même transaction. »
+
+   🔴 LE RETRAIT VIVAIT CHEZ L'APPELANT (`faireSuivreLaCarte`), et un appelant s'oublie. Il vit maintenant dans la
+   PORTE elle-même : quel que soit le chemin — glisser, « Changer de côté », les deux « + », un script —, poser
+   une carte d'un côté retire celle de l'autre. L'invariant devient une propriété de la porte.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑩ poser une carte d’un côté retire celle de l’autre', () => {
+  it('🔴🔴 LA CARTE DE L’AUTRE CÔTÉ EST RETIRÉE, AVEC LE MOTIF D’ARNO, DANS LA MÊME TRANSACTION', async () => {
+    txMock.mockReset();
+    /* ① une carte vivante existe côté propriétaire ; ② son retrait ; ③ aucune proposition ; ④ la carte neuve. */
+    txMock
+      .mockResolvedValueOnce({ rows: [{ id: '1471' }] })
+      .mockResolvedValueOnce({ rows: [{ id: '1471' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: '1472' }] });
+
+    const r = await poserCarteAlaMain({
+      lotCle: '421', cote: 'locataire', adresse: 'a.bruneel@grospiron.com', auteur: AUTEUR,
+    });
+    expect(r.ok && r.id).toBe(1472);
+    /* 🔴 L'ANCIENNE EST DANS `retires` : c'est par elle que « Annuler » la rouvrira, exactement. */
+    expect(r.ok && r.retires).toEqual([1471]);
+
+    const tout = sqls();
+    /* 🔴 ON CHERCHE L'AUTRE CÔTÉ `FOR UPDATE` — on lit avant d'écrire (piège `withTransaction` du dépôt). */
+    expect(tout[0]).toContain('cote <> $3');
+    expect(tout[0]).toContain('FOR UPDATE');
+    expect(tout[1]).toContain('SET retire_le = now()');
+    expect(params()[1]).toContain('changée de catégorie');
+    /* 🔴🔴 TOUT EST DANS LA TRANSACTION : aucune de ces écritures ne passe par `query`. */
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  /** ⚠️ ET LE MÊME CÔTÉ N'EST PAS TOUCHÉ : reposer une carte là où elle est la COMPLÈTE (règle du lot 2). */
+  it('⚠️ REPOSER DU MÊME CÔTÉ NE RETIRE RIEN', async () => {
+    txMock.mockReset();
+    txMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: '1472' }] });
+    const r = await poserCarteAlaMain({
+      lotCle: '421', cote: 'locataire', adresse: 'a.bruneel@grospiron.com', auteur: AUTEUR,
+    });
+    expect(r.ok && r.retires).toEqual([]);
+    expect(sqls().some((s) => s.includes("'changée de catégorie'"))).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 LE GARDE DE LA BASE A LE DERNIER MOT. Le code dit la règle ; l'index unique partiel la TIENT, y compris
+   * pour un script ou une correction à la main qui ne passerait pas par la porte.
+   */
+  it('🔴🔴 LA BASE PORTE LE MÊME GARDE — index unique (bien, adresse) sur les vivantes', () => {
+    const m = readFileSync('db/migrations/309_une_seule_carte_par_bien_et_adresse.sql', 'utf8')
+      .split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n').replace(/\s+/g, ' ');
+    expect(m).toContain('CREATE UNIQUE INDEX IF NOT EXISTS gestion_contact_carte_une_par_bien_idx');
+    expect(m).toContain('ON gestion_contact_carte (lot_cle, adresse)');
+    expect(m).toContain('WHERE retire_le IS NULL');
+    /* ⚠️ ADDITIVE : l'ancien index reste — il est la CIBLE du `ON CONFLICT` de la pose. */
+    expect(m).not.toMatch(/\bDROP\b/i);
+  });
+
+  /**
+   * 🔴 CÔTÉ CATÉGORIES, LE GARDE EXISTAIT DÉJÀ, et ce cas le dit pour qu'on ne le croie pas absent : l'index
+   * unique de la 304 porte sur (adresse, coalesce(lot_cle, '')) — une adresse n'a jamais eu deux catégories
+   * vivantes sur un même bien. C'est pourquoi la 309 ne touche pas cette table.
+   */
+  it('🔴 LES CATÉGORIES AVAIENT DÉJÀ LEUR GARDE, depuis la 304', () => {
+    const m = readFileSync('db/migrations/304_gestion_partie_categorie.sql', 'utf8').replace(/\s+/g, ' ');
+    expect(m).toContain('gestion_partie_categorie_vivante_idx');
+    expect(m).toContain("coalesce(lot_cle, '')");
   });
 });
