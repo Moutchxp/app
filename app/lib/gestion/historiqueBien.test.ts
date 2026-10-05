@@ -12,7 +12,8 @@ import {
   occupationOuverte, partieDeplacable,
   periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, SECONDES_ANNULER_DEPLACEMENT, tonDeLExpediteur, tonDuGroupe,
   clientConnuPour, completerAvecLesClients, motEncartVide,
-  type ClientDuBien, type OccupationPeriode, type PositionCapsule,
+  BUT_DU_PLUS, motPastille, pastilleDeCapsule, sorteDeCapsule,
+  type ClientDuBien, type CleGroupeParties, type OccupationPeriode, type PositionCapsule,
 } from './historiqueBien';
 import { INTERLOCUTEURS_MAX, type Interlocuteur, type LigneHistorique } from './historique';
 /** 🔴 LA SOURCE DU SEUIL : on vérifie l'IDENTITÉ, pas une égalité de valeur recopiée. */
@@ -1298,5 +1299,131 @@ describe('motEncartVide — les deux phrases d’Arno, et leurs deux symétrique
     const clients: ClientDuBien[] = [{ adresse: 'x@exemple.test', nom: null, categorie: 'proprietaire' }];
     expect(clientConnuPour('independant', clients)).toBe(false);
     expect(clientConnuPour('a_repartir', clients)).toBe(false);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — CE QU'EST UNE CAPSULE, ET CE QU'ELLE PORTE À DROITE ════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * TROISIÈME DEMANDE D'ARNO POUR LE MÊME BOUTON. Sa règle, recopiée parce que c'est elle qui est éprouvée ici :
+ *
+ *   « Une capsule est CLIENT si son adresse appartient au propriétaire ou à un locataire (actuel ou ancien) tel
+ *     qu'enregistré dans la fiche du bien ou dans l'annuaire. Une capsule est AGENCE si l'adresse est la nôtre.
+ *     TOUTES LES AUTRES sont des CONTACTS […] Pas de “+” sur les capsules CLIENT, AGENCE ni TIERS INDÉPENDANT. »
+ *
+ * POURQUOI LE « + » MANQUAIT, mesuré sur lot-299 :
+ *   ① une carte qui EXISTE faisait disparaître le bouton SANS RIEN METTRE À LA PLACE. `estebanfrdpro@gmail.com`
+ *      porte la carte 1462 (côté locataire, vérifiée, non retirée) : sa capsule n'avait que son « … » ;
+ *   ② « Non affectés » n'avait PAS DE « + » DU TOUT, parce que la condition d'alors (`coteDeLaCategorie !== null`)
+ *      écarte `independant` ET `a_repartir` du même geste. `puroflowparis@gmail.com` était dans ce cas.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('sorteDeCapsule — client, agence, tiers ou contact', () => {
+  const FICHE = new Map<string, CategoriePartie>([
+    ['proprio@fictif.test', 'proprietaire'],
+    ['locataire@fictif.test', 'locataire'],
+    ['ancien@fictif.test', 'locataire'],
+  ]);
+
+  it('🔴 CLIENT : le propriétaire et les locataires de la fiche, actuels comme anciens', () => {
+    expect(sorteDeCapsule('proprio@fictif.test', 'proprietaire', FICHE, false)).toBe('client');
+    expect(sorteDeCapsule('locataire@fictif.test', 'locataire', FICHE, false)).toBe('client');
+    expect(sorteDeCapsule('ancien@fictif.test', 'locataire', FICHE, false)).toBe('client');
+  });
+
+  it('🔴 AGENCE : une de nos adresses, et elle l’est même si la fiche la porte comme cliente', () => {
+    expect(sorteDeCapsule('gestion@criterimmo.fr', 'a_repartir', FICHE, true)).toBe('agence');
+    /* 🔴 LE CAS DE lot-299 : son propriétaire client a une adresse @sansvisavis.com. « Agence » l'emporte pour
+       le FILTRAGE — voir le point 2, qui lui rend sa capsule sans la rendre sélectionnable. */
+    expect(sorteDeCapsule('proprio@fictif.test', 'proprietaire', FICHE, true)).toBe('agence');
+  });
+
+  it('🔴 TIERS INDÉPENDANT : un rangement délibéré, qu’on ne transforme pas en contact', () => {
+    expect(sorteDeCapsule('plombier@fictif.test', 'independant', FICHE, false)).toBe('tiers');
+  });
+
+  it('🔴 CONTACT : tout le reste, dans les TROIS groupes qui en portent', () => {
+    for (const g of ['proprietaire', 'locataire', 'a_repartir'] as const) {
+      expect(sorteDeCapsule('assureur@fictif.test', g, FICHE, false)).toBe('contact');
+    }
+  });
+
+  it('⚠️ LA COMPARAISON EST INSENSIBLE À LA CASSE ET AUX ESPACES', () => {
+    expect(sorteDeCapsule('  PROPRIO@Fictif.test ', 'proprietaire', FICHE, false)).toBe('client');
+  });
+
+  /**
+   * 🔴🔴 UNE SEULE DÉFINITION DE « CLIENT » DANS TOUT LE MODULE. `partieDeplacable` passe désormais par
+   * `sorteDeCapsule` : ce cas prouve que le verdict n'a pas bougé d'un booléen, sur les quatre sortes.
+   */
+  it('🔴🔴 `partieDeplacable` et `sorteDeCapsule` disent la MÊME chose', () => {
+    const cas: { a: string; g: CleGroupeParties; i: boolean }[] = [
+      { a: 'proprio@fictif.test', g: 'proprietaire', i: false },
+      { a: 'assureur@fictif.test', g: 'a_repartir', i: false },
+      { a: 'plombier@fictif.test', g: 'independant', i: false },
+      { a: 'gestion@criterimmo.fr', g: 'a_repartir', i: true },
+    ];
+    for (const c of cas) {
+      const s = sorteDeCapsule(c.a, c.g, FICHE, c.i);
+      const immobile = s === 'client' || s === 'agence';
+      expect(partieDeplacable(c.a, FICHE, c.i)).toBe(!immobile);
+    }
+  });
+});
+
+describe('pastilleDeCapsule — le « + », la fiche, ou rien', () => {
+  const sans = new Map<string, boolean>();
+
+  it('🔴 RIEN sur un client, l’agence ou un tiers indépendant', () => {
+    for (const s of ['client', 'agence', 'tiers'] as const) {
+      expect(pastilleDeCapsule(s, 'proprietaire', sans)).toBeNull();
+    }
+  });
+
+  it('🔴🔴 LE « + » SUR UN CONTACT SANS CARTE, DANS LES TROIS GROUPES QUI EN PORTENT', () => {
+    for (const g of ['proprietaire', 'locataire', 'a_repartir'] as const) {
+      expect(pastilleDeCapsule('contact', g, sans)).toBe('plus');
+    }
+  });
+
+  it('🔴🔴 LA FICHE QUAND LA CARTE EXISTE ET EST VÉRIFIÉE — le cas d’« esteban fardeau » sur lot-299', () => {
+    expect(pastilleDeCapsule('contact', 'locataire', new Map([['locataire', true]]))).toBe('fiche');
+  });
+
+  it('🔴🔴 ORANGE QUAND LA CARTE EST ENCORE « À VÉRIFIER »', () => {
+    expect(pastilleDeCapsule('contact', 'proprietaire', new Map([['proprietaire', false]]))).toBe('a_verifier');
+  });
+
+  it('🔴 LE CÔTÉ COMPTE : une carte côté propriétaire ne dispense pas d’en créer une côté locataire', () => {
+    expect(pastilleDeCapsule('contact', 'locataire', new Map([['proprietaire', true]]))).toBe('plus');
+  });
+
+  it('⚠️ DEPUIS « NON AFFECTÉS », N’IMPORTE QUEL CÔTÉ COMPTE : on ne propose pas un doublon', () => {
+    expect(pastilleDeCapsule('contact', 'a_repartir', new Map([['proprietaire', true]]))).toBe('fiche');
+    expect(pastilleDeCapsule('contact', 'a_repartir', new Map([['locataire', false]]))).toBe('a_verifier');
+  });
+
+  it('⚠️ « À VÉRIFIER » L’EMPORTE SUR « VÉRIFIÉE » quand il y en a des deux', () => {
+    const deux = new Map([['proprietaire', true], ['locataire', false]]);
+    expect(pastilleDeCapsule('contact', 'a_repartir', deux)).toBe('a_verifier');
+  });
+});
+
+describe('motPastille — le ton ne dit jamais seul', () => {
+  it('🔴 CHAQUE ÉTAT PORTE SES MOTS, info-bulle et intitulé pour le lecteur d’écran', () => {
+    expect(motPastille('plus', 'AXA')?.titre).toBe('Créer sa carte de contact');
+    expect(motPastille('plus', 'AXA')?.aria).toContain('AXA');
+    expect(motPastille('a_verifier', 'AXA')?.titre).toContain('à vérifier');
+    expect(motPastille('fiche', 'AXA')?.titre).toBe('Ouvrir sa carte de contact');
+  });
+
+  it('⚠️ RIEN À DIRE QUAND IL N’Y A PAS DE PASTILLE', () => {
+    expect(motPastille(null, 'AXA')).toBeNull();
+  });
+
+  it('🔴 LE BUT DU BOUTON EST ÉCRIT DANS LE CODE, comme Arno l’a demandé', () => {
+    expect(BUT_DU_PLUS).toContain('prochains mails');
+    expect(BUT_DU_PLUS).toContain('tout seuls');
   });
 });

@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { HistoriqueDuBien } from './HistoriqueDuBien';
-import { GROUPES_EN_BANDE, GROUPES_EN_ENCART, motDeuxCompteurs } from '../../../../lib/gestion/historiqueBien';
+import { BUT_DU_PLUS, GROUPES_EN_BANDE, GROUPES_EN_ENCART, motDeuxCompteurs }
+  from '../../../../lib/gestion/historiqueBien';
 import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
 import type { Interlocuteur, LigneHistorique, PieceHistorique } from '../../../../lib/gestion/historique';
 
@@ -685,7 +686,13 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
    */
 
   /** AXA est rangée côté PROPRIÉTAIRE par la base — c'est un CONTACT du propriétaire, pas un client. */
-  const servirAvecContact = (cartes: { cote: string; adresse: string; verifie: boolean }[] = []): void => {
+  const servirAvecContact = (
+    cartes: { cote: string; adresse: string; verifie: boolean }[] = [],
+    /* 🔴 LOT HISTORIQUE-BIEN-6 — le rangement de la partie devient réglable : le cas des TIERS INDÉPENDANTS en a
+       besoin, et lui seul (par défaut, c'est le contact du propriétaire d'avant ce lot). */
+    parties: { adresse: string; categorie: string | null }[] =
+      [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }],
+  ): void => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'POST') return reponse({ etat: 'ok', geste: null });
       appels.push(String(url));
@@ -694,7 +701,7 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
       if (String(url).includes('/historique/parties')) {
         return reponse({
           etat: 'ok',
-          data: { parties: [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }], cartes },
+          data: { parties, cartes },
         });
       }
       return reponse({
@@ -735,10 +742,20 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
   });
 
   /** 🔴🔴 IL DISPARAÎT DÈS QUE LA CARTE EXISTE — mot d'Arno, et c'est tout l'intérêt du signe. */
-  it('🔴🔴 le « + » disparaît dès que la carte existe, du bon côté', async () => {
+  /**
+   * 🔴🔴 MIS À JOUR AU LOT HISTORIQUE-BIEN-6, POINT 1 — ET C'EST LE DÉFAUT QU'ARNO A SIGNALÉ TROIS FOIS. Le lot 3
+   * disait « le “+” disparaît dès que la carte existe », et ce cas-ci le vérifiait : la capsule se retrouvait
+   * alors avec son seul « … », ce qu'Arno a vu sur `estebanfrdpro@gmail.com` (lot-299, carte 1462). Le lot 6 dit
+   * ce qui le REMPLACE : une pastille « fiche » qui ouvre la carte — grise si vérifiée, ORANGE sinon.
+   */
+  it('🔴🔴 la carte existe ⇒ le « + » est REMPLACÉ par la pastille de la fiche, jamais retiré', async () => {
     servirAvecContact([{ cote: 'proprietaire', adresse: 'assureur@fictif.test', verifie: false }]);
     await monter();
-    expect(hote.querySelectorAll('.hdb-plus')).toHaveLength(0);
+    const b = hote.querySelector('.hdb-plus') as HTMLButtonElement;
+    expect(b).not.toBeNull();
+    /* Ce n'est plus un « + », et la couleur dit « à vérifier » — la carte n'a été vue par personne. */
+    expect(b.textContent).not.toBe('+');
+    expect(b.className).toContain('hdb-plus--a_verifier');
   });
 
   /**
@@ -753,10 +770,19 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
   });
 
   /** 🔴 PAS DE « + » SUR UN TIERS INDÉPENDANT NI SUR « NON AFFECTÉS » : ils n'ont pas de côté client. */
-  it('🔴🔴 pas de « + » dans les deux bandes', async () => {
+  /**
+   * 🔴🔴 MIS À JOUR AU LOT HISTORIQUE-BIEN-6, POINT 1. Ce cas interdisait le « + » dans LES DEUX bandes ; Arno l'a
+   * tranché autrement : « Chaque capsule CONTACT, qu'elle soit côté Propriétaire, côté Locataire ou dans Non
+   * affectés, porte […] un “+” ». Seuls les TIERS INDÉPENDANTS en restent privés — ils sont exclus de
+   * l'automatisation, et la table des cartes ne peut d'ailleurs pas en porter (son côté est contraint).
+   */
+  it('🔴🔴 pas de « + » chez les TIERS INDÉPENDANTS ; « Non affectés » en a un', async () => {
+    servirAvecContact(undefined, [{ adresse: 'assureur@fictif.test', categorie: 'independant' }]);
     await monter();
-    await deplierGroupe('Non affectés');
-    expect(hote.querySelectorAll('.hdb-plus')).toHaveLength(0);
+    await deplierGroupe('Tiers indépendant');
+    const bleu = hote.querySelector('.hdb-groupe--bleu') as HTMLElement;
+    expect(bleu.querySelector('.hdb-capsule')).not.toBeNull();
+    expect(bleu.querySelector('.hdb-plus')).toBeNull();
   });
 
   /**
@@ -2281,6 +2307,178 @@ describe('⑤-duodecies 🔴🔴 les deux bandes sont TOUJOURS là, même à zé
     expect(bandes()).toHaveLength(2);
     expect((hote.querySelector('.hdb-groupe--gris') as HTMLElement)
       .querySelector('.gst-compte')?.textContent).toBe('1');
+  });
+});
+
+describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, ou rien', () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * TROISIÈME DEMANDE D'ARNO POUR LE MÊME BOUTON (05/10/2026) : « Il n'apparaît toujours pas (ex. lot-299 :
+   * “esteban fardeau” n'a que “…”). »
+   *
+   * LES DEUX MOITIÉS DE LA CAUSE, mesurées en base :
+   *   ① une carte qui EXISTE faisait disparaître le bouton sans rien mettre à la place —
+   *      `estebanfrdpro@gmail.com` porte la carte 1462 (côté locataire, vérifiée, non retirée) ;
+   *   ② « Non affectés » n'avait pas de « + » du tout : la condition d'alors écartait `independant` ET
+   *      `a_repartir` du même geste.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+
+  /** Un contact de chaque groupe, plus un client et une de nos adresses. */
+  const PEUPLE: Interlocuteur[] = [
+    inter({ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', nbMails: 40 }),
+    inter({ adresse: 'assureur@fictif.test', nom: 'AXA', nbMails: 9 }),
+    inter({ adresse: 'gestion@criterimmo.fr', nom: 'Gestion', nbMails: 60, interne: true }),
+  ];
+
+  async function monterAvec(
+    parties: { adresse: string; categorie: string | null }[],
+    cartes: { cote: string; adresse: string; verifie: boolean }[],
+    interlocuteurs: Interlocuteur[] = PEUPLE,
+  ): Promise<void> {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) {
+        return reponse({ etat: 'ok', evenements: [], tronque: false });
+      }
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties, cartes } });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+  }
+
+  /** Toutes les capsules de la page, avec ce qu'elles portent à droite. */
+  const pastilles = (): { nom: string; classe: string | null; signe: string | null }[] =>
+    [...hote.querySelectorAll('.hdb-capsule')].map((c) => {
+      const b = c.querySelector('.hdb-plus') as HTMLButtonElement | null;
+      return {
+        nom: c.querySelector('.hdb-personne-nom')?.textContent ?? '',
+        classe: b === null ? null : (b.className.match(/hdb-plus--(plus|fiche|a_verifier)/) ?? [])[1] ?? null,
+        signe: b === null ? null : b.textContent,
+      };
+    });
+
+  it('🔴🔴 UN CONTACT SANS CARTE PORTE LE « + », dans les TROIS groupes qui en portent', async () => {
+    await monterAvec(
+      [{ adresse: 'assureur@fictif.test', categorie: null }],
+      [],
+      [...PEUPLE, inter({ adresse: 'syndic@fictif.test', nom: 'Syndic', nbMails: 4 })],
+    );
+    /* ⚠️ « Non affectés » EST REPLIÉE PAR DÉFAUT (lot 5, point 2) : ses capsules n'existent pas tant qu'on ne
+       l'ouvre pas. C'est le repli, pas la pastille, qui les cache. */
+    const gris0 = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris0.querySelector('.hdb-replier') ?? undefined);
+    /* « assureur » et « syndic » sont non affectés : les deux portent le « + ». */
+    const avec = pastilles().filter((x) => x.classe === 'plus');
+    expect(avec.map((x) => x.nom).sort()).toEqual(['AXA', 'Syndic']);
+    expect(avec.every((x) => x.signe === '+')).toBe(true);
+  });
+
+  it('🔴🔴 LE DÉFAUT D’ARNO : une carte VÉRIFIÉE donne la pastille « fiche », et non plus RIEN', async () => {
+    await monterAvec(
+      [{ adresse: 'assureur@fictif.test', categorie: 'locataire' }],
+      [{ cote: 'locataire', adresse: 'assureur@fictif.test', verifie: true }],
+    );
+    const axa = pastilles().find((x) => x.nom === 'AXA');
+    expect(axa?.classe).toBe('fiche');
+    /* Et ce n'est PAS un « + » : la carte existe, on l'ouvre, on ne la recrée pas. */
+    expect(axa?.signe).not.toBe('+');
+  });
+
+  it('🔴🔴 UNE CARTE « À VÉRIFIER » DONNE LA PASTILLE ORANGE', async () => {
+    await monterAvec(
+      [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }],
+      [{ cote: 'proprietaire', adresse: 'assureur@fictif.test', verifie: false }],
+    );
+    expect(pastilles().find((x) => x.nom === 'AXA')?.classe).toBe('a_verifier');
+  });
+
+  it('🔴🔴 LE « + » DANS « NON AFFECTÉS » — la seconde moitié du défaut', async () => {
+    await monterAvec([], []);
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
+    const b = gris.querySelector('.hdb-capsule .hdb-plus') as HTMLButtonElement;
+    expect(b).not.toBeNull();
+    expect(b.className).toContain('hdb-plus--plus');
+  });
+
+  it('🔴 AUCUNE PASTILLE SUR UN CLIENT NI SUR UNE DE NOS ADRESSES', async () => {
+    await monterAvec([], []);
+    /* Le propriétaire est un client (il est dans CATEGORIES) ; l'agence n'est même pas listée. */
+    expect(pastilles().find((x) => x.nom === 'M. ROI Nathan')?.classe).toBeNull();
+    expect(pastilles().some((x) => x.nom === 'Gestion')).toBe(false);
+  });
+
+  it('🔴 AUCUNE PASTILLE SUR UN TIERS INDÉPENDANT — ils restent hors de l’automatisation', async () => {
+    await monterAvec([{ adresse: 'assureur@fictif.test', categorie: 'independant' }], []);
+    const bleu = hote.querySelector('.hdb-groupe--bleu') as HTMLElement;
+    await cliquer(bleu.querySelector('.hdb-replier') ?? undefined);
+    expect(bleu.querySelector('.hdb-capsule')).not.toBeNull();
+    expect(bleu.querySelector('.hdb-capsule .hdb-plus')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 « TOUJOURS VISIBLE (pas seulement au survol) » — demande d'Arno, et c'est un GARDE, pas un constat :
+   * jsdom ne calcule aucun style. Ce qui est éprouvé, c'est qu'aucune règle du bloc ne lie la pastille au survol
+   * ni à une opacité. Ce qui la faisait manquer était une condition de RENDU, et les deux sont fermées.
+   */
+  it('🔴🔴 RIEN NE LIE LA PASTILLE AU SURVOL NI À UNE OPACITÉ', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    for (const regle of css.split('\n')) {
+      if (!regle.includes('.hdb-plus')) continue;
+      if (regle.trimStart().startsWith('/*') || regle.trimStart().startsWith('*')) continue;
+      expect(regle).not.toContain('opacity');
+      if (regle.includes(':hover')) {
+        /* Un :hover est permis pour le FOND, jamais pour faire apparaître le bouton. */
+        expect(regle).not.toContain('display');
+        expect(regle).not.toContain('visibility');
+      }
+    }
+  });
+
+  it('🔴 LES TROIS ÉTATS PARTAGENT LE MÊME CERCLE : seule la couleur change', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    expect(css).toContain('.hdb-plus--cercle{width:28px;height:28px');
+    for (const etat of ['plus', 'fiche', 'a_verifier']) {
+      expect(css).toContain(`.hdb-plus--${etat}{`);
+      /* Aucune géométrie propre : la droite des capsules ne saute pas d'une ligne à l'autre. */
+      const regle = css.split(`.hdb-plus--${etat}{`)[1]?.split('}')[0] ?? '';
+      for (const geo of ['width', 'height', 'border-radius', 'padding']) expect(regle).not.toContain(geo);
+    }
+  });
+
+  it('🔴 L’INFO-BULLE RAPPELLE LE BUT DU BOUTON, comme Arno l’a demandé', async () => {
+    await monterAvec([], []);
+    const gris1 = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris1.querySelector('.hdb-replier') ?? undefined);
+    const b = hote.querySelector('.hdb-plus') as HTMLButtonElement;
+    expect(b.getAttribute('title')).toContain(BUT_DU_PLUS);
+  });
+
+  it('🔴 UN CLIC DEPUIS UN ENCART PRÉ-REMPLIT LE CÔTÉ ; depuis « Non affectés », le choix reste VIDE', async () => {
+    await monterAvec(
+      [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }], [],
+    );
+    await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
+    const choix = hote.querySelector('.hdb-creation select') as HTMLSelectElement;
+    expect(choix).not.toBeNull();
+    expect(choix.value).toBe('proprietaire');
+  });
+
+  it('⚠️ DEPUIS « NON AFFECTÉS », LE CHOIX DU CÔTÉ EST OBLIGATOIRE — il n’est pas pré-rempli', async () => {
+    await monterAvec([], []);
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
+    await cliquer(gris.querySelector('.hdb-capsule .hdb-plus') ?? undefined);
+    const choix = hote.querySelector('.hdb-creation select') as HTMLSelectElement;
+    expect(choix.value).toBe('');
   });
 });
 

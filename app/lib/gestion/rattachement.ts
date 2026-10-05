@@ -304,6 +304,8 @@ export function examinerMessage(o: {
       lotCle: a.reconnaissance.lotCle,
       proprietaireCle: a.reconnaissance.proprietaireCle,
       duMail: a.messageId === o.messageId,
+      /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — les biens où cette adresse porte une carte de contact. */
+      cartesLots: a.cartesLots,
     })),
     textes: o.textes,
     biens: o.biens,
@@ -314,9 +316,18 @@ export function examinerMessage(o: {
   const enCandidat = (p: PropositionBien): Candidat => ({
     cible: cibleLot(p.cle),
     // La règle dit D'OÙ vient la conclusion : (a) et (b) du mail, (c) et (d) d'un arbitrage à faire,
-    //   (e) une personne NOMMÉE dans le texte — la plus faible des cinq, et elle ne coche jamais rien.
+    //   (e) une personne NOMMÉE dans le texte — la plus faible des six, et elle ne coche jamais rien ;
+    //   (f) une CARTE DE CONTACT rattache cette adresse à ce bien (lot HISTORIQUE-BIEN-6, point 1).
     regle: p.cas === 'a' || p.cas === 'b' ? 'a' : p.cas,
-    confiance: p.cas === 'e' ? 'basse' : p.certitude === 'quasi_certaine' ? 'haute' : 'moyenne',
+    /**
+     * 🔴 (f) EST DE CONFIANCE **BASSE**, comme (e), et pour la même raison : elle part d'un INDICE sur la
+     * personne, pas d'une identité du logement. Une carte dit « cette personne parle de ce bien » ; le mail
+     * qu'on classe peut concerner un autre bien du même propriétaire. La proposition se voit, motivée, et
+     * attend un humain — c'est la leçon des 76 cases cochées du cas (d).
+     */
+    confiance: p.cas === 'e' || p.cas === 'f'
+      ? 'basse'
+      : p.certitude === 'quasi_certaine' ? 'haute' : 'moyenne',
     motif: p.motif,
     adresses: p.adresses,
   });

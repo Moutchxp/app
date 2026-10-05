@@ -549,3 +549,102 @@ describe('🔴🔴 (e) le texte nomme quelqu’un de l’annuaire', () => {
     expect(r.motif).toContain('personne nommée dans le texte');
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — (f) UNE CARTE DE CONTACT RATTACHE UNE ADRESSE À UN BIEN ════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026), mot pour mot : « But (à rappeler dans le code) : ce contact, désormais rattaché à
+ * une partie du bien, permet ensuite de rattacher automatiquement ses nouveaux mails au bien. Vérifie que la passe
+ * de rattachement automatique utilise bien ces cartes de contact (côté propriétaire et côté locataire) ; si ce
+ * n'est pas le cas, branche-la. Les Tiers indépendants restent exclus de l'automatisation. »
+ *
+ * 🔴 ELLE NE LES UTILISAIT PAS, ET C'EST MESURÉ. `gestion_contact_carte` n'était lue que par
+ * `partieCategorieRepo` — l'écran qui POSE les cartes, et personne d'autre. Le « + » de la fiche d'un bien
+ * n'avait donc aucune suite : créer la carte de `secretariat.rosky@secri.fr` côté propriétaire du lot 29 ne
+ * changeait RIEN au classement de ses mails suivants.
+ *
+ * 🔴 CE QUE LE BRANCHEMENT CHANGE, MESURÉ SUR LA BASE DU 05/10/2026 : **485 cartes actives** (318 côté
+ * propriétaire, 167 côté locataire) sur 485 adresses et 164 biens. Elles touchent **3 290 mails** et produisent
+ * **3 324 couples (mail, bien)**, dont **1 234 ne portent aujourd'hui AUCUN lien** vers ce bien — autant de
+ * propositions qui n'existaient pas.
+ *
+ * ⚠️ ET AUCUNE N'EST PRÉ-COCHÉE. 1 234 propositions pré-cochées auraient classé 1 234 mails sans qu'on les lise :
+ * c'est la faute du cas (d) avant sa correction (76 cases cochées sur un seul mail). Une carte dit « cette
+ * personne parle de ce logement », pas « ce mail-ci concerne ce logement ».
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('(f) — la carte de contact d’un bien propose ce bien', () => {
+  const LOT = bien('29', { adresse: '2 rue Anatole France', commune: 'COURBEVOIE' });
+
+  it('🔴🔴 UNE ADRESSE QUI PORTE UNE CARTE PROPOSE SON BIEN', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'secretariat.rosky@secri.fr', cartesLots: ['29'] })],
+      biens: [LOT],
+    });
+    const f = r.propositions.find((p) => p.cas === 'f');
+    expect(f).toBeDefined();
+    expect(f?.cle).toBe('29');
+    expect(f?.motif).toContain('contact rattaché à ce bien');
+    expect(f?.motif).toContain('secretariat.rosky@secri.fr');
+  });
+
+  it('🔴🔴 ELLE NE COCHE JAMAIS RIEN, et sa certitude reste « à trancher »', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'x@fictif.test', cartesLots: ['29'] })],
+      biens: [LOT],
+    });
+    const f = r.propositions.find((p) => p.cas === 'f');
+    expect(f?.preCoche).toBe(false);
+    expect(f?.certitude).toBe('a_trancher');
+    /* Et le mail n'est donc JAMAIS classé tout seul sur ce seul indice. */
+    expect(r.issue).not.toBe('automatique');
+  });
+
+  it('⚠️ SANS LE CHAMP, LE CAS NE JOUE PAS : le moteur est celui d’avant ce lot', () => {
+    const r = proposerBiens({ adresses: [adr({ adresse: 'x@fictif.test' })], biens: [LOT] });
+    expect(r.propositions.some((p) => p.cas === 'f')).toBe(false);
+  });
+
+  it('⚠️ UNE CARTE SUR PLUSIEURS BIENS PROPOSE CHACUN — le secrétariat d’un propriétaire de quatre logements', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'secretariat@fictif.test', cartesLots: ['29', '155', '315'] })],
+      biens: [LOT, bien('155'), bien('315')],
+    });
+    const f = r.propositions.filter((p) => p.cas === 'f');
+    expect(f.map((p) => p.cle).sort()).toEqual(['155', '29', '315']);
+    expect(f.every((p) => !p.preCoche)).toBe(true);
+  });
+
+  it('🔴 NOS ADRESSES NE SONT JAMAIS UNE SOURCE, carte ou pas — la règle (e) tient pour (f) aussi', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'gestion@criterimmo.fr', interne: true, cartesLots: ['29'] })],
+      biens: [LOT],
+    });
+    expect(r.propositions.some((p) => p.cas === 'f')).toBe(false);
+  });
+
+  it('🔴 (a) L’EMPORTE SUR (f) POUR UN MÊME BIEN : une quasi-certitude ne se rétrograde pas', () => {
+    const r = proposerBiens({
+      adresses: [adr({ adresse: 'locataire@fictif.test', partie: 'locataire', lotCle: '29', cartesLots: ['29'] })],
+      biens: [LOT],
+    });
+    const pour29 = r.propositions.filter((p) => p.cle === '29');
+    expect(pour29).toHaveLength(1);
+    expect(pour29[0].cas).toBe('a');
+    expect(pour29[0].preCoche).toBe(true);
+  });
+
+  it('⚠️ UN BIEN ABSENT DU CATALOGUE EST QUAND MÊME PROPOSÉ, sans son nom', () => {
+    /* La carte désigne un bien par sa clé : la proposition tient même si le catalogue chargé ne le porte pas. */
+    const r = proposerBiens({ adresses: [adr({ adresse: 'x@fictif.test', cartesLots: ['999'] })], biens: [LOT] });
+    const f = r.propositions.find((p) => p.cas === 'f');
+    expect(f?.cle).toBe('999');
+    expect(f?.motif).toBe('contact rattaché à ce bien (x@fictif.test)');
+  });
+
+  it('⚠️ UNE CLÉ VIDE NE PROPOSE RIEN', () => {
+    const r = proposerBiens({ adresses: [adr({ adresse: 'x@fictif.test', cartesLots: [''] })], biens: [LOT] });
+    expect(r.propositions.some((p) => p.cas === 'f')).toBe(false);
+  });
+});

@@ -159,15 +159,43 @@ describe('🔒🔒 ② un indépendant ne sert JAMAIS à l’automatisation', ()
   });
 
   /**
-   * 🔒🔒 GARDE DE SOURCE — LA PASSE DE RATTACHEMENT NE NOMME NULLE PART LA TABLE DES CATÉGORIES.
+   * ══ 🔒🔒 GARDE DE SOURCE — RESSERRÉ LE 05/10/2026 SUR DÉCISION D'ARNO (lot HISTORIQUE-BIEN-6, point 1) ════════
    *
-   * 🔴 C'EST LE GARDE QUI TIENT LA PROMESSE, et pas seulement la fonction ci-dessus : `sertALAutomatisation` ne
-   * protège que le code qui pense à l'appeler. Ce test-là échoue si l'automatisation apprend à LIRE les catégories
-   * — par où qu'elle s'y prenne —, c'est-à-dire si quelqu'un, un jour, décide « puisqu'on sait que cette adresse
-   * est le contact du propriétaire du lot 504, déduisons le bien ». Même pour un contact légitime, cette déduction
-   * n'est pas décidée, et pour un indépendant elle rattacherait le courrier de la société de ménage à 40 logements.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CE QUE CE GARDE DISAIT, ET QUI AVAIT RAISON DE LE DIRE : « la passe de rattachement ne nomme nulle part la
+   * table des catégories […] Ce test-là échoue si l'automatisation apprend à LIRE les catégories — par où qu'elle
+   * s'y prenne —, c'est-à-dire si quelqu'un, un jour, décide “puisqu'on sait que cette adresse est le contact du
+   * propriétaire du lot 504, déduisons le bien”. **Même pour un contact légitime, cette déduction n'est pas
+   * décidée**, et pour un indépendant elle rattacherait le courrier de la société de ménage à 40 logements. »
+   *
+   * 🔴 ELLE EST DÉCIDÉE MAINTENANT, ET C'EST ARNO QUI L'A DÉCIDÉE, par écrit : « Vérifie que la passe de
+   * rattachement automatique utilise bien ces cartes de contact (côté propriétaire et côté locataire) ; si ce
+   * n'est pas le cas, branche-la. **Les Tiers indépendants restent exclus de l'automatisation.** »
+   *
+   * ⚠️ JE N'AI PAS ÉLARGI LE GARDE : JE L'AI COUPÉ EN DEUX, le long de la ligne qu'Arno trace lui-même.
+   *
+   *   ① **LES CATÉGORIES RESTENT INTERDITES À LA PASSE, PARTOUT.** `gestion_partie_categorie` porte `independant`,
+   *      et c'est exactement le danger que l'ancien encadré décrivait : lire les catégories ferait un jour
+   *      rattacher le courrier d'une société de ménage à quarante logements. Cette moitié du garde ne bouge pas
+   *      d'une ligne, et Arno la maintient en toutes lettres.
+   *
+   *   ② **LES CARTES DE CONTACT DEVIENNENT LISIBLES, ET SEULEMENT PAR LE DÉPÔT.** `gestion_contact_carte` ne peut
+   *      pas porter d'indépendant : sa colonne `cote` est contrainte à `proprietaire | locataire`
+   *      (`gestion_contact_carte_cote_chk`). Le schéma tient donc la promesse d'Arno AVANT le code — ce n'est pas
+   *      une discipline, c'est une impossibilité. Et la lecture passe par UNE porte nommée,
+   *      `biensDesContacts`, qui vit dans le dépôt de la 304 : c'est le garde voisin
+   *      (`partieCategorieRepo.test.ts`) qui l'impose, et il refuse toute liste blanche qu'on allongerait.
+   *
+   * ⚠️ LE MOTEUR PUR RESTE AVEUGLE : `propositionsBien.ts` ne nomme AUCUNE des deux tables et n'en nommera jamais.
+   * Il reçoit `cartesLots` comme une donnée, et c'est ce qui permet de l'éprouver sans base — la règle du module.
+   *
+   * ⚠️ ET LA PROPOSITION QUI EN NAÎT NE COCHE RIEN. Le cas (f) est de confiance BASSE et `preCoche: false` :
+   * aucune carte ne classe un mail toute seule. MESURÉ sur la base du 05/10/2026 : 485 cartes actives touchent
+   * 3 290 mails et produisent 3 324 couples (mail, bien), dont 1 234 sans aucun lien aujourd'hui. Pré-cochées,
+   * c'eussent été 1 234 classements posés sans qu'on les lise — la faute du cas (d) et de ses 76 cases.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
-  it('🔒🔒 ni la passe de rattachement ni le relevé des adresses ne lisent les catégories', () => {
+  it('🔒🔒 la passe ne lit JAMAIS les catégories — la moitié du garde qu’Arno maintient', () => {
     const SURVEILLES = [
       'app/lib/gestion/rattachement.ts',
       'app/lib/gestion/rattachementRepo.ts',
@@ -175,13 +203,59 @@ describe('🔒🔒 ② un indépendant ne sert JAMAIS à l’automatisation', ()
       'app/lib/gestion/adressesRepo.ts',
       'app/lib/gestion/propositionsBien.ts',
       'app/lib/gestion/propositionRepo.ts',
+      'app/lib/gestion/classementBien.ts',
     ];
     for (const fichier of SURVEILLES) {
-      const source = readFileSync(fichier, 'utf8');
+      const source = sansCommentaires(readFileSync(fichier, 'utf8'));
+      expect(source, `${fichier} nomme gestion_partie_categorie`).not.toContain('gestion_partie_categorie');
+    }
+  });
+
+  it('🔒🔒 LE MOTEUR PUR RESTE AVEUGLE AUX DEUX TABLES : il reçoit des données, il ne lit rien', () => {
+    for (const fichier of [
+      'app/lib/gestion/propositionsBien.ts',
+      'app/lib/gestion/propositionRepo.ts',
+      'app/lib/gestion/rattachement.ts',
+      'app/lib/gestion/adressesMessage.ts',
+      'app/lib/gestion/adressesRepo.ts',
+    ]) {
+      const source = sansCommentaires(readFileSync(fichier, 'utf8'));
       for (const interdit of ['gestion_partie_categorie', 'gestion_contact_carte', 'partieCategorieRepo']) {
         expect(source, `${fichier} nomme ${interdit}`).not.toContain(interdit);
       }
     }
+  });
+
+  /**
+   * 🔒🔒 LA SECONDE MOITIÉ, ÉPROUVÉE POSITIVEMENT : les cartes n'entrent dans la passe que par la porte nommée.
+   *
+   * ⚠️ UN GARDE QUI N'INTERDIT PLUS RIEN NE PROTÈGE PLUS RIEN. Celui-ci vérifie donc que les deux appelants
+   * passent bien par `biensDesContacts` et ne refont pas la requête chez eux — c'est ce qui ferait réapparaître
+   * deux définitions de « carte vivante ».
+   */
+  it('🔒🔒 les cartes n’entrent dans la passe que par `biensDesContacts`', () => {
+    for (const fichier of ['app/lib/gestion/rattachementRepo.ts', 'app/lib/gestion/classementBien.ts']) {
+      const source = sansCommentaires(readFileSync(fichier, 'utf8'));
+      expect(source, `${fichier} doit passer par biensDesContacts`).toContain('biensDesContacts(');
+      /* Et ne nomme pas la table lui-même : la requête vit dans le dépôt de la 304, et nulle part ailleurs. */
+      expect(source, `${fichier} nomme gestion_contact_carte`).not.toContain('gestion_contact_carte');
+    }
+  });
+
+  /**
+   * 🔒 ET LA GARANTIE DE FOND : une carte ne peut PAS porter un indépendant. Ce n'est pas une discipline de code,
+   * c'est une contrainte de base — `gestion_contact_carte_cote_chk`. La promesse d'Arno (« les Tiers indépendants
+   * restent exclus de l'automatisation ») est donc tenue par le schéma, et la migration l'écrit.
+   */
+  it('🔒 le schéma interdit à une carte de porter un tiers indépendant', () => {
+    const migration = readFileSync('db/migrations/304_gestion_partie_categorie.sql', 'utf8');
+    expect(migration).toContain('gestion_contact_carte_cote_chk');
+    /* La clause tient sur une ligne : on la lit jusqu'au saut, et non jusqu'à la première virgule — il y en a
+       une ENTRE les deux valeurs permises, et la couper là ne lisait que la première. */
+    const chk = migration.split('gestion_contact_carte_cote_chk')[1]?.split('\n')[0] ?? '';
+    expect(chk).toContain("'proprietaire'");
+    expect(chk).toContain("'locataire'");
+    expect(chk).not.toContain("'independant'");
   });
 
   /**

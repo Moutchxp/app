@@ -64,6 +64,28 @@ export interface AdresseVue {
   proprietaireCle: string | null;
   /** Vient-elle du mail lui-même, ou d'un autre message de l'échange ? Le mail prime toujours. */
   duMail: boolean;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LES BIENS OÙ CETTE ADRESSE EST UN CONTACT RATTACHÉ ════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « But (à rappeler dans le code) : ce contact, désormais rattaché à une partie
+   * du bien, permet ensuite de rattacher automatiquement ses nouveaux mails au bien. Vérifie que la passe de
+   * rattachement automatique utilise bien ces cartes de contact (côté propriétaire et côté locataire) ; si ce
+   * n'est pas le cas, branche-la. »
+   *
+   * 🔴 ELLE NE L'UTILISAIT PAS. `gestion_contact_carte` n'était lue que par `partieCategorieRepo` — c'est-à-dire
+   * par l'écran qui pose les cartes, et par personne d'autre. Créer la carte de `secretariat.rosky@secri.fr`
+   * côté propriétaire du lot 29 ne changeait donc RIEN au classement de ses mails suivants : le geste n'avait
+   * aucune suite. C'est le cas (f) qui lui en donne une.
+   *
+   * ⚠️ LES CLÉS SONT CELLES DES LOTS, et la carte porte déjà un côté `proprietaire | locataire` — contrainte de
+   * sa table. Les TIERS INDÉPENDANTS ne peuvent donc pas en avoir, et la règle d'Arno (« ils restent exclus de
+   * l'automatisation ») est tenue par le schéma avant de l'être par le code.
+   *
+   * ⚠️ FACULTATIF : absent ⇒ le cas (f) ne joue pas, et le moteur se comporte EXACTEMENT comme avant ce lot.
+   * C'est la convention de `contenu` pour le cas (e), et elle a la même vertu : les quatre écrans qui appellent
+   * ce moteur sans connaître les cartes continuent de compiler et de rendre la même chose.
+   */
+  cartesLots?: readonly string[];
 }
 
 /**
@@ -71,7 +93,7 @@ export interface AdresseVue {
  * premiers partent d'une ADRESSE de l'échange ou d'une citation de BIEN ; (e) part d'une PERSONNE nommée dans le
  * texte. Il ne coche jamais rien — voir `personnesDansLeTexte`.
  */
-export type CasProposition = 'a' | 'b' | 'c' | 'd' | 'e';
+export type CasProposition = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
 
 export interface PropositionBien {
   cle: string;
@@ -364,6 +386,38 @@ export function proposerBiens(o: {
         motif: `locataire en place à la date du mail (${a.adresse})${provenance}`,
         adresses: [a.adresse],
       });
+    }
+
+    /**
+     * ── 🔴🔴 (f) — UNE CARTE DE CONTACT RATTACHE CETTE ADRESSE À UN BIEN (lot HISTORIQUE-BIEN-6, point 1) ─────
+     *
+     * DEMANDE D'ARNO, mot pour mot : « ce contact, désormais rattaché à une partie du bien, permet ensuite de
+     * rattacher automatiquement ses nouveaux mails au bien ».
+     *
+     * 🔴 LA CERTITUDE EST `a_trancher`, ET LA CASE N'EST PAS PRÉ-COCHÉE. Une carte de contact dit « cette
+     * personne parle de ce logement », pas « ce mail-ci concerne ce logement » : un artisan contact du
+     * propriétaire peut écrire pour un autre de ses biens. Pré-cocher aurait classé tout seul sur un indice qui
+     * n'est pas une identité — et c'est exactement la faute du cas (d) avant sa correction (76 cases cochées).
+     * Le geste reste donc une PROPOSITION, visible et motivée, qu'un humain valide.
+     *
+     * ⚠️ UNE PERSONNE PEUT ÊTRE CONTACT DE PLUSIEURS BIENS, et chacun donne alors sa proposition. C'est exact —
+     * le secrétariat d'un propriétaire écrit pour ses quatre logements — et c'est pourquoi aucune n'est cochée.
+     *
+     * ⚠️ APRÈS (a), AVANT (b) : une adresse qui désigne DÉJÀ son logement par l'annuaire n'a pas besoin d'une
+     * carte pour le dire, et `ajouter` garde la première proposition reçue pour un même bien — donc la plus
+     * sûre. Placer (f) en tête aurait rétrogradé une quasi-certitude en « à trancher ».
+     */
+    for (const a of groupe) {
+      for (const cle of a.cartesLots ?? []) {
+        if (cle === '') continue;
+        const b = o.biens.find((x) => x.cle === cle);
+        ajouter({
+          cle, cas: 'f', certitude: 'a_trancher', preCoche: false,
+          motif: `contact rattaché à ce bien (${a.adresse})${provenance}`
+            + (b === undefined ? '' : ` — ${nomSansLot(b)}`),
+          adresses: [a.adresse],
+        });
+      }
     }
 
     // ── (b) et (c) — UN PROPRIÉTAIRE : UN SEUL BIEN, OU TOUS SES BIENS ──────────────────────────────────────────

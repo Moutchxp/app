@@ -43,7 +43,8 @@ import {
   bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAgenceEcartee,
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
-  ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut, completerAvecLesClients,
+  BUT_DU_PLUS, ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut,
+  completerAvecLesClients, motPastille, pastilleDeCapsule, sorteDeCapsule,
   filtrerParMots, GROUPES_EN_BANDE,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
@@ -708,15 +709,23 @@ export function HistoriqueDuBien({
    * une côté locataire si elle y est rangée. La clé de la table est (bien, côté, adresse) : la carte des cartes
    * doit l'être aussi, sinon le « + » disparaîtrait à tort.
    */
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LA CARTE PORTE DÉSORMAIS SON ÉTAT DE VÉRIFICATION, et non plus seulement
+   * sa présence. Demande d'Arno : « Si la carte est encore “à vérifier” (trame orange), l'icône est orange. » La
+   * donnée était déjà là (`cartesContact[].verifie`) ; c'est l'index qui la jetait.
+   *
+   * ⚠️ `false` L'EMPORTE SUR `true` POUR UN MÊME CÔTÉ — cas théorique (la table a une clé unique par bien, côté et
+   * adresse), écrit par prudence : c'est le geste qui RESTE à faire qui doit se voir.
+   */
   const cartesParAdresse = useMemo(() => {
-    const m = new Map<string, Set<string>>();
+    const m = new Map<string, Map<string, boolean>>();
     for (const c of cartesContact) {
       const cle = c.adresse.trim().toLowerCase();
-      const s0 = m.get(cle) ?? new Set<string>();
-      s0.add(c.cote);
+      const s0 = m.get(cle) ?? new Map<string, boolean>();
+      s0.set(c.cote, (s0.get(c.cote) ?? true) && c.verifie);
       m.set(cle, s0);
     }
-    return m as ReadonlyMap<string, ReadonlySet<string>>;
+    return m as ReadonlyMap<string, ReadonlyMap<string, boolean>>;
   }, [cartesContact]);
 
   /** Déplier ou replier un groupe. Écrit une fois : les encarts et les bandes s'en servent. */
@@ -1556,7 +1565,8 @@ interface PropsGroupe {
   /** Les CLIENTS de la fiche : eux seuls ne se déplacent pas. */
   categoriesFiche: ReadonlyMap<string, CategoriePartie>;
   /** Par adresse, les côtés où une carte de contact existe déjà. Décide de la présence du « + » cerclé. */
-  cartesParAdresse: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Pour chaque adresse, les côtés où une carte existe sur ce bien, et si elle est VÉRIFIÉE. */
+  cartesParAdresse: ReadonlyMap<string, ReadonlyMap<string, boolean>>;
   survol: CleGroupeParties | null;
   glisse: { adresse: string; depuis: CleGroupeParties } | null;
   menu: string | null;
@@ -1713,6 +1723,14 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
   const cle = i.adresse.trim().toLowerCase();
   const periode = p.periodes.get(cle) ?? null;
   const nomLisible = libelleInterlocuteur(i);
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LA SORTE DE LA CAPSULE DÉCIDE DE TOUT CE QUI SUIT.
+   *
+   * Client, agence, tiers indépendant ou contact : une seule question, posée une fois, au module pur. Le glisser,
+   * l'info-bulle et la pastille de droite en découlent — trois conditions dispersées dans ce rendu faisaient le
+   * travail avant, et c'est ainsi que le « + » a pu manquer à sa troisième demande.
+   */
+  const sorte = sorteDeCapsule(i.adresse, g.cle, p.categoriesFiche, i.interne);
   const deplacable = partieDeplacable(i.adresse, p.categoriesFiche, i.interne);
   const menuOuvert = p.menu === cle;
   /**
@@ -1728,8 +1746,8 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
    *     deux définitions de « client » auraient fini par diverger, et le « + » serait apparu sur un propriétaire ;
    *   · pas de carte de ce côté → il disparaît dès qu'elle existe.
    */
-  const coteDuGroupe = coteDeLaCategorie(g.cle);
-  const sansCarte = coteDuGroupe !== null && !(p.cartesParAdresse.get(cle)?.has(coteDuGroupe) ?? false);
+  const pastille = pastilleDeCapsule(sorte, g.cle, p.cartesParAdresse.get(cle) ?? new Map());
+  const motsPastille = motPastille(pastille, nomLisible);
 
   return (
     <li className={`hdb-capsule hdb-capsule--${g.ton}${deplacable ? '' : ' hdb-capsule--fixe'}`}
@@ -1769,15 +1787,28 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
         </span>
       </label>
 
-      {/* ══ LE « + » ROUGE CERCLÉ — POINT 3 ═══════════════════════════════════════════════════════════════════
-          ⚠️ LA CATÉGORIE EST PRÉ-REMPLIE PAR LE GROUPE D'OÙ L'ON CLIQUE, et c'est la demande d'Arno : « Il ouvre
-          la carte de création avec la catégorie pré-remplie. » On sait où la personne est rangée — la redemander
-          aurait été une question dont l'écran connaît déjà la réponse. */}
-      {deplacable && sansCarte && (
-        <button type="button" className="hdb-plus hdb-plus--cercle"
-          aria-label={`Créer la carte de contact de ${nomLisible}`}
-          title="Créer sa carte de contact"
-          onClick={() => p.onCreer(i.adresse, g.cle)}>+</button>
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LA PASTILLE DE DROITE, À TROIS ÉTATS ═════════════════════════
+          RÈGLE D'ARNO : « Chaque capsule CONTACT, qu'elle soit côté Propriétaire, côté Locataire ou dans Non
+          affectés, porte À DROITE, à côté du “…”, un “+” rouge dans un cercle rouge, toujours visible (pas
+          seulement au survol). […] Quand une carte existe déjà pour ce contact : le “+” est remplacé par une
+          petite icône “fiche” (même cercle, gris) qui ouvre la carte. Si la carte est encore “à vérifier” (trame
+          orange), l'icône est orange. »
+
+          🔴 LE BUT, QU'ARNO DEMANDE DE RAPPELER ICI : ce contact, rattaché à une partie du bien, fait que ses
+          PROCHAINS mails rejoignent ce bien tout seuls (cas (f) de `proposerBiens`, branché au point 1 de ce
+          lot). Le « + » n'est pas une commodité d'annuaire : c'est la porte de l'automatisation.
+
+          ⚠️ LA CATÉGORIE EST PRÉ-REMPLIE PAR L'ENCART D'OÙ L'ON CLIQUE, et laissée VIDE depuis « Non affectés » —
+          où le choix devient donc obligatoire, ce qui est la demande d'Arno à la lettre. `ouvrirCreation` tient
+          déjà cette nuance : `a_repartir` n'est pas une déduction, c'est le constat qu'on n'a pas tranché. */}
+      {motsPastille !== null && (
+        <button type="button"
+          className={`hdb-plus hdb-plus--cercle hdb-plus--${pastille}`}
+          aria-label={motsPastille.aria}
+          title={`${motsPastille.titre} — ${BUT_DU_PLUS}`}
+          onClick={() => p.onCreer(i.adresse, g.cle)}>
+          {pastille === 'plus' ? '+' : '▤'}
+        </button>
       )}
 
       {/* ══ LE MENU « DÉPLACER VERS… » — LE CHEMIN CLAVIER ══════════════════════════════════════════════════ */}
@@ -2453,6 +2484,24 @@ ${CSS_PIECES}
 .hdb-plus--cercle{width:28px;height:28px;min-height:28px;border-radius:999px;border:2px solid var(--color-svv-red);
   display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0}
 .hdb-plus--cercle:hover{background:var(--color-svv-red-soft);border-color:var(--color-svv-red)}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LES TROIS ETATS DE LA PASTILLE, MEME CERCLE ════════════════════════
+   REGLE D'ARNO : « un “+” rouge dans un cercle rouge, TOUJOURS VISIBLE (pas seulement au survol) […] Quand une
+   carte existe deja : le “+” est remplace par une petite icone “fiche” (meme cercle, gris) qui ouvre la carte.
+   Si la carte est encore “a verifier” (trame orange), l'icone est orange. »
+
+   🔴 « TOUJOURS VISIBLE » N'A RIEN A CORRIGER ICI, ET C'EST VERIFIE : aucune regle de ce bloc n'a jamais lie la
+   pastille au survol ni a une opacite. Ce qui la faisait manquer etait une CONDITION DE RENDU, pas un style — le
+   garde du fichier d'epreuves interdit desormais les deux.
+
+   ⚠️ LE MEME CERCLE, LA MEME TAILLE, LA MEME PLACE : seule la couleur change. Trois pastilles de geometries
+   differentes auraient fait sauter la droite des capsules d'une ligne a l'autre.
+   ⚠️ LE TON NE DIT JAMAIS SEUL : l'info-bulle et l'intitule du lecteur d'ecran portent l'etat en toutes lettres
+   (motPastille), parce qu'une couleur ne dit rien a qui ne la voit pas. */
+.hdb-plus--plus{border-color:var(--color-svv-red);color:var(--color-svv-red)}
+.hdb-plus--fiche{border-color:var(--color-svv-line-strong);color:var(--color-svv-muted);font-size:.86rem}
+.hdb-plus--fiche:hover{background:var(--color-svv-field);border-color:var(--color-svv-line-strong-hover)}
+.hdb-plus--a_verifier{border-color:var(--color-svv-amber);color:var(--color-svv-amber);font-size:.86rem}
+.hdb-plus--a_verifier:hover{background:var(--color-svv-amber-soft);border-color:var(--color-svv-amber)}
 
 /* ══ LA CARTE DE CREATION D'UN CONTACT ── MEME TRAME ORANGE que les cartes creees automatiquement : ce qui est
    en attente de verification se voit, et se voit pareil partout. */

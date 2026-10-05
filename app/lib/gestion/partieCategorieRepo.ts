@@ -276,6 +276,60 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
   }));
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LES BIENS OÙ DES ADRESSES SONT DES CONTACTS RATTACHÉS ══════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : « But (à rappeler dans le code) : ce contact, désormais rattaché à une partie du
+ * bien, permet ensuite de rattacher automatiquement ses nouveaux mails au bien. Vérifie que la passe de
+ * rattachement automatique utilise bien ces cartes de contact (côté propriétaire et côté locataire) ; si ce n'est
+ * pas le cas, branche-la. »
+ *
+ * 🔴 ELLE NE LES UTILISAIT PAS, ET C'EST LA MESURE QUI LE DIT : avant ce lot, `gestion_contact_carte` n'était lue
+ * que par ce fichier — c'est-à-dire par l'écran qui POSE les cartes, et par personne d'autre. Le « + » de la
+ * fiche d'un bien n'avait donc aucune suite. C'est cette fonction qui lui en donne une : elle alimente le cas (f)
+ * de `proposerBiens`, pour la passe automatique ET pour l'écran de classement.
+ *
+ * 🔴 POURQUOI ELLE EST **ICI** ET NON CHEZ SES DEUX APPELANTS. Ce dépôt est le seul endroit du code autorisé à
+ * nommer les tables de la migration 304, et un garde l'éprouve (`partieCategorieRepo.test.ts`) en refusant toute
+ * liste blanche qu'on allongerait. La règle n'est pas décorative : deux lecteurs auraient fini par ne plus
+ * s'accorder sur ce qu'est une carte VIVANTE — et c'est le genre de divergence qui fait classer un mail chez le
+ * mauvais propriétaire.
+ *
+ * ⚠️ UNE SEULE REQUÊTE, BORNÉE AUX ADRESSES DEMANDÉES. Une passe complète traverse des milliers de messages : une
+ * requête par adresse serait des milliers d'accès.
+ *
+ * ⚠️ LES CARTES RETIRÉES NE COMPTENT PAS. Une carte retirée est un rattachement défait ; la faire encore proposer
+ * son bien rendrait le geste de retrait sans effet.
+ *
+ * ⚠️ LES DEUX CÔTÉS COMPTENT, ET SEULS LES DEUX EXISTENT : la colonne `cote` est contrainte à
+ * `proprietaire | locataire`. Les TIERS INDÉPENDANTS ne peuvent donc pas avoir de carte — la règle d'Arno (« ils
+ * restent exclus de l'automatisation ») est tenue par le schéma avant de l'être par le code.
+ *
+ * ⚠️ SANS LA TABLE, LA CARTE REVIENT VIDE et le cas (f) ne joue pas : la passe se comporte exactement comme avant
+ * ce lot. Une sonde voyage avec sa donnée — règle du module.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function biensDesContacts(
+  adresses: readonly string[],
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const uniques = [...new Set(adresses.map((a) => a.trim().toLowerCase()).filter((a) => a !== ''))];
+  if (uniques.length === 0 || !(await contactCarteDisponible())) return out;
+
+  const { rows } = await query<{ adresse: string; lot_cle: string }>(
+    `SELECT DISTINCT adresse, lot_cle
+       FROM gestion_contact_carte
+      WHERE retire_le IS NULL AND adresse = ANY($1::text[])
+      ORDER BY adresse, lot_cle`, [uniques]);
+
+  for (const r of rows) {
+    const cle = r.adresse.trim().toLowerCase();
+    out.set(cle, [...(out.get(cle) ?? []), r.lot_cle]);
+  }
+  return out;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ④ ÉCRIRE — À LA MAIN, ET SEULEMENT À LA MAIN
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */

@@ -14,7 +14,7 @@ import type { MessagePorteur, OrdrePieces } from './piecesConversation';
  *
  * ⚠️ IL EST PUR ET N'IMPORTE RIEN : ce fichier-ci est atteint par le navigateur, et l'importer ne tire pas `pg`.
  */
-import { replierLesCartes, SEUIL_REPLI_CARTES, type Categorie } from './partieCategorie';
+import { coteDeLaCategorie, replierLesCartes, SEUIL_REPLI_CARTES, type Categorie } from './partieCategorie';
 
 /**
  * MODULE « GESTION » — LOT HISTORIQUE-BIEN-1 : LES DÉCISIONS DU BLOC « HISTORIQUE » D'UNE FICHE DE BIEN. PUR.
@@ -637,11 +637,143 @@ export function clientConnuPour(
  */
 export const MOTIF_NON_DEPLACABLE = 'Client du bien — non déplaçable';
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — CE QU'EST UNE CAPSULE, EN QUATRE MOTS ET UNE SEULE FONCTION ════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * TROISIÈME DEMANDE D'ARNO POUR LE MÊME BOUTON (05/10/2026), et cette fois la règle est écrite sans interprétation
+ * possible — je la recopie, parce que c'est elle qui est codée ici et nulle part ailleurs :
+ *
+ *   « Une capsule est CLIENT si son adresse appartient au propriétaire ou à un locataire (actuel ou ancien) tel
+ *     qu'enregistré dans la fiche du bien ou dans l'annuaire. Une capsule est AGENCE si l'adresse est la nôtre.
+ *     TOUTES LES AUTRES sont des CONTACTS : toute personne recoupée par l'automatisation parce qu'elle est en
+ *     copie ou participe aux échanges sans être cliente. […] Pas de “+” sur les capsules CLIENT, AGENCE ni TIERS
+ *     INDÉPENDANT. »
+ *
+ * ═══ 🔴 POURQUOI LE « + » NE S'AFFICHAIT PAS, ET CE QUE LA MESURE DIT ════════════════════════════════════════════
+ *
+ * La règle du lot 3 n'était pas fausse — elle était INCOMPLÈTE, de deux façons, et les deux se voient sur lot-299 :
+ *
+ *   ① **UNE CARTE QUI EXISTE FAISAIT DISPARAÎTRE LE BOUTON, SANS RIEN METTRE À LA PLACE.** La condition était
+ *      « pas de carte de ce côté ⇒ “+” », et rien n'était prévu pour « carte présente ». MESURÉ : sur lot-299,
+ *      `estebanfrdpro@gmail.com` porte la carte 1462 (`cote = locataire`, vérifiée, `retire_le` nul). La capsule
+ *      n'avait donc que son « … » — exactement ce qu'Arno décrit. Le lot 3 disait « le “+” disparaît dès que la
+ *      carte existe » ; le lot 6 dit ce qui le remplace : **une icône de fiche**, grise, ou **orange** quand la
+ *      carte est encore « à vérifier ».
+ *
+ *   ② **« NON AFFECTÉS » N'AVAIT PAS DE « + » DU TOUT.** La condition `coteDeLaCategorie(g.cle) !== null` écarte
+ *      `independant` ET `a_repartir` d'un même geste, parce que ni l'un ni l'autre ne donne un côté. Or Arno veut
+ *      le bouton sur les contacts de « Non affectés » aussi — avec, là, un choix de côté OBLIGATOIRE, puisque
+ *      l'écran n'a rien à pré-remplir. MESURÉ sur lot-299 : `puroflowparis@gmail.com` (2 mails) était dans ce cas.
+ *
+ * ═══ 🔴 CE QUE CETTE FONCTION REMPLACE, ET POURQUOI ELLE EST UNE SEULE ═══════════════════════════════════════════
+ *
+ * `partieDeplacable` répondait déjà à « client ou agence ? », mais en rendant un BOOLÉEN : impossible de savoir
+ * LEQUEL des deux, ni de distinguer un tiers indépendant d'un contact ordinaire. Trois conditions dispersées dans
+ * le rendu faisaient le reste. Une capsule a maintenant UNE sorte, nommée, et tout ce que l'écran décide — le
+ * « + », le glisser, l'info-bulle — en découle. Deux définitions de « client » auraient fini par diverger, et le
+ * « + » serait apparu sur un propriétaire.
+ *
+ * ⚠️ L'ORDRE DES QUESTIONS EST LA RÈGLE, ET IL N'EST PAS LIBRE. « Agence » d'abord : une de nos adresses qui
+ * serait AUSSI cliente (cas de lot-299, cf. `motAdresseACorriger`) reste l'agence pour le filtrage. Puis
+ * « client », qui l'emporte sur tout rangement de base — « un client n'est jamais un contact » (règle d'Arno au
+ * lot 1). Puis « tiers indépendant », qui est un rangement DÉLIBÉRÉ et qu'on ne transforme pas en contact.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export type SorteDeCapsule = 'client' | 'agence' | 'tiers' | 'contact';
+
+export function sorteDeCapsule(
+  adresse: string,
+  groupe: CleGroupeParties,
+  categoriesFiche: ReadonlyMap<string, CategoriePartie>,
+  interne: boolean,
+): SorteDeCapsule {
+  if (interne) return 'agence';
+  if (categoriesFiche.has(adresse.trim().toLowerCase())) return 'client';
+  if (groupe === 'independant') return 'tiers';
+  return 'contact';
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — CE QUE PORTE LA DROITE D'UNE CAPSULE. PUR. ═════════════════════════════
+ *
+ * Trois états, et un seul peut être vrai à la fois :
+ *   · `'plus'`     — un CONTACT sans carte de ce côté : le « + » rouge cerclé, **toujours visible**.
+ *   · `'fiche'`    — sa carte existe et elle est vérifiée : la même pastille, en gris, qui ouvre la carte.
+ *   · `'a_verifier'` — sa carte existe mais personne ne l'a vérifiée : la même pastille, en ORANGE. C'est le ton
+ *     de la trame des cartes nées d'une passe, dans tout le module : une carte « à vérifier » se signale toujours
+ *     en orange, et la pastille ne fait que reprendre ce code.
+ *   · `null`       — rien à droite : client, agence, ou tiers indépendant.
+ *
+ * 🔴 `cotes` EST L'ENSEMBLE DES CÔTÉS OÙ UNE CARTE EXISTE POUR CETTE ADRESSE SUR CE BIEN, chacun avec son état de
+ * vérification. Le côté compte, pas seulement l'adresse : la clé de la table est (bien, côté, adresse), et une
+ * carte côté propriétaire ne dispense pas d'en avoir une côté locataire.
+ *
+ * ⚠️ DEPUIS « NON AFFECTÉS », UNE CARTE DE N'IMPORTE QUEL CÔTÉ COMPTE. La capsule n'a pas de côté à elle ; si une
+ * carte existe quelque part pour cette personne sur ce bien, proposer d'en créer une seconde serait proposer un
+ * doublon. On montre donc la fiche, et c'est elle qui dit de quel côté elle est.
+ *
+ * ⚠️ « À VÉRIFIER » L'EMPORTE SUR « VÉRIFIÉE » quand il y en a des deux : c'est le geste qui reste à faire qui doit
+ * se voir, pas celui qui est fait.
+ */
+export type PastilleDeCapsule = 'plus' | 'fiche' | 'a_verifier' | null;
+
+export function pastilleDeCapsule(
+  sorte: SorteDeCapsule,
+  groupe: CleGroupeParties,
+  cartes: ReadonlyMap<string, boolean>,
+): PastilleDeCapsule {
+  if (sorte !== 'contact') return null;
+  const cote = coteDeLaCategorie(groupe);
+  /* Depuis un encart, SA carte seule compte ; depuis « Non affectés », n'importe laquelle. */
+  const retenues = cote === null ? [...cartes.values()] : (cartes.has(cote) ? [cartes.get(cote) as boolean] : []);
+  if (retenues.length === 0) return 'plus';
+  return retenues.every((v) => v) ? 'fiche' : 'a_verifier';
+}
+
+/** Les mots de la pastille, écrits une fois — info-bulle et intitulé pour le lecteur d'écran. PUR. */
+export function motPastille(p: PastilleDeCapsule, nom: string): { titre: string; aria: string } | null {
+  if (p === null) return null;
+  if (p === 'plus') {
+    return { titre: 'Créer sa carte de contact', aria: `Créer la carte de contact de ${nom}` };
+  }
+  if (p === 'a_verifier') {
+    return { titre: 'Sa carte existe — à vérifier', aria: `Ouvrir la carte de contact de ${nom}, à vérifier` };
+  }
+  return { titre: 'Ouvrir sa carte de contact', aria: `Ouvrir la carte de contact de ${nom}` };
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — POURQUOI CE BOUTON EXISTE, ÉCRIT DANS LE CODE ═════════════════════════
+ *
+ * DEMANDE D'ARNO, mot pour mot : « But (à rappeler dans le code) : ce contact, désormais rattaché à une partie du
+ * bien, permet ensuite de rattacher automatiquement ses nouveaux mails au bien. »
+ *
+ * C'est la raison d'être du geste, et elle n'est pas cosmétique : créer la carte de `secretariat.rosky@secri.fr`
+ * côté propriétaire du lot 29, c'est dire « quand cette adresse écrit, c'est de ce logement qu'il s'agit ». La
+ * passe de rattachement automatique le lit (cas (f) de `proposerBiens`, branché au lot 6) et propose le bien.
+ *
+ * ⚠️ LES TIERS INDÉPENDANTS EN SONT EXCLUS, ET C'EST LA RÈGLE D'ARNO DEPUIS LE LOT 1 : un indépendant travaille
+ * sur quarante biens, et son adresse ne désigne donc aucun. La table des cartes ne peut d'ailleurs pas en porter —
+ * sa colonne `cote` est contrainte à `proprietaire | locataire`.
+ */
+export const BUT_DU_PLUS =
+  'Rattacher ce contact à une partie du bien, pour que ses prochains mails rejoignent ce bien tout seuls.';
+
 export function partieDeplacable(
   adresse: string, categoriesFiche: ReadonlyMap<string, CategoriePartie>, interne = false,
 ): boolean {
-  if (interne) return false;
-  return !categoriesFiche.has(adresse.trim().toLowerCase());
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — CE VERDICT PASSE DÉSORMAIS PAR `sorteDeCapsule`, et il n'y a plus
+   * qu'une définition de « client » et d'« agence » dans tout le module. Le résultat est le MÊME qu'avant ce lot,
+   * au booléen près : seuls un client et l'agence étaient immobiles, et ils le restent.
+   *
+   * ⚠️ LE GROUPE N'ENTRE PAS DANS CE VERDICT, et c'est pourquoi on passe `'a_repartir'` : un tiers indépendant se
+   * déplace comme n'importe quel contact — c'est même tout l'intérêt du rangement manuel. Passer le vrai groupe
+   * aurait rendu `'tiers'` pour lui, qu'il aurait fallu accepter ici en plus de `'contact'` : deux valeurs à tenir
+   * pour une seule idée.
+   */
+  return sorteDeCapsule(adresse, 'a_repartir', categoriesFiche, interne) === 'contact';
 }
 
 /**

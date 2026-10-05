@@ -5,6 +5,8 @@ import {
   annuaireDisponible, rattachementsDisponibles, miniaturesDisponibles, libelleSourceContactDisponible,
   spamDisponible, corbeilleGmailDisponible,
 } from './schema';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — les biens ou une adresse est un contact rattache (cas (f)). */
+import { biensDesContacts } from './partieCategorieRepo';
 // LOT AFFECTATION-PAR-BIEN — le moteur des propositions est PUR : il décide, et il s'éprouve sans base.
 import {
   proposerBiens, CORPS_CHERCHABLE_MAX, type AdresseVue, type CasProposition, type TextesDuMail,
@@ -521,6 +523,18 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
       WHERE a.message_id = $1 OR ($2::bigint IS NOT NULL AND mm.fil_id = $2::bigint)`,
     [messageId, filId]);
 
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LES CARTES DE CONTACT, POUR LE CAS (f) ════════════════════════════
+   *
+   * ⚠️ LA MÊME LECTURE QUE DANS LA PASSE AUTOMATIQUE, et elle est ici AUSSI parce que l'écran de classement et
+   * la passe appellent le MÊME moteur : ne la brancher que d'un côté aurait fait proposer un bien dans le
+   * rapport de la passe et pas dans l'écran, ou l'inverse — le pire défaut possible, puisque c'est l'écran qu'on
+   * relit avant d'autoriser l'écriture.
+   *
+   * ⚠️ SANS LA TABLE, LA CARTE RESTE VIDE et le cas (f) ne joue pas.
+   */
+  const cartes = await biensDesContacts(adr.map((a) => a.adresse));
+
   const adresses: AdresseVue[] = adr.map((a) => ({
     adresse: a.adresse,
     interne: a.interne,
@@ -528,6 +542,7 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
     lotCle: a.lot_cle,
     proprietaireCle: a.proprietaire_cle,
     duMail: a.du_mail,
+    cartesLots: cartes.get(a.adresse.trim().toLowerCase()),
   }));
 
   /**

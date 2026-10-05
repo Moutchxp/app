@@ -123,7 +123,14 @@ export type Destination =
  * est partagé parce que `gestion_rattachement.regle` l'est — et la base ne contraint pas cette colonne, donc
  * aucune migration n'est nécessaire.
  */
-export type Regle = 'a' | 'b' | 'c' | 'd' | 'e';
+/**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — `'f'` S'AJOUTE : « contact rattaché à ce bien par une carte ».
+ *
+ * ⚠️ AUCUNE MIGRATION : la colonne `regle` de `gestion_rattachement` est un `text` SANS contrainte de valeurs
+ * (vérifié le 05/10/2026 — ses six valeurs présentes sont a, b, c, d, e, document_auto et intervention). Le
+ * garde de ce qui est permis comme CIBLE est ailleurs, et il ne regarde pas la règle.
+ */
+export type Regle = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
 export type Confiance = 'haute' | 'moyenne' | 'basse';
 
 export interface Decision {

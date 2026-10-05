@@ -26,6 +26,16 @@ export interface AdresseEchange {
   messageId: number;
   interne: boolean;
   reconnaissance: Reconnaissance;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LES BIENS OÙ CETTE ADRESSE EST UN CONTACT RATTACHÉ ════════════════
+   *
+   * Les clés des lots pour lesquels `gestion_contact_carte` porte une carte ACTIVE sur cette adresse, côté
+   * propriétaire ou locataire. C'est ce qui donne une suite au « + » de la fiche d'un bien : sans elle, créer la
+   * carte d'un contact ne changeait rien au classement de ses mails suivants.
+   *
+   * ⚠️ FACULTATIF : absent ⇒ le cas (f) ne joue pas, et la passe se comporte exactement comme avant ce lot.
+   */
+  cartesLots?: readonly string[];
 }
 
 export type DestinationProposee =

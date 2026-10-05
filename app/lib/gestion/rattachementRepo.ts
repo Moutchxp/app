@@ -31,6 +31,9 @@ import { corpsLisible } from './htmlMail';
 import { CORPS_CHERCHABLE_MAX } from './propositionsBien';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche } from './nomUsageSql';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — les biens ou une adresse est un contact rattache (cas (f)). La lecture
+   vit dans le depot de la 304, seul autorise a nommer ses tables : voir l'encadre de `biensDesContacts`. */
+import { biensDesContacts } from './partieCategorieRepo';
 import {
   annuaireDisponible, corbeilleGmailDisponible, rattachementsDisponibles, spamDisponible,
 } from './schema';
@@ -264,12 +267,36 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
        JOIN gestion_message m ON m.id = a.message_id
       WHERE m.fil_id = ANY($1::bigint[])`, [ids]);
 
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LES CARTES DE CONTACT, POUR LE CAS (f) ═══════════════════════════════
+   *
+   * DEMANDE D'ARNO : « Vérifie que la passe de rattachement automatique utilise bien ces cartes de contact (côté
+   * propriétaire et côté locataire) ; si ce n'est pas le cas, branche-la. »
+   *
+   * 🔴 ELLE NE L'UTILISAIT PAS, et c'est mesuré : `gestion_contact_carte` n'était lue que par
+   * `partieCategorieRepo` — l'écran qui POSE les cartes, et personne d'autre. Le « + » de la fiche d'un bien
+   * n'avait donc aucune suite : créer la carte d'un contact ne changeait rien au classement de ses mails
+   * suivants. C'est cette lecture-ci qui lui en donne une.
+   *
+   * ⚠️ UNE SEULE REQUÊTE POUR TOUT LE PAQUET, bornée aux adresses qu'on vient de lire : une requête par adresse
+   * coûterait des milliers d'accès sur une passe complète, et c'est la règle de ce module depuis la liste de la
+   * boîte.
+   *
+   * ⚠️ LES CARTES RETIRÉES NE COMPTENT PAS (`retire_le IS NULL`). Une carte retirée est un rattachement défait :
+   * la faire encore proposer son bien serait rendre le geste de retrait sans effet.
+   *
+   * ⚠️ SANS LA TABLE (migration 304 absente), LA CARTE RESTE VIDE et le cas (f) ne joue pas — la passe se
+   * comporte alors exactement comme avant ce lot. Une sonde voyage avec sa donnée : règle du module.
+   */
+  const cartes = await biensDesContacts(adr.map((r) => r.adresse));
+
   const adresses = new Map<number, AdresseEchange[]>();
   for (const r of adr) {
     const fil = Number(r.fil_id);
     const liste = adresses.get(fil) ?? [];
     liste.push({
       adresse: r.adresse, messageId: Number(r.message_id), interne: r.interne,
+      cartesLots: cartes.get(r.adresse.trim().toLowerCase()),
       reconnaissance: {
         partie: r.partie as 'proprietaire' | 'locataire' | null,
         proprietaireCle: r.proprietaire_cle,
