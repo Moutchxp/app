@@ -75,6 +75,8 @@ import { annoncerCartesContact, concerneCeBien, ecouterCartesContact, type Signa
 import { carteMonteAuCarrousel, coteDeLaCategorie, type Categorie } from '../../../../lib/gestion/partieCategorie';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 0 — « est-ce la même adresse ? », écrit une fois pour tout le module. */
 import { cleAdresse } from '../../../../lib/gestion/annuaire';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — « une des nôtres ? », la seule définition du module. */
+import { estAdresseInterne } from '../../../../lib/gestion/adresseInterne';
 import type { EvenementDuBien } from '../../../../lib/gestion/historiqueBienRepo';
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE FORMULAIRE DU « + » EST CELUI DES CLIENTS, IMPORTÉ ═══════════════════
@@ -2517,8 +2519,25 @@ function FilDeMails({ lignes, maintenant, deplie, categories, surligne, mots, on
           className={`hdb-ancre hdb-barre hdb-barre--${tonDeLExpediteur(l, categories)}`
             + `${surligne === l.messageId ? ' hdb-ancre--surlignee' : ''}`}>
           <ol className="vdb-liste">
+            {/* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LA CATÉGORIE D'UNE ADRESSE, RENDUE PAR CE BLOC.
+                Lui seul connaît les catégories de CE bien : la même adresse est « locataire » sur un logement et
+                « tiers » sur un autre. La ligne, elle, est montée par quatre écrans — dont la fiche d'un
+                locataire, qui n'a aucun bien en tête et n'en passe donc aucune.
+
+                ⚠️ LA MÊME FONCTION QUE LA BARRE VERTICALE DU MAIL (`tonDeLExpediteur`), appelée avec le même
+                jeu de catégories : la barre du mail et la pastille de son expéditeur portent ainsi forcément la
+                même couleur. Deux lectures séparées auraient fini par se contredire sur la même ligne.
+
+                🔴 NOS ADRESSES RENDENT `'nous'`, ET N'AURONT DONC AUCUNE PASTILLE — « rien pour l'agence »
+                (Arno). `tonDeLExpediteur` ne le dit que d'un mail ENVOYÉ : ici la question porte sur une adresse
+                quelconque de l'en-tête, et c'est `estAdresseInterne` — la seule définition de « une des nôtres »
+                de ce module — qui répond. Sans elle, notre propre adresse en « À : » aurait reçu la pastille
+                grise des non-affectés, c'est-à-dire une affirmation fausse. */}
             <LigneVie l={l} maintenant={maintenant} ouvert={deplie.has(l.messageId)}
               surligner={mots}
+              tonDe={(adresse) => (estAdresseInterne(adresse)
+                ? 'nous'
+                : tonDeLExpediteur({ sens: 'recu', de: adresse }, categories))}
               onBasculer={() => onBasculer(l.messageId)} onOuvrirFil={onOuvrirFil} />
           </ol>
         </li>

@@ -171,6 +171,7 @@ describe('ce que l’en-tête dit', () => {
 describe('le regroupement par cible', () => {
   const ligne = (id: number, date: string, cle: string): LigneHistorique => ({
     messageId: id, filId: 1, recuLe: date, sens: 'recu', de: 'a@fictif.fr', deNom: null, destinataires: [],
+    a: [], cc: [], cci: [],
     objet: null, extrait: null, pieces: [], parCible: cibleLot(cle), cibleLibelle: `lot ${cle}`,
     source: 'rattachement',
     /* 🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — le Message-ID RFC. `null` ici : ce groupe n'éprouve que le

@@ -596,6 +596,23 @@ export function tonDeLExpediteur(
  * elle se devine, et on se trompe. Les cinq entrées sont dans l'ordre des groupes, « nous » en dernier parce
  * qu'il est l'absence de couleur — le dire après les quatre autres évite de chercher une teinte qui n'existe pas.
  */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LE MOT D'UN TON, POUR L'INFO-BULLE D'UNE ADRESSE ══════════════════════
+ *
+ * DEMANDE D'ARNO : « Chaque adresse porte la petite pastille de couleur de sa catégorie […] avec une info-bulle
+ * sur la catégorie. »
+ *
+ * 🔴 IL VIENT DE LA LÉGENDE, ET DE NULLE PART AILLEURS. La légende sous le listing et l'info-bulle d'une adresse
+ * doivent dire LE MÊME MOT pour LA MÊME couleur — sinon on lit « bleu = tiers indépendant » sous le fil, et
+ * « bleu = prestataire » dans une info-bulle, et l'on croit à deux notions.
+ *
+ * ⚠️ UN TON INCONNU REND SON PROPRE NOM plutôt que de lever : une info-bulle est une commodité, et faire tomber
+ * un mail déplié pour un mot manquant serait hors de proportion.
+ */
+export function motTonDeMail(ton: TonMail): string {
+  return LEGENDE_BARRES.find((x) => x.ton === ton)?.mot ?? ton;
+}
+
 export const LEGENDE_BARRES: readonly { ton: TonMail; mot: string }[] = [
   { ton: 'rouge', mot: 'propriétaire' },
   { ton: 'vert', mot: 'locataire' },

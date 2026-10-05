@@ -15,6 +15,8 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import type { Cible, CibleSorte } from './rattachement';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — le nom ET l'adresse d'un destinataire, séparés (module pur). */
+import type { PersonneDuMail } from './adressesMessage';
 
 /** Combien de mails par page. La frise se lit, elle ne se déroule pas : 25 suffit, et le reste se charge à la demande. */
 export const PAGE_HISTORIQUE = 25;
@@ -280,6 +282,27 @@ export interface LigneHistorique {
   deNom: string | null;
   /** Les destinataires, tels qu'affichables. Bornés côté dépôt. */
   destinataires: string[];
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LES TROIS CHAMPS, SÉPARÉS, AVEC LEURS NOMS ════════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « Au-dessus de “À :”, une ligne “De : Nom <adresse>”. “À :” liste TOUS les
+   * destinataires, à la suite sur la même ligne. Ligne “Cc :” si des personnes sont en copie. Cci seulement si
+   * on le connaît (nos envois). Chaque adresse porte la petite pastille de couleur de sa catégorie. »
+   *
+   * 🔴 `destinataires` NE SUFFISAIT PAS, ET IL RESTE : il mêle le À et le Cc en une seule liste de chaînes
+   * « Nom <adresse> », bornée à sept. Trois écrans le lisent encore tel quel ; le retirer aurait été une
+   * régression pour eux. On AJOUTE les trois listes, séparées et complètes.
+   *
+   * 🔴 L'ADRESSE EST GARDÉE À PART DU NOM parce que c'est elle qui porte la PASTILLE : la catégorie se lit sur
+   * l'adresse normalisée, pas sur « Jean PONS ». Les recoller puis les redécouper à l'écran aurait perdu
+   * l'adresse au premier nom qui contient un chevron.
+   *
+   * ⚠️ `cci` EST VIDE SAUF SUR NOS ENVOIS, et c'est un fait, pas une limite : on ne connaît la copie cachée d'un
+   * mail REÇU que si l'on y était. Mesuré : 790 messages en portent une, et jamais plus de six adresses.
+   */
+  a: PersonneDuMail[];
+  cc: PersonneDuMail[];
+  cci: PersonneDuMail[];
   objet: string | null;
   extrait: string | null;
   pieces: PieceHistorique[];

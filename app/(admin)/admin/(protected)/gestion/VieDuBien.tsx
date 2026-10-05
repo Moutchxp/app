@@ -16,7 +16,9 @@ import { motRoleInstantane } from '../../../../lib/gestion/contactExterne';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
 /* 🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — le découpage des mots surlignés vit dans le module PUR : il est
    éprouvé sans écran, et il ne rend jamais de HTML. */
-import { decouperPourSurligner } from '../../../../lib/gestion/historiqueBien';
+import { decouperPourSurligner, motTonDeMail, type TonMail } from '../../../../lib/gestion/historiqueBien';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — le nom ET l'adresse d'un destinataire, séparés (module pur). */
+import type { PersonneDuMail } from '../../../../lib/gestion/adressesMessage';
 
 /**
  * LOT FICHES-ANNUAIRE (étape B) — « LA VIE DU BIEN » : TOUS SES MAILS, DANS LA FICHE.
@@ -231,9 +233,101 @@ export function VieDuBien({ lotCle, maintenant, onOuvrirFil, filtreInitial = 'to
  * mot-clé `export` a été ajouté — même geste que `CHOIX_SUIVI` au lot BROUILLONS-APERCU-TYPES-LIBELLES, et pour
  * la même raison. « Vie du bien » continue de l'appeler sans savoir qu'un autre écran l'appelle aussi.
  */
-export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [] }: {
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — TOUTES LES ADRESSES D'UN MAIL DÉPLIÉ ══════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026), mot pour mot : « Au-dessus de “À :”, une ligne “De : Nom <adresse>”. “À :” liste
+ * TOUS les destinataires, à la suite sur la même ligne (retour à la ligne propre si c'est long). Ligne “Cc :” si
+ * des personnes sont en copie. Cci seulement si on le connaît (nos envois). Chaque adresse porte la petite
+ * pastille de couleur de sa catégorie (rouge propriétaire, vert locataire, bleu tiers, gris non affecté, rien
+ * pour l'agence), avec une info-bulle sur la catégorie. Lisible en Clair et en Sombre. »
+ *
+ * 🔴 « RIEN POUR L'AGENCE » EST UNE RÈGLE, PAS UN OUBLI : nous ne sommes pas une partie du bien, et nous poser
+ * une pastille de couleur nous mettrait sur le même plan qu'un propriétaire. C'est `tonDeLExpediteur` qui rend
+ * déjà `'nous'` pour nos adresses, et ce composant n'en peint aucune.
+ *
+ * ⚠️ UNE LIGNE QUI SE REPLIE, ET NON UNE COLONNE : Arno demande « à la suite sur la même ligne (retour à la
+ * ligne propre si c'est long) ». Chaque destinataire est donc un bloc insécable (`white-space: nowrap` sur la
+ * pastille et son nom) dans un conteneur qui passe à la ligne entre deux destinataires — jamais au milieu d'une
+ * adresse.
+ *
+ * ⚠️ L'ADRESSE EST TOUJOURS ÉCRITE, MÊME QUAND LE NOM EXISTE : « Jean PONS <jb.pons@…> ». C'est l'adresse qui
+ * identifie quelqu'un, et c'est elle qu'on recopie pour chercher ailleurs ; un nom seul oblige à rouvrir le
+ * mail dans Gmail pour savoir à qui l'on a écrit.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function UneAdresse({ p, tonDe }: { p: PersonneDuMail; tonDe?: (adresse: string) => TonMail | null }) {
+  const ton = tonDe === undefined ? null : tonDe(p.adresse);
+  /* 🔴 AUCUNE PASTILLE POUR NOUS NI POUR L'INCONNU : « rien pour l'agence » (Arno), et rien non plus quand
+     l'appelant ne sait pas répondre — une pastille grise par défaut aurait fait passer tout le monde pour
+     « non affecté », ce qui est une affirmation. */
+  const peint = ton !== null && ton !== 'nous';
+  return (
+    <span className="vdb-qui">
+      {peint && (
+        <span className={`vdb-pastille vdb-pastille--${ton}`} title={motTonDeMail(ton)}
+          aria-label={motTonDeMail(ton)} />
+      )}
+      {p.nom !== null && <span className="vdb-qui-nom">{p.nom}</span>}
+      <span className="vdb-qui-adr">{p.nom === null ? p.adresse : `<${p.adresse}>`}</span>
+    </span>
+  );
+}
+
+function LigneAdresses({ mot, gens, tonDe }: {
+  mot: string; gens: readonly PersonneDuMail[]; tonDe?: (adresse: string) => TonMail | null;
+}) {
+  if (gens.length === 0) return null;
+  return (
+    <p className="vdb-dest">
+      <span className="vdb-dest-mot">{mot} :</span>
+      {gens.map((p, i) => (
+        <UneAdresse key={`${p.adresse}-${i}`} p={p} tonDe={tonDe} />
+      ))}
+    </p>
+  );
+}
+
+function AdressesDuMail({ l, tonDe }: {
+  l: LigneHistorique; tonDe?: (adresse: string) => TonMail | null;
+}) {
+  return (
+    <div className="vdb-adresses">
+      {/* 🔴 « DE » EN PREMIER, AU-DESSUS DE « À » — demande d'Arno, et c'est l'ordre d'un en-tête de courrier. */}
+      <LigneAdresses mot="De" gens={[{ nom: l.deNom, adresse: l.de }]} tonDe={tonDe} />
+      <LigneAdresses mot="À" gens={l.a} tonDe={tonDe} />
+      <LigneAdresses mot="Cc" gens={l.cc} tonDe={tonDe} />
+      {/* ⚠️ « Cci » SEULEMENT SI ON LE CONNAÎT : on ne sait la copie cachée d'un mail REÇU que si l'on y était.
+          Une ligne « Cci : — » sur un mail reçu laisserait croire qu'il n'y en avait pas. */}
+      <LigneAdresses mot="Cci" gens={l.cci} tonDe={tonDe} />
+      {/* ⚠️ LE REPLI DU DÉPÔT RESTE VISIBLE quand la liste ancienne était bornée et que la neuve est vide : un
+          mail d'avant la capture des champs `jsonb` n'a que `destinataires`. Le taire aurait fait disparaître
+          des destinataires qu'on affichait hier. */}
+      {l.a.length === 0 && l.cc.length === 0 && l.destinataires.length > 0 && (
+        <p className="vdb-dest"><span className="vdb-dest-mot">À :</span> {l.destinataires.join(', ')}</p>
+      )}
+    </div>
+  );
+}
+
+export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LA CATÉGORIE D'UNE ADRESSE, DEMANDÉE À L'APPELANT ═══════════════
+   *
+   * DEMANDE D'ARNO : « Chaque adresse porte la petite pastille de couleur de sa catégorie (rouge propriétaire,
+   * vert locataire, bleu tiers, gris non affecté, rien pour l'agence), avec une info-bulle sur la catégorie. »
+   *
+   * 🔴 L'APPELANT RÉPOND, PARCE QUE LUI SEUL SAIT. Les catégories sont celles d'UN BIEN : la même adresse est
+   * « locataire » sur un logement et « tiers » sur un autre. Cette ligne, elle, est montée par quatre écrans —
+   * dont la fiche d'un locataire, qui n'a aucun bien en tête.
+   *
+   * ⚠️ ABSENTE ⇒ AUCUNE PASTILLE, et les trois autres écrans ne bougent pas d'un pixel. Les adresses s'y
+   * affichent quand même : c'est la COULEUR qui manque, pas l'information.
+   */
+  tonDe?: (adresse: string) => TonMail | null;
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LES MOTS CHERCHÉS, SURLIGNÉS DANS L'APERÇU ═════════════════════════
    *
@@ -361,10 +455,19 @@ export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surli
       {/* ⚠️ LE DÉTAIL S'OUVRE SUR PLACE : on ne quitte pas la fiche pour lire un mail de ce bien. */}
       {ouvert && (
         <div className="vdb-detail">
-          {l.destinataires.length > 0 && (
-            <p className="vdb-dest">À : {l.destinataires.slice(0, 6).join(', ')}
-              {l.destinataires.length > 6 && ' et d’autres'}</p>
-          )}
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — DE / À / CC / CCI, TOUTES LES ADRESSES ══════════════════
+              DEMANDE D'ARNO (05/10/2026) : « Au-dessus de “À :”, une ligne “De : Nom <adresse>”. “À :” liste
+              TOUS les destinataires, à la suite sur la même ligne (retour à la ligne propre si c'est long).
+              Ligne “Cc :” si des personnes sont en copie. Cci seulement si on le connaît (nos envois). Chaque
+              adresse porte la petite pastille de couleur de sa catégorie […] avec une info-bulle. »
+
+              🔴 CE QUE CELA REMPLACE : une seule ligne « À : » qui mêlait le À ET le Cc, bornée à six, suivie
+              de « et d'autres ». On ne savait donc ni qui était en copie, ni combien manquaient, ni qui avait
+              écrit — l'expéditeur n'était nulle part dans le détail.
+
+              ⚠️ LES LISTES SONT COMPLÈTES, SANS BORNE. Mesuré : le pire mail du dépôt porte 52 destinataires,
+              et la moyenne est de 1,15. C'est une ligne qui se replie, pas une liste qui explose. */}
+          <AdressesDuMail l={l} tonDe={tonDe} />
           {lisibleOuvert !== null && lisibleOuvert.visible !== '' && (
             <p className="vdb-corps">{lisibleOuvert.visible}</p>
           )}
@@ -475,7 +578,28 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-trombone{font-size:.76rem;font-weight:600;color:var(--color-svv-ink);flex:0 0 auto}
 .vdb-detail{border-top:1px solid var(--color-svv-line);padding:10px 12px 12px 26px;
   display:flex;flex-direction:column;gap:.5rem;background:var(--color-svv-field)}
-.vdb-dest{margin:0;font-size:.8rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — DE / A / CC / CCI, AVEC LEURS PASTILLES ════════════════════════════
+   DEMANDE D'ARNO : « “A :” liste TOUS les destinataires, A LA SUITE SUR LA MEME LIGNE (retour a la ligne propre
+   si c'est long) ». D'ou un conteneur en flex qui passe a la ligne ENTRE deux destinataires, et un
+   destinataire qui ne se coupe jamais en deux (voir flex-wrap).
+   ⚠️ AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul terminerait. */
+.vdb-adresses{display:flex;flex-direction:column;gap:.15rem;margin:0 0 .3rem}
+.vdb-dest{margin:0;font-size:.8rem;color:var(--color-svv-muted);display:flex;flex-wrap:wrap;
+  align-items:baseline;gap:.1rem .45rem}
+/* Le mot (De / A / Cc / Cci) a une largeur fixe : les quatre lignes s'alignent, et l'oeil descend tout droit. */
+.vdb-dest-mot{flex:0 0 auto;min-width:2.1rem;font-weight:700;color:var(--color-svv-ink)}
+/* UN destinataire = un bloc insecable. Le retour a la ligne se fait ENTRE deux, jamais au milieu d'une adresse —
+   sauf si une seule adresse depasse la largeur, auquel cas overflow-wrap la coupe plutot que de deborder. */
+.vdb-qui{display:inline-flex;align-items:baseline;gap:.25rem;max-width:100%;overflow-wrap:anywhere}
+.vdb-qui-nom{color:var(--color-svv-ink)}
+.vdb-qui-adr{color:var(--color-svv-muted)}
+/* LA PASTILLE : un rond plein de 8 px, aligne sur la ligne de base du texte. Les quatre tons sont des JETONS,
+   donc lisibles en Clair comme en Sombre ; « nous » n'en a pas — nous ne sommes pas une partie du bien. */
+.vdb-pastille{flex:0 0 auto;width:8px;height:8px;border-radius:999px;transform:translateY(-1px)}
+.vdb-pastille--rouge{background:var(--color-svv-red)}
+.vdb-pastille--vert{background:var(--color-svv-green)}
+.vdb-pastille--bleu{background:var(--color-svv-blue)}
+.vdb-pastille--gris{background:var(--color-svv-line-strong)}
 .vdb-corps{margin:0;font-size:.86rem;color:var(--color-svv-ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .vdb-evts{margin:0;display:flex;flex-wrap:wrap;gap:.35rem}
 .vdb-pages{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.2rem}

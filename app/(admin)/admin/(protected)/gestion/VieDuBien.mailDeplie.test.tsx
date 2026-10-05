@@ -5,6 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { LigneVie } from './VieDuBien';
 import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — le ton d'une adresse, celui de la légende du listing. */
+import type { TonMail } from '../../../../lib/gestion/historiqueBien';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-4, POINTS 5 ET 6 — LE MAIL DÉPLIÉ ══════════════════════════════════════════════════
@@ -274,7 +276,10 @@ const LIGNE: LigneHistorique = {
   messageId: MESSAGE, filId: 77, messageIdRfc: null,
   recuLe: '2026-09-29T14:42:00.000Z', sens: 'recu',
   de: 'paul.mercier@exemple.test', deNom: 'Paul Mercier',
-  destinataires: ['gestion@exemple.test'], objet: 'Prise de possession',
+  destinataires: ['gestion@exemple.test'],
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — les trois champs séparés : De / À / Cc, avec leurs noms. */
+  a: [{ nom: 'Gestion', adresse: 'gestion@exemple.test' }], cc: [], cci: [],
+  objet: 'Prise de possession',
   extrait: EXTRAIT, pieces: [],
   parCible: { sorte: 'lot', cle: 'LOT-47', id: null }, cibleLibelle: 'Lot 47',
   source: 'rattachement', evenements: [],
@@ -403,5 +408,131 @@ describe('Point 6 — « Voir la conversation d’origine → » est en bas à d
       }));
     });
     expect(container.querySelector('.vdb-sortie')).toBeNull();
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LE MAIL DÉPLIÉ MONTRE TOUTES SES ADRESSES ═════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : « Au-dessus de “À :”, une ligne “De : Nom <adresse>”. “À :” liste TOUS les
+ * destinataires, à la suite sur la même ligne (retour à la ligne propre si c'est long). Ligne “Cc :” si des
+ * personnes sont en copie. Cci seulement si on le connaît (nos envois). Chaque adresse porte la petite pastille
+ * de couleur de sa catégorie (rouge propriétaire, vert locataire, bleu tiers, gris non affecté, rien pour
+ * l'agence), avec une info-bulle sur la catégorie. »
+ *
+ * CE QUE CELA REMPLACE : une seule ligne « À : » qui mêlait le À ET le Cc, bornée à six, suivie de « et
+ * d'autres ». On ne savait ni qui était en copie, ni combien manquaient, ni qui avait écrit.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴🔴 le mail déplié : De / À / Cc / Cci, et leurs pastilles', () => {
+  const COMPLET: LigneHistorique = {
+    ...LIGNE,
+    de: 'proprio@fictif.test', deNom: 'M. ROI Nathan',
+    a: [
+      { nom: 'CRITERIMMO', adresse: 'gestion@criterimmo.fr' },
+      { nom: 'MARTY Jean-François', adresse: 'locataire@fictif.test' },
+    ],
+    cc: [{ nom: null, adresse: 'assureur@fictif.test' }],
+    cci: [{ nom: 'Jean-Baptiste PONS', adresse: 'jb.pons@sansvisavis.com' }],
+  };
+
+  /** Les catégories de CE bien, telles que le bloc les passe. */
+  const TON = (adresse: string): TonMail | null => {
+    if (adresse.endsWith('@criterimmo.fr') || adresse.endsWith('@sansvisavis.com')) return 'nous';
+    if (adresse === 'proprio@fictif.test') return 'rouge';
+    if (adresse === 'locataire@fictif.test') return 'vert';
+    return 'gris';
+  };
+
+  /** ⚠️ ON RÉEMPLOIE LE BANC DU FICHIER (`root`, `container`) : il monte déjà la ligne avec son chargement de
+      corps simulé, et en ouvrir un second aurait fait deux montages concurrents dans le même document. */
+  async function deplier(l: LigneHistorique, tonDe?: (a: string) => TonMail | null) {
+    await act(async () => {
+      root.render(createElement(LigneVie, {
+        l, maintenant: new Date('2026-10-05T12:00:00Z'), ouvert: true, onBasculer: () => {}, tonDe,
+      }));
+    });
+  }
+
+  const ligneDe = (mot: string): HTMLElement | undefined =>
+    ([...container.querySelectorAll('.vdb-dest')] as HTMLElement[])
+      .find((p) => (p.querySelector('.vdb-dest-mot')?.textContent ?? '').startsWith(mot));
+
+  it('🔴🔴 LES QUATRE LIGNES, DANS L’ORDRE D’UN EN-TÊTE', async () => {
+    await deplier(COMPLET, TON);
+    const mots = [...container.querySelectorAll('.vdb-dest-mot')].map((m) => m.textContent);
+    expect(mots).toEqual(['De :', 'À :', 'Cc :', 'Cci :']);
+  });
+
+  it('🔴🔴 « De » PORTE LE NOM **ET** L’ADRESSE', async () => {
+    await deplier(COMPLET, TON);
+    const de = ligneDe('De') as HTMLElement;
+    expect(de.textContent).toContain('M. ROI Nathan');
+    expect(de.textContent).toContain('<proprio@fictif.test>');
+  });
+
+  /** 🔴 TOUS les destinataires, et plus aucun « et d'autres » : la liste n'est plus bornée. */
+  it('🔴🔴 « À » LISTE TOUS LES DESTINATAIRES, sans borne ni « et d’autres »', async () => {
+    const beaucoup = Array.from({ length: 12 }, (_, i) => ({ nom: null, adresse: `d${i}@fictif.test` }));
+    await deplier({ ...COMPLET, a: beaucoup }, TON);
+    const a = ligneDe('À') as HTMLElement;
+    expect(a.querySelectorAll('.vdb-qui')).toHaveLength(12);
+    expect(a.textContent).not.toContain('et d’autres');
+  });
+
+  /**
+   * 🔴🔴 LA PASTILLE DIT LA CATÉGORIE, ET SON MOT VIENT DE LA LÉGENDE — la même que sous le listing. Deux mots
+   * pour une même couleur auraient fait croire à deux notions.
+   */
+  it('🔴🔴 CHAQUE ADRESSE PORTE SA PASTILLE, avec le mot de la légende en info-bulle', async () => {
+    await deplier(COMPLET, TON);
+    const de = ligneDe('De') as HTMLElement;
+    expect(de.querySelector('.vdb-pastille--rouge')?.getAttribute('title')).toBe('propriétaire');
+    const a = ligneDe('À') as HTMLElement;
+    expect(a.querySelector('.vdb-pastille--vert')?.getAttribute('title')).toBe('locataire');
+    const cc = ligneDe('Cc') as HTMLElement;
+    expect(cc.querySelector('.vdb-pastille--gris')?.getAttribute('title')).toBe('non affecté');
+  });
+
+  /**
+   * 🔴🔴 « RIEN POUR L'AGENCE » EST UNE RÈGLE, PAS UN OUBLI : nous ne sommes pas une partie du bien, et nous
+   * peindre nous mettrait sur le même plan qu'un propriétaire. L'adresse, elle, reste écrite.
+   */
+  it('🔴🔴 NOS ADRESSES N’ONT AUCUNE PASTILLE — et restent pourtant lisibles', async () => {
+    await deplier(COMPLET, TON);
+    const a = ligneDe('À') as HTMLElement;
+    const nous = [...a.querySelectorAll('.vdb-qui')]
+      .find((q) => (q.textContent ?? '').includes('gestion@criterimmo.fr')) as HTMLElement;
+    expect(nous).toBeDefined();
+    expect(nous.querySelector('.vdb-pastille')).toBeNull();
+    expect(nous.textContent).toContain('CRITERIMMO');
+  });
+
+  /** ⚠️ PAS DE LIGNE « Cci » QUAND ON NE LA CONNAÎT PAS : un mail reçu n'en dit rien, et l'écrire mentirait. */
+  it('⚠️ AUCUNE LIGNE « Cc » NI « Cci » QUAND IL N’Y EN A PAS', async () => {
+    await deplier({ ...COMPLET, cc: [], cci: [] }, TON);
+    expect(ligneDe('Cc')).toBeUndefined();
+    expect(ligneDe('Cci')).toBeUndefined();
+    expect(ligneDe('À')).toBeDefined();
+  });
+
+  /**
+   * ⚠️ SANS CATÉGORIES, AUCUNE PASTILLE — et les trois autres écrans qui montent cette ligne (dont la fiche
+   * d'un locataire) ne bougent pas d'un pixel. Les adresses, elles, s'affichent quand même.
+   */
+  it('⚠️ SANS `tonDe`, LES ADRESSES RESTENT ET LES PASTILLES DISPARAISSENT', async () => {
+    await deplier(COMPLET);
+    expect(container.querySelectorAll('.vdb-pastille')).toHaveLength(0);
+    expect((ligneDe('À') as HTMLElement).textContent).toContain('locataire@fictif.test');
+  });
+
+  /**
+   * 🔴 LE REPLI DU DÉPÔT : un mail capturé avant les colonnes `jsonb` n'a que `destinataires`. Le taire aurait
+   * fait disparaître des destinataires qu'on affichait hier.
+   */
+  it('🔴 UN MAIL D’AVANT LES CHAMPS SÉPARÉS GARDE SES DESTINATAIRES', async () => {
+    await deplier({ ...COMPLET, a: [], cc: [], cci: [], destinataires: ['vieux@fictif.test'] }, TON);
+    expect(container.textContent).toContain('vieux@fictif.test');
   });
 });

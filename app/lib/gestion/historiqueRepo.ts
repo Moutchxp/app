@@ -24,7 +24,9 @@ import { sqlLiensDuBien } from './rattachement';
 import { sqlNomAffiche } from './nomUsageSql';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — les trois rôles qui font « participer » à un mail, écrits UNE fois :
    le compteur des capsules et le filtre du listing lisent la MÊME liste (règle d'Arno). */
-import { adressesDuChamp, ROLES_DE_PARTICIPATION, ROLES_RECEPTION, ROLE_EXPEDITEUR } from './adressesMessage';
+import {
+  adressesDuChamp, personnesDuChamp, ROLES_DE_PARTICIPATION, ROLES_RECEPTION, ROLE_EXPEDITEUR,
+} from './adressesMessage';
 import { nomBien, nomProprietaire } from './driveArbre';
 import { deplacementsDeMailsDisponibles, horsGestionDisponible, rattachementsDisponibles } from './schema';
 // LOT FICHES-ANNUAIRE — LA MÊME fonction pure que la boîte : un seul verdict de statut pour tout le module.
@@ -556,6 +558,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   const { rows } = await query<{
     message_id: string; fil_id: string; recu_le: string; sens: string; de: string; de_nom: string | null;
     objet: string | null; extrait: string | null; dest_a: string | null; dest_cc: string | null;
+    dest_cci: string | null;
     cible_sorte: string; cible_cle: string | null; cible_id: string | null; cible_libelle: string | null;
     source: string; message_id_rfc: string | null;
   }>(
@@ -567,6 +570,9 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
             m.sens, m.de_adresse AS de, m.de_nom, m.objet,
             left(coalesce(m.corps_texte, ''), ${EXTRAIT_MAX}) AS extrait,
             m.dest_a::text, m.dest_cc::text,
+            /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — la copie cachée, pour NOS envois : on ne la connaît que si
+               l'on y était. Mesuré : 790 messages en portent une, jamais plus de six adresses. */
+            m.dest_cci::text,
             ch.cible_sorte, ch.cible_cle, ch.cible_id, ch.cible_libelle, ch.source
        FROM choisis ch
        JOIN gestion_message m ON m.id = ch.message_id
@@ -611,6 +617,12 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
         de: r.de, deNom: r.de_nom, objet: r.objet,
         extrait: (r.extrait ?? '').trim() === '' ? null : (r.extrait ?? '').trim(),
         destinataires: destinatairesLisibles(r.dest_a, r.dest_cc),
+        /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — les trois champs SÉPARÉS et COMPLETS, nom et adresse à part.
+           ⚠️ NON BORNÉS, contrairement à `destinataires` : Arno demande « TOUS les destinataires ». Mesuré, le
+           pire mail du dépôt en porte 52 — c'est une ligne qui se replie, pas une liste qui explose. */
+        a: personnesDuChamp(r.dest_a),
+        cc: personnesDuChamp(r.dest_cc),
+        cci: personnesDuChamp(r.dest_cci),
         pieces: pieces.get(Number(r.message_id)) ?? [],
         parCible,
         // Le libellé FIGÉ du lien quand il y en a un ; sinon celui que l'annuaire donne aujourd'hui.

@@ -121,6 +121,35 @@ export function adresseDe(brut: string): string | null {
  * ⚠️ NE LÈVE JAMAIS : une valeur abîmée ne doit pas arrêter le relevé de 56 000 messages.
  */
 export function adressesDuChamp(brut: string | null | undefined): string[] {
+  /* 🔴 LE NOM EST RECOLLÉ quand il existe : `adresseDe` en tire l'adresse, et `adresseBrute` garde le tout.
+     ⚠️ UNE SEULE LECTURE DU `jsonb`, dans `personnesDuChamp` juste en dessous. Avant le lot 10, cette fonction
+     parsait elle-même ; en ajouter une seconde qui parse à son tour aurait fait deux lecteurs d'une colonne qui
+     en a déjà coûté 77 678 adresses perdues (voir l'encadré). */
+  return personnesDuChamp(brut).map((p) => (p.nom === null ? p.adresse : `${p.nom} <${p.adresse}>`));
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LE NOM **ET** L'ADRESSE, SÉPARÉS ══════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « Au-dessus de “À :”, une ligne “De : Nom <adresse>”. “À :” liste TOUS les
+ * destinataires […] Chaque adresse porte la petite pastille de couleur de sa catégorie. »
+ *
+ * 🔴 L'ÉCRAN A BESOIN DES DEUX SÉPARÉMENT, et c'est pour cela que cette fonction existe : le NOM pour
+ * l'afficher, l'ADRESSE pour y accrocher la pastille de sa catégorie. `adressesDuChamp` recollait les deux en
+ * une chaîne « Nom <adresse> », qu'il aurait fallu re-découper à l'écran — c'est-à-dire parser une seconde fois,
+ * et perdre l'adresse au premier nom qui contient un chevron.
+ *
+ * ⚠️ LES DEUX FORMES RESTENT ACCEPTÉES (une chaîne, ou un objet qui porte une `adresse`) et la fonction NE LÈVE
+ * JAMAIS : c'est la discipline de cette colonne depuis le correctif du 26/09/2026.
+ */
+export interface PersonneDuMail {
+  /** Le nom d'affichage, ou `null` quand l'en-tête n'en portait pas. */
+  nom: string | null;
+  /** L'adresse TELLE QU'ELLE EST DANS L'EN-TÊTE — c'est l'écran qui la normalise pour la rapprocher. */
+  adresse: string;
+}
+
+export function personnesDuChamp(brut: string | null | undefined): PersonneDuMail[] {
   const s = (brut ?? '').trim();
   if (s === '' || s === 'null' || s === '[]') return [];
   let j: unknown;
@@ -130,15 +159,17 @@ export function adressesDuChamp(brut: string | null | undefined): string[] {
     return [];
   }
   if (!Array.isArray(j)) return [];
-  const out: string[] = [];
+  const out: PersonneDuMail[] = [];
   for (const x of j) {
-    if (typeof x === 'string') { out.push(x); continue; }
+    /* Une CHAÎNE peut être « Nom <adresse> » : on la rend telle quelle en adresse, et l'écran s'en accommode —
+       c'est la forme historique, et elle n'existe plus dans les données d'aujourd'hui. */
+    if (typeof x === 'string') { out.push({ nom: null, adresse: x }); continue; }
     if (x !== null && typeof x === 'object') {
       const o = x as { adresse?: unknown; email?: unknown; nom?: unknown };
       const a = typeof o.adresse === 'string' ? o.adresse : typeof o.email === 'string' ? o.email : null;
       if (a === null) continue;
-      // Le NOM est recollé quand il existe : `adresseDe` en tire l'adresse, et `adresseBrute` garde le tout.
-      out.push(typeof o.nom === 'string' && o.nom.trim() !== '' ? `${o.nom} <${a}>` : a);
+      const nom = typeof o.nom === 'string' && o.nom.trim() !== '' ? o.nom.trim() : null;
+      out.push({ nom, adresse: a });
     }
   }
   return out;
