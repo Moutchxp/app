@@ -662,7 +662,56 @@ async function statutsDesMessages(
  *
  * ⚠️ AFFECTATIONS ACTIVES SEULEMENT : une affectation détachée n'a plus cours, et l'afficher ferait lire comme
  * ouvert ce que quelqu'un a justement retiré.
+ *
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 3 — UN ÉVÉNEMENT N'APPARAÎT QU'UNE FOIS PAR MAIL ══════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT (relevé au lot 4, accordé par Arno le 05/10/2026) : sur le bien 315, le message **57188** rendait
+ * `evenements: [1, 1, 1, 1, 1]` — la même carte cinq fois —, et l'écran affichait cinq capsules identiques en
+ * criant « Encountered two children with the same key » dans la console.
+ *
+ * 🔴 CE N'ÉTAIT PAS UNE DONNÉE ABÎMÉE, et c'est ce qui rendait le défaut invisible en base. `gestion_affectation`
+ * porte DEUX PORTÉES, tenues par deux index uniques partiels :
+ *   · `message_id IS NULL` → l'affectation couvre TOUT le fil (un seul actif par fil) ;
+ *   · `message_id = X`     → elle ne couvre QUE ce message (un seul actif par message).
+ * MESURÉ LE 05/10/2026 : le fil 36475 porte **cinq** affectations actives, une par message (57123, 57145, 57188,
+ * 57202, 57224), toutes vers l'événement 1 — cinq lignes parfaitement légitimes. La base entière n'en compte que
+ * six actives : cinq « un message » et une « fil entier ».
+ *
+ * 🔴 LE DÉFAUT ÉTAIT DANS LA LECTURE : la requête joignait `gestion_affectation` par `fil_id` SEUL. Cinq lignes
+ * pour un fil ⇒ cinq fois l'événement, pour CHACUN des huit messages du fil. La correction dédoublonne le couple
+ * (fil, événement) AVANT la jointure : c'est le fil qui porte un événement, pas chacune de ses affectations.
+ *
+ * ⚠️ CE QUI N'EST **PAS** CHANGÉ, ET POURQUOI. La portée reste celle du FIL : les huit messages continuent de
+ * porter l'événement, y compris les trois qu'aucune affectation ne vise nommément. Scoper par message aurait
+ * RETIRÉ la capsule de ces trois-là — un changement de comportement qu'Arno n'a pas demandé, et qui
+ * désaccorderait au passage le filtre « Événement ouvert », qui raisonne lui aussi par fil.
+ *   🔭 **Question posée à Arno** : veut-il que l'affectation « un message » n'éclaire QUE son message ? La base
+ *      le permet (la colonne existe et est renseignée), c'est un lot à part entière, et cela toucherait le
+ *      filtre autant que l'affichage.
+ *
+ * ⚠️ LE DÉDOUBLONNAGE EST DANS LA REQUÊTE, PAS DANS LA BOUCLE qui suit — demande d'Arno, mot pour mot : « Corrige
+ * la requête, pas seulement l'affichage. » Une boucle qui filtre aurait laissé la base rendre cinq lignes pour
+ * en garder une, et tout autre lecteur de cette table aurait hérité du même piège sans le savoir.
  */
+/**
+ * 🔴🔴 LA REQUÊTE, NOMMÉE ET EXPORTÉE — comme `sqlPageBoite` et `sqlCompteBoite` avant elle, et pour la même
+ * raison : elle porte une RÈGLE (« un événement n'apparaît qu'une fois par mail ») qui doit pouvoir être éprouvée
+ * sans base. L'épreuve lit donc ce que le dépôt émet VRAIMENT, et non une copie recollée dans un test.
+ *
+ * 🔴 LE COUPLE (fil, événement) EST RENDU UNIQUE AVANT LA JOINTURE : un fil porte un événement, et le nombre
+ * d'affectations qui l'y ont posé ne regarde pas l'écran. Le `DISTINCT` est dans la sous-requête et non sur le
+ * `SELECT` final, pour que `ev.ouvert_le` reste disponible au tri sans entrer dans la clé de dédoublonnage.
+ */
+export function sqlEvenementsDesFils(): string {
+  return `SELECT af.fil_id, ev.id, ev.reference, ev.objet, ev.etat
+            FROM (SELECT DISTINCT fil_id, evenement_id
+                    FROM gestion_affectation
+                   WHERE actif AND fil_id = ANY($1::bigint[])) af
+            JOIN gestion_evenement ev ON ev.id = af.evenement_id
+           ORDER BY af.fil_id, ev.ouvert_le DESC, ev.id DESC`;
+}
+
 async function evenementsDesFils(filIds: readonly number[]): Promise<Map<number, EvenementDeLigne[]>> {
   const out = new Map<number, EvenementDeLigne[]>();
   const uniques = [...new Set(filIds)];
@@ -670,11 +719,7 @@ async function evenementsDesFils(filIds: readonly number[]): Promise<Map<number,
   const { rows } = await query<{
     fil_id: string; id: string; reference: string; objet: string; etat: string;
   }>(
-    `SELECT af.fil_id, ev.id, ev.reference, ev.objet, ev.etat
-       FROM gestion_affectation af
-       JOIN gestion_evenement ev ON ev.id = af.evenement_id
-      WHERE af.actif AND af.fil_id = ANY($1::bigint[])
-      ORDER BY af.fil_id, ev.ouvert_le DESC, ev.id DESC`, [uniques]);
+    sqlEvenementsDesFils(), [uniques]);
   for (const r of rows) {
     const cle = Number(r.fil_id);
     const liste = out.get(cle) ?? [];
