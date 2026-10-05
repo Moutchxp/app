@@ -210,6 +210,83 @@ export const LIBELLE_INDEPENDANT_PROPOSE = 'Indépendant proposé — à vérifi
  */
 export const LIBELLE_CARTE_AUTO = 'Créée automatiquement — à vérifier et compléter';
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES CARTES DE CONTACT DANS LES CARROUSELS DU HAUT ══════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DÉCISION D'ARNO (05/10/2026) : « le “+” sert à enrichir le carrousel de la partie concernée. Les cartes de
+ * contact s'affichent donc dans les carrousels du haut de fiche. »
+ *
+ * 🔴 CE QUE CE LOT RÉPARE, ET C'EST MOI QUI L'AVAIS SIGNALÉ À LA FIN DU LOT 6. Les libellés ci-dessus
+ * (`LIBELLE_CONTACT_PROPRIETAIRE`, `LIBELLE_CONTACT_LOCATAIRE`) existaient et étaient éprouvés depuis le lot 1,
+ * mais AUCUN ÉCRAN NE LES RENDAIT : une carte créée par le « + » n'était visible que comme capsule dans le bloc du
+ * bas. Le geste avait donc un effet invisible — c'est le pire genre de geste.
+ *
+ * ⚠️ LES DEUX RÈGLES DE COMPTAGE SONT ICI, ET ELLES NE SE MÊLENT PAS. Le compteur du titre
+ * (« PROPRIÉTAIRE 1 ») ne compte QUE les clients ; les contacts ont le leur (« + 2 contacts »). Arno l'écrit en
+ * toutes lettres, et il a raison : un carrousel qui annoncerait « PROPRIÉTAIRE 3 » pour un propriétaire et deux
+ * contacts dirait que ce bien a trois propriétaires. C'est exactement le défaut qu'un compteur doit empêcher.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * Le petit compteur des contacts d'un carrousel. `null` quand il n'y en a aucun : « + 0 contact » serait du bruit.
+ *
+ * ⚠️ LE « + » DU LIBELLÉ EST UN SIGNE D'ADDITION, PAS UN BOUTON : il dit « en plus des clients ci-contre ». C'est
+ * ce qui empêche de lire ce nombre comme le compteur du titre.
+ */
+export function motContactsDuCarrousel(n: number): string | null {
+  const c = Math.max(0, Math.trunc(n));
+  if (c === 0) return null;
+  return c === 1 ? '+ 1 contact' : `+ ${c} contacts`;
+}
+
+/**
+ * ══ 🔴🔴 COMBIEN DE CARTES DE CONTACT ON MONTRE D'ABORD, ET CE QUE DIT LE RESTE ══════════════════════════════════
+ *
+ * RÈGLE D'ARNO : « Si un côté a beaucoup de contacts (dossier collectif, ex. bien 155 : 55), seules les 6
+ * premières cartes s'affichent, puis une carte “Voir les N autres contacts”, qui déplie. »
+ *
+ * 🔴 SIX, ET LE NOMBRE EST NOMMÉ ICI PLUTÔT QU'ÉCRIT DANS L'ÉCRAN. MESURÉ : le bien 155 porte **55 contacts** côté
+ * propriétaire. Cinquante-cinq cartes dans une piste horizontale, ce n'est pas un carrousel, c'est un mur : on
+ * fait défiler sans jamais savoir ce qu'on cherche, et les cartes CLIENTS — celles qu'on vient voir — se
+ * retrouvent noyées au bout d'un ruban de six écrans de large.
+ *
+ * ⚠️ LA BORNE NE CACHE RIEN : la carte « Voir les N autres contacts » DIT le nombre et déplie sur place. Un
+ * carrousel qui s'arrêterait à six sans le dire ferait croire que le bien n'a que six contacts — et c'est ce
+ * genre de silence qui fait rouvrir un dossier pour rien.
+ */
+export const CONTACTS_MONTRES = 6;
+
+/** Le mot de la carte qui déplie le reste. `null` quand tout est déjà montré. */
+export function motAutresContacts(total: number, montres = CONTACTS_MONTRES): string | null {
+  const reste = Math.max(0, Math.trunc(total) - Math.max(0, Math.trunc(montres)));
+  if (reste === 0) return null;
+  return reste === 1 ? 'Voir le dernier contact' : `Voir les ${reste} autres contacts`;
+}
+
+/** Le mot qui replie. Écrit ici pour que les deux états d'un même bouton vivent au même endroit. */
+export const MOT_REPLIER_CONTACTS = 'Masquer les contacts dépliés';
+
+/**
+ * ══ 🔴🔴 CE QU'UN CONTACT N'EST **JAMAIS** ════════════════════════════════════════════════════════════════════════
+ *
+ * RÈGLE D'ARNO : « Un contact ne reçoit jamais le badge PROPRIÉTAIRE ni EN PLACE, et ne compte jamais comme
+ * occupant. »
+ *
+ * 🔴 CE GARDE EST ÉCRIT COMME UNE FONCTION, ET NON COMME UN COMMENTAIRE, pour qu'une épreuve puisse le tenir. Le
+ * jour où quelqu'un passera le rôle d'un client à une carte de contact, c'est ici que ça se verra — et pas trois
+ * mois plus tard sur une fiche où un artisan sera annoncé propriétaire du logement.
+ */
+export const ROLES_INTERDITS_AUX_CONTACTS: readonly string[] = ['PROPRIÉTAIRE', 'EN PLACE', 'LOCATAIRE'];
+
+export function roleDeContactPermis(role: string): boolean {
+  const r = role.trim().toUpperCase();
+  /* Les libellés de contact CONTIENNENT le mot « PROPRIÉTAIRE » : on compare donc au libellé ENTIER, pas par
+     inclusion — sans quoi « CONTACT DU PROPRIÉTAIRE » serait refusé par son propre garde. */
+  return !ROLES_INTERDITS_AUX_CONTACTS.includes(r);
+}
+
 /** Le libellé du côté d'une carte. Un seul endroit où le mot se choisit. */
 export function libelleDuCote(cote: Cote): string {
   return cote === 'proprietaire' ? LIBELLE_CONTACT_PROPRIETAIRE : LIBELLE_CONTACT_LOCATAIRE;

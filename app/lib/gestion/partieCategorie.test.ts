@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import {
   categorieParDefaut, categorieRetenue, coteDeLaCategorie, libelleDuCote, motCartesRepliees,
   replierLesCartes, sertALAutomatisation, LIBELLE_CARTE_AUTO, LIBELLE_CONTACT_LOCATAIRE,
+  CONTACTS_MONTRES, motAutresContacts, motContactsDuCarrousel, MOT_REPLIER_CONTACTS,
+  roleDeContactPermis, ROLES_INTERDITS_AUX_CONTACTS,
   LIBELLE_CONTACT_PROPRIETAIRE, LIBELLE_INDEPENDANT_PROPOSE, SEUIL_REPLI_CARTES,
 } from './partieCategorie';
 import type { Categorie, Origine } from './partieCategorie';
@@ -454,5 +456,84 @@ describe('🔴 ⑤ le repli des cartes créées automatiquement', () => {
     expect(LIBELLE_INDEPENDANT_PROPOSE).toBe('Indépendant proposé — à vérifier');
     /* 🔴 LES DEUX MENTIONS SONT DISTINCTES : l'une annonce un rangement à confirmer, l'autre un contenu à finir. */
     expect(LIBELLE_CARTE_AUTO).not.toBe(LIBELLE_INDEPENDANT_PROPOSE);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES CARTES DE CONTACT DANS LES CARROUSELS DU HAUT ══════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DÉCISION D'ARNO (05/10/2026) : « le “+” sert à enrichir le carrousel de la partie concernée. »
+ *
+ * 🔴 CE LOT RÉPARE CE QUE J'AVAIS SIGNALÉ À LA FIN DU LOT 6 : les deux libellés de contact existaient et étaient
+ * éprouvés depuis le lot 1, mais AUCUN ÉCRAN NE LES RENDAIT. Une carte créée par le « + » n'était visible que
+ * comme capsule dans le bloc du bas — un geste à l'effet invisible.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('les deux compteurs d’un carrousel ne se mêlent pas', () => {
+  /**
+   * 🔴 LA RÈGLE D'ARNO, MOT POUR MOT : « Les compteurs “PROPRIÉTAIRE N” et “LOCATAIRE EN PLACE N” ne comptent QUE
+   * les clients ; les contacts ont leur propre petit compteur (“+ 2 contacts”). »
+   */
+  it('🔴🔴 le compteur des contacts est À PART, et son « + » est un signe d’addition', () => {
+    expect(motContactsDuCarrousel(2)).toBe('+ 2 contacts');
+    expect(motContactsDuCarrousel(1)).toBe('+ 1 contact');
+    expect(motContactsDuCarrousel(55)).toBe('+ 55 contacts');
+  });
+
+  it('⚠️ AUCUN CONTACT ⇒ AUCUN MOT : « + 0 contact » serait du bruit', () => {
+    expect(motContactsDuCarrousel(0)).toBeNull();
+    expect(motContactsDuCarrousel(-3)).toBeNull();
+  });
+});
+
+describe('six cartes de contact, puis « Voir les N autres »', () => {
+  /**
+   * 🔴 SIX, ET MESURÉ : le bien 155 porte 55 contacts côté propriétaire. Cinquante-cinq cartes dans une piste
+   * horizontale, ce n'est pas un carrousel, c'est un mur — et les cartes CLIENTS, celles qu'on vient voir, s'y
+   * retrouvent noyées au bout d'un ruban de six écrans de large.
+   */
+  it('🔴🔴 LE CAS DU BIEN 155 : 55 contacts ⇒ 6 montrés, 49 derrière une carte qui le DIT', () => {
+    expect(CONTACTS_MONTRES).toBe(6);
+    expect(motAutresContacts(55)).toBe('Voir les 49 autres contacts');
+  });
+
+  it('⚠️ LA BORNE NE CACHE RIEN : le nombre restant est toujours écrit', () => {
+    expect(motAutresContacts(8)).toBe('Voir les 2 autres contacts');
+    expect(motAutresContacts(7)).toBe('Voir le dernier contact');
+  });
+
+  it('⚠️ SIX OU MOINS : aucune carte de dépliage, tout est déjà là', () => {
+    for (const n of [0, 1, 5, 6]) expect(motAutresContacts(n)).toBeNull();
+  });
+
+  it('⚠️ LES DEUX ÉTATS DU MÊME BOUTON VIVENT AU MÊME ENDROIT', () => {
+    expect(MOT_REPLIER_CONTACTS).toContain('Masquer');
+  });
+
+  it('🔴 LA BORNE EST UN PARAMÈTRE, pas un chiffre écrit dans l’écran', () => {
+    expect(motAutresContacts(10, 3)).toBe('Voir les 7 autres contacts');
+    expect(motAutresContacts(3, 3)).toBeNull();
+  });
+});
+
+describe('ce qu’un contact n’est JAMAIS', () => {
+  /**
+   * 🔴🔴 RÈGLE D'ARNO : « Un contact ne reçoit jamais le badge PROPRIÉTAIRE ni EN PLACE, et ne compte jamais comme
+   * occupant. » Le garde est une FONCTION et non un commentaire, pour qu'une épreuve puisse le tenir : le jour où
+   * quelqu'un passera le rôle d'un client à une carte de contact, c'est ici que ça se verra — et pas trois mois
+   * plus tard sur une fiche où un artisan sera annoncé propriétaire du logement.
+   */
+  it('🔴🔴 LES RÔLES DES CLIENTS SONT REFUSÉS À UN CONTACT', () => {
+    for (const r of ROLES_INTERDITS_AUX_CONTACTS) expect(roleDeContactPermis(r)).toBe(false);
+    expect(roleDeContactPermis('propriétaire')).toBe(false);
+    expect(roleDeContactPermis('  EN PLACE  ')).toBe(false);
+  });
+
+  it('🔴 ET LES DEUX LIBELLÉS DE CONTACT SONT PERMIS, eux — malgré le mot « PROPRIÉTAIRE » qu’ils contiennent', () => {
+    /* ⚠️ LE PIÈGE QUE CE CAS FERME : une comparaison par INCLUSION aurait refusé « CONTACT DU PROPRIÉTAIRE »
+       par son propre garde. On compare au libellé ENTIER. */
+    expect(roleDeContactPermis(LIBELLE_CONTACT_PROPRIETAIRE)).toBe(true);
+    expect(roleDeContactPermis(LIBELLE_CONTACT_LOCATAIRE)).toBe(true);
   });
 });
