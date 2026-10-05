@@ -925,3 +925,62 @@ describe('🔴🔴 ⑩ poser une carte d’un côté retire celle de l’autre',
     expect(m).toContain("coalesce(lot_cle, '')");
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑪ LOT HISTORIQUE-BIEN-12, POINT 0 — CE QUE LA MIGRATION 310 PROMET
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DÉCISION D'ARNO (05/10/2026) : « une carte ne naît QUE du « + ». Les cartes 1459, 1461, 1472, 1474 et 1476
+   (nées d'un glisser) passent en 'retire', motif « créée par un déplacement — règle du + », tracé, jamais
+   supprimées. Leur capsule retrouve son « + ». La carte 1462 (créée par le « + ») reste. »
+
+   ⚠️ PAR FRAGMENTS SÉMANTIQUES (règle du dépôt) : on n'exige pas un SQL écrit d'une certaine façon, on exige
+   qu'il tienne les promesses d'Arno — et surtout qu'il ne supprime rien et ne déborde pas de sa liste.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑪ les cartes nées d’un déplacement sortent, et rien d’autre ne bouge', () => {
+  const sql = readFileSync('db/migrations/310_cartes_nees_dun_deplacement.sql', 'utf8');
+  const code = sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n').replace(/\s+/g, ' ');
+
+  it('🔴🔴 AUCUNE SUPPRESSION — « jamais supprimées », mot pour mot', () => {
+    expect(code).not.toMatch(/\bDELETE\b/i);
+    expect(code).not.toMatch(/\bTRUNCATE\b/i);
+    expect(code).not.toMatch(/\bDROP\b/i);
+  });
+
+  /** 🔴 UNE SEULE TABLE : les cartes. La CATÉGORIE du contact n'est pas touchée (voir l'encadré de la migration). */
+  it('🔴🔴 ELLE NE TOUCHE QUE LES CARTES, jamais les catégories', () => {
+    expect(new Set([...code.matchAll(/UPDATE\s+(\w+)/gi)].map((m) => m[1]))).toEqual(
+      new Set(['gestion_contact_carte']));
+    expect(code).not.toContain('gestion_partie_categorie');
+  });
+
+  /** 🔴 LE MOTIF EST CELUI D'ARNO, AU CARACTÈRE PRÈS : c'est par lui qu'on retrouvera ces lignes. */
+  it('🔴🔴 LE MOTIF D’ARNO, ET UN RETRAIT TRACÉ', () => {
+    expect(code).toContain("retire_motif = 'créée par un déplacement — règle du +'");
+    expect(code).toContain('retire_le = now()');
+    /* ⚠️ `retire_par_libelle` EST EXIGÉ par `gestion_contact_carte_retrait_chk` : un retrait doit dire qui. */
+    expect(code).toMatch(/retire_par_libelle = '[^']+'/);
+  });
+
+  /**
+   * 🔴🔴 EXACTEMENT LA LISTE D'ARNO, ET 1462 N'Y EST PAS. Elle est née du « + » : la retirer aurait effacé le
+   * seul geste que la règle autorise — et c'est précisément ce qu'il a tenu à distinguer.
+   */
+  it('🔴🔴 LES CINQ DE LA LISTE, ET PAS LA CARTE DU « + »', () => {
+    const ids = (code.match(/IN \(([\d, ]+)\)/) ?? ['', ''])[1].split(',').map((s) => Number(s.trim()));
+    expect(new Set(ids)).toEqual(new Set([1459, 1461, 1472, 1474, 1476]));
+    expect(ids).not.toContain(1462);
+    /* ⚠️ NI 1477 : née de « Valider une proposition », elle n'est pas dans la liste et n'est pas décidée ici. */
+    expect(ids).not.toContain(1477);
+  });
+
+  /**
+   * ⚠️ REJOUABLE SANS DOMMAGE, ET SANS ÉCRASER UN RETRAIT DÉJÀ FAIT. Trois des cinq (1472, 1474, 1476) avaient
+   * été retirées à la main par Arno le 05/10 à 15:48, sous le motif « retirée à la main » — qui est exact.
+   * Sans ce garde, la migration aurait réécrit leur motif, c'est-à-dire effacé une trace vraie.
+   */
+  it('🔴🔴 ELLE NE RETIRE QUE CE QUI EST ENCORE VIVANT', () => {
+    expect(code).toContain('AND retire_le IS NULL');
+  });
+});
