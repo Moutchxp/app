@@ -113,12 +113,71 @@ export function normaliserTelephone(brut: string | null | undefined): string | n
   return null;
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 0 — LE SCHÉMA `mailto:` N'EST PAS UNE ADRESSE ══════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : « normalise toute adresse saisie ou extraite (retirer “mailto:”, espaces,
+ * chevrons, majuscules) à l'entrée de la porte d'écriture ».
+ *
+ * 🔴 MESURÉ EN BASE AVANT D'ÉCRIRE, et c'est la mesure qui désigne le coupable : sur les **3 083 adresses
+ * distinctes** de `gestion_message_adresse`, **98 portent le préfixe `mailto:`** — et **les 98 existent AUSSI en
+ * clair**. Ce ne sont donc pas 98 personnes de plus : ce sont 98 personnes comptées DEUX FOIS, avec deux
+ * capsules, deux compteurs, et une carte de contact attachée à la mauvaise.
+ *
+ * 🔴 D'OÙ ELLES VIENNENT, ET POURQUOI LA CORRECTION EST **ICI**. `adresseDe` (adressesMessage.ts) lit ce qui est
+ * entre chevrons : un en-tête qui porte `<mailto:a.bruneel@…>` — ce que produisent certains clients de
+ * messagerie quand un lien HTML sert d'adresse — passait tel quel, parce que `mailto:a@b.fr` satisfait le motif
+ * (ni espace, une arobase, un point après). Corriger `adresseDe` seul aurait laissé la porte d'ÉCRITURE
+ * (`adressePropre` → `poserCarteAlaMain`) l'accepter ; corriger les deux séparément aurait fait deux règles.
+ * Cette fonction est, de son propre aveu, « la seule définition de la même adresse » : c'est donc ici.
+ *
+ * ⚠️ ON RETIRE AUSSI CHEVRONS, GUILLEMETS ET ESPACES DE BORD, bien que `adresseDe` les enlève déjà : la porte
+ * d'écriture, elle, reçoit ce qu'un humain colle — et un `<jean@fictif.fr>` collé depuis un en-tête ne doit pas
+ * naître en doublon de `jean@fictif.fr`.
+ *
+ * ⚠️ LA QUEUE D'UN `mailto:` EST COUPÉE (`?subject=…`), et SEULEMENT après un `mailto:` : un `?` n'a rien à faire
+ * dans une adresse, et le couper ailleurs reviendrait à accepter silencieusement une adresse abîmée. Mesuré :
+ * aucune des 3 083 n'en porte aujourd'hui.
+ *
+ * ⚠️ CE QUI RESTE EN BASE N'EST PAS TOUCHÉ PAR CETTE FONCTION : 37 cartes de contact et 53 catégories portent
+ * encore un `mailto:`. Elles continuent de s'afficher et de retrouver leur capsule, parce que le rapprochement
+ * passe lui aussi par ici (`cleAdresse`). Leur correction en base est une décision d'Arno, pas une conséquence.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
 /** Un e-mail en minuscules, ou `null` si ce n'en est pas un. Volontairement permissif sur la forme : on refuse ce
  *  qui n'a manifestement pas d'arobase ou pas de point après, jamais ce qui est seulement inhabituel. PUR. */
 export function normaliserEmail(brut: string | null | undefined): string | null {
-  const s = (brut ?? '').trim().toLowerCase();
-  if (s === '') return null;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s) ? s : null;
+  /* 🔴 LA NORMALISATION EST ÉCRITE UNE FOIS, dans `cleAdresse` juste en dessous. Ici on ne fait que JUGER ce
+     qu'elle rend : deux normalisations jumelles auraient fini par ne plus s'accorder, et c'est exactement le
+     défaut que cet encadré raconte. */
+  const s = cleAdresse(brut);
+  return s !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s) ? s : null;
+}
+
+/**
+ * ══ 🔴🔴 LA CLÉ DE RAPPROCHEMENT D'UNE ADRESSE — « est-ce la même personne ? » ════════════════════════════════════
+ *
+ * La MÊME normalisation que `normaliserEmail`, mais qui ne REFUSE jamais : elle rend toujours quelque chose, et
+ * c'est ce qui la rend utilisable pour COMPARER deux adresses déjà en base.
+ *
+ * 🔴 POURQUOI ELLE EXISTE, ET POURQUOI ELLE NE PEUT PAS ÊTRE `normaliserEmail`. Une capsule porte l'adresse
+ * TELLE QU'ELLE EST DANS LE COURRIER (`mailto:a.bruneel@…`), une carte porte la sienne. Pour savoir si la carte
+ * est celle de la capsule, il faut les comparer sous la même forme — mais sans jamais rendre `null`, sous peine
+ * de faire disparaître la capsule d'une adresse illisible. `normaliserEmail` répond « est-ce une adresse ? » ;
+ * celle-ci répond « est-ce la même ? ». Deux questions, deux fonctions, une seule normalisation.
+ *
+ * ⚠️ C'EST ELLE QUI GARDE LE LIEN quand une carte est corrigée : la carte 1465, dont l'adresse est passée de
+ * `mailto:a.bruneel@grospiron.com` à `a.bruneel@grospiron.com`, retrouve sa capsule parce que les DEUX tombent
+ * sur la même clé. Sans elle, corriger l'adresse aurait détaché la carte de sa capsule — et le « + » serait
+ * réapparu en face d'un contact qui a déjà sa fiche.
+ */
+export function cleAdresse(brut: string | null | undefined): string {
+  const bords = (s: string): string => s.replace(/^[<"'\s]+/, '').replace(/[>"'\s]+$/, '');
+  const nu = bords((brut ?? '').trim().toLowerCase());
+  /* 🔴 LE SCHÉMA PART, ET SA QUEUE AVEC LUI — voir l'encadré : `mailto:` est un lien, pas une adresse. */
+  return nu.startsWith('mailto:') ? bords(nu.slice('mailto:'.length).split('?')[0]) : nu;
 }
 
 /** Une date JJ/MM/AAAA → `AAAA-MM-JJ`, ou `null`. Rejette le 31/02 : une date impossible lue comme une autre

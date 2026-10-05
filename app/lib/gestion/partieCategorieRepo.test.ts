@@ -701,3 +701,61 @@ describe('🔴🔴 ⑦ la fiche d’un contact voyage jusqu’à la base', () =>
     expect(insert).toContain('telephone');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑧ LOT HISTORIQUE-BIEN-9, POINT 0 — LA PORTE D'ÉCRITURE NORMALISE CE QU'ELLE REÇOIT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO : « normalise toute adresse saisie ou extraite (retirer “mailto:”, espaces, chevrons,
+   majuscules) à l'entrée de la porte d'écriture, avec un test ».
+
+   🔴 LA RÈGLE N'EST PAS ÉCRITE ICI : `adressePropre` appelle `normaliserEmail`, « la seule définition de la même
+   adresse » du module. Ce groupe éprouve que la porte l'emploie VRAIMENT — c'est-à-dire qu'une adresse abîmée ne
+   peut plus naître en base, quelle que soit la façon dont elle arrive.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑧ aucune adresse abîmée ne peut plus entrer', () => {
+  /** Les quatre écritures d'une même personne, telles qu'elles arrivent d'un en-tête ou d'un copier-coller. */
+  const ECRITURES = [
+    'mailto:a.bruneel@grospiron.com',
+    '<mailto:A.Bruneel@Grospiron.com>',
+    '  <a.bruneel@grospiron.com>  ',
+    'A.BRUNEEL@grospiron.com',
+  ];
+
+  it('🔴🔴 LES QUATRE ÉCRITURES D’UNE PERSONNE ÉCRIVENT LA MÊME ADRESSE', async () => {
+    for (const forme of ECRITURES) {
+      queryMock.mockReset(); txMock.mockReset();
+      queryMock.mockResolvedValue({ rows: [{ id: '1' }] });
+      txMock.mockResolvedValue({ rows: [{ id: '1' }] });
+      await poserCarteAlaMain({ lotCle: '421', cote: 'locataire', adresse: forme, auteur: AUTEUR });
+      const insert = sqls().findIndex((s) => s.includes('INSERT INTO gestion_contact_carte'));
+      expect(params()[insert], forme).toContain('a.bruneel@grospiron.com');
+      expect(params()[insert], forme).not.toContain(forme.trim());
+    }
+  });
+
+  /**
+   * 🔴 LA MÊME PORTE POUR LA CATÉGORIE : c'est elle qui range la partie, et une catégorie posée sous
+   * `mailto:x@y` ne retrouverait jamais le courrier de `x@y` — le défaut mesuré sur 51 lignes vivantes.
+   */
+  it('🔴 LE RANGEMENT D’UNE PARTIE NORMALISE AUSSI', async () => {
+    await poserCategorieAlaMain({
+      adresse: 'mailto:A.Bruneel@Grospiron.com', lotCle: '421', categorie: 'locataire', auteur: AUTEUR,
+    });
+    expect(params().flat()).toContain('a.bruneel@grospiron.com');
+    expect(params().flat().join(' ')).not.toContain('mailto:');
+  });
+
+  /**
+   * ⚠️ ET CE QUI N'EST PAS UNE ADRESSE EST REFUSÉ AVANT TOUTE REQUÊTE, comme avant ce lot : un `mailto:` sans
+   * adresse derrière n'ouvre pas une carte vide, il n'ouvre rien.
+   */
+  it('⚠️ UN « mailto: » SANS ADRESSE EST REFUSÉ, sans toucher la base', async () => {
+    const r = await poserCarteAlaMain({ lotCle: '421', cote: 'locataire', adresse: 'mailto:', auteur: AUTEUR });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.motif).toContain('Adresse illisible');
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(txMock).not.toHaveBeenCalled();
+  });
+});

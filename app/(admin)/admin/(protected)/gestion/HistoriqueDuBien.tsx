@@ -70,6 +70,8 @@ import { annoncerCartesContact, concerneCeBien, ecouterCartesContact, type Signa
  * se range côté propriétaire ou côté locataire, et c'est la même fonction que la reprise a employée.
  */
 import { carteMonteAuCarrousel, coteDeLaCategorie, type Categorie } from '../../../../lib/gestion/partieCategorie';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 0 — « est-ce la même adresse ? », écrit une fois pour tout le module. */
+import { cleAdresse } from '../../../../lib/gestion/annuaire';
 import type { EvenementDuBien } from '../../../../lib/gestion/historiqueBienRepo';
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE FORMULAIRE DU « + » EST CELUI DES CLIENTS, IMPORTÉ ═══════════════════
@@ -901,7 +903,23 @@ export function HistoriqueDuBien({
        * rien à ouvrir — il reste tout à créer.
        */
       if (!carteMonteAuCarrousel(c)) continue;
-      const cle = c.adresse.trim().toLowerCase();
+      /**
+       * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 0 — LA CLÉ DE RAPPROCHEMENT, ET NON L'ADRESSE BRUTE ════════════════
+       *
+       * `cleAdresse` retire le schéma `mailto:` des DEUX côtés — la carte et la capsule. C'est ce qui fait tenir
+       * le lien quand l'une des deux porte encore ce préfixe : mesuré en base, **37 cartes** et **53 catégories**
+       * en portent un, et leurs capsules existent sous les deux écritures (les 98 adresses `mailto:` de la base
+       * existent TOUTES aussi en clair).
+       *
+       * 🔴 SANS CELA, CORRIGER UNE ADRESSE DÉTACHERAIT SA CARTE : la carte 1465, passée de
+       * `mailto:a.bruneel@…` à `a.bruneel@…`, aurait perdu sa capsule, le « + » serait réapparu en face d'un
+       * contact qui a déjà sa fiche — et un second clic aurait créé une carte en double.
+       *
+       * ⚠️ SEUL CE RAPPROCHEMENT-LÀ CHANGE DE CLÉ. Les catégories, les périodes et le filtre continuent de lire
+       * l'adresse TELLE QU'ELLE EST DANS LE COURRIER : c'est elle que le serveur compare à l'archive, et la
+       * normaliser avant de l'envoyer ne retrouverait plus les mails rangés sous l'ancienne écriture.
+       */
+      const cle = cleAdresse(c.adresse);
       const s0 = m.get(cle) ?? new Set<string>();
       s0.add(c.cote);
       m.set(cle, s0);
@@ -1999,7 +2017,9 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
    *     deux définitions de « client » auraient fini par diverger, et le « + » serait apparu sur un propriétaire ;
    *   · pas de carte de ce côté → il disparaît dès qu'elle existe.
    */
-  const pastille = pastilleDeCapsule(sorte, g.cle, p.cartesParAdresse.get(cle) ?? new Set());
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 0 — LA MÊME CLÉ DE RAPPROCHEMENT QUE LA CARTE DES CARTES (voir son
+     encadré) : `mailto:a@b` et `a@b` sont la même personne, et la pastille doit le savoir. */
+  const pastille = pastilleDeCapsule(sorte, g.cle, p.cartesParAdresse.get(cleAdresse(i.adresse)) ?? new Set());
   const motsPastille = motPastille(pastille, nomLisible);
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — UN CLIENT DONT L'ADRESSE NE PEUT RIEN FILTRER.

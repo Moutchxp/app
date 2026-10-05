@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  clePersonne, cleProprietaire, contactsDeCellules, decouperCellule, libelleContact, lireDateFr, nomComplet, normaliserEmail, normaliserTelephone, normaliserTexte, plusAncienne,
+  cleAdresse, clePersonne, cleProprietaire, contactsDeCellules, decouperCellule, libelleContact, lireDateFr, nomComplet, normaliserEmail, normaliserTelephone, normaliserTexte, plusAncienne,
 } from './annuaire';
 
 /**
@@ -64,6 +64,56 @@ describe('🔴 ① une chose, une forme canonique', () => {
     for (const non of ['', 'jean', 'jean@', '@fictif.fr', 'jean@fictif', 'a b@fictif.fr']) {
       expect(normaliserEmail(non), non).toBeNull();
     }
+  });
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 0 — `mailto:` N'EST PAS UNE ADRESSE ═══════════════════════════════════
+   *
+   * MESURÉ EN BASE : sur les 3 083 adresses distinctes de `gestion_message_adresse`, **98 portent le préfixe
+   * `mailto:`**, et **les 98 existent AUSSI en clair**. Ce ne sont pas 98 personnes de plus : ce sont 98
+   * personnes comptées deux fois — deux capsules, deux compteurs, et une carte attachée à la mauvaise.
+   *
+   * D'où elles viennent : un en-tête qui porte `<mailto:x@y>` (ce que produisent certains clients de messagerie
+   * quand un lien HTML sert d'adresse). `mailto:x@y.fr` satisfaisait le motif — ni espace, une arobase, un point
+   * après —, donc il entrait tel quel, à l'extraction COMME à la saisie.
+   */
+  it('🔴🔴 LE SCHÉMA « mailto: » EST RETIRÉ — à l’extraction comme à la saisie', () => {
+    expect(normaliserEmail('mailto:jean@fictif.fr')).toBe('jean@fictif.fr');
+    expect(normaliserEmail('MAILTO:Jean@Fictif.FR')).toBe('jean@fictif.fr');
+    /* ⚠️ La forme réellement rencontrée : le schéma DANS les chevrons d'un en-tête. */
+    expect(normaliserEmail('<mailto:jean@fictif.fr>')).toBe('jean@fictif.fr');
+    /* ⚠️ Et sa queue de lien part avec lui — un « ? » n'a rien à faire dans une adresse. */
+    expect(normaliserEmail('mailto:jean@fictif.fr?subject=Devis%20toiture')).toBe('jean@fictif.fr');
+    /* 🔴 LES DEUX ÉCRITURES TOMBENT SUR LA MÊME CHAÎNE : c'est tout l'objet de ce module. */
+    expect(normaliserEmail('mailto:jean@fictif.fr')).toBe(normaliserEmail('jean@fictif.fr'));
+  });
+
+  it('🔴 CHEVRONS, GUILLEMETS ET ESPACES DE BORD NE FONT PAS UNE AUTRE PERSONNE', () => {
+    for (const forme of ['<jean@fictif.fr>', ' "jean@fictif.fr" ', "'jean@fictif.fr'", '  <jean@fictif.fr>  ']) {
+      expect(normaliserEmail(forme), forme).toBe('jean@fictif.fr');
+    }
+  });
+
+  it('⚠️ UN « mailto: » SANS ADRESSE DERRIÈRE RESTE REFUSÉ — on ne rend pas une chaîne vide', () => {
+    for (const non of ['mailto:', 'mailto:jean', 'mailto:?subject=x', '<mailto:>']) {
+      expect(normaliserEmail(non), non).toBeNull();
+    }
+  });
+
+  /**
+   * ══ 🔴🔴 `cleAdresse` RÉPOND « EST-CE LA MÊME ? », JAMAIS « EST-CE VALIDE ? » ═══════════════════════════════
+   *
+   * C'est elle qui garde le lien entre une carte de contact et sa capsule quand l'une des deux porte encore un
+   * `mailto:`. Elle ne rend donc JAMAIS `null` : une adresse illisible doit garder sa capsule, pas disparaître.
+   */
+  it('🔴🔴 LA CLÉ DE RAPPROCHEMENT NE REFUSE RIEN, et rapproche les deux écritures', () => {
+    expect(cleAdresse('mailto:a.bruneel@grospiron.com')).toBe('a.bruneel@grospiron.com');
+    expect(cleAdresse('A.Bruneel@Grospiron.com ')).toBe('a.bruneel@grospiron.com');
+    expect(cleAdresse('mailto:a.bruneel@grospiron.com')).toBe(cleAdresse('a.bruneel@grospiron.com'));
+    /* ⚠️ Ce qui n'est pas une adresse garde une clé — non vide, donc jamais confondu avec « rien ». */
+    expect(cleAdresse('ni une adresse')).toBe('ni une adresse');
+    expect(cleAdresse('')).toBe('');
+    expect(cleAdresse(null)).toBe('');
   });
 
   it('une date JJ/MM/AAAA devient une date ISO, et une date impossible est refusée', () => {
