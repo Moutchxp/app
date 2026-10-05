@@ -7,6 +7,8 @@ import { normaliserEmail } from './annuaire';
  */
 import { sqlLiensDuBien } from './rattachement';
 import { categorieRetenue } from './partieCategorie';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — le telephone d'une signature : fonction PURE, elle ne garde rien. */
+import { telephoneEnSignature } from './lisibilite';
 import type { Categorie, CategorieRangee, Cote, Origine } from './partieCategorie';
 import type { Auteur } from './gestes';
 
@@ -274,6 +276,112 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
     nom: r.nom, telephone: r.telephone, origine: r.origine as 'auto' | 'manuel',
     verifieLe: r.verifie_le, verifiePar: r.verifie_par, creeLe: r.cree_le, creePar: r.cree_par,
   }));
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LE NOM ET LE TÉLÉPHONE À PRÉ-REMPLIR DANS LA CARTE ═════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : la carte qu'ouvre le « + » « est pré-remplie : nom, adresse, téléphone trouvé en
+ * signature ».
+ *
+ * 🔴 POURQUOI ÇA VALAIT LE DÉTOUR, MESURÉ AVANT D'ÊTRE ÉCRIT. Sur les 485 cartes actives du 05/10/2026, **zéro**
+ * porte un téléphone : la colonne existe depuis la migration 304 et rien ne l'a jamais remplie. Or sur les 183
+ * adresses de ces cartes qui ont RÉELLEMENT écrit, **151 — 83 %** portent un numéro français dans le corps de
+ * leurs mails. Renseigner cela à la main 151 fois est exactement le travail qu'Arno veut éviter.
+ *
+ * 🔴 UNE SEULE LECTURE POUR TOUT LE BIEN, ET AUCUNE ADRESSE DANS UNE URL. L'écran reçoit ces coordonnées AVEC la
+ * liste des parties, au même appel : le « + » n'a donc rien à demander au moment du clic. C'est aussi ce qui
+ * évite de faire voyager une adresse personnelle dans une chaîne de requête — ce que ce dépôt refuse partout,
+ * et que je ne vais pas autoriser pour une commodité de pré-remplissage.
+ *
+ * 🔴 LE NOM VIENT DU MAIL, PAS D'UNE DEVINETTE : `gestion_message_adresse.adresse_brute` porte le « Nom
+ * <adresse> » tel qu'il a été reçu, et c'est le nom le PLUS FRÉQUENT qui gagne. Une personne signe parfois
+ * « J. Mercier » et parfois « Jean Mercier (Puro Flow) » ; le plus fréquent est celui qu'elle emploie.
+ *
+ * ⚠️ BORNÉE À SES DERNIERS MAILS, et c'est ce qui rend la lecture tenable : on cherche une signature, et la plus
+ * récente est la bonne. Lire tout l'historique d'un bien bavard coûterait des centaines de corps pour un champ
+ * de formulaire.
+ *
+ * ⚠️ LE CORPS N'EST LU QUE POUR LE TÉLÉPHONE, et par une fonction PURE (`telephoneEnSignature`) qui n'en garde
+ * rien. Aucun extrait de courrier ne sort de cette fonction.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface CoordonneesTrouvees {
+  adresse: string;
+  nom: string | null;
+  telephone: string | null;
+}
+
+/** Combien de mails récents on examine par adresse pour y chercher une signature. */
+const MAILS_POUR_LA_SIGNATURE = 5;
+
+export async function coordonneesDesParties(lotCle: string): Promise<CoordonneesTrouvees[]> {
+  const lot = lotPropre(lotCle);
+  /**
+   * 🔴 ELLE SONDE LA 304 COMME TOUTES SES VOISINES, et ce n'est pas une formalité : sans la migration, aucune
+   * carte de contact ne peut naître (`poserCarteAlaMain` refuse), donc chercher de quoi la PRÉ-REMPLIR serait du
+   * travail pour rien — une lecture de corps de mails sur tout un bien, pour un formulaire qui ne s'ouvrira pas.
+   *
+   * ⚠️ ELLE NE NOMME AUCUNE DES DEUX TABLES NEUVES : elle lit `gestion_rattachement` et
+   * `gestion_message_adresse`, qui existaient avant. La sonde dit ici « ce travail a-t-il un destinataire ? »,
+   * et non « la table existe-t-elle ? ».
+   */
+  if (lot === null || !(await contactCarteDisponible())) return [];
+
+  /**
+   * 🔴 LES MAILS DU BIEN, PAR EXPÉDITEUR, LES PLUS RÉCENTS D'ABORD, CINQ PAR ADRESSE. Le `row_number` fait la
+   * borne par adresse et non globale : sans lui, un seul correspondant bavard consommerait les cinq places et
+   * tous les autres ressortiraient sans téléphone.
+   */
+  const { rows } = await query<{ adresse: string; adresse_brute: string | null; corps: string | null }>(
+    `WITH liens AS (
+       SELECT DISTINCT r.message_id
+         FROM gestion_rattachement r
+        WHERE r.cible_sorte = 'lot' AND r.cible_cle = $1 AND r.statut = 'confirme'),
+     envois AS (
+       SELECT a.adresse, a.adresse_brute, m.corps_texte,
+              row_number() OVER (PARTITION BY a.adresse ORDER BY m.recu_le DESC NULLS LAST, m.id DESC) AS rang
+         FROM gestion_message_adresse a
+         JOIN gestion_message m ON m.id = a.message_id
+        WHERE a.message_id IN (SELECT message_id FROM liens)
+          AND a.role = 'expediteur' AND NOT a.interne)
+     SELECT adresse, adresse_brute, left(coalesce(corps_texte, ''), 8000) AS corps
+       FROM envois WHERE rang <= $2
+      ORDER BY adresse, rang`, [lot, MAILS_POUR_LA_SIGNATURE]);
+
+  /** Par adresse : les noms vus (pour élire le plus fréquent) et le premier téléphone trouvé. */
+  const parAdresse = new Map<string, { noms: Map<string, number>; telephone: string | null }>();
+  for (const r of rows) {
+    const cle = r.adresse.trim().toLowerCase();
+    const e = parAdresse.get(cle) ?? { noms: new Map<string, number>(), telephone: null };
+    const nom = nomDeLAdresseBrute(r.adresse_brute, cle);
+    if (nom !== null) e.noms.set(nom, (e.noms.get(nom) ?? 0) + 1);
+    if (e.telephone === null) e.telephone = telephoneEnSignature(r.corps);
+    parAdresse.set(cle, e);
+  }
+
+  return [...parAdresse.entries()].map(([adresse, e]) => ({
+    adresse,
+    /* LE PLUS FRÉQUENT GAGNE ; à égalité, le plus long — il porte en général le prénom ET le nom. */
+    nom: [...e.noms.entries()].sort((a, b) => (b[1] - a[1]) || (b[0].length - a[0].length))[0]?.[0] ?? null,
+    telephone: e.telephone,
+  }));
+}
+
+/**
+ * Le nom lisible d'une adresse brute « Nom <adresse> », ou `null` si elle n'en porte pas.
+ *
+ * ⚠️ ON REFUSE UN « NOM » QUI EST L'ADRESSE ELLE-MÊME : beaucoup de clients de messagerie recopient l'adresse
+ * dans le champ du nom, et pré-remplir « puroflowparis@gmail.com » dans la case « Nom » n'apprendrait rien.
+ */
+function nomDeLAdresseBrute(brute: string | null, adresse: string): string | null {
+  const b = (brute ?? '').trim();
+  if (b === '') return null;
+  const m = /^\s*"?([^"<]*?)"?\s*<[^>]*>\s*$/.exec(b);
+  const nom = (m?.[1] ?? '').trim();
+  if (nom === '' || nom.toLowerCase() === adresse) return null;
+  return nom;
 }
 
 /**

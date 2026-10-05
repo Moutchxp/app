@@ -4,7 +4,8 @@ import { cibleDepuisTexte } from '../../../../../../lib/gestion/historique';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { coteDeLaCategorie, type Categorie } from '../../../../../../lib/gestion/partieCategorie';
 import {
-  annulerGesteDeRangement, lireCartesDuBien, lireCategoriesDuBien, poserCarteAlaMain, poserCategorieAlaMain,
+  annulerGesteDeRangement, coordonneesDesParties, lireCartesDuBien, lireCategoriesDuBien, poserCarteAlaMain,
+  poserCategorieAlaMain,
   retirerCarte, type GesteDeRangement,
 } from '../../../../../../lib/gestion/partieCategorieRepo';
 
@@ -89,9 +90,13 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     /* ⚠️ LES DEUX EN PARALLÈLE : elles ne dépendent pas l'une de l'autre, et l'écran les veut ensemble. */
-    const [parties, cartes] = await Promise.all([
+    const [parties, cartes, coordonnees] = await Promise.all([
       lireCategoriesDuBien(cible.cle ?? ''),
       lireCartesDuBien(cible.cle ?? ''),
+      /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — le nom et le telephone a PRE-REMPLIR dans la carte du « + ».
+         Ils arrivent AVEC la liste : le « + » n'a donc rien a demander au moment du clic, et aucune adresse
+         personnelle ne voyage dans une chaine de requete. */
+      coordonneesDesParties(cible.cle ?? ''),
     ]);
     return Response.json({
       etat: 'ok',
@@ -110,6 +115,15 @@ export async function GET(request: Request): Promise<Response> {
           id: c.id, cote: c.cote, adresse: c.adresse, nom: c.nom, telephone: c.telephone,
           origine: c.origine, verifie: c.verifieLe !== null,
         })),
+        /**
+         * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — CE QUE LA CARTE DU « + » PRÉ-REMPLIT. Demande d'Arno : « Elle
+         * est pré-remplie : nom, adresse, téléphone trouvé en signature. »
+         *
+         * ⚠️ RIEN D'AUTRE QUE CES TROIS CHAMPS NE SORT D'ICI : pas d'extrait de courrier, pas de date, pas
+         * d'identifiant de message. Le corps des mails a été lu pour y chercher un numéro, et il n'en reste
+         * rien dans la réponse.
+         */
+        coordonnees,
       },
     }, { headers: ENTETES });
   } catch (e) {

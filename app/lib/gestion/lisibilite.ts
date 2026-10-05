@@ -133,6 +133,60 @@ export function corpsLisible(texte: string | null | undefined, marqueurImage = '
   return { visible, cite };
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LE TÉLÉPHONE QU'UNE SIGNATURE PORTE. PUR. ══════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : la carte de contact qu'ouvre le « + » « est pré-remplie : nom, adresse,
+ * téléphone trouvé en signature ».
+ *
+ * 🔴 POURQUOI ÇA VAUT LA PEINE, MESURÉ AVANT D'ÊTRE ÉCRIT. Sur les 485 cartes de contact actives du 05/10/2026,
+ * **zéro** porte un téléphone : la colonne existe depuis la migration 304 et rien ne l'a jamais remplie. Or sur
+ * les 183 adresses de ces cartes qui ont RÉELLEMENT écrit, **151 — 83 %** portent un numéro français dans le
+ * corps de leurs mails. Le renseigner à la main 151 fois est exactement le travail qu'Arno veut éviter.
+ *
+ * 🔴 ON CHERCHE DANS LA **SIGNATURE**, ET NON DANS TOUT LE MAIL, et la nuance est le cœur de la fonction : un
+ * numéro cité au milieu d'un message est celui d'un plombier, d'un locataire, d'une assurance — pas celui de
+ * l'expéditeur. Le sien est en bas, sous son nom. On ne regarde donc que les DERNIÈRES lignes de la partie
+ * VISIBLE (jamais la citation : le numéro y serait celui de quelqu'un d'autre, à coup sûr).
+ *
+ * 🔴 LE DERNIER TROUVÉ GAGNE. Une signature porte parfois deux numéros (fixe puis mobile, ou standard puis
+ * direct) ; le plus bas est le plus personnel dans la très grande majorité des signatures françaises.
+ *
+ * ⚠️ `null` EST UNE RÉPONSE, PAS UN ÉCHEC : la plupart des mails n'ont pas de signature téléphonée, et le champ
+ * reste alors vide pour qu'un humain le remplisse. Inventer un numéro serait bien pire que ne rien proposer.
+ *
+ * ⚠️ LE FORMAT EST CONSERVÉ TEL QUEL, espaces et points compris. Normaliser serait un second juge du format
+ * d'un numéro, alors que `telephoneAffichage` tient déjà ce rôle dans ce dépôt pour l'affichage — et que la
+ * carte, elle, stocke ce que l'humain valide.
+ */
+
+/** Combien de lignes de bas de message on considère comme la zone de signature. */
+const LIGNES_DE_SIGNATURE = 12;
+
+/**
+ * Un numéro français : `+33` ou `0`, un chiffre de tête non nul, puis quatre paires. Les séparateurs admis sont
+ * l'espace, le point et le tiret — les trois que les signatures emploient.
+ *
+ * ⚠️ ANCRÉ SUR UNE FRONTIÈRE NON NUMÉRIQUE DES DEUX CÔTÉS : sans cela, « 0123456789012 » (un numéro de dossier,
+ * un SIRET) rendrait ses dix premiers chiffres comme un téléphone.
+ *
+ * ⚠️ `+33 (0) 1 …` EST ADMIS, et il l'est parce que la mesure l'a imposé : ce format est courant dans les
+ * signatures professionnelles françaises, et la première version du motif le laissait passer — elle rendait
+ * `null` sur une signature qui portait bel et bien un numéro. Le `(0)` est optionnel et ne vaut qu'après `+33`.
+ */
+const TELEPHONE_FR = /(?<![\d+])(?:\+33(?:\s?\(0\))?|0)\s?[1-9](?:[ .-]?\d{2}){4}(?!\d)/g;
+
+export function telephoneEnSignature(texte: string | null | undefined): string | null {
+  const { visible } = corpsLisible(texte ?? '');
+  if (visible.trim() === '') return null;
+  const lignes = visible.split('\n');
+  const bas = lignes.slice(Math.max(0, lignes.length - LIGNES_DE_SIGNATURE)).join('\n');
+  const trouves = bas.match(TELEPHONE_FR);
+  if (trouves === null || trouves.length === 0) return null;
+  return trouves[trouves.length - 1].trim();
+}
+
 /** Ce qu'il faut savoir d'une pièce pour décider si c'est une vraie pièce ou un bout de signature. */
 export interface PieceATrier {
   nomFichier: string;

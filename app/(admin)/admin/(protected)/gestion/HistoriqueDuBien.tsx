@@ -390,6 +390,20 @@ export function HistoriqueDuBien({
    * rien pré-remplir : on valide sans lire.
    */
   const [proposees, setProposees] = useState<ReadonlyMap<string, Categorie>>(new Map());
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LE NOM ET LE TÉLÉPHONE À PRÉ-REMPLIR ═══════════════════════════════
+   *
+   * DEMANDE D'ARNO : la carte du « + » « est pré-remplie : nom, adresse, téléphone trouvé en signature ».
+   *
+   * 🔴 ILS ARRIVENT AVEC LA LISTE DES PARTIES, EN UN SEUL APPEL, et c'est volontaire deux fois : le « + » n'a
+   * rien à demander au moment du clic (il ouvre la carte instantanément), et aucune adresse personnelle ne
+   * voyage dans une chaîne de requête — ce que ce dépôt refuse partout.
+   *
+   * ⚠️ VIDE EN CAS D'ÉCHEC : la carte s'ouvre alors avec la seule adresse, comme avant ce lot. Un
+   * pré-remplissage manquant n'empêche personne de saisir.
+   */
+  const [coordonnees, setCoordonnees] =
+    useState<ReadonlyMap<string, { nom: string | null; telephone: string | null }>>(new Map());
 
   /** Relire les rangements. Appelée au montage ET après une création : la partie doit changer de groupe en direct. */
   const relireParties = useCallback(async (): Promise<void> => {
@@ -402,6 +416,8 @@ export function HistoriqueDuBien({
         data?: {
           parties?: { adresse: string; categorie: string | null }[];
           cartes?: { cote: string; adresse: string; verifie: boolean }[];
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — ce que la carte du « + » pré-remplit. */
+          coordonnees?: { adresse: string; nom: string | null; telephone: string | null }[];
         };
       };
       const m = new Map<string, CategoriePartie>();
@@ -420,10 +436,16 @@ export function HistoriqueDuBien({
       setCategoriesRangees(m);
       setProposees(prop);
       setCartesContact(d.data?.cartes ?? []);
+      const co = new Map<string, { nom: string | null; telephone: string | null }>();
+      for (const c of d.data?.coordonnees ?? []) {
+        co.set(c.adresse.trim().toLowerCase(), { nom: c.nom, telephone: c.telephone });
+      }
+      setCoordonnees(co);
     } catch {
       setCategoriesRangees(new Map());
       setProposees(new Map());
       setCartesContact([]);
+      setCoordonnees(new Map());
     }
   }, [lotCle]);
   useEffect(() => { void relireParties(); }, [relireParties]);
@@ -880,13 +902,22 @@ export function HistoriqueDuBien({
      */
     const choisie = imposee ?? deduite;
     setRefusCreation(null);
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LE NOM ET LE TÉLÉPHONE SONT PRÉ-REMPLIS (demande d'Arno). Le nom
+     * vient du « Nom <adresse> » le plus fréquent de ses mails ; le téléphone, de la signature du plus récent
+     * qui en porte un. MESURÉ : 83 % des contacts qui ont écrit ont un numéro trouvable ainsi.
+     *
+     * ⚠️ UNE PROPOSITION, PAS UNE VÉRITÉ : les deux champs restent modifiables, et c'est l'humain qui valide.
+     * La carte créée est d'ailleurs marquée « à vérifier » tant que personne ne l'a regardée.
+     */
+    const trouve = coordonnees.get(cle);
     setACreer({
       adresse,
       categorie: choisie === undefined || choisie === 'a_repartir' ? '' : choisie,
-      nom: '',
-      telephone: '',
+      nom: trouve?.nom ?? '',
+      telephone: trouve?.telephone ?? '',
     });
-  }, [proposees]);
+  }, [proposees, coordonnees]);
 
   /**
    * ══ 🔴 VALIDER : LE RANGEMENT, PUIS LA CARTE — ET LA RELECTURE QUI FAIT CHANGER DE GROUPE ═══════════════════

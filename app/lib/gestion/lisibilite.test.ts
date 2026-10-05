@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   corpsLisible, estImageDeSignature, masquerReferencesImages, separerCitation, sqlEstVraiePiece,
-  TAILLE_MAX_SIGNATURE, trierPieces,
+  TAILLE_MAX_SIGNATURE, telephoneEnSignature, trierPieces,
 } from './lisibilite';
 
 /**
@@ -270,5 +270,81 @@ describe('separerCitation — l’attribution repliée par Gmail', () => {
     const r = separerCitation('Le 3 oct. 2026 à 10:18, Gestion <gestion@exemple.test> a\nécrit :\n\n> Bonjour,\n');
     expect(r.cite).toBeNull();
     expect(r.visible).toContain('Bonjour,');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LE TÉLÉPHONE QU'UNE SIGNATURE PORTE ════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO : la carte qu'ouvre le « + » « est pré-remplie : nom, adresse, téléphone trouvé en signature ».
+ *
+ * MESURÉ AVANT D'ÉCRIRE : sur les 485 cartes de contact actives du 05/10/2026, **zéro** porte un téléphone — la
+ * colonne existe depuis la migration 304 et rien ne l'a jamais remplie. Or sur les 183 adresses de ces cartes qui
+ * ont réellement écrit, **151 (83 %)** portent un numéro français dans le corps de leurs mails.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('telephoneEnSignature — le numéro de l’expéditeur, et pas celui d’un autre', () => {
+  it('🔴🔴 LE NUMÉRO D’UNE SIGNATURE ORDINAIRE', () => {
+    const corps = 'Bonjour,\n\nVoici le devis.\n\nCordialement,\nPaul Mercier\nPuro Flow\n01 41 21 43 31\n';
+    expect(telephoneEnSignature(corps)).toBe('01 41 21 43 31');
+  });
+
+  it('🔴 LES TROIS SÉPARATEURS QUE LES SIGNATURES EMPLOIENT, et le format international', () => {
+    for (const n of ['06.12.34.56.78', '06-12-34-56-78', '0612345678', '+33 6 12 34 56 78']) {
+      expect(telephoneEnSignature(`Bonjour,\n\nMerci.\n\nJean\n${n}\n`)).toBe(n);
+    }
+  });
+
+  it('🔴🔴 ON NE CHERCHE QUE DANS LA SIGNATURE : un numéro cité dans le corps n’est pas le sien', () => {
+    /* Le plombier qu'on recommande n'est pas l'expéditeur. Un long message pousse ce numéro hors de la zone. */
+    const corps = 'Bonjour,\n\nAppelez le plombier au 01 11 11 11 11 de ma part.\n'
+      + Array.from({ length: 14 }, (_, i) => `Ligne de détail ${i + 1}.`).join('\n')
+      + '\n\nCordialement,\nMme Durand\n';
+    expect(telephoneEnSignature(corps)).toBeNull();
+  });
+
+  it('🔴🔴 ET JAMAIS DANS LA CITATION : le numéro y serait celui de quelqu’un d’autre, à coup sûr', () => {
+    const corps = 'Bien reçu, merci.\n\nPaul\n\nLe mar. 29 sept. 2026 à 16:36, Gestion <g@exemple.test> a\nécrit :\n'
+      + '\n> Bonjour,\n>\n> Notre standard : 01 41 21 43 31\n';
+    expect(telephoneEnSignature(corps)).toBeNull();
+  });
+
+  it('🔴 LE DERNIER TROUVÉ GAGNE : fixe puis mobile, c’est le mobile qui est personnel', () => {
+    const corps = 'Merci.\n\nPaul Mercier\nStandard : 01 41 21 43 31\nMobile : 06 12 34 56 78\n';
+    expect(telephoneEnSignature(corps)).toBe('06 12 34 56 78');
+  });
+
+  it('⚠️ `null` EST UNE RÉPONSE : la plupart des mails n’ont pas de signature téléphonée', () => {
+    expect(telephoneEnSignature('Bonjour,\n\nMerci pour votre retour.\n\nPaul\n')).toBeNull();
+    expect(telephoneEnSignature('')).toBeNull();
+    expect(telephoneEnSignature(null)).toBeNull();
+  });
+
+  /**
+   * ⚠️ UN NUMÉRO DE DOSSIER N'EST PAS UN TÉLÉPHONE. Sans l'ancrage sur une frontière non numérique,
+   * « 0123456789012 » rendrait ses dix premiers chiffres — et la carte proposerait un faux numéro, ce qui est
+   * bien pire que de n'en proposer aucun.
+   */
+  it('🔴🔴 UNE SUITE DE CHIFFRES PLUS LONGUE N’EST PAS UN TÉLÉPHONE', () => {
+    expect(telephoneEnSignature('Merci.\n\nPaul\nDossier 0123456789012\n')).toBeNull();
+    expect(telephoneEnSignature('Merci.\n\nPaul\nSIRET 01234567890123\n')).toBeNull();
+  });
+
+  it('⚠️ UN NUMÉRO QUI COMMENCE PAR 00 N’EST PAS UN NUMÉRO FRANÇAIS', () => {
+    expect(telephoneEnSignature('Merci.\n\nPaul\n00 12 34 56 78\n')).toBeNull();
+  });
+
+  /**
+   * 🔴 `+33 (0) 1 …` EST ADMIS, ET C'EST LA MESURE QUI L'A IMPOSÉ : ce format est courant dans les signatures
+   * professionnelles françaises, et la première version du motif rendait `null` sur une signature qui portait
+   * bel et bien un numéro. Le cas est écrit pour que personne ne le resserre par mégarde.
+   */
+  it('🔴 LE FORMAT « +33 (0) 1 … » EST RECONNU, ET CONSERVÉ TEL QUEL', () => {
+    expect(telephoneEnSignature('Merci.\n\nPaul\n+33 (0) 1 41 21 43 31\n')).toBe('+33 (0) 1 41 21 43 31');
+  });
+
+  it('⚠️ ON NE NORMALISE RIEN : le format rendu est celui de la signature, au caractère près', () => {
+    expect(telephoneEnSignature('Merci.\n\nPaul\nTél. 01.41.21.43.31\n')).toBe('01.41.21.43.31');
   });
 });

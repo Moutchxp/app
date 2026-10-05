@@ -2524,6 +2524,62 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
     }
   });
 
+  /**
+   * ══ 🔴🔴 LA CARTE EST PRÉ-REMPLIE : nom, adresse, téléphone trouvé en signature (demande d'Arno) ════════════
+   *
+   * MESURÉ AVANT D'ÉCRIRE : sur les 485 cartes actives du 05/10/2026, ZÉRO porte un téléphone — la colonne
+   * existe depuis la migration 304 et rien ne l'a jamais remplie. Or 151 des 183 adresses qui ont réellement
+   * écrit (83 %) portent un numéro français dans le corps de leurs mails.
+   */
+  it('🔴🔴 LE NOM ET LE TÉLÉPHONE TROUVÉS SONT PRÉ-REMPLIS', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) {
+        return reponse({
+          etat: 'ok',
+          data: {
+            parties: [], cartes: [],
+            coordonnees: [
+              { adresse: 'assureur@fictif.test', nom: 'AXA Courbevoie', telephone: '01 41 21 43 31' },
+            ],
+          },
+        });
+      }
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: PEUPLE, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
+    await cliquer(gris.querySelector('.hdb-capsule .hdb-plus') ?? undefined);
+    const carte = hote.querySelector('.hdb-creation') as HTMLElement;
+    const champs = [...carte.querySelectorAll('input')] as HTMLInputElement[];
+    /* L'adresse, le nom, le téléphone : les trois champs qu'Arno nomme. */
+    expect(champs.map((c) => c.value)).toEqual(['assureur@fictif.test', 'AXA Courbevoie', '01 41 21 43 31']);
+    /* ⚠️ LE NOM ET LE TÉLÉPHONE RESTENT MODIFIABLES : c'est une proposition, pas une vérité. L'ADRESSE, elle,
+       est en lecture seule depuis le lot 3, et c'est juste : elle est l'identité du contact, pas un champ. */
+    expect(champs[0].readOnly).toBe(true);
+    expect(champs.slice(1).every((c) => !c.disabled && !c.readOnly)).toBe(true);
+  });
+
+  it('⚠️ SANS COORDONNÉES TROUVÉES, LA CARTE S’OUVRE AVEC LA SEULE ADRESSE', async () => {
+    await monterAvec([], []);
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
+    await cliquer(gris.querySelector('.hdb-capsule .hdb-plus') ?? undefined);
+    const champs = [...(hote.querySelector('.hdb-creation') as HTMLElement).querySelectorAll('input')]
+      .map((c) => (c as HTMLInputElement).value);
+    expect(champs[0]).toBe('assureur@fictif.test');
+    expect(champs.slice(1)).toEqual(['', '']);
+  });
+
   it('🔴 L’INFO-BULLE RAPPELLE LE BUT DU BOUTON, comme Arno l’a demandé', async () => {
     await monterAvec([], []);
     const gris1 = hote.querySelector('.hdb-groupe--gris') as HTMLElement;

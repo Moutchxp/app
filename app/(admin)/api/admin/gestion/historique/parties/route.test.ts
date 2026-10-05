@@ -12,9 +12,13 @@ const poserCategorieMock = vi.fn();
 const poserCarteMock = vi.fn();
 const retirerCarteMock = vi.fn();
 const annulerMock = vi.fn();
+/* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — le GET rend aussi de quoi PRÉ-REMPLIR la carte du « + » (nom, téléphone
+   trouvé en signature). La doublure rend un tableau vide par défaut : les cas d'avant ce lot ne changent pas. */
+const coordonneesMock = vi.fn();
 vi.mock('../../../../../../lib/gestion/partieCategorieRepo', () => ({
   lireCategoriesDuBien: (...a: unknown[]) => categoriesMock(...a),
   lireCartesDuBien: (...a: unknown[]) => cartesMock(...a),
+  coordonneesDesParties: (...a: unknown[]) => coordonneesMock(...a),
   poserCategorieAlaMain: (...a: unknown[]) => poserCategorieMock(...a),
   poserCarteAlaMain: (...a: unknown[]) => poserCarteMock(...a),
   retirerCarte: (...a: unknown[]) => retirerCarteMock(...a),
@@ -49,6 +53,7 @@ beforeEach(() => {
   auteurMock.mockReset(); auteurMock.mockResolvedValue({ id: 3, libelle: 'a.jorel@sansvisavis.com' });
   categoriesMock.mockReset(); categoriesMock.mockResolvedValue([]);
   cartesMock.mockReset(); cartesMock.mockResolvedValue([]);
+  coordonneesMock.mockReset(); coordonneesMock.mockResolvedValue([]);
   poserCategorieMock.mockReset(); poserCategorieMock.mockResolvedValue({ ok: true, id: 1, nb: 1 });
   poserCarteMock.mockReset(); poserCarteMock.mockResolvedValue({ ok: true, id: 2, nb: 1 });
   retirerCarteMock.mockReset(); retirerCarteMock.mockResolvedValue({ ok: true, id: 9, nb: 1 });
@@ -339,6 +344,36 @@ describe('🔴🔴 le geste est rendu, et « Annuler » le défait', () => {
 });
 
 describe('⚠️ la lecture n’a pas bougé', () => {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — LE GET REND DE QUOI PRÉ-REMPLIR LA CARTE DU « + » ═══════════════════
+   *
+   * DEMANDE D'ARNO : la carte « est pré-remplie : nom, adresse, téléphone trouvé en signature ».
+   *
+   * 🔴 ELLES ARRIVENT AVEC LA LISTE, EN UN SEUL APPEL, et c'est volontaire deux fois : le « + » n'a rien à
+   * demander au moment du clic, et AUCUNE ADRESSE PERSONNELLE NE VOYAGE DANS UNE CHAÎNE DE REQUÊTE — ce que ce
+   * dépôt refuse partout ailleurs, et que je ne vais pas autoriser pour un pré-remplissage.
+   */
+  it('🔴🔴 le GET rend les coordonnées trouvées, et rien de plus du corps des mails', async () => {
+    coordonneesMock.mockResolvedValue([
+      { adresse: 'assureur@fictif.test', nom: 'AXA Courbevoie', telephone: '01 41 21 43 31' },
+    ]);
+    const r = await GET(new Request('http://local/api/admin/gestion/historique/parties?cible=lot-155'));
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    expect(d.data.coordonnees).toEqual([
+      { adresse: 'assureur@fictif.test', nom: 'AXA Courbevoie', telephone: '01 41 21 43 31' },
+    ]);
+    /* ⚠️ AUCUN EXTRAIT DE COURRIER NE SORT : le corps a été lu pour y chercher un numéro, il n'en reste rien. */
+    const brut = JSON.stringify(d);
+    expect(brut).not.toContain('corps');
+    expect(brut).not.toContain('extrait');
+  });
+
+  it('⚠️ SANS COORDONNÉES, LA RÉPONSE PORTE UN TABLEAU VIDE — jamais une absence de champ', async () => {
+    const d = await (await GET(new Request('http://local/api/admin/gestion/historique/parties?cible=lot-155'))).json();
+    expect(d.data.coordonnees).toEqual([]);
+  });
+
   /** La route sert les deux : le GET du lot précédent reste ce qu'il était, au caractère près. */
   it('⚠️ le GET lit toujours les deux dépôts en parallèle', async () => {
     const r = await GET(new Request('http://local/api/admin/gestion/historique/parties?cible=lot-155'));
