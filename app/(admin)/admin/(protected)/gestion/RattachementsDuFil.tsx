@@ -110,6 +110,7 @@ type Panneau = 'aucun' | 'modifier';
 
 export function RattachementsDuFil({
   filId, titre, messageId = null, onFerme, onGeste, onLeveeFaite,
+  ouvreLaModification = false, actionsDePied = [],
 }: {
   filId: number;
   /** L'objet de l'échange, connu de la liste. La fiche en rend un aussi ; celui-ci sert de repli. */
@@ -140,10 +141,50 @@ export function RattachementsDuFil({
    * passe pas cette propriété, et la fenêtre garde son panneau local.
    */
   onLeveeFaite?: (fait: SortieLevee) => void;
+  /**
+   * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 1 — LA FENÊTRE S'OUVRE DÉJÀ SUR LA MODIFICATION ═══════════════════
+   *
+   * DEMANDE D'ARNO (06/10/2026) : « Sur un mail “À classer”, le lien “Classer” ouvre la fenêtre “Bien(s)
+   * rattaché(s) à ce mail” (même composant, aucune copie). Comme aucun bien n'est rattaché, la zone du haut
+   * affiche les PROPOSITIONS de rattachement […], puis le moteur “Chercher un autre bien” en bas, puis les
+   * options de suivi, puis “Valider le suivi”. »
+   *
+   * 🔴 C'EST EXACTEMENT CE QUE CE PANNEAU MONTRE DÉJÀ, et c'est pour cela qu'il n'y a pas une ligne de rendu
+   * nouvelle : le menu réemployé affiche les propositions de l'automatisation avec leur motif, puis
+   * « Chercher un autre bien », puis le pied (options de suivi, événement, bilan). Ce qui manquait est qu'on y
+   * arrive sans un clic de plus — un mail qu'on vient CLASSER n'a rien à « visualiser » d'abord.
+   *
+   * ⚠️ `false`/absent ⇒ LA FENÊTRE EST EXACTEMENT CELLE D'AVANT : elle s'ouvre sur la fiche, et le grand bouton
+   * « Modifier les biens rattachés à ce mail » reste la porte. On ne change pas « Visualiser / Modifier ».
+   */
+  ouvreLaModification?: boolean;
+  /**
+   * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 1 — LES GESTES QUI VIENNENT DU BLOC EN LIGNE SUPPRIMÉ ══════════════
+   *
+   * ACCORD D'ARNO : « le bloc en ligne “Classer dans une carte · Créer un événement · Classer sans suite ·
+   * Annuler” est SUPPRIMÉ. Ses fonctions passent dans la fenêtre, rien n'est perdu : “Classer sans suite” et
+   * “Classer dans une carte” deviennent deux actions secondaires en pied de fenêtre, même effet qu'aujourd'hui,
+   * par le même code. » (« Créer un événement », lui, est entré dans la ligne « Événement rattaché » au point 3.)
+   *
+   * 🔴 LA FENÊTRE NE SAIT PAS CE QU'ELLES FONT, ET C'EST VOULU : elle reçoit un libellé et un geste. « Même
+   * effet qu'aujourd'hui, par le même code » n'est tenable qu'ainsi — c'est l'appelant qui appelle les routes
+   * qu'il appelait déjà (`/sans-suite`, le panneau des cartes), sans qu'une ligne de leur logique soit recopiée.
+   *
+   * ⚠️ VIDE/ABSENT ⇒ AUCUN PIED SUPPLÉMENTAIRE : la fenêtre ouverte depuis une ligne de liste ou depuis
+   * « Visualiser / Modifier » reste celle d'avant.
+   */
+  actionsDePied?: readonly { cle: string; libelle: string; onChoisir: () => void }[];
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
-  const [panneau, setPanneau] = useState<Panneau>('aucun');
+  /**
+   * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 1 — ouverte pour CLASSER, elle arrive sur le panneau de modification.
+   *
+   * ⚠️ `selection` RESTE `null` À L'ARRIVÉE, et c'est juste : `null` veut dire « l'état enregistré du mail »,
+   * et sur un mail à classer cet état est vide. Y poser une liste d'avance aurait été précocher — ce qu'Arno
+   * interdit explicitement (« aucune cochée d'office »).
+   */
+  const [panneau, setPanneau] = useState<Panneau>(ouvreLaModification ? 'modifier' : 'aucun');
   /**
    * Le choix du bloc « Suivi dans la conversation ». LES TROIS fenêtres depuis le lot CLASSER-PAR-LA-MODALE.
    *
@@ -1062,6 +1103,22 @@ export function RattachementsDuFil({
                 <p className="rdf-detail rdf-bilan" role="status">
                   {resumeModificationBiens({ avant: clesDuMail, apres: selection ?? clesDuMail })}
                 </p>
+                {/* ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 1 — LES DEUX ACTIONS SECONDAIRES DU PIED ══════════
+                    ACCORD D'ARNO : « “Classer sans suite” et “Classer dans une carte” deviennent deux actions
+                    secondaires en pied de fenêtre, même effet qu'aujourd'hui, par le même code. »
+
+                    🔴 SECONDAIRES VEUT DIRE SECONDAIRES : en liens discrets, SOUS le bilan, loin du bouton
+                    vert. Ce ne sont pas des façons de valider la fenêtre — ce sont deux autres décisions, qui
+                    la quittent. Les habiller en boutons les aurait mises à égalité avec « Valider le suivi ». */}
+                {actionsDePied.length > 0 && (
+                  <p className="rdf-pied-actions">
+                    {actionsDePied.map((a) => (
+                      <button key={a.cle} type="button" className="gst-lien-bouton" onClick={a.onChoisir}>
+                        {a.libelle}
+                      </button>
+                    ))}
+                  </p>
+                )}
               </div>
             )} />
         )}
@@ -1505,6 +1562,11 @@ export const CSS_RATTACHEMENTS_FIL = `
 /* 🔴 UN GRAND BOUTON, et il prend toute la largeur : c'est le geste principal de la fenetre, pas un lien de plus. */
 .rdf-modifier{width:100%;justify-content:center;margin:2px 0 4px;font-weight:700}
 .rdf-pied-panneau{display:flex;flex-direction:column;gap:6px;margin:8px 0 0;min-width:0}
+/* LOT CLASSER-PAR-LA-MODALE, POINT 1 — les deux actions secondaires du pied, en liens discrets et non en
+   boutons : ce ne sont pas des facons de valider la fenetre, ce sont deux autres decisions qui la quittent.
+   Elles se replient d'elles-memes sur telephone. */
+.rdf-pied-actions{display:flex;flex-wrap:wrap;gap:.2rem 1rem;margin:2px 0 0;padding-top:6px;
+  border-top:1px solid var(--color-svv-line)}
 /* LOT CLASSER-PAR-LA-MODALE, POINT 3 — LA LIGNE « EVENEMENT RATTACHE » DU PIED.
    Meme dessin que la ligne du bloc de l'encart : un titre, l'etat, puis les gestes en liens discrets. Les
    formes qui s'ouvrent dessous sont encadrees, comme la-bas — on voit ce qui est ouvert, et sur quoi. */

@@ -220,10 +220,17 @@ describe('🔴 ④ ce que la fenêtre écrit', () => {
     expect(boite).toContain('messageId: l.messageAffiche');
   });
 
+  /**
+   * ⚠️ LA FENÊTRE A GAGNÉ DEUX PROPRIÉTÉS AU LOT CLASSER-PAR-LA-MODALE (`ouvreLaModification`,
+   * `actionsDePied`), et leurs encadrés ont repoussé `messageId` au-delà des 500 premiers caractères. On lit
+   * donc la balise ENTIÈRE, jusqu'à son `/>`, au lieu d'une fenêtre de caractères arbitraire — ce que le garde
+   * voulait dire depuis le début, et qui ne se cassera plus au prochain commentaire.
+   */
   it('🔴 la conversation passe le mail ouvert', () => {
     const cnv = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
     const i = cnv.indexOf('<RattachementsDuFil');
     expect(i).toBeGreaterThan(0);
-    expect(cnv.slice(i, i + 500)).toContain('messageId={message.messageId}');
+    const balise = cnv.slice(i, cnv.indexOf('/>', i));
+    expect(balise).toContain('messageId={message.messageId}');
   });
 });

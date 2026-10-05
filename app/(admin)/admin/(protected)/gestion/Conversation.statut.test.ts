@@ -167,15 +167,41 @@ describe('LES CINQ CARTOUCHES — le mot est écrit, jamais la couleur seule', (
 });
 
 describe('LA RÉVÉLATION DES GESTES, et son annulation', () => {
-  it('« Classer » révèle les trois gestes + « Annuler », et « Annuler » les referme', async () => {
+  /**
+   * ══ ⚠️ CE CAS A CHANGÉ D'ADRESSE AU LOT CLASSER-PAR-LA-MODALE, POINT 1 ═══════════════════════════════════════
+   *
+   * ACCORD D'ARNO (06/10/2026) : « le bloc en ligne “Classer dans une carte · Créer un événement · Classer sans
+   * suite · Annuler” est SUPPRIMÉ. Ses fonctions passent dans la fenêtre, rien n'est perdu. »
+   *
+   * 🔴 CE QUE CE GARDE PROTÈGE EST INCHANGÉ — que les trois gestes de classement soient ATTEIGNABLES depuis le
+   * mail, et qu'on puisse se dédire sans rien écrire. Ce qui change est l'endroit : « Classer » ouvre la fenêtre
+   * « Bien(s) rattaché(s) à ce mail », et les trois gestes y sont (« Classer dans une carte » et « Classer sans
+   * suite » en pied, « Créer un événement » dans la ligne « Événement rattaché », point 3).
+   *
+   * ⚠️ ET LE BLOC EN LIGNE N'EXISTE PLUS POUR CE CAS : c'est l'assertion qui le dit, et elle remplace celle qui
+   * le cherchait. Les deux autres états du cartouche le gardent — voir les deux cas suivants.
+   */
+  it('« Classer » ouvre LA FENÊTRE, où les trois gestes se trouvent — et plus aucun bloc en ligne', async () => {
     await monter();
     expect(container.querySelector('.cnv-statut-actions')).toBeNull();
     await cliquer(declencheur());
+    expect(container.querySelector('.rdf[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('.cnv-statut-actions')).toBeNull();
     expect(boutonPar(/^Classer dans une carte$/)).toBeDefined();
     expect(boutonPar(/^Créer un événement$/)).toBeDefined();
     expect(boutonPar(/^Classer sans suite$/)).toBeDefined();
+    /**
+     * 🔴 ET SE DÉDIRE SANS RIEN ÉCRIRE RESTE POSSIBLE, en deux temps et c'est juste : « Annuler » rend la
+     * fiche du mail (on abandonne la modification), « Fermer » quitte la fenêtre. L'ancien bloc en ligne
+     * n'avait qu'un « Annuler » parce qu'il n'avait rien à montrer dessous.
+     */
     await cliquer(boutonPar(/^Annuler$/));
-    expect(container.querySelector('.cnv-statut-actions')).toBeNull();
+    expect(container.querySelector('.rdf-modifier')).not.toBeNull();
+    /* ⚠️ « SANS RIEN ÉCRIRE » VISE LES GESTES DE CLASSEMENT. Ouvrir une conversation la marque lue pour le
+       collaborateur (lot 5-BOITE) : ce POST part tout seul, ne classe rien, et n'a pas à compter ici. */
+    expect(appels.filter((a) => a.methode !== 'GET' && !a.url.endsWith('/lecture'))).toEqual([]);
+    await cliquer(boutonPar(/^Fermer$/));
+    expect(container.querySelector('.rdf[role="dialog"]')).toBeNull();
   });
 
   it('classé → « Modifier » révèle « Changer l’affectation », « Créer un événement », « Classer sans suite »', async () => {
@@ -205,11 +231,24 @@ describe('🔴 ① LES MÊMES ROUTES QU’AVANT, et ② le cartouche qui se met 
     expect(classements).toEqual(['existant']);
   });
 
-  it('« Créer un événement » ouvre le partage sur le FORMULAIRE', async () => {
+  /**
+   * ⚠️ LE CHEMIN A CHANGÉ (lot CLASSER-PAR-LA-MODALE) : sur un mail « À classer », « Créer un événement » ouvre
+   * désormais le formulaire DANS la fenêtre (point 3), et n'ouvre plus le partage. Le partage sur son formulaire
+   * reste atteignable par « Classer dans une carte » puis sa voie « Nouvel événement » — c'est éprouvé dans
+   * `PleinEcranBoite.gmail.test.ts`, où le panneau est réellement monté.
+   *
+   * 🔴 ICI ON ÉPROUVE DONC CE QUI RESTE VRAI SUR CE COMPOSANT : « Classer dans une carte », depuis la fenêtre,
+   * ouvre bien le partage — et c'est le `'existant'` de l'épreuve juste au-dessus. Le cas de « Créer un
+   * événement » ne disparaît pas, il déménage, et son garde avec lui (`VisualiserUnifie.test.tsx`, bloc ④).
+   */
+  it('« Créer un événement » n’ouvre plus le partage : il ouvre le formulaire DANS la fenêtre', async () => {
     await monter();
     await cliquer(declencheur());
     await cliquer(boutonPar(/^Créer un événement$/));
-    expect(classements).toEqual(['nouveau']);
+    expect(classements).toEqual([]);
+    /* 🔴 ET LE FORMULAIRE EST BIEN LÀ, dans la fenêtre, avec son champ « Titre ». */
+    expect(container.querySelector('.rdf-evt-forme')).not.toBeNull();
+    expect(container.querySelector('.rdf-evt-forme')?.textContent).toContain('Titre');
   });
 
   it('🔴 « Classer sans suite » appelle POST /sans-suite, et le cartouche devient « Sans suite »', async () => {

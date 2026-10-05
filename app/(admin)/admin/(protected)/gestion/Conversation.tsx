@@ -2474,6 +2474,23 @@ export function MessageConversation({
     .filter((l) => SORTES_BIEN.includes(l.cible.sorte) && l.statut === 'confirme')
     .map((l) => l.libelle);
   const visualisable = capsule !== null && capsule !== 'a_classer' && filId !== null;
+  /**
+   * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 1 — « CLASSER » OUVRE LA MÊME FENÊTRE QUE « VISUALISER / MODIFIER »
+   *
+   * DEMANDE D'ARNO (06/10/2026) : « Sur un mail “À classer”, le lien “Classer” ouvre la fenêtre “Bien(s)
+   * rattaché(s) à ce mail” (même composant, aucune copie). » Et son accord, dans la même phrase : « le bloc en
+   * ligne “Classer dans une carte · Créer un événement · Classer sans suite · Annuler” est SUPPRIMÉ. »
+   *
+   * 🔴 CE CAS-LÀ ET LUI SEUL. Le cartouche a deux autres états à déclencheur — « Modifier » sur un échange posé
+   * sur une carte, « Modifier » sur un échange sans suite — dont les gestes (« Changer l'affectation »,
+   * « Rouvrir ») n'ont AUCUN équivalent dans cette fenêtre. Les faire disparaître avec le bloc aurait retiré
+   * des fonctions qu'Arno n'a pas ouvertes ; elles gardent donc leur bloc en ligne, exactement comme avant.
+   *
+   * ⚠️ ET LE BLOC NE S'AFFICHAIT DÉJÀ QUE SUR UN MAIL SANS BIEN : dès qu'un bien est rattaché, le déclencheur
+   * dit « Visualiser / Modifier » et ouvre cette même fenêtre (`visualisable`). C'est pour cela qu'Arno écrit
+   * « comme aucun bien n'est rattaché » : les deux questions coïncident sur ce mail-là.
+   */
+  const classeParLaFenetre = !visualisable && filId !== null && statut?.sorte === 'a_classer';
   const hors = mentionHorsFile(message);
   // LOT ENVOI-DIAG — ce message n'est pas arrivé. Rien de plus important à dire sur un message, donc rien au-dessus.
   const echec = mentionNonRemise(message);
@@ -2521,6 +2538,26 @@ export function MessageConversation({
           Elle se rend AU NIVEAU DU MESSAGE, jamais dans son en-tête : celui-ci est une rangée serrée de boutons. */}
       {voirRattachements && filId !== null && (
         <RattachementsDuFil filId={filId} titre={nettoyerObjet(message.objet ?? '') || null}
+          /* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 1 — ouverte pour CLASSER, elle arrive sur la modification :
+             propositions, moteur de recherche, options de suivi, événement, « Valider le suivi ». Un mail
+             qu'on vient classer n'a rien à « visualiser » d'abord. Ouverte par « Visualiser / Modifier », elle
+             est exactement celle d'avant. */
+          ouvreLaModification={classeParLaFenetre}
+          /* 🔴🔴 POINT 1 — LES DEUX FONCTIONS DU BLOC EN LIGNE SUPPRIMÉ, en pied de fenêtre. « Même effet
+             qu'aujourd'hui, par le même code » : elles appellent `agirSurLeStatut`, qui appelait déjà les
+             routes `/sans-suite` et le panneau des cartes. Aucune ligne de leur logique n'est recopiée.
+             ⚠️ « Créer un événement » N'EST PAS ICI : le point 3 l'a installé dans la ligne « Événement
+             rattaché » de la fenêtre, avec le formulaire de création. L'offrir deux fois aurait fait deux
+             chemins pour un geste. */
+          actionsDePied={classeParLaFenetre && onActionStatut !== undefined
+            ? (statut ? actionsDuStatut(statut).actions : [])
+              .filter((a) => a.cle === 'classer' || a.cle === 'sans_suite')
+              .map((a) => ({
+                cle: a.cle,
+                libelle: a.libelle,
+                onChoisir: () => { setVoirRattachements(false); onActionStatut(a.cle); },
+              }))
+            : []}
           /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — ouverte depuis CE mail, elle ne montre que SES biens.
              Voir l'encadré de `messageId` dans `RattachementsDuFil`. */
           messageId={message.messageId}
@@ -2699,7 +2736,7 @@ export function MessageConversation({
           <CartoucheStatut statut={statut} ouvert={actions}
             declencheur={visualisable ? 'Visualiser / Modifier' : propositions.declencheur}
             vert={visualisable}
-            onBasculer={visualisable
+            onBasculer={visualisable || classeParLaFenetre
               ? () => setVoirRattachements(true)
               : (onActionStatut ? () => setActions((v) => !v) : undefined)} />
         )}
@@ -2753,7 +2790,17 @@ export function MessageConversation({
 
       {/* LES GESTES RÉVÉLÉS — pleine largeur, donc empilés d'eux-mêmes sur téléphone. Ils appellent les routes qui
           existaient avant ce lot : aucune logique nouvelle, même journal, même réversibilité. */}
-      {statut && onActionStatut && actions && propositions.actions.length > 0 && (
+      {/* ⚠️ PLUS SUR UN MAIL « À CLASSER » (lot CLASSER-PAR-LA-MODALE, point 1, accord d'Arno) : ses quatre
+          boutons sont passés dans la fenêtre. Les deux autres états du cartouche gardent ce bloc — leurs gestes
+          (« Changer l'affectation », « Rouvrir ») n'ont pas d'équivalent là-bas, et les retirer aurait supprimé
+          des fonctions non ouvertes.
+
+          ⚠️ `!classeParLaFenetre` EST UN SECOND VERROU, DÉLIBÉRÉMENT REDONDANT — mesuré : l'ôter ne change
+          RIEN aujourd'hui, parce que le premier verrou est le déclencheur, qui n'appelle plus `setActions` dans
+          ce cas. Il est gardé pour le jour où un troisième chemin allumerait `actions` : la règle d'Arno est
+          « ce bloc n'existe plus sur un mail à classer », et elle doit tenir là où elle est écrite, pas
+          seulement par ricochet. */}
+      {statut && onActionStatut && actions && !classeParLaFenetre && propositions.actions.length > 0 && (
         <div className="cnv-statut-actions" role="group" aria-label={`Classement — ${libelleCartouche(statut)}`}>
           {propositions.actions.map((a) => (
             <button key={a.cle} type="button" className="svv-btn svv-btn-outline gst-btn"

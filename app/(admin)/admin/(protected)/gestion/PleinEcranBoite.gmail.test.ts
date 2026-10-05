@@ -259,10 +259,23 @@ describe('③ LA BARRE D’ACTIONS — tout est là, rien n’est inventé', () 
     expect(barre.querySelector('.gst-menu-bouton')).not.toBeNull();
   });
 
-  it('…et les trois se trouvent dans le CARTOUCHE, une fois « Classer » ouvert', async () => {
+  /**
+   * ⚠️ « DANS LE CARTOUCHE » EST DEVENU « DANS LA FENÊTRE » (lot CLASSER-PAR-LA-MODALE) — le bloc en ligne de
+   * quatre boutons est supprimé par accord d'Arno, et ses fonctions sont passées dans la fenêtre « Bien(s)
+   * rattaché(s) à ce mail » qu'ouvre désormais « Classer ».
+   *
+   * 🔴 CE QUE LE GARDE PROTÈGE EST INCHANGÉ : les trois gestes de classement ne sont PAS dans la barre du haut
+   * (l'épreuve juste au-dessus), et ils sont tous ATTEIGNABLES depuis le mail. C'est leur adresse qui change,
+   * pas leur existence — « Classer dans une carte » et « Classer sans suite » en pied de fenêtre, « Créer un
+   * événement » dans sa ligne « Événement rattaché » (point 3), et « Annuler » celui de la fenêtre.
+   */
+  it('…et les trois se trouvent dans LA FENÊTRE, une fois « Classer » ouvert', async () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
     await ouvrirStatut();
+    /* 🔴 C'EST BIEN LA FENÊTRE, et non un bloc en ligne : un dialogue, avec son titre. */
+    expect(container.querySelector('.rdf[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('.cnv-statut-actions')).toBeNull();
     expect(boutonPar(/^Classer dans une carte$/)).toBeDefined();
     expect(boutonPar(/^Créer un événement$/)).toBeDefined();
     expect(boutonPar(/^Classer sans suite$/)).toBeDefined();
@@ -291,11 +304,25 @@ describe('④ CLASSER — le partage s’ouvre, et se referme une fois l’écha
     expect(appels.some((a) => a.url.startsWith('/api/admin/gestion/evenements?q='))).toBe(true);
   });
 
+  /**
+   * ⚠️ LE CHEMIN A CHANGÉ AU LOT CLASSER-PAR-LA-MODALE, et le voici écrit — c'est le seul changement de ces
+   * deux épreuves.
+   *
+   * Avant : le cartouche « Classer » révélait un bloc en ligne de quatre boutons, dont « Créer un événement »
+   * qui ouvrait ce panneau sur son formulaire. Ce bloc est SUPPRIMÉ (accord d'Arno, point 1) et ses fonctions
+   * sont passées dans la fenêtre « Bien(s) rattaché(s) à ce mail ».
+   *
+   * 🔴 CE QUE CES DEUX ÉPREUVES PROTÈGENT N'A PAS BOUGÉ D'UN POUCE : que le panneau de classement s'ouvre sur
+   * SON formulaire, prérempli d'après le mail, que les DEUX voies y restent offertes, et que « Rattacher »
+   * appelle la route existante. On y arrive par « Classer dans une carte » (en pied de fenêtre), puis par la
+   * voie « Nouvel événement » du panneau — qui est, et qui était déjà, la porte de ce formulaire.
+   */
   it('« Créer un événement » ouvre le MÊME panneau, sur le formulaire — et les deux voies restent offertes', async () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
     await ouvrirStatut();
-    await cliquer(boutonPar(/^Créer un événement$/));
+    await cliquer(boutonPar(/^Classer dans une carte$/));
+    await cliquer(boutonPar(/^Nouvel événement$/));
     expect(container.textContent).toContain('Qui demande');
     expect(container.textContent).toContain('Adresse (texte libre)');
     // Le pré-remplissage vient du MAIL, jamais d'une déduction — et il reste modifiable.
@@ -307,7 +334,8 @@ describe('④ CLASSER — le partage s’ouvre, et se referme une fois l’écha
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
     await ouvrirStatut();
-    await cliquer(boutonPar(/^Créer un événement$/));
+    await cliquer(boutonPar(/^Classer dans une carte$/));
+    await cliquer(boutonPar(/^Nouvel événement$/));
     await cliquer(boutonPar(/^Rattacher$/));
     const post = appels.find((a) => a.methode === 'POST' && a.url.includes('/affectation'));
     expect(post?.url).toContain('/api/admin/gestion/fils/101/affectation');
