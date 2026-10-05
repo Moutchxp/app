@@ -78,7 +78,7 @@ import {
   adresseGardeeDansLencart, anciensLocataires, choixLocataireParDefaut, ilYAUnLocataireEnPlace,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-15 — les deux boutons de l'en-tête de l'encart Locataire. */
   AIDE_SANS_ANCIEN_LOCATAIRE, AIDE_SANS_LOCATAIRE_ACTUEL, CHOIX_LOCATAIRE_DEFAUT,
-  motBoutonAnciensLocataires, MOT_LOCATAIRES_ACTUELS,
+  aideBoutonAnciensLocataires, motBoutonAnciensLocataires, MOT_LOCATAIRES_ACTUELS,
   motAncienLocataire, periodeDuChoixLocataire,
   type CarteLocataireBien, type ChoixLocataire,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — les contacts annexes suivent leur location. */
@@ -2765,7 +2765,9 @@ function EnTeteLocataire({
         className={`hdb-onglet${surAnciens ? '' : ' hdb-onglet--actif'}`}
         aria-pressed={!surAnciens}
         disabled={!enPlaceOffert}
-        title={enPlaceOffert ? undefined : AIDE_SANS_LOCATAIRE_ACTUEL}
+        /* ⚠️ LE LIBELLÉ ENTIER EN INFO-BULLE : sur un écran étroit il se rogne (voir la feuille), et « Locat… »
+           ne dit plus ce qu'on va afficher. Le texte est le même dans les trois états — rien ne clignote. */
+        title={enPlaceOffert ? MOT_LOCATAIRES_ACTUELS : AIDE_SANS_LOCATAIRE_ACTUEL}
         onClick={onActuels}>
         {/* 🔴 LE LIBELLÉ EST DANS SON PROPRE ÉLÉMENT, et c'est ce qui sauve le CHIFFRE : l'ellipse s'applique
             au mot, pas au bouton. Rognée sur le bouton, elle emportait d'abord le compte — qui est à la fin. */}
@@ -2778,13 +2780,17 @@ function EnTeteLocataire({
         aria-pressed={surAnciens}
         aria-expanded={listeOuverte}
         disabled={anciens.length === 0}
-        /* 🔴 LE NOM ENTIER EN INFO-BULLE : le libellé se rogne quand la ligne manque de place (voir la feuille),
-           et un nom coupé ne dit plus QUI l'encart montre — ce qui est tout ce que ce bouton a à dire. */
+        /**
+         * 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 2 — LE NOM DE LA CARTE EST ICI, ET PLUS DANS LE LIBELLÉ.
+         *
+         * Arno : « Pour savoir quelle carte est choisie, une info-bulle sur le bouton suffit. » Le libellé, lui,
+         * ne bouge plus : c'est ce qui garde l'en-tête à hauteur constante avant et après le choix.
+         */
         title={anciens.length === 0
           ? AIDE_SANS_ANCIEN_LOCATAIRE
-          : motBoutonAnciensLocataires(anciens.length, choisie)}
+          : aideBoutonAnciensLocataires(choisie) ?? motBoutonAnciensLocataires(anciens.length)}
         onClick={onAnciens}>
-        <span className="hdb-onglet-mot">{motBoutonAnciensLocataires(anciens.length, choisie)}</span>
+        <span className="hdb-onglet-mot">{motBoutonAnciensLocataires(anciens.length)}</span>
       </button>
     </>
   );
@@ -3987,12 +3993,13 @@ ${CSS_PIECES}
    ⚠️ UN BOUTON INACTIF GARDE SA PLACE ET SON CURSEUR PAR DEFAUT (lot 5, point 2) : il DIT qu'il n'y a rien
    là-dessous, ce qui est une information. Son motif est dans l'info-bulle. */
 .hdb-onglet{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;padding:0 .4rem;
-  flex:0 0 auto;max-width:100%;
+  flex:0 1 auto;min-width:0;overflow:hidden;
   border:0;background:none;font:inherit;font-size:.82rem;font-weight:600;color:var(--color-svv-muted);
   cursor:pointer;text-align:left;border-radius:.35rem}
-/* ⚠️ LE LIBELLE SE REPLIE SUR LUI-MEME PLUTOT QUE DE DEBORDER quand il est plus large que l'encart entier (un
-   nom de carte tres long sur un telephone) : il devient haut, il n'est jamais coupe. */
-.hdb-onglet-mot{min-width:0;overflow-wrap:anywhere}
+/* 🔴 L'ELLIPSE PORTE SUR LE MOT, PAS SUR LE BOUTON : posee sur le bouton, elle rognait d'abord le COMPTE, qui
+   est a la fin — « Locataire(s) actu… » sans son « 2 ». C'est le libelle qui cede, jamais le chiffre, et le
+   texte entier reste en info-bulle. */
+.hdb-onglet-mot{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hdb-onglet .gst-compte{flex:0 0 auto}
 .hdb-onglet--actif{color:var(--color-svv-ink);font-weight:700}
 .hdb-onglet:hover:not(:disabled){background:var(--color-svv-field)}
@@ -4037,21 +4044,24 @@ ${CSS_PIECES}
 .hdb-selection-mot{font-size:.8rem;font-weight:700;color:var(--color-svv-ink);min-width:0}
 .hdb-btn-decocher{flex:0 0 auto}
 .hdb-groupe-tete{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;min-width:0}
-/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — LES TITRES SE REPLIENT ENTRE EUX, LA CASE RESTE A DROITE ═════════════════
-   DEMANDE D'ARNO : « DEUX boutons côte à côte, sur la même ligne […] La case "tout le groupe" reste à droite. »
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 2 — UNE SEULE LIGNE, ET LA MEME HAUTEUR DANS LES TROIS ETATS ════════
+   DEMANDE D'ARNO : « Comme l'encart Propriétaire : ▼, "Locataire(s) actuel(s) N", "Anciens locataires (N)", et
+   "tout le groupe" à DROITE, SUR LA MÊME LIGNE (aujourd'hui "tout le groupe" passe dessous, même par défaut).
+   […] L'en-tête garde EXACTEMENT la même hauteur et la même disposition avant et après le choix : aucun
+   décalage, aucun retour à la ligne. »
 
-   🔴 TROIS MESURES A L'ECRAN ONT MENE ICI, et les deux premieres sorties etaient mauvaises :
-     ① sans rien, les deux boutons passaient a la ligne ET entrainaient la case avec eux — elle n'etait plus a
-       droite, elle etait en bas a gauche ;
-     ② en interdisant le repli, les libelles se faisaient rogner : « L… 2 » d'un cote, « ACKET GOEMAERE - DE… »
-       de l'autre. Une ellipse qui mange « Locataire(s) actuel(s) » jusqu'a « L… » ne tronque pas l'affichage,
-       elle supprime l'information.
-   🔴 LA SORTIE EST UNE ENVELOPPE : le triangle et les deux boutons vivent dans un bloc qui prend la place
-   restante et se replie EN LUI-MEME ; la case, elle, est hors de ce bloc et garde sa place a droite de la
-   PREMIERE ligne. Large, tout tient sur une ligne — c'est le cas ordinaire (« Anciens locataires (2) »). Etroit
-   ou nom long, les boutons passent sur deux lignes AVEC LEUR LIBELLE ENTIER, et la case ne bouge pas.
-   C'est le bon ordre des sacrifices : on garde les mots, on perd la ligne unique. */
-.hdb-tete-titres{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;flex:1 1 0;min-width:0}
+   🔴 CE QUI REND CELA POSSIBLE AUJOURD'HUI, ET NE L'ETAIT PAS AU LOT 15 : le libellé du second bouton NE BOUGE
+   PLUS (« Anciens locataires (2) », le nom de la carte étant passé en info-bulle). Les deux libellés sont donc
+   COURTS ET CONSTANTS — environ 108 px et 150 px — et l'en-tête tient sur une ligne. Au lot 15, le nom choisi
+   pouvait faire 440 px : aucune mise en page ne tenait, et j'avais laissé le repli plutot que de rogner les mots.
+
+   🔴 LE REPLI EST DONC COUPE : trois etats, une seule ligne, et la case « tout le groupe » qui ne descend
+   jamais. Au besoin (ecran tres etroit), ce sont les LIBELLES qui se retrecissent — leur texte entier reste en
+   info-bulle, et il est de toute facon le meme dans les trois etats.
+
+   ⚠️ LA CASE EST HORS DE CETTE ENVELOPPE, et c'est ce qui la tient a droite : l'enveloppe prend la place
+   restante (flex:1 1 0) et se retrecit jusqu'a zero avant que la case ne bouge. */
+.hdb-tete-titres{display:flex;flex-wrap:nowrap;align-items:center;gap:.35rem;flex:1 1 0;min-width:0}
 .hdb-replier{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;padding:0 .4rem;flex:1 1 8rem;
   border:0;background:none;font:inherit;font-size:.82rem;font-weight:700;color:var(--color-svv-ink);
   cursor:pointer;text-align:left;min-width:0}

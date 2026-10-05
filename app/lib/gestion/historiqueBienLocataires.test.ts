@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   adresseGardeeDansLencart, anciensLocataires, carteChoisie, choixLocataireParDefaut,
   CHOIX_LOCATAIRE_DEFAUT, ilYAUnLocataireEnPlace, locatairesEnPlace,
+  aideBoutonAnciensLocataires,
   motAnciensLocataires, motAncienLocataire, motBoutonAnciensLocataires, MOT_LOCATAIRE_EN_PLACE,
   MOT_LOCATAIRES_ACTUELS, periodeDuChoixLocataire,
   type CarteLocataireBien,
@@ -186,14 +187,28 @@ describe('🔴 ④ les listes et les mots', () => {
    * n'y est PAS. Le premier ferme la confusion de périodes du lot 13 ; la seconde éviterait deux sources pour la
    * même borne, qui divergent dès qu'on retouche les dates (« modifiable ensuite », Arno).
    */
-  it('🔴🔴 le bouton nomme l’ancien choisi, et lui seul', () => {
-    expect(motBoutonAnciensLocataires(2, undefined)).toBe('Anciens locataires (2)');
-    expect(motBoutonAnciensLocataires(2, ACKET))
-      .toBe('Anciens locataires · ACKET GOEMAERE - DERRIEN Alizée et Thomas');
-    /* 🔴 LE COMPTE S'EFFACE DEVANT LE NOM : une parenthèse de plus se lirait comme le nombre d'adresses. */
-    expect(motBoutonAnciensLocataires(2, ACKET)).not.toContain('(2)');
+  /**
+   * ══ 🔴 CE VERDICT A ENCORE CHANGÉ AU LOT HISTORIQUE-BIEN-16, POINT 2 ═══════════════════════════════════════
+   *
+   * Au lot 15, le bouton devenait « Anciens locataires · ACKET … » dès qu'une carte était choisie. Arno l'a vu à
+   * l'écran et tranche : « le bouton reste "Anciens locataires (2)", simplement écrit en noir. On n'ajoute PLUS
+   * le nom de la carte, qui fait DOUBLON avec les capsules affichées dessous. »
+   *
+   * 🔴 ET LA MISE EN PAGE LE CONFIRME : un libellé qui s'allonge au clic faisait passer l'en-tête de une à deux
+   * lignes, donc déplaçait la case « tout le groupe » et décalait l'encart sous le curseur, au moment précis où
+   * l'on vient de cliquer.
+   *
+   * 🔴 CE QUE LE GARDE PROTÈGE RESTE LE MÊME, IL A CHANGÉ DE PLACE : le nom de la carte choisie est À L'ÉCRAN —
+   * en info-bulle — et la période n'y est toujours pas. Rien n'a disparu.
+   */
+  it('🔴🔴 le libellé du bouton ne bouge plus, et l’info-bulle nomme la carte', () => {
+    expect(motBoutonAnciensLocataires(2)).toBe('Anciens locataires (2)');
+    expect(aideBoutonAnciensLocataires(ACKET))
+      .toBe('Ancien locataire affiché : ACKET GOEMAERE - DERRIEN Alizée et Thomas');
     /* ⚠️ PAS LES DATES : elles sont déjà dans les deux champs du tableau de bord, et modifiables. */
-    expect(motBoutonAnciensLocataires(2, ACKET)).not.toContain('01/04/2022');
+    expect(aideBoutonAnciensLocataires(ACKET)).not.toContain('01/04/2022');
+    /* 🔴 RIEN À DIRE SANS CARTE CHOISIE : une info-bulle qui répète le libellé apprend à ne plus la lire. */
+    expect(aideBoutonAnciensLocataires(undefined)).toBeUndefined();
   });
 
   /** 🔴 LE MOT DU BOUTON DE GAUCHE, AU CARACTÈRE PRÈS — parenthèses comprises : un logement peut avoir un

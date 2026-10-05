@@ -1741,23 +1741,37 @@ export const MOT_LOCATAIRES_ACTUELS = 'Locataire(s) actuel(s)';
 /**
  * ══ 🔴🔴 CE QUE DIT LE BOUTON « ANCIENS LOCATAIRES » ═════════════════════════════════════════════════════════════
  *
- * Deux états, et deux phrases : « Anciens locataires (2) » tant qu'on n'en a choisi aucun, puis
- * « Anciens locataires · VAGLIO ARNAUD Aurélie et Louis » dès qu'une carte est choisie.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 CE MOT A CHANGÉ AU LOT HISTORIQUE-BIEN-16, POINT 2, ET VOICI POURQUOI. Au lot 15 il devenait
+ * « Anciens locataires · VAGLIO ARNAUD Aurélie et Louis » dès qu'une carte était choisie. Arno l'a vu à l'écran
+ * et tranche : « le bouton reste "Anciens locataires (2)", simplement écrit en noir. On n'ajoute PLUS le nom de
+ * la carte, qui fait DOUBLON avec les capsules affichées dessous. »
  *
- * 🔴 LE COMPTE DISPARAÎT QUAND UN NOM PARAÎT, et c'est la demande d'Arno à la lettre. C'est aussi ce qui est
- * juste : le compte répond à « y a-t-il quelque chose là-dessous ? », et cette question ne se pose plus une fois
- * qu'on a choisi. Les garder tous les deux aurait donné « Anciens locataires (2) · VAGLIO … » — une parenthèse
- * qu'on lit comme le nombre d'adresses de VAGLIO, alors que c'est le nombre de CARTES.
+ * 🔴 ET IL A DEUX FOIS RAISON. Le doublon d'abord : les capsules qui s'affichent SOUS le bouton portent déjà le
+ * nom et les dates du locataire regardé. La mise en page ensuite : un libellé qui s'allonge au clic faisait
+ * passer l'en-tête de une à deux lignes, donc déplaçait la case « tout le groupe » et décalait tout l'encart
+ * sous le curseur — au moment précis où l'on vient de cliquer.
  *
- * 🔴 ET LE NOM NE PEUT PAS DISPARAÎTRE DE L'ÉCRAN. C'est tout ce qui dit qu'on lit les mails d'un ancien et non
- * ceux de l'occupant actuel — la confusion de périodes que le lot 13 existe pour fermer.
- *
- * ⚠️ LE NOM SEUL, PAS LA PÉRIODE : les dates sont déjà dans les deux champs du tableau de bord, qu'on vient de
- * régler sur elles. Les répéter ici aurait fait deux sources pour la même borne, qui divergent dès qu'on en
- * retouche une (« modifiable ensuite » — Arno).
+ * 🔴 CE QUI EST PERDU NE L'EST PAS : le nom de la carte choisie reste à l'écran, en INFO-BULLE du bouton
+ * (`aideBoutonAnciensLocataires`). Rien ne disparaît, tout change de place — et le compte, lui, reste lisible
+ * en permanence, ce qu'il n'était plus dès qu'une carte était choisie.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function motBoutonAnciensLocataires(n: number, choisie: CarteLocataireBien | undefined): string {
-  return choisie === undefined ? motAnciensLocataires(n) : `Anciens locataires · ${choisie.libelle}`;
+export function motBoutonAnciensLocataires(n: number): string {
+  return motAnciensLocataires(n);
+}
+
+/**
+ * ══ 🔴 L'INFO-BULLE DU BOUTON — QUELLE CARTE EST AFFICHÉE ═══════════════════════════════════════════════════════
+ *
+ * Arno : « Pour savoir quelle carte est choisie, une info-bulle sur le bouton suffit ("Ancien locataire
+ * affiché : …"). »
+ *
+ * ⚠️ `undefined` QUAND AUCUNE CARTE N'EST CHOISIE : le bouton n'a alors rien de particulier à dire, et une
+ * info-bulle qui répèterait son propre libellé apprend à ne plus la lire.
+ */
+export function aideBoutonAnciensLocataires(choisie: CarteLocataireBien | undefined): string | undefined {
+  return choisie === undefined ? undefined : `Ancien locataire affiché : ${choisie.libelle}`;
 }
 
 /**

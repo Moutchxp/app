@@ -4896,22 +4896,50 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
   });
 
   /**
-   * 🔴🔴 UNE FOIS LA CARTE CHOISIE, L'EN-TÊTE LA NOMME — demande d'Arno : « L'en-tête affiche alors en noir le
-   * nom de la catégorie choisie ("Anciens locataires · VAGLIO ARNAUD Aurélie et Louis") ».
+   * ══ 🔴🔴 CE VERDICT A CHANGÉ AU LOT HISTORIQUE-BIEN-16, POINT 2 ═══════════════════════════════════════════
    *
-   * 🔴 SANS CELA, ON LIRAIT LES MAILS D'UN ANCIEN EN CROYANT LIRE CEUX DE L'OCCUPANT ACTUEL : c'est la confusion
-   * de périodes que le lot 13 existe pour fermer, et la liste refermée la rouvrirait.
+   * Il figeait « Anciens locataires · VAGLIO ARNAUD Aurélie et Louis » DANS LE LIBELLÉ. Arno l'a vu à l'écran et
+   * tranche : « le bouton reste "Anciens locataires (2)", simplement écrit en noir. On n'ajoute PLUS le nom de
+   * la carte, qui fait DOUBLON avec les capsules affichées dessous. […] Pour savoir quelle carte est choisie,
+   * une info-bulle sur le bouton suffit. »
+   *
+   * 🔴 CE QUE LE GARDE PROTÈGE N'A PAS BOUGÉ, IL A CHANGÉ DE PLACE : on lit toujours à l'écran QUI l'encart
+   * montre — c'est la confusion de périodes du lot 13 qu'il faut tenir fermée — mais dans l'info-bulle, et le
+   * libellé ne bouge plus. C'est lui qui faisait passer l'en-tête de une à deux lignes au clic.
    */
-  it('🔴🔴 une fois la carte choisie, l’en-tête la nomme', async () => {
+  it('🔴🔴 une fois la carte choisie, le libellé ne bouge pas et l’info-bulle la nomme', async () => {
     await monterAvecCartes();
     await cliquer(boutonAnciens());
     await act(async () => { radios()[0].click(); });
     expect(radios()).toHaveLength(0);
-    expect(boutonAnciens().textContent).toContain('Anciens locataires · VAGLIO ARNAUD Aurélie et Louis');
+    expect(boutonAnciens().textContent).toBe('Anciens locataires (1)');
+    expect(boutonAnciens().getAttribute('title'))
+      .toBe('Ancien locataire affiché : VAGLIO ARNAUD Aurélie et Louis');
     expect(boutonAnciens().getAttribute('aria-pressed')).toBe('true');
     expect(boutonActuels().getAttribute('aria-pressed')).toBe('false');
     /* 🔴 ET LES CAPSULES SONT REVENUES, « NORMALEMENT » (Arno) — le système d'affichage ne change pas. */
     expect(nomsDuLocataire()).toContain('VAGLIO Aurélie');
+  });
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 2 — L'EN-TÊTE NE CHANGE PAS DE FORME ════════════════════════════════
+   *
+   * Arno : « L'en-tête garde EXACTEMENT la même hauteur et la même disposition avant et après le choix : aucun
+   * décalage, aucun retour à la ligne. »
+   *
+   * ⚠️ JSDOM NE CALCULE AUCUNE HAUTEUR : la mesure en pixels se fait à l'écran, et elle est au relevé des
+   * captures. Ce qu'on éprouve ici est ce qui la CAUSE — que le libellé des deux boutons soit, caractère pour
+   * caractère, le même dans les trois états. Une mise en page ne peut pas bouger si rien de ce qu'elle dispose
+   * ne change.
+   */
+  it('🔴🔴 les libellés sont identiques dans les trois états', async () => {
+    await monterAvecCartes();
+    const lire = (): string[] => onglets().map((b) => b.textContent ?? '');
+    const defaut = lire();
+    await cliquer(boutonAnciens());
+    expect(lire()).toEqual(defaut);
+    await act(async () => { radios()[0].click(); });
+    expect(lire()).toEqual(defaut);
   });
 
   /** 🔴 UN NOUVEAU CLIC ROUVRE LA LISTE POUR EN CHOISIR UN AUTRE (demande d'Arno). */
@@ -4999,7 +5027,9 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
     expect(nomsDuLocataire()).toContain('VAGLIO Aurélie');
     expect(nomsDuLocataire()).not.toContain('BRASSET Mathilde');
     /* 🔴 ET L'EN-TÊTE LE DIT : rien n'est caché. */
-    expect(boutonAnciens().textContent).toBe('Anciens locataires · LEON Isabella et Hugo');
+    expect(boutonAnciens().textContent).toBe('Anciens locataires (2)');
+    expect(boutonAnciens().getAttribute('title'))
+      .toBe('Ancien locataire affiché : LEON Isabella et Hugo');
     expect(boutonAnciens().getAttribute('aria-pressed')).toBe('true');
     /**
      * 🔴🔴 « Locataire(s) actuel(s) » EST GRISÉ ET INACTIF, parce qu'il ne désigne personne. Le laisser actif
