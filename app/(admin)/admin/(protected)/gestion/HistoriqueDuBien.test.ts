@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { HistoriqueDuBien } from './HistoriqueDuBien';
-import { GROUPES_EN_ENCART, motDeuxCompteurs } from '../../../../lib/gestion/historiqueBien';
+import { GROUPES_EN_BANDE, GROUPES_EN_ENCART, motDeuxCompteurs } from '../../../../lib/gestion/historiqueBien';
 import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
 import type { Interlocuteur, LigneHistorique, PieceHistorique } from '../../../../lib/gestion/historique';
 
@@ -420,7 +420,11 @@ describe('③ les parties', () => {
     await deplierGroupe('Non affectés');
     const personnes = [...hote.querySelectorAll('.hdb-personnes input')] as HTMLInputElement[];
     await cliquer(personnes[0]);
-    const groupe = hote.querySelector('.hdb-case--groupe input') as HTMLInputElement;
+    /* ⚠️ LA CASE DE « NON AFFECTÉS », ET NON « la première case de groupe » — mis à jour au lot
+       HISTORIQUE-BIEN-5 : depuis le point 2, chaque groupe porte sa case MÊME À ZÉRO, et la première de la
+       page est donc celle de l'encart « Propriétaire ». */
+    const groupe = (hote.querySelector('.hdb-groupe--gris') as HTMLElement)
+      .querySelector('.hdb-case--groupe input') as HTMLInputElement;
     expect(groupe.checked).toBe(false);
     expect(groupe.indeterminate).toBe(true);
   });
@@ -2165,6 +2169,118 @@ describe('⑤-undecies 🔴🔴 les deux encarts sont TOUJOURS là, côte à cô
     await monterAvec(INTERLOCUTEURS);
     expect(encarts()).toHaveLength(2);
     expect(hote.querySelector('.hdb-vide-mot')).toBeNull();
+  });
+});
+
+describe('⑤-duodecies 🔴🔴 les deux bandes sont TOUJOURS là, même à zéro', () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * RÈGLE D'ARNO (lot 5, point 2) : « Sous les deux encarts, sur toute la largeur, deux lignes dépliables,
+   * repliées par défaut, chacune avec son compteur et sa case “tout le groupe” : “Tiers indépendant” (bleu)
+   * puis “Non affectés” (gris). Elles sont TOUJOURS présentes, même à 0, et restent des zones de dépôt quand
+   * elles sont repliées (elles s'ouvrent au survol pendant un glisser). »
+   *
+   * CE QUI ÉTAIT ÉCRIT AVANT : une bande vide n'existait QUE pendant un glisser. Elle apparaissait donc SOUS LE
+   * CURSEUR au premier mouvement, poussant les deux encarts vers le haut au moment précis où l'on vise.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+
+  /** Tout le monde est client : les deux bandes sont donc vides, et c'est le cas qu'on éprouve. */
+  const QUE_DES_CLIENTS: Interlocuteur[] = [
+    inter({ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', nbMails: 40, aEcrit: 3, enCopie: 2 }),
+    inter({ adresse: 'locataire@fictif.test', nom: 'MARTY Jean-François', nbMails: 20, aEcrit: 20 }),
+  ];
+
+  async function monterAvec(interlocuteurs: Interlocuteur[]): Promise<void> {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) {
+        return reponse({ etat: 'ok', evenements: [], tronque: false });
+      }
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+  }
+
+  const bandes = (): HTMLElement[] => [...hote.querySelectorAll('.hdb-groupe--bande')] as HTMLElement[];
+
+  it('🔴🔴 LES DEUX BANDES SONT RENDUES MÊME VIDES, dans l’ordre d’Arno', async () => {
+    await monterAvec(QUE_DES_CLIENTS);
+    expect(bandes()).toHaveLength(2);
+    expect(bandes()[0].textContent).toContain('Tiers indépendant');
+    expect(bandes()[1].textContent).toContain('Non affectés');
+    /* Les tons : bleu puis gris, comme écrit. */
+    expect(bandes()[0].className).toContain('hdb-groupe--bleu');
+    expect(bandes()[1].className).toContain('hdb-groupe--gris');
+  });
+
+  it('🔴🔴 L’ORDRE VIENT DU MODULE PUR, PAS DE L’ÉCRAN', () => {
+    expect(GROUPES_EN_BANDE).toEqual(['independant', 'a_repartir']);
+    expect(SRC).toContain('GROUPES_EN_BANDE.map');
+    /* 🔴 LE GARDE : plus aucune condition ne fait dépendre leur existence d'un glisser en cours. */
+    expect(SRC).not.toContain('g.nb === 0 && glisse === null');
+  });
+
+  it('🔴 CHACUNE PORTE SON COMPTEUR, ET IL DIT ZÉRO', async () => {
+    await monterAvec(QUE_DES_CLIENTS);
+    for (const b of bandes()) expect(b.querySelector('.gst-compte')?.textContent).toBe('0');
+  });
+
+  it('🔴 CHACUNE PORTE SA CASE « tout le groupe » — désactivée quand il n’y a personne', async () => {
+    await monterAvec(QUE_DES_CLIENTS);
+    for (const b of bandes()) {
+      const c = b.querySelector('.hdb-case--groupe input') as HTMLInputElement;
+      expect(c).not.toBeNull();
+      expect(c.disabled).toBe(true);
+      /* ⚠️ ET SURTOUT PAS COCHÉE : un ensemble vide n'est pas « tout coché » (piège du lot 71). */
+      expect(c.checked).toBe(false);
+    }
+  });
+
+  it('⚠️ LA CASE REDEVIENT ACTIVE DÈS QU’IL Y A QUELQU’UN', async () => {
+    await monterAvec([...QUE_DES_CLIENTS, inter({ adresse: 'assureur@fictif.test', nbMails: 9 })]);
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    expect(gris.querySelector('.gst-compte')?.textContent).toBe('1');
+    expect((gris.querySelector('.hdb-case--groupe input') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('🔴 REPLIÉES PAR DÉFAUT : aucune capsule n’est montée tant qu’on n’a pas déplié', async () => {
+    await monterAvec([...QUE_DES_CLIENTS, inter({ adresse: 'assureur@fictif.test', nbMails: 9 })]);
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    expect(gris.querySelector('.hdb-replier')?.getAttribute('aria-expanded')).toBe('false');
+    expect(gris.querySelectorAll('.hdb-capsule')).toHaveLength(0);
+    await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
+    expect(gris.querySelectorAll('.hdb-capsule')).toHaveLength(1);
+  });
+
+  it('🔴 UNE BANDE REPLIÉE RESTE UNE ZONE DE DÉPÔT : les gestes sont sur la section, pas sur la liste', () => {
+    /* On ne lit pas un gestionnaire React depuis le DOM : on éprouve la STRUCTURE qui le garantit — les trois
+       gestes sont posés sur la `section` du groupe, au-dessus du `{ouvert && …}` qui monte les capsules. */
+    const corps = SRC.split('function GroupeDeParties')[1] ?? '';
+    const section = corps.split('return (')[1] ?? '';
+    const avantLeRepli = section.split('{ouvert &&')[0] ?? '';
+    for (const geste of ['onDragOver=', 'onDragLeave=', 'onDrop=']) {
+      expect(avantLeRepli).toContain(geste);
+    }
+  });
+
+  it('🔴 ET ELLE S’OUVRE AU SURVOL PENDANT UN GLISSER, SANS LE MÉMORISER', () => {
+    const corps = SRC.split('function GroupeDeParties')[1] ?? '';
+    expect(corps).toContain('const ouvert = ouvertParChoix || (glisse !== null && survol === g.cle);');
+  });
+
+  it('⚠️ AUCUNE RÉGRESSION QUAND ELLES SONT PLEINES', async () => {
+    await monterAvec(INTERLOCUTEURS);
+    expect(bandes()).toHaveLength(2);
+    expect((hote.querySelector('.hdb-groupe--gris') as HTMLElement)
+      .querySelector('.gst-compte')?.textContent).toBe('1');
   });
 });
 

@@ -1173,13 +1173,27 @@ export function HistoriqueDuBien({
             })}
           </div>
 
-          {/* ── LES DEUX BANDES, PLEINE LARGEUR, SOUS LES ENCARTS ─────────────────────────────────────────────
-              ⚠️ RENDUES MÊME VIDES QUAND UN GLISSER EST EN COURS : une zone de dépôt qui n'existe pas tant
-              qu'elle est vide est une zone où l'on ne peut jamais rien déposer — et c'est le premier geste qu'on
-              voudrait faire sur un bien tout neuf. */}
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 2 — LES DEUX BANDES SONT **TOUJOURS** LÀ, MÊME À ZÉRO ════════
+              RÈGLE D'ARNO : « Sous les deux encarts, sur toute la largeur, deux lignes dépliables, repliées par
+              défaut, chacune avec son compteur et sa case “tout le groupe” : “Tiers indépendant” (bleu) puis
+              “Non affectés” (gris). Elles sont TOUJOURS présentes, même à 0, et restent des zones de dépôt
+              quand elles sont repliées (elles s'ouvrent au survol pendant un glisser). »
+
+              🔴 CE QUI ÉTAIT ÉCRIT ICI : un groupe vide rendait `null` TANT QU'AUCUN GLISSER N'ÉTAIT EN COURS.
+              Une bande vide n'existait donc QUE pendant un glisser. Deux conséquences, et la seconde est la
+              pire :
+                · on ne pouvait pas LIRE qu'un bien n'a aucun tiers indépendant — l'absence de ligne ne dit
+                  rien, ni « zéro » ni « pas encore chargé » ;
+                · et la bande APPARAISSAIT SOUS LE CURSEUR au premier mouvement du glisser, poussant les deux
+                  encarts vers le haut au moment précis où l'on vise. On visait alors une cible qui venait de
+                  bouger — le genre de défaut qu'on met sur le compte de sa propre maladresse.
+
+              ⚠️ UNE BANDE REPLIÉE EST DÉJÀ UNE ZONE DE DÉPÔT, et elle l'était avant ce lot : les trois gestes
+              (`onDragOver`, `onDragLeave`, `onDrop`) sont posés sur la `section` entière, pas sur la liste. Le
+              repli ne cache que les capsules. Et le survol pendant un glisser l'ouvre sans le mémoriser. */}
           {GROUPES_EN_BANDE.map((cle) => {
             const g = parties.groupes.find((x) => x.cle === cle);
-            if (g === undefined || (g.nb === 0 && glisse === null)) return null;
+            if (g === undefined) return null;
             return (
               <GroupeDeParties key={cle} g={g} forme="bande" reglages={reglages} bascules={bascules}
                 periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse}
@@ -1629,15 +1643,22 @@ function GroupeDeParties(p: PropsGroupe) {
               (« Tiers indépendant · 4 ▸ ») le dit justement comme cela. */}
           <span className="gst-compte">{g.nb}</span>
         </button>
-        {g.nb > 0 && (
-          <label className="hdb-case hdb-case--groupe">
-            <input type="checkbox" checked={toutCoche}
-              ref={(el) => { if (el !== null) el.indeterminate = partiel; }}
-              aria-label={`Tout le groupe ${g.titre}`}
-              onChange={() => p.onBasculerGroupe(adresses)} />
-            <span>tout le groupe</span>
-          </label>
-        )}
+        {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 2 — LA CASE EST LÀ MÊME À ZÉRO, MAIS ELLE NE MENT PAS ═══════
+            Arno décrit l'anatomie d'une ligne : « chacune avec son compteur et sa case “tout le groupe” ». Une
+            ligne qui perdrait sa case à zéro changerait de forme selon le bien, et la case se déplacerait d'un
+            groupe à l'autre sous le curseur.
+
+            🔴 DÉSACTIVÉE, ET NON MASQUÉE, QUAND LE GROUPE EST VIDE. Une case cochable qui ne coche rien est un
+            mensonge ; une case grisée dit « il n'y a personne à cocher », ce qui est le fait. Et elle ne peut
+            pas afficher « tout coché » sur un ensemble vide — le piège du lot 71, qu'une case active aurait
+            rouvert ici (`adresses.length > 0` le ferme déjà côté calcul, la désactivation le ferme à l'écran). */}
+        <label className={`hdb-case hdb-case--groupe${g.nb === 0 ? ' hdb-case--muette' : ''}`}>
+          <input type="checkbox" checked={toutCoche} disabled={g.nb === 0}
+            ref={(el) => { if (el !== null) el.indeterminate = partiel; }}
+            aria-label={`Tout le groupe ${g.titre}`}
+            onChange={() => p.onBasculerGroupe(adresses)} />
+          <span>tout le groupe</span>
+        </label>
       </div>
 
       {/* ══ 🔴🔴 UN GROUPE VIDE PARLE, ET IL DIT DEUX CHOSES DIFFÉRENTES ════════════════════════════════════
@@ -2286,6 +2307,12 @@ ${CSS_PIECES}
 /* 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LE « TEXTE DISCRET » D'UN ENCART VIDE. Discret veut dire petit et gris,
    pas illisible : c'est le ton des notes du bloc (--color-svv-muted), et il tient sur deux lignes a 390 px. */
 .hdb-vide-mot{margin:.35rem 0 .2rem;font-size:.76rem;color:var(--color-svv-muted);line-height:1.35}
+/* 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 2 — LA CASE « tout le groupe » D'UN GROUPE VIDE. Elle garde sa place (la
+   ligne ne change pas de forme selon le bien) et dit qu'elle n'a rien a cocher : estompee, curseur par defaut.
+   ⚠️ L'ESTOMPE N'EST PAS LA SEULE INDICATION : l'attribut disabled la porte aussi pour qui ne voit pas la
+   couleur, et c'est lui qui empeche reellement le clic. */
+.hdb-case--muette{opacity:.5;cursor:default}
+.hdb-case--muette input{cursor:default}
 /* ── LES QUATRE TONS ── Le bord gauche porte la couleur du groupe : la MEME que la barre des mails qui en
    viennent. Les jetons vivent dans globals.css ; aucune couleur en dur ici, donc rien d'illisible en sombre. */
 .hdb-groupe{margin:0;min-width:0;padding:.3rem .4rem .4rem .55rem;border-radius:.5rem;
