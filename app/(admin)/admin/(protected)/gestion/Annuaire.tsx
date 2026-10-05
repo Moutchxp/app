@@ -38,9 +38,14 @@ import { type CategoriePartie, type ClientDuBien, type OccupationPeriode, type P
 import { annoncerCartesContact, concerneCeBien, ecouterCartesContact, type SignalCartesContact }
   from '../../../../lib/gestion/signalCartesContact';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 1 — le seul juge de « cette carte monte-t-elle dans un carrousel ? ». */
-import { carteMonteAuCarrousel } from '../../../../lib/gestion/partieCategorie';
-/* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — la fiche d'un contact, telle qu'elle part au serveur (module PUR). */
-import { ficheAEnvoyer } from '../../../../lib/gestion/ficheContact';
+import {
+  carteMonteAuCarrousel,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — les mots du choix viennent des BADGES, et non d'une phrase retapée. */
+  LIBELLE_CONTACT_LOCATAIRE_COURT, LIBELLE_CONTACT_PROPRIETAIRE_COURT,
+} from '../../../../lib/gestion/partieCategorie';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — la fiche d'un contact, telle qu'elle part au serveur (module PUR).
+   🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — et son IDENTITÉ quand il naît hors d'une capsule : son premier e-mail. */
+import { ficheAEnvoyer, premierEmail } from '../../../../lib/gestion/ficheContact';
 /** La carte telle que le dépôt la rend. Importée en TYPE : rien de `pg` n'entre dans ce paquet. */
 import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/partieCategorieRepo';
 // 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
@@ -1289,6 +1294,33 @@ function VueLot({
     }
   }, [f.numero, relireCartes]);
 
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — CRÉER UN CONTACT DEPUIS LE CARROUSEL ════════════════════════════════
+   *
+   * DEMANDE D'ARNO : « Le choix contact ouvre le formulaire de contact du lot 8. »
+   *
+   * 🔴 L'IDENTITÉ VIENT DU PREMIER E-MAIL DE LA LISTE, et il n'y a pas d'autre source possible : créée depuis le
+   * BLOC, une carte prend l'adresse de la capsule d'où l'on clique ; créée depuis le CARROUSEL, il n'y a pas de
+   * capsule. Le module pur tranche (`premierEmail`), et le formulaire garantit qu'il y en a un —
+   * `manquesDuContact` exige au moins une adresse e-mail.
+   *
+   * 🔴 LA MÊME PORTE D'ÉCRITURE QUE LE « + » DU BLOC, à la lettre : un POST « ranger » qui pose la catégorie ET
+   * la carte. Un second chemin aurait fini par écrire deux règles — et c'est exactement ce que le lot 7 avait
+   * fermé.
+   *
+   * ⚠️ LA CATÉGORIE EST LE CÔTÉ DU CARROUSEL, et elle n'est pas demandée : on vient de cliquer « Contact du
+   * propriétaire » sous le carrousel du propriétaire. Reposer la question aurait été une question dont l'écran
+   * connaît la réponse — le reproche qu'Arno nous a déjà fait au lot 6.
+   */
+  const creerContact = useCallback(async (
+    cote: 'proprietaire' | 'locataire', champs: ChampsSaisis,
+  ): Promise<string | null> => {
+    const fiche = ficheAEnvoyer(champs);
+    const adresse = premierEmail(fiche.coordonnees);
+    if (adresse === null) return 'Il faut au moins une adresse e-mail : c’est elle qui identifie le contact.';
+    return gesteDeCarte({ cible: `lot-${f.numero}`, adresse, categorie: cote, ...fiche });
+  }, [f.numero, gesteDeCarte]);
+
   const gestesContact = {
     modifiable: gestes.modifiable,
     onVerifier: (id: number) => gesteDeCarte({ action: 'verifier', id }),
@@ -1406,6 +1438,13 @@ function VueLot({
         creation={{
           rappel: `Sera ajouté comme co-propriétaire du lot ${f.numero}.`,
           onCreer: (champs) => onCreer('proprietaire', [f.id], champs),
+        }}
+        /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — le choix « client ou contact », côté propriétaire. */
+        creationContact={{
+          motClient: 'Propriétaire (client)',
+          motContact: LIBELLE_CONTACT_PROPRIETAIRE_COURT,
+          rappel: `Rangé comme contact du propriétaire du lot ${f.numero}.`,
+          onCreer: (champs) => creerContact('proprietaire', champs),
         }} />
 
       {/* ══ 🔴 LES OCCUPANTS EN PLACE, EN CARTES — chacun avec ses dates et « Enregistrer un départ » ══════════════
@@ -1419,6 +1458,13 @@ function VueLot({
         creation={{
           rappel: `Sera ajouté comme occupant du lot ${f.numero}.`,
           onCreer: (champs) => onCreer('locataire', [f.id], champs),
+        }}
+        /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — le choix « client ou contact », côté locataire. */
+        creationContact={{
+          motClient: 'Occupant (client)',
+          motContact: LIBELLE_CONTACT_LOCATAIRE_COURT,
+          rappel: `Rangé comme contact du locataire du lot ${f.numero}.`,
+          onCreer: (champs) => creerContact('locataire', champs),
         }}
         dessous={(p) => {
           const occ = actuels.find((o) => o.locataireId === p.id);

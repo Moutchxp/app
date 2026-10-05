@@ -198,6 +198,25 @@ export function coteDeLaCategorie(categorie: Categorie): Cote | null {
 export const LIBELLE_CONTACT_PROPRIETAIRE = 'CONTACT DU PROPRIÉTAIRE';
 export const LIBELLE_CONTACT_LOCATAIRE = 'CONTACT DU LOCATAIRE';
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — LES MÊMES DEUX MOTS, EN PHRASE ════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO : « Au clic, un petit choix : côté propriétaire, “Propriétaire (client)” ou “Contact du
+ * propriétaire” ; côté locataire, “Occupant (client)” ou “Contact du locataire”. »
+ *
+ * 🔴 CE SONT LES BADGES, ÉCRITS COMME ON LES LIT DANS UNE PHRASE. Le badge d'une carte est en capitales parce
+ * qu'il est une étiquette ; un bouton, lui, se lit. Les DÉRIVER du badge plutôt que de les retaper garantit qu'on
+ * ne pourra pas, un jour, proposer « Contact du bailleur » sur un bouton pendant que la carte dit « CONTACT DU
+ * PROPRIÉTAIRE ».
+ */
+function enPhrase(libelle: string): string {
+  const bas = libelle.toLocaleLowerCase('fr');
+  return bas.charAt(0).toLocaleUpperCase('fr') + bas.slice(1);
+}
+
+export const LIBELLE_CONTACT_PROPRIETAIRE_COURT = enPhrase(LIBELLE_CONTACT_PROPRIETAIRE);
+export const LIBELLE_CONTACT_LOCATAIRE_COURT = enPhrase(LIBELLE_CONTACT_LOCATAIRE);
+
 /** L'étage ① de la règle, dit à l'écran : un signal fort, annoncé comme une proposition. */
 export const LIBELLE_INDEPENDANT_PROPOSE = 'Indépendant proposé — à vérifier';
 

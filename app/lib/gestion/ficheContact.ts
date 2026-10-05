@@ -165,6 +165,31 @@ export function ficheAEnvoyer(champs: {
 }
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — L'IDENTITÉ D'UN CONTACT CRÉÉ DEPUIS LE CARROUSEL ══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : « Les cartes “+ Ajouter un propriétaire” et “+ Ajouter un occupant” deviennent
+ * “Ajouter un contact” […] Le choix contact ouvre le formulaire de contact du lot 8. »
+ *
+ * 🔴 UNE CARTE DE CONTACT EST IDENTIFIÉE PAR SON ADRESSE E-MAIL — c'est la clé de la table, et c'est par elle
+ * que la capsule du bloc du bas retrouve sa carte. Créée depuis le bloc, cette adresse est celle de la CAPSULE
+ * d'où l'on clique. Créée depuis le CARROUSEL, il n'y a pas de capsule : l'identité ne peut venir que de ce
+ * qu'Arno saisit, c'est-à-dire du premier e-mail de la liste.
+ *
+ * 🔴 LE **PREMIER**, ET NON « UN » : la liste est ordonnée à la main (↑↓), et son premier e-mail est celui
+ * qu'Arno a mis en tête. Prendre le dernier, ou le plus court, aurait fait dépendre l'identité d'une règle que
+ * personne ne voit.
+ *
+ * ⚠️ `null` QUAND IL N'Y EN A AUCUN, et le formulaire refuse alors d'être validé (`manquesDuContact` exige au
+ * moins un e-mail). Les deux disent la même chose pour la même raison : sans adresse, la carte ne sert à rien —
+ * c'est par elle que l'automatisation reconnaît ses mails.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function premierEmail(coordonnees: readonly CoordonneeDeCarte[]): string | null {
+  return texteOuRien(coordonnees.find((c) => c.sorte === 'email')?.valeur ?? null, 320);
+}
+
+/**
  * ══ 🔴 LE PREMIER TÉLÉPHONE — ET POURQUOI LA COLONNE `telephone` RESTE ÉCRITE ════════════════════════════════════
  *
  * `gestion_contact_carte.telephone` existe depuis la migration 304 et elle est lue AILLEURS que par la carte : le

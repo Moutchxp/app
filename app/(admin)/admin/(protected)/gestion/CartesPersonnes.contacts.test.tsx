@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { BlocCartes, CarteContact, type GestesCarteContact, type GestesCartes } from './CartesPersonnes';
+import {
+  BlocCartes, CarteContact, type ChampsSaisis, type GestesCarteContact, type GestesCartes,
+} from './CartesPersonnes';
 import {
   CONTACTS_MONTRES, LIBELLE_CARTE_AUTO, LIBELLE_CONTACT_LOCATAIRE, LIBELLE_CONTACT_PROPRIETAIRE,
   motAutresContacts,
@@ -472,5 +474,138 @@ describe('🔴🔴 les rubriques d’une carte de contact, et son formulaire', (
     for (const mort of ['>Adresse mail<', 'Modifier ce contact</p>', 'setTelephone', 'setNote']) {
       expect(bloc, mort).not.toContain(mort);
     }
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — « AJOUTER UN CONTACT » DEPUIS LE CARROUSEL ═════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : « Les cartes “+ Ajouter un propriétaire” et “+ Ajouter un occupant” deviennent
+ * “Ajouter un contact”, avec le MÊME “+” rouge dans un cercle rouge que dans le bloc Parties. Au clic, un petit
+ * choix : côté propriétaire, “Propriétaire (client)” ou “Contact du propriétaire” […] Le choix client ouvre
+ * EXACTEMENT le formulaire actuel “Nouvelle fiche” (rien ne change pour les clients). Le choix contact ouvre le
+ * formulaire de contact du lot 8. AUCUNE FONCTIONNALITÉ PERDUE. »
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴🔴 la tuile d’ajout : un « + » cerclé, et deux chemins', () => {
+  let creees: string[] = [];
+
+  const CHOIX = {
+    motClient: 'Propriétaire (client)',
+    motContact: 'Contact du propriétaire',
+    rappel: 'Rangé comme contact du propriétaire du lot 421.',
+    onCreer: async (c: ChampsSaisis) => {
+      creees.push(`contact:${c.nom}|${(c.coordonnees ?? []).map((x) => x.valeur).join(',')}`);
+      return null;
+    },
+  };
+
+  async function monterAvecChoix(avecChoix: boolean) {
+    creees = [];
+    await act(async () => {
+      racine.render(createElement(BlocCartes, {
+        titre: 'Propriétaire', id: 'ann-prop', personnes: [client()], gestes: gestesCartes,
+        role: 'Propriétaire', motAjouter: 'Ajouter un propriétaire',
+        creation: {
+          rappel: 'Sera ajouté comme co-propriétaire du lot 421.',
+          onCreer: async (c: ChampsSaisis) => { creees.push(`client:${c.nom}`); return null; },
+        },
+        contacts: [], gestesContact,
+        ...(avecChoix ? { creationContact: CHOIX } : {}),
+      }));
+    });
+  }
+
+  const tuile = (): HTMLElement => hote.querySelector('.cp-carte--ajout') as HTMLElement;
+
+  it('🔴🔴 SUR LA FICHE D’UN BIEN : « Ajouter un contact » et le « + » ROUGE CERCLÉ', async () => {
+    await monterAvecChoix(true);
+    expect(tuile().textContent).toContain('Ajouter un contact');
+    expect(tuile().querySelector('.cp-ajout-cercle')).not.toBeNull();
+    /* ⚠️ L'ancien « + » nu a cédé la place : un seul des deux est rendu. */
+    expect(tuile().querySelector('.cp-ajout-plus')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 « AUCUNE FONCTIONNALITÉ PERDUE » — ET C'EST LA MOITIÉ QU'ON OUBLIE. Les fiches d'un PROPRIÉTAIRE et d'un
+   * LOCATAIRE montent ce même bloc et ne passent pas de choix : leur tuile ne doit pas bouger d'un pixel. Une
+   * carte de contact se range sur un BIEN (c'est la clé de sa table) ; leur offrir le choix aurait proposé un
+   * geste que le serveur refuse.
+   */
+  it('🔴🔴 AILLEURS : la tuile d’avant, au caractère près', async () => {
+    await monterAvecChoix(false);
+    expect(tuile().textContent).toContain('Ajouter un propriétaire');
+    expect(tuile().querySelector('.cp-ajout-plus')).not.toBeNull();
+    expect(tuile().querySelector('.cp-ajout-cercle')).toBeNull();
+    /* 🔴 ET UN CLIC OUVRE DIRECTEMENT LE FORMULAIRE CLIENT, sans question intermédiaire. */
+    await cliquer(tuile());
+    expect(hote.querySelector('.cp-carte--choix')).toBeNull();
+    expect(hote.querySelector('.cp-form-titre')?.textContent).toBe('Nouvelle fiche');
+  });
+
+  it('🔴🔴 LE CLIC OUVRE LE PETIT CHOIX, À LA PLACE DE LA TUILE', async () => {
+    await monterAvecChoix(true);
+    await cliquer(tuile());
+    const choix = hote.querySelector('.cp-carte--choix') as HTMLElement;
+    expect(choix).not.toBeNull();
+    expect(choix.textContent).toContain('Propriétaire (client)');
+    expect(choix.textContent).toContain('Contact du propriétaire');
+    /* La tuile a cédé sa place : les deux faces du même emplacement. */
+    expect(hote.querySelector('.cp-carte--ajout')).toBeNull();
+  });
+
+  /** 🔴🔴 « RIEN NE CHANGE POUR LES CLIENTS » : le choix client ouvre le formulaire « Nouvelle fiche ». */
+  it('🔴🔴 LE CHOIX CLIENT OUVRE EXACTEMENT « Nouvelle fiche »', async () => {
+    await monterAvecChoix(true);
+    await cliquer(tuile());
+    await cliquer([...hote.querySelectorAll('button')].find((b) => b.textContent === 'Propriétaire (client)'));
+    expect(hote.querySelector('.cp-form-titre')?.textContent).toBe('Nouvelle fiche');
+    expect(hote.querySelector('.cp-rappel')?.textContent).toContain('co-propriétaire du lot 421');
+    /* 🔴 ET SON EXIGENCE EST CELLE DES CLIENTS : les huit champs sont réclamés, pas deux. */
+    const manques = [...hote.querySelectorAll('.cp-manque')].map((m) => m.textContent ?? '');
+    expect(manques.some((m) => m.includes('La civilité est obligatoire'))).toBe(true);
+    expect(manques.some((m) => m.includes('Il faut au moins un téléphone'))).toBe(true);
+  });
+
+  it('🔴🔴 LE CHOIX CONTACT OUVRE LE FORMULAIRE DU LOT 8, avec ses seules deux exigences', async () => {
+    await monterAvecChoix(true);
+    await cliquer(tuile());
+    await cliquer([...hote.querySelectorAll('button')].find((b) => b.textContent === 'Contact du propriétaire'));
+    expect(hote.querySelector('.cp-form-titre')?.textContent).toBe('Nouveau contact');
+    expect(hote.querySelector('.cp-rappel')?.textContent).toContain('contact du propriétaire du lot 421');
+    /* 🔴 LA RÈGLE D'UN CONTACT : le nom et un e-mail, et rien d'autre. */
+    const manques = [...hote.querySelectorAll('.cp-manque')].map((m) => m.textContent ?? '');
+    expect(manques.some((m) => m.includes('Le nom est obligatoire'))).toBe(true);
+    expect(manques.some((m) => m.includes('au moins une adresse e-mail'))).toBe(true);
+    expect(manques.some((m) => m.includes('La civilité est obligatoire'))).toBe(false);
+    expect(manques.some((m) => m.includes('Il faut au moins un téléphone'))).toBe(false);
+  });
+
+  /** 🔴 ET IL ENREGISTRE PAR SA PROPRE PORTE : le contact ne part pas par le geste des clients. */
+  it('🔴🔴 LE CONTACT SAISI PART PAR LA PORTE DES CONTACTS', async () => {
+    await monterAvecChoix(true);
+    await cliquer(tuile());
+    await cliquer([...hote.querySelectorAll('button')].find((b) => b.textContent === 'Contact du propriétaire'));
+    const poser = (el: HTMLInputElement, v: string): void => {
+      const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      d?.set?.call(el, v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const nom = [...hote.querySelectorAll('.cp-champ')]
+      .find((l) => (l.textContent ?? '').startsWith('Nom'))?.querySelector('input') as HTMLInputElement;
+    await act(async () => { poser(nom, 'AXA'); });
+    const valeurs = [...hote.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
+    await act(async () => { poser(valeurs[valeurs.length - 1], 'axa@fictif.test'); });
+    await cliquer([...hote.querySelectorAll('button')].find((b) => b.textContent === 'Enregistrer'));
+    expect(creees).toEqual(['contact:AXA|axa@fictif.test']);
+  });
+
+  it('⚠️ « Annuler » du choix redonne la tuile, sans rien avoir créé', async () => {
+    await monterAvecChoix(true);
+    await cliquer(tuile());
+    await cliquer([...hote.querySelectorAll('.cp-carte--choix button')].find((b) => b.textContent === 'Annuler'));
+    expect(hote.querySelector('.cp-carte--ajout')).not.toBeNull();
+    expect(creees).toEqual([]);
   });
 });

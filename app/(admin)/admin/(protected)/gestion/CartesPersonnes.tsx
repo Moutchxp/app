@@ -38,7 +38,7 @@ import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/parti
  * E-MAIL sont obligatoires » — Arno). La règle des clients, `manquesDeLaFiche`, n'est pas touchée.
  */
 import {
-  TITRE_CONTACT_MODIFIER, coordonneesPourLaBase, manquesDuContact,
+  TITRE_CONTACT_MODIFIER, TITRE_CONTACT_NOUVEAU, coordonneesPourLaBase, manquesDuContact,
 } from '../../../../lib/gestion/ficheContact';
 // LOT FICHES-RETOUCHES — la nomenclature (Mobile / Fixe / E-mail) et le formatage des numeros.
 import {
@@ -1385,7 +1385,7 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
 }
 
 export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, dessous, creation,
-  contacts = [], gestesContact }: {
+  contacts = [], gestesContact, creationContact }: {
   titre: string;
   id: string;
   personnes: readonly PersonneAnnuaire[];
@@ -1411,6 +1411,29 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
    */
   contacts?: readonly CarteDeContact[];
   gestesContact?: GestesCarteContact;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — « AJOUTER UN CONTACT » DEPUIS LE CARROUSEL ═════════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « Les cartes “+ Ajouter un propriétaire” et “+ Ajouter un occupant” deviennent
+   * “Ajouter un contact”, avec le MÊME “+” rouge dans un cercle rouge que dans le bloc Parties. Au clic, un petit
+   * choix : côté propriétaire, “Propriétaire (client)” ou “Contact du propriétaire” ; côté locataire, “Occupant
+   * (client)” ou “Contact du locataire”. Le choix client ouvre EXACTEMENT le formulaire actuel “Nouvelle fiche”
+   * (rien ne change pour les clients). Le choix contact ouvre le formulaire de contact du lot 8. AUCUNE
+   * FONCTIONNALITÉ PERDUE. »
+   *
+   * 🔴 ABSENTE ⇒ LA TUILE D'AVANT CE LOT, AU CARACTÈRE PRÈS. Et ce n'est pas un repli prudent : les fiches d'un
+   * PROPRIÉTAIRE et d'un LOCATAIRE montent ce même bloc, et un « contact du propriétaire » n'y veut rien dire —
+   * une carte de contact se range sur un BIEN (c'est la clé de sa table). Leur offrir le choix aurait proposé un
+   * geste que le serveur refuse. C'est la fiche d'un BIEN qui passe cette prop, et elle seule.
+   */
+  creationContact?: {
+    /** « Propriétaire (client) » ou « Occupant (client) » — le mot du client, côté par côté. */
+    motClient: string;
+    /** « Contact du propriétaire » ou « Contact du locataire ». */
+    motContact: string;
+    rappel: string;
+    onCreer: (champs: ChampsSaisis) => Promise<string | null>;
+  };
 }) {
   const vivantes = personnes.filter((p) => !p.archive);
   const archivees = personnes.filter((p) => p.archive);
@@ -1427,7 +1450,12 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
    */
   const [voirArchivees, setVoirArchivees] = useState(false);
   const ordonnees = voirArchivees ? [...vivantes, ...archivees] : vivantes;
-  const [ajout, setAjout] = useState(false);
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — QUATRE TEMPS, ET NON DEUX. `false` (la tuile), `'choix'` (les deux
+   * boutons), `'client'` (le formulaire d'avant, intact), `'contact'` (celui du lot 8). Sans le temps `'choix'`,
+   * il aurait fallu deux tuiles côte à côte — et la rangée aurait porté deux gestes là où Arno en veut un.
+   */
+  const [ajout, setAjout] = useState<false | 'choix' | 'client' | 'contact'>(false);
   const [refusAjout, setRefusAjout] = useState<string | null>(null);
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LE REPLI DES CONTACTS AU-DELÀ DE SIX. Mesuré : le bien 155 porte 55 contacts
@@ -1507,21 +1535,52 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
 
             ⚠️ ELLE RESTE EN DERNIER, APRÈS LES CONTACTS (demande d'Arno) : c'est la place d'un geste, et un geste
             se trouve au bout de ce qu'on vient de lire. */}
-        {ajout ? (
+        {ajout === 'client' || ajout === 'contact' ? (
           <article className="cp-carte cp-carte--edition">
-            <FormulaireCarte p={null} refus={refusAjout} onAnnuler={() => { setAjout(false); setRefusAjout(null); }}
-              creation={{ rappel: creation.rappel }}
+            {/* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — LE CHOIX « CLIENT » OUVRE **EXACTEMENT** LE FORMULAIRE
+                D'AVANT : mêmes props, même rappel, même geste. « Rien ne change pour les clients » (Arno), et
+                c'est l'appel ci-dessous qui le prouve — il n'a pas changé d'un caractère. */}
+            <FormulaireCarte p={ajout === 'client' ? null : ficheDeContact({ adresse: '' })}
+              refus={refusAjout} onAnnuler={() => { setAjout(false); setRefusAjout(null); }}
+              creation={ajout === 'client' ? { rappel: creation.rappel } : undefined}
+              contact={ajout === 'contact' && creationContact !== undefined
+                ? { titre: TITRE_CONTACT_NOUVEAU, rappel: creationContact.rappel }
+                : undefined}
               onEnregistrer={async (champs) => {
-                const motif = await creation.onCreer(champs);
+                const poser = ajout === 'contact' && creationContact !== undefined
+                  ? creationContact.onCreer
+                  : creation.onCreer;
+                const motif = await poser(champs);
                 if (motif === null) { setAjout(false); setRefusAjout(null); } else setRefusAjout(motif);
               }} />
+          </article>
+        ) : ajout === 'choix' && creationContact !== undefined ? (
+          /* ══ 🔴🔴 LE PETIT CHOIX, À LA PLACE DE LA TUILE ════════════════════════════════════════════════════
+             Il prend la place de la tuile dans la rangée, comme la carte vide : c'est là qu'on vient de
+             cliquer, et faire apparaître une question ailleurs dans la page obligerait à la chercher. */
+          <article className="cp-carte cp-carte--choix" aria-label="Que voulez-vous ajouter ?">
+            <p className="cp-choix-titre">Ajouter…</p>
+            <button type="button" className="svv-btn gst-btn cp-bouton"
+              onClick={() => setAjout('client')}>{creationContact.motClient}</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn cp-bouton"
+              onClick={() => setAjout('contact')}>{creationContact.motContact}</button>
+            <button type="button" className="gst-lien-bouton"
+              onClick={() => setAjout(false)}>Annuler</button>
           </article>
         ) : (
           <button type="button" className="cp-carte cp-carte--ajout" disabled={!gestes.modifiable}
             title={gestes.modifiable ? undefined : MOTIF_SANS_MIGRATION}
-            onClick={() => setAjout(true)}>
-            <span className="cp-ajout-plus" aria-hidden="true">+</span>
-            <span className="cp-ajout-mot">{motAjouter}</span>
+            onClick={() => setAjout(creationContact === undefined ? 'client' : 'choix')}>
+            {/* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — LE MÊME « + » ROUGE CERCLÉ QUE DANS LE BLOC PARTIES
+                (demande d'Arno), là où la fiche d'un bien offre le choix. Ailleurs — fiche d'un propriétaire,
+                fiche d'un locataire —, la tuile garde son « + » et son mot d'avant : il n'y a pas de contact à
+                y créer, et changer son allure aurait annoncé un geste qui n'existe pas sur ces écrans. */}
+            {creationContact === undefined
+              ? <span className="cp-ajout-plus" aria-hidden="true">+</span>
+              : <span className="cp-ajout-cercle" aria-hidden="true">+</span>}
+            <span className="cp-ajout-mot">
+              {creationContact === undefined ? motAjouter : 'Ajouter un contact'}
+            </span>
             {!gestes.modifiable && <span className="cp-rien">{MOTIF_SANS_MIGRATION}</span>}
           </button>
         )}
@@ -1790,6 +1849,23 @@ ${CSS_CHAMP_ADRESSE}
 .cp-carte--ajout:disabled{cursor:not-allowed;opacity:.8}
 .cp-ajout-plus{font-size:1.5rem;line-height:1;color:var(--color-svv-red)}
 .cp-ajout-mot{font-size:.85rem;font-weight:600;color:var(--color-svv-ink)}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — LE MEME « + » ROUGE CERCLE QUE DANS LE BLOC PARTIES ════════════════
+   DEMANDE D'ARNO : « avec le MEME “+” rouge dans un cercle rouge que dans le bloc Parties ».
+   🔴 LES MEMES VALEURS, REPRISES DU BLOC : bord de 1,5 px, rouge, fond de surface, cercle parfait. Elles sont
+   recopiees et non partagees parce que les deux feuilles sont deux litteraux independants (un composant par
+   ecran) ; ce qui les tient d'accord est cet encadre, et le garde de CartesPersonnes qui compare les deux.
+   ⚠️ 26 px ET NON 22 : la tuile d'ajout est plus grande qu'une capsule, et le meme cercle y paraitrait timide.
+   La FORME est identique, l'echelle suit son support — c'est ce qu'on reconnait, pas la taille. */
+.cp-ajout-cercle{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+  border-radius:999px;border:1.5px solid var(--color-svv-red);background:var(--color-svv-surface);
+  font-size:1rem;line-height:1;color:var(--color-svv-red)}
+
+/* ══ LE PETIT CHOIX — « Proprietaire (client) » ou « Contact du proprietaire » ════════════════════════════════
+   Il prend LA PLACE de la tuile dans la rangee : c'est la qu'on vient de cliquer. Les deux boutons sont pleine
+   largeur et empiles, pour qu'au doigt on ne vise pas entre les deux. */
+.cp-carte--choix{align-items:stretch;justify-content:center;gap:.5rem;text-align:center}
+.cp-choix-titre{margin:0 0 .2rem;font-size:.78rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--color-svv-muted)}
 
 /* ══ THEME SOMBRE — SURFACES GRADUEES, PAS DU NOIR PLAT ════════════════════════════════════════════════════════
    Les tokens de la charte portent deja les bonnes valeurs en sombre : seules les OMBRES et le fondu doivent etre

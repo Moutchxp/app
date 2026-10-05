@@ -508,7 +508,12 @@ describe('🔴 l’écran : des cartes côte à côte, alignées, et modifiables
   it('🔴 la carte « + Ajouter » est au BOUT de la rangée', () => {
     const bloc = src.slice(src.indexOf('export function BlocCartes'));
     expect(bloc).toContain('cp-carte--ajout');
-    expect(bloc).toContain('{motAjouter}');
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — `motAjouter` NE S'ÉCRIT PLUS SEUL : la fiche d'un BIEN affiche
+       « Ajouter un contact » et offre le choix (demande d'Arno) ; partout ailleurs — fiche d'un propriétaire,
+       fiche d'un locataire —, la tuile garde son mot d'avant. Le garde vérifie donc les DEUX branches, et
+       surtout que celle d'avant existe toujours : « aucune fonctionnalité perdue ». */
+    expect(bloc).toContain('creationContact === undefined ? motAjouter');
+    expect(bloc).toContain("'Ajouter un contact'");
     // Elle vient APRÈS les cartes dans le flux — c'est ce qui la place au bout.
     expect(bloc.indexOf('<CartePersonne')).toBeLessThan(bloc.indexOf('cp-carte--ajout'));
   });
@@ -744,7 +749,10 @@ describe('🔴 la carte d’ajout est la carte « Modifier », vide', () => {
      * en création.
      */
     expect(src).toContain('p: FicheAEditer | null;');
-    expect(src).toContain('<FormulaireCarte p={null}');
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — le choix « client » ouvre EXACTEMENT le formulaire d'avant, avec
+       `p` à `null` ; le choix « contact » ouvre le même composant avec une fiche de contact vide. Un seul
+       appel pour les deux : deux appels jumeaux auraient divergé au premier champ ajouté. */
+    expect(src).toContain("ajout === 'client' ? null : ficheDeContact({ adresse: '' })");
     // L'ancien formulaire réduit (Civilité / Nom / date) n'existe plus nulle part.
     const annuaire = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
     expect(annuaire).not.toContain('function PanneauAjout');
@@ -757,9 +765,12 @@ describe('🔴 la carte d’ajout est la carte « Modifier », vide', () => {
   it('🔴 elle s’ouvre À SA PLACE DANS LA RANGÉE, pas ailleurs dans la page', () => {
     const bloc = src.slice(src.indexOf('export function BlocCartes'));
     // La tuile et la carte sont les deux faces du même emplacement, au bout de la rangée.
-    expect(bloc).toContain('{ajout ? (');
+    /* ⚠️ LOT HISTORIQUE-BIEN-9, POINT 2 — l'état a QUATRE temps (la tuile, le choix, le client, le contact) :
+       c'est le même emplacement qui les porte tous, et c'est ce que ce garde vérifie. */
+    expect(bloc).toContain("{ajout === 'client' || ajout === 'contact' ? (");
     expect(bloc).toContain('cp-carte--ajout');
-    expect(bloc.indexOf('<CartePersonne')).toBeLessThan(bloc.indexOf('{ajout ? ('));
+    expect(bloc.indexOf('<CartePersonne'))
+      .toBeLessThan(bloc.indexOf("{ajout === 'client' || ajout === 'contact' ? ("));
   });
 
   it('🔴 le rappel dit où la personne atterrit, AVANT qu’on remplisse quoi que ce soit', () => {
