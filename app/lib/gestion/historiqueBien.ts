@@ -2,6 +2,7 @@ import { FUSEAU_AFFICHAGE } from './ecran';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — `periodeOccupation` est LA mise en forme d'une période d'occupation de
    ce dépôt (« du … au … »). La ligne d'un ancien locataire l'emploie telle quelle, jamais une copie. */
 import { formaterDateIso, periodeOccupation } from './annuaireRecherche';
+import type { PersonneDuMail } from './adressesMessage';
 import {
   ecrireFiltres, FILTRES_VIDES, jourValide, libelleInterlocuteur, PAGE_HISTORIQUE, PORTEURS_DE_PIECES_MAX,
   type ChoixPieces, type FiltresHistorique, type Interlocuteur, type LigneHistorique,
@@ -1929,6 +1930,112 @@ export function messagesDesPorteurs(
       empreinte: p.empreinte ?? null,
     })),
   }));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑦-ter 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — QUI A ENVOYÉ CETTE PIÈCE ?
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   CONSTAT D'ARNO (05/10/2026, lot-146, SEUL le groupe Propriétaire coché) : « au milieu des pièces de Blandine
+   Piriou, le résumé montre "RIB - Boursorama Thomas Derrien.pdf", reçu de DERRIEN Thomas (ancien locataire) le
+   12/02/2025 15:33, avec un liseré vert. »
+
+   🔴 MESURÉ EN BASE — message 52187, fil 32947, « Re: Bilan des charges Ternes » :
+
+       De  : thomas.derrien@hec.edu      (DERRIEN Thomas — ancien locataire, bail clos le 31/01/2025)
+       À   : blandine.piriou@gmail.com   (Blandine Piriou — LA PROPRIÉTAIRE COCHÉE)
+       Cc  : alizee.acket@hec.edu        (l'autre ancienne locataire)
+             gestion@criterimmo.fr, jb.pons@sansvisavis.com   (nous)
+
+   Ce n'est donc PAS « le propriétaire en copie » : la propriétaire est le destinataire DIRECT. Le mail entre dans
+   la sélection par elle, et c'est JUSTE pour le listing — ce courrier la concerne, il doit s'afficher. Le liseré
+   vert, lui, est exact aussi : il porte la couleur de l'EXPÉDITEUR, qui est un locataire.
+
+   🔴 CE QUI EST FAUX, C'EST LE RÉSUMÉ DES PIÈCES. Un résumé de pièces répond à « quels documents cette partie
+   nous a-t-elle fournis » ; un RIB envoyé par un ancien locataire n'est pas un document de la propriétaire,
+   quand bien même elle le recevait. La règle d'Arno le dit mot pour mot :
+
+       « une pièce n'y figure que si son mail a été ENVOYÉ PAR une partie cochée, ou ENVOYÉ PAR NOUS
+         (agence cochée) À une partie cochée (À ou Cc). Une pièce envoyée par une partie NON cochée n'y
+         figure jamais, même si une partie cochée était en copie. »
+
+   🔴🔴 LE PIÈGE QUI AURAIT TOUT CASSÉ, ET QUI EST FERMÉ ICI : **AUCUNE PARTIE COCHÉE**. Prise à la lettre, la
+   règle écarterait alors TOUT (rien n'est « envoyé par une partie cochée » quand il n'y en a pas), et le résumé
+   du cas ORDINAIRE — celui de l'arrivée sur la fiche — serait VIDE. C'est le piège du lot 71 (un ensemble vide
+   n'est jamais « tout satisfait ») sous un autre visage. Sans partie cochée, le listing dit « tous les mails du
+   bien sont affichés » : le résumé les suit, sans filtre.
+
+   ⚠️ L'AGENCE N'EST PAS RELUE ICI, ET C'EST VOULU. « Agence cochée » est déjà tenu par le SERVEUR : une adresse
+   décochée part en `expediteursExclus`, et ses mails ne sont dans NI le listing NI cette lecture. Un envoi qui
+   arrive jusqu'ici vient donc, par construction, d'une adresse cochée. Le revérifier ici aurait fait un second
+   juge de la même règle — et deux juges finissent toujours par diverger.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Ce qu'il faut d'un mail pour savoir si sa pièce entre au résumé : son sens, son expéditeur, ses destinataires. */
+export interface PorteurAdresse {
+  sens: 'recu' | 'envoye';
+  de: string;
+  a: readonly PersonneDuMail[];
+  cc: readonly PersonneDuMail[];
+}
+
+/** Les parties cochées, en forme canonique. Un ensemble vide veut dire « aucun filtre », jamais « personne ». */
+export function partiesCochees(parties: readonly string[]): ReadonlySet<string> {
+  return new Set(parties.map((a) => a.trim().toLowerCase()).filter((a) => a !== ''));
+}
+
+/**
+ * ══ 🔴🔴 LA RÈGLE D'ARNO, ÉCRITE UNE FOIS. PURE. ════════════════════════════════════════════════════════════════
+ *
+ * `true` ⇒ les pièces de ce mail entrent au résumé.
+ *
+ * ⚠️ `cc` COMPTE POUR **NOS** ENVOIS, ET PAS POUR LES RÉCEPTIONS, et ce n'est pas une inconséquence : « envoyé
+ * par nous À une partie cochée (À ou Cc) » est la demande d'Arno à la lettre. Quand nous écrivons, mettre
+ * quelqu'un en copie, c'est lui adresser le document ; quand un tiers écrit, la copie ne fait pas de lui
+ * l'auteur de la pièce — c'est exactement le cas du RIB de DERRIEN.
+ */
+export function porteurRetenuAuResume(m: PorteurAdresse, cochees: ReadonlySet<string>): boolean {
+  // 🔴🔴 AUCUNE PARTIE COCHÉE ⇒ AUCUN FILTRE. Voir l'encadré : à la lettre, la règle viderait le cas ordinaire.
+  if (cochees.size === 0) return true;
+  if (m.sens === 'recu') return cochees.has(m.de.trim().toLowerCase());
+  return [...m.a, ...m.cc].some((p) => cochees.has(p.adresse.trim().toLowerCase()));
+}
+
+/**
+ * Les porteurs gardés et ceux écartés, en UN seul parcours. PUR.
+ *
+ * 🔴 LES DEUX MOITIÉS SONT RENDUES, ET NON LA SEULE BONNE : c'est l'écart qui permet d'écrire la phrase d'Arno
+ * (« N pièces envoyées par des parties non cochées ne sont pas reprises dans le résumé ») en comptant les pièces
+ * écartées PAR LE MÊME CALCUL que celles qu'on montre — dédoublonnage et pièces techniques compris. Les compter
+ * à part aurait fait deux arithmétiques pour un seul nombre affiché.
+ */
+export function partagerPourLeResume<T extends PorteurAdresse>(
+  porteurs: readonly T[], cochees: ReadonlySet<string>,
+): { gardes: T[]; ecartes: T[] } {
+  const gardes: T[] = [];
+  const ecartes: T[] = [];
+  for (const m of porteurs) (porteurRetenuAuResume(m, cochees) ? gardes : ecartes).push(m);
+  return { gardes, ecartes };
+}
+
+/**
+ * ══ 🔴 LA PHRASE DISCRÈTE, SOUS LA LIGNE D'ÉTAT. PURE. ══════════════════════════════════════════════════════════
+ *
+ * Arno : « Sous la ligne d'état, une phrase discrète apparaît SEULEMENT si c'est le cas. »
+ *
+ * 🔴 `null` QUAND IL N'Y A RIEN À DIRE, et c'est tout l'intérêt : une phrase permanente « 0 pièce écartée »
+ * aurait appris à l'œil à ne plus la lire, et le jour où elle dit quelque chose on ne la verrait plus.
+ *
+ * ⚠️ LE SINGULIER EST ÉCRIT, parce qu'il arrive : « 1 pièce envoyée par une partie non cochée » se lit encore
+ * comme une phrase française, « 1 pièces » non — et c'est le genre de détail qui fait douter du nombre lui-même.
+ */
+export function motPiecesEcartees(n: number): string | null {
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const k = Math.trunc(n);
+  return k === 1
+    ? '1 pièce envoyée par une partie non cochée n’est pas reprise dans le résumé.'
+    : `${k} pièces envoyées par des parties non cochées ne sont pas reprises dans le résumé.`;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

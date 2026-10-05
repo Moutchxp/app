@@ -109,6 +109,11 @@ function reponse(corps: unknown): Response {
 function porteursDepuis(lignes: readonly LigneHistorique[]): unknown {
   const messages = lignes.filter((l) => l.pieces.length > 0).map((l) => ({
     messageId: l.messageId, recuLe: l.recuLe, sens: l.sens, de: l.de, deNom: l.deNom, objet: l.objet,
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-14 — `a` ET `cc` SONT RENDUS PAR LA VRAIE ROUTE, DONC PAR CE BOUCHON. Les
+       omettre aurait fait passer les épreuves sur une réponse que personne ne reçoit — et c'est exactement
+       l'erreur qui a coûté le lot 12 point 1 (« un double qui recopie l'hypothèse de l'écran ne prouve rien »).
+       Ce sont ces deux champs qui décident si la pièce d'un de NOS envois entre au résumé. */
+    a: l.a, cc: l.cc,
     pieces: l.pieces,
   }));
   return {
@@ -1982,9 +1987,31 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     de: 'locataire@fictif.test', deNom: 'MARTY Jean-François',
     pieces: [piece({ pieceId: 111, nomFichier: 'etat-des-lieux.pdf', empreinte: 'sha-111' })],
   });
+  /**
+   * ══ 🔴🔴 CE MAIL A GAGNÉ UN DESTINATAIRE AU LOT HISTORIQUE-BIEN-14, ET SANS LUI IL ÉTAIT FAUX ═══════════════
+   *
+   * Il n'en portait AUCUN : un mail que nous aurions envoyé à personne. C'était sans conséquence tant que le
+   * résumé retenait nos envois par leur ÉCHANGE (même `filId`) ; la règle d'Arno du lot 14 les retient par leur
+   * DESTINATAIRE, et ce bouchon-là serait devenu un piège — il aurait fait échouer une épreuve pour une forme
+   * que la base ne produit jamais, et non pour un défaut du produit.
+   */
+  /**
+   * ══ 🔴🔴 LE MAIL DU CONSTAT D'ARNO, REPRODUIT ICI — message 52187 de lot-146 ════════════════════════════════
+   *
+   * Envoyé par un ANCIEN LOCATAIRE, adressé EN DIRECT à la propriétaire. Il entre donc dans la sélection
+   * « propriétaire » — c'est juste, le courrier la concerne — mais son RIB n'est pas un document d'elle.
+   */
+  const MAIL_RIB = ligne({
+    messageId: 13, filId: 130, recuLe: '2026-02-12T14:33:00Z', objet: 'Re: Bilan des charges',
+    de: 'locataire@fictif.test', deNom: 'MARTY Jean-François',
+    a: [{ nom: 'M. ROI Nathan', adresse: 'proprio@fictif.test' }],
+    pieces: [piece({ pieceId: 131, nomFichier: 'rib-du-locataire.pdf', empreinte: 'sha-131' })],
+  });
+
   const MAIL_AGENCE = ligne({
     messageId: 12, filId: 100, recuLe: '2026-01-15T09:00:00Z', objet: 'Charges 2026', sens: 'envoye',
     de: 'gestion@criterimmo.fr', deNom: 'Gestion CRITERIMMO',
+    a: [{ nom: 'M. ROI Nathan', adresse: 'proprio@fictif.test' }],
     pieces: [piece({ pieceId: 121, nomFichier: 'decompte.pdf', empreinte: 'sha-121' })],
   });
 
@@ -1998,19 +2025,39 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
       if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       /* ⚠️ ON LIT LE `avec=` DE L'ADRESSE, comme le ferait la route : c'est ce qui rend l'épreuve honnête —
-         elle n'impose pas la réponse, elle la DÉDUIT de ce que l'écran a demandé. */
-      const avec = new URL(u, 'http://local').searchParams.get('avec') ?? '';
+         elle n'impose pas la réponse, elle la DÉDUIT de ce que l'écran a demandé.
+
+         🔴🔴 CE BOUCHON A ÉTÉ CORRIGÉ AU LOT HISTORIQUE-BIEN-14, ET IL MENTAIT. Il choisissait par l'EXPÉDITEUR
+         (plus une exception sur le `filId` du propriétaire) ; la vraie sélection entre par N'IMPORTE QUELLE
+         adresse du mail — expéditeur, « À » ou « Cc ». C'est précisément ce qui fait entrer dans la sélection
+         le mail du RIB de DERRIEN, que le propriétaire RECEVAIT sans l'avoir écrit, et c'est tout le constat
+         d'Arno. Un bouchon qui ne sait pas faire entrer ce mail ne peut pas éprouver qu'on l'écarte du résumé.
+
+         ⚠️ `sauf=` EST LU AUSSI : c'est par lui que l'agence décochée retire NOS mails, côté serveur. Sans
+         cela, le cas « agence décochée » d'Arno ne se serait éprouvé nulle part. */
+      const p = new URL(u, 'http://local').searchParams;
+      const avec = p.get('avec') ?? '';
       const choisies = avec === '' ? null : avec.split(',');
-      const tous = [MAIL_PROPRIO, MAIL_LOCATAIRE, MAIL_AGENCE];
-      const lignes = choisies === null
-        ? tous
-        : tous.filter((l) => choisies.includes(l.de) || l.filId === 100 && choisies.includes('proprio@fictif.test'));
+      const sauf = (p.get('sauf') ?? '').split(',').filter((x) => x !== '');
+      const tous = [MAIL_PROPRIO, MAIL_LOCATAIRE, MAIL_AGENCE, MAIL_RIB];
+      const adressesDe = (l: LigneHistorique): string[] =>
+        [l.de, ...l.a.map((x) => x.adresse), ...l.cc.map((x) => x.adresse)];
+      const lignes = tous
+        .filter((l) => choisies === null || adressesDe(l).some((a) => choisies.includes(a)))
+        .filter((l) => !sauf.includes(l.de));
       if (u.includes('/historique/pieces')) return reponse(porteursDepuis(lignes));
       return reponse({
         etat: 'ok',
         data: {
           lignes, suite: false, entete: { nbMails: lignes.length },
-          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+          /* 🔴 NOTRE ADRESSE EST DANS LA LISTE, et sans elle la bande « Notre agence » n'existe pas à l'écran
+             (elle ne s'affiche qu'avec au moins une adresse) : le cas « agence décochée » demandé par Arno
+             n'aurait eu aucun interrupteur à actionner. */
+          interlocuteurs: [
+            ...INTERLOCUTEURS,
+            inter({ adresse: 'gestion@criterimmo.fr', nom: 'Gestion CRITERIMMO', interne: true, aEcrit: 1 }),
+          ],
+          interlocuteursTronques: false,
         },
       });
     }));
@@ -2065,8 +2112,17 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     await ouvrirLeResume();
     const noms = piecesDuResume();
     expect(noms).toContain('charges-2026.pdf');
-    /* 🔴 « Les pièces envoyées par l'agence dans ces échanges en font partie » (Arno) : le décompte est dans
-       l'échange du propriétaire (même `filId`), donc il est là. */
+    /**
+     * ══ 🔴🔴 CE VERDICT TIENT, MAIS SA RAISON A CHANGÉ AU LOT HISTORIQUE-BIEN-14 ═══════════════════════════
+     *
+     * Il disait : « les pièces envoyées par l'agence dans ces ÉCHANGES en font partie » — le décompte entrait
+     * parce qu'il partage le `filId` du propriétaire. La règle d'Arno du lot 14 est plus étroite, et plus
+     * juste : « ENVOYÉ PAR NOUS À une partie cochée (À ou Cc) ». Le décompte entre donc désormais parce qu'il
+     * est ADRESSÉ au propriétaire, et non parce qu'il traîne dans son fil.
+     *
+     * 🔴 L'ÉCART N'EST PAS THÉORIQUE : c'est exactement ce qui faisait entrer le RIB de DERRIEN dans les pièces
+     * de Blandine Piriou — un document d'un tiers, dans le fil d'un propriétaire.
+     */
     expect(noms).toContain('decompte.pdf');
     expect(noms).not.toContain('etat-des-lieux.pdf');
   });
@@ -2078,7 +2134,11 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     await cocherGroupe('Locataire');
     await ouvrirLeResume();
     const noms = piecesDuResume();
-    expect(noms).toEqual(['etat-des-lieux.pdf']);
+    /* ⚠️ LE RIB EST ARRIVÉ DANS LE JEU D'ESSAI AU LOT 14 : c'est le mail du constat d'Arno, écrit PAR le
+       locataire. Côté locataire, il est donc bien à sa place — c'est côté propriétaire qu'il n'y était pas. */
+    expect(new Set(noms)).toEqual(new Set(['etat-des-lieux.pdf', 'rib-du-locataire.pdf']));
+    expect(noms).not.toContain('charges-2026.pdf');
+    expect(noms).not.toContain('decompte.pdf');
   });
 
   /**
@@ -2097,6 +2157,73 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
   });
 
   /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — LE DÉFAUT D'ARNO, ÉPROUVÉ À L'ÉCRAN ══════════════════════════════
+   *
+   * « Propriétaire seul coché : au milieu des pièces de Blandine Piriou, le résumé montre le RIB d'un ancien
+   * locataire. » Le mail est dans la SÉLECTION (il lui est adressé) et doit rester dans le LISTING ; c'est sa
+   * pièce qui n'a rien à faire dans le résumé.
+   *
+   * 🔴 LES DEUX MOITIÉS SONT VÉRIFIÉES ICI, ET IL LE FAUT : écarter la pièce ET garder le mail. Ne vérifier que
+   * la première aurait laissé passer une correction qui ampute aussi le listing — c'est-à-dire un masquage.
+   */
+  it('🔴🔴 propriétaire seul : le RIB du locataire quitte le RÉSUMÉ, pas le LISTING', async () => {
+    servirSelonLaSelection();
+    await monter();
+    await cocherGroupe('Propriétaire');
+    await ouvrirLeResume();
+    expect(piecesDuResume()).not.toContain('rib-du-locataire.pdf');
+    expect(piecesDuResume()).toContain('charges-2026.pdf');
+    /* 🔴 LE MAIL, LUI, EST TOUJOURS LÀ : sa ligne est dans le fil, à son identifiant. */
+    expect(hote.querySelector('#hdb-mail-13')).not.toBeNull();
+  });
+
+  /** 🔴 LA PHRASE DISCRÈTE DIT CE QUI A ÉTÉ ÉCARTÉ — un filtre muet est pire que le défaut qu'il corrige. */
+  it('🔴🔴 la phrase dit combien de pièces ne sont pas reprises', async () => {
+    servirSelonLaSelection();
+    await monter();
+    expect(hote.querySelector('.hdb-ecartees')).toBeNull();
+    await cocherGroupe('Propriétaire');
+    const mot = hote.querySelector('.hdb-ecartees')?.textContent ?? '';
+    expect(mot).toBe('1 pièce envoyée par une partie non cochée n’est pas reprise dans le résumé.');
+  });
+
+  /**
+   * 🔴🔴 LE COMPTEUR SUIT, et c'est la demande d'Arno. Un compteur qui annoncerait les pièces écartées
+   * au-dessus d'un résumé qui ne les montre pas aurait remplacé un défaut visible par un défaut comptable.
+   */
+  it('🔴🔴 le compteur « N pièces dans cette sélection » suit le filtre', async () => {
+    servirSelonLaSelection();
+    await monter();
+    await cocherGroupe('Propriétaire');
+    await ouvrirLeResume();
+    const n = piecesDuResume().length;
+    const bouton = [...hote.querySelectorAll('.pdc-trombone')]
+      .map((b) => b.textContent ?? '').find((t) => t.includes('pièce')) ?? '';
+    expect(bouton).toContain(`${n} pièce`);
+    expect(bouton).not.toContain('3 pièces');
+  });
+
+  /**
+   * 🔴 « AGENCE DÉCOCHÉE » — le quatrième cas demandé par Arno. Décocher l'agence retire NOS mails côté
+   * SERVEUR (`sauf=`), donc le décompte que nous avons envoyé quitte le résumé en même temps que le listing.
+   * C'est pour cela que la règle du module pur ne relit pas l'agence : elle ne verrait jamais ces mails.
+   */
+  it('🔴🔴 agence décochée : nos envois quittent le résumé avec le listing', async () => {
+    servirSelonLaSelection();
+    await monter();
+    await cocherGroupe('Propriétaire');
+    await ouvrirLeResume();
+    expect(piecesDuResume()).toContain('decompte.pdf');
+    await deplierGroupe('Notre agence');
+    await cocherGroupe('Notre agence');
+    expect(appels.some((a) => a.includes('sauf=gestion%40criterimmo.fr')
+      || a.includes('sauf=gestion@criterimmo.fr'))).toBe(true);
+    await ouvrirLeResume();
+    expect(piecesDuResume()).not.toContain('decompte.pdf');
+    expect(piecesDuResume()).toContain('charges-2026.pdf');
+  });
+
+  /**
    * ══ 🔴🔴 CE VERDICT A CHANGÉ AU LOT HISTORIQUE-BIEN-11, POINT 5, ET IL FAUT DIRE POURQUOI ═══════════════════
    *
    * CETTE ÉPREUVE TENAIT : « le résumé et le listing viennent de la MÊME liste, `lignes` ». C'était la bonne
@@ -2110,14 +2237,28 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
    * ⚠️ CE QUI N'A PAS CHANGÉ, ET QUE CETTE ÉPREUVE CONTINUE DE TENIR : `lignes` n'a qu'UNE source (la page
    * reçue, triée, filtrée par la recherche), le listing la lit, et le résumé y RETOMBE pendant une recherche —
    * parce que la recherche, elle, ne filtre que les mails chargés (règle d'Arno au lot 3, point 5).
+   *
+   * ══ 🔴 LES DEUX CHAÎNES FIGÉES ONT GAGNÉ UN PARTAGE AU LOT HISTORIQUE-BIEN-14, ET VOICI POURQUOI ═══════════
+   *
+   * Elles figeaient `messagesDesPorteurs(etatPieces.messages)` et `messagesDuFil(lignes)` — les deux sources,
+   * converties telles quelles. Le point 1 du lot 14 interpose `partagerPourLeResume` entre la source et la
+   * conversion : une pièce envoyée par une partie NON cochée ne figure plus au résumé (constat d'Arno sur le
+   * RIB de DERRIEN). Le partage DOIT être fait avant la conversion, parce que c'est le dernier endroit où les
+   * destinataires existent encore.
+   *
+   * 🔴 CE QUE LE GARDE PROTÈGE N'A PAS BOUGÉ : deux sources, une seule sélection, et le repli sur la page
+   * pendant une recherche. On fige donc les deux appels à `partagerPourLeResume` — un par source — plutôt que
+   * les conversions, et la chaîne du repli reste vérifiée sur la même ligne.
    */
   it('🔴🔴 le résumé lit toute la sélection, et retombe sur la page pendant une recherche', () => {
     const code = codeSeul(SRC);
     /* Le résumé part des porteurs rendus par sa propre lecture… */
     expect(code).toContain('/api/admin/gestion/historique/pieces');
-    expect(code).toContain('messagesDesPorteurs(etatPieces.messages)');
+    expect(code).toContain('partagerPourLeResume(etatPieces.messages, cochees)');
+    expect(code).toContain('messagesDesPorteurs(t.gardes)');
     /* …et il retombe sur `lignes` dès qu'une recherche est en cours, ou si la lecture n'a pas abouti. */
-    expect(code).toContain('messagesDuFil(lignes)');
+    expect(code).toContain('partagerPourLeResume(lignes, cochees)');
+    expect(code).toContain('messagesDuFil(t.gardes)');
     expect(code).toContain("surToutLaSelection = etatPieces.v === 'ok' && motsCherches.length === 0");
     /* Le listing, lui, lit toujours `lignes`… */
     expect(code).toContain('<FilDeMails lignes={lignes}');

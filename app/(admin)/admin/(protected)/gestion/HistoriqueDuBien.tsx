@@ -45,7 +45,7 @@ import {
 import {
   dedoublonnerPieces, grouperParMessage, idsDesPiecesEtDeLeursJumelles, mentionExpediteurPiece, motPieces,
   piecesDeLaConversation,
-  type GroupeDePieces, type PieceDedoublonnee,
+  type GroupeDePieces, type MessagePorteur, type PieceDedoublonnee,
 } from '../../../../lib/gestion/piecesConversation';
 /**
  * 🔴 TOUTES LES DÉCISIONS VIENNENT DU MODULE PUR, ET ELLES N'Y SONT ÉCRITES QU'UNE FOIS. Ce fichier place et
@@ -63,6 +63,8 @@ import {
   MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable, motPorteeDuResume,
   completerAvecLesClients, motPastille, ordonnerLesCapsules, pastilleDeCapsule, sorteDeCapsule,
   BANDES_SOUS_LES_ENCARTS, filtrerParMots, messagesDesPorteurs,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — une pièce envoyée par une partie non cochée n'entre pas au résumé. */
+  motPiecesEcartees, partagerPourLeResume, partiesCochees,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
@@ -786,13 +788,42 @@ export function HistoriqueDuBien({
    * n'affiche plus — exactement le défaut qu'on répare, retourné.
    * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — UNE PIÈCE ENVOYÉE PAR UNE PARTIE NON COCHÉE N'Y FIGURE PAS ════════
+   *
+   * Constat d'Arno sur lot-146, propriétaire seul coché : le RIB d'un ancien locataire au milieu des pièces de
+   * la propriétaire. Mesuré (message 52187) : il la lui avait adressé EN DIRECT — le mail entre donc dans la
+   * sélection par elle, et c'est juste pour le LISTING. La règle, et la raison, vivent dans le module pur.
+   *
+   * 🔴 LE PARTAGE EST FAIT **AVANT** LA CONVERSION, sur la source — c'est le seul endroit où les destinataires
+   * existent encore. `MessagePorteur` (le module des pièces d'une conversation) ne les porte pas, et le lui
+   * ajouter aurait mis une règle de BIEN dans un module qui sert la fenêtre d'une conversation, laquelle n'a
+   * aucune catégorie de partie à consulter.
+   *
+   * 🔴 LES ÉCARTÉES PASSENT PAR LE MÊME CALCUL QUE LES GARDÉES (`piecesDeLaConversation` + `dedoublonnerPieces`)
+   * et c'est ce qui rend le nombre affiché vrai : les pièces techniques et les doublons sont retirés des deux
+   * côtés. Compter les pièces brutes des mails écartés aurait annoncé un nombre que le résumé n'aurait jamais
+   * pu montrer, même en cochant tout.
+   */
   const recap = useMemo(() => {
     const surToutLaSelection = etatPieces.v === 'ok' && motsCherches.length === 0;
-    const porteurs = surToutLaSelection
-      ? messagesDesPorteurs(etatPieces.messages) : messagesDuFil(lignes);
-    const classees = piecesDeLaConversation(porteurs, reglages.ordre);
-    return { ...dedoublonnerPieces(classees), surToutLaSelection };
-  }, [lignes, etatPieces, motsCherches.length, reglages.ordre]);
+    const cochees = partiesCochees(reglages.parties);
+    let gardes: MessagePorteur[];
+    let ecartes: MessagePorteur[];
+    if (surToutLaSelection) {
+      const t = partagerPourLeResume(etatPieces.messages, cochees);
+      gardes = messagesDesPorteurs(t.gardes);
+      ecartes = messagesDesPorteurs(t.ecartes);
+    } else {
+      const t = partagerPourLeResume(lignes, cochees);
+      gardes = messagesDuFil(t.gardes);
+      ecartes = messagesDuFil(t.ecartes);
+    }
+    const classees = piecesDeLaConversation(gardes, reglages.ordre);
+    const nbEcartees = dedoublonnerPieces(
+      piecesDeLaConversation(ecartes, reglages.ordre)).pieces.length;
+    return { ...dedoublonnerPieces(classees), surToutLaSelection, nbEcartees };
+  }, [lignes, etatPieces, motsCherches.length, reglages.ordre, reglages.parties]);
   const groupesPieces = useMemo(() => grouperParMessage(recap.pieces), [recap.pieces]);
   const conversations = useMemo(() => grouperParConversation(lignes), [lignes]);
 
@@ -1909,6 +1940,21 @@ export function HistoriqueDuBien({
               </button>
             )}
           </div>
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — CE QUE LE RÉSUMÉ N'A PAS REPRIS, DIT EN TOUTES LETTRES ══
+              DEMANDE D'ARNO : « Sous la ligne d'état, une phrase discrète apparaît SEULEMENT si c'est le cas. »
+
+              🔴 PARCE QU'UN FILTRE SILENCIEUX EST PIRE QUE LE DÉFAUT QU'IL CORRIGE. En écartant le RIB de
+              DERRIEN, on retire du résumé un document qui EXISTE et que le listing montre toujours. Sans cette
+              phrase, on chercherait une pièce qu'on a vue la veille sans jamais comprendre pourquoi elle n'est
+              plus là — et l'on finirait par douter du résumé entier.
+
+              ⚠️ ELLE NE S'AFFICHE QUE QUAND IL Y A QUELQUE CHOSE À DIRE (`motPiecesEcartees` rend `null` à
+              zéro) : une phrase permanente « 0 pièce écartée » apprend à l'œil à ne plus la lire. */}
+          {motPiecesEcartees(recap.nbEcartees) !== null && (
+            <p className="gst-note hdb-note hdb-ecartees" role="status">
+              {motPiecesEcartees(recap.nbEcartees)}
+            </p>
+          )}
           {cartesContact.length > 0 && (
             <p className="gst-note hdb-note">
               {(() => {
@@ -3499,6 +3545,11 @@ ${CSS_PIECES}
 .hdb-date{display:flex;flex-direction:column;gap:.15rem;min-width:0;flex:1 1 9rem}
 .hdb-champ-date{min-height:44px;font-size:.82rem;min-width:0;width:100%}
 .hdb-note{margin:.3rem 0 0}
+/* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — LA PHRASE DE CE QUE LE RÉSUMÉ N'A PAS REPRIS.
+   Discrete, mais PAS invisible : un trombone barre la ligne a gauche pour qu'elle se distingue de la note des
+   contacts pre-remplis juste en dessous — les deux sont grises, et deux notes grises collees se lisent comme une
+   seule. Aucune couleur en dur : le bord emprunte le jeton de ligne du depot, lisible dans les deux themes. */
+.hdb-ecartees{padding-left:.5rem;border-left:3px solid var(--color-svv-line-strong)}
 
 /* ══ LES PARTIES — QUATRE GROUPES COTE A COTE, EMPILES QUAND LA LARGEUR MANQUE ════════════════════════════════
    DEMANDE D'ARNO : « Quatre rangees ou groupes, cote a cote si la largeur le permet, sinon empiles. »

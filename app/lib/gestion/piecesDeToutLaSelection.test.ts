@@ -105,7 +105,7 @@ describe('🔴🔴 ① propriétaire seul + locataire seul = les deux ensemble',
 describe('🔴 ① bis les porteurs venus de la base entrent dans le résumé tels quels', () => {
   const porteur = (o: Partial<MessagePorteurDePieces> = {}): MessagePorteurDePieces => ({
     messageId: 7, recuLe: '2026-09-01T08:00:00Z', sens: 'recu', de: 'proprio@x.fr', deNom: null,
-    objet: 'Quittance', pieces: [], ...o,
+    objet: 'Quittance', a: [], cc: [], pieces: [], ...o,
   });
 
   /**

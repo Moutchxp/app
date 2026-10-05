@@ -314,6 +314,27 @@ export interface MessagePorteurDePieces {
   de: string;
   deNom: string | null;
   objet: string | null;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINTS 1 ET 2 — LES DESTINATAIRES ENTRENT DANS CETTE LECTURE ════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (05/10/2026, lot-146, propriétaire seul coché) : « au milieu des pièces de Blandine Piriou, le
+   * résumé montre "RIB - Boursorama Thomas Derrien.pdf", reçu de DERRIEN Thomas, un ancien locataire. »
+   *
+   * 🔴 MESURÉ SUR LE MESSAGE 52187 : De `thomas.derrien@hec.edu` (ancien locataire), **À**
+   * `blandine.piriou@gmail.com` (la propriétaire cochée), Cc l'autre ancienne locataire et deux adresses à nous.
+   * Le mail entre donc dans la sélection par son DESTINATAIRE — et c'est juste pour le listing (il concerne la
+   * propriétaire), mais faux pour le RÉSUMÉ DES PIÈCES : le document est celui d'un ancien locataire.
+   *
+   * Sans les destinataires, cette lecture ne pouvait pas faire la différence : elle ne portait que l'expéditeur.
+   *
+   * ⚠️ PAS `cci` : la copie cachée d'un mail REÇU est inconnue par construction, et sur nos envois elle ne
+   * désigne personne « à qui » l'on a visiblement écrit. L'ajouter aurait fait entrer dans le résumé des pièces
+   * dont la présence s'expliquerait par un en-tête que personne ne voit.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  a: PersonneDuMail[];
+  cc: PersonneDuMail[];
   pieces: PieceHistorique[];
 }
 

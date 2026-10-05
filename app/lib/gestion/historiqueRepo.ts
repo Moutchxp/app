@@ -808,11 +808,17 @@ export async function porteursDePieces(
 
   const { rows } = await query<{
     message_id: string; recu_le: string; sens: string; de: string; de_nom: string | null; objet: string | null;
+    dest_a: string | null; dest_cc: string | null;
   }>(
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-14 — `dest_a` ET `dest_cc` ENTRENT DANS CETTE LECTURE. Deux colonnes `jsonb` déjà
+       présentes sur la ligne lue : aucune jointure, aucune requête de plus. Elles servent deux choses que seul le
+       destinataire peut dire — écarter du résumé la pièce envoyée par une partie NON cochée (point 1), et dire à
+       QUELLE partie nous avons envoyé un document (point 2). */
     `WITH ${cte}
      SELECT m.id AS message_id,
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le,
-            m.sens, m.de_adresse AS de, m.de_nom, m.objet
+            m.sens, m.de_adresse AS de, m.de_nom, m.objet,
+            m.dest_a::text, m.dest_cc::text
        FROM choisis ch
        JOIN gestion_message m ON m.id = ch.message_id
       WHERE true${cond.sql}
@@ -833,6 +839,9 @@ export async function porteursDePieces(
       messageId: Number(r.message_id), recuLe: r.recu_le,
       sens: r.sens === 'envoye' ? 'envoye' : 'recu',
       de: r.de, deNom: r.de_nom, objet: r.objet,
+      /* ⚠️ LA MÊME FONCTION QUE LE LISTING (`personnesDuChamp`) : une seconde lecture du même `jsonb` aurait fini
+         par découper les noms autrement, et les pastilles De / À / Cc n'auraient plus désigné les mêmes gens. */
+      a: personnesDuChamp(r.dest_a), cc: personnesDuChamp(r.dest_cc),
       pieces: pieces.get(Number(r.message_id)) ?? [],
     })),
   };
