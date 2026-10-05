@@ -5857,3 +5857,160 @@ describe('⑱ 🔴🔴 un nom de pièce cité ouvre la pièce de la conversation
     expect(texte()).toContain('<inconnu-total.pdf>');
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — LA PÉRIODE D'UN LOCATAIRE PROLONGÉE PAR UN ÉVÉNEMENT ═════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (06/10/2026) : « si un ÉVÉNEMENT le concerne et se poursuit APRÈS sa sortie […], la date de fin
+ * devient la date de CLÔTURE de cet événement, ou AUJOURD'HUI s'il n'est pas clos. […] La "PÉRIODE RETENUE"
+ * l'explique en clair. La frise montre la prolongation. »
+ *
+ * 🔴 CE QUE CE BLOC PROUVE, ET QUE `historiqueBienProlongation.test.ts` NE PEUT PAS PROUVER. Le module pur dit
+ * quelle fin retenir ; il ne dit pas que la réponse de `/historique/evenements` est bien LUE (c'est un champ
+ * neuf, `parLocataire` : s'il restait ignoré, tous les cas purs resteraient verts et l'écran n'aurait pas
+ * changé), ni que les DEUX champs de date se posent sur la fin prolongée, ni que la phrase paraît à côté des
+ * dates, ni que la frise reçoit la même borne.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑱ 🔴🔴 la période d’un locataire, prolongée par un événement', () => {
+  const EN_PLACE18 = {
+    cle: 'occ-92', libelle: 'BRASSET Mathilde et BRUERE Thomas',
+    depuis: '2025-10-22', jusqua: null, enPlace: true, adresses: ['enplace@fictif.test'],
+  };
+  const VAGLIO18 = {
+    cle: 'occ-503', libelle: 'VAGLIO ARNAUD Aurélie et Louis',
+    depuis: '2025-02-06', jusqua: '2025-10-22', enPlace: false, adresses: ['ancien@fictif.test'],
+  };
+  const CATS18 = new Map<string, CategoriePartie>([
+    ['enplace@fictif.test', 'locataire'], ['ancien@fictif.test', 'locataire'],
+  ]);
+
+  /** L'événement du dépôt de garantie de VAGLIO, tel que la route le rend dans `parLocataire`. */
+  const DEPOT = {
+    cle: 'occ-503', evenementId: 9, reference: 'GES-2026-000009',
+    objet: 'Litige dépôt de garantie', ouvert: false,
+    ouvertLe: '2025-11-11', closLe: '2026-03-15', par: 'occupation' as const,
+  };
+
+  /**
+   * ⚠️ CE BOUCHON SERT `parLocataire`, le champ NEUF de la route — et `evenements`, l'ancien, VIDE. Les deux
+   * listes ne se mélangent pas : la liste déroulante « Un événement » n'a rien à voir avec la prolongation, et
+   * servir le même contenu aux deux aurait caché une confusion entre les deux chemins.
+   */
+  function servirAvec(parLocataire: readonly unknown[]): void {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) {
+        return reponse({ etat: 'ok', evenements: [], parLocataire, tronque: false });
+      }
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: [
+            inter({ adresse: 'enplace@fictif.test', nom: 'BRASSET Mathilde', nbMails: 20, aEcrit: 20 }),
+            inter({ adresse: 'ancien@fictif.test', nom: 'VAGLIO Aurélie', nbMails: 9, aEcrit: 9 }),
+          ],
+          interlocuteursTronques: false,
+        },
+      });
+    }));
+  }
+
+  const encart = (): HTMLElement => [...hote.querySelectorAll('.hdb-groupe--encart')][1] as HTMLElement;
+  const boutonAnciens = (): HTMLButtonElement =>
+    ([...encart().querySelectorAll('.hdb-onglet')] as HTMLButtonElement[])[1];
+  const radios = (): HTMLInputElement[] =>
+    [...hote.querySelectorAll('.hdb-anciens-choix input')] as HTMLInputElement[];
+  const dates = (): string[] =>
+    ([...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[]).map((d) => d.value);
+  const retenue18 = (): string => hote.querySelector('.hdb-effective-valeur')?.textContent ?? '';
+  const prolonge = (): string | null => hote.querySelector('.hdb-effective-prolonge')?.textContent ?? null;
+
+  /** Choisir VAGLIO : ouvrir la liste des anciens, cocher sa carte. Le geste d'une personne. */
+  async function choisirVaglio(parLocataire: readonly unknown[]): Promise<void> {
+    servirAvec(parLocataire);
+    await monter({ categories: CATS18, cartesLocataires: [EN_PLACE18, VAGLIO18] });
+    await cliquer(boutonAnciens());
+    await act(async () => { radios()[0].click(); });
+  }
+
+  it('🔴🔴 ÉVÉNEMENT CLOS APRÈS LA SORTIE : la fin affichée devient le 15/03/2026, et la phrase l’explique', async () => {
+    await choisirVaglio([DEPOT]);
+    expect(retenue18()).toBe('du 06/02/2025 au 15/03/2026');
+    expect(prolonge()).toBe('— prolongée par l’événement « Litige dépôt de garantie »');
+    /* 🔴 LES DEUX CHAMPS DE DATE PORTENT LA MÊME FIN : ce sont eux qui partent au serveur. */
+    expect(dates()).toEqual(['2025-02-06', '2026-03-15']);
+  });
+
+  it('🔴🔴 ÉVÉNEMENT EN COURS : la fin devient AUJOURD’HUI, et la phrase le dit toujours', async () => {
+    await choisirVaglio([{ ...DEPOT, ouvert: true, closLe: null }]);
+    /* MAINTENANT est le 04/10/2026 : la phrase du lot 6 écrit « aujourd’hui » plutôt que la date. */
+    expect(retenue18()).toBe('du 06/02/2025 à aujourd’hui');
+    expect(prolonge()).toBe('— prolongée par l’événement « Litige dépôt de garantie »');
+    expect(dates()).toEqual(['2025-02-06', '2026-10-04']);
+  });
+
+  it('🔴 SANS ÉVÉNEMENT, RIEN NE CHANGE : la période est celle du bail, et AUCUNE phrase', async () => {
+    await choisirVaglio([]);
+    expect(retenue18()).toBe('du 06/02/2025 au 22/10/2025');
+    expect(prolonge()).toBeNull();
+    expect(dates()).toEqual(['2025-02-06', '2025-10-22']);
+  });
+
+  it('🔴 DEUX ÉVÉNEMENTS : la fin la plus tardive gagne, et c’est ELLE qui est nommée', async () => {
+    await choisirVaglio([
+      { ...DEPOT, evenementId: 1, objet: 'État des lieux de sortie', closLe: '2025-12-01' },
+      { ...DEPOT, evenementId: 2, objet: 'Litige dépôt de garantie', closLe: '2026-03-15' },
+    ]);
+    expect(retenue18()).toBe('du 06/02/2025 au 15/03/2026');
+    expect(prolonge()).toContain('Litige dépôt de garantie');
+    expect(prolonge()).not.toContain('État des lieux');
+  });
+
+  it('🔴 L’ÉVÉNEMENT D’UN AUTRE LOCATAIRE NE PROLONGE PAS CELUI-CI', async () => {
+    await choisirVaglio([{ ...DEPOT, cle: 'occ-92', closLe: '2027-01-01' }]);
+    expect(retenue18()).toBe('du 06/02/2025 au 22/10/2025');
+    expect(prolonge()).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LE GARDE-FOU, À L'ÉCRAN. Les bornes restent modifiables ; la phrase ne doit pas survivre à une fin
+   * ramenée à la main, sinon elle affirmerait une prolongation que l'écran ne montre plus.
+   */
+  it('🔴🔴 RAMENER LA FIN À LA MAIN FAIT TAIRE LA PHRASE — sans toucher à la période', async () => {
+    await choisirVaglio([DEPOT]);
+    expect(prolonge()).not.toBeNull();
+    const champs = [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
+    await changer(champs[1], '2025-10-22');
+    expect(retenue18()).toBe('du 06/02/2025 au 22/10/2025');
+    expect(prolonge()).toBeNull();
+  });
+
+  /**
+   * ⚠️ LE LOCATAIRE EN PLACE N'EST JAMAIS PROLONGÉ : sa période n'a pas de borne haute. Lui en poser une au nom
+   * d'un événement l'aurait RACCOURCIE — et fait disparaître des mails.
+   */
+  it('⚠️ LE LOCATAIRE EN PLACE GARDE SA PÉRIODE OUVERTE, événement ou pas', async () => {
+    servirAvec([{ ...DEPOT, cle: 'occ-92', ouvert: true, closLe: null }]);
+    await monter({ categories: CATS18, cartesLocataires: [EN_PLACE18, VAGLIO18] });
+    expect(prolonge()).toBeNull();
+  });
+
+  /**
+   * 🔴 LA FRISE REÇOIT LA MÊME BORNE, et par construction : elle lit `bornesDuChoix(reglages.periode)`,
+   * c'est-à-dire la période prolongée elle-même. Ce garde de source l'ancre — une frise branchée sur une AUTRE
+   * source se serait remise à montrer le bail pendant que la phrase annonçait la prolongation.
+   */
+  it('🔴 LA FRISE LIT LES BORNES DU CHOIX, donc la période prolongée', () => {
+    expect(SRC).toContain('bornes={bornesDuChoix(reglages.periode)}');
+  });
+
+  /** 🔴 ET LA RÉPONSE DE LA ROUTE EST BIEN LUE : sans cette ligne, le champ neuf resterait lettre morte. */
+  it('🔴 `parLocataire` EST LU DANS LA RÉPONSE DE LA ROUTE DES ÉVÉNEMENTS', () => {
+    expect(SRC).toContain('setEvtsParLocataire(d.parLocataire ?? [])');
+  });
+});

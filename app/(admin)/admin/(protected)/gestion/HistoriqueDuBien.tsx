@@ -81,6 +81,8 @@ import {
   /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — un seul locataire à la fois dans l'encart. */
   adresseGardeeDansLencart, anciensLocataires, choixLocataireParDefaut, ilYAUnLocataireEnPlace,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-15 — les deux boutons de l'en-tête de l'encart Locataire. */
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — un événement prolonge la période d'un locataire. */
+  motProlongationDeLaPeriode, type EvenementDuLocataire,
   AIDE_SANS_ANCIEN_LOCATAIRE, AIDE_SANS_LOCATAIRE_ACTUEL, CHOIX_LOCATAIRE_DEFAUT,
   aideBoutonAnciensLocataires, motBoutonAnciensLocataires, MOT_LOCATAIRES_ACTUELS,
   motAncienLocataire, periodeDuChoixLocataire,
@@ -393,6 +395,15 @@ export function HistoriqueDuBien({
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [deplie, setDeplie] = useState<Set<number>>(new Set());
   const [evenements, setEvenements] = useState<EvenementDuBien[]>([]);
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — QUELS ÉVÉNEMENTS CONCERNENT QUEL LOCATAIRE ═══════════════════════
+   *
+   * Règle d'Arno : la période d'un locataire se prolonge jusqu'à la clôture d'un événement qui le concerne, ou
+   * jusqu'à aujourd'hui s'il n'est pas clos. La définition retenue est dans `evenementsParLocataire`.
+   *
+   * ⚠️ VIDE ⇒ LA PÉRIODE EST CELLE DU BAIL, exactement comme avant ce lot.
+   */
+  const [evtsParLocataire, setEvtsParLocataire] = useState<EvenementDuLocataire[]>([]);
   /** Les événements n'ont pas pu être lus. On le DIT : une liste vide se lirait « ce bien n'en a jamais eu ». */
   const [evenementsIllisibles, setEvenementsIllisibles] = useState(false);
 
@@ -526,13 +537,17 @@ export function HistoriqueDuBien({
         const res = await fetch(
           `/api/admin/gestion/historique/evenements?cible=lot-${encodeURIComponent(lotCle)}`,
           { cache: 'no-store' });
-        const d = (await res.json()) as { etat?: string; evenements?: EvenementDuBien[] };
+        const d = (await res.json()) as {
+          etat?: string; evenements?: EvenementDuBien[]; parLocataire?: EvenementDuLocataire[];
+        };
         if (!vivant) return;
         setEvenements(d.evenements ?? []);
+        setEvtsParLocataire(d.parLocataire ?? []);
         setEvenementsIllisibles(d.etat !== 'ok');
       } catch {
         if (!vivant) return;
         setEvenements([]);
+        setEvtsParLocataire([]);
         setEvenementsIllisibles(true);
       }
     })();
@@ -1292,7 +1307,7 @@ export function HistoriqueDuBien({
    * c'est l'écran qui s'en souvient, et lui seul.
    */
   const choisirLocataire = (choix: ChoixLocataire): void => {
-    const imposee = periodeDuChoixLocataire(cartesLocataires, choix);
+    const imposee = periodeDuChoixLocataire(cartesLocataires, choix, evtsParLocataire, maintenant);
     if (imposee !== null && periodeAvant === null) setPeriodeAvant(reglages.periode);
     if (imposee === null) setPeriodeAvant(null);
     setChoixLocataire(choix);
@@ -1459,6 +1474,14 @@ export function HistoriqueDuBien({
    */
   const periodeLocataire = useMemo(
     () => periodeDuDernierLocataire(occupations, maintenant), [occupations, maintenant]);
+
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — l'explication de la prolongation, ou `null`. Le module pur décide ;
+   * l'écran ne fait que la poser à côté des dates.
+   */
+  const motProlongation = useMemo(() => motProlongationDeLaPeriode(
+    cartesLocataires, choixLocataire, evtsParLocataire, reglages.periode, maintenant,
+  ), [cartesLocataires, choixLocataire, evtsParLocataire, reglages.periode, maintenant]);
 
   const evenementOuvert = evenements.find((e) => e.ouvert) ?? null;
 
@@ -2081,6 +2104,13 @@ export function HistoriqueDuBien({
               {/* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 4 — `maintenant` entre ici pour que « la date du jour » s'écrive
                   « aujourd'hui ». Le module pur ne lit jamais l'horloge lui-même : il la reçoit. */}
               <strong className="hdb-effective-valeur">{motPeriodeEffective(reglages.periode, maintenant)}</strong>
+              {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — « — prolongée par l'événement « … » » ═══════════════
+                  Demande d'Arno, mot pour mot : « du 06/02/2025 au 15/03/2026 — prolongée par l'événement
+                  « Litige dépôt de garantie » ». Elle ne paraît que si les dates affichées sont bien celles que
+                  la prolongation a posées (le garde-fou est dans `motProlongationDeLaPeriode`). */}
+              {motProlongation !== null && motProlongation !== '' && (
+                <span className="hdb-effective-prolonge">— {motProlongation}</span>
+              )}
             </p>
           </div>
 
@@ -3970,6 +4000,10 @@ ${CSS_PIECES}
 .hdb-effective-mot{font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
   color:var(--color-svv-muted)}
 .hdb-effective-valeur{font-size:.86rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* LOT HISTORIQUE-BIEN-18, POINT 1 — l'explication de la prolongation, sous les dates qu'elle explique.
+   AMBRE, le ton des evenements sur toute cette page (capsule « Evenement en cours », fond des bandeaux de la
+   frise) : la meme cause doit avoir la meme couleur d'un bout a l'autre de l'ecran. */
+.hdb-effective-prolonge{font-size:.76rem;color:var(--color-svv-amber);overflow-wrap:anywhere}
 /* LA LISTE DEROULANTE DES EVENEMENTS — pleine largeur : les references et les objets sont longs. */
 .hdb-select-ligne{display:flex;flex-direction:column;gap:.15rem;margin-top:.45rem;min-width:0}
 .hdb-select{min-height:44px;font-size:.82rem;width:100%;min-width:0}

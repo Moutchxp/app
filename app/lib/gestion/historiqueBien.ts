@@ -1952,13 +1952,144 @@ export function adresseGardeeDansLencart(
  * ⚠️ `null` POUR LE LOCATAIRE EN PLACE : ce n'est pas « aucune période », c'est « ce n'est pas à moi d'en poser
  * une ». L'écran remet alors celle qu'il avait mise de côté — c'est lui qui s'en souvient, pas ce module.
  */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — UN ÉVÉNEMENT PROLONGE LA PÉRIODE D'UN LOCATAIRE ═══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (05/10/2026) : « si un ÉVÉNEMENT le concerne et se poursuit APRÈS sa sortie (litige, dépôt de
+ * garantie, n'importe quel type), la date de fin devient la date de CLÔTURE de cet événement, ou AUJOURD'HUI
+ * s'il n'est pas clos. Avec plusieurs événements, on prend la fin la plus tardive. »
+ *
+ * 🔴 POURQUOI C'EST JUSTE, ET MESURÉ. Un dépôt de garantie se règle des mois après le départ : sur lot-146, les
+ * sept mails du dépôt de VAGLIO vont du 11/11/2025 au 30/09/2026, alors que son bail s'est achevé le 22/10/2025.
+ * Bornée au bail, la recherche n'en montrait AUCUN — c'est le même aveuglement que le lot 16 a fermé côté
+ * contacts, vu cette fois du côté des dates.
+ *
+ * ⚠️ ELLE NE PROLONGE JAMAIS VERS LE PASSÉ, et ne raccourcit rien : seule une fin PLUS TARDIVE que la sortie est
+ * retenue. Un événement ouvert et clos pendant le bail ne change donc rien — il n'y a rien à prolonger.
+ *
+ * ⚠️ RIEN POUR UN LOCATAIRE EN PLACE : sa période n'a pas de borne haute (`au: null`), elle couvre déjà tout.
+ * Lui poser une fin au nom d'un événement l'aurait au contraire RACCOURCIE.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface EvenementDuLocataire {
+  /** La clé de la carte concernée : `occ-<id d'occupation>`. */
+  cle: string;
+  evenementId: number;
+  reference: string;
+  objet: string;
+  ouvert: boolean;
+  ouvertLe: string | null;
+  closLe: string | null;
+  /** Par quelle branche de la définition il est rattaché — voir `evenementsParLocataire`. */
+  par: 'occupation' | 'adresse';
+}
+
+/** Le jour où un événement finit : sa clôture, ou aujourd'hui s'il est encore ouvert. PUR. */
+export function finDeLEvenement(e: EvenementDuLocataire, maintenant: Date): string {
+  if (e.ouvert || e.closLe === null || e.closLe === '') return jourParis(maintenant);
+  return (jourValide(e.closLe.slice(0, 10)) ?? jourParis(maintenant));
+}
+
+/**
+ * La fin prolongée d'une occupation, et l'événement qui la prolonge. PUR.
+ *
+ * `parEvenement` est `null` quand rien ne prolonge — et c'est ce `null` qui fait taire la phrase d'explication.
+ */
+export function finProlongee(
+  carte: CarteLocataireBien,
+  evenements: readonly EvenementDuLocataire[],
+  maintenant: Date,
+): { au: string | null; parEvenement: EvenementDuLocataire | null } {
+  const sortie = jourValide((carte.jusqua ?? '').slice(0, 10));
+  /* 🔴 LOCATAIRE EN PLACE : aucune borne haute à prolonger — la période couvre déjà jusqu'à aujourd'hui. */
+  if (sortie === null) return { au: null, parEvenement: null };
+  let au = sortie;
+  let par: EvenementDuLocataire | null = null;
+  for (const e of evenements) {
+    if (e.cle !== carte.cle) continue;
+    const fin = finDeLEvenement(e, maintenant);
+    if (fin > au) { au = fin; par = e; }
+  }
+  return { au, parEvenement: par };
+}
+
+/**
+ * ══ 🔴 LA PHRASE QUI L'EXPLIQUE, EN CLAIR ═══════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « La "PÉRIODE RETENUE" l'explique en clair : "du 06/02/2025 au 15/03/2026 — prolongée par l'événement
+ * « Litige dépôt de garantie »". »
+ *
+ * 🔴 ELLE EST INDISPENSABLE, ET PAS DÉCORATIVE : sans elle, la période affichée ne correspond plus aux dates du
+ * bail, et l'on croirait à une erreur. Une règle qui ne se voit pas est une règle qu'on finit par contourner.
+ *
+ * ⚠️ `null` QUAND RIEN NE PROLONGE : une mention permanente apprend à ne plus être lue.
+ *
+ * ⚠️ L'OBJET DE L'ÉVÉNEMENT, PAS SA RÉFÉRENCE : « EV-2026-007 » ne dit rien ; « Litige dépôt de garantie » dit
+ * tout. La référence reste dans l'info-bulle du cartouche, où on la cherche quand on en a besoin.
+ */
+export function motProlongation(e: EvenementDuLocataire | null): string | null {
+  if (e === null) return null;
+  const quoi = e.objet.trim() === '' ? e.reference : e.objet.trim();
+  return `prolongée par l’événement « ${quoi} »`;
+}
+
 export function periodeDuChoixLocataire(
   cartes: readonly CarteLocataireBien[], choix: ChoixLocataire,
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — les événements qui concernent chaque carte. Vides ⇒ la période est
+   * celle du bail, exactement comme avant ce lot.
+   */
+  evenements: readonly EvenementDuLocataire[] = [],
+  maintenant?: Date,
 ): ChoixPeriode | null {
   const c = carteChoisie(cartes, choix);
   if (c === undefined) return null;
   const p = periodeDeLOccupation({ libelle: c.libelle, depuis: c.depuis, jusqua: c.jusqua });
-  return { sorte: 'dates', du: p.du, au: p.au };
+  /* ⚠️ SANS HORLOGE, AUCUNE PROLONGATION : un événement OUVERT finit « aujourd'hui », et cette fonction ne lit
+     pas l'heure elle-même — une fonction qui le ferait ne pourrait pas être éprouvée deux jours de suite. */
+  if (maintenant === undefined) return { sorte: 'dates', du: p.du, au: p.au };
+  const { au } = finProlongee(c, evenements, maintenant);
+  return { sorte: 'dates', du: p.du, au: au ?? p.au };
+}
+
+/**
+ * L'événement qui prolonge la période du choix, ou `null`. PUR.
+ *
+ * ⚠️ IL EST RENDU À PART DE LA PÉRIODE, et non glissé dedans : `ChoixPeriode` est lu par la route, par la frise
+ * et par trois boutons. Y ajouter un champ d'explication aurait fait voyager une phrase d'écran jusqu'au SQL.
+ */
+export function evenementQuiProlonge(
+  cartes: readonly CarteLocataireBien[], choix: ChoixLocataire,
+  evenements: readonly EvenementDuLocataire[], maintenant: Date,
+): EvenementDuLocataire | null {
+  const c = carteChoisie(cartes, choix);
+  if (c === undefined) return null;
+  return finProlongee(c, evenements, maintenant).parEvenement;
+}
+
+/**
+ * ══ 🔴🔴 LA PHRASE, MAIS SEULEMENT TANT QU'ELLE DIT VRAI ════════════════════════════════════════════════════════
+ *
+ * La mention « — prolongée par l'événement … » explique les dates AFFICHÉES. Elle ne doit donc paraître que si
+ * ce sont bien celles que la prolongation a posées.
+ *
+ * 🔴 POURQUOI CE GARDE-FOU EXISTE. Les bornes restent modifiables à la main (« Dates personnalisées »), et les
+ * quatre boutons de période sont toujours là. Si l'on ramène la fin au 22/10/2025 après avoir choisi VAGLIO, la
+ * phrase affirmerait une prolongation que l'écran ne montre plus — elle désignerait un événement sans objet.
+ *
+ * ⚠️ COMPARAISON SUR LES DEUX BORNES, pas seulement la fin : revenir au début du bail d'un autre locataire
+ * laisserait sinon la mention de l'ancien choix accrochée à une période qui n'est plus la sienne.
+ */
+export function motProlongationDeLaPeriode(
+  cartes: readonly CarteLocataireBien[], choix: ChoixLocataire,
+  evenements: readonly EvenementDuLocataire[], periode: ChoixPeriode, maintenant: Date,
+): string | null {
+  const attendue = periodeDuChoixLocataire(cartes, choix, evenements, maintenant);
+  if (attendue === null || attendue.sorte !== 'dates') return null;
+  if (periode.sorte === 'tous') return null;
+  if (periode.du !== attendue.du || periode.au !== attendue.au) return null;
+  return motProlongation(evenementQuiProlonge(cartes, choix, evenements, maintenant));
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

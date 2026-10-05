@@ -1,4 +1,6 @@
 import 'server-only';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — LA règle « qu'est-ce qu'un mail rattaché à un bien », écrite une fois. */
+import { sqlLiensDuBien } from './rattachement';
 import { query } from '../db/client';
 import { rattachementsDisponibles } from './schema';
 
@@ -42,6 +44,14 @@ export interface EvenementDuBien {
 /** Combien d'événements au plus. Au-delà, l'écran DIT qu'il y en a d'autres — il ne les cache pas en silence. */
 export const EVENEMENTS_DU_BIEN_MAX = 40;
 
+/**
+ * 🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — le plafond des couples (locataire, événement).
+ *
+ * ⚠️ C'est un plafond sur la SOMME de toutes les occupations du bien. Mesuré : aucun bien du portefeuille ne
+ * porte plus de deux événements, et lot-146 en porte trois occupations — 200 laisse trente fois la place.
+ */
+export const EVENEMENTS_PAR_LOCATAIRE_MAX = 200;
+
 export async function evenementsDuBien(
   lotCle: string,
 ): Promise<{ liste: EvenementDuBien[]; tronque: boolean }> {
@@ -81,4 +91,159 @@ export async function evenementsDuBien(
       nbMails: Number(r.n),
     })),
   };
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — QUELS ÉVÉNEMENTS CONCERNENT QUEL LOCATAIRE ════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (05/10/2026) : « si un ÉVÉNEMENT le concerne et se poursuit APRÈS sa sortie (litige, dépôt de
+ * garantie, n'importe quel type), la date de fin devient la date de CLÔTURE de cet événement, ou AUJOURD'HUI
+ * s'il n'est pas clos. […] "Le concerne" = événement ouvert pendant son occupation, OU lié à un mail où figure
+ * une adresse de sa carte ou de ses contacts annexes. »
+ *
+ * ═══ 🔴 LA DÉFINITION RETENUE, MOT POUR MOT, ET SES DEUX BRANCHES ═══════════════════════════════════════════════
+ *
+ * Un événement CONCERNE une occupation si AU MOINS L'UNE des deux est vraie :
+ *   ① SON OUVERTURE TOMBE DANS L'OCCUPATION — entre l'entrée et la sortie (ou aujourd'hui si le bail court).
+ *      C'est le cas ordinaire : un dégât des eaux pendant le bail.
+ *   ② UN DE SES MAILS PORTE UNE ADRESSE DE SA CARTE OU D'UN DE SES CONTACTS ANNEXES. C'est le cas du dépôt de
+ *      garantie : l'événement s'ouvre APRÈS le départ, et seule la présence du locataire dans le fil le rattache.
+ *
+ * ⚠️ LES « CONTACTS ANNEXES » SONT CEUX DU LOT 16, par la MÊME règle de co-participation : les adresses qui
+ * paraissent dans les mails où paraissent celles de la carte. Une seconde définition de « contact d'un
+ * locataire » aurait fini par rattacher un événement à une location et pas à ses contacts.
+ *
+ * ⚠️ AUCUNE CONDITION DE PÉRIODE SUR LA BRANCHE ② : c'est tout son objet. La borner à l'occupation aurait
+ * reproduit exactement le défaut que le lot 16 a fermé — le courrier du dépôt de garantie est postérieur au bail.
+ *
+ * ⚠️ LES ADRESSES INTERNES SONT ÉCARTÉES de la branche ② : nous paraissons dans tous les événements de toutes
+ * les locations, et chacun serait alors rattaché à chacune.
+ *
+ * ═══ 🔴🔴 ET LES ADRESSES D'UNE **AUTRE PARTIE** DU BIEN AUSSI — DÉFAUT TROUVÉ À L'ESSAI, PAS DEVINÉ ════════════
+ *
+ * Mesuré sur lot-146 avec un événement d'essai posé sur le fil 3366 (le dépôt de garantie de VAGLIO) : il
+ * remontait pour les TROIS cartes du bien, dont **ACKET GOEMAERE - DERRIEN**, partie le 31/01/2025 et totalement
+ * étrangère à ce dépôt. Une seule adresse l'y traînait : `blandine.piriou@gmail.com` — qui est la
+ * **PROPRIÉTAIRE** du lot (annuaire, propriétaire 233). La co-participation du lot 16 est volontairement large :
+ * elle rend toutes les adresses non internes des mails de la carte, bailleur et artisans compris.
+ *
+ * 🔴 CE QUI EST SANS CONSÉQUENCE DANS L'ENCART EN A UNE ICI. Dans l'encart, une adresse rangée « propriétaire »
+ * part dans le groupe du propriétaire et n'atteint jamais la carte du locataire : la catégorie fait le tri en
+ * amont. Ici, rien ne le faisait — et tout événement touchant le bailleur aurait prolongé la période de TOUS les
+ * anciens locataires jusqu'à aujourd'hui, c'est-à-dire ramené le défaut que le lot 13 avait fermé.
+ *
+ * ⚠️ LA BRANCHE ② ÉCARTE DONC LES ADRESSES QUI APPARTIENNENT À UNE AUTRE PARTIE DU BIEN : les contacts du
+ * PROPRIÉTAIRE du lot, et ceux des AUTRES cartes de locataires. Les adresses de SA carte restent, évidemment.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface EvenementDuLocataire {
+  /** La clé de la carte, dans la forme de l'écran : `occ-<id d'occupation>`. */
+  cle: string;
+  evenementId: number;
+  reference: string;
+  objet: string;
+  ouvert: boolean;
+  ouvertLe: string | null;
+  closLe: string | null;
+  /** Par quelle branche il est rattaché — c'est ce qui permet d'expliquer un rattachement surprenant. */
+  par: 'occupation' | 'adresse';
+}
+
+export async function evenementsParLocataire(lotCle: string): Promise<EvenementDuLocataire[]> {
+  const cle = (lotCle ?? '').trim();
+  if (cle === '' || !(await rattachementsDisponibles())) return [];
+
+  const { rows } = await query<{
+    occ: string; id: string; reference: string; objet: string; etat: string;
+    ouvert_le: string | null; traite_le: string | null; par: string;
+  }>(
+    `WITH mails AS (
+       SELECT DISTINCT r.message_id
+         FROM gestion_rattachement r
+        WHERE ${sqlLiensDuBien('r')} AND r.cible_cle = $1
+     ),
+     cartes AS (
+       SELECT o.id AS occ, o.entree, o.sortie, lower(btrim(c.valeur)) AS adresse
+         FROM gestion_annuaire_occupation o
+         JOIN gestion_annuaire_lot l ON l.id = o.lot_id AND l.wippimmo_id = $1
+         JOIN gestion_annuaire_contact c
+           ON c.sujet = 'locataire' AND c.sujet_id = o.locataire_id
+          AND c.sorte = 'email' AND c.absent_le IS NULL
+        WHERE o.absent_le IS NULL AND btrim(c.valeur) <> ''
+     ),
+     bornes AS (SELECT occ, min(entree) AS entree, max(sortie) AS sortie FROM cartes GROUP BY occ),
+     /* Les mails où une adresse de la carte participe — la même mesure que \`contactsParLocataire\` (lot 16). */
+     partages AS (
+       SELECT DISTINCT ca.occ, a.message_id
+         FROM cartes ca
+         JOIN gestion_message_adresse a ON a.adresse = ca.adresse
+         JOIN mails ON mails.message_id = a.message_id
+     ),
+     /* 🔴🔴 LES ADRESSES DES AUTRES PARTIES DU BIEN — le propriétaire du lot, et les autres cartes. Voir
+        l'encadré : sans ce tri, la propriétaire traînait l'événement du dépôt de garantie de VAGLIO jusqu'à la
+        carte d'ACKET, partie neuf mois plus tôt. */
+     autres AS (
+       SELECT lower(btrim(c.valeur)) AS adresse
+         FROM gestion_annuaire_lot l
+         JOIN gestion_annuaire_contact c
+           ON c.sujet = 'proprietaire' AND c.sujet_id = l.proprietaire_id
+          AND c.sorte = 'email' AND c.absent_le IS NULL
+        WHERE l.wippimmo_id = $1 AND btrim(c.valeur) <> ''
+     ),
+     /* …et toutes les adresses NON INTERNES de ces mails : la carte ET ses contacts annexes, d'un coup. */
+     siennes AS (
+       SELECT DISTINCT p.occ, a.adresse
+         FROM partages p
+         JOIN gestion_message_adresse a ON a.message_id = p.message_id
+        WHERE a.interne = false
+          /* ⚠️ SAUF SI C'EST UNE ADRESSE DE SA PROPRE CARTE : elle est à elle, quoi qu'elle soit par ailleurs. */
+          AND (EXISTS (SELECT 1 FROM cartes mi WHERE mi.occ = p.occ AND mi.adresse = a.adresse)
+            OR (NOT EXISTS (SELECT 1 FROM autres au WHERE au.adresse = a.adresse)
+                AND NOT EXISTS (SELECT 1 FROM cartes ad WHERE ad.adresse = a.adresse)))
+     ),
+     evts AS (
+       SELECT e.id, e.reference, e.objet, e.etat, e.ouvert_le, e.traite_le, af.fil_id
+         FROM gestion_evenement e
+         JOIN gestion_affectation af ON af.evenement_id = e.id AND af.actif
+     ),
+     mails_evt AS (
+       SELECT DISTINCT ev.id AS evt, m.id AS message_id
+         FROM evts ev
+         JOIN gestion_message m ON m.fil_id = ev.fil_id
+         JOIN mails ON mails.message_id = m.id
+     )
+     SELECT b.occ::text AS occ, ev.id::text AS id, ev.reference, ev.objet, ev.etat,
+            to_char(ev.ouvert_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ouvert_le,
+            to_char(ev.traite_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS traite_le,
+            /* ① l'ouverture tombe dans l'occupation ; ② sinon, c'est une adresse qui l'a rattaché. */
+            CASE WHEN ev.ouvert_le::date >= b.entree
+                  AND ev.ouvert_le::date <= coalesce(b.sortie, current_date)
+                 THEN 'occupation' ELSE 'adresse' END AS par
+       FROM bornes b
+       JOIN (SELECT DISTINCT id, reference, objet, etat, ouvert_le, traite_le FROM evts) ev ON true
+      WHERE EXISTS (SELECT 1 FROM mails_evt me WHERE me.evt = ev.id)
+        AND (
+          (b.entree IS NOT NULL AND ev.ouvert_le::date >= b.entree
+             AND ev.ouvert_le::date <= coalesce(b.sortie, current_date))
+          OR EXISTS (
+            SELECT 1 FROM mails_evt me
+              JOIN gestion_message_adresse a ON a.message_id = me.message_id
+              JOIN siennes s ON s.occ = b.occ AND s.adresse = a.adresse
+             WHERE me.evt = ev.id)
+        )
+      ORDER BY b.occ, ev.ouvert_le DESC
+      LIMIT $2`,
+    [cle, EVENEMENTS_PAR_LOCATAIRE_MAX]);
+
+  return rows.map((r) => ({
+    cle: `occ-${r.occ}`,
+    evenementId: Number(r.id),
+    reference: r.reference,
+    objet: r.objet,
+    ouvert: r.etat !== 'traite',
+    ouvertLe: r.ouvert_le,
+    closLe: r.traite_le,
+    par: r.par === 'occupation' ? 'occupation' : 'adresse',
+  }));
 }

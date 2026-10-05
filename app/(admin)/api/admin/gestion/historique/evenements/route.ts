@@ -1,7 +1,9 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { cibleDepuisTexte } from '../../../../../../lib/gestion/historique';
-import { evenementsDuBien, EVENEMENTS_DU_BIEN_MAX } from '../../../../../../lib/gestion/historiqueBienRepo';
+import {
+  evenementsDuBien, evenementsParLocataire, EVENEMENTS_DU_BIEN_MAX,
+} from '../../../../../../lib/gestion/historiqueBienRepo';
 
 /**
  * /api/admin/gestion/historique/evenements — LOT HISTORIQUE-BIEN-1 : LES ÉVÉNEMENTS D'UN BIEN, AVEC LEURS DATES.
@@ -37,14 +39,29 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const { liste, tronque } = await evenementsDuBien(cible.cle ?? '');
+    /**
+     * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — ET QUELS ÉVÉNEMENTS CONCERNENT QUEL LOCATAIRE ══════════════════
+     *
+     * RÈGLE D'ARNO : la période d'un locataire se prolonge jusqu'à la clôture d'un événement qui le concerne.
+     * La définition retenue (ouverture pendant l'occupation, OU une adresse de sa carte ou de ses contacts
+     * annexes dans un mail de l'événement) est dans l'encadré de `evenementsParLocataire`.
+     *
+     * ⚠️ ELLE VOYAGE AVEC CETTE ROUTE-CI, et pour la raison déjà écrite en tête de fichier : ce rattachement ne
+     * dépend ni de la période, ni des cases cochées, ni de la page. Le demander avec le fil l'aurait fait
+     * recalculer à chaque frappe, pour une réponse toujours identique.
+     */
+    const [{ liste, tronque }, parLocataire] = await Promise.all([
+      evenementsDuBien(cible.cle ?? ''),
+      evenementsParLocataire(cible.cle ?? ''),
+    ]);
     return Response.json({
-      etat: 'ok', evenements: liste, tronque, max: EVENEMENTS_DU_BIEN_MAX,
+      etat: 'ok', evenements: liste, parLocataire, tronque, max: EVENEMENTS_DU_BIEN_MAX,
     }, { headers: ENTETES });
   } catch (e) {
     /* Pas de catch muet : une liste vide se lirait « ce bien n'a jamais eu d'événement », ce qui serait un
        mensonge. L'écran dit alors qu'il n'a pas pu les lire, et garde « Tous les échanges » et les deux dates. */
     console.error('[api/admin/gestion/historique/evenements] lecture impossible', e);
-    return Response.json({ etat: 'erreur', evenements: [], tronque: false }, { status: 503, headers: ENTETES });
+    return Response.json({ etat: 'erreur', evenements: [], parLocataire: [], tronque: false },
+      { status: 503, headers: ENTETES });
   }
 }
