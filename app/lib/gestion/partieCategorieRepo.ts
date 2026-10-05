@@ -313,8 +313,11 @@ export interface CoordonneesTrouvees {
   telephone: string | null;
 }
 
-/** Combien de mails récents on examine par adresse pour y chercher une signature. */
-const MAILS_POUR_LA_SIGNATURE = 5;
+/**
+ * Combien de mails récents on examine par adresse. Les mails qu'elle a ÉCRITS passent en tête, donc ces huit
+ * places vont d'abord aux seuls qui peuvent porter sa signature ; les autres ne servent qu'à lire son nom.
+ */
+const MAILS_POUR_LA_SIGNATURE = 8;
 
 export async function coordonneesDesParties(lotCle: string): Promise<CoordonneesTrouvees[]> {
   const lot = lotPropre(lotCle);
@@ -330,24 +333,45 @@ export async function coordonneesDesParties(lotCle: string): Promise<Coordonnees
   if (lot === null || !(await contactCarteDisponible())) return [];
 
   /**
-   * 🔴 LES MAILS DU BIEN, PAR EXPÉDITEUR, LES PLUS RÉCENTS D'ABORD, CINQ PAR ADRESSE. Le `row_number` fait la
-   * borne par adresse et non globale : sans lui, un seul correspondant bavard consommerait les cinq places et
-   * tous les autres ressortiraient sans téléphone.
+   * ══ 🔴🔴 LE NOM SE LIT PARTOUT, LE TÉLÉPHONE SEULEMENT DANS CE QU'ELLE A ÉCRIT ══════════════════════════════
+   *
+   * 🔴 ET CETTE DISTINCTION VIENT D'UN ESSAI RÉEL, PAS D'UNE INTUITION. Ma première version ne lisait que les
+   * mails où l'adresse est EXPÉDITRICE. Essayée sur lot-299, elle rendait du vide pour
+   * `puroflowparis@gmail.com` : en base, cette adresse n'y apparaît qu'en `copie` et en `destinataire` — elle
+   * n'a jamais écrit sur ce bien. Son NOM, lui, est parfaitement connu (« Puro Flow Paris <…> » dans
+   * `adresse_brute` d'une ligne « copie »).
+   *
+   *   · LE NOM vient de `adresse_brute`, QUEL QUE SOIT LE RÔLE : c'est l'en-tête du mail qui le porte, et
+   *     « Nom <adresse> » s'écrit pareil qu'on soit expéditeur, destinataire ou en copie.
+   *   · LE TÉLÉPHONE ne se cherche QUE dans les mails qu'elle a ÉCRITS : une signature est au bas de SON
+   *     message. Dans un mail où elle est en copie, le numéro du bas est celui de quelqu'un d'autre — et
+   *     proposer ce numéro-là serait pire que de n'en proposer aucun.
+   *
+   * ⚠️ LES MAILS QU'ELLE A ÉCRITS PASSENT EN TÊTE (`ORDER BY (role = 'expediteur') DESC`), et la borne par
+   * adresse les attrape donc en priorité. Le `row_number` fait cette borne PAR ADRESSE et non globale : sans
+   * lui, un seul correspondant bavard consommerait les places et tous les autres ressortiraient sans rien.
+   *
+   * ⚠️ LE CORPS N'EST LU QUE POUR LES MAILS ÉCRITS PAR ELLE, et le `CASE` le dit en SQL plutôt qu'en TypeScript :
+   * c'est des milliers de corps de mails qui ne traversent pas le réseau de la base.
    */
-  const { rows } = await query<{ adresse: string; adresse_brute: string | null; corps: string | null }>(
+  const { rows } = await query<{
+    adresse: string; adresse_brute: string | null; corps: string | null;
+  }>(
     `WITH liens AS (
        SELECT DISTINCT r.message_id
          FROM gestion_rattachement r
         WHERE r.cible_sorte = 'lot' AND r.cible_cle = $1 AND r.statut = 'confirme'),
-     envois AS (
-       SELECT a.adresse, a.adresse_brute, m.corps_texte,
-              row_number() OVER (PARTITION BY a.adresse ORDER BY m.recu_le DESC NULLS LAST, m.id DESC) AS rang
+     vues AS (
+       SELECT a.adresse, a.adresse_brute, a.role, m.corps_texte,
+              row_number() OVER (
+                PARTITION BY a.adresse
+                ORDER BY (a.role = 'expediteur') DESC, m.recu_le DESC NULLS LAST, m.id DESC) AS rang
          FROM gestion_message_adresse a
          JOIN gestion_message m ON m.id = a.message_id
-        WHERE a.message_id IN (SELECT message_id FROM liens)
-          AND a.role = 'expediteur' AND NOT a.interne)
-     SELECT adresse, adresse_brute, left(coalesce(corps_texte, ''), 8000) AS corps
-       FROM envois WHERE rang <= $2
+        WHERE a.message_id IN (SELECT message_id FROM liens) AND NOT a.interne)
+     SELECT adresse, adresse_brute,
+            CASE WHEN role = 'expediteur' THEN left(coalesce(corps_texte, ''), 8000) END AS corps
+       FROM vues WHERE rang <= $2
       ORDER BY adresse, rang`, [lot, MAILS_POUR_LA_SIGNATURE]);
 
   /** Par adresse : les noms vus (pour élire le plus fréquent) et le premier téléphone trouvé. */
