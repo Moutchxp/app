@@ -2128,6 +2128,47 @@ describe('⑤-undecies 🔴🔴 les deux encarts sont TOUJOURS là, côte à cô
     expect(css).not.toContain('.hdb-encarts{display:grid;gap:8px;grid-template-columns:repeat(auto-fit');
   });
 
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 3 — LA MÊME HAUTEUR, TOUJOURS ════════════════════════════════════════
+   * RÈGLE D'ARNO : « les encarts Propriétaire et Locataire ont TOUJOURS la même hauteur (celle du plus grand,
+   * plafonnée à la hauteur maximale d'avant défilement), même si l'un est vide. Le texte d'encart vide est
+   * centré verticalement. »
+   *
+   * 🔴 ET C'EST L'INVERSE DE CE QUE J'AVAIS ÉCRIT AU LOT 5 (`align-items:start`), où je voulais éviter qu'un
+   * encart vide s'étire. La règle d'Arno gagne, et elle est plus simple : `stretch` est la valeur par défaut
+   * d'une grille, donc « la hauteur du plus grand » sans une ligne de calcul.
+   */
+  it('🔴🔴 LES DEUX ENCARTS S’ÉTIRENT À LA HAUTEUR DU PLUS GRAND', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    expect(css).toContain('align-items:stretch');
+    /* 🔴 LE GARDE : `start` laisserait un encart vide plus court que son voisin — ce qu'Arno refuse. */
+    expect(css).not.toContain('.hdb-encarts{display:grid;gap:8px;grid-template-columns:1fr 1fr;align-items:start');
+  });
+
+  it('🔴🔴 LE TEXTE D’UN ENCART VIDE EST CENTRÉ VERTICALEMENT', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    /* L'encart est une colonne… */
+    expect(css).toContain('.hdb-groupe--encart{display:flex;flex-direction:column}');
+    /* …et le mot prend la place restante, centré dans les deux sens. */
+    const regle = css.split('.hdb-groupe--encart .hdb-vide-mot{')[1]?.split('}')[0] ?? '';
+    expect(regle).toContain('flex:1 1 auto');
+    expect(regle).toContain('align-items:center');
+    expect(regle).toContain('justify-content:center');
+  });
+
+  it('🔴 LE PLAFOND EST CELUI QUI EXISTE DÉJÀ : aucun second plafond à tenir', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    /* La liste est bornée et défile ; l'encart, lui, ne porte aucun max-height propre. */
+    expect(css).toContain('.hdb-defile{max-height:var(--hdb-liste-h)');
+    const encart = css.split('.hdb-groupe--encart{')[1]?.split('}')[0] ?? '';
+    expect(encart).not.toContain('max-height');
+  });
+
+  it('⚠️ LES BANDES NE SONT PAS CONCERNÉES : leur hauteur n’a pas de jumelle', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    expect(css).not.toContain('.hdb-groupe--bande{display:flex');
+  });
+
   it('⚠️ L’EMPILEMENT SUR ÉCRAN ÉTROIT EST DIT, ET PROPRIÉTAIRE RESTE EN PREMIER', async () => {
     const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
     expect(css).toContain('@media (max-width:34rem){.hdb-encarts{grid-template-columns:1fr}}');

@@ -2396,11 +2396,29 @@ ${CSS_PIECES}
    un effet de bord d'auto-fit — on sait donc OU la bascule se produit, et l'ordre du DOM (Proprietaire d'abord)
    donne gratuitement « Proprietaire en premier ».
 
-   ⚠️ align-items:start : sans lui, un encart vide s'etirerait a la hauteur de son voisin rempli, et son
-   texte discret flotterait au milieu d'un grand rectangle. */
-.hdb-encarts{display:grid;gap:8px;grid-template-columns:1fr 1fr;align-items:start;margin-top:.5rem;
+   ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 3 — LES DEUX ENCARTS ONT TOUJOURS LA MEME HAUTEUR ══════════════════════
+   REGLE D'ARNO : « les encarts Proprietaire et Locataire ont TOUJOURS la meme hauteur (celle du plus grand,
+   plafonnee a la hauteur maximale d'avant defilement), meme si l'un est vide. Le texte d'encart vide est centre
+   verticalement. »
+
+   🔴 CE QUE J'AVAIS ECRIT AU LOT 5, ET QU'ARNO TRANCHE AUTREMENT : align-items:start. Mon motif etait qu'un
+   encart vide ne s'etire pas a la hauteur de son voisin ; Arno veut justement qu'il s'etire, parce que deux
+   encarts de hauteurs differentes font un bloc de guingois. Sa regle gagne, et elle est plus simple : la
+   VALEUR PAR DEFAUT d'une grille — stretch — donne exactement « la hauteur du plus grand », sans une ligne.
+
+   🔴 ET LE PLAFOND EST DEJA TENU, SANS RIEN AJOUTER : la liste de chaque encart est bornee par
+   la variable --hdb-liste-h (8,75 rem) et defile au-dela. Le plus grand des deux ne peut donc pas la depasser,
+   et « la hauteur du plus grand » est donc « plafonnee a la hauteur maximale d'avant defilement » par
+   construction. Un max-height de plus sur l'encart aurait fait un second plafond a tenir. */
+.hdb-encarts{display:grid;gap:8px;grid-template-columns:1fr 1fr;align-items:stretch;margin-top:.5rem;
   min-width:0}
 @media (max-width:34rem){.hdb-encarts{grid-template-columns:1fr}}
+/* 🔴 UN ENCART EST UNE COLONNE : sa tete en haut, et ce qui suit prend la place restante. C'est ce qui permet au
+   texte d'un encart vide de se centrer VERTICALEMENT, comme Arno le demande.
+   ⚠️ LES BANDES NE SONT PAS CONCERNEES : elles sont pleine largeur et leur hauteur n'a pas de jumelle. */
+.hdb-groupe--encart{display:flex;flex-direction:column}
+.hdb-groupe--encart .hdb-vide-mot{flex:1 1 auto;display:flex;align-items:center;justify-content:center;
+  text-align:center;margin:.35rem 0}
 .hdb-groupe--bande{margin-top:8px}
 /* ⚠️ LA ZONE SURVOLEE SE SURLIGNE DANS SA COULEUR (demande d'Arno), et le bord s'epaissit : la couleur seule ne
    dit rien a qui ne la voit pas, l'epaisseur se voit toujours. */
