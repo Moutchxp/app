@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   adresseGardeeDansLencart, anciensLocataires, carteChoisie, choixLocataireParDefaut,
   CHOIX_LOCATAIRE_DEFAUT, ilYAUnLocataireEnPlace, locatairesEnPlace,
-  motAnciensLocataires, motAncienLocataire, motPiedAnciensLocataires, MOT_LOCATAIRE_EN_PLACE,
-  periodeDuChoixLocataire,
+  motAnciensLocataires, motAncienLocataire, motBoutonAnciensLocataires, MOT_LOCATAIRE_EN_PLACE,
+  MOT_LOCATAIRES_ACTUELS, periodeDuChoixLocataire,
   type CarteLocataireBien,
 } from './historiqueBien';
 
@@ -170,15 +170,36 @@ describe('🔴 ④ les listes et les mots', () => {
   });
 
   /**
-   * 🔴🔴 LA LIGNE REPLIÉE NE CACHE PAS QUI L'ENCART MONTRE. Repliée par défaut, elle aurait laissé lire les
-   * mails d'un ancien en croyant lire ceux de l'occupant actuel.
+   * ══ 🔴 CE VERDICT A CHANGÉ AU LOT HISTORIQUE-BIEN-15, ET IL FAUT DIRE POURQUOI ═══════════════════════════════
+   *
+   * Il tenait sur `motPiedAnciensLocataires` et figeait « Anciens locataires (2) · ACKET … » : le compte ET le
+   * nom, parce que ce mot titrait une ligne REPLIABLE en bas de l'encart, dont le compte disait « il y a quelque
+   * chose là-dessous ».
+   *
+   * 🔴 ARNO A DÉPLACÉ CE MOT DANS UN BOUTON D'EN-TÊTE (lot 15), et il l'écrit lui-même :
+   * « Anciens locataires · VAGLIO ARNAUD Aurélie et Louis » — sans le compte. C'est aussi ce qui est juste : le
+   * compte répond à « y a-t-il quelque chose là-dessous ? », et cette question ne se pose plus une fois qu'on a
+   * choisi. Les garder tous les deux donnait « Anciens locataires (2) · VAGLIO … », où la parenthèse se lit
+   * comme le nombre d'adresses de VAGLIO alors que c'est le nombre de CARTES.
+   *
+   * 🔴 CE QUE LE GARDE PROTÈGE N'A PAS BOUGÉ D'UN MOT : le nom de la carte choisie EST à l'écran, et la période
+   * n'y est PAS. Le premier ferme la confusion de périodes du lot 13 ; la seconde éviterait deux sources pour la
+   * même borne, qui divergent dès qu'on retouche les dates (« modifiable ensuite », Arno).
    */
-  it('🔴🔴 le titre nomme l’ancien choisi, et lui seul', () => {
-    expect(motPiedAnciensLocataires(2, undefined)).toBe('Anciens locataires (2)');
-    expect(motPiedAnciensLocataires(2, ACKET))
-      .toBe('Anciens locataires (2) · ACKET GOEMAERE - DERRIEN Alizée et Thomas');
+  it('🔴🔴 le bouton nomme l’ancien choisi, et lui seul', () => {
+    expect(motBoutonAnciensLocataires(2, undefined)).toBe('Anciens locataires (2)');
+    expect(motBoutonAnciensLocataires(2, ACKET))
+      .toBe('Anciens locataires · ACKET GOEMAERE - DERRIEN Alizée et Thomas');
+    /* 🔴 LE COMPTE S'EFFACE DEVANT LE NOM : une parenthèse de plus se lirait comme le nombre d'adresses. */
+    expect(motBoutonAnciensLocataires(2, ACKET)).not.toContain('(2)');
     /* ⚠️ PAS LES DATES : elles sont déjà dans les deux champs du tableau de bord, et modifiables. */
-    expect(motPiedAnciensLocataires(2, ACKET)).not.toContain('01/04/2022');
+    expect(motBoutonAnciensLocataires(2, ACKET)).not.toContain('01/04/2022');
+  });
+
+  /** 🔴 LE MOT DU BOUTON DE GAUCHE, AU CARACTÈRE PRÈS — parenthèses comprises : un logement peut avoir un
+      occupant ou un couple, et le même bouton sert les deux. */
+  it('🔴🔴 « Locataire(s) actuel(s) », mot pour mot', () => {
+    expect(MOT_LOCATAIRES_ACTUELS).toBe('Locataire(s) actuel(s)');
   });
 });
 

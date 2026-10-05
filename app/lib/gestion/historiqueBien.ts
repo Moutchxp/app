@@ -1651,21 +1651,57 @@ export function motAnciensLocataires(n: number): string {
 }
 
 /**
- * ══ 🔴🔴 LE TITRE DE LA LIGNE REPLIÉE NE CACHE JAMAIS QUI L'ENCART MONTRE ════════════════════════════════════════
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — LES DEUX BOUTONS DE L'EN-TÊTE DE L'ENCART LOCATAIRE ════════════════════════════
  *
- * 🔴 CE QUE CETTE FONCTION ÉVITE, ET QUE MON PREMIER JET FAISAIT. La ligne étant repliée par défaut, un ancien
- * locataire choisi puis la ligne refermée donnait un encart « Locataire 2 » dont RIEN ne disait qu'il s'agit
- * d'ACKET et non du locataire en place. On lisait les mails d'un ancien en croyant lire ceux de l'occupant
- * actuel — c'est-à-dire exactement le genre de confusion de périodes que ce lot existe pour fermer.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : « L'en-tête de l'encart porte DEUX boutons côte à côte, sur la même ligne, à la
+ * place du titre actuel "▼ Locataire 2" : "Locataire(s) actuel(s) 2" puis "Anciens locataires (2)". […] L'en-tête
+ * affiche alors en noir le nom de la catégorie choisie ("Anciens locataires · VAGLIO ARNAUD Aurélie et Louis"). »
+ *
+ * 🔴 CES MOTS SONT CEUX D'ARNO, AU CARACTÈRE PRÈS, Y COMPRIS LES PARENTHÈSES DE « Locataire(s) actuel(s) ». Elles
+ * ne sont pas une coquetterie : un logement peut avoir UN occupant ou un COUPLE, et le même bouton sert les deux.
+ * Écrire « Locataire actuel » aurait menti une fois sur deux sur les biens de ce portefeuille.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const MOT_LOCATAIRES_ACTUELS = 'Locataire(s) actuel(s)';
+
+/**
+ * ══ 🔴🔴 CE QUE DIT LE BOUTON « ANCIENS LOCATAIRES » ═════════════════════════════════════════════════════════════
+ *
+ * Deux états, et deux phrases : « Anciens locataires (2) » tant qu'on n'en a choisi aucun, puis
+ * « Anciens locataires · VAGLIO ARNAUD Aurélie et Louis » dès qu'une carte est choisie.
+ *
+ * 🔴 LE COMPTE DISPARAÎT QUAND UN NOM PARAÎT, et c'est la demande d'Arno à la lettre. C'est aussi ce qui est
+ * juste : le compte répond à « y a-t-il quelque chose là-dessous ? », et cette question ne se pose plus une fois
+ * qu'on a choisi. Les garder tous les deux aurait donné « Anciens locataires (2) · VAGLIO … » — une parenthèse
+ * qu'on lit comme le nombre d'adresses de VAGLIO, alors que c'est le nombre de CARTES.
+ *
+ * 🔴 ET LE NOM NE PEUT PAS DISPARAÎTRE DE L'ÉCRAN. C'est tout ce qui dit qu'on lit les mails d'un ancien et non
+ * ceux de l'occupant actuel — la confusion de périodes que le lot 13 existe pour fermer.
  *
  * ⚠️ LE NOM SEUL, PAS LA PÉRIODE : les dates sont déjà dans les deux champs du tableau de bord, qu'on vient de
  * régler sur elles. Les répéter ici aurait fait deux sources pour la même borne, qui divergent dès qu'on en
  * retouche une (« modifiable ensuite » — Arno).
  */
-export function motPiedAnciensLocataires(n: number, choisie: CarteLocataireBien | undefined): string {
-  const titre = motAnciensLocataires(n);
-  return choisie === undefined ? titre : `${titre} · ${choisie.libelle}`;
+export function motBoutonAnciensLocataires(n: number, choisie: CarteLocataireBien | undefined): string {
+  return choisie === undefined ? motAnciensLocataires(n) : `Anciens locataires · ${choisie.libelle}`;
 }
+
+/**
+ * ══ 🔴 POURQUOI UN BOUTON DE L'EN-TÊTE EST INACTIF, DIT EN TOUTES LETTRES ════════════════════════════════════════
+ *
+ * Arno : « lot-290 (aucun ancien : bouton "Anciens locataires (0)" grisé et inactif, avec une info-bulle) ».
+ *
+ * 🔴 GRISÉ ET NON MASQUÉ, et c'est la même règle que la case « tout le groupe » d'un groupe vide (lot 5, point 2) :
+ * un bouton qui disparaît fait changer l'en-tête de forme d'un bien à l'autre, et l'autre bouton se déplace sous
+ * le curseur. Un bouton grisé DIT qu'il n'y a rien là-dessous, ce qui est une information.
+ *
+ * ⚠️ LA SYMÉTRIE EST VOULUE : sur un logement VACANT, c'est « Locataire(s) actuel(s) » qui ne désigne personne, et
+ * il est grisé pour exactement la même raison. Le cliquer aurait vidé l'encart d'un bien qui porte des années
+ * d'échanges — un masquage, que le dépôt interdit.
+ */
+export const AIDE_SANS_LOCATAIRE_ACTUEL = 'Ce logement n’a aucun locataire en place.';
+export const AIDE_SANS_ANCIEN_LOCATAIRE = 'Ce logement n’a aucun ancien locataire connu.';
 
 /**
  * ══ 🔴 LE MOT D'UNE LIGNE D'ANCIEN LOCATAIRE. PUR. ══════════════════════════════════════════════════════════════

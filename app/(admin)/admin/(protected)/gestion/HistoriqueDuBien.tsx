@@ -76,8 +76,10 @@ import {
   SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — un seul locataire à la fois dans l'encart. */
   adresseGardeeDansLencart, anciensLocataires, choixLocataireParDefaut, ilYAUnLocataireEnPlace,
-  motAnciensLocataires,
-  motAncienLocataire, motPiedAnciensLocataires, MOT_LOCATAIRE_EN_PLACE, periodeDuChoixLocataire,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-15 — les deux boutons de l'en-tête de l'encart Locataire. */
+  AIDE_SANS_ANCIEN_LOCATAIRE, AIDE_SANS_LOCATAIRE_ACTUEL, CHOIX_LOCATAIRE_DEFAUT,
+  motBoutonAnciensLocataires, MOT_LOCATAIRES_ACTUELS,
+  motAncienLocataire, periodeDuChoixLocataire,
   type CarteLocataireBien, type ChoixLocataire,
   type CategoriePartie, type CleGroupeParties, type ClientDuBien, type EtatRetourBien, type GroupeParties,
   type ChoixPeriode, type OccupationPeriode,
@@ -1172,14 +1174,21 @@ export function HistoriqueDuBien({
    */
   const [choixLocataire, setChoixLocataire] = useState<ChoixLocataire>(
     () => choixLocataireParDefaut(cartesLocataires));
+  /* ⚠️ `CHOIX_LOCATAIRE_DEFAUT` est le choix « locataire en place » : c'est lui que le bouton de gauche repose. */
   /**
    * 🔴 LA PÉRIODE MISE DE CÔTÉ, pour « revenir au locataire en place remet la période précédente » (Arno). Elle
    * est gardée AU PREMIER départ seulement : passer d'un ancien à un autre ne doit pas oublier celle d'origine,
    * sinon le retour rendrait les dates du locataire qu'on vient de quitter — pas celles d'avant le détour.
    */
   const [periodeAvant, setPeriodeAvant] = useState<ChoixPeriode | null>(null);
-  /** La ligne « Anciens locataires (N) », repliée par défaut : c'est un recours, pas la lecture ordinaire. */
-  const [anciensOuverts, setAnciensOuverts] = useState(false);
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-15 — LA LISTE DES CARTES EST-ELLE AFFICHÉE À LA PLACE DES CAPSULES ?
+   *
+   * ⚠️ C'EST UN PASSAGE, PAS UN ÉTAT DE LECTURE : elle s'ouvre au clic sur « Anciens locataires » et se referme
+   * dès qu'on a choisi (« le choix la valide », Arno) ou qu'on revient aux locataires actuels. L'état qui compte,
+   * lui, est `choixLocataire` — c'est lui que l'en-tête affiche en noir, et lui que la recherche suit.
+   */
+  const [listeAnciensOuverte, setListeAnciensOuverte] = useState(false);
 
   const anciens = useMemo(() => anciensLocataires(cartesLocataires), [cartesLocataires]);
 
@@ -1252,6 +1261,27 @@ export function HistoriqueDuBien({
           : g.interlocuteurs;
         return { ...g, nb: gardes.length, interlocuteurs: ordonnerLesCapsules(gardes, g.cle, categories) };
       }),
+      /**
+       * ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — COMBIEN DE CAPSULES AURAIT LE LOCATAIRE EN PLACE ═════════════════════
+       *
+       * Le bouton « Locataire(s) actuel(s) 2 » porte ce compte EN PERMANENCE, y compris pendant qu'on regarde un
+       * ancien locataire. Il ne peut donc pas être lu sur `g.nb`, qui est le compte de ce qui est AFFICHÉ.
+       *
+       * 🔴 IL SE CALCULE SUR LA LISTE NON FILTRÉE, dans le même parcours : le recalculer ailleurs aurait fait un
+       * second juge de la règle « quelles adresses l'encart garde », et les deux auraient fini par annoncer des
+       * nombres différents de part et d'autre du même en-tête.
+       */
+      /**
+       * 🔴🔴 ZÉRO SUR UN LOGEMENT VACANT, ET C'EST UNE CORRECTION VUE À L'ÉCRAN (bien 315). Le filtre garde aussi
+       * les adresses qu'AUCUNE carte ne porte — un contact rangé « locataire » à la main, la sœur du locataire,
+       * un voisin. Sur un logement sans occupant, le bouton annonçait donc « Locataire(s) actuel(s) 1 » à côté
+       * d'une info-bulle disant qu'il n'y en a aucun : deux affirmations contraires sur la même ligne.
+       *
+       * Ce bouton compte des LOCATAIRES ACTUELS. Sans carte en place, il n'y en a aucun, et il le dit.
+       */
+      nbLocatairesActuels: !ilYAUnLocataireEnPlace(cartesLocataires) ? 0
+        : (r.groupes.find((g) => g.cle === 'locataire')?.interlocuteurs ?? [])
+          .filter((i) => adresseGardeeDansLencart(i.adresse, cartesLocataires, CHOIX_LOCATAIRE_DEFAUT)).length,
     };
   }, [interlocuteursEtClients, categoriesFusionnees, adressesClientes, categories,
     cartesLocataires, choixLocataire]);
@@ -2105,13 +2135,23 @@ export function HistoriqueDuBien({
                   onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
                   onCreer={ouvrirCreation} onMenu={setMenu} onGlisse={setGlisse} onSurvol={setSurvol}
                   onDeplacer={deplacer} onPeriode={reglerPeriodeSurLeBail}
-                  /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — SEUL L'ENCART LOCATAIRE A UN PIED, et c'est là que
-                     la règle vit : le gabarit commun, lui, ne connaît que « un emplacement en bas ». */
-                  pied={cle !== 'locataire' ? undefined : (
-                    <PiedAnciensLocataires nom={`hdb-loc-${lotCle}`} anciens={anciens}
+                  /* ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — SEUL L'ENCART LOCATAIRE A UN EN-TÊTE À DEUX BOUTONS ═══
+                     C'est là que la règle vit : le gabarit commun, lui, ne connaît que « un titre de rechange »
+                     et « une zone qui remplace les capsules ». Lui faire connaître les cartes de locataire
+                     aurait mis une règle de locataire dans le composant qui rend les quatre groupes. */
+                  titre={cle !== 'locataire' ? undefined : (
+                    <EnTeteLocataire
+                      nbActuels={parties.nbLocatairesActuels} anciens={anciens} choix={choixLocataire}
                       enPlaceOffert={ilYAUnLocataireEnPlace(cartesLocataires)}
-                      choix={choixLocataire} ouvert={anciensOuverts}
-                      onBasculer={() => setAnciensOuverts((v) => !v)} onChoisir={choisirLocataire} />
+                      listeOuverte={listeAnciensOuverte}
+                      onActuels={() => { setListeAnciensOuverte(false); choisirLocataire(CHOIX_LOCATAIRE_DEFAUT); }}
+                      onAnciens={() => setListeAnciensOuverte((v) => !v)} />
+                  )}
+                  /* 🔴 LA LISTE PREND LA PLACE DES CAPSULES — demande d'Arno : « dans la ZONE D'AFFICHAGE DES
+                     CAPSULES (à leur place) ». Choisir une carte la referme : « le choix la valide ». */
+                  zone={cle !== 'locataire' || !listeAnciensOuverte ? undefined : (
+                    <ListeDesAnciens nom={`hdb-loc-${lotCle}`} anciens={anciens} choix={choixLocataire}
+                      onChoisir={(c) => { setListeAnciensOuverte(false); choisirLocataire(c); }} />
                   )} />
               );
             })}
@@ -2628,75 +2668,119 @@ export function HistoriqueDuBien({
 
 /** Ce qu'un groupe reçoit. Beaucoup de props, mais toutes nommées : un objet fourre-tout cacherait les oublis. */
 /**
- * ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — LE PIED DE L'ENCART LOCATAIRE ═════════════════════════════════════════
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — LE CHOIX DU LOCATAIRE PASSE DANS L'EN-TÊTE DE L'ENCART ═════════════════════════
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * DEMANDE D'ARNO (05/10/2026), mot pour mot : « En bas de l'encart, une ligne dépliable “Anciens locataires (N)” :
- * une ligne par CARTE d'ancien locataire (nom de la carte + période “du … au …” + nombre d'adresses), avec un
- * bouton radio. On sélectionne UNE SEULE carte à la fois, et ce choix est EXCLUSIF avec le locataire en place […]
- * et une option “Locataire en place” permet de revenir. »
+ * DEMANDE D'ARNO (05/10/2026), mot pour mot : « L'en-tête de l'encart porte DEUX boutons côte à côte, sur la même
+ * ligne, à la place du titre actuel "▼ Locataire 2" : "Locataire(s) actuel(s) 2" puis "Anciens locataires (2)".
+ * La case "tout le groupe" reste à droite. […] CLIC SUR "Anciens locataires" : il passe en noir et
+ * "Locataire(s) actuel(s)" passe en gris clair. Dans la ZONE D'AFFICHAGE DES CAPSULES (à leur place), la liste
+ * des cartes d'anciens locataires apparaît […] Une fois une carte choisie (le choix la valide), la liste
+ * disparaît et les capsules de cet ancien locataire s'affichent NORMALEMENT dans l'encart. »
  *
- * 🔴 DE VRAIS BOUTONS RADIO D'UN MÊME `name`, ET NON DES BOUTONS QU'ON PEINDRAIT EN RADIO. Le navigateur tient
- * alors l'exclusivité lui-même, les flèches du clavier parcourent le groupe, et un lecteur d'écran annonce
- * « 2 sur 3 ». Recoder cela à la main, c'est se donner la possibilité d'en cocher deux — exactement ce qu'Arno
- * interdit.
+ * ═══ 🔴 CE QUI REMPLACE QUOI, ET CE QUI N'EST PAS PERDU ══════════════════════════════════════════════════════════
  *
- * ⚠️ « LOCATAIRE EN PLACE » EST **DANS** LE GROUPE, en tête, et non un bouton « revenir » à côté. C'est ce qui
- * fait de l'exclusivité une évidence à l'œil : les trois options sont les trois lignes d'une même liste, et l'on
- * voit laquelle est cochée sans avoir à comprendre que deux commandes se répondent.
+ * La ligne « Anciens locataires (N) » du BAS de l'encart (lot 13, point 1) disparaît : sa fonction entière est
+ * reprise par le bouton de l'en-tête — déplier la liste, choisir une carte, revenir au locataire en place. Rien
+ * n'est retiré, tout est déplacé, et Arno l'écrit lui-même (« aucune fonctionnalité perdue »).
  *
- * ⚠️ RIEN DU TOUT QUAND LE LOGEMENT N'A AUCUN ANCIEN LOCATAIRE : une ligne « Anciens locataires (0) » dépliable
- * sur du vide est une porte qui ne mène nulle part. Le choix reste alors ce qu'il est — le locataire en place.
+ * ═══ 🔴🔴 LE TRIANGLE DE REPLI RESTE, ET IL FALLAIT LE DIRE ══════════════════════════════════════════════════════
+ *
+ * Le titre remplacé portait AUSSI le repli de l'encart (lot 11, point 3 : « les deux dépliés à l'arrivée »).
+ * Le faire disparaître avec lui aurait retiré une fonctionnalité qu'Arno n'a pas demandé de retirer — ce que le
+ * dépôt interdit sans son accord. Il garde donc sa place, en tête de ligne, réduit à son seul picto : trois
+ * commandes sur la ligne, et chacune ne fait qu'une chose. L'alternative — faire replier l'encart par un second
+ * clic sur « Locataire(s) actuel(s) » — aurait donné deux sens au même bouton selon son état, c'est-à-dire le
+ * genre de geste qu'on déclenche sans le vouloir.
+ *
+ * ═══ 🔴 LES DEUX BOUTONS NE SONT PAS DES ONGLETS DE PAGE, ET LE BALISAGE LE DIT ══════════════════════════════════
+ *
+ * `aria-pressed` plutôt qu'un `role="tab"` : ce sont deux boutons à état, dont l'un est enfoncé. Un vrai jeu
+ * d'onglets aurait exigé des panneaux `tabpanel`, la navigation aux flèches et un ordre de tabulation à part —
+ * pour une zone qui, la plupart du temps, n'est pas un panneau mais la liste de capsules d'avant ce lot.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-function PiedAnciensLocataires({ nom, anciens, enPlaceOffert, choix, ouvert, onBasculer, onChoisir }: {
-  /** Le `name` du groupe de radios. Porté par la clé du lot : deux fiches ouvertes ne se mélangent pas. */
-  nom: string;
+function EnTeteLocataire({
+  nbActuels, anciens, choix, enPlaceOffert, listeOuverte, onActuels, onAnciens,
+}: {
+  /** Combien de capsules le choix « locataire en place » afficherait. Lisible même quand on regarde un ancien. */
+  nbActuels: number;
   anciens: readonly CarteLocataireBien[];
-  /**
-   * 🔴🔴 L'OPTION « Locataire en place » N'EST OFFERTE QUE S'IL Y EN A UN. Mesuré sur « bien 315 » (fiche
-   * lot-237) : ce logement est VACANT, deux anciens locataires et personne dedans. L'option y aurait désigné
-   * personne — et la cocher aurait vidé l'encart. Voir `choixLocataireParDefaut`.
-   */
-  enPlaceOffert: boolean;
   choix: ChoixLocataire;
-  ouvert: boolean;
-  onBasculer: () => void;
-  onChoisir: (c: ChoixLocataire) => void;
+  enPlaceOffert: boolean;
+  /** La liste des cartes est-elle affichée À LA PLACE des capsules ? */
+  listeOuverte: boolean;
+  onActuels: () => void;
+  onAnciens: () => void;
 }) {
-  if (anciens.length === 0) return null;
+  /* 🔴 « SÉLECTIONNÉ » SE LIT SUR LE CHOIX, PAS SUR LA LISTE : la liste ouverte est un passage, le choix est
+     l'état. Sans quoi, ouvrir la liste puis la refermer sans rien choisir aurait laissé l'en-tête mentir. */
+  const surAnciens = choix.sorte === 'ancien' || listeOuverte;
   const choisie = anciens.find((c) => choix.sorte === 'ancien' && c.cle === choix.cle);
   return (
-    <div className="hdb-anciens">
-      <button type="button" className="hdb-replier hdb-anciens-tete" aria-expanded={ouvert}
-        onClick={onBasculer}>
-        <span aria-hidden="true" className={`hdb-triangle${ouvert ? ' hdb-triangle--ouvert' : ''}`}>▶</span>
-        {/* 🔴 LE TITRE NOMME L'ANCIEN CHOISI quand la ligne est refermée sur lui : voir `motPiedAnciensLocataires`. */}
-        {motPiedAnciensLocataires(anciens.length, choisie)}
+    <>
+      <button
+        type="button"
+        className={`hdb-onglet${surAnciens ? '' : ' hdb-onglet--actif'}`}
+        aria-pressed={!surAnciens}
+        disabled={!enPlaceOffert}
+        title={enPlaceOffert ? undefined : AIDE_SANS_LOCATAIRE_ACTUEL}
+        onClick={onActuels}>
+        {/* 🔴 LE LIBELLÉ EST DANS SON PROPRE ÉLÉMENT, et c'est ce qui sauve le CHIFFRE : l'ellipse s'applique
+            au mot, pas au bouton. Rognée sur le bouton, elle emportait d'abord le compte — qui est à la fin. */}
+        <span className="hdb-onglet-mot">{MOT_LOCATAIRES_ACTUELS}</span>
+        <span className="gst-compte">{nbActuels}</span>
       </button>
-      {ouvert && (
-        <ul className="hdb-anciens-liste">
-          {enPlaceOffert && (
-            <li>
-              <label className="hdb-anciens-choix">
-                <input type="radio" name={nom} checked={choix.sorte === 'en_place'}
-                  onChange={() => onChoisir({ sorte: 'en_place' })} />
-                <span>{MOT_LOCATAIRE_EN_PLACE}</span>
-              </label>
-            </li>
-          )}
-          {anciens.map((c) => (
-            <li key={c.cle}>
-              <label className="hdb-anciens-choix">
-                <input type="radio" name={nom} checked={choix.sorte === 'ancien' && choix.cle === c.cle}
-                  onChange={() => onChoisir({ sorte: 'ancien', cle: c.cle })} />
-                <span>{motAncienLocataire(c)}</span>
-              </label>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+      <button
+        type="button"
+        className={`hdb-onglet${surAnciens ? ' hdb-onglet--actif' : ''}`}
+        aria-pressed={surAnciens}
+        aria-expanded={listeOuverte}
+        disabled={anciens.length === 0}
+        /* 🔴 LE NOM ENTIER EN INFO-BULLE : le libellé se rogne quand la ligne manque de place (voir la feuille),
+           et un nom coupé ne dit plus QUI l'encart montre — ce qui est tout ce que ce bouton a à dire. */
+        title={anciens.length === 0
+          ? AIDE_SANS_ANCIEN_LOCATAIRE
+          : motBoutonAnciensLocataires(anciens.length, choisie)}
+        onClick={onAnciens}>
+        <span className="hdb-onglet-mot">{motBoutonAnciensLocataires(anciens.length, choisie)}</span>
+      </button>
+    </>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LA LISTE DES CARTES, À LA PLACE DES CAPSULES ════════════════════════════════════════════════════════════
+ *
+ * Arno : « la liste des cartes d'anciens locataires apparaît : nom de la carte, période "du … au …", nombre
+ * d'adresses, avec un bouton radio. Il n'y en a qu'une à la fois. »
+ *
+ * 🔴 DE VRAIS BOUTONS RADIO D'UN MÊME `name` : le navigateur tient l'exclusivité lui-même, les flèches du clavier
+ * parcourent le groupe, et un lecteur d'écran annonce « 2 sur 3 ». Recoder cela à la main, c'est se donner la
+ * possibilité d'en cocher deux — ce qu'Arno interdit depuis le lot 13.
+ *
+ * ⚠️ ELLE DÉFILE AU MÊME PLAFOND QUE LES CAPSULES (`.hdb-defile`) : elle prend LEUR place, donc elle doit prendre
+ * leur place exactement — un logement à huit anciens locataires ne doit pas faire grandir l'encart et désaligner
+ * sa jumelle de gauche.
+ */
+function ListeDesAnciens({ nom, anciens, choix, onChoisir }: {
+  nom: string;
+  anciens: readonly CarteLocataireBien[];
+  choix: ChoixLocataire;
+  onChoisir: (c: ChoixLocataire) => void;
+}) {
+  return (
+    <ul className="hdb-anciens-liste hdb-defile">
+      {anciens.map((c) => (
+        <li key={c.cle}>
+          <label className="hdb-anciens-choix">
+            <input type="radio" name={nom} checked={choix.sorte === 'ancien' && choix.cle === c.cle}
+              onChange={() => onChoisir({ sorte: 'ancien', cle: c.cle })} />
+            <span>{motAncienLocataire(c)}</span>
+          </label>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -2744,16 +2828,39 @@ interface PropsGroupe {
   /** Régler la période du tableau de bord sur le bail d'un locataire (la date, dans sa capsule). */
   onPeriode: (p: PeriodePartie) => void;
   /**
-   * 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — CE QUI SE RANGE **EN BAS** DE L'ENCART.
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — UN TITRE DE RECHANGE POUR L'EN-TÊTE ═══════════════════════════════════════
    *
-   * Arno : « En bas de l'encart, une ligne dépliable “Anciens locataires (N)”. » Un emplacement, et non le
-   * contenu : ce composant rend quatre groupes aux gestes identiques, et seul l'encart Locataire a un pied.
-   * Lui faire connaître les cartes de locataire aurait mis une règle de locataire dans le gabarit commun.
+   * Arno : « L'en-tête de l'encart porte DEUX boutons côte à côte, sur la même ligne, à la place du titre
+   * actuel "▼ Locataire 2". »
    *
-   * ⚠️ RENDU SOUS LA LISTE ET SOUS LA PHRASE DU VIDE, mais DANS la zone de dépôt : on peut encore déposer une
-   * capsule sur un encart dont on a déplié les anciens locataires.
+   * 🔴 UN EMPLACEMENT, ET NON LE CONTENU : ce composant rend quatre groupes aux gestes identiques, et seul
+   * l'encart Locataire a deux boutons. Lui faire connaître les cartes de locataire aurait mis une règle de
+   * locataire dans le gabarit commun — et les trois autres groupes auraient porté un code qui ne les regarde pas.
+   *
+   * ⚠️ ABSENT ⇒ LE TITRE D'AVANT CE LOT, AU PIXEL PRÈS : « ▶ Propriétaire 4 », « ▶ Tiers indépendant 0 ». Les
+   * trois autres groupes et les deux bandes ne bougent donc pas.
+   *
+   * ⚠️ LE TRIANGLE DE REPLI N'EN FAIT PAS PARTIE : il reste rendu par ce composant, avant le titre de rechange.
+   * Le déléguer à l'appelant aurait demandé à chaque titre de rechange de savoir replier son propre encart.
    */
-  pied?: ReactNode;
+  titre?: ReactNode;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — CE QUI S'AFFICHE **À LA PLACE** DES CAPSULES ══════════════════════════════
+   *
+   * Arno : « Dans la ZONE D'AFFICHAGE DES CAPSULES (à leur place), la liste des cartes d'anciens locataires
+   * apparaît. »
+   *
+   * 🔴 « À LEUR PLACE », ET NON EN PLUS : c'est le mot d'Arno, et c'est ce qui garde l'encart à sa taille. Posée
+   * EN DESSOUS, la liste aurait allongé l'encart Locataire et désaligné sa jumelle de gauche — exactement le
+   * « bloc de guingois » que la grille des deux encarts existe pour éviter.
+   *
+   * ⚠️ ELLE REMPLACE AUSSI LA PHRASE DE L'ENCART VIDE : sur un logement vacant, « Aucun locataire connu » n'a
+   * rien à faire au-dessus de la liste des anciens — c'est précisément là qu'on vient en choisir un.
+   *
+   * ⚠️ MAIS PAS LA ZONE DE DÉPÔT : les quatre gestes du glisser sont posés sur la `section` entière, pas sur la
+   * liste. On peut donc encore déposer une capsule sur un encart dont la liste des anciens est ouverte.
+   */
+  zone?: ReactNode;
 }
 
 /**
@@ -2937,14 +3044,29 @@ function GroupeDeParties(p: PropsGroupe) {
         void p.onDeplacer(glisse.adresse, g.cle, nom, g.titre);
       }}>
       <div className="hdb-groupe-tete">
-        <button type="button" className="hdb-replier" aria-expanded={ouvert}
+        {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — LE TRIANGLE DE REPLI SURVIT AU TITRE QU'IL PORTAIT ═══════════════
+            Quand l'appelant fournit son propre titre (l'encart Locataire et ses deux boutons), ce bouton-ci se
+            réduit à son picto. Le faire disparaître avec le titre aurait RETIRÉ le repli de l'encart — une
+            fonctionnalité qu'Arno n'a pas demandé de retirer, et que le dépôt interdit de retirer sans son
+            accord. Il garde donc un libellé accessible, puisqu'il n'a plus de texte à lire. */}
+        <div className="hdb-tete-titres">
+        <button type="button"
+          className={`hdb-replier${p.titre === undefined ? '' : ' hdb-replier--picto'}`}
+          aria-expanded={ouvert}
+          aria-label={p.titre === undefined ? undefined : `Replier ou déplier ${g.titre}`}
           onClick={() => p.onBasculerRepli(g.cle)}>
           <span aria-hidden="true" className={`hdb-triangle${ouvert ? ' hdb-triangle--ouvert' : ''}`}>▶</span>
-          {g.titre}
-          {/* LE COMPTE EST LISIBLE SANS DÉPLIER — c'est tout l'intérêt du repli, et le titre de bande d'Arno
-              (« Tiers indépendant · 4 ▸ ») le dit justement comme cela. */}
-          <span className="gst-compte">{g.nb}</span>
+          {p.titre === undefined && (
+            <>
+              {g.titre}
+              {/* LE COMPTE EST LISIBLE SANS DÉPLIER — c'est tout l'intérêt du repli, et le titre de bande d'Arno
+                  (« Tiers indépendant · 4 ▸ ») le dit justement comme cela. */}
+              <span className="gst-compte">{g.nb}</span>
+            </>
+          )}
         </button>
+        {p.titre}
+        </div>
         {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 2 — LA CASE EST LÀ MÊME À ZÉRO, MAIS ELLE NE MENT PAS ═══════
             Arno décrit l'anatomie d'une ligne : « chacune avec son compteur et sa case “tout le groupe” ». Une
             ligne qui perdrait sa case à zéro changerait de forme selon le bien, et la case se déplacerait d'un
@@ -2970,29 +3092,25 @@ function GroupeDeParties(p: PropsGroupe) {
           ② CE QU'ON PEUT Y FAIRE, et seulement PENDANT un glisser : « Déposez ici pour ranger dans X ». Hors
              glisser, cette phrase serait une consigne pour un geste que personne n'a commencé ; pendant le
              glisser, elle est indispensable — sans elle on lâche la capsule sur un rectangle muet. */}
-      {g.nb === 0 && motSiVide !== undefined && (
-        <p className="hdb-vide-mot">{motSiVide}</p>
-      )}
-      {ouvert && g.nb === 0 && (glisse !== null || motSiVide === undefined) && (
-        <p className="hdb-vide-depot">Déposez ici pour ranger dans « {g.titre} ».</p>
-      )}
+      {/* 🔴🔴 LOT HISTORIQUE-BIEN-15 — LA ZONE DE RECHANGE PREND TOUTE LA PLACE, phrase du vide comprise. */}
+      {ouvert && p.zone !== undefined ? p.zone : (
+        <>
+          {g.nb === 0 && motSiVide !== undefined && (
+            <p className="hdb-vide-mot">{motSiVide}</p>
+          )}
+          {ouvert && g.nb === 0 && (glisse !== null || motSiVide === undefined) && (
+            <p className="hdb-vide-depot">Déposez ici pour ranger dans « {g.titre} ».</p>
+          )}
 
-      {ouvert && g.nb > 0 && (
-        <ListeDefilante etiquette={g.titre}>
-          {g.interlocuteurs.map((i) => (
-            <CapsulePartie key={i.adresse} i={i} {...p} />
-          ))}
-        </ListeDefilante>
+          {ouvert && g.nb > 0 && (
+            <ListeDefilante etiquette={g.titre}>
+              {g.interlocuteurs.map((i) => (
+                <CapsulePartie key={i.adresse} i={i} {...p} />
+              ))}
+            </ListeDefilante>
+          )}
+        </>
       )}
-
-      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — LE PIED DE L'ENCART ══════════════════════════════════════
-          ⚠️ RENDU MÊME QUAND L'ENCART EST VIDE, et c'est le cas qui compte le plus : sur un logement vacant,
-          l'encart dit « Aucun locataire connu » et c'est précisément là qu'on vient chercher un ANCIEN. Le
-          cacher à zéro aurait fermé la porte à l'endroit où elle sert.
-
-          ⚠️ MAIS PAS QUAND L'ENCART EST REPLIÉ : replier un encart, c'est demander à ne plus voir ce qu'il
-          contient. Le choix, lui, survit au repli — il vit dans l'état du bloc, pas dans cette ligne. */}
-      {ouvert && p.pied !== undefined && p.pied}
     </section>
   );
 }
@@ -3809,28 +3927,42 @@ ${CSS_PIECES}
    couleur, et c'est lui qui empeche reellement le clic. */
 .hdb-case--muette{opacity:.5;cursor:default}
 .hdb-case--muette input{cursor:default}
-/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — LE PIED « ANCIENS LOCATAIRES » ════════════════════════════════════
-   DEMANDE D'ARNO : « En bas de l'encart, une ligne depliable “Anciens locataires (N)”. »
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — LES DEUX BOUTONS DE L'EN-TETE DE L'ENCART LOCATAIRE ════════════════════════
+   DEMANDE D'ARNO : « "Locataire(s) actuel(s)" est écrit en noir (sélectionné) ; "Anciens locataires" est en GRIS
+   CLAIR (non sélectionné). »
 
-   🔴 margin-top:auto, ET C'EST CE QUI TIENT LE MOT « EN BAS ». L'encart est une colonne flex (.hdb-groupe--encart
-   ci-dessus) etiree a la hauteur de sa jumelle : sans cette marge automatique, la ligne se collait sous la
-   derniere capsule, c'est-a-dire AU MILIEU d'un encart plus court que son voisin. Une hauteur fixe aurait
-   produit le meme ecart des que l'autre encart change de taille.
+   🔴 LA SELECTION SE LIT A LA COULEUR **ET** AU POIDS, et c'est volontaire : la couleur seule ne dit rien a qui
+   ne la distingue pas, et la difference gris clair / noir est justement celle qui se perd le plus vite sur un
+   ecran mal regle. Le bouton actif est aussi en gras. Et l'attribut aria-pressed le dit au lecteur d'ecran,
+   qui ne voit ni l'un ni l'autre.
 
-   🔴 LE TON EST CELUI DES NOTES (--color-svv-muted), PAS CELUI D'UN TITRE : c'est un recours, et la lecture
-   ordinaire est le locataire en place juste au-dessus. Le mettre en --color-svv-ink en aurait fait la deuxieme
-   chose qu'on lit dans l'encart.
+   🔴 ILS SE REPLIENT L'UN SOUS L'AUTRE SUR ECRAN ETROIT : la ligne d'en-tete autorise deja le retour a la ligne
+   (flex-wrap sur .hdb-groupe-tete), et le nom d'un ancien locataire est long. Sans cela, « Anciens locataires ·
+   ACKET GOEMAERE - DERRIEN Alizée et Thomas » poussait la case « tout le groupe » hors de l'encart.
 
-   ⚠️ AUCUNE REGLE DE HAUTEUR SUR .hdb-anciens-tete : elle porte aussi .hdb-replier, qui donne deja les 44 px de
-   cible tactile du depot. Les reecrire plus petits ici aurait rompu l'exigence transverse mobile a un endroit ou
-   personne ne serait alle la relire.
+   ⚠️ CIBLE DE 44 px, comme tout ce qui se clique dans ce bloc : c'est l'exigence transverse du depot, et ces
+   deux boutons sont desormais le geste le plus frequent de l'encart.
 
-   ⚠️ LA LISTE DEFILE AU MEME PLAFOND QUE L'ENCART (--hdb-liste-h) : un logement a huit anciens locataires ne
-   doit pas allonger le bloc — c'est la regle « il ne grandit jamais » du lot 3, appliquee a ce qu'on ajoute. */
-.hdb-anciens{margin-top:auto;padding-top:.25rem;border-top:1px solid var(--color-svv-line);min-width:0}
-.hdb-anciens-tete{font-size:.76rem;font-weight:600;color:var(--color-svv-muted)}
-.hdb-anciens-liste{list-style:none;margin:.1rem 0 0;padding:0;display:flex;flex-direction:column;gap:1px;
-  max-height:var(--hdb-liste-h);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;min-width:0}
+   ⚠️ UN BOUTON INACTIF GARDE SA PLACE ET SON CURSEUR PAR DEFAUT (lot 5, point 2) : il DIT qu'il n'y a rien
+   là-dessous, ce qui est une information. Son motif est dans l'info-bulle. */
+.hdb-onglet{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;padding:0 .4rem;
+  flex:0 0 auto;max-width:100%;
+  border:0;background:none;font:inherit;font-size:.82rem;font-weight:600;color:var(--color-svv-muted);
+  cursor:pointer;text-align:left;border-radius:.35rem}
+/* ⚠️ LE LIBELLE SE REPLIE SUR LUI-MEME PLUTOT QUE DE DEBORDER quand il est plus large que l'encart entier (un
+   nom de carte tres long sur un telephone) : il devient haut, il n'est jamais coupe. */
+.hdb-onglet-mot{min-width:0;overflow-wrap:anywhere}
+.hdb-onglet .gst-compte{flex:0 0 auto}
+.hdb-onglet--actif{color:var(--color-svv-ink);font-weight:700}
+.hdb-onglet:hover:not(:disabled){background:var(--color-svv-field)}
+.hdb-onglet:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.hdb-onglet:disabled{opacity:.5;cursor:default}
+/* ══ 🔴 LA LISTE DES CARTES, A LA PLACE DES CAPSULES ═════════════════════════════════════════════════════════
+   Elle porte AUSSI la classe .hdb-defile : elle prend la place des capsules, donc elle en prend le plafond et
+   le defilement interne. Un logement a huit anciens locataires ne fait pas grandir l'encart, et sa jumelle de
+   gauche reste alignee — c'est la regle « il ne grandit jamais » du lot 3. */
+.hdb-anciens-liste{list-style:none;margin:.2rem 0 0;padding:0;display:flex;flex-direction:column;gap:1px;
+  min-width:0}
 .hdb-anciens-choix{display:flex;align-items:center;gap:.4rem;min-height:44px;padding:0 .3rem;
   border-radius:.35rem;font-size:.74rem;color:var(--color-svv-ink);cursor:pointer;min-width:0}
 .hdb-anciens-choix:hover{background:var(--color-svv-field)}
@@ -3864,10 +3996,35 @@ ${CSS_PIECES}
 .hdb-selection-mot{font-size:.8rem;font-weight:700;color:var(--color-svv-ink);min-width:0}
 .hdb-btn-decocher{flex:0 0 auto}
 .hdb-groupe-tete{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;min-width:0}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — LES TITRES SE REPLIENT ENTRE EUX, LA CASE RESTE A DROITE ═════════════════
+   DEMANDE D'ARNO : « DEUX boutons côte à côte, sur la même ligne […] La case "tout le groupe" reste à droite. »
+
+   🔴 TROIS MESURES A L'ECRAN ONT MENE ICI, et les deux premieres sorties etaient mauvaises :
+     ① sans rien, les deux boutons passaient a la ligne ET entrainaient la case avec eux — elle n'etait plus a
+       droite, elle etait en bas a gauche ;
+     ② en interdisant le repli, les libelles se faisaient rogner : « L… 2 » d'un cote, « ACKET GOEMAERE - DE… »
+       de l'autre. Une ellipse qui mange « Locataire(s) actuel(s) » jusqu'a « L… » ne tronque pas l'affichage,
+       elle supprime l'information.
+   🔴 LA SORTIE EST UNE ENVELOPPE : le triangle et les deux boutons vivent dans un bloc qui prend la place
+   restante et se replie EN LUI-MEME ; la case, elle, est hors de ce bloc et garde sa place a droite de la
+   PREMIERE ligne. Large, tout tient sur une ligne — c'est le cas ordinaire (« Anciens locataires (2) »). Etroit
+   ou nom long, les boutons passent sur deux lignes AVEC LEUR LIBELLE ENTIER, et la case ne bouge pas.
+   C'est le bon ordre des sacrifices : on garde les mots, on perd la ligne unique. */
+.hdb-tete-titres{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;flex:1 1 0;min-width:0}
 .hdb-replier{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;padding:0 .4rem;flex:1 1 8rem;
   border:0;background:none;font:inherit;font-size:.82rem;font-weight:700;color:var(--color-svv-ink);
   cursor:pointer;text-align:left;min-width:0}
 .hdb-replier:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-15 — LE TRIANGLE SEUL NE S'ETIRE PAS ═══════════════════════════════════════════
+   🔴 DEFAUT VU A L'ECRAN sur lot-146, et il venait de l'ORDRE des regles : .hdb-replier porte flex:1 1 8rem
+   (il prenait toute la ligne quand il portait le titre), et ma premiere version posait le correctif AVANT lui —
+   meme specificite, donc c'est la derniere ecrite qui gagnait. Resultat : le triangle poussait les deux boutons
+   vers la droite, et la case « tout le groupe » passait a la ligne suivante, a gauche. Arno la veut A DROITE.
+   La regle est donc ici, APRES celle qu'elle corrige.
+   ⚠️ LA CASE EST COLLEE A DROITE PAR margin-left:auto plutot que par un justify-content sur la ligne : la
+   ligne sert aussi les trois autres groupes, ou le titre s'etire encore. */
+.hdb-replier--picto{flex:0 0 auto;min-width:0;padding:0 .2rem}
+.hdb-groupe-tete .hdb-case--groupe{margin-left:auto}
 .hdb-triangle{display:inline-block;font-size:.7rem;color:var(--color-svv-red);transition:transform .15s ease}
 .hdb-triangle--ouvert{transform:rotate(90deg)}
 @media (prefers-reduced-motion:reduce){.hdb-triangle{transition:none}}

@@ -2075,9 +2075,14 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
       .map((x) => (x.querySelector('.pcv-nom, [class*="nom"]')?.textContent
         ?? (x.textContent ?? '').trim().split('\n')[0]).trim());
 
+  /**
+   * ⚠️ ON LIT L'EN-TÊTE ENTIER, ET NON LE SEUL BOUTON DE REPLI (correction du lot HISTORIQUE-BIEN-15). Le titre
+   * de l'encart Locataire ne vit plus dans `.hdb-replier` — il est passé dans les deux boutons de l'en-tête, et
+   * le bouton de repli s'est réduit à son triangle. Cette aide ne trouvait donc plus l'encart Locataire.
+   */
   const cocherGroupe = async (titre: string): Promise<void> => {
     const g = ([...hote.querySelectorAll('.hdb-groupe')] as HTMLElement[])
-      .find((x) => (x.querySelector('.hdb-replier')?.textContent ?? '').includes(titre));
+      .find((x) => (x.querySelector('.hdb-groupe-tete')?.textContent ?? '').includes(titre));
     await cliquer(g?.querySelector('.hdb-case--groupe input') ?? undefined);
   };
 
@@ -3681,9 +3686,14 @@ describe('⑤-octodecies 🔴🔴 le filtre par parties : les six combinaisons',
     .map((x) => (x.textContent ?? '')).filter((t) => t !== '');
   const contient = (mot: string): boolean => objets().some((t) => t.includes(mot));
 
+  /**
+   * ⚠️ ON LIT L'EN-TÊTE ENTIER, ET NON LE SEUL BOUTON DE REPLI (correction du lot HISTORIQUE-BIEN-15). Le titre
+   * de l'encart Locataire ne vit plus dans `.hdb-replier` — il est passé dans les deux boutons de l'en-tête, et
+   * le bouton de repli s'est réduit à son triangle. Cette aide ne trouvait donc plus l'encart Locataire.
+   */
   const cocherGroupe = async (titre: string): Promise<void> => {
     const g = ([...hote.querySelectorAll('.hdb-groupe')] as HTMLElement[])
-      .find((x) => (x.querySelector('.hdb-replier')?.textContent ?? '').includes(titre));
+      .find((x) => (x.querySelector('.hdb-groupe-tete')?.textContent ?? '').includes(titre));
     await cliquer(g?.querySelector('.hdb-case--groupe input') ?? undefined);
   };
 
@@ -4705,6 +4715,12 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
     depuis: '2025-02-06', jusqua: '2025-10-22', enPlace: false,
     adresses: ['ancien@fictif.test'],
   };
+  /** Un SECOND ancien, pour que « impossible d'en cocher deux » ait deux radios à opposer (lot 15). */
+  const AUTRE_ANCIEN = {
+    cle: 'occ-11', libelle: 'ACKET GOEMAERE - DERRIEN Alizée et Thomas',
+    depuis: '2022-04-01', jusqua: '2025-01-31', enPlace: false,
+    adresses: ['soeur@fictif.test'],
+  };
   const CARTES = [EN_PLACE, ANCIEN];
 
   /**
@@ -4749,6 +4765,17 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
     [...encartLocataire().querySelectorAll('.hdb-personne-nom')].map((e) => e.textContent);
   const radios = (): HTMLInputElement[] =>
     [...hote.querySelectorAll('.hdb-anciens-choix input')] as HTMLInputElement[];
+  /**
+   * ══ 🔴🔴 LES DEUX BOUTONS DE L'EN-TÊTE (lot HISTORIQUE-BIEN-15) ════════════════════════════════════════════
+   *
+   * Ces aides ont remplacé celles de la ligne « Anciens locataires (N) » du BAS de l'encart : Arno a déplacé ce
+   * choix dans l'en-tête. Le geste éprouvé est le même — ouvrir la liste, choisir une carte, revenir — et c'est
+   * l'endroit où on le fait qui a changé.
+   */
+  const onglets = (): HTMLButtonElement[] =>
+    [...encartLocataire().querySelectorAll('.hdb-onglet')] as HTMLButtonElement[];
+  const boutonActuels = (): HTMLButtonElement => onglets()[0];
+  const boutonAnciens = (): HTMLButtonElement => onglets()[1];
   const dates = (): string[] =>
     ([...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[]).map((d) => d.value);
 
@@ -4766,20 +4793,83 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
     expect(encartLocataire().querySelector('.gst-compte')?.textContent).toBe('2');
   });
 
-  /** 🔴 LA LIGNE EST LÀ, REPLIÉE, ET ELLE DIT COMBIEN. */
-  it('🔴 la ligne « Anciens locataires (1) » est repliée à l’arrivée', async () => {
+  /**
+   * ══ 🔴🔴 L'ÉTAT PAR DÉFAUT DE L'EN-TÊTE (lot HISTORIQUE-BIEN-15) ═══════════════════════════════════════════
+   *
+   * Arno : « "Locataire(s) actuel(s)" est écrit en noir (sélectionné) ; "Anciens locataires" est en GRIS CLAIR
+   * (non sélectionné). »
+   *
+   * 🔴 ON ÉPROUVE `aria-pressed`, ET NON LA COULEUR. La couleur est une classe, et une épreuve qui la lit ne
+   * prouve que l'existence de la classe. `aria-pressed` est ce que le navigateur ET le lecteur d'écran
+   * comprennent : c'est l'état, pas sa peinture. La peinture, elle, est tenue par la feuille de style.
+   */
+  it('🔴🔴 par défaut : « Locataire(s) actuel(s) » sélectionné, la liste fermée', async () => {
     await monterAvecCartes();
-    const tete = encartLocataire().querySelector('.hdb-anciens-tete') as HTMLButtonElement;
-    expect(tete.textContent).toContain('Anciens locataires (1)');
-    expect(tete.getAttribute('aria-expanded')).toBe('false');
+    expect(onglets()).toHaveLength(2);
+    expect(boutonActuels().textContent).toContain('Locataire(s) actuel(s)');
+    expect(boutonActuels().getAttribute('aria-pressed')).toBe('true');
+    expect(boutonAnciens().textContent).toContain('Anciens locataires (1)');
+    expect(boutonAnciens().getAttribute('aria-pressed')).toBe('false');
+    expect(boutonAnciens().getAttribute('aria-expanded')).toBe('false');
     expect(radios()).toHaveLength(0);
+  });
+
+  /** 🔴 LE COMPTE DU BOUTON DE GAUCHE EST CELUI DES CAPSULES ACTUELLES — ici le locataire en place et la sœur. */
+  it('🔴 « Locataire(s) actuel(s) » porte le compte de ses capsules', async () => {
+    await monterAvecCartes();
+    expect(boutonActuels().querySelector('.gst-compte')?.textContent).toBe('2');
+  });
+
+  /**
+   * 🔴🔴 LE TRIANGLE DE REPLI N'A PAS DISPARU AVEC LE TITRE QU'IL PORTAIT. Le retirer aurait ôté le repli de
+   * l'encart — une fonctionnalité qu'Arno n'a pas demandé de retirer.
+   */
+  it('🔴🔴 l’encart se replie toujours, par son triangle', async () => {
+    await monterAvecCartes();
+    const triangle = encartLocataire().querySelector('.hdb-replier') as HTMLButtonElement;
+    expect(triangle.getAttribute('aria-expanded')).toBe('true');
+    expect(triangle.getAttribute('aria-label')).toContain('Locataire');
+    expect(nomsDuLocataire().length).toBeGreaterThan(0);
+    await cliquer(triangle);
+    expect(triangle.getAttribute('aria-expanded')).toBe('false');
+    expect(nomsDuLocataire()).toHaveLength(0);
+  });
+
+  /**
+   * 🔴🔴 LA LISTE PREND LA PLACE DES CAPSULES — demande d'Arno : « dans la ZONE D'AFFICHAGE DES CAPSULES (à
+   * leur place) ». Posée EN DESSOUS, elle aurait allongé l'encart et désaligné sa jumelle de gauche.
+   */
+  it('🔴🔴 clic sur « Anciens locataires » : la liste remplace les capsules', async () => {
+    await monterAvecCartes();
+    await cliquer(boutonAnciens());
+    expect(boutonAnciens().getAttribute('aria-pressed')).toBe('true');
+    expect(boutonActuels().getAttribute('aria-pressed')).toBe('false');
+    expect(radios()).toHaveLength(1);
+    /* 🔴 LES CAPSULES ONT CÉDÉ LA PLACE, elles ne sont pas en dessous. */
+    expect(nomsDuLocataire()).toHaveLength(0);
+    /* 🔴 ET LA LIGNE PORTE CE QU'ARNO DEMANDE : nom, période, nombre d'adresses. */
+    const ligne = hote.querySelector('.hdb-anciens-choix')?.textContent ?? '';
+    expect(ligne).toContain('VAGLIO ARNAUD Aurélie et Louis');
+    expect(ligne).toContain('du 06/02/2025 au 22/10/2025');
+    expect(ligne).toContain('1 adresse');
+  });
+
+  /** 🔴 UN SECOND CLIC REFERME LA LISTE SANS RIEN CHOISIR — et l'en-tête ne ment pas pour autant. */
+  it('🔴 refermer la liste sans choisir ramène les capsules actuelles', async () => {
+    await monterAvecCartes();
+    await cliquer(boutonAnciens());
+    await cliquer(boutonAnciens());
+    expect(radios()).toHaveLength(0);
+    expect(nomsDuLocataire()).toContain('BRASSET Mathilde');
+    expect(boutonActuels().getAttribute('aria-pressed')).toBe('true');
   });
 
   it('🔴🔴 un ancien choisi : SES adresses, et plus celles du locataire en place', async () => {
     await monterAvecCartes();
-    await cliquer(encartLocataire().querySelector('.hdb-anciens-tete') ?? undefined);
-    /* L'ordre des radios est celui de la liste : « Locataire en place » d'abord, puis les anciens. */
-    await act(async () => { radios()[1].click(); });
+    await cliquer(boutonAnciens());
+    /* 🔴 LE CHOIX VALIDE ET REFERME (lot 15, mot d'Arno) : la liste ne porte QUE les anciens. */
+    await act(async () => { radios()[0].click(); });
+    expect(radios()).toHaveLength(0);
     expect(nomsDuLocataire()).toContain('VAGLIO Aurélie');
     expect(nomsDuLocataire()).not.toContain('BRASSET Mathilde');
     /* ⚠️ L'ADRESSE SANS CARTE EST TOUJOURS LÀ : aucune période ne peut l'exclure. */
@@ -4792,25 +4882,46 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
    * cocher deux, même au clavier.
    */
   it('🔴🔴 impossible d’en cocher deux : un seul `name`, un seul coché', async () => {
-    await monterAvecCartes();
-    await cliquer(encartLocataire().querySelector('.hdb-anciens-tete') ?? undefined);
+    servirLesDeux();
+    /* Deux anciens, pour qu'« en cocher deux » ait un sens. */
+    await monter({ categories: CATS, cartesLocataires: [EN_PLACE, ANCIEN, AUTRE_ANCIEN] });
+    await cliquer(boutonAnciens());
+    expect(radios()).toHaveLength(2);
     expect(new Set(radios().map((r) => r.name)).size).toBe(1);
-    expect(radios().filter((r) => r.checked)).toHaveLength(1);
     await act(async () => { radios()[1].click(); });
+    /* La liste s'est refermée sur le choix ; on la rouvre pour lire ce qui est coché. */
+    await cliquer(boutonAnciens());
     expect(radios().filter((r) => r.checked)).toHaveLength(1);
     expect(radios()[1].checked).toBe(true);
   });
 
-  /** 🔴 LA LIGNE REFERMÉE NOMME L'ANCIEN CHOISI : sans cela, on lirait ses mails en croyant lire les autres. */
-  it('🔴🔴 la ligne refermée dit QUI l’encart montre', async () => {
+  /**
+   * 🔴🔴 UNE FOIS LA CARTE CHOISIE, L'EN-TÊTE LA NOMME — demande d'Arno : « L'en-tête affiche alors en noir le
+   * nom de la catégorie choisie ("Anciens locataires · VAGLIO ARNAUD Aurélie et Louis") ».
+   *
+   * 🔴 SANS CELA, ON LIRAIT LES MAILS D'UN ANCIEN EN CROYANT LIRE CEUX DE L'OCCUPANT ACTUEL : c'est la confusion
+   * de périodes que le lot 13 existe pour fermer, et la liste refermée la rouvrirait.
+   */
+  it('🔴🔴 une fois la carte choisie, l’en-tête la nomme', async () => {
     await monterAvecCartes();
-    const tete = (): HTMLButtonElement =>
-      encartLocataire().querySelector('.hdb-anciens-tete') as HTMLButtonElement;
-    await cliquer(tete());
-    await act(async () => { radios()[1].click(); });
-    await cliquer(tete());
-    expect(tete().getAttribute('aria-expanded')).toBe('false');
-    expect(tete().textContent).toContain('VAGLIO ARNAUD Aurélie et Louis');
+    await cliquer(boutonAnciens());
+    await act(async () => { radios()[0].click(); });
+    expect(radios()).toHaveLength(0);
+    expect(boutonAnciens().textContent).toContain('Anciens locataires · VAGLIO ARNAUD Aurélie et Louis');
+    expect(boutonAnciens().getAttribute('aria-pressed')).toBe('true');
+    expect(boutonActuels().getAttribute('aria-pressed')).toBe('false');
+    /* 🔴 ET LES CAPSULES SONT REVENUES, « NORMALEMENT » (Arno) — le système d'affichage ne change pas. */
+    expect(nomsDuLocataire()).toContain('VAGLIO Aurélie');
+  });
+
+  /** 🔴 UN NOUVEAU CLIC ROUVRE LA LISTE POUR EN CHOISIR UN AUTRE (demande d'Arno). */
+  it('🔴 un nouveau clic sur « Anciens locataires » rouvre la liste', async () => {
+    await monterAvecCartes();
+    await cliquer(boutonAnciens());
+    await act(async () => { radios()[0].click(); });
+    await cliquer(boutonAnciens());
+    expect(radios()).toHaveLength(1);
+    expect(radios()[0].checked).toBe(true);
   });
 
   /**
@@ -4826,13 +4937,17 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
     await monterAvecCartes();
     /* La période de départ est « tous » : aucun champ de date. C'est elle qu'il faudra retrouver. */
     expect(dates()).toHaveLength(0);
-    await cliquer(encartLocataire().querySelector('.hdb-anciens-tete') ?? undefined);
-    await act(async () => { radios()[1].click(); });
-    expect(dates()).toEqual(['2025-02-06', '2025-10-22']);
+    await cliquer(boutonAnciens());
     await act(async () => { radios()[0].click(); });
+    expect(dates()).toEqual(['2025-02-06', '2025-10-22']);
+    /* 🔴 LE RETOUR PASSE PAR LE BOUTON DE GAUCHE (lot 15) : « CLIC SUR "Locataire(s) actuel(s)" : retour à
+       l'état par défaut (capsules actuelles, période d'avant) ». */
+    await cliquer(boutonActuels());
     expect(nomsDuLocataire()).toContain('BRASSET Mathilde');
     expect(nomsDuLocataire()).not.toContain('VAGLIO Aurélie');
     expect(dates()).toHaveLength(0);
+    expect(boutonActuels().getAttribute('aria-pressed')).toBe('true');
+    expect(boutonAnciens().textContent).toContain('Anciens locataires (1)');
   });
 
   /**
@@ -4847,14 +4962,14 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
    */
   it('🔴🔴 une adresse cochée quitte la recherche quand elle quitte l’encart', async () => {
     await monterAvecCartes();
-    await cliquer(encartLocataire().querySelector('.hdb-anciens-tete') ?? undefined);
-    await act(async () => { radios()[1].click(); });
+    await cliquer(boutonAnciens());
+    await act(async () => { radios()[0].click(); });
     /* On coche l'ancien locataire : la route doit le recevoir. */
     const case1 = encartLocataire().querySelector('.hdb-capsule input[type="checkbox"]') as HTMLInputElement;
     await act(async () => { case1.click(); });
     expect(appels.at(-1) ?? '').toContain(encodeURIComponent('ancien@fictif.test'));
     /* On revient au locataire en place : son adresse ne doit PLUS être demandée. */
-    await act(async () => { radios()[0].click(); });
+    await cliquer(boutonActuels());
     const dernier = [...appels].reverse().find((u) => u.includes('/historique?')) ?? '';
     expect(dernier).not.toContain(encodeURIComponent('ancien@fictif.test'));
   });
@@ -4869,7 +4984,7 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
    * ⚠️ ET L'OPTION « Locataire en place » N'EST PAS OFFERTE : elle ne désignerait personne, et la cocher
    * viderait l'encart. Une option qui ne mène à rien est un mensonge d'écran.
    */
-  it('🔴🔴 logement vacant : le dernier locataire à l’arrivée, et pas d’option « en place »', async () => {
+  it('🔴🔴 logement vacant : le dernier locataire à l’arrivée, et le bouton de gauche inactif', async () => {
     servirLesDeux();
     await monter({
       categories: CATS,
@@ -4883,20 +4998,59 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
     /* 🔴 LE DERNIER SORTI EST AFFICHÉ, ET L'AUTRE NON : un seul locataire, jamais deux périodes. */
     expect(nomsDuLocataire()).toContain('VAGLIO Aurélie');
     expect(nomsDuLocataire()).not.toContain('BRASSET Mathilde');
-    /* 🔴 ET LA LIGNE REPLIÉE LE DIT : rien n'est caché. */
-    const tete = encartLocataire().querySelector('.hdb-anciens-tete') as HTMLButtonElement;
-    expect(tete.textContent).toContain('Anciens locataires (2) · LEON Isabella et Hugo');
-    await cliquer(tete);
+    /* 🔴 ET L'EN-TÊTE LE DIT : rien n'est caché. */
+    expect(boutonAnciens().textContent).toBe('Anciens locataires · LEON Isabella et Hugo');
+    expect(boutonAnciens().getAttribute('aria-pressed')).toBe('true');
+    /**
+     * 🔴🔴 « Locataire(s) actuel(s) » EST GRISÉ ET INACTIF, parce qu'il ne désigne personne. Le laisser actif
+     * aurait offert un clic qui VIDE l'encart d'un bien portant des années d'échanges — un masquage, que le
+     * dépôt interdit. Et son motif se lit en info-bulle, plutôt que de laisser deviner.
+     */
+    expect(boutonActuels().disabled).toBe(true);
+    expect(boutonActuels().getAttribute('title')).toBe('Ce logement n’a aucun locataire en place.');
+    /**
+     * 🔴🔴 ET SON COMPTE EST ZÉRO — correction vue à l'écran sur bien 315. Le filtre garde aussi les adresses
+     * qu'aucune carte ne porte (ici la sœur rangée « locataire » à la main) : le bouton annonçait donc
+     * « Locataire(s) actuel(s) 1 » à côté d'une info-bulle disant qu'il n'y en a aucun. Deux affirmations
+     * contraires sur la même ligne. Ce bouton compte des LOCATAIRES, pas des capsules orphelines.
+     */
+    expect(boutonActuels().querySelector('.gst-compte')?.textContent).toBe('0');
+    await cliquer(boutonAnciens());
     expect(radios()).toHaveLength(2);
-    expect(hote.textContent ?? '').not.toContain('Locataire en place');
   });
 
-  /** ⚠️ SANS CARTES, RIEN NE CHANGE : ni filtre, ni ligne. C'est ce qui rend ce lot gratuit ailleurs. */
-  it('⚠️ aucune carte passée : l’encart et la ligne sont ceux d’avant ce lot', async () => {
+  /**
+   * ══ 🔴🔴 lot-290 : AUCUN ANCIEN LOCATAIRE — le cas qu'Arno demande de vérifier ═══════════════════════════
+   *
+   * « bouton "Anciens locataires (0)" grisé et inactif, avec une info-bulle ». Grisé et NON masqué : un bouton
+   * qui disparaît fait changer l'en-tête de forme d'un bien à l'autre, et l'autre bouton se déplace sous le
+   * curseur. Grisé, il DIT qu'il n'y a rien là-dessous.
+   */
+  it('🔴🔴 aucun ancien : le bouton est à zéro, grisé, avec son motif', async () => {
+    servirLesDeux();
+    await monter({ categories: CATS, cartesLocataires: [EN_PLACE] });
+    expect(boutonAnciens().textContent).toBe('Anciens locataires (0)');
+    expect(boutonAnciens().disabled).toBe(true);
+    expect(boutonAnciens().getAttribute('title')).toBe('Ce logement n’a aucun ancien locataire connu.');
+    expect(boutonActuels().disabled).toBe(false);
+    /* 🔴 ET LES CAPSULES SONT CELLES DU LOCATAIRE EN PLACE, comme avant ce lot. */
+    expect(nomsDuLocataire()).toContain('BRASSET Mathilde');
+  });
+
+  /**
+   * ⚠️ SANS CARTES, RIEN NE CHANGE : ni filtre, ni liste. C'est ce qui rend ces deux lots gratuits ailleurs.
+   *
+   * 🔴 L'EN-TÊTE À DEUX BOUTONS, LUI, EST TOUJOURS LÀ : il EST le titre de l'encart Locataire depuis le lot 15,
+   * et un encart qui changerait de forme selon qu'un bien porte ou non des occupations serait pire que le
+   * défaut qu'on corrige. Les deux boutons disent alors le fait : aucun ancien connu.
+   */
+  it('⚠️ aucune carte passée : les capsules sont celles d’avant ces lots', async () => {
     servirLesDeux();
     await monter({ categories: CATS });
     expect(nomsDuLocataire()).toHaveLength(3);
-    expect(hote.querySelectorAll('.hdb-anciens')).toHaveLength(0);
+    expect(hote.querySelectorAll('.hdb-anciens-choix')).toHaveLength(0);
+    expect(boutonAnciens().textContent).toBe('Anciens locataires (0)');
+    expect(boutonAnciens().disabled).toBe(true);
   });
 });
 
