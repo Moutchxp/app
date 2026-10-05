@@ -19,6 +19,9 @@ import { CSS_VIE_DU_BIEN, LigneVie } from './VieDuBien';
 import { CartePieceConversation, CSS_PIECES_CONVERSATION, type GestesPiece } from './PiecesDeLaConversation';
 import { CSS_PIECES, type DepotAffiche } from './PiecesJointes';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — la frise chronologique de la vie du bien. */
+import { CSS_FRISE_DU_BIEN, FriseDuBien } from './FriseDuBien';
+import type { MailDeLaFrise } from '../../../../lib/gestion/friseBien';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — LA VISIONNEUSE MAISON, IMPORTÉE ET NON RECOPIÉE. C'est le composant que
    la conversation, l'éditeur de mail et la fenêtre Drive montent déjà. */
 import { ApercuFichierDrive } from './ApercuFichierDrive';
@@ -780,6 +783,46 @@ export function HistoriqueDuBien({
       } catch {
         if (!vivant) return;
         setEtatPieces({ v: 'erreur' });
+      }
+    })();
+    return () => { vivant = false; };
+  }, [lotCle, parametresSansPage, rechargement]);
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — LES MAILS DE LA FRISE ═══════════════════════════════════════════
+   *
+   * La MÊME lecture que les pièces, pour la MÊME raison : le listing s'arrête à 100 mails, et le bien 421 en
+   * porte 326. Une frise bâtie sur la page n'aurait montré ni les traits ni les totaux des deux tiers du
+   * courrier — et « jusqu'au premier mail du bien » aurait été faux de trois ans.
+   *
+   * ⚠️ `parametresSansPage` : la frise ne change pas quand on tourne une page du fil. La redemander à chaque
+   * « Voir la suite → » aurait coûté une lecture complète pour un dessin identique.
+   *
+   * ⚠️ UNE PANNE LAISSE LA FRISE VIDE, ET ELLE NE S'AFFICHE PAS : dessiner une frise plate se lirait « ce bien
+   * n'a aucun courrier », exactement le contraire de ce qui s'est passé. Le fil, lui, dit déjà la panne.
+   */
+  const [friseMails, setFriseMails] = useState<MailDeLaFrise[]>([]);
+  const [friseTronquee, setFriseTronquee] = useState(false);
+  /** 🔴 LOT HISTORIQUE-BIEN-17 — un trait cliqué dont le mail n'est pas dans la page affichée. Voir `onMail`. */
+  const [friseHorsPage, setFriseHorsPage] = useState(false);
+  useEffect(() => {
+    let vivant = true;
+    void (async () => {
+      try {
+        const sep = parametresSansPage === '' ? '?' : '&';
+        const res = await fetch(
+          `/api/admin/gestion/historique/frise${parametresSansPage}${sep}cible=lot-${encodeURIComponent(lotCle)}`,
+          { cache: 'no-store' });
+        const d = (await res.json()) as {
+          etat?: string; data?: { mails?: MailDeLaFrise[]; tronque?: boolean };
+        };
+        if (!vivant) return;
+        setFriseMails(d.etat === 'ok' ? d.data?.mails ?? [] : []);
+        setFriseTronquee(d.etat === 'ok' && d.data?.tronque === true);
+      } catch {
+        if (!vivant) return;
+        setFriseMails([]);
+        setFriseTronquee(false);
       }
     })();
     return () => { vivant = false; };
@@ -2438,6 +2481,57 @@ export function HistoriqueDuBien({
         </fieldset>
       </div>
 
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — LA FRISE, À LA PLACE DE L'ANCIENNE LÉGENDE ═══════════════════
+          DEMANDE D'ARNO : « À LA PLACE DE L'ANCIENNE LÉGENDE : UNE FRISE CHRONOLOGIQUE (pleine largeur). »
+
+          🔴 ELLE SUIT LES PARTIES COCHÉES, et c'est la MÊME lecture que le listing qui le lui donne : sa route
+          applique `conditions(f)`, la fonction des trois autres questions de l'écran. « Un seul code » (Arno).
+
+          🔴 LE TON D'UN TRAIT VIENT DE `categoriesFusionnees`, LA MÊME CARTE QUE LES LISERÉS du fil : un mail ne
+          peut pas être rouge sur la frise et vert trois lignes plus bas.
+
+          ⚠️ RIEN TANT QU'IL N'Y A PAS DE MAIL : une frise de douze mois vides au-dessus d'un bien neuf n'apprend
+          rien, et prendrait la place du message qui, lui, dit ce qu'il en est. */}
+      {friseMails.length > 0 && (
+        <FriseDuBien
+          mails={friseMails}
+          occupations={occupations}
+          evenements={evenements}
+          maintenant={maintenant}
+          categories={categoriesFusionnees}
+          bornes={bornesDuChoix(reglages.periode)}
+          tronqueeParLaLecture={friseTronquee}
+          /* 🔴 CLIC SUR UN TRAIT : « le listing défile jusqu'à ce mail et le surligne brièvement » (Arno). Le
+             geste existait déjà pour le retour d'une conversation — on le réemprunte, au lieu d'en écrire un
+             second qui aurait fini par surligner autrement. */
+          onMail={(messageId) => {
+            /**
+             * ══ 🔴🔴 UN TRAIT PEUT DÉSIGNER UN MAIL QUI N'EST PAS DANS LA PAGE — ET IL FAUT LE DIRE ═══════
+             *
+             * 🔴 DÉFAUT TROUVÉ À L'ÉCRAN, en cliquant un trait de 2025 sur lot-146. La frise couvre TOUTE la
+             * sélection (c'est tout son intérêt) ; le listing, lui, s'arrête à 100 mails par page. Un trait
+             * plus ancien que la page ne mène donc à rien : le clic ne faisait RIEN, en silence, et l'on
+             * croyait la frise cassée.
+             *
+             * ⚠️ ON NE CHANGE NI LA PAGE NI LA PÉRIODE À SA PLACE : les deux modifieraient la sélection sous
+             * ses yeux, alors qu'il voulait seulement voir un mail. On dit où il est, et il décide.
+             */
+            const cible = document.getElementById(`hdb-mail-${messageId}`);
+            if (cible === null) {
+              setFriseHorsPage(true);
+              return;
+            }
+            setFriseHorsPage(false);
+            setMailSurligne(messageId);
+            cible.scrollIntoView?.({ block: 'center' });
+          }} />
+      )}
+      {friseHorsPage && (
+        <p className="gst-note hdb-note" role="status">
+          Ce mail n’est pas dans la page affichée du fil — « Voir la suite → » pour l’atteindre.
+        </p>
+      )}
+
       {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Mail sorti du suivi de … — Annuler », quelques secondes ════
           Arno : « Après : le mail disparaît en direct du listing, le compteur et le résumé se mettent à jour, et
           un message propose “Annuler” quelques secondes (rétablit exactement l'état d'avant). »
@@ -3782,6 +3876,7 @@ function ResumePieces({
  */
 export const CSS_HISTORIQUE_DU_BIEN = `
 ${CSS_PIECES_CONVERSATION}
+${CSS_FRISE_DU_BIEN}
 ${CSS_VIE_DU_BIEN}
 ${CSS_PIECES}
 .hdb{min-width:0}

@@ -5520,3 +5520,200 @@ describe('⑰ 🔴 la légende des barres vit sur la ligne du bouton des pièces
     expect(hote.querySelector('.hdb-legende-barres')).not.toBeNull();
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — LA FRISE CHRONOLOGIQUE, À L'ÉCRAN ════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 CE QUE CE BLOC PROUVE, ET QUE `friseBien.test.ts` NE PEUT PAS PROUVER. Le module pur dit quels mois, quelles
+ * positions, quels totaux et quels mots ; il ne dit pas que la frise ARRIVE à l'écran, qu'elle lit SA PROPRE
+ * route (et non la page du fil), que les traits portent le ton de leur catégorie, que les repères et les
+ * bandeaux se dessinent, ni que le clic sur un trait mène au mail.
+ *
+ * ⚠️ JSDOM NE CALCULE AUCUNE LARGEUR : les positions en pixels et le défilement se mesurent à l'écran, et ils
+ * sont au relevé des captures. Ce qui s'éprouve ici est la STRUCTURE — ce qui est rendu, avec quelle classe,
+ * à quelle position déclarée.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑰-bis 🔴🔴 la frise chronologique', () => {
+  const MAILS_FRISE = [
+    /* Un reçu du propriétaire, un du locataire, un d'un inconnu, et un ENVOI (qui ne fait pas de trait). */
+    { messageId: 101, recuLe: '2026-09-15T09:00:00Z', sens: 'recu', de: 'proprio@fictif.test', deNom: 'M. ROI Nathan', objet: 'Charges' },
+    { messageId: 102, recuLe: '2026-09-20T14:30:00Z', sens: 'recu', de: 'locataire@fictif.test', deNom: 'MARTY', objet: 'Fuite' },
+    { messageId: 103, recuLe: '2026-08-02T08:00:00Z', sens: 'recu', de: 'inconnu@ailleurs.test', deNom: null, objet: null },
+    { messageId: 104, recuLe: '2026-09-25T10:00:00Z', sens: 'envoye', de: 'gestion@criterimmo.fr', deNom: 'Nous', objet: 'Réponse' },
+  ];
+  const EVENEMENTS_FRISE = [
+    { id: 7, reference: 'EV-2026-007', objet: 'Dégât des eaux', etat: 'en_cours', ouvert: true,
+      ouvertLe: '2026-07-03T07:15:00Z', closLe: null, nbMails: 2 },
+    { id: 4, reference: 'EV-2025-004', objet: 'Chaudière', etat: 'traite', ouvert: false,
+      ouvertLe: '2026-02-02T07:15:00Z', closLe: '2026-04-20T10:00:00Z', nbMails: 1 },
+  ];
+  const OCCUPATIONS_FRISE: OccupationPeriode[] = [
+    { libelle: 'BRASSET Mathilde et BRUERE Thomas', depuis: '2025-10-22', jusqua: null },
+    { libelle: 'VAGLIO ARNAUD Aurélie et Louis', depuis: '2026-02-06', jusqua: '2026-05-22' },
+  ];
+
+  function servirFrise(mails: unknown[] = MAILS_FRISE, tronque = false): void {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) {
+        return reponse({ etat: 'ok', evenements: EVENEMENTS_FRISE, tronque: false });
+      }
+      if (u.includes('/historique/frise')) return reponse({ etat: 'ok', data: { mails, tronque } });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  }
+
+  const frise = (): HTMLElement | null => hote.querySelector('.frs');
+  const traits = (): HTMLElement[] => [...hote.querySelectorAll('.frs-trait')] as HTMLElement[];
+  const moisBlocs = (): HTMLElement[] => [...hote.querySelectorAll('.frs-mois')] as HTMLElement[];
+
+  async function monterFrise(): Promise<void> {
+    servirFrise();
+    await monter({ occupations: OCCUPATIONS_FRISE, categories: CATEGORIES });
+  }
+
+  /** 🔴🔴 ELLE LIT SA PROPRE ROUTE, et non la page du fil : c'est ce qui lui donne TOUTE la sélection. */
+  it('🔴🔴 la frise demande sa propre lecture, sans pagination', async () => {
+    await monterFrise();
+    const appel = appels.find((a) => a.includes('/historique/frise'));
+    expect(appel).toBeDefined();
+    expect(appel).toContain('cible=lot-155');
+    /* ⚠️ PAS DE `page=` : la frise ne tourne pas les pages, elle couvre la sélection entière. */
+    expect(appel).not.toContain('page=');
+  });
+
+  /** 🔴🔴 DOUZE MOIS, ET LE DERNIER EST LE MOIS COURANT — « aujourd'hui à droite » (Arno). */
+  it('🔴🔴 douze blocs de mois, le mois courant en dernier', async () => {
+    await monterFrise();
+    expect(frise()).not.toBeNull();
+    const m = moisBlocs();
+    expect(m).toHaveLength(12);
+    /* MAINTENANT est le 04/10/2026 dans ce fichier : le dernier bloc est donc octobre. */
+    expect(m[m.length - 1].textContent).toContain('oct.');
+    /* 🔴 L'ANNÉE EST ÉCRITE AU PREMIER BLOC ET AU CHANGEMENT D'ANNÉE, pas partout. */
+    expect(m[0].textContent).toMatch(/20\d\d/);
+  });
+
+  /**
+   * 🔴🔴 UN TRAIT PAR MAIL **REÇU**, DANS LE TON DE SA CATÉGORIE. L'envoi (messageId 104) n'en fait pas :
+   * Arno écrit « un trait vertical fin par MAIL REÇU ».
+   */
+  it('🔴🔴 un trait par mail reçu, avec le ton de sa catégorie', async () => {
+    await monterFrise();
+    const t = traits();
+    expect(t).toHaveLength(3);
+    const classes = t.map((x) => x.className);
+    expect(classes.some((c) => c.includes('frs-trait--rouge'))).toBe(true);
+    expect(classes.some((c) => c.includes('frs-trait--vert'))).toBe(true);
+    /* ⚠️ L'INCONNU EST GRIS PÂLE : « non affecté » (Arno), et non une couleur inventée. */
+    expect(classes.some((c) => c.includes('frs-trait--gris'))).toBe(true);
+  });
+
+  /** 🔴 LE SURVOL DIT LES TROIS CHOSES D'ARNO : expéditeur, date et heure, objet. */
+  it('🔴 le survol d’un trait dit l’expéditeur, la date et l’objet', async () => {
+    await monterFrise();
+    const titre = traits().map((t) => t.getAttribute('title') ?? '').join(' | ');
+    expect(titre).toContain('M. ROI Nathan');
+    expect(titre).toContain('Charges');
+    expect(titre).toContain('2026');
+  });
+
+  /** 🔴🔴 CLIC SUR UN TRAIT : le listing défile et surligne. On éprouve le SURLIGNAGE, que jsdom rend. */
+  it('🔴🔴 cliquer un trait surligne le mail dans le listing', async () => {
+    servirFrise([{ ...MAILS_FRISE[0], messageId: 1 }]);
+    await monter({ occupations: OCCUPATIONS_FRISE, categories: CATEGORIES });
+    expect(hote.querySelector('.hdb-mail--surligne, [class*="surligne"]')).toBeNull();
+    await cliquer(traits()[0]);
+    expect(hote.querySelector('[class*="surligne"]')).not.toBeNull();
+  });
+
+  /** 🔴🔴 LES REPÈRES D'ENTRÉE ET DE SORTIE, avec le nom au survol. */
+  it('🔴🔴 un repère par entrée et par sortie, nommé au survol', async () => {
+    await monterFrise();
+    const entrees = [...hote.querySelectorAll('.frs-repere--entree')];
+    const sorties = [...hote.querySelectorAll('.frs-repere--sortie')];
+    /* L'entrée de BRASSET (22/10/2025) est hors des douze mois : seules celles qui tombent dedans se dessinent. */
+    expect(entrees.length + sorties.length).toBeGreaterThan(0);
+    const titres = [...entrees, ...sorties].map((x) => x.getAttribute('title') ?? '').join(' | ');
+    expect(titres).toContain('VAGLIO ARNAUD Aurélie et Louis');
+    expect(titres).toMatch(/Entrée|Sortie/);
+  });
+
+  /**
+   * 🔴🔴 LE FOND ORANGE DES ÉVÉNEMENTS — LES DEUX CAS QU'ARNO DEMANDE D'ÉPROUVER : un EN COURS (jusqu'à
+   * aujourd'hui, et le titre le dit) et un CLOS (de l'ouverture à la clôture).
+   */
+  it('🔴🔴 un bandeau par événement, en cours ET clos', async () => {
+    await monterFrise();
+    const bandeaux = [...hote.querySelectorAll('.frs-evt')];
+    expect(bandeaux).toHaveLength(2);
+    const titres = bandeaux.map((b) => b.getAttribute('title') ?? '');
+    expect(titres.some((t) => t.includes('EV-2026-007') && t.includes('(en cours)'))).toBe(true);
+    expect(titres.some((t) => t.includes('EV-2025-004') && !t.includes('(en cours)'))).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 LES TOTAUX MENSUELS SONT CEUX DE LA SÉLECTION. Septembre porte trois mails (deux reçus, un envoyé) ;
+   * août en porte un. C'est le nombre que le listing afficherait sur ces mois — « même calcul » (Arno).
+   */
+  it('🔴🔴 le total d’un mois compte les reçus ET les envoyés', async () => {
+    await monterFrise();
+    const sept = moisBlocs().find((m) => (m.getAttribute('title') ?? '').startsWith('sept.'));
+    expect(sept?.querySelector('.frs-mois-total')?.textContent).toBe('3');
+    expect(sept?.getAttribute('title')).toBe('sept. 2026 — 2 reçus · 1 envoyé');
+    const aout = moisBlocs().find((m) => (m.getAttribute('title') ?? '').startsWith('août'));
+    expect(aout?.querySelector('.frs-mois-total')?.textContent).toBe('1');
+  });
+
+  /**
+   * ══ 🔴🔴 UN TRAIT PEUT DÉSIGNER UN MAIL ABSENT DE LA PAGE — ET IL LE DIT ═════════════════════════════════
+   *
+   * 🔴 DÉFAUT TROUVÉ À L'ÉCRAN, en cliquant un trait de 2025 sur lot-146. La frise couvre TOUTE la sélection ;
+   * le listing s'arrête à 100 mails par page. Le clic ne faisait RIEN, en silence, et l'on croyait la frise
+   * cassée. On ne change ni la page ni la période à sa place — on dit où il est.
+   */
+  it('🔴🔴 un trait hors de la page affichée le DIT, au lieu de ne rien faire', async () => {
+    /* Le messageId 999 n'est dans aucune ligne du fil : c'est le cas d'un mail d'une page plus ancienne. */
+    servirFrise([{ ...MAILS_FRISE[0], messageId: 999 }]);
+    await monter({ occupations: OCCUPATIONS_FRISE, categories: CATEGORIES });
+    expect(texte()).not.toContain('Voir la suite → » pour l’atteindre');
+    await cliquer(traits()[0]);
+    expect(texte()).toContain('n’est pas dans la page affichée du fil');
+  });
+
+  /** ⚠️ AUCUN MAIL ⇒ AUCUNE FRISE : douze mois vides au-dessus d'un bien neuf n'apprennent rien. */
+  it('⚠️ sans aucun mail, la frise ne s’affiche pas', async () => {
+    servirFrise([]);
+    await monter({ occupations: OCCUPATIONS_FRISE, categories: CATEGORIES });
+    expect(frise()).toBeNull();
+  });
+
+  /** ⚠️ CE QU'ELLE NE MONTRE PAS, ELLE LE DIT — plutôt que de dessiner une frise qui commence au hasard. */
+  it('⚠️ une lecture tronquée est annoncée', async () => {
+    servirFrise(MAILS_FRISE, true);
+    await monter({ occupations: OCCUPATIONS_FRISE, categories: CATEGORIES });
+    expect(hote.querySelector('.frs-note')?.textContent).toContain('atteint sa borne');
+  });
+
+  /** 🔴 LA PÉRIODE RETENUE EST SURLIGNÉE — et rien quand il n'y a aucune borne (« tous les échanges »). */
+  it('🔴 la période retenue se surligne, et seulement quand il y en a une', async () => {
+    await monterFrise();
+    expect(hote.querySelector('.frs-periode')).toBeNull();
+    const dates = () => [...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[];
+    await cliquer(parMot('Dates personnalisées'));
+    await changer(dates()[0], '2026-08-01');
+    expect(hote.querySelector('.frs-periode')).not.toBeNull();
+  });
+});

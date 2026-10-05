@@ -38,7 +38,8 @@ import { libelleCible, type LienAffiche } from './rattachementRepo';
 // 🔴🔴 LOT CONTACTS-EXTERNES — « via Me Martin, avocat » sur la ligne d'un mail de « Vie du bien ».
 import { interventionsDesMessages } from './contactExterneRepo';
 import {
-  texteCible, CONTACTS_PAR_LOCATAIRE_MAX, INTERLOCUTEURS_MAX, PORTEURS_DE_PIECES_MAX,
+  texteCible, CONTACTS_PAR_LOCATAIRE_MAX, INTERLOCUTEURS_MAX, MAILS_DE_LA_FRISE_MAX,
+  PORTEURS_DE_PIECES_MAX,
   type EnteteHistorique, type EvenementDeLigne, type FiltresHistorique, type Interlocuteur,
   type LigneHistorique, type MessagePorteurDePieces, type PieceHistorique,
 } from './historique';
@@ -1245,4 +1246,76 @@ export async function contactsParLocataire(lotCle: string): Promise<ContactDeLoc
     enCopie: Number(r.n_copie),
     nbMails: Number(r.n),
   }));
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — LES MAILS DE LA FRISE : TOUTE LA SÉLECTION, EN QUATRE CHAMPS ══════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO : la frise montre « un trait vertical fin par MAIL REÇU » et, en bas, « le TOTAL des mails du
+ * mois » — et l'on peut défiler « jusqu'au PREMIER mail du bien ».
+ *
+ * 🔴 D'OÙ UNE LECTURE À PART, ET LA RAISON EST CELLE DE LA ROUTE SŒUR `/historique/pieces`. Le listing s'arrête à
+ * 100 mails ; le bien 421 en porte 326. Une frise bâtie sur la page n'aurait montré ni les traits ni les totaux
+ * des deux tiers du courrier — et « jusqu'au premier mail du bien » aurait été faux de trois ans.
+ *
+ * 🔴 ET ELLE NE REND QUE QUATRE CHAMPS PAR MAIL : date, sens, expéditeur, objet. Pas d'extrait, pas de pièces,
+ * pas de destinataires, pas d'événements, pas de statut. Lever le plafond du listing aurait fait voyager 326
+ * lignes complètes pour n'en dessiner que des traits.
+ *
+ * ⚠️ LES **MÊMES** CONDITIONS QUE LE LISTING, PAR LA MÊME FONCTION (`conditions`) : parties cochées, période,
+ * options. C'est la demande d'Arno — « la frise suit les PARTIES cochées (mêmes mails que le listing, même
+ * calcul, un seul code) ». Une seconde écriture des tamis aurait fini par dessiner une frise d'une sélection que
+ * le fil n'affiche pas.
+ *
+ * ⚠️ `page` ET `taille` SONT IGNORÉS, comme pour les pièces : on veut la sélection ENTIÈRE.
+ *
+ * ⚠️ BORNÉE, ET LA BORNE EST MESURÉE : le pire bien du portefeuille (421) porte 326 mails ; `MAILS_DE_LA_FRISE_MAX`
+ * est à 5 000, soit quinze fois ce cas. Au-delà, la liste est tronquée et `tronque` le DIT — l'écran l'écrit
+ * plutôt que de mentir par omission.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface MailDeLaFriseRepo {
+  messageId: number;
+  recuLe: string;
+  sens: 'recu' | 'envoye';
+  de: string;
+  deNom: string | null;
+  objet: string | null;
+}
+
+export async function mailsDeLaFrise(
+  c: CibleEtendue, f: FiltresHistorique,
+): Promise<{ mails: MailDeLaFriseRepo[]; tronque: boolean }> {
+  const base = baseParams(c);
+  const deplacements = await deplacementsDeMailsDisponibles();
+  const [, , evs] = clesDe(c);
+  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
+  const cond = conditions(f, decalage(c));
+  const pLimite = base.length + 1 + cond.params.length;
+
+  const { rows } = await query<{
+    message_id: string; recu_le: string; sens: string; de: string; de_nom: string | null; objet: string | null;
+  }>(
+    `WITH ${cte}
+     SELECT m.id AS message_id,
+            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le,
+            m.sens, m.de_adresse AS de, m.de_nom, m.objet
+       FROM choisis ch
+       JOIN gestion_message m ON m.id = ch.message_id
+      WHERE true${cond.sql}
+      ORDER BY m.recu_le DESC, m.id DESC
+      LIMIT $${pLimite}`,
+    // UNE ligne de plus que la borne : sa présence, et elle seule, dit que la liste est tronquée.
+    [...base, ...cond.params, MAILS_DE_LA_FRISE_MAX + 1]);
+
+  const tronque = rows.length > MAILS_DE_LA_FRISE_MAX;
+  return {
+    tronque,
+    mails: rows.slice(0, MAILS_DE_LA_FRISE_MAX).map((r) => ({
+      messageId: Number(r.message_id), recuLe: r.recu_le,
+      sens: r.sens === 'envoye' ? 'envoye' : 'recu',
+      de: r.de, deNom: r.de_nom, objet: r.objet,
+    })),
+  };
 }

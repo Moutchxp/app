@@ -90,6 +90,15 @@ export const INTERLOCUTEURS_MAX = 120;
  */
 export const CONTACTS_PAR_LOCATAIRE_MAX = 500;
 
+/**
+ * ══ 🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — LE PLAFOND DES MAILS DE LA FRISE ════════════════════════════════════════
+ *
+ * ⚠️ MESURÉ : le bien le plus chargé du portefeuille (421) porte **326 mails**. 5 000 laisse quinze fois cette
+ * place — et, comme les deux plafonds voisins, il n'est pas calé sur la mesure du jour. Au-delà, la lecture est
+ * tronquée et l'écran l'écrit (`motFriseTronquee`) plutôt que de dessiner une frise qui commence au hasard.
+ */
+export const MAILS_DE_LA_FRISE_MAX = 5000;
+
 // ── LA CIBLE, DANS L'ADRESSE ────────────────────────────────────────────────────────────────────────────────────
 
 /**
