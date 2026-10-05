@@ -6014,3 +6014,154 @@ describe('⑱ 🔴🔴 la période d’un locataire, prolongée par un événeme
     expect(SRC).toContain('setEvtsParLocataire(d.parLocataire ?? [])');
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 0 — « AUCUNE PIÈCE JOINTE » MENAIT À UNE IMPASSE ══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (06/10/2026) : le mail du 30/06/2026 déplié dans l'Historique du bien affiche « Aucune pièce
+ * jointe » « parce que la citation est masquée ». Diagnostic du lot 18 reconfirmé dans Gmail : le message ne
+ * porte VRAIMENT aucune pièce (18 118 octets, ni `attachments` ni `attachmentIds`).
+ *
+ * 🔴 CE BLOC ÉPROUVE LA SURFACE QUE LE LOT 18 N'A PAS PU ÉPROUVER, et c'est tout son intérêt : un corps avec un
+ * VRAI en-tête de citation (« Le 11 nov. 2025 … a écrit : »), celui du mail d'Arno. `corpsLisible` range alors
+ * les trois noms dans la partie CITÉE, que ce bloc n'affiche pas — d'où « Aucune pièce jointe » et rien d'autre.
+ * Les épreuves du lot 18 contournaient ce cas avec un corps sans en-tête ; celle-ci l'attaque de front.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑲ 🔴🔴 « Aucune pièce jointe à ce mail — il cite 3 pièces du mail du 11/11/2025 : »', () => {
+  /** Le mail qui PORTE les trois fichiers, le 11/11/2025. */
+  const PORTEUR19 = ligne({
+    messageId: 26914, filId: 3366, recuLe: '2025-11-11T19:08:47Z', sens: 'recu',
+    de: 'blandine.piriou@gmail.com', deNom: 'Blandine Piriou', objet: 'Fwd: Dépôt de garantie',
+    pieces: [
+      piece({ pieceId: 2601, nomFichier: 'RIB..pdf', empreinte: 'sha-rib' }),
+      piece({ pieceId: 2602, nomFichier: 'Solde Charges courantes au 31_03_2025.pdf', empreinte: 'sha-solde' }),
+      piece({ pieceId: 2603, nomFichier: 'Rmbt VAGLIO ARNAUD Aurélie et Louis DPR.pdf', empreinte: 'sha-rmbt' }),
+    ],
+  });
+
+  /** 🔴 LE CORPS RÉEL DU MESSAGE 5231, en-tête de citation COMPRIS — c'est lui qui masquait les trois noms. */
+  const CORPS_REEL = `Bonjour,
+
+Je vous contacte pour me renseigner sur la régularisation des charges.
+
+Bien à vous,
+
+Louis Vaglio et Aurélie Arnaud
+
+Le 11 nov. 2025 à 20:09, Blandine Piriou <blandine.piriou@gmail.com> a écrit :
+
+Bonjour,
+Votre virement a été effectué aujourd'hui.
+Bien à vous
+Blandine PIRIOU
+
+<RIB..pdf>
+<Solde Charges courantes au 31_03_2025.pdf>
+<Rmbt VAGLIO ARNAUD Aurélie et Louis DPR.pdf>
+`;
+
+  const CITANT19 = ligne({
+    messageId: 5231, filId: 3366, recuLe: '2026-06-30T15:27:32Z', sens: 'recu',
+    de: 'louisvaglio@live.fr', deNom: 'Louis Vaglio', objet: 'Re: Dépôt de garantie',
+    pieces: [], extrait: CORPS_REEL.slice(0, 240),
+  });
+
+  /** ⚠️ LE CORPS ENTIER ARRIVE AU DÉPLIAGE, par la porte existante — comme à l'écran. */
+  function servirLeFil(corps: string, lignes: readonly unknown[]): void {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/frise')) return reponse({ etat: 'ok', data: { mails: [], tronque: false } });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis([PORTEUR19] as never));
+      if (u.includes('/messages/') || u.includes('/corps')) return reponse({ etat: 'ok', corps });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  }
+
+  const ligneCitees = (): HTMLElement | null => hote.querySelector('.vdb-citees');
+  const liens = (): HTMLButtonElement[] =>
+    [...hote.querySelectorAll('.vdb-citees .vdb-piece-citee')] as HTMLButtonElement[];
+
+  async function deplier(): Promise<void> {
+    servirLeFil(CORPS_REEL, [CITANT19, PORTEUR19]);
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-5231 button') ?? undefined);
+    /* ⚠️ LE CORPS ENTIER ARRIVE EN DIFFÉRÉ : sans ce temps, on éprouverait l'extrait de 240 caractères. */
+    await act(async () => { await Promise.resolve(); });
+  }
+
+  it('🔴🔴 LA PHRASE D’ARNO REMPLACE « Aucune pièce jointe. », mot pour mot', async () => {
+    await deplier();
+    expect(ligneCitees()?.textContent)
+      .toContain('Aucune pièce jointe à ce mail — il cite 3 pièces du mail du 11/11/2025 :');
+    /* 🔴 ET L'ANCIENNE PHRASE N'EST PLUS LÀ : elle serait le mensonge qu'Arno a signalé. */
+    const mail = hote.querySelector('#hdb-mail-5231') as HTMLElement;
+    expect(mail.textContent).not.toContain('Aucune pièce jointe.');
+  });
+
+  it('🔴🔴 LES TROIS LIENS SUIVENT, trombone + nom, avec l’info-bulle du mail source', async () => {
+    await deplier();
+    expect(liens().map((b) => b.textContent?.replace('📎', ''))).toEqual([
+      'RIB..pdf',
+      'Solde Charges courantes au 31_03_2025.pdf',
+      'Rmbt VAGLIO ARNAUD Aurélie et Louis DPR.pdf',
+    ]);
+    expect(liens().map((b) => b.getAttribute('title')))
+      .toEqual(Array(3).fill('pièce du mail du 11/11/2025'));
+  });
+
+  it('🔴🔴 ET LE LIEN OUVRE LA VISIONNEUSE — pas un onglet, pas rien', async () => {
+    await deplier();
+    expect(hote.querySelector('.apd[role="dialog"]')).toBeNull();
+    await cliquer(liens()[1]);
+    const apd = hote.querySelector('.apd[role="dialog"]');
+    expect(apd).not.toBeNull();
+    expect(apd?.getAttribute('aria-label')).toContain('Solde Charges courantes au 31_03_2025.pdf');
+  });
+
+  /**
+   * 🔴🔴 AUCUNE PIÈCE N'EST AJOUTÉE AU MAIL — règle du lot 18, inchangée. Lui en inventer une aurait fait
+   * mentir le trombone, le résumé des pièces et le compteur.
+   */
+  it('🔴🔴 le mail qui cite ne gagne aucune pièce', async () => {
+    await deplier();
+    const mail = hote.querySelector('#hdb-mail-5231') as HTMLElement;
+    expect(mail.querySelectorAll('.pj-carte')).toHaveLength(0);
+    expect(mail.querySelector('.vdb-trombone')).toBeNull();
+  });
+
+  /** 🔴 SANS CORRESPONDANCE, « Aucune pièce jointe. » RESTE : un nom qu'on ne retrouve pas est un fichier absent. */
+  it('🔴 un corps qui ne cite rien de connu garde « Aucune pièce jointe. »', async () => {
+    const corps = CORPS_REEL.replace(/<[^>]+\.pdf>/g, '<introuvable-total.pdf>');
+    servirLeFil(corps, [{ ...CITANT19, extrait: corps.slice(0, 240) }, PORTEUR19]);
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-5231 button') ?? undefined);
+    await act(async () => { await Promise.resolve(); });
+    expect(ligneCitees()).toBeNull();
+    const mail = hote.querySelector('#hdb-mail-5231') as HTMLElement;
+    expect(mail.textContent).toContain('Aucune pièce jointe.');
+  });
+
+  /**
+   * 🔴🔴 UN MAIL QUI PORTE VRAIMENT DES PIÈCES N'EST PAS TOUCHÉ : la phrase ne paraît QU'À LA PLACE de
+   * « Aucune pièce jointe. », jamais au-dessus d'une liste de pièces réelles.
+   */
+  it('🔴🔴 le mail PORTEUR garde ses pièces et ne reçoit aucune phrase', async () => {
+    await deplier();
+    await cliquer(hote.querySelector('#hdb-mail-26914 button') ?? undefined);
+    const mail = hote.querySelector('#hdb-mail-26914') as HTMLElement;
+    expect(mail.querySelector('.vdb-citees')).toBeNull();
+    expect(mail.querySelectorAll('.pj-carte').length).toBeGreaterThan(0);
+  });
+});

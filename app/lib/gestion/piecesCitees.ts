@@ -120,9 +120,7 @@ export function copieCitee(
  * double ici : le corps d'un mail est écrit par n'importe qui. Rendre une chaîne balisée aurait obligé à
  * l'injecter sans échappement, c'est-à-dire à faire confiance à l'expéditeur.
  *
- * ⚠️ LA COMPARAISON DES NOMS IGNORE LA CASSE ET LES BLANCS DE BORD, et rien d'autre : « RIB..pdf » et
- * « rib..pdf » sont le même fichier, « RIB (1).pdf » ne l'est pas. Un rapprochement plus souple aurait fini par
- * ouvrir une pièce qui n'est pas celle qu'on a lue.
+ * ⚠️ L'APPARIEMENT DES NOMS EST CELUI D'`apparier`, juste en dessous, et il n'est écrit qu'une fois.
  */
 export function decouperLesPiecesCitees(
   corps: string,
@@ -131,8 +129,41 @@ export function decouperLesPiecesCitees(
   dateDuMailQuiCite: string,
 ): MorceauDuCorps[] {
   const texte = corps ?? '';
-  if (texte === '' || pieces.length === 0) return [{ sorte: 'texte', texte }];
+  const trouvees = apparier(texte, pieces, dateDuMailQuiCite);
+  if (trouvees.length === 0) return [{ sorte: 'texte', texte }];
 
+  const out: MorceauDuCorps[] = [];
+  let curseur = 0;
+  for (const t of trouvees) {
+    if (t.index > curseur) out.push({ sorte: 'texte', texte: texte.slice(curseur, t.index) });
+    out.push({
+      sorte: 'piece', texte: t.texte, pieceId: t.choisie.pieceId, aide: aidePieceCitee(t.choisie.recuLe),
+    });
+    curseur = t.index + t.longueur;
+  }
+  if (curseur < texte.length) out.push({ sorte: 'texte', texte: texte.slice(curseur) });
+  return out.length === 0 ? [{ sorte: 'texte', texte }] : out;
+}
+
+/** Une citation appariée : le nom tel qu'il est écrit, sa place dans le texte, et la copie retenue. */
+interface Appariee { index: number; longueur: number; texte: string; choisie: PieceCitable }
+
+/**
+ * ══ 🔴 L'APPARIEMENT, ÉCRIT UNE FOIS ════════════════════════════════════════════════════════════════════════════
+ *
+ * 🔴 POURQUOI IL EST EXTRAIT (lot CLASSER-PAR-LA-MODALE, point 0). Deux rendus lisent désormais les mêmes
+ * citations : le corps découpé en morceaux, et la ligne « Aucune pièce jointe à ce mail — il cite N pièces… ».
+ * Deux boucles auraient fini par apparier différemment — et la ligne aurait annoncé un nombre que les liens ne
+ * tiendraient pas.
+ *
+ * ⚠️ LA COMPARAISON DES NOMS IGNORE LA CASSE ET LES BLANCS DE BORD, et rien d'autre : « RIB..pdf » et
+ * « rib..pdf » sont le même fichier, « RIB (1).pdf » ne l'est pas. Un rapprochement plus souple aurait fini par
+ * ouvrir une pièce qui n'est pas celle qu'on a lue.
+ */
+function apparier(
+  texte: string, pieces: readonly PieceCitable[], dateDuMailQuiCite: string,
+): Appariee[] {
+  if (texte === '' || pieces.length === 0) return [];
   /* Par nom normalisé, toutes les copies connues de la conversation. */
   const parNom = new Map<string, PieceCitable[]>();
   for (const p of pieces) {
@@ -141,8 +172,7 @@ export function decouperLesPiecesCitees(
     parNom.set(cle, [...(parNom.get(cle) ?? []), p]);
   }
 
-  const out: MorceauDuCorps[] = [];
-  let curseur = 0;
+  const out: Appariee[] = [];
   CITATION.lastIndex = 0;
   for (let m = CITATION.exec(texte); m !== null; m = CITATION.exec(texte)) {
     const copies = parNom.get(m[1].trim().toLowerCase());
@@ -150,14 +180,74 @@ export function decouperLesPiecesCitees(
     /* 🔴 L'ADRESSE DU DERNIER EN-TÊTE DE CITATION AVANT CE NOM — voir `copieCitee`. */
     const choisie = copieCitee(copies, adresseDuDernierEntete(texte.slice(0, m.index)), dateDuMailQuiCite);
     if (choisie === null) continue;
-    if (m.index > curseur) out.push({ sorte: 'texte', texte: texte.slice(curseur, m.index) });
-    out.push({
-      sorte: 'piece', texte: m[1], pieceId: choisie.pieceId, aide: aidePieceCitee(choisie.recuLe),
-    });
-    curseur = m.index + m[0].length;
+    out.push({ index: m.index, longueur: m[0].length, texte: m[1], choisie });
   }
-  if (curseur < texte.length) out.push({ sorte: 'texte', texte: texte.slice(curseur) });
-  return out.length === 0 ? [{ sorte: 'texte', texte }] : out;
+  return out;
+}
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 0 — « AUCUNE PIÈCE JOINTE » MENAIT À UNE IMPASSE ══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (06/10/2026) : dans l'Historique du bien, le mail du 30/06/2026 déplié affiche « Aucune pièce
+ * jointe » — « parce que la citation est masquée ». Il a raison, et c'est la rencontre de deux règles justes :
+ * le mail n'a VRAIMENT aucune pièce (vérifié dans Gmail, 18 118 octets, ni `attachments` ni `attachmentIds`), et
+ * `corpsLisible` écarte la partie citée, où les trois noms sont écrits. On annonçait donc « rien » à propos d'un
+ * mail qui nomme trois documents que nous avons.
+ *
+ * SA RÈGLE : « Remplace-le, quand le texte cité nomme des pièces existant ailleurs dans la conversation, par :
+ * “Aucune pièce jointe à ce mail — il cite 3 pièces du mail du 11/11/2025 :” suivi des liens. »
+ *
+ * ═══ ⚠️ CE QU'ELLE NE FAIT PAS ══════════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ ELLE N'AJOUTE AUCUNE PIÈCE AU MAIL : c'est la règle du lot 18, et elle ne change pas. Le trombone, le résumé
+ * des pièces et les compteurs continuent de dire que ce mail n'en porte pas — parce qu'il n'en porte pas.
+ *
+ * ⚠️ `null` QUAND AUCUN NOM NE CORRESPOND : la ligne « Aucune pièce jointe. » reste alors telle quelle. Un nom
+ * cité qu'on ne retrouve pas est un fichier qu'on n'a pas, et l'annoncer promettrait une porte qui ne s'ouvre pas.
+ *
+ * ⚠️ ON LIT LE CORPS ENTIER, CITATION COMPRISE — c'est tout l'objet. Lui passer la partie VISIBLE n'aurait rien
+ * trouvé : c'est exactement le défaut d'Arno.
+ *
+ * 🔴 LA DATE N'EST ANNONCÉE QUE SI LES PIÈCES VIENNENT TOUTES DU MÊME MAIL. Sur deux mails sources, « du mail du
+ * 11/11/2025 » serait faux pour la moitié d'entre elles : la phrase dit alors « de cette conversation », et
+ * chaque lien garde sa propre info-bulle, qui nomme SON mail.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface PieceCiteeAilleurs { pieceId: number; nom: string; aide: string }
+
+export interface CitationSansPiece {
+  /** Les pièces retenues, dédoublonnées, dans leur ordre d'apparition dans le corps. */
+  pieces: readonly PieceCiteeAilleurs[];
+  /** La phrase d'Arno, prête à écrire — les deux-points compris. */
+  mot: string;
+}
+
+export function piecesCiteesAilleurs(
+  corps: string | null | undefined,
+  pieces: readonly PieceCitable[],
+  /** La date du mail qui cite — sert à départager les copies, comme dans le découpage. */
+  dateDuMailQuiCite: string,
+): CitationSansPiece | null {
+  const trouvees = apparier(corps ?? '', pieces, dateDuMailQuiCite);
+  if (trouvees.length === 0) return null;
+
+  /* ⚠️ DÉDOUBLONNÉ PAR PIÈCE, et non par nom : un corps qui cite deux fois le même fichier (une réponse qui
+     recite sa propre citation, cas courant) ne doit pas annoncer « 6 pièces » pour trois documents. */
+  const vues = new Set<number>();
+  const retenues: PieceCiteeAilleurs[] = [];
+  const jours = new Set<string>();
+  for (const t of trouvees) {
+    if (vues.has(t.choisie.pieceId)) continue;
+    vues.add(t.choisie.pieceId);
+    retenues.push({ pieceId: t.choisie.pieceId, nom: t.texte, aide: aidePieceCitee(t.choisie.recuLe) });
+    jours.add(jourFrancais(t.choisie.recuLe));
+  }
+
+  const n = retenues.length;
+  const quoi = n === 1 ? '1 pièce' : `${n} pièces`;
+  const dou = jours.size === 1 ? `du mail du ${[...jours][0]}` : 'de cette conversation';
+  return { pieces: retenues, mot: `Aucune pièce jointe à ce mail — il cite ${quoi} ${dou} :` };
 }
 
 /**

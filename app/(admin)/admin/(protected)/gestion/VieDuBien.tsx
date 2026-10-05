@@ -12,7 +12,9 @@ import { corpsLisible, etatTrombone, motTrombone, trierPieces } from '../../../.
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import type { PartieDestinataire } from '../../../../lib/gestion/historiqueBien';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les noms de pièces cités dans le corps. Voir l'encadré du module. */
-import { decouperLesPiecesCitees, type PieceCitable } from '../../../../lib/gestion/piecesCitees';
+import {
+  decouperLesPiecesCitees, piecesCiteesAilleurs, type PieceCitable,
+} from '../../../../lib/gestion/piecesCitees';
 import { motCapsule, tonCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 // 🔴🔴 LOT CONTACTS-EXTERNES — le mot du rôle instantané, écrit UNE fois dans le module PUR.
 import { motRoleInstantane } from '../../../../lib/gestion/contactExterne';
@@ -442,6 +444,12 @@ export function LigneVie({
    */
   const lisible = l.extrait === null ? null : corpsLisible(l.extrait);
   const lisibleOuvert = corpsEntier !== null ? corpsLisible(corpsEntier) : lisible;
+  /**
+   * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 0 — les pièces que ce mail CITE alors qu'il n'en porte aucune.
+   *
+   * ⚠️ SUR LE CORPS BRUT, citation comprise : c'est là que les noms sont écrits, et `corpsLisible` les retire.
+   */
+  const citees = piecesCiteesAilleurs(corpsEntier ?? l.extrait, piecesCitables, l.recuLe);
   // 🔴 LA MÊME RÈGLE QUE LA BOÎTE : les « ._ » et les images de signature ne comptent pas comme pièces.
   const trombone = etatTrombone(vraies.length, 0);
   const motDuTrombone = motTrombone(trombone);
@@ -586,11 +594,38 @@ export function LigneVie({
               🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 6 — IL EST EN BAS À DROITE DU MAIL DÉPLIÉ (demande d'Arno). Il
               est donc rendu EN DERNIER dans le détail, et poussé à droite par son enveloppe : c'est une SORTIE,
               et une sortie se place là où le regard finit, pas au milieu de ce qu'on lit. */}
-          {l.pieces.length === 0 && (
+          {/* ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 0 — « AUCUNE PIÈCE JOINTE » MENAIT À UNE IMPASSE ═══════
+              CONSTAT D'ARNO (06/10/2026) : sur le mail du 30/06/2026 (fil 3366), le mail déplié annonce
+              « Aucune pièce jointe » « parce que la citation est masquée ». Il a raison, et le mail n'a bien
+              AUCUNE pièce (vérifié dans Gmail : 18 118 octets, ni `attachments` ni `attachmentIds`). Ce qui
+              était faux, c'est de s'arrêter là : le texte cité nomme trois documents que nous avons.
+
+              SA RÈGLE : « Aucune pièce jointe à ce mail — il cite 3 pièces du mail du 11/11/2025 : » suivi des
+              liens (trombone + nom) qui ouvrent la visionneuse. Même rendu que dans la conversation.
+
+              🔴 ON LIT LE CORPS ENTIER, CITATION COMPRISE, et c'est tout l'objet : `lisibleOuvert.visible`
+              écarte justement la partie où les noms sont écrits. Le découpage du corps, lui, garde la partie
+              visible — les deux ne regardent pas la même chose, et c'est voulu.
+
+              ⚠️ AUCUNE PIÈCE N'EST AJOUTÉE AU MAIL : le trombone, le résumé des pièces et les compteurs
+              continuent de dire qu'il n'en porte pas, parce qu'il n'en porte pas. */}
+          {l.pieces.length === 0 && (citees === null ? (
             <p className="ann-gris">
               {formaterTaille(0) === '' ? '' : ''}Aucune pièce jointe.
             </p>
-          )}
+          ) : (
+            <p className="ann-gris vdb-citees">
+              <span className="vdb-citees-mot">{citees.mot}</span>
+              {citees.pieces.map((p) => (
+                <button key={p.pieceId} type="button" className="vdb-piece-citee" title={p.aide}
+                  aria-label={`${p.nom} — ${p.aide}`}
+                  disabled={onVisualiser === undefined}
+                  onClick={() => onVisualiser?.(p.pieceId)}>
+                  <span aria-hidden="true">📎</span>{p.nom}
+                </button>
+              ))}
+            </p>
+          ))}
           {onOuvrirFil && (
             <p className="vdb-sortie">
               <button type="button" className="gst-lien-bouton"
@@ -706,6 +741,12 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-pastille--gris{background:var(--color-svv-line-strong)}
 .vdb-corps{margin:0;font-size:.86rem;color:var(--color-svv-ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .vdb-evts{margin:0;display:flex;flex-wrap:wrap;gap:.35rem}
+/* LOT CLASSER-PAR-LA-MODALE, POINT 0 — « Aucune piece jointe a ce mail — il cite 3 pieces du mail du … : »
+   LA PHRASE PREND TOUTE LA LARGEUR (flex-basis 100%), les liens se rangent dessous et se replient d'eux-memes :
+   trois noms de PDF ne tiennent pas sur une ligne de telephone, et une phrase coupee en deux morceaux par un
+   nom de fichier ne se lit plus. Le lien lui-meme garde son habillage commun (.vdb-piece-citee). */
+.vdb-citees{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:.15rem .5rem}
+.vdb-citees-mot{flex-basis:100%}
 .vdb-pages{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.2rem}
 /* 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 6 — LA SORTIE VERS LA CONVERSATION EST EN BAS A DROITE DU MAIL DEPLIE.
    Le detail est une colonne : cette ligne est la derniere, et son contenu est pousse a droite. Un

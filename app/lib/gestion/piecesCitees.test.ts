@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  adresseDuDernierEntete, aidePieceCitee, copieCitee, decouperLesPiecesCitees, type PieceCitable,
+  adresseDuDernierEntete, aidePieceCitee, copieCitee, decouperLesPiecesCitees,
+  piecesCiteesAilleurs, type PieceCitable,
 } from './piecesCitees';
 
 /**
@@ -227,5 +228,107 @@ describe('🔴🔴 ⑥ la fenêtre de conversation découpe les deux parties du 
   it('⚠️ le mail déplié de l’historique passe par le même module', () => {
     const vdb = readFileSync('app/(admin)/admin/(protected)/gestion/VieDuBien.tsx', 'utf8');
     expect(vdb).toContain('decouperLesPiecesCitees(lisibleOuvert.visible, piecesCitables, l.recuLe)');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 0 — « AUCUNE PIÈCE JOINTE » MENAIT À UNE IMPASSE ══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (06/10/2026) : dans l'Historique du bien, ce même mail déplié affiche « Aucune pièce jointe »
+ * « parce que la citation est masquée ». Diagnostic du lot 18 reconfirmé dans Gmail le 06/10 : le message ne
+ * porte VRAIMENT aucune pièce (18 118 octets, ni `attachments` ni `attachmentIds`). Ce qui était faux, c'est de
+ * s'arrêter là : le texte cité nomme trois documents que nous avons.
+ *
+ * SA RÈGLE, mot pour mot : « Aucune pièce jointe à ce mail — il cite 3 pièces du mail du 11/11/2025 : » suivi
+ * des liens.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴🔴 ⑦ « il cite N pièces du mail du … »', () => {
+  it('🔴🔴 LA PHRASE D’ARNO, MOT POUR MOT, sur son cas', () => {
+    const r = piecesCiteesAilleurs(CORPS, PIECES, LE_30_JUIN);
+    expect(r?.mot).toBe('Aucune pièce jointe à ce mail — il cite 3 pièces du mail du 11/11/2025 :');
+  });
+
+  it('🔴🔴 et les trois liens, dans l’ordre du corps, avec leur info-bulle', () => {
+    const r = piecesCiteesAilleurs(CORPS, PIECES, LE_30_JUIN);
+    expect(r?.pieces.map((p) => p.nom)).toEqual([
+      'RIB..pdf',
+      'Solde Charges courantes au 31_03_2025.pdf',
+      'Rmbt VAGLIO ARNAUD Aurélie et Louis DPR.pdf',
+    ]);
+    /* 🔴 LA COPIE DU 11/11/2025, celle que la citation NOMME — la même règle que le découpage, et le même code. */
+    expect(r?.pieces.map((p) => p.pieceId)).toEqual([2, 5, 6]);
+    expect([...new Set(r?.pieces.map((p) => p.aide))]).toEqual(['pièce du mail du 11/11/2025']);
+  });
+
+  /**
+   * 🔴🔴 C'EST LE CORPS ENTIER QU'IL FAUT LUI DONNER, et ce cas le prouve : la partie VISIBLE seule ne porte
+   * aucun nom. C'est exactement le défaut d'Arno — un écran qui lui passerait `lisible.visible` n'afficherait
+   * jamais la phrase.
+   */
+  it('🔴🔴 LA PARTIE VISIBLE SEULE NE DONNE RIEN : le défaut d’Arno, reproduit', () => {
+    const visible = CORPS.slice(0, CORPS.indexOf('Le 11 nov. 2025'));
+    expect(piecesCiteesAilleurs(visible, PIECES, LE_30_JUIN)).toBeNull();
+  });
+
+  it('⚠️ AUCUNE CORRESPONDANCE ⇒ `null` : la ligne « Aucune pièce jointe. » reste telle quelle', () => {
+    expect(piecesCiteesAilleurs('un mot sur <inconnu.pdf> et rien d’autre', PIECES, LE_30_JUIN)).toBeNull();
+    expect(piecesCiteesAilleurs(CORPS, [], LE_30_JUIN)).toBeNull();
+    expect(piecesCiteesAilleurs(null, PIECES, LE_30_JUIN)).toBeNull();
+    expect(piecesCiteesAilleurs('', PIECES, LE_30_JUIN)).toBeNull();
+  });
+
+  it('⚠️ UNE SEULE PIÈCE SE DIT AU SINGULIER — « 1 pièce », jamais « 1 pièces »', () => {
+    const r = piecesCiteesAilleurs('voir <RIB..pdf>', PIECES, LE_30_JUIN);
+    expect(r?.mot).toBe('Aucune pièce jointe à ce mail — il cite 1 pièce du mail du 15/06/2026 :');
+    expect(r?.pieces).toHaveLength(1);
+  });
+
+  /**
+   * 🔴 DÉDOUBLONNÉ PAR PIÈCE : un corps qui recite sa propre citation (une réponse à une réponse, cas très
+   * courant) annoncerait sinon six pièces pour trois documents.
+   */
+  it('🔴 LE MÊME FICHIER CITÉ DEUX FOIS NE COMPTE QU’UNE FOIS', () => {
+    const r = piecesCiteesAilleurs(`${CORPS}\n<RIB..pdf>\n<RIB..pdf>`, PIECES, LE_30_JUIN);
+    expect(r?.pieces).toHaveLength(3);
+    expect(r?.mot).toContain('3 pièces');
+  });
+
+  /**
+   * 🔴🔴 DEUX MAILS SOURCES ⇒ PAS DE DATE ANNONCÉE. « du mail du 11/11/2025 » serait faux pour la moitié des
+   * pièces ; la phrase dit alors « de cette conversation », et chaque lien garde SON info-bulle.
+   */
+  it('🔴🔴 PIÈCES DE DEUX MAILS DIFFÉRENTS : « de cette conversation », et deux info-bulles distinctes', () => {
+    /* Sans en-tête de citation, `copieCitee` prend la copie la plus récente AVANT le mail qui cite : le RIB
+       vient du 15/06/2026, et le solde du 11/11/2025 (sa seule copie). */
+    const r = piecesCiteesAilleurs(
+      'voir <RIB..pdf> et <Solde Charges courantes au 31_03_2025.pdf>', PIECES, LE_30_JUIN,
+    );
+    expect(r?.mot).toBe('Aucune pièce jointe à ce mail — il cite 2 pièces de cette conversation :');
+    expect(r?.pieces.map((p) => p.aide)).toEqual([
+      'pièce du mail du 15/06/2026', 'pièce du mail du 11/11/2025',
+    ]);
+  });
+
+  /**
+   * 🔴🔴 UNE SEULE RÈGLE D'APPARIEMENT POUR LES DEUX RENDUS. Le découpage du corps et cette phrase lisent la
+   * MÊME fonction interne : deux boucles auraient fini par apparier différemment, et la phrase aurait annoncé un
+   * nombre que les liens ne tiendraient pas.
+   */
+  it('🔴🔴 LA PHRASE ET LE DÉCOUPAGE DÉSIGNENT LES MÊMES PIÈCES, toujours', () => {
+    const parDecoupage = decouperLesPiecesCitees(CORPS, PIECES, LE_30_JUIN)
+      .filter((m) => m.sorte === 'piece')
+      .map((m) => (m as { pieceId: number }).pieceId);
+    const parPhrase = piecesCiteesAilleurs(CORPS, PIECES, LE_30_JUIN)?.pieces.map((p) => p.pieceId) ?? [];
+    expect(parPhrase).toEqual([...new Set(parDecoupage)]);
+  });
+
+  /** 🔴 ET L'ÉCRAN LA LIT SUR LE CORPS BRUT, pas sur la partie visible — le garde qui ferme le défaut d'Arno. */
+  it('🔴🔴 l’historique du bien la lit sur le corps ENTIER, citation comprise', () => {
+    const vdb = readFileSync('app/(admin)/admin/(protected)/gestion/VieDuBien.tsx', 'utf8');
+    expect(vdb).toContain('piecesCiteesAilleurs(corpsEntier ?? l.extrait, piecesCitables, l.recuLe)');
+    /* ⚠️ ET ELLE NE S'AFFICHE QU'À LA PLACE DE « Aucune pièce jointe. » : aucune pièce n'est ajoutée au mail. */
+    expect(vdb).toContain('{l.pieces.length === 0 && (citees === null ? (');
   });
 });
