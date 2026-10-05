@@ -1,5 +1,5 @@
 import { query, withTransaction } from '../db/client';
-import { contactCarteDisponible, partieCategorieDisponible } from './schema';
+import { contactCarteDisponible, noteContactCarteDisponible, partieCategorieDisponible } from './schema';
 import { normaliserEmail } from './annuaire';
 /**
  * 🔴🔴 LA RÈGLE UNIQUE DU LIEN DE BIEN, et c'est le fragment du dépôt — jamais une condition réécrite. Elle sert
@@ -96,6 +96,14 @@ export interface LigneCarte {
   verifiePar: string | null;
   creeLe: string;
   creePar: string;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LA NOTE, pour que le gabarit d'une carte de contact soit celui d'une carte
+   * client (demande d'Arno). Colonne ajoutée par la migration 305.
+   *
+   * ⚠️ `null` QUAND LA 305 N'EST PAS LÀ, et la ligne s'affiche alors « non renseignée » — exactement comme une
+   * carte dont personne n'a écrit la note. Une sonde voyage avec sa donnée : règle du module.
+   */
+  note: string | null;
 }
 
 /**
@@ -260,13 +268,19 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
   const lot = lotPropre(lotCle);
   if (lot === null || !(await contactCarteDisponible())) return [];
 
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — LA NOTE N'EST NOMMÉE QUE SI LA 305 EST LÀ. Nommer une colonne absente ferait
+     tomber la lecture entière, et avec elle les deux carrousels ET le bloc du bas (leçon de la 251, repayée au
+     lot 4a). Sans elle, la note vaut `null` partout et la ligne s'affiche « non renseignée ». */
+  const avecNote = await noteContactCarteDisponible();
   const { rows } = await query<{
     id: string; lot_cle: string; cote: string; adresse: string; nom: string | null; telephone: string | null;
     origine: string; verifie_le: string | null; verifie_par: string | null; cree_le: string; cree_par: string;
+    note: string | null;
   }>(
     `SELECT id::text, lot_cle, cote, adresse, nom, telephone, origine,
             ${ts('verifie_le')} AS verifie_le, verifie_par_libelle AS verifie_par,
-            ${ts('cree_le')} AS cree_le, cree_par_libelle AS cree_par
+            ${ts('cree_le')} AS cree_le, cree_par_libelle AS cree_par,
+            ${avecNote ? 'note' : 'NULL::text'} AS note
        FROM gestion_contact_carte
       WHERE retire_le IS NULL AND lot_cle = $1
       ORDER BY cote, (verifie_le IS NULL), coalesce(nom, adresse), id`, [lot]);
@@ -275,6 +289,7 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
     id: Number(r.id), lotCle: r.lot_cle, cote: r.cote as Cote, adresse: r.adresse,
     nom: r.nom, telephone: r.telephone, origine: r.origine as 'auto' | 'manuel',
     verifieLe: r.verifie_le, verifiePar: r.verifie_par, creeLe: r.cree_le, creePar: r.cree_par,
+    note: r.note,
   }));
 }
 
@@ -620,6 +635,52 @@ export async function retirerCarte(o: {
       WHERE id = $1 AND retire_le IS NULL
       RETURNING id::text`,
     [o.id, o.auteur.id, o.auteur.libelle, texteCourt(o.motif)]);
+  return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — MODIFIER UNE CARTE DE CONTACT (le crayon) ═══════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO : le gabarit d'une carte de contact porte un « crayon pour modifier », comme une carte client.
+ *
+ * 🔴 POURQUOI CE N'EST PAS `poserCarteAlaMain`. Celle-là fait un `coalesce` : elle sait AJOUTER un nom ou un
+ * téléphone, jamais les corriger ni les effacer. C'est voulu là-bas — une passe automatique ne doit pas écraser
+ * ce qu'un humain a écrit. Mais le crayon, lui, est précisément le geste d'un humain qui CORRIGE : écrire
+ * « 06 12 34 56 78 » par-dessus un numéro faux doit marcher, et vider un champ doit le vider.
+ *
+ * 🔴 L'ADRESSE NE SE MODIFIE PAS, ET C'EST DÉLIBÉRÉ : elle est l'IDENTITÉ de la carte (la clé de la table est
+ * (bien, côté, adresse)). La changer serait créer une autre carte — et c'est ce que fait le « + ». Le formulaire
+ * la montre donc en lecture seule, comme celui de la création.
+ *
+ * ⚠️ MODIFIER NE VÉRIFIE PAS. Un humain peut corriger un numéro sans pour autant confirmer que cette personne est
+ * bien le contact de cette partie : ce sont deux gestes, et deux boutons. Les confondre ferait disparaître la
+ * trame orange au premier coup de crayon, sur une carte dont personne n'a encore validé le RATTACHEMENT.
+ *   🔭 **Question posée à Arno** : préfère-t-il qu'un coup de crayon vaille vérification ? C'est défendable
+ *      (« je l'ai regardée, donc je l'ai vérifiée »), mais ce n'est pas ce que son gabarit décrit — il demande un
+ *      bouton « Vérifié » distinct du crayon. Je m'en tiens donc à sa description.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function modifierCarte(o: {
+  id: number; nom?: string | null; telephone?: string | null; note?: string | null; auteur: Auteur;
+}): Promise<IssuePartieCategorie> {
+  if (!(await contactCarteDisponible())) return { ok: false, motif: SANS_304_CARTES };
+  if (!auteurHumainPartieCategorie(o.auteur)) {
+    return { ok: false, motif: 'Modifier est un geste humain : l’auteur doit être identifié.' };
+  }
+  if (!Number.isSafeInteger(o.id) || o.id <= 0) return { ok: false, motif: 'Aucune carte désignée.' };
+
+  /* 🔴 LA NOTE N'EST ÉCRITE QUE SI LA 305 EST LÀ : nommer une colonne absente ferait échouer le geste entier,
+     et le reste de la modification — le nom, le téléphone — serait perdu avec elle. */
+  const avecNote = await noteContactCarteDisponible();
+  const { rows } = await query<{ id: string }>(
+    `UPDATE gestion_contact_carte
+        SET nom = $2, telephone = $3${avecNote ? ', note = $4' : ''}
+      WHERE id = $1 AND retire_le IS NULL
+      RETURNING id::text`,
+    avecNote
+      ? [o.id, texteCourt(o.nom, 200), texteCourt(o.telephone, 60), texteCourt(o.note, 2000)]
+      : [o.id, texteCourt(o.nom, 200), texteCourt(o.telephone, 60)]);
   return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
 }
 

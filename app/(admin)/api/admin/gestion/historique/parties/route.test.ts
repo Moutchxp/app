@@ -15,10 +15,15 @@ const annulerMock = vi.fn();
 /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — le GET rend aussi de quoi PRÉ-REMPLIR la carte du « + » (nom, téléphone
    trouvé en signature). La doublure rend un tableau vide par défaut : les cas d'avant ce lot ne changent pas. */
 const coordonneesMock = vi.fn();
+/* 🔴🔴 LOT HISTORIQUE-BIEN-7 — les trois gestes d'une carte de contact. */
+const verifierCarteMock = vi.fn();
+const modifierCarteMock = vi.fn();
 vi.mock('../../../../../../lib/gestion/partieCategorieRepo', () => ({
   lireCategoriesDuBien: (...a: unknown[]) => categoriesMock(...a),
   lireCartesDuBien: (...a: unknown[]) => cartesMock(...a),
   coordonneesDesParties: (...a: unknown[]) => coordonneesMock(...a),
+  marquerCarteVerifiee: (...a: unknown[]) => verifierCarteMock(...a),
+  modifierCarte: (...a: unknown[]) => modifierCarteMock(...a),
   poserCategorieAlaMain: (...a: unknown[]) => poserCategorieMock(...a),
   poserCarteAlaMain: (...a: unknown[]) => poserCarteMock(...a),
   retirerCarte: (...a: unknown[]) => retirerCarteMock(...a),
@@ -54,6 +59,8 @@ beforeEach(() => {
   categoriesMock.mockReset(); categoriesMock.mockResolvedValue([]);
   cartesMock.mockReset(); cartesMock.mockResolvedValue([]);
   coordonneesMock.mockReset(); coordonneesMock.mockResolvedValue([]);
+  verifierCarteMock.mockReset(); verifierCarteMock.mockResolvedValue({ ok: true, id: 1463, nb: 1 });
+  modifierCarteMock.mockReset(); modifierCarteMock.mockResolvedValue({ ok: true, id: 1463, nb: 1 });
   poserCategorieMock.mockReset(); poserCategorieMock.mockResolvedValue({ ok: true, id: 1, nb: 1 });
   poserCarteMock.mockReset(); poserCarteMock.mockResolvedValue({ ok: true, id: 2, nb: 1 });
   retirerCarteMock.mockReset(); retirerCarteMock.mockResolvedValue({ ok: true, id: 9, nb: 1 });
@@ -380,5 +387,84 @@ describe('⚠️ la lecture n’a pas bougé', () => {
     expect(r.status).toBe(200);
     expect(categoriesMock.mock.calls[0][0]).toBe('155');
     expect(cartesMock.mock.calls[0][0]).toBe('155');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES TROIS GESTES D'UNE CARTE DE CONTACT ═════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO : le gabarit d'une carte porte un bouton « Vérifié », un crayon pour modifier, et un « … » avec
+ * « Retirer » (statut 'retire', jamais supprimée).
+ *
+ * 🔴 « CHANGER DE CÔTÉ » ET « PASSER EN TIERS INDÉPENDANT » N'ONT PAS DE GESTE À EUX : ce sont des RANGEMENTS, et
+ * le geste « ranger » les fait déjà. C'est tout l'intérêt de la seule porte d'écriture qu'Arno demande.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴🔴 les trois gestes d’une carte de contact', () => {
+  const poste = (corps: unknown): Request => new Request('http://local/api/admin/gestion/historique/parties', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(corps),
+  });
+
+  it('🔴 « Vérifié » marque la carte, et rend le nombre de lignes touchées', async () => {
+    const r = await POST(poste({ action: 'verifier', id: 1463 }));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ etat: 'ok', nb: 1 });
+    expect(verifierCarteMock).toHaveBeenCalledWith({ id: 1463, auteur: expect.anything() });
+  });
+
+  it('🔴 « Modifier » porte le nom, le téléphone et la note — jamais l’adresse', async () => {
+    await POST(poste({
+      action: 'modifier', id: 1463, nom: 'Puro Flow Paris', telephone: '01 41 21 43 31', note: 'rappeler le matin',
+      /* ⚠️ MÊME ENVOYÉE, L'ADRESSE EST IGNORÉE : elle est l'IDENTITÉ de la carte, pas un champ. */
+      adresse: 'autre@fictif.test',
+    }));
+    const recu = modifierCarteMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(recu.id).toBe(1463);
+    expect(recu.nom).toBe('Puro Flow Paris');
+    expect(recu.telephone).toBe('01 41 21 43 31');
+    expect(recu.note).toBe('rappeler le matin');
+    expect(recu).not.toHaveProperty('adresse');
+  });
+
+  it('🔴 « Retirer » passe par `retirerCarte` et porte un motif — jamais un DELETE', async () => {
+    retirerCarteMock.mockResolvedValue({ ok: true, id: 1463, nb: 1 });
+    const r = await POST(poste({ action: 'retirer', id: 1463 }));
+    expect(r.status).toBe(200);
+    const recu = retirerCarteMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(recu.id).toBe(1463);
+    expect(typeof recu.motif).toBe('string');
+  });
+
+  it('⚠️ UNE CARTE DÉJÀ TOUCHÉE PAR L’AUTRE ENDROIT REND `nb: 0`, ET CE N’EST PAS UN REFUS', async () => {
+    /* Les deux endroits de l'écran peuvent agir sur la même carte : dire « refus » ferait croire à une panne là
+       où deux gestes se sont croisés. L'appelant relit, et la carte a simplement disparu. */
+    verifierCarteMock.mockResolvedValue({ ok: true, id: null, nb: 0 });
+    const r = await POST(poste({ action: 'verifier', id: 1463 }));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ etat: 'ok', nb: 0 });
+  });
+
+  it('⚠️ SANS IDENTIFIANT, LE GESTE EST REFUSÉ — et aucune écriture n’est tentée', async () => {
+    for (const corps of [{ action: 'verifier' }, { action: 'retirer', id: 0 }, { action: 'modifier', id: -3 }]) {
+      const r = await POST(poste(corps));
+      expect(r.status).toBe(400);
+      expect((await r.json()).motif).toContain('Aucune carte désignée');
+    }
+    expect(verifierCarteMock).not.toHaveBeenCalled();
+    expect(modifierCarteMock).not.toHaveBeenCalled();
+  });
+
+  it('🔴 UN REFUS DU DÉPÔT EST RENDU TEL QUEL, avec son motif', async () => {
+    verifierCarteMock.mockResolvedValue({ ok: false, motif: 'L’auteur du geste doit être identifié.' });
+    const r = await POST(poste({ action: 'verifier', id: 1463 }));
+    expect(r.status).toBe(409);
+    expect((await r.json()).motif).toContain('identifié');
+  });
+
+  it('⚠️ CES GESTES NE DEMANDENT AUCUNE CIBLE : la carte se désigne par son identifiant', async () => {
+    /* Aucun `cible` dans le corps, et pourtant 200 : c'est voulu — la carte porte déjà son bien. */
+    const r = await POST(poste({ action: 'verifier', id: 1463 }));
+    expect(r.status).toBe(200);
   });
 });

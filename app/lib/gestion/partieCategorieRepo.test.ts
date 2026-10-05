@@ -33,6 +33,9 @@ let migration304 = true;
 vi.mock('./schema', () => ({
   partieCategorieDisponible: async () => migration304,
   contactCarteDisponible: async () => migration304,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — la colonne `note` de la 305. La doublure suit le même interrupteur : les cas
+     « sans la migration » éprouvent donc aussi une carte SANS note, ce qui est le cas réel d'avant la 305. */
+  noteContactCarteDisponible: async () => migration304,
 }));
 
 import {

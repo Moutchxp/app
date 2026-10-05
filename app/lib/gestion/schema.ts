@@ -1079,3 +1079,18 @@ export function partieCategorieDisponible(): Promise<boolean> {
 export function contactCarteDisponible(): Promise<boolean> {
   return memoiser('table.gestion_contact_carte', () => tableExiste('gestion_contact_carte'));
 }
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LA MIGRATION 305 : LA NOTE D'UNE CARTE DE CONTACT ═══════════════════════════════
+ *
+ * Demande d'Arno : le gabarit d'une carte de contact porte une NOTE, comme une carte client. C'est la seule chose
+ * qui manquait au schéma de la 304.
+ *
+ * 🔴 TANT QU'ELLE RÉPOND « NON », LA COLONNE N'EST NOMMÉE NULLE PART : la note vaut `null` partout, et la ligne
+ * s'affiche « non renseignée » — exactement comme une carte dont personne n'a écrit la note. Nommer une colonne
+ * absente ferait tomber la lecture ENTIÈRE, et avec elle les deux carrousels et le bloc du bas (leçon de la
+ * migration 251, repayée au lot 4a).
+ */
+export function noteContactCarteDisponible(): Promise<boolean> {
+  return memoiser('colonne.gestion_contact_carte.note', () => colonneExiste('gestion_contact_carte', 'note'));
+}

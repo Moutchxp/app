@@ -4,8 +4,10 @@ import { cibleDepuisTexte } from '../../../../../../lib/gestion/historique';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { coteDeLaCategorie, type Categorie } from '../../../../../../lib/gestion/partieCategorie';
 import {
-  annulerGesteDeRangement, coordonneesDesParties, lireCartesDuBien, lireCategoriesDuBien, poserCarteAlaMain,
-  poserCategorieAlaMain,
+  annulerGesteDeRangement, coordonneesDesParties, lireCartesDuBien, lireCategoriesDuBien,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — les trois gestes d'une carte de contact : verifier, modifier, retirer. */
+  marquerCarteVerifiee, modifierCarte,
+  poserCarteAlaMain, poserCategorieAlaMain,
   retirerCarte, type GesteDeRangement,
 } from '../../../../../../lib/gestion/partieCategorieRepo';
 
@@ -251,6 +253,45 @@ export async function POST(request: Request): Promise<Response> {
       console.error('[api/admin/gestion/historique/parties] annulation impossible', e);
       return Response.json(
         { etat: 'refus', motif: 'L’annulation n’a pas pu être enregistrée : la base n’a pas répondu.' },
+        { status: 503, headers: ENTETES });
+    }
+  }
+
+  /* ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES TROIS GESTES D'UNE CARTE DE CONTACT ══════════════════════════════════════
+     DEMANDE D'ARNO : le gabarit d'une carte porte un bouton « Vérifié », un crayon pour modifier, et un « … »
+     avec « Retirer » (statut 'retire', jamais supprimée). « Changer de côté » et « Passer en tiers indépendant »
+     n'ont rien à ajouter ici : ce sont des RANGEMENTS, et le geste « ranger » ci-dessous les fait déjà — c'est
+     même tout l'intérêt d'avoir une seule porte d'écriture.
+
+     🔴 ILS SE DÉSIGNENT PAR L'IDENTIFIANT DE LA CARTE, et non par (bien, côté, adresse) : la carte est l'objet
+     du geste, et trois champs à faire correspondre seraient trois occasions de se tromper de carte. */
+  if (c.action === 'verifier' || c.action === 'modifier' || c.action === 'retirer') {
+    const id = typeof c.id === 'number' ? c.id : Number.NaN;
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return Response.json({ etat: 'refus', motif: 'Aucune carte désignée.' },
+        { status: 400, headers: ENTETES });
+    }
+    try {
+      const r = c.action === 'verifier'
+        ? await marquerCarteVerifiee({ id, auteur })
+        : c.action === 'retirer'
+          ? await retirerCarte({ id, auteur, motif: texteCourt(c.motif, 300) ?? 'retirée à la main' })
+          : await modifierCarte({
+            id, auteur,
+            nom: texteCourt(c.nom, 200), telephone: texteCourt(c.telephone, 60),
+            note: texteCourt(c.note, 2000),
+          });
+      if (!r.ok) return Response.json({ etat: 'refus', motif: r.motif }, { status: 409, headers: ENTETES });
+      /**
+       * ⚠️ `nb === 0` N'EST PAS UNE ERREUR, ET C'EST POURQUOI LE NOMBRE EST RENDU : la carte a pu être retirée
+       * entre-temps par l'autre endroit de l'écran. L'appelant relit, et la carte a simplement disparu — dire
+       * « refus » ferait croire à une panne là où deux gestes se sont croisés.
+       */
+      return Response.json({ etat: 'ok', nb: r.nb }, { headers: ENTETES });
+    } catch (e) {
+      console.error('[api/admin/gestion/historique/parties] geste de carte impossible', e);
+      return Response.json(
+        { etat: 'refus', motif: 'Le geste n’a pas pu être enregistré : la base n’a pas répondu.' },
         { status: 503, headers: ENTETES });
     }
   }
