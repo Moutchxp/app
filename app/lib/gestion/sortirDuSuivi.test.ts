@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  adresseDuBien, aideSortirDuSuivi, biensApresSortie, motConfirmationSortie, motMailSorti,
-  MOT_SORTIR_DU_SUIVI, SECONDES_ANNULER_SORTIE, suitCeBien,
+  adresseDuBien, aideSortirDuSuivi, classementEnVigueurSansLeBien, classementSansLeBien, lotsApresSortie,
+  motConfirmationSortie, motMailSorti, MOT_SORTIR_DU_SUIVI, SECONDES_ANNULER_SORTIE, suitCeBien,
 } from './sortirDuSuivi';
+import type { Classement } from './periodesConversation';
 import { capsuleDuMessage, motCapsule } from './statutClassement';
 import type { LienAffiche } from './rattachementRepo';
 
@@ -34,7 +35,9 @@ const lien = (o: Partial<LienAffiche> = {}): LienAffiche => ({
 
 describe('🔴🔴 ① le mail qui ne suit QUE ce bien en sort complètement', () => {
   it('🔴🔴 la liste reposée est VIDE — et c’est un classement valide, pas un non-geste', () => {
-    expect(biensApresSortie([lien()], '421')).toEqual([]);
+    const enVigueur: Classement = { sorte: 'biens', biens: [{ cle: '421', libelle: 'Marceau' }] };
+    expect(classementSansLeBien({ enVigueur, liens: [lien()], cleDuBien: '421' }))
+      .toEqual({ sorte: 'biens', biens: [], personnes: [] });
   });
 
   /**
@@ -63,26 +66,78 @@ describe('🔴🔴 ② le mail multi-biens ne perd que celui-ci', () => {
     lien({ id: 2, cible: { sorte: 'lot', cle: '155', id: null }, libelle: 'Carnot — lot 155' }),
     lien({ id: 3, cible: { sorte: 'proprietaire', cle: 'P-9', id: null }, libelle: 'ROI Nathan' }),
   ];
+  /** La configuration que le SUIVI applique à ce mail : deux lots, et une personne avec son contact. */
+  const EN_VIGUEUR: Classement = {
+    sorte: 'biens',
+    biens: [{ cle: '421', libelle: 'Marceau — lot 421' }, { cle: '155', libelle: 'Carnot — lot 155' }],
+    personnes: [{ sorte: 'proprietaire', cle: 'P-9', libelle: 'ROI Nathan', contactExterneId: 12 }],
+  };
 
   /**
    * 🔴🔴 « Les autres biens éventuels du mail ne bougent pas » (Arno). Ils ne bougent pas PARCE QU'ON LES REPOSE :
    * le geste réécrit la liste entière du mail, il ne « retire » pas un lien. C'est ce qui le rend stable le jour
    * où la projection se recalcule.
    */
-  it('🔴🔴 les deux autres sont reposés, avec leur libellé', () => {
-    expect(biensApresSortie(trois, '421')).toEqual([
-      { cle: '155', libelle: 'Carnot — lot 155' },
-      { cle: 'P-9', libelle: 'ROI Nathan' },
-    ]);
+  it('🔴🔴 l’autre lot est reposé, avec son libellé', () => {
+    expect(classementEnVigueurSansLeBien(EN_VIGUEUR, '421')?.biens)
+      .toEqual([{ cle: '155', libelle: 'Carnot — lot 155' }]);
+  });
+
+  /**
+   * 🔴🔴 LA PERSONNE EST REPOSÉE TELLE QUELLE, SON CONTACT EXTÉRIEUR COMPRIS. C'est le second dégât de l'essai
+   * réel du 05/10 : sans elle dans la liste, le diff de la fenêtre RETIRE l'intervention — et « via Arnaud
+   * JOREL » disparaît du mail sans que personne l'ait demandé.
+   */
+  it('🔴🔴 les personnes sont reposées telles quelles, contact compris', () => {
+    expect(classementEnVigueurSansLeBien(EN_VIGUEUR, '421')?.personnes)
+      .toEqual([{ sorte: 'proprietaire', cle: 'P-9', libelle: 'ROI Nathan', contactExterneId: 12 }]);
+  });
+
+  /**
+   * 🔴🔴 ET UN PROPRIÉTAIRE N'ENTRE JAMAIS DANS `biens`. C'est le PREMIER dégât de l'essai réel : `Classement.biens`
+   * se projette en `cible_sorte = 'lot'`, et le propriétaire 45 était devenu « lot 45 », un autre bien.
+   */
+  it('🔴🔴 le repli ne met dans `biens` que des LOTS', () => {
+    expect(lotsApresSortie(trois, '421')).toEqual([{ cle: '155', libelle: 'Carnot — lot 155' }]);
   });
 
   it('⚠️ sortir d’un bien que le mail ne suit pas ne retire rien', () => {
-    expect(biensApresSortie(trois, '999')).toHaveLength(3);
+    expect(classementEnVigueurSansLeBien(EN_VIGUEUR, '999')?.biens).toHaveLength(2);
+    expect(lotsApresSortie(trois, '999')).toHaveLength(2);
   });
 
-  /** ⚠️ UN ENSEMBLE, PAS UNE LISTE : deux liens vers le même bien ne font qu'une entrée. */
-  it('⚠️ un bien présent deux fois n’est reposé qu’une', () => {
-    expect(biensApresSortie([...trois, lien({ id: 4 })], '421').map((b) => b.cle)).toEqual(['155', 'P-9']);
+  /** ⚠️ UN ENSEMBLE, PAS UNE LISTE : deux liens vers le même lot ne font qu'une entrée dans le repli. */
+  it('⚠️ un lot présent deux fois n’est reposé qu’une', () => {
+    expect(lotsApresSortie([...trois, lien({ id: 4, cible: { sorte: 'lot', cle: '155', id: null } })], '421')
+      .map((b) => b.cle)).toEqual(['155']);
+  });
+
+  /**
+   * 🔴🔴 ET AUCUNE PERSONNE QUAND IL NE RESTE PLUS AUCUN BIEN. La base refuse une intervention sans bien
+   * (migration 293), et la règle d'Arno le dit déjà : « une intervention ne survit pas au départ de son bien ».
+   * Les envoyer quand même faisait REFUSER le geste entier — mesuré à l'écran sur le mail 57471.
+   */
+  it('🔴🔴 plus aucun bien ⇒ aucune personne reposée : la cascade s’en charge', () => {
+    const seul: Classement = {
+      sorte: 'biens',
+      biens: [{ cle: '26', libelle: 'Union — lot 26' }],
+      personnes: [{ sorte: 'proprietaire', cle: '45', libelle: 'JOREL Arnaud', contactExterneId: 9 }],
+    };
+    expect(classementEnVigueurSansLeBien(seul, '26')).toEqual({ sorte: 'biens', biens: [], personnes: [] });
+  });
+
+  /**
+   * 🔴 LE REPLI NE SERT QUE SI AUCUNE FENÊTRE NE COUVRE LE MAIL, et il ne repose alors AUCUNE personne : une
+   * intervention ne peut avoir été posée que par une fenêtre, et il n'y en a pas. Le diff ne retire donc rien.
+   */
+  it('🔴 sans configuration en vigueur, on retombe sur les LOTS du mail, sans personne', () => {
+    expect(classementSansLeBien({ enVigueur: undefined, liens: trois, cleDuBien: '421' }))
+      .toEqual({ sorte: 'biens', biens: [{ cle: '155', libelle: 'Carnot — lot 155' }], personnes: [] });
+  });
+
+  /** ⚠️ UNE FENÊTRE « interne » OU « hors gestion » N'EST PAS UN CLASSEMENT DE BIENS : on retombe sur les liens. */
+  it('⚠️ une fenêtre d’une autre sorte renvoie au repli', () => {
+    expect(classementEnVigueurSansLeBien({ sorte: 'interne', biens: [] }, '421')).toBeUndefined();
   });
 });
 
@@ -90,12 +145,12 @@ describe('🔴 ③ ce qui n’est pas un bien ne devient pas un bien', () => {
   /** Un événement n'est pas un bien — c'est déjà la règle de `capsuleDuMessage` (`SORTES_BIEN`). */
   it('🔴 un lien vers un ÉVÉNEMENT est écarté', () => {
     const liens = [lien({ cible: { sorte: 'evenement', cle: null, id: 7 }, libelle: 'GES-2026-000001' })];
-    expect(biensApresSortie(liens, '421')).toEqual([]);
+    expect(lotsApresSortie(liens, '421')).toEqual([]);
   });
 
   /** Une proposition n'est pas une décision : la reposer en exception l'aurait transformée en décision prise. */
   it('🔴 un lien PROPOSÉ et non confirmé est écarté', () => {
-    expect(biensApresSortie([lien({ cle: '155', statut: 'propose' } as Partial<LienAffiche>)], '421')).toEqual([]);
+    expect(lotsApresSortie([lien({ statut: 'propose' } as Partial<LienAffiche>)], '421')).toEqual([]);
   });
 
   /**
@@ -104,17 +159,17 @@ describe('🔴 ③ ce qui n’est pas un bien ne devient pas un bien', () => {
    */
   it('🔴🔴 un lien de PIÈCE est écarté', () => {
     const liens = [lien({ pieceId: 55, cible: { sorte: 'lot', cle: '155', id: null }, libelle: 'Carnot' })];
-    expect(biensApresSortie(liens, '421')).toEqual([]);
+    expect(lotsApresSortie(liens, '421')).toEqual([]);
   });
 
   it('⚠️ une clé vide est écartée plutôt que reposée', () => {
-    expect(biensApresSortie([lien({ cible: { sorte: 'lot', cle: '  ', id: null } })], '421')).toEqual([]);
+    expect(lotsApresSortie([lien({ cible: { sorte: 'lot', cle: '  ', id: null } })], '421')).toEqual([]);
   });
 
   /** ⚠️ UN LIBELLÉ VIDE RETOMBE SUR LA CLÉ : une ligne sans nom se relirait sans qu'on sache de quel bien on parle. */
   it('⚠️ un libellé vide retombe sur la clé', () => {
     const liens = [lien({ cible: { sorte: 'lot', cle: '155', id: null }, libelle: '   ' })];
-    expect(biensApresSortie(liens, '421')).toEqual([{ cle: '155', libelle: '155' }]);
+    expect(lotsApresSortie(liens, '421')).toEqual([{ cle: '155', libelle: '155' }]);
   });
 });
 

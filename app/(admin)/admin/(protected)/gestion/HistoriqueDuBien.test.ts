@@ -4125,6 +4125,7 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
   const M3 = ligne({ messageId: 3, filId: 12, recuLe: '2026-01-01T09:00:00Z', objet: 'Carte', source: 'carte' });
 
   let envois: { url: string; corps: Record<string, unknown> }[];
+  let suiviServi: Record<string, unknown>;
   let liensDuMail: unknown[];
   let reponseSuivi: Record<string, unknown>;
   let lignesServies: LigneHistorique[];
@@ -4141,7 +4142,22 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
       if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       if (u.includes('/historique/pieces')) return reponse(porteursDepuis(lignesServies));
       if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
-      if (u.includes('/rattachements')) return reponse({ etat: 'ok', liens: liensDuMail });
+      /**
+       * 🔴🔴 LE SUIVI DE LA CONVERSATION : c'est LUI qui dit ce que ce mail suit aujourd'hui, personnes
+       * comprises. L'écran en tire la configuration en vigueur (`projeter`) et la repose moins ce bien.
+       */
+      if (u.includes('/gestion/suivi?')) return reponse(suiviServi);
+      /**
+       * ⚠️ LE DOUBLE REND CE QUE LA **VRAIE** ROUTE REND : `{ etat, data: { "<messageId>": liens[] } }`.
+       *
+       * 🔴 MA PREMIÈRE VERSION RENDAIT `{ liens: [...] }`, c'est-à-dire la forme que j'avais SUPPOSÉE — et
+       * l'écran la lisait pareil. Les deux étaient d'accord, les épreuves passaient, et l'essai réel du
+       * 05/10/2026 a trouvé le défaut : sans `liens`, l'écran posait une exception SANS AUCUN BIEN et retirait
+       * aussi le propriétaire du mail. Un double qui recopie l'hypothèse de l'écran n'éprouve rien.
+       */
+      if (u.includes('/rattachements')) {
+        return reponse({ etat: 'ok', data: { '1': liensDuMail } });
+      }
       return reponse({
         etat: 'ok',
         data: {
@@ -4161,6 +4177,8 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
       libelle: 'Marceau — lot 155', statut: 'confirme', origine: 'manuel', parUnHumain: true,
     }];
     reponseSuivi = { ok: true, projetes: 1, trace: { filId: 10, messageId: 1, exceptionCreee: 77 } };
+    /* Par défaut : AUCUNE fenêtre ne couvre ce mail — l'écran retombe donc sur ses liens. */
+    suiviServi = { etat: 'ok', periodes: [], exceptions: [], mails: [1, 2, 3] };
     servir();
   });
 
@@ -4235,7 +4253,7 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
     expect(suivi?.corps.choix).toBe('mail');
     expect(suivi?.corps.messageId).toBe(1);
     expect(suivi?.corps.filId).toBe(10);
-    expect(suivi?.corps.classement).toEqual({ sorte: 'biens', biens: [] });
+    expect(suivi?.corps.classement).toEqual({ sorte: 'biens', biens: [], personnes: [] });
   });
 
   /** 🔴🔴 « Les autres biens éventuels du mail ne bougent pas » : ils sont REPOSÉS, donc rien ne leur arrive. */
@@ -4254,7 +4272,39 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
     await confirmer(1);
     const suivi = envois.find((e) => e.url.includes('/gestion/suivi'));
     expect(suivi?.corps.classement)
-      .toEqual({ sorte: 'biens', biens: [{ cle: '421', libelle: 'Carnot — lot 421' }] });
+      .toEqual({ sorte: 'biens', biens: [{ cle: '421', libelle: 'Carnot — lot 421' }], personnes: [] });
+  });
+
+  /**
+   * ══ 🔴🔴 LE CAS QUE L'ESSAI RÉEL A RÉVÉLÉ, ET QU'AUCUNE ÉPREUVE NE TENAIT ════════════════════════════════════
+   *
+   * Sur le mail 57471 de lot-27, une FENÊTRE couvrait le mail : deux lots et un PROPRIÉTAIRE, ce dernier posé
+   * comme INTERVENTION (« via Arnaud JOREL »). En reconstruisant le classement depuis les liens, l'écran a
+   * ① reposé le propriétaire dans `biens` — donc en « lot 45 », un autre bien — puis ② perdu l'intervention.
+   *
+   * 🔴 ON PART DONC DE LA CONFIGURATION EN VIGUEUR, et on la rend telle quelle moins ce bien.
+   */
+  it('🔴🔴 la configuration du SUIVI prime, et ses personnes sont reposées telles quelles', async () => {
+    suiviServi = {
+      etat: 'ok', mails: [1, 2, 3], exceptions: [],
+      periodes: [{
+        id: 9, depuisMessageId: 1,
+        classement: {
+          sorte: 'biens',
+          biens: [{ cle: '155', libelle: 'Marceau — lot 155' }, { cle: '421', libelle: 'Carnot — lot 421' }],
+          personnes: [{ sorte: 'proprietaire', cle: '45', libelle: 'JOREL Arnaud', contactExterneId: 12 }],
+        },
+      }],
+    };
+    await monter();
+    await confirmer(1);
+    const suivi = envois.find((e) => e.url.includes('/gestion/suivi'));
+    expect(suivi?.corps.classement).toEqual({
+      sorte: 'biens',
+      biens: [{ cle: '421', libelle: 'Carnot — lot 421' }],
+      /* 🔴 LE PROPRIÉTAIRE RESTE UNE **PERSONNE**, avec son contact — jamais un bien. */
+      personnes: [{ sorte: 'proprietaire', cle: '45', libelle: 'JOREL Arnaud', contactExterneId: 12 }],
+    });
   });
 
   /**
@@ -4296,6 +4346,28 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
     /* ⚠️ ET LA LIGNE REVIENT TELLE QUE LE SERVEUR LA CONNAÎT, jamais reconstruite de mémoire. */
     expect(objets()).toEqual(['hdb-mail-1', 'hdb-mail-2', 'hdb-mail-3']);
     expect(hote.querySelector('.hdb-fait')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LA LEÇON DE L'ESSAI RÉEL, ÉPROUVÉE : une lecture des biens qui n'aboutit pas ne doit JAMAIS se lire
+   * « ce mail n'a aucun bien ». Sans ce garde, l'écran posait une exception vide et retirait au passage tous les
+   * autres biens du mail — le contraire exact de ce qu'Arno demande.
+   */
+  it('🔴🔴 biens illisibles ⇒ AUCUNE écriture, et on le dit', async () => {
+    await monter();
+    await deplier(1);
+    await cliquer(boutonSortir(1) ?? undefined);
+    /* La route des rattachements répond « erreur » : on ne sait pas quels biens ce mail porte. */
+    const avant = global.fetch as unknown as typeof fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/rattachements')) return reponse({ etat: 'erreur' });
+      return (avant as unknown as (u: string, i?: RequestInit) => Promise<Response>)(url, init);
+    }));
+    await cliquer([...hote.querySelectorAll('.hdb-confirme-boutons button')]
+      .find((b) => (b.textContent ?? '').trim() === 'Confirmer'));
+    expect(envois.filter((e) => e.url.includes('/gestion/suivi'))).toEqual([]);
+    expect(texte()).toContain('n’ont pas pu être lus');
+    expect(objets()).toContain('hdb-mail-1');
   });
 
   /** ⚠️ UN REFUS NE FAIT RIEN DISPARAÎTRE : le mail reste, et le motif du serveur s'affiche. */

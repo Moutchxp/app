@@ -29,9 +29,11 @@ import { formaterDateIso } from '../../../../lib/gestion/annuaireRecherche';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » : les mots et la liste des biens qui restent. */
 import {
-  adresseDuBien, aideSortirDuSuivi, biensApresSortie, motConfirmationSortie, motMailSorti,
+  adresseDuBien, aideSortirDuSuivi, classementSansLeBien, motConfirmationSortie, motMailSorti,
   MOT_SORTIR_DU_SUIVI, SECONDES_ANNULER_SORTIE,
 } from '../../../../lib/gestion/sortirDuSuivi';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — `projeter` dit ce que le suivi décide POUR CE MAIL. Module pur. */
+import { projeter, type ExceptionMail, type Periode } from '../../../../lib/gestion/periodesConversation';
 import { annoncerClassement } from '../../../../lib/gestion/signalClassement';
 /* ⚠️ LE MÊME COMPTE QUE LE TROMBONE DE LA LIGNE : les « ._ » et les images de signature ne sont pas des pièces. */
 import { trierPieces } from '../../../../lib/gestion/lisibilite';
@@ -823,14 +825,52 @@ export function HistoriqueDuBien({
     setSortieEnCours(true);
     setSortieRefus(null);
     try {
-      const res = await fetch(`/api/admin/gestion/rattachements?messages=${l.messageId}`, { cache: 'no-store' });
-      const d = (await res.json().catch(() => ({}))) as { liens?: LienAffiche[] };
-      const liens = d.liens ?? [];
+      /**
+       * ══ 🔴🔴 ON PART DE CE QUE LE SUIVI DIT DE CE MAIL, PAS DE SES LIENS ══════════════════════════════════════
+       *
+       * `GET /suivi?fil=N` rend les PÉRIODES et les EXCEPTIONS de la conversation ; `projeter` — le module pur du
+       * suivi — en tire la configuration EN VIGUEUR sur ce mail, personnes et contacts extérieurs compris. C'est
+       * elle qu'on repose moins ce bien.
+       *
+       * 🔴 LES LIENS NE SONT QU'UN REPLI, pour un mail qu'aucune fenêtre ne couvre (voir `classementSansLeBien`).
+       * Les lire comme source principale a produit deux dégâts lors de l'essai réel du 05/10 — un propriétaire
+       * reposé en lot, puis son intervention perdue. L'encadré du module pur les raconte.
+       */
+      const [rSuivi, res] = await Promise.all([
+        fetch(`/api/admin/gestion/suivi?fil=${l.filId}`, { cache: 'no-store' }),
+        fetch(`/api/admin/gestion/rattachements?messages=${l.messageId}`, { cache: 'no-store' }),
+      ]);
+      const dSuivi = (await rSuivi.json().catch(() => ({}))) as {
+        etat?: string; periodes?: Periode[]; exceptions?: ExceptionMail[]; mails?: number[];
+      };
+      /**
+       * ══ 🔴🔴 LA FORME DE CETTE RÉPONSE EST `{ data: { "<messageId>": liens[] } }` ════════════════════════════
+       *
+       * 🔴 ET LA LIRE DE TRAVERS N'EST PAS SANS CONSÉQUENCE — c'est le défaut que l'essai réel du 05/10/2026 a
+       * trouvé, sur le mail 57471 de lot-27. En lisant un `liens` qui n'existe pas, on obtenait un tableau VIDE :
+       * l'exception était alors posée SANS AUCUN BIEN, et le mail perdait aussi son PROPRIÉTAIRE — exactement ce
+       * qu'Arno interdit (« les autres biens éventuels du mail ne bougent pas »). Rétabli par l'annulation.
+       *
+       * ⚠️ UNE LECTURE QUI ÉCHOUE NE DOIT DONC JAMAIS SE LIRE « ce mail n'a aucun bien » : sans liens reçus, on
+       * refuse le geste plutôt que de tout retirer. Un tableau vide est une réponse VALIDE de ce dépôt (un mail
+       * sans aucun lien), mais nous n'y arrivons que si le mail est listé ici — donc rattaché.
+       */
+      const d = (await res.json().catch(() => ({}))) as {
+        etat?: string; data?: Record<string, LienAffiche[]>;
+      };
+      const liens = d.etat === 'ok' ? (d.data?.[String(l.messageId)] ?? []) : null;
+      if (liens === null) {
+        setSortieRefus('Les biens de ce mail n’ont pas pu être lus : rien n’a été changé.');
+        return;
+      }
+      const enVigueur = dSuivi.etat !== 'ok' ? undefined : projeter(
+        dSuivi.mails ?? [], dSuivi.periodes ?? [], dSuivi.exceptions ?? [],
+      ).get(l.messageId);
       const envoi = await fetch('/api/admin/gestion/suivi', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           filId: l.filId, messageId: l.messageId, choix: 'mail',
-          classement: { sorte: 'biens', biens: biensApresSortie(liens, lotCle) },
+          classement: classementSansLeBien({ enVigueur, liens, cleDuBien: lotCle }),
         }),
       });
       const r = (await envoi.json().catch(() => ({}))) as { ok?: boolean; trace?: unknown; erreur?: string };

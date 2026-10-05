@@ -1,5 +1,6 @@
 import type { LienAffiche } from './rattachementRepo';
 import { SORTES_BIEN } from './statutClassement';
+import type { Classement } from './periodesConversation';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI », DEPUIS L'HISTORIQUE D'UN BIEN ════════════════════
@@ -64,34 +65,101 @@ export function adresseDuBien(titre: string): string {
 }
 
 /**
- * ══ 🔴🔴 LES BIENS QUI RESTENT APRÈS LA SORTIE. PUR. ═════════════════════════════════════════════════════════════
+ * ══ 🔴🔴 LE CLASSEMENT À REPOSER, SANS CE BIEN. PUR. ═════════════════════════════════════════════════════════════
  *
- * 🔴 ON PART DES LIENS **CONFIRMÉS VERS UN BIEN**, et de rien d'autre. Un lien `evenement` n'est pas un bien
- * (`SORTES_BIEN` le dit déjà pour la pastille), et une proposition non confirmée n'est pas un classement : les
- * reposer en exception aurait transformé une suggestion en décision prise.
+ * ═══ 🔴🔴 CE QU'UN ESSAI RÉEL A APPRIS, ET QUI A FAIT RÉÉCRIRE CETTE FONCTION ════════════════════════════════════
  *
- * 🔴 ET LES LIENS **DE PIÈCE** SONT ÉCARTÉS (`pieceId !== null`). Un classement de suivi porte sur le MAIL — c'est
- * ce que `sqlLiensDuBien` dit déjà de son côté (`piece_id IS NULL`). Reposer un lien de pièce en exception de
- * mail aurait élargi sa portée en silence : la pièce classée seule serait devenue un bien du mail entier.
+ * Première version : elle partait des LIENS du mail et mettait toutes les cibles dans `biens`. Essayée pour de
+ * vrai le 05/10/2026 sur le mail 57471 de lot-27, elle a produit DEUX dégâts, l'un après l'autre :
  *
- * ⚠️ SANS DOUBLON, ET DANS L'ORDRE REÇU : la route dédoublonne elle aussi (`classementRecu`), mais compter sur
- * l'autre bout pour tenir une règle est la façon dont on finit par ne la tenir nulle part.
+ *   ① le propriétaire du mail s'est retrouvé reposé comme un **LOT** — la projection écrit `cible_sorte = 'lot'`
+ *      pour tout ce qui est dans `biens`. Le mail s'est donc rattaché au « lot 45 », qui est un autre bien ;
+ *   ② et sans lui, l'INTERVENTION « via Arnaud JOREL » disparaissait : un propriétaire sur un mail n'est pas un
+ *      bien du classement, c'est une PERSONNE (`Classement.personnes`, lot CONTACTS-EXTERNES), projetée à part.
+ *
+ * Les deux essais ont été annulés et la base rétablie (liens 172539 / 172540 confirmés). La leçon tient en une
+ * phrase : **le classement d'un mail a deux axes, et ce module doit les respecter tous les deux.**
+ *
+ * ═══ 🔴 D'OÙ ON PART : CE QUE LE SUIVI DIT DÉJÀ DE CE MAIL ═══════════════════════════════════════════════════════
+ *
+ * On ne reconstruit donc PAS un classement à partir des liens : on prend celui qui est EN VIGUEUR sur ce mail
+ * (`projeter(mails, periodes, exceptions)`, le module pur du suivi), et on en retire ce bien. Tout le reste —
+ * les autres lots, les personnes, leur contact extérieur — est reposé **tel quel**, sans l'avoir retraduit.
+ *
+ * 🔴 C'EST CE QUI TIENT LA RÈGLE D'ARNO (« les autres biens éventuels du mail ne bougent pas ») : on ne les
+ * recopie pas depuis une autre source, on rend la décision qui s'applique, moins une ligne.
+ *
+ * ⚠️ AUCUNE CONFIGURATION EN VIGUEUR ⇒ `undefined` : aucune fenêtre ne couvre ce mail. Voir `classementSansLeBien`
+ * ci-dessous, qui sait alors retomber sur les liens — et pourquoi c'est sans danger.
  */
-export function biensApresSortie(
+export function classementEnVigueurSansLeBien(
+  enVigueur: Classement | undefined, cleDuBien: string,
+): Classement | undefined {
+  if (enVigueur === undefined || enVigueur.sorte !== 'biens') return undefined;
+  const cible = (cleDuBien ?? '').trim();
+  const biens = enVigueur.biens.filter((b) => (b.cle ?? '').trim() !== cible);
+  return {
+    sorte: 'biens',
+    biens,
+    /**
+     * 🔴 LES PERSONNES SONT REPOSÉES TELLES QUELLES, contact extérieur compris : les retirer de la liste les
+     * retirerait du mail (le diff d'une fenêtre retire ce qu'une fenêtre a posé).
+     *
+     * 🔴🔴 SAUF QUAND IL NE RESTE PLUS AUCUN BIEN — et ce n'est pas une précaution, c'est la règle. La base
+     * REFUSE une intervention sans lien vivant vers un bien sur le même mail (migration 293), et Arno a déjà
+     * tranché la question en toutes lettres : « une intervention ne survit pas au départ de son bien ». La
+     * projection s'en charge elle-même (`retirerInterventionsSansBien`) ; les envoyer quand même faisait
+     * REFUSER le geste entier — mesuré à l'écran le 05/10/2026, mail 57471 : « la base n'a pas répondu », et
+     * rien n'était écrit. Mieux vaut un geste qui aboutit et une cascade qui s'applique.
+     */
+    personnes: biens.length === 0 ? [] : (enVigueur.personnes ?? []),
+  };
+}
+
+/**
+ * ══ 🔴 LE REPLI : LES LOTS DU MAIL, QUAND AUCUNE FENÊTRE NE LE COUVRE. PUR. ══════════════════════════════════════
+ *
+ * 🔴 SEULEMENT LA SORTE `lot`, et c'est la correction du dégât ① ci-dessus : `Classement.biens` se projette en
+ * `cible_sorte = 'lot'`. Y glisser un propriétaire ou un locataire écrirait un bien qui n'existe pas.
+ *
+ * 🔴 ET AUCUNE PERSONNE N'EST REPOSÉE DANS CE CAS, ce qui est sans danger : une intervention ne peut avoir été
+ * posée que par une fenêtre (motif « intervention posée par le suivi »), et il n'y en a aucune ici — le diff ne
+ * retirera donc rien. Les reposer aurait demandé de deviner leur contact extérieur, que les liens ne portent pas.
+ *
+ * ⚠️ LES LIENS DE PIÈCE SONT ÉCARTÉS (`pieceId !== null`) : un classement de suivi porte sur le MAIL, c'est ce que
+ * `sqlLiensDuBien` dit déjà de son côté. Reposer un lien de pièce aurait élargi sa portée en silence.
+ *
+ * ⚠️ ET LES PROPOSITIONS NON CONFIRMÉES AUSSI : une suggestion que personne n'a validée n'est pas une décision.
+ */
+export function lotsApresSortie(
   liens: readonly LienAffiche[], cleDuBien: string,
 ): { cle: string; libelle: string }[] {
   const cible = (cleDuBien ?? '').trim();
   const vus = new Set<string>();
   const restants: { cle: string; libelle: string }[] = [];
   for (const l of liens) {
-    if (l.statut !== 'confirme' || l.pieceId !== null) continue;
-    if (!SORTES_BIEN.includes(l.cible.sorte)) continue;
+    if (l.statut !== 'confirme' || l.pieceId !== null || l.cible.sorte !== 'lot') continue;
     const cle = (l.cible.cle ?? '').trim();
     if (cle === '' || cle === cible || vus.has(cle)) continue;
     vus.add(cle);
     restants.push({ cle, libelle: (l.libelle ?? '').trim() === '' ? cle : l.libelle.trim() });
   }
   return restants;
+}
+
+/**
+ * ══ 🔴🔴 LE CLASSEMENT FINAL — UNE SEULE PORTE POUR L'ÉCRAN. PUR. ═══════════════════════════════════════════════
+ *
+ * La configuration en vigueur quand il y en a une ; les lots du mail sinon. L'écran n'a pas à choisir.
+ */
+export function classementSansLeBien(o: {
+  enVigueur: Classement | undefined;
+  liens: readonly LienAffiche[];
+  cleDuBien: string;
+}): Classement {
+  const duSuivi = classementEnVigueurSansLeBien(o.enVigueur, o.cleDuBien);
+  if (duSuivi !== undefined) return duSuivi;
+  return { sorte: 'biens', biens: lotsApresSortie(o.liens, o.cleDuBien), personnes: [] };
 }
 
 /** Ce mail est-il seulement RATTACHÉ à ce bien ? Sinon le bouton n'a rien à retirer, et ne s'affiche pas. */
