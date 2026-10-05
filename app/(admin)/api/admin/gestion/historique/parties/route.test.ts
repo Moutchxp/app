@@ -140,11 +140,14 @@ describe('🔴 ce qu’elle refuse', () => {
 
 describe('🔴🔴 ce qu’elle écrit', () => {
   it('🔴 le rangement part avec la clé du bien, l’adresse et la catégorie', async () => {
-    await POST(poste({ ...BASE, nom: ' Sophie AXA ', telephone: ' 06 11 22 33 44 ' }));
+    await POST(poste({ ...BASE, nom: ' Sophie AXA ', telephone: ' 06 11 22 33 44 ', coordonnees: [] }));
     expect(poserCategorieMock.mock.calls[0][0]).toMatchObject({
       adresse: 'assureur@fictif.test', lotCle: '155', categorie: 'locataire',
     });
-    /* ⚠️ LES BLANCS SONT COUPÉS : « Sophie AXA » et non « Sophie AXA » avec ses espaces. */
+    /* ⚠️ LES BLANCS SONT COUPÉS : « Sophie AXA » et non « Sophie AXA » avec ses espaces.
+       🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 1 — LE CORPS PORTE DÉSORMAIS UN CHAMP DE FICHE (`coordonnees`), parce
+       que c'est LUI qui dit « on crée une carte ». Sans fiche, ce même corps ne pose plus rien : c'est tout le
+       point 1, et le groupe qui suit l'éprouve. */
     expect(poserCarteMock.mock.calls[0][0]).toMatchObject({
       lotCle: '155', cote: 'locataire', adresse: 'assureur@fictif.test',
       nom: 'Sophie AXA', telephone: '06 11 22 33 44',
@@ -153,7 +156,7 @@ describe('🔴🔴 ce qu’elle écrit', () => {
 
   /** 🔴 LE CÔTÉ DE LA CARTE VIENT DE `coteDeLaCategorie`, le juge du rangement — jamais d'un `if` écrit ici. */
   it('🔴 une catégorie « propriétaire » range la carte du côté propriétaire', async () => {
-    await POST(poste({ ...BASE, categorie: 'proprietaire', nom: 'M. ROI' }));
+    await POST(poste({ ...BASE, categorie: 'proprietaire', nom: 'M. ROI', coordonnees: [] }));
     expect(poserCarteMock.mock.calls[0][0].cote).toBe('proprietaire');
   });
 
@@ -170,8 +173,16 @@ describe('🔴🔴 ce qu’elle écrit', () => {
   });
 
   /** ⚠️ NOM ET TÉLÉPHONE SONT FACULTATIFS : une carte nue, à compléter, vaut mieux que pas de rangement. */
-  it('⚠️ sans nom ni téléphone, la carte est posée quand même', async () => {
-    await POST(poste(BASE));
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 1 — LE VERDICT A CHANGÉ, ET C'EST LE DÉFAUT D'ARNO.
+   *
+   * Ce cas disait « sans nom ni téléphone, la carte est posée quand même ». C'était vrai, et c'était le bug :
+   * un geste qui ne parle que de CATÉGORIE fabriquait une carte. Arno : « Une carte de contact n'est créée QUE
+   * par le “+” ». Une fiche VIDE (`coordonnees: []`) suffit à dire « le formulaire a été rempli » — c'est la
+   * présence du champ qui compte, pas son contenu.
+   */
+  it('🔴🔴 UNE FICHE, MÊME VIDE, CRÉE LA CARTE — c’est le « + » qui parle', async () => {
+    await POST(poste({ ...BASE, coordonnees: [] }));
     expect(poserCarteMock.mock.calls[0][0]).toMatchObject({ nom: null, telephone: null });
   });
 });
@@ -193,7 +204,7 @@ describe('🔴🔴 ce qu’elle fait quand le dépôt refuse', () => {
    */
   it('🔴🔴 carte refusée ⇒ le rangement tient, et le refus de la carte est rendu', async () => {
     poserCarteMock.mockResolvedValue({ ok: false, motif: 'Sans la migration 304, aucune carte.' });
-    const r = await POST(poste(BASE));
+    const r = await POST(poste({ ...BASE, coordonnees: [] }));
     expect(r.status).toBe(200);
     const d = await r.json();
     expect(d.etat).toBe('ok');
@@ -275,7 +286,7 @@ describe('🔴🔴 la carte de contact suit la catégorie', () => {
   /** ⚠️ …SAUF SI LE GESTE APPORTE UN NOM OU UN TÉLÉPHONE : c'est alors une mise à jour voulue. */
   it('⚠️ un nom fourni met à jour la carte déjà du bon côté', async () => {
     cartesMock.mockResolvedValue([carte({ cote: 'locataire', id: 71 })]);
-    const r = await POST(poste({ ...BASE, categorie: 'locataire', nom: 'Sophie A.' }));
+    const r = await POST(poste({ ...BASE, categorie: 'locataire', nom: 'Sophie A.', coordonnees: [] }));
     expect(poserCarteMock.mock.calls[0][0].nom).toBe('Sophie A.');
     /* …mais elle n'est toujours pas « posée » : elle existait. */
     expect((await r.json()).geste.cartesPosees).toEqual([]);
@@ -299,7 +310,7 @@ describe('🔴🔴 le geste est rendu, et « Annuler » le défait', () => {
     poserCategorieMock.mockResolvedValue({ ok: true, id: 101, nb: 1, retires: [100] });
     cartesMock.mockResolvedValue([]);
     poserCarteMock.mockResolvedValue({ ok: true, id: 202, nb: 1 });
-    const d = await (await POST(poste({ ...BASE, categorie: 'locataire' }))).json();
+    const d = await (await POST(poste({ ...BASE, categorie: 'locataire', coordonnees: [] }))).json();
     expect(d.geste).toEqual({
       categoriesPosees: [101], categoriesRetirees: [100], cartesPosees: [202], cartesRetirees: [],
     });
@@ -533,12 +544,25 @@ describe('🔴🔴 la fiche d’un contact, du corps de la requête jusqu’au d
    * effacé (au crayon) ou tenté d'écrire sept colonnes peut-être absentes. Un script, ou un écran d'avant ce lot,
    * garde donc exactement l'effet qu'il avait.
    */
-  it('🔴🔴 SANS AUCUN CHAMP DE FICHE, LE DÉPÔT N’EN REÇOIT AUCUNE — l’effet du lot 7, à la lettre', async () => {
-    await POST(poste({ ...BASE, nom: 'ROSKY', telephone: '01 41 21 43 31' }));
-    expect((poserCarteMock.mock.calls[0][0] as { fiche?: unknown }).fiche).toBeUndefined();
-
+  it('🔴🔴 SANS AUCUN CHAMP DE FICHE, LE CRAYON N’EN REÇOIT AUCUNE — l’effet du lot 7, à la lettre', async () => {
     await POST(poste({ action: 'modifier', id: 1463, nom: 'ROSKY', telephone: '01 41 21 43 31' }));
     expect((modifierCarteMock.mock.calls[0][0] as { fiche?: unknown }).fiche).toBeUndefined();
+  });
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 1 — LE RANGEMENT, LUI, NE POSE PLUS RIEN SANS FICHE ═════════════════
+   *
+   * Ce cas vérifiait, pour le rangement, que le dépôt ne recevait pas de fiche. Il ne reçoit plus rien DU TOUT :
+   * un geste qui ne parle que de catégorie ne crée pas de carte (règle d'Arno). Le cas dit donc maintenant la
+   * chose plus forte — et c'est celle qui compte.
+   *
+   * ⚠️ QUAND UNE CARTE EXISTE ET QU'ELLE DOIT SUIVRE, le dépôt reçoit bien une fiche : celle de l'ANCIENNE carte,
+   * recopiée pour que le déplacement ne lui fasse rien perdre (règle du lot 8). C'est le cas d'à côté.
+   */
+  it('🔴🔴 LE RANGEMENT SANS FICHE ET SANS CARTE NE POSE RIEN', async () => {
+    cartesMock.mockResolvedValue([]);
+    await POST(poste({ ...BASE, nom: 'ROSKY', telephone: '01 41 21 43 31' }));
+    expect(poserCarteMock).not.toHaveBeenCalled();
   });
 
   /**
@@ -615,7 +639,7 @@ describe('🔴🔴 la fiche d’un contact, du corps de la requête jusqu’au d
 describe('🔴🔴 le geste d’une proposition validée se défait exactement', () => {
   it('🔴🔴 LA CARTE NEUVE EST « POSÉE », LA PROPOSITION EST « RETIRÉE »', async () => {
     poserCarteMock.mockResolvedValue({ ok: true, id: 1470, nb: 1, retires: [480] });
-    const r = await POST(poste({ ...BASE, nom: 'TADEU' }));
+    const r = await POST(poste({ ...BASE, nom: 'TADEU', coordonnees: [] }));
     const d = await r.json();
     expect(d.geste.cartesPosees).toEqual([1470]);
     expect(d.geste.cartesRetirees).toEqual([480]);
@@ -632,8 +656,90 @@ describe('🔴🔴 le geste d’une proposition validée se défait exactement',
       qualite: null, adressePostale: null, codePostal: null, commune: null, coordonnees: [],
     }]);
     poserCarteMock.mockResolvedValue({ ok: true, id: 1465, nb: 1, retires: [] });
-    const r = await POST(poste({ ...BASE, nom: 'BRUNEEL' }));
+    const r = await POST(poste({ ...BASE, nom: 'BRUNEEL', coordonnees: [] }));
     const d = await r.json();
+    expect(d.geste.cartesPosees).toEqual([]);
+    expect(d.geste.cartesRetirees).toEqual([]);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 1 — DÉPLACER N'EST PAS CRÉER ══════════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (05/10/2026) : « glisser une capsule vers une autre catégorie crée automatiquement une carte
+ * dans le carrousel du haut ». SA RÈGLE : « la catégorie (bloc Parties) et la carte (carrousel) sont deux choses
+ * distinctes. Une carte de contact n'est créée QUE par le “+” (ou par “Ajouter un contact”). »
+ *
+ * LA CAUSE, DIAGNOSTIQUÉE DANS LA PORTE : une seule condition, `aCreer = dejaBonCote === undefined`, vraie dès
+ * que le côté d'arrivée n'avait pas de carte — c'est-à-dire pour TOUS les gestes de rangement, puisqu'ils passent
+ * tous par ce même POST. Le glisser fabriquait donc une carte, et le « + » de la capsule disparaissait au
+ * passage : on perdait le geste qui crée pour de bon.
+ *
+ * CE QUI LES DISTINGUE : le « + » envoie une FICHE, un déplacement n'envoie que l'adresse et la catégorie.
+ * Les trois chemins d'Arno — glisser, « Déplacer vers… », « Changer de côté » — sont le MÊME corps de requête,
+ * et c'est pour cela qu'une seule correction les couvre tous.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴🔴 un déplacement ne crée jamais de carte', () => {
+  const carteDe = (cote: string, id = 70) => ({
+    id, lotCle: '155', cote, adresse: 'assureur@fictif.test', nom: 'Sophie AXA',
+    telephone: '06 11 22 33 44', origine: 'manuel', verifieLe: null, verifiePar: null, note: null,
+    civilite: null, prenom: null, qualite: null, adressePostale: null, codePostal: null,
+    commune: null, coordonnees: [],
+  });
+
+  /** ① SANS CARTE : le contact change de catégorie, et AUCUNE carte ne naît. Le « + » reste donc affiché. */
+  it('🔴🔴 ① SANS CARTE — rien n’est posé, et la catégorie change quand même', async () => {
+    cartesMock.mockResolvedValue([]);
+    const r = await POST(poste({ ...BASE, categorie: 'proprietaire' }));
+    expect((await r.json()).etat).toBe('ok');
+    /* 🔴 LA CATÉGORIE, ELLE, EST BIEN POSÉE : c'est tout ce qu'un déplacement fait. */
+    expect(poserCategorieMock.mock.calls[0][0].categorie).toBe('proprietaire');
+    expect(poserCarteMock).not.toHaveBeenCalled();
+    expect(retirerCarteMock).not.toHaveBeenCalled();
+  });
+
+  /** ② AVEC UNE CARTE DE L'AUTRE CÔTÉ : elle SUIT le contact, et l'ancienne est retirée. */
+  it('🔴🔴 ② AVEC UNE CARTE — elle suit le contact, et l’ancienne est retirée', async () => {
+    cartesMock.mockResolvedValue([carteDe('locataire', 71)]);
+    const r = await POST(poste({ ...BASE, categorie: 'proprietaire' }));
+    expect((await r.json()).etat).toBe('ok');
+    expect(retirerCarteMock.mock.calls[0][0].id).toBe(71);
+    expect(poserCarteMock.mock.calls[0][0]).toMatchObject({ cote: 'proprietaire', nom: 'Sophie AXA' });
+  });
+
+  /**
+   * ③ VERS TIERS INDÉPENDANT (ou « Non affectés ») : la carte QUITTE les carrousels, statut 'retire', motif
+   * tracé — et rien n'est posé de l'autre côté, puisqu'un indépendant n'a pas de côté.
+   */
+  it('🔴🔴 ③ VERS TIERS INDÉPENDANT — la carte quitte le carrousel, rien n’est supprimé', async () => {
+    cartesMock.mockResolvedValue([carteDe('locataire', 71)]);
+    const r = await POST(poste({ ...BASE, categorie: 'independant' }));
+    expect((await r.json()).etat).toBe('ok');
+    expect(retirerCarteMock.mock.calls[0][0].id).toBe(71);
+    expect(retirerCarteMock.mock.calls[0][0].motif).toContain('independant');
+    expect(poserCarteMock).not.toHaveBeenCalled();
+  });
+
+  /** ④ ET LE « + », LUI, CRÉE — c'est le seul geste qui le fasse, et il se reconnaît à sa fiche. */
+  it('🔴🔴 ④ LE « + » CRÉE, parce qu’il envoie une fiche', async () => {
+    cartesMock.mockResolvedValue([]);
+    await POST(poste({ ...BASE, nom: 'AXA', coordonnees: [{ sorte: 'email', valeur: 'a@x.test' }] }));
+    expect(poserCarteMock).toHaveBeenCalled();
+    expect((poserCarteMock.mock.calls[0][0] as { fiche?: { coordonnees?: unknown[] } }).fiche?.coordonnees)
+      .toEqual([{ sorte: 'email', valeur: 'a@x.test', libelle: null }]);
+  });
+
+  /**
+   * ⚠️ UNE CARTE DÉJÀ DU BON CÔTÉ N'EST NI REPOSÉE NI RETIRÉE par un déplacement vers sa propre catégorie :
+   * le geste ne change rien, et il ne doit donc rien écrire. C'est aussi ce qui garde « Annuler » exact.
+   */
+  it('⚠️ DÉPLACER VERS SA PROPRE CATÉGORIE N’ÉCRIT AUCUNE CARTE', async () => {
+    cartesMock.mockResolvedValue([carteDe('locataire', 71)]);
+    const d = await (await POST(poste({ ...BASE, categorie: 'locataire' }))).json();
+    expect(poserCarteMock).not.toHaveBeenCalled();
+    expect(retirerCarteMock).not.toHaveBeenCalled();
     expect(d.geste.cartesPosees).toEqual([]);
     expect(d.geste.cartesRetirees).toEqual([]);
   });

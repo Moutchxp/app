@@ -293,8 +293,40 @@ async function faireSuivreLaCarte(o: {
       adressePostale: ancienne.adressePostale, codePostal: ancienne.codePostal, commune: ancienne.commune,
       note: ancienne.note, coordonnees: ancienne.coordonnees,
     });
+    /**
+     * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 1 — DÉPLACER N'EST PAS CRÉER ═══════════════════════════════════════
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+     * CONSTAT D'ARNO (05/10/2026) : « glisser une capsule vers une autre catégorie crée automatiquement une
+     * carte dans le carrousel du haut ». SA RÈGLE : « la catégorie (bloc Parties) et la carte (carrousel) sont
+     * deux choses distinctes. Une carte de contact n'est créée QUE par le “+” (ou par “Ajouter un contact”). »
+     *
+     * 🔴 LA CAUSE ÉTAIT ICI, ET C'ÉTAIT UNE SEULE CONDITION : `aCreer = dejaBonCote === undefined`. Elle était
+     * vraie dès que le côté d'arrivée n'avait pas de carte — c'est-à-dire pour TOUS les gestes de rangement, le
+     * glisser compris, puisqu'ils passent tous par cette même porte. Un geste qui ne parle que de CATÉGORIE
+     * fabriquait donc une carte, et le « + » de la capsule disparaissait au passage : on perdait le geste qui
+     * crée pour de bon.
+     *
+     * 🔴 CE QUI DISTINGUE LES DEUX, ET C'EST LE CORPS DE LA REQUÊTE QUI LE DIT : le « + » (comme « Ajouter un
+     * contact ») envoie une FICHE — les champs du formulaire. Un glisser, un « Déplacer vers… » ou un « Changer
+     * de côté » n'envoient que l'adresse et la catégorie. La création se lit donc dans l'intention exprimée, et
+     * non dans l'état d'arrivée.
+     *
+     * LES TROIS CAS, ET ILS SONT TOUS LÀ :
+     *   · UNE FICHE EST ENVOYÉE  → on pose (c'est le « + ») ;
+     *   · UNE CARTE EXISTE DE L'AUTRE CÔTÉ → on la repose de ce côté-ci : **elle suit le contact**, et
+     *     l'ancienne a déjà été retirée quelques lignes plus haut ;
+     *   · NI L'UN NI L'AUTRE → **on ne pose rien**, et le « + » reste affiché en face de la capsule.
+     *
+     * ⚠️ `o.nom` ET `o.telephone` NE DÉCLENCHENT PLUS RIEN NON PLUS. Ils venaient du petit formulaire du lot 6,
+     * remplacé au lot 8 par le formulaire complet : aujourd'hui, seul un envoi AVEC fiche les accompagne. Les
+     * garder comme déclencheurs aurait laissé une seconde porte ouverte, qu'aucun écran n'emprunte plus.
+     * ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+     */
+    const creationDemandee = o.fiche !== undefined;
+    const carteQuiSuit = aDeplacer.length > 0;
     const aCreer = dejaBonCote === undefined;
-    if (aCreer || o.nom !== null || o.telephone !== null || o.fiche !== undefined) {
+    if (creationDemandee || carteQuiSuit) {
       const r = await poserCarteAlaMain({
         lotCle: o.lotCle, cote, adresse: o.adresse, nom, telephone, fiche, auteur: o.auteur,
       });
