@@ -11,6 +11,9 @@
  * faire (relire la liste, afficher un bandeau, rendre le focus).
  */
 
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — l'étoile écrite ici est annoncée à tous les écrans montés. */
+import { annoncerEtoile } from '../../../../lib/gestion/signalEtoile';
+
 /** Ce qu'un geste rapporte. `ok` dit s'il a eu lieu ; `message` est TOUJOURS lisible par un humain. */
 export interface IssueGeste { ok: boolean; message: string }
 
@@ -28,6 +31,73 @@ export async function marquerLectureLigne(filId: number, lu: boolean): Promise<I
     return { ok: true, message: lu ? 'Échange marqué comme lu.' : 'Échange marqué comme non lu.' };
   } catch {
     return { ok: false, message: 'Marquage impossible : le serveur n’a pas répondu.' };
+  }
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ÉTOILE D'UN ÉCHANGE : **LA** PORTE D'ÉCRITURE ═══════════════════════
+ *
+ * RÈGLE D'ARNO (05/10/2026) : « C'est la MÊME fonction et le MÊME état que l'étoile de la barre de survol des
+ * lignes et que l'étoile rouge affichée sur la ligne : une seule porte d'écriture, un seul état. Cliquer l'une
+ * allume ou éteint les trois en direct (ligne, barre de survol, mail ouvert), dans les deux sens. »
+ *
+ * 🔴 ELLE EXISTAIT DÉJÀ, MAIS RECOPIÉE DANS L'ÉCRAN. `BoiteMail` appelait `/fils/[id]/etoile` depuis son propre
+ * `fetch`, ce qui était invisible tant qu'un seul écran cliquait. En ajouter un second aurait fait deux appels
+ * recopiés — et le jour où l'un gagnerait un garde, un journal ou un repli, l'autre ne l'aurait pas.
+ *
+ * 🔴 ELLE ANNONCE CE QUE LE SERVEUR A CONFIRMÉ, et c'est ce qui tient « un seul état ». La réponse porte
+ * `etoilee` tel que Gmail l'a accepté ; le signal le rediffuse à tous les écrans montés. Annoncer l'état DEMANDÉ
+ * aurait allumé les trois étoiles sur un geste refusé.
+ *
+ * ⚠️ RIEN N'EST ANNONCÉ EN CAS D'ÉCHEC : l'appelant reçoit `ok: false` et son message, et c'est à lui — celui qui
+ * a cliqué — de se remettre droit. Les autres écrans n'ont rien vu, ce qui est exact : rien n'a changé.
+ *
+ * ⚠️ `touches` VOYAGE QUAND LE SERVEUR LE DONNE : retirer l'étoile d'un échange la retire de TOUS ses messages
+ * étoilés (règle de `basculerEtoileDuFil`), et le nombre est la seule façon de dire qu'un échec partiel a laissé
+ * l'échange dans le filtre.
+ */
+export interface IssueEtoile extends IssueGeste {
+  /** L'état CONFIRMÉ par le serveur. `null` quand le geste n'a pas eu lieu. */
+  etoilee: boolean | null;
+  touches: number;
+}
+
+export async function gesteEtoileFil(filId: number, etoilee: boolean): Promise<IssueEtoile> {
+  try {
+    const res = await fetch(`/api/admin/gestion/fils/${filId}/etoile`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etoilee }),
+    });
+    const d = (await res.json().catch(() => ({}))) as {
+      ok?: boolean; etoilee?: boolean; touches?: number; erreur?: string;
+    };
+    if (!res.ok || d.ok !== true || typeof d.etoilee !== 'boolean') {
+      return { ok: false, etoilee: null, touches: 0, message: d.erreur ?? 'Étoile impossible.' };
+    }
+    annoncerEtoile({ filId, etoilee: d.etoilee });
+    return {
+      ok: true, etoilee: d.etoilee, touches: d.touches ?? 0,
+      message: d.etoilee ? 'Étoile posée.' : 'Étoile retirée.',
+    };
+  } catch {
+    return { ok: false, etoilee: null, touches: 0, message: 'Étoile impossible : le serveur n’a pas répondu.' };
+  }
+}
+
+/**
+ * CE QUE LE SERVEUR SAIT DE L'ÉTOILE D'UN ÉCHANGE — pour un écran qui ne tient pas la liste (la conversation).
+ *
+ * ⚠️ `disponible: false` VEUT DIRE « LE GESTE N'EST PAS POSSIBLE » (migration 277 absente, ou lecture en échec),
+ * et l'écran n'affiche alors AUCUNE étoile — plutôt qu'une étoile éteinte, qui dirait faussement « cet échange
+ * n'est pas suivi ». C'est déjà la règle de la barre de survol (`etoileDisponible`).
+ */
+export async function lireEtoileFil(filId: number): Promise<{ etoilee: boolean; disponible: boolean }> {
+  try {
+    const res = await fetch(`/api/admin/gestion/fils/${filId}/etoile`, { cache: 'no-store' });
+    const d = (await res.json().catch(() => ({}))) as { etoilee?: boolean; disponible?: boolean };
+    if (!res.ok || d.disponible !== true) return { etoilee: false, disponible: false };
+    return { etoilee: d.etoilee === true, disponible: true };
+  } catch {
+    return { etoilee: false, disponible: false };
   }
 }
 

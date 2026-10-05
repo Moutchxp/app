@@ -4,6 +4,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { BoiteMail } from './BoiteMail';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — « les trois en direct » : la ligne écoute ce que les autres écrivent. */
+import { annoncerEtoile } from '../../../../lib/gestion/signalEtoile';
 
 /**
  * LOT LISTE-GMAIL — LA BARRE D'ACTIONS D'UNE LIGNE, MONTÉE POUR DE VRAI.
@@ -71,8 +73,17 @@ beforeEach(() => {
     const u = String(url);
     const methode = init?.method ?? 'GET';
     if (methode !== 'GET') {
-      ecritures.push({ url: u, methode, corps: JSON.parse(String(init?.body ?? 'null')) });
-      return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+      const corps = JSON.parse(String(init?.body ?? 'null')) as { etoilee?: boolean } | null;
+      ecritures.push({ url: u, methode, corps });
+      /**
+       * ⚠️ LE DOUBLE REND CE QUE LA VRAIE ROUTE REND, `etoilee` COMPRIS. Elle l'a toujours rendu
+       * (`{ ok: true, etoilee, touches }`) ; le double, lui, se contentait d'un `{ ok: true }`. Depuis le lot
+       * HISTORIQUE-BIEN-12 point 2, la porte d'écriture ANNONCE l'état CONFIRMÉ aux autres écrans et refuse donc
+       * une réponse qui ne le dit pas — un double trop pauvre faisait échouer un geste parfaitement valide.
+       */
+      return {
+        ok: true, json: async () => ({ ok: true, etoilee: corps?.etoilee === true, touches: 1 }),
+      } as unknown as Response;
     }
     if (u.includes('/boite/comptes')) return { ok: true, json: async () => comptes } as unknown as Response;
     // LOT BARRE-STATUT — les rattachements de l'échange, tels que la fenêtre « Visualiser / Modifier » les demande.
@@ -743,5 +754,41 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     // LOT FICHE-RATTACHEMENT — et la FICHE du même échange, dans la même route.
     /* 🔴🔴 ET AVEC LE MAIL DE LA LIGNE : c'est lui qui décide des biens montrés et de l'en-tête. */
     expect(appels.some((u) => u.includes('/rattachements?fiche=7&message=8123'))).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — LA LIGNE ÉCOUTE LES DEUX AUTRES ÉTOILES
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 l’étoile de la ligne suit celle du mail ouvert', () => {
+  /**
+   * RÈGLE D'ARNO (05/10/2026) : « Cliquer l'une allume ou éteint les trois en direct (ligne, barre de survol,
+   * mail ouvert), dans les deux sens. »
+   *
+   * 🔴 LE MAIL OUVERT VIT DANS `Conversation`, montée À CÔTÉ de cette liste (écran partagé : `GestionVue` ;
+   * plein écran : `PleinEcranBoite`), jamais dedans. C'est le signal qui les relie — voir `signalEtoile`.
+   */
+  it('🔴🔴 une étoile posée depuis le mail ouvert allume la ligne, en direct', async () => {
+    await monter();
+    expect(container.querySelector('.bte-etoile')).toBeNull();
+    await act(async () => { annoncerEtoile({ filId: 7, etoilee: true }); });
+    expect(container.querySelector('.bte-etoile')).not.toBeNull();
+  });
+
+  /** 🔴 ET DANS L'AUTRE SENS : décrocher depuis le mail ouvert éteint la ligne. */
+  it('🔴 une étoile décrochée depuis le mail ouvert éteint la ligne', async () => {
+    ligneCourante = LIGNE({ etoilee: true });
+    await monter();
+    expect(container.querySelector('.bte-etoile')).not.toBeNull();
+    await act(async () => { annoncerEtoile({ filId: 7, etoilee: false }); });
+    expect(container.querySelector('.bte-etoile')).toBeNull();
+  });
+
+  /** ⚠️ L'ÉTOILE D'UN AUTRE ÉCHANGE NE TOUCHE PAS CELLE-CI : chaque ligne n'écoute que la sienne. */
+  it('⚠️ l’étoile d’un autre échange ne change rien à cette ligne', async () => {
+    await monter();
+    await act(async () => { annoncerEtoile({ filId: 99999, etoilee: true }); });
+    expect(container.querySelector('.bte-etoile')).toBeNull();
   });
 });

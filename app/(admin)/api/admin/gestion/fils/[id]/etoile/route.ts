@@ -4,7 +4,9 @@ import { query } from '../../../../../../../lib/db/client';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import { poserEtoile } from '../../../../../../../lib/gestion/etoileRepo';
 import { basculerEtoileDuFil, type DepsEtoileFil } from '../../../../../../../lib/gestion/etoileFil';
-import { ecrireEtoileMessage, messagesEtoilesDuFil } from '../../../../../../../lib/gestion/etoileGmailRepo';
+import {
+  ecrireEtoileMessage, filsEtoiles, messagesEtoilesDuFil,
+} from '../../../../../../../lib/gestion/etoileGmailRepo';
 import { lireAncrage, memoriserAncrage } from '../../../../../../../lib/gestion/gmailRepo';
 import { peutEnvoyerAuNomDeGestion } from '../../../../../../../lib/gestion/gardeEnvoi';
 import { chercherParMessageId, modifierLibelles } from '../../../../../../../lib/gestion/google';
@@ -40,6 +42,8 @@ import { etoileGmailDisponible } from '../../../../../../../lib/gestion/schema';
  * postes ne peuvent donc pas se croiser et laisser l'étoile dans l'état contraire de ce que les deux voulaient.
  */
 export const runtime = 'nodejs';
+
+const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
 
 /** Le câblage RÉEL. Tout est injecté dans `basculerEtoileDuFil`, qui s'éprouve ainsi sans toucher à Gmail. */
 function deps(request: Request): DepsEtoileFil {
@@ -79,6 +83,46 @@ function deps(request: Request): DepsEtoileFil {
           auteur.id, auteur.libelle]);
     },
   };
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — CE QUE LE SERVEUR SAIT DE L'ÉTOILE DE CET ÉCHANGE ════════════════════
+ *
+ * RÈGLE D'ARNO : « une seule porte d'écriture, un seul état ». La porte d'écriture était déjà ici ; il manquait
+ * la LECTURE, parce qu'un seul écran affichait l'étoile — la liste, qui la reçoit avec ses lignes
+ * (`boiteRepo.etoilee`). La conversation, elle, est montée à côté de la liste et n'en reçoit rien.
+ *
+ * 🔴 ELLE RÉPOND PAR LA MÊME RÈGLE QUE LA LISTE, PAR LE MÊME DÉPÔT : `filsEtoiles`, c'est-à-dire « au moins un
+ * message de l'échange porte une étoile », exactement comme `sqlEtoile` dans `boiteRepo`. Une seconde définition
+ * ici aurait fini par allumer l'étoile du mail ouvert sur un échange que la liste montre éteint.
+ *
+ * ⚠️ `disponible: false` SANS LA MIGRATION 277 : le geste n'est pas possible, et l'écran n'affiche alors AUCUNE
+ * étoile plutôt qu'une étoile éteinte — qui dirait faussement « cet échange n'est pas suivi ». C'est déjà ce que
+ * fait la barre de survol (`etoileDisponible`).
+ *
+ * 🔒 MÊME DROIT QUE L'ÉCRITURE, relu en base. `private, no-store` : l'état d'un échange n'est pas une page.
+ */
+export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
+  const refus = await exigerCompteActif(request, 'gestion');
+  if (refus) return refus;
+
+  const { id } = await ctx.params;
+  const filId = Number(id);
+  if (!Number.isInteger(filId) || filId <= 0) {
+    return Response.json({ erreur: 'Échange inconnu.' }, { status: 400, headers: ENTETES });
+  }
+
+  try {
+    if (!(await etoileGmailDisponible())) {
+      return Response.json({ etoilee: false, disponible: false }, { headers: ENTETES });
+    }
+    const etoiles = await filsEtoiles([filId]);
+    return Response.json({ etoilee: etoiles.has(filId), disponible: true }, { headers: ENTETES });
+  } catch (e) {
+    /* Pas de catch muet qui rendrait « éteinte » : une panne et un échange non suivi ne sont pas la même chose. */
+    console.error('[api/admin/gestion/fils/etoile] lecture impossible', e);
+    return Response.json({ etoilee: false, disponible: false }, { status: 503, headers: ENTETES });
+  }
 }
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {

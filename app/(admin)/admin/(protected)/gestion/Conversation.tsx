@@ -4,7 +4,12 @@ import { chargerCorpsDuMessage } from './chargerCorps';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la corbeille d'UN message : même route, même journal, même
    synchronisation Gmail que celle d'un échange. Seule la désignation change. */
-import { gesteCorbeilleMessage } from './gestesLigne';
+import { gesteCorbeilleMessage, gesteEtoileFil, lireEtoileFil } from './gestesLigne';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — LE MÊME DESSIN D'ÉTOILE que la ligne et sa barre de survol. Une seconde
+   étoile dessinée ici aurait fini par ne plus ressembler aux deux autres — et la ressemblance EST l'information. */
+import { Etoile } from './BarreLigne';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — « les trois en direct » : ligne, barre de survol, mail ouvert. */
+import { ecouterEtoile } from '../../../../lib/gestion/signalEtoile';
 import { DELTA_FIL_CORBEILLE, DELTA_FIL_RESTAURE } from '../../../../lib/gestion/compteursColonne';
 import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../../../lib/gestion/carteRepo';
 import {
@@ -400,6 +405,51 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * quelqu'un de l'équipe peut étoiler depuis son téléphone pendant qu'on regarde l'écran.
    */
   const [gmail, setGmail] = useState<Map<number, { etoile: boolean; nonLu: boolean } | null>>(new Map());
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ÉTOILE DE L'ÉCHANGE, CELLE DE LA LISTE ════════════════════════════
+   *
+   * RÈGLE D'ARNO (05/10/2026) : « C'est la MÊME fonction et le MÊME état que l'étoile de la barre de survol des
+   * lignes et que l'étoile rouge affichée sur la ligne : une seule porte d'écriture, un seul état. »
+   *
+   * 🔴 CE N'EST DONC **PAS** `gmail` (juste au-dessus), et la différence est la raison d'être de cet état. `gmail`
+   * porte l'étoile de CHAQUE message, telle que Gmail la rend message par message ; la ligne de la liste, elle,
+   * est étoilée dès qu'AU MOINS UN message de l'échange l'est (`boiteRepo.sqlEtoile`, décision d'Arno au lot
+   * ETOILE-ET-SIGNATURE). Afficher `gmail` dans le bloc d'en-tête aurait donné une étoile éteinte sur un échange
+   * que la liste montre allumé — deux étoiles, deux états, exactement ce qu'Arno interdit.
+   *
+   * ⚠️ `disponible: false` ⇒ AUCUNE ÉTOILE AFFICHÉE (migration 277 absente, ou lecture en échec) : une étoile
+   * éteinte dirait faussement « cet échange n'est pas suivi ». C'est déjà la règle de la barre de survol.
+   */
+  const [etoileFil, setEtoileFil] = useState<{ etoilee: boolean; disponible: boolean }>(
+    { etoilee: false, disponible: false });
+
+  useEffect(() => {
+    let annule = false;
+    void lireEtoileFil(filId).then((e) => { if (!annule) setEtoileFil(e); });
+    return () => { annule = true; };
+  }, [filId]);
+
+  /**
+   * 🔴🔴 L'ÉCOUTE, ET C'EST ELLE QUI TIENT « LES TROIS EN DIRECT ». Une étoile basculée depuis la LIGNE ou depuis
+   * sa BARRE DE SURVOL arrive ici sans que la liste et la conversation se connaissent (voir `signalEtoile`).
+   *
+   * ⚠️ ON NE RETIENT QUE SON PROPRE ÉCHANGE : deux conversations peuvent être montées en même temps (l'écran
+   * partagé en ouvre une, une carte vive une autre), et chacune ne doit s'allumer que pour elle.
+   */
+  useEffect(() => ecouterEtoile((sig) => {
+    if (sig.filId === filId) setEtoileFil((e) => ({ ...e, etoilee: sig.etoilee }));
+  }), [filId]);
+
+  /**
+   * 🔴 LA MÊME PORTE QUE LA LIGNE : `gesteEtoileFil`, qui écrit et ANNONCE. Le posé d'avance est pour l'écran qui
+   * clique ; les autres n'apprennent que le fait confirmé par Gmail.
+   */
+  const basculerEtoileDuFil = async (): Promise<void> => {
+    const vise = !etoileFil.etoilee;
+    setEtoileFil((e) => ({ ...e, etoilee: vise }));
+    const r = await gesteEtoileFil(filId, vise);
+    if (!r.ok) setEtoileFil((e) => ({ ...e, etoilee: !vise }));
+  };
   /**
    * LOT RATTACHEMENT-1 — les liens de CHAQUE mail de l'échange, demandés en UNE requête pour tout le monde.
    * `null` = migration 257 absente, ou lecture en échec : le bandeau ne s'affiche alors pas du tout, et le reste de
@@ -1426,6 +1476,18 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la grande corbeille du bloc d'en-tête. Elle ne
                s'affiche que là où les gestes sont permis, comme l'étoile et « Répondre » juste au-dessus. */
             onCorbeilleMessage={barreActions ? () => void corbeilleDuMessage(m) : undefined}
+            /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ÉTOILE DE L'ÉCHANGE, dans le bloc d'en-tête.
+
+               🔴 ELLE N'EST **PAS** CONDITIONNÉE À `barreActions`, et c'est la demande d'Arno : « boîte de
+               réception, plein écran ET écran partagé ». `barreActions` ne vaut que pour le plein écran ; s'y
+               raccrocher aurait privé l'écran partagé de l'étoile, c'est-à-dire la moitié des cas.
+
+               ⚠️ `disponible` TRANCHE À LA PLACE : sans la migration 277 le geste n'existe pas, et aucune étoile
+               ne s'affiche — plutôt qu'une étoile éteinte, qui dirait faussement « cet échange n'est pas
+               suivi ». C'est déjà la règle de la barre de survol. */
+            etoileDuFil={etoileFil.disponible
+              ? { etoilee: etoileFil.etoilee, onBasculer: () => { void basculerEtoileDuFil(); } }
+              : undefined}
             /* 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LE GESTE INVERSE, PAR LA MÊME PORTE.
                `annulerCorbeilleDuMessage` EST `gesteCorbeilleMessage(id, false)` : c'est déjà ce qu'« Annuler »
                appelle. Le bouton de l'en-tête ne fait donc rien de neuf — il offre ce geste là où il manquait. */
@@ -2119,7 +2181,7 @@ export function MessageConversation({
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
   mailsDuFil = [],
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
-  onReintegrerMessage,
+  onReintegrerMessage, etoileDuFil,
 }: {
   /**
    * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — LES MAILS DE L'ÉCHANGE, dans l'ordre
@@ -2199,6 +2261,26 @@ export function MessageConversation({
    * affichent un message sans pouvoir agir dessus (une carte, un aperçu).
    */
   onCorbeilleMessage?: () => void;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ÉTOILE, À CÔTÉ DE LA GRANDE CORBEILLE ══════════════════════════
+   *
+   * RÈGLE D'ARNO (05/10/2026) : « À côté de la grande corbeille du bloc gris De / À / Cc / Date (même case
+   * blanche, même taille, empilée au-dessus de la corbeille ou juste à côté selon la place), une icône étoile.
+   * […] Étoile active : rouge pleine. Inactive : contour. Info-bulle “Ajouter une étoile” / “Retirer l'étoile”.
+   * Dans la Corbeille, l'étoile reste disponible. »
+   *
+   * 🔴 C'EST L'ÉTOILE DE L'ÉCHANGE, celle de la ligne et de sa barre de survol — un seul état, une seule porte
+   * (voir `etoileFil` et `signalEtoile`). Ce n'est PAS l'étoile par message de `gmail`, qui vit juste à côté et
+   * ne dit pas la même chose.
+   *
+   * ⚠️ ABSENTE ⇒ AUCUNE ÉTOILE, et le bloc est exactement celui d'avant ce lot. C'est le cas des écrans qui
+   * montrent un message sans pouvoir agir dessus, et celui d'une migration 277 absente — où une étoile éteinte
+   * dirait faussement « cet échange n'est pas suivi ».
+   *
+   * ⚠️ ELLE RESTE SUR UN MAIL À LA CORBEILLE, là où la corbeille, elle, devient « Réintégrer » : étoiler un mail
+   * jeté est un geste qui a du sens (le retrouver), et Arno l'a demandé explicitement.
+   */
+  etoileDuFil?: { etoilee: boolean; onBasculer: () => void };
   /**
    * ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LE GESTE INVERSE, SUR UN MAIL DÉJÀ À LA CORBEILLE ════
    *
@@ -2670,7 +2752,9 @@ export function MessageConversation({
               pas permis — l'historique d'une cible, la vie d'un bien — le bloc n'aurait eu qu'une gouttière vide
               à droite. Une classe plutôt qu'un `:has()` : elle dit l'intention, et elle ne dépend d'aucun
               navigateur. */}
-          <dl className={`cnv-entete${onCorbeilleMessage !== undefined ? ' cnv-entete--avec-corbeille' : ''}`}>
+          <dl className={`cnv-entete${onCorbeilleMessage !== undefined || etoileDuFil !== undefined
+            ? ' cnv-entete--avec-corbeille' : ''}`
+            + `${etoileDuFil !== undefined && onCorbeilleMessage !== undefined ? ' cnv-entete--avec-etoile' : ''}`}>
             {/* ⚠️ PAS DE LIGNE « OBJET » ICI — LOT FIL-LECTURE-2. Elle y a vécu une journée : l'objet apparaissait
                 alors DEUX fois, sous « reçu de … » et dans cet en-tête, à trois centimètres d'écart. Celui du haut
                 a gagné : il est visible message replié comme déplié, alors que celui-ci ne l'était que déplié.
@@ -2710,6 +2794,27 @@ export function MessageConversation({
                 hors de la file. `spam: false` est la seule chose que ce fil ne sait pas — il ne porte aucune
                 marque spam par message — et c'est pourquoi l'encadré d'`aideIconeReintegrer` prévoit ce cas :
                 mieux vaut nommer la boîte que le sens désigne que taire l'information. */}
+            {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ÉTOILE, EMPILÉE AU-DESSUS DE LA CORBEILLE ═══════════
+                Arno : « même case blanche, même taille, empilée au-dessus de la corbeille ou juste à côté selon
+                la place ». Empilée : c'est ce qu'il nomme en premier, et c'est ce qui ne coûte aucune largeur à
+                l'en-tête — la case de droite est déjà réservée, les deux boutons s'y partagent la hauteur.
+
+                🔴 ELLE EST DANS **LE MÊME** CONTENEUR que la corbeille, et non à côté : une seconde case
+                positionnée aurait eu sa propre gouttière, et le bloc aurait perdu de la largeur une seconde
+                fois. Le conteneur devient une colonne, et c'est tout.
+
+                ⚠️ ELLE RESTE SUR UN MAIL À LA CORBEILLE (Arno), là où la corbeille devient « Réintégrer ». */}
+            {etoileDuFil !== undefined && (
+              <div className={`cnv-entete-cases${onCorbeilleMessage === undefined ? ' cnv-entete-cases--seule' : ''}`}>
+                <button type="button"
+                  className={`cnv-corbeille cnv-etoile${etoileDuFil.etoilee ? ' cnv-etoile--pleine' : ''}`}
+                  aria-pressed={etoileDuFil.etoilee}
+                  title={libelleEtoile(etoileDuFil.etoilee)} aria-label={libelleEtoile(etoileDuFil.etoilee)}
+                  onClick={etoileDuFil.onBasculer}>
+                  <Etoile pleine={etoileDuFil.etoilee} />
+                </button>
+              </div>
+            )}
             {message.aLaCorbeille && onReintegrerMessage !== undefined ? (
               <div className="cnv-entete-corbeille">
                 <button type="button" className="cnv-corbeille cnv-corbeille--retour"
@@ -3050,6 +3155,29 @@ export const CSS_CONVERSATION = `
    en bas et a droite pour que le gris l'entoure de tous les cotes. Aucune couleur en dur : elle bascule seule.
 
    LE COMPORTEMENT NE CHANGE PAS — meme icone, meme bulle, meme clic, meme bandeau « Annuler ». */
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ETOILE, EMPILEE AU-DESSUS DE LA CORBEILLE ════════════════════════
+   Arno : « meme case blanche, meme taille, empilee au-dessus de la corbeille ou juste a cote selon la place ».
+
+   🔴 LES DEUX CASES PARTAGENT LA MEME GOUTTIERE, et c'est ce qui fait qu'ajouter l'etoile ne coute RIEN a la
+   largeur du bloc : le dl reserve deja 62 px a droite (.cnv-entete--avec-corbeille), et la colonne s'y installe.
+   Une seconde case positionnee a cote aurait repris 62 px de plus, sur tous les mails ouverts de l'application.
+
+   ⚠️ L'ETOILE EST POSEE AU-DESSUS, dans son propre conteneur superpose a celui de la corbeille : les deux blocs
+   occupent la meme bande verticale et s'y partagent la hauteur. La corbeille garde donc EXACTEMENT sa case, sa
+   taille et sa place quand il n'y a pas d'etoile — c'est la condition pour que rien ne bouge ailleurs.
+
+   ⚠️ --seule : sans corbeille (ecran qui ne permet pas de jeter), l'etoile prend toute la hauteur plutot que la
+   moitie d'une case vide.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
+.cnv-entete-cases{position:absolute;top:6px;right:6px;height:calc(50% - 6px);display:flex}
+.cnv-entete-cases--seule{height:auto;bottom:6px}
+.cnv-entete-cases .cnv-corbeille{width:44px}
+/* 🔴 LA CORBEILLE DESCEND D'AUTANT quand l'etoile est la : les deux cases, et pas une case sur l'autre. */
+.cnv-entete--avec-etoile .cnv-entete-corbeille{top:calc(50% + 2px)}
+.cnv-etoile{color:var(--color-svv-muted)}
+.cnv-etoile:hover{color:var(--color-svv-red);border-color:var(--color-svv-red);background:var(--color-svv-field)}
+/* 🔴 ACTIVE : ROUGE PLEINE (Arno). Le remplissage vient du dessin (currentColor), la couleur de la charte. */
+.cnv-etoile--pleine{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 .cnv-entete-corbeille{position:absolute;top:6px;right:6px;bottom:6px;display:flex}
 .cnv-corbeille{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:44px;padding:0;
   font:inherit;font-size:1.25rem;line-height:1;color:var(--color-svv-muted);background:var(--color-svv-surface);

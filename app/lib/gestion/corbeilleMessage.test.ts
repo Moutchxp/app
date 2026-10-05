@@ -111,9 +111,17 @@ describe('🔴🔴 ② l’icône dans le bloc d’en-tête', () => {
     // 🔴 FOND DE CARTE (blanc en Clair, carte sombre en Sombre) sur le gris du bloc, et des coins arrondis.
     expect(CONV).toContain('background:var(--color-svv-surface)');
     expect(CONV).toContain('border-radius:.5rem;cursor:pointer}');
-    // 🔴 ET LA PLACE EST RÉSERVÉE — mais SEULEMENT là où la corbeille existe.
+    /* 🔴 ET LA PLACE EST RÉSERVÉE — mais SEULEMENT là où il y a une case.
+
+       ⚠️ LA CONDITION A GRANDI AU LOT HISTORIQUE-BIEN-12, POINT 2, ET LA RÈGLE N'A PAS BOUGÉ : l'étoile de
+       l'échange vient s'empiler dans la MÊME gouttière, et la place doit donc être réservée dès que l'une des
+       deux cases existe. Cette épreuve figeait le ternaire au caractère près ; elle vérifie désormais ce qui
+       compte — la classe est posée sous condition, et jamais en permanence. */
     expect(CONV).toContain('.cnv-entete--avec-corbeille{padding-right:62px}');
-    expect(CONV).toContain("onCorbeilleMessage !== undefined ? ' cnv-entete--avec-corbeille' : ''");
+    expect(CONV).toContain("onCorbeilleMessage !== undefined || etoileDuFil !== undefined");
+    expect(CONV).toContain("' cnv-entete--avec-corbeille' : ''");
+    /* 🔴 ET LES DEUX CASES PARTAGENT CETTE GOUTTIÈRE : aucune seconde réservation de 62 px. */
+    expect((CONV.match(/padding-right:62px/g) ?? [])).toHaveLength(1);
     // ⚠️ UN `<button>` NE PEUT PAS ÊTRE ENFANT DIRECT D'UN `<dl>` : il vit dans un `div`, comme chaque ligne.
     expect(CONV).toContain('<div className="cnv-entete-corbeille">');
   });

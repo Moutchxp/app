@@ -178,23 +178,22 @@ describe('garanties d’écran (statiques)', () => {
    * 🔴 LOT LISTE-GMAIL — LA GARANTIE CHANGE DE FORME, ELLE NE DISPARAÎT PAS.
    *
    * Jusqu'ici la liste n'écrivait RIEN : tout geste passait par le parent. L'étoile de l'équipe, demandée par Arno,
-   * est la PREMIÈRE exception — elle vit sur la ligne, elle doit répondre au clic sans relire la page, et le
-   * remonter au parent n'aurait fait qu'ajouter un intermédiaire à un geste d'un seul booléen.
+   * a été la PREMIÈRE exception — elle vit sur la ligne, elle doit répondre au clic sans relire la page.
    *
-   * La garantie devient donc : UNE seule écriture, et on dit laquelle. Aucun PATCH, aucun PUT, aucun DELETE — ce
-   * sont eux qui feraient disparaître quelque chose, et ils restent interdits ici. Le seul POST est celui de
-   * l'étoile ; tout autre POST qui s'ajouterait un jour rougira ce test.
+   * ══ 🔴🔴 ET AU LOT HISTORIQUE-BIEN-12, POINT 2, L'EXCEPTION A DISPARU ═══════════════════════════════════════
+   *
+   * Le mail OUVERT gagne la même étoile, et la règle d'Arno est « une seule porte d'écriture, un seul état ».
+   * L'appel a donc rejoint `gestesLigne`, où vivent tous les gestes de ligne depuis le lot 5-BOITE-3 — « l'appel
+   * réseau vit ICI, jamais dans le composant d'écran ». La boîte n'écrit donc plus RIEN par elle-même, ce qui est
+   * la garantie d'origine, retrouvée.
+   *
+   * ⚠️ CE CAS EST PLUS STRICT QU'AVANT, ET C'EST VOLONTAIRE : zéro écriture directe, quelle que soit la méthode.
+   * Et il NOMME la porte, pour qu'on ne puisse pas la contourner en recopiant un `fetch` ailleurs.
    */
-  it('la boîte n’écrit QU’UNE chose : l’étoile — jamais de PATCH, PUT ni DELETE', () => {
-    expect(/method:\s*'(PATCH|DELETE|PUT)'/.test(src)).toBe(false);
-    /**
-     * ⚠️ PAS DE DRAPEAU `s` : la cible de compilation du dépôt ne l'accepte pas (TS1501). On travaille donc sur une
-     * source dont les sauts de ligne sont normalisés — même résultat, sans dépendre d'un drapeau d'expression.
-     */
-    const plat = src.replace(/\s+/g, ' ');
-    const posts = [...plat.matchAll(/fetch\(([^)]*?)\{[^}]*?method: 'POST'/g)].map((m) => m[1]);
-    expect(posts).toHaveLength(1);
-    expect(posts[0]).toContain('/etoile');
+  it('la boîte n’écrit RIEN elle-même : l’étoile passe par `gesteEtoileFil`', () => {
+    expect(/method:\s*'(PATCH|DELETE|PUT|POST)'/.test(src)).toBe(false);
+    expect(src).toContain('gesteEtoileFil(filId, etoilee)');
+    expect(src).toContain("from './gestesLigne'");
   });
 
   it('LOT 5c — le champ de saisie fait 16 px : en dessous, iOS zoome à chaque clic dedans', () => {

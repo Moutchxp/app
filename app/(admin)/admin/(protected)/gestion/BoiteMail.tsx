@@ -54,6 +54,9 @@ function capsuleDeLaLigne(l: {
 import { RattachementsDuFil } from './RattachementsDuFil';
 import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
 import { BarreLigne, CSS_BARRE_LIGNE, Etoile } from './BarreLigne';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — la porte d'écriture UNIQUE de l'étoile, et son annonce aux autres écrans. */
+import { gesteEtoileFil } from './gestesLigne';
+import { ecouterEtoile } from '../../../../lib/gestion/signalEtoile';
 // 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — les mots du picto « brouillon en attente », écrits une seule fois.
 import { AIDE_BROUILLON_EN_ATTENTE, PICTO_BROUILLON } from '../../../../lib/gestion/brouillonEnAttente';
 // 🔴 LOT LISTE-PAGINATION — un TRACÉ et non un emoji : lui seul suit la couleur du texte (voir son encadré).
@@ -686,17 +689,33 @@ export function BoiteMail({
    * réponse, puis DÉFAIT si le serveur refuse. Une étoile qui met une seconde à apparaître donne l'impression que
    * le clic n'a pas porté ; une étoile qui reste allumée après un refus est un mensonge.
    */
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'APPEL EST PARTI DANS `gestesLigne` ══════════════════════════════
+   *
+   * RÈGLE D'ARNO : « une seule porte d'écriture, un seul état ». Le mail ouvert gagne une étoile ; s'il avait
+   * recopié ce `fetch`, il y aurait eu deux appels à tenir d'accord. `gesteEtoileFil` est désormais le seul, et
+   * c'est lui qui ANNONCE l'état confirmé aux autres écrans (voir `signalEtoile`).
+   *
+   * ⚠️ LE POSÉ D'AVANCE RESTE ICI, ET C'EST VOULU : l'écran qui a cliqué allume son étoile AVANT la réponse, puis
+   * la défait si le serveur refuse. Une étoile qui met une seconde à apparaître donne l'impression que le clic
+   * n'a pas porté. Les AUTRES écrans, eux, n'apprennent que le fait confirmé.
+   */
   const basculerEtoile = async (filId: number, etoilee: boolean) => {
     setEtoilees((m) => new Map(m).set(filId, etoilee));
-    try {
-      const res = await fetch(`/api/admin/gestion/fils/${filId}/etoile`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etoilee }),
-      });
-      if (!res.ok) setEtoilees((m) => new Map(m).set(filId, !etoilee));
-    } catch {
-      setEtoilees((m) => new Map(m).set(filId, !etoilee));
-    }
+    const r = await gesteEtoileFil(filId, etoilee);
+    if (!r.ok) setEtoilees((m) => new Map(m).set(filId, !etoilee));
   };
+
+  /**
+   * 🔴🔴 L'ÉCOUTE : une étoile basculée DANS LE MAIL OUVERT allume la ligne et sa barre de survol, en direct.
+   *
+   * ⚠️ ON S'ÉCOUTE AUSSI SOI-MÊME, et sans dommage : le signal porte l'état CONFIRMÉ, qui est déjà celui qu'on a
+   * posé d'avance. Un garde « ne pas s'entendre » n'aurait servi qu'à compliquer — ici, s'entendre REMET DROIT
+   * (si Gmail a rendu un autre état que celui demandé, c'est le sien qui gagne).
+   */
+  useEffect(() => ecouterEtoile(({ filId, etoilee }) => {
+    setEtoilees((m) => new Map(m).set(filId, etoilee));
+  }), []);
 
   const cherche = critereActif(critere);
   /**
