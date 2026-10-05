@@ -1350,6 +1350,12 @@ function VueLot({
    * ⚠️ `behavior: 'smooth'` EST ÉCARTÉ : la liste se remplit encore quand on arrive, et une animation lancée sur
    * une page qui grandit finit ailleurs que là où elle visait. Un saut net atterrit juste.
    */
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 2 — « Historique des locataires » est REPLIÉ au départ. Arno : la fiche
+   * s'ouvre sur ce qui sert aujourd'hui — le propriétaire, l'occupant en place, puis le moteur de recherche. Un
+   * historique de baux déplié repoussait tout cela d'un écran, et on le lit une fois par trimestre.
+   */
+  const [histoLocOuvert, setHistoLocOuvert] = useState(false);
   const ancreVie = useRef<HTMLDivElement | null>(null);
   /**
    * ⚠️ LA CLÉ DE `VieDuBien` PORTE LE FILTRE : c'est ce qui fait repartir le composant sur le filtre voulu quand
@@ -1490,21 +1496,41 @@ function VueLot({
 
       {/* ⚠️ L'HISTORIQUE EST TOUJOURS LÀ, jamais derrière un survol : c'est la question qu'on pose juste après
           « qui habite ici ? » — « et avant ? ». Chaque occupation passée porte ses coordonnées, comme demandé. */}
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 2 — REPLIÉ PAR DÉFAUT, SUR UNE SEULE LIGNE ═══════════════════════
+          DEMANDE D'ARNO (05/10/2026) : « REPLIÉ PAR DÉFAUT sur une seule ligne (“Historique des locataires · 2
+          ▸”), qui se déplie au clic. Contenu inchangé une fois ouvert. »
+
+          🔴 LA MÊME GRAMMAIRE DE REPLI QUE « ANCIENS BIENS », À QUELQUES LIGNES D'ICI : bouton `type="button"`
+          portant `aria-expanded`, triangle « ▸ » en `aria-hidden` tourné de 90° quand c'est ouvert, titre et
+          pastille `gst-compte` DANS le bouton, contenu monté conditionnellement. Inventer un second mécanisme
+          de repli dans le même écran aurait donné deux triangles qui ne se ressemblent pas.
+
+          🔴 L'IDENTIFIANT `ann-histo-loc` RESTE, ET IL PASSE SUR LE BOUTON. C'est lui que la section désigne
+          par `aria-labelledby` — le bouton est désormais l'étiquette du bloc —, et c'est lui que le garde
+          d'ordre des blocs de la fiche cherche (`HistoriqueDuBien.test.ts`). Le perdre aurait cassé les deux.
+
+          ⚠️ LE CONTENU N'EST PAS TOUCHÉ D'UNE LIGNE (Arno) : les mêmes baux, le même « N occupants du même
+          bail », le même `BlocOccupant`, et la même phrase quand il n'y a aucun locataire passé. */}
       <section className="ann-bloc" aria-labelledby="ann-histo-loc">
-        <h4 className="ann-bloc-titre" id="ann-histo-loc">
+        <button type="button" className="ann-repli" id="ann-histo-loc"
+          aria-expanded={histoLocOuvert} onClick={() => setHistoLocOuvert((v) => !v)}>
+          <span aria-hidden="true"
+            className={`ann-repli-triangle${histoLocOuvert ? ' ann-repli-triangle--ouvert' : ''}`}>▸</span>
           Historique des locataires <span className="gst-compte">{passes.length}</span>
-        </h4>
-        {baux.length === 0 ? <p className="ann-gris">Aucun locataire passé connu.</p> : baux.map((bail, i) => (
-          <div key={`bail-${i}`} className="ann-bail">
-            {bail.length > 1 && (
-              <p className="ann-bail-mot">{bail.length} occupants du même bail</p>
-            )}
-            {bail.map((o) => (
-              <BlocOccupant key={`p-${o.locataireId}-${o.entree ?? ''}-${o.sortie ?? ''}`}
-                o={o} ouvrir={ouvrir} onEcrire={onEcrire} />
-            ))}
-          </div>
-        ))}
+        </button>
+        {histoLocOuvert && (baux.length === 0
+          ? <p className="ann-gris">Aucun locataire passé connu.</p>
+          : baux.map((bail, i) => (
+            <div key={`bail-${i}`} className="ann-bail">
+              {bail.length > 1 && (
+                <p className="ann-bail-mot">{bail.length} occupants du même bail</p>
+              )}
+              {bail.map((o) => (
+                <BlocOccupant key={`p-${o.locataireId}-${o.entree ?? ''}-${o.sortie ?? ''}`}
+                  o={o} ouvrir={ouvrir} onEcrire={onEcrire} />
+              ))}
+            </div>
+          )))}
       </section>
 
       {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — LE MOTEUR PREND LA PLACE DE « VIE DU BIEN » ═══════════════════════════

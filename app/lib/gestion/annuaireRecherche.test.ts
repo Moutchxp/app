@@ -314,6 +314,31 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
   });
 
   /** ⚠️ LES ANCIENS BIENS SONT REPLIÉS, JAMAIS RETIRÉS : on ouvre souvent la fiche pour eux. */
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 2 — « HISTORIQUE DES LOCATAIRES » EST REPLIÉ AU DÉPART ═══════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « REPLIÉ PAR DÉFAUT sur une seule ligne (“Historique des locataires · 2 ▸”),
+   * qui se déplie au clic. Contenu inchangé une fois ouvert. »
+   *
+   * 🔴 LA MÊME GRAMMAIRE QUE « ANCIENS BIENS », juste en dessous : un second mécanisme de repli dans le même
+   * écran aurait donné deux triangles qui ne se ressemblent pas. Ce cas tient les trois choses qui font ce
+   * repli — le bouton, son `aria-expanded`, et le triangle qui tourne.
+   *
+   * 🔴 ET L'IDENTIFIANT `ann-histo-loc` SURVIT, SUR LE BOUTON : la section le désigne par `aria-labelledby`, et
+   * le garde d'ordre des blocs de la fiche le cherche (`HistoriqueDuBien.test.ts`). Le perdre casserait les deux.
+   */
+  it('🔴🔴 « Historique des locataires » est un repli, fermé au départ', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    expect(src).toContain('const [histoLocOuvert, setHistoLocOuvert] = useState(false);');
+    expect(src).toContain('aria-expanded={histoLocOuvert}');
+    expect(src).toContain('className="ann-repli" id="ann-histo-loc"');
+    expect(src).toContain('Historique des locataires <span className="gst-compte">{passes.length}</span>');
+    /* 🔴 LE CONTENU EST BIEN SOUS CONDITION — sans quoi le repli ne replierait rien. */
+    expect(src).toContain('{histoLocOuvert && (baux.length === 0');
+    /* ⚠️ ET LE TITRE N'EST PLUS UN `h4` FIGÉ : c'est le bouton qui porte l'étiquette du bloc. */
+    expect(src).not.toContain('<h4 className="ann-bloc-titre" id="ann-histo-loc">');
+  });
+
   it('les biens sortis de gestion ont leur section repliable', () => {
     const vue = src.slice(src.indexOf('function VueProprietaire'), src.indexOf('function VueLot'));
     expect(vue).toContain('Anciens biens');
