@@ -759,3 +759,85 @@ describe('🔴🔴 ⑧ aucune adresse abîmée ne peut plus entrer', () => {
     expect(txMock).not.toHaveBeenCalled();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑨ LOT HISTORIQUE-BIEN-10, POINT 0 — CE QUE LA MIGRATION 308 PROMET
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ARBITRAGE D'ARNO : « FUSIONNE. […] on garde la plus ancienne date de création ; vérifiée si l'une des deux
+   l'était (en gardant l'auteur et la date de la vérification) ; notes mises bout à bout ; l'autre ligne passe en
+   'retire' avec le motif “fusion mailto”, jamais supprimée. »
+
+   ⚠️ PAR FRAGMENTS SÉMANTIQUES (règle du dépôt) : on n'exige pas un SQL écrit d'une certaine façon, on exige
+   qu'il tienne les PROMESSES d'Arno — et surtout qu'il ne supprime rien.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑨ la fusion des adresses « mailto: » ne perd rien', () => {
+  const sql = readFileSync('db/migrations/308_fusion_adresses_mailto.sql', 'utf8');
+  const code = sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n');
+
+  it('🔴🔴 AUCUNE SUPPRESSION, NULLE PART — la règle du module, et la promesse d’Arno', () => {
+    expect(code).not.toMatch(/\bDELETE\b/i);
+    expect(code).not.toMatch(/\bTRUNCATE\b/i);
+    expect(code).not.toMatch(/\bDROP\b/i);
+  });
+
+  it('🔴 LES TROIS TABLES, ET AUCUNE AUTRE', () => {
+    const touchees = [...code.matchAll(/UPDATE\s+(\w+)/gi)].map((m) => m[1]);
+    expect(new Set(touchees)).toEqual(new Set([
+      'gestion_message_adresse', 'gestion_contact_carte', 'gestion_partie_categorie',
+    ]));
+  });
+
+  /** 🔴 LA LIGNE ÉCARTÉE PORTE SON MOTIF : c'est par lui qu'on la retrouvera, et qu'on la rouvrira. */
+  it('🔴🔴 LA LIGNE ÉCARTÉE EST « retire », AVEC LE MOTIF D’ARNO', () => {
+    expect((code.match(/retire_motif = 'fusion mailto'/g) ?? []).length).toBe(2);
+    expect((code.match(/retire_le = now\(\)/g) ?? []).length).toBe(2);
+  });
+
+  /**
+   * 🔴🔴 LA VÉRIFICATION GARDE **SON** AUTEUR ET **SA** DATE. Écrire `now()` ici aurait fait dire à la ligne
+   * gardée qu'elle a été vérifiée par la migration — c'est-à-dire par personne.
+   */
+  it('🔴🔴 LA VÉRIFICATION DE L’UNE PROFITE À L’AUTRE, sans réécrire ni la date ni l’auteur', () => {
+    expect(code).toContain('verifie_le = coalesce(g.verifie_le, a.verifie_le)');
+    expect(code).toContain('verifie_par_libelle = CASE WHEN g.verifie_le IS NULL');
+  });
+
+  it('🔴 LES NOTES SONT MISES BOUT À BOUT, sans saut de ligne orphelin', () => {
+    expect(code).toContain('concat_ws');
+    expect(code).toContain("nullif(btrim(coalesce(g.note, '')), '')");
+  });
+
+  /**
+   * ══ 🔴🔴 L'ORDRE DES DEUX ÉCRITURES, ET POURQUOI IL EST DANS UNE ÉPREUVE ═══════════════════════════════════
+   *
+   * Le premier essai de cette migration a levé « duplicate key value violates unique constraint
+   * gestion_contact_carte_vivante_idx » : elle renommait la ligne GARDÉE avant d'écarter l'autre, et l'autre
+   * occupait déjà l'adresse nue. L'ordre est donc une règle, pas une préférence — et il se relit ici.
+   */
+  it('🔴🔴 ON ÉCARTE AVANT DE RENOMMER — l’erreur payée au premier essai', () => {
+    for (const table of ['gestion_contact_carte', 'gestion_partie_categorie']) {
+      const bloc = code.slice(code.indexOf(`FROM ${table} m`));
+      const corps = bloc.slice(0, bloc.indexOf('END LOOP'));
+      expect(corps.indexOf("retire_motif = 'fusion mailto'"), table)
+        .toBeLessThan(corps.indexOf('adresse = v.nue'));
+    }
+  });
+
+  /**
+   * ⚠️ DEUX POINTS QU'ARNO N'AVAIT PAS À TRANCHER, et qui sont écrits dans l'ordre de préférence :
+   *   ① à date égale, le plus petit identifiant (les paires de la reprise portent la même seconde) ;
+   *   ② une catégorie qui DIT quelque chose passe devant `a_repartir` — qui n'est pas une catégorie, mais le
+   *      constat qu'on n'a pas su trancher.
+   */
+  it('⚠️ LES DEUX DÉPARTAGES SONT ÉCRITS, ET DANS CET ORDRE', () => {
+    expect(code).toContain('ORDER BY cree_le, id LIMIT 1');
+    expect(code).toContain("ORDER BY (categorie = 'a_repartir'), pose_le, id LIMIT 1");
+  });
+
+  /** ⚠️ `adresse_brute` EST L'EN-TÊTE REÇU : la corriger reviendrait à réécrire le courrier lui-même. */
+  it('⚠️ L’EN-TÊTE REÇU N’EST PAS TOUCHÉ', () => {
+    expect(code).not.toContain('adresse_brute =');
+  });
+});
