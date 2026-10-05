@@ -1273,7 +1273,10 @@ export function BoiteMail({
                 « même libellé » aux deux écrans : la seule façon de le tenir est de n'avoir qu'une source.
                 ⚠️ LA PHRASE EST IDENTIQUE AU CARACTÈRE PRÈS à ce que ce JSX composait — elle a changé de maison,
                 pas de contenu, et une épreuve la fige mot pour mot. */}
-            {automatiquesAffiches > 0 && (
+            {/* 🔴🔴 LOT RECEPTION-COURRIER-AUTO-CONTENU, POINT 2 — `!== 0`, ET NON `> 0` : l'interrupteur RETIRE
+                des lignes sous certaines étiquettes (−250 sous « À classer », mesuré le 05/10/2026), et la
+                phrase doit le dire. C'est `phraseCourrierAutomatique` qui choisit « ajoute » ou « retire ». */}
+            {automatiquesAffiches !== 0 && (
               <>{phraseCourrierAutomatique(automatiquesAffiches, auto, 'echange')}{' '}</>
             )}
             <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => basculerAuto(!auto)}>

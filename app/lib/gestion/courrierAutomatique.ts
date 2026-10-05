@@ -72,22 +72,47 @@ export type UniteAutomatique = 'echange' | 'mail';
 /**
  * ③ LA PHRASE. PUR.
  *
- * 🔴 ELLE N'EST PAS RACCOURCIE SELON L'ÉCRAN. Arno, lot 4b : « un outil qui cache sans le dire ment ; celui-ci
- * dit COMBIEN il tait, et le ramène d'un clic. » La place a changé deux fois depuis, la promesse jamais.
+ * ══ 🔴🔴 LOT RECEPTION-COURRIER-AUTO-CONTENU, POINT 2 — ELLE COMPTE DANS LES DEUX SENS ══════════════════════════
  *
- * ⚠️ `nombre` EST CELUI DE **CETTE** LISTE, jamais le compte global. C'est le défaut du point 6 de ce même lot :
- * le bandeau annonçait « 22 096 échanges ne sont pas affichés ici » alors qu'ils n'y seraient pas de toute façon.
+ * DÉCISION D'ARNO (05/10/2026) : « OUI, le nombre affiché sous “À classer” compte dans les deux sens (ajouts et
+ * retraits), avec une phrase vraie dans chaque cas (“le courrier automatique ajoute N conversations” / “retire N
+ * conversations”). »
+ *
+ * ═══ 🔴 CE QUE L'ANCIENNE PHRASE DISAIT DE FAUX, ET SUR QUELLE LISTE ════════════════════════════════════════════
+ *
+ * Elle était écrite pour un seul sens — « N échanges ne contiennent que du courrier automatique et ne sont pas
+ * affichés ici » — et le nombre venait d'un `Math.max(0, avec − sans)` qui écrasait le négatif. Or l'interrupteur
+ * RETIRE des lignes sous certaines étiquettes : mesuré le 05/10/2026 sous « À classer », 10 348 → 10 098, soit
+ * **250 conversations de moins**, et le bandeau annonçait… zéro. Un compteur qui ne sait compter que dans un sens
+ * annonce « rien à ajouter » sur une liste qu'il change de 250 lignes.
+ *
+ * 🔴 POURQUOI L'INTERRUPTEUR PEUT RETIRER. Sous « À classer », le candidat de l'échange est son dernier message
+ * LISIBLE ; en incluant le courrier automatique, le candidat devient le dernier message tout court — qui peut
+ * sortir de la fenêtre d'activité, ou n'être plus « à classer ». La ligne quitte alors la liste. C'est la même
+ * mécanique qui, sous « Envoyés », en AJOUTE 23 197.
+ *
+ * 🔴 `delta` EST DONC SIGNÉ, et la phrase DIT CE QUE L'INTERRUPTEUR FAIT, non ce qu'il cache : c'est vrai dans les
+ * quatre cas (deux sens × lien allumé ou éteint), là où « ne sont pas affichés ici » était faux pour un retrait.
+ *
+ * ⚠️ `delta` EST CELUI DE **CETTE** LISTE, jamais le compte global. C'est le défaut du point 6 du lot
+ * RENOMMER-PARTOUT-ET-FINITIONS : le bandeau annonçait « 22 096 échanges ne sont pas affichés ici » alors qu'ils
+ * n'y seraient pas de toute façon.
+ *
+ * ⚠️ ZÉRO ⇒ CHAÎNE VIDE : il n'y a rien à dire, et les deux écrans n'affichent alors pas la phrase. Le LIEN, lui,
+ * reste offert (lot RECEPTION-COURRIER-AUTO-LIEN) — un bouton absent avait fait croire à une régression.
  */
-export function phraseCourrierAutomatique(nombre: number, inclus: boolean, unite: UniteAutomatique): string {
-  const p = nombre > 1;
-  const quoi = unite === 'mail' ? `${nombre} mail${p ? 's' : ''}` : `${nombre} échange${p ? 's' : ''}`;
-  if (inclus) {
-    return unite === 'mail'
-      ? `Le courrier automatique est inclus : ${quoi} ${p ? 'sont tenus' : 'est tenu'} hors de la file par une règle.`
-      : `Le courrier automatique est inclus : ${quoi} ne contien${p ? 'nent' : 't'} que des messages tenus hors de `
-        + 'la file par une règle.';
-  }
-  return unite === 'mail'
-    ? `${quoi} ${p ? 'sont tenus' : 'est tenu'} hors de la file par une règle et ${p ? 'ne sont pas affichés' : 'n’est pas affiché'} ici. Rien n’est supprimé.`
-    : `${quoi} ne contien${p ? 'nent' : 't'} que du courrier automatique et ${p ? 'ne sont pas affichés' : 'n’est pas affiché'} ici. Rien n’est supprimé.`;
+export function phraseCourrierAutomatique(delta: number, inclus: boolean, unite: UniteAutomatique): string {
+  if (!Number.isFinite(delta) || delta === 0) return '';
+  const n = Math.abs(Math.trunc(delta));
+  const p = n > 1;
+  const quoi = unite === 'mail' ? `${n} mail${p ? 's' : ''}` : `${n} conversation${p ? 's' : ''}`;
+  /* 🔴 « ajoute … à » / « retire … de » : les deux prépositions d'Arno, et elles ne sont pas interchangeables. */
+  const action = delta > 0 ? `ajoute ${quoi} à cette liste` : `retire ${quoi} de cette liste`;
+  /**
+   * 🔴 LIEN ALLUMÉ, LA PHRASE DIT CE QUI **EST** ; ÉTEINT, CE QUE LE CLIC FERAIT. La nuance porte toute
+   * l'information utile : « est inclus : il retire 250 conversations » explique une liste plus courte que son
+   * compteur d'hier, là où la même phrase sans « est inclus » ferait chercher les 250 à l'écran.
+   */
+  if (inclus) return `Le courrier automatique est inclus : il ${action}.`;
+  return `Le courrier automatique ${action}. Rien n’est supprimé.`;
 }

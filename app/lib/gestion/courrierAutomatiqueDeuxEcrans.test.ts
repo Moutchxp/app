@@ -113,7 +113,10 @@ describe('🔴🔴 ② la route accepte le MÊME paramètre que /boite', () => {
   it('🔴🔴 `automatiquesIci` est la différence des deux comptes, pas un compte global', () => {
     expect(RECEPTION_REPO).toContain('compterMailsRecus(filtre, avec, avecHg, avecCorbeille, true)');
     expect(RECEPTION_REPO).toContain('compterMailsRecus(filtre, avec, avecHg, avecCorbeille, false)');
-    expect(RECEPTION_REPO).toContain('return Math.max(0, avecAuto - sansAuto);');
+    /* ⚠️ LE DELTA EST SIGNÉ DEPUIS LE POINT 2 DU LOT RECEPTION-COURRIER-AUTO-CONTENU : le `Math.max(0, …)` qui
+       vivait ici écrasait les retraits, et la phrase annonçait « rien » sur une liste raccourcie. */
+    expect(RECEPTION_REPO).toContain('return avecAuto - sansAuto;');
+    expect(RECEPTION_REPO).not.toContain('Math.max(0, avecAuto - sansAuto)');
     /* ⚠️ ET SEULEMENT À LA PREMIÈRE PAGE : deux `count(*)` à chaque « voir plus » se paieraient pour rien. */
     expect(RECEPTION_REPO).toContain('automatiquesIci: curseur !== null ? null : await (async () => {');
   });
@@ -133,28 +136,52 @@ describe('🔴🔴 ③ même libellé, même place, même état', () => {
   });
 
   /**
-   * 🔴🔴 LA PHRASE EST IDENTIQUE AU CARACTÈRE PRÈS à celle que le plein écran composait avant ce point. Vérifié à
-   * l'écran sur « Envoyés » : « 23195 échanges ne contiennent que du courrier automatique et ne sont pas affichés
-   * ici. Rien n'est supprimé. » Déplacer un mot dans un module ne doit pas le réécrire en passant.
+   * ══ 🔴🔴 LA PHRASE A ÉTÉ RÉÉCRITE AU LOT RECEPTION-COURRIER-AUTO-CONTENU, POINT 2 ══════════════════════════
+   *
+   * CE CAS TENAIT : « la phrase n'a pas changé d'un caractère » — elle disait « N échanges ne contiennent que du
+   * courrier automatique et ne sont pas affichés ici ». C'était vrai pour un AJOUT, et faux pour un RETRAIT : sous
+   * « À classer », l'interrupteur retire 250 conversations, et cette phrase-là ne sait pas le dire.
+   *
+   * 🔴 DÉCISION D'ARNO (05/10/2026) : « le nombre compte dans les deux sens (ajouts et retraits), avec une phrase
+   * vraie dans chaque cas (“le courrier automatique ajoute N conversations” / “retire N conversations”) ».
+   *
+   * ⚠️ ET LE MOT « conversations » EST CELUI DE L'ÉCRAN : le compteur du plein écran dit « 10 244 conversations ».
+   * « échanges » était le mot du dépôt, pas celui qu'Arno lit.
    */
-  it('🔴🔴 la phrase des échanges n’a pas changé d’un caractère', () => {
+  it('🔴🔴 la phrase dit AJOUTE ou RETIRE, et c’est vrai dans les quatre cas', () => {
     expect(phraseCourrierAutomatique(23195, false, 'echange')).toBe(
-      '23195 échanges ne contiennent que du courrier automatique et ne sont pas affichés ici. '
-      + 'Rien n’est supprimé.');
+      'Le courrier automatique ajoute 23195 conversations à cette liste. Rien n’est supprimé.');
     expect(phraseCourrierAutomatique(23195, true, 'echange')).toBe(
-      'Le courrier automatique est inclus : 23195 échanges ne contiennent que des messages tenus hors de la file '
-      + 'par une règle.');
-    /* ⚠️ LE SINGULIER AUSSI : « 1 échange ne contient que… n'est pas affiché ». */
+      'Le courrier automatique est inclus : il ajoute 23195 conversations à cette liste.');
+    /* 🔴🔴 LE RETRAIT, c'est-à-dire le cas que l'ancienne phrase ne pouvait pas dire (« À classer », −250). */
+    expect(phraseCourrierAutomatique(-250, false, 'echange')).toBe(
+      'Le courrier automatique retire 250 conversations de cette liste. Rien n’est supprimé.');
+    expect(phraseCourrierAutomatique(-250, true, 'echange')).toBe(
+      'Le courrier automatique est inclus : il retire 250 conversations de cette liste.');
+    /* ⚠️ LE SINGULIER AUSSI, dans les deux sens. */
     expect(phraseCourrierAutomatique(1, false, 'echange')).toBe(
-      '1 échange ne contient que du courrier automatique et n’est pas affiché ici. Rien n’est supprimé.');
+      'Le courrier automatique ajoute 1 conversation à cette liste. Rien n’est supprimé.');
+    expect(phraseCourrierAutomatique(-1, true, 'echange')).toBe(
+      'Le courrier automatique est inclus : il retire 1 conversation de cette liste.');
   });
 
-  /** 🔴 ET L'UNITÉ SUIT L'ÉCRAN : la colonne compte des MAILS, pas des échanges. */
+  /**
+   * 🔴 ZÉRO ⇒ CHAÎNE VIDE : il n'y a rien à dire, et les deux écrans n'affichent alors pas la phrase. Le LIEN,
+   * lui, reste offert — c'est la correction du lot RECEPTION-COURRIER-AUTO-LIEN.
+   */
+  it('🔴 un delta nul ne dit rien du tout', () => {
+    expect(phraseCourrierAutomatique(0, false, 'echange')).toBe('');
+    expect(phraseCourrierAutomatique(0, true, 'mail')).toBe('');
+  });
+
+  /** 🔴 ET L'UNITÉ SUIT L'ÉCRAN : la colonne compte des MAILS, pas des conversations. */
   it('🔴 la colonne de réception parle de mails', () => {
     expect(phraseCourrierAutomatique(3, false, 'mail')).toBe(
-      '3 mails sont tenus hors de la file par une règle et ne sont pas affichés ici. Rien n’est supprimé.');
+      'Le courrier automatique ajoute 3 mails à cette liste. Rien n’est supprimé.');
     expect(phraseCourrierAutomatique(1, true, 'mail')).toBe(
-      'Le courrier automatique est inclus : 1 mail est tenu hors de la file par une règle.');
+      'Le courrier automatique est inclus : il ajoute 1 mail à cette liste.');
+    expect(phraseCourrierAutomatique(-4, false, 'mail')).toBe(
+      'Le courrier automatique retire 4 mails de cette liste. Rien n’est supprimé.');
     expect(BRC).toContain("phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')");
   });
 
@@ -194,8 +221,9 @@ describe('🔴🔴 ③ même libellé, même place, même état', () => {
    */
   it('🔴🔴 le bouton ne dépend plus du nombre — seule la PHRASE en dépend', () => {
     expect(BRC).toContain('etat.v === \'ok\' && onAuto !== undefined && (');
-    /* 🔴 LA CONDITION DE NOMBRE EST PASSÉE SUR LA PHRASE, et sur elle seule. */
-    expect(BRC).toContain('{etat.automatiquesIci !== null && etat.automatiquesIci > 0 && (');
+    /* 🔴 LA CONDITION DE NOMBRE EST PASSÉE SUR LA PHRASE, et sur elle seule.
+       ⚠️ ET ELLE EST DEVENUE `!== 0` AU POINT 2 : le delta est signé, un retrait se dit autant qu'un ajout. */
+    expect(BRC).toContain('{etat.automatiquesIci !== null && etat.automatiquesIci !== 0 && (');
     expect(BRC).toContain("phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')");
   });
 
@@ -219,7 +247,7 @@ describe('🔴🔴 ③ même libellé, même place, même état', () => {
     expect(BTE).toContain('{!cherche && impose === null && (');
     expect(BTE).not.toContain('impose === null && etat.comptes !== null && automatiquesAffiches > 0');
     /* 🔴 L'ÉCRAN PARTAGÉ : elle ne retient que « le geste est possible ». */
-    expect(BRC).not.toContain('&& etat.automatiquesIci > 0 && (\n            <span');
+    expect(BRC).not.toContain('&& etat.automatiquesIci > 0 && (');
   });
 
   /**

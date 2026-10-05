@@ -317,8 +317,15 @@ export async function lireMailsRecus(
      * seul drapeau qui change. C'est la méthode exacte de la boîte, et c'est ce qui garantit que le nombre
      * annoncé est celui que le bouton ramènerait — jamais un compte voisin « équivalent ».
      *
-     * ⚠️ `Math.max(0, …)` : si les deux comptes se croisaient (relève entre les deux requêtes), un nombre négatif
-     * ferait une phrase absurde. Zéro veut dire « rien à dire », et c'est le bon repli.
+     * ══ 🔴🔴 LOT RECEPTION-COURRIER-AUTO-CONTENU, POINT 2 — LE DELTA EST **SIGNÉ** ════════════════════════════
+     *
+     * DÉCISION D'ARNO (05/10/2026) : « le nombre compte dans les deux sens (ajouts et retraits) ». Un
+     * `Math.max(0, …)` vivait ici ; il écrasait les retraits, et la phrase annonçait alors « rien » sur une
+     * liste que l'interrupteur raccourcit (mesuré sous « À classer », côté échanges : −250).
+     *
+     * ⚠️ UN CROISEMENT DES DEUX COMPTES (une relève entre les deux requêtes) peut rendre un delta d'une unité
+     * dans le sens inattendu : la phrase reste VRAIE, parce qu'elle est écrite pour les deux sens. C'est
+     * exactement ce que le repli à zéro empêchait de dire.
      * ⚠️ EN PARALLÈLE, et seulement à la première page : deux `count(*)` sur 17 000 messages ne se paient pas à
      * chaque « voir plus ».
      */
@@ -327,7 +334,7 @@ export async function lireMailsRecus(
         compterMailsRecus(filtre, avec, avecHg, avecCorbeille, true),
         compterMailsRecus(filtre, avec, avecHg, avecCorbeille, false),
       ]);
-      return Math.max(0, avecAuto - sansAuto);
+      return avecAuto - sansAuto;
     })(),
   };
 }

@@ -250,7 +250,11 @@ describe('🔴🔴 le courrier automatique de CETTE liste', () => {
   it('🔴🔴 il est obtenu par deux comptes du même prédicat', () => {
     const src = readFileSync('app/lib/gestion/boiteRepo.ts', 'utf8');
     expect(src).toContain('const [avec, sans] = await Promise.all([compte(true), compte(false)]);');
-    expect(src).toContain('return Math.max(0, avec - sans);');
+    /* ⚠️ LE DELTA EST SIGNÉ DEPUIS LE LOT RECEPTION-COURRIER-AUTO-CONTENU (point 2) : le `Math.max(0, …)` qui
+       vivait ici écrasait les RETRAITS, et le bandeau annonçait « rien » sous « À classer » alors que
+       l'interrupteur en retire 250. La phrase sait désormais dire les deux sens. */
+    expect(src).toContain('return avec - sans;');
+    expect(src).not.toContain('return Math.max(0, avec - sans);');
     /* 🔴 ET LE COMPTE UTILISÉ EST `sqlCompteBoite`, celui de la barre de pages : le même prédicat, à la lettre. */
     const bloc = src.slice(src.indexOf('const automatiquesIci ='), src.indexOf('const aSuite ='));
     expect(bloc).toContain('sqlCompteBoite(avecAuto, etiquette, corbeille, spam');
@@ -263,12 +267,18 @@ describe('🔴🔴 le courrier automatique de CETTE liste', () => {
   });
 
   /**
-   * 🔴 ZÉRO ⇒ NI LA PHRASE, NI LE BOUTON. Un bouton qui ne peut rien changer est pire qu'un bouton absent : on
-   * clique, rien ne bouge, et l'on finit par douter de tout l'écran. C'est exactement ce qu'Arno a vécu.
+   * ══ 🔴🔴 CE VERDICT A CHANGÉ DEUX FOIS, ET IL FAUT DIRE LES DEUX ═══════════════════════════════════════════
+   *
+   * ① « Zéro ⇒ ni la phrase, ni le bouton » (point 6 du lot RENOMMER-PARTOUT-ET-FINITIONS). Cette règle a fait
+   *    disparaître le LIEN de la Réception, et Arno l'a signalé comme une régression : le lien est revenu sans
+   *    condition de nombre (lot RECEPTION-COURRIER-AUTO-LIEN).
+   * ② « Zéro ⇒ pas de phrase » reste vrai, mais le test porte maintenant sur `!== 0` : le delta est SIGNÉ, et un
+   *    RETRAIT doit se dire autant qu'un ajout (point 2 du lot RECEPTION-COURRIER-AUTO-CONTENU).
    */
-  it('🔴 l’écran n’affiche le bandeau que s’il y a quelque chose à ajouter', () => {
+  it('🔴 l’écran n’affiche la phrase que si le delta n’est pas nul, dans un sens ou dans l’autre', () => {
     const ecran = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
-    expect(ecran).toContain('automatiquesAffiches > 0 && (');
+    expect(ecran).toContain('automatiquesAffiches !== 0 && (');
+    expect(ecran).not.toContain('automatiquesAffiches > 0 && (');
     /* 🔴 LE NOMBRE EST DÉRIVÉ UNE FOIS : les trois mentions de la phrase et la condition doivent dire le même
        chiffre, sans quoi le bandeau se contredirait d'une ligne à l'autre. */
     expect(ecran).toContain('const automatiquesAffiches = etat.v !== \'ok\' ? 0');

@@ -1263,7 +1263,25 @@ export async function lireBoiteMail(
       )).rows[0]?.n ?? 0;
       /* 🔴 LE MÊME PRÉDICAT, DEUX FOIS, AVEC LE SEUL DRAPEAU QUI CHANGE : aucune seconde écriture de la règle. */
       const [avec, sans] = await Promise.all([compte(true), compte(false)]);
-      return Math.max(0, avec - sans);
+      /**
+       * ══ 🔴🔴 LOT RECEPTION-COURRIER-AUTO-CONTENU, POINT 2 — LE DELTA EST **SIGNÉ** ═════════════════════════
+       *
+       * DÉCISION D'ARNO (05/10/2026) : « le nombre compte dans les deux sens (ajouts et retraits), avec une
+       * phrase vraie dans chaque cas ».
+       *
+       * 🔴 IL Y AVAIT UN `Math.max(0, …)` ICI, ET IL MENTAIT PAR OMISSION. Sous « À classer », l'interrupteur
+       * RETIRE des lignes : mesuré le 05/10/2026, 10 348 → 10 098, soit 250 conversations de moins — et le
+       * bandeau annonçait zéro. Un compteur qui ne sait compter que dans un sens annonce « rien à ajouter » sur
+       * une liste qu'il change de 250 lignes.
+       *
+       * 🔴 POURQUOI UN RETRAIT EST POSSIBLE : sous « À classer », le candidat d'un échange est son dernier
+       * message LISIBLE ; courrier automatique inclus, c'est son dernier message tout court — qui peut sortir de
+       * la fenêtre d'activité, ou n'être plus « à classer ». La ligne quitte alors la liste.
+       *
+       * ⚠️ ET LE SIGNE EST LA SEULE CHOSE QUI CHANGE : la phrase, elle, est écrite une fois pour les deux écrans
+       * (`phraseCourrierAutomatique`), et c'est elle qui choisit « ajoute » ou « retire ».
+       */
+      return avec - sans;
     } catch (e) {
       console.error('[gestion/boite] compte du courrier automatique de cette liste illisible', e);
       return null;

@@ -197,7 +197,9 @@ export function BoiteReception({
               invalide. Le bouton, lui, y est parfaitement légitime. */}
           {etat.v === 'ok' && onAuto !== undefined && (
             <span className="brc-tait">
-              {etat.automatiquesIci !== null && etat.automatiquesIci > 0 && (
+              {/* 🔴🔴 LOT RECEPTION-COURRIER-AUTO-CONTENU, POINT 2 — `!== 0`, ET NON `> 0` : le delta est signé
+                  désormais, et un retrait doit se dire autant qu'un ajout. */}
+              {etat.automatiquesIci !== null && etat.automatiquesIci !== 0 && (
                 <>{phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')}{' '}</>
               )}
               <button type="button" className="gst-lien-bouton" aria-pressed={auto}

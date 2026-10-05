@@ -344,7 +344,14 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
     window.history.replaceState(null, '', '/admin/gestion?ecran=boite&etiquette=reception');
     await monter();
     expect(boutonPar(/Afficher aussi le courrier automatique/)).toBeDefined();
-    expect(texte()).toContain('12262 échanges ne contiennent que du courrier automatique');
+    /**
+     * ⚠️ LA PHRASE A CHANGÉ AU LOT RECEPTION-COURRIER-AUTO-CONTENU (point 2), ET LE BOUTON NON. Elle disait
+     * « N échanges ne contiennent que du courrier automatique » — vrai pour un ajout, faux pour un retrait, que
+     * l'interrupteur produit sous certaines étiquettes. Arno : « le nombre compte dans les deux sens, avec une
+     * phrase vraie dans chaque cas ». Ce que ce cas garde, c'est l'INTERRUPTEUR et le fait que la liste DISE
+     * combien elle change — pas la formulation d'hier.
+     */
+    expect(texte()).toContain('Le courrier automatique ajoute 12262 conversations à cette liste');
   });
 
   it('…et là où l’étiquette décide à sa place, on le DIT, avec la sortie', async () => {
