@@ -10,6 +10,7 @@ import { lienGmail, COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailM
 import { dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
 import { corpsLisible, etatTrombone, motTrombone, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
+import type { PartieDestinataire } from '../../../../lib/gestion/historiqueBien';
 import { motCapsule, tonCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 // 🔴🔴 LOT CONTACTS-EXTERNES — le mot du rôle instantané, écrit UNE fois dans le module PUR.
 import { motRoleInstantane } from '../../../../lib/gestion/contactExterne';
@@ -315,6 +316,7 @@ function AdressesDuMail({ l, tonDe }: {
 
 export function LigneVie({
   l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, onVisualiser,
+  destinataires = [],
 }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
@@ -348,6 +350,14 @@ export function LigneVie({
    * `surligner` et de `sortieDuSuivi` juste au-dessus.
    */
   onVisualiser?: (pieceId: number) => void;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties à qui NOUS avons envoyé ce mail, pour les lignes
+   * « → envoyé à la partie … » sous ses miniatures.
+   *
+   * ⚠️ VIDE PAR DÉFAUT ⇒ LES TROIS AUTRES ÉCRANS NE BOUGENT PAS. Seul « Historique du bien » connaît les
+   * catégories d'un bien ; la fiche d'un locataire n'en a aucune à lire. Même règle que `tonDe`.
+   */
+  destinataires?: readonly PartieDestinataire[];
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LA CATÉGORIE D'UNE ADRESSE, DEMANDÉE À L'APPELANT ═══════════════
    *
@@ -525,7 +535,7 @@ export function LigneVie({
           )}
           {l.pieces.length > 0 && (
             <PiecesJointes messageId={l.messageId} filId={l.filId} vraies={vraies} signatures={signatures}
-              onVisualiser={onVisualiser}
+              onVisualiser={onVisualiser} destinataires={destinataires}
               gmailDuMail={lienGmail(COMPTE_GESTION_DEFAUT, { messageIdRfc: l.messageIdRfc })} />
           )}
           {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — LE MOT D'ARNO ════════════════════════════════════════════

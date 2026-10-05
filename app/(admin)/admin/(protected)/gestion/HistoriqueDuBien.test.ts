@@ -4958,3 +4958,157 @@ describe('⑭ 🔴🔴 l’œil ouvre la visionneuse maison, jamais un onglet', 
     expect(apd.innerHTML).toContain('Pièces de la sélection');
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — NOS ENVOIS : À QUELLE PARTIE ? ════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO : « pour toute pièce ENVOYÉE PAR NOUS, ajoute sous la date une ligne par partie destinataire :
+ * flèche rouge "→ envoyé à la partie propriétaire", flèche verte "→ envoyé à la partie locataire", flèche bleue
+ * "→ envoyé à la partie tiers indépendant" ; gris "→ envoyé à un destinataire non affecté" si besoin. »
+ *
+ * 🔴 CE QUE CE BLOC PROUVE, ET QUE `envoisParPartie.test.ts` NE PEUT PAS PROUVER. Le module pur dit QUELLES
+ * parties et dans quel ordre ; il ne dit pas que les lignes ARRIVENT à l'écran, qu'elles portent le bon ton,
+ * qu'elles sont SOUS la date, que le « i » ouvre les adresses au clavier — ni, surtout, que la catégorie lue est
+ * celle du BIEN et non une autre.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑮ 🔴🔴 nos envois disent à quelle partie ils sont allés', () => {
+  /** Un envoi de NOUS au propriétaire, avec la locataire en copie et l'une de nos adresses aussi. */
+  const NOTRE_ENVOI = ligne({
+    messageId: 30, filId: 300, recuLe: '2026-03-20T09:00:00Z', objet: 'Déclaration imposition annuel',
+    sens: 'envoye', de: 'gestion@criterimmo.fr', deNom: 'Gestion CRITERIMMO',
+    a: [{ nom: 'M. ROI Nathan', adresse: 'proprio@fictif.test' }],
+    cc: [
+      { nom: 'MARTY Jean-François', adresse: 'locataire@fictif.test' },
+      { nom: 'Jean-Baptiste PONS', adresse: 'jb.pons@sansvisavis.com' },
+      { nom: null, adresse: 'inconnu@ailleurs.test' },
+    ],
+    pieces: [piece({ pieceId: 301, nomFichier: 'declaration.pdf', empreinte: 'sha-301' })],
+  });
+
+  function servirLenvoi(): void {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis([NOTRE_ENVOI]));
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: [NOTRE_ENVOI], suite: false, entete: { nbMails: 1 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  }
+
+  const lignesDest = (): { mot: string; ton: string }[] =>
+    [...hote.querySelectorAll('.hdb-resume--bas .ddp-ligne')].map((li) => ({
+      mot: li.querySelector('.ddp-mot')?.textContent ?? '',
+      ton: (li.className.match(/ddp-ligne--(\w+)/) ?? [])[1] ?? '',
+    }));
+
+  it('🔴🔴 une ligne par partie, dans l’ordre et dans le bon ton', async () => {
+    servirLenvoi();
+    await monter({ categories: CATEGORIES });
+    await ouvrirLeResume();
+    expect(lignesDest()).toEqual([
+      { mot: '→ envoyé à la partie propriétaire', ton: 'rouge' },
+      { mot: '→ envoyé à la partie locataire', ton: 'vert' },
+      { mot: '→ envoyé à un destinataire non affecté', ton: 'gris' },
+    ]);
+  });
+
+  /**
+   * 🔴🔴 NOTRE PROPRE ADRESSE NE CRÉE PAS DE LIGNE. `jb.pons@sansvisavis.com` est en copie de cet envoi — comme
+   * dans la moitié de nos messages. La compter aurait posé une ligne grise sous presque chaque pièce sortante.
+   */
+  it('🔴🔴 nous mettre en copie ne crée aucune ligne', async () => {
+    servirLenvoi();
+    await monter({ categories: CATEGORIES });
+    await ouvrirLeResume();
+    expect(lignesDest()).toHaveLength(3);
+    /**
+     * 🔴 ON OUVRE LA LIGNE GRISE, ET C'EST UNE CORRECTION DE MA PREMIÈRE VERSION. Elle lisait `.ddp-detail`
+     * sans avoir ouvert le moindre panneau : la liste était vide, et l'épreuve passait en ne prouvant rien —
+     * vérifié par mutation (retirer l'écart de nos adresses ne la faisait pas échouer). Compter les LIGNES ne
+     * suffit pas non plus : notre adresse serait tombée dans la grise, DÉJÀ présente pour l'inconnu, et leur
+     * nombre n'aurait pas bougé. C'est le CONTENU de la grise qui porte le verdict.
+     */
+    const gris = [...hote.querySelectorAll('.hdb-resume--bas .ddp-ligne--gris .ddp-i')][0];
+    await cliquer(gris);
+    const detail = hote.querySelector('.ddp-ligne--gris .ddp-detail') as HTMLElement;
+    expect(detail.textContent).toContain('inconnu@ailleurs.test');
+    expect(detail.textContent).not.toContain('sansvisavis.com');
+    expect(detail.querySelectorAll('li')).toHaveLength(1);
+  });
+
+  /** 🔴 SOUS LA DATE, comme Arno le demande — et pas au-dessus du nom du fichier. */
+  it('🔴 les lignes sont SOUS la ligne de date', async () => {
+    servirLenvoi();
+    await monter({ categories: CATEGORIES });
+    await ouvrirLeResume();
+    const pied = hote.querySelector('.hdb-resume--bas .pdc-pied-carte') as HTMLElement;
+    const enfants = [...pied.children];
+    const date = enfants.findIndex((e) => (e.textContent ?? '').includes('·'));
+    const lignes = enfants.findIndex((e) => e.classList.contains('ddp'));
+    expect(date).toBeGreaterThanOrEqual(0);
+    expect(lignes).toBeGreaterThan(date);
+  });
+
+  /**
+   * 🔴🔴 LE « i » S'OUVRE AU CLAVIER, et c'est l'exigence transverse du dépôt : un `title` seul n'existe ni sur
+   * un téléphone ni pour qui navigue au clavier. Il porte les deux — le `title` pour la souris, le panneau pour
+   * tout le monde.
+   */
+  it('🔴🔴 le « i » ouvre les adresses, au clic comme au clavier', async () => {
+    servirLenvoi();
+    await monter({ categories: CATEGORIES });
+    await ouvrirLeResume();
+    const i = hote.querySelector('.hdb-resume--bas .ddp-i') as HTMLButtonElement;
+    expect(i.getAttribute('aria-expanded')).toBe('false');
+    /* 🔴 LE SURVOL EST SERVI PAR LE `title`, et il porte le MÊME texte que le panneau. */
+    expect(i.getAttribute('title')).toContain('proprio@fictif.test');
+    expect(hote.querySelector('.ddp-detail')).toBeNull();
+    await cliquer(i);
+    expect(i.getAttribute('aria-expanded')).toBe('true');
+    const detail = hote.querySelector('.ddp-detail') as HTMLElement;
+    expect(detail.textContent).toContain('M. ROI Nathan');
+    expect(detail.textContent).toContain('proprio@fictif.test');
+    /* ⚠️ LE PANNEAU EST RELIÉ AU BOUTON : un lecteur d'écran annonce ce qui vient de s'ouvrir. */
+    expect(i.getAttribute('aria-controls')).toBe(detail.id);
+    await cliquer(i);
+    expect(hote.querySelector('.ddp-detail')).toBeNull();
+  });
+
+  /** 🔴 LE CHAMP EST DIT : « À » et « Cc » ne veulent pas dire la même chose. */
+  it('🔴 l’info-bulle distingue « À » de « Cc »', async () => {
+    servirLenvoi();
+    await monter({ categories: CATEGORIES });
+    await ouvrirLeResume();
+    const is = [...hote.querySelectorAll('.hdb-resume--bas .ddp-i')] as HTMLButtonElement[];
+    expect(is[0].getAttribute('title')).toContain('À :');
+    expect(is[1].getAttribute('title')).toContain('Cc :');
+  });
+
+  /** 🔴 LES MÊMES LIGNES SUR LES MINIATURES DU MAIL DÉPLIÉ (demande d'Arno), par le MÊME composant. */
+  it('🔴🔴 le mail déplié porte les mêmes lignes', async () => {
+    servirLenvoi();
+    await monter({ categories: CATEGORIES });
+    await cliquer(hote.querySelector('#hdb-mail-30 .vdb-ligne-tete, #hdb-mail-30 button') ?? undefined);
+    const dansLeMail = [...(hote.querySelector('#hdb-mail-30')?.querySelectorAll('.ddp-mot') ?? [])]
+      .map((x) => x.textContent);
+    expect(dansLeMail).toContain('→ envoyé à la partie propriétaire');
+    expect(dansLeMail).toContain('→ envoyé à la partie locataire');
+  });
+
+  /** 🔴🔴 UN MAIL REÇU N'A AUCUNE LIGNE : la question ne se pose que pour nos envois. */
+  it('🔴🔴 un mail reçu ne porte aucune ligne', async () => {
+    await monter();
+    await ouvrirLeResume();
+    expect(hote.querySelectorAll('.ddp-ligne')).toHaveLength(0);
+  });
+});

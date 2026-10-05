@@ -40,6 +40,7 @@ import { annoncerClassement } from '../../../../lib/gestion/signalClassement';
 /* ⚠️ LE MÊME COMPTE QUE LE TROMBONE DE LA LIGNE : les « ._ » et les images de signature ne sont pas des pièces. */
 import { trierPieces } from '../../../../lib/gestion/lisibilite';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
+import type { PersonneDuMail } from '../../../../lib/gestion/adressesMessage';
 import {
   libelleInterlocuteur, PAGE_HISTORIQUE_MAX, type Interlocuteur, type LigneHistorique,
   type MessagePorteurDePieces,
@@ -67,6 +68,8 @@ import {
   BANDES_SOUS_LES_ENCARTS, filtrerParMots, messagesDesPorteurs,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — une pièce envoyée par une partie non cochée n'entre pas au résumé. */
   motPiecesEcartees, partagerPourLeResume, partiesCochees,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … » sous une pièce que nous avons envoyée. */
+  partiesDestinataires, type PartieDestinataire,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
@@ -1253,6 +1256,35 @@ export function HistoriqueDuBien({
   }, [interlocuteursEtClients, categoriesFusionnees, adressesClientes, categories,
     cartesLocataires, choixLocataire]);
 
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — À QUELLE PARTIE AVONS-NOUS ENVOYÉ CE MAIL ? ══════════════════════
+   *
+   * DEMANDE D'ARNO : « pour toute pièce ENVOYÉE PAR NOUS, une ligne par partie destinataire ».
+   *
+   * 🔴 LES DEUX SOURCES SONT LUES, et il le faut : une pièce du RÉSUMÉ peut venir d'un mail que la page courante
+   * n'a pas chargé (le résumé couvre toute la sélection depuis le lot 11), et une pièce du MAIL DÉPLIÉ vient de
+   * la page. N'en lire qu'une aurait laissé la moitié des pièces sortantes sans leurs lignes, sans rien dire.
+   *
+   * ⚠️ LA CATÉGORIE VIENT DE `categoriesFusionnees` — LA MÊME CARTE QUE LES PASTILLES De / À / Cc du mail déplié
+   * (« même source », Arno). Une seconde lecture aurait fini par peindre la flèche d'une couleur et la pastille
+   * d'une autre, sur la même ligne et pour la même personne.
+   *
+   * ⚠️ `estAdresseInterne` ÉCARTE LES NÔTRES, et c'est la règle du dépôt, écrite une fois dans son module : nous
+   * mettre en copie de notre propre envoi n'est pas « envoyer à une partie ».
+   */
+  const destinatairesDuMessage = useMemo(() => {
+    const m = new Map<number, PartieDestinataire[]>();
+    const poser = (
+      id: number, x: { sens: 'recu' | 'envoye'; a: PersonneDuMail[]; cc: PersonneDuMail[] },
+    ): void => {
+      if (m.has(id)) return;
+      m.set(id, partiesDestinataires(x, categoriesFusionnees, (a) => estAdresseInterne(a)));
+    };
+    for (const l of lignes) poser(l.messageId, l);
+    if (etatPieces.v === 'ok') for (const x of etatPieces.messages) poser(x.messageId, x);
+    return m as ReadonlyMap<number, PartieDestinataire[]>;
+  }, [lignes, etatPieces, categoriesFusionnees]);
+
   /** La fiche d'annuaire de chaque client, pour le lien « adresse à corriger ». */
   const fichesClientes = useMemo(() => {
     const m = new Map<string, { sorte: 'proprietaire' | 'locataire'; id: number }>();
@@ -2375,7 +2407,7 @@ export function HistoriqueDuBien({
             <ResumeDeplie n={totalPieces} onFermer={() => fermerResumeDepuisLaFin('haut')}
               groupes={groupesPieces} depots={depots} emplacements={emplacements}
               maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
-              categories={categoriesFusionnees} />
+              categories={categoriesFusionnees} destinataires={destinatairesDuMessage} />
           )}
         </div>
       )}
@@ -2407,7 +2439,7 @@ export function HistoriqueDuBien({
                     <FilDeMails lignes={c.lignes} maintenant={maintenant} deplie={deplie}
                       categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                       onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
-                      onVisualiser={setPieceVue}
+                      onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                       sortieDuSuivi={sortieOfferte} />
                   </section>
                 ))
@@ -2415,7 +2447,7 @@ export function HistoriqueDuBien({
                   <FilDeMails lignes={lignes} maintenant={maintenant} deplie={deplie}
                     categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                     onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
-                    onVisualiser={setPieceVue}
+                    onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                     sortieDuSuivi={sortieOfferte} />
                 )}
 
@@ -2448,7 +2480,7 @@ export function HistoriqueDuBien({
                     <ResumeDeplie n={totalPieces} onFermer={() => fermerResumeDepuisLaFin('bas')}
                       groupes={groupesPieces} depots={depots} emplacements={emplacements}
                       maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
-                      categories={categoriesFusionnees} />
+                      categories={categoriesFusionnees} destinataires={destinatairesDuMessage} />
                   )}
                 </div>
               )}
@@ -3327,7 +3359,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
  */
 function FilDeMails({
   lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi,
-  onVisualiser,
+  onVisualiser, destinataires,
 }: {
   lignes: readonly LigneHistorique[];
   maintenant: Date;
@@ -3347,6 +3379,8 @@ function FilDeMails({
   sortieDuSuivi: (l: LigneHistorique) => { aide: string; onSortir: () => void } | undefined;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — l'œil d'une miniature du mail déplié ouvre la visionneuse. */
   onVisualiser: (pieceId: number) => void;
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
+  destinataires: ReadonlyMap<number, PartieDestinataire[]>;
 }) {
   return (
     <ol className="vdb-liste hdb-liste">
@@ -3389,6 +3423,8 @@ function FilDeMails({
               /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — l'œil du mail déplié ouvre LA MÊME visionneuse que le
                  résumé, avec LE MÊME tour. Deux portes, une seule fenêtre. */
               onVisualiser={onVisualiser}
+              /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … » sous les miniatures du mail. */
+              destinataires={destinataires.get(l.messageId) ?? []}
               sortieDuSuivi={sortieDuSuivi(l)} />
           </ol>
         </li>
@@ -3462,6 +3498,8 @@ function ResumeDeplie({ n, onFermer, ...props }: {
   gestes: GestesPiece;
   sansEmpreinte: number;
   categories: ReadonlyMap<string, CategoriePartie>;
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
+  destinataires: ReadonlyMap<number, PartieDestinataire[]>;
 }) {
   return (
     <>
@@ -3485,7 +3523,7 @@ function ResumeDeplie({ n, onFermer, ...props }: {
  * l'on rangerait une seconde fois un fichier déjà rangé.
  */
 function ResumePieces({
-  groupes, depots, emplacements, maintenant, gestes, sansEmpreinte, categories,
+  groupes, depots, emplacements, maintenant, gestes, sansEmpreinte, categories, destinataires,
 }: {
   groupes: readonly GroupeDePieces<PieceDedoublonnee>[];
   depots: ReadonlyMap<number, DepotAffiche>;
@@ -3505,6 +3543,8 @@ function ResumePieces({
    * être rouge dans le listing et bleu dans le résumé, pour le même mail.
    */
   categories: ReadonlyMap<string, CategoriePartie>;
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
+  destinataires: ReadonlyMap<number, PartieDestinataire[]>;
 }) {
   return (
     <div className="hdb-pieces">
@@ -3534,6 +3574,8 @@ function ResumePieces({
           <ul className="pdc-grille">
             {g.pieces.map((p) => (
               <CartePieceConversation key={p.pieceId} piece={p} maintenant={maintenant} gestes={gestes}
+                /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties à qui NOUS avons envoyé cette pièce. */
+                destinataires={destinataires.get(p.messageId) ?? []}
                 emplacements={emplacements.get(p.pieceId)
                   ?? p.autresApparitions.map((a) => emplacements.get(a.pieceId)).find((e) => e !== undefined)
                   ?? []}

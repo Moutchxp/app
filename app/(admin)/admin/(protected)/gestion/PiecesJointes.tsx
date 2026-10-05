@@ -23,6 +23,9 @@ import { useMiniatureVideo } from './miniatureVideoNavigateur';
 // 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — l'œil est un TRACÉ, jamais un emoji : « 👁 » est rendu par une police EN
 //    COULEUR qui ignore `color`, et resterait de la même teinte en Clair et en Sombre (leçon du trombone).
 import { Oeil } from './Oeil';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … ». Importé, jamais recopié. */
+import { DestinatairesDePiece } from './DestinatairesDePiece';
+import type { PartieDestinataire } from '../../../../lib/gestion/historiqueBien';
 // 🔴 LOT DRIVE-UNIQUE — UNE SEULE FENÊTRE DRIVE, PARTOUT. Le panneau en ligne qui vivait ici est remplacé par la
 //    fenêtre façon Finder, ouverte en mode « ranger ». Aucune de ses fonctions n'est perdue : le dernier dossier de
 //    l'échange, les dossiers récents datés et « Déposer ici » y sont, dans la barre latérale et dans le pied.
@@ -86,8 +89,23 @@ export type Demande = { quoi: 'piece'; pieceId: number; nom: string } | { quoi: 
 
 export function PiecesJointes({
   messageId, filId, vraies, signatures, onVisualiser, onNomChange, gmailDuMail = null,
+  destinataires = [],
 }: {
   messageId: number;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — À QUELLE PARTIE CE MAIL A-T-IL ÉTÉ ENVOYÉ ════════════════════════
+   *
+   * Demande d'Arno : les lignes « → envoyé à la partie … » paraissent « dans le résumé des pièces ET sur les
+   * miniatures du mail déplié ».
+   *
+   * 🔴 UNE SEULE LISTE POUR TOUTES LES PIÈCES, et c'est exact ici : ce bloc rend les pièces d'UN message, qui a
+   * un seul jeu de destinataires. (La fenêtre du résumé, elle, mêle des messages : elle reçoit une fonction.)
+   *
+   * ⚠️ VIDE PAR DÉFAUT ⇒ LES TROIS AUTRES ÉCRANS QUI MONTENT CE BLOC NE BOUGENT PAS D'UN PIXEL. Seul
+   * « Historique du bien » connaît les catégories d'un bien ; les lire ailleurs aurait demandé un bien à un
+   * écran qui n'en a pas.
+   */
+  destinataires?: readonly PartieDestinataire[];
   /**
    * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — OÙ RETROUVER UNE PIÈCE QU'ON N'A PAS GARDÉE ═════════════
    *
@@ -225,7 +243,7 @@ export function PiecesJointes({
       {vraies.length > 0 && (
         <BlocPieces
           messageId={messageId} pieces={vraies} depotDe={depotDe} indisponible={empeche}
-          gmailDuMail={gmailDuMail}
+          gmailDuMail={gmailDuMail} destinataires={destinataires}
           emplacementsDePiece={(id) => emplacementsDe(statuts, id)}
           onVoirDansLeDrive={setAVoirDansLeDrive}
           onDrive={(d) => setDemande(d)} onVisualiser={onVisualiser}
@@ -241,6 +259,9 @@ export function PiecesJointes({
               n'ont donc PAS d'œil, et leur vignette ouvre l'image dans un onglet au double-clic, comme partout
               ailleurs depuis le lot PIECES-OEIL-DOUBLE-CLIC. Leur donner la visionneuse l'aurait posée sur une
               pièce absente du tour — compteur « 0 / 7 » sur une image bien affichée. */}
+          /* ⚠️ LOT HISTORIQUE-BIEN-14, POINT 2 — LES IMAGES DE SIGNATURE N'ONT PAS DE LIGNE « → envoyé à … »,
+             et c'est délibéré : ce ne sont pas des documents qu'on adresse à quelqu'un, mais le logo au bas du
+             message. Trois lignes de couleur sous chacune auraient noyé les quelques pièces qui comptent. */
           <BlocPieces
             messageId={messageId} pieces={signatures} archive={false} depotDe={depotDe} indisponible={empeche}
             gmailDuMail={gmailDuMail}
@@ -348,9 +369,11 @@ export function aRanger(d: Demande, vraies: PieceAffichee[], signatures: PieceAf
 
 function BlocPieces({
   messageId, pieces, archive = true, depotDe, indisponible, onDrive, onVisualiser,
-  emplacementsDePiece, onVoirDansLeDrive, gmailDuMail,
+  emplacementsDePiece, onVoirDansLeDrive, gmailDuMail, destinataires = [],
 }: {
   messageId: number; pieces: PieceAffichee[]; archive?: boolean;
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties à qui nous avons envoyé ce mail. Vide ⇒ rien n'est rendu. */
+  destinataires?: readonly PartieDestinataire[];
   /** 🔴🔴 POINT 5 — l'adresse du mail dans Gmail, pour les pièces non conservées. Voir `PiecesJointes`. */
   gmailDuMail: string | null;
   depotDe: (pieceId: number) => DepotAffiche | undefined;
@@ -402,6 +425,8 @@ function BlocPieces({
           <CartePiece
             key={p.pieceId} piece={p} depot={depotDe(p.pieceId)} indisponible={indisponible}
             emplacements={emplacementsDePiece(p.pieceId)}
+            /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — toutes les pièces de ce mail partagent ses destinataires. */
+            destinataires={destinataires}
             onVoirDansLeDrive={onVoirDansLeDrive}
             onDrive={() => onDrive({ quoi: 'piece', pieceId: p.pieceId, nom: p.nomFichier })}
             onVisualiser={onVisualiser}
@@ -481,9 +506,12 @@ function BlocPieces({
  */
 function CartePiece({
   piece: p, depot, indisponible, onDrive, onVisualiser, emplacements, onVoirDansLeDrive,
+  destinataires = [],
 }: {
   piece: PieceAffichee; depot: DepotAffiche | undefined; indisponible: string | null; onDrive: () => void;
   onVisualiser?: (pieceId: number) => void;
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties à qui nous avons envoyé ce mail. Vide ⇒ rien n'est rendu. */
+  destinataires?: readonly PartieDestinataire[];
   /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — vide ⇒ la carte est EXACTEMENT celle d'avant ce lot. */
   emplacements: readonly EmplacementPiece[];
   onVoirDansLeDrive: (e: EmplacementPiece) => void;
@@ -609,6 +637,9 @@ function CartePiece({
         {/* 🔴🔴 POINT 1 — la mention d'Arno, mot pour mot, et SEULEMENT sur ces fichiers-là. Elle n'alarme pas :
             elle dit ce que l'application ne fera pas à notre place. */}
         {precaution && <span className="pj-precaution">{MENTION_PRECAUTION}</span>}
+        {/* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … », sous la ligne de la pièce. Le même
+            composant que les cartes du résumé : une seule écriture, donc un seul comportement. */}
+        <DestinatairesDePiece parties={destinataires} />
         {/* DÉJÀ DANS LE DRIVE : dit en MOTS, avec le nom du dossier, et un lien pour y aller. */}
         {depot && (
           <span className="pj-drive-mention">

@@ -17,6 +17,10 @@ import type { DepotAffiche } from './PiecesJointes';
 /* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — « vaut partout ou les miniatures de pieces recues apparaissent »
    (Arno) : le recapitulatif en fait partie, et il recoit le MEME picto, ecrit une seule fois. */
 import { CSS_PICTO_DANS_LE_DRIVE, PictoDansLeDrive } from './PictoDansLeDrive';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … ». Importé, jamais recopié : les mêmes lignes
+   paraissent sur les miniatures du mail déplié, et deux rendus auraient divergé au premier correctif. */
+import { CSS_DESTINATAIRES_PIECE, DestinatairesDePiece } from './DestinatairesDePiece';
+import type { PartieDestinataire } from '../../../../lib/gestion/historiqueBien';
 import type { EmplacementPiece } from '../../../../lib/gestion/pieceDansLeDrive';
 
 /**
@@ -67,6 +71,10 @@ export function BoutonPiecesConversation({ nombre, onOuvrir }: { nombre: number;
 }
 
 /** Ce qu'une carte peut demander. Chaque geste est rendu par l'écran PARENT : la fenêtre ne décide de rien. */
+/**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les lignes « → envoyé à la partie … », rendues par LEUR composant et non
+ * recopiées ici : elles paraissent aussi sur les miniatures du mail déplié, et deux rendus auraient divergé.
+ */
 export interface GestesPiece {
   /** Ouvre la visionneuse sur cette pièce, avec le tour de TOUTE la conversation. */
   onVoir: (pieceId: number) => void;
@@ -84,7 +92,8 @@ export interface GestesPiece {
 }
 
 export function ModalePiecesConversation({
-  pieces, ordre, onOrdre, sansEmpreinte, depots, emplacements, maintenant, gestes, ecouterEchap, onFermer,
+  pieces, ordre, onOrdre, sansEmpreinte, depots, emplacements, maintenant, gestes, destinataires,
+  ecouterEchap, onFermer,
 }: {
   /**
    * DÉJÀ CLASSÉES **ET DÉJÀ DÉDOUBLONNÉES** par le module pur : cette fenêtre ne trie rien et ne rapproche rien.
@@ -110,6 +119,19 @@ export function ModalePiecesConversation({
   emplacements: ReadonlyMap<number, readonly EmplacementPiece[]>;
   maintenant: Date;
   gestes: GestesPiece;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — À QUELLE PARTIE CETTE PIÈCE A-T-ELLE ÉTÉ ENVOYÉE ═══════════════════
+   *
+   * Demande d'Arno : sous la date d'une pièce que NOUS avons envoyée, une ligne par partie destinataire.
+   *
+   * 🔴 UNE FONCTION DU MESSAGE, ET NON UNE LISTE : les cartes d'une même fenêtre viennent de messages différents,
+   * et chacun a ses propres destinataires. L'appelant répond, parce que lui seul connaît les catégories — et
+   * elles sont celles d'UN BIEN (la même adresse est « locataire » ici et « tiers » ailleurs).
+   *
+   * ⚠️ ABSENTE ⇒ AUCUNE LIGNE, et la fenêtre d'une conversation ne bouge pas d'un pixel : elle n'a pas de bien en
+   * tête, donc aucune catégorie à lire. C'est la même règle que `tonDe` sur la ligne d'un mail.
+   */
+  destinataires?: (messageId: number) => readonly PartieDestinataire[];
   /**
    * 🔴 ÉCHAP NE FERME QUE LA FENÊTRE DU DESSUS. La visionneuse et la fenêtre Drive vivent AU-DESSUS de celle-ci et
    * posent leurs propres écouteurs sur `window` ; le premier inscrit répond le premier, et ce serait celui-ci.
@@ -184,6 +206,9 @@ export function ModalePiecesConversation({
                     emplacements={emplacements.get(p.pieceId)
                       ?? p.autresApparitions.map((a) => emplacements.get(a.pieceId)).find((e) => e !== undefined)
                       ?? []}
+                    /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires de CE message : chaque
+                       carte de la fenêtre vient d'un message différent, et chacun a les siens. */
+                    destinataires={destinataires?.(p.messageId) ?? []}
                     depot={depots.get(p.pieceId)
                       ?? p.autresApparitions.map((a) => depots.get(a.pieceId)).find((d) => d !== undefined)} />
                 ))}
@@ -237,13 +262,23 @@ export function ModalePiecesConversation({
  * `ModalePiecesConversation` continue de l'appeler exactement comme avant, sans savoir que le bloc
  * « Historique » de la fiche l'appelle aussi, en ligne et sans fenêtre.
  */
-export function CartePieceConversation({ piece: p, depot, emplacements, maintenant, gestes }: {
+export function CartePieceConversation({
+  piece: p, depot, emplacements, maintenant, gestes, destinataires = [],
+}: {
   piece: PieceDedoublonnee;
   depot: DepotAffiche | undefined;
   /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — vide ⇒ la carte est EXACTEMENT celle d'avant ce lot. */
   emplacements: readonly EmplacementPiece[];
   maintenant: Date;
   gestes: GestesPiece;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties à qui NOUS avons envoyé cette pièce.
+   *
+   * ⚠️ VIDE PAR DÉFAUT ⇒ LA CARTE EST CELLE D'AVANT CE LOT. C'est ce qui laisse intacts la fenêtre d'une
+   * conversation et tout écran qui n'a pas de bien en tête — et le module pur rend déjà vide pour un mail REÇU,
+   * donc aucune carte entrante n'a de ligne, où qu'elle soit montée.
+   */
+  destinataires?: readonly PartieDestinataire[];
 }) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
   const [vignetteMorte, setVignetteMorte] = useState(false);
@@ -329,6 +364,10 @@ export function CartePieceConversation({ piece: p, depot, emplacements, maintena
         <span className="pdc-meta" title={dateHeureComplete(p.recuLe)}>
           {dateHeureCourte(p.recuLe, maintenant)} · {mentionExpediteurPiece(p)}
         </span>
+        {/* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — SOUS LA DATE, comme Arno le demande : une ligne par partie
+            destinataire. Rien n'est rendu pour un mail reçu (le module pur rend vide), ni là où l'appelant ne
+            connaît aucune catégorie. */}
+        <DestinatairesDePiece parties={destinataires} />
         {/* DÉJÀ DANS LE DRIVE : dit en MOTS, avec le nom du dossier, et un lien pour y aller — même mention que la
             carte d'un message, puisque c'est la même information. */}
         {depot && (
@@ -416,6 +455,7 @@ export function CartePieceConversation({ piece: p, depot, emplacements, maintena
  * terminerait au milieu du CSS (piège déjà payé une vingtaine de fois dans ce module).
  */
 export const CSS_PIECES_CONVERSATION = `
+${CSS_DESTINATAIRES_PIECE}
 ${CSS_PICTO_DANS_LE_DRIVE}
 /* ── LE TROMBONE ── Discret, mais c'est un BOUTON : il en a la cible (44 px de haut) et le focus visible. */
 .pdc-trombone{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;padding:0 .5rem;border-radius:.5rem;

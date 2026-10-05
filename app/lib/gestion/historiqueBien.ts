@@ -371,6 +371,16 @@ const TITRES_GROUPES: Record<CleGroupeParties, string> = {
  * l'écran ne fait que composer une classe. Écrire un `#rrggbb` ici aurait créé une couleur hors du thème, donc
  * illisible dans l'un des deux modes — ce que le dépôt interdit et vérifie.
  */
+/**
+ * ══ 🔴 L'ORDRE DES QUATRE GROUPES, ÉCRIT UNE FOIS ═══════════════════════════════════════════════════════════════
+ *
+ * Il gouvernait déjà le rangement des parties ; depuis le lot HISTORIQUE-BIEN-14, point 2, il gouverne aussi
+ * l'ordre des lignes « → envoyé à la partie … » sous une pièce que nous avons envoyée. Deux listes auraient fini
+ * par se contredire sous les yeux — le propriétaire en tête d'un côté, le locataire de l'autre.
+ */
+export const ORDRE_DES_GROUPES: readonly CleGroupeParties[] =
+  ['proprietaire', 'locataire', 'independant', 'a_repartir'];
+
 export type TonGroupe = 'rouge' | 'vert' | 'bleu' | 'gris';
 
 const TONS_GROUPES: Record<CleGroupeParties, TonGroupe> = {
@@ -421,8 +431,7 @@ export function grouperParCategorie(
    */
   clientsDuBien: ReadonlySet<string> = new Set(),
 ): PartiesRangees {
-  const ordre: CleGroupeParties[] = ['proprietaire', 'locataire', 'independant', 'a_repartir'];
-  const groupes = new Map<CleGroupeParties, Interlocuteur[]>(ordre.map((c) => [c, []]));
+  const groupes = new Map<CleGroupeParties, Interlocuteur[]>(ORDRE_DES_GROUPES.map((c) => [c, []]));
   const agence: Interlocuteur[] = [];
   let nousEcartees = 0;
   for (const i of interlocuteurs) {
@@ -459,7 +468,7 @@ export function grouperParCategorie(
     groupes.get(cle)?.push(i);
   }
   return {
-    groupes: ordre.map((cle) => {
+    groupes: ORDRE_DES_GROUPES.map((cle) => {
       const liste = groupes.get(cle) ?? [];
       return {
         cle, titre: TITRES_GROUPES[cle], ton: TONS_GROUPES[cle], interlocuteurs: liste, nb: liste.length,
@@ -2042,6 +2051,118 @@ export function motPiecesEcartees(n: number): string | null {
   return k === 1
     ? '1 pièce envoyée par une partie non cochée n’est pas reprise dans le résumé.'
     : `${k} pièces envoyées par des parties non cochées ne sont pas reprises dans le résumé.`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑦-quater 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — NOS ENVOIS : À QUELLE PARTIE ?
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   DEMANDE D'ARNO (05/10/2026), mot pour mot : « Dans le résumé des pièces (et sur les miniatures du mail déplié),
+   pour toute pièce ENVOYÉE PAR NOUS, ajoute sous la date une ligne par partie destinataire : flèche rouge
+   "→ envoyé à la partie propriétaire", flèche verte "→ envoyé à la partie locataire", flèche bleue "→ envoyé à la
+   partie tiers indépendant" ; gris "→ envoyé à un destinataire non affecté" si besoin. Si plusieurs parties sont
+   destinataires, une ligne par partie. »
+
+   🔴 À QUOI CELA RÉPOND. Le résumé dit déjà « envoyé le 7 novembre » ; il ne disait pas À QUI. Sur un bien où le
+   propriétaire, le locataire et l'assureur reçoivent chacun des documents, c'est pourtant la première question
+   qu'on se pose devant une pièce sortante — et la seule réponse était d'ouvrir le mail.
+
+   🔴 UNE LIGNE PAR PARTIE, ET NON PAR ADRESSE. Un couple propriétaire à deux adresses ne doit pas produire deux
+   lignes rouges identiques : la question est « à quelle PARTIE », et les adresses sont le DÉTAIL, qui vit dans
+   l'info-bulle du « i ». L'inverse aurait donné quatre lignes là où il y a deux parties.
+
+   ⚠️ NOS PROPRES ADRESSES SONT ÉCARTÉES, et c'est un fait, pas une préférence : nous mettre en copie de notre
+   propre envoi (ce que fait la moitié de nos messages) n'est pas « envoyer à une partie ». Les compter aurait
+   ajouté une ligne grise « destinataire non affecté » sous presque chaque pièce sortante — un bruit qui aurait
+   fait cesser de lire les trois lignes utiles.
+
+   ⚠️ LA CATÉGORIE EST CELLE DE CE BIEN, lue dans la MÊME carte que les pastilles De / À / Cc du mail déplié
+   (demande d'Arno : « même source »). Une adresse est « locataire » sur un logement et « tiers » sur un autre ;
+   une seconde lecture aurait fini par peindre la flèche d'une couleur et la pastille d'une autre, sur la même
+   ligne et pour la même personne.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Une adresse à qui la pièce est partie, avec le champ par lequel elle l'a reçue. */
+export interface AdresseDestinataire {
+  /** « À » ou « Cc » — c'est ce que l'info-bulle affiche, parce que les deux ne veulent pas dire la même chose. */
+  champ: 'À' | 'Cc';
+  nom: string | null;
+  adresse: string;
+}
+
+/** Une partie destinataire : sa catégorie, son ton, sa phrase, et le détail de ses adresses. */
+export interface PartieDestinataire {
+  cle: CleGroupeParties;
+  ton: TonGroupe;
+  /** « → envoyé à la partie propriétaire ». Écrit ici, jamais à l'écran. */
+  mot: string;
+  adresses: AdresseDestinataire[];
+}
+
+/**
+ * ══ 🔴 LA PHRASE D'UNE LIGNE. PURE. ═════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ LE QUATRIÈME CAS NE DIT PAS « LA PARTIE » : Arno écrit « → envoyé à un destinataire non affecté », et il a
+ * raison au mot près — « non affecté » veut précisément dire qu'on ne sait pas encore de quelle partie il s'agit.
+ * « La partie non affectée » aurait nommé un groupe qui n'existe pas.
+ */
+export function motPartieDestinataire(cle: CleGroupeParties): string {
+  if (cle === 'a_repartir') return '→ envoyé à un destinataire non affecté';
+  return `→ envoyé à la partie ${TITRES_GROUPES[cle].toLowerCase()}`;
+}
+
+/**
+ * ══ 🔴🔴 À QUELLES PARTIES CE MAIL EST-IL PARTI ? PURE. ═════════════════════════════════════════════════════════
+ *
+ * Rend un tableau VIDE pour tout mail reçu : la question ne se pose que pour nos envois.
+ *
+ * ⚠️ « À » AVANT « Cc » DANS L'INFO-BULLE d'une même partie, et dans l'ordre des en-têtes à l'intérieur de
+ * chaque champ. C'est l'ordre dans lequel on lit un en-tête de courrier, et le destinataire direct d'abord.
+ *
+ * ⚠️ UNE ADRESSE RÉPÉTÉE (en « À » puis en « Cc », ce qui arrive) N'EST COMPTÉE QU'UNE FOIS, au premier champ
+ * où elle paraît : l'info-bulle doit lister des gens, pas des lignes d'en-tête.
+ */
+export function partiesDestinataires(
+  m: { sens: 'recu' | 'envoye'; a: readonly PersonneDuMail[]; cc: readonly PersonneDuMail[] },
+  categories: ReadonlyMap<string, CategoriePartie>,
+  /** `true` pour une de NOS adresses. Passé par l'écran, qui tient déjà cette règle (`estAdresseInterne`). */
+  estNous: (adresse: string) => boolean,
+): PartieDestinataire[] {
+  if (m.sens !== 'envoye') return [];
+  const vues = new Set<string>();
+  const par = new Map<CleGroupeParties, AdresseDestinataire[]>();
+  const poser = (p: PersonneDuMail, champ: 'À' | 'Cc'): void => {
+    const a = p.adresse.trim();
+    const cle = a.toLowerCase();
+    if (cle === '' || vues.has(cle) || estNous(a)) return;
+    vues.add(cle);
+    const groupe: CleGroupeParties = categories.get(cle) ?? 'a_repartir';
+    par.set(groupe, [...(par.get(groupe) ?? []), { champ, nom: p.nom, adresse: a }]);
+  };
+  for (const p of m.a) poser(p, 'À');
+  for (const p of m.cc) poser(p, 'Cc');
+  /* 🔴 L'ORDRE VIENT DE `ORDRE_DES_GROUPES`, celui des encarts : rouge, vert, bleu, gris. Une seule liste. */
+  return ORDRE_DES_GROUPES
+    .filter((cle) => (par.get(cle) ?? []).length > 0)
+    .map((cle) => ({
+      cle, ton: TONS_GROUPES[cle], mot: motPartieDestinataire(cle), adresses: par.get(cle) ?? [],
+    }));
+}
+
+/**
+ * ══ 🔴 L'INFO-BULLE DU « i » — TOUTES LES ADRESSES DE CETTE PARTIE À QUI LA PIÈCE EST PARTIE. PURE. ══════════════
+ *
+ * Arno : « Au survol (et au clic au clavier), une info-bulle liste toutes les adresses de cette partie à qui la
+ * pièce a été envoyée (À / Cc, nom et adresse). »
+ *
+ * ⚠️ LE NOM **ET** L'ADRESSE, et l'adresse même quand le nom existe : deux « Jean PONS » dans un dossier de
+ * famille ne se distinguent que par elle. Sans nom, l'adresse seule — jamais un « (sans nom) » inventé.
+ */
+export function detailPartieDestinataire(p: PartieDestinataire): string {
+  return p.adresses
+    .map((d) => `${d.champ} : ${d.nom === null || d.nom.trim() === '' ? d.adresse : `${d.nom} <${d.adresse}>`}`)
+    .join('\n');
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
