@@ -538,6 +538,33 @@ describe('🔴🔴 ④ la ligne « Événement rattaché » de la fenêtre', () 
     expect(titre.value).toContain('2 rue Fictive');
   });
 
+  /**
+   * ══ 🔴🔴 DÉFAUT VU À L'ÉCRAN LE 06/10/2026 (mail d'essai 57299) ═══════════════════════════════════════════
+   *
+   * Le titre se préremplissait avec la CLÉ du bien (« 475 ») dès qu'on cochait une PROPOSITION, au lieu de son
+   * nom — et la phrase « Sera rattaché à … » disait la même clé. La cause : cette fenêtre ne nomme que les biens
+   * DÉJÀ rattachés au mail ; un bien tout juste coché n'est connu que du menu, qui ne le disait pas.
+   *
+   * ⚠️ CE CAS N'AURAIT PAS PU ÊTRE TROUVÉ PAR LES AUTRES ÉPREUVES : elles cochent `L-247`, dont le décor porte
+   * aussi le libellé. Ici on éprouve ce que l'écran a montré — un bien coché que la fenêtre ne connaissait pas.
+   */
+  it('🔴🔴 un bien COCHÉ dans les propositions est NOMMÉ, jamais réduit à sa clé', async () => {
+    await ouvrir();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await cocher(cases.find((c) => !c.checked) as HTMLInputElement);
+    await cliquer(bouton(/^Créer un événement$/) as Element);
+    const titre = container.querySelector('.rdf-evt-forme .bev-saisie') as HTMLInputElement;
+    expect(titre.value).not.toBe('L-247');
+    expect(titre.value).toContain('2 rue Fictive');
+    /* 🔴 ET LA PHRASE « Sera rattaché à … » NOMME LES DEUX BIENS, pas leurs clés. */
+    /* ⚠️ LA DERNIÈRE `bev-note` EST CELLE DES BIENS : la première dit que la migration 268 manque dans ce
+       décor, et elle a sa raison d'être. Viser « la note » tout court aurait éprouvé la mauvaise phrase. */
+    const notes = [...container.querySelectorAll('.rdf-evt-forme .bev-note')].map((e) => e.textContent ?? '');
+    const note = notes[notes.length - 1];
+    expect(note).toContain('7 rue Inventée');
+    expect(note).not.toContain('L-247');
+  });
+
   /** 🔴🔴 RIEN N'EST ÉCRIT AVANT « Valider le suivi » — demande d'Arno, mot pour mot. */
   it('🔴🔴 remplir le formulaire n’écrit RIEN', async () => {
     await ouvrir();

@@ -102,7 +102,7 @@ export function MenuRattachementBien({
    * sélection, c'est une case qui se décoche toute seule au rendu suivant.
    */
   cochesImposees?: readonly string[];
-  onCochesChange?: (cles: readonly string[]) => void;
+  onCochesChange?: (cles: readonly string[], libelles?: Record<string, string>) => void;
   /** Le mot du bouton, quand ce n'est plus « Rattacher ». */
   motValider?: string;
   /** Un motif non nul BLOQUE la validation et s'affiche : c'est la confirmation de « Toute la conversation ». */
@@ -119,7 +119,7 @@ export function MenuRattachementBien({
    */
   aussiAValider?: boolean;
   /** La sélection en cours, remontée à chaque changement — l'appelant en tire sa phrase et ses alertes. */
-  onSelection?: (cles: readonly string[]) => void;
+  onSelection?: (cles: readonly string[], libelles?: Record<string, string>) => void;
   /**
    * ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — L'AJOUT PONCTUEL ══════════════════════════════════════════
    *
@@ -150,8 +150,18 @@ export function MenuRattachementBien({
   const commande = cochesImposees !== undefined;
   const coches: readonly string[] = cochesImposees ?? cochesLocales;
   const poserCoches = (n: readonly string[]): void => {
-    if (commande) onCochesChange?.(n); else setCochesLocales([...n]);
-    onSelection?.(n);
+    /**
+     * ⚠️ LES LIBELLÉS VOYAGENT AVEC LES CLÉS (lot CLASSER-PAR-LA-MODALE, point 3, défaut vu à l'écran). Ce menu
+     * est le SEUL à connaître le nom d'un bien qu'on vient de cocher dans les propositions ou dans la recherche :
+     * l'appelant, lui, ne connaît que ceux déjà rattachés au mail. Sans ce second argument, la fenêtre
+     * préremplissait le titre d'un événement avec la CLÉ du bien (« 475 ») au lieu de son nom.
+     *
+     * ⚠️ SECOND ARGUMENT FACULTATIF : les appelants qui ne le lisent pas se comportent exactement comme avant.
+     */
+    const noms: Record<string, string> = {};
+    for (const cle of n) noms[cle] = libelleDe(cle);
+    if (commande) onCochesChange?.(n, noms); else setCochesLocales([...n]);
+    onSelection?.(n, noms);
   };
   const [portee, setPortee] = useState<'mail' | 'conversation'>('mail');
   const [envoi, setEnvoi] = useState<{ en_cours: boolean; erreur: string | null }>(

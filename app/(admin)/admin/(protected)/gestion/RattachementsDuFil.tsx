@@ -303,6 +303,8 @@ export function RattachementsDuFil({
    * (`/historique/evenements?cible=lot-…`). `null` = pas encore lu, ou aucun bien coché ⇒ aucune restriction.
    */
   const [evtsDesBiens, setEvtsDesBiens] = useState<number[] | null>(null);
+  /** Les noms des biens cochés, tels que le menu les connaît — voir `libellesDuMail` plus bas. */
+  const [libellesCoches, setLibellesCoches] = useState<Record<string, string>>({});
   /** Un tour de compteur relit l'événement du mail — après une écriture, et seulement là. */
   const [rafraichirEvt, setRafraichirEvt] = useState(0);
 
@@ -446,8 +448,18 @@ export function RattachementsDuFil({
     : biensDuMail(fiche.biens, tousLesLiens, mailId);
   /** L'état de départ du panneau : exactement les biens ci-dessus, cochés. */
   const clesDuMail = biens.map((b) => b.cle);
-  const libellesDuMail: Record<string, string> = {};
-  for (const b of biens) libellesDuMail[b.cle] = `${b.adresseComplete} — lot ${b.numeroLot}`;
+  const libellesConnus: Record<string, string> = {};
+  for (const b of biens) libellesConnus[b.cle] = `${b.adresseComplete} — lot ${b.numeroLot}`;
+  /**
+   * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — LES NOMS DES BIENS **COCHÉS**, et pas seulement des rattachés.
+   *
+   * ⚠️ DÉFAUT VU À L'ÉCRAN (06/10/2026, mail d'essai 57299) : « Créer un événement » préremplissait le titre
+   * avec la CLÉ du bien coché (« 475 ») au lieu de son nom, et la phrase « Sera rattaché à … » disait la même
+   * clé. La cause : cette fenêtre ne nomme que les biens DÉJÀ rattachés au mail ; un bien tout juste coché dans
+   * les propositions ou dans la recherche n'est connu que du menu. Il le dit désormais (second argument de
+   * `onCochesChange`), et les deux cartes de noms se superposent — les rattachés d'abord, les cochés ensuite.
+   */
+  const libellesDuMail: Record<string, string> = { ...libellesCoches, ...libellesConnus };
 
   /**
    * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — L'ÉVÉNEMENT DÉJÀ POSÉ SUR CE MAIL, et la migration 268.
@@ -906,7 +918,7 @@ export function RattachementsDuFil({
         {mailId !== null && panneau !== 'aucun' && (
           <MenuRattachementBien messageId={mailId} filId={filId}
             preCoches={clesDuMail}
-            libellesConnus={libellesDuMail}
+            libellesConnus={libellesConnus}
             /**
              * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA SÉLECTION EST TENUE ICI.
              *
@@ -914,8 +926,15 @@ export function RattachementsDuFil({
              * endroit possible pour la garder, et c'est la fenêtre. Le menu, lui, la reçoit et la rend.
              */
             cochesImposees={selection ?? clesDuMail}
-            onCochesChange={setSelection}
-            onSelection={setSelection}
+            /* 🔴 LES NOMS ARRIVENT AVEC LES CLÉS (point 3, défaut vu à l'écran) : voir `libellesDuMail`. */
+            onCochesChange={(cles, noms) => {
+              setSelection(cles);
+              if (noms !== undefined) setLibellesCoches((avant) => ({ ...avant, ...noms }));
+            }}
+            onSelection={(cles, noms) => {
+              setSelection(cles);
+              if (noms !== undefined) setLibellesCoches((avant) => ({ ...avant, ...noms }));
+            }}
             /* 🔴 LE MOT DIT CE QUE « VALIDER » VA FAIRE, et les deux mots existaient déjà : valider une
                exception n'est pas valider le suivi d'une conversation, et un seul libellé pour les deux
                aurait effacé la différence que l'encadré prend soin d'expliquer. */

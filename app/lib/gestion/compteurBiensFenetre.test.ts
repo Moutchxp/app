@@ -46,9 +46,13 @@ describe('🔴🔴 ② il compte ce que « Valider » enverra', () => {
    */
   it('🔴🔴 le compteur lit `selection`, celle qui part à la validation', () => {
     expect(RDF).toContain('motNbBiensRattaches((selection ?? clesDuMail).length)');
-    /* 🔴 ET LA VALIDATION PART DE LA MÊME SOURCE : le menu rend la sélection qu'il a reçue. */
+    /* 🔴 ET LA VALIDATION PART DE LA MÊME SOURCE : le menu rend la sélection qu'il a reçue.
+       ⚠️ `onCochesChange` N'EST PLUS `setSelection` TOUT COURT depuis le lot CLASSER-PAR-LA-MODALE (point 3) :
+       le menu rend aussi les NOMS des biens cochés, que la fenêtre mémorise pour préremplir le titre d'un
+       événement (sans eux, elle écrivait la clé « 475 »). Ce qui compte pour ce garde n'a pas bougé — la
+       sélection est posée par ce rappel, et par lui seul. */
     expect(RDF).toContain('cochesImposees={selection ?? clesDuMail}');
-    expect(RDF).toContain('onCochesChange={setSelection}');
+    expect(RDF).toMatch(/onCochesChange=\{\(cles, noms\) => \{\s*\n\s*setSelection\(cles\);/);
   });
 
   /**
