@@ -230,6 +230,54 @@ export const LIBELLE_CARTE_AUTO = 'Créée automatiquement — à vérifier et c
  */
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 1 — SEULE UNE CARTE **CRÉÉE** MONTE DANS UN CARROUSEL ══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (05/10/2026) : « Les cartes pré-remplies automatiquement (lots 1 et 2, environ 485) ne sont PLUS
+ * affichées dans les carrousels du haut. Elles deviennent de simples PRÉ-REMPLISSAGES du formulaire du “+”. Rien
+ * n'est supprimé : distingue-les par un état (ex. 'proposee' contre 'creee') […] Une carte apparaît dans le
+ * carrousel PROPRIÉTAIRE ou LOCATAIRE uniquement quand Arno l'a validée par le “+”. »
+ *
+ * 🔴 AUCUNE MIGRATION N'EST NÉCESSAIRE, ET C'EST LA MESURE QUI LE DIT. La colonne `origine` de
+ * `gestion_contact_carte` (migration 304) porte DÉJÀ exactement cette distinction :
+ *   · `'auto'`   — née d'une passe de reprise. C'est le PRÉ-REMPLISSAGE d'Arno : personne ne l'a validée.
+ *   · `'manuel'` — née d'un geste humain, c'est-à-dire du « + ». C'est la carte CRÉÉE d'Arno.
+ *
+ * MESURÉ EN BASE LE 05/10/2026 : **481 cartes `auto`** sur 162 biens, et **4 cartes `manuel`** sur 3 biens. Les
+ * 481 `auto` n'ont **jamais été vérifiées par un humain** (zéro `verifie_le`), donc aucune n'est « déjà validée à
+ * la main » — la règle d'Arno n'a pas d'exception à traiter. Et la contrainte de la table l'écrit déjà :
+ * `origine = 'manuel'` interdit un auteur « automatique » (`gestion_contact_carte_auteur_chk`).
+ *
+ * ⚠️ AJOUTER UNE COLONNE `etat` AURAIT FAIT DEUX VÉRITÉS pour une seule idée, et c'est la pire façon de tenir un
+ * état : deux colonnes à garder d'accord, sur 485 lignes, dont l'une serait déduite de l'autre. Arno m'avait
+ * donné l'accord pour une migration additive « si besoin » ; il n'y en a pas besoin, et je le dis plutôt que de
+ * l'écrire pour faire bonne mesure.
+ *
+ * ⚠️ RIEN N'EST SUPPRIMÉ NI MÊME RETIRÉ : les 481 cartes `auto` restent en base, actives, et continuent de servir
+ * à ce pour quoi elles valent — pré-remplir le formulaire du « + » (lot 6) et nourrir le cas (f) de
+ * l'automatisation (lot 6 également, comportement inchangé : il ne coche rien d'office).
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** L'état d'une carte, dans les mots d'Arno. Dérivé de `origine`, jamais stocké deux fois. */
+export type EtatDeCarte = 'proposee' | 'creee';
+
+export function etatDeLaCarte(origine: 'auto' | 'manuel'): EtatDeCarte {
+  return origine === 'manuel' ? 'creee' : 'proposee';
+}
+
+/**
+ * Cette carte monte-t-elle dans un carrousel ? PUR.
+ *
+ * 🔴 C'EST LE SEUL JUGE, et il est nommé : l'écran du haut, le compteur « + N contacts » et la pastille de la
+ * capsule l'appellent tous. Trois conditions écrites séparément auraient fini par diverger — et c'est le
+ * carrousel qui aurait gardé une carte que la capsule croyait absente.
+ */
+export function carteMonteAuCarrousel(c: { origine: 'auto' | 'manuel' }): boolean {
+  return etatDeLaCarte(c.origine) === 'creee';
+}
+
+/**
  * Le petit compteur des contacts d'un carrousel. `null` quand il n'y en a aucun : « + 0 contact » serait du bruit.
  *
  * ⚠️ LE « + » DU LIBELLÉ EST UN SIGNE D'ADDITION, PAS UN BOUTON : il dit « en plus des clients ci-contre ». C'est

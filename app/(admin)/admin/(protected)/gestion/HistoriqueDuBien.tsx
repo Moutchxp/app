@@ -69,7 +69,7 @@ import { annoncerCartesContact, concerneCeBien, ecouterCartesContact, type Signa
  * (`partieCategorie.ts`), jamais d'une liste recopiée ici : `coteDeLaCategorie` décide si une carte de contact
  * se range côté propriétaire ou côté locataire, et c'est la même fonction que la reprise a employée.
  */
-import { coteDeLaCategorie, type Categorie } from '../../../../lib/gestion/partieCategorie';
+import { carteMonteAuCarrousel, coteDeLaCategorie, type Categorie } from '../../../../lib/gestion/partieCategorie';
 import type { EvenementDuBien } from '../../../../lib/gestion/historiqueBienRepo';
 
 /**
@@ -385,7 +385,7 @@ export function HistoriqueDuBien({
    * s'affiche que sur une partie qui N'A PAS encore de carte, ce qui demande de savoir lesquelles en ont une.
    */
   const [cartesContact, setCartesContact] =
-    useState<{ cote: string; adresse: string; verifie: boolean }[]>([]);
+    useState<{ cote: string; adresse: string; verifie: boolean; origine: 'auto' | 'manuel' }[]>([]);
   /**
    * ══ 🔴🔴 CE QUE LA RÈGLE À TROIS ÉTAGES A **PROPOSÉ**, Y COMPRIS « non affectée » ══════════════════════════════
    *
@@ -434,7 +434,7 @@ export function HistoriqueDuBien({
         etat?: string;
         data?: {
           parties?: { adresse: string; categorie: string | null }[];
-          cartes?: { cote: string; adresse: string; verifie: boolean }[];
+          cartes?: { cote: string; adresse: string; verifie: boolean; origine: 'auto' | 'manuel' }[];
           /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — ce que la carte du « + » pré-remplit. */
           coordonnees?: { adresse: string; nom: string | null; telephone: string | null }[];
         };
@@ -809,14 +809,26 @@ export function HistoriqueDuBien({
    * adresse), écrit par prudence : c'est le geste qui RESTE à faire qui doit se voir.
    */
   const cartesParAdresse = useMemo(() => {
-    const m = new Map<string, Map<string, boolean>>();
+    const m = new Map<string, Set<string>>();
     for (const c of cartesContact) {
+      /**
+       * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINTS 1 ET 2 — UNE CARTE SEULEMENT PRÉ-REMPLIE NE COMPTE PAS.
+       *
+       * RÈGLE D'ARNO : « Toute capsule CONTACT sans carte créée (Y COMPRIS AVEC UN PRÉ-REMPLISSAGE) porte le
+       * “+” rouge dans un cercle rouge. […] L'icône “fiche” orange disparaît. »
+       *
+       * 🔴 C'EST LE MÊME JUGE QUE LE CARROUSEL (`carteMonteAuCarrousel`), et c'est tout l'intérêt : la capsule
+       * et le carrousel ne peuvent pas dire deux choses différentes de la même carte. Avant ce point, une carte
+       * `auto` donnait une pastille orange « à vérifier » ; elle redonne maintenant le « + », parce qu'il n'y a
+       * rien à ouvrir — il reste tout à créer.
+       */
+      if (!carteMonteAuCarrousel(c)) continue;
       const cle = c.adresse.trim().toLowerCase();
-      const s0 = m.get(cle) ?? new Map<string, boolean>();
-      s0.set(c.cote, (s0.get(c.cote) ?? true) && c.verifie);
+      const s0 = m.get(cle) ?? new Set<string>();
+      s0.add(c.cote);
       m.set(cle, s0);
     }
-    return m as ReadonlyMap<string, ReadonlyMap<string, boolean>>;
+    return m as ReadonlyMap<string, ReadonlySet<string>>;
   }, [cartesContact]);
 
   /** Déplier ou replier un groupe. Écrit une fois : les encarts et les bandes s'en servent. */
@@ -1678,8 +1690,13 @@ interface PropsGroupe {
   /** Les CLIENTS de la fiche : eux seuls ne se déplacent pas. */
   categoriesFiche: ReadonlyMap<string, CategoriePartie>;
   /** Par adresse, les côtés où une carte de contact existe déjà. Décide de la présence du « + » cerclé. */
-  /** Pour chaque adresse, les côtés où une carte existe sur ce bien, et si elle est VÉRIFIÉE. */
-  cartesParAdresse: ReadonlyMap<string, ReadonlyMap<string, boolean>>;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 2 — les côtés où une carte **CRÉÉE** existe pour cette adresse.
+   *
+   * ⚠️ UN ENSEMBLE, ET NON PLUS UNE CARTE côté → vérifiée : depuis le point 1, une carte seulement pré-remplie
+   * n'entre pas ici, et le drapeau de vérification n'a donc plus personne à renseigner.
+   */
+  cartesParAdresse: ReadonlyMap<string, ReadonlySet<string>>;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — la fiche d'annuaire d'un client, pour « adresse à corriger ». */
   fichesClientes: ReadonlyMap<string, { sorte: 'proprietaire' | 'locataire'; id: number }>;
   onFicheClient?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
@@ -1862,7 +1879,7 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
    *     deux définitions de « client » auraient fini par diverger, et le « + » serait apparu sur un propriétaire ;
    *   · pas de carte de ce côté → il disparaît dès qu'elle existe.
    */
-  const pastille = pastilleDeCapsule(sorte, g.cle, p.cartesParAdresse.get(cle) ?? new Map());
+  const pastille = pastilleDeCapsule(sorte, g.cle, p.cartesParAdresse.get(cle) ?? new Set());
   const motsPastille = motPastille(pastille, nomLisible);
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — UN CLIENT DONT L'ADRESSE NE PEUT RIEN FILTRER.
@@ -2677,10 +2694,23 @@ ${CSS_PIECES}
    differentes auraient fait sauter la droite des capsules d'une ligne a l'autre.
    ⚠️ LE TON NE DIT JAMAIS SEUL : l'info-bulle et l'intitule du lecteur d'ecran portent l'etat en toutes lettres
    (motPastille), parce qu'une couleur ne dit rien a qui ne la voit pas. */
-.hdb-plus--plus{border-color:var(--color-svv-red);color:var(--color-svv-red)}
-.hdb-plus--fiche{border-color:var(--color-svv-line-strong);color:var(--color-svv-muted);font-size:.86rem}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 2 — DEUX ETATS, ET L'ORANGE A DISPARU ═══════════════════════════════════
+   REGLE D'ARNO : « Toute capsule CONTACT sans carte creee (y compris avec un pre-remplissage) porte le “+” rouge
+   dans un cercle rouge : le meme “+” que l'icone de la capture d'Arno, entoure d'un cercle rouge FIN, fond BLANC,
+   centre. L'icone “fiche” orange disparait. Quand la carte est creee : petite icone “fiche” grise cerclee. »
+
+   🔴 LE CERCLE EST FIN ET LE FOND EST CELUI DE LA SURFACE, et non une pastille pleine : c'est ce que la capture
+   d'Arno montre. Un bord de 2 px faisait une cible lourde a cote d'un « … » discret ; 1,5 px tient le cercle
+   sans l'imposer.
+
+   ⚠️ LES DEUX REGLES DE L'ORANGE SONT RETIREES AVEC SON ETAT : plus aucune pastille ne le porte depuis que les
+   481 pre-remplissages ne montent plus dans un carrousel. Une regle morte aurait fait croire a un 3e etat. */
+.hdb-plus--plus{border-width:1.5px;border-color:var(--color-svv-red);color:var(--color-svv-red);
+  background:var(--color-svv-surface)}
+.hdb-plus--plus:hover{background:var(--color-svv-red-soft)}
+.hdb-plus--fiche{border-width:1.5px;border-color:var(--color-svv-line-strong);color:var(--color-svv-muted);
+  font-size:.86rem;background:var(--color-svv-surface)}
 .hdb-plus--fiche:hover{background:var(--color-svv-field);border-color:var(--color-svv-line-strong-hover)}
-.hdb-plus--a_verifier{border-color:var(--color-svv-amber);color:var(--color-svv-amber);font-size:.86rem}
 /* ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — « adresse a corriger dans l'annuaire » ══════════════════════════════
    DISCRETE veut dire petite et ambre, pas invisible : c'est le ton de ce qui attend un geste dans tout le module
    (la trame des cartes a verifier), et il se lit dans les deux themes.
@@ -2691,7 +2721,6 @@ ${CSS_PIECES}
 .hdb-a-corriger:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* Sans fiche a ouvrir, le meme mot sans le lien : on dit le probleme meme sans porte a offrir. */
 .hdb-a-corriger--muet{cursor:default;text-decoration:none}
-.hdb-plus--a_verifier:hover{background:var(--color-svv-amber-soft);border-color:var(--color-svv-amber)}
 
 /* ══ LA CARTE DE CREATION D'UN CONTACT ── MEME TRAME ORANGE que les cartes creees automatiquement : ce qui est
    en attente de verification se voit, et se voit pareil partout. */

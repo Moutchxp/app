@@ -37,6 +37,8 @@ import { type CategoriePartie, type ClientDuBien, type OccupationPeriode, type P
  */
 import { annoncerCartesContact, concerneCeBien, ecouterCartesContact, type SignalCartesContact }
   from '../../../../lib/gestion/signalCartesContact';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 1 — le seul juge de « cette carte monte-t-elle dans un carrousel ? ». */
+import { carteMonteAuCarrousel } from '../../../../lib/gestion/partieCategorie';
 /** La carte telle que le dépôt la rend. Importée en TYPE : rien de `pg` n'entre dans ce paquet. */
 import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/partieCategorieRepo';
 // 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
@@ -1244,8 +1246,23 @@ function VueLot({
     return ecouterCartesContact(g);
   }, [f.numero, relireCartes]);
 
-  const contactsProprietaire = cartesContact.filter((c) => c.cote === 'proprietaire');
-  const contactsLocataire = cartesContact.filter((c) => c.cote === 'locataire');
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 1 — SEULES LES CARTES **CRÉÉES** MONTENT ════════════════════════════════
+   *
+   * RÈGLE D'ARNO : « Les cartes pré-remplies automatiquement (lots 1 et 2, environ 485) ne sont PLUS affichées
+   * dans les carrousels du haut. Elles deviennent de simples PRÉ-REMPLISSAGES du formulaire du “+”. »
+   *
+   * 🔴 MESURÉ AVANT D'ÊTRE ÉCRIT : 481 cartes `auto` sur 162 biens quittent les carrousels ; 4 cartes `manuel`
+   * sur 3 biens y restent. Le bien le plus touché est le 155 (−55 cartes), puis le 234 (−20) et le 54 (−17).
+   * Aucune des 481 n'avait été vérifiée par un humain : la règle n'a donc aucune exception à traiter.
+   *
+   * ⚠️ `carteMonteAuCarrousel` EST LE SEUL JUGE, et il vit dans le module pur : le compteur « + N contacts » et
+   * la pastille de la capsule l'appellent aussi. Un filtre écrit ici et un autre là-bas auraient fini par
+   * diverger — et c'est le carrousel qui aurait gardé une carte que la capsule croyait absente.
+   */
+  const cartesCreees = cartesContact.filter(carteMonteAuCarrousel);
+  const contactsProprietaire = cartesCreees.filter((c) => c.cote === 'proprietaire');
+  const contactsLocataire = cartesCreees.filter((c) => c.cote === 'locataire');
 
   /**
    * 🔴🔴 LES TROIS GESTES, PAR LA MÊME PORTE QUE LE « + » DU BLOC DU BAS — et le signal après chacun.

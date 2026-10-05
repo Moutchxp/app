@@ -1373,8 +1373,19 @@ describe('sorteDeCapsule — client, agence, tiers ou contact', () => {
   });
 });
 
+/**
+ * ══ 🔴🔴 MIS À JOUR AU LOT HISTORIQUE-BIEN-8, POINT 2 — DEUX ÉTATS, PLUS TROIS ═════════════════════════════════
+ *
+ * RÈGLE D'ARNO : « Toute capsule CONTACT sans carte créée (Y COMPRIS AVEC UN PRÉ-REMPLISSAGE) porte le “+”
+ * rouge […] L'icône “fiche” ORANGE DISPARAÎT. Quand la carte est créée : petite icône “fiche” grise cerclée. »
+ *
+ * 🔴 L'ORANGE N'AVAIT PLUS D'OBJET. Au lot 6 il disait « une carte existe, mais personne ne l'a vérifiée » — et
+ * ces cartes-là étaient les 481 pré-remplissages. Depuis le point 1, un pré-remplissage n'est plus une carte du
+ * carrousel : il n'y a donc plus d'état intermédiaire à montrer. Ou la carte est créée (on l'ouvre), ou elle ne
+ * l'est pas (on la crée).
+ */
 describe('pastilleDeCapsule — le « + », la fiche, ou rien', () => {
-  const sans = new Map<string, boolean>();
+  const sans = new Set<string>();
 
   it('🔴 RIEN sur un client, l’agence ou un tiers indépendant', () => {
     for (const s of ['client', 'agence', 'tiers'] as const) {
@@ -1382,32 +1393,31 @@ describe('pastilleDeCapsule — le « + », la fiche, ou rien', () => {
     }
   });
 
-  it('🔴🔴 LE « + » SUR UN CONTACT SANS CARTE, DANS LES TROIS GROUPES QUI EN PORTENT', () => {
+  it('🔴🔴 LE « + » SUR UN CONTACT SANS CARTE CRÉÉE, DANS LES TROIS GROUPES QUI EN PORTENT', () => {
     for (const g of ['proprietaire', 'locataire', 'a_repartir'] as const) {
       expect(pastilleDeCapsule('contact', g, sans)).toBe('plus');
     }
   });
 
-  it('🔴🔴 LA FICHE QUAND LA CARTE EXISTE ET EST VÉRIFIÉE — le cas d’« esteban fardeau » sur lot-299', () => {
-    expect(pastilleDeCapsule('contact', 'locataire', new Map([['locataire', true]]))).toBe('fiche');
+  it('🔴🔴 LA FICHE QUAND LA CARTE EST CRÉÉE — le cas d’« esteban fardeau » sur lot-299', () => {
+    expect(pastilleDeCapsule('contact', 'locataire', new Set(['locataire']))).toBe('fiche');
   });
 
-  it('🔴🔴 ORANGE QUAND LA CARTE EST ENCORE « À VÉRIFIER »', () => {
-    expect(pastilleDeCapsule('contact', 'proprietaire', new Map([['proprietaire', false]]))).toBe('a_verifier');
+  it('🔴🔴 PLUS D’ORANGE : l’état intermédiaire n’existe plus', () => {
+    /* Le type lui-même l'interdit désormais ; ce cas garde la règle à l'endroit où on la lit. */
+    const etats = new Set(['plus', 'fiche', null]);
+    for (const g of ['proprietaire', 'locataire', 'a_repartir'] as const) {
+      expect(etats.has(pastilleDeCapsule('contact', g, new Set(['proprietaire'])))).toBe(true);
+    }
   });
 
   it('🔴 LE CÔTÉ COMPTE : une carte côté propriétaire ne dispense pas d’en créer une côté locataire', () => {
-    expect(pastilleDeCapsule('contact', 'locataire', new Map([['proprietaire', true]]))).toBe('plus');
+    expect(pastilleDeCapsule('contact', 'locataire', new Set(['proprietaire']))).toBe('plus');
   });
 
   it('⚠️ DEPUIS « NON AFFECTÉS », N’IMPORTE QUEL CÔTÉ COMPTE : on ne propose pas un doublon', () => {
-    expect(pastilleDeCapsule('contact', 'a_repartir', new Map([['proprietaire', true]]))).toBe('fiche');
-    expect(pastilleDeCapsule('contact', 'a_repartir', new Map([['locataire', false]]))).toBe('a_verifier');
-  });
-
-  it('⚠️ « À VÉRIFIER » L’EMPORTE SUR « VÉRIFIÉE » quand il y en a des deux', () => {
-    const deux = new Map([['proprietaire', true], ['locataire', false]]);
-    expect(pastilleDeCapsule('contact', 'a_repartir', deux)).toBe('a_verifier');
+    expect(pastilleDeCapsule('contact', 'a_repartir', new Set(['proprietaire']))).toBe('fiche');
+    expect(pastilleDeCapsule('contact', 'a_repartir', new Set(['locataire']))).toBe('fiche');
   });
 });
 
@@ -1415,7 +1425,6 @@ describe('motPastille — le ton ne dit jamais seul', () => {
   it('🔴 CHAQUE ÉTAT PORTE SES MOTS, info-bulle et intitulé pour le lecteur d’écran', () => {
     expect(motPastille('plus', 'AXA')?.titre).toBe('Créer sa carte de contact');
     expect(motPastille('plus', 'AXA')?.aria).toContain('AXA');
-    expect(motPastille('a_verifier', 'AXA')?.titre).toContain('à vérifier');
     expect(motPastille('fiche', 'AXA')?.titre).toBe('Ouvrir sa carte de contact');
   });
 

@@ -716,7 +716,9 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
 
   /** AXA est rangée côté PROPRIÉTAIRE par la base — c'est un CONTACT du propriétaire, pas un client. */
   const servirAvecContact = (
-    cartes: { cote: string; adresse: string; verifie: boolean }[] = [],
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-8 — une carte porte son ORIGINE : seule une carte « manuel » (créée par le « + »)
+       donne la pastille « fiche ». Une carte « auto » est un pré-remplissage, et la capsule garde son « + ». */
+    cartes: { cote: string; adresse: string; verifie: boolean; origine?: 'auto' | 'manuel' }[] = [],
     /* 🔴 LOT HISTORIQUE-BIEN-6 — le rangement de la partie devient réglable : le cas des TIERS INDÉPENDANTS en a
        besoin, et lui seul (par défaut, c'est le contact du propriétaire d'avant ce lot). */
     parties: { adresse: string; categorie: string | null }[] =
@@ -730,7 +732,7 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
       if (String(url).includes('/historique/parties')) {
         return reponse({
           etat: 'ok',
-          data: { parties, cartes },
+          data: { parties, cartes: cartes.map((c) => ({ origine: 'manuel' as const, ...c })) },
         });
       }
       return reponse({
@@ -777,14 +779,37 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
    * alors avec son seul « … », ce qu'Arno a vu sur `estebanfrdpro@gmail.com` (lot-299, carte 1462). Le lot 6 dit
    * ce qui le REMPLACE : une pastille « fiche » qui ouvre la carte — grise si vérifiée, ORANGE sinon.
    */
-  it('🔴🔴 la carte existe ⇒ le « + » est REMPLACÉ par la pastille de la fiche, jamais retiré', async () => {
-    servirAvecContact([{ cote: 'proprietaire', adresse: 'assureur@fictif.test', verifie: false }]);
+  /**
+   * 🔴🔴 MIS À JOUR AU LOT HISTORIQUE-BIEN-8, POINT 2 : l'orange a disparu. Une carte CRÉÉE donne la pastille
+   * « fiche » GRISE, qu'elle ait été vérifiée ou non — il n'y a plus d'état intermédiaire, parce que les cartes
+   * « à vérifier » du lot 6 étaient les 481 pré-remplissages, qui ne montent plus dans un carrousel.
+   */
+  it('🔴🔴 la carte CRÉÉE ⇒ le « + » est REMPLACÉ par la pastille de la fiche, jamais retiré', async () => {
+    servirAvecContact([
+      { cote: 'proprietaire', adresse: 'assureur@fictif.test', verifie: false, origine: 'manuel' },
+    ]);
     await monter();
     const b = hote.querySelector('.hdb-plus') as HTMLButtonElement;
     expect(b).not.toBeNull();
-    /* Ce n'est plus un « + », et la couleur dit « à vérifier » — la carte n'a été vue par personne. */
     expect(b.textContent).not.toBe('+');
-    expect(b.className).toContain('hdb-plus--a_verifier');
+    expect(b.className).toContain('hdb-plus--fiche');
+    /* 🔴 ET PLUS AUCUNE PASTILLE ORANGE N'EXISTE. */
+    expect(b.className).not.toContain('a_verifier');
+  });
+
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 1 — UN PRÉ-REMPLISSAGE GARDE LE « + ». Règle d'Arno : « Toute capsule
+   * CONTACT sans carte créée (Y COMPRIS AVEC UN PRÉ-REMPLISSAGE) porte le “+” rouge dans un cercle rouge. »
+   * MESURÉ : 481 cartes sont dans ce cas en base, dont les deux de lot-290 (Jessica TADEU, Kelly VANKESBEULQUE).
+   */
+  it('🔴🔴 UNE CARTE SEULEMENT PRÉ-REMPLIE (auto) LAISSE LE « + » : il reste tout à créer', async () => {
+    servirAvecContact([
+      { cote: 'proprietaire', adresse: 'assureur@fictif.test', verifie: false, origine: 'auto' },
+    ]);
+    await monter();
+    const b = hote.querySelector('.hdb-plus') as HTMLButtonElement;
+    expect(b.textContent).toBe('+');
+    expect(b.className).toContain('hdb-plus--plus');
   });
 
   /**
@@ -2403,7 +2428,7 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
 
   async function monterAvec(
     parties: { adresse: string; categorie: string | null }[],
-    cartes: { cote: string; adresse: string; verifie: boolean }[],
+    cartes: { cote: string; adresse: string; verifie: boolean; origine?: 'auto' | 'manuel' }[],
     interlocuteurs: Interlocuteur[] = PEUPLE,
   ): Promise<void> {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -2412,7 +2437,13 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
         return reponse({ etat: 'ok', evenements: [], tronque: false });
       }
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
-      if (String(url).includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties, cartes } });
+      if (String(url).includes('/historique/parties')) {
+        /* 🔴 LOT 8 — par défaut « manuel » : les cas d'avant ce lot éprouvaient une carte CRÉÉE. */
+        return reponse({
+          etat: 'ok',
+          data: { parties, cartes: cartes.map((c) => ({ origine: 'manuel' as const, ...c })) },
+        });
+      }
       return reponse({
         etat: 'ok',
         data: {
@@ -2451,10 +2482,10 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
     expect(avec.every((x) => x.signe === '+')).toBe(true);
   });
 
-  it('🔴🔴 LE DÉFAUT D’ARNO : une carte VÉRIFIÉE donne la pastille « fiche », et non plus RIEN', async () => {
+  it('🔴🔴 LE DÉFAUT D’ARNO : une carte CRÉÉE donne la pastille « fiche », et non plus RIEN', async () => {
     await monterAvec(
       [{ adresse: 'assureur@fictif.test', categorie: 'locataire' }],
-      [{ cote: 'locataire', adresse: 'assureur@fictif.test', verifie: true }],
+      [{ cote: 'locataire', adresse: 'assureur@fictif.test', verifie: true, origine: 'manuel' }],
     );
     const axa = pastilles().find((x) => x.nom === 'AXA');
     expect(axa?.classe).toBe('fiche');
@@ -2462,12 +2493,24 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
     expect(axa?.signe).not.toBe('+');
   });
 
-  it('🔴🔴 UNE CARTE « À VÉRIFIER » DONNE LA PASTILLE ORANGE', async () => {
+  /**
+   * 🔴🔴 MIS À JOUR AU LOT 8, POINT 2 : une carte CRÉÉE mais non vérifiée donne la MÊME pastille grise.
+   * L'orange a disparu — il désignait les pré-remplissages, qui ne montent plus dans un carrousel.
+   */
+  it('🔴🔴 UNE CARTE CRÉÉE NON VÉRIFIÉE DONNE LA MÊME PASTILLE GRISE — plus d’orange', async () => {
     await monterAvec(
       [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }],
-      [{ cote: 'proprietaire', adresse: 'assureur@fictif.test', verifie: false }],
+      [{ cote: 'proprietaire', adresse: 'assureur@fictif.test', verifie: false, origine: 'manuel' }],
     );
-    expect(pastilles().find((x) => x.nom === 'AXA')?.classe).toBe('a_verifier');
+    expect(pastilles().find((x) => x.nom === 'AXA')?.classe).toBe('fiche');
+  });
+
+  it('🔴🔴 ET UN PRÉ-REMPLISSAGE GARDE LE « + »', async () => {
+    await monterAvec(
+      [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }],
+      [{ cote: 'proprietaire', adresse: 'assureur@fictif.test', verifie: false, origine: 'auto' }],
+    );
+    expect(pastilles().find((x) => x.nom === 'AXA')?.classe).toBe('plus');
   });
 
   it('🔴🔴 LE « + » DANS « NON AFFECTÉS » — la seconde moitié du défaut', async () => {
@@ -2513,15 +2556,34 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
     }
   });
 
-  it('🔴 LES TROIS ÉTATS PARTAGENT LE MÊME CERCLE : seule la couleur change', () => {
+  /**
+   * 🔴🔴 MIS À JOUR AU LOT 8, POINT 2 : DEUX états, et l'orange a disparu avec ses deux règles. Le cercle reste
+   * partagé — seule la couleur change —, et `border-width` est désormais la seule « géométrie » permise : Arno
+   * demande un cercle FIN, ce qui est une épaisseur de trait et non une taille.
+   */
+  it('🔴 LES DEUX ÉTATS PARTAGENT LE MÊME CERCLE : seule la couleur et la finesse du trait changent', () => {
     const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
     expect(css).toContain('.hdb-plus--cercle{width:28px;height:28px');
-    for (const etat of ['plus', 'fiche', 'a_verifier']) {
+    for (const etat of ['plus', 'fiche']) {
       expect(css).toContain(`.hdb-plus--${etat}{`);
       /* Aucune géométrie propre : la droite des capsules ne saute pas d'une ligne à l'autre. */
       const regle = css.split(`.hdb-plus--${etat}{`)[1]?.split('}')[0] ?? '';
-      for (const geo of ['width', 'height', 'border-radius', 'padding']) expect(regle).not.toContain(geo);
+      /* ⚠️ `border-width` EST PERMIS (Arno veut un cercle FIN) ; une LARGEUR de boîte ne l'est pas. On retire
+         donc la propriété de bord avant de chercher une géométrie, sans quoi le garde se dénoncerait lui-même. */
+      const sansBord = regle.replace(/border-width:[^;]*;?/g, '');
+      for (const geo of ['width:', 'height', 'border-radius', 'padding']) expect(sansBord).not.toContain(geo);
     }
+    /* 🔴 L'ORANGE N'EXISTE PLUS, NI COMME ÉTAT NI COMME RÈGLE : une règle morte ferait croire à un 3e état. */
+    expect(css).not.toContain('.hdb-plus--a_verifier');
+  });
+
+  it('🔴🔴 LE « + » EST UN CERCLE ROUGE FIN SUR FOND DE SURFACE — la capture d’Arno', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    const regle = css.split('.hdb-plus--plus{')[1]?.split('}')[0] ?? '';
+    expect(regle).toContain('border-width:1.5px');
+    expect(regle).toContain('border-color:var(--color-svv-red)');
+    expect(regle).toContain('color:var(--color-svv-red)');
+    expect(regle).toContain('background:var(--color-svv-surface)');
   });
 
   /**

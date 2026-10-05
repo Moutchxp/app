@@ -5,6 +5,7 @@ import {
   replierLesCartes, sertALAutomatisation, LIBELLE_CARTE_AUTO, LIBELLE_CONTACT_LOCATAIRE,
   CONTACTS_MONTRES, motAutresContacts, motContactsDuCarrousel, MOT_REPLIER_CONTACTS,
   roleDeContactPermis, ROLES_INTERDITS_AUX_CONTACTS,
+  carteMonteAuCarrousel, etatDeLaCarte,
   LIBELLE_CONTACT_PROPRIETAIRE, LIBELLE_INDEPENDANT_PROPOSE, SEUIL_REPLI_CARTES,
 } from './partieCategorie';
 import type { Categorie, Origine } from './partieCategorie';
@@ -535,5 +536,51 @@ describe('ce qu’un contact n’est JAMAIS', () => {
        par son propre garde. On compare au libellé ENTIER. */
     expect(roleDeContactPermis(LIBELLE_CONTACT_PROPRIETAIRE)).toBe(true);
     expect(roleDeContactPermis(LIBELLE_CONTACT_LOCATAIRE)).toBe(true);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 1 — SEULE UNE CARTE **CRÉÉE** MONTE DANS UN CARROUSEL ══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (05/10/2026) : « Les cartes pré-remplies automatiquement (lots 1 et 2, environ 485) ne sont PLUS
+ * affichées dans les carrousels du haut. Elles deviennent de simples PRÉ-REMPLISSAGES du formulaire du “+”. Rien
+ * n'est supprimé : distingue-les par un état (ex. 'proposee' contre 'creee'), par migration additive si besoin. »
+ *
+ * 🔴 AUCUNE MIGRATION N'EST NÉCESSAIRE, ET C'EST LA MESURE QUI LE DIT. `origine` porte déjà la distinction :
+ * `'auto'` = née d'une passe (le pré-remplissage), `'manuel'` = née d'un geste humain (le « + »).
+ *
+ * MESURÉ EN BASE LE 05/10/2026 : **481 cartes `auto`** sur 162 biens, **4 cartes `manuel`** sur 3 biens, et
+ * **ZÉRO carte `auto` vérifiée par un humain** — la règle n'a donc aucune exception à traiter.
+ *
+ * ⚠️ AJOUTER UNE COLONNE `etat` AURAIT FAIT DEUX VÉRITÉS pour une seule idée, sur 485 lignes, dont l'une serait
+ * déduite de l'autre. L'accord d'Arno pour une migration additive était donné ; il n'y en a pas besoin.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('une carte PROPOSÉE n’est pas une carte CRÉÉE', () => {
+  it('🔴🔴 L’ÉTAT SE DÉDUIT DE `origine`, et n’est stocké nulle part deux fois', () => {
+    expect(etatDeLaCarte('auto')).toBe('proposee');
+    expect(etatDeLaCarte('manuel')).toBe('creee');
+  });
+
+  it('🔴🔴 SEULE UNE CARTE CRÉÉE MONTE DANS UN CARROUSEL', () => {
+    expect(carteMonteAuCarrousel({ origine: 'manuel' })).toBe(true);
+    expect(carteMonteAuCarrousel({ origine: 'auto' })).toBe(false);
+  });
+
+  /**
+   * ⚠️ LE JUGE EST UNIQUE, ET C'EST TOUT L'INTÉRÊT : le carrousel, le compteur « + N contacts » et la pastille de
+   * la capsule l'appellent tous. Trois conditions écrites séparément auraient fini par diverger — et c'est le
+   * carrousel qui aurait gardé une carte que la capsule croyait absente.
+   */
+  it('🔒 LE JUGE EST APPELÉ AUX TROIS ENDROITS, et aucun ne refait le test à sa façon', () => {
+    const ecran = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    const bloc = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBien.tsx', 'utf8');
+    for (const src of [ecran, bloc]) {
+      expect(src).toContain('carteMonteAuCarrousel');
+      /* ⚠️ ET AUCUN TEST RECOPIÉ : `origine === 'manuel'` écrit dans un écran serait la seconde vérité. */
+      expect(sansCommentaires(src)).not.toContain("origine === 'manuel'");
+      expect(sansCommentaires(src)).not.toContain("origine === 'auto'");
+    }
   });
 });

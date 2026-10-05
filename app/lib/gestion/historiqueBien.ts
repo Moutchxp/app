@@ -743,19 +743,39 @@ export function sorteDeCapsule(
  * ⚠️ « À VÉRIFIER » L'EMPORTE SUR « VÉRIFIÉE » quand il y en a des deux : c'est le geste qui reste à faire qui doit
  * se voir, pas celui qui est fait.
  */
-export type PastilleDeCapsule = 'plus' | 'fiche' | 'a_verifier' | null;
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 2 — DEUX ÉTATS, PLUS TROIS ═══════════════════════════════════════════════════
+ *
+ * RÈGLE D'ARNO (05/10/2026) : « Toute capsule CONTACT sans carte créée (Y COMPRIS AVEC UN PRÉ-REMPLISSAGE) porte
+ * le “+” rouge dans un cercle rouge […] L'icône “fiche” ORANGE DISPARAÎT. Quand la carte est créée : petite
+ * icône “fiche” grise cerclée, qui ouvre la carte. »
+ *
+ * 🔴 L'ORANGE DISPARAÎT PARCE QU'IL N'A PLUS D'OBJET. Au lot 6, il disait « une carte existe, mais personne ne
+ * l'a vérifiée » — et ces cartes-là étaient les 481 pré-remplissages. Depuis le point 1, un pré-remplissage
+ * n'est plus une carte du carrousel : il n'y a donc plus d'état intermédiaire à montrer. Ou la carte est créée
+ * (on l'ouvre), ou elle ne l'est pas (on la crée). Deux états, deux pastilles.
+ *
+ * ⚠️ `cartes` EST DEVENU UN ENSEMBLE DE CÔTÉS, et non plus une carte côté → vérifiée : le drapeau de
+ * vérification n'a plus personne à renseigner. Le garder « au cas où » aurait laissé un champ mort que le
+ * prochain lot aurait cru signifiant.
+ */
+export type PastilleDeCapsule = 'plus' | 'fiche' | null;
 
 export function pastilleDeCapsule(
   sorte: SorteDeCapsule,
   groupe: CleGroupeParties,
-  cartes: ReadonlyMap<string, boolean>,
+  /** Les côtés où une carte **CRÉÉE** existe pour cette adresse sur ce bien. */
+  cotesAvecCarte: ReadonlySet<string>,
 ): PastilleDeCapsule {
   if (sorte !== 'contact') return null;
   const cote = coteDeLaCategorie(groupe);
-  /* Depuis un encart, SA carte seule compte ; depuis « Non affectés », n'importe laquelle. */
-  const retenues = cote === null ? [...cartes.values()] : (cartes.has(cote) ? [cartes.get(cote) as boolean] : []);
-  if (retenues.length === 0) return 'plus';
-  return retenues.every((v) => v) ? 'fiche' : 'a_verifier';
+  /**
+   * ⚠️ DEPUIS UN ENCART, SA CARTE SEULE COMPTE ; DEPUIS « NON AFFECTÉS », N'IMPORTE LAQUELLE. La capsule n'y a
+   * pas de côté à elle ; si une carte existe quelque part pour cette personne sur ce bien, proposer d'en créer
+   * une seconde serait proposer un doublon.
+   */
+  const aUneCarte = cote === null ? cotesAvecCarte.size > 0 : cotesAvecCarte.has(cote);
+  return aUneCarte ? 'fiche' : 'plus';
 }
 
 /** Les mots de la pastille, écrits une fois — info-bulle et intitulé pour le lecteur d'écran. PUR. */
@@ -763,9 +783,6 @@ export function motPastille(p: PastilleDeCapsule, nom: string): { titre: string;
   if (p === null) return null;
   if (p === 'plus') {
     return { titre: 'Créer sa carte de contact', aria: `Créer la carte de contact de ${nom}` };
-  }
-  if (p === 'a_verifier') {
-    return { titre: 'Sa carte existe — à vérifier', aria: `Ouvrir la carte de contact de ${nom}, à vérifier` };
   }
   return { titre: 'Ouvrir sa carte de contact', aria: `Ouvrir la carte de contact de ${nom}` };
 }
