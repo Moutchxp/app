@@ -18,6 +18,19 @@ import {
   MOTIF_DERNIER_PROPRIETAIRE, MOTIF_SANS_MIGRATION, manquesDeLaFiche, phraseArchivage, proposerCoupure,
   verifierCoordonnees, type CoordonneeSaisie, type PartDeCoordonnee,
 } from '../../../../lib/gestion/annuaireEdition';
+/**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES MOTS ET LES BORNES DES CARTES DE CONTACT VIENNENT DU MODULE PUR.
+ *
+ * `libelleDuCote` et `LIBELLE_CARTE_AUTO` y vivent depuis le lot 1 ; `CONTACTS_MONTRES`,
+ * `motContactsDuCarrousel`, `motAutresContacts` et `roleDeContactPermis` y sont nés avec ce lot. Les recopier ici
+ * aurait fait deux vérités — et c'est celle qu'on relit le moins qui se périme.
+ */
+import {
+  CONTACTS_MONTRES, LIBELLE_CARTE_AUTO, libelleDuCote, motAutresContacts, motContactsDuCarrousel,
+  MOT_REPLIER_CONTACTS, roleDeContactPermis,
+} from '../../../../lib/gestion/partieCategorie';
+/** La carte telle que le dépôt la rend. Importée en TYPE : rien de `pg` n'entre dans ce paquet. */
+import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/partieCategorieRepo';
 // LOT FICHES-RETOUCHES — la nomenclature (Mobile / Fixe / E-mail) et le formatage des numeros.
 import {
   TYPES_COORDONNEE, formaterSaisieTelephone, lienAppel, lignesParType, motType, sorteDuType, typeDeLibelle,
@@ -985,7 +998,219 @@ function EcranSeparer({ p, onSeparer, onAnnuler, refus }: {
  * ⚠️ LES ARCHIVÉES SONT RANGÉES APRÈS LES VIVANTES, pas cachées : « Restaurer » a besoin de sa cible, et une fiche
  * archivée qui disparaîtrait de l'écran laisserait croire qu'elle a été supprimée — ce qui n'arrive jamais ici.
  */
-export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, dessous, creation }: {
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — UNE CARTE DE CONTACT DANS UN CARROUSEL ══════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DÉCISION D'ARNO (05/10/2026) : « le “+” sert à enrichir le carrousel de la partie concernée. Les cartes de
+ * contact s'affichent donc dans les carrousels du haut de fiche. […] Une carte de contact a le même gabarit que
+ * les cartes clients : nom, badge “CONTACT DU PROPRIÉTAIRE” / “CONTACT DU LOCATAIRE”, e-mail, téléphone avec
+ * “Copier”, note, “Créée automatiquement — à vérifier” avec trame orange tant qu'elle n'est pas vérifiée, bouton
+ * “Vérifié”, crayon pour modifier, “…” avec “Changer de côté”, “Passer en tiers indépendant” et “Retirer”
+ * (statut 'retire', jamais supprimée). »
+ *
+ * 🔴 CE QUE CE COMPOSANT RÉPARE, ET C'EST MOI QUI L'AVAIS SIGNALÉ À LA FIN DU LOT 6 : les libellés de contact
+ * existaient et étaient éprouvés depuis le lot 1, mais AUCUN ÉCRAN NE LES RENDAIT. Une carte créée par le « + »
+ * n'était visible que comme capsule dans le bloc du bas — un geste à l'effet invisible.
+ *
+ * ═══ 🔴 POURQUOI UN COMPOSANT À PART, ET NON UN `CartePersonne` DÉGUISÉ ══════════════════════════════════════════
+ *
+ * C'est la question qui compte, et la réponse est qu'ils ne portent pas les mêmes objets. `CartePersonne` tient
+ * une `PersonneAnnuaire` : une civilité, un prénom, un nom, une adresse postale, une qualité, un rang réglé à la
+ * main, un état d'archivage, des coordonnées MULTIPLES, et six gestes (modifier, archiver, restaurer, séparer,
+ * remplacer, ordonner). Une carte de contact tient une `LigneCarte` : une adresse e-mail UNIQUE — qui est son
+ * identité —, un nom deviné, un téléphone, une note, et trois gestes.
+ *
+ * Les faire tenir dans un seul composant aurait demandé d'y poser une dizaine de `si c'est un contact alors…` —
+ * et c'est exactement par là que les cartes CLIENTS auraient fini par changer d'un pixel, ce qu'Arno interdit en
+ * toutes lettres. Le gabarit, lui, EST partagé : les mêmes classes (`cp-carte`, `cp-tete`, `cp-nom`, `cp-role`,
+ * `cp-lignes`), les mêmes composants (`Ligne`, `Copier`, `Rien`), la même géométrie. Ce qui se voit est identique ;
+ * ce qui se manipule ne l'est pas.
+ *
+ * ⚠️ AUCUN RÔLE DE CLIENT N'EST POSSIBLE ICI : le badge vient de `libelleDuCote`, et `roleDeContactPermis` (module
+ * PUR) refuse « PROPRIÉTAIRE », « LOCATAIRE » et « EN PLACE ». C'est la règle d'Arno — « un contact ne reçoit
+ * jamais le badge PROPRIÉTAIRE ni EN PLACE » — tenue par une fonction et non par une relecture.
+ *
+ * ⚠️ UNE SEULE PORTE D'ÉCRITURE : les trois gestes passent par les rappels que la fiche fournit, qui POSTENT sur
+ * `/api/admin/gestion/historique/parties` — la même route que le « + » du bloc du bas. Puis le signal réveille
+ * l'autre endroit. Un second chemin d'écriture aurait fini par écrire deux règles différentes.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface GestesCarteContact {
+  /** Vrai quand la migration 304 est là. Faux ⇒ les trois gestes sont désactivés, avec leur motif. */
+  modifiable: boolean;
+  onVerifier: (id: number) => Promise<string | null>;
+  onModifier: (id: number, champs: { nom: string; telephone: string; note: string }) => Promise<string | null>;
+  onRetirer: (id: number) => Promise<string | null>;
+  /** « Changer de côté » et « Passer en tiers indépendant » : un RANGEMENT, par la porte du rangement. */
+  onRanger: (adresse: string, categorie: 'proprietaire' | 'locataire' | 'independant') => Promise<string | null>;
+  onEcrire?: (email: string) => void;
+}
+
+export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesCarteContact }) {
+  const [mode, setMode] = useState<'lecture' | 'modifier'>('lecture');
+  const [menu, setMenu] = useState(false);
+  const [refus, setRefus] = useState<string | null>(null);
+  const [nom, setNom] = useState(c.nom ?? '');
+  const [telephone, setTelephone] = useState(c.telephone ?? '');
+  const [note, setNote] = useState(c.note ?? '');
+
+  /**
+   * ⚠️ `?? null` : UNE RÉPONSE PLUS ANCIENNE QUE CE LOT NE PORTE PAS `verifieLe`, et `undefined === null` est
+   * FAUX — la carte se serait alors crue vérifiée, sans trame orange ni bouton « Vérifié ». C'est exactement ce
+   * que l'essai à l'écran a montré, et ce garde le ferme pour de bon.
+   */
+  const aVerifier = (c.verifieLe ?? null) === null;
+  const badge = libelleDuCote(c.cote);
+  const nomLisible = (c.nom ?? '').trim() !== '' ? (c.nom as string).trim() : c.adresse;
+
+  /**
+   * 🔴 LE GARDE DE LA RÈGLE D'ARNO, À L'ENDROIT OÙ LE BADGE S'ÉCRIT. Il ne peut pas se déclencher aujourd'hui
+   * (`libelleDuCote` ne rend que les deux libellés de contact), et c'est bien : un garde qui crie déjà ne
+   * protège rien. Il protège le jour où quelqu'un passera un rôle de client ici.
+   */
+  const badgeSur = roleDeContactPermis(badge) ? badge : '';
+
+  const fermer = (): void => { setMode('lecture'); setMenu(false); setRefus(null); };
+
+  if (mode === 'modifier') {
+    return (
+      <article className="cp-carte cp-carte--edition">
+        {/* ⚠️ L'ADRESSE EST EN LECTURE SEULE : elle est l'IDENTITÉ de la carte (la clé de la table est
+            (bien, côté, adresse)). La changer serait créer une AUTRE carte — et c'est ce que fait le « + ». */}
+        <form className="cp-form" onSubmit={(e) => {
+          e.preventDefault();
+          void (async () => {
+            const motif = await gestes.onModifier(c.id, { nom, telephone, note });
+            if (motif === null) fermer(); else setRefus(motif);
+          })();
+        }}>
+          <p className="cp-form-titre">Modifier ce contact</p>
+          <label className="cp-champ">
+            <span className="cp-champ-mot">Adresse mail</span>
+            <input className="ann-champ" type="email" value={c.adresse} readOnly />
+          </label>
+          <label className="cp-champ">
+            <span className="cp-champ-mot">Nom</span>
+            <input className="ann-champ" type="text" value={nom} autoComplete="off"
+              onChange={(e) => setNom(e.target.value)} />
+          </label>
+          <label className="cp-champ">
+            <span className="cp-champ-mot">Téléphone</span>
+            <input className="ann-champ" type="tel" value={telephone} autoComplete="off"
+              onChange={(e) => setTelephone(e.target.value)} />
+          </label>
+          <label className="cp-champ">
+            <span className="cp-champ-mot">Note</span>
+            <input className="ann-champ" type="text" value={note} autoComplete="off"
+              onChange={(e) => setNote(e.target.value)} />
+          </label>
+          {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
+          <p className="cp-form-boutons">
+            <button type="submit" className="gst-bouton">Enregistrer</button>
+            <button type="button" className="gst-bouton gst-bouton--pale" onClick={fermer}>Annuler</button>
+          </p>
+        </form>
+      </article>
+    );
+  }
+
+  return (
+    <article className={`cp-carte cp-carte--contact${aVerifier ? ' cp-carte--a-verifier' : ''}`}
+      data-carte-contact={c.id}>
+      <header className="cp-tete">
+        <div className="cp-tete-mots">
+          <p className="cp-nom">{nomLisible}</p>
+          <p className="cp-tete-caps">
+            {/* 🔴 LE BADGE DE CONTACT, ET JAMAIS CELUI D'UN CLIENT : `roleDeContactPermis` le tient. */}
+            <span className="cp-role cp-role--contact">{badgeSur}</span>
+          </p>
+        </div>
+        <div className="cp-tete-actions">
+          <button type="button" className="cp-icone" disabled={!gestes.modifiable}
+            title={gestes.modifiable ? 'Modifier ce contact' : MOTIF_SANS_MIGRATION}
+            aria-label="Modifier" onClick={() => setMode('modifier')}>✎</button>
+          <button type="button" className="cp-icone" disabled={!gestes.modifiable}
+            title={gestes.modifiable ? 'Autres gestes' : MOTIF_SANS_MIGRATION}
+            aria-label="Autres gestes" aria-expanded={menu} onClick={() => setMenu((v) => !v)}>⋯</button>
+        </div>
+      </header>
+
+      {/* ══ 🔴🔴 LE MENU « ⋯ » — TROIS GESTES, ET AUCUN NE SUPPRIME ═══════════════════════════════════════════
+          « Changer de côté » et « Passer en tiers indépendant » sont des RANGEMENTS : ils passent par la porte du
+          rangement, celle du « + » du bloc du bas. « Retirer » pose un statut `retire` ; rien n'est jamais
+          supprimé — règle du module. */}
+      {menu && (
+        <div className="cp-menu" role="menu">
+          <button type="button" role="menuitem" className="cp-menu-ligne"
+            onClick={() => { void (async () => {
+              const autre = c.cote === 'proprietaire' ? 'locataire' : 'proprietaire';
+              const motif = await gestes.onRanger(c.adresse, autre);
+              if (motif === null) setMenu(false); else setRefus(motif);
+            })(); }}>
+            Changer de côté — vers {c.cote === 'proprietaire' ? 'le locataire' : 'le propriétaire'}
+          </button>
+          <button type="button" role="menuitem" className="cp-menu-ligne"
+            onClick={() => { void (async () => {
+              const motif = await gestes.onRanger(c.adresse, 'independant');
+              if (motif === null) setMenu(false); else setRefus(motif);
+            })(); }}>
+            Passer en tiers indépendant
+          </button>
+          <button type="button" role="menuitem" className="cp-menu-ligne cp-menu-ligne--danger"
+            onClick={() => { void (async () => {
+              const motif = await gestes.onRetirer(c.id);
+              if (motif === null) setMenu(false); else setRefus(motif);
+            })(); }}>
+            Retirer cette carte
+          </button>
+        </div>
+      )}
+      {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
+
+      <div className="cp-lignes">
+        <Ligne libelle="E-mail">
+          {gestes.onEcrire === undefined ? c.adresse : (
+            <button type="button" className="gst-lien-bouton"
+              onClick={() => gestes.onEcrire?.(c.adresse)}>{c.adresse}</button>
+          )}
+        </Ligne>
+        <Ligne libelle="Téléphone" apres={(c.telephone ?? '').trim() === '' ? undefined
+          : <Copier valeur={(c.telephone as string).trim()} quoi="le téléphone" />}>
+          {(c.telephone ?? '').trim() !== '' ? c.telephone : <Rien />}
+        </Ligne>
+        <Ligne libelle="Note">{(c.note ?? '').trim() !== '' ? c.note : <Rien mot="non renseignée" />}</Ligne>
+      </div>
+
+      {/* ══ 🔴🔴 LA TRAME ORANGE ET LE BOUTON « VÉRIFIÉ », TANT QUE PERSONNE N'A REGARDÉ ════════════════════════
+          Le mot vient du module PUR (`LIBELLE_CARTE_AUTO`) : l'écran, le script de reprise et les épreuves disent
+          la MÊME chose. Et il promet DEUX choses parce que les deux manquent — vérifier que c'est bien le contact
+          de cette partie, et compléter le nom ou le numéro. */}
+      {aVerifier ? (
+        <p className="cp-a-verifier">
+          <span className="cp-a-verifier-mot">
+            {c.origine === 'auto' ? LIBELLE_CARTE_AUTO : 'À vérifier'}
+          </span>
+          <button type="button" className="gst-bouton gst-bouton--petit" disabled={!gestes.modifiable}
+            title={gestes.modifiable ? undefined : MOTIF_SANS_MIGRATION}
+            onClick={() => { void (async () => {
+              const motif = await gestes.onVerifier(c.id);
+              if (motif !== null) setRefus(motif);
+            })(); }}>Vérifié</button>
+        </p>
+      ) : (
+        /* ⚠️ « par QUI » N'EST ÉCRIT QUE SI ON LE SAIT. L'essai à l'écran a affiché « Vérifiée par undefined » :
+           la réponse ne portait pas encore ce champ. Elle le porte, et la carte ne l'invente pas pour autant. */
+        <p className="cp-naissance">
+          Vérifiée{(c.verifiePar ?? '').trim() === '' ? '' : ` par ${(c.verifiePar as string).trim()}`}
+        </p>
+      )}
+    </article>
+  );
+}
+
+export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, dessous, creation,
+  contacts = [], gestesContact }: {
   titre: string;
   id: string;
   personnes: readonly PersonneAnnuaire[];
@@ -998,6 +1223,19 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
    * mot de son champ date, et le geste qui la crée (il rend `null` si tout va bien, sinon le motif du refus).
    */
   creation: { rappel: string; onCreer: (champs: ChampsSaisis) => Promise<string | null> };
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES CARTES DE CONTACT DE CE CÔTÉ ════════════════════════════════════════════
+   *
+   * DÉCISION D'ARNO : « Carrousel PROPRIÉTAIRE : après les cartes clients, viennent les cartes “CONTACT DU
+   * PROPRIÉTAIRE” (actives, non retirées). […] La carte “+ Ajouter un propriétaire” ou “+ Ajouter un occupant”
+   * reste en dernier. »
+   *
+   * ⚠️ VIDE PAR DÉFAUT, DONC AUCUN CHANGEMENT LÀ OÙ PERSONNE N'EN PASSE : la fiche d'un PROPRIÉTAIRE et celle
+   * d'un LOCATAIRE montent ce même bloc et n'en passent pas. Leurs carrousels sont, au caractère près, ceux
+   * d'avant ce lot — et les empreintes le prouvent.
+   */
+  contacts?: readonly CarteDeContact[];
+  gestesContact?: GestesCarteContact;
 }) {
   const vivantes = personnes.filter((p) => !p.archive);
   const archivees = personnes.filter((p) => p.archive);
@@ -1016,12 +1254,35 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
   const ordonnees = voirArchivees ? [...vivantes, ...archivees] : vivantes;
   const [ajout, setAjout] = useState(false);
   const [refusAjout, setRefusAjout] = useState<string | null>(null);
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LE REPLI DES CONTACTS AU-DELÀ DE SIX. Mesuré : le bien 155 porte 55 contacts
+   * côté propriétaire. Cinquante-cinq cartes dans une piste horizontale, ce n'est pas un carrousel, c'est un
+   * mur — et les cartes CLIENTS, celles qu'on vient voir, s'y retrouvent noyées au bout d'un ruban de six écrans.
+   */
+  const [tousLesContacts, setTousLesContacts] = useState(false);
+  const contactsMontres = tousLesContacts ? contacts : contacts.slice(0, CONTACTS_MONTRES);
+  const motAutres = motAutresContacts(contacts.length);
   return (
     <section className="ann-bloc" aria-labelledby={id}>
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — DEUX COMPTEURS QUI NE SE MÊLENT PAS ═══════════════════════════════════
+          RÈGLE D'ARNO : « Les compteurs “PROPRIÉTAIRE N” et “LOCATAIRE EN PLACE N” ne comptent QUE les clients ;
+          les contacts ont leur propre petit compteur (“+ 2 contacts”). »
+
+          🔴 ET IL A RAISON : un carrousel qui annoncerait « PROPRIÉTAIRE 3 » pour un propriétaire et deux
+          contacts dirait que ce bien a trois propriétaires. C'est exactement le défaut qu'un compteur doit
+          empêcher — et c'est le même qu'au lot SUPPRIMER-CARTE, où le compteur comptait les vivantes pendant
+          que la rangée montrait aussi les archivées.
+
+          ⚠️ `vivantes.length` N'A PAS BOUGÉ D'UN CARACTÈRE : les contacts ne l'approchent pas. */}
       <h4 className="ann-bloc-titre" id={id}>
         {titre} <span className="gst-compte">{vivantes.length}</span>
+        {motContactsDuCarrousel(contacts.length) !== null && (
+          <span className="cp-compte-contacts">{motContactsDuCarrousel(contacts.length)}</span>
+        )}
       </h4>
-      <Rangee nb={ordonnees.length}>
+      {/* ⚠️ `nb` COMPTE LES CARTES RÉELLEMENT POSÉES : c'est lui qui décide si la piste défile. L'oublier
+          aurait laissé une piste de douze cartes se croire à trois, et les flèches de défilement absentes. */}
+      <Rangee nb={ordonnees.length + contactsMontres.length}>
         {ordonnees.map((p, i) => (
           <CartePersonne key={`${p.sujet}-${p.id}`} p={p} gestes={gestes}
             role={typeof role === 'string' ? role : role(p)}
@@ -1041,10 +1302,36 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
               },
             }} />
         ))}
+        {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES CARTES DE CONTACT, APRÈS LES CLIENTS ════════════════════════════
+            DÉCISION D'ARNO : « après les cartes clients, viennent les cartes “CONTACT DU PROPRIÉTAIRE” (actives,
+            non retirées). […] La carte “+ Ajouter …” reste en dernier. »
+
+            🔴 L'ORDRE EST CELUI DU JSX, et c'est tout : clients, puis contacts, puis la tuile d'ajout. Aucun tri
+            n'est refait ici — le dépôt rend déjà les cartes « non vérifiées d'abord, puis par nom », et un second
+            tri aurait donné deux ordres pour une même liste.
+
+            ⚠️ SIX AU PLUS, PUIS UNE CARTE QUI DIT LE RESTE : la borne vit dans le module pur, et la carte de
+            dépliage DIT le nombre. Un carrousel qui s'arrêterait à six sans le dire ferait croire que le bien
+            n'a que six contacts. */}
+        {gestesContact !== undefined && contactsMontres.map((ct) => (
+          <CarteContact key={`contact-${ct.id}`} c={ct} gestes={gestesContact} />
+        ))}
+        {gestesContact !== undefined && motAutres !== null && (
+          <button type="button" className="cp-carte cp-carte--plus-contacts"
+            aria-expanded={tousLesContacts}
+            onClick={() => setTousLesContacts((v) => !v)}>
+            <span className="cp-ajout-plus" aria-hidden="true">{tousLesContacts ? '−' : '⋯'}</span>
+            <span className="cp-ajout-mot">{tousLesContacts ? MOT_REPLIER_CONTACTS : motAutres}</span>
+          </button>
+        )}
+
         {/* ══ 🔴🔴 LA TUILE « + AJOUTER », ET LA CARTE VIDE QUI PREND SA PLACE ═══════════════════════════════════
             Arno : « Un clic sur la tuile “+ Ajouter” ouvre, À SA PLACE DANS LA RANGÉE, une carte identique au mode
             Modifier d'un contact existant, mais vide ». La tuile ne mène donc plus à un formulaire posé ailleurs
-            dans la page : elle DEVIENT la carte, au bout de la rangée, là où l'on vient de cliquer. */}
+            dans la page : elle DEVIENT la carte, au bout de la rangée, là où l'on vient de cliquer.
+
+            ⚠️ ELLE RESTE EN DERNIER, APRÈS LES CONTACTS (demande d'Arno) : c'est la place d'un geste, et un geste
+            se trouve au bout de ce qu'on vient de lire. */}
         {ajout ? (
           <article className="cp-carte cp-carte--edition">
             <FormulaireCarte p={null} refus={refusAjout} onAnnuler={() => { setAjout(false); setRefusAjout(null); }}
@@ -1117,6 +1404,43 @@ export const CSS_CARTES = `
   background:var(--color-svv-surface);box-shadow:0 1px 3px rgba(22,32,44,.07);text-align:left}
 .cp-carte--edition{width:min(30rem,calc(100vw - 3rem));border-color:var(--color-svv-line-strong)}
 .cp-carte--archive{opacity:.72;border-style:dashed}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES CARTES DE CONTACT DANS UN CARROUSEL ═════════════════════════════════════════
+   DECISION D'ARNO : « Une carte de contact a le MEME GABARIT que les cartes clients ».
+
+   🔴 D'OU AUCUNE GEOMETRIE PROPRE : la carte de contact reutilise .cp-carte telle quelle — meme largeur, meme
+   fonte, meme ombre, meme arrondi. Ce qui suit ne change que la TRAME d'une carte qu'il reste a verifier, et le
+   ton de son badge. Une carte de contact qui aurait sa propre largeur aurait fait sauter la piste d'une carte a
+   l'autre, et c'est exactement ce que « meme gabarit » interdit.
+
+   ⚠️ LES CARTES CLIENTS NE SONT TOUCHEES PAR AUCUNE DE CES REGLES : toutes portent --contact ou --a-verifier,
+   que seules les cartes de contact ont. Les empreintes le prouvent au caractere pres. */
+.cp-carte--contact{border-left-width:3px;border-left-color:var(--color-svv-line-strong)}
+/* LA TRAME ORANGE D'UNE CARTE A VERIFIER — le MEME ton que la carte de creation du bloc du bas, et que la pastille
+   orange d'une capsule : ce qui attend un geste se signale pareil partout dans ce module. */
+.cp-carte--a-verifier{border-color:var(--color-svv-amber);border-left-color:var(--color-svv-amber);
+  background:var(--color-svv-amber-soft)}
+/* LE BADGE DE CONTACT : le meme gabarit que .cp-role, un ton qui le distingue d'un client sans crier. */
+.cp-role--contact{background:var(--color-svv-surface-raised);color:var(--color-svv-ink);
+  border:1px solid var(--color-svv-line-strong)}
+/* LE PETIT COMPTEUR DES CONTACTS, a cote de celui du titre — et jamais confondu avec lui : il porte son « + ». */
+.cp-compte-contacts{margin-left:.4rem;font-size:.72rem;font-weight:600;color:var(--color-svv-muted)}
+/* « Creee automatiquement — a verifier » et son bouton, en bas de la carte, sur une seule ligne qui se replie. */
+.cp-a-verifier{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.1rem 0 0;
+  font-size:.72rem;color:var(--color-svv-amber-fort,var(--color-svv-ink))}
+.cp-a-verifier-mot{flex:1 1 auto;min-width:0}
+/* LA CARTE QUI DEPLIE LE RESTE : la meme tuile que « + Ajouter », pour qu'on la reconnaisse comme un geste. */
+.cp-carte--plus-contacts{width:min(14rem,calc(100vw - 3rem));align-items:center;justify-content:center;
+  gap:.3rem;border-style:dashed;border-color:var(--color-svv-line-strong);background:var(--color-svv-field);
+  font:inherit;cursor:pointer;color:var(--color-svv-muted);text-align:center}
+.cp-carte--plus-contacts:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong-hover)}
+/* LE MENU « ⋯ » D'UNE CARTE DE CONTACT : la meme forme que celui d'une carte client. */
+.cp-menu{display:flex;flex-direction:column;gap:.1rem;padding:.2rem;border-radius:.5rem;
+  border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
+.cp-menu-ligne{display:block;width:100%;text-align:left;padding:.35rem .5rem;border:0;border-radius:.35rem;
+  background:transparent;font:inherit;font-size:.78rem;color:var(--color-svv-ink);cursor:pointer}
+.cp-menu-ligne:hover{background:var(--color-svv-field)}
+.cp-menu-ligne--danger{color:var(--color-svv-red)}
+.cp-menu-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .cp-tete{display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;
   padding-bottom:.4rem;border-bottom:1px solid var(--color-svv-line)}
 .cp-tete-mots{display:flex;flex-direction:column;gap:.2rem;min-width:0}

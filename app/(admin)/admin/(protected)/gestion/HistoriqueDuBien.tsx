@@ -56,6 +56,15 @@ import {
   type PeriodePartie, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
 /**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LA SYNCHRONISATION AVEC LES CARROUSELS DU HAUT, DANS LES DEUX SENS.
+ *
+ * Ce bloc ANNONCE après chacune de ses écritures (le « + », un glisser, une annulation) pour réveiller le haut,
+ * et il ÉCOUTE, pour que vérifier, modifier ou retirer une carte depuis le haut change ses capsules et ses
+ * pastilles sans rechargement. Le signal ne porte aucune carte : il dit « redemande ».
+ */
+import { annoncerCartesContact, concerneCeBien, ecouterCartesContact, type SignalCartesContact }
+  from '../../../../lib/gestion/signalCartesContact';
+/**
  * 🔴 LE VOCABULAIRE DES CATÉGORIES ET LE CÔTÉ D'UNE CARTE VIENNENT DU MODULE QUI EN EST LE JUGE
  * (`partieCategorie.ts`), jamais d'une liste recopiée ici : `coteDeLaCategorie` décide si une carte de contact
  * se range côté propriétaire ou côté locataire, et c'est la même fonction que la reprise a employée.
@@ -405,6 +414,16 @@ export function HistoriqueDuBien({
   const [coordonnees, setCoordonnees] =
     useState<ReadonlyMap<string, { nom: string | null; telephone: string | null }>>(new Map());
 
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LE BLOC DU BAS S'ABONNE AU SIGNAL, LUI AUSSI ═════════════════════════════════
+   *
+   * DEMANDE D'ARNO : « SYNCHRONISATION TOTALE […] que ce soit depuis le haut ou depuis le bas, met à jour l'autre
+   * endroit en direct. »
+   *
+   * 🔴 LES DEUX SENS, ET C'EST LE MOT « TOTALE » QUI L'EXIGE. Ce bloc ANNONCE après chacune de ses écritures (le
+   * « + », un glisser, une annulation) pour réveiller les carrousels du haut ; et il ÉCOUTE, pour que vérifier,
+   * modifier ou retirer une carte DEPUIS LE HAUT change ses capsules et ses pastilles sans rechargement.
+   */
   /** Relire les rangements. Appelée au montage ET après une création : la partie doit changer de groupe en direct. */
   const relireParties = useCallback(async (): Promise<void> => {
     try {
@@ -449,6 +468,22 @@ export function HistoriqueDuBien({
     }
   }, [lotCle]);
   useEffect(() => { void relireParties(); }, [relireParties]);
+  /**
+   * 🔴 L'ÉCOUTE : un geste fait DANS UN CARROUSEL DU HAUT met ce bloc à jour, sans que l'un connaisse l'autre.
+   *
+   * ⚠️ ON N'ÉCOUTE PAS SES PROPRES ANNONCES. Ce bloc est à la fois émetteur et auditeur : sans ce garde, il
+   * relirait DEUX FOIS après chacune de ses écritures — une fois parce qu'il vient d'écrire, une fois parce
+   * qu'il s'entend. Mesuré par deux épreuves qui comptent les lectures : elles en attendaient deux, elles en
+   * voyaient trois.
+   */
+  const monEcoute = useRef<((s: SignalCartesContact) => void) | null>(null);
+  useEffect(() => {
+    const f = (sig: SignalCartesContact): void => {
+      if (concerneCeBien(sig, lotCle)) void relireParties();
+    };
+    monEcoute.current = f;
+    return ecouterCartesContact(f);
+  }, [lotCle, relireParties]);
 
   // ── ② LE FIL ──────────────────────────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -831,6 +866,9 @@ export function HistoriqueDuBien({
         return;
       }
       await relireParties();
+      /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — on prévient les carrousels du haut : la synchronisation va dans les deux
+         sens. Le tour est gardé pour ne pas s'entendre soi-même (voir l'encadré de l'écoute). */
+      annoncerCartesContact(lotCle, { sauf: monEcoute.current ?? undefined });
       setDernierGeste({ mot: motDeplacement(nomLisible, titreCible), geste: d.geste ?? null });
     } catch {
       setRefusDeplacement('Le déplacement n’a pas pu être enregistré : le serveur n’a pas répondu.');
@@ -862,6 +900,9 @@ export function HistoriqueDuBien({
       }
       setDernierGeste(null);
       await relireParties();
+      /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — on prévient les carrousels du haut : la synchronisation va dans les deux
+         sens. Le tour est gardé pour ne pas s'entendre soi-même (voir l'encadré de l'écoute). */
+      annoncerCartesContact(lotCle, { sauf: monEcoute.current ?? undefined });
     } catch {
       setRefusDeplacement('L’annulation n’a pas pu être enregistrée : le serveur n’a pas répondu.');
     } finally {
@@ -954,6 +995,9 @@ export function HistoriqueDuBien({
       }
       setACreer(null);
       await relireParties();
+      /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — on prévient les carrousels du haut : la synchronisation va dans les deux
+         sens. Le tour est gardé pour ne pas s'entendre soi-même (voir l'encadré de l'écoute). */
+      annoncerCartesContact(lotCle, { sauf: monEcoute.current ?? undefined });
     } catch {
       setRefusCreation('Le rangement n’a pas pu être enregistré : le serveur n’a pas répondu.');
     } finally {

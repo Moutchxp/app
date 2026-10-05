@@ -65,14 +65,34 @@ export function ecouterCartesContact(f: AuditeurCartesContact): () => void {
  * ⚠️ UN AUDITEUR QUI JETTE N'EMPÊCHE PAS LES AUTRES D'ÊTRE PRÉVENUS. Sans ce `try`, un seul écran en erreur
  * laisserait tous les suivants sur leur image d'avant — c'est-à-dire exactement le défaut qu'on répare.
  */
-export function annoncerCartesContact(lotCle: string): void {
+export function annoncerCartesContact(
+  lotCle: string,
+  /**
+   * ══ 🔴🔴 NE PAS SE RÉVEILLER SOI-MÊME, ET C'EST LA MESURE QUI L'A IMPOSÉ ════════════════════════════════════
+   *
+   * Le bloc du bas est à la fois ÉMETTEUR et AUDITEUR : il relit après SON écriture, et il écoute pour les
+   * gestes de l'autre endroit. Sans ce `sauf`, il relisait DEUX FOIS après chacune de ses écritures — deux
+   * épreuves de `HistoriqueDuBien` comptent les lectures : elles en attendaient deux, elles en ont vu trois.
+   *
+   * 🔴 ON DÉSIGNE L'AUDITEUR, ET NON UN NUMÉRO DE TOUR, et c'est le cœur de ce choix. Un émetteur qui garderait
+   * « le tour que je viens d'émettre » le rangerait APRÈS l'appel — or les auditeurs sont prévenus PENDANT. Le
+   * marqueur arriverait donc toujours trop tard, et l'émetteur s'entendrait quand même. Ma première version
+   * faisait exactement cette erreur, et l'épreuve l'a dit tout de suite.
+   *
+   * ⚠️ FACULTATIF : sans lui, tout le monde est prévenu — c'est le cas d'un écran qui n'écoute pas.
+   */
+  o: { sauf?: AuditeurCartesContact } = {},
+): number {
   const cle = lotCle.trim();
-  if (cle === '') return;
+  /** ⚠️ `0` QUAND IL N'Y A RIEN À ANNONCER : aucun tour n'est consommé, et aucun auditeur n'a été dérangé. */
+  if (cle === '') return 0;
   tour += 1;
   const s: SignalCartesContact = { lotCle: cle, tour };
   for (const f of [...auditeurs]) {
+    if (f === o.sauf) continue;
     try { f(s); } catch { /* un auditeur en erreur ne fait pas taire les autres */ }
   }
+  return s.tour;
 }
 
 /**

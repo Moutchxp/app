@@ -29,6 +29,16 @@ import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
 import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien } from './HistoriqueDuBien';
 import { type CategoriePartie, type ClientDuBien, type OccupationPeriode, type PeriodePartie }
   from '../../../../lib/gestion/historiqueBien';
+/**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LA SYNCHRONISATION DU HAUT ET DU BAS.
+ *
+ * Le signal ne porte aucune carte : il dit « redemande ». Qui AFFICHE des cartes de contact s'y abonne, qui en
+ * CHANGE une l'annonce. Voir l'encadré de `signalCartesContact`.
+ */
+import { annoncerCartesContact, concerneCeBien, ecouterCartesContact, type SignalCartesContact }
+  from '../../../../lib/gestion/signalCartesContact';
+/** La carte telle que le dépôt la rend. Importée en TYPE : rien de `pg` n'entre dans ce paquet. */
+import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/partieCategorieRepo';
 // 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
 import { DocumentsAutomatiques } from './DocumentsAutomatiques';
 // 🔴🔴 LOT CONTACTS-EXTERNES — les échanges de cette personne passés par un intermédiaire. Liste DISTINCTE.
@@ -1184,6 +1194,95 @@ function VueLot({
   const baux = grouperParPeriode(passes);
 
   /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES CARTES DE CONTACT DES DEUX CARROUSELS ════════════════════════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * DÉCISION D'ARNO (05/10/2026) : « le “+” sert à enrichir le carrousel de la partie concernée. Les cartes de
+   * contact s'affichent donc dans les carrousels du haut de fiche. »
+   *
+   * 🔴 ELLES VIENNENT DE LA MÊME ROUTE QUE LE BLOC DU BAS, et c'est tout l'intérêt : une seule lecture, une seule
+   * vérité. Le bloc « Historique du bien » lit déjà `/api/admin/gestion/historique/parties` pour ses capsules et
+   * ses pastilles ; le haut de la fiche y lit maintenant les mêmes cartes. Deux lectures différentes auraient fini
+   * par montrer deux listes — et c'est celle qu'on regarde le moins qui aurait gardé le faux.
+   *
+   * 🔴 ET LA SYNCHRONISATION PASSE PAR LE SIGNAL, pas par un rappel de plus. Arno demande une « SYNCHRONISATION
+   * TOTALE […] que ce soit depuis le haut ou depuis le bas ». Un rappel devrait traverser six composants dans un
+   * sens et six dans l'autre ; le signal n'a qu'une règle — qui AFFICHE s'abonne, qui CHANGE annonce.
+   *
+   * ⚠️ EN ÉCHEC, LES DEUX CARROUSELS SONT CEUX D'AVANT CE LOT : liste vide, aucune carte de contact, et les
+   * cartes CLIENTS intactes. Un carrousel qui refuserait de s'afficher parce qu'une lecture d'appoint a échoué
+   * serait pire que deux cartes manquantes.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const [cartesContact, setCartesContact] = useState<readonly CarteDeContact[]>([]);
+  const relireCartes = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch(
+        `/api/admin/gestion/historique/parties?cible=lot-${encodeURIComponent(f.numero)}`,
+        { cache: 'no-store' });
+      const d = (await res.json()) as { data?: { cartes?: CarteDeContact[] } };
+      setCartesContact(d.data?.cartes ?? []);
+    } catch {
+      setCartesContact([]);
+    }
+  }, [f.numero]);
+  useEffect(() => { void relireCartes(); }, [relireCartes]);
+  /**
+   * 🔴 L'ABONNEMENT : un geste fait DANS LE BLOC DU BAS met le haut à jour, sans que l'un connaisse l'autre.
+   *
+   * ⚠️ LE HAUT EST AUSSI ÉMETTEUR, et il s'épargne donc lui-même (`sauf`) : sans cela, vérifier une carte
+   * depuis un carrousel relirait DEUX FOIS — une fois parce qu'on vient d'écrire, une fois parce qu'on
+   * s'entend. Le marqueur est l'auditeur lui-même, et non un numéro de tour : les auditeurs sont prévenus
+   * PENDANT l'annonce, et un numéro rangé après arriverait toujours trop tard.
+   */
+  const monEcoute = useRef<((s: SignalCartesContact) => void) | null>(null);
+  useEffect(() => {
+    const g = (sig: SignalCartesContact): void => {
+      if (concerneCeBien(sig, f.numero)) void relireCartes();
+    };
+    monEcoute.current = g;
+    return ecouterCartesContact(g);
+  }, [f.numero, relireCartes]);
+
+  const contactsProprietaire = cartesContact.filter((c) => c.cote === 'proprietaire');
+  const contactsLocataire = cartesContact.filter((c) => c.cote === 'locataire');
+
+  /**
+   * 🔴🔴 LES TROIS GESTES, PAR LA MÊME PORTE QUE LE « + » DU BLOC DU BAS — et le signal après chacun.
+   *
+   * ⚠️ ON RELIT APRÈS, PLUTÔT QUE DE DEVINER LE NOUVEL ÉTAT. Poser le changement dans l'état local aurait
+   * affiché un geste que le serveur a peut-être refusé en partie — et c'est la convention de ce module depuis le
+   * lot 3 (« on relit, on ne devine pas »).
+   */
+  const gesteDeCarte = useCallback(async (corps: Record<string, unknown>): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/admin/gestion/historique/parties', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(corps),
+      });
+      const d = (await res.json()) as { etat?: string; motif?: string };
+      if (d.etat !== 'ok') return d.motif ?? 'Le geste n’a pas pu être enregistré.';
+      await relireCartes();
+      /* 🔴 ET ON PRÉVIENT L'AUTRE ENDROIT : c'est ce qui rend la synchronisation « totale » qu'Arno demande. */
+      annoncerCartesContact(f.numero, { sauf: monEcoute.current ?? undefined });
+      return null;
+    } catch {
+      return 'Le geste n’a pas pu être enregistré : le réseau n’a pas répondu.';
+    }
+  }, [f.numero, relireCartes]);
+
+  const gestesContact = {
+    modifiable: gestes.modifiable,
+    onVerifier: (id: number) => gesteDeCarte({ action: 'verifier', id }),
+    onRetirer: (id: number) => gesteDeCarte({ action: 'retirer', id }),
+    onModifier: (id: number, champs: { nom: string; telephone: string; note: string }) =>
+      gesteDeCarte({ action: 'modifier', id, ...champs }),
+    /* « Changer de côté » et « Passer en tiers indépendant » : un RANGEMENT, par la porte du rangement. */
+    onRanger: (adresse: string, categorie: 'proprietaire' | 'locataire' | 'independant') =>
+      gesteDeCarte({ cible: `lot-${f.numero}`, adresse, categorie }),
+    onEcrire,
+  };
+
+  /**
    * ══ 🔴 SE POSER SUR LA « VIE DU BIEN » QUAND ON ARRIVE PAR « HISTORIQUE » ════════════════════════════════════
    *
    * ⚠️ `scrollIntoView` DANS UN EFFET, ET UNE SEULE FOIS. Le faire au rendu serait un effet de bord pendant le
@@ -1269,6 +1368,8 @@ function VueLot({
       {/* ══ 🔴 LES PROPRIÉTAIRES DU BIEN, EN CARTES — avec « Remplacer » pour une vente ═══════════════════════════ */}
       <BlocCartes titre={`Propriétaire${f.proprietaires.length > 1 ? 's' : ''}`} id="ann-prop"
         personnes={f.proprietaires} role="Propriétaire" motAjouter="Ajouter un propriétaire"
+        /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — les cartes « CONTACT DU PROPRIÉTAIRE », après les clients. */
+        contacts={contactsProprietaire} gestesContact={gestesContact}
         gestes={{
           ...gestes,
           /* ⚠️ « REMPLACER » MÈNE À LA FICHE DE LA PERSONNE : c'est là que le geste a un sens, puisqu'il faut
@@ -1287,6 +1388,8 @@ function VueLot({
           historique), enregistrer un nouveau locataire (date d'entrée) ». */}
       <BlocCartes titre={`Locataire${actuels.length > 1 ? 's' : ''} en place`} id="ann-occ"
         personnes={f.occupants} role="En place" motAjouter="Ajouter un occupant" gestes={gestes}
+        /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — les cartes « CONTACT DU LOCATAIRE », après les clients. */
+        contacts={contactsLocataire} gestesContact={gestesContact}
         creation={{
           rappel: `Sera ajouté comme occupant du lot ${f.numero}.`,
           onCreer: (champs) => onCreer('locataire', [f.id], champs),

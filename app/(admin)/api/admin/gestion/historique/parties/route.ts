@@ -113,9 +113,24 @@ export async function GET(request: Request): Promise<Response> {
           aVerifier: p.retenue?.origine === 'propose'
             && (p.globale?.verifieLe ?? null) === null && (p.parBien?.verifieLe ?? null) === null,
         })),
+        /**
+         * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LA PROJECTION S'ÉLARGIT À CE QU'UNE CARTE DU HAUT AFFICHE.
+         *
+         * 🔴 ET C'EST L'ESSAI À L'ÉCRAN QUI L'A DIT, PAS UNE RELECTURE. Les carrousels affichaient « Vérifiée
+         * par undefined » : la réponse ne portait que `verifie` (un booléen), et ni `verifieLe`, ni
+         * `verifiePar`, ni `note`. Le bloc du bas s'en contentait — il ne lit que la présence d'une carte et son
+         * état de vérification. Une carte du HAUT, elle, montre la note et dit QUI a vérifié.
+         *
+         * ⚠️ `verifie` EST GARDÉ, et ce n'est pas un doublon de `verifieLe` : le bloc du bas le lit déjà, et le
+         * retirer aurait cassé sa pastille orange pour un champ qu'il n'a jamais demandé. On AJOUTE.
+         *
+         * ⚠️ ON N'ENVOIE TOUJOURS QUE CE QUE L'ÉCRAN LIT : ni `lotCle` (l'appelant le connaît, il l'a demandé),
+         * ni `creePar`, ni `creeLe` — aucun écran ne les affiche.
+         */
         cartes: cartes.map((c) => ({
           id: c.id, cote: c.cote, adresse: c.adresse, nom: c.nom, telephone: c.telephone,
           origine: c.origine, verifie: c.verifieLe !== null,
+          note: c.note, verifieLe: c.verifieLe, verifiePar: c.verifiePar,
         })),
         /**
          * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — CE QUE LA CARTE DU « + » PRÉ-REMPLIT. Demande d'Arno : « Elle

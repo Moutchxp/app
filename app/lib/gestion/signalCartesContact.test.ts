@@ -51,9 +51,55 @@ describe('le signal réveille qui affiche des cartes de contact', () => {
   it('⚠️ UNE CLÉ VIDE N’ANNONCE RIEN : un geste sans bien n’a personne à réveiller', () => {
     const f = vi.fn();
     ecouterCartesContact(f);
-    annoncerCartesContact('');
-    annoncerCartesContact('   ');
+    expect(annoncerCartesContact('')).toBe(0);
+    expect(annoncerCartesContact('   ')).toBe(0);
     expect(f).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ══ 🔴🔴 NE PAS SE RÉVEILLER SOI-MÊME, ET C'EST LA MESURE QUI L'A IMPOSÉ ═══════════════════════════════════
+   *
+   * Le bloc du bas est à la fois ÉMETTEUR et AUDITEUR. Sans ce tour rendu, il relisait DEUX FOIS après chacune
+   * de ses écritures — une fois parce qu'il venait d'écrire, une fois parce qu'il s'entendait. Deux épreuves de
+   * `HistoriqueDuBien` comptent les lectures : elles en attendaient deux, elles en ont vu trois.
+   */
+  it('🔴🔴 `sauf` ÉPARGNE L’ÉMETTEUR : il ne s’entend pas lui-même', () => {
+    const relectures: number[] = [];
+    const moi = (s: SignalCartesContact): void => { relectures.push(s.tour); };
+    ecouterCartesContact(moi);
+
+    /* ① mon propre geste : je m'épargne, et je ne me relis pas. */
+    annoncerCartesContact('432', { sauf: moi });
+    expect(relectures).toEqual([]);
+
+    /* ② le geste de l'AUTRE endroit : je le reçois, et je relis. */
+    const autre = annoncerCartesContact('432');
+    expect(relectures).toEqual([autre]);
+  });
+
+  /**
+   * 🔴🔴 POURQUOI `sauf` DÉSIGNE L'AUDITEUR ET NON UN NUMÉRO DE TOUR. Ma première version rendait le tour pour
+   * que l'émetteur le garde et l'ignore. Elle ne pouvait pas marcher : les auditeurs sont prévenus PENDANT
+   * l'appel, et le marqueur n'est rangé qu'APRÈS. L'épreuve l'a dit tout de suite, et ce cas garde la leçon.
+   */
+  it('🔴🔴 LE PIÈGE FERMÉ : garder le tour APRÈS l’appel arrive toujours trop tard', () => {
+    let monTour = 0;
+    const vus: number[] = [];
+    ecouterCartesContact((s) => { if (s.tour !== monTour) vus.push(s.tour); });
+    /* On range le tour après l'appel — exactement ma première version : l'auditeur a déjà été prévenu. */
+    monTour = annoncerCartesContact('432');
+    expect(vus).toHaveLength(1);
+    expect(monTour).toBe(vus[0]);
+  });
+
+  it('⚠️ `sauf` N’ÉPARGNE QUE LUI : les autres sont prévenus comme d’habitude', () => {
+    const moi = vi.fn();
+    const autre = vi.fn();
+    ecouterCartesContact(moi);
+    ecouterCartesContact(autre);
+    annoncerCartesContact('432', { sauf: moi });
+    expect(moi).not.toHaveBeenCalled();
+    expect(autre).toHaveBeenCalledTimes(1);
   });
 
   it('🔴 LE DÉSABONNEMENT MARCHE : un composant démonté n’est plus appelé', () => {
