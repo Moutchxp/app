@@ -17,7 +17,7 @@ import {
   motSurface, qualitePersonne,
   AIDE_DRIVE_ABSENT, AIDE_DRIVE_DU_BIEN, AIDE_HISTORIQUE_ABSENT, AIDE_HISTORIQUE_DU_BIEN,
   AUCUN_BIEN_DU_MAIL, biensDuMail, ENCADRE_EXCEPTION_CE_MAIL, MENTION_AJOUT_PONCTUEL, motEnTeteMail,
-  MOT_CHANGER_REGLE_SUIVI, MOT_DRIVE_ABSENT, MOT_DRIVE_DU_BIEN, MOT_HISTORIQUE_DU_BIEN,
+  MOT_DRIVE_ABSENT, MOT_DRIVE_DU_BIEN, MOT_HISTORIQUE_DU_BIEN,
   MOT_MODIFIER_BIENS_DU_MAIL, resumeModificationBiens, TITRE_BIENS_DU_MAIL,
   type BienRattache, type FicheRattachementFil, type PersonneRattachement,
 } from '../../../../lib/gestion/ficheRattachement';
@@ -84,8 +84,24 @@ type Etat =
   | { v: 'sans_schema' }
   | { v: 'erreur'; message: string };
 
-/** Ce que la fenêtre montre : la fiche du mail, ou l'un de ses deux panneaux de modification. */
-type Panneau = 'aucun' | 'exception' | 'suivi';
+/**
+ * Ce que la fenêtre montre : la fiche du mail, ou son panneau de modification.
+ *
+ * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 2 — IL N'Y A PLUS QU'UN PANNEAU ══════════════════════════════════════
+ *
+ * Il y en avait DEUX (`'exception'` et `'suivi'`), et l'on passait de l'un à l'autre par deux liens qui se
+ * renvoyaient la balle : « Changer plutôt la règle de suivi… » et « ← Revenir à l'exception sur ce seul mail ».
+ *
+ * DEMANDE D'ARNO (06/10/2026) : « Ajoute un vrai choix “Ce mail uniquement” (exception), avec le même style
+ * radio et sa phrase d'explication, en PREMIÈRE position. […] Le lien “Revenir à l'exception…” est remplacé par
+ * ce choix. » Les trois fenêtres deviennent donc trois boutons radio d'un même groupe — et le panneau unique
+ * suit : garder deux états pour trois radios aurait fait un état qui ne veut plus rien dire.
+ *
+ * ⚠️ RIEN N'EST PERDU ET RIEN N'EST AJOUTÉ AU MODÈLE : les trois fenêtres existaient déjà (`ChoixSuivi`,
+ * module pur), et la porte d'écriture est la même (`/api/admin/gestion/suivi`). Seul le chemin pour les
+ * atteindre change.
+ */
+type Panneau = 'aucun' | 'modifier';
 
 export function RattachementsDuFil({
   filId, titre, messageId = null, onFerme, onGeste, onLeveeFaite,
@@ -123,8 +139,24 @@ export function RattachementsDuFil({
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
   const [panneau, setPanneau] = useState<Panneau>('aucun');
-  /** Le choix du bloc « Suivi dans la conversation », quand il est ouvert. Deux options, jamais trois (voir plus bas). */
-  const [choixSuivi, setChoixSuivi] = useState<ChoixSuivi>('suite');
+  /**
+   * Le choix du bloc « Suivi dans la conversation ». LES TROIS fenêtres depuis le lot CLASSER-PAR-LA-MODALE.
+   *
+   * ══ 🔴🔴 POURQUOI LE DÉFAUT EST `'mail'`, ET NON `SUIVI_DEFAUT` ═══════════════════════════════════════════
+   *
+   * Arno : « Le choix par défaut reste celui d'aujourd'hui. » Aujourd'hui, ouvrir ce panneau puis valider pose
+   * une EXCEPTION sur ce seul mail — c'était l'état d'arrivée (`panneau === 'exception'`), et l'autre règle se
+   * demandait par un lien. Cocher `'suite'` d'avance aurait donc CHANGÉ ce que « Valider » fait sans qu'on
+   * l'ait demandé, et changé vers le geste le plus large des deux : une période reclasse les mails à venir.
+   *
+   * ⚠️ `SUIVI_DEFAUT` (`'suite'`) RESTE LE DÉFAUT DES AUTRES FENÊTRES, et il n'est pas touché : là-bas, rien
+   * n'arrive « déjà sur l'exception ».
+   *
+   * ⚠️ C'EST L'OUVERTURE DU PANNEAU QUI LE REPOSE À `'mail'` (voir le bouton plus bas), et non cette valeur
+   * initiale : on peut ouvrir, choisir une autre fenêtre, fermer, et rouvrir. Les deux sont écrites pareil pour
+   * qu'elles ne puissent pas se contredire.
+   */
+  const [choixSuivi, setChoixSuivi] = useState<ChoixSuivi>('mail');
   const [confirme, setConfirme] = useState(false);
   /** La sélection en cours dans le panneau, remontée par le menu : elle écrit la phrase et nourrit l'alerte. */
   const [selection, setSelection] = useState<readonly string[] | null>(null);
@@ -499,7 +531,7 @@ export function RattachementsDuFil({
       biens: (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle })),
     }),
   });
-  const bloquee = panneau === 'suivi' && choixSuivi === 'conversation' && !confirme
+  const bloquee = choixSuivi === 'conversation' && !confirme
     ? 'Cochez la confirmation ci-dessus pour reclasser toute la conversation.'
     : null;
 
@@ -597,7 +629,13 @@ export function RattachementsDuFil({
             pré-coche, le pied et l'écriture changent — et c'est exactement ce que le menu accepte désormais. */}
         {mailId !== null && panneau === 'aucun' && (
           <button type="button" className="svv-btn svv-btn-primary gst-btn rdf-modifier"
-            onClick={() => { setPanneau('exception'); setSelection(clesDuMail); setErreur(null); }}>
+            onClick={() => {
+              setPanneau('modifier');
+              setSelection(clesDuMail);
+              setChoixSuivi('mail');
+              setConfirme(false);
+              setErreur(null);
+            }}>
             {MOT_MODIFIER_BIENS_DU_MAIL}
           </button>
         )}
@@ -615,9 +653,12 @@ export function RattachementsDuFil({
             cochesImposees={selection ?? clesDuMail}
             onCochesChange={setSelection}
             onSelection={setSelection}
-            motValider={panneau === 'exception' ? 'Valider les biens de ce mail' : 'Valider le suivi'}
+            /* 🔴 LE MOT DIT CE QUE « VALIDER » VA FAIRE, et les deux mots existaient déjà : valider une
+               exception n'est pas valider le suivi d'une conversation, et un seul libellé pour les deux
+               aurait effacé la différence que l'encadré prend soin d'expliquer. */
+            motValider={choixSuivi === 'mail' ? 'Valider les biens de ce mail' : 'Valider le suivi'}
             validationBloquee={bloquee}
-            onValider={(voulus) => ecrire(voulus, panneau === 'exception' ? 'mail' : choixSuivi)}
+            onValider={(voulus) => ecrire(voulus, choixSuivi)}
             onFerme={() => { setPanneau('aucun'); setSelection(null); setConfirme(false); }}
             onGeste={onGeste}
             onChange={async () => { await charger(); }}
@@ -626,57 +667,48 @@ export function RattachementsDuFil({
                qu'un bouton qui se contenterait de refermer le panneau, c'est-à-dire un bouton qui ment. */
             pied={(
               <div className="rdf-pied-panneau">
-                {panneau === 'exception' ? (
-                  <>
-                    {/* 🔴🔴 c) L'ENCADRÉ CLAIR, mot pour mot celui d'Arno. */}
+                {/* ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 2 — LES TROIS FENÊTRES, EN TROIS RADIOS ═══════════
+                    DEMANDE D'ARNO (06/10/2026) : « Ajoute un vrai choix “Ce mail uniquement” (exception), avec
+                    le même style radio et sa phrase d'explication, en PREMIÈRE position. Le choix par défaut
+                    reste celui d'aujourd'hui. Le lien “Revenir à l'exception…” est remplacé par ce choix. »
+
+                    🔴 CE QUE CELA REMPLACE, ET POURQUOI C'EST MIEUX : deux panneaux et deux liens qui se
+                    renvoyaient la balle (« Changer plutôt la règle de suivi… » / « ← Revenir à l'exception sur
+                    ce seul mail »). On ne pouvait comparer les trois règles qu'en cliquant, c'est-à-dire en
+                    perdant de vue celle qu'on quittait — alors que c'est exactement la comparaison qui décide.
+
+                    🔴 LES MOTS ET LES AIDES VIENNENT DE LA SOURCE (`CHOIX_SUIVI`), jamais d'une copie, et
+                    l'ORDRE est celui du module pur — « Ce mail uniquement » y est déjà en premier.
+
+                    ⚠️ AUCUNE RÈGLE NE CHANGE : mêmes trois fenêtres qu'avant, même porte d'écriture
+                    (`/api/admin/gestion/suivi`), même avertissement obligatoire sur « Toute la conversation ». */}
+                <fieldset className="rdf-suivi">
+                  <legend className="rdf-suivi-titre">Suivi dans la conversation</legend>
+                  {CHOIX_SUIVI.map((c) => (
+                    <label className="rdf-choix" key={c.cle}>
+                      <input type="radio" name="rdf-suivi" checked={choixSuivi === c.cle}
+                        onChange={() => { setChoixSuivi(c.cle); setConfirme(false); }} />
+                      <span>
+                        <span className="rdf-suivi-mot">{c.mot}</span>
+                        <span className="rdf-suivi-aide">{c.aide}</span>
+                      </span>
+                    </label>
+                  ))}
+                  {/* 🔴🔴 L'ENCADRÉ CLAIR D'ARNO, mot pour mot — et il ne paraît QUE sur le choix qu'il
+                      explique. Permanent, il aurait démenti les deux autres options juste au-dessus. */}
+                  {choixSuivi === 'mail' && (
                     <p className="rdf-encadre" role="note">{ENCADRE_EXCEPTION_CE_MAIL}</p>
-                    {/* 🔴 LE LIEN QUI OUVRE L'AUTRE RÈGLE — dans la MÊME fenêtre, et sans perdre la sélection. */}
-                    <button type="button" className="gst-lien-bouton"
-                      onClick={() => { setPanneau('suivi'); setConfirme(false); }}>
-                      {MOT_CHANGER_REGLE_SUIVI}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    {/* ══ 🔴🔴 LE BLOC « SUIVI DANS LA CONVERSATION », À DEUX OPTIONS ═══════════════════════
-                        RÈGLE D'ARNO : « il ouvre dans la même fenêtre le bloc “Suivi dans la conversation” avec
-                        “Ce mail et la conversation à venir” et “Toute la conversation” (comportements existants
-                        inchangés, avertissement de “Toute la conversation” compris) ».
-
-                        ⚠️ DEUX OPTIONS, PAS TROIS, et c'est volontaire : « Ce mail uniquement » est déjà ce que
-                        fait le grand bouton. L'offrir ici une seconde fois ferait deux chemins pour un seul
-                        geste — et c'est précisément ce que ce lot défait.
-
-                        🔴 LES MOTS ET LES AIDES VIENNENT DE LA SOURCE (`CHOIX_SUIVI`), jamais d'une copie : deux
-                        listes recopiées divergent au premier ajustement, sans que rien ne le dise. */}
-                    <fieldset className="rdf-suivi">
-                      <legend className="rdf-suivi-titre">Suivi dans la conversation</legend>
-                      {CHOIX_SUIVI.filter((c) => c.cle !== 'mail').map((c) => (
-                        <label className="rdf-choix" key={c.cle}>
-                          <input type="radio" name="rdf-suivi" checked={choixSuivi === c.cle}
-                            onChange={() => { setChoixSuivi(c.cle); setConfirme(false); }} />
-                          <span>
-                            <span className="rdf-suivi-mot">{c.mot}</span>
-                            <span className="rdf-suivi-aide">{c.aide}</span>
-                          </span>
-                        </label>
-                      ))}
-                      {choixSuivi === 'conversation' && (
-                        <p className="rdf-alerte" role="status">
-                          <span className="rdf-alerte-texte">{alerte}</span>
-                          <label className="rdf-choix">
-                            <input type="checkbox" checked={confirme} onChange={() => setConfirme((v) => !v)} />
-                            <span>Je confirme le reclassement de toute la conversation.</span>
-                          </label>
-                        </p>
-                      )}
-                    </fieldset>
-                    <button type="button" className="gst-lien-bouton"
-                      onClick={() => { setPanneau('exception'); setConfirme(false); }}>
-                      ← Revenir à l’exception sur ce seul mail
-                    </button>
-                  </>
-                )}
+                  )}
+                  {choixSuivi === 'conversation' && (
+                    <p className="rdf-alerte" role="status">
+                      <span className="rdf-alerte-texte">{alerte}</span>
+                      <label className="rdf-choix">
+                        <input type="checkbox" checked={confirme} onChange={() => setConfirme((v) => !v)} />
+                        <span>Je confirme le reclassement de toute la conversation.</span>
+                      </label>
+                    </p>
+                  )}
+                </fieldset>
                 {/* 🔴 CE QUE LA VALIDATION VA ÉCRIRE, DIT AVANT DE LA FAIRE — « Aucun changement » compris. */}
                 {/* ⚠️ `rdf-bilan`, PAS `rdf-resume` : ce dernier est déjà le dépliant « Voir le détail par mail »
                     de chaque bien. Deux sens pour une classe, c'est un style qu'on croit changer ici et qui

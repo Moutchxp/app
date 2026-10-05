@@ -596,6 +596,21 @@ export interface EnTeteMailFenetre {
 
 /** Le grand bouton, et le lien qui lui fait pendant. Écrits ici, lus par l'écran — jamais recopiés. */
 export const MOT_MODIFIER_BIENS_DU_MAIL = 'Modifier les biens rattachés à ce mail';
+/**
+ * ══ ⚠️ CE LIEN NE S'AFFICHE PLUS, ET C'EST VOULU (LOT CLASSER-PAR-LA-MODALE, POINT 2) ═══════════════════════════
+ *
+ * Il ouvrait le second panneau de la fenêtre, où vivaient « Ce mail et la conversation à venir » et « Toute la
+ * conversation ». Depuis que les TROIS fenêtres sont trois boutons radio d'un même groupe — demande d'Arno du
+ * 06/10/2026 — il n'y a plus de second panneau à ouvrir : la règle se choisit sur place, sans quitter l'autre
+ * des yeux. Son pendant, « ← Revenir à l'exception sur ce seul mail », disparaît pour la même raison.
+ *
+ * 🔴 RIEN N'EST PERDU : ce que ce lien PERMETTAIT (choisir une autre règle de suivi) est désormais offert plus
+ * directement, et sans perdre la sélection de biens en cours.
+ *
+ * 🔴 IL RESTE EXPORTÉ POUR UNE SEULE RAISON — la même que `ZONE_DEJA_RATTACHES` plus bas : une épreuve vérifie
+ * qu'il n'apparaît PLUS à l'écran. Un garde qui recopierait la phrase cesserait de garder quoi que ce soit le
+ * jour où quelqu'un la reformulerait.
+ */
 export const MOT_CHANGER_REGLE_SUIVI =
   'Changer plutôt la règle de suivi de la conversation à partir de ce mail';
 

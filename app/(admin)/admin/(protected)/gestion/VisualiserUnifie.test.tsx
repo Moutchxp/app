@@ -26,7 +26,8 @@ import {
  *   ③ « Modifier les biens de ce mail » ouvre, DANS LA MÊME FENÊTRE, les propositions (décochées sauf les biens
  *      déjà rattachés), le moteur de recherche, et l'encadré d'exception ;
  *   ④ valider envoie UNE requête — l'exception « ce mail uniquement » — avec les ajouts ET les retraits ;
- *   ⑤ le lien « Changer plutôt la règle de suivi… » ouvre le bloc à DEUX options, avertissement compris.
+ *   ⑤ le bloc « Suivi dans la conversation » offre les TROIS fenêtres en radios, « Ce mail uniquement » en
+ *      premier et cochée d'avance, avertissement de « Toute la conversation » compris (lot CLASSER-PAR-LA-MODALE).
  *
  * 🔒 AUCUNE DONNÉE RÉELLE : un fil inventé, des lots inventés, `fetch` simulé — rien ne sort, rien n'est écrit.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -363,45 +364,119 @@ describe('🔴🔴 ② le grand bouton ouvre les deux zones, dans la même fenê
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   ③ 🔴🔴 LE LIEN « CHANGER PLUTÔT LA RÈGLE DE SUIVI »
+   ③ 🔴🔴 LES TROIS FENÊTRES DE SUIVI, EN TROIS RADIOS (LOT CLASSER-PAR-LA-MODALE, POINT 2)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ⚠️ CE BLOC A CHANGÉ, ET VOICI POURQUOI — il éprouvait « DEUX options, dans la même fenêtre, et “Ce mail
+   uniquement” n'y est PLUS », et l'accès se faisait par le lien « Changer plutôt la règle de suivi… ».
+
+   DEMANDE D'ARNO (06/10/2026), mot pour mot : « Ajoute un vrai choix “Ce mail uniquement” (exception), avec le
+   même style radio et sa phrase d'explication, en PREMIÈRE position. Le choix par défaut reste celui
+   d'aujourd'hui. Le lien “Revenir à l'exception…” est remplacé par ce choix. »
+
+   🔴 CE QUE LE GARDE PROTÉGEAIT N'EST PAS PERDU, IL A CHANGÉ DE FORME. Il tenait fermé « deux chemins pour un
+   seul geste » : on ne devait pas pouvoir poser une exception de DEUX façons différentes. C'est encore vrai —
+   il n'y a toujours qu'un seul geste et qu'une seule porte d'écriture (`/api/admin/gestion/suivi`) — mais la
+   règle se CHOISIT désormais là où on la compare, au lieu de dépendre du chemin emprunté pour arriver.
+   Les épreuves ci-dessous vérifient donc l'inverse de l'ancienne : les trois options sont là, dans l'ordre, et
+   « Ce mail uniquement » est celle qui est cochée d'avance.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('🔴🔴 ③ le bloc « Suivi dans la conversation », à deux options', () => {
+describe('🔴🔴 ③ le bloc « Suivi dans la conversation », à TROIS options', () => {
   const ouvrirSuivi = async () => {
     await monter(MAIL);
     await cliquer(bouton(new RegExp(MOT_MODIFIER_BIENS_DU_MAIL)) as Element);
-    await cliquer(bouton(new RegExp(MOT_CHANGER_REGLE_SUIVI)) as Element);
   };
+  const radios = (): HTMLInputElement[] =>
+    [...container.querySelectorAll('.rdf-suivi input[type="radio"]')] as HTMLInputElement[];
+  const mots = (): string[] =>
+    [...container.querySelectorAll('.rdf-suivi .rdf-suivi-mot')].map((e) => e.textContent ?? '');
 
-  it('🔴🔴 DEUX options, dans la même fenêtre — et « Ce mail uniquement » n’y est plus', async () => {
+  it('🔴🔴 LES TROIS, DANS L’ORDRE, et « Ce mail uniquement » EN PREMIER', async () => {
     await ouvrirSuivi();
-    const choix = [...container.querySelectorAll('.rdf-choix')].map((c) => c.textContent ?? '');
-    expect(choix.some((c) => c.includes('Ce mail et la conversation à venir'))).toBe(true);
-    expect(choix.some((c) => c.includes('Toute la conversation'))).toBe(true);
-    /* ⚠️ PAS DE TROISIÈME OPTION : « Ce mail uniquement » est déjà ce que fait le grand bouton. Deux chemins
-       pour un seul geste, c'est exactement ce que ce lot défait. */
-    expect(choix.some((c) => c.startsWith('Ce mail uniquement'))).toBe(false);
+    expect(mots()).toEqual([
+      'Ce mail uniquement', 'Ce mail et la conversation à venir', 'Toute la conversation',
+    ]);
+    /* 🔴 ET CHACUNE PORTE SA PHRASE D'EXPLICATION : trois options dont on ne comprend pas la différence
+       valent une option. */
+    expect(container.querySelectorAll('.rdf-suivi .rdf-suivi-aide')).toHaveLength(3);
     expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  });
+
+  /**
+   * 🔴🔴 LE DÉFAUT NE CHANGE PAS CE QUE « VALIDER » FAIT. Avant ce lot, ouvrir le panneau et valider posait une
+   * exception ; c'est encore le cas, et c'est la demande d'Arno (« le choix par défaut reste celui
+   * d'aujourd'hui »). Cocher « Ce mail et la conversation à venir » d'avance aurait élargi le geste en silence.
+   */
+  it('🔴🔴 « Ce mail uniquement » EST COCHÉ D’AVANCE, avec son encadré', async () => {
+    await ouvrirSuivi();
+    expect(radios()[0].checked).toBe(true);
+    expect(radios().filter((r) => r.checked)).toHaveLength(1);
+    expect(container.textContent).toContain(ENCADRE_EXCEPTION_CE_MAIL);
+    expect(bouton(/Valider les biens de ce mail/)).toBeDefined();
+  });
+
+  /** ⚠️ ET LES DEUX LIENS QUI SE RENVOYAIENT LA BALLE ONT DISPARU — remplacés par le choix lui-même. */
+  it('⚠️ plus aucun lien de bascule entre deux panneaux', async () => {
+    await ouvrirSuivi();
+    expect(container.textContent).not.toContain(MOT_CHANGER_REGLE_SUIVI);
+    expect(container.textContent).not.toContain('Revenir à l’exception sur ce seul mail');
+  });
+
+  /**
+   * 🔴🔴 L'ENCADRÉ N'EST PAS PERMANENT : il explique « Ce mail uniquement », et le laisser affiché sous les
+   * deux autres options aurait démenti ce qu'elles annoncent.
+   */
+  it('🔴🔴 l’encadré d’exception disparaît dès qu’on choisit une autre fenêtre', async () => {
+    await ouvrirSuivi();
+    await cocher(radios()[1]);
+    expect(container.textContent).not.toContain(ENCADRE_EXCEPTION_CE_MAIL);
+    expect(bouton(/Valider le suivi/)).toBeDefined();
   });
 
   /** 🔴🔴 L'AVERTISSEMENT DE « TOUTE LA CONVERSATION », et sa confirmation obligatoire — comportement existant. */
   it('🔴🔴 « Toute la conversation » avertit, et bloque tant qu’on n’a pas confirmé', async () => {
     await ouvrirSuivi();
-    const radios = [...container.querySelectorAll('.rdf-suivi input[type="radio"]')] as HTMLInputElement[];
-    await cocher(radios[1]);
+    await cocher(radios()[2]);
     expect(container.querySelector('.rdf-alerte-texte')?.textContent)
       .toContain('mails de cette conversation seront reclassés');
     expect((bouton(/Valider le suivi/) as HTMLButtonElement).disabled).toBe(true);
     expect(dialogue()).toContain('Cochez la confirmation');
   });
 
-  /** 🔴 UNE FOIS CONFIRMÉ, le geste part — et il part avec le choix de suivi, pas avec l'exception. */
-  it('🔴🔴 confirmé, il envoie le CHOIX DE SUIVI, pas une exception', async () => {
+  /** 🔴 UNE FOIS CHOISI, le geste part avec CE choix de suivi — et la porte d'écriture ne change pas. */
+  it('🔴🔴 « Ce mail et la conversation à venir » envoie `suite`, pas une exception', async () => {
     await ouvrirSuivi();
     const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
     await cocher(cases.find((c) => !c.checked) as HTMLInputElement);  // une modification, sinon rien à valider
+    await cocher(radios()[1]);
     await cliquer(bouton(/Valider le suivi/) as Element);
     expect(ecritures).toHaveLength(1);
+    expect(ecritures[0].url).toContain('/api/admin/gestion/suivi');
     expect((ecritures[0].corps as { choix: string }).choix).toBe('suite');
+  });
+
+  /**
+   * 🔴🔴 ET LE PREMIER CHOIX ENVOIE BIEN `mail` — c'est-à-dire que la troisième radio neuve ne se contente pas
+   * d'exister : elle écrit par la même porte que l'ancien panneau d'exception.
+   */
+  it('🔴🔴 « Ce mail uniquement » envoie `mail` par la même porte', async () => {
+    await ouvrirSuivi();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await cocher(cases.find((c) => !c.checked) as HTMLInputElement);
+    await cliquer(bouton(/Valider les biens de ce mail/) as Element);
+    expect(ecritures).toHaveLength(1);
+    expect((ecritures[0].corps as { choix: string }).choix).toBe('mail');
+  });
+
+  /** ⚠️ CHANGER DE FENÊTRE NE PERD PAS LA SÉLECTION DE BIENS : c'est tout l'intérêt de ne plus changer de panneau. */
+  it('⚠️ passer d’une fenêtre à l’autre garde les biens cochés', async () => {
+    await ouvrirSuivi();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await cocher(cases.find((c) => !c.checked) as HTMLInputElement);
+    const bilan = container.querySelector('.rdf-bilan')?.textContent;
+    await cocher(radios()[2]);
+    await cocher(radios()[0]);
+    expect(container.querySelector('.rdf-bilan')?.textContent).toBe(bilan);
   });
 });
