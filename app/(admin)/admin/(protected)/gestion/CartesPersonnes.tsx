@@ -1560,9 +1560,13 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
              cliquer, et faire apparaître une question ailleurs dans la page obligerait à la chercher. */
           <article className="cp-carte cp-carte--choix" aria-label="Que voulez-vous ajouter ?">
             <p className="cp-choix-titre">Ajouter…</p>
-            <button type="button" className="svv-btn gst-btn cp-bouton"
+            {/* ⚠️ LES DEUX BOUTONS PORTENT LEUR PROPRE ALLURE, et c'est une CORRECTION trouvée à l'écran : avec
+                `svv-btn gst-btn cp-bouton`, le premier choix se rendait SANS fond ni bord — du texte gras au
+                milieu d'une carte, qu'on ne lisait pas comme un bouton. Deux choix dont un seul a l'air
+                cliquable, c'est un choix qui n'en est pas un. */}
+            <button type="button" className="cp-choix-btn cp-choix-btn--premier"
               onClick={() => setAjout('client')}>{creationContact.motClient}</button>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn cp-bouton"
+            <button type="button" className="cp-choix-btn"
               onClick={() => setAjout('contact')}>{creationContact.motContact}</button>
             <button type="button" className="gst-lien-bouton"
               onClick={() => setAjout(false)}>Annuler</button>
@@ -1866,6 +1870,17 @@ ${CSS_CHAMP_ADRESSE}
 .cp-carte--choix{align-items:stretch;justify-content:center;gap:.5rem;text-align:center}
 .cp-choix-titre{margin:0 0 .2rem;font-size:.78rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
   color:var(--color-svv-muted)}
+/* 🔴 DEUX BOUTONS QUI ONT L'AIR DE DEUX BOUTONS — en jetons, donc lisibles dans les deux themes. Le premier
+   porte le rouge de la charte (c'est le chemin des CLIENTS, inchange), le second le contour neutre. */
+.cp-choix-btn{min-height:44px;padding:.4rem .7rem;border-radius:.5rem;border:1px solid var(--color-svv-line-strong);
+  background:var(--color-svv-surface);font:inherit;font-size:.85rem;font-weight:600;color:var(--color-svv-ink);
+  cursor:pointer}
+.cp-choix-btn:hover{border-color:var(--color-svv-red);color:var(--color-svv-red)}
+.cp-choix-btn:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.cp-choix-btn--premier{border-color:var(--color-svv-red);background:var(--color-svv-red);
+  color:var(--color-svv-surface)}
+.cp-choix-btn--premier:hover{background:var(--color-svv-ink);border-color:var(--color-svv-ink);
+  color:var(--color-svv-surface)}
 
 /* ══ THEME SOMBRE — SURFACES GRADUEES, PAS DU NOIR PLAT ════════════════════════════════════════════════════════
    Les tokens de la charte portent deja les bonnes valeurs en sombre : seules les OMBRES et le fondu doivent etre

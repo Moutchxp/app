@@ -2014,11 +2014,14 @@ function BandeAgence({ adresses, ecartees, ouvert, onBasculerRepli, onBasculer, 
                 <label className="hdb-case hdb-case--capsule">
                   <input type="checkbox" checked={!ecartees.includes(cle)}
                     onChange={() => onBasculer(i.adresse)} />
-                  <span className="hdb-capsule-mots">
-                    <span className="hdb-capsule-nom">{libelleInterlocuteur(i)}</span>
-                    <span className="hdb-capsule-compteurs">
-                      {motDeuxCompteurs(i)}
-                    </span>
+                  {/* ⚠️ LES MÊMES CLASSES QUE LA CAPSULE D'UNE PARTIE (`hdb-personne`, `hdb-personne-nom`,
+                      `hdb-compteurs`) — et c'est une CORRECTION trouvée à l'écran : ma première version en
+                      inventait trois (`hdb-capsule-mots`…) qui n'existent dans aucune feuille, et le nom se
+                      collait à ses compteurs (« Service Gestiona écrit : 135 »). Le gabarit est partagé ; en
+                      inventer un second, c'était n'en avoir aucun. */}
+                  <span className="hdb-personne">
+                    <span className="hdb-personne-nom">{libelleInterlocuteur(i)}</span>
+                    <span className="hdb-compteurs">{motDeuxCompteurs(i)}</span>
                   </span>
                 </label>
               </li>
