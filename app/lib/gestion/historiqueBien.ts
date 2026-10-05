@@ -1,5 +1,7 @@
 import { FUSEAU_AFFICHAGE } from './ecran';
-import { formaterDateIso } from './annuaireRecherche';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — `periodeOccupation` est LA mise en forme d'une période d'occupation de
+   ce dépôt (« du … au … »). La ligne d'un ancien locataire l'emploie telle quelle, jamais une copie. */
+import { formaterDateIso, periodeOccupation } from './annuaireRecherche';
 import {
   ecrireFiltres, FILTRES_VIDES, jourValide, libelleInterlocuteur, PAGE_HISTORIQUE, PORTEURS_DE_PIECES_MAX,
   type ChoixPieces, type FiltresHistorique, type Interlocuteur, type LigneHistorique,
@@ -1575,6 +1577,221 @@ export function reglagesEnFiltres(r: Reglages, page = 0, taille = PAGE_HISTORIQU
 /** La chaîne de requête, prête à coller après `?cible=lot-…`. Vide quand rien n'est filtré. PUR. */
 export function reglagesEnParametres(r: Reglages, page = 0, taille = PAGE_HISTORIQUE): string {
   return ecrireFiltres(reglagesEnFiltres(r, page, taille));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑥-bis 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — UN SEUL LOCATAIRE À LA FOIS DANS L'ENCART
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   CONSTAT D'ARNO (05/10/2026, lot-146) : « L'encart affiche “Locataire 6” : il mêle le locataire en place
+   (BRASSET Mathilde et BRUERE Thomas) et les adresses des anciens (VAGLIO ARNAUD, ACKET GOEMAERE - DERRIEN). »
+
+   🔴 MESURÉ EN BASE, ET IL A RAISON À L'UNITÉ. Le bien 104 (fiche lot-146) porte TROIS occupations, deux adresses
+   chacune — 2 + 2 + 2 = les 6 capsules qu'il voit :
+
+       BRASSET Mathilde et BRUERE Thomas            depuis le 22/10/2025   (en place)
+       VAGLIO ARNAUD Aurélie et Louis               du 06/02/2025 au 22/10/2025
+       ACKET GOEMAERE - DERRIEN Alizée et Thomas    du 01/04/2022 au 31/01/2025
+
+   🔴 SA RÈGLE : « Jamais deux périodes de locataires dans la même recherche. » Par défaut le locataire EN PLACE
+   seul ; les anciens se choisissent UN PAR UN, et ce choix REMPLACE le locataire en place.
+
+   ⚠️ CE MODULE NE DÉCIDE PAS DE L'ÉCRAN, IL DÉCIDE DE L'ENSEMBLE D'ADRESSES. L'encart, la ligne dépliable et les
+   boutons radio sont du rendu ; ce qui doit être écrit UNE FOIS, c'est « quelles adresses appartiennent au
+   locataire choisi » — parce que c'est cet ensemble que le listing, le compteur et le résumé des pièces lisent.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * UNE CARTE DE LOCATAIRE DU BIEN : une occupation, avec son nom, ses dates et ses adresses.
+ *
+ * 🔴 UNE PAR OCCUPATION, ET NON PAR PERSONNE. « Une même personne peut avoir occupé deux fois le même logement »
+ * (encadré d'`OccupationDuLot`) : deux séjours sont deux périodes, et les confondre remettrait le mélange qu'on
+ * vient de défaire. La clé est donc celle de l'OCCUPATION.
+ */
+export interface CarteLocataireBien {
+  /** Clé stable de l'occupation (`occ-92`). C'est elle que le bouton radio porte. */
+  cle: string;
+  /** Le NOM de la carte, tel que la fiche l'écrit. Jamais recomposé ici. */
+  libelle: string;
+  depuis: string | null;
+  jusqua: string | null;
+  /** Vrai quand le bail court toujours : c'est LE locataire en place, celui du défaut. */
+  enPlace: boolean;
+  /** Ses adresses, en forme canonique (minuscules). Une capsule par adresse à l'écran. */
+  adresses: readonly string[];
+}
+
+/** Ce que l'encart montre : le locataire en place, ou la carte d'un ancien. */
+export type ChoixLocataire = { sorte: 'en_place' } | { sorte: 'ancien'; cle: string };
+
+export const CHOIX_LOCATAIRE_DEFAUT: ChoixLocataire = { sorte: 'en_place' };
+
+/** Le libellé de l'option qui ramène au défaut. */
+export const MOT_LOCATAIRE_EN_PLACE = 'Locataire en place';
+
+/**
+ * Le titre de la ligne dépliable. Il DIT COMBIEN, pour qu'on sache qu'il y a quelque chose dessous sans cliquer.
+ *
+ * ⚠️ RIEN À AFFICHER QUAND IL N'Y A AUCUN ANCIEN : l'appelant ne rend alors pas la ligne. Un « Anciens locataires
+ * (0) » dépliable sur du vide est une porte qui ne mène nulle part.
+ */
+export function motAnciensLocataires(n: number): string {
+  return `Anciens locataires (${n})`;
+}
+
+/**
+ * ══ 🔴🔴 LE TITRE DE LA LIGNE REPLIÉE NE CACHE JAMAIS QUI L'ENCART MONTRE ════════════════════════════════════════
+ *
+ * 🔴 CE QUE CETTE FONCTION ÉVITE, ET QUE MON PREMIER JET FAISAIT. La ligne étant repliée par défaut, un ancien
+ * locataire choisi puis la ligne refermée donnait un encart « Locataire 2 » dont RIEN ne disait qu'il s'agit
+ * d'ACKET et non du locataire en place. On lisait les mails d'un ancien en croyant lire ceux de l'occupant
+ * actuel — c'est-à-dire exactement le genre de confusion de périodes que ce lot existe pour fermer.
+ *
+ * ⚠️ LE NOM SEUL, PAS LA PÉRIODE : les dates sont déjà dans les deux champs du tableau de bord, qu'on vient de
+ * régler sur elles. Les répéter ici aurait fait deux sources pour la même borne, qui divergent dès qu'on en
+ * retouche une (« modifiable ensuite » — Arno).
+ */
+export function motPiedAnciensLocataires(n: number, choisie: CarteLocataireBien | undefined): string {
+  const titre = motAnciensLocataires(n);
+  return choisie === undefined ? titre : `${titre} · ${choisie.libelle}`;
+}
+
+/**
+ * ══ 🔴 LE MOT D'UNE LIGNE D'ANCIEN LOCATAIRE. PUR. ══════════════════════════════════════════════════════════════
+ *
+ * Arno : « une ligne par CARTE d'ancien locataire (nom de la carte + période “du … au …” + nombre d'adresses) ».
+ *
+ * 🔴 LA PÉRIODE EST ÉCRITE PAR `periodeOccupation`, LA FONCTION DES FICHES — importée, pas recopiée. « du … au
+ * … », « depuis le … », « jusqu'au … », « dates inconnues » : la ligne de l'ancien locataire dit donc la période
+ * EXACTEMENT comme la fiche du bien l'écrit trois blocs plus haut. Une seconde mise en forme des dates aurait
+ * fini par dire autrement la même période, et cet écart-là se recopie dans un courrier.
+ */
+export function motAncienLocataire(c: CarteLocataireBien): string {
+  const n = c.adresses.length;
+  const combien = n === 0 ? 'aucune adresse' : `${n} adresse${n > 1 ? 's' : ''}`;
+  return `${c.libelle} · ${periodeOccupation(c.depuis, c.jusqua)} · ${combien}`;
+}
+
+/** Les cartes EN PLACE, dans l'ordre reçu. Plusieurs sont possibles (deux occupants d'un même bail). PUR. */
+export function locatairesEnPlace(cartes: readonly CarteLocataireBien[]): CarteLocataireBien[] {
+  return cartes.filter((c) => c.enPlace);
+}
+
+/**
+ * LES ANCIENS, DU PLUS RÉCENT AU PLUS ANCIEN. PUR.
+ *
+ * 🔴 TRIÉS SUR LA SORTIE, ET L'ÉGALITÉ TRANCHÉE PAR L'ENTRÉE : c'est l'ordre dans lequel on les a en tête, et il
+ * doit être TOTAL — deux baux clos le même jour donneraient sinon un ordre qui change d'un affichage à l'autre.
+ *
+ * ⚠️ UNE DATE INCONNUE PASSE EN DERNIER, jamais en tête : on ne met pas en avant ce qu'on ne sait pas situer.
+ */
+export function anciensLocataires(cartes: readonly CarteLocataireBien[]): CarteLocataireBien[] {
+  const rang = (x: string | null): number => {
+    const t = Date.parse(`${(x ?? '').slice(0, 10)}T00:00:00Z`);
+    return Number.isNaN(t) ? -Infinity : t;
+  };
+  return cartes.filter((c) => !c.enPlace)
+    .sort((a, b) => (rang(b.jusqua) - rang(a.jusqua)) || (rang(b.depuis) - rang(a.depuis))
+      || a.libelle.localeCompare(b.libelle, 'fr'));
+}
+
+/**
+ * ══ 🔴🔴 LE CHOIX DE DÉPART — ET LE CAS QUE « LE LOCATAIRE EN PLACE » N'AURAIT PAS COUVERT ═══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 CE QUE LA MESURE A TROUVÉ, ET QUE LA RÈGLE PRISE AU MOT AURAIT ABÎMÉ. Arno vérifie ce lot sur trois biens.
+ * Le troisième — « bien 315 », fiche lot-237 — **N'A AUCUN LOCATAIRE EN PLACE** : deux anciens seulement
+ * (LEON GUIMAREY DI FIORE, sorti le 28/09/2026 ; MOUDNI Imane, sortie le 16/01/2025). « Par défaut : seulement
+ * le locataire EN PLACE » y désigne PERSONNE : l'encart Locataire serait arrivé VIDE sur un logement qui porte
+ * des années d'échanges, et l'on aurait cru que ce bien n'a jamais eu de locataire.
+ *
+ * 🔴 C'EST UN MASQUAGE, ET LE DÉPÔT L'INTERDIT SANS L'ACCORD D'ARNO. Le défaut tombe donc sur le DERNIER
+ * locataire connu — le plus récemment sorti. Rien n'est caché : la ligne du pied nomme celui qu'on affiche, et
+ * l'autre est à un clic. Et c'est déjà la lecture que la maison fait d'un logement vacant trois blocs plus haut
+ * (`motLocataireDeLaPeriode` : « logement vacant depuis le … · dernier locataire … »).
+ *
+ * ⚠️ LA PÉRIODE N'EST **PAS** RÉGLÉE POUR AUTANT À L'ARRIVÉE. `periodeDuChoixLocataire` n'est appelée que par le
+ * geste de choix, jamais à l'initialisation : arriver sur la fiche d'un logement vacant ne doit pas resserrer en
+ * silence le listing sur un bail de 2025. Les dates ne bougent que si l'on clique.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function choixLocataireParDefaut(cartes: readonly CarteLocataireBien[]): ChoixLocataire {
+  if (cartes.some((c) => c.enPlace)) return CHOIX_LOCATAIRE_DEFAUT;
+  const passes = anciensLocataires(cartes);
+  return passes.length === 0 ? CHOIX_LOCATAIRE_DEFAUT : { sorte: 'ancien', cle: passes[0].cle };
+}
+
+/**
+ * Y a-t-il quelqu'un dans le logement ? C'est ce qui décide si l'option « Locataire en place » est OFFERTE : sur
+ * un logement vacant, elle ne désignerait personne, et une option qui ne mène à rien est un mensonge d'écran.
+ */
+export function ilYAUnLocataireEnPlace(cartes: readonly CarteLocataireBien[]): boolean {
+  return cartes.some((c) => c.enPlace);
+}
+
+/** La carte désignée par un choix, ou `undefined`. PUR. */
+export function carteChoisie(
+  cartes: readonly CarteLocataireBien[], choix: ChoixLocataire,
+): CarteLocataireBien | undefined {
+  return choix.sorte === 'ancien' ? cartes.find((c) => c.cle === choix.cle) : undefined;
+}
+
+/**
+ * ══ 🔴🔴 LA RÈGLE, ÉCRITE UNE FOIS : QUELLES ADRESSES L'ENCART LOCATAIRE GARDE. PUR. ════════════════════════════
+ *
+ * 🔴 TROIS CAS, ET LE TROISIÈME EST CELUI QUI PROTÈGE. Une adresse rangée « locataire » est gardée si :
+ *   ① elle appartient à la carte CHOISIE (le locataire en place par défaut, ou l'ancien sélectionné) ;
+ *   ② — ou elle n'appartient à AUCUNE carte de locataire de ce bien.
+ * Elle est écartée si, et seulement si, elle appartient à UNE AUTRE carte. C'est exactement « jamais deux
+ * périodes dans la même recherche », et rien de plus.
+ *
+ * 🔴 POURQUOI ② N'EST PAS UN OUBLI. Une adresse rangée « locataire » à la main dans le carrousel — la sœur du
+ * locataire, son employeur, un ami qui écrit pour lui — n'appartient à aucune occupation : aucune période ne
+ * peut donc l'exclure. L'écarter aurait fait disparaître sa capsule sans que rien ne le dise, c'est-à-dire
+ * retiré une fonctionnalité pour faire propre. On la garde, quel que soit le locataire choisi.
+ *
+ * ⚠️ `cartes` VIDE ⇒ ON NE GARDE RIEN DEHORS : sans aucune carte connue, toutes les adresses relèvent du cas ②,
+ * et l'encart est EXACTEMENT celui d'avant ce lot. C'est ce qui rend le changement gratuit pour les biens dont
+ * la fiche ne porte aucune occupation.
+ */
+export function adresseGardeeDansLencart(
+  adresse: string, cartes: readonly CarteLocataireBien[], choix: ChoixLocataire,
+): boolean {
+  const a = adresse.trim().toLowerCase();
+  if (a === '') return true;
+  const porteuses = cartes.filter((c) => c.adresses.includes(a));
+  // ② Aucune carte ne la porte : aucune période ne peut l'exclure.
+  if (porteuses.length === 0) return true;
+  // ① Elle appartient à la carte choisie.
+  const choisies = choix.sorte === 'en_place'
+    ? cartes.filter((c) => c.enPlace)
+    : cartes.filter((c) => c.cle === choix.cle);
+  return porteuses.some((c) => choisies.some((x) => x.cle === c.cle));
+}
+
+/**
+ * ══ 🔴🔴 LA PÉRIODE QUE LE CHOIX IMPOSE. PUR. ═══════════════════════════════════════════════════════════════════
+ *
+ * Arno : « Choisir un ancien locataire règle automatiquement la PÉRIODE sur ses dates d'occupation (modifiable
+ * ensuite) ; revenir au locataire en place remet la période précédente. »
+ *
+ * 🔴 LA SORTE EST `dates`, ET NON `occupation`, ET LE MOT « MODIFIABLE ENSUITE » D'ARNO LE DÉCIDE. C'est très
+ * exactement ce que fait déjà `reglerPeriodeSurLeBail` quand on clique la date dans une capsule : poser les
+ * bornes dans les DEUX champs de dates, où l'on peut les retoucher. Rendre `occupation` aurait allumé le bouton
+ * « Depuis l'entrée du dernier locataire » — qui désigne le DERNIER locataire, pas celui qu'on vient de choisir :
+ * le bloc aurait affiché un bouton actif qui dit autre chose que les dates qu'il montre.
+ *
+ * ⚠️ `null` POUR LE LOCATAIRE EN PLACE : ce n'est pas « aucune période », c'est « ce n'est pas à moi d'en poser
+ * une ». L'écran remet alors celle qu'il avait mise de côté — c'est lui qui s'en souvient, pas ce module.
+ */
+export function periodeDuChoixLocataire(
+  cartes: readonly CarteLocataireBien[], choix: ChoixLocataire,
+): ChoixPeriode | null {
+  const c = carteChoisie(cartes, choix);
+  if (c === undefined) return null;
+  const p = periodeDeLOccupation({ libelle: c.libelle, depuis: c.depuis, jusqua: c.jusqua });
+  return { sorte: 'dates', du: p.du, au: p.au };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

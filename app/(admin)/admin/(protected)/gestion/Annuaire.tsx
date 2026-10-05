@@ -27,8 +27,8 @@ import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
  * restent exactement ce qu'ils étaient. Ce bloc s'ajoute APRÈS ce lien, en bas de la fiche.
  */
 import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien } from './HistoriqueDuBien';
-import { type CategoriePartie, type ClientDuBien, type OccupationPeriode, type PeriodePartie }
-  from '../../../../lib/gestion/historiqueBien';
+import { type CarteLocataireBien, type CategoriePartie, type ClientDuBien, type OccupationPeriode,
+  type PeriodePartie } from '../../../../lib/gestion/historiqueBien';
 /**
  * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LA SYNCHRONISATION DU HAUT ET DU BAS.
  *
@@ -1561,6 +1561,9 @@ function VueLot({
           periodes={periodesDesParties(f)}
           /* 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — les CLIENTS du bien, pour que leur capsule existe meme a 0 mail. */
           clients={clientsDesParties(f)}
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — les cartes de locataire, pour qu'un seul locataire a la fois
+             peuple l'encart. Sans elles le bloc rend exactement ce qu'il rendait avant ce lot. */
+          cartesLocataires={cartesLocatairesDuBien(f)}
           /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — la fiche ou l'on corrige une adresse impossible. */
           onFicheClient={(sorte, id) => ouvrir(sorte, id)}
           evenementOuvertInitial={filtreVie === 'evenement'}
@@ -1644,6 +1647,48 @@ function periodesDesParties(f: FicheLot): ReadonlyMap<string, PeriodePartie> {
     }
   }
   return m;
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — LES CARTES DE LOCATAIRE, UNE PAR OCCUPATION ════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (05/10/2026, lot-146) : « L'encart affiche “Locataire 6” : il mêle le locataire en place et les
+ * adresses des anciens. » Vérifié en base, il a raison à l'unité — le bien 104 porte TROIS occupations de deux
+ * adresses chacune, et `clientsDesParties` + les interlocuteurs les versaient toutes dans le même encart.
+ *
+ * 🔴 CE QUE CETTE FONCTION APPORTE, ET QUE RIEN D'AUTRE NE PORTAIT : le lien ADRESSE → OCCUPATION. `periodesDesParties`
+ * juste au-dessus donne déjà la période d'une adresse, mais pas l'identité de la tranche qui la porte : deux
+ * occupants d'un même bail y sont indistinguables de deux baux de mêmes dates, et surtout rien ne dit QUELLE
+ * carte choisir. Le bloc a besoin de la carte entière — son nom, ses bornes, et la liste de SES adresses.
+ *
+ * ⚠️ UNE CARTE PAR OCCUPATION, PAS PAR BAIL. `grouperParPeriode` plus bas regroupe par dates pour l'affichage du
+ * haut de fiche ; ici on garde le grain de la base, parce que c'est lui qui porte `occupationId` — la clé qui
+ * survit à un ré-import. Deux occupants d'un même bail donnent donc deux lignes « Anciens locataires », ce qui
+ * est exact et lisible (« du 06/02/2025 au 22/10/2025 » deux fois, un nom chacun) ; les fondre aurait demandé
+ * d'inventer un libellé de foyer que la base ne porte pas. En revanche les occupants EN PLACE sont pris
+ * ENSEMBLE par le moteur (`locatairesEnPlace`), donc un couple en place garde bien ses deux séries d'adresses.
+ *
+ * ⚠️ SEULES LES ADRESSES E-MAIL : l'encart ne range que des adresses. Un téléphone n'y a pas de capsule, et le
+ * compter dans « N adresses » aurait annoncé un nombre que l'écran ne montre pas.
+ *
+ * ⚠️ EN MINUSCULES, comme `periodesDesParties` et `categoriesDesParties` : le moteur compare des clés canoniques.
+ * Une comparaison sensible à la casse aurait caché la capsule de « Jean.PONS@… » dès qu'un ancien est choisi.
+ * PUR.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function cartesLocatairesDuBien(f: FicheLot): CarteLocataireBien[] {
+  return f.occupations.map((o) => ({
+    cle: `occ-${o.occupationId}`,
+    libelle: o.nom,
+    depuis: o.entree,
+    jusqua: o.sortie,
+    enPlace: o.encours,
+    adresses: o.contacts
+      .filter((c) => c.sorte === 'email')
+      .map((c) => c.valeur.trim().toLowerCase())
+      .filter((a) => a !== ''),
+  }));
 }
 
 /**

@@ -3189,10 +3189,23 @@ describe('⑤-sexdecies 🔴🔴 l’ordre des capsules : les clients d’abord'
     expect(noms).toEqual(['M. ROI Nathan', 'Secrétariat']);
   });
 
+  /**
+   * ══ 🔴 CE GARDE A CHANGÉ DE PREMIER ARGUMENT AU LOT HISTORIQUE-BIEN-13, ET VOICI POURQUOI ══════════════════
+   *
+   * Il figeait `ordonnerLesCapsules(g.interlocuteurs, g.cle, categories)`. Le point 1 du lot 13 interpose un
+   * FILTRE entre le rangement et le tri — « un seul locataire à la fois dans l'encart » (Arno, constat de
+   * lot-146) : l'ordre se calcule désormais sur la liste GARDÉE, et non sur celle du module. Trier avant de
+   * filtrer aurait donné le même résultat visible, mais aurait trié des capsules qu'on jette ensuite.
+   *
+   * 🔴 CE QUE LE GARDE PROTÈGE N'A PAS BOUGÉ D'UN MOT, ET C'EST TOUT CE QUI COMPTE : le 3e argument reste
+   * `categories` — la carte de la FICHE — et jamais `categoriesFusionnees`. C'est ce qui empêche un contact
+   * rangé en base de passer pour un client et de remonter en tête de son groupe. Le verdict du garde est donc
+   * identique ; seule la liste qu'il traverse a un nom de plus.
+   */
   it('🔒 L’ORDRE VIENT DU MODULE PUR, et il lit la carte de la FICHE — pas la carte fusionnée', () => {
-    expect(SRC).toContain('ordonnerLesCapsules(g.interlocuteurs, g.cle, categories)');
+    expect(SRC).toContain('ordonnerLesCapsules(gardes, g.cle, categories)');
     /* ⚠️ `categoriesFusionnees` ICI aurait fait passer pour client un contact rangé en base. */
-    expect(SRC).not.toContain('ordonnerLesCapsules(g.interlocuteurs, g.cle, categoriesFusionnees)');
+    expect(SRC).not.toContain('ordonnerLesCapsules(gardes, g.cle, categoriesFusionnees)');
   });
 });
 
@@ -4522,5 +4535,226 @@ describe('⑬ 🔴🔴 refermer le résumé des pièces depuis sa fin', () => {
     expect((code.match(/\.current\?\.scrollIntoView\?\.\(\{ block: 'start' \}\)/g) ?? [])).toHaveLength(1);
     expect(code).toContain('useLayoutEffect(() => {');
     expect(code).not.toContain('requestAnimationFrame(() => ancre');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — UN SEUL LOCATAIRE À LA FOIS DANS L'ENCART ════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (05/10/2026, lot-146) : « L'encart affiche “Locataire 6” : il mêle le locataire en place
+ * (BRASSET/BRUERE) et les adresses des anciens (VAGLIO ARNAUD, ACKET GOEMAERE - DERRIEN). »
+ *
+ * 🔴 CE QUE CE BLOC PROUVE, ET QUE `historiqueBienLocataires.test.ts` NE PEUT PAS PROUVER. Le module pur dit
+ * quelle adresse est gardée ; il ne dit pas que les radios partagent un `name` (donc que le navigateur tient
+ * l'exclusivité), que le compteur de l'encart suit, que les deux champs de dates se remplissent, ni — le plus
+ * important — qu'une adresse COCHÉE puis cachée QUITTE la recherche. C'est ce dernier point qui fait la
+ * différence entre un encart rangé et une recherche juste.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () => {
+  /** Le bien 104 (lot-146), réduit à ce qui compte : un locataire en place, un ancien, une adresse sans carte. */
+  const EN_PLACE = {
+    cle: 'occ-92', libelle: 'BRASSET Mathilde et BRUERE Thomas',
+    depuis: '2025-10-22', jusqua: null, enPlace: true,
+    adresses: ['enplace@fictif.test'],
+  };
+  const ANCIEN = {
+    cle: 'occ-503', libelle: 'VAGLIO ARNAUD Aurélie et Louis',
+    depuis: '2025-02-06', jusqua: '2025-10-22', enPlace: false,
+    adresses: ['ancien@fictif.test'],
+  };
+  const CARTES = [EN_PLACE, ANCIEN];
+
+  /**
+   * ⚠️ « soeur@fictif.test » EST RANGÉE LOCATAIRE **À LA MAIN** et n'appartient à AUCUNE occupation : c'est le
+   * cas que la règle ② protège (une adresse sans carte n'est jamais cachée), et il doit être dans le jeu
+   * d'essai — sans lui, un filtre trop large passerait inaperçu.
+   */
+  const CATS = new Map<string, CategoriePartie>([
+    ['proprio@fictif.test', 'proprietaire'],
+    ['enplace@fictif.test', 'locataire'],
+    ['ancien@fictif.test', 'locataire'],
+    ['soeur@fictif.test', 'locataire'],
+  ]);
+
+  function servirLesDeux(): void {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) {
+        return reponse({ etat: 'ok', evenements: [], tronque: false });
+      }
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: [
+            inter({ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', nbMails: 4, aEcrit: 4 }),
+            inter({ adresse: 'enplace@fictif.test', nom: 'BRASSET Mathilde', nbMails: 20, aEcrit: 20 }),
+            inter({ adresse: 'ancien@fictif.test', nom: 'VAGLIO Aurélie', nbMails: 9, aEcrit: 9 }),
+            inter({ adresse: 'soeur@fictif.test', nom: 'BRASSET Claire', nbMails: 2, aEcrit: 2 }),
+          ],
+          interlocuteursTronques: false,
+        },
+      });
+    }));
+  }
+
+  const encartLocataire = (): HTMLElement =>
+    [...hote.querySelectorAll('.hdb-groupe--encart')][1] as HTMLElement;
+  const nomsDuLocataire = (): (string | null)[] =>
+    [...encartLocataire().querySelectorAll('.hdb-personne-nom')].map((e) => e.textContent);
+  const radios = (): HTMLInputElement[] =>
+    [...hote.querySelectorAll('.hdb-anciens-choix input')] as HTMLInputElement[];
+  const dates = (): string[] =>
+    ([...hote.querySelectorAll('input[type="date"]')] as HTMLInputElement[]).map((d) => d.value);
+
+  async function monterAvecCartes(): Promise<void> {
+    servirLesDeux();
+    await monter({ categories: CATS, cartesLocataires: CARTES });
+  }
+
+  /** 🔴🔴 LE DÉFAUT D'ARNO, FERMÉ À L'ÉCRAN : l'ancien n'est plus là, et le compteur le dit. */
+  it('🔴🔴 par défaut, le locataire EN PLACE seul — et l’adresse sans carte reste', async () => {
+    await monterAvecCartes();
+    expect(nomsDuLocataire()).toEqual(['BRASSET Mathilde', 'BRASSET Claire']);
+    expect(nomsDuLocataire()).not.toContain('VAGLIO Aurélie');
+    /* 🔴 LE COMPTEUR NE COMPTE QUE CEUX-LÀ (Arno) : deux, et non trois. */
+    expect(encartLocataire().querySelector('.gst-compte')?.textContent).toBe('2');
+  });
+
+  /** 🔴 LA LIGNE EST LÀ, REPLIÉE, ET ELLE DIT COMBIEN. */
+  it('🔴 la ligne « Anciens locataires (1) » est repliée à l’arrivée', async () => {
+    await monterAvecCartes();
+    const tete = encartLocataire().querySelector('.hdb-anciens-tete') as HTMLButtonElement;
+    expect(tete.textContent).toContain('Anciens locataires (1)');
+    expect(tete.getAttribute('aria-expanded')).toBe('false');
+    expect(radios()).toHaveLength(0);
+  });
+
+  it('🔴🔴 un ancien choisi : SES adresses, et plus celles du locataire en place', async () => {
+    await monterAvecCartes();
+    await cliquer(encartLocataire().querySelector('.hdb-anciens-tete') ?? undefined);
+    /* L'ordre des radios est celui de la liste : « Locataire en place » d'abord, puis les anciens. */
+    await act(async () => { radios()[1].click(); });
+    expect(nomsDuLocataire()).toContain('VAGLIO Aurélie');
+    expect(nomsDuLocataire()).not.toContain('BRASSET Mathilde');
+    /* ⚠️ L'ADRESSE SANS CARTE EST TOUJOURS LÀ : aucune période ne peut l'exclure. */
+    expect(nomsDuLocataire()).toContain('BRASSET Claire');
+  });
+
+  /**
+   * 🔴🔴 « JAMAIS DEUX PÉRIODES DE LOCATAIRES DANS LA MÊME RECHERCHE » (Arno). Ce ne sont pas des boutons
+   * peints en radio : un seul `name`, donc c'est le NAVIGATEUR qui tient l'exclusivité — on ne PEUT pas en
+   * cocher deux, même au clavier.
+   */
+  it('🔴🔴 impossible d’en cocher deux : un seul `name`, un seul coché', async () => {
+    await monterAvecCartes();
+    await cliquer(encartLocataire().querySelector('.hdb-anciens-tete') ?? undefined);
+    expect(new Set(radios().map((r) => r.name)).size).toBe(1);
+    expect(radios().filter((r) => r.checked)).toHaveLength(1);
+    await act(async () => { radios()[1].click(); });
+    expect(radios().filter((r) => r.checked)).toHaveLength(1);
+    expect(radios()[1].checked).toBe(true);
+  });
+
+  /** 🔴 LA LIGNE REFERMÉE NOMME L'ANCIEN CHOISI : sans cela, on lirait ses mails en croyant lire les autres. */
+  it('🔴🔴 la ligne refermée dit QUI l’encart montre', async () => {
+    await monterAvecCartes();
+    const tete = (): HTMLButtonElement =>
+      encartLocataire().querySelector('.hdb-anciens-tete') as HTMLButtonElement;
+    await cliquer(tete());
+    await act(async () => { radios()[1].click(); });
+    await cliquer(tete());
+    expect(tete().getAttribute('aria-expanded')).toBe('false');
+    expect(tete().textContent).toContain('VAGLIO ARNAUD Aurélie et Louis');
+  });
+
+  /**
+   * 🔴🔴 LA PÉRIODE AUTOMATIQUE, ET SON RETOUR. Arno : « Choisir un ancien locataire règle automatiquement la
+   * PÉRIODE sur ses dates d'occupation (modifiable ensuite) ; revenir au locataire en place remet la période
+   * précédente. »
+   *
+   * ⚠️ « MODIFIABLE ENSUITE » SE LIT ICI : les bornes atterrissent dans les DEUX CHAMPS DE DATES, ceux qu'on
+   * retouche. Une sorte `occupation` aurait allumé « Depuis l'entrée du dernier locataire » — un autre
+   * locataire que celui qu'on vient de choisir.
+   */
+  it('🔴🔴 choisir un ancien règle la période ; revenir remet la précédente', async () => {
+    await monterAvecCartes();
+    /* La période de départ est « tous » : aucun champ de date. C'est elle qu'il faudra retrouver. */
+    expect(dates()).toHaveLength(0);
+    await cliquer(encartLocataire().querySelector('.hdb-anciens-tete') ?? undefined);
+    await act(async () => { radios()[1].click(); });
+    expect(dates()).toEqual(['2025-02-06', '2025-10-22']);
+    await act(async () => { radios()[0].click(); });
+    expect(nomsDuLocataire()).toContain('BRASSET Mathilde');
+    expect(nomsDuLocataire()).not.toContain('VAGLIO Aurélie');
+    expect(dates()).toHaveLength(0);
+  });
+
+  /**
+   * ══ 🔴🔴 LE CAS QUI COMPTE LE PLUS — UNE ADRESSE COCHÉE PUIS CACHÉE QUITTE LA RECHERCHE ═══════════════════
+   *
+   * « Le listing, le compteur en direct et le résumé des pièces suivent (un seul calcul) » (Arno).
+   *
+   * 🔴 SANS CELA, LE DÉFAUT AURAIT SIMPLEMENT CHANGÉ DE PLACE : l'encart aurait montré le locataire en place
+   * pendant que le listing, lui, continuait de servir les mails de l'ancien — un mélange de périodes INVISIBLE,
+   * donc pire que celui qu'Arno a vu. On le prouve par ce que la ROUTE reçoit, parce que c'est elle qui décide
+   * du listing, du compteur et du résumé.
+   */
+  it('🔴🔴 une adresse cochée quitte la recherche quand elle quitte l’encart', async () => {
+    await monterAvecCartes();
+    await cliquer(encartLocataire().querySelector('.hdb-anciens-tete') ?? undefined);
+    await act(async () => { radios()[1].click(); });
+    /* On coche l'ancien locataire : la route doit le recevoir. */
+    const case1 = encartLocataire().querySelector('.hdb-capsule input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => { case1.click(); });
+    expect(appels.at(-1) ?? '').toContain(encodeURIComponent('ancien@fictif.test'));
+    /* On revient au locataire en place : son adresse ne doit PLUS être demandée. */
+    await act(async () => { radios()[0].click(); });
+    const dernier = [...appels].reverse().find((u) => u.includes('/historique?')) ?? '';
+    expect(dernier).not.toContain(encodeURIComponent('ancien@fictif.test'));
+  });
+
+  /**
+   * ══ 🔴🔴 LE LOGEMENT VACANT — MESURÉ SUR « BIEN 315 » (fiche lot-237), L'UN DES TROIS D'ARNO ═══════════════
+   *
+   * 🔴 IL N'A AUCUN LOCATAIRE EN PLACE. « Par défaut : seulement le locataire EN PLACE » y désigne personne :
+   * l'encart serait arrivé VIDE sur un bien qui porte des années d'échanges. C'est un masquage, que le dépôt
+   * interdit sans l'accord d'Arno — le défaut tombe donc sur le dernier locataire sorti, et la ligne le nomme.
+   *
+   * ⚠️ ET L'OPTION « Locataire en place » N'EST PAS OFFERTE : elle ne désignerait personne, et la cocher
+   * viderait l'encart. Une option qui ne mène à rien est un mensonge d'écran.
+   */
+  it('🔴🔴 logement vacant : le dernier locataire à l’arrivée, et pas d’option « en place »', async () => {
+    servirLesDeux();
+    await monter({
+      categories: CATS,
+      cartesLocataires: [
+        { ...ANCIEN, cle: 'occ-315', libelle: 'LEON Isabella et Hugo',
+          depuis: '2025-05-01', jusqua: '2026-09-28', adresses: ['ancien@fictif.test'] },
+        { ...EN_PLACE, cle: 'occ-361', libelle: 'MOUDNI Imane', enPlace: false,
+          depuis: '2022-04-16', jusqua: '2025-01-16', adresses: ['enplace@fictif.test'] },
+      ],
+    });
+    /* 🔴 LE DERNIER SORTI EST AFFICHÉ, ET L'AUTRE NON : un seul locataire, jamais deux périodes. */
+    expect(nomsDuLocataire()).toContain('VAGLIO Aurélie');
+    expect(nomsDuLocataire()).not.toContain('BRASSET Mathilde');
+    /* 🔴 ET LA LIGNE REPLIÉE LE DIT : rien n'est caché. */
+    const tete = encartLocataire().querySelector('.hdb-anciens-tete') as HTMLButtonElement;
+    expect(tete.textContent).toContain('Anciens locataires (2) · LEON Isabella et Hugo');
+    await cliquer(tete);
+    expect(radios()).toHaveLength(2);
+    expect(hote.textContent ?? '').not.toContain('Locataire en place');
+  });
+
+  /** ⚠️ SANS CARTES, RIEN NE CHANGE : ni filtre, ni ligne. C'est ce qui rend ce lot gratuit ailleurs. */
+  it('⚠️ aucune carte passée : l’encart et la ligne sont ceux d’avant ce lot', async () => {
+    servirLesDeux();
+    await monter({ categories: CATS });
+    expect(nomsDuLocataire()).toHaveLength(3);
+    expect(hote.querySelectorAll('.hdb-anciens')).toHaveLength(0);
   });
 });

@@ -67,8 +67,13 @@ import {
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
   SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — un seul locataire à la fois dans l'encart. */
+  adresseGardeeDansLencart, anciensLocataires, choixLocataireParDefaut, ilYAUnLocataireEnPlace,
+  motAnciensLocataires,
+  motAncienLocataire, motPiedAnciensLocataires, MOT_LOCATAIRE_EN_PLACE, periodeDuChoixLocataire,
+  type CarteLocataireBien, type ChoixLocataire,
   type CategoriePartie, type CleGroupeParties, type ClientDuBien, type EtatRetourBien, type GroupeParties,
-  type OccupationPeriode,
+  type ChoixPeriode, type OccupationPeriode,
   type PeriodePartie, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
 /**
@@ -214,6 +219,7 @@ const MANQUE_CATEGORIE = 'Choisissez une catégorie : elle n’a pas été dédu
 
 export function HistoriqueDuBien({
   lotCle, maintenant, occupations, categories, periodes = new Map(), clients = [], onFicheClient,
+  cartesLocataires = [],
   evenementOuvertInitial = false, onOuvrirFil, onEcranComplet, jeton = null, onPoserJeton,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
@@ -281,6 +287,24 @@ export function HistoriqueDuBien({
    * qu'on n'a pas de porte à offrir.
    */
   onFicheClient?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — LES CARTES DE LOCATAIRE DU LOGEMENT ═══════════════════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (05/10/2026, lot-146) : « L'encart affiche “Locataire 6” : il mêle le locataire en place et les
+   * adresses des anciens locataires. » Et sa règle : « Jamais deux périodes de locataires dans la même recherche. »
+   *
+   * 🔴 POURQUOI UNE PROP DE PLUS, ALORS QUE `periodes` EXISTE DÉJÀ. `periodes` donne la période d'une ADRESSE ;
+   * elle ne dit pas À QUELLE OCCUPATION elle appartient, ni quelles autres adresses celle-ci porte — c'est-à-dire
+   * précisément ce qu'il faut pour n'en afficher qu'une à la fois et pour écrire la ligne « nom · du … au … ·
+   * N adresses ». Deux occupants d'un même bail y sont d'ailleurs indistinguables de deux baux de mêmes dates.
+   *
+   * ⚠️ VIDE PAR DÉFAUT ⇒ RIEN NE CHANGE LÀ OÙ PERSONNE NE LES PASSE : `adresseGardeeDansLencart` garde TOUT quand
+   * aucune carte n'est connue, et la ligne « Anciens locataires » n'est pas rendue. C'est ce qui rend ce lot
+   * gratuit pour un bien dont la fiche ne porte aucune occupation — et pour les tests qui montent ce bloc nu.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  cartesLocataires?: readonly CarteLocataireBien[];
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3 — L'ÉCRAN « HISTORIQUE » COMPLET RESTE ATTEIGNABLE ════════════════════════════
@@ -1071,6 +1095,55 @@ export function HistoriqueDuBien({
     return e as ReadonlySet<string>;
   }, [clients]);
 
+  /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — QUEL LOCATAIRE PEUPLE L'ENCART
+     ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * LE LOCATAIRE EN PLACE À L'ARRIVÉE, et c'est la demande d'Arno mot pour mot : « PAR DÉFAUT : seulement le
+   * locataire EN PLACE ». Un seul objet d'état ⇒ **il ne PEUT pas en désigner deux** : l'exclusivité n'est pas
+   * vérifiée, elle est impossible à enfreindre. C'est la forme qui tient la règle.
+   */
+  const [choixLocataire, setChoixLocataire] = useState<ChoixLocataire>(
+    () => choixLocataireParDefaut(cartesLocataires));
+  /**
+   * 🔴 LA PÉRIODE MISE DE CÔTÉ, pour « revenir au locataire en place remet la période précédente » (Arno). Elle
+   * est gardée AU PREMIER départ seulement : passer d'un ancien à un autre ne doit pas oublier celle d'origine,
+   * sinon le retour rendrait les dates du locataire qu'on vient de quitter — pas celles d'avant le détour.
+   */
+  const [periodeAvant, setPeriodeAvant] = useState<ChoixPeriode | null>(null);
+  /** La ligne « Anciens locataires (N) », repliée par défaut : c'est un recours, pas la lecture ordinaire. */
+  const [anciensOuverts, setAnciensOuverts] = useState(false);
+
+  const anciens = useMemo(() => anciensLocataires(cartesLocataires), [cartesLocataires]);
+
+  /**
+   * ══ 🔴🔴 CHANGER DE LOCATAIRE — UN SEUL CALCUL, COMME ARNO LE DEMANDE ═══════════════════════════════════════
+   *
+   * « Le listing, le compteur en direct et le résumé des pièces suivent (un seul calcul). »
+   *
+   * 🔴 ET VOICI CE QUI LE REND VRAI : les trois lisent `reglages.parties`, PAS les capsules affichées. Une
+   * adresse cochée puis cachée serait restée dans la recherche — le listing aurait continué de montrer les mails
+   * d'un ancien locataire alors que l'encart affiche le locataire en place, et le résumé des pièces aussi. Elle
+   * QUITTE donc la sélection ici, dans le même geste : un seul `setReglages`, un seul rendu, aucune fenêtre où
+   * l'écran et la recherche divergent.
+   *
+   * ⚠️ `periodeDuChoixLocataire` REND `null` POUR LE LOCATAIRE EN PLACE, et c'est lui qui distingue les deux
+   * sens : on met de côté en partant, on remet en revenant. Le module pur ne connaît pas la période d'avant —
+   * c'est l'écran qui s'en souvient, et lui seul.
+   */
+  const choisirLocataire = (choix: ChoixLocataire): void => {
+    const imposee = periodeDuChoixLocataire(cartesLocataires, choix);
+    if (imposee !== null && periodeAvant === null) setPeriodeAvant(reglages.periode);
+    if (imposee === null) setPeriodeAvant(null);
+    setChoixLocataire(choix);
+    setReglages((r) => ({
+      ...r,
+      parties: r.parties.filter((a) => adresseGardeeDansLencart(a, cartesLocataires, choix)),
+      periode: imposee ?? periodeAvant ?? r.periode,
+    }));
+  };
+
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 4 — L'ORDRE DES CAPSULES, GROUPE PAR GROUPE ═════════════════════════════
    *
@@ -1091,12 +1164,31 @@ export function HistoriqueDuBien({
     const r = grouperParCategorie(interlocuteursEtClients, categoriesFusionnees, adressesClientes);
     return {
       ...r,
-      groupes: r.groupes.map((g) => ({
-        ...g,
-        interlocuteurs: ordonnerLesCapsules(g.interlocuteurs, g.cle, categories),
-      })),
+      groupes: r.groupes.map((g) => {
+        /**
+         * ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — UN SEUL LOCATAIRE À LA FOIS, ET LE COMPTEUR SUIT ═══════════
+         *
+         * CONSTAT D'ARNO (lot-146) : « Locataire 6 » mêlait le locataire en place et deux anciens.
+         *
+         * 🔴 LE FILTRE EST POSÉ **APRÈS** LE RANGEMENT, ET C'EST UNE CORRECTION DE MON PREMIER JET. Le poser
+         * avant (sur `interlocuteursEtClients`) aurait écarté l'adresse d'une personne qui est À LA FOIS
+         * propriétaire et ancien locataire du logement — cas réel dans un dossier de famille — et sa capsule
+         * aurait disparu de l'encart PROPRIÉTAIRE, où la fusion des catégories la range pourtant. On ne filtre
+         * donc que l'encart qui porte le mélange, et on le dit par `g.cle === 'locataire'`.
+         *
+         * 🔴 `nb` EST RECALCULÉ SUR LA LISTE GARDÉE : « Le compteur ne compte que ceux-là » (Arno). Garder le
+         * `nb` du module aurait affiché « Locataire 6 » au-dessus de deux capsules — le défaut d'origine, en
+         * pire, puisqu'il aurait été invisible à la lecture du code.
+         */
+        const gardes = g.cle === 'locataire'
+          ? g.interlocuteurs.filter(
+            (i) => adresseGardeeDansLencart(i.adresse, cartesLocataires, choixLocataire))
+          : g.interlocuteurs;
+        return { ...g, nb: gardes.length, interlocuteurs: ordonnerLesCapsules(gardes, g.cle, categories) };
+      }),
     };
-  }, [interlocuteursEtClients, categoriesFusionnees, adressesClientes, categories]);
+  }, [interlocuteursEtClients, categoriesFusionnees, adressesClientes, categories,
+    cartesLocataires, choixLocataire]);
 
   /** La fiche d'annuaire de chaque client, pour le lien « adresse à corriger ». */
   const fichesClientes = useMemo(() => {
@@ -1854,7 +1946,15 @@ export function HistoriqueDuBien({
                   survol={survol} glisse={glisse} menu={menu}
                   onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
                   onCreer={ouvrirCreation} onMenu={setMenu} onGlisse={setGlisse} onSurvol={setSurvol}
-                  onDeplacer={deplacer} onPeriode={reglerPeriodeSurLeBail} />
+                  onDeplacer={deplacer} onPeriode={reglerPeriodeSurLeBail}
+                  /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — SEUL L'ENCART LOCATAIRE A UN PIED, et c'est là que
+                     la règle vit : le gabarit commun, lui, ne connaît que « un emplacement en bas ». */
+                  pied={cle !== 'locataire' ? undefined : (
+                    <PiedAnciensLocataires nom={`hdb-loc-${lotCle}`} anciens={anciens}
+                      enPlaceOffert={ilYAUnLocataireEnPlace(cartesLocataires)}
+                      choix={choixLocataire} ouvert={anciensOuverts}
+                      onBasculer={() => setAnciensOuverts((v) => !v)} onChoisir={choisirLocataire} />
+                  )} />
               );
             })}
           </div>
@@ -2303,6 +2403,79 @@ export function HistoriqueDuBien({
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** Ce qu'un groupe reçoit. Beaucoup de props, mais toutes nommées : un objet fourre-tout cacherait les oublis. */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — LE PIED DE L'ENCART LOCATAIRE ═════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026), mot pour mot : « En bas de l'encart, une ligne dépliable “Anciens locataires (N)” :
+ * une ligne par CARTE d'ancien locataire (nom de la carte + période “du … au …” + nombre d'adresses), avec un
+ * bouton radio. On sélectionne UNE SEULE carte à la fois, et ce choix est EXCLUSIF avec le locataire en place […]
+ * et une option “Locataire en place” permet de revenir. »
+ *
+ * 🔴 DE VRAIS BOUTONS RADIO D'UN MÊME `name`, ET NON DES BOUTONS QU'ON PEINDRAIT EN RADIO. Le navigateur tient
+ * alors l'exclusivité lui-même, les flèches du clavier parcourent le groupe, et un lecteur d'écran annonce
+ * « 2 sur 3 ». Recoder cela à la main, c'est se donner la possibilité d'en cocher deux — exactement ce qu'Arno
+ * interdit.
+ *
+ * ⚠️ « LOCATAIRE EN PLACE » EST **DANS** LE GROUPE, en tête, et non un bouton « revenir » à côté. C'est ce qui
+ * fait de l'exclusivité une évidence à l'œil : les trois options sont les trois lignes d'une même liste, et l'on
+ * voit laquelle est cochée sans avoir à comprendre que deux commandes se répondent.
+ *
+ * ⚠️ RIEN DU TOUT QUAND LE LOGEMENT N'A AUCUN ANCIEN LOCATAIRE : une ligne « Anciens locataires (0) » dépliable
+ * sur du vide est une porte qui ne mène nulle part. Le choix reste alors ce qu'il est — le locataire en place.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function PiedAnciensLocataires({ nom, anciens, enPlaceOffert, choix, ouvert, onBasculer, onChoisir }: {
+  /** Le `name` du groupe de radios. Porté par la clé du lot : deux fiches ouvertes ne se mélangent pas. */
+  nom: string;
+  anciens: readonly CarteLocataireBien[];
+  /**
+   * 🔴🔴 L'OPTION « Locataire en place » N'EST OFFERTE QUE S'IL Y EN A UN. Mesuré sur « bien 315 » (fiche
+   * lot-237) : ce logement est VACANT, deux anciens locataires et personne dedans. L'option y aurait désigné
+   * personne — et la cocher aurait vidé l'encart. Voir `choixLocataireParDefaut`.
+   */
+  enPlaceOffert: boolean;
+  choix: ChoixLocataire;
+  ouvert: boolean;
+  onBasculer: () => void;
+  onChoisir: (c: ChoixLocataire) => void;
+}) {
+  if (anciens.length === 0) return null;
+  const choisie = anciens.find((c) => choix.sorte === 'ancien' && c.cle === choix.cle);
+  return (
+    <div className="hdb-anciens">
+      <button type="button" className="hdb-replier hdb-anciens-tete" aria-expanded={ouvert}
+        onClick={onBasculer}>
+        <span aria-hidden="true" className={`hdb-triangle${ouvert ? ' hdb-triangle--ouvert' : ''}`}>▶</span>
+        {/* 🔴 LE TITRE NOMME L'ANCIEN CHOISI quand la ligne est refermée sur lui : voir `motPiedAnciensLocataires`. */}
+        {motPiedAnciensLocataires(anciens.length, choisie)}
+      </button>
+      {ouvert && (
+        <ul className="hdb-anciens-liste">
+          {enPlaceOffert && (
+            <li>
+              <label className="hdb-anciens-choix">
+                <input type="radio" name={nom} checked={choix.sorte === 'en_place'}
+                  onChange={() => onChoisir({ sorte: 'en_place' })} />
+                <span>{MOT_LOCATAIRE_EN_PLACE}</span>
+              </label>
+            </li>
+          )}
+          {anciens.map((c) => (
+            <li key={c.cle}>
+              <label className="hdb-anciens-choix">
+                <input type="radio" name={nom} checked={choix.sorte === 'ancien' && choix.cle === c.cle}
+                  onChange={() => onChoisir({ sorte: 'ancien', cle: c.cle })} />
+                <span>{motAncienLocataire(c)}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 interface PropsGroupe {
   g: GroupeParties;
   /**
@@ -2346,6 +2519,17 @@ interface PropsGroupe {
   onDeplacer: (adresse: string, vers: CleGroupeParties, nom: string, titre: string) => Promise<void>;
   /** Régler la période du tableau de bord sur le bail d'un locataire (la date, dans sa capsule). */
   onPeriode: (p: PeriodePartie) => void;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — CE QUI SE RANGE **EN BAS** DE L'ENCART.
+   *
+   * Arno : « En bas de l'encart, une ligne dépliable “Anciens locataires (N)”. » Un emplacement, et non le
+   * contenu : ce composant rend quatre groupes aux gestes identiques, et seul l'encart Locataire a un pied.
+   * Lui faire connaître les cartes de locataire aurait mis une règle de locataire dans le gabarit commun.
+   *
+   * ⚠️ RENDU SOUS LA LISTE ET SOUS LA PHRASE DU VIDE, mais DANS la zone de dépôt : on peut encore déposer une
+   * capsule sur un encart dont on a déplié les anciens locataires.
+   */
+  pied?: ReactNode;
 }
 
 /**
@@ -2576,6 +2760,15 @@ function GroupeDeParties(p: PropsGroupe) {
           ))}
         </ListeDefilante>
       )}
+
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — LE PIED DE L'ENCART ══════════════════════════════════════
+          ⚠️ RENDU MÊME QUAND L'ENCART EST VIDE, et c'est le cas qui compte le plus : sur un logement vacant,
+          l'encart dit « Aucun locataire connu » et c'est précisément là qu'on vient chercher un ANCIEN. Le
+          cacher à zéro aurait fermé la porte à l'endroit où elle sert.
+
+          ⚠️ MAIS PAS QUAND L'ENCART EST REPLIÉ : replier un encart, c'est demander à ne plus voir ce qu'il
+          contient. Le choix, lui, survit au repli — il vit dans l'état du bloc, pas dans cette ligne. */}
+      {ouvert && p.pied !== undefined && p.pied}
     </section>
   );
 }
@@ -3371,6 +3564,33 @@ ${CSS_PIECES}
    couleur, et c'est lui qui empeche reellement le clic. */
 .hdb-case--muette{opacity:.5;cursor:default}
 .hdb-case--muette input{cursor:default}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — LE PIED « ANCIENS LOCATAIRES » ════════════════════════════════════
+   DEMANDE D'ARNO : « En bas de l'encart, une ligne depliable “Anciens locataires (N)”. »
+
+   🔴 margin-top:auto, ET C'EST CE QUI TIENT LE MOT « EN BAS ». L'encart est une colonne flex (.hdb-groupe--encart
+   ci-dessus) etiree a la hauteur de sa jumelle : sans cette marge automatique, la ligne se collait sous la
+   derniere capsule, c'est-a-dire AU MILIEU d'un encart plus court que son voisin. Une hauteur fixe aurait
+   produit le meme ecart des que l'autre encart change de taille.
+
+   🔴 LE TON EST CELUI DES NOTES (--color-svv-muted), PAS CELUI D'UN TITRE : c'est un recours, et la lecture
+   ordinaire est le locataire en place juste au-dessus. Le mettre en --color-svv-ink en aurait fait la deuxieme
+   chose qu'on lit dans l'encart.
+
+   ⚠️ AUCUNE REGLE DE HAUTEUR SUR .hdb-anciens-tete : elle porte aussi .hdb-replier, qui donne deja les 44 px de
+   cible tactile du depot. Les reecrire plus petits ici aurait rompu l'exigence transverse mobile a un endroit ou
+   personne ne serait alle la relire.
+
+   ⚠️ LA LISTE DEFILE AU MEME PLAFOND QUE L'ENCART (--hdb-liste-h) : un logement a huit anciens locataires ne
+   doit pas allonger le bloc — c'est la regle « il ne grandit jamais » du lot 3, appliquee a ce qu'on ajoute. */
+.hdb-anciens{margin-top:auto;padding-top:.25rem;border-top:1px solid var(--color-svv-line);min-width:0}
+.hdb-anciens-tete{font-size:.76rem;font-weight:600;color:var(--color-svv-muted)}
+.hdb-anciens-liste{list-style:none;margin:.1rem 0 0;padding:0;display:flex;flex-direction:column;gap:1px;
+  max-height:var(--hdb-liste-h);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;min-width:0}
+.hdb-anciens-choix{display:flex;align-items:center;gap:.4rem;min-height:44px;padding:0 .3rem;
+  border-radius:.35rem;font-size:.74rem;color:var(--color-svv-ink);cursor:pointer;min-width:0}
+.hdb-anciens-choix:hover{background:var(--color-svv-field)}
+.hdb-anciens-choix input{flex:0 0 auto;accent-color:var(--color-svv-red)}
+.hdb-anciens-choix span{min-width:0;overflow-wrap:anywhere}
 /* ── LES QUATRE TONS ── Le bord gauche porte la couleur du groupe : la MEME que la barre des mails qui en
    viennent. Les jetons vivent dans globals.css ; aucune couleur en dur ici, donc rien d'illisible en sombre. */
 .hdb-groupe{margin:0;min-width:0;padding:.3rem .4rem .4rem .55rem;border-radius:.5rem;
