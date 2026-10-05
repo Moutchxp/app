@@ -2123,8 +2123,14 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     expect(code).toContain('<FilDeMails lignes={lignes}');
     /* ⚠️ …et `lignes` N'A QU'UNE SOURCE : la page reçue, triée, puis filtrée par la recherche. */
     expect(code).toContain('filtrerParMots(lignesPage, reglages.texte)');
-    /* 🔴 ET LA LECTURE DES PIÈCES IGNORE LA PAGE : c'est ce qui la distingue de celle du fil. */
-    expect(code).toContain('}, [lotCle, parametresSansPage]);');
+    /* 🔴 ET LA LECTURE DES PIÈCES IGNORE LA PAGE : c'est ce qui la distingue de celle du fil.
+
+       ⚠️ ON VÉRIFIE LA DÉPENDANCE, PAS LA LISTE ENTIÈRE. Sa première version exigeait `[lotCle,
+       parametresSansPage]` au caractère près, et le lot 12 — qui ajoute `rechargement` pour qu'« Annuler »
+       redemande la page — la faisait échouer sans que rien ne soit cassé. Ce qui compte est que la lecture
+       suive les FILTRES SANS LA PAGE, et jamais `parametres` (qui, lui, porte la page). */
+    expect(code).toContain('parametresSansPage, rechargement]);');
+    expect(code).not.toContain('[lotCle, parametres, parametresSansPage');
   });
 
   /**
@@ -4092,5 +4098,213 @@ describe('⑪-quinquies 🔴🔴 le résumé porte sur toute la sélection', () 
     expect(texte()).toContain('2 pièces dans cette sélection');
     expect(texte()).not.toContain('n’ont pas pu être lues');
     expect(texte()).not.toContain('le résumé porte sur les');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑫ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * DEMANDE D'ARNO (05/10/2026) : « Effet : le mail est détaché de CE bien uniquement, avec ses pièces (elles
+   * quittent le résumé de ce bien). On passe par la porte existante des fenêtres de suivi, fenêtre “Ce mail
+   * uniquement” (exception). Aucun second chemin. […] Après : le mail disparaît en direct du listing, le compteur
+   * et le résumé se mettent à jour, et un message propose “Annuler” quelques secondes. »
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+
+  /** Deux mails : le premier porte une pièce, le second non. Le bien regardé est le lot 155. */
+  const M1 = ligne({
+    messageId: 1, filId: 10, recuLe: '2026-03-01T09:00:00Z', objet: 'Quittance',
+    pieces: [piece({ pieceId: 11, nomFichier: 'quittance.pdf', empreinte: 'sha-11' })],
+  });
+  const M2 = ligne({ messageId: 2, filId: 11, recuLe: '2026-02-01T09:00:00Z', objet: 'Devis', pieces: [] });
+  /** Un mail amené par la carte d'un ÉVÉNEMENT : aucun lien de bien à retirer. */
+  const M3 = ligne({ messageId: 3, filId: 12, recuLe: '2026-01-01T09:00:00Z', objet: 'Carte', source: 'carte' });
+
+  let envois: { url: string; corps: Record<string, unknown> }[];
+  let liensDuMail: unknown[];
+  let reponseSuivi: Record<string, unknown>;
+  let lignesServies: LigneHistorique[];
+
+  const servir = (): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (init?.method === 'POST') {
+        envois.push({ url: u, corps: JSON.parse(String(init.body ?? '{}')) as Record<string, unknown> });
+        if (u.includes('/gestion/suivi')) return reponse(reponseSuivi);
+        return reponse({ etat: 'ok', geste: null });
+      }
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(lignesServies));
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/rattachements')) return reponse({ etat: 'ok', liens: liensDuMail });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: lignesServies, suite: false, entete: { nbMails: lignesServies.length },
+          titre: '28 Avenue Marceau, 92400 COURBEVOIE — Appartement — lot 155',
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  };
+
+  beforeEach(() => {
+    envois = [];
+    lignesServies = [M1, M2, M3];
+    liensDuMail = [{
+      id: 1, messageId: 1, pieceId: null, cible: { sorte: 'lot', cle: '155', id: null },
+      libelle: 'Marceau — lot 155', statut: 'confirme', origine: 'manuel', parUnHumain: true,
+    }];
+    reponseSuivi = { ok: true, projetes: 1, trace: { filId: 10, messageId: 1, exceptionCreee: 77 } };
+    servir();
+  });
+
+  const deplier = async (messageId: number): Promise<void> => {
+    const li = hote.querySelector(`#hdb-mail-${messageId}`) as HTMLElement;
+    await cliquer(li?.querySelector('.vdb-ligne') ?? undefined);
+  };
+  const boutonSortir = (messageId: number): HTMLButtonElement | null =>
+    (hote.querySelector(`#hdb-mail-${messageId}`)?.querySelector('.vdb-sortir') ?? null) as HTMLButtonElement | null;
+  const objets = (): string[] => [...hote.querySelectorAll('.hdb-ancre')].map((x) => x.id);
+
+  /**
+   * 🔴 LE BOUTON NE PARAÎT QUE DÉPLIÉ : une rangée de boutons rouges sur cent lignes repliées finirait par être
+   * cliquée. Arno l'a demandé « dans le mail déplié ».
+   */
+  it('🔴 le bouton n’apparaît qu’une fois le mail déplié', async () => {
+    await monter();
+    expect(boutonSortir(1)).toBeNull();
+    await deplier(1);
+    expect(boutonSortir(1)?.textContent).toContain('Sortir du suivi');
+  });
+
+  /**
+   * 🔴 ET PAS SUR UN MAIL AMENÉ PAR UNE CARTE D'ÉVÉNEMENT : il n'a aucun lien de bien à retirer. Le bouton aurait
+   * posé une question, puis n'aurait rien fait — et l'on aurait cherché pourquoi le mail est toujours là.
+   */
+  it('🔴 aucun bouton sur un mail amené par la carte d’un événement', async () => {
+    await monter();
+    await deplier(3);
+    expect(boutonSortir(3)).toBeNull();
+  });
+
+  /** 🔴🔴 LA QUESTION D'ARNO, AVEC LE BIEN ET LE NOMBRE DE PIÈCES — et ce qui ne bouge pas, dit aussi. */
+  it('🔴🔴 la confirmation nomme le bien, les pièces, et ce qui ne bouge pas', async () => {
+    await monter();
+    await deplier(1);
+    await cliquer(boutonSortir(1) ?? undefined);
+    const boite = hote.querySelector('.hdb-confirme');
+    expect(boite?.textContent).toContain('Sortir ce mail du suivi de 28 Avenue Marceau, 92400 COURBEVOIE ?');
+    expect(boite?.textContent).toContain('Sa pièce jointe quittera aussi cet historique.');
+    expect(boite?.textContent).toContain('les fichiers déjà rangés dans le Drive non plus');
+    /* ⚠️ RIEN N'EST ÉCRIT TANT QU'ON N'A PAS CONFIRMÉ. */
+    expect(envois).toHaveLength(0);
+  });
+
+  it('⚠️ « Annuler » dans la fenêtre referme sans rien écrire', async () => {
+    await monter();
+    await deplier(1);
+    await cliquer(boutonSortir(1) ?? undefined);
+    await cliquer([...hote.querySelectorAll('.hdb-confirme-boutons button')]
+      .find((b) => (b.textContent ?? '').trim() === 'Annuler'));
+    expect(hote.querySelector('.hdb-confirme')).toBeNull();
+    expect(envois).toHaveLength(0);
+  });
+
+  const confirmer = async (messageId: number): Promise<void> => {
+    await deplier(messageId);
+    await cliquer(boutonSortir(messageId) ?? undefined);
+    await cliquer([...hote.querySelectorAll('.hdb-confirme-boutons button')]
+      .find((b) => (b.textContent ?? '').trim() === 'Confirmer'));
+  };
+
+  /**
+   * 🔴🔴 LE CŒUR DU POINT : LA PORTE EXISTANTE, ET ELLE SEULE. `choix: 'mail'` est la fenêtre « Ce mail
+   * uniquement » ; la liste reposée est celle du mail MOINS ce bien — ici vide, le mail ne suivait que lui.
+   */
+  it('🔴🔴 mail MONO-BIEN : exception « Ce mail uniquement », liste de biens VIDE', async () => {
+    await monter();
+    await confirmer(1);
+    const suivi = envois.find((e) => e.url.includes('/gestion/suivi'));
+    expect(suivi).toBeDefined();
+    expect(suivi?.corps.choix).toBe('mail');
+    expect(suivi?.corps.messageId).toBe(1);
+    expect(suivi?.corps.filId).toBe(10);
+    expect(suivi?.corps.classement).toEqual({ sorte: 'biens', biens: [] });
+  });
+
+  /** 🔴🔴 « Les autres biens éventuels du mail ne bougent pas » : ils sont REPOSÉS, donc rien ne leur arrive. */
+  it('🔴🔴 mail MULTI-BIENS : seul ce bien est retiré, l’autre est reposé', async () => {
+    liensDuMail = [
+      {
+        id: 1, messageId: 1, pieceId: null, cible: { sorte: 'lot', cle: '155', id: null },
+        libelle: 'Marceau — lot 155', statut: 'confirme', origine: 'manuel', parUnHumain: true,
+      },
+      {
+        id: 2, messageId: 1, pieceId: null, cible: { sorte: 'lot', cle: '421', id: null },
+        libelle: 'Carnot — lot 421', statut: 'confirme', origine: 'manuel', parUnHumain: true,
+      },
+    ];
+    await monter();
+    await confirmer(1);
+    const suivi = envois.find((e) => e.url.includes('/gestion/suivi'));
+    expect(suivi?.corps.classement)
+      .toEqual({ sorte: 'biens', biens: [{ cle: '421', libelle: 'Carnot — lot 421' }] });
+  });
+
+  /**
+   * 🔴🔴 « Le mail disparaît en direct du listing, le compteur et le résumé se mettent à jour. » Les trois sont
+   * vérifiés ensemble : un seul des trois qui resterait en arrière ferait douter des deux autres.
+   */
+  it('🔴🔴 le mail quitte le listing, le compteur baisse, et ses pièces quittent le résumé', async () => {
+    await monter();
+    expect(objets()).toEqual(['hdb-mail-1', 'hdb-mail-2', 'hdb-mail-3']);
+    expect(texte()).toContain('1 pièce dans cette sélection');
+    await confirmer(1);
+    expect(objets()).toEqual(['hdb-mail-2', 'hdb-mail-3']);
+    expect(texte()).toContain('— 2 mails');
+    /* 🔴 LA PIÈCE DU MAIL SORTI A QUITTÉ LE RÉSUMÉ : c'est la demande d'Arno, mot pour mot. */
+    expect(texte()).not.toContain('1 pièce dans cette sélection');
+  });
+
+  /** 🔴 LE BANDEAU NOMME LE BIEN : on peut avoir deux historiques ouverts. */
+  it('🔴 un bandeau « Mail sorti du suivi de … » propose « Annuler »', async () => {
+    await monter();
+    await confirmer(1);
+    const bandeau = hote.querySelector('.hdb-fait');
+    expect(bandeau?.textContent).toContain('Mail sorti du suivi de 28 Avenue Marceau, 92400 COURBEVOIE.');
+    expect(bandeau?.querySelector('.hdb-fait-annuler')).not.toBeNull();
+  });
+
+  /**
+   * 🔴🔴 « ANNULER » PASSE PAR LA PORTE D'ANNULATION DU SUIVI, avec la TRACE rendue par le serveur — la seule
+   * chose que `annulerClassement` sache défaire. Un second geste « reposer les biens » aurait écrit par-dessus
+   * au lieu de défaire, et n'aurait pas rouvert les exceptions retirées au passage.
+   */
+  it('🔴🔴 « Annuler » renvoie la TRACE, et redemande la page au serveur', async () => {
+    await monter();
+    await confirmer(1);
+    lignesServies = [M1, M2, M3];
+    await cliquer(hote.querySelector('.hdb-fait-annuler') ?? undefined);
+    const annulation = envois.filter((e) => e.url.includes('/gestion/suivi')).at(-1);
+    expect(annulation?.corps).toEqual({ annuler: { filId: 10, messageId: 1, exceptionCreee: 77 } });
+    /* ⚠️ ET LA LIGNE REVIENT TELLE QUE LE SERVEUR LA CONNAÎT, jamais reconstruite de mémoire. */
+    expect(objets()).toEqual(['hdb-mail-1', 'hdb-mail-2', 'hdb-mail-3']);
+    expect(hote.querySelector('.hdb-fait')).toBeNull();
+  });
+
+  /** ⚠️ UN REFUS NE FAIT RIEN DISPARAÎTRE : le mail reste, et le motif du serveur s'affiche. */
+  it('⚠️ un refus du serveur laisse le mail en place, et le DIT', async () => {
+    reponseSuivi = { ok: false, erreur: 'Ce mail n’appartient pas à cet échange.' };
+    await monter();
+    await confirmer(1);
+    expect(objets()).toContain('hdb-mail-1');
+    expect(texte()).toContain('Ce mail n’appartient pas à cet échange.');
+    expect(hote.querySelector('.hdb-fait')).toBeNull();
   });
 });

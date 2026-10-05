@@ -11,6 +11,8 @@ import {
   type EtatEcranUrl, type Etiquette, type FicheUrl,
 } from '../../../../lib/gestion/ecranUrl';
 import { decisionRetour, lireMemoire, memoirePour } from '../../../../lib/gestion/retourEcran';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » change le classement d'un mail : les compteurs suivent. */
+import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — de quoi relire l'état rangé derrière le jeton de retour. Le module
    est PUR : l'importer ici ne tire ni `pg` ni React. */
 import { CLE_RETOUR_BIEN, etatRetourDepuisBrut } from '../../../../lib/gestion/historiqueBien';
@@ -346,6 +348,22 @@ export function GestionVue({ intro }: {
     void chargerBrouillonsTotal();
     void chargerARattacher();
   }, [chargerBrouillonsTotal, chargerARattacher]);
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — LES COMPTEURS SUIVENT « SORTIR DU SUIVI » ═════════════════════════
+   *
+   * DEMANDE D'ARNO : « Si le mail n'a plus AUCUN bien : il repasse “À classer” dans la boîte (pas Interne), et
+   * les compteurs du menu de gauche se mettent à jour. »
+   *
+   * 🔴 LE GESTE PART DU FOND DE L'ÉCRAN « Annuaire » (`Annuaire` → `VueLot` → `HistoriqueDuBien`), et les
+   * compteurs vivent ICI. Un rappel passé de main en main aurait ajouté une propriété à trois composants qui
+   * n'ont rien à voir avec le classement — voir l'encadré de `signalClassement`.
+   *
+   * ⚠️ AUCUN DELTA : on ne sait pas, d'ici, si ce mail avait d'autres biens ni si son échange est « interne ».
+   * On redemande, et la vérité arrive 150 ms plus tard — c'est exactement ce que fait `rafraichirComptes()`
+   * sans argument.
+   */
+  useEffect(() => ecouterClassement(() => rafraichirComptes()), [rafraichirComptes]);
 
   /**
    * ══ LE COMPTE RENDU D'UN GESTE, EN UN SEUL ENDROIT ═══════════════════════════════════════════════════════════

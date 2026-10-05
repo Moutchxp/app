@@ -7,6 +7,8 @@ import { ModifierRattachement, motSorteLong, CSS_MODIFIER_RATTACHEMENT } from '.
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import { MenuRattachementBien } from './MenuRattachementBien';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » peut se faire pendant que cette fenêtre est ouverte. */
+import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 // LOT FICHE-RATTACHEMENT — les mots et les ordres vivent dans un module PUR, éprouvé sans écran.
 import {
   adresseFicheAnnuaire, adresseHistoriqueDuBien, idDossierDrive,
@@ -214,6 +216,23 @@ export function RattachementsDuFil({
   }, [filId, messageId]);
 
   useEffect(() => { void charger(); }, [charger]);
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — ELLE REFLÈTE « SORTIR DU SUIVI » ═════════════════════════════════
+   *
+   * DEMANDE D'ARNO : « La fenêtre “Visualiser / Modifier” du mail reflète le changement. »
+   *
+   * 🔴 ELLE PEUT ÊTRE OUVERTE PENDANT LE GESTE : on sort un mail du suivi depuis l'historique d'un bien, et cette
+   * fenêtre — ouverte sur le même mail depuis la liste ou la conversation — continuerait d'afficher le bien
+   * retiré. Elle relit donc ce que le serveur sait, par la MÊME fonction que son premier chargement.
+   *
+   * ⚠️ ON NE RELIT QUE SI C'EST DE NOTRE MAIL (ou de notre échange) QU'IL S'AGIT : d'autres fenêtres peuvent être
+   * montées ailleurs, et les faire toutes relire à chaque geste serait du bruit à chaque clic.
+   */
+  useEffect(() => ecouterClassement((sig) => {
+    const nous = sig.filId === filId || (messageId !== null && sig.messageId === messageId);
+    if (nous) void charger();
+  }), [charger, filId, messageId]);
 
   /**
    * ══ 🔴 LE SUIVI DE LA CONVERSATION — POUR L'ALERTE, ET POUR ELLE SEULE ═══════════════════════════════════════

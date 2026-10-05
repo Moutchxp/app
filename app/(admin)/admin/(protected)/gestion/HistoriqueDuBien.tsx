@@ -27,6 +27,15 @@ import { lienDocumentEntier } from '../../../../lib/gestion/pieces';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { formaterDateIso } from '../../../../lib/gestion/annuaireRecherche';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » : les mots et la liste des biens qui restent. */
+import {
+  adresseDuBien, aideSortirDuSuivi, biensApresSortie, motConfirmationSortie, motMailSorti,
+  MOT_SORTIR_DU_SUIVI, SECONDES_ANNULER_SORTIE,
+} from '../../../../lib/gestion/sortirDuSuivi';
+import { annoncerClassement } from '../../../../lib/gestion/signalClassement';
+/* ⚠️ LE MÊME COMPTE QUE LE TROMBONE DE LA LIGNE : les « ._ » et les images de signature ne sont pas des pièces. */
+import { trierPieces } from '../../../../lib/gestion/lisibilite';
+import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import {
   libelleInterlocuteur, PAGE_HISTORIQUE_MAX, type Interlocuteur, type LigneHistorique,
   type MessagePorteurDePieces,
@@ -155,6 +164,14 @@ type Etat =
   | {
     v: 'ok'; lignes: LigneHistorique[]; suite: boolean; total: number;
     interlocuteurs: Interlocuteur[]; tronques: boolean;
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — LE TITRE DU BIEN, tel que `nomBien` l'écrit. La question posée avant
+     * de sortir un mail le NOMME (« Sortir ce mail du suivi de 28 Avenue Marceau ? ») : une confirmation qui ne
+     * dit pas de quel dossier elle parle n'est pas une confirmation.
+     *
+     * ⚠️ IL VIENT DE LA ROUTE, QUI LE REND DEPUIS TOUJOURS (`etendue.data.titre`) : rien de neuf à demander.
+     */
+    titre: string;
   };
 
 /**
@@ -326,6 +343,12 @@ export function HistoriqueDuBien({
     return () => clearTimeout(t);
   }, [saisie]);
   const [page, setPage] = useState(repris?.page ?? 0);
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — LE COMPTEUR DE RECHARGEMENT. « Annuler » doit rétablir EXACTEMENT
+   * l'état d'avant : le faire avancer redemande la page au serveur, plutôt que de reconstruire de mémoire une
+   * ligne plausible — avec son statut, ses événements et sa capsule — qu'on n'aurait aucun moyen de vérifier.
+   */
+  const [rechargement, setRechargement] = useState(0);
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [deplie, setDeplie] = useState<Set<number>>(new Set());
   const [evenements, setEvenements] = useState<EvenementDuBien[]>([]);
@@ -583,7 +606,7 @@ export function HistoriqueDuBien({
           etat?: string;
           data?: {
             lignes?: LigneHistorique[]; suite?: boolean; entete?: { nbMails?: number };
-            interlocuteurs?: Interlocuteur[]; interlocuteursTronques?: boolean;
+            interlocuteurs?: Interlocuteur[]; interlocuteursTronques?: boolean; titre?: string;
           };
         };
         if (!vivant) return;
@@ -598,6 +621,7 @@ export function HistoriqueDuBien({
           total: d.data?.entete?.nbMails ?? 0,
           interlocuteurs: d.data?.interlocuteurs ?? [],
           tronques: d.data?.interlocuteursTronques === true,
+          titre: d.data?.titre ?? '',
         });
       } catch {
         if (vivant) {
@@ -608,7 +632,9 @@ export function HistoriqueDuBien({
       }
     })();
     return () => { vivant = false; };
-  }, [lotCle, parametres]);
+    /* ⚠️ `rechargement` EST UNE DÉPENDANCE : « Annuler » le fait avancer, et la page est redemandée telle que le
+       serveur la connaît (lot HISTORIQUE-BIEN-12, point 1). */
+  }, [lotCle, parametres, rechargement]);
 
   // ── ③ LE FIL, LES PIÈCES, LE RÉSUMÉ ───────────────────────────────────────────────────────────────────────────
   /** La page REÇUE, triée. C'est le dénominateur du « N mails sur M » : la sélection déjà affichée. */
@@ -667,7 +693,7 @@ export function HistoriqueDuBien({
       }
     })();
     return () => { vivant = false; };
-  }, [lotCle, parametresSansPage]);
+  }, [lotCle, parametresSansPage, rechargement]);
 
   const motsCherches = useMemo(() => motsRecherches(reglages.texte), [reglages.texte]);
   const lignes = useMemo(
@@ -731,6 +757,138 @@ export function HistoriqueDuBien({
     if (n.has(messageId)) n.delete(messageId); else n.add(messageId);
     return n;
   }), []);
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI » ═══════════════════════════════════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * DEMANDE D'ARNO (05/10/2026) : « Effet : le mail est détaché de CE bien uniquement, avec ses pièces (elles
+   * quittent le résumé de ce bien). On passe par la porte existante des fenêtres de suivi, fenêtre “Ce mail
+   * uniquement” (exception). Aucun second chemin. Les autres biens éventuels du mail ne bougent pas. »
+   *
+   * 🔴 LE GESTE EST DONC EXACTEMENT CELUI DE LA FENÊTRE « Modifier les biens rattachés à ce mail » : le même
+   * `POST /api/admin/gestion/suivi`, le même `choix: 'mail'`, le même dépôt (`poserClassement`), le même journal,
+   * la même projection et la même annulation. Ce qui change tient en une ligne — la liste des biens reposée est
+   * celle du mail MOINS celui qu'on regarde, et c'est le module pur `sortirDuSuivi` qui la calcule.
+   *
+   * 🔴 LES BIENS ACTUELS SONT DEMANDÉS AU MOMENT DU CLIC, et non chargés avec la page. Le bouton est rare ; les
+   * demander pour les cent mails affichés aurait coûté une requête à chaque ouverture de l'historique, pour une
+   * information dont on ne se sert presque jamais.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const [aSortir, setASortir] = useState<LigneHistorique | null>(null);
+  const [sortieEnCours, setSortieEnCours] = useState(false);
+  const [sortieRefus, setSortieRefus] = useState<string | null>(null);
+  /** Le geste fait, et sa TRACE — c'est elle, et elle seule, que `annulerClassement` sait défaire. */
+  const [sortieFaite, setSortieFaite] = useState<{ mot: string; trace: unknown } | null>(null);
+  const [annulationSortie, setAnnulationSortie] = useState(false);
+  /**
+   * 🔴 LE COMPTEUR DE RECHARGEMENT : « Annuler » doit rétablir EXACTEMENT l'état d'avant, et la seule façon
+   * honnête est de redemander la page au serveur. Reconstruire la ligne de mémoire aurait rendu une ligne
+   * plausible — avec son statut d'avant le geste, ses événements, sa capsule — sans garantie qu'elle soit juste.
+   */
+
+  useEffect(() => {
+    if (sortieFaite === null) return undefined;
+    const t = setTimeout(() => setSortieFaite(null), SECONDES_ANNULER_SORTIE * 1000);
+    return () => { clearTimeout(t); };
+  }, [sortieFaite]);
+
+  /** L'adresse du bien, telle que la question d'Arno la nomme. Voir `adresseDuBien`. */
+  const adresseBien = etat.v === 'ok' ? adresseDuBien(etat.titre) : 'ce bien';
+
+  /**
+   * 🔴 LE BOUTON N'EST OFFERT QUE SUR UN MAIL QUI ENTRE ICI PAR UN **RATTACHEMENT**. Un mail amené par la carte
+   * d'un événement (`source: 'carte'`) n'a aucun lien de bien à retirer : le bouton aurait posé une question, puis
+   * n'aurait rien fait — et l'on aurait cherché pourquoi le mail est toujours là.
+   */
+  const sortieOfferte = useCallback(
+    (l: LigneHistorique) => (l.source !== 'rattachement' ? undefined : {
+      aide: aideSortirDuSuivi(adresseBien),
+      onSortir: () => { setSortieRefus(null); setASortir(l); },
+    }),
+    [adresseBien]);
+
+  /**
+   * 🔴🔴 LE GESTE, EN TROIS TEMPS : on lit les biens actuels du mail, on repose l'exception sans celui-ci, et on
+   * retire la ligne de l'écran — compteur et résumé compris.
+   *
+   * ⚠️ LES PIÈCES SONT RETIRÉES DU RÉSUMÉ PAR LA MÊME OCCASION (`etatPieces`), et c'est la demande d'Arno mot pour
+   * mot : « avec ses pièces (elles quittent le résumé de ce bien) ». Sans cette ligne, le mail aurait disparu du
+   * fil et ses pièces seraient restées dans le compte — le genre d'écart qui fait douter du compte entier.
+   */
+  const confirmerSortie = async (): Promise<void> => {
+    const l = aSortir;
+    if (l === null || sortieEnCours) return;
+    setSortieEnCours(true);
+    setSortieRefus(null);
+    try {
+      const res = await fetch(`/api/admin/gestion/rattachements?messages=${l.messageId}`, { cache: 'no-store' });
+      const d = (await res.json().catch(() => ({}))) as { liens?: LienAffiche[] };
+      const liens = d.liens ?? [];
+      const envoi = await fetch('/api/admin/gestion/suivi', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filId: l.filId, messageId: l.messageId, choix: 'mail',
+          classement: { sorte: 'biens', biens: biensApresSortie(liens, lotCle) },
+        }),
+      });
+      const r = (await envoi.json().catch(() => ({}))) as { ok?: boolean; trace?: unknown; erreur?: string };
+      if (!envoi.ok || r.ok !== true) {
+        setSortieRefus(r.erreur ?? 'Ce mail n’a pas pu être sorti du suivi.');
+        return;
+      }
+      /* ① LE FIL ET SON COMPTEUR, en direct. */
+      setEtat((e) => (e.v !== 'ok' ? e : {
+        ...e,
+        lignes: e.lignes.filter((x) => x.messageId !== l.messageId),
+        total: Math.max(0, e.total - 1),
+      }));
+      /* ② LE RÉSUMÉ DES PIÈCES : le mail sorti emporte les siennes. */
+      setEtatPieces((e) => (e.v !== 'ok' ? e : {
+        ...e, messages: e.messages.filter((m) => m.messageId !== l.messageId),
+      }));
+      /* ③ LES COMPTEURS DE LA BOÎTE, et la fenêtre « Visualiser / Modifier » si elle est ouverte sur ce mail. */
+      annoncerClassement({ messageId: l.messageId, filId: l.filId });
+      setASortir(null);
+      setSortieFaite({ mot: motMailSorti(adresseBien), trace: r.trace });
+    } catch {
+      setSortieRefus('Ce mail n’a pas pu être sorti du suivi : le serveur n’a pas répondu.');
+    } finally {
+      setSortieEnCours(false);
+    }
+  };
+
+  /**
+   * 🔴 « ANNULER » EST LA PORTE D'ANNULATION DU SUIVI, pas une seconde écriture : `POST { annuler: trace }`, celle
+   * que la fenêtre de suivi emprunte déjà. Elle rouvre les exceptions retirées et reprojette — c'est la seule
+   * chose qui rétablisse EXACTEMENT l'état d'avant.
+   *
+   * ⚠️ ET LA PAGE EST REDEMANDÉE ENSUITE : la ligne revient avec son statut, ses événements et sa capsule tels que
+   * le serveur les connaît, jamais tels qu'on les aurait reconstruits de mémoire.
+   */
+  const annulerSortie = async (): Promise<void> => {
+    if (sortieFaite === null || annulationSortie) return;
+    setAnnulationSortie(true);
+    try {
+      const res = await fetch('/api/admin/gestion/suivi', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ annuler: sortieFaite.trace }),
+      });
+      const r = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+      if (!res.ok || r.ok !== true) {
+        setSortieRefus(r.erreur ?? 'L’annulation n’a pas pu être faite.');
+        return;
+      }
+      setSortieFaite(null);
+      setRechargement((n) => n + 1);
+      annoncerClassement({ messageId: 0, filId: null });
+    } catch {
+      setSortieRefus('L’annulation n’a pas pu être faite : le serveur n’a pas répondu.');
+    } finally {
+      setAnnulationSortie(false);
+    }
+  };
 
   /** Par mail, le fil d'où il vient — la fenêtre « Ranger » en a besoin, et le fil change d'un mail à l'autre. */
   const filDuMessage = useMemo(
@@ -1882,6 +2040,25 @@ export function HistoriqueDuBien({
         </p>
       )}
 
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Mail sorti du suivi de … — Annuler », quelques secondes ════
+          Arno : « Après : le mail disparaît en direct du listing, le compteur et le résumé se mettent à jour, et
+          un message propose “Annuler” quelques secondes (rétablit exactement l'état d'avant). »
+
+          🔴 LE BANDEAU DIT LE BIEN, pas seulement « c'est fait » : on peut avoir deux historiques ouverts, et
+          c'est la seule phrase qui permette de vérifier qu'on a sorti le mail du bon dossier. */}
+      {sortieFaite !== null && (
+        <p className="hdb-fait" role="status">
+          <span className="hdb-fait-mot">{sortieFaite.mot}</span>
+          <button type="button" className="hdb-fait-annuler" disabled={annulationSortie}
+            onClick={() => { void annulerSortie(); }}>
+            {annulationSortie ? 'Annulation…' : 'Annuler'}
+          </button>
+        </p>
+      )}
+      {sortieFaite === null && sortieRefus !== null && aSortir === null && (
+        <p className="gst-erreur" role="status">{sortieRefus}</p>
+      )}
+
       {/* ══ LE RÉSUMÉ DES PIÈCES, EN HAUT — REPLIÉ, AVEC SON COMPTE LISIBLE SANS CLIC ══════════════════════════ */}
       {totalPieces > 0 && (
         <div className="hdb-resume hdb-resume--haut">
@@ -1926,13 +2103,15 @@ export function HistoriqueDuBien({
                     </h5>
                     <FilDeMails lignes={c.lignes} maintenant={maintenant} deplie={deplie}
                       categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
-                      onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation} />
+                      onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
+                      sortieDuSuivi={sortieOfferte} />
                   </section>
                 ))
                 : (
                   <FilDeMails lignes={lignes} maintenant={maintenant} deplie={deplie}
                     categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
-                    onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation} />
+                    onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
+                    sortieDuSuivi={sortieOfferte} />
                 )}
 
               <div className="vdb-pages">
@@ -1981,6 +2160,43 @@ export function HistoriqueDuBien({
             Écran historique complet →
           </button>
         </p>
+      )}
+
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — LA QUESTION POSÉE AVANT ════════════════════════════════════
+          Arno : « Avant : confirmation “Sortir ce mail du suivi de <adresse du bien> ? Ses N pièces jointes
+          quitteront aussi cet historique.” avec Confirmer / Annuler. »
+
+          🔴 UNE CONFIRMATION ICI, ET PAS AILLEURS : le geste retire un mail d'un dossier, et le bouton vit au
+          milieu d'une liste qu'on parcourt. Le « Annuler » d'après ne suffit pas seul — il dure huit secondes,
+          et c'est huit secondes après qu'on comprend souvent ce qu'on vient de faire. Les deux ensemble.
+
+          ⚠️ LE NOMBRE DE PIÈCES EST CELUI DU MAIL, tel que la ligne le porte : c'est le même que son trombone. */}
+      {aSortir !== null && (
+        <div className="hdb-voile" role="presentation"
+          onClick={(e) => { if (e.target === e.currentTarget && !sortieEnCours) setASortir(null); }}>
+          <div className="hdb-confirme" role="dialog" aria-modal="true" aria-labelledby="hdb-sortir-titre">
+            <p className="hdb-confirme-mot" id="hdb-sortir-titre">
+              {motConfirmationSortie({
+                adresseDuBien: adresseBien,
+                nbPieces: trierPieces(aSortir.pieces).vraies.length,
+              })}
+            </p>
+            {/* ⚠️ CE QUI NE BOUGE PAS EST DIT AUSSI : c'est la moitié de la question qu'on se pose avant de
+                cliquer, et la taire obligerait à aller le vérifier ailleurs. */}
+            <p className="hdb-confirme-note">
+              Ses autres biens éventuels ne bougent pas, et les fichiers déjà rangés dans le Drive non plus.
+            </p>
+            {sortieRefus !== null && <p className="gst-erreur" role="status">{sortieRefus}</p>}
+            <p className="hdb-confirme-boutons">
+              <button type="button" className="svv-btn gst-btn" disabled={sortieEnCours}
+                onClick={() => setASortir(null)}>Annuler</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={sortieEnCours}
+                onClick={() => { void confirmerSortie(); }}>
+                {sortieEnCours ? 'Sortie…' : 'Confirmer'}
+              </button>
+            </p>
+          </div>
+        </div>
       )}
 
       {/* ══ LA FENÊTRE DRIVE, EN MODE « RANGER » ══ La MÊME que partout : mêmes refus, même arborescence. */}
@@ -2651,7 +2867,9 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
  * importé tel quel et n'a pas de prop `id` (et lui en ajouter une aurait touché « Vie du bien », ce qui est
  * interdit). Un `ol > li > ol > li` est du HTML valide ; l'enveloppe ne porte aucun style propre.
  */
-function FilDeMails({ lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil }: {
+function FilDeMails({
+  lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi,
+}: {
   lignes: readonly LigneHistorique[];
   maintenant: Date;
   deplie: ReadonlySet<number>;
@@ -2663,6 +2881,11 @@ function FilDeMails({ lignes, maintenant, deplie, categories, surligne, mots, on
   mots: readonly string[];
   onBasculer: (messageId: number) => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi », pour un mail DÉPLIÉ et SEULEMENT s'il entre ici
+   * par un rattachement. Rend `undefined` pour les autres : voir `sortieOfferte` dans le bloc principal.
+   */
+  sortieDuSuivi: (l: LigneHistorique) => { aide: string; onSortir: () => void } | undefined;
 }) {
   return (
     <ol className="vdb-liste hdb-liste">
@@ -2701,7 +2924,8 @@ function FilDeMails({ lignes, maintenant, deplie, categories, surligne, mots, on
               tonDe={(adresse) => (estAdresseInterne(adresse)
                 ? 'nous'
                 : tonDeLExpediteur({ sens: 'recu', de: adresse }, categories))}
-              onBasculer={() => onBasculer(l.messageId)} onOuvrirFil={onOuvrirFil} />
+              onBasculer={() => onBasculer(l.messageId)} onOuvrirFil={onOuvrirFil}
+              sortieDuSuivi={sortieDuSuivi(l)} />
           </ol>
         </li>
       ))}
@@ -3143,6 +3367,24 @@ ${CSS_PIECES}
 .hdb-menu-item:hover{background:var(--color-svv-field)}
 .hdb-menu-item:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 /* ══ LE MESSAGE D'APRES-DEPOT ── « Fanny Rosky → Locataire », avec « Annuler » quelques secondes. */
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — LA FENETRE DE CONFIRMATION DE « SORTIR DU SUIVI » ═══════════════════
+   LE MEME HABILLAGE QUE LES AUTRES FENETRES DU MODULE (voile sombre, carte arrondie, ombre portee) : une boite
+   de dialogue qui ne ressemble a aucune autre se lit comme un incident plutot que comme une question.
+
+   ⚠️ z-index 72, celui des fenetres de ce module : au-dessus du fil et de ses barres, en dessous de rien.
+
+   🔴 LE VOILE ET L'OMBRE SONT EN color-mix SUR UN JETON, JAMAIS EN COULEUR LITTERALE. Ce fichier porte un garde qui
+   interdit toute couleur litterale dans sa feuille (hdb.test), et il a raison : une ombre ecrite en dur reste
+   noire en theme Sombre, ou le fond est deja sombre. C'est le parti de .fre-voile, repris ici.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
+.hdb-voile{position:fixed;inset:0;z-index:72;display:flex;align-items:center;justify-content:center;padding:16px;
+  background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);text-align:left}
+.hdb-confirme{width:min(32rem,100%);display:flex;flex-direction:column;gap:.6rem;padding:16px;border-radius:12px;
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);
+  box-shadow:0 12px 40px color-mix(in srgb, var(--color-svv-ink) 25%, transparent)}
+.hdb-confirme-mot{margin:0;font-size:.95rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.hdb-confirme-note{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
+.hdb-confirme-boutons{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:flex-end;margin:0}
 .hdb-fait{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.5rem 0 0;padding:.35rem .6rem;
   border-radius:.5rem;border:1px solid var(--color-svv-green);background:var(--color-svv-green-soft);
   font-size:.8rem;color:var(--color-svv-green-ink);min-width:0}

@@ -19,6 +19,8 @@ import type { LigneHistorique } from '../../../../lib/gestion/historique';
 import { decouperPourSurligner, motTonDeMail, type TonMail } from '../../../../lib/gestion/historiqueBien';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — le nom ET l'adresse d'un destinataire, séparés (module pur). */
 import type { PersonneDuMail } from '../../../../lib/gestion/adressesMessage';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — le mot du bouton vient du module pur, comme tous les autres. */
+import { MOT_SORTIR_DU_SUIVI } from '../../../../lib/gestion/sortirDuSuivi';
 
 /**
  * LOT FICHES-ANNUAIRE (étape B) — « LA VIE DU BIEN » : TOUS SES MAILS, DANS LA FICHE.
@@ -311,9 +313,26 @@ function AdressesDuMail({ l, tonDe }: {
   );
 }
 
-export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe }: {
+export function LigneVie({
+  l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi,
+}: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI », À DROITE DE L'EN-TÊTE DÉPLIÉ ═════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « Bouton “Sortir du suivi”, à DROITE du bloc d'en-tête du mail déplié (ligne
+   * “nous avons écrit… / Objet… / pour … · via …”), discret, bordure rouge fine. »
+   *
+   * ⚠️ ABSENT ⇒ AUCUN BOUTON, ET LES TROIS AUTRES ÉCRANS NE BOUGENT PAS D'UN PIXEL. Cette ligne est montée par
+   * quatre écrans (Historique du bien, fiche d'un locataire, Vie du bien, Annuaire) ; seul le premier connaît
+   * un bien dont on puisse sortir. Une propriété facultative est le seul chemin sans régression — c'est déjà la
+   * règle de `tonDe` et de `surligner` juste au-dessous.
+   *
+   * 🔴 ET IL N'APPARAÎT QUE DÉPLIÉ, parce qu'Arno l'a demandé « dans le mail déplié » : un bouton de détachement
+   * sur chacune des cent lignes repliées d'un fil serait une rangée de boutons rouges qu'on finit par cliquer.
+   */
+  sortieDuSuivi?: { aide: string; onSortir: () => void };
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LA CATÉGORIE D'UNE ADRESSE, DEMANDÉE À L'APPELANT ═══════════════
    *
@@ -450,6 +469,15 @@ export function LigneVie({ l, maintenant, ouvert, onBasculer, onOuvrirFil, surli
             </span>
           )}
         </button>
+        {/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — LE BOUTON EST LE **VOISIN** DE LA LIGNE, jamais son enfant :
+            l'en-tête entier EST un `<button>`, et un bouton dans un bouton n'est pas du HTML valide. C'est
+            exactement la raison pour laquelle le triangle vit à gauche, en frère, depuis le lot d'origine. */}
+        {ouvert && sortieDuSuivi !== undefined && (
+          <button type="button" className="vdb-sortir" title={sortieDuSuivi.aide}
+            aria-label={sortieDuSuivi.aide} onClick={sortieDuSuivi.onSortir}>
+            {MOT_SORTIR_DU_SUIVI}
+          </button>
+        )}
       </div>
 
       {/* ⚠️ LE DÉTAIL S'OUVRE SUR PLACE : on ne quitte pas la fiche pour lire un mail de ce bien. */}
@@ -545,6 +573,21 @@ export const CSS_VIE_DU_BIEN = `
   text-align:left;background:none;border:0;padding:8px 12px 8px 0;font:inherit;color:inherit;cursor:pointer}
 .vdb-ligne:hover{background:var(--color-svv-field)}
 .vdb-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI », DISCRET, BORDURE ROUGE FINE ════════════════════
+   Arno : « a DROITE du bloc d'en-tete du mail deplie […], discret, bordure rouge fine. »
+
+   🔴 DISCRET VEUT DIRE : PAS DE FOND, PAS DE GRAS, UN TEXTE EN RETRAIT. Le bouton retire un mail d'un dossier —
+   il doit se trouver quand on le cherche, et ne pas appeler le clic quand on lit. C'est le survol qui l'allume.
+
+   ⚠️ align-self:flex-start ET NON stretch : la rangee est en align-items:stretch, et sans cela le bouton aurait
+   pris toute la hauteur du bloc deplie — une colonne rouge de la hauteur d'un mail.
+   ⚠️ flex:0 0 auto : il ne doit jamais prendre la place de l'objet, qui est l'information de la ligne.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
+.vdb-sortir{flex:0 0 auto;align-self:flex-start;margin:8px 0 0 .5rem;padding:3px 8px;
+  font:inherit;font-size:.74rem;line-height:1.3;color:var(--color-svv-muted);background:none;
+  border:1px solid var(--color-svv-red);border-radius:.4rem;cursor:pointer;white-space:nowrap}
+.vdb-sortir:hover{color:var(--color-svv-red);background:var(--color-svv-field)}
+.vdb-sortir:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .vdb-haut{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;min-width:0}
 .vdb-qui{font-size:.88rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .vdb-quand{margin-left:auto;font-size:.76rem;color:var(--color-svv-muted);flex:0 0 auto}
