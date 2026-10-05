@@ -25,6 +25,48 @@ import { estAdresseInterne } from './adresseInterne';
 
 export type RoleAdresse = 'expediteur' | 'destinataire' | 'copie' | 'repondre_a' | 'transfere';
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — LES TROIS RÔLES QUI FONT « PARTICIPER » À UN MAIL ═════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (05/10/2026) : sur lot-290, Jessica TADEU et Kelly VANKESBEULQUE affichent « a écrit : 0 · en
+ * copie : 0 » ; cochées seules, le listing montre pourtant **2 mails** de Gabrielle Garreau.
+ *
+ * 🔴 LE DIAGNOSTIC, MESURÉ : ces deux adresses n'apparaissent sur ce bien que sous le rôle **`transfere`** — une
+ * adresse lue DANS LE CORPS d'un mail transféré (« Fwd: »), pas un destinataire. Les deux mails en cause :
+ *   · 26194, 20/11/2025 — « Fwd: 2039-28/32 AVENUE MARCEAU - IMPORTANT CHANGEMENT CODE IMMEUBLE »
+ *       De : gabriellegarreau@gmail.com · À : gestion@criterimmo.fr · Cc : — · Cci : — · `transfere` : j.tadeu@…
+ *   · 38364, 18/07/2025 — « Fwd: 2039- 28-32 MARCEAU Entretien et propreté »
+ *       De : gabriellegarreau@gmail.com · À : gestion@criterimmo.fr · Cc : — · Cci : — · `transfere` : k.vankes…
+ *
+ * 🔴 NI LE COMPTEUR NI L'AGENCE NE SE TROMPAIENT. Le compteur lit `expediteur` (« a écrit ») et
+ * `destinataire`+`copie` (« en copie ») : **0 · 0** est exact. L'agence n'est qu'un filtre d'EXCLUSION, elle ne
+ * fait jamais entrer un mail. C'est le FILTRE qui acceptait N'IMPORTE QUEL rôle — donc aussi `transfere` et
+ * `repondre_a`. Les deux ne regardaient pas les mêmes champs.
+ *
+ * 🔴 RÈGLE D'ARNO : « le compteur et le filtre reposent sur UN SEUL calcul (mêmes adresses normalisées, mêmes
+ * champs De / À / Cc) ». Cette liste EST ce calcul, écrite une fois, lue par les deux requêtes. Une capsule à
+ * « 0 écrit · 0 en copie » cochée seule affiche donc 0 mail — mécaniquement, et non par surveillance.
+ *
+ * ⚠️ `repondre_a` ET `transfere` NE DISPARAISSENT PAS DE LA BASE : ce sont des traces utiles (un Reply-To
+ * détourné, une adresse citée dans un transfert) et le rattachement s'en sert. Elles ne font simplement plus
+ * ENTRER un mail dans une sélection de parties — on ne peut pas cocher quelqu'un pour « les mails où son adresse
+ * est citée au milieu d'un transfert », parce que rien à l'écran ne l'annonce.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+/** « A ÉCRIT » : le rôle qui fait de quelqu'un l'auteur du mail. Un seul, et c'est le même mot partout. */
+export const ROLE_EXPEDITEUR: RoleAdresse = 'expediteur';
+
+/** « EN COPIE » au sens de l'écran : les rôles par lesquels on REÇOIT un mail — le À comme le Cc. */
+export const ROLES_RECEPTION: readonly RoleAdresse[] = ['destinataire', 'copie'];
+
+/**
+ * 🔴 ET LE FILTRE EST EXACTEMENT LEUR UNION — par construction, et non par surveillance. C'est ce qui rend la
+ * promesse d'Arno vraie mécaniquement : une capsule à « 0 écrit · 0 en copie » ne peut plus ramener un mail,
+ * puisqu'il n'existe aucun rôle qui ferait entrer un mail sans être compté par l'un des deux compteurs.
+ */
+export const ROLES_DE_PARTICIPATION: readonly RoleAdresse[] = [ROLE_EXPEDITEUR, ...ROLES_RECEPTION];
+
 export interface AdresseRelevee {
   adresse: string;
   /** Telle qu'elle était écrite, nom d'affichage compris. On n'invente rien, on n'efface rien. */

@@ -10,6 +10,8 @@ import {
   etatSuite, motifSuite, resumeSuite, COMPTES_SUITE_VIDES, MARGE_RETOUR_SUITE, PLAFOND_MESSAGES_SUITE,
 } from './suiteReleve';
 import { cibleEvenement, cibleLot, cibleProprietaire } from './rattachement';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — les trois rôles qui font « participer » à un mail. */
+import { ROLES_DE_PARTICIPATION, ROLES_RECEPTION, ROLE_EXPEDITEUR } from './adressesMessage';
 
 /**
  * LOT RATTACHEMENT-2 — LES MODULES PURS : l'adresse de l'historique, ses filtres, et le verdict de l'enchaînement.
@@ -371,15 +373,40 @@ describe('🔴🔴 le filtre des parties et celui de l’agence posent deux ques
    * dont l'expéditeur ou un destinataire (À / Cc) est l'une des parties cochées ». Un `role = 'expediteur'` ici
    * aurait fait disparaître tout ce qu'on a ÉCRIT au propriétaire — c'est-à-dire la moitié de son dossier.
    */
-  it('🔴🔴 « parties cochées » regarde TOUS les rôles', () => {
-    /* ⚠️ ON BORNE À SA PROPRE CONDITION : celle de l'agence suit immédiatement, et elle, nomme le rôle. */
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — LE VERDICT A CHANGÉ, ET C'EST LE DÉFAUT D'ARNO ═══════════════════
+   *
+   * Ce cas exigeait que le filtre ne nomme AUCUN rôle — « l'expéditeur OU un destinataire », donc tous. C'était
+   * trop large : la table porte aussi `repondre_a` et `transfere` (une adresse lue DANS LE CORPS d'un mail
+   * transféré). Mesuré sur lot-290 : Jessica TADEU et Kelly VANKESBEULQUE n'y existent QUE sous `transfere`,
+   * d'où « 0 écrit · 0 en copie » au compteur et 2 mails dans le listing.
+   *
+   * La règle d'Arno : « mêmes champs De / À / Cc ». Le filtre nomme donc désormais les trois rôles — et il les
+   * lit dans le MODULE PUR, là où le compteur lit les siens.
+   */
+  it('🔴🔴 « parties cochées » regarde DE / À / CC, et rien d’autre', () => {
+    /* ⚠️ ON BORNE À SA PROPRE CONDITION : celle de l'agence suit immédiatement, et elle ne nomme qu'un rôle. */
     const q = bloc.slice(bloc.indexOf('f.interlocuteurs.length > 0'));
     const condition = q.slice(0, q.indexOf('f.expediteursExclus.length > 0'));
     expect(condition).toContain('EXISTS');
     expect(condition).toContain('ia.message_id = m.id');
     expect(condition).toContain('ia.adresse = ANY');
-    /* 🔴 ET SURTOUT PAS LE RÔLE : la condition ne doit pas le nommer. */
-    expect(condition).not.toContain('role');
+    /* 🔴 LES TROIS RÔLES VIENNENT DU MODULE PUR — jamais recopiés ici : deux listes auraient divergé, et c'est
+       exactement la divergence qu'on répare. */
+    expect(condition).toContain('ia.role = ANY');
+    expect(condition).toContain('ROLES_DE_PARTICIPATION');
+    expect(condition).not.toContain("'transfere'");
+  });
+
+  /**
+   * 🔴🔴 ET LE FILTRE EST L'UNION EXACTE DES DEUX COMPTEURS — par construction. C'est ce qui rend la promesse
+   * d'Arno vraie mécaniquement : « une capsule à 0 écrit · 0 en copie cochée seule affiche 0 mail ».
+   */
+  it('🔴🔴 LE FILTRE EST L’UNION DES DEUX COMPTEURS, par construction', () => {
+    expect(ROLES_DE_PARTICIPATION).toEqual([ROLE_EXPEDITEUR, ...ROLES_RECEPTION]);
+    /* ⚠️ Et les deux rôles QUI NE COMPTENT PAS sont nommés, pour qu'on sache ce qu'on écarte. */
+    expect(ROLES_DE_PARTICIPATION).not.toContain('transfere');
+    expect(ROLES_DE_PARTICIPATION).not.toContain('repondre_a');
   });
 
   /**

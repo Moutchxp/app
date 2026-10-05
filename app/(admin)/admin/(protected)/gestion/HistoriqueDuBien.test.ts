@@ -3512,3 +3512,109 @@ describe('⑤-octodecies 🔴🔴 le filtre par parties : les six combinaisons',
     expect(contient('État des lieux')).toBe(false);
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — « 0 ÉCRIT · 0 EN COPIE » COCHÉ SEUL AFFICHE 0 MAIL ════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (05/10/2026), sur lot-290 : le propriétaire décoché, seules Jessica TADEU et Kelly VANKESBEULQUE
+ * cochées — « a écrit : 0 · en copie : 0 » toutes les deux —, et le listing montrait **2 mails** de Gabrielle
+ * Garreau, dont celui du 20/11/2025 « IMPORTANT CHANGEMENT CODE IMMEUBLE ».
+ *
+ * LE DIAGNOSTIC, MESURÉ EN BASE : ces deux adresses n'existent sur ce bien que sous le rôle `transfere` — une
+ * adresse lue DANS LE CORPS d'un mail transféré (« Fwd: »). Le compteur ne compte que `expediteur` (a écrit) et
+ * `destinataire`+`copie` (en copie) : « 0 · 0 » était EXACT. C'est le FILTRE qui acceptait tous les rôles.
+ *
+ * NI LE COMPTEUR NI L'AGENCE N'Y ÉTAIENT POUR QUELQUE CHOSE : l'agence n'est qu'un filtre d'EXCLUSION (`sauf=`),
+ * elle ne fait jamais entrer un mail. Les deux cas ci-dessous tiennent les deux moitiés de la règle d'Arno.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑤-novodecies 🔴🔴 le compteur et le filtre, un seul calcul', () => {
+  /** Le mail d'Arno : écrit par la propriétaire, reçu par nous, et qui CITE un contact dans son corps. */
+  const M_FWD = ligne({
+    messageId: 20, filId: 200, recuLe: '2025-11-20T20:22:00Z',
+    objet: 'Fwd: 2039-28/32 AVENUE MARCEAU - IMPORTANT CHANGEMENT CODE IMMEUBLE',
+    de: 'proprio@fictif.test', deNom: 'Gabrielle GARREAU',
+  });
+
+  /** Une capsule à 0 · 0 : elle n'existe sur ce bien que par le rôle `transfere` du mail ci-dessus. */
+  const CITEE: Interlocuteur[] = [
+    ...INTERLOCUTEURS,
+    inter({ adresse: 'citee@fictif.test', nom: 'Jessica TADEU', nbMails: 1, aEcrit: 0, enCopie: 0 }),
+    inter({ adresse: 'gestion@criterimmo.fr', nom: 'Gestion', nbMails: 1, aEcrit: 0, enCopie: 1, interne: true }),
+  ];
+
+  /**
+   * 🔴🔴 LE SERVEUR EST REJOUÉ AVEC LA RÈGLE CORRIGÉE : un mail n'entre que si l'adresse cochée y est
+   * expéditeur, destinataire ou en copie. Le rôle `transfere` de « citee@fictif.test » ne la fait PAS entrer.
+   */
+  const servir = (): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return reponse({ etat: 'ok', geste: null });
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+
+      const p = new URL(u, 'http://local').searchParams;
+      const avec = (p.get('avec') ?? '').split(',').filter((x) => x !== '');
+      const sauf = (p.get('sauf') ?? '').split(',').filter((x) => x !== '');
+      /* De / À / Cc du mail — et SURTOUT PAS son `transfere` : c'est tout l'objet de la correction. */
+      const departAcc = ['proprio@fictif.test', 'gestion@criterimmo.fr'];
+      const lignes = [M_FWD]
+        .filter(() => avec.length === 0 || departAcc.some((a) => avec.includes(a)))
+        .filter((l) => !sauf.includes(l.de));
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes, suite: false, entete: { nbMails: lignes.length },
+          interlocuteurs: CITEE, interlocuteursTronques: false,
+        },
+      });
+    }));
+  };
+
+  const nbMails = (): number => hote.querySelectorAll('.hdb-ancre').length;
+
+  /**
+   * 🔴🔴 LE CAS D'ARNO, MOT POUR MOT : une capsule à « 0 · 0 » cochée SEULE affiche 0 mail. Avant ce lot, elle
+   * en ramenait deux — et aucun des deux ne la nommait nulle part dans son en-tête.
+   */
+  it('🔴🔴 UNE CAPSULE À « 0 ÉCRIT · 0 EN COPIE » COCHÉE SEULE AFFICHE 0 MAIL', async () => {
+    servir();
+    await monter();
+    expect(nbMails()).toBe(1);
+
+    /* On coche la capsule à 0 · 0 — elle est « non affectée » ici, comme TADEU sur lot-290. */
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
+    const citee = [...gris.querySelectorAll('.hdb-capsule')]
+      .find((c) => (c.textContent ?? '').includes('Jessica TADEU'));
+    expect(citee?.textContent).toContain('a écrit : 0 · en copie : 0');
+    await cliquer(citee?.querySelector('input') ?? undefined);
+
+    expect(hote.querySelector('.hdb-selection')?.textContent).toContain('1 partie cochée');
+    /* 🔴 ZÉRO MAIL — et le compteur de la capsule ne mentait pas : il n'y en a aucun qui la nomme. */
+    expect(nbMails()).toBe(0);
+  });
+
+  /**
+   * 🔴🔴 ET L'AGENCE, COCHÉE PAR DÉFAUT, NE FAIT JAMAIS ENTRER UN MAIL À ELLE SEULE. Elle n'est pas dans `avec`
+   * — elle ne vit que dans `sauf`, qui EXCLUT. Le vérifier sur l'adresse demandée est plus fort que de le
+   * vérifier à l'écran : c'est la requête elle-même qui ne peut pas la porter.
+   */
+  it('🔴🔴 L’AGENCE N’ENTRE JAMAIS DANS `avec=` — elle ne sait qu’exclure', async () => {
+    servir();
+    await monter();
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
+    const citee = [...gris.querySelectorAll('.hdb-capsule')]
+      .find((c) => (c.textContent ?? '').includes('Jessica TADEU'));
+    await cliquer(citee?.querySelector('input') ?? undefined);
+
+    const avecs = appels.filter((a) => a.includes('avec=')).map((a) => new URL(a, 'http://l').searchParams.get('avec'));
+    expect(avecs.length).toBeGreaterThan(0);
+    for (const a of avecs) expect(a, a ?? '').not.toContain('gestion@criterimmo.fr');
+  });
+});

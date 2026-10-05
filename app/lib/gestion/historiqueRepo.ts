@@ -22,7 +22,9 @@ import { query } from '../db/client';
 import { sqlLiensDuBien } from './rattachement';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche } from './nomUsageSql';
-import { adressesDuChamp } from './adressesMessage';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — les trois rôles qui font « participer » à un mail, écrits UNE fois :
+   le compteur des capsules et le filtre du listing lisent la MÊME liste (règle d'Arno). */
+import { adressesDuChamp, ROLES_DE_PARTICIPATION, ROLES_RECEPTION, ROLE_EXPEDITEUR } from './adressesMessage';
 import { nomBien, nomProprietaire } from './driveArbre';
 import { deplacementsDeMailsDisponibles, horsGestionDisponible, rattachementsDisponibles } from './schema';
 // LOT FICHES-ANNUAIRE — LA MÊME fonction pure que la boîte : un seul verdict de statut pour tout le module.
@@ -440,8 +442,21 @@ function conditions(f: FiltresHistorique, apres: number): { sql: string; params:
   const ajouter = (v: unknown): string => `$${params.push(v) + apres}`;
 
   if (f.interlocuteurs.length > 0) {
+    /**
+     * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — LE FILTRE REGARDE **DE / À / CC**, ET RIEN D'AUTRE ══════════════
+     *
+     * CONSTAT D'ARNO : deux contacts à « a écrit : 0 · en copie : 0 », cochés seuls, ramenaient 2 mails.
+     * MESURÉ : ces deux adresses n'existent sur ce bien que sous le rôle `transfere` — une adresse lue DANS LE
+     * CORPS d'un mail transféré. Le compteur, lui, ne compte que `expediteur` et `destinataire`+`copie` : il
+     * disait vrai. C'est ce filtre-ci qui acceptait TOUS les rôles.
+     *
+     * 🔴 LA LISTE VIENT DU MODULE PUR (`ROLES_DE_PARTICIPATION`), et c'est elle qui tient la règle d'Arno :
+     * « le compteur et le filtre reposent sur UN SEUL calcul ». Recopier `'expediteur', 'destinataire', 'copie'`
+     * ici aurait fait deux listes — et c'est toujours celle qu'on relit le moins qui se périme.
+     */
     bouts.push(`EXISTS (SELECT 1 FROM gestion_message_adresse ia
-                         WHERE ia.message_id = m.id AND ia.adresse = ANY(${ajouter(f.interlocuteurs)}::text[]))`);
+                         WHERE ia.message_id = m.id AND ia.adresse = ANY(${ajouter(f.interlocuteurs)}::text[])
+                           AND ia.role = ANY(${ajouter([...ROLES_DE_PARTICIPATION])}::text[]))`);
   }
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LES MAILS QUE **NOUS** AVONS ÉCRITS, QUAND L'AGENCE EST DÉCOCHÉE ════
@@ -885,8 +900,12 @@ export async function interlocuteursHistorique(
                FROM gestion_message_adresse a JOIN mails ON mails.id = a.message_id),
      par_mail AS (
        SELECT adresse, interne, message_id,
-              bool_or(role = 'expediteur') AS a_ecrit,
-              bool_or(role IN ('destinataire', 'copie')) AS en_copie
+              /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — LES DEUX COMPTEURS LISENT LA MEME LISTE QUE LE FILTRE,
+                 et le filtre EST leur union (voir ROLES_DE_PARTICIPATION). Les trois mots etaient ecrits ici en
+                 dur ; c'est ainsi que le filtre a pu, lui, accepter le role transfere sans que personne ne le
+                 voie. (Aucun accent grave dans ce commentaire : il vit DANS un litteral gabarit.) */
+              bool_or(role = '${ROLE_EXPEDITEUR}') AS a_ecrit,
+              bool_or(role IN (${ROLES_RECEPTION.map((r) => "'" + r + "'").join(', ')})) AS en_copie
          FROM adr GROUP BY adresse, interne, message_id),
      -- Le nom d'affichage le plus fréquent pour cette adresse. La colonne adresse_brute porte « Nom <adr> » :
      -- on en retire la partie entre chevrons, et ce qui reste est le nom (vide quand il n'y en avait pas).

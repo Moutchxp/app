@@ -369,8 +369,13 @@ describe('⑤ les deux compteurs d’une personne', () => {
 
   it('🔴🔴 la requête réduit d’abord à un couple (adresse, message) avant de compter', () => {
     expect(REPO).toContain('par_mail AS ( SELECT adresse, interne, message_id,');
-    expect(REPO).toContain("bool_or(role = 'expediteur') AS a_ecrit");
-    expect(REPO).toContain("bool_or(role IN ('destinataire', 'copie')) AS en_copie");
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — LES RÔLES NE SONT PLUS ÉCRITS EN DUR : ils viennent du module pur
+       (`ROLE_EXPEDITEUR`, `ROLES_RECEPTION`), et le FILTRE du listing lit leur union. C'est ce qui rend vraie la
+       règle d'Arno — « le compteur et le filtre reposent sur UN SEUL calcul » — mécaniquement : il n'existe plus
+       aucun rôle capable de faire entrer un mail sans être compté par l'un des deux compteurs.
+       ⚠️ LE SQL PRODUIT EST LE MÊME, AU CARACTÈRE PRÈS : c'est la SOURCE des trois mots qui a changé. */
+    expect(REPO).toContain("bool_or(role = '${ROLE_EXPEDITEUR}') AS a_ecrit");
+    expect(REPO).toContain('ROLES_RECEPTION.map');
   });
 
   it('🔴🔴 « a écrit » l’emporte : « en copie » exclut les mails où l’adresse a aussi écrit', () => {
