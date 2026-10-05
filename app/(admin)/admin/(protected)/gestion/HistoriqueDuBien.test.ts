@@ -584,11 +584,20 @@ describe('⑤ le fil et les pièces', () => {
   });
 
   /**
-   * 🔴🔴 LE LISERÉ DE CATÉGORIE JUSQUE DANS LE RÉSUMÉ, DES DEUX CÔTÉS (demande d'Arno). Le groupe réemploie la
-   * MÊME classe que les mails (`hdb-barre`) et la MÊME fonction de ton : un document ne peut donc pas être rouge
-   * dans le listing et bleu dans le résumé.
+   * ══ 🔴🔴 MIS À JOUR AU LOT HISTORIQUE-BIEN-6, POINT 5 — LE LISERÉ EST SUR LE BLOC, ET SUR LUI SEUL ═════════
+   *
+   * RÈGLE D'ARNO : « le liseré de couleur reste UNIQUEMENT sur le bloc qui regroupe les pièces d'un mail.
+   * Retire-le des miniatures elles-mêmes. »
+   *
+   * 🔴 C'EST L'INVERSE DE CE QU'IL DEMANDAIT AU LOT 4 (« chaque groupe de pièces et chaque miniature porte le
+   * même liseré »), et sa nouvelle règle est meilleure pour une raison qui se voit : un bloc de six pièces
+   * portait SEPT liserés de la même couleur — un par carte, plus celui du bloc —, et la couleur ne désignait
+   * donc plus rien.
+   *
+   * ⚠️ CE QUE CE CAS PROTÈGE N'A PAS CHANGÉ : le bloc réemploie la MÊME classe que les mails (`hdb-barre`) et la
+   * MÊME fonction de ton, donc un document ne peut pas être rouge dans le listing et bleu dans le résumé.
    */
-  it('🔴🔴 chaque groupe et chaque miniature du résumé portent le liseré de sa catégorie', async () => {
+  it('🔴🔴 chaque bloc du résumé porte le liseré de sa catégorie, et les miniatures n’en portent plus', async () => {
     await monter();
     await ouvrirLeResume();
     const groupes = [...hote.querySelectorAll('.hdb-pieces .pdc-groupe')] as HTMLElement[];
@@ -596,15 +605,30 @@ describe('⑤ le fil et les pièces', () => {
     for (const g of groupes) {
       expect(g.className).toContain('hdb-barre');
       expect(g.className).toMatch(/hdb-barre--(rouge|vert|bleu|gris|nous)/);
-      /* …et la grille transmet la teinte à chaque miniature. */
-      const grille = g.querySelector('.hdb-grille-ton') as HTMLElement;
+      /* 🔴 ET LA GRILLE REDEVIENT UNE GRILLE : plus de teinte transmise aux cartes. */
+      const grille = g.querySelector('.pdc-grille') as HTMLElement;
       expect(grille).not.toBeNull();
-      expect(grille.className).toMatch(/hdb-grille-ton--(rouge|vert|bleu|gris|nous)/);
+      expect(grille.className).toBe('pdc-grille');
     }
     /* 🔴 LE MAIL DU PROPRIÉTAIRE EST ROUGE DANS LE RÉSUMÉ, comme dans le listing. */
     expect(groupes.some((g) => g.className.includes('hdb-barre--rouge'))).toBe(true);
-    /* ⚠️ ET LE LISERÉ EST BIEN DES DEUX CÔTÉS : c'est la règle des mails, réemployée. */
-    expect(SRC).toContain('.hdb-grille-ton>*{border-left:3px solid var(--hdb-ton);border-right:3px solid var(--hdb-ton)');
+    /* ⚠️ ET LE LISERÉ DU BLOC EST BIEN DES DEUX CÔTÉS : c'est la règle des mails, réemployée. */
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    expect(css).toContain('.hdb-barre{border-left:3px solid transparent;border-right:3px solid transparent');
+  });
+
+  /**
+   * 🔴🔴 LE GARDE DU POINT 5 : plus aucune règle ne peint un liseré sur les miniatures, et plus aucun élément ne
+   * porte la classe qui le transmettait. Un garde qui ne vérifierait que l'absence de la règle laisserait la
+   * classe revenir avec elle.
+   */
+  it('🔴🔴 plus rien ne peint de liseré sur une miniature du résumé', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    expect(css).not.toContain('.hdb-grille-ton>*{');
+    expect(css).not.toContain('--hdb-ton:');
+    /* …et aucun élément ne porte plus la classe. */
+    const code = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[0] ?? '';
+    expect(code).not.toContain('hdb-grille-ton');
   });
 
   /** 🔴 LES MINIATURES PORTENT LES TROIS GESTES D'ARNO : l'œil, le téléchargement, le picto Drive (vide ici). */

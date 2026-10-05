@@ -2205,11 +2205,20 @@ function ResumePieces({
               <span className="pdc-groupe-objet"> · {nettoyerObjet(g.objet ?? '')}</span>
             )}
           </h6>
-          {/* ⚠️ LE LISERÉ EST POSÉ SUR LA GRILLE, DONC SUR CHAQUE MINIATURE PAR UNE VARIABLE : la carte
-              `CartePieceConversation` est importée telle quelle (elle sert aussi la fenêtre d'une
-              conversation), et lui ajouter une prop de couleur l'aurait modifiée pour les deux écrans. La
-              grille pose la teinte, les cartes l'héritent. */}
-          <ul className={`pdc-grille hdb-grille-ton hdb-grille-ton--${tonDeLExpediteur(g, categories)}`}>
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 5 — LE LISERÉ RESTE SUR LE BLOC, PAS SUR LES MINIATURES ═════
+              RÈGLE D'ARNO : « le liseré de couleur reste UNIQUEMENT sur le bloc qui regroupe les pièces d'un
+              mail. Retire-le des miniatures elles-mêmes. »
+
+              🔴 C'EST L'INVERSE DU LOT 4, OÙ IL EN DEMANDAIT LES DEUX (« chaque groupe de pièces et chaque
+              miniature porte le même liseré »). Sa nouvelle règle est meilleure, et pour une raison qui se
+              voit : un bloc de six pièces portait SEPT liserés de la même couleur — un par carte, plus celui
+              du bloc —, et la couleur ne désignait donc plus rien. Posée une fois sur le bloc, elle dit ce
+              qu'elle a toujours voulu dire : « ces pièces viennent d'un mail de cette catégorie ».
+
+              ⚠️ LA TEINTE ÉTAIT TRANSMISE PAR UNE VARIABLE CSS, et c'est elle qui disparaît avec la règle : la
+              carte `CartePieceConversation` n'a jamais été modifiée (elle sert aussi la fenêtre d'une
+              conversation), et elle ne l'est pas davantage ici. La grille redevient une grille. */}
+          <ul className="pdc-grille">
             {g.pieces.map((p) => (
               <CartePieceConversation key={p.pieceId} piece={p} maintenant={maintenant} gestes={gestes}
                 emplacements={emplacements.get(p.pieceId)
@@ -2628,23 +2637,18 @@ ${CSS_PIECES}
 
 /* ── LE RESUME DES PIECES ── */
 .hdb-resume{margin:.5rem 0;min-width:0}
-/* ══ LE LISERE DE CATEGORIE JUSQUE DANS LE RESUME (lot HISTORIQUE-BIEN-4, point 4) ════════════════════════════
-   DEMANDE D'ARNO : « chaque groupe de pieces (par mail) et chaque miniature porte le meme lisere de couleur que
-   les mails, des deux cotes ». Le groupe reutilise .hdb-barre, exactement comme un mail — meme epaisseur, meme
-   arrondi, meme jeton. La grille, elle, transmet la teinte a chaque miniature par une VARIABLE : la carte est
-   importee telle quelle (elle sert aussi la fenetre d'une conversation), et lui ajouter une prop de couleur
-   l'aurait modifiee pour les deux ecrans. */
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 5 — LE LISERE EST SUR LE BLOC, ET SUR LUI SEUL ═════════════════════════
+   REGLE D'ARNO : « le lisere de couleur reste UNIQUEMENT sur le bloc qui regroupe les pieces d'un mail. Retire-le
+   des miniatures elles-memes. »
+
+   🔴 C'EST L'INVERSE DU LOT 4, et sa nouvelle regle est meilleure : un bloc de six pieces portait SEPT liseres
+   de la meme couleur (un par carte, plus celui du bloc), et la couleur ne designait plus rien. Le bloc garde le
+   sien — il reutilise .hdb-barre, exactement comme un mail : meme epaisseur, meme arrondi, meme jeton.
+
+   ⚠️ LES REGLES DE TEINTE PAR VARIABLE SONT RETIREES AVEC ELLE (.hdb-grille-ton et ses six tons) : plus aucun
+   element ne portait ces classes. La carte CartePieceConversation, elle, n'a jamais ete modifiee et ne l'est pas
+   davantage ici — c'est tout l'interet d'avoir passe la teinte par une variable plutot que par une prop. */
 .hdb-pieces .pdc-groupe{padding:.2rem .3rem}
-.hdb-grille-ton{--hdb-ton:transparent}
-.hdb-grille-ton--rouge{--hdb-ton:var(--color-svv-red)}
-.hdb-grille-ton--vert{--hdb-ton:var(--color-svv-green)}
-.hdb-grille-ton--bleu{--hdb-ton:var(--color-svv-blue)}
-.hdb-grille-ton--gris{--hdb-ton:var(--color-svv-line-strong)}
-/* « nous » n'a AUCUNE couleur : la variable reste transparente, donc la largeur ne saute pas d'une miniature a
-   l'autre — meme regle que pour les mails. */
-.hdb-grille-ton--nous{--hdb-ton:transparent}
-.hdb-grille-ton>*{border-left:3px solid var(--hdb-ton);border-right:3px solid var(--hdb-ton);
-  border-radius:10px}
 .hdb-resume-mot{font-size:.76rem;color:var(--color-svv-muted)}
 .hdb-resume-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.2rem 0 .4rem;
   font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}
