@@ -43,12 +43,13 @@ import {
   bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAgenceEcartee,
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
-  ciblesDeplacement, compteCacheesEnBas, compteCacheesEnHaut, filtrerParMots, GROUPES_EN_BANDE,
-  GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motPiecesSelection, motsRecherches,
+  ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut, completerAvecLesClients,
+  filtrerParMots, GROUPES_EN_BANDE,
+  GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
   replierLesCartes, SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
-  type CategoriePartie, type CleGroupeParties, type EtatRetourBien, type GroupeParties,
+  type CategoriePartie, type CleGroupeParties, type ClientDuBien, type EtatRetourBien, type GroupeParties,
   type OccupationPeriode,
   type PeriodePartie, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
@@ -111,7 +112,7 @@ interface DemandeRangement {
 const ATTENTE_FRAPPE_MS = 250;
 
 export function HistoriqueDuBien({
-  lotCle, maintenant, occupations, categories, periodes = new Map(),
+  lotCle, maintenant, occupations, categories, periodes = new Map(), clients = [],
   evenementOuvertInitial = false, onOuvrirFil, onEcranComplet, jeton = null, onPoserJeton,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
@@ -151,6 +152,24 @@ export function HistoriqueDuBien({
    * parties (assureur, syndic, artisan) n'ont pas de bail, et leur inventer une période serait un mensonge.
    */
   periodes?: ReadonlyMap<string, PeriodePartie>;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LES CLIENTS DU BIEN, TELS QUE LA FICHE LES PORTE ═══════════════════
+   *
+   * DEMANDE D'ARNO : « Le propriétaire client (carte du haut de fiche) y apparaît en capsule même avec 0 mail,
+   * avec ses compteurs à 0. »
+   *
+   * 🔴 ILS VIENNENT DE LA FICHE, COMME `occupations` ET `categories`, ET POUR LA MÊME RAISON : la route de
+   * l'historique ne connaît que les gens qui ont ÉCRIT ou REÇU quelque chose. Un propriétaire muet n'y est pas,
+   * et c'est bien pour cela que son encart était vide. Élargir la réponse de la route aurait touché quatre
+   * écrans pour un besoin qui n'existe que sur la fiche d'un bien.
+   *
+   * ⚠️ VIDE PAR DÉFAUT, DONC AUCUN CHANGEMENT LÀ OÙ PERSONNE NE LES PASSE : le bloc rend alors exactement ce
+   * qu'il rendait avant ce lot, aux deux encarts toujours présents près.
+   *
+   * ⚠️ UN CLIENT SANS ADRESSE EN FAIT PARTIE (`adresse: null`) : il ne donne pas de capsule, mais il change la
+   * phrase de l'encart vide — « aucun échange avec le locataire » plutôt que « aucun locataire connu ».
+   */
+  clients?: readonly ClientDuBien[];
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3 — L'ÉCRAN « HISTORIQUE » COMPLET RESTE ATTEIGNABLE ════════════════════════════
@@ -545,9 +564,19 @@ export function HistoriqueDuBien({
     return m as ReadonlyMap<string, CategoriePartie>;
   }, [categories, categoriesRangees]);
 
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LES CLIENTS DE LA FICHE COMPLÈTENT LA LISTE AVANT LE RANGEMENT.
+   *
+   * ⚠️ AVANT `grouperParCategorie`, ET NON APRÈS : ainsi un client ajouté passe par la MÊME règle de rangement
+   * que tout le monde (la fusion des catégories, où la fiche l'emporte), et atterrit dans son encart sans qu'on
+   * ait à le poser à la main. Le poser après aurait fait un second juge du groupe d'une personne.
+   */
+  const interlocuteursEtClients = useMemo(
+    () => completerAvecLesClients(interlocuteurs, clients), [interlocuteurs, clients]);
+
   const parties = useMemo(
-    () => grouperParCategorie(interlocuteurs, categoriesFusionnees),
-    [interlocuteurs, categoriesFusionnees]);
+    () => grouperParCategorie(interlocuteursEtClients, categoriesFusionnees),
+    [interlocuteursEtClients, categoriesFusionnees]);
 
   /**
    * ══ 🔴 « DEPUIS L'ENTRÉE DU DERNIER LOCATAIRE » — CALCULÉE UNE FOIS ═══════════════════════════════════════════
@@ -1118,11 +1147,23 @@ export function HistoriqueDuBien({
 
           {/* ── LES DEUX ENCARTS, CÔTE À CÔTE ───────────────────────────────────────────────────────────────── */}
           <div className="hdb-encarts">
+            {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LES DEUX ENCARTS SONT **TOUJOURS** LÀ ═══════════════════
+                RÈGLE D'ARNO : « sur TOUTE fiche bien, les deux encarts sont TOUJOURS affichés côte à côte, même
+                largeur : Propriétaire à GAUCHE, Locataire à DROITE. »
+
+                🔴 CE QUI ÉTAIT ÉCRIT ICI, ET QUI A PRODUIT LE DÉFAUT : `if (g.nb === 0) return null`. Un encart
+                vide disparaissait, et la grille `auto-fit` laissait le survivant occuper toute la ligne — d'où
+                « l'encart Locataire prend toute la largeur ». Les deux moitiés de la cause sont corrigées
+                ensemble : ici le rendu, et dans la feuille les DEUX colonnes fixes.
+
+                ⚠️ L'ORDRE VIENT DE `GROUPES_EN_ENCART`, qui dit déjà `['proprietaire', 'locataire']` : gauche
+                et droite ne sont donc pas décidés ici, et ne peuvent pas diverger de la liste des groupes. */}
             {GROUPES_EN_ENCART.map((cle) => {
               const g = parties.groupes.find((x) => x.cle === cle);
-              if (g === undefined || g.nb === 0) return null;
+              if (g === undefined) return null;
               return (
                 <GroupeDeParties key={cle} g={g} forme="encart" reglages={reglages} bascules={bascules}
+                  motSiVide={motEncartVide(cle, clientConnuPour(cle, clients))}
                   periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse}
                   survol={survol} glisse={glisse} menu={menu}
                   onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
@@ -1485,6 +1526,14 @@ export function HistoriqueDuBien({
 /** Ce qu'un groupe reçoit. Beaucoup de props, mais toutes nommées : un objet fourre-tout cacherait les oublis. */
 interface PropsGroupe {
   g: GroupeParties;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — CE QUE DIT CE GROUPE QUAND IL N'A AUCUNE CAPSULE.
+   *
+   * Passé par les ENCARTS, qui sont désormais toujours affichés : « un encart sans capsule reste affiché, avec
+   * un texte discret » (Arno). Les BANDES n'en passent pas — leur phrase est celle du dépôt, et une bande sans
+   * contact n'a rien d'anormal à expliquer.
+   */
+  motSiVide?: string;
   /** `encart` = colonne à hauteur fixe (Propriétaire, Locataire) ; `bande` = pleine largeur sous les encarts. */
   forme: 'encart' | 'bande';
   reglages: Reglages;
@@ -1531,7 +1580,7 @@ interface PropsGroupe {
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 function GroupeDeParties(p: PropsGroupe) {
-  const { g, forme, reglages, glisse, survol } = p;
+  const { g, forme, reglages, glisse, survol, motSiVide } = p;
   const adresses = g.interlocuteurs.map((i) => i.adresse);
   const cochees = adresses.filter((a) => reglages.parties.includes(a.trim().toLowerCase())).length;
   /* ⚠️ `length > 0` AVANT la comparaison : un groupe vide aurait été « tout coché » (piège du lot 71). */
@@ -1591,8 +1640,17 @@ function GroupeDeParties(p: PropsGroupe) {
         )}
       </div>
 
-      {/* ⚠️ UNE BANDE VIDE SURVOLÉE LE DIT : sans ce mot, on lâcherait la capsule sur un rectangle muet. */}
-      {ouvert && g.nb === 0 && (
+      {/* ══ 🔴🔴 UN GROUPE VIDE PARLE, ET IL DIT DEUX CHOSES DIFFÉRENTES ════════════════════════════════════
+          ① CE QU'IL EN EST (lot 5, point 1) : « Aucun locataire connu », « Aucun échange avec le propriétaire
+             sur cette période ». C'est l'état du dossier, et il se lit en permanence sur un encart vide — c'est
+             le « texte discret » qu'Arno demande à la place d'un encart disparu.
+          ② CE QU'ON PEUT Y FAIRE, et seulement PENDANT un glisser : « Déposez ici pour ranger dans X ». Hors
+             glisser, cette phrase serait une consigne pour un geste que personne n'a commencé ; pendant le
+             glisser, elle est indispensable — sans elle on lâche la capsule sur un rectangle muet. */}
+      {g.nb === 0 && motSiVide !== undefined && (
+        <p className="hdb-vide-mot">{motSiVide}</p>
+      )}
+      {ouvert && g.nb === 0 && (glisse !== null || motSiVide === undefined) && (
         <p className="hdb-vide-depot">Déposez ici pour ranger dans « {g.titre} ».</p>
       )}
 
@@ -2196,8 +2254,25 @@ ${CSS_PIECES}
    DEMANDE D'ARNO : « “Tiers independant” : une ligne deployable SOUS les deux encarts, pleine largeur, bleue,
    repliee par defaut. Meme chose pour “Non affectes” (grise). » Les deux encarts se partagent donc la largeur,
    et les bandes la prennent toute — ce qui leur donne, repliees, la hauteur d'une seule ligne. */
-.hdb-encarts{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin-top:.5rem;
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — DEUX COLONNES, PAS « AUTANT QU'IL EN RESTE » ═══════════════════════
+   REGLE D'ARNO : « les deux encarts sont TOUJOURS affiches cote a cote, meme largeur : Proprietaire a GAUCHE,
+   Locataire a DROITE (comme avant le lot 4). Sur ecran etroit seulement, les encarts passent l'un sous
+   l'autre, Proprietaire en premier. »
+
+   🔴 L'ANCIENNE GRILLE ETAIT LA MOITIE DU DEFAUT : repeat(auto-fit, minmax(240px, 1fr)). auto-fit **replie les pistes vides** :
+   avec un seul enfant, il ne reste qu'une colonne et elle prend la ligne entiere. C'est ce qu'Arno a vu —
+   l'encart Locataire etendu sur toute la largeur. Deux pistes ecrites 1fr 1fr ne se replient pas : deux colonnes egales, toujours,
+   et l'encart vide garde sa moitie.
+
+   🔴 L'EMPILEMENT RESTE, MAIS IL EST DIT : une seule colonne sous 34rem. C'est une requete de media et non plus
+   un effet de bord d'auto-fit — on sait donc OU la bascule se produit, et l'ordre du DOM (Proprietaire d'abord)
+   donne gratuitement « Proprietaire en premier ».
+
+   ⚠️ align-items:start : sans lui, un encart vide s'etirerait a la hauteur de son voisin rempli, et son
+   texte discret flotterait au milieu d'un grand rectangle. */
+.hdb-encarts{display:grid;gap:8px;grid-template-columns:1fr 1fr;align-items:start;margin-top:.5rem;
   min-width:0}
+@media (max-width:34rem){.hdb-encarts{grid-template-columns:1fr}}
 .hdb-groupe--bande{margin-top:8px}
 /* ⚠️ LA ZONE SURVOLEE SE SURLIGNE DANS SA COULEUR (demande d'Arno), et le bord s'epaissit : la couleur seule ne
    dit rien a qui ne la voit pas, l'epaisseur se voit toujours. */
@@ -2208,6 +2283,9 @@ ${CSS_PIECES}
 .hdb-groupe--gris.hdb-groupe--cible{border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
 /* Une bande vide survolee le DIT : sans ce mot, on lacherait la capsule sur un rectangle muet. */
 .hdb-vide-depot{margin:.3rem 0 .1rem;font-size:.74rem;color:var(--color-svv-muted);text-align:center}
+/* 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LE « TEXTE DISCRET » D'UN ENCART VIDE. Discret veut dire petit et gris,
+   pas illisible : c'est le ton des notes du bloc (--color-svv-muted), et il tient sur deux lignes a 390 px. */
+.hdb-vide-mot{margin:.35rem 0 .2rem;font-size:.76rem;color:var(--color-svv-muted);line-height:1.35}
 /* ── LES QUATRE TONS ── Le bord gauche porte la couleur du groupe : la MEME que la barre des mails qui en
    viennent. Les jetons vivent dans globals.css ; aucune couleur en dur ici, donc rien d'illisible en sombre. */
 .hdb-groupe{margin:0;min-width:0;padding:.3rem .4rem .4rem .55rem;border-radius:.5rem;

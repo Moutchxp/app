@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { HistoriqueDuBien } from './HistoriqueDuBien';
+import { GROUPES_EN_ENCART, motDeuxCompteurs } from '../../../../lib/gestion/historiqueBien';
 import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
 import type { Interlocuteur, LigneHistorique, PieceHistorique } from '../../../../lib/gestion/historique';
 
@@ -428,6 +429,12 @@ describe('③ les parties', () => {
    * 🔴 LE REPLI : un groupe de plus de six personnes s'ouvre REPLIÉ, et son compte se lit SANS clic.
    * ⚠️ On monte ici un groupe « À répartir » de sept personnes — le cas réel du lot 155 (76 adresses).
    */
+  /**
+   * ⚠️ LE SÉLECTEUR VISE « NON AFFECTÉS » PAR SON TON, ET NON « LE PREMIER GROUPE » — mis à jour au lot
+   * HISTORIQUE-BIEN-5, POINT 1. Les deux encarts sont désormais rendus MÊME VIDES (règle d'Arno), si bien que
+   * le premier `.hdb-groupe` de la page est l'encart « Propriétaire », pas la bande qu'éprouve ce cas. Le
+   * défaut que cela aurait masqué est réel : le cas passait en lisant le repli d'un autre groupe.
+   */
   it('🔴🔴 un groupe au-delà de six personnes s’ouvre REPLIÉ, compte lisible sans clic', async () => {
     const sept = Array.from({ length: 7 }, (_, i) => inter({ adresse: `x${i}@fictif.test`, nbMails: 7 - i }));
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -442,7 +449,8 @@ describe('③ les parties', () => {
       });
     }));
     await monter({ categories: new Map() });
-    const replier = hote.querySelector('.hdb-replier') as HTMLButtonElement;
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    const replier = gris.querySelector('.hdb-replier') as HTMLButtonElement;
     expect(replier.getAttribute('aria-expanded')).toBe('false');
     // LE COMPTE EST LÀ, REPLIÉ : c'est tout l'intérêt du repli.
     expect(replier.textContent).toContain('7');
@@ -1077,7 +1085,9 @@ describe('⑤-quinquies 🔴🔴 l’encart ne grandit jamais : il défile', () 
   it('🔴🔴 la liste des parties vit dans un conteneur défilant, à hauteur bornée', async () => {
     servirHuit();
     await monter({ categories: new Map() });
-    const groupe = hote.querySelector('.hdb-groupe') as HTMLElement;
+    /* ⚠️ « Non affectés » PAR SON TON, et non « le premier groupe » : depuis le lot 5 point 1, les deux encarts
+       sont rendus même vides, et le premier `.hdb-groupe` est l'encart « Propriétaire ». */
+    const groupe = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
     /* Le groupe est REPLIÉ au-delà de six (règle du lot 1) : on le déplie pour voir la liste. */
     await cliquer(groupe.querySelector('.hdb-replier') ?? undefined);
     const boite = hote.querySelector('.hdb-defile') as HTMLElement;
@@ -1099,7 +1109,7 @@ describe('⑤-quinquies 🔴🔴 l’encart ne grandit jamais : il défile', () 
     try {
       servirHuit();
       await monter({ categories: new Map() });
-      await cliquer((hote.querySelector('.hdb-groupe') as HTMLElement).querySelector('.hdb-replier') ?? undefined);
+      await cliquer((hote.querySelector('.hdb-groupe--gris') as HTMLElement).querySelector('.hdb-replier') ?? undefined);
       const puce = hote.querySelector('.hdb-puce--bas') as HTMLButtonElement;
       expect(puce).not.toBeNull();
       expect(puce.tagName).toBe('BUTTON');
@@ -1117,7 +1127,7 @@ describe('⑤-quinquies 🔴🔴 l’encart ne grandit jamais : il défile', () 
     try {
       servirHuit();
       await monter({ categories: new Map() });
-      await cliquer((hote.querySelector('.hdb-groupe') as HTMLElement).querySelector('.hdb-replier') ?? undefined);
+      await cliquer((hote.querySelector('.hdb-groupe--gris') as HTMLElement).querySelector('.hdb-replier') ?? undefined);
       expect(hote.querySelector('.hdb-puce--bas')).toBeNull();
       expect(hote.querySelector('.hdb-puce--haut')).toBeNull();
     } finally { rendre(); }
@@ -1129,7 +1139,7 @@ describe('⑤-quinquies 🔴🔴 l’encart ne grandit jamais : il défile', () 
     try {
       servirHuit();
       await monter({ categories: new Map() });
-      await cliquer((hote.querySelector('.hdb-groupe') as HTMLElement).querySelector('.hdb-replier') ?? undefined);
+      await cliquer((hote.querySelector('.hdb-groupe--gris') as HTMLElement).querySelector('.hdb-replier') ?? undefined);
       const haut = hote.querySelector('.hdb-puce--haut') as HTMLButtonElement;
       expect(haut).not.toBeNull();
       expect(haut.textContent).toBe('↑ remonter');
@@ -2027,6 +2037,136 @@ function codeSeul(src: string): string {
   return sansCss.replace(/\/\*[\s\S]*?\*\//g, ' ')
     .split('\n').filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//')).join('\n');
 }
+
+describe('⑤-undecies 🔴🔴 les deux encarts sont TOUJOURS là, côte à côte, même largeur', () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (05/10/2026, fiche lot-299 — le foyer COLSON FARDEAU) : « l'encart Propriétaire a disparu et
+   * l'encart Locataire prend toute la largeur. »
+   *
+   * LE DIAGNOSTIC, MESURÉ EN BASE. Trois causes empilées :
+   *   ① les groupes se construisent sur les MAILS et non sur la fiche — le propriétaire de lot-299 n'a qu'une
+   *      adresse @sansvisavis.com, `interne = true`, écartée par la règle du lot 2, et ses trois autres
+   *      propriétaires liés n'ont que des adresses de test absentes des mails ;
+   *   ② l'écran ne peignait pas un groupe vide (`if (g.nb === 0) return null`) ;
+   *   ③ et `repeat(auto-fit, minmax(240px, 1fr))` replie les pistes vides : avec un seul enfant, il ne reste
+   *      qu'une colonne, qui prend toute la ligne.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+
+  /** Aucun interlocuteur rangé dans un encart : le cas exact de lot-299. */
+  const SANS_CLIENT: Interlocuteur[] = [inter({ adresse: 'assureur@fictif.test', nom: 'AXA', nbMails: 9 })];
+
+  async function monterAvec(interlocuteurs: Interlocuteur[], props: Record<string, unknown> = {}): Promise<void> {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) {
+        return reponse({ etat: 'ok', evenements: [], tronque: false });
+      }
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter(props as Partial<Parameters<typeof HistoriqueDuBien>[0]>);
+  }
+
+  const encarts = (): HTMLElement[] =>
+    [...hote.querySelectorAll('.hdb-groupe--encart')] as HTMLElement[];
+
+  it('🔴🔴 LE DÉFAUT D’ARNO EST RÉPARÉ : les deux encarts sont là même sans aucune capsule', async () => {
+    await monterAvec(SANS_CLIENT, { categories: new Map() });
+    expect(encarts()).toHaveLength(2);
+    /* Et dans l'ordre qu'Arno a fixé : Propriétaire à GAUCHE, Locataire à DROITE. */
+    expect(encarts()[0].textContent).toContain('Propriétaire');
+    expect(encarts()[1].textContent).toContain('Locataire');
+  });
+
+  it('🔴🔴 L’ORDRE N’EST PAS ÉCRIT DANS L’ÉCRAN : il vient de GROUPES_EN_ENCART', () => {
+    expect(GROUPES_EN_ENCART).toEqual(['proprietaire', 'locataire']);
+    expect(SRC).toContain('GROUPES_EN_ENCART.map');
+  });
+
+  it('🔴🔴 DEUX COLONNES ÉGALES, ET NON « autant qu’il en reste »', () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    expect(css).toContain('.hdb-encarts{display:grid;gap:8px;grid-template-columns:1fr 1fr');
+    /* 🔴 LA MOITIÉ DU DÉFAUT ÉTAIT LÀ : auto-fit replie la piste vide. Le garde interdit son retour. */
+    expect(css).not.toContain('.hdb-encarts{display:grid;gap:8px;grid-template-columns:repeat(auto-fit');
+  });
+
+  it('⚠️ L’EMPILEMENT SUR ÉCRAN ÉTROIT EST DIT, ET PROPRIÉTAIRE RESTE EN PREMIER', async () => {
+    const css = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[1] ?? '';
+    expect(css).toContain('@media (max-width:34rem){.hdb-encarts{grid-template-columns:1fr}}');
+    /* « Propriétaire en premier » ne demande aucune règle : c'est l'ordre du DOM. */
+    await monterAvec(SANS_CLIENT, { categories: new Map() });
+    expect(encarts()[0].textContent).toContain('Propriétaire');
+  });
+
+  it('🔴 UN ENCART VIDE PARLE — et chaque cas a sa phrase', async () => {
+    await monterAvec(SANS_CLIENT, { categories: new Map() });
+    const mots = [...hote.querySelectorAll('.hdb-groupe--encart .hdb-vide-mot')]
+      .map((e) => e.textContent ?? '');
+    expect(mots).toHaveLength(2);
+    expect(mots[0]).toBe('Aucun propriétaire connu pour ce bien.');
+    expect(mots[1]).toBe('Aucun locataire connu.');
+  });
+
+  it('🔴 AVEC UN CLIENT CONNU MAIS MUET, LA PHRASE CHANGE : « aucun échange », et non « aucun connu »', async () => {
+    await monterAvec(SANS_CLIENT, {
+      categories: new Map(),
+      clients: [{ adresse: null, nom: 'COLSON FARDEAU', categorie: 'locataire' }],
+    });
+    const mots = [...hote.querySelectorAll('.hdb-groupe--encart .hdb-vide-mot')]
+      .map((e) => e.textContent ?? '');
+    expect(mots[1]).toBe('Aucun échange avec le locataire sur cette période.');
+  });
+
+  it('🔴🔴 LE PROPRIÉTAIRE CLIENT A SA CAPSULE MÊME À 0 MAIL, compteurs à zéro', async () => {
+    await monterAvec(SANS_CLIENT, {
+      categories: CATEGORIES,
+      clients: [{ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', categorie: 'proprietaire' }],
+    });
+    const prop = encarts()[0];
+    const caps = [...prop.querySelectorAll('.hdb-capsule')] as HTMLElement[];
+    expect(caps).toHaveLength(1);
+    expect(caps[0].textContent).toContain('M. ROI Nathan');
+    /* Les deux compteurs à zéro, écrits par la MÊME fonction que partout ailleurs. */
+    expect(caps[0].querySelector('.hdb-compteurs')?.textContent)
+      .toBe(motDeuxCompteurs({ aEcrit: 0, enCopie: 0 }));
+    /* Et l'encart ne porte plus de phrase de vide : il n'est plus vide. */
+    expect(prop.querySelector('.hdb-vide-mot')).toBeNull();
+  });
+
+  it('⚠️ UN CLIENT QUI A ÉCRIT GARDE SES VRAIS COMPTEURS : compléter n’écrase rien', async () => {
+    await monterAvec(INTERLOCUTEURS, {
+      clients: [{ adresse: 'proprio@fictif.test', nom: 'M. ROI Nathan', categorie: 'proprietaire' }],
+    });
+    const caps = [...encarts()[0].querySelectorAll('.hdb-capsule')] as HTMLElement[];
+    expect(caps).toHaveLength(1);
+    expect(caps[0].querySelector('.hdb-compteurs')?.textContent)
+      .toBe(motDeuxCompteurs({ aEcrit: 3, enCopie: 2 }));
+  });
+
+  it('🔴 UN ENCART VIDE RESTE UNE ZONE DE DÉPÔT : les trois gestes du glisser sont posés dessus', async () => {
+    await monterAvec(SANS_CLIENT, { categories: new Map() });
+    /* On ne peut pas lire un gestionnaire React sur le DOM : on éprouve ce qui se voit — la section existe,
+       elle porte le ton de son groupe, et le composant qui pose les gestes est le MÊME pour les quatre. */
+    expect(encarts()[0].className).toContain('hdb-groupe--rouge');
+    expect(encarts()[1].className).toContain('hdb-groupe--vert');
+    /* Et la consigne de dépôt n'apparaît QUE pendant un glisser : hors glisser, l'encart dit son état. */
+    expect(hote.querySelector('.hdb-groupe--encart .hdb-vide-depot')).toBeNull();
+  });
+
+  it('⚠️ AUCUNE RÉGRESSION QUAND LES DEUX GROUPES SONT PLEINS : toujours deux encarts, aucune phrase de vide', async () => {
+    await monterAvec(INTERLOCUTEURS);
+    expect(encarts()).toHaveLength(2);
+    expect(hote.querySelector('.hdb-vide-mot')).toBeNull();
+  });
+});
 
 describe('⑥ 🔴🔴 les composants existants sont réutilisés, jamais redessinés', () => {
   it('🔴🔴 `LigneVie` est IMPORTÉE de « Vie du bien »', () => {

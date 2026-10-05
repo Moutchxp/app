@@ -11,7 +11,8 @@ import {
   MOTIF_NON_DEPLACABLE, motPeriodeEffective, motsRecherches, MS_SURLIGNE_RETOUR, normaliserRecherche,
   occupationOuverte, partieDeplacable,
   periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, SECONDES_ANNULER_DEPLACEMENT, tonDeLExpediteur, tonDuGroupe,
-  type OccupationPeriode, type PositionCapsule,
+  clientConnuPour, completerAvecLesClients, motEncartVide,
+  type ClientDuBien, type OccupationPeriode, type PositionCapsule,
 } from './historiqueBien';
 import { INTERLOCUTEURS_MAX, type Interlocuteur, type LigneHistorique } from './historique';
 /** 🔴 LA SOURCE DU SEUIL : on vérifie l'IDENTITÉ, pas une égalité de valeur recopiée. */
@@ -1192,5 +1193,110 @@ describe('⑯ 🔴🔴 la recherche par mots-clés', () => {
     expect(decouperPourSurligner('Le robinet goutte', ['chaudiere']))
       .toEqual([{ texte: 'Le robinet goutte', trouve: false }]);
     expect(decouperPourSurligner('', ['x'])).toEqual([{ texte: '', trouve: false }]);
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LE CLIENT DU BIEN A SA CAPSULE, MÊME MUET ══════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (fiche lot-299, le foyer COLSON FARDEAU) : « l'encart Propriétaire a disparu et l'encart
+ * Locataire prend toute la largeur. »
+ *
+ * LA CAUSE, MESURÉE EN BASE : les groupes se construisent sur les MAILS, pas sur la fiche. Le propriétaire de
+ * lot-299 (WIPPIMMO 432) n'a qu'une adresse `@sansvisavis.com` — `interne = true` en base, donc écartée par la
+ * règle du lot 2 — et ses trois autres propriétaires liés n'ont que des adresses de test absentes des mails. Le
+ * groupe était donc vide, l'écran ne le peignait pas (`g.nb === 0` ⇒ `null`), et `auto-fit` laissait le
+ * survivant prendre la ligne entière.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('completerAvecLesClients — un client muet a quand même sa capsule', () => {
+  const ecrit = (adresse: string, n: number): Interlocuteur => ({
+    adresse, nom: null, nbMails: n, aEcrit: n, enCopie: 0, interne: false,
+  });
+
+  it('🔴 ajoute le propriétaire absent des mails, compteurs à ZÉRO', () => {
+    const clients: ClientDuBien[] = [{ adresse: 'proprio@exemple.test', nom: 'M. ROI Nathan', categorie: 'proprietaire' }];
+    const out = completerAvecLesClients([ecrit('syndic@exemple.test', 12)], clients);
+    expect(out).toHaveLength(2);
+    expect(out[1]).toEqual({
+      adresse: 'proprio@exemple.test', nom: 'M. ROI Nathan', nbMails: 0, aEcrit: 0, enCopie: 0, interne: false,
+    });
+  });
+
+  it('🔴 LE ZÉRO EST UN FAIT, et il traverse le rangement : le groupe « Propriétaire » n’est plus vide', () => {
+    const clients: ClientDuBien[] = [{ adresse: 'proprio@exemple.test', nom: 'M. ROI', categorie: 'proprietaire' }];
+    const complets = completerAvecLesClients([ecrit('syndic@exemple.test', 12)], clients);
+    const categories = new Map<string, CategoriePartie>([['proprio@exemple.test', 'proprietaire']]);
+    const { groupes } = grouperParCategorie(complets, categories);
+    const prop = groupes.find((g) => g.cle === 'proprietaire');
+    expect(prop?.nb).toBe(1);
+    expect(prop?.interlocuteurs[0].aEcrit).toBe(0);
+    // Et le syndic reste « non affecté » : compléter ne range personne de travers.
+    expect(groupes.find((g) => g.cle === 'a_repartir')?.nb).toBe(1);
+  });
+
+  it('⚠️ N’ÉCRASE JAMAIS UN INTERLOCUTEUR EXISTANT : le client bavard garde ses vrais compteurs', () => {
+    const clients: ClientDuBien[] = [{ adresse: 'Proprio@Exemple.test', nom: 'M. ROI', categorie: 'proprietaire' }];
+    const out = completerAvecLesClients([ecrit('proprio@exemple.test', 40)], clients);
+    expect(out).toHaveLength(1);
+    expect(out[0].aEcrit).toBe(40);
+  });
+
+  it('⚠️ LA COMPARAISON EST INSENSIBLE À LA CASSE ET AUX ESPACES', () => {
+    const clients: ClientDuBien[] = [{ adresse: '  PROPRIO@exemple.test ', nom: null, categorie: 'proprietaire' }];
+    expect(completerAvecLesClients([ecrit('proprio@exemple.test', 1)], clients)).toHaveLength(1);
+  });
+
+  it('⚠️ UN CLIENT SANS ADRESSE N’AJOUTE AUCUNE CAPSULE', () => {
+    const clients: ClientDuBien[] = [{ adresse: null, nom: 'COLSON FARDEAU', categorie: 'locataire' }];
+    expect(completerAvecLesClients([], clients)).toEqual([]);
+  });
+
+  it('⚠️ DEUX CLIENTS À LA MÊME ADRESSE NE DONNENT QU’UNE CAPSULE', () => {
+    const clients: ClientDuBien[] = [
+      { adresse: 'foyer@exemple.test', nom: 'Lui', categorie: 'proprietaire' },
+      { adresse: 'foyer@exemple.test', nom: 'Elle', categorie: 'locataire' },
+    ];
+    const out = completerAvecLesClients([], clients);
+    expect(out).toHaveLength(1);
+    expect(out[0].nom).toBe('Lui');
+  });
+
+  it('⚠️ L’ORDRE EST STABLE : les reçus d’abord, les ajoutés ensuite', () => {
+    const clients: ClientDuBien[] = [{ adresse: 'muet@exemple.test', nom: null, categorie: 'proprietaire' }];
+    const out = completerAvecLesClients([ecrit('b@exemple.test', 9), ecrit('a@exemple.test', 2)], clients);
+    expect(out.map((i) => i.adresse)).toEqual(['b@exemple.test', 'a@exemple.test', 'muet@exemple.test']);
+  });
+
+  it('sans client, la liste revient telle quelle', () => {
+    const recus = [ecrit('a@exemple.test', 1)];
+    expect(completerAvecLesClients(recus, [])).toEqual(recus);
+  });
+});
+
+describe('motEncartVide — les deux phrases d’Arno, et leurs deux symétriques', () => {
+  it('🔴 LES DEUX PHRASES ÉCRITES PAR ARNO, chacune dans son cas', () => {
+    expect(motEncartVide('proprietaire', true)).toBe('Aucun échange avec le propriétaire sur cette période.');
+    expect(motEncartVide('locataire', false)).toBe('Aucun locataire connu.');
+  });
+
+  it('⚠️ ET LES DEUX AUTRES CAS SONT DITS AUSSI : aucun encart ne reste muet', () => {
+    expect(motEncartVide('locataire', true)).toBe('Aucun échange avec le locataire sur cette période.');
+    expect(motEncartVide('proprietaire', false)).toBe('Aucun propriétaire connu pour ce bien.');
+  });
+
+  it('🔴 « CONNU » PARLE DE L’ANNUAIRE, PAS DES MAILS : un client sans adresse compte', () => {
+    const sansAdresse: ClientDuBien[] = [{ adresse: null, nom: 'COLSON FARDEAU', categorie: 'locataire' }];
+    expect(clientConnuPour('locataire', sansAdresse)).toBe(true);
+    expect(clientConnuPour('proprietaire', sansAdresse)).toBe(false);
+    expect(motEncartVide('locataire', clientConnuPour('locataire', sansAdresse)))
+      .toContain('Aucun échange avec le locataire');
+  });
+
+  it('⚠️ LES BANDES N’ONT PAS DE CLIENT : « Tiers indépendant » et « Non affectés » n’accueillent que des contacts', () => {
+    const clients: ClientDuBien[] = [{ adresse: 'x@exemple.test', nom: null, categorie: 'proprietaire' }];
+    expect(clientConnuPour('independant', clients)).toBe(false);
+    expect(clientConnuPour('a_repartir', clients)).toBe(false);
   });
 });

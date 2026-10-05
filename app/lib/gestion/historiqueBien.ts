@@ -502,6 +502,119 @@ export const GROUPES_EN_ENCART: readonly CleGroupeParties[] = ['proprietaire', '
 export const GROUPES_EN_BANDE: readonly CleGroupeParties[] = ['independant', 'a_repartir'];
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LE CLIENT DU BIEN A SA CAPSULE, MÊME SANS UN SEUL MAIL ═════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (05/10/2026, fiche lot-299 — le foyer COLSON FARDEAU) : « l'encart Propriétaire a disparu et
+ * l'encart Locataire prend toute la largeur. »
+ *
+ * ═══ 🔴 LE DIAGNOSTIC, MESURÉ EN BASE AVANT D'ÊTRE CORRIGÉ ════════════════════════════════════════════════════════
+ *
+ * TROIS CAUSES EMPILÉES, et il fallait les trois pour produire ce que voit Arno :
+ *
+ *   ① **LES GROUPES SE CONSTRUISENT SUR LES MAILS, PAS SUR LA FICHE.** `grouperParCategorie` ne range que des
+ *      INTERLOCUTEURS — des gens qui ont écrit ou reçu quelque chose. Un propriétaire qui n'a jamais écrit sur ce
+ *      bien n'est donc nulle part. Mesuré sur lot-299 (WIPPIMMO 432) : son propriétaire est
+ *      `JULLIEN - GARRIDO Cédric`, dont la seule adresse de l'annuaire est `@sansvisavis.com` —
+ *      `interne = true` en base, donc **écartée exprès** par la règle « notre agence n'est pas une partie »
+ *      (lot 2). Ses trois autres propriétaires liés n'ont que des adresses `@example.invalid` de test, absentes
+ *      des mails. Le groupe « Propriétaire » était donc **vide**, et légitimement.
+ *
+ *   ② **L'ÉCRAN NE PEIGNAIT PAS UN GROUPE VIDE** (`if (g.nb === 0) return null`).
+ *
+ *   ③ **ET LA GRILLE LAISSAIT LE SURVIVANT PRENDRE TOUTE LA PLACE** (`repeat(auto-fit, minmax(…, 1fr))` : avec un
+ *      seul enfant, `auto-fit` replie la seconde colonne et la première occupe la ligne entière).
+ *
+ * ═══ 🔴 CE QUE CETTE FONCTION FAIT, ET CE QU'ELLE NE FAIT PAS ════════════════════════════════════════════════════
+ *
+ * Elle répond à ① : « Le propriétaire client (carte du haut de fiche) y apparaît en capsule même avec 0 mail,
+ * avec ses compteurs à 0. » Les adresses CLIENTES de la fiche qui ne sont pas déjà des interlocuteurs sont
+ * ajoutées avec `nbMails`, `aEcrit` et `enCopie` à **zéro** — un zéro qui est un FAIT (« cette personne n'a rien
+ * écrit sur cette période »), pas une donnée manquante.
+ *
+ * ⚠️ ELLE N'ÉCRASE JAMAIS UN INTERLOCUTEUR EXISTANT. Un propriétaire qui a écrit garde ses compteurs réels ; on
+ * ne complète que ce qui manque. L'inverse aurait remis à zéro les compteurs du client le plus bavard du bien.
+ *
+ * ⚠️ ELLE N'AJOUTE PAS LES ADRESSES INTERNES, même quand la fiche les porte comme clientes — et c'est le cas de
+ * lot-299. La règle du lot 2 (« notre agence n'est pas un groupe sélectionnable ») n'est pas renversée ici : la
+ * cocher proposerait « les mails où nous sommes », c'est-à-dire presque tous. L'encart « Propriétaire » de
+ * lot-299 reste donc vide, et c'est maintenant l'ENCART qui le dit (`motEncartVide`) au lieu de disparaître.
+ *   🔭 **Question posée à Arno** : veut-il qu'un propriétaire CLIENT dont l'adresse est une des nôtres soit
+ *      malgré tout listé dans son encart ? C'est le cas de lot-299, et c'est le seul moyen de lui donner une
+ *      capsule. Je ne l'ai pas fait de moi-même : cela toucherait la règle qu'il a posée au lot 2.
+ *
+ * ⚠️ L'ORDRE EST STABLE : les interlocuteurs reçus d'abord, dans leur ordre (le plus bavard en tête, décidé par
+ * le dépôt), puis les clients ajoutés dans l'ordre de la fiche. Intercaler des zéros au milieu aurait déplacé
+ * les cases d'un rendu à l'autre.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface ClientDuBien {
+  /**
+   * L'adresse e-mail du client, ou `null` quand l'annuaire n'en connaît pas.
+   *
+   * ⚠️ `null` N'EST PAS UNE ABSENCE DE CLIENT : c'est un client SANS adresse, et la distinction porte la phrase
+   * de l'encart vide. « Aucun locataire connu » et « aucun échange avec le locataire » ne disent pas la même
+   * chose, et c'est exactement la nuance qu'Arno a écrite dans ses deux exemples.
+   */
+  adresse: string | null;
+  nom: string | null;
+  /** De quel encart ce client relève. Les bandes n'ont pas de client : elles n'accueillent que des contacts. */
+  categorie: 'proprietaire' | 'locataire';
+}
+
+export function completerAvecLesClients(
+  interlocuteurs: readonly Interlocuteur[],
+  clients: readonly ClientDuBien[],
+): Interlocuteur[] {
+  const deja = new Set(interlocuteurs.map((i) => i.adresse.trim().toLowerCase()));
+  const out = [...interlocuteurs];
+  for (const c of clients) {
+    const a = (c.adresse ?? '').trim();
+    if (a === '') continue;
+    const cle = a.toLowerCase();
+    if (deja.has(cle)) continue;
+    deja.add(cle);
+    out.push({ adresse: a, nom: c.nom, nbMails: 0, aEcrit: 0, enCopie: 0, interne: false });
+  }
+  return out;
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — CE QUE DIT UN ENCART VIDE. PUR. ════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO : « Un encart sans capsule reste affiché, avec un texte discret (“Aucun échange avec le
+ * propriétaire sur cette période” ou “Aucun locataire connu”) et il reste une zone de dépôt. »
+ *
+ * 🔴 SES DEUX PHRASES NE DÉCRIVENT PAS LE MÊME CAS, et c'est pour cela qu'il y en a deux. « Aucun locataire
+ * connu » parle de l'ANNUAIRE : personne n'habite ce logement, pour autant qu'on sache. « Aucun échange […] sur
+ * cette période » parle des MAILS : la personne existe, elle n'a simplement rien écrit ici. Afficher la seconde
+ * sur un logement vacant laisserait chercher un locataire qui n'existe pas ; afficher la première sur un bien
+ * dont le locataire est connu mais muet serait faux.
+ *
+ * ⚠️ LES QUATRE CAS SONT DITS. Les deux qu'Arno a écrits, et leurs deux symétriques — un bien sans propriétaire
+ * dans l'annuaire, et un locataire connu mais sans échange. Laisser l'un des quatre sans phrase aurait rendu un
+ * encart muet, c'est-à-dire exactement le défaut qu'on répare.
+ */
+export function motEncartVide(cle: CleGroupeParties, clientConnu: boolean): string {
+  if (cle === 'locataire') {
+    return clientConnu
+      ? 'Aucun échange avec le locataire sur cette période.'
+      : 'Aucun locataire connu.';
+  }
+  return clientConnu
+    ? 'Aucun échange avec le propriétaire sur cette période.'
+    : 'Aucun propriétaire connu pour ce bien.';
+}
+
+/** Un client est-il NOMMÉ pour cet encart, adresse ou pas ? Décide laquelle des deux phrases s'affiche. PUR. */
+export function clientConnuPour(
+  cle: CleGroupeParties, clients: readonly ClientDuBien[],
+): boolean {
+  if (cle !== 'proprietaire' && cle !== 'locataire') return false;
+  return clients.some((c) => c.categorie === cle);
+}
+
+/**
  * ══ 🔴🔴 QUI PEUT SE DÉPLACER ? PUR. ════════════════════════════════════════════════════════════════════════════
  *
  * DEMANDE D'ARNO : « Les capsules des CONTACTS se glissent-déposent d'une catégorie à l'autre. Les capsules des

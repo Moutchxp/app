@@ -27,7 +27,7 @@ import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
  * restent exactement ce qu'ils étaient. Ce bloc s'ajoute APRÈS ce lien, en bas de la fiche.
  */
 import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien } from './HistoriqueDuBien';
-import { type CategoriePartie, type OccupationPeriode, type PeriodePartie }
+import { type CategoriePartie, type ClientDuBien, type OccupationPeriode, type PeriodePartie }
   from '../../../../lib/gestion/historiqueBien';
 // 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
 import { DocumentsAutomatiques } from './DocumentsAutomatiques';
@@ -1358,6 +1358,8 @@ function VueLot({
           occupations={occupationsPourHistorique(f)}
           categories={categoriesDesParties(f)}
           periodes={periodesDesParties(f)}
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — les CLIENTS du bien, pour que leur capsule existe meme a 0 mail. */
+          clients={clientsDesParties(f)}
           evenementOuvertInitial={filtreVie === 'evenement'}
           onOuvrirFil={onOuvrirFil}
           /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — le va-et-vient avec la conversation : le bloc pose son jeton
@@ -1478,6 +1480,59 @@ function categoriesDesParties(f: FicheLot): ReadonlyMap<string, CategoriePartie>
   for (const p of f.occupants) poser(p.contacts, 'locataire');
   for (const o of f.occupations) poser(o.contacts, 'locataire');
   return m;
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LES CLIENTS DE CETTE FICHE, POUR LES DEUX ENCARTS ═══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO : « Le propriétaire client (carte du haut de fiche) y apparaît en capsule même avec 0 mail, avec
+ * ses compteurs à 0. »
+ *
+ * 🔴 POURQUOI ÇA NE POUVAIT PAS VENIR DE LA ROUTE. `/api/admin/gestion/historique` rend des INTERLOCUTEURS, lus
+ * dans `gestion_message_adresse` : des gens qui ont écrit ou reçu quelque chose. Un propriétaire muet n'y figure
+ * pas — c'est tout le diagnostic du défaut de lot-299. La fiche, elle, les a déjà : `f.proprietaires`, ses
+ * contacts d'en-tête et `f.occupants` sont lus pour l'écran du haut. Les relire ici ne coûte aucune requête.
+ *
+ * 🔴 ELLE REND AUSSI LES CLIENTS **SANS ADRESSE** (`adresse: null`), et c'est indispensable : ce sont eux qui
+ * font la différence entre « Aucun locataire connu » et « Aucun échange avec le locataire sur cette période ».
+ * Les filtrer ici aurait rendu l'encart vide muet sur la seule chose qui compte — y a-t-il quelqu'un ?
+ *
+ * ⚠️ LES OCCUPANTS **EN PLACE** SEULEMENT (`f.occupants`), pas tout l'historique des baux. Un ancien locataire
+ * qui a écrit arrive de lui-même par les interlocuteurs, avec ses vrais compteurs et sa période ; lui fabriquer
+ * une capsule à zéro aurait rempli l'encart « Locataire » de tous les occupants depuis 2019 sur un bien où il
+ * n'y a rien à lire. Le propriétaire, lui, est posé en entier — il est LE client du dossier.
+ *
+ * ⚠️ UNE ADRESSE N'EST POSÉE QU'UNE FOIS, et le premier posé gagne : même convention que `categoriesDesParties`
+ * juste au-dessus, et même raison — une adresse partagée par un couple propriétaire-occupant ne doit pas changer
+ * d'encart selon l'ordre de lecture. PUR.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function clientsDesParties(f: FicheLot): ClientDuBien[] {
+  const out: ClientDuBien[] = [];
+  const vues = new Set<string>();
+  const poser = (nom: string | null, contacts: readonly ContactAffiche[],
+    categorie: 'proprietaire' | 'locataire'): void => {
+    const emails = contacts.filter((c) => c.sorte === 'email' && c.valeur.trim() !== '');
+    if (emails.length === 0) {
+      /* 🔴 UN CLIENT SANS ADRESSE COMPTE QUAND MÊME : il ne donne pas de capsule, il donne la PHRASE. */
+      out.push({ adresse: null, nom, categorie });
+      return;
+    }
+    for (const c of emails) {
+      const a = c.valeur.trim();
+      const cle = a.toLowerCase();
+      if (vues.has(cle)) continue;
+      vues.add(cle);
+      out.push({ adresse: a, nom, categorie });
+    }
+  };
+  for (const p of f.proprietaires) poser(p.nomAffiche, p.contacts, 'proprietaire');
+  /* ⚠️ LES CONTACTS D'EN-TÊTE DU PROPRIÉTAIRE : sur une fiche dont le propriétaire n'a pas de carte (absent de
+     l'annuaire des personnes), ce sont les SEULES coordonnées connues. Le nom vient alors du lot. */
+  poser(f.proprietaireNom === '' ? null : f.proprietaireNom, f.proprietaireContacts, 'proprietaire');
+  for (const o of f.occupants) poser(o.nomAffiche, o.contacts, 'locataire');
+  return out;
 }
 
 /**
