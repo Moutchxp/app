@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   corpsLisible, estImageDeSignature, masquerReferencesImages, separerCitation, sqlEstVraiePiece,
-  TAILLE_MAX_SIGNATURE, telephoneEnSignature, trierPieces,
+  TAILLE_MAX_SIGNATURE, adresseEnSignature, telephoneEnSignature, trierPieces,
 } from './lisibilite';
 
 /**
@@ -346,5 +346,90 @@ describe('telephoneEnSignature — le numéro de l’expéditeur, et pas celui d
 
   it('⚠️ ON NE NORMALISE RIEN : le format rendu est celui de la signature, au caractère près', () => {
     expect(telephoneEnSignature('Merci.\n\nPaul\nTél. 01.41.21.43.31\n')).toBe('01.41.21.43.31');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — L'ADRESSE POSTALE EN SIGNATURE ═════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : le formulaire du « + » est « pré-rempli depuis le pré-remplissage : nom et prénom
+ * séparés si possible, e-mail, téléphone ET ADRESSE trouvés dans la signature ».
+ *
+ * MESURÉ AVANT D'ÉCRIRE, sur la vraie base : sur les **187 adresses** qui portent une carte de contact et qui ont
+ * réellement écrit, **65 (35 %)** laissent une adresse postale COMPLÈTE dans la zone de signature VISIBLE de l'un
+ * de leurs quatre derniers mails. Un tiers des fiches dont trois champs se remplissent tout seuls.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('adresseEnSignature — trois champs, ou rien', () => {
+  it('🔴🔴 LA VOIE SUR LA MÊME LIGNE QUE LE CODE POSTAL — forme réelle de la base', () => {
+    const corps = 'Bonjour,\n\nBien reçu.\n\nBien cordialement,\nAnaïs BOURDEAU\n'
+      + 'Responsable Service Gestion\n2 rue Mars et Roty, 92800 Puteaux\n06 23 53 32 36\n';
+    expect(adresseEnSignature(corps))
+      .toEqual({ voie: '2 rue Mars et Roty', codePostal: '92800', commune: 'Puteaux' });
+  });
+
+  it('🔴🔴 LA VOIE SUR LA LIGNE AU-DESSUS — l’autre forme réelle de la base', () => {
+    const corps = 'Chers copropriétaires,\n\nVeuillez trouver l’appel de provisions.\n\nBien cordialement\n\n'
+      + 'MDRC SYNDIC\n11 BOULEVARD RICHARD WALLACE\n92800 PUTEAUX\n\ncontact@mdrcsyndic.test\n';
+    expect(adresseEnSignature(corps))
+      .toEqual({ voie: '11 BOULEVARD RICHARD WALLACE', codePostal: '92800', commune: 'PUTEAUX' });
+  });
+
+  it('🔴 UNE VOIE SANS NUMÉRO EST RECONNUE PAR SON MOT : « Place du Marché »', () => {
+    const corps = 'Merci.\n\nLe syndic\nPlace du Marché\n92400 COURBEVOIE\n';
+    expect(adresseEnSignature(corps)?.voie).toBe('Place du Marché');
+  });
+
+  /**
+   * ══ 🔴🔴 LA VOIE EST EXIGÉE, ET C'EST LA MESURE QUI L'A TRANCHÉ ═════════════════════════════════════════════
+   *
+   * Ma première version acceptait « code postal + commune » seuls : 6 adresses de plus, que je suis allé
+   * regarder une par une. Elles donnaient « 92270 Bois colombes Bonjour », « 92309 LEVALLOIS PERRET CEDEX
+   * Significations » — des bouts d'en-tête de courrier recopiés, pas des adresses. Six pré-remplissages faux
+   * contre six champs gagnés : sans voie, on ne propose RIEN.
+   */
+  it('🔴🔴 SANS VOIE, ON NE PROPOSE RIEN — les six cas réels étaient tous faux', () => {
+    expect(adresseEnSignature('Significations\n\n92309 LEVALLOIS PERRET CEDEX Significations\n')).toBeNull();
+    expect(adresseEnSignature('Merci\n\nMme Durand\n92270 Bois colombes Bonjour\n')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LA CITATION EST ÉCARTÉE, ET CE N'EST PAS UN DÉTAIL : les premiers exemples trouvés en SQL brut étaient
+   * l'adresse du GESTIONNAIRE, recopiée dans le mail cité par quelqu'un d'autre. Pré-remplir la fiche d'un
+   * contact avec l'adresse de son interlocuteur serait pire que de la laisser vide.
+   */
+  it('🔴🔴 JAMAIS DANS LA CITATION : l’adresse y est celle de quelqu’un d’autre', () => {
+    const corps = 'Bien reçu, merci.\n\nPaul\n\nLe mar. 29 sept. 2026 à 16:36, Gestion <g@exemple.test> a\n'
+      + 'écrit :\n\n> Bien cordialement,\n> Anaïs BOURDEAU\n> 2 rue Mars et Roty, 92800 Puteaux\n';
+    expect(adresseEnSignature(corps)).toBeNull();
+  });
+
+  it('🔴 LE DERNIER TROUVÉ GAGNE : ce qui est plus haut est du texte de message', () => {
+    const corps = 'Le bien se trouve 5 avenue Foch, 75116 PARIS.\n\nCordialement,\nPaul\n'
+      + 'Cabinet Paul\n2 rue Mars et Roty, 92800 Puteaux\n';
+    expect(adresseEnSignature(corps)?.codePostal).toBe('92800');
+  });
+
+  it('⚠️ LA PONCTUATION DE LIAISON EST RETIRÉE — « 34, rue Eugène FLACHAT - 75017 PARIS »', () => {
+    expect(adresseEnSignature('Merci.\n\nPaul\n34, rue Eugène FLACHAT - 75017 PARIS\n'))
+      .toEqual({ voie: '34, rue Eugène FLACHAT', codePostal: '75017', commune: 'PARIS' });
+  });
+
+  it('⚠️ `null` EST UNE RÉPONSE : deux tiers des contacts n’ont pas d’adresse trouvable', () => {
+    expect(adresseEnSignature('Bonjour,\n\nMerci pour votre retour.\n\nPaul\n')).toBeNull();
+    expect(adresseEnSignature('')).toBeNull();
+    expect(adresseEnSignature(null)).toBeNull();
+  });
+
+  /** ⚠️ CINQ CHIFFRES NE FONT PAS UN CODE POSTAL : un numéro de dossier plus long est écarté. */
+  it('🔴 UNE SUITE DE CHIFFRES PLUS LONGUE N’EST PAS UN CODE POSTAL', () => {
+    expect(adresseEnSignature('Merci.\n\nPaul\n2 rue Mars et Roty\nDossier 928001234 Puteaux\n')).toBeNull();
+  });
+
+  /** ⚠️ ON NE MET RIEN EN FORME : la commune garde sa casse, la voie ses abréviations. */
+  it('⚠️ AUCUNE MISE EN FORME : c’est le formulaire qui formate, et lui seul', () => {
+    expect(adresseEnSignature('Merci.\n\nPaul\n5 bd de la Paix, 21078 DIJON Cedex\n'))
+      .toEqual({ voie: '5 bd de la Paix', codePostal: '21078', commune: 'DIJON Cedex' });
   });
 });

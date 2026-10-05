@@ -187,6 +187,106 @@ export function telephoneEnSignature(texte: string | null | undefined): string |
   return trouves[trouves.length - 1].trim();
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — L'ADRESSE POSTALE EN SIGNATURE ═════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026) : le formulaire du « + » est « pré-rempli depuis le pré-remplissage : nom et prénom
+ * séparés si possible, e-mail, téléphone ET ADRESSE trouvés dans la signature ».
+ *
+ * 🔴 MESURÉ AVANT D'ÊTRE ÉCRIT, sur la vraie base le 05/10/2026 : sur les **187 adresses** qui portent une carte
+ * de contact et qui ont RÉELLEMENT écrit, **65 (35 %)** laissent une adresse postale COMPLÈTE (voie + code postal
+ * + commune) dans la zone de signature VISIBLE de l'un de leurs quatre derniers mails. C'est un tiers des fiches
+ * dont trois champs se remplissent tout seuls.
+ *
+ * ═══ 🔴 LA VOIE EST EXIGÉE, ET C'EST LA MESURE QUI L'A TRANCHÉ ═══════════════════════════════════════════════════
+ *
+ * Ma première version acceptait « code postal + commune » seuls : **6 adresses** de plus, et je suis allé les
+ * regarder une par une. Elles donnaient « 92270 Bois colombes Bonjour », « 92309 LEVALLOIS PERRET CEDEX
+ * Significations », « 21078 DIJON Cedex » — des bouts d'en-tête de courrier recopiés, pas des adresses. Six
+ * pré-remplissages faux contre six champs gagnés : on exige donc la voie, et sans elle on ne propose RIEN.
+ *
+ * 🔴 LA VOIE SE CHERCHE À DEUX ENDROITS, parce que les signatures françaises l'écrivent de deux façons :
+ *   · sur la MÊME ligne, avant le code postal — « 2 rue Mars et Roty, 92800 Puteaux » ;
+ *   · sur la ligne AU-DESSUS — « 11 BOULEVARD RICHARD WALLACE » puis « 92800 PUTEAUX ».
+ * Les deux formes sont dans la base, et n'en lire qu'une aurait divisé la récolte par deux.
+ *
+ * ⚠️ LA CITATION EST ÉCARTÉE PAR `corpsLisible`, COMME POUR LE TÉLÉPHONE, et ici ce n'est pas un détail : les
+ * premiers exemples que j'ai regardés en SQL brut étaient l'adresse du GESTIONNAIRE, recopiée dans le mail cité
+ * par quelqu'un d'autre. Pré-remplir la fiche d'un contact avec l'adresse de son interlocuteur serait pire que
+ * de la laisser vide.
+ *
+ * ⚠️ LE DERNIER TROUVÉ GAGNE, comme pour le téléphone : la signature est en bas, et ce qui est plus haut est du
+ * texte de message.
+ *
+ * ⚠️ `null` EST UNE RÉPONSE, PAS UN ÉCHEC : deux tiers des contacts n'ont pas d'adresse trouvable, et les trois
+ * champs restent alors vides — ils sont FACULTATIFS pour un contact (règle d'Arno). Inventer une adresse serait
+ * bien pire que ne rien proposer.
+ *
+ * ⚠️ RIEN N'EST MIS EN FORME ICI : la commune garde sa casse, la voie ses abréviations. Le formulaire applique
+ * `communeFormatee` et `codePostalFormate` sous les doigts, et deux mises en forme pour un champ auraient fini
+ * par ne plus s'accorder. Cette fonction LIT, c'est tout. PUR.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface AdresseEnSignature {
+  voie: string;
+  codePostal: string;
+  commune: string;
+}
+
+/**
+ * Un code postal français suivi d'une commune : cinq chiffres isolés, puis un mot qui commence par une capitale.
+ *
+ * ⚠️ ANCRÉ SUR UNE FRONTIÈRE NON NUMÉRIQUE DES DEUX CÔTÉS, comme `TELEPHONE_FR` : sans cela, les cinq premiers
+ * chiffres d'un numéro de dossier feraient un code postal.
+ */
+const CODE_POSTAL_ET_COMMUNE = /(?<!\d)(\d{5})(?!\d)[\s,]+(\p{Lu}[^\n]{0,60})/gu;
+
+/** Les mots qui désignent une voie en France, quand le numéro de rue manque (« Place du Marché »). */
+const MOT_DE_VOIE = new RegExp(
+  '\\b(rue|avenue|av\\.|boulevard|bd|place|chemin|impasse|all[ée]e|route|quai|cours|square|villa|passage'
+  + '|voie|r[ée]sidence|lieu-dit|zone|z\\.?a|z\\.?i)\\b', 'i');
+
+/** Combien de lignes au-dessus du code postal on accepte de remonter pour trouver la voie. */
+const LIGNES_AU_DESSUS = 3;
+
+export function adresseEnSignature(texte: string | null | undefined): AdresseEnSignature | null {
+  const { visible } = corpsLisible(texte ?? '');
+  if (visible.trim() === '') return null;
+  const toutes = visible.split('\n');
+  const lignes = toutes.slice(Math.max(0, toutes.length - LIGNES_DE_SIGNATURE));
+
+  const ressembleAUneVoie = (s: string): boolean => /^\d/.test(s) || MOT_DE_VOIE.test(s);
+  /** On retire la ponctuation de liaison que les signatures mettent entre la voie et le code postal. */
+  const propre = (s: string): string => s.replace(/^[\s,;:–—-]+/, '').replace(/[\s,;:–—-]+$/, '').trim();
+
+  for (let i = lignes.length - 1; i >= 0; i -= 1) {
+    const trouves = [...lignes[i].matchAll(CODE_POSTAL_ET_COMMUNE)];
+    if (trouves.length === 0) continue;
+    const d = trouves[trouves.length - 1];
+
+    /* ① LA VOIE SUR LA MÊME LIGNE, avant le code postal — « 2 rue Mars et Roty, 92800 Puteaux ». */
+    const avant = propre(lignes[i].slice(0, d.index ?? 0));
+    let voie = ressembleAUneVoie(avant) ? avant : '';
+
+    /* ② SINON LA LIGNE AU-DESSUS — « 11 BOULEVARD RICHARD WALLACE » puis « 92800 PUTEAUX ». On ne remonte
+       qu'au-delà des lignes VIDES, et pas plus loin : au-dessus, c'est le nom, la fonction, le message. */
+    if (voie === '') {
+      for (let j = i - 1; j >= 0 && j >= i - LIGNES_AU_DESSUS; j -= 1) {
+        const p = propre(lignes[j]);
+        if (p === '') continue;
+        if (ressembleAUneVoie(p)) voie = p;
+        break;
+      }
+    }
+    /* 🔴 SANS VOIE, ON NE PROPOSE RIEN : voir l'encadré — les six cas « code postal seul » de la base étaient
+       tous des bouts d'en-tête de courrier, pas des adresses. */
+    if (voie === '') continue;
+    return { voie, codePostal: d[1], commune: propre(d[2]).slice(0, 80) };
+  }
+  return null;
+}
+
 /** Ce qu'il faut savoir d'une pièce pour décider si c'est une vraie pièce ou un bout de signature. */
 export interface PieceATrier {
   nomFichier: string;

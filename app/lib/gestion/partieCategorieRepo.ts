@@ -1,5 +1,7 @@
 import { query, withTransaction } from '../db/client';
-import { contactCarteDisponible, noteContactCarteDisponible, partieCategorieDisponible } from './schema';
+import {
+  contactCarteDisponible, ficheContactCarteDisponible, noteContactCarteDisponible, partieCategorieDisponible,
+} from './schema';
 import { normaliserEmail } from './annuaire';
 /**
  * 🔴🔴 LA RÈGLE UNIQUE DU LIEN DE BIEN, et c'est le fragment du dépôt — jamais une condition réécrite. Elle sert
@@ -7,8 +9,11 @@ import { normaliserEmail } from './annuaire';
  */
 import { sqlLiensDuBien } from './rattachement';
 import { categorieRetenue } from './partieCategorie';
-/* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — le telephone d'une signature : fonction PURE, elle ne garde rien. */
-import { telephoneEnSignature } from './lisibilite';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — le telephone d'une signature : fonction PURE, elle ne garde rien.
+   🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — et l'ADRESSE POSTALE de la même signature, par la fonction voisine. */
+import { adresseEnSignature, telephoneEnSignature, type AdresseEnSignature } from './lisibilite';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — les coordonnées d'une carte : module PUR, relu sans rien deviner. */
+import { coordonneesDeLaCarte, premierTelephone, type CoordonneeDeCarte } from './ficheContact';
 import type { Categorie, CategorieRangee, Cote, Origine } from './partieCategorie';
 import type { Auteur } from './gestes';
 
@@ -104,6 +109,26 @@ export interface LigneCarte {
    * carte dont personne n'a écrit la note. Une sonde voyage avec sa donnée : règle du module.
    */
   note: string | null;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LES CHAMPS D'UNE « NOUVELLE FICHE » (migration 306) ═════════════════
+   *
+   * Demande d'Arno : « Le formulaire du “+” doit être le MÊME que celui des clients », et la carte du carrousel
+   * « montre les mêmes rubriques qu'une carte client (QUALITÉ, ADRESSE, MOBILE/E-MAIL avec “Copier”, NOTE) ».
+   *
+   * ⚠️ `adressePostale` N'EST PAS `adresse` : `adresse` est l'adresse E-MAIL, et elle est l'IDENTITÉ de la carte.
+   * Les deux mots sont séparés exprès — voir l'encadré de la migration 306.
+   *
+   * ⚠️ TOUT VAUT `null` / `[]` SANS LA 306 : les colonnes ne sont alors nommées nulle part, et la carte s'affiche
+   * exactement comme au lot 7. Une sonde voyage avec sa donnée — règle du module.
+   */
+  civilite: string | null;
+  prenom: string | null;
+  qualite: string | null;
+  adressePostale: string | null;
+  codePostal: string | null;
+  commune: string | null;
+  /** Les téléphones et e-mails, DANS L'ORDRE AFFICHÉ. Vide = la carte n'en porte pas (ou la 306 n'est pas là). */
+  coordonnees: readonly CoordonneeDeCarte[];
 }
 
 /**
@@ -272,15 +297,26 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
      tomber la lecture entière, et avec elle les deux carrousels ET le bloc du bas (leçon de la 251, repayée au
      lot 4a). Sans elle, la note vaut `null` partout et la ligne s'affiche « non renseignée ». */
   const avecNote = await noteContactCarteDisponible();
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — les sept colonnes de la 306, nommées seulement si elles existent. Une
+     seule sonde pour les sept : une seule migration les apporte toutes (voir `ficheContactCarteDisponible`). */
+  const avecFiche = await ficheContactCarteDisponible();
   const { rows } = await query<{
     id: string; lot_cle: string; cote: string; adresse: string; nom: string | null; telephone: string | null;
     origine: string; verifie_le: string | null; verifie_par: string | null; cree_le: string; cree_par: string;
-    note: string | null;
+    note: string | null; civilite: string | null; prenom: string | null; qualite: string | null;
+    adresse_postale: string | null; code_postal: string | null; commune: string | null; coordonnees: unknown;
   }>(
     `SELECT id::text, lot_cle, cote, adresse, nom, telephone, origine,
             ${ts('verifie_le')} AS verifie_le, verifie_par_libelle AS verifie_par,
             ${ts('cree_le')} AS cree_le, cree_par_libelle AS cree_par,
-            ${avecNote ? 'note' : 'NULL::text'} AS note
+            ${avecNote ? 'note' : 'NULL::text'} AS note,
+            ${avecFiche ? 'civilite' : 'NULL::text'} AS civilite,
+            ${avecFiche ? 'prenom' : 'NULL::text'} AS prenom,
+            ${avecFiche ? 'qualite' : 'NULL::text'} AS qualite,
+            ${avecFiche ? 'adresse_postale' : 'NULL::text'} AS adresse_postale,
+            ${avecFiche ? 'code_postal' : 'NULL::text'} AS code_postal,
+            ${avecFiche ? 'commune' : 'NULL::text'} AS commune,
+            ${avecFiche ? 'coordonnees' : 'NULL::jsonb'} AS coordonnees
        FROM gestion_contact_carte
       WHERE retire_le IS NULL AND lot_cle = $1
       ORDER BY cote, (verifie_le IS NULL), coalesce(nom, adresse), id`, [lot]);
@@ -290,6 +326,11 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
     nom: r.nom, telephone: r.telephone, origine: r.origine as 'auto' | 'manuel',
     verifieLe: r.verifie_le, verifiePar: r.verifie_par, creeLe: r.cree_le, creePar: r.cree_par,
     note: r.note,
+    civilite: r.civilite, prenom: r.prenom, qualite: r.qualite,
+    adressePostale: r.adresse_postale, codePostal: r.code_postal, commune: r.commune,
+    /* 🔴 LE `jsonb` PASSE PAR LE MODULE PUR : une ligne illisible est IGNORÉE, jamais devinée (voir
+       `coordonneesDeLaCarte`). Deviner la sorte d'une ligne rangerait un numéro parmi les e-mails. */
+    coordonnees: coordonneesDeLaCarte(r.coordonnees),
   }));
 }
 
@@ -326,6 +367,17 @@ export interface CoordonneesTrouvees {
   adresse: string;
   nom: string | null;
   telephone: string | null;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — L'ADRESSE POSTALE DE LA SIGNATURE. Arno : le formulaire est « pré-rempli
+   * […] e-mail, téléphone ET ADRESSE trouvés dans la signature ».
+   *
+   * MESURÉ le 05/10/2026 : 65 des 187 adresses à carte qui ont écrit (35 %) en laissent une COMPLÈTE dans la zone
+   * de signature visible. `null` pour les deux autres tiers, et les trois champs restent alors vides — ils sont
+   * facultatifs pour un contact.
+   */
+  adressePostale: string | null;
+  codePostal: string | null;
+  commune: string | null;
 }
 
 /**
@@ -389,14 +441,25 @@ export async function coordonneesDesParties(lotCle: string): Promise<Coordonnees
        FROM vues WHERE rang <= $2
       ORDER BY adresse, rang`, [lot, MAILS_POUR_LA_SIGNATURE]);
 
-  /** Par adresse : les noms vus (pour élire le plus fréquent) et le premier téléphone trouvé. */
-  const parAdresse = new Map<string, { noms: Map<string, number>; telephone: string | null }>();
+  /**
+   * Par adresse : les noms vus (pour élire le plus fréquent), le premier téléphone et la première adresse postale.
+   *
+   * ⚠️ LE PREMIER TROUVÉ GAGNE, POUR LE NUMÉRO COMME POUR L'ADRESSE, et les mails sont déjà rangés du plus
+   * récent au plus ancien : une signature change (un déménagement, un changement de poste), et la plus récente
+   * est celle qui vaut.
+   */
+  const parAdresse = new Map<string, {
+    noms: Map<string, number>; telephone: string | null; postale: AdresseEnSignature | null;
+  }>();
   for (const r of rows) {
     const cle = r.adresse.trim().toLowerCase();
-    const e = parAdresse.get(cle) ?? { noms: new Map<string, number>(), telephone: null };
+    const e = parAdresse.get(cle) ?? { noms: new Map<string, number>(), telephone: null, postale: null };
     const nom = nomDeLAdresseBrute(r.adresse_brute, cle);
     if (nom !== null) e.noms.set(nom, (e.noms.get(nom) ?? 0) + 1);
     if (e.telephone === null) e.telephone = telephoneEnSignature(r.corps);
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — la même zone de signature, lue par la fonction PURE voisine. Elle ne
+       garde rien du corps : elle rend trois champs, ou `null`. */
+    if (e.postale === null) e.postale = adresseEnSignature(r.corps);
     parAdresse.set(cle, e);
   }
 
@@ -405,6 +468,9 @@ export async function coordonneesDesParties(lotCle: string): Promise<Coordonnees
     /* LE PLUS FRÉQUENT GAGNE ; à égalité, le plus long — il porte en général le prénom ET le nom. */
     nom: [...e.noms.entries()].sort((a, b) => (b[1] - a[1]) || (b[0].length - a[0].length))[0]?.[0] ?? null,
     telephone: e.telephone,
+    adressePostale: e.postale?.voie ?? null,
+    codePostal: e.postale?.codePostal ?? null,
+    commune: e.postale?.commune ?? null,
   }));
 }
 
@@ -581,8 +647,37 @@ export async function marquerCategorieVerifiee(o: {
  * payée une fois le 04/10/2026 sur `gestion_piece_drive`. Reposer la même carte COMPLÈTE donc la précédente au
  * lieu d'échouer : c'est le geste attendu quand on ajoute un téléphone à une carte née sans nom.
  */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LA FICHE QU'UN CONTACT PORTE DÉSORMAIS (migration 306) ═════════════════
+ *
+ * Les champs du formulaire des clients, tels qu'ils arrivent de l'écran. Tous FACULTATIFS : pour un contact,
+ * « seuls le NOM et AU MOINS UN E-MAIL sont obligatoires » (Arno), et c'est le module pur `manquesDuContact` qui
+ * tient cette exigence — pas la base, et pas deux fois.
+ *
+ * ⚠️ `adressePostale` N'EST PAS `adresse` : `adresse` est l'adresse E-MAIL, l'IDENTITÉ de la carte. Les deux mots
+ * sont séparés exprès (voir l'encadré de la migration 306).
+ */
+export interface FicheDeCarte {
+  civilite?: string | null;
+  prenom?: string | null;
+  qualite?: string | null;
+  adressePostale?: string | null;
+  codePostal?: string | null;
+  commune?: string | null;
+  note?: string | null;
+  /** La liste ORDONNÉE des téléphones et e-mails. Vide ⇒ on n'écrase pas celle qui est déjà là. */
+  coordonnees?: readonly CoordonneeDeCarte[];
+}
+
+/** Le `jsonb` à écrire, ou `null` quand il n'y a rien à écrire — ce qui laisse en place ce qui est déjà là. */
+function coordonneesEnJson(c: readonly CoordonneeDeCarte[] | undefined): string | null {
+  return c === undefined || c.length === 0 ? null : JSON.stringify(c);
+}
+
 export async function poserCarteAlaMain(o: {
   lotCle: string; cote: Cote; adresse: string; nom?: string | null; telephone?: string | null; auteur: Auteur;
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — les champs du formulaire. Absente ⇒ comportement d'avant ce lot. */
+  fiche?: FicheDeCarte;
 }): Promise<IssuePartieCategorie> {
   if (!(await contactCarteDisponible())) return { ok: false, motif: SANS_304_CARTES };
   if (!auteurHumainPartieCategorie(o.auteur)) {
@@ -596,19 +691,68 @@ export async function poserCarteAlaMain(o: {
     return { ok: false, motif: 'Une carte se range du côté du propriétaire ou du côté du locataire.' };
   }
 
+  /**
+   * 🔴🔴 LA FICHE N'EST NOMMÉE QUE SI ELLE EST DEMANDÉE **ET** QUE LA 306 EST LÀ. Sans la migration, le geste
+   * garde exactement l'effet qu'il avait au lot 7 : la carte naît avec son nom et son téléphone, et les champs du
+   * formulaire ne sont pas gardés. Nommer une colonne absente ferait échouer le rangement ENTIER — et la
+   * catégorie, elle, vient d'être posée.
+   *
+   * ⚠️ LA NOTE A SA PROPRE SONDE (la 305) : les deux migrations sont indépendantes, et faire dépendre la note de
+   * la 306 l'aurait perdue sur une base qui porte la 305 seule.
+   */
+  const avecFiche = o.fiche !== undefined && (await ficheContactCarteDisponible());
+  const avecNote = o.fiche !== undefined && (await noteContactCarteDisponible());
+
+  /**
+   * 🔴 LE TÉLÉPHONE DE LA COLONNE EST **DÉRIVÉ** DE LA LISTE, quand la liste en porte un. Voir
+   * `premierTelephone` : la colonne `telephone` est lue ailleurs (le report d'un changement de côté, la
+   * proposition automatique), et la laisser vide aurait fait perdre le numéro au premier glissement.
+   */
+  const telephone = premierTelephone(o.fiche?.coordonnees ?? []) ?? texteCourt(o.telephone, 60);
+
+  const cols = [
+    'lot_cle', 'cote', 'adresse', 'nom', 'telephone', 'origine', 'cree_par', 'cree_par_libelle',
+    'verifie_le', 'verifie_par', 'verifie_par_libelle',
+  ];
+  const vals = ['$1', '$2', '$3', '$4', '$5', `'manuel'`, '$6', '$7', 'now()', '$6', '$7'];
+  const maj = [
+    'nom = coalesce(EXCLUDED.nom, gestion_contact_carte.nom)',
+    'telephone = coalesce(EXCLUDED.telephone, gestion_contact_carte.telephone)',
+    `origine = 'manuel'`,
+    'verifie_le = now()', 'verifie_par = EXCLUDED.verifie_par',
+    'verifie_par_libelle = EXCLUDED.verifie_par_libelle',
+  ];
+  const params: unknown[] = [lot, o.cote, adresse, texteCourt(o.nom), telephone, o.auteur.id, o.auteur.libelle];
+
+  /**
+   * ⚠️ `coalesce(EXCLUDED.x, l'existant)` — UNE POSE N'EFFACE JAMAIS. C'est la règle de cette fonction depuis le
+   * lot 2 pour le nom et le téléphone, et elle vaut pour les mêmes raisons : reposer une carte est le geste de
+   * quelqu'un qui AJOUTE (un côté qui change, un champ qu'on complète). EFFACER est le geste du crayon, et c'est
+   * `modifierCarte` qui le fait, en écrivant par-dessus.
+   */
+  const ajouter = (colonne: string, valeur: unknown, cast = ''): void => {
+    params.push(valeur);
+    cols.push(colonne);
+    vals.push(`$${params.length}${cast}`);
+    maj.push(`${colonne} = coalesce(EXCLUDED.${colonne}, gestion_contact_carte.${colonne})`);
+  };
+  if (avecNote) ajouter('note', texteCourt(o.fiche?.note, 2000));
+  if (avecFiche) {
+    ajouter('civilite', texteCourt(o.fiche?.civilite, 60));
+    ajouter('prenom', texteCourt(o.fiche?.prenom, 200));
+    ajouter('qualite', texteCourt(o.fiche?.qualite, 200));
+    ajouter('adresse_postale', texteCourt(o.fiche?.adressePostale, 300));
+    ajouter('code_postal', texteCourt(o.fiche?.codePostal, 10));
+    ajouter('commune', texteCourt(o.fiche?.commune, 120));
+    ajouter('coordonnees', coordonneesEnJson(o.fiche?.coordonnees), '::jsonb');
+  }
+
   const { rows } = await query<{ id: string }>(
-    `INSERT INTO gestion_contact_carte
-       (lot_cle, cote, adresse, nom, telephone, origine, cree_par, cree_par_libelle,
-        verifie_le, verifie_par, verifie_par_libelle)
-     VALUES ($1, $2, $3, $4, $5, 'manuel', $6, $7, now(), $6, $7)
+    `INSERT INTO gestion_contact_carte (${cols.join(', ')})
+     VALUES (${vals.join(', ')})
      ON CONFLICT (lot_cle, cote, adresse) WHERE retire_le IS NULL DO UPDATE
-       SET nom = coalesce(EXCLUDED.nom, gestion_contact_carte.nom),
-           telephone = coalesce(EXCLUDED.telephone, gestion_contact_carte.telephone),
-           origine = 'manuel',
-           verifie_le = now(), verifie_par = EXCLUDED.verifie_par,
-           verifie_par_libelle = EXCLUDED.verifie_par_libelle
-     RETURNING id::text`,
-    [lot, o.cote, adresse, texteCourt(o.nom), texteCourt(o.telephone, 60), o.auteur.id, o.auteur.libelle]);
+       SET ${maj.join(', ')}
+     RETURNING id::text`, params);
 
   return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
 }
@@ -663,6 +807,12 @@ export async function retirerCarte(o: {
  */
 export async function modifierCarte(o: {
   id: number; nom?: string | null; telephone?: string | null; note?: string | null; auteur: Auteur;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — les champs du formulaire complet (migration 306). Arno : « Le même
+   * formulaire complet sert à “Modifier ce contact” (le crayon de la carte). » Absente ⇒ seuls le nom, le
+   * téléphone et la note sont touchés, exactement comme au lot 7.
+   */
+  fiche?: FicheDeCarte;
 }): Promise<IssuePartieCategorie> {
   if (!(await contactCarteDisponible())) return { ok: false, motif: SANS_304_CARTES };
   if (!auteurHumainPartieCategorie(o.auteur)) {
@@ -673,14 +823,42 @@ export async function modifierCarte(o: {
   /* 🔴 LA NOTE N'EST ÉCRITE QUE SI LA 305 EST LÀ : nommer une colonne absente ferait échouer le geste entier,
      et le reste de la modification — le nom, le téléphone — serait perdu avec elle. */
   const avecNote = await noteContactCarteDisponible();
+  const avecFiche = o.fiche !== undefined && (await ficheContactCarteDisponible());
+
+  /**
+   * 🔴 LE CRAYON **ÉCRASE**, et c'est toute la différence avec `poserCarteAlaMain` (qui, lui, `coalesce`). Le
+   * crayon est précisément le geste d'un humain qui CORRIGE : écrire par-dessus un numéro faux doit marcher, et
+   * VIDER UN CHAMP DOIT LE VIDER. Un `coalesce` ici rendrait une faute de frappe indélébile.
+   *
+   * ⚠️ LA LISTE COMPLÈTE REMPLACE L'ANCIENNE, dans l'ordre affiché : c'est la règle du formulaire des clients
+   * (lot FICHES-RETOUCHES), et ajouter, retirer, réordonner sont ainsi le MÊME geste. Une liste VIDE vide donc la
+   * rubrique — ce qui est voulu : on vient de retirer la dernière ligne et de valider.
+   */
+  const champs: string[] = ['nom = $2', 'telephone = $3'];
+  const params: unknown[] = [
+    o.id, texteCourt(o.nom, 200),
+    premierTelephone(o.fiche?.coordonnees ?? []) ?? texteCourt(o.telephone, 60),
+  ];
+  const ecrire = (colonne: string, valeur: unknown, cast = ''): void => {
+    params.push(valeur);
+    champs.push(`${colonne} = $${params.length}${cast}`);
+  };
+  if (avecNote) ecrire('note', texteCourt(o.note, 2000));
+  if (avecFiche) {
+    ecrire('civilite', texteCourt(o.fiche?.civilite, 60));
+    ecrire('prenom', texteCourt(o.fiche?.prenom, 200));
+    ecrire('qualite', texteCourt(o.fiche?.qualite, 200));
+    ecrire('adresse_postale', texteCourt(o.fiche?.adressePostale, 300));
+    ecrire('code_postal', texteCourt(o.fiche?.codePostal, 10));
+    ecrire('commune', texteCourt(o.fiche?.commune, 120));
+    ecrire('coordonnees', JSON.stringify(o.fiche?.coordonnees ?? []), '::jsonb');
+  }
+
   const { rows } = await query<{ id: string }>(
     `UPDATE gestion_contact_carte
-        SET nom = $2, telephone = $3${avecNote ? ', note = $4' : ''}
+        SET ${champs.join(', ')}
       WHERE id = $1 AND retire_le IS NULL
-      RETURNING id::text`,
-    avecNote
-      ? [o.id, texteCourt(o.nom, 200), texteCourt(o.telephone, 60), texteCourt(o.note, 2000)]
-      : [o.id, texteCourt(o.nom, 200), texteCourt(o.telephone, 60)]);
+      RETURNING id::text`, params);
   return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
 }
 

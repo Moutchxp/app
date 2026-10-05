@@ -1094,3 +1094,23 @@ export function contactCarteDisponible(): Promise<boolean> {
 export function noteContactCarteDisponible(): Promise<boolean> {
   return memoiser('colonne.gestion_contact_carte.note', () => colonneExiste('gestion_contact_carte', 'note'));
 }
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LA MIGRATION 306 : LES CHAMPS D'UNE « NOUVELLE FICHE » ═════════════════
+ *
+ * Demande d'Arno : « Le formulaire du “+” doit être le MÊME que celui des clients » — civilité, prénom, qualité,
+ * adresse postale, code postal, commune, et la liste ordonnée des téléphones et e-mails.
+ *
+ * 🔴 UNE SEULE SONDE POUR LES SEPT COLONNES, parce qu'une seule migration les apporte toutes. Sept sondes
+ * auraient autorisé six états intermédiaires qui n'existent pas, et c'est six branches d'écran à tenir pour
+ * rien. On interroge `coordonnees`, la dernière de la liste du fichier : si elle est là, les six autres le sont.
+ *
+ * 🔴 TANT QU'ELLE RÉPOND « NON », AUCUNE DES SEPT N'EST NOMMÉE : la carte se lit et s'écrit exactement comme au
+ * lot 7 (nom, téléphone, note), et le formulaire garde ses champs — ils ne sont simplement pas gardés en base.
+ * Nommer une colonne absente ferait tomber la lecture ENTIÈRE, et avec elle les deux carrousels ET le bloc du bas
+ * (leçon de la migration 251, repayée au lot 4a).
+ */
+export function ficheContactCarteDisponible(): Promise<boolean> {
+  return memoiser('colonne.gestion_contact_carte.coordonnees',
+    () => colonneExiste('gestion_contact_carte', 'coordonnees'));
+}

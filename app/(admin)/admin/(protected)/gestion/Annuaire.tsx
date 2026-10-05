@@ -39,6 +39,8 @@ import { annoncerCartesContact, concerneCeBien, ecouterCartesContact, type Signa
   from '../../../../lib/gestion/signalCartesContact';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 1 — le seul juge de « cette carte monte-t-elle dans un carrousel ? ». */
 import { carteMonteAuCarrousel } from '../../../../lib/gestion/partieCategorie';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — la fiche d'un contact, telle qu'elle part au serveur (module PUR). */
+import { ficheAEnvoyer } from '../../../../lib/gestion/ficheContact';
 /** La carte telle que le dépôt la rend. Importée en TYPE : rien de `pg` n'entre dans ce paquet. */
 import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/partieCategorieRepo';
 // 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
@@ -1291,8 +1293,15 @@ function VueLot({
     modifiable: gestes.modifiable,
     onVerifier: (id: number) => gesteDeCarte({ action: 'verifier', id }),
     onRetirer: (id: number) => gesteDeCarte({ action: 'retirer', id }),
-    onModifier: (id: number, champs: { nom: string; telephone: string; note: string }) =>
-      gesteDeCarte({ action: 'modifier', id, ...champs }),
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE CRAYON ENVOIE LA FICHE COMPLÈTE, par la MÊME porte qu'avant.
+     *
+     * ⚠️ `ficheAEnvoyer` (module PUR) est la SEULE traduction, et c'est la même que celle du « + » du bloc du
+     * bas : elle vide-à-`null` les champs blancs et garde l'ORDRE AFFICHÉ des coordonnées. Écrire ici une
+     * seconde version aurait divergé au premier champ ajouté — l'un l'enverrait, l'autre l'oublierait.
+     */
+    onModifier: (id: number, champs: ChampsSaisis) =>
+      gesteDeCarte({ action: 'modifier', id, ...ficheAEnvoyer(champs) }),
     /* « Changer de côté » et « Passer en tiers indépendant » : un RANGEMENT, par la porte du rangement. */
     onRanger: (adresse: string, categorie: 'proprietaire' | 'locataire' | 'independant') =>
       gesteDeCarte({ cible: `lot-${f.numero}`, adresse, categorie }),

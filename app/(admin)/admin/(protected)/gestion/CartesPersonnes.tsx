@@ -31,6 +31,15 @@ import {
 } from '../../../../lib/gestion/partieCategorie';
 /** La carte telle que le dépôt la rend. Importée en TYPE : rien de `pg` n'entre dans ce paquet. */
 import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/partieCategorieRepo';
+/**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LES RÈGLES D'UN CONTACT, DANS LEUR MODULE PUR.
+ *
+ * `manquesDuContact` est la SEULE chose que ce formulaire change pour un contact (« seuls le NOM et AU MOINS UN
+ * E-MAIL sont obligatoires » — Arno). La règle des clients, `manquesDeLaFiche`, n'est pas touchée.
+ */
+import {
+  TITRE_CONTACT_MODIFIER, coordonneesPourLaBase, manquesDuContact,
+} from '../../../../lib/gestion/ficheContact';
 // LOT FICHES-RETOUCHES — la nomenclature (Mobile / Fixe / E-mail) et le formatage des numeros.
 import {
   TYPES_COORDONNEE, formaterSaisieTelephone, lienAppel, lignesParType, motType, sorteDuType, typeDeLibelle,
@@ -599,9 +608,38 @@ interface LigneSaisie { cle: string; type: TypeCoordonnee; valeur: string }
  * adresses, jamais celles d'un propriétaire ou d'un locataire — les accepter ferait rapprocher nos propres mails
  * d'une fiche de client.
  */
-function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — CE QUE LE FORMULAIRE A VRAIMENT BESOIN DE SAVOIR ═══════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « Réutilise le formulaire “Nouvelle fiche” / “Modifier la fiche” des clients —
+ * LE MÊME COMPOSANT, PAS UNE COPIE. »
+ *
+ * 🔴 ET C'EST CE TYPE QUI REND LA DEMANDE TENABLE. Le formulaire recevait une `PersonneAnnuaire` entière : un
+ * sujet, un identifiant, une clé WIPPIMMO, un rang, un état d'archivage, « est-ce le dernier propriétaire »…
+ * c'est-à-dire quinze champs dont il ne lit AUCUN. Une carte de contact n'en a pas, et les inventer (`id: 0`,
+ * `cle: ''`, `sujet: 'proprietaire'`) aurait fait entrer des valeurs fausses dans un objet que d'autres
+ * fonctions savent lire — exactement le genre de mensonge qu'on finit par afficher.
+ *
+ * 🔴 ON RÉDUIT DONC LE BESOIN À CE QUI EST LU : les neuf champs ci-dessous, et rien de plus. `PersonneAnnuaire`
+ * les porte tous, donc AUCUN APPEL CLIENT NE CHANGE — c'est la condition d'Arno (« les cartes CLIENTS ne
+ * changent pas d'un pixel »), tenue par le compilateur et non par une relecture.
+ */
+export interface FicheAEditer {
+  civilite: string | null;
+  prenom: string | null;
+  nom: string;
+  qualite: string | null;
+  adresse: string | null;
+  codePostal: string | null;
+  commune: string | null;
+  note: string | null;
+  /** Les coordonnées, dans l'ordre affiché. `id` ne sert qu'à donner une clé React stable à la ligne. */
+  contacts: readonly { id: number; sorte: 'telephone' | 'email'; affichage: string; libelle: string | null }[];
+}
+
+export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact }: {
   /** `null` en CRÉATION : la même carte, vide. */
-  p: PersonneAnnuaire | null;
+  p: FicheAEditer | null;
   onEnregistrer: (champs: ChampsSaisis) => Promise<void>;
   onAnnuler: () => void;
   refus: string | null;
@@ -625,6 +663,39 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
    * « Créée le … » la remplace sans rien demander à personne.
    */
   creation?: { rappel: string };
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE MÊME FORMULAIRE, POUR UN CONTACT ════════════════════════════════
+   *
+   * DEMANDE D'ARNO : « Pour un CONTACT, seuls le NOM et AU MOINS UN E-MAIL sont obligatoires ; les autres champs
+   * sont facultatifs, sans message rouge. LES RÈGLES DES CLIENTS NE CHANGENT PAS. »
+   *
+   * 🔴 TROIS CHOSES CHANGENT, ET LES TROIS SONT ICI : le TITRE, l'EXIGENCE (`manquesDuContact` au lieu de
+   * `manquesDeLaFiche`) et la CATÉGORIE, que l'appelant rend lui-même. Tout le reste — les huit champs, la liste
+   * de coordonnées avec ses ↑↓ et son ✕, la mise en forme sous les doigts, la vérification des coordonnées, le
+   * bouton grisé avec son motif — est le code des clients, exécuté tel quel.
+   *
+   * 🔴 LA CATÉGORIE EST UN MORCEAU DE BALISAGE REÇU, ET NON UNE LISTE ÉCRITE ICI. Seul l'appelant sait quels
+   * côtés sont permis là où il est, quelle catégorie a été déduite, et ce qu'un « Tiers indépendant » implique
+   * (aucune carte, un rangement global). Une liste écrite dans ce formulaire aurait été une seconde règle de
+   * rangement, à côté de celle que le serveur tient déjà.
+   *
+   * ⚠️ ABSENT ⇒ FICHE DE CLIENT, À LA LETTRE. Un seul `if` sépare les deux mondes, et il est lisible d'un coup
+   * d'œil : c'est ce qui garantit qu'on ne touchera pas à la règle des clients en touchant à celle des contacts.
+   */
+  contact?: {
+    /** « Nouveau contact » ou « Modifier ce contact » — les deux mots viennent du module pur. */
+    titre: string;
+    /** Le choix Propriétaire / Locataire / Tiers indépendant, rendu par l'appelant. */
+    categorie?: React.ReactNode;
+    /** Ce que l'appelant veut dire sous le titre (« Ranger cette adresse pour ce bien »). */
+    rappel?: React.ReactNode;
+    /**
+     * 🔴 UNE EXIGENCE QUE L'APPELANT SEUL CONNAÎT, et son motif. Non vide ⇒ « Enregistrer » reste grisé, avec ce
+     * motif en infobulle — exactement comme pour un champ manquant. C'est le cas de la CATÉGORIE du « + » : le
+     * formulaire ne sait pas ce qu'elle veut dire, mais il sait déjà bloquer et dire pourquoi.
+     */
+    empeche?: string | null;
+  };
 }) {
   /**
    * ══ 🔴🔴 LOT FICHE-SAISIE-UNIFORME — LA CIVILITÉ EST UNE LISTE, PLUS UN TEXTE LIBRE ══════════════════════
@@ -688,10 +759,25 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
   const saisiesVivantes: CoordonneeSaisie[] = lignes.map((l) => ({
     sorte: sorteDuType(l.type), valeur: l.valeur, libelle: motType(l.type),
   }));
-  const manque = creation === undefined ? {} : manquesDeLaFiche({
-    civilite, nom, prenom, adresse, codePostal, commune, coordonnees: saisiesVivantes,
-  });
-  const incomplete = Object.keys(manque).length > 0;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — L'EXIGENCE D'UN CONTACT N'EST PAS CELLE D'UN CLIENT, et c'est la seule
+   * ligne où les deux mondes se séparent. Un contact est exigé en création COMME en modification : sa règle ne
+   * demande que ce qu'on a forcément (un nom, une adresse e-mail), il n'y a donc rien à relâcher pour pouvoir
+   * corriger une carte ancienne. Celle des clients, elle, ne s'applique qu'en création — une fiche importée peut
+   * n'avoir ni prénom ni e-mail, et refuser de la modifier pour cette raison rendrait la correction impossible.
+   */
+  const manque = contact !== undefined
+    ? manquesDuContact({ nom, coordonnees: saisiesVivantes })
+    : creation === undefined ? {} : manquesDeLaFiche({
+      civilite, nom, prenom, adresse, codePostal, commune, coordonnees: saisiesVivantes,
+    });
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — `empeche` COMPTE COMME UN MANQUE, et c'est tout ce qu'il fait. Il
+   * entre dans la MÊME variable que les champs manquants : le bouton se grise par un seul chemin, et il n'y a
+   * donc pas deux façons d'être incomplet (dont une qu'on oublierait de tenir).
+   */
+  const empeche = (contact?.empeche ?? '').trim();
+  const incomplete = Object.keys(manque).length > 0 || empeche !== '';
 
   const soumettre = (): void => {
     // 🔴 LE TYPE REDEVIENT `sorte` + `libelle` À L'ENVOI : le serveur n'apprend pas un nouveau vocabulaire.
@@ -727,10 +813,16 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
 
   return (
     <form className="cp-form" onSubmit={(e) => { e.preventDefault(); soumettre(); }}>
-      <p className="cp-form-titre">{creation === undefined ? 'Modifier la fiche' : 'Nouvelle fiche'}</p>
+      <p className="cp-form-titre">
+        {contact?.titre ?? (creation === undefined ? 'Modifier la fiche' : 'Nouvelle fiche')}
+      </p>
       {/* 🔴 LE RAPPEL DIT CE QUE LE GESTE VA FAIRE, avant de le faire : « Sera ajouté comme co-propriétaire sur
           les N biens de cette fiche ». Sans lui, on remplit sept champs sans savoir où la personne atterrit. */}
       {creation !== undefined && <p className="cp-rappel">{creation.rappel}</p>}
+      {contact?.rappel !== undefined && <p className="cp-rappel">{contact.rappel}</p>}
+      {/* 🔴🔴 LA CATÉGORIE EN TÊTE, parce qu'elle décide de TOUT LE RESTE : un « Tiers indépendant » ne reçoit
+          aucune carte, et remplir huit champs avant de l'apprendre serait un travail perdu. */}
+      {contact?.categorie}
 
       {/* 🔴 LA CIVILITÉ PILOTE UNE RÈGLE (le prénom n'est pas exigé d'une société) : en texte libre, « S.C.I. »,
           « Sci » et « SCI » étaient trois valeurs, et l'une d'elles finissait par ne pas être reconnue. */}
@@ -879,14 +971,19 @@ function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation }: {
         {/* 🔴 « ENREGISTRER » RESTE GRISÉ TANT QUE LA FICHE EST INCOMPLÈTE — et ce qui bloque est écrit sous
             chaque champ, juste au-dessus : un bouton grisé sans motif est une énigme. */}
         <button type="submit" className="svv-btn gst-btn cp-bouton" disabled={envoi || incomplete}
-          title={incomplete ? 'Il reste des champs à renseigner (voir les mentions en rouge).' : undefined}>
+          title={empeche !== '' ? empeche
+            : incomplete ? 'Il reste des champs à renseigner (voir les mentions en rouge).' : undefined}>
           {envoi ? 'Enregistrement…' : 'Enregistrer'}
         </button>
       </div>
-      <p className="cp-note-verrou">
-        Une valeur enregistrée ici devient <strong>prioritaire</strong> : l’import WIPPIMMO ne l’écrase plus, il
-        signale seulement la divergence dans son rapport.
-      </p>
+      {/* ⚠️ CETTE PHRASE NE VAUT QUE POUR UN CLIENT, et c'est pour ça qu'elle est conditionnée : un contact
+          n'existe pas dans WIPPIMMO — il n'a aucun import à primer, et la lui promettre serait faux. */}
+      {contact === undefined && (
+        <p className="cp-note-verrou">
+          Une valeur enregistrée ici devient <strong>prioritaire</strong> : l’import WIPPIMMO ne l’écrase plus, il
+          signale seulement la divergence dans son rapport.
+        </p>
+      )}
     </form>
   );
 }
@@ -1036,11 +1133,83 @@ function EcranSeparer({ p, onSeparer, onAnnuler, refus }: {
  * l'autre endroit. Un second chemin d'écriture aurait fini par écrire deux règles différentes.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — UNE CARTE DE CONTACT, TELLE QUE LE FORMULAIRE LA LIT ═══════════════════
+ *
+ * L'adaptateur entre une carte (identifiée par son adresse E-MAIL) et les neuf champs que le formulaire des
+ * clients lit. Il tient UNE décision, et elle mérite son encadré :
+ *
+ * 🔴 LA LISTE DES COORDONNÉES, QUAND LA CARTE N'EN A PAS, EST AMORCÉE AVEC CE QU'ON SAIT D'ELLE : son téléphone
+ * (colonne de la 304) et SON ADRESSE E-MAIL. Sans cet amorçage, ouvrir le crayon sur l'une des 481 cartes
+ * d'avant la 306 aurait montré une liste VIDE — donc « il faut au moins une adresse e-mail » en rouge, sur une
+ * carte dont l'adresse est précisément ce qu'on connaît le mieux. Et au premier enregistrement, la liste vide
+ * aurait remplacé le numéro par rien.
+ *
+ * ⚠️ MAIS IL N'AJOUTE RIEN À UNE LISTE QUI EXISTE. Si Arno a retiré l'adresse de la capsule de la liste et
+ * enregistré, c'est une décision : la remettre à chaque ouverture annulerait son geste en silence.
+ */
+export function ficheDeContact(c: {
+  adresse: string;
+  civilite?: string | null; prenom?: string | null; nom?: string | null; qualite?: string | null;
+  adressePostale?: string | null; codePostal?: string | null; commune?: string | null; note?: string | null;
+  telephone?: string | null;
+  coordonnees?: readonly { sorte: 'telephone' | 'email'; libelle: string | null; valeur: string }[];
+}): FicheAEditer {
+  const liste = c.coordonnees ?? [];
+  const amorce: { sorte: 'telephone' | 'email'; libelle: string | null; valeur: string }[] = [];
+  if ((c.telephone ?? '').trim() !== '') {
+    amorce.push({ sorte: 'telephone', libelle: null, valeur: (c.telephone as string).trim() });
+  }
+  amorce.push({ sorte: 'email', libelle: 'E-mail', valeur: c.adresse });
+
+  return {
+    civilite: c.civilite ?? null,
+    prenom: c.prenom ?? null,
+    nom: c.nom ?? '',
+    qualite: c.qualite ?? null,
+    adresse: c.adressePostale ?? null,
+    codePostal: c.codePostal ?? null,
+    commune: c.commune ?? null,
+    note: c.note ?? null,
+    contacts: (liste.length > 0 ? liste : amorce).map((x, i) => ({
+      id: i, sorte: x.sorte, affichage: x.valeur, libelle: x.libelle,
+    })),
+  };
+}
+
+/**
+ * ══ 🔴 LES COORDONNÉES D'UNE CARTE, TELLES QUE `Coordonnees` LES AFFICHE ═════════════════════════════════════════
+ *
+ * Le composant d'affichage est celui des clients, sans un `if` de plus : il regroupe par type (« MOBILE », « FIXE »,
+ * « E-MAIL »), ne titre que la première ligne de chaque groupe, tronque les adresses longues et pose « Copier » au
+ * bord droit. Il attend des `ContactAffiche` — on les fabrique donc, au lieu de recopier son balisage.
+ *
+ * ⚠️ `valeur` ET `affichage` SONT LA MÊME CHAÎNE ICI, et c'est exact : ce qu'un humain a tapé dans le formulaire
+ * est ce qu'on affiche ET ce qu'on copie. Chez un client, les deux diffèrent parce que l'import WIPPIMMO a
+ * normalisé des numéros décortiqués — un contact n'a pas d'import.
+ *
+ * ⚠️ `absent` TOUJOURS FAUX, `note`/`typeAnnotation` TOUJOURS `null` : « retiré de l'export » et les annotations
+ * de numéro sont des états de l'import WIPPIMMO, et ils n'ont aucun sens pour une carte saisie à la main.
+ * Inventer `absent: true` ferait apparaître une capsule « retiré de l'export » sur une carte qui n'y a jamais été.
+ */
+function coordonneesAffichables(c: CarteDeContact): ContactAffiche[] {
+  return ficheDeContact(c).contacts.map((x) => ({
+    id: x.id, sorte: x.sorte, valeur: x.affichage, affichage: x.affichage,
+    absent: false, note: null, typeAnnotation: null, libelle: x.libelle,
+  }));
+}
+
 export interface GestesCarteContact {
   /** Vrai quand la migration 304 est là. Faux ⇒ les trois gestes sont désactivés, avec leur motif. */
   modifiable: boolean;
   onVerifier: (id: number) => Promise<string | null>;
-  onModifier: (id: number, champs: { nom: string; telephone: string; note: string }) => Promise<string | null>;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE CRAYON REND LA FICHE COMPLÈTE, et non trois champs. Arno : « Le même
+   * formulaire complet sert à “Modifier ce contact” (le crayon de la carte). » C'est le MÊME objet que
+   * `GestesCartes.onEnregistrer` reçoit pour un client : une seule forme de saisie pour les deux, donc une seule
+   * façon de l'envoyer au serveur.
+   */
+  onModifier: (id: number, champs: ChampsSaisis) => Promise<string | null>;
   onRetirer: (id: number) => Promise<string | null>;
   /** « Changer de côté » et « Passer en tiers indépendant » : un RANGEMENT, par la porte du rangement. */
   onRanger: (adresse: string, categorie: 'proprietaire' | 'locataire' | 'independant') => Promise<string | null>;
@@ -1051,9 +1220,6 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
   const [mode, setMode] = useState<'lecture' | 'modifier'>('lecture');
   const [menu, setMenu] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
-  const [nom, setNom] = useState(c.nom ?? '');
-  const [telephone, setTelephone] = useState(c.telephone ?? '');
-  const [note, setNote] = useState(c.note ?? '');
 
   /**
    * ⚠️ `?? null` : UNE RÉPONSE PLUS ANCIENNE QUE CE LOT NE PORTE PAS `verifieLe`, et `undefined === null` est
@@ -1062,7 +1228,23 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
    */
   const aVerifier = (c.verifieLe ?? null) === null;
   const badge = libelleDuCote(c.cote);
-  const nomLisible = (c.nom ?? '').trim() !== '' ? (c.nom as string).trim() : c.adresse;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE NOM SE COMPOSE COMME CELUI D'UN CLIENT : « M. ROI Nathan ». Mêmes
+   * deux fonctions (`nomAvecCivilite`, `nomAfficheFormate`), donc même résultat sur la même saisie — c'est la
+   * demande d'Arno (« les mêmes rubriques qu'une carte client »), et deux compositions auraient fini par écrire
+   * le prénom d'un côté et pas de l'autre.
+   *
+   * ⚠️ L'ADRESSE E-MAIL RESTE LE REPLI, et c'est le cas des 481 cartes de la base : elles n'ont pas de nom.
+   */
+  const nomCompose = nomAvecCivilite(c.civilite, nomAfficheFormate({
+    nom: c.nom ?? '', prenom: c.prenom ?? null, nomAffiche: null,
+  })).trim();
+  const nomLisible = nomCompose !== '' ? nomCompose : c.adresse;
+  /** Même composition que la carte d'un client : « 12 rue des Lilas, 92400 COURBEVOIE ». */
+  const adressePostale = [
+    c.adressePostale,
+    [codePostalFormate(c.codePostal), communeFormatee(c.commune)].filter((x) => x !== '').join(' '),
+  ].filter((x) => x !== null && x.trim() !== '').join(', ');
 
   /**
    * 🔴 LE GARDE DE LA RÈGLE D'ARNO, À L'ENDROIT OÙ LE BADGE S'ÉCRIT. Il ne peut pas se déclencher aujourd'hui
@@ -1074,43 +1256,30 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
   const fermer = (): void => { setMode('lecture'); setMenu(false); setRefus(null); };
 
   if (mode === 'modifier') {
+    /**
+     * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE CRAYON OUVRE LE FORMULAIRE DES CLIENTS, LE MÊME ════════════════
+     *
+     * DEMANDE D'ARNO : « Le même formulaire complet sert à “Modifier ce contact” (le crayon de la carte). »
+     *
+     * 🔴 CE QUI DISPARAÎT ICI EST UN FORMULAIRE DE QUATRE CHAMPS que j'avais écrit au lot 7 (adresse en lecture
+     * seule, nom, téléphone, note). Il n'était pas faux — il était INCOMPLET, et c'est précisément le défaut
+     * qu'Arno nomme : on saisissait un contact dans un formulaire, et on le corrigeait dans un autre, plus
+     * pauvre. Les deux auraient divergé au premier champ ajouté.
+     *
+     * ⚠️ L'ADRESSE E-MAIL DE LA CARTE N'EST PLUS EN LECTURE SEULE, ET CE N'EST PAS UN OUBLI : elle est devenue
+     * une LIGNE de la liste « Téléphones et e-mails », comme chez un client. L'IDENTITÉ de la carte, elle, ne
+     * bouge toujours pas — c'est la colonne `adresse`, que le serveur ne modifie jamais (`modifierCarte` ne la
+     * nomme pas). Changer la ligne de la liste change donc une COORDONNÉE, pas la carte : la capsule du bloc du
+     * bas retrouve sa carte, et le « + » ne réapparaît pas.
+     */
     return (
       <article className="cp-carte cp-carte--edition">
-        {/* ⚠️ L'ADRESSE EST EN LECTURE SEULE : elle est l'IDENTITÉ de la carte (la clé de la table est
-            (bien, côté, adresse)). La changer serait créer une AUTRE carte — et c'est ce que fait le « + ». */}
-        <form className="cp-form" onSubmit={(e) => {
-          e.preventDefault();
-          void (async () => {
-            const motif = await gestes.onModifier(c.id, { nom, telephone, note });
+        <FormulaireCarte p={ficheDeContact(c)} onAnnuler={fermer} refus={refus}
+          contact={{ titre: TITRE_CONTACT_MODIFIER }}
+          onEnregistrer={async (champs) => {
+            const motif = await gestes.onModifier(c.id, champs);
             if (motif === null) fermer(); else setRefus(motif);
-          })();
-        }}>
-          <p className="cp-form-titre">Modifier ce contact</p>
-          <label className="cp-champ">
-            <span className="cp-champ-mot">Adresse mail</span>
-            <input className="ann-champ" type="email" value={c.adresse} readOnly />
-          </label>
-          <label className="cp-champ">
-            <span className="cp-champ-mot">Nom</span>
-            <input className="ann-champ" type="text" value={nom} autoComplete="off"
-              onChange={(e) => setNom(e.target.value)} />
-          </label>
-          <label className="cp-champ">
-            <span className="cp-champ-mot">Téléphone</span>
-            <input className="ann-champ" type="tel" value={telephone} autoComplete="off"
-              onChange={(e) => setTelephone(e.target.value)} />
-          </label>
-          <label className="cp-champ">
-            <span className="cp-champ-mot">Note</span>
-            <input className="ann-champ" type="text" value={note} autoComplete="off"
-              onChange={(e) => setNote(e.target.value)} />
-          </label>
-          {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
-          <p className="cp-form-boutons">
-            <button type="submit" className="gst-bouton">Enregistrer</button>
-            <button type="button" className="gst-bouton gst-bouton--pale" onClick={fermer}>Annuler</button>
-          </p>
-        </form>
+          }} />
       </article>
     );
   }
@@ -1168,17 +1337,23 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
       )}
       {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
 
+      {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LES MÊMES RUBRIQUES QU'UNE CARTE CLIENT ══════════════════════
+          DEMANDE D'ARNO : « La carte de contact du carrousel montre les mêmes rubriques qu'une carte client
+          (QUALITÉ, ADRESSE, MOBILE/E-MAIL avec “Copier”, NOTE), avec le badge CONTACT DU PROPRIÉTAIRE /
+          CONTACT DU LOCATAIRE. »
+
+          🔴 MÊME ORDRE, MÊMES MOTS, MÊMES COMPOSANTS que `CartePersonne` : Qualité, Adresse, les coordonnées
+          groupées par type, puis la Note. Recopier l'ordre « à peu près » aurait suffi à ce que l'œil sente une
+          différence sans pouvoir la nommer — et c'est exactement ce qu'Arno interdit en demandant « le même
+          gabarit ».
+
+          ⚠️ L'ADRESSE E-MAIL DE LA CARTE EST **DANS** LES COORDONNÉES, et non sur une ligne à part : c'est
+          `ficheDeContact` qui l'y amorce quand la liste est vide (les 481 cartes d'avant la 306). Une ligne
+          « E-mail » séparée aurait affiché deux fois la même adresse dès qu'une liste en porte une. */}
       <div className="cp-lignes">
-        <Ligne libelle="E-mail">
-          {gestes.onEcrire === undefined ? c.adresse : (
-            <button type="button" className="gst-lien-bouton"
-              onClick={() => gestes.onEcrire?.(c.adresse)}>{c.adresse}</button>
-          )}
-        </Ligne>
-        <Ligne libelle="Téléphone" apres={(c.telephone ?? '').trim() === '' ? undefined
-          : <Copier valeur={(c.telephone as string).trim()} quoi="le téléphone" />}>
-          {(c.telephone ?? '').trim() !== '' ? c.telephone : <Rien />}
-        </Ligne>
+        <Ligne libelle="Qualité">{c.qualite ?? <Rien mot="non renseignée" />}</Ligne>
+        <Ligne libelle="Adresse">{adressePostale !== '' ? adressePostale : <Rien mot="non renseignée" />}</Ligne>
+        <Coordonnees contacts={coordonneesAffichables(c)} onEcrire={gestes.onEcrire} />
         <Ligne libelle="Note">{(c.note ?? '').trim() !== '' ? c.note : <Rien mot="non renseignée" />}</Ligne>
       </div>
 

@@ -732,7 +732,18 @@ describe('🔴 la carte d’ajout est la carte « Modifier », vide', () => {
    * jumeaux divergeraient au premier champ ajouté, et l'on saisirait un prénom dans l'un et pas dans l'autre.
    */
   it('🔴 c’est le MÊME `FormulaireCarte`, avec `p` à `null`', () => {
-    expect(src).toContain('p: PersonneAnnuaire | null;');
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE TYPE A CHANGÉ, ET L'INTENTION DU GARDE EST INTACTE. Le formulaire
+     * recevait une `PersonneAnnuaire` entière alors qu'il n'en lit que neuf champs ; il reçoit maintenant
+     * `FicheAEditer`, qui ne décrit QUE ces neuf champs — ce qui a permis à une carte de CONTACT d'ouvrir le même
+     * formulaire sans qu'on invente un identifiant, une clé WIPPIMMO ni un rang pour elle (voir
+     * `ficheDeContact`). `PersonneAnnuaire` les porte tous, donc AUCUN appel client n'a changé : la condition
+     * d'Arno (« les cartes CLIENTS ne changent pas d'un pixel ») est tenue par le compilateur.
+     *
+     * ⚠️ CE QUE LE GARDE PROTÈGE RESTE LE MÊME : un seul composant pour les deux modes, ouvert avec `p={null}`
+     * en création.
+     */
+    expect(src).toContain('p: FicheAEditer | null;');
     expect(src).toContain('<FormulaireCarte p={null}');
     // L'ancien formulaire réduit (Civilité / Nom / date) n'existe plus nulle part.
     const annuaire = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
@@ -770,7 +781,18 @@ describe('🔴 la carte d’ajout est la carte « Modifier », vide', () => {
   /** ⚠️ LA CRÉATION EXIGE ; LA MODIFICATION N'EXIGE RIEN DE PLUS QU'AVANT. Une fiche importée peut n'avoir ni
    *  prénom ni e-mail — refuser de la corriger pour cette raison rendrait la correction impossible. */
   it('🔴 l’exigence de complétude ne s’applique QU’À la création', () => {
-    expect(src).toContain('const manque = creation === undefined ? {} : manquesDeLaFiche({');
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LA LIGNE S'EST DÉDOUBLÉE, ET C'EST EXACTEMENT CE QUI PROTÈGE LA RÈGLE
+     * DES CLIENTS. Arno : « Pour un CONTACT, seuls le NOM et AU MOINS UN E-MAIL sont obligatoires. LES RÈGLES DES
+     * CLIENTS NE CHANGENT PAS. » Le formulaire choisit donc entre DEUX règles — et celle des clients garde mot
+     * pour mot sa condition « uniquement en création ».
+     *
+     * ⚠️ CE QUE CE GARDE INTERDIT DÉSORMAIS EN PLUS : que la règle d'un contact s'écrive en PARAMÈTRE de celle
+     * d'un client. `manquesDuContact` est une autre fonction, dans le module pur, et c'est ce que la seconde
+     * assertion vérifie.
+     */
+    expect(src).toContain('creation === undefined ? {} : manquesDeLaFiche({');
+    expect(src).toContain('manquesDuContact({ nom, coordonnees: saisiesVivantes })');
   });
 
   /** 🔴 TOUTE LA FICHE EN UNE SEULE ÉCRITURE : deux appels laisseraient une fiche nue au moindre refus. */

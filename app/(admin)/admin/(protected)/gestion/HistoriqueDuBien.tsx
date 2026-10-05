@@ -71,6 +71,49 @@ import { annoncerCartesContact, concerneCeBien, ecouterCartesContact, type Signa
  */
 import { carteMonteAuCarrousel, coteDeLaCategorie, type Categorie } from '../../../../lib/gestion/partieCategorie';
 import type { EvenementDuBien } from '../../../../lib/gestion/historiqueBienRepo';
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE FORMULAIRE DU « + » EST CELUI DES CLIENTS, IMPORTÉ ═══════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « Réutilise le formulaire “Nouvelle fiche” / “Modifier la fiche” des clients —
+ * LE MÊME COMPOSANT, PAS UNE COPIE. »
+ *
+ * 🔴 ET C'EST LA MÊME LEÇON QUE POUR `LigneVie` ET `CartePieceConversation` CI-DESSUS, payée plusieurs fois par
+ * ce dépôt : deux formulaires jumeaux divergent au premier champ ajouté. `FormulaireCarte` a donc reçu un
+ * `export` (et le TYPE de ce qu'il lit), et ce bloc l'appelle tel quel. Le garde de `HistoriqueDuBien.test.ts`
+ * vérifie que l'import existe et qu'aucun champ n'a été redessiné ici.
+ */
+import { FormulaireCarte, ficheDeContact, type ChampsSaisis } from './CartesPersonnes';
+/* 🔴 LES RÈGLES ET LES MOTS D'UN CONTACT VIENNENT DU MODULE PUR — jamais d'une phrase recopiée ici. */
+import {
+  TITRE_CONTACT_NOUVEAU, couperNomEtPrenom, ficheAEnvoyer,
+} from '../../../../lib/gestion/ficheContact';
+/** Ce que le dépôt sait d'une adresse avant toute saisie. Importé en TYPE : rien de `pg` n'entre ici. */
+import type { CoordonneesTrouvees } from '../../../../lib/gestion/partieCategorieRepo';
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8 — UNE CARTE TELLE QUE LA ROUTE LA REND À CE BLOC ══════════════════════════════════
+ *
+ * 🔴 CE N'EST PAS `LigneCarte` : la route ne rend ni `lotCle` (l'appelant l'a demandé), ni `creeLe`, ni
+ * `creePar` — aucun écran ne les affiche —, et elle AJOUTE `verifie`, que ce bloc lit pour sa trame orange. Le
+ * type décrit donc ce qui arrive VRAIMENT, et non ce que la base contient : c'est ce qui fait échouer la
+ * compilation le jour où la projection maigrit.
+ */
+interface CarteProposee {
+  cote: string;
+  adresse: string;
+  verifie: boolean;
+  origine: 'auto' | 'manuel';
+  nom?: string | null;
+  telephone?: string | null;
+  civilite?: string | null;
+  prenom?: string | null;
+  qualite?: string | null;
+  adressePostale?: string | null;
+  codePostal?: string | null;
+  commune?: string | null;
+  note?: string | null;
+  coordonnees?: readonly { sorte: 'telephone' | 'email'; libelle: string | null; valeur: string }[];
+}
 
 /**
  * LOT HISTORIQUE-BIEN-1 — « L'HISTORIQUE DU BIEN », EN BAS DE LA FICHE D'UN LOGEMENT.
@@ -121,6 +164,13 @@ interface DemandeRangement {
  * désordre.
  */
 const ATTENTE_FRAPPE_MS = 250;
+
+/**
+ * 🔴 LE MOT DE LA CATÉGORIE MANQUANTE, ÉCRIT UNE FOIS. Il s'affiche SOUS le champ (convention du formulaire) ET
+ * dans l'infobulle du bouton grisé : deux endroits, un seul texte. Deux phrases jumelles auraient fini par ne
+ * plus se ressembler, et le lecteur aurait cru à deux règles.
+ */
+const MANQUE_CATEGORIE = 'Choisissez une catégorie : elle n’a pas été déduite pour cette adresse.';
 
 export function HistoriqueDuBien({
   lotCle, maintenant, occupations, categories, periodes = new Map(), clients = [], onFicheClient,
@@ -384,8 +434,15 @@ export function HistoriqueDuBien({
    * 🔴 LES CARTES PORTENT LEUR ADRESSE depuis le lot HISTORIQUE-BIEN-3, et il la fallait : le « + » cerclé ne
    * s'affiche que sur une partie qui N'A PAS encore de carte, ce qui demande de savoir lesquelles en ont une.
    */
-  const [cartesContact, setCartesContact] =
-    useState<{ cote: string; adresse: string; verifie: boolean; origine: 'auto' | 'manuel' }[]>([]);
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LA CARTE PORTE DÉSORMAIS SA FICHE, ET C'EST LE POINT 1 QUI L'EXIGE ══
+   *
+   * Arno, point 1 : les cartes automatiques « ne sont plus affichées dans les carrousels du haut ; elles
+   * deviennent de simples PRÉ-REMPLISSAGES du formulaire du “+” ». Une PROPOSITION n'a donc plus qu'un seul
+   * usage : remplir le formulaire. Il faut pour cela qu'elle arrive avec ce qu'elle sait — et pas seulement avec
+   * son côté et son état de vérification.
+   */
+  const [cartesContact, setCartesContact] = useState<CarteProposee[]>([]);
   /**
    * ══ 🔴🔴 CE QUE LA RÈGLE À TROIS ÉTAGES A **PROPOSÉ**, Y COMPRIS « non affectée » ══════════════════════════════
    *
@@ -411,8 +468,7 @@ export function HistoriqueDuBien({
    * ⚠️ VIDE EN CAS D'ÉCHEC : la carte s'ouvre alors avec la seule adresse, comme avant ce lot. Un
    * pré-remplissage manquant n'empêche personne de saisir.
    */
-  const [coordonnees, setCoordonnees] =
-    useState<ReadonlyMap<string, { nom: string | null; telephone: string | null }>>(new Map());
+  const [coordonnees, setCoordonnees] = useState<ReadonlyMap<string, CoordonneesTrouvees>>(new Map());
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LE BLOC DU BAS S'ABONNE AU SIGNAL, LUI AUSSI ═════════════════════════════════
@@ -434,9 +490,10 @@ export function HistoriqueDuBien({
         etat?: string;
         data?: {
           parties?: { adresse: string; categorie: string | null }[];
-          cartes?: { cote: string; adresse: string; verifie: boolean; origine: 'auto' | 'manuel' }[];
-          /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — ce que la carte du « + » pré-remplit. */
-          coordonnees?: { adresse: string; nom: string | null; telephone: string | null }[];
+          cartes?: CarteProposee[];
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — ce que la carte du « + » pré-remplit.
+             🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — et l'ADRESSE POSTALE trouvée dans la même signature. */
+          coordonnees?: CoordonneesTrouvees[];
         };
       };
       const m = new Map<string, CategoriePartie>();
@@ -455,10 +512,8 @@ export function HistoriqueDuBien({
       setCategoriesRangees(m);
       setProposees(prop);
       setCartesContact(d.data?.cartes ?? []);
-      const co = new Map<string, { nom: string | null; telephone: string | null }>();
-      for (const c of d.data?.coordonnees ?? []) {
-        co.set(c.adresse.trim().toLowerCase(), { nom: c.nom, telephone: c.telephone });
-      }
+      const co = new Map<string, CoordonneesTrouvees>();
+      for (const c of d.data?.coordonnees ?? []) co.set(c.adresse.trim().toLowerCase(), c);
       setCoordonnees(co);
     } catch {
       setCategoriesRangees(new Map());
@@ -960,7 +1015,7 @@ export function HistoriqueDuBien({
    * PRIME sur tout le reste, donc il ne se corrige pas tout seul à la passe suivante.
    */
   const [aCreer, setACreer] = useState<{
-    adresse: string; categorie: Categorie | ''; nom: string; telephone: string;
+    adresse: string; categorie: Categorie | ''; fiche: ReturnType<typeof ficheDeContact>;
   } | null>(null);
   const [refusCreation, setRefusCreation] = useState<string | null>(null);
   const [creationEnCours, setCreationEnCours] = useState(false);
@@ -987,13 +1042,46 @@ export function HistoriqueDuBien({
      * La carte créée est d'ailleurs marquée « à vérifier » tant que personne ne l'a regardée.
      */
     const trouve = coordonnees.get(cle);
+    /**
+     * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINTS 1 ET 3 — DEUX SOURCES DE PRÉ-REMPLISSAGE, DANS CET ORDRE ════════════
+     *
+     * Arno (point 1) : les ~485 cartes automatiques « deviennent de simples PRÉ-REMPLISSAGES du formulaire du
+     * “+” ». Arno (point 3) : le formulaire est « pré-rempli depuis le pré-remplissage : nom et prénom séparés si
+     * possible, e-mail, téléphone et adresse trouvés dans la signature ».
+     *
+     * 🔴 LA PROPOSITION D'ABORD, LA SIGNATURE ENSUITE, CHAMP PAR CHAMP. La proposition est le travail déjà fait
+     * (la reprise l'a écrite, et quelqu'un a pu la compléter avant ce lot) ; la signature est ce qu'on sait lire
+     * à l'instant. Prendre la signature en premier aurait écrasé un nom corrigé à la main par le nom d'en-tête
+     * d'un vieux courrier.
+     *
+     * 🔴 LE NOM SE COUPE EN PRÉNOM + NOM « SI POSSIBLE » — et « si possible » est la moitié de la demande : voir
+     * `couperNomEtPrenom`, qui refuse de couper « Puro Flow Paris » et coupe « Jessica TADEU ». La carte, elle,
+     * peut déjà porter les deux séparés (elle a été saisie dans ce formulaire) : on ne recoupe alors rien.
+     */
+    const propose = cartesContact.find((c) => c.adresse.trim().toLowerCase() === cle);
+    const nomBrut = propose?.nom ?? trouve?.nom ?? '';
+    const coupe = couperNomEtPrenom(nomBrut);
+    const dejaSeparee = (propose?.prenom ?? '').trim() !== '';
+
     setACreer({
       adresse,
       categorie: choisie === undefined || choisie === 'a_repartir' ? '' : choisie,
-      nom: trouve?.nom ?? '',
-      telephone: trouve?.telephone ?? '',
+      fiche: ficheDeContact({
+        adresse,
+        nom: dejaSeparee ? (propose?.nom ?? '') : coupe.nom,
+        prenom: dejaSeparee ? propose?.prenom : coupe.prenom,
+        /* 🔴 UNE CIVILITÉ LUE EN TÊTE DU NOM (« MADAME ROUDAUT ») VA DANS SON CHAMP, et non dans le prénom. */
+        civilite: propose?.civilite ?? (dejaSeparee ? null : coupe.civilite),
+        qualite: propose?.qualite,
+        note: propose?.note,
+        adressePostale: propose?.adressePostale ?? trouve?.adressePostale,
+        codePostal: propose?.codePostal ?? trouve?.codePostal,
+        commune: propose?.commune ?? trouve?.commune,
+        telephone: propose?.telephone ?? trouve?.telephone,
+        coordonnees: propose?.coordonnees,
+      }),
     });
-  }, [proposees, coordonnees]);
+  }, [proposees, coordonnees, cartesContact]);
 
   /**
    * ══ 🔴 VALIDER : LE RANGEMENT, PUIS LA CARTE — ET LA RELECTURE QUI FAIT CHANGER DE GROUPE ═══════════════════
@@ -1007,7 +1095,7 @@ export function HistoriqueDuBien({
    * aurait affiché un rangement que le serveur a peut-être refusé en partie (la carte sans la catégorie, par
    * exemple) — et l'écran aurait menti jusqu'au rechargement.
    */
-  const enregistrerCreation = useCallback(async (): Promise<void> => {
+  const enregistrerCreation = useCallback(async (champs: ChampsSaisis): Promise<void> => {
     if (aCreer === null || aCreer.categorie === '') return;
     setCreationEnCours(true);
     setRefusCreation(null);
@@ -1017,10 +1105,14 @@ export function HistoriqueDuBien({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           cible: `lot-${lotCle}`,
+          /* ⚠️ L'ADRESSE DU POST EST CELLE DE LA CAPSULE, ET NON UNE LIGNE DU FORMULAIRE : elle est l'IDENTITÉ de
+             la carte, et c'est par elle que la capsule retrouve la sienne. Les e-mails saisis sont, eux, des
+             COORDONNÉES — voir l'encadré du mode « modifier » dans `CartesPersonnes`. */
           adresse: aCreer.adresse,
           categorie: aCreer.categorie,
-          nom: aCreer.nom.trim() === '' ? null : aCreer.nom.trim(),
-          telephone: aCreer.telephone.trim() === '' ? null : aCreer.telephone.trim(),
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — la fiche complète, par la MÊME porte d'écriture qu'avant, et
+             par la MÊME traduction que le crayon d'une carte du haut (module pur `ficheAEnvoyer`). */
+          ...ficheAEnvoyer(champs),
         }),
       });
       const d = (await res.json()) as { etat?: string; motif?: string };
@@ -1378,66 +1470,71 @@ export function HistoriqueDuBien({
           )}
           {refusDeplacement !== null && <p className="gst-erreur" role="status">{refusDeplacement}</p>}
 
-          {/* ══ 🔴🔴 LA PETITE CARTE DE CRÉATION DE CONTACT ═══════════════════════════════════════════════════ */}
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE « + » OUVRE LE FORMULAIRE DES CLIENTS, LE MÊME ═════════
+              DEMANDE D'ARNO : « Le formulaire du “+” doit être le MÊME que celui des clients (“Nouvelle fiche” /
+              “Modifier la fiche”), le MÊME composant, pas une copie. »
+
+              🔴 CE QUI DISPARAÎT ICI EST LA PETITE CARTE DE QUATRE CHAMPS du lot 6 (adresse en lecture seule,
+              nom, téléphone, catégorie). Elle n'était pas fausse, elle était PAUVRE : on y saisissait un
+              contact, et la fiche d'un client en demandait huit de plus. Et surtout elle AURAIT DIVERGÉ — c'est
+              la leçon que ce dépôt a déjà payée avec deux listes de domaines et trois listes de types d'images.
+
+              🔴 CE QUI RESTE À CE BLOC EST CE QUE LUI SEUL SAIT : la CATÉGORIE. Elle lui appartient parce que
+              lui seul connaît le groupe d'où l'on a cliqué, la déduction de la règle à trois étages, et ce qu'un
+              « Tiers indépendant » implique (aucune carte, un rangement global). Le formulaire la rend telle
+              qu'on la lui donne, en tête — avant les huit champs, parce qu'elle décide de tout le reste. */}
           {aCreer !== null && (
             <div className="hdb-creation" role="group" aria-label="Ranger cette partie et créer son contact">
-              <p className="hdb-creation-titre">
-                Ranger <strong>{aCreer.adresse}</strong> pour ce bien
-              </p>
-              <div className="hdb-creation-champs">
-                <label className="hdb-creation-champ">
-                  <span className="svv-label">Adresse mail</span>
-                  {/* ⚠️ PRÉ-REMPLIE ET NON MODIFIABLE : c'est l'adresse de la partie qu'on range, pas une
-                      saisie libre. La rendre modifiable aurait permis de ranger quelqu'un d'autre sans le voir. */}
-                  <input type="email" className="ann-champ" value={aCreer.adresse} readOnly />
-                </label>
-                <label className="hdb-creation-champ">
-                  <span className="svv-label">Nom</span>
-                  <input type="text" className="ann-champ" value={aCreer.nom} autoComplete="off"
-                    placeholder="facultatif"
-                    onChange={(e) => setACreer((c) => (c === null ? c : { ...c, nom: e.target.value }))} />
-                </label>
-                <label className="hdb-creation-champ">
-                  <span className="svv-label">Téléphone</span>
-                  <input type="tel" className="ann-champ" value={aCreer.telephone} autoComplete="off"
-                    placeholder="facultatif"
-                    onChange={(e) => setACreer((c) => (c === null ? c : { ...c, telephone: e.target.value }))} />
-                </label>
-                <label className="hdb-creation-champ">
-                  <span className="svv-label">Catégorie</span>
-                  <select className="ann-champ" value={aCreer.categorie}
-                    onChange={(e) => setACreer((c) => (c === null ? c
-                      : { ...c, categorie: e.target.value as Categorie | '' }))}>
-                    {/* ⚠️ L'OPTION VIDE EXISTE, et elle est le défaut quand rien n'a été déduit : un choix
-                        pré-coché au hasard se valide sans être lu. */}
-                    <option value="">— à choisir —</option>
-                    <option value="proprietaire">Propriétaire</option>
-                    <option value="locataire">Locataire</option>
-                    <option value="independant">Tiers indépendant</option>
-                  </select>
-                </label>
-              </div>
-
-              <p className="gst-note hdb-note">
-                {aCreer.categorie === 'independant'
-                  ? 'Un tiers indépendant est rangé une fois pour TOUS les biens, ne reçoit pas de carte de contact, '
-                    + 'et ne sert jamais à l’automatisation.'
-                  : aCreer.categorie === ''
-                    ? 'Choisissez une catégorie : elle n’a pas été déduite pour cette adresse.'
-                    : `Rangée côté ${coteDeLaCategorie(aCreer.categorie) === 'proprietaire' ? 'propriétaire' : 'locataire'} `
-                      + 'de ce bien, avec une carte de contact à vérifier.'}
-              </p>
-              {refusCreation !== null && <p className="gst-erreur" role="status">{refusCreation}</p>}
-
-              <div className="hdb-boutons">
-                <button type="button" className="svv-btn gst-btn"
-                  disabled={aCreer.categorie === '' || creationEnCours}
-                  onClick={() => { void enregistrerCreation(); }}>
-                  {creationEnCours ? 'Enregistrement…' : 'Valider'}
-                </button>
-                <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                  onClick={() => { setACreer(null); setRefusCreation(null); }}>Annuler</button>
-              </div>
+              <FormulaireCarte
+                p={aCreer.fiche}
+                refus={refusCreation}
+                onAnnuler={() => { setACreer(null); setRefusCreation(null); }}
+                onEnregistrer={async (champs) => { await enregistrerCreation(champs); }}
+                contact={{
+                  titre: TITRE_CONTACT_NOUVEAU,
+                  rappel: <>Rangé pour ce bien, sous l’adresse <strong>{aCreer.adresse}</strong>.</>,
+                  /**
+                   * 🔴🔴 LA CATÉGORIE MANQUANTE BLOQUE « ENREGISTRER », ET C'EST LE FORMULAIRE QUI LE TIENT.
+                   *
+                   * Il sait déjà griser son bouton et afficher le motif dans son infobulle : lui passer cette
+                   * exigence-ci est donc une LIGNE, là où désactiver le bouton de l'extérieur aurait demandé un
+                   * bricolage de style — qui n'aurait rien dit à un lecteur d'écran, et qu'un clavier aurait
+                   * contourné. Sans ce blocage, « Enregistrer » posterait un rangement sans catégorie, que le
+                   * serveur refuse : un aller-retour pour rien, et un refus rouge pour un champ qu'on voit.
+                   */
+                  empeche: aCreer.categorie === '' ? MANQUE_CATEGORIE : null,
+                  categorie: (
+                    <>
+                      <label className="cp-champ">
+                        <span className="cp-champ-mot">Catégorie</span>
+                        <select className="cp-saisie" value={aCreer.categorie}
+                          onChange={(e) => setACreer((c) => (c === null ? c
+                            : { ...c, categorie: e.target.value as Categorie | '' }))}>
+                          {/* ⚠️ L'OPTION VIDE EXISTE, et elle est le défaut quand rien n'a été déduit : un choix
+                              pré-coché au hasard se valide sans être lu. */}
+                          <option value="">— à choisir —</option>
+                          <option value="proprietaire">Propriétaire</option>
+                          <option value="locataire">Locataire</option>
+                          <option value="independant">Tiers indépendant</option>
+                        </select>
+                        {/* 🔴 LE MANQUE EST DIT SOUS SON CHAMP, comme les autres : c'est la convention du
+                            formulaire, et un bouton grisé sans motif est une énigme. C'est le MÊME texte que
+                            `empeche` ci-dessous — écrit une fois, lu deux fois (voir `MANQUE_CATEGORIE`). */}
+                        {aCreer.categorie === '' && <span className="cp-manque">{MANQUE_CATEGORIE}</span>}
+                      </label>
+                      <p className="gst-note hdb-note">
+                        {aCreer.categorie === 'independant'
+                          ? 'Un tiers indépendant est rangé une fois pour TOUS les biens, ne reçoit pas de carte '
+                            + 'de contact, et ne sert jamais à l’automatisation.'
+                          : aCreer.categorie === ''
+                            ? 'La catégorie décide du reste : un tiers indépendant ne reçoit aucune carte.'
+                            : `Rangée côté ${coteDeLaCategorie(aCreer.categorie) === 'proprietaire' ? 'propriétaire' : 'locataire'} `
+                              + 'de ce bien, avec sa carte dans le carrousel du haut.'}
+                      </p>
+                    </>
+                  ),
+                }} />
+              {creationEnCours && <p className="gst-note hdb-note" role="status">Enregistrement…</p>}
             </div>
           )}
 

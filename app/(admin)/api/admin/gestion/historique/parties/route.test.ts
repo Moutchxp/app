@@ -468,3 +468,139 @@ describe('🔴🔴 les trois gestes d’une carte de contact', () => {
     expect(r.status).toBe(200);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LA FICHE COMPLÈTE TRAVERSE LA MÊME PORTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO : « Le formulaire du “+” doit être le MÊME que celui des clients […] Le même formulaire complet
+   sert à “Modifier ce contact” (le crayon de la carte). »
+
+   🔴 CE QUE CE GROUPE PROTÈGE : que les huit champs et la liste des coordonnées arrivent AU DÉPÔT, que la liste
+   passe par le module PUR (une ligne illisible est ignorée, jamais devinée), et qu'un appelant qui n'en parle pas
+   obtienne EXACTEMENT le comportement du lot 7 — c'est ce dernier point qui rend ce lot sans danger.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 la fiche d’un contact, du corps de la requête jusqu’au dépôt', () => {
+  const FICHE = {
+    civilite: 'Mme', prenom: 'Fanny', qualite: 'syndic',
+    adressePostale: '2 rue Mars et Roty', codePostal: '92800', commune: 'PUTEAUX',
+    note: 'ne pas appeler avant 10 h',
+    coordonnees: [
+      { sorte: 'telephone', libelle: 'Mobile', valeur: '06 11 22 33 44' },
+      { sorte: 'email', libelle: 'E-mail', valeur: 'f.rosky@fictif.test' },
+    ],
+  };
+
+  it('🔴🔴 LE « + » LA FAIT SUIVRE AU DÉPÔT, en entier', async () => {
+    await POST(poste({ ...BASE, nom: 'ROSKY', ...FICHE }));
+    const recu = poserCarteMock.mock.calls[0][0] as { fiche?: Record<string, unknown> };
+    expect(recu.fiche).toEqual(FICHE);
+  });
+
+  it('🔴🔴 LE CRAYON LA FAIT SUIVRE AUSSI — c’est le même formulaire', async () => {
+    await POST(poste({ action: 'modifier', id: 1463, nom: 'ROSKY', ...FICHE }));
+    const recu = modifierCarteMock.mock.calls[0][0] as { fiche?: Record<string, unknown> };
+    expect(recu.fiche).toEqual(FICHE);
+  });
+
+  /**
+   * 🔴🔴 UN CORPS DE REQUÊTE ET UNE COLONNE `jsonb` SONT DEUX INCONNUS DE MÊME NATURE : la MÊME fonction pure les
+   * relit (`coordonneesDeLaCarte`). Écrire ici une seconde lecture « pour le réseau » aurait autorisé en entrée ce
+   * que la relecture refuse ensuite — et c'est une carte qui ment pour toujours.
+   */
+  it('🔴🔴 LES COORDONNÉES PASSENT PAR LE MODULE PUR : l’illisible est écarté, jamais deviné', async () => {
+    await POST(poste({
+      ...BASE, nom: 'ROSKY',
+      coordonnees: ['texte', 42, null, { sorte: 'fax', valeur: '01' }, { sorte: 'email', valeur: '   ' },
+        { sorte: 'email', valeur: 'f.rosky@fictif.test', libelle: 'E-mail' }],
+    }));
+    const recu = poserCarteMock.mock.calls[0][0] as { fiche?: { coordonnees?: unknown } };
+    expect(recu.fiche?.coordonnees)
+      .toEqual([{ sorte: 'email', valeur: 'f.rosky@fictif.test', libelle: 'E-mail' }]);
+  });
+
+  it('⚠️ LES CHAMPS SONT BORNÉS, comme partout dans cette route', async () => {
+    await POST(poste({ ...BASE, nom: 'ROSKY', commune: 'x'.repeat(400), codePostal: '928001234567' }));
+    const f = (poserCarteMock.mock.calls[0][0] as { fiche: { commune: string; codePostal: string } }).fiche;
+    expect(f.commune).toHaveLength(120);
+    expect(f.codePostal).toHaveLength(10);
+  });
+
+  /**
+   * 🔴🔴 LE POINT LE PLUS IMPORTANT DU GROUPE : un corps SANS aucun champ de fiche ne donne PAS une fiche vide —
+   * il donne `undefined`, et le dépôt ne nomme alors AUCUNE colonne de la 306. Une fiche vide, elle, aurait
+   * effacé (au crayon) ou tenté d'écrire sept colonnes peut-être absentes. Un script, ou un écran d'avant ce lot,
+   * garde donc exactement l'effet qu'il avait.
+   */
+  it('🔴🔴 SANS AUCUN CHAMP DE FICHE, LE DÉPÔT N’EN REÇOIT AUCUNE — l’effet du lot 7, à la lettre', async () => {
+    await POST(poste({ ...BASE, nom: 'ROSKY', telephone: '01 41 21 43 31' }));
+    expect((poserCarteMock.mock.calls[0][0] as { fiche?: unknown }).fiche).toBeUndefined();
+
+    await POST(poste({ action: 'modifier', id: 1463, nom: 'ROSKY', telephone: '01 41 21 43 31' }));
+    expect((modifierCarteMock.mock.calls[0][0] as { fiche?: unknown }).fiche).toBeUndefined();
+  });
+
+  /**
+   * 🔴🔴 LA FICHE SUIT AUSSI UN CHANGEMENT DE CÔTÉ. La clé de la table est (bien, côté, adresse) : changer de côté
+   * EST une autre ligne, et tout ce qu'un humain a saisi doit être recopié. Sans ce report, glisser une capsule
+   * d'un côté à l'autre lui faisait perdre son adresse postale, sa qualité et ses coordonnées.
+   */
+  it('🔴🔴 UN CHANGEMENT DE CÔTÉ RECOPIE LA FICHE DE L’ANCIENNE CARTE', async () => {
+    cartesMock.mockResolvedValue([{
+      id: 480, cote: 'proprietaire', adresse: 'assureur@fictif.test', nom: 'ROSKY',
+      telephone: '01 41 21 43 31', origine: 'manuel', verifieLe: null, verifiePar: null,
+      note: 'ne pas appeler avant 10 h', civilite: 'Mme', prenom: 'Fanny', qualite: 'syndic',
+      adressePostale: '2 rue Mars et Roty', codePostal: '92800', commune: 'PUTEAUX',
+      coordonnees: [{ sorte: 'email', libelle: 'E-mail', valeur: 'f.rosky@fictif.test' }],
+    }]);
+    /* Aucun champ de fiche dans le corps : c'est le geste du menu « ⋯ » (« Changer de côté »). */
+    await POST(poste(BASE));
+    const recu = poserCarteMock.mock.calls[0][0] as { fiche?: Record<string, unknown> };
+    expect(recu.fiche).toEqual({
+      civilite: 'Mme', prenom: 'Fanny', qualite: 'syndic',
+      adressePostale: '2 rue Mars et Roty', codePostal: '92800', commune: 'PUTEAUX',
+      note: 'ne pas appeler avant 10 h',
+      coordonnees: [{ sorte: 'email', libelle: 'E-mail', valeur: 'f.rosky@fictif.test' }],
+    });
+  });
+
+  /**
+   * 🔴 LA FICHE DU GESTE L'EMPORTE SUR CELLE DE LA CARTE DÉPLACÉE, et l'ordre compte : quand le formulaire envoie
+   * une fiche, c'est elle qu'un humain vient d'écrire.
+   */
+  it('🔴 LA FICHE DU FORMULAIRE L’EMPORTE SUR CELLE DE LA CARTE QU’ON DÉPLACE', async () => {
+    cartesMock.mockResolvedValue([{
+      id: 480, cote: 'proprietaire', adresse: 'assureur@fictif.test', nom: 'ANCIEN',
+      telephone: null, origine: 'manuel', verifieLe: null, verifiePar: null, note: null,
+      civilite: 'M.', prenom: 'Ancien', qualite: null, adressePostale: null, codePostal: null,
+      commune: null, coordonnees: [],
+    }]);
+    await POST(poste({ ...BASE, nom: 'ROSKY', ...FICHE }));
+    const recu = poserCarteMock.mock.calls[0][0] as { fiche?: { civilite?: string | null } };
+    expect(recu.fiche?.civilite).toBe('Mme');
+  });
+
+  /**
+   * 🔴🔴 LE GET REND CE QUE LA CARTE DU HAUT AFFICHE, et le crayon rouvre. Ce qui ne part pas d'ici ne peut ni
+   * s'afficher ni se rouvrir — et un formulaire qui perd la moitié de ce qu'on y a saisi est pire que pas de
+   * formulaire.
+   */
+  it('🔴🔴 LE GET REND LES SEPT CHAMPS DE LA CARTE', async () => {
+    cartesMock.mockResolvedValue([{
+      id: 480, cote: 'proprietaire', adresse: 'assureur@fictif.test', nom: 'ROSKY', telephone: null,
+      origine: 'manuel', verifieLe: null, verifiePar: null, note: null, civilite: 'Mme', prenom: 'Fanny',
+      qualite: 'syndic', adressePostale: '2 rue Mars et Roty', codePostal: '92800', commune: 'PUTEAUX',
+      coordonnees: [{ sorte: 'email', libelle: 'E-mail', valeur: 'f.rosky@fictif.test' }],
+    }]);
+    const r = await GET(new Request('http://local/api?cible=lot-155'));
+    const [carte] = (await r.json()).data.cartes as Record<string, unknown>[];
+    expect(carte.civilite).toBe('Mme');
+    expect(carte.prenom).toBe('Fanny');
+    expect(carte.qualite).toBe('syndic');
+    expect(carte.adressePostale).toBe('2 rue Mars et Roty');
+    expect(carte.codePostal).toBe('92800');
+    expect(carte.commune).toBe('PUTEAUX');
+    expect(carte.coordonnees).toEqual([{ sorte: 'email', libelle: 'E-mail', valeur: 'f.rosky@fictif.test' }]);
+  });
+});

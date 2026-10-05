@@ -8,8 +8,10 @@ import {
   /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — les trois gestes d'une carte de contact : verifier, modifier, retirer. */
   marquerCarteVerifiee, modifierCarte,
   poserCarteAlaMain, poserCategorieAlaMain,
-  retirerCarte, type GesteDeRangement,
+  retirerCarte, type FicheDeCarte, type GesteDeRangement,
 } from '../../../../../../lib/gestion/partieCategorieRepo';
+/* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — la MÊME relecture pour le corps de la requête et pour le `jsonb`. */
+import { coordonneesDeLaCarte } from '../../../../../../lib/gestion/ficheContact';
 
 /**
  * /api/admin/gestion/historique/parties — LOT HISTORIQUE-BIEN-1 : LA CATÉGORIE DE CHAQUE ADRESSE D'UN BIEN.
@@ -127,10 +129,20 @@ export async function GET(request: Request): Promise<Response> {
          * ⚠️ ON N'ENVOIE TOUJOURS QUE CE QUE L'ÉCRAN LIT : ni `lotCle` (l'appelant le connaît, il l'a demandé),
          * ni `creePar`, ni `creeLe` — aucun écran ne les affiche.
          */
+        /**
+         * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — ET ELLE S'ÉLARGIT ENCORE, POUR LA MÊME RAISON : la carte du
+         * carrousel « montre les mêmes rubriques qu'une carte client (QUALITÉ, ADRESSE, MOBILE/E-MAIL avec
+         * “Copier”, NOTE) », et le crayon rouvre le formulaire COMPLET. Ce qui ne part pas d'ici ne peut ni
+         * s'afficher ni se rouvrir — et un formulaire qui perd la moitié de ce qu'on y a saisi est pire que
+         * pas de formulaire.
+         */
         cartes: cartes.map((c) => ({
           id: c.id, cote: c.cote, adresse: c.adresse, nom: c.nom, telephone: c.telephone,
           origine: c.origine, verifie: c.verifieLe !== null,
           note: c.note, verifieLe: c.verifieLe, verifiePar: c.verifiePar,
+          civilite: c.civilite, prenom: c.prenom, qualite: c.qualite,
+          adressePostale: c.adressePostale, codePostal: c.codePostal, commune: c.commune,
+          coordonnees: c.coordonnees,
         })),
         /**
          * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — CE QUE LA CARTE DU « + » PRÉ-REMPLIT. Demande d'Arno : « Elle
@@ -172,6 +184,39 @@ function texteCourt(v: unknown, max: number): string | null {
   return t === '' ? null : t.slice(0, max);
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LA FICHE D'UN CONTACT, RELUE DU CORPS DE LA REQUÊTE ════════════════════
+ *
+ * Demande d'Arno : le formulaire du « + » est celui des clients — civilité, prénom, qualité, adresse postale,
+ * code postal, commune, note, et la liste ordonnée des téléphones et e-mails.
+ *
+ * 🔴 LES COORDONNÉES PASSENT PAR LE MODULE PUR (`coordonneesDeLaCarte`), ET C'EST VOLONTAIREMENT LA MÊME FONCTION
+ * QUI RELIT LE `jsonb` DE LA BASE. Un corps de requête et une colonne `jsonb` sont deux inconnus de même nature :
+ * une ligne illisible y est IGNORÉE, jamais devinée. Écrire ici une seconde lecture « pour le réseau » aurait
+ * autorisé en entrée ce que la relecture refuse ensuite.
+ *
+ * ⚠️ `undefined` QUAND LE CORPS N'EN PORTE AUCUNE TRACE, et c'est la clé de la compatibilité : le dépôt ne nomme
+ * alors AUCUNE colonne de la 306, et le geste a exactement l'effet qu'il avait au lot 7. Un appelant d'avant ce
+ * lot — ou un script — n'est donc pas obligé d'apprendre sept champs.
+ */
+const CHAMPS_DE_FICHE = [
+  'civilite', 'prenom', 'qualite', 'adressePostale', 'codePostal', 'commune', 'note', 'coordonnees',
+] as const;
+
+function ficheDuCorps(c: Record<string, unknown>): FicheDeCarte | undefined {
+  if (!CHAMPS_DE_FICHE.some((k) => c[k] !== undefined)) return undefined;
+  return {
+    civilite: texteCourt(c.civilite, 60),
+    prenom: texteCourt(c.prenom, 200),
+    qualite: texteCourt(c.qualite, 200),
+    adressePostale: texteCourt(c.adressePostale, 300),
+    codePostal: texteCourt(c.codePostal, 10),
+    commune: texteCourt(c.commune, 120),
+    note: texteCourt(c.note, 2000),
+    coordonnees: coordonneesDeLaCarte(c.coordonnees),
+  };
+}
+
 /** Les identifiants d'un geste, relus du corps de la requête — jamais faits confiance au-delà de leur forme. */
 function identifiants(v: unknown): number[] {
   if (!Array.isArray(v)) return [];
@@ -202,6 +247,13 @@ function identifiants(v: unknown): number[] {
  */
 async function faireSuivreLaCarte(o: {
   lotCle: string; adresse: string; categorie: Categorie; nom: string | null; telephone: string | null;
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LA FICHE SUIT AUSSI, et pour la raison écrite ci-dessus : changer de
+   * côté EST une autre ligne (la clé est (bien, côté, adresse)), donc tout ce qu'un humain a saisi doit être
+   * recopié. Sans ça, glisser une capsule d'un côté à l'autre lui faisait perdre son adresse postale, sa qualité
+   * et ses coordonnées — c'est-à-dire tout le travail du formulaire.
+   */
+  fiche?: FicheDeCarte;
   auteur: Awaited<ReturnType<typeof auteurDeLaRequete>>;
 }): Promise<{ posees: number[]; retirees: number[]; refus: string | null }> {
   const posees: number[] = [];
@@ -227,9 +279,25 @@ async function faireSuivreLaCarte(o: {
   if (cote !== null) {
     const nom = o.nom ?? aDeplacer[0]?.nom ?? null;
     const telephone = o.telephone ?? aDeplacer[0]?.telephone ?? null;
+    /**
+     * 🔴 LA FICHE DU GESTE L'EMPORTE ; À DÉFAUT, CELLE DE LA CARTE QU'ON DÉPLACE. L'ordre compte : quand le
+     * formulaire du « + » envoie une fiche, c'est elle qu'un humain vient d'écrire. Quand le geste vient du menu
+     * « ⋯ » (« Changer de côté »), il n'envoie rien, et c'est la carte d'avant qu'il faut recopier.
+     *
+     * ⚠️ CHAMP PAR CHAMP, ET NON « L'UNE OU L'AUTRE » EN BLOC : le report sert aussi à un geste qui ne porte
+     * qu'un champ, et prendre la fiche entière de la carte déplacée aurait écrasé ce champ-là.
+     */
+    const ancienne = aDeplacer[0];
+    const fiche: FicheDeCarte | undefined = o.fiche ?? (ancienne === undefined ? undefined : {
+      civilite: ancienne.civilite, prenom: ancienne.prenom, qualite: ancienne.qualite,
+      adressePostale: ancienne.adressePostale, codePostal: ancienne.codePostal, commune: ancienne.commune,
+      note: ancienne.note, coordonnees: ancienne.coordonnees,
+    });
     const aCreer = dejaBonCote === undefined;
-    if (aCreer || o.nom !== null || o.telephone !== null) {
-      const r = await poserCarteAlaMain({ lotCle: o.lotCle, cote, adresse: o.adresse, nom, telephone, auteur: o.auteur });
+    if (aCreer || o.nom !== null || o.telephone !== null || o.fiche !== undefined) {
+      const r = await poserCarteAlaMain({
+        lotCle: o.lotCle, cote, adresse: o.adresse, nom, telephone, fiche, auteur: o.auteur,
+      });
       if (!r.ok) return { posees, retirees, refus: r.motif };
       /* ⚠️ SEULE UNE CARTE RÉELLEMENT CRÉÉE ENTRE DANS « posées » : voir l'encadré ci-dessus. */
       if (aCreer && r.id !== null) posees.push(r.id);
@@ -295,6 +363,9 @@ export async function POST(request: Request): Promise<Response> {
             id, auteur,
             nom: texteCourt(c.nom, 200), telephone: texteCourt(c.telephone, 60),
             note: texteCourt(c.note, 2000),
+            /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — le crayon rouvre le formulaire COMPLET, il écrit donc la
+               fiche complète. `undefined` quand le corps n'en porte rien : effet du lot 7, à la lettre. */
+            fiche: ficheDuCorps(c),
           });
       if (!r.ok) return Response.json({ etat: 'refus', motif: r.motif }, { status: 409, headers: ENTETES });
       /**
@@ -337,7 +408,9 @@ export async function POST(request: Request): Promise<Response> {
 
     const carte = await faireSuivreLaCarte({
       lotCle, adresse, categorie,
-      nom: texteCourt(c.nom, 200), telephone: texteCourt(c.telephone, 40), auteur,
+      nom: texteCourt(c.nom, 200), telephone: texteCourt(c.telephone, 40),
+      /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — ce que le formulaire du « + » vient de faire saisir. */
+      fiche: ficheDuCorps(c), auteur,
     });
 
     /* 🔴 LE GESTE EST RENDU : c'est ce que l'écran garde quelques secondes derrière « Annuler ». */

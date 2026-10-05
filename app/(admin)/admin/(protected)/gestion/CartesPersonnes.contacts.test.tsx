@@ -39,7 +39,11 @@ const carte = (o: Partial<LigneCarte> = {}): LigneCarte => ({
   id: 1, lotCle: '432', cote: 'proprietaire', adresse: 'assureur@fictif.test', nom: 'AXA Courbevoie',
   telephone: '01 41 21 43 31', origine: 'manuel', verifieLe: '2026-10-05T09:00:00Z',
   verifiePar: 'a.jorel@sansvisavis.com', creeLe: '2026-10-04T22:00:00Z', creePar: 'a.jorel@sansvisavis.com',
-  note: null, ...o,
+  note: null,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — les champs de la « Nouvelle fiche » (migration 306). Le défaut est
+     VIDE : c'est l'état des 481 cartes de la base, et c'est donc l'état sur lequel l'écran doit tenir. */
+  civilite: null, prenom: null, qualite: null, adressePostale: null, codePostal: null, commune: null,
+  coordonnees: [], ...o,
 });
 
 const client = (o: Partial<PersonneAnnuaire> = {}): PersonneAnnuaire => ({
@@ -62,7 +66,13 @@ const gestesCartes: GestesCartes = {
 const gestesContact: GestesCarteContact = {
   modifiable: true,
   onVerifier: async (id) => { gestes.push(`verifier:${id}`); return null; },
-  onModifier: async (id, c) => { gestes.push(`modifier:${id}:${c.nom}|${c.telephone}|${c.note}`); return null; },
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — le crayon rend la FICHE COMPLÈTE (`ChampsSaisis`), et plus trois
+     champs : les coordonnées sont une LISTE, et le téléphone n'est plus un champ à part. */
+  onModifier: async (id, c) => {
+    const coords = (c.coordonnees ?? []).map((x) => `${x.sorte}=${x.valeur}`).join(',');
+    gestes.push(`modifier:${id}:${c.nom}|${coords}|${c.note}`);
+    return null;
+  },
   onRetirer: async (id) => { gestes.push(`retirer:${id}`); return null; },
   onRanger: async (a, c) => { gestes.push(`ranger:${a}:${c}`); return null; },
 };
@@ -99,10 +109,15 @@ describe('l’ordre du carrousel : clients, contacts, puis « + Ajouter »', () 
     /* ① le client, et il ne porte aucune marque de contact */
     expect(cartes[0].className).not.toContain('cp-carte--contact');
     expect(cartes[0].textContent).toContain('M. ROI Nathan');
-    /* ② et ③ les deux contacts, dans l'ordre reçu — aucun tri refait ici */
+    /* ② et ③ les deux contacts, dans l'ordre reçu — aucun tri refait ici.
+       🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE NOM EST EN CAPITALES, et c'est le VERDICT QUI A CHANGÉ : la carte
+       compose désormais son nom comme celle d'un client (`nomAfficheFormate`, qui met le nom de famille en
+       capitales). « Syndic » s'affiche donc « SYNDIC ». C'est exactement la demande d'Arno — « les mêmes
+       rubriques qu'une carte client » — et l'attendre en minuscules reviendrait à exiger ici l'inverse de ce que
+       le gabarit fait partout ailleurs. */
     expect(cartes[1].className).toContain('cp-carte--contact');
     expect(cartes[1].textContent).toContain('AXA');
-    expect(cartes[2].textContent).toContain('Syndic');
+    expect(cartes[2].textContent).toContain('SYNDIC');
     /* ④ la tuile d'ajout, EN DERNIER */
     expect(cartes[3].className).toContain('cp-carte--ajout');
     expect(cartes[3].textContent).toContain('Ajouter un propriétaire');
@@ -194,10 +209,26 @@ describe('le gabarit d’une carte de contact', () => {
     expect(hote.querySelector('.cp-copier')).not.toBeNull();
   });
 
-  it('⚠️ SANS TÉLÉPHONE, AUCUN « Copier » : un bouton qui copierait le vide apprend à ne plus y toucher', async () => {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE VERDICT A CHANGÉ, ET VOICI POURQUOI ═════════════════════════════
+   *
+   * Ce cas attendait « sans téléphone, AUCUN “Copier” ». C'était vrai au lot 7, où la carte n'avait qu'une ligne
+   * « Téléphone » copiable et une ligne « E-mail » qui ne l'était pas. Arno demande maintenant « les mêmes
+   * rubriques qu'une carte client (QUALITÉ, ADRESSE, **MOBILE/E-MAIL avec “Copier”**, NOTE) » : l'adresse e-mail
+   * est devenue une COORDONNÉE, et une coordonnée se copie — chez un client comme ici.
+   *
+   * Le cas garde donc son intention (« aucun bouton ne copie du vide ») en la vérifiant sur ce qui est VIDE : une
+   * carte sans téléphone n'affiche aucune rubrique « Mobile », et son unique « Copier » est celui de l'adresse.
+   */
+  it('⚠️ AUCUN « Copier » SUR DU VIDE : sans téléphone, il ne reste que celui de l’adresse', async () => {
     await monterSeule(carte({ telephone: null }));
-    expect(hote.querySelector('.cp-copier')).toBeNull();
-    expect(hote.textContent).toContain('non renseigné');
+    const boutons = [...hote.querySelectorAll('.cp-copier')] as HTMLElement[];
+    expect(boutons).toHaveLength(1);
+    expect(boutons[0].getAttribute('aria-label')).toBe('Copier cette adresse');
+    /* La rubrique « Mobile » n'existe pas : il n'y a pas de numéro, donc pas de ligne. */
+    expect(hote.textContent).not.toContain('Mobile');
+    /* Et les rubriques restées vides le DISENT — « non renseignée », jamais un blanc. */
+    expect(hote.textContent).toContain('non renseignée');
   });
 
   /**
@@ -266,13 +297,34 @@ describe('le gabarit d’une carte de contact', () => {
     expect(gestes).toEqual(['retirer:1467']);
   });
 
-  it('🔴🔴 LE CRAYON MODIFIE LE NOM, LE TÉLÉPHONE ET LA NOTE — jamais l’adresse', async () => {
-    await monterSeule(carte({ nom: 'AXA', telephone: '01', note: 'ancienne' }));
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE CRAYON OUVRE LE FORMULAIRE DES CLIENTS, LE MÊME ═════════════════
+   *
+   * DEMANDE D'ARNO : « Le même formulaire complet sert à “Modifier ce contact” (le crayon de la carte). »
+   *
+   * Ce cas vérifiait les quatre champs du petit formulaire du lot 7 (adresse en lecture seule, nom, téléphone,
+   * note). Ce formulaire-là n'existe plus : c'est `FormulaireCarte` qui s'ouvre, avec ses huit champs et sa liste
+   * de coordonnées. Le cas vérifie donc ce qui compte VRAIMENT et qui n'a pas changé de sens :
+   *   · le titre est bien celui du module pur (« Modifier ce contact ») ;
+   *   · la fiche arrive PRÉ-REMPLIE de ce que la carte porte — y compris son adresse e-mail, amorcée comme
+   *     coordonnée (`ficheDeContact`) ;
+   *   · « Enregistrer » rend la fiche COMPLÈTE, coordonnées comprises, dans l'ordre affiché.
+   */
+  it('🔴🔴 LE CRAYON OUVRE LE FORMULAIRE COMPLET, PRÉ-REMPLI, et rend la fiche entière', async () => {
+    await monterSeule(carte({ nom: 'AXA', telephone: '01 41 21 43 31', note: 'ancienne' }));
     await cliquer(hote.querySelector('[aria-label="Modifier"]'));
-    const champs = [...hote.querySelectorAll('input')] as HTMLInputElement[];
-    /* ⚠️ L'ADRESSE EST EN LECTURE SEULE : elle est l'IDENTITÉ de la carte. */
-    expect(champs[0].readOnly).toBe(true);
-    expect(champs[0].value).toBe('assureur@fictif.test');
+
+    expect(hote.querySelector('.cp-form-titre')?.textContent).toBe('Modifier ce contact');
+    /* 🔴 LES DEUX COORDONNÉES SONT LÀ, DANS L'ORDRE : le numéro de la carte, puis son adresse e-mail. */
+    const valeurs = [...hote.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
+    expect(valeurs.map((v) => v.value)).toEqual(['01 41 21 43 31', 'assureur@fictif.test']);
+    /* Et les huit champs de la fiche sont bien ceux du formulaire des clients. */
+    const t = hote.textContent ?? '';
+    for (const mot of ['Civilité', 'Nom', 'Prénom', 'Qualité', 'Adresse', 'Code postal', 'Commune',
+      'Téléphones et e-mails', 'Note libre']) {
+      expect(t, mot).toContain(mot);
+    }
+
     /* ⚠️ UN CHAMP CONTRÔLÉ PAR REACT NE SE CHANGE PAS EN POSANT `value` : React garde sa propre valeur et la
        réécrit. On passe donc par le setter NATIF du prototype, puis on émet l'événement — c'est la seule façon
        de simuler une frappe sur un champ contrôlé, et c'est ce que fait `changer` ailleurs dans ce dépôt. */
@@ -281,9 +333,34 @@ describe('le gabarit d’une carte de contact', () => {
       d?.set?.call(el, v);
       el.dispatchEvent(new Event('input', { bubbles: true }));
     };
-    await act(async () => { poser(champs[1], 'AXA Courbevoie'); });
+    const nom = [...hote.querySelectorAll('.cp-champ')]
+      .find((l) => l.textContent?.startsWith('Nom'))?.querySelector('input') as HTMLInputElement;
+    await act(async () => { poser(nom, 'AXA Courbevoie'); });
     await cliquer([...hote.querySelectorAll('button')].find((b) => b.textContent === 'Enregistrer'));
-    expect(gestes).toEqual(['modifier:1:AXA Courbevoie|01|ancienne']);
+    /* 🔴 LE NOM EST MIS EN FORME SOUS LES DOIGTS, comme chez un client : « AXA COURBEVOIE ». */
+    expect(gestes).toEqual([
+      'modifier:1:AXA COURBEVOIE|telephone=01 41 21 43 31,email=assureur@fictif.test|ancienne',
+    ]);
+  });
+
+  /**
+   * 🔴🔴 LA RÈGLE D'ARNO, À L'ENDROIT OÙ ELLE BLOQUE : « Pour un CONTACT, seuls le NOM et AU MOINS UN E-MAIL
+   * sont obligatoires ; les autres champs sont facultatifs, SANS MESSAGE ROUGE. »
+   */
+  it('🔴🔴 UN CONTACT N’EXIGE QUE LE NOM ET UN E-MAIL — pas les six champs d’un client', async () => {
+    await monterSeule(carte({ nom: 'AXA', telephone: null }));
+    await cliquer(hote.querySelector('[aria-label="Modifier"]'));
+    /* Aucun manque : ni civilité, ni prénom, ni adresse, ni code postal, ni commune, ni téléphone. */
+    expect(hote.querySelectorAll('.cp-manque')).toHaveLength(0);
+    const enregistrer = [...hote.querySelectorAll('button')]
+      .find((b) => b.textContent === 'Enregistrer') as HTMLButtonElement;
+    expect(enregistrer.disabled).toBe(false);
+
+    /* Mais retirer la dernière adresse e-mail bloque, et le dit sous le bloc des coordonnées. */
+    await cliquer(hote.querySelector('[aria-label="Retirer"]'));
+    expect(hote.textContent).toContain('Il faut au moins une adresse e-mail');
+    expect(([...hote.querySelectorAll('button')]
+      .find((b) => b.textContent === 'Enregistrer') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('⚠️ SANS LA MIGRATION, LES TROIS GESTES SONT DÉSACTIVÉS — avec leur motif, jamais absents', async () => {
@@ -337,5 +414,63 @@ describe('🔒 les gardes de structure', () => {
     /* ⚠️ ET AUCUN LIBELLÉ RECOPIÉ : le mot n'existe qu'une fois, dans `partieCategorie.ts`. */
     expect(SRC).not.toContain("'CONTACT DU PROPRIÉTAIRE'");
     expect(SRC).not.toContain("'CONTACT DU LOCATAIRE'");
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE GABARIT D'UNE CARTE DE CONTACT EST CELUI D'UN CLIENT ═════════════════
+ *
+ * DEMANDE D'ARNO : « La carte de contact du carrousel montre les mêmes rubriques qu'une carte client (QUALITÉ,
+ * ADRESSE, MOBILE/E-MAIL avec “Copier”, NOTE), avec le badge CONTACT DU PROPRIÉTAIRE / CONTACT DU LOCATAIRE. Le
+ * même formulaire complet sert à “Modifier ce contact” (le crayon de la carte). »
+ */
+describe('🔴🔴 les rubriques d’une carte de contact, et son formulaire', () => {
+  /** La carte seule, hors du carrousel : c'est son GABARIT qu'on regarde ici. */
+  async function monterSeule(c: LigneCarte): Promise<void> {
+    await act(async () => { racine.render(createElement(CarteContact, { c, gestes: gestesContact })); });
+  }
+
+  it('🔴🔴 LES QUATRE RUBRIQUES D’UNE CARTE CLIENT, DANS LE MÊME ORDRE', async () => {
+    await monterSeule(carte({
+      nom: 'ROSKY', prenom: 'Fanny', civilite: 'Mme', qualite: 'syndic',
+      adressePostale: '2 rue Mars et Roty', codePostal: '92800', commune: 'puteaux',
+      note: 'ne pas appeler avant 10 h',
+      coordonnees: [
+        { sorte: 'telephone', libelle: 'Mobile', valeur: '06 11 22 33 44' },
+        { sorte: 'email', libelle: 'E-mail', valeur: 'f.rosky@fictif.test' },
+      ],
+    }));
+    const titres = [...hote.querySelectorAll('.cp-lab')].map((l) => l.textContent).filter((t) => t !== '');
+    expect(titres).toEqual(['Qualité', 'Adresse', 'Mobile', 'E-mail', 'Note']);
+    /* 🔴 LE NOM SE COMPOSE COMME CELUI D'UN CLIENT : « Mme ROSKY Fanny ». */
+    expect(hote.querySelector('.cp-nom')?.textContent).toBe('Mme ROSKY Fanny');
+    /* 🔴 L'ADRESSE POSTALE EST MISE EN FORME À L'AFFICHAGE, comme chez un client : la commune en capitales. */
+    expect(hote.textContent).toContain('2 rue Mars et Roty, 92800 PUTEAUX');
+    /* 🔴 CHAQUE COORDONNÉE A SON « Copier » — c'est la demande, mot pour mot. */
+    expect(hote.querySelectorAll('.cp-copier')).toHaveLength(2);
+  });
+
+  /**
+   * 🔴🔴 LES 481 CARTES D'AVANT LA 306 N'ONT PAS DE LISTE, et elles doivent rester lisibles : leur téléphone (de
+   * la 304) et leur adresse e-mail AMORCENT la liste. Sans cet amorçage, la carte d'un contact proposé
+   * n'afficherait plus rien — et le crayon se serait ouvert sur une liste vide, donc en rouge.
+   */
+  it('🔴🔴 UNE CARTE D’AVANT LA 306 S’AFFICHE QUAND MÊME : son numéro et son adresse', async () => {
+    await monterSeule(carte({ telephone: '01 41 21 43 31', coordonnees: [] }));
+    const titres = [...hote.querySelectorAll('.cp-lab')].map((l) => l.textContent).filter((t) => t !== '');
+    expect(titres).toEqual(['Qualité', 'Adresse', 'Mobile', 'E-mail', 'Note']);
+    expect(hote.textContent).toContain('01 41 21 43 31');
+    expect(hote.textContent).toContain('assureur@fictif.test');
+  });
+
+  /** 🔴 « LE MÊME COMPOSANT, PAS UNE COPIE » — le garde de structure, comme pour le « + » du bloc du bas. */
+  it('🔴🔴 LE CRAYON MONTE `FormulaireCarte`, et plus aucun formulaire de contact n’est redessiné', () => {
+    const bloc = SRC.slice(SRC.indexOf('export function CarteContact'), SRC.indexOf('export function BlocCartes'));
+    expect(bloc).toContain('<FormulaireCarte');
+    expect(bloc).toContain('TITRE_CONTACT_MODIFIER');
+    /* Les quatre champs du petit formulaire du lot 7 ont disparu : ils ne sont plus écrits nulle part ici. */
+    for (const mort of ['>Adresse mail<', 'Modifier ce contact</p>', 'setTelephone', 'setNote']) {
+      expect(bloc, mort).not.toContain(mort);
+    }
   });
 });

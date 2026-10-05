@@ -723,6 +723,12 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
        besoin, et lui seul (par défaut, c'est le contact du propriétaire d'avant ce lot). */
     parties: { adresse: string; categorie: string | null }[] =
       [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }],
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — ce que la signature a donné. Vide par défaut : c'est le cas des
+       adresses muettes, et c'est alors le NOM qui manque — la seule exigence d'un contact, avec l'e-mail. */
+    coordonnees: {
+      adresse: string; nom: string | null; telephone: string | null;
+      adressePostale?: string | null; codePostal?: string | null; commune?: string | null;
+    }[] = [],
   ): void => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'POST') return reponse({ etat: 'ok', geste: null });
@@ -732,7 +738,7 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
       if (String(url).includes('/historique/parties')) {
         return reponse({
           etat: 'ok',
-          data: { parties, cartes: cartes.map((c) => ({ origine: 'manuel' as const, ...c })) },
+          data: { parties, cartes: cartes.map((c) => ({ origine: 'manuel' as const, ...c })), coordonnees },
         });
       }
       return reponse({
@@ -843,20 +849,94 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
    * 🔴🔴 LA CATÉGORIE EST PRÉ-REMPLIE PAR LE GROUPE D'OÙ L'ON CLIQUE. On sait où la partie est rangée : la
    * redemander serait une question dont l'écran connaît la réponse.
    */
-  it('🔴🔴 la carte s’ouvre avec l’adresse et la catégorie pré-remplies', async () => {
-    servirAvecContact();
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — CE CAS A CHANGÉ DE FORME, PAS D'INTENTION ═══════════════════════════
+   *
+   * DEMANDE D'ARNO : « Le formulaire du “+” doit être le MÊME que celui des clients. » Ce n'est donc plus une
+   * petite carte de quatre champs, mais `FormulaireCarte` — avec sa civilité, son prénom, sa qualité, son adresse
+   * postale et sa liste « Téléphones et e-mails ». Ce que le cas vérifie reste le même : l'adresse de la CAPSULE
+   * est là, pré-remplie, et la catégorie du groupe d'où l'on clique est déjà choisie.
+   *
+   * ⚠️ L'ADRESSE N'EST PLUS UN CHAMP EN LECTURE SEULE : elle est devenue une LIGNE de la liste des coordonnées,
+   * comme chez un client (et le rappel du haut la redit en clair). L'IDENTITÉ de la carte, elle, ne vient pas de
+   * ce champ : le POST envoie `aCreer.adresse`, l'adresse de la capsule — c'est le cas suivant qui le prouve.
+   */
+  it('🔴🔴 le formulaire s’ouvre avec l’adresse et la catégorie pré-remplies', async () => {
+    servirAvecContact(undefined, undefined,
+      [{ adresse: 'assureur@fictif.test', nom: 'Sophie DUPONT', telephone: null }]);
     await monter();
     await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
     const carte = hote.querySelector('.hdb-creation') as HTMLElement;
     expect(carte).not.toBeNull();
-    const adresse = carte.querySelector('input[type="email"]') as HTMLInputElement;
-    expect(adresse.value).toBe('assureur@fictif.test');
-    /* ⚠️ NON MODIFIABLE : c'est l'adresse qu'on complète, pas une saisie libre. */
-    expect(adresse.readOnly).toBe(true);
+    /* ① c'est bien LE formulaire des clients : son titre de contact, et ses huit champs. */
+    expect(carte.querySelector('.cp-form-titre')?.textContent).toBe('Nouveau contact');
+    for (const mot of ['Civilité', 'Prénom', 'Qualité', 'Code postal', 'Commune', 'Téléphones et e-mails']) {
+      expect(texte(), mot).toContain(mot);
+    }
+    /* ② l'adresse de la capsule est là, en coordonnée, et le rappel la redit. */
+    const valeurs = [...carte.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
+    expect(valeurs.map((v) => v.value)).toContain('assureur@fictif.test');
+    expect(carte.querySelector('.cp-rappel')?.textContent).toContain('assureur@fictif.test');
+    /* ③ la catégorie du groupe d'où l'on a cliqué est déjà choisie. */
     expect((carte.querySelector('select') as HTMLSelectElement).value).toBe('proprietaire');
     expect(texte()).toContain('Rangée côté propriétaire de ce bien');
-    /* …et « Valider » est donc offert d'emblée : plus rien ne manque. */
-    expect((parMot('Valider') as HTMLButtonElement).disabled).toBe(false);
+    /* …et « Enregistrer » est donc offert d'emblée : plus rien ne manque. */
+    expect((parMot('Enregistrer') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 LA RÈGLE D'ARNO, ÉPROUVÉE LÀ OÙ ELLE SE VOIT : « Pour un CONTACT, seuls le NOM et AU MOINS UN E-MAIL
+   * sont obligatoires ; les autres champs sont facultatifs, SANS MESSAGE ROUGE. »
+   *
+   * 🔴 ET C'EST CE QUI REND LE « + » UTILISABLE. La règle des CLIENTS exige huit champs : appliquée ici, elle
+   * aurait grisé « Enregistrer » et affiché six mentions rouges sur un contact dont on ne connaît, le plus
+   * souvent, que l'adresse e-mail — c'est-à-dire tout l'inverse du geste qu'Arno demande.
+   */
+  it('🔴🔴 UN CONTACT N’EXIGE QUE LE NOM ET UN E-MAIL — jamais les six champs d’un client', async () => {
+    servirAvecContact(undefined, undefined,
+      [{ adresse: 'assureur@fictif.test', nom: 'Sophie DUPONT', telephone: null }]);
+    await monter();
+    await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
+    const carte = hote.querySelector('.hdb-creation') as HTMLElement;
+    /* La capsule n'a ni code postal, ni commune, ni civilité, ni téléphone : aucune mention rouge pour autant. */
+    expect(carte.querySelectorAll('.cp-manque')).toHaveLength(0);
+    expect(texte()).not.toContain('Le code postal est obligatoire');
+    expect(texte()).not.toContain('Il faut au moins un téléphone');
+  });
+
+  /**
+   * ⚠️ MAIS LE NOM, LUI, EST EXIGÉ — et c'est le cas le plus fréquent du « + » : une adresse dont on n'a pas su
+   * lire le nom. Le formulaire le DIT sous le champ, et « Enregistrer » attend. C'est la règle d'Arno, dans son
+   * autre moitié : « seuls le NOM et AU MOINS UN E-MAIL sont obligatoires ».
+   */
+  it('🔴 SANS NOM TROUVÉ, LE NOM EST RÉCLAMÉ — et lui seul', async () => {
+    servirAvecContact();
+    await monter();
+    await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
+    const carte = hote.querySelector('.hdb-creation') as HTMLElement;
+    const manques = [...carte.querySelectorAll('.cp-manque')].map((m) => m.textContent);
+    expect(manques).toEqual(['Le nom est obligatoire.']);
+    expect((parMot('Enregistrer') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 LA CATÉGORIE MANQUANTE BLOQUE, ET LE DIT SOUS SON CHAMP. Depuis « Non affectés », rien n'est déduit : le
+   * choix reste vide (pré-cocher au hasard se valide sans être lu), et « Enregistrer » attend.
+   */
+  it('🔴🔴 sans catégorie, « Enregistrer » reste grisé avec son motif', async () => {
+    servirAvecContact(undefined, [],
+      [{ adresse: 'assureur@fictif.test', nom: 'Sophie DUPONT', telephone: null }]);
+    await monter();
+    /* ⚠️ « NON AFFECTÉS » EST REPLIÉ : il faut le déplier pour atteindre son « + ». */
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
+    await cliquer(gris.querySelector('.hdb-capsule .hdb-plus') ?? undefined);
+    const carte = hote.querySelector('.hdb-creation') as HTMLElement;
+    expect((carte.querySelector('select') as HTMLSelectElement).value).toBe('');
+    const bouton = parMot('Enregistrer') as HTMLButtonElement;
+    expect(bouton.disabled).toBe(true);
+    expect(bouton.title).toContain('Choisissez une catégorie');
+    expect(carte.querySelector('.cp-manque')?.textContent).toContain('Choisissez une catégorie');
   });
 
   /** 🔴 LA CATÉGORIE RESTE MODIFIABLE : pré-remplie n'est pas imposée (mot d'Arno au lot 2, inchangé). */
@@ -886,7 +966,12 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
       if (String(url).includes('/historique/parties')) {
         return reponse({
           etat: 'ok',
-          data: { parties: [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }], cartes: [] },
+          data: {
+            parties: [{ adresse: 'assureur@fictif.test', categorie: 'proprietaire' }], cartes: [],
+            /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — un numéro trouvé en signature : il AMORCE la première ligne
+               de la liste, et c'est celle qu'on corrige ci-dessous. */
+            coordonnees: [{ adresse: 'assureur@fictif.test', nom: null, telephone: '01 00 00 00 00' }],
+          },
         });
       }
       return reponse({
@@ -900,15 +985,33 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
     await monter();
     await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
     const carte = hote.querySelector('.hdb-creation') as HTMLElement;
-    await changer(carte.querySelectorAll('input')[1] as HTMLInputElement, 'Sophie AXA');
-    await changer(carte.querySelectorAll('input')[2] as HTMLInputElement, '06 11 22 33 44');
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — ON SAISIT DANS LE FORMULAIRE DES CLIENTS, et le corps du POST porte
+     * désormais la FICHE ENTIÈRE. Les champs se désignent par leur libellé, et non par leur rang : le rang
+     * changeait à chaque champ ajouté, et c'est exactement ce qui vient d'arriver.
+     */
+    const champ = (mot: string): HTMLInputElement => [...carte.querySelectorAll('.cp-champ')]
+      .find((l) => (l.textContent ?? '').startsWith(mot))?.querySelector('input') as HTMLInputElement;
+    await changer(champ('Nom'), 'Sophie AXA');
+    await changer(champ('Qualité'), 'syndic');
+    /* ⚠️ LA PREMIÈRE LIGNE EST LE TÉLÉPHONE AMORCÉ, la seconde l'adresse de la capsule — qu'on ne touche pas :
+       un contact sans adresse e-mail ne sert plus à rien, et le formulaire le refuse (règle d'Arno). */
+    const tel = carte.querySelectorAll('[aria-label="Valeur"]')[0] as HTMLInputElement;
+    await changer(tel, '06 11 22 33 44');
     const avant = appels.filter((a) => a.includes('/historique/parties')).length;
-    await cliquer(parMot('Valider'));
+    await cliquer(parMot('Enregistrer'));
 
     expect(envois).toHaveLength(1);
     expect(envois[0].corps).toEqual({
       cible: 'lot-155', adresse: 'assureur@fictif.test', categorie: 'proprietaire',
-      nom: 'Sophie AXA', telephone: '06 11 22 33 44',
+      /* 🔴 LE NOM EST MIS EN FORME SOUS LES DOIGTS, comme chez un client : « AXA » passe en capitales. */
+      nom: 'Sophie AXA'.toUpperCase(), civilite: null, prenom: null, qualite: 'syndic',
+      adressePostale: null, codePostal: null, commune: null, note: null,
+      /* 🔴 LA LISTE PART DANS L'ORDRE AFFICHÉ : le téléphone amorcé en premier, puis l'adresse de la capsule. */
+      coordonnees: [
+        { sorte: 'telephone', libelle: 'Mobile', valeur: '06 11 22 33 44' },
+        { sorte: 'email', libelle: 'E-mail', valeur: 'assureur@fictif.test' },
+      ],
     });
     expect(appels.filter((a) => a.includes('/historique/parties')).length).toBe(avant + 1);
     expect(hote.querySelector('.hdb-creation')).toBeNull();
@@ -938,7 +1041,12 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
     }));
     await monter();
     await cliquer(hote.querySelector('.hdb-plus') ?? undefined);
-    await cliquer(parMot('Valider'));
+    /* ⚠️ LE NOM EST OBLIGATOIRE POUR UN CONTACT : sans lui, « Enregistrer » est grisé et le refus du serveur ne
+       serait jamais demandé. On le renseigne donc, puis on valide — c'est le refus du SERVEUR qu'on éprouve. */
+    const nom = [...hote.querySelectorAll('.hdb-creation .cp-champ')]
+      .find((l) => (l.textContent ?? '').startsWith('Nom'))?.querySelector('input') as HTMLInputElement;
+    await changer(nom, 'AXA');
+    await cliquer(parMot('Enregistrer'));
     expect(texte()).toContain('l’auteur doit être identifié');
     expect(hote.querySelector('.hdb-creation')).not.toBeNull();
   });
@@ -2604,7 +2712,12 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
           data: {
             parties: [], cartes: [],
             coordonnees: [
-              { adresse: 'assureur@fictif.test', nom: 'AXA Courbevoie', telephone: '01 41 21 43 31' },
+              {
+                adresse: 'assureur@fictif.test', nom: 'Sophie DUPONT', telephone: '01 41 21 43 31',
+                /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — et l'ADRESSE POSTALE de la même signature. MESURÉ : 65
+                   des 187 adresses à carte qui ont écrit (35 %) en laissent une complète. */
+                adressePostale: '2 rue Mars et Roty', codePostal: '92800', commune: 'Puteaux',
+              },
             ],
           },
         });
@@ -2622,24 +2735,46 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
     await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
     await cliquer(gris.querySelector('.hdb-capsule .hdb-plus') ?? undefined);
     const carte = hote.querySelector('.hdb-creation') as HTMLElement;
-    const champs = [...carte.querySelectorAll('input')] as HTMLInputElement[];
-    /* L'adresse, le nom, le téléphone : les trois champs qu'Arno nomme. */
-    expect(champs.map((c) => c.value)).toEqual(['assureur@fictif.test', 'AXA Courbevoie', '01 41 21 43 31']);
-    /* ⚠️ LE NOM ET LE TÉLÉPHONE RESTENT MODIFIABLES : c'est une proposition, pas une vérité. L'ADRESSE, elle,
-       est en lecture seule depuis le lot 3, et c'est juste : elle est l'identité du contact, pas un champ. */
-    expect(champs[0].readOnly).toBe(true);
-    expect(champs.slice(1).every((c) => !c.disabled && !c.readOnly)).toBe(true);
+    /* ⚠️ « Commune » VIT DANS UN `.cp-duo-part`, à côté du code postal : les deux champs partagent une ligne.
+       On cherche donc dans les deux sortes d'étiquettes, sans quoi la commune serait introuvable. */
+    const valeur = (mot: string): string => ([...carte.querySelectorAll('.cp-champ, .cp-duo-part')]
+      .find((l) => (l.textContent ?? '').startsWith(mot))?.querySelector('input') as HTMLInputElement)?.value;
+
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LE PRÉ-REMPLISSAGE REMPLIT MAINTENANT **CINQ** CHAMPS, et deux
+     * d'entre eux sont nés de ce point : le PRÉNOM (le nom se coupe « si possible ») et l'ADRESSE POSTALE
+     * (trouvée dans la même signature que le téléphone).
+     *
+     * ⚠️ « Sophie DUPONT » SE COUPE PAR LE SIGNAL DES CAPITALES : nom DUPONT, prénom Sophie. C'est le cas le plus
+     * fréquent de la base (185 des 398 noms d'en-tête), et le seul où la coupe est SÛRE.
+     */
+    expect(valeur('Nom')).toBe('DUPONT');
+    expect(valeur('Prénom')).toBe('Sophie');
+    expect(valeur('Adresse')).toBe('2 rue Mars et Roty');
+    expect(valeur('Code postal')).toBe('92800');
+    expect(valeur('Commune')).toBe('PUTEAUX');
+    /* Le téléphone est la première ligne de la liste, et l'adresse e-mail la seconde. */
+    const coords = [...carte.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
+    expect(coords.map((c) => c.value)).toEqual(['01 41 21 43 31', 'assureur@fictif.test']);
+    /* ⚠️ TOUT RESTE MODIFIABLE : c'est une proposition, pas une vérité. */
+    expect(coords.every((c) => !c.disabled && !c.readOnly)).toBe(true);
   });
 
-  it('⚠️ SANS COORDONNÉES TROUVÉES, LA CARTE S’OUVRE AVEC LA SEULE ADRESSE', async () => {
+  it('⚠️ SANS COORDONNÉES TROUVÉES, LE FORMULAIRE S’OUVRE AVEC LA SEULE ADRESSE', async () => {
     await monterAvec([], []);
     const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
     await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
     await cliquer(gris.querySelector('.hdb-capsule .hdb-plus') ?? undefined);
-    const champs = [...(hote.querySelector('.hdb-creation') as HTMLElement).querySelectorAll('input')]
-      .map((c) => (c as HTMLInputElement).value);
-    expect(champs[0]).toBe('assureur@fictif.test');
-    expect(champs.slice(1)).toEqual(['', '']);
+    const carte = hote.querySelector('.hdb-creation') as HTMLElement;
+    /* Une seule coordonnée : l'adresse de la capsule. Aucun téléphone à amorcer, donc aucune ligne vide. */
+    const coords = [...carte.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
+    expect(coords.map((c) => c.value)).toEqual(['assureur@fictif.test']);
+    /* Et les champs de la fiche sont vides — sans aucune mention rouge : ils sont facultatifs. */
+    /* ⚠️ « Commune » VIT DANS UN `.cp-duo-part`, à côté du code postal : les deux champs partagent une ligne.
+       On cherche donc dans les deux sortes d'étiquettes, sans quoi la commune serait introuvable. */
+    const valeur = (mot: string): string => ([...carte.querySelectorAll('.cp-champ, .cp-duo-part')]
+      .find((l) => (l.textContent ?? '').startsWith(mot))?.querySelector('input') as HTMLInputElement)?.value;
+    expect([valeur('Nom'), valeur('Prénom'), valeur('Code postal'), valeur('Commune')]).toEqual(['', '', '', '']);
   });
 
   it('🔴 L’INFO-BULLE RAPPELLE LE BUT DU BOUTON, comme Arno l’a demandé', async () => {
@@ -3051,5 +3186,70 @@ describe('⑦ 🔴🔴 le montage dans la fiche d’un bien', () => {
     expect(ANNUAIRE).toContain('occupations={occupationsPourHistorique(f)}');
     expect(ANNUAIRE).toContain('categories={categoriesDesParties(f)}');
     expect(ANNUAIRE).toContain('f.occupations.map((o) => ({ libelle: o.nom, depuis: o.entree, jusqua: o.sortie }))');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — « LE MÊME COMPOSANT, PAS UNE COPIE » ═══════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026), mot pour mot : « Réutilise le formulaire “Nouvelle fiche” / “Modifier la fiche”
+ * des clients — LE MÊME COMPOSANT, PAS UNE COPIE. »
+ *
+ * 🔴 C'EST EXACTEMENT LA MÊME EXIGENCE QUE POUR `LigneVie` ET `CartePieceConversation` (lot 2), et le même garde :
+ * l'import doit exister, et AUCUN champ ne doit être redessiné ici. Ce dépôt a déjà payé la recopie plusieurs
+ * fois — deux listes de domaines, deux règles de repli, trois listes de types d'images —, et c'est toujours la
+ * copie qu'on regarde le moins qui garde l'erreur.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑤-septdecies 🔴🔴 le formulaire du « + » est celui des clients, importé', () => {
+  it('🔴🔴 IL EST IMPORTÉ, ET MONTÉ TEL QUEL', () => {
+    expect(SRC).toContain("from './CartesPersonnes'");
+    expect(SRC).toContain('FormulaireCarte');
+    expect(SRC).toContain('<FormulaireCarte');
+  });
+
+  /**
+   * 🔴🔴 LES HUIT CHAMPS NE SONT PAS REDESSINÉS ICI. La petite carte du lot 6 les portait en clair (`svv-label`
+   * « Nom », « Téléphone », « Adresse mail ») ; elle a disparu, et ce garde empêche qu'elle revienne champ par
+   * champ — c'est-à-dire qu'un second formulaire se reforme sans qu'on s'en aperçoive.
+   */
+  it('🔴🔴 AUCUN CHAMP DE FICHE N’EST REDESSINÉ DANS CE FICHIER', () => {
+    const corps = SRC.split('export const CSS_HISTORIQUE_DU_BIEN')[0];
+    for (const mort of ['hdb-creation-champ', 'hdb-creation-titre', 'hdb-creation-champs',
+      '>Adresse mail<', 'placeholder="facultatif"']) {
+      expect(corps, mort).not.toContain(mort);
+    }
+    /* ⚠️ UN SEUL `<input>` SUBSISTE DANS CE BLOC : il n'y en a aucun pour la fiche. Les seules saisies du fichier
+       sont celles du tableau de bord (dates, recherche, cases) — et le `select` de la CATÉGORIE, que seul ce
+       fichier peut tenir (voir l'encadré du « + »). */
+    const bloc = corps.slice(corps.indexOf('{aCreer !== null && ('), corps.indexOf('{creationEnCours &&'));
+    expect(bloc).not.toContain('<input');
+    expect(bloc).toContain('<select');
+  });
+
+  /**
+   * 🔴 LES RÈGLES ET LES MOTS VIENNENT DU MODULE PUR — le titre, l'exigence, la traduction du corps de requête.
+   * Une phrase recopiée ici aurait fini par ne plus ressembler à celle du haut de fiche.
+   */
+  it('🔴 LE TITRE, LA RÈGLE ET LA TRADUCTION VIENNENT DU MODULE PUR', () => {
+    expect(SRC).toContain("from '../../../../lib/gestion/ficheContact'");
+    expect(SRC).toContain('TITRE_CONTACT_NOUVEAU');
+    expect(SRC).toContain('ficheAEnvoyer(champs)');
+    expect(SRC).toContain('couperNomEtPrenom');
+    /* ⚠️ Et aucune des deux phrases du module pur n'est réécrite à la main ici. */
+    expect(SRC).not.toContain("'Nouveau contact'");
+    expect(SRC).not.toContain('Le nom est obligatoire');
+  });
+
+  /**
+   * 🔴🔴 LA PROPOSITION AUTOMATIQUE EST UN PRÉ-REMPLISSAGE, ET C'EST LE POINT 1 QUI LE DIT : « elles deviennent de
+   * simples PRÉ-REMPLISSAGES du formulaire du “+” ». Le formulaire lit donc la carte proposée AVANT la signature,
+   * champ par champ — la proposition est le travail déjà fait.
+   */
+  it('🔴🔴 LA PROPOSITION PASSE DEVANT LA SIGNATURE, CHAMP PAR CHAMP', () => {
+    expect(SRC).toContain('propose?.adressePostale ?? trouve?.adressePostale');
+    expect(SRC).toContain('propose?.telephone ?? trouve?.telephone');
+    expect(SRC).toContain('propose?.nom ?? trouve?.nom');
   });
 });

@@ -30,17 +30,23 @@ vi.mock('../db/client', () => ({
   withTransaction: (fn: (q: unknown) => Promise<unknown>) => fn((...a: unknown[]) => txMock(...a)),
 }));
 let migration304 = true;
+let migration306 = true;
 vi.mock('./schema', () => ({
   partieCategorieDisponible: async () => migration304,
   contactCarteDisponible: async () => migration304,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — la colonne `note` de la 305. La doublure suit le même interrupteur : les cas
      « sans la migration » éprouvent donc aussi une carte SANS note, ce qui est le cas réel d'avant la 305. */
   noteContactCarteDisponible: async () => migration304,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — les sept colonnes de la 306 ont leur PROPRE interrupteur, et il le
+     fallait : la 304 et la 306 sont deux migrations indépendantes, et l'état réel d'une base qui porte la 304
+     SANS la 306 est exactement celui de la veille de ce lot. Un seul interrupteur n'aurait jamais éprouvé ce
+     cas-là — celui où l'écran demande une fiche que la base ne sait pas encore garder. */
+  ficheContactCarteDisponible: async () => migration304 && migration306,
 }));
 
 import {
   auteurHumainPartieCategorie, lireCartesDuBien, lireCategoriesDuBien, marquerCarteVerifiee,
-  marquerCategorieVerifiee, poserCarteAlaMain, poserCategorieAlaMain, retirerCarte,
+  marquerCategorieVerifiee, modifierCarte, poserCarteAlaMain, poserCategorieAlaMain, retirerCarte,
 } from './partieCategorieRepo';
 
 const AUTEUR = { id: 7, libelle: 'a.jorel@sansvisavis.com' };
@@ -51,6 +57,7 @@ const params = (): unknown[][] => [...queryMock.mock.calls, ...txMock.mock.calls
 
 beforeEach(() => {
   migration304 = true;
+  migration306 = true;
   queryMock.mockReset(); txMock.mockReset();
   queryMock.mockResolvedValue({ rows: [{ id: '1' }] });
   txMock.mockResolvedValue({ rows: [{ id: '1' }] });
@@ -478,5 +485,148 @@ describe('🔴🔴 ⑥ les indépendants GLOBAUX sortent bien de la lecture d’
     const avant = lecture.slice(0, lecture.indexOf('query<'));
     expect(avant).toContain('await partieCategorieDisponible()');
     expect(avant).toContain('return [];');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 ⑦ LOT HISTORIQUE-BIEN-8, POINT 3 — LA FICHE D'UN CONTACT (migration 306)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO : « Le formulaire du “+” doit être le MÊME que celui des clients […] Le même formulaire complet
+   sert à “Modifier ce contact” (le crayon de la carte). »
+
+   CE QUE CE GROUPE TIENT : que la fiche VOYAGE jusqu'à la base, que la POSE n'efface jamais, que le CRAYON écrase,
+   et que SANS la 306 aucune des sept colonnes n'est nommée — l'écran se comportant alors comme au lot 7.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑦ la fiche d’un contact voyage jusqu’à la base', () => {
+  const FICHE = {
+    civilite: 'Mme', prenom: 'Fanny', qualite: 'syndic',
+    adressePostale: '2 rue Mars et Roty', codePostal: '92800', commune: 'PUTEAUX',
+    note: 'ne pas appeler avant 10 h',
+    coordonnees: [
+      { sorte: 'telephone' as const, libelle: 'Mobile', valeur: '06 11 22 33 44' },
+      { sorte: 'email' as const, libelle: 'E-mail', valeur: 'f.rosky@fictif.test' },
+    ],
+  };
+
+  it('🔴 LA LECTURE NOMME LES SEPT COLONNES, et relit le `jsonb` par le module pur', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{
+        id: '7', lot_cle: '155', cote: 'proprietaire', adresse: 'f.rosky@fictif.test', nom: 'ROSKY',
+        telephone: '06 11 22 33 44', origine: 'manuel', verifie_le: null, verifie_par: null,
+        cree_le: 'x', cree_par: 'y', note: null, civilite: 'Mme', prenom: 'Fanny', qualite: 'syndic',
+        adresse_postale: '2 rue Mars et Roty', code_postal: '92800', commune: 'PUTEAUX',
+        /* 🔴 UNE LIGNE ILLISIBLE EST IGNORÉE, JAMAIS DEVINÉE — règle du module pur, éprouvée chez lui. */
+        coordonnees: [{ sorte: 'email', valeur: 'f.rosky@fictif.test', libelle: 'E-mail' }, { sorte: 'fax' }],
+      }],
+    });
+    const [c] = await lireCartesDuBien('155');
+    for (const col of ['civilite', 'prenom', 'qualite', 'adresse_postale', 'code_postal', 'commune',
+      'coordonnees']) {
+      expect(sqls()[0], col).toContain(col);
+    }
+    expect(c.civilite).toBe('Mme');
+    expect(c.prenom).toBe('Fanny');
+    expect(c.adressePostale).toBe('2 rue Mars et Roty');
+    expect(c.coordonnees).toEqual([{ sorte: 'email', valeur: 'f.rosky@fictif.test', libelle: 'E-mail' }]);
+  });
+
+  /**
+   * 🔴🔴 UNE POSE N'EFFACE JAMAIS, ET C'EST LA RÈGLE DE CETTE FONCTION DEPUIS LE LOT 2. Reposer une carte est le
+   * geste de quelqu'un qui AJOUTE (un côté qui change, un champ qu'on complète). EFFACER est le geste du crayon.
+   */
+  it('🔴🔴 LA POSE ÉCRIT LA FICHE EN `coalesce` — elle complète, elle n’efface pas', async () => {
+    await poserCarteAlaMain({
+      lotCle: '155', cote: 'proprietaire', adresse: 'f.rosky@fictif.test', nom: 'ROSKY',
+      fiche: FICHE, auteur: AUTEUR,
+    });
+    const sql = sqls()[0];
+    for (const col of ['civilite', 'prenom', 'qualite', 'adresse_postale', 'code_postal', 'commune',
+      'coordonnees', 'note']) {
+      expect(sql, col).toContain(`${col} = coalesce(EXCLUDED.${col}, gestion_contact_carte.${col})`);
+    }
+    expect(sql).toContain('$15::jsonb');
+    expect(params()[0]).toContain('Mme');
+    expect(params()[0]).toContain(JSON.stringify(FICHE.coordonnees));
+  });
+
+  /**
+   * 🔴🔴 LA COLONNE `telephone` EST **DÉRIVÉE** DE LA LISTE, et non une seconde vérité. Elle est lue ailleurs (le
+   * report d'un changement de côté, la proposition automatique) : la laisser vide aurait fait perdre le numéro au
+   * premier glissement d'un côté à l'autre — le défaut que ce report existe pour empêcher.
+   */
+  it('🔴🔴 LE TÉLÉPHONE DE LA COLONNE EST LE PREMIER DE LA LISTE', async () => {
+    await poserCarteAlaMain({
+      lotCle: '155', cote: 'proprietaire', adresse: 'f.rosky@fictif.test',
+      telephone: '01 00 00 00 00', fiche: FICHE, auteur: AUTEUR,
+    });
+    /* La liste l'emporte sur le champ reçu : c'est elle qu'un humain vient de valider. */
+    expect(params()[0]).toContain('06 11 22 33 44');
+    expect(params()[0]).not.toContain('01 00 00 00 00');
+  });
+
+  /**
+   * 🔴🔴 LE CRAYON ÉCRASE, ET C'EST TOUTE LA DIFFÉRENCE AVEC LA POSE. Écrire par-dessus un numéro faux doit
+   * marcher, et vider un champ doit le vider : un `coalesce` ici rendrait une faute de frappe indélébile.
+   */
+  it('🔴🔴 LE CRAYON ÉCRIT PAR-DESSUS — aucun `coalesce`, et une liste vide VIDE la rubrique', async () => {
+    await modifierCarte({ id: 7, nom: 'ROSKY', fiche: { ...FICHE, coordonnees: [] }, auteur: AUTEUR });
+    const sql = sqls()[0];
+    expect(sql).not.toContain('coalesce');
+    for (const col of ['civilite', 'prenom', 'qualite', 'adresse_postale', 'code_postal', 'commune',
+      'coordonnees']) {
+      expect(sql, col).toContain(`${col} = $`);
+    }
+    expect(params()[0]).toContain('[]');
+  });
+
+  /**
+   * 🔴🔴 SANS LA 306, AUCUNE DES SEPT COLONNES N'EST NOMMÉE — et le geste garde l'effet qu'il avait au lot 7.
+   * Nommer une colonne absente ferait échouer le rangement ENTIER, et la catégorie, elle, vient d'être posée.
+   * C'est la leçon de la migration 251, repayée au lot 4a.
+   */
+  it('🔴🔴 SANS LA 306, NI LA LECTURE NI LES ÉCRITURES NE NOMMENT CES COLONNES', async () => {
+    migration306 = false;
+    const COLONNES = ['civilite', 'prenom', 'qualite', 'adresse_postale', 'code_postal', 'commune',
+      'coordonnees'];
+
+    /* ① LA LECTURE : elle rend la carte NUE, et son SQL ne connaît aucune des sept colonnes. */
+    queryMock.mockResolvedValue({
+      rows: [{
+        id: '7', lot_cle: '155', cote: 'proprietaire', adresse: 'f@x.test', nom: null, telephone: null,
+        origine: 'auto', verifie_le: null, verifie_par: null, cree_le: 'x', cree_par: 'y', note: null,
+        civilite: null, prenom: null, qualite: null, adresse_postale: null, code_postal: null,
+        commune: null, coordonnees: null,
+      }],
+    });
+    const [c] = await lireCartesDuBien('155');
+    expect(c.civilite).toBeNull();
+    expect(c.coordonnees).toEqual([]);
+    /* 🔴 LA COLONNE N'EST PAS NOMMÉE : elle n'apparaît que comme ALIAS d'un `NULL`, ce que la base accepte
+       toujours. C'est la forme exacte qui rend la lecture possible sur une base sans la 306. */
+    for (const col of COLONNES.filter((x) => x !== 'coordonnees')) {
+      expect(sqls()[0], col).toContain(`NULL::text AS ${col}`);
+    }
+    expect(sqls()[0]).toContain('NULL::jsonb AS coordonnees');
+
+    /* ② LES ÉCRITURES : la fiche est DEMANDÉE, et pourtant aucune colonne n'est nommée — le geste garde
+       exactement l'effet qu'il avait au lot 7, et il RÉUSSIT. C'est tout l'intérêt de la sonde : sans elle, le
+       rangement entier aurait échoué alors que la catégorie, elle, vient d'être posée. */
+    const pose = await poserCarteAlaMain({
+      lotCle: '155', cote: 'proprietaire', adresse: 'f@x.test', fiche: FICHE, auteur: AUTEUR,
+    });
+    const crayon = await modifierCarte({ id: 7, nom: 'ROSKY', fiche: FICHE, auteur: AUTEUR });
+    expect(pose.ok).toBe(true);
+    expect(crayon.ok).toBe(true);
+
+    /* ⚠️ ON NE REGARDE QUE LES DEUX ÉCRITURES (la lecture, elle, a ses alias) : aucune des sept colonnes n'y
+       apparaît, ni dans la liste des colonnes, ni dans le `SET`, ni dans le `DO UPDATE`. */
+    for (const sql of sqls().slice(1)) {
+      for (const col of COLONNES) expect(sql, col).not.toContain(col);
+    }
+    /* ⚠️ MAIS LE NOM ET LE TÉLÉPHONE PASSENT TOUJOURS : ce sont les colonnes de la 304, et elles sont là. */
+    expect(sqls()[1]).toContain('nom');
+    expect(sqls()[1]).toContain('telephone');
   });
 });
