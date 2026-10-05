@@ -96,16 +96,42 @@ export const ORDRE_FIL_DEFAUT: OrdreFil = 'recent';
 export interface Reglages {
   periode: ChoixPeriode;
   /**
-   * Les adresses COCHÉES, en forme canonique (minuscules). Vide + `toutesLesParties` éteint = aucune personne
-   * choisie : l'écran le DIT et ne filtre rien, plutôt que de rendre un fil vide qui se lirait « rien ne s'est dit ».
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LES PARTIES COCHÉES DÉCIDENT SEULES ═════════════════════════════════
+   *
+   * Les adresses COCHÉES, en forme canonique (minuscules).
+   *
+   * 🔴 VIDE = **TOUS** LES MAILS DU BIEN, et c'est la nouvelle règle d'Arno (05/10/2026) : « AUCUNE partie
+   * cochée → TOUS les mails rattachés au bien sur la période. AU MOINS UNE partie cochée → UNIQUEMENT les mails
+   * dont l'expéditeur ou un destinataire est l'une des parties cochées. »
+   *
+   * 🔴 CE QUI A DISPARU, ET POURQUOI — c'est le DÉFAUT qu'Arno a constaté. Il y avait un interrupteur
+   * « Tous les mails du bien sur la période », ALLUMÉ par défaut, dont la règle (lot 2) était d'IGNORER les
+   * cases cochées. Cocher « Propriétaire » ne changeait donc RIEN tant qu'on ne l'avait pas relevé — et rien à
+   * l'écran ne le disait. MESURÉ sur lot-290 (bien 421) : le groupe Propriétaire apparaît dans **198 mails sur
+   * 326** ; Arno en voyait 326, c'est-à-dire la totalité, filtre éteint. Un interrupteur qui désarme en silence
+   * les cases d'à côté est pire qu'une case qui manque : on croit avoir filtré.
+   *
+   * ⚠️ LA RÈGLE EST DÉSORMAIS **DÉRIVÉE**, et il n'y a donc plus d'état à tenir d'accord avec lui-même. À la
+   * place, une ligne d'état dit laquelle des deux lectures on regarde (`motSelectionDesParties`).
    */
   parties: string[];
   /**
-   * 🔴 « TOUS LES MAILS DU BIEN PENDANT LA PÉRIODE » — IGNORE LE CHOIX DES PARTIES, sans l'effacer. Demande
-   * d'Arno : l'interrupteur se relève et l'on retrouve ses cases telles qu'on les avait laissées. Vider `parties`
-   * à l'allumage aurait obligé à tout recocher pour comparer les deux lectures.
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — NOS ADRESSES **DÉCOCHÉES** ══════════════════════════════════════════
+   *
+   * DEMANDE D'ARNO : « Nouveau groupe “Notre agence” […] COCHÉES PAR DÉFAUT, décochables (“tout le groupe”
+   * compris). Agence décochée → les mails écrits par nous sont retirés du listing. Le cochage par défaut de
+   * l'agence ne compte PAS comme “une partie cochée” pour la règle ci-dessus. »
+   *
+   * 🔴 ON GARDE CE QUI EST **DÉCOCHÉ**, ET NON CE QUI EST COCHÉ. C'est ce qui rend le défaut gratuit : la liste
+   * est vide quand tout est coché, l'adresse ne porte rien, et le comportement est exactement celui d'avant ce
+   * lot. Garder les cochées aurait obligé l'écran à les énumérer — et une adresse de l'agence apparue depuis
+   * serait née DÉCOCHÉE, l'inverse de la demande.
+   *
+   * 🔴 ET C'EST AUSSI CE QUI TIENT LA PHRASE « NE COMPTE PAS COMME UNE PARTIE COCHÉE » : l'agence ne vit pas
+   * dans `parties`. Les deux listes ne se mélangent jamais, donc le défaut de l'une ne peut pas déclencher la
+   * règle de l'autre.
    */
-  toutesLesParties: boolean;
+  agenceEcartee: string[];
   pieces: ChoixPieces;
   ordre: OrdreFil;
   /**
@@ -145,7 +171,8 @@ export interface Reglages {
 export const REGLAGES_DEFAUT: Reglages = {
   periode: { sorte: 'tous' },
   parties: [],
-  toutesLesParties: true,
+  /* 🔴 VIDE = TOUTES NOS ADRESSES COCHÉES : le défaut d'Arno, et il ne s'écrit nulle part dans l'adresse. */
+  agenceEcartee: [],
   pieces: 'toutes',
   ordre: ORDRE_FIL_DEFAUT,
   grouper: false,
@@ -160,7 +187,12 @@ export const REGLAGES_DEFAUT: Reglages = {
  * puis ne rien trouver n'aurait offert aucun moyen de revenir en arrière — et le fil vide aurait accusé le bien.
  */
 export function reglagesActifs(r: Reglages): boolean {
-  return r.periode.sorte !== 'tous' || !r.toutesLesParties || r.pieces !== 'toutes'
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — UNE PARTIE COCHÉE **EST** un réglage actif, et une adresse de
+     l'agence décochée aussi : ce sont les deux seules façons de réduire le listing par les personnes depuis que
+     l'interrupteur « Tous les mails du bien » a disparu. Sans elles, « tout remettre à plat » n'aurait pas été
+     offert alors qu'il y avait quelque chose à défaire. */
+  return r.periode.sorte !== 'tous' || r.parties.length > 0 || r.agenceEcartee.length > 0
+    || r.pieces !== 'toutes'
     || r.ordre !== ORDRE_FIL_DEFAUT || r.grouper
     || r.texte.trim() !== '' || r.evenementOuvert;
 }
@@ -272,6 +304,28 @@ export interface PartiesRangees {
    * semblé faux sans qu'on sache pourquoi.
    */
   nousEcartees: number;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — « NOTRE AGENCE » DEVIENT UN GROUPE, ET C'EST UN RENVERSEMENT ═══════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « Nouveau groupe “Notre agence” (gris neutre, ligne dépliable sous “Non
+   * affectés”) : nos adresses, avec compteurs, COCHÉES PAR DÉFAUT, décochables (“tout le groupe” compris).
+   * Agence décochée → les mails écrits par nous sont retirés du listing. Le cochage par défaut de l'agence ne
+   * compte PAS comme “une partie cochée”. Pas de “+”, pas de glisser-déposer pour l'agence. »
+   *
+   * 🔴 CE QUE CELA DÉFAIT, ET QUI ÉTAIT UNE DÉCISION D'ARNO DU LOT 2 : « notre agence n'est pas un groupe
+   * sélectionnable ». Il la rouvre, et avec une règle plus fine que celle qu'il avait refusée : on ne coche pas
+   * « les mails où nous sommes » (c'est-à-dire presque tous, le filtre qui n'a pas de sens), on décoche
+   * « les mails que nous avons ÉCRITS ». Ce n'est pas le même filtre, et c'est pour cela qu'il est utile.
+   *
+   * 🔴 ELLES RESTENT HORS DES QUATRE GROUPES, et `nousEcartees` garde donc sa valeur : l'agence n'est PAS une
+   * partie du bien. Les quatre autres appelants de `grouperParCategorie` ne lisent pas ce champ et ne changent
+   * donc pas d'un iota — c'est la condition pour que ce renversement ne touche que le bloc d'un BIEN.
+   *
+   * ⚠️ UN CLIENT DU BIEN DONT L'ADRESSE EST UNE DES NÔTRES N'EST PAS ICI : il garde sa capsule dans son groupe
+   * (décision d'Arno au lot 6, tenue par `clientsDuBien`). Le mettre dans « Notre agence » l'aurait fait
+   * disparaître de son encart — et l'on aurait décoché un propriétaire en croyant décocher un collègue.
+   */
+  agence: Interlocuteur[];
 }
 
 /**
@@ -365,6 +419,7 @@ export function grouperParCategorie(
 ): PartiesRangees {
   const ordre: CleGroupeParties[] = ['proprietaire', 'locataire', 'independant', 'a_repartir'];
   const groupes = new Map<CleGroupeParties, Interlocuteur[]>(ordre.map((c) => [c, []]));
+  const agence: Interlocuteur[] = [];
   let nousEcartees = 0;
   for (const i of interlocuteurs) {
     /**
@@ -387,7 +442,13 @@ export function grouperParCategorie(
      * et c'est l'écran qui l'empêche de cocher. Elle n'est alors pas comptée dans « N adresses de notre agence ne
      * sont pas listées » — elle EST listée, et le dire serait faux.
      */
-    if (i.interne && !clientsDuBien.has(i.adresse.trim().toLowerCase())) { nousEcartees += 1; continue; }
+    if (i.interne && !clientsDuBien.has(i.adresse.trim().toLowerCase())) {
+      nousEcartees += 1;
+      /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — ÉCARTÉES DES GROUPES, MAIS PLUS JETÉES : elles forment le groupe
+         « Notre agence », avec leurs compteurs. Voir l'encadré de `PartiesRangees.agence`. */
+      agence.push(i);
+      continue;
+    }
     /* ⚠️ LA CLÉ EST NORMALISÉE DES DEUX CÔTÉS : « Jean.PONS@… » et « jean.pons@… » sont la même personne, et une
        comparaison sensible à la casse l'aurait rangée « non affectée » alors que l'annuaire la connaît. */
     const cle = categories.get(i.adresse.trim().toLowerCase()) ?? 'a_repartir';
@@ -401,21 +462,61 @@ export function grouperParCategorie(
       };
     }),
     nousEcartees,
+    /* ⚠️ L'ORDRE EST CELUI REÇU, comme pour les quatre groupes : la route rend déjà du plus bavard au moins
+       bavard, et un second tri aurait donné deux vérités sur « qui parle le plus ». */
+    agence,
   };
 }
 
 /**
- * ══ 🔴 « N ADRESSES DE NOTRE AGENCE NE SONT PAS LISTÉES » ════════════════════════════════════════════════════════
+ * ══ 🔴 LE TITRE DU GROUPE « NOTRE AGENCE » ══════════════════════════════════════════════════════════════════════
  *
- * La phrase dit ce qui a été écarté ET pourquoi ce n'est pas une perte. `null` quand il n'y a rien à dire : une
- * note permanente sur un bien où nous n'avons jamais écrit serait du bruit.
+ * 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — CE QUE CETTE FONCTION DISAIT A CESSÉ D'ÊTRE VRAI. Elle écrivait
+ * « N adresses de notre agence ne sont pas listées : nos mails apparaissent dès qu'ils font partie d'un échange
+ * avec une partie sélectionnée. » Or elles SONT listées maintenant — Arno en a fait un groupe. Garder la phrase
+ * aurait affiché, juste au-dessus du groupe, l'affirmation qu'il n'existe pas.
+ *
+ * Ce qu'elle promettait n'est pas perdu pour autant, et c'est même dit plus précisément : la ligne d'état
+ * (`motSelectionDesParties`) explique laquelle des deux lectures on regarde, et le groupe lui-même montre ses
+ * adresses avec leurs compteurs. Une information affichée vaut mieux qu'une information racontée.
+ *
+ * ⚠️ `null` QUAND NOUS N'AVONS JAMAIS ÉCRIT : pas de groupe vide sur un bien qui n'en a pas l'usage — c'est la
+ * règle de tous les autres groupes de ce bloc.
  */
-export function motAgenceEcartee(nousEcartees: number): string | null {
-  if (nousEcartees <= 0) return null;
-  const n = nousEcartees === 1
-    ? 'Une adresse de notre agence n’est pas listée'
-    : `${nousEcartees} adresses de notre agence ne sont pas listées`;
-  return `${n} : nos mails apparaissent dès qu’ils font partie d’un échange avec une partie sélectionnée.`;
+export const TITRE_GROUPE_AGENCE = 'Notre agence';
+
+export function motGroupeAgence(nb: number): string | null {
+  if (nb <= 0) return null;
+  return nb === 1
+    ? 'Notre agence : 1 adresse. Décochez-la pour retirer du listing les mails que nous avons écrits.'
+    : `Notre agence : ${nb} adresses. Décochez-les pour retirer du listing les mails que nous avons écrits.`;
+}
+
+/**
+ * ══ 🔴🔴 LA LIGNE D'ÉTAT DU FILTRE — « laquelle des deux lectures je regarde » ═══════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026), mot pour mot : « La case “Tous les mails du bien sur la période” est remplacée par
+ * cette règle automatique : à sa place, une ligne d'état claire, “Aucune partie cochée : tous les mails du bien
+ * sont affichés” ou “N parties cochées : seuls leurs échanges sont affichés”, avec un bouton “Tout décocher”. »
+ *
+ * 🔴 C'EST LA RÉPARATION DU DÉFAUT, ET NON UNE DÉCORATION. L'ancien interrupteur désarmait les cases d'à côté
+ * SANS RIEN DIRE : on cochait « Propriétaire », les 326 mails du bien restaient, et rien à l'écran n'expliquait
+ * pourquoi. Une règle automatique sans ligne d'état aurait le défaut inverse — on ne saurait plus pourquoi le
+ * listing a changé. La phrase dit donc toujours, en toutes lettres, ce que le filtre fait.
+ *
+ * ⚠️ L'AGENCE N'EST PAS COMPTÉE DANS « N PARTIES COCHÉES » : elle est cochée par défaut, et la compter aurait
+ * fait lire « 4 parties cochées » sur un écran où personne n'a rien coché. C'est la demande d'Arno, et c'est
+ * aussi ce que le modèle garantit : l'agence ne vit pas dans `parties`.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const MOT_TOUT_DECOCHER = 'Tout décocher';
+
+export function motSelectionDesParties(nbCochees: number): string {
+  if (nbCochees <= 0) return 'Aucune partie cochée : tous les mails du bien sont affichés.';
+  return nbCochees === 1
+    ? '1 partie cochée : seuls ses échanges sont affichés.'
+    : `${nbCochees} parties cochées : seuls leurs échanges sont affichés.`;
 }
 
 /**
@@ -1330,7 +1431,11 @@ export function etatRetourDepuisBrut(v: unknown): EtatRetourBien | null {
       parties: Array.isArray(r.parties)
         ? r.parties.filter((x): x is string => typeof x === 'string').slice(0, 200)
         : [],
-      toutesLesParties: r.toutesLesParties !== false,
+      /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — l'interrupteur n'existe plus ; nos adresses décochées, elles,
+         voyagent comme les parties (même forme, même borne). */
+      agenceEcartee: Array.isArray(r.agenceEcartee)
+        ? r.agenceEcartee.filter((x): x is string => typeof x === 'string').slice(0, 200)
+        : [],
       pieces: pieces === 'avec' || pieces === 'sans' ? pieces : 'toutes',
       ordre: ordre === 'ancien' ? 'ancien' : 'recent',
       grouper: r.grouper === true,
@@ -1362,8 +1467,9 @@ export const MS_SURLIGNE_RETOUR = 2500;
  * `pieces` et `grouper` ; en écrire une seconde sérialisation aurait fait deux grammaires d'adresse pour la même
  * question — et c'est toujours celle qu'on relit le moins qui se périme.
  *
- * ⚠️ `toutesLesParties` ALLUMÉ ⇒ **AUCUN** `avec`, et les cases cochées sont conservées dans `Reglages` sans être
- * envoyées. C'est la demande d'Arno : l'interrupteur IGNORE le choix des parties, il ne l'efface pas.
+ * ⚠️ AUCUNE PARTIE COCHÉE ⇒ **AUCUN** `avec` : la liste vide se lit « tous les mails du bien », et c'est la
+ * règle d'Arno du lot 9. L'ancien interrupteur « Tous les mails du bien », qui ignorait les cases cochées sans
+ * les effacer, a disparu — voir l'encadré de `Reglages.parties`.
  *
  * ⚠️ L'ORDRE N'EST **PAS** UN PARAMÈTRE DE ROUTE, ET C'EST EXACT : la route rend toujours le plus récent d'abord.
  * L'inversion se fait à l'écran, sur la page reçue. Lui inventer un `ordre=` aurait promis à l'adresse un tri que
@@ -1375,9 +1481,10 @@ export function reglagesEnFiltres(r: Reglages, page = 0, taille = PAGE_HISTORIQU
   const bornes = bornesDuChoix(r.periode);
   return {
     ...FILTRES_VIDES,
-    interlocuteurs: r.toutesLesParties
-      ? []
-      : [...new Set(r.parties.map((a) => a.trim().toLowerCase()).filter((a) => a !== ''))],
+    interlocuteurs: [...new Set(r.parties.map((a) => a.trim().toLowerCase()).filter((a) => a !== ''))],
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — nos adresses DÉCOCHÉES deviennent des expéditeurs écartés. La route
+       retire alors les mails que NOUS avons écrits, et eux seuls (voir `FiltresHistorique.expediteursExclus`). */
+    expediteursExclus: [...new Set(r.agenceEcartee.map((a) => a.trim().toLowerCase()).filter((a) => a !== ''))],
     du: jourValide(bornes.du),
     au: jourValide(bornes.au),
     pieces: r.pieces,
@@ -1691,9 +1798,15 @@ export function motBasculeResume(ouvert: boolean): string {
  * d'élargir une période, mais de cocher quelqu'un (ou de relever « tous les mails du bien »).
  */
 export function motAucunResultat(r: Reglages): string {
-  if (!r.toutesLesParties && r.parties.length === 0) {
-    return 'Aucune personne n’est cochée : le fil est vide parce que le filtre ne désigne personne. '
-      + 'Cochez une partie, ou relevez « Tous les mails du bien pendant la période ».';
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LE CAS « AUCUNE PERSONNE COCHÉE » A DISPARU, ET C'EST EXACT : une
+   * liste de parties vide veut maintenant dire « tous les mails du bien », pas « personne ». Le fil ne peut donc
+   * plus être vide pour cette raison-là. Le cas qui le remplace est l'agence seule décochée sur un bien où nous
+   * sommes l'unique expéditeur — et son remède est de la recocher, pas d'élargir une période.
+   */
+  if (r.parties.length === 0 && r.agenceEcartee.length > 0) {
+    return 'Tous les mails de ce bien ont été écrits par notre agence, et « Notre agence » est décochée. '
+      + 'Recochez-la pour les revoir.';
   }
   if (!reglagesActifs(r)) return 'Aucun mail rattaché à ce bien.';
   /* 🔴 LA RECHERCHE EST NOMMÉE, ET LE MOT CHERCHÉ EST RÉPÉTÉ (lot HISTORIQUE-BIEN-2) : « aucun résultat » après

@@ -82,6 +82,32 @@ describe('les filtres', () => {
     expect(depuis(`avec=${beaucoup}`).interlocuteurs).toHaveLength(INTERLOCUTEURS_MAX);
   });
 
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — `sauf=` : LES EXPÉDITEURS ÉCARTÉS ════════════════════════════════
+   *
+   * DEMANDE D'ARNO : « Agence décochée → les mails écrits par nous sont retirés du listing. »
+   *
+   * 🔴 LE DÉFAUT EST VIDE, ET C'EST CE QUI REND « TOUT COCHÉ » GRATUIT : une adresse sans ce paramètre se
+   * comporte exactement comme avant ce lot, et l'absence du paramètre ne peut pas se lire « rien n'est coché ».
+   */
+  it('🔴🔴 `sauf=` VOYAGE COMME `avec=` — normalisé, dédoublonné, borné, et VIDE par défaut', () => {
+    expect(FILTRES_VIDES.expediteursExclus).toEqual([]);
+    expect(depuis('').expediteursExclus).toEqual([]);
+    expect(depuis('sauf=Gestion@Criterimmo.FR,%20gestion@criterimmo.fr%20,autre@criterimmo.fr')
+      .expediteursExclus).toEqual(['gestion@criterimmo.fr', 'autre@criterimmo.fr']);
+    const beaucoup = Array.from({ length: 200 }, (_, i) => `a${i}@fictif.fr`).join(',');
+    expect(depuis(`sauf=${beaucoup}`).expediteursExclus).toHaveLength(INTERLOCUTEURS_MAX);
+  });
+
+  it('🔴 `sauf=` NE S’ÉCRIT QUE S’IL Y A QUELQUE CHOSE À ÉCARTER, et il rend le filtre ACTIF', () => {
+    expect(ecrireFiltres(FILTRES_VIDES)).toBe('');
+    expect(ecrireFiltres({ ...FILTRES_VIDES, expediteursExclus: ['gestion@criterimmo.fr'] }))
+      .toContain('sauf=gestion%40criterimmo.fr');
+    /* 🔴 SANS CELA, « tout remettre à plat » n'aurait pas été offert alors qu'il y avait à défaire. */
+    expect(filtreActif(FILTRES_VIDES)).toBe(false);
+    expect(filtreActif({ ...FILTRES_VIDES, expediteursExclus: ['gestion@criterimmo.fr'] })).toBe(true);
+  });
+
   it('une date est acceptée en ISO, et refusée autrement — on ne devine pas « 03/07/2024 »', () => {
     expect(jourValide('2024-07-03')).toBe('2024-07-03');
     for (const non of [null, '', '03/07/2024', '2024-7-3', '2024-13-45', 'hier']) {
@@ -325,5 +351,56 @@ describe('les garanties du lot', () => {
     expect(repo).toContain('statut_par_libelle IS NULL');
     // …et l'insertion ne se fait qu'en l'absence de TOUTE ligne pour cette identité (donc jamais de résurrection).
     expect(repo).toContain('WHERE NOT EXISTS (SELECT 1 FROM gestion_rattachement WHERE');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — CE QUE LE SQL DU FILTRE PROMET ═════════════════════════════════════════
+ *
+ * ⚠️ PAR FRAGMENTS SÉMANTIQUES, ET NON PAR LA FORME DE LA REQUÊTE (règle du dépôt, `AGENTS.md`) : on n'exige pas
+ * un SQL écrit d'une certaine façon, on exige qu'il pose la BONNE QUESTION. Et les deux questions ne sont pas la
+ * même — c'est tout l'objet de ce groupe.
+ */
+describe('🔴🔴 le filtre des parties et celui de l’agence posent deux questions différentes', () => {
+  const repo = readFileSync('app/lib/gestion/historiqueRepo.ts', 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ').split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n');
+  const bloc = repo.slice(repo.indexOf('function conditions('), repo.indexOf('function clesDe('));
+
+  /**
+   * 🔴🔴 `avec` = L'ADRESSE **APPARAÎT** DANS LE MAIL (n'importe quel rôle). C'est la règle d'Arno : « les mails
+   * dont l'expéditeur ou un destinataire (À / Cc) est l'une des parties cochées ». Un `role = 'expediteur'` ici
+   * aurait fait disparaître tout ce qu'on a ÉCRIT au propriétaire — c'est-à-dire la moitié de son dossier.
+   */
+  it('🔴🔴 « parties cochées » regarde TOUS les rôles', () => {
+    /* ⚠️ ON BORNE À SA PROPRE CONDITION : celle de l'agence suit immédiatement, et elle, nomme le rôle. */
+    const q = bloc.slice(bloc.indexOf('f.interlocuteurs.length > 0'));
+    const condition = q.slice(0, q.indexOf('f.expediteursExclus.length > 0'));
+    expect(condition).toContain('EXISTS');
+    expect(condition).toContain('ia.message_id = m.id');
+    expect(condition).toContain('ia.adresse = ANY');
+    /* 🔴 ET SURTOUT PAS LE RÔLE : la condition ne doit pas le nommer. */
+    expect(condition).not.toContain('role');
+  });
+
+  /**
+   * 🔴🔴 `sauf` = L'ADRESSE EST L'**EXPÉDITEUR**, et c'est l'inverse exact. Nos adresses sont des deux côtés de
+   * presque tous les mails d'un bien : écarter ceux où elles APPARAISSENT aurait vidé le listing au premier
+   * décochage. Ce qu'Arno retire, ce sont les mails que NOUS avons écrits.
+   */
+  it('🔴🔴 « agence décochée » ne regarde QUE l’expéditeur, et exclut', () => {
+    const q = bloc.slice(bloc.indexOf('f.expediteursExclus.length > 0'));
+    const condition = q.slice(0, q.indexOf('f.du !== null'));
+    expect(condition).toContain('NOT EXISTS');
+    expect(condition).toContain("xa.role = 'expediteur'");
+    expect(condition).toContain('xa.adresse = ANY');
+  });
+
+  /**
+   * 🔴🔴 LA LISTE DES PARTIES NE DÉPEND NI DE L'UN NI DE L'AUTRE. Sans cela, décocher « Notre agence » aurait
+   * fait disparaître nos adresses de la liste — donc leurs cases avec elles, et l'on n'aurait jamais pu les
+   * recocher. Le filtre se serait fermé sur lui-même, sans retour possible.
+   */
+  it('🔴🔴 la liste des interlocuteurs neutralise LES DEUX filtres de personnes', () => {
+    expect(repo).toContain("conditions({ ...f, interlocuteurs: [], expediteursExclus: [] }");
   });
 });

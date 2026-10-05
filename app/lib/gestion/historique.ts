@@ -101,6 +101,27 @@ export type ChoixPieces = 'toutes' | 'avec' | 'sans';
 export interface FiltresHistorique {
   /** Adresses cochées. Vide = tous les interlocuteurs. */
   interlocuteurs: string[];
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LES EXPÉDITEURS ÉCARTÉS (« Notre agence » décochée) ════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « Nouveau groupe “Notre agence” […] COCHÉES PAR DÉFAUT, décochables.
+   * Agence décochée → les mails écrits par nous sont retirés du listing. »
+   *
+   * 🔴 C'EST UN FILTRE SUR L'EXPÉDITEUR, ET SUR LUI SEUL — pas sur « l'adresse apparaît dans le mail ». Nos
+   * adresses sont des deux côtés de presque tous les mails du bien : les écarter dès qu'elles APPARAISSENT
+   * aurait vidé le listing. Ce qu'Arno veut retirer, ce sont les mails que NOUS avons écrits.
+   *
+   * 🔴 ON NOMME CE QU'ON ÉCARTE, ET NON CE QU'ON GARDE, et c'est ce qui rend le défaut « tout coché » gratuit :
+   * la liste est VIDE quand rien n'est décoché, donc l'adresse de la requête ne porte rien et le comportement
+   * est exactement celui d'avant ce lot. Nommer les adresses gardées aurait obligé l'écran à les énumérer
+   * toutes, et une adresse de l'agence apparue depuis serait née DÉCOCHÉE — l'inverse de la demande.
+   *
+   * ⚠️ IL S'APPLIQUE APRÈS `interlocuteurs`, ET LES DEUX SE COMPOSENT : cocher le locataire puis décocher
+   * l'agence rend « les échanges du locataire, sauf ce que nous y avons écrit ». C'est la phrase d'Arno, mot
+   * pour mot : « Les mails de l'agence n'apparaissent que s'ils font partie de ces échanges et que l'agence est
+   * cochée. »
+   */
+  expediteursExclus: string[];
   /** Bornes de période, en `AAAA-MM-JJ`. `null` = pas de borne. */
   du: string | null;
   au: string | null;
@@ -129,7 +150,7 @@ export interface FiltresHistorique {
 }
 
 export const FILTRES_VIDES: FiltresHistorique = {
-  interlocuteurs: [], du: null, au: null, pieces: 'toutes', texte: '',
+  interlocuteurs: [], expediteursExclus: [], du: null, au: null, pieces: 'toutes', texte: '',
   evenementOuvert: false,
   avecProprietaire: false, avecLogements: true, grouper: false,
   page: 0, taille: PAGE_HISTORIQUE,
@@ -169,6 +190,10 @@ export function lireFiltres(p: URLSearchParams): FiltresHistorique {
   return {
     interlocuteurs: [...new Set((p.get('avec') ?? '').split(',')
       .map((a) => a.trim().toLowerCase()).filter((a) => a !== ''))].slice(0, INTERLOCUTEURS_MAX),
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — bornée comme `avec`, et pour la même raison : un paramètre d'adresse
+       vient du dehors, et une liste sans borne est une requête sans borne. */
+    expediteursExclus: [...new Set((p.get('sauf') ?? '').split(',')
+      .map((a) => a.trim().toLowerCase()).filter((a) => a !== ''))].slice(0, INTERLOCUTEURS_MAX),
     du: jourValide(p.get('du')),
     au: jourValide(p.get('au')),
     pieces: brutPieces === 'avec' || brutPieces === 'sans' ? brutPieces : 'toutes',
@@ -187,6 +212,7 @@ export function lireFiltres(p: URLSearchParams): FiltresHistorique {
 export function ecrireFiltres(f: FiltresHistorique): string {
   const p = new URLSearchParams();
   if (f.interlocuteurs.length > 0) p.set('avec', f.interlocuteurs.join(','));
+  if (f.expediteursExclus.length > 0) p.set('sauf', f.expediteursExclus.join(','));
   if (f.du !== null) p.set('du', f.du);
   if (f.au !== null) p.set('au', f.au);
   if (f.pieces !== 'toutes') p.set('pieces', f.pieces);
@@ -203,7 +229,7 @@ export function ecrireFiltres(f: FiltresHistorique): string {
 
 /** Un filtre est-il actif ? Sert à proposer « tout afficher » seulement quand il y a quelque chose à défaire. PUR. */
 export function filtreActif(f: FiltresHistorique): boolean {
-  return f.interlocuteurs.length > 0 || f.du !== null || f.au !== null
+  return f.interlocuteurs.length > 0 || f.expediteursExclus.length > 0 || f.du !== null || f.au !== null
     || f.pieces !== 'toutes' || f.texte.trim() !== '';
 }
 

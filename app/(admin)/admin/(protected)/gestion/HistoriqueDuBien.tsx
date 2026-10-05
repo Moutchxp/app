@@ -40,7 +40,10 @@ import {
  * place », qui est précisément celle qu'une maquette a fait mentir (voir `motLocataireDeLaPeriode`).
  */
 import {
-  bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAgenceEcartee,
+  bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil,
+  /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — la ligne d'état et le groupe de l'agence remplacent l'interrupteur
+     « Tous les mails du bien » et la phrase « N adresses de notre agence ne sont pas listées ». */
+  MOT_TOUT_DECOCHER, motGroupeAgence, motSelectionDesParties, TITRE_GROUPE_AGENCE,
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
   adresseACorriger, BUT_DU_PLUS, ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut,
@@ -342,7 +345,13 @@ export function HistoriqueDuBien({
    * déjà « dans l'ensemble » ou pas selon le défaut). On mémorise donc ce que la personne a BASCULÉ, et l'état
    * affiché est le défaut inversé — une seule règle, qui marche dans les deux sens.
    */
-  const [bascules, setBascules] = useState<Set<CleGroupeParties>>(new Set());
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — `'agence'` S'AJOUTE AUX QUATRE CLÉS DE GROUPE, ET SEULEMENT ICI. Son
+   * repli se garde comme celui des autres bandes ; mais elle n'est PAS un `CleGroupeParties` (elle n'est pas une
+   * partie : ni « + », ni glisser, ni catégorie). L'élargir dans le module pur aurait obligé `coteDeLaCategorie`,
+   * `ciblesDeplacement` et `sorteDeCapsule` à répondre d'un groupe qui n'est pas une partie du bien.
+   */
+  const [bascules, setBascules] = useState<Set<CleGroupeParties | 'agence'>>(new Set());
 
   const [depots, setDepots] = useState<ReadonlyMap<number, DepotAffiche>>(new Map());
   const [emplacements, setEmplacements] =
@@ -928,7 +937,7 @@ export function HistoriqueDuBien({
   }, [cartesContact]);
 
   /** Déplier ou replier un groupe. Écrit une fois : les encarts et les bandes s'en servent. */
-  const basculerRepli = useCallback((cle: CleGroupeParties): void => setBascules((s0) => {
+  const basculerRepli = useCallback((cle: CleGroupeParties | 'agence'): void => setBascules((s0) => {
     const n = new Set(s0);
     if (n.has(cle)) n.delete(cle); else n.add(cle);
     return n;
@@ -1149,6 +1158,35 @@ export function HistoriqueDuBien({
       setCreationEnCours(false);
     }
   }, [aCreer, lotCle, relireParties]);
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — COCHER ET DÉCOCHER « NOTRE AGENCE » ═════════════════════════════════
+   *
+   * 🔴 ON ÉCRIT L'ENVERS DE CE QU'ON VOIT : la case est COCHÉE quand l'adresse n'est PAS dans `agenceEcartee`.
+   * C'est ce qui rend le défaut d'Arno (« cochées par défaut ») gratuit — la liste est vide au départ — et ce qui
+   * fait qu'une adresse de l'agence apparue depuis naît COCHÉE, et non l'inverse.
+   */
+  const basculerAgence = useCallback((adresse: string): void => setReglages((r) => {
+    const a = cleAdresse(adresse);
+    return {
+      ...r,
+      agenceEcartee: r.agenceEcartee.includes(a)
+        ? r.agenceEcartee.filter((x) => x !== a)
+        : [...r.agenceEcartee, a],
+    };
+  }), []);
+
+  /** « tout le groupe » pour l'agence : tout décoché ⇒ on recoche tout. Même geste que pour les parties. */
+  const basculerToutLagence = useCallback((adresses: readonly string[]): void => setReglages((r) => {
+    const toutes = adresses.map(cleAdresse);
+    const toutEcarte = toutes.length > 0 && toutes.every((a) => r.agenceEcartee.includes(a));
+    return {
+      ...r,
+      agenceEcartee: toutEcarte
+        ? r.agenceEcartee.filter((a) => !toutes.includes(a))
+        : [...new Set([...r.agenceEcartee, ...toutes])],
+    };
+  }), []);
 
   /** Tout un groupe d'un geste. Déjà tout coché ⇒ on décoche : un bouton qui ne fait qu'ajouter se bloque vite. */
   const basculerGroupe = (adresses: readonly string[]): void => setReglages((r) => {
@@ -1381,22 +1419,27 @@ export function HistoriqueDuBien({
         <fieldset className="hdb-pave hdb-pave--bande">
           <legend className="hdb-legende">Parties</legend>
 
-          {/* 🔴 « TOUS LES MAILS DU BIEN SUR LA PÉRIODE » IGNORE LE CHOIX DES PARTIES, SANS L'EFFACER. */}
-          <label className="hdb-case hdb-case--large">
-            <input type="checkbox" checked={reglages.toutesLesParties}
-              onChange={(e) => setReglages((r) => ({ ...r, toutesLesParties: e.target.checked }))} />
-            <span>Tous les mails du bien sur la période</span>
-          </label>
-          {reglages.toutesLesParties && reglages.parties.length > 0 && (
-            <p className="gst-note hdb-note">
-              {reglages.parties.length === 1
-                ? '1 personne reste cochée : elle sera reprise dès que cet interrupteur se relève.'
-                : `${reglages.parties.length} personnes restent cochées : elles seront reprises dès que cet interrupteur se relève.`}
-            </p>
-          )}
-          {motAgenceEcartee(parties.nousEcartees) !== null && (
-            <p className="gst-note hdb-note">{motAgenceEcartee(parties.nousEcartees)}</p>
-          )}
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LA LIGNE D'ÉTAT REMPLACE L'INTERRUPTEUR ══════════════════
+              DEMANDE D'ARNO (05/10/2026) : « La case “Tous les mails du bien sur la période” est remplacée par
+              cette règle automatique : à sa place, une ligne d'état claire […] avec un bouton “Tout décocher”. »
+
+              🔴 CE QUE L'INTERRUPTEUR FAISAIT, ET QUI ÉTAIT LE DÉFAUT : allumé par défaut, il IGNORAIT les cases
+              cochées (règle du lot 2). Cocher « Propriétaire » ne changeait donc rien, et rien ne le disait. Sur
+              lot-290, mesuré : le groupe Propriétaire est dans 198 mails sur 326 — Arno en voyait 326.
+
+              ⚠️ LA PHRASE EST UN `role="status"` : elle change sans que le focus bouge, et un lecteur d'écran
+              l'annonce. Une règle automatique qu'on ne voit pas serait le défaut inverse de celui qu'on répare. */}
+          <div className="hdb-selection" role="status">
+            <span className="hdb-selection-mot">{motSelectionDesParties(reglages.parties.length)}</span>
+            {/* 🔴 LE BOUTON N'APPARAÎT QUE S'IL Y A QUELQUE CHOSE À DÉCOCHER : un bouton qui ne fait rien
+                apprend à ne plus lire la ligne qui le porte. Il remet AUSSI l'agence (tout recoché). */}
+            {(reglages.parties.length > 0 || reglages.agenceEcartee.length > 0) && (
+              <button type="button" className="svv-btn svv-btn-outline gst-btn hdb-btn-decocher"
+                onClick={() => setReglages((r) => ({ ...r, parties: [], agenceEcartee: [] }))}>
+                {MOT_TOUT_DECOCHER}
+              </button>
+            )}
+          </div>
           {cartesContact.length > 0 && (
             <p className="gst-note hdb-note">
               {(() => {
@@ -1470,6 +1513,18 @@ export function HistoriqueDuBien({
                 onDeplacer={deplacer} onPeriode={reglerPeriodeSurLeBail} />
             );
           })}
+
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — « NOTRE AGENCE », SOUS LES DEUX BANDES ═══════════════════
+              DEMANDE D'ARNO (05/10/2026) : « Nouveau groupe “Notre agence” (gris neutre, ligne dépliable sous
+              “Non affectés”) : nos adresses, avec compteurs, COCHÉES PAR DÉFAUT, décochables (“tout le groupe”
+              compris). Agence décochée → les mails écrits par nous sont retirés du listing. Pas de “+”, pas de
+              glisser-déposer pour l'agence. »
+
+              🔴 ELLE N'APPARAÎT QUE SI NOUS AVONS ÉCRIT SUR CE BIEN — comme tous les autres groupes de ce bloc,
+              et contrairement aux deux encarts : une ligne « Notre agence · 0 » n'apprend rien. */}
+          <BandeAgence adresses={parties.agence} ecartees={reglages.agenceEcartee}
+            ouvert={bascules.has('agence')} onBasculerRepli={() => basculerRepli('agence')}
+            onBasculer={basculerAgence} onToutLeGroupe={basculerToutLagence} />
 
           {/* ══ 🔴🔴 LE MESSAGE D'APRÈS-DÉPÔT, ET SON « ANNULER » ═══════════════════════════════════════════════
               Arno : « après le dépôt, petit message “Fanny Rosky → Locataire” avec “Annuler” quelques secondes. »
@@ -1823,7 +1878,9 @@ interface PropsGroupe {
   /** `encart` = colonne à hauteur fixe (Propriétaire, Locataire) ; `bande` = pleine largeur sous les encarts. */
   forme: 'encart' | 'bande';
   reglages: Reglages;
-  bascules: ReadonlySet<CleGroupeParties>;
+  /* ⚠️ `| 'agence'` PARCE QUE LE MÊME ÉTAT DE REPLI SERT À LA BANDE DE L'AGENCE (lot 9, point 1). Le groupe,
+     lui, reste un `CleGroupeParties` : l'agence n'est pas une partie, et ce composant ne la rend pas. */
+  bascules: ReadonlySet<CleGroupeParties | 'agence'>;
   periodes: ReadonlyMap<string, PeriodePartie>;
   /** Les CLIENTS de la fiche : eux seuls ne se déplacent pas. */
   categoriesFiche: ReadonlyMap<string, CategoriePartie>;
@@ -1874,6 +1931,105 @@ interface PropsGroupe {
  * l'ait voulu.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LA BANDE « NOTRE AGENCE » ══════════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (05/10/2026), mot pour mot : « Nouveau groupe “Notre agence” (gris neutre, ligne dépliable sous
+ * “Non affectés”) : nos adresses, avec compteurs, COCHÉES PAR DÉFAUT, décochables (“tout le groupe” compris).
+ * Agence décochée → les mails écrits par nous sont retirés du listing. Le cochage par défaut de l'agence ne
+ * compte PAS comme “une partie cochée” pour la règle ci-dessus. **Pas de “+”, pas de glisser-déposer pour
+ * l'agence.** »
+ *
+ * ═══ 🔴 POURQUOI UN COMPOSANT À PART, ET NON UN `GroupeDeParties` DE PLUS ════════════════════════════════════════
+ *
+ * C'est la question qui compte, et la réponse est dans la dernière phrase d'Arno. `GroupeDeParties` porte le
+ * glisser-déposer (quatre gestes, un surlignage de cible, une zone de dépôt même repliée), le « + » de création de
+ * carte, le menu « déplacer vers… », les catégories, les périodes de bail et les fiches clientes. L'agence n'a
+ * AUCUN de ces gestes : on ne la range pas, on ne lui fait pas de carte de contact, on ne la déplace pas — elle
+ * n'est pas une partie du bien, elle est celle qui tient le dossier.
+ *
+ * Lui faire traverser `GroupeDeParties` aurait demandé une dizaine de `si c'est l'agence alors…`, c'est-à-dire
+ * exactement par où les quatre vrais groupes auraient fini par changer de comportement. Ce qui est PARTAGÉ est le
+ * gabarit : les mêmes classes (`hdb-groupe`, `hdb-groupe-tete`, `hdb-replier`, `hdb-capsule`, `hdb-case`), la même
+ * géométrie, le même triangle, le même compteur. Ce qui se voit est identique ; ce qui se manipule ne l'est pas.
+ *
+ * ⚠️ LE TON EST `nous`, celui que le listing emploie DÉJÀ pour la barre verticale de nos propres mails
+ * (`tonDeLExpediteur` rend `'nous'`). C'est le « gris neutre » d'Arno, et il est ainsi le même gris des deux
+ * côtés : la case qu'on décoche et la barre des mails qui disparaissent portent la même couleur, sans qu'on ait à
+ * l'apprendre.
+ *
+ * ⚠️ UNE CASE COCHÉE EST UNE ADRESSE **ABSENTE** DE `agenceEcartee` : on écrit l'envers de ce qu'on voit, et c'est
+ * ce qui fait qu'une adresse de l'agence apparue depuis naît cochée (voir `basculerAgence`).
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function BandeAgence({ adresses, ecartees, ouvert, onBasculerRepli, onBasculer, onToutLeGroupe }: {
+  adresses: readonly Interlocuteur[];
+  /** Les adresses DÉCOCHÉES, en forme canonique. */
+  ecartees: readonly string[];
+  ouvert: boolean;
+  onBasculerRepli: () => void;
+  onBasculer: (adresse: string) => void;
+  onToutLeGroupe: (adresses: readonly string[]) => void;
+}) {
+  /* 🔴 PAS DE LIGNE « Notre agence · 0 » : comme les quatre groupes, elle n'apparaît que si elle a de quoi dire.
+     Contrairement aux deux ENCARTS, qui sont toujours là parce que leur absence est une information. */
+  if (adresses.length === 0) return null;
+
+  const toutes = adresses.map((i) => cleAdresse(i.adresse));
+  const decochees = toutes.filter((a) => ecartees.includes(a)).length;
+  /* ⚠️ `length > 0` AVANT la comparaison : le piège du lot 71 (un ensemble vide n'est jamais « tout coché »). */
+  const toutCoche = toutes.length > 0 && decochees === 0;
+  const partiel = decochees > 0 && decochees < toutes.length;
+
+  return (
+    <section className="hdb-groupe hdb-groupe--nous hdb-groupe--bande">
+      <div className="hdb-groupe-tete">
+        <button type="button" className="hdb-replier" aria-expanded={ouvert} onClick={onBasculerRepli}>
+          <span aria-hidden="true" className={`hdb-triangle${ouvert ? ' hdb-triangle--ouvert' : ''}`}>▶</span>
+          {TITRE_GROUPE_AGENCE}
+          <span className="gst-compte">{adresses.length}</span>
+        </button>
+        <label className="hdb-case hdb-case--groupe">
+          <input type="checkbox" checked={toutCoche}
+            ref={(el) => { if (el !== null) el.indeterminate = partiel; }}
+            aria-label={`Tout le groupe ${TITRE_GROUPE_AGENCE}`}
+            onChange={() => onToutLeGroupe(toutes)} />
+          <span>tout le groupe</span>
+        </label>
+      </div>
+
+      {/* 🔴 LA PHRASE DIT CE QUE LA CASE FAIT, et elle le dit AVANT qu'on la décoche : « décochez-les pour
+          retirer du listing les mails que nous avons écrits ». Sans elle, décocher « Notre agence » se lirait
+          « retirer les mails où nous sommes » — c'est-à-dire presque tous, et le listing se viderait sans
+          qu'on comprenne. Le mot vient du module pur. */}
+      {ouvert && <p className="gst-note hdb-note">{motGroupeAgence(adresses.length)}</p>}
+
+      {ouvert && (
+        <ul className="hdb-capsules">
+          {adresses.map((i) => {
+            const cle = cleAdresse(i.adresse);
+            return (
+              <li key={cle} className="hdb-capsule">
+                <label className="hdb-case hdb-case--capsule">
+                  <input type="checkbox" checked={!ecartees.includes(cle)}
+                    onChange={() => onBasculer(i.adresse)} />
+                  <span className="hdb-capsule-mots">
+                    <span className="hdb-capsule-nom">{libelleInterlocuteur(i)}</span>
+                    <span className="hdb-capsule-compteurs">
+                      {motDeuxCompteurs(i)}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function GroupeDeParties(p: PropsGroupe) {
   const { g, forme, reglages, glisse, survol, motSiVide } = p;
   const adresses = g.interlocuteurs.map((i) => i.adresse);
@@ -2691,6 +2847,23 @@ ${CSS_PIECES}
    Un #rrggbb ecrit a la main aurait produit un bleu illisible en sombre — ce que le depot interdit et verifie. */
 .hdb-groupe--bleu{border-left-color:var(--color-svv-blue)}
 .hdb-groupe--gris{border-left-color:var(--color-svv-line-strong)}
+/* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — « NOTRE AGENCE » : LE GRIS NEUTRE D'ARNO.
+   C'est le MEME ton que la barre verticale de nos propres mails dans le listing (tonDeLExpediteur rend 'nous') :
+   la case qu'on decoche et les mails qui disparaissent portent ainsi la meme couleur, sans qu'on l'apprenne.
+   ⚠️ --color-svv-line (et non -line-strong) : plus EFFACE que « Non affectes », parce que l'agence n'est pas une
+   partie du bien — elle est celle qui tient le dossier. Les deux jetons existent dans les DEUX themes. */
+.hdb-groupe--nous{border-left-color:var(--color-svv-line)}
+
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LA LIGNE D'ETAT DU FILTRE, A LA PLACE DE L'INTERRUPTEUR ════════════
+   DEMANDE D'ARNO : « a sa place, une ligne d'etat claire […] avec un bouton “Tout decocher” ».
+   🔴 ELLE EST EN GRAS ET SUR SA PROPRE LIGNE : c'est desormais la seule chose qui dise laquelle des deux
+   lectures on regarde. L'ancien interrupteur, lui, se lisait comme une option parmi d'autres — et c'est
+   precisement pour cela qu'on ne voyait pas qu'il desarmait les cases d'a cote.
+   ⚠️ LE RETOUR A LA LIGNE EST AUTORISE ET LE BOUTON NE S'ETIRE PAS : sur un telephone, la phrase passe au-dessus du bouton au
+   lieu de le pousser hors de l'ecran. */
+.hdb-selection{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-height:44px;padding:.1rem .3rem}
+.hdb-selection-mot{font-size:.8rem;font-weight:700;color:var(--color-svv-ink);min-width:0}
+.hdb-btn-decocher{flex:0 0 auto}
 .hdb-groupe-tete{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;min-width:0}
 .hdb-replier{display:inline-flex;align-items:center;gap:.35rem;min-height:44px;padding:0 .4rem;flex:1 1 8rem;
   border:0;background:none;font:inherit;font-size:.82rem;font-weight:700;color:var(--color-svv-ink);

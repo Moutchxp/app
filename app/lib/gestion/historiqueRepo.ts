@@ -443,6 +443,24 @@ function conditions(f: FiltresHistorique, apres: number): { sql: string; params:
     bouts.push(`EXISTS (SELECT 1 FROM gestion_message_adresse ia
                          WHERE ia.message_id = m.id AND ia.adresse = ANY(${ajouter(f.interlocuteurs)}::text[]))`);
   }
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LES MAILS QUE **NOUS** AVONS ÉCRITS, QUAND L'AGENCE EST DÉCOCHÉE ════
+   *
+   * DEMANDE D'ARNO : « Agence décochée → les mails écrits par nous sont retirés du listing. »
+   *
+   * 🔴 `role = 'expediteur'`, ET C'EST TOUTE LA DIFFÉRENCE AVEC LE FILTRE DU DESSUS. Nos adresses sont des deux
+   * côtés de presque tous les mails d'un bien : écarter ceux où elles APPARAISSENT aurait vidé le listing. Ce
+   * qu'on retire, ce sont les mails dont NOUS sommes l'auteur.
+   *
+   * ⚠️ `NOT EXISTS` ET NON `<> ALL` : un mail porte plusieurs lignes d'adresses, et comparer « l'expéditeur
+   * n'est pas dans la liste » ligne à ligne aurait gardé le mail dès qu'une AUTRE ligne (un destinataire) ne
+   * figurait pas dans la liste — c'est-à-dire toujours.
+   */
+  if (f.expediteursExclus.length > 0) {
+    bouts.push(`NOT EXISTS (SELECT 1 FROM gestion_message_adresse xa
+                             WHERE xa.message_id = m.id AND xa.role = 'expediteur'
+                               AND xa.adresse = ANY(${ajouter(f.expediteursExclus)}::text[]))`);
+  }
   if (f.du !== null) bouts.push(`m.recu_le >= ${ajouter(f.du)}::date`);
   // BORNE HAUTE INCLUSE : « au 7 mars » doit contenir le 7 mars, donc on compare au lendemain à minuit.
   if (f.au !== null) bouts.push(`m.recu_le < (${ajouter(f.au)}::date + 1)`);
@@ -819,6 +837,11 @@ export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): P
  * 🔴 LA LISTE NE DÉPEND PAS DES INTERLOCUTEURS COCHÉS. Sinon cocher une personne ferait disparaître toutes les autres
  * du filtre, et on ne pourrait plus en ajouter une seconde — le filtre se refermerait sur lui-même. Les AUTRES filtres
  * (période, pièces, recherche), eux, s'appliquent : la liste reflète ce qu'on regarde.
+ *
+ * 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — ET PAS DAVANTAGE DES EXPÉDITEURS ÉCARTÉS, pour exactement la même raison,
+ * qui est même plus visible ici : décocher « Notre agence » aurait fait disparaître nos adresses de la liste des
+ * parties, donc leurs cases avec elles — on n'aurait jamais pu les recocher. Le filtre se serait fermé sur
+ * lui-même, sans retour possible.
  */
 export async function interlocuteursHistorique(
   c: CibleEtendue, f: FiltresHistorique,
@@ -827,7 +850,7 @@ export async function interlocuteursHistorique(
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
-  const cond = conditions({ ...f, interlocuteurs: [] }, decalage(c));
+  const cond = conditions({ ...f, interlocuteurs: [], expediteursExclus: [] }, decalage(c));
   const pLimite = base.length + 1 + cond.params.length;
 
   /**

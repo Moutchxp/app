@@ -6,7 +6,8 @@ import {
   reglagesActifs, REGLAGES_DEFAUT, reglagesEnFiltres, reglagesEnParametres, replierLesCartes,
   SEUIL_REPLI_CARTES, trierFil, type CategoriePartie, type Reglages,
   bornesDuChoix, ciblesDeplacement, compteCacheesEnBas, compteCacheesEnHaut, dernierLocataire,
-  GROUPES_EN_BANDE, GROUPES_EN_ENCART, LEGENDE_BARRES, motAgenceEcartee, motCacheesEnBas, motCacheesEnHaut,
+  GROUPES_EN_BANDE, GROUPES_EN_ENCART, LEGENDE_BARRES, MOT_TOUT_DECOCHER, motCacheesEnBas, motCacheesEnHaut,
+  motGroupeAgence, motSelectionDesParties, TITRE_GROUPE_AGENCE,
   decouperPourSurligner, etatRetourDepuisBrut, filtrerParMots, motCompteurRecherche, motDeplacement,
   MOTIF_NON_DEPLACABLE, motPeriodeEffective, motsRecherches, MS_SURLIGNE_RETOUR, normaliserRecherche,
   occupationOuverte, partieDeplacable,
@@ -163,13 +164,23 @@ describe('② les parties — quatre groupes, l’agence écartée, le vocabulai
     expect(toutes).not.toContain('service@criterimmo.fr');
   });
 
-  /** 🔴 ET LE MOT LE DIT, avec sa raison — sinon le compte paraîtrait faux sans qu'on sache pourquoi. */
-  it('🔴 le mot de l’agence écartée dit aussi pourquoi ce n’est pas une perte', () => {
-    expect(motAgenceEcartee(0)).toBeNull();
-    expect(motAgenceEcartee(1)).toContain('Une adresse de notre agence n’est pas listée');
-    const m = motAgenceEcartee(2) ?? '';
-    expect(m).toContain('2 adresses');
-    expect(m).toContain('dès qu’ils font partie d’un échange avec une partie sélectionnée');
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LA PHRASE A CHANGÉ PARCE QU'ELLE AVAIT CESSÉ D'ÊTRE VRAIE ════════
+   *
+   * Elle disait « N adresses de notre agence NE SONT PAS LISTÉES ». Or Arno en a fait un GROUPE : elles sont
+   * listées, avec leurs compteurs et leurs cases. Garder la phrase aurait affiché, juste au-dessus du groupe,
+   * l'affirmation qu'il n'existe pas. Ce qu'elle promettait n'est pas perdu : la ligne d'état dit laquelle des
+   * deux lectures on regarde, et le groupe montre ses adresses.
+   */
+  it('🔴🔴 LE MOT DU GROUPE « NOTRE AGENCE » DIT CE QUE SA CASE FAIT', () => {
+    expect(motGroupeAgence(0)).toBeNull();
+    expect(motGroupeAgence(1)).toContain('1 adresse');
+    const m = motGroupeAgence(4) ?? '';
+    expect(m).toContain('4 adresses');
+    /* 🔴 « LES MAILS QUE NOUS AVONS ÉCRITS », et non « les mails où nous sommes » : nos adresses sont des deux
+       côtés de presque tous les mails, et l'autre phrase aurait fait croire que le listing se viderait. */
+    expect(m).toContain('les mails que nous avons écrits');
+    expect(TITRE_GROUPE_AGENCE).toBe('Notre agence');
   });
 
   /** 🔴 LES QUATRE SONT RENDUS MÊME VIDES : des cases qui se déplacent d'un bien à l'autre se cochent de travers. */
@@ -410,20 +421,83 @@ describe('⑥ les réglages, traduits pour la route existante', () => {
     expect(reglagesEnParametres(r)).not.toContain('42');
   });
 
-  /** 🔴 « TOUS LES MAILS DU BIEN » IGNORE LES PARTIES SANS LES EFFACER (demande d'Arno). */
-  it('🔴🔴 l’interrupteur « tous les mails » n’envoie aucun `avec`, mais garde les cases cochées', () => {
-    const r: Reglages = { ...REGLAGES_DEFAUT, toutesLesParties: true, parties: ['a@fictif.test'] };
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LE DÉFAUT D'ARNO, ÉPROUVÉ À L'ENDROIT OÙ IL VIVAIT ══════════════
+   *
+   * CONSTAT D'ARNO (05/10/2026) : « seul le groupe Propriétaire est coché, et les mails du locataire s'affichent
+   * quand même ». LA CAUSE : un interrupteur « Tous les mails du bien sur la période », ALLUMÉ PAR DÉFAUT, dont
+   * la règle (lot 2) était d'IGNORER les cases cochées — `reglagesEnFiltres` rendait `interlocuteurs: []`.
+   * Cocher une partie ne changeait donc RIEN, et rien à l'écran ne le disait.
+   *
+   * MESURÉ sur lot-290 (bien 421) : le groupe Propriétaire apparaît dans **198 des 326 mails** du bien, et AUCUN
+   * de ces 198 n'est écrit par un locataire. Arno en voyait 326 — c'est-à-dire la totalité, filtre éteint.
+   *
+   * 🔴 LA NOUVELLE RÈGLE EST **DÉRIVÉE**, et ces deux cas sont les deux moitiés de l'énoncé d'Arno.
+   */
+  it('🔴🔴 AUCUNE PARTIE COCHÉE ⇒ TOUS LES MAILS DU BIEN (aucun `avec`)', () => {
+    const r: Reglages = { ...REGLAGES_DEFAUT, parties: [] };
     expect(reglagesEnParametres(r)).toBe('');
     expect(reglagesEnFiltres(r).interlocuteurs).toEqual([]);
-    // Les cases, elles, sont toujours là — on les retrouve en relevant l'interrupteur.
-    expect(r.parties).toEqual(['a@fictif.test']);
-    expect(reglagesEnFiltres({ ...r, toutesLesParties: false }).interlocuteurs).toEqual(['a@fictif.test']);
+  });
+
+  it('🔴🔴 AU MOINS UNE PARTIE COCHÉE ⇒ SEULS SES ÉCHANGES, et l’interrupteur n’existe plus', () => {
+    const r: Reglages = { ...REGLAGES_DEFAUT, parties: ['a@fictif.test'] };
+    expect(reglagesEnFiltres(r).interlocuteurs).toEqual(['a@fictif.test']);
+    expect(reglagesEnParametres(r)).toContain('avec=a%40fictif.test');
+    /* 🔴 IL N'Y A PLUS AUCUN MOYEN DE COCHER UNE PARTIE SANS FILTRER : c'est tout le défaut réparé. */
+    expect(Object.keys(r)).not.toContain('toutesLesParties');
+  });
+
+  /**
+   * 🔴🔴 LA LIGNE D'ÉTAT DIT LAQUELLE DES DEUX LECTURES ON REGARDE. Une règle automatique qu'on ne voit pas
+   * serait le défaut inverse de celui qu'on répare : on ne saurait plus pourquoi le listing a changé.
+   */
+  it('🔴🔴 LA LIGNE D’ÉTAT NOMME LA RÈGLE, dans ses deux cas', () => {
+    expect(motSelectionDesParties(0)).toBe('Aucune partie cochée : tous les mails du bien sont affichés.');
+    expect(motSelectionDesParties(1)).toContain('1 partie cochée');
+    expect(motSelectionDesParties(1)).toContain('seuls ses échanges');
+    expect(motSelectionDesParties(3)).toContain('3 parties cochées');
+    expect(motSelectionDesParties(3)).toContain('seuls leurs échanges');
+    expect(MOT_TOUT_DECOCHER).toBe('Tout décocher');
+  });
+
+  /**
+   * ══ 🔴🔴 « NOTRE AGENCE » DÉCOCHÉE RETIRE LES MAILS QUE **NOUS** AVONS ÉCRITS ══════════════════════════════
+   *
+   * DEMANDE D'ARNO : « Agence décochée → les mails écrits par nous sont retirés du listing. Le cochage par
+   * défaut de l'agence ne compte PAS comme “une partie cochée”. »
+   */
+  it('🔴🔴 NOS ADRESSES DÉCOCHÉES DEVIENNENT DES EXPÉDITEURS ÉCARTÉS', () => {
+    const r: Reglages = { ...REGLAGES_DEFAUT, agenceEcartee: ['gestion@criterimmo.fr'] };
+    expect(reglagesEnFiltres(r).expediteursExclus).toEqual(['gestion@criterimmo.fr']);
+    expect(reglagesEnParametres(r)).toContain('sauf=gestion%40criterimmo.fr');
+    /* 🔴 ET ELLE NE COMPTE PAS COMME UNE PARTIE COCHÉE : `avec` reste absent, la ligne d'état dit « aucune ». */
+    expect(reglagesEnFiltres(r).interlocuteurs).toEqual([]);
+    expect(motSelectionDesParties(r.parties.length)).toContain('tous les mails du bien');
+  });
+
+  it('🔴 LE DÉFAUT EST « TOUT COCHÉ », ET IL NE S’ÉCRIT NULLE PART', () => {
+    expect(REGLAGES_DEFAUT.agenceEcartee).toEqual([]);
+    expect(reglagesEnParametres(REGLAGES_DEFAUT)).toBe('');
+    expect(reglagesEnFiltres(REGLAGES_DEFAUT).expediteursExclus).toEqual([]);
+  });
+
+  it('🔴 LES DEUX SE COMPOSENT : les échanges du locataire, sauf ce que nous y avons écrit', () => {
+    const f = reglagesEnFiltres({
+      ...REGLAGES_DEFAUT, parties: ['loc@fictif.test'], agenceEcartee: ['gestion@criterimmo.fr'],
+    });
+    expect(f.interlocuteurs).toEqual(['loc@fictif.test']);
+    expect(f.expediteursExclus).toEqual(['gestion@criterimmo.fr']);
   });
 
   it('⚠️ les adresses cochées sont normalisées et dédoublonnées', () => {
     expect(reglagesEnFiltres({
-      ...REGLAGES_DEFAUT, toutesLesParties: false, parties: [' A@Fictif.test ', 'a@fictif.test', ''],
+      ...REGLAGES_DEFAUT, parties: [' A@Fictif.test ', 'a@fictif.test', ''],
     }).interlocuteurs).toEqual(['a@fictif.test']);
+    /* La même normalisation pour nos adresses décochées : une seule règle de « la même adresse ». */
+    expect(reglagesEnFiltres({
+      ...REGLAGES_DEFAUT, agenceEcartee: [' Gestion@Criterimmo.fr ', 'gestion@criterimmo.fr'],
+    }).expediteursExclus).toEqual(['gestion@criterimmo.fr']);
   });
 
   /**
@@ -558,11 +632,18 @@ describe('⑨ les pièces du fil, et le mot quand il n’y a rien', () => {
     expect(filtre).toContain('ce sont les réglages qui cachent');
   });
 
-  /** ⚠️ LE CAS « AUCUNE PARTIE COCHÉE » A SON PROPRE REMÈDE, et le mot le donne. */
-  it('⚠️ aucune personne cochée ⇒ le mot dit quoi faire', () => {
-    const mot = motAucunResultat({ ...REGLAGES_DEFAUT, toutesLesParties: false, parties: [] });
-    expect(mot).toContain('Aucune personne n’est cochée');
-    expect(mot).toContain('Tous les mails du bien pendant la période');
+  /**
+   * ⚠️ LOT HISTORIQUE-BIEN-9, POINT 1 — LE CAS A CHANGÉ DE SENS. « Aucune personne cochée » ne peut plus vider
+   * le fil : une liste de parties vide veut maintenant dire « tous les mails du bien ». Le cas qui le remplace
+   * est l'agence seule décochée sur un bien dont nous sommes l'unique expéditeur — et son remède est de la
+   * recocher, pas d'élargir une période.
+   */
+  it('⚠️ agence seule décochée ⇒ le mot dit quoi faire', () => {
+    const mot = motAucunResultat({ ...REGLAGES_DEFAUT, agenceEcartee: ['gestion@criterimmo.fr'] });
+    expect(mot).toContain('écrits par notre agence');
+    expect(mot).toContain('Recochez-la');
+    /* 🔴 ET AUCUNE PARTIE COCHÉE N'EST PLUS UNE CAUSE DE FIL VIDE : le mot ne la nomme plus. */
+    expect(motAucunResultat(REGLAGES_DEFAUT)).toBe('Aucun mail rattaché à ce bien.');
   });
 });
 
@@ -1004,7 +1085,9 @@ describe('⑮ 🔴🔴 l’état de retour, relu et vérifié', () => {
     expect(e?.fiche).toBe('155');
     expect(e?.reglages.periode).toEqual({ sorte: 'dates', du: '2025-05-01', au: '2026-09-28' });
     expect(e?.reglages.parties).toEqual(['a@fictif.test', 'b@fictif.test']);
-    expect(e?.reglages.toutesLesParties).toBe(false);
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-9 — l'interrupteur a disparu de l'état ; nos adresses décochées, elles, voyagent
+       comme les parties. Un état d'avant ce lot (sans le champ) revient donc « tout coché », qui est le défaut. */
+    expect(e?.reglages.agenceEcartee).toEqual([]);
     expect(e?.reglages.pieces).toBe('avec');
     expect(e?.reglages.ordre).toBe('ancien');
     expect(e?.reglages.grouper).toBe(true);
@@ -1518,17 +1601,33 @@ describe('point 2 — une adresse qui ne peut rien filtrer', () => {
     const r = grouperParCategorie(inters, new Map(), new Set(['c.jullien@sansvisavis.com']));
     /* Elle EST listée : dire le contraire serait faux. */
     expect(r.nousEcartees).toBe(0);
-    expect(motAgenceEcartee(r.nousEcartees)).toBeNull();
+    expect(motGroupeAgence(r.nousEcartees)).toBeNull();
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — ET ELLE N'EST PAS DANS « NOTRE AGENCE » : la mettre là l'aurait
+       fait disparaître de son encart, et l'on aurait décoché un propriétaire en croyant décocher un collègue. */
+    expect(r.agence).toEqual([]);
   });
 
-  it('🔴 LA RÈGLE DU LOT 2 EST INCHANGÉE : l’agence n’est toujours pas un groupe', () => {
-    /* Aucun groupe « agence » n'existe, et aucune adresse interne non cliente n'entre dans les quatre. */
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — ARNO ROUVRE CE QU'IL AVAIT TRANCHÉ AU LOT 2 ═══════════════════════
+   *
+   * Au lot 2 : « notre agence n'est pas un groupe sélectionnable ». Il la rouvre maintenant, avec une règle plus
+   * fine que celle qu'il avait refusée : on ne coche pas « les mails où nous sommes » (presque tous — le filtre
+   * qui n'a pas de sens), on décoche « les mails que nous avons ÉCRITS ». Ce n'est pas le même filtre.
+   *
+   * 🔴 CE QUI NE CHANGE PAS, ET C'EST L'ESSENTIEL : nos adresses restent HORS des quatre groupes. L'agence n'est
+   * pas une partie du bien — pas de « + », pas de glisser, pas de catégorie —, et `nousEcartees` garde donc sa
+   * valeur pour les quatre autres appelants de cette fonction.
+   */
+  it('🔴🔴 NOS ADRESSES FORMENT LE GROUPE « NOTRE AGENCE », et restent hors des quatre', () => {
     const r = grouperParCategorie(
       [{ adresse: 'gestion@criterimmo.fr', nom: null, nbMails: 9, aEcrit: 9, enCopie: 0, interne: true }],
       new Map(), new Set(['autre@sansvisavis.com']));
     expect(r.groupes.map((g) => g.cle)).toEqual(['proprietaire', 'locataire', 'independant', 'a_repartir']);
     expect(r.groupes.every((g) => g.nb === 0)).toBe(true);
     expect(r.nousEcartees).toBe(1);
+    /* 🔴 ELLE EST MAINTENANT RENDUE, AVEC SES COMPTEURS — c'est ce que la ligne dépliable affiche. */
+    expect(r.agence.map((i) => i.adresse)).toEqual(['gestion@criterimmo.fr']);
+    expect(r.agence[0].aEcrit).toBe(9);
   });
 });
 

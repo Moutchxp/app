@@ -353,10 +353,49 @@ describe('③ les parties', () => {
     expect(hote.querySelector('.hdb-compteurs')?.textContent).toContain('a écrit');
   });
 
-  it('🔴 « Tous les mails du bien pendant la période » est COCHÉ au départ, et ignore les parties', async () => {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LA CASE A DISPARU, ET C'ÉTAIT LE DÉFAUT ═════════════════════════════
+   *
+   * CONSTAT D'ARNO (05/10/2026) : « seul le groupe Propriétaire est coché, et les mails du locataire s'affichent
+   * quand même ». CE CAS-CI décrivait la cause sans la voir : « est COCHÉ au départ, ET IGNORE LES PARTIES ».
+   * C'était la règle du lot 2, et elle rendait les cases d'à côté inopérantes sans rien dire.
+   *
+   * Ce qui la remplace, sur accord d'Arno : une RÈGLE AUTOMATIQUE (aucune partie cochée ⇒ tous les mails ; au
+   * moins une ⇒ ses échanges seulement) et une LIGNE D'ÉTAT qui dit laquelle des deux on regarde.
+   */
+  it('🔴🔴 LA LIGNE D’ÉTAT REMPLACE L’INTERRUPTEUR, et dit la règle en toutes lettres', async () => {
     await monter();
-    const cases = [...hote.querySelectorAll('.hdb-case input')] as HTMLInputElement[];
-    expect(cases[0].checked).toBe(true);
+    /* 🔴 L'INTERRUPTEUR N'EXISTE PLUS NULLE PART — ni sa case, ni son libellé. */
+    expect(texte()).not.toContain('Tous les mails du bien sur la période');
+    expect(hote.querySelector('.hdb-case--large')).toBeNull();
+    /* 🔴 ET LA PHRASE DU DÉPART EST CELLE DU CAS « RIEN DE COCHÉ ». */
+    expect(hote.querySelector('.hdb-selection')?.textContent)
+      .toContain('Aucune partie cochée : tous les mails du bien sont affichés.');
+    /* ⚠️ PAS DE BOUTON « Tout décocher » QUAND IL N'Y A RIEN À DÉCOCHER : un bouton qui ne fait rien apprend à
+       ne plus lire la ligne qui le porte. */
+    expect(hote.querySelector('.hdb-btn-decocher')).toBeNull();
+  });
+
+  /** 🔴🔴 ET COCHER UNE PARTIE CHANGE LA PHRASE **ET** LE FILTRE — c'est tout le défaut réparé. */
+  it('🔴🔴 COCHER UNE PARTIE FILTRE VRAIMENT, et la ligne d’état le dit', async () => {
+    await monter();
+    const personnes = [...hote.querySelectorAll('.hdb-personnes input')] as HTMLInputElement[];
+    await cliquer(personnes[0]);
+    expect(hote.querySelector('.hdb-selection')?.textContent)
+      .toContain('1 partie cochée : seuls ses échanges sont affichés.');
+    expect(hote.querySelector('.hdb-btn-decocher')).not.toBeNull();
+    /* 🔴 LE `avec=` PART VRAIMENT AU SERVEUR : avant ce lot, il ne partait pas. */
+    expect(appels.some((a) => a.includes('avec='))).toBe(true);
+  });
+
+  /** 🔴 « Tout décocher » remet les deux listes à plat : les parties ET nos adresses décochées. */
+  it('🔴 « TOUT DÉCOCHER » REVIENT À TOUS LES MAILS DU BIEN', async () => {
+    await monter();
+    const personnes = [...hote.querySelectorAll('.hdb-personnes input')] as HTMLInputElement[];
+    await cliquer(personnes[0]);
+    await cliquer(hote.querySelector('.hdb-btn-decocher') ?? undefined);
+    expect(hote.querySelector('.hdb-selection')?.textContent).toContain('Aucune partie cochée');
+    expect(hote.querySelector('.hdb-btn-decocher')).toBeNull();
   });
 
   /** 🔴 COCHER UNE PERSONNE NE DÉMONTE PAS LA CASE : le focus reste là où il était. */
@@ -1701,9 +1740,9 @@ describe('⑤-septies 🔴🔴 les liserés des deux côtés, et revenir exactem
     /* Les options sont reprises. */
     expect(parMot('Avec')?.getAttribute('aria-pressed')).toBe('true');
     expect(parMot('Plus ancien en haut')).toBeDefined();
-    /* L'interrupteur « tous les mails » est relevé, et la personne cochée l'est. */
-    const maitre = hote.querySelector('.hdb-case--large input') as HTMLInputElement;
-    expect(maitre.checked).toBe(false);
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — l'interrupteur n'existe plus ; ce qui revient est la PARTIE cochée,
+       et la ligne d'état le dit. C'est plus fort que l'ancienne vérification : elle ne regardait qu'une case. */
+    expect(hote.querySelector('.hdb-selection')?.textContent).toContain('1 partie cochée');
     /* 🔴 LE MAIL D'OÙ L'ON EST PARTI EST SURLIGNÉ. */
     const surlignee = hote.querySelector('.hdb-ancre--surlignee') as HTMLElement;
     expect(surlignee).not.toBeNull();
@@ -1971,7 +2010,9 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
   it('🔴🔴 propriétaire seul → ses pièces, celles de l’agence dans ses échanges comprises', async () => {
     servirSelonLaSelection();
     await monter();
-    await cliquer(hote.querySelector('.hdb-case--large input') ?? undefined);
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — PLUS RIEN À RELEVER AVANT DE COCHER : cocher un groupe filtre, et
+       c'est tout. Ces trois cas passaient par `.hdb-case--large` (l'interrupteur) parce qu'il fallait le
+       désarmer d'abord — c'est-à-dire qu'ils documentaient le défaut qu'Arno vient de faire corriger. */
     await cocherGroupe('Propriétaire');
     await ouvrirLeResume();
     const noms = piecesDuResume();
@@ -1986,7 +2027,6 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
   it('🔴🔴 locataire seul → ses pièces seulement', async () => {
     servirSelonLaSelection();
     await monter();
-    await cliquer(hote.querySelector('.hdb-case--large input') ?? undefined);
     await cocherGroupe('Locataire');
     await ouvrirLeResume();
     const noms = piecesDuResume();
@@ -1999,7 +2039,6 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
   it('🔴🔴 les deux cochés → les DEUX familles de pièces', async () => {
     servirSelonLaSelection();
     await monter();
-    await cliquer(hote.querySelector('.hdb-case--large input') ?? undefined);
     await cocherGroupe('Propriétaire');
     await cocherGroupe('Locataire');
     await ouvrirLeResume();
@@ -2903,11 +2942,44 @@ describe('⑤-quaterdecies 🔴🔴 un client dont l’adresse ne peut rien filt
     expect(capsuleProprio().querySelector('.hdb-a-corriger')).not.toBeNull();
   });
 
-  it('🔴 LA RÈGLE DU LOT 2 EST INCHANGÉE : nos AUTRES adresses ne sont toujours pas listées', async () => {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — NOS AUTRES ADRESSES SONT MAINTENANT **LISTÉES**, À PART ═══════════
+   *
+   * Ce cas vérifiait qu'elles ne l'étaient PAS, et que la note le disait. Arno a rouvert la question : elles
+   * forment désormais le groupe « Notre agence », cochées par défaut, décochables. Ce qui ne change pas — et
+   * c'est ce que ce cas garde — c'est qu'elles restent HORS des quatre groupes de parties : une adresse de
+   * l'agence n'est pas un propriétaire, et le client dont l'adresse est une des nôtres garde, lui, sa capsule
+   * dans son encart (décision d'Arno au lot 6).
+   */
+  it('🔴🔴 NOS AUTRES ADRESSES FORMENT « Notre agence », et jamais une partie', async () => {
     await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'C. J.', categorie: 'proprietaire', fiche: null }]);
-    expect(texte()).not.toContain('gestion@criterimmo.fr');
-    /* …et la note le dit, pour celles qui restent écartées. */
-    expect(texte()).toContain('adresse de notre agence');
+    /* ① la bande existe, avec son titre et son compteur */
+    const bande = hote.querySelector('.hdb-groupe--nous') as HTMLElement;
+    expect(bande).not.toBeNull();
+    expect(bande.textContent).toContain('Notre agence');
+    /* ② l'adresse de l'agence n'est dans AUCUN des quatre groupes de parties */
+    for (const g of [...hote.querySelectorAll('.hdb-groupe:not(.hdb-groupe--nous)')]) {
+      expect(g.textContent).not.toContain('gestion@criterimmo.fr');
+    }
+    /* ③ et le client dont l'adresse est une des nôtres garde sa capsule dans son encart (le nom affiché est
+       celui de l'ANNUAIRE, « JULLIEN - GARRIDO Cédric », et non celui de l'en-tête du courrier). */
+    expect(capsuleProprio().textContent).toContain('JULLIEN - GARRIDO Cédric');
+    expect(capsuleProprio().textContent).toContain('adresse à corriger');
+    /* ④ la phrase qui disait « ne sont pas listées » a disparu : elle serait fausse. */
+    expect(texte()).not.toContain('ne sont pas listées');
+  });
+
+  /** 🔴🔴 ET DÉCOCHER L'AGENCE ÉCARTE **NOS** MAILS : le `sauf=` part au serveur, et lui seul. */
+  it('🔴🔴 DÉCOCHER « Notre agence » ENVOIE `sauf=` — jamais `avec=`', async () => {
+    await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'C. J.', categorie: 'proprietaire', fiche: null }]);
+    const bande = hote.querySelector('.hdb-groupe--nous') as HTMLElement;
+    /* On déplie, puis on décoche « tout le groupe ». */
+    await cliquer(bande.querySelector('.hdb-replier') ?? undefined);
+    await cliquer(bande.querySelector('.hdb-case--groupe input') ?? undefined);
+    expect(appels.some((a) => a.includes('sauf=gestion%40criterimmo.fr'))).toBe(true);
+    /* 🔴 L'AGENCE NE COMPTE PAS COMME UNE PARTIE COCHÉE : la ligne d'état ne bouge pas, et aucun `avec=`. */
+    expect(hote.querySelector('.hdb-selection')?.textContent).toContain('Aucune partie cochée');
+    expect(appels.some((a) => a.includes('avec='))).toBe(false);
   });
 
   it('⚠️ AUCUNE MENTION SUR UN CLIENT ORDINAIRE, et sa case coche', async () => {
@@ -3251,5 +3323,192 @@ describe('⑤-septdecies 🔴🔴 le formulaire du « + » est celui des clients
     expect(SRC).toContain('propose?.adressePostale ?? trouve?.adressePostale');
     expect(SRC).toContain('propose?.telephone ?? trouve?.telephone');
     expect(SRC).toContain('propose?.nom ?? trouve?.nom');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — LES SIX COMBINAISONS D'ARNO, SUR LE LISTING ════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (05/10/2026) : « seul le groupe Propriétaire est coché, et les mails du locataire s'affichent
+ * quand même ».
+ *
+ * LA CAUSE, DIAGNOSTIQUÉE AVANT D'ÉCRIRE UNE LIGNE : l'interrupteur « Tous les mails du bien sur la période »
+ * était ALLUMÉ par défaut, et sa règle (lot 2) était d'IGNORER les cases cochées — `reglagesEnFiltres` rendait
+ * `interlocuteurs: []`. Cocher un groupe ne changeait donc rien, et rien à l'écran ne le disait.
+ *
+ * MESURÉ EN BASE sur lot-290 (bien 421), pour écarter l'autre explication possible — un recouvrement légitime :
+ *   · 326 mails rattachés au bien ;
+ *   · le groupe Propriétaire (3 adresses) apparaît dans **198** d'entre eux ;
+ *   · et **0** de ces 198 est écrit par un locataire.
+ * Avec un filtre qui marche, Arno aurait donc vu 198 mails et aucun mail de locataire. Il en voyait 326.
+ *
+ * CE GROUPE ÉPROUVE LES SIX COMBINAISONS QU'ARNO DEMANDE, sur le LISTING lui-même (le résumé des pièces, lui, les
+ * rejoue plus haut — il suit exactement la même sélection).
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑤-octodecies 🔴🔴 le filtre par parties : les six combinaisons', () => {
+  const M_PROPRIO = ligne({
+    messageId: 10, filId: 100, recuLe: '2026-03-01T09:00:00Z', objet: 'Charges 2026',
+    de: 'proprio@fictif.test', deNom: 'M. ROI Nathan',
+  });
+  const M_LOCATAIRE = ligne({
+    messageId: 11, filId: 110, recuLe: '2026-02-01T09:00:00Z', objet: 'État des lieux',
+    de: 'locataire@fictif.test', deNom: 'MARTY Jean-François',
+  });
+  const M_CONTACT = ligne({
+    messageId: 13, filId: 130, recuLe: '2026-01-20T09:00:00Z', objet: 'Sinistre dégât des eaux',
+    de: 'assureur@fictif.test', deNom: 'AXA',
+  });
+  const M_AGENCE = ligne({
+    messageId: 12, filId: 100, recuLe: '2026-01-15T09:00:00Z', objet: 'Charges 2026', sens: 'envoye',
+    de: 'gestion@criterimmo.fr', deNom: 'Gestion CRITERIMMO',
+  });
+
+  /**
+   * ⚠️ LA LISTE DES INTERLOCUTEURS PORTE **NOTRE** ADRESSE, avec `interne: true` — sans elle, la bande
+   * « Notre agence » n'existe pas (elle n'apparaît que si nous avons écrit sur ce bien). Elle est LOCALE à ce
+   * groupe : l'ajouter au jeu partagé aurait fait naître la bande dans toutes les autres épreuves du fichier,
+   * dont plusieurs comptent les capsules et les groupes.
+   */
+  const INTERLOCUTEURS_ET_NOUS: Interlocuteur[] = [
+    ...INTERLOCUTEURS,
+    inter({ adresse: 'gestion@criterimmo.fr', nom: 'Gestion', nbMails: 1, aEcrit: 1, enCopie: 0, interne: true }),
+  ];
+
+  /**
+   * 🔴🔴 LE SERVEUR EST REJOUÉ À PARTIR DE L'ADRESSE DEMANDÉE, et non d'une réponse écrite d'avance. C'est ce qui
+   * rend l'épreuve honnête : elle n'impose pas le résultat, elle l'applique — avec la MÊME règle que le SQL de
+   * `conditions` (`avec` = l'adresse apparaît dans le mail ; `sauf` = l'adresse en est l'EXPÉDITEUR).
+   */
+  const servir = (): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return reponse({ etat: 'ok', geste: null });
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+
+      const p = new URL(u, 'http://local').searchParams;
+      const avec = (p.get('avec') ?? '').split(',').filter((x) => x !== '');
+      const sauf = (p.get('sauf') ?? '').split(',').filter((x) => x !== '');
+      /** Qui apparaît dans un mail : son expéditeur, et le correspondant de son échange. */
+      const dedans = (l: typeof M_PROPRIO): string[] => (l.filId === 100
+        ? [l.de, 'proprio@fictif.test', 'gestion@criterimmo.fr']
+        : [l.de, 'gestion@criterimmo.fr']);
+
+      const lignes = [M_PROPRIO, M_LOCATAIRE, M_CONTACT, M_AGENCE]
+        .filter((l) => avec.length === 0 || dedans(l).some((a) => avec.includes(a)))
+        .filter((l) => !sauf.includes(l.de));
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes, suite: false, entete: { nbMails: lignes.length },
+          interlocuteurs: INTERLOCUTEURS_ET_NOUS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  };
+
+  const objets = (): string[] => [...hote.querySelectorAll('.hdb-ancre')]
+    .map((x) => (x.textContent ?? '')).filter((t) => t !== '');
+  const contient = (mot: string): boolean => objets().some((t) => t.includes(mot));
+
+  const cocherGroupe = async (titre: string): Promise<void> => {
+    const g = ([...hote.querySelectorAll('.hdb-groupe')] as HTMLElement[])
+      .find((x) => (x.querySelector('.hdb-replier')?.textContent ?? '').includes(titre));
+    await cliquer(g?.querySelector('.hdb-case--groupe input') ?? undefined);
+  };
+
+  /** ① RIEN DE COCHÉ → TOUS LES MAILS DU BIEN. */
+  it('🔴🔴 ① RIEN DE COCHÉ → tous les mails du bien', async () => {
+    servir();
+    await monter();
+    expect(contient('Charges 2026')).toBe(true);
+    expect(contient('État des lieux')).toBe(true);
+    expect(contient('Sinistre')).toBe(true);
+    expect(appels.some((a) => a.includes('avec='))).toBe(false);
+    expect(hote.querySelector('.hdb-selection')?.textContent).toContain('tous les mails du bien');
+  });
+
+  /**
+   * ② 🔴🔴 PROPRIÉTAIRE SEUL → AUCUN MAIL DU LOCATAIRE. C'est LE cas d'Arno, et celui qui échouait.
+   */
+  it('🔴🔴 ② PROPRIÉTAIRE SEUL → aucun mail du locataire', async () => {
+    servir();
+    await monter();
+    await cocherGroupe('Propriétaire');
+    expect(contient('Charges 2026')).toBe(true);
+    /* 🔴 LA PREUVE DEMANDÉE : plus aucun mail du locataire, ni du tiers. */
+    expect(contient('État des lieux')).toBe(false);
+    expect(contient('Sinistre')).toBe(false);
+    expect(appels.some((a) => a.includes('avec=proprio%40fictif.test'))).toBe(true);
+  });
+
+  it('🔴🔴 ③ LOCATAIRE SEUL → ses échanges, et rien du propriétaire', async () => {
+    servir();
+    await monter();
+    await cocherGroupe('Locataire');
+    expect(contient('État des lieux')).toBe(true);
+    expect(contient('Charges 2026')).toBe(false);
+    expect(contient('Sinistre')).toBe(false);
+  });
+
+  it('🔴🔴 ④ LES DEUX → les deux familles, et toujours rien du tiers', async () => {
+    servir();
+    await monter();
+    await cocherGroupe('Propriétaire');
+    await cocherGroupe('Locataire');
+    expect(contient('Charges 2026')).toBe(true);
+    expect(contient('État des lieux')).toBe(true);
+    expect(contient('Sinistre')).toBe(false);
+    expect(hote.querySelector('.hdb-selection')?.textContent).toContain('2 parties cochées');
+  });
+
+  /** ⑤ UN CONTACT SEUL : l'assureur est « non affecté » ici — une capsule comme une autre. */
+  it('🔴🔴 ⑤ UN CONTACT SEUL → son échange seulement', async () => {
+    servir();
+    await monter();
+    const gris = hote.querySelector('.hdb-groupe--gris') as HTMLElement;
+    await cliquer(gris.querySelector('.hdb-replier') ?? undefined);
+    await cliquer(gris.querySelector('.hdb-capsule input') ?? undefined);
+    expect(contient('Sinistre')).toBe(true);
+    expect(contient('Charges 2026')).toBe(false);
+    expect(contient('État des lieux')).toBe(false);
+  });
+
+  /**
+   * ⑥ 🔴🔴 AGENCE DÉCOCHÉE → NOS MAILS PARTENT, ET EUX SEULS. Le mail de l'agence a le même objet et le même
+   * échange que celui du propriétaire : c'est ce qui rend le cas probant — seul celui que NOUS avons écrit s'en
+   * va, celui du propriétaire reste.
+   */
+  it('🔴🔴 ⑥ AGENCE DÉCOCHÉE → les mails que nous avons écrits disparaissent', async () => {
+    servir();
+    await monter();
+    expect(objets().filter((t) => t.includes('Charges 2026'))).toHaveLength(2);
+
+    const bande = hote.querySelector('.hdb-groupe--nous') as HTMLElement;
+    await cliquer(bande.querySelector('.hdb-replier') ?? undefined);
+    await cliquer(bande.querySelector('.hdb-case--groupe input') ?? undefined);
+
+    /* 🔴 LE NÔTRE EST PARTI, CELUI DU PROPRIÉTAIRE EST RESTÉ — et les autres n'ont pas bougé. */
+    expect(objets().filter((t) => t.includes('Charges 2026'))).toHaveLength(1);
+    expect(contient('État des lieux')).toBe(true);
+    expect(contient('Sinistre')).toBe(true);
+    /* 🔴 ET ÇA NE COMPTE PAS COMME UNE PARTIE COCHÉE. */
+    expect(hote.querySelector('.hdb-selection')?.textContent).toContain('Aucune partie cochée');
+  });
+
+  /** 🔴 LES DEUX SE COMPOSENT : les échanges du propriétaire, sauf ce que nous y avons écrit. */
+  it('🔴🔴 ⑦ PROPRIÉTAIRE COCHÉ **ET** AGENCE DÉCOCHÉE : son échange, sans nos mails', async () => {
+    servir();
+    await monter();
+    await cocherGroupe('Propriétaire');
+    const bande = hote.querySelector('.hdb-groupe--nous') as HTMLElement;
+    await cliquer(bande.querySelector('.hdb-replier') ?? undefined);
+    await cliquer(bande.querySelector('.hdb-case--groupe input') ?? undefined);
+    expect(objets().filter((t) => t.includes('Charges 2026'))).toHaveLength(1);
+    expect(contient('État des lieux')).toBe(false);
   });
 });
