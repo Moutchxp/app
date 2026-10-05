@@ -2438,23 +2438,6 @@ export function HistoriqueDuBien({
         </fieldset>
       </div>
 
-      {/* ══ 🔴🔴 LA LÉGENDE DES BARRES, DISCRÈTE, AU-DESSUS DU LISTING (lot HISTORIQUE-BIEN-2) ═════════════════
-          Arno : « Les couleurs sont lisibles en Clair et en Sombre, avec une légende discrète au-dessus du
-          listing. » Une couleur sans légende n'est pas une information : elle se devine, et on se trompe.
-
-          ⚠️ CHAQUE ENTRÉE PORTE SON MOT, pas seulement sa pastille : c'est le mot qui informe, la couleur ne
-          fait que l'appuyer — même règle que les capsules de statut dans tout ce module. */}
-      {lignes.length > 0 && (
-        <p className="hdb-legende-barres">
-          {LEGENDE_BARRES.map((x) => (
-            <span key={x.ton} className="hdb-legende-item">
-              <span aria-hidden="true" className={`hdb-legende-pastille hdb-legende-pastille--${x.ton}`} />
-              {x.mot}
-            </span>
-          ))}
-        </p>
-      )}
-
       {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Mail sorti du suivi de … — Annuler », quelques secondes ════
           Arno : « Après : le mail disparaît en direct du listing, le compteur et le résumé se mettent à jour, et
           un message propose “Annuler” quelques secondes (rétablit exactement l'état d'avant). »
@@ -2474,10 +2457,34 @@ export function HistoriqueDuBien({
         <p className="gst-erreur" role="status">{sortieRefus}</p>
       )}
 
-      {/* ══ LE RÉSUMÉ DES PIÈCES, EN HAUT — REPLIÉ, AVEC SON COMPTE LISIBLE SANS CLIC ══════════════════════════ */}
-      {totalPieces > 0 && (
+      {/* ══ LE RÉSUMÉ DES PIÈCES, EN HAUT — REPLIÉ, AVEC SON COMPTE LISIBLE SANS CLIC ══════════════════════════
+          ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 1 — ET LA LÉGENDE DES BARRES, SUR LA MÊME LIGNE, À DROITE ════════
+          DEMANDE D'ARNO : « La ligne de légende descend sur la même ligne que le bouton "N pièces dans cette
+          sélection — les voir", ALIGNÉE À DROITE. Rien d'autre ne change. »
+
+          🔴 LA CONDITION D'AFFICHAGE S'ÉLARGIT, ET IL LE FALLAIT. Ce bloc n'existait que `totalPieces > 0` : y
+          glisser la légende telle quelle l'aurait fait DISPARAÎTRE sur un bien dont les mails ne portent aucune
+          pièce — une légende perdue pour faire de la place, c'est-à-dire une fonctionnalité retirée. Chacune
+          garde donc sa propre condition, et elles partagent une ligne quand elles sont là toutes les deux. */}
+      {(totalPieces > 0 || lignes.length > 0) && (
         <div className="hdb-resume hdb-resume--haut" ref={ancreResumeHaut}>
-          <BasculeResume n={totalPieces} ouvert={resumeOuvert} onBasculer={() => setResumeOuvert((v) => !v)} />
+          <div className="hdb-resume-ligne">
+            {totalPieces > 0 && (
+              <BasculeResume n={totalPieces} ouvert={resumeOuvert} onBasculer={() => setResumeOuvert((v) => !v)} />
+            )}
+            {/* ⚠️ CHAQUE ENTRÉE PORTE SON MOT, pas seulement sa pastille : c'est le mot qui informe, la couleur
+                ne fait que l'appuyer — même règle que les capsules de statut dans tout ce module. */}
+            {lignes.length > 0 && (
+              <p className="hdb-legende-barres">
+                {LEGENDE_BARRES.map((x) => (
+                  <span key={x.ton} className="hdb-legende-item">
+                    <span aria-hidden="true" className={`hdb-legende-pastille hdb-legende-pastille--${x.ton}`} />
+                    {x.mot}
+                  </span>
+                ))}
+              </p>
+            )}
+          </div>
           {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LA NOTE A DISPARU DU CAS ORDINAIRE ══════════════════════
               « Cette sélection compte plus de 100 mails : le résumé porte sur les N mails affichés » était la
               phrase qu'Arno demande de retirer, et elle l'est : le résumé couvre désormais la sélection entière.
@@ -4308,8 +4315,15 @@ ${CSS_PIECES}
 .hdb-pieces{display:flex;flex-direction:column;gap:12px;min-width:0}
 
 /* ══ LA LEGENDE DES BARRES ── discrete : un mot et une pastille, en petit, au-dessus du listing. */
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 1 — LA LIGNE QUI PORTE LE BOUTON DES PIECES ET LA LEGENDE ═══════════
+   DEMANDE D'ARNO : la legende « sur la meme ligne que le bouton, ALIGNEE A DROITE ».
+   ⚠️ UNE MARGE AUTOMATIQUE A GAUCHE DE LA LEGENDE, ET NON UN justify-content:space-between : sans bouton
+   (un bien dont aucun mail ne porte de piece), space-between aurait colle la legende a GAUCHE. Avec la marge
+   automatique, elle est a droite dans les deux cas.
+   ⚠️ LE REPLI RESTE AUTORISE : sur un ecran etroit, la legende passe sous le bouton plutot que de le rogner. */
+.hdb-resume-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .8rem;min-width:0}
 .hdb-legende-barres{display:flex;flex-wrap:wrap;gap:.2rem .8rem;margin:.4rem 0 .3rem;font-size:.7rem;
-  color:var(--color-svv-muted);min-width:0}
+  color:var(--color-svv-muted);min-width:0;margin-left:auto}
 .hdb-legende-item{display:inline-flex;align-items:center;gap:.3rem}
 /* LA PASTILLE DE LEGENDE montre les DEUX liseres, comme le mail : un seul trait aurait decrit autre chose que
    ce qu'on voit. 9 px de large pour deux traits de 3 px et leur intervalle. */

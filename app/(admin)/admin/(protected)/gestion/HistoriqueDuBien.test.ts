@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { HistoriqueDuBien } from './HistoriqueDuBien';
-import { BANDES_SOUS_LES_ENCARTS, BUT_DU_PLUS, GROUPES_EN_BANDE, GROUPES_EN_ENCART, motDeuxCompteurs }
-  from '../../../../lib/gestion/historiqueBien';
+import { BANDES_SOUS_LES_ENCARTS, BUT_DU_PLUS, GROUPES_EN_BANDE, GROUPES_EN_ENCART, LEGENDE_BARRES,
+  motDeuxCompteurs } from '../../../../lib/gestion/historiqueBien';
 import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
 import { PORTEURS_DE_PIECES_MAX } from '../../../../lib/gestion/historique';
 import type { Interlocuteur, LigneHistorique, PieceHistorique } from '../../../../lib/gestion/historique';
@@ -5459,5 +5459,64 @@ describe('⑯ 🔴🔴 un contact annexe ne passe pas d’une location à l’au
     await monter({ categories: CATS16, cartesLocataires: [EN_PLACE16, ANCIEN16] });
     await deplierGroupe('Non affectés');
     expect(nomsDe(bande('Non affectés'))).toContain('Louis Vaglio');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 1 — LA LÉGENDE PASSE SUR LA LIGNE DU BOUTON DES PIÈCES ════════════════════
+ *
+ * DEMANDE D'ARNO : « La ligne de légende (propriétaire / locataire / tiers indépendant / non affecté / nous)
+ * descend sur la même ligne que le bouton "N pièces dans cette sélection — les voir", ALIGNÉE À DROITE. Rien
+ * d'autre ne change. »
+ */
+describe('⑰ 🔴 la légende des barres vit sur la ligne du bouton des pièces', () => {
+  it('🔴🔴 elle est DANS la même ligne que le bouton, et après lui', async () => {
+    await monter();
+    const ligne = hote.querySelector('.hdb-resume--haut .hdb-resume-ligne') as HTMLElement;
+    expect(ligne).not.toBeNull();
+    const bouton = ligne.querySelector('.pdc-trombone');
+    const legende = ligne.querySelector('.hdb-legende-barres');
+    expect(bouton).not.toBeNull();
+    expect(legende).not.toBeNull();
+    /* 🔴 APRÈS LE BOUTON DANS L'ORDRE DU DOCUMENT : c'est ce qui la met à droite, et ce qu'un lecteur d'écran
+       annonce dans cet ordre-là. L'alignement lui-même est tenu par la feuille (marge automatique). */
+    const apres = (bouton as Element).compareDocumentPosition(legende as Node);
+    expect(apres & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  /** 🔴 LES CINQ ENTRÉES SONT LÀ, avec leur MOT : une couleur sans légende se devine, et on se trompe. */
+  it('🔴 les cinq tons y sont, chacun avec son mot', async () => {
+    await monter();
+    const items = [...hote.querySelectorAll('.hdb-legende-barres .hdb-legende-item')];
+    expect(items).toHaveLength(LEGENDE_BARRES.length);
+    for (const x of LEGENDE_BARRES) {
+      expect(items.some((i) => (i.textContent ?? '').includes(x.mot)), x.mot).toBe(true);
+    }
+  });
+
+  /**
+   * 🔴🔴 ET ELLE SURVIT À UN BIEN SANS AUCUNE PIÈCE. Le bloc d'accueil n'existait que `totalPieces > 0` : y
+   * glisser la légende telle quelle l'aurait fait disparaître là où le bouton n'existe pas — une légende perdue
+   * pour faire de la place, c'est-à-dire une fonctionnalité retirée.
+   */
+  it('🔴🔴 sans la moindre pièce, la légende est quand même là', async () => {
+    const sansPiece = LIGNES.map((l) => ({ ...l, pieces: [] }));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(sansPiece));
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: sansPiece, suite: false, entete: { nbMails: 2 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+    expect(hote.querySelector('.pdc-trombone')).toBeNull();
+    expect(hote.querySelector('.hdb-legende-barres')).not.toBeNull();
   });
 });
