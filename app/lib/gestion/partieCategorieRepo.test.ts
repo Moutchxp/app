@@ -536,19 +536,88 @@ describe('🔴🔴 ⑦ la fiche d’un contact voyage jusqu’à la base', () =>
    * 🔴🔴 UNE POSE N'EFFACE JAMAIS, ET C'EST LA RÈGLE DE CETTE FONCTION DEPUIS LE LOT 2. Reposer une carte est le
    * geste de quelqu'un qui AJOUTE (un côté qui change, un champ qu'on complète). EFFACER est le geste du crayon.
    */
+  /**
+   * ⚠️ ON DÉSIGNE L'INSTRUCTION PAR CE QU'ELLE FAIT, ET NON PAR SON RANG. La pose en émet désormais jusqu'à
+   * TROIS (chercher la proposition, la retirer, insérer) — voir l'encadré de `poserCarteAlaMain` —, et un rang
+   * figé aurait rougi pour la bonne raison au lieu de la seule qui compte.
+   */
+  const sqlAvec = (mot: string): string => sqls().find((s) => s.includes(mot)) ?? '';
+
   it('🔴🔴 LA POSE ÉCRIT LA FICHE EN `coalesce` — elle complète, elle n’efface pas', async () => {
     await poserCarteAlaMain({
       lotCle: '155', cote: 'proprietaire', adresse: 'f.rosky@fictif.test', nom: 'ROSKY',
       fiche: FICHE, auteur: AUTEUR,
     });
-    const sql = sqls()[0];
+    const sql = sqlAvec('INSERT INTO gestion_contact_carte');
     for (const col of ['civilite', 'prenom', 'qualite', 'adresse_postale', 'code_postal', 'commune',
       'coordonnees', 'note']) {
       expect(sql, col).toContain(`${col} = coalesce(EXCLUDED.${col}, gestion_contact_carte.${col})`);
     }
     expect(sql).toContain('$15::jsonb');
-    expect(params()[0]).toContain('Mme');
-    expect(params()[0]).toContain(JSON.stringify(FICHE.coordonnees));
+    const p = params()[sqls().indexOf(sql)];
+    expect(p).toContain('Mme');
+    expect(p).toContain(JSON.stringify(FICHE.coordonnees));
+  });
+
+  /**
+   * ══ 🔴🔴 LE DÉFAUT TROUVÉ PAR L'ESSAI RÉEL — VALIDER UNE PROPOSITION ═════════════════════════════════════════
+   *
+   * Sur lot-290 / Jessica TADEU, le 05/10/2026, la base a REFUSÉ net le geste du « + » :
+   *     new row for relation "gestion_contact_carte" violates check constraint
+   *     "gestion_contact_carte_auteur_chk"
+   * Le `ON CONFLICT DO UPDATE` posait `origine = 'manuel'` sur la PROPOSITION sans toucher son auteur, et la
+   * ligne prétendait alors « créée à la main par automatique » — ce que la contrainte de la 304 interdit, à
+   * raison.
+   *
+   * 🔴 CE CHEMIN EST NÉ AVEC LE POINT 1 DE CE LOT : jusqu'au lot 7, le « + » ne s'affichait que sur une capsule
+   * SANS carte, et le `ON CONFLICT` ne rencontrait jamais de proposition. Valider une proposition est désormais
+   * le cas ORDINAIRE — d'où ces deux cas, qui le tiennent.
+   */
+  it('🔴🔴 VALIDER UNE PROPOSITION LA RETIRE ET POSE UNE CARTE NEUVE — la trace reste', async () => {
+    /* ① la proposition existe (origine « auto ») ; ② son retrait rend son identifiant ; ③ la carte neuve naît. */
+    txMock.mockReset();
+    txMock
+      .mockResolvedValueOnce({ rows: [{ id: '480' }] })
+      .mockResolvedValueOnce({ rows: [{ id: '480' }] })
+      .mockResolvedValueOnce({ rows: [{ id: '1470' }] });
+
+    const r = await poserCarteAlaMain({
+      lotCle: '421', cote: 'proprietaire', adresse: 'j.tadeu@fictif.test', nom: 'TADEU',
+      fiche: FICHE, auteur: AUTEUR,
+    });
+    expect(r.ok && r.id).toBe(1470);
+    /* 🔴 LA PROPOSITION EST DANS `retires` : c'est par elle que « Annuler » la rouvrira, exactement. */
+    expect(r.ok && r.retires).toEqual([480]);
+
+    const tout = sqls();
+    /* 🔴 ELLE EST CHERCHÉE `FOR UPDATE` : on lit avant d'écrire (piège `withTransaction` du dépôt). */
+    expect(tout[0]).toContain("origine = 'auto'");
+    expect(tout[0]).toContain('FOR UPDATE');
+    /* 🔴 ET RETIRÉE AVEC SON MOTIF — jamais un DELETE : la trace de la passe automatique reste. */
+    expect(tout[1]).toContain('SET retire_le = now()');
+    expect(params()[1]).toContain('proposition validée à la main');
+    expect(tout[2]).toContain('INSERT INTO gestion_contact_carte');
+    /* ⚠️ LES TROIS INSTRUCTIONS SONT DANS LA MÊME TRANSACTION : sans elle, un échec de l'insertion laisserait le
+       bien SANS proposition ET sans carte — on aurait détruit un pré-remplissage en croyant le valider. */
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ⚠️ UNE CARTE DÉJÀ MANUELLE EST COMPLÉTÉE SUR PLACE, et ce cas le tient : la retirer et la reposer lui
+   * donnerait un nouvel identifiant à chaque clic, et « Annuler » retirerait alors une carte que le geste n'avait
+   * pas créée — le garde du lot 3.
+   */
+  it('⚠️ UNE CARTE DÉJÀ MANUELLE N’EST NI RETIRÉE NI RECRÉÉE', async () => {
+    txMock.mockReset();
+    /* Aucune proposition : la recherche ne rend rien. */
+    txMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: '1465' }] });
+    const r = await poserCarteAlaMain({
+      lotCle: '421', cote: 'proprietaire', adresse: 'a.bruneel@fictif.test', nom: 'BRUNEEL',
+      auteur: AUTEUR,
+    });
+    expect(r.ok && r.retires).toEqual([]);
+    expect(r.ok && r.id).toBe(1465);
+    expect(sqls().some((s) => s.includes('SET retire_le = now()'))).toBe(false);
   });
 
   /**
@@ -562,8 +631,9 @@ describe('🔴🔴 ⑦ la fiche d’un contact voyage jusqu’à la base', () =>
       telephone: '01 00 00 00 00', fiche: FICHE, auteur: AUTEUR,
     });
     /* La liste l'emporte sur le champ reçu : c'est elle qu'un humain vient de valider. */
-    expect(params()[0]).toContain('06 11 22 33 44');
-    expect(params()[0]).not.toContain('01 00 00 00 00');
+    const p = params()[sqls().findIndex((s) => s.includes('INSERT INTO gestion_contact_carte'))];
+    expect(p).toContain('06 11 22 33 44');
+    expect(p).not.toContain('01 00 00 00 00');
   });
 
   /**
@@ -620,13 +690,14 @@ describe('🔴🔴 ⑦ la fiche d’un contact voyage jusqu’à la base', () =>
     expect(pose.ok).toBe(true);
     expect(crayon.ok).toBe(true);
 
-    /* ⚠️ ON NE REGARDE QUE LES DEUX ÉCRITURES (la lecture, elle, a ses alias) : aucune des sept colonnes n'y
+    /* ⚠️ ON NE REGARDE QUE LES ÉCRITURES (la lecture, elle, a ses alias) : aucune des sept colonnes n'y
        apparaît, ni dans la liste des colonnes, ni dans le `SET`, ni dans le `DO UPDATE`. */
-    for (const sql of sqls().slice(1)) {
+    for (const sql of sqls().filter((s) => !s.startsWith('SELECT id::text, lot_cle'))) {
       for (const col of COLONNES) expect(sql, col).not.toContain(col);
     }
     /* ⚠️ MAIS LE NOM ET LE TÉLÉPHONE PASSENT TOUJOURS : ce sont les colonnes de la 304, et elles sont là. */
-    expect(sqls()[1]).toContain('nom');
-    expect(sqls()[1]).toContain('telephone');
+    const insert = sqls().find((s) => s.includes('INSERT INTO gestion_contact_carte')) ?? '';
+    expect(insert).toContain('nom');
+    expect(insert).toContain('telephone');
   });
 });

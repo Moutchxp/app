@@ -747,14 +747,69 @@ export async function poserCarteAlaMain(o: {
     ajouter('coordonnees', coordonneesEnJson(o.fiche?.coordonnees), '::jsonb');
   }
 
-  const { rows } = await query<{ id: string }>(
-    `INSERT INTO gestion_contact_carte (${cols.join(', ')})
-     VALUES (${vals.join(', ')})
-     ON CONFLICT (lot_cle, cote, adresse) WHERE retire_le IS NULL DO UPDATE
-       SET ${maj.join(', ')}
-     RETURNING id::text`, params);
+  /**
+   * ══ 🔴🔴 VALIDER UNE **PROPOSITION** : ELLE EST RETIRÉE, ET UNE CARTE NEUVE NAÎT ═══════════════════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴🔴 DÉFAUT TROUVÉ PAR L'ESSAI RÉEL DU LOT 8, SUR lot-290 / Jessica TADEU, ET NON PAR UNE RELECTURE.
+   *
+   * Le `ON CONFLICT DO UPDATE` ci-dessous posait `origine = 'manuel'` sur la ligne existante SANS toucher son
+   * auteur de création. Sur une PROPOSITION (`origine = 'auto'`, `cree_par_libelle = 'automatique'`), la base a
+   * refusé net :
+   *     new row for relation "gestion_contact_carte" violates check constraint
+   *     "gestion_contact_carte_auteur_chk"
+   * — et elle a eu raison. Cette contrainte de la migration 304 dit exactement ceci : **une carte manuelle ne
+   * peut pas avoir « automatique » pour auteur**. La ligne aurait prétendu « créée à la main par automatique ».
+   *
+   * 🔴 POURQUOI CE CHEMIN N'EXISTAIT PAS AVANT CE LOT. Jusqu'au lot 7, le « + » ne s'affichait QUE sur une
+   * capsule SANS carte : le `ON CONFLICT` ne rencontrait jamais de proposition. Le point 1 de ce lot ouvre
+   * précisément ce chemin — « les cartes automatiques deviennent de simples PRÉ-REMPLISSAGES du formulaire du
+   * “+” » —, donc valider une proposition est désormais le cas ORDINAIRE.
+   *
+   * 🔴 ON RETIRE LA PROPOSITION ET ON POSE UNE CARTE NEUVE, plutôt que de réécrire l'auteur sur place. Trois
+   * raisons, dans cet ordre :
+   *   ① LA TRACE RESTE. La proposition garde sa date de naissance, son auteur `automatique` et son retrait motivé
+   *     (« proposition validée à la main »). Réécrire l'auteur aurait effacé le fait qu'une passe l'avait
+   *     proposée — et laissé une `cree_le` qui n'est pas la date de la carte validée.
+   *   ② « ANNULER » RESTE EXACT, SANS UNE LIGNE DE PLUS. Le geste rend déjà `cartesPosees` et `cartesRetirees` :
+   *     l'annulation retire la neuve et ROUVRE la proposition — c'est-à-dire l'état d'avant, au caractère près.
+   *     C'est la même mécanique que `poserCategorieAlaMain`, et `retires` est le champ qu'elle emploie déjà.
+   *   ③ C'EST LA CONVENTION DU MODULE : rien n'est supprimé, et tout geste se défait par ses identifiants.
+   *
+   * ⚠️ LES DEUX ÉCRITURES SONT DANS LA MÊME TRANSACTION. Sans elle, un échec de l'insertion laisserait le bien
+   * SANS proposition ET sans carte — on aurait détruit un pré-remplissage en croyant le valider.
+   *
+   * ⚠️ ET SEULEMENT POUR UNE PROPOSITION : une carte DÉJÀ manuelle est complétée sur place (`coalesce`), comme
+   * depuis le lot 2. La retirer et la reposer lui donnerait un nouvel identifiant à chaque clic, et « Annuler »
+   * retirerait alors une carte que le geste n'a pas créée.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const retires: number[] = [];
+  const id = await withTransaction(async (q) => {
+    const { rows: proposition } = await q<{ id: string }>(
+      `SELECT id::text FROM gestion_contact_carte
+        WHERE retire_le IS NULL AND lot_cle = $1 AND cote = $2 AND adresse = $3 AND origine = 'auto'
+        FOR UPDATE`, [lot, o.cote, adresse]);
+    if (proposition.length > 0) {
+      const { rows } = await q<{ id: string }>(
+        `UPDATE gestion_contact_carte
+            SET retire_le = now(), retire_par = $2, retire_par_libelle = $3, retire_motif = $4
+          WHERE id = $1 AND retire_le IS NULL
+          RETURNING id::text`,
+        [Number(proposition[0].id), o.auteur.id, o.auteur.libelle, 'proposition validée à la main']);
+      if (rows.length > 0) retires.push(Number(rows[0].id));
+    }
 
-  return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
+    const { rows } = await q<{ id: string }>(
+      `INSERT INTO gestion_contact_carte (${cols.join(', ')})
+       VALUES (${vals.join(', ')})
+       ON CONFLICT (lot_cle, cote, adresse) WHERE retire_le IS NULL DO UPDATE
+         SET ${maj.join(', ')}
+       RETURNING id::text`, params);
+    return rows.length === 0 ? null : Number(rows[0].id);
+  });
+
+  return { ok: true, id, nb: id === null ? 0 : 1, retires };
 }
 
 /**

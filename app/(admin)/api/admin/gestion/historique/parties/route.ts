@@ -299,8 +299,20 @@ async function faireSuivreLaCarte(o: {
         lotCle: o.lotCle, cote, adresse: o.adresse, nom, telephone, fiche, auteur: o.auteur,
       });
       if (!r.ok) return { posees, retirees, refus: r.motif };
-      /* ⚠️ SEULE UNE CARTE RÉELLEMENT CRÉÉE ENTRE DANS « posées » : voir l'encadré ci-dessus. */
-      if (aCreer && r.id !== null) posees.push(r.id);
+      /**
+       * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8 — VALIDER UNE PROPOSITION CRÉE AUSSI UNE CARTE ═══════════════════════════
+       *
+       * `poserCarteAlaMain` RETIRE la proposition (`origine = 'auto'`) et pose une carte NEUVE à sa place — voir
+       * son encadré, et le défaut que l'essai réel a trouvé. Ses `retires` entrent donc dans les retirées, et sa
+       * carte dans les posées : « Annuler » retire la neuve et ROUVRE la proposition, c'est-à-dire l'état
+       * d'avant, au caractère près.
+       *
+       * ⚠️ `aCreer || retires` EST LA CONDITION EXACTE DE « UNE LIGNE EST NÉE ». Une carte déjà MANUELLE du bon
+       * côté est complétée sur place : rien n'est né, et la mettre dans « posées » ferait retirer par
+       * « Annuler » une carte que le geste n'avait pas créée — c'est le garde du lot 3, et il tient toujours.
+       */
+      retirees.push(...(r.retires ?? []));
+      if ((aCreer || (r.retires ?? []).length > 0) && r.id !== null) posees.push(r.id);
     }
   }
   return { posees, retirees, refus: null };

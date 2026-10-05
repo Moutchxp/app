@@ -604,3 +604,37 @@ describe('🔴🔴 la fiche d’un contact, du corps de la requête jusqu’au d
     expect(carte.coordonnees).toEqual([{ sorte: 'email', libelle: 'E-mail', valeur: 'f.rosky@fictif.test' }]);
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8 — VALIDER UNE PROPOSITION, ET POUVOIR L'ANNULER EXACTEMENT ════════════════════════
+ *
+ * Le défaut trouvé par l'essai réel (voir l'encadré de `poserCarteAlaMain`) a changé ce que la pose rend : elle
+ * RETIRE la proposition et pose une carte NEUVE. La route doit donc ranger la neuve dans `cartesPosees` et la
+ * proposition dans `cartesRetirees` — sans quoi « Annuler » laisserait l'une ou l'autre en place.
+ */
+describe('🔴🔴 le geste d’une proposition validée se défait exactement', () => {
+  it('🔴🔴 LA CARTE NEUVE EST « POSÉE », LA PROPOSITION EST « RETIRÉE »', async () => {
+    poserCarteMock.mockResolvedValue({ ok: true, id: 1470, nb: 1, retires: [480] });
+    const r = await POST(poste({ ...BASE, nom: 'TADEU' }));
+    const d = await r.json();
+    expect(d.geste.cartesPosees).toEqual([1470]);
+    expect(d.geste.cartesRetirees).toEqual([480]);
+  });
+
+  /**
+   * ⚠️ ET UNE CARTE DÉJÀ MANUELLE DU BON CÔTÉ N'ENTRE TOUJOURS PAS DANS « POSÉES » : elle a été complétée, pas
+   * créée. La mettre là ferait retirer par « Annuler » une carte que le geste n'avait pas créée — garde du lot 3.
+   */
+  it('⚠️ UNE CARTE COMPLÉTÉE SUR PLACE N’ENTRE PAS DANS « POSÉES »', async () => {
+    cartesMock.mockResolvedValue([{
+      id: 1465, cote: 'locataire', adresse: 'assureur@fictif.test', nom: 'BRUNEEL', telephone: null,
+      origine: 'manuel', verifieLe: null, verifiePar: null, note: null, civilite: null, prenom: null,
+      qualite: null, adressePostale: null, codePostal: null, commune: null, coordonnees: [],
+    }]);
+    poserCarteMock.mockResolvedValue({ ok: true, id: 1465, nb: 1, retires: [] });
+    const r = await POST(poste({ ...BASE, nom: 'BRUNEEL' }));
+    const d = await r.json();
+    expect(d.geste.cartesPosees).toEqual([]);
+    expect(d.geste.cartesRetirees).toEqual([]);
+  });
+});
