@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 /**
  * ══ 🔴🔴 LES DEUX COMPOSANTS SONT **IMPORTÉS**, JAMAIS RECOPIÉS ═══════════════════════════════════════════════════
  *
@@ -374,6 +374,37 @@ export function HistoriqueDuBien({
    * contenu, et c'est le genre d'écran où l'on finit par ne plus savoir si l'on a déjà regardé.
    */
   const [resumeOuvert, setResumeOuvert] = useState(false);
+  /**
+   * 🔴🔴 LOT RESUME-PIECES-BOUTON-BAS — LE HAUT DE CHAQUE RÉSUMÉ, pour y ramener la page quand on le referme
+   * depuis son bouton de fin. Deux ancres parce qu'il y a DEUX montages (au-dessus du fil, et en bas du
+   * listing) : chacun ramène à SON propre bouton du haut, jamais à celui de l'autre.
+   */
+  const ancreResumeHaut = useRef<HTMLDivElement | null>(null);
+  const ancreResumeBas = useRef<HTMLDivElement | null>(null);
+  /**
+   * ══ 🔴🔴 LE RECADRAGE APRÈS FERMETURE — ET POURQUOI IL EST DIFFÉRÉ ═══════════════════════════════════════════
+   *
+   * DEMANDE D'ARNO : « En le refermant depuis le bas, la page se repositionne sur le haut du résumé refermé. »
+   *
+   * 🔴 LE DÉFILEMENT NE PEUT PAS SE FAIRE AU CLIC, ET C'EST MESURÉ : à cet instant le résumé est encore DÉPLIÉ —
+   * 10 906 px de haut sur lot-290 — et `scrollIntoView` calcule sur cette page-là. Essayé à l'écran : on
+   * atterrissait 8 453 px en dessous du bloc visé. On note donc QUI recadrer, et on le fait une fois le repli
+   * écrit dans le document.
+   *
+   * ⚠️ `useLayoutEffect` ET NON `useEffect` : il court après la mutation du DOM mais AVANT que l'écran soit
+   * peint. Avec `useEffect`, on verrait d'abord la page sauter à sa position d'avant, puis se recadrer.
+   */
+  const [recadrer, setRecadrer] = useState<'haut' | 'bas' | null>(null);
+  useLayoutEffect(() => {
+    if (recadrer === null) return;
+    /* ⚠️ `scrollIntoView?.()` : tous les environnements ne le fournissent pas (jsdom, impressions, lecteurs). Un
+       défilement de confort ne doit jamais faire tomber le rendu du bloc — c'est déjà la forme retenue ailleurs
+       dans ce module (`pied.current?.scrollIntoView?.(…)`, lot BROUILLON-EN-ATTENTE). */
+    (recadrer === 'haut' ? ancreResumeHaut : ancreResumeBas).current?.scrollIntoView?.({ block: 'start' });
+    setRecadrer(null);
+  }, [recadrer]);
+  /** Fermer DEPUIS LA FIN d'un résumé : on replie, et on ramène la page sur le haut de CE bloc-là. */
+  const fermerResumeDepuisLaFin = (ou: 'haut' | 'bas') => { setResumeOuvert(false); setRecadrer(ou); };
   /** Le mail d'où l'on est parti, surligné BRIÈVEMENT au retour (demande d'Arno). */
   const [mailSurligne, setMailSurligne] = useState<number | null>(repris?.mail ?? null);
 
@@ -2101,7 +2132,7 @@ export function HistoriqueDuBien({
 
       {/* ══ LE RÉSUMÉ DES PIÈCES, EN HAUT — REPLIÉ, AVEC SON COMPTE LISIBLE SANS CLIC ══════════════════════════ */}
       {totalPieces > 0 && (
-        <div className="hdb-resume hdb-resume--haut">
+        <div className="hdb-resume hdb-resume--haut" ref={ancreResumeHaut}>
           <BasculeResume n={totalPieces} ouvert={resumeOuvert} onBasculer={() => setResumeOuvert((v) => !v)} />
           {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LA NOTE A DISPARU DU CAS ORDINAIRE ══════════════════════
               « Cette sélection compte plus de 100 mails : le résumé porte sur les N mails affichés » était la
@@ -2110,7 +2141,8 @@ export function HistoriqueDuBien({
               recherche en cours, lecture en échec — et rend `null` partout ailleurs. */}
           {porteeDuResume !== null && <p className="gst-note hdb-note">{porteeDuResume}</p>}
           {resumeOuvert && (
-            <ResumePieces groupes={groupesPieces} depots={depots} emplacements={emplacements}
+            <ResumeDeplie n={totalPieces} onFermer={() => fermerResumeDepuisLaFin('haut')}
+              groupes={groupesPieces} depots={depots} emplacements={emplacements}
               maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
               categories={categoriesFusionnees} />
           )}
@@ -2176,11 +2208,12 @@ export function HistoriqueDuBien({
                   résumé (un seul état partagé). » Après avoir lu quarante mails, on est en bas : remonter
                   chercher le bouton du haut était un aller-retour pour rien. */}
               {totalPieces > 0 && (
-                <div className="hdb-resume hdb-resume--bas">
+                <div className="hdb-resume hdb-resume--bas" ref={ancreResumeBas}>
                   <BasculeResume n={totalPieces} ouvert={resumeOuvert}
                     onBasculer={() => setResumeOuvert((v) => !v)} />
                   {resumeOuvert && (
-                    <ResumePieces groupes={groupesPieces} depots={depots} emplacements={emplacements}
+                    <ResumeDeplie n={totalPieces} onFermer={() => fermerResumeDepuisLaFin('bas')}
+                      groupes={groupesPieces} depots={depots} emplacements={emplacements}
                       maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
                       categories={categoriesFusionnees} />
                   )}
@@ -2987,12 +3020,64 @@ function FilDeMails({
  * ⚠️ LES TROIS MOTS AJOUTÉS (« dans cette sélection ») SONT LA CORRECTION DU POINT 1, DITE À L'ÉCRAN : le résumé
  * couvre la sélection, pas la page — et c'est l'ancien libellé qui avait fait croire le contraire.
  */
-function BasculeResume({ n, ouvert, onBasculer }: { n: number; ouvert: boolean; onBasculer: () => void }) {
+function BasculeResume({ n, ouvert, onBasculer, place = 'tete' }: {
+  n: number; ouvert: boolean; onBasculer: () => void;
+  /**
+   * ══ 🔴🔴 LOT RESUME-PIECES-BOUTON-BAS — OÙ CE BOUTON-CI SE TIENT ═══════════════════════════════════════════
+   *
+   * DEMANDE D'ARNO (05/10/2026) : « Ajoute le MÊME bouton À LA FIN du résumé ouvert, CENTRÉ au milieu de la
+   * ligne. Même composant, même état partagé que le bouton du haut. »
+   *
+   * 🔴 `place` NE CHANGE QUE L'ALIGNEMENT, et c'est tout l'intérêt : le mot, l'état, le compte et le geste
+   * viennent des mêmes endroits qu'en tête. Un second composant « bouton du bas » aurait fini par porter un
+   * autre libellé — et c'est celui qu'on voit le moins qui aurait gardé l'ancien.
+   */
+  place?: 'tete' | 'pied';
+}) {
   return (
-    <button type="button" className="pdc-trombone" aria-expanded={ouvert} onClick={onBasculer}>
+    <button type="button" className={`pdc-trombone${place === 'pied' ? ' hdb-bascule-pied' : ''}`}
+      aria-expanded={ouvert} onClick={onBasculer}>
       <span aria-hidden="true">📎</span> {motPiecesSelection(n)}
       <span className="hdb-resume-mot"> {motBasculeResume(ouvert)}</span>
     </button>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT RESUME-PIECES-BOUTON-BAS — LE RÉSUMÉ OUVERT, AVEC SON BOUTON DE FIN ════════════════════════════════
+ *
+ * CONSTAT D'ARNO (05/10/2026) : « une fois le résumé des pièces ouvert, il est long, et pour le refermer il faut
+ * remonter tout en haut. »
+ *
+ * 🔴 UN SEUL ENDROIT POUR LES DEUX MONTAGES. Ce bloc est rendu DEUX fois (au-dessus du fil et en bas du listing,
+ * lot HISTORIQUE-BIEN-4) : écrire le bouton de fin aux deux endroits l'aurait fait diverger au premier
+ * ajustement. Il vit ici, une fois, et les deux montages l'obtiennent du même coup.
+ *
+ * 🔴 LA FERMETURE DEPUIS LE BAS REMET LA PAGE SUR LE HAUT DU RÉSUMÉ, c'est la seconde moitié de la demande : « ne
+ * pas laisser l'utilisateur perdu plus bas dans la page ». Sans cela, replier des centaines de miniatures fait
+ * remonter le contenu sous le curseur, et l'on se retrouve au milieu du fil sans savoir où.
+ *
+ * ⚠️ CHAQUE MONTAGE VISE SON PROPRE HAUT, et non celui de l'autre : fermer depuis le bas du listing doit ramener
+ * au bouton qu'on vient de quitter, pas en tête de page — on n'a pas demandé à remonter tout l'écran.
+ */
+function ResumeDeplie({ n, onFermer, ...props }: {
+  n: number;
+  /** Referme le résumé ET demande que la page revienne sur le haut de CE bloc. Voir `recadrer` dans le bloc. */
+  onFermer: () => void;
+  groupes: readonly GroupeDePieces<PieceDedoublonnee>[];
+  depots: ReadonlyMap<number, DepotAffiche>;
+  emplacements: ReadonlyMap<number, readonly EmplacementPiece[]>;
+  maintenant: Date;
+  gestes: GestesPiece;
+  sansEmpreinte: number;
+  categories: ReadonlyMap<string, CategoriePartie>;
+}) {
+  return (
+    <>
+      <ResumePieces {...props} />
+      {/* 🔴 CENTRÉ (demande d'Arno) : à la fin d'une liste, un bouton collé à gauche se cherche. */}
+      <BasculeResume n={n} ouvert place="pied" onBasculer={onFermer} />
+    </>
   );
 }
 
@@ -3534,6 +3619,17 @@ ${CSS_PIECES}
    davantage ici — c'est tout l'interet d'avoir passe la teinte par une variable plutot que par une prop. */
 .hdb-pieces .pdc-groupe{padding:.2rem .3rem}
 .hdb-resume-mot{font-size:.76rem;color:var(--color-svv-muted)}
+/* ══ 🔴🔴 LOT RESUME-PIECES-BOUTON-BAS — LE MEME BOUTON, A LA FIN DU RESUME, CENTRE ═════════════════════════════
+   Arno : « Ajoute le MEME bouton a LA FIN du resume ouvert, CENTRE au milieu de la ligne. »
+
+   🔴 CENTRE PAR UNE MARGE AUTOMATIQUE, et non par un conteneur de plus : le bouton est un inline-flex (il vient
+   de .pdc-trombone, partage avec la fenetre d'une conversation), et lui poser une marge automatique en display
+   flex le centre sans rien ajouter au document. Un div centreur aurait change la grammaire du bloc pour rien.
+
+   ⚠️ IL GARDE EXACTEMENT L'HABILLAGE DU BOUTON DU HAUT — meme classe .pdc-trombone, donc meme fond, meme hauteur
+   de cible tactile, meme survol. Seul l'alignement change, et c'est ce qu'Arno demande.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
+.hdb-bascule-pied{display:flex;margin:.6rem auto 0}
 .hdb-resume-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.2rem 0 .4rem;
   font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}
 .hdb-pieces{display:flex;flex-direction:column;gap:12px;min-width:0}

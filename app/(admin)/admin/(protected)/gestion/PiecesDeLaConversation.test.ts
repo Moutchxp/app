@@ -338,3 +338,46 @@ describe('🔴🔴 les autres apparitions se disent, et mènent au message', () 
       .toContain('sur son nom et sa taille');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RESUME-PIECES-BOUTON-BAS — « FERMER » NE DOIT JAMAIS PARTIR AVEC LE DÉFILEMENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le résumé d’une conversation se referme sans remonter', () => {
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * DEMANDE D'ARNO (05/10/2026), pour le résumé des pièces : « il est long, et pour le refermer il faut remonter
+   * tout en haut. […] Valable partout où ce résumé existe : Historique du bien ET résumé des pièces d'une
+   * conversation. »
+   *
+   * 🔴 ICI, LE DÉFAUT N'EXISTE PAS — ET CE N'EST PAS UNE OMISSION, C'EST UNE MESURE. Ce résumé-ci est une FENÊTRE,
+   * pas un bloc qui allonge la page : `.pdc` est une grille `auto minmax(0,1fr) auto`, seul le CORPS défile, et le
+   * pied — avec son bouton « Fermer » — reste à l'écran quelle que soit la longueur de la liste. S'y ajoutent la
+   * croix de l'en-tête, Échap, et le clic sur le voile : quatre sorties, dont trois toujours visibles.
+   *
+   * 🔴 CE QUE CE CAS PROTÈGE, DONC : que personne ne fasse glisser « Fermer » DANS la zone qui défile. Ce serait
+   * recréer, ici, exactement le défaut qu'Arno vient de faire corriger dans « Historique du bien ».
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const SRC = readFileSync('app/(admin)/admin/(protected)/gestion/PiecesDeLaConversation.tsx', 'utf8');
+  const plat = SRC.replace(/\s+/g, ' ');
+
+  it('🔴🔴 « Fermer » vit dans le PIED, hors de la zone qui défile', () => {
+    /* La grille : en-tête, corps borné, pied — et c'est `minmax(0,1fr)` qui empêche le corps de pousser le pied. */
+    expect(plat).toContain('.pdc{display:grid;grid-template-rows:auto minmax(0,1fr) auto;');
+    expect(plat).toContain('.pdc-corps{overflow:auto;min-height:0;');
+    /* 🔴 LE BOUTON EST DANS `<footer className="pdc-pied">`, et le pied n'est PAS dans le corps. */
+    const pied = plat.slice(plat.indexOf('<footer className="pdc-pied">'));
+    expect(pied).toContain('onClick={onFermer}>Fermer</button>');
+    const corps = plat.slice(plat.indexOf('<div className="pdc-corps">'), plat.indexOf('<footer className="pdc-pied">'));
+    expect(corps).not.toContain('Fermer');
+  });
+
+  /** 🔴 ET LES TROIS AUTRES SORTIES RESTENT : la croix, Échap, et le clic sur le voile. */
+  it('🔴 la croix, Échap et le voile ferment aussi', () => {
+    monter();
+    expect(container.querySelector('.pdc-croix')).not.toBeNull();
+    expect(plat).toContain("if (e.key === 'Escape')");
+    expect(plat).toContain('onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}');
+  });
+});

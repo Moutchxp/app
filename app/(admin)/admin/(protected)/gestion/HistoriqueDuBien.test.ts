@@ -4380,3 +4380,147 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
     expect(hote.querySelector('.hdb-fait')).toBeNull();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑬ 🔴🔴 LOT RESUME-PIECES-BOUTON-BAS — LE MÊME BOUTON À LA FIN DU RÉSUMÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑬ 🔴🔴 refermer le résumé des pièces depuis sa fin', () => {
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (05/10/2026) : « une fois le résumé des pièces ouvert, il est long, et pour le refermer il faut
+   * remonter tout en haut. »
+   *
+   * SA DEMANDE : « Ajoute le MÊME bouton (“N pièces dans cette sélection — les masquer”) À LA FIN du résumé
+   * ouvert, CENTRÉ au milieu de la ligne. Même composant, même état partagé que le bouton du haut. […] En le
+   * refermant depuis le bas, la page se repositionne sur le haut du résumé refermé. »
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+
+  const bascules = (): HTMLButtonElement[] =>
+    [...hote.querySelectorAll('.pdc-trombone')] as HTMLButtonElement[];
+  const pieds = (): HTMLButtonElement[] =>
+    [...hote.querySelectorAll('.hdb-bascule-pied')] as HTMLButtonElement[];
+
+  /** 🔴 REPLIÉ, IL N'Y A AUCUN BOUTON DE FIN : il n'y a rien à fermer, et deux boutons identiques côte à côte. */
+  it('🔴 résumé fermé : aucun bouton de fin', async () => {
+    await monter();
+    expect(bascules().length).toBeGreaterThan(0);
+    expect(pieds()).toHaveLength(0);
+  });
+
+  /**
+   * 🔴🔴 OUVERT, CHAQUE MONTAGE A SON BOUTON DE FIN. Le bloc est rendu DEUX fois (au-dessus du fil, et en bas du
+   * listing, lot HISTORIQUE-BIEN-4) : les deux doivent l'avoir, sans quoi celui qu'on utilise le moins garderait
+   * le défaut qu'Arno signale.
+   */
+  it('🔴🔴 ouvert : un bouton de fin DANS chaque résumé, après les pièces', async () => {
+    await monter();
+    await ouvrirLeResume();
+    const hauts = [...hote.querySelectorAll('.hdb-resume--haut')];
+    const bas = [...hote.querySelectorAll('.hdb-resume--bas')];
+    expect(hauts[0]?.querySelector('.hdb-bascule-pied')).not.toBeNull();
+    expect(bas[0]?.querySelector('.hdb-bascule-pied')).not.toBeNull();
+    /* 🔴 ET IL EST BIEN APRÈS LES PIÈCES, jamais avant : c'est « à la fin du résumé » qu'Arno demande. */
+    for (const bloc of [hauts[0], bas[0]]) {
+      const html = bloc?.innerHTML ?? '';
+      expect(html.indexOf('hdb-pieces')).toBeLessThan(html.indexOf('hdb-bascule-pied'));
+    }
+  });
+
+  /**
+   * 🔴🔴 LE MÊME BOUTON, AU CARACTÈRE PRÈS. Même compte, même libellé, même habillage (`pdc-trombone`) : c'est un
+   * seul composant, et c'est ce qui garantit qu'il ne divergera pas du bouton du haut.
+   */
+  it('🔴🔴 même libellé et même habillage que le bouton du haut', async () => {
+    await monter();
+    await ouvrirLeResume();
+    const haut = bascules()[0];
+    const pied = pieds()[0];
+    expect(pied.textContent).toBe(haut.textContent);
+    expect(pied.textContent).toContain('pièce');
+    expect(pied.textContent).toContain('— les masquer');
+    /* 🔴 LE MÊME HABILLAGE : la classe du haut, plus le seul centrage. */
+    expect(pied.className).toContain('pdc-trombone');
+    expect(pied.className).toContain('hdb-bascule-pied');
+    expect(pied.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  /** 🔴🔴 UN SEUL ÉTAT : fermer depuis la fin referme TOUT, les deux montages compris. */
+  it('🔴🔴 cliquer le bouton de fin referme le résumé — partout', async () => {
+    await monter();
+    await ouvrirLeResume();
+    expect(pieds().length).toBeGreaterThan(0);
+    await cliquer(pieds()[0]);
+    expect(pieds()).toHaveLength(0);
+    expect(hote.querySelectorAll('.hdb-pieces')).toHaveLength(0);
+    /* ⚠️ ET LE BOUTON DU HAUT REPROPOSE DE L'OUVRIR : l'état est bien partagé, pas local au bloc. */
+    expect(bascules()[0].textContent).toContain('— les voir');
+    expect(bascules()[0].getAttribute('aria-expanded')).toBe('false');
+  });
+
+  /**
+   * 🔴🔴 LA SECONDE MOITIÉ DE LA DEMANDE : « la page se repositionne sur le haut du résumé refermé ». Sans cela,
+   * replier des centaines de miniatures fait remonter le contenu sous le curseur, et l'on se retrouve au milieu
+   * du fil sans savoir où.
+   *
+   * ⚠️ APRÈS LE RENDU (`requestAnimationFrame`) : viser le bloc encore DÉPLIÉ l'amènerait à l'écran à sa hauteur
+   * d'ouvert, et le défilement serait faux de toute la hauteur du résumé.
+   */
+  it('🔴🔴 fermer depuis la fin ramène la page sur le HAUT de ce résumé', async () => {
+    const vus: Element[] = [];
+    const avant = (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView;
+    (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView =
+      function marque(this: Element) { vus.push(this); };
+    try {
+      await monter();
+      await ouvrirLeResume();
+      const bloc = hote.querySelector('.hdb-resume--haut');
+      await cliquer(hote.querySelector('.hdb-resume--haut .hdb-bascule-pied') ?? undefined);
+      expect(vus).toContain(bloc);
+    } finally {
+      (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView = avant;
+    }
+  });
+
+  /**
+   * 🔴 ET CHAQUE MONTAGE VISE SON PROPRE HAUT, jamais celui de l'autre : fermer depuis le bas du listing ramène
+   * au bouton qu'on vient de quitter, pas en tête de page — on n'a pas demandé à remonter tout l'écran.
+   */
+  it('🔴 fermer depuis le bas du listing ramène au bloc du BAS', async () => {
+    const vus: Element[] = [];
+    const avant = (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView;
+    (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView =
+      function marque(this: Element) { vus.push(this); };
+    try {
+      await monter();
+      await ouvrirLeResume();
+      const bas = hote.querySelector('.hdb-resume--bas');
+      await cliquer(hote.querySelector('.hdb-resume--bas .hdb-bascule-pied') ?? undefined);
+      expect(vus).toContain(bas);
+      expect(vus).not.toContain(hote.querySelector('.hdb-resume--haut'));
+    } finally {
+      (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView = avant;
+    }
+  });
+
+  /**
+   * 🔴🔴 UN SEUL ENDROIT ÉCRIT LE BOUTON DE FIN, pour les deux montages. Deux copies auraient divergé au premier
+   * ajustement — et c'est la garantie que ce cas tient, sur le code lui-même.
+   */
+  it('🔴🔴 le bouton de fin n’est écrit qu’une fois dans la source', () => {
+    const code = codeSeul(SRC);
+    expect((code.match(/place="pied"/g) ?? [])).toHaveLength(1);
+    expect((code.match(/<ResumeDeplie /g) ?? [])).toHaveLength(2);
+    /**
+     * 🔴 ET LE DÉFILEMENT EST ÉCRIT UNE FOIS, dans un effet de MISE EN PAGE — pas au clic.
+     *
+     * ⚠️ MESURÉ À L'ÉCRAN, ET C'EST LA RAISON DE CETTE FORME : défiler au clic calcule sur le résumé encore
+     * DÉPLIÉ (10 906 px de haut sur lot-290), et l'on atterrissait 8 453 px sous le bloc visé. `useLayoutEffect`
+     * court après la mutation du DOM et avant la peinture : la page est déjà repliée, et rien ne saute.
+     */
+    expect((code.match(/\.current\?\.scrollIntoView\?\.\(\{ block: 'start' \}\)/g) ?? [])).toHaveLength(1);
+    expect(code).toContain('useLayoutEffect(() => {');
+    expect(code).not.toContain('requestAnimationFrame(() => ancre');
+  });
+});
