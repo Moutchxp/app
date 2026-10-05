@@ -2807,7 +2807,8 @@ export function MessageConversation({
             {etoileDuFil !== undefined && (
               <div className={`cnv-entete-cases${onCorbeilleMessage === undefined ? ' cnv-entete-cases--seule' : ''}`}>
                 <button type="button"
-                  className={`cnv-corbeille cnv-etoile${etoileDuFil.etoilee ? ' cnv-etoile--pleine' : ''}`}
+                  className={'cnv-corbeille cnv-entete-etoile'
+                    + (etoileDuFil.etoilee ? ' cnv-entete-etoile--pleine' : '')}
                   aria-pressed={etoileDuFil.etoilee}
                   title={libelleEtoile(etoileDuFil.etoilee)} aria-label={libelleEtoile(etoileDuFil.etoilee)}
                   onClick={etoileDuFil.onBasculer}>
@@ -3174,10 +3175,19 @@ export const CSS_CONVERSATION = `
 .cnv-entete-cases .cnv-corbeille{width:44px}
 /* 🔴 LA CORBEILLE DESCEND D'AUTANT quand l'etoile est la : les deux cases, et pas une case sur l'autre. */
 .cnv-entete--avec-etoile .cnv-entete-corbeille{top:calc(50% + 2px)}
-.cnv-etoile{color:var(--color-svv-muted)}
-.cnv-etoile:hover{color:var(--color-svv-red);border-color:var(--color-svv-red);background:var(--color-svv-field)}
+/* 🔴🔴 cnv-entete-etoile ET NON cnv-etoile : CE NOM ETAIT DEJA PRIS, et la collision s'est vue a l'ecran.
+   .cnv-etoile habille l'etoile PAR MESSAGE de la barre de survol (plus bas dans cette feuille) : un bouton
+   sans fond ni bordure. Mes regles arrivaient AVANT les siennes, donc les siennes gagnaient — l'etoile de
+   l'en-tete perdait sa case blanche, et mes couleurs deteignaient en prime sur l'autre etoile. Mesure sur le
+   fil 3495 le 05/10/2026 : fond TRANSPARENT la ou la corbeille voisine etait blanche. */
+/* 🔴 SELECTEURS COMPOSES (.cnv-corbeille.cnv-entete-etoile), ET C'EST UNE NECESSITE, pas un gout : .cnv-corbeille
+   est declaree PLUS BAS dans cette meme feuille et pose color:muted. A specificite egale, la derniere gagne —
+   l'etoile ACTIVE restait donc grise au lieu du rouge plein qu'Arno demande (mesure a l'ecran, fil 3495). */
+.cnv-corbeille.cnv-entete-etoile{color:var(--color-svv-muted)}
+.cnv-corbeille.cnv-entete-etoile:hover{color:var(--color-svv-red);border-color:var(--color-svv-red);
+  background:var(--color-svv-field)}
 /* 🔴 ACTIVE : ROUGE PLEINE (Arno). Le remplissage vient du dessin (currentColor), la couleur de la charte. */
-.cnv-etoile--pleine{color:var(--color-svv-red);border-color:var(--color-svv-red)}
+.cnv-corbeille.cnv-entete-etoile--pleine{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 .cnv-entete-corbeille{position:absolute;top:6px;right:6px;bottom:6px;display:flex}
 .cnv-corbeille{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:44px;padding:0;
   font:inherit;font-size:1.25rem;line-height:1;color:var(--color-svv-muted);background:var(--color-svv-surface);

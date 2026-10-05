@@ -97,7 +97,11 @@ const deplier = async () => {
   const l = container.querySelector('.cnv-ligne');
   if (l?.getAttribute('aria-expanded') !== 'true') await cliquer(l);
 };
-const etoile = (): HTMLButtonElement | null => container.querySelector('.cnv-etoile');
+/**
+ * ⚠️ `.cnv-entete-etoile` ET NON `.cnv-etoile` : ce dernier nom était DÉJÀ pris par l'étoile par message de la
+ * barre de survol. La collision s'est vue à l'écran (case blanche perdue) — voir l'encadré de la feuille.
+ */
+const etoile = (): HTMLButtonElement | null => container.querySelector('.cnv-entete-etoile');
 
 describe('🔴🔴 ① l’étoile est dans le bloc d’en-tête, et elle dit son état', () => {
   it('🔴 elle est là, à côté de la grande corbeille, dans la même case', async () => {
@@ -112,7 +116,7 @@ describe('🔴🔴 ① l’étoile est dans le bloc d’en-tête, et elle dit so
   it('🔴 éteinte : contour, et « Ajouter une étoile »', async () => {
     await monter();
     await deplier();
-    expect(etoile()?.className).not.toContain('cnv-etoile--pleine');
+    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
     expect(etoile()?.getAttribute('title')).toBe('Ajouter une étoile');
     expect(etoile()?.getAttribute('aria-pressed')).toBe('false');
   });
@@ -122,7 +126,7 @@ describe('🔴🔴 ① l’étoile est dans le bloc d’en-tête, et elle dit so
     etoileServie = { etoilee: true, disponible: true };
     await monter();
     await deplier();
-    expect(etoile()?.className).toContain('cnv-etoile--pleine');
+    expect(etoile()?.className).toContain('cnv-entete-etoile--pleine');
     expect(etoile()?.getAttribute('title')).toBe('Retirer l’étoile');
     expect(etoile()?.getAttribute('aria-pressed')).toBe('true');
   });
@@ -181,7 +185,7 @@ describe('🔴🔴 ② une seule porte d’écriture', () => {
     await monter();
     await deplier();
     await cliquer(etoile());
-    expect(etoile()?.className).toContain('cnv-etoile--pleine');
+    expect(etoile()?.className).toContain('cnv-entete-etoile--pleine');
   });
 
   /**
@@ -195,7 +199,7 @@ describe('🔴🔴 ② une seule porte d’écriture', () => {
       { ok: false, json: async () => ({ erreur: 'Gmail refuse.' }) } as unknown as Response)
     ) as unknown as typeof fetch;
     await cliquer(etoile());
-    expect(etoile()?.className).not.toContain('cnv-etoile--pleine');
+    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
   });
 });
 
@@ -218,14 +222,14 @@ describe('🔴🔴 ③ les trois en direct, dans les deux sens', () => {
   it('🔴🔴 une étoile posée ailleurs allume celle du mail ouvert', async () => {
     await monter();
     await deplier();
-    expect(etoile()?.className).not.toContain('cnv-etoile--pleine');
+    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
     await act(async () => { annoncerEtoile({ filId: 3495, etoilee: true }); });
     await calmer();
-    expect(etoile()?.className).toContain('cnv-etoile--pleine');
+    expect(etoile()?.className).toContain('cnv-entete-etoile--pleine');
     /* ⚠️ ET DANS L'AUTRE SENS AUSSI : décrocher ailleurs éteint ici. */
     await act(async () => { annoncerEtoile({ filId: 3495, etoilee: false }); });
     await calmer();
-    expect(etoile()?.className).not.toContain('cnv-etoile--pleine');
+    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
   });
 
   /**
@@ -237,7 +241,7 @@ describe('🔴🔴 ③ les trois en direct, dans les deux sens', () => {
     await deplier();
     await act(async () => { annoncerEtoile({ filId: 99999, etoilee: true }); });
     await calmer();
-    expect(etoile()?.className).not.toContain('cnv-etoile--pleine');
+    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
   });
 
   /** ⚠️ RIEN N'EST ANNONCÉ SUR UN ÉCHEC : les autres écrans n'ont rien vu, ce qui est exact — rien n'a changé. */
