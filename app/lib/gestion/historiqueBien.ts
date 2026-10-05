@@ -347,6 +347,21 @@ export function tonDuGroupe(cle: CleGroupeParties): TonGroupe {
 export function grouperParCategorie(
   interlocuteurs: readonly Interlocuteur[],
   categories: ReadonlyMap<string, CategoriePartie>,
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — LES CLIENTS DU BIEN, ÉPARGNÉS PAR L'ÉCART DE L'AGENCE ═════════════
+   *
+   * DÉCISION D'ARNO : un propriétaire client dont l'adresse est une des nôtres garde sa capsule. Sans cet
+   * ensemble, la règle du lot 2 (« notre agence n'est pas une partie ») l'écartait avec les autres — c'est tout
+   * le diagnostic du lot 5, et c'est ce qu'Arno vient de trancher.
+   *
+   * ⚠️ VIDE PAR DÉFAUT ⇒ COMPORTEMENT D'AVANT CE LOT, À LA LETTRE : toute adresse interne est écartée et comptée.
+   * Les quatre autres appelants de cette fonction n'ont rien à changer.
+   *
+   * ⚠️ IL NE REND PAS LA CAPSULE SÉLECTIONNABLE POUR AUTANT — cela se décide à l'écran (`adresseACorriger`), et
+   * c'est voulu : la liste et le filtre sont deux questions, et les confondre ferait cocher « nous » en croyant
+   * cocher « le propriétaire ».
+   */
+  clientsDuBien: ReadonlySet<string> = new Set(),
 ): PartiesRangees {
   const ordre: CleGroupeParties[] = ['proprietaire', 'locataire', 'independant', 'a_repartir'];
   const groupes = new Map<CleGroupeParties, Interlocuteur[]>(ordre.map((c) => [c, []]));
@@ -367,7 +382,12 @@ export function grouperParCategorie(
      * chaque adresse. Une seconde règle « qui est des nôtres ? » aurait divergé de la première au premier
      * collègue qui change d'adresse.
      */
-    if (i.interne) { nousEcartees += 1; continue; }
+    /**
+     * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — SAUF SI C'EST UN CLIENT DU BIEN. Décision d'Arno : sa capsule reste,
+     * et c'est l'écran qui l'empêche de cocher. Elle n'est alors pas comptée dans « N adresses de notre agence ne
+     * sont pas listées » — elle EST listée, et le dire serait faux.
+     */
+    if (i.interne && !clientsDuBien.has(i.adresse.trim().toLowerCase())) { nousEcartees += 1; continue; }
     /* ⚠️ LA CLÉ EST NORMALISÉE DES DEUX CÔTÉS : « Jean.PONS@… » et « jean.pons@… » sont la même personne, et une
        comparaison sensible à la casse l'aurait rangée « non affectée » alors que l'annuaire la connaît. */
     const cle = categories.get(i.adresse.trim().toLowerCase()) ?? 'a_repartir';
@@ -560,6 +580,13 @@ export interface ClientDuBien {
   nom: string | null;
   /** De quel encart ce client relève. Les bandes n'ont pas de client : elles n'accueillent que des contacts. */
   categorie: 'proprietaire' | 'locataire';
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — SA FICHE D'ANNUAIRE, pour le lien « adresse à corriger ». `null` quand
+   * la personne n'est pas dans l'annuaire des personnes (le bien porte alors ses coordonnées en propre) : la
+   * mention s'affiche quand même, sans lien — dire le problème vaut mieux que se taire parce qu'on n'a pas de
+   * porte à offrir.
+   */
+  fiche?: { sorte: 'proprietaire' | 'locataire'; id: number } | null;
 }
 
 export function completerAvecLesClients(
@@ -757,6 +784,51 @@ export function motPastille(p: PastilleDeCapsule, nom: string): { titre: string;
  * sur quarante biens, et son adresse ne désigne donc aucun. La table des cartes ne peut d'ailleurs pas en porter —
  * sa colonne `cote` est contrainte à `proprietaire | locataire`.
  */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — UN CLIENT DONT L'ADRESSE N'EN EST PAS UNE ══════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DÉCISION D'ARNO (05/10/2026), en réponse à ma question du lot 5 : « le propriétaire client (JULLIEN-GARRIDO
+ * Cédric) apparaît en capsule dans l'encart Propriétaire même si son adresse d'annuaire est @sansvisavis.com.
+ * Capsule non sélectionnable pour les mails, avec la mention discrète “adresse à corriger dans l'annuaire” (lien
+ * vers sa fiche). Applique la même règle à tout client dont l'adresse est interne ou en @example.invalid. La
+ * règle du lot 2 (l'agence n'est pas un groupe sélectionnable) est inchangée. »
+ *
+ * 🔴 LES DEUX FAMILLES D'ADRESSES IMPOSSIBLES, ET CE QU'ELLES ONT EN COMMUN. Une adresse INTERNE désigne notre
+ * agence : cocher « le propriétaire » reviendrait à cocher « nous », c'est-à-dire presque tous les mails du bien.
+ * Une adresse en `@example.invalid` ne désigne personne : le domaine `.invalid` est réservé par la RFC 2606
+ * précisément pour qu'aucun courrier n'y parvienne jamais. Dans les deux cas, la capsule ne peut pas FILTRER —
+ * mais elle peut, et doit, DIRE que le dossier a une adresse à corriger. Mesuré sur lot-299 : son propriétaire
+ * n'a que `c.jullien@sansvisavis.com`, et ses trois co-propriétaires liés n'ont que des `@example.invalid`.
+ *
+ * ⚠️ LA RÈGLE DU LOT 2 EST INCHANGÉE, ET C'EST EXPRÈS : l'agence n'est toujours pas un GROUPE sélectionnable, et
+ * ses adresses ne sont toujours pas listées. Ce qui change ici est plus étroit — un CLIENT du bien reste visible
+ * dans son encart même quand son adresse est l'une des nôtres. Il n'est pas listé *en tant qu'agence* ; il est
+ * listé en tant que client, et il ne filtre rien.
+ */
+export function adresseACorriger(adresse: string, interne: boolean): boolean {
+  if (interne) return true;
+  /* ⚠️ `.invalid` EST RÉSERVÉ PAR LA RFC 2606 : aucun courrier n'y arrive, par construction. On reconnaît donc le
+     domaine entier, et non le seul `example.invalid` — un `test.invalid` est tout aussi mort. */
+  return /\.invalid$/i.test(adresse.trim().toLowerCase());
+}
+
+/** La mention d'Arno, écrite une fois. PUR. */
+export const MOT_ADRESSE_A_CORRIGER = 'adresse à corriger dans l’annuaire';
+
+/**
+ * 🔴 POURQUOI CETTE CAPSULE NE COCHE RIEN, dit en toutes lettres dans l'info-bulle : une couleur estompée ne dit
+ * rien à qui ne la voit pas, et « désactivé » sans motif se lit comme une panne.
+ */
+export function motifNonSelectionnable(adresse: string, interne: boolean): string | null {
+  if (!adresseACorriger(adresse, interne)) return null;
+  return interne
+    ? 'Cette adresse est une des nôtres : la cocher reviendrait à cocher notre agence, '
+      + 'c’est-à-dire presque tous les mails du bien. À corriger dans l’annuaire.'
+    : 'Cette adresse ne mène nulle part (domaine réservé « .invalid ») : elle ne peut filtrer aucun mail. '
+      + 'À corriger dans l’annuaire.';
+}
+
 export const BUT_DU_PLUS =
   'Rattacher ce contact à une partie du bien, pour que ses prochains mails rejoignent ce bien tout seuls.';
 

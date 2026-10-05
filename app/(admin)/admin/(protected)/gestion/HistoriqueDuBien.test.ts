@@ -2482,6 +2482,124 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
   });
 });
 
+describe('⑤-quaterdecies 🔴🔴 un client dont l’adresse ne peut rien filtrer', () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * DÉCISION D'ARNO (lot 6, point 2) : « le propriétaire client (JULLIEN-GARRIDO Cédric) apparaît en capsule
+   * dans l'encart Propriétaire même si son adresse d'annuaire est @sansvisavis.com. Capsule non sélectionnable
+   * pour les mails, avec la mention discrète “adresse à corriger dans l'annuaire” (lien vers sa fiche).
+   * Applique la même règle à tout client dont l'adresse est interne ou en @example.invalid. »
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const PROPRIO_INTERNE: Interlocuteur[] = [
+    inter({ adresse: 'c.jullien@sansvisavis.com', nom: 'JULLIEN - GARRIDO Cédric', nbMails: 1, aEcrit: 0, enCopie: 1, interne: true }),
+    inter({ adresse: 'gestion@criterimmo.fr', nom: 'Gestion', nbMails: 60, interne: true }),
+    inter({ adresse: 'locataire@fictif.test', nom: 'MARTY Jean-François', nbMails: 20 }),
+  ];
+
+  let fiches: { sorte: string; id: number }[] = [];
+
+  async function monterAvec(
+    clients: unknown[], interlocuteurs = PROPRIO_INTERNE,
+    /* Le rangement de la fiche : il décide de l'encart où la capsule atterrit. */
+    cats: [string, CategoriePartie][] = [
+      ['c.jullien@sansvisavis.com', 'proprietaire'],
+      ['locataire@fictif.test', 'locataire'],
+    ],
+  ): Promise<void> {
+    fiches = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      appels.push(String(url));
+      if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      if (String(url).includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+          interlocuteurs, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter({
+      categories: new Map(cats) as Map<string, CategoriePartie>,
+      clients: clients as never,
+      onFicheClient: (sorte: 'proprietaire' | 'locataire', id: number) => { fiches.push({ sorte, id }); },
+    });
+  }
+
+  const capsuleProprio = (): HTMLElement =>
+    ([...hote.querySelectorAll('.hdb-groupe--encart')][0] as HTMLElement);
+
+  it('🔴🔴 LE DÉFAUT DE lot-299 : le propriétaire garde sa capsule malgré son adresse @sansvisavis.com', async () => {
+    await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'JULLIEN - GARRIDO Cédric', categorie: 'proprietaire', fiche: { sorte: 'proprietaire', id: 146 } }]);
+    const caps = [...capsuleProprio().querySelectorAll('.hdb-capsule')] as HTMLElement[];
+    expect(caps).toHaveLength(1);
+    expect(caps[0].textContent).toContain('JULLIEN - GARRIDO Cédric');
+  });
+
+  it('🔴🔴 SA CASE EST DÉSACTIVÉE : elle ne filtre rien', async () => {
+    await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'C. J.', categorie: 'proprietaire', fiche: null }]);
+    const c = capsuleProprio().querySelector('.hdb-capsule input') as HTMLInputElement;
+    expect(c.disabled).toBe(true);
+    expect(c.checked).toBe(false);
+  });
+
+  it('🔴🔴 LA MENTION EST LÀ, ET ELLE MÈNE À SA FICHE', async () => {
+    await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'C. J.', categorie: 'proprietaire', fiche: { sorte: 'proprietaire', id: 146 } }]);
+    const lien = capsuleProprio().querySelector('.hdb-a-corriger') as HTMLButtonElement;
+    expect(lien).not.toBeNull();
+    expect(lien.textContent).toBe('adresse à corriger dans l’annuaire');
+    expect(lien.tagName).toBe('BUTTON');
+    await cliquer(lien);
+    expect(fiches).toEqual([{ sorte: 'proprietaire', id: 146 }]);
+  });
+
+  it('⚠️ SANS FICHE À OUVRIR, LA MENTION RESTE — sans lien', async () => {
+    await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'C. J.', categorie: 'proprietaire', fiche: null }]);
+    const m = capsuleProprio().querySelector('.hdb-a-corriger') as HTMLElement;
+    expect(m).not.toBeNull();
+    expect(m.tagName).toBe('SPAN');
+    expect(m.className).toContain('hdb-a-corriger--muet');
+  });
+
+  it('🔴 LE MOTIF EST DIT EN TOUTES LETTRES, jamais par la seule couleur', async () => {
+    await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'C. J.', categorie: 'proprietaire', fiche: null }]);
+    const label = capsuleProprio().querySelector('.hdb-case--capsule') as HTMLElement;
+    expect(label.getAttribute('title')).toContain('une des nôtres');
+  });
+
+  it('🔴 LA MÊME RÈGLE POUR UNE ADRESSE EN « .invalid »', async () => {
+    await monterAvec(
+      [{ adresse: 'test.fiche@example.invalid', nom: 'Co-propriétaire', categorie: 'proprietaire', fiche: null }],
+      [inter({ adresse: 'test.fiche@example.invalid', nom: 'Co-propriétaire', nbMails: 0, aEcrit: 0 })],
+      [['test.fiche@example.invalid', 'proprietaire']],
+    );
+    const c = capsuleProprio().querySelector('.hdb-capsule input') as HTMLInputElement;
+    expect(c.disabled).toBe(true);
+    expect(capsuleProprio().querySelector('.hdb-a-corriger')).not.toBeNull();
+  });
+
+  it('🔴 LA RÈGLE DU LOT 2 EST INCHANGÉE : nos AUTRES adresses ne sont toujours pas listées', async () => {
+    await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'C. J.', categorie: 'proprietaire', fiche: null }]);
+    expect(texte()).not.toContain('gestion@criterimmo.fr');
+    /* …et la note le dit, pour celles qui restent écartées. */
+    expect(texte()).toContain('adresse de notre agence');
+  });
+
+  it('⚠️ AUCUNE MENTION SUR UN CLIENT ORDINAIRE, et sa case coche', async () => {
+    await monterAvec([{ adresse: 'locataire@fictif.test', nom: 'MARTY', categorie: 'locataire', fiche: null }]);
+    const loc = [...hote.querySelectorAll('.hdb-groupe--encart')][1] as HTMLElement;
+    expect(loc.querySelector('.hdb-a-corriger')).toBeNull();
+    expect((loc.querySelector('.hdb-capsule input') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('⚠️ AUCUNE PASTILLE « + » SUR UNE ADRESSE À CORRIGER : ce n’est pas un contact', async () => {
+    await monterAvec([{ adresse: 'c.jullien@sansvisavis.com', nom: 'C. J.', categorie: 'proprietaire', fiche: null }]);
+    expect(capsuleProprio().querySelector('.hdb-plus')).toBeNull();
+  });
+});
+
 describe('⑥ 🔴🔴 les composants existants sont réutilisés, jamais redessinés', () => {
   it('🔴🔴 `LigneVie` est IMPORTÉE de « Vie du bien »', () => {
     expect(SRC).toMatch(/import \{[^}]*LigneVie[^}]*\} from '\.\/VieDuBien'/);

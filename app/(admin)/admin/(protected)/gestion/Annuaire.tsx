@@ -1360,6 +1360,8 @@ function VueLot({
           periodes={periodesDesParties(f)}
           /* 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — les CLIENTS du bien, pour que leur capsule existe meme a 0 mail. */
           clients={clientsDesParties(f)}
+          /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — la fiche ou l'on corrige une adresse impossible. */
+          onFicheClient={(sorte, id) => ouvrir(sorte, id)}
           evenementOuvertInitial={filtreVie === 'evenement'}
           onOuvrirFil={onOuvrirFil}
           /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — le va-et-vient avec la conversation : le bloc pose son jeton
@@ -1512,11 +1514,13 @@ function clientsDesParties(f: FicheLot): ClientDuBien[] {
   const out: ClientDuBien[] = [];
   const vues = new Set<string>();
   const poser = (nom: string | null, contacts: readonly ContactAffiche[],
-    categorie: 'proprietaire' | 'locataire'): void => {
+    categorie: 'proprietaire' | 'locataire',
+    /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — sa fiche d'annuaire, pour le lien « adresse à corriger ». */
+    fiche: { sorte: 'proprietaire' | 'locataire'; id: number } | null): void => {
     const emails = contacts.filter((c) => c.sorte === 'email' && c.valeur.trim() !== '');
     if (emails.length === 0) {
       /* 🔴 UN CLIENT SANS ADRESSE COMPTE QUAND MÊME : il ne donne pas de capsule, il donne la PHRASE. */
-      out.push({ adresse: null, nom, categorie });
+      out.push({ adresse: null, nom, categorie, fiche });
       return;
     }
     for (const c of emails) {
@@ -1524,14 +1528,16 @@ function clientsDesParties(f: FicheLot): ClientDuBien[] {
       const cle = a.toLowerCase();
       if (vues.has(cle)) continue;
       vues.add(cle);
-      out.push({ adresse: a, nom, categorie });
+      out.push({ adresse: a, nom, categorie, fiche });
     }
   };
-  for (const p of f.proprietaires) poser(p.nomAffiche, p.contacts, 'proprietaire');
+  for (const p of f.proprietaires) poser(p.nomAffiche, p.contacts, 'proprietaire', { sorte: 'proprietaire', id: p.id });
   /* ⚠️ LES CONTACTS D'EN-TÊTE DU PROPRIÉTAIRE : sur une fiche dont le propriétaire n'a pas de carte (absent de
-     l'annuaire des personnes), ce sont les SEULES coordonnées connues. Le nom vient alors du lot. */
-  poser(f.proprietaireNom === '' ? null : f.proprietaireNom, f.proprietaireContacts, 'proprietaire');
-  for (const o of f.occupants) poser(o.nomAffiche, o.contacts, 'locataire');
+     l'annuaire des personnes), ce sont les SEULES coordonnées connues. Le nom vient alors du lot, et la fiche
+     d'annuaire est celle que le lot désigne — `null` s'il n'en désigne aucune. */
+  poser(f.proprietaireNom === '' ? null : f.proprietaireNom, f.proprietaireContacts, 'proprietaire',
+    f.proprietaireId === null ? null : { sorte: 'proprietaire', id: f.proprietaireId });
+  for (const o of f.occupants) poser(o.nomAffiche, o.contacts, 'locataire', { sorte: 'locataire', id: o.id });
   return out;
 }
 

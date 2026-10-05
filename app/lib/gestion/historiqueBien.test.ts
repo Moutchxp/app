@@ -13,6 +13,7 @@ import {
   periodeDuDernierLocataire, SANS_LOCATAIRE_CONNU, SECONDES_ANNULER_DEPLACEMENT, tonDeLExpediteur, tonDuGroupe,
   clientConnuPour, completerAvecLesClients, motEncartVide,
   BUT_DU_PLUS, motPastille, pastilleDeCapsule, sorteDeCapsule,
+  adresseACorriger, MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable,
   type ClientDuBien, type CleGroupeParties, type OccupationPeriode, type PositionCapsule,
 } from './historiqueBien';
 import { INTERLOCUTEURS_MAX, type Interlocuteur, type LigneHistorique } from './historique';
@@ -1425,5 +1426,99 @@ describe('motPastille — le ton ne dit jamais seul', () => {
   it('🔴 LE BUT DU BOUTON EST ÉCRIT DANS LE CODE, comme Arno l’a demandé', () => {
     expect(BUT_DU_PLUS).toContain('prochains mails');
     expect(BUT_DU_PLUS).toContain('tout seuls');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — UN CLIENT DONT L'ADRESSE N'EN EST PAS UNE ══════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DÉCISION D'ARNO (05/10/2026), en réponse à ma question du lot 5 : « le propriétaire client (JULLIEN-GARRIDO
+ * Cédric) apparaît en capsule dans l'encart Propriétaire même si son adresse d'annuaire est @sansvisavis.com.
+ * Capsule non sélectionnable pour les mails, avec la mention discrète “adresse à corriger dans l'annuaire” (lien
+ * vers sa fiche). Applique la même règle à tout client dont l'adresse est interne ou en @example.invalid. La
+ * règle du lot 2 (l'agence n'est pas un groupe sélectionnable) est inchangée. »
+ *
+ * MESURÉ SUR lot-299 : son propriétaire n'a que `c.jullien@sansvisavis.com` (interne, 1 001 messages en base), et
+ * ses trois co-propriétaires liés n'ont que des `@example.invalid`.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('point 2 — une adresse qui ne peut rien filtrer', () => {
+  it('🔴 UNE ADRESSE INTERNE EST À CORRIGER', () => {
+    expect(adresseACorriger('c.jullien@sansvisavis.com', true)).toBe(true);
+  });
+
+  it('🔴 UNE ADRESSE EN « .invalid » AUSSI — le domaine est réservé par la RFC 2606', () => {
+    expect(adresseACorriger('test.fiche@example.invalid', false)).toBe(true);
+    expect(adresseACorriger('qui@test.invalid', false)).toBe(true);
+    expect(adresseACorriger('  QUI@Example.INVALID ', false)).toBe(true);
+  });
+
+  it('⚠️ UNE ADRESSE ORDINAIRE NE L’EST PAS', () => {
+    expect(adresseACorriger('malika.kassi@hotmail.fr', false)).toBe(false);
+    /* ⚠️ ET « invalid » DANS LE NOM NE COMPTE PAS : c'est le DOMAINE final qui est réservé. */
+    expect(adresseACorriger('invalid@gmail.com', false)).toBe(false);
+    expect(adresseACorriger('qui@invalid.fr', false)).toBe(false);
+  });
+
+  it('🔴 LE MOTIF EST DIT EN TOUTES LETTRES, et il diffère selon la famille', () => {
+    expect(motifNonSelectionnable('c.jullien@sansvisavis.com', true)).toContain('une des nôtres');
+    expect(motifNonSelectionnable('x@example.invalid', false)).toContain('.invalid');
+    /* Les deux renvoient à l'endroit où l'on corrige. */
+    for (const a of [['c.jullien@sansvisavis.com', true], ['x@example.invalid', false]] as const) {
+      expect(motifNonSelectionnable(a[0], a[1])).toContain('annuaire');
+    }
+  });
+
+  it('⚠️ RIEN À DIRE SUR UNE ADRESSE ORDINAIRE', () => {
+    expect(motifNonSelectionnable('malika.kassi@hotmail.fr', false)).toBeNull();
+  });
+
+  it('🔴 LA MENTION EST CELLE D’ARNO, AU MOT PRÈS', () => {
+    expect(MOT_ADRESSE_A_CORRIGER).toBe('adresse à corriger dans l’annuaire');
+  });
+
+  /**
+   * 🔴🔴 LE DÉFAUT DE lot-299, REJOUÉ : sans l'ensemble des clients, la règle du lot 2 écartait le propriétaire
+   * avec les autres adresses internes — et son encart était vide.
+   */
+  it('🔴🔴 UN CLIENT INTERNE GARDE SA CAPSULE ; une adresse interne ordinaire reste écartée', () => {
+    const inters: Interlocuteur[] = [
+      { adresse: 'c.jullien@sansvisavis.com', nom: 'JULLIEN - GARRIDO Cédric', nbMails: 1, aEcrit: 0, enCopie: 1, interne: true },
+      { adresse: 'gestion@criterimmo.fr', nom: 'Gestion', nbMails: 60, aEcrit: 40, enCopie: 20, interne: true },
+    ];
+    const cats = new Map<string, CategoriePartie>([['c.jullien@sansvisavis.com', 'proprietaire']]);
+
+    /* ① SANS l'ensemble : le comportement d'avant la décision d'Arno — les deux sont écartées. */
+    const avant = grouperParCategorie(inters, cats);
+    expect(avant.nousEcartees).toBe(2);
+    expect(avant.groupes.find((g) => g.cle === 'proprietaire')?.nb).toBe(0);
+
+    /* ② AVEC : le client garde sa capsule, l'autre reste écartée — et n'est comptée qu'une fois. */
+    const apres = grouperParCategorie(inters, cats, new Set(['c.jullien@sansvisavis.com']));
+    expect(apres.nousEcartees).toBe(1);
+    const prop = apres.groupes.find((g) => g.cle === 'proprietaire');
+    expect(prop?.nb).toBe(1);
+    expect(prop?.interlocuteurs[0].adresse).toBe('c.jullien@sansvisavis.com');
+  });
+
+  it('⚠️ UN CLIENT ÉPARGNÉ N’EST PAS COMPTÉ DANS « N adresses de notre agence ne sont pas listées »', () => {
+    const inters: Interlocuteur[] = [
+      { adresse: 'c.jullien@sansvisavis.com', nom: null, nbMails: 1, aEcrit: 0, enCopie: 1, interne: true },
+    ];
+    const r = grouperParCategorie(inters, new Map(), new Set(['c.jullien@sansvisavis.com']));
+    /* Elle EST listée : dire le contraire serait faux. */
+    expect(r.nousEcartees).toBe(0);
+    expect(motAgenceEcartee(r.nousEcartees)).toBeNull();
+  });
+
+  it('🔴 LA RÈGLE DU LOT 2 EST INCHANGÉE : l’agence n’est toujours pas un groupe', () => {
+    /* Aucun groupe « agence » n'existe, et aucune adresse interne non cliente n'entre dans les quatre. */
+    const r = grouperParCategorie(
+      [{ adresse: 'gestion@criterimmo.fr', nom: null, nbMails: 9, aEcrit: 9, enCopie: 0, interne: true }],
+      new Map(), new Set(['autre@sansvisavis.com']));
+    expect(r.groupes.map((g) => g.cle)).toEqual(['proprietaire', 'locataire', 'independant', 'a_repartir']);
+    expect(r.groupes.every((g) => g.nb === 0)).toBe(true);
+    expect(r.nousEcartees).toBe(1);
   });
 });

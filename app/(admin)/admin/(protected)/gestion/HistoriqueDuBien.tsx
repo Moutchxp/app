@@ -43,7 +43,8 @@ import {
   bornesDuChoix, grouperParCategorie, grouperParConversation, libelleOrdreFil, messagesDuFil, motAgenceEcartee,
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
-  BUT_DU_PLUS, ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut,
+  adresseACorriger, BUT_DU_PLUS, ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut,
+  MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable,
   completerAvecLesClients, motPastille, pastilleDeCapsule, sorteDeCapsule,
   filtrerParMots, GROUPES_EN_BANDE,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
@@ -113,7 +114,7 @@ interface DemandeRangement {
 const ATTENTE_FRAPPE_MS = 250;
 
 export function HistoriqueDuBien({
-  lotCle, maintenant, occupations, categories, periodes = new Map(), clients = [],
+  lotCle, maintenant, occupations, categories, periodes = new Map(), clients = [], onFicheClient,
   evenementOuvertInitial = false, onOuvrirFil, onEcranComplet, jeton = null, onPoserJeton,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
@@ -171,6 +172,16 @@ export function HistoriqueDuBien({
    * phrase de l'encart vide — « aucun échange avec le locataire » plutôt que « aucun locataire connu ».
    */
   clients?: readonly ClientDuBien[];
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — OUVRIR LA FICHE D'ANNUAIRE D'UN CLIENT dont l'adresse est à corriger.
+   *
+   * Demande d'Arno : « la mention discrète “adresse à corriger dans l'annuaire” (lien vers sa fiche) ». C'est là
+   * qu'on corrige l'adresse — pas sur la fiche du bien.
+   *
+   * ⚠️ FACULTATIVE : sans elle, la mention s'affiche sans lien. Dire le problème vaut mieux que se taire parce
+   * qu'on n'a pas de porte à offrir.
+   */
+  onFicheClient?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3 — L'ÉCRAN « HISTORIQUE » COMPLET RESTE ATTEIGNABLE ════════════════════════════
@@ -575,9 +586,32 @@ export function HistoriqueDuBien({
   const interlocuteursEtClients = useMemo(
     () => completerAvecLesClients(interlocuteurs, clients), [interlocuteurs, clients]);
 
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — LES ADRESSES CLIENTES, POUR QU'UNE DES NÔTRES NE SOIT PAS ÉCARTÉE.
+   * Décision d'Arno : le propriétaire client de lot-299 garde sa capsule même en `@sansvisavis.com`.
+   */
+  const adressesClientes = useMemo(() => {
+    const e = new Set<string>();
+    for (const c of clients) {
+      const a = (c.adresse ?? '').trim().toLowerCase();
+      if (a !== '') e.add(a);
+    }
+    return e as ReadonlySet<string>;
+  }, [clients]);
+
   const parties = useMemo(
-    () => grouperParCategorie(interlocuteursEtClients, categoriesFusionnees),
-    [interlocuteursEtClients, categoriesFusionnees]);
+    () => grouperParCategorie(interlocuteursEtClients, categoriesFusionnees, adressesClientes),
+    [interlocuteursEtClients, categoriesFusionnees, adressesClientes]);
+
+  /** La fiche d'annuaire de chaque client, pour le lien « adresse à corriger ». */
+  const fichesClientes = useMemo(() => {
+    const m = new Map<string, { sorte: 'proprietaire' | 'locataire'; id: number }>();
+    for (const c of clients) {
+      const a = (c.adresse ?? '').trim().toLowerCase();
+      if (a !== '' && c.fiche != null && !m.has(a)) m.set(a, c.fiche);
+    }
+    return m as ReadonlyMap<string, { sorte: 'proprietaire' | 'locataire'; id: number }>;
+  }, [clients]);
 
   /**
    * ══ 🔴 « DEPUIS L'ENTRÉE DU DERNIER LOCATAIRE » — CALCULÉE UNE FOIS ═══════════════════════════════════════════
@@ -1174,6 +1208,7 @@ export function HistoriqueDuBien({
                 <GroupeDeParties key={cle} g={g} forme="encart" reglages={reglages} bascules={bascules}
                   motSiVide={motEncartVide(cle, clientConnuPour(cle, clients))}
                   periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse}
+                  fichesClientes={fichesClientes} onFicheClient={onFicheClient}
                   survol={survol} glisse={glisse} menu={menu}
                   onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
                   onCreer={ouvrirCreation} onMenu={setMenu} onGlisse={setGlisse} onSurvol={setSurvol}
@@ -1206,6 +1241,7 @@ export function HistoriqueDuBien({
             return (
               <GroupeDeParties key={cle} g={g} forme="bande" reglages={reglages} bascules={bascules}
                 periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse}
+                fichesClientes={fichesClientes} onFicheClient={onFicheClient}
                 survol={survol} glisse={glisse} menu={menu}
                 onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
                 onCreer={ouvrirCreation} onMenu={setMenu} onGlisse={setGlisse} onSurvol={setSurvol}
@@ -1567,6 +1603,9 @@ interface PropsGroupe {
   /** Par adresse, les côtés où une carte de contact existe déjà. Décide de la présence du « + » cerclé. */
   /** Pour chaque adresse, les côtés où une carte existe sur ce bien, et si elle est VÉRIFIÉE. */
   cartesParAdresse: ReadonlyMap<string, ReadonlyMap<string, boolean>>;
+  /** 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — la fiche d'annuaire d'un client, pour « adresse à corriger ». */
+  fichesClientes: ReadonlyMap<string, { sorte: 'proprietaire' | 'locataire'; id: number }>;
+  onFicheClient?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
   survol: CleGroupeParties | null;
   glisse: { adresse: string; depuis: CleGroupeParties } | null;
   menu: string | null;
@@ -1748,6 +1787,16 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
    */
   const pastille = pastilleDeCapsule(sorte, g.cle, p.cartesParAdresse.get(cle) ?? new Map());
   const motsPastille = motPastille(pastille, nomLisible);
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — UN CLIENT DONT L'ADRESSE NE PEUT RIEN FILTRER.
+   *
+   * ⚠️ SEULEMENT POUR UN CLIENT OU L'AGENCE, et non pour un contact : un contact en `.invalid` n'arrive pas dans
+   * ces listes (il n'écrit pas), et une de nos adresses n'y est de toute façon listée que si la fiche la porte
+   * comme cliente — c'est tout l'objet de la décision d'Arno.
+   */
+  const aCorriger = (sorte === 'client' || sorte === 'agence') && adresseACorriger(i.adresse, i.interne);
+  const motifCorriger = aCorriger ? motifNonSelectionnable(i.adresse, i.interne) : null;
+  const fiche = p.fichesClientes.get(cle);
 
   return (
     <li className={`hdb-capsule hdb-capsule--${g.ton}${deplacable ? '' : ' hdb-capsule--fixe'}`}
@@ -1761,8 +1810,17 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
         p.onGlisse({ adresse: i.adresse, depuis: g.cle });
       }}
       onDragEnd={() => { p.onGlisse(null); p.onSurvol(null); }}>
-      <label className="hdb-case hdb-case--capsule">
-        <input type="checkbox" checked={p.reglages.parties.includes(cle)}
+      <label className={`hdb-case hdb-case--capsule${aCorriger ? ' hdb-case--muette' : ''}`}
+        title={motifCorriger ?? undefined}>
+        {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — UNE ADRESSE IMPOSSIBLE NE COCHE RIEN ═══════════════════════
+            DÉCISION D'ARNO : « Capsule non sélectionnable pour les mails, avec la mention discrète “adresse à
+            corriger dans l'annuaire” (lien vers sa fiche). »
+
+            🔴 DÉSACTIVÉE, ET LE MOTIF EST DIT EN TOUTES LETTRES dans l'info-bulle : une case grise sans
+            explication se lit comme une panne. Une adresse interne cocherait « nous », c'est-à-dire presque tous
+            les mails du bien ; une adresse en `.invalid` ne désigne personne, par construction (RFC 2606). */}
+        <input type="checkbox" checked={!aCorriger && p.reglages.parties.includes(cle)}
+          disabled={aCorriger}
           onChange={() => p.onBasculerPartie(i.adresse)} />
         <span className="hdb-personne">
           <span className="hdb-personne-nom">{nomLisible}</span>
@@ -1781,6 +1839,24 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
                 <button type="button" className="hdb-periode-mot"
                   title="Régler la période sur ce bail"
                   onClick={(e) => { e.preventDefault(); p.onPeriode(periode); }}>{periode.mot}</button>
+              </>
+            )}
+            {/* ══ 🔴🔴 LA MENTION D'ARNO, SUR LA LIGNE DES COMPTEURS ET EN PETIT ═════════════════════════════
+                « la mention discrète “adresse à corriger dans l'annuaire” (lien vers sa fiche) ». Elle est un
+                LIEN quand on sait où mener, et un simple mot sinon : dire le problème vaut mieux que se taire
+                parce qu'on n'a pas de porte à offrir. */}
+            {aCorriger && (
+              <>
+                {' · '}
+                {fiche !== undefined && p.onFicheClient !== undefined ? (
+                  <button type="button" className="hdb-a-corriger"
+                    title={`${motifCorriger ?? ''} Ouvrir sa fiche d’annuaire.`}
+                    onClick={(e) => { e.preventDefault(); p.onFicheClient?.(fiche.sorte, fiche.id); }}>
+                    {MOT_ADRESSE_A_CORRIGER}
+                  </button>
+                ) : (
+                  <span className="hdb-a-corriger hdb-a-corriger--muet">{MOT_ADRESSE_A_CORRIGER}</span>
+                )}
               </>
             )}
           </span>
@@ -2501,6 +2577,16 @@ ${CSS_PIECES}
 .hdb-plus--fiche{border-color:var(--color-svv-line-strong);color:var(--color-svv-muted);font-size:.86rem}
 .hdb-plus--fiche:hover{background:var(--color-svv-field);border-color:var(--color-svv-line-strong-hover)}
 .hdb-plus--a_verifier{border-color:var(--color-svv-amber);color:var(--color-svv-amber);font-size:.86rem}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 2 — « adresse a corriger dans l'annuaire » ══════════════════════════════
+   DISCRETE veut dire petite et ambre, pas invisible : c'est le ton de ce qui attend un geste dans tout le module
+   (la trame des cartes a verifier), et il se lit dans les deux themes.
+   ⚠️ CE N'EST PAS UNE ERREUR, C'EST UNE CHOSE A FAIRE : donc l'ambre, et non le rouge, qui dit « refuse ». */
+.hdb-a-corriger{border:0;background:transparent;font:inherit;font-size:.7rem;color:var(--color-svv-amber);
+  padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.hdb-a-corriger:hover{color:var(--color-svv-ink)}
+.hdb-a-corriger:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* Sans fiche a ouvrir, le meme mot sans le lien : on dit le probleme meme sans porte a offrir. */
+.hdb-a-corriger--muet{cursor:default;text-decoration:none}
 .hdb-plus--a_verifier:hover{background:var(--color-svv-amber-soft);border-color:var(--color-svv-amber)}
 
 /* ══ LA CARTE DE CREATION D'UN CONTACT ── MEME TRAME ORANGE que les cartes creees automatiquement : ce qui est
