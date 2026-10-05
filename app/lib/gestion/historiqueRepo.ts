@@ -38,9 +38,9 @@ import { libelleCible, type LienAffiche } from './rattachementRepo';
 // 🔴🔴 LOT CONTACTS-EXTERNES — « via Me Martin, avocat » sur la ligne d'un mail de « Vie du bien ».
 import { interventionsDesMessages } from './contactExterneRepo';
 import {
-  texteCible, INTERLOCUTEURS_MAX,
+  texteCible, INTERLOCUTEURS_MAX, PORTEURS_DE_PIECES_MAX,
   type EnteteHistorique, type EvenementDeLigne, type FiltresHistorique, type Interlocuteur,
-  type LigneHistorique, type PieceHistorique,
+  type LigneHistorique, type MessagePorteurDePieces, type PieceHistorique,
 } from './historique';
 
 /** L'extrait d'un mail dans la frise : assez pour reconnaître de quoi il parle, pas assez pour peser. */
@@ -748,6 +748,96 @@ async function statutsDesMessages(
  * d'affectations qui l'y ont posé ne regarde pas l'écran. Le `DISTINCT` est dans la sous-requête et non sur le
  * `SELECT` final, pour que `ev.ouvert_le` reste disponible au tri sans entrer dans la clé de dédoublonnage.
  */
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LES PIÈCES DE **TOUTE** LA SÉLECTION ══════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (05/10/2026) : « propriétaire ET locataire cochés → les mails des deux familles s'affichent,
+ * mais le résumé ne montre pas les pièces des deux. Suspect : “le résumé porte sur les 100 mails affichés”. »
+ * SA RÈGLE : « le résumé contient les pièces de TOUS les mails de la sélection […] pas seulement des 100
+ * chargés. Le compteur “N pièces dans cette sélection” = la somme réelle. »
+ *
+ * 🔴 SON SOUPÇON ÉTAIT EXACT, ET LA MESURE LE CHIFFRE. Sur lot-290 (bien 421) : **344 pièces** sur les 326 mails
+ * du bien, mais **106 seulement** appartiennent aux 100 mails chargés. Le résumé en montrait donc moins d'un
+ * tiers — et il en montrait d'autant moins que la sélection était large, ce qui est exactement l'inverse de ce
+ * qu'on attend d'un récapitulatif.
+ *
+ * ═══ 🔴 POURQUOI UNE LECTURE À PART, ET NON UNE PAGE PLUS GRANDE ══════════════════════════════════════════════════
+ *
+ * Lever le plafond de la page aurait fait voyager 326 mails avec leur extrait, leurs destinataires, leurs
+ * événements, leurs statuts et leurs interventions — pour n'en garder que les pièces. Cette lecture-ci ne rend
+ * QUE ce que le résumé affiche : l'identité du mail, sa date, son expéditeur, son objet, et ses pièces. Et elle
+ * ne regarde que les mails qui en PORTENT (`EXISTS gestion_piece`), ce qui écarte d'emblée les trois quarts d'un
+ * bien ordinaire.
+ *
+ * ⚠️ LES MÊMES CONDITIONS QUE LE LISTING, PAR LA MÊME FONCTION (`conditions`) : parties cochées, période, options.
+ * Une seconde écriture des filtres aurait fini par montrer les pièces d'une sélection que le fil n'affichait
+ * pas — c'est le genre de divergence que ce dépôt a déjà payée plusieurs fois.
+ *
+ * ⚠️ BORNÉE, PARCE QU'UNE LECTURE SANS BORNE EST UNE PANNE QUI ATTEND — et la borne est MESURÉE, non devinée.
+ * Recensement du 05/10/2026 sur les 338 biens qui portent du courrier, par la règle de sélection elle-même
+ * (`sqlLiensDuBien`) :
+ *
+ *     bien 421 : 326 mails · **142 porteurs** · 344 pièces   (lot-290, le bien de la demande — le pire en mails)
+ *     bien 282 : 131 mails ·   124 porteurs   · 782 pièces   (le plus fourni en PIÈCES)
+ *     bien 315 : 139 mails ·    31 porteurs   ·  55 pièces
+ *     lot 47   :  47 mails ·    15 porteurs   ·  21 pièces
+ *     médiane  :  14 pièces par bien ; 2 biens sur 338 dépassent 300 pièces
+ *
+ * 🔴 LA BORNE EST À 2 000 MAILS PORTEURS, soit quatorze fois le pire cas réel (voir `PORTEURS_DE_PIECES_MAX`,
+ * qui dit aussi pourquoi une première mesure — faite par les cartes de contact, qui ne font pas entrer un mail
+ * dans un bien — annonçait vingt fois trop).
+ *
+ * ⚠️ AU-DELÀ, LA LISTE EST TRONQUÉE ET `tronque` LE DIT — l'écran l'écrit (`motPorteeDuResume`) plutôt que de
+ * mentir par omission. La borne vit dans le module PUR (`historique.ts`) parce que la phrase affichée la NOMME :
+ * deux écritures du même nombre auraient fini par se contredire à l'écran.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+export async function porteursDePieces(
+  c: CibleEtendue, f: FiltresHistorique,
+): Promise<{ messages: MessagePorteurDePieces[]; tronque: boolean }> {
+  const base = baseParams(c);
+  const deplacements = await deplacementsDeMailsDisponibles();
+  const [, , evs] = clesDe(c);
+  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
+  /* 🔴 LA PAGINATION N'A PAS DE SENS ICI : on veut la sélection ENTIÈRE. Les champs `page` et `taille` des
+     filtres sont donc ignorés — ils ne font pas partie de `conditions`, qui ne lit que les tamis. */
+  const cond = conditions(f, decalage(c));
+  const pLimite = base.length + 1 + cond.params.length;
+
+  const { rows } = await query<{
+    message_id: string; recu_le: string; sens: string; de: string; de_nom: string | null; objet: string | null;
+  }>(
+    `WITH ${cte}
+     SELECT m.id AS message_id,
+            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le,
+            m.sens, m.de_adresse AS de, m.de_nom, m.objet
+       FROM choisis ch
+       JOIN gestion_message m ON m.id = ch.message_id
+      WHERE true${cond.sql}
+        AND EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)
+      ORDER BY m.recu_le DESC, m.id DESC
+      LIMIT $${pLimite}`,
+    // UNE ligne de plus que la borne : sa présence, et elle seule, dit que la liste est tronquée.
+    [...base, ...cond.params, PORTEURS_DE_PIECES_MAX + 1]);
+
+  const tronque = rows.length > PORTEURS_DE_PIECES_MAX;
+  const gardes = rows.slice(0, PORTEURS_DE_PIECES_MAX);
+  /* 🔴 LES PIÈCES EN UNE SEULE REQUÊTE, par la MÊME fonction que le listing : une requête par mail se verrait. */
+  const pieces = await piecesDesMessages(gardes.map((r) => Number(r.message_id)));
+
+  return {
+    tronque,
+    messages: gardes.map((r) => ({
+      messageId: Number(r.message_id), recuLe: r.recu_le,
+      sens: r.sens === 'envoye' ? 'envoye' : 'recu',
+      de: r.de, deNom: r.de_nom, objet: r.objet,
+      pieces: pieces.get(Number(r.message_id)) ?? [],
+    })),
+  };
+}
+
 export function sqlEvenementsDesFils(): string {
   return `SELECT af.fil_id, ev.id, ev.reference, ev.objet, ev.etat
             FROM (SELECT DISTINCT fil_id, evenement_id

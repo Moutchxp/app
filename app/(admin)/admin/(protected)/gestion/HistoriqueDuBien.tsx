@@ -20,7 +20,7 @@ import { CartePieceConversation, CSS_PIECES_CONVERSATION, type GestesPiece } fro
 import { CSS_PIECES, type DepotAffiche } from './PiecesJointes';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
 import {
-  dossierDeLEmplacement, type EmplacementPiece, type StatutPieceDrive,
+  dossierDeLEmplacement, PIECES_DRIVE_MAX, type EmplacementPiece, type StatutPieceDrive,
 } from '../../../../lib/gestion/pieceDansLeDrive';
 import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
 import { lienDocumentEntier } from '../../../../lib/gestion/pieces';
@@ -29,9 +29,11 @@ import { formaterDateIso } from '../../../../lib/gestion/annuaireRecherche';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import {
   libelleInterlocuteur, PAGE_HISTORIQUE_MAX, type Interlocuteur, type LigneHistorique,
+  type MessagePorteurDePieces,
 } from '../../../../lib/gestion/historique';
 import {
-  dedoublonnerPieces, grouperParMessage, mentionExpediteurPiece, motPieces, piecesDeLaConversation,
+  dedoublonnerPieces, grouperParMessage, idsDesPiecesEtDeLeursJumelles, mentionExpediteurPiece, motPieces,
+  piecesDeLaConversation,
   type GroupeDePieces, type PieceDedoublonnee,
 } from '../../../../lib/gestion/piecesConversation';
 /**
@@ -47,9 +49,9 @@ import {
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
   adresseACorriger, BUT_DU_PLUS, ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut,
-  MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable,
+  MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable, motPorteeDuResume,
   completerAvecLesClients, motPastille, ordonnerLesCapsules, pastilleDeCapsule, sorteDeCapsule,
-  BANDES_SOUS_LES_ENCARTS, filtrerParMots,
+  BANDES_SOUS_LES_ENCARTS, filtrerParMots, messagesDesPorteurs,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
@@ -154,6 +156,18 @@ type Etat =
     v: 'ok'; lignes: LigneHistorique[]; suite: boolean; total: number;
     interlocuteurs: Interlocuteur[]; tronques: boolean;
   };
+
+/**
+ * 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — L'ÉTAT DE LA LECTURE DES PIÈCES DE TOUTE LA SÉLECTION.
+ *
+ * ⚠️ `{ v: 'ok', messages: [] }` ET `{ v: 'charge' }` NE SE CONFONDENT PAS : le premier est un résumé vide
+ * EXACT (cette sélection ne porte aucune pièce), le second ne sait pas encore. C'est la distinction qui permet
+ * au bouton de ne pas annoncer « 0 pièce dans cette sélection » avant d'avoir lu.
+ */
+type EtatPieces =
+  | { v: 'charge' }
+  | { v: 'erreur' }
+  | { v: 'ok'; messages: readonly MessagePorteurDePieces[]; tronque: boolean };
 
 /** Ce que l'écran demande à ranger : la pièce, et le courrier d'où elle vient (la fenêtre Drive veut les deux). */
 interface DemandeRangement {
@@ -612,6 +626,49 @@ export function HistoriqueDuBien({
    * conversation et le compteur lisent donc tous `lignes`, c'est-à-dire ce qui est RÉELLEMENT à l'écran. Si le
    * résumé avait lu la page entière, il aurait annoncé des pièces qu'aucun mail visible ne porte.
    */
+  /**
+   * 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LES MAILS DE LA SÉLECTION QUI PORTENT UNE PIÈCE, TOUS.
+   *
+   * ⚠️ TROIS ÉTATS, ET NON UNE LISTE QUI PEUT ÊTRE VIDE. « Pas encore lu », « lu, rien trouvé » et « illisible »
+   * doivent se distinguer : le premier ne dit rien, le deuxième est un résumé vide EXACT, le troisième retombe
+   * sur la page EN LE DISANT. Un tableau vide pour les trois aurait écrit « aucune pièce » sur une panne.
+   */
+  const [etatPieces, setEtatPieces] = useState<EtatPieces>({ v: 'charge' });
+
+  /**
+   * ⚠️ `parametresSansPage` ET NON `parametres` : cette lecture ignore la page, et c'est tout son objet. La
+   * prendre en dépendance aurait redemandé les 344 pièces du bien à chaque « Voir la suite → », pour le même
+   * résultat — les pièces de la sélection ne changent pas quand on tourne une page.
+   */
+  useEffect(() => {
+    let vivant = true;
+    /* ⚠️ ON NE RETOMBE PAS SUR « charge » QUAND ON A DÉJÀ UNE LISTE : le bouton « N pièces » clignoterait à
+       chaque case cochée. Même règle que le fil, et pour la même raison. */
+    setEtatPieces((e) => (e.v === 'ok' ? e : { v: 'charge' }));
+    void (async () => {
+      try {
+        const sep = parametresSansPage === '' ? '?' : '&';
+        const res = await fetch(
+          `/api/admin/gestion/historique/pieces${parametresSansPage}${sep}cible=lot-${encodeURIComponent(lotCle)}`,
+          { cache: 'no-store' });
+        const d = (await res.json()) as {
+          etat?: string;
+          data?: { messages?: MessagePorteurDePieces[]; tronque?: boolean };
+        };
+        if (!vivant) return;
+        /* ⚠️ `sans_schema` ET `inconnue` NE SONT PAS DES PANNES mais ne portent pas de messages : le résumé
+           retombe sur la page, et le fil affiche déjà sa propre explication pour ces deux états. */
+        setEtatPieces(d.etat === 'ok'
+          ? { v: 'ok', messages: d.data?.messages ?? [], tronque: d.data?.tronque === true }
+          : { v: 'erreur' });
+      } catch {
+        if (!vivant) return;
+        setEtatPieces({ v: 'erreur' });
+      }
+    })();
+    return () => { vivant = false; };
+  }, [lotCle, parametresSansPage]);
+
   const motsCherches = useMemo(() => motsRecherches(reglages.texte), [reglages.texte]);
   const lignes = useMemo(
     () => filtrerParMots(lignesPage, reglages.texte), [lignesPage, reglages.texte]);
@@ -625,10 +682,34 @@ export function HistoriqueDuBien({
    * l'on aurait lu « 7 pièces » en haut et compté neuf cartes en bas — le défaut exact que ce module pur avait été
    * écrit pour fermer.
    */
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LE RÉSUMÉ PORTE SUR **TOUTE** LA SÉLECTION ═════════════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (05/10/2026) : « propriétaire ET locataire cochés → les mails des deux familles s'affichent,
+   * mais le résumé ne montre pas les pièces des deux. Suspect : “le résumé porte sur les 100 mails affichés”. »
+   *
+   * 🔴 SON SOUPÇON ÉTAIT EXACT, ET LA MESURE LE CHIFFRE : sur lot-290, **344 pièces** sur les 326 mails du bien,
+   * dont **106 seulement** dans les 100 chargés. Le résumé en montrait moins d'un tiers — et d'autant moins que
+   * la sélection était large, ce qui est l'inverse de ce qu'on attend d'un récapitulatif.
+   *
+   * 🔴 LES PORTEURS VIENNENT DONC D'UNE LECTURE À PART (`/historique/pieces`), qui applique les MÊMES filtres et
+   * ne rend QUE ce que le résumé affiche. Voir l'encadré de la route : lever le plafond du listing aurait fait
+   * voyager 326 mails entiers pour n'en garder que les pièces.
+   *
+   * ⚠️ PENDANT UNE RECHERCHE, LE RÉSUMÉ RESTE CELUI DE LA PAGE CHERCHÉE, et c'est voulu : la recherche ne filtre
+   * que les mails CHARGÉS (règle d'Arno au lot 3, point 5, parce qu'elle lit le corps et le nom des pièces). Un
+   * résumé qui couvrirait toute la sélection pendant qu'on cherche afficherait des pièces de mails que le fil
+   * n'affiche plus — exactement le défaut qu'on répare, retourné.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
   const recap = useMemo(() => {
-    const classees = piecesDeLaConversation(messagesDuFil(lignes), reglages.ordre);
-    return dedoublonnerPieces(classees);
-  }, [lignes, reglages.ordre]);
+    const surToutLaSelection = etatPieces.v === 'ok' && motsCherches.length === 0;
+    const porteurs = surToutLaSelection
+      ? messagesDesPorteurs(etatPieces.messages) : messagesDuFil(lignes);
+    const classees = piecesDeLaConversation(porteurs, reglages.ordre);
+    return { ...dedoublonnerPieces(classees), surToutLaSelection };
+  }, [lignes, etatPieces, motsCherches.length, reglages.ordre]);
   const groupesPieces = useMemo(() => grouperParMessage(recap.pieces), [recap.pieces]);
   const conversations = useMemo(() => grouperParConversation(lignes), [lignes]);
 
@@ -661,17 +742,54 @@ export function HistoriqueDuBien({
    * D'AFFICHAGE, donc inverser le fil changerait l'adresse demandée — et relancerait une requête pour obtenir
    * exactement la même réponse. L'adresse ne doit dépendre que de l'ENSEMBLE des pièces, pas de leur ordre.
    */
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LES PIÈCES DU RÉSUMÉ EN FONT PARTIE, MAIS SEULEMENT S'IL EST OUVERT
+   *
+   * Depuis ce lot, le résumé montre les pièces de TOUTE la sélection : beaucoup ne viennent d'aucun mail de la
+   * page, et leur demander leur état dans le Drive est la seule façon de ne pas perdre le picto sur elles.
+   *
+   * ⚠️ SEULEMENT QUAND IL EST OUVERT, et ce n'est pas une optimisation de confort : le résumé est REPLIÉ par
+   * défaut, et sur le bien le plus fourni il porte 782 pièces (bien 282, mesuré le 05/10/2026). Les demander à
+   * l'arrivée, pour un bloc que personne n'a encore déplié, aurait fait payer trois requêtes de plus à chaque
+   * ouverture de l'historique — pour un affichage que personne ne regarde.
+   *
+   * ⚠️ LES PIÈCES DE LA PAGE RESTENT DEMANDÉES EN TOUT TEMPS : ce sont elles qui portent le picto sur les
+   * lignes du fil, résumé ouvert ou fermé.
+   */
+  /**
+   * ⚠️ UNE CHAÎNE, ET NON UN TABLEAU, ET CE N'EST PAS UN DÉTAIL DE STYLE : `relireDrive` en dépend, et un
+   * tableau est une valeur NEUVE à chaque calcul. Inverser l'ordre du fil recalcule le résumé, donc ce mémo —
+   * avec un tableau, le crochet se serait rearmé et la requête serait repartie pour obtenir la même réponse.
+   * C'est exactement ce que l'épreuve « inverser l'ordre ne relance pas la requête de statut Drive » tient.
+   */
   const idsPieces = useMemo(
-    () => [...new Set(lignes.flatMap((l) => l.pieces.map((p) => p.pieceId)))]
-      .sort((a, b) => a - b).join(','),
-    [lignes]);
+    () => {
+      const duFil = lignes.flatMap((l) => l.pieces.map((p) => p.pieceId));
+      const duResume = resumeOuvert ? idsDesPiecesEtDeLeursJumelles(recap.pieces) : [];
+      return [...new Set([...duFil, ...duResume])].sort((a, b) => a - b).join(',');
+    },
+    [lignes, resumeOuvert, recap.pieces]);
+  /**
+   * ⚠️ DÉCOUPÉ EN TRANCHES DE `PIECES_DRIVE_MAX`, PARCE QUE LA ROUTE BORNE — et qu'au-delà elle tronque sans le
+   * dire. Une seule demande de 782 identifiants aurait rendu l'état des 300 premières et rien pour les autres :
+   * le picto aurait manqué, sans message, exactement là où il est le plus utile.
+   *
+   * ⚠️ LES TRANCHES SONT DEMANDÉES ENSEMBLE (`Promise.all`) puis fondues en une seule fois : deux `setDepots`
+   * successifs auraient fait clignoter les pictos, et un rendu intermédiaire aurait affiché un état partiel.
+   */
   const relireDrive = useCallback(async (): Promise<void> => {
     if (idsPieces === '') { setDepots(new Map()); setEmplacements(new Map()); return; }
+    const tous = idsPieces.split(',');
+    const tranches: string[][] = [];
+    for (let i = 0; i < tous.length; i += PIECES_DRIVE_MAX) tranches.push(tous.slice(i, i + PIECES_DRIVE_MAX));
     try {
-      const res = await fetch(`/api/admin/gestion/pieces-drive?pieces=${idsPieces}`, { cache: 'no-store' });
-      const d = (await res.json()) as { depots?: DepotAffiche[]; emplacements?: StatutPieceDrive[] };
-      setDepots(new Map((d.depots ?? []).map((x) => [x.pieceId, x])));
-      setEmplacements(new Map((d.emplacements ?? []).map((x) => [x.pieceId, x.emplacements])));
+      const reponses = await Promise.all(tranches.map(async (t) => {
+        const res = await fetch(`/api/admin/gestion/pieces-drive?pieces=${t.join(',')}`, { cache: 'no-store' });
+        return (await res.json()) as { depots?: DepotAffiche[]; emplacements?: StatutPieceDrive[] };
+      }));
+      setDepots(new Map(reponses.flatMap((d) => (d.depots ?? []).map((x) => [x.pieceId, x] as const))));
+      setEmplacements(new Map(
+        reponses.flatMap((d) => (d.emplacements ?? []).map((x) => [x.pieceId, x.emplacements] as const))));
     } catch {
       // Silence volontaire : on perd la mention « Dans le Drive » et le picto, jamais la liste des pièces.
       setDepots(new Map());
@@ -1236,6 +1354,15 @@ export function HistoriqueDuBien({
   };
 
   const totalPieces = recap.pieces.length;
+  /** Ce que le résumé couvre, dit sous le bouton — et `null` dans le cas ordinaire, qui est devenu la règle. */
+  const porteeDuResume = motPorteeDuResume({
+    surToutLaSelection: recap.surToutLaSelection,
+    tronquee: etatPieces.v === 'ok' && etatPieces.tronque,
+    enEchec: etatPieces.v === 'erreur',
+    rechercheActive: motsCherches.length > 0,
+    filIncomplet: etat.v === 'ok' && (etat.suite || page > 0),
+    nbAffiches: lignes.length,
+  });
 
   return (
     <section className="ann-bloc hdb" aria-labelledby="hdb-titre">
@@ -1759,16 +1886,12 @@ export function HistoriqueDuBien({
       {totalPieces > 0 && (
         <div className="hdb-resume hdb-resume--haut">
           <BasculeResume n={totalPieces} ouvert={resumeOuvert} onBasculer={() => setResumeOuvert((v) => !v)} />
-          {/* ══ 🔴🔴 QUAND LA SÉLECTION DÉPASSE LE PLAFOND, ON LE DIT (lot HISTORIQUE-BIEN-4, point 1) ══════════
-              Le listing charge la sélection entière jusqu'au plafond de la route (100 mails). Au-delà, le résumé
-              ne porte que sur ces 100 — et le taire aurait reproduit, en plus grand, le défaut même qu'Arno a
-              signalé : un résumé qui annonce « cette sélection » sans la couvrir. */}
-          {etat.v === 'ok' && (etat.suite || page > 0) && (
-            <p className="gst-note hdb-note">
-              Cette sélection compte plus de {PAGE_HISTORIQUE_MAX} mails : le résumé porte sur les
-              {' '}{lignes.length} mails affichés. « Voir la suite → » en montre les suivants.
-            </p>
-          )}
+          {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LA NOTE A DISPARU DU CAS ORDINAIRE ══════════════════════
+              « Cette sélection compte plus de 100 mails : le résumé porte sur les N mails affichés » était la
+              phrase qu'Arno demande de retirer, et elle l'est : le résumé couvre désormais la sélection entière.
+              `motPorteeDuResume` ne parle plus que des trois cas où ce n'est PAS vrai — borne atteinte,
+              recherche en cours, lecture en échec — et rend `null` partout ailleurs. */}
+          {porteeDuResume !== null && <p className="gst-note hdb-note">{porteeDuResume}</p>}
           {resumeOuvert && (
             <ResumePieces groupes={groupesPieces} depots={depots} emplacements={emplacements}
               maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}

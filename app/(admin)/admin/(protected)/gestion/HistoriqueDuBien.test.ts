@@ -7,6 +7,7 @@ import { HistoriqueDuBien } from './HistoriqueDuBien';
 import { BANDES_SOUS_LES_ENCARTS, BUT_DU_PLUS, GROUPES_EN_BANDE, GROUPES_EN_ENCART, motDeuxCompteurs }
   from '../../../../lib/gestion/historiqueBien';
 import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
+import { PORTEURS_DE_PIECES_MAX } from '../../../../lib/gestion/historique';
 import type { Interlocuteur, LigneHistorique, PieceHistorique } from '../../../../lib/gestion/historique';
 
 /**
@@ -92,6 +93,30 @@ function reponse(corps: unknown): Response {
   return { ok: true, json: async () => corps } as unknown as Response;
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LA ROUTE DU RÉSUMÉ, SERVIE DEPUIS LES MÊMES LIGNES ═══════════════════
+ *
+ * Depuis ce lot, le résumé des pièces ne lit plus la page du fil : il lit `/historique/pieces`, qui rend TOUS les
+ * mails porteurs de la sélection (règle d'Arno, « pas seulement des 100 chargés »).
+ *
+ * 🔴 CETTE AIDE DÉRIVE LA RÉPONSE DES LIGNES QUE LE MÊME BOUCHON SERT DÉJÀ, et c'est ce qui garde les épreuves
+ * honnêtes : elle n'impose pas un contenu au résumé, elle rend du courrier du même bien. Un bouchon qui aurait
+ * rendu autre chose aurait fait passer des épreuves sur un écran que personne ne verra jamais.
+ *
+ * ⚠️ SEULS LES MAILS QUI PORTENT UNE PIÈCE, comme la vraie route (`EXISTS gestion_piece`) : servir les autres
+ * aurait laissé croire que le résumé les ignore de lui-même.
+ */
+function porteursDepuis(lignes: readonly LigneHistorique[]): unknown {
+  const messages = lignes.filter((l) => l.pieces.length > 0).map((l) => ({
+    messageId: l.messageId, recuLe: l.recuLe, sens: l.sens, de: l.de, deNom: l.deNom, objet: l.objet,
+    pieces: l.pieces,
+  }));
+  return {
+    etat: 'ok',
+    data: { messages, tronque: false, nbPieces: messages.reduce((n, m) => n + m.pieces.length, 0) },
+  };
+}
+
 beforeEach(() => {
   appels = [];
   hote = document.createElement('div');
@@ -102,6 +127,7 @@ beforeEach(() => {
     if (String(url).includes('/historique/evenements')) {
       return reponse({ etat: 'ok', evenements: EVENEMENTS, tronque: false });
     }
+    if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
     if (String(url).includes('/pieces-drive')) {
       return reponse({ etat: 'ok', depots: [], emplacements: [] });
     }
@@ -452,6 +478,7 @@ describe('③ les parties', () => {
     ];
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       return reponse({
@@ -489,6 +516,7 @@ describe('③ les parties', () => {
     const sept = Array.from({ length: 7 }, (_, i) => inter({ adresse: `x${i}@fictif.test`, nbMails: 7 - i }));
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       return reponse({
         etat: 'ok',
@@ -704,6 +732,7 @@ describe('⑤ le fil et les pièces', () => {
   it('🔴 « aucun résultat » accuse les réglages, et un bouton remet tout à plat', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       return reponse({
         etat: 'ok',
@@ -722,6 +751,7 @@ describe('⑤ le fil et les pièces', () => {
   it('⚠️ une réponse en échec le DIT, elle ne rend pas un historique vide', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'erreur', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       return reponse({ etat: 'erreur' });
     }));
@@ -774,6 +804,7 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
       if (init?.method === 'POST') return reponse({ etat: 'ok', geste: null });
       appels.push(String(url));
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({
@@ -1002,6 +1033,7 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
       }
       appels.push(String(url));
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({
@@ -1064,6 +1096,7 @@ describe('⑤-bis 🔴🔴 le « + » cerclé, la carte de création, et la pér
         return reponse({ etat: 'refus', motif: 'Ce rangement se fait à la main : l’auteur doit être identifié.' });
       }
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({
@@ -1163,6 +1196,7 @@ describe('⑤-ter 🔴🔴 la barre de couleur à droite de chaque mail', () => 
   it('🔴🔴 un mail sortant porte la classe « nous », sans couleur', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
@@ -1200,6 +1234,7 @@ describe('⑤-ter 🔴🔴 la barre de couleur à droite de chaque mail', () => 
   it('⚠️ pas de listing, pas de légende', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
@@ -1295,6 +1330,7 @@ describe('⑤-quinquies 🔴🔴 l’encart ne grandit jamais : il défile', () 
     const huit = Array.from({ length: 8 }, (_, i) => inter({ adresse: `p${i}@fictif.test`, nbMails: 8 - i }));
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
@@ -1401,6 +1437,7 @@ describe('⑤-sexies 🔴🔴 les capsules se déplacent d’une catégorie à l
       }
       appels.push(String(url));
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
@@ -1635,6 +1672,7 @@ describe('⑤-sexies 🔴🔴 les capsules se déplacent d’une catégorie à l
         return reponse({ etat: 'refus', motif: 'Adresse illisible.' });
       }
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
@@ -1890,7 +1928,15 @@ describe('⑤-octies 🔴🔴 une seule rangée d’options, et la recherche dan
     expect(texte()).toContain('ce sont les réglages qui cachent, pas le bien');
   });
 
-  /** ⚠️ LE RÉSUMÉ DES PIÈCES SUIT LA RECHERCHE : il annonce les pièces des mails VISIBLES, pas de la page. */
+  /**
+   * ⚠️ LE RÉSUMÉ DES PIÈCES SUIT LA RECHERCHE : il annonce les pièces des mails VISIBLES, pas de la page.
+   *
+   * 🔴 ET CELA RESTE VRAI APRÈS LE LOT HISTORIQUE-BIEN-11, POINT 5, qui fait porter le résumé sur TOUTE la
+   * sélection : la recherche est l'exception, et une exception VOULUE. Elle ne filtre que les mails chargés
+   * (règle d'Arno au lot 3, point 5, parce qu'elle lit le corps et le nom des pièces, que la route ne sait pas
+   * interroger) ; un résumé qui couvrirait la sélection pendant qu'on cherche montrerait les pièces de mails que
+   * le fil n'affiche plus — le défaut qu'on vient de réparer, retourné.
+   */
   it('⚠️ le résumé des pièces ne compte que les mails visibles', async () => {
     await monter();
     expect(texte()).toContain('2 pièces');
@@ -1959,6 +2005,7 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
       const lignes = choisies === null
         ? tous
         : tous.filter((l) => choisies.includes(l.de) || l.filId === 100 && choisies.includes('proprio@fictif.test'));
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(lignes));
       return reponse({
         etat: 'ok',
         data: {
@@ -2050,17 +2097,47 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
   });
 
   /**
-   * 🔴🔴 LE RÉSUMÉ ET LE LISTING VIENNENT DE LA MÊME LISTE, ET C'EST ÉPROUVÉ SUR LE CODE : un seul calcul,
-   * `lignes`, lu par les deux. Deux calculs auraient pu divergEr — et c'est précisément ce qu'Arno interdit.
+   * ══ 🔴🔴 CE VERDICT A CHANGÉ AU LOT HISTORIQUE-BIEN-11, POINT 5, ET IL FAUT DIRE POURQUOI ═══════════════════
+   *
+   * CETTE ÉPREUVE TENAIT : « le résumé et le listing viennent de la MÊME liste, `lignes` ». C'était la bonne
+   * règle tant que le résumé ne couvrait que la page — et c'est devenu le DÉFAUT qu'Arno a signalé : la page
+   * s'arrête à 100 mails, donc le résumé aussi, et sur le bien 421 il montrait 106 pièces sur 344.
+   *
+   * 🔴 LA RÈGLE D'ARNO EST DÉSORMAIS L'INVERSE : « le résumé contient les pièces de TOUS les mails de la
+   * sélection, pas seulement des 100 chargés ». Le résumé a donc sa propre source — `/historique/pieces`, qui
+   * lit les MÊMES filtres par la MÊME fonction, sans pagination. Deux sources, une seule sélection.
+   *
+   * ⚠️ CE QUI N'A PAS CHANGÉ, ET QUE CETTE ÉPREUVE CONTINUE DE TENIR : `lignes` n'a qu'UNE source (la page
+   * reçue, triée, filtrée par la recherche), le listing la lit, et le résumé y RETOMBE pendant une recherche —
+   * parce que la recherche, elle, ne filtre que les mails chargés (règle d'Arno au lot 3, point 5).
    */
-  it('🔴🔴 un seul calcul : le résumé lit la même liste que le listing', () => {
+  it('🔴🔴 le résumé lit toute la sélection, et retombe sur la page pendant une recherche', () => {
     const code = codeSeul(SRC);
-    /* Le résumé part de `lignes`… */
-    expect(code).toContain('piecesDeLaConversation(messagesDuFil(lignes)');
-    /* …et le listing aussi. */
+    /* Le résumé part des porteurs rendus par sa propre lecture… */
+    expect(code).toContain('/api/admin/gestion/historique/pieces');
+    expect(code).toContain('messagesDesPorteurs(etatPieces.messages)');
+    /* …et il retombe sur `lignes` dès qu'une recherche est en cours, ou si la lecture n'a pas abouti. */
+    expect(code).toContain('messagesDuFil(lignes)');
+    expect(code).toContain("surToutLaSelection = etatPieces.v === 'ok' && motsCherches.length === 0");
+    /* Le listing, lui, lit toujours `lignes`… */
     expect(code).toContain('<FilDeMails lignes={lignes}');
-    /* ⚠️ ET `lignes` N'A QU'UNE SOURCE : la page reçue, triée, puis filtrée par la recherche. */
+    /* ⚠️ …et `lignes` N'A QU'UNE SOURCE : la page reçue, triée, puis filtrée par la recherche. */
     expect(code).toContain('filtrerParMots(lignesPage, reglages.texte)');
+    /* 🔴 ET LA LECTURE DES PIÈCES IGNORE LA PAGE : c'est ce qui la distingue de celle du fil. */
+    expect(code).toContain('}, [lotCle, parametresSansPage]);');
+  });
+
+  /**
+   * 🔴🔴 LA PHRASE QU'ARNO DEMANDE DE RETIRER N'EXISTE PLUS DANS LE CODE. « Retire la phrase “le résumé porte
+   * sur les 100 mails affichés” une fois que c'est vrai. » Une épreuve sur le texte de l'écran ne l'aurait pas
+   * tenue : la phrase ne paraissait que sur un fil incomplet, cas qu'aucun jeu d'essai ne produit.
+   */
+  it('🔴🔴 plus une ligne ne dit « le résumé porte sur les N mails affichés »', () => {
+    /* ⚠️ SUR LE CODE SEUL, COMMENTAIRES RETIRÉS : deux encadrés CITENT la phrase pour dire qu'elle est partie,
+       et c'est très bien ainsi — ce qui est interdit, c'est de l'AFFICHER. */
+    const code = codeSeul(SRC);
+    expect(code).not.toContain('le résumé porte sur les');
+    expect(code).not.toContain('mails affichés. « Voir la suite');
   });
 
   /**
@@ -2080,6 +2157,7 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       const u = String(url);
       if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis([MAIL_PROPRIO, memeContenu]));
       if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       return reponse({
@@ -2229,6 +2307,7 @@ describe('⑤-decies 🔴🔴 le format des capsules, et le menu « … »', () 
       }
       const u = String(url);
       if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       return reponse({
@@ -2295,6 +2374,7 @@ describe('⑤-undecies 🔴🔴 les deux encarts sont TOUJOURS là, côte à cô
       if (String(url).includes('/historique/evenements')) {
         return reponse({ etat: 'ok', evenements: [], tronque: false });
       }
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       return reponse({
         etat: 'ok',
@@ -2466,6 +2546,7 @@ describe('⑤-duodecies 🔴🔴 les deux bandes sont TOUJOURS là, même à zé
       if (String(url).includes('/historique/evenements')) {
         return reponse({ etat: 'ok', evenements: [], tronque: false });
       }
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       return reponse({
         etat: 'ok',
@@ -2593,6 +2674,7 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
       if (String(url).includes('/historique/evenements')) {
         return reponse({ etat: 'ok', evenements: [], tronque: false });
       }
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         /* 🔴 LOT 8 — par défaut « manuel » : les cas d'avant ce lot éprouvaient une carte CRÉÉE. */
@@ -2754,6 +2836,7 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       appels.push(String(url));
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({
@@ -2883,6 +2966,7 @@ describe('⑤-quaterdecies 🔴🔴 un client dont l’adresse ne peut rien filt
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       appels.push(String(url));
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       return reponse({
@@ -3075,6 +3159,7 @@ describe('⑤-sexdecies 🔴🔴 l’ordre des capsules : les clients d’abord'
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       appels.push(String(url));
       if (String(url).includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (String(url).includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (String(url).includes('/historique/parties')) {
         return reponse({ etat: 'ok', data: { parties: [{ adresse: 'secretariat@fictif.test', categorie: 'proprietaire' }], cartes: [] } });
@@ -3421,6 +3506,7 @@ describe('⑤-octodecies 🔴🔴 le filtre par parties : les six combinaisons',
       const lignes = [M_PROPRIO, M_LOCATAIRE, M_CONTACT, M_AGENCE]
         .filter((l) => avec.length === 0 || dedans(l).some((a) => avec.includes(a)))
         .filter((l) => !sauf.includes(l.de));
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(lignes));
       return reponse({
         etat: 'ok',
         data: {
@@ -3585,6 +3671,7 @@ describe('⑤-novodecies 🔴🔴 le compteur et le filtre, un seul calcul', () 
       const lignes = [M_FWD]
         .filter(() => avec.length === 0 || departAcc.some((a) => avec.includes(a)))
         .filter((l) => !sauf.includes(l.de));
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(lignes));
       return reponse({
         etat: 'ok',
         data: {
@@ -3668,6 +3755,7 @@ describe('⑤-vicies 🔴🔴 l’ordre des bandes, et les deux encarts ouverts'
       const u = String(url);
       appels.push(u);
       if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       return reponse({
@@ -3738,6 +3826,7 @@ describe('⑤-unvicies 🔴🔴 le compteur de la ligne d’état', () => {
       const u = String(url);
       appels.push(u);
       if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
       if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       const avec = (new URL(u, 'http://local').searchParams.get('avec') ?? '').split(',').filter((x) => x !== '');
@@ -3801,5 +3890,207 @@ describe('⑤-unvicies 🔴🔴 le compteur de la ligne d’état', () => {
       }));
     });
     expect(ligne()).not.toContain('—');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑪-quinquies 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LES PIÈCES DE TOUTE LA SÉLECTION, PAS DE LA PAGE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑪-quinquies 🔴🔴 le résumé porte sur toute la sélection', () => {
+  /**
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (05/10/2026) : « propriétaire ET locataire cochés → les mails des deux familles s'affichent,
+   * mais le résumé ne montre pas les pièces des deux. Suspect : “le résumé porte sur les 100 mails affichés”. »
+   *
+   * 🔴 SON SOUPÇON ÉTAIT EXACT, ET LA MESURE LE CHIFFRE : sur lot-290 (bien 421), **344 pièces** portées par les
+   * 326 mails du bien, dont **106 seulement** dans les 100 mails chargés. Le résumé en montrait moins d'un tiers.
+   *
+   * 🔴 CE GROUPE REPRODUIT EXACTEMENT CETTE FORME : une page de DEUX mails porteurs, et une sélection qui en
+   * compte QUATRE. Un résumé qui lirait la page annoncerait 2 pièces ; celui d'Arno doit en annoncer 5.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+
+  /** Les deux mails CHARGÉS — c'est tout ce que la page du fil contient. */
+  const CHARGES = [
+    ligne({
+      messageId: 1, filId: 10, recuLe: '2026-03-01T09:00:00Z', objet: 'Charges',
+      pieces: [piece({ pieceId: 1, nomFichier: 'charges.pdf', empreinte: 'sha-1' })],
+    }),
+    ligne({
+      messageId: 2, filId: 11, recuLe: '2026-02-28T09:00:00Z', objet: 'Quittance',
+      pieces: [piece({ pieceId: 2, nomFichier: 'quittance.pdf', empreinte: 'sha-2' })],
+    }),
+  ];
+
+  /** La SÉLECTION : les deux mails chargés, et deux autres que la page n'a pas — trois pièces de plus. */
+  const PORTEURS = [
+    ...CHARGES.map((l) => ({
+      messageId: l.messageId, recuLe: l.recuLe, sens: l.sens, de: l.de, deNom: l.deNom, objet: l.objet,
+      pieces: l.pieces,
+    })),
+    {
+      messageId: 50, recuLe: '2025-11-02T09:00:00Z', sens: 'recu' as const, de: 'locataire@fictif.test',
+      deNom: 'MARTY Jean-François', objet: 'État des lieux',
+      pieces: [
+        piece({ pieceId: 50, nomFichier: 'etat-des-lieux.pdf', empreinte: 'sha-50' }),
+        piece({ pieceId: 51, nomFichier: 'photos.zip', empreinte: 'sha-51' }),
+      ],
+    },
+    {
+      messageId: 51, recuLe: '2025-10-02T09:00:00Z', sens: 'recu' as const, de: 'syndic@fictif.test',
+      deNom: 'Syndic', objet: 'Assemblée',
+      pieces: [piece({ pieceId: 60, nomFichier: 'pv-ag.pdf', empreinte: 'sha-60' })],
+    },
+  ];
+
+  /**
+   * @param pieces ce que rend `/historique/pieces` — `null` pour une panne, afin d'éprouver le repli.
+   * @param tronque la borne atteinte, qui doit se DIRE.
+   */
+  const servir = (
+    { pieces = PORTEURS as unknown[] | null, tronque = false, suite = true } = {},
+  ): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      appels.push(u);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) {
+        if (pieces === null) return reponse({ etat: 'erreur' });
+        return reponse({
+          etat: 'ok',
+          data: { messages: pieces, tronque, nbPieces: 5 },
+        });
+      }
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      /* ⚠️ `suite: true` ⇒ LE FIL EST INCOMPLET, c'est-à-dire la situation d'Arno : 326 mails, 100 chargés. */
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: CHARGES, suite, entete: { nbMails: 326 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+  };
+
+  const nomsDuResume = (): string[] =>
+    [...hote.querySelectorAll('.hdb-resume--bas .pdc-grille > li')]
+      .map((x) => (x.querySelector('.pcv-nom, [class*="nom"]')?.textContent
+        ?? (x.textContent ?? '').trim().split('\n')[0]).trim());
+
+  /**
+   * 🔴🔴 LE COMPTEUR D'ARNO : « “N pièces dans cette sélection” = la somme réelle ». Cinq, et non deux.
+   */
+  it('🔴🔴 LE COMPTE EST CELUI DE LA SÉLECTION, au-delà des mails chargés', async () => {
+    servir();
+    await monter();
+    expect(texte()).toContain('5 pièces dans cette sélection');
+    /* 🔴 ET SURTOUT PAS LE COMPTE DE LA PAGE, qui était le défaut signalé. */
+    expect(texte()).not.toContain('2 pièces dans cette sélection');
+  });
+
+  /** 🔴🔴 ET LE RÉSUMÉ LES MONTRE : les pièces des mails que la page n'a PAS chargés en font partie. */
+  it('🔴🔴 les pièces des mails NON chargés sont dans le résumé', async () => {
+    servir();
+    await monter();
+    await ouvrirLeResume();
+    const noms = nomsDuResume();
+    expect(noms).toContain('charges.pdf');
+    expect(noms).toContain('etat-des-lieux.pdf');
+    expect(noms).toContain('photos.zip');
+    expect(noms).toContain('pv-ag.pdf');
+    expect(noms).toHaveLength(5);
+  });
+
+  /**
+   * 🔴🔴 LA PHRASE QU'ARNO DEMANDE DE RETIRER NE PARAÎT PLUS, et c'est bien le cas où elle paraissait : un fil
+   * incomplet (`suite: true`). C'est la preuve que la phrase est partie parce qu'elle est devenue FAUSSE, et
+   * non parce qu'un jeu d'essai l'évite.
+   */
+  it('🔴🔴 plus de « le résumé porte sur les 100 mails affichés », même sur un fil incomplet', async () => {
+    servir();
+    await monter();
+    expect(texte()).not.toContain('le résumé porte sur les');
+  });
+
+  /**
+   * ⚠️ LA LECTURE IGNORE LA PAGE : une seule demande, et elle ne porte ni `page` ni une autre `taille`. Sans
+   * cela, tourner les pages du fil aurait redemandé les 344 pièces du bien à chaque clic.
+   */
+  it('⚠️ une seule demande des pièces, et elle ne porte pas de page', async () => {
+    servir();
+    await monter();
+    const demandes = appels.filter((a) => a.includes('/historique/pieces'));
+    expect(demandes).toHaveLength(1);
+    expect(demandes[0]).not.toContain('page=1');
+    expect(demandes[0]).toContain('cible=lot-155');
+  });
+
+  /**
+   * 🔴 LA BORNE ATTEINTE SE DIT. L'écran n'a pas le droit d'annoncer « cette sélection » sans la couvrir : c'est
+   * la faute même qu'Arno a signalée, et la taire une seconde fois serait la refaire.
+   */
+  it('🔴 la borne atteinte est annoncée sous le bouton', async () => {
+    servir({ tronque: true });
+    await monter();
+    expect(texte()).toContain('mails porteurs de pièces');
+    expect(texte()).toContain(String(PORTEURS_DE_PIECES_MAX));
+  });
+
+  /**
+   * ⚠️ UNE LECTURE EN ÉCHEC RETOMBE SUR LA PAGE, ET LE DIT. Un résumé absent serait pire qu'un résumé partiel :
+   * on croirait que la sélection ne porte aucune pièce.
+   */
+  it('⚠️ lecture impossible ⇒ le résumé de la page, et une phrase qui le dit', async () => {
+    servir({ pieces: null });
+    await monter();
+    expect(texte()).toContain('2 pièces dans cette sélection');
+    expect(texte()).toContain('n’ont pas pu être lues');
+    await ouvrirLeResume();
+    expect(nomsDuResume()).toEqual(['charges.pdf', 'quittance.pdf']);
+  });
+
+  /**
+   * 🔴 PENDANT UNE RECHERCHE, LE RÉSUMÉ REDEVIENT CELUI DES MAILS TROUVÉS, et c'est VOULU : la recherche ne
+   * filtre que les mails chargés (règle d'Arno au lot 3, point 5). Un résumé qui couvrirait toute la sélection
+   * pendant qu'on cherche montrerait les pièces de mails que le fil n'affiche plus.
+   */
+  it('🔴 une recherche ramène le résumé aux mails trouvés, et l’écran le dit', async () => {
+    servir();
+    await monter();
+    const champ = hote.querySelector('.hdb-champ-recherche') as HTMLInputElement;
+    /* ⚠️ « charges » ET NON « quittance » : les deux mails d'essai partagent le même extrait (« voici la
+       quittance »), et chercher ce mot-là les ramène tous les deux. Même piège qu'au point 4. */
+    await changer(champ, 'charges');
+    await new Promise((r) => { setTimeout(r, 350); });
+    expect(texte()).toContain('1 pièce dans cette sélection');
+    expect(texte()).toContain('La recherche ne lit que les mails chargés');
+  });
+
+  /**
+   * ⚠️ RIEN NE PARAÎT TANT QUE LA LECTURE N'A PAS RÉPONDU : ni « 0 pièce », ni une phrase sur une portée qui va
+   * changer dans l'instant. Le résumé de la page s'affiche entre-temps, ce qui est exact.
+   */
+  it('⚠️ pendant le chargement des pièces, aucune phrase sur la portée', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
+      if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
+      if (u.includes('/historique/pieces')) return new Promise<Response>(() => {});
+      if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
+      return reponse({
+        etat: 'ok',
+        data: {
+          lignes: CHARGES, suite: true, entete: { nbMails: 326 },
+          interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+        },
+      });
+    }));
+    await monter();
+    expect(texte()).toContain('2 pièces dans cette sélection');
+    expect(texte()).not.toContain('n’ont pas pu être lues');
+    expect(texte()).not.toContain('le résumé porte sur les');
   });
 });

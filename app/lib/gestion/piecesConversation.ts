@@ -310,6 +310,27 @@ export function dedoublonnerPieces(
 }
 
 /**
+ * ══ 🔴🔴 LES IDENTIFIANTS DONT LE RÉSUMÉ A BESOIN POUR INTERROGER LE DRIVE. PUR. ═════════════════════════════════
+ *
+ * 🔴 LES **AUTRES APPARITIONS** EN FONT PARTIE, ET C'EST TOUT L'INTÉRÊT DE CETTE FONCTION. Le dépôt dans le Drive
+ * est enregistré contre LA pièce rangée : si l'on a rangé la copie du 30/09 et que le résumé montre celle du
+ * 23/09, l'identifiant affiché n'a aucun dépôt — c'est sur l'autre apparition qu'il se trouve. L'écran le sait
+ * déjà quand il AFFICHE (le repli de `ResumePieces`) ; il faut qu'il le sache aussi quand il DEMANDE, sinon le
+ * picto « déjà dans le Drive » disparaît précisément dans le cas qui a fondé le lot EMPREINTE-PIECES.
+ *
+ * ⚠️ TRIÉS, ET SANS RÉPÉTITION : l'adresse demandée ne doit dépendre que de l'ENSEMBLE des pièces, jamais de
+ * leur ordre d'affichage — sinon inverser le fil relancerait une requête pour obtenir la même réponse.
+ */
+export function idsDesPiecesEtDeLeursJumelles(pieces: readonly PieceDedoublonnee[]): number[] {
+  const ids = new Set<number>();
+  for (const p of pieces) {
+    ids.add(p.pieceId);
+    for (const a of p.autresApparitions) ids.add(a.pieceId);
+  }
+  return [...ids].sort((a, b) => a - b);
+}
+
+/**
  * LA MENTION D'UNE AUTRE APPARITION, dans les mots d'Arno : « aussi envoyée le 30/09 à 17:49 ». PUR.
  *
  * ⚠️ LE PARTICIPE S'ACCORDE AVEC « LA PIÈCE », pas avec le message : « aussi envoyée », « aussi reçue ». C'est un

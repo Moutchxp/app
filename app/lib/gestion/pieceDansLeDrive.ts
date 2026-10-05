@@ -154,3 +154,19 @@ export function dossierDeLEmplacement(e: EmplacementPiece): { id: string; nom: s
   const nom = (e.dossierNom ?? '').trim();
   return { id, nom: nom === '' ? (e.chemin[0]?.nom ?? 'Dossier') : nom };
 }
+
+/**
+ * ══ 🔴🔴 COMBIEN DE PIÈCES AU PLUS PAR DEMANDE À `/pieces-drive` ═════════════════════════════════════════════════
+ *
+ * Une adresse n'est pas une demande : `?pieces=` avec dix mille identifiants n'est pas une page d'écran, et
+ * au-delà d'une quinzaine de milliers de caractères les serveurs refusent l'en-tête. La route BORNE donc, et
+ * l'écran DÉCOUPE — les deux lisent ce nombre-ci, qui est la raison pour laquelle il a quitté la route.
+ *
+ * ⚠️ IL A CHANGÉ DE MAISON AU LOT HISTORIQUE-BIEN-11, POINT 5, ET LA RAISON COMPTE. Jusque-là, le résumé des
+ * pièces ne couvrait que la page du fil (100 mails au plus) : une seule demande suffisait toujours, et la borne
+ * de la route n'était qu'un garde-fou. Depuis que le résumé couvre TOUTE la sélection, le cas réel la dépasse —
+ * mesuré le 05/10/2026 : **2 biens sur 338 portent plus de 300 pièces**, le plus fourni en portant **782**
+ * (bien 282), soit trois tranches. Si l'écran ne découpait pas, la route tronquerait EN SILENCE et le picto
+ * « déjà dans le Drive » manquerait sur les suivantes, sans que rien ne le dise.
+ */
+export const PIECES_DRIVE_MAX = 300;

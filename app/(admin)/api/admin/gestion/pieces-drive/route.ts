@@ -3,6 +3,7 @@ import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { lireDepotsDesPieces } from '../../../../../lib/gestion/driveRepo';
 import { emplacementsDesPieces } from '../../../../../lib/gestion/pieceDansLeDriveRepo';
 import { depotsDriveDisponibles } from '../../../../../lib/gestion/schema';
+import { PIECES_DRIVE_MAX } from '../../../../../lib/gestion/pieceDansLeDrive';
 
 /**
  * /api/admin/gestion/pieces-drive?pieces=12,34,56 — LOT HISTORIQUE-BIEN-1 : CE QUI EST DÉJÀ DANS LE DRIVE, POUR
@@ -38,8 +39,10 @@ export const runtime = 'nodejs';
 
 const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
 
-/** Combien de pièces au plus par appel. Une page du fil en porte au grand maximum quelques dizaines. */
-export const PIECES_DRIVE_MAX = 300;
+/* 🔴 LA BORNE VIT DANS LE MODULE PUR, parce que L'ÉCRAN DÉCOUPE SES DEMANDES avec le même nombre depuis le lot
+   HISTORIQUE-BIEN-11 (le résumé couvre toute la sélection, soit jusqu'à 5 061 pièces mesurées). Deux écritures
+   auraient fini par se décaler, et la route aurait tronqué en silence une tranche que l'écran croyait entière. */
+export { PIECES_DRIVE_MAX };
 
 export async function GET(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');

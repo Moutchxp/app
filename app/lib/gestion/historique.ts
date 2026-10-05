@@ -25,6 +25,36 @@ export const PAGE_HISTORIQUE = 25;
 export const PAGE_HISTORIQUE_MAX = 100;
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — COMBIEN DE MAILS PORTEURS DE PIÈCES AU PLUS, POUR LE RÉSUMÉ ══════════
+ *
+ * Le résumé des pièces porte sur TOUTE la sélection, pas sur la page (règle d'Arno du 05/10/2026). Il lit donc
+ * sa propre route, `/historique/pieces`, qui n'est pas paginée — et une lecture sans borne est une panne qui
+ * attend.
+ *
+ * 🔴 LA BORNE EST MESURÉE, NON DEVINÉE — et mesurée SUR LA RÈGLE DE SÉLECTION, ce qui n'est pas un détail.
+ * Recensement du 05/10/2026 sur les 338 biens qui portent du courrier, par `sqlLiensDuBien` (rattachement
+ * confirmé, cible « lot », lien posé sur le mail) — c'est-à-dire exactement ce que la route lit :
+ *
+ *     pire cas  : **142 mails porteurs** (bien 421, celui de la demande) · le plus fourni en PIÈCES : 782 (282)
+ *     médiane   : 14 pièces par bien
+ *     au-delà de 300 pièces : 2 biens sur 338
+ *
+ * ⚠️ UNE PREMIÈRE MESURE, FAITE PAR LES CARTES DE CONTACT, ANNONÇAIT 2 735 MAILS PORTEURS SUR LE BIEN 281 : elle
+ * était FAUSSE, et il faut dire pourquoi. Les cartes servent le FILTRE par parties ; elles ne font pas entrer un
+ * mail dans un bien. Ce qui l'y fait entrer, c'est le rattachement — et par ce chemin-là, le bien 281 n'a rien
+ * d'exceptionnel. Mesurer sur le mauvais axe surestimait le pire cas de vingt fois.
+ *
+ * ⚠️ 2 000 ET NON 142 : on ne cale pas une borne sur la mesure du jour (même règle qu'`INTERLOCUTEURS_MAX`
+ * ci-dessous). Elle laisse quatorze fois le pire cas réel, et `tronque` reste écrit pour le jour où même cela ne
+ * suffirait pas.
+ *
+ * ⚠️ ELLE VIT ICI, DANS LE MODULE PUR, PARCE QUE LA PHRASE AFFICHÉE LA NOMME (`motPorteeDuResume`) : le dépôt
+ * borne sa requête avec ce nombre, l'écran l'écrit avec le même. Deux écritures auraient fini par se contredire
+ * sous les yeux d'Arno.
+ */
+export const PORTEURS_DE_PIECES_MAX = 2000;
+
+/**
  * Combien d'interlocuteurs au plus dans le filtre. Au-delà, l'écran DIT qu'il y en a d'autres.
  *
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-1 — RELEVÉ DE **60 À 120**, SUR UNE MESURE ════════════════════════════════════════
@@ -261,6 +291,30 @@ export interface PieceHistorique {
    * `undefined` veulent dire la même chose — « pas d'empreinte connue », donc rapprochement par nom et taille.
    */
   empreinte?: string | null;
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — UN MAIL QUI PORTE DES PIÈCES, ET RIEN DE PLUS ═════════════════════════
+ *
+ * Ce que le RÉSUMÉ des pièces a besoin de savoir d'un mail : son identité, sa date, son expéditeur, son objet et
+ * ses pièces. Pas son extrait, pas ses destinataires, pas ses événements, pas son statut, pas ses interventions.
+ *
+ * 🔴 C'EST CE QUI PERMET DE LIRE TOUTE LA SÉLECTION plutôt que la page. Arno : « le résumé contient les pièces de
+ * TOUS les mails de la sélection, pas seulement des 100 chargés. » Faire voyager 326 `LigneHistorique` complètes
+ * pour n'en garder que les pièces aurait été payer le prix fort pour un récapitulatif.
+ *
+ * ⚠️ IL SE SUPERPOSE À `MessagePorteur` (le module des pièces d'une conversation) : mêmes champs, même sens. On
+ * ne le RÉEMPLOIE pas tel quel parce qu'il vit dans un module d'écran ; mais `messagesDuFil` et cette lecture-ci
+ * rendent la même forme, et c'est voulu — le résumé ne sait pas d'où viennent ses messages.
+ */
+export interface MessagePorteurDePieces {
+  messageId: number;
+  recuLe: string;
+  sens: 'recu' | 'envoye';
+  de: string;
+  deNom: string | null;
+  objet: string | null;
+  pieces: PieceHistorique[];
 }
 
 export interface LigneHistorique {

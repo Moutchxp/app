@@ -1,8 +1,9 @@
 import { FUSEAU_AFFICHAGE } from './ecran';
 import { formaterDateIso } from './annuaireRecherche';
 import {
-  ecrireFiltres, FILTRES_VIDES, jourValide, libelleInterlocuteur, PAGE_HISTORIQUE,
+  ecrireFiltres, FILTRES_VIDES, jourValide, libelleInterlocuteur, PAGE_HISTORIQUE, PORTEURS_DE_PIECES_MAX,
   type ChoixPieces, type FiltresHistorique, type Interlocuteur, type LigneHistorique,
+  type MessagePorteurDePieces,
 } from './historique';
 import type { MessagePorteur, OrdrePieces } from './piecesConversation';
 /**
@@ -1677,6 +1678,42 @@ export function messagesDuFil(lignes: readonly LigneHistorique[]): MessagePorteu
   }));
 }
 
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — LES PORTEURS DE PIÈCES DE LA SÉLECTION, SOUS LA FORME DU RÉSUMÉ. PURE.
+ *
+ * Le jumeau de `messagesDuFil`, pour l'autre source : celle-ci ne vient pas de la page affichée mais de la
+ * lecture `/historique/pieces`, qui rend TOUS les mails porteurs de la sélection (voir l'encadré de la route).
+ *
+ * 🔴 ELLE EXISTE POUR UNE SEULE RAISON, ET ELLE EST DE TYPAGE : `PieceHistorique.empreinte` est FACULTATIVE (une
+ * réponse d'API plus ancienne que le lot 1 ne la porte pas), là où le module des pièces l'exige. `undefined` et
+ * `null` y veulent dire la même chose — « pas d'empreinte connue, rapprochement par nom et taille » —, et c'est
+ * ici qu'on le dit une fois pour toutes, comme `messagesDuFil` le fait pour les lignes du fil.
+ *
+ * ⚠️ AUCUN FILTRE ICI : ni « ._ », ni image de signature. `piecesDeLaConversation` les écarte déjà par
+ * `vraiesPiecesDuMessage`, et un second tamis aurait fait deux comptes pour une seule question.
+ */
+export function messagesDesPorteurs(
+  messages: readonly MessagePorteurDePieces[],
+): MessagePorteur[] {
+  return messages.map((m) => ({
+    messageId: m.messageId,
+    recuLe: m.recuLe,
+    sens: m.sens,
+    de: m.de,
+    deNom: m.deNom,
+    objet: m.objet,
+    pieces: m.pieces.map((p) => ({
+      pieceId: p.pieceId,
+      nomFichier: p.nomFichier,
+      typeMime: p.typeMime,
+      tailleOctets: p.tailleOctets,
+      disponible: p.disponible,
+      motifNonStocke: p.motifNonStocke,
+      empreinte: p.empreinte ?? null,
+    })),
+  }));
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑦-bis 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LA RECHERCHE, DANS LA SÉLECTION DÉJÀ AFFICHÉE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -1825,6 +1862,65 @@ export function decouperPourSurligner(texte: string, mots: readonly string[]): M
  */
 export function motPiecesSelection(n: number): string {
   return `${n} pièce${n > 1 ? 's' : ''} dans cette sélection`;
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 5 — CE QUE LE RÉSUMÉ COUVRE, DIT SOUS LE BOUTON. PUR. ════════════════════
+ *
+ * DEMANDE D'ARNO (05/10/2026) : « Retire la phrase “le résumé porte sur les 100 mails affichés” une fois que
+ * c'est vrai. » Elle est donc retirée — **et remplacée par rien, dans le cas ordinaire** : `null`.
+ *
+ * 🔴 LA PHRASE NE DOIT PARAÎTRE QUE QUAND LE RÉSUMÉ NE COUVRE PAS LA SÉLECTION. C'est tout l'objet de cette
+ * fonction : trois situations seulement le font, et aucune n'est celle d'hier.
+ *
+ *   ① LA LECTURE A ABOUTI ET N'A PAS BUTÉ ⇒ **rien à dire**. Le résumé couvre la sélection entière, le bouton
+ *      « N pièces dans cette sélection » est exact, et une note sous un compte exact ne fait que semer le doute.
+ *   ② ELLE A BUTÉ SUR SA BORNE (`PORTEURS_DE_PIECES_MAX`) ⇒ on le DIT, avec le nombre. Mesuré le 05/10/2026 : un
+ *      seul bien du dépôt s'en approche (281, 2 735 mails porteurs), et c'est un rangement à corriger.
+ *   ③ UNE RECHERCHE EST EN COURS ⇒ le résumé redevient celui de la page, et c'est VOULU. La recherche ne filtre
+ *      que les mails CHARGÉS (règle d'Arno au lot 3, point 5 : elle lit le corps et le nom des pièces, que la
+ *      route ne sait pas interroger). Un résumé qui couvrirait toute la sélection pendant qu'on cherche
+ *      montrerait des pièces de mails que le fil n'affiche plus — le défaut qu'on répare, retourné.
+ *   ④ LA LECTURE A ÉCHOUÉ ⇒ on retombe sur la page, et on le dit AUTREMENT : « n'ont pas pu être lues ». Une
+ *      panne et une recherche ne doivent pas s'écrire de la même façon, sinon personne ne saura qu'il y a eu
+ *      panne.
+ *
+ * ⚠️ `filIncomplet` TRANCHE LES TROIS DERNIERS CAS. Si le fil affiche DÉJÀ toute la sélection (moins de 100
+ * mails, ce qui est le cas de la quasi-totalité des biens), la page EST la sélection : le résumé est exact de
+ * toute façon, et il n'y a rien à signaler. Une note qui s'afficherait là serait un avertissement sans objet —
+ * et c'est ainsi qu'on apprend à ne plus les lire.
+ */
+export function motPorteeDuResume(p: {
+  /** Vrai quand le résumé a été construit sur la lecture dédiée, donc sur TOUTE la sélection. */
+  surToutLaSelection: boolean;
+  /** Vrai quand cette lecture a buté sur sa borne. */
+  tronquee: boolean;
+  /** Vrai quand elle n'a pas abouti (réseau, base, droit perdu). */
+  enEchec: boolean;
+  /** Vrai quand une recherche par mots est en cours : le résumé est alors celui des mails chargés. */
+  rechercheActive: boolean;
+  /** Vrai quand le fil n'affiche qu'une PARTIE de la sélection (plafond de page atteint). */
+  filIncomplet: boolean;
+  /** Combien de mails sont réellement affichés — le périmètre de repli. */
+  nbAffiches: number;
+}): string | null {
+  if (p.surToutLaSelection) {
+    return p.tronquee
+      ? `Cette sélection compte plus de ${PORTEURS_DE_PIECES_MAX} mails porteurs de pièces : le résumé porte `
+        + `sur les ${PORTEURS_DE_PIECES_MAX} plus récents.`
+      : null;
+  }
+  if (!p.filIncomplet) return null;
+  if (p.rechercheActive) {
+    return `La recherche ne lit que les mails chargés : le résumé porte sur les ${p.nbAffiches} trouvés parmi `
+      + 'eux. « Voir la suite → » en charge d’autres.';
+  }
+  if (p.enEchec) {
+    return `Les pièces de toute la sélection n’ont pas pu être lues : le résumé porte sur les ${p.nbAffiches} `
+      + 'mails affichés. « Voir la suite → » en montre les suivants.';
+  }
+  // Lecture encore en cours : on ne dit rien plutôt que d'annoncer une portée qui va changer dans l'instant.
+  return null;
 }
 
 /**

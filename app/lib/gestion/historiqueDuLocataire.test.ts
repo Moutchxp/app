@@ -171,14 +171,23 @@ describe('🔴🔴 ④ les paramètres liés, là où un décalage ne se voit pa
   });
 
   /**
-   * 🔴🔴 LES TROIS QUESTIONS DE L'ÉCRAN LISENT LA MÊME LISTE. La frise, le compteur d'en-tête et les
-   * interlocuteurs partagent `baseParams` et `decalage` : trois listes recopiées finiraient par ne plus être
-   * dans le même ordre, et c'est toujours celle qu'on regarde le moins qui garderait le faux.
+   * 🔴🔴 TOUTES LES QUESTIONS DE L'ÉCRAN LISENT LA MÊME LISTE. La frise, le compteur d'en-tête, les
+   * interlocuteurs — et, depuis le lot HISTORIQUE-BIEN-11 point 5, les pièces de toute la sélection — partagent
+   * `baseParams` et `decalage` : des listes recopiées finiraient par ne plus être dans le même ordre, et c'est
+   * toujours celle qu'on regarde le moins qui garderait le faux.
+   *
+   * ⚠️ LE COMPTE EXACT A ÉTÉ ABANDONNÉ, ET C'EST LA LEÇON DE CE LOT. Cette épreuve exigeait « exactement 3 »
+   * appels ; ajouter un QUATRIÈME lecteur qui passe par `baseParams` — donc qui fait exactement ce que la règle
+   * demande — la faisait échouer. Un compte figé transforme la bonne conduite en régression. Ce qui compte est
+   * qu'aucun lecteur ne RECOPIE la liste, et c'est ce que la dernière assertion tient.
    */
-  it('🔴🔴 une seule liste de paramètres pour les trois questions', () => {
-    expect((REPO.match(/const base = baseParams\(c\);/g) ?? [])).toHaveLength(3);
-    expect((REPO.match(/decalage\(c\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  it('🔴🔴 une seule liste de paramètres, pour toutes les questions', () => {
+    const parBaseParams = (REPO.match(/const base = baseParams\(c\);/g) ?? []).length;
+    expect(parBaseParams).toBeGreaterThanOrEqual(4);
+    expect((REPO.match(/decalage\(c\)/g) ?? []).length).toBeGreaterThanOrEqual(parBaseParams);
+    /* 🔴 ET AUCUNE LISTE RECOPIÉE : c'est la faute que `baseParams` a été écrit pour fermer. */
     expect(REPO).not.toContain('[lots, props, evs, ...cond.params');
+    expect(REPO).not.toContain('[c.lots, c.proprietaires, c.evenements, ...cond.params');
   });
 
   /**
