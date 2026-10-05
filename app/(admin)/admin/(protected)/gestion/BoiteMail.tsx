@@ -1248,15 +1248,34 @@ export function BoiteMail({
 
             ⚠️ `null` GARDE LE COMPORTEMENT D'AVANT CE LOT (pas la première page, ou lecture en échec) : on
             retombe sur le nombre global plutôt que de faire disparaître le bandeau sur une panne. */}
-        {!cherche && impose === null && etat.comptes !== null && automatiquesAffiches > 0 && (
+        {/* ══ 🔴🔴 LOT RECEPTION-COURRIER-AUTO-LIEN — LE LIEN REVIENT, ET IL NE SE CACHE PLUS ═══════════════════
+            CONSTAT D'ARNO (05/10/2026) : « dans la Réception, le lien rouge au-dessus de “Chercher” n'est plus
+            là, en plein écran comme en écran partagé. »
+
+            🔴 LA CAUSE, TROUVÉE DANS `git log` : le commit bf870025 (04/10, lot RENOMMER-PARTOUT-ET-FINITIONS,
+            point 6) a remplacé `etat.comptes.automatiques > 0` par `automatiquesAffiches > 0`. Le premier est le
+            nombre GLOBAL (22 098, jamais nul) ; le second est celui de CETTE liste — et il vaut **zéro** sous
+            « Réception », parce qu'aucun courrier automatique n'est reçu. Le lien s'est donc tu partout où il
+            comptait le plus. Ce n'était pas un oubli : c'était l'arbitrage « zéro ⇒ ni la phrase, ni le bouton ».
+
+            🔴 ARNO LE REVOIT : le lien revient, sans condition de nombre. Deux gardes seulement subsistent, et
+            elles sont ANTÉRIEURES à bf870025 — une recherche en cours (`cherche`), et une étiquette qui IMPOSE
+            le courrier automatique dans un sens ou dans l'autre (`impose`, c'est-à-dire la Corbeille et
+            « Courrier automatique »), où l'interrupteur n'a aucune prise.
+
+            ⚠️ LA PHRASE, ELLE, NE PARAÎT QUE SI ELLE A UN NOMBRE À DIRE. « 0 échange ne contient que du courrier
+            automatique » ne s'écrit pas, et surtout : le nombre GLOBAL affiché sous une liste qui ne l'ajouterait
+            jamais était exactement la plainte d'Arno au point 6. Le lien revient ; le faux nombre, non. */}
+        {!cherche && impose === null && (
           <span className="bte-tait">
             {/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — LES MOTS VIENNENT DU MODULE PARTAGÉ ════════
                 Ils étaient écrits ici, en JSX, et la colonne de l'écran partagé n'en avait aucun. Arno demande
                 « même libellé » aux deux écrans : la seule façon de le tenir est de n'avoir qu'une source.
                 ⚠️ LA PHRASE EST IDENTIQUE AU CARACTÈRE PRÈS à ce que ce JSX composait — elle a changé de maison,
                 pas de contenu, et une épreuve la fige mot pour mot. */}
-            {phraseCourrierAutomatique(automatiquesAffiches, auto, 'echange')}
-            {' '}
+            {automatiquesAffiches > 0 && (
+              <>{phraseCourrierAutomatique(automatiquesAffiches, auto, 'echange')}{' '}</>
+            )}
             <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => basculerAuto(!auto)}>
               {motBasculeAutomatique(auto)}
             </button>

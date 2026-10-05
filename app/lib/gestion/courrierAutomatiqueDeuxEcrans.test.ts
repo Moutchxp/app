@@ -178,12 +178,48 @@ describe('🔴🔴 ③ même libellé, même place, même état', () => {
   });
 
   /**
-   * 🔴 LE BOUTON NE PARAÎT QUE S'IL PEUT CHANGER QUELQUE CHOSE — arbitrage d'Arno au point 6, appliqué ici aussi.
-   * Et `onAuto` absent ⇒ pas de bouton : on ne propose jamais un geste qui n'irait nulle part.
+   * ══ 🔴🔴 CE VERDICT A CHANGÉ — LOT RECEPTION-COURRIER-AUTO-LIEN ═══════════════════════════════════════════════
+   *
+   * CETTE ÉPREUVE TENAIT : « ni phrase ni bouton quand le nombre est nul » — l'arbitrage d'Arno au point 6 du lot
+   * RENOMMER-PARTOUT-ET-FINITIONS. Elle a produit exactement ce qu'elle disait, et c'est devenu le défaut qu'il
+   * signale le 05/10/2026 : « le lien rouge au-dessus de “Chercher” n'est plus là, en plein écran comme en écran
+   * partagé ». Aucun message REÇU n'étant écarté par une règle, le nombre vaut zéro sur les deux écrans de
+   * Réception — et le lien s'est tu là où on le cherche.
+   *
+   * 🔴 NOUVELLE RÈGLE D'ARNO : le lien revient, sans condition de nombre. La PHRASE, elle, garde la sienne — un
+   * nombre global affiché sous une liste qui ne l'ajouterait jamais était précisément sa plainte au point 6.
+   *
+   * ⚠️ `onAuto` ABSENT ⇒ TOUJOURS PAS DE BOUTON : on ne propose jamais un geste qui n'irait nulle part. Cette
+   * moitié-là de la règle ne bouge pas.
    */
-  it('🔴 ni phrase ni bouton quand le nombre est nul, ou sans rappel', () => {
-    expect(BRC).toContain('etat.v === \'ok\' && onAuto !== undefined && etat.automatiquesIci !== null');
-    expect(BRC).toContain('&& etat.automatiquesIci > 0 && (');
+  it('🔴🔴 le bouton ne dépend plus du nombre — seule la PHRASE en dépend', () => {
+    expect(BRC).toContain('etat.v === \'ok\' && onAuto !== undefined && (');
+    /* 🔴 LA CONDITION DE NOMBRE EST PASSÉE SUR LA PHRASE, et sur elle seule. */
+    expect(BRC).toContain('{etat.automatiquesIci !== null && etat.automatiquesIci > 0 && (');
+    expect(BRC).toContain("phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')");
+  });
+
+  /**
+   * ══ 🔴🔴 LA GARDE DEMANDÉE PAR ARNO : « un test qui échoue si le lien disparaît de l'un des deux écrans » ════
+   *
+   * 🔴 ELLE REGARDE LES DEUX FICHIERS, ET LES MÊMES TROIS CHOSES DANS CHACUN : le MOT (qui vient du module
+   * partagé), le STYLE (`gst-lien-bouton`, le lien rouge qu'Arno nomme) et l'ÉTAT ANNONCÉ (`aria-pressed`). Un
+   * lien qui perdrait l'un des trois ne serait plus celui qu'il décrit.
+   *
+   * 🔴 ET ELLE REFUSE TOUTE CONDITION DE NOMBRE AUTOUR DU BOUTON — c'est la régression même : le bouton était
+   * encore écrit, il ne s'affichait simplement plus. Une épreuve qui se contenterait de chercher le mot dans le
+   * fichier serait passée au vert pendant toute la disparition.
+   */
+  it('🔴🔴 LE LIEN EXISTE SUR LES DEUX ÉCRANS, et rien ne le conditionne à un nombre', () => {
+    for (const [nom, src] of [['plein écran', BTE], ['écran partagé', BRC]] as const) {
+      expect(src, nom).toContain('motBasculeAutomatique(auto)');
+      expect(src, nom).toContain('className="gst-lien-bouton" aria-pressed={auto}');
+    }
+    /* 🔴 LE PLEIN ÉCRAN : la condition d'affichage ne retient que la recherche et l'étiquette imposée. */
+    expect(BTE).toContain('{!cherche && impose === null && (');
+    expect(BTE).not.toContain('impose === null && etat.comptes !== null && automatiquesAffiches > 0');
+    /* 🔴 L'ÉCRAN PARTAGÉ : elle ne retient que « le geste est possible ». */
+    expect(BRC).not.toContain('&& etat.automatiquesIci > 0 && (\n            <span');
   });
 
   /**

@@ -181,21 +181,25 @@ export function BoiteReception({
           {/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — L'INTERRUPTEUR, À LA MÊME PLACE QU'AU PLEIN
               ÉCRAN : sur la ligne du titre, poussé à droite, en plus petit. Même libellé, mêmes mots, même état.
 
-              🔴 ET IL NE PARAÎT QUE S'IL PEUT CHANGER QUELQUE CHOSE — c'est l'arbitrage rendu par Arno au point 6
-              de ce même lot : « zéro ⇒ ni la phrase, ni le bouton », pour que plus personne ne cherche un
-              changement impossible.
+              ══ 🔴🔴 LOT RECEPTION-COURRIER-AUTO-LIEN — IL REVIENT, SANS CONDITION DE NOMBRE ═══════════════════
 
-              ⚠️ ET AUJOURD'HUI IL NE PARAÎT PAS, pour une raison mesurée et non par prudence : hors spam, 17 017
-              messages sont REÇUS et **aucun** n'est écarté par une règle (les 24 891 écartés sont tous des
-              ENVOIS). Le câblage est pourtant complet — route `?auto=1`, même prédicat SQL, compteur jumeau,
-              état partagé — et il parlera le jour où une règle écartera un message reçu.
+              🔴 IL AVAIT DISPARU AVEC LE POINT 6 DU MÊME LOT (« zéro ⇒ ni la phrase, ni le bouton ») : aucun
+              message REÇU n'étant écarté par une règle, `automatiquesIci` vaut zéro ici — mesuré de nouveau le
+              05/10/2026 : 17 341 reçus, **zéro** écarté. Le lien s'est donc tu sur les deux écrans.
+
+              🔴 ARNO LE REVOIT (05/10/2026) : « remets-le exactement comme avant ». Il revient donc, à la même
+              place, avec le même libellé, le même style et le même état partagé.
+
+              ⚠️ LA PHRASE, ELLE, NE PARAÎT QUE SI ELLE A UN NOMBRE À DIRE : « 0 mail n'est pas affiché ici »
+              ne s'écrit pas. Le lien revient ; le faux nombre, non.
 
               ⚠️ UN `span`, PAS UN `p` : ce bloc vit dans un `h2`, et un paragraphe dans un titre est du HTML
               invalide. Le bouton, lui, y est parfaitement légitime. */}
-          {etat.v === 'ok' && onAuto !== undefined && etat.automatiquesIci !== null
-            && etat.automatiquesIci > 0 && (
+          {etat.v === 'ok' && onAuto !== undefined && (
             <span className="brc-tait">
-              {phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')}{' '}
+              {etat.automatiquesIci !== null && etat.automatiquesIci > 0 && (
+                <>{phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')}{' '}</>
+              )}
               <button type="button" className="gst-lien-bouton" aria-pressed={auto}
                 onClick={() => onAuto(!auto)}>
                 {motBasculeAutomatique(auto)}
