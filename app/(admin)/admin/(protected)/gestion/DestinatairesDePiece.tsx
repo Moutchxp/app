@@ -98,7 +98,11 @@ function LigneDestinataire({ p }: { p: PartieDestinataire }) {
 export const CSS_DESTINATAIRES_PIECE = `
 .ddp{list-style:none;margin:.15rem 0 0;padding:0;display:flex;flex-direction:column;gap:1px;min-width:0}
 .ddp-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem;min-width:0;font-size:.72rem}
-.ddp-mot{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 🔴 DEFAUT VU A L'ECRAN (bien-324, carte du 30/12/2025) : « → envoyé à la partie tiers indépendant » est plus
+   long que la carte, et le « i » passait SEUL a la ligne suivante — on ne savait plus a quelle phrase il se
+   rapporte. Une base de flex NULLE (flex:1 1 0) fait que le mot se retrecit le premier, et le « i » ne quitte
+   jamais sa ligne. Un min-width:0 seul ne suffisait pas : la base auto du mot valait sa largeur de texte. */
+.ddp-mot{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* ── LES QUATRE TONS ── Le MOT porte la couleur : c'est lui qu'on lit, et la flèche en fait partie. */
 .ddp-ligne--rouge .ddp-mot{color:var(--color-svv-red)}
 .ddp-ligne--vert .ddp-mot{color:var(--color-svv-green)}
