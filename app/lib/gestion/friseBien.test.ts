@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import {
   anneeAEcrire, bandeauxDesEvenements, bornesSurLaFrise, cleDuMois, joursDuMois, mailsRecus,
   moisDeLaFrise, moisSuivant, motDetailDuMois, motDuMois, motFriseTronquee, motRepere, motSurvolMail,
-  MOIS_MAX, MOIS_VISIBLES_PAR_DEFAUT, positionDansLeMois, positionSurLaFrise, reperesDoccupation,
+  MOIS_MAX, MOIS_VISIBLES_PAR_DEFAUT, motCourtRepere, positionDansLeMois, positionSurLaFrise,
+  reperesDoccupation,
   totauxParMois, type MailDeLaFrise,
 } from './friseBien';
 
@@ -196,6 +197,21 @@ describe('🔴🔴 ④ les repères d’entrée et de sortie', () => {
   it('⚠️ une occupation sans dates ne pose aucun repère', () => {
     expect(reperesDoccupation([{ libelle: 'INCONNU', depuis: null, jusqua: null }])).toEqual([]);
     expect(reperesDoccupation([{ libelle: 'X', depuis: '', jusqua: '' }])).toEqual([]);
+  });
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 2 — LE MOT COURT DU DRAPEAU ════════════════════════════════════════
+   *
+   * Arno : « petit drapeau en tête avec le texte court "Entrée" (vert) / "Sortie" (gris foncé) ».
+   *
+   * 🔴 LE MÊME MOT SERT LE DRAPEAU ET L'INFO-BULLE : deux écritures auraient fini par dire « Arrivée » d'un
+   * côté et « Entrée » de l'autre.
+   */
+  it('🔴🔴 le mot du drapeau est celui de l’info-bulle', () => {
+    expect(motCourtRepere('entree')).toBe('Entrée');
+    expect(motCourtRepere('sortie')).toBe('Sortie');
+    expect(motRepere({ sorte: 'entree', quand: '2025-02-06', libelle: 'VAGLIO' }))
+      .toBe(`${motCourtRepere('entree')} — VAGLIO`);
   });
 
   it('🔴 le mot du survol nomme le locataire', () => {

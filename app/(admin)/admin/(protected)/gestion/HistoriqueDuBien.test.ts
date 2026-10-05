@@ -5652,6 +5652,23 @@ describe('⑰-bis 🔴🔴 la frise chronologique', () => {
   });
 
   /**
+   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 2 — LE DRAPEAU PORTE UN MOT, PAS SEULEMENT UN PICTO ═══════════════
+   *
+   * Arno : « petit drapeau en tête avec le texte court "Entrée" (vert) / "Sortie" (gris foncé) ».
+   *
+   * 🔴 C'EST CE QUI LES DISTINGUE D'UN TRAIT DE MAIL : un mail n'a pas de drapeau, et aucun ne porte de mot.
+   * La couleur seule n'aurait pas suffi — le vert d'une entrée est celui d'un mail de locataire.
+   */
+  it('🔴🔴 chaque repère porte son mot court, lisible sans survol', async () => {
+    await monterFrise();
+    const mots = [...hote.querySelectorAll('.frs-repere-picto')].map((x) => x.textContent ?? '');
+    expect(mots.length).toBeGreaterThan(0);
+    for (const m of mots) expect(m, m).toMatch(/Entrée|Sortie/);
+    /* ⚠️ ET AUCUN TRAIT DE MAIL N'EN PORTE : c'est la différence qu'on doit voir d'un coup d'œil. */
+    expect(hote.querySelectorAll('.frs-trait .frs-repere-picto')).toHaveLength(0);
+  });
+
+  /**
    * 🔴🔴 LE FOND ORANGE DES ÉVÉNEMENTS — LES DEUX CAS QU'ARNO DEMANDE D'ÉPROUVER : un EN COURS (jusqu'à
    * aujourd'hui, et le titre le dit) et un CLOS (de l'ouverture à la clôture).
    */

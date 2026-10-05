@@ -250,7 +250,23 @@ export function reperesDoccupation(
 
 /** Le mot d'un repère, au survol. PUR. */
 export function motRepere(r: RepereOccupation): string {
-  return `${r.sorte === 'entree' ? 'Entrée' : 'Sortie'} — ${r.libelle}`;
+  return `${motCourtRepere(r.sorte)} — ${r.libelle}`;
+}
+
+/**
+ * ══ 🔴 LOT HISTORIQUE-BIEN-18, POINT 2 — LE MOT COURT DU DRAPEAU ════════════════════════════════════════════════
+ *
+ * Arno : « petit drapeau en tête avec le texte court "Entrée" (vert) / "Sortie" (gris foncé) ».
+ *
+ * 🔴 UN MOT, ET PAS SEULEMENT UN PICTO. « ▶ » et « ■ » ne disent rien à qui ne les a pas appris, et c'est le mot
+ * qui informe — la couleur et la forme ne font que l'appuyer. C'est la règle de tout ce module depuis la légende
+ * des barres.
+ *
+ * ⚠️ LE MÊME MOT SERT LE DRAPEAU ET L'INFO-BULLE : « Entrée » en tête, « Entrée — VAGLIO … » au survol. Deux
+ * écritures auraient fini par dire « Arrivée » d'un côté et « Entrée » de l'autre.
+ */
+export function motCourtRepere(sorte: 'entree' | 'sortie'): string {
+  return sorte === 'entree' ? 'Entrée' : 'Sortie';
 }
 
 /** Le bandeau orange d'un événement, borné à aujourd'hui quand il est encore ouvert. */

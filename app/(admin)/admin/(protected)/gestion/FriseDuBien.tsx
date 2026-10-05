@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   anneeAEcrire, bandeauxDesEvenements, bornesSurLaFrise, moisDeLaFrise, mailsRecus, motDetailDuMois,
   motDuMois, motFriseTronquee, motRepere, motSurvolMail, MOT_PLUS_ANCIEN, MOIS_VISIBLES_PAR_DEFAUT,
-  positionSurLaFrise, reperesDoccupation, totauxParMois, type MailDeLaFrise,
+  motCourtRepere, positionSurLaFrise, reperesDoccupation, totauxParMois, type MailDeLaFrise,
 } from '../../../../lib/gestion/friseBien';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 import { tonDeLExpediteur, type CategoriePartie, type OccupationPeriode }
@@ -214,7 +214,11 @@ export function FriseDuBien({
                 className={`frs-repere frs-repere--${r.sorte}`}
                 style={{ left: `calc(${x} / var(--frs-n) * 100%)` }}
                 title={motRepere(r)}>
-                <span className="frs-repere-picto" aria-hidden="true">{r.sorte === 'entree' ? '▶' : '■'}</span>
+                {/* 🔴 LE MOT COURT D'ARNO, et non un picto seul : « ▶ » ne dit rien à qui ne l'a pas appris. */}
+                <span className="frs-repere-picto">
+                  <span aria-hidden="true">{r.sorte === 'entree' ? '▶' : '■'}</span>
+                  {motCourtRepere(r.sorte)}
+                </span>
               </span>
             );
           })}
@@ -280,7 +284,7 @@ export const CSS_FRISE_DU_BIEN = `
    ⚠️ LE NOMBRE 12 EST ICI **ET** DANS LE MODULE PUR (MOIS_VISIBLES_PAR_DEFAUT) : une feuille de style ne peut
    pas lire une constante TypeScript. Une epreuve verifie qu'ils ne divergent pas. */
 .frs{position:relative;margin:.5rem 0 .2rem;min-width:0;
-  --frs-mois:max(56px, calc((100% - 2px) / 12));--frs-bas:26px;--frs-haut:78px}
+  --frs-mois:max(56px, calc((100% - 2px) / 12));--frs-bas:26px;--frs-haut:62px}
 .frs-cadre{overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:thin;
   border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);
   cursor:grab;touch-action:pan-x}
@@ -326,15 +330,37 @@ export const CSS_FRISE_DU_BIEN = `
    y entrait un jour, il serait gris neutre comme sa barre dans le listing, et non invisible. */
 .frs-trait--nous{background:var(--color-svv-line)}
 
-/* ── ③ LES REPERES D'ENTREE ET DE SORTIE ── un trait pleine hauteur, et son picto en tete. */
-.frs-repere{position:absolute;top:0;height:var(--frs-haut);width:0;display:flex;justify-content:center}
-.frs-repere::before{content:"";position:absolute;top:0;bottom:0;left:-1px;width:2px}
+/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 2 — LES REPERES D'ENTREE ET DE SORTIE, BEAUCOUP PLUS VISIBLES ══════════
+   DEMANDE D'ARNO : « trait EPAIS sur toute la hauteur haute, petit drapeau en tete avec le texte court
+   "Entree" (vert) / "Sortie" (gris fonce), et le nom au survol. Bien distincts des traits de mails. »
+
+   🔴 TROIS CHOSES LES DISTINGUENT D'UN TRAIT DE MAIL, ET IL EN FALLAIT TROIS : l'EPAISSEUR (3 px contre 3 px de
+   mail, mais pleine hauteur contre une hauteur reduite), le DRAPEAU en tete — un mail n'en a pas — et le MOT
+   qu'il porte. La couleur seule n'aurait pas suffi : le vert d'une entree est celui d'un mail de locataire.
+
+   🔴 LE DRAPEAU EST **AU-DESSUS** DE LA PARTIE HAUTE, pas dedans : il se lit sans recouvrir le moindre trait de
+   mail. C'est ce qui permet de le grossir sans rien cacher.
+
+   ⚠️ ENTREE ET SORTIE LE MEME JOUR (une relocation — c'est le cas de lot-146 le 22/10/2025) : la SORTIE se
+   decale a gauche et l'ENTREE a droite. Sans ce decalage, les deux drapeaux se recouvraient exactement et l'on
+   n'en lisait qu'un. Le trait, lui, reste a sa date — c'est le drapeau qui s'ecarte. */
+.frs-repere{position:absolute;top:0;height:var(--frs-haut);width:0;z-index:1}
+.frs-repere::before{content:"";position:absolute;top:0;bottom:0;left:-1.5px;width:3px;border-radius:1px}
 .frs-repere--entree::before{background:var(--color-svv-green)}
-.frs-repere--sortie::before{background:var(--color-svv-ink-soft)}
-.frs-repere-picto{position:relative;top:-1px;font-size:.6rem;line-height:1;padding:1px 2px;border-radius:2px;
-  background:var(--color-svv-surface)}
-.frs-repere--entree .frs-repere-picto{color:var(--color-svv-green)}
-.frs-repere--sortie .frs-repere-picto{color:var(--color-svv-ink-soft)}
+.frs-repere--sortie::before{background:var(--color-svv-ink)}
+.frs-repere-picto{position:absolute;top:1px;display:inline-flex;align-items:center;gap:2px;
+  font-size:.58rem;font-weight:700;line-height:1;padding:2px 4px;border-radius:3px;white-space:nowrap;
+  border:1px solid currentColor}
+/* 🔴 LE DECALAGE QUI EMPECHE LE CHEVAUCHEMENT : la sortie pose son drapeau a GAUCHE de son trait, l'entree a
+   DROITE. Le meme jour, les deux se lisent cote a cote. */
+/* 🔴🔴 LES JETONS DU BADGE « EN PLACE » (lot 13, point 3), ET NON le vert des traits : MESURE A L'ECRAN, le vert
+   de trait sur un fond vert pale ne donnait que 2,99 de contraste en Clair — sous le seuil de lisibilite AA.
+   La paire -green-soft / -green-ink existe justement pour ce cas, et elle est deja mesuree a 4,75 en Clair et
+   9,01 en Sombre. Le trait, lui, garde le vert vif : c'est un trait, pas un texte. */
+.frs-repere--entree .frs-repere-picto{left:3px;color:var(--color-svv-green-ink);
+  background:var(--color-svv-green-soft)}
+.frs-repere--sortie .frs-repere-picto{right:3px;color:var(--color-svv-ink);
+  background:color-mix(in srgb, var(--color-svv-ink) 10%, var(--color-svv-surface))}
 
 /* ── ⑤ LA PARTIE BASSE : UN BLOC PAR MOIS ── */
 .frs-mois-ligne{position:absolute;left:0;right:0;bottom:0;height:var(--frs-bas);
