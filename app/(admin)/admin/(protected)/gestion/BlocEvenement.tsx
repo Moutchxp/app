@@ -8,8 +8,12 @@ import { ChoisirEvenement } from './ChoisirEvenement';
  * — page de connexion comprise (incident du 24/09/2026). Le garde `clientBoundary.guard.test.ts` le vérifie.
  */
 import {
-  CATEGORIES_EVENEMENT, URGENCES_EVENEMENT, motCategorie, motUrgence, type EvenementDuMail,
+  bornesEvenement, CATEGORIES_EVENEMENT, NOTE_EVENEMENT_MAX, URGENCES_EVENEMENT,
+  motCategorie, motUrgence, type EvenementDuMail,
 } from '../../../../lib/gestion/evenementQualite';
+/* 🔴 LE JOUR D'AUJOURD'HUI À PARIS, par la fonction PURE qui le dit déjà dans ce dépôt — jamais `toISOString()`,
+   qui rend le jour UTC et change de date une heure par nuit. */
+import { jourParis } from '../../../../lib/gestion/historiqueBien';
 
 /**
  * 🔴 LOT CONTACTS-ET-EVENEMENT — LE BLOC « ÉVÉNEMENT RATTACHÉ », EN TÊTE DE L'ENCART.
@@ -40,8 +44,14 @@ import {
  * passe par `import type`, effacé à la compilation.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function BlocEvenement({ messageId, filId, biens, onGeste, onChange }: {
+export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jourDuMail = null }: {
   messageId: number;
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LE JOUR DU MAIL, `AAAA-MM-JJ`, pour préremplir la date d'ouverture
+   * de la carte neuve (accord d'Arno). `null`/absent ⇒ aujourd'hui, et c'est exactement le comportement d'avant
+   * ce lot (la base posait `now()`).
+   */
+  jourDuMail?: string | null;
   /** L'échange, pour la portée « toute la conversation ». `null` = seule la portée « ce mail » est offerte. */
   filId: number | null;
   /**
@@ -78,6 +88,16 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange }: {
   const [titre, setTitre] = useState('');
   const [categorie, setCategorie] = useState('');
   const [urgence, setUrgence] = useState('');
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les deux dates et la note (accord d'Arno).
+   *
+   * ⚠️ `dateDuMail` DÉCIDE DU PRÉREMPLISSAGE, et l'appelant la donne : « préremplie à la date du mail quand on
+   * vient d'un mail, sinon aujourd'hui ». Ce bloc vit TOUJOURS sous un mail — il a donc toujours la date — mais
+   * la propriété reste facultative pour que rien ne casse si un écran le monte sans elle.
+   */
+  const [ouvertLe, setOuvertLe] = useState('');
+  const [closLe, setClosLe] = useState('');
+  const [note, setNote] = useState('');
 
   const charger = useCallback(async () => {
     try {
@@ -145,12 +165,22 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange }: {
 
   const creer = async () => {
     if (titre.trim() === '') { setErreur('Donnez un titre à l’événement.'); return; }
+    /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — le refus des bornes vient du module PUR, et il ARRÊTE le geste
+       avant la requête. Le serveur le refuserait aussi (la contrainte de base est la dernière garde), mais une
+       phrase sous les deux champs se lit mieux qu'une erreur après l'envoi. */
+    const bornes = bornesEvenement(ouvertLe, closLe);
+    if (bornes.refus !== null) { setErreur(bornes.refus); return; }
     await agir('POST', {
       nouveau: {
         objet: titre.trim(),
         ...(qualifieDisponible ? { categorie: categorie === '' ? null : categorie } : {}),
         ...(qualifieDisponible ? { urgence: urgence === '' ? null : urgence } : {}),
         parties: partiesDesBiens(),
+        /* ⚠️ ON ENVOIE LES JOURS TELS QUELS : c'est le SQL qui les ancre à midi, heure de Paris, et c'est la
+           seule place où cette règle doit vivre. */
+        ouvertLe: bornes.ouvertLe,
+        closLe: bornes.closLe,
+        note: note.trim() === '' ? null : note.trim(),
       },
     }, `Événement créé et lié à ${portee === 'mail' ? 'ce mail' : 'la conversation'}.`);
   };
@@ -194,6 +224,11 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange }: {
                 setErreur(null);
                 // Le titre part du bien classé : c'est ce qu'on écrirait à la main neuf fois sur dix.
                 setTitre(biens[0] ? biens[0].libelle : '');
+                /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — « préremplie à la date du mail quand on vient d'un
+                   mail, sinon aujourd'hui » (Arno). Ce bloc vit sous un mail : c'est donc sa date. */
+                setOuvertLe(jourDuMail ?? jourParis(new Date()));
+                setClosLe('');
+                setNote('');
                 setPanneau('creer');
               }}>
               Créer un événement
@@ -255,7 +290,10 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange }: {
             categorie={categorie} onCategorie={setCategorie}
             urgence={urgence} onUrgence={setUrgence}
             qualifieDisponible={qualifieDisponible}
-            libellesDesBiens={biens.map((b) => b.libelle)} />
+            libellesDesBiens={biens.map((b) => b.libelle)}
+            ouvertLe={ouvertLe} onOuvertLe={setOuvertLe}
+            closLe={closLe} onClosLe={setClosLe}
+            note={note} onNote={setNote} />
 
           <div className="bev-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe}
@@ -297,6 +335,7 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange }: {
  */
 export function ChampsEvenement({
   titre, onTitre, categorie, onCategorie, urgence, onUrgence, qualifieDisponible, libellesDesBiens,
+  ouvertLe, onOuvertLe, closLe, onClosLe, note, onNote,
 }: {
   titre: string;
   onTitre: (v: string) => void;
@@ -308,13 +347,66 @@ export function ChampsEvenement({
   qualifieDisponible: boolean;
   /** Les biens auxquels la carte neuve sera rattachée — dits AVANT de valider. Vide = aucune. */
   libellesDesBiens: readonly string[];
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LES TROIS CHAMPS DEMANDÉS ══════════════════════════════════════
+   *
+   * ACCORD D'ARNO (06/10/2026) : « date d'ouverture » (préremplie à la date du mail quand on vient d'un mail,
+   * sinon aujourd'hui), « date de clôture » (facultative) et « note » (facultative).
+   *
+   * 🔴 LE PRÉREMPLISSAGE EST LA RESPONSABILITÉ DE L'APPELANT, et pas de ce composant : lui seul sait s'il vient
+   * d'un mail (et de quelle date) ou de nulle part. Un défaut posé ici aurait obligé à lui passer « la date du
+   * mail OU rien », c'est-à-dire la même information sous un autre nom.
+   *
+   * 🔴 DES JOURS CIVILS `AAAA-MM-JJ` (champs `type="date"`), jamais des instants : c'est une date qu'on DÉCLARE,
+   * et le SQL l'ancre à midi, heure de Paris.
+   */
+  ouvertLe: string;
+  onOuvertLe: (v: string) => void;
+  closLe: string;
+  onClosLe: (v: string) => void;
+  note: string;
+  onNote: (v: string) => void;
 }) {
+  /* 🔴 LE REFUS EST DIT ICI, SOUS LES DEUX CHAMPS QU'IL CONCERNE — et c'est le module PUR qui le formule. */
+  const refus = bornesEvenement(ouvertLe, closLe).refus;
   return (
     <>
       <label className="bev-champ">
         <span className="bev-label">Titre</span>
         <input className="bev-saisie" value={titre} onChange={(e) => onTitre(e.target.value)}
           placeholder="Ce dont il s’agit, en une ligne" />
+      </label>
+
+      {/* ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LES DEUX DATES, CÔTE À CÔTE ════════════════════════════
+          Elles se répondent : l'une ouvre, l'autre clôt. Les séparer aurait fait chercher la seconde.
+
+          ⚠️ LA CLÔTURE EST FACULTATIVE, ET SON ABSENCE EST DITE : sans ce mot, un champ de date vide se lit
+          comme un champ qu'on a oublié de remplir. */}
+      <div className="bev-deux">
+        <label className="bev-champ">
+          <span className="bev-label">Date d’ouverture</span>
+          <input className="bev-saisie" type="date" value={ouvertLe}
+            onChange={(e) => onOuvertLe(e.target.value)} />
+        </label>
+        <label className="bev-champ">
+          <span className="bev-label">Date de clôture (facultative)</span>
+          <input className="bev-saisie" type="date" value={closLe}
+            onChange={(e) => onClosLe(e.target.value)} />
+        </label>
+      </div>
+      {/* 🔴 CE QUE LA CLÔTURE VEUT DIRE, DIT AVANT DE VALIDER : la base lie l'état et la date de clôture
+          (`CHECK ((etat = 'traite') = (traite_le IS NOT NULL))`), et une carte datée naît donc CLOSE. */}
+      {closLe.trim() !== '' && refus === null && (
+        <p className="bev-note">La carte sera créée déjà CLÔTURÉE à cette date.</p>
+      )}
+      {refus !== null && <p className="bev-refus" role="alert">{refus}</p>}
+
+      <label className="bev-champ">
+        <span className="bev-label">Note (facultative)</span>
+        <textarea className="bev-saisie bev-note-saisie" value={note} rows={3}
+          maxLength={NOTE_EVENEMENT_MAX}
+          onChange={(e) => onNote(e.target.value)}
+          placeholder="Ce qu’il faut savoir pour reprendre ce dossier" />
       </label>
 
       {/* ⚠️ SANS LA MIGRATION 268, ces deux champs n'auraient nulle part où s'écrire : on ne les propose pas. */}
@@ -374,5 +466,10 @@ export const CSS_BLOC_EVENEMENT = `
 .bev-deux{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:0}
 @media (max-width:720px){.bev-deux{grid-template-columns:1fr}}
 .bev-note{margin:.35rem 0 0;font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+/* LOT RATTACHEMENT-PONCTUEL, POINT 0 — le refus des deux dates, et la note.
+   LE REFUS EST ECRIT, pas seulement colore : une couleur seule ne se lit ni en niveaux de gris ni pour un
+   daltonien. Le jeton rouge ne fait que l'appuyer. */
+.bev-refus{margin:.35rem 0 0;font-size:.78rem;font-weight:700;color:var(--color-svv-red);overflow-wrap:anywhere}
+.bev-note-saisie{min-height:60px;resize:vertical;line-height:1.4}
 .bev-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:8px}
 `;

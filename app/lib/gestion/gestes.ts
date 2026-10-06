@@ -16,7 +16,10 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { adresseProposee, nettoyerObjet } from './objet';
 import { deplacementsDeMailsDisponibles, evenementQualifieDisponible } from './schema';
-import { categorieValide, urgenceValide, type EvenementDuMail } from './evenementQualite';
+import {
+  /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les bornes et la note, décidées par le module PUR. */
+  bornesEvenement, categorieValide, noteEvenement, urgenceValide, type EvenementDuMail,
+} from './evenementQualite';
 
 /**
  * LOT 4d-B2 — « cette affectation porte sur TOUT l'échange », en SQL.
@@ -90,6 +93,26 @@ export interface NouvelEvenement {
    * Demande d'Arno : « le nouvel événement est rattaché au bien identifié, à son propriétaire et à son locataire ».
    */
   parties?: readonly { sorte: 'lot' | 'proprietaire' | 'locataire'; cle: string; libelle?: string | null }[];
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LES DEUX DATES ET LA NOTE ═══════════════════════════════════════
+   *
+   * ACCORD D'ARNO (06/10/2026) : « date d'ouverture » (préremplie à la date du mail quand on vient d'un mail,
+   * sinon aujourd'hui), « date de clôture » (facultative) et « note » (facultative).
+   *
+   * 🔴 AUCUNE MIGRATION : `gestion_evenement` porte déjà `ouvert_le`, `traite_le` et `note` — ce qui manquait
+   * était le chemin, pas la place. Vérifié en base avant d'écrire une ligne.
+   *
+   * ⚠️ DES JOURS CIVILS `AAAA-MM-JJ`, et non des instants. Ils sont ancrés à **midi, heure de Paris** par le SQL,
+   * comme toute date DÉCLARÉE dans ce dépôt : à minuit, un décalage d'une heure fait changer de jour, et la carte
+   * s'ouvrirait la veille. Les bornes sont validées par `bornesEvenement` (module pur) avant d'arriver ici.
+   *
+   * ⚠️ `ouvertLe` ABSENT ⇒ LA BASE POSE `now()`, comme avant ce lot. `closLe` présent ⇒ la carte naît CLOSE
+   * (`etat = 'traite'`), parce que la contrainte `gestion_evenement_traite_chk` lie les deux — et parce que
+   * c'est ce que « donner une date de clôture » veut dire.
+   */
+  ouvertLe?: string | null;
+  closLe?: string | null;
+  note?: string | null;
 }
 
 /**
@@ -100,6 +123,8 @@ export interface NouvelEvenement {
  */
 export {
   CATEGORIES_EVENEMENT, URGENCES_EVENEMENT, categorieValide, urgenceValide, motCategorie, motUrgence,
+  /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les deux dates et la note d'une carte neuve. */
+  bornesEvenement, jourCivil, noteEvenement, MOT_CLOTURE_AVANT_OUVERTURE, NOTE_EVENEMENT_MAX,
 } from './evenementQualite';
 export type { EvenementDuMail } from './evenementQualite';
 
@@ -126,19 +151,58 @@ async function creerEvenementDansTransaction(
   q: RequeteTx, n: NouvelEvenement, auteur: Auteur, qualifie: boolean,
 ): Promise<{ id: number; reference: string }> {
   const objet = texte(nettoyerObjet(texte(n.objet)));
+  /**
+   * 🔴🔴 LES BORNES SONT VALIDÉES AVANT D'ÉCRIRE, par le module PUR, et un refus LÈVE : laisser passer une
+   * clôture antérieure à l'ouverture aurait faussé tout compte de durée, et la carte serait restée fausse.
+   */
+  const bornes = bornesEvenement(n.ouvertLe, n.closLe);
+  if (bornes.refus !== null) throw new Error(bornes.refus);
   const reference = await prochaineReference(q, new Date().getFullYear());
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LES DEUX DATES ET LA NOTE, DANS LE SEUL CHEMIN D'ÉCRITURE ══════
+   *
+   * 🔴 ANCRÉES À MIDI, HEURE DE PARIS (`'<jour> 12:00:00'::timestamp AT TIME ZONE 'Europe/Paris'`), la forme
+   * déjà employée pour toute date DÉCLARÉE dans ce dépôt (`reponsesSuivi`). À minuit, une heure de décalage fait
+   * changer de jour, et la carte s'ouvrirait la veille de ce qu'on a saisi.
+   *
+   * 🔴 `coalesce(…, now())` SUR L'OUVERTURE : la colonne est NOT NULL, et son défaut est `now()`. Un paramètre
+   * nul doit donc retomber sur ce défaut, et non faire échouer l'insertion.
+   *
+   * 🔴 L'ÉTAT SUIT LA CLÔTURE, PARCE QUE LA BASE L'EXIGE : `CHECK ((etat = 'traite') = (traite_le IS NOT NULL))`.
+   * Une clôture sans état, ou l'inverse, serait refusée — les deux s'écrivent donc d'un seul geste, et
+   * `traite_par` nomme qui l'a décidé.
+   */
+  const jourParis = (p: string) => `(($${p} || ' 12:00:00')::timestamp AT TIME ZONE 'Europe/Paris')`;
   const { rows } = await q<{ id: number }>(
     qualifie
       ? `INSERT INTO gestion_evenement (reference, objet, demandeur_nom, demandeur_email, adresse_libre,
-           categorie, urgence, ouvert_par, ouvert_par_libelle)
-         VALUES ($1,$2,$3,$4,$5,$8,$9,$6,$7) RETURNING id::int AS id`
-      : `INSERT INTO gestion_evenement (reference, objet, demandeur_nom, demandeur_email, adresse_libre, ouvert_par, ouvert_par_libelle)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id::int AS id`,
+           categorie, urgence, ouvert_par, ouvert_par_libelle,
+           ouvert_le, traite_le, etat, traite_par, traite_par_libelle, note)
+         VALUES ($1,$2,$3,$4,$5,$8,$9,$6,$7,
+           coalesce(${jourParis('10')}, now()),
+           ${jourParis('11')},
+           CASE WHEN $11::text IS NULL THEN 'a_traiter' ELSE 'traite' END,
+           CASE WHEN $11::text IS NULL THEN NULL ELSE $6::bigint END,
+           CASE WHEN $11::text IS NULL THEN NULL ELSE $7::text END,
+           $12)
+         RETURNING id::int AS id`
+      : `INSERT INTO gestion_evenement (reference, objet, demandeur_nom, demandeur_email, adresse_libre,
+           ouvert_par, ouvert_par_libelle,
+           ouvert_le, traite_le, etat, traite_par, traite_par_libelle, note)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,
+           coalesce(${jourParis('8')}, now()),
+           ${jourParis('9')},
+           CASE WHEN $9::text IS NULL THEN 'a_traiter' ELSE 'traite' END,
+           CASE WHEN $9::text IS NULL THEN NULL ELSE $6::bigint END,
+           CASE WHEN $9::text IS NULL THEN NULL ELSE $7::text END,
+           $10)
+         RETURNING id::int AS id`,
     qualifie
       ? [reference, objet, texte(n.demandeurNom), texte(n.demandeurEmail), texte(n.adresseLibre),
-        auteur.id, auteur.libelle, categorieValide(n.categorie), urgenceValide(n.urgence)]
+        auteur.id, auteur.libelle, categorieValide(n.categorie), urgenceValide(n.urgence),
+        bornes.ouvertLe, bornes.closLe, noteEvenement(n.note)]
       : [reference, objet, texte(n.demandeurNom), texte(n.demandeurEmail), texte(n.adresseLibre),
-        auteur.id, auteur.libelle]);
+        auteur.id, auteur.libelle, bornes.ouvertLe, bornes.closLe, noteEvenement(n.note)]);
   const id = rows[0].id;
   await journaliser(q, 'evenement', id, 'ouverture', auteur, `carte ${reference} ouverte depuis un échange`);
 

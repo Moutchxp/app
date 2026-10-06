@@ -50,6 +50,8 @@ import { ApercuFichierDrive } from './ApercuFichierDrive';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
 import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
+/* 🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — le jour d'un instant À PARIS, par la fonction pure qui le dit déjà. */
+import { jourParis } from '../../../../lib/gestion/historiqueBien';
 import { MenuDiscret } from './MenuDiscret';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
@@ -2961,6 +2963,10 @@ export function MessageConversation({
               rattachements (migration 257 appliquée) — sinon rien, et le message est exactement celui d'avant. */}
           {onRattachement && (
             <EncartRattachement messageId={message.messageId} filId={filId} liens={rattachements}
+              /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — la date de CE mail, pour préremplir l'ouverture d'une
+                 carte neuve (accord d'Arno). `jourParis` et non `toISOString()` : le jour UTC change de date une
+                 heure par nuit, et la carte s'ouvrirait la veille. */
+              jourDuMail={jourParis(new Date(message.recuLe))}
               /* 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — les deux autres réponses vertes : « Interne » porte sur
                  l'ÉCHANGE (migration 281), « Hors gestion » sur CE mail (migration 266). Sans elles, le bloc
                  aurait proposé deux boutons au-dessus d'un mail déjà classé. */

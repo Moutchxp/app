@@ -51,6 +51,9 @@ import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 /* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — le formulaire de création et la recherche d'événements, RÉEMPLOYÉS
    et non recopiés (voir l'encadré de `ChampsEvenement`). Le type vient du module PUR. */
 import { ChampsEvenement, CSS_BLOC_EVENEMENT } from './BlocEvenement';
+/* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les bornes de la carte neuve, décidées par le module PUR. */
+import { bornesEvenement } from '../../../../lib/gestion/evenementQualite';
+import { jourParis } from '../../../../lib/gestion/historiqueBien';
 import { ChoisirEvenement } from './ChoisirEvenement';
 import type { EvenementDuMail } from '../../../../lib/gestion/evenementQualite';
 
@@ -284,7 +287,11 @@ export function RattachementsDuFil({
    */
   const [evtVoulu, setEvtVoulu] = useState<
     { sorte: 'lier'; evenementId: number; mot: string }
-    | { sorte: 'creer'; objet: string; categorie: string; urgence: string }
+    | {
+      sorte: 'creer'; objet: string; categorie: string; urgence: string;
+      /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les jours civils retenus, et la note. */
+      ouvertLe: string | null; closLe: string | null; note: string | null;
+    }
     | null
   >(null);
   /** Le panneau ouvert sous la ligne « Événement rattaché » : la recherche, le formulaire, ou rien. */
@@ -293,6 +300,10 @@ export function RattachementsDuFil({
   const [evtTitre, setEvtTitre] = useState('');
   const [evtCategorie, setEvtCategorie] = useState('');
   const [evtUrgence, setEvtUrgence] = useState('');
+  /** 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les deux dates et la note de la carte neuve (accord d'Arno). */
+  const [evtOuvertLe, setEvtOuvertLe] = useState('');
+  const [evtClosLe, setEvtClosLe] = useState('');
+  const [evtNote, setEvtNote] = useState('');
   /**
    * L'événement DÉJÀ posé sur ce mail, et si la migration 268 est là. Lus par la route que le bloc de l'encart
    * emploie déjà — une seule question, une seule réponse.
@@ -460,6 +471,17 @@ export function RattachementsDuFil({
    * `onCochesChange`), et les deux cartes de noms se superposent — les rattachés d'abord, les cochés ensuite.
    */
   const libellesDuMail: Record<string, string> = { ...libellesCoches, ...libellesConnus };
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LE JOUR DU MAIL DE CETTE FENÊTRE, `AAAA-MM-JJ`.
+   *
+   * Il préremplit la date d'ouverture d'une carte neuve (« préremplie à la date du mail », Arno). Il vient de
+   * l'en-tête que le serveur a rendu — la même source que la phrase « Gestion · mercredi 30 septembre… ».
+   *
+   * ⚠️ `null` TANT QUE LA FICHE N'A PAS RÉPONDU, et le formulaire retombe alors sur aujourd'hui : on ne devine
+   * pas une date, et un champ vide se lirait comme un oubli.
+   */
+  const jourDuMailDeLaFenetre = fiche?.enTete?.recuLe == null
+    ? null : jourParis(new Date(fiche.enTete.recuLe));
 
   /**
    * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — L'ÉVÉNEMENT DÉJÀ POSÉ SUR CE MAIL, et la migration 268.
@@ -679,6 +701,11 @@ export function RattachementsDuFil({
           ...(evtDuMail?.qualifie === true
             ? { urgence: voulu.urgence === '' ? null : voulu.urgence } : {}),
           parties: partiesDesBiens(fraiche, voulus),
+          /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les deux dates et la note, telles que le formulaire les a
+             retenues. C'est le SQL qui les ancre à midi, heure de Paris. */
+          ouvertLe: voulu.ouvertLe,
+          closLe: voulu.closLe,
+          note: voulu.note,
         },
       };
     try {
@@ -1043,6 +1070,13 @@ export function RattachementsDuFil({
                                fois sur dix. Il reste entièrement modifiable. */
                             const premiere = (selection ?? clesDuMail)[0];
                             setEvtTitre(premiere === undefined ? '' : (libellesDuMail[premiere] ?? premiere));
+                            /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — « préremplie à la date du mail quand on
+                               vient d'un mail, sinon aujourd'hui » (Arno). Cette fenêtre porte TOUJOURS sur un
+                               mail, et son en-tête en donne la date ; le repli n'existe que si la fiche n'a pas
+                               encore répondu. */
+                            setEvtOuvertLe(jourDuMailDeLaFenetre ?? jourParis(new Date()));
+                            setEvtClosLe('');
+                            setEvtNote('');
                             setPanneauEvt('creer');
                           }}>
                           Créer un événement
@@ -1093,7 +1127,10 @@ export function RattachementsDuFil({
                         categorie={evtCategorie} onCategorie={setEvtCategorie}
                         urgence={evtUrgence} onUrgence={setEvtUrgence}
                         qualifieDisponible={evtDuMail?.qualifie === true}
-                        libellesDesBiens={(selection ?? clesDuMail).map((c) => libellesDuMail[c] ?? c)} />
+                        libellesDesBiens={(selection ?? clesDuMail).map((c) => libellesDuMail[c] ?? c)}
+                        ouvertLe={evtOuvertLe} onOuvertLe={setEvtOuvertLe}
+                        closLe={evtClosLe} onClosLe={setEvtClosLe}
+                        note={evtNote} onNote={setEvtNote} />
                       <div className="rdf-evt-boutons">
                         {/* ⚠️ « Annuler » NE CRÉE RIEN, et ne garde rien : demande d'Arno, mot pour mot. */}
                         <button type="button" className="svv-btn svv-btn-outline gst-btn"
@@ -1102,10 +1139,15 @@ export function RattachementsDuFil({
                         </button>
                         {/* 🔴 IL NE CRÉE PAS : il NOTE. La création part avec « Valider le suivi ». */}
                         <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                          disabled={evtTitre.trim() === ''}
+                          disabled={evtTitre.trim() === '' || bornesEvenement(evtOuvertLe, evtClosLe).refus !== null}
                           onClick={() => {
+                            const bornes = bornesEvenement(evtOuvertLe, evtClosLe);
+                            if (bornes.refus !== null) { setErreur(bornes.refus); return; }
                             setEvtVoulu({
                               sorte: 'creer', objet: evtTitre, categorie: evtCategorie, urgence: evtUrgence,
+                              ouvertLe: bornes.ouvertLe,
+                              closLe: bornes.closLe,
+                              note: evtNote.trim() === '' ? null : evtNote.trim(),
                             });
                             setPanneauEvt('aucun');
                           }}>

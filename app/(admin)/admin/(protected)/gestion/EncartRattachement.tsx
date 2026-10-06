@@ -136,8 +136,17 @@ interface ArgumentsClassement {
 export function EncartRattachement({
   messageId, filId, liens, interne = null, horsGestion = false, onInterne, onHorsGestion,
   onChange, onGeste, onHistorique, mailsDuFil = [], choixInterne = 'conversation', leveeExterne = null,
-  onLeveeAnnulee,
+  onLeveeAnnulee, jourDuMail = null,
 }: {
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LE JOUR DE CE MAIL, `AAAA-MM-JJ`.
+   *
+   * Il traverse ce bloc sans y servir : c'est le formulaire de création d'événement, en dessous, qui s'en sert
+   * pour préremplir sa date d'ouverture. Seul l'écran qui monte ce bloc connaît la date du mail.
+   *
+   * ⚠️ `null`/absent ⇒ le formulaire retombe sur aujourd'hui, comportement d'avant ce lot.
+   */
+  jourDuMail?: string | null;
   messageId: number;
   /**
    * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE QUI MANQUAIT POUR QUE LES DEUX CASES AIENT UN SENS ═══════════════
@@ -1050,6 +1059,9 @@ export function EncartRattachement({
           L'événement est FACULTATIF et ne change jamais la capsule de statut (qui dépend du bien) : « aucun » est
           une réponse normale. Lier, créer et délier sont ici, et leurs panneaux s'ouvrent JUSTE SOUS la ligne. */}
       <BlocEvenement messageId={messageId} filId={filId ?? null}
+        /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — la date du mail préremplit l'ouverture d'une carte neuve
+           (accord d'Arno). Absente ⇒ aujourd'hui, c'est-à-dire le comportement d'avant ce lot. */
+        jourDuMail={jourDuMail}
         biens={vivants
           .filter((l) => l.cible.sorte === 'lot' && l.cible.cle !== null)
           .map((l) => ({ cle: l.cible.cle as string, libelle: l.libelle, parties: [] }))}
