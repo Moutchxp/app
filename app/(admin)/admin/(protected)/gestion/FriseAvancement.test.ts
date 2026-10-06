@@ -287,6 +287,66 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
   });
 });
 
+describe('②bis « Modifier » dans la bulle (lot ATTENTION-ET-MODIFIER)', () => {
+  /**
+   * ══ 🔴🔴 DEMANDE D'ARNO (06/10/2026) ═══════════════════════════════════════════════════════════════════════
+   *
+   * « dans la bulle d'une étape ou d'une information ajoutée à la main, ajoute “Modifier”, à côté de “Retirer”.
+   * Il rouvre le même formulaire prérempli (type, date, heure, texte) et passe par la route PATCH existante.
+   * Les étapes Monga restent non modifiables. »
+   */
+  it('🔴 « Modifier » est offert à côté de « Retirer », sur une étape MANUELLE seulement', () => {
+    expect(FRISE).toContain('onClick={() => onModifier(e)}');
+    expect(FRISE).toMatch(/onModifier\(e\)\}>\s*\n\s*Modifier\s*\n/);
+    /* 🔴 LES DEUX GESTES SONT GARDÉS PAR LA MÊME CONDITION. */
+    const i = FRISE.indexOf('onClick={() => onModifier(e)}');
+    expect(FRISE.slice(Math.max(0, i - 300), i)).toContain("e.source === 'manuelle'");
+  });
+
+  /**
+   * 🔴🔴 LE MÊME FORMULAIRE, ET NON UN SECOND. Un panneau d'édition écrit à part aurait fini par proposer
+   * d'autres types que l'ajout, ou par oublier la bascule « Étape / Simple information ».
+   */
+  it('🔴🔴 c’est le MÊME panneau, prérempli', () => {
+    expect(FRISE).toContain('modifie: EtapeAAfficher | null;');
+    expect(FRISE).toContain("setForme(estRepere(modifie.type) ? 'information' : 'etape');");
+    expect(FRISE).toContain('setJour(modifie.survenuLe.slice(0, 10));');
+    expect(FRISE).toContain("setHeure(modifie.heureConnue ? modifie.survenuLe.slice(11, 16) : '');");
+    expect(FRISE).toContain("setTexte(modifie.texte ?? '');");
+  });
+
+  /**
+   * ⚠️ LE PRÉREMPLISSAGE NE DÉPEND QUE DE L'IDENTIFIANT. Sans cela, chaque frappe dans le champ « texte »
+   * redéclencherait l'effet et réécrirait ce qu'on vient de taper.
+   */
+  it('⚠️ le préremplissage ne se rejoue pas à chaque frappe', () => {
+    expect(FRISE).toContain('}, [modifie?.id]);');
+  });
+
+  /** 🔴 LA ROUTE PATCH EXISTANTE, et le POST reste pour l'ajout : deux portes déjà écrites, aucune nouvelle. */
+  it('🔴 modifier passe par PATCH /etapes/[id], ajouter par POST /frise', () => {
+    expect(FRISE).toContain("method: 'PATCH', headers: { 'Content-Type': 'application/json' }");
+    expect(FRISE).toContain("geste: 'modifier'");
+    expect(FRISE).toContain('const res = modifie === null');
+  });
+
+  /**
+   * ⚠️ LE MONTANT EST RENVOYÉ TEL QUEL : `modifierEtapeManuelle` l'écrit, et l'omettre l'effacerait — un devis
+   * manuel perdrait son montant au premier changement de texte.
+   */
+  it('⚠️ modifier ne perd pas le montant', () => {
+    expect(FRISE).toContain('montantCents: modifie.montantCents');
+  });
+
+  /**
+   * ⚠️ LA PIÈCE NE SE MODIFIE PAS : `modifierEtapeManuelle` ne la touche pas, et un champ qui ne s'enregistre
+   * pas est pire qu'un champ absent. Elle reste offerte à l'AJOUT.
+   */
+  it('⚠️ le champ « pièce jointe » disparaît en modification', () => {
+    expect(FRISE).toContain('{modifie === null && <div className="frs-ajout-ligne">');
+  });
+});
+
 describe('③ le bloc « Événements » de la fiche du bien', () => {
   /**
    * 🔴🔴 « UNIQUEMENT SI LE BIEN A AU MOINS UN ÉVÉNEMENT » + « Rien d'autre ne bouge dans la fiche (preuve

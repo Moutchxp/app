@@ -13,7 +13,7 @@ import {
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
 } from '../../../../lib/gestion/frise';
 import {
-  motEtape, TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape,
+  estRepere, motEtape, TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape,
 } from '../../../../lib/gestion/mongaEtape';
 
 /**
@@ -92,6 +92,18 @@ export function FriseAvancement({
    * pointillé “Acceptation du devis” (même effet) » — Arno. Le panneau s'ouvre avec son type déjà choisi.
    */
   const [typePose, setTypePose] = useState<TypeEtape | null>(null);
+  /**
+   * 🔴🔴 LOT ATTENTION-ET-MODIFIER — L'ÉTAPE MANUELLE QU'ON MODIFIE. `null` = on ajoute.
+   *
+   * DEMANDE D'ARNO : « dans la bulle d'une étape ou d'une information ajoutée à la main, ajoute “Modifier”, à
+   * côté de “Retirer”. Il rouvre le même formulaire prérempli (type, date, heure, texte) et passe par la route
+   * PATCH existante. Les étapes Monga restent non modifiables. »
+   *
+   * 🔴 LE MÊME FORMULAIRE, ET NON UN SECOND. Un panneau d'édition écrit à part aurait fini par proposer d'autres
+   * types que l'ajout, ou par oublier la bascule « Étape / Simple information ». C'est le même composant, avec
+   * une valeur de départ.
+   */
+  const [modifie, setModifie] = useState<EtapeAAfficher | null>(null);
   const [occupe, setOccupe] = useState(false);
   /** Reste-t-il du contenu caché à gauche / à droite ? Décide des flèches « ‹ › » (Arno). */
   const [bords, setBords] = useState({ gauche: false, droite: false });
@@ -199,9 +211,11 @@ export function FriseAvancement({
       {/* ══ LE PANNEAU D'AJOUT, AU-DESSUS DE LA FRISE (Arno : « dans une petite fenêtre au-dessus de la frise ») */}
       {ajout && (
         <AjouterEtape
-          evenementId={evenementId} typeImpose={typePose}
-          onFermer={() => { setAjout(false); setTypePose(null); }}
-          onFait={(m) => { onGeste?.(m); setAjout(false); setTypePose(null); void charger(); }}
+          evenementId={evenementId} typeImpose={typePose} modifie={modifie}
+          onFermer={() => { setAjout(false); setTypePose(null); setModifie(null); }}
+          onFait={(m) => {
+            onGeste?.(m); setAjout(false); setTypePose(null); setModifie(null); void charger();
+          }}
         />
       )}
 
@@ -263,6 +277,7 @@ export function FriseAvancement({
       <div className="frs-zone" aria-live="polite">
         {detailAffiche !== null && <BulleDetail
           e={detailAffiche} occupe={occupe} onOuvrirFil={onOuvrirFil}
+          onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); }}
           onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
           onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
           mot={motDuDetail} />}
@@ -488,12 +503,14 @@ function Carre({
  * fini par diverger sur la phrase « mail supprimé — étape conservée ».
  */
 function BulleDetail({
-  e, mot, occupe, onOuvrirFil, onMontant, onRetirer,
+  e, mot, occupe, onOuvrirFil, onMontant, onRetirer, onModifier,
 }: {
   e: EtapeAAfficher; mot: string; occupe: boolean;
   onOuvrirFil?: (filId: number) => void;
   onMontant: (id: number, cents: number | null) => void;
   onRetirer: (id: number) => void;
+  /** 🔴 LOT ATTENTION-ET-MODIFIER — rouvrir le formulaire, prérempli avec cette étape. */
+  onModifier: (e: EtapeAAfficher) => void;
 }) {
   const ouvrable = etapeOuvrable(e) && onOuvrirFil !== undefined;
   return (
@@ -513,7 +530,16 @@ function BulleDetail({
             {motMailDOrigine(e)}
           </button>
         )}
-        {/* 🔴 MODIFIER OU RETIRER UNE ÉTAPE MANUELLE : « menu “…” sur son carré ou dans sa bulle » (Arno). */}
+        {/**
+          * 🔴 MODIFIER ET RETIRER, CÔTE À CÔTE, ET SEULEMENT SUR UNE ÉTAPE MANUELLE (Arno : « Les étapes Monga
+          * restent non modifiables »). La garde d'affichage double celle du dépôt, qui refuse en SQL : un bouton
+          * qu'on ne devrait pas voir est une invitation à découvrir un refus.
+          */}
+        {e.source === 'manuelle' && (
+          <button type="button" className="frs-lien" disabled={occupe} onClick={() => onModifier(e)}>
+            Modifier
+          </button>
+        )}
         {e.source === 'manuelle' && (
           <button type="button" className="frs-lien" disabled={occupe} onClick={() => onRetirer(e.id)}>
             Retirer
@@ -564,9 +590,17 @@ function ChampMontant({
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 function AjouterEtape({
-  evenementId, typeImpose, onFermer, onFait,
+  evenementId, typeImpose, modifie, onFermer, onFait,
 }: {
   evenementId: number; typeImpose: TypeEtape | null;
+  /**
+   * 🔴🔴 LOT ATTENTION-ET-MODIFIER — L'ÉTAPE MANUELLE QU'ON MODIFIE. `null` = on ajoute.
+   *
+   * Arno : « Il rouvre le MÊME formulaire prérempli (type, date, heure, texte) et passe par la route PATCH
+   * existante. » Un second panneau d'édition aurait fini par proposer d'autres types, ou par oublier la bascule
+   * « Étape / Simple information ».
+   */
+  modifie: EtapeAAfficher | null;
   onFermer: () => void; onFait: (message: string) => void;
 }) {
   /**
@@ -586,6 +620,22 @@ function AjouterEtape({
     if (typeImpose !== null) { setType(typeImpose); setForme('etape'); }
   }, [typeImpose]);
 
+  /**
+   * 🔴 LE PRÉREMPLISSAGE, UNE SEULE FOIS PAR ÉTAPE OUVERTE. Il ne dépend que de l'identifiant : sans cela,
+   * chaque frappe dans le champ « texte » redéclencherait l'effet et réécrirait ce qu'on vient de taper.
+   *
+   * ⚠️ `survenuLe` SE DÉCOUPE, il ne passe pas par un `Date` : le fuseau du lecteur ne doit pas décaler le jour
+   * d'un rendez-vous. Même règle que dans `frise.ts`.
+   */
+  useEffect(() => {
+    if (modifie === null) return;
+    setForme(estRepere(modifie.type) ? 'information' : 'etape');
+    setType(modifie.type);
+    setJour(modifie.survenuLe.slice(0, 10));
+    setHeure(modifie.heureConnue ? modifie.survenuLe.slice(11, 16) : '');
+    setTexte(modifie.texte ?? '');
+  }, [modifie?.id]);
+
   /* ⚠️ CHANGER DE FORME CHANGE LE TYPE s'il ne convient plus : sinon on poserait une « Clôture » en point. */
   useEffect(() => {
     const liste = forme === 'etape' ? TYPES_AJOUTABLES : TYPES_INFORMATION;
@@ -596,20 +646,32 @@ function AjouterEtape({
     if (occupe || jour === '') return;
     setOccupe(true);
     try {
-      const res = await fetch(`/api/admin/gestion/evenements/${evenementId}/frise`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type,
-          survenuLe: heure === '' ? jour : `${jour}T${heure}`,
-          heureConnue: heure !== '',
-          texte: texte.trim() === '' ? null : texte.trim(),
-          pieceNom: piece.trim() === '' ? null : piece.trim(),
-        }),
-      });
+      /**
+       * 🔴 LA MÊME SAISIE, DEUX PORTES — et ce sont les portes QUI EXISTAIENT DÉJÀ (Arno : « passe par la route
+       * PATCH existante »). Rien de neuf côté serveur : `POST …/frise` ajoute, `PATCH …/etapes/[id]` modifie, et
+       * c'est le `WHERE source = 'manuelle'` du dépôt qui refuse une étape Monga — pas cet écran.
+       */
+      const corps = {
+        type,
+        survenuLe: heure === '' ? jour : `${jour}T${heure}`,
+        heureConnue: heure !== '',
+        texte: texte.trim() === '' ? null : texte.trim(),
+      };
+      const res = modifie === null
+        ? await fetch(`/api/admin/gestion/evenements/${evenementId}/frise`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...corps, pieceNom: piece.trim() === '' ? null : piece.trim() }),
+        })
+        : await fetch(`/api/admin/gestion/etapes/${modifie.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          /* ⚠️ LE MONTANT EST RENVOYÉ TEL QUEL : `modifierEtapeManuelle` l'écrit, et l'omettre l'effacerait. */
+          body: JSON.stringify({ ...corps, geste: 'modifier', montantCents: modifie.montantCents }),
+        });
       const d = (await res.json().catch(() => ({}))) as { etat?: string; message?: string; erreur?: string };
-      onFait(d.etat === 'ok' ? (d.message ?? 'Étape ajoutée.') : (d.erreur ?? 'Ajout impossible.'));
+      const defaut = modifie === null ? 'Étape ajoutée.' : 'Étape modifiée.';
+      onFait(d.etat === 'ok' ? (d.message ?? defaut) : (d.erreur ?? 'Enregistrement impossible.'));
     } catch {
-      onFait('Ajout impossible : le serveur n’a pas répondu.');
+      onFait('Enregistrement impossible : le serveur n’a pas répondu.');
     } finally {
       setOccupe(false);
     }
@@ -619,7 +681,7 @@ function AjouterEtape({
 
   return (
     <div className="frs-ajout" role="group" aria-label="Ajouter une étape ou une information">
-      <p className="frs-ajout-titre">Ajouter</p>
+      <p className="frs-ajout-titre">{modifie === null ? 'Ajouter' : 'Modifier l’étape'}</p>
 
       <div className="frs-ajout-ligne">
         <span className="frs-label">Forme</span>
@@ -654,17 +716,19 @@ function AjouterEtape({
           onChange={(e) => setTexte(e.target.value)} />
       </div>
 
-      <div className="frs-ajout-ligne">
+      {/* ⚠️ LA PIÈCE NE SE MODIFIE PAS ICI : `modifierEtapeManuelle` ne la touche pas, et un champ qui ne
+          s'enregistre pas est pire qu'un champ absent. Elle reste offerte à l'AJOUT. */}
+      {modifie === null && <div className="frs-ajout-ligne">
         <label className="frs-label" htmlFor="frs-piece">Pièce jointe</label>
         {/* ⚠️ LE NOM DE LA PIÈCE, PAS LE FICHIER : le dépôt range les pièces par le Drive (lot FENETRE-DRIVE-UNIQUE),
             et ouvrir ici un second chemin de dépôt aurait fait deux endroits où un fichier peut vivre. */}
         <input id="frs-piece" className="frs-champ" value={piece} placeholder="nom du document (facultatif)"
           onChange={(e) => setPiece(e.target.value)} />
-      </div>
+      </div>}
 
       <div className="frs-ajout-ligne">
         <button type="button" className="frs-btn frs-btn--fort" disabled={occupe || jour === ''}
-          onClick={() => void envoyer()}>Ajouter</button>
+          onClick={() => void envoyer()}>{modifie === null ? 'Ajouter' : 'Enregistrer'}</button>
         <button type="button" className="frs-btn" onClick={onFermer}>Annuler</button>
       </div>
     </div>
