@@ -259,7 +259,19 @@ describe('🔴🔴 ④ la passe automatique ne lève aucune marque « interne »
     const bloc = REPO.slice(REPO.indexOf('const leverLaMarque = async'));
     const corps = bloc.slice(0, bloc.indexOf('};'));
     expect(corps).toContain('leverInterneApresRattachementHumain({ messageIds: [o.messageId], auteur: o.auteur })');
-    expect(REPO).toContain('if (issue.ok) await leverLaMarque();');
+    /**
+     * ══ 🔴🔴 LA CONDITION DIT MAINTENANT DEUX CHOSES — LOT MONGA-1, POINT 2 (06/10/2026) ═════════════════════
+     *
+     * Elle disait `if (issue.ok)`. Le groupe ④ de ce fichier tient depuis le 04/10 la seconde moitié de la
+     * décision d'Arno : « la passe AUTOMATIQUE ne lève jamais la marque ». Elle tenait alors sans rien exiger
+     * de `rattacher`, parce qu'aucune automatisation ne pouvait l'emprunter — la seule porte automatique était
+     * `ecrireLienMoteur`, qui n'appelle pas `leverLaMarque`.
+     *
+     * 🔴 CE N'EST PLUS VRAI DEPUIS LE CLASSEMENT MONGA, qui passe par `rattacher` avec `origine: 'automatique'`.
+     * La garde est donc devenue EXPLICITE, et cette épreuve l'exige : sans elle, un mail marqué « interne »
+     * perdrait sa marque parce qu'une règle a rangé du courrier, et personne ne l'aurait demandé.
+     */
+    expect(REPO).toContain('if (issue.ok && !auteurAutomatique) await leverLaMarque();');
     /* ⚠️ ET JAMAIS POUR UN ÉVÉNEMENT : poser une carte ne dit rien des biens. */
     expect(corps).toContain("if (o.cible.sorte === 'evenement') return;");
   });

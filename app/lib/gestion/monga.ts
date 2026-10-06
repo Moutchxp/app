@@ -317,3 +317,69 @@ export function motEncartMonga(e: { reference: string; libelle: string | null; a
 export function motFiltreMonga(n: number): string {
   return `Interventions Monga à relier (${n})`;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT MONGA-1, POINT 2 — LE CLASSEMENT AUTOMATIQUE : CE QUE LA RÈGLE DÉCIDE. PUR.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (06/10/2026), mot pour mot : « Un mail Monga dont la référence est DÉJÀ reliée est rattaché
+   automatiquement à l'événement, à son ou ses biens, avec le propriétaire et le locataire à la date du mail,
+   statut « Auto », PAR LA PORTE D'ÉCRITURE EXISTANTE (la porte de ce mail uniquement : aucune fenêtre de suivi
+   de conversation créée ni modifiée). Il ne passe plus par « À classer » ni par « À rattacher ». » */
+
+/** Le motif écrit sur chaque lien posé par le classement automatique. Il NOMME la référence : six mois après,
+ *  « pourquoi ce mail est-il dans ce dossier ? » doit se lire sur le lien lui-même. PUR. */
+export function motifClassementMonga(reference: string): string {
+  return `classé automatiquement — intervention Monga ${reference}`;
+}
+
+/** Ce que l'examen du rattachement retient quand le classement a eu lieu. PUR. */
+export function motifExamenMonga(reference: string): string {
+  return `intervention Monga ${reference} reliée à un événement`;
+}
+
+/**
+ * ══ 🔴🔴 POURQUOI UN MAIL PEUT NE PAS ÊTRE CLASSÉ AUTOMATIQUEMENT ════════════════════════════════════════════════
+ *
+ * Les quatre premiers cas sont des ABSENCES (on ne sait pas quoi faire) ; les deux derniers sont des DÉCISIONS
+ * HUMAINES qu'une automatisation n'a pas à défaire.
+ */
+export type RefusClassementMonga =
+  | 'pas_un_mail_monga'   // aucune lecture Monga : ce n'est pas notre affaire
+  | 'sans_reference'      // mesuré : 2 mails sur 97. On ne peut rien relier à une référence qu'on n'a pas
+  | 'reference_a_relier'  // la référence n'a pas d'événement : c'est le point 3, et c'est un clic d'Arno
+  | 'evenement_sans_bien' // l'événement ne porte aucun bien : on ne DEVINE pas le bien (règle d'Arno)
+  | 'mail_interne'        // 🔴 un humain a dit « interne » : on ne le classe pas dans un dossier client
+  | 'mail_inerte';        // 🔴 jeté sans statut (lot CORBEILLE-SANS-STATUT) : il ne demande plus rien
+
+/** Ce qu'on DIT d'un refus, là où il faut l'expliquer. PUR. */
+export function motRefusClassementMonga(r: RefusClassementMonga): string {
+  switch (r) {
+    case 'pas_un_mail_monga': return 'Ce mail n’est pas un mail Monga.';
+    case 'sans_reference': return 'Ce mail Monga ne porte aucune référence lisible.';
+    case 'reference_a_relier': return 'Cette intervention Monga n’est pas encore reliée à un événement.';
+    case 'evenement_sans_bien': return 'L’événement de cette intervention ne porte aucun bien.';
+    case 'mail_interne': return 'Ce mail est marqué « interne » : son classement reste une décision humaine.';
+    default: return 'Ce mail est à la corbeille sans statut : il ne demande plus de classement.';
+  }
+}
+
+/**
+ * 🔴🔴 LE PROPRIÉTAIRE ET LE LOCATAIRE **À LA DATE DU MAIL**, et eux seuls. PUR.
+ *
+ * `personnesDesBiens` rend TOUT le monde — les anciens propriétaires d'un bien vendu, les locataires partis, ceux
+ * qui n'ont pas encore emménagé — parce que l'étape 2 les MONTRE à l'écran, où un humain choisit. Un classement
+ * automatique, lui, n'a personne pour choisir : il ne retient donc que les deux personnes qu'Arno a nommées.
+ *
+ * ⚠️ `locataire_sortant` ET `locataire_a_venir` SONT ÉCARTÉS, et c'est le cœur de la règle. Un mail d'octobre
+ * concerne l'occupant d'octobre ; poser le locataire parti en août mettrait le courrier d'un logement dans le
+ * dossier de quelqu'un qui n'y habite plus — exactement l'erreur qu'on ne veut jamais commettre.
+ *
+ * ⚠️ UN BIEN PEUT N'AVOIR AUCUN LOCATAIRE À CETTE DATE (vacance, ou bien occupé par son propriétaire), et ce
+ * n'est pas une anomalie : on pose alors le propriétaire seul.
+ */
+export function personnesEnVigueur<P extends {
+  sorte: 'proprietaire' | 'locataire'; role: string; actif?: boolean;
+}>(personnes: readonly P[]): P[] {
+  return personnes.filter((p) => (p.sorte === 'proprietaire' ? p.actif === true : p.role === 'locataire_occupant'));
+}

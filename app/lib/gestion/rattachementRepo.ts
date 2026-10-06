@@ -954,6 +954,22 @@ async function journaliser(
  */
 export async function rattacher(o: {
   messageId: number; pieceId?: number | null; cible: Cible; auteur: Auteur; motif?: string | null;
+  /**
+   * ══ 🔴🔴 LOT MONGA-1, POINT 2 — « STATUT AUTO », PAR CETTE PORTE-CI ════════════════════════════════════════
+   *
+   * DEMANDE D'ARNO : le classement d'un mail MonGa dont la référence est reliée se fait « statut “Auto”, PAR LA
+   * PORTE D'ÉCRITURE EXISTANTE ». Cette porte-là écrivait `origine = 'manuel'` en dur, parce qu'elle n'avait
+   * jamais servi qu'à un clic. Un paramètre FACULTATIF, dont le défaut est exactement l'ancien comportement :
+   * aucun des sept écrans qui rattachent ne change de conduite, et l'écran dit déjà « posé automatiquement »
+   * pour cette valeur (`RattachementsDuFil`, `ModifierRattachement`) — il n'y avait rien à inventer côté
+   * affichage.
+   *
+   * 🔴 ÉCRIRE UNE SECONDE PORTE AURAIT COÛTÉ TOUT LE RESTE. Cette fonction porte, outre l'écriture, la levée de
+   * « hors gestion », la levée de « interne », le respect de l'index unique partiel, le journal, et la
+   * confirmation d'un candidat déjà posé au lieu d'un doublon. Une porte parallèle aurait recopié ces six
+   * comportements — et en aurait oublié un.
+   */
+  origine?: 'manuel' | 'automatique';
 }): Promise<IssueGeste> {
   if (!(await rattachementsDisponibles())) {
     return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 257).' };
@@ -1014,6 +1030,7 @@ export async function rattacher(o: {
    * en première ligne, et la passe automatique ne propose de toute façon aucun bien sur un mail interne
    * (`mailInterneSansBien.test.ts`).
    */
+  const auteurAutomatique = (o.origine ?? 'manuel') === 'automatique';
   const leverLaMarque = async (): Promise<void> => {
     if (o.cible.sorte === 'evenement') return;
     await leverHorsGestionApresRattachement([o.messageId], o.auteur);
@@ -1037,21 +1054,54 @@ export async function rattacher(o: {
       return { ok: true, id: Number(rows[0].id) };
     }
 
+    /**
+     * ══ 🔴🔴 LOT MONGA-1, POINT 2 — POURQUOI UN LIEN « AUTO » **SIGNE SON STATUT** ═══════════════════════════
+     *
+     * 🔴 LE PIÈGE, TROUVÉ AVANT D'ÉCRIRE UNE LIGNE. `retirerLiensPerimes` (plus haut dans ce fichier) retire
+     * TOUT lien `origine = 'automatique'` dont `statut_par_libelle IS NULL` et que le moteur ne propose plus.
+     * Un classement Monga écrit naïvement en « automatique » aurait donc été EFFACÉ à la relève suivante, en
+     * silence : le moteur ne propose pas le lot d'un mail Monga (76 lots à la même adresse, aucune certitude),
+     * et ce lien n'aurait pas figuré parmi ses `gardees`.
+     *
+     * 🔴 LA PROTECTION EXISTE DÉJÀ, ET C'EST CELLE-LÀ : `statut_par_libelle` non nul signifie « quelqu'un s'est
+     * prononcé sur ce statut », et le moteur n'y touche jamais. Le classement Monga s'y inscrit, parce que c'est
+     * la vérité : ce statut n'est pas le défaut du moteur, il est la conséquence d'un lien que **Arno** a posé.
+     * L'écran le dit déjà (« posé automatiquement », et le nom de qui a touché le statut).
+     *
+     * ⚠️ POUR `origine = 'manuel'` — le défaut, donc les sept écrans existants — LES QUATRE COLONNES RESTENT
+     * NULLES, exactement comme avant ce lot : `CASE` sans `ELSE` rend `NULL`. Rien ne change pour un clic.
+     */
+    const auto = (o.origine ?? 'manuel') === 'automatique';
     const { rows } = await q<{ id: string }>(
       `INSERT INTO gestion_rattachement
          (message_id, piece_id, cible_sorte, cible_cle, cible_id, cible_libelle,
-          origine, statut, motif, cree_par, cree_par_libelle)
+          origine, statut, motif, cree_par, cree_par_libelle,
+          statut_le, statut_par, statut_par_libelle, statut_motif)
        VALUES ($1, nullif($2, 0)::bigint, $3, nullif($4, ''), nullif($5, 0)::bigint, $6,
-               'manuel', 'confirme', $7, $8, $9)
+               $10, 'confirme', $7, $8, $9,
+               CASE WHEN $10 = 'automatique' THEN now() END,
+               CASE WHEN $10 = 'automatique' THEN $8::bigint END,
+               CASE WHEN $10 = 'automatique' THEN $9::text END,
+               CASE WHEN $10 = 'automatique' THEN $7::text END)
        RETURNING id`,
-      [...id, libelles, o.motif ?? 'rattaché à la main', o.auteur.id, o.auteur.libelle]);
+      [...id, libelles, o.motif ?? 'rattaché à la main', o.auteur.id, o.auteur.libelle,
+        auto ? 'automatique' : 'manuel']);
     await journaliser(q, Number(rows[0].id), 'rattacher', o.auteur,
-      `rattachement posé à la main : ${cibleCourte(o.cible)}${pieceId === null ? '' : ` (pièce ${pieceId})`}`,
+      `rattachement posé ${auto ? 'automatiquement' : 'à la main'} : ${cibleCourte(o.cible)}`
+      + `${pieceId === null ? '' : ` (pièce ${pieceId})`}`,
       null, 'confirme');
     return { ok: true, id: Number(rows[0].id) };
   });
 
-  if (issue.ok) await leverLaMarque();
+  /**
+   * 🔴🔴 LOT MONGA-1, POINT 2 — UNE AUTOMATISATION NE LÈVE AUCUNE MARQUE HUMAINE.
+   *
+   * « Hors gestion » et « interne » sont des décisions prises par quelqu'un qui a LU le mail. Les lever parce
+   * qu'une règle a rangé le courrier reviendrait à défaire un jugement humain sans que personne l'ait demandé —
+   * et le lot MONGA-1 décide l'inverse : un mail marqué « interne » n'est même pas classé automatiquement
+   * (`RefusClassementMonga`). Le défaut (`'manuel'`) garde mot pour mot la conduite d'avant ce lot.
+   */
+  if (issue.ok && !auteurAutomatique) await leverLaMarque();
   return issue;
 }
 

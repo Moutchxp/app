@@ -170,7 +170,21 @@ describe('🔴🔴 ⑥ une seule porte pour la règle, deux écrans pour la ques
     expect(bloc).toContain('leverHorsGestionApresRattachement([o.messageId], o.auteur)');
     expect(bloc).toContain('leverInterneApresRattachementHumain({ messageIds: [o.messageId], auteur: o.auteur })');
     /* ⚠️ APRÈS LA TRANSACTION, ET SANS LA FAIRE ÉCHOUER : c'est un rattrapage d'état, pas le geste lui-même. */
-    expect(RATTACHER).toContain('if (issue.ok) await leverLaMarque();');
+    /**
+     * ══ 🔴🔴 LA CONDITION A GAGNÉ UNE MOITIÉ LE 06/10/2026 — LOT MONGA-1, POINT 2 ════════════════════════════
+     *
+     * Elle disait `if (issue.ok)`. Elle dit maintenant `if (issue.ok && !auteurAutomatique)`, et cette épreuve
+     * est réécrite exprès plutôt que relâchée.
+     *
+     * 🔴 POURQUOI C'EST LA MÊME RÈGLE, ET NON UNE EXCEPTION. Arno l'a posée le 04/10 pour un HUMAIN : « quand un
+     * HUMAIN rattache un bien à un mail marqué Interne, la marque est levée ». La passe automatique, elle, « ne
+     * lève jamais la marque » — c'est la dernière phrase de la même décision, et `mailInterneSansBien.test.ts`
+     * la tient depuis. Jusqu'au 06/10, aucune automatisation ne pouvait emprunter `rattacher` : la condition
+     * n'avait donc rien à dire. Le classement Monga peut, lui (`origine: 'automatique'`) — et il doit se heurter
+     * à la seconde moitié de la décision d'Arno, pas la contourner.
+     */
+    expect(RATTACHER).toContain('if (issue.ok && !auteurAutomatique) await leverLaMarque();');
+    expect(RATTACHER).toContain("const auteurAutomatique = (o.origine ?? 'manuel') === 'automatique';");
   });
 
   /**

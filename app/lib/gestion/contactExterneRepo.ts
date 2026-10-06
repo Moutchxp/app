@@ -772,6 +772,19 @@ export async function poserInterventions(o: {
    * La règle vaut pour les interventions sans qu'on ait eu besoin de la redécouvrir une seconde fois.
    */
   parLeSuivi?: boolean;
+  /**
+   * ══ 🔴🔴 LOT MONGA-1, POINT 2 — « STATUT AUTO » SUR LE PROPRIÉTAIRE ET LE LOCATAIRE AUSSI ═══════════════════
+   *
+   * Arno demande un classement « statut “Auto” » qui porte l'événement, les biens ET les personnes. Laisser les
+   * personnes en « manuel » aurait fait dire à l'écran « posé à la main » d'un lien que personne n'a posé — et
+   * c'est précisément la question qu'on doit pouvoir trancher six mois après.
+   *
+   * 🔴 ET COMME DANS `rattacher`, UN LIEN « AUTO » SIGNE SON STATUT. `retirerLiensPerimes` retire tout lien
+   * `origine = 'automatique'` dont `statut_par_libelle IS NULL` et que le moteur ne propose plus : le moteur ne
+   * propose JAMAIS de personne (il n'émet que des lots), donc une intervention « automatique » non signée
+   * aurait disparu à la relève suivante, sans trace. Le défaut (`'manuel'`) garde la conduite d'avant ce lot.
+   */
+  origine?: 'manuel' | 'automatique';
 }): Promise<IssueInterventions> {
   if (!(await interventionsDisponibles())) {
     return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 293).' };
@@ -819,11 +832,17 @@ export async function poserInterventions(o: {
       const { rows } = await q<{ id: string }>(
         `INSERT INTO gestion_rattachement
            (message_id, piece_id, cible_sorte, cible_cle, cible_libelle, origine, regle, confiance,
-            motif, statut, cree_par, cree_par_libelle, role_instantane, contact_externe_id)
-         VALUES ($1, NULL, $2, $3, $4, 'manuel', $5, 'haute', $6, 'confirme', $7, $8, $9, $10)
+            motif, statut, cree_par, cree_par_libelle, role_instantane, contact_externe_id,
+            statut_le, statut_par, statut_par_libelle, statut_motif)
+         VALUES ($1, NULL, $2, $3, $4, $11, $5, 'haute', $6, 'confirme', $7, $8, $9, $10,
+                 CASE WHEN $11 = 'automatique' THEN now() END,
+                 CASE WHEN $11 = 'automatique' THEN $7::bigint END,
+                 CASE WHEN $11 = 'automatique' THEN $8::text END,
+                 CASE WHEN $11 = 'automatique' THEN $6::text END)
          RETURNING id::text`,
         [o.messageId, p.sorte, p.cle, p.libelle, REGLE_INTERVENTION, motif,
-          o.auteur.id, libelle, p.role, p.contactExterneId ?? null]);
+          o.auteur.id, libelle, p.role, p.contactExterneId ?? null,
+          (o.origine ?? 'manuel') === 'automatique' ? 'automatique' : 'manuel']);
       await journaliser(q, Number(rows[0].id), 'rattacher', o.auteur,
         `intervention posée : ${p.sorte} ${p.cle} (${p.role})`, null, 'confirme');
       posees += 1;

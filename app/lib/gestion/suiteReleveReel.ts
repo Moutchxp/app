@@ -15,6 +15,7 @@ import { query } from '../db/client';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — la cadence de la relecture des noms Drive. Une passe sur dix, pas à chaque tour.
 import { UNE_PASSE_SUR } from './reprendreNomsDrive';
 import { adressesMessagesDisponibles, rattachementsDisponibles, suiteReleveDisponible } from './schema';
+import { passeMongaSurLesMails } from './mongaClassement';
 import { chargerAnnuaireAdresses, releverPaquet, COMPTES_RELEVE_VIDE } from './adressesRepo';
 import {
   chargerLibelles, examinerFilsPrecis, COMPTES_VIDES, type ComptesPasse,
@@ -270,6 +271,22 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
     c.respectes = comptesExamen.respectes;
     journal?.(`suite : ${c.filsReexamines} échange(s) réexaminé(s)`
       + `${ambigusAvant > 0 ? ` (dont ${ambigusAvant} qui portaient une ambiguïté)` : ''}`);
+
+    /**
+     * ── ③ LES MAILS MONGA ────────────────────────────────────────────────────────────────────────────────────
+     *
+     * 🔴🔴 LOT MONGA-1, POINT 2 — APRÈS LE RÉEXAMEN, ET JAMAIS AVANT. `examinerFilsPrecis` réécrit la ligne
+     * d'examen de chaque mail qu'il voit ; un classement Monga posé avant lui aurait vu son issue remise à
+     * « a_trier », et le mail serait revenu dans « À rattacher » — classé, et réclamé en même temps.
+     *
+     * ⚠️ ELLE NE PEUT PAS FAIRE ÉCHOUER LA RELÈVE : `passeMongaSurLesMails` avale ses erreurs et rend des
+     * comptes vides. Sans la migration 311, elle ne fait rien et ne nomme aucune table.
+     */
+    const monga = await passeMongaSurLesMails(aFaire.messages);
+    if (monga.lus > 0) {
+      journal?.(`suite : ${monga.lus} mail(s) Monga lu(s), ${monga.classes} classé(s) automatiquement`
+        + `${monga.aRelier > 0 ? `, ${monga.aRelier} en attente d’un lien vers un événement` : ''}`);
+    }
 
     return { resultat: 'ok', ms: Date.now() - debut, comptes: c, detail: resumeSuite(c) };
   } catch (e) {
