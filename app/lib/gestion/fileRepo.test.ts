@@ -48,7 +48,10 @@ describe('fileRepo — LECTURE SEULE, sans exception', () => {
       //   par un `LEFT JOIN LATERAL (… LIMIT 1)` — une seule ligne par carte, là où un GROUP BY aurait groupé sur
       //   autre chose. Le verdict de l'épreuve ne change pas d'un iota : elle vérifie toujours que ce module ne
       //   lit que des tables `gestion_`, et la sous-requête latérale en lit une (`gestion_monga_etape`).
-      const ctes = ['dernier', 'dernier_hors', 'exterieur', 'messages_deplaces', 'lateral'];
+      // 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — `cles` est la CTE interne de la sous-requête latérale qui
+      //   trouve le bien d'un événement (ses parties déclarées UNION les rattachements confirmés de ses mails).
+      //   Comme ses voisines, ce n'est pas une table : le verdict de l'épreuve ne change pas d'un iota.
+      const ctes = ['dernier', 'dernier_hors', 'exterieur', 'messages_deplaces', 'lateral', 'cles'];
       for (const t of tables) expect(ctes.includes(t) || t.startsWith('gestion_')).toBe(true);
     }
   });

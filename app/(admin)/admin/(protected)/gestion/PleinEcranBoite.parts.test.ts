@@ -46,6 +46,8 @@ const carte = (id: number, nbFils: number) => ({
   mongaMajLe: null, vuLe: null,
   /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées ; vide = pas suivi par Monga. */
   mongaRefs: [],
+  /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le type, le bien et ceux qui gravitent autour. */
+  categorie: null, bien: null, nbBiens: 0,
 });
 const COMPTES = { lisibles: 4944, automatiques: 12262, envoyes: 3311, aClasser: 1234 };
 const par = (l: EtiquetteAffichee[], sorte: string) => l.find((e) => e.etiquette.sorte === sorte);

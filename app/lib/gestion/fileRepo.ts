@@ -15,7 +15,7 @@ import { query } from '../db/client';
 import { sqlEstVraiePiece } from './lisibilite';
 import { sqlNomAffiche } from './nomUsageSql';
 import { sqlCleIdentitePiece } from './piecesConversation';
-import { evenementVuDisponible, pieceIntegreeDisponible } from './schema';
+import { evenementQualifieDisponible, evenementVuDisponible, pieceIntegreeDisponible } from './schema';
 import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, jointuresAttente } from './attente';
 import { chargerConfigGestion } from './config';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le TYPE seul, effacé à la compilation : aucune dépendance ajoutée. */
@@ -96,6 +96,26 @@ export interface CarteEvenement {
    * Monga, et c'est le cas ordinaire. L'écran en fait une vignette « MONGA », la référence au survol.
    */
   mongaRefs: string[];
+  /**
+   * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — CE QUE LA VIGNETTE DIT EN PLUS ════════════════════════════════
+   *
+   * Arno : « le TYPE d'événement […] “Ouvert depuis N jours” ET “dernier échange il y a N jours” […] l'adresse
+   * du bien (avec le lot) […] le propriétaire, le locataire en place s'il y en a un, et “Demandé par <nom>”. »
+   *
+   * 🔴 LA LISTE DES TYPES EXISTE DÉJÀ (`CATEGORIES_EVENEMENT`, migration 268) : travaux, fuite d'eau,
+   * administratif, litige. Aucune migration n'a donc été faite — Arno l'avait conditionnée à son absence.
+   *
+   * ⚠️ « N JOURS » SE CALCULE À L'ÉCRAN, pas ici : l'instant de référence y est injecté (règle de `depuis`),
+   * et un nombre de jours figé au moment de la lecture vieillirait dans un onglet laissé ouvert.
+   *
+   * ⚠️ UN SEUL BIEN EST RENDU, LE PREMIER PAR CLÉ — et c'est assumé : la vignette est une vignette. Les
+   * événements multi-biens existent (le gros bouton du point 1 les gère), mais quatre lignes d'adresses dans
+   * une liste de dossiers la rendraient illisible. Le nombre total est rendu à côté, pour ne rien taire.
+   */
+  categorie: string | null;
+  bien: { cle: string; adresse: string | null; commune: string | null;
+    proprietaire: string | null; locataire: string | null } | null;
+  nbBiens: number;
 }
 
 /** Ce qu'une miniature de dernière étape porte. Les REPÈRES en sont exclus : ce ne sont pas des étapes. */
@@ -286,6 +306,9 @@ interface CarteDB {
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — la dernière écriture de Monga, et ma dernière vue. */
   monga_maj_le: string | null; vu_le: string | null;
   monga_refs: string[] | null;
+  categorie: string | null;
+  bien_cle: string | null; bien_adresse: string | null; bien_commune: string | null;
+  bien_proprietaire: string | null; bien_locataire: string | null; nb_biens: number;
 }
 
 /**
@@ -322,6 +345,64 @@ interface CarteDB {
  * faite par un humain… mais une étape Monga retirée par la relève elle-même reste une nouvelle. Le filtre
  * `statut = 'vif'` de la miniature répond à une autre question — ce qui S'AFFICHE — et les deux ne se mêlent pas.
  */
+/**
+ * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — LE BIEN DE L'ÉVÉNEMENT, ET QUI GRAVITE AUTOUR ══════════════════════
+ *
+ * 🔴 LES DEUX AXES, LES MÊMES QUE PARTOUT : un bien est relié à un événement par ses PARTIES déclarées ET par
+ * les RATTACHEMENTS confirmés de ses mails. Ne lire qu'un axe ferait une vignette muette sur la moitié des
+ * dossiers — l'événement 1 de lot-237, par exemple, n'a aucune partie déclarée.
+ *
+ * ⚠️ LE PREMIER BIEN PAR CLÉ, ET LE NOMBRE TOTAL À CÔTÉ. Un événement peut en porter plusieurs ; quatre lignes
+ * d'adresses dans une liste de dossiers la rendraient illisible. On montre le premier et l'on DIT qu'il y en a
+ * d'autres — taire le nombre serait mentir par omission.
+ *
+ * ⚠️ LE LOCATAIRE « EN PLACE » EST CELUI DONT L'OCCUPATION N'A PAS DE SORTIE — la même règle que l'annuaire
+ * (`annuaireRepo`), au mot près. Deux définitions de « en place » auraient fini par désigner deux personnes.
+ */
+/**
+ * ⚠️ `aa.message_id` N'EXISTE QUE DEPUIS LA MIGRATION 234, et la garde du dépôt l'a attrapé : sans elle, nommer
+ * la colonne fait tomber TOUT l'écran. Le morceau qui la lit est donc conditionnel, exactement comme les autres
+ * lectures de cette table dans ce fichier. Sans la migration, une affectation couvre forcément tout le fil —
+ * c'est le comportement d'avant 234 —, et la jointure se réduit à `mm.fil_id = aa.fil_id`.
+ */
+function sqlBienDeLEvenement(avecMessageId: boolean): string {
+  const jointure = avecMessageId
+    ? `ON (aa.message_id IS NOT NULL AND mm.id = aa.message_id)
+          OR (aa.message_id IS NULL AND mm.fil_id = aa.fil_id)`
+    : 'ON mm.fil_id = aa.fil_id';
+  return `
+  LEFT JOIN LATERAL (
+    WITH cles AS (
+      SELECT DISTINCT p.cle
+        FROM gestion_evenement_partie p
+       WHERE p.evenement_id = e.id AND p.sorte = 'lot' AND p.retire_le IS NULL
+         AND btrim(coalesce(p.cle, '')) <> ''
+      UNION
+      SELECT DISTINCT r.cible_cle
+        FROM gestion_affectation aa
+        JOIN gestion_message mm ${jointure}
+        JOIN gestion_rattachement r ON r.message_id = mm.id
+       WHERE aa.evenement_id = e.id AND aa.actif
+         AND r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
+         AND btrim(coalesce(r.cible_cle, '')) <> ''
+    )
+    SELECT c.cle, lo.adresse, lo.commune,
+           nullif(btrim(coalesce(lo.proprietaire_texte, '')), '') AS proprietaire,
+           oc.nom AS locataire,
+           (SELECT count(*)::int FROM cles) AS nb
+      FROM cles c
+      LEFT JOIN gestion_annuaire_lot lo ON lo.wippimmo_id = c.cle
+      LEFT JOIN LATERAL (
+        SELECT l.nom FROM gestion_annuaire_occupation o
+          JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
+         WHERE o.lot_wippimmo_id = c.cle AND o.sortie IS NULL
+         ORDER BY o.entree DESC NULLS LAST, o.id DESC LIMIT 1
+      ) oc ON true
+     ORDER BY c.cle
+     LIMIT 1
+  ) bi ON true`;
+}
+
 const SQL_DERNIERE_MAJ_MONGA = `
   LEFT JOIN LATERAL (
     SELECT max(greatest(y.cree_le, y.maj_le)) AS le
@@ -359,6 +440,16 @@ export async function lireEvenements(
    * l'écran est exactement celui d'avant : `vu_le` vaut `null` partout, donc rien ne s'allume (voir `mongaMajLe`).
    */
   const avecVues = (await evenementVuDisponible()) && compteCle !== null;
+  /**
+   * 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — LA CATÉGORIE N'EXISTE QUE DEPUIS LA MIGRATION 268. Sans elle, la
+   * vignette n'affiche simplement pas de type : aucune requête ne nomme la colonne absente, et l'écran est
+   * celui d'avant. Même prudence que partout ailleurs dans ce module.
+   *
+   * ⚠️ LE MÊME TÉMOIN QUE `gestes.ts` (`evenementQualifieDisponible`), et non un second : la table
+   * `gestion_evenement_partie` et les colonnes `categorie`/`urgence` viennent de la MÊME migration (268). Deux
+   * témoins pour un seul fait finiraient par se contredire le jour où l'un serait oublié.
+   */
+  const avecCategorie = await evenementQualifieDisponible();
   const { rows } = await query<CarteDB>(
     `WITH ${ctesAttente('$2', '$3', ctx.deplacements, ctx.spam === true, ctx.corbeille === true)},
           messages_deplaces AS (${ctx.deplacements ? CTE_MESSAGES_DEPLACES : 'SELECT NULL::bigint AS evenement_id, NULL::text AS sens, NULL::boolean AS automatique, NULL::timestamptz AS recu_le WHERE false'})
@@ -387,7 +478,12 @@ export async function lireEvenements(
             /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées : la vignette « MONGA ». */
             (SELECT array_agg(x.reference ORDER BY x.reference)
                FROM (SELECT DISTINCT reference FROM gestion_monga_lien
-                      WHERE evenement_id = e.id AND retire_le IS NULL) x) AS monga_refs
+                      WHERE evenement_id = e.id AND retire_le IS NULL) x) AS monga_refs,
+            /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le type, et le bien avec ceux qui gravitent autour. */
+            ${avecCategorie ? 'e.categorie' : 'NULL::text AS categorie'},
+            bi.cle AS bien_cle, bi.adresse AS bien_adresse, bi.commune AS bien_commune,
+            bi.proprietaire AS bien_proprietaire, bi.locataire AS bien_locataire,
+            coalesce(bi.nb, 0) AS nb_biens
        FROM gestion_evenement e
        -- message_id IS NULL : une affectation de MAIL ne compte pas comme un échange rattaché, sans quoi une carte
        --   annoncerait « 3 échanges » là où elle n'en a qu'un et deux mails isolés.
@@ -397,7 +493,9 @@ export async function lireEvenements(
        ${jointuresAttente('a.fil_id')}
        ${SQL_DERNIERE_ETAPE}
        ${SQL_DERNIERE_MAJ_MONGA}
-      GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.source, et.certitude, mg.le
+       ${sqlBienDeLEvenement(ctx.deplacements)}
+      GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.source, et.certitude, mg.le,
+               bi.cle, bi.adresse, bi.commune, bi.proprietaire, bi.locataire, bi.nb
       ORDER BY (e.traite_le IS NOT NULL) ASC,
                ${ATTEND_CARTE} DESC,
                coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), min(md.recu_le), e.ouvert_le) ASC,
@@ -424,6 +522,12 @@ export async function lireEvenements(
       mongaMajLe: r.monga_maj_le, vuLe: r.vu_le,
       /* ⚠️ `null` DE POSTGRES ⇒ TABLEAU VIDE : l'écran n'a pas à distinguer « aucune référence » d'une absence. */
       mongaRefs: r.monga_refs ?? [],
+      categorie: r.categorie,
+      bien: r.bien_cle === null ? null : {
+        cle: r.bien_cle, adresse: r.bien_adresse, commune: r.bien_commune,
+        proprietaire: r.bien_proprietaire, locataire: r.bien_locataire,
+      },
+      nbBiens: Number(r.nb_biens ?? 0),
     })),
     total: t[0]?.n ?? 0,
   };

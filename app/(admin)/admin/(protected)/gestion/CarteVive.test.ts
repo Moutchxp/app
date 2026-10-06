@@ -31,6 +31,8 @@ const CARTE = {
   mongaMajLe: null, vuLe: null,
   /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées ; vide = pas suivi par Monga. */
   mongaRefs: [],
+  /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le type, le bien et ceux qui gravitent autour. */
+  categorie: null, bien: null, nbBiens: 0,
 };
 
 // Typés d'après le contrat RÉEL des routes : sans ça, un littéral s'infère trop étroitement (`traiteLe: null` de

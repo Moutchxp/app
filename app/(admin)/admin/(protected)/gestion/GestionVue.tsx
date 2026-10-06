@@ -1910,6 +1910,21 @@ const CSS_GESTION = `
   font-size:.68rem;font-weight:700;letter-spacing:.04em;white-space:nowrap;
   color:var(--color-svv-bg);background:var(--color-svv-green)}
 
+/* ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — LES LIGNES COURTES DE LA VIGNETTE ══════════════════════════════
+   Arno : « ajoute, sur des lignes COURTES ». Chacune tient sur une ligne et se coupe proprement — la vignette
+   vit dans une colonne etroite, et un retour a la ligne par adresse la ferait grandir du double.
+   ⚠️ « min-width:0 » EST NECESSAIRE sur le parent (.gst-carte-texte, deja pose) : sans lui, un enfant en flex
+   refuse de retrecir sous la largeur de son contenu, et la coupure ne se declenche jamais. */
+.gst-carte-ligne{display:block;font-size:.74rem;line-height:1.3;color:var(--color-svv-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gst-carte-ligne--adresse{color:var(--color-svv-ink)}
+/* Le type de l'evenement : il se distingue du reste de la ligne sans crier. */
+.gst-carte-type{font-weight:700;color:var(--color-svv-ink)}
+/* ⚠️ ECRAN ETROIT : les lignes se coupent toujours, elles ne debordent jamais. */
+@media (max-width:600px){
+  .gst-carte-ligne{white-space:normal;overflow-wrap:anywhere}
+}
+
 /* ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — « MIS A JOUR PAR MONGA » ══════════════════════════════════════════
    Arno : « la vignette est mise en avant : lisere vert lumineux qui pulse doucement, plus un petit badge
    “Mis a jour par Monga · <heure>” sur la miniature. Lisible en Clair et en Sombre, sans clignotement agressif,

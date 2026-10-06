@@ -1450,3 +1450,109 @@ describe('㉓ la vignette « MONGA » (lot EVENEMENT-MINIMALISTE, point 1)', () 
     }
   });
 });
+
+describe('㉔ la vignette enrichie (lot EVENEMENT-MINIMALISTE, point 2)', () => {
+  const REPO_FILE = readFileSync('app/lib/gestion/fileRepo.ts', 'utf8');
+
+  /**
+   * 🔴🔴 LA LISTE DES TYPES EXISTAIT DÉJÀ, ET AUCUNE MIGRATION N'A ÉTÉ FAITE. Arno : « Vérifie s'il existe une
+   * liste de types : si oui, affiche-le ; sinon, migration additive. » Elle existe — `CATEGORIES_EVENEMENT`
+   * (travaux, fuite d'eau, administratif, litige), tenue en base par `gestion_evenement_categorie_chk` depuis la
+   * migration 268 — et elle est déjà modifiable dans le formulaire de l'événement (`BlocEvenement`).
+   */
+  it('🔴🔴 le type vient de la liste existante, sans migration nouvelle', () => {
+    const qualite = readFileSync('app/lib/gestion/evenementQualite.ts', 'utf8');
+    expect(qualite).toContain(
+      "export const CATEGORIES_EVENEMENT = ['travaux', 'fuite_eau', 'administratif', 'litige'] as const;");
+    expect(CARTE).toContain('{motCategorie(carte.categorie)}');
+    /* 🔴 ET LE FORMULAIRE DE L'ÉVÉNEMENT LA PROPOSE DÉJÀ : rien à ajouter pour la rendre modifiable. */
+    const bloc = readFileSync('app/(admin)/admin/(protected)/gestion/BlocEvenement.tsx', 'utf8');
+    expect(bloc).toContain('{CATEGORIES_EVENEMENT.map((c) => <option key={c} value={c}>{motCategorie(c)}</option>)}');
+  });
+
+  /** ⚠️ UN TYPE NON RENSEIGNÉ NE S'AFFICHE PAS : « Non précisée » sur chaque ligne serait du bruit. */
+  it('⚠️ pas de type, pas de ligne', () => {
+    expect(CARTE).toContain('{carte.categorie !== null && carte.categorie !== undefined && <>');
+  });
+
+  /** 🔴🔴 « Ouvert depuis N jours » ET « dernier échange il y a N jours » (Arno), accordés au singulier. */
+  it('🔴🔴 les deux anciennetés, en jours, accordées', () => {
+    expect(CARTE).toContain('Ouvert depuis {motJours(ouvertDepuis)}');
+    expect(CARTE).toContain('dernier échange il y a {motJours(dernier)}');
+    expect(CARTE).toContain("return n <= 1 ? `${n} jour` : `${n} jours`;");
+    /* ⚠️ L'INSTANT DE RÉFÉRENCE EST INJECTÉ, jamais `Date.now()` caché dedans : toutes les lignes d'une même
+       page doivent dire la même heure. Même règle que `depuis`. */
+    expect(CARTE).toContain('function enJours(iso: string | null, maintenant: Date): number | null {');
+    /* ⚠️ ET UNE DATE FUTURE (horloges désaccordées) VAUT ZÉRO, jamais un nombre négatif. */
+    expect(CARTE).toContain('return jours < 0 ? 0 : jours;');
+  });
+
+  /** 🔴 « l'adresse du bien (AVEC LE LOT) » — le numéro identifie le bien, deux adresses se ressemblent. */
+  it('🔴 l’adresse porte son numéro de lot', () => {
+    expect(CARTE).toContain('`lot ${b.cle} — ${lieu}`');
+  });
+
+  /**
+   * 🔴 LE BIEN VIENT DES **DEUX AXES**, comme partout : parties déclarées ET rattachements confirmés des mails.
+   * N'en lire qu'un ferait une vignette muette sur la moitié des dossiers — l'événement 1 de lot-237 n'a aucune
+   * partie déclarée, et son bien ne vient que de ses mails.
+   */
+  it('🔴🔴 le bien se lit par les deux axes', () => {
+    const i = REPO_FILE.indexOf('function sqlBienDeLEvenement');
+    const bloc = REPO_FILE.slice(i, REPO_FILE.indexOf('\n}', i));
+    expect(bloc).toContain('FROM gestion_evenement_partie p');
+    expect(bloc).toContain('FROM gestion_affectation aa');
+    /* 🔴 ET LE LOCATAIRE « EN PLACE » EST CELUI SANS SORTIE — la même règle que l'annuaire, au mot près. */
+    expect(bloc).toContain('WHERE o.lot_wippimmo_id = c.cle AND o.sortie IS NULL');
+  });
+
+  /**
+   * ⚠️ PLUSIEURS BIENS : on montre le premier et l'on DIT qu'il y en a d'autres. Les lister tous rendrait la
+   * liste illisible ; taire le nombre serait mentir par omission.
+   */
+  it('⚠️ un événement multi-biens dit combien il en porte', () => {
+    expect(CARTE).toContain('{carte.nbBiens > 1 && <>');
+    expect(CARTE).toContain('autre${carte.nbBiens > 2 ? \'s\' : \'\'} bien');
+  });
+
+  /** 🔴 LE PROPRIÉTAIRE, LE LOCATAIRE EN PLACE, ET « Demandé par <nom> » — chacun se tait s'il n'a rien à dire. */
+  it('🔴 les trois personnes, et chacune se tait si elle manque', () => {
+    expect(CARTE).toContain("`Propriétaire : ${b.proprietaire}`");
+    expect(CARTE).toContain("`Locataire en place : ${b.locataire}`");
+    expect(CARTE).toContain("gens.push(`Demandé par ${carte.demandeur}`)");
+    expect(CARTE).toContain('{gens.length > 0 && <span className="gst-carte-ligne">');
+  });
+
+  /** 🔴 « le texte se coupe proprement » (Arno), et il se coupe encore sur un écran étroit. */
+  it('🔴 chaque ligne se coupe, et ne déborde jamais', () => {
+    expect(VUE).toMatch(/\.gst-carte-ligne\{[^}]*text-overflow:ellipsis/);
+    expect(VUE).toContain('.gst-carte-ligne{white-space:normal;overflow-wrap:anywhere}');
+  });
+
+  /** ⚠️ SANS LA MIGRATION 268, aucune requête ne nomme la colonne absente, et l'écran est celui d'avant. */
+  it('⚠️ la catégorie absente ne casse rien', () => {
+    expect(REPO_FILE).toContain("${avecCategorie ? 'e.categorie' : 'NULL::text AS categorie'}");
+    /* ⚠️ LE MÊME TÉMOIN QUE `gestes.ts`, et non un second : table et colonnes viennent de la MÊME migration. */
+    expect(REPO_FILE).toContain('const avecCategorie = await evenementQualifieDisponible();');
+  });
+});
+
+describe('㉔-bis la lecture du bien ne peut pas faire tomber l’écran', () => {
+  /**
+   * ══ 🔴🔴 DÉFAUT ATTRAPÉ PAR UNE GARDE DU DÉPÔT, PENDANT CE LOT ═════════════════════════════════════════════
+   *
+   * Le premier jet de `sqlBienDeLEvenement` nommait `aa.message_id` sans condition. Cette colonne n'existe que
+   * depuis la migration 234, et la garde « NON appliquée → le SQL ne nomme JAMAIS la colonne absente (sinon
+   * tout l'écran tombe) » l'a refusé. Ce n'est pas une précaution théorique : c'est le même genre de panne
+   * totale que l'incident du 24/09/2026.
+   *
+   * 🔴 SANS LA MIGRATION, UNE AFFECTATION COUVRE FORCÉMENT TOUT LE FIL — c'est le comportement d'avant 234 —,
+   * et la jointure se réduit à `mm.fil_id = aa.fil_id`. Rien n'est perdu, rien n'est deviné.
+   */
+  it('🔴🔴 la colonne `message_id` n’est nommée que si la migration 234 est là', () => {
+    const repo = readFileSync('app/lib/gestion/fileRepo.ts', 'utf8');
+    expect(repo).toContain('function sqlBienDeLEvenement(avecMessageId: boolean): string {');
+    expect(repo).toContain("    : 'ON mm.fil_id = aa.fil_id';");
+    expect(repo).toContain('${sqlBienDeLEvenement(ctx.deplacements)}');
+  });
+});

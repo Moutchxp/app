@@ -12,6 +12,8 @@ import type { MongaDeLEvenement } from '../../../../lib/gestion/mongaRepo';
 import type { CarteEvenement, DerniereEtapeVignette } from '../../../../lib/gestion/fileRepo';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le mot d'une étape et la forme de sa date : modules PURS. */
 import { motEtape } from '../../../../lib/gestion/mongaEtape';
+/* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le mot d'un TYPE d'événement. Module PUR, liste déjà en base (268). */
+import { motCategorie } from '../../../../lib/gestion/evenementQualite';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 import {
   depuis, formaterDateFr, formaterTaille, heureParis, libelleEtat, libelleSens,
@@ -184,6 +186,14 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
                 <span className="gst-ref">{carte.reference}</span>
                 <span className="gst-sep" aria-hidden="true">·</span>
                 <span>{libelleEtat(etat)}</span>
+                {/* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — LE TYPE D'ÉVÉNEMENT. La liste existait déjà
+                    (`CATEGORIES_EVENEMENT`, migration 268) : aucune migration n'a été faite, Arno l'ayant
+                    conditionnée à son absence. Un type non renseigné ne s'affiche pas — « Non précisée » sur
+                    chaque ligne serait du bruit, et la vignette en porte déjà beaucoup. */}
+                {carte.categorie !== null && carte.categorie !== undefined && <>
+                  <span className="gst-sep" aria-hidden="true">·</span>
+                  <span className="gst-carte-type">{motCategorie(carte.categorie)}</span>
+                </>}
                 <span className="gst-sep" aria-hidden="true">·</span>
                 <span>{carte.nbFils} échange{carte.nbFils > 1 ? 's' : ''}</span>
                 {carte.dernierEchangeLe && <>
@@ -203,6 +213,7 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
                   </span>
                 )}
               </span>
+              <LignesDuDossier carte={carte} maintenant={maintenant} />
             </span>
             <MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe}
               misAJourLe={misAJour ? majMonga : null} />
@@ -458,6 +469,74 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
         </>
       )}
     </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — LES LIGNES COURTES DE LA VIGNETTE ════════════════════════════════
+
+   Arno : « ajoute, sur des lignes courtes : […] “Ouvert depuis N jours” ET “dernier échange il y a N jours” ;
+   l'adresse du bien (avec le lot) ; le propriétaire, le locataire en place s'il y en a un, et “Demandé par
+   <nom>”. »
+
+   🔴 DES LIGNES COURTES, ET CHACUNE SE TAIT QUAND ELLE N'A RIEN À DIRE. Un « propriétaire : non renseigné » sur
+   chaque vignette ferait trois lignes de vide par dossier ; c'est l'absence de la ligne qui dit l'absence.
+
+   ⚠️ « N JOURS » SE CALCULE ICI, AVEC L'INSTANT DE RÉFÉRENCE DE L'ÉCRAN — jamais `Date.now()` caché dedans :
+   c'est la règle de `depuis`, et elle vaut pour que toutes les lignes d'une même page disent la même heure.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** « N jours » depuis une date. PUR dans son esprit : l'instant de référence est injecté. */
+function enJours(iso: string | null, maintenant: Date): number | null {
+  if (iso === null) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const jours = Math.floor((maintenant.getTime() - d.getTime()) / 86_400_000);
+  /* ⚠️ UNE DATE FUTURE (horloges désaccordées) VAUT ZÉRO, jamais un nombre négatif — même prudence que
+     `depuis`, qui ramène « il y a -2 heures » à « à l'instant ». */
+  return jours < 0 ? 0 : jours;
+}
+
+/** « 0 jour » / « 1 jour » / « 7 jours » — accordé, parce qu'un « 1 jours » dans un écran soigné se remarque. */
+function motJours(n: number): string {
+  return n <= 1 ? `${n} jour` : `${n} jours`;
+}
+
+function LignesDuDossier({ carte, maintenant }: { carte: CarteEvenement; maintenant: Date }) {
+  const ouvertDepuis = enJours(carte.ouvertLe, maintenant);
+  const dernier = enJours(carte.dernierEchangeLe, maintenant);
+  const b = carte.bien ?? null;
+  const lieu = b === null ? null
+    : [b.adresse, b.commune].filter((x) => x !== null && x !== '').join(', ');
+  /* 🔴 « l'adresse du bien (AVEC LE LOT) » — Arno. Le numéro de lot est ce qui identifie le bien dans WIPPIMMO,
+     et deux adresses se ressemblent souvent dans un même immeuble. */
+  const adresse = b === null ? null
+    : (lieu === null || lieu === '' ? `lot ${b.cle}` : `lot ${b.cle} — ${lieu}`);
+  const gens = b === null ? [] : [
+    b.proprietaire === null ? null : `Propriétaire : ${b.proprietaire}`,
+    b.locataire === null ? null : `Locataire en place : ${b.locataire}`,
+  ].filter((x): x is string => x !== null);
+  if (carte.demandeur !== null && carte.demandeur !== '') gens.push(`Demandé par ${carte.demandeur}`);
+
+  return (
+    <>
+      {(ouvertDepuis !== null || dernier !== null) && (
+        <span className="gst-carte-ligne">
+          {ouvertDepuis !== null && <>Ouvert depuis {motJours(ouvertDepuis)}</>}
+          {ouvertDepuis !== null && dernier !== null && <span aria-hidden="true"> · </span>}
+          {dernier !== null && <>dernier échange il y a {motJours(dernier)}</>}
+        </span>
+      )}
+      {adresse !== null && (
+        <span className="gst-carte-ligne gst-carte-ligne--adresse">
+          {adresse}
+          {/* ⚠️ PLUSIEURS BIENS : on montre le premier et l'on DIT qu'il y en a d'autres. Taire le nombre
+              serait mentir par omission ; les lister tous rendrait la liste illisible. */}
+          {carte.nbBiens > 1 && <> {`(+ ${carte.nbBiens - 1} autre${carte.nbBiens > 2 ? 's' : ''} bien${carte.nbBiens > 2 ? 's' : ''})`}</>}
+        </span>
+      )}
+      {gens.length > 0 && <span className="gst-carte-ligne">{gens.join(' · ')}</span>}
+    </>
   );
 }
 
