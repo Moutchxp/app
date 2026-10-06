@@ -18,6 +18,8 @@ import { sqlCleIdentitePiece } from './piecesConversation';
 import { pieceIntegreeDisponible } from './schema';
 import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, jointuresAttente } from './attente';
 import { chargerConfigGestion } from './config';
+/* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le TYPE seul, effacé à la compilation : aucune dépendance ajoutée. */
+import type { TypeEtape } from './mongaEtape';
 import { toleranceVeilleValide, VEILLE_INTERVALLES_DEFAUT, type VeilleReleve } from './ecran';
 import { adressesDe, libelleExpediteur, lirePartenairesInternes, type PartenaireInterne } from './partenaires';
 import {
@@ -53,6 +55,32 @@ export interface CarteEvenement {
   /** LOT 4d — des mails isolés, rattachés à cette carte sans leur échange. Comptés à part : ce ne sont pas des échanges. */
   nbMailsDeplaces: number;
   attend: boolean;                // DÉRIVÉ : au moins un de ses fils — ou le dernier mail déplacé — attend une réponse
+  /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — LA DERNIÈRE CARTE D'ÉTAPE DE SA FRISE ═══════════════════════════
+   *
+   * Arno : « Ajoute À DROITE de la vignette une miniature de la DERNIÈRE carte d'étape de sa frise (même dessin
+   * qu'un carré de la frise, en réduit : nom de l'étape et date, contour vert, pictogramme Monga si elle vient
+   * de Monga, ambre si “à confirmer”). Sans aucune étape : “Ouverture” et sa date. »
+   *
+   * 🔴 `null` = AUCUNE ÉTAPE, et c'est l'écran qui en déduit « Ouverture + la date d'ouverture de l'événement ».
+   * Fabriquer ici une fausse étape d'ouverture aurait mis dans la liste une ligne qui n'existe pas en base — et
+   * la frise, elle, sait très bien faire la différence entre une ouverture enregistrée et une ouverture dérivée.
+   *
+   * ⚠️ LA DERNIÈRE **PAR DATE**, comme la frise les range (lot FRISE-CONSTRUCTIBLE) : c'est « où en est-on ? »
+   * qu'on lit sur une vignette, et la réponse est le dernier fait, pas le dernier enregistré.
+   */
+  derniereEtape: DerniereEtapeVignette | null;
+}
+
+/** Ce qu'une miniature de dernière étape porte. Les REPÈRES en sont exclus : ce ne sont pas des étapes. */
+export interface DerniereEtapeVignette {
+  type: TypeEtape;
+  /** Le titre saisi d'une carte LIBRE ; `null` partout ailleurs — le mot vient alors du type. */
+  titre: string | null;
+  survenuLe: string;
+  heureConnue: boolean;
+  source: 'monga' | 'manuelle';
+  certitude: 'fiable' | 'a_confirmer' | 'confirmee' | 'ecartee';
 }
 
 export interface EtatEcran {
@@ -225,7 +253,41 @@ export async function lireSansSuite(limite = 20): Promise<{ lignes: LigneSansSui
 interface CarteDB {
   evenement_id: number; reference: string; objet: string; demandeur: string | null; adresse_libre: string | null;
   etat: string; ouvert_le: string; dernier_echange_le: string | null; nb_fils: number; nb_mails: number; attend: boolean;
+  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise de cet événement. */
+  etape_type: TypeEtape | null; etape_titre: string | null; etape_survenu_le: string;
+  etape_heure_connue: boolean | null; etape_source: string | null;
+  etape_certitude: DerniereEtapeVignette['certitude'] | null;
 }
+
+/**
+ * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — LA DERNIÈRE ÉTAPE D'UN ÉVÉNEMENT, EN SQL ══════════════════════════════
+ *
+ * Arno veut, sur la vignette, « une miniature de la DERNIÈRE carte d'étape de sa frise ».
+ *
+ * 🔴 LES DEUX SOURCES DE LA FRISE, ET LES MÊMES QUE `friseDeLEvenement` : les étapes posées sur l'événement, ET
+ * celles des RÉFÉRENCES Monga qui lui sont reliées. Ne lire que les premières ferait une vignette muette sur tous
+ * les dossiers Monga — c'est-à-dire ceux qui bougent.
+ *
+ * 🔴 LES REPÈRES SONT ÉCARTÉS (`estRepere`), et c'est la règle de la frise depuis MONGA-2 : un commentaire, un
+ * rappel ou une note ne sont PAS des étapes, ils s'affichent en points. Une miniature qui montrerait « Commentaire
+ * Monga » comme dernière carte dirait faux.
+ *
+ * ⚠️ LA DERNIÈRE PAR DATE, puis par identifiant — exactement l'ordre de `construireFrise`. Une sous-requête
+ * latérale `LIMIT 1` plutôt qu'un `GROUP BY` : on ne veut qu'une ligne, et la requête des cartes groupe déjà sur
+ * autre chose.
+ */
+const SQL_DERNIERE_ETAPE = `
+  LEFT JOIN LATERAL (
+    SELECT x.type, x.titre, x.survenu_le, x.heure_connue, x.source, x.certitude
+      FROM gestion_monga_etape x
+     WHERE x.statut = 'vif'
+       AND x.type NOT IN ('facture','rappel_devis','contact_injoignable','commentaire','note')
+       AND (x.evenement_id = e.id
+            OR x.reference IN (SELECT reference FROM gestion_monga_lien
+                                WHERE evenement_id = e.id AND retire_le IS NULL))
+     ORDER BY x.survenu_le DESC, x.id DESC
+     LIMIT 1
+  ) et ON true`;
 
 /**
  * LES CARTES : tous les événements, les OUVERTS d'abord (un événement traité n'attend plus rien), puis ceux qui attendent
@@ -246,7 +308,11 @@ export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): P
             count(a.fil_id)::int AS nb_fils,
             ${ctx.deplacements ? `(SELECT count(*) FROM gestion_affectation am
                 WHERE am.evenement_id = e.id AND am.actif AND am.message_id IS NOT NULL)::int` : '0'} AS nb_mails,
-            ${ATTEND_CARTE} AS attend
+            ${ATTEND_CARTE} AS attend,
+            /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape, pour la miniature de la vignette. */
+            et.type AS etape_type, et.titre AS etape_titre,
+            to_char(et.survenu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS etape_survenu_le,
+            et.heure_connue AS etape_heure_connue, et.source AS etape_source, et.certitude AS etape_certitude
        FROM gestion_evenement e
        -- message_id IS NULL : une affectation de MAIL ne compte pas comme un échange rattaché, sans quoi une carte
        --   annoncerait « 3 échanges » là où elle n'en a qu'un et deux mails isolés.
@@ -254,7 +320,8 @@ export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): P
        LEFT JOIN dernier d ON d.fil_id = a.fil_id
        LEFT JOIN messages_deplaces md ON md.evenement_id = e.id
        ${jointuresAttente('a.fil_id')}
-      GROUP BY e.id
+       ${SQL_DERNIERE_ETAPE}
+      GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.source, et.certitude
       ORDER BY (e.traite_le IS NOT NULL) ASC,
                ${ATTEND_CARTE} DESC,
                coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), min(md.recu_le), e.ouvert_le) ASC,
@@ -270,6 +337,12 @@ export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): P
       etat: (r.etat === 'en_cours' || r.etat === 'traite' ? r.etat : 'a_traiter'),
       ouvertLe: r.ouvert_le, dernierEchangeLe: r.dernier_echange_le,
       nbFils: r.nb_fils, nbMailsDeplaces: r.nb_mails, attend: r.attend === true,
+      derniereEtape: r.etape_type === null ? null : {
+        type: r.etape_type, titre: r.etape_titre, survenuLe: r.etape_survenu_le,
+        heureConnue: r.etape_heure_connue === true,
+        source: r.etape_source === 'monga' ? 'monga' : 'manuelle',
+        certitude: r.etape_certitude ?? 'fiable',
+      },
     })),
     total: t[0]?.n ?? 0,
   };

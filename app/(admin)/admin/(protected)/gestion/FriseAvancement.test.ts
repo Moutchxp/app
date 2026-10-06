@@ -1096,3 +1096,130 @@ describe('⑳ le gros bouton « Ouvrir la fiche du bien sur cet événement »',
     expect(code).not.toContain('cleDOuverture');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — LA VIGNETTE ET SA MINIATURE ════════════════════════════════════════
+
+   « Retire la capsule “attend une réponse”. Garde toutes les autres informations actuelles (titre, référence,
+   état, nombre d'échanges, dernier échange). Ajoute À DROITE de la vignette une miniature de la DERNIÈRE carte
+   d'étape de sa frise. […] Sans aucune étape : “Ouverture” et sa date. Le titre se coupe proprement avec “…”. »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('㉑ la vignette d’un événement', () => {
+  /**
+   * 🔴🔴 LA CAPSULE EST RETIRÉE DE LA VIGNETTE D'UN ÉVÉNEMENT (accord d'Arno) — et d'elle seule.
+   *
+   * ⚠️ ELLE RESTE SUR LES ÉCHANGES (`LigneFil`), où elle dit autre chose : un fil qui attend une réponse de notre
+   * part. La retirer là aussi aurait supprimé une fonction qu'Arno n'a pas accordée.
+   */
+  it('🔴🔴 plus de capsule « attend une réponse » sur un événement, elle reste sur un échange', () => {
+    /* La vignette vivante est le titre de `CarteVive` : plus aucune capsule dans tout le fichier sauf sur un fil. */
+    const titres = CARTE.slice(CARTE.indexOf('<span className="gst-carte-titre'), CARTE.indexOf('</BlocRepliable>'));
+    expect(titres).not.toContain('gst-attend');
+    /* ⚠️ ET ELLE SURVIT LÀ OÙ ELLE DIT ENCORE QUELQUE CHOSE : sur un ÉCHANGE. */
+    expect(CARTE).toContain('{fil.attend && <span className="gst-attend">attend une réponse</span>}');
+    expect(VUE).toContain('{fil.attend && <span className="gst-attend">attend une réponse</span>}');
+  });
+
+  /** 🔴 TOUT LE RESTE EST GARDÉ (Arno) : titre, référence, état, nombre d'échanges, dernier échange. */
+  it('🔴🔴 la vignette garde toutes ses autres informations', () => {
+    expect(CARTE).toContain('<span className="gst-ref">{carte.reference}</span>');
+    expect(CARTE).toContain('<span>{libelleEtat(etat)}</span>');
+    expect(CARTE).toContain("{carte.nbFils} échange{carte.nbFils > 1 ? 's' : ''}");
+    expect(CARTE).toContain('dernier échange {depuis(carte.dernierEchangeLe, maintenant)}');
+  });
+
+  /**
+   * 🔴🔴 LA MINIATURE, À DROITE, AU MÊME DESSIN QUE LA FRISE : contour VERT, ambre si « à confirmer »,
+   * pictogramme Monga. Les trois couleurs du lot FRISE-CONSTRUCTIBLE, pour qu'on reconnaisse la carte en ouvrant
+   * le dossier.
+   */
+  it('🔴🔴 la miniature reprend le dessin et les couleurs de la frise', () => {
+    expect(CARTE).toContain('<MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe} />');
+    expect(VUE).toContain('.gst-mini{');
+    expect(VUE).toMatch(/\.gst-mini\{[^}]*border:2px solid var\(--color-svv-green\)/);
+    expect(VUE).toContain('.gst-mini--doute{border-color:var(--color-svv-amber)}');
+    expect(CARTE).toContain('{deMonga && <span className="gst-mini-picto" aria-hidden="true"> ◆</span>}');
+  });
+
+  /**
+   * ⚠️ LA COULEUR NE PORTE JAMAIS L'INFORMATION SEULE : « à confirmer » est écrit, et la source est dite au
+   * lecteur d'écran. Règle du dépôt, et elle vaut ici comme sur la frise.
+   */
+  it('⚠️ ni le doute ni la source ne se disent par la couleur seule', () => {
+    expect(CARTE).toContain('{doute && <span className="gst-mini-doute">à confirmer</span>}');
+    expect(CARTE).toContain("`dernière étape : ${mot} du ${date}, ${deMonga ? 'venue de Monga' : 'posée à la main'}`");
+  });
+
+  /**
+   * 🔴🔴 SANS AUCUNE ÉTAPE : « Ouverture » et sa date (Arno). C'est exactement ce que la frise montre dans le
+   * même cas — sa carte d'ouverture dérivée de `gestion_evenement.ouvert_le`. Les deux écrans lisent la même
+   * donnée, donc ils ne peuvent pas se contredire.
+   */
+  it('🔴🔴 sans étape : « Ouverture » et la date d’ouverture de l’événement', () => {
+    expect(CARTE).toContain("const mot = etape === null\n    ? motEtape('ouverture')");
+    expect(CARTE).toContain("const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);");
+  });
+
+  /**
+   * 🔴 LE TITRE SE COUPE AVEC « … » POUR LAISSER LA PLACE (Arno), et il garde son contenu entier dans son
+   * attribut `title` : une coupure qui perd l'information serait un titre faux.
+   */
+  it('🔴 le titre se coupe, et reste lisible en entier au survol', () => {
+    expect(CARTE).toContain('<span className="gst-objet gst-objet--coupe" title={objet}>{objet}</span>');
+    expect(VUE).toMatch(/\.gst-objet--coupe\{[^}]*text-overflow:ellipsis/);
+    /* 🔴 ET C'EST LE TEXTE QUI RÉTRÉCIT, PAS LA MINIATURE : `min-width:0` sur la colonne de texte (sans quoi un
+       enfant en flex refuse de passer sous sa largeur de contenu), `flex:0 0 auto` sur la miniature. */
+    expect(VUE).toMatch(/\.gst-carte-texte\{[^}]*flex:1 1 auto;min-width:0/);
+    expect(VUE).toMatch(/\.gst-mini\{flex:0 0 auto/);
+  });
+
+  /**
+   * 🔴 LA DERNIÈRE ÉTAPE VIENT DES **DEUX** SOURCES DE LA FRISE — l'événement ET ses références Monga reliées —
+   * et les REPÈRES en sont écartés : un commentaire ou un rappel ne sont pas des étapes (règle de MONGA-2).
+   */
+  it('🔴🔴 la lecture suit les mêmes règles que la frise', () => {
+    const repo = readFileSync('app/lib/gestion/fileRepo.ts', 'utf8');
+    expect(repo).toContain('OR x.reference IN (SELECT reference FROM gestion_monga_lien');
+    expect(repo).toContain("x.type NOT IN ('facture','rappel_devis','contact_injoignable','commentaire','note')");
+    /* ⚠️ LA DERNIÈRE PAR DATE, puis par identifiant — exactement l'ordre de `construireFrise`. */
+    expect(repo).toContain('ORDER BY x.survenu_le DESC, x.id DESC');
+    expect(repo).toContain("x.statut = 'vif'");
+  });
+
+  /**
+   * ⚠️ LA MINIATURE A SON PROPRE PRÉFIXE DE CLASSE. La feuille de la frise n'est pas injectée sur l'écran
+   * partagé, et deux composants ne partagent JAMAIS un préfixe — il n'y a pas de portée en CSS (leçon mesurée au
+   * lot FRISES-REPARATION, où `.frs` partagé cassait la frise des mails).
+   */
+  it('⚠️ la miniature n’emprunte aucune classe de la frise', () => {
+    const i = CARTE.indexOf('function MiniatureEtape');
+    const bloc = CARTE.slice(i, CARTE.indexOf('\n}\n', i));
+    expect(bloc).not.toContain('fav-');
+    expect(bloc).not.toContain('frs-');
+  });
+});
+
+describe('㉑-bis la miniature ne peut pas emporter l’écran', () => {
+  /**
+   * ══ 🔴🔴 DÉFAUT MESURÉ PENDANT CE LOT, ET CORRIGÉ ═════════════════════════════════════════════════════════
+   *
+   * Premier jet : `etape === null`. La suite a rendu `TypeError: Cannot read properties of undefined (reading
+   * 'type')` sur **14 épreuves** de `GestionVue.fusion`. Ce n'était pas un artefact d'épreuve : le champ arrive
+   * d'une réponse JSON, et il est ABSENT — pas `null` — dès qu'un appelant ne le pose pas (une page encore
+   * ouverte pendant un déploiement, un écran qui construit une carte à la main, un cache).
+   *
+   * 🔴 LA CONSÉQUENCE ÉTAIT TOTALE : la vignette jetait, donc la liste, donc l'écran partagé. Une miniature est
+   * un ORNEMENT ; elle ne doit jamais pouvoir emporter l'écran qui la porte.
+   */
+  it('🔴🔴 une dernière étape ABSENTE se lit comme une absence, pas comme une panne', () => {
+    expect(CARTE).toContain('etape: DerniereEtapeVignette | null | undefined;');
+    expect(CARTE).toContain('const etape = brut ?? null;');
+  });
+
+  /** ⚠️ ET LA DATE RÉSISTE AUSSI À UNE CHAÎNE ABSENTE : une carte sans `ouvertLe` ne doit pas davantage jeter. */
+  it('⚠️ une date absente rend un tiret, jamais une exception', () => {
+    expect(CARTE).toContain("const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);");
+    expect(CARTE).toContain("? `${quand.slice(8, 10)}/${quand.slice(5, 7)}/${quand.slice(0, 4)}` : '—';");
+  });
+});

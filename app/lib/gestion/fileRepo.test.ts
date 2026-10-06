@@ -43,7 +43,12 @@ describe('fileRepo — LECTURE SEULE, sans exception', () => {
       const tables = [...s.matchAll(/\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)/gi)].map((m) => m[1].toLowerCase());
       // Les CTE partagées de `attente.ts` ne sont pas des tables : « le dernier message », « le dernier message hors
       //   partenaire interne », et « les fils où quelqu'un d'extérieur a écrit ».
-      const ctes = ['dernier', 'dernier_hors', 'exterieur', 'messages_deplaces'];
+      // 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — `LATERAL` N'EST PAS UNE TABLE, c'est un MOT-CLÉ : le motif
+      //   `JOIN <nom>` l'attrape comme s'il en était une. La dernière carte d'étape de chaque événement se lit
+      //   par un `LEFT JOIN LATERAL (… LIMIT 1)` — une seule ligne par carte, là où un GROUP BY aurait groupé sur
+      //   autre chose. Le verdict de l'épreuve ne change pas d'un iota : elle vérifie toujours que ce module ne
+      //   lit que des tables `gestion_`, et la sous-requête latérale en lit une (`gestion_monga_etape`).
+      const ctes = ['dernier', 'dernier_hors', 'exterieur', 'messages_deplaces', 'lateral'];
       for (const t of tables) expect(ctes.includes(t) || t.startsWith('gestion_')).toBe(true);
     }
   });

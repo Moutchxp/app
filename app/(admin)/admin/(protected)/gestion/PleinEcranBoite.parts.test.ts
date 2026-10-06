@@ -38,6 +38,9 @@ const carte = (id: number, nbFils: number) => ({
   evenementId: id, reference: `GES-2026-${String(id).padStart(6, '0')}`, objet: `Dossier ${id}`,
   demandeur: null, adresseLibre: null, etat: 'a_traiter' as const, ouvertLe: '2026-09-01T10:00:00Z',
   dernierEchangeLe: null, nbFils, nbMailsDeplaces: 0, attend: false,
+  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise ; `null` ici, ces épreuves ne
+     portent que sur les ÉTIQUETTES de la colonne, qui ne la lisent pas. */
+  derniereEtape: null,
 });
 const COMPTES = { lisibles: 4944, automatiques: 12262, envoyes: 3311, aClasser: 1234 };
 const par = (l: EtiquetteAffichee[], sorte: string) => l.find((e) => e.etiquette.sorte === sorte);

@@ -23,6 +23,9 @@ const CARTE = {
   evenementId: 9, reference: 'GES-2026-000009', objet: 'Fuite salle de bain', demandeur: 'Mme M.',
   adresseLibre: '28 avenue Marceau', etat: 'a_traiter' as const, ouvertLe: '2026-09-20T12:00:00Z',
   dernierEchangeLe: '2026-09-22T12:00:00Z', nbFils: 1, nbMailsDeplaces: 0, attend: true,
+  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise. `null` = aucune étape : la
+     vignette montre alors « Ouverture » et la date d'ouverture de l'événement. */
+  derniereEtape: null,
 };
 
 // Typés d'après le contrat RÉEL des routes : sans ça, un littéral s'infère trop étroitement (`traiteLe: null` de

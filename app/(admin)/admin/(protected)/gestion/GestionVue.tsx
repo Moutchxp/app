@@ -1676,13 +1676,22 @@ export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAf
   );
 }
 
-/** Une carte d'événement : qui demande, quoi, depuis quand, dernier échange, état. EXPORTÉE pour être rendue en test. */
+/**
+ * Une carte d'événement : qui demande, quoi, depuis quand, dernier échange, état. EXPORTÉE pour être rendue en test.
+ *
+ * ⚠️ ELLE N'EST RENDUE NULLE PART EN PRODUCTION — la vignette vivante est le titre de `CarteVive`. Elle garde
+ * pourtant le contrat à jour : deux vignettes d'événement qui ne diraient pas la même chose finiraient par être
+ * lues l'une pour l'autre.
+ *
+ * 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — LA CAPSULE « attend une réponse » EST RETIRÉE (accord d'Arno). Elle reste
+ * sur les ÉCHANGES (`LigneFil`), où elle dit autre chose : un fil qui attend une réponse de notre part. Sur un
+ * ÉVÉNEMENT, elle doublait ce que l'état et la dernière étape disent déjà mieux.
+ */
 export function CarteEv({ carte, maintenant }: { carte: CarteEvenement; maintenant: Date }) {
   return (
     <li className="gst-item">
       <div className="gst-item-haut">
         <span className="gst-objet">{carte.objet}</span>
-        {carte.attend && <span className="gst-attend">attend une réponse</span>}
       </div>
       <div className="gst-item-bas">
         <span className="gst-ref">{carte.reference}</span>
@@ -1862,6 +1871,41 @@ const CSS_GESTION = `
 /* La ligne de titre d'un bloc repliable est un vrai bouton : on la laisse occuper toute la largeur et respirer. */
 .gst-repli{align-items:flex-start;padding:.6rem .7rem}
 .gst-carte-titre{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;min-width:0}
+/* ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — LA VIGNETTE : LE TEXTE A GAUCHE, LA MINIATURE A DROITE ════════════
+   Arno : « Ajoute A DROITE de la vignette une miniature de la DERNIERE carte d'etape de sa frise […] Le titre se
+   coupe proprement avec “…” pour laisser la place. »
+   🔴 LE TEXTE PREND CE QUI RESTE (flex:1 1 auto + min-width:0, sans quoi un enfant en flex refuse de retrecir
+   sous sa largeur de contenu) ; la miniature ne se laisse PAS ecraser (flex-shrink:0). L'inverse l'aurait
+   reduite a un trait sur les titres longs — c'est-a-dire la ou l'on a le plus besoin de savoir ou en est le
+   dossier. */
+.gst-carte-titre--avec-etape{flex-wrap:nowrap;align-items:flex-start;gap:.6rem}
+.gst-carte-texte{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0}
+/* ⚠️ LA COUPURE GARDE LE TITRE ENTIER DANS SON ATTRIBUT « title » (balisage) : une coupure qui perd
+   l'information serait un titre faux. */
+.gst-objet--coupe{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ══ LA MINIATURE — meme dessin qu'un carre de la frise, en reduit ══
+   ⚠️ PREFIXE « gst-mini- » ET NON « fav- » : la feuille de la frise n'est pas injectee sur l'ecran partage, et deux
+   composants ne partagent JAMAIS un prefixe de classe (leçon du lot FRISES-REPARATION — il n'y a pas de portee
+   en CSS). */
+.gst-mini{flex:0 0 auto;box-sizing:border-box;width:132px;min-height:46px;padding:4px 6px;
+  display:flex;flex-direction:column;gap:1px;position:relative;
+  border-radius:8px;border:2px solid var(--color-svv-green);background:var(--color-svv-field)}
+/* 🔴 AMBRE QUAND L'ETAPE EST « A CONFIRMER » — la meme regle que la frise, et le MOT est ecrit en dessous. */
+.gst-mini--doute{border-color:var(--color-svv-amber)}
+.gst-mini-titre{font-size:.72rem;font-weight:700;line-height:1.15;color:var(--color-svv-ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gst-mini-picto{color:var(--color-svv-red)}
+.gst-mini-date{font-size:.68rem;color:var(--color-svv-muted)}
+.gst-mini-doute{font-size:.64rem;font-style:italic;color:var(--color-svv-amber)}
+.gst-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip-path:inset(50%);white-space:nowrap;border:0}
+/* ⚠️ ECRAN ETROIT : la miniature passe SOUS le texte plutot que de l'etrangler. Elle reste entiere — c'est
+   l'information qu'on vient chercher. */
+@media (max-width:600px){
+  .gst-carte-titre--avec-etape{flex-wrap:wrap}
+  .gst-mini{width:100%}
+}
 .gst-carte-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;flex-basis:100%;font-size:.8rem;font-weight:400;color:var(--color-svv-muted)}
 .gst-corps{display:flex;flex-direction:column;gap:12px;padding:12px 2px 2px}
 .gst-bloc{display:flex;flex-direction:column;gap:8px;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px}

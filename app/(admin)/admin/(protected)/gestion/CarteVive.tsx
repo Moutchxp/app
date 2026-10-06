@@ -9,7 +9,9 @@ import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 import type { CarteDetail, FilDeCarte, MailParti, MessageDeFil } from '../../../../lib/gestion/carteRepo';
 /* 🔴 LOT MONGA-1, POINT 4 — le type seul, effacé à la compilation : ce composant vit dans le navigateur. */
 import type { MongaDeLEvenement } from '../../../../lib/gestion/mongaRepo';
-import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
+import type { CarteEvenement, DerniereEtapeVignette } from '../../../../lib/gestion/fileRepo';
+/* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le mot d'une étape et la forme de sa date : modules PURS. */
+import { motEtape } from '../../../../lib/gestion/mongaEtape';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 import { depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens } from '../../../../lib/gestion/ecran';
 /* 🔴🔴 LOT MONGA-2, POINT 4 — la frise d'avancement de l'événement. */
@@ -121,20 +123,37 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
       <BlocRepliable
         titreClasseExtra="gst-repli"
         titre={
-          <span className="gst-carte-titre">
-            <span className="gst-objet">{objet}</span>
-            {carte.attend && <span className="gst-attend">attend une réponse</span>}
-            <span className="gst-carte-bas">
-              <span className="gst-ref">{carte.reference}</span>
-              <span className="gst-sep" aria-hidden="true">·</span>
-              <span>{libelleEtat(etat)}</span>
-              <span className="gst-sep" aria-hidden="true">·</span>
-              <span>{carte.nbFils} échange{carte.nbFils > 1 ? 's' : ''}</span>
-              {carte.dernierEchangeLe && <>
+          /**
+           * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — LA VIGNETTE ════════════════════════════════════════════
+           *
+           * Arno : « Retire la capsule “attend une réponse”. Garde toutes les autres informations actuelles
+           * (titre, référence, état, nombre d'échanges, dernier échange). Ajoute À DROITE de la vignette une
+           * miniature de la DERNIÈRE carte d'étape de sa frise. Le titre se coupe proprement avec “…” pour
+           * laisser la place. »
+           *
+           * 🔴 DEUX COLONNES : le texte à gauche, la miniature à droite. Le texte prend ce qui reste et son
+           * titre se coupe ; la miniature a une largeur fixe et ne se laisse pas écraser. L'inverse — une
+           * miniature élastique — l'aurait réduite à un trait sur les titres longs, et c'est justement là
+           * qu'on a besoin de savoir où en est le dossier.
+           */
+          <span className="gst-carte-titre gst-carte-titre--avec-etape">
+            <span className="gst-carte-texte">
+              {/* ⚠️ LE TITRE SE COUPE AVEC « … », et il garde son contenu entier dans son `title` : une
+                  coupure qui perd l'information serait un titre faux. */}
+              <span className="gst-objet gst-objet--coupe" title={objet}>{objet}</span>
+              <span className="gst-carte-bas">
+                <span className="gst-ref">{carte.reference}</span>
                 <span className="gst-sep" aria-hidden="true">·</span>
-                <span title={formaterDateFr(carte.dernierEchangeLe)}>dernier échange {depuis(carte.dernierEchangeLe, maintenant)}</span>
-              </>}
+                <span>{libelleEtat(etat)}</span>
+                <span className="gst-sep" aria-hidden="true">·</span>
+                <span>{carte.nbFils} échange{carte.nbFils > 1 ? 's' : ''}</span>
+                {carte.dernierEchangeLe && <>
+                  <span className="gst-sep" aria-hidden="true">·</span>
+                  <span title={formaterDateFr(carte.dernierEchangeLe)}>dernier échange {depuis(carte.dernierEchangeLe, maintenant)}</span>
+                </>}
+              </span>
             </span>
+            <MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe} />
           </span>
         }
       >
@@ -367,6 +386,75 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
         </>
       )}
     </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — LA MINIATURE DE LA DERNIÈRE ÉTAPE ═══════════════════════════════════
+
+   Arno : « une miniature de la DERNIÈRE carte d'étape de sa frise (même dessin qu'un carré de la frise, en
+   réduit : nom de l'étape et date, contour vert, pictogramme Monga si elle vient de Monga, ambre si “à
+   confirmer”). Sans aucune étape : “Ouverture” et sa date. »
+
+   🔴 LE MÊME DESSIN, ET LES MÊMES TROIS COULEURS QUE LA FRISE : vert = dans la frise, ambre = « à confirmer ».
+   C'est ce qui fait qu'on reconnaît la carte en ouvrant le dossier — une miniature qui ne ressemblerait pas à sa
+   carte obligerait à réapprendre deux fois le même code de couleurs.
+
+   ⚠️ ELLE PORTE SON PROPRE PRÉFIXE `gst-mini-` ET NON `fav-` : la feuille de la frise n'est pas injectée sur
+   l'écran partagé (la frise n'y est pas montée), et surtout — leçon du lot FRISES-REPARATION — deux composants
+   ne partagent JAMAIS un préfixe de classe, il n'y a pas de portée en CSS.
+
+   ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : le mot « à confirmer » est écrit, et le pictogramme de source
+   est doublé d'un texte au lecteur d'écran.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+function MiniatureEtape({ etape: brut, ouvertLe }: {
+  etape: DerniereEtapeVignette | null | undefined; ouvertLe: string;
+}) {
+  /**
+   * ══ 🔴🔴 ABSENT ET `null` SONT LA MÊME CHOSE ICI, ET C'EST UN DÉFAUT MESURÉ ════════════════════════════════
+   *
+   * Premier jet : `etape === null`. La suite a rendu `TypeError: Cannot read properties of undefined (reading
+   * 'type')` sur **14 épreuves** de `GestionVue.fusion` — et ce n'est pas un artefact d'épreuve. Le champ arrive
+   * d'une réponse JSON : il est ABSENT, et non `null`, dès qu'un appelant ne le pose pas — une page encore
+   * ouverte pendant un déploiement, un écran qui construit une carte à la main, un cache.
+   *
+   * 🔴 ET LA CONSÉQUENCE ÉTAIT TOTALE : la vignette jetait, donc la liste entière, donc l'écran partagé. Une
+   * miniature est un ORNEMENT ; elle ne doit jamais pouvoir emporter l'écran qui la porte.
+   */
+  const etape = brut ?? null;
+
+  /**
+   * 🔴 SANS AUCUNE ÉTAPE : « Ouverture » et sa date (Arno). C'est exactement ce que la frise montre dans le même
+   * cas — sa carte d'ouverture dérivée de `gestion_evenement.ouvert_le` (lot FRISE-CONSTRUCTIBLE). Les deux
+   * écrans disent donc la même chose, parce qu'ils lisent la même donnée.
+   */
+  const mot = etape === null
+    ? motEtape('ouverture')
+    : (etape.type === 'autre' && etape.titre !== null && etape.titre.trim() !== ''
+      ? etape.titre.trim() : motEtape(etape.type));
+  /* ⚠️ ET LA DATE RÉSISTE AUSSI À UNE CHAÎNE ABSENTE : une carte sans `ouvertLe` ne doit pas davantage jeter. */
+  const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);
+  const date = quand.length === 10
+    ? `${quand.slice(8, 10)}/${quand.slice(5, 7)}/${quand.slice(0, 4)}` : '—';
+  const doute = etape !== null && etape.certitude === 'a_confirmer';
+  const deMonga = etape !== null && etape.source === 'monga';
+
+  return (
+    <span className={`gst-mini${doute ? ' gst-mini--doute' : ''}`}>
+      <span className="gst-mini-titre">
+        {mot}
+        {/* ⚠️ LE PICTO NE PORTE PAS L'INFORMATION SEUL : la source est dite juste après, au lecteur d'écran. */}
+        {deMonga && <span className="gst-mini-picto" aria-hidden="true"> ◆</span>}
+      </span>
+      <span className="gst-mini-date">{date}</span>
+      {doute && <span className="gst-mini-doute">à confirmer</span>}
+      <span className="gst-sr-only">
+        {etape === null
+          ? `dernière étape : aucune, ouverture du ${date}`
+          : `dernière étape : ${mot} du ${date}, ${deMonga ? 'venue de Monga' : 'posée à la main'}`}
+      </span>
+    </span>
   );
 }
 
