@@ -26,6 +26,8 @@ import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
  * PLACE / HISTORIQUE DES LOCATAIRES, le bloc « Vie du bien » et le lien « Tout l'historique des échanges → »
  * restent exactement ce qu'ils étaient. Ce bloc s'ajoute APRÈS ce lien, en bas de la fiche.
  */
+/* 🔴🔴 LOT MONGA-2, POINT 4 — le bloc « Événements » de la fiche du bien. */
+import { EvenementsDuBien } from './EvenementsDuBien';
 import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien } from './HistoriqueDuBien';
 import { type CarteLocataireBien, type CategoriePartie, type ClientDuBien, type OccupationPeriode,
   type PeriodePartie } from '../../../../lib/gestion/historiqueBien';
@@ -1551,6 +1553,21 @@ function VueLot({
           ⚠️ LA CLÉ PORTE LE FILTRE, comme elle le portait pour « Vie du bien » : c'est ce qui fait repartir le
           moteur sur le filtre voulu quand on clique un cartouche après être déjà sur la fiche. Sans elle, son
           état interne garderait les réglages d'avant — et le clic n'aurait l'air de rien faire. */}
+      {/**
+        * ══ 🔴🔴 LOT MONGA-2, POINT 4 — LE BLOC « ÉVÉNEMENTS », JUSTE AU-DESSUS DU MOTEUR HISTORIQUE ═══════════
+        *
+        * Arno : « un bloc “Événements” placé juste au-dessus du moteur Historique. Les événements en cours sont
+        * dépliés avec leur frise, les clos sont repliés. Rien d'autre ne bouge dans la fiche. »
+        *
+        * 🔴 IL EST POSÉ **HORS** DE `ancreVie`, ET C'EST VOULU. Cette enveloppe est la cible de `?bloc=vie` et
+        * du cartouche « Événement en cours » : y glisser un second bloc ferait viser le défilement au-dessus du
+        * moteur, et la promesse « on arrive sur l'historique » cesserait de tenir.
+        *
+        * ⚠️ IL NE REND RIEN SUR UN BIEN SANS ÉVÉNEMENT — pas même un conteneur vide. C'est ce qui garde à la
+        * fiche son empreinte exacte d'avant ce lot, et c'est éprouvé (`EvenementsDuBien` rend `null`).
+        */}
+      <EvenementsDuBien lotCle={f.numero} onOuvrirFil={onOuvrirFil} />
+
       <div ref={ancreVie}>
         <HistoriqueDuBien
           key={filtreVie}

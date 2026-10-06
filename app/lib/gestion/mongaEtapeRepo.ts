@@ -35,6 +35,16 @@ export interface EtapeEcran {
   statut: 'vif' | 'retire';
   /** `null` = le mail n'existe plus. L'écran dit alors « mail supprimé — étape conservée » (Arno). */
   messageId: number | null;
+  /**
+   * 🔴🔴 CETTE ÉTAPE A-T-ELLE **JAMAIS** EU UN MAIL ? Défaut trouvé à l'écran le 06/10/2026 : les 33 ouvertures
+   * de repli n'ont pas de message (elles sont DÉDUITES de la date du premier mail), et l'écran leur écrivait
+   * « mail supprimé — étape conservée ». C'est faux, et c'est le genre de fausseté qui discrédite tout le reste :
+   * on annonce une suppression qui n'a pas eu lieu.
+   *
+   * `message_cle` tranche : elle est posée à l'enregistrement et SURVIT à la suppression de la ligne du mail.
+   * Absente, l'étape n'a jamais eu de mail.
+   */
+  aEuUnMail: boolean;
   filId: number | null;
   pieceNom: string | null;
   creeParLibelle: string | null;
@@ -137,11 +147,12 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     heure_connue: boolean; heure_fin: string | null; numero: string | null; rang: number | null;
     montant_cents: string | null; texte: string | null; auteur: string | null;
     source: 'monga' | 'manuelle'; certitude: EtapeEcran['certitude']; statut: 'vif' | 'retire';
-    message_id: string | null; fil_id: string | null; piece_nom: string | null; cree_par_libelle: string | null;
+    message_id: string | null; message_cle: string | null; fil_id: string | null;
+    piece_nom: string | null; cree_par_libelle: string | null;
   }>(
     `SELECT e.id, e.reference, e.type, e.survenu_le::text, e.heure_connue, e.heure_fin,
             e.numero, e.rang, e.montant_cents, e.texte, e.auteur, e.source, e.certitude, e.statut,
-            e.message_id, m.fil_id, e.piece_nom, e.cree_par_libelle
+            e.message_id, e.message_cle, m.fil_id, e.piece_nom, e.cree_par_libelle
        FROM gestion_monga_etape e
        LEFT JOIN gestion_message m ON m.id = e.message_id
       WHERE e.statut = 'vif'
@@ -150,9 +161,29 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
                                  WHERE evenement_id = $1 AND retire_le IS NULL))
       ORDER BY e.survenu_le, e.id`, [evenementId]);
 
-  const devis = rows.filter((r) => r.type === 'devis_recu')
-    .map((r) => ({ id: Number(r.id), numero: r.numero, jour: r.survenu_le.slice(0, 10) }));
-  const rangs = rangsDesDevis(devis);
+  /**
+   * ══ 🔴🔴 LE RANG DES DEVIS SE COMPTE **PAR RÉFÉRENCE**, ET C'EST UN DÉFAUT TROUVÉ À L'ÉCRAN ═════════════════
+   *
+   * Première écriture : un seul appel à `rangsDesDevis` sur TOUS les devis de l'événement. Vérifié le 06/10/2026
+   * sur l'événement 1, trois références reliées — la frise affichait « Devis 1 », « Devis 2 », « Devis 3 » pour
+   * trois devis appartenant à TROIS INTERVENTIONS DIFFÉRENTES. Lu de bonne foi, cela raconte un devis refusé
+   * deux fois, alors que chaque intervention n'en a qu'un.
+   *
+   * 🔴 UN ÉVÉNEMENT PEUT PORTER PLUSIEURS RÉFÉRENCES (c'est tout l'objet de `gestion_monga_lien`), et le rang
+   * d'un devis n'a de sens que DANS SON INTERVENTION. On groupe donc avant de compter.
+   */
+  const parReference = new Map<string, { id: number; numero: string | null; jour: string }[]>();
+  for (const r of rows) {
+    if (r.type !== 'devis_recu') continue;
+    const cle = r.reference ?? '(manuelle)';
+    const liste = parReference.get(cle) ?? [];
+    liste.push({ id: Number(r.id), numero: r.numero, jour: r.survenu_le.slice(0, 10) });
+    parReference.set(cle, liste);
+  }
+  const rangs = new Map<number, number>();
+  for (const [, liste] of parReference) {
+    for (const [id, rang] of rangsDesDevis(liste)) rangs.set(id, rang);
+  }
 
   return rows.map((r) => ({
     id: Number(r.id),
@@ -172,6 +203,7 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     certitude: r.certitude,
     statut: r.statut,
     messageId: r.message_id === null ? null : Number(r.message_id),
+    aEuUnMail: r.message_cle !== null,
     filId: r.fil_id === null ? null : Number(r.fil_id),
     pieceNom: r.piece_nom,
     creeParLibelle: r.cree_par_libelle,

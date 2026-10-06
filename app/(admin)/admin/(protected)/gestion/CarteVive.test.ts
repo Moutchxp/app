@@ -148,10 +148,31 @@ describe('① PARESSE — ce qu’on n’ouvre pas ne coûte rien', () => {
     expect(container.textContent).toContain('GES-2026-000009'); // le résumé, lui, est déjà là
   });
 
-  it('le dépliage de la carte charge son dossier — une seule fois', async () => {
+  /**
+   * ══ 🔴🔴 LOT MONGA-2, POINT 4 — LE DÉPLIAGE CHARGE DÉSORMAIS **DEUX** RESSOURCES ═══════════════════════════════
+   *
+   * CETTE ÉPREUVE FIGEAIT LA LISTE EXACTE DES APPELS (`toEqual([…une seule entrée…])`). La carte ouverte porte
+   * maintenant sa FRISE D'AVANCEMENT — « Où elle s'affiche : dans la vue de l'événement » (Arno) — et la frise a
+   * sa propre route.
+   *
+   * 🔴 LE VERDICT DE L'ÉPREUVE EST INTACT, ET C'EST LUI QUI COMPTE : rien ne part AVANT le dépliage, et chaque
+   * ressource n'est demandée QU'UNE FOIS. C'est la paresse du lot 4c, et elle tient toujours — la preuve en est
+   * l'épreuve « replier puis rouvrir ne relance RIEN », juste en dessous, qui n'a pas bougé.
+   *
+   * ⚠️ POURQUOI LA FRISE N'EST PAS DERRIÈRE UN SECOND CLIC. C'est le renseignement qui dit OÙ EN EST le travail,
+   * et le dépôt a déjà tranché cette question pour le badge Monga au lot MONGA-1 : « il doit se lire sans
+   * dérouler la carte ». Un clic de plus pour savoir si l'artisan est passé rendrait la frise inutile.
+   *
+   * ⚠️ ET LE COÛT EST BORNÉ : une requête par carte OUVERTE, jamais par carte listée. Les 443 échanges de la
+   * file n'en déclenchent toujours aucune tant qu'on ne déplie rien.
+   */
+  it('le dépliage de la carte charge son dossier ET sa frise — chacun une seule fois', async () => {
     await monter();
     await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(appels).toEqual(['GET /api/admin/gestion/evenements/9']);
+    expect(appels.filter((a) => a === 'GET /api/admin/gestion/evenements/9')).toHaveLength(1);
+    expect(appels.filter((a) => a.includes('/frise'))).toHaveLength(1);
+    /* 🔴 ET RIEN D'AUTRE : la liste reste bornée à ces deux ressources. */
+    expect(appels).toHaveLength(2);
     expect(container.textContent).toContain('Échanges rattachés');
   });
 

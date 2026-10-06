@@ -12,6 +12,8 @@ import type { MongaDeLEvenement } from '../../../../lib/gestion/mongaRepo';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 import { depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens } from '../../../../lib/gestion/ecran';
+/* 🔴🔴 LOT MONGA-2, POINT 4 — la frise d'avancement de l'événement. */
+import { FriseAvancement } from './FriseAvancement';
 import { statutDuMessage } from '../../../../lib/gestion/statutClassement';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 
@@ -232,6 +234,32 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique }
           )}
         </div>
       )}
+
+      {/**
+        * ══ 🔴🔴 LOT MONGA-2, POINT 4 — LA FRISE D'AVANCEMENT, DANS LA VUE DE L'ÉVÉNEMENT ══════════════════════
+        *
+        * Arno : « Où elle s'affiche — dans la vue de l'événement. »
+        *
+        * 🔴 ELLE EST POSÉE SOUS LE BADGE MONGA ET AVANT LE RÉSUMÉ, pour la même raison que le badge lui-même :
+        * c'est ce qui dit OÙ EN EST le travail, et cela doit se lire avant les détails administratifs de la
+        * carte (demandeur, catégorie, note).
+        *
+        * 🔴 ELLE S'AFFICHE MÊME SANS MONGA, et c'est une demande explicite : « Fonctionne aussi pour un
+        * événement SANS Monga (frise entièrement manuelle). » Sur un événement nu, elle montre les sept étapes
+        * attendues en pointillé et le bouton « + Ajouter une étape » — c'est-à-dire un dossier qu'on peut tenir
+        * à la main dès le premier jour.
+        *
+        * ⚠️ LA PROPOSITION DE CLÔTURE PASSE PAR LA PORTE QU'ARNO EMPLOIE DÉJÀ (`agir({ etat: 'traite' })`),
+        * exactement comme celle du badge Monga juste au-dessus : même journal, même réversibilité. Deux chemins
+        * pour clore auraient fini par écrire deux histoires différentes dans le journal.
+        */}
+      <h3 className="gst-sous-titre">Avancement</h3>
+      <FriseAvancement
+        evenementId={evenementId}
+        onGeste={(m) => onGeste(m)}
+        onProposerCloture={() => void agir({ etat: 'traite' },
+          `Événement ${d.reference} clos depuis la frise d’avancement.`)}
+      />
 
       {edition
         ? <FormulaireCarte detail={d} occupe={occupe}
