@@ -79,6 +79,36 @@ export function EvenementsDuBien({
   useEffect(() => { void charger(); }, [charger]);
 
   /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — OUVRIR LA FICHE DU BIEN ÉTEINT L'EFFET ═══════════════════════════
+   *
+   * Arno : l'effet « mis à jour par Monga » s'éteint quand ce collaborateur « ouvre la fiche du bien concerné
+   * (PAR N'IMPORTE QUEL CHEMIN) ». Ce bloc n'existe QUE sur une fiche de bien, et il n'est monté que si le bien
+   * a au moins un événement : être ici, c'est avoir ouvert la fiche.
+   *
+   * 🔴 LA MÊME PORTE QUE LE CLIC SUR UNE VIGNETTE (`POST /evenements/vus`), avec une liste au lieu d'un
+   * identifiant. Deux portes auraient écrit deux dates, et l'effet se serait éteint ici sans s'éteindre là.
+   *
+   * ⚠️ UNE SEULE FOIS PAR LISTE D'ÉVÉNEMENTS, et le verrou est une clé — pas un booléen : la fiche se relit
+   * après un changement d'état, et l'on ne veut pas réécrire à chaque relecture. Mais si la LISTE change (un
+   * événement nouvellement rattaché), il faut bien le marquer lui aussi.
+   *
+   * ⚠️ L'ÉCHEC SE TAIT : marquer vu est un geste de confort. Une bannière en travers d'une fiche qu'on ouvrait
+   * pour autre chose ferait plus de mal que l'effet qui reste allumé.
+   */
+  const marques = useRef('');
+  useEffect(() => {
+    if (evenements === null || evenements.length === 0) return;
+    const ids = evenements.map((e) => e.id).sort((a, b) => a - b);
+    const cle = ids.join(',');
+    if (marques.current === cle) return;
+    marques.current = cle;
+    void fetch('/api/admin/gestion/evenements/vus', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }).catch(() => undefined);
+  }, [evenements]);
+
+  /**
    * 🔴 LES EN COURS SONT DÉPLIÉS, LES CLOS REPLIÉS (Arno). Posé une fois, à l'arrivée des données — et non
    * recalculé à chaque rendu, sans quoi replier un événement en cours le rouvrirait aussitôt.
    */

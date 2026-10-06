@@ -26,6 +26,9 @@ const CARTE = {
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise. `null` = aucune étape : la
      vignette montre alors « Ouverture » et la date d'ouverture de l'événement. */
   derniereEtape: null,
+  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — l'effet « mis à jour par Monga » est la comparaison de ces deux dates.
+     `null` des deux côtés = aucune étape Monga, jamais vu : rien ne s'allume. */
+  mongaMajLe: null, vuLe: null,
 };
 
 // Typés d'après le contrat RÉEL des routes : sans ça, un littéral s'infère trop étroitement (`traiteLe: null` de
@@ -94,6 +97,11 @@ beforeEach(() => {
       //   tout seul, et qui n'a rien à voir avec les gestes éprouvés ici. On le sert et on l'ÉCARTE du relevé,
       //   plutôt que d'indexer les gestes par leur rang d'arrivée — un rang, ça se décale au premier ajout.
       if (/\/lecture$/.test(u)) return ok({ etat: 'ok', lu: true, messages: 1 });
+      // 🔴 LOT VIGNETTE-EVENEMENT (point 3) — MÊME RAISON, MÊME TRAITEMENT : déplier une carte, c'est « ouvrir la
+      //   vue de l'événement », et cela éteint l'effet « mis à jour par Monga » pour ce collaborateur. Ce POST
+      //   part tout seul et n'a rien à voir avec les gestes éprouvés ici. L'épreuve de PARESSE, elle, le COMPTE
+      //   explicitement — c'est là qu'il doit être vu.
+      if (/\/evenements\/vus$/.test(u)) return ok({ etat: 'ok', marques: 1 });
       posts.push({ url: u, corps: JSON.parse(String(init.body)) });
       return ok({ ok: true, evenementId: 42, reference: 'GES-2026-000042' });
     }
@@ -174,8 +182,16 @@ describe('① PARESSE — ce qu’on n’ouvre pas ne coûte rien', () => {
     await cliquer(boutonPar(/Fuite salle de bain/));
     expect(appels.filter((a) => a === 'GET /api/admin/gestion/evenements/9')).toHaveLength(1);
     expect(appels.filter((a) => a.includes('/frise'))).toHaveLength(1);
-    /* 🔴 ET RIEN D'AUTRE : la liste reste bornée à ces deux ressources. */
-    expect(appels).toHaveLength(2);
+    /**
+     * 🔴 ET RIEN D'AUTRE QUE CES TROIS RESSOURCES.
+     *
+     * ⚠️ LA TROISIÈME EST ARRIVÉE AU LOT VIGNETTE-EVENEMENT (point 3) : déplier une carte, c'est « ouvrir la vue
+     * de l'événement », et Arno demande que cela ÉTEIGNE l'effet « mis à jour par Monga » pour ce
+     * collaborateur. C'est un POST, et il part une seule fois — le verdict de l'épreuve (le coût est borné, et
+     * connu) ne change pas.
+     */
+    expect(appels.filter((a) => a === 'POST /api/admin/gestion/evenements/vus')).toHaveLength(1);
+    expect(appels).toHaveLength(3);
     expect(container.textContent).toContain('Échanges rattachés');
   });
 

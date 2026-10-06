@@ -1900,6 +1900,39 @@ const CSS_GESTION = `
 .gst-mini-doute{font-size:.64rem;font-style:italic;color:var(--color-svv-amber)}
 .gst-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip-path:inset(50%);white-space:nowrap;border:0}
+
+/* ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — « MIS A JOUR PAR MONGA » ══════════════════════════════════════════
+   Arno : « la vignette est mise en avant : lisere vert lumineux qui pulse doucement, plus un petit badge
+   “Mis a jour par Monga · <heure>” sur la miniature. Lisible en Clair et en Sombre, sans clignotement agressif,
+   et respecte “reduire les animations” du systeme (lisere fixe dans ce cas). »
+
+   🔴 LE LISERE EST UNE OMBRE, PAS UNE BORDURE : une bordure deplacerait la vignette de 3 px en s'allumant, et
+   toute la liste sauterait a chaque relecture. L'ombre ne prend aucune place.
+
+   🔴 « SANS CLIGNOTEMENT AGRESSIF » : l'opacite ne descend qu'a 0,35 et jamais a zero — le lisere ne DISPARAIT
+   jamais, il respire. Une pulsation de 2,4 s, bien au-dessous des 3 clignotements par seconde que les regles
+   d'accessibilite interdisent, et sans aucun changement de couleur.
+
+   ⚠️ L'EFFET NE PORTE JAMAIS L'INFORMATION SEUL : le badge l'ECRIT sur la miniature, et le lecteur d'ecran
+   l'entend. Un lisere vert tout seul ne dit rien a qui ne le voit pas. */
+.gst-item--monga{position:relative;border-radius:10px;
+  box-shadow:0 0 0 2px var(--color-svv-green),0 0 10px 1px var(--color-svv-green);
+  animation:gst-monga-respire 2.4s ease-in-out infinite}
+@keyframes gst-monga-respire{
+  0%,100%{box-shadow:0 0 0 2px var(--color-svv-green),0 0 10px 1px var(--color-svv-green)}
+  50%{box-shadow:0 0 0 2px var(--color-svv-green),0 0 3px 0 var(--color-svv-green)}
+}
+/* 🔴 « RESPECTE “REDUIRE LES ANIMATIONS” DU SYSTEME (lisere FIXE dans ce cas) » — Arno, mot pour mot. Le lisere
+   reste, l'animation s'arrete. On ne retire pas l'information, on retire le mouvement. */
+@media (prefers-reduced-motion: reduce){
+  .gst-item--monga{animation:none}
+}
+/* Le badge, sur la miniature. Il porte l'HEURE : l'effet ne survit qu'a une mise a jour recente.
+   🔴 DEFAUT MESURE A L'ECRAN : « white-space:nowrap » etait HERITE de la vignette, et le badge se faisait
+   couper — « Mis a jour par Monga · 19: », l'heure amputee (135 px de texte pour 116 de place). On le remet
+   donc explicitement a « normal » : le badge tient sur deux lignes plutot que de perdre ce qu'il annonce. */
+.gst-mini-monga{display:block;margin-top:1px;font-size:.62rem;font-weight:700;line-height:1.2;
+  white-space:normal;color:var(--color-svv-green-ink);overflow-wrap:anywhere}
 /* ⚠️ ECRAN ETROIT : la miniature passe SOUS le texte plutot que de l'etrangler. Elle reste entiere — c'est
    l'information qu'on vient chercher. */
 @media (max-width:600px){

@@ -3,6 +3,9 @@ import { exigerModule } from '../../../../lib/admin/garde';
 // 🔴 LOT LISTE-PAGINATION — la file « Sans événement » se pagine : 25 par page, comme toutes les listes du module.
 import { lireEcran } from '../../../../lib/gestion/fileRepo';
 import { PAR_PAGE as PAGE_FILE } from '../../../../lib/gestion/pagination';
+/* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — QUI LIT. L'effet « mis à jour par Monga » est par collaborateur, et il
+   faut donc savoir lequel regarde. Lecture seule : on n'écrit rien, on compare deux dates. */
+import { auteurDeLaRequete, cleCollaborateur } from '../../../../lib/gestion/auteur';
 
 /**
  * /api/admin/gestion (lot 2) — état de l'écran à deux côtés : la FILE des échanges à classer, et les CARTES d'événement.
@@ -34,7 +37,8 @@ export async function GET(request: Request): Promise<Response> {
      */
     const brut = new URL(request.url).searchParams.get('filePage');
     const pageFile = brut !== null && /^\d+$/.test(brut) ? Math.min(Number(brut), 10_000) : 0;
-    return Response.json(await lireEcran(PAGE_FILE, pageFile));
+    const auteur = await auteurDeLaRequete(request);
+    return Response.json(await lireEcran(PAGE_FILE, pageFile, cleCollaborateur(auteur)));
   } catch (e) {
     // Pas de catch muet : on journalise le motif réel côté serveur, et on rend une erreur DISTINGUABLE côté client —
     //   l'écran doit pouvoir dire « la base n'a pas répondu », jamais afficher une file vide qui ferait croire au calme.

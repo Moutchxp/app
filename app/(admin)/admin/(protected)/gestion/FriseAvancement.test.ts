@@ -1135,7 +1135,7 @@ describe('㉑ la vignette d’un événement', () => {
    * le dossier.
    */
   it('🔴🔴 la miniature reprend le dessin et les couleurs de la frise', () => {
-    expect(CARTE).toContain('<MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe} />');
+    expect(CARTE).toContain('<MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe}');
     expect(VUE).toContain('.gst-mini{');
     expect(VUE).toMatch(/\.gst-mini\{[^}]*border:2px solid var\(--color-svv-green\)/);
     expect(VUE).toContain('.gst-mini--doute{border-color:var(--color-svv-amber)}');
@@ -1221,5 +1221,190 @@ describe('㉑-bis la miniature ne peut pas emporter l’écran', () => {
   it('⚠️ une date absente rend un tiret, jamais une exception', () => {
     expect(CARTE).toContain("const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);");
     expect(CARTE).toContain("? `${quand.slice(8, 10)}/${quand.slice(5, 7)}/${quand.slice(0, 4)}` : '—';");
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — « MIS À JOUR PAR MONGA » ═══════════════════════════════════════════
+
+   « Quand l'automatisation Monga AJOUTE ou MODIFIE une étape d'un événement (jamais pour un geste manuel), la
+   vignette est mise en avant : liseré vert lumineux qui pulse doucement, plus un petit badge “Mis à jour par
+   Monga · <heure>” sur la miniature. […] L'effet reste PAR COLLABORATEUR jusqu'à ce que CE collaborateur clique
+   sur la vignette, OU ouvre la fiche du bien concerné (par n'importe quel chemin), OU ouvre la vue de
+   l'événement. Il ne s'éteint pas chez un autre collaborateur. Il se rallume à la prochaine mise à jour Monga. »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('㉒ l’effet « mis à jour par Monga »', () => {
+  const REPO_FILE = readFileSync('app/lib/gestion/fileRepo.ts', 'utf8');
+  const REPO_VU = readFileSync('app/lib/gestion/evenementVuRepo.ts', 'utf8');
+  const ROUTE_VUS = readFileSync('app/(admin)/api/admin/gestion/evenements/vus/route.ts', 'utf8');
+
+  /**
+   * 🔴🔴 UNE ÉTAPE MONGA ALLUME, UNE ÉTAPE MANUELLE N'ALLUME RIEN — « jamais pour un geste manuel » (Arno). La
+   * règle est en SQL, pas à l'écran : une règle tenue par l'écran seul serait contournée par la deuxième lecture
+   * qui l'oublie.
+   */
+  it('🔴🔴 seule une étape de SOURCE Monga compte', () => {
+    const i = REPO_FILE.indexOf('const SQL_DERNIERE_MAJ_MONGA');
+    const bloc = REPO_FILE.slice(i, REPO_FILE.indexOf('`;', i));
+    expect(bloc).toContain("y.source = 'monga'");
+    /* 🔴 ET LES DEUX SOURCES DE LA FRISE : l'événement, ET ses références Monga reliées. */
+    expect(bloc).toContain('y.evenement_id = e.id');
+    expect(bloc).toContain('OR y.reference IN (SELECT reference FROM gestion_monga_lien');
+  });
+
+  /**
+   * 🔴🔴 « AJOUTE **OU MODIFIE** » : `greatest(cree_le, maj_le)`, et non `survenu_le`. La date de l'étape est
+   * celle du FAIT (un rendez-vous de la semaine prochaine) ; ce qu'on veut est le moment où l'automatisation a
+   * ÉCRIT. Les confondre allumerait l'effet pour un rendez-vous futur enregistré il y a trois semaines.
+   */
+  it('🔴🔴 c’est la date d’ÉCRITURE qui compte, pas celle du fait', () => {
+    const i = REPO_FILE.indexOf('const SQL_DERNIERE_MAJ_MONGA');
+    const bloc = REPO_FILE.slice(i, REPO_FILE.indexOf('`;', i));
+    expect(bloc).toContain('max(greatest(y.cree_le, y.maj_le))');
+    expect(bloc).not.toContain('survenu_le');
+  });
+
+  /**
+   * 🔴🔴 L'EFFET EST UNE COMPARAISON DE DEUX DATES, ET NON UN DRAPEAU. Un booléen aurait demandé de l'éteindre
+   * chez TOUS les collaborateurs à chaque relève — autant d'écritures que de comptes, à la minute. Ici une étape
+   * Monga n'écrit RIEN dans la table des vues : elle rallume l'effet d'elle-même.
+   */
+  it('🔴🔴 allumé = la mise à jour Monga est postérieure à MA dernière vue', () => {
+    expect(CARTE).toContain(
+      "const misAJour = !eteint && majMonga !== null && (carte.vuLe === null || carte.vuLe === undefined");
+    expect(CARTE).toContain('|| majMonga > carte.vuLe);');
+  });
+
+  /**
+   * 🔴🔴 PAR COLLABORATEUR, ET LA CLÉ EST ÉCRITE UNE SEULE FOIS. Deux endroits qui la fabriqueraient finiraient
+   * par ne plus désigner la même personne — et l'effet s'éteindrait chez l'un sans s'éteindre chez l'autre, ce
+   * qui est exactement le défaut qu'Arno veut éviter.
+   */
+  it('🔴🔴 la clé du collaborateur est écrite une seule fois, et porte la voie de secours', () => {
+    const auteur = readFileSync('app/lib/gestion/auteur.ts', 'utf8');
+    expect(auteur).toContain('export function cleCollaborateur(auteur: Auteur): string {');
+    /* ⚠️ L'IDENTIFIANT DE CONNEXION, et non l'identifiant numérique : la voie de secours n'a pas de compte et
+       doit pouvoir éteindre son propre effet. */
+    expect(auteur).toContain('const net = auteur.libelle.trim();');
+    /* 🔴 ET LA TABLE A POUR CLÉ PRIMAIRE LE COUPLE : rien ne s'éteint chez un autre, par construction. */
+    const mig = readFileSync('db/migrations/316_gestion_evenement_vu.sql', 'utf8');
+    expect(mig).toContain('PRIMARY KEY (evenement_id, compte_cle)');
+  });
+
+  /**
+   * 🔴🔴 LES TROIS CHEMINS D'EXTINCTION PASSENT PAR LA MÊME PORTE (`POST /evenements/vus`). Trois routes auraient
+   * fini par écrire trois dates différentes, et l'effet se serait éteint ici sans s'éteindre là.
+   */
+  it('🔴🔴 les trois chemins d’extinction, une seule porte', () => {
+    /* ① le clic sur la vignette */
+    expect(CARTE).toContain('const marquerVu = (): void => {');
+    expect(CARTE).toContain('onClickCapture={marquerVu}');
+    /* ② l'ouverture de la vue de l'événement — ce corps n'est monté qu'au dépliage (chargement paresseux) */
+    expect(CARTE).toContain("body: JSON.stringify({ ids: [evenementId] }),");
+    /* ③ l'ouverture de la fiche du bien, par n'importe quel chemin */
+    expect(BLOC).toContain("void fetch('/api/admin/gestion/evenements/vus', {");
+    /* 🔴 ET C'EST BIEN LA MÊME ADRESSE DANS LES TROIS CAS. */
+    expect((CARTE.match(/'\/api\/admin\/gestion\/evenements\/vus'/g) ?? []).length).toBe(2);
+    expect((BLOC.match(/'\/api\/admin\/gestion\/evenements\/vus'/g) ?? []).length).toBe(1);
+  });
+
+  /**
+   * 🔴 UN **POST**, ET NON UN EFFET DE BORD SUR UNE LECTURE. Cacher le marquage dans le GET de la fiche l'aurait
+   * déclenché à chaque rafraîchissement automatique, y compris sur un onglet laissé ouvert que personne ne
+   * regarde — c'est-à-dire exactement le cas où l'effet doit rester allumé.
+   */
+  it('🔴 marquer vu est une écriture, et elle a son verbe', () => {
+    expect(ROUTE_VUS).toContain('export async function POST(request: Request): Promise<Response> {');
+    expect(ROUTE_VUS).toContain("exigerCompteActif(request, 'gestion')");
+    /* ⚠️ UNE LISTE BORNÉE : un appel fabriqué n'a pas à pouvoir demander une écriture de masse. */
+    expect(ROUTE_VUS).toContain('corps.ids.slice(0, 200)');
+  });
+
+  /**
+   * ⚠️ SANS LA MIGRATION 316, L'ÉCRAN EST EXACTEMENT CELUI D'AVANT : aucune requête ne nomme la table absente,
+   * rien ne s'allume, et le geste répond poliment qu'il n'y a rien à marquer. Un effet qui ne pourrait jamais
+   * s'éteindre serait pire que pas d'effet du tout.
+   */
+  it('⚠️ la migration absente ne casse rien, et n’allume rien', () => {
+    expect(REPO_VU).toContain('if (!(await evenementVuDisponible())) return false;');
+    expect(REPO_VU).toContain('if (!(await evenementVuDisponible())) return 0;');
+    expect(REPO_FILE).toContain('const avecVues = (await evenementVuDisponible()) && compteCle !== null;');
+    /* 🔴 ET LA REQUÊTE NE NOMME PAS LA TABLE quand elle n'est pas disponible. */
+    expect(REPO_FILE).toContain(": 'NULL::text'} AS vu_le");
+  });
+
+  /**
+   * 🔴🔴 LE LISERÉ EST UNE OMBRE, PAS UNE BORDURE : une bordure déplacerait la vignette de 3 px en s'allumant, et
+   * toute la liste sauterait à chaque relecture. L'ombre ne prend aucune place.
+   *
+   * 🔴 « SANS CLIGNOTEMENT AGRESSIF » (Arno) : la pulsation dure 2,4 s — très loin des 3 clignotements par
+   * seconde que les règles d'accessibilité interdisent — et le liseré ne disparaît JAMAIS, il respire.
+   */
+  it('🔴🔴 un liseré vert qui respire, et qui ne bouge pas la vignette', () => {
+    expect(VUE).toMatch(/\.gst-item--monga\{[^}]*box-shadow:0 0 0 2px var\(--color-svv-green\)/);
+    expect(VUE).toContain('animation:gst-monga-respire 2.4s ease-in-out infinite');
+    expect(VUE).toContain('@keyframes gst-monga-respire{');
+    /* ⚠️ AUCUNE BORDURE : elle déplacerait la vignette. */
+    expect(VUE).not.toMatch(/\.gst-item--monga\{[^}]*border:/);
+  });
+
+  /**
+   * 🔴🔴 « RESPECTE “RÉDUIRE LES ANIMATIONS” DU SYSTÈME (liseré FIXE dans ce cas) » — Arno, mot pour mot. Le
+   * liseré reste, l'animation s'arrête : on retire le mouvement, jamais l'information.
+   */
+  it('🔴🔴 « réduire les animations » arrête la pulsation, pas le liseré', () => {
+    expect(VUE).toContain('@media (prefers-reduced-motion: reduce){\n  .gst-item--monga{animation:none}\n}');
+  });
+
+  /**
+   * 🔴🔴 L'EFFET NE PORTE JAMAIS L'INFORMATION SEUL : le badge l'ÉCRIT sur la miniature, et le lecteur d'écran
+   * l'entend. Un liseré vert tout seul ne dit rien à qui ne le voit pas.
+   */
+  it('🔴🔴 le badge écrit ce que le liseré montre', () => {
+    expect(CARTE).toContain('Mis à jour par Monga · {heureParis(misAJourLe)}');
+    expect(CARTE).toContain('` — mis à jour par Monga à ${heureParis(misAJourLe)}`');
+  });
+
+  /**
+   * ══ 🔴🔴 DÉFAUT MESURÉ À L'ÉCRAN, ET CORRIGÉ ═══════════════════════════════════════════════════════════════
+   *
+   * Le premier jet découpait l'heure dans la chaîne ISO (`misAJourLe.slice(11, 16)`). La route rend l'heure en
+   * UTC : le badge affichait **17:28** pour une écriture faite à **19:28**. Deux heures d'écart, et rien à
+   * l'écran pour s'en apercevoir. `heureParis` la rend en heure de Paris, comme tout le reste du module.
+   */
+  it('🔴🔴 l’heure du badge est celle de Paris, jamais l’UTC découpé', () => {
+    /* ⚠️ LU COMMENTAIRES RETIRÉS : l'encadré qui explique le défaut cite forcément le découpage fautif. */
+    const code = CARTE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    expect(code).not.toContain('misAJourLe.slice(11, 16)');
+    const ecran = readFileSync('app/lib/gestion/ecran.ts', 'utf8');
+    expect(ecran).toContain('export function heureParis(iso: string | null | undefined): string {');
+    expect(ecran).toContain('return champsParis(d).heure;');
+  });
+
+  /**
+   * ⚠️ ET LE BADGE NE SE FAIT PLUS COUPER. Mesuré : `white-space:nowrap` était HÉRITÉ de la vignette, et le
+   * badge s'affichait « Mis à jour par Monga · 19: » — l'heure amputée (135 px de texte pour 116 de place).
+   */
+  it('⚠️ le badge tient sur deux lignes plutôt que de perdre son heure', () => {
+    expect(VUE).toMatch(/\.gst-mini-monga\{[^}]*white-space:normal/);
+  });
+
+  /**
+   * ⚠️ L'EXTINCTION EST IMMÉDIATE À L'ŒIL, ET L'ÉCRITURE SUIT. Sans l'état local, la vignette resterait allumée
+   * jusqu'à la relecture suivante de l'écran — on cliquerait, et rien ne se passerait.
+   *
+   * ⚠️ ET L'ÉCHEC SE TAIT : marquer vu est un geste de confort. Une bannière d'erreur parce qu'on vient de
+   * cliquer une vignette ferait bien plus de mal que l'effet qui reste allumé une minute de plus.
+   */
+  it('⚠️ l’extinction se voit tout de suite, et un échec ne crie pas', () => {
+    expect(CARTE).toContain('const [eteint, setEteint] = useState(false);');
+    expect(CARTE).toContain('setEteint(true);');
+    expect(CARTE).toContain('}).catch(() => undefined);');
+  });
+
+  /** 🔴 LA LECTURE RESTE UNE LECTURE : `lireEvenements` ne fait que comparer, elle n'écrit jamais. */
+  it('🔴 lire l’écran n’écrit aucune vue', () => {
+    expect(REPO_FILE).not.toMatch(/INSERT INTO gestion_evenement_vu/);
   });
 });

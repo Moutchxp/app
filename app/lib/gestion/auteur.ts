@@ -23,6 +23,26 @@ function lireCookie(request: Request, nom: string): string | null {
   return null;
 }
 
+/**
+ * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — LA CLÉ D'UN COLLABORATEUR ═════════════════════════════════════════════
+ *
+ * Arno : « L'effet reste PAR COLLABORATEUR […] Il ne s'éteint pas chez un autre collaborateur. »
+ *
+ * 🔴 ÉCRITE UNE SEULE FOIS, ICI. Deux endroits qui fabriqueraient cette clé finiraient par ne plus désigner la
+ * même personne — et l'effet s'éteindrait chez l'un sans s'éteindre chez l'autre, ce qui est exactement le
+ * défaut qu'Arno veut éviter.
+ *
+ * ⚠️ L'IDENTIFIANT DE CONNEXION, ET NON L'IDENTIFIANT NUMÉRIQUE : la voie de secours (mot de passe partagé) n'a
+ * pas de compte, et elle doit pouvoir éteindre son propre effet. Le libellé, lui, est TOUJOURS écrit — c'est la
+ * règle de ce fichier depuis le lot 4.
+ *
+ * ⚠️ AUCUNE DONNÉE PERSONNELLE : c'est l'identifiant déjà écrit dans le journal de gestion, pas un nom.
+ */
+export function cleCollaborateur(auteur: Auteur): string {
+  const net = auteur.libelle.trim();
+  return net === '' ? 'inconnu' : net;
+}
+
 export async function auteurDeLaRequete(request: Request): Promise<Auteur> {
   const jeton = lireCookie(request, NOM_COOKIE);
   const payload = jeton ? await verifierJeton(jeton) : null;

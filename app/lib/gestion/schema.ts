@@ -911,6 +911,19 @@ export function piecesRecentesDisponibles(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — la migration 316 est-elle appliquée ? ════════════════════════════════
+ *
+ * Elle tient `gestion_evenement_vu` : quand chaque collaborateur a vu chaque événement.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, L'ÉCRAN EST EXACTEMENT CELUI D'AVANT : aucune vignette n'est mise en avant, aucune
+ * requête ne nomme la table absente, et le geste « marquer vu » répond poliment qu'il n'y a rien à marquer. Un
+ * effet qui ne pourrait jamais s'éteindre serait pire que pas d'effet du tout.
+ */
+export function evenementVuDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_evenement_vu', () => tableExiste('gestion_evenement_vu'));
+}
+
+/**
  * 🔴 LOT ENVOI-ARRIERE-PLAN — la migration 271 est-elle appliquée ? Elle porte la FILE D'ENVOI persistante
  * (`gestion_envoi_file`) et l'ÉTAT des pièces d'un brouillon (`gestion_brouillon_piece.etat`).
  *

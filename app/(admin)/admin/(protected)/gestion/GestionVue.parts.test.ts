@@ -24,7 +24,10 @@ const carte = (over: Partial<Parameters<typeof CarteEv>[0]['carte']> = {}) => ({
   dernierEchangeLe: '2026-09-20T12:00:00Z', nbFils: 2, nbMailsDeplaces: 0, attend: true,
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise. `null` = aucune étape, et la
      vignette montre alors « Ouverture » et la date d'ouverture de l'événement. */
-  derniereEtape: null, ...over,
+  derniereEtape: null,
+  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — l'effet « mis à jour par Monga » est la comparaison de ces deux dates.
+     `null` des deux côtés = aucune étape Monga, jamais vu : rien ne s'allume. */
+  mongaMajLe: null, vuLe: null, ...over,
 });
 
 const rendreFil = (o = {}) => renderToStaticMarkup(createElement(LigneFil, { fil: fil(o), maintenant: MAINTENANT }));

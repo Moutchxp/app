@@ -432,6 +432,26 @@ export function dateJourEtHeure(iso: string | null | undefined): string {
   return `${String(c.jour).padStart(2, '0')}/${String(c.mois).padStart(2, '0')} à ${c.heure}`;
 }
 
+/**
+ * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — L'HEURE SEULE, EN HEURE DE PARIS ══════════════════════════════════════
+ *
+ * Arno : un badge « Mis à jour par Monga · <heure> ».
+ *
+ * 🔴 DÉFAUT MESURÉ À L'ÉCRAN AVANT D'ÉCRIRE CETTE FONCTION : la vignette découpait l'heure dans la chaîne ISO
+ * (`iso.slice(11, 16)`). La route rend l'heure en UTC ; le badge affichait donc **17:28** pour une écriture faite
+ * à **19:28**. Deux heures d'écart, et rien à l'écran pour s'en apercevoir.
+ *
+ * 🔴 TOUJOURS EN HEURE DE PARIS, jamais celle du navigateur : c'est la règle de ce fichier (voir
+ * `FUSEAU_AFFICHAGE`), et elle vaut ici autant qu'ailleurs — un même événement doit porter la même heure sur le
+ * téléphone d'Arno, sur son Mac et dans un export.
+ */
+export function heureParis(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return champsParis(d).heure;
+}
+
 /** Date complète et heure, pour une infobulle ou un en-tête de message. Toujours en heure de Paris. PUR. */
 export function dateHeureComplete(iso: string | null | undefined): string {
   if (!iso) return '—';

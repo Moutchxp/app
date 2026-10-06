@@ -13,7 +13,9 @@ import type { CarteEvenement, DerniereEtapeVignette } from '../../../../lib/gest
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le mot d'une étape et la forme de sa date : modules PURS. */
 import { motEtape } from '../../../../lib/gestion/mongaEtape';
 import type { Cible } from '../../../../lib/gestion/rattachement';
-import { depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens } from '../../../../lib/gestion/ecran';
+import {
+  depuis, formaterDateFr, formaterTaille, heureParis, libelleEtat, libelleSens,
+} from '../../../../lib/gestion/ecran';
 /* 🔴🔴 LOT MONGA-2, POINT 4 — la frise d'avancement de l'événement. */
 import { FriseAvancement } from './FriseAvancement';
 import { statutDuMessage } from '../../../../lib/gestion/statutClassement';
@@ -118,8 +120,45 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
   const objet = detail?.objet ?? carte.objet;
   const etat = detail?.etat ?? carte.etat;
 
+  /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — « MIS À JOUR PAR MONGA » ═════════════════════════════════════════
+   *
+   * Arno : « Quand l'automatisation Monga AJOUTE ou MODIFIE une étape d'un événement (jamais pour un geste
+   * manuel), la vignette est mise en avant : liseré vert lumineux qui pulse doucement, plus un petit badge
+   * “Mis à jour par Monga · <heure>” sur la miniature. […] L'effet reste PAR COLLABORATEUR jusqu'à ce que CE
+   * collaborateur clique sur la vignette, OU ouvre la fiche du bien concerné, OU ouvre la vue de l'événement. »
+   *
+   * 🔴 UNE COMPARAISON DE DEUX DATES, et rien d'autre. La date d'écriture de Monga contre MA dernière vue.
+   * Jamais vu (`vuLe` nul) et une mise à jour existe ⇒ allumé. C'est ce qui fait que l'effet se rallume tout
+   * seul à la prochaine étape Monga, sans que personne n'ait à l'éteindre chez les autres.
+   *
+   * ⚠️ `eteint` EST UN ÉTAT LOCAL, et il ne remplace pas l'écriture : il éteint l'effet TOUT DE SUITE, à l'œil,
+   * pendant que la requête part. Sans lui, la vignette resterait allumée jusqu'à la relecture suivante de
+   * l'écran — on cliquerait, et rien ne se passerait.
+   */
+  const [eteint, setEteint] = useState(false);
+  const majMonga = carte.mongaMajLe ?? null;
+  const misAJour = !eteint && majMonga !== null && (carte.vuLe === null || carte.vuLe === undefined
+    || majMonga > carte.vuLe);
+
+  /**
+   * 🔴 LES TROIS CHEMINS PASSENT PAR LA MÊME PORTE (`POST /evenements/vus`). Ici, le premier : « CE
+   * collaborateur clique sur la vignette ».
+   *
+   * ⚠️ L'ÉCHEC SE TAIT. Marquer vu est un geste de confort : une bannière d'erreur parce qu'on vient de cliquer
+   * une vignette ferait bien plus de mal que l'effet qui reste allumé une minute de plus.
+   */
+  const marquerVu = (): void => {
+    if (!misAJour) return;
+    setEteint(true);
+    void fetch('/api/admin/gestion/evenements/vus', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [carte.evenementId] }),
+    }).catch(() => undefined);
+  };
+
   return (
-    <li className="gst-item">
+    <li className={`gst-item${misAJour ? ' gst-item--monga' : ''}`} onClickCapture={marquerVu}>
       <BlocRepliable
         titreClasseExtra="gst-repli"
         titre={
@@ -153,7 +192,8 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
                 </>}
               </span>
             </span>
-            <MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe} />
+            <MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe}
+              misAJourLe={misAJour ? majMonga : null} />
           </span>
         }
       >
@@ -183,6 +223,26 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
     setEtatVue(r);
     if (r.v === 'ok') onDetail(r.d);
   }, [evenementId, onDetail]);
+
+  /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — OUVRIR LA VUE DE L'ÉVÉNEMENT ÉTEINT L'EFFET ═════════════════════
+   *
+   * Arno : « […] OU ouvre la vue de l'événement ». Ce corps n'est monté QUE lorsqu'on déplie la carte — le
+   * chargement est paresseux depuis le lot 4c. Être monté, c'est avoir ouvert le dossier.
+   *
+   * 🔴 LA MÊME PORTE QUE LES DEUX AUTRES CHEMINS, et c'est tout l'intérêt : trois écritures différentes auraient
+   * fini par éteindre l'effet à un endroit sans l'éteindre à l'autre.
+   *
+   * ⚠️ IL S'EXÉCUTE MÊME SI LA VIGNETTE N'ÉTAIT PAS ALLUMÉE, et c'est voulu : déplier un dossier, c'est l'avoir
+   * vu. Marquer la date maintenant évite que la prochaine relève ne rallume un effet pour une étape qu'on vient
+   * de lire.
+   */
+  useEffect(() => {
+    void fetch('/api/admin/gestion/evenements/vus', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [evenementId] }),
+    }).catch(() => undefined);
+  }, [evenementId]);
 
   // Chargement au montage — c'est-à-dire au PREMIER dépliage, puisque `BlocRepliable` ne monte son enfant qu'alors.
   //   Le premier acte est un `await` : aucun setState ne part du corps de l'effet (pas de cascade de rendus), et
@@ -408,8 +468,13 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
    est doublé d'un texte au lecteur d'écran.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-function MiniatureEtape({ etape: brut, ouvertLe }: {
+function MiniatureEtape({ etape: brut, ouvertLe, misAJourLe = null }: {
   etape: DerniereEtapeVignette | null | undefined; ouvertLe: string;
+  /**
+   * 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — l'heure de la mise à jour Monga, quand l'effet est allumé. `null` =
+   * éteint, et la miniature est alors exactement celle du point 2.
+   */
+  misAJourLe?: string | null;
 }) {
   /**
    * ══ 🔴🔴 ABSENT ET `null` SONT LA MÊME CHOSE ICI, ET C'EST UN DÉFAUT MESURÉ ════════════════════════════════
@@ -449,10 +514,23 @@ function MiniatureEtape({ etape: brut, ouvertLe }: {
       </span>
       <span className="gst-mini-date">{date}</span>
       {doute && <span className="gst-mini-doute">à confirmer</span>}
+      {/**
+        * 🔴 LE BADGE « Mis à jour par Monga · <heure> » (Arno). Il porte l'HEURE, et non la date : l'effet ne
+        * survit qu'à une mise à jour récente, et « 19:28 » répond à la question qu'on se pose en le voyant.
+        *
+        * 🔴 DÉFAUT MESURÉ, ET CORRIGÉ : le premier jet découpait la chaîne (`misAJourLe.slice(11, 16)`). La
+        * route rend l'heure en UTC — le badge affichait **17:28** pour une écriture faite à **19:28**. Deux
+        * heures d'écart, et rien à l'écran pour s'en apercevoir. `heureParis` la rend en heure de Paris, comme
+        * tout le reste du module.
+        */}
+      {misAJourLe !== null && (
+        <span className="gst-mini-monga">Mis à jour par Monga · {heureParis(misAJourLe)}</span>
+      )}
       <span className="gst-sr-only">
         {etape === null
           ? `dernière étape : aucune, ouverture du ${date}`
           : `dernière étape : ${mot} du ${date}, ${deMonga ? 'venue de Monga' : 'posée à la main'}`}
+        {misAJourLe !== null && ` — mis à jour par Monga à ${heureParis(misAJourLe)}`}
       </span>
     </span>
   );

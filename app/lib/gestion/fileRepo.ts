@@ -15,7 +15,7 @@ import { query } from '../db/client';
 import { sqlEstVraiePiece } from './lisibilite';
 import { sqlNomAffiche } from './nomUsageSql';
 import { sqlCleIdentitePiece } from './piecesConversation';
-import { pieceIntegreeDisponible } from './schema';
+import { evenementVuDisponible, pieceIntegreeDisponible } from './schema';
 import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, jointuresAttente } from './attente';
 import { chargerConfigGestion } from './config';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le TYPE seul, effacé à la compilation : aucune dépendance ajoutée. */
@@ -70,6 +70,27 @@ export interface CarteEvenement {
    * qu'on lit sur une vignette, et la réponse est le dernier fait, pas le dernier enregistré.
    */
   derniereEtape: DerniereEtapeVignette | null;
+  /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — « MIS À JOUR PAR MONGA » ═════════════════════════════════════════
+   *
+   * Arno : « Quand l'automatisation Monga AJOUTE ou MODIFIE une étape d'un événement (jamais pour un geste
+   * manuel), la vignette est mise en avant […] L'effet reste PAR COLLABORATEUR jusqu'à ce que CE collaborateur
+   * clique sur la vignette, OU ouvre la fiche du bien concerné, OU ouvre la vue de l'événement. »
+   *
+   * 🔴 L'EFFET EST UNE COMPARAISON, PAS UN DRAPEAU : `mongaMajLe > vuLe`. Un booléen aurait demandé de
+   * l'éteindre chez TOUS les collaborateurs à chaque relève — autant d'écritures que de comptes, à la minute.
+   * Ici, une étape Monga ne touche RIEN : elle rallume l'effet d'elle-même, parce que sa date repasse devant.
+   *
+   * ⚠️ `mongaMajLe` EST `greatest(cree_le, maj_le)` et non `survenu_le` : Arno dit « AJOUTE ou MODIFIE ». La
+   * date de l'étape est celle du FAIT (un rendez-vous de la semaine prochaine) ; ce qu'on veut ici est le moment
+   * où l'automatisation a écrit.
+   *
+   * ⚠️ `null` DES DEUX CÔTÉS EST LE CAS ORDINAIRE : aucune étape Monga, ou jamais vu. L'écran n'allume alors
+   * rien — un effet sans mise à jour serait un cri sans nouvelle.
+   */
+  mongaMajLe: string | null;
+  /** Quand MOI, le collaborateur qui lit, j'ai vu cet événement pour la dernière fois. `null` = jamais. */
+  vuLe: string | null;
 }
 
 /** Ce qu'une miniature de dernière étape porte. Les REPÈRES en sont exclus : ce ne sont pas des étapes. */
@@ -257,6 +278,8 @@ interface CarteDB {
   etape_type: TypeEtape | null; etape_titre: string | null; etape_survenu_le: string;
   etape_heure_connue: boolean | null; etape_source: string | null;
   etape_certitude: DerniereEtapeVignette['certitude'] | null;
+  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — la dernière écriture de Monga, et ma dernière vue. */
+  monga_maj_le: string | null; vu_le: string | null;
 }
 
 /**
@@ -276,6 +299,33 @@ interface CarteDB {
  * latérale `LIMIT 1` plutôt qu'un `GROUP BY` : on ne veut qu'une ligne, et la requête des cartes groupe déjà sur
  * autre chose.
  */
+/**
+ * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — LA DERNIÈRE ÉCRITURE DE MONGA SUR CET ÉVÉNEMENT ══════════════════════
+ *
+ * Arno : « Quand l'automatisation Monga AJOUTE ou MODIFIE une étape d'un événement (JAMAIS pour un geste
+ * manuel) ».
+ *
+ * 🔴 `source = 'monga'` EST TOUTE LA RÈGLE, et elle est en SQL : une étape posée à la main n'allume rien, quelle
+ * que soit la façon dont l'écran la rend. Une règle tenue par l'écran seul serait contournée par la deuxième
+ * lecture qui l'oublie.
+ *
+ * 🔴 `greatest(cree_le, maj_le)` ET NON `survenu_le` : « ajoute OU modifie ». La date de l'étape est celle du
+ * FAIT (un rendez-vous de la semaine prochaine) ; ce qu'on veut est le moment où l'automatisation a ÉCRIT.
+ *
+ * ⚠️ LES ÉTAPES RETIRÉES COMPTENT ICI, et c'est voulu : écarter une étape « à confirmer » est une modification
+ * faite par un humain… mais une étape Monga retirée par la relève elle-même reste une nouvelle. Le filtre
+ * `statut = 'vif'` de la miniature répond à une autre question — ce qui S'AFFICHE — et les deux ne se mêlent pas.
+ */
+const SQL_DERNIERE_MAJ_MONGA = `
+  LEFT JOIN LATERAL (
+    SELECT max(greatest(y.cree_le, y.maj_le)) AS le
+      FROM gestion_monga_etape y
+     WHERE y.source = 'monga'
+       AND (y.evenement_id = e.id
+            OR y.reference IN (SELECT reference FROM gestion_monga_lien
+                                WHERE evenement_id = e.id AND retire_le IS NULL))
+  ) mg ON true`;
+
 const SQL_DERNIERE_ETAPE = `
   LEFT JOIN LATERAL (
     SELECT x.type, x.titre, x.survenu_le, x.heure_connue, x.source, x.certitude
@@ -295,7 +345,14 @@ const SQL_DERNIERE_ETAPE = `
  * qui décide du rang, pas la date d'ouverture de la carte — une carte ouverte hier mais dont le locataire attend depuis
  * trois semaines doit passer devant.
  */
-export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): Promise<{ cartes: CarteEvenement[]; total: number }> {
+export async function lireEvenements(
+  ctx: ContexteExpediteurs, limite = PAGE, compteCle: string | null = null,
+): Promise<{ cartes: CarteEvenement[]; total: number }> {
+  /**
+   * 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — SANS LA MIGRATION 316, AUCUNE REQUÊTE NE NOMME LA TABLE ABSENTE, et
+   * l'écran est exactement celui d'avant : `vu_le` vaut `null` partout, donc rien ne s'allume (voir `mongaMajLe`).
+   */
+  const avecVues = (await evenementVuDisponible()) && compteCle !== null;
   const { rows } = await query<CarteDB>(
     `WITH ${ctesAttente('$2', '$3', ctx.deplacements, ctx.spam === true, ctx.corbeille === true)},
           messages_deplaces AS (${ctx.deplacements ? CTE_MESSAGES_DEPLACES : 'SELECT NULL::bigint AS evenement_id, NULL::text AS sens, NULL::boolean AS automatique, NULL::timestamptz AS recu_le WHERE false'})
@@ -312,7 +369,15 @@ export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): P
             /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape, pour la miniature de la vignette. */
             et.type AS etape_type, et.titre AS etape_titre,
             to_char(et.survenu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS etape_survenu_le,
-            et.heure_connue AS etape_heure_connue, et.source AS etape_source, et.certitude AS etape_certitude
+            et.heure_connue AS etape_heure_connue, et.source AS etape_source, et.certitude AS etape_certitude,
+            /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — la dernière ÉCRITURE de Monga (ajout OU modification), et ma
+               dernière vue de cet événement. L'écran compare les deux, il ne lit aucun drapeau. */
+            to_char(mg.le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS monga_maj_le,
+            ${avecVues
+    ? `to_char((SELECT v.vu_le FROM gestion_evenement_vu v
+                 WHERE v.evenement_id = e.id AND v.compte_cle = $4) AT TIME ZONE 'UTC',
+               'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
+    : 'NULL::text'} AS vu_le
        FROM gestion_evenement e
        -- message_id IS NULL : une affectation de MAIL ne compte pas comme un échange rattaché, sans quoi une carte
        --   annoncerait « 3 échanges » là où elle n'en a qu'un et deux mails isolés.
@@ -321,13 +386,16 @@ export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): P
        LEFT JOIN messages_deplaces md ON md.evenement_id = e.id
        ${jointuresAttente('a.fil_id')}
        ${SQL_DERNIERE_ETAPE}
-      GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.source, et.certitude
+       ${SQL_DERNIERE_MAJ_MONGA}
+      GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.source, et.certitude, mg.le
       ORDER BY (e.traite_le IS NOT NULL) ASC,
                ${ATTEND_CARTE} DESC,
                coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), min(md.recu_le), e.ouvert_le) ASC,
                e.id ASC
       LIMIT $1`,
-    [limite, adressesDe(ctx.partenaires), ctx.adresseGestion],
+    avecVues
+      ? [limite, adressesDe(ctx.partenaires), ctx.adresseGestion, compteCle]
+      : [limite, adressesDe(ctx.partenaires), ctx.adresseGestion],
   );
   const { rows: t } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_evenement`);
   return {
@@ -343,6 +411,7 @@ export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): P
         source: r.etape_source === 'monga' ? 'monga' : 'manuelle',
         certitude: r.etape_certitude ?? 'fiable',
       },
+      mongaMajLe: r.monga_maj_le, vuLe: r.vu_le,
     })),
     total: t[0]?.n ?? 0,
   };
@@ -453,7 +522,7 @@ export async function lireToleranceVeille(): Promise<number> {
 }
 
 /** L'état complet de l'écran, en une fois. LECTURE SEULE de bout en bout. */
-export async function lireEcran(limite = PAGE, pageFile = 0): Promise<EtatEcran> {
+export async function lireEcran(limite = PAGE, pageFile = 0, compteCle: string | null = null): Promise<EtatEcran> {
   // La fenêtre d'activité ET la liste des partenaires internes viennent de la BASE, jamais du code. Les deux sont lues
   //   d'abord : l'attente ne se calcule pas sans savoir qui est qui (lot 4d).
   const [config, partenaires, deplacements, spam, corbeille] = await Promise.all([
@@ -466,7 +535,8 @@ export async function lireEcran(limite = PAGE, pageFile = 0): Promise<EtatEcran>
   const [file, evenements, reperes, sansSuite, auto, tolerance, suite, copie] = await Promise.all([
     // 🔴 LOT LISTE-PAGINATION — le rang de page ne concerne QUE la file : les cartes, les repères et les échanges
     //   sans suite ne sont pas paginés, et leur passer un rang les ferait mentir.
-    lireFile(config.fenetreActiviteJours, ctx, limite, pageFile), lireEvenements(ctx), lireReperes(), lireSansSuite(),
+    lireFile(config.fenetreActiviteJours, ctx, limite, pageFile), lireEvenements(ctx, PAGE, compteCle),
+    lireReperes(), lireSansSuite(),
     lireDernierePasseAuto(), lireToleranceVeille(), lireSuiteDernierePasse(), lireEtatCopie(),
   ]);
   return {
