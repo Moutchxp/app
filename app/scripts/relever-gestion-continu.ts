@@ -26,6 +26,12 @@ export function lireUnTour(argv: readonly string[]): boolean {
 }
 
 /** En-tête imprimé AVANT la moindre connexion : devant un terminal muet, « ça tourne » et « c'est bloqué » se ressemblent. */
+/**
+ * 🔴 LE PRÉFIXE DES LIGNES DE LA SUITE DE RELÈVE. Il vit ici parce que c'est ici qu'on s'en sert pour TRIER, et
+ * une épreuve vérifie que `suiteReleveReel` n'émet aucune ligne sans lui. Deux endroits, une seule vérité.
+ */
+export const PREFIXE_SUITE = 'suite : ';
+
 export function enTete(unTour: boolean): string[] {
   return [
     '',
@@ -88,6 +94,33 @@ async function main(): Promise<void> {
   const { relever } = await import('../lib/gestion/releveReelle');
   const { chargerConfigGestion } = await import('../lib/gestion/config');
 
+  /**
+   * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 0 — CE DÉMON TOURNE-T-IL AVEC LE CODE DU JOUR ? ═════════════════════════
+   *
+   * DEMANDE D'ARNO : « redémarre com.sansvisavis.gestion-continu, VÉRIFIE QU'IL TOURNE AVEC LE NOUVEAU CODE
+   * (journal : lecture Monga active) ».
+   *
+   * 🔴 LA QUESTION EST RÉELLE, ET ELLE A DÉJÀ COÛTÉ. Ce job garde son code EN MÉMOIRE : il a été lancé une fois,
+   * et un `git commit` ne le change pas. Au lot MONGA-1, la lecture Monga a été câblée dans la suite de relève
+   * sans que ce démon ne la connaisse — et rien, dans son journal, ne permettait de le savoir. Une ligne au
+   * démarrage répond en une seconde à « est-il à jour ? », sans attendre qu'un mail Monga veuille bien arriver.
+   *
+   * ⚠️ UNE SEULE LIGNE, AU DÉMARRAGE, et jamais dans la boucle : « un journal bavard ne se lit plus » est la
+   * règle de ce fichier, et elle vaut aussi pour les bonnes nouvelles.
+   *
+   * ⚠️ ELLE NE PEUT PAS EMPÊCHER LA RELÈVE DE PARTIR : la sonde avale ses erreurs et le courrier passe avant
+   * tout. Une base muette ne dit donc pas « inactive », elle dit qu'on n'a pas pu savoir.
+   */
+  const { mongaDisponible } = await import('../lib/gestion/schema');
+  let motMonga = 'lecture Monga : indéterminée (la base n’a pas répondu)';
+  try {
+    motMonga = (await mongaDisponible())
+      ? 'lecture Monga : ACTIVE (migration 311 appliquée) — les mails Monga sont lus à chaque relève'
+      : 'lecture Monga : inactive (migration 311 non appliquée) — les mails Monga restent du courrier ordinaire';
+  } catch { /* la sonde ne doit jamais retarder le courrier */ }
+  console.log(`  ${motMonga}`);
+  console.log('');
+
   // Arrêt PROPRE : on ne coupe pas au milieu d'une passe. Le drapeau est lu entre deux tours, jamais pendant.
   let vivant = true;
   let toursRestants = unTour ? 1 : Number.POSITIVE_INFINITY;
@@ -133,7 +166,28 @@ async function main(): Promise<void> {
       // LOT 5-VEILLE — `automatique` la fait journaliser « planifie ». C'est ce mot, et lui seul, qui permet à
       //   l'écran de distinguer « l'ordonnanceur tourne » de « quelqu'un a cliqué » — la question qu'on ne pouvait
       //   pas poser le 25/09, pendant les dix heures sans courrier.
-      const issue = await relever(true, undefined, { automatique: true });
+      /**
+       * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 0 — LE JOURNAL DE LA **SUITE**, ET LUI SEUL ═══════════════════════════
+       *
+       * Il valait `undefined`, si bien que TOUT ce que la suite raconte — avis de non-remise rattachés, biens
+       * cochés avant l'envoi, échanges réexaminés, et depuis le lot MONGA-1 les mails Monga lus et classés —
+       * restait invisible ici. C'est précisément ce qu'Arno demande de pouvoir lire.
+       *
+       * 🔴🔴 MAIS `relever` DONNE LE MÊME JOURNAL À DEUX CHOSES : la relève IMAP elle-même ET la suite. Le lui
+       * passer en entier a été essayé, et MESURÉ dans ce journal : cinq lignes de plus À CHAQUE TOUR (« recherche
+       * des messages de la fenêtre… », « passe terminée… », « corbeille… », « étoiles… »), soit environ sept
+       * mille lignes par jour pour un journal qu'on lit quand quelque chose ne va pas. C'est exactement le
+       * « journal bavard » que ce fichier s'interdit.
+       *
+       * 🔴 D'OÙ LE FILTRE SUR `PREFIXE_SUITE`. Les dix lignes de `suiteReleveReel` commencent toutes par ce
+       * préfixe — ce n'est pas une coïncidence qu'on exploite, c'est la convention du fichier, et une épreuve la
+       * tient (`relever-gestion-continu.test.ts`) pour qu'une onzième ligne ne puisse pas naître sans lui.
+       *
+       * ⚠️ ZÉRO LIGNE DE PLUS SUR UN TOUR CALME : la suite sort tout de suite (« rien de nouveau à rattacher »)
+       * et chacune de ses étapes ne parle que lorsqu'elle a fait quelque chose.
+       */
+      const issue = await relever(
+        true, (l) => { if (l.startsWith(PREFIXE_SUITE)) console.log(`  ${l}`); }, { automatique: true });
 
       /**
        * ══ 🔴🔴 LOT DOCUMENTS-AUTO-SUITE — LES DOCUMENTS SE RANGENT AU FIL DE L'EAU ═════════════════════════════

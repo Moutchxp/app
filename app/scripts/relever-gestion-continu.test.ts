@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { creerMinuterie, enTete, lireUnTour } from './relever-gestion-continu';
+import { readFileSync } from 'node:fs';
+import { creerMinuterie, enTete, lireUnTour, PREFIXE_SUITE } from './relever-gestion-continu';
 
 /**
  * LOT 5-DIRECT — L'ATTENTE ENTRE DEUX TOURS DE LA RELÈVE CONTINUE.
@@ -77,5 +78,34 @@ describe('la minuterie entre deux tours', () => {
     expect(jeton).not.toBeNull();
     expect(jeton!.hasRef()).toBe(true);
     m.reveiller(); // on ne laisse pas dix minutes de minuterie derrière soi
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 0 — LE JOURNAL DE LA SUITE SE RECONNAÎT À SON PRÉFIXE ════════════════════════
+ *
+ * La boucle ne recopie dans son journal QUE les lignes de la suite de relève (avis de non-remise, biens cochés
+ * avant l'envoi, échanges réexaminés, mails Monga lus). Elle les reconnaît au préfixe « suite : ».
+ *
+ * 🔴 POURQUOI CE GARDE EXISTE, ET CE QU'IL A COÛTÉ DE NE PAS L'AVOIR. Passer le journal ENTIER a été essayé puis
+ * mesuré dans le vrai fichier de log : cinq lignes de plus À CHAQUE TOUR (« recherche des messages de la
+ * fenêtre… », « passe terminée… », « corbeille… », « étoiles… »), soit ~7 000 lignes par jour dans un journal
+ * qu'on ouvre quand quelque chose ne va pas. D'où le filtre — et d'où cette épreuve : une onzième ligne de suite
+ * écrite sans le préfixe serait INVISIBLE, en silence, et personne ne le saurait avant d'en avoir besoin.
+ */
+describe('🔴 le préfixe des lignes de la suite', () => {
+  it('toutes les lignes de `suiteReleveReel` le portent, sans exception', () => {
+    const code = readFileSync('app/lib/gestion/suiteReleveReel.ts', 'utf8');
+    const lignes = [...code.matchAll(/journal\?\.\(\s*`([^`]*)`/g)].map((m) => m[1]);
+    expect(lignes.length).toBeGreaterThanOrEqual(10);
+    for (const l of lignes) expect(l.startsWith(PREFIXE_SUITE)).toBe(true);
+  });
+
+  it('⚠️ et la boucle NE RECOPIE QUE celles-là — pas le journal de la relève elle-même', () => {
+    /* ⚠️ Les blancs sont normalisés : la ligne émise indente de deux espaces, qu'on ne veut pas figer ici. */
+    const code = readFileSync('app/scripts/relever-gestion-continu.ts', 'utf8').replace(/\s+/g, ' ');
+    expect(code).toContain('(l) => { if (l.startsWith(PREFIXE_SUITE)) console.log(');
+    /* 🔴 ET LE JOURNAL N'EST PAS PASSÉ EN ENTIER : la forme nue aurait rouvert les ~7 000 lignes par jour. */
+    expect(code).not.toContain('relever( true, (l) => console.log(');
   });
 });
