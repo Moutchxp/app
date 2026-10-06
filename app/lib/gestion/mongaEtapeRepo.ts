@@ -411,9 +411,11 @@ export async function biensNommesDeLEvenement(evenementId: number): Promise<{
 
 export async function evenementsDuBien(cleBien: string): Promise<{
   id: number; reference: string; objet: string; etat: string; ouvertLe: string; traiteLe: string | null;
+  mongaRefs: string[];
 }[]> {
   const { rows } = await query<{
     id: string; reference: string; objet: string; etat: string; ouvert_le: string; traite_le: string | null;
+    monga_refs: string[] | null;
   }>(
     `WITH par_partie AS (
         SELECT DISTINCT p.evenement_id
@@ -428,7 +430,13 @@ export async function evenementsDuBien(cleBien: string): Promise<{
          WHERE r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
            AND r.cible_cle = $1 AND a.actif
      )
-     SELECT e.id, e.reference, e.objet, e.etat, e.ouvert_le::text, e.traite_le::text
+     SELECT e.id, e.reference, e.objet, e.etat, e.ouvert_le::text, e.traite_le::text,
+            /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — « si l'événement est suivi par Monga (au moins une
+               référence MNG reliée) : une vignette MONGA […] avec la référence au survol » (Arno). On rend
+               les références reliées, dans l'ordre, et l'écran décide quoi en montrer. */
+            (SELECT array_agg(l.reference ORDER BY l.reference)
+               FROM (SELECT DISTINCT reference FROM gestion_monga_lien
+                      WHERE evenement_id = e.id AND retire_le IS NULL) l) AS monga_refs
        FROM gestion_evenement e
       WHERE e.id IN (SELECT evenement_id FROM par_partie
                      UNION SELECT evenement_id FROM par_mail)
@@ -436,5 +444,8 @@ export async function evenementsDuBien(cleBien: string): Promise<{
   return rows.map((r) => ({
     id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat,
     ouvertLe: r.ouvert_le, traiteLe: r.traite_le,
+    /* ⚠️ `null` DE POSTGRES ⇒ TABLEAU VIDE : l'écran ne doit pas avoir à distinguer « aucune référence » de
+       « colonne absente ». Un événement sans Monga est le cas ordinaire, et de très loin. */
+    mongaRefs: r.monga_refs ?? [],
   }));
 }

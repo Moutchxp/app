@@ -190,6 +190,18 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
                   <span className="gst-sep" aria-hidden="true">·</span>
                   <span title={formaterDateFr(carte.dernierEchangeLe)}>dernier échange {depuis(carte.dernierEchangeLe, maintenant)}</span>
                 </>}
+                {/**
+                  * 🔴🔴 LA VIGNETTE « MONGA », LA MÊME QUE SUR LA FICHE DU BIEN (Arno, point 1 : « Même vignette
+                  * dans la vue de l'événement »). Fond vert, texte blanc, la ou les références au survol — et
+                  * lues à voix haute, parce qu'un renseignement qui n'existe qu'au survol n'existe ni au
+                  * tactile ni au clavier.
+                  */}
+                {(carte.mongaRefs ?? []).length > 0 && (
+                  <span className="gst-monga-vignette" title={(carte.mongaRefs ?? []).join(', ')}>
+                    MONGA
+                    <span className="gst-sr-only"> — suivi par Monga, {(carte.mongaRefs ?? []).join(', ')}</span>
+                  </span>
+                )}
               </span>
             </span>
             <MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe}

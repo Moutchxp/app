@@ -91,6 +91,11 @@ export interface CarteEvenement {
   mongaMajLe: string | null;
   /** Quand MOI, le collaborateur qui lit, j'ai vu cet événement pour la dernière fois. `null` = jamais. */
   vuLe: string | null;
+  /**
+   * 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées à cet événement. Vide = pas suivi par
+   * Monga, et c'est le cas ordinaire. L'écran en fait une vignette « MONGA », la référence au survol.
+   */
+  mongaRefs: string[];
 }
 
 /** Ce qu'une miniature de dernière étape porte. Les REPÈRES en sont exclus : ce ne sont pas des étapes. */
@@ -280,6 +285,7 @@ interface CarteDB {
   etape_certitude: DerniereEtapeVignette['certitude'] | null;
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — la dernière écriture de Monga, et ma dernière vue. */
   monga_maj_le: string | null; vu_le: string | null;
+  monga_refs: string[] | null;
 }
 
 /**
@@ -377,7 +383,11 @@ export async function lireEvenements(
     ? `to_char((SELECT v.vu_le FROM gestion_evenement_vu v
                  WHERE v.evenement_id = e.id AND v.compte_cle = $4) AT TIME ZONE 'UTC',
                'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
-    : 'NULL::text'} AS vu_le
+    : 'NULL::text'} AS vu_le,
+            /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées : la vignette « MONGA ». */
+            (SELECT array_agg(x.reference ORDER BY x.reference)
+               FROM (SELECT DISTINCT reference FROM gestion_monga_lien
+                      WHERE evenement_id = e.id AND retire_le IS NULL) x) AS monga_refs
        FROM gestion_evenement e
        -- message_id IS NULL : une affectation de MAIL ne compte pas comme un échange rattaché, sans quoi une carte
        --   annoncerait « 3 échanges » là où elle n'en a qu'un et deux mails isolés.
@@ -412,6 +422,8 @@ export async function lireEvenements(
         certitude: r.etape_certitude ?? 'fiable',
       },
       mongaMajLe: r.monga_maj_le, vuLe: r.vu_le,
+      /* ⚠️ `null` DE POSTGRES ⇒ TABLEAU VIDE : l'écran n'a pas à distinguer « aucune référence » d'une absence. */
+      mongaRefs: r.monga_refs ?? [],
     })),
     total: t[0]?.n ?? 0,
   };

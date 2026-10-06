@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴 MODULE PUR UNIQUEMENT : ce composant vit dans le navigateur (incident du 24/09/2026). */
 import { motEtape, type TypeEtape } from '../../../../lib/gestion/mongaEtape';
-import { libelleEtat } from '../../../../lib/gestion/ecran';
 import { FriseAvancement } from './FriseAvancement';
 
 /**
@@ -38,6 +37,8 @@ interface EvenementDuBien {
   nbEtapes: number;
   derniereEtapeType: TypeEtape | null;
   derniereEtapeLe: string | null;
+  /** 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées. Vide = pas suivi par Monga. */
+  mongaRefs?: string[];
 }
 
 export function EvenementsDuBien({
@@ -61,7 +62,6 @@ export function EvenementsDuBien({
 }) {
   const [evenements, setEvenements] = useState<EvenementDuBien[] | null>(null);
   const [deplies, setDeplies] = useState<ReadonlySet<number>>(new Set());
-  const [occupe, setOccupe] = useState(false);
 
   const charger = useCallback(async () => {
     try {
@@ -153,33 +153,22 @@ export function EvenementsDuBien({
   }, [evenementVise, evenements, deplies]);
 
   /**
-   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — L'ÉTAT DE L'ÉVÉNEMENT, DANS SON EN-TÊTE ═══════════════════════════
+   * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — LES TROIS BOUTONS D'ÉTAT SONT RETIRÉS ═════════════════════════
    *
-   * ACCORD D'ARNO : le bloc « À traiter / En cours / Traité » quitte l'écran partagé et « est ajouté dans
-   * l'en-tête de l'événement sur la fiche du bien (bloc Événements) […] MÊME PORTE D'ÉCRITURE ».
+   * ACCORD D'ARNO (07/10/2026) : « retire les boutons “À traiter / En cours / Traité” (ils ne servent à rien).
+   * […] L'état existant en base n'est pas modifié. »
    *
-   * 🔴 LA MÊME PORTE, C'EST `PATCH /api/admin/gestion/evenements/[id] { etat }` — celle que `CarteVive` emploie
-   * depuis le lot 4c, et qui passe par `changerEtatEvenement` : même journal, même contrainte de base (l'état et
-   * la date de traitement vont ensemble), même réversibilité. Une seconde porte aurait écrit une seconde
-   * histoire dans le journal.
+   * 🔴 CE QUI DISPARAÎT EST UNE **PORTE D'ÉCRITURE**, PAS UNE DONNÉE. L'état reste lu à onze endroits, recensés
+   * avant le retrait et donnés à Arno : le tri de la liste des événements (`fileRepo`), le texte de la vignette
+   * (écran partagé et plein écran), le filtre « Événement ouvert » de l'historique et la capsule de chaque
+   * ligne de mail (`historiqueRepo`), le tri du bloc Événements et son `clos` (`historiqueBienRepo`), le
+   * cartouche « Événement en cours » de l'annuaire (`annuaireRepo`), les événements proposés au rattachement
+   * Monga (`mongaRepo`), le tri de la recherche (`recherche`), la liste des ouverts au classement (`gestes`),
+   * et la proposition de clôture (`proposerCloture`). Aucune de ces lectures ne perd sa donnée.
+   *
+   * ⚠️ ET IL RESTE UNE PORTE D'ÉCRITURE : celle de la vue de l'événement en plein écran (`CarteVive`), qui
+   * passe par la même route. L'état ne devient donc pas immuable — il cesse d'être proposé ICI.
    */
-  const changerEtat = useCallback(async (id: number, etat: string, reference: string): Promise<void> => {
-    if (occupe) return;
-    setOccupe(true);
-    try {
-      const res = await fetch(`/api/admin/gestion/evenements/${id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etat }),
-      });
-      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
-      if (!res.ok || d.ok !== true) { onGeste?.(d.erreur ?? 'Changement d’état impossible.'); return; }
-      onGeste?.(`Événement ${reference} : ${libelleEtat(etat as 'a_traiter').toLowerCase()}.`);
-      await charger();
-    } catch {
-      onGeste?.('Changement d’état impossible : le serveur n’a pas répondu.');
-    } finally {
-      setOccupe(false);
-    }
-  }, [occupe, onGeste, charger]);
 
   /* 🔴 RIEN DU TOUT : ni pendant la lecture, ni sur un bien sans événement. Voir l'encadré. */
   if (evenements === null || evenements.length === 0) return null;
@@ -226,23 +215,30 @@ export function EvenementsDuBien({
                       {e.derniereEtapeLe !== null && <> le {jourFr(e.derniereEtapeLe)}</>}
                     </span>
                   </>}
+                  {/**
+                    * ══ 🔴🔴 LA VIGNETTE « MONGA », AU BOUT DE LA LIGNE (Arno, point 1) ═══════════════════════
+                    *
+                    * « si l'événement est suivi par Monga (au moins une référence MNG reliée) : une vignette
+                    * “MONGA” bien visible, fond vert, texte blanc, avec la référence au survol. »
+                    *
+                    * 🔴 AU BOUT, c'est-à-dire APRÈS « Intervention le … » : la ligne se lit de gauche à droite
+                    * — ce qu'est le dossier, puis où il en est, puis qui le suit.
+                    *
+                    * ⚠️ LA RÉFÉRENCE N'EST PAS QUE DANS LE SURVOL : elle est aussi lue à voix haute. Un
+                    * renseignement qui n'existe qu'au survol n'existe ni au tactile ni au clavier (CLAUDE.md
+                    * §15). Le survol est un CONFORT, jamais le seul chemin.
+                    *
+                    * ⚠️ PLUSIEURS RÉFÉRENCES : elles sont toutes dites, séparées par une virgule. Un événement
+                    * peut porter plusieurs interventions — c'est tout l'objet de `gestion_monga_lien`.
+                    */}
+                  {(e.mongaRefs ?? []).length > 0 && (
+                    <span className="evb-monga" title={(e.mongaRefs ?? []).join(', ')}>
+                      MONGA
+                      <span className="evb-sr"> — suivi par Monga, {(e.mongaRefs ?? []).join(', ')}</span>
+                    </span>
+                  )}
                 </span>
               </button>
-              {/**
-                * 🔴🔴 LES TROIS ÉTATS, DANS L'EN-TÊTE (accord d'Arno, point 1). Ils sont HORS du bouton qui
-                * déplie : un bouton dans un bouton n'est pas un balisage valide, et le clic de l'un déclencherait
-                * l'autre. Ils sont donc posés à côté, sur la même ligne.
-                */}
-              <div className="evb-etats" role="group" aria-label={`État de l’événement ${e.reference}`}>
-                {(['a_traiter', 'en_cours', 'traite'] as const).map((c) => (
-                  <button key={c} type="button"
-                    className={`evb-etat${e.etat === c ? ' evb-etat--actif' : ''}`}
-                    aria-pressed={e.etat === c} disabled={occupe || e.etat === c}
-                    onClick={() => void changerEtat(e.id, c, e.reference)}>
-                    {libelleEtat(c)}
-                  </button>
-                ))}
-              </div>
               {ouvert && (
                 <div className="evb-frise">
                   <FriseAvancement
@@ -282,17 +278,16 @@ const CSS_EVENEMENTS_DU_BIEN = `
 .evb-ref{font-weight:700}
 .evb-etape{color:var(--color-svv-ink)}
 .evb-frise{margin-top:6px;padding-top:6px;border-top:1px solid var(--color-svv-line)}
-/* ══ 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — LES TROIS ETATS, DANS L'EN-TETE DE L'EVENEMENT ══════════════════════
-   Ils reprennent le dessin des « voies » de la carte vivante (.gst-voie), pour que le meme geste se reconnaisse
-   d'un ecran a l'autre. Cibles 36 px de haut, et ils tombent en colonne sur un ecran etroit. */
-.evb-etats{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}
-.evb-etat{font:inherit;font-size:.76rem;min-height:36px;padding:3px 10px;cursor:pointer;
-  color:var(--color-svv-ink);background:var(--color-svv-bg);
-  border:1px solid var(--color-svv-line);border-radius:6px}
-.evb-etat:hover:not(:disabled){background:var(--color-svv-field)}
-.evb-etat:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-/* ⚠️ L'ETAT COURANT EST DESACTIVE : il est deja vrai, et le recliquer n'aurait rien a dire. Il le MONTRE par sa
-   couleur ET par aria-pressed — jamais par la couleur seule. */
-.evb-etat--actif{color:var(--color-svv-bg);background:var(--color-svv-red);border-color:var(--color-svv-red)}
-.evb-etat:disabled:not(.evb-etat--actif){color:var(--color-svv-muted);cursor:default}
+/* ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — LA VIGNETTE « MONGA » ══════════════════════════════════════════
+   Arno : « une vignette “MONGA” bien visible, fond vert, texte blanc, avec la reference au survol ».
+   ⚠️ LE TEXTE EST BLANC SUR VERT, ET LE JETON DE FOND EST --color-svv-bg : en theme Sombre, « blanc » est le
+   fond de la page, et c'est lui qui donne le contraste contre le vert. Ecrire du blanc en dur aurait rendu la
+   vignette illisible dans un theme et pas dans l'autre.
+   ⚠️ LES REGLES D'ETAT (.evb-etats, .evb-etat) ONT ETE RETIREES AVEC LEURS BOUTONS (accord d'Arno) : une regle
+   orpheline finit toujours par etre recablee « parce qu'elle est encore la ». */
+.evb-monga{display:inline-block;margin-left:.35rem;padding:1px 7px;border-radius:999px;
+  font-size:.68rem;font-weight:700;letter-spacing:.04em;
+  color:var(--color-svv-bg);background:var(--color-svv-green)}
+.evb-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip-path:inset(50%);white-space:nowrap;border:0}
 `;

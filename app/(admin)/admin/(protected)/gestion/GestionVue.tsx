@@ -1901,6 +1901,15 @@ const CSS_GESTION = `
 .gst-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip-path:inset(50%);white-space:nowrap;border:0}
 
+/* ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — LA VIGNETTE « MONGA » ══════════════════════════════════════════
+   Arno : « une vignette “MONGA” bien visible, fond vert, texte blanc, avec la reference au survol ». La MEME
+   que sur la fiche du bien (.evb-monga), au meme dessin.
+   ⚠️ LE JETON DE TEXTE EST --color-svv-bg, ET NON UN BLANC EN DUR : en theme Sombre, « blanc » est le fond de
+   la page, et c'est lui qui donne le contraste contre le vert. */
+.gst-monga-vignette{display:inline-block;margin-left:.35rem;padding:1px 7px;border-radius:999px;
+  font-size:.68rem;font-weight:700;letter-spacing:.04em;white-space:nowrap;
+  color:var(--color-svv-bg);background:var(--color-svv-green)}
+
 /* ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — « MIS A JOUR PAR MONGA » ══════════════════════════════════════════
    Arno : « la vignette est mise en avant : lisere vert lumineux qui pulse doucement, plus un petit badge
    “Mis a jour par Monga · <heure>” sur la miniature. Lisible en Clair et en Sombre, sans clignotement agressif,

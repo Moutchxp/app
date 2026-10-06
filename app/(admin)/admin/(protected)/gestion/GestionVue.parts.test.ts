@@ -27,7 +27,9 @@ const carte = (over: Partial<Parameters<typeof CarteEv>[0]['carte']> = {}) => ({
   derniereEtape: null,
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — l'effet « mis à jour par Monga » est la comparaison de ces deux dates.
      `null` des deux côtés = aucune étape Monga, jamais vu : rien ne s'allume. */
-  mongaMajLe: null, vuLe: null, ...over,
+  mongaMajLe: null, vuLe: null,
+  /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées ; vide = pas suivi par Monga. */
+  mongaRefs: [], ...over,
 });
 
 const rendreFil = (o = {}) => renderToStaticMarkup(createElement(LigneFil, { fil: fil(o), maintenant: MAINTENANT }));

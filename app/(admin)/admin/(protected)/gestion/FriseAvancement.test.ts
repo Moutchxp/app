@@ -1002,33 +1002,27 @@ describe('⑲ l’état quitte l’écran partagé, sans perdre sa fonction', ()
   });
 
   /**
-   * 🔴🔴 MÊME PORTE D'ÉCRITURE AUX TROIS ENDROITS (Arno) : `PATCH /evenements/[id] { etat }`, celle de
-   * `changerEtatEvenement` — même journal, même contrainte de base, même réversibilité. Une seconde porte aurait
-   * écrit une seconde histoire dans le journal.
+   * ══ 🔴🔴 CE QUE CES TROIS ÉPREUVES TENAIENT, ET POURQUOI ELLES ONT DISPARU ═════════════════════════════════
+   *
+   * Elles vérifiaient les boutons « À traiter / En cours / Traité » dans l'en-tête de l'événement sur la fiche
+   * du bien — ajoutés au lot VIGNETTE-EVENEMENT (point 1), et la MÊME porte d'écriture que la carte.
+   *
+   * ACCORD D'ARNO (07/10/2026), lot EVENEMENT-MINIMALISTE : « retire les boutons “À traiter / En cours /
+   * Traité” (ils ne servent à rien) […] L'état existant en base n'est pas modifié. »
+   *
+   * 🔴 CE QUI LES REMPLACE N'EST PAS RIEN : l'épreuve ci-dessous tient le fait inverse — plus aucun bouton
+   * d'état, ni classe, ni règle de feuille — ce qui est une garde aussi stricte. Et le recensement donné à Arno
+   * avant le retrait (onze lectures de l'état, dont quatre tris et deux filtres) reste vrai : aucune lecture
+   * n'a perdu sa donnée, et la porte d'écriture de la vue de l'événement en plein écran est intacte.
    */
-  it('🔴🔴 la fiche du bien écrit l’état par la MÊME porte que la carte', () => {
-    expect(BLOC).toContain("method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etat }),");
-    expect(BLOC).toContain('`/api/admin/gestion/evenements/${id}`');
-    /* 🔴 ET LES TROIS ÉTATS Y SONT, dans l'ordre du dossier, avec le mot partagé `libelleEtat`. */
-    expect(BLOC).toContain("(['a_traiter', 'en_cours', 'traite'] as const).map((c) => (");
-    expect(BLOC).toContain('{libelleEtat(c)}');
-  });
-
-  /**
-   * ⚠️ LES BOUTONS D'ÉTAT SONT **HORS** DU BOUTON QUI DÉPLIE : un bouton dans un bouton n'est pas un balisage
-   * valide, et le clic de l'un déclencherait l'autre.
-   */
-  it('⚠️ les trois états ne sont pas imbriqués dans le bouton de dépliage', () => {
-    const iTete = BLOC.indexOf('className="evb-tete"');
-    const iFinTete = BLOC.indexOf('</button>', iTete);
-    const iEtats = BLOC.indexOf('className="evb-etats"');
-    expect(iEtats).toBeGreaterThan(iFinTete);
-  });
-
-  /** ⚠️ L'ÉTAT COURANT EST DÉSACTIVÉ, et il le dit autrement que par la couleur. */
-  it('⚠️ l’état courant se dit sans la couleur seule', () => {
-    expect(BLOC).toContain('aria-pressed={e.etat === c}');
-    expect(BLOC).toContain('disabled={occupe || e.etat === c}');
+  it('🔴🔴 plus aucun bouton d’état sur la fiche du bien : ni classe, ni règle, ni porte', () => {
+    /* ⚠️ LU COMMENTAIRES RETIRÉS : l'encadré qui dit que ces règles ont été retirées les NOMME, évidemment. */
+    const code = BLOC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    expect(code).not.toContain('evb-etats');
+    expect(code).not.toContain('evb-etat');
+    expect(code).not.toContain('changerEtat');
+    /* 🔴 ET LA PORTE D'ÉCRITURE DE LA VUE DE L'ÉVÉNEMENT RESTE : l'état n'est pas devenu immuable. */
+    expect(CARTE).toContain("onEtat={(e) => void agir({ etat: e }");
   });
 });
 
@@ -1406,5 +1400,53 @@ describe('㉒ l’effet « mis à jour par Monga »', () => {
   /** 🔴 LA LECTURE RESTE UNE LECTURE : `lireEvenements` ne fait que comparer, elle n'écrit jamais. */
   it('🔴 lire l’écran n’écrit aucune vue', () => {
     expect(REPO_FILE).not.toMatch(/INSERT INTO gestion_evenement_vu/);
+  });
+});
+
+describe('㉓ la vignette « MONGA » (lot EVENEMENT-MINIMALISTE, point 1)', () => {
+  /**
+   * 🔴🔴 « si l'événement est suivi par Monga (au moins une référence MNG reliée) : une vignette “MONGA” bien
+   * visible, fond vert, texte blanc, avec la référence au survol » — Arno. Et « même vignette dans la vue de
+   * l'événement ».
+   */
+  it('🔴🔴 la vignette existe aux DEUX endroits, au même dessin', () => {
+    expect(BLOC).toContain('<span className="evb-monga"');
+    expect(CARTE).toContain('<span className="gst-monga-vignette"');
+    for (const [nom, src, cls] of [['fiche du bien', BLOC, '.evb-monga'],
+      ['vue de l’événement', VUE, '.gst-monga-vignette']] as const) {
+      expect(src, nom).toContain(`${cls}{display:inline-block`);
+      expect(src, nom).toContain('background:var(--color-svv-green)');
+      /* ⚠️ LE TEXTE EST `--color-svv-bg` ET NON UN BLANC EN DUR : en thème Sombre, « blanc » est le fond de la
+         page, et c'est lui qui donne le contraste contre le vert. */
+      expect(src, nom).toContain('color:var(--color-svv-bg)');
+    }
+  });
+
+  /** 🔴 ELLE NE S'AFFICHE QUE S'IL Y A UNE RÉFÉRENCE : un événement sans Monga est le cas ordinaire. */
+  it('🔴 aucune référence, aucune vignette', () => {
+    expect(BLOC).toContain('{(e.mongaRefs ?? []).length > 0 && (');
+    expect(CARTE).toContain('{(carte.mongaRefs ?? []).length > 0 && (');
+  });
+
+  /**
+   * ⚠️ LA RÉFÉRENCE N'EXISTE PAS QU'AU SURVOL. Un renseignement réservé au survol n'existe ni au tactile ni au
+   * clavier (CLAUDE.md §15) : elle est donc aussi lue à voix haute. Le survol est un CONFORT, jamais le seul
+   * chemin.
+   */
+  it('⚠️ la référence est lue, pas seulement survolée', () => {
+    expect(BLOC).toContain('title={(e.mongaRefs ?? []).join(\', \')}');
+    expect(BLOC).toContain('<span className="evb-sr"> — suivi par Monga, {(e.mongaRefs ?? []).join(\', \')}</span>');
+    expect(CARTE).toContain('title={(carte.mongaRefs ?? []).join(\', \')}');
+  });
+
+  /** 🔴 ET LA DONNÉE VIENT DES DEUX LECTURES, par la même règle : les références NON retirées. */
+  it('🔴 les références reliées viennent du dépôt, et les retirées ne comptent pas', () => {
+    const repoEtape = readFileSync('app/lib/gestion/mongaEtapeRepo.ts', 'utf8');
+    const repoFile = readFileSync('app/lib/gestion/fileRepo.ts', 'utf8');
+    for (const [nom, src] of [['fiche du bien', repoEtape], ['liste des événements', repoFile]] as const) {
+      expect(src, nom).toContain('FROM gestion_monga_lien');
+      /* 🔴 LES RÉFÉRENCES RETIRÉES NE COMPTENT PAS : délier une référence doit éteindre la vignette. */
+      expect(src, nom).toMatch(/WHERE evenement_id = e\.id AND retire_le IS NULL\) \w+\) AS monga_refs/);
+    }
   });
 });
