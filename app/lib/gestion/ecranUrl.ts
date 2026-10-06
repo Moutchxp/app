@@ -295,6 +295,35 @@ export const ETAT_DEFAUT: EtatEcranUrl = {
   hdb: null,
 };
 
+/**
+ * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 1 — LA PREMIÈRE PAGE DU MODULE, CELLE QUE LA TUILE OUVRE ════════════════════
+ *
+ * DEMANDE D'ARNO (06/10/2026) : « Un clic sur “Gestion” ouvre TOUJOURS la première page du module : l'ÉCRAN
+ * PARTAGÉ (boîte mail à gauche, événements à droite), quelle que soit la page du module où l'on se trouve. […]
+ * Les autres chemins (Retour, liens internes, adresses directes) ne changent pas. »
+ *
+ * ═══ 🔴🔴 POURQUOI CE N'EST **PAS** `ETAT_DEFAUT` QU'ON CHANGE ═══════════════════════════════════════════════════
+ *
+ * `ETAT_DEFAUT` est ce que rend une adresse NUE, et il vaut « la boîte, sur Réception » depuis une décision
+ * d'Arno du **27/09/2026** — écrite juste au-dessus, mot pour mot : « c'est le courrier reçu qu'il ouvre en
+ * arrivant, pas la file de tri ». Le changer ferait basculer, du même coup, toutes les ADRESSES DIRECTES vers
+ * l'écran partagé — exactement ce que la demande du 06/10 exclut en toutes lettres.
+ *
+ * 🔴 D'OÙ UNE DESTINATION PROPRE À LA TUILE, et elle seule. `/admin/gestion` tapé à la main ouvre toujours la
+ * boîte ; la tuile « Gestion », elle, vise explicitement l'écran partagé. Les deux décisions d'Arno tiennent
+ * ensemble, sans que l'une annule l'autre.
+ *
+ * ⚠️ L'ÉTIQUETTE EST CELLE DE L'ARRIVÉE (« À classer »), la MÊME que le bouton « ← Écran partagé » pose depuis
+ * toujours : la tuile et le bouton mènent au même endroit, et non à deux variantes du même écran.
+ */
+export const ETAT_ACCUEIL_GESTION: EtatEcranUrl = {
+  ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE,
+};
+
+/** L'adresse complète de cette première page. Écrite ICI pour que la tuile ne la recompose pas à la main. */
+export const URL_ACCUEIL_GESTION = `/admin/gestion${ecrireEtatUrl(ETAT_ACCUEIL_GESTION)}`;
+
+
 const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique'];
 const SORTES_FIXES: readonly SorteEtiquette[] = [
   'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons', 'spam',

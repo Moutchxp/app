@@ -61,14 +61,44 @@ export function Sidebar({ role, perms, ordreModules }: { role: RoleAdmin; perms:
         <nav className="svv-adm-nav" data-open={ouvert}>
           {MODULES.map((m) => {
             const actif = pathname === m.slug || pathname.startsWith(m.slug + '/');
+            /**
+             * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 1 — LA TUILE RAMÈNE À LA PREMIÈRE PAGE, MÊME DE L'INTÉRIEUR ════
+             *
+             * DEMANDE D'ARNO (06/10/2026) : « Un clic sur “Gestion” ouvre TOUJOURS la première page du module […]
+             * quelle que soit la page du module où l'on se trouve. Aujourd'hui il garde l'écran courant. »
+             *
+             * 🔴 LA CAUSE, LUE DANS LE CODE PUIS VÉRIFIÉE À L'ÉCRAN. Le module écrit son écran courant dans
+             * l'adresse par `window.history.pushState` — jamais par le routeur. Cliquer la tuile depuis
+             * `/admin/gestion?ecran=annuaire` demande donc à Next d'aller à une adresse dont il croit déjà y
+             * être : il ne remonte pas la page, ne la remonte pas non plus, et le module — qui ne relit
+             * l'adresse qu'au montage et sur « Précédent » — garde l'écran qu'il affichait. Rien ne bouge.
+             *
+             * 🔴 LE REMÈDE EST CELUI QUE LE MODULE COMPREND DÉJÀ : on pose l'adresse d'accueil, puis on émet le
+             * `popstate` que tous les écrans de l'admin écoutent pour relire l'adresse. Aucune page rechargée —
+             * un rechargement complet pour revenir à l'accueil d'un module serait une seconde seconde perdue à
+             * chaque clic.
+             *
+             * ⚠️ UNIQUEMENT QUAND ON EST DÉJÀ DANS LE MODULE. Depuis un autre module, c'est une navigation
+             * ordinaire : `Link` fait son travail, et rien de ce code ne s'exécute.
+             *
+             * ⚠️ `accueil` EST FACULTATIF : sans lui — c'est-à-dire pour tous les autres modules — la tuile mène
+             * à `slug`, exactement comme avant ce lot, et le reclic repose cette même adresse.
+             */
+            const destination = m.accueil ?? m.slug;
             return (
               <Link
                 key={m.slug}
-                href={m.slug}
+                href={destination}
                 className="svv-adm-link"
                 data-actif={actif}
                 aria-current={actif ? 'page' : undefined}
-                onClick={() => setOuvert(false)}
+                onClick={(e) => {
+                  setOuvert(false);
+                  if (pathname !== m.slug) return;
+                  e.preventDefault();
+                  window.history.pushState(null, '', destination);
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }}
               >
                 {m.libelle}
               </Link>

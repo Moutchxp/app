@@ -1,10 +1,28 @@
 import type { Perms, RoleAdmin } from '../../../lib/admin/session';
+/* 🔴 LOT ACCUEIL-GESTION, POINT 1 — l'adresse de la première page du module, composée par le module PUR qui
+   connaît la grammaire de ces adresses. La recopier ici en ferait une seconde vérité. */
+import { URL_ACCUEIL_GESTION } from '../../../lib/gestion/ecranUrl';
 
 export interface LienMenu {
   slug: string;
   libelle: string;
   /** Description courte — utilisée par la GRILLE du tableau de bord ; ignorée par le menu latéral. */
   desc: string;
+  /**
+   * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 1 — OÙ MÈNE LA TUILE, QUAND CE N'EST PAS LA RACINE ═══════════════════════
+   *
+   * Facultatif. Absent ⇒ la tuile mène à `slug`, comme depuis toujours — c'est le cas de TOUS les modules sauf
+   * un. Présent ⇒ elle mène là, et c'est aussi l'adresse que le menu REPOSE quand on reclique la tuile du module
+   * où l'on se trouve déjà.
+   *
+   * 🔴 IL NE CHANGE PAS CE QUE REND `slug` TAPÉ À LA MAIN : c'est la destination de LA TUILE, pas le défaut du
+   * module. La distinction est ce qui permet aux deux décisions d'Arno — « la boîte en arrivant » (27/09) et
+   * « la tuile ouvre l'écran partagé » (06/10) — de tenir ensemble.
+   *
+   * ⚠️ LA GRILLE DU TABLEAU DE BORD NE LE LIT PAS, et ce n'est pas un oubli : Arno a demandé le MENU DE GAUCHE.
+   * Changer la grille au passage serait une fonctionnalité modifiée sans accord.
+   */
+  accueil?: string;
 }
 
 /** Modules de l'admin (slug, libellé, description, permission requise). Source UNIQUE du menu ET de la grille. */
@@ -21,7 +39,12 @@ const MODULES: ReadonlyArray<LienMenu & { perm: keyof Perms }> = [
   // GESTION (lot 2) — module GARDÉ (perm_gestion, migration 228). AJOUTÉ EN FIN DE LISTE : l'ordre, la présence et le libellé
   //   des tuiles existantes sont strictement inchangés, et `ordonner` (règle b) appende toute nouveauté à la fin de l'ordre
   //   déjà rangé par l'utilisateur — une tuile ajoutée apparaît donc toujours, sans déranger celles d'avant.
-  { slug: '/admin/gestion', libelle: 'Gestion', desc: 'Courrier de gestion locative : file des échanges et événements.', perm: 'gestion' },
+  /* 🔴 LOT ACCUEIL-GESTION, POINT 1 — la tuile vise la PREMIÈRE PAGE du module (l'écran partagé), pas la racine.
+     L'adresse est composée par `ecranUrl`, module PUR : elle n'est pas recopiée à la main ici. */
+  {
+    slug: '/admin/gestion', libelle: 'Gestion', perm: 'gestion', accueil: URL_ACCUEIL_GESTION,
+    desc: 'Courrier de gestion locative : file des échanges et événements.',
+  },
 ];
 
 /** Tuile « Administratif » — réservée au rôle administrateur (pas une permission de module). */
@@ -51,7 +74,12 @@ const SOURCES: LienMenu = { slug: '/admin/sources', libelle: 'Sources de donnée
  */
 export function liensVisibles(role: RoleAdmin, perms: Perms): LienMenu[] {
   const admin = role === 'administrateur';
-  const liens: LienMenu[] = MODULES.filter((m) => admin || perms[m.perm]).map(({ slug, libelle, desc }) => ({ slug, libelle, desc }));
+  const liens: LienMenu[] = MODULES
+    .filter((m) => admin || perms[m.perm])
+    /* ⚠️ `accueil` SUIT LE LIEN quand il existe : sans cela, le menu l'aurait perdu en chemin et la tuile serait
+       retombée sur `slug` — le défaut qu'on vient de corriger, invisible. */
+    .map(({ slug, libelle, desc, accueil }) => (accueil === undefined
+      ? { slug, libelle, desc } : { slug, libelle, desc, accueil }));
   // RATT-EDIT (lot A2) — PERMIS a quitté cette liste réservée-admin : il est désormais dans MODULES (gardé par perm 'permis'), visible
   //   selon le droit comme les 6 autres. ADMINISTRATIF/AUDIT/SOURCES restent réservés au RÔLE administrateur (non délégables).
   if (admin) liens.push(ADMINISTRATIF, AUDIT, SOURCES);
