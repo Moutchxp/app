@@ -6248,4 +6248,34 @@ describe('⑳ 🔴🔴 « Modifier le rattachement », et la trame de toute la l
     expect(hote.querySelector('.rdf[role="dialog"]')).toBeNull();
   });
 
+  /**
+   * ══ 🔴🔴 POINT 2 — LA TRAME COUVRE TOUTE LA LIGNE D'EN-TÊTE ══════════════════════════════════════════════
+   *
+   * ⚠️ JSDOM NE SURVOLE RIEN ET NE CALCULE AUCUN `:hover` : la mesure se fait à l'écran, et elle est au relevé
+   * des captures. Ce qui s'éprouve ICI est la seule chose vérifiable sans navigateur, et c'est aussi la CAUSE du
+   * défaut : sur QUEL élément la règle est posée. Elle l'était sur `.vdb-ligne`, le BOUTON de l'en-tête — dont
+   * le triangle et les deux boutons de droite sont les VOISINS, et non les enfants.
+   */
+  it('🔴🔴 la règle de survol est posée sur la RANGÉE, pas sur le bouton de la ligne', () => {
+    const vdb = readFileSync('app/(admin)/admin/(protected)/gestion/VieDuBien.tsx', 'utf8');
+    expect(vdb).toContain('.vdb-rangee:hover{background:var(--color-svv-field)}');
+    expect(vdb).not.toContain('.vdb-ligne:hover{');
+  });
+
+  /**
+   * 🔴 ET LA RANGÉE CONTIENT BIEN LES TROIS : le triangle, la ligne, et les boutons. C'est ce qui fait que la
+   * trame les couvre tous au même instant — et le détail déplié, lui, est sa SŒUR, donc il reste hors de la
+   * trame (survoler le corps d'un mail ne doit pas allumer son en-tête).
+   */
+  it('🔴 la rangée contient le triangle, la ligne et les boutons — et pas le détail', async () => {
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-1 button') ?? undefined);
+    const mail = hote.querySelector('#hdb-mail-1') as HTMLElement;
+    const rangee = mail.querySelector('.vdb-rangee') as HTMLElement;
+    expect(rangee.querySelector('.vdb-triangle')).not.toBeNull();
+    expect(rangee.querySelector('.vdb-ligne')).not.toBeNull();
+    expect(rangee.querySelectorAll('.vdb-sortir')).toHaveLength(2);
+    expect(rangee.querySelector('.vdb-detail')).toBeNull();
+    expect(mail.querySelector('.vdb-detail')).not.toBeNull();
+  });
 });

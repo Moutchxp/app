@@ -687,7 +687,22 @@ export const CSS_VIE_DU_BIEN = `
 @media (prefers-reduced-motion:reduce){.vdb-triangle svg{transition:none}}
 .vdb-ligne{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:.15rem;align-items:stretch;
   text-align:left;background:none;border:0;padding:8px 12px 8px 0;font:inherit;color:inherit;cursor:pointer}
-.vdb-ligne:hover{background:var(--color-svv-field)}
+/* ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 2 — LA TRAME DE SURVOL COUVRE TOUTE LA LIGNE D'EN-TETE ════════════
+   CONSTAT D'ARNO (06/10/2026) : « Au survol, la zone "nous avons ecrit … / Objet … / date" prend une trame plus
+   foncee, mais pas le bout de ligne qui porte les boutons a droite. »
+
+   🔴 LA CAUSE TENAIT EN UN SELECTEUR : la trame etait posee sur .vdb-ligne, qui est le BOUTON de l'en-tete —
+   or le triangle et les deux boutons de droite sont ses VOISINS (un bouton dans un bouton est du HTML invalide,
+   c'est la regle de ce fichier depuis son origine). La trame s'arretait donc a leurs bords.
+
+   🔴 ELLE EST DESORMAIS POSEE SUR LA RANGEE ENTIERE, qui les contient tous les trois : toute la ligne s'allume
+   au meme instant, y compris sous « Sortir du suivi » et « Modifier le rattachement ».
+
+   ⚠️ LA RANGEE NE CONTIENT PAS LE DETAIL DEPLIE (.vdb-detail est sa SŒUR) : survoler le corps du mail
+   n'allume donc pas son en-tete, et c'est bien ce qu'on veut — l'en-tete est ce qui se clique.
+   ⚠️ UN SEUL JETON, celui d'avant : la trame ne change pas de couleur, elle change d'etendue. Clair et Sombre
+   suivent le jeton, comme partout ailleurs. */
+.vdb-rangee:hover{background:var(--color-svv-field)}
 .vdb-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 /* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI », DISCRET, BORDURE ROUGE FINE ════════════════════
    Arno : « a DROITE du bloc d'en-tete du mail deplie […], discret, bordure rouge fine. »
