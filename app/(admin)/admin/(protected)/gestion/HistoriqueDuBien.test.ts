@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+/* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — le bandeau, lu À LA SOURCE. */
+import { BANDEAU_MODIFICATION_PONCTUELLE } from '../../../../lib/gestion/sortirDuSuivi';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { HistoriqueDuBien } from './HistoriqueDuBien';
@@ -4350,8 +4352,16 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
     const li = hote.querySelector(`#hdb-mail-${messageId}`) as HTMLElement;
     await cliquer(li?.querySelector('.vdb-ligne') ?? undefined);
   };
+  /**
+   * ⚠️ ON DÉSIGNE PAR LE MOT, PLUS PAR LA CLASSE (lot RATTACHEMENT-PONCTUEL, point 1) : « Modifier le
+   * rattachement » est né VOISIN de « Sortir du suivi », et Arno l'a demandé « même style » — donc même classe.
+   * Un sélecteur de classe prenait désormais le premier des deux, et ce n'est pas toujours celui qu'on vise.
+   */
+  const boutonDuMail = (messageId: number, mot: string): HTMLButtonElement | null =>
+    ([...(hote.querySelector(`#hdb-mail-${messageId}`)?.querySelectorAll('.vdb-sortir') ?? [])]
+      .find((b) => (b.textContent ?? '').includes(mot)) ?? null) as HTMLButtonElement | null;
   const boutonSortir = (messageId: number): HTMLButtonElement | null =>
-    (hote.querySelector(`#hdb-mail-${messageId}`)?.querySelector('.vdb-sortir') ?? null) as HTMLButtonElement | null;
+    boutonDuMail(messageId, 'Sortir du suivi');
   const objets = (): string[] => [...hote.querySelectorAll('.hdb-ancre')].map((x) => x.id);
 
   /**
@@ -4368,11 +4378,16 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
   /**
    * 🔴 ET PAS SUR UN MAIL AMENÉ PAR UNE CARTE D'ÉVÉNEMENT : il n'a aucun lien de bien à retirer. Le bouton aurait
    * posé une question, puis n'aurait rien fait — et l'on aurait cherché pourquoi le mail est toujours là.
+   *
+   * ⚠️ « MODIFIER LE RATTACHEMENT », LUI, Y EST (lot RATTACHEMENT-PONCTUEL, point 1), et la différence tient au
+   * geste : « Sortir du suivi » RETIRE un lien et n'a rien à faire sans lien ; « Modifier le rattachement » peut
+   * au contraire en AJOUTER un — c'est même le seul endroit d'où le faire sur un mail amené par une carte.
    */
-  it('🔴 aucun bouton sur un mail amené par la carte d’un événement', async () => {
+  it('🔴 aucun « Sortir du suivi » sur un mail amené par la carte d’un événement', async () => {
     await monter();
     await deplier(3);
     expect(boutonSortir(3)).toBeNull();
+    expect(boutonDuMail(3, 'Modifier le rattachement')).not.toBeNull();
   });
 
   /** 🔴🔴 LA QUESTION D'ARNO, AVEC LE BIEN ET LE NOMBRE DE PIÈCES — et ce qui ne bouge pas, dit aussi. */
@@ -6164,4 +6179,73 @@ Blandine PIRIOU
     expect(mail.querySelector('.vdb-citees')).toBeNull();
     expect(mail.querySelectorAll('.pj-carte').length).toBeGreaterThan(0);
   });
+});
+
+/**
+ * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINTS 1 ET 2 — LE SECOND BOUTON, ET LA TRAME DE SURVOL ══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * POINT 1 (Arno) : « À côté de “Sortir du suivi”, même style, un second bouton “Modifier le rattachement”. Il
+ * ouvre la fenêtre “Bien(s) rattaché(s) à ce mail” […] MAIS en mode PONCTUEL. »
+ *
+ * POINT 2 (Arno) : « Au survol, la zone “nous avons écrit … / Objet … / date” prend une trame plus foncée, mais
+ * pas le bout de ligne qui porte les boutons à droite. Harmonise. »
+ *
+ * 🔴 CE QUE CE BLOC PROUVE, ET QUE `VisualiserUnifie.test.tsx` NE PEUT PAS PROUVER : que le bouton est bien là,
+ * à côté de son voisin, qu'il ouvre LA fenêtre (et pas une copie), qu'elle est en mode ponctuel, et que la trame
+ * de survol est posée sur la RANGÉE entière — boutons compris.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('⑳ 🔴🔴 « Modifier le rattachement », et la trame de toute la ligne', () => {
+  const boutonsDuMail = (messageId: number): HTMLButtonElement[] =>
+    [...(hote.querySelector(`#hdb-mail-${messageId}`)?.querySelectorAll('.vdb-sortir') ?? [])] as HTMLButtonElement[];
+  const boutonModifier = (messageId: number): HTMLButtonElement | undefined =>
+    boutonsDuMail(messageId).find((b) => (b.textContent ?? '').includes('Modifier le rattachement'));
+
+  it('🔴🔴 LE BOUTON EST LÀ, VOISIN DE « Sortir du suivi », ET DU MÊME STYLE', async () => {
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-1 button') ?? undefined);
+    const b = boutonsDuMail(1);
+    /* 🔴 LES DEUX, DANS L'ORDRE, et avec la MÊME classe : Arno demande « même style », et deux boutons de même
+       rang doivent se ressembler — sans quoi l'un paraît plus grave que l'autre. */
+    expect(b.map((x) => x.textContent)).toEqual(['Sortir du suivi', 'Modifier le rattachement']);
+    expect(new Set(b.map((x) => x.className)).size).toBe(1);
+    /* ⚠️ ET SON INFO-BULLE NOMME LE BIEN, comme celle de son voisin : « modifier le rattachement » pourrait se
+       lire « de la conversation », ce que le geste ne fait PAS. */
+    expect(boutonModifier(1)?.getAttribute('title')).toContain('CE mail uniquement');
+  });
+
+  it('🔴 il ne paraît que DÉPLIÉ, comme son voisin', async () => {
+    await monter();
+    expect(boutonModifier(1)).toBeUndefined();
+    await cliquer(hote.querySelector('#hdb-mail-1 button') ?? undefined);
+    expect(boutonModifier(1)).toBeDefined();
+  });
+
+  /**
+   * 🔴🔴 IL OUVRE **LA** FENÊTRE, EN MODE PONCTUEL : le bandeau d'Arno et le mot de validation le prouvent, et
+   * les trois options de suivi n'y sont pas. Aucune copie de fenêtre n'a été écrite.
+   */
+  it('🔴🔴 il ouvre la fenêtre en mode PONCTUEL : bandeau, pas d’options de suivi', async () => {
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-1 button') ?? undefined);
+    await cliquer(boutonModifier(1));
+    const d = hote.querySelector('.rdf[role="dialog"]');
+    expect(d).not.toBeNull();
+    expect(hote.querySelector('.rdf-bandeau-ponctuel')?.textContent).toBe(BANDEAU_MODIFICATION_PONCTUELLE);
+    expect(hote.querySelector('.rdf-suivi')).toBeNull();
+    for (const mot of ['Ce mail et la conversation à venir', 'Toute la conversation']) {
+      expect(d?.textContent, mot).not.toContain(mot);
+    }
+  });
+
+  /** ⚠️ ET « Sortir du suivi » GARDE SA CONFIRMATION : le second bouton n'a rien changé au premier. */
+  it('⚠️ le premier bouton garde son geste, inchangé', async () => {
+    await monter();
+    await cliquer(hote.querySelector('#hdb-mail-1 button') ?? undefined);
+    await cliquer(boutonsDuMail(1)[0]);
+    expect(hote.querySelector('.hdb-confirme')).not.toBeNull();
+    expect(hote.querySelector('.rdf[role="dialog"]')).toBeNull();
+  });
+
 });

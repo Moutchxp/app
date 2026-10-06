@@ -21,6 +21,9 @@ import { CSS_PIECES, type DepotAffiche } from './PiecesJointes';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — la frise chronologique de la vie du bien. */
 import { CSS_FRISE_DU_BIEN, FriseDuBien } from './FriseDuBien';
+/* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — LA fenêtre des biens d'un mail, montée en mode PONCTUEL. Le même
+   composant que « Visualiser / Modifier » et « Classer » : aucune copie, aucune seconde fenêtre à corriger. */
+import { RattachementsDuFil } from './RattachementsDuFil';
 import type { MailDeLaFrise } from '../../../../lib/gestion/friseBien';
 import type { PieceCitable } from '../../../../lib/gestion/piecesCitees';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — LA VISIONNEUSE MAISON, IMPORTÉE ET NON RECOPIÉE. C'est le composant que
@@ -37,6 +40,8 @@ import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import {
   adresseDuBien, aideSortirDuSuivi, classementSansLeBien, motConfirmationSortie, motMailSorti,
   MOT_SORTIR_DU_SUIVI, SECONDES_ANNULER_SORTIE,
+  /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — l'info-bulle du second bouton, écrite dans le module PUR. */
+  aideModifierLeRattachement,
 } from '../../../../lib/gestion/sortirDuSuivi';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — `projeter` dit ce que le suivi décide POUR CE MAIL. Module pur. */
 import { projeter, type ExceptionMail, type Periode } from '../../../../lib/gestion/periodesConversation';
@@ -1006,6 +1011,28 @@ export function HistoriqueDuBien({
     (l: LigneHistorique) => (l.source !== 'rattachement' ? undefined : {
       aide: aideSortirDuSuivi(adresseBien),
       onSortir: () => { setSortieRefus(null); setASortir(l); },
+    }),
+    [adresseBien]);
+
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — « MODIFIER LE RATTACHEMENT », VOISIN DE « SORTIR DU SUIVI » ════
+   *
+   * DEMANDE D'ARNO (06/10/2026) : « À côté de “Sortir du suivi”, même style, un second bouton “Modifier le
+   * rattachement”. Il ouvre la fenêtre “Bien(s) rattaché(s) à ce mail” […] MAIS en mode PONCTUEL. »
+   *
+   * 🔴 IL EST OFFERT SUR TOUS LES MAILS, et non seulement sur ceux qui entrent par un rattachement — contrairement
+   * à son voisin. La raison est dans le geste : « Sortir du suivi » RETIRE un lien, et n'a donc rien à faire sur
+   * un mail qui n'en a pas ; « Modifier le rattachement » peut au contraire en AJOUTER un, et c'est exactement ce
+   * qu'on veut sur un mail amené ici par la carte d'un événement.
+   *
+   * ⚠️ IL LUI FAUT UN ÉCHANGE : la fenêtre porte sur un mail DANS sa conversation. Sans `filId`, elle ne saurait
+   * ni lire ni écrire — le bouton n'est alors pas rendu, plutôt qu'offert et inerte.
+   */
+  const [aModifier, setAModifier] = useState<LigneHistorique | null>(null);
+  const modificationOfferte = useCallback(
+    (l: LigneHistorique) => (l.filId === null || l.filId === undefined ? undefined : {
+      aide: aideModifierLeRattachement(adresseBien),
+      onModifier: () => setAModifier(l),
     }),
     [adresseBien]);
 
@@ -2694,7 +2721,8 @@ export function HistoriqueDuBien({
                       onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                       onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                       piecesCitables={piecesParFil}
-                      sortieDuSuivi={sortieOfferte} />
+                      sortieDuSuivi={sortieOfferte}
+                      modifierRattachement={modificationOfferte} />
                   </section>
                 ))
                 : (
@@ -2703,7 +2731,8 @@ export function HistoriqueDuBien({
                     onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                     onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                     piecesCitables={piecesParFil}
-                    sortieDuSuivi={sortieOfferte} />
+                    sortieDuSuivi={sortieOfferte}
+                    modifierRattachement={modificationOfferte} />
                 )}
 
               <div className="vdb-pages">
@@ -2807,6 +2836,31 @@ export function HistoriqueDuBien({
           ⚠️ LE TOUR EST `piecesVisionnables` — voir son encadré : les pièces du résumé ET celles des mails
           chargés, parce que l'œil du mail déplié ouvre la MÊME fenêtre. Un tour borné au seul résumé aurait
           affiché un document absent de son propre parcours. */}
+      {/* ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — LA FENÊTRE, EN MODE PONCTUEL ═══════════════════════════
+          Arno : « Il ouvre la fenêtre “Bien(s) rattaché(s) à ce mail” (même composant que “Visualiser /
+          Modifier”, toutes ses fonctions actuelles […]), MAIS en mode PONCTUEL. »
+
+          🔴 MÊME COMPOSANT, AUCUNE COPIE : c'est `RattachementsDuFil`, celui des trois autres portes. Seule la
+          propriété `ponctuel` change ce qu'il MONTRE — pas ce qu'il écrit, ni par où.
+
+          ⚠️ ELLE NE SE REFERME PAS AU GESTE, et c'est délibéré : l'« Annuler » de quelques secondes vit DEDANS,
+          et une fenêtre qui se referme emporterait la sortie avec elle (défaut mesuré au lot
+          PHOTOS-ET-INTERNE-INVERSE). On recharge l'historique à chaque geste, et elle reste ouverte. */}
+      {aModifier !== null && aModifier.filId != null && (
+        <RattachementsDuFil filId={aModifier.filId} messageId={aModifier.messageId}
+          titre={nettoyerObjet(aModifier.objet ?? '') || null}
+          ponctuel
+          onFerme={() => setAModifier(null)}
+          /* 🔴 LE MÊME RECHARGEMENT QUE L'ANNULATION DE « Sortir du suivi » : la page est REDEMANDÉE, et la
+             ligne revient avec son statut, ses événements et sa capsule tels que le serveur les connaît —
+             jamais tels qu'on les aurait reconstruits de mémoire. Et la boîte est prévenue, comme toujours. */
+          onGeste={(message) => {
+            setSortieRefus(message);
+            setRechargement((n) => n + 1);
+            annoncerClassement({ messageId: aModifier.messageId, filId: aModifier.filId });
+          }} />
+      )}
+
       {pieceVue !== null && (
         <ApercuFichierDrive
           fichier={(() => {
@@ -3698,6 +3752,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
  */
 function FilDeMails({
   lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi,
+  modifierRattachement,
   onVisualiser, destinataires, piecesCitables,
 }: {
   lignes: readonly LigneHistorique[];
@@ -3716,6 +3771,8 @@ function FilDeMails({
    * par un rattachement. Rend `undefined` pour les autres : voir `sortieOfferte` dans le bloc principal.
    */
   sortieDuSuivi: (l: LigneHistorique) => { aide: string; onSortir: () => void } | undefined;
+  /** 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — le second bouton de l'en-tête, par ligne. */
+  modifierRattachement: (l: LigneHistorique) => { aide: string; onModifier: () => void } | undefined;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — l'œil d'une miniature du mail déplié ouvre la visionneuse. */
   onVisualiser: (pieceId: number) => void;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
@@ -3768,7 +3825,8 @@ function FilDeMails({
               destinataires={destinataires.get(l.messageId) ?? []}
               /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les pièces de SA conversation, pour les noms cités. */
               piecesCitables={piecesCitables.get(l.filId) ?? []}
-              sortieDuSuivi={sortieDuSuivi(l)} />
+              sortieDuSuivi={sortieDuSuivi(l)}
+              modifierRattachement={modifierRattachement(l)} />
           </ol>
         </li>
       ))}

@@ -210,3 +210,56 @@ export function motMailSorti(adresseDuBien: string): string {
  * aurait donné un « Annuler » qui échoue — la pire sorte de bouton.
  */
 export const SECONDES_ANNULER_SORTIE = 8;
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — « MODIFIER LE RATTACHEMENT », PONCTUELLEMENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (06/10/2026) : « À côté de “Sortir du suivi”, même style, un second bouton “Modifier le
+   rattachement”. Il ouvre la fenêtre “Bien(s) rattaché(s) à ce mail” […] MAIS en mode PONCTUEL : aucune option
+   de suivi n'est affichée ni proposée […] Un bandeau clair en haut de la fenêtre […] Le bouton de validation
+   s'appelle “Valider pour ce mail uniquement”. »
+
+   🔴🔴 CE QUE LE MODE PONCTUEL EST, EXACTEMENT. Ce n'est PAS un second chemin d'écriture : c'est la MÊME fenêtre,
+   la MÊME route (`POST /api/admin/gestion/suivi`), le MÊME `choix: 'mail'` — celui que « Sortir du suivi » emploie
+   déjà juste au-dessus. Ce qui change est ce qu'on MONTRE : on ne propose plus un choix de portée, parce qu'il n'y
+   en a plus qu'une, et on le DIT.
+
+   🔴 POURQUOI « AUCUNE PÉRIODE N'EST CRÉÉE, MODIFIÉE OU SUPPRIMÉE » EST VRAI PAR CONSTRUCTION, et non par
+   précaution : `choix: 'mail'` écrit une EXCEPTION, et une exception ne déplace aucune période — c'est sa
+   définition même (`periodesConversation`). Les deux autres fenêtres, celles qui touchent aux périodes, ne sont
+   pas offertes : elles ne peuvent donc pas être choisies par mégarde.
+
+   ⚠️ CE MODE NE S'APPLIQUE QU'À CETTE PORTE. « Visualiser / Modifier » et « Classer » gardent leurs trois
+   fenêtres : ce lot AJOUTE une porte, il n'en modifie aucune.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Le mot du second bouton. Court, comme son voisin : ils vivent à droite d'un en-tête déjà chargé. */
+export const MOT_MODIFIER_LE_RATTACHEMENT = 'Modifier le rattachement';
+
+/**
+ * L'info-bulle NOMME le bien, comme celle de son voisin et pour la même raison : dans l'historique d'un bien,
+ * « modifier le rattachement » pourrait se lire « de la conversation » — ce que le geste ne fait PAS.
+ */
+export function aideModifierLeRattachement(adresseDuBienLu: string): string {
+  return `Modifier les biens rattachés à CE mail uniquement, sans toucher au suivi de la conversation `
+    + `ni aux autres mails. Vous êtes dans l’historique de ${adresseDuBienLu}.`;
+}
+
+/**
+ * ══ 🔴🔴 LE BANDEAU, MOT POUR MOT CELUI D'ARNO ══════════════════════════════════════════════════════════════════
+ *
+ * 🔴 IL EST ÉCRIT AVANT LE GESTE, ET NON APRÈS. C'est la règle de la maison, et elle vaut double ici : la
+ * différence entre une modification ponctuelle et une règle de suivi ne se voit pas à l'écran une fois le geste
+ * fait — elle se voit trois mails plus loin.
+ */
+export const BANDEAU_MODIFICATION_PONCTUELLE =
+  'Modification ponctuelle : elle ne concerne QUE ce mail. Aucun autre mail, aucune conversation et aucun '
+  + 'suivi ne sont modifiés.';
+
+/** Le mot du bouton de validation, en mode ponctuel. Il dit la portée, puisque plus rien d'autre ne la dit. */
+export const MOT_VALIDER_CE_MAIL_UNIQUEMENT = 'Valider pour ce mail uniquement';
+
+/** Ce qu'on dit après le geste, au-dessus de l'« Annuler ». */
+export const MOT_MODIFICATION_PONCTUELLE_FAITE =
+  'Rattachement de ce mail modifié. Aucun autre mail, aucune période de suivi n’a bougé.';

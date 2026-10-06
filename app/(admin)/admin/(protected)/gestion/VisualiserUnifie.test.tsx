@@ -8,6 +8,10 @@ import {
   ENCADRE_EXCEPTION_CE_MAIL, MOT_CHANGER_REGLE_SUIVI, MOT_MODIFIER_BIENS_DU_MAIL,
   ZONE_AUTRES_PROPOSES, ZONE_DEJA_RATTACHES,
 } from '../../../../lib/gestion/ficheRattachement';
+/* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — les mots du mode ponctuel, lus À LA SOURCE. */
+import {
+  BANDEAU_MODIFICATION_PONCTUELLE, MOT_MODIFICATION_PONCTUELLE_FAITE, MOT_VALIDER_CE_MAIL_UNIQUEMENT,
+} from '../../../../lib/gestion/sortirDuSuivi';
 
 /**
  * ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 2 — LA FENÊTRE, MONTÉE POUR DE VRAI ════════════════════
@@ -738,5 +742,149 @@ describe('🔴🔴 ④ la ligne « Événement rattaché » de la fenêtre', () 
       titre.dispatchEvent(new Event('input', { bubbles: true }));
     });
     expect((bouton(/^Garder pour la validation$/) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤ 🔴🔴 LE MODE PONCTUEL (LOT RATTACHEMENT-PONCTUEL, POINT 1)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (06/10/2026) : la fenêtre, avec toutes ses fonctions actuelles, « MAIS en mode PONCTUEL :
+   AUCUNE option de suivi n'est affichée ni proposée : ni “Ce mail uniquement”, ni “Ce mail et la conversation à
+   venir”, ni “Toute la conversation”. Un bandeau clair en haut de la fenêtre […] Le bouton de validation
+   s'appelle “Valider pour ce mail uniquement”. »
+
+   🔴 CE QUE CE BLOC PROUVE, ET QU'AUCUN MODULE PUR NE PEUT PROUVER : que les trois options ont bien DISPARU de
+   l'écran (pas seulement qu'on ne les choisit pas), que le bandeau est là AVANT de cocher quoi que ce soit, que
+   la fenêtre écrite est `'mail'` quoi qu'il arrive, et que les autres portes n'ont pas bougé.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
+  const monterPonctuel = async () => {
+    await act(async () => {
+      root.render(createElement(RattachementsDuFil, {
+        filId: 7, titre: 'Fuite au plafond', messageId: MAIL, ponctuel: true,
+        onFerme: () => {}, onGeste: () => {},
+      } as never));
+    });
+    await calmer();
+  };
+
+  it('🔴🔴 AUCUNE des trois options de suivi n’est affichée', async () => {
+    await monterPonctuel();
+    expect(container.querySelector('.rdf-suivi')).toBeNull();
+    for (const mot of ['Ce mail uniquement', 'Ce mail et la conversation à venir', 'Toute la conversation']) {
+      expect(container.textContent, mot).not.toContain(mot);
+    }
+    /* ⚠️ ET PAS DAVANTAGE L'ENCADRÉ D'EXCEPTION : il explique un choix, et il n'y a plus de choix. */
+    expect(container.textContent).not.toContain(ENCADRE_EXCEPTION_CE_MAIL);
+  });
+
+  it('🔴🔴 LE BANDEAU D’ARNO EST EN HAUT, mot pour mot', async () => {
+    await monterPonctuel();
+    const b = container.querySelector('.rdf-bandeau-ponctuel');
+    expect(b?.textContent).toBe(BANDEAU_MODIFICATION_PONCTUELLE);
+    /* 🔴 EN HAUT VEUT DIRE AVANT LE RESTE : on doit savoir ce que la fenêtre fait avant de commencer à cocher. */
+    const html = (container.querySelector('[role="dialog"]') as HTMLElement).innerHTML;
+    expect(html.indexOf('rdf-bandeau-ponctuel')).toBeLessThan(html.indexOf('rdf-item'));
+  });
+
+  it('🔴🔴 LE BOUTON DIT LA PORTÉE : « Valider pour ce mail uniquement »', async () => {
+    await monterPonctuel();
+    expect(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT))).toBeDefined();
+    expect(bouton(/^Valider le suivi$/)).toBeUndefined();
+  });
+
+  /** 🔴 ELLE S'OUVRE DÉJÀ SUR LA MODIFICATION : « Modifier le rattachement » est un geste, pas une consultation. */
+  it('🔴 elle s’ouvre sur le panneau, avec toutes ses fonctions', async () => {
+    await monterPonctuel();
+    expect(bouton(new RegExp(MOT_MODIFIER_BIENS_DU_MAIL))).toBeUndefined();
+    /* Les cartes du haut, le moteur de recherche, et la ligne « Événement rattaché » : rien n'est retiré. */
+    expect(container.querySelector('.rdf-item')).not.toBeNull();
+    expect(container.textContent).toContain('Chercher un autre bien');
+    expect(container.querySelector('.rdf-evt')).not.toBeNull();
+  });
+
+  /**
+   * 🔴🔴 ET CE QU'ELLE ÉCRIT EST L'EXCEPTION, PAR LA PORTE EXISTANTE. C'est ce qui rend « aucune période créée,
+   * modifiée ou supprimée » vrai par construction : une exception ne déplace aucune période, c'est sa définition.
+   */
+  it('🔴🔴 valider écrit `choix: mail`, par la route du suivi, en UNE requête', async () => {
+    await monterPonctuel();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await cocher(cases.find((c) => !c.checked) as HTMLInputElement);
+    await cliquer(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT)) as Element);
+    expect(ecritures).toHaveLength(1);
+    expect(ecritures[0].url).toContain('/api/admin/gestion/suivi');
+    const corps = ecritures[0].corps as { choix: string; messageId: number };
+    expect(corps.choix).toBe('mail');
+    expect(corps.messageId).toBe(MAIL);
+  });
+
+  /**
+   * 🔴🔴 ET « ANNULER » PASSE PAR LA PORTE D'ANNULATION DU SUIVI, celle qui rouvre ce que le geste a fermé puis
+   * REPROJETTE. Les liens reviennent d'eux-mêmes : c'est ce qui rend « exactement l'état d'avant » vérifiable
+   * plutôt que promis — et ce qui évite un second chemin de restauration.
+   */
+  it('🔴🔴 après le geste, « Annuler » défait la décision de suivi — et ne réécrit rien', async () => {
+    /**
+     * ⚠️ LE BOUCHON REND UNE TRACE, parce que la VRAIE route en rend une : c'est elle que l'annulation rejoue.
+     * Sans trace, aucune sortie n'est offerte — et c'est juste : un « Annuler » qui ne peut rien défaire serait
+     * un bouton qui ment (même règle que `annulationLevee`, « une trace absente n'est pas une erreur »).
+     */
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if ((init?.method ?? 'GET') !== 'GET' && u.includes('/gestion/suivi')) {
+        ecritures.push({ url: u, corps: JSON.parse(String(init?.body ?? 'null')) });
+        return {
+          ok: true,
+          json: async () => ({ ok: true, trace: { filId: 7, exceptions: [4242], periodes: [] } }),
+        } as unknown as Response;
+      }
+      return (avant as (u: unknown, i?: unknown) => Promise<Response>)(url, init);
+    }) as unknown as typeof fetch;
+    await monterPonctuel();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await cocher(cases.find((c) => !c.checked) as HTMLInputElement);
+    await cliquer(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT)) as Element);
+    const sortie = container.querySelector('.rdf-ponctuel-fait');
+    expect(sortie).not.toBeNull();
+    expect(sortie?.textContent).toContain(MOT_MODIFICATION_PONCTUELLE_FAITE);
+
+    await cliquer(sortie?.querySelector('button') as Element);
+    expect(ecritures).toHaveLength(2);
+    expect(ecritures[1].url).toContain('/api/admin/gestion/suivi');
+    /* 🔴 `{ annuler: trace }` ET RIEN D'AUTRE : aucune liste de biens reconstruite de mémoire, et c'est la
+       TRACE que le serveur a rendue, pas une décision rejouée de tête. */
+    expect(ecritures[1].corps).toEqual({ annuler: { filId: 7, exceptions: [4242], periodes: [] } });
+  });
+
+  /**
+   * ══ 🔴🔴 LA FENÊTRE ÉCRITE EST UNE CONSTANTE, PAS UN ÉTAT ═══════════════════════════════════════════════════
+   *
+   * ⚠️ POURQUOI UN GARDE DE SOURCE ICI, ET PAS UNE ÉPREUVE DE COMPORTEMENT. En mode ponctuel, `choixSuivi` vaut
+   * déjà `'mail'` et aucun bouton ne peut le changer : écrire `choixSuivi` au lieu de la constante donnerait
+   * aujourd'hui EXACTEMENT le même résultat — mesuré, la mutation ne fait tomber aucune épreuve. C'est
+   * précisément pour cela que la constante doit être écrite : un état se change, une constante non, et la règle
+   * d'Arno (« elle ne concerne QUE ce mail ») doit tenir là où elle est écrite, pas par ricochet.
+   */
+  it('🔴🔴 la fenêtre écrite est la CONSTANTE `mail`, jamais l’état du choix', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
+    expect(src).toContain("onValider={(voulus) => ecrire(voulus, ponctuel ? 'mail' : choixSuivi)}");
+  });
+
+  /**
+   * ⚠️ LES AUTRES PORTES NE CHANGENT PAS — demande d'Arno, mot pour mot. Montée sans `ponctuel`, la fenêtre
+   * retrouve ses trois options, son encadré et son mot de validation.
+   */
+  it('⚠️ SANS le mode ponctuel, la fenêtre est exactement celle d’avant', async () => {
+    await monter(MAIL);
+    await cliquer(bouton(new RegExp(MOT_MODIFIER_BIENS_DU_MAIL)) as Element);
+    expect(container.querySelector('.rdf-bandeau-ponctuel')).toBeNull();
+    expect([...container.querySelectorAll('.rdf-suivi .rdf-suivi-mot')].map((e) => e.textContent)).toEqual([
+      'Ce mail uniquement', 'Ce mail et la conversation à venir', 'Toute la conversation',
+    ]);
+    expect(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT))).toBeUndefined();
   });
 });

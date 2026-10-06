@@ -25,7 +25,9 @@ import { decouperPourSurligner, motTonDeMail, type TonMail } from '../../../../l
 /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — le nom ET l'adresse d'un destinataire, séparés (module pur). */
 import type { PersonneDuMail } from '../../../../lib/gestion/adressesMessage';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — le mot du bouton vient du module pur, comme tous les autres. */
-import { MOT_SORTIR_DU_SUIVI } from '../../../../lib/gestion/sortirDuSuivi';
+import {
+  MOT_MODIFIER_LE_RATTACHEMENT, MOT_SORTIR_DU_SUIVI,
+} from '../../../../lib/gestion/sortirDuSuivi';
 
 /**
  * LOT FICHES-ANNUAIRE (étape B) — « LA VIE DU BIEN » : TOUS SES MAILS, DANS LA FICHE.
@@ -319,7 +321,8 @@ function AdressesDuMail({ l, tonDe }: {
 }
 
 export function LigneVie({
-  l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, onVisualiser,
+  l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, modifierRattachement,
+  onVisualiser,
   destinataires = [], piecesCitables = [],
 }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
@@ -339,6 +342,11 @@ export function LigneVie({
    * sur chacune des cent lignes repliées d'un fil serait une rangée de boutons rouges qu'on finit par cliquer.
    */
   sortieDuSuivi?: { aide: string; onSortir: () => void };
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — le second bouton, voisin du premier. Absent ⇒ il n'est pas rendu,
+   * et la ligne est exactement celle d'avant ce lot.
+   */
+  modifierRattachement?: { aide: string; onModifier: () => void };
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — L'ŒIL DU MAIL DÉPLIÉ ═════════════════════════════════════════════
    *
@@ -522,6 +530,18 @@ export function LigneVie({
           <button type="button" className="vdb-sortir" title={sortieDuSuivi.aide}
             aria-label={sortieDuSuivi.aide} onClick={sortieDuSuivi.onSortir}>
             {MOT_SORTIR_DU_SUIVI}
+          </button>
+        )}
+        {/* ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — « MODIFIER LE RATTACHEMENT », SON VOISIN ═════════════
+            Arno : « À côté de “Sortir du suivi”, même style, un second bouton ». Même classe, donc même
+            dessin : deux boutons de même rang doivent se ressembler, sans quoi l'un paraît plus grave.
+
+            ⚠️ VOISIN DE LA LIGNE, COMME L'AUTRE, et jamais son enfant : l'en-tête entier EST un `<button>`, et
+            un bouton dans un bouton n'est pas du HTML valide. */}
+        {ouvert && modifierRattachement !== undefined && (
+          <button type="button" className="vdb-sortir" title={modifierRattachement.aide}
+            aria-label={modifierRattachement.aide} onClick={modifierRattachement.onModifier}>
+            {MOT_MODIFIER_LE_RATTACHEMENT}
           </button>
         )}
       </div>

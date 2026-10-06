@@ -42,7 +42,12 @@ import {
   type SortieLevee, type TraceSuivi,
 } from '../../../../lib/gestion/interneLevee';
 /* 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — l'« Annuler » complet, écrit une seule fois pour les deux écrans. */
-import { annulerLaLevee } from './annulationLevee';
+import { annulerLaLevee, defaireLaDecisionDeSuivi } from './annulationLevee';
+/* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — les mots du mode ponctuel, écrits dans le module PUR. */
+import {
+  BANDEAU_MODIFICATION_PONCTUELLE, MOT_MODIFICATION_PONCTUELLE_FAITE, MOT_VALIDER_CE_MAIL_UNIQUEMENT,
+  SECONDES_ANNULER_SORTIE,
+} from '../../../../lib/gestion/sortirDuSuivi';
 import {
   alerteTouteLaConversation, motClassement,
   type ChoixSuivi, type Classement, type ExceptionMail,
@@ -113,7 +118,7 @@ type Panneau = 'aucun' | 'modifier';
 
 export function RattachementsDuFil({
   filId, titre, messageId = null, onFerme, onGeste, onLeveeFaite,
-  ouvreLaModification = false, actionsDePied = [],
+  ouvreLaModification = false, actionsDePied = [], ponctuel = false,
 }: {
   filId: number;
   /** L'objet de l'échange, connu de la liste. La fiche en rend un aussi ; celui-ci sert de repli. */
@@ -177,6 +182,26 @@ export function RattachementsDuFil({
    * « Visualiser / Modifier » reste celle d'avant.
    */
   actionsDePied?: readonly { cle: string; libelle: string; onChoisir: () => void }[];
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — LE MODE PONCTUEL ═══════════════════════════════════════════════
+   *
+   * DEMANDE D'ARNO (06/10/2026) : la fenêtre, avec TOUTES ses fonctions actuelles (biens rattachés, cartes,
+   * moteur « Chercher un autre bien », événement), « MAIS en mode PONCTUEL : aucune option de suivi n'est
+   * affichée ni proposée […] Un bandeau clair en haut […] Le bouton de validation s'appelle “Valider pour ce
+   * mail uniquement”. »
+   *
+   * 🔴🔴 CE N'EST PAS UN SECOND CHEMIN D'ÉCRITURE. C'est la MÊME route (`POST /api/admin/gestion/suivi`) et le
+   * MÊME `choix: 'mail'` — celui que « Sortir du suivi » emploie déjà. Ce qui change est ce qu'on MONTRE : on ne
+   * propose plus de portée, parce qu'il n'y en a plus qu'une, et on le dit en toutes lettres.
+   *
+   * 🔴 « AUCUNE PÉRIODE CRÉÉE, MODIFIÉE OU SUPPRIMÉE » EST VRAI PAR CONSTRUCTION : `choix: 'mail'` écrit une
+   * EXCEPTION, et une exception ne déplace aucune période — c'est sa définition. Les deux fenêtres qui touchent
+   * aux périodes ne sont pas offertes, donc pas choisissables par mégarde.
+   *
+   * ⚠️ `false`/absent ⇒ LA FENÊTRE EST EXACTEMENT CELLE D'AVANT, avec ses trois fenêtres de suivi. « Visualiser
+   * / Modifier » et « Classer » ne changent pas d'un pixel.
+   */
+  ponctuel?: boolean;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
@@ -187,7 +212,10 @@ export function RattachementsDuFil({
    * et sur un mail à classer cet état est vide. Y poser une liste d'avance aurait été précocher — ce qu'Arno
    * interdit explicitement (« aucune cochée d'office »).
    */
-  const [panneau, setPanneau] = useState<Panneau>(ouvreLaModification ? 'modifier' : 'aucun');
+  const [panneau, setPanneau] = useState<Panneau>(
+    /* 🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — « Modifier le rattachement » est un geste de MODIFICATION : la
+       fenêtre s'ouvre donc sur le panneau, comme pour « Classer ». */
+    ouvreLaModification || ponctuel ? 'modifier' : 'aucun');
   /**
    * Le choix du bloc « Suivi dans la conversation ». LES TROIS fenêtres depuis le lot CLASSER-PAR-LA-MODALE.
    *
@@ -318,6 +346,28 @@ export function RattachementsDuFil({
   const [libellesCoches, setLibellesCoches] = useState<Record<string, string>>({});
   /** Un tour de compteur relit l'événement du mail — après une écriture, et seulement là. */
   const [rafraichirEvt, setRafraichirEvt] = useState(0);
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — L'« ANNULER » DE LA MODIFICATION PONCTUELLE ════════════════════
+   *
+   * DEMANDE D'ARNO : « “Annuler” quelques secondes après, qui rétablit exactement l'état d'avant. »
+   *
+   * 🔴 IL N'Y A RIEN À ÉCRIRE POUR DÉFAIRE, et c'est tout l'intérêt : `defaireLaDecisionDeSuivi` retire ce que
+   * le geste a créé, rouvre ce qu'il a fermé, puis REPROJETTE — les liens reviennent d'eux-mêmes, parce que la
+   * projection est un diff vers la décision vivante. Aucun second chemin de restauration, et c'est ce qui rend
+   * « exactement l'état d'avant » vérifiable plutôt que promis.
+   *
+   * ⚠️ IL VIT DANS CETTE FENÊTRE, ET IL LE PEUT : contrairement à « Visualiser / Modifier », la porte ponctuelle
+   * ne referme PAS la fenêtre après le geste (l'appelant ne passe pas `onGeste` de fermeture). La sortie reste
+   * donc visible là où on vient d'agir.
+   *
+   * ⚠️ `null` ⇒ RIEN À DÉFAIRE : aucune trace, ou le délai est passé. Le geste est alors acquis, comme partout.
+   */
+  const [ponctuelFait, setPonctuelFait] = useState<TraceSuivi | null>(null);
+  useEffect(() => {
+    if (ponctuelFait === null) return undefined;
+    const t = setTimeout(() => setPonctuelFait(null), SECONDES_ANNULER_SORTIE * 1000);
+    return () => clearTimeout(t);
+  }, [ponctuelFait]);
 
   /**
    * 🔴🔴 ELLE REND LA FICHE QU'ELLE VIENT DE LIRE (lot CLASSER-PAR-LA-MODALE, point 3), et `null` si la lecture
@@ -801,6 +851,9 @@ export function RattachementsDuFil({
       /* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — l'événement voulu s'écrit MAINTENANT, et pas avant : la carte
          neuve reçoit ainsi les biens qu'on vient d'écrire, avec leur propriétaire et leur locataire. */
       await ecrireLEvenementVoulu(fraiche, voulus);
+      /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — la sortie, quelques secondes, et seulement dans cette porte :
+         ailleurs la fenêtre se referme au geste, et un « Annuler » rendu dedans disparaîtrait avec elle. */
+      if (ponctuel) setPonctuelFait(d.trace ?? null);
       /* 🔴🔴 POINT 2 — APRÈS L'ÉCRITURE, ET JAMAIS AVANT : la marque est déjà levée par `rattacher()`. Ce qui
          reste à faire est d'offrir la SORTIE, avec les deux moitiés qu'elle devra défaire. */
       if (leveeConfirmee !== null && leveeConfirmee.length > 0 && ajoutes.length > 0) {
@@ -829,7 +882,7 @@ export function RattachementsDuFil({
       biens: (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle })),
     }),
   });
-  const bloquee = choixSuivi === 'conversation' && !confirme
+  const bloquee = !ponctuel && choixSuivi === 'conversation' && !confirme
     ? 'Cochez la confirmation ci-dessus pour reclasser toute la conversation.'
     : null;
 
@@ -850,6 +903,33 @@ export function RattachementsDuFil({
             rattachement se pose sur un MAIL, et « les biens de l'échange » était une somme — or une somme ne se
             modifie pas. */}
         <h2 className="mrt-titre" id="rdf-titre">{TITRE_BIENS_DU_MAIL}</h2>
+        {/* ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — LE BANDEAU, MOT POUR MOT CELUI D'ARNO ════════════════
+            Il est EN HAUT, avant tout le reste, et non près du bouton : on doit savoir ce que la fenêtre fait
+            AVANT de commencer à cocher, pas au moment de valider. `role="note"` : un lecteur d'écran l'annonce
+            comme une remarque, sans voler le focus. */}
+        {ponctuel && (
+          <p className="rdf-bandeau-ponctuel" role="note">{BANDEAU_MODIFICATION_PONCTUELLE}</p>
+        )}
+        {/* ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — LA SORTIE, QUELQUES SECONDES ═════════════════════════
+            Arno : « “Annuler” quelques secondes après, qui rétablit exactement l'état d'avant. »
+            🔴 ELLE NE RÉÉCRIT RIEN : elle défait la décision de suivi, et la projection ramène les liens
+            d'elle-même. Un second chemin de restauration aurait divergé au premier ajustement. */}
+        {ponctuelFait !== null && (
+          <div className="rdf-ponctuel-fait" role="status">
+            <span className="rdf-ponctuel-mot">{MOT_MODIFICATION_PONCTUELLE_FAITE}</span>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn"
+              onClick={() => void (async () => {
+                const trace = ponctuelFait;
+                setPonctuelFait(null);
+                const ok = await defaireLaDecisionDeSuivi(trace);
+                if (!ok) { setErreur('L’annulation n’a pas abouti : rien n’a été défait.'); return; }
+                onGeste?.('Modification ponctuelle annulée : l’état d’avant est rétabli.');
+                await charger();
+              })()}>
+              Annuler
+            </button>
+          </div>
+        )}
         {fiche?.enTete != null && (
           <p className="rdf-entete">{motEnTeteMail(fiche.enTete, dateHeureComplete(fiche.enTete.recuLe))}</p>
         )}
@@ -965,13 +1045,18 @@ export function RattachementsDuFil({
             /* 🔴 LE MOT DIT CE QUE « VALIDER » VA FAIRE, et les deux mots existaient déjà : valider une
                exception n'est pas valider le suivi d'une conversation, et un seul libellé pour les deux
                aurait effacé la différence que l'encadré prend soin d'expliquer. */
-            motValider={choixSuivi === 'mail' ? 'Valider les biens de ce mail' : 'Valider le suivi'}
+            /* 🔴 EN MODE PONCTUEL, LE BOUTON DIT LA PORTÉE, puisque plus rien d'autre ne la dit (Arno). */
+            motValider={ponctuel
+              ? MOT_VALIDER_CE_MAIL_UNIQUEMENT
+              : (choixSuivi === 'mail' ? 'Valider les biens de ce mail' : 'Valider le suivi')}
             validationBloquee={bloquee}
             /* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — un événement voulu EST quelque chose à valider, même si
                les biens n'ont pas bougé. Sans cela, « Valider le suivi » restait grisé et l'événement
                inatteignable. */
             aussiAValider={evtVoulu !== null}
-            onValider={(voulus) => ecrire(voulus, choixSuivi)}
+            /* 🔴🔴 EN PONCTUEL, LA FENÊTRE EST `'mail'` ET NE PEUT PAS ÊTRE AUTRE CHOSE — ce n'est pas l'état
+               d'un bouton qu'on lit, c'est une constante : un état se change, une constante non. */
+            onValider={(voulus) => ecrire(voulus, ponctuel ? 'mail' : choixSuivi)}
             onFerme={() => { setPanneau('aucun'); setSelection(null); setConfirme(false); }}
             onGeste={onGeste}
             onChange={async () => { await charger(); }}
@@ -995,6 +1080,11 @@ export function RattachementsDuFil({
 
                     ⚠️ AUCUNE RÈGLE NE CHANGE : mêmes trois fenêtres qu'avant, même porte d'écriture
                     (`/api/admin/gestion/suivi`), même avertissement obligatoire sur « Toute la conversation ». */}
+                {/* ⚠️ EN MODE PONCTUEL, AUCUNE OPTION DE SUIVI N'EST AFFICHÉE NI PROPOSÉE (Arno, mot pour mot) —
+                    pas même « Ce mail uniquement », qui est pourtant ce que le geste fait : un choix à une
+                    seule option n'est pas un choix, c'est une case qu'on clique sans la lire. Le bandeau du
+                    haut le dit mieux, et il le dit avant. */}
+                {!ponctuel && (
                 <fieldset className="rdf-suivi">
                   <legend className="rdf-suivi-titre">Suivi dans la conversation</legend>
                   {CHOIX_SUIVI.map((c) => (
@@ -1022,6 +1112,7 @@ export function RattachementsDuFil({
                     </p>
                   )}
                 </fieldset>
+                )}
                 {/* ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — LA LIGNE « ÉVÉNEMENT RATTACHÉ » ══════════════
                     DEMANDE D'ARNO : « Dans la ligne “ÉVÉNEMENT RATTACHÉ” de la fenêtre : “Lier à un événement”
                     (liste des événements du ou des biens cochés) et “Créer un événement”. […] L'événement créé
@@ -1622,6 +1713,18 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-entete{margin:-6px 0 2px;font-size:.85rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
 /* 🔴 UN GRAND BOUTON, et il prend toute la largeur : c'est le geste principal de la fenetre, pas un lien de plus. */
 .rdf-modifier{width:100%;justify-content:center;margin:2px 0 4px;font-weight:700}
+/* ══ LOT RATTACHEMENT-PONCTUEL, POINT 1 — LE BANDEAU DU MODE PONCTUEL, ET SA SORTIE ═══════════════════════════
+   LE BANDEAU EST AMBRE : c'est le ton de l'avertissement dans tout cet ecran, et il dit « attention a la portee »
+   sans crier. Le MOT porte l'information ; la couleur ne fait que l'appuyer. */
+.rdf-bandeau-ponctuel{margin:4px 0 8px;padding:8px 10px;border-left:4px solid var(--color-svv-amber);
+  background:var(--color-svv-amber-soft);border-radius:.4rem;font-size:.82rem;font-weight:600;
+  color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* LA SORTIE : le mot de ce qui vient d'etre fait, et le bouton qui le defait, sur la meme ligne. */
+.rdf-ponctuel-fait{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;margin:0 0 8px;
+  padding:8px 10px;border:1px solid var(--color-svv-green-ink);border-radius:.4rem;
+  background:var(--color-svv-green-soft);min-width:0}
+.rdf-ponctuel-mot{flex:1 1 14rem;min-width:0;font-size:.82rem;color:var(--color-svv-green-ink);
+  overflow-wrap:anywhere}
 .rdf-pied-panneau{display:flex;flex-direction:column;gap:6px;margin:8px 0 0;min-width:0}
 /* LOT CLASSER-PAR-LA-MODALE, POINT 1 — les deux actions secondaires du pied, en liens discrets et non en
    boutons : ce ne sont pas des facons de valider la fenetre, ce sont deux autres decisions qui la quittent.
