@@ -2,7 +2,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  anneeAEcrire, bandeauxDesEvenements, bornesSurLaFrise, moisDeLaFrise, mailsRecus, motDetailDuMois,
+  anneeAEcrire, bandeauxDesEvenements, bornesSurLaFrise, coteDeLEtiquette, moisDeLaFrise, mailsRecus,
+  motDetailDuMois,
   motDuMois, motFriseTronquee, motRepere, motSurvolMail, MOT_PLUS_ANCIEN, MOIS_VISIBLES_PAR_DEFAUT,
   motCourtRepere, positionSurLaFrise, reperesDoccupation, totauxParMois, type MailDeLaFrise,
 } from '../../../../lib/gestion/friseBien';
@@ -214,8 +215,15 @@ export function FriseDuBien({
                 className={`frs-repere frs-repere--${r.sorte}`}
                 style={{ left: `calc(${x} / var(--frs-n) * 100%)` }}
                 title={motRepere(r)}>
-                {/* 🔴 LE MOT COURT D'ARNO, et non un picto seul : « ▶ » ne dit rien à qui ne l'a pas appris. */}
-                <span className="frs-repere-picto">
+                {/**
+                  * 🔴 LE MOT COURT D'ARNO, et non un picto seul : « ▶ » ne dit rien à qui ne l'a pas appris.
+                  *
+                  * 🔴🔴 LOT FRISES-REPARATION — LE CÔTÉ VIENT DU MODULE PUR. Mesuré sur lot-237 : l'étiquette
+                  * d'une sortie posée à 44 px du bord gauche s'étendait de −5 px à 41 — elle SORTAIT de la
+                  * frise. Près d'un bord, elle se décale vers l'intérieur ; au milieu, la convention tient
+                  * (sortie à gauche, entrée à droite) pour qu'une relocation du même jour reste lisible.
+                  */}
+                <span className={`frs-repere-picto frs-repere-picto--${coteDeLEtiquette(x, mois.length, r.sorte)}`}>
                   <span aria-hidden="true">{r.sorte === 'entree' ? '▶' : '■'}</span>
                   {motCourtRepere(r.sorte)}
                 </span>
@@ -357,9 +365,15 @@ export const CSS_FRISE_DU_BIEN = `
    de trait sur un fond vert pale ne donnait que 2,99 de contraste en Clair — sous le seuil de lisibilite AA.
    La paire -green-soft / -green-ink existe justement pour ce cas, et elle est deja mesuree a 4,75 en Clair et
    9,01 en Sombre. Le trait, lui, garde le vert vif : c'est un trait, pas un texte. */
-.frs-repere--entree .frs-repere-picto{left:3px;color:var(--color-svv-green-ink);
+/* ══ 🔴🔴 LOT FRISES-REPARATION — LE COTE EST UNE CLASSE, PLUS UNE DEDUCTION DE LA SORTE ══════════════════════
+   Mesure sur lot-237 : l'etiquette d'une sortie posee a 44 px du bord gauche s'etendait de -5 px a 41. Elle
+   SORTAIT de la frise, et le trait paraissait coupe. C'est coteDeLEtiquette (module pur) qui tranche
+   desormais : pres d'un bord elle rentre, au milieu la convention tient. */
+.frs-repere-picto--gauche{right:3px}
+.frs-repere-picto--droite{left:3px}
+.frs-repere--entree .frs-repere-picto{color:var(--color-svv-green-ink);
   background:var(--color-svv-green-soft)}
-.frs-repere--sortie .frs-repere-picto{right:3px;color:var(--color-svv-ink);
+.frs-repere--sortie .frs-repere-picto{color:var(--color-svv-ink);
   background:color-mix(in srgb, var(--color-svv-ink) 10%, var(--color-svv-surface))}
 
 /* ── ⑤ LA PARTIE BASSE : UN BLOC PAR MOIS ── */

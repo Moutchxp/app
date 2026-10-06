@@ -47,12 +47,12 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
   /**
    * ══ 🔴🔴 LOT FRISE-HORIZONTALE — LES CLASSES ONT CHANGÉ, LE VERDICT NON ════════════════════════════════════
    *
-   * La liste verticale (`frs-case`, `frs-pastille`) a disparu : Arno l'a demandé en toutes lettres. Les étapes
-   * sont désormais des CARRÉS (`frs-carre`) sur une ligne qui défile. Ce qui est éprouvé reste exactement ce qui
+   * La liste verticale (`fav-case`, `fav-pastille`) a disparu : Arno l'a demandé en toutes lettres. Les étapes
+   * sont désormais des CARRÉS (`fav-carre`) sur une ligne qui défile. Ce qui est éprouvé reste exactement ce qui
    * l'était : une étape attendue se distingue par un POINTILLÉ, qui se lit sans couleur.
    */
   it('🔴 les étapes attendues s’affichent en carré pointillé', () => {
-    expect(FRISE).toContain('frs-carre--attendue');
+    expect(FRISE).toContain('fav-carre--attendue');
     expect(FRISE).toContain('attendue');
     /* ⚠️ LE POINTILLÉ SE LIT SANS COULEUR : `dashed`, et non une teinte plus pâle. */
     expect(FRISE).toContain('border:2px dashed var(--color-svv-muted)');
@@ -63,13 +63,13 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * Un carré qui grandit avec son texte ferait onduler la ligne et casserait l'alignement du trait.
    */
   it('🔴🔴 tous les carrés font la même taille', () => {
-    expect(FRISE).toMatch(/\.frs-carre\{[^}]*width:124px/);
-    expect(FRISE).toMatch(/\.frs-carre\{[^}]*min-height:92px/);
+    expect(FRISE).toMatch(/\.fav-carre\{[^}]*width:124px/);
+    expect(FRISE).toMatch(/\.fav-carre\{[^}]*min-height:92px/);
   });
 
   /** 🔴 LE TRAIT FIN QUI RELIE LES CARRÉS, et il est décoratif : posé en CSS, jamais dans le balisage. */
   it('🔴 un trait relie les carrés, et il est décoratif', () => {
-    expect(FRISE).toContain('.frs-el::before');
+    expect(FRISE).toContain('.fav-el::before');
     expect(FRISE).toContain('background:var(--color-svv-line)');
   });
 
@@ -86,9 +86,9 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    */
   it('🔴🔴 seul le carré pointillé « Acceptation du devis » est cliquable', () => {
     expect(FRISE).toContain("const cliquable = c.type === 'devis_accepte';");
-    expect(FRISE).toContain('frs-carre--posable');
+    expect(FRISE).toContain('fav-carre--posable');
     /* 🔴 ET LES AUTRES POINTILLÉS NE LE SONT PAS : un `div`, pas un `button`. */
-    expect(FRISE).toContain('<div className="frs-carre frs-carre--attendue">{contenu}</div>');
+    expect(FRISE).toContain('<div className="fav-carre fav-carre--attendue">{contenu}</div>');
   });
 
   /**
@@ -110,12 +110,12 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * ⚠️ CHACUN PORTE SON MOT POUR LE LECTEUR D'ÉCRAN : un ✓ seul ne se lit pas.
    */
   it('🔴 les étapes « à confirmer » portent leur bordure ambre et les deux gestes', () => {
-    expect(FRISE).toContain('frs-carre--doute');
+    expect(FRISE).toContain('fav-carre--doute');
     expect(FRISE).toContain('border-color:var(--color-svv-amber)');
     expect(FRISE).toContain("onConfirmer(e.id, 'confirmer')");
     expect(FRISE).toContain("onConfirmer(e.id, 'ecarter')");
-    expect(FRISE).toContain('<span className="frs-sr"> confirmer</span>');
-    expect(FRISE).toContain('<span className="frs-sr"> écarter</span>');
+    expect(FRISE).toContain('<span className="fav-sr"> confirmer</span>');
+    expect(FRISE).toContain('<span className="fav-sr"> écarter</span>');
   });
 
   /** 🔴 LA PHRASE QUI JUSTIFIE TOUT LE POINT 2 — elle vient du module pur, elle n'est pas réécrite ici. */
@@ -164,8 +164,8 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * clavier (CLAUDE.md §15).
    */
   it('⚠️ les points sont des boutons, pas de simples zones de survol', () => {
-    expect(FRISE).toContain('frs-point frs-point--${m.type}');
-    expect(FRISE).toMatch(/type="button"[\s\S]{0,160}frs-point/);
+    expect(FRISE).toContain('fav-point fav-point--${m.type}');
+    expect(FRISE).toMatch(/type="button"[\s\S]{0,160}fav-point/);
     expect(FRISE).toContain('aria-expanded={actif}');
     /**
      * 🔴🔴 LE SURVOL MONTRE, LE CLIC FIXE — et le FOCUS aussi, ce qui est le point d'Arno (« au survol et au
@@ -188,11 +188,11 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * 🔴 D'OÙ UNE ZONE SOUS LA FRISE. Cette épreuve interdit de l'y remettre.
    */
   it('🔴🔴 la bulle est rendue sous la frise, hors du conteneur qui défile', () => {
-    expect(FRISE).toContain('<div className="frs-zone"');
+    expect(FRISE).toContain('<div className="fav-zone"');
     /* 🔴 ET PAS DANS LA PISTE : aucune bulle en position absolue à l'intérieur. */
-    expect(FRISE).not.toMatch(/\.frs-bulle\{position:absolute/);
+    expect(FRISE).not.toMatch(/\.fav-bulle\{position:absolute/);
     /* ⚠️ UNE HAUTEUR RÉSERVÉE MÊME VIDE : sinon la page saute à chaque survol d'un point. */
-    expect(FRISE).toMatch(/\.frs-zone\{min-height:\d+px/);
+    expect(FRISE).toMatch(/\.fav-zone\{min-height:\d+px/);
   });
 
   /**
@@ -201,8 +201,8 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * contraignait — c'est le conteneur de défilement lui-même qui ne prend pas la hauteur de ses enfants.
    */
   it('🔴🔴 la piste réserve la hauteur d’un carré et de sa barre de défilement', () => {
-    expect(FRISE).toMatch(/\.frs-piste\{[\s\S]*?min-height:132px/);
-    expect(FRISE).toMatch(/\.frs-piste\{[\s\S]*?box-sizing:border-box/);
+    expect(FRISE).toMatch(/\.fav-piste\{[\s\S]*?min-height:132px/);
+    expect(FRISE).toMatch(/\.fav-piste\{[\s\S]*?box-sizing:border-box/);
   });
 
   /**
@@ -211,14 +211,14 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * calculée à partir d'une date, ce qui les ferait se superposer dès que deux messages tombent le même jour.
    */
   it('🔴🔴 des messages rapprochés ne se superposent pas', () => {
-    expect(FRISE).toMatch(/\.frs-points\{[^}]*display:flex/);
-    expect(FRISE).toMatch(/\.frs-points\{[^}]*gap:4px/);
+    expect(FRISE).toMatch(/\.fav-points\{[^}]*display:flex/);
+    expect(FRISE).toMatch(/\.fav-points\{[^}]*gap:4px/);
   });
 
   /** 🔴 LA FRISE EST UNE SÉQUENCE : une liste ORDONNÉE, et c'est ce qu'un lecteur d'écran doit entendre. */
   it('🔴 la frise reste une liste ORDONNÉE, même en ligne', () => {
     /* 🔴 UNE FRISE EST UNE SÉQUENCE : c'est ce qu'un lecteur d'écran doit entendre, horizontale ou non. */
-    expect(FRISE).toContain('<ol\n          className="frs-piste"');
+    expect(FRISE).toContain('<ol\n          className="fav-piste"');
   });
 
   /**
@@ -264,7 +264,7 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * d'origine survit : le geste d'ajout existe toujours, sans condition de Monga.
    */
   it('🔴 le carré « + » ouvre le formulaire, sans condition de Monga', () => {
-    expect(FRISE).toContain('frs-carre--plus');
+    expect(FRISE).toContain('fav-carre--plus');
     expect(FRISE).toContain('Ajouter une étape ou une information');
     expect(FRISE).toContain('liste.map((t) => <option key={t} value={t}>{motEtape(t)}</option>)');
   });
@@ -343,7 +343,7 @@ describe('②bis « Modifier » dans la bulle (lot ATTENTION-ET-MODIFIER)', () =
    * pas est pire qu'un champ absent. Elle reste offerte à l'AJOUT.
    */
   it('⚠️ le champ « pièce jointe » disparaît en modification', () => {
-    expect(FRISE).toContain('{modifie === null && <div className="frs-ajout-ligne">');
+    expect(FRISE).toContain('{modifie === null && <div className="fav-ajout-ligne">');
   });
 });
 
@@ -462,9 +462,9 @@ describe('⑥ la feuille', () => {
      * ⚠️ LA BULLE PASSE EN PLEINE LARGEUR, elle ne se rétrécit plus à 13 rem : depuis qu'elle vit SOUS la frise
      * et non plus collée au point, elle a toute la largeur du bloc et n'a plus à être recadrée.
      */
-    expect(FRISE).toMatch(/@media \(max-width:600px\)\{[\s\S]*\.frs-bulle\{max-width:100%\}/);
+    expect(FRISE).toMatch(/@media \(max-width:600px\)\{[\s\S]*\.fav-bulle\{max-width:100%\}/);
     /* 🔴 LA PISTE DÉFILE : c'est ce qui remplace tout repli. */
-    expect(FRISE).toMatch(/\.frs-piste\{[^}]*overflow-x:auto/);
+    expect(FRISE).toMatch(/\.fav-piste\{[^}]*overflow-x:auto/);
     expect(BLOC).toContain('min-height:44px');
   });
 });

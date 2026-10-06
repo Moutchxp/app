@@ -248,6 +248,39 @@ export function reperesDoccupation(
     : (a.sorte === b.sorte ? 0 : a.sorte === 'sortie' ? -1 : 1)));
 }
 
+/**
+ * ══ 🔴🔴 LOT FRISES-REPARATION — DE QUEL CÔTÉ L'ÉTIQUETTE D'UN REPÈRE SE POSE. PUR. ══════════════════════════════
+ *
+ * CONSTAT D'ARNO (06/10/2026) : « Le repère “■ Sortie” est collé au bord droit […] son étiquette déborde. […]
+ * une étiquette qui ne sort jamais de la frise (elle se décale vers l'intérieur près d'un bord). »
+ *
+ * 🔴 MESURÉ SUR LOT-237 : le repère de sortie était à 44 px du bord gauche d'une piste de 1 995 px, et son
+ * étiquette — posée à GAUCHE de son trait, par convention — s'étendait de **−5 px** à 41. Elle sortait de la
+ * frise de cinq pixels, et le trait paraissait coupé.
+ *
+ * 🔴 LA RÈGLE, ET POURQUOI ELLE EST ICI. Par défaut la SORTIE pose son étiquette à gauche et l'ENTRÉE à droite :
+ * c'est ce qui les sépare quand les deux tombent le même jour (une relocation — lot-146, le 22/10/2025). Près
+ * d'un bord, ce choix est remplacé par celui qui rentre. C'est un calcul de POSITION, pas un choix de dessin :
+ * il vit donc dans le module pur, avec les autres, et il s'éprouve sans rien brancher.
+ *
+ * ⚠️ LE SEUIL EST EN FRACTION DE LA PISTE, pas en pixels : le module ne connaît pas la largeur à l'écran. Une
+ * étiquette fait environ 50 px ; sur une piste de 12 mois à 56 px minimum (672 px), 50 px valent 7,4 %. On
+ * garde 8 % de marge de chaque côté — assez pour les pistes étroites, sans déplacer les repères du milieu.
+ */
+export const MARGE_ETIQUETTE = 0.08;
+
+export function coteDeLEtiquette(
+  position: number, nbMois: number, sorte: 'entree' | 'sortie',
+): 'gauche' | 'droite' {
+  const fraction = nbMois <= 0 ? 0 : position / nbMois;
+  /* 🔴 PRÈS DU BORD GAUCHE : l'étiquette part à DROITE, quelle que soit la sorte — sinon elle sort. */
+  if (fraction < MARGE_ETIQUETTE) return 'droite';
+  /* 🔴 ET PRÈS DU BORD DROIT : elle part à GAUCHE. */
+  if (fraction > 1 - MARGE_ETIQUETTE) return 'gauche';
+  /* ⚠️ AU MILIEU, LA CONVENTION TIENT : la sortie à gauche, l'entrée à droite, pour qu'une relocation se lise. */
+  return sorte === 'sortie' ? 'gauche' : 'droite';
+}
+
 /** Le mot d'un repère, au survol. PUR. */
 export function motRepere(r: RepereOccupation): string {
   return `${motCourtRepere(r.sorte)} — ${r.libelle}`;

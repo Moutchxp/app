@@ -173,8 +173,8 @@ export function FriseAvancement({
   if (vue.v === 'charge') return <p className="gst-info" role="status">Lecture de la frise…</p>;
   if (vue.v === 'erreur') {
     return (
-      <div className="frs">
-        <style>{CSS_FRISE}</style>
+      <div className="fav">
+        <style>{CSS_FRISE_AVANCEMENT}</style>
         <p className="gst-tronc" role="alert">{vue.m}</p>
       </div>
     );
@@ -195,14 +195,14 @@ export function FriseAvancement({
     : (majeures.find((c) => c.etape?.id === detailAffiche.id)?.mot ?? motEtape(detailAffiche.type));
 
   return (
-    <section className={`frs${compact ? ' frs--compact' : ''}`} aria-label="Avancement de l’événement">
-      <style>{CSS_FRISE}</style>
+    <section className={`fav${compact ? ' fav--compact' : ''}`} aria-label="Avancement de l’événement">
+      <style>{CSS_FRISE_AVANCEMENT}</style>
 
       {/* ══ LA PROPOSITION DE CLÔTURE — jamais automatique (Arno) ══════════════════════════════════════════ */}
       {vue.d.proposerCloture === true && onProposerCloture !== undefined && (
-        <p className="frs-proposition" role="status">
+        <p className="fav-proposition" role="status">
           Une intervention est signalée réalisée.{' '}
-          <button type="button" className="frs-lien" onClick={onProposerCloture}>
+          <button type="button" className="fav-lien" onClick={onProposerCloture}>
             Clôturer cet événement ?
           </button>
         </p>
@@ -219,15 +219,15 @@ export function FriseAvancement({
         />
       )}
 
-      <div className="frs-piste-cadre">
+      <div className="fav-piste-cadre">
         {/* ⚠️ LES FLÈCHES N'APPARAISSENT QUE S'IL RESTE DU CONTENU CACHÉ (Arno). Une flèche qui ne mène nulle
             part apprend à ne plus regarder les flèches. */}
         {bords.gauche && (
-          <button type="button" className="frs-fleche frs-fleche--g" aria-label="Voir les étapes précédentes"
+          <button type="button" className="fav-fleche fav-fleche--g" aria-label="Voir les étapes précédentes"
             onClick={() => glisser(-1)}>‹</button>
         )}
         {bords.droite && (
-          <button type="button" className="frs-fleche frs-fleche--d" aria-label="Voir les étapes suivantes"
+          <button type="button" className="fav-fleche fav-fleche--d" aria-label="Voir les étapes suivantes"
             onClick={() => glisser(1)}>›</button>
         )}
 
@@ -239,7 +239,7 @@ export function FriseAvancement({
           * faire défiler la PAGE — sans quoi on ne pourrait plus quitter le bloc en défilant.
           */}
         <ol
-          className="frs-piste" ref={piste} onScroll={mesurerBords}
+          className="fav-piste" ref={piste} onScroll={mesurerBords}
           onWheel={(e) => {
             const horizontal = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
             if (!horizontal) return;
@@ -274,7 +274,7 @@ export function FriseAvancement({
         * ⚠️ UNE HAUTEUR RÉSERVÉE MÊME QUAND ELLE EST VIDE : sans cela, la page sauterait d'une centaine de
         * pixels à chaque survol d'un point, et les carrés se déroberaient sous la souris.
         */}
-      <div className="frs-zone" aria-live="polite">
+      <div className="fav-zone" aria-live="polite">
         {detailAffiche !== null && <BulleDetail
           e={detailAffiche} occupe={occupe} onOuvrirFil={onOuvrirFil}
           onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); }}
@@ -287,7 +287,7 @@ export function FriseAvancement({
           🔴 PROPOSÉE, JAMAIS APPLIQUÉE (« propose-moi (sans l'appliquer) »). Un seul écart suffit à la retirer,
              même à cinquante confirmations — voir `proposerPassageEnFiable`. */}
       {(vue.d.passagesEnFiableProposes ?? []).length > 0 && (
-        <p className="frs-fiable" role="status">
+        <p className="fav-fiable" role="status">
           {(vue.d.passagesEnFiableProposes ?? []).map((p) => (
             <span key={p.type}>
               « {motEtape(p.type)} » a été confirmée {p.confirmees} fois sans être écartée —
@@ -317,14 +317,14 @@ function ElementDeLaFrise(p: {
 }) {
   if (p.el.sorte === 'plus') {
     return (
-      <li className="frs-el frs-el--plus">
+      <li className="fav-el fav-el--plus">
         {/**
           * 🔴 LE « + », JUSTE APRÈS LE DERNIER CARRÉ ATTEINT (Arno). Sur une frise entièrement vide — un événement
           * sans Monga — `rangerEnLigne` le met en PREMIER : la première chose à faire est bien d'ajouter.
           */}
-        <button type="button" className="frs-carre frs-carre--plus" onClick={() => p.onPoser('autre')}
+        <button type="button" className="fav-carre fav-carre--plus" onClick={() => p.onPoser('autre')}
           aria-label="Ajouter une étape ou une information">
-          <span className="frs-plus-rond" aria-hidden="true">+</span>
+          <span className="fav-plus-rond" aria-hidden="true">+</span>
         </button>
       </li>
     );
@@ -333,9 +333,9 @@ function ElementDeLaFrise(p: {
   if (p.el.sorte === 'points') {
     const messages = p.el.messages ?? [];
     return (
-      <li className="frs-el frs-el--points">
-        <span className="frs-sr">{motGroupeMessages(messages.length)}</span>
-        <span className="frs-points">
+      <li className="fav-el fav-el--points">
+        <span className="fav-sr">{motGroupeMessages(messages.length)}</span>
+        <span className="fav-points">
           {messages.map((m) => (
             <Point key={m.id} m={m} actif={p.ouvert === `p${m.id}`}
               onSurvol={p.onSurvol}
@@ -367,13 +367,13 @@ function Point({
    */
   return (
     <button
-      type="button" className={`frs-point frs-point--${m.type}${actif ? ' frs-point--actif' : ''}`}
+      type="button" className={`fav-point fav-point--${m.type}${actif ? ' fav-point--actif' : ''}`}
       aria-expanded={actif} onClick={onOuvrir}
       onMouseEnter={() => onSurvol(`p${m.id}`)} onMouseLeave={() => onSurvol(null)}
       onFocus={() => onSurvol(`p${m.id}`)} onBlur={() => onSurvol(null)}
       title={`${motEtape(m.type)} · ${motDateEtape(m)}`}
     >
-      <span className="frs-sr">{motEtape(m.type)} du {motDateEtape(m)}</span>
+      <span className="fav-sr">{motEtape(m.type)} du {motDateEtape(m)}</span>
     </button>
   );
 }
@@ -423,20 +423,20 @@ function Carre({
     const cliquable = c.type === 'devis_accepte';
     const contenu = (
       <>
-        <span className="frs-titre">{c.mot}</span>
-        <span className="frs-attendue">attendue</span>
+        <span className="fav-titre">{c.mot}</span>
+        <span className="fav-attendue">attendue</span>
       </>
     );
     return (
-      <li className="frs-el" ref={moi}>
+      <li className="fav-el" ref={moi}>
         {cliquable ? (
-          <button type="button" className="frs-carre frs-carre--attendue frs-carre--posable"
+          <button type="button" className="fav-carre fav-carre--attendue fav-carre--posable"
             disabled={occupe} onClick={() => onPoser(c.type)}
             title="Le devis est accepté — poser l’étape">
             {contenu}
           </button>
         ) : (
-          <div className="frs-carre frs-carre--attendue">{contenu}</div>
+          <div className="fav-carre fav-carre--attendue">{contenu}</div>
         )}
       </li>
     );
@@ -448,15 +448,15 @@ function Carre({
   const ouvrable = etapeOuvrable(e) && onOuvrirFil !== undefined;
 
   return (
-    <li className="frs-el" ref={moi}>
-      <div className={`frs-carre frs-carre--atteinte${aConfirmer ? ' frs-carre--doute' : ''}`}>
+    <li className="fav-el" ref={moi}>
+      <div className={`fav-carre fav-carre--atteinte${aConfirmer ? ' fav-carre--doute' : ''}`}>
         {/**
           * 🔴 UN CLIC SUR UN CARRÉ MONGA OUVRE LE MAIL D'ORIGINE (Arno). Quand il n'y en a pas — étape manuelle,
           * mail supprimé, étape déduite — le carré ouvre son détail plutôt que de ne rien faire : un carré qui
           * ne réagit pas au clic se lit comme une panne.
           */}
         <button
-          type="button" className="frs-carre-clic"
+          type="button" className="fav-carre-clic"
           onClick={() => {
             if (ouvrable) { (onOuvrirFil as (f: number) => void)(e.filId as number); return; }
             onOuvrir(detailOuvert ? null : `c${e.id}`);
@@ -464,29 +464,29 @@ function Carre({
           aria-expanded={ouvrable ? undefined : detailOuvert}
           title={ouvrable ? (motMailDOrigine(e) ?? undefined) : 'Voir le détail'}
         >
-          <span className="frs-titre">
+          <span className="fav-titre">
             {c.mot}
             {/* ⚠️ LE PICTO NE PORTE PAS L'INFORMATION SEUL : la source est lue dans la bulle et au lecteur d'écran. */}
-            <span className="frs-picto" aria-hidden="true"> {pictoSource(e)}</span>
+            <span className="fav-picto" aria-hidden="true"> {pictoSource(e)}</span>
           </span>
-          <span className="frs-date">{motDateEtape(e)}</span>
-          {montant !== null && <span className="frs-montant">{montant}</span>}
-          {avecReference && e.reference !== null && <span className="frs-ref">{e.reference}</span>}
-          <span className="frs-sr">{motSource(e)}</span>
+          <span className="fav-date">{motDateEtape(e)}</span>
+          {montant !== null && <span className="fav-montant">{montant}</span>}
+          {avecReference && e.reference !== null && <span className="fav-ref">{e.reference}</span>}
+          <span className="fav-sr">{motSource(e)}</span>
         </button>
 
         {/* 🔴 LES DEUX PETITS BOUTONS D'UNE ÉTAPE « À CONFIRMER » (Arno : « confirmer ✓ / écarter ✕ »). */}
         {aConfirmer && (
-          <span className="frs-doute">
-            <button type="button" className="frs-mini" disabled={occupe} title="Confirmer cette étape"
-              onClick={() => onConfirmer(e.id, 'confirmer')}>✓<span className="frs-sr"> confirmer</span></button>
-            <button type="button" className="frs-mini" disabled={occupe} title="Écarter cette étape"
-              onClick={() => onConfirmer(e.id, 'ecarter')}>✕<span className="frs-sr"> écarter</span></button>
+          <span className="fav-doute">
+            <button type="button" className="fav-mini" disabled={occupe} title="Confirmer cette étape"
+              onClick={() => onConfirmer(e.id, 'confirmer')}>✓<span className="fav-sr"> confirmer</span></button>
+            <button type="button" className="fav-mini" disabled={occupe} title="Écarter cette étape"
+              onClick={() => onConfirmer(e.id, 'ecarter')}>✕<span className="fav-sr"> écarter</span></button>
           </span>
         )}
 
         {/* 🔴 LE MENU « … » : détail, montant, modifier/retirer pour une étape manuelle (Arno). */}
-        <button type="button" className="frs-menu" aria-expanded={detailOuvert}
+        <button type="button" className="fav-menu" aria-expanded={detailOuvert}
           aria-label={`Détail de l’étape ${c.mot}`}
           onClick={() => onOuvrir(detailOuvert ? null : `c${e.id}`)}>…</button>
       </div>
@@ -514,18 +514,18 @@ function BulleDetail({
 }) {
   const ouvrable = etapeOuvrable(e) && onOuvrirFil !== undefined;
   return (
-    <div className="frs-bulle" role="status">
-      <p className="frs-bulle-tete">
+    <div className="fav-bulle" role="status">
+      <p className="fav-bulle-tete">
         {mot} · {motDateEtape(e)} · {motSource(e)}
         {e.auteur !== null && <> · {e.auteur}</>}
       </p>
-      {e.numero !== null && <p className="frs-bulle-texte">N° {e.numero}</p>}
-      {e.texte !== null && <p className="frs-bulle-texte">{e.texte}</p>}
+      {e.numero !== null && <p className="fav-bulle-texte">N° {e.numero}</p>}
+      {e.texte !== null && <p className="fav-bulle-texte">{e.texte}</p>}
       {/* 🔴 LA PHRASE QUI JUSTIFIE TOUT LE LOT MONGA-2 : sans la table des étapes, il n'y aurait rien à garder. */}
-      {e.source === 'monga' && e.filId === null && <p className="frs-perdu">{motMailDOrigine(e)}</p>}
-      <p className="frs-bulle-gestes">
+      {e.source === 'monga' && e.filId === null && <p className="fav-perdu">{motMailDOrigine(e)}</p>}
+      <p className="fav-bulle-gestes">
         {ouvrable && (
-          <button type="button" className="frs-lien"
+          <button type="button" className="fav-lien"
             onClick={() => (onOuvrirFil as (f: number) => void)(e.filId as number)}>
             {motMailDOrigine(e)}
           </button>
@@ -536,12 +536,12 @@ function BulleDetail({
           * qu'on ne devrait pas voir est une invitation à découvrir un refus.
           */}
         {e.source === 'manuelle' && (
-          <button type="button" className="frs-lien" disabled={occupe} onClick={() => onModifier(e)}>
+          <button type="button" className="fav-lien" disabled={occupe} onClick={() => onModifier(e)}>
             Modifier
           </button>
         )}
         {e.source === 'manuelle' && (
-          <button type="button" className="frs-lien" disabled={occupe} onClick={() => onRetirer(e.id)}>
+          <button type="button" className="fav-lien" disabled={occupe} onClick={() => onRetirer(e.id)}>
             Retirer
           </button>
         )}
@@ -563,15 +563,15 @@ function ChampMontant({
 }: { cents: number | null; occupe: boolean; onPoser: (cents: number | null) => void }) {
   const [saisie, setSaisie] = useState(cents === null ? '' : String(cents / 100).replace('.', ','));
   return (
-    <p className="frs-montant-champ">
-      <label className="frs-label" htmlFor="frs-montant">Montant du devis</label>
+    <p className="fav-montant-champ">
+      <label className="fav-label" htmlFor="fav-montant">Montant du devis</label>
       <input
-        id="frs-montant" className="frs-champ" inputMode="decimal" value={saisie}
+        id="fav-montant" className="fav-champ" inputMode="decimal" value={saisie}
         placeholder="non renseigné" onChange={(ev) => setSaisie(ev.target.value)}
       />
-      <span className="frs-unite">€</span>
+      <span className="fav-unite">€</span>
       <button
-        type="button" className="frs-btn" disabled={occupe}
+        type="button" className="fav-btn" disabled={occupe}
         onClick={() => {
           const net = saisie.trim().replace(/\s/g, '').replace(',', '.');
           if (net === '') { onPoser(null); return; }
@@ -680,56 +680,56 @@ function AjouterEtape({
   const liste = forme === 'etape' ? TYPES_AJOUTABLES : TYPES_INFORMATION;
 
   return (
-    <div className="frs-ajout" role="group" aria-label="Ajouter une étape ou une information">
-      <p className="frs-ajout-titre">{modifie === null ? 'Ajouter' : 'Modifier l’étape'}</p>
+    <div className="fav-ajout" role="group" aria-label="Ajouter une étape ou une information">
+      <p className="fav-ajout-titre">{modifie === null ? 'Ajouter' : 'Modifier l’étape'}</p>
 
-      <div className="frs-ajout-ligne">
-        <span className="frs-label">Forme</span>
-        <span className="frs-bascule">
-          <button type="button" className={`frs-bascule-b${forme === 'etape' ? ' frs-bascule-b--actif' : ''}`}
+      <div className="fav-ajout-ligne">
+        <span className="fav-label">Forme</span>
+        <span className="fav-bascule">
+          <button type="button" className={`fav-bascule-b${forme === 'etape' ? ' fav-bascule-b--actif' : ''}`}
             aria-pressed={forme === 'etape'} onClick={() => setForme('etape')}>Étape (carré)</button>
-          <button type="button" className={`frs-bascule-b${forme === 'information' ? ' frs-bascule-b--actif' : ''}`}
+          <button type="button" className={`fav-bascule-b${forme === 'information' ? ' fav-bascule-b--actif' : ''}`}
             aria-pressed={forme === 'information'} onClick={() => setForme('information')}>Simple information (point)</button>
         </span>
       </div>
 
-      <div className="frs-ajout-ligne">
-        <label className="frs-label" htmlFor="frs-type">Type</label>
-        <select id="frs-type" className="frs-champ" value={type}
+      <div className="fav-ajout-ligne">
+        <label className="fav-label" htmlFor="fav-type">Type</label>
+        <select id="fav-type" className="fav-champ" value={type}
           onChange={(e) => setType(e.target.value as TypeEtape)}>
           {liste.map((t) => <option key={t} value={t}>{motEtape(t)}</option>)}
         </select>
       </div>
 
-      <div className="frs-ajout-ligne">
-        <label className="frs-label" htmlFor="frs-jour">Date</label>
-        <input id="frs-jour" type="date" className="frs-champ" value={jour}
+      <div className="fav-ajout-ligne">
+        <label className="fav-label" htmlFor="fav-jour">Date</label>
+        <input id="fav-jour" type="date" className="fav-champ" value={jour}
           onChange={(e) => setJour(e.target.value)} />
-        <label className="frs-label" htmlFor="frs-heure">Heure</label>
-        <input id="frs-heure" type="time" className="frs-champ" value={heure}
+        <label className="fav-label" htmlFor="fav-heure">Heure</label>
+        <input id="fav-heure" type="time" className="fav-champ" value={heure}
           onChange={(e) => setHeure(e.target.value)} />
       </div>
 
-      <div className="frs-ajout-ligne">
-        <label className="frs-label" htmlFor="frs-texte">Texte</label>
-        <textarea id="frs-texte" className="frs-champ frs-champ--texte" rows={2} value={texte}
+      <div className="fav-ajout-ligne">
+        <label className="fav-label" htmlFor="fav-texte">Texte</label>
+        <textarea id="fav-texte" className="fav-champ fav-champ--texte" rows={2} value={texte}
           onChange={(e) => setTexte(e.target.value)} />
       </div>
 
       {/* ⚠️ LA PIÈCE NE SE MODIFIE PAS ICI : `modifierEtapeManuelle` ne la touche pas, et un champ qui ne
           s'enregistre pas est pire qu'un champ absent. Elle reste offerte à l'AJOUT. */}
-      {modifie === null && <div className="frs-ajout-ligne">
-        <label className="frs-label" htmlFor="frs-piece">Pièce jointe</label>
+      {modifie === null && <div className="fav-ajout-ligne">
+        <label className="fav-label" htmlFor="fav-piece">Pièce jointe</label>
         {/* ⚠️ LE NOM DE LA PIÈCE, PAS LE FICHIER : le dépôt range les pièces par le Drive (lot FENETRE-DRIVE-UNIQUE),
             et ouvrir ici un second chemin de dépôt aurait fait deux endroits où un fichier peut vivre. */}
-        <input id="frs-piece" className="frs-champ" value={piece} placeholder="nom du document (facultatif)"
+        <input id="fav-piece" className="fav-champ" value={piece} placeholder="nom du document (facultatif)"
           onChange={(e) => setPiece(e.target.value)} />
       </div>}
 
-      <div className="frs-ajout-ligne">
-        <button type="button" className="frs-btn frs-btn--fort" disabled={occupe || jour === ''}
+      <div className="fav-ajout-ligne">
+        <button type="button" className="fav-btn fav-btn--fort" disabled={occupe || jour === ''}
           onClick={() => void envoyer()}>{modifie === null ? 'Ajouter' : 'Enregistrer'}</button>
-        <button type="button" className="frs-btn" onClick={onFermer}>Annuler</button>
+        <button type="button" className="fav-btn" onClick={onFermer}>Annuler</button>
       </div>
     </div>
   );
@@ -742,11 +742,35 @@ function AjouterEtape({
    ⚠️ AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent dans un litteral gabarit.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-const CSS_FRISE = `
-.frs{margin:0}
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISES-REPARATION — LE PREFIXE EST `fav-`, ET PLUS JAMAIS `frs-` ══════════════════════════════════
+
+   🔴 LE DEFAUT QUE CELA REPARE, MESURE A L'ECRAN (06/10/2026, fiche lot-237). Cette feuille employait le prefixe
+   `frs-`, celui de la frise des MAILS (FriseDuBien, lots 17-18). Les deux frises coexistent sur la fiche d'un
+   bien — le bloc « Evenements » au-dessus du moteur Historique — et TROIS selecteurs entraient en collision :
+   `.frs`, `.frs-piste` et `.frs-fleche`.
+
+   MESURE SUR LA FRISE DES MAILS, lot-237 (un evenement, donc cette feuille injectee) :
+     · sa piste passait de 88 px a **132 px** (min-height, padding 10/30, display:flex, overflow-x:auto — tout
+       venu d'ici) ;
+     · la zone orange d'evenement gardait ses 62 px : elle ne couvrait plus que **47 %** de la hauteur haute ;
+     · les traits de mails commencaient a **54 px sur 132**, soit a mi-hauteur, le haut vide ;
+     · les reperes d'entree/sortie gardaient 62 px sur 132 : leur trait paraissait COUPE ;
+     · la fleche passait en **z-index 6** (contre 2) et a `top:50%` d'une boite de 132 : elle se posait SUR les
+       traits et les masquait.
+
+   🔴 ET LA PREUVE PAR LE TEMOIN : sur lot-146, qui n'a AUCUN evenement, le bloc « Evenements » ne rend rien,
+   cette feuille n'est pas injectee — et la frise des mails mesurait 88 px, traits a 10 px, reperes a 62 px.
+   Parfaitement saine. C'est la coexistence qui cassait, pas la frise.
+
+   ⚠️ LA FRISE DES MAILS EST LA PLUS ANCIENNE : c'est au nouveau venu de ceder le prefixe. Une epreuve interdit
+   desormais toute intersection entre les deux feuilles.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+const CSS_FRISE_AVANCEMENT = `
+.fav{margin:0}
 
 /* Le cadre porte les fleches ; la piste defile sous elles. */
-.frs-piste-cadre{position:relative}
+.fav-piste-cadre{position:relative}
 /* ══ 🔴🔴 LE BAS RESERVE AUX BULLES — DEFAUT MESURE A L'ECRAN LE 06/10/2026 ══════════════════════════════════
    En CSS, overflow-x:auto force l'autre axe a auto : overflow-y:visible ne tient pas, et la piste devient
    un conteneur de defilement VERTICAL aussi. Mesure : une bulle ouverte depassait de 132 px et se trouvait
@@ -760,138 +784,138 @@ const CSS_FRISE = `
    alors que son contenu en demande 132 (10 de marge haute + 92 de carre + 30 pour la barre de defilement), et
    le bas des carres — avec leurs boutons ✓ / ✕ — se faisait rogner de 14 px. Aucun ancetre ne la contraignait :
    c'est le conteneur de defilement lui-meme qui ne prend pas la hauteur de ses enfants. On la lui donne.
-   132 = 10 + 92 (la hauteur d'un carre, cf. .frs-carre) + 30. */
-.frs-piste{list-style:none;margin:0;padding:10px 2px 30px;min-height:132px;box-sizing:border-box;
+   132 = 10 + 92 (la hauteur d'un carre, cf. .fav-carre) + 30. */
+.fav-piste{list-style:none;margin:0;padding:10px 2px 30px;min-height:132px;box-sizing:border-box;
   display:flex;align-items:flex-start;
   gap:0;overflow-x:auto;scroll-behavior:smooth;scrollbar-width:thin}
 
 /* Le trait fin qui relie les carres : une bordure posee sur la rangee, derriere les elements. */
-.frs-el{position:relative;display:flex;align-items:flex-start;flex:0 0 auto}
-.frs-el::before{content:'';position:absolute;left:0;right:0;top:44px;height:2px;
+.fav-el{position:relative;display:flex;align-items:flex-start;flex:0 0 auto}
+.fav-el::before{content:'';position:absolute;left:0;right:0;top:44px;height:2px;
   background:var(--color-svv-line);z-index:0}
-.frs-el:first-child::before{left:50%}
-.frs-el:last-child::before{right:50%}
+.fav-el:first-child::before{left:50%}
+.fav-el:last-child::before{right:50%}
 
 /* ══ LE CARRE — meme taille pour tous (Arno : environ 120 x 90 px) ══ */
-.frs-carre{position:relative;z-index:1;box-sizing:border-box;width:124px;min-height:92px;
+.fav-carre{position:relative;z-index:1;box-sizing:border-box;width:124px;min-height:92px;
   margin:0 10px;padding:6px 7px;display:flex;flex-direction:column;gap:2px;
   border-radius:10px;border:2px solid var(--color-svv-red);background:var(--color-svv-bg)}
-.frs-carre--atteinte{background:var(--color-svv-field)}
-.frs-carre--doute{border-color:var(--color-svv-amber);border-style:solid}
+.fav-carre--atteinte{background:var(--color-svv-field)}
+.fav-carre--doute{border-color:var(--color-svv-amber);border-style:solid}
 /* L'etape attendue : pointille, pale (Arno). Elle se lit sans couleur. */
-.frs-carre--attendue{border:2px dashed var(--color-svv-muted);background:transparent;opacity:.8}
-.frs-carre--attendue .frs-titre{color:var(--color-svv-muted)}
-.frs-carre--posable{cursor:pointer;text-align:left;font:inherit}
-.frs-carre--posable:hover{border-color:var(--color-svv-red);opacity:1}
+.fav-carre--attendue{border:2px dashed var(--color-svv-muted);background:transparent;opacity:.8}
+.fav-carre--attendue .fav-titre{color:var(--color-svv-muted)}
+.fav-carre--posable{cursor:pointer;text-align:left;font:inherit}
+.fav-carre--posable:hover{border-color:var(--color-svv-red);opacity:1}
 
 /* Le « + » : bordure pointillee rouge, gros + rouge cercle (Arno). */
-.frs-carre--plus{align-items:center;justify-content:center;cursor:pointer;
+.fav-carre--plus{align-items:center;justify-content:center;cursor:pointer;
   border:2px dashed var(--color-svv-red);background:transparent}
-.frs-carre--plus:hover{background:var(--color-svv-field)}
-.frs-plus-rond{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;
+.fav-carre--plus:hover{background:var(--color-svv-field)}
+.fav-plus-rond{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;
   border-radius:50%;border:2px solid var(--color-svv-red);color:var(--color-svv-red);
   font-size:1.5rem;line-height:1}
 
 /* Le contenu du carre : nom en haut, date en dessous, picto de source. */
-.frs-carre-clic{display:flex;flex-direction:column;gap:2px;width:100%;padding:0;
+.fav-carre-clic{display:flex;flex-direction:column;gap:2px;width:100%;padding:0;
   font:inherit;text-align:left;background:none;border:0;cursor:pointer;color:var(--color-svv-ink)}
-.frs-titre{font-size:.78rem;font-weight:700;line-height:1.15;color:var(--color-svv-ink);overflow-wrap:anywhere}
-.frs-picto{color:var(--color-svv-red)}
-.frs-date{font-size:.7rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
-.frs-montant{font-size:.72rem;font-weight:700;color:var(--color-svv-ink)}
-.frs-ref{font-size:.68rem;font-weight:700;color:var(--color-svv-muted)}
-.frs-attendue{font-size:.7rem;font-style:italic;color:var(--color-svv-muted)}
+.fav-titre{font-size:.78rem;font-weight:700;line-height:1.15;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.fav-picto{color:var(--color-svv-red)}
+.fav-date{font-size:.7rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.fav-montant{font-size:.72rem;font-weight:700;color:var(--color-svv-ink)}
+.fav-ref{font-size:.68rem;font-weight:700;color:var(--color-svv-muted)}
+.fav-attendue{font-size:.7rem;font-style:italic;color:var(--color-svv-muted)}
 
 /* Les deux petits boutons d'une etape « a confirmer », et le menu « … ». */
-.frs-doute{position:absolute;right:4px;bottom:4px;display:flex;gap:3px}
-.frs-mini{width:22px;height:22px;min-width:22px;padding:0;font:inherit;font-size:.72rem;cursor:pointer;
+.fav-doute{position:absolute;right:4px;bottom:4px;display:flex;gap:3px}
+.fav-mini{width:22px;height:22px;min-width:22px;padding:0;font:inherit;font-size:.72rem;cursor:pointer;
   border-radius:5px;border:1px solid var(--color-svv-amber);background:var(--color-svv-bg);
   color:var(--color-svv-ink);line-height:1}
-.frs-mini:hover{background:var(--color-svv-amber);color:var(--color-svv-bg)}
-.frs-mini:disabled{opacity:.5;cursor:default}
-.frs-menu{position:absolute;right:4px;top:3px;width:20px;height:20px;padding:0;font:inherit;
+.fav-mini:hover{background:var(--color-svv-amber);color:var(--color-svv-bg)}
+.fav-mini:disabled{opacity:.5;cursor:default}
+.fav-menu{position:absolute;right:4px;top:3px;width:20px;height:20px;padding:0;font:inherit;
   line-height:1;cursor:pointer;border:0;border-radius:4px;background:none;color:var(--color-svv-muted)}
-.frs-menu:hover{background:var(--color-svv-line);color:var(--color-svv-ink)}
+.fav-menu:hover{background:var(--color-svv-line);color:var(--color-svv-ink)}
 
 /* ══ LES POINTS — sur le trait, entre les carres ══ */
-.frs-el--points{align-self:flex-start;padding-top:38px}
-.frs-points{position:relative;z-index:1;display:flex;align-items:center;gap:4px;padding:0 3px}
-.frs-point-boite{position:relative;display:inline-flex}
-.frs-point{width:11px;height:11px;min-width:11px;min-height:11px;padding:0;cursor:pointer;
+.fav-el--points{align-self:flex-start;padding-top:38px}
+.fav-points{position:relative;z-index:1;display:flex;align-items:center;gap:4px;padding:0 3px}
+.fav-point-boite{position:relative;display:inline-flex}
+.fav-point{width:11px;height:11px;min-width:11px;min-height:11px;padding:0;cursor:pointer;
   border-radius:50%;border:1px solid var(--color-svv-muted);background:var(--color-svv-bg)}
-.frs-point:hover,.frs-point:focus-visible{background:var(--color-svv-red);border-color:var(--color-svv-red)}
-.frs-point--rappel_devis{border-style:dashed}
-.frs-point--facture{border-width:2px}
-.frs-point--note{background:var(--color-svv-field);border-color:var(--color-svv-ink)}
+.fav-point:hover,.fav-point:focus-visible{background:var(--color-svv-red);border-color:var(--color-svv-red)}
+.fav-point--rappel_devis{border-style:dashed}
+.fav-point--facture{border-width:2px}
+.fav-point--note{background:var(--color-svv-field);border-color:var(--color-svv-ink)}
 /* Le point dont la bulle est affichee : on voit d'ou vient ce qu'on lit en dessous. */
-.frs-point--actif{background:var(--color-svv-red);border-color:var(--color-svv-red)}
+.fav-point--actif{background:var(--color-svv-red);border-color:var(--color-svv-red)}
 
 /* La bulle : au survol, et fixee au clic. */
 /* ══ LA ZONE DE DETAIL, SOUS LA FRISE ET HORS DU CONTENEUR QUI DEFILE ══
    Une hauteur minimale reservee meme vide : sans elle, la page sauterait d'une centaine de pixels a chaque
    survol d'un point, et les carres se deroberaient sous la souris. */
-.frs-zone{min-height:92px;margin-top:10px}
-.frs-bulle{display:flex;flex-direction:column;gap:2px;max-width:40rem;padding:7px 9px;border-radius:8px;
+.fav-zone{min-height:92px;margin-top:10px}
+.fav-bulle{display:flex;flex-direction:column;gap:2px;max-width:40rem;padding:7px 9px;border-radius:8px;
   background:var(--color-svv-bg);border:1px solid var(--color-svv-line);
   border-left:3px solid var(--color-svv-red)}
-.frs-bulle-tete{font-size:.72rem;font-weight:700;color:var(--color-svv-ink)}
-.frs-bulle-texte{margin:0;font-size:.76rem;color:var(--color-svv-ink);overflow-wrap:anywhere;white-space:pre-wrap}
-.frs-bulle-gestes{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
+.fav-bulle-tete{font-size:.72rem;font-weight:700;color:var(--color-svv-ink)}
+.fav-bulle-texte{margin:0;font-size:.76rem;color:var(--color-svv-ink);overflow-wrap:anywhere;white-space:pre-wrap}
+.fav-bulle-gestes{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
 
 /* ══ LES FLECHES ══ */
-.frs-fleche{position:absolute;top:50%;transform:translateY(-50%);z-index:6;width:28px;height:44px;
+.fav-fleche{position:absolute;top:50%;transform:translateY(-50%);z-index:6;width:28px;height:44px;
   padding:0;font:inherit;font-size:1.3rem;line-height:1;cursor:pointer;
   border:1px solid var(--color-svv-line);border-radius:7px;
   background:var(--color-svv-bg);color:var(--color-svv-ink)}
-.frs-fleche:hover{background:var(--color-svv-field)}
-.frs-fleche--g{left:-2px}
-.frs-fleche--d{right:-2px}
+.fav-fleche:hover{background:var(--color-svv-field)}
+.fav-fleche--g{left:-2px}
+.fav-fleche--d{right:-2px}
 
 /* ══ LE DETAIL D'UN CARRE, ET LE RESTE ══ */
-.frs-lien{font:inherit;font-size:.76rem;color:var(--color-svv-red);background:none;border:0;padding:0;
+.fav-lien{font:inherit;font-size:.76rem;color:var(--color-svv-red);background:none;border:0;padding:0;
   text-decoration:underline;cursor:pointer;min-height:24px}
-.frs-lien:disabled{color:var(--color-svv-muted);cursor:default}
-.frs-perdu{font-size:.74rem;font-style:italic;color:var(--color-svv-muted);margin:0}
+.fav-lien:disabled{color:var(--color-svv-muted);cursor:default}
+.fav-perdu{font-size:.74rem;font-style:italic;color:var(--color-svv-muted);margin:0}
 
-.frs-btn{font:inherit;font-size:.78rem;min-height:36px;padding:3px 10px;cursor:pointer;
+.fav-btn{font:inherit;font-size:.78rem;min-height:36px;padding:3px 10px;cursor:pointer;
   color:var(--color-svv-ink);background:var(--color-svv-bg);border:1px solid var(--color-svv-line);
   border-radius:6px}
-.frs-btn:hover{background:var(--color-svv-field)}
-.frs-btn:disabled{color:var(--color-svv-muted);cursor:default}
-.frs-btn--fort{color:var(--color-svv-bg);background:var(--color-svv-red);border-color:var(--color-svv-red)}
+.fav-btn:hover{background:var(--color-svv-field)}
+.fav-btn:disabled{color:var(--color-svv-muted);cursor:default}
+.fav-btn--fort{color:var(--color-svv-bg);background:var(--color-svv-red);border-color:var(--color-svv-red)}
 
-.frs-proposition{margin:0 0 8px;padding:6px 8px;font-size:.8rem;color:var(--color-svv-ink);
+.fav-proposition{margin:0 0 8px;padding:6px 8px;font-size:.8rem;color:var(--color-svv-ink);
   background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);border-radius:6px}
-.frs-fiable{margin:8px 0 0;padding:6px 8px;font-size:.78rem;color:var(--color-svv-muted);
+.fav-fiable{margin:8px 0 0;padding:6px 8px;font-size:.78rem;color:var(--color-svv-muted);
   background:var(--color-svv-field);border-radius:6px}
 
 /* ══ LE PANNEAU D'AJOUT, au-dessus de la frise ══ */
-.frs-ajout{margin:0 0 10px;padding:9px;background:var(--color-svv-field);border-radius:8px;
+.fav-ajout{margin:0 0 10px;padding:9px;background:var(--color-svv-field);border-radius:8px;
   border:1px solid var(--color-svv-line)}
-.frs-ajout-titre{margin:0 0 7px;font-size:.84rem;font-weight:700;color:var(--color-svv-ink)}
-.frs-ajout-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 7px}
-.frs-label{font-size:.76rem;color:var(--color-svv-muted);min-width:5rem}
-.frs-champ{font:inherit;font-size:.82rem;min-height:36px;padding:4px 8px;color:var(--color-svv-ink);
+.fav-ajout-titre{margin:0 0 7px;font-size:.84rem;font-weight:700;color:var(--color-svv-ink)}
+.fav-ajout-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 7px}
+.fav-label{font-size:.76rem;color:var(--color-svv-muted);min-width:5rem}
+.fav-champ{font:inherit;font-size:.82rem;min-height:36px;padding:4px 8px;color:var(--color-svv-ink);
   background:var(--color-svv-bg);border:1px solid var(--color-svv-line);border-radius:6px}
-.frs-champ--texte{flex:1 1 14rem;min-height:48px}
-.frs-bascule{display:flex;flex-wrap:wrap;gap:6px}
-.frs-bascule-b{font:inherit;font-size:.78rem;min-height:36px;padding:3px 10px;cursor:pointer;
+.fav-champ--texte{flex:1 1 14rem;min-height:48px}
+.fav-bascule{display:flex;flex-wrap:wrap;gap:6px}
+.fav-bascule-b{font:inherit;font-size:.78rem;min-height:36px;padding:3px 10px;cursor:pointer;
   color:var(--color-svv-ink);background:var(--color-svv-bg);
   border:1px solid var(--color-svv-line);border-radius:6px}
-.frs-bascule-b--actif{color:var(--color-svv-bg);background:var(--color-svv-red);
+.fav-bascule-b--actif{color:var(--color-svv-bg);background:var(--color-svv-red);
   border-color:var(--color-svv-red)}
-.frs-montant-champ{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 0}
-.frs-unite{font-size:.82rem;color:var(--color-svv-muted)}
+.fav-montant-champ{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 0}
+.fav-unite{font-size:.82rem;color:var(--color-svv-muted)}
 
-.frs-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+.fav-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip-path:inset(50%);white-space:nowrap;border:0}
 
 /* Ecran etroit : la frise DEFILE, rien ne se superpose et rien ne se replie (Arno). Les bulles et les
    detachements se recadrent pour ne pas sortir de l'ecran. */
 @media (max-width:600px){
-  .frs-ajout-ligne{flex-direction:column;align-items:stretch}
-  .frs-label{min-width:0}
-  .frs-champ{width:100%}
-  .frs-bulle{max-width:100%}
+  .fav-ajout-ligne{flex-direction:column;align-items:stretch}
+  .fav-label{min-width:0}
+  .fav-champ{width:100%}
+  .fav-bulle{max-width:100%}
 }
 `;
