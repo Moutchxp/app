@@ -34,8 +34,11 @@ import { sqlNomAffiche } from './nomUsageSql';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — les biens ou une adresse est un contact rattache (cas (f)). La lecture
    vit dans le depot de la 304, seul autorise a nommer ses tables : voir l'encadre de `biensDesContacts`. */
 import { biensDesContacts } from './partieCategorieRepo';
+/* 🔴🔴 LOT CORBEILLE-SANS-STATUT, POINT 2 — la règle du mail inerte, écrite une fois dans le module PUR. */
+import { sqlPasInerte } from './mailInerte';
 import {
-  annuaireDisponible, corbeilleGmailDisponible, rattachementsDisponibles, spamDisponible,
+  annuaireDisponible, corbeilleGmailDisponible, interneDisponible, interneDuMessageDisponible,
+  rattachementsDisponibles, spamDisponible,
 } from './schema';
 // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la catégorie d'un lot (logement / parking / cave). Module PUR.
 import { categorieDuBien } from './categorieBien';
@@ -215,6 +218,30 @@ export interface Paquet {
  * vient de le supprimer, chercher à quel logement le rattacher serait du travail créé par un geste de ménage.
  * Sans les migrations 263 / 275, la colonne concernée n'est pas nommée et la clause reste celle d'avant.
  */
+/**
+ * ══ 🔴🔴 LOT CORBEILLE-SANS-STATUT, POINT 2 — LA FILE IGNORE LES MAILS INERTES ═══════════════════════════════════
+ *
+ * RÈGLE D'ARNO (06/10/2026) : un mail mis à la corbeille SANS statut « sort de “À classer” et de “À rattacher”
+ * […], ses propositions de rattachement ne sont plus montrées ».
+ *
+ * 🔴 CE QUI MANQUAIT, ET OÙ EXACTEMENT. La PASSE, elle, écartait déjà la corbeille (voir `clauseHorsSpam` juste
+ * au-dessus) : un mail jeté n'est ni réexaminé ni proposé. Mais la file « À rattacher » et ses compteurs ne lisent
+ * pas les messages — ils lisent `gestion_rattachement_examen`, la table des examens DÉJÀ faits, et celle-ci ne
+ * savait rien de la corbeille. Un mail jeté restait donc dans la file, avec ses propositions, et il comptait dans
+ * le nombre de la colonne de gauche. Mesuré en base le 06/10/2026 : **43 mails à la corbeille sans statut**, dont
+ * **31 portent des propositions**.
+ *
+ * ⚠️ UN MAIL JETÉ **AVEC** UN STATUT N'EST PAS CONCERNÉ : il n'est pas inerte, et la file le traite comme avant.
+ * ⚠️ RIEN N'EST SUPPRIMÉ : l'examen et les propositions restent en base. On cesse de les lire, c'est tout — et
+ * c'est ce qui fait que réintégrer suffit à tout ramener.
+ */
+async function clausePasInerte(alias: string): Promise<string> {
+  const [corbeille, rattachements, interne, interneParMail] = await Promise.all([
+    corbeilleGmailDisponible(), rattachementsDisponibles(), interneDisponible(), interneDuMessageDisponible(),
+  ]);
+  return sqlPasInerte(alias, { corbeille, rattachements, interne, interneParMail });
+}
+
 async function clauseHorsSpam(alias: string): Promise<string> {
   const [spam, corbeille] = await Promise.all([spamDisponible(), corbeilleGmailDisponible()]);
   return `${spam ? `AND ${alias}.spam_le IS NULL` : ''}${corbeille ? ` AND ${alias}.corbeille_le IS NULL` : ''}`;
@@ -842,12 +869,19 @@ export async function fileATrier(o: {
   const issue = o.issue ?? 'toutes';
   const issues = issue === 'toutes' ? ['a_trier', 'sans_candidat'] : [issue];
 
+  /* 🔴🔴 LOT CORBEILLE-SANS-STATUT, POINT 2 — les quatre totaux ignorent les mails INERTES, comme la liste
+     elle-même : un compteur qui annonce un nombre que la liste ne montre pas est toujours celui qu'on croit. */
+  const pasInerte = await clausePasInerte('m');
   const { rows: tot } = await query<Record<string, string>>(
-    `SELECT (SELECT count(*) FROM gestion_rattachement_examen WHERE issue = 'a_trier')::text AS a_trier,
-            (SELECT count(*) FROM gestion_rattachement_examen WHERE issue = 'sans_candidat')::text AS sans,
-            (SELECT count(*) FROM gestion_rattachement_examen WHERE issue = 'automatique')::text AS auto,
+    `SELECT (SELECT count(*) FROM gestion_rattachement_examen e JOIN gestion_message m ON m.id = e.message_id
+              WHERE e.issue = 'a_trier' ${pasInerte})::text AS a_trier,
+            (SELECT count(*) FROM gestion_rattachement_examen e JOIN gestion_message m ON m.id = e.message_id
+              WHERE e.issue = 'sans_candidat' ${pasInerte})::text AS sans,
+            (SELECT count(*) FROM gestion_rattachement_examen e JOIN gestion_message m ON m.id = e.message_id
+              WHERE e.issue = 'automatique' ${pasInerte})::text AS auto,
             (SELECT count(*) FROM gestion_message m
-              WHERE NOT EXISTS (SELECT 1 FROM gestion_rattachement_examen e WHERE e.message_id = m.id))::text
+              WHERE NOT EXISTS (SELECT 1 FROM gestion_rattachement_examen e WHERE e.message_id = m.id)
+                ${pasInerte})::text
               AS non_examines`);
 
   // UNE ligne de plus que la page : sa présence, et elle seule, dit qu'il y en a d'autres.
@@ -863,7 +897,7 @@ export async function fileATrier(o: {
             e.issue, e.motif
        FROM gestion_rattachement_examen e
        JOIN gestion_message m ON m.id = e.message_id
-      WHERE e.issue = ANY($1::text[])
+      WHERE e.issue = ANY($1::text[]) ${pasInerte}
       ORDER BY m.recu_le DESC, e.message_id DESC
       LIMIT $2 OFFSET $3`, [issues, taille + 1, page * taille]);
 
@@ -1132,12 +1166,18 @@ export async function chiffresRattachement(): Promise<Issue2<{
   messagesRattaches: number; lotsTouches: number; proprietairesTouches: number;
 }>> {
   if (!(await rattachementsDisponibles())) return { etat: 'sans_schema' };
+  /* 🔴🔴 LOT CORBEILLE-SANS-STATUT, POINT 2 — `aTrier` et `sansCandidat` nourrissent le compteur « À rattacher »
+     de la colonne de gauche : ils doivent ignorer les mails inertes, exactement comme la file. Les autres nombres
+     de cette lecture décrivent l'ÉTAT DE LA BASE (combien de liens, combien d'examens) et ne bougent pas. */
+  const pasInerte = await clausePasInerte('m');
   const { rows } = await query<Record<string, string>>(
     `SELECT (SELECT count(*) FROM gestion_message)::text AS messages,
             (SELECT count(*) FROM gestion_rattachement_examen)::text AS examines,
             (SELECT count(*) FROM gestion_rattachement_examen WHERE issue = 'automatique')::text AS autos,
-            (SELECT count(*) FROM gestion_rattachement_examen WHERE issue = 'a_trier')::text AS a_trier,
-            (SELECT count(*) FROM gestion_rattachement_examen WHERE issue = 'sans_candidat')::text AS sans,
+            (SELECT count(*) FROM gestion_rattachement_examen e JOIN gestion_message m ON m.id = e.message_id
+              WHERE e.issue = 'a_trier' ${pasInerte})::text AS a_trier,
+            (SELECT count(*) FROM gestion_rattachement_examen e JOIN gestion_message m ON m.id = e.message_id
+              WHERE e.issue = 'sans_candidat' ${pasInerte})::text AS sans,
             (SELECT count(*) FROM gestion_rattachement WHERE statut = 'confirme')::text AS vivants,
             (SELECT count(*) FROM gestion_rattachement WHERE origine = 'manuel')::text AS manuels,
             (SELECT count(*) FROM gestion_rattachement WHERE statut = 'retire')::text AS retires,
