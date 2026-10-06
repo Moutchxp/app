@@ -181,8 +181,12 @@ export function BoiteReception({
     <div className="brc">
       <style>{CSS_BOITE_RECEPTION}</style>
 
-      {/* L'EN-TÊTE DE COLONNE, exactement comme celui des événements : le titre, et « Plein écran » au bout. */}
-      <div className="gst-entete-col">
+      {/* ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 3 — L'EN-TÊTE, EN DEUX RANGÉES, COMME CELUI DES ÉVÉNEMENTS ═══════
+          Le TITRE (avec son compteur) sur la première ; les OUTILS sur la seconde — ici les filtres ET « Plein
+          écran », là-bas « Plein écran » seul. Les deux colonnes ont donc exactement le même en-tête, et leurs
+          listes commencent à la même hauteur. Voir l'encadré de `.gst-tete-partage` dans la feuille de l'écran. */}
+      <div className="gst-tete-partage">
+      <div className="gst-tete-partage-titre">
         <h2 className="gst-titre" id="gst-titre-reception">
           Boîte de réception <span className="brc-adresse">gestion@criterimmo.fr</span>
           {/* ══ 🔴🔴 LOT OPTION-C — LE COMPTEUR DIT CE QU'IL COMPTE : DES MAILS ════════════════════════════════
@@ -228,13 +232,12 @@ export function BoiteReception({
             <span className="brc-tait">{phraseCourrierAutomatique(etat.automatiquesIci, false, 'mail')}</span>
           )}
         </h2>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onPleinEcran}>
-          Plein écran
-        </button>
       </div>
 
-      {/* LES FILTRES RAPIDES — le MOT, jamais une icône seule ; `aria-pressed` dit lequel est actif. */}
-      <div className="brc-filtres" role="group" aria-label="Filtrer les mails reçus">
+      {/* LES FILTRES RAPIDES — le MOT, jamais une icône seule ; `aria-pressed` dit lequel est actif.
+          🔴 ILS PARTAGENT LA RANGÉE AVEC « Plein écran », qui s'y est déplacé : c'est ce qui donne aux deux
+          colonnes un en-tête de même hauteur, sans qu'aucune ne porte de rangée vide. */}
+      <div className="brc-filtres gst-tete-partage-outils" role="group" aria-label="Filtrer les mails reçus">
         {/* ⚠️ « Hors gestion » n'apparaît QUE si la migration 266 est appliquée : sans elle, il ne filtrerait
             rien, et une liste vide se lirait « aucun mail hors gestion » — ce qui serait autre chose. */}
         {FILTRES.filter((f) => !f.exigeHorsGestion || (etat.v === 'ok' && etat.horsGestion)).map((f) => (
@@ -245,8 +248,16 @@ export function BoiteReception({
             {f.mot}
           </button>
         ))}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn gst-plein" onClick={onPleinEcran}>
+          Plein écran
+        </button>
+      </div>
       </div>
 
+      {/* 🔴 LE CORPS DÉFILE POUR LUI-MÊME, à la MÊME hauteur visible que la colonne des événements (feuille de
+          `GestionVue`). Les messages d'état vivent dedans : sinon la colonne se raccourcirait quand la liste est
+          vide, et les deux pieds ne seraient plus alignés. */}
+      <div className="gst-corps-partage">
       {etat.v === 'charge' && <p className="gst-info" role="status">Lecture de la boîte…</p>}
       {etat.v === 'erreur' && <p className="gst-tronc" role="alert">{etat.message}</p>}
       {etat.v === 'ok' && etat.lignes.length === 0 && (
@@ -297,19 +308,25 @@ export function BoiteReception({
         </ul>
       )}
 
-      {etat.v === 'ok' && etat.suivant !== null && (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn brc-plus" disabled={suite}
-          onClick={() => void voirPlus()}>
-          {suite ? 'Chargement…' : 'Voir les mails plus anciens'}
-        </button>
-      )}
+      </div>
 
-      {/* 🔴 RIEN N'EST SUPPRIMÉ : la file des échanges sans événement reste à un clic, avec son compteur. */}
-      <p className="brc-ailleurs">
-        <button type="button" className="gst-lien-bouton" onClick={onFileEchanges}>
+      {/* ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 3 — LE PIED, SUR UNE SEULE RANGÉE ════════════════════════════════
+          « Voir les mails plus anciens » et le lien vers la file occupaient DEUX rangées l'une sous l'autre, soit
+          88 px que la colonne des événements aurait dû réserver vides pour s'aligner. Côte à côte, le pied fait
+          44 px des deux côtés, et les deux colonnes se terminent sur la même ligne.
+
+          🔴 RIEN N'EST SUPPRIMÉ NI MASQUÉ : les deux gestes sont là, avec les mêmes mots et le même compteur. */}
+      <div className="gst-pied-partage">
+        {etat.v === 'ok' && etat.suivant !== null && (
+          <button type="button" className="svv-btn svv-btn-outline gst-btn brc-plus" disabled={suite}
+            onClick={() => void voirPlus()}>
+            {suite ? 'Chargement…' : 'Voir les mails plus anciens'}
+          </button>
+        )}
+        <button type="button" className="gst-lien-bouton brc-ailleurs" onClick={onFileEchanges}>
           File des échanges sans événement{compteEchanges !== null ? ` (${compteEchanges})` : ''}
         </button>
-      </p>
+      </div>
     </div>
   );
 }

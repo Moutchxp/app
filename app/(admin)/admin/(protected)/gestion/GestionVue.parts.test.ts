@@ -97,14 +97,27 @@ describe('la feuille de style tient les exigences transverses', () => {
 
   it('la FILE D’ABORD sur mobile vient de l’ordre du DOM, jamais d’un `order` CSS (qui mentirait au clavier)', () => {
     expect(/\border\s*:/.test(css.replace(/border-[a-z]+\s*:/g, '').replace(/\bborder\s*:[^;]*solid[^;]*;/g, ''))).toBe(false);
+    /**
+     * 🔴 LOT ACCUEIL-GESTION, POINT 3 — l'ordre mobile est désormais : boîte de réception, puis événements, puis
+     * le bloc replié « Sans événement » (sorti de la colonne de gauche pour que les deux colonnes se terminent
+     * sur la même ligne). Les deux colonnes utiles viennent avant l'appendice, et l'ordre vient toujours du DOM.
+     */
     const vue = src.slice(src.indexOf('gst-deux'), src.indexOf('const CSS_GESTION'));
-    expect(vue.indexOf('gst-titre-file')).toBeLessThan(vue.indexOf('gst-titre-ev')); // la file est écrite en premier
+    expect(vue.indexOf('gst-titre-reception')).toBeLessThan(vue.indexOf('gst-titre-ev'));
+    expect(vue.indexOf('gst-titre-ev')).toBeLessThan(vue.indexOf('gst-titre-file'));
   });
 
   it('AUCUN débordement horizontal : la grille peut rétrécir et le texte casse', () => {
     expect(css).toContain('.gst-col{min-width:0}');
     expect(css).toContain('overflow-wrap:anywhere');
-    expect(/min-width:\s*\d{3,}px/.test(css)).toBe(false); // aucune largeur minimale plus large qu'un téléphone
+    /**
+     * ⚠️ ON RETIRE D'ABORD LES PRÉLUDES DE MEDIA QUERY — LOT ACCUEIL-GESTION, POINT 3. La règle vise les
+     * DÉCLARATIONS (`min-width:900px` sur une boîte, qui déborderait d'un téléphone) ; une media query
+     * `@media (min-width:901px)` est exactement l'inverse : elle réserve des règles aux écrans larges. Sans ce
+     * nettoyage, la media query qui PROTÈGE le petit écran faisait rougir l'épreuve qui le protège.
+     */
+    const declarations = css.replace(/@media[^{]*\{/g, '{');
+    expect(/min-width:\s*\d{3,}px/.test(declarations)).toBe(false);
   });
 
   it('CIBLES TACTILES : les éléments cliquables et les lignes font au moins 44 px', () => {

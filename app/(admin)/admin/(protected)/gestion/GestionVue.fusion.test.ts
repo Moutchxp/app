@@ -81,9 +81,22 @@ describe('🔴 les deux onglets sont partis, et rien d’autre', () => {
     expect(container.querySelector('.gst-deux')).not.toBeNull();
     expect(texte()).toContain('Sans événement');
     expect(texte()).toContain('Événements');
-    // L'ordre du DOM reste celui du mobile : la file d'abord.
+    /**
+     * ══ 🔴🔴 L'ORDRE DU DOM = L'ORDRE MOBILE — MIS À JOUR AU LOT ACCUEIL-GESTION, POINT 3 ═════════════════════
+     *
+     * CE CAS COMPARAIT `gst-titre-file` (le bloc replié « Sans événement ») À `gst-titre-ev`. C'était juste du
+     * temps où la colonne de GAUCHE était cette file-là. Elle est devenue la BOÎTE DE RÉCEPTION (lot
+     * STATUT-PAR-MAIL), et le bloc replié n'était plus qu'un appendice sous elle.
+     *
+     * 🔴 LE POINT 3 L'A SORTI DE LA COLONNE pour le poser SOUS les deux : sans cela, les deux colonnes ne
+     * pouvaient pas se terminer sur la même ligne (mesuré : pied de gauche à 922 px, pied de droite à 967).
+     *
+     * L'ordre mobile VÉRIFIÉ ICI est donc celui qui compte aujourd'hui : la boîte de réception d'abord, les
+     * événements ensuite, et le bloc replié en dernier — les deux colonnes utiles avant l'appendice.
+     */
     const html = container.innerHTML;
-    expect(html.indexOf('gst-titre-file')).toBeLessThan(html.indexOf('gst-titre-ev'));
+    expect(html.indexOf('gst-titre-reception')).toBeLessThan(html.indexOf('gst-titre-ev'));
+    expect(html.indexOf('gst-titre-ev')).toBeLessThan(html.indexOf('gst-titre-file'));
   });
 
   /**

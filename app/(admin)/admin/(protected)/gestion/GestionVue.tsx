@@ -1282,7 +1282,10 @@ export function GestionVue({ intro }: {
             onGeste={(m, o) => { surGeste(m, o); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
         </section>
       ) : (
-      /* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite. */
+      /* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite.
+         🔴 LOT ACCUEIL-GESTION, POINT 3 — UN FRAGMENT, parce que cette branche porte désormais DEUX éléments :
+         les deux colonnes, puis le bloc « Échanges sans événement » qui est passé SOUS elles. */
+      <>
       <div className="gst-deux">
         {/* ══ 🔴 LOT STATUT-PAR-MAIL — CETTE COLONNE MONTRE LES MAILS REÇUS, PLUS LA FILE DES ÉCHANGES ═══════════
             Demande d'Arno. Elle montrait une file de CONVERSATIONS à poser sur un événement ; elle montre désormais
@@ -1325,83 +1328,111 @@ export function GestionVue({ intro }: {
              */
              />
 
-          {/* LA FILE DES ÉCHANGES SANS ÉVÉNEMENT — conservée telle quelle, repliée par défaut. Elle garde son
-              plein écran, sa fenêtre d'activité, ses gestes et son compteur : aucun n'est retiré. */}
-          <details className="gst-file-echanges">
-            <summary className="gst-file-titre">
-              Échanges sans événement <span className="gst-compte">{d.filsTotal}</span>
-            </summary>
-          <div className="gst-entete-col">
-            <h2 className="gst-titre" id="gst-titre-file">
-              Sans événement <span className="gst-compte">{d.filsTotal}</span>
-            </h2>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn"
-              onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}>
-              Plein écran
-            </button>
-          </div>
-          {troncFile && <p className="gst-tronc">{troncFile}</p>}
-          {/* FENÊTRE D'ACTIVITÉ — dite en toutes lettres. Un outil qui cache sans le dire ment. */}
-          {d.filsTropAnciens > 0 && (
-            <p className="gst-tronc">
-              {d.filsTropAnciens} échange{d.filsTropAnciens > 1 ? 's' : ''} plus ancien{d.filsTropAnciens > 1 ? 's' : ''} que {d.fenetreJours} jours
-              {' '}ne {d.filsTropAnciens > 1 ? 'sont' : 'est'} pas affiché{d.filsTropAnciens > 1 ? 's' : ''} dans la file.
-              {' '}Rien n’est supprimé : {d.filsTropAnciens > 1 ? 'ils restent' : 'il reste'} en base.
-              {/* LOT 5a — la phrase ne change pas d'un mot ; on lui AJOUTE la sortie qui lui manquait.
-                  LOT 5-FUSION — cette sortie mène désormais à l'étiquette « Réception », qui est ce que montrait
-                  l'onglet supprimé : tout le courrier, sans la fenêtre de 30 jours. */}
-              {' '}
-              <button type="button" className="gst-lien-bouton"
-                onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }}>
-                Les voir dans la boîte mail
-              </button>
-            </p>
-          )}
-          {fileAClasser}
-
-          {/* CLASSÉS SANS SUITE — la contrepartie du geste : visible, et réversible d'un clic. */}
-          {d.sansSuiteTotal > 0 && (
-            <details className="gst-sans-suite">
-              <summary className="gst-sans-suite-titre">Classés sans suite <span className="gst-compte">{d.sansSuiteTotal}</span></summary>
-              <ul className="gst-liste">
-                {d.sansSuite.map((f) => (
-                  <li key={f.filId} className="gst-item">
-                    <div className="gst-item-haut"><span className="gst-objet">{nettoyerObjet(f.objet) || '(sans objet)'}</span></div>
-                    <div className="gst-item-bas">
-                      <span title={formaterDateFr(f.classeLe)}>classé {depuis(f.classeLe, ref)}</span>
-                      {f.classePar && <><span className="gst-sep" aria-hidden="true">·</span><span>par {f.classePar}</span></>}
-                      {f.motif && <><span className="gst-sep" aria-hidden="true">·</span><span>{f.motif}</span></>}
-                    </div>
-                    <div className="gst-actions">
-                      <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={gesteEnCours}
-                        onClick={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'DELETE', 'Échange rouvert : il est revenu dans la file.')}>
-                        Rouvrir
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-          </details>
         </section>
 
         <section className="gst-col" aria-labelledby="gst-titre-ev">
-          <div className="gst-entete-col">
-            <h2 className="gst-titre" id="gst-titre-ev">
-              Événements <span className="gst-compte">{d.evenementsTotal}</span>
-            </h2>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn"
-              onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null })}>
-              Plein écran
-            </button>
+          {/* ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 3 — LE MÊME EN-TÊTE QUE LA COLONNE DE GAUCHE ════════════════════
+              Deux rangées, et les mêmes deux dans les deux colonnes : le TITRE (avec son compteur) sur la
+              première, les OUTILS sur la seconde. La colonne de gauche met ses filtres dans la seconde ; celle-ci
+              n'en a pas, et c'est « Plein écran » qui l'occupe — dans les deux cas la rangée sert, et les deux
+              listes commencent à la même hauteur. Voir l'encadré de `.gst-tete-partage` dans la feuille. */}
+          <div className="gst-tete-partage">
+            <div className="gst-tete-partage-titre">
+              <h2 className="gst-titre" id="gst-titre-ev">
+                Événements <span className="gst-compte">{d.evenementsTotal}</span>
+              </h2>
+            </div>
+            <div className="gst-tete-partage-outils">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn gst-plein"
+                onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null })}>
+                Plein écran
+              </button>
+            </div>
           </div>
-          {troncEv && <p className="gst-tronc">{troncEv}</p>}
-          {d.evenements.length === 0
-            ? <p className="gst-vide">{messageEvenementsVide()}</p>
-            : <ul className="gst-liste">{cartes}</ul>}
+          {/* 🔴 LA LISTE DÉFILE POUR ELLE-MÊME, à la MÊME hauteur visible que celle de gauche (feuille). Le
+              message « aucun événement » prend la même boîte : sinon la colonne se raccourcirait quand elle est
+              vide, et les deux pieds ne seraient plus alignés. */}
+          <div className="gst-corps-partage">
+            {troncEv && <p className="gst-tronc">{troncEv}</p>}
+            {d.evenements.length === 0
+              ? <p className="gst-vide">{messageEvenementsVide()}</p>
+              : <ul className="gst-liste">{cartes}</ul>}
+          </div>
+          {/* ⚠️ LE PIED EXISTE MÊME VIDE : il réserve la même hauteur qu'à gauche, pour que les deux colonnes se
+              terminent sur la même ligne. C'est le prix de la symétrie, et il est de 44 px. */}
+          <div className="gst-pied-partage" />
         </section>
       </div>
+
+      {/* ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 3 — CE BLOC EST PASSÉ **SOUS** LES DEUX COLONNES ════════════════
+
+          Il vivait DANS la colonne de gauche, sous son pied. Les deux colonnes ne pouvaient donc pas se
+          terminer sur la même ligne — mesuré avant correction : le pied de gauche à 922 px, celui de droite à
+          967 px — et c'est exactement la dissymétrie qu'Arno demande de corriger.
+
+          🔴 RIEN N'EST RETIRÉ NI MASQUÉ : le bloc garde son titre, son compteur, son « Plein écran », sa
+          fenêtre d'activité, ses gestes et son repli par défaut. Il est simplement posé SOUS les deux colonnes,
+          sur toute la largeur, là où il ne déséquilibre plus rien. */}
+        {/* LA FILE DES ÉCHANGES SANS ÉVÉNEMENT — conservée telle quelle, repliée par défaut. Elle garde son
+            plein écran, sa fenêtre d'activité, ses gestes et son compteur : aucun n'est retiré. */}
+        <details className="gst-file-echanges">
+          <summary className="gst-file-titre">
+            Échanges sans événement <span className="gst-compte">{d.filsTotal}</span>
+          </summary>
+        <div className="gst-entete-col">
+          <h2 className="gst-titre" id="gst-titre-file">
+            Sans événement <span className="gst-compte">{d.filsTotal}</span>
+          </h2>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn"
+            onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}>
+            Plein écran
+          </button>
+        </div>
+        {troncFile && <p className="gst-tronc">{troncFile}</p>}
+        {/* FENÊTRE D'ACTIVITÉ — dite en toutes lettres. Un outil qui cache sans le dire ment. */}
+        {d.filsTropAnciens > 0 && (
+          <p className="gst-tronc">
+            {d.filsTropAnciens} échange{d.filsTropAnciens > 1 ? 's' : ''} plus ancien{d.filsTropAnciens > 1 ? 's' : ''} que {d.fenetreJours} jours
+            {' '}ne {d.filsTropAnciens > 1 ? 'sont' : 'est'} pas affiché{d.filsTropAnciens > 1 ? 's' : ''} dans la file.
+            {' '}Rien n’est supprimé : {d.filsTropAnciens > 1 ? 'ils restent' : 'il reste'} en base.
+            {/* LOT 5a — la phrase ne change pas d'un mot ; on lui AJOUTE la sortie qui lui manquait.
+                LOT 5-FUSION — cette sortie mène désormais à l'étiquette « Réception », qui est ce que montrait
+                l'onglet supprimé : tout le courrier, sans la fenêtre de 30 jours. */}
+            {' '}
+            <button type="button" className="gst-lien-bouton"
+              onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }}>
+              Les voir dans la boîte mail
+            </button>
+          </p>
+        )}
+        {fileAClasser}
+
+        {/* CLASSÉS SANS SUITE — la contrepartie du geste : visible, et réversible d'un clic. */}
+        {d.sansSuiteTotal > 0 && (
+          <details className="gst-sans-suite">
+            <summary className="gst-sans-suite-titre">Classés sans suite <span className="gst-compte">{d.sansSuiteTotal}</span></summary>
+            <ul className="gst-liste">
+              {d.sansSuite.map((f) => (
+                <li key={f.filId} className="gst-item">
+                  <div className="gst-item-haut"><span className="gst-objet">{nettoyerObjet(f.objet) || '(sans objet)'}</span></div>
+                  <div className="gst-item-bas">
+                    <span title={formaterDateFr(f.classeLe)}>classé {depuis(f.classeLe, ref)}</span>
+                    {f.classePar && <><span className="gst-sep" aria-hidden="true">·</span><span>par {f.classePar}</span></>}
+                    {f.motif && <><span className="gst-sep" aria-hidden="true">·</span><span>{f.motif}</span></>}
+                  </div>
+                  <div className="gst-actions">
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={gesteEnCours}
+                      onClick={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'DELETE', 'Échange rouvert : il est revenu dans la file.')}>
+                      Rouvrir
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+        </details>
+      </>
       )}
     </>
   );
@@ -1648,6 +1679,78 @@ const CSS_GESTION = `
 .gst-entete-col{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .5rem}
 .gst-entete-col .gst-titre{margin:0}
 .gst-deux{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT ACCUEIL-GESTION, POINT 3 — LES DEUX COLONNES SE REPONDENT
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (06/10/2026) : « meme largeur (50/50), meme hauteur d'en-tete (titre + compteur + filtres
+   alignes sur une meme ligne de base), memes marges, meme hauteur de ligne de liste, memes pieds (pagination
+   alignee), defilement independant mais meme hauteur visible. Aucune fonction retiree ni masquee. »
+
+   ETAT MESURE AVANT (fenetre 1456 px) : la grille etait DEJA 50/50 (552 + 16 + 552). Tout le reste divergeait —
+   colonne de gauche 3 386 px de haut contre 264 a droite, listes commencant a 497 px et 445 px, lignes de 106 px
+   d'un cote et de 88 a 116 de l'autre, un pied de deux rangees a gauche et aucun a droite.
+
+   TROIS RANGEES, LES MEMES DES DEUX COTES :
+     ① l'EN-TETE, lui-meme en deux : le titre (avec son compteur) puis les outils. A gauche les filtres et
+        « Plein ecran » ; a droite « Plein ecran » seul. Aucune rangee vide nulle part.
+     ② le CORPS, qui defile pour lui-meme, a hauteur FIXE et identique : c'est « defilement independant, meme
+        hauteur visible ». Fixe et non plafonnee, sinon la colonne des evenements (deux cartes) serait plus
+        courte que celle des mails, et les pieds ne s'aligneraient plus.
+     ③ le PIED, de meme hauteur, cale en bas.
+
+   ⚠️ TOUT CECI NE VAUT QUE SUR LARGE. Sous 900 px les colonnes passent l'une sous l'autre (regle existante), et
+   deux boites a defilement empilees dans un petit ecran seraient un piege : la hauteur fixe est donc LEVEE, et
+   la page reprend son defilement unique. C'est pour cela que les regles vivent dans une media query.
+
+   ⚠️ AUCUNE COULEUR, AUCUNE FONCTION ICI : ce bloc ne fait que de la mise en page. Rien n'est retire ni masque —
+   les gestes du pied de la colonne de gauche sont passes cote a cote, pas supprimes. */
+
+/* L'EN-TETE COMMUN : deux rangees, les memes hauteurs des deux cotes. */
+.gst-tete-partage{display:flex;flex-direction:column;gap:.4rem;margin:0 0 .5rem}
+.gst-tete-partage-titre{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;min-height:23px}
+.gst-tete-partage-titre .gst-titre{margin:0}
+.gst-tete-partage-outils{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:44px}
+/* « Plein ecran » ferme la rangee, a droite, dans les DEUX colonnes. */
+.gst-tete-partage-outils .gst-plein{margin-left:auto}
+/* Le corps et le pied : memes marges, meme hauteur de pied. */
+.gst-corps-partage{min-width:0}
+/* ⚠️ 48 px ET NON 44 : un bouton de 44 px pose dans une rangee alignee au centre occupe 48 px avec son liset.
+   Mesure a l'ecran : le pied de gauche faisait 48 et celui de droite 44, et les deux colonnes se terminaient a
+   4 px l'une de l'autre. On fixe donc la MEME hauteur des deux cotes plutot que de la laisser au contenu. */
+.gst-pied-partage{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-height:48px;margin-top:8px}
+
+@media (min-width:901px){
+  /* Les deux colonnes font la meme hauteur : c'est la grille qui l'impose, pas leur contenu. */
+  .gst-deux{align-items:stretch}
+  .gst-deux > .gst-col{display:flex;flex-direction:column;min-height:0}
+  /* La colonne de gauche delegue son contenu a BoiteReception : il doit s'etirer comme son hote. */
+  .gst-deux > .gst-col > .brc{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;gap:0}
+  /* ② LA HAUTEUR VISIBLE COMMUNE. max() donne un plancher : sur un ecran bas, la liste reste utilisable. */
+  .gst-deux .gst-corps-partage{flex:1 1 auto;min-height:0;height:max(22rem,52vh);overflow-y:auto}
+  /* ③ LE PIED RESTE EN BAS, meme quand le corps ne se remplit pas. */
+  .gst-deux .gst-pied-partage{margin-top:auto}
+}
+
+/* ══ ① LE MEME RYTHME DE LIGNE DANS LES DEUX LISTES ════════════════════════════════════════════════════════════
+
+   Meme hauteur MINIMALE, memes marges internes, meme separateur : une ligne de mail et une carte d'evenement se
+   lisent desormais sur la meme trame. Mesure avant : 106 px a gauche contre 88 a 116 a droite, avec des cartes
+   detachees (bordure + coins arrondis + fond) face a des lignes separees par un filet.
+
+   ⚠️ C'EST UN MINIMUM, PAS UN PLAFOND, et c'est delibere. Une carte d'evenement qui porte une pastille « attend
+   une reponse » depasse les 106 px ; la rogner reviendrait a MASQUER du contenu, ce qu'Arno interdit dans la
+   meme phrase qu'il demande l'harmonie (« aucune fonction retiree ni masquee »). Entre un pixel identique et un
+   contenu entier, c'est le contenu qui gagne — et la trame commune suffit a ce que les deux colonnes se
+   repondent.
+
+   ⚠️ CE BLOC NE VAUT QUE DANS .gst-deux : en plein ecran, la liste des evenements garde ses cartes detachees. */
+.gst-deux .brc-li,
+.gst-deux .gst-item{min-height:var(--gst-ligne,106px)}
+.gst-deux .gst-liste{gap:0}
+.gst-deux .gst-item{border-radius:0;border:0;border-bottom:1px solid var(--color-svv-line);
+  background:transparent;padding:8px 4px}
 /* Les cartes en plein écran : deux de front quand la largeur le permet, une seule sinon. Aucune fonction n'y change.
    Point de rupture en max-width, comme tout le reste de cette feuille : c'est la convention du fichier, et elle évite
    qu'une largeur minimale en dur se glisse dans une règle. */
