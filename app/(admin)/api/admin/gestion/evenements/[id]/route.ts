@@ -4,6 +4,8 @@ import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { lireCarte } from '../../../../../../lib/gestion/carteRepo';
 /* 🔴 LOT MONGA-1, POINT 4 — le badge, la dernière étape et le lien « Vers Mission » d'une carte reliée. */
 import { mongaDeLEvenement } from '../../../../../../lib/gestion/mongaRepo';
+/* 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — les biens de l'événement, pour le bouton « Ouvrir la fiche du bien ». */
+import { biensNommesDeLEvenement } from '../../../../../../lib/gestion/mongaEtapeRepo';
 import { chargerConfigGestion } from '../../../../../../lib/gestion/config';
 import { lirePartenairesInternes } from '../../../../../../lib/gestion/partenaires';
 import { deplacementsDeMailsDisponibles } from '../../../../../../lib/gestion/schema';
@@ -52,7 +54,13 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
      * exactement celle d'avant ce lot. Sans la migration 311, c'est `null` pour toutes.
      */
     const monga = await mongaDeLEvenement(id);
-    return Response.json({ ...carte, monga }, { headers: { 'Cache-Control': 'private, no-store' } });
+    /**
+     * 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — LES BIENS DE CET ÉVÉNEMENT, pour le bouton « Ouvrir la fiche du bien
+     * sur cet événement → » (Arno). La liste vide est une réponse : l'événement n'est rattaché à aucun bien, le
+     * bouton le dit plutôt que de mener nulle part.
+     */
+    const biens = await biensNommesDeLEvenement(id);
+    return Response.json({ ...carte, monga, biens }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/evenement] lecture impossible', e);
     return Response.json({ erreur: 'Lecture impossible : erreur interne du serveur.' }, { status: 503 });

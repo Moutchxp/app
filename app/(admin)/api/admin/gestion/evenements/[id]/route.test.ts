@@ -22,6 +22,15 @@ const monga = { mongaDeLEvenement: vi.fn() };
 vi.mock('../../../../../../lib/gestion/mongaRepo', () => ({
   mongaDeLEvenement: (...a: unknown[]) => monga.mongaDeLEvenement(...a),
 }));
+/**
+ * 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — les BIENS de l'événement, lus à côté de la carte : c'est eux que le gros
+ * bouton « Ouvrir la fiche du bien sur cet événement → » adresse. Mockés comme les deux autres lectures — ce
+ * fichier éprouve le CONTRAT de la route.
+ */
+const biens = { biensNommesDeLEvenement: vi.fn() };
+vi.mock('../../../../../../lib/gestion/mongaEtapeRepo', () => ({
+  biensNommesDeLEvenement: (...a: unknown[]) => biens.biensNommesDeLEvenement(...a),
+}));
 
 import { GET, PATCH } from './route';
 
@@ -35,6 +44,7 @@ const CARTE = { evenementId: 9, reference: 'GES-2026-000009', objet: 'Fuite', fi
 beforeEach(() => {
   gardeMock.mockReset(); gardeMock.mockResolvedValue(null);
   monga.mongaDeLEvenement.mockReset(); monga.mongaDeLEvenement.mockResolvedValue(null);
+  biens.biensNommesDeLEvenement.mockReset(); biens.biensNommesDeLEvenement.mockResolvedValue([]);
   repo.lireCarte.mockReset(); repo.lireCarte.mockResolvedValue(CARTE);
   gestes.modifierEvenement.mockReset(); gestes.modifierEvenement.mockResolvedValue({ ok: true, evenementId: 9 });
   gestes.changerEtatEvenement.mockReset(); gestes.changerEtatEvenement.mockResolvedValue({ ok: true, evenementId: 9 });
@@ -59,7 +69,12 @@ describe('GET — le détail, servi seulement à qui a le droit', () => {
      * aucune intervention Monga n'affiche aucun badge et reste exactement celle d'avant ce lot. C'est aussi ce
      * que rend la route sans la migration 311.
      */
-    expect(await res.json()).toEqual({ ...CARTE, monga: null });
+    /**
+     * 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — `biens` S'AJOUTE AU CONTRAT, et la liste vide est une réponse : un
+     * événement rattaché à aucun bien n'a pas de fiche à ouvrir, et l'écran le DIT plutôt que d'offrir un bouton
+     * qui ne mène nulle part.
+     */
+    expect(await res.json()).toEqual({ ...CARTE, monga: null, biens: [] });
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
   });
 

@@ -33,6 +33,9 @@ const ROUTE_ETAPE = readFileSync('app/(admin)/api/admin/gestion/etapes/[id]/rout
 /* 🔴 LOT FRISE-COMPACTE, POINT 4 — le meme grand cadre rouge existait sur la frise des MAILS, depuis le meme
    lot et pour la meme raison : les deux frises partagent leur defilement, donc sa signaletique. */
 const MAILS_FRISE = readFileSync('app/(admin)/admin/(protected)/gestion/FriseDuBien.tsx', 'utf8');
+/* 🔴 LOT VIGNETTE-EVENEMENT — l'écran partagé et le plein écran rendent la MÊME carte, avec un argument de
+   différence : c'est `GestionVue` qui le passe, et c'est là qu'on le vérifie. */
+const VUE = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
 
 describe('① la frontière client/serveur', () => {
   /**
@@ -489,7 +492,7 @@ describe('③ le bloc « Événements » de la fiche du bien', () => {
 
   /** 🔴 LES EN COURS DÉPLIÉS, LES CLOS REPLIÉS (Arno). */
   it('🔴 les événements en cours arrivent dépliés', () => {
-    expect(BLOC).toContain('setDeplies(new Set(evenements.filter((e) => !e.clos).map((e) => e.id)));');
+    expect(BLOC).toContain('const ouverts = new Set(evenements.filter((e) => !e.clos).map((e) => e.id));');
   });
 
   /** 🔴 UNE LIGNE POUR UN CLOS : titre, dates, dernière étape. */
@@ -926,7 +929,17 @@ describe('⑰ le grand cadre rouge (Arno, point 4)', () => {
 describe('⑱ les événements clos restent repliés (Arno, point 3)', () => {
   /** 🔴🔴 « Seuls les événements EN COURS ont leur frise ouverte par défaut. » */
   it('🔴🔴 seuls les en cours s’ouvrent d’office', () => {
-    expect(BLOC).toContain('setDeplies(new Set(evenements.filter((e) => !e.clos).map((e) => e.id)));');
+    expect(BLOC).toContain('const ouverts = new Set(evenements.filter((e) => !e.clos).map((e) => e.id));');
+  });
+
+  /**
+   * 🔴 L'EXCEPTION, ET ELLE EST VOULUE (lot VIGNETTE-EVENEMENT, point 1) : l'événement VISÉ par le gros bouton
+   * de l'écran partagé est déplié même s'il est clos. On vient de cliquer un bouton qui promet de l'ouvrir ;
+   * le laisser replié parce qu'il est clos tiendrait la lettre de la règle contre son esprit.
+   */
+  it('🔴 l’événement visé par le bouton est déplié, même clos', () => {
+    expect(BLOC).toContain(
+      'if (evenementVise !== null && evenements.some((e) => e.id === evenementVise)) ouverts.add(evenementVise);');
   });
 
   /**
@@ -934,9 +947,13 @@ describe('⑱ les événements clos restent repliés (Arno, point 3)', () => {
    * en cours le rouvrirait aussitôt.
    */
   it('⚠️ replier un en cours ne le rouvre pas', () => {
-    const i = BLOC.indexOf('setDeplies(new Set(evenements.filter');
+    /* ⚠️ LA DÉPENDANCE A GAGNÉ `evenementVise` (lot VIGNETTE-EVENEMENT) : l'effet doit se rejouer quand
+       l'adresse désigne un autre événement. Elle NE CONTIENT TOUJOURS PAS `deplies` — c'est elle qui ferait
+       rouvrir aussitôt ce qu'on vient de replier. */
+    const i = BLOC.indexOf('const ouverts = new Set(evenements.filter');
     const fin = BLOC.indexOf('}, [', i);
-    expect(BLOC.slice(fin, fin + 20)).toContain('}, [evenements]);');
+    expect(BLOC.slice(fin, fin + 40)).toContain('}, [evenements, evenementVise]);');
+    expect(BLOC.slice(fin, fin + 40)).not.toContain('deplies');
   });
 
   /** 🔴 UN CLOS SE DÉPLIE AU CLIC : une ligne repliée n'est pas une ligne morte. */
@@ -954,5 +971,128 @@ describe('⑱ les événements clos restent repliés (Arno, point 3)', () => {
     expect(BLOC).toContain('{ouvert && (');
     const i = BLOC.indexOf('{ouvert && (');
     expect(BLOC.slice(i, i + 200)).toContain('<FriseAvancement');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — L'ÉTAT DÉMÉNAGE, LE GROS BOUTON LE REMPLACE ════════════════════════
+
+   ACCORD D'ARNO (06/10/2026) : « BLOC “À traiter / En cours / Traité” : il est retiré de l'écran partagé. Sa
+   fonction n'est pas perdue : elle est ajoutée dans l'en-tête de l'événement sur la fiche du bien (bloc
+   Événements) et dans la vue de l'événement, même porte d'écriture. À sa place, dans l'écran partagé : un GROS
+   bouton pleine largeur “Ouvrir la fiche du bien sur cet événement →”. »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑲ l’état quitte l’écran partagé, sans perdre sa fonction', () => {
+  /**
+   * 🔴🔴 UN SEUL ARGUMENT SÉPARE LES DEUX RENDUS. La carte est écrite une seule fois (« rendues une seule fois »,
+   * `GestionVue`) : un second composant aurait fini par diverger sur tout le reste du dossier.
+   */
+  it('🔴🔴 la même carte, deux rendus : partagé sans état, plein écran avec', () => {
+    expect(VUE).toContain('const cartesDe = (partage: boolean) => d.evenements.map((e) => (');
+    /* 🔴 PLEIN ÉCRAN : `partage` faux, l'état reste. ÉCRAN PARTAGÉ : `partage` vrai, le bouton le remplace. */
+    expect(VUE).toContain('<ul className="gst-liste gst-cartes-larges">{cartesDe(false)}</ul>');
+    expect(VUE).toContain('<ul className="gst-liste">{cartesDe(true)}</ul>');
+  });
+
+  /** 🔴🔴 L'UN OU L'AUTRE, JAMAIS LES DEUX, JAMAIS AUCUN : la fonction n'est pas perdue, elle change de place. */
+  it('🔴🔴 l’écran partagé montre le bouton, le plein écran montre l’état', () => {
+    expect(CARTE).toContain('{partage\n        ? <OuvrirLaFicheDuBien');
+    expect(CARTE).toContain(': <EtatCarte etat={d.etat}');
+  });
+
+  /**
+   * 🔴🔴 MÊME PORTE D'ÉCRITURE AUX TROIS ENDROITS (Arno) : `PATCH /evenements/[id] { etat }`, celle de
+   * `changerEtatEvenement` — même journal, même contrainte de base, même réversibilité. Une seconde porte aurait
+   * écrit une seconde histoire dans le journal.
+   */
+  it('🔴🔴 la fiche du bien écrit l’état par la MÊME porte que la carte', () => {
+    expect(BLOC).toContain("method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etat }),");
+    expect(BLOC).toContain('`/api/admin/gestion/evenements/${id}`');
+    /* 🔴 ET LES TROIS ÉTATS Y SONT, dans l'ordre du dossier, avec le mot partagé `libelleEtat`. */
+    expect(BLOC).toContain("(['a_traiter', 'en_cours', 'traite'] as const).map((c) => (");
+    expect(BLOC).toContain('{libelleEtat(c)}');
+  });
+
+  /**
+   * ⚠️ LES BOUTONS D'ÉTAT SONT **HORS** DU BOUTON QUI DÉPLIE : un bouton dans un bouton n'est pas un balisage
+   * valide, et le clic de l'un déclencherait l'autre.
+   */
+  it('⚠️ les trois états ne sont pas imbriqués dans le bouton de dépliage', () => {
+    const iTete = BLOC.indexOf('className="evb-tete"');
+    const iFinTete = BLOC.indexOf('</button>', iTete);
+    const iEtats = BLOC.indexOf('className="evb-etats"');
+    expect(iEtats).toBeGreaterThan(iFinTete);
+  });
+
+  /** ⚠️ L'ÉTAT COURANT EST DÉSACTIVÉ, et il le dit autrement que par la couleur. */
+  it('⚠️ l’état courant se dit sans la couleur seule', () => {
+    expect(BLOC).toContain('aria-pressed={e.etat === c}');
+    expect(BLOC).toContain('disabled={occupe || e.etat === c}');
+  });
+});
+
+describe('⑳ le gros bouton « Ouvrir la fiche du bien sur cet événement »', () => {
+  /** 🔴🔴 PLEINE LARGEUR, et il dit où il mène — mot pour mot celui d'Arno. */
+  it('🔴🔴 le bouton existe, pleine largeur, avec le libellé d’Arno', () => {
+    expect(CARTE).toContain('Ouvrir la fiche du bien sur cet événement →');
+    expect(CARTE).toContain('className="svv-btn svv-btn-primary gst-ouvrir-fiche"');
+  });
+
+  /** 🔴 UN SEUL BIEN : il y va directement. « Petit choix du bien d'abord » ne vaut qu'au pluriel (Arno). */
+  it('🔴 un seul bien : pas de choix intermédiaire', () => {
+    expect(CARTE).toContain('if (ouvrables.length === 1 && biens.length === 1) {');
+    expect(CARTE).toContain('onClick={() => onOuvrirBien(ouvrables[0].cle, evenementId)}');
+  });
+
+  /** 🔴 PLUSIEURS BIENS : le choix s'ouvre, et chaque ligne dit l'adresse — « 315 ou 457 ? » n'est pas une question. */
+  it('🔴 plusieurs biens : un choix, et chaque ligne porte son adresse', () => {
+    expect(CARTE).toContain('<ul className="gst-choix-biens" aria-label="Choisir le bien">');
+    expect(CARTE).toContain('const lieu = [b.adresse, b.commune].filter');
+  });
+
+  /**
+   * ⚠️ AUCUN BIEN : on le DIT. Un bouton qui ne mène nulle part s'apprend, et l'on cesse de le regarder.
+   * ⚠️ UNE CLÉ NON NUMÉRIQUE EST LISTÉE QUAND MÊME, avec son impossibilité écrite : une fiche de bien s'adresse
+   * par sa clé WIPPIMMO (`bien-<nombre>`), et taire ce bien ferait croire que l'événement ne le concerne pas.
+   */
+  it('⚠️ aucun bien, ou une clé non adressable : c’est dit, jamais tu', () => {
+    expect(CARTE).toContain('Cet événement n’est rattaché à aucun bien');
+    expect(CARTE).toContain('fiche non adressable (clé non numérique)');
+  });
+
+  /**
+   * 🔴🔴 LA NAVIGATION PASSE PAR L'ADRESSE, et non par un état de composant : ce que le bouton promet doit
+   * survivre à un rechargement et à un lien envoyé à un collègue (même arbitrage que `bloc`).
+   */
+  it('🔴🔴 l’événement visé voyage dans l’adresse, avec sa fiche', () => {
+    expect(VUE).toContain("aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'bien', id: n }, evenementVise: evenementId });");
+    const url = readFileSync('app/lib/gestion/ecranUrl.ts', 'utf8');
+    expect(url).toContain('evenementVise?: number | null;');
+    /* ⚠️ ÉCRIT UNIQUEMENT AVEC SA FICHE, et jamais seul : un `?evenement=` orphelin ne désigne rien. */
+    expect(url).toContain("if (e.ecran === 'annuaire' && e.fiche != null && e.evenementVise != null) {");
+    expect(url).toContain("evenementVise: ecran === 'annuaire' && ficheDepuisTexte(p.get('fiche')) !== null");
+  });
+
+  /**
+   * 🔴 ET LE CENTRAGE SUR LA DERNIÈRE ÉTAPE EST DÉJÀ TENU : `FriseAvancement` cale sur `cleDOuverture` — la
+   * dernière carte réelle — UNE SEULE FOIS à son montage. Déplier l'événement monte la frise, et la frise se
+   * cale. Un second calage écrit dans le bloc l'aurait fait deux fois.
+   */
+  it('🔴 le bloc se pose sur l’événement, une seule fois, et laisse la frise se caler', () => {
+    expect(BLOC).toContain("el.scrollIntoView({ block: 'start' });");
+    /* ⚠️ ET SEULEMENT UNE FOIS L'ÉVÉNEMENT DÉPLIÉ : sa frise se monte alors, et la page cesse de bouger sous le
+       défilement. Mesuré sans cette garde : on arrivait 30 px trop bas, le titre du bloc rogné. */
+    expect(BLOC).toContain(
+      'if (pose.current || evenementVise === null || evenements === null || !deplies.has(evenementVise)) return;');
+    expect(BLOC).toContain('pose.current = true;');
+    /* ⚠️ LU COMMENTAIRES RETIRÉS pour les deux interdits qui suivent : les encadrés qui expliquent POURQUOI on
+       les a retirés les citent forcément. C'est le CODE qui ne doit pas les porter. */
+    const code = BLOC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    /* ⚠️ SANS DOUCEUR, ET C'EST MESURÉ : avec `behavior:'smooth'`, le défilement partait de 0 et s'arrêtait à
+       459 px pour une cible à 1078 — à mi-chemin. Le bouton PROMET d'arriver sur l'événement. */
+    expect(code).not.toContain("behavior: 'smooth'");
+    /* ⚠️ ET LE BLOC NE CALE PAS LA FRISE LUI-MÊME : un seul code pour un seul geste. */
+    expect(code).not.toContain('cleDOuverture');
   });
 });

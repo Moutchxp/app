@@ -187,6 +187,25 @@ export interface EtatEcranUrl {
    */
   bloc?: 'vie' | null;
   /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — SUR QUEL ÉVÉNEMENT DE LA FICHE ON ARRIVE ══════════════════════════
+   *
+   * DEMANDE D'ARNO (06/10/2026) : « un GROS bouton pleine largeur “Ouvrir la fiche du bien sur cet événement →”,
+   * qui ouvre la fiche du bien, défile jusqu'au bloc Événements, déplie cet événement et centre sa frise sur la
+   * dernière étape. »
+   *
+   * 🔴 DANS L'ADRESSE, ET NON DANS UN ÉTAT DE COMPOSANT — même arbitrage que `bloc`, et pour la même raison : le
+   * bouton est AILLEURS que la fiche. Ce qu'il promet doit survivre à un rechargement et à un lien envoyé à un
+   * collègue, sans quoi « Précédent » rouvrirait la fiche par le haut, sur rien.
+   *
+   * ⚠️ IL NE VAUT RIEN SANS `fiche`, comme `bloc` et comme `message` sans `fil` : un `?evenement=` orphelin ne
+   * désigne aucun endroit, et le traîner mettrait deux adresses dans l'historique pour un seul écran.
+   *
+   * ⚠️ IL N'EST PAS EXCLUSIF DE `bloc` : l'un vise le bloc « Vie du bien », l'autre un événement du bloc
+   * « Événements ». Deux endroits différents de la même fiche, et rien n'oblige à choisir entre eux ici — c'est
+   * la fiche qui décide où elle se pose quand les deux sont écrits (l'événement l'emporte : il est plus précis).
+   */
+  evenementVise?: number | null;
+  /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — LE JETON DE RETOUR À « L'HISTORIQUE DU BIEN » ══════════════════════
    *
    * DEMANDE D'ARNO (05/10/2026) : « Le bouton RETOUR du navigateur, et un bouton “← Retour à l'historique du
@@ -288,7 +307,7 @@ export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId:
  */
 export const ETAT_DEFAUT: EtatEcranUrl = {
   ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, messageOuvert: null, brouillonOuvert: null,
-  fiche: null, bloc: null, cible: null,
+  fiche: null, bloc: null, evenementVise: null, cible: null,
   filtre: null, etoile: false,
   /* 🔴 LOT HISTORIQUE-BIEN-3 — le jeton de retour fait partie du défaut, à `null` : sans cela, `lireEtatUrl`
      rendait un champ que `ETAT_DEFAUT` n'avait pas, et les deux cessaient d'être comparables. */
@@ -423,6 +442,10 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
        seule la valeur connue est retenue : voir `bloc`. */
     bloc: ecran === 'annuaire' && ficheDepuisTexte(p.get('fiche')) !== null && p.get('bloc') === 'vie'
       ? 'vie' : null,
+    /* 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — l'événement visé n'existe QUE sur une fiche de l'annuaire, et il est
+       lu par `identifiant` : une adresse abîmée ouvre la fiche par le haut, jamais une erreur. */
+    evenementVise: ecran === 'annuaire' && ficheDepuisTexte(p.get('fiche')) !== null
+      ? identifiant(p.get('evenement')) : null,
     /* 🔴🔴 LOT HISTORIQUE-BIEN-3 — le jeton de retour : voir l'encadré de `hdb`. Lu sur les DEUX écrans du
        va-et-vient, et nettoyé (une clé, rien d'autre) — un paramètre abîmé n'ouvre jamais une erreur. */
     hdb: (ecran === 'annuaire' || ecran === 'boite') ? jetonPropre(p.get('hdb')) : null,
@@ -474,6 +497,10 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
   // 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — écrit UNIQUEMENT avec sa fiche, et jamais seul : voir `bloc`.
   if (e.ecran === 'annuaire' && e.fiche != null && e.bloc === 'vie') p.set('bloc', 'vie');
+  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — écrit UNIQUEMENT avec sa fiche, et jamais seul : voir `evenementVise`. */
+  if (e.ecran === 'annuaire' && e.fiche != null && e.evenementVise != null) {
+    p.set('evenement', String(e.evenementVise));
+  }
   /* 🔴 LE JETON DE RETOUR, sur les deux écrans du va-et-vient, et jamais ailleurs : voir l'encadré de `hdb`. */
   if ((e.ecran === 'annuaire' || e.ecran === 'boite') && jetonPropre(e.hdb) !== null) {
     p.set('hdb', jetonPropre(e.hdb) as string);

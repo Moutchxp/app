@@ -884,9 +884,32 @@ export function GestionVue({ intro }: {
       </>
     );
 
-  /** Les cartes, rendues une seule fois elles aussi : mêmes fonctions dans la colonne et en plein écran. */
-  const cartes = d.evenements.map((e) => (
+  /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — OUVRIR LA FICHE DU BIEN SUR CET ÉVÉNEMENT ══════════════════════════
+   *
+   * Arno : « ouvre la fiche du bien, défile jusqu'au bloc Événements, déplie cet événement et centre sa frise sur
+   * la dernière étape ».
+   *
+   * 🔴 LA FICHE D'UN BIEN S'ADRESSE PAR SA CLÉ WIPPIMMO (`SORTES_FICHE_PAR_CLE`), et l'événement visé voyage dans
+   * l'adresse à côté d'elle : c'est la fiche qui se pose dessus, et elle le refera après un rechargement ou sur
+   * un lien envoyé à un collègue.
+   */
+  const ouvrirBienSurEvenement = (cleBien: string, evenementId: number): void => {
+    const n = Number(cleBien);
+    if (!Number.isSafeInteger(n) || n <= 0) return;
+    aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'bien', id: n }, evenementVise: evenementId });
+  };
+
+  /**
+   * Les cartes, écrites une seule fois : mêmes fonctions dans la colonne et en plein écran.
+   *
+   * 🔴 UN SEUL ARGUMENT LES SÉPARE (lot VIGNETTE-EVENEMENT, point 1) : dans l'écran PARTAGÉ, le bloc d'état cède
+   * la place au gros bouton « Ouvrir la fiche du bien sur cet événement → » (accord d'Arno) ; en plein écran,
+   * l'état reste. Deux listes écrites à la main auraient fini par diverger sur tout le reste.
+   */
+  const cartesDe = (partage: boolean) => d.evenements.map((e) => (
     <CarteVive key={e.evenementId} carte={e} maintenant={ref}
+      partage={partage} onOuvrirBien={ouvrirBienSurEvenement}
       /* LOT RATTACHEMENT-2 — la carte est le troisième point d'entrée de l'historique, avec l'annuaire et le bandeau. */
       onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
       onGeste={(message, options) => {
@@ -1155,6 +1178,8 @@ export function GestionVue({ intro }: {
              fiche se pose sur son historique. ⚠️ `bloc: null` EN CHANGEANT DE FICHE : une fiche ouverte à la main
              depuis l'annuaire s'ouvre par le haut, sinon le paramètre collerait à toutes les suivantes. */
           poserSurVie={etatUrl.bloc === 'vie'}
+          /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — l'événement sur lequel le gros bouton demande de se poser. */
+          evenementVise={etatUrl.evenementVise ?? null}
           onFiche={(f) => aller({ ...etatUrl, fiche: f, bloc: null })}
           /* 🔴 LOT FICHES-ANNUAIRE étape B — l'heure de référence de l'écran, et le chemin vers un échange :
              « la vie du bien » liste les mails du logement, et un clic doit pouvoir en ouvrir un dans la boîte. */
@@ -1284,7 +1309,7 @@ export function GestionVue({ intro }: {
           )}
           {d.evenements.length === 0
             ? <p className="gst-vide">{messageEvenementsVide()}</p>
-            : <ul className="gst-liste gst-cartes-larges">{cartes}</ul>}
+            : <ul className="gst-liste gst-cartes-larges">{cartesDe(false)}</ul>}
         </div>
       ) : filOuvert !== null ? (
         <section className="gst-col">
@@ -1372,7 +1397,7 @@ export function GestionVue({ intro }: {
             {troncEv && <p className="gst-tronc">{troncEv}</p>}
             {d.evenements.length === 0
               ? <p className="gst-vide">{messageEvenementsVide()}</p>
-              : <ul className="gst-liste">{cartes}</ul>}
+              : <ul className="gst-liste">{cartesDe(true)}</ul>}
           </div>
           {/* ⚠️ LE PIED EXISTE MÊME VIDE : il réserve la même hauteur qu'à gauche, pour que les deux colonnes se
               terminent sur la même ligne. C'est le prix de la symétrie, et il est de 44 px. */}

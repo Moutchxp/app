@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴 MODULE PUR UNIQUEMENT : ce composant vit dans le navigateur (incident du 24/09/2026). */
 import { motEtape, type TypeEtape } from '../../../../lib/gestion/mongaEtape';
+import { libelleEtat } from '../../../../lib/gestion/ecran';
 import { FriseAvancement } from './FriseAvancement';
 
 /**
@@ -40,15 +41,27 @@ interface EvenementDuBien {
 }
 
 export function EvenementsDuBien({
-  lotCle, onGeste, onOuvrirFil,
+  lotCle, onGeste, onOuvrirFil, evenementVise = null,
 }: {
   /** La clé WIPPIMMO du lot — la même identité que l'historique juste en dessous. */
   lotCle: string;
   onGeste?: (message: string) => void;
   onOuvrirFil?: (filId: number) => void;
+  /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — L'ÉVÉNEMENT SUR LEQUEL ON ARRIVE ═════════════════════════════════
+   *
+   * Arno : le gros bouton de l'écran partagé « ouvre la fiche du bien, défile jusqu'au bloc Événements, déplie
+   * cet événement et centre sa frise sur la dernière étape ».
+   *
+   * 🔴 LE CENTRAGE SUR LA DERNIÈRE ÉTAPE EST DÉJÀ TENU, et il n'y a rien à ajouter : `FriseAvancement` cale sur
+   * `cleDOuverture` — la dernière carte réelle — UNE SEULE FOIS à son montage (lot FRISES-REPARATION). Déplier
+   * l'événement monte la frise, et la frise se cale. Un second calage écrit ici l'aurait fait deux fois.
+   */
+  evenementVise?: number | null;
 }) {
   const [evenements, setEvenements] = useState<EvenementDuBien[] | null>(null);
   const [deplies, setDeplies] = useState<ReadonlySet<number>>(new Set());
+  const [occupe, setOccupe] = useState(false);
 
   const charger = useCallback(async () => {
     try {
@@ -71,8 +84,72 @@ export function EvenementsDuBien({
    */
   useEffect(() => {
     if (evenements === null) return;
-    setDeplies(new Set(evenements.filter((e) => !e.clos).map((e) => e.id)));
-  }, [evenements]);
+    /**
+     * 🔴 LOT VIGNETTE-EVENEMENT — L'ÉVÉNEMENT VISÉ EST DÉPLIÉ, MÊME S'IL EST CLOS. On vient de cliquer un bouton
+     * qui promet de l'ouvrir : le laisser replié parce qu'il est clos tiendrait la lettre de la règle (« les clos
+     * restent repliés ») contre son esprit — cette règle vaut pour ce qu'on n'a pas demandé.
+     */
+    const ouverts = new Set(evenements.filter((e) => !e.clos).map((e) => e.id));
+    if (evenementVise !== null && evenements.some((e) => e.id === evenementVise)) ouverts.add(evenementVise);
+    setDeplies(ouverts);
+  }, [evenements, evenementVise]);
+
+  /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — SE POSER SUR L'ÉVÉNEMENT VISÉ ═════════════════════════════════════
+   *
+   * ⚠️ UNE SEULE FOIS, ET LE VERROU EST ICI. Sans lui, chaque relecture du bloc — un changement d'état, un geste
+   * sur la frise — ramènerait la page sur l'événement, et l'on perdrait l'endroit qu'on regardait. Même règle,
+   * et même raison, que le calage de la frise (lot FRISES-REPARATION).
+   *
+   * ⚠️ `block: 'start'` : on veut voir l'événement ET ce qui le suit, pas le centrer au milieu d'un écran dont la
+   * moitié haute serait vide.
+   *
+   * ⚠️ SANS `behavior: 'smooth'`, ET C'EST MESURÉ. Premier jet avec la douceur : le défilement partait de 0 et
+   * s'arrêtait à 459 px pour une cible à 1078 — à mi-chemin. Une animation de défilement est pilotée par les
+   * images du navigateur, et elle s'interrompt dès que la page cesse d'en produire. Le bouton PROMET d'arriver
+   * sur l'événement ; arriver à moitié est pire que d'arriver sec. Même arbitrage que le défilement continu des
+   * frises (lot FRISES-REPARATION), et pour la même raison.
+   */
+  const pose = useRef(false);
+  const ancres = useRef(new Map<number, HTMLLIElement | null>());
+  useEffect(() => {
+    /* ⚠️ ON ATTEND QUE L'ÉVÉNEMENT SOIT DÉPLIÉ : sa frise se monte alors, et la page cesse de bouger sous le
+       défilement. Mesuré sans cette garde : on arrivait 30 px trop bas, le titre du bloc rogné. */
+    if (pose.current || evenementVise === null || evenements === null || !deplies.has(evenementVise)) return;
+    const el = ancres.current.get(evenementVise);
+    if (el === null || el === undefined) return;
+    pose.current = true;
+    el.scrollIntoView({ block: 'start' });
+  }, [evenementVise, evenements, deplies]);
+
+  /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — L'ÉTAT DE L'ÉVÉNEMENT, DANS SON EN-TÊTE ═══════════════════════════
+   *
+   * ACCORD D'ARNO : le bloc « À traiter / En cours / Traité » quitte l'écran partagé et « est ajouté dans
+   * l'en-tête de l'événement sur la fiche du bien (bloc Événements) […] MÊME PORTE D'ÉCRITURE ».
+   *
+   * 🔴 LA MÊME PORTE, C'EST `PATCH /api/admin/gestion/evenements/[id] { etat }` — celle que `CarteVive` emploie
+   * depuis le lot 4c, et qui passe par `changerEtatEvenement` : même journal, même contrainte de base (l'état et
+   * la date de traitement vont ensemble), même réversibilité. Une seconde porte aurait écrit une seconde
+   * histoire dans le journal.
+   */
+  const changerEtat = useCallback(async (id: number, etat: string, reference: string): Promise<void> => {
+    if (occupe) return;
+    setOccupe(true);
+    try {
+      const res = await fetch(`/api/admin/gestion/evenements/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etat }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+      if (!res.ok || d.ok !== true) { onGeste?.(d.erreur ?? 'Changement d’état impossible.'); return; }
+      onGeste?.(`Événement ${reference} : ${libelleEtat(etat as 'a_traiter').toLowerCase()}.`);
+      await charger();
+    } catch {
+      onGeste?.('Changement d’état impossible : le serveur n’a pas répondu.');
+    } finally {
+      setOccupe(false);
+    }
+  }, [occupe, onGeste, charger]);
 
   /* 🔴 RIEN DU TOUT : ni pendant la lecture, ni sur un bien sans événement. Voir l'encadré. */
   if (evenements === null || evenements.length === 0) return null;
@@ -87,7 +164,8 @@ export function EvenementsDuBien({
         {evenements.map((e) => {
           const ouvert = deplies.has(e.id);
           return (
-            <li key={e.id} className={`evb-item${e.clos ? ' evb-item--clos' : ''}`}>
+            <li key={e.id} className={`evb-item${e.clos ? ' evb-item--clos' : ''}`}
+              ref={(el) => { ancres.current.set(e.id, el); }}>
               <button
                 type="button" className="evb-tete" aria-expanded={ouvert}
                 onClick={() => setDeplies((s) => {
@@ -120,6 +198,21 @@ export function EvenementsDuBien({
                   </>}
                 </span>
               </button>
+              {/**
+                * 🔴🔴 LES TROIS ÉTATS, DANS L'EN-TÊTE (accord d'Arno, point 1). Ils sont HORS du bouton qui
+                * déplie : un bouton dans un bouton n'est pas un balisage valide, et le clic de l'un déclencherait
+                * l'autre. Ils sont donc posés à côté, sur la même ligne.
+                */}
+              <div className="evb-etats" role="group" aria-label={`État de l’événement ${e.reference}`}>
+                {(['a_traiter', 'en_cours', 'traite'] as const).map((c) => (
+                  <button key={c} type="button"
+                    className={`evb-etat${e.etat === c ? ' evb-etat--actif' : ''}`}
+                    aria-pressed={e.etat === c} disabled={occupe || e.etat === c}
+                    onClick={() => void changerEtat(e.id, c, e.reference)}>
+                    {libelleEtat(c)}
+                  </button>
+                ))}
+              </div>
               {ouvert && (
                 <div className="evb-frise">
                   <FriseAvancement
@@ -145,7 +238,10 @@ export function jourFr(iso: string): string {
 /* ⚠️ JETONS `--color-svv-*` UNIQUEMENT, et aucun accent grave : cette feuille vit dans un litteral gabarit. */
 const CSS_EVENEMENTS_DU_BIEN = `
 .evb-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.evb-item{border:1px solid var(--color-svv-line);border-radius:8px;padding:8px}
+.evb-item{border:1px solid var(--color-svv-line);border-radius:8px;padding:8px;
+  /* ⚠️ DE L'AIR AU-DESSUS QUAND ON ATTERRIT DESSUS (lot VIGNETTE-EVENEMENT) : le gros bouton de l'ecran partage
+     amene ici, et un evenement colle au bord haut se lit mal — le titre du bloc passerait sous l'en-tete. */
+  scroll-margin-top:72px}
 .evb-item--clos{opacity:.85}
 .evb-tete{display:flex;flex-direction:column;gap:2px;width:100%;min-height:44px;padding:2px;
   font:inherit;text-align:left;background:none;border:0;cursor:pointer;color:var(--color-svv-ink)}
@@ -156,4 +252,17 @@ const CSS_EVENEMENTS_DU_BIEN = `
 .evb-ref{font-weight:700}
 .evb-etape{color:var(--color-svv-ink)}
 .evb-frise{margin-top:6px;padding-top:6px;border-top:1px solid var(--color-svv-line)}
+/* ══ 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — LES TROIS ETATS, DANS L'EN-TETE DE L'EVENEMENT ══════════════════════
+   Ils reprennent le dessin des « voies » de la carte vivante (.gst-voie), pour que le meme geste se reconnaisse
+   d'un ecran a l'autre. Cibles 36 px de haut, et ils tombent en colonne sur un ecran etroit. */
+.evb-etats{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}
+.evb-etat{font:inherit;font-size:.76rem;min-height:36px;padding:3px 10px;cursor:pointer;
+  color:var(--color-svv-ink);background:var(--color-svv-bg);
+  border:1px solid var(--color-svv-line);border-radius:6px}
+.evb-etat:hover:not(:disabled){background:var(--color-svv-field)}
+.evb-etat:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* ⚠️ L'ETAT COURANT EST DESACTIVE : il est deja vrai, et le recliquer n'aurait rien a dire. Il le MONTRE par sa
+   couleur ET par aria-pressed — jamais par la couleur seule. */
+.evb-etat--actif{color:var(--color-svv-bg);background:var(--color-svv-red);border-color:var(--color-svv-red)}
+.evb-etat:disabled:not(.evb-etat--actif){color:var(--color-svv-muted);cursor:default}
 `;

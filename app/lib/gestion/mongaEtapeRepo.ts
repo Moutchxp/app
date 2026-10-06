@@ -358,6 +358,57 @@ export async function decompteConfirmations(): Promise<{ type: TypeEtape; confir
  * en déduit qu'il n'affiche aucun bloc. Rendre un bloc vide aurait ajouté un titre sur toutes les fiches — ce que
  * la preuve d'empreintes du point 4 interdit.
  */
+/**
+ * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — LES BIENS D'UN ÉVÉNEMENT, NOMMÉS ══════════════════════════════════════
+ *
+ * Arno : « un GROS bouton pleine largeur “Ouvrir la fiche du bien sur cet événement →” […] Si l'événement
+ * concerne plusieurs biens : petit choix du bien d'abord. »
+ *
+ * 🔴 C'EST `evenementsDuBien` PRIS À L'ENVERS, et les deux axes sont les mêmes — à dessein : un bien est une CLÉ
+ * de lot reliée à l'événement de deux façons, par les PARTIES déclarées et par les RATTACHEMENTS confirmés de ses
+ * mails. Les deux comptent. Si la liste rendue ici différait de celle qui fait apparaître l'événement dans la
+ * fiche, le bouton mènerait à une fiche où l'événement n'est pas.
+ *
+ * ⚠️ IL REND AUSSI L'ADRESSE, et pas seulement la clé : quand il y a plusieurs biens, Arno demande un choix — et
+ * « 315 ou 457 ? » n'est pas une question à laquelle on peut répondre. Avec la rue et la commune, si.
+ *
+ * ⚠️ UN BIEN DONT LA CLÉ N'EST PAS UN NOMBRE EST RENDU QUAND MÊME : c'est l'écran qui décide s'il sait l'adresser
+ * (`fiche=bien-<clé>` attend un nombre). Le taire ici ferait disparaître un bien de la liste sans rien dire.
+ */
+export async function biensNommesDeLEvenement(evenementId: number): Promise<{
+  cle: string; adresse: string | null; commune: string | null;
+}[]> {
+  const { rows } = await query<{ cle: string; adresse: string | null; commune: string | null }>(
+    `WITH par_partie AS (
+        SELECT DISTINCT p.cle
+          FROM gestion_evenement_partie p
+         WHERE p.evenement_id = $1 AND p.sorte = 'lot' AND p.retire_le IS NULL
+           AND btrim(coalesce(p.cle, '')) <> ''
+     ), mails AS (
+        SELECT m.id
+          FROM gestion_affectation a
+          JOIN gestion_message m
+            ON (a.message_id IS NOT NULL AND m.id = a.message_id)
+            OR (a.message_id IS NULL AND m.fil_id = a.fil_id
+                AND NOT EXISTS (SELECT 1 FROM gestion_affectation a2
+                                 WHERE a2.message_id = m.id AND a2.actif))
+         WHERE a.evenement_id = $1 AND a.actif
+     ), par_mail AS (
+        SELECT DISTINCT r.cible_cle AS cle
+          FROM gestion_rattachement r
+          JOIN mails ON mails.id = r.message_id
+         WHERE r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
+           AND btrim(coalesce(r.cible_cle, '')) <> ''
+     ), toutes AS (
+        SELECT cle FROM par_partie UNION SELECT cle FROM par_mail
+     )
+     SELECT t.cle, l.adresse, l.commune
+       FROM toutes t
+       LEFT JOIN gestion_annuaire_lot l ON l.wippimmo_id = t.cle
+      ORDER BY t.cle`, [evenementId]);
+  return rows;
+}
+
 export async function evenementsDuBien(cleBien: string): Promise<{
   id: number; reference: string; objet: string; etat: string; ouvertLe: string; traiteLe: string | null;
 }[]> {

@@ -123,7 +123,7 @@ const ATTENTE_FRAPPE_MS = 250;
 
 export function Annuaire({
   fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil, poserSurVie = false,
-  jetonHistorique = null, onPoserJeton,
+  jetonHistorique = null, onPoserJeton, evenementVise = null,
 }: {
   fiche: FicheUrl | null;
   onFiche: (f: FicheUrl | null) => void;
@@ -133,6 +133,15 @@ export function Annuaire({
    * `false` (le défaut) = la fiche s'ouvre par le haut, exactement comme avant ce lot.
    */
   poserSurVie?: boolean;
+  /**
+   * 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — l'adresse demande de se poser sur UN ÉVÉNEMENT du bloc « Événements »
+   * (`&evenement=<id>`). `null` (le défaut) = la fiche s'ouvre exactement comme avant ce lot.
+   *
+   * ⚠️ IL L'EMPORTE SUR `poserSurVie` quand les deux sont écrits : il est plus précis — il vise un événement, là
+   * où l'autre vise un bloc. C'est la fiche qui tranche, et elle le dit ici plutôt que de laisser deux effets de
+   * défilement se disputer la page.
+   */
+  evenementVise?: number | null;
   /** LOT HISTORIQUE-BIEN-3, POINT 4 — le jeton de retour vers « l'historique du bien », lu dans l'adresse. */
   jetonHistorique?: string | null;
   onPoserJeton?: (jeton: string) => void;
@@ -488,6 +497,8 @@ export function Annuaire({
                     jetonHistorique={jetonHistorique}
                     onPoserJeton={onPoserJeton}
                     onVieDuBienPosee={() => setVieDuBienVisee(null)}
+                    /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — l'événement visé par le gros bouton de l'écran partagé. */
+                    evenementVise={evenementVise}
                     filtreVie={filtreVie} onFiltreVie={setFiltreVie}
                     onDepart={(occupationId, sortie) => envoyer({ action: 'depart', occupationId, sortie })} />
                   : <VueLocataire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
@@ -1174,6 +1185,7 @@ function BlocOccupant({ o, ouvrir, onEcrire }: {
 function VueLot({
   f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onCreer, onDepart,
   poserSurVieDuBien, onVieDuBienPosee, filtreVie, onFiltreVie, jetonHistorique, onPoserJeton,
+  evenementVise,
 }: {
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
   onEcrire?: (email: string) => void;
@@ -1198,6 +1210,8 @@ function VueLot({
   /** LOT HISTORIQUE-BIEN-3 — le jeton de retour lu dans l'adresse, et comment l'y écrire. */
   jetonHistorique?: string | null;
   onPoserJeton?: (jeton: string) => void;
+  /** 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — l'événement du bloc « Événements » sur lequel se poser. */
+  evenementVise?: number | null;
 }) {
   const actuels = f.occupations.filter((o) => o.encours);
   const passes = f.occupations.filter((o) => !o.encours);
@@ -1566,7 +1580,7 @@ function VueLot({
         * ⚠️ IL NE REND RIEN SUR UN BIEN SANS ÉVÉNEMENT — pas même un conteneur vide. C'est ce qui garde à la
         * fiche son empreinte exacte d'avant ce lot, et c'est éprouvé (`EvenementsDuBien` rend `null`).
         */}
-      <EvenementsDuBien lotCle={f.numero} onOuvrirFil={onOuvrirFil} />
+      <EvenementsDuBien lotCle={f.numero} onOuvrirFil={onOuvrirFil} evenementVise={evenementVise} />
 
       <div ref={ancreVie}>
         <HistoriqueDuBien

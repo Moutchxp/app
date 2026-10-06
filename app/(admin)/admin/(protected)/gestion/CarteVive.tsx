@@ -42,7 +42,11 @@ export type { Rapport };
  * ordinaire). Le type vit à côté de `CarteDetail` plutôt que dedans : `CarteDetail` est ce que `carteRepo` sait
  * d'une carte, et Monga n'en fait pas partie — la route compose les deux.
  */
-type CarteAvecMonga = CarteDetail & { monga?: MongaDeLEvenement | null };
+type CarteAvecMonga = CarteDetail & {
+  monga?: MongaDeLEvenement | null;
+  /** 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — les biens de l'événement, pour le gros bouton. */
+  biens?: { cle: string; adresse: string | null; commune: string | null }[];
+};
 
 type VueCarte = { v: 'charge' } | { v: 'ok'; d: CarteAvecMonga } | { v: 'erreur'; m: string };
 
@@ -76,10 +80,30 @@ async function chargerMessages(filId: number): Promise<
 }
 
 
-export function CarteVive({ carte, maintenant, onGeste, onHistorique }: {
+export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = false, onOuvrirBien }: {
   carte: CarteEvenement;
   maintenant: Date;
   onGeste: Rapport;
+  /**
+   * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — EST-ON DANS L'ÉCRAN PARTAGÉ ? ═════════════════════════════════════
+   *
+   * ACCORD D'ARNO (06/10/2026) : « BLOC “À traiter / En cours / Traité” : il est retiré de l'écran partagé. Sa
+   * fonction n'est pas perdue : elle est ajoutée dans l'en-tête de l'événement sur la fiche du bien (bloc
+   * Événements) et dans la vue de l'événement, même porte d'écriture. »
+   *
+   * 🔴 UNE PROP, ET NON DEUX COMPOSANTS. La carte est rendue par le MÊME code dans la colonne de l'écran partagé
+   * et en plein écran — c'est écrit noir sur blanc dans `GestionVue` (« rendues une seule fois »). Un second
+   * composant aurait fini par diverger sur tout le reste du dossier.
+   *
+   * ⚠️ `false` PAR DÉFAUT, c'est-à-dire « plein écran » : l'état y reste, et toute autre vue qui rendrait cette
+   * carte sans rien dire garde exactement le comportement d'avant ce lot.
+   */
+  partage?: boolean;
+  /**
+   * 🔴 OUVRIR LA FICHE DU BIEN SUR CET ÉVÉNEMENT (Arno, point 1). Absent = aucun bouton : la carte est alors
+   * celle d'avant ce lot, et c'est ce qui la garde rendable hors de `GestionVue`.
+   */
+  onOuvrirBien?: (cleBien: string, evenementId: number) => void;
   /**
    * LOT RATTACHEMENT-2 — ouvre TOUT l'historique de cette carte : ses échanges affectés ET les mails qui lui ont été
    * rattachés à la main. Absent = aucun bouton, et la carte est exactement celle d'avant ce lot.
@@ -116,7 +140,7 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique }: {
       >
         {() => (
           <CorpsCarte evenementId={carte.evenementId} maintenant={maintenant} onDetail={setDetail} onGeste={onGeste}
-            onHistorique={onHistorique} />
+            onHistorique={onHistorique} partage={partage} onOuvrirBien={onOuvrirBien} />
         )}
       </BlocRepliable>
     </li>
@@ -124,9 +148,11 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique }: {
 }
 
 /** Le contenu d'une carte dépliée. Monté au PREMIER dépliage — c'est là, et seulement là, que la requête part. */
-function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique }: {
+function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, partage, onOuvrirBien }: {
   evenementId: number; maintenant: Date; onDetail: (d: CarteDetail) => void; onGeste: Rapport;
   onHistorique?: (cible: Cible) => void;
+  partage: boolean;
+  onOuvrirBien?: (cleBien: string, evenementId: number) => void;
 }) {
   const [etatVue, setEtatVue] = useState<VueCarte>({ v: 'charge' });
   const [occupe, setOccupe] = useState(false);
@@ -186,8 +212,21 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique }
   const d = etatVue.d;
   return (
     <div className="gst-corps">
-      <EtatCarte etat={d.etat} traiteLe={d.traiteLe} traitePar={d.traitePar} occupe={occupe}
-        onEtat={(e) => void agir({ etat: e }, `Événement ${d.reference} : ${libelleEtat(e).toLowerCase()}.`)} />
+      {/**
+        * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — L'ÉTAT, OU LE GROS BOUTON : L'UN OU L'AUTRE ══════════════════
+        *
+        * ACCORD D'ARNO : le bloc « À traiter / En cours / Traité » quitte l'ÉCRAN PARTAGÉ. Sa fonction n'est pas
+        * perdue — elle est ajoutée dans l'en-tête de l'événement sur la fiche du bien, et elle reste ici en plein
+        * écran. **Même porte d'écriture** dans les trois endroits : `PATCH /evenements/[id] { etat }`.
+        *
+        * 🔴 À SA PLACE, DANS L'ÉCRAN PARTAGÉ : « un GROS bouton pleine largeur “Ouvrir la fiche du bien sur cet
+        * événement →” » (Arno). C'est le geste qu'on veut faire depuis l'écran partagé — aller au dossier —, et
+        * non celui qu'on y faisait par défaut d'avoir mieux.
+        */}
+      {partage
+        ? <OuvrirLaFicheDuBien biens={d.biens ?? []} evenementId={evenementId} onOuvrirBien={onOuvrirBien} />
+        : <EtatCarte etat={d.etat} traiteLe={d.traiteLe} traitePar={d.traitePar} occupe={occupe}
+          onEtat={(e) => void agir({ etat: e }, `Événement ${d.reference} : ${libelleEtat(e).toLowerCase()}.`)} />}
 
       {/**
         * ══ 🔴🔴 LOT MONGA-1, POINT 4 — LE BADGE DE L'INTERVENTION, SA DERNIÈRE ÉTAPE, SON LIEN ════════════════
@@ -326,6 +365,92 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique }
             ))}
           </ol>
         </>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — LE GROS BOUTON DE L'ÉCRAN PARTAGÉ ═══════════════════════════════════
+
+   Arno : « un GROS bouton pleine largeur “Ouvrir la fiche du bien sur cet événement →”, qui ouvre la fiche du
+   bien, défile jusqu'au bloc Événements, déplie cet événement et centre sa frise sur la dernière étape. Si
+   l'événement concerne plusieurs biens : petit choix du bien d'abord. »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+function OuvrirLaFicheDuBien({ biens, evenementId, onOuvrirBien }: {
+  biens: { cle: string; adresse: string | null; commune: string | null }[];
+  evenementId: number;
+  onOuvrirBien?: (cleBien: string, evenementId: number) => void;
+}) {
+  const [choix, setChoix] = useState(false);
+
+  /**
+   * ⚠️ UNE FICHE DE BIEN S'ADRESSE PAR SA CLÉ WIPPIMMO, et cette clé s'écrit `bien-<nombre>` dans l'adresse
+   * (`SORTES_FICHE_PAR_CLE`). Une clé qui n'est pas un nombre ne peut donc pas être ouverte — on la DIT plutôt
+   * que de la faire disparaître d'une liste où elle devrait être.
+   */
+  const adressable = (cle: string): boolean => {
+    const n = Number(cle);
+    return Number.isSafeInteger(n) && n > 0;
+  };
+  const mot = (b: { cle: string; adresse: string | null; commune: string | null }): string => {
+    const lieu = [b.adresse, b.commune].filter((x) => x !== null && x !== '').join(', ');
+    return lieu === '' ? `lot ${b.cle}` : `lot ${b.cle} — ${lieu}`;
+  };
+
+  /* ⚠️ AUCUN BIEN : on le DIT. Un bouton qui ne mène nulle part s'apprend, et l'on cesse de le regarder. */
+  if (onOuvrirBien === undefined || biens.length === 0) {
+    return (
+      <div className="gst-bloc">
+        <p className="gst-note">
+          {onOuvrirBien === undefined
+            ? 'L’ouverture de la fiche n’est pas disponible depuis cet écran.'
+            : 'Cet événement n’est rattaché à aucun bien : il n’y a pas de fiche à ouvrir.'}
+        </p>
+      </div>
+    );
+  }
+
+  const ouvrables = biens.filter((b) => adressable(b.cle));
+
+  /* 🔴 UN SEUL BIEN : le bouton y va directement. « Petit choix du bien D'ABORD » ne vaut qu'au pluriel (Arno). */
+  if (ouvrables.length === 1 && biens.length === 1) {
+    return (
+      <div className="gst-bloc">
+        <button type="button" className="svv-btn svv-btn-primary gst-ouvrir-fiche"
+          onClick={() => onOuvrirBien(ouvrables[0].cle, evenementId)}>
+          Ouvrir la fiche du bien sur cet événement →
+        </button>
+        <p className="gst-note">{mot(ouvrables[0])}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="gst-bloc">
+      <button type="button" className="svv-btn svv-btn-primary gst-ouvrir-fiche"
+        aria-expanded={choix} onClick={() => setChoix((c) => !c)}>
+        Ouvrir la fiche du bien sur cet événement →
+      </button>
+      {choix && (
+        <ul className="gst-choix-biens" aria-label="Choisir le bien">
+          {biens.map((b) => (
+            <li key={b.cle}>
+              {adressable(b.cle)
+                ? <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                  onClick={() => onOuvrirBien(b.cle, evenementId)}>{mot(b)}</button>
+                /* ⚠️ IL EST LISTÉ QUAND MÊME, et son impossibilité est écrite : le taire ferait croire que
+                   l'événement ne concerne pas ce bien. */
+                : <span className="gst-note">{mot(b)} — fiche non adressable (clé non numérique)</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!choix && (
+        <p className="gst-note">
+          {biens.length} biens concernés — le choix s’ouvre au clic.
+        </p>
       )}
     </div>
   );
