@@ -124,12 +124,19 @@ describe('🔴🔴 ② la route accepte le MÊME paramètre que /boite', () => {
 
 describe('🔴🔴 ③ même libellé, même place, même état', () => {
   /** 🔴 LES MOTS VIENNENT DU MODULE, DANS LES DEUX ÉCRANS. « Même libellé » ne se tient pas autrement. */
-  it('🔴🔴 les deux écrans lisent les mêmes mots', () => {
+  it('🔴🔴 les mots viennent du module, dans les deux écrans', () => {
     for (const [nom, src] of [['BoiteMail', BTE], ['BoiteReception', BRC]] as const) {
-      expect(src, nom).toContain('motBasculeAutomatique');
       expect(src, nom).toContain('phraseCourrierAutomatique');
       expect(src, nom).toMatch(/from '\.\.\/\.\.\/\.\.\/\.\.\/lib\/gestion\/courrierAutomatique';/);
     }
+    /**
+     * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 2 — LE MOT DE L'INTERRUPTEUR N'EST PLUS QUE DANS LE PLEIN ÉCRAN ═══════
+     *
+     * ACCORD D'ARNO (06/10/2026) : le lien est RETIRÉ de l'écran partagé. La PHRASE reste dans les deux — elle
+     * renseigne (« N mails ne sont pas affichés ici ») au lieu de proposer un geste.
+     */
+    expect(BTE).toContain('motBasculeAutomatique');
+    expect(BRC).not.toContain('motBasculeAutomatique');
     /* ⚠️ ET PLUS AUCUNE FORMULATION EN DUR dans le plein écran : elle y était, en JSX. */
     expect(BTE).not.toContain('Afficher aussi le courrier automatique<');
     expect(BTE).not.toContain("'Masquer le courrier automatique'");
@@ -182,7 +189,7 @@ describe('🔴🔴 ③ même libellé, même place, même état', () => {
       'Le courrier automatique est inclus : il ajoute 1 mail à cette liste.');
     expect(phraseCourrierAutomatique(-4, false, 'mail')).toBe(
       'Le courrier automatique retire 4 mails de cette liste. Rien n’est supprimé.');
-    expect(BRC).toContain("phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')");
+    expect(BRC).toContain("phraseCourrierAutomatique(etat.automatiquesIci, false, 'mail')");
   });
 
   /** 🔴 LE MOT DU BOUTON DIT CE QUE LE CLIC VA FAIRE, jamais l'état où l'on est. */
@@ -196,12 +203,27 @@ describe('🔴🔴 ③ même libellé, même place, même état', () => {
    * passe au plein écran depuis toujours, et désormais à la colonne. Un `useState` local aurait donné deux
    * interrupteurs capables de se contredire — et c'est l'un des deux qu'on aurait cru.
    */
-  it('🔴🔴 un seul `useState`, passé aux deux écrans', () => {
+  it('🔴🔴 un seul `useState`, et il ne part plus que vers le PLEIN ÉCRAN', () => {
     expect(VUE).toContain('const [auto, setAuto] = useState(false);');
-    expect((VUE.match(/auto=\{auto\} onAuto=\{setAuto\}/g) ?? [])).toHaveLength(2);
-    /* ⚠️ ET LA COLONNE N'EN FABRIQUE PAS UN DEUXIÈME : elle le reçoit, point. */
-    expect(BRC).toContain('auto = false, onAuto,');
-    expect(BRC).not.toContain('const [auto, setAuto] = useState');
+    /**
+     * ══ 🔴🔴 CE COMPTE EST PASSÉ DE 2 À 1 — LOT ACCUEIL-GESTION, POINT 2 ═════════════════════════════════════
+     *
+     * L'état était passé AUX DEUX colonnes pour qu'elles partagent un seul interrupteur (lot
+     * RENOMMER-PARTOUT-ET-FINITIONS, point 8). Arno retire l'interrupteur de l'écran partagé : cette colonne n'a
+     * donc plus d'état à recevoir. Le lui passer quand même, pour qu'elle l'ignore, se relirait six mois plus
+     * tard comme un défaut.
+     */
+    expect((VUE.match(/auto=\{auto\} onAuto=\{setAuto\}/g) ?? [])).toHaveLength(1);
+    /**
+     * 🔴 ET LA COLONNE N'EN FABRIQUE PAS UN À ELLE : elle n'a plus d'interrupteur du tout.
+     *
+     * ⚠️ ON LIT LE CODE, COMMENTAIRES RETIRÉS. L'encadré de ce fichier EXPLIQUE que `onAuto` est parti — chercher
+     * le mot dans le fichier entier ferait donc rougir l'épreuve à cause de sa propre explication, et pousserait
+     * à effacer l'explication plutôt qu'à garder la règle.
+     */
+    const brcCode = BRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(brcCode).not.toContain('onAuto');
+    expect(brcCode).not.toContain('const [auto, setAuto] = useState');
   });
 
   /**
@@ -219,12 +241,16 @@ describe('🔴🔴 ③ même libellé, même place, même état', () => {
    * ⚠️ `onAuto` ABSENT ⇒ TOUJOURS PAS DE BOUTON : on ne propose jamais un geste qui n'irait nulle part. Cette
    * moitié-là de la règle ne bouge pas.
    */
-  it('🔴🔴 le bouton ne dépend plus du nombre — seule la PHRASE en dépend', () => {
-    expect(BRC).toContain('etat.v === \'ok\' && onAuto !== undefined && (');
-    /* 🔴 LA CONDITION DE NOMBRE EST PASSÉE SUR LA PHRASE, et sur elle seule.
-       ⚠️ ET ELLE EST DEVENUE `!== 0` AU POINT 2 : le delta est signé, un retrait se dit autant qu'un ajout. */
-    expect(BRC).toContain('{etat.automatiquesIci !== null && etat.automatiquesIci !== 0 && (');
-    expect(BRC).toContain("phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')");
+  it('🔴🔴 sur l’écran partagé, il ne reste QUE la phrase, et elle dépend du nombre', () => {
+    /**
+     * ⚠️ `!== 0` ET NON `> 0` : le delta est signé depuis le lot RECEPTION-COURRIER-AUTO-CONTENU (point 2), et un
+     * retrait se dit autant qu'un ajout. Cette moitié-là ne bouge pas.
+     *
+     * 🔴 LOT ACCUEIL-GESTION, POINT 2 — la phrase est désormais lue avec `false` EN DUR : cette colonne n'a plus
+     * d'état d'interrupteur, et elle montre toujours la Réception sans courrier automatique.
+     */
+    expect(BRC).toContain('etat.v === \'ok\' && etat.automatiquesIci !== null && etat.automatiquesIci !== 0 && (');
+    expect(BRC).toContain("phraseCourrierAutomatique(etat.automatiquesIci, false, 'mail')");
   });
 
   /**
@@ -238,16 +264,28 @@ describe('🔴🔴 ③ même libellé, même place, même état', () => {
    * encore écrit, il ne s'affichait simplement plus. Une épreuve qui se contenterait de chercher le mot dans le
    * fichier serait passée au vert pendant toute la disparition.
    */
-  it('🔴🔴 LE LIEN EXISTE SUR LES DEUX ÉCRANS, et rien ne le conditionne à un nombre', () => {
-    for (const [nom, src] of [['plein écran', BTE], ['écran partagé', BRC]] as const) {
-      expect(src, nom).toContain('motBasculeAutomatique(auto)');
-      expect(src, nom).toContain('className="gst-lien-bouton" aria-pressed={auto}');
-    }
-    /* 🔴 LE PLEIN ÉCRAN : la condition d'affichage ne retient que la recherche et l'étiquette imposée. */
+  it('🔴🔴 LE LIEN EXISTE EN PLEIN ÉCRAN, ET NULLE PART AILLEURS', () => {
+    /**
+     * ══ 🔴🔴 CETTE ÉPREUVE A CHANGÉ DE VERDICT — LOT ACCUEIL-GESTION, POINT 2 (06/10/2026) ════════════════════
+     *
+     * ELLE TENAIT : « le lien existe sur LES DEUX écrans, et rien ne le conditionne à un nombre » — la garde
+     * qu'Arno avait demandée le 05/10 après l'avoir vu disparaître des deux.
+     *
+     * 🔴 ACCORD D'ARNO DU 06/10, mot pour mot : « sur l'écran partagé, le lien est RETIRÉ, et la colonne mail
+     * affiche toujours la Réception SANS courrier automatique, quel que soit l'état choisi en plein écran. En
+     * plein écran, le lien et son comportement restent INCHANGÉS. » La garde n'est donc pas relâchée : elle est
+     * RETOURNÉE, et elle exige maintenant les deux moitiés de la décision — présent d'un côté, absent de
+     * l'autre. Un retour silencieux du lien dans la colonne ferait rougir cette épreuve.
+     */
+    expect(BTE).toContain('motBasculeAutomatique(auto)');
+    expect(BTE).toContain('className="gst-lien-bouton" aria-pressed={auto}');
+    /* 🔴 LE PLEIN ÉCRAN : rien n'a bougé. La condition ne retient que la recherche et l'étiquette imposée. */
     expect(BTE).toContain('{!cherche && impose === null && (');
     expect(BTE).not.toContain('impose === null && etat.comptes !== null && automatiquesAffiches > 0');
-    /* 🔴 L'ÉCRAN PARTAGÉ : elle ne retient que « le geste est possible ». */
-    expect(BRC).not.toContain('&& etat.automatiquesIci > 0 && (');
+    /* 🔴🔴 L'ÉCRAN PARTAGÉ : plus de bouton, plus d'état, plus de paramètre `?auto=1`. */
+    expect(BRC).not.toContain('motBasculeAutomatique(auto)');
+    expect(BRC).not.toContain('aria-pressed={auto}');
+    expect(BRC).not.toContain("auto: '1'");
   });
 
   /**
@@ -256,9 +294,13 @@ describe('🔴🔴 ③ même libellé, même place, même état', () => {
    * apparaîtraient ou manqueraient au milieu de la liste.
    */
   it('🔴🔴 « voir plus » garde le même filtre que la page affichée', () => {
-    expect(BRC).toContain("filtre, avant: etat.suivant.recuLe, apres: etat.suivant.messageId, "
-      + "...(auto ? { auto: '1' } : {}),");
-    /* 🔴 ET L'INTERRUPTEUR RELIT LA LISTE : il est une dépendance de l'effet, pas un drapeau lu au geste suivant. */
-    expect(BRC).toContain('}, [charger, filtre, auto]);');
+    /**
+     * 🔴 LOT ACCUEIL-GESTION, POINT 2 — LES DEUX PAGES SONT « SANS COURRIER AUTOMATIQUE », et la règle tient
+     * toujours : la page suivante est filtrée comme celle qu'on lit. Sans cela, des mails apparaîtraient au
+     * milieu de la liste. Simplement, il n'y a plus qu'un seul filtre possible ici.
+     */
+    expect(BRC).toContain('filtre, avant: etat.suivant.recuLe, apres: etat.suivant.messageId,');
+    expect(BRC).toContain('void charger(filtre);');
+    expect(BRC).toContain('}, [charger, filtre]);');
   });
 });

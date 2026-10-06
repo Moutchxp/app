@@ -12,7 +12,7 @@ import { motMailsRecus } from '../../../../lib/gestion/uniteListe';
  * seule fois pour les deux écrans. Module PUR : il porte aussi le prédicat SQL que les deux dépôts appliquent, ce
  * qui est la seule façon de garantir qu'un même courrier est filtré pareil des deux côtés.
  */
-import { motBasculeAutomatique, phraseCourrierAutomatique } from '../../../../lib/gestion/courrierAutomatique';
+import { phraseCourrierAutomatique } from '../../../../lib/gestion/courrierAutomatique';
 
 /**
  * LOT STATUT-PAR-MAIL — LA BOÎTE DE RÉCEPTION DE `gestion@criterimmo.fr`, UN MAIL PAR LIGNE.
@@ -85,21 +85,28 @@ const FILTRES: readonly { cle: Filtre; mot: string; aide: string; exigeHorsGesti
 ];
 
 export function BoiteReception({
-  maintenant, onOuvrir, onPleinEcran, onFileEchanges, compteEchanges, auto = false, onAuto,
+  maintenant, onOuvrir, onPleinEcran, onFileEchanges, compteEchanges,
 }: {
   maintenant: Date;
   /**
-   * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — L'ÉTAT EST PARTAGÉ, PAS DUPLIQUÉ ════════════════════════
+   * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 2 — PLUS D'INTERRUPTEUR ICI, ET PLUS D'ÉTAT NON PLUS ═════════════════════
    *
-   * Arno : « MÊME état partagé entre les deux écrans (activé d'un côté = activé de l'autre) ». Il est donc tenu
-   * par `GestionVue`, qui rend LES DEUX colonnes — et passé ici comme il est déjà passé au plein écran. Un
-   * `useState` local aurait donné deux interrupteurs qui se contredisent, ce qui est pire qu'un seul.
+   * ACCORD D'ARNO (06/10/2026) : « sur l'écran partagé, le lien est retiré, et la colonne mail affiche TOUJOURS
+   * la Réception SANS courrier automatique, QUEL QUE SOIT l'état choisi en plein écran. En plein écran, le lien
+   * et son comportement restent inchangés. »
    *
-   * ⚠️ `auto = false` PAR DÉFAUT : un appelant qui l'ignore se comporte comme avant ce point.
+   * 🔴 LES PROPS `auto` ET `onAuto` SONT PARTIES, et c'est la moitié qui compte. Les garder en les ignorant
+   * aurait laissé croire, à la lecture, que cette colonne suit encore l'interrupteur du plein écran — alors
+   * qu'elle ne le suit plus. « Quel que soit l'état choisi en plein écran » se tient en ne CONNAISSANT pas cet
+   * état, pas en l'ignorant poliment.
+   *
+   * ⚠️ CE QUI N'EST PAS RETIRÉ : la PHRASE. Elle dit, quand il y a un nombre à dire, combien de mails ne sont pas
+   * affichés ici. Arno a accordé le retrait du LIEN ; la phrase renseigne sans rien proposer, et elle reste.
+   * (Mesuré de nouveau le 06/10/2026 : zéro message REÇU écarté par une règle — elle ne s'affiche donc pas
+   * aujourd'hui. Elle parlera le jour où une règle en écartera un.)
+   *
+   * ⚠️ LE PLEIN ÉCRAN, LUI, N'EST PAS TOUCHÉ : `BoiteMail` garde son lien, son état et son `?auto=1`.
    */
-  auto?: boolean;
-  /** `undefined` ⇒ le bouton n'est pas rendu : on ne propose pas un geste qui n'irait nulle part. */
-  onAuto?: (v: boolean) => void;
   /** Ouvre le mail — déplié dans sa conversation, par la règle du lot MESSAGE-CLIQUÉ. */
   onOuvrir: (filId: number, messageId: number) => void;
   /**
@@ -117,11 +124,18 @@ export function BoiteReception({
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [suite, setSuite] = useState(false);
 
-  /* 🔴 POINT 8 — `?auto=1`, LE MÊME PARAMÈTRE QUE LE PLEIN ÉCRAN, écrit ici une seule fois pour les deux appels. */
-  const charger = useCallback(async (f: Filtre, tous: boolean) => {
+  /**
+   * 🔴🔴 LOT ACCUEIL-GESTION, POINT 2 — PLUS DE PARAMÈTRE `?auto=1` DANS CETTE COLONNE.
+   *
+   * Le lot RENOMMER-PARTOUT-ET-FINITIONS (point 8) l'avait câblé pour que les deux écrans partagent le même
+   * interrupteur. Arno retire l'interrupteur d'ici : la question ne se pose plus, et garder un paramètre
+   * toujours absent aurait laissé croire qu'elle se pose encore. La route, elle, l'accepte toujours — c'est le
+   * PLEIN ÉCRAN qui s'en sert.
+   */
+  const charger = useCallback(async (f: Filtre) => {
     setEtat({ v: 'charge' });
     try {
-      const p = new URLSearchParams({ filtre: f, ...(tous ? { auto: '1' } : {}) });
+      const p = new URLSearchParams({ filtre: f });
       const res = await fetch(`/api/admin/gestion/reception?${p}`, { cache: 'no-store' });
       const d = (await res.json()) as { etat?: string; message?: string } & Omit<Etat & { v: 'ok' }, 'v'>;
       if (d.etat !== 'ok') { setEtat({ v: 'erreur', message: d.message ?? 'Lecture impossible.' }); return; }
@@ -134,9 +148,9 @@ export function BoiteReception({
     }
   }, []);
 
-  /* 🔴 L'INTERRUPTEUR RELIT LA LISTE, comme le filtre : `auto` est donc une dépendance de l'effet, et non un
-     drapeau qu'on lirait au prochain geste. Sans cela, le bouton changerait d'état sans changer la liste. */
-  useEffect(() => { void charger(filtre, auto); }, [charger, filtre, auto]);
+  /* 🔴 LOT ACCUEIL-GESTION, POINT 2 — LE FILTRE SEUL RELIT LA LISTE. Cette colonne ne demande JAMAIS le courrier
+     automatique : c'est la traduction littérale de « quel que soit l'état choisi en plein écran ». */
+  useEffect(() => { void charger(filtre); }, [charger, filtre]);
 
   /** « Voir les mails plus anciens » : on AJOUTE à la liste, on ne la remplace pas. */
   const voirPlus = async (): Promise<void> => {
@@ -147,7 +161,9 @@ export function BoiteReception({
          que celle qu'on lit : des mails apparaîtraient ou manqueraient au milieu de la liste, et l'ordre
          chronologique strict qu'Arno demande serait rompu sur l'ensemble. */
       const p = new URLSearchParams({
-        filtre, avant: etat.suivant.recuLe, apres: etat.suivant.messageId, ...(auto ? { auto: '1' } : {}),
+        /* ⚠️ ET « VOIR PLUS » NON PLUS : la page suivante est filtrée comme celle qu'on lit — sans quoi des
+           mails apparaîtraient au milieu de la liste. Ici, les deux sont « sans courrier automatique ». */
+        filtre, avant: etat.suivant.recuLe, apres: etat.suivant.messageId,
       });
       const res = await fetch(`/api/admin/gestion/reception?${p}`, { cache: 'no-store' });
       const d = (await res.json()) as { etat?: string } & Omit<Etat & { v: 'ok' }, 'v'>;
@@ -195,18 +211,21 @@ export function BoiteReception({
 
               ⚠️ UN `span`, PAS UN `p` : ce bloc vit dans un `h2`, et un paragraphe dans un titre est du HTML
               invalide. Le bouton, lui, y est parfaitement légitime. */}
-          {etat.v === 'ok' && onAuto !== undefined && (
-            <span className="brc-tait">
-              {/* 🔴🔴 LOT RECEPTION-COURRIER-AUTO-CONTENU, POINT 2 — `!== 0`, ET NON `> 0` : le delta est signé
-                  désormais, et un retrait doit se dire autant qu'un ajout. */}
-              {etat.automatiquesIci !== null && etat.automatiquesIci !== 0 && (
-                <>{phraseCourrierAutomatique(etat.automatiquesIci, auto, 'mail')}{' '}</>
-              )}
-              <button type="button" className="gst-lien-bouton" aria-pressed={auto}
-                onClick={() => onAuto(!auto)}>
-                {motBasculeAutomatique(auto)}
-              </button>
-            </span>
+          {/* ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 2 — LE LIEN EST RETIRÉ D'ICI (accord d'Arno, 06/10/2026) ══════
+
+              Il y était depuis le lot RENOMMER-PARTOUT-ET-FINITIONS (point 8), puis remis au lot
+              RECEPTION-COURRIER-AUTO-LIEN. Arno le retire de l'ÉCRAN PARTAGÉ : cette colonne montre désormais la
+              Réception sans courrier automatique, toujours, et il n'y a donc plus rien à basculer.
+
+              ⚠️ EN PLEIN ÉCRAN, RIEN NE CHANGE : `BoiteMail` garde le lien, son état et son `?auto=1`. Une
+              épreuve de garde l'exige dans un fichier et l'interdit dans l'autre.
+
+              ⚠️ LA PHRASE RESTE, parce qu'elle RENSEIGNE au lieu de proposer : s'il existe des mails reçus
+              écartés par une règle, cette colonne le DIT. Elle ne s'affiche pas aujourd'hui (zéro, mesuré).
+
+              ⚠️ UN `span`, PAS UN `p` : ce bloc vit dans un `h2`, et un paragraphe dans un titre est invalide. */}
+          {etat.v === 'ok' && etat.automatiquesIci !== null && etat.automatiquesIci !== 0 && (
+            <span className="brc-tait">{phraseCourrierAutomatique(etat.automatiquesIci, false, 'mail')}</span>
           )}
         </h2>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onPleinEcran}>

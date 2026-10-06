@@ -1310,14 +1310,20 @@ export function GestionVue({ intro }: {
             onFileEchanges={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}
             compteEchanges={d.filsTotal}
             /**
-             * ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — LE MÊME `auto` QUE LE PLEIN ÉCRAN ═════════════
+             * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 2 — `auto` NE PART PLUS VERS CETTE COLONNE ═══════════════════════
              *
-             * Arno : « MÊME état partagé entre les deux écrans (activé d'un côté = activé de l'autre) ». C'est
-             * littéralement la MÊME variable d'état : celle qui part déjà à `PleinEcranBoite` quelques lignes plus
-             * haut. Un second `useState` dans la colonne aurait donné deux interrupteurs capables de se
-             * contredire — et c'est l'un des deux qu'on aurait cru.
+             * ACCORD D'ARNO (06/10/2026) : « sur l'écran partagé, le lien est retiré, et la colonne mail affiche
+             * TOUJOURS la Réception SANS courrier automatique, quel que soit l'état choisi en plein écran ».
+             *
+             * 🔴 LE LOT RENOMMER-PARTOUT-ET-FINITIONS (point 8) l'y avait amené pour que les deux écrans partagent
+             * un seul interrupteur. Arno retire l'interrupteur d'ICI : la colonne n'a donc plus d'état à
+             * recevoir, et ne pas le lui passer est la seule façon honnête de le dire — un composant qui reçoit
+             * une valeur qu'il ignore se relit six mois plus tard comme un défaut.
+             *
+             * ⚠️ `auto` NE DISPARAÎT PAS : il reste la variable du PLEIN ÉCRAN, passée à `PleinEcranBoite`
+             * quelques lignes plus haut, avec son interrupteur et son comportement inchangés.
              */
-            auto={auto} onAuto={setAuto} />
+             />
 
           {/* LA FILE DES ÉCHANGES SANS ÉVÉNEMENT — conservée telle quelle, repliée par défaut. Elle garde son
               plein écran, sa fenêtre d'activité, ses gestes et son compteur : aucun n'est retiré. */}
