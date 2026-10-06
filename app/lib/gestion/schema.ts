@@ -1114,3 +1114,22 @@ export function ficheContactCarteDisponible(): Promise<boolean> {
   return memoiser('colonne.gestion_contact_carte.coordonnees',
     () => colonneExiste('gestion_contact_carte', 'coordonnees'));
 }
+
+/**
+ * ══ 🔴🔴 LOT MONGA-1, POINT 1 — LA MIGRATION 311 : LES INTERVENTIONS MONGA ════════════════════════════════════
+ *
+ * Elle apporte les deux tables du lot : `gestion_monga_mail` (ce que DIT chaque mail Monga) et
+ * `gestion_monga_lien` (le lien référence ↔ événement, décidé par un clic d'Arno).
+ *
+ * 🔴 UNE SEULE SONDE POUR LES DEUX, parce qu'une seule migration les apporte toutes les deux, dans la même
+ * transaction. Deux sondes auraient autorisé un état intermédiaire qui n'existe pas — et c'est une branche
+ * d'écran à tenir pour rien.
+ *
+ * 🔴 TANT QU'ELLE RÉPOND « NON », MONGA N'EXISTE PAS POUR L'APPLICATION : les mails Monga restent du courrier
+ * ordinaire, ils passent par « À classer » et « À rattacher » comme avant, et aucun encart ne s'affiche. C'est
+ * exactement le comportement d'aujourd'hui — pas un écran dégradé, l'écran d'avant. Nommer une table absente
+ * ferait tomber la file ENTIÈRE (leçon de la migration 251, repayée au lot 4a).
+ */
+export function mongaDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_monga_lien', () => tableExiste('gestion_monga_lien'));
+}
