@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+/* 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — la ligne quitte la colonne dans l'image du clic. */
+import { ecouterCorbeille, ligneQuitteLaListe } from '../../../../lib/gestion/signalCorbeille';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { Trombone } from './Trombone';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
@@ -123,6 +125,42 @@ export function BoiteReception({
   const [filtre, setFiltre] = useState<Filtre>('tous');
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [suite, setSuite] = useState(false);
+
+  /**
+   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — CE QUI VIENT DE PARTIR À LA CORBEILLE ═══════════════════
+   *
+   * CONSTAT D'ARNO : le mail jeté « reste visible dans la boîte quelques secondes […] il est aux deux endroits ».
+   * Cette colonne-ci n'était prévenue par personne, et elle ne se relit QUE sur changement de filtre : la ligne
+   * pouvait donc rester affichée bien plus que « quelques secondes » — jusqu'au prochain clic sur un filtre.
+   *
+   * 🔴 ICI LES **DEUX** DÉSIGNATIONS COMPTENT, et c'est la seule liste du module dans ce cas : ses lignes sont des
+   * MAILS (un par message reçu), pas des échanges. Jeter l'échange emporte donc toutes ses lignes (`filIds`),
+   * et jeter un message n'en emporte qu'une (`messageIds`). Ne lire que `filIds` aurait laissé la grande corbeille
+   * du mail ouvert sans effet ici ; ne lire que `messageIds` aurait laissé la barre de survol sans effet.
+   *
+   * ⚠️ CETTE COLONNE N'EST JAMAIS LA CORBEILLE (elle montre les mails REÇUS, et la Corbeille est une étiquette du
+   * plein écran) : `ligneQuitteLaListe` est donc appelée avec `false`, sans condition à tenir.
+   */
+  const [partis, setPartis] = useState<{ fils: Set<number>; messages: Set<number> }>(
+    { fils: new Set(), messages: new Set() },
+  );
+  useEffect(() => ecouterCorbeille((s) => {
+    const quitte = ligneQuitteLaListe(s, false);
+    setPartis((old) => {
+      const fils = new Set(old.fils);
+      const messages = new Set(old.messages);
+      for (const id of s.filIds) { if (quitte) fils.add(id); else fils.delete(id); }
+      for (const id of s.messageIds) { if (quitte) messages.add(id); else messages.delete(id); }
+      return { fils, messages };
+    });
+  }), []);
+  /**
+   * 🔴 CE QUE LA COLONNE MONTRE VRAIMENT — lu par la liste ET par le « aucun mail » : sans quoi une page dont la
+   * dernière ligne vient de partir afficherait une liste vide sans la phrase qui l'explique.
+   */
+  const lignesVues = etat.v === 'ok'
+    ? etat.lignes.filter((l) => !partis.fils.has(l.filId) && !partis.messages.has(l.messageId))
+    : [];
 
   /**
    * 🔴🔴 LOT ACCUEIL-GESTION, POINT 2 — PLUS DE PARAMÈTRE `?auto=1` DANS CETTE COLONNE.
@@ -260,7 +298,7 @@ export function BoiteReception({
       <div className="gst-corps-partage">
       {etat.v === 'charge' && <p className="gst-info" role="status">Lecture de la boîte…</p>}
       {etat.v === 'erreur' && <p className="gst-tronc" role="alert">{etat.message}</p>}
-      {etat.v === 'ok' && etat.lignes.length === 0 && (
+      {etat.v === 'ok' && lignesVues.length === 0 && (
         <p className="gst-tronc">
           {filtre === 'a_classer' ? 'Aucun mail reçu n’attend d’être classé.'
             : filtre === 'classes' ? 'Aucun mail reçu n’est encore classé.'
@@ -269,9 +307,9 @@ export function BoiteReception({
         </p>
       )}
 
-      {etat.v === 'ok' && etat.lignes.length > 0 && (
+      {etat.v === 'ok' && lignesVues.length > 0 && (
         <ul className="brc-liste">
-          {etat.lignes.map((l) => (
+          {lignesVues.map((l) => (
             <li key={l.messageId} className="brc-li">
               {/* UN CLIC OUVRE LE MAIL, déplié dans sa conversation — règle du lot MESSAGE-CLIQUÉ, inchangée. */}
               <button type="button" className="brc-ligne" onClick={() => onOuvrir(l.filId, l.messageId)}>

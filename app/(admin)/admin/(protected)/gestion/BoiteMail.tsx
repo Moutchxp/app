@@ -57,6 +57,8 @@ import { BarreLigne, CSS_BARRE_LIGNE, Etoile } from './BarreLigne';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — la porte d'écriture UNIQUE de l'étoile, et son annonce aux autres écrans. */
 import { gesteEtoileFil } from './gestesLigne';
 import { ecouterEtoile } from '../../../../lib/gestion/signalEtoile';
+/* 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — la ligne quitte la liste dans l'image du clic. */
+import { ecouterCorbeille, ligneQuitteLaListe } from '../../../../lib/gestion/signalCorbeille';
 // 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — les mots du picto « brouillon en attente », écrits une seule fois.
 import { AIDE_BROUILLON_EN_ATTENTE, PICTO_BROUILLON } from '../../../../lib/gestion/brouillonEnAttente';
 // 🔴 LOT LISTE-PAGINATION — un TRACÉ et non un emoji : lui seul suit la couleur du texte (voir son encadré).
@@ -732,6 +734,58 @@ export function BoiteMail({
     setEtoilees((m) => new Map(m).set(filId, etoilee));
   }), []);
 
+  /**
+   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — LES ÉCHANGES QUI VIENNENT DE QUITTER CETTE LISTE ═════════
+   *
+   * CONSTAT D'ARNO : « après la mise à la corbeille, le mail apparaît dans la Corbeille mais reste visible dans la
+   * boîte quelques secondes. Il est aux deux endroits, ce qui est impossible. »
+   *
+   * 🔴 CE QUE ÇA REMPLACE : rien du tout. Cette liste n'était prévenue par PERSONNE. Elle apprenait le départ
+   * d'une ligne soit par la relecture entière que l'écran déclenchait après la réponse (deux allers-retours), soit
+   * — depuis le mail ouvert — par le battement de 30 s de l'écran vivant.
+   *
+   * 🔴 UN ENSEMBLE DE CÔTÉ, ET NON UN RETRAIT DANS `etat.lignes`. Retirer la ligne du tableau la ferait revenir,
+   * en cas de refus, à une place qu'il faudrait avoir mémorisée — son rang, qui dépend de la page et du tri. Ici
+   * la liste du serveur n'est pas touchée : on MASQUE, et un retrait de l'ensemble remet la ligne exactement là
+   * où elle était, sans rien avoir eu à retenir.
+   *
+   * ⚠️ ON NE LE VIDE PAS À LA RELECTURE, et c'est voulu : la relecture qui suit le geste ne rend plus la ligne,
+   * donc le masque n'a plus d'effet ; mais celle qui se croise avec l'écriture (l'écran vivant, par exemple) peut
+   * encore la rendre. Un ensemble qui se vide trop tôt ferait réapparaître une ligne déjà partie — le défaut
+   * même qu'on répare. Les identifiants qu'il garde ne coûtent rien.
+   */
+  const [partis, setPartis] = useState<Set<number>>(new Set());
+  useEffect(() => ecouterCorbeille((s) => {
+    if (s.filIds.length === 0) return;
+    /**
+     * 🔴 LE SENS EST CALCULÉ PAR LE MODULE PUR, et non ici : dans la Corbeille c'est la RÉINTÉGRATION qui fait
+     * sortir, partout ailleurs la mise à la corbeille — et la suppression définitive fait sortir des deux. Écrite
+     * dans chaque liste, cette inversion aurait fini à l'envers d'un côté.
+     */
+    /**
+     * ⚠️ `etiquette.sorte === 'corbeille'` ET SURTOUT PAS LA PROPRIÉTÉ `corbeille` — piège rencontré à l'écriture
+     * de ce lot : `corbeille` dit si le GESTE est disponible (la migration est-elle appliquée), pas si la liste
+     * affichée EST la Corbeille. L'avoir confondue aurait inversé le sens dans TOUTES les listes dès que le geste
+     * est disponible, c'est-à-dire partout : la ligne jetée serait restée, et les autres auraient disparu.
+     */
+    const quitte = ligneQuitteLaListe(s, etiquette.sorte === 'corbeille');
+    setPartis((old) => {
+      const n = new Set(old);
+      for (const id of s.filIds) { if (quitte) n.add(id); else n.delete(id); }
+      return n;
+    });
+  }), [etiquette.sorte]);
+  /**
+   * 🔴🔴 ET LE MASQUE SE VIDE QUAND ON CHANGE D'ÉTIQUETTE — SANS QUOI LE CORRECTIF SE RETOURNE. Le masque dit
+   * « ces lignes ont quitté LA LISTE QU'ON REGARDE ». Passer de Réception à la Corbeille change de liste : les
+   * mêmes échanges y sont alors légitimement présents, et un masque conservé les aurait rendus INVISIBLES dans la
+   * Corbeille — soit le mail nulle part, là où le défaut d'origine le montrait à deux endroits.
+   *
+   * ⚠️ NI LA RECHERCHE NI LES FILTRES NE LE VIDENT, et c'est la même raison lue dans l'autre sens : ils regardent
+   * la même liste, d'où la ligne est bien partie.
+   */
+  useEffect(() => { setPartis(new Set()); }, [etiquette.sorte]);
+
   const cherche = critereActif(critere);
   /**
    * LOT ÉCRAN-VIVANT — la liste peut-elle se relire sans détruire le travail en cours ? UNE seule définition, lue par
@@ -931,8 +985,18 @@ export function BoiteMail({
    * NOMMER, et au moment où il s'affiche la ligne a déjà quitté la liste : on ne peut plus la relire. Elle voyage
    * donc avec la clé, qui est de toute façon ce que l'effet surveille.
    */
+  /**
+   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — CE QUE LA LISTE MONTRE VRAIMENT ═════════════════════════
+   *
+   * `etat.lignes` est ce que le SERVEUR a rendu ; ceci est ce qu'on AFFICHE. Les deux divergent le temps qu'une
+   * mise à la corbeille s'enregistre, et tout ce qui parle de l'affichage doit lire celle-ci : le compte des deux
+   * barres de pagination, le message « aucun échange », la hauteur du squelette, la mention de fin, et la clé qui
+   * remonte la page au parent — sans quoi l'écran annoncerait « 25 » au-dessus de 24 lignes, et une case cochée
+   * resterait vivante sur un mail qu'on ne voit plus.
+   */
+  const lignesVues = etat.v === 'ok' ? etat.lignes.filter((l) => !partis.has(l.filId)) : [];
   const cleAffiches = etat.v === 'ok'
-    ? etat.lignes.filter((l) => l.filId > 0)
+    ? lignesVues.filter((l) => l.filId > 0)
       .map((l) => `${l.filId}:${l.nbCorbeille ?? 0}:${boiteOrigine({
         sens: l.dernierSens, spam: l.spam === true, lisibles: l.nbLisibles,
       })}`).join(',')
@@ -1182,7 +1246,7 @@ export function BoiteMail({
    * partout » ne veut rien dire si chaque écran en écrit sa version.
    */
   const rendreBarre = (ou: 'haut' | 'bas') => (
-    <BarrePages ou={ou} page={page} lignes={etat.lignes.length} total={nombreDeLaListe}
+    <BarrePages ou={ou} page={page} lignes={lignesVues.length} total={nombreDeLaListe}
       // 🔴 LE SERVEUR DÉCIDE S'IL Y A UNE SUITE, jamais une soustraction : voir l'encadré de `barrePagination`.
       suite={etat.suivant !== null} occupe={suite} onPage={(v) => void allerPage(v)} />
   );
@@ -1543,7 +1607,7 @@ export function BoiteMail({
         </div>
       )}
 
-      {etat.lignes.length === 0 && !(cherche && etat.brouillons.lignes.length > 0)
+      {lignesVues.length === 0 && !(cherche && etat.brouillons.lignes.length > 0)
         ? <p className="gst-vide">{
             /* LOT FILTRE-ETOILE — le filtre passe AVANT les autres messages : « aucun échange sous Réception »
                serait faux et inquiétant alors qu'il y en a 8 471, dont aucun d'étoilé. */
@@ -1566,7 +1630,7 @@ export function BoiteMail({
           <>
             <p className="gst-info bte-sr" role="status">Chargement de la page…</p>
             <ul className={`gst-liste bte-liste${dense ? ' bte-liste--dense' : ''}`} aria-hidden="true">
-              {Array.from({ length: Math.min(Math.max(etat.lignes.length, 6), 25) }, (_, i) => (
+              {Array.from({ length: Math.min(Math.max(lignesVues.length, 6), 25) }, (_, i) => (
                 <li key={`sq-${i}`} className="bte-ligne bte-squelette">
                   <span className="bte-sq bte-sq--qui" />
                   <span className="bte-sq bte-sq--objet" />
@@ -1577,7 +1641,7 @@ export function BoiteMail({
           </>
         ) : (
           <ul className={`gst-liste bte-liste${dense ? ' bte-liste--dense' : ''}`}>
-            {etat.lignes.map((l) => {
+            {lignesVues.map((l) => {
               // LOT 5-BOITE — « non lu » = au moins un message REÇU que JE n'ai pas ouvert. Le serveur l'a calculé
               //   pour ma session ; la liste ne fait que l'afficher.
               const nonLu = etat.nonLus.has(l.filId);
@@ -1889,7 +1953,7 @@ export function BoiteMail({
       {/* ⚠️ LA MENTION DE FIN RESTE, et elle n'est PAS redondante avec « 8 526–8 546 sur 8 546 » : elle dit que le
           plus ancien message de la boîte est atteint, c'est-à-dire qu'il n'en existe pas d'autre en base — ce que
           le nombre, lui, ne dit pas (il pourrait rester des pages qu'un filtre écarte). */}
-      {etat.suivant === null && etat.lignes.length > 0 && (
+      {etat.suivant === null && lignesVues.length > 0 && (
         <p className="gst-tronc">Vous avez atteint le plus ancien message de la boîte.</p>
       )}
 

@@ -44,13 +44,27 @@ describe('🔴🔴 ① le mécanisme est celui qui existe', () => {
     expect(ROUTE).toContain('.slice(0, MESSAGES_MAX)');
   });
 
-  /** 🔴 ET L'ÉCRAN PASSE PAR LA MÊME FONCTION que la corbeille d'une ligne : `appelerCorbeille`. */
+  /**
+   * 🔴 ET L'ÉCRAN PASSE PAR LA MÊME FONCTION que la corbeille d'une ligne : `appelerCorbeille`.
+   *
+   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — `appelerCorbeille({` EST DEVENU `appelerCorbeille(` ══════
+   *
+   * CETTE ÉPREUVE EXIGEAIT L'ACCOLADE COLLÉE, c'est-à-dire un appel à UN seul argument littéral. Elle a changé de
+   * forme, pas de verdict : l'appel prend maintenant un troisième argument (le fil que ce message vide, pour
+   * l'annonce seule — voir `signalCorbeille`), donc le corps littéral est sur la ligne suivante.
+   *
+   * 🔴 CE QUI EST ÉPROUVÉ RESTE EXACTEMENT « UN SEUL CHEMIN » : l'appel à `appelerCorbeille`, et la désignation
+   * par message. L'accolade n'était qu'un détail de mise en page — le genre de chose qu'une épreuve ne doit pas
+   * figer, sous peine de se croire cassée quand seul un argument s'ajoute.
+   */
   it('🔴🔴 un seul chemin vers la corbeille', () => {
     expect(GESTES).toContain('export async function gesteCorbeilleMessage(');
     const i = GESTES.indexOf('export async function gesteCorbeilleMessage(');
-    const bloc = GESTES.slice(i, i + 400);
-    expect(bloc).toContain('appelerCorbeille({');
+    const bloc = GESTES.slice(i, i + 1400);
+    expect(bloc).toContain('appelerCorbeille(');
     expect(bloc).toContain('messageIds: [messageId]');
+    /* ⚠️ ET TOUJOURS AUCUN `fetch` À LUI : la porte d'écriture reste unique. */
+    expect(bloc.slice(0, bloc.indexOf('\n}'))).not.toContain('fetch(');
   });
 
   /**
@@ -196,18 +210,47 @@ describe('🔴🔴 ③ « Message mis à la corbeille — Annuler »', () => {
    * compteurs, eux, suivent tout de suite (point 1 de ce lot).
    */
   it('🔴🔴 le geste n’emporte pas son propre bandeau', () => {
+    /**
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — LA FENÊTRE DE LECTURE S'EST ÉLARGIE ══════════════════
+     *
+     * 1 600 caractères ne suffisaient plus : la fonction porte désormais le calcul « ce message est-il le dernier
+     * de son fil hors corbeille ? », et son encadré. Le VERDICT ne change pas d'un iota — le delta de compteurs
+     * part toujours, et `rechargerTout` reste interdit ici parce qu'il fermerait l'échange et emporterait le
+     * bandeau « Annuler ». C'est la fenêtre qui était trop courte, pas la règle.
+     */
     const i = CONV.indexOf('async function corbeilleDuMessage');
-    const bloc = CONV.slice(i, i + 1600);
-    expect(bloc).toContain("onGeste('', { compteurs: DELTA_FIL_CORBEILLE });");
+    const bloc = CONV.slice(i, CONV.indexOf('\n  }', i));
+    /**
+     * ⚠️ LE DELTA PORTE MAINTENANT `avantEcriture` (lot INSTANTANE-ETOILE-CORBEILLE, point 2) : il part AVANT
+     * l'écriture, pour que le compteur bouge dans la même image que la ligne. La confirmation suit, sans delta,
+     * une fois l'écriture revenue — d'où les DEUX appels. Le verdict est inchangé : le geste n'emporte pas son
+     * bandeau, et `rechargerTout` reste interdit ici parce qu'il fermerait l'échange.
+     */
+    expect(bloc).toContain("onGeste('', { compteurs: DELTA_FIL_CORBEILLE, avantEcriture: true });");
+    expect(bloc).toContain("onGeste('');");
     expect(bloc).not.toContain('rechargerTout: true');
   });
 
-  /** 🔴 « ANNULER » EST UN VRAI RETOUR : la même route dans l'autre sens, pas un simple masquage. */
+  /**
+   * 🔴 « ANNULER » EST UN VRAI RETOUR : la même route dans l'autre sens, pas un simple masquage.
+   *
+   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — UN TROISIÈME ARGUMENT, ET IL COMPTE ═══════════════════════
+   *
+   * L'appel était `gesteCorbeilleMessage(messageId, false)` ; il est maintenant
+   * `gesteCorbeilleMessage(messageId, false, filId)`. Le fil est RÉCLAMÉ SANS CONDITION dans ce sens-ci, et c'est
+   * la règle d'Arno lue à l'envers : un échange qui n'avait plus rien hors de la corbeille en a de nouveau un dès
+   * qu'un message y rentre, donc sa LIGNE doit revenir dans sa boîte — dans la même image, comme elle en était
+   * partie. Le conditionner (comme on le fait à l'aller) aurait laissé la ligne absente de sa boîte jusqu'à une
+   * relecture, c'est-à-dire le défaut d'origine dans l'autre sens.
+   *
+   * ⚠️ `false` RESTE LE SENS DU GESTE : rien de ce que cette épreuve garantissait n'a été relâché.
+   */
   it('🔴🔴 « Annuler » rappelle la corbeille en sens inverse', () => {
     const i = CONV.indexOf('async function annulerCorbeilleDuMessage');
-    const bloc = CONV.slice(i, i + 600);
-    expect(bloc).toContain('gesteCorbeilleMessage(messageId, false)');
-    expect(bloc).toContain("onGeste('Message rétabli.', { compteurs: DELTA_FIL_RESTAURE });");
+    const bloc = CONV.slice(i, i + 900);
+    expect(bloc).toContain('gesteCorbeilleMessage(messageId, false, filId)');
+    /* ⚠️ MÊME DISCIPLINE AU RETOUR : le delta anticipe, la confirmation suit. */
+    expect(bloc).toContain("onGeste('Message rétabli.', { compteurs: DELTA_FIL_RESTAURE, avantEcriture: true });");
   });
 
   /**
@@ -218,7 +261,23 @@ describe('🔴🔴 ③ « Message mis à la corbeille — Annuler »', () => {
   it('🔴🔴 le message jeté quitte l’affichage, sans toucher à la lecture du fil', () => {
     expect(CONV).toContain('const [jetes, setJetes] = useState<ReadonlySet<number>>(new Set());');
     expect(CONV).toContain('ordonnerMessages(messages.filter((m) => !jetes.has(m.messageId)), ordre)');
-    /* ⚠️ UN ENSEMBLE, PAS UN SEUL : on peut en jeter trois avant que le premier bandeau s'efface. */
-    expect(CONV).toContain('setJetes((s) => new Set(s).add(m.messageId));');
+    /**
+     * ⚠️ UN ENSEMBLE, PAS UN SEUL : on peut en jeter trois avant que le premier bandeau s'efface.
+     *
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — QUI POSE `jetes` A CHANGÉ, PAS CE QU'IL CONTIENT ══════
+     *
+     * CETTE ÉPREUVE EXIGEAIT `setJetes((s) => new Set(s).add(m.messageId))` DANS `corbeilleDuMessage` — c'est-à-dire
+     * un masquage posé à la main, APRÈS la réponse du serveur. C'était exactement le défaut qu'Arno signale : les
+     * listes apprenaient le départ par le signal (avant l'écriture), la conversation par ce `setJetes` (après),
+     * donc un mail encore lisible dans sa conversation alors que sa ligne avait déjà quitté la boîte.
+     *
+     * 🔴 `jetes` EST DÉSORMAIS PILOTÉ PAR L'ÉCOUTE DU SIGNAL, et par elle seule — une source, un moment, pour la
+     * conversation comme pour les listes. L'ensemble reste un ENSEMBLE, et c'est ce que cette épreuve protégeait :
+     * on peut en jeter trois d'affilée, et l'annulation n'en retire qu'un.
+     */
+    expect(CONV).toContain('useEffect(() => ecouterCorbeille((s) => {');
+    expect(CONV).toContain('for (const id of s.messageIds) { if (revient) n.delete(id); else n.add(id); }');
+    /* 🔴 ET PLUS AUCUN AUTRE POSEUR : un second ferait revivre les deux moments. */
+    expect([...CONV.matchAll(/setJetes\(/g)]).toHaveLength(1);
   });
 });

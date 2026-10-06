@@ -337,12 +337,27 @@ export function GestionVue({ intro }: {
    * route serait un autre chantier ; les relire ensemble suffit, et garde chaque nombre à sa source.
    * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
-  const rafraichirComptes = useCallback((delta?: DeltaCompteurs) => {
+  const rafraichirComptes = useCallback((delta?: DeltaCompteurs, avantEcriture = false) => {
     // ① OPTIMISTE — ce qu'on sait du geste, posé immédiatement.
     if (delta !== undefined) {
       setComptesBoite((avant) => appliquerDelta(avant, delta));
       setBrouillonsTotal((avant) => appliquerDeltaBrouillons(avant, delta));
     }
+    /**
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — ON NE DEMANDE RIEN AVANT D'AVOIR ÉCRIT ═══════════════════
+     *
+     * 🔴 LE DÉFAUT, MESURÉ À L'ÉCRAN (06/10/2026). Depuis le point 2, un geste de corbeille applique son delta
+     * AVANT d'écrire. La confirmation ② partait donc elle aussi avant l'écriture, revenait ~150 ms plus tard avec
+     * le nombre d'AVANT, et écrasait le delta : la Corbeille affichait **89** quand le serveur répondait **88**,
+     * et elle y restait — plus aucune lecture ne venait la corriger.
+     *
+     * 🔴 LE GESTE CONFIRME LUI-MÊME, une fois l'écriture revenue, par un second appel SANS delta : ② part alors
+     * après le `COMMIT`, et dit la vérité. Rien n'est perdu — simplement demandé au bon moment.
+     *
+     * ⚠️ `false` PAR DÉFAUT : tous les autres gestes appliquent leur delta APRÈS leur écriture et ne changent pas
+     * d'un iota. Ce drapeau ne vaut que pour ce qui ANTICIPE.
+     */
+    if (avantEcriture) return;
     // ② CONFIRMATION — la vérité, demandée aux trois sources.
     setVersionComptes((v) => v + 1);
     void chargerBrouillonsTotal();
@@ -373,7 +388,8 @@ export function GestionVue({ intro }: {
    * passer à côté.
    */
   const surGeste = useCallback((
-    message: string, options?: { rechargerTout?: boolean; compteurs?: DeltaCompteurs },
+    message: string,
+    options?: { rechargerTout?: boolean; compteurs?: DeltaCompteurs; avantEcriture?: boolean },
   ) => {
     /**
      * ⚠️ UN MESSAGE VIDE NE S'AFFICHE PAS, MAIS LE GESTE COMPTE QUAND MÊME. Certains gestes portent déjà leur
@@ -382,7 +398,7 @@ export function GestionVue({ intro }: {
      * le constat d'Arno, et on le rend impossible plutôt que de compter sur la vigilance.
      */
     if (message !== '') setGeste({ ton: 'ok', texte: message });
-    rafraichirComptes(options?.compteurs);
+    rafraichirComptes(options?.compteurs, options?.avantEcriture === true);
   }, [rafraichirComptes]);
 
   /** Aller à un écran : on l'affiche, ET on l'écrit dans l'adresse. Les deux ensemble, toujours, ou l'un mentirait. */

@@ -12,6 +12,8 @@ import { gesteCorbeilleMessage, gesteEtoileFil, lireEtoileFil } from './gestesLi
 import { Etoile } from './BarreLigne';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — « les trois en direct » : ligne, barre de survol, mail ouvert. */
 import { annoncerEtoile, ecouterEtoile } from '../../../../lib/gestion/signalEtoile';
+/* 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — le message jeté quitte la conversation dans l'image du clic. */
+import { ecouterCorbeille, ouVaLeMail } from '../../../../lib/gestion/signalCorbeille';
 import { DELTA_FIL_CORBEILLE, DELTA_FIL_RESTAURE } from '../../../../lib/gestion/compteursColonne';
 import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../../../lib/gestion/carteRepo';
 import {
@@ -1087,32 +1089,85 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * « Corbeille » tout de suite.
    */
   async function corbeilleDuMessage(m: MessageDeFil): Promise<void> {
-    const r = await gesteCorbeilleMessage(m.messageId, true);
-    if (!r.ok) { onGeste(r.message); return; }
     /**
-     * 🔴 LE MAIL DISPARAÎT DE LA CONVERSATION AFFICHÉE (Arno), et c'est l'écran qui le retire : la lecture du fil
-     * rend TOUS les messages de l'échange, et c'est ce qu'il faut — ouverte depuis la Corbeille, la conversation
-     * doit justement montrer ce qui y est. Ce qu'on cache, c'est ce que CE geste vient de jeter.
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — CE MESSAGE EST-IL LE DERNIER À SORTIR DU FIL ? ════════
+     *
+     * 🔴 CALCULÉ ICI, AVANT LE GESTE, parce que c'est ici — et nulle part ailleurs dans l'écran — qu'on a tous
+     * les messages de l'échange avec leur `aLaCorbeille`. Si aucun autre ne reste hors de la corbeille, la LIGNE
+     * de l'échange doit quitter les listes dans la même image ; s'il en reste un, elle doit RESTER.
+     *
+     * ⚠️ `jetes` COMPTE AUTANT QUE `aLaCorbeille` : jeter deux messages à la suite sans relire le fil laisse le
+     * premier avec `aLaCorbeille: false` dans `vue.messages`, alors qu'il est parti. Ne lire que le champ du
+     * serveur aurait donc gardé la ligne affichée jusqu'à une relecture — le défaut d'origine, en plus discret.
      */
-    setJetes((s) => new Set(s).add(m.messageId));
+    const restants = (vue.v === 'ok' ? vue.messages : []).filter(
+      (x) => x.messageId !== m.messageId && !x.aLaCorbeille && !jetes.has(x.messageId),
+    );
+    /**
+     * 🔴 LE MAIL DISPARAÎT DE LA CONVERSATION AFFICHÉE (Arno) — et il en disparaît maintenant par L'ÉCOUTE du
+     * signal, non plus par un `setJetes` posé ici après la réponse : même source, même image que les listes.
+     * Ce qu'on cache, c'est ce que CE geste vient de jeter ; la lecture du fil, elle, rend TOUS les messages de
+     * l'échange, et c'est ce qu'il faut — ouverte depuis la Corbeille, la conversation doit montrer ce qui y est.
+     */
     setMessageJete({ messageId: m.messageId, de: m.deNom?.trim() || m.de });
     /**
-     * ⚠️ PAS DE `rechargerTout` ICI, ET C'EST DÉLIBÉRÉ : il FERME l'échange (`filOuvert: null`), donc il
-     * emporterait le bandeau « Annuler » avec lui — le geste ne serait plus défaisable. Les compteurs, eux,
-     * suivent tout de suite (point 1), et la LIGNE quitte ses dossiers au battement suivant de l'écran vivant,
-     * sans que rien ne saute sous les yeux.
+     * 🔴🔴 LE COMPTEUR « CORBEILLE » MONTE DANS LA MÊME IMAGE QUE LA DISPARITION, et non après l'écriture : c'est
+     * la seconde moitié de la règle d'Arno, mesurée en retard de 843 ms sur l'autre chemin (voir `agirSurLigne`).
+     * Il se défait au refus, comme tout ce que ce lot anticipe.
      */
-    onGeste('', { compteurs: DELTA_FIL_CORBEILLE });
+    onGeste('', { compteurs: DELTA_FIL_CORBEILLE, avantEcriture: true });
+    const r = await gesteCorbeilleMessage(
+      m.messageId, true, restants.length === 0 ? filId : undefined,
+    );
+    if (!r.ok) {
+      setMessageJete(null);
+      onGeste(r.message, { compteurs: DELTA_FIL_RESTAURE });
+      return;
+    }
+    /* 🔴 LA CONFIRMATION, UNE FOIS ÉCRIT : voir `avantEcriture` dans `gestesMail`. */
+    onGeste('');
+    /**
+     * ⚠️ PAS DE `rechargerTout` ICI, ET C'EST DÉLIBÉRÉ : il FERME l'échange (`filOuvert: null`), donc il
+     * emporterait le bandeau « Annuler » avec lui — le geste ne serait plus défaisable.
+     *
+     * 🔴 ET CE QUE DISAIT LA SUITE DE CE COMMENTAIRE N'EST PLUS VRAI, c'est l'objet du point 2 : « la LIGNE quitte
+     * ses dossiers au battement suivant de l'écran vivant » — battement de 30 s (`rafraichir.ts`). C'était
+     * exactement le « il est aux deux endroits » d'Arno. Elle les quitte désormais par le signal, avant même que
+     * l'écriture revienne, et les compteurs suivent dans la même image (le delta est parti plus haut).
+     */
   }
 
   /** LE GESTE INVERSE, par la même porte. « Annuler » n'est pas une seconde implémentation : c'est le retour. */
   async function annulerCorbeilleDuMessage(messageId: number): Promise<void> {
-    const r = await gesteCorbeilleMessage(messageId, false);
     setMessageJete(null);
-    if (!r.ok) { onGeste(r.message); return; }
-    setJetes((s) => { const n = new Set(s); n.delete(messageId); return n; });
-    onGeste('Message rétabli.', { compteurs: DELTA_FIL_RESTAURE });
+    /* ⚠️ MÊME QUESTION, SENS INVERSE : la ligne REVIENT dans ses dossiers dès qu'un message y rentre. On la
+       réclame donc toujours — un fil qui n'avait plus rien hors corbeille en a de nouveau un. */
+    /* 🔴 MÊME DISCIPLINE AU RETOUR : le compteur redescend tout de suite, et remonte si le serveur refuse. */
+    onGeste('Message rétabli.', { compteurs: DELTA_FIL_RESTAURE, avantEcriture: true });
+    const r = await gesteCorbeilleMessage(messageId, false, filId);
+    if (!r.ok) { onGeste(r.message, { compteurs: DELTA_FIL_CORBEILLE }); return; }
+    onGeste('');
   }
+
+  /**
+   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — LA CONVERSATION ÉCOUTE, ELLE AUSSI ═════════════════════
+   *
+   * 🔴 MÊME RAISON QUE POUR L'ÉTOILE AU POINT 1 : `jetes` était posé ICI, après la réponse, pendant que les
+   * listes apprenaient le départ par le signal, avant l'écriture. Deux sources, deux moments — donc un mail
+   * encore lisible dans sa conversation alors que sa ligne avait déjà quitté la boîte.
+   *
+   * ⚠️ ET C'EST CE QUI REND LE RETOUR EN ARRIÈRE GRATUIT : le signal d'annulation remet le message visible sans
+   * qu'aucune des deux fonctions ci-dessus ait à le défaire.
+   */
+  useEffect(() => ecouterCorbeille((s) => {
+    if (s.messageIds.length === 0) return;
+    const revient = ouVaLeMail(s) === 'boite';
+    setJetes((old) => {
+      const n = new Set(old);
+      for (const id of s.messageIds) { if (revient) n.delete(id); else n.add(id); }
+      return n;
+    });
+  }), []);
 
   async function toutDeplier(messages: readonly MessageDeFil[]) {
     setDeplies(new Set(messages.map((m) => m.messageId)));

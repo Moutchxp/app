@@ -174,7 +174,15 @@ describe('🔴🔴 ③ l’écran passe par une seule porte', () => {
     /* 🔴 UN SEUL ENDROIT POSE LE COMPTE RENDU « ok » : `surGeste`. Les autres l'appellent. */
     expect(code.match(/setGeste\(\{ ton: 'ok'/g) ?? []).toHaveLength(1);
     expect(code).toContain('const surGeste = useCallback((');
-    expect(code).toContain('rafraichirComptes(options?.compteurs);');
+    /**
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — LA PORTE PASSE UN SECOND ARGUMENT ════════════════════
+     *
+     * `rafraichirComptes(options?.compteurs)` est devenu
+     * `rafraichirComptes(options?.compteurs, options?.avantEcriture === true)`. Le verdict de cette épreuve est
+     * intact — UNE seule porte, et c'est elle qui rafraîchit — et c'est bien elle qu'on vérifie ici : le delta
+     * continue d'y passer, accompagné du drapeau qui dit s'il ANTICIPE une écriture (voir `gestesMail`).
+     */
+    expect(code).toContain('rafraichirComptes(options?.compteurs, options?.avantEcriture === true);');
   });
 
   /** 🔴🔴 ET ELLE RELIT LES TROIS SOURCES — la colonne, les brouillons, « À rattacher ». */
@@ -184,13 +192,36 @@ describe('🔴🔴 ③ l’écran passe par une seule porte', () => {
     expect(vue).toContain('void chargerARattacher();');
   });
 
-  /** 🔴 L'OPTIMISTE D'ABORD, LA VÉRITÉ ENSUITE : les deux, dans cet ordre, dans la même fonction. */
+  /**
+   * 🔴 L'OPTIMISTE D'ABORD, LA VÉRITÉ ENSUITE : les deux, dans cet ordre, dans la même fonction.
+   *
+   * ⚠️ LA FENÊTRE DE LECTURE A DÛ GRANDIR (lot INSTANTANE-ETOILE-CORBEILLE, point 2) : la fonction porte
+   * désormais l'encadré de `avantEcriture`, qui explique pourquoi ② peut être DIFFÉRÉE. 900 caractères
+   * s'arrêtaient au milieu de cet encadré, et `setVersionComptes` tombait hors du bloc lu (−1).
+   */
   it('🔴🔴 optimiste d’abord, relecture ensuite', () => {
     const i = vue.indexOf('const rafraichirComptes');
-    const bloc = vue.slice(i, i + 900);
+    const bloc = vue.slice(i, vue.indexOf('\n  }, [chargerBrouillonsTotal, chargerARattacher]);', i));
     expect(bloc.indexOf('appliquerDelta(avant, delta)')).toBeGreaterThan(0);
     expect(bloc.indexOf('appliquerDelta(avant, delta)'))
       .toBeLessThan(bloc.indexOf('setVersionComptes((v) => v + 1)'));
+  });
+
+  /**
+   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — ② NE PART PAS AVANT L'ÉCRITURE ════════════════════════
+   *
+   * MESURÉ À L'ÉCRAN (06/10/2026) : un geste de corbeille applique son delta AVANT d'écrire ; la confirmation ②
+   * partait donc elle aussi avant, revenait avec le nombre d'AVANT et écrasait le delta. La Corbeille affichait
+   * **89** quand le serveur répondait **88**, et elle y restait. Le geste confirme lui-même, après l'écriture.
+   */
+  it('🔴🔴 un delta qui ANTICIPE ne déclenche aucune relecture', () => {
+    const bloc = vue.slice(vue.indexOf('const rafraichirComptes'),
+      vue.indexOf('\n  }, [chargerBrouillonsTotal, chargerARattacher]);'));
+    expect(bloc).toContain('if (avantEcriture) return;');
+    expect(bloc.indexOf('if (avantEcriture) return;'))
+      .toBeLessThan(bloc.indexOf('setVersionComptes((v) => v + 1)'));
+    /* ⚠️ ET PAR DÉFAUT RIEN NE CHANGE : les autres gestes appliquent leur delta APRÈS leur écriture. */
+    expect(bloc).toContain('(delta?: DeltaCompteurs, avantEcriture = false)');
   });
 
   /**
@@ -212,7 +243,8 @@ describe('🔴🔴 ③ l’écran passe par une seule porte', () => {
     expect(red).toContain('{ compteurs: DELTA_ENVOI }');
     /* 🔴 ET LA LISTE DES BROUILLONS AUSSI : c'est LE geste du constat d'Arno. */
     const plein = readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8');
-    expect(plein).toContain('{ compteurs: versLaCorbeille ? DELTA_FIL_CORBEILLE : DELTA_FIL_RESTAURE }');
+    /* ⚠️ LE MÊME DELTA, désormais accompagné de `avantEcriture` : il part AVANT l'écriture (point 2). */
+    expect(plein).toContain('compteurs: versLaCorbeille ? DELTA_FIL_CORBEILLE : DELTA_FIL_RESTAURE, avantEcriture: true,');
     expect(plein).toContain("{ compteurs: DELTA_BROUILLON_JETE }");
     /* 🔴🔴 ET FERMER UNE FENÊTRE DE RÉDACTION COMPTE : un brouillon NAÎT en se fermant. */
     expect(plein).toContain("onFermer={(cle) => { fen.fermerLa(cle); onGeste('', { compteurs: undefined }); }}");

@@ -117,11 +117,20 @@ describe('🔴🔴 ③ la grande icône de l’en-tête', () => {
     expect(CNV).toContain('onReintegrerMessage={barreActions ? () => void annulerCorbeilleDuMessage(m.messageId) '
       + ': undefined}');
     expect(CNV).toContain('async function annulerCorbeilleDuMessage(messageId: number): Promise<void> {');
-    expect(CNV).toContain('const r = await gesteCorbeilleMessage(messageId, false);');
+    /**
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — L'APPEL PORTE UN TROISIÈME ARGUMENT ═════════
+     *
+     * `gesteCorbeilleMessage(messageId, false)` est devenu `gesteCorbeilleMessage(messageId, false, filId)` : le
+     * fil à faire REVENIR dans sa boîte, pour que sa ligne y rentre dans la même image. Le verdict de cette
+     * épreuve est intact — « aucun second appel réseau, le bouton réutilise le geste d'Annuler » — et c'est
+     * d'ailleurs ce que les deux comptes ci-dessous tiennent, sur une expression qui ne fige plus la liste
+     * complète des arguments.
+     */
+    expect(CNV).toContain('const r = await gesteCorbeilleMessage(messageId, false, filId);');
     /* ⚠️ UN SEUL APPELANT DE `gesteCorbeilleMessage` POUR CHAQUE SENS : deux pour le même sens seraient deux
        chemins, donc deux comportements le jour où l'un change. */
-    expect((CNV.match(/gesteCorbeilleMessage\(messageId, false\)/g) ?? [])).toHaveLength(1);
-    expect((CNV.match(/gesteCorbeilleMessage\(m\.messageId, true\)/g) ?? [])).toHaveLength(1);
+    expect((CNV.match(/gesteCorbeilleMessage\(\s*messageId, false[,)]/g) ?? [])).toHaveLength(1);
+    expect((CNV.match(/gesteCorbeilleMessage\(\s*m\.messageId, true[,)]/g) ?? [])).toHaveLength(1);
   });
 
   /** 🔴 MÊME CASE, MÊME TAILLE, MÊME PLACE : seules la classe de variante et le survol changent. */

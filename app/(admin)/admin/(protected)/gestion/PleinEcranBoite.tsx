@@ -441,11 +441,68 @@ export function PleinEcranBoite({
     }
     // ── LA CORBEILLE ──
     const versLaCorbeille = action === 'corbeille';
+    /**
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — LA BOÎTE D'ORIGINE SE LIT AVANT LE GESTE ═════════════
+     *
+     * Elle se lisait APRÈS la réponse, et le commentaire d'alors disait pourquoi c'était déjà juste de peu :
+     * « la boîte est lue AVANT la relecture de la liste ; à l'instant d'après, la ligne n'y est plus ». Cet
+     * instant-là s'est raccourci : la ligne quitte désormais `lignesCorbeille` DANS L'IMAGE DU CLIC, puisque
+     * cette liste dérive de ce que la colonne AFFICHE (`lignesVues`, cf. `BoiteMail`). Lue après l'`await`, elle
+     * aurait donc rendu `null`, et le bandeau aurait dit « Mail réintégré » sans nommer la boîte.
+     *
+     * 🔴 C'EST LE GENRE DE DÉFAUT QUE RENDRE UN ÉCRAN INSTANTANÉ FABRIQUE : tout code qui lisait l'affichage
+     * APRÈS son geste lisait en réalité l'état d'AVANT, par la seule grâce de la lenteur du réseau.
+     */
+    const boiteDuFil = lignesCorbeille.find((l) => l.filId === filId)?.boite ?? null;
+    /**
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — LES COMPTEURS PARTENT AVANT L'ÉCRITURE, EUX AUSSI ═══════
+     *
+     * 🔴 MESURÉ À L'ÉCRAN (06/10/2026, mail « _TEST CORBEILLE a ignorer (2) ») : la LIGNE quittait la liste en
+     * **5,9 ms**, et le compteur « Corbeille » ne montait qu'à **843 ms** — c'est-à-dire après la réponse du
+     * serveur (832 ms), parce que ce delta-ci était envoyé en FIN de fonction. Pendant huit dixièmes de seconde,
+     * le mail n'était donc nulle part : parti de sa boîte, pas encore compté dans la Corbeille.
+     *
+     * 🔴 LA RÈGLE D'ARNO LES MET DANS LA MÊME PHRASE, et donc dans la même image : « le mail QUITTE la liste de sa
+     * boîte, ENTRE dans la Corbeille (si elle est affichée), ET les compteurs se mettent à jour ». Un compteur en
+     * retard sur sa liste raconte exactement le défaut qu'on répare, à un autre endroit de l'écran.
+     *
+     * ⚠️ ET IL SE DÉFAIT AU REFUS, comme tout ce qui est anticipé dans ce lot : le delta inverse part avec le
+     * message d'erreur. Sans lui, un refus laisserait « Corbeille » compter un mail qui n'y est jamais allé —
+     * jusqu'à la relecture suivante, qui peut ne jamais venir sur cet écran.
+     */
+    onGeste('', {
+      compteurs: versLaCorbeille ? DELTA_FIL_CORBEILLE : DELTA_FIL_RESTAURE, avantEcriture: true,
+    });
     const r = await gesteCorbeille(filId, versLaCorbeille);
-    if (!r.ok) { onGeste(r.message); return; }
-    // L'échange quitte (ou rejoint) la liste affichée : elle est relue. C'est le SEUL cas où on la relit —
-    //   ailleurs, on met à jour sur place pour ne pas perdre les pages déjà chargées.
-    setVersionListe((v) => v + 1);
+    if (!r.ok) {
+      /* ⚠️ PAS D'`avantEcriture` ICI : rien n'a été écrit, le serveur est donc déjà la vérité — on lui redemande. */
+      onGeste(r.message, { compteurs: versLaCorbeille ? DELTA_FIL_RESTAURE : DELTA_FIL_CORBEILLE });
+      return;
+    }
+    /* 🔴 LA CONFIRMATION, MAINTENANT QUE C'EST ÉCRIT : sans delta, donc une simple relecture des trois sources. */
+    onGeste('');
+    /**
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — ON RELIT SUR PLACE, ON NE DÉMONTE PLUS ═══════════════════
+     *
+     * CE QUI ÉTAIT ÉCRIT ICI : `setVersionListe((v) => v + 1)`, avec ce commentaire — « l'échange quitte (ou
+     * rejoint) la liste affichée : elle est relue. C'est le SEUL cas où on la relit ». Or `versionListe` est la
+     * CLÉ de `<BoiteMail>` : la toucher DÉMONTE la liste et la remonte neuve.
+     *
+     * 🔴 MESURÉ À L'ÉCRAN (06/10/2026, étiquette Spam) : la ligne quittait bien la liste en **26 ms** grâce à
+     * l'annonce — puis REVENAIT, parce que le démontage emportait avec lui le masque qui la retirait. L'instantané
+     * était donc annulé par le geste suivant du même code. C'est le défaut que seule une mesure pouvait montrer :
+     * les épreuves de texte, elles, voyaient bien les deux moitiés, chacune juste de son côté.
+     *
+     * 🔴 ET LE DÉPÔT AVAIT DÉJÀ TRANCHÉ CETTE QUESTION, pour une autre raison, trois lots plus tôt : l'encadré de
+     * `versionStatuts` dit mot pour mot pourquoi on ne touche pas à la clé — « on perdrait la page où l'on était,
+     * la recherche tapée et la position de défilement ». Mettre un mail à la corbeille depuis la page 12 d'une
+     * recherche renvoyait donc à la page 1 de la liste nue. `relireSurPlace` relit la page COURANTE, à sa place.
+     *
+     * ⚠️ CETTE RELECTURE N'EST PLUS CE QUI FAIT PARTIR LA LIGNE — la porte d'écriture l'a annoncée avant d'écrire
+     * (`signalCorbeille`), et la colonne l'a retirée dans l'image du clic. Elle reste pour ce qu'elle seule
+     * apporte : les totaux exacts, et la ligne SUIVANTE qui vient compléter la page.
+     */
+    setVersionStatuts((v) => v + 1);
     if (filOuvert === filId) onFermerFil();
     // Le bandeau porte l'annulation ; une restauration, elle, se dit dans le compte rendu ordinaire.
     /**
@@ -454,10 +511,10 @@ export function PleinEcranBoite({
      * ⚠️ UN SEUL DES DEUX À LA FOIS, et c'est ce que l'autre `null` garantit : deux bandeaux côte à côte
      * laisseraient cliquer « Annuler » sur la mauvaise direction.
      *
-     * 🔴 LA BOÎTE EST LUE **AVANT** LA RELECTURE DE LA LISTE : à l'instant d'après, la ligne n'y est plus.
-     * `lignesCorbeille` la portait depuis `onPage` — voir son encadré.
+     * ⚠️ ET IL ARRIVE APRÈS LA CONFIRMATION, LUI, alors que la ligne part avant : « Annuler » promet de défaire
+     * un enregistrement, et l'offrir avant qu'il existe laisserait cliquer dans le vide. Ce qui doit être
+     * instantané, c'est que le mail ne soit plus à deux endroits ; le bandeau, lui, n'est à aucun endroit faux.
      */
-    const boiteDuFil = lignesCorbeille.find((l) => l.filId === filId)?.boite ?? null;
     setCorbeilleFaite(versLaCorbeille ? { filId } : null);
     setReintegreFait(versLaCorbeille ? null : { filId, boite: boiteDuFil });
     /**
@@ -467,10 +524,12 @@ export function PleinEcranBoite({
      * et un second message par-dessus serait du bruit) — mais le GESTE doit rafraîchir les deux fois. C'est
      * précisément le genre d'oubli qui a produit le constat d'Arno : on branche sur le geste, jamais sur
      * l'affichage du message.
+     *
+     * 🔴🔴 ET LE DELTA EST PARTI PLUS HAUT, AVANT L'ÉCRITURE (lot INSTANTANE-ETOILE-CORBEILLE, point 2) : il
+     * s'envoyait ICI, donc 843 ms après le clic. Voir l'encadré au-dessus de `gesteCorbeille`.
      */
     /* ⚠️ PLUS DE COMPTE RENDU DANS LE SENS « RÉINTÉGRER » : il est devenu le BANDEAU, qui dit la même chose ET
        porte « Annuler ». Deux messages pour un geste seraient du bruit — c'est déjà la règle du sens inverse. */
-    onGeste('', { compteurs: versLaCorbeille ? DELTA_FIL_CORBEILLE : DELTA_FIL_RESTAURE });
   };
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -482,7 +541,11 @@ export function PleinEcranBoite({
   const selCorbeille = selBrute.sorte === etiquette.sorte ? selBrute.ids : VIDE;
   const setSelCorbeille = (ids: ReadonlySet<number>): void => setSelBrute({ sorte: etiquette.sorte, ids });
   /**
-   * 🔴 LE TOTAL ET LE DROIT SONT RELUS À CHAQUE OUVERTURE DE LA CORBEILLE, ET APRÈS CHAQUE GESTE (`versionListe`).
+   * 🔴 LE TOTAL ET LE DROIT SONT RELUS À CHAQUE OUVERTURE DE LA CORBEILLE, ET APRÈS CHAQUE GESTE.
+   *
+   * ⚠️ IL SUIT `versionStatuts` DEPUIS LE LOT INSTANTANE-ETOILE-CORBEILLE, et plus `versionListe` : les gestes
+   * de la Corbeille relisent désormais la liste SUR PLACE au lieu de la démonter, donc c'est ce battement-là
+   * qu'ils incrémentent. Laissé sur l'ancien, le total serait resté figé après chaque réintégration.
    *
    * Le total, parce qu'il change dès qu'on réintègre. Le droit, parce qu'il est le seul moyen de griser
    * « Supprimer définitivement » AVANT le clic — et parce qu'il changera tout seul le jour où Arno accorde la
@@ -500,7 +563,7 @@ export function PleinEcranBoite({
       if (vivant && d !== null) setToutCorbeille(d);
     })();
     return () => { vivant = false; };
-  }, [estCorbeille, versionListe]);
+  }, [estCorbeille, versionStatuts]);
 
   /**
    * LE BANDEAU « ANNULER » S'EFFACE AU BOUT DE 10 s. Passé ce délai, la promesse ne tient plus : la liste a été
@@ -572,7 +635,9 @@ export function PleinEcranBoite({
     onGeste(r.message);
     if (!r.ok) return;
     setSelCorbeille(new Set());
-    setVersionListe((v) => v + 1);
+    /* 🔴 RELECTURE SUR PLACE, PAS DE DÉMONTAGE : voir l'encadré de `agirSurLigne`. Démonter la liste emporterait
+       le masque qui vient d'en retirer les lignes — mesuré, la ligne revenait 26 ms après être partie. */
+    setVersionStatuts((v) => v + 1);
     setReintegres({ filIds: fils, cle: Date.now() });
   };
 
@@ -590,7 +655,7 @@ export function PleinEcranBoite({
     setReintegres(null);
     const r = await gesteCorbeilleLot(fait.filIds, 'corbeille');
     onGeste(r.ok ? 'Réintégration annulée : les mails sont retournés à la corbeille.' : r.message);
-    if (r.ok) setVersionListe((v) => v + 1);
+    if (r.ok) setVersionStatuts((v) => v + 1);
   };
 
   /**
@@ -606,7 +671,7 @@ export function PleinEcranBoite({
     onGeste(r.message);
     if (!r.ok) return;
     setSelCorbeille(new Set());
-    setVersionListe((v) => v + 1);
+    setVersionStatuts((v) => v + 1);
   };
 
   /**
@@ -630,7 +695,7 @@ export function PleinEcranBoite({
     const r = await gesteCorbeille(fait.filId, true);
     onGeste(r.ok ? 'Réintégration annulée : le mail est reparti à la corbeille.' : r.message,
       r.ok ? { compteurs: DELTA_FIL_CORBEILLE } : undefined);
-    if (r.ok) setVersionListe((v) => v + 1);
+    if (r.ok) setVersionStatuts((v) => v + 1);
   };
 
   /** Défaire le dernier « Supprimer », depuis le bandeau. Le même verbe que « Réintégrer », pris par l'autre bout. */
@@ -640,7 +705,7 @@ export function PleinEcranBoite({
     setCorbeilleFaite(null);
     const r = await gesteCorbeille(fait.filId, false);
     onGeste(r.ok ? 'Échange restauré : il est revenu dans sa boîte.' : r.message);
-    if (r.ok) setVersionListe((v) => v + 1);
+    if (r.ok) setVersionStatuts((v) => v + 1);
   };
   useEffect(() => {
     if (filOuvert !== null) return;

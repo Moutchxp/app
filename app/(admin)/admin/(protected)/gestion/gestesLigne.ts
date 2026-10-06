@@ -13,6 +13,8 @@
 
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — l'étoile écrite ici est annoncée à tous les écrans montés. */
 import { annoncerEtoile } from '../../../../lib/gestion/signalEtoile';
+/* 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — la corbeille écrite ici est annoncée AVANT d'être écrite. */
+import { annoncerCorbeille, type ActionCorbeille } from '../../../../lib/gestion/signalCorbeille';
 
 /** Ce qu'un geste rapporte. `ok` dit s'il a eu lieu ; `message` est TOUJOURS lisible par un humain. */
 export interface IssueGeste { ok: boolean; message: string }
@@ -167,12 +169,37 @@ export async function gesteCorbeille(filId: number, versLaCorbeille: boolean): P
  * « corbeille » et « reintegrer ». La troisième (`supprimer`) reste réservée à l'écran de la Corbeille, où elle
  * est confirmée — c'est la règle du module depuis le lot BOITE-INTERNE-CORBEILLE.
  */
+/**
+ * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — `filQuiSuit` : L'ÉCHANGE PART-IL AVEC CE MESSAGE ? ══════════
+ *
+ * CONSTAT D'ARNO : le mail jeté depuis le mail ouvert « reste visible dans la boîte quelques secondes ».
+ *
+ * 🔴 ET CETTE LISTE-LÀ NE PEUT PAS LE DEVINER. Ses lignes sont des ÉCHANGES ; or jeter UN message n'emporte
+ * l'échange que s'il n'en reste aucun autre hors de la corbeille. L'échange de douze mails dont on jette le
+ * troisième DOIT rester affiché — le faire disparaître serait un mensonge pire que le retard qu'on corrige.
+ *
+ * 🔴 SEULE LA CONVERSATION OUVERTE LE SAIT, et elle le sait exactement : elle a tous les messages du fil, chacun
+ * avec son `aLaCorbeille` (lot REINTEGRER-PARTOUT-ET-BANDEAU). Elle passe donc l'identifiant du fil quand, et
+ * seulement quand, ce message est le dernier à en sortir. Dans le doute, elle ne passe rien : la ligne reste, et
+ * la relecture suivante la retirera — c'est la direction sûre, celle qui ne fait jamais disparaître à tort.
+ *
+ * ⚠️ CE N'EST PAS AU SERVEUR DE LE DIRE, même s'il le sait aussi : il ne le dirait qu'une fois le geste écrit,
+ * c'est-à-dire trop tard pour « la même image ».
+ */
 export async function gesteCorbeilleMessage(
-  messageId: number, versLaCorbeille: boolean,
+  messageId: number, versLaCorbeille: boolean, filQuiSuit?: number,
 ): Promise<IssueGeste> {
-  return appelerCorbeille({
-    messageIds: [messageId], action: versLaCorbeille ? 'corbeille' : 'reintegrer',
-  });
+  return appelerCorbeille(
+    { messageIds: [messageId], action: versLaCorbeille ? 'corbeille' : 'reintegrer' },
+    false,
+    /**
+     * ⚠️ IL VOYAGE À CÔTÉ DU CORPS, JAMAIS DEDANS. Le corps est envoyé tel quel à
+     * `/api/admin/gestion/corbeille`, qui n'attend que `filIds`, `messageIds` et `action` : y glisser un
+     * quatrième champ ferait porter au serveur l'ordre de jeter TOUT l'échange, alors qu'on ne jette qu'un
+     * message. Ce fil-ci ne concerne que l'ANNONCE — ce que les listes doivent masquer.
+     */
+    filQuiSuit === undefined ? [] : [filQuiSuit],
+  );
 }
 
 /**
@@ -248,12 +275,58 @@ export const MENTION_DROIT_ATTENTE =
 /** Le délai du bandeau « Annuler », en millisecondes. Demandé par Arno, et déjà le rythme du Drive. */
 export const DUREE_ANNULATION_MS = 10_000;
 
-/** L'appel, écrit UNE fois : même route, même droit, même lecture de la réponse pour les trois gestes. */
+/**
+ * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — LE CORPS DE L'APPEL EST TYPÉ, et ce n'est pas cosmétique ═════
+ *
+ * Il était `Record<string, unknown>`. Pour annoncer le geste avant de l'écrire, il faut SAVOIR ce qu'il porte —
+ * quels fils, quels messages, quelle action. Un sac de clés inconnues aurait obligé à le relire à l'aveugle
+ * (`corps.filIds as number[]`), c'est-à-dire à répéter ici la forme que les trois appelants connaissent déjà.
+ */
+interface CorpsCorbeille {
+  filIds?: number[];
+  messageIds?: number[];
+  action: ActionCorbeille;
+}
+
+/**
+ * L'appel, écrit UNE fois : même route, même droit, même lecture de la réponse pour les trois gestes.
+ *
+ * ═══ 🔴🔴 ET **LA** PORTE D'ANNONCE, pour la même raison qu'elle est la porte d'écriture ════════════════════════
+ *
+ * Les trois gestes (`gesteCorbeille`, `gesteCorbeilleMessage`, `gesteCorbeilleLot`) passent tous par ici. Annoncer
+ * dans chacun aurait donné trois occasions d'oublier l'annonce de retour — celle qui remet la ligne quand le
+ * serveur refuse, et qui est la moitié à laquelle personne ne pense parce qu'elle ne se voit jamais.
+ *
+ * ① L'ANNONCE VOULUE, AVANT LE `fetch` : chaque liste montée retire la ligne dans la même image. C'est la règle
+ *    d'Arno mot pour mot — « dans la même image, le mail QUITTE la liste de sa boîte ».
+ * ② L'ANNONCE D'ANNULATION, si et seulement si le serveur a refusé : la ligne revient à sa place, et l'écran qui a
+ *    cliqué dit pourquoi (il a le `message` dans l'issue, comme avant).
+ *
+ * ⚠️ RIEN N'EST ANNONCÉ AU SUCCÈS. L'étoile, elle, réannonce l'état CONFIRMÉ, parce que Gmail peut rendre un
+ * booléen différent de celui demandé. Ici le geste n'a pas d'autre résultat que « parti » ou « resté » : une
+ * seconde annonce identique ne ferait que redemander aux listes ce qu'elles ont déjà fait.
+ *
+ * ⚠️ UN LOT PARTIELLEMENT REFUSÉ (`faits` < demandés) N'EST PAS UNE ANNULATION : `etat` vaut « ok », les lignes
+ * faites sont bien parties, et l'écran de la Corbeille affiche déjà le compte des refusées. Tout remettre serait
+ * faux pour la majorité qui a réussi ; sa relecture — qu'il fait déjà — rétablit les refusées.
+ */
 async function appelerCorbeille(
-  corps: Record<string, unknown>, detaille = false,
+  corps: CorpsCorbeille, detaille = false, filsAnnonces: readonly number[] = [],
 ): Promise<IssueGeste | IssueCorbeilleLot> {
   const echec = (message: string): IssueCorbeilleLot =>
     ({ ok: false, message, faits: 0, refuses: 0, droitManquant: false });
+  /* ① CE QU'ON VEUT, TOUT DE SUITE — avant le réseau, donc dans l'image du clic. */
+  const signal = {
+    /* ⚠️ `filsAnnonces` S'AJOUTE AU SIGNAL SEUL, et n'est jamais dans `corps` : voir `gesteCorbeilleMessage`. */
+    filIds: [...(corps.filIds ?? []), ...filsAnnonces],
+    messageIds: corps.messageIds ?? [],
+    action: corps.action,
+  };
+  annoncerCorbeille({ ...signal, annule: false });
+  const revenir = <T>(issue: T): T => {
+    annoncerCorbeille({ ...signal, annule: true });   /* ② LA LIGNE REVIENT À SA PLACE */
+    return issue;
+  };
   try {
     const res = await fetch('/api/admin/gestion/corbeille', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
@@ -266,16 +339,16 @@ async function appelerCorbeille(
       ok: d.etat === 'ok',
       message: d.message ?? (d.etat === 'ok' ? 'Geste effectué.' : 'Geste impossible.'),
     };
-    if (!detaille) return base;
-    return {
+    const issue = !detaille ? base : {
       ...base,
       faits: d.faits ?? 0,
       refuses: (d.refuses ?? []).length,
       droitManquant: d.droitManquant === true,
     };
+    return base.ok ? issue : revenir(issue);
   } catch {
-    return detaille
+    return revenir(detaille
       ? echec('Geste impossible : le serveur n’a pas répondu.')
-      : { ok: false, message: 'Geste impossible : le serveur n’a pas répondu.' };
+      : { ok: false, message: 'Geste impossible : le serveur n’a pas répondu.' });
   }
 }

@@ -33,8 +33,25 @@ import type { DeltaCompteurs } from '../../../../lib/gestion/compteursColonne';
  * échange mis à la corbeille retire-t-il la ligne de la Réception ?) n'en porte PAS. Deviner afficherait un
  * chiffre qui saute ; attendre 150 ms ne se voit presque pas.
  */
+/**
+ * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — `avantEcriture` ══════════════════════════════════════════════
+ *
+ * CE QUE L'ENCADRÉ CI-DESSUS DIT, ET QUI N'EST VRAI QUE SI L'ÉCRITURE A DÉJÀ EU LIEU : « l'écran relit le serveur
+ * après chaque geste […] ce champ ne sert qu'à faire bouger le chiffre pendant les ~150 ms de la relecture ».
+ * Depuis le point 2, un geste de corbeille applique son delta AVANT d'écrire — « les compteurs se mettent à jour
+ * dans la même image » (Arno). La relecture déclenchée du même coup part alors AVANT l'écriture, revient avec le
+ * nombre d'AVANT, et écrase le delta.
+ *
+ * 🔴 MESURÉ À L'ÉCRAN (06/10/2026) : la Corbeille affichait **89** quand le serveur répondait **88**, et elle y
+ * restait — plus aucune lecture ne venait la corriger.
+ *
+ * 🔴 CE DRAPEAU DIT « LE CHIFFRE BOUGE, MAIS NE DEMANDE RIEN AU SERVEUR ENCORE » : la confirmation vient du geste
+ * lui-même, une fois l'écriture revenue, par un second appel sans delta. Les autres gestes, qui appliquent leur
+ * delta APRÈS leur écriture, ne le passent pas et ne changent pas d'un iota.
+ */
 export type Rapport = (
-  message: string, options?: { rechargerTout?: boolean; compteurs?: DeltaCompteurs },
+  message: string,
+  options?: { rechargerTout?: boolean; compteurs?: DeltaCompteurs; avantEcriture?: boolean },
 ) => void;
 
 /**
