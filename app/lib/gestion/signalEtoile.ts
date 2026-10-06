@@ -24,10 +24,32 @@
  * (`issue.etoilee`, voir `basculerEtoileDuFil`). Le transporter évite une relecture à chaque clic — et surtout il
  * évite que les trois étoiles passent par un état intermédiaire différent chacune, le temps de la réponse.
  *
- * ⚠️ ON N'ANNONCE QUE CE QUI EST ÉCRIT. Rien n'est émis avant la réponse du serveur : une annonce optimiste ferait
- * s'allumer les trois étoiles sur un geste que Gmail peut refuser (droit retiré, connexion perdue), et la seule
- * qui aurait su le dire est celle qui a cliqué. Le bouton cliqué, lui, a le droit d'anticiper pour lui-même : il
- * sait aussi se remettre droit.
+ * ═══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — ON ANNONCE **AVANT**, PUIS ON CORRIGE ══════════════════════
+ *
+ * CE QUI ÉTAIT ÉCRIT ICI : « on n'annonce que ce qui est écrit ; rien n'est émis avant la réponse du serveur ;
+ * le bouton cliqué, lui, a le droit d'anticiper POUR LUI-MÊME ». L'intention était juste — ne pas allumer une
+ * étoile sur un geste que Gmail peut refuser — et le résultat était exactement le défaut qu'Arno signale :
+ * l'étoile cliquée s'allume tout de suite, les autres attendent l'aller-retour.
+ *
+ * 🔴 MESURÉ À L'ÉCRAN (fil 36748, le cas d'Arno, 06/10/2026) :
+ *     · clic sur la GRANDE étoile  → elle bascule à 19 ms, l'écriture revient à 656 ms, la LIGNE bascule à 740 ms
+ *     · clic sur la LIGNE          → elle bascule à 61 ms, la GRANDE bascule à 810 ms
+ *   Soit **six à sept dixièmes de seconde** pendant lesquels deux étoiles du même mail se contredisent. C'est
+ *   assez long pour être vu, et c'est précisément ce qu'Arno a vu.
+ *
+ * 🔴 RÈGLE D'ARNO (06/10/2026) : « UN SEUL état partagé côté écran par mail. Un clic sur n'importe laquelle met à
+ * jour TOUTES les étoiles de ce mail dans la même image (aucun délai visible), puis enregistre en base. En cas
+ * d'échec, toutes reviennent à l'état d'avant, avec un message court. »
+ *
+ * 🔴 D'OÙ DEUX ANNONCES PAR GESTE, et non une :
+ *     ① l'annonce VOULUE, émise AVANT l'écriture — toutes les étoiles basculent dans la même image, y compris
+ *        celle qu'on a cliquée (elle n'anticipe plus pour elle seule : elle écoute comme les autres) ;
+ *     ② l'annonce de RETOUR, émise après la réponse : l'état confirmé si tout va bien, l'état d'AVANT si le
+ *        serveur a refusé — et dans ce cas l'écran qui a cliqué dit pourquoi, en une phrase.
+ *
+ * ⚠️ L'OBJECTION D'HIER TIENT TOUJOURS, ET ELLE EST RÉPONDUE : une annonce optimiste allume bien les étoiles sur
+ * un geste refusable. La différence est qu'elles se rallument TOUTES ensemble au refus, au lieu qu'une seule
+ * sache se remettre droite pendant que les autres n'avaient jamais bougé.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 

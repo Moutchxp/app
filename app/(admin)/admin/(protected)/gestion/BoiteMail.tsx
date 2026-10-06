@@ -374,7 +374,8 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 
 export function BoiteMail({
   onOuvrir, onRouvrirBrouillon, onApercuBrouillon, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
-  dense = false, onNonLus, onTotalEtiquette, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
+  dense = false, onNonLus, onTotalEtiquette, marquage, onActionLigne, onGeste: onGesteLigne,
+  corbeille = false, peutEcrire = false, piecesDisponibles = false,
   versionDonnees = 0, versionStatuts = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
   etoile = false, onEtoileFiltre, selection, retourAuDossier = 0,
 }: {
@@ -453,6 +454,16 @@ export function BoiteMail({
    * EXACTEMENT celle d'avant ce lot (c'est le cas de l'écran partagé, qui n'a pas d'éditeur à ouvrir).
    */
   onActionLigne?: (filId: number, action: ActionLigne) => void;
+  /**
+   * 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — DIRE QUAND UN GESTE DE LIGNE A ÉCHOUÉ.
+   *
+   * Arno : « En cas d'échec, toutes reviennent à l'état d'avant, AVEC UN MESSAGE COURT. » Le retour à l'état
+   * d'avant est annoncé à tous les écrans par la porte ; le MESSAGE, lui, n'avait aucun chemin depuis cette
+   * liste — l'étoile de la barre de survol échouait en silence, et l'on voyait seulement l'étoile revenir.
+   *
+   * ⚠️ FACULTATIF : un appelant qui ne le passe pas se comporte exactement comme avant ce lot.
+   */
+  onGeste?: (message: string) => void;
   /** La migration 251 est-elle là ? Sinon ni « Supprimer » ni « Restaurer » — cf. `menuLigne.ts`. */
   corbeille?: boolean;
   /** Le droit d'écrire au nom de gestion@. Sans lui, ni rédaction ni lu/non lu (qui écrit dans Gmail). */
@@ -700,10 +711,14 @@ export function BoiteMail({
    * la défait si le serveur refuse. Une étoile qui met une seconde à apparaître donne l'impression que le clic
    * n'a pas porté. Les AUTRES écrans, eux, n'apprennent que le fait confirmé.
    */
+  /**
+   * 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — PLUS D'ANTICIPATION LOCALE ICI NON PLUS. La porte annonce
+   * l'état voulu AVANT d'écrire, et cette liste l'apprend par l'écoute, comme la conversation — même source,
+   * même image. Poser l'état ici en plus en ferait un second, qui est exactement le défaut réparé.
+   */
   const basculerEtoile = async (filId: number, etoilee: boolean) => {
-    setEtoilees((m) => new Map(m).set(filId, etoilee));
     const r = await gesteEtoileFil(filId, etoilee);
-    if (!r.ok) setEtoilees((m) => new Map(m).set(filId, !etoilee));
+    if (!r.ok) onGesteLigne?.(r.message);
   };
 
   /**

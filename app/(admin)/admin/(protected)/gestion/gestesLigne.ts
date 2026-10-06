@@ -62,7 +62,33 @@ export interface IssueEtoile extends IssueGeste {
   touches: number;
 }
 
+/**
+ * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — TOUTES LES ÉTOILES BASCULENT DANS LA MÊME IMAGE ═════════════
+ *
+ * RÈGLE D'ARNO (06/10/2026) : « UN SEUL état partagé côté écran par mail […]. Un clic sur n'importe laquelle met
+ * à jour TOUTES les étoiles de ce mail dans la même image (aucun délai visible), puis enregistre en base. En cas
+ * d'échec, toutes reviennent à l'état d'avant, avec un message court. »
+ *
+ * 🔴 TROIS ANNONCES POSSIBLES, ET L'ORDRE EST LA RÈGLE :
+ *   ① AVANT L'ÉCRITURE — l'état VOULU. C'est cette annonce-là qui fait basculer toutes les étoiles ensemble ;
+ *      aucun écran n'anticipe plus pour lui seul, tous écoutent la même source.
+ *   ② APRÈS UNE RÉPONSE — l'état CONFIRMÉ par Gmail. Il vaut presque toujours celui qu'on avait annoncé ; on le
+ *      réémet quand même, parce que « presque toujours » n'est pas « toujours » (une étoile posée depuis un
+ *      téléphone entre-temps, par exemple).
+ *   ③ APRÈS UN REFUS — l'état D'AVANT, réémis à tout le monde. C'est le « toutes reviennent » d'Arno : avant ce
+ *      lot, seule l'étoile cliquée savait se remettre droite, et elle était la seule à avoir bougé.
+ *
+ * ⚠️ MESURÉ AVANT CE LOT (fil 36748) : 721 ms d'écart entre la grande étoile et celle de la ligne. Voir
+ * l'encadré de `signalEtoile`.
+ */
 export async function gesteEtoileFil(filId: number, etoilee: boolean): Promise<IssueEtoile> {
+  /* ① L'ÉTAT VOULU, TOUT DE SUITE. Toutes les étoiles de ce mail basculent dans l'image de ce clic. */
+  annoncerEtoile({ filId, etoilee });
+  const revenir = (message: string): IssueEtoile => {
+    /* ③ TOUT LE MONDE REVIENT, pas seulement le bouton cliqué. */
+    annoncerEtoile({ filId, etoilee: !etoilee });
+    return { ok: false, etoilee: null, touches: 0, message };
+  };
   try {
     const res = await fetch(`/api/admin/gestion/fils/${filId}/etoile`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etoilee }),
@@ -71,15 +97,16 @@ export async function gesteEtoileFil(filId: number, etoilee: boolean): Promise<I
       ok?: boolean; etoilee?: boolean; touches?: number; erreur?: string;
     };
     if (!res.ok || d.ok !== true || typeof d.etoilee !== 'boolean') {
-      return { ok: false, etoilee: null, touches: 0, message: d.erreur ?? 'Étoile impossible.' };
+      return revenir(d.erreur ?? 'Étoile impossible.');
     }
+    /* ② L'ÉTAT CONFIRMÉ. */
     annoncerEtoile({ filId, etoilee: d.etoilee });
     return {
       ok: true, etoilee: d.etoilee, touches: d.touches ?? 0,
       message: d.etoilee ? 'Étoile posée.' : 'Étoile retirée.',
     };
   } catch {
-    return { ok: false, etoilee: null, touches: 0, message: 'Étoile impossible : le serveur n’a pas répondu.' };
+    return revenir('Étoile impossible : le serveur n’a pas répondu.');
   }
 }
 

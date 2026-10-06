@@ -1084,6 +1084,9 @@ export function PleinEcranBoite({
               onTotalEtiquette={onTotalEtiquette} marquage={marquage}
               corbeille={corbeilleDisponible} peutEcrire={peutEcrire} piecesDisponibles={piecesDisponibles}
               onActionLigne={agirSurLigne}
+              /* 🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — l'échec d'un geste de ligne (l'étoile de la barre
+                 de survol) se DIT, au lieu de se deviner en voyant l'étoile revenir toute seule. */
+              onGeste={(m) => onGeste(m)}
               /**
                * 🔴 LOT LIGNE-NON-ENVOYE — une ligne FABRIQUÉE (message neuf qui n'est pas parti) ne désigne aucun
                * échange : son clic conduit là où le travail est retourné, les Brouillons. Ouvrir une conversation

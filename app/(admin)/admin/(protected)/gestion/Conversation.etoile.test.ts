@@ -208,14 +208,27 @@ describe('🔴🔴 ③ les trois en direct, dans les deux sens', () => {
    * 🔴🔴 LE SENS « MAIL OUVERT → LES AUTRES ». La ligne et sa barre de survol vivent dans `BoiteMail`, montée à
    * CÔTÉ de la conversation : c'est le signal qui les relie (voir `signalEtoile`).
    */
-  it('🔴🔴 cliquer dans le mail ouvert ANNONCE l’état confirmé', async () => {
+  it('🔴🔴 cliquer dans le mail ouvert annonce l’état VOULU, puis le CONFIRMÉ', async () => {
+    /**
+     * ══ 🔴🔴 CE CAS A CHANGÉ DE VERDICT — LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 ════════════════════════════
+     *
+     * IL ATTENDAIT **UNE SEULE** ANNONCE, celle de l'état confirmé : c'était le contrat « on n'annonce que ce
+     * qui est écrit ». Mesuré à l'écran le 06/10/2026, ce contrat donnait **721 ms** pendant lesquels l'étoile
+     * cliquée et celle de la ligne se contredisaient — le défaut qu'Arno signale.
+     *
+     * 🔴 LA PORTE ANNONCE MAINTENANT DEUX FOIS : l'état VOULU avant d'écrire (toutes les étoiles basculent dans
+     * la même image), puis l'état CONFIRMÉ au retour. Les deux valeurs sont identiques quand tout va bien — on
+     * réémet quand même, parce que le serveur peut rendre autre chose (étoile posée depuis un téléphone).
+     */
     const vus: { filId: number; etoilee: boolean }[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
     await monter();
     await deplier();
     await cliquer(etoile());
     stop();
-    expect(vus).toEqual([{ filId: 3495, etoilee: true }]);
+    expect(vus).toEqual([{ filId: 3495, etoilee: true }, { filId: 3495, etoilee: true }]);
+    /* 🔴 ET LA PREMIÈRE PART AVANT L'ÉCRITURE : c'est elle qui fait l'instantané. */
+    expect(vus[0]).toEqual({ filId: 3495, etoilee: true });
   });
 
   /** 🔴🔴 LE SENS INVERSE : un clic sur la LIGNE (ou sa barre de survol) allume le mail ouvert. */
@@ -244,9 +257,19 @@ describe('🔴🔴 ③ les trois en direct, dans les deux sens', () => {
     expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
   });
 
-  /** ⚠️ RIEN N'EST ANNONCÉ SUR UN ÉCHEC : les autres écrans n'ont rien vu, ce qui est exact — rien n'a changé. */
-  it('⚠️ un geste refusé n’annonce rien', async () => {
-    const vus: unknown[] = [];
+  it('🔴🔴 un geste REFUSÉ ramène TOUTES les étoiles à l’état d’avant', async () => {
+    /**
+     * ══ 🔴🔴 CE CAS A CHANGÉ DE VERDICT — LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 ════════════════════════════
+     *
+     * IL DISAIT : « un geste refusé n'annonce rien — les autres écrans n'ont rien vu, ce qui est exact ». C'était
+     * vrai TANT QUE personne n'avait bougé avant la réponse. Depuis que l'état voulu est annoncé d'avance, « ne
+     * rien dire » laisserait toutes les étoiles allumées sur un geste que le serveur a refusé.
+     *
+     * 🔴 RÈGLE D'ARNO : « En cas d'échec, TOUTES reviennent à l'état d'avant, avec un message court. » Deux
+     * annonces, donc : l'état voulu, puis son contraire — et c'est bien tout le monde qui revient, pas seulement
+     * le bouton cliqué.
+     */
+    const vus: { filId: number; etoilee: boolean }[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
     global.fetch = vi.fn(async () => (
       { ok: false, json: async () => ({ erreur: 'refus' }) } as unknown as Response)
@@ -255,7 +278,8 @@ describe('🔴🔴 ③ les trois en direct, dans les deux sens', () => {
     stop();
     expect(r.ok).toBe(false);
     expect(r.etoilee).toBeNull();
-    expect(vus).toEqual([]);
+    expect(r.message).toBe('refus');
+    expect(vus).toEqual([{ filId: 7, etoilee: true }, { filId: 7, etoilee: false }]);
   });
 });
 
@@ -271,7 +295,9 @@ describe('🔴 ④ la porte, et ce qu’elle lit', () => {
     const r = await gesteEtoileFil(7, true);
     stop();
     expect(r.etoilee).toBe(false);
-    expect(vus).toEqual([{ filId: 7, etoilee: false }]);
+    /* 🔴 LA PREMIÈRE ANNONCE EST CELLE QU'ON VOULAIT (`true`), LA SECONDE CELLE DU SERVEUR (`false`) — et c'est
+       la seconde qui reste à l'écran. Le serveur garde le dernier mot, il l'a simplement un instant plus tard. */
+    expect(vus).toEqual([{ filId: 7, etoilee: true }, { filId: 7, etoilee: false }]);
   });
 
   /** ⚠️ `disponible: false` DÈS QUE LA LECTURE N'ABOUTIT PAS : on n'invente pas « pas suivi ». */
@@ -285,7 +311,9 @@ describe('🔴 ④ la porte, et ce qu’elle lit', () => {
    * `fetch` recopié ici rougirait ce cas — c'est ce qui tient « une seule porte d'écriture » dans le temps.
    */
   it('🔴🔴 la conversation ne recopie aucun appel d’étoile d’échange', () => {
-    expect(SRC).toContain('gesteEtoileFil(filId, vise)');
+    /* ⚠️ L'APPEL S'ÉCRIT DÉSORMAIS SANS VARIABLE INTERMÉDIAIRE : la conversation n'a plus d'état à poser
+       d'avance (la porte annonce pour tout le monde), donc plus de `vise` à nommer. */
+    expect(SRC).toContain('gesteEtoileFil(filId, !etoileFil.etoilee)');
     expect(SRC).not.toMatch(/fetch\(`\/api\/admin\/gestion\/fils\/\$\{filId\}\/etoile`/);
   });
 });

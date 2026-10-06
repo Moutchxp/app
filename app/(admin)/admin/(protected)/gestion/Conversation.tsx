@@ -11,7 +11,7 @@ import { gesteCorbeilleMessage, gesteEtoileFil, lireEtoileFil } from './gestesLi
    étoile dessinée ici aurait fini par ne plus ressembler aux deux autres — et la ressemblance EST l'information. */
 import { Etoile } from './BarreLigne';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — « les trois en direct » : ligne, barre de survol, mail ouvert. */
-import { ecouterEtoile } from '../../../../lib/gestion/signalEtoile';
+import { annoncerEtoile, ecouterEtoile } from '../../../../lib/gestion/signalEtoile';
 import { DELTA_FIL_CORBEILLE, DELTA_FIL_RESTAURE } from '../../../../lib/gestion/compteursColonne';
 import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../../../lib/gestion/carteRepo';
 import {
@@ -441,18 +441,71 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * partagé en ouvre une, une carte vive une autre), et chacune ne doit s'allumer que pour elle.
    */
   useEffect(() => ecouterEtoile((sig) => {
-    if (sig.filId === filId) setEtoileFil((e) => ({ ...e, etoilee: sig.etoilee }));
+    if (sig.filId !== filId) return;
+    setEtoileFil((e) => ({ ...e, etoilee: sig.etoilee }));
+    /**
+     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — LES ÉTOILES **PAR MESSAGE** SUIVENT AUSSI ══════════════
+     *
+     * 🔴 LE DÉFAUT VU SUR LA CAPTURE D'ARNO : la grande étoile du bloc gris rouge, et l'étoile du MESSAGE juste
+     * au-dessus restée en contour. Deux étoiles du même mail, deux états — exactement ce que ce point répare.
+     * Sur son fil (un seul message), c'est le même mail : elles ne peuvent pas se contredire.
+     *
+     * 🔴 ET CE N'EST PAS UNE DEVINETTE : `basculerEtoileDuFil` écrit « un message à poser, TOUS les étoilés à
+     * retirer » (son encadré). Donc, à coup sûr :
+     *   · ÉTEINDRE l'échange éteint TOUS ses messages ;
+     *   · ALLUMER l'échange allume SON DERNIER message — celui que la route vise, trié comme elle
+     *     (`recu_le DESC, id DESC`), et lui seul. Allumer tous les messages serait faux dès le second.
+     *
+     * ⚠️ ON NE TOUCHE QUE CE QU'ON CONNAÎT : un message dont l'état Gmail n'a pas été lu (`null`) le reste. On
+     * n'invente pas une étoile pour un message dont on ne sait rien.
+     *
+     * ⚠️ « LE DERNIER » EST CELUI DE LA ROUTE, PAS LE PLUS GRAND IDENTIFIANT. Elle trie `recu_le DESC, id DESC` :
+     * un mail reçu plus tôt mais capturé plus tard porte un identifiant plus grand, et viser l'identifiant aurait
+     * allumé le mauvais message — rarement, donc d'autant plus difficile à voir.
+     */
+    setGmail((g) => {
+      if (g.size === 0) return g;
+      const n = new Map(g);
+      if (!sig.etoilee) {
+        for (const [id, etat] of n) if (etat) n.set(id, { ...etat, etoile: false });
+        return n;
+      }
+      const dernier = dernierMessage.current;
+      if (dernier === null) return n;
+      const etat = n.get(dernier);
+      if (etat) n.set(dernier, { ...etat, etoile: true });
+      return n;
+    });
   }), [filId]);
 
   /**
-   * 🔴 LA MÊME PORTE QUE LA LIGNE : `gesteEtoileFil`, qui écrit et ANNONCE. Le posé d'avance est pour l'écran qui
-   * clique ; les autres n'apprennent que le fait confirmé par Gmail.
+   * 🔴 LE DERNIER MESSAGE DE L'ÉCHANGE, AU SENS EXACT DE LA ROUTE (`recu_le DESC, id DESC`). Tenu dans un `ref`
+   * parce que l'écoute du signal ne dépend que de `filId` : y lire `vue` directement en figerait la valeur du
+   * premier rendu, et l'étoile se poserait sur le message d'alors.
+   */
+  const dernierMessage = useRef<number | null>(null);
+  useEffect(() => {
+    const ms = vue.v === 'ok' ? [...vue.messages] : [];
+    ms.sort((a, b) => (a.recuLe === b.recuLe ? a.messageId - b.messageId : (a.recuLe < b.recuLe ? -1 : 1)));
+    dernierMessage.current = ms.length === 0 ? null : ms[ms.length - 1].messageId;
+  }, [vue]);
+
+  /**
+   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — PLUS D'ANTICIPATION LOCALE ═══════════════════════════════
+   *
+   * CETTE FONCTION POSAIT SON PROPRE ÉTAT D'AVANCE, puis le remettait droit en cas d'échec. C'était la moitié du
+   * défaut : la grande étoile basculait à 19 ms, celle de la ligne à 740 ms (mesuré, fil 36748).
+   *
+   * 🔴 ELLE NE FAIT PLUS QU'APPELER LA PORTE. C'est `gesteEtoileFil` qui annonce l'état voulu AVANT d'écrire, et
+   * cette conversation l'apprend par le même signal que la ligne et que sa barre de survol — dans la même image,
+   * depuis la même source. Un `setEtoileFil` de plus ici recréerait un second état, c'est-à-dire le défaut.
+   *
+   * ⚠️ LE MESSAGE D'ÉCHEC EST DIT ICI, parce que c'est cet écran qui a cliqué : le retour à l'état d'avant, lui,
+   * est déjà annoncé à tout le monde par la porte.
    */
   const basculerEtoileDuFil = async (): Promise<void> => {
-    const vise = !etoileFil.etoilee;
-    setEtoileFil((e) => ({ ...e, etoilee: vise }));
-    const r = await gesteEtoileFil(filId, vise);
-    if (!r.ok) setEtoileFil((e) => ({ ...e, etoilee: !vise }));
+    const r = await gesteEtoileFil(filId, !etoileFil.etoilee);
+    if (!r.ok) onGeste(r.message);
   };
   /**
    * LOT RATTACHEMENT-1 — les liens de CHAQUE mail de l'échange, demandés en UNE requête pour tout le monde.
@@ -1223,15 +1276,47 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   };
 
   /** L'ÉTOILE : elle bascule, exactement comme le clic de Gmail — on ne décide pas à sa place ce qu'elle doit devenir. */
+  /**
+   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — L'ÉTOILE PAR MESSAGE ENTRE DANS LA BOUCLE ════════════════
+   *
+   * 🔴 C'ÉTAIT LA QUATRIÈME ÉTOILE, ET LA SEULE HORS DU COMPTE. Elle écrit par une autre route
+   * (`messages/:id/gmail`), n'anticipait rien, et surtout **n'annonçait rien** : poser l'étoile d'un message
+   * rendait l'échange étoilé en base, et ni la ligne ni la grande étoile ne l'apprenaient. La divergence
+   * survivait alors à l'aller-retour — c'est l'explication la plus probable de ce qu'Arno a vu : une grande
+   * étoile allumée sur un échange dont la ligne restait éteinte.
+   *
+   * 🔴 ELLE BASCULE MAINTENANT TOUT DE SUITE, ET ANNONCE :
+   *   · POSER une étoile rend l'échange étoilé À COUP SÛR (« au moins un message l'est ») : on peut l'annoncer
+   *     sans rien relire.
+   *   · LA RETIRER ne dit rien de l'échange — un autre message peut encore porter la sienne. On ne devine donc
+   *     pas : on RELIT l'état de l'échange et on annonce ce qu'il vaut vraiment. Annoncer « éteint » par
+   *     symétrie aurait éteint la ligne d'un échange qui reste étoilé.
+   *
+   * ⚠️ ET SON PROPRE AFFICHAGE ANTICIPE AUSSI : `setGmail` avant l'appel, remis en place si le serveur refuse.
+   */
   const basculerEtoile = async (m: MessageDeFil) => {
+    const avant = gmail.get(m.messageId) ?? null;
+    const vise = !(avant?.etoile ?? false);
+    if (avant) setGmail((g) => new Map(g).set(m.messageId, { ...avant, etoile: vise }));
+    if (vise) annoncerEtoile({ filId, etoilee: true });
     try {
       const res = await fetch(`/api/admin/gestion/messages/${m.messageId}/gmail`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'etoile' }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; erreur?: string; etat?: { etoile: boolean; nonLu: boolean } | null };
-      if (!res.ok || !d.ok) { onGeste(d.erreur ?? 'Action impossible.'); return; }
+      if (!res.ok || !d.ok) {
+        if (avant) setGmail((g) => new Map(g).set(m.messageId, avant));
+        if (vise) annoncerEtoile({ filId, etoilee: etoileFil.etoilee });
+        onGeste(d.erreur ?? 'Action impossible.');
+        return;
+      }
       if (d.etat) setGmail((g) => new Map(g).set(m.messageId, d.etat ?? null));
+      /* 🔴 L'ÉCHANGE, LUI, SE RELIT — voir l'encadré : retirer une étoile ne dit rien des autres messages. */
+      const e = await lireEtoileFil(filId);
+      if (e.disponible) annoncerEtoile({ filId, etoilee: e.etoilee });
     } catch {
+      if (avant) setGmail((g) => new Map(g).set(m.messageId, avant));
+      if (vise) annoncerEtoile({ filId, etoilee: etoileFil.etoilee });
       onGeste('Action impossible : le serveur n’a pas répondu.');
     }
   };
