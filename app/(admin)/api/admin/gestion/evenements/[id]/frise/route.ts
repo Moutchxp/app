@@ -5,7 +5,7 @@ import {
   ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement,
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
 import {
-  proposerCloture, proposerPassageEnFiable, TYPES_AJOUTABLES, type TypeEtape,
+  proposerCloture, proposerPassageEnFiable, TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape,
 } from '../../../../../../../lib/gestion/mongaEtape';
 import { query } from '../../../../../../../lib/db/client';
 
@@ -77,11 +77,16 @@ export async function POST(
   };
   const type = String(corps.type ?? '') as TypeEtape;
   /**
-   * ⚠️ LE TYPE EST VÉRIFIÉ CONTRE LA LISTE DU MODULE PUR, et non contre le `CHECK` de la base. Les deux listes
-   * existent et ne disent pas la même chose : la base accepte `commentaire` (Monga en écrit), la main ne doit
-   * pas pouvoir en poser. Se fier au `CHECK` aurait laissé passer un commentaire fabriqué.
+   * 🔴🔴 LOT FRISE-HORIZONTALE — DEUX LISTES, ET LA RÉUNION DES DEUX EST CE QU'UNE MAIN PEUT POSER.
+   *
+   * Arno : « le choix “Étape” ou “Simple information”. Une étape s'affiche en carré, une information en point. »
+   * Les deux passent par la même route et la même table — c'est le TYPE qui décide de la forme, et `estRepere`
+   * tranche à l'affichage. Une troisième route aurait donné deux portes d'écriture pour une seule chose.
+   *
+   * ⚠️ `commentaire` N'EST DANS NI L'UNE NI L'AUTRE : un commentaire est ce que MONGA dit. Se fier au `CHECK` de
+   * la base (qui l'accepte, puisque Monga en écrit) aurait laissé fabriquer un faux commentaire Monga.
    */
-  if (!TYPES_AJOUTABLES.includes(type)) {
+  if (!TYPES_AJOUTABLES.includes(type) && !TYPES_INFORMATION.includes(type)) {
     return Response.json({ erreur: 'Type d’étape inconnu.' }, { status: 400 });
   }
   const survenuLe = String(corps.survenuLe ?? '');

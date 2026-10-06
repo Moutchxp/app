@@ -70,6 +70,12 @@ export type TypeEtape =
   | 'rappel_devis'
   | 'contact_injoignable'
   | 'commentaire'
+  /**
+   * 🔴 LOT FRISE-HORIZONTALE — la « simple information » posée à la main (Arno). Un REPÈRE, donc un POINT sur le
+   * trait, jamais un carré. Distincte de `commentaire`, qui est ce que MONGA dit : confondre les deux brouillerait
+   * l'origine d'une information qu'on relit justement pour savoir qui l'a dite.
+   */
+  | 'note'
   /* ── étapes que seul un humain pose (aucun mail ne les porte) ───────────────────────────────────────────── */
   | 'assurance'
   | 'expertise'
@@ -94,7 +100,8 @@ export const ETAPES_ATTENDUES: readonly TypeEtape[] = [
 ];
 
 /** Les repères discrets : un petit point sur la frise, le contenu au survol. Jamais une étape. */
-export const REPERES: readonly TypeEtape[] = ['facture', 'rappel_devis', 'contact_injoignable', 'commentaire'];
+export const REPERES: readonly TypeEtape[] =
+  ['facture', 'rappel_devis', 'contact_injoignable', 'commentaire', 'note'];
 
 export function estRepere(t: TypeEtape): boolean {
   return REPERES.includes(t);
@@ -110,12 +117,25 @@ export const TYPES_AJOUTABLES: readonly TypeEtape[] = [
   ...ETAPES_MAJEURES, 'facture', 'assurance', 'expertise', 'relance', 'autre',
 ];
 
+/**
+ * ══ 🔴🔴 LOT FRISE-HORIZONTALE — CE QU'ON PEUT POSER EN « SIMPLE INFORMATION » ══════════════════════════════════
+ *
+ * Arno : « le choix “Étape” ou “Simple information”. Une étape s'affiche en carré, une information en point. »
+ *
+ * ⚠️ `commentaire` N'Y EST TOUJOURS PAS, et pour la raison d'avant : un commentaire est ce que MONGA dit. Une
+ * information écrite par un collaborateur est une `note`, et elle le dit.
+ *
+ * ⚠️ `facture` EST DANS LES DEUX LISTES, et c'est voulu : une facture reçue est un repère (c'est ainsi que Monga
+ * l'envoie), mais on peut vouloir la poser comme une étape du dossier. Les deux lectures sont légitimes.
+ */
+export const TYPES_INFORMATION: readonly TypeEtape[] = ['note', 'facture', 'contact_injoignable', 'relance'];
+
 /** Le rang d'affichage à date égale. Deux étapes du même jour se rangent dans l'ordre du dossier, pas au hasard. */
 const RANG_ETAPE: Record<TypeEtape, number> = {
   ouverture: 0, prise_rdv: 1, rdv_eu_lieu: 2, devis_recu: 3, devis_accepte: 4,
   rdv_intervention: 5, intervention: 6, cloture: 7,
   facture: 8, rappel_devis: 9, contact_injoignable: 10, commentaire: 11,
-  assurance: 12, expertise: 13, relance: 14, autre: 15,
+  assurance: 12, expertise: 13, relance: 14, autre: 15, note: 16,
 };
 
 export function rangEtape(t: TypeEtape): number {
@@ -141,6 +161,7 @@ export function motEtape(t: TypeEtape): string {
     case 'expertise': return 'Expertise';
     case 'relance': return 'Relance';
     case 'autre': return 'Autre';
+    case 'note': return 'Note';
   }
 }
 

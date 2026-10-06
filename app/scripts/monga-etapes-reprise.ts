@@ -123,10 +123,25 @@ async function main(): Promise<void> {
    */
   console.log('');
   console.log('── RECLASSEMENT DE gestion_monga_mail ──────────────────────────────────────');
+  /**
+   * ══ 🔴🔴 DEUX ÉTIQUETTES À RELIRE, ET LA SECONDE EST ARRIVÉE APRÈS COUP ═══════════════════════════════════════
+   *
+   * Arno avait d'abord nommé « les 55 lignes commentaire ». En les reclassant, le script a SIGNALÉ SANS LE FAIRE
+   * que **12 lignes rangées sous `attention` portent en réalité un devis avec son numéro** : leur OBJET dit « le
+   * ticket MONGA # requiert votre attention » pendant que leur CORPS dit « Votre devis N°DEV-… ». C'est le même
+   * défaut qu'avec `commentaire` — un classement fait sur l'objet alors que l'étape est dans le corps.
+   *
+   * 🔴 ARNO A TRANCHÉ (lot FRISE-HORIZONTALE) : « Si les 12 lignes “attention” n'ont pas encore été reclassées :
+   * fais-le d'abord. » Les deux étiquettes passent donc par la même relecture.
+   *
+   * ⚠️ ET SEULEMENT CELLES-LÀ. `service`, `facture`, `compte_rendu`… ont été POSÉES par ce reclassement : les
+   * relire ferait tourner en rond. Seules les deux étiquettes « fourre-tout » de la lecture par l'objet sont
+   * concernées.
+   */
   const { rows: aRelire } = await query<{ message_id: string; etape: string; objet: string | null; corps_texte: string | null }>(
     `SELECT mm.message_id, mm.etape, m.objet, m.corps_texte
        FROM gestion_monga_mail mm JOIN gestion_message m ON m.id = mm.message_id
-      WHERE mm.etape = 'commentaire'`);
+      WHERE mm.etape IN ('commentaire', 'attention')`);
 
   /** La traduction vers le vocabulaire de `gestion_monga_mail` — il est plus pauvre, et on ne l'élargit pas ici. */
   const versAncien: Partial<Record<TypeEtape, string>> = {
@@ -141,42 +156,24 @@ async function main(): Promise<void> {
     const majeure = lues.find((e) => e.type !== 'commentaire');
     const cible = majeure === undefined ? null : versAncien[majeure.type] ?? null;
     if (cible === null || cible === l.etape) continue;
-    mouvements.set(`commentaire → ${cible}`, (mouvements.get(`commentaire → ${cible}`) ?? 0) + 1);
+    mouvements.set(`${l.etape} → ${cible}`, (mouvements.get(`${l.etape} → ${cible}`) ?? 0) + 1);
     if (APPLIQUER) {
       await query('UPDATE gestion_monga_mail SET etape = $2 WHERE message_id = $1', [Number(l.message_id), cible]);
     }
   }
-  console.log(`lignes « commentaire » examinées : ${aRelire.length}`);
+  console.log(`lignes « commentaire » et « attention » examinées : ${aRelire.length}`);
   let total = 0;
   for (const [k, n] of [...mouvements].sort((a, b) => b[1] - a[1])) {
     console.log(`   ${k.padEnd(34)} ${String(n).padStart(4)}`);
     total += n;
   }
-  console.log(`${APPLIQUER ? 'reclassées' : 'seraient reclassées'} : ${total}   restent « commentaire » : ${aRelire.length - total}`);
+  console.log(`${APPLIQUER ? 'reclassées' : 'seraient reclassées'} : ${total}   inchangées : ${aRelire.length - total}`);
 
   /**
-   * ══ 🔴 CE QU'ON A TROUVÉ À CÔTÉ, ET QU'ON NE TOUCHE PAS ══════════════════════════════════════════════════════
-   *
-   * Arno a nommé « les 55 lignes commentaire ». En les reclassant, on s'aperçoit que **12 mails portant un devis
-   * avec son numéro sont rangés sous `attention`** — parce que leur OBJET est « Le ticket MONGA # requiert votre
-   * attention » alors que leur CORPS annonce « Votre devis N°DEV-… ». C'est le même défaut, à un autre endroit.
-   *
-   * 🔴 ON LE DIT, ON NE LE FAIT PAS. La consigne portait sur `commentaire` ; élargir un reclassement de son
-   * propre chef sur une table que d'autres écrans lisent n'est pas à moi de le décider. Le compte est affiché
-   * pour qu'Arno tranche.
+   * ⚠️ LE SIGNALEMENT « HORS CONSIGNE » QUI VIVAIT ICI A ÉTÉ RETIRÉ, ET C'EST NORMAL : il annonçait les 12
+   * lignes « attention » qu'on ne touchait pas. Arno les a depuis fait entrer dans la consigne, et elles sont
+   * reclassées par la boucle ci-dessus. Garder l'avertissement aurait annoncé un travail déjà fait.
    */
-  const { rows: ailleurs } = await query<{ n: string }>(
-    `SELECT count(*) AS n
-       FROM gestion_monga_mail mm JOIN gestion_message m ON m.id = mm.message_id
-      WHERE mm.etape = 'attention'
-        AND m.corps_texte ~* 'Votre devis N[°º]? *DEV-[0-9]{8}-[0-9]+'`);
-  const nAilleurs = Number(ailleurs[0]?.n ?? 0);
-  if (nAilleurs > 0) {
-    console.log('');
-    console.log(`⚠️  HORS CONSIGNE, SIGNALÉ SANS ÊTRE FAIT : ${nAilleurs} lignes « attention » portent en réalité`);
-    console.log('    un devis avec son numéro (objet « ticket requiert votre attention », corps « Votre devis N°DEV-… »).');
-    console.log('    La frise, elle, les lit correctement — c’est gestion_monga_mail qui reste approximative.');
-  }
 
   if (!APPLIQUER) {
     console.log('');

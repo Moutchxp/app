@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { motNbReperes } from './FriseAvancement';
 import { jourFr } from './EvenementsDuBien';
+/**
+ * ⚠️ `motNbReperes` VIVAIT DANS LE COMPOSANT ; il est devenu `motGroupeMessages` dans le module PUR au lot
+ * FRISE-HORIZONTALE — les points sont désormais groupés entre deux carrés, et c'est le module qui les groupe.
+ * Le verdict de l'épreuve ne change pas : le compteur s'accorde.
+ */
+import { motGroupeMessages } from '../../../../lib/gestion/frise';
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINTS 3 ET 4 — CE QUE LES DEUX ÉCRANS DOIVENT TENIR ═══════════════════════════════════════
@@ -39,20 +44,51 @@ describe('① la frontière client/serveur', () => {
 });
 
 describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
-  it('🔴 les étapes attendues s’affichent en pointillé', () => {
-    expect(FRISE).toContain('frs-case--attendue');
-    expect(FRISE).toContain('frs-pastille--attendue');
+  /**
+   * ══ 🔴🔴 LOT FRISE-HORIZONTALE — LES CLASSES ONT CHANGÉ, LE VERDICT NON ════════════════════════════════════
+   *
+   * La liste verticale (`frs-case`, `frs-pastille`) a disparu : Arno l'a demandé en toutes lettres. Les étapes
+   * sont désormais des CARRÉS (`frs-carre`) sur une ligne qui défile. Ce qui est éprouvé reste exactement ce qui
+   * l'était : une étape attendue se distingue par un POINTILLÉ, qui se lit sans couleur.
+   */
+  it('🔴 les étapes attendues s’affichent en carré pointillé', () => {
+    expect(FRISE).toContain('frs-carre--attendue');
+    expect(FRISE).toContain('attendue');
     /* ⚠️ LE POINTILLÉ SE LIT SANS COULEUR : `dashed`, et non une teinte plus pâle. */
     expect(FRISE).toContain('border:2px dashed var(--color-svv-muted)');
+  });
+
+  /**
+   * 🔴🔴 LA TAILLE DES CARRÉS EST LA MÊME POUR TOUS (Arno : « même taille pour tous, environ 120 × 90 px »).
+   * Un carré qui grandit avec son texte ferait onduler la ligne et casserait l'alignement du trait.
+   */
+  it('🔴🔴 tous les carrés font la même taille', () => {
+    expect(FRISE).toMatch(/\.frs-carre\{[^}]*width:124px/);
+    expect(FRISE).toMatch(/\.frs-carre\{[^}]*min-height:92px/);
+  });
+
+  /** 🔴 LE TRAIT FIN QUI RELIE LES CARRÉS, et il est décoratif : posé en CSS, jamais dans le balisage. */
+  it('🔴 un trait relie les carrés, et il est décoratif', () => {
+    expect(FRISE).toContain('.frs-el::before');
+    expect(FRISE).toContain('background:var(--color-svv-line)');
   });
 
   /**
    * 🔴🔴 « Acceptation du devis » VALIDABLE EN UN CLIC (décision d'Arno du 06/10). C'est la SEULE étape attendue
    * qui porte un bouton : les autres arrivent par mail, celle-là n'arrive jamais — **0 cas mesuré sur 120 mails**.
    */
-  it('🔴🔴 le pointillé « Acceptation du devis » porte son bouton, et lui seul', () => {
-    expect(FRISE).toContain("c.type === 'devis_accepte' && (");
-    expect(FRISE).toContain('Le devis est accepté');
+  /**
+   * ══ 🔴🔴 LE BOUTON EST DEVENU LE CARRÉ LUI-MÊME (Arno) ═════════════════════════════════════════════════════
+   *
+   * « Le bouton “Le devis est accepté” devient un clic sur le carré pointillé “Acceptation du devis” (même
+   * effet). » Le verdict est inchangé : c'est la SEULE étape attendue sur laquelle on peut cliquer, parce que
+   * c'est la seule qui n'arrive jamais par mail — **0 cas mesuré sur 120**.
+   */
+  it('🔴🔴 seul le carré pointillé « Acceptation du devis » est cliquable', () => {
+    expect(FRISE).toContain("const cliquable = c.type === 'devis_accepte';");
+    expect(FRISE).toContain('frs-carre--posable');
+    /* 🔴 ET LES AUTRES POINTILLÉS NE LE SONT PAS : un `div`, pas un `button`. */
+    expect(FRISE).toContain('<div className="frs-carre frs-carre--attendue">{contenu}</div>');
   });
 
   /**
@@ -67,16 +103,31 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
     expect(FRISE).toContain('Math.round(v * 100)');
   });
 
-  it('🔴 les étapes « à confirmer » portent la mention et les deux boutons', () => {
-    expect(FRISE).toContain('à confirmer');
+  /**
+   * 🔴 LES DEUX BOUTONS SONT DEVENUS DEUX PETITS SIGNES ✓ / ✕ (Arno : « les petits boutons confirmer ✓ /
+   * écarter ✕ »), et la bordure du carré passe à l'ambre. Le verdict ne change pas : les deux gestes sont là.
+   *
+   * ⚠️ CHACUN PORTE SON MOT POUR LE LECTEUR D'ÉCRAN : un ✓ seul ne se lit pas.
+   */
+  it('🔴 les étapes « à confirmer » portent leur bordure ambre et les deux gestes', () => {
+    expect(FRISE).toContain('frs-carre--doute');
+    expect(FRISE).toContain('border-color:var(--color-svv-amber)');
     expect(FRISE).toContain("onConfirmer(e.id, 'confirmer')");
     expect(FRISE).toContain("onConfirmer(e.id, 'ecarter')");
+    expect(FRISE).toContain('<span className="frs-sr"> confirmer</span>');
+    expect(FRISE).toContain('<span className="frs-sr"> écarter</span>');
   });
 
   /** 🔴 LA PHRASE QUI JUSTIFIE TOUT LE POINT 2 — elle vient du module pur, elle n'est pas réécrite ici. */
   it('🔴🔴 « mail supprimé — étape conservée » vient du module pur', () => {
     expect(FRISE).toContain('motMailDOrigine');
-    expect(FRISE).not.toContain('mail supprimé — étape conservée');
+    /**
+     * ⚠️ COMMENTAIRES RETIRÉS AVANT LA VÉRIFICATION. Un encadré a le droit de CITER la phrase pour expliquer
+     * pourquoi un seul composant sert les points et les carrés ; ce qui est interdit, c'est de la RÉÉCRIRE dans
+     * du code rendu. Sans ce retrait, l'épreuve interdisait d'expliquer la règle qu'elle protège.
+     */
+    const code = FRISE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toContain('mail supprimé — étape conservée');
     const pur = readFileSync('app/lib/gestion/frise.ts', 'utf8');
     expect(pur).toContain('mail supprimé — étape conservée');
   });
@@ -102,21 +153,137 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * ⚠️ AUCUNE FONCTION AU SURVOL SEUL (CLAUDE.md §15). Les repères RÉVÈLENT un texte au survol, mais ce sont des
    * `<button>` : le clavier et le tactile y accèdent par un clic.
    */
-  it('⚠️ les repères sont des boutons, pas des zones de survol', () => {
-    expect(FRISE).toContain('className={`frs-repere frs-repere--${r.type}`}');
-    expect(FRISE).toMatch(/type="button"[\s\S]{0,120}frs-repere/);
-    expect(FRISE).toContain('aria-expanded={ouvert === `r${r.id}`}');
+  /**
+   * ══ 🔴🔴 LES REPÈRES SONT DEVENUS DES POINTS SUR LE TRAIT (Arno) ═══════════════════════════════════════════
+   *
+   * « petits points discrets posés sur le trait ENTRE les carrés, à leur place chronologique. Au survol (et au
+   * clic au clavier), une bulle affiche la date, l'auteur et le texte. »
+   *
+   * ⚠️ LE VERDICT EST LE MÊME, ET IL COMPTE PLUS QU'AVANT : un `<button>`, pas une zone de survol. Arno demande
+   * explicitement « et au clic au clavier » — une info-bulle au seul survol est invisible au tactile et au
+   * clavier (CLAUDE.md §15).
+   */
+  it('⚠️ les points sont des boutons, pas de simples zones de survol', () => {
+    expect(FRISE).toContain('frs-point frs-point--${m.type}');
+    expect(FRISE).toMatch(/type="button"[\s\S]{0,160}frs-point/);
+    expect(FRISE).toContain('aria-expanded={actif}');
+    /**
+     * 🔴🔴 LE SURVOL MONTRE, LE CLIC FIXE — et le FOCUS aussi, ce qui est le point d'Arno (« au survol et au
+     * clic au clavier »). Les trois chemins passent par les mêmes rappels, et c'est l'état `apercu` / `fixe`
+     * qui décide — plus un `:hover` CSS, depuis que la bulle vit hors du conteneur qui défile.
+     */
+    expect(FRISE).toContain('onMouseEnter={() => onSurvol(`p${m.id}`)}');
+    expect(FRISE).toContain('onFocus={() => onSurvol(`p${m.id}`)}');
+    expect(FRISE).toContain('const ouvert = fixe ?? apercu;');
+  });
+
+  /**
+   * ══ 🔴🔴 LA BULLE VIT **HORS** DE LA PISTE — DÉFAUT MESURÉ À L'ÉCRAN LE 06/10/2026 ═══════════════════════════
+   *
+   * En CSS, `overflow-x:auto` force l'autre axe à `auto` : la piste devient un conteneur de défilement VERTICAL,
+   * et tout ce qui en dépasse est COUPÉ. Mesuré : **132 px de texte tronqués**, puis encore 34 px après avoir
+   * réservé de la place sous la rangée — la hauteur visible de la piste (182 px) ne suit pas celle de son
+   * contenu (274 px). C'est une impasse : on ne peut pas réserver assez.
+   *
+   * 🔴 D'OÙ UNE ZONE SOUS LA FRISE. Cette épreuve interdit de l'y remettre.
+   */
+  it('🔴🔴 la bulle est rendue sous la frise, hors du conteneur qui défile', () => {
+    expect(FRISE).toContain('<div className="frs-zone"');
+    /* 🔴 ET PAS DANS LA PISTE : aucune bulle en position absolue à l'intérieur. */
+    expect(FRISE).not.toMatch(/\.frs-bulle\{position:absolute/);
+    /* ⚠️ UNE HAUTEUR RÉSERVÉE MÊME VIDE : sinon la page saute à chaque survol d'un point. */
+    expect(FRISE).toMatch(/\.frs-zone\{min-height:\d+px/);
+  });
+
+  /**
+   * 🔴🔴 LE BAS DES CARRÉS NE PASSE PAS SOUS LA BARRE DE DÉFILEMENT. Mesuré : la piste se rendait à 88 px alors
+   * que son contenu en demande 132, et les boutons ✓ / ✕ étaient rognés de 14 px. Aucun ancêtre ne la
+   * contraignait — c'est le conteneur de défilement lui-même qui ne prend pas la hauteur de ses enfants.
+   */
+  it('🔴🔴 la piste réserve la hauteur d’un carré et de sa barre de défilement', () => {
+    expect(FRISE).toMatch(/\.frs-piste\{[\s\S]*?min-height:132px/);
+    expect(FRISE).toMatch(/\.frs-piste\{[\s\S]*?box-sizing:border-box/);
+  });
+
+  /**
+   * 🔴🔴 LES POINTS NE SE CHEVAUCHENT PAS (Arno : « Plusieurs messages rapprochés : petits points qui ne se
+   * chevauchent pas »). Ils sont posés dans une rangée en `flex` avec un écart — jamais en position absolue
+   * calculée à partir d'une date, ce qui les ferait se superposer dès que deux messages tombent le même jour.
+   */
+  it('🔴🔴 des messages rapprochés ne se superposent pas', () => {
+    expect(FRISE).toMatch(/\.frs-points\{[^}]*display:flex/);
+    expect(FRISE).toMatch(/\.frs-points\{[^}]*gap:4px/);
   });
 
   /** 🔴 LA FRISE EST UNE SÉQUENCE : une liste ORDONNÉE, et c'est ce qu'un lecteur d'écran doit entendre. */
-  it('🔴 les étapes majeures sont une liste ordonnée', () => {
-    expect(FRISE).toContain('<ol className="frs-liste">');
+  it('🔴 la frise reste une liste ORDONNÉE, même en ligne', () => {
+    /* 🔴 UNE FRISE EST UNE SÉQUENCE : c'est ce qu'un lecteur d'écran doit entendre, horizontale ou non. */
+    expect(FRISE).toContain('<ol\n          className="frs-piste"');
+  });
+
+  /**
+   * ══ 🔴🔴 LE DÉFILEMENT NE DOIT JAMAIS PIÉGER LA PAGE ═══════════════════════════════════════════════════════
+   *
+   * Arno demande le défilement horizontal « glisser, molette horizontale ou Maj+molette ». La molette VERTICALE
+   * doit continuer de faire défiler la PAGE : la détourner est le défaut classique des frises en ligne — on ne
+   * peut plus quitter le bloc en défilant, et sur un portable on reste coincé dedans.
+   */
+  it('🔴🔴 seule la molette horizontale (ou Maj) déplace la frise', () => {
+    expect(FRISE).toContain('const horizontal = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);');
+    expect(FRISE).toContain('if (!horizontal) return;');
+  });
+
+  /** 🔴 LES FLÈCHES N'APPARAISSENT QUE S'IL RESTE DU CONTENU CACHÉ (Arno). */
+  it('🔴 les flèches ‹ › ne s’affichent que s’il reste à voir', () => {
+    expect(FRISE).toContain('{bords.gauche && (');
+    expect(FRISE).toContain('{bords.droite && (');
+    expect(FRISE).toContain('el.scrollLeft + el.clientWidth < el.scrollWidth - 1');
+  });
+
+  /**
+   * 🔴🔴 « À l'ouverture, la frise est positionnée pour montrer la dernière étape atteinte » (Arno).
+   *
+   * ⚠️ UNE SEULE FOIS : sans le verrou `cale`, chaque relecture (après un confirmer, un ajout, un montant)
+   * ramènerait la frise à la dernière étape atteinte — et l'on perdrait l'endroit qu'on regardait, juste après
+   * avoir agi dessus.
+   *
+   * ⚠️ `block: 'nearest'` : on cale HORIZONTALEMENT sans faire sauter la page verticalement.
+   */
+  it('🔴🔴 elle s’ouvre sur la dernière étape atteinte, une seule fois', () => {
+    expect(FRISE).toContain('cleDOuverture');
+    expect(FRISE).toContain('cale.current = true;');
+    expect(FRISE).toContain("scrollIntoView({ block: 'nearest', inline: 'center' })");
   });
 
   /** 🔴 « + Ajouter une étape » est TOUJOURS offert — c'est lui qui rend la frise utilisable sans Monga. */
-  it('🔴 « + Ajouter une étape » existe sans condition de Monga', () => {
-    expect(FRISE).toContain('+ Ajouter une étape');
-    expect(FRISE).toContain('TYPES_AJOUTABLES.map');
+  /**
+   * ══ 🔴🔴 LE FORMULAIRE EST REPRIS PAR LE « + » (Arno, accordé explicitement) ════════════════════════════════
+   *
+   * « Le formulaire “Ajouter une étape” toujours visible sous la frise disparaît, puisqu'il est repris par le
+   * “+”. » C'est la SEULE chose retirée de ce lot, et elle l'est avec l'accord d'Arno. Le verdict de l'épreuve
+   * d'origine survit : le geste d'ajout existe toujours, sans condition de Monga.
+   */
+  it('🔴 le carré « + » ouvre le formulaire, sans condition de Monga', () => {
+    expect(FRISE).toContain('frs-carre--plus');
+    expect(FRISE).toContain('Ajouter une étape ou une information');
+    expect(FRISE).toContain('liste.map((t) => <option key={t} value={t}>{motEtape(t)}</option>)');
+  });
+
+  /**
+   * 🔴🔴 « ÉTAPE » OU « SIMPLE INFORMATION » (Arno) : une étape s'affiche en carré, une information en point.
+   * Le choix ne fait que changer la LISTE des types proposés — il n'y a pas deux chemins d'écriture, et c'est
+   * `estRepere` qui tranche la forme à l'affichage.
+   */
+  it('🔴🔴 le formulaire offre les deux formes, par deux listes de types', () => {
+    expect(FRISE).toContain("useState<'etape' | 'information'>('etape')");
+    expect(FRISE).toContain('Étape (carré)');
+    expect(FRISE).toContain('Simple information (point)');
+    expect(FRISE).toContain('forme === \'etape\' ? TYPES_AJOUTABLES : TYPES_INFORMATION');
+  });
+
+  /** ⚠️ CHANGER DE FORME CHANGE LE TYPE s'il ne convient plus : sinon on poserait une « Clôture » en point. */
+  it('⚠️ changer de forme corrige un type devenu impossible', () => {
+    expect(FRISE).toContain('if (!liste.includes(type)) setType(liste[0]);');
   });
 });
 
@@ -199,10 +366,10 @@ describe('④ les routes', () => {
 });
 
 describe('⑤ les mots', () => {
-  it('🔴 le compteur de repères s’accorde', () => {
-    expect(motNbReperes(0)).toBe('0 repère');
-    expect(motNbReperes(1)).toBe('1 repère');
-    expect(motNbReperes(12)).toBe('12 repères');
+  it('🔴 le compteur de messages s’accorde', () => {
+    expect(motGroupeMessages(0)).toBe('0 message');
+    expect(motGroupeMessages(1)).toBe('1 message');
+    expect(motGroupeMessages(12)).toBe('12 messages');
   });
 });
 
@@ -225,9 +392,19 @@ describe('⑥ la feuille', () => {
    * ⚠️ CIBLES TACTILES ≥ 44 px sur ce qui porte une action principale, et un écran étroit qui tasse au lieu de
    * déborder (exigence transverse du dépôt, CLAUDE.md §15).
    */
-  it('⚠️ les cibles et l’écran étroit sont prévus', () => {
+  /**
+   * ⚠️ ÉCRAN ÉTROIT : « la frise défile, rien ne se superpose » (Arno). Les bulles et le détail se recadrent au
+   * lieu de sortir de l'écran, et le panneau d'ajout passe en colonne.
+   */
+  it('⚠️ l’écran étroit est prévu, et rien ne s’y superpose', () => {
     expect(FRISE).toContain('@media (max-width:600px)');
-    expect(FRISE).toContain('min-height:44px');
+    /**
+     * ⚠️ LA BULLE PASSE EN PLEINE LARGEUR, elle ne se rétrécit plus à 13 rem : depuis qu'elle vit SOUS la frise
+     * et non plus collée au point, elle a toute la largeur du bloc et n'a plus à être recadrée.
+     */
+    expect(FRISE).toMatch(/@media \(max-width:600px\)\{[\s\S]*\.frs-bulle\{max-width:100%\}/);
+    /* 🔴 LA PISTE DÉFILE : c'est ce qui remplace tout repli. */
+    expect(FRISE).toMatch(/\.frs-piste\{[^}]*overflow-x:auto/);
     expect(BLOC).toContain('min-height:44px');
   });
 });

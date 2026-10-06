@@ -215,3 +215,130 @@ export function motDateEtape(e: EtapeAAfficher): string {
   const debut = (reste ?? '').slice(0, 5);
   return e.heureFin === null ? `${date} à ${debut}` : `${date} de ${debut} à ${e.heureFin}`;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-HORIZONTALE — CE QUE LA DISPOSITION EN LIGNE AJOUTE. PUR. ═══════════════════════════════════
+
+   DEMANDE D'ARNO (06/10/2026) : « la frise d'avancement devient HORIZONTALE. La liste verticale actuelle
+   disparaît. Données, règles et gestes du lot MONGA-2 inchangés (même module frise.ts, aucune perte de
+   fonction). »
+
+   🔴 TOUT CE QUI SUIT EST UN AJOUT. Pas une ligne de ce qui précède n'a changé : `construireFrise`, l'ordre, les
+   pointillés, les mots, les devis par référence, « étape déduite — aucun mail » — tout est intact, et les
+   épreuves du lot MONGA-2 continuent de le tenir. L'horizontale est une MISE EN PAGE, pas une autre vérité.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 LA SUITE DE CE QUI S'AFFICHE SUR LA LIGNE ═══════════════════════════════════════════════════════════════
+ *
+ * Trois sortes de choses se succèdent de gauche à droite :
+ *   · `carre`  — une vraie étape (atteinte, « à confirmer », ou attendue en pointillé) ;
+ *   · `points` — les messages simplement informatifs, posés SUR LE TRAIT entre deux carrés, à leur place
+ *                chronologique (Arno : « petits points discrets […] Ce ne sont pas des étapes ») ;
+ *   · `plus`   — le carré « + », juste APRÈS le dernier carré réellement atteint.
+ *
+ * 🔴 POURQUOI UNE SEULE SUITE PLUTÔT QUE DEUX RANGÉES. Les points doivent tomber ENTRE les carrés, à leur place
+ * dans le temps. Les rendre à part obligerait l'écran à calculer des positions absolues en pixels — donc à
+ * refaire ce calcul à chaque redimensionnement, et à le refaire faux sur un écran étroit. Intercalés dans la
+ * même suite, ils se placent tout seuls, et le défilement les emmène avec les carrés.
+ */
+export type SorteCase = 'carre' | 'points' | 'plus';
+
+export interface ElementFrise {
+  cle: string;
+  sorte: SorteCase;
+  /** Pour un `carre` : la case telle que `construireFrise` l'a bâtie. */
+  case?: CaseFrise;
+  /** Pour `points` : les messages informatifs de cet intervalle, dans l'ordre. */
+  messages?: EtapeAAfficher[];
+}
+
+/**
+ * ══ 🔴🔴 RANGER LA FRISE EN LIGNE. PUR. ══════════════════════════════════════════════════════════════════════════
+ *
+ * 🔴 LES POINTS SE PLACENT PAR LEUR DATE, ENTRE DEUX CARRÉS. Un message du 14/09 tombe après le carré du 14/09 et
+ * avant celui du 16/09 — c'est ce que « à leur place chronologique » veut dire, et c'est la seule façon de lire
+ * un dossier sans se demander quand le commentaire est arrivé.
+ *
+ * ⚠️ LES CARRÉS ATTENDUS (pointillés) N'ONT PAS DE DATE : ils sont tous à la fin, et aucun point ne se glisse
+ * entre eux. Y ranger un message par sa date reviendrait à lui inventer une position dans un futur qui n'existe
+ * pas encore.
+ *
+ * 🔴 LE « + » VIENT JUSTE APRÈS LE DERNIER CARRÉ RÉELLEMENT ATTEINT (Arno : « avant les carrés attendus en
+ * pointillé »). Sur une frise entièrement vide — un événement sans Monga, le cas que le lot MONGA-2 a rendu
+ * possible — il vient donc en PREMIER, ce qui est exactement ce qu'on veut : la première chose à faire est
+ * d'ajouter quelque chose.
+ */
+export function rangerEnLigne(
+  majeures: readonly CaseFrise[], reperes: readonly EtapeAAfficher[],
+): ElementFrise[] {
+  const out: ElementFrise[] = [];
+  const restants = [...reperes].sort((a, b) => (a.survenuLe === b.survenuLe ? a.id - b.id : (a.survenuLe < b.survenuLe ? -1 : 1)));
+  const atteints = majeures.filter((c) => c.etape !== null);
+  const dernierAtteint = atteints.length === 0 ? null : atteints[atteints.length - 1].cle;
+
+  /** Les messages dont la date est <= celle de ce carré, retirés de la file. */
+  const avant = (borne: string | null): EtapeAAfficher[] => {
+    const pris: EtapeAAfficher[] = [];
+    while (restants.length > 0 && (borne === null || restants[0].survenuLe <= borne)) {
+      pris.push(restants.shift() as EtapeAAfficher);
+    }
+    return pris;
+  };
+
+  for (const c of majeures) {
+    /* ⚠️ RIEN AVANT UN CARRÉ ATTENDU : il n'a pas de date, voir l'encadré. */
+    if (c.etape !== null) {
+      const pris = avant(c.etape.survenuLe);
+      if (pris.length > 0) out.push({ cle: `pts-avant-${c.cle}`, sorte: 'points', messages: pris });
+    }
+    out.push({ cle: c.cle, sorte: 'carre', case: c });
+    if (c.cle === dernierAtteint) {
+      /* 🔴 LES MESSAGES POSTÉRIEURS AU DERNIER CARRÉ ATTEINT se posent avant le « + » : ils sont arrivés, eux. */
+      const apres = avant(null);
+      if (apres.length > 0) out.push({ cle: 'pts-fin', sorte: 'points', messages: apres });
+      out.push({ cle: 'plus', sorte: 'plus' });
+    }
+  }
+  /* 🔴 FRISE SANS AUCUN CARRÉ ATTEINT : le « + » ouvre la marche. */
+  if (dernierAtteint === null) {
+    const restes = avant(null);
+    const debut: ElementFrise[] = [{ cle: 'plus', sorte: 'plus' }];
+    if (restes.length > 0) debut.push({ cle: 'pts-fin', sorte: 'points', messages: restes });
+    out.unshift(...debut);
+  }
+  return out;
+}
+
+/**
+ * ══ 🔴 SUR QUEL ÉLÉMENT LA FRISE S'OUVRE ═════════════════════════════════════════════════════════════════════════
+ *
+ * Arno : « À l'ouverture, la frise est positionnée pour montrer la dernière étape atteinte. »
+ *
+ * 🔴 LA DERNIÈRE ATTEINTE, ET NON LE « + » NI LE PREMIER POINTILLÉ. C'est l'état du dossier qu'on vient lire —
+ * « où en est-on ? » — et non ce qu'il reste à faire. Rend `null` quand rien n'est atteint : l'écran reste alors
+ * au début, où se trouve justement le « + ».
+ */
+export function cleDOuverture(majeures: readonly CaseFrise[]): string | null {
+  const atteints = majeures.filter((c) => c.etape !== null);
+  return atteints.length === 0 ? null : atteints[atteints.length - 1].cle;
+}
+
+/**
+ * LE PICTOGRAMME DE SOURCE, en un caractère (Arno : « petit pictogramme de source (Monga / ajoutée à la main) »).
+ *
+ * ⚠️ IL NE PORTE JAMAIS L'INFORMATION SEUL : le mot de la source reste lisible dans la bulle et au lecteur
+ * d'écran. Un losange et un crayon ne se distinguent pas en niveaux de gris pour tout le monde.
+ */
+export function pictoSource(e: EtapeAAfficher): string {
+  return e.source === 'monga' ? '◆' : '✎';
+}
+
+/**
+ * LE MOT D'UN GROUPE DE POINTS, pour l'infobulle du groupe et le lecteur d'écran.
+ *
+ * ⚠️ « 1 message » / « 3 messages » — accordé, parce qu'un « 1 messages » dans un écran soigné se remarque.
+ */
+export function motGroupeMessages(n: number): string {
+  return n <= 1 ? `${n} message` : `${n} messages`;
+}

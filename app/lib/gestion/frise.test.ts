@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  construireFrise, etapeOuvrable, motDateEtape, motDeLaCase, motMailDOrigine, motMontant, motSource,
+  cleDOuverture, construireFrise, etapeOuvrable, motDateEtape, motDeLaCase, motGroupeMessages,
+  motMailDOrigine, motMontant, motSource, pictoSource, rangerEnLigne,
   type EtapeAAfficher,
 } from './frise';
 
@@ -240,5 +241,135 @@ describe('⑧ le module reste pur', () => {
     expect(src).not.toContain('fetch(');
     expect(src).not.toMatch(/from '.*Repo'/);
     expect(src).not.toContain("from 'pg'");
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-HORIZONTALE — LA MISE EN LIGNE ══════════════════════════════════════════════════════════════
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑨ la frise en ligne : carrés, points et « + »', () => {
+  const ligne = (etapes: EtapeAAfficher[]) => {
+    const { majeures, reperes } = construireFrise(etapes);
+    return rangerEnLigne(majeures, reperes);
+  };
+
+  /**
+   * 🔴🔴 LE « + » VIENT JUSTE APRÈS LE DERNIER CARRÉ RÉELLEMENT ATTEINT (Arno : « avant les carrés attendus en
+   * pointillé »). C'est là qu'on ajoute : à la suite de ce qui s'est passé, pas au bout de ce qu'on attend.
+   */
+  it('🔴🔴 le « + » se place après le dernier carré atteint, avant les pointillés', () => {
+    const l = ligne([
+      etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
+      etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
+    ]);
+    const sortes = l.map((e) => e.sorte);
+    const iPlus = sortes.indexOf('plus');
+    expect(iPlus).toBeGreaterThan(0);
+    /* Tout ce qui précède le « + » est atteint ; tout ce qui suit est attendu. */
+    const avant = l.slice(0, iPlus).filter((e) => e.sorte === 'carre');
+    const apres = l.slice(iPlus + 1).filter((e) => e.sorte === 'carre');
+    expect(avant.every((e) => e.case?.etape !== null)).toBe(true);
+    expect(apres.every((e) => e.case?.etape === null)).toBe(true);
+  });
+
+  /**
+   * 🔴 SUR UNE FRISE ENTIÈREMENT VIDE — un événement sans Monga, le cas que le lot MONGA-2 a rendu possible — le
+   * « + » ouvre la marche. La première chose à faire est bien d'ajouter quelque chose.
+   */
+  it('🔴 sans aucune étape atteinte, le « + » vient en premier', () => {
+    const l = ligne([]);
+    expect(l[0].sorte).toBe('plus');
+    expect(l.filter((e) => e.sorte === 'carre')).toHaveLength(7);
+  });
+
+  /**
+   * 🔴🔴 LES POINTS SE PLACENT ENTRE LES CARRÉS, À LEUR PLACE CHRONOLOGIQUE (Arno). Un message du 14/09 tombe
+   * après le carré du 14/09 et avant celui du 16/09 — c'est la seule façon de lire un dossier sans se demander
+   * quand le commentaire est arrivé.
+   */
+  it('🔴🔴 les messages informatifs tombent à leur place dans le temps', () => {
+    const l = ligne([
+      etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
+      etape({ type: 'commentaire', survenuLe: '2026-09-10T00:00:00' }),
+      etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
+    ]);
+    const i = l.findIndex((e) => e.sorte === 'points');
+    const iOuv = l.findIndex((e) => e.case?.etape?.type === 'ouverture');
+    const iRdv = l.findIndex((e) => e.case?.etape?.type === 'prise_rdv');
+    expect(iOuv).toBeLessThan(i);
+    expect(i).toBeLessThan(iRdv);
+  });
+
+  /** 🔴 PLUSIEURS MESSAGES RAPPROCHÉS SE GROUPENT, et le groupe les garde dans l'ordre. */
+  it('🔴 des messages du même intervalle se groupent, dans l’ordre', () => {
+    const l = ligne([
+      etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
+      etape({ type: 'commentaire', survenuLe: '2026-09-12T00:00:00', texte: 'deux' }),
+      etape({ type: 'commentaire', survenuLe: '2026-09-10T00:00:00', texte: 'un' }),
+      etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
+    ]);
+    const groupe = l.find((e) => e.sorte === 'points');
+    expect(groupe?.messages).toHaveLength(2);
+    expect(groupe?.messages?.map((m) => m.texte)).toEqual(['un', 'deux']);
+  });
+
+  /**
+   * ⚠️ AUCUN POINT ENTRE LES CARRÉS ATTENDUS : ils n'ont pas de date. Y ranger un message par sa date
+   * reviendrait à lui inventer une place dans un futur qui n'existe pas encore.
+   */
+  it('⚠️ un message postérieur au dernier carré atteint se pose AVANT le « + », pas entre les pointillés', () => {
+    const l = ligne([
+      etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
+      etape({ type: 'commentaire', survenuLe: '2026-12-31T00:00:00' }),
+    ]);
+    const iPts = l.findIndex((e) => e.sorte === 'points');
+    const iPlus = l.findIndex((e) => e.sorte === 'plus');
+    expect(iPts).toBeGreaterThan(0);
+    expect(iPts).toBeLessThan(iPlus);
+  });
+
+  /** 🔴 AUCUNE ÉTAPE NI AUCUN MESSAGE NE SE PERD en passant en ligne : la suite les porte tous. */
+  it('🔴 rien ne se perd : autant de carrés et de messages qu’avant', () => {
+    const etapes = [
+      etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
+      etape({ type: 'commentaire', survenuLe: '2026-09-10T00:00:00' }),
+      etape({ type: 'rappel_devis', survenuLe: '2026-09-11T00:00:00' }),
+      etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
+    ];
+    const { majeures, reperes } = construireFrise(etapes);
+    const l = rangerEnLigne(majeures, reperes);
+    expect(l.filter((e) => e.sorte === 'carre')).toHaveLength(majeures.length);
+    expect(l.flatMap((e) => e.messages ?? [])).toHaveLength(reperes.length);
+  });
+});
+
+describe('⑩ sur quoi la frise s’ouvre', () => {
+  /** 🔴 « À l'ouverture, la frise est positionnée pour montrer la DERNIÈRE ÉTAPE ATTEINTE » (Arno). */
+  it('🔴 la dernière atteinte, et non le premier pointillé', () => {
+    const { majeures } = construireFrise([
+      etape({ id: 1, type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
+      etape({ id: 2, type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
+    ]);
+    expect(cleDOuverture(majeures)).toBe('e2');
+  });
+
+  /** ⚠️ RIEN D'ATTEINT : `null`, et l'écran reste au début — là où se trouve justement le « + ». */
+  it('⚠️ sans rien d’atteint, aucun calage', () => {
+    const { majeures } = construireFrise([]);
+    expect(cleDOuverture(majeures)).toBeNull();
+  });
+});
+
+describe('⑪ le pictogramme de source', () => {
+  it('🔴 Monga et la main se distinguent', () => {
+    expect(pictoSource(etape({ source: 'monga' }))).toBe('◆');
+    expect(pictoSource(etape({ source: 'manuelle' }))).toBe('✎');
+  });
+
+  it('🔴 le compteur de messages s’accorde', () => {
+    expect(motGroupeMessages(0)).toBe('0 message');
+    expect(motGroupeMessages(1)).toBe('1 message');
+    expect(motGroupeMessages(3)).toBe('3 messages');
   });
 });

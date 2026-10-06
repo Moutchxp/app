@@ -4,7 +4,7 @@ import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import {
   completerMontant, modifierEtapeManuelle, retirerEtapeManuelle, trancherEtape,
 } from '../../../../../../lib/gestion/mongaEtapeRepo';
-import { TYPES_AJOUTABLES, type TypeEtape } from '../../../../../../lib/gestion/mongaEtape';
+import { TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape } from '../../../../../../lib/gestion/mongaEtape';
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINT 3 — CE QU'ON FAIT D'UNE ÉTAPE ════════════════════════════════════════════════════════
@@ -76,7 +76,9 @@ export async function PATCH(
     /* ── MODIFIER une étape manuelle ──────────────────────────────────────────────────────────────────────── */
     if (geste === 'modifier') {
       const type = String(corps.type ?? '') as TypeEtape;
-      if (!TYPES_AJOUTABLES.includes(type)) {
+      /* 🔴 LOT FRISE-HORIZONTALE — une étape manuelle peut devenir une information, et l'inverse : ce sont deux
+         formes d'une même ligne, et le type seul décide. Voir `TYPES_INFORMATION`. */
+      if (!TYPES_AJOUTABLES.includes(type) && !TYPES_INFORMATION.includes(type)) {
         return Response.json({ erreur: 'Type d’étape inconnu.' }, { status: 400 });
       }
       const survenuLe = String(corps.survenuLe ?? '');
