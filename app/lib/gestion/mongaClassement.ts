@@ -33,17 +33,19 @@
 
 import { query } from '../db/client';
 import { personnesDesBiens, poserInterventions } from './contactExterneRepo';
-import { deplacerMessage, type Auteur } from './gestes';
+import {
+  deplacerMessage, deplacerMessageVersNouveau, modifierEvenement, remettreMessage, type Auteur,
+} from './gestes';
 import { mailInerte } from './mailInerte';
 import {
-  motifClassementMonga, motifExamenMonga, personnesEnVigueur,
+  motifClassementMonga, motifExamenMonga, personnesEnVigueur, renommageAFaire,
   type RefusClassementMonga,
 } from './monga';
 import {
   lireEtGarderUnMail, mailsDeLaReference, mongaDuMail, SQL_EST_MAIL_MONGA,
 } from './mongaRepo';
 import { cibleLot } from './rattachement';
-import { rattacher } from './rattachementRepo';
+import { changerStatut, rattacher } from './rattachementRepo';
 import { evenementQualifieDisponible, mongaDisponible } from './schema';
 
 /**
@@ -179,6 +181,27 @@ async function etatDuMail(messageId: string): Promise<EtatDuMail | null> {
  */
 export async function classerUnMailMonga(o: {
   messageId: string; auteur?: Auteur;
+  /**
+   * ══ 🔴🔴 LE MAIL QU'UN HUMAIN REGARDE EN CLIQUANT — « L'ANCRE » ══════════════════════════════════════════════
+   *
+   * 🔴 LE DÉFAUT TROUVÉ EN PRÉPARANT L'ESSAI RÉEL, ET IL AURAIT ÉTÉ VISIBLE PAR ARNO LE PREMIER JOUR. Le mail
+   * 57489 (MNG-23987) est À LA CORBEILLE sans statut, donc INERTE. Arno ouvre sa fenêtre « Classer », clique
+   * « Créer l'événement » — et ce mail-là, celui qu'il avait sous les yeux, se faisait refuser par la règle de
+   * l'inertie, pendant que les autres mails de la référence se classaient. Il aurait vu l'événement se
+   * remplir… sans le mail depuis lequel il venait de cliquer.
+   *
+   * 🔴 LA RÈGLE EST CELLE D'ARNO, MOT POUR MOT, DU LOT PRÉCÉDENT : « rattacher un mail déjà jeté le réveille
+   * aussi, parce qu'il a alors un statut ». L'inertie protège du classement AUTOMATIQUE, pas d'une décision. Un
+   * clic EST une décision, et elle porte sur ce mail-ci.
+   *
+   * ⚠️ ELLE NE LÈVE QUE L'INERTIE, JAMAIS LA MARQUE « INTERNE ». Dire « interne » est un jugement explicite sur
+   * le contenu d'un mail ; le défaire a sa propre confirmation à l'écran (lot PHOTOS-ET-INTERNE-INVERSE), et ce
+   * n'est pas à l'encart Monga de la contourner au passage.
+   *
+   * ⚠️ ELLE NE VAUT QUE POUR L'ANCRE. Les autres mails de la référence suivent la règle automatique : le mail
+   * 57251, jeté lui aussi, reste donc tranquille — personne n'a cliqué dessus.
+   */
+  ancre?: boolean;
 }): Promise<IssueClassementMonga> {
   if (!await mongaDisponible()) return RIEN;
   const auteur = o.auteur ?? AUTEUR_MONGA;
@@ -205,7 +228,7 @@ export async function classerUnMailMonga(o: {
    * passage suivant. Rien n'est à défaire, parce que rien n'a été écrit.
    */
   if (etat.estInterne) return { ...RIEN, ...commun, refus: 'mail_interne' };
-  if (mailInerte(etat)) return { ...RIEN, ...commun, refus: 'mail_inerte' };
+  if (o.ancre !== true && mailInerte(etat)) return { ...RIEN, ...commun, refus: 'mail_inerte' };
 
   const biens = await biensDeLEvenement(lecture.evenementId);
   if (biens.length === 0) return { ...RIEN, ...commun, refus: 'evenement_sans_bien' };
@@ -253,6 +276,9 @@ export async function classerUnMailMonga(o: {
       contact: null,
       auteur,
       origine: 'automatique',
+      /* 🔴 LE MÊME MOTIF QUE LES BIENS : c'est la SIGNATURE du classement, et c'est par elle que l'« Annuler »
+         reconnaît ce qu'il a le droit de défaire. Sans elle, le propriétaire et le locataire restaient. */
+      motif,
     });
     if (issue.ok) posees = issue.posees;
   }
@@ -288,12 +314,16 @@ export async function classerUnMailMonga(o: {
  */
 export async function classerLesMailsDeLaReference(o: {
   reference: string; auteur?: Auteur;
+  /** Le mail depuis lequel Arno a cliqué : il est classé même s'il dormait à la corbeille (voir `ancre`). */
+  ancre?: string | null;
 }): Promise<{ classes: number; refuses: { messageId: string; refus: RefusClassementMonga }[] }> {
   const ids = await mailsDeLaReference(o.reference);
   let classes = 0;
   const refuses: { messageId: string; refus: RefusClassementMonga }[] = [];
   for (const messageId of ids) {
-    const issue = await classerUnMailMonga({ messageId, auteur: o.auteur });
+    const issue = await classerUnMailMonga({
+      messageId, auteur: o.auteur, ancre: messageId === o.ancre,
+    });
     if (issue.classe) classes += 1;
     else if (issue.refus !== null) refuses.push({ messageId, refus: issue.refus });
   }
@@ -340,4 +370,360 @@ export async function passeMongaSurLesMails(messageIds: readonly number[]): Prom
   } catch {
     return vide;
   }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT MONGA-1, POINT 3 — LE CLIC QUI RELIE UNE RÉFÉRENCE, ET L'« ANNULER » QUI LE DÉFAIT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO : « Un clic valide le lien référence ↔ événement ; le mail et TOUS LES AUTRES MAILS de la même
+   référence se classent alors dans l'événement. “Annuler” quelques secondes après. »
+
+   🔴🔴 CE CLIC EST LE SEUL ENDROIT DU LOT OÙ UN HUMAIN EST EXIGÉ, et la base l'exige elle-même
+   (`gestion_monga_lien_humain_chk` refuse « automatique »). C'est la décision n° 1 d'Arno : « premier
+   rattachement d'une référence = TOUJOURS un clic d'Arno, même quand le lot est unique ». Tout le reste du lot
+   — la lecture, le classement, la reprise des 40 références — découle de ce clic et ne le remplace jamais. */
+
+export type IssueLienMonga =
+  | { ok: true; evenementId: string; reference: string; renomme: string | null; classes: number }
+  | { ok: false; motif: string };
+
+/** Ce que l'« Annuler » a défait. Les comptes sont dits : « annulé » sans chiffre ne se vérifie pas. */
+export interface IssueAnnulationMonga {
+  ok: boolean;
+  motif?: string;
+  /** Les liens NÉS du classement, retirés. */
+  liensRetires: number;
+  /** 🔴 Les liens que le moteur PROPOSAIT avant le clic, et qui retrouvent leur état de proposition. */
+  liensRendus: number;
+  mailsRemis: number;
+  /** Les lignes d'examen que le classement avait mises à « automatique », et qui reviennent dans la file. */
+  examensRepris: number;
+  nomRemis: string | null;
+  /** Vrai quand l'événement ne porte plus aucun mail — le cas d'une carte née du geste annulé. */
+  evenementVide: boolean;
+}
+
+/** La lecture Monga la plus récente d'une référence : ce qu'Arno a sous les yeux en cliquant. */
+async function lectureDeLaReference(reference: string): Promise<{
+  libelle: string | null; adresse: string | null; lienMission: string | null;
+} | null> {
+  const { rows } = await query<{
+    libelle: string | null; adresse: string | null; lien_mission: string | null;
+  }>(
+    `SELECT mm.libelle, mm.adresse, mm.lien_mission
+       FROM gestion_monga_mail mm
+       JOIN gestion_message m ON m.id = mm.message_id
+      WHERE mm.reference = $1
+      ORDER BY (mm.libelle IS NOT NULL) DESC, m.recu_le DESC
+      LIMIT 1`, [reference]);
+  return rows[0] === undefined ? null : {
+    libelle: rows[0].libelle, adresse: rows[0].adresse, lienMission: rows[0].lien_mission,
+  };
+}
+
+/**
+ * ══ 🔴🔴 RELIER UNE RÉFÉRENCE À UN ÉVÉNEMENT **EXISTANT** ════════════════════════════════════════════════════════
+ *
+ * Trois gestes, dans cet ordre, et chacun par sa porte :
+ *   ① le LIEN (`gestion_monga_lien`) — la décision d'Arno, datée et signée ;
+ *   ② la RÈGLE DU NOM — l'événement PREND le libellé Monga, par `modifierEvenement`, qui journalise l'ancien nom ;
+ *   ③ le CLASSEMENT de TOUS les mails de la référence, par le point 2.
+ *
+ * 🔴 LE LIEN D'ABORD, ET C'EST NÉCESSAIRE : le classement du point 2 LIT ce lien pour savoir où ranger. Dans
+ * l'autre ordre, il refuserait chaque mail avec « référence à relier » — et le clic n'aurait rien classé.
+ *
+ * 🔴 LE RENOMMAGE PASSE PAR `modifierEvenement`, ET PAR RIEN D'AUTRE. C'est elle qui lit `FOR UPDATE`, n'écrit
+ * que les champs qui changent VRAIMENT, et journalise chaque changement avec sa valeur AVANT et APRÈS. « L'ancien
+ * nom conservé et visible dans l'historique » (Arno) n'est donc pas quelque chose à construire : c'est ce que
+ * cette porte fait déjà, et un UPDATE écrit ici l'aurait perdu.
+ *
+ * ⚠️ UN ÉCHEC DU RENOMMAGE N'ANNULE PAS LE LIEN. Le lien est la décision ; le nom est une conséquence. On le DIT
+ * (`renomme` reste `null`) plutôt que de défaire un geste réussi — et le nom reste modifiable à la main.
+ */
+export async function relierLaReference(o: {
+  reference: string; evenementId: string; auteur: Auteur;
+  /** Le mail depuis lequel le clic est parti. Facultatif : sans lui, tous les mails suivent la règle automatique. */
+  messageId?: string | null;
+}): Promise<IssueLienMonga> {
+  if (!await mongaDisponible()) {
+    return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 311).' };
+  }
+  const libelleAuteur = (o.auteur.libelle ?? '').trim();
+  if (libelleAuteur === '' || libelleAuteur.toLowerCase() === 'automatique') {
+    // 🔴 LA MÊME RÈGLE QUE LA BASE, DITE À L'ÉCRAN : ce geste est un clic, et la contrainte le garantit.
+    return { ok: false, motif: 'Relier une intervention Monga est un geste humain : identifiez-vous.' };
+  }
+
+  const { rows: evt } = await query<{ objet: string; etat: string }>(
+    'SELECT objet, etat FROM gestion_evenement WHERE id = $1', [o.evenementId]);
+  if (evt[0] === undefined) return { ok: false, motif: 'Cet événement n’existe pas.' };
+
+  const lu = await lectureDeLaReference(o.reference);
+  const libelleMonga = lu?.libelle ?? null;
+  const renommeVers = libelleMonga === null ? null : renommageAFaire(evt[0].objet, libelleMonga);
+
+  // ① LE LIEN. ⚠️ L'index unique partiel refuse une seconde référence vivante : on le DIT, on ne l'écrase pas.
+  try {
+    await query(
+      `INSERT INTO gestion_monga_lien
+         (reference, evenement_id, libelle_lu, adresse_lue, lien_mission_lu, nom_avant,
+          relie_par, relie_par_libelle)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [o.reference, o.evenementId, libelleMonga, lu?.adresse ?? null, lu?.lienMission ?? null,
+        renommeVers === null ? null : evt[0].objet, o.auteur.id, libelleAuteur]);
+  } catch {
+    return {
+      ok: false,
+      motif: `L’intervention ${o.reference} est déjà reliée à un événement. Déliez-la d’abord.`,
+    };
+  }
+
+  // ② LA RÈGLE DU NOM. Signée par Arno : il a vu « Le nom deviendra … » et il a validé.
+  let renomme: string | null = null;
+  if (renommeVers !== null) {
+    const maj = await modifierEvenement(Number(o.evenementId), { objet: renommeVers }, o.auteur);
+    if (maj.ok) renomme = renommeVers;
+  }
+
+  // ③ TOUS LES MAILS DE LA RÉFÉRENCE SUIVENT — y compris ceux reçus avant le lien.
+  const bilan = await classerLesMailsDeLaReference({
+    reference: o.reference, ancre: o.messageId ?? null,
+  });
+  return { ok: true, evenementId: o.evenementId, reference: o.reference, renomme, classes: bilan.classes };
+}
+
+/**
+ * ══ 🔴🔴 CRÉER L'ÉVÉNEMENT « <libellé Monga> » SUR LE LOT CHOISI, PUIS RELIER ════════════════════════════════════
+ *
+ * 🔴 LA CRÉATION PASSE PAR `deplacerMessageVersNouveau` — la porte que la fenêtre « Classer » emploie déjà (route
+ * `messages/:id/affectation`, corps `{ nouveau }`). Elle crée la carte ET y met le mail dans UNE transaction :
+ * « une carte ouverte dont aucun mail ne dépend est une carte vide que personne n'a demandée ».
+ *
+ * 🔴 LES PARTIES DISENT SUR QUOI PORTE LA CARTE : le lot choisi, son propriétaire, son locataire du jour — la
+ * même règle qu'au lot CONTACTS-ET-EVENEMENT. C'est aussi ce que `biensDeLEvenement` lira en premier pour
+ * classer les mails suivants : la carte neuve sait donc tout de suite quel est son bien, sans rien dériver.
+ *
+ * ⚠️ `nom_avant` RESTE NULL : une carte qui vient de naître n'avait pas de nom d'avant. L'« Annuler » n'a donc
+ * aucun nom à remettre, et c'est juste.
+ */
+export async function creerEvenementEtRelier(o: {
+  reference: string; messageId: string; lotCle: string; auteur: Auteur;
+  categorie?: string | null; urgence?: string | null; ouvertLe?: string | null;
+}): Promise<IssueLienMonga> {
+  if (!await mongaDisponible()) {
+    return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 311).' };
+  }
+  const lu = await lectureDeLaReference(o.reference);
+  const objet = (lu?.libelle ?? '').trim();
+  if (objet === '') {
+    return {
+      ok: false,
+      motif: `Monga n’a pas écrit de libellé pour ${o.reference} : donnez un nom à l’événement à la main.`,
+    };
+  }
+  const { rows: deja } = await query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM gestion_monga_lien WHERE reference = $1 AND retire_le IS NULL`,
+    [o.reference]);
+  if ((deja[0]?.n ?? 0) > 0) {
+    return { ok: false, motif: `L’intervention ${o.reference} est déjà reliée à un événement.` };
+  }
+
+  const fiches = await personnesDesBiens([o.lotCle], jourDuJour());
+  const parties: { sorte: 'lot' | 'proprietaire' | 'locataire'; cle: string; libelle?: string | null }[] = [
+    { sorte: 'lot', cle: o.lotCle, libelle: fiches[0]?.adresseComplete ?? null },
+    ...personnesEnVigueur(fiches.flatMap((b) => b.personnes))
+      .map((p) => ({ sorte: p.sorte, cle: p.cle, libelle: p.nom })),
+  ];
+
+  const cree = await deplacerMessageVersNouveau(Number(o.messageId), {
+    objet,
+    adresseLibre: lu?.adresse ?? null,
+    categorie: o.categorie ?? null,
+    urgence: o.urgence ?? null,
+    parties,
+    ouvertLe: o.ouvertLe ?? null,
+  }, o.auteur, motifClassementMonga(o.reference));
+  if (!cree.ok) return { ok: false, motif: cree.motif };
+  const evenementId = String(cree.evenementId);
+
+  const lien = await relierLaReference({
+    reference: o.reference, evenementId, auteur: o.auteur, messageId: o.messageId,
+  });
+  if (!lien.ok) return lien;
+  return { ...lien, renomme: null };
+}
+
+/** Le jour d'aujourd'hui, heure de Paris, en `AAAA-MM-JJ`. */
+function jourDuJour(): string {
+  return new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris' }).format(new Date());
+}
+
+/**
+ * ══ 🔴🔴 L'« ANNULER » DES SECONDES QUI SUIVENT — ET LE « DÉLIER » DE PLUS TARD ══════════════════════════════════
+ *
+ * Il défait, dans l'ordre inverse, exactement ce que le clic a fait :
+ *   ① le NOM d'avant est remis (quand le clic l'avait changé) ;
+ *   ② les AFFECTATIONS posées par le classement sont désactivées (`remettreMessage`) ;
+ *   ③ les RATTACHEMENTS posés par le classement sont retirés (`changerStatut`) ;
+ *   ④ le LIEN référence ↔ événement est RETIRÉ (`retire_le`), jamais supprimé ;
+ *   ⑤ les LIGNES D'EXAMEN que le classement avait mises à « automatique » reviennent dans la file, et les
+ *      échanges concernés sont réexaminés par le moteur, qui recalcule le vrai verdict.
+ *
+ * 🔴 ON NE RECONNAÎT QUE CE QU'ON A POSÉ, et c'est la règle la plus importante de cette fonction. Le MOTIF
+ * (`classé automatiquement — intervention Monga MNG-…`) sert de signature : un bien qu'Arno avait rattaché à la
+ * main sur ce mail AVANT le clic garde son lien. C'est la même discipline que les fenêtres de suivi (« une
+ * fenêtre ne retire que ce qu'une fenêtre a posé »), et elle est là pour la même raison : un geste humain ne se
+ * défait jamais tout seul.
+ *
+ * ⚠️ UNE CARTE NÉE DU GESTE RESTE, VIDE, et le résultat le DIT (`evenementVide`). Rien n'est supprimé dans ce
+ * dépôt — c'est déjà ce que fait « Délier » aujourd'hui. Mieux vaut une carte vide qu'Arno ferme d'un geste
+ * visible qu'une suppression dont personne ne saura jamais qu'elle a eu lieu.
+ *
+ * ⚠️ LA LIGNE D'EXAMEN N'EST PAS REMISE À LA MAIN. Le mail reparaît dans « À rattacher » au prochain réexamen de
+ * son échange, qui RECALCULE l'issue — c'est la seule façon de retrouver la vraie, puisque l'ancienne n'est
+ * nulle part. Forcer « a_trier » aurait inventé un état que le moteur n'avait peut-être pas conclu.
+ */
+export async function delierLaReference(o: {
+  reference: string; auteur: Auteur; motif?: string;
+}): Promise<IssueAnnulationMonga> {
+  const vide: IssueAnnulationMonga = {
+    ok: false, liensRetires: 0, liensRendus: 0, mailsRemis: 0, examensRepris: 0, nomRemis: null,
+    evenementVide: false,
+  };
+  if (!await mongaDisponible()) return { ...vide, motif: 'Mise à jour de la base à appliquer (migration 311).' };
+
+  const { rows: lien } = await query<{ id: string; evenement_id: string; nom_avant: string | null }>(
+    `SELECT id::text, evenement_id::text AS evenement_id, nom_avant
+       FROM gestion_monga_lien WHERE reference = $1 AND retire_le IS NULL`, [o.reference]);
+  if (lien[0] === undefined) {
+    return { ...vide, motif: `L’intervention ${o.reference} n’est reliée à aucun événement.` };
+  }
+  const evenementId = lien[0].evenement_id;
+  const motifPose = motifClassementMonga(o.reference);
+
+  // ① LE NOM D'AVANT, par la même porte que l'aller — donc journalisé, comme le renommage l'a été.
+  let nomRemis: string | null = null;
+  if (lien[0].nom_avant !== null) {
+    const maj = await modifierEvenement(Number(evenementId), { objet: lien[0].nom_avant }, o.auteur);
+    if (maj.ok) nomRemis = lien[0].nom_avant;
+  }
+
+  // ② LES AFFECTATIONS QUE LE CLASSEMENT A POSÉES — reconnues par leur motif, et elles seules.
+  const { rows: affectes } = await query<{ message_id: string }>(
+    `SELECT message_id::text AS message_id FROM gestion_affectation
+      WHERE evenement_id = $1 AND actif AND message_id IS NOT NULL AND motif = $2`,
+    [evenementId, motifPose]);
+  let mailsRemis = 0;
+  for (const a of affectes) {
+    const issue = await remettreMessage(Number(a.message_id), o.auteur);
+    if (issue.ok) mailsRemis += 1;
+  }
+
+  /**
+   * ③ LES RATTACHEMENTS — ET ILS NE SE DÉFONT PAS TOUS DE LA MÊME FAÇON. DÉFAUT MESURÉ PAR L'ESSAI RÉEL.
+   *
+   * 🔴🔴 LA PORTE `rattacher` NE CRÉE PAS TOUJOURS : quand le moteur avait DÉJÀ PROPOSÉ ce bien — ce qui est le
+   * cas de tous les mails Monga, dont le corps porte l'adresse —, elle CONFIRME la ligne existante. Le `motif`
+   * reste alors celui du moteur, et c'est `statut_motif` qui porte notre signature. Deux conséquences, et la
+   * première a failli passer inaperçue :
+   *
+   *   · chercher la signature dans `motif` SEUL ne trouvait RIEN : l'annulation laissait les neuf liens en
+   *     place (mesuré : `liensRetires: 0`) ;
+   *   · et « retirer » un lien que le moteur PROPOSAIT avant le clic ne rétablit PAS l'état d'avant — cela
+   *     EFFACE une proposition que personne n'avait refusée. Il faut le remettre à `propose`.
+   *
+   * 🔴 D'OÙ DEUX GESTES, SELON CE QUE LE CLASSEMENT A VRAIMENT FAIT :
+   *   · `motif = <signature>`      ⇒ la ligne est NÉE du classement       ⇒ `retire` ;
+   *   · `statut_motif = <signature>` et `motif` autre ⇒ elle était PROPOSÉE ⇒ retour à `propose`.
+   *
+   * ⚠️ LES PERSONNES D'ABORD, LES LOTS ENSUITE. `changerStatut` déclenche une cascade quand un lien « lot »
+   * cesse d'être vivant (elle retire les interventions sans bien) : en traitant les personnes d'abord, c'est
+   * NOTRE geste, signé et journalisé, qui les défait — et non un effet de bord qu'on n'aurait pas raconté.
+   */
+  const { rows: liens } = await query<{ id: string; sorte: string; nee: boolean }>(
+    `SELECT id::text, cible_sorte AS sorte, (coalesce(motif, '') = $1) AS nee
+       FROM gestion_rattachement
+      WHERE statut = 'confirme' AND origine = 'automatique'
+        AND (coalesce(motif, '') = $1 OR coalesce(statut_motif, '') = $1)
+      ORDER BY (cible_sorte = 'lot'), id`, [motifPose]);
+  let liensRetires = 0;
+  let liensRendus = 0;
+  for (const l of liens) {
+    const issue = await changerStatut({
+      lienId: Number(l.id),
+      statut: l.nee ? 'retire' : 'propose',
+      auteur: o.auteur,
+      motif: o.motif ?? `lien Monga ${o.reference} annulé`,
+    });
+    if (!issue.ok) continue;
+    if (l.nee) liensRetires += 1; else liensRendus += 1;
+  }
+
+  // ④ LE LIEN LUI-MÊME : retiré, daté, signé. Jamais supprimé — et la référence redevient reliable.
+  await query(
+    `UPDATE gestion_monga_lien
+        SET retire_le = now(), retire_par = $2, retire_par_libelle = $3, retire_motif = $4
+      WHERE id = $1 AND retire_le IS NULL`,
+    [lien[0].id, o.auteur.id, (o.auteur.libelle ?? '').trim(),
+      o.motif ?? 'lien annulé depuis l’encart Monga']);
+
+  const { rows: reste } = await query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM gestion_affectation WHERE evenement_id = $1 AND actif`, [evenementId]);
+  /**
+   * ⑤ ET LA LIGNE D'EXAMEN EST **RECALCULÉE**, par le moteur lui-même.
+   *
+   * 🔴 LE DÉFAUT QUE CECI FERME, mesuré lui aussi : le classement avait mis l'issue à « automatique » pour
+   * sortir le mail de « À rattacher ». L'annulation la laissait telle quelle — le mail restait donc dehors,
+   * silencieusement, jusqu'à la prochaine relève de son échange. « Annuler » doit rétablir l'état d'avant.
+   *
+   * 🔴 ON NE REPOSE PAS « a_trier » À LA MAIN : l'ancienne valeur n'est nulle part, et la deviner serait
+   * inventer un verdict. On fait REJOUER l'examen des échanges concernés — c'est la seule façon d'obtenir la
+   * vraie, et c'est la porte que la relève emprunte à chaque passage.
+   *
+   * ⚠️ IL NE PEUT PAS FAIRE ÉCHOUER L'ANNULATION : tout est déjà défait quand on arrive ici. Un réexamen qui
+   * tombe laisse le mail hors de la file jusqu'à la relève suivante, ce qui est gênant — pas faux.
+   */
+  /**
+   * 🔴🔴 D'ABORD ON REPREND NOS PROPRES LIGNES D'EXAMEN, ET SEULEMENT LES NÔTRES. Le classement les signe avec
+   * `motifExamenMonga` : on les reconnaît donc à coup sûr, et on ne touche à aucune autre.
+   *
+   * 🔴 POURQUOI CE PASSAGE EST NÉCESSAIRE EN PLUS DU RÉEXAMEN, mesuré par l'essai réel : la passe du moteur
+   * N'OUVRE PAS les mails à la corbeille (`clauseHorsSpam`). Le mail 57489, jeté, gardait donc son issue
+   * « automatique » après l'annulation — invisible, parce qu'un mail jeté sans statut est de toute façon INERTE
+   * et ne paraît dans aucune file ; mais faux, et « Annuler » doit rétablir l'état d'avant, pas un état
+   * équivalent.
+   *
+   * ⚠️ « a_trier » EST LE VERDICT JUSTE POUR UN MAIL MONGA : son corps porte l'adresse du bien, donc le moteur
+   * lui trouve toujours des candidats — ce qui exclut « sans_candidat » — sans jamais de certitude, ce qui
+   * exclut « automatique ». Et pour les mails que le réexamen SAIT ouvrir, c'est lui qui tranche juste après :
+   * cette remise n'est qu'un plancher.
+   */
+  const { rows: repris } = await query<{ message_id: string }>(
+    `UPDATE gestion_rattachement_examen
+        SET issue = 'a_trier', motif = NULL, examine_le = now()
+      WHERE issue = 'automatique' AND motif = $1
+      RETURNING message_id::text`, [motifExamenMonga(o.reference)]);
+
+  try {
+    const { rows: fils } = await query<{ fil_id: string }>(
+      `SELECT DISTINCT m.fil_id::text AS fil_id
+         FROM gestion_monga_mail mm JOIN gestion_message m ON m.id = mm.message_id
+        WHERE mm.reference = $1`, [o.reference]);
+    if (fils.length > 0) {
+      const { chargerLibelles, examinerFilsPrecis, COMPTES_VIDES } = await import('./rattachementRepo');
+      await examinerFilsPrecis(
+        fils.map((f) => Number(f.fil_id)), await chargerLibelles(), { ...COMPTES_VIDES }, true);
+    }
+  } catch { /* le réexamen est un rattrapage d'état, pas le geste */ }
+
+  return {
+    ok: true,
+    liensRetires,
+    liensRendus,
+    mailsRemis,
+    examensRepris: repris.length,
+    nomRemis,
+    evenementVide: (reste[0]?.n ?? 0) === 0,
+  };
 }

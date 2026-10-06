@@ -392,6 +392,13 @@ export async function deplacerMessage(
  */
 export async function deplacerMessageVersNouveau(
   messageId: number, nouveau: NouvelEvenement, auteur: Auteur,
+  /**
+   * 🔴🔴 LOT MONGA-1, POINT 3 — LE MÊME MOTIF FACULTATIF QUE `deplacerMessage`, ET POUR LA MÊME RAISON : sans
+   * lui, l'affectation du mail depuis lequel Arno a cliqué portait « mail déplacé à la main depuis son échange »
+   * — faux, et surtout introuvable par l'« Annuler », qui cherche sa propre signature. Mesuré par l'essai réel :
+   * ce mail-là restait seul dans la carte après l'annulation.
+   */
+  motif?: string,
 ): Promise<Issue> {
   if (texte(nouveau.objet) === null) {
     return { ok: false, motif: 'Donnez un objet au nouvel événement.' };
@@ -399,7 +406,7 @@ export async function deplacerMessageVersNouveau(
   const qualifie = await evenementQualifieDisponible(); // sondé HORS transaction, comme partout dans ce fichier
   return withTransaction(async (q) => {
     const cree = await creerEvenementDansTransaction(q, nouveau, auteur, qualifie);
-    return lierLeMail(q, messageId, cree.id, auteur);
+    return lierLeMail(q, messageId, cree.id, auteur, motif);
   });
 }
 

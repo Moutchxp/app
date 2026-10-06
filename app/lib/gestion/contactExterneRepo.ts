@@ -785,6 +785,20 @@ export async function poserInterventions(o: {
    * aurait disparu à la relève suivante, sans trace. Le défaut (`'manuel'`) garde la conduite d'avant ce lot.
    */
   origine?: 'manuel' | 'automatique';
+  /**
+   * ══ 🔴🔴 LOT MONGA-1, POINT 3 — UN MOTIF IMPOSÉ, QUAND L'APPELANT DOIT POUVOIR SE RECONNAÎTRE ═══════════════
+   *
+   * 🔴 LE DÉFAUT TROUVÉ PAR L'ESSAI RÉEL, ET IL ÉTAIT DOUBLE. `motifIntervention` composait ici
+   * « intervention de un contact extérieur — locataire » : d'une part la phrase est fautive quand aucun contact
+   * n'est donné (branche jamais empruntée avant ce lot — la projection des fenêtres passe par
+   * `MOTIF_INTERVENTION_PAR_SUIVI`) ; d'autre part, et surtout, ce motif ne disait RIEN de qui avait posé le
+   * lien. L'« Annuler » du classement Monga cherchait sa signature et ne trouvait rien : il laissait derrière
+   * lui le propriétaire et le locataire de six liens.
+   *
+   * ⚠️ FACULTATIF, DÉFAUT INCHANGÉ : sans lui, `motifIntervention` et `MOTIF_INTERVENTION_PAR_SUIVI` décident
+   * comme avant ce lot, et la projection des fenêtres ne change pas d'un caractère.
+   */
+  motif?: string;
 }): Promise<IssueInterventions> {
   if (!(await interventionsDisponibles())) {
     return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 293).' };
@@ -824,11 +838,11 @@ export async function poserInterventions(o: {
     let posees = 0;
     for (const [cle, p] of voulues) {
       if (presentes.has(cle)) continue;
-      const motif = o.parLeSuivi === true
+      const motif = o.motif ?? (o.parLeSuivi === true
         // 🔴 LE MOTIF DIT QUI A POSÉ, et c'est lui — pas `origine` — qui protège le geste humain d'une fenêtre :
         //   même discipline que `MOTIF_POSE_PAR_SUIVI` dans `periodeRepo.ts`, et pour la même raison.
         ? MOTIF_INTERVENTION_PAR_SUIVI
-        : motifIntervention({ contact: o.contact, role: p.role });
+        : motifIntervention({ contact: o.contact, role: p.role }));
       const { rows } = await q<{ id: string }>(
         `INSERT INTO gestion_rattachement
            (message_id, piece_id, cible_sorte, cible_cle, cible_libelle, origine, regle, confiance,

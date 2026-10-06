@@ -17,6 +17,9 @@ import {
   badgeMonga, estAdresseMonga, etapeMonga, finDIntervention, libelleDeLObjet, libelleUtile,
   lienMissionMonga, lireEnTeteMonga, motDerniereEtape, motEncartMonga, motEtapeMonga, motFiltreMonga,
   motRenommageMonga, questionNomVerrouille, referenceMonga, referencesMonga, renommageAFaire,
+  /* 🔴🔴 POINTS 2 ET 3 — les lots candidats, les personnes en vigueur, les motifs et les refus. */
+  casLotsMonga, lotsPourLAdresseMonga, motCasLotsMonga, motifClassementMonga, motifExamenMonga,
+  motRefusClassementMonga, personnesEnVigueur, jourFrancais,
 } from './monga';
 
 /** GABARIT A — le courant. Mail réel MNG-23987 (le mail de l'essai d'Arno), rogné. */
@@ -328,5 +331,101 @@ describe('monga — la liste des étapes ne peut pas divergée de la base', () =
     // Unique par référence VIVANTE : délier puis relier ailleurs reste possible.
     expect(sql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS gestion_monga_lien_vivant_idx');
     expect(sql).toContain('ON gestion_monga_lien (reference) WHERE retire_le IS NULL');
+  });
+});
+
+describe('monga — POINT 3 : les lots candidats d’une adresse', () => {
+  /** Le rapprocheur de la maison attend un `BienConnu` : clé, numéro, adresse, commune. */
+  const lot = (cle: string, adresse: string, commune = 'PUTEAUX') => ({
+    cle, numero: cle, adresse, commune, proprietaireCle: null, proprietaireNom: null,
+  });
+
+  it('🔴 LE NUMÉRO **ET** LA VOIE — jamais la rue entière', () => {
+    const lots = [
+      lot('27', '53 avenue des Ternes', 'PARIS'),
+      lot('99', '12 avenue des Ternes', 'PARIS'),
+      lot('146', '53 rue Cartault'),
+    ];
+    expect(lotsPourLAdresseMonga('53 avenue des Ternes, 75017 PARIS', lots).map((l) => l.cle))
+      .toEqual(['27']);
+  });
+
+  it('🔴🔴 AUCUN LOT QUAND MONGA N’ÉCRIT PAS LE NUMÉRO — le cas réel de MNG-20354', () => {
+    /**
+     * Monga écrit « Rue Camille Deschanel, 92400 Courbevoie », sans numéro. Le rapprocheur exige le numéro, et
+     * il a raison : nous gérons parfois trois immeubles dans la même rue. D'où le moteur de recherche, et non
+     * une devinette — c'est l'un des 3 cas « aucun lot » sur 40 références.
+     */
+    const lots = [lot('500', '10 rue Camille Deschanel', 'COURBEVOIE')];
+    expect(lotsPourLAdresseMonga('Rue Camille Deschanel, 92400 Courbevoie', lots)).toEqual([]);
+  });
+
+  it('⚠️ les 76 lots d’une même adresse répondent TOUS — d’où le choix manuel', () => {
+    const lots = Array.from({ length: 76 }, (_, i) =>
+      lot(String(i + 1), '54 avenue Puvis de Chavannes', 'COURBEVOIE'));
+    const trouves = lotsPourLAdresseMonga('54 avenue du Puvis de Chavannes, 92400 COURBEVOIE', lots);
+    expect(trouves).toHaveLength(76);
+    expect(casLotsMonga(trouves.length)).toBe('plusieurs');
+  });
+
+  it('adresse absente ou vide ⇒ aucun lot, JAMAIS tous les lots', () => {
+    const lots = [lot('27', '53 avenue des Ternes', 'PARIS')];
+    expect(lotsPourLAdresseMonga(null, lots)).toEqual([]);
+    expect(lotsPourLAdresseMonga('   ', lots)).toEqual([]);
+  });
+
+  it('les trois cas, et leurs mots', () => {
+    expect(casLotsMonga(1)).toBe('unique');
+    expect(casLotsMonga(2)).toBe('plusieurs');
+    expect(casLotsMonga(0)).toBe('aucun');
+    // 🔴 « Vérifiez, PUIS validez » : même à un seul lot, rien n'est validé d'office (décision n° 1 d'Arno).
+    expect(motCasLotsMonga('unique')).toBe('Un seul bien à cette adresse. Vérifiez, puis validez.');
+    expect(motCasLotsMonga('plusieurs')).toBe('Plusieurs biens à cette adresse : choisissez lequel.');
+    expect(motCasLotsMonga('aucun')).toBe('Aucun bien reconnu à cette adresse : cherchez-le.');
+  });
+});
+
+describe('monga — POINT 2 : les personnes en vigueur, et les motifs', () => {
+  it('🔴 le propriétaire ACTIF et le locataire OCCUPANT, et eux seuls', () => {
+    const personnes = [
+      { sorte: 'proprietaire' as const, cle: 'P1', role: 'proprietaire', actif: true },
+      { sorte: 'proprietaire' as const, cle: 'P0', role: 'proprietaire', actif: false },
+      { sorte: 'locataire' as const, cle: 'L1', role: 'locataire_occupant' },
+      { sorte: 'locataire' as const, cle: 'L0', role: 'locataire_sortant' },
+      { sorte: 'locataire' as const, cle: 'L2', role: 'locataire_a_venir' },
+    ];
+    expect(personnesEnVigueur(personnes).map((p) => p.cle)).toEqual(['P1', 'L1']);
+  });
+
+  it('⚠️ aucun locataire à cette date est une RÉPONSE : le propriétaire reste', () => {
+    expect(personnesEnVigueur([
+      { sorte: 'proprietaire' as const, cle: 'P1', role: 'proprietaire', actif: true },
+    ]).map((p) => p.cle)).toEqual(['P1']);
+  });
+
+  it('le motif NOMME la référence — c’est lui qui sert de signature à l’annulation', () => {
+    expect(motifClassementMonga('MNG-23987'))
+      .toBe('classé automatiquement — intervention Monga MNG-23987');
+    expect(motifExamenMonga('MNG-23987')).toBe('intervention Monga MNG-23987 reliée à un événement');
+  });
+
+  it('les six refus ont chacun leur mot, et aucun ne ment', () => {
+    const refus = ['pas_un_mail_monga', 'sans_reference', 'reference_a_relier', 'evenement_sans_bien',
+      'mail_interne', 'mail_inerte'] as const;
+    const mots = refus.map((r) => motRefusClassementMonga(r));
+    expect(new Set(mots).size).toBe(6);
+    for (const m of mots) expect(m.length).toBeGreaterThan(20);
+    expect(motRefusClassementMonga('mail_interne')).toContain('décision humaine');
+    expect(motRefusClassementMonga('reference_a_relier')).toContain('pas encore reliée');
+  });
+});
+
+describe('monga — un jour civil écrit en français', () => {
+  it('🔴 AUCUN `new Date()` : la chaîne est déjà un jour de Paris', () => {
+    expect(jourFrancais('2026-10-06')).toBe('06/10/2026');
+    // ⚠️ Repasser par un Date relirait « 2026-10-06 » en UTC et ferait reculer d'un jour les cartes du soir.
+    expect(jourFrancais('2026-01-01')).toBe('01/01/2026');
+    expect(jourFrancais(null)).toBe('');
+    expect(jourFrancais('pas une date')).toBe('pas une date');
   });
 });

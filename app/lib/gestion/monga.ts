@@ -41,6 +41,8 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import { adresseCitee, normaliser, type BienConnu } from './propositionsBien';
+
 /** Le domaine de Monga, sous-domaines compris (`comptabilite@leanpay.monga.io`). */
 export function estAdresseMonga(adresse: string | null | undefined): boolean {
   return /@([a-z0-9-]+\.)*monga\.io$/i.test((adresse ?? '').trim());
@@ -307,6 +309,18 @@ export function motDerniereEtape(etape: EtapeMonga | null, le: string | null): s
   return `${mot} · ${jour}`;
 }
 
+/**
+ * UN JOUR CIVIL `AAAA-MM-JJ` ÉCRIT COMME ON L'ÉCRIT EN FRANÇAIS : « 06/10/2026 ». PUR.
+ *
+ * ⚠️ AUCUN `new Date()` ICI, ET C'EST VOULU. La chaîne est DÉJÀ un jour civil, calculé côté serveur à l'heure de
+ * Paris ; la repasser par un `Date` la relirait en UTC et ferait reculer d'un jour les cartes ouvertes après
+ * 22 h. On découpe, on remet dans l'ordre, et c'est tout.
+ */
+export function jourFrancais(jour: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((jour ?? '').trim());
+  return m === null ? (jour ?? '') : `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 /** L'encart en tête de la fenêtre « Classer » : « Intervention Monga MNG-… · libellé · adresse ». PUR. */
 export function motEncartMonga(e: { reference: string; libelle: string | null; adresse: string | null }): string {
   return [`Intervention Monga ${e.reference}`, e.libelle, e.adresse]
@@ -382,4 +396,60 @@ export function personnesEnVigueur<P extends {
   sorte: 'proprietaire' | 'locataire'; role: string; actif?: boolean;
 }>(personnes: readonly P[]): P[] {
   return personnes.filter((p) => (p.sorte === 'proprietaire' ? p.actif === true : p.role === 'locataire_occupant'));
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT MONGA-1, POINT 3 — LES LOTS CANDIDATS D'UNE ADRESSE MONGA. PUR.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO : l'encart propose « les événements OUVERTS des lots candidats » ou « Créer l'événement sur le
+   lot choisi (lot unique présélectionné mais PAS validé ; plusieurs lots : liste avec propriétaire et locataire
+   actuel de chacun ; aucun : moteur de recherche) ».
+
+   🔴🔴 ON RÉEMPLOIE `adresseCitee`, LE RAPPROCHEUR D'ADRESSE DE LA MAISON — et c'est la décision qui compte ici.
+   L'audit du 06/10 avait écrit le sien (numéro + mots de voie, avec sa propre liste de mots vides et de communes).
+   Deux rapprocheurs d'adresse dans le même dépôt, c'est deux réponses possibles à « quel lot est-ce ? », et celle
+   qu'on regarde le moins qui garde l'ancienne règle. Mesuré AVANT de choisir : sur les 40 références réelles,
+   `adresseCitee` retrouve exactement le compte de l'audit — **18 lot unique, 19 plusieurs, 3 aucun**.
+
+   ⚠️ IL FAUT LE NUMÉRO **ET** LE NOM DE VOIE (règle de `adresseCitee`, et elle est juste) : « rue Danton » seul
+   désigne toute une rue, où nous gérons parfois trois immeubles. D'où le cas « aucun lot » de MNG-20354, dont
+   Monga écrit l'adresse SANS numéro (« Rue Camille Deschanel, 92400 Courbevoie ») — un moteur de recherche, et
+   pas une devinette. */
+
+
+/**
+ * Les lots dont l'adresse est celle que Monga a écrite. PUR.
+ *
+ * ⚠️ `null` OU ADRESSE ILLISIBLE ⇒ LISTE VIDE, jamais « tous les lots ». Une liste vide fait apparaître le moteur
+ * de recherche ; une liste de 365 lots ferait cliquer Arno au hasard.
+ */
+export function lotsPourLAdresseMonga<B extends BienConnu>(
+  adresse: string | null, lots: readonly B[],
+): B[] {
+  if (adresse === null || adresse.trim() === '') return [];
+  const texte = normaliser(adresse);
+  return lots.filter((l) => adresseCitee(l, texte));
+}
+
+/** Combien de lots, et donc quel geste l'encart propose. PUR. */
+export type CasLotsMonga = 'unique' | 'plusieurs' | 'aucun';
+
+export function casLotsMonga(n: number): CasLotsMonga {
+  return n === 1 ? 'unique' : n > 1 ? 'plusieurs' : 'aucun';
+}
+
+/**
+ * Ce que l'encart DIT selon le cas. PUR.
+ *
+ * 🔴 « PRÉSÉLECTIONNÉ MAIS PAS VALIDÉ » (Arno) : même quand le lot est unique, rien n'est écrit avant le clic.
+ * C'est la décision n° 1 d'Arno sur ce lot — « premier rattachement d'une référence = TOUJOURS un clic d'Arno,
+ * même quand le lot est unique » — et elle se voit à l'écran : le lot est coché, le bouton attend.
+ */
+export function motCasLotsMonga(cas: CasLotsMonga): string {
+  switch (cas) {
+    case 'unique': return 'Un seul bien à cette adresse. Vérifiez, puis validez.';
+    case 'plusieurs': return 'Plusieurs biens à cette adresse : choisissez lequel.';
+    default: return 'Aucun bien reconnu à cette adresse : cherchez-le.';
+  }
 }

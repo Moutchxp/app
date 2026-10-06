@@ -12,10 +12,15 @@
  */
 
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { mongaDisponible } from './schema';
 import {
-  etapeMonga, lireEnTeteMonga, motDerniereEtape, type EnTeteMonga, type EtapeMonga,
+  annuaireDisponible, evenementQualifieDisponible, mongaDisponible,
+} from './schema';
+import { nomBien } from './driveArbre';
+import {
+  casLotsMonga, etapeMonga, lireEnTeteMonga, lotsPourLAdresseMonga, motDerniereEtape, motEncartMonga,
+  type CasLotsMonga, type EnTeteMonga, type EtapeMonga,
 } from './monga';
+import { normaliser } from './propositionsBien';
 
 /**
  * ══ 🔴🔴 QUELS MAILS SONT DES MAILS MONGA — LA MÊME CLAUSE QUE L'AUDIT, MOT POUR MOT ═══════════════════════════
@@ -265,4 +270,264 @@ export async function mailsDeLaReference(reference: string): Promise<string[]> {
       WHERE mm.reference = $1
       ORDER BY m.recu_le ASC`, [reference]);
   return rows.map((r) => r.id);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT MONGA-1, POINT 3 — CE QUE L'ENCART MONTRE, ET LE LIEN QU'UN CLIC POSE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DEMANDE D'ARNO (06/10/2026), mot pour mot : « PREMIER MAIL D'UNE RÉFÉRENCE NON RELIÉE : dans la fenêtre
+   « Classer » (même composant), un encart en tête « Intervention Monga MNG-23987 · barre de douche defixer ·
+   53 avenue des Ternes ». Il propose : les événements OUVERTS des lots candidats (« Relier à cet événement » ; si
+   le nom diffère : « Le nom deviendra … ») OU « Créer l'événement « <libellé Monga> » » sur le lot choisi (lot
+   unique présélectionné mais PAS validé ; plusieurs lots : liste avec propriétaire et locataire actuel de
+   chacun ; aucun : moteur de recherche). Un clic valide le lien référence ↔ événement ; le mail et TOUS les
+   autres mails de la même référence se classent alors dans l'événement. « Annuler » quelques secondes après. » */
+
+/** Un lot candidat, avec de quoi le reconnaître d'un coup d'œil parmi 76. */
+export interface LotCandidatMonga {
+  cle: string;
+  libelle: string;
+  adresse: string | null;
+  commune: string | null;
+  nature: string | null;
+  typeBien: string | null;
+  /** Le propriétaire ACTUEL. `null` = l'annuaire n'en connaît pas. */
+  proprietaire: string | null;
+  /** Le locataire D'AUJOURD'HUI. `null` = vacant, ou occupé par son propriétaire. */
+  locataire: string | null;
+}
+
+/** Un événement OUVERT d'un lot candidat : ce à quoi « Relier » peut mener. */
+export interface EvenementCandidatMonga {
+  evenementId: string;
+  reference: string;
+  /** Le « quoi » de la carte — c'est lui que la RÈGLE DU NOM d'Arno harmonise. */
+  objet: string;
+  etat: string;
+  ouvertLe: string;
+  /** Les clés des lots de cet événement, pour dire sous quel bien le montrer. */
+  lots: string[];
+}
+
+/**
+ * ══ 🔴🔴 LES LOTS CANDIDATS D'UNE ADRESSE ════════════════════════════════════════════════════════════════════════
+ *
+ * 🔴 LE RAPPROCHEMENT EST FAIT EN TypeScript, PAS EN SQL, et c'est volontaire : `adresseCitee` est LE rapprocheur
+ * d'adresse de la maison, il est pur, il est éprouvé, et le réécrire en SQL en aurait fait un second. 365 lots
+ * actifs tiennent en mémoire sans y penser.
+ *
+ * ⚠️ LE PROPRIÉTAIRE ET LE LOCATAIRE SONT CEUX D'AUJOURD'HUI, pas ceux de la date du mail. C'est ce qu'Arno
+ * demande (« propriétaire et locataire ACTUEL de chacun ») et c'est juste : cette liste sert à RECONNAÎTRE un
+ * logement parmi 76, et on le reconnaît par qui l'habite maintenant. Le rôle à la date du mail, lui, est écrit
+ * par le classement (point 2) — deux questions différentes, deux réponses différentes.
+ */
+export async function lotsCandidatsMonga(adresse: string | null): Promise<LotCandidatMonga[]> {
+  if (adresse === null || adresse.trim() === '' || !await annuaireDisponible()) return [];
+  const { rows } = await query<{
+    cle: string; adresse: string | null; commune: string | null; code_postal: string | null;
+    nature: string | null; type_bien: string | null; proprietaire: string | null; locataire: string | null;
+  }>(
+    `SELECT l.wippimmo_id AS cle, l.adresse, l.commune, l.code_postal, l.nature, l.type_bien,
+            pr.nom_complet AS proprietaire,
+            (SELECT lc.nom
+               FROM gestion_annuaire_occupation o
+               JOIN gestion_annuaire_locataire lc ON lc.id = o.locataire_id
+              WHERE o.lot_id = l.id AND lc.supprime_le IS NULL AND o.absent_le IS NULL
+                AND (o.entree IS NULL OR o.entree <= (now() AT TIME ZONE 'Europe/Paris')::date)
+                AND (o.sortie IS NULL OR o.sortie >= (now() AT TIME ZONE 'Europe/Paris')::date)
+              ORDER BY o.entree DESC NULLS LAST, o.id DESC
+              LIMIT 1) AS locataire
+       FROM gestion_annuaire_lot l
+       LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = l.proprietaire_id AND pr.supprime_le IS NULL
+      WHERE l.absent_le IS NULL`);
+  const lots = rows.map((r) => ({
+    cle: r.cle, numero: r.cle, adresse: r.adresse, commune: r.commune,
+    proprietaireCle: null, proprietaireNom: r.proprietaire,
+    codePostal: r.code_postal, nature: r.nature, typeBien: r.type_bien, locataire: r.locataire,
+  }));
+  return lotsPourLAdresseMonga(adresse, lots)
+    .map((l) => ({
+      cle: l.cle,
+      libelle: nomBien({
+        wippimmoId: l.cle, proprietaireWippimmoId: null, adresse: l.adresse,
+        codePostal: l.codePostal, commune: l.commune, nature: l.nature, typeBien: l.typeBien,
+      }),
+      adresse: l.adresse,
+      commune: l.commune,
+      nature: l.nature,
+      typeBien: l.typeBien,
+      proprietaire: l.proprietaireNom,
+      locataire: l.locataire,
+    }));
+}
+
+/**
+ * LES ÉVÉNEMENTS **OUVERTS** DES LOTS DONNÉS.
+ *
+ * 🔴 « OUVERTS » = PAS `traite`. Proposer de relier une intervention en cours à une carte déjà close ferait
+ * rouvrir un dossier clos sans le dire ; si Arno le veut vraiment, il rouvre la carte d'abord — un geste qui
+ * existe et qui se voit.
+ *
+ * ⚠️ UN ÉVÉNEMENT EST RELIÉ À UN LOT PAR DEUX CHEMINS, et il faut les deux : ses PARTIES déclarées
+ * (`gestion_evenement_partie`) et les lots rattachés à ses MAILS. Mesuré le 06/10/2026 : la table des parties
+ * est VIDE et les deux seuls événements existants n'ont que le second chemin.
+ */
+export async function evenementsOuvertsDesLots(cles: readonly string[]): Promise<EvenementCandidatMonga[]> {
+  const liste = [...new Set(cles.map((c) => c.trim()).filter((c) => c !== ''))];
+  if (liste.length === 0) return [];
+  const avecParties = await evenementQualifieDisponible();
+  const parParties = avecParties ? `
+     UNION
+     SELECT p.evenement_id, p.cle
+       FROM gestion_evenement_partie p
+      WHERE p.sorte = 'lot' AND p.retire_le IS NULL AND p.cle = ANY($1::text[])` : '';
+  const { rows } = await query<{
+    evenement_id: string; reference: string; objet: string; etat: string; ouvert_le: string; lots: string[];
+  }>(
+    `WITH par_mails AS (
+        SELECT a.evenement_id, r.cible_cle AS cle
+          FROM gestion_affectation a
+          JOIN gestion_message m
+            ON (a.message_id IS NOT NULL AND m.id = a.message_id)
+            OR (a.message_id IS NULL AND m.fil_id = a.fil_id
+                AND NOT EXISTS (SELECT 1 FROM gestion_affectation a2
+                                 WHERE a2.message_id = m.id AND a2.actif))
+          JOIN gestion_rattachement r
+            ON r.message_id = m.id AND r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
+         WHERE a.actif AND r.cible_cle = ANY($1::text[])
+     ), liens AS (
+        SELECT DISTINCT evenement_id, cle FROM par_mails${parParties}
+     )
+     SELECT e.id::text AS evenement_id, e.reference, e.objet, e.etat,
+            to_char(e.ouvert_le AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD') AS ouvert_le,
+            array_agg(DISTINCT l.cle) AS lots
+       FROM liens l
+       JOIN gestion_evenement e ON e.id = l.evenement_id
+      WHERE e.etat <> 'traite'
+      GROUP BY e.id, e.reference, e.objet, e.etat, e.ouvert_le
+      ORDER BY e.ouvert_le DESC`, [liste]);
+  return rows.map((r) => ({
+    evenementId: r.evenement_id,
+    reference: r.reference,
+    objet: r.objet,
+    etat: r.etat,
+    ouvertLe: r.ouvert_le,
+    lots: r.lots,
+  }));
+}
+
+/**
+ * ══ 🔴🔴 L'ENCART — UNE SEULE LECTURE POUR TOUT CE QU'IL MONTRE ══════════════════════════════════════════════════
+ *
+ * 🔴 UNE SEULE PORTE, ET DONC UNE SEULE RÉPONSE. L'encart a besoin de six choses (la référence, le libellé,
+ * l'adresse, le lien Mission, les lots candidats, leurs événements ouverts) et d'un verdict (quel geste
+ * proposer). Les demander en quatre requêtes depuis le navigateur aurait fait quatre états à synchroniser, et un
+ * encart qui s'affiche à moitié pendant que le reste arrive.
+ *
+ * ⚠️ `null` QUAND CE N'EST PAS UN MAIL MONGA, ou qu'il ne porte aucune référence lisible. L'encart ne s'affiche
+ * alors pas du tout — la fenêtre « Classer » est exactement celle d'avant ce lot.
+ */
+export interface EncartMonga {
+  reference: string;
+  libelle: string | null;
+  adresse: string | null;
+  lienMission: string | null;
+  etape: EtapeMonga;
+  derniereEtapeMot: string | null;
+  nbMails: number;
+  /** Renseigné = la référence est DÉJÀ reliée : l'encart ne propose plus de relier, il le DIT. */
+  evenementId: string | null;
+  evenementNom: string | null;
+  /** 🔴 Vrai pour un seul lot : présélectionné, mais JAMAIS validé d'office (décision n° 1 d'Arno). */
+  cas: CasLotsMonga;
+  lots: LotCandidatMonga[];
+  evenements: EvenementCandidatMonga[];
+  /** Le mot tout fait de l'en-tête : « Intervention Monga MNG-23987 · libellé · adresse ». */
+  mot: string;
+}
+
+export async function encartMonga(messageId: string): Promise<EncartMonga | null> {
+  const lecture = await mongaDuMail(messageId);
+  if (lecture === null || lecture.reference === null) return null;
+
+  const [toutes, lots] = await Promise.all([
+    interventionsMonga(),
+    /* ⚠️ LES LOTS NE SONT CHERCHÉS QUE SI LA RÉFÉRENCE EST À RELIER. Reliée, l'encart n'a plus de choix à
+       proposer : 365 lots lus et rapprochés pour rien, à chaque ouverture de la fenêtre. */
+    lecture.evenementId === null ? lotsCandidatsMonga(lecture.adresse) : Promise.resolve([]),
+  ]);
+  const intervention = toutes.find((i) => i.reference === lecture.reference) ?? null;
+  const evenements = lots.length === 0 ? [] : await evenementsOuvertsDesLots(lots.map((l) => l.cle));
+
+  return {
+    reference: lecture.reference,
+    /* 🔴 LE LIBELLÉ ET L'ADRESSE DE L'INTERVENTION, PAS SEULEMENT CEUX DE CE MAIL. Un rappel de devis n'a ni
+       adresse ni lien dans son corps (mesuré) : l'encart du premier rappel aurait été vide alors que les deux
+       autres mails de la même référence les portent. */
+    libelle: intervention?.libelle ?? lecture.libelle,
+    adresse: intervention?.adresse ?? lecture.adresse,
+    lienMission: intervention?.lienMission ?? lecture.lienMission,
+    etape: lecture.etape,
+    derniereEtapeMot: intervention?.derniereEtapeMot ?? null,
+    nbMails: intervention?.nbMails ?? 1,
+    evenementId: lecture.evenementId,
+    evenementNom: intervention?.evenementNom ?? null,
+    cas: casLotsMonga(lots.length),
+    lots,
+    evenements,
+    mot: motEncartMonga({
+      reference: lecture.reference,
+      libelle: intervention?.libelle ?? lecture.libelle,
+      adresse: intervention?.adresse ?? lecture.adresse,
+    }),
+  };
+}
+
+/**
+ * LE MOTEUR DE RECHERCHE DU CAS « AUCUN LOT ». Cherche dans l'adresse, la commune et le n° de lot.
+ *
+ * 🔴 IL EXISTE PARCE QU'UNE ADRESSE SANS NUMÉRO NE DÉSIGNE RIEN — mesuré sur MNG-20354, dont Monga écrit
+ * « Rue Camille Deschanel, 92400 Courbevoie ». Le rapprocheur de la maison exige le numéro ET la voie, et il a
+ * raison : nous gérons parfois trois immeubles dans la même rue. Plutôt qu'une devinette, on laisse Arno
+ * chercher — et c'est ce qu'il a demandé.
+ */
+export async function chercherUnLotMonga(terme: string, limite = 20): Promise<LotCandidatMonga[]> {
+  const t = terme.trim();
+  if (t.length < 2 || !await annuaireDisponible()) return [];
+  const { rows } = await query<{
+    cle: string; adresse: string | null; commune: string | null; code_postal: string | null;
+    nature: string | null; type_bien: string | null; proprietaire: string | null; locataire: string | null;
+  }>(
+    `SELECT l.wippimmo_id AS cle, l.adresse, l.commune, l.code_postal, l.nature, l.type_bien,
+            pr.nom_complet AS proprietaire,
+            (SELECT lc.nom
+               FROM gestion_annuaire_occupation o
+               JOIN gestion_annuaire_locataire lc ON lc.id = o.locataire_id
+              WHERE o.lot_id = l.id AND lc.supprime_le IS NULL AND o.absent_le IS NULL
+                AND (o.entree IS NULL OR o.entree <= (now() AT TIME ZONE 'Europe/Paris')::date)
+                AND (o.sortie IS NULL OR o.sortie >= (now() AT TIME ZONE 'Europe/Paris')::date)
+              ORDER BY o.entree DESC NULLS LAST, o.id DESC
+              LIMIT 1) AS locataire
+       FROM gestion_annuaire_lot l
+       LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = l.proprietaire_id AND pr.supprime_le IS NULL
+      WHERE l.absent_le IS NULL
+        AND (l.adresse_normalisee ILIKE '%' || $1 || '%'
+          OR l.commune ILIKE '%' || $2 || '%'
+          OR l.wippimmo_id = $2)
+      ORDER BY l.commune NULLS LAST, l.adresse NULLS LAST, l.wippimmo_id
+      LIMIT ${Number(limite)}`, [normaliser(t), t]);
+  return rows.map((r) => ({
+    cle: r.cle,
+    libelle: nomBien({
+      wippimmoId: r.cle, proprietaireWippimmoId: null, adresse: r.adresse,
+      codePostal: r.code_postal, commune: r.commune, nature: r.nature, typeBien: r.type_bien,
+    }),
+    adresse: r.adresse,
+    commune: r.commune,
+    nature: r.nature,
+    typeBien: r.type_bien,
+    proprietaire: r.proprietaire,
+    locataire: r.locataire,
+  }));
 }

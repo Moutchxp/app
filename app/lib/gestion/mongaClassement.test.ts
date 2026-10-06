@@ -252,6 +252,34 @@ describe('classement Monga — ce qui l’arrête, et n’écrit rien', () => {
     rienEcrit();
   });
 
+  it('🔴🔴 L’ANCRE EST CLASSÉE MÊME INERTE — c’est le mail depuis lequel Arno clique', async () => {
+    /**
+     * LE DÉFAUT QUE CETTE ÉPREUVE FERME, trouvé en préparant l'essai réel : le mail 57489 (MNG-23987) est à la
+     * corbeille sans statut, donc inerte. Arno ouvre SA fenêtre, clique « Créer l'événement » — et ce mail-là se
+     * faisait refuser pendant que les autres se classaient. Il aurait vu l'événement se remplir sans le mail
+     * depuis lequel il venait de cliquer.
+     *
+     * 🔴 LA RÈGLE EST DÉJÀ CELLE D'ARNO : « rattacher un mail déjà jeté le réveille aussi, parce qu'il a alors un
+     * statut ». L'inertie protège du classement AUTOMATIQUE, pas d'une décision.
+     */
+    etat.mail = { ...etat.mail, corbeille: true, a_un_bien: false, interne: false };
+    expect((await classerUnMailMonga({ messageId: '57489' })).refus).toBe('mail_inerte');
+    appels.length = 0;
+    rattacher.mockClear();
+    deplacerMessage.mockClear();
+    poserInterventions.mockClear();
+    const issue = await classerUnMailMonga({ messageId: '57489', ancre: true });
+    expect(issue.classe).toBe(true);
+  });
+
+  it('🔴🔴 MAIS L’ANCRE NE LÈVE JAMAIS LA MARQUE « INTERNE »', async () => {
+    /* Dire « interne » est un jugement explicite sur le CONTENU d'un mail ; le défaire a sa propre confirmation
+       à l'écran (lot PHOTOS-ET-INTERNE-INVERSE), et ce n'est pas à l'encart Monga de la contourner. */
+    etat.mail = { ...etat.mail, interne: true };
+    expect((await classerUnMailMonga({ messageId: '1', ancre: true })).refus).toBe('mail_interne');
+    rienEcrit();
+  });
+
   it('⚠️ MAIS un mail jeté AVEC un statut n’est pas inerte : il se classe', async () => {
     etat.mail = { ...etat.mail, corbeille: true, a_un_bien: true };
     const issue = await classerUnMailMonga({ messageId: '1' });
@@ -260,6 +288,26 @@ describe('classement Monga — ce qui l’arrête, et n’écrit rien', () => {
 });
 
 describe('classement Monga — tous les mails de la référence suivent', () => {
+  it('⚠️ L’ANCRE NE VAUT QUE POUR ELLE : les autres mails gardent la règle automatique', async () => {
+    /* Mesuré sur MNG-23987 : DEUX de ses quatre mails sont à la corbeille. Celui qu'Arno regarde se classe ;
+       l'autre reste tranquille, parce que personne n'a cliqué dessus. */
+    let n = 0;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('gestion_rattachement_examen')) { appels.push('examen'); return { rows: [] }; }
+      if (sql.includes('gestion_affectation')) return { rows: [{ cle: 'lot-27' }] };
+      if (sql.includes('corbeille_le IS NOT NULL')) {
+        n += 1;
+        return { rows: [{ ...etat.mail, corbeille: true, a_un_bien: false }] };
+      }
+      return { rows: [] };
+    });
+    const bilan = await classerLesMailsDeLaReference({ reference: 'MNG-23987', ancre: '791' });
+    expect(n).toBe(3);
+    expect(bilan.classes).toBe(1);
+    expect(bilan.refuses.map((r) => r.messageId)).toEqual(['700', '57489']);
+    expect(bilan.refuses.every((r) => r.refus === 'mail_inerte')).toBe(true);
+  });
+
   it('🔴 LE POINT 3 EN DÉCOULE : un clic, et l’historique entier rejoint l’événement', async () => {
     const bilan = await classerLesMailsDeLaReference({ reference: 'MNG-23987' });
     expect(bilan.classes).toBe(3);

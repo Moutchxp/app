@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 // LOT CONTACT-LIGNES — le type passe dans le titre, et ne s'ecrit qu'une fois par groupe.
 import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
+/* 🔴🔴 LOT MONGA-1, POINT 3 — l'encart d'une intervention Monga, monté en tête de cette fenêtre. */
+import { EncartMonga } from './EncartMonga';
 import { ModifierRattachement, motSorteLong, CSS_MODIFIER_RATTACHEMENT } from './ModifierRattachement';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import { MenuRattachementBien } from './MenuRattachementBien';
@@ -994,6 +996,25 @@ export function RattachementsDuFil({
         {fiche !== null && !(biens.length === 0 && panneau === 'aucun') && (
           <p className="rdf-detail rdf-compteur">{motNbBiensRattaches((selection ?? clesDuMail).length)}</p>
         )}
+
+        {/**
+          * ══ 🔴🔴 LOT MONGA-1, POINT 3 — L'ENCART « INTERVENTION MONGA », EN TÊTE ═══════════════════════════════
+          *
+          * Arno : « dans la fenêtre “Classer” (même composant), un encart EN TÊTE “Intervention Monga MNG-23987 ·
+          * barre de douche defixer · 53 avenue des Ternes”. »
+          *
+          * 🔴 IL EST POSÉ ICI, AVANT TOUT CE QUI SE COCHE, et pour la même raison que le bandeau ponctuel : on
+          * doit savoir DE QUELLE INTERVENTION il s'agit avant de commencer à choisir un bien. Posé en bas, il
+          * serait lu après que la décision est prise.
+          *
+          * ⚠️ IL NE RETIRE RIEN À LA FENÊTRE. Sur un mail qui n'est pas un mail Monga — c'est-à-dire sur
+          * l'immense majorité du courrier — il ne rend RIEN, et la fenêtre est exactement celle d'avant ce lot.
+          *
+          * 🔴 `onRelie` RELIT LA FENÊTRE, parce que relier une référence CLASSE le mail : ses biens, son
+          * propriétaire et son locataire viennent de changer sous l'encart. Sans cette relecture, la fenêtre
+          * montrerait l'état d'avant le clic jusqu'à sa prochaine ouverture.
+          */}
+        <EncartMonga messageId={mailId} onGeste={onGeste} onRelie={() => { void charger(); }} />
 
         {etat.v === 'charge' && <p className="gst-info" role="status">Lecture des rattachements…</p>}
         {etat.v === 'erreur' && <p className="gst-tronc" role="alert">{etat.message}</p>}
