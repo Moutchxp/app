@@ -82,48 +82,68 @@ describe('🔴🔴 ② l’icône dans le bloc d’en-tête', () => {
   });
 
   /**
-   * ══ 🔴🔴 RÉÉCRIT PAR LE LOT DRIVE-HABILLAGE, POINT 4 — LA CORBEILLE EST PASSÉE **DANS** LE BLOC ═══════════════
+   * ══ 🔴🔴 RÉÉCRIT PAR LE LOT CORBEILLE-SANS-STATUT, POINT 1 — LES DEUX CASES, CÔTE À CÔTE ET CARRÉES ══════════
    *
-   * CE QUI ÉTAIT EXIGÉ ICI : une RANGÉE (`cnv-entete-rangee`) posant le bloc gris et le bouton EN FRÈRES, avec
-   * `align-items: stretch` pour la hauteur et `flex: 1` sur le `<dl>` pour la largeur restante.
+   * ═══ CE QUE CETTE ÉPREUVE EXIGEAIT, ET POURQUOI CELA CHANGE ═════════════════════════════════════════════════
    *
-   * 🔴 POURQUOI CELA CHANGE. Arno, le 03/10/2026 : « le bloc gris De / À / Date reprend toute la largeur comme
-   * avant. La corbeille est intégrée DANS ce bloc, à l'extrême DROITE, dans une case blanche (fond de carte du
-   * thème) à coins arrondis, bien intégrée à la trame grise. » La rangée faisait perdre au bloc 52 px de largeur
-   * sur toute sa hauteur, et laissait l'icône flotter à sa droite sur le fond de la page — deux surfaces là où il
-   * n'en faut qu'une.
+   * Elle figeait une case POSITIONNÉE dans le `<dl>` (`position:absolute`), avec une gouttière réservée par un
+   * `padding-right:62px`. C'était la forme des deux lots précédents : la corbeille entrée dans le bloc
+   * (DRIVE-HABILLAGE, point 4), puis l'étoile EMPILÉE au-dessus d'elle (HISTORIQUE-BIEN-12, point 2).
    *
-   * 🔒 LA PROPRIÉTÉ GARDÉE PAR CETTE ÉPREUVE N'A PAS BOUGÉ, et c'est celle qui compte : « ne déplace pas les
-   * autres éléments du bloc ». La case est POSITIONNÉE (absolue dans le bloc devenu `relative`), donc aucune
-   * ligne du `<dl>` ne se décale — une ligne de plus dans le flux aurait poussé « De », « À » et « Date » vers le
-   * bas. Et la place est RÉSERVÉE par un padding, sinon une adresse longue passerait sous la case.
+   * DEMANDE D'ARNO (06/10/2026) : « Mets-les CÔTE À CÔTE, à l'extrémité droite du bloc gris (même place). Chaque
+   * case est environ deux fois plus grande : elle occupe toute la hauteur du bloc gris […] et reste carrée. »
+   *
+   * 🔴 LA GOUTTIÈRE FIXE NE POUVAIT PAS PORTER CELA : un carré de la hauteur du bloc a une largeur qui dépend du
+   * nombre de lignes (De / À / Cc / Cci / Date). Le bloc gris est donc devenu une RANGÉE — le `<dl>` à gauche,
+   * les deux cases à droite — et la largeur se réserve d'elle-même.
+   *
+   * 🔒 CE QUE L'ÉPREUVE PROTÈGE N'A PAS BOUGÉ, et c'est ce qui compte : **une seule surface** (les cases sont
+   * DANS le bloc gris, pas à côté), **à l'extrême droite**, **en case de fond de carte** sur la trame grise, et
+   * **sans déplacer les lignes** du `<dl>`, qui garde exactement sa grammaire.
    */
-  it('🔴🔴 dans le bloc, à droite, sans rien déplacer', () => {
-    // 🔴 LE BLOC PORTE LA CASE : il est `relative`, et il n'y a plus de rangée qui lui prenne de la largeur.
-    expect(CONV).toContain('.cnv-entete{position:relative;');
-    /* ⚠️ EN NÉGATIF SUR LA RÈGLE ET SUR LE BALISAGE, pas sur le MOT : les deux encadrés qui racontent ce retrait
-       le nomment, et c'est leur raison d'être — on ne garde pas un historique en effaçant le nom de ce qu'on a
-       retiré. Ce qui doit avoir disparu, c'est la rangée elle-même. */
+  it('🔴🔴 dans le bloc, à droite, côte à côte, carrées, sans rien déplacer', () => {
+    /* 🔴 UNE SEULE SURFACE : le bloc gris porte la trame ET les deux cases. La rangée d'avant
+       (`cnv-entete-rangee`) posait le bloc et le bouton EN FRÈRES, et le bloc perdait 52 px de largeur. */
+    expect(CONV).toContain('.cnv-entete-bloc{display:flex;align-items:stretch;');
+    expect(CONV).toContain('background:var(--color-svv-field);border-radius:.5rem;min-width:0}');
     expect(CONV).not.toContain('.cnv-entete-rangee{');
     expect(CONV).not.toContain('className="cnv-entete-rangee"');
-    // 🔴 LA CASE EST POSÉE À L'EXTRÊME DROITE, SUR TOUTE LA HAUTEUR UTILE, et hors du flux.
-    expect(CONV).toContain('.cnv-entete-corbeille{position:absolute;top:6px;right:6px;bottom:6px;display:flex}');
-    // 🔴 FOND DE CARTE (blanc en Clair, carte sombre en Sombre) sur le gris du bloc, et des coins arrondis.
+    /* 🔴 LE `<dl>` PREND LA PLACE RESTANTE et garde sa grammaire : il ne porte plus ni la trame ni les cases. */
+    expect(CONV).toContain('.cnv-entete{flex:1 1 auto;');
+    expect(CONV).toContain('<dl className="cnv-entete">');
+    /* 🔴 LES DEUX CASES, CÔTE À CÔTE, À L'EXTRÊME DROITE — un seul conteneur, et il ne grandit pas. */
+    expect(CONV).toContain('.cnv-entete-cases{flex:0 0 auto;display:flex;align-items:center;gap:6px}');
+    /* 🔴🔴 CARRÉES ET DEUX FOIS PLUS GRANDES : 68 px de côté, contre 44 x 34 avant. */
+    expect(CONV).toContain('.cnv-entete-cases .cnv-corbeille{flex:0 0 auto;width:68px;height:68px;');
+    /* 🔴 ET LES ICÔNES SUIVENT (Arno, « agrandies en proportion »). */
+    expect(CONV).toContain('.cnv-entete-cases .cnv-corbeille svg{width:26px;height:26px}');
+    expect(CONV).toContain('font-size:1.6rem}');
+    /* 🔴 FOND DE CARTE (blanc en Clair, carte sombre en Sombre) sur le gris du bloc, et des coins arrondis. */
     expect(CONV).toContain('background:var(--color-svv-surface)');
     expect(CONV).toContain('border-radius:.5rem;cursor:pointer}');
-    /* 🔴 ET LA PLACE EST RÉSERVÉE — mais SEULEMENT là où il y a une case.
+    /* 🔴🔴 PLUS AUCUNE GOUTTIÈRE FIXE : elle mentait dès que le bloc grandissait. */
+    expect(CONV).not.toContain('padding-right:62px');
+    expect(CONV).not.toContain('cnv-entete--avec-corbeille');
+    expect(CONV).not.toContain('cnv-entete--avec-etoile');
+    /* ⚠️ ET PLUS DE POSITIONNEMENT ABSOLU : c'est la rangée qui place, désormais. */
+    expect(CONV).not.toContain('.cnv-entete-corbeille{position:absolute');
+  });
 
-       ⚠️ LA CONDITION A GRANDI AU LOT HISTORIQUE-BIEN-12, POINT 2, ET LA RÈGLE N'A PAS BOUGÉ : l'étoile de
-       l'échange vient s'empiler dans la MÊME gouttière, et la place doit donc être réservée dès que l'une des
-       deux cases existe. Cette épreuve figeait le ternaire au caractère près ; elle vérifie désormais ce qui
-       compte — la classe est posée sous condition, et jamais en permanence. */
-    expect(CONV).toContain('.cnv-entete--avec-corbeille{padding-right:62px}');
-    expect(CONV).toContain("onCorbeilleMessage !== undefined || etoileDuFil !== undefined");
-    expect(CONV).toContain("' cnv-entete--avec-corbeille' : ''");
-    /* 🔴 ET LES DEUX CASES PARTAGENT CETTE GOUTTIÈRE : aucune seconde réservation de 62 px. */
-    expect((CONV.match(/padding-right:62px/g) ?? [])).toHaveLength(1);
-    // ⚠️ UN `<button>` NE PEUT PAS ÊTRE ENFANT DIRECT D'UN `<dl>` : il vit dans un `div`, comme chaque ligne.
-    expect(CONV).toContain('<div className="cnv-entete-corbeille">');
+  /**
+   * 🔴🔴 L'ORDRE EST CELUI D'ARNO : « Étoile à gauche, corbeille (ou “Réintégrer” dans la Corbeille) à droite. »
+   *
+   * ⚠️ ON LIT L'ORDRE DANS LA SOURCE, et non une classe : les deux boutons sont frères dans un conteneur en
+   * rangée, et c'est leur ordre d'écriture qui décide de leur place. Une épreuve qui ne regarderait que les
+   * classes aurait laissé passer une inversion.
+   */
+  it('🔴🔴 l’étoile est écrite AVANT la corbeille, donc à sa gauche', () => {
+    const zone = CONV.slice(CONV.indexOf('<div className="cnv-entete-cases">'));
+    const etoile = zone.indexOf('cnv-entete-etoile');
+    const corbeille = zone.indexOf('title={AIDE_CORBEILLE_MESSAGE}');
+    const reintegrer = zone.indexOf('aideIconeReintegrer(boiteDuMessage(message))');
+    expect(etoile).toBeGreaterThan(-1);
+    expect(etoile).toBeLessThan(reintegrer);
+    expect(etoile).toBeLessThan(corbeille);
   });
 
   /**

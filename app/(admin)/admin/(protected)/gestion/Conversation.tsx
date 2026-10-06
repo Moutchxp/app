@@ -2874,9 +2874,8 @@ export function MessageConversation({
               pas permis — l'historique d'une cible, la vie d'un bien — le bloc n'aurait eu qu'une gouttière vide
               à droite. Une classe plutôt qu'un `:has()` : elle dit l'intention, et elle ne dépend d'aucun
               navigateur. */}
-          <dl className={`cnv-entete${onCorbeilleMessage !== undefined || etoileDuFil !== undefined
-            ? ' cnv-entete--avec-corbeille' : ''}`
-            + `${etoileDuFil !== undefined && onCorbeilleMessage !== undefined ? ' cnv-entete--avec-etoile' : ''}`}>
+          <div className="cnv-entete-bloc">
+          <dl className="cnv-entete">
             {/* ⚠️ PAS DE LIGNE « OBJET » ICI — LOT FIL-LECTURE-2. Elle y a vécu une journée : l'objet apparaissait
                 alors DEUX fois, sous « reçu de … » et dans cet en-tête, à trois centimètres d'écart. Celui du haut
                 a gagné : il est visible message replié comme déplié, alors que celui-ci ne l'était que déplié.
@@ -2916,18 +2915,34 @@ export function MessageConversation({
                 hors de la file. `spam: false` est la seule chose que ce fil ne sait pas — il ne porte aucune
                 marque spam par message — et c'est pourquoi l'encadré d'`aideIconeReintegrer` prévoit ce cas :
                 mieux vaut nommer la boîte que le sens désigne que taire l'information. */}
-            {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ÉTOILE, EMPILÉE AU-DESSUS DE LA CORBEILLE ═══════════
-                Arno : « même case blanche, même taille, empilée au-dessus de la corbeille ou juste à côté selon
-                la place ». Empilée : c'est ce qu'il nomme en premier, et c'est ce qui ne coûte aucune largeur à
-                l'en-tête — la case de droite est déjà réservée, les deux boutons s'y partagent la hauteur.
+          </dl>
 
-                🔴 ELLE EST DANS **LE MÊME** CONTENEUR que la corbeille, et non à côté : une seconde case
-                positionnée aurait eu sa propre gouttière, et le bloc aurait perdu de la largeur une seconde
-                fois. Le conteneur devient une colonne, et c'est tout.
+          {/* ══ 🔴🔴 LOT CORBEILLE-SANS-STATUT, POINT 1 — LES DEUX CASES, CÔTE À CÔTE ET CARRÉES ═══════════════
+              DEMANDE D'ARNO (06/10/2026) : « Mets-les CÔTE À CÔTE, à l'extrémité droite du bloc gris (même
+              place). Chaque case est environ deux fois plus grande : elle occupe toute la hauteur du bloc gris,
+              avec les petites marges habituelles, et reste carrée, case blanche intégrée à la trame. Icônes
+              agrandies en proportion. Étoile à gauche, corbeille (ou “Réintégrer” dans la Corbeille) à droite. »
 
-                ⚠️ ELLE RESTE SUR UN MAIL À LA CORBEILLE (Arno), là où la corbeille devient « Réintégrer ». */}
-            {etoileDuFil !== undefined && (
-              <div className={`cnv-entete-cases${onCorbeilleMessage === undefined ? ' cnv-entete-cases--seule' : ''}`}>
+              🔴 POURQUOI LE BLOC A CHANGÉ DE FORME, ET IL LE FALLAIT. Les deux cases étaient POSITIONNÉES dans
+              le `<dl>` (`position:absolute`), qui leur réservait 62 px par un `padding-right` FIXE. Un carré de
+              la hauteur du bloc ne peut pas se réserver ainsi : sa largeur suit sa hauteur, qui dépend du nombre
+              de lignes (De / À / Cc / Cci / Date). Avec un padding fixe, un bloc à cinq lignes aurait fait
+              passer les cases SUR les adresses.
+
+              🔴 LE BLOC GRIS EST DONC UNE RANGÉE : le `<dl>` à gauche (qui prend toute la place restante), les
+              deux cases à droite, étirées sur sa hauteur. La largeur se réserve d'elle-même, quelle que soit la
+              hauteur — c'est la seule façon d'obtenir un carré « de la hauteur du bloc » sans la deviner.
+
+              ⚠️ LE `<dl>` GARDE EXACTEMENT SA GRAMMAIRE : ses `div`/`dt`/`dd` n'ont pas bougé, et la trame grise
+              est passée au bloc qui l'entoure. Un `<button>` ne peut de toute façon pas être enfant d'un `<dl>`.
+
+              ⚠️ MÊMES COMPORTEMENTS, MÊME SYNCHRONISATION : les trois boutons appellent exactement les mêmes
+              fonctions qu'avant, avec les mêmes mots et les mêmes info-bulles. Seule leur boîte change. */}
+          {(etoileDuFil !== undefined || onCorbeilleMessage !== undefined
+            || (message.aLaCorbeille && onReintegrerMessage !== undefined)) && (
+            <div className="cnv-entete-cases">
+              {/* ⚠️ ELLE RESTE SUR UN MAIL À LA CORBEILLE (Arno), là où la corbeille devient « Réintégrer ». */}
+              {etoileDuFil !== undefined && (
                 <button type="button"
                   className={'cnv-corbeille cnv-entete-etoile'
                     + (etoileDuFil.etoilee ? ' cnv-entete-etoile--pleine' : '')}
@@ -2936,27 +2951,30 @@ export function MessageConversation({
                   onClick={etoileDuFil.onBasculer}>
                   <Etoile pleine={etoileDuFil.etoilee} />
                 </button>
-              </div>
-            )}
-            {message.aLaCorbeille && onReintegrerMessage !== undefined ? (
-              <div className="cnv-entete-corbeille">
+              )}
+              {/* 🔴 LE MOT EST LE MÊME POUR LA BULLE ET POUR LE LECTEUR D'ÉCRAN : une corbeille dessinée ne dit
+                  pas CE QU'ELLE JETTE — « ce message », et non l'échange, est toute la différence.
+
+                  🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — sur un mail DÉJÀ à la corbeille, la grande
+                  icône change de sens : même case, même taille, même place, et une info-bulle qui NOMME la boîte
+                  d'origine. Le geste est celui du menu « … », par la même porte. */}
+              {message.aLaCorbeille && onReintegrerMessage !== undefined ? (
                 <button type="button" className="cnv-corbeille cnv-corbeille--retour"
                   title={aideIconeReintegrer(boiteDuMessage(message))}
                   aria-label={aideIconeReintegrer(boiteDuMessage(message))}
                   onClick={onReintegrerMessage}>
                   <span aria-hidden="true">{PICTO_REINTEGRER}</span>
                 </button>
-              </div>
-            ) : onCorbeilleMessage !== undefined && (
-              <div className="cnv-entete-corbeille">
+              ) : onCorbeilleMessage !== undefined && (
                 <button type="button" className="cnv-corbeille"
                   title={AIDE_CORBEILLE_MESSAGE} aria-label={AIDE_CORBEILLE_MESSAGE}
                   onClick={onCorbeilleMessage}>
                   <span aria-hidden="true">🗑</span>
                 </button>
-              </div>
-            )}
-          </dl>
+              )}
+            </div>
+          )}
+          </div>
 
           {/* LOT RATTACHEMENT-1 — DE QUOI CE MAIL PARLE-T-IL ? Juste sous l'en-tête, avant le texte : c'est une
               donnée du mail, pas un commentaire sur son contenu. Il ne s'affiche que si la conversation a pu lire les
@@ -3270,44 +3288,57 @@ export const CSS_CONVERSATION = `
 
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot).
    🔴 AUCUNE COULEUR EN DUR : les jetons basculent seuls en Clair et en Sombre. */
-/* ══ LOT DRIVE-HABILLAGE, POINT 4 — LA CORBEILLE DANS LE BLOC GRIS, A L'EXTREME DROITE ═════════════════════════
-   Arno : « le bloc gris De / A / Date reprend toute la largeur comme avant. La corbeille est integree DANS ce
-   bloc, a l'extreme DROITE, dans une case blanche (fond de carte du theme) a coins arrondis, bien integree a la
-   trame grise ».
+/* ══ ⚠️ CE QUE LES DEUX LOTS PRECEDENTS AVAIENT POSE, ET POURQUOI CE LOT LE DEFAIT ════════════════════════════
+   LOT DRIVE-HABILLAGE, POINT 4 : la corbeille est entree DANS le bloc gris, a son extreme droite, dans une case
+   blanche — avant, une rangee la posait EN FRERE du bloc, qui perdait 52 px de largeur et laissait l'icone
+   flotter sur le fond de la page. Ce qu'il a gagne ne bouge pas : il n'y a toujours qu'UNE surface.
+   LOT HISTORIQUE-BIEN-12, POINT 2 : l'etoile a rejoint la corbeille, EMPILEE au-dessus d'elle, pour qu'elle ne
+   coute rien a la largeur du bloc — les deux cases se partageaient une gouttiere de 62 px.
 
-   CE QUI A ETE RETIRE : la rangee cnv-entete-rangee, qui posait le bloc gris et le bouton EN FRERES. Le bloc
-   perdait 52 px de largeur sur toute sa hauteur, et l'icone flottait a sa droite sur le fond de la page — deux
-   surfaces la ou il n'en faut qu'une.
-
-   LA CASE EST POSITIONNEE, PAS INSEREE DANS LE FLUX : c'est la condition pour que le bloc ne bouge pas. Une ligne
-   de plus dans le dl aurait decale De, A et Date vers le bas. Le dl reserve seulement la place a droite, par son
-   padding — et les valeurs s'y arretent au lieu de passer dessous.
-   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois).
-
-   BIEN INTEGREE A LA TRAME GRISE : fond de CARTE (--color-svv-surface, blanc en Clair, carte sombre en Sombre)
-   sur le gris du bloc (--color-svv-field), un liseré de charte, des coins arrondis, et 6 px de retrait en haut,
-   en bas et a droite pour que le gris l'entoure de tous les cotes. Aucune couleur en dur : elle bascule seule.
-
-   LE COMPORTEMENT NE CHANGE PAS — meme icone, meme bulle, meme clic, meme bandeau « Annuler ». */
-/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ETOILE, EMPILEE AU-DESSUS DE LA CORBEILLE ════════════════════════
-   Arno : « meme case blanche, meme taille, empilee au-dessus de la corbeille ou juste a cote selon la place ».
-
-   🔴 LES DEUX CASES PARTAGENT LA MEME GOUTTIERE, et c'est ce qui fait qu'ajouter l'etoile ne coute RIEN a la
-   largeur du bloc : le dl reserve deja 62 px a droite (.cnv-entete--avec-corbeille), et la colonne s'y installe.
-   Une seconde case positionnee a cote aurait repris 62 px de plus, sur tous les mails ouverts de l'application.
-
-   ⚠️ L'ETOILE EST POSEE AU-DESSUS, dans son propre conteneur superpose a celui de la corbeille : les deux blocs
-   occupent la meme bande verticale et s'y partagent la hauteur. La corbeille garde donc EXACTEMENT sa case, sa
-   taille et sa place quand il n'y a pas d'etoile — c'est la condition pour que rien ne bouge ailleurs.
-
-   ⚠️ --seule : sans corbeille (ecran qui ne permet pas de jeter), l'etoile prend toute la hauteur plutot que la
-   moitie d'une case vide.
+   🔴 CE LOT-CI LES MET COTE A COTE ET CARREES (demande d'Arno du 06/10/2026), ce que la gouttiere fixe ne
+   pouvait pas porter : un carre de la hauteur du bloc a une largeur qui depend du nombre de lignes. Le bloc est
+   donc devenu une RANGEE, et la gouttiere se reserve d'elle-meme. Voir le bloc suivant.
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
-.cnv-entete-cases{position:absolute;top:6px;right:6px;height:calc(50% - 6px);display:flex}
-.cnv-entete-cases--seule{height:auto;bottom:6px}
-.cnv-entete-cases .cnv-corbeille{width:44px}
-/* 🔴 LA CORBEILLE DESCEND D'AUTANT quand l'etoile est la : les deux cases, et pas une case sur l'autre. */
-.cnv-entete--avec-etoile .cnv-entete-corbeille{top:calc(50% + 2px)}
+/* ══ 🔴🔴 LOT CORBEILLE-SANS-STATUT, POINT 1 — LES DEUX CASES, COTE A COTE, CARREES, PLEINE HAUTEUR ═══════════
+   Arno : « Mets-les COTE A COTE, a l'extremite droite du bloc gris (meme place). Chaque case est environ deux
+   fois plus grande : elle occupe toute la hauteur du bloc gris, avec les petites marges habituelles, et reste
+   carree, case blanche integree a la trame. Icones agrandies en proportion. Etoile a gauche, corbeille (ou
+   Reintegrer dans la Corbeille) a droite. »
+
+   🔴 POURQUOI LA POSITION ABSOLUE A DU PARTIR. Les deux cases etaient posees dans le dl, qui leur reservait
+   62 px par un padding-right FIXE. Un carre de la hauteur du bloc ne peut pas se reserver ainsi : sa largeur
+   SUIT sa hauteur, qui depend du nombre de lignes (De / A / Cc / Cci / Date). Avec un padding fixe, un bloc a
+   cinq lignes aurait fait passer les cases SUR les adresses.
+
+   🔴 LE BLOC EST DONC UNE RANGEE : le dl a gauche prend la place restante, les cases a droite s'etirent sur sa
+   hauteur (align-items:stretch), et aspect-ratio:1 leur donne la largeur. La gouttiere se reserve d'elle-meme,
+   quelle que soit la hauteur — c'est la seule facon d'obtenir un carre « de la hauteur du bloc » sans la deviner.
+
+   ⚠️ LES MARGES SONT CELLES DU BLOC (son padding), et rien de plus : « les petites marges habituelles » (Arno).
+   La case est donc bien entouree de gris de tous les cotes, comme avant.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
+.cnv-entete-bloc{display:flex;align-items:stretch;gap:8px;margin:0 0 10px;padding:6px;
+  background:var(--color-svv-field);border-radius:.5rem;min-width:0}
+.cnv-entete-cases{flex:0 0 auto;display:flex;align-items:center;gap:6px}
+/* LA CASE EST CARREE ET PLEINE HAUTEUR : largeur dictee par la hauteur, et un plancher pour que deux lignes
+   seulement ne donnent pas deux timbres-poste. */
+/* ══ 🔴 LA TAILLE DE LA CASE : 68 px, ET ELLE EST DECLAREE, PAS DEDUITE ════════════════════════════════════════
+   🔴 PREMIERE VERSION, ET CE QU'ELLE A COUTE : largeur deduite de la hauteur (aspect-ratio avec align stretch).
+   Les carres sortaient bien a 68 x 68, mais le CONTENEUR, lui, ne reservait aucune largeur — l'algorithme flex
+   dimensionne un element sur son CONTENU avant d'appliquer le rapport. Mesure a l'ecran : la page debordait de
+   18 px a droite et la corbeille etait coupee par le bord de la fenetre.
+
+   🔴 68 PX EST LA HAUTEUR DU BLOC A TROIS LIGNES (De / A / Date), moins ses marges — c'est-a-dire le cas de
+   l'immense majorite du courrier. La case occupe donc bien TOUTE la hauteur du bloc gris, et elle est carree.
+   ⚠️ SUR UN BLOC PLUS HAUT (Cc et Cci, cinq lignes), elle garde 68 px et se centre : un carre de 90 px de cote
+   ne serait plus « environ deux fois plus grande », ce serait un pave. Les deux contraintes d'Arno — pleine
+   hauteur ET carree — ne peuvent pas tenir ensemble au-dela, et c'est « carree » qui gagne.
+   ⚠️ 44 px EN DESSOUS DE 420 px DE LARGE : sur un telephone, deux carres de 68 px prennent le tiers du bloc. */
+.cnv-entete-cases .cnv-corbeille{flex:0 0 auto;width:68px;height:68px;align-self:center;font-size:1.6rem}
+@media (max-width:420px){.cnv-entete-cases .cnv-corbeille{width:44px;height:44px;font-size:1.25rem}}
+/* LES ICONES SUIVENT (Arno, « agrandies en proportion ») : l'etoile est un SVG, sa taille se donne ici. */
+.cnv-entete-cases .cnv-corbeille svg{width:26px;height:26px}
+@media (max-width:420px){.cnv-entete-cases .cnv-corbeille svg{width:18px;height:18px}}
 /* 🔴🔴 cnv-entete-etoile ET NON cnv-etoile : CE NOM ETAIT DEJA PRIS, et la collision s'est vue a l'ecran.
    .cnv-etoile habille l'etoile PAR MESSAGE de la barre de survol (plus bas dans cette feuille) : un bouton
    sans fond ni bordure. Mes regles arrivaient AVANT les siennes, donc les siennes gagnaient — l'etoile de
@@ -3321,7 +3352,6 @@ export const CSS_CONVERSATION = `
   background:var(--color-svv-field)}
 /* 🔴 ACTIVE : ROUGE PLEINE (Arno). Le remplissage vient du dessin (currentColor), la couleur de la charte. */
 .cnv-corbeille.cnv-entete-etoile--pleine{color:var(--color-svv-red);border-color:var(--color-svv-red)}
-.cnv-entete-corbeille{position:absolute;top:6px;right:6px;bottom:6px;display:flex}
 .cnv-corbeille{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:44px;padding:0;
   font:inherit;font-size:1.25rem;line-height:1;color:var(--color-svv-muted);background:var(--color-svv-surface);
   border:1px solid var(--color-svv-line);border-radius:.5rem;cursor:pointer}
@@ -3565,13 +3595,11 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
    destinataires multiples tiennent sur la MÊME ligne et ne passent à la ligne que si la largeur ne suffit pas —
    c'est overflow-wrap qui en décide, jamais un retour écrit en dur.
    ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit. */
-/* ⚠️ LOT DRIVE-HABILLAGE, POINT 4 — position:relative : le bloc reprend TOUTE la largeur (plus de rangee qui lui
-   en prenait 52 px) et il porte lui-meme la case de la corbeille, posee a son extreme droite. */
-.cnv-entete{position:relative;margin:0 0 10px;padding:8px 10px;background:var(--color-svv-field);
-  border-radius:.5rem;font-size:.8rem;min-width:0}
-/* LA PLACE N'EST RESERVEE QUE LA OU LA CORBEILLE EXISTE : ailleurs (historique d'une cible, vie d'un bien), le
-   bloc n'aurait eu qu'une gouttiere vide. Et sans ce padding, une adresse longue passerait SOUS la case. */
-.cnv-entete--avec-corbeille{padding-right:62px}
+/* ⚠️ LOT CORBEILLE-SANS-STATUT, POINT 1 — LA TRAME GRISE EST PASSEE AU BLOC QUI L'ENTOURE (.cnv-entete-bloc) :
+   les deux cases en sont desormais les sœurs, et non plus des elements positionnes dans le dl. Le dl, lui, garde
+   EXACTEMENT sa grammaire — ses div, ses dt et ses dd n'ont pas bouge — et prend la place restante.
+   ⚠️ PLUS DE padding-right RESERVE : la rangee reserve la largeur d'elle-meme, quelle que soit la hauteur. */
+.cnv-entete{flex:1 1 auto;margin:0;padding:2px 4px;font-size:.8rem;min-width:0}
 .cnv-entete-ligne{display:flex;align-items:baseline;gap:.5rem;margin:0 0 .2rem}
 .cnv-entete-ligne:last-child{margin-bottom:0}
 .cnv-entete dt{flex:0 0 auto;min-width:2.6rem;font-weight:700;color:var(--color-svv-muted)}
