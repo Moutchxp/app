@@ -7,8 +7,8 @@ import { ChoisirCible, CSS_CHOISIR_CIBLE, type CibleChoisie } from './ChoisirCib
 import { motSorte, CSS_ENCART_RATTACHEMENT } from './EncartRattachement';
 import type { LigneFile, PageFile } from '../../../../lib/gestion/rattachementRepo';
 /* 🔴 LOT MONGA-1, POINT 4 — le mot du filtre vient du module PUR, et le type ne vit qu'à la compilation. */
-import { motFiltreMonga } from '../../../../lib/gestion/monga';
-import type { InterventionMonga } from '../../../../lib/gestion/mongaRepo';
+import { motCasDesInterventions, motFiltreMonga, motNbLotsMonga } from '../../../../lib/gestion/monga';
+import type { CasDesInterventions, InterventionMonga } from '../../../../lib/gestion/mongaRepo';
 import type { Issue, Statut } from '../../../../lib/gestion/rattachement';
 
 /**
@@ -73,6 +73,7 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
    */
   const [issue, setIssue] = useState<Issue | 'toutes' | 'monga'>('toutes');
   const [monga, setMonga] = useState<InterventionMonga[]>([]);
+  const [mongaCas, setMongaCas] = useState<CasDesInterventions | null>(null);
   const [mongaDispo, setMongaDispo] = useState(false);
   const [data, setData] = useState<PageFile>(VIDE);
   const [coches, setCoches] = useState<Set<number>>(new Set());
@@ -87,9 +88,10 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
       if (issue === 'monga') {
         const r = await fetch('/api/admin/gestion/monga?aRelier=1', { cache: 'no-store' });
         const m = (await r.json().catch(() => ({}))) as {
-          etat?: string; interventions?: InterventionMonga[];
+          etat?: string; interventions?: InterventionMonga[]; cas?: CasDesInterventions;
         };
         setMonga(m.etat === 'ok' ? (m.interventions ?? []) : []);
+        setMongaCas(m.etat === 'ok' ? (m.cas ?? null) : null);
         setEtat(m.etat === 'ok' ? 'ok' : m.etat === 'sans_schema' ? 'sans_schema' : 'erreur');
         return;
       }
@@ -120,10 +122,11 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
       try {
         const r = await fetch('/api/admin/gestion/monga?aRelier=1', { cache: 'no-store' });
         const m = (await r.json().catch(() => ({}))) as {
-          etat?: string; interventions?: InterventionMonga[];
+          etat?: string; interventions?: InterventionMonga[]; cas?: CasDesInterventions;
         };
         if (vivant && m.etat === 'ok') {
           setMonga(m.interventions ?? []);
+          setMongaCas(m.cas ?? null);
           setMongaDispo((m.interventions ?? []).length > 0);
         }
       } catch { /* l'absence du filtre Monga ne doit jamais empêcher de trier son courrier */ }
@@ -328,6 +331,12 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
             monga.length === 0
               ? <p className="gst-vide">Aucune intervention Monga n’attend d’être reliée.</p>
               : (
+                <>
+                {/* 🔴🔴 LOT MONGA-1, POINT 5 — le compte par cas, recalculé à chaque ouverture : il dit par où
+                    commencer, et il ne vieillit pas comme un chiffre donné une fois dans un compte rendu. */}
+                {mongaCas !== null && (
+                  <p className="fat-chiffres" role="status">{motCasDesInterventions(mongaCas)}</p>
+                )}
                 <ul className="fat-liste">
                   {monga.map((i) => (
                     <li key={i.reference} className="fat-item fat-monga">
@@ -340,6 +349,11 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
                           {i.adresse ?? 'adresse non lue'}
                           {' · '}{i.nbMails === 1 ? '1 mail' : `${i.nbMails} mails`}
                           {' · '}<span className="fat-issue">{i.derniereEtapeMot}</span>
+                          {/* 🔴 LE NOMBRE DE BIENS DE CETTE ADRESSE : il dit tout de suite si le lien se fera
+                              d'un clic (un seul bien) ou demandera de choisir parmi soixante-seize. */}
+                          {mongaCas !== null && mongaCas.nbLots[i.reference] !== undefined && (
+                            <>{' · '}{motNbLotsMonga(mongaCas.nbLots[i.reference])}</>
+                          )}
                         </p>
                       </div>
                       {onOuvrirFil && (
@@ -351,6 +365,7 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
                     </li>
                   ))}
                 </ul>
+                </>
               )
           )}
 

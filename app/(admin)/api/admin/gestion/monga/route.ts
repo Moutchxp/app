@@ -2,7 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
-  chercherUnLotMonga, encartMonga, interventionsMonga,
+  casDesInterventions, chercherUnLotMonga, encartMonga, interventionsMonga,
 } from '../../../../../lib/gestion/mongaRepo';
 import {
   creerEvenementEtRelier, delierLaReference, relierLaReference,
@@ -69,8 +69,11 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ etat: 'ok', lots: await chercherUnLotMonga(cherche) }, { headers: ENTETES });
     }
     if (url.searchParams.get('aRelier') !== null) {
+      const interventions = await interventionsMonga({ reliees: false });
+      /* 🔴 LOT MONGA-1, POINT 5 — le compte par cas voyage AVEC la liste : une seconde requête pour un chiffre
+         qui se déduit des mêmes lignes ferait deux vérités possibles le temps d'un aller-retour. */
       return Response.json(
-        { etat: 'ok', interventions: await interventionsMonga({ reliees: false }) }, { headers: ENTETES });
+        { etat: 'ok', interventions, cas: await casDesInterventions(interventions) }, { headers: ENTETES });
     }
     const messageId = entier(url.searchParams.get('message'));
     if (messageId === null) {

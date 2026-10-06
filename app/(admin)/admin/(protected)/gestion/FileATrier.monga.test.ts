@@ -50,6 +50,11 @@ const INTERVENTIONS = [
   },
 ];
 
+/** 🔴 LOT MONGA-1, POINT 5 — le compte par cas voyage AVEC la liste, dans la même réponse. */
+const CAS = {
+  total: 2, unique: 1, plusieurs: 0, aucun: 1, nbLots: { 'MNG-23987': 1, 'MNG-20354': 0 },
+};
+
 let container: HTMLDivElement;
 let root: Root;
 let interventions: unknown[];
@@ -64,7 +69,9 @@ beforeEach(() => {
   global.fetch = vi.fn(async (url: string | URL) => {
     const u = String(url);
     appels.push(u);
-    const corps = u.includes('/monga?') ? { etat: 'ok', interventions } : { etat: 'ok', data: PAGE };
+    const corps = u.includes('/monga?')
+      ? { etat: 'ok', interventions, cas: CAS }
+      : { etat: 'ok', data: PAGE };
     return { ok: true, json: async () => corps } as unknown as Response;
   }) as unknown as typeof fetch;
 });
@@ -129,6 +136,16 @@ describe('② une ligne par INTERVENTION, et ce qu’elle porte', () => {
     /* ⚠️ UNE ADRESSE NON LUE EST DITE, jamais laissée vide : c'est le cas de 3 références sur 40. */
     expect(t).toContain('adresse non lue');
     expect(container.querySelectorAll('.fat-monga')).toHaveLength(2);
+  });
+
+  it('🔴🔴 LE COMPTE PAR CAS EST AFFICHÉ, et chaque ligne dit combien de biens porte son adresse', async () => {
+    await monter();
+    await cliquer(boutonPar(/Interventions Monga à relier/));
+    const t = container.textContent ?? '';
+    /* Il dit PAR OÙ COMMENCER : un seul bien se relie d'un coup d'œil, aucun demande une recherche. */
+    expect(t).toContain('2 interventions à relier : 1 à un seul bien · 1 sans bien reconnu.');
+    expect(t).toContain('1 bien à cette adresse');
+    expect(t).toContain('aucun bien reconnu');
   });
 
   it('🔴🔴 AUCUN GESTE DE RATTACHEMENT SUR CES LIGNES — relier se fait dans la fenêtre « Classer »', async () => {

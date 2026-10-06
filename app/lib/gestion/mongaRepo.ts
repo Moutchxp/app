@@ -593,3 +593,56 @@ export async function mongaDeLEvenement(evenementId: number): Promise<MongaDeLEv
     terminee: finDIntervention(intervention.derniereEtape),
   };
 }
+
+/**
+ * ══ 🔴🔴 LOT MONGA-1, POINT 5 — LA REPRISE DES 40 RÉFÉRENCES, ET SES TROIS CAS ═══════════════════════════════════
+ *
+ * DEMANDE D'ARNO : « REPRISE DES 40 RÉFÉRENCES : rien n'est relié automatiquement. Elles apparaissent dans le
+ * filtre du point 4. Donne le nombre par cas (lot unique / plusieurs / aucun). »
+ *
+ * 🔴 CE COMPTE EST AFFICHÉ, PAS SEULEMENT RAPPORTÉ. Un chiffre donné une fois dans un compte rendu vieillit dès
+ * le lendemain ; celui-ci se recalcule à chaque ouverture du filtre, et dit donc l'état du jour. Il dit aussi à
+ * Arno PAR OÙ COMMENCER : les interventions à un seul bien se relient d'un coup d'œil, celles à plusieurs
+ * demandent de choisir, celles sans bien demandent une recherche.
+ *
+ * 🔴 LES LOTS SONT LUS **UNE SEULE FOIS** pour toutes les interventions. Appeler `lotsCandidatsMonga` quarante
+ * fois relirait quarante fois les 365 lots actifs et leurs occupants — pour la même réponse.
+ */
+export interface CasDesInterventions {
+  total: number;
+  unique: number;
+  plusieurs: number;
+  aucun: number;
+  /** Par référence, le nombre de biens que son adresse désigne. Sert à la ligne de chaque intervention. */
+  nbLots: Record<string, number>;
+}
+
+export async function casDesInterventions(
+  interventions: readonly { reference: string; adresse: string | null }[],
+): Promise<CasDesInterventions> {
+  const vide: CasDesInterventions = {
+    total: interventions.length, unique: 0, plusieurs: 0, aucun: interventions.length, nbLots: {},
+  };
+  if (interventions.length === 0 || !await annuaireDisponible()) {
+    return { ...vide, aucun: interventions.length };
+  }
+  const { rows } = await query<{
+    cle: string; adresse: string | null; commune: string | null;
+  }>(
+    `SELECT l.wippimmo_id AS cle, l.adresse, l.commune
+       FROM gestion_annuaire_lot l WHERE l.absent_le IS NULL`);
+  const lots = rows.map((r) => ({
+    cle: r.cle, numero: r.cle, adresse: r.adresse, commune: r.commune,
+    proprietaireCle: null, proprietaireNom: null,
+  }));
+  const nbLots: Record<string, number> = {};
+  let unique = 0;
+  let plusieurs = 0;
+  let aucun = 0;
+  for (const i of interventions) {
+    const n = lotsPourLAdresseMonga(i.adresse, lots).length;
+    nbLots[i.reference] = n;
+    if (n === 1) unique += 1; else if (n > 1) plusieurs += 1; else aucun += 1;
+  }
+  return { total: interventions.length, unique, plusieurs, aucun, nbLots };
+}

@@ -332,6 +332,33 @@ export function motFiltreMonga(n: number): string {
   return `Interventions Monga à relier (${n})`;
 }
 
+/**
+ * ══ 🔴🔴 LOT MONGA-1, POINT 5 — LE COMPTE PAR CAS, EN UNE PHRASE. PUR. ═══════════════════════════════════════════
+ *
+ * « 40 interventions à relier : 18 à un seul bien · 19 à plusieurs biens · 3 sans bien reconnu. »
+ *
+ * 🔴 ELLE DIT PAR OÙ COMMENCER, et c'est à cela qu'elle sert. Les trois cas ne demandent pas le même travail :
+ * un seul bien se relie d'un coup d'œil, plusieurs demandent de choisir, aucun demande une recherche. Un total
+ * de 40 ne distingue pas ces trois travaux-là.
+ *
+ * ⚠️ UN CAS À ZÉRO N'EST PAS ÉCRIT : « 0 sans bien reconnu » occupe la place sans rien apprendre.
+ */
+export function motCasDesInterventions(c: {
+  total: number; unique: number; plusieurs: number; aucun: number;
+}): string {
+  const bouts: string[] = [];
+  if (c.unique > 0) bouts.push(`${c.unique} à un seul bien`);
+  if (c.plusieurs > 0) bouts.push(`${c.plusieurs} à plusieurs biens`);
+  if (c.aucun > 0) bouts.push(`${c.aucun} sans bien reconnu`);
+  const tete = `${c.total} intervention${c.total > 1 ? 's' : ''} à relier`;
+  return bouts.length === 0 ? `${tete}.` : `${tete} : ${bouts.join(' · ')}.`;
+}
+
+/** Ce qu'une LIGNE dit du nombre de biens de son adresse. PUR. */
+export function motNbLotsMonga(n: number): string {
+  return n === 1 ? '1 bien à cette adresse' : n > 1 ? `${n} biens à cette adresse` : 'aucun bien reconnu';
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴🔴 LOT MONGA-1, POINT 2 — LE CLASSEMENT AUTOMATIQUE : CE QUE LA RÈGLE DÉCIDE. PUR.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

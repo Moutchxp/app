@@ -19,7 +19,7 @@ import {
   motRenommageMonga, questionNomVerrouille, referenceMonga, referencesMonga, renommageAFaire,
   /* 🔴🔴 POINTS 2 ET 3 — les lots candidats, les personnes en vigueur, les motifs et les refus. */
   casLotsMonga, lotsPourLAdresseMonga, motCasLotsMonga, motifClassementMonga, motifExamenMonga,
-  motRefusClassementMonga, personnesEnVigueur, jourFrancais,
+  motRefusClassementMonga, personnesEnVigueur, jourFrancais, motCasDesInterventions, motNbLotsMonga,
 } from './monga';
 
 /** GABARIT A — le courant. Mail réel MNG-23987 (le mail de l'essai d'Arno), rogné. */
@@ -427,5 +427,27 @@ describe('monga — un jour civil écrit en français', () => {
     expect(jourFrancais('2026-01-01')).toBe('01/01/2026');
     expect(jourFrancais(null)).toBe('');
     expect(jourFrancais('pas une date')).toBe('pas une date');
+  });
+});
+
+describe('monga — POINT 5 : le compte par cas', () => {
+  it('🔴 LA PHRASE DIT PAR OÙ COMMENCER — les trois cas ne demandent pas le même travail', () => {
+    expect(motCasDesInterventions({ total: 40, unique: 18, plusieurs: 19, aucun: 3 }))
+      .toBe('40 interventions à relier : 18 à un seul bien · 19 à plusieurs biens · 3 sans bien reconnu.');
+  });
+
+  it('⚠️ un cas à ZÉRO n’est pas écrit : il occuperait la place sans rien apprendre', () => {
+    expect(motCasDesInterventions({ total: 18, unique: 18, plusieurs: 0, aucun: 0 }))
+      .toBe('18 interventions à relier : 18 à un seul bien.');
+    expect(motCasDesInterventions({ total: 1, unique: 0, plusieurs: 0, aucun: 1 }))
+      .toBe('1 intervention à relier : 1 sans bien reconnu.');
+    expect(motCasDesInterventions({ total: 0, unique: 0, plusieurs: 0, aucun: 0 }))
+      .toBe('0 intervention à relier.');
+  });
+
+  it('le mot d’une ligne dit combien de biens porte son adresse', () => {
+    expect(motNbLotsMonga(1)).toBe('1 bien à cette adresse');
+    expect(motNbLotsMonga(76)).toBe('76 biens à cette adresse');
+    expect(motNbLotsMonga(0)).toBe('aucun bien reconnu');
   });
 });
