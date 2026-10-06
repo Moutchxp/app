@@ -1716,6 +1716,18 @@ const CSS_GESTION = `
 .gst-corps{display:flex;flex-direction:column;gap:12px;padding:12px 2px 2px}
 .gst-bloc{display:flex;flex-direction:column;gap:8px;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px}
 .gst-sous-titre{margin:.25rem 0 0;font-size:13px;font-weight:700;color:var(--color-svv-ink);display:flex;align-items:center;gap:.5rem}
+/* LOT MONGA-1, POINT 4 — l'intervention Monga d'une carte : badge, derniere etape, lien, et la PROPOSITION de
+   clore. Aucune couleur en dur : rien que les jetons SVAV, donc le theme Sombre marche sans rien dire de lui. */
+.gst-monga{margin:.25rem 0 0;padding:6px 10px;border:1px solid var(--color-svv-line-strong);
+  border-radius:.5rem;background:var(--color-svv-field);min-width:0}
+.gst-monga-tete{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;font-size:12px}
+.gst-monga-badge{padding:.05rem .45rem;border-radius:999px;font-size:11px;font-weight:700;
+  color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
+.gst-monga-etape{font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.gst-monga-lien{color:var(--color-svv-red);text-decoration:underline}
+.gst-monga-clore{margin:6px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-size:12px;
+  color:var(--color-svv-ink)}
+@media (max-width:420px){ .gst-monga-clore button{width:100%} }
 /* Fiche d'une carte : deux colonnes au large, une seule sur mobile — jamais un tableau qui déborde. */
 .gst-fiche{display:grid;grid-template-columns:auto 1fr;gap:.35rem .75rem;margin:0;font-size:.85rem}
 .gst-fiche dt{font-weight:700;color:var(--color-svv-muted)}

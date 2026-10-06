@@ -14,6 +14,14 @@ vi.mock('../../../../../../lib/gestion/gestes', async (importOriginal) => {
   };
 });
 vi.mock('../../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 1, libelle: 'arno' }) }));
+/**
+ * 🔴 LOT MONGA-1, POINT 4 — l'intervention Monga de la carte, lue par la route à côté de `lireCarte`. Mockée
+ * ici comme le dépôt de la carte : ce fichier éprouve le CONTRAT de la route, pas la lecture elle-même.
+ */
+const monga = { mongaDeLEvenement: vi.fn() };
+vi.mock('../../../../../../lib/gestion/mongaRepo', () => ({
+  mongaDeLEvenement: (...a: unknown[]) => monga.mongaDeLEvenement(...a),
+}));
 
 import { GET, PATCH } from './route';
 
@@ -26,6 +34,7 @@ const CARTE = { evenementId: 9, reference: 'GES-2026-000009', objet: 'Fuite', fi
 
 beforeEach(() => {
   gardeMock.mockReset(); gardeMock.mockResolvedValue(null);
+  monga.mongaDeLEvenement.mockReset(); monga.mongaDeLEvenement.mockResolvedValue(null);
   repo.lireCarte.mockReset(); repo.lireCarte.mockResolvedValue(CARTE);
   gestes.modifierEvenement.mockReset(); gestes.modifierEvenement.mockResolvedValue({ ok: true, evenementId: 9 });
   gestes.changerEtatEvenement.mockReset(); gestes.changerEtatEvenement.mockResolvedValue({ ok: true, evenementId: 9 });
@@ -45,8 +54,27 @@ describe('GET — le détail, servi seulement à qui a le droit', () => {
 
   it('rend la carte, et INTERDIT toute mise en cache partagée', async () => {
     const res = await GET(new Request('http://local/x'), ctx('9'));
-    expect(await res.json()).toEqual(CARTE);
+    /**
+     * 🔴 LOT MONGA-1, POINT 4 — `monga: null` EST LE CAS ORDINAIRE, et de très loin : une carte qui ne porte
+     * aucune intervention Monga n'affiche aucun badge et reste exactement celle d'avant ce lot. C'est aussi ce
+     * que rend la route sans la migration 311.
+     */
+    expect(await res.json()).toEqual({ ...CARTE, monga: null });
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('🔴 LOT MONGA-1, POINT 4 — une carte RELIÉE porte son badge, son étape et son lien', async () => {
+    monga.mongaDeLEvenement.mockResolvedValue({
+      reference: 'MNG-23987', libelle: 'barre de douche defixer',
+      lienMission: 'https://app.monga.io/missions/view/abc', derniereEtape: 'devis_rappel',
+      derniereEtapeMot: 'Devis en attente de validation · 05/10', nbMails: 4,
+      badge: 'Monga MNG-23987', terminee: false,
+    });
+    const res = await GET(new Request('http://local/x'), ctx('9'));
+    const d = (await res.json()) as { monga: { badge: string; terminee: boolean } };
+    expect(d.monga.badge).toBe('Monga MNG-23987');
+    expect(d.monga.terminee).toBe(false);
+    expect(monga.mongaDeLEvenement).toHaveBeenCalledWith(9);
   });
 
   it('carte inconnue → 404 ; identifiant absurde → 400 sans toucher la base', async () => {

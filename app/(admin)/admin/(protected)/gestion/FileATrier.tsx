@@ -6,6 +6,9 @@ import { BarrePages, CSS_BARRE_PAGES } from './BarrePages';
 import { ChoisirCible, CSS_CHOISIR_CIBLE, type CibleChoisie } from './ChoisirCible';
 import { motSorte, CSS_ENCART_RATTACHEMENT } from './EncartRattachement';
 import type { LigneFile, PageFile } from '../../../../lib/gestion/rattachementRepo';
+/* 🔴 LOT MONGA-1, POINT 4 — le mot du filtre vient du module PUR, et le type ne vit qu'à la compilation. */
+import { motFiltreMonga } from '../../../../lib/gestion/monga';
+import type { InterventionMonga } from '../../../../lib/gestion/mongaRepo';
 import type { Issue, Statut } from '../../../../lib/gestion/rattachement';
 
 /**
@@ -54,7 +57,23 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
 }) {
   const [etat, setEtat] = useState<'charge' | 'ok' | 'sans_schema' | 'erreur'>('charge');
   const [page, setPage] = useState(0);
-  const [issue, setIssue] = useState<Issue | 'toutes'>('toutes');
+  /**
+   * ══ 🔴🔴 LOT MONGA-1, POINT 4 — UN QUATRIÈME FILTRE, QUI NE MONTRE PAS DES MAILS ════════════════════════════
+   *
+   * Arno : « dans “À rattacher”, un filtre “Interventions Monga à relier (N)” — une ligne par référence non
+   * reliée (libellé, adresse, nombre de mails, dernière étape). »
+   *
+   * 🔴 IL CHANGE L'UNITÉ DE LA LISTE, et c'est tout son intérêt. Les trois filtres existants comptent des MAILS ;
+   * celui-ci compte des INTERVENTIONS. Les 40 références du corpus portent 156 mails : les trier mail par mail,
+   * c'est répéter quarante fois la même décision. Une ligne par intervention, et un clic par intervention.
+   *
+   * ⚠️ IL N'EST PAS UNE `Issue` : les trois autres valeurs voyagent jusqu'au serveur comme filtre d'examen, celle
+   * -ci interroge une autre route. Les mélanger dans un seul type aurait fini par envoyer « monga » à une
+   * requête SQL qui ne le connaît pas.
+   */
+  const [issue, setIssue] = useState<Issue | 'toutes' | 'monga'>('toutes');
+  const [monga, setMonga] = useState<InterventionMonga[]>([]);
+  const [mongaDispo, setMongaDispo] = useState(false);
   const [data, setData] = useState<PageFile>(VIDE);
   const [coches, setCoches] = useState<Set<number>>(new Set());
   const [autre, setAutre] = useState<number | null>(null);
@@ -64,6 +83,16 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
   const charger = useCallback(async () => {
     setEtat('charge');
     try {
+      /* 🔴 LE FILTRE MONGA INTERROGE SA PROPRE ROUTE : il ne liste pas des mails, mais des interventions. */
+      if (issue === 'monga') {
+        const r = await fetch('/api/admin/gestion/monga?aRelier=1', { cache: 'no-store' });
+        const m = (await r.json().catch(() => ({}))) as {
+          etat?: string; interventions?: InterventionMonga[];
+        };
+        setMonga(m.etat === 'ok' ? (m.interventions ?? []) : []);
+        setEtat(m.etat === 'ok' ? 'ok' : m.etat === 'sans_schema' ? 'sans_schema' : 'erreur');
+        return;
+      }
       const res = await fetch(
         `/api/admin/gestion/rattachements?file=1&page=${page}&issue=${issue}`, { cache: 'no-store' });
       const d = (await res.json()) as { etat?: string; data?: PageFile };
@@ -76,6 +105,31 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
   }, [page, issue]);
 
   useEffect(() => { void charger(); }, [charger]);
+
+  /**
+   * 🔴 LE COMPTE DES INTERVENTIONS EST LU UNE FOIS, à l'ouverture de l'écran, pour que le bouton porte son
+   * nombre — « Interventions Monga à relier (40) » — avant même qu'on clique dessus. Un filtre dont on ne sait
+   * pas s'il contient quelque chose ne se clique pas.
+   *
+   * ⚠️ SANS LA MIGRATION 311, OU SANS AUCUNE INTERVENTION, LE BOUTON N'EXISTE PAS : l'écran est alors exactement
+   * celui d'avant ce lot. On n'ajoute pas un filtre vide à une barre qui en a déjà trois.
+   */
+  useEffect(() => {
+    let vivant = true;
+    void (async () => {
+      try {
+        const r = await fetch('/api/admin/gestion/monga?aRelier=1', { cache: 'no-store' });
+        const m = (await r.json().catch(() => ({}))) as {
+          etat?: string; interventions?: InterventionMonga[];
+        };
+        if (vivant && m.etat === 'ok') {
+          setMonga(m.interventions ?? []);
+          setMongaDispo((m.interventions ?? []).length > 0);
+        }
+      } catch { /* l'absence du filtre Monga ne doit jamais empêcher de trier son courrier */ }
+    })();
+    return () => { vivant = false; };
+  }, []);
 
   /** Un geste, puis rechargement. Rend le nombre de gestes réussis. */
   const agir = async (
@@ -218,6 +272,16 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
                   {mot}
                 </button>
               ))}
+            {/* 🔴🔴 LOT MONGA-1, POINT 4 — le quatrième filtre, avec son nombre. Il ne paraît QUE s'il a quelque
+                chose à montrer : un filtre vide dans une barre qui en a déjà trois est du bruit. */}
+            {mongaDispo && (
+              <button type="button"
+                className={`svv-btn gst-btn ${issue === 'monga' ? 'svv-btn-primary' : 'svv-btn-outline'}`}
+                aria-pressed={issue === 'monga'}
+                onClick={() => { setIssue('monga'); setPage(0); setCoches(new Set()); }}>
+                {motFiltreMonga(monga.length)}
+              </button>
+            )}
           </div>
 
           {/* LES GESTES PAR LOT — ils n'apparaissent que s'il y a quelque chose de coché ET d'actionnable. */}
@@ -249,7 +313,48 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
 
           {etat === 'charge' && <p className="gst-info" role="status">Chargement…</p>}
 
-          {etat === 'ok' && data.lignes.length === 0 && (
+          {/**
+            * ══ 🔴🔴 LOT MONGA-1, POINT 4 — UNE LIGNE PAR INTERVENTION, PAS PAR MAIL ════════════════════════════
+            *
+            * Chaque ligne porte ce qu'Arno a demandé : le libellé, l'adresse, le nombre de mails et la dernière
+            * étape. Et un chemin pour s'en occuper — « Ouvrir le dernier mail » — parce qu'une ligne qui nomme un
+            * travail sans dire où il se fait oblige à retrouver le mail à la main dans seize mille.
+            *
+            * ⚠️ AUCUN GESTE N'EST OFFERT ICI, et c'est voulu : relier se fait dans la fenêtre « Classer », où
+            * l'encart montre les lots candidats, leur propriétaire et leur locataire. Un bouton « Relier » posé
+            * sur cette ligne-ci relierait sans rien avoir montré — l'inverse de la décision n° 1 d'Arno.
+            */}
+          {issue === 'monga' && etat === 'ok' && (
+            monga.length === 0
+              ? <p className="gst-vide">Aucune intervention Monga n’attend d’être reliée.</p>
+              : (
+                <ul className="fat-liste">
+                  {monga.map((i) => (
+                    <li key={i.reference} className="fat-item fat-monga">
+                      <div className="fat-monga-corps">
+                        <p className="fat-objet">
+                          {i.reference}
+                          {i.libelle !== null && <> · {i.libelle}</>}
+                        </p>
+                        <p className="fat-meta">
+                          {i.adresse ?? 'adresse non lue'}
+                          {' · '}{i.nbMails === 1 ? '1 mail' : `${i.nbMails} mails`}
+                          {' · '}<span className="fat-issue">{i.derniereEtapeMot}</span>
+                        </p>
+                      </div>
+                      {onOuvrirFil && (
+                        <button type="button" className="gst-lien-bouton"
+                          onClick={() => onOuvrirFil(Number(i.dernierFilId), Number(i.dernierMessageId))}>
+                          Ouvrir le dernier mail
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )
+          )}
+
+          {issue !== 'monga' && etat === 'ok' && data.lignes.length === 0 && (
             <p className="gst-vide">
               {data.totaux.nonExamines > 0
                 ? 'Rien à trier pour l’instant — mais des mails n’ont pas encore été examinés (voir ci-dessus).'
@@ -261,8 +366,12 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
               Demande d'Arno : la MÊME pagination que la boîte, ici aussi. Elle remplace les deux gros boutons
               « ← Précédents / page 3 / Suivants → » qui vivaient SEULEMENT en bas : il fallait dérouler
               vingt-cinq mails pour savoir où l'on en était, et autant pour revenir en arrière. */}
-          {rendreBarre('haut')}
+          {/* ⚠️ NI PAGINATION NI LISTE DE MAILS DANS LE FILTRE MONGA : il n'y a que quarante lignes, et ce ne
+              sont pas des mails. Une barre « page 1 sur 1 » au-dessus d'une liste d'interventions ne dirait rien
+              de vrai. */}
+          {issue !== 'monga' && rendreBarre('haut')}
 
+          {issue !== 'monga' && (
           <ul className="fat-liste">
             {data.lignes.map((l) => (
               <li key={l.messageId} className="fat-item">
@@ -340,12 +449,13 @@ export function FileATrier({ onRetour, onReception, onOuvrirFil, onGeste }: {
               </li>
             ))}
           </ul>
+          )}
 
           {/* ══ 🔴 LOT LISTE-PAGINATION — LA BARRE DU BAS ═══════════════════════════════════════════════════
               CE QUI ÉTAIT ICI : trois commandes en gros boutons (« ← Précédents », « page 3 », « Suivants → »),
               qui ne disaient NI combien de mails il reste, NI où l'on en est dans le total. « page 3 » sur
               16 628 mails à rattacher n'apprend rien. La barre dit « 51–75 sur 16 628 ». */}
-          {rendreBarre('bas')}
+          {issue !== 'monga' && rendreBarre('bas')}
         </>
       )}
     </section>
@@ -363,6 +473,17 @@ export const CSS_FILE_A_TRIER = `
 .fat-code{font-size:.78rem;padding:1px 4px;border-radius:4px;background:var(--color-svv-field);
   border:1px solid var(--color-svv-line)}
 .fat-filtres{display:flex;flex-wrap:wrap;gap:.4rem}
+/* ══ LOT MONGA-1, POINT 4 — une ligne d'INTERVENTION. Pas de case a cocher, donc pas de gouttiere a reserver.
+   🔴 flex-direction:row EST OBLIGATOIRE ICI, et c'est un defaut MESURE A L'ECRAN : .fat-item est une COLONNE, et
+   dans une colonne le flex-basis de .fat-item-corps (14rem) s'applique a la HAUTEUR. Chaque ligne faisait 224 px
+   de haut, avec un grand vide entre l'adresse et le bouton. D'ou un corps a part, SANS base imposee.
+   🔴 ET LE SELECTEUR PORTE LES DEUX CLASSES (.fat-item.fat-monga) : .fat-item est declare PLUS BAS dans cette
+   feuille, donc a specificite egale c'est lui qui gagnait — la premiere correction n'a rien change a l'ecran, et
+   la capture l'a montre.
+   (Aucun accent grave dans ce commentaire : il vit dans un litteral gabarit, qu'un seul accent grave terminerait.) */
+.fat-item.fat-monga{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:.6rem;
+  justify-content:space-between}
+.fat-monga-corps{flex:1 1 auto;min-width:0}
 .fat-lot{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;padding:8px 10px;border-radius:10px;
   border:1px solid var(--color-svv-line);background:var(--color-svv-field)}
 .fat-lot-compte{font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}

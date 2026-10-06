@@ -7,6 +7,8 @@ import { MenuDiscret } from './MenuDiscret';
 import { Conversation, MessageConversation } from './Conversation';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 import type { CarteDetail, FilDeCarte, MailParti, MessageDeFil } from '../../../../lib/gestion/carteRepo';
+/* 🔴 LOT MONGA-1, POINT 4 — le type seul, effacé à la compilation : ce composant vit dans le navigateur. */
+import type { MongaDeLEvenement } from '../../../../lib/gestion/mongaRepo';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 import { depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens } from '../../../../lib/gestion/ecran';
@@ -33,7 +35,14 @@ import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 //   RÉEXPORTÉ ici : aucun import existant ne casse.
 export type { Rapport };
 
-type VueCarte = { v: 'charge' } | { v: 'ok'; d: CarteDetail } | { v: 'erreur'; m: string };
+/**
+ * 🔴 LOT MONGA-1, POINT 4 — la carte reçoit, en plus, l'intervention Monga qu'elle porte (ou `null`, le cas
+ * ordinaire). Le type vit à côté de `CarteDetail` plutôt que dedans : `CarteDetail` est ce que `carteRepo` sait
+ * d'une carte, et Monga n'en fait pas partie — la route compose les deux.
+ */
+type CarteAvecMonga = CarteDetail & { monga?: MongaDeLEvenement | null };
+
+type VueCarte = { v: 'charge' } | { v: 'ok'; d: CarteAvecMonga } | { v: 'erreur'; m: string };
 
 /**
  * Va chercher une carte et RENVOIE le résultat sans toucher à aucun état : c'est l'appelant qui décide quoi en faire.
@@ -44,7 +53,7 @@ async function chargerCarte(evenementId: number): Promise<VueCarte> {
   try {
     const res = await fetch(`/api/admin/gestion/evenements/${evenementId}`, { cache: 'no-store' });
     if (!res.ok) return { v: 'erreur', m: res.status === 403 ? 'Droit retiré : reconnectez-vous.' : 'Lecture impossible.' };
-    return { v: 'ok', d: (await res.json()) as CarteDetail };
+    return { v: 'ok', d: (await res.json()) as CarteAvecMonga };
   } catch {
     return { v: 'erreur', m: 'Lecture impossible : le serveur n’a pas répondu.' };
   }
@@ -177,6 +186,52 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique }
     <div className="gst-corps">
       <EtatCarte etat={d.etat} traiteLe={d.traiteLe} traitePar={d.traitePar} occupe={occupe}
         onEtat={(e) => void agir({ etat: e }, `Événement ${d.reference} : ${libelleEtat(e).toLowerCase()}.`)} />
+
+      {/**
+        * ══ 🔴🔴 LOT MONGA-1, POINT 4 — LE BADGE DE L'INTERVENTION, SA DERNIÈRE ÉTAPE, SON LIEN ════════════════
+        *
+        * Arno : « Sur l'événement : un badge “Monga MNG-23987”, la dernière étape (ex. “Devis en attente de
+        * validation · 05/10”), et le lien “Vers Mission”. »
+        *
+        * 🔴 IL EST POSÉ SOUS L'ÉTAT, AVANT LE RÉSUMÉ : c'est le renseignement qui dit OÙ EN EST le travail, et
+        * il doit se lire sans dérouler la carte.
+        *
+        * ⚠️ RIEN DU TOUT SUR UNE CARTE SANS MONGA — le cas ordinaire, et de très loin.
+        */}
+      {(d.monga ?? null) !== null && (
+        <div className="gst-monga" role="note">
+          <p className="gst-monga-tete">
+            <span className="gst-monga-badge">{(d.monga as MongaDeLEvenement).badge}</span>
+            <span className="gst-monga-etape">{(d.monga as MongaDeLEvenement).derniereEtapeMot}</span>
+            {(d.monga as MongaDeLEvenement).lienMission !== null && (
+              /* ⚠️ `noreferrer` : on n'annonce pas notre écran interne à Monga. */
+              <a className="gst-monga-lien" target="_blank" rel="noreferrer"
+                href={(d.monga as MongaDeLEvenement).lienMission ?? '#'}>Vers Mission</a>
+            )}
+          </p>
+          {/**
+            * 🔴🔴 LA PROPOSITION DE CLORE — ET SEULEMENT UNE PROPOSITION (Arno : « jamais automatique »).
+            *
+            * 🔴 LA MESURE QUI LA JUSTIFIE : l'audit n'a trouvé **qu'UN SEUL** mail « Mission terminée » pour
+            * 40 références. Une clôture automatique ne fermerait donc presque rien — et fermerait parfois à
+            * tort, puisqu'une intervention finie chez Monga peut encore attendre une facture ou une reprise
+            * chez nous.
+            *
+            * ⚠️ ELLE PASSE PAR LA PORTE QU'ARNO EMPLOIE DÉJÀ (`onEtat('traite')` du bloc d'état) : même
+            * journal, même réversibilité — rouvrir une carte est un geste normal, pas une réparation.
+            */}
+          {(d.monga as MongaDeLEvenement).terminee && d.etat !== 'traite' && (
+            <p className="gst-monga-clore">
+              <span>Monga a marqué cette intervention terminée. Clore l’événement ?</span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe}
+                onClick={() => void agir({ etat: 'traite' },
+                  `Événement ${d.reference} clos après « Mission terminée » (Monga).`)}>
+                Clore l’événement
+              </button>
+            </p>
+          )}
+        </div>
+      )}
 
       {edition
         ? <FormulaireCarte detail={d} occupe={occupe}

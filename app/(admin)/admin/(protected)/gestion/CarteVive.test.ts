@@ -575,3 +575,81 @@ describe('⑤ LOT 4d-B2 — DÉPLACER UN MAIL SEUL', () => {
     expect(container.textContent).toContain('Il y a une fuite.');
   });
 });
+
+/**
+ * ══ 🔴🔴 LOT MONGA-1, POINT 4 — LE BADGE DE L'INTERVENTION, ET LA PROPOSITION DE CLORE ═══════════════════════════
+ *
+ * Arno : « Sur l'événement : un badge “Monga MNG-23987”, la dernière étape […] et le lien “Vers Mission”. Quand un
+ * mail “Mission terminée” arrive : une PROPOSITION de clore l'événement (JAMAIS automatique). »
+ *
+ * 🔴 « JAMAIS AUTOMATIQUE » SE MESURE : aucune requête de clôture ne doit partir au rendu. L'audit n'a trouvé
+ * qu'UN SEUL mail « Mission terminée » pour 40 références — une clôture automatique ne fermerait presque rien, et
+ * fermerait parfois à tort (une intervention finie chez Monga peut encore attendre une facture chez nous).
+ */
+describe('⑥ MONGA — le badge, l’étape, le lien, et la clôture PROPOSÉE', () => {
+  const AVEC_MONGA = (terminee: boolean, etat: CarteDetail['etat'] = 'a_traiter') => ({
+    ...DETAIL,
+    etat,
+    monga: {
+      reference: 'MNG-23987', libelle: 'barre de douche defixer',
+      lienMission: 'https://app.monga.io/missions/view/abc',
+      derniereEtape: terminee ? 'terminee' : 'devis_rappel',
+      derniereEtapeMot: terminee ? 'Mission terminée · 15/09' : 'Devis en attente de validation · 05/10',
+      nbMails: 4, badge: 'Monga MNG-23987', terminee,
+    },
+  });
+
+  it('🔴 le badge, la dernière étape et « Vers Mission » sont sur la carte', async () => {
+    reponseDetail = AVEC_MONGA(false) as unknown as typeof DETAIL;
+    await monter();
+    await cliquer(boutonPar(/Fuite salle de bain/));
+    expect(container.textContent).toContain('Monga MNG-23987');
+    expect(container.textContent).toContain('Devis en attente de validation · 05/10');
+    const lien = liens().find((a) => a.textContent === 'Vers Mission');
+    expect(lien?.href).toBe('https://app.monga.io/missions/view/abc');
+    /* ⚠️ `noreferrer` : on n'annonce pas notre écran interne à Monga. */
+    expect(lien?.rel).toContain('noreferrer');
+  });
+
+  it('⚠️ une carte SANS Monga n’affiche aucun badge — le cas ordinaire, et de très loin', async () => {
+    await monter();
+    await cliquer(boutonPar(/Fuite salle de bain/));
+    expect(container.textContent).not.toContain('Monga');
+    expect(container.querySelector('.gst-monga')).toBeNull();
+  });
+
+  it('🔴🔴 « Mission terminée » PROPOSE de clore — et ne clôt RIEN tout seul', async () => {
+    reponseDetail = AVEC_MONGA(true) as unknown as typeof DETAIL;
+    await monter();
+    await cliquer(boutonPar(/Fuite salle de bain/));
+    expect(container.textContent).toContain('Monga a marqué cette intervention terminée. Clore l’événement ?');
+    // 🔴 LA MESURE DE « JAMAIS AUTOMATIQUE » : aucun PATCH n'est parti du simple fait d'afficher la carte.
+    expect(patchs).toEqual([]);
+  });
+
+  it('le clic clôt par la porte habituelle, et le dit', async () => {
+    reponseDetail = AVEC_MONGA(true) as unknown as typeof DETAIL;
+    await monter();
+    await cliquer(boutonPar(/Fuite salle de bain/));
+    await cliquer(boutonPar(/^Clore l’événement$/));
+    expect(patchs).toEqual([{ etat: 'traite' }]);
+    expect(rapports.map((r) => r.message).join(' '))
+      .toContain('clos après « Mission terminée » (Monga)');
+  });
+
+  it('⚠️ une carte DÉJÀ traitée ne propose plus rien : le badge reste, la proposition disparaît', async () => {
+    reponseDetail = AVEC_MONGA(true, 'traite') as unknown as typeof DETAIL;
+    await monter();
+    await cliquer(boutonPar(/Fuite salle de bain/));
+    expect(container.textContent).toContain('Monga MNG-23987');
+    expect(container.textContent).not.toContain('Clore l’événement ?');
+  });
+
+  it('⚠️ une étape qui n’est PAS « Mission terminée » ne propose jamais de clore', async () => {
+    reponseDetail = AVEC_MONGA(false) as unknown as typeof DETAIL;
+    await monter();
+    await cliquer(boutonPar(/Fuite salle de bain/));
+    expect(container.querySelector('.gst-monga')).not.toBeNull();
+    expect(container.textContent).not.toContain('Clore l’événement ?');
+  });
+});

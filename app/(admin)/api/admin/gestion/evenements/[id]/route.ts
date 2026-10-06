@@ -2,6 +2,8 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { lireCarte } from '../../../../../../lib/gestion/carteRepo';
+/* 🔴 LOT MONGA-1, POINT 4 — le badge, la dernière étape et le lien « Vers Mission » d'une carte reliée. */
+import { mongaDeLEvenement } from '../../../../../../lib/gestion/mongaRepo';
 import { chargerConfigGestion } from '../../../../../../lib/gestion/config';
 import { lirePartenairesInternes } from '../../../../../../lib/gestion/partenaires';
 import { deplacementsDeMailsDisponibles } from '../../../../../../lib/gestion/schema';
@@ -43,7 +45,14 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     ]);
     const carte = await lireCarte(id, { partenaires, adresseGestion: config.adresseGestion, deplacements });
     if (!carte) return Response.json({ erreur: 'Cet événement n’existe pas.' }, { status: 404 });
-    return Response.json(carte, { headers: { 'Cache-Control': 'private, no-store' } });
+    /**
+     * 🔴🔴 LOT MONGA-1, POINT 4 — L'INTERVENTION MONGA DE CETTE CARTE, quand elle en porte une.
+     *
+     * ⚠️ `null` EST LE CAS ORDINAIRE, et de très loin : une carte sans Monga n'affiche aucun badge et reste
+     * exactement celle d'avant ce lot. Sans la migration 311, c'est `null` pour toutes.
+     */
+    const monga = await mongaDeLEvenement(id);
+    return Response.json({ ...carte, monga }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/evenement] lecture impossible', e);
     return Response.json({ erreur: 'Lecture impossible : erreur interne du serveur.' }, { status: 503 });

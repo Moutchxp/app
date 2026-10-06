@@ -17,7 +17,8 @@ import {
 } from './schema';
 import { nomBien } from './driveArbre';
 import {
-  casLotsMonga, etapeMonga, lireEnTeteMonga, lotsPourLAdresseMonga, motDerniereEtape, motEncartMonga,
+  badgeMonga, casLotsMonga, etapeMonga, finDIntervention, lireEnTeteMonga, lotsPourLAdresseMonga,
+  motDerniereEtape, motEncartMonga,
   type CasLotsMonga, type EnTeteMonga, type EtapeMonga,
 } from './monga';
 import { normaliser } from './propositionsBien';
@@ -186,6 +187,13 @@ export interface InterventionMonga {
   derniereEtapeLe: string;
   /** Le mot tout fait : « Devis en attente de validation · 05/10 ». */
   derniereEtapeMot: string;
+  /**
+   * 🔴 LE MAIL LE PLUS RÉCENT DE LA RÉFÉRENCE, et son échange. C'est par lui que le filtre « Interventions Monga
+   * à relier » ouvre la fenêtre « Classer » : une ligne qui nomme une intervention sans donner le chemin pour
+   * s'en occuper oblige à la rechercher à la main dans 16 000 mails.
+   */
+  dernierMessageId: string;
+  dernierFilId: string;
   /** `null` tant qu'Arno n'a pas cliqué. 19 références sur 40 sont dans ce cas (audit du 06/10). */
   evenementId: string | null;
   /** Le « quoi » de l'événement — `gestion_evenement.objet`, le champ que la RÈGLE DU NOM d'Arno harmonise. */
@@ -206,6 +214,7 @@ export async function interventionsMonga(options?: { reliees?: boolean }): Promi
   const { rows } = await query<{
     reference: string; libelle: string | null; adresse: string | null; lien_mission: string | null;
     nb_mails: number; derniere_etape: EtapeMonga; derniere_etape_le: string;
+    dernier_message_id: string; dernier_fil_id: string;
     evenement_id: string | null; evenement_nom: string | null;
   }>(
     /**
@@ -215,7 +224,8 @@ export async function interventionsMonga(options?: { reliees?: boolean }): Promi
      * donc une seule de ces quatre réponses.
      */
     `WITH mails AS (
-        SELECT mm.reference, mm.libelle, mm.adresse, mm.lien_mission, mm.etape, m.recu_le
+        SELECT mm.reference, mm.libelle, mm.adresse, mm.lien_mission, mm.etape, m.recu_le,
+               mm.message_id, m.fil_id
           FROM gestion_monga_mail mm
           JOIN gestion_message m ON m.id = mm.message_id
          WHERE mm.reference IS NOT NULL
@@ -229,13 +239,14 @@ export async function interventionsMonga(options?: { reliees?: boolean }): Promi
         SELECT DISTINCT ON (reference) reference, lien_mission FROM mails
          WHERE lien_mission IS NOT NULL ORDER BY reference, recu_le DESC
      ), derniere_etape AS (
-        SELECT DISTINCT ON (reference) reference, etape, recu_le FROM mails
+        SELECT DISTINCT ON (reference) reference, etape, recu_le, message_id, fil_id FROM mails
          ORDER BY reference, recu_le DESC
      ), compte AS (
         SELECT reference, count(*)::int AS nb_mails FROM mails GROUP BY reference
      )
      SELECT c.reference, dl.libelle, da.adresse, dli.lien_mission, c.nb_mails,
             de.etape AS derniere_etape, de.recu_le::text AS derniere_etape_le,
+            de.message_id::text AS dernier_message_id, de.fil_id::text AS dernier_fil_id,
             ml.evenement_id::text AS evenement_id, e.objet AS evenement_nom
        FROM compte c
        JOIN derniere_etape de ON de.reference = c.reference
@@ -255,6 +266,8 @@ export async function interventionsMonga(options?: { reliees?: boolean }): Promi
     derniereEtape: r.derniere_etape,
     derniereEtapeLe: r.derniere_etape_le,
     derniereEtapeMot: motDerniereEtape(r.derniere_etape, r.derniere_etape_le) ?? '',
+    dernierMessageId: r.dernier_message_id,
+    dernierFilId: r.dernier_fil_id,
     evenementId: r.evenement_id,
     evenementNom: r.evenement_nom,
   }));
@@ -530,4 +543,53 @@ export async function chercherUnLotMonga(terme: string, limite = 20): Promise<Lo
     proprietaire: r.proprietaire,
     locataire: r.locataire,
   }));
+}
+
+/**
+ * ══ 🔴🔴 LOT MONGA-1, POINT 4 — CE QUE PORTE UN ÉVÉNEMENT RELIÉ À UNE INTERVENTION ═══════════════════════════════
+ *
+ * DEMANDE D'ARNO : « Sur l'événement : un badge “Monga MNG-23987”, la dernière étape (ex. “Devis en attente de
+ * validation · 05/10”), et le lien “Vers Mission”. Quand un mail “Mission terminée” arrive : une PROPOSITION de
+ * clore l'événement (jamais automatique). »
+ *
+ * 🔴 « JAMAIS AUTOMATIQUE » N'EST PAS UNE PRÉCAUTION, C'EST UNE MESURE. L'audit a trouvé **UN SEUL** mail
+ * « Mission terminée » pour 40 références. Une clôture automatique ne fermerait donc presque rien — et fermerait
+ * parfois à tort, puisqu'une intervention terminée chez Monga peut encore attendre une facture ou une reprise
+ * chez nous. L'écran PROPOSE, Arno tranche, et la carte se ferme par la porte qu'il utilise déjà.
+ */
+export interface MongaDeLEvenement {
+  reference: string;
+  libelle: string | null;
+  lienMission: string | null;
+  derniereEtape: EtapeMonga;
+  derniereEtapeMot: string;
+  nbMails: number;
+  /** Le badge tout fait : « Monga MNG-23987 ». */
+  badge: string;
+  /** 🔴 Vrai quand le DERNIER mail dit « Mission terminée » : l'écran propose alors de clore. Jamais plus. */
+  terminee: boolean;
+}
+
+export async function mongaDeLEvenement(evenementId: number): Promise<MongaDeLEvenement | null> {
+  if (!await mongaDisponible()) return null;
+  const { rows } = await query<{ reference: string }>(
+    `SELECT reference FROM gestion_monga_lien WHERE evenement_id = $1 AND retire_le IS NULL
+      ORDER BY relie_le DESC LIMIT 1`, [evenementId]);
+  const reference = rows[0]?.reference;
+  if (reference === undefined) return null;
+  /* ⚠️ ON RELIT L'INTERVENTION PAR LA MÊME LECTURE QUE PARTOUT : son libellé, son adresse et son lien viennent
+     du mail le plus récent qui en porte un, et sa dernière étape du dernier mail tout court. Recomposer ces
+     règles ici en aurait fait une seconde version, qui aurait divergé. */
+  const intervention = (await interventionsMonga()).find((i) => i.reference === reference) ?? null;
+  if (intervention === null) return null;
+  return {
+    reference,
+    libelle: intervention.libelle,
+    lienMission: intervention.lienMission,
+    derniereEtape: intervention.derniereEtape,
+    derniereEtapeMot: intervention.derniereEtapeMot,
+    nbMails: intervention.nbMails,
+    badge: badgeMonga(reference),
+    terminee: finDIntervention(intervention.derniereEtape),
+  };
 }
