@@ -48,6 +48,14 @@ export interface EtapeEcran {
   filId: number | null;
   pieceNom: string | null;
   creeParLibelle: string | null;
+  /**
+   * 🔴 LOT FRISE-CONSTRUCTIBLE — QUAND LA CARTE A ÉTÉ POSÉE (Arno, point 3 : « ajoutée le 06/10 à 22:31 par
+   * Arnaud », visible au survol). À ne pas confondre avec `survenuLe`, la date de ce qui s'est PASSÉ : les deux
+   * diffèrent dès qu'on rattrape un oubli, et c'est justement là qu'on a besoin de les distinguer.
+   */
+  creeLe: string | null;
+  /** 🔴 LOT FRISE-CONSTRUCTIBLE — le titre saisi d'une carte LIBRE. `null` partout ailleurs (migration 315). */
+  titre: string | null;
   /** Le rang du devis dans sa référence (« Devis 2 »), calculé par le module pur. */
   rangDevis: number | null;
 }
@@ -149,10 +157,12 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     source: 'monga' | 'manuelle'; certitude: EtapeEcran['certitude']; statut: 'vif' | 'retire';
     message_id: string | null; message_cle: string | null; fil_id: string | null;
     piece_nom: string | null; cree_par_libelle: string | null;
+    cree_le: string | null; titre: string | null;
   }>(
     `SELECT e.id, e.reference, e.type, e.survenu_le::text, e.heure_connue, e.heure_fin,
             e.numero, e.rang, e.montant_cents, e.texte, e.auteur, e.source, e.certitude, e.statut,
-            e.message_id, e.message_cle, m.fil_id, e.piece_nom, e.cree_par_libelle
+            e.message_id, e.message_cle, m.fil_id, e.piece_nom, e.cree_par_libelle,
+            e.cree_le::text, e.titre
        FROM gestion_monga_etape e
        LEFT JOIN gestion_message m ON m.id = e.message_id
       WHERE e.statut = 'vif'
@@ -207,6 +217,8 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     filId: r.fil_id === null ? null : Number(r.fil_id),
     pieceNom: r.piece_nom,
     creeParLibelle: r.cree_par_libelle,
+    creeLe: r.cree_le,
+    titre: r.titre,
     rangDevis: rangs.get(Number(r.id)) ?? null,
   }));
 }
@@ -220,15 +232,17 @@ export async function ajouterEtapeManuelle(a: {
   texte: string | null;
   montantCents: number | null;
   pieceNom: string | null;
+  /** 🔴 LOT FRISE-CONSTRUCTIBLE — le titre d'une carte LIBRE. `null` pour tous les autres types. */
+  titre: string | null;
   parId: number | null;
   parLibelle: string;
 }): Promise<number> {
   const { rows } = await query<{ id: string }>(
     `INSERT INTO gestion_monga_etape
-       (evenement_id, type, survenu_le, heure_connue, texte, montant_cents, piece_nom,
+       (evenement_id, type, survenu_le, heure_connue, texte, montant_cents, piece_nom, titre,
         source, certitude, cree_par, cree_par_libelle)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'manuelle','fiable',$8,$9) RETURNING id`,
-    [a.evenementId, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.pieceNom,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manuelle','fiable',$9,$10) RETURNING id`,
+    [a.evenementId, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.pieceNom, a.titre,
       a.parId, a.parLibelle]);
   return Number(rows[0].id);
 }
@@ -244,14 +258,14 @@ export async function ajouterEtapeManuelle(a: {
  */
 export async function modifierEtapeManuelle(a: {
   id: number; type: TypeEtape; survenuLe: string; heureConnue: boolean;
-  texte: string | null; montantCents: number | null; parLibelle: string;
+  texte: string | null; montantCents: number | null; titre: string | null; parLibelle: string;
 }): Promise<boolean> {
   const r = await query(
     `UPDATE gestion_monga_etape
-        SET type = $2, survenu_le = $3, heure_connue = $4, texte = $5, montant_cents = $6,
-            maj_le = now(), maj_par_libelle = $7
+        SET type = $2, survenu_le = $3, heure_connue = $4, texte = $5, montant_cents = $6, titre = $7,
+            maj_le = now(), maj_par_libelle = $8
       WHERE id = $1 AND source = 'manuelle' AND statut = 'vif'`,
-    [a.id, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.parLibelle]);
+    [a.id, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.titre, a.parLibelle]);
   return (r.rowCount ?? 0) > 0;
 }
 

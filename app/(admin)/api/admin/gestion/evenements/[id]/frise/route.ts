@@ -5,8 +5,10 @@ import {
   ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement,
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
 import {
-  proposerCloture, proposerPassageEnFiable, TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape,
+  proposerCloture, proposerPassageEnFiable, TYPES_AJOUTABLES, TYPES_INFORMATION, TYPES_RESERVOIR,
+  type TypeEtape,
 } from '../../../../../../../lib/gestion/mongaEtape';
+import { deplacerOuvertureEvenement } from '../../../../../../../lib/gestion/gestes';
 import { query } from '../../../../../../../lib/db/client';
 
 /**
@@ -32,8 +34,13 @@ export async function GET(
   }
   try {
     const etapes = await friseDeLEvenement(evenementId);
-    const { rows } = await query<{ traite_le: string | null }>(
-      'SELECT traite_le::text FROM gestion_evenement WHERE id = $1', [evenementId]);
+    /**
+     * 🔴 LOT FRISE-CONSTRUCTIBLE — `ouvert_le` VOYAGE AVEC LA FRISE. Arno, point 1 : la première carte est
+     * l'ouverture de l'ÉVÉNEMENT, et sa date est celle-ci. Elle était déjà lue ici (pour `traite_le`) : c'est
+     * la même requête, une colonne de plus, aucune lecture ajoutée.
+     */
+    const { rows } = await query<{ traite_le: string | null; ouvert_le: string }>(
+      'SELECT traite_le::text, ouvert_le::text FROM gestion_evenement WHERE id = $1', [evenementId]);
     if (rows.length === 0) return Response.json({ erreur: 'Événement inconnu.' }, { status: 404 });
     const traite = rows[0].traite_le !== null;
 
@@ -54,6 +61,10 @@ export async function GET(
       proposerCloture: proposerCloture(etapes, traite),
       passagesEnFiableProposes: aProposer,
       typesAjoutables: TYPES_AJOUTABLES,
+      /* 🔴 LOT FRISE-CONSTRUCTIBLE — la date d'ouverture de l'événement, et les cartes du réservoir (Arno). */
+      ouvertLe: rows[0].ouvert_le,
+      typesReservoir: TYPES_RESERVOIR,
+      typesInformation: TYPES_INFORMATION,
     }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/frise] lecture impossible', e);
@@ -73,7 +84,7 @@ export async function POST(
   }
   const corps = (await request.json().catch(() => ({}))) as {
     type?: unknown; survenuLe?: unknown; heureConnue?: unknown;
-    texte?: unknown; montantCents?: unknown; pieceNom?: unknown;
+    texte?: unknown; montantCents?: unknown; pieceNom?: unknown; titre?: unknown;
   };
   const type = String(corps.type ?? '') as TypeEtape;
   /**
@@ -98,6 +109,21 @@ export async function POST(
   if (montant !== null && (!Number.isFinite(montant) || montant < 0)) {
     return Response.json({ erreur: 'Montant invalide.' }, { status: 400 });
   }
+  /**
+   * 🔴🔴 LOT FRISE-CONSTRUCTIBLE — LE TITRE D'UNE CARTE LIBRE, EXIGÉ ICI AUTANT QU'À L'ÉCRAN.
+   *
+   * Arno : « plus un carré LIBRE (titre à saisir) ». Une carte libre sans titre s'afficherait « Carte libre »
+   * sur la frise — une ligne qui ne dit rien de ce qu'elle raconte, et qu'on ne peut plus distinguer de la
+   * suivante. La garde est donc dans la route, et pas seulement dans le formulaire : une règle tenue par
+   * l'écran seul est contournée par le premier appel qui l'oublie.
+   *
+   * ⚠️ ET IL EST IGNORÉ SUR TOUT AUTRE TYPE : le mot d'une carte vient du TYPE, écrit une seule fois dans
+   * `motEtape`. Un titre recopié sur une « Clôture » aurait fini par la contredire.
+   */
+  const titreBrut = typeof corps.titre === 'string' ? corps.titre.trim() : '';
+  if (type === 'autre' && titreBrut === '') {
+    return Response.json({ erreur: 'Une carte libre demande un titre.' }, { status: 400 });
+  }
   try {
     const auteur = await auteurDeLaRequete(request);
     const idEtape = await ajouterEtapeManuelle({
@@ -108,6 +134,7 @@ export async function POST(
       texte: typeof corps.texte === 'string' && corps.texte.trim() !== '' ? corps.texte.trim() : null,
       montantCents: montant,
       pieceNom: typeof corps.pieceNom === 'string' && corps.pieceNom !== '' ? corps.pieceNom : null,
+      titre: type === 'autre' && titreBrut !== '' ? titreBrut : null,
       parId: auteur.id === null ? null : Number(auteur.id),
       parLibelle: auteur.libelle,
     });
@@ -115,5 +142,44 @@ export async function POST(
   } catch (e) {
     console.error('[gestion/frise] ajout impossible', e);
     return Response.json({ erreur: 'Ajout impossible : erreur interne du serveur.' }, { status: 503 });
+  }
+}
+
+/**
+ * ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — CORRIGER LA DATE D'OUVERTURE DE L'ÉVÉNEMENT ═══════════════════════════════════
+ *
+ * Arno, point 1 : la carte « Ouverture » porte « la date d'ouverture de l'événement, MODIFIABLE ».
+ *
+ * 🔴 ELLE EST SUR LA ROUTE DE LA FRISE, et c'est voulu : c'est la frise qui l'affiche, c'est par elle qu'on la
+ * corrige. Le geste écrit `gestion_evenement.ouvert_le` — une seule vérité, journalisée — et non une étape
+ * d'ouverture copiée à côté, qui aurait pu diverger de l'événement qu'elle prétend dater.
+ *
+ * 🔒 `exigerCompteActif`, comme les deux autres verbes.
+ */
+export async function PATCH(
+  request: Request, { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const refus = await exigerCompteActif(request, 'gestion');
+  if (refus) return refus;
+  const { id } = await params;
+  const evenementId = Number(id);
+  if (!Number.isInteger(evenementId) || evenementId <= 0) {
+    return Response.json({ erreur: 'Événement inconnu.' }, { status: 400 });
+  }
+  const corps = (await request.json().catch(() => ({}))) as { geste?: unknown; survenuLe?: unknown };
+  if (String(corps.geste ?? '') !== 'ouverture') {
+    return Response.json({ erreur: 'Geste inconnu.' }, { status: 400 });
+  }
+  /* ⚠️ UN JOUR, PAS UN INSTANT : une ouverture d'événement n'a pas d'heure, et prétendre le contraire
+     inventerait une précision que personne n'a saisie. Le dépôt l'ancre à midi, voir `deplacerOuvertureEvenement`. */
+  const jour = String(corps.survenuLe ?? '').slice(0, 10);
+  try {
+    const auteur = await auteurDeLaRequete(request);
+    const issue = await deplacerOuvertureEvenement(evenementId, jour, auteur);
+    if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409 });
+    return Response.json({ etat: 'ok', message: 'Date d’ouverture enregistrée.' });
+  } catch (e) {
+    console.error('[gestion/frise] ouverture impossible', e);
+    return Response.json({ erreur: 'Enregistrement impossible : erreur interne du serveur.' }, { status: 503 });
   }
 }

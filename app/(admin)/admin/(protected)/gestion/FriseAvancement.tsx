@@ -8,12 +8,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * `clientBoundary.guard.test.ts` le vérifie.
  */
 import {
-  cleDOuverture, construireFrise, etapeOuvrable, motDateEtape, motGroupeMessages, motMailDOrigine,
-  motMontant, motSource, pictoSource, rangerEnLigne, referencesDeLaFrise,
+  cleDOuverture, construireFrise, etapeOuvrable, motAjout, motDateEtape, motGroupeMessages,
+  motMailDOrigine, motMontant, motSource, pictoSource, rangerEnLigne, referencesDeLaFrise,
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
 } from '../../../../lib/gestion/frise';
 import {
-  estRepere, motEtape, TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape,
+  estRepere, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
 } from '../../../../lib/gestion/mongaEtape';
 /* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE DES MAILS. Arno, B.3 : « même code, pas de second chemin. » */
 import { useDefilementFrise } from './useDefilementFrise';
@@ -42,6 +42,27 @@ import { useDefilementFrise } from './useDefilementFrise';
  * accordé en toutes lettres : « Le formulaire “Ajouter une étape” toujours visible sous la frise disparaît,
  * puisqu'il est repris par le “+”. » Rien d'autre n'a été retiré, masqué ni conditionné.
  *
+ * ═══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE (06/10/2026) — LA FRISE N'IMPOSE PLUS AUCUNE SUITE ═════════════════════════════
+ *
+ * DEMANDE D'ARNO : « la frise d'avancement n'impose plus aucune suite d'étapes. Elle se CONSTRUIT avec les vraies
+ * étapes, dans l'ordre réel (ex. rendez-vous → devis refusé → nouveau rendez-vous → nouveau devis…). ACCORD
+ * D'ARNO : les carrés “attendue” en pointillé sont supprimés. »
+ *
+ * CE QUI A DISPARU : les carrés en pointillé. Ils PROMETTAIENT un chemin — une ouverture, un devis, une
+ * acceptation, une intervention, une clôture, une fois chacun, dans cet ordre — que le dossier réel ne suit pas.
+ *
+ * CE QUI LES REMPLACE : un RÉSERVOIR. Un clic sur n'importe quel « + » ouvre, sous la frise, les cartes à contour
+ * rouge que l'on peut poser ; un clic sur l'une d'elles demande sa date, et elle entre dans la frise en VERT, à
+ * sa place chronologique. Chaque type est posable autant de fois que nécessaire.
+ *
+ * 🔴 TROIS COULEURS, ET CHACUNE DIT UN ÉTAT : ROUGE = à poser (le réservoir, le « + ») · VERT = dans la frise
+ * (Monga comme manuelle) · AMBRE = Monga « à confirmer ». Elles ne portent jamais l'information seules — la
+ * source est écrite dans la bulle et au lecteur d'écran, et les formes diffèrent aussi.
+ *
+ * ⚠️ RIEN N'EST PERDU DE MONGA-2 : mêmes données, même module `frise.ts`, mêmes routes, permanence intacte. Les
+ * cartes Monga arrivent toujours seules, à leur date, non modifiables ; « à confirmer » garde ses deux boutons ;
+ * la proposition de clôture est inchangée.
+ *
  * ⚠️ LE DÉFILEMENT HORIZONTAL NE DOIT JAMAIS PIÉGER LA PAGE — révisé au lot FRISES-REPARATION (B). La molette
  * verticale est désormais CONVERTIE en défilement de la frise, mais **uniquement tant que la frise peut encore
  * avancer de ce côté** ; arrivée en butée, elle rend la main à la page, exactement comme avant. C'est la demande
@@ -55,7 +76,21 @@ interface Reponse {
   etapes?: EtapeAAfficher[];
   proposerCloture?: boolean;
   passagesEnFiableProposes?: { type: TypeEtape; confirmees: number }[];
+  /** 🔴 LOT FRISE-CONSTRUCTIBLE — la date d'ouverture de l'ÉVÉNEMENT : la première carte de la frise. */
+  ouvertLe?: string;
   erreur?: string;
+}
+
+/**
+ * Le jour d'aujourd'hui, en local, au format `AAAA-MM-JJ`.
+ *
+ * ⚠️ PAS DE `toISOString()`, ET C'EST UN PIÈGE DÉJÀ PAYÉ DANS CE DÉPÔT : il rend l'UTC, et à 23 h à Paris en
+ * hiver il écrit DÉJÀ le lendemain. Un formulaire qui propose « demain » par défaut un soir sur deux fabrique des
+ * dates fausses sans que personne ne le remarque. On lit donc les champs locaux.
+ */
+function aujourdhuiLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export function FriseAvancement({
@@ -92,8 +127,19 @@ export function FriseAvancement({
   const setOuvert = setFixe;
   const [ajout, setAjout] = useState(false);
   /**
-   * 🔴 LE TYPE IMPOSÉ PAR UN CARRÉ POINTILLÉ. « Le bouton “Le devis est accepté” devient un clic sur le carré
-   * pointillé “Acceptation du devis” (même effet) » — Arno. Le panneau s'ouvre avec son type déjà choisi.
+   * ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — LE RÉSERVOIR, ET LA DATE QU'IL PROPOSE ══════════════════════════════════
+   *
+   * `null` = fermé. Ouvert, il porte le JOUR PROPOSÉ par le « + » qui l'a ouvert : aujourd'hui pour le gros
+   * « + » de fin, une date entre les deux voisines pour un « + » intercalaire (Arno, point 4).
+   *
+   * 🔴 UN SEUL RÉSERVOIR POUR TOUS LES « + », et c'est la raison pour laquelle il vit ici plutôt que dans chaque
+   * carré : deux réservoirs ouverts côte à côte, chacun avec sa date, seraient deux formulaires concurrents pour
+   * le même geste. Le « + » qui l'ouvre ne fait que lui passer une date de départ.
+   */
+  const [reservoir, setReservoir] = useState<{ jour: string } | null>(null);
+  /**
+   * 🔴 LE TYPE CHOISI DANS LE RÉSERVOIR. Le formulaire s'ouvre avec sa carte déjà désignée — c'est ce que
+   * « clic sur un carré du réservoir → petit formulaire » veut dire (Arno, point 2).
    */
   const [typePose, setTypePose] = useState<TypeEtape | null>(null);
   /**
@@ -135,6 +181,30 @@ export function FriseAvancement({
 
   useEffect(() => { void charger(); }, [charger]);
 
+  /**
+   * 🔴 « ÉCHAP OU “FERMER” REFERME LE RÉSERVOIR » (Arno, point 2). Les deux, et c'est le minimum : la souris a
+   * son bouton, le clavier a sa touche. Un panneau qu'on ne peut fermer qu'à la souris piège celui qui vient
+   * d'y saisir une date au clavier.
+   *
+   * ⚠️ L'ÉCOUTEUR N'EXISTE QUE TANT QUE LE RÉSERVOIR EST OUVERT : un écouteur global permanent intercepterait
+   * Échap pour tous les autres panneaux de l'écran, qui ont le leur.
+   */
+  const fermerReservoir = useCallback((): void => {
+    setReservoir(null); setAjout(false); setTypePose(null); setModifie(null);
+  }, []);
+
+  useEffect(() => {
+    if (reservoir === null && !ajout) return undefined;
+    const surTouche = (e: KeyboardEvent): void => { if (e.key === 'Escape') fermerReservoir(); };
+    window.addEventListener('keydown', surTouche);
+    return () => window.removeEventListener('keydown', surTouche);
+  }, [reservoir, ajout, fermerReservoir]);
+
+  /** Ouvrir le réservoir à partir d'un « + » — gros (aujourd'hui) ou intercalaire (date entre les voisines). */
+  const ouvrirReservoir = useCallback((jour: string): void => {
+    setModifie(null); setTypePose(null); setAjout(false); setReservoir({ jour });
+  }, []);
+
   const agir = async (url: string, methode: 'PATCH' | 'DELETE', corps?: unknown): Promise<void> => {
     if (occupe) return;
     setOccupe(true);
@@ -166,8 +236,14 @@ export function FriseAvancement({
   }
 
   const etapes = vue.d.etapes ?? [];
-  const { majeures, reperes } = construireFrise(etapes);
-  const ligne = rangerEnLigne(majeures, reperes);
+  const aujourdhui = aujourdhuiLocal();
+  /**
+   * 🔴 LA DATE D'OUVERTURE DE L'ÉVÉNEMENT PORTE LA PREMIÈRE CARTE (Arno, point 1). Quand une étape d'ouverture
+   * existe déjà — accusé de réception Monga, repli posé par MONGA-2, ouverture manuelle — c'est ELLE qui compte,
+   * et `construireFrise` n'en ajoute aucune : rien n'est doublé, rien n'est remplacé.
+   */
+  const { majeures, reperes } = construireFrise(etapes, vue.d.ouvertLe ?? null);
+  const ligne = rangerEnLigne(majeures, reperes, aujourdhui);
   const plusieursRefs = referencesDeLaFrise(etapes).length > 1;
   const cleOuverture = cleDOuverture(majeures);
   /**
@@ -191,17 +267,6 @@ export function FriseAvancement({
             Clôturer cet événement ?
           </button>
         </p>
-      )}
-
-      {/* ══ LE PANNEAU D'AJOUT, AU-DESSUS DE LA FRISE (Arno : « dans une petite fenêtre au-dessus de la frise ») */}
-      {ajout && (
-        <AjouterEtape
-          evenementId={evenementId} typeImpose={typePose} modifie={modifie}
-          onFermer={() => { setAjout(false); setTypePose(null); setModifie(null); }}
-          onFait={(m) => {
-            onGeste?.(m); setAjout(false); setTypePose(null); setModifie(null); void charger();
-          }}
-        />
       )}
 
       <div className="fav-piste-cadre">
@@ -234,11 +299,42 @@ export function FriseAvancement({
               onConfirmer={(id, g) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: g })}
               onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
               onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
-              onPoser={(t) => { setTypePose(t); setAjout(true); }}
+              onAjouter={ouvrirReservoir} aujourdhui={aujourdhui}
+              onOuverture={(j) => void agir(
+                `/api/admin/gestion/evenements/${evenementId}/frise`, 'PATCH',
+                { geste: 'ouverture', survenuLe: j })}
             />
           ))}
         </ol>
       </div>
+
+      {/**
+        * ══ 🔴🔴 LE RÉSERVOIR, JUSTE SOUS LA FRISE (Arno, point 2) ═════════════════════════════════════════════
+        *
+        * 🔴 SOUS LA FRISE, ET NON DEDANS. La piste est un conteneur de défilement : en CSS, `overflow-x:auto`
+        * force l'autre axe à `auto`, et tout ce qui dépasse est COUPÉ — mesuré à 132 px de texte tronqué pour la
+        * bulle, au lot FRISE-HORIZONTALE. Un réservoir de quatorze cartes y serait illisible, et il défilerait
+        * horizontalement avec la frise au lieu de rester sous les yeux.
+        */}
+      {(reservoir !== null || ajout) && (
+        <div className="fav-reservoir" role="group" aria-label="Ajouter une carte à la frise">
+          {ajout ? (
+            <AjouterEtape
+              evenementId={evenementId} typeImpose={typePose} modifie={modifie}
+              jourDefaut={reservoir?.jour ?? aujourdhui}
+              onFermer={fermerReservoir}
+              onRetour={modifie === null ? () => { setAjout(false); setTypePose(null); } : undefined}
+              onFait={(m) => { onGeste?.(m); fermerReservoir(); void charger(); }}
+            />
+          ) : (
+            <Reservoir
+              jour={reservoir?.jour ?? aujourdhui}
+              onChoisir={(t) => { setTypePose(t); setAjout(true); }}
+              onFermer={fermerReservoir}
+            />
+          )}
+        </div>
+      )}
 
       {/**
         * ══ 🔴🔴 LA BULLE, SOUS LA FRISE ET HORS DU CONTENEUR QUI DÉFILE ═══════════════════════════════════════
@@ -292,18 +388,46 @@ function ElementDeLaFrise(p: {
   onConfirmer: (id: number, geste: 'confirmer' | 'ecarter') => void;
   onMontant: (id: number, cents: number | null) => void;
   onRetirer: (id: number) => void;
-  onPoser: (type: TypeEtape) => void;
+  /** Ouvrir le réservoir avec une date de départ — le gros « + » comme les intercalaires. */
+  onAjouter: (jour: string) => void;
+  aujourdhui: string;
+  /** Corriger la date d'ouverture de l'événement (Arno, point 1 : « modifiable »). */
+  onOuverture: (jour: string) => void;
 }) {
   if (p.el.sorte === 'plus') {
     return (
       <li className="fav-el fav-el--plus">
         {/**
-          * 🔴 LE « + », JUSTE APRÈS LE DERNIER CARRÉ ATTEINT (Arno). Sur une frise entièrement vide — un événement
-          * sans Monga — `rangerEnLigne` le met en PREMIER : la première chose à faire est bien d'ajouter.
+          * 🔴 LE GROS « + » ROUGE FERME LA MARCHE (Arno, point 1 : « suivi d'un carré “+” rouge »). Sur une frise
+          * qui ne porte que son ouverture — le cas de départ — il est la seule autre chose à l'écran.
+          *
+          * ⚠️ IL PROPOSE AUJOURD'HUI : on ajoute d'ordinaire ce qui vient d'arriver. Un « + » intercalaire, lui,
+          * propose une date entre ses deux voisines, parce qu'il sert à rattraper un oubli.
           */}
-        <button type="button" className="fav-carre fav-carre--plus" onClick={() => p.onPoser('autre')}
+        <button type="button" className="fav-carre fav-carre--plus" onClick={() => p.onAjouter(p.aujourdhui)}
           aria-label="Ajouter une étape ou une information">
           <span className="fav-plus-rond" aria-hidden="true">+</span>
+        </button>
+      </li>
+    );
+  }
+
+  /**
+   * 🔴🔴 LE « + » INTERCALAIRE (Arno, point 4) : « entre deux carrés consécutifs, un petit “+” encapsulé (petit
+   * cercle discret sur le trait, plus marqué au survol) ouvre le même réservoir, avec une date proposée entre
+   * celles des deux voisins (modifiable). Il sert à ajouter une étape ou une information oubliée. »
+   *
+   * ⚠️ DISCRET, MAIS JAMAIS INVISIBLE : il garde une cible tactile de 24 px (le cercle n'en fait que 14), parce
+   * qu'une commande qu'on ne peut atteindre qu'à la souris précise n'existe pas sur un portable.
+   */
+  if (p.el.sorte === 'plus-entre') {
+    const jour = p.el.jourPropose ?? p.aujourdhui;
+    return (
+      <li className="fav-el fav-el--entre">
+        <button type="button" className="fav-entre" onClick={() => p.onAjouter(jour)}
+          title="Ajouter une étape ou une information oubliée ici"
+          aria-label={`Ajouter une étape ou une information au ${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}>
+          <span className="fav-entre-rond" aria-hidden="true">+</span>
         </button>
       </li>
     );
@@ -361,7 +485,7 @@ function Point({
 
 function Carre({
   c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
-  onOuvrirFil, onConfirmer, onMontant, onRetirer, onPoser,
+  onOuvrirFil, onConfirmer, onMontant, onRetirer, onOuverture,
 }: {
   c: CaseFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
   calerSurUneFois: (cible: HTMLElement | null) => void;
@@ -370,7 +494,7 @@ function Carre({
   onConfirmer: (id: number, geste: 'confirmer' | 'ecarter') => void;
   onMontant: (id: number, cents: number | null) => void;
   onRetirer: (id: number) => void;
-  onPoser: (type: TypeEtape) => void;
+  onOuverture: (jour: string) => void;
 }) {
   const moi = useRef<HTMLLIElement | null>(null);
 
@@ -389,31 +513,21 @@ function Carre({
 
   const e = c.etape;
 
-  /* ── ① L'ÉTAPE ATTENDUE, EN POINTILLÉ (Arno) ─────────────────────────────────────────────────────────────── */
+  /**
+   * ── ① LA CARTE D'OUVERTURE DÉRIVÉE (Arno, point 1) ─────────────────────────────────────────────────────────
+   *
+   * Elle affiche `gestion_evenement.ouvert_le`, et la corriger corrige l'ÉVÉNEMENT — une seule vérité. Elle
+   * n'est donc ni « Monga » ni « manuelle » : elle n'est pas une étape, c'est la date de naissance du dossier.
+   *
+   * 🔴 ELLE RÉAGIT COMME LES AUTRES (Arno, point 5 : « tous les carrés de la frise réagissent pareil au survol »)
+   * et elle est verte comme les autres : elle EST dans la frise. Seul son contenu diffère.
+   */
   if (e === null) {
-    /**
-     * 🔴 « Le bouton “Le devis est accepté” devient un clic sur le carré pointillé “Acceptation du devis” (même
-     * effet) » — Arno. C'est le SEUL pointillé cliquable : les autres étapes arrivent par mail, celle-là
-     * n'arrive jamais (0 mail d'acceptation sur 120 mesurés).
-     */
-    const cliquable = c.type === 'devis_accepte';
-    const contenu = (
-      <>
-        <span className="fav-titre">{c.mot}</span>
-        <span className="fav-attendue">attendue</span>
-      </>
-    );
     return (
       <li className="fav-el" ref={moi}>
-        {cliquable ? (
-          <button type="button" className="fav-carre fav-carre--attendue fav-carre--posable"
-            disabled={occupe} onClick={() => onPoser(c.type)}
-            title="Le devis est accepté — poser l’étape">
-            {contenu}
-          </button>
-        ) : (
-          <div className="fav-carre fav-carre--attendue">{contenu}</div>
-        )}
+        <div className="fav-carre fav-carre--dans">
+          <ChampOuverture jour={c.survenuLe.slice(0, 10)} mot={c.mot} occupe={occupe} onPoser={onOuverture} />
+        </div>
       </li>
     );
   }
@@ -422,10 +536,13 @@ function Carre({
   const montant = motMontant(e.montantCents);
   const detailOuvert = ouvert === `c${e.id}`;
   const ouvrable = etapeOuvrable(e) && onOuvrirFil !== undefined;
+  /* 🔴 « ajoutée le 06/10 à 22:31 par Arnaud », au survol (Arno, point 3). Jamais seul porteur d'information. */
+  const pose = motAjout(e.creeLe, e.creeParLibelle);
 
   return (
     <li className="fav-el" ref={moi}>
-      <div className={`fav-carre fav-carre--atteinte${aConfirmer ? ' fav-carre--doute' : ''}`}>
+      <div className={`fav-carre fav-carre--dans${aConfirmer ? ' fav-carre--doute' : ''}`}
+        title={pose ?? undefined}>
         {/**
           * 🔴 UN CLIC SUR UN CARRÉ MONGA OUVRE LE MAIL D'ORIGINE (Arno). Quand il n'y en a pas — étape manuelle,
           * mail supprimé, étape déduite — le carré ouvre son détail plutôt que de ne rien faire : un carré qui
@@ -495,6 +612,16 @@ function BulleDetail({
         {mot} · {motDateEtape(e)} · {motSource(e)}
         {e.auteur !== null && <> · {e.auteur}</>}
       </p>
+      {/**
+        * 🔴 QUAND LA CARTE A ÉTÉ POSÉE, ET PAR QUI (Arno, point 3 : « ajoutée le 06/10 à 22:31 par Arnaud »).
+        *
+        * ⚠️ C'EST UNE AUTRE DATE QUE CELLE DE LA LIGNE DU DESSUS, et c'est tout l'intérêt : celle-là dit quand
+        * la chose a eu lieu, celle-ci quand quelqu'un l'a écrite. Elles diffèrent dès qu'on rattrape un oubli
+        * par un « + » intercalaire — c'est-à-dire exactement quand on a besoin de savoir qui a ajouté quoi.
+        */}
+      {motAjout(e.creeLe, e.creeParLibelle) !== null && (
+        <p className="fav-bulle-pose">{motAjout(e.creeLe, e.creeParLibelle)}</p>
+      )}
       {e.numero !== null && <p className="fav-bulle-texte">N° {e.numero}</p>}
       {e.texte !== null && <p className="fav-bulle-texte">{e.texte}</p>}
       {/* 🔴 LA PHRASE QUI JUSTIFIE TOUT LE LOT MONGA-2 : sans la table des étapes, il n'y aurait rien à garder. */}
@@ -562,13 +689,127 @@ function ChampMontant({
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   LE PANNEAU « AJOUTER » — repris par le « + » (Arno)
+   ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — LA DATE D'OUVERTURE, MODIFIABLE SUR PLACE ═══════════════════════════════════
+
+   Arno, point 1 : « le carré “Ouverture” (date d'ouverture de l'événement, modifiable) ».
+
+   🔴 SUR PLACE, ET NON DANS UN PANNEAU. C'est une seule date, déjà affichée : la rouvrir ailleurs demanderait de
+   quitter la frise des yeux pour corriger ce qu'on y lit. Le champ ne s'enregistre qu'au clic sur « Enregistrer »
+   — une date qui part à chaque frappe enverrait trois dates fausses avant la bonne.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+function ChampOuverture({
+  jour, mot, occupe, onPoser,
+}: { jour: string; mot: string; occupe: boolean; onPoser: (jour: string) => void }) {
+  const [saisie, setSaisie] = useState(jour);
+  const [edite, setEdite] = useState(false);
+  /* ⚠️ LA SAISIE SUIT LA DONNÉE quand elle change ailleurs (un enregistrement, une relecture) : sans cela, le
+     champ garderait l'ancienne date après coup, et donnerait à croire que rien n'a été pris. */
+  useEffect(() => { setSaisie(jour); }, [jour]);
+
+  if (!edite) {
+    return (
+      <button type="button" className="fav-carre-clic" onClick={() => setEdite(true)}
+        title="Corriger la date d’ouverture de l’événement">
+        <span className="fav-titre">{mot}</span>
+        <span className="fav-date">{`${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}</span>
+        <span className="fav-sr">date d’ouverture de l’événement, modifiable</span>
+      </button>
+    );
+  }
+  return (
+    <span className="fav-ouverture-edit">
+      <span className="fav-titre">{mot}</span>
+      <input type="date" className="fav-champ fav-champ--mini" value={saisie} aria-label="Date d’ouverture"
+        onChange={(ev) => setSaisie(ev.target.value)} />
+      <span className="fav-ouverture-gestes">
+        <button type="button" className="fav-mini fav-mini--neutre" disabled={occupe || saisie === ''}
+          title="Enregistrer la date d’ouverture"
+          onClick={() => { onPoser(saisie); setEdite(false); }}>✓<span className="fav-sr"> enregistrer</span></button>
+        <button type="button" className="fav-mini fav-mini--neutre" title="Annuler"
+          onClick={() => { setSaisie(jour); setEdite(false); }}>✕<span className="fav-sr"> annuler</span></button>
+      </span>
+    </span>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — LE RÉSERVOIR ════════════════════════════════════════════════════════════════
+
+   Arno, point 2 : « un clic sur le “+” ouvre, JUSTE EN DESSOUS de la frise, un réservoir de carrés à contour
+   ROUGE, un par type d'étape […] plus un carré LIBRE (titre à saisir). Plus un choix “Simple information”
+   (posée en point, pas en carré). Clic sur un carré du réservoir → petit formulaire […] Échap ou “Fermer”
+   referme le réservoir. »
+
+   🔴 LES CARTES DU RÉSERVOIR ONT LA FORME DE CELLES DE LA FRISE, en plus petit et en rouge : on voit ce qu'on va
+   poser. Une liste déroulante aurait demandé d'imaginer le résultat — et c'est précisément ce que la frise
+   constructible cherche à éviter.
+
+   ⚠️ LA LISTE VIENT DU MODULE PUR (`TYPES_RESERVOIR`), jamais réécrite ici : deux listes du même ensemble
+   finissent toujours par diverger, et c'est la route qui refuserait silencieusement celle qui a dérivé.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+function Reservoir({
+  jour, onChoisir, onFermer,
+}: { jour: string; onChoisir: (t: TypeEtape) => void; onFermer: () => void }) {
+  const [forme, setForme] = useState<'etape' | 'information'>('etape');
+  const liste = forme === 'etape' ? TYPES_RESERVOIR : TYPES_INFORMATION;
+  return (
+    <>
+      <p className="fav-ajout-titre">
+        Ajouter une carte
+        {/* 🔴 LA DATE PROPOSÉE SE LIT AVANT DE CHOISIR : un « + » intercalaire en propose une autre qu'un « + »
+            de fin, et le savoir change ce qu'on vient poser. Elle reste modifiable dans le formulaire. */}
+        <span className="fav-ajout-date">
+          {` — date proposée : ${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}
+        </span>
+      </p>
+
+      <div className="fav-ajout-ligne">
+        <span className="fav-label" id="fav-forme">Forme</span>
+        <span className="fav-bascule" role="group" aria-labelledby="fav-forme">
+          <button type="button" className={`fav-bascule-b${forme === 'etape' ? ' fav-bascule-b--actif' : ''}`}
+            aria-pressed={forme === 'etape'} onClick={() => setForme('etape')}>Étape (carré)</button>
+          <button type="button" className={`fav-bascule-b${forme === 'information' ? ' fav-bascule-b--actif' : ''}`}
+            aria-pressed={forme === 'information'}
+            onClick={() => setForme('information')}>Simple information (point)</button>
+        </span>
+      </div>
+
+      <ul className="fav-reserve-liste">
+        {liste.map((t) => (
+          <li key={t}>
+            <button type="button" className="fav-carre fav-carre--reserve" onClick={() => onChoisir(t)}>
+              <span className="fav-titre">{motEtape(t)}</span>
+              {t === 'autre' && <span className="fav-date">titre à saisir</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <div className="fav-ajout-ligne">
+        <button type="button" className="fav-btn" onClick={onFermer}>Fermer</button>
+        <span className="fav-unite">ou Échap</span>
+      </div>
+    </>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LE PANNEAU « AJOUTER » — ouvert par une carte du réservoir (Arno)
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 function AjouterEtape({
-  evenementId, typeImpose, modifie, onFermer, onFait,
+  evenementId, typeImpose, modifie, jourDefaut, onFermer, onRetour, onFait,
 }: {
   evenementId: number; typeImpose: TypeEtape | null;
+  /**
+   * 🔴 LA DATE PROPOSÉE PAR LE « + » QUI A OUVERT LE RÉSERVOIR (Arno, points 2 et 4) : aujourd'hui pour le gros
+   * « + », une date entre les deux voisines pour un intercalaire. Obligatoire, et modifiable.
+   */
+  jourDefaut: string;
+  /** Revenir au réservoir sans tout fermer. Absent quand on MODIFIE : il n'y a pas de réservoir derrière. */
+  onRetour?: () => void;
   /**
    * 🔴🔴 LOT ATTENTION-ET-MODIFIER — L'ÉTAPE MANUELLE QU'ON MODIFIE. `null` = on ajoute.
    *
@@ -586,14 +827,17 @@ function AjouterEtape({
    */
   const [forme, setForme] = useState<'etape' | 'information'>('etape');
   const [type, setType] = useState<TypeEtape>('autre');
-  const [jour, setJour] = useState('');
+  /* 🔴 « date (obligatoire, aujourd'hui par défaut) » — ou la date proposée par un « + » intercalaire (Arno). */
+  const [jour, setJour] = useState(jourDefaut);
   const [heure, setHeure] = useState('');
   const [texte, setTexte] = useState('');
+  const [titre, setTitre] = useState('');
+  const [montant, setMontant] = useState('');
   const [piece, setPiece] = useState('');
   const [occupe, setOccupe] = useState(false);
 
   useEffect(() => {
-    if (typeImpose !== null) { setType(typeImpose); setForme('etape'); }
+    if (typeImpose !== null) { setType(typeImpose); setForme(estRepere(typeImpose) ? 'information' : 'etape'); }
   }, [typeImpose]);
 
   /**
@@ -610,16 +854,46 @@ function AjouterEtape({
     setJour(modifie.survenuLe.slice(0, 10));
     setHeure(modifie.heureConnue ? modifie.survenuLe.slice(11, 16) : '');
     setTexte(modifie.texte ?? '');
+    setTitre(modifie.titre ?? '');
+    setMontant(modifie.montantCents === null ? '' : String(modifie.montantCents / 100).replace('.', ','));
   }, [modifie?.id]);
+
+  /**
+   * La liste offerte au choix du type. Le réservoir pour une étape, les informations pour un point.
+   *
+   * 🔴 LE TYPE DE L'ÉTAPE QU'ON MODIFIE Y EST TOUJOURS AJOUTÉ, ET C'EST UNE GARDE, PAS UN CONFORT. `ouverture`
+   * n'est pas dans le réservoir (la frise porte sa propre carte d'ouverture), mais des étapes d'ouverture
+   * MANUELLES existent en base depuis le lot MONGA-2. Sans cet ajout, rouvrir l'une d'elles pour corriger son
+   * texte aurait changé son TYPE en silence — une correction qui casse ce qu'elle corrige.
+   */
+  const listeTypes: readonly TypeEtape[] = (() => {
+    const base = forme === 'etape' ? TYPES_RESERVOIR : TYPES_INFORMATION;
+    const sien = modifie?.type;
+    return sien !== undefined && !base.includes(sien) ? [sien, ...base] : base;
+  })();
 
   /* ⚠️ CHANGER DE FORME CHANGE LE TYPE s'il ne convient plus : sinon on poserait une « Clôture » en point. */
   useEffect(() => {
-    const liste = forme === 'etape' ? TYPES_AJOUTABLES : TYPES_INFORMATION;
-    if (!liste.includes(type)) setType(liste[0]);
-  }, [forme, type]);
+    if (!listeTypes.includes(type)) setType(listeTypes[0]);
+  }, [listeTypes, type]);
+
+  /**
+   * 🔴 LE MONTANT, EN CENTIMES ET ARRONDI. Un montant en flottant finirait par afficher 885,4999999.
+   * `undefined` = saisie illisible : on ne l'envoie pas, plutôt que d'envoyer zéro.
+   */
+  const montantEnCents = (): number | null | undefined => {
+    const net = montant.trim().replace(/\s/g, '').replace(',', '.');
+    if (net === '') return null;
+    const v = Number(net);
+    return Number.isFinite(v) && v >= 0 ? Math.round(v * 100) : undefined;
+  };
+
+  /* 🔴 « titre à saisir » (Arno) : une carte libre sans titre serait une ligne muette. Même garde que la route. */
+  const titreManquant = type === 'autre' && titre.trim() === '';
+  const montantFaux = montantEnCents() === undefined;
 
   const envoyer = async (): Promise<void> => {
-    if (occupe || jour === '') return;
+    if (occupe || jour === '' || titreManquant || montantFaux) return;
     setOccupe(true);
     try {
       /**
@@ -632,6 +906,12 @@ function AjouterEtape({
         survenuLe: heure === '' ? jour : `${jour}T${heure}`,
         heureConnue: heure !== '',
         texte: texte.trim() === '' ? null : texte.trim(),
+        /* ⚠️ LE TITRE N'EST GARDÉ QUE SUR UNE CARTE LIBRE — la route le vérifie aussi, et pour la même raison :
+           ailleurs, le mot de la carte vient du TYPE, écrit une seule fois dans `motEtape`. */
+        titre: type === 'autre' ? titre.trim() : null,
+        /* 🔴 LE MONTANT EST DANS LE FORMULAIRE (Arno, point 2 : « montant pour un devis »). Il ne s'y affiche que
+           pour un devis, mais il part toujours : l'omettre à la modification EFFACERAIT celui qui est saisi. */
+        montantCents: montantEnCents() ?? null,
       };
       const res = modifie === null
         ? await fetch(`/api/admin/gestion/evenements/${evenementId}/frise`, {
@@ -640,8 +920,7 @@ function AjouterEtape({
         })
         : await fetch(`/api/admin/gestion/etapes/${modifie.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          /* ⚠️ LE MONTANT EST RENVOYÉ TEL QUEL : `modifierEtapeManuelle` l'écrit, et l'omettre l'effacerait. */
-          body: JSON.stringify({ ...corps, geste: 'modifier', montantCents: modifie.montantCents }),
+          body: JSON.stringify({ ...corps, geste: 'modifier' }),
         });
       const d = (await res.json().catch(() => ({}))) as { etat?: string; message?: string; erreur?: string };
       const defaut = modifie === null ? 'Étape ajoutée.' : 'Étape modifiée.';
@@ -653,38 +932,70 @@ function AjouterEtape({
     }
   };
 
-  const liste = forme === 'etape' ? TYPES_AJOUTABLES : TYPES_INFORMATION;
-
   return (
-    <div className="fav-ajout" role="group" aria-label="Ajouter une étape ou une information">
-      <p className="fav-ajout-titre">{modifie === null ? 'Ajouter' : 'Modifier l’étape'}</p>
+    <>
+      <p className="fav-ajout-titre">
+        {modifie === null ? `Ajouter — ${motEtape(type)}` : `Modifier — ${motEtape(type)}`}
+      </p>
 
-      <div className="fav-ajout-ligne">
-        <span className="fav-label">Forme</span>
-        <span className="fav-bascule">
-          <button type="button" className={`fav-bascule-b${forme === 'etape' ? ' fav-bascule-b--actif' : ''}`}
-            aria-pressed={forme === 'etape'} onClick={() => setForme('etape')}>Étape (carré)</button>
-          <button type="button" className={`fav-bascule-b${forme === 'information' ? ' fav-bascule-b--actif' : ''}`}
-            aria-pressed={forme === 'information'} onClick={() => setForme('information')}>Simple information (point)</button>
-        </span>
-      </div>
+      {/**
+        * 🔴 LA FORME SE CHOISIT AU RÉSERVOIR À L'AJOUT, et reste ici pour la MODIFICATION : une carte posée par
+        * erreur en étape doit pouvoir devenir une information sans être retirée puis reposée (c'est une
+        * possibilité du lot ATTENTION-ET-MODIFIER, et on ne retire rien).
+        */}
+      {modifie !== null && (
+        <div className="fav-ajout-ligne">
+          <span className="fav-label" id="fav-forme-m">Forme</span>
+          <span className="fav-bascule" role="group" aria-labelledby="fav-forme-m">
+            <button type="button" className={`fav-bascule-b${forme === 'etape' ? ' fav-bascule-b--actif' : ''}`}
+              aria-pressed={forme === 'etape'} onClick={() => setForme('etape')}>Étape (carré)</button>
+            <button type="button"
+              className={`fav-bascule-b${forme === 'information' ? ' fav-bascule-b--actif' : ''}`}
+              aria-pressed={forme === 'information'}
+              onClick={() => setForme('information')}>Simple information (point)</button>
+          </span>
+        </div>
+      )}
 
       <div className="fav-ajout-ligne">
         <label className="fav-label" htmlFor="fav-type">Type</label>
         <select id="fav-type" className="fav-champ" value={type}
           onChange={(e) => setType(e.target.value as TypeEtape)}>
-          {liste.map((t) => <option key={t} value={t}>{motEtape(t)}</option>)}
+          {listeTypes.map((t) => <option key={t} value={t}>{motEtape(t)}</option>)}
         </select>
       </div>
 
+      {/* 🔴 LE TITRE D'UNE CARTE LIBRE (Arno : « un carré LIBRE (titre à saisir) »), et lui seul le porte. */}
+      {type === 'autre' && (
+        <div className="fav-ajout-ligne">
+          <label className="fav-label" htmlFor="fav-titre">Titre</label>
+          <input id="fav-titre" className="fav-champ fav-champ--texte" value={titre} maxLength={80}
+            placeholder="ce que raconte cette carte" onChange={(e) => setTitre(e.target.value)} />
+        </div>
+      )}
+
       <div className="fav-ajout-ligne">
         <label className="fav-label" htmlFor="fav-jour">Date</label>
-        <input id="fav-jour" type="date" className="fav-champ" value={jour}
+        <input id="fav-jour" type="date" className="fav-champ" value={jour} required
           onChange={(e) => setJour(e.target.value)} />
         <label className="fav-label" htmlFor="fav-heure">Heure</label>
         <input id="fav-heure" type="time" className="fav-champ" value={heure}
           onChange={(e) => setHeure(e.target.value)} />
       </div>
+
+      {/**
+        * 🔴 LE MONTANT, « pour un devis » (Arno, point 2). Offert sur les trois cartes de devis : un devis refusé
+        * et un devis accepté portent un montant autant que celui qu'on reçoit — et c'est souvent le montant qui
+        * explique le refus.
+        */}
+      {(type === 'devis_recu' || type === 'devis_refuse' || type === 'devis_accepte') && (
+        <div className="fav-ajout-ligne">
+          <label className="fav-label" htmlFor="fav-montant-ajout">Montant</label>
+          <input id="fav-montant-ajout" className="fav-champ" inputMode="decimal" value={montant}
+            placeholder="non renseigné" onChange={(e) => setMontant(e.target.value)} />
+          <span className="fav-unite">€</span>
+        </div>
+      )}
 
       <div className="fav-ajout-ligne">
         <label className="fav-label" htmlFor="fav-texte">Texte</label>
@@ -702,12 +1013,20 @@ function AjouterEtape({
           onChange={(e) => setPiece(e.target.value)} />
       </div>}
 
+      {/* ⚠️ LE REFUS SE DIT AVANT LE CLIC, pas après : un bouton éteint sans raison écrite se lit comme une panne. */}
+      {titreManquant && <p className="fav-perdu">Une carte libre demande un titre.</p>}
+      {montantFaux && <p className="fav-perdu">Le montant ne se lit pas : un nombre, en euros.</p>}
+
       <div className="fav-ajout-ligne">
-        <button type="button" className="fav-btn fav-btn--fort" disabled={occupe || jour === ''}
-          onClick={() => void envoyer()}>{modifie === null ? 'Ajouter' : 'Enregistrer'}</button>
-        <button type="button" className="fav-btn" onClick={onFermer}>Annuler</button>
+        <button type="button" className="fav-btn fav-btn--fort"
+          disabled={occupe || jour === '' || titreManquant || montantFaux}
+          onClick={() => void envoyer()}>{modifie === null ? 'Valider' : 'Enregistrer'}</button>
+        {onRetour !== undefined && (
+          <button type="button" className="fav-btn" onClick={onRetour}>Choisir une autre carte</button>
+        )}
+        <button type="button" className="fav-btn" onClick={onFermer}>Fermer</button>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -787,17 +1106,44 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-el:first-child::before{left:50%}
 .fav-el:last-child::before{right:50%}
 
+/* ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — TROIS COULEURS, ET CHACUNE DIT UN ETAT ════════════════════════════════════
+   ROUGE = a poser (le reservoir, les « + ») · VERT = dans la frise, qu'elle vienne du courrier ou d'une main
+   · AMBRE = venue du courrier et « a confirmer », avec ses deux boutons.
+   ⚠️ CES COMMENTAIRES PARTENT DANS LE DOM, et c'est pour cela qu'ils ne nomment pas le prestataire : la feuille
+   est injectee par un <style>, son texte entre dans textContent, et une epreuve de CarteVive verifie qu'une
+   carte SANS intervention n'affiche nulle part le nom du prestataire. Elle a attrape ce defaut-ci.
+   ⚠️ LA COULEUR NE PORTE JAMAIS L'INFORMATION SEULE : la source est ecrite dans la bulle et au lecteur d'ecran,
+   le picto de source la redit, et les formes different (un carre du reservoir est plus petit et sans date).
+   ⚠️ LES CARRES EN POINTILLE « attendue » ONT ETE SUPPRIMES — accord explicite d'Arno (lot FRISE-CONSTRUCTIBLE).
+   Ils promettaient une suite d'etapes que le dossier reel ne suit pas. Les types restent tous posables par le
+   reservoir, autant de fois que necessaire : on retire une PROMESSE, pas une possibilite. */
 /* ══ LE CARRE — meme taille pour tous (Arno : environ 120 x 90 px) ══ */
 .fav-carre{position:relative;z-index:1;box-sizing:border-box;width:124px;min-height:92px;
   margin:0 10px;padding:6px 7px;display:flex;flex-direction:column;gap:2px;
   border-radius:10px;border:2px solid var(--color-svv-red);background:var(--color-svv-bg)}
-.fav-carre--atteinte{background:var(--color-svv-field)}
+/* 🔴 UNE CARTE QUI EST DANS LA FRISE : contour VERT (Arno, points 2 et 5), quelle que soit son origine. */
+.fav-carre--dans{border-color:var(--color-svv-green);background:var(--color-svv-field)}
 .fav-carre--doute{border-color:var(--color-svv-amber);border-style:solid}
-/* L'etape attendue : pointille, pale (Arno). Elle se lit sans couleur. */
-.fav-carre--attendue{border:2px dashed var(--color-svv-muted);background:transparent;opacity:.8}
-.fav-carre--attendue .fav-titre{color:var(--color-svv-muted)}
-.fav-carre--posable{cursor:pointer;text-align:left;font:inherit}
-.fav-carre--posable:hover{border-color:var(--color-svv-red);opacity:1}
+/* ══ 🔴🔴 LE SURVOL EST LE MEME POUR TOUS LES CARRES (Arno, point 5) ══════════════════════════════════════════
+   « tous les carrés de la frise réagissent pareil au survol (contour accentué, curseur main). Aujourd'hui seul
+   “Acceptation du devis” le fait. » Le defaut venait de la : seul le carre pointille « posable » portait une
+   regle de survol, et les carres atteints n'en avaient aucune — on ne savait pas qu'ils etaient cliquables.
+   La regle porte donc sur « .fav-carre » ENTIER, et non sur un modificateur. */
+.fav-carre{cursor:pointer;transition:border-color .12s ease, box-shadow .12s ease}
+.fav-carre:hover,.fav-carre:focus-within{box-shadow:0 0 0 2px var(--color-svv-line-strong) inset}
+.fav-carre--dans:hover,.fav-carre--dans:focus-within{border-color:var(--color-svv-green-ink)}
+.fav-carre--doute:hover,.fav-carre--doute:focus-within{border-color:var(--color-svv-amber)}
+
+/* ══ LE RESERVOIR — les cartes qu'on peut poser, a contour ROUGE (Arno, point 2) ══
+   Elles ont la forme de celles de la frise, en plus petit : on voit ce qu'on va poser. */
+.fav-reservoir{margin:10px 0 0;padding:9px;background:var(--color-svv-field);border-radius:8px;
+  border:1px solid var(--color-svv-line)}
+.fav-reserve-liste{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.fav-carre--reserve{width:150px;min-height:48px;margin:0;justify-content:center;
+  border-color:var(--color-svv-red);background:var(--color-svv-bg);
+  font:inherit;text-align:left;color:var(--color-svv-ink)}
+.fav-carre--reserve:hover{background:var(--color-svv-field);border-color:var(--color-svv-red)}
+.fav-ajout-date{font-weight:400;color:var(--color-svv-muted)}
 
 /* Le « + » : bordure pointillee rouge, gros + rouge cercle (Arno). */
 .fav-carre--plus{align-items:center;justify-content:center;cursor:pointer;
@@ -807,6 +1153,27 @@ const CSS_FRISE_AVANCEMENT = `
   border-radius:50%;border:2px solid var(--color-svv-red);color:var(--color-svv-red);
   font-size:1.5rem;line-height:1}
 
+/* ══ 🔴 LE « + » INTERCALAIRE, SUR LE TRAIT ENTRE DEUX CARRES (Arno, point 4) ═════════════════════════════════
+   « un petit “+” encapsulé (petit cercle discret sur le trait, plus marqué au survol) ».
+   ⚠️ LE BOUTON FAIT 24 px, LE CERCLE 14 : discret a l'oeil, atteignable au doigt. Une commande qui n'existe
+   qu'a la souris precise n'existe pas sur un portable (CLAUDE.md §15). */
+.fav-el--entre{align-self:flex-start;padding-top:32px}
+.fav-entre{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;
+  width:24px;height:24px;min-width:24px;padding:0;margin:0 -4px;cursor:pointer;
+  border:0;border-radius:50%;background:none}
+.fav-entre-rond{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
+  border-radius:50%;border:1px solid var(--color-svv-muted);background:var(--color-svv-bg);
+  color:var(--color-svv-muted);font-size:.68rem;line-height:1}
+.fav-entre:hover .fav-entre-rond,.fav-entre:focus-visible .fav-entre-rond{width:20px;height:20px;
+  font-size:.86rem;border-width:2px;border-color:var(--color-svv-red);color:var(--color-svv-red)}
+
+/* La date d'ouverture, corrigee sur place dans sa carte. */
+.fav-ouverture-edit{display:flex;flex-direction:column;gap:3px;width:100%}
+.fav-ouverture-gestes{display:flex;gap:3px}
+.fav-champ--mini{font-size:.72rem;min-height:28px;padding:2px 4px;width:100%;box-sizing:border-box}
+.fav-mini--neutre{border-color:var(--color-svv-line)}
+.fav-mini--neutre:hover{background:var(--color-svv-line);color:var(--color-svv-ink)}
+
 /* Le contenu du carre : nom en haut, date en dessous, picto de source. */
 .fav-carre-clic{display:flex;flex-direction:column;gap:2px;width:100%;padding:0;
   font:inherit;text-align:left;background:none;border:0;cursor:pointer;color:var(--color-svv-ink)}
@@ -815,7 +1182,6 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-date{font-size:.7rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .fav-montant{font-size:.72rem;font-weight:700;color:var(--color-svv-ink)}
 .fav-ref{font-size:.68rem;font-weight:700;color:var(--color-svv-muted)}
-.fav-attendue{font-size:.7rem;font-style:italic;color:var(--color-svv-muted)}
 
 /* Les deux petits boutons d'une etape « a confirmer », et le menu « … ». */
 .fav-doute{position:absolute;right:4px;bottom:4px;display:flex;gap:3px}
@@ -850,6 +1216,8 @@ const CSS_FRISE_AVANCEMENT = `
   background:var(--color-svv-bg);border:1px solid var(--color-svv-line);
   border-left:3px solid var(--color-svv-red)}
 .fav-bulle-tete{font-size:.72rem;font-weight:700;color:var(--color-svv-ink)}
+/* Quand la carte a ete posee, et par qui — a distinguer de la date de ce qui s'est passe. */
+.fav-bulle-pose{margin:0;font-size:.7rem;font-style:italic;color:var(--color-svv-muted)}
 .fav-bulle-texte{margin:0;font-size:.76rem;color:var(--color-svv-ink);overflow-wrap:anywhere;white-space:pre-wrap}
 .fav-bulle-gestes{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
 
@@ -880,9 +1248,7 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-fiable{margin:8px 0 0;padding:6px 8px;font-size:.78rem;color:var(--color-svv-muted);
   background:var(--color-svv-field);border-radius:6px}
 
-/* ══ LE PANNEAU D'AJOUT, au-dessus de la frise ══ */
-.fav-ajout{margin:0 0 10px;padding:9px;background:var(--color-svv-field);border-radius:8px;
-  border:1px solid var(--color-svv-line)}
+/* ══ LE PANNEAU D'AJOUT — il vit DANS le reservoir, sous la frise (lot FRISE-CONSTRUCTIBLE) ══ */
 .fav-ajout-titre{margin:0 0 7px;font-size:.84rem;font-weight:700;color:var(--color-svv-ink)}
 .fav-ajout-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 7px}
 .fav-label{font-size:.76rem;color:var(--color-svv-muted);min-width:5rem}
@@ -908,5 +1274,9 @@ const CSS_FRISE_AVANCEMENT = `
   .fav-label{min-width:0}
   .fav-champ{width:100%}
   .fav-bulle{max-width:100%}
+  /* ⚠️ LE RESERVOIR NE DEFILE PAS LATERALEMENT : ses cartes se mettent les unes sous les autres, pleine
+     largeur. Quatorze cartes de 150 px sur un telephone auraient demande un second defilement horizontal,
+     a cote de celui de la frise — deux conteneurs qui defilent, exactement ce qu'Arno a fait reparer. */
+  .fav-carre--reserve{width:100%}
 }
 `;

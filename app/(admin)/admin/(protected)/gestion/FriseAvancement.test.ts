@@ -7,6 +7,8 @@ import { jourFr } from './EvenementsDuBien';
  * Le verdict de l'épreuve ne change pas : le compteur s'accorde.
  */
 import { motGroupeMessages } from '../../../../lib/gestion/frise';
+/* 🔴 LOT FRISE-CONSTRUCTIBLE — la liste du réservoir vient du module PUR, jamais recopiée dans une épreuve. */
+import { TYPES_RESERVOIR as RESERVOIR_TYPES } from '../../../../lib/gestion/mongaEtape';
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINTS 3 ET 4 — CE QUE LES DEUX ÉCRANS DOIVENT TENIR ═══════════════════════════════════════
@@ -48,17 +50,45 @@ describe('① la frontière client/serveur', () => {
 
 describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
   /**
-   * ══ 🔴🔴 LOT FRISE-HORIZONTALE — LES CLASSES ONT CHANGÉ, LE VERDICT NON ════════════════════════════════════
+   * ══ 🔴🔴 CE QUE CETTE ÉPREUVE DISAIT AVANT, ET POURQUOI LE VERDICT A CHANGÉ ════════════════════════════════
    *
-   * La liste verticale (`fav-case`, `fav-pastille`) a disparu : Arno l'a demandé en toutes lettres. Les étapes
-   * sont désormais des CARRÉS (`fav-carre`) sur une ligne qui défile. Ce qui est éprouvé reste exactement ce qui
-   * l'était : une étape attendue se distingue par un POINTILLÉ, qui se lit sans couleur.
+   * Elle s'appelait « les étapes attendues s'affichent en carré pointillé » et vérifiait la classe
+   * `fav-carre--attendue` et sa bordure `dashed`. Arno a fait retirer ces carrés, en toutes lettres : « ACCORD
+   * D'ARNO : les carrés “attendue” en pointillé sont supprimés. »
+   *
+   * 🔴 LE VERDICT EST MAINTENANT L'INVERSE, ET IL EST AUSSI STRICT : la classe ne doit plus exister nulle part,
+   * ni dans le balisage ni dans la feuille. Un reste de règle CSS orpheline aurait fini par être recâblé « parce
+   * qu'elle est encore là ».
    */
-  it('🔴 les étapes attendues s’affichent en carré pointillé', () => {
-    expect(FRISE).toContain('fav-carre--attendue');
-    expect(FRISE).toContain('attendue');
-    /* ⚠️ LE POINTILLÉ SE LIT SANS COULEUR : `dashed`, et non une teinte plus pâle. */
-    expect(FRISE).toContain('border:2px dashed var(--color-svv-muted)');
+  it('🔴🔴 plus aucun carré « attendue » : ni classe, ni règle, ni mot', () => {
+    expect(FRISE).not.toContain('fav-carre--attendue');
+    expect(FRISE).not.toContain('fav-carre--posable');
+    expect(FRISE).not.toContain('fav-attendue');
+  });
+
+  /**
+   * 🔴🔴 TROIS COULEURS, ET CHACUNE DIT UN ÉTAT (lot FRISE-CONSTRUCTIBLE) : ROUGE = à poser (le réservoir, les
+   * « + ») · VERT = dans la frise (Monga comme manuelle, Arno points 2 et 5) · AMBRE = Monga « à confirmer ».
+   */
+  it('🔴🔴 une carte dans la frise est VERTE, une carte du réservoir ROUGE', () => {
+    expect(FRISE).toContain('.fav-carre--dans{border-color:var(--color-svv-green)');
+    expect(FRISE).toContain('.fav-carre--reserve');
+    expect(FRISE).toMatch(/\.fav-carre--reserve\{[^}]*border-color:var\(--color-svv-red\)/);
+    /* 🔴 ET L'AMBRE RESTE CELLE DE MONGA-2 : « à confirmer », avec ses deux boutons. */
+    expect(FRISE).toContain('.fav-carre--doute{border-color:var(--color-svv-amber)');
+  });
+
+  /**
+   * 🔴🔴 « tous les carrés de la frise réagissent pareil au survol (contour accentué, curseur main). Aujourd'hui
+   * seul “Acceptation du devis” le fait » — Arno, point 5.
+   *
+   * 🔴 LE DÉFAUT VENAIT DE LÀ : la seule règle de survol du fichier portait sur `.fav-carre--posable`, le carré
+   * pointillé « Acceptation du devis ». Les carrés atteints n'en avaient aucune — rien ne disait qu'ils étaient
+   * cliquables. La règle porte donc maintenant sur `.fav-carre` ENTIER, et non sur un modificateur.
+   */
+  it('🔴🔴 le survol et le curseur main portent sur TOUS les carrés', () => {
+    expect(FRISE).toMatch(/\.fav-carre\{cursor:pointer/);
+    expect(FRISE).toContain('.fav-carre:hover,.fav-carre:focus-within{box-shadow:');
   });
 
   /**
@@ -77,21 +107,21 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
   });
 
   /**
-   * 🔴🔴 « Acceptation du devis » VALIDABLE EN UN CLIC (décision d'Arno du 06/10). C'est la SEULE étape attendue
-   * qui porte un bouton : les autres arrivent par mail, celle-là n'arrive jamais — **0 cas mesuré sur 120 mails**.
-   */
-  /**
-   * ══ 🔴🔴 LE BOUTON EST DEVENU LE CARRÉ LUI-MÊME (Arno) ═════════════════════════════════════════════════════
+   * ══ 🔴🔴 CE QUE CETTE ÉPREUVE DISAIT AVANT, ET CE QU'ELLE DIT MAINTENANT ═══════════════════════════════════
    *
-   * « Le bouton “Le devis est accepté” devient un clic sur le carré pointillé “Acceptation du devis” (même
-   * effet). » Le verdict est inchangé : c'est la SEULE étape attendue sur laquelle on peut cliquer, parce que
-   * c'est la seule qui n'arrive jamais par mail — **0 cas mesuré sur 120**.
+   * Elle s'appelait « seul le carré pointillé “Acceptation du devis” est cliquable » : c'était la décision
+   * d'Arno du 06/10 — « Le bouton “Le devis est accepté” devient un clic sur le carré pointillé “Acceptation du
+   * devis” (même effet) » —, le seul moyen de poser une étape qui n'arrive JAMAIS par mail (0 cas mesuré
+   * sur 120).
+   *
+   * 🔴 LA POSSIBILITÉ N'EST PAS PERDUE, ELLE EST GÉNÉRALISÉE : « Acceptation du devis » est une carte du
+   * RÉSERVOIR, posable en deux clics comme les treize autres — et désormais posable PLUSIEURS FOIS, ce que le
+   * carré pointillé unique ne permettait pas. C'est ce que vérifie l'épreuve maintenant.
    */
-  it('🔴🔴 seul le carré pointillé « Acceptation du devis » est cliquable', () => {
-    expect(FRISE).toContain("const cliquable = c.type === 'devis_accepte';");
-    expect(FRISE).toContain('fav-carre--posable');
-    /* 🔴 ET LES AUTRES POINTILLÉS NE LE SONT PAS : un `div`, pas un `button`. */
-    expect(FRISE).toContain('<div className="fav-carre fav-carre--attendue">{contenu}</div>');
+  it('🔴🔴 « Acceptation du devis » reste posable, par le réservoir', () => {
+    expect(RESERVOIR_TYPES).toContain('devis_accepte');
+    /* 🔴 ET LE RÉSERVOIR EST BIEN CE QUI S'OUVRE : un clic sur une de ses cartes mène au formulaire. */
+    expect(FRISE).toContain('onChoisir={(t) => { setTypePose(t); setAjout(true); }}');
   });
 
   /**
@@ -305,10 +335,14 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * “+”. » C'est la SEULE chose retirée de ce lot, et elle l'est avec l'accord d'Arno. Le verdict de l'épreuve
    * d'origine survit : le geste d'ajout existe toujours, sans condition de Monga.
    */
-  it('🔴 le carré « + » ouvre le formulaire, sans condition de Monga', () => {
+  it('🔴 le carré « + » ouvre le réservoir, sans condition de Monga', () => {
     expect(FRISE).toContain('fav-carre--plus');
     expect(FRISE).toContain('Ajouter une étape ou une information');
-    expect(FRISE).toContain('liste.map((t) => <option key={t} value={t}>{motEtape(t)}</option>)');
+    /* 🔴 LOT FRISE-CONSTRUCTIBLE : le « + » n'ouvre plus le formulaire directement, il ouvre le RÉSERVOIR —
+       « un clic sur le “+” ouvre, JUSTE EN DESSOUS de la frise, un réservoir de carrés » (Arno, point 2). Le
+       formulaire vient après, quand une carte est choisie. Le geste d'ajout existe toujours, en deux temps. */
+    expect(FRISE).toContain('onClick={() => p.onAjouter(p.aujourdhui)}');
+    expect(FRISE).toContain('listeTypes.map((t) => <option key={t} value={t}>{motEtape(t)}</option>)');
   });
 
   /**
@@ -316,16 +350,25 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * Le choix ne fait que changer la LISTE des types proposés — il n'y a pas deux chemins d'écriture, et c'est
    * `estRepere` qui tranche la forme à l'affichage.
    */
-  it('🔴🔴 le formulaire offre les deux formes, par deux listes de types', () => {
+  it('🔴🔴 les deux formes sont offertes, par deux listes de types', () => {
     expect(FRISE).toContain("useState<'etape' | 'information'>('etape')");
     expect(FRISE).toContain('Étape (carré)');
     expect(FRISE).toContain('Simple information (point)');
-    expect(FRISE).toContain('forme === \'etape\' ? TYPES_AJOUTABLES : TYPES_INFORMATION');
+    /* ⚠️ LA LISTE DES ÉTAPES EST DEVENUE `TYPES_RESERVOIR` (lot FRISE-CONSTRUCTIBLE) : c'est la liste qu'Arno a
+       dictée carte par carte. `TYPES_AJOUTABLES` reste la garde des ROUTES, et elle en est le sur-ensemble. */
+    expect(FRISE).toContain("forme === 'etape' ? TYPES_RESERVOIR : TYPES_INFORMATION");
   });
 
-  /** ⚠️ CHANGER DE FORME CHANGE LE TYPE s'il ne convient plus : sinon on poserait une « Clôture » en point. */
-  it('⚠️ changer de forme corrige un type devenu impossible', () => {
-    expect(FRISE).toContain('if (!liste.includes(type)) setType(liste[0]);');
+  /**
+   * ⚠️ CHANGER DE FORME CHANGE LE TYPE s'il ne convient plus : sinon on poserait une « Clôture » en point.
+   *
+   * 🔴 ET LE TYPE DE L'ÉTAPE QU'ON MODIFIE EST TOUJOURS DANS LA LISTE : `ouverture` n'est pas au réservoir, mais
+   * des étapes d'ouverture MANUELLES existent en base depuis MONGA-2. Sans cet ajout, rouvrir l'une d'elles pour
+   * corriger son texte aurait changé son TYPE en silence — une correction qui casse ce qu'elle corrige.
+   */
+  it('⚠️ changer de forme corrige un type devenu impossible, sans trahir celui qu’on modifie', () => {
+    expect(FRISE).toContain('if (!listeTypes.includes(type)) setType(listeTypes[0]);');
+    expect(FRISE).toContain('return sien !== undefined && !base.includes(sien) ? [sien, ...base] : base;');
   });
 });
 
@@ -373,11 +416,15 @@ describe('②bis « Modifier » dans la bulle (lot ATTENTION-ET-MODIFIER)', () =
   });
 
   /**
-   * ⚠️ LE MONTANT EST RENVOYÉ TEL QUEL : `modifierEtapeManuelle` l'écrit, et l'omettre l'effacerait — un devis
-   * manuel perdrait son montant au premier changement de texte.
+   * ⚠️ LE MONTANT N'EST JAMAIS PERDU — et le CHEMIN a changé, pas le verdict. Il était RECOPIÉ tel quel depuis
+   * l'étape (`montantCents: modifie.montantCents`), parce que le formulaire ne le portait pas. Il le porte
+   * maintenant (Arno, point 2 : « montant pour un devis ») : il est donc préchargé à l'ouverture, puis renvoyé
+   * depuis le champ. Omettre la clé l'effacerait toujours, et c'est ce que l'épreuve tient.
    */
   it('⚠️ modifier ne perd pas le montant', () => {
-    expect(FRISE).toContain('montantCents: modifie.montantCents');
+    expect(FRISE).toContain('montantCents: montantEnCents() ?? null');
+    expect(FRISE).toContain(
+      "setMontant(modifie.montantCents === null ? '' : String(modifie.montantCents / 100).replace('.', ','));");
   });
 
   /**
@@ -508,5 +555,182 @@ describe('⑥ la feuille', () => {
     /* 🔴 LA PISTE DÉFILE : c'est ce qui remplace tout repli. */
     expect(FRISE).toMatch(/\.fav-piste\{[^}]*overflow-x:auto/);
     expect(BLOC).toContain('min-height:44px');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — CE QU'ARNO A DEMANDÉ, POINT PAR POINT ═══════════════════════════════════════
+
+   « la frise d'avancement n'impose plus aucune suite d'étapes. Elle se CONSTRUIT avec les vraies étapes, dans
+   l'ordre réel (ex. rendez-vous → devis refusé → nouveau rendez-vous → nouveau devis…). »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑫ le réservoir (Arno, point 2)', () => {
+  /**
+   * 🔴🔴 « un clic sur le “+” ouvre, JUSTE EN DESSOUS de la frise, un réservoir de carrés à contour ROUGE ».
+   *
+   * 🔴 SOUS LA FRISE, ET NON DEDANS : la piste est un conteneur de défilement, et `overflow-x:auto` force
+   * l'autre axe à `auto` — tout ce qui dépasse est COUPÉ (mesuré à 132 px au lot FRISE-HORIZONTALE). Quatorze
+   * cartes y seraient illisibles, et elles défileraient latéralement avec la frise.
+   */
+  it('🔴🔴 le réservoir est rendu APRÈS la piste, hors du conteneur qui défile', () => {
+    const iPiste = FRISE.indexOf('<ol className="fav-piste"');
+    const iFinPiste = FRISE.indexOf('</ol>', iPiste);
+    const iReservoir = FRISE.indexOf('className="fav-reservoir"');
+    expect(iPiste).toBeGreaterThan(0);
+    expect(iReservoir).toBeGreaterThan(iFinPiste);
+  });
+
+  /** 🔴 UNE CARTE PAR TYPE, et la liste vient du module pur : deux listes du même ensemble divergent toujours. */
+  it('🔴🔴 une carte par type du réservoir, depuis le module pur', () => {
+    expect(FRISE).toContain('const liste = forme === \'etape\' ? TYPES_RESERVOIR : TYPES_INFORMATION;');
+    expect(FRISE).toContain('<button type="button" className="fav-carre fav-carre--reserve"');
+    /* ⚠️ AUCUNE LISTE RECOPIÉE DANS LE COMPOSANT : il n'énumère aucun type en dur. */
+    for (const t of RESERVOIR_TYPES) {
+      if (t === 'autre') continue;
+      expect(FRISE, t).not.toContain(`'${t}',`);
+    }
+  });
+
+  /** 🔴 LA CARTE LIBRE DIT CE QU'ELLE DEMANDE, et son titre est exigé — à l'écran comme à la route. */
+  it('🔴🔴 la carte libre demande un titre, et les deux portes l’exigent', () => {
+    expect(FRISE).toContain('titre à saisir');
+    expect(FRISE).toContain("const titreManquant = type === 'autre' && titre.trim() === '';");
+    expect(FRISE).toContain('Une carte libre demande un titre.');
+    for (const [nom, src] of [['POST frise', ROUTE_FRISE], ['PATCH étape', ROUTE_ETAPE]] as const) {
+      expect(src, nom).toContain("if (type === 'autre' && titreBrut === '') {");
+      expect(src, nom).toContain('Une carte libre demande un titre.');
+    }
+  });
+
+  /** 🔴 « Plus un choix “Simple information” (posée en point, pas en carré) » — Arno. */
+  it('🔴 le réservoir offre aussi la simple information', () => {
+    const i = FRISE.indexOf('function Reservoir(');
+    const bloc = FRISE.slice(i, FRISE.indexOf('\n}\n', i));
+    expect(bloc).toContain('Simple information (point)');
+    expect(bloc).toContain('TYPES_INFORMATION');
+  });
+
+  /** 🔴🔴 « Échap ou “Fermer” referme le réservoir » (Arno) — les deux, et l'écouteur ne vit que tant qu'il est ouvert. */
+  it('🔴🔴 Échap et « Fermer » referment tous deux le réservoir', () => {
+    expect(FRISE).toContain("if (e.key === 'Escape') fermerReservoir();");
+    expect(FRISE).toContain('if (reservoir === null && !ajout) return undefined;');
+    expect(FRISE).toContain('<button type="button" className="fav-btn" onClick={onFermer}>Fermer</button>');
+  });
+
+  /** 🔴 LE FORMULAIRE PART AVEC LA DATE PROPOSÉE, et elle reste modifiable (Arno, points 2 et 4). */
+  it('🔴 la date part remplie, et le champ reste modifiable', () => {
+    expect(FRISE).toContain('const [jour, setJour] = useState(jourDefaut);');
+    expect(FRISE).toContain('jourDefaut={reservoir?.jour ?? aujourdhui}');
+    expect(FRISE).toContain('onChange={(e) => setJour(e.target.value)}');
+  });
+
+  /**
+   * ⚠️ AUJOURD'HUI SE LIT EN LOCAL, JAMAIS PAR `toISOString()` — piège déjà payé dans ce dépôt : il rend l'UTC,
+   * et à 23 h à Paris en hiver il écrit DÉJÀ le lendemain. Un formulaire qui propose « demain » un soir sur deux
+   * fabrique des dates fausses sans que personne ne le remarque.
+   */
+  it('⚠️ « aujourd’hui » est lu en local, pas en UTC', () => {
+    expect(FRISE).toContain('function aujourdhuiLocal()');
+    /* ⚠️ COMMENTAIRES RETIRÉS : l'encadré qui met en garde contre `toISOString` le NOMME, évidemment. C'est le
+       CODE qui ne doit pas l'appeler, pas l'explication qui dit pourquoi. */
+    const code = FRISE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    expect(code).not.toContain('toISOString');
+  });
+});
+
+describe('⑬ les « + » intercalaires (Arno, point 4)', () => {
+  /** 🔴🔴 « un petit “+” encapsulé (petit cercle discret sur le trait, plus marqué au survol) ». */
+  it('🔴🔴 un petit cercle sur le trait, plus marqué au survol', () => {
+    expect(FRISE).toContain("if (p.el.sorte === 'plus-entre')");
+    expect(FRISE).toContain('fav-entre-rond');
+    expect(FRISE).toContain('.fav-entre:hover .fav-entre-rond,.fav-entre:focus-visible .fav-entre-rond{');
+  });
+
+  /**
+   * ⚠️ DISCRET N'EST PAS MINUSCULE : le bouton fait 24 px, le cercle 14. Une commande qu'on ne peut atteindre
+   * qu'à la souris précise n'existe pas sur un portable (CLAUDE.md §15).
+   */
+  it('⚠️ la cible tactile reste atteignable au doigt', () => {
+    expect(FRISE).toMatch(/\.fav-entre\{[^}]*width:24px/);
+    expect(FRISE).toMatch(/\.fav-entre-rond\{[^}]*width:14px/);
+  });
+
+  /** 🔴 IL OUVRE LE MÊME RÉSERVOIR, avec la date proposée entre les deux voisines. */
+  it('🔴 il ouvre le même réservoir, avec sa date', () => {
+    expect(FRISE).toContain('onClick={() => p.onAjouter(jour)}');
+    expect(FRISE).toContain('const jour = p.el.jourPropose ?? p.aujourdhui;');
+  });
+});
+
+describe('⑭ l’ouverture, et ce qu’une carte raconte (Arno, points 1, 3 et 5)', () => {
+  /**
+   * 🔴🔴 « AU DÉPART : la frise montre seulement le carré “Ouverture” (date d'ouverture de l'événement,
+   * modifiable) ». La date voyage avec la frise, depuis la route.
+   */
+  it('🔴🔴 la date d’ouverture de l’événement porte la première carte', () => {
+    expect(ROUTE_FRISE).toContain('ouvertLe: rows[0].ouvert_le');
+    expect(FRISE).toContain('construireFrise(etapes, vue.d.ouvertLe ?? null)');
+  });
+
+  /**
+   * 🔴🔴 ET ELLE EST MODIFIABLE, SUR UNE SEULE VÉRITÉ : le geste écrit `gestion_evenement.ouvert_le`, journalisé,
+   * et non une étape d'ouverture copiée à côté — qui aurait pu diverger de l'événement qu'elle prétend dater.
+   */
+  it('🔴🔴 la corriger corrige l’ÉVÉNEMENT, et le journalise', () => {
+    expect(FRISE).toContain("{ geste: 'ouverture', survenuLe: j }");
+    expect(ROUTE_FRISE).toContain("if (String(corps.geste ?? '') !== 'ouverture')");
+    expect(ROUTE_FRISE).toContain('deplacerOuvertureEvenement(evenementId, jour, auteur)');
+    const gestes = readFileSync('app/lib/gestion/gestes.ts', 'utf8');
+    const i = gestes.indexOf('export async function deplacerOuvertureEvenement');
+    const bloc = gestes.slice(i, gestes.indexOf('\n}\n', i));
+    expect(bloc).toContain('UPDATE gestion_evenement SET ouvert_le');
+    expect(bloc).toContain("journaliser(q, 'evenement', evenementId, 'ouverture', auteur");
+    /* ⚠️ LIRE AVANT D'ÉCRIRE : `withTransaction` commite au retour, donc un refus rendu après une écriture
+       serait un refus qui a écrit. Piège déjà consigné dans ce dépôt. */
+    expect(bloc).toContain('FOR UPDATE');
+    /* ⚠️ MIDI, ET NON MINUIT : minuit en heure locale bascule la veille vu d'un fuseau en retard. */
+    expect(bloc).toContain("time '12:00'");
+  });
+
+  /**
+   * 🔴🔴 « Chaque carte enregistre aussi la date et l'heure de sa création et son auteur (“ajoutée le 06/10 à
+   * 22:31 par Arnaud”), visibles au survol » — Arno, point 3.
+   */
+  it('🔴🔴 « ajoutée le … par … » se lit au survol et dans la bulle', () => {
+    expect(FRISE).toContain('const pose = motAjout(e.creeLe, e.creeParLibelle);');
+    expect(FRISE).toContain('title={pose ?? undefined}');
+    expect(FRISE).toContain('<p className="fav-bulle-pose">{motAjout(e.creeLe, e.creeParLibelle)}</p>');
+    /* 🔴 ET LA DONNÉE VIENT BIEN DU DÉPÔT : sans `cree_le`, la mention serait toujours vide. */
+    const repo = readFileSync('app/lib/gestion/mongaEtapeRepo.ts', 'utf8');
+    expect(repo).toContain('e.cree_le::text');
+    expect(repo).toContain('creeLe: r.cree_le');
+  });
+
+  /**
+   * 🔴🔴 LES CARTES MONGA SONT INCHANGÉES (Arno, point 5) : contour vert et pictogramme, ajoutées
+   * automatiquement à leur date, NON MODIFIABLES — la garde est dans le dépôt, pas dans l'écran.
+   */
+  it('🔴🔴 une carte Monga reste non modifiable, et le dépôt le tient', () => {
+    expect(FRISE).toContain("{e.source === 'manuelle' && (");
+    const repo = readFileSync('app/lib/gestion/mongaEtapeRepo.ts', 'utf8');
+    const i = repo.indexOf('export async function modifierEtapeManuelle');
+    expect(repo.slice(i, i + 900)).toContain("source = 'manuelle'");
+  });
+
+  /** 🔴 ET LA PROPOSITION DE CLÔTURE EST INCHANGÉE (Arno, point 5) : jamais automatique. */
+  it('🔴 la proposition de clôture n’a pas bougé', () => {
+    expect(FRISE).toContain('vue.d.proposerCloture === true');
+    expect(ROUTE_FRISE).toContain('proposerCloture: proposerCloture(etapes, traite)');
+  });
+
+  /**
+   * 🔴🔴 MÊMES RÈGLES DANS LES DEUX ÉCRANS (Arno, point 6) : la vue de l'événement et le bloc « Événements » de
+   * la fiche bien rendent le MÊME composant. Un second rendu aurait fini par diverger sur le réservoir.
+   */
+  it('🔴🔴 un seul composant pour les deux écrans', () => {
+    for (const [nom, src] of [['CarteVive', CARTE], ['EvenementsDuBien', BLOC]] as const) {
+      expect(src, nom).toContain('<FriseAvancement');
+    }
   });
 });

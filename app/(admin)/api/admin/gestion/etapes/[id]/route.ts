@@ -34,7 +34,7 @@ export async function PATCH(
   }
   const corps = (await request.json().catch(() => ({}))) as {
     geste?: unknown; type?: unknown; survenuLe?: unknown; heureConnue?: unknown;
-    texte?: unknown; montantCents?: unknown;
+    texte?: unknown; montantCents?: unknown; titre?: unknown;
   };
   const geste = String(corps.geste ?? '');
   const auteur = await auteurDeLaRequete(request);
@@ -90,10 +90,18 @@ export async function PATCH(
       if (montant !== null && (!Number.isFinite(montant) || montant < 0)) {
         return Response.json({ erreur: 'Montant invalide.' }, { status: 400 });
       }
+      /* 🔴 LOT FRISE-CONSTRUCTIBLE — MÊME GARDE QU'À L'AJOUT : une carte libre sans titre n'est qu'une ligne
+         muette sur la frise. Et le titre n'est gardé que sur `autre`, pour la raison écrite dans la route
+         d'ajout : ailleurs, le mot vient du TYPE, écrit une seule fois. */
+      const titreBrut = typeof corps.titre === 'string' ? corps.titre.trim() : '';
+      if (type === 'autre' && titreBrut === '') {
+        return Response.json({ erreur: 'Une carte libre demande un titre.' }, { status: 400 });
+      }
       const fait = await modifierEtapeManuelle({
         id: etapeId, type, survenuLe, heureConnue: corps.heureConnue === true,
         texte: typeof corps.texte === 'string' && corps.texte.trim() !== '' ? corps.texte.trim() : null,
-        montantCents: montant, parLibelle: auteur.libelle,
+        montantCents: montant, titre: type === 'autre' && titreBrut !== '' ? titreBrut : null,
+        parLibelle: auteur.libelle,
       });
       if (!fait) {
         /* 🔴 LE MESSAGE DIT LA RÈGLE, et ne se contente pas d'un refus : c'est ainsi qu'on l'apprend. */

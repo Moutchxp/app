@@ -567,6 +567,46 @@ export async function modifierEvenement(evenementId: number, champs: ChampsEvene
 }
 
 /**
+ * ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — DÉPLACER LA DATE D'OUVERTURE D'UN ÉVÉNEMENT ═══════════════════════════════════
+ *
+ * Arno, point 1 : « AU DÉPART : la frise montre seulement le carré “Ouverture” (date d'ouverture de l'événement,
+ * MODIFIABLE). »
+ *
+ * 🔴 UNE SEULE VÉRITÉ, ET C'EST `gestion_evenement.ouvert_le`. La carte d'ouverture de la frise AFFICHE cette
+ * date ; la corriger corrige donc l'événement, et non une copie rangée ailleurs. Écrire une étape d'ouverture
+ * manuelle à côté aurait donné deux dates d'ouverture libres de diverger — et c'est la carte qu'on regarde en
+ * premier sur chaque dossier.
+ *
+ * ⚠️ ON LIT AVANT D'ÉCRIRE (`FOR UPDATE`) : `withTransaction` commite au retour (db/client.ts), donc un refus
+ * rendu après une écriture serait un refus qui a écrit. Piège déjà consigné dans ce fichier.
+ *
+ * ⚠️ MIDI, ET NON MINUIT. La saisie donne un JOUR (« 2026-10-06 ») ; l'ancrer à minuit en heure locale fait
+ * basculer la veille dès qu'un lecteur regarde depuis un fuseau en retard. Convention déjà retenue au lot LOT-1
+ * des permis, pour exactement cette raison.
+ */
+export async function deplacerOuvertureEvenement(
+  evenementId: number, jour: string, auteur: Auteur,
+): Promise<Issue> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(jour)) {
+    return { ok: false, motif: 'Date d’ouverture attendue (AAAA-MM-JJ).' };
+  }
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ ouvert_le: string; reference: string }>(
+      `SELECT ouvert_le::text, reference FROM gestion_evenement WHERE id = $1 FOR UPDATE`, [evenementId]);
+    if (!rows[0]) return { ok: false, motif: 'Cet événement n’existe pas.' };
+    const avant = rows[0].ouvert_le;
+    if (avant.slice(0, 10) === jour) return { ok: true, evenementId };
+    await q(
+      `UPDATE gestion_evenement SET ouvert_le = ($2::date + time '12:00') AT TIME ZONE 'Europe/Paris',
+              maj_le = now()
+        WHERE id = $1`, [evenementId, jour]);
+    await journaliser(q, 'evenement', evenementId, 'ouverture', auteur,
+      `date d’ouverture de ${rows[0].reference} corrigée à la main`, avant, jour);
+    return { ok: true, evenementId };
+  });
+}
+
+/**
  * CHANGE L'ÉTAT d'une carte. « traité » pose la DATE DE TRAITEMENT et le nom de celui qui l'a posée ; revenir en
  * arrière les efface — la base l'EXIGE (`gestion_evenement_traite_chk` : l'état et la date vont ensemble, migration
  * 228). Cette contrainte est une bonne nouvelle : elle rend impossible une carte « traitée » sans date, c'est-à-dire

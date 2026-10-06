@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   commentaireMonga, auteurCommentaire, etapesDuMailMonga, jourISO, motEtape,
   ouvertureDeRepli, proposerCloture, proposerPassageEnFiable, rangsDesDevis, rangEtape,
-  estRepere, ETAPES_MAJEURES, ETAPES_ATTENDUES, TYPES_AJOUTABLES, CONFIRMATIONS_POUR_PROPOSER,
+  estRepere, ETAPES_MAJEURES, TYPES_AJOUTABLES, TYPES_RESERVOIR, CONFIRMATIONS_POUR_PROPOSER,
 } from './mongaEtape';
 
 /**
@@ -289,25 +289,84 @@ describe('⑩ les mots et l’ordre', () => {
   });
 
   /**
-   * 🔴🔴 `rdv_eu_lieu` N'EST PAS ATTENDUE, et c'est voulu : Monga ne l'envoie que dans 3 cas sur 35 références.
-   * L'afficher en pointillé partout ferait croire à un trou dans le dossier là où il n'y a qu'un gabarit que
-   * Monga n'émet pas toujours. On ne promet pas une étape qu'on ne sait pas attendre.
+   * ══ 🔴🔴 CE QUE CES DEUX ÉPREUVES DISAIENT AVANT, ET POURQUOI ELLES ONT CHANGÉ ═════════════════════════════
+   *
+   * Elles tenaient `ETAPES_ATTENDUES` — la liste des étapes affichées EN POINTILLÉ tant qu'elles n'étaient pas
+   * atteintes. Cette constante a été SUPPRIMÉE au lot FRISE-CONSTRUCTIBLE, sur accord explicite d'Arno : « la
+   * frise d'avancement n'impose plus aucune suite d'étapes […] les carrés “attendue” en pointillé sont
+   * supprimés. »
+   *
+   * 🔴 CE QUI LES REMPLACE EST AUSSI STRICT : la liste du RÉSERVOIR, qu'Arno a dictée carte par carte. Elle est
+   * vérifiée à la lettre ci-dessous — c'est elle qui décide ce qu'un collaborateur peut poser.
    */
-  it('🔴🔴 les étapes attendues (pointillé) excluent celles que Monga n’envoie pas toujours', () => {
-    expect(ETAPES_ATTENDUES).not.toContain('rdv_eu_lieu');
-    for (const t of ['ouverture', 'prise_rdv', 'devis_recu', 'devis_accepte',
-      'rdv_intervention', 'intervention', 'cloture'] as const) {
-      expect(ETAPES_ATTENDUES, t).toContain(t);
+  it('🔴🔴 le réservoir contient exactement les cartes qu’Arno a nommées', () => {
+    expect([...TYPES_RESERVOIR]).toEqual([
+      'prise_rdv', 'rdv_eu_lieu', 'devis_recu', 'devis_refuse', 'devis_accepte',
+      'rdv_intervention', 'intervention', 'rapport', 'facture',
+      'assurance', 'expertise', 'relance', 'cloture', 'autre',
+    ]);
+  });
+
+  /**
+   * 🔴 `ouverture` N'EST PAS DANS LE RÉSERVOIR : la frise porte toujours sa propre carte d'ouverture, en
+   * première position, venue de la date de l'ÉVÉNEMENT (Arno, point 1). L'offrir ici aurait permis d'en poser
+   * une seconde, et deux ouvertures sur une frise ne veulent rien dire.
+   *
+   * ⚠️ MAIS ELLE RESTE **AJOUTABLE**, et c'est une garde, pas un oubli : des étapes d'ouverture manuelles
+   * existent en base depuis MONGA-2, et une route qui cesserait de les accepter rendrait leur modification
+   * impossible.
+   */
+  it('🔴 « ouverture » est hors du réservoir, mais la route l’accepte toujours', () => {
+    expect(TYPES_RESERVOIR).not.toContain('ouverture');
+    expect(TYPES_AJOUTABLES).toContain('ouverture');
+  });
+
+  /** ⚠️ ET LES MOTS DE MONGA N'Y SONT PAS : un commentaire ou un rappel est ce que MONGA dit, pas ce qu'on pose. */
+  it('⚠️ ni « commentaire » ni « rappel_devis » ne sont posables', () => {
+    for (const t of ['commentaire', 'rappel_devis'] as const) {
+      expect(TYPES_RESERVOIR, t).not.toContain(t);
+      expect(TYPES_AJOUTABLES, t).not.toContain(t);
     }
   });
 
-  /** 🔴 « Acceptation du devis » EST ATTENDUE mais n'arrive JAMAIS par mail : 0 cas mesuré. Elle est manuelle. */
-  it('🔴 « devis_accepte » est attendue, ajoutable, et aucun motif ne la produit', () => {
-    expect(ETAPES_ATTENDUES).toContain('devis_accepte');
-    expect(TYPES_AJOUTABLES).toContain('devis_accepte');
+  /**
+   * 🔴🔴 LE RÉSERVOIR N'A RIEN RETIRÉ : tout ce que l'ancienne liste `TYPES_AJOUTABLES` offrait est encore
+   * offert. C'est l'épreuve qui tient la règle d'Arno « ne retire, ne masque et ne conditionne aucune
+   * fonctionnalité sans mon accord » sur ce point précis.
+   */
+  it('🔴🔴 rien de ce qu’on pouvait poser avant n’a disparu', () => {
+    for (const t of ['ouverture', 'prise_rdv', 'rdv_eu_lieu', 'devis_recu', 'devis_accepte',
+      'rdv_intervention', 'intervention', 'cloture', 'facture', 'assurance', 'expertise',
+      'relance', 'autre'] as const) {
+      expect(TYPES_AJOUTABLES, t).toContain(t);
+    }
+  });
+
+  /**
+   * 🔴 « Acceptation du devis » N'ARRIVE JAMAIS PAR MAIL : 0 cas mesuré sur 120 à l'audit — Monga ne notifie pas
+   * la validation, c'est nous qui validons chez eux. Elle est donc posable, et aucun motif ne la produit.
+   *
+   * 🔴 ET C'EST VRAI AUSSI DU « Devis refusé » ajouté par ce lot, pour exactement la même raison mesurée.
+   */
+  it('🔴 « devis_accepte » et « devis_refuse » sont posables, et aucun motif ne les produit', () => {
+    expect(TYPES_RESERVOIR).toContain('devis_accepte');
+    expect(TYPES_RESERVOIR).toContain('devis_refuse');
     const src = readFileSync('app/lib/gestion/mongaEtape.ts', 'utf8');
     const corps = src.slice(src.indexOf('export function etapesDuMailMonga'));
     expect(corps).not.toContain("'devis_accepte'");
+    expect(corps).not.toContain("'devis_refuse'");
+  });
+
+  /**
+   * ⚠️ `rapport` NON PLUS N'EST PRODUIT PAR AUCUN MOTIF, et c'est voulu : les deux gabarits de rapport que
+   * Monga envoie sont déjà rangés ailleurs (« rapport de visite » → `rdv_eu_lieu`, « rapport d'intervention »
+   * → `intervention`). Ces deux lectures ne changent PAS — l'épreuve ⑤ de ce fichier les tient toujours.
+   */
+  it('⚠️ « rapport » est posable à la main, et ne change aucune lecture Monga', () => {
+    expect(TYPES_RESERVOIR).toContain('rapport');
+    const src = readFileSync('app/lib/gestion/mongaEtape.ts', 'utf8');
+    const corps = src.slice(src.indexOf('export function etapesDuMailMonga'));
+    expect(corps).not.toContain("'rapport'");
   });
 });
 

@@ -16,8 +16,29 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+/**
+ * ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE (06/10/2026) — CE QUE CE MODULE NE FAIT PLUS, ET CE QU'IL FAIT MAINTENANT ══════
+ *
+ * DEMANDE D'ARNO : « la frise d'avancement n'impose plus aucune suite d'étapes. Elle se CONSTRUIT avec les vraies
+ * étapes, dans l'ordre réel (ex. rendez-vous → devis refusé → nouveau rendez-vous → nouveau devis…). ACCORD
+ * D'ARNO : les carrés “attendue” en pointillé sont supprimés. »
+ *
+ * CE QUI DISPARAÎT : le tissage des `ETAPES_ATTENDUES`. La frise promettait une suite — une ouverture, un devis,
+ * une acceptation, une intervention, une clôture, une fois chacun, dans cet ordre — et le dossier réel ne marche
+ * pas ainsi. Un pointillé n'était pas seulement encombrant : il AFFIRMAIT un chemin qui n'existe pas, et ne
+ * laissait aucune place à celui qui existe.
+ *
+ * CE QUI RESTE INTACT : `construireFrise` trie toujours par date puis par rang de dossier, les repères restent
+ * des repères, les devis se comptent toujours PAR RÉFÉRENCE, « étape déduite — aucun mail » se dit toujours, et
+ * aucune étape enregistrée n'est perdue. La permanence Monga n'est pas effleurée.
+ *
+ * CE QUI S'AJOUTE : une carte d'OUVERTURE dérivée de la date de l'événement quand aucune étape d'ouverture n'est
+ * enregistrée ; la numérotation de TOUT type répété (« Devis 1, Devis 2… ») ; les « + » INTERCALAIRES entre deux
+ * carrés, avec une date proposée entre celles des voisins.
+ */
+
 import {
-  ETAPES_ATTENDUES, estRepere, motEtape, rangEtape, type TypeEtape,
+  estRepere, motEtape, rangEtape, type TypeEtape,
 } from './mongaEtape';
 
 /**
@@ -45,16 +66,36 @@ export interface EtapeAAfficher {
   filId: number | null;
   creeParLibelle: string | null;
   rangDevis: number | null;
+  /**
+   * 🔴 LOT FRISE-CONSTRUCTIBLE — QUAND LA CARTE A ÉTÉ POSÉE, ET PAR QUI. Arno, point 3 : « Chaque carte enregistre
+   * aussi la date et l'heure de sa création et son auteur (“ajoutée le 06/10 à 22:31 par Arnaud”), visibles au
+   * survol. » À ne pas confondre avec `survenuLe`, qui est la date de ce qui S'EST PASSÉ : les deux diffèrent dès
+   * qu'on rattrape un oubli, et c'est justement là qu'on a besoin de les distinguer.
+   */
+  creeLe: string | null;
+  /** 🔴 LE TITRE D'UNE CARTE LIBRE (Arno : « un carré LIBRE (titre à saisir) »). `null` partout ailleurs. */
+  titre: string | null;
 }
 
-/** Une case de la frise : une étape atteinte, ou une étape attendue en pointillé. */
+/**
+ * Une case de la frise.
+ *
+ * 🔴 LOT FRISE-CONSTRUCTIBLE — `etape: null` NE VEUT PLUS DIRE « ATTENDUE ». Les carrés en pointillé sont
+ * supprimés (accord d'Arno) ; la seule case sans étape enregistrée est désormais l'OUVERTURE DÉRIVÉE, celle qui
+ * porte la date d'ouverture de l'événement tant qu'aucune étape d'ouverture n'existe. `sorte` le dit en toutes
+ * lettres plutôt que de le laisser deviner à un `null`.
+ */
 export interface CaseFrise {
   cle: string;
   type: TypeEtape;
-  /** Le mot affiché — « Devis 2 » quand le rang le demande, sinon le mot du type. */
+  /** Le mot affiché — « Devis 2 » quand le type est répété, le titre d'une carte libre, sinon le mot du type. */
   mot: string;
-  /** `null` = attendue, pas encore atteinte : elle s'affiche en pointillé. */
+  /** L'étape enregistrée. `null` UNIQUEMENT pour la carte d'ouverture dérivée (`sorte: 'ouverture'`). */
   etape: EtapeAAfficher | null;
+  /** `reelle` = une étape enregistrée · `ouverture` = la date d'ouverture de l'événement, dérivée. */
+  sorte: 'reelle' | 'ouverture';
+  /** La date de la case, toujours renseignée : celle de l'étape, ou celle de l'ouverture de l'événement. */
+  survenuLe: string;
 }
 
 /**
@@ -70,6 +111,88 @@ export function motDeLaCase(e: EtapeAAfficher | null, type: TypeEtape, nbDevisDe
   if (type !== 'devis_recu') return motEtape(type);
   if (e === null || e.rangDevis === null || nbDevisDeSaReference <= 1) return motEtape(type);
   return `Devis ${e.rangDevis}`;
+}
+
+/**
+ * ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — NUMÉROTER TOUT TYPE RÉPÉTÉ. PUR. ══════════════════════════════════════════════
+ *
+ * Arno, point 2 : « Chaque type est réutilisable autant de fois que nécessaire (Devis 1, Devis 2… numérotés par
+ * ordre de date). » Ce n'était vrai que des devis ; ça l'est maintenant de tout : deux rendez-vous d'intervention
+ * sur un même dossier doivent se distinguer, sans quoi on relit deux fois la même ligne sans savoir laquelle.
+ *
+ * 🔴 ON NUMÉROTE **DANS SA RÉFÉRENCE**, et c'est la règle mesurée du lot MONGA-2, pas une précaution. Un événement
+ * peut porter plusieurs interventions Monga ; compter sur l'événement entier faisait écrire « Devis 1 / 2 / 3 »
+ * sur trois devis de TROIS interventions différentes — lu de bonne foi, cela raconte un devis refusé deux fois.
+ *
+ * ⚠️ RIEN N'EST NUMÉROTÉ QUAND IL N'Y EN A QU'UN : numéroter un ensemble d'un seul élément fait croire qu'il en
+ * manque d'autres — exactement l'inverse de ce que la frise doit dire.
+ *
+ * ⚠️ `devis_recu` GARDE SON PROPRE RANG (`rangDevis`), et il ne faut pas le remplacer par ce compteur-ci : lui
+ * seul sait que deux mails portant le MÊME numéro DEV- ne font qu'un seul devis (cas mesuré sur la référence
+ * 23449). Un comptage naïf y aurait écrit « Devis 1 » et « Devis 2 » pour un unique devis envoyé en double.
+ */
+export function numerosDesEtapes(etapes: readonly EtapeAAfficher[]): Map<number, number> {
+  const groupes = new Map<string, EtapeAAfficher[]>();
+  for (const e of etapes) {
+    if (e.type === 'devis_recu') continue;
+    const cle = `${e.reference ?? '(manuelle)'}|${e.type}`;
+    groupes.set(cle, [...(groupes.get(cle) ?? []), e]);
+  }
+  const out = new Map<number, number>();
+  for (const [, liste] of groupes) {
+    if (liste.length <= 1) continue;
+    const ordonne = [...liste].sort((a, b) => (a.survenuLe === b.survenuLe ? a.id - b.id
+      : (a.survenuLe < b.survenuLe ? -1 : 1)));
+    ordonne.forEach((e, i) => out.set(e.id, i + 1));
+  }
+  return out;
+}
+
+/**
+ * ══ 🔴 LE MOT D'UNE CARTE, TOUT COMPRIS. PUR. ════════════════════════════════════════════════════════════════════
+ *
+ * Trois sources, dans cet ordre : le TITRE saisi d'une carte libre, le mot du type NUMÉROTÉ s'il se répète, le
+ * mot du type seul.
+ *
+ * 🔴 LE TITRE L'EMPORTE, et seulement sur une carte libre. Arno : « plus un carré LIBRE (titre à saisir) ». Une
+ * carte libre sans titre garderait « Carte libre », ce qui est honnête mais peu utile — l'écran rend donc le
+ * titre obligatoire pour ce type-là, et la garde est ici autant que là-bas.
+ */
+export function motDeLaCarte(
+  e: EtapeAAfficher, numero: number | undefined, nbDevisDeSaReference: number,
+): string {
+  if (e.type === 'autre' && e.titre !== null && e.titre.trim() !== '') return e.titre.trim();
+  /**
+   * ⚠️ PAS DE « Devis 1 » QUAND IL N'Y EN A QU'UN — règle de MONGA-2, et DÉFAUT VU À L'ÉCRAN sur lot-237 le
+   * 06/10/2026 : en généralisant la numérotation, j'avais laissé tomber cette garde, et un devis unique
+   * s'affichait « Devis 1 ». Numéroter un ensemble d'un seul élément fait croire qu'il en manque d'autres —
+   * exactement l'inverse de ce que la frise doit dire. Le compteur générique (`numerosDesEtapes`) l'évite de
+   * lui-même ; le rang des devis, qui vient du dépôt, demande cette garde explicite.
+   */
+  if (e.type === 'devis_recu') {
+    return e.rangDevis === null || nbDevisDeSaReference <= 1 ? motEtape(e.type) : `Devis ${e.rangDevis}`;
+  }
+  return numero === undefined ? motEtape(e.type) : `${motEtape(e.type)} ${numero}`;
+}
+
+/**
+ * ══ 🔴 « AJOUTÉE LE 06/10 À 22:31 PAR ARNAUD » (Arno, point 3). PUR. ═════════════════════════════════════════════
+ *
+ * ⚠️ AUCUN `Date` CONSTRUIT : on découpe la chaîne. Le fuseau du lecteur ne doit pas décaler l'heure à laquelle
+ * quelqu'un a posé une carte — même règle que `motDateEtape`, et pour la même raison.
+ *
+ * ⚠️ ELLE NE MENT PAS QUAND L'AUTEUR EST INCONNU : elle dit « ajoutée le … », sans inventer un nom. Et elle rend
+ * `null` quand on ne sait même pas quand — une mention vide vaut mieux qu'une mention fausse.
+ */
+export function motAjout(creeLe: string | null, creeParLibelle: string | null): string | null {
+  if (creeLe === null || creeLe === '') return null;
+  const [jour, reste] = creeLe.split(/[T ]/);
+  const [, m, j] = jour.split('-');
+  if (m === undefined || j === undefined) return null;
+  const heure = (reste ?? '').slice(0, 5);
+  const quand = heure === '' ? `le ${j}/${m}` : `le ${j}/${m} à ${heure}`;
+  const qui = creeParLibelle === null || creeParLibelle.trim() === '' ? '' : ` par ${creeParLibelle.trim()}`;
+  return `ajoutée ${quand}${qui}`;
 }
 
 /**
@@ -113,52 +236,78 @@ export function motMontant(cents: number | null): string | null {
 /**
  * ══ 🔴🔴 CONSTRUIRE LA FRISE. PUR. ═══════════════════════════════════════════════════════════════════════════════
  *
- * ① les étapes ATTEINTES, dans l'ordre chronologique — et, à date égale, dans l'ordre du dossier (`rangEtape`),
+ * ① la carte d'OUVERTURE, toujours en tête — l'étape d'ouverture enregistrée s'il y en a une, sinon la DATE
+ *    D'OUVERTURE DE L'ÉVÉNEMENT, dérivée (Arno, point 1) ;
+ * ② les étapes RÉELLES, dans l'ordre chronologique — et, à date égale, dans l'ordre du dossier (`rangEtape`),
  *    sans quoi deux étapes du même jour s'afficheraient au hasard de l'identifiant ;
- * ② les étapes ATTENDUES mais absentes, tissées à leur place logique, en pointillé ;
- * ③ les REPÈRES à part : commentaires, rappels, factures, contacts injoignables.
+ * ③ les REPÈRES à part : commentaires, rappels, factures, contacts injoignables, notes.
+ *
+ * 🔴🔴 PLUS AUCUNE SUITE N'EST IMPOSÉE (Arno, lot FRISE-CONSTRUCTIBLE). Il n'y a ici que ce qui a eu lieu, trié
+ * par la date de ce qui a eu lieu. Un dossier qui enchaîne rendez-vous → devis refusé → nouveau rendez-vous →
+ * nouveau devis s'écrit donc tel quel, dans cet ordre, autant de fois que nécessaire.
+ *
+ * 🔴 L'OUVERTURE DÉRIVÉE N'EST PAS UNE ÉTAPE ENREGISTRÉE, et elle ne doit pas le devenir en silence : elle
+ * AFFICHE `gestion_evenement.ouvert_le`, une donnée qui existe déjà et qui a sa propre vérité. En écrire une
+ * copie dans la table des étapes aurait créé deux dates d'ouverture, libres de diverger.
+ *
+ * ⚠️ `ouvertLe` ABSENT ⇒ AUCUNE CARTE D'OUVERTURE INVENTÉE. Un appelant qui ne connaît pas la date de
+ * l'événement (une épreuve, un écran partiel) obtient la frise des seules étapes réelles — jamais une ouverture
+ * datée d'aujourd'hui, qui serait un fait faux.
  *
  * 🔴 LES ÉCARTÉES NE SONT PLUS LÀ : le dépôt ne les rend pas (`statut = 'vif'`). Ce module n'a donc pas à les
  * filtrer — mais il le fait quand même, parce qu'un appelant futur pourrait les lui passer, et qu'une étape
  * écartée réapparue sur la frise serait un démenti silencieux du geste qui l'a écartée.
  */
 export function construireFrise(
-  etapes: readonly EtapeAAfficher[],
+  etapes: readonly EtapeAAfficher[], ouvertLe?: string | null,
 ): { majeures: CaseFrise[]; reperes: EtapeAAfficher[] } {
   const vives = etapes.filter((e) => e.certitude !== 'ecartee');
   const reperes = vives.filter((e) => estRepere(e.type))
     .sort((a, b) => (a.survenuLe === b.survenuLe ? a.id - b.id : (a.survenuLe < b.survenuLe ? -1 : 1)));
 
-  const atteintes = vives.filter((e) => !estRepere(e.type))
+  const reelles = vives.filter((e) => !estRepere(e.type))
     .sort((a, b) => (a.survenuLe === b.survenuLe
       ? (rangEtape(a.type) - rangEtape(b.type)) || (a.id - b.id)
       : (a.survenuLe < b.survenuLe ? -1 : 1)));
 
+  const numeros = numerosDesEtapes(reelles);
   /* 🔴 LE RANG D'UN DEVIS N'A DE SENS QUE DANS SON INTERVENTION : voir `devisParReference`. */
-  const parRef = devisParReference(atteintes);
+  const parRef = devisParReference(reelles);
 
-  const cases: CaseFrise[] = atteintes.map((e) => ({
+  const cases: CaseFrise[] = reelles.map((e) => ({
     cle: `e${e.id}`,
     type: e.type,
-    mot: motDeLaCase(e, e.type, parRef.get(e.reference ?? '(manuelle)') ?? 0),
+    mot: motDeLaCarte(e, numeros.get(e.id), parRef.get(e.reference ?? '(manuelle)') ?? 0),
     etape: e,
+    sorte: 'reelle',
+    survenuLe: e.survenuLe,
   }));
 
   /**
-   * ② LES ATTENDUES, TISSÉES À LEUR PLACE. On insère chaque type manquant AVANT la première case dont le rang
-   * de dossier est plus avancé que le sien ; à défaut, à la fin.
+   * ① LA CARTE D'OUVERTURE, EN TÊTE ET SANS DOUBLON. Arno, point 1 : « AU DÉPART : la frise montre seulement le
+   * carré “Ouverture” (date d'ouverture de l'événement, modifiable), suivi d'un carré “+” rouge. »
    *
-   * ⚠️ ON NE TRIE PAS LE RÉSULTAT PAR DATE APRÈS COUP : un pointillé n'a pas de date, et lui en inventer une
-   * (aujourd'hui, ou la date de la suivante) le ferait glisser à chaque rendu. Sa place est LOGIQUE, pas
-   * chronologique — et c'est ce que « étape attendue » veut dire.
+   * ⚠️ ELLE NE S'AJOUTE QUE S'IL N'Y A AUCUNE ÉTAPE D'OUVERTURE ENREGISTRÉE — accusé de réception Monga, repli
+   * posé par `poserOuvertureDeRepli`, ou ouverture manuelle. Les 33 ouvertures de repli du lot MONGA-2 gardent
+   * donc exactement la place et la date qu'elles avaient : rien n'est doublé, rien n'est remplacé.
    */
-  for (const attendue of ETAPES_ATTENDUES) {
-    if (cases.some((c) => c.etape !== null && c.etape.type === attendue)) continue;
-    const i = cases.findIndex((c) => rangEtape(c.type) > rangEtape(attendue));
-    const vide: CaseFrise = {
-      cle: `attendue-${attendue}`, type: attendue, mot: motEtape(attendue), etape: null,
+  if ((ouvertLe ?? null) !== null && !cases.some((c) => c.type === 'ouverture')) {
+    /**
+     * ⚠️ ELLE S'INSÈRE À SA PLACE DANS LE TEMPS, PAS D'OFFICE EN TÊTE. Arno, point 3 : « la frise est TOUJOURS
+     * triée par date d'étape ». Un événement ouvert APRÈS l'arrivée du premier mail Monga existe (la référence
+     * vit d'abord chez Monga, l'événement est créé ensuite) : poser l'ouverture devant par principe ferait lire
+     * une ouverture antérieure à des faits qui l'ont précédée.
+     */
+    const i = cases.findIndex((c) => c.survenuLe > (ouvertLe as string));
+    const carte: CaseFrise = {
+      cle: 'ouverture-evenement',
+      type: 'ouverture',
+      mot: motEtape('ouverture'),
+      etape: null,
+      sorte: 'ouverture',
+      survenuLe: ouvertLe as string,
     };
-    if (i === -1) cases.push(vide); else cases.splice(i, 0, vide);
+    if (i === -1) cases.push(carte); else cases.splice(i, 0, carte);
   }
 
   return { majeures: cases, reperes };
@@ -242,7 +391,7 @@ export function motDateEtape(e: EtapeAAfficher): string {
  * refaire ce calcul à chaque redimensionnement, et à le refaire faux sur un écran étroit. Intercalés dans la
  * même suite, ils se placent tout seuls, et le défilement les emmène avec les carrés.
  */
-export type SorteCase = 'carre' | 'points' | 'plus';
+export type SorteCase = 'carre' | 'points' | 'plus' | 'plus-entre';
 
 export interface ElementFrise {
   cle: string;
@@ -251,6 +400,81 @@ export interface ElementFrise {
   case?: CaseFrise;
   /** Pour `points` : les messages informatifs de cet intervalle, dans l'ordre. */
   messages?: EtapeAAfficher[];
+  /**
+   * 🔴 LOT FRISE-CONSTRUCTIBLE — pour un `plus-entre` : la date PROPOSÉE, calculée entre celles des deux voisins.
+   * Arno, point 4 : « avec une date proposée entre celles des deux voisins (modifiable) ».
+   */
+  jourPropose?: string;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LA DATE PROPOSÉE PAR UN « + » INTERCALAIRE. PUR, ET SANS UN SEUL `Date`. ═══════════════════════════════
+
+   Arno, point 4 : « entre deux carrés consécutifs, un petit “+” encapsulé […] ouvre le même réservoir, avec une
+   date proposée entre celles des deux voisins (modifiable). Il sert à ajouter une étape ou une information
+   oubliée. »
+
+   🔴 POURQUOI LE MILIEU, ET NON LA DATE DU VOISIN DE GAUCHE. Une carte posée au même jour que sa voisine de
+   gauche se range à côté d'elle, mais l'ordre entre les deux dépend alors de `rangEtape` puis de l'identifiant :
+   la carte qu'on vient d'insérer « entre » peut donc apparaître AVANT celle à droite de laquelle on a cliqué.
+   Le milieu, lui, tombe strictement entre les deux dès que les voisines diffèrent d'au moins deux jours, et
+   retombe sur l'une d'elles quand elles sont plus proches — ce qui est le mieux qu'on puisse faire sans heure.
+
+   ⚠️ AUCUNE CONSTRUCTION DE `Date` — et l'épreuve de pureté de ce module le vérifie à la lettre, dans ce
+   commentaire compris : elle refuse jusqu'à la mention littérale, ce qui est exactement ce qu'on veut d'un
+   garde-fou. Une date construite au fuseau du lecteur décalerait le jour d'un
+   rendez-vous d'un cran selon l'heure à laquelle on regarde l'écran. On compte donc en JOURS depuis une époque
+   fixe, avec l'algorithme civil de Howard Hinnant — arithmétique entière, aucun fuseau, aucun calendrier à
+   recopier (il tient les années bissextiles et les siècles tout seul).
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** « AAAA-MM-JJ » → jours depuis 1970-01-01. PUR. */
+export function jourEnNombre(iso: string): number {
+  const a = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7));
+  const j = Number(iso.slice(8, 10));
+  if (!Number.isFinite(a) || !Number.isFinite(m) || !Number.isFinite(j)) return 0;
+  /* ⚠️ L'ANNÉE COMMENCE EN MARS dans cet algorithme : c'est ce qui met le 29 février en DERNIER jour de l'année
+     et supprime tout cas particulier bissextile. Ne pas « simplifier » ce décalage. */
+  const an = a - (m <= 2 ? 1 : 0);
+  const ere = Math.floor(an / 400);
+  const anDansLEre = an - ere * 400;
+  const jourDeLAn = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + j - 1;
+  const jourDansLEre = anDansLEre * 365 + Math.floor(anDansLEre / 4) - Math.floor(anDansLEre / 100) + jourDeLAn;
+  return ere * 146097 + jourDansLEre - 719468;
+}
+
+/** Jours depuis 1970-01-01 → « AAAA-MM-JJ ». PUR. L'exacte réciproque de `jourEnNombre`. */
+export function nombreEnJour(n: number): string {
+  const z = Math.floor(n) + 719468;
+  const ere = Math.floor(z / 146097);
+  const jourDansLEre = z - ere * 146097;
+  const anDansLEre = Math.floor(
+    (jourDansLEre - Math.floor(jourDansLEre / 1460) + Math.floor(jourDansLEre / 36524)
+      - Math.floor(jourDansLEre / 146096)) / 365);
+  const an = anDansLEre + ere * 400;
+  const jourDeLAn = jourDansLEre - (365 * anDansLEre + Math.floor(anDansLEre / 4) - Math.floor(anDansLEre / 100));
+  const mp = Math.floor((5 * jourDeLAn + 2) / 153);
+  const j = jourDeLAn - Math.floor((153 * mp + 2) / 5) + 1;
+  const m = mp + (mp < 10 ? 3 : -9);
+  const a = an + (m <= 2 ? 1 : 0);
+  return `${String(a).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(j).padStart(2, '0')}`;
+}
+
+/**
+ * La date que propose un « + » intercalaire. PUR.
+ *
+ * ⚠️ `aujourdhui` EST PASSÉ EN ARGUMENT, il n'est pas lu ici : c'est ce qui rend cette fonction éprouvable, et
+ * c'est la règle du dépôt pour tout module pur qui a besoin de « maintenant ».
+ */
+export function jourIntercalaire(avant: string | null, apres: string | null, aujourdhui: string): string {
+  const a = avant === null ? null : avant.slice(0, 10);
+  const b = apres === null ? null : apres.slice(0, 10);
+  if (a === null && b === null) return aujourdhui;
+  /* Pas de voisine à droite : on propose aujourd'hui, sauf si cela remonterait avant la voisine de gauche. */
+  if (b === null) return aujourdhui >= (a as string) ? aujourdhui : (a as string);
+  if (a === null) return b;
+  return nombreEnJour(Math.floor((jourEnNombre(a) + jourEnNombre(b)) / 2));
 }
 
 /**
@@ -270,12 +494,10 @@ export interface ElementFrise {
  * d'ajouter quelque chose.
  */
 export function rangerEnLigne(
-  majeures: readonly CaseFrise[], reperes: readonly EtapeAAfficher[],
+  majeures: readonly CaseFrise[], reperes: readonly EtapeAAfficher[], aujourdhui: string,
 ): ElementFrise[] {
   const out: ElementFrise[] = [];
   const restants = [...reperes].sort((a, b) => (a.survenuLe === b.survenuLe ? a.id - b.id : (a.survenuLe < b.survenuLe ? -1 : 1)));
-  const atteints = majeures.filter((c) => c.etape !== null);
-  const dernierAtteint = atteints.length === 0 ? null : atteints[atteints.length - 1].cle;
 
   /** Les messages dont la date est <= celle de ce carré, retirés de la file. */
   const avant = (borne: string | null): EtapeAAfficher[] => {
@@ -286,27 +508,36 @@ export function rangerEnLigne(
     return pris;
   };
 
-  for (const c of majeures) {
-    /* ⚠️ RIEN AVANT UN CARRÉ ATTENDU : il n'a pas de date, voir l'encadré. */
-    if (c.etape !== null) {
-      const pris = avant(c.etape.survenuLe);
-      if (pris.length > 0) out.push({ cle: `pts-avant-${c.cle}`, sorte: 'points', messages: pris });
-    }
+  majeures.forEach((c, i) => {
+    const pris = avant(c.survenuLe);
+    if (pris.length > 0) out.push({ cle: `pts-avant-${c.cle}`, sorte: 'points', messages: pris });
     out.push({ cle: c.cle, sorte: 'carre', case: c });
-    if (c.cle === dernierAtteint) {
-      /* 🔴 LES MESSAGES POSTÉRIEURS AU DERNIER CARRÉ ATTEINT se posent avant le « + » : ils sont arrivés, eux. */
-      const apres = avant(null);
-      if (apres.length > 0) out.push({ cle: 'pts-fin', sorte: 'points', messages: apres });
-      out.push({ cle: 'plus', sorte: 'plus' });
+
+    /**
+     * 🔴🔴 LE « + » INTERCALAIRE, ENTRE DEUX CARRÉS CONSÉCUTIFS (Arno, point 4). Il n'y en a pas après le dernier
+     * carré : c'est le gros « + » rouge de fin qui y sert, et deux « + » collés l'un à l'autre n'apprendraient
+     * rien de plus. Les messages du même intervalle se posent AVANT lui — ils ont eu lieu, le « + » non.
+     */
+    const suivant = majeures[i + 1];
+    if (suivant !== undefined) {
+      out.push({
+        cle: `plus-entre-${c.cle}`,
+        sorte: 'plus-entre',
+        jourPropose: jourIntercalaire(c.survenuLe, suivant.survenuLe, aujourdhui),
+      });
     }
-  }
-  /* 🔴 FRISE SANS AUCUN CARRÉ ATTEINT : le « + » ouvre la marche. */
-  if (dernierAtteint === null) {
-    const restes = avant(null);
-    const debut: ElementFrise[] = [{ cle: 'plus', sorte: 'plus' }];
-    if (restes.length > 0) debut.push({ cle: 'pts-fin', sorte: 'points', messages: restes });
-    out.unshift(...debut);
-  }
+  });
+
+  /* 🔴 CE QUI EST ARRIVÉ APRÈS LE DERNIER CARRÉ se pose avant le gros « + » : eux aussi ont eu lieu. */
+  const apres = avant(null);
+  if (apres.length > 0) out.push({ cle: 'pts-fin', sorte: 'points', messages: apres });
+
+  /**
+   * 🔴 LE GROS « + » ROUGE FERME TOUJOURS LA MARCHE (Arno, point 1 : « suivi d'un carré “+” rouge »). Sur une
+   * frise qui ne porte que son ouverture — le cas de départ — il est donc la seule autre chose à l'écran, et
+   * c'est exactement ce qu'on veut : la prochaine chose à faire est d'ajouter.
+   */
+  out.push({ cle: 'plus', sorte: 'plus' });
   return out;
 }
 
@@ -315,13 +546,16 @@ export function rangerEnLigne(
  *
  * Arno : « À l'ouverture, la frise est positionnée pour montrer la dernière étape atteinte. »
  *
- * 🔴 LA DERNIÈRE ATTEINTE, ET NON LE « + » NI LE PREMIER POINTILLÉ. C'est l'état du dossier qu'on vient lire —
- * « où en est-on ? » — et non ce qu'il reste à faire. Rend `null` quand rien n'est atteint : l'écran reste alors
- * au début, où se trouve justement le « + ».
+ * 🔴 LA DERNIÈRE CARTE RÉELLE, ET NON LE « + ». C'est l'état du dossier qu'on vient lire — « où en est-on ? » —
+ * et non ce qu'il reste à faire. Rend `null` quand il n'y a aucune étape enregistrée : l'écran reste alors au
+ * début, où se trouvent justement l'ouverture et le « + ».
+ *
+ * ⚠️ LA CARTE D'OUVERTURE DÉRIVÉE NE COMPTE PAS : elle n'est pas une étape atteinte, c'est la date de naissance
+ * de l'événement. Caler dessus ferait croire que quelque chose s'y est passé.
  */
 export function cleDOuverture(majeures: readonly CaseFrise[]): string | null {
-  const atteints = majeures.filter((c) => c.etape !== null);
-  return atteints.length === 0 ? null : atteints[atteints.length - 1].cle;
+  const reelles = majeures.filter((c) => c.sorte === 'reelle');
+  return reelles.length === 0 ? null : reelles[reelles.length - 1].cle;
 }
 
 /**

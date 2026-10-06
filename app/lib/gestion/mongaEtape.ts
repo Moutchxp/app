@@ -61,9 +61,23 @@ export type TypeEtape =
   | 'prise_rdv'
   | 'rdv_eu_lieu'
   | 'devis_recu'
+  /**
+   * 🔴 LOT FRISE-CONSTRUCTIBLE — « Devis refusé », nommé par Arno dans le réservoir. AUCUN MOTIF DE LECTURE NE LE
+   * PRODUIT, et c'est mesuré : l'audit du 06/10 a compté **0 mail** annonçant un refus — Monga ne notifie pas la
+   * validation d'un devis, c'est nous qui validons chez eux. C'est donc une carte que seule une main pose, et
+   * c'est précisément ce qui manquait pour écrire la suite réelle d'un dossier :
+   * « rendez-vous → devis refusé → nouveau rendez-vous → nouveau devis » (l'exemple d'Arno).
+   */
+  | 'devis_refuse'
   | 'devis_accepte'
   | 'rdv_intervention'
   | 'intervention'
+  /**
+   * 🔴 LOT FRISE-CONSTRUCTIBLE — « Rapport ». Monga en envoie, mais sous deux gabarits déjà rangés ailleurs
+   * (« rapport de visite » → `rdv_eu_lieu`, « rapport d'intervention » → `intervention`) : ces deux lectures ne
+   * changent PAS. Ce type-ci est la carte qu'une main pose quand le rapport est le fait marquant.
+   */
+  | 'rapport'
   | 'cloture'
   /* ── repères, pas des étapes majeures ───────────────────────────────────────────────────────────────────── */
   | 'facture'
@@ -84,19 +98,51 @@ export type TypeEtape =
 
 /** Les étapes MAJEURES, celles qui font la colonne vertébrale de la frise. Ordre chronologique attendu. */
 export const ETAPES_MAJEURES: readonly TypeEtape[] = [
-  'ouverture', 'prise_rdv', 'rdv_eu_lieu', 'devis_recu', 'devis_accepte',
-  'rdv_intervention', 'intervention', 'cloture',
+  'ouverture', 'prise_rdv', 'rdv_eu_lieu', 'devis_recu', 'devis_refuse', 'devis_accepte',
+  'rdv_intervention', 'intervention', 'rapport', 'cloture',
 ];
 
 /**
- * 🔴 LES ÉTAPES QU'ON ATTEND, et qui s'affichent EN POINTILLÉ tant qu'elles ne sont pas atteintes (Arno).
+ * ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — `ETAPES_ATTENDUES` A ÉTÉ SUPPRIMÉE, ET C'EST UN ACCORD EXPLICITE D'ARNO ══════
  *
- * ⚠️ `rdv_eu_lieu` N'EN FAIT PAS PARTIE, et c'est voulu : Monga ne l'envoie que dans 3 cas sur 35 références.
- * L'afficher en pointillé partout ferait croire à un trou dans le dossier là où il n'y a qu'un gabarit que Monga
- * n'émet pas toujours. On ne promet pas une étape qu'on ne sait pas attendre.
+ * Elle listait les étapes affichées EN POINTILLÉ tant qu'elles n'étaient pas atteintes. Arno (06/10/2026) :
+ * « la frise d'avancement n'impose plus aucune suite d'étapes. Elle se CONSTRUIT avec les vraies étapes, dans
+ * l'ordre réel […] ACCORD D'ARNO : les carrés “attendue” en pointillé sont supprimés. »
+ *
+ * 🔴 POURQUOI ILS ÉTAIENT FAUX, ET PAS SEULEMENT ENCOMBRANTS. Un pointillé PROMET une suite : ouverture, puis
+ * devis, puis acceptation, puis intervention, puis clôture — une fois, dans cet ordre. Le dossier réel ne marche
+ * pas ainsi : un devis se refuse, un rendez-vous se reprend, un second devis arrive. La frise promettait donc un
+ * chemin qui n'existe pas, et n'avait aucune place pour celui qui existe.
+ *
+ * ⚠️ RIEN N'EST PERDU AVEC ELLE : chacun de ces types reste dans le RÉSERVOIR (`TYPES_RESERVOIR`), posable
+ * autant de fois que nécessaire, à sa vraie date. On ne retire pas une possibilité, on retire une PROMESSE.
  */
-export const ETAPES_ATTENDUES: readonly TypeEtape[] = [
-  'ouverture', 'prise_rdv', 'devis_recu', 'devis_accepte', 'rdv_intervention', 'intervention', 'cloture',
+
+/**
+ * ══ 🔴🔴 LE RÉSERVOIR — LES CARTES QU'UN CLIC SUR « + » PROPOSE ══════════════════════════════════════════════════
+ *
+ * Arno, point 2, mot pour mot : « un réservoir de carrés à contour ROUGE, un par type d'étape : Prise de
+ * rendez-vous, Rendez-vous eu lieu, Devis reçu, Devis refusé, Acceptation du devis, Rendez-vous d'intervention,
+ * Intervention, Rapport, Facture, Passage de l'assurance, Expertise, Relance, Clôture, plus un carré LIBRE
+ * (titre à saisir). »
+ *
+ * 🔴 L'ORDRE EST LE SIEN, ET IL N'EST PAS CELUI DU DOSSIER. Il range par ce qu'on cherche des yeux, pas par
+ * chronologie — et c'est un réservoir, pas une frise : rien n'y impose de suite. Le tri du dossier, lui, reste
+ * `RANG_ETAPE`, et il ne sert qu'à départager deux étapes du MÊME JOUR.
+ *
+ * ⚠️ `ouverture` N'Y EST PAS : la frise porte toujours sa carte d'ouverture, en première position, et elle vient
+ * de la date d'ouverture de l'ÉVÉNEMENT (point 1 d'Arno). L'offrir au réservoir aurait permis d'en poser une
+ * seconde, et deux ouvertures sur une frise ne veulent rien dire.
+ *
+ * ⚠️ `commentaire` ET `rappel_devis` N'Y SONT PAS NON PLUS : ce sont les mots de MONGA. Pour écrire soi-même, il
+ * y a la carte LIBRE (`autre`) et la « simple information » (`note`).
+ */
+export const TYPES_RESERVOIR: readonly TypeEtape[] = [
+  'prise_rdv', 'rdv_eu_lieu', 'devis_recu', 'devis_refuse', 'devis_accepte',
+  'rdv_intervention', 'intervention', 'rapport', 'facture',
+  'assurance', 'expertise', 'relance', 'cloture',
+  /* 🔴 LE CARRÉ LIBRE, EN DERNIER : son titre se saisit, et c'est la seule carte dont le mot ne vient pas du type. */
+  'autre',
 ];
 
 /** Les repères discrets : un petit point sur la frise, le contenu au survol. Jamais une étape. */
@@ -108,14 +154,17 @@ export function estRepere(t: TypeEtape): boolean {
 }
 
 /**
- * Les types proposés par « + Ajouter une étape » (Arno) : les étapes majeures, puis les quatre siennes.
+ * Ce qu'une MAIN a le droit de poser en CARRÉ. C'est la liste que les routes vérifient — la garde de forme.
+ *
+ * 🔴 LOT FRISE-CONSTRUCTIBLE : c'est désormais `ouverture` + le RÉSERVOIR, et c'est un SUR-ENSEMBLE de ce que
+ * cette constante valait avant (elle gagne `devis_refuse` et `rapport`, et ne perd rien). `ouverture` y reste
+ * bien qu'absente du réservoir : des étapes d'ouverture manuelles existent déjà en base, et une route qui
+ * cesserait de les accepter rendrait leur modification impossible.
  *
  * ⚠️ `commentaire` N'Y EST PAS : un commentaire est ce que MONGA dit, pas ce qu'on ajoute. Pour écrire quelque
- * chose soi-même il y a « Autre (libre) », qui porte son texte et s'affiche comme une étape assumée.
+ * chose soi-même il y a la carte LIBRE (`autre`), qui porte son titre et son texte.
  */
-export const TYPES_AJOUTABLES: readonly TypeEtape[] = [
-  ...ETAPES_MAJEURES, 'facture', 'assurance', 'expertise', 'relance', 'autre',
-];
+export const TYPES_AJOUTABLES: readonly TypeEtape[] = ['ouverture', ...TYPES_RESERVOIR];
 
 /**
  * ══ 🔴🔴 LOT FRISE-HORIZONTALE — CE QU'ON PEUT POSER EN « SIMPLE INFORMATION » ══════════════════════════════════
@@ -130,12 +179,19 @@ export const TYPES_AJOUTABLES: readonly TypeEtape[] = [
  */
 export const TYPES_INFORMATION: readonly TypeEtape[] = ['note', 'facture', 'contact_injoignable', 'relance'];
 
-/** Le rang d'affichage à date égale. Deux étapes du même jour se rangent dans l'ordre du dossier, pas au hasard. */
+/**
+ * Le rang d'affichage À DATE ÉGALE. Deux étapes du MÊME JOUR se rangent dans l'ordre du dossier, pas au hasard.
+ *
+ * 🔴🔴 CE N'EST PLUS UN ORDRE IMPOSÉ, ET LA NUANCE EST TOUT LE LOT FRISE-CONSTRUCTIBLE. Jusqu'ici ce rang servait
+ * DEUX choses : départager deux étapes du même jour, et décider où glisser un carré « attendu » en pointillé.
+ * La seconde a disparu avec les pointillés (accord d'Arno). Il ne reste que la première — un départage, sur une
+ * seule journée, entre des étapes qui ont toutes réellement eu lieu. La frise, elle, est triée par DATE.
+ */
 const RANG_ETAPE: Record<TypeEtape, number> = {
-  ouverture: 0, prise_rdv: 1, rdv_eu_lieu: 2, devis_recu: 3, devis_accepte: 4,
-  rdv_intervention: 5, intervention: 6, cloture: 7,
-  facture: 8, rappel_devis: 9, contact_injoignable: 10, commentaire: 11,
-  assurance: 12, expertise: 13, relance: 14, autre: 15, note: 16,
+  ouverture: 0, prise_rdv: 1, rdv_eu_lieu: 2, devis_recu: 3, devis_refuse: 4, devis_accepte: 5,
+  rdv_intervention: 6, intervention: 7, rapport: 8, cloture: 9,
+  facture: 10, rappel_devis: 11, contact_injoignable: 12, commentaire: 13,
+  assurance: 14, expertise: 15, relance: 16, autre: 17, note: 18,
 };
 
 export function rangEtape(t: TypeEtape): number {
@@ -147,11 +203,15 @@ export function motEtape(t: TypeEtape): string {
   switch (t) {
     case 'ouverture': return 'Ouverture';
     case 'prise_rdv': return 'Prise de rendez-vous';
-    case 'rdv_eu_lieu': return 'Rendez-vous effectué';
+    /* ⚠️ « eu lieu », ET NON « effectué » : ce sont les mots d'Arno dans le réservoir du lot FRISE-CONSTRUCTIBLE,
+       et une carte doit porter le nom sous lequel on la choisit. */
+    case 'rdv_eu_lieu': return 'Rendez-vous eu lieu';
     case 'devis_recu': return 'Devis reçu';
+    case 'devis_refuse': return 'Devis refusé';
     case 'devis_accepte': return 'Acceptation du devis';
     case 'rdv_intervention': return 'Rendez-vous d’intervention';
     case 'intervention': return 'Intervention';
+    case 'rapport': return 'Rapport';
     case 'cloture': return 'Clôture';
     case 'facture': return 'Facture';
     case 'rappel_devis': return 'Rappel de devis';
@@ -160,7 +220,8 @@ export function motEtape(t: TypeEtape): string {
     case 'assurance': return 'Passage de l’assurance';
     case 'expertise': return 'Expertise';
     case 'relance': return 'Relance';
-    case 'autre': return 'Autre';
+    /* 🔴 LA CARTE LIBRE. Son mot ne s'affiche que tant qu'aucun titre n'a été saisi — voir `motDeLaCase`. */
+    case 'autre': return 'Carte libre';
     case 'note': return 'Note';
   }
 }

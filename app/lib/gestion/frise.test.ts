@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  cleDOuverture, construireFrise, etapeOuvrable, motDateEtape, motDeLaCase, motGroupeMessages,
-  motMailDOrigine, motMontant, motSource, pictoSource, rangerEnLigne,
+  cleDOuverture, construireFrise, etapeOuvrable, jourEnNombre, jourIntercalaire, motAjout,
+  motDateEtape, motDeLaCase, motDeLaCarte, motGroupeMessages, motMailDOrigine, motMontant, motSource,
+  nombreEnJour, numerosDesEtapes, pictoSource, rangerEnLigne,
   type EtapeAAfficher,
 } from './frise';
 
@@ -10,9 +11,23 @@ import {
  * ══ 🔴🔴 LOT MONGA-2, POINT 3 — COMMENT LA FRISE SE RANGE ════════════════════════════════════════════════════════
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * RÈGLE D'ARNO : « Les ÉTAPES MAJEURES, bien visibles, dans l'ordre chronologique […] Les étapes attendues mais
- * pas encore atteintes s'affichent en pointillé. Les COMMENTAIRES Monga et les rappels : simples petits repères
- * discrets sur la frise […] Ce ne sont pas des étapes. »
+ * RÈGLE D'ARNO (MONGA-2) : « Les ÉTAPES MAJEURES, bien visibles, dans l'ordre chronologique […] Les COMMENTAIRES
+ * Monga et les rappels : simples petits repères discrets sur la frise […] Ce ne sont pas des étapes. »
+ *
+ * ═══ 🔴🔴 CE QUI A CHANGÉ AU LOT FRISE-CONSTRUCTIBLE (06/10/2026), ET POURQUOI ═══════════════════════════════════
+ *
+ * La règle de MONGA-2 disait aussi : « Les étapes attendues mais pas encore atteintes s'affichent en pointillé. »
+ * Arno l'a REMPLACÉE, en toutes lettres : « la frise d'avancement n'impose plus aucune suite d'étapes. Elle se
+ * CONSTRUIT avec les vraies étapes, dans l'ordre réel (ex. rendez-vous → devis refusé → nouveau rendez-vous →
+ * nouveau devis…). ACCORD D'ARNO : les carrés “attendue” en pointillé sont supprimés. »
+ *
+ * 🔴 LES ÉPREUVES DE CE FICHIER QUI TENAIENT LES POINTILLÉS SONT DONC RÉÉCRITES, et chacune dit ce qu'elle
+ * vérifiait avant. Elles ne sont pas RELÂCHÉES : elles tiennent maintenant le fait inverse — qu'aucune case sans
+ * étape n'apparaît —, ce qui est une garde aussi stricte, sur la règle qui a cours.
+ *
+ * ⚠️ TOUT LE RESTE DE MONGA-2 EST INCHANGÉ, et les épreuves qui le tiennent n'ont pas bougé d'une ligne : l'ordre
+ * chronologique, le départage à date égale, les repères à part, les devis comptés par référence, « étape déduite
+ * — aucun mail », la pureté du module.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -20,8 +35,12 @@ let n = 0;
 const etape = (p: Partial<EtapeAAfficher>): EtapeAAfficher => ({
   id: (n += 1), reference: 'MNG-10000', type: 'ouverture', survenuLe: '2026-09-01T00:00:00', heureConnue: false, heureFin: null,
   numero: null, rang: null, montantCents: null, texte: null, auteur: null, source: 'monga',
-  certitude: 'fiable', messageId: 1, aEuUnMail: true, filId: 10, creeParLibelle: null, rangDevis: null, ...p,
+  certitude: 'fiable', messageId: 1, aEuUnMail: true, filId: 10, creeParLibelle: null,
+  creeLe: null, titre: null, rangDevis: null, ...p,
 });
+
+/** Un jour fixe tenu pour « aujourd'hui » : une épreuve qui lit l'horloge se met à échouer un matin de mai. */
+const AUJOURDHUI = '2026-10-06';
 
 describe('① l’ordre : chronologique, puis l’ordre du dossier', () => {
   it('🔴 les étapes atteintes se rangent par date', () => {
@@ -49,52 +68,209 @@ describe('① l’ordre : chronologique, puis l’ordre du dossier', () => {
   });
 });
 
-describe('② les étapes attendues, en pointillé', () => {
-  it('🔴🔴 une étape attendue absente apparaît, sans date, à sa place logique', () => {
+describe('② 🔴🔴 plus aucune suite imposée — les pointillés ont disparu', () => {
+  /**
+   * ══ CE QUE CETTE ÉPREUVE DISAIT AVANT, ET POURQUOI LE VERDICT A CHANGÉ ════════════════════════════════════
+   *
+   * Elle s'appelait « une étape attendue absente apparaît, sans date, à sa place logique » et vérifiait que
+   * `construireFrise([ouverture, clôture])` tissait CINQ carrés vides entre les deux, dans l'ordre du dossier.
+   * C'était fidèle à la règle d'alors, et c'est exactement ce qu'Arno a fait retirer.
+   *
+   * 🔴 LE VERDICT EST MAINTENANT L'INVERSE, ET IL EST AUSSI STRICT : il ne doit RIEN y avoir entre les deux.
+   * Une frise ne montre que ce qui a eu lieu.
+   */
+  it('🔴🔴 entre deux étapes réelles, aucun carré inventé', () => {
     const { majeures } = construireFrise([
       etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
       etape({ type: 'cloture', survenuLe: '2026-10-05T00:00:00' }),
     ]);
-    const types = majeures.map((c) => c.type);
-    /* Les cinq attendues manquantes se glissent entre l'ouverture et la clôture. */
-    expect(types.indexOf('ouverture')).toBeLessThan(types.indexOf('prise_rdv'));
-    expect(types.indexOf('prise_rdv')).toBeLessThan(types.indexOf('devis_recu'));
-    expect(types.indexOf('devis_recu')).toBeLessThan(types.indexOf('devis_accepte'));
-    expect(types.indexOf('devis_accepte')).toBeLessThan(types.indexOf('rdv_intervention'));
-    expect(types.indexOf('rdv_intervention')).toBeLessThan(types.indexOf('intervention'));
-    expect(types.indexOf('intervention')).toBeLessThan(types.indexOf('cloture'));
-    /* ⚠️ UN POINTILLÉ N'A PAS D'ÉTAPE : c'est à cela que l'écran le reconnaît. */
-    expect(majeures.find((c) => c.type === 'prise_rdv')?.etape).toBeNull();
-  });
-
-  it('🔴 une étape atteinte ne reçoit pas de pointillé en double', () => {
-    const { majeures } = construireFrise([etape({ type: 'prise_rdv' })]);
-    expect(majeures.filter((c) => c.type === 'prise_rdv')).toHaveLength(1);
-    expect(majeures.find((c) => c.type === 'prise_rdv')?.etape).not.toBeNull();
+    expect(majeures.map((c) => c.type)).toEqual(['ouverture', 'cloture']);
+    expect(majeures.every((c) => c.sorte === 'reelle')).toBe(true);
   });
 
   /**
-   * 🔴🔴 `rdv_eu_lieu` N'EST PAS ATTENDUE, et c'est mesuré : Monga ne l'envoie que dans 3 cas sur 35 références.
-   * L'afficher en pointillé partout ferait croire à un trou dans le dossier là où il n'y a qu'un gabarit que
-   * Monga n'émet pas toujours.
+   * 🔴🔴 LA GARDE CENTRALE DU LOT : aucune case de la frise ne peut être sans étape, SAUF l'ouverture dérivée.
+   * Écrite sur un jeu qui, avant, en produisait six.
    */
-  it('🔴🔴 aucun pointillé pour une étape que Monga n’envoie pas toujours', () => {
-    const { majeures } = construireFrise([etape({ type: 'ouverture' })]);
-    expect(majeures.some((c) => c.type === 'rdv_eu_lieu' && c.etape === null)).toBe(false);
+  it('🔴🔴 aucune case sans étape, hormis l’ouverture dérivée', () => {
+    const { majeures } = construireFrise([etape({ type: 'prise_rdv' })]);
+    expect(majeures.filter((c) => c.etape === null)).toHaveLength(0);
   });
 
-  /** ⚠️ MAIS ELLE S'AFFICHE QUAND ELLE ARRIVE : non attendue ne veut pas dire ignorée. */
-  it('⚠️ `rdv_eu_lieu` s’affiche quand elle existe', () => {
+  /**
+   * 🔴🔴 UN ÉVÉNEMENT SANS AUCUNE ÉTAPE NE MONTRE QUE SON OUVERTURE (Arno, point 1 : « AU DÉPART : la frise
+   * montre seulement le carré “Ouverture” (date d'ouverture de l'événement, modifiable), suivi d'un carré “+”
+   * rouge »).
+   *
+   * ⚠️ CETTE ÉPREUVE S'APPELAIT « un événement sans aucune étape affiche les sept attendues ». Sept carrés vides
+   * sur un dossier qui vient de naître : c'était une promesse, pas un état.
+   */
+  it('🔴🔴 un événement tout neuf ne montre QUE son ouverture', () => {
+    const { majeures, reperes } = construireFrise([], '2026-09-01T12:00:00');
+    expect(majeures).toHaveLength(1);
+    expect(majeures[0].type).toBe('ouverture');
+    expect(majeures[0].sorte).toBe('ouverture');
+    expect(majeures[0].etape).toBeNull();
+    expect(majeures[0].survenuLe).toBe('2026-09-01T12:00:00');
+    expect(reperes).toHaveLength(0);
+  });
+
+  /**
+   * 🔴🔴 L'OUVERTURE DÉRIVÉE NE DOUBLE JAMAIS UNE OUVERTURE ENREGISTRÉE. Les 33 ouvertures de repli posées par
+   * le lot MONGA-2 gardent exactement leur place et leur date : rien n'est doublé, rien n'est remplacé.
+   */
+  it('🔴🔴 une ouverture enregistrée l’emporte, et reste seule', () => {
+    const { majeures } = construireFrise(
+      [etape({ type: 'ouverture', survenuLe: '2026-08-20T00:00:00' })], '2026-09-01T12:00:00');
+    expect(majeures.filter((c) => c.type === 'ouverture')).toHaveLength(1);
+    expect(majeures[0].sorte).toBe('reelle');
+    expect(majeures[0].survenuLe).toBe('2026-08-20T00:00:00');
+  });
+
+  /** ⚠️ SANS DATE D'ÉVÉNEMENT, AUCUNE OUVERTURE INVENTÉE : une ouverture datée d'aujourd'hui serait un fait faux. */
+  it('⚠️ sans date d’événement, pas de carte d’ouverture', () => {
+    expect(construireFrise([]).majeures).toHaveLength(0);
+    expect(construireFrise([], null).majeures).toHaveLength(0);
+  });
+
+  /**
+   * ⚠️ ELLE S'INSÈRE À SA PLACE DANS LE TEMPS, PAS D'OFFICE EN TÊTE (Arno, point 3 : « la frise est TOUJOURS
+   * triée par date d'étape »). Un événement créé APRÈS l'arrivée du premier mail Monga existe — la référence vit
+   * d'abord chez Monga.
+   */
+  it('⚠️ une ouverture d’événement postérieure se range après ce qui l’a précédée', () => {
+    const { majeures } = construireFrise(
+      [etape({ type: 'prise_rdv', survenuLe: '2026-08-01T00:00:00' })], '2026-09-01T12:00:00');
+    expect(majeures.map((c) => c.type)).toEqual(['prise_rdv', 'ouverture']);
+  });
+
+  /**
+   * 🔴 ET CE QUI ARRIVE S'AFFICHE TOUJOURS. `rdv_eu_lieu` n'était pas « attendue » (Monga ne l'envoie que dans
+   * 3 cas sur 35) ; elle s'affichait quand même quand elle existait. Ce fait-là ne change pas.
+   */
+  it('🔴 une étape que Monga n’envoie pas toujours s’affiche quand elle existe', () => {
     const { majeures } = construireFrise([etape({ type: 'rdv_eu_lieu' })]);
     expect(majeures.some((c) => c.type === 'rdv_eu_lieu' && c.etape !== null)).toBe(true);
   });
 
-  /** 🔴 UNE FRISE VIDE EST DÉJÀ UNE FRISE : sept pointillés, et le dossier se lit d'un coup d'œil. */
-  it('🔴 un événement sans aucune étape affiche les sept attendues', () => {
-    const { majeures, reperes } = construireFrise([]);
-    expect(majeures).toHaveLength(7);
-    expect(majeures.every((c) => c.etape === null)).toBe(true);
-    expect(reperes).toHaveLength(0);
+  /**
+   * 🔴🔴 LA SUITE RÉELLE D'ARNO, ÉCRITE TELLE QUELLE : « rendez-vous → devis refusé → nouveau rendez-vous →
+   * nouveau devis ». C'est l'épreuve qui dit que la frise se CONSTRUIT : aucun de ces quatre carrés n'aurait pu
+   * exister sous l'ancienne règle, qui n'admettait qu'un devis et aucun refus.
+   */
+  it('🔴🔴 la suite réelle d’Arno s’écrit telle quelle, dans l’ordre', () => {
+    const { majeures } = construireFrise([
+      etape({ id: 1, type: 'prise_rdv', survenuLe: '2026-09-02T00:00:00' }),
+      etape({ id: 2, type: 'devis_refuse', survenuLe: '2026-09-10T00:00:00' }),
+      etape({ id: 3, type: 'prise_rdv', survenuLe: '2026-09-20T00:00:00' }),
+      etape({ id: 4, type: 'devis_recu', survenuLe: '2026-09-28T00:00:00' }),
+    ]);
+    expect(majeures.map((c) => c.type))
+      .toEqual(['prise_rdv', 'devis_refuse', 'prise_rdv', 'devis_recu']);
+    /* 🔴 ET LES DEUX RENDEZ-VOUS SE DISTINGUENT : « Prise de rendez-vous 1 » puis « 2 ». */
+    expect(majeures.map((c) => c.mot))
+      .toEqual(['Prise de rendez-vous 1', 'Devis refusé', 'Prise de rendez-vous 2', 'Devis reçu']);
+  });
+});
+
+describe('②-bis 🔴 numéroter un type répété', () => {
+  /** 🔴 « Chaque type est réutilisable autant de fois que nécessaire (Devis 1, Devis 2…) » — Arno, point 2. */
+  it('🔴 deux étapes du même type se numérotent par date', () => {
+    const n = numerosDesEtapes([
+      etape({ id: 7, type: 'intervention', survenuLe: '2026-09-20T00:00:00' }),
+      etape({ id: 3, type: 'intervention', survenuLe: '2026-09-02T00:00:00' }),
+    ]);
+    expect(n.get(3)).toBe(1);
+    expect(n.get(7)).toBe(2);
+  });
+
+  /** ⚠️ UN SEUL EXEMPLAIRE N'EST PAS NUMÉROTÉ : « Intervention 1 » ferait croire qu'il en manque une seconde. */
+  it('⚠️ un type qui n’apparaît qu’une fois n’est pas numéroté', () => {
+    const n = numerosDesEtapes([etape({ id: 1, type: 'intervention' })]);
+    expect(n.has(1)).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 ON COMPTE **DANS SA RÉFÉRENCE**, et c'est la règle mesurée du lot MONGA-2 : un événement peut porter
+   * plusieurs interventions Monga, et compter sur l'événement entier ferait écrire « 1 » et « 2 » sur deux faits
+   * de DEUX interventions différentes.
+   */
+  it('🔴🔴 deux références ne se mélangent pas dans le décompte', () => {
+    const n = numerosDesEtapes([
+      etape({ id: 1, type: 'intervention', reference: 'MNG-10000' }),
+      etape({ id: 2, type: 'intervention', reference: 'MNG-20000' }),
+    ]);
+    expect(n.size).toBe(0);
+  });
+
+  /**
+   * 🔴🔴 `devis_recu` GARDE SON PROPRE RANG, et il ne faut pas le remplacer par ce compteur-ci : lui seul sait
+   * que deux mails portant le MÊME numéro DEV- ne font qu'un seul devis (cas mesuré sur la référence 23449).
+   */
+  it('🔴🔴 les devis restent hors de ce compteur', () => {
+    const n = numerosDesEtapes([
+      etape({ id: 1, type: 'devis_recu' }), etape({ id: 2, type: 'devis_recu' }),
+    ]);
+    expect(n.size).toBe(0);
+  });
+
+  /** 🔴 LE TITRE D'UNE CARTE LIBRE L'EMPORTE SUR LE MOT DU TYPE (Arno : « un carré LIBRE (titre à saisir) »). */
+  it('🔴 une carte libre porte son titre', () => {
+    expect(motDeLaCarte(etape({ type: 'autre', titre: 'Visite du syndic' }), undefined, 0))
+      .toBe('Visite du syndic');
+  });
+
+  /** ⚠️ ET SANS TITRE, ELLE NE MENT PAS : elle dit ce qu'elle est. L'écran et la route exigent le titre. */
+  it('⚠️ une carte libre sans titre garde le mot du type', () => {
+    expect(motDeLaCarte(etape({ type: 'autre', titre: null }), undefined, 0)).toBe('Carte libre');
+    expect(motDeLaCarte(etape({ type: 'autre', titre: '   ' }), undefined, 0)).toBe('Carte libre');
+  });
+
+  /** ⚠️ LE TITRE NE DÉBORDE PAS SUR LES AUTRES TYPES : ailleurs, le mot vient du TYPE, écrit une seule fois. */
+  it('⚠️ un titre posé sur un autre type est ignoré', () => {
+    expect(motDeLaCarte(etape({ type: 'cloture', titre: 'Visite' }), undefined, 0)).toBe('Clôture');
+  });
+
+  /**
+   * ══ 🔴🔴 DÉFAUT VU À L'ÉCRAN SUR LOT-237 LE 06/10/2026, ET CORRIGÉ ═════════════════════════════════════════
+   *
+   * En généralisant la numérotation à tous les types, j'avais laissé tomber une garde de MONGA-2 : « PAS DE
+   * “Devis 1” QUAND IL N'Y EN A QU'UN ». La frise affichait donc « Devis 1 » sur un devis unique — ce qui fait
+   * croire qu'il en manque d'autres, exactement l'inverse de ce qu'elle doit dire.
+   *
+   * 🔴 LE COMPTEUR GÉNÉRIQUE N'AVAIT PAS CE DÉFAUT (il ne numérote pas un ensemble d'un seul élément) ; c'est le
+   * rang des devis, qui vient du DÉPÔT et vaut 1 même seul, qui demande cette garde explicite.
+   */
+  it('🔴🔴 un devis seul n’est pas numéroté ; deux le sont', () => {
+    const d = etape({ type: 'devis_recu', rangDevis: 1 });
+    expect(motDeLaCarte(d, undefined, 1)).toBe('Devis reçu');
+    expect(motDeLaCarte(d, undefined, 2)).toBe('Devis 1');
+    expect(motDeLaCarte(etape({ type: 'devis_recu', rangDevis: 2 }), undefined, 2)).toBe('Devis 2');
+  });
+
+  /** 🔴 ET LA FRISE ENTIÈRE LE TIENT, pas seulement la fonction : un devis unique s'y lit « Devis reçu ». */
+  it('🔴🔴 sur la frise, un devis unique se lit « Devis reçu »', () => {
+    const { majeures } = construireFrise([etape({ type: 'devis_recu', rangDevis: 1 })]);
+    expect(majeures[0].mot).toBe('Devis reçu');
+  });
+});
+
+describe('②-ter 🔴 « ajoutée le 06/10 à 22:31 par Arnaud »', () => {
+  /** 🔴 Arno, point 3 : la date et l'heure de CRÉATION, et l'auteur, visibles au survol. */
+  it('🔴 la mention dit quand et par qui', () => {
+    expect(motAjout('2026-10-06T22:31:04', 'Arnaud')).toBe('ajoutée le 06/10 à 22:31 par Arnaud');
+  });
+
+  /** ⚠️ AUTEUR INCONNU : on ne l'invente pas. */
+  it('⚠️ sans auteur, la mention dit seulement quand', () => {
+    expect(motAjout('2026-10-06T22:31:04', null)).toBe('ajoutée le 06/10 à 22:31');
+    expect(motAjout('2026-10-06T22:31:04', '  ')).toBe('ajoutée le 06/10 à 22:31');
+  });
+
+  /** ⚠️ SANS DATE DE POSE, AUCUNE MENTION : une mention vide vaut mieux qu'une mention fausse. */
+  it('⚠️ sans date de création, rien', () => {
+    expect(motAjout(null, 'Arnaud')).toBeNull();
+    expect(motAjout('', 'Arnaud')).toBeNull();
   });
 });
 
@@ -249,38 +425,77 @@ describe('⑧ le module reste pur', () => {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 describe('⑨ la frise en ligne : carrés, points et « + »', () => {
-  const ligne = (etapes: EtapeAAfficher[]) => {
-    const { majeures, reperes } = construireFrise(etapes);
-    return rangerEnLigne(majeures, reperes);
+  const ligne = (etapes: EtapeAAfficher[], ouvertLe?: string | null) => {
+    const { majeures, reperes } = construireFrise(etapes, ouvertLe);
+    return rangerEnLigne(majeures, reperes, AUJOURDHUI);
   };
 
   /**
-   * 🔴🔴 LE « + » VIENT JUSTE APRÈS LE DERNIER CARRÉ RÉELLEMENT ATTEINT (Arno : « avant les carrés attendus en
-   * pointillé »). C'est là qu'on ajoute : à la suite de ce qui s'est passé, pas au bout de ce qu'on attend.
+   * ══ 🔴🔴 CE QUE CETTE ÉPREUVE DISAIT AVANT, ET POURQUOI LE VERDICT A CHANGÉ ════════════════════════════════
+   *
+   * Elle s'appelait « le “+” se place après le dernier carré atteint, AVANT LES POINTILLÉS » et vérifiait que
+   * tout ce qui suivait le « + » était un carré sans étape. Il n'y a plus de carré sans étape (accord d'Arno) :
+   * le « + » FERME donc la marche, et c'est le fait qu'il faut tenir maintenant.
+   *
+   * 🔴 ARNO, POINT 1 : « le carré “Ouverture” […] SUIVI d'un carré “+” rouge. » Le gros « + » est toujours le
+   * dernier élément de la ligne.
    */
-  it('🔴🔴 le « + » se place après le dernier carré atteint, avant les pointillés', () => {
+  it('🔴🔴 le gros « + » ferme toujours la marche', () => {
     const l = ligne([
       etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
       etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
     ]);
-    const sortes = l.map((e) => e.sorte);
-    const iPlus = sortes.indexOf('plus');
-    expect(iPlus).toBeGreaterThan(0);
-    /* Tout ce qui précède le « + » est atteint ; tout ce qui suit est attendu. */
-    const avant = l.slice(0, iPlus).filter((e) => e.sorte === 'carre');
-    const apres = l.slice(iPlus + 1).filter((e) => e.sorte === 'carre');
-    expect(avant.every((e) => e.case?.etape !== null)).toBe(true);
-    expect(apres.every((e) => e.case?.etape === null)).toBe(true);
+    expect(l[l.length - 1].sorte).toBe('plus');
+    expect(l.filter((e) => e.sorte === 'plus')).toHaveLength(1);
   });
 
   /**
-   * 🔴 SUR UNE FRISE ENTIÈREMENT VIDE — un événement sans Monga, le cas que le lot MONGA-2 a rendu possible — le
-   * « + » ouvre la marche. La première chose à faire est bien d'ajouter quelque chose.
+   * 🔴🔴 LA FRISE DE DÉPART, MOT POUR MOT (Arno, point 1) : « AU DÉPART : la frise montre seulement le carré
+   * “Ouverture” (date d'ouverture de l'événement, modifiable), suivi d'un carré “+” rouge. »
+   *
+   * ⚠️ CETTE ÉPREUVE VÉRIFIAIT AVANT que le « + » venait en PREMIER, suivi de sept pointillés. Deux choses ont
+   * changé d'un coup : il n'y a plus de pointillés, et il y a désormais une carte d'ouverture.
    */
-  it('🔴 sans aucune étape atteinte, le « + » vient en premier', () => {
-    const l = ligne([]);
-    expect(l[0].sorte).toBe('plus');
-    expect(l.filter((e) => e.sorte === 'carre')).toHaveLength(7);
+  it('🔴🔴 au départ : l’ouverture, puis le « + », et rien d’autre', () => {
+    const l = ligne([], '2026-09-01T12:00:00');
+    expect(l.map((e) => e.sorte)).toEqual(['carre', 'plus']);
+    expect(l[0].case?.type).toBe('ouverture');
+    expect(l[0].case?.sorte).toBe('ouverture');
+  });
+
+  /**
+   * 🔴🔴 LES « + » INTERCALAIRES (Arno, point 4) : « entre deux carrés consécutifs, un petit “+” encapsulé […]
+   * ouvre le même réservoir, avec une date proposée entre celles des deux voisins ».
+   *
+   * ⚠️ IL Y EN A UN DE MOINS QUE DE CARRÉS : aucun après le dernier, où se trouve le gros « + ». Deux « + »
+   * collés l'un à l'autre n'apprendraient rien de plus.
+   */
+  it('🔴🔴 un « + » intercalaire entre chaque paire de carrés, et pas après le dernier', () => {
+    const l = ligne([
+      etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
+      etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
+      etape({ type: 'cloture', survenuLe: '2026-10-05T00:00:00' }),
+    ]);
+    expect(l.filter((e) => e.sorte === 'carre')).toHaveLength(3);
+    expect(l.filter((e) => e.sorte === 'plus-entre')).toHaveLength(2);
+    expect(l.map((e) => e.sorte))
+      .toEqual(['carre', 'plus-entre', 'carre', 'plus-entre', 'carre', 'plus']);
+  });
+
+  /** 🔴 ET CHACUN PROPOSE UNE DATE ENTRE SES DEUX VOISINES (Arno, point 4). */
+  it('🔴🔴 la date proposée tombe entre les deux voisines', () => {
+    const l = ligne([
+      etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
+      etape({ type: 'cloture', survenuLe: '2026-09-11T00:00:00' }),
+    ]);
+    const entre = l.find((e) => e.sorte === 'plus-entre');
+    expect(entre?.jourPropose).toBe('2026-09-06');
+  });
+
+  /** ⚠️ UN SEUL CARRÉ : aucun intercalaire, il n'y a pas d'« entre ». */
+  it('⚠️ un seul carré ne produit aucun « + » intercalaire', () => {
+    const l = ligne([etape({ type: 'ouverture' })]);
+    expect(l.filter((e) => e.sorte === 'plus-entre')).toHaveLength(0);
   });
 
   /**
@@ -315,10 +530,11 @@ describe('⑨ la frise en ligne : carrés, points et « + »', () => {
   });
 
   /**
-   * ⚠️ AUCUN POINT ENTRE LES CARRÉS ATTENDUS : ils n'ont pas de date. Y ranger un message par sa date
-   * reviendrait à lui inventer une place dans un futur qui n'existe pas encore.
+   * ⚠️ CE QUI EST ARRIVÉ APRÈS LE DERNIER CARRÉ SE POSE AVANT LE GROS « + » : eux aussi ont eu lieu, et le
+   * « + » n'est pas un fait. (L'épreuve disait avant « pas entre les pointillés » ; il n'y en a plus, mais la
+   * position relative qu'elle tenait est exactement la même.)
    */
-  it('⚠️ un message postérieur au dernier carré atteint se pose AVANT le « + », pas entre les pointillés', () => {
+  it('⚠️ un message postérieur au dernier carré se pose AVANT le « + »', () => {
     const l = ligne([
       etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
       etape({ type: 'commentaire', survenuLe: '2026-12-31T00:00:00' }),
@@ -338,7 +554,7 @@ describe('⑨ la frise en ligne : carrés, points et « + »', () => {
       etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
     ];
     const { majeures, reperes } = construireFrise(etapes);
-    const l = rangerEnLigne(majeures, reperes);
+    const l = rangerEnLigne(majeures, reperes, AUJOURDHUI);
     expect(l.filter((e) => e.sorte === 'carre')).toHaveLength(majeures.length);
     expect(l.flatMap((e) => e.messages ?? [])).toHaveLength(reperes.length);
   });
@@ -346,7 +562,7 @@ describe('⑨ la frise en ligne : carrés, points et « + »', () => {
 
 describe('⑩ sur quoi la frise s’ouvre', () => {
   /** 🔴 « À l'ouverture, la frise est positionnée pour montrer la DERNIÈRE ÉTAPE ATTEINTE » (Arno). */
-  it('🔴 la dernière atteinte, et non le premier pointillé', () => {
+  it('🔴 la dernière atteinte, et non la première carte', () => {
     const { majeures } = construireFrise([
       etape({ id: 1, type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
       etape({ id: 2, type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
@@ -371,5 +587,85 @@ describe('⑪ le pictogramme de source', () => {
     expect(motGroupeMessages(0)).toBe('0 message');
     expect(motGroupeMessages(1)).toBe('1 message');
     expect(motGroupeMessages(3)).toBe('3 messages');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — LA DATE PROPOSÉE PAR UN « + » INTERCALAIRE ══════════════════════════════════
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑫ l’arithmétique des jours, sans objet Date', () => {
+  /**
+   * 🔴🔴 ALLER-RETOUR EXACT SUR LES CAS QUI CASSENT LES CALENDRIERS ÉCRITS À LA MAIN : fin de mois, année
+   * bissextile, 29 février, siècle non bissextile (1900), siècle bissextile (2000).
+   */
+  it('🔴🔴 jour → nombre → jour rend exactement le même jour', () => {
+    for (const j of ['1970-01-01', '1900-02-28', '1900-03-01', '2000-02-29', '2024-02-29',
+      '2026-01-31', '2026-03-01', '2026-12-31', '2100-03-01']) {
+      expect(nombreEnJour(jourEnNombre(j)), j).toBe(j);
+    }
+  });
+
+  it('🔴 l’époque vaut zéro, et le jour suivant un', () => {
+    expect(jourEnNombre('1970-01-01')).toBe(0);
+    expect(jourEnNombre('1970-01-02')).toBe(1);
+    expect(nombreEnJour(0)).toBe('1970-01-01');
+  });
+
+  /** 🔴 LES ÉCARTS SONT JUSTES, Y COMPRIS À TRAVERS UN 29 FÉVRIER. */
+  it('🔴 l’écart entre deux jours est exact', () => {
+    expect(jourEnNombre('2024-03-01') - jourEnNombre('2024-02-28')).toBe(2);
+    expect(jourEnNombre('2026-03-01') - jourEnNombre('2026-02-28')).toBe(1);
+    expect(jourEnNombre('2027-01-01') - jourEnNombre('2026-01-01')).toBe(365);
+  });
+});
+
+describe('⑬ la date qu’un « + » intercalaire propose', () => {
+  /** 🔴 « une date proposée entre celles des deux voisins » (Arno, point 4). Le milieu, arrondi vers le bas. */
+  it('🔴🔴 entre deux voisines, le milieu', () => {
+    expect(jourIntercalaire('2026-09-01', '2026-09-11', AUJOURDHUI)).toBe('2026-09-06');
+    expect(jourIntercalaire('2026-09-01T08:00:00', '2026-09-05T23:00:00', AUJOURDHUI)).toBe('2026-09-03');
+  });
+
+  /** ⚠️ DEUX VOISINES LE MÊME JOUR : ce jour-là, et rien d'autre à proposer. */
+  it('⚠️ deux voisines du même jour proposent ce jour', () => {
+    expect(jourIntercalaire('2026-09-01', '2026-09-01', AUJOURDHUI)).toBe('2026-09-01');
+  });
+
+  /** ⚠️ DEUX JOURS CONSÉCUTIFS : le premier des deux. On ne peut pas faire mieux sans inventer une heure. */
+  it('⚠️ deux jours consécutifs proposent le premier', () => {
+    expect(jourIntercalaire('2026-09-01', '2026-09-02', AUJOURDHUI)).toBe('2026-09-01');
+  });
+
+  /**
+   * ⚠️ SANS VOISINE À DROITE, AUJOURD'HUI — sauf si cela remonterait AVANT la voisine de gauche. Une frise dont
+   * la dernière carte est datée du futur (un rendez-vous fixé la semaine prochaine) ne doit pas proposer une
+   * date antérieure à elle.
+   */
+  it('⚠️ sans voisine à droite : aujourd’hui, jamais avant la voisine de gauche', () => {
+    expect(jourIntercalaire('2026-09-01', null, AUJOURDHUI)).toBe(AUJOURDHUI);
+    expect(jourIntercalaire('2026-12-25', null, AUJOURDHUI)).toBe('2026-12-25');
+  });
+
+  /** ⚠️ AUCUNE VOISINE : aujourd'hui, et c'est ce que le gros « + » propose. */
+  it('⚠️ sans aucune voisine, aujourd’hui', () => {
+    expect(jourIntercalaire(null, null, AUJOURDHUI)).toBe(AUJOURDHUI);
+    expect(jourIntercalaire(null, '2026-09-01', AUJOURDHUI)).toBe('2026-09-01');
+  });
+
+  /**
+   * 🔴 LA DATE PROPOSÉE TOMBE TOUJOURS DANS L'INTERVALLE [gauche, droite] — la propriété qui compte, éprouvée
+   * sur une plage entière plutôt que sur trois exemples choisis.
+   */
+  it('🔴🔴 la proposition ne sort jamais de l’intervalle', () => {
+    const debut = jourEnNombre('2026-01-01');
+    for (let a = 0; a < 200; a += 7) {
+      for (let d = 0; d < 60; d += 3) {
+        const g = nombreEnJour(debut + a);
+        const dr = nombreEnJour(debut + a + d);
+        const p = jourIntercalaire(g, dr, AUJOURDHUI);
+        expect(p >= g && p <= dr, `${g} → ${dr} a proposé ${p}`).toBe(true);
+      }
+    }
   });
 });
