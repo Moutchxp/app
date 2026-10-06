@@ -120,11 +120,23 @@ export function FriseAvancement({
    * 🔴 LA BULLE EST DONC RENDUE SOUS LA FRISE, hors du conteneur qui défile. Elle n'est plus jamais coupée, elle
    * tient sur un écran étroit, et elle garde les deux chemins qu'Arno demande : le SURVOL la montre
    * (`apercu`), le CLIC la fixe (`fixe`) — « au survol (et au clic au clavier) ».
+   *
+   * ═══ 🔴🔴 LOT FRISE-COMPACTE — LES DEUX CHEMINS NE SE POSENT PLUS AU MÊME ENDROIT ═══════════════════════════
+   *
+   * Arno (06/10/2026) : « L'ESPACE EN DESSOUS ne se déploie QUE lorsqu'une action le demande : clic sur une
+   * carte ou un point (bulle de détail), clic sur un “+” (réservoir), formulaire d'ajout ou de modification. »
+   *
+   * 🔴 LE SURVOL N'EST PAS UNE ACTION QUI DÉPLOIE. S'il déployait, passer la souris sur la frise ferait sauter
+   * de 92 px tout ce qui est en dessous — l'historique du bien — à chaque fois qu'on l'effleure. La bulle de
+   * SURVOL est donc FLOTTANTE : elle se pose par-dessus, et ne prend aucune place dans le flux.
+   *
+   * 🔴 LE CLIC, LUI, DÉPLOIE : c'est une intention, elle dure, et l'on veut lire la bulle sans garder la souris
+   * immobile. Même composant, même contenu, une seule classe de différence — deux rendus distincts auraient fini
+   * par diverger sur « mail supprimé — étape conservée », comme l'avertit déjà `BulleDetail`.
    */
   const [apercu, setApercu] = useState<string | null>(null);
   const [fixe, setFixe] = useState<string | null>(null);
   const ouvert = fixe ?? apercu;
-  const setOuvert = setFixe;
   const [ajout, setAjout] = useState(false);
   /**
    * ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — LE RÉSERVOIR, ET LA DATE QU'IL PROPOSE ══════════════════════════════════
@@ -193,16 +205,63 @@ export function FriseAvancement({
     setReservoir(null); setAjout(false); setTypePose(null); setModifie(null);
   }, []);
 
-  useEffect(() => {
-    if (reservoir === null && !ajout) return undefined;
-    const surTouche = (e: KeyboardEvent): void => { if (e.key === 'Escape') fermerReservoir(); };
-    window.addEventListener('keydown', surTouche);
-    return () => window.removeEventListener('keydown', surTouche);
-  }, [reservoir, ajout, fermerReservoir]);
+  /**
+   * ══ 🔴🔴 LOT FRISE-COMPACTE — TOUT REFERMER, ET LES QUATRE FAÇONS DE LE DEMANDER ═══════════════════════════
+   *
+   * Arno, point 2 : « Il se replie dès que l'action est terminée ou annulée (Échap, “Fermer”, clic à côté,
+   * validation). Une seule zone ouverte à la fois. »
+   *
+   * 🔴 UNE SEULE PORTE DE FERMETURE. Avant ce lot, Échap ne fermait que le réservoir, et la bulle n'avait aucun
+   * moyen de se refermer autrement qu'en recliquant exactement la carte qui l'avait ouverte. Quatre chemins vers
+   * la même fin demandent une seule fonction, sans quoi l'un d'eux oublie toujours quelque chose.
+   */
+  const toutRefermer = useCallback((): void => {
+    setReservoir(null); setAjout(false); setTypePose(null); setModifie(null);
+    setFixe(null); setApercu(null);
+  }, []);
 
-  /** Ouvrir le réservoir à partir d'un « + » — gros (aujourd'hui) ou intercalaire (date entre les voisines). */
+  /**
+   * ⚠️ L'ÉCOUTEUR N'EXISTE QUE TANT QU'UNE ZONE EST OUVERTE. Un écouteur global permanent intercepterait Échap
+   * pour tous les autres panneaux de l'écran, qui ont le leur — et écouterait chaque clic de la page pour rien.
+   *
+   * ⚠️ `pointerdown` ET NON `click` POUR LE « CLIC À CÔTÉ » : un `click` naît à la MONTÉE du pointeur, après que
+   * nos propres gestionnaires ont agi — et un glisser de la frise qui se termine hors du bloc aurait alors
+   * refermé la zone qu'on venait d'ouvrir. La descente dit l'intention au bon moment.
+   */
+  const quelqueChoseEstOuvert = reservoir !== null || ajout || fixe !== null;
+  const moi = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!quelqueChoseEstOuvert) return undefined;
+    const surTouche = (e: KeyboardEvent): void => { if (e.key === 'Escape') toutRefermer(); };
+    const surClicAilleurs = (e: PointerEvent): void => {
+      const cible = e.target;
+      if (cible instanceof Node && moi.current !== null && moi.current.contains(cible)) return;
+      toutRefermer();
+    };
+    window.addEventListener('keydown', surTouche);
+    document.addEventListener('pointerdown', surClicAilleurs);
+    return () => {
+      window.removeEventListener('keydown', surTouche);
+      document.removeEventListener('pointerdown', surClicAilleurs);
+    };
+  }, [quelqueChoseEstOuvert, toutRefermer]);
+
+  /**
+   * Ouvrir le réservoir à partir d'un « + » — gros (aujourd'hui) ou intercalaire (date entre les voisines).
+   *
+   * 🔴 IL FERME LA BULLE : « une seule zone ouverte à la fois » (Arno). Deux panneaux déployés l'un sous l'autre
+   * rendraient au bloc la hauteur de trois lignes qu'on vient justement de lui retirer.
+   */
   const ouvrirReservoir = useCallback((jour: string): void => {
+    setFixe(null); setApercu(null);
     setModifie(null); setTypePose(null); setAjout(false); setReservoir({ jour });
+  }, []);
+
+  /** Fixer (ou défixer) la bulle d'une carte. Elle ferme le réservoir, pour la même raison. */
+  const setOuvert = useCallback((cle: string | null): void => {
+    setReservoir(null); setAjout(false); setTypePose(null); setModifie(null);
+    setFixe(cle);
   }, []);
 
   const agir = async (url: string, methode: 'PATCH' | 'DELETE', corps?: unknown): Promise<void> => {
@@ -247,16 +306,23 @@ export function FriseAvancement({
   const plusieursRefs = referencesDeLaFrise(etapes).length > 1;
   const cleOuverture = cleDOuverture(majeures);
   /**
-   * 🔴 CE QUE LA ZONE DU BAS MONTRE : la chose survolée, ou celle qu'un clic a fixée. Une seule à la fois —
-   * deux bulles ouvertes feraient lire la mauvaise.
+   * 🔴 CE QUE L'ON MONTRE, ET OÙ. Une seule bulle à la fois — deux ouvertes feraient lire la mauvaise.
+   *
+   * 🔴🔴 LOT FRISE-COMPACTE : la FIXÉE (un clic) déploie l'espace sous la frise ; la SURVOLÉE flotte par-dessus
+   * et ne pousse rien. `fixe` l'emporte quand les deux désignent quelque chose : on vient de cliquer, la souris
+   * n'a pas encore quitté la carte, et c'est la bulle déployée qui doit rester.
    */
-  const detailAffiche = ouvert === null ? null
-    : etapes.find((x) => `p${x.id}` === ouvert || `c${x.id}` === ouvert) ?? null;
+  const etapeDe = (cle: string | null): EtapeAAfficher | null => (cle === null ? null
+    : etapes.find((x) => `p${x.id}` === cle || `c${x.id}` === cle) ?? null);
+  const detailFixe = etapeDe(fixe);
+  const detailApercu = detailFixe !== null ? null : etapeDe(apercu);
+  const detailAffiche = detailFixe ?? detailApercu;
   const motDuDetail = detailAffiche === null ? ''
     : (majeures.find((c) => c.etape?.id === detailAffiche.id)?.mot ?? motEtape(detailAffiche.type));
 
   return (
-    <section className={`fav${compact ? ' fav--compact' : ''}`} aria-label="Avancement de l’événement">
+    <section ref={moi} className={`fav${compact ? ' fav--compact' : ''}`}
+      aria-label="Avancement de l’événement">
       <style>{CSS_FRISE_AVANCEMENT}</style>
 
       {/* ══ LA PROPOSITION DE CLÔTURE — jamais automatique (Arno) ══════════════════════════════════════════ */}
@@ -306,6 +372,29 @@ export function FriseAvancement({
             />
           ))}
         </ol>
+
+        {/**
+          * ══ 🔴🔴 LOT FRISE-COMPACTE — LA BULLE DE SURVOL, FLOTTANTE ════════════════════════════════════════
+          *
+          * Elle se pose PAR-DESSUS ce qui suit, et ne prend aucune place : c'est ce qui permet de supprimer les
+          * 92 px de vide qu'`.fav-zone` réservait en permanence sans faire sauter la page à chaque survol.
+          *
+          * 🔴 DANS `.fav-piste-cadre` (positionné), ET NON DANS `.fav-piste` : la piste est un conteneur de
+          * défilement, et tout ce qui en dépasse y est COUPÉ — c'est le défaut mesuré au lot FRISE-HORIZONTALE
+          * (132 px de texte tronqués). Le cadre, lui, ne coupe rien.
+          *
+          * ⚠️ `pointer-events:none` EN FEUILLE : une bulle flottante sous la souris masquerait la carte suivante
+          * et empêcherait de la survoler. Elle se regarde, elle ne se clique pas — le clic, c'est la bulle
+          * déployée, qui porte les gestes.
+          */}
+        {detailApercu !== null && (
+          <div className="fav-flottante" aria-hidden="true">
+            <BulleDetail
+              e={detailApercu} occupe mot={motDuDetail}
+              onMontant={() => undefined} onRetirer={() => undefined} onModifier={() => undefined}
+            />
+          </div>
+        )}
       </div>
 
       {/**
@@ -346,17 +435,28 @@ export function FriseAvancement({
         * son contenu. Mesuré à l'écran : 132 px de texte coupés, puis encore 34 px après avoir réservé de la
         * place. Sous la frise, elle n'est jamais tronquée, et elle tient sur un écran étroit.
         *
-        * ⚠️ UNE HAUTEUR RÉSERVÉE MÊME QUAND ELLE EST VIDE : sans cela, la page sauterait d'une centaine de
-        * pixels à chaque survol d'un point, et les carrés se déroberaient sous la souris.
+        * ══ 🔴🔴 LOT FRISE-COMPACTE — CE QUI A ÉTÉ RETIRÉ ICI, ET POURQUOI ═════════════════════════════════════
+        *
+        * `.fav-zone` réservait **92 px de vide en permanence** (mesuré ce 06/10 sur lot-237 : conteneur 234 px =
+        * 132 de piste + 10 de marge + 92 de vide). C'est la « deuxième ligne » qu'Arno voit à l'ouverture, et
+        * elle était là même sans aucune bulle.
+        *
+        * Elle avait sa raison : sans elle, la page sautait d'une centaine de pixels à chaque SURVOL d'un point.
+        * 🔴 LA VRAIE RÉPONSE N'ÉTAIT PAS DE RÉSERVER LE VIDE, C'ÉTAIT DE SORTIR LE SURVOL DU FLUX. La bulle de
+        * survol est maintenant FLOTTANTE (elle se pose par-dessus et ne pousse rien), et seule la bulle FIXÉE
+        * par un clic déploie l'espace — qui n'existe alors que tant qu'elle est là.
         */}
-      <div className="fav-zone" aria-live="polite">
-        {detailAffiche !== null && <BulleDetail
-          e={detailAffiche} occupe={occupe} onOuvrirFil={onOuvrirFil}
-          onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); }}
-          onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
-          onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
-          mot={motDuDetail} />}
-      </div>
+      {detailFixe !== null && (
+        <div className="fav-zone" aria-live="polite">
+          <BulleDetail
+            e={detailFixe} occupe={occupe} onOuvrirFil={onOuvrirFil}
+            onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}
+            onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
+            onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
+            onFermer={() => setFixe(null)}
+            mot={motDuDetail} />
+        </div>
+      )}
 
       {/* ══ LA PROPOSITION D'ARNO : passer un motif en automatique fiable ═══════════════════════════════════
           🔴 PROPOSÉE, JAMAIS APPLIQUÉE (« propose-moi (sans l'appliquer) »). Un seul écart suffit à la retirer,
@@ -596,7 +696,7 @@ function Carre({
  * fini par diverger sur la phrase « mail supprimé — étape conservée ».
  */
 function BulleDetail({
-  e, mot, occupe, onOuvrirFil, onMontant, onRetirer, onModifier,
+  e, mot, occupe, onOuvrirFil, onMontant, onRetirer, onModifier, onFermer,
 }: {
   e: EtapeAAfficher; mot: string; occupe: boolean;
   onOuvrirFil?: (filId: number) => void;
@@ -604,6 +704,12 @@ function BulleDetail({
   onRetirer: (id: number) => void;
   /** 🔴 LOT ATTENTION-ET-MODIFIER — rouvrir le formulaire, prérempli avec cette étape. */
   onModifier: (e: EtapeAAfficher) => void;
+  /**
+   * 🔴 LOT FRISE-COMPACTE — « Il se replie dès que l'action est terminée ou annulée (Échap, “Fermer”, clic à
+   * côté, validation) » (Arno, point 2). Absent sur la bulle FLOTTANTE : elle ne se ferme pas, elle s'efface
+   * quand la souris s'en va.
+   */
+  onFermer?: () => void;
 }) {
   const ouvrable = etapeOuvrable(e) && onOuvrirFil !== undefined;
   return (
@@ -647,6 +753,10 @@ function BulleDetail({
           <button type="button" className="fav-lien" disabled={occupe} onClick={() => onRetirer(e.id)}>
             Retirer
           </button>
+        )}
+        {/* 🔴 « FERMER » REPLIE LA ZONE (Arno, point 2), au même titre qu'Échap et qu'un clic à côté. */}
+        {onFermer !== undefined && (
+          <button type="button" className="fav-lien" onClick={onFermer}>Fermer</button>
         )}
       </p>
       {/**
@@ -1094,10 +1204,21 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-piste{list-style:none;margin:0;padding:10px 2px 30px;min-height:132px;box-sizing:border-box;
   display:flex;align-items:flex-start;
   gap:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
-/* ⚠️ LA PISTE PREND LE FOCUS (tabIndex 0, pose par useDefilementFrise) pour que les fleches ← → du clavier
-   l'atteignent. Qui peut recevoir le focus doit le MONTRER : sans cette regle, on tabule dans une zone qui ne
-   dit pas qu'elle est la. outline-offset negatif : un contour exterieur serait coupe par le cadre. */
-.fav-piste:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* ══ 🔴🔴 LOT FRISE-COMPACTE, POINT 4 — LE GRAND CADRE ROUGE, DIAGNOSTIQUE ET REMPLACE ════════════════════════
+   CE QUE C'ETAIT : un CONTOUR DE FOCUS CLAVIER, et non un etat « selectionne ». La regle valait
+   « outline:2px solid var(--color-svv-red); outline-offset:-2px », posee au lot FRISES-REPARATION (B) en meme
+   temps que le tabIndex 0 qui rend la rangee atteignable aux fleches ← → du clavier.
+   POURQUOI ELLE CREVAIT L'ECRAN : c'est le traitement de focus des PETITS BOUTONS de l'application, applique a
+   une REGION de 1074 x 132 px. Mesure sur lot-237. Le meme defaut existait sur la frise des mails
+   (.frs-cadre), pour la meme raison et depuis le meme lot.
+   CE QUI LE REMPLACE : un lisere rouge de 3 px sur le bord gauche, pose en ombre interne — l'accent deja
+   employe par .fav-proposition et .fav-bulle dans cette meme feuille. Discret, coherent, et il dit la meme
+   chose : le clavier est DANS cette zone.
+   ⚠️ UN CONTOUR TRANSPARENT EST CONSERVE : en mode contraste force, les ombres ne sont pas peintes, et c'est
+   le contour que le systeme repeint. Sans lui, l'indicateur disparaitrait pour ceux qui en ont le plus besoin.
+   ⚠️ :focus-visible ET NON :focus — « visible uniquement au clavier » (Arno). */
+.fav-piste:focus-visible{outline:2px solid transparent;outline-offset:-2px;
+  box-shadow:inset 3px 0 0 0 var(--color-svv-red)}
 
 /* Le trait fin qui relie les carres : une bordure posee sur la rangee, derriere les elements. */
 .fav-el{position:relative;display:flex;align-items:flex-start;flex:0 0 auto}
@@ -1130,7 +1251,12 @@ const CSS_FRISE_AVANCEMENT = `
    regle de survol, et les carres atteints n'en avaient aucune — on ne savait pas qu'ils etaient cliquables.
    La regle porte donc sur « .fav-carre » ENTIER, et non sur un modificateur. */
 .fav-carre{cursor:pointer;transition:border-color .12s ease, box-shadow .12s ease}
-.fav-carre:hover,.fav-carre:focus-within{box-shadow:0 0 0 2px var(--color-svv-line-strong) inset}
+/* ⚠️ L'ACCENT DU SURVOL ETAIT TROP PALE POUR SE VOIR : il valait une ombre interne en --color-svv-line-strong
+   posee sur un fond --color-svv-field — deux gris voisins, releves cote a cote dans la page. Arno demandait un
+   « contour accentue » ; c'est donc un filet interne d'un pixel en « currentColor » — c'est-a-dire la couleur du
+   TEXTE de la carte (--color-svv-ink), franchement contrastee sur le fond dans les deux themes. Elle se lit
+   sans couleur, et elle ne masque pas la bordure d'etat (verte, ambre) qui reste visible juste a cote. */
+.fav-carre:hover,.fav-carre:focus-within{box-shadow:0 0 0 1px currentColor inset}
 .fav-carre--dans:hover,.fav-carre--dans:focus-within{border-color:var(--color-svv-green-ink)}
 .fav-carre--doute:hover,.fav-carre--doute:focus-within{border-color:var(--color-svv-amber)}
 
@@ -1208,10 +1334,15 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-point--actif{background:var(--color-svv-red);border-color:var(--color-svv-red)}
 
 /* La bulle : au survol, et fixee au clic. */
-/* ══ LA ZONE DE DETAIL, SOUS LA FRISE ET HORS DU CONTENEUR QUI DEFILE ══
-   Une hauteur minimale reservee meme vide : sans elle, la page sauterait d'une centaine de pixels a chaque
-   survol d'un point, et les carres se deroberaient sous la souris. */
-.fav-zone{min-height:92px;margin-top:10px}
+/* ══ 🔴🔴 LOT FRISE-COMPACTE — LA ZONE NE RESERVE PLUS RIEN ════════════════════════════════════════════════
+   CE QU'ELLE VALAIT AVANT : « min-height:92px », en permanence. Mesure sur lot-237 ce 06/10 : le conteneur de
+   l'evenement faisait 234 px = 132 de piste + 10 de marge + 92 de VIDE. C'est la « deuxieme ligne » qu'Arno
+   voit a l'ouverture, et elle etait la meme sans aucune bulle.
+   Sa raison etait reelle : sans elle, la page sautait d'une centaine de pixels a chaque SURVOL d'un point.
+   🔴 LA REPONSE N'ETAIT PAS DE RESERVER LE VIDE, MAIS DE SORTIR LE SURVOL DU FLUX : la bulle de survol est
+   desormais FLOTTANTE (.fav-flottante), et cette zone-ci n'existe plus que tant qu'une bulle est FIXEE par un
+   clic. Hauteur par defaut : zero, et le bloc tient sur une rangee. */
+.fav-zone{margin-top:10px}
 .fav-bulle{display:flex;flex-direction:column;gap:2px;max-width:40rem;padding:7px 9px;border-radius:8px;
   background:var(--color-svv-bg);border:1px solid var(--color-svv-line);
   border-left:3px solid var(--color-svv-red)}
@@ -1220,6 +1351,17 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-bulle-pose{margin:0;font-size:.7rem;font-style:italic;color:var(--color-svv-muted)}
 .fav-bulle-texte{margin:0;font-size:.76rem;color:var(--color-svv-ink);overflow-wrap:anywhere;white-space:pre-wrap}
 .fav-bulle-gestes{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
+/* ══ 🔴🔴 LA BULLE DE SURVOL — POSEE PAR-DESSUS, ELLE NE POUSSE RIEN ══════════════════════════════════════════
+   Elle vit dans .fav-piste-cadre (positionne) et non dans la piste, qui COUPE ce qui depasse (defaut mesure au
+   lot FRISE-HORIZONTALE : 132 px de texte tronques).
+   ⚠️ pointer-events:none — une bulle sous la souris masquerait la carte suivante et empecherait de la survoler.
+   Elle se regarde ; les gestes sont sur la bulle FIXEE par un clic.
+   ⚠️ ELLE DOIT SE DETACHER DU TEXTE QU'ELLE RECOUVRE, et sans ombre coloree : la feuille n'admet que des
+   jetons --color-svv-* (un garde refuse tout hexadecimal et tout rgba, commentaire compris). On double donc le
+   contour de la bulle par un halo de la couleur de FOND de la page : il la detache nettement du texte en
+   dessous, en Clair comme en Sombre, et il suit le theme sans qu'on ait rien a dire de plus. */
+.fav-flottante{position:absolute;left:0;top:100%;z-index:7;max-width:40rem;pointer-events:none}
+.fav-flottante .fav-bulle{box-shadow:0 0 0 3px var(--color-svv-bg),0 0 0 4px var(--color-svv-line-strong)}
 
 /* ══ LES FLECHES ══ */
 .fav-fleche{position:absolute;top:50%;transform:translateY(-50%);z-index:6;width:28px;height:44px;

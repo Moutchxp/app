@@ -245,9 +245,17 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique }
         * carte (demandeur, catégorie, note).
         *
         * 🔴 ELLE S'AFFICHE MÊME SANS MONGA, et c'est une demande explicite : « Fonctionne aussi pour un
-        * événement SANS Monga (frise entièrement manuelle). » Sur un événement nu, elle montre les sept étapes
-        * attendues en pointillé et le bouton « + Ajouter une étape » — c'est-à-dire un dossier qu'on peut tenir
-        * à la main dès le premier jour.
+        * événement SANS Monga (frise entièrement manuelle). » Sur un événement nu, elle montre sa carte
+        * d'ouverture et le « + » rouge — c'est-à-dire un dossier qu'on peut tenir à la main dès le premier jour.
+        *
+        * ⚠️ CETTE PHRASE DISAIT « les sept étapes attendues en pointillé et le bouton “+ Ajouter une étape” »
+        * jusqu'au lot FRISE-CONSTRUCTIBLE : les pointillés ont été supprimés sur accord d'Arno, et le bouton est
+        * devenu le « + ». Rien n'est perdu — tous ces types restent posables par le réservoir, autant de fois
+        * que nécessaire.
+        *
+        * 🔴 LOT FRISE-COMPACTE : c'est LE MÊME composant que dans le bloc « Événements » de la fiche du bien,
+        * donc le même comportement — une seule rangée par défaut, l'espace du bas déployé à la demande seule.
+        * Arno, point 5 : « Même comportement dans la vue de l'événement. » Un second rendu l'aurait trahi.
         *
         * ⚠️ LA PROPOSITION DE CLÔTURE PASSE PAR LA PORTE QU'ARNO EMPLOIE DÉJÀ (`agir({ etat: 'traite' })`),
         * exactement comme celle du badge Monga juste au-dessus : même journal, même réversibilité. Deux chemins

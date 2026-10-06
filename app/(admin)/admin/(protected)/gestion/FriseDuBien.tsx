@@ -272,10 +272,18 @@ export const CSS_FRISE_DU_BIEN = `
   border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);
   cursor:grab;touch-action:pan-x}
 .frs-cadre:active{cursor:grabbing}
-/* ⚠️ LE CADRE PREND LE FOCUS (tabIndex 0, pose par useDefilementFrise) pour que les fleches ← → du clavier
-   l'atteignent. Qui peut recevoir le focus doit le MONTRER. outline-offset negatif : le contour se pose a
-   l'interieur de la bordure du cadre, et n'est donc pas coupe par ce qui l'entoure. */
-.frs-cadre:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* ══ 🔴🔴 LOT FRISE-COMPACTE, POINT 4 — LE MEME GRAND CADRE ROUGE, ET LE MEME REMPLACEMENT ════════════════════
+   Cette regle valait « outline:2px solid var(--color-svv-red) », posee au lot FRISES-REPARATION (B) en meme
+   temps que le tabIndex 0 qui rend le cadre atteignable aux fleches ← → du clavier. C'est le traitement de
+   focus des PETITS BOUTONS de l'application applique a une REGION de 1090 x 88 px : un grand cadre rouge.
+   Arno l'a signale sur la frise d'avancement ; le defaut etait le meme ici, depuis le meme lot — les deux
+   frises partagent leur defilement (useDefilementFrise), elles doivent partager la facon de le dire.
+   CE QUI LE REMPLACE : un lisere rouge de 3 px sur le bord gauche, en ombre interne. Discret, visible au seul
+   clavier, et coherent avec l'accent deja employe ailleurs dans l'application.
+   ⚠️ LE CONTOUR TRANSPARENT RESTE : en mode contraste force, les ombres ne sont pas peintes et c'est le contour
+   que le systeme repeint. Sans lui, l'indicateur disparaitrait pour ceux qui en ont le plus besoin. */
+.frs-cadre:focus-visible{outline:2px solid transparent;outline-offset:-2px;
+  box-shadow:inset 3px 0 0 0 var(--color-svv-red)}
 /* ══ 🔴🔴 LA CIRCULARITE DES POURCENTAGES, ET COMMENT ELLE EST EVITEE ════════════════════════════════════════
    🔴 DEFAUT MESURE A L'ECRAN (lot-146) : un mois faisait 166 px au lieu d'un douzieme du cadre, et seuls six
    mois etaient visibles au lieu de douze. La cause : --frs-mois vaut un pourcentage, et il servait A LA FOIS

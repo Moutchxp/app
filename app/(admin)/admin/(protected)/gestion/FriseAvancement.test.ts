@@ -30,6 +30,9 @@ const ANNUAIRE = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.ts
 const ROUTE_FRISE = readFileSync(
   'app/(admin)/api/admin/gestion/evenements/[id]/frise/route.ts', 'utf8');
 const ROUTE_ETAPE = readFileSync('app/(admin)/api/admin/gestion/etapes/[id]/route.ts', 'utf8');
+/* 🔴 LOT FRISE-COMPACTE, POINT 4 — le meme grand cadre rouge existait sur la frise des MAILS, depuis le meme
+   lot et pour la meme raison : les deux frises partagent leur defilement, donc sa signaletique. */
+const MAILS_FRISE = readFileSync('app/(admin)/admin/(protected)/gestion/FriseDuBien.tsx', 'utf8');
 
 describe('① la frontière client/serveur', () => {
   /**
@@ -219,13 +222,49 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * contenu (274 px). C'est une impasse : on ne peut pas réserver assez.
    *
    * 🔴 D'OÙ UNE ZONE SOUS LA FRISE. Cette épreuve interdit de l'y remettre.
+   *
+   * ══ 🔴🔴 CE QUE CETTE ÉPREUVE EXIGEAIT EN PLUS, ET POURQUOI C'EST L'INVERSE MAINTENANT ══════════════════════
+   *
+   * Elle tenait `.fav-zone{min-height:92px}` — « une hauteur réservée même vide : sinon la page saute à chaque
+   * survol d'un point ». Le raisonnement était juste, la réponse ne l'était pas : ces 92 px de vide sont la
+   * « deuxième ligne » qu'Arno voit à l'ouverture de chaque événement (mesuré sur lot-237 : conteneur 234 px =
+   * 132 de piste + 10 de marge + 92 de vide), et ils étaient là même sans aucune bulle.
+   *
+   * 🔴 LA RÉPONSE EST DE SORTIR LE SURVOL DU FLUX, PAS DE RÉSERVER LE VIDE. La bulle de survol est flottante
+   * (`.fav-flottante`, `position:absolute`) : elle ne pousse rien, donc rien ne saute. La zone ne reste que pour
+   * la bulle FIXÉE par un clic, et elle n'existe que tant qu'elle est là.
    */
   it('🔴🔴 la bulle est rendue sous la frise, hors du conteneur qui défile', () => {
     expect(FRISE).toContain('<div className="fav-zone"');
     /* 🔴 ET PAS DANS LA PISTE : aucune bulle en position absolue à l'intérieur. */
     expect(FRISE).not.toMatch(/\.fav-bulle\{position:absolute/);
-    /* ⚠️ UNE HAUTEUR RÉSERVÉE MÊME VIDE : sinon la page saute à chaque survol d'un point. */
-    expect(FRISE).toMatch(/\.fav-zone\{min-height:\d+px/);
+  });
+
+  /**
+   * 🔴🔴 LOT FRISE-COMPACTE, POINT 1 — AUCUNE ZONE VIDE EN DESSOUS.
+   *
+   * « PAR DÉFAUT : seuls l'en-tête de l'événement […] et UNE rangée de cartes de la frise sont affichés, sans
+   * aucune zone vide en dessous. La hauteur du conteneur = la hauteur des cartes + les marges normales. »
+   */
+  it('🔴🔴 la zone du bas ne réserve plus aucune hauteur', () => {
+    expect(FRISE).not.toMatch(/\.fav-zone\{[^}]*min-height/);
+    /* 🔴 ET ELLE N'EST RENDUE QUE S'IL Y A UNE BULLE FIXÉE : un conteneur vide garderait sa marge. */
+    expect(FRISE).toContain('{detailFixe !== null && (');
+  });
+
+  /**
+   * 🔴🔴 LE SURVOL NE DÉPLOIE RIEN : il flotte. Sans cela, passer la souris sur la frise ferait sauter de
+   * 92 px tout ce qui est en dessous — l'historique du bien — à chaque fois qu'on l'effleure.
+   */
+  it('🔴🔴 la bulle de survol flotte, et ne prend aucune place', () => {
+    expect(FRISE).toContain('{detailApercu !== null && (');
+    expect(FRISE).toMatch(/\.fav-flottante\{position:absolute/);
+    /* ⚠️ ET ELLE NE SE CLIQUE PAS : sous la souris, elle masquerait la carte suivante. */
+    expect(FRISE).toMatch(/\.fav-flottante\{[^}]*pointer-events:none/);
+    /* 🔴 DANS LE CADRE POSITIONNÉ, JAMAIS DANS LA PISTE, qui coupe ce qui dépasse. */
+    const iPiste = FRISE.indexOf('<ol className="fav-piste"');
+    const iFin = FRISE.indexOf('</ol>', iPiste);
+    expect(FRISE.indexOf('className="fav-flottante"')).toBeGreaterThan(iFin);
   });
 
   /**
@@ -613,8 +652,11 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
 
   /** 🔴🔴 « Échap ou “Fermer” referme le réservoir » (Arno) — les deux, et l'écouteur ne vit que tant qu'il est ouvert. */
   it('🔴🔴 Échap et « Fermer » referment tous deux le réservoir', () => {
-    expect(FRISE).toContain("if (e.key === 'Escape') fermerReservoir();");
-    expect(FRISE).toContain('if (reservoir === null && !ajout) return undefined;');
+    /* 🔴 LOT FRISE-COMPACTE : une SEULE porte de fermeture, pour les quatre chemins qu'Arno nomme (Échap,
+       « Fermer », clic à côté, validation). Avant, Échap ne fermait que le réservoir, et la bulle n'avait aucun
+       moyen de se refermer autrement qu'en recliquant exactement la carte qui l'avait ouverte. */
+    expect(FRISE).toContain("if (e.key === 'Escape') toutRefermer();");
+    expect(FRISE).toContain('if (!quelqueChoseEstOuvert) return undefined;');
     expect(FRISE).toContain('<button type="button" className="fav-btn" onClick={onFermer}>Fermer</button>');
   });
 
@@ -732,5 +774,185 @@ describe('⑭ l’ouverture, et ce qu’une carte raconte (Arno, points 1, 3 et 
     for (const [nom, src] of [['CarteVive', CARTE], ['EvenementsDuBien', BLOC]] as const) {
       expect(src, nom).toContain('<FriseAvancement');
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-COMPACTE — CE QU'ARNO A DEMANDÉ, POINT PAR POINT ═══════════════════════════════════════════
+
+   « à l'ouverture, l'événement prend aujourd'hui la hauteur de deux lignes (la frise, puis une zone vide ou une
+   bulle ouverte en dessous). »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑮ par défaut, une seule rangée (Arno, point 1)', () => {
+  /**
+   * 🔴🔴 AUCUNE BULLE OUVERTE D'OFFICE. Les deux états partent à `null` : rien n'est survolé, rien n'est fixé.
+   * Un état initial non nul aurait déployé la zone dès le premier rendu, ce qu'Arno interdit en toutes lettres.
+   */
+  it('🔴🔴 rien n’est ouvert au premier rendu', () => {
+    expect(FRISE).toContain("const [apercu, setApercu] = useState<string | null>(null);");
+    expect(FRISE).toContain("const [fixe, setFixe] = useState<string | null>(null);");
+    expect(FRISE).toContain('const [reservoir, setReservoir] = useState<{ jour: string } | null>(null);');
+    expect(FRISE).toContain('const [ajout, setAjout] = useState(false);');
+  });
+
+  /**
+   * 🔴🔴 LA HAUTEUR PAR DÉFAUT EST CELLE DES CARTES ET DES MARGES, ET RIEN D'AUTRE. Mesuré sur lot-237 avant ce
+   * lot : conteneur **234 px** = 132 (piste) + 10 (marge) + **92 de vide réservé**. La règle qui réservait ces
+   * 92 px est retirée ; la piste, elle, garde sa hauteur minimale, qui n'est pas du vide mais la place des
+   * cartes et de leur barre de défilement.
+   */
+  it('🔴🔴 plus un seul pixel réservé sous la frise', () => {
+    expect(FRISE).not.toMatch(/\.fav-zone\{[^}]*min-height/);
+    /* ⚠️ MAIS LA PISTE GARDE LA SIENNE : 132 px = 10 de marge + 92 de carré + 30 de barre. Ce n'est pas du
+       vide, et la retirer ferait rogner le bas des carrés — défaut déjà mesuré au lot FRISE-HORIZONTALE. */
+    expect(FRISE).toMatch(/\.fav-piste\{[^}]*min-height:132px/);
+  });
+});
+
+describe('⑯ l’espace ne se déploie qu’à la demande, et se replie (Arno, point 2)', () => {
+  /** 🔴🔴 LES QUATRE ACTIONS QUI DÉPLOIENT : la bulle fixée, le réservoir, le formulaire d'ajout, celui de modification. */
+  it('🔴🔴 chacune des quatre actions, et elle seule, déploie l’espace', () => {
+    /* ① bulle de détail, fixée par un clic */
+    expect(FRISE).toContain('{detailFixe !== null && (');
+    /* ②③④ réservoir, ajout, modification — un seul conteneur, ouvert par l'un ou l'autre */
+    expect(FRISE).toContain('{(reservoir !== null || ajout) && (');
+  });
+
+  /**
+   * 🔴🔴 LES QUATRE FAÇONS DE REPLIER, par une SEULE porte (Arno : « Échap, “Fermer”, clic à côté,
+   * validation »). Quatre chemins vers la même fin écrits quatre fois : l'un d'eux oublie toujours quelque chose.
+   */
+  it('🔴🔴 Échap, « Fermer », clic à côté et validation passent par la même porte', () => {
+    expect(FRISE).toContain('const toutRefermer = useCallback((): void => {');
+    expect(FRISE).toContain("if (e.key === 'Escape') toutRefermer();");
+    expect(FRISE).toContain("document.addEventListener('pointerdown', surClicAilleurs);");
+    /* « Fermer » sur la bulle fixée, et sur le réservoir. */
+    expect(FRISE).toContain('<button type="button" className="fav-lien" onClick={onFermer}>Fermer</button>');
+    expect(FRISE).toContain('<button type="button" className="fav-btn" onClick={onFermer}>Fermer</button>');
+    /* La validation referme : `onFait` appelle `fermerReservoir`. */
+    expect(FRISE).toContain('onFait={(m) => { onGeste?.(m); fermerReservoir(); void charger(); }}');
+  });
+
+  /**
+   * ⚠️ `pointerdown` ET NON `click` POUR LE « CLIC À CÔTÉ » : un `click` naît à la MONTÉE du pointeur, après
+   * nos propres gestionnaires — et un glisser de la frise terminé hors du bloc aurait refermé la zone qu'on
+   * venait d'ouvrir. La descente dit l'intention au bon moment.
+   */
+  it('⚠️ le « clic à côté » s’écoute à la descente, et épargne l’intérieur du bloc', () => {
+    expect(FRISE).toContain('const surClicAilleurs = (e: PointerEvent): void => {');
+    expect(FRISE).toContain('if (cible instanceof Node && moi.current !== null && moi.current.contains(cible)) return;');
+    /* ⚠️ ET L'ÉCOUTEUR NE VIT QUE TANT QU'UNE ZONE EST OUVERTE : sinon il écouterait chaque clic de la page. */
+    expect(FRISE).toContain('if (!quelqueChoseEstOuvert) return undefined;');
+  });
+
+  /**
+   * 🔴🔴 UNE SEULE ZONE À LA FOIS (Arno). Ouvrir le réservoir ferme la bulle, et fixer une bulle ferme le
+   * réservoir : deux panneaux déployés l'un sous l'autre rendraient au bloc la hauteur qu'on vient de lui
+   * retirer.
+   */
+  it('🔴🔴 une seule zone ouverte à la fois', () => {
+    const iRes = FRISE.indexOf('const ouvrirReservoir = useCallback(');
+    expect(FRISE.slice(iRes, iRes + 300)).toContain('setFixe(null); setApercu(null);');
+    const iFix = FRISE.indexOf('const setOuvert = useCallback(');
+    expect(FRISE.slice(iFix, iFix + 300)).toContain('setReservoir(null); setAjout(false);');
+  });
+
+  /**
+   * 🔴 LE SURVOL NE DÉPLOIE PAS, ET LA PRIORITÉ EST ÉCRITE : quand on vient de cliquer, la souris n'a pas encore
+   * quitté la carte, et c'est la bulle DÉPLOYÉE qui doit rester — pas la flottante par-dessus.
+   */
+  it('🔴 la bulle fixée l’emporte sur la survolée', () => {
+    expect(FRISE).toContain('const detailApercu = detailFixe !== null ? null : etapeDe(apercu);');
+  });
+});
+
+describe('⑰ le grand cadre rouge (Arno, point 4)', () => {
+  /**
+   * ══ 🔴🔴 DIAGNOSTIC, ÉTABLI EN LISANT LES FEUILLES APPLIQUÉES DANS LA PAGE ═════════════════════════════════
+   *
+   * C'était un CONTOUR DE FOCUS CLAVIER, et non un état « sélectionné ». Deux règles, et deux seulement,
+   * pouvaient peindre un grand cadre rouge autour d'une frise — relevées en parcourant toutes les feuilles de
+   * la page et en ne gardant que celles qui portent `svv-red`, un `outline`, et un sélecteur de frise :
+   *
+   *     .fav-piste:focus-visible { outline: 2px solid var(--color-svv-red); outline-offset: -2px }
+   *     .frs-cadre:focus-visible { outline: 2px solid var(--color-svv-red); outline-offset: -2px }
+   *
+   * Les deux ont été posées au lot FRISES-REPARATION (B), en même temps que le `tabIndex: 0` qui rend ces
+   * régions atteignables aux flèches ← → du clavier. C'est le traitement de focus des PETITS BOUTONS de
+   * l'application appliqué à une RÉGION de 1074 × 132 px — d'où un cadre qui crève l'écran.
+   *
+   * 🔴 CE QUI LE REMPLACE : un liseré rouge de 3 px sur le bord gauche, l'accent déjà employé par
+   * `.fav-proposition` et `.fav-bulle` dans cette même feuille. Discret, cohérent, visible au seul clavier.
+   */
+  it('🔴🔴 plus aucun contour rouge pleine largeur sur une région', () => {
+    for (const [nom, src] of [['avancement', FRISE], ['mails', MAILS_FRISE]] as const) {
+      const feuille = src.slice(src.indexOf('const CSS_')).replace(/\/\*[\s\S]*?\*\//g, '');
+      expect(feuille, nom).not.toMatch(/focus-visible\{outline:2px solid var\(--color-svv-red\);outline-offset:-2px\}/);
+    }
+  });
+
+  /** 🔴 L'INDICATEUR RESTE, DISCRET, ET SUR LES DEUX FRISES — elles partagent leur défilement, donc sa signalétique. */
+  it('🔴🔴 un liseré discret le remplace, sur les deux frises', () => {
+    expect(FRISE).toContain('.fav-piste:focus-visible{outline:2px solid transparent;outline-offset:-2px;');
+    expect(FRISE).toContain('box-shadow:inset 3px 0 0 0 var(--color-svv-red)}');
+    expect(MAILS_FRISE).toContain('.frs-cadre:focus-visible{outline:2px solid transparent;outline-offset:-2px;');
+    expect(MAILS_FRISE).toContain('box-shadow:inset 3px 0 0 0 var(--color-svv-red)}');
+  });
+
+  /**
+   * ⚠️ `:focus-visible` ET JAMAIS `:focus` — « visible uniquement au clavier » (Arno). Un `:focus` nu
+   * rallumerait l'indicateur à chaque clic de souris dans la frise, ce qui est exactement ce qui faisait croire
+   * à un « état sélectionné ».
+   */
+  it('⚠️ l’indicateur ne s’allume qu’au clavier', () => {
+    for (const [nom, src] of [['avancement', FRISE], ['mails', MAILS_FRISE]] as const) {
+      const feuille = src.slice(src.indexOf('const CSS_')).replace(/\/\*[\s\S]*?\*\//g, '');
+      /* ⚠️ `:focus` SEUL, sans `-visible` derrière : c'est lui qu'on interdit. */
+      expect(feuille, nom).not.toMatch(/:focus(?!-visible)[^-a-z]/);
+    }
+  });
+
+  /**
+   * ⚠️ UN CONTOUR TRANSPARENT EST CONSERVÉ : en mode contraste forcé, les ombres ne sont pas peintes, et c'est
+   * le contour que le système repeint. Sans lui, l'indicateur disparaîtrait pour ceux qui en ont le plus besoin.
+   */
+  it('⚠️ le contraste forcé garde un contour à repeindre', () => {
+    expect(FRISE).toContain('outline:2px solid transparent');
+    expect(MAILS_FRISE).toContain('outline:2px solid transparent');
+  });
+});
+
+describe('⑱ les événements clos restent repliés (Arno, point 3)', () => {
+  /** 🔴🔴 « Seuls les événements EN COURS ont leur frise ouverte par défaut. » */
+  it('🔴🔴 seuls les en cours s’ouvrent d’office', () => {
+    expect(BLOC).toContain('setDeplies(new Set(evenements.filter((e) => !e.clos).map((e) => e.id)));');
+  });
+
+  /**
+   * ⚠️ POSÉ UNE FOIS, À L'ARRIVÉE DES DONNÉES — et non recalculé à chaque rendu, sans quoi replier un événement
+   * en cours le rouvrirait aussitôt.
+   */
+  it('⚠️ replier un en cours ne le rouvre pas', () => {
+    const i = BLOC.indexOf('setDeplies(new Set(evenements.filter');
+    const fin = BLOC.indexOf('}, [', i);
+    expect(BLOC.slice(fin, fin + 20)).toContain('}, [evenements]);');
+  });
+
+  /** 🔴 UN CLOS SE DÉPLIE AU CLIC : une ligne repliée n'est pas une ligne morte. */
+  it('🔴 un clos se déplie au clic, et dit son état', () => {
+    expect(BLOC).toContain('aria-expanded={ouvert}');
+    expect(BLOC).toContain("{e.clos ? 'clos' : 'en cours'}");
+    /* 🔴 ET LA LIGNE REPLIÉE PORTE TITRE, DATES ET DERNIÈRE ÉTAPE (Arno). */
+    expect(BLOC).toContain('className="evb-objet"');
+    expect(BLOC).toContain('ouvert le {jourFr(e.ouvertLe)}');
+    expect(BLOC).toContain('className="evb-etape"');
+  });
+
+  /** 🔴 ET LA FRISE N'EST MONTÉE QUE SI L'ÉVÉNEMENT EST DÉPLIÉ : un clos ne coûte aucune requête. */
+  it('🔴 la frise d’un événement replié n’est pas montée', () => {
+    expect(BLOC).toContain('{ouvert && (');
+    const i = BLOC.indexOf('{ouvert && (');
+    expect(BLOC.slice(i, i + 200)).toContain('<FriseAvancement');
   });
 });
