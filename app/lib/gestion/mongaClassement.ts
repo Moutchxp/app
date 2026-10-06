@@ -44,6 +44,8 @@ import {
 import {
   lireEtGarderUnMail, mailsDeLaReference, mongaDuMail, SQL_EST_MAIL_MONGA,
 } from './mongaRepo';
+/* 🔴🔴 LOT MONGA-2, POINT 2 — l'étape d'un mail Monga est enregistrée à l'arrivée, et lui survit. */
+import { enregistrerEtapesDuMail, poserOuvertureDeRepli } from './mongaEtapeRepo';
 import { cibleLot } from './rattachement';
 import { changerStatut, rattacher } from './rattachementRepo';
 import { evenementQualifieDisponible, mongaDisponible } from './schema';
@@ -347,26 +349,56 @@ export async function classerLesMailsDeLaReference(o: {
  * passer la relève pour ratée — c'est la règle de toute la passe de suite.
  */
 export async function passeMongaSurLesMails(messageIds: readonly number[]): Promise<{
-  lus: number; classes: number; aRelier: number;
+  lus: number; classes: number; aRelier: number; etapes: number;
 }> {
-  const vide = { lus: 0, classes: 0, aRelier: 0 };
+  const vide = { lus: 0, classes: 0, aRelier: 0, etapes: 0 };
   if (messageIds.length === 0 || !await mongaDisponible()) return vide;
   try {
-    const { rows } = await query<{ id: string; objet: string | null; texte: string | null }>(
-      `SELECT m.id::text AS id, m.objet, m.corps_texte AS texte
+    const { rows } = await query<{
+      id: string; objet: string | null; texte: string | null; cle: string | null; recu_le: string;
+    }>(
+      `SELECT m.id::text AS id, m.objet, m.corps_texte AS texte,
+              m.message_id AS cle, m.recu_le::text AS recu_le
          FROM gestion_message m
         WHERE m.id = ANY($1::bigint[]) AND ${SQL_EST_MAIL_MONGA}`, [[...messageIds]]);
     if (rows.length === 0) return vide;
 
     let classes = 0;
     let aRelier = 0;
+    let etapes = 0;
     for (const r of rows) {
-      await lireEtGarderUnMail(r.id, r.objet, r.texte);
+      const lecture = await lireEtGarderUnMail(r.id, r.objet, r.texte);
+      /**
+       * ══ 🔴🔴 LOT MONGA-2, POINT 2 — L'ÉTAPE EST ENREGISTRÉE ICI, À L'ARRIVÉE DU MAIL ═══════════════════════
+       *
+       * RÈGLE D'ARNO : « À l'arrivée de chaque mail Monga, son contenu est lu et l'étape est ENREGISTRÉE dans
+       * une table propre aux étapes […] Ensuite, le devenir du mail ne change JAMAIS l'étape enregistrée. »
+       *
+       * 🔴 C'EST UNE SECONDE ÉCRITURE, ET NON UN REMPLACEMENT DE `lireEtGarderUnMail`. Les deux ne vivent pas
+       * le même temps : `gestion_monga_mail` dit ce qu'un mail PRÉSENT contient (et meurt avec lui, par
+       * `ON DELETE CASCADE`) ; `gestion_monga_etape` garde ce que l'intervention a VÉCU. 25 des 98 mails
+       * gabarités étaient déjà à la corbeille au moment de ce lot, et Gmail les efface à 30 jours.
+       *
+       * ⚠️ ELLE NE JETTE PAS NON PLUS : même règle que la passe entière — le courrier est arrivé, et un échec
+       * d'enregistrement d'étape ne doit pas faire passer la relève pour ratée.
+       */
+      try {
+        etapes += await enregistrerEtapesDuMail({
+          messageId: Number(r.id),
+          messageCle: r.cle,
+          reference: lecture.reference,
+          objet: r.objet,
+          texte: r.texte,
+          recuLe: r.recu_le,
+        });
+        /* 🔴 ET L'OUVERTURE DE REPLI, pour que la frise commence quelque part : voir `poserOuvertureDeRepli`. */
+        if (lecture.reference !== null) await poserOuvertureDeRepli(lecture.reference);
+      } catch { /* l'étape attendra la reprise ; la relève, elle, continue */ }
       const issue = await classerUnMailMonga({ messageId: r.id });
       if (issue.classe) classes += 1;
       else if (issue.refus === 'reference_a_relier') aRelier += 1;
     }
-    return { lus: rows.length, classes, aRelier };
+    return { lus: rows.length, classes, aRelier, etapes };
   } catch {
     return vide;
   }
