@@ -93,7 +93,20 @@ export interface AdresseVue {
  * premiers partent d'une ADRESSE de l'échange ou d'une citation de BIEN ; (e) part d'une PERSONNE nommée dans le
  * texte. Il ne coche jamais rien — voir `personnesDansLeTexte`.
  */
-export type CasProposition = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
+/**
+ * 🔴🔴 LOT ATTENTION-ET-MODIFIER — LE CAS (g) : UNE RÉFÉRENCE MONGA RELIÉE, CITÉE PAR UN AUTRE EXPÉDITEUR.
+ *
+ * DÉCISION D'ARNO (06/10/2026) : « Un mail d'un autre expéditeur dont l'objet cite une référence Monga (Fwd:,
+ * Re:, échanges internes) ne crée JAMAIS d'étape. Si cette référence est reliée à un événement, son rattachement
+ * à cet événement est PROPOSÉ (aucune case cochée d'office, même porte que les autres propositions), pour qu'il
+ * apparaisse dans l'historique du bien après validation. »
+ *
+ * 🔴 CE QUE CE CAS RÉPARE, ET QU'ON A MESURÉ. Le prédicat Monga acceptait l'OBJET ; un `Fwd:` en hérite, et trois
+ * mails de notre propre conversation interne (fil 3109) étaient rangés comme du courrier Monga. Ils en sont
+ * sortis — mais ils parlent bel et bien de l'intervention, et les perdre de l'historique du bien serait l'excès
+ * inverse. On les PROPOSE donc, sans jamais les poser.
+ */
+export type CasProposition = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g';
 
 export interface PropositionBien {
   cle: string;
@@ -360,6 +373,12 @@ export function proposerBiens(o: {
    * pas, et le moteur se comporte exactement comme avant ce lot.
    */
   contenu?: AnnuaireContenu;
+  /**
+   * 🔴🔴 LOT ATTENTION-ET-MODIFIER — LES BIENS D'UN ÉVÉNEMENT dont la référence Monga est citée par ce mail,
+   * alors que l'expéditeur n'est PAS Monga. Absent ou vide ⇒ le cas (g) ne joue pas, et le moteur se comporte
+   * exactement comme avant ce lot.
+   */
+  mongaRelie?: { reference: string; biens: readonly string[] };
 }): ExamenBiens {
   const biensDuProprietaire = new Map<string, BienConnu[]>();
   for (const b of o.biens) {
@@ -561,6 +580,26 @@ export function proposerBiens(o: {
     }
   }
 
+  /**
+   * ══ 🔴🔴 CAS (g) — LA RÉFÉRENCE MONGA RELIÉE, CITÉE PAR UN AUTRE EXPÉDITEUR (décision d'Arno) ═══════════════
+   *
+   * 🔴 IL EST AJOUTÉ EN DERNIER, ET JAMAIS PRÉ-COCHÉ. « aucune case cochée d'office » — Arno. Un transfert cite
+   * la référence d'une intervention ; cela rend le lien PLAUSIBLE, jamais certain : le mail peut parler d'un
+   * tout autre sujet et n'avoir gardé que l'objet d'origine.
+   *
+   * ⚠️ IL NE PEUT PAS RENDRE UN CLASSEMENT AUTOMATIQUE, et c'est garanti plus bas par `parAdresse` : son cas
+   * n'est ni (a) ni (b), et sa certitude est `a_trancher`. Un `Re: Re: Fwd:` ne doit jamais ranger tout seul.
+   */
+  if (o.mongaRelie !== undefined) {
+    for (const cle of o.mongaRelie.biens) {
+      ajouter({
+        cle, cas: 'g', certitude: 'a_trancher', preCoche: false,
+        motif: `ce mail cite l’intervention ${o.mongaRelie.reference}, reliée à un événement de ce bien`,
+        adresses: [],
+      });
+    }
+  }
+
   if (propositions.length === 0) {
     return {
       issue: 'sans_candidat', propositions: [],
@@ -586,7 +625,12 @@ export function proposerBiens(o: {
    *      propositions de contenu dans « un seul bien certain » aurait fait basculer en « à trancher » des mails
    *      que le moteur posait tout seul depuis des mois — une fonctionnalité retirée en silence.
    */
-  const parAdresse = propositions.filter((p) => p.cas !== 'e');
+  /**
+   * ⚠️ LE CAS (g) EST ÉCARTÉ D'« AUTO » AU MÊME TITRE QUE (e), et pour la même raison : il ne vient pas d'une
+   * adresse reconnue mais d'une citation. Le compter aurait pu faire ranger tout seul un `Fwd:` dont l'objet
+   * seul parlait de Monga — exactement le défaut que le resserrement du prédicat vient de corriger.
+   */
+  const parAdresse = propositions.filter((p) => p.cas !== 'e' && p.cas !== 'g');
   if (parAdresse.length === 1 && quasi.length === 1 && !depuisLEchange) {
     return {
       issue: 'automatique', propositions,

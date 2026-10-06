@@ -121,6 +121,48 @@ async function main(): Promise<void> {
    * reclassement leur rend leur vraie étape, avec le vocabulaire DE CETTE TABLE-LÀ (son `CHECK` ne connaît pas
    * les types de la frise), sans toucher à une seule autre colonne.
    */
+  /* ══ 🔴🔴 LE MÉNAGE : UN MAIL MONGA SE RECONNAÎT À SON EXPÉDITEUR (décision d'Arno) ═══════════════════════════
+   *
+   * Le prédicat d'avant acceptait aussi l'OBJET, et un `Fwd:` hérite de l'objet : des mails de notre propre
+   * conversation interne se retrouvaient rangés comme du courrier Monga. `SQL_EST_MAIL_MONGA` est resserré ;
+   * cette passe retire de la table les lignes qui n'auraient plus dû y entrer.
+   *
+   * ⚠️ ON NE TOUCHE QUE `gestion_monga_mail`. Le MAIL lui-même n'est ni supprimé, ni déplacé, ni marqué : il
+   * reste exactement où il est, dans sa boîte et dans son échange. C'est la LECTURE Monga qu'on retire, pas le
+   * courrier — Arno l'a écrit en toutes lettres (« jamais du mail lui-même »).
+   */
+  console.log('');
+  console.log('── MÉNAGE : LES MAILS D’UN AUTRE EXPÉDITEUR ────────────────────────────────');
+  const { rows: intrus } = await query<{
+    n: string; avec_gabarit: string; avec_signal: string;
+  }>(
+    `SELECT count(*) AS n,
+            count(*) FILTER (WHERE m.corps_texte ~* 'concernant la mission MNG-|L.equipe Monga|app[.]monga[.]io/missions') AS avec_gabarit,
+            count(*) FILTER (WHERE m.corps_texte ~* 'artisan partenaire a .t. fix|Votre devis N.DEV-[0-9]{8}|le rendez-vous a bien eu lieu|accusons bonne r.ception') AS avec_signal
+       FROM gestion_monga_mail mm JOIN gestion_message m ON m.id = mm.message_id
+      WHERE m.de_adresse !~* '@([a-z0-9-]+[.])*monga[.]io$'`);
+  const nIntrus = Number(intrus[0]?.n ?? 0);
+  console.log(`lignes d’un autre expéditeur        : ${nIntrus}`);
+  console.log(`   dont portant du gabarit Monga    : ${intrus[0]?.avec_gabarit ?? 0} (des transferts)`);
+  console.log(`   dont portant un signal d’étape   : ${intrus[0]?.avec_signal ?? 0}  ← la perte réelle`);
+  /**
+   * 🔴 ET LA VÉRIFICATION QUI COMPTE : aucune ÉTAPE de la frise ne doit venir d'un mail non-Monga. Mesuré à 0
+   * avant d'appliquer ; on le revérifie à chaque passage, parce que c'est ce qui garantit que le ménage ne
+   * retire pas d'historique.
+   */
+  const { rows: etapesIntruses } = await query<{ n: string }>(
+    `SELECT count(*) AS n FROM gestion_monga_etape e JOIN gestion_message m ON m.id = e.message_id
+      WHERE e.source = 'monga' AND m.de_adresse !~* '@([a-z0-9-]+[.])*monga[.]io$'`);
+  console.log(`étapes de frise issues d’un non-Monga : ${etapesIntruses[0]?.n ?? 0}  (doit être 0)`);
+  if (APPLIQUER && nIntrus > 0) {
+    await query(
+      `DELETE FROM gestion_monga_mail mm
+        USING gestion_message m
+        WHERE m.id = mm.message_id
+          AND m.de_adresse !~* '@([a-z0-9-]+[.])*monga[.]io$'`);
+    console.log(`${nIntrus} lignes retirées de gestion_monga_mail (les mails, eux, n’ont pas bougé).`);
+  }
+
   console.log('');
   console.log('── RECLASSEMENT DE gestion_monga_mail ──────────────────────────────────────');
   /**
@@ -141,7 +183,11 @@ async function main(): Promise<void> {
   const { rows: aRelire } = await query<{ message_id: string; etape: string; objet: string | null; corps_texte: string | null }>(
     `SELECT mm.message_id, mm.etape, m.objet, m.corps_texte
        FROM gestion_monga_mail mm JOIN gestion_message m ON m.id = mm.message_id
-      WHERE mm.etape IN ('commentaire', 'attention')`);
+      WHERE mm.etape IN ('commentaire', 'attention')
+        -- ⚠️ ET SEULEMENT LES VRAIS MAILS MONGA : les autres sortent de la table au ménage ci-dessus. Sans
+        --    cette condition, la SIMULATION annoncerait des reclassements de lignes qui n'existeront plus,
+        --    et ses chiffres ne vaudraient rien (mesuré : elle annonçait 5 reclassements au lieu de 2).
+        AND m.de_adresse ~* '@([a-z0-9-]+[.])*monga[.]io$'`);
 
   /** La traduction vers le vocabulaire de `gestion_monga_mail` — il est plus pauvre, et on ne l'élargit pas ici. */
   const versAncien: Partial<Record<TypeEtape, string>> = {
@@ -149,12 +195,37 @@ async function main(): Promise<void> {
     facture: 'facture', intervention: 'compte_rendu', rdv_eu_lieu: 'compte_rendu',
     prise_rdv: 'service', rdv_intervention: 'service', ouverture: 'service',
     contact_injoignable: 'service',
+    /**
+     * 🔴 LOT ATTENTION-ET-MODIFIER — un mail rangé sous « attention » dont le corps ne porte QU'UN COMMENTAIRE
+     * humain est un commentaire, pas une alerte. Sans cette entrée, le message 594 (« La locataire est en
+     * vacances et déménage le 03 octobre… ») restait « attention » faute d'étape majeure à proposer.
+     */
+    commentaire: 'commentaire',
   };
+  /**
+   * ⚠️ UNE RELANCE DE PAIEMENT N'EST PAS UNE FACTURE, et le vocabulaire de cette table-ci les distingue
+   * (`facture` / `relance_facture`). Le gabarit V3 empile deux blocs de commentaire dont le PREMIER est vide
+   * (« Bonjour, » seul) : c'est pourquoi la lecture d'étape n'y voit rien, et pourquoi on relit le corps entier
+   * ici. Cas mesuré : message 4657, « nous n'avons toujours pas reçu le virement […] je serai obligée d'annuler
+   * l'intervention ».
+   */
+  const estRelanceDePaiement = (t: string | null): boolean =>
+    /pas re[çc]u le virement|en attente de r[èe]glement|toujours en attente de/i.test(t ?? '');
   const mouvements = new Map<string, number>();
   for (const l of aRelire) {
     const lues = etapesDuMailMonga(l.objet, l.corps_texte);
     const majeure = lues.find((e) => e.type !== 'commentaire');
-    const cible = majeure === undefined ? null : versAncien[majeure.type] ?? null;
+    /**
+     * 🔴 L'ORDRE COMPTE, ET LA RELANCE PASSE EN DERNIER. Mise en premier, elle écrasait des classements justes :
+     * un mail qui annonce un rendez-vous ET rappelle une facture impayée est d'abord un rendez-vous. Elle ne
+     * sert que lorsque la lecture d'étape ne trouve rien — c'est le cas du gabarit V3 à deux blocs.
+     */
+    const cible = majeure !== undefined
+      ? versAncien[majeure.type] ?? null
+      : estRelanceDePaiement(l.corps_texte)
+        ? 'relance_facture'
+        /* ⚠️ À DÉFAUT : si le mail porte un commentaire, c'en est un. Sinon on ne touche à rien. */
+        : (lues.some((e) => e.type === 'commentaire') ? 'commentaire' : null);
     if (cible === null || cible === l.etape) continue;
     mouvements.set(`${l.etape} → ${cible}`, (mouvements.get(`${l.etape} → ${cible}`) ?? 0) + 1);
     if (APPLIQUER) {

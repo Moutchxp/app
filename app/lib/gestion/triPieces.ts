@@ -130,7 +130,11 @@ export type Destination =
  * (vérifié le 05/10/2026 — ses six valeurs présentes sont a, b, c, d, e, document_auto et intervention). Le
  * garde de ce qui est permis comme CIBLE est ailleurs, et il ne regarde pas la règle.
  */
-export type Regle = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
+/**
+ * 🔴🔴 LOT ATTENTION-ET-MODIFIER — `'g'` S'AJOUTE : « ce mail cite une intervention Monga reliée à un événement
+ * de ce bien ». Même absence de migration : la colonne `regle` reste un `text` sans contrainte de valeurs.
+ */
+export type Regle = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g';
 export type Confiance = 'haute' | 'moyenne' | 'basse';
 
 export interface Decision {

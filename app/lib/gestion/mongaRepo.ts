@@ -34,8 +34,31 @@ import { normaliser } from './propositionsBien';
  * ⚠️ LA BRANCHE ③ RAMÈNE AUSSI DU BRUIT — un mail qui PARLE de Monga sans en être un. C'est voulu : on le lit,
  * `reference` sort à `null`, et il n'entre dans aucune intervention. Le rater aurait coûté beaucoup plus cher.
  */
+/**
+ * ══ 🔴🔴 LOT ATTENTION-ET-MODIFIER — UN MAIL MONGA SE RECONNAÎT À SON EXPÉDITEUR, ET À RIEN D'AUTRE ══════════════
+ *
+ * DÉCISION D'ARNO (06/10/2026) : « Seuls les mails dont l'EXPÉDITEUR est Monga (domaine monga.io) créent des
+ * étapes ou des repères dans la frise. Resserre le prédicat de gestion_monga_mail sur l'expéditeur. »
+ *
+ * ═══ CE QUE LE PRÉDICAT D'AVANT FAISAIT ENTRER, ET QU'ON A MESURÉ ═══════════════════════════════════════════════
+ *
+ * Il valait `de_adresse ILIKE '%monga.io' OR objet ~* 'MNG-[0-9]{4,6}' OR objet ILIKE '%MONGA%'`. Or un `Fwd:`
+ * ou un `Re:` HÉRITE DE L'OBJET : trois mails de notre propre conversation interne (fil 3109, Anaïs ↔ Amélie à
+ * propos d'un acompte) se retrouvaient rangés comme du courrier Monga, uniquement parce que l'objet transféré
+ * disait « Le ticket MONGA 20922 requiert votre attention ».
+ *
+ * 🔴 MESURÉ LE 06/10/2026, AVANT D'APPLIQUER : 157 lignes dans `gestion_monga_mail`, dont **37 d'un autre
+ * expéditeur**. Sur ces 37, **6** portent du gabarit Monga (des transferts), et **une seule** porte un vrai
+ * signal d'étape — MNG-24062, transférée par un collaborateur. Et surtout : **0 étape de la frise ne venait d'un
+ * mail non-Monga** (`gestion_monga_etape` jointe sur l'expéditeur : zéro ligne). Le resserrement ne retire donc
+ * aucune étape existante.
+ *
+ * ⚠️ CE QU'ON PERD, DIT FRANCHEMENT : la référence MNG-24062 n'a aucun mail Monga DIRECT en base — son devis
+ * n'était connu que par ce transfert, et il ne produira plus d'étape. C'est le prix de la règle, et Arno l'a
+ * tranché : un mail d'un autre expéditeur ne crée JAMAIS d'étape ; son rattachement à l'événement est PROPOSÉ.
+ */
 export const SQL_EST_MAIL_MONGA =
-  "(m.de_adresse ILIKE '%monga.io' OR m.objet ~* 'MNG-[0-9]{4,6}' OR m.objet ILIKE '%MONGA%')";
+  "(m.de_adresse ~* '@([a-z0-9-]+[.])*monga[.]io$')";
 
 /** Ce qu'une relecture a changé. Sert au script et aux épreuves. */
 export interface ReleveMonga {

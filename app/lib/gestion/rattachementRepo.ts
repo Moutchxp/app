@@ -29,6 +29,8 @@ import { faceALaFenetre } from './periodesConversation';
 // 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — le corps à fouiller : le texte, ou le HTML rendu en texte.
 import { corpsLisible } from './htmlMail';
 import { CORPS_CHERCHABLE_MAX } from './propositionsBien';
+/* 🔴🔴 LOT ATTENTION-ET-MODIFIER — les biens d'un événement, pour proposer un mail qui cite sa référence. */
+import { biensDeLEvenement } from './mongaClassement';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche } from './nomUsageSql';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — les biens ou une adresse est un contact rattache (cas (f)). La lecture
@@ -492,11 +494,64 @@ export async function examinerFilsPrecis(
   await examinerLePaquet(await chargerFils(filIds), libelles, c, appliquer, retrait);
 }
 
+/**
+ * ══ 🔴🔴 LOT ATTENTION-ET-MODIFIER — LES RÉFÉRENCES MONGA CITÉES PAR UN AUTRE EXPÉDITEUR ═══════════════════════
+ *
+ * DÉCISION D'ARNO (06/10/2026) : « Un mail d'un autre expéditeur dont l'objet cite une référence Monga (Fwd:,
+ * Re:, échanges internes) ne crée JAMAIS d'étape. Si cette référence est reliée à un événement, son rattachement
+ * à cet événement est PROPOSÉ (aucune case cochée d'office, même porte que les autres propositions), pour qu'il
+ * apparaisse dans l'historique du bien après validation. »
+ *
+ * 🔴 ON REND LES BIENS DE L'ÉVÉNEMENT, pas l'événement : l'historique d'un bien est fait de rattachements à des
+ * LOTS, et c'est la cible de toute proposition dans ce dépôt (« la cible d'un classement est toujours un bien »,
+ * règle d'Arno du 28/09). Passer par l'événement et s'arrêter là ne ferait apparaître le mail nulle part.
+ *
+ * ⚠️ UNE SEULE RÉFÉRENCE PAR MAIL, LA PREMIÈRE : un transfert qui en cite deux est trop rare pour mériter une
+ * ambiguïté de plus dans une proposition qui est déjà, par nature, à trancher.
+ */
+async function referencesMongaCitees(
+  filIds: readonly number[],
+): Promise<Map<number, { reference: string; biens: string[] }>> {
+  const out = new Map<number, { reference: string; biens: string[] }>();
+  if (filIds.length === 0) return out;
+  const { rows } = await query<{ id: string; reference: string; evenement_id: string }>(
+    `SELECT m.id, l.reference, l.evenement_id
+       FROM gestion_message m
+       JOIN gestion_monga_lien l
+         ON l.retire_le IS NULL
+        AND l.reference = 'MNG-' || (regexp_match(coalesce(m.objet,'')||' '||coalesce(m.corps_texte,''),
+                                                  'MNG[- ]?([0-9]{4,6})'))[1]
+      WHERE m.fil_id = ANY($1::bigint[])
+        AND m.de_adresse !~* '@([a-z0-9-]+[.])*monga[.]io$'`, [[...filIds]]);
+  if (rows.length === 0) return out;
+  /* Les biens de chaque événement, lus une fois par événement et non par mail. */
+  const parEvenement = new Map<string, string[]>();
+  for (const r of rows) {
+    if (parEvenement.has(r.evenement_id)) continue;
+    parEvenement.set(r.evenement_id, await biensDeLEvenement(r.evenement_id));
+  }
+  for (const r of rows) {
+    const biens = parEvenement.get(r.evenement_id) ?? [];
+    if (biens.length === 0) continue;
+    out.set(Number(r.id), { reference: r.reference, biens });
+  }
+  return out;
+}
+
 /** LE CORPS COMMUN aux deux chemins. Une seule règle d'écriture, donc pas deux comportements possibles. */
 async function examinerLePaquet(
   paquet: Paquet, libelles: LibellesCibles, c: ComptesPasse, appliquer: boolean,
   retrait?: { auteur: string; motif: string },
 ): Promise<void> {
+  /**
+   * 🔴🔴 LOT ATTENTION-ET-MODIFIER — LES RÉFÉRENCES MONGA CITÉES PAR DES MAILS **NON-MONGA**, et les biens des
+   * événements auxquels elles sont reliées. Une seule lecture pour tout le paquet, comme le catalogue.
+   *
+   * ⚠️ `de_adresse !~ monga.io` EST LA CONDITION, et c'est tout l'objet du lot : un mail de Monga passe par sa
+   * propre porte. Ici on ne regarde que ce que les AUTRES citent.
+   */
+  const mongaCite = await referencesMongaCitees(paquet.fils);
+
   // ⚠️ UNE SEULE LECTURE DU CATALOGUE POUR TOUT LE PAQUET : il ne bouge pas pendant la passe.
   const catalogue = await chargerCatalogueBiens();
   /**
@@ -547,6 +602,17 @@ async function examinerLePaquet(
       sens: m.sens, exclusionRegleId: m.exclusionRegleId,
       /* 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 4 — et la décision humaine « interne », qu'il ignorait. */
       interne,
+      /**
+       * 🔴🔴 LOT ATTENTION-ET-MODIFIER — LA RÉFÉRENCE MONGA CITÉE PAR UN AUTRE EXPÉDITEUR (décision d'Arno).
+       *
+       * Un `Fwd:` ou un `Re:` qui cite « MNG-20922 » ne crée aucune étape — c'est la règle du resserrement. Mais
+       * s'il parle d'une intervention RELIÉE à un événement, le perdre de l'historique du bien serait l'excès
+       * inverse. On PROPOSE donc ses biens, décochés.
+       *
+       * ⚠️ RIEN POUR UN MAIL DE MONGA LUI-MÊME : il est déjà classé par sa propre porte (`classerUnMailMonga`),
+       * et deux chemins pour le même mail finiraient par se contredire.
+       */
+      mongaRelie: mongaCite.get(m.id),
     });
 
     c.messagesVus += 1;

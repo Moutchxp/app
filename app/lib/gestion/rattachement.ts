@@ -249,6 +249,15 @@ export function examinerMessage(o: {
    * exactement comme avant ce lot.
    */
   interne?: boolean;
+  /**
+   * 🔴🔴 LOT ATTENTION-ET-MODIFIER — LES BIENS D'UN ÉVÉNEMENT dont la référence Monga est citée par ce mail,
+   * alors que son expéditeur n'est PAS Monga (un `Fwd:`, un `Re:`, un échange interne).
+   *
+   * DÉCISION D'ARNO : un tel mail « ne crée JAMAIS d'étape. Si cette référence est reliée à un événement, son
+   * rattachement à cet événement est PROPOSÉ (aucune case cochée d'office) ». Absent ⇒ le cas (g) ne joue pas,
+   * et le moteur se comporte exactement comme avant ce lot.
+   */
+  mongaRelie?: { reference: string; biens: readonly string[] };
 }): Examen {
   const utiles = adressesUtiles(o.adressesEchange.filter((a) => a.messageId === o.messageId)).length;
 
@@ -310,6 +319,7 @@ export function examinerMessage(o: {
     textes: o.textes,
     biens: o.biens,
     contenu: o.contenu,
+    mongaRelie: o.mongaRelie,
   });
 
   /** Une proposition de bien, traduite dans le vocabulaire des rattachements. La cible est TOUJOURS un lot. */
@@ -325,7 +335,9 @@ export function examinerMessage(o: {
      * qu'on classe peut concerner un autre bien du même propriétaire. La proposition se voit, motivée, et
      * attend un humain — c'est la leçon des 76 cases cochées du cas (d).
      */
-    confiance: p.cas === 'e' || p.cas === 'f'
+    /* 🔴 (g) EST BASSE AUSSI : une citation de référence dans un objet transféré est un INDICE, pas une
+       identité du logement. Voir le cas (g) de `propositionsBien`. */
+    confiance: p.cas === 'e' || p.cas === 'f' || p.cas === 'g'
       ? 'basse'
       : p.certitude === 'quasi_certaine' ? 'haute' : 'moyenne',
     motif: p.motif,
