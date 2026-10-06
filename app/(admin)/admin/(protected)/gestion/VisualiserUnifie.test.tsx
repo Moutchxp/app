@@ -875,6 +875,63 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
   });
 
   /**
+   * ══ 🔴🔴 DÉFAUT TROUVÉ À L'ESSAI RÉEL (06/10/2026, mail _TEST 57471 de lot-27) ═══════════════════════════════
+   *
+   * Décocher le bien retirait le lien du bien — ce qu'on demandait — ET le lien `proprietaire 45`, c'est-à-dire
+   * l'INTERVENTION « pour JOREL Arnaud (propriétaire) · via Arnaud JOREL » que la ligne affiche. Personne ne
+   * l'avait demandé, et rien ne l'annonçait.
+   *
+   * 🔴 LA CAUSE EST CELLE QUE `sortirDuSuivi` AVAIT DÉJÀ RACONTÉE : le classement d'un mail a DEUX axes, les
+   * BIENS et les PERSONNES. Cette fenêtre ne connaît que les biens ; en posant `{ sorte: 'biens', biens }` sans
+   * plus, elle écrivait « et aucune personne ».
+   *
+   * ⚠️ ELLES SONT LUES À LA MÊME SOURCE QUE `sortirDuSuivi` — la projection des périodes et des exceptions sur ce
+   * mail — et surtout PAS reconstruites depuis les liens : c'est l'erreur que l'essai réel du 05/10 avait déjà
+   * coûtée (un propriétaire reposé en LOT).
+   */
+  it('🔴🔴 les PERSONNES du classement sont reposées telles quelles, jamais perdues', async () => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if ((init?.method ?? 'GET') === 'GET' && u.includes('/gestion/suivi?fil=')) {
+        return {
+          ok: true,
+          json: async () => ({
+            etat: 'ok',
+            mails: [8120, MAIL],
+            periodes: [{
+              id: 1,
+              depuisMessageId: 8120,
+              classement: {
+                sorte: 'biens',
+                biens: [{ cle: 'L-484', libelle: '2 rue Fictive' }],
+                personnes: [{
+                  sorte: 'proprietaire', cle: '45', libelle: 'JOREL Arnaud', contactExterneId: 9,
+                }],
+              },
+            }],
+            exceptions: [],
+          }),
+        } as unknown as Response;
+      }
+      return (avant as (u: unknown, i?: unknown) => Promise<Response>)(url, init);
+    }) as unknown as typeof fetch;
+    await monterPonctuel();
+    /* On DÉCOCHE le bien : c'est le geste de l'essai réel. */
+    await cocher(container.querySelector('.rdf-item input.rdf-garde') as HTMLInputElement);
+    await cliquer(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT)) as Element);
+    const corps = ecritures[0].corps as {
+      classement: { biens: unknown[]; personnes?: { sorte: string; cle: string }[] };
+    };
+    /* 🔴 LE BIEN PART — c'est ce qu'on a demandé. */
+    expect(corps.classement.biens).toEqual([]);
+    /* 🔴🔴 ET LA PERSONNE RESTE — c'est ce qu'on n'a PAS demandé. */
+    expect(corps.classement.personnes).toEqual([{
+      sorte: 'proprietaire', cle: '45', libelle: 'JOREL Arnaud', contactExterneId: 9,
+    }]);
+  });
+
+  /**
    * ⚠️ LES AUTRES PORTES NE CHANGENT PAS — demande d'Arno, mot pour mot. Montée sans `ponctuel`, la fenêtre
    * retrouve ses trois options, son encadré et son mot de validation.
    */

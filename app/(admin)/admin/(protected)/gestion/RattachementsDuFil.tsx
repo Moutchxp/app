@@ -50,7 +50,9 @@ import {
 } from '../../../../lib/gestion/sortirDuSuivi';
 import {
   alerteTouteLaConversation, motClassement,
-  type ChoixSuivi, type Classement, type ExceptionMail,
+  /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL — la projection, pour reposer les PERSONNES en vigueur (voir `ecrire`). */
+  projeter,
+  type ChoixSuivi, type Classement, type ExceptionMail, type Periode, type PersonneClassee,
 } from '../../../../lib/gestion/periodesConversation';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 /* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — le formulaire de création et la recherche d'événements, RÉEMPLOYÉS
@@ -276,7 +278,8 @@ export function RattachementsDuFil({
     return () => clearTimeout(t);
   }, [leveeFaite]);
   /** Les périodes et exceptions vivantes de l'échange — pour l'alerte de « Toute la conversation ». */
-  const [suivi, setSuivi] = useState<{ mails: number[]; exceptions: ExceptionMail[] } | null>(null);
+  const [suivi, setSuivi] = useState<
+    { mails: number[]; exceptions: ExceptionMail[]; periodes: Periode[] } | null>(null);
   /**
    * 🔴 LES DOSSIERS DRIVE DES BIENS, par clé de lot. Lus À PART, et APRÈS le reste.
    *
@@ -445,9 +448,13 @@ export function RattachementsDuFil({
     void (async () => {
       try {
         const res = await fetch(`/api/admin/gestion/suivi?fil=${filId}`, { cache: 'no-store' });
-        const d = (await res.json()) as { etat?: string; mails?: number[]; exceptions?: ExceptionMail[] };
+        const d = (await res.json()) as {
+          etat?: string; mails?: number[]; exceptions?: ExceptionMail[]; periodes?: Periode[];
+        };
         if (annule || d.etat !== 'ok') return;
-        setSuivi({ mails: d.mails ?? [], exceptions: d.exceptions ?? [] });
+        /* 🔴🔴 LES PÉRIODES AUSSI, DEPUIS LE LOT RATTACHEMENT-PONCTUEL — voir `personnesEnVigueur` : elles
+           portent les PERSONNES du classement, que la validation doit reposer telles quelles. */
+        setSuivi({ mails: d.mails ?? [], exceptions: d.exceptions ?? [], periodes: d.periodes ?? [] });
       } catch { /* l'alerte se taira : voir l'encadré */ }
     })();
     return () => { annule = true; };
@@ -800,6 +807,16 @@ export function RattachementsDuFil({
     return out;
   };
 
+  /**
+   * Les PERSONNES que le suivi applique à ce mail — propriétaire, locataire, et leur contact extérieur. PUR vis
+   * à vis du réseau : tout est déjà chargé. `[]` quand aucune fenêtre ne couvre ce mail.
+   */
+  const personnesEnVigueur = (): PersonneClassee[] => {
+    if (suivi === null || mailId === null) return [];
+    const c = projeter(suivi.mails, suivi.periodes, suivi.exceptions).get(mailId);
+    return [...(c?.personnes ?? [])];
+  };
+
   const ecrire = async (
     voulus: readonly { cle: string; libelle: string }[], choix: ChoixSuivi,
     /**
@@ -811,7 +828,32 @@ export function RattachementsDuFil({
   ): Promise<void> => {
     if (mailId === null) return;
     setErreur(null);
-    const classement: Classement = { sorte: 'biens', biens: voulus.map((b) => ({ ...b })) };
+    /**
+     * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL — LES PERSONNES DU CLASSEMENT SONT REPOSÉES TELLES QUELLES ═══════════
+     *
+     * ═══ DÉFAUT TROUVÉ À L'ESSAI RÉEL (06/10/2026, mail _TEST 57471 de lot-27) ═════════════════════════════
+     *
+     * Décocher le bien a retiré le lien du bien — ce qu'on demandait — ET le lien `proprietaire 45`, c'est-à-dire
+     * l'INTERVENTION « pour JOREL Arnaud (propriétaire) · via Arnaud JOREL » que la ligne affiche. Personne ne
+     * l'avait demandé, et rien ne l'annonçait.
+     *
+     * 🔴 LA CAUSE EST CELLE QUE `sortirDuSuivi` A DÉJÀ RACONTÉE : le classement d'un mail a DEUX axes. Les BIENS
+     * (`biens`) et les PERSONNES (`personnes`, lot CONTACTS-EXTERNES), projetées à part. Cette fenêtre ne connaît
+     * que les biens : en posant `{ sorte: 'biens', biens }` sans plus, elle écrivait « et aucune personne ».
+     *
+     * 🔴 ON REPOSE DONC LES PERSONNES EN VIGUEUR, lues à la même source que `sortirDuSuivi` : la projection des
+     * périodes et des exceptions sur CE mail. On ne les reconstruit pas depuis les liens — c'est exactement
+     * l'erreur que l'essai réel du 05/10 avait déjà coûtée (un propriétaire reposé en LOT).
+     *
+     * ⚠️ AUCUNE PERSONNE EN VIGUEUR ⇒ RIEN D'AJOUTÉ, et le geste est celui d'avant : c'est le cas de l'immense
+     * majorité du courrier.
+     */
+    const personnes = personnesEnVigueur();
+    const classement: Classement = {
+      sorte: 'biens',
+      biens: voulus.map((b) => ({ ...b })),
+      ...(personnes.length > 0 ? { personnes } : {}),
+    };
 
     /**
      * ══ 🔴🔴 POINT 2 — ON DEMANDE AVANT, QUAND UN BIEN S'AJOUTE À UN MAIL MARQUÉ « INTERNE » ═════════════════
