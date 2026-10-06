@@ -19,6 +19,9 @@ import { motGroupeMessages } from '../../../../lib/gestion/frise';
  */
 
 const FRISE = readFileSync('app/(admin)/admin/(protected)/gestion/FriseAvancement.tsx', 'utf8');
+/* 🔴 LE DÉFILEMENT A DÉMÉNAGÉ DANS UN CROCHET PARTAGÉ (lot FRISES-REPARATION, B.3) : les épreuves qui le
+   concernent lisent désormais CE fichier, puisqu'il est le seul chemin des DEUX frises. */
+const SOURCE_CROCHET = readFileSync('app/(admin)/admin/(protected)/gestion/useDefilementFrise.ts', 'utf8');
 const BLOC = readFileSync('app/(admin)/admin/(protected)/gestion/EvenementsDuBien.tsx', 'utf8');
 const CARTE = readFileSync('app/(admin)/admin/(protected)/gestion/CarteVive.tsx', 'utf8');
 const ANNUAIRE = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
@@ -218,41 +221,80 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
   /** 🔴 LA FRISE EST UNE SÉQUENCE : une liste ORDONNÉE, et c'est ce qu'un lecteur d'écran doit entendre. */
   it('🔴 la frise reste une liste ORDONNÉE, même en ligne', () => {
     /* 🔴 UNE FRISE EST UNE SÉQUENCE : c'est ce qu'un lecteur d'écran doit entendre, horizontale ou non. */
-    expect(FRISE).toContain('<ol\n          className="fav-piste"');
+    expect(FRISE).toContain('<ol className="fav-piste"');
   });
 
   /**
    * ══ 🔴🔴 LE DÉFILEMENT NE DOIT JAMAIS PIÉGER LA PAGE ═══════════════════════════════════════════════════════
    *
-   * Arno demande le défilement horizontal « glisser, molette horizontale ou Maj+molette ». La molette VERTICALE
-   * doit continuer de faire défiler la PAGE : la détourner est le défaut classique des frises en ligne — on ne
-   * peut plus quitter le bloc en défilant, et sur un portable on reste coincé dedans.
+   * ═══ ⚠️ CE QUE CETTE ÉPREUVE DISAIT AVANT, ET POURQUOI LE VERDICT A CHANGÉ ══════════════════════════════════
+   *
+   * Elle figeait deux lignes : « const horizontal = e.shiftKey || … » et « if (!horizontal) return; », et elle
+   * portait pour titre « seule la molette horizontale (ou Maj) déplace la frise ». C'était la bonne INTENTION —
+   * ne pas piéger la page — servie par la plus grossière des mises en œuvre : la molette verticale n'était pas
+   * convertie DU TOUT, jamais, même au milieu d'une frise qui avait encore 80 px à montrer.
+   *
+   * 🔴 ARNO A TRANCHÉ AUTREMENT (lot FRISES-REPARATION, B.2) : « molette verticale convertie en horizontal
+   * UNIQUEMENT tant que la frise peut défiler, puis la page reprend la main ». L'intention est tenue — on ne
+   * reste pas coincé dans le bloc — mais la molette sert enfin à quelque chose tant qu'il reste à voir.
+   *
+   * 🔴 ET LA RÈGLE A CHANGÉ DE MAISON : elle est dans `defilementMolette`, module PUR, éprouvé cas par cas dans
+   * `defilementFrise.test.ts`. Ici, on vérifie seulement qu'il n'y a plus de SECOND CHEMIN dans le composant.
    */
-  it('🔴🔴 seule la molette horizontale (ou Maj) déplace la frise', () => {
-    expect(FRISE).toContain('const horizontal = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);');
-    expect(FRISE).toContain('if (!horizontal) return;');
+  it('🔴🔴 aucun gestionnaire de molette n’est écrit dans le composant', () => {
+    expect(FRISE).not.toContain('onWheel');
+    expect(FRISE).not.toContain('deltaY');
+    /* 🔴 LE DÉFILEMENT VIENT DU CROCHET PARTAGÉ, et les gestes sont étalés tels quels. */
+    expect(FRISE).toContain("import { useDefilementFrise } from './useDefilementFrise';");
+    expect(FRISE).toContain('{...defilement.attaches}');
   });
 
-  /** 🔴 LES FLÈCHES N'APPARAISSENT QUE S'IL RESTE DU CONTENU CACHÉ (Arno). */
+  /**
+   * 🔴🔴 LA CAUSE MESURÉE DU POINT B, ET LE GARDE QUI L'EMPÊCHE DE REVENIR.
+   *
+   * Sur lot-237 (82 px de défilement disponible), `scroll-behavior:smooth` dans la feuille rendait CHAQUE geste
+   * à 0 — molette 0, Maj+molette 0, trackpad 0, et jusqu'à `scrollLeft = 9999` qui rendait 0 après 600 ms :
+   * « smooth » fait de toute affectation une animation, que l'affectation suivante annule. Les mêmes gestes
+   * rendent 82 sans elle. La douceur est posée en JavaScript, sur les FLÈCHES seules.
+   */
+  it('🔴🔴 « scroll-behavior » n’est plus dans la feuille de la frise', () => {
+    /* ⚠️ LA FEUILLE SANS SES COMMENTAIRES : l'encadré qui raconte pourquoi la propriété a été retirée la cite,
+       évidemment. Ce sont les DÉCLARATIONS qui s'appliquent, pas les explications. */
+    /* ⚠️ `(?<!over)` : « overscroll-behavior-x » CONTIENT « scroll-behavior », et il doit rester — il empêche
+       le bout de la frise d'emporter la page. Deux propriétés différentes, un nom qui se recouvre. */
+    const feuille = FRISE.slice(FRISE.indexOf('const CSS_')).replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(feuille).not.toMatch(/(?<!over)scroll-behavior/);
+  });
+
+  /**
+   * 🔴 LES FLÈCHES N'APPARAISSENT QUE S'IL RESTE DU CONTENU CACHÉ (Arno).
+   *
+   * ⚠️ LA MESURE A DÉMÉNAGÉ : elle était écrite ici (`el.scrollLeft + el.clientWidth < el.scrollWidth - 1`),
+   * elle est maintenant dans `bordsVisibles` — partagée avec la frise des mails, qui avait sa propre version
+   * avec une marge de 4 px au lieu de 1. Deux mesures du même fait finissent toujours par se contredire.
+   */
   it('🔴 les flèches ‹ › ne s’affichent que s’il reste à voir', () => {
     expect(FRISE).toContain('{bords.gauche && (');
     expect(FRISE).toContain('{bords.droite && (');
-    expect(FRISE).toContain('el.scrollLeft + el.clientWidth < el.scrollWidth - 1');
+    expect(FRISE).toContain('const { bords } = defilement;');
   });
 
   /**
    * 🔴🔴 « À l'ouverture, la frise est positionnée pour montrer la dernière étape atteinte » (Arno).
    *
-   * ⚠️ UNE SEULE FOIS : sans le verrou `cale`, chaque relecture (après un confirmer, un ajout, un montant)
-   * ramènerait la frise à la dernière étape atteinte — et l'on perdrait l'endroit qu'on regardait, juste après
-   * avoir agi dessus.
+   * ⚠️ UNE SEULE FOIS : sans verrou, chaque relecture (après un confirmer, un ajout, un montant) ramènerait la
+   * frise à la dernière étape atteinte — et l'on perdrait l'endroit qu'on regardait, juste après avoir agi
+   * dessus. Arno, B.2 : « UNE SEULE FOIS à l'ouverture, puis plus jamais ».
    *
-   * ⚠️ `block: 'nearest'` : on cale HORIZONTALEMENT sans faire sauter la page verticalement.
+   * ⚠️ LE VERROU A DÉMÉNAGÉ, LUI AUSSI : il s'appelait `cale` et vivait ici ; il est dans `useDefilementFrise`,
+   * porté par `calerSurUneFois`, et la frise des mails s'en sert pour son propre calage « aujourd'hui à droite ».
    */
   it('🔴🔴 elle s’ouvre sur la dernière étape atteinte, une seule fois', () => {
     expect(FRISE).toContain('cleDOuverture');
-    expect(FRISE).toContain('cale.current = true;');
-    expect(FRISE).toContain("scrollIntoView({ block: 'nearest', inline: 'center' })");
+    expect(FRISE).toContain('calerSurUneFois(moi.current);');
+    const i = SOURCE_CROCHET.indexOf('const calerSurUneFois');
+    expect(SOURCE_CROCHET.slice(i, i + 400)).toContain('if (cale.current');
+    expect(SOURCE_CROCHET).toContain("cible.scrollIntoView({ block: 'nearest', inline: 'center' })");
   });
 
   /** 🔴 « + Ajouter une étape » est TOUJOURS offert — c'est lui qui rend la frise utilisable sans Monga. */

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo } from 'react';
 import {
   anneeAEcrire, bandeauxDesEvenements, bornesSurLaFrise, coteDeLEtiquette, moisDeLaFrise, mailsRecus,
   motDetailDuMois,
@@ -10,6 +10,8 @@ import {
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 import { tonDeLExpediteur, type CategoriePartie, type OccupationPeriode }
   from '../../../../lib/gestion/historiqueBien';
+/* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE D'AVANCEMENT. Arno, B.3 : « même code, pas de second chemin. » */
+import { useDefilementFrise } from './useDefilementFrise';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — LA FRISE CHRONOLOGIQUE DE LA VIE DU BIEN ══════════════════════════════
@@ -39,8 +41,10 @@ import { tonDeLExpediteur, type CategoriePartie, type OccupationPeriode }
  * la partie basse serait devenue illisible.
  *
  * ⚠️ ET C'EST CE QUI REND LE DÉFILEMENT NATUREL : la frise est simplement plus large que son cadre. Le glisser, la
- * molette horizontale et les deux flèches agissent tous sur le MÊME `scrollLeft`, celui du navigateur. Aucune
- * position n'est recalculée à la main — donc rien ne peut diverger entre les trois gestes.
+ * molette, les flèches et le clavier agissent tous sur le MÊME `scrollLeft`, celui du navigateur. Aucune
+ * position n'est recalculée à la main — donc rien ne peut diverger entre les gestes. Et depuis le lot
+ * FRISES-REPARATION (B.3), ils viennent tous du crochet `useDefilementFrise`, partagé avec la frise
+ * d'avancement : « même code, pas de second chemin » (Arno).
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function FriseDuBien({
@@ -62,11 +66,26 @@ export function FriseDuBien({
   /** La lecture a-t-elle dû renoncer à des mails ? L'écran le DIT plutôt que de mentir par omission. */
   tronqueeParLaLecture?: boolean;
 }) {
-  const cadre = useRef<HTMLDivElement | null>(null);
-  const [aGauche, setAGauche] = useState(false);
-  const [aDroite, setADroite] = useState(false);
-
+  /**
+   * ══ 🔴🔴 LE DÉFILEMENT VIENT DU CROCHET PARTAGÉ (lot FRISES-REPARATION, B.3) ════════════════════════════════
+   *
+   * Arno : « Applique les MÊMES règles de défilement à la frise des mails (A) : même code, pas de second
+   * chemin. » Ce composant avait sa propre molette, son propre glisser, sa propre flèche et son propre calage ;
+   * il n'en a plus aucun. Tout vient de `useDefilementFrise`, exactement comme la frise d'avancement.
+   *
+   * 🔴 CE QUE LA FRISE DES MAILS Y GAGNE, ET QU'ELLE N'AVAIT PAS : la molette verticale la fait défiler (en
+   * rendant la main à la page en butée), les flèches du clavier ← → l'atteignent, et un glisser n'ouvre plus le
+   * mail du trait qu'on a effleuré en poussant — ce dernier point était un vrai défaut : `tire.bouge` était
+   * suivi, mais rien n'en faisait jamais rien.
+   *
+   * ⚠️ `mois.length` EN TÉMOIN DE RELECTURE, ET CE N'EST PAS DÉCORATIF : une frise sans mois ne rend RIEN
+   * (`return null` plus bas), donc le cadre n'existe pas encore au premier rendu. Un témoin figé n'aurait
+   * jamais raccroché les écouteurs quand les mails arrivent.
+   */
   const mois = useMemo(() => moisDeLaFrise(mails, maintenant), [mails, maintenant]);
+  const defilement = useDefilementFrise<HTMLDivElement>(mois.length);
+  const { gauche: aGauche, droite: aDroite } = defilement.bords;
+
   const recus = useMemo(() => mailsRecus(mails), [mails]);
   const totaux = useMemo(() => totauxParMois(mails), [mails]);
   const reperes = useMemo(() => reperesDoccupation(occupations), [occupations]);
@@ -74,65 +93,24 @@ export function FriseDuBien({
   const tronquee = useMemo(() => motFriseTronquee(mails, mois), [mails, mois]);
 
   /**
-   * ══ 🔴🔴 « AUJOURD'HUI À DROITE » — ET C'EST UN EFFET DE MISE EN PAGE, PAS UN EFFET ORDINAIRE ════════════════
+   * ══ 🔴🔴 « AUJOURD'HUI À DROITE » — UN CALAGE DE MISE EN PAGE, ET UNE SEULE FOIS ════════════════════════════
    *
    * `useLayoutEffect` court APRÈS la mise en page et AVANT la peinture : la frise n'est jamais vue au début de
-   * son histoire avant de sauter à la fin. Avec un `useEffect`, on apercevait 2019 un instant.
+   * son histoire avant de sauter à la fin. Avec un `useEffect`, on apercevait 2019 un instant (mesuré, lot 18).
    *
-   * ⚠️ IL SE REJOUE QUAND LES MOIS CHANGENT (une partie cochée, une période) : la frise se redessine, et sa
-   * largeur avec. Rester où l'on était aurait laissé le cadre au milieu d'un passé qui n'a plus la même étendue.
+   * 🔴 CE QUI CHANGE AU LOT FRISES-REPARATION : ce calage se faisait AUSSI à chaque changement du nombre de
+   * mois — une partie cochée, une période choisie — et ramenait alors le lecteur tout à droite sans qu'il l'ait
+   * demandé. Arno : « positionnement […] UNE SEULE FOIS à l'ouverture, puis plus jamais ». Le verrou est dans
+   * `calerAuBoutUneFois`, et c'est le MÊME que celui de la frise d'avancement.
+   *
+   * ⚠️ LA DÉPENDANCE RESTE `mois.length` : le cadre n'existe pas tant qu'il n'y a pas de mois, et le verrou ne
+   * se ferme qu'après un calage réellement effectué. C'est donc la première fois où la frise EXISTE qui compte,
+   * pas la première fois où ce composant se monte.
    */
+  const { calerAuBoutUneFois } = defilement;
   useLayoutEffect(() => {
-    const el = cadre.current;
-    if (el === null) return;
-    el.scrollLeft = el.scrollWidth;
-  }, [mois.length]);
-
-  /* Les deux flèches ne s'affichent que s'il reste quelque chose de ce côté-là : une flèche morte s'apprend. */
-  useEffect(() => {
-    const el = cadre.current;
-    if (el === null) return undefined;
-    const relire = (): void => {
-      setAGauche(el.scrollLeft > 4);
-      setADroite(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
-    };
-    relire();
-    el.addEventListener('scroll', relire, { passive: true });
-    return () => el.removeEventListener('scroll', relire);
-  }, [mois.length]);
-
-  const glisser = (sens: -1 | 1): void => {
-    const el = cadre.current;
-    if (el === null) return;
-    /* Un cran = la moitié de ce qu'on voit : on garde un repère commun entre avant et après. */
-    el.scrollBy({ left: sens * Math.max(120, el.clientWidth / 2), behavior: 'smooth' });
-  };
-
-  /**
-   * ══ 🔴 LE GLISSER À LA SOURIS, SANS BIBLIOTHÈQUE ═══════════════════════════════════════════════════════════
-   *
-   * ⚠️ `onPointerDown` ET NON `onMouseDown` : le même code sert alors le doigt, le stylet et la souris. Et la
-   * capture du pointeur évite que le glisser ne s'arrête quand le curseur sort du cadre — défaut classique.
-   *
-   * ⚠️ LE CLIC SUR UN TRAIT RESTE POSSIBLE : on ne « prend » le glisser qu'au-delà de quelques pixels, sinon un
-   * clic net aurait été avalé par un déplacement de zéro pixel.
-   */
-  const tire = useRef<{ x: number; depart: number; bouge: boolean } | null>(null);
-  const surDescente = (e: React.PointerEvent<HTMLDivElement>): void => {
-    const el = cadre.current;
-    if (el === null) return;
-    tire.current = { x: e.clientX, depart: el.scrollLeft, bouge: false };
-  };
-  const surDeplacement = (e: React.PointerEvent<HTMLDivElement>): void => {
-    const el = cadre.current;
-    const t = tire.current;
-    if (el === null || t === null) return;
-    const d = e.clientX - t.x;
-    if (!t.bouge && Math.abs(d) < 4) return;
-    if (!t.bouge) { t.bouge = true; e.currentTarget.setPointerCapture(e.pointerId); }
-    el.scrollLeft = t.depart - d;
-  };
-  const surMontee = (): void => { tire.current = null; };
+    calerAuBoutUneFois();
+  }, [mois.length, calerAuBoutUneFois]);
 
   if (mois.length === 0) return null;
 
@@ -147,23 +125,20 @@ export function FriseDuBien({
           défilement au clavier passe par elles. Elles n'apparaissent que s'il reste du chemin de ce côté. */}
       {aGauche && (
         <button type="button" className="frs-fleche frs-fleche--gauche" aria-label="Voir plus ancien"
-          onClick={() => glisser(-1)}>‹</button>
+          onClick={() => defilement.glisser(-1)}>‹</button>
       )}
       {aDroite && (
         <button type="button" className="frs-fleche frs-fleche--droite" aria-label="Voir plus récent"
-          onClick={() => glisser(1)}>›</button>
+          onClick={() => defilement.glisser(1)}>›</button>
       )}
       {/* 🔴 L'INDICATION D'ARNO, et seulement quand elle est vraie : « Une petite indication "← plus ancien"
           apparaît quand il reste du passé. » */}
       {aGauche && <span className="frs-plus-ancien" aria-hidden="true">{MOT_PLUS_ANCIEN}</span>}
 
-      <div
-        className="frs-cadre"
-        ref={cadre}
-        onPointerDown={surDescente}
-        onPointerMove={surDeplacement}
-        onPointerUp={surMontee}
-        onPointerCancel={surMontee}>
+      {/* 🔴🔴 LE SEUL CONTENEUR QUI DÉFILE (Arno), et tous ses gestes viennent de `attaches` — molette (écouteur
+          NON passif, seul moyen de détourner la molette), glisser, clavier ← →, annulation du clic après un
+          glisser. Aucun gestionnaire de défilement n'est écrit dans ce fichier. */}
+      <div className="frs-cadre" ref={defilement.ref} {...defilement.attaches}>
         {/* 🔴 LE NOMBRE DE MOIS VOYAGE EN VARIABLE : la piste s'en sert pour sa largeur, et chaque élément
             absolu pour se placer en fraction d'elle. Voir l'encadré de la feuille sur la circularité. */}
         <div className="frs-piste"
@@ -297,6 +272,10 @@ export const CSS_FRISE_DU_BIEN = `
   border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);
   cursor:grab;touch-action:pan-x}
 .frs-cadre:active{cursor:grabbing}
+/* ⚠️ LE CADRE PREND LE FOCUS (tabIndex 0, pose par useDefilementFrise) pour que les fleches ← → du clavier
+   l'atteignent. Qui peut recevoir le focus doit le MONTRER. outline-offset negatif : le contour se pose a
+   l'interieur de la bordure du cadre, et n'est donc pas coupe par ce qui l'entoure. */
+.frs-cadre:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 /* ══ 🔴🔴 LA CIRCULARITE DES POURCENTAGES, ET COMMENT ELLE EST EVITEE ════════════════════════════════════════
    🔴 DEFAUT MESURE A L'ECRAN (lot-146) : un mois faisait 166 px au lieu d'un douzieme du cadre, et seuls six
    mois etaient visibles au lieu de douze. La cause : --frs-mois vaut un pourcentage, et il servait A LA FOIS

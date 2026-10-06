@@ -15,6 +15,8 @@ import {
 import {
   estRepere, motEtape, TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape,
 } from '../../../../lib/gestion/mongaEtape';
+/* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE DES MAILS. Arno, B.3 : « même code, pas de second chemin. » */
+import { useDefilementFrise } from './useDefilementFrise';
 
 /**
  * ══ 🔴🔴 LOT FRISE-HORIZONTALE — LA FRISE D'AVANCEMENT, EN LIGNE ═════════════════════════════════════════════════
@@ -40,9 +42,11 @@ import {
  * accordé en toutes lettres : « Le formulaire “Ajouter une étape” toujours visible sous la frise disparaît,
  * puisqu'il est repris par le “+”. » Rien d'autre n'a été retiré, masqué ni conditionné.
  *
- * ⚠️ LE DÉFILEMENT HORIZONTAL NE DOIT JAMAIS PIÉGER LA PAGE. La molette VERTICALE sur la frise fait défiler la
- * PAGE, comme partout ailleurs ; seules la molette horizontale et Maj+molette déplacent la frise. Détourner la
- * molette verticale est le défaut classique des frises en ligne : on ne peut plus quitter le bloc en défilant.
+ * ⚠️ LE DÉFILEMENT HORIZONTAL NE DOIT JAMAIS PIÉGER LA PAGE — révisé au lot FRISES-REPARATION (B). La molette
+ * verticale est désormais CONVERTIE en défilement de la frise, mais **uniquement tant que la frise peut encore
+ * avancer de ce côté** ; arrivée en butée, elle rend la main à la page, exactement comme avant. C'est la demande
+ * d'Arno, et c'est la seule forme qui ne piège pas le lecteur dans le bloc. Tout cela vit dans
+ * `useDefilementFrise`, partagé avec la frise des mails.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -105,10 +109,18 @@ export function FriseAvancement({
    */
   const [modifie, setModifie] = useState<EtapeAAfficher | null>(null);
   const [occupe, setOccupe] = useState(false);
-  /** Reste-t-il du contenu caché à gauche / à droite ? Décide des flèches « ‹ › » (Arno). */
-  const [bords, setBords] = useState({ gauche: false, droite: false });
-  const piste = useRef<HTMLOListElement | null>(null);
-  const cale = useRef(false);
+  /**
+   * ══ 🔴🔴 LE DÉFILEMENT VIENT DU CROCHET PARTAGÉ, ET DE NULLE PART AILLEURS ═════════════════════════════════
+   *
+   * Arno, point B.3 : « Applique les MÊMES règles de défilement à la frise des mails (A) : même code, pas de
+   * second chemin. » Les flèches, la molette, le glisser, le clavier et le calage d'ouverture sont dans
+   * `useDefilementFrise` — ce composant n'en garde aucune copie.
+   *
+   * ⚠️ `vue` EN TÉMOIN DE RELECTURE : la largeur de la piste change à chaque relecture (une étape confirmée,
+   * un montant saisi), et les flèches doivent se remesurer sans qu'on touche la frise.
+   */
+  const defilement = useDefilementFrise<HTMLOListElement>(vue);
+  const { bords } = defilement;
 
   const charger = useCallback(async () => {
     try {
@@ -122,33 +134,6 @@ export function FriseAvancement({
   }, [evenementId]);
 
   useEffect(() => { void charger(); }, [charger]);
-
-  /** Met à jour les flèches. Appelée au défilement, au redimensionnement et après chaque relecture. */
-  const mesurerBords = useCallback(() => {
-    const el = piste.current;
-    if (el === null) return;
-    /* ⚠️ UNE MARGE D'UN PIXEL : les navigateurs rendent parfois `scrollLeft` fractionnaire, et une comparaison
-       stricte ferait clignoter la flèche de droite à chaque pixel de défilement. */
-    setBords({
-      gauche: el.scrollLeft > 1,
-      droite: el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
-    });
-  }, []);
-
-  useEffect(() => {
-    const el = piste.current;
-    if (el === null) return;
-    mesurerBords();
-    window.addEventListener('resize', mesurerBords);
-    return () => window.removeEventListener('resize', mesurerBords);
-  }, [mesurerBords, vue]);
-
-  const glisser = (sens: -1 | 1): void => {
-    const el = piste.current;
-    if (el === null) return;
-    /* Un peu plus d'un carré à la fois : on avance sans perdre le fil de ce qu'on regardait. */
-    el.scrollBy({ left: sens * Math.max(160, el.clientWidth * 0.6), behavior: 'smooth' });
-  };
 
   const agir = async (url: string, methode: 'PATCH' | 'DELETE', corps?: unknown): Promise<void> => {
     if (occupe) return;
@@ -224,32 +209,26 @@ export function FriseAvancement({
             part apprend à ne plus regarder les flèches. */}
         {bords.gauche && (
           <button type="button" className="fav-fleche fav-fleche--g" aria-label="Voir les étapes précédentes"
-            onClick={() => glisser(-1)}>‹</button>
+            onClick={() => defilement.glisser(-1)}>‹</button>
         )}
         {bords.droite && (
           <button type="button" className="fav-fleche fav-fleche--d" aria-label="Voir les étapes suivantes"
-            onClick={() => glisser(1)}>›</button>
+            onClick={() => defilement.glisser(1)}>›</button>
         )}
 
         {/**
           * 🔴 UNE LISTE ORDONNÉE, et non une rangée de `div` : une frise EST une séquence, et c'est ce qu'un
           * lecteur d'écran doit entendre. Le trait qui relie les carrés est décoratif, posé en CSS.
           *
-          * ⚠️ `onWheel` NE DÉTOURNE QUE LA MOLETTE HORIZONTALE ET MAJ+MOLETTE. La molette verticale continue de
-          * faire défiler la PAGE — sans quoi on ne pourrait plus quitter le bloc en défilant.
+          * 🔴🔴 TOUS LES GESTES VIENNENT DE `attaches` — molette (en écouteur NON passif, le seul moyen de
+          * détourner la molette), glisser, clavier ← →, et l'annulation du clic après un glisser. Il n'y a plus
+          * un seul gestionnaire de défilement écrit ici : « même code, pas de second chemin » (Arno).
           */}
-        <ol
-          className="fav-piste" ref={piste} onScroll={mesurerBords}
-          onWheel={(e) => {
-            const horizontal = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
-            if (!horizontal) return;
-            e.currentTarget.scrollLeft += e.deltaX !== 0 ? e.deltaX : e.deltaY;
-          }}
-        >
+        <ol className="fav-piste" ref={defilement.ref} {...defilement.attaches}>
           {ligne.map((el) => (
             <ElementDeLaFrise
               key={el.cle} el={el} avecReference={plusieursRefs} occupe={occupe}
-              cleOuverture={cleOuverture} piste={piste} cale={cale}
+              cleOuverture={cleOuverture} calerSurUneFois={defilement.calerSurUneFois}
               ouvert={ouvert} onOuvrir={setOuvert} onSurvol={setApercu}
               onOuvrirFil={onOuvrirFil}
               onConfirmer={(id, g) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: g })}
@@ -306,7 +285,7 @@ export function FriseAvancement({
 
 function ElementDeLaFrise(p: {
   el: ElementFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
-  piste: React.RefObject<HTMLOListElement | null>; cale: React.RefObject<boolean>;
+  calerSurUneFois: (cible: HTMLElement | null) => void;
   ouvert: string | null; onOuvrir: (c: string | null) => void;
   onSurvol: (cle: string | null) => void;
   onOuvrirFil?: (filId: number) => void;
@@ -381,11 +360,11 @@ function Point({
 /* ── UN CARRÉ : une vraie étape ────────────────────────────────────────────────────────────────────────────── */
 
 function Carre({
-  c, avecReference, occupe, cleOuverture, piste, cale, ouvert, onOuvrir,
+  c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
   onOuvrirFil, onConfirmer, onMontant, onRetirer, onPoser,
 }: {
   c: CaseFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
-  piste: React.RefObject<HTMLOListElement | null>; cale: React.RefObject<boolean>;
+  calerSurUneFois: (cible: HTMLElement | null) => void;
   ouvert: string | null; onOuvrir: (c: string | null) => void;
   onOuvrirFil?: (filId: number) => void;
   onConfirmer: (id: number, geste: 'confirmer' | 'ecarter') => void;
@@ -398,18 +377,15 @@ function Carre({
   /**
    * ══ 🔴🔴 « À L'OUVERTURE, LA FRISE EST POSITIONNÉE POUR MONTRER LA DERNIÈRE ÉTAPE ATTEINTE » (Arno) ═══════════
    *
-   * ⚠️ UNE SEULE FOIS, ET C'EST TOUT L'INTÉRÊT DE `cale`. Sans ce verrou, chaque relecture (après un confirmer,
-   * un ajout, un montant) ramènerait la frise à la dernière étape atteinte — et l'on perdrait l'endroit qu'on
-   * regardait, juste après avoir agi dessus.
-   *
-   * ⚠️ `block: 'nearest'` ET `inline: 'center'` : on cale HORIZONTALEMENT sans faire sauter la page
-   * verticalement. Un `scrollIntoView` par défaut remonterait la fiche entière sur la frise.
+   * 🔴 LE VERROU « UNE SEULE FOIS » N'EST PLUS ICI : il est dans `useDefilementFrise`, partagé avec la frise des
+   * mails, et c'est `calerSurUneFois` qui le porte. Sans lui, chaque relecture (après un confirmer, un ajout, un
+   * montant) ramènerait la frise à la dernière étape atteinte — et l'on perdrait l'endroit qu'on regardait,
+   * juste après avoir agi dessus. Arno : « UNE SEULE FOIS à l'ouverture, puis plus jamais ».
    */
   useEffect(() => {
-    if (c.cle !== cleOuverture || cale.current || moi.current === null || piste.current === null) return;
-    cale.current = true;
-    moi.current.scrollIntoView({ block: 'nearest', inline: 'center' });
-  }, [c.cle, cleOuverture, cale, piste]);
+    if (c.cle !== cleOuverture) return;
+    calerSurUneFois(moi.current);
+  }, [c.cle, cleOuverture, calerSurUneFois]);
 
   const e = c.etape;
 
@@ -785,9 +761,24 @@ const CSS_FRISE_AVANCEMENT = `
    le bas des carres — avec leurs boutons ✓ / ✕ — se faisait rogner de 14 px. Aucun ancetre ne la contraignait :
    c'est le conteneur de defilement lui-meme qui ne prend pas la hauteur de ses enfants. On la lui donne.
    132 = 10 + 92 (la hauteur d'un carre, cf. .fav-carre) + 30. */
+/* ══ 🔴🔴 CE QUI A ETE RETIRE ICI, ET POURQUOI : « scroll-behavior:smooth » ══════════════════════════════════════
+   Mesure sur lot-237 (82 px de defilement disponible) : AVEC cette propriete, CHAQUE geste rendait 0 —
+   molette 0, Maj+molette 0, trackpad 0, et jusqu'a « scrollLeft = 9999 » qui rendait 0 apres 600 ms.
+   Explication : « smooth » transforme TOUTE affectation de scrollLeft en animation, et une animation est
+   annulee par l'affectation suivante ; un geste continu, qui pose scrollLeft a chaque image, se bat donc
+   contre lui-meme. Avec « auto », les memes gestes rendent 82 — le maximum.
+   La douceur n'est pas perdue : elle est posee en JavaScript sur les FLECHES seules (COMPORTEMENT_SAUT), qui
+   sont un saut voulu et unique. Voir lib/gestion/defilementFrise.ts.
+   ⚠️ NE PAS LA REMETTRE ICI : posee en feuille, elle s'applique a tout, y compris au continu.
+   ⚠️ overscroll-behavior-x: contain — arriver au bout de la frise ne doit pas emporter la page en arriere
+   (geste de retour du trackpad). Meme regle que la frise des mails. */
 .fav-piste{list-style:none;margin:0;padding:10px 2px 30px;min-height:132px;box-sizing:border-box;
   display:flex;align-items:flex-start;
-  gap:0;overflow-x:auto;scroll-behavior:smooth;scrollbar-width:thin}
+  gap:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
+/* ⚠️ LA PISTE PREND LE FOCUS (tabIndex 0, pose par useDefilementFrise) pour que les fleches ← → du clavier
+   l'atteignent. Qui peut recevoir le focus doit le MONTRER : sans cette regle, on tabule dans une zone qui ne
+   dit pas qu'elle est la. outline-offset negatif : un contour exterieur serait coupe par le cadre. */
+.fav-piste:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 
 /* Le trait fin qui relie les carres : une bordure posee sur la rangee, derriere les elements. */
 .fav-el{position:relative;display:flex;align-items:flex-start;flex:0 0 auto}
