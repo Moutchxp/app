@@ -28,6 +28,17 @@ interface AppelInterventions {
   personnes: { sorte: string; cle: string; libelle: string; role: string }[];
   contact: unknown; origine?: string; parLeSuivi?: boolean;
 }
+/**
+ * 🔴🔴 LA PORTE DE L'ÉVÉNEMENT EST `deplacerMessage` — `gestion_affectation`, l'axe que l'écran de la carte lit.
+ * La première écriture de ce point empruntait `rattacher` avec la cible « evenement » : un axe qui ne porte
+ * aucune ligne en base et que `carteRepo` ne lit jamais. Ces épreuves tiennent désormais la bonne porte.
+ */
+const deplacerMessage = vi.fn(async (_m: number, evenementId: number, _a: unknown, motif?: string) => {
+  appels.push(`affectation:${evenementId}`);
+  derniersMotifs.push(motif ?? '');
+  return { ok: true as const, evenementId, reference: 'GES-2026-000042' };
+});
+const derniersMotifs: string[] = [];
 const poserInterventions = vi.fn(async (_o: AppelInterventions) => {
   appels.push('poserInterventions');
   return { ok: true as const, posees: 2, retirees: 0 };
@@ -36,7 +47,7 @@ const poserInterventions = vi.fn(async (_o: AppelInterventions) => {
  *  mail interne au milieu de trois, et une implantation qui survivrait fausserait l'épreuve suivante. */
 const baseParDefaut = async (sql: string): Promise<{ rows: unknown[] }> => {
   if (sql.includes('gestion_rattachement_examen')) { appels.push('examen'); return { rows: [] }; }
-  if (sql.includes("cible_sorte = 'evenement'")) return { rows: etat.biensDeLEvenement.map((c) => ({ cle: c })) };
+  if (sql.includes('gestion_affectation')) return { rows: etat.biensDeLEvenement.map((c) => ({ cle: c })) };
   if (sql.includes('corbeille_le IS NOT NULL')) return { rows: [etat.mail] };
   return { rows: [] };
 };
@@ -76,14 +87,21 @@ vi.mock('./mongaRepo', () => ({
   lireEtGarderUnMail: async () => ({}),
   SQL_EST_MAIL_MONGA: '(true)',
 }));
-vi.mock('./schema', () => ({ mongaDisponible: async () => true }));
+vi.mock('./schema', () => ({
+  mongaDisponible: async () => true, evenementQualifieDisponible: async () => true,
+}));
+vi.mock('./gestes', () => ({
+  deplacerMessage: (m: number, e: number, a: unknown, mo?: string) => deplacerMessage(m, e, a, mo),
+}));
 
 const { classerUnMailMonga, classerLesMailsDeLaReference, AUTEUR_MONGA } =
   await import('./mongaClassement');
 
 beforeEach(() => {
   appels.length = 0;
+  derniersMotifs.length = 0;
   rattacher.mockClear();
+  deplacerMessage.mockClear();
   poserInterventions.mockClear();
   etat.monga = {
     reference: 'MNG-23987', libelle: 'barre de douche defixer',
@@ -117,7 +135,7 @@ describe('classement Monga — les trois portes, dans l’ordre', () => {
      */
     expect(appels).toEqual([
       'rattacher:lot:lot-27',
-      'rattacher:evenement:4242',
+      'affectation:4242',
       'poserInterventions',
       'examen',
     ]);
@@ -133,6 +151,10 @@ describe('classement Monga — les trois portes, dans l’ordre', () => {
       expect(o.auteur.libelle).toBe('classement Monga');
     }
     expect(poserInterventions.mock.calls[0]?.[0].origine).toBe('automatique');
+    /* ⚠️ LE MOTIF DE L'AFFECTATION NE DIT PLUS « à la main » : il était écrit en dur, et c'était vrai tant que ce
+       geste n'avait qu'une origine. Le laisser aurait inscrit en base qu'un humain avait fait ce que personne
+       n'a fait. */
+    expect(derniersMotifs).toEqual(['classé automatiquement — intervention Monga MNG-23987']);
     expect(AUTEUR_MONGA.libelle).toBe('classement Monga');
     // 🔴 Et il ne peut PAS poser de lien référence ↔ événement : la base refuse « automatique » sur cette table.
     expect(AUTEUR_MONGA.libelle.toLowerCase()).not.toBe('automatique');
@@ -164,7 +186,7 @@ describe('classement Monga — les trois portes, dans l’ordre', () => {
     etat.biensDeLEvenement = ['lot-27', 'lot-146'];
     await classerUnMailMonga({ messageId: '57489' });
     expect(appels).toEqual([
-      'rattacher:lot:lot-27', 'rattacher:lot:lot-146', 'rattacher:evenement:4242',
+      'rattacher:lot:lot-27', 'rattacher:lot:lot-146', 'affectation:4242',
       'poserInterventions', 'examen',
     ]);
   });
@@ -181,6 +203,7 @@ describe('classement Monga — les trois portes, dans l’ordre', () => {
 describe('classement Monga — ce qui l’arrête, et n’écrit rien', () => {
   const rienEcrit = (): void => {
     expect(rattacher).not.toHaveBeenCalled();
+    expect(deplacerMessage).not.toHaveBeenCalled();
     expect(poserInterventions).not.toHaveBeenCalled();
     expect(appels).not.toContain('examen');
   };
@@ -241,8 +264,9 @@ describe('classement Monga — tous les mails de la référence suivent', () => 
     const bilan = await classerLesMailsDeLaReference({ reference: 'MNG-23987' });
     expect(bilan.classes).toBe(3);
     expect(bilan.refuses).toEqual([]);
-    // Trois mails × (un lot + un événement) = six rattachements.
-    expect(rattacher).toHaveBeenCalledTimes(6);
+    // Trois mails × un lot = trois rattachements de bien, et trois affectations vers la carte.
+    expect(rattacher).toHaveBeenCalledTimes(3);
+    expect(deplacerMessage).toHaveBeenCalledTimes(3);
   });
 
   it('⚠️ un mail refusé n’arrête pas les autres', async () => {
@@ -251,7 +275,7 @@ describe('classement Monga — tous les mails de la référence suivent', () => 
     // Le deuxième mail est « interne » : lui seul doit être écarté.
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('gestion_rattachement_examen')) { appels.push('examen'); return { rows: [] }; }
-      if (sql.includes("cible_sorte = 'evenement'")) return { rows: [{ cle: 'lot-27' }] };
+      if (sql.includes('gestion_affectation')) return { rows: [{ cle: 'lot-27' }] };
       if (sql.includes('corbeille_le IS NOT NULL')) {
         n += 1;
         return { rows: [{ ...etat.mail, interne: n === 2 }] };

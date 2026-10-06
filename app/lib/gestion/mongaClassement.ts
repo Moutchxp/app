@@ -33,7 +33,7 @@
 
 import { query } from '../db/client';
 import { personnesDesBiens, poserInterventions } from './contactExterneRepo';
-import type { Auteur } from './gestes';
+import { deplacerMessage, type Auteur } from './gestes';
 import { mailInerte } from './mailInerte';
 import {
   motifClassementMonga, motifExamenMonga, personnesEnVigueur,
@@ -42,9 +42,9 @@ import {
 import {
   lireEtGarderUnMail, mailsDeLaReference, mongaDuMail, SQL_EST_MAIL_MONGA,
 } from './mongaRepo';
-import { cibleEvenement, cibleLot } from './rattachement';
+import { cibleLot } from './rattachement';
 import { rattacher } from './rattachementRepo';
-import { mongaDisponible } from './schema';
+import { evenementQualifieDisponible, mongaDisponible } from './schema';
 
 /**
  * 🔴 QUI SIGNE UN CLASSEMENT MONGA. Un nom PROPRE, et non « automatique » :
@@ -74,28 +74,61 @@ const RIEN: IssueClassementMonga = {
 };
 
 /**
- * ══ 🔴🔴 LES BIENS D'UN ÉVÉNEMENT — DÉRIVÉS, JAMAIS STOCKÉS ══════════════════════════════════════════════════════
+ * ══ 🔴🔴 LES BIENS D'UN ÉVÉNEMENT — DEUX SOURCES, DANS CET ORDRE ═════════════════════════════════════════════════
  *
- * Un événement ne porte PAS de bien en base : ce sont ses MAILS qui portent des liens vers des lots. « Les biens
- * de cet événement » se lisent donc : les lots confirmés des mails rattachés à cet événement.
+ * ① LES **PARTIES** DE LA CARTE (`gestion_evenement_partie`, migration 268). C'est la vérité DÉCLARÉE : « sur quoi
+ *    porte cette carte », écrite à sa création — demande d'Arno au lot CONTACTS-ET-EVENEMENT (« le nouvel
+ *    événement est rattaché au bien identifié, à son propriétaire et à son locataire »). Le point 3 de ce lot
+ *    crée justement l'événement AVEC le lot choisi par Arno : c'est cette ligne-là qu'il écrit.
  *
- * 🔴 POURQUOI DÉRIVER PLUTÔT QUE GARDER LE LOT CHOISI AU MOMENT DU LIEN. Parce que le lot peut changer après : un
- * mail mal classé qu'on corrige, un second logement concerné par la même intervention. Un lot figé dans
- * `gestion_monga_lien` aurait continué d'envoyer le courrier vers l'ancien bien, et rien ne l'aurait dit. En
- * dérivant, le classement suit les corrections d'Arno sans qu'il ait à y penser.
+ * ② À DÉFAUT, LES LOTS DE SES MAILS. Les deux seuls événements qui existaient le 06/10/2026 n'ont AUCUNE partie
+ *    (table mesurée vide) : une lecture qui s'arrêterait à ① ne trouverait rien pour eux, et tout classement
+ *    Monga vers une de ces cartes serait refusé « événement sans bien ».
  *
- * ⚠️ RÉPONSE VIDE = REFUS, PAS DÉDUCTION. Si l'événement ne porte aucun bien, on ne cherche PAS le lot dans
- * l'adresse du mail : « aucune déduction automatique » (Arno). Le mail reste à classer, et le refus le dit.
+ * 🔴🔴 LES MAILS D'UN ÉVÉNEMENT SONT CEUX DE `gestion_affectation`, ET C'EST UNE CORRECTION MESURÉE. La première
+ * écriture de ce point lisait `gestion_rattachement` avec `cible_sorte = 'evenement'`. Cet axe existe au schéma
+ * mais ne porte AUCUNE ligne en base (0, mesuré le 06/10/2026), et `carteRepo` — l'écran de la carte — ne le lit
+ * jamais. Ce sont deux axes distincts, et un seul fait entrer un mail dans une carte.
+ *
+ * ⚠️ UNE AFFECTATION DE MAIL PRIME SUR CELLE DE SON ÉCHANGE, et la lecture le respecte : un mail déplacé vers une
+ * autre carte ne compte plus pour la carte de son fil. Sans ce détail, le bien d'un mail parti ailleurs
+ * reviendrait par la fenêtre.
+ *
+ * ⚠️ RÉPONSE VIDE = REFUS, PAS DÉDUCTION. On ne cherche JAMAIS le lot dans l'adresse du mail Monga : « aucune
+ * déduction automatique » (Arno). Le mail reste à classer, et le refus le dit.
  */
 export async function biensDeLEvenement(evenementId: string): Promise<string[]> {
+  const avecParties = await evenementQualifieDisponible();
+  const desParties = avecParties ? `, des_parties AS (
+        SELECT DISTINCT p.cle
+          FROM gestion_evenement_partie p
+         WHERE p.evenement_id = $1 AND p.sorte = 'lot' AND p.retire_le IS NULL
+           AND btrim(coalesce(p.cle, '')) <> ''
+     )` : '';
+  const choix = avecParties
+    ? `SELECT cle FROM des_parties
+        UNION
+       SELECT cle FROM des_mails WHERE NOT EXISTS (SELECT 1 FROM des_parties)
+       ORDER BY 1`
+    : 'SELECT cle FROM des_mails ORDER BY 1';
   const { rows } = await query<{ cle: string }>(
-    `SELECT DISTINCT rl.cible_cle AS cle
-       FROM gestion_rattachement re
-       JOIN gestion_rattachement rl ON rl.message_id = re.message_id
-      WHERE re.cible_sorte = 'evenement' AND re.cible_id = $1 AND re.statut = 'confirme'
-        AND rl.cible_sorte = 'lot' AND rl.statut = 'confirme' AND rl.piece_id IS NULL
-        AND btrim(coalesce(rl.cible_cle, '')) <> ''
-      ORDER BY 1`, [evenementId]);
+    `WITH mails AS (
+        SELECT m.id
+          FROM gestion_affectation a
+          JOIN gestion_message m
+            ON (a.message_id IS NOT NULL AND m.id = a.message_id)
+            OR (a.message_id IS NULL AND m.fil_id = a.fil_id
+                AND NOT EXISTS (SELECT 1 FROM gestion_affectation a2
+                                 WHERE a2.message_id = m.id AND a2.actif))
+         WHERE a.evenement_id = $1 AND a.actif
+     ), des_mails AS (
+        SELECT DISTINCT r.cible_cle AS cle
+          FROM gestion_rattachement r
+          JOIN mails ON mails.id = r.message_id
+         WHERE r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
+           AND btrim(coalesce(r.cible_cle, '')) <> ''
+     )${desParties}
+     ${choix}`, [evenementId]);
   return rows.map((r) => r.cle);
 }
 
@@ -190,10 +223,22 @@ export async function classerUnMailMonga(o: {
   }
   if (poses.length === 0) return { ...RIEN, ...commun, refus: 'evenement_sans_bien' };
 
-  // ② L'ÉVÉNEMENT. ⚠️ Pour cette cible, `rattacher` ne lève aucune marque — c'est sa règle, et elle est juste.
-  await rattacher({
-    messageId, cible: cibleEvenement(Number(lecture.evenementId)), auteur, motif, origine: 'automatique',
-  });
+  /**
+   * ② L'ÉVÉNEMENT — PAR `gestion_affectation`, ET PAR ELLE SEULE.
+   *
+   * 🔴🔴 C'EST L'AXE QUE L'ÉCRAN DE LA CARTE LIT. `carteRepo` nomme `gestion_affectation` sept fois et ne regarde
+   * JAMAIS `gestion_rattachement.cible_sorte = 'evenement'` — un axe qui, mesuré le 06/10/2026, ne porte aucune
+   * ligne en base. Un mail « rattaché » par cet autre axe n'apparaîtrait nulle part dans son événement : classé
+   * pour la base, et invisible pour Arno. C'est aussi la porte qu'emploient la fenêtre « Classer » et le bloc
+   * « Événement rattaché » (route `messages/:id/affectation`) — donc le même journal, et la même réversibilité.
+   *
+   * ⚠️ « DÉJÀ RATTACHÉ À CET ÉVÉNEMENT » N'EST PAS UNE ERREUR ICI : c'est l'état voulu. La porte le refuse pour
+   * épargner à un clic humain un doublon ; pour une passe qui peut rejouer, c'est un succès.
+   */
+  const lien = await deplacerMessage(messageId, Number(lecture.evenementId), auteur, motif);
+  if (!lien.ok && !lien.motif.includes('déjà rattaché à cet événement')) {
+    return { ...RIEN, ...commun, refus: 'evenement_sans_bien' };
+  }
 
   // ③ LE PROPRIÉTAIRE ET LE LOCATAIRE **À LA DATE DU MAIL**. Le module pur ne retient que ceux-là.
   const fiches = await personnesDesBiens(poses, etat.recuLe);

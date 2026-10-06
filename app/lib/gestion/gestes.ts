@@ -368,8 +368,18 @@ export async function rouvrir(filId: number, auteur: Auteur): Promise<Issue> {
  * LES RÉPONSES SUIVENT : voir `suivreLeMailDeplace`, appelée par la capture. Déplacer un mail sans emmener ses
  * réponses futures produirait, à la relève suivante, une conversation coupée en deux entre deux cartes.
  */
-export async function deplacerMessage(messageId: number, evenementId: number, auteur: Auteur): Promise<Issue> {
-  return withTransaction(async (q) => lierLeMail(q, messageId, evenementId, auteur));
+export async function deplacerMessage(
+  messageId: number, evenementId: number, auteur: Auteur,
+  /**
+   * 🔴🔴 LOT MONGA-1, POINT 2 — LE MOTIF, QUAND CE N'EST PAS UNE MAIN QUI DÉPLACE.
+   *
+   * Il était écrit en dur : « mail déplacé à la main depuis son échange ». C'était VRAI tant que ce geste n'avait
+   * qu'une origine. Le classement Monga en est une seconde, et lui laisser ce motif aurait inscrit en base, et
+   * dans le journal, qu'un humain avait fait ce que personne n'a fait. Facultatif, défaut inchangé.
+   */
+  motif?: string,
+): Promise<Issue> {
+  return withTransaction(async (q) => lierLeMail(q, messageId, evenementId, auteur, motif));
 }
 
 /**
@@ -396,6 +406,7 @@ export async function deplacerMessageVersNouveau(
 /** LE CORPS COMMUN du lien mail ↔ carte. Une seule règle d'écriture, donc pas deux comportements possibles. */
 async function lierLeMail(
   q: RequeteTx, messageId: number, evenementId: number, auteur: Auteur,
+  motif = 'mail déplacé à la main depuis son échange',
 ): Promise<Issue> {
   {
     // LIRE AVANT D'ÉCRIRE (withTransaction commite au retour, cf. db/client.ts:52-54) — et verrouiller, pour que deux
@@ -427,7 +438,7 @@ async function lierLeMail(
     const { rows: nouvelle } = await q<{ id: number }>(
       `INSERT INTO gestion_affectation (fil_id, evenement_id, message_id, motif, affecte_par, affecte_par_libelle)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING id::int AS id`,
-      [msg[0].fil_id, evenementId, messageId, 'mail déplacé à la main depuis son échange', auteur.id, auteur.libelle]);
+      [msg[0].fil_id, evenementId, messageId, motif, auteur.id, auteur.libelle]);
     await journaliser(q, 'affectation', nouvelle[0].id, 'affectation', auteur,
       `mail ${messageId} (« ${texte(msg[0].objet) ?? 'sans objet'} ») rattaché à l’événement ${ev[0].reference}, sans son échange`);
     return { ok: true, evenementId, reference: ev[0].reference };
