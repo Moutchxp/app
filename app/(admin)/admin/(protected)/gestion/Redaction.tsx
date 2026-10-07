@@ -26,7 +26,8 @@ import {
   type Brouillon, brouillonTouche} from '../../../../lib/gestion/redaction';
 // 🔴🔴 LOT CLASSER-AVANT-ENVOI — « classé ou non » est une DÉCISION, prise dans un module PUR et partagée mot
 //   pour mot avec le serveur. L'écran grise un bouton ; le serveur, lui, refuse.
-import { classementFait, MOTIF_NON_CLASSE } from '../../../../lib/gestion/classementAvantEnvoi';
+import { classementExigePour, classementFait, MOTIF_NON_CLASSE }
+  from '../../../../lib/gestion/classementAvantEnvoi';
 // 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION — les mots de la suppression définitive et la suite du geste, module PUR.
 import {
   MOTS_SUPPRIMER_BROUILLON, suiteSuppressionBrouillon, type SortGmailBrouillon,
@@ -1046,6 +1047,9 @@ export function Redaction({
    */
   const supprimerBrouillon = async (): Promise<void> => {
     const id = aEnregistrer.current.id ?? brouillon.id;
+    /* 🔴 LOT BROUILLON-SANS-CLASSEMENT — la corbeille non plus n'exige rien : même règle, même module. */
+    if (classementExigePour('corbeille')) return;
+    setEnvoiRefuse(false);
     if (id !== null) {
       try { await fetch(`/api/admin/gestion/brouillons?id=${id}`, { method: 'DELETE' }); }
       catch { /* silence : on ferme de toute façon */ }
@@ -1097,6 +1101,11 @@ export function Redaction({
   const supprimerDefinitivement = async (): Promise<void> => {
     const id = aEnregistrer.current.id ?? brouillon.id;
     setEchecGmail(null);
+    /* 🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — SUPPRIMER N'EXIGE AUCUN CLASSEMENT (Arno). La règle est lue dans le
+       module pur, et non devinée ici : `classementExigePour('supprimer')` vaut `false`, et c'est la MÊME fonction
+       qui dit `true` pour « envoyer ». Et l'avertissement du classement s'efface — il ne répond qu'à « Envoyer ». */
+    if (classementExigePour('supprimer')) return;
+    setEnvoiRefuse(false);
     if (id === null) {
       setSupprimeDef(false);
       onGeste(suiteSuppressionBrouillon('sans_objet').phrase, { compteurs: DELTA_BROUILLON_ABANDONNE });
@@ -1172,6 +1181,11 @@ export function Redaction({
    * serait bien pire que d'en laisser un vide.
    */
   const fermer = async () => {
+    /* 🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — « GARDER EN BROUILLON » N'EXIGE AUCUN CLASSEMENT (Arno). Même règle,
+       même module pur que « Supprimer » et que la corbeille : `classementExigePour('garder')` vaut `false`. Et
+       l'avertissement du classement s'efface — fermer n'est pas envoyer. */
+    if (classementExigePour('garder')) return;
+    setEnvoiRefuse(false);
     /**
      * 🔴 LOT BROUILLONS-GMAIL — ON ENREGISTRE D'ABORD, ON FERME ENSUITE. La croix ne perdait rien de dramatique
      * jusqu'ici (la minuterie avait souvent tourné), mais les deux dernières secondes de frappe partaient avec la
@@ -1357,6 +1371,32 @@ export function Redaction({
   const classe = classementFait(brouillon);
   const bloqueParClassement = contexte.classementDisponible === true && !classe;
   const peutEnvoyer = pret.pret && !bloqueParClassement;
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — LA LIGNE ROUGE RÉPOND À **ENVOYER**, ET À RIEN D'AUTRE ═══════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * ═══ LA CAUSE DU CONSTAT D'ARNO, MESURÉE À L'ÉCRAN LE 07/10/2026 ═════════════════════════════════════════════
+   *
+   * Il ouvre un brouillon non classé, clique « Supprimer le brouillon », et lit « Classez ce mail avant de
+   * l'envoyer ». Rien ne refusait pourtant sa suppression — ni l'écran, ni la route, qui n'a jamais eu le moindre
+   * contrôle de classement. CE QUI LE REFUSAIT, C'EST LA MISE EN PAGE :
+   *   · la ligne rouge était rendue EN PERMANENCE dès qu'un brouillon n'était pas classé, sans qu'on ait cliqué
+   *     quoi que ce soit — elle était donc déjà là avant le clic, et elle y restait après ;
+   *   · elle est JUSTE SOUS la rangée des boutons (mesuré : bouton 1105-1149 px, ligne 1163-1181 px), c'est-à-dire
+   *     exactement là où l'œil revient après un clic ;
+   *   · tandis que la confirmation « Supprimer définitivement ce brouillon ? » était rendue 132 px AU-DESSUS du
+   *     bouton (973-1033 px), de l'autre côté de toute la rangée — hors du regard, et souvent hors de l'écran.
+   * Le seul texte qui bougeait près du doigt disait donc « classez ce mail ». Un écran qui répond à côté de la
+   * question est lu comme un refus, et c'est ce qu'Arno a lu.
+   *
+   * 🔴 LES DEUX SONT RÉPARÉS : la ligne ne paraît qu'APRÈS un clic sur « Envoyer » (règle d'Arno, point 4), et la
+   * confirmation a rejoint le dessous de la rangée, là où le geste a eu lieu.
+   *
+   * ⚠️ ELLE S'EFFACE DÈS QUE LE MAIL EST CLASSÉ : un avertissement qui survit à sa cause se lit comme une panne.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const [envoiRefuse, setEnvoiRefuse] = useState(false);
+  useEffect(() => { if (!bloqueParClassement) setEnvoiRefuse(false); }, [bloqueParClassement]);
   const titre = brouillon.voie === 'transferer' ? 'Transférer'
     : brouillon.voie === 'nouveau' ? 'Nouveau message'
       : brouillon.voie === 'repondre_tous' ? 'Répondre à tous' : 'Répondre';
@@ -1778,6 +1818,112 @@ export function Redaction({
           }} />
       )}
 
+      <div className="gst-actions red-bas">
+        {/* 🔴 LE SEUL CHEMIN D'ENVOI : ce clic, et lui seul. Il n'envoie même pas tout de suite — il ouvre la fenêtre
+            d'annulation. Aucun `type="submit"`, aucun formulaire : « Entrée » ne peut pas déclencher cela.
+            🔴🔴 LOT CLASSER-AVANT-ENVOI — ET IL EST INACTIF TANT QUE LE MAIL N'EST PAS CLASSÉ. Puisqu'il n'y a
+            qu'un chemin d'envoi, il n'y a qu'un endroit où poser la règle : « Ctrl/Cmd+Entrée et l'envoi
+            programmé respectent la même règle » est vrai par construction — aucun raccourci clavier n'envoie
+            (c'est l'invariant du haut de ce fichier), et l'envoi différé passe par la MÊME requête, que le
+            serveur garde de son côté.
+            ⚠️ L'INFOBULLE EST SUR L'ENVELOPPE, pas sur le bouton : un bouton désactivé n'émet plus d'événement
+            de survol dans plusieurs navigateurs, et son `title` ne s'affiche jamais. */}
+        <span className="red-envoi" title={bloqueParClassement ? MOTIF_NON_CLASSE : undefined}>
+          {/**
+            * ══ 🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — LE BOUTON SE CLIQUE, ET C'EST LUI QUI REFUSE ═══════════════
+            *
+            * Il était DÉSACTIVÉ tant que le mail n'était pas classé. Arno demande maintenant que la ligne rouge
+            * « ne s'affiche qu'APRÈS un clic sur Envoyer » : un bouton qu'on ne peut pas cliquer ne l'afficherait
+            * jamais, et le motif du blocage disparaîtrait de l'écran. Il redevient donc cliquable, et le clic
+            * REFUSE — ce qui est la même protection, dite au bon moment.
+            *
+            * 🔴 « UN MAIL NE PART JAMAIS SANS CLASSEMENT » (Arno, règle 1) EST INTACT, et il l'est à trois
+            * niveaux : ce `return` ici, `refusSiNonClasse` dans `envoyerMessage`, et le MÊME garde dans la route
+            * qui met en file. L'écran n'a jamais été la protection — il en est la lisibilité.
+            *
+            * ⚠️ `disabled` RESTE POUR TOUT LE RESTE (`!pret.pret`) : destinataire manquant, objet vide, envoi déjà
+            * en cours. Ces cas-là ne sont pas un classement à faire, et leur avertissement est ailleurs.
+            */}
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!pret.pret}
+            title={bloqueParClassement ? MOTIF_NON_CLASSE : undefined}
+            aria-describedby={envoiRefuse ? 'red-non-classe' : undefined}
+            onClick={() => {
+              if (!peutEnvoyer) { setEnvoiRefuse(true); return; }
+              setEtat({
+                v: 'compte_a_rebours', clicLe: new Date(),
+                cle: `${brouillon.id ?? 'x'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+              });
+            }}>
+            Envoyer{piecesJointes > 0 ? ` (${piecesJointes} pièce${piecesJointes > 1 ? 's' : ''} jointe${piecesJointes > 1 ? 's' : ''})` : ''}
+          </button>
+        </span>
+
+        {/* ══ LOT REDACTION-GMAIL — LES OUTILS, À CÔTÉ D'« ENVOYER », comme dans Gmail ══════════════════════════
+            Chacun porte un MOT dans son libellé accessible et son info-bulle : une rangée d'icônes muettes est
+            inutilisable au lecteur d'écran, et devinette pour tout le monde. */}
+        <span className="red-outils" role="group" aria-label="Outils du message">
+          <button type="button" className="red-outil" title="Mise en forme du texte"
+            aria-label="Afficher ou masquer la barre de mise en forme" aria-pressed={barreOutils}
+            onClick={() => setBarreOutils((v) => !v)}>
+            <span aria-hidden="true">Aa</span>
+          </button>
+          {/* ⚠️ LE DRIVE ET LE LIEN ONT DÉMÉNAGÉ dans la zone PIÈCES JOINTES (lot EDITEUR-PJ) : ils y sont à côté
+              de « Joindre un fichier », qui est le même geste avec une autre source. Rien n'a été retiré. */}
+          {/* ⚠️ LA CORBEILLE EST LA DERNIÈRE, et elle DEMANDE confirmation : c'est le seul geste de cette rangée
+              qui détruit quelque chose. */}
+          {/* 🔴 LOT LECTURE-HTML-FIL-TROMBONE — « Mettre à la corbeille », et non plus « Supprimer le brouillon ».
+              Le geste n'a jamais supprimé : il DATE la ligne. Le mot disait plus que ce qui se passait, ce qui
+              fait hésiter devant l'anodin — et douter des mots employés ailleurs. */}
+          <button type="button" className="red-outil red-outil--rouge" title={motsJeter.infobulle}
+            aria-label={motsJeter.infobulle}
+            /* 🔴 LOT BROUILLON-SANS-CLASSEMENT — même règle que pour « Supprimer le brouillon ». */
+            onClick={() => { setEnvoiRefuse(false); setSupprime(true); }}>
+            <span aria-hidden="true">🗑</span>
+          </button>
+        </span>
+        {/* ⚠️ « GARDER EN BROUILLON » PASSE PAR LA MÊME PORTE. Son mot promet de garder ; si rien n'a été saisi,
+            il n'y a rien à garder, et laisser une ligne vide en base ne tiendrait pas cette promesse — ce serait
+            la contourner. `fermer` ne touche qu'aux brouillons restés vides. */}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>
+          Garder en brouillon
+        </button>
+
+        {/* ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — « SUPPRIMER LE BROUILLON », À CÔTÉ DES AUTRES ══════
+            Demande d'Arno : « à côté des boutons existants (sans en retirer aucun) ». AUCUN n'a été retiré ni
+            déplacé : « Envoyer », les outils (dont la corbeille), « Garder en brouillon » et l'indicateur
+            d'enregistrement sont exactement où ils étaient.
+
+            🔴 IL PORTE SON MOT, PAS UNE ICÔNE. La corbeille de la rangée d'outils, elle, est un dessin — et c'est
+            cohérent : elle fait un geste réversible. Celui-ci est sans retour, il s'annonce donc en toutes lettres.
+
+            🔴 ET IL N'OUVRE QUE SA PROPRE CONFIRMATION. Cliquer ici ne supprime rien : cela POSE LA QUESTION. */}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn red-supprimer-def"
+          /* 🔴 LOT BROUILLON-SANS-CLASSEMENT — POSER LA QUESTION ÉTEINT DÉJÀ L'AVERTISSEMENT DE L'ENVOI : la
+             ligne rouge ne doit pas rester sous une question qui n'est pas la sienne. */
+          aria-expanded={supprimeDef}
+          onClick={() => { setEchecGmail(null); setEnvoiRefuse(false); setSupprimeDef(true); }}>
+          {MOTS_SUPPRIMER_BROUILLON.bouton}
+        </button>
+
+        {/* ══ 🔴 L'INDICATEUR D'ENREGISTREMENT — discret, en bas, comme dans Gmail ═══════════════════════════════
+            Deux mots, jamais une alerte : `role="status"` n'interrompt pas une lecture d'écran en cours. Il ne dit
+            rien tant qu'il n'y a rien à dire — annoncer « Brouillon enregistré » avant la première lettre serait
+            faux, et un indicateur qui ment ne se lit plus. */}
+        <span className={`red-enreg${etatEnreg === 'echec' ? ' red-enreg--echec' : ''}`} role="status">
+          {MOTS_ENREGISTREMENT[etatEnreg]}
+        </span>
+      </div>
+
+      {/* ══ 🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — LES CONFIRMATIONS SONT PASSÉES **SOUS** LA RANGÉE ═════════════
+          Elles étaient rendues AU-DESSUS des boutons : mesuré le 07/10/2026, la confirmation « Supprimer
+          définitivement ce brouillon ? » s'affichait 132 px plus haut que le bouton qui l'ouvre, de l'autre côté
+          de toute la rangée — souvent hors de l'écran. On cliquait, et rien ne paraissait près du doigt ; le seul
+          texte visible sous le bouton était la ligne rouge du classement, qu'on lisait alors comme un refus.
+
+          🔴 UNE QUESTION SE POSE LÀ OÙ L'ON VIENT DE CLIQUER. C'est la règle de tout le module (la carte vide
+          prend la place de la tuile, le choix prend la place de la carte) : elle manquait seulement ici.
+
+          ⚠️ RIEN N'EST RETIRÉ NI CONDITIONNÉ : mêmes blocs, mêmes mots, mêmes boutons, même ordre entre eux. */}
       {/* La confirmation de SUPPRESSION. Un brouillon se supprime EXPRÈS : la corbeille de la barre du bas est à
           côté d'« Envoyer », et un clic de trop ne doit pas effacer ce qu'on vient d'écrire. */}
       {supprime && (
@@ -1816,79 +1962,6 @@ export function Redaction({
         <p className="red-supprime red-echec-gmail" role="alert">{echecGmail}</p>
       )}
 
-      <div className="gst-actions red-bas">
-        {/* 🔴 LE SEUL CHEMIN D'ENVOI : ce clic, et lui seul. Il n'envoie même pas tout de suite — il ouvre la fenêtre
-            d'annulation. Aucun `type="submit"`, aucun formulaire : « Entrée » ne peut pas déclencher cela.
-            🔴🔴 LOT CLASSER-AVANT-ENVOI — ET IL EST INACTIF TANT QUE LE MAIL N'EST PAS CLASSÉ. Puisqu'il n'y a
-            qu'un chemin d'envoi, il n'y a qu'un endroit où poser la règle : « Ctrl/Cmd+Entrée et l'envoi
-            programmé respectent la même règle » est vrai par construction — aucun raccourci clavier n'envoie
-            (c'est l'invariant du haut de ce fichier), et l'envoi différé passe par la MÊME requête, que le
-            serveur garde de son côté.
-            ⚠️ L'INFOBULLE EST SUR L'ENVELOPPE, pas sur le bouton : un bouton désactivé n'émet plus d'événement
-            de survol dans plusieurs navigateurs, et son `title` ne s'affiche jamais. */}
-        <span className="red-envoi" title={bloqueParClassement ? MOTIF_NON_CLASSE : undefined}>
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!peutEnvoyer}
-            title={bloqueParClassement ? MOTIF_NON_CLASSE : undefined}
-            aria-describedby={bloqueParClassement ? 'red-non-classe' : undefined}
-            onClick={() => setEtat({
-              v: 'compte_a_rebours', clicLe: new Date(),
-              cle: `${brouillon.id ?? 'x'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-            })}>
-            Envoyer{piecesJointes > 0 ? ` (${piecesJointes} pièce${piecesJointes > 1 ? 's' : ''} jointe${piecesJointes > 1 ? 's' : ''})` : ''}
-          </button>
-        </span>
-
-        {/* ══ LOT REDACTION-GMAIL — LES OUTILS, À CÔTÉ D'« ENVOYER », comme dans Gmail ══════════════════════════
-            Chacun porte un MOT dans son libellé accessible et son info-bulle : une rangée d'icônes muettes est
-            inutilisable au lecteur d'écran, et devinette pour tout le monde. */}
-        <span className="red-outils" role="group" aria-label="Outils du message">
-          <button type="button" className="red-outil" title="Mise en forme du texte"
-            aria-label="Afficher ou masquer la barre de mise en forme" aria-pressed={barreOutils}
-            onClick={() => setBarreOutils((v) => !v)}>
-            <span aria-hidden="true">Aa</span>
-          </button>
-          {/* ⚠️ LE DRIVE ET LE LIEN ONT DÉMÉNAGÉ dans la zone PIÈCES JOINTES (lot EDITEUR-PJ) : ils y sont à côté
-              de « Joindre un fichier », qui est le même geste avec une autre source. Rien n'a été retiré. */}
-          {/* ⚠️ LA CORBEILLE EST LA DERNIÈRE, et elle DEMANDE confirmation : c'est le seul geste de cette rangée
-              qui détruit quelque chose. */}
-          {/* 🔴 LOT LECTURE-HTML-FIL-TROMBONE — « Mettre à la corbeille », et non plus « Supprimer le brouillon ».
-              Le geste n'a jamais supprimé : il DATE la ligne. Le mot disait plus que ce qui se passait, ce qui
-              fait hésiter devant l'anodin — et douter des mots employés ailleurs. */}
-          <button type="button" className="red-outil red-outil--rouge" title={motsJeter.infobulle}
-            aria-label={motsJeter.infobulle} onClick={() => setSupprime(true)}>
-            <span aria-hidden="true">🗑</span>
-          </button>
-        </span>
-        {/* ⚠️ « GARDER EN BROUILLON » PASSE PAR LA MÊME PORTE. Son mot promet de garder ; si rien n'a été saisi,
-            il n'y a rien à garder, et laisser une ligne vide en base ne tiendrait pas cette promesse — ce serait
-            la contourner. `fermer` ne touche qu'aux brouillons restés vides. */}
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>
-          Garder en brouillon
-        </button>
-
-        {/* ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — « SUPPRIMER LE BROUILLON », À CÔTÉ DES AUTRES ══════
-            Demande d'Arno : « à côté des boutons existants (sans en retirer aucun) ». AUCUN n'a été retiré ni
-            déplacé : « Envoyer », les outils (dont la corbeille), « Garder en brouillon » et l'indicateur
-            d'enregistrement sont exactement où ils étaient.
-
-            🔴 IL PORTE SON MOT, PAS UNE ICÔNE. La corbeille de la rangée d'outils, elle, est un dessin — et c'est
-            cohérent : elle fait un geste réversible. Celui-ci est sans retour, il s'annonce donc en toutes lettres.
-
-            🔴 ET IL N'OUVRE QUE SA PROPRE CONFIRMATION. Cliquer ici ne supprime rien : cela POSE LA QUESTION. */}
-        <button type="button" className="svv-btn svv-btn-outline gst-btn red-supprimer-def"
-          aria-expanded={supprimeDef} onClick={() => { setEchecGmail(null); setSupprimeDef(true); }}>
-          {MOTS_SUPPRIMER_BROUILLON.bouton}
-        </button>
-
-        {/* ══ 🔴 L'INDICATEUR D'ENREGISTREMENT — discret, en bas, comme dans Gmail ═══════════════════════════════
-            Deux mots, jamais une alerte : `role="status"` n'interrompt pas une lecture d'écran en cours. Il ne dit
-            rien tant qu'il n'y a rien à dire — annoncer « Brouillon enregistré » avant la première lettre serait
-            faux, et un indicateur qui ment ne se lit plus. */}
-        <span className={`red-enreg${etatEnreg === 'echec' ? ' red-enreg--echec' : ''}`} role="status">
-          {MOTS_ENREGISTREMENT[etatEnreg]}
-        </span>
-      </div>
-
       {/* ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — LA LIGNE ROUGE, SOUS LE BOUTON ════════════════════════════════════
           Demande d'Arno : « Infobulle ET ligne rouge sous le bouton ». Les deux, et pas l'une ou l'autre : au
           doigt, une infobulle n'existe pas (exigence transverse du dépôt), et un bouton gris sans explication
@@ -1897,11 +1970,16 @@ export function Redaction({
           ⚠️ SOUS LE BOUTON, et non au-dessus comme l'avertissement de `pretAEnvoyer` : c'est là qu'Arno la
           demande, et c'est là que l'œil revient après avoir cliqué sans effet.
 
-          ⚠️ `role="status"`, PAS `alert` : rien n'est cassé, et interrompre une lecture d'écran à chaque fois
-          que la fenêtre s'ouvre serait insupportable. L'`aria-describedby` du bouton y renvoie — c'est ce qui
-          fait que le motif se lit AU MOMENT où l'on atteint le bouton. */}
-      {bloqueParClassement && (
-        <p className="gst-note red-avertit red-non-classe" id="red-non-classe" role="status">
+          ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-SANS-CLASSEMENT : `role="alert"`, ET NON PLUS `status`. Le
+          motif d'avant tenait : « interrompre une lecture d'écran à chaque fois que la fenêtre s'ouvre serait
+          insupportable ». Elle ne s'ouvre PLUS avec la fenêtre — elle répond à un clic délibéré sur « Envoyer »,
+          et c'est précisément le moment où une alerte est juste : la personne vient d'agir, et rien ne s'est
+          passé. L'`aria-describedby` du bouton suit le même interrupteur. */}
+      {/* 🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — `envoiRefuse` ET NON `bloqueParClassement` : elle répond au clic sur
+          « Envoyer », jamais à une suppression ni à « Garder en brouillon » (Arno, point 4). Voir l'encadré de
+          `envoiRefuse` pour la cause mesurée. */}
+      {envoiRefuse && (
+        <p className="gst-note red-avertit red-non-classe" id="red-non-classe" role="alert">
           {MOTIF_NON_CLASSE}
         </p>
       )}

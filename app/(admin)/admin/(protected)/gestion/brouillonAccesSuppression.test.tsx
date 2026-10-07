@@ -142,6 +142,17 @@ const cliquer = async (e: Element) => {
 /** Le bouton qui porte ce mot, où qu'il soit dans la zone donnée. */
 const bouton = (dans: Element, mot: string): HTMLButtonElement | undefined =>
   [...dans.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes(mot));
+/**
+ * 🔴 LE BOUTON D'UNE CONFIRMATION, CHERCHÉ **DANS** SA PHRASE — requalifié le 07/10/2026 (lot
+ * BROUILLON-SANS-CLASSEMENT). La confirmation est passée SOUS la rangée des boutons (elle s'affichait 132 px
+ * au-dessus de celui qui l'ouvre, hors du regard) : « Supprimer » trouvait donc désormais « Supprimer le
+ * brouillon » en premier, et le cas rouvrait la question au lieu d'y répondre. On vise la phrase, pas l'écran —
+ * ce qui est de toute façon plus juste : c'est SON bouton qu'on veut, où qu'elle soit posée.
+ */
+const boutonConfirmation = (mot: string): HTMLButtonElement | undefined => {
+  const p = document.querySelector('section.red .red-supprime');
+  return p === null ? undefined : bouton(p, mot);
+};
 const editeur = () => ligne(22).querySelector('section.red');
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -261,8 +272,8 @@ describe('🔴🔴 ③ le bouton « Supprimer le brouillon »', () => {
     await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.bouton) as Element);
     const red = editeur() as Element;
     expect(red.textContent, 'la question d’Arno, mot pour mot').toContain(MOTS_SUPPRIMER_BROUILLON.question);
-    expect(bouton(red, MOTS_SUPPRIMER_BROUILLON.annuler)).toBeDefined();
-    expect(bouton(red, MOTS_SUPPRIMER_BROUILLON.confirmer)).toBeDefined();
+    expect(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.annuler)).toBeDefined();
+    expect(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.confirmer)).toBeDefined();
     /* 🔴 RIEN N'EST PARTI VERS LE SERVEUR : une question n'est pas un geste. */
     expect(appels.filter((a) => a.methode === 'DELETE')).toHaveLength(0);
   });
@@ -270,7 +281,7 @@ describe('🔴🔴 ③ le bouton « Supprimer le brouillon »', () => {
   it('🔴 « Annuler » referme la question et laisse le brouillon ouvert', async () => {
     await ouvrirLeBrouillon();
     await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.bouton) as Element);
-    await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.annuler) as Element);
+    await cliquer(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.annuler) as Element);
     const red = editeur() as Element;
     expect(red.textContent).not.toContain(MOTS_SUPPRIMER_BROUILLON.question);
     expect(red.textContent).toContain('Le texte déjà enregistré');
@@ -287,7 +298,7 @@ describe('🔴🔴 ④ la suppression confirmée', () => {
     await ouvrirLeBrouillon();
     await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.bouton) as Element);
     appels = []; gestes = [];
-    await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.confirmer) as Element);
+    await cliquer(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.confirmer) as Element);
   };
 
   it('🔴🔴 elle demande la suppression DÉFINITIVE du bon brouillon', async () => {
@@ -339,7 +350,7 @@ describe('🔴🔴 ⑤ quand la suppression dans Gmail échoue', () => {
     await ouvrirLeBrouillon();
     reponseSuppression = { statut: 502, corps: { erreur: 'Brouillon non supprimé dans Gmail, réessayer', gmail: 'echec' } };
     await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.bouton) as Element);
-    await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.confirmer) as Element);
+    await cliquer(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.confirmer) as Element);
     const red = editeur();
     expect(red, '« garder le brouillon affiché » (Arno)').not.toBeNull();
     expect(red?.textContent).toContain('Brouillon non supprimé dans Gmail, réessayer');
@@ -352,7 +363,7 @@ describe('🔴🔴 ⑤ quand la suppression dans Gmail échoue', () => {
     await ouvrirLeBrouillon();
     global.fetch = vi.fn(async () => { throw new Error('réseau coupé'); }) as unknown as typeof fetch;
     await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.bouton) as Element);
-    await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.confirmer) as Element);
+    await cliquer(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.confirmer) as Element);
     expect(editeur()).not.toBeNull();
     expect(editeur()?.textContent).toContain(suiteSuppressionBrouillon('echec').phrase);
   });

@@ -88,6 +88,41 @@ export function refusSiNonClasse(b: ClassementBrouillon): string | null {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — QUELS GESTES LE CLASSEMENT COMMANDE-T-IL ?
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Les quatre gestes qu'on peut faire sur un brouillon ouvert :
+ *   · `envoyer`    — le faire partir ;
+ *   · `garder`     — « Garder en brouillon » : fermer l'éditeur, le brouillon reste ;
+ *   · `corbeille`  — la corbeille de la barre d'outils : le brouillon est daté, il se réintègre ;
+ *   · `supprimer`  — « Supprimer le brouillon » : la ligne quitte la base (lot BROUILLON-ACCES-SUPPRESSION).
+ */
+export type GesteSurBrouillon = 'envoyer' | 'garder' | 'corbeille' | 'supprimer';
+
+/**
+ * ══ 🔴🔴 LE CLASSEMENT N'EST EXIGÉ QUE POUR **ENVOYER**. PURE. ═══════════════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (07/10/2026) : « Le classement (“Rattacher à un logement” / “Interne entre collègues”) n'est
+ * obligatoire QUE pour ENVOYER. Ça ne change pas : un mail ne part jamais sans classement. “Supprimer le
+ * brouillon” fonctionne SANS classement […] “Garder en brouillon” fonctionne aussi SANS classement. »
+ *
+ * 🔴 POURQUOI UNE FONCTION, ET NON UN `if` DANS L'ÉDITEUR. La règle est la même pour TOUS les types de brouillon
+ * — message neuf, réponse dans une conversation, transfert, transfert de pièce — et pour tous les écrans qui les
+ * ouvrent : la fenêtre flottante, la conversation, la liste « Brouillons », l'aperçu de la recherche, l'écran
+ * partagé, une fiche. Arno demande « une seule règle, pas une rustine par écran » : la voici, et l'éditeur
+ * — qui est le MÊME composant partout — est le seul à l'appeler.
+ *
+ * ⚠️ ELLE NE DIT PAS SI LE MAIL EST CLASSÉ : c'est `classementFait` qui répond à cela. Celle-ci dit si la
+ * question se POSE. Les confondre est exactement ce qui a fait croire qu'une suppression devait être classée.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function classementExigePour(geste: GesteSurBrouillon): boolean {
+  return geste === 'envoyer';
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴🔴 L'HÉRITAGE — RÉPONDRE DANS UNE CONVERSATION DÉJÀ CLASSÉE
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 

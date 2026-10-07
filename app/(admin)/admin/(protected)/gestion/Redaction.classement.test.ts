@@ -88,6 +88,12 @@ const caseDe = (mot: RegExp) => [...container.querySelectorAll('.ccl-case')]
   .find((c) => mot.test(c.textContent ?? '')) as HTMLElement | undefined;
 const modaleOuverte = () => container.querySelector('.rec-voile') !== null;
 const lecturesClassement = () => appels.filter((a) => /\/classement$/.test(a.url)).length;
+/**
+ * 🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — COMBIEN D'ENVOIS SONT PARTIS. C'est la preuve que « un mail ne part jamais
+ * sans classement » tient, maintenant que le bouton est cliquable : on compte les requêtes vers la SEULE porte
+ * d'envoi de l'application. Zéro, toujours, tant que le mail n'est pas classé.
+ */
+const envois = () => appels.filter((a) => /\/gestion\/envois/.test(a.url) && a.methode !== 'GET').length;
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
@@ -139,31 +145,63 @@ describe('🔴🔴 ① LA MODALE NE S’OUVRE PLUS TOUTE SEULE', () => {
   });
 });
 
-describe('🔴🔴 ② « ENVOYER » EST INACTIF TANT QUE LE MAIL N’EST PAS CLASSÉ', () => {
-  it('🔴🔴 rien n’est choisi : le bouton est gris, et la ligne rouge dit pourquoi', async () => {
+/**
+ * ══ 🔴🔴 REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-SANS-CLASSEMENT ════════════════════════════════════════════════
+ *
+ * CE BLOC EXIGEAIT UN BOUTON **GRIS** ET UNE LIGNE ROUGE **PERMANENTE**. Arno tranche autrement, et il a une
+ * raison mesurée : la ligne rouge, rendue en permanence et posée juste sous la rangée des boutons, répondait à
+ * TOUS les clics — y compris « Supprimer le brouillon », dont la confirmation s'affichait 132 px plus haut, hors
+ * du regard. On croyait qu'une suppression exigeait un classement. Sa règle : « Le message rouge ne s'affiche
+ * qu'après un clic sur Envoyer, jamais après une suppression ou un “Garder en brouillon”. »
+ *
+ * 🔴 LA PROTECTION N'A PAS BOUGÉ D'UN POUCE — elle a changé de MOMENT. Un bouton qu'on ne peut pas cliquer
+ * n'afficherait jamais de message « après un clic » : il redevient donc cliquable, et le clic REFUSE. Ce que ce
+ * bloc protège (« un mail non classé ne part pas, et l'écran dit pourquoi ») est éprouvé ci-dessous, au clic.
+ */
+describe('🔴🔴 ② « ENVOYER » REFUSE TANT QUE LE MAIL N’EST PAS CLASSÉ', () => {
+  it('🔴🔴 rien n’est choisi : AVANT le clic, aucune ligne rouge', async () => {
     await monter();
-    expect(boutonEnvoyer().disabled).toBe(true);
+    /* 🔴 LE BOUTON SE CLIQUE — c'est ce qui permet au refus de se dire. */
+    expect(boutonEnvoyer().disabled).toBe(false);
+    /* 🔴🔴 ET RIEN NE S'AFFICHE TANT QU'ON N'A RIEN DEMANDÉ : c'est le défaut qu'Arno a constaté. */
+    expect(container.querySelector('.red-non-classe')).toBeNull();
+  });
+
+  it('🔴🔴 au clic sur « Envoyer », le refus s’affiche, et RIEN n’est envoyé', async () => {
+    await monter();
+    await act(async () => { boutonEnvoyer().click(); });
+    await calmer();
     const ligne = container.querySelector('.red-non-classe');
     expect(ligne?.textContent).toBe(MOTIF_NON_CLASSE);
     expect(ligne?.textContent).toBe('Classez ce mail avant de l’envoyer : Rattacher ou Interne.');
+    /* 🔴🔴 LA PROTECTION TIENT : aucun compte à rebours ne part, donc aucun envoi. */
+    expect(container.querySelector('.red-rebours')).toBeNull();
+    expect(envois()).toBe(0);
   });
 
   /** 🔴 « Infobulle ET ligne rouge » — les deux, parce qu'au doigt une infobulle n'existe pas. */
-  it('🔴 l’infobulle porte le même motif, et elle survit au bouton désactivé', async () => {
+  it('🔴 l’infobulle porte le même motif, dès avant le clic', async () => {
     await monter();
     expect(boutonEnvoyer().getAttribute('title')).toBe(MOTIF_NON_CLASSE);
     // L'enveloppe la porte aussi : plusieurs navigateurs n'affichent plus l'infobulle d'un bouton inerte.
     expect(container.querySelector('.red-envoi')?.getAttribute('title')).toBe(MOTIF_NON_CLASSE);
-    // Et le lecteur d'écran l'entend en atteignant le bouton.
+    /* 🔴 ET LE LECTEUR D'ÉCRAN ENTEND LE MOTIF **UNE FOIS QU'IL EXISTE** : `aria-describedby` suit la ligne. */
+    await act(async () => { boutonEnvoyer().click(); });
+    await calmer();
     expect(boutonEnvoyer().getAttribute('aria-describedby')).toBe('red-non-classe');
   });
 
-  it('🔴🔴 « Interne » DÉBLOQUE l’envoi', async () => {
+  it('🔴🔴 « Interne » DÉBLOQUE l’envoi, et EFFACE un refus déjà affiché', async () => {
     await monter();
+    /* On essaie d'abord sans classer : le refus s'affiche. */
+    await act(async () => { boutonEnvoyer().click(); });
+    await calmer();
+    expect(container.querySelector('.red-non-classe')).not.toBeNull();
     await act(async () => { (caseDe(/Interne/) as HTMLButtonElement).click(); });
     await calmer();
-    expect(boutonEnvoyer().disabled).toBe(false);
+    /* 🔴 UN AVERTISSEMENT QUI SURVIT À SA CAUSE SE LIT COMME UNE PANNE : il s'efface tout seul. */
     expect(container.querySelector('.red-non-classe')).toBeNull();
+    expect(boutonEnvoyer().disabled).toBe(false);
   });
 
   it('🔴🔴 « Rattaché » avec au moins un bien DÉBLOQUE l’envoi', async () => {
@@ -184,8 +222,12 @@ describe('🔴🔴 ② « ENVOYER » EST INACTIF TANT QUE LE MAIL N’EST PAS CL
     expect(boutonEnvoyer().disabled).toBe(false);
     await act(async () => { (caseDe(/Interne/) as HTMLButtonElement).click(); });
     await calmer();
-    expect(boutonEnvoyer().disabled).toBe(true);
+    /* ⚠️ REQUALIFIÉ : le refus se dit AU CLIC, et non plus par un bouton gris. Ce que ce cas protège — défaire
+       le classement rebloque l'envoi — est intact, et il est même éprouvé plus loin (aucun envoi ne part). */
+    await act(async () => { boutonEnvoyer().click(); });
+    await calmer();
     expect(container.querySelector('.red-non-classe')?.textContent).toBe(MOTIF_NON_CLASSE);
+    expect(envois()).toBe(0);
   });
 
   /** 🔴🔴 ET IL N'Y A PLUS DE LIEN « Réinitialiser » : une seule porte pour défaire, la case elle-même. */
@@ -240,10 +282,18 @@ describe('🔴🔴 ③ une réponse dans un fil déjà classé part sans rien re
   });
 
   /** 🔴 « Sinon, même obligation que pour un nouveau message. » */
+  /**
+   * ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-SANS-CLASSEMENT : l'obligation se dit AU CLIC, et non plus par un
+   * bouton gris. Ce que ce cas protège — « sinon, même obligation que pour un nouveau message » — est intact, et
+   * c'est bien la MÊME règle : une réponse non classée ne part pas davantage qu'un message neuf.
+   */
   it('🔴 fil NON classé : même obligation que pour un message neuf', async () => {
     await monter(REPONSE);
-    expect(boutonEnvoyer().disabled).toBe(true);
+    expect(container.querySelector('.red-non-classe')).toBeNull();
+    await act(async () => { boutonEnvoyer().click(); });
+    await calmer();
     expect(container.querySelector('.red-non-classe')?.textContent).toBe(MOTIF_NON_CLASSE);
+    expect(envois()).toBe(0);
   });
 
   /** 🔴 L'héritage se défait comme un choix fait à la main : d'un clic sur la case verte. */
@@ -275,8 +325,13 @@ describe('🔴🔴 ④ un brouillon NON classé s’enregistre, se garde et se j
     await avancer(4000);
     const posts = appels.filter((a) => a.methode === 'POST' && /\/brouillons$/.test(a.url));
     expect(posts.length).toBeGreaterThan(0);
-    // …et l'envoi, lui, reste bien bloqué : c'est la seule chose que ce lot interdit.
-    expect(boutonEnvoyer().disabled).toBe(true);
+    /* …et l'envoi, lui, reste bien refusé : c'est la seule chose que ce lot interdit.
+       ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-SANS-CLASSEMENT : le refus se dit AU CLIC. On clique donc, et
+       l'on vérifie que RIEN ne part — ce qui est une preuve plus forte qu'un attribut `disabled`. */
+    await act(async () => { boutonEnvoyer().click(); });
+    await calmer();
+    expect(container.querySelector('.red-non-classe')?.textContent).toBe(MOTIF_NON_CLASSE);
+    expect(envois()).toBe(0);
   });
 
   it('🔴 « Garder en brouillon » n’est JAMAIS désactivé', async () => {
