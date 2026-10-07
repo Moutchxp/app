@@ -41,6 +41,7 @@ vi.mock('./schema', () => ({
 
 import {
   compterFilsEtoiles, ecrireEtoileMessage, filsEtoiles, messagesEtoilesDuFil, reconcilierEtoiles,
+  sqlMailEtoile,
 } from './etoileGmailRepo';
 import { basculerEtoileDuFil, MENTION_SANS_MESSAGE, type DepsEtoileFil } from './etoileFil';
 import { sqlPageBoite } from './boiteRepo';
@@ -58,17 +59,28 @@ beforeEach(() => {
    ① LE FILTRE
    ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('🔴 ① le filtre lit l’étoile de GMAIL, sur tout l’échange', () => {
+describe('🔴 ① le filtre lit l’étoile de GMAIL', () => {
   /**
-   * 🔴 C'EST LE CAS DU FIL 334, ÉCRIT EN SQL. Le prédicat porte sur `me.fil_id = m.fil_id` — l'ÉCHANGE — et non
-   * sur `m.id`. Un filtre qui n'aurait regardé que le message de la ligne aurait raté celui du 18 septembre, qui
-   * n'est pas le dernier des onze.
+   * ══ 🔴🔴 CE CAS A CHANGÉ DE VERDICT — LOT FILTRE-ETOILE-PLEINE (07/10/2026) ═══════════════════════════════════
+   *
+   * IL EXIGEAIT L'INVERSE : « le prédicat interroge tout l'ÉCHANGE, pas la ligne ». C'était juste au lot
+   * ETOILE-ET-SIGNATURE, où la ligne s'allumait dès qu'un mail de l'échange était étoilé : le filtre disait alors
+   * exactement la même chose qu'elle, et viser `m.id` aurait raté le message du 18 septembre du fil 334.
+   *
+   * Depuis le lot ETOILE-LIGNE-DEUX-ETATS, la ligne distingue PLEINE (son mail est étoilé) de CREUSE (un autre
+   * l'est), et ce prédicat s'est mis à répondre à une question que plus personne ne posait. CONSTAT D'ARNO : sur
+   * `?etoile=1`, la liste remontait des lignes CREUSES — 45 lignes rendues, dont 16.
+   *
+   * 🔴 LE FILTRE PORTE DONC SUR LA LIGNE, et par le MÊME fragment que la lecture qui dessine l'étoile
+   * (`sqlMailEtoile`) : une seule écriture de la colonne, bornée au mail de la ligne. Voir
+   * `filtreEtoilePleine.test.ts`, qui tient les trois cas et la cohérence.
    */
-  it('🔴 le prédicat interroge tout l’échange, pas la ligne', () => {
+  it('🔴🔴 le prédicat interroge LE MAIL DE LA LIGNE, par le fragment partagé', () => {
     const sql = sqlPageBoite(false, undefined, false, false, null, true, false, false, null, true)
       .replace(/\s+/g, ' ');
-    expect(sql).toContain('EXISTS (SELECT 1 FROM gestion_message me WHERE me.fil_id = m.fil_id');
-    expect(sql).toContain('me.etoile_le IS NOT NULL');
+    expect(sql).toContain(sqlMailEtoile('m'));
+    /* 🔴 ET PLUS AUCUN `EXISTS` D'ÉCHANGE : c'est lui qui faisait remonter les creuses. */
+    expect(sql).not.toMatch(/EXISTS \(\s*SELECT 1 FROM gestion_message me\b/);
     // …et l'ancienne table n'est plus nommée du tout.
     expect(sql).not.toContain('gestion_fil_etoile');
   });

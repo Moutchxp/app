@@ -51,7 +51,7 @@ import { etoilesDesFils } from './etoileRepo';
  * importée juste au-dessus : sans la migration 277, c'est encore elle qui répond, et la liste se comporte
  * exactement comme avant ce lot. Les deux ne sont JAMAIS lues ensemble — une ligne ne porte qu'une étoile.
  */
-import { mailsEtoilesDesFils } from './etoileGmailRepo';
+import { mailsEtoilesDesFils, sqlMailEtoile } from './etoileGmailRepo';
 /* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — la règle des trois états est écrite UNE fois, dans ce module PUR. */
 import {
   ETOILE_LIGNE_VIDE, etoileDeLaLigne, type EtatEtoileLigne, type MailEtoile,
@@ -169,9 +169,9 @@ export interface LigneBoite {
    * La règle est écrite une seule fois, dans le module PUR `etoileLigne` — que l'écran relit après chaque clic
    * pour afficher exactement ce que le serveur lui aurait rendu.
    *
-   * ⚠️ LA RÈGLE DU FILTRE NE CHANGE PAS (`sqlEtoile`) : « au moins un mail de l'échange est étoilé ». Un filtre qui
-   * n'aurait regardé que le mail affiché raterait l'étoile posée ailleurs — c'est la règle de Gmail, et c'est la
-   * moitié du défaut qu'on avait corrigée au lot ETOILE-ET-SIGNATURE. Ce lot-ci ne touche QUE l'affichage.
+   * 🔴🔴 LOT FILTRE-ETOILE-PLEINE — ET LE FILTRE SUIT LA MÊME RÈGLE. Il demandait « cet ÉCHANGE porte-t-il une
+   * étoile ? » et faisait donc remonter des lignes CREUSES (constat d'Arno, 07/10/2026 : 45 lignes dont 16). Il lit
+   * désormais le MÊME fragment que l'affichage (`sqlMailEtoile`), borné au mail de la ligne — voir `sqlEtoile`.
    *
    * ⚠️ SANS LA MIGRATION 277, on ne dispose que du booléen d'échange (`gestion_fil_etoile`) : la ligne est alors
    * PLEINE ou rien, exactement comme avant ce lot. On n'invente jamais une « creuse » qu'on n'a pas lue.
@@ -400,16 +400,36 @@ const ETIQUETTE_TOUT: Etiquette = { sorte: 'reception', evenementId: null };
  * rien. Décision d'Arno : UNE SEULE ÉTOILE, CELLE DE GMAIL — « dès qu'AU MOINS UN message est étoilé », comme
  * dans Gmail, et dans TOUTES les catégories.
  *
- * ⚠️ LE PRÉDICAT PORTE SUR L'ÉCHANGE, PAS SUR LA LIGNE. Une étoile posée sur le message du 18 septembre doit faire
- * remonter l'échange entier, même si la ligne montre celui du 24 : c'est la règle de Gmail, et c'était l'autre
- * moitié du défaut — un filtre qui n'aurait regardé que le dernier message aurait raté celui d'Arno.
+ * ══ 🔴🔴 LOT FILTRE-ETOILE-PLEINE — LE FILTRE PORTE SUR **LA LIGNE**, ET PLUS SUR L'ÉCHANGE ═════════════════════
  *
- * ⚠️ SANS LA MIGRATION 277, on retombe MOT POUR MOT sur l'ancien prédicat : la colonne n'est nommée nulle part, et
- * le filtre se comporte exactement comme avant ce lot.
+ * CE QUI ÉTAIT ÉCRIT ICI : « LE PRÉDICAT PORTE SUR L'ÉCHANGE, PAS SUR LA LIGNE. Une étoile posée sur le message du
+ * 18 septembre doit faire remonter l'échange entier, même si la ligne montre celui du 24. » C'était juste tant que
+ * la ligne n'avait qu'un état : elle s'allumait dès qu'un mail de l'échange était étoilé, et le filtre disait donc
+ * exactement la même chose qu'elle.
+ *
+ * Depuis le lot ETOILE-LIGNE-DEUX-ETATS, la ligne en a TROIS — PLEINE si le mail qu'elle AFFICHE est étoilé,
+ * CREUSE si c'en est un autre, AUCUNE sinon —, et ce prédicat-là s'est mis à répondre à une question que plus
+ * personne ne posait. CONSTAT D'ARNO (07/10/2026) : sur `?etoile=1`, la liste montrait des lignes à étoile CREUSE
+ * (« Dégât des eaux – 80 rue de Normandie », « Demande de précisions… aides au logement »). Mesuré avant
+ * correction : 45 lignes rendues, dont 16 creuses.
+ *
+ * 🔴 RÈGLE D'ARNO : « ce filtre ne fait remonter QUE les lignes dont l'étoile est PLEINE, c'est-à-dire celles dont
+ * le mail affiché par la ligne est lui-même étoilé. »
+ *
+ * 🔴 ET LE FILTRE N'A PLUS DE RÈGLE À LUI — même principe que le lot FILTRE-COMME-ETIQUETTE. Il lit le fragment
+ * `sqlMailEtoile`, celui-là même dont se sert la LECTURE qui dessine l'étoile (`mailsEtoilesDesFils`) : même
+ * colonne, même écriture, un seul endroit où elle est nommée. Seul l'ensemble de messages change — les mails de la
+ * page pour l'affichage, LE MAIL DE LA LIGNE (`m`, celui que le CTE `page` rend en `message_id`) pour le filtre.
+ * C'est `duMessage` du module pur `etoileLigne`, traduit sur la seule ligne où la question se pose, et l'égalité
+ * est vraie par construction plutôt que par surveillance.
+ *
+ * ⚠️ SANS LA MIGRATION 277, on retombe MOT POUR MOT sur l'ancien prédicat d'ÉQUIPE : la colonne n'est nommée nulle
+ * part, l'étoile est celle de l'ÉCHANGE, et la ligne l'affiche PLEINE dès que l'échange la porte (voir `etoileDe`,
+ * plus bas). Le filtre et l'affichage restent donc d'accord là aussi — c'est la même règle, à l'autre grain.
  */
 function sqlEtoile(etoileGmail: boolean): string {
   return etoileGmail
-    ? `EXISTS (SELECT 1 FROM gestion_message me WHERE me.fil_id = m.fil_id AND me.etoile_le IS NOT NULL)`
+    ? sqlMailEtoile('m')
     : `EXISTS (SELECT 1 FROM gestion_fil_etoile fe WHERE fe.fil_id = m.fil_id AND fe.etoilee)`;
 }
 
@@ -848,8 +868,13 @@ function predicatsBoite(
   // LOT ERGO-BOITE-3 — le sélecteur « non lus ». Posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des
   //   messages, et le prédicat « dernier de son sens » n'a pas à en tenir compte.
   const filtreRetenus = rangFilsRetenus === null ? '' : `AND m.fil_id = ANY($${rangFilsRetenus}::bigint[])`;
-  // LOT FILTRE-ETOILE — posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des messages. Le prédicat
-  //   « dernier de son sens » n'a donc pas à en tenir compte.
+  /**
+   * LOT FILTRE-ETOILE — posé sur le seul étage `m`.
+   *
+   * 🔴🔴 LOT FILTRE-ETOILE-PLEINE — ET `m` EST EXACTEMENT LE MAIL QUE LA LIGNE AFFICHE : c'est lui que le CTE
+   * `page` rend en `message_id`, et c'est sur lui que l'écran calcule `duMessage`. Le poser sur l'étage `m2`
+   * (« aucun message plus récent de la même boîte ») n'aurait aucun sens : cet étage-là ne désigne pas une ligne.
+   */
   const filtreEtoile = etoilesSeules ? `AND ${sqlEtoile(etoileGmail)}` : '';
   /**
    * ══ 🔴 LOT ERGO-BOITE-3 — LE SPAM NE SORT DE NULLE PART, SAUF DE SON ÉTIQUETTE ═══════════════════════════════

@@ -47,12 +47,33 @@ import { etoileGmailDisponible } from './schema';
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+/**
+ * ══ 🔴🔴 LOT FILTRE-ETOILE-PLEINE — « CE MAIL PORTE L'ÉTOILE », ÉCRIT **UNE SEULE FOIS** ═════════════════════════
+ *
+ * CONSTAT D'ARNO (07/10/2026) : le filtre étoile de la Réception (`?etoile=1`) faisait remonter des lignes à étoile
+ * CREUSE — « Dégât des eaux – 80 rue de Normandie », « Demande de précisions… aides au logement » — c'est-à-dire
+ * des échanges dont le mail AFFICHÉ n'était pas étoilé. Mesuré avant correction : 45 lignes, dont 16 creuses.
+ *
+ * 🔴 LA CAUSE ÉTAIT UN GRAIN, PAS UNE FAUTE DE FRAPPE : le filtre demandait « cet ÉCHANGE porte-t-il une étoile ? »
+ * (un `EXISTS` sur tout le fil) là où la ligne dessine « CE MAIL est-il étoilé ? » (`duMessage`, `etoileLigne.ts`).
+ * Deux questions, deux réponses — et c'est toujours la liste qu'on croit.
+ *
+ * 🔴 D'OÙ CE FRAGMENT, et c'est le même principe que le lot FILTRE-COMME-ETIQUETTE : le filtre n'a plus de règle à
+ * lui. La colonne `etoile_le` n'est nommée qu'ICI ; la LECTURE qui dessine l'étoile (`mailsEtoilesDesFils`) et le
+ * FILTRE (`boiteRepo.sqlEtoile`) lisent le même fragment, sur la même colonne, et ne changent que l'ensemble de
+ * messages auquel il s'applique : les mails de la page pour l'une, le mail de la ligne pour l'autre. L'égalité est
+ * vraie par construction, pas par surveillance.
+ */
+export function sqlMailEtoile(alias: string): string {
+  return `${alias}.etoile_le IS NOT NULL`;
+}
+
 /** Quels échanges, parmi ceux-ci, portent AU MOINS UN message étoilé ? LECTURE SEULE. Liste vide ⇒ aucune requête. */
 export async function filsEtoiles(filIds: readonly number[]): Promise<Set<number>> {
   if (filIds.length === 0 || !(await etoileGmailDisponible())) return new Set();
   const { rows } = await query<{ fil_id: string }>(
-    `SELECT DISTINCT fil_id::text AS fil_id FROM gestion_message
-      WHERE etoile_le IS NOT NULL AND fil_id = ANY($1::bigint[])`, [[...filIds]]);
+    `SELECT DISTINCT fil_id::text AS fil_id FROM gestion_message m
+      WHERE ${sqlMailEtoile('m')} AND m.fil_id = ANY($1::bigint[])`, [[...filIds]]);
   return new Set(rows.map((r) => Number(r.fil_id)));
 }
 
@@ -82,11 +103,11 @@ export async function mailsEtoilesDesFils(
   const { rows } = await query<{
     fil_id: string; id: string; de_adresse: string; de_nom: string | null; recu_le: string;
   }>(
-    `SELECT fil_id::text, id::text, de_adresse, de_nom,
-            to_char(recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le
-       FROM gestion_message
-      WHERE etoile_le IS NOT NULL AND fil_id = ANY($1::bigint[])
-      ORDER BY recu_le DESC, id DESC`, [[...filIds]]);
+    `SELECT m.fil_id::text, m.id::text, m.de_adresse, m.de_nom,
+            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le
+       FROM gestion_message m
+      WHERE ${sqlMailEtoile('m')} AND m.fil_id = ANY($1::bigint[])
+      ORDER BY m.recu_le DESC, m.id DESC`, [[...filIds]]);
   for (const r of rows) {
     const fil = Number(r.fil_id);
     const liste = parFil.get(fil) ?? [];
@@ -105,8 +126,8 @@ export async function messagesEtoilesDuFil(
 ): Promise<{ messageId: number; messageIdRfc: string }[]> {
   if (!(await etoileGmailDisponible())) return [];
   const { rows } = await query<{ id: string; message_id: string }>(
-    `SELECT id::text AS id, message_id FROM gestion_message
-      WHERE fil_id = $1 AND etoile_le IS NOT NULL ORDER BY recu_le DESC, id DESC`, [filId]);
+    `SELECT m.id::text AS id, m.message_id FROM gestion_message m
+      WHERE m.fil_id = $1 AND ${sqlMailEtoile('m')} ORDER BY m.recu_le DESC, m.id DESC`, [filId]);
   return rows.map((r) => ({ messageId: Number(r.id), messageIdRfc: r.message_id }));
 }
 
