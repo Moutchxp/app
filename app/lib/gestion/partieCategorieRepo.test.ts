@@ -30,10 +30,15 @@ vi.mock('../db/client', () => ({
   withTransaction: (fn: (q: unknown) => Promise<unknown>) => fn((...a: unknown[]) => txMock(...a)),
 }));
 let migration304 = true;
+/** 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — la 318 est-elle là ? Vrai par défaut : c'est l'état de la base. */
+let migration318 = true;
 let migration306 = true;
 vi.mock('./schema', () => ({
   partieCategorieDisponible: async () => migration304,
   contactCarteDisponible: async () => migration304,
+  /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — la colonne `locataire_id` de la 318, sur son propre interrupteur : les cas
+     qui l'éteignent éprouvent qu'elle n'est nommée NULLE PART, et que le geste est refusé avec son motif. */
+  contactAncienLocataireDisponible: async () => migration318,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — la colonne `note` de la 305. La doublure suit le même interrupteur : les cas
      « sans la migration » éprouvent donc aussi une carte SANS note, ce qui est le cas réel d'avant la 305. */
   noteContactCarteDisponible: async () => migration304,
@@ -58,6 +63,7 @@ const params = (): unknown[][] => [...queryMock.mock.calls, ...txMock.mock.calls
 beforeEach(() => {
   migration304 = true;
   migration306 = true;
+  migration318 = true;
   queryMock.mockReset(); txMock.mockReset();
   queryMock.mockResolvedValue({ rows: [{ id: '1' }] });
   txMock.mockResolvedValue({ rows: [{ id: '1' }] });
@@ -553,7 +559,12 @@ describe('🔴🔴 ⑦ la fiche d’un contact voyage jusqu’à la base', () =>
       'coordonnees', 'note']) {
       expect(sql, col).toContain(`${col} = coalesce(EXCLUDED.${col}, gestion_contact_carte.${col})`);
     }
-    expect(sql).toContain('$15::jsonb');
+    /* ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET. L'assertion figeait le NUMÉRO du paramètre
+       (`$15::jsonb`), qui a bougé d'un rang quand `locataire_id` est entré dans la liste des colonnes. Un numéro
+       de paramètre n'est pas une règle : il change au premier champ ajouté, et c'est exactement ce que le dépôt
+       demande de ne jamais figer. Ce qui COMPTE est que la liste des coordonnées parte en `jsonb` et non en
+       texte — sans le cast, Postgres refuse l'insertion. C'est donc cela qu'on éprouve. */
+    expect(sql).toMatch(/\$\d+::jsonb/);
     const p = params()[sqls().indexOf(sql)];
     expect(p).toContain('Mme');
     expect(p).toContain(JSON.stringify(FICHE.coordonnees));

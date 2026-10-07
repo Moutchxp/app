@@ -1394,7 +1394,7 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
 }
 
 export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, dessous, creation,
-  contacts = [], gestesContact, creationContact }: {
+  contacts = [], gestesContact, creationContact, teinte = null, sousTitre = null }: {
   titre: string;
   id: string;
   personnes: readonly PersonneAnnuaire[];
@@ -1406,7 +1406,16 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
    * 🔴 LOT FICHES-RETOUCHES-2 — CE QUE LA CARTE VIDE DOIT SAVOIR : la phrase qui dit où la personne atterrit, le
    * mot de son champ date, et le geste qui la crée (il rend `null` si tout va bien, sinon le motif du refus).
    */
-  creation: { rappel: string; onCreer: (champs: ChampsSaisis) => Promise<string | null> };
+  /**
+   * ⚠️ FACULTATIVE DEPUIS LE LOT ANCIENS-LOCATAIRES-VIOLET, et c'est le seul cas qui s'en passe : la rangée d'un
+   * ANCIEN locataire n'offre pas de créer un client. « Ajouter un occupant » y proposerait d'ajouter quelqu'un à
+   * un bail terminé — un geste qui n'a pas de sens. La tuile ouvre alors DIRECTEMENT le formulaire de contact,
+   * sans le petit choix à deux boutons : il n'y aurait qu'une réponse possible.
+   *
+   * ⚠️ AUCUN APPELANT EXISTANT NE CHANGE : les quatre qui la passent gardent leur tuile, leur choix et leur
+   * formulaire, au caractère près.
+   */
+  creation?: { rappel: string; onCreer: (champs: ChampsSaisis) => Promise<string | null> };
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES CARTES DE CONTACT DE CE CÔTÉ ════════════════════════════════════════════
    *
@@ -1435,6 +1444,22 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
    * une carte de contact se range sur un BIEN (c'est la clé de sa table). Leur offrir le choix aurait proposé un
    * geste que le serveur refuse. C'est la fiche d'un BIEN qui passe cette prop, et elle seule.
    */
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA TEINTE DE LA RANGÉE. `null` (le défaut) = aucune, c'est-à-dire tous
+   * les blocs d'avant ce lot, au caractère près. `'violet'` peint les cartes de l'ancien locataire ET celles de
+   * ses contacts d'un violet pâle TRANSPARENT.
+   *
+   * Arno : « Fond des cartes d'ancien locataire et de leurs contacts : violet pâle transparent, pour ne jamais
+   * confondre avec le locataire en place (vert) au moment d'ajouter un contact. » C'est bien le GESTE qu'il faut
+   * protéger : les deux tuiles « + Ajouter un contact » sont identiques, et seule la couleur du voisinage dit à
+   * laquelle des deux personnes le contact va s'attacher.
+   */
+  teinte?: 'violet' | null;
+  /**
+   * 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — une ligne grise sous le titre (la période d'occupation). `null` = rien, et
+   * c'est le cas de tous les blocs d'avant ce lot.
+   */
+  sousTitre?: React.ReactNode;
   creationContact?: {
     /** « Propriétaire (client) » ou « Occupant (client) » — le mot du client, côté par côté. */
     motClient: string;
@@ -1474,8 +1499,15 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
   const [tousLesContacts, setTousLesContacts] = useState(false);
   const contactsMontres = tousLesContacts ? contacts : contacts.slice(0, CONTACTS_MONTRES);
   const motAutres = motAutresContacts(contacts.length);
+  /**
+   * 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE PETIT CHOIX N'A PLUS LIEU D'ÊTRE QUAND IL N'Y A QU'UNE RÉPONSE. Sans
+   * `creation`, la tuile ouvre directement le formulaire de contact : poser une question dont l'écran connaît la
+   * réponse est le reproche qu'Arno nous a déjà fait au lot HISTORIQUE-BIEN-6.
+   */
+  const auClic: 'choix' | 'client' | 'contact' = creationContact === undefined
+    ? 'client' : (creation === undefined ? 'contact' : 'choix');
   return (
-    <section className="ann-bloc" aria-labelledby={id}>
+    <section className={`ann-bloc${teinte === null ? '' : ` cp-bloc--${teinte}`}`} aria-labelledby={id}>
       {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — DEUX COMPTEURS QUI NE SE MÊLENT PAS ═══════════════════════════════════
           RÈGLE D'ARNO : « Les compteurs “PROPRIÉTAIRE N” et “LOCATAIRE EN PLACE N” ne comptent QUE les clients ;
           les contacts ont leur propre petit compteur (“+ 2 contacts”). »
@@ -1492,6 +1524,8 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
           <span className="cp-compte-contacts">{motContactsDuCarrousel(contacts.length)}</span>
         )}
       </h4>
+      {/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — la période d'occupation, sous le nom de l'ancien locataire. */}
+      {sousTitre !== null && <p className="cp-sous-titre">{sousTitre}</p>}
       {/* ⚠️ `nb` COMPTE LES CARTES RÉELLEMENT POSÉES : c'est lui qui décide si la piste défile. L'oublier
           aurait laissé une piste de douze cartes se croire à trois, et les flèches de défilement absentes. */}
       <Rangee nb={ordonnees.length + contactsMontres.length}>
@@ -1551,15 +1585,17 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
                 c'est l'appel ci-dessous qui le prouve — il n'a pas changé d'un caractère. */}
             <FormulaireCarte p={ajout === 'client' ? null : ficheDeContact({ adresse: '' })}
               refus={refusAjout} onAnnuler={() => { setAjout(false); setRefusAjout(null); }}
-              creation={ajout === 'client' ? { rappel: creation.rappel } : undefined}
+              creation={ajout === 'client' && creation !== undefined ? { rappel: creation.rappel } : undefined}
               contact={ajout === 'contact' && creationContact !== undefined
                 ? { titre: TITRE_CONTACT_NOUVEAU, rappel: creationContact.rappel }
                 : undefined}
               onEnregistrer={async (champs) => {
                 const poser = ajout === 'contact' && creationContact !== undefined
                   ? creationContact.onCreer
-                  : creation.onCreer;
-                const motif = await poser(champs);
+                  : creation?.onCreer;
+                /* ⚠️ SANS PORTE D'ÉCRITURE, ON NE PRÉTEND PAS AVOIR ENREGISTRÉ : le cas ne peut pas arriver (la
+                   tuile n'ouvre « client » que si `creation` existe), et un refus muet serait pire qu'un refus. */
+                const motif = poser === undefined ? 'Aucun enregistrement possible ici.' : await poser(champs);
                 if (motif === null) { setAjout(false); setRefusAjout(null); } else setRefusAjout(motif);
               }} />
           </article>
@@ -1583,7 +1619,7 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
         ) : (
           <button type="button" className="cp-carte cp-carte--ajout" disabled={!gestes.modifiable}
             title={gestes.modifiable ? undefined : MOTIF_SANS_MIGRATION}
-            onClick={() => setAjout(creationContact === undefined ? 'client' : 'choix')}>
+            onClick={() => setAjout(auClic)}>
             {/* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — LE MÊME « + » ROUGE CERCLÉ QUE DANS LE BLOC PARTIES
                 (demande d'Arno), là où la fiche d'un bien offre le choix. Ailleurs — fiche d'un propriétaire,
                 fiche d'un locataire —, la tuile garde son « + » et son mot d'avant : il n'y a pas de contact à
@@ -1921,4 +1957,26 @@ ${CSS_CHAMP_ADRESSE}
   .svv-adm-root:not([data-theme='light']) .cp-icone:hover:not(:disabled){box-shadow:0 2px 8px rgba(0,0,0,.5)}
   .svv-adm-root:not([data-theme='light']) .cp-carte--ajout:hover:not(:disabled){box-shadow:0 2px 8px rgba(0,0,0,.5)}
 }
+
+/* ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA RANGEE D'UN ANCIEN LOCATAIRE ══════════════════════════════════════
+   ARNO : « Fond des cartes d'ancien locataire et de leurs contacts : violet pale transparent, pour ne jamais
+   confondre avec le locataire en place (vert) au moment d'ajouter un contact. »
+
+   🔴 LE VOILE EST POSE PAR-DESSUS LA SURFACE, PAS A LA PLACE : background-image sur un fond deja peint. La carte
+   garde donc sa surface, son ombre, son bord, et la trame rayee d'une carte « a verifier » reste lisible.
+   Remplacer la propriete background aurait efface ces trois distinctions d'un coup.
+
+   🔴 ET LA TUILE « + AJOUTER UN CONTACT » EST TEINTEE ELLE AUSSI : c'est elle que la couleur protege. Deux tuiles
+   identiques dans la meme fiche, l'une pour le locataire en place et l'autre pour un ancien — seule la couleur
+   du voisinage dit a laquelle des deux personnes le contact va s'attacher.
+
+   AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral gabarit. */
+.cp-bloc--violet .cp-carte{
+  background-image:linear-gradient(var(--color-svv-violet-voile),var(--color-svv-violet-voile));
+  border-color:var(--color-svv-violet)}
+/* Le titre de la rangee porte le meme violet que le liseré du bloc : on lit la couleur avant le mot. */
+.cp-bloc--violet .ann-bloc-titre{color:var(--color-svv-violet)}
+.cp-bloc--violet .ann-bloc-titre::before{background:var(--color-svv-violet)}
+/* La periode d'occupation, sous le nom. Grise et discrete : c'est un reperage, pas un titre. */
+.cp-sous-titre{margin:-.2rem 0 0;font-size:.78rem;color:var(--color-svv-muted)}
 `;

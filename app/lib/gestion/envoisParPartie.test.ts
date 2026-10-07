@@ -29,6 +29,9 @@ const PROPRIO = 'blandine.piriou@gmail.com';
 const PROPRIO2 = 'chloe.mangifesta@gtf.fr';
 const LOCATAIRE = 'mathilde.brasset@gmail.com';
 const LOCATAIRE2 = 'louisvaglio@live.fr';
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — un ANCIEN locataire : sa famille, son mot et son ton sont distincts de ceux
+   du locataire en place, et les deux peuvent paraître sous la même pièce. */
+const ANCIEN = 'thibaut.hirsch@invente.test';
 const TIERS = 'sinistres@assureur.test';
 const INCONNU = 'voisin@ailleurs.test';
 /** La BOÎTE elle-même : écartée des destinataires, et elle seule. */
@@ -40,7 +43,8 @@ const NOTRE_GMAIL = 'gestion.criterimmo@gmail.com';
 
 const CATS = new Map<string, CategoriePartie>([
   [PROPRIO, 'proprietaire'], [PROPRIO2, 'proprietaire'],
-  [LOCATAIRE, 'locataire'], [LOCATAIRE2, 'locataire'], [TIERS, 'independant'],
+  [LOCATAIRE, 'locataire'], [LOCATAIRE2, 'locataire'],
+  [ANCIEN, 'ancien_locataire'], [TIERS, 'independant'],
 ]);
 
 /** Les règles de l'écran : la règle centrale du dépôt, et la boîte. */
@@ -112,12 +116,30 @@ describe('🔴🔴 ② la famille d’une adresse, dans l’ordre de priorité d
 
 describe('🔴🔴 ③ une capsule par famille, dans l’ordre', () => {
   /** 🔴🔴 L'ORDRE D'ARNO : Propriétaire, Locataire, Tiers indépendant, Interne, Extérieur. */
+  /**
+   * ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET : UNE SIXIÈME FAMILLE, à sa place nommée.
+   * Arno : « Ordre : Propriétaire, Locataire, Ancien locataire, Tiers indépendant, Interne, Extérieur. »
+   * L'ancien locataire est JUSTE APRÈS le locataire en place, et c'est là qu'il doit être : les deux parlent du
+   * même logement, et c'est leur voisinage qui fait lire la distinction.
+   */
   it('🔴🔴 l’ordre est celui d’Arno, quel que soit l’ordre des en-têtes', () => {
     expect([...ORDRE_FAMILLES])
-      .toEqual(['proprietaire', 'locataire', 'independant', 'interne', 'exterieur']);
+      .toEqual(['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'interne', 'exterieur']);
     /* Les en-têtes sont donnés à l'envers exprès : le rendu doit les remettre dans l'ordre. */
-    expect(familles(envoi([INCONNU, COLLEGUE, TIERS, LOCATAIRE, PROPRIO])))
-      .toEqual(['proprietaire', 'locataire', 'independant', 'interne', 'exterieur']);
+    expect(familles(envoi([INCONNU, COLLEGUE, TIERS, ANCIEN, LOCATAIRE, PROPRIO])))
+      .toEqual(['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'interne', 'exterieur']);
+  });
+
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — DEUX CAPSULES, ET NON UNE. Arno : « une adresse d'ancien locataire donne
+   * une capsule violette “Envoyé vers ancien locataire”, DISTINCTE de “Envoyé vers locataire” (vert, réservé au
+   * locataire en place) ». C'est le cas qui compte : un courrier adressé aux deux doit le DIRE.
+   */
+  it('🔴🔴 locataire en place et ancien locataire : deux capsules distinctes', () => {
+    const r = famillesDestinataires(envoi([LOCATAIRE, ANCIEN]), CATS, REGLES);
+    expect(r.map((f) => f.famille)).toEqual(['locataire', 'ancien_locataire']);
+    expect(r.map((f) => f.mot)).toEqual(['Envoyé vers locataire', 'Envoyé vers ancien locataire']);
+    expect(r.map((f) => f.ton)).toEqual(['vert', 'violet']);
   });
 
   /** 🔴🔴 PROPRIÉTAIRE + LOCATAIRE + INTERNE → TROIS capsules, dans l'ordre (cas demandé par Arno). */
@@ -142,13 +164,15 @@ describe('🔴🔴 ③ une capsule par famille, dans l’ordre', () => {
   /** 🔴 LES MOTS ET LES TONS, dans les mots d'Arno au caractère près. */
   it('🔴 chaque famille a son mot, son titre et son ton', () => {
     expect(ORDRE_FAMILLES.map(motFamille)).toEqual([
-      'Envoyé vers propriétaire', 'Envoyé vers locataire', 'Envoyé à tiers indépendant',
-      'Envoyé en interne', 'Destinataire extérieur',
+      'Envoyé vers propriétaire', 'Envoyé vers locataire', 'Envoyé vers ancien locataire',
+      'Envoyé à tiers indépendant', 'Envoyé en interne', 'Destinataire extérieur',
     ]);
+    /* 🔴 LA BULLE DU « i » A SA SECTION « Ancien locataire » (Arno), et c'est ce titre-là qu'elle écrit. */
     expect(ORDRE_FAMILLES.map(titreFamille)).toEqual([
-      'Propriétaire', 'Locataire', 'Tiers indépendant', 'Interne', 'Extérieur',
+      'Propriétaire', 'Locataire', 'Ancien locataire', 'Tiers indépendant', 'Interne', 'Extérieur',
     ]);
-    expect(ORDRE_FAMILLES.map(tonFamille)).toEqual(['rouge', 'vert', 'bleu', 'gris', 'neutre']);
+    expect(ORDRE_FAMILLES.map(tonFamille))
+      .toEqual(['rouge', 'vert', 'violet', 'bleu', 'gris', 'neutre']);
   });
 });
 

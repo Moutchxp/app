@@ -1,4 +1,4 @@
-import type { CategoriePartie } from './historiqueBien';
+import { estAncienLocataire, type CategoriePartie } from './historiqueBien';
 import type { ContactAffiche, FicheLot } from './annuaireRepo';
 import type { PersonneDuMail } from './adressesMessage';
 
@@ -39,9 +39,15 @@ import type { PersonneDuMail } from './adressesMessage';
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
-/** Les cinq familles. L'ordre de ce tableau EST l'ordre d'affichage demandé par Arno. */
+/**
+ * Les six familles. L'ordre de ce tableau EST l'ordre d'affichage demandé par Arno.
+ *
+ * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — « Ordre : Propriétaire, Locataire, Ancien locataire, Tiers indépendant,
+ * Interne, Extérieur. » L'ancien locataire est JUSTE APRÈS le locataire en place, et c'est là qu'il doit être :
+ * les deux parlent du même logement, et c'est leur voisinage qui fait lire la distinction.
+ */
 export const ORDRE_FAMILLES = [
-  'proprietaire', 'locataire', 'independant', 'interne', 'exterieur',
+  'proprietaire', 'locataire', 'ancien_locataire', 'independant', 'interne', 'exterieur',
 ] as const;
 
 export type FamilleDestinataire = (typeof ORDRE_FAMILLES)[number];
@@ -50,11 +56,14 @@ export type FamilleDestinataire = (typeof ORDRE_FAMILLES)[number];
  * Le ton d'une famille. `neutre` n'est pas une couleur : c'est l'absence de fond, demandée par Arno pour
  * l'extérieur (« sans fond, bord fin, texte gris »). La feuille le traduit ; ce module ne connaît pas de couleur.
  */
-export type TonFamille = 'rouge' | 'vert' | 'bleu' | 'gris' | 'neutre';
+export type TonFamille = 'rouge' | 'vert' | 'violet' | 'bleu' | 'gris' | 'neutre';
 
 const TONS: Record<FamilleDestinataire, TonFamille> = {
   proprietaire: 'rouge',
   locataire: 'vert',
+  /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — le MÊME violet que le liseré de ses mails et que sa capsule d'Annuaire.
+     Le ton vient du même vocabulaire (`tonDuGroupe('ancien_locataire')`), et la feuille le peint au même jeton. */
+  ancien_locataire: 'violet',
   independant: 'bleu',
   interne: 'gris',
   exterieur: 'neutre',
@@ -70,6 +79,10 @@ const TONS: Record<FamilleDestinataire, TonFamille> = {
 const MOTS: Record<FamilleDestinataire, string> = {
   proprietaire: 'Envoyé vers propriétaire',
   locataire: 'Envoyé vers locataire',
+  /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — mot pour mot la demande d'Arno, et DISTINCT de « Envoyé vers locataire »,
+     qui reste réservé au locataire EN PLACE. Les deux capsules peuvent paraître sous la même pièce : c'est
+     exactement le cas qu'on veut pouvoir lire d'un coup d'œil. */
+  ancien_locataire: 'Envoyé vers ancien locataire',
   independant: 'Envoyé à tiers indépendant',
   interne: 'Envoyé en interne',
   exterieur: 'Destinataire extérieur',
@@ -79,6 +92,8 @@ const MOTS: Record<FamilleDestinataire, string> = {
 const TITRES: Record<FamilleDestinataire, string> = {
   proprietaire: 'Propriétaire',
   locataire: 'Locataire',
+  /* 🔴 LA SECTION DE LA BULLE DU « i » (Arno : « La bulle du “i” a sa section “Ancien locataire” »). */
+  ancien_locataire: 'Ancien locataire',
   independant: 'Tiers indépendant',
   interne: 'Interne',
   exterieur: 'Extérieur',
@@ -96,7 +111,9 @@ export const tonFamille = (f: FamilleDestinataire): TonFamille => TONS[f];
  * l'envoi. Les deux désignent la même absence de rangement, et il n'y a qu'une donnée derrière.
  */
 export function familleDeCategorie(c: CategoriePartie | 'a_repartir' | undefined): FamilleDestinataire {
-  if (c === 'proprietaire' || c === 'locataire' || c === 'independant') return c;
+  /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `ancien_locataire` TRAVERSE TEL QUEL, comme les trois autres : la famille
+     de la capsule EST la catégorie du bloc Parties, et c'est ce qui garantit qu'elles ne pourront pas diverger. */
+  if (c === 'proprietaire' || c === 'locataire' || c === 'ancien_locataire' || c === 'independant') return c;
   return 'exterieur';
 }
 
@@ -128,7 +145,12 @@ export interface FicheAvecParties {
   proprietaires: readonly { contacts: readonly ContactAffiche[] }[];
   proprietaireContacts: readonly ContactAffiche[];
   occupants: readonly { contacts: readonly ContactAffiche[] }[];
-  occupations: readonly { contacts: readonly ContactAffiche[] }[];
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `sortie` EST DÉSORMAIS DANS LE CONTRAT, et c'est elle qui décide de la
+   * couleur. Sans elle, cette fonction rangeait TOUTES les occupations (passées comprises) en « locataire », et
+   * un ancien locataire portait le vert du locataire en place.
+   */
+  occupations: readonly { sortie: string | null; contacts: readonly ContactAffiche[] }[];
 }
 
 /** 🔴 LE GARDE : si `FicheLot` cesse de satisfaire ce contrat, la compilation le dit ici et nulle part ailleurs. */
@@ -137,8 +159,14 @@ export type _FicheLotSatisfaitLeContrat = FicheLot extends FicheAvecParties ? tr
 /**
  * ══ 🔴 CE QUE LA **FICHE** DU BIEN SAIT DE SES PARTIES ═══════════════════════════════════════════════════════════
  *
- * Les propriétaires du bien donnent « Propriétaire » ; les occupants et les anciens occupants donnent
- * « Locataire ». Tout le reste — assureur, syndic, artisan, voisin — n'est pas connu d'ici.
+ * Les propriétaires du bien donnent « Propriétaire » ; les occupants EN PLACE donnent « Locataire » ; les
+ * occupations CLOSES donnent « Ancien locataire ». Tout le reste — assureur, syndic, artisan, voisin — n'est pas
+ * connu d'ici.
+ *
+ * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — C'EST **ICI** QUE LA RÈGLE UNIQUE S'APPLIQUE, et à un seul endroit.
+ * `estAncienLocataire` (module `historiqueBien`, l'unique juge) sépare les deux, et toute la chaîne de couleurs
+ * en découle sans rien savoir des baux : le liseré d'un mail, les traits de la frise, la pastille d'une adresse,
+ * le liseré d'un groupe de pièces jointes et la capsule d'un statut d'envoi lisent cette carte, et elle seule.
  *
  * 🔴 CE QU'ELLE NE REND **PAS**. Elle ne connaît que les deux catégories que la fiche PORTE : la table
  * `gestion_message_adresse` a une colonne `partie` limitée à `proprietaire | locataire`. La troisième —
@@ -161,8 +189,11 @@ export function categoriesDeLaFiche(f: FicheAvecParties): ReadonlyMap<string, Ca
   };
   for (const p of f.proprietaires) poser(p.contacts, 'proprietaire');
   poser(f.proprietaireContacts, 'proprietaire');
+  /* ⚠️ LES OCCUPANTS EN PLACE SONT POSÉS **AVANT** LES OCCUPATIONS, et l'ordre compte ici plus qu'ailleurs : une
+     personne qui a quitté le logement puis y est revenue porte les deux états, et c'est « en place » qui doit
+     gagner. Le premier posé l'emporte (règle du dessus) — d'où cet ordre, qui n'est pas celui du hasard. */
   for (const p of f.occupants) poser(p.contacts, 'locataire');
-  for (const o of f.occupations) poser(o.contacts, 'locataire');
+  for (const o of f.occupations) poser(o.contacts, estAncienLocataire(o) ? 'ancien_locataire' : 'locataire');
   return m;
 }
 

@@ -202,11 +202,27 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
    * CE QU'ELLE PROTÉGEAIT EST INTACT : la coordonnée est cliquable, et le lien ne porte pas d'espaces. Il part
    * désormais de l'affichage décortiqué, renormalisé par `lienAppel` — qui rend toujours l'E.164 français.
    */
+  /**
+   * ══ 🔴 REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET : LA RÈGLE TIENT, SON FICHIER CHANGE ══════════
+   *
+   * Ces quatre assertions lisaient `Annuaire.tsx`, où `BlocOccupant` rendait les coordonnées d'un ancien
+   * locataire. Ce bloc n'existe plus : Arno demande « EXACTEMENT le même composant de carte que LOCATAIRE EN
+   * PLACE », et c'est donc `CartePersonne` (CartesPersonnes.tsx) qui rend désormais TOUTES les coordonnées de
+   * l'écran Annuaire — celles d'un propriétaire, d'un occupant en place, d'un ancien et d'un contact.
+   *
+   * 🔴 LA RÈGLE N'A PAS BOUGÉ D'UN CARACTÈRE, et c'est elle qu'on continue d'éprouver : le lien part de
+   * l'AFFICHAGE décortiqué (`lienAppel`), jamais de `valeur` — 16 lignes sur 804 y portent un repli de l'import.
+   * Qu'elle ne soit plus écrite qu'à UN endroit est un progrès, pas une perte : avant ce lot, elle l'était deux
+   * fois, et deux écritures d'une même règle finissent par diverger.
+   */
   it('les coordonnées sont cliquables : `tel:` compose, `mailto:` (ou l’éditeur maison) écrit', () => {
-    expect(src).toContain('lienAppel(c.affichage)');
-    expect(src).toContain('href={appeler}');
+    const cartes = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    expect(cartes).toContain('lienAppel(c.affichage)');
+    expect(cartes).toContain('href={appeler}');
+    expect(cartes).toContain('href={`mailto:${c.valeur}`}');
+    /* 🔴 ET NULLE PART AILLEURS : ni ici, ni dans l'écran Annuaire, le lien ne repart de `valeur`. */
+    expect(cartes).not.toContain('href={`tel:${c.valeur}`}');
     expect(src).not.toContain('href={`tel:${c.valeur}`}');
-    expect(src).toContain('href={`mailto:${c.valeur}`}');
   });
 
   /**
@@ -330,10 +346,16 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
     expect(src).toContain('const [histoLocOuvert, setHistoLocOuvert] = useState(false);');
     expect(src).toContain('aria-expanded={histoLocOuvert}');
-    expect(src).toContain('className="ann-repli" id="ann-histo-loc"');
+    /* ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET : le bouton porte une classe de plus
+       (`ann-repli--ancien`, qui lui donne son liseré violet). Le repli, son `aria-expanded` et l'identifiant
+       `ann-histo-loc` — les trois choses que ce cas protège — n'ont pas bougé. */
+    expect(src).toContain('className="ann-repli ann-repli--ancien" id="ann-histo-loc"');
     expect(src).toContain('Historique des locataires <span className="gst-compte">{passes.length}</span>');
     /* 🔴 LE CONTENU EST BIEN SOUS CONDITION — sans quoi le repli ne replierait rien. */
-    expect(src).toContain('{histoLocOuvert && (baux.length === 0');
+    /* ⚠️ REQUALIFIÉ LE 07/10/2026 : le contenu déplié est maintenant UNE RANGÉE PAR ANCIEN LOCATAIRE (Arno), et
+       non plus des baux groupés. Ce que ce cas protège — le contenu monté CONDITIONNELLEMENT, donc absent tant
+       qu'on n'a pas déplié — est intact. */
+    expect(src).toContain('{histoLocOuvert && (anciens.length === 0');
     /* ⚠️ ET LE TITRE N'EST PLUS UN `h4` FIGÉ : c'est le bouton qui porte l'étiquette du bloc. */
     expect(src).not.toContain('<h4 className="ann-bloc-titre" id="ann-histo-loc">');
   });
@@ -364,10 +386,20 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
    * 29/09/2026 : zéro couple (lot, date d'entrée) porté par deux personnes. Un écran qui n'aurait pas prévu deux
    * occupants les afficherait comme deux baux successifs — ce qui serait faux le jour où l'étape C en crée un.
    */
+  /**
+   * ══ 🔴 REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET : LA MENTION A CHANGÉ DE FORME ═══════════════
+   *
+   * ELLE DISAIT UN NOMBRE (« 2 occupants du même bail »), au-dessus d'un groupe d'occupations. Arno demande
+   * maintenant « une rangée par ancien locataire » : le groupe n'a plus d'enveloppe où écrire sa mention.
+   *
+   * 🔴 ELLE DIT DÉSORMAIS LES NOMS, dans la rangée de chacun (« même bail que MARTIN Léa ») — c'est-à-dire un peu
+   * PLUS que ce qu'elle disait. Et elle est calculée par la MÊME fonction, `grouperParPeriode`, dont la clé reste
+   * la paire de dates et rien d'autre : c'est elle que ce cas protège, et elle est intacte.
+   */
   it('🔴 les occupations sont groupées par PÉRIODE, et un groupe de deux le DIT', () => {
     const vue = src.slice(src.indexOf('function VueLot'), src.indexOf('export const CSS_ANNUAIRE'));
     expect(vue).toContain('function grouperParPeriode');
-    expect(vue).toContain('occupants du même bail');
+    expect(vue).toContain('même bail que');
     // La clé du groupe est la PAIRE de dates, et rien d'autre.
     expect(vue).toContain('${o.entree ?? \'?\'}|${o.sortie ?? \'?\'}');
   });
@@ -384,14 +416,36 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
    * CE QUE LA RÈGLE PROTÉGEAIT N'A PAS BOUGÉ D'UN POUCE : un occupant montre ses DATES, son ADRESSE et ses
    * COORDONNÉES, chacune avec son bouton Copier. C'est exactement ce qu'on éprouve — au nouvel endroit.
    */
+  /**
+   * ══ 🔴 REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET : LE BLOC DE LECTURE EST DEVENU UNE CARTE ════
+   *
+   * `BlocOccupant` rendait un ancien locataire en fiche de LECTURE. Arno : « EXACTEMENT le même composant de
+   * carte que LOCATAIRE EN PLACE » — c'est `CartePersonne` qui le remplace, et l'encadré « RETIRÉ LE 07/10/2026 »
+   * d'`Annuaire.tsx` dit ligne à ligne ce qui a été repris.
+   *
+   * 🔴 CE QUE CE CAS PROTÉGEAIT EST VÉRIFIÉ AU NOUVEL ENDROIT, et il en protège MAINTENANT plus : la grille des
+   * cartes, les coordonnées groupées par type, leurs boutons « Copier », la période, et toujours aucune capsule
+   * de type collée à la valeur.
+   */
   it('🔴 un occupant affiche ses dates, son adresse, ses coordonnées et leurs boutons Copier', () => {
-    const bloc = src.slice(src.indexOf('function BlocOccupant'), src.indexOf('function VueLot'));
-    for (const mot of ['Adresse', 'cp-lignes', '<LigneFiche', 'lignesParType', '<BoutonCopier']) {
+    const cartes = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
+    /* 🔴 `Coordonnees` EST LE COMPOSANT PARTAGÉ : c'est lui que `CartePersonne` et `CarteContact` montent tous
+       les deux, et c'est donc lui qui rend les coordonnées d'un ancien locataire depuis ce lot. */
+    const bloc = cartes.slice(cartes.indexOf('function Coordonnees('),
+      cartes.indexOf('export function CarteContact'));
+    /* ⚠️ `<Copier` ET NON `<BoutonCopier` : c'est le nom que porte le composant DANS ce fichier — le même
+       bouton, importé sous un alias. On éprouve ce qui est écrit, pas ce qu'on croit écrit. */
+    for (const mot of ['cp-lignes', '<Ligne', 'lignesParType', '<Copier']) {
       expect(bloc).toContain(mot);
     }
-    expect(bloc).toContain('periodeOccupation');
     // 🔴 PLUS DE CAPSULE DE TYPE : le titre de la ligne la porte, et une seule fois par groupe.
     expect(bloc).not.toContain('ann-libelle');
+    /* 🔴 ET LA RANGÉE D'UN ANCIEN LOCATAIRE PORTE BIEN SES DATES, SON ADRESSE ET SA PÉRIODE — c'est la demande
+       d'Arno, et c'est ce que la fiche écrit autour de la carte. */
+    const vue = src.slice(src.indexOf('function VueLot'), src.indexOf('export const CSS_ANNUAIRE'));
+    expect(vue).toContain('periodeOccupation');
+    expect(vue).toContain('<LigneFiche libelle="Occupation">');
+    expect(vue).toContain('<LigneFiche libelle="Entré le">');
   });
   it('mobile d’abord : cibles ≥ 44 px, et AUCUNE interaction au seul survol', () => {
     expect(src).toContain('min-height:44px');

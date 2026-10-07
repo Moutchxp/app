@@ -92,7 +92,9 @@ export function DestinatairesDePiece({ familles }: {
  * ══ 🔴 LES CINQ TONS SONT CEUX DU MODULE, ET AUCUNE COULEUR N'EST ÉCRITE EN DUR ══════════════════════════════════
  *
  * Rouge propriétaire et vert locataire sont les jetons TAMISÉS des capsules de rôle de l'Annuaire (Arno : « mêmes
- * jetons »). Bleu indépendant est la paire déjà posée au lot 97 — elle existait, avec sa variante Sombre et un
+ * jetons »). 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — violet ancien locataire est la paire déjà posée au lot 84, avec sa
+ * variante Sombre et ses contrastes mesurés (5,48:1 en Clair, 7,74:1 en Sombre) : il n'y avait rien à créer, et
+ * créer un SECOND violet aurait donné deux teintes pour une même notion dans le même écran. Bleu indépendant est la paire déjà posée au lot 97 — elle existait, avec sa variante Sombre et un
  * contraste mesuré (7,1:1 en Clair, 5,8:1 en Sombre) : il n'y avait rien à créer. Gris interne prend la surface
  * du module. Extérieur n'a PAS de fond, comme Arno le demande : un bord fin et le gris du texte.
  *
@@ -111,6 +113,9 @@ export const CSS_DESTINATAIRES_PIECE = `
 /* ── LES CINQ TONS ── fond pale + texte fonce, sur le modele des capsules de role de l'Annuaire. */
 .ddp-capsule--rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 .ddp-capsule--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — « Envoye vers ancien locataire », le MEME violet que le lisere de ses mails
+   et que sa capsule d'Annuaire : le jeton tamise du theme (lot 84), mesure 5,48:1 en Clair, 7,74:1 en Sombre. */
+.ddp-capsule--violet{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
 .ddp-capsule--bleu{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
 .ddp-capsule--gris{background:var(--color-svv-field);color:var(--color-svv-ink)}
 /* 🔴 EXTERIEUR : SANS FOND, bord fin, texte gris (Arno). C'est ce qui le distingue des quatre autres au premier
@@ -134,6 +139,7 @@ export const CSS_DESTINATAIRES_PIECE = `
 .ddp-titre{font-weight:700}
 .ddp-titre--rouge{color:var(--color-svv-red-dark)}
 .ddp-titre--vert{color:var(--color-svv-green-ink)}
+.ddp-titre--violet{color:var(--color-svv-violet)}
 .ddp-titre--bleu{color:var(--color-svv-blue)}
 .ddp-titre--gris{color:var(--color-svv-ink)}
 .ddp-titre--neutre{color:var(--color-svv-muted)}

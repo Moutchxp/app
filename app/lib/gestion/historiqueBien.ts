@@ -18,7 +18,8 @@ import type { MessagePorteur, OrdrePieces } from './piecesConversation';
  *
  * ⚠️ IL EST PUR ET N'IMPORTE RIEN : ce fichier-ci est atteint par le navigateur, et l'importer ne tire pas `pg`.
  */
-import { coteDeLaCategorie, replierLesCartes, SEUIL_REPLI_CARTES, type Categorie } from './partieCategorie';
+import { categorieDuGroupe, coteDeLaCategorie, replierLesCartes, SEUIL_REPLI_CARTES, type Categorie }
+  from './partieCategorie';
 
 /**
  * MODULE « GESTION » — LOT HISTORIQUE-BIEN-1 : LES DÉCISIONS DU BLOC « HISTORIQUE » D'UNE FICHE DE BIEN. PUR.
@@ -280,8 +281,13 @@ export type CategoriePartie = Exclude<Categorie, 'a_repartir'>;
  *
  * ⚠️ `a_repartir` EST UNE VALEUR DE `Categorie` LÀ-BAS, et c'est exact : « à répartir » est l'état d'une adresse
  * qu'on n'a pas encore rangée, pas l'absence d'information. Ici il nomme donc le quatrième groupe.
+ *
+ * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `ancien_locataire` EST EXCLU, ET CE N'EST PAS UN OUBLI. Arno ne demande
+ * PAS un cinquième groupe : l'ancien locataire vit DANS l'encart Locataire, derrière son onglet « Anciens
+ * locataires (N) », qui existe depuis le lot HISTORIQUE-BIEN-15. La charnière est `categorieDuGroupe`, écrite une
+ * seule fois dans `partieCategorie.ts` — la catégorie porte la COULEUR, le groupe porte la PLACE.
  */
-export type CleGroupeParties = Categorie;
+export type CleGroupeParties = Exclude<Categorie, 'ancien_locataire'>;
 
 export interface GroupeParties {
   cle: CleGroupeParties;
@@ -381,17 +387,33 @@ const TITRES_GROUPES: Record<CleGroupeParties, string> = {
 export const ORDRE_DES_GROUPES: readonly CleGroupeParties[] =
   ['proprietaire', 'locataire', 'independant', 'a_repartir'];
 
-export type TonGroupe = 'rouge' | 'vert' | 'bleu' | 'gris';
+/**
+ * ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE CINQUIÈME TON : VIOLET = ANCIEN LOCATAIRE ═══════════════════════════
+ *
+ * DEMANDE D'ARNO (07/10/2026) : « Applique ce violet à TOUT ce qui désigne un ancien locataire : le liseré
+ * vertical des mails […], les traits de la frise […], l'encart Parties […], les groupes de pièces jointes […],
+ * l'Annuaire […], le statut d'envoi des pièces jointes. »
+ *
+ * 🔴 CES SIX ENDROITS N'ONT PAS SIX RÈGLES : ils lisent tous la MÊME carte « adresse → catégorie », par
+ * `tonDeLExpediteur` ou par `familleDeCategorie`. Ajouter la couleur ICI les sert tous, sans qu'aucun écran ne
+ * sache ce qu'est un ancien locataire. C'est le « pas de copie » d'Arno, pris au mot.
+ */
+export type TonGroupe = 'rouge' | 'vert' | 'bleu' | 'gris' | 'violet';
 
-const TONS_GROUPES: Record<CleGroupeParties, TonGroupe> = {
+/**
+ * ⚠️ CE TABLEAU EST INDEXÉ PAR **CATÉGORIE**, PAS PAR GROUPE, et c'est toute la nuance de ce lot : il y a cinq
+ * catégories et quatre groupes. Le violet n'a pas d'encart à lui ; il a une couleur à lui.
+ */
+const TONS_GROUPES: Record<Categorie, TonGroupe> = {
   proprietaire: 'rouge',
   locataire: 'vert',
+  ancien_locataire: 'violet',
   independant: 'bleu',
   a_repartir: 'gris',
 };
 
-/** Le ton d'un groupe. PUR. */
-export function tonDuGroupe(cle: CleGroupeParties): TonGroupe {
+/** Le ton d'un groupe — ou d'une catégorie, le tableau les couvre toutes. PUR. */
+export function tonDuGroupe(cle: Categorie): TonGroupe {
   return TONS_GROUPES[cle];
 }
 
@@ -464,7 +486,10 @@ export function grouperParCategorie(
     }
     /* ⚠️ LA CLÉ EST NORMALISÉE DES DEUX CÔTÉS : « Jean.PONS@… » et « jean.pons@… » sont la même personne, et une
        comparaison sensible à la casse l'aurait rangée « non affectée » alors que l'annuaire la connaît. */
-    const cle = categories.get(i.adresse.trim().toLowerCase()) ?? 'a_repartir';
+    /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `categorieDuGroupe` RAMÈNE L'ANCIEN LOCATAIRE DANS L'ENCART LOCATAIRE.
+       Sa capsule y est, violette ; son onglet « Anciens locataires (N) » la montre. Un cinquième groupe aurait
+       déplacé toutes les cases à cocher de l'encart — et Arno ne l'a pas demandé. */
+    const cle = categorieDuGroupe(categories.get(i.adresse.trim().toLowerCase()) ?? 'a_repartir');
     groupes.get(cle)?.push(i);
   }
   return {
@@ -647,6 +672,10 @@ export function motTonDeMail(ton: TonMail): string {
 export const LEGENDE_BARRES: readonly { ton: TonMail; mot: string }[] = [
   { ton: 'rouge', mot: 'propriétaire' },
   { ton: 'vert', mot: 'locataire' },
+  /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — le violet entre dans la légende À CÔTÉ du vert, parce que c'est là qu'on
+     le cherche : les deux parlent du logement, et c'est leur VOISINAGE qui fait comprendre la distinction. Une
+     couleur de plus sans ligne de légende serait une couleur qu'on devine — et qu'on devine mal. */
+  { ton: 'violet', mot: 'ancien locataire' },
   { ton: 'bleu', mot: 'tiers indépendant' },
   { ton: 'gris', mot: 'non affecté' },
   { ton: 'nous', mot: 'nous' },
@@ -1370,6 +1399,41 @@ export function occupationOuverte(o: OccupationPeriode, jour: string): boolean {
 }
 
 /**
+ * ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — **LA** RÈGLE « ANCIEN LOCATAIRE OU LOCATAIRE ACTUEL ». PURE. ════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (07/10/2026) : « Une SEULE règle décide “ancien locataire vs locataire actuel” (celle de l'encart
+ * Parties : date de départ), réutilisée par tous ces endroits. Pas de copie. »
+ *
+ * 🔴 ELLE EXISTAIT, ÉCRITE SIX FOIS, EN SIX `o.sortie === null` ÉPARPILLÉS : le dépôt (`encours`), la fiche du
+ * bien (`actuels` / `passes`), les cartes de l'encart Parties (`enPlace`), la capsule de l'Annuaire, le bloc
+ * « Historique des locataires », et la carte des catégories. Six écritures de la même phrase, qu'aucun compilateur
+ * ne pouvait rapprocher. Elle n'est plus écrite qu'ici, et les six l'appellent.
+ *
+ * 🔴 LA RÈGLE EST « UNE DATE DE DÉPART EST RENSEIGNÉE », mot pour mot celle de l'encart Parties — et non « le bail
+ * court-il AUJOURD'HUI ». La nuance porte, et elle a été MESURÉE le 07/10/2026 : **4 occupations sur 535 portent
+ * une date de sortie à VENIR**. L'encart Parties les range déjà parmi les anciens (un préavis déposé est un
+ * départ acté), et ce lot ne déplace personne — Arno demande une couleur, pas un reclassement.
+ *
+ * ⚠️ ELLE N'EST **PAS** `occupationOuverte`, juste au-dessus, et les confondre serait un contresens. Celle-là
+ * répond à « le bail couvrait-il CE JOUR-LÀ ? » — c'est la question d'un FILTRE de période, qui doit dire vrai
+ * pour une date de 2023. Celle-ci répond à « cette personne est-elle encore notre locataire ? » — c'est la
+ * question d'une COULEUR et d'un BLOC. Deux questions, deux fonctions, et le commentaire de chacune dit laquelle.
+ *
+ * ⚠️ UNE DATE ABÎMÉE EST UNE DATE : `sortie` renseignée mais illisible veut dire « il y a eu un départ », et la
+ * lire comme absente aurait écrit « en place » sur la foi d'une donnée cassée. Même convention qu'`occupationOuverte`.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function estAncienLocataire(o: { sortie: string | null }): boolean {
+  return (o.sortie ?? '').trim() !== '';
+}
+
+/** L'autre face de la MÊME règle, pour que personne n'ait à écrire `!estAncienLocataire(...)`. PURE. */
+export function estLocataireEnPlace(o: { sortie: string | null }): boolean {
+  return !estAncienLocataire(o);
+}
+
+/**
  * ══ 🔴🔴 QUI EST « LE DERNIER LOCATAIRE » ? PUR. ═════════════════════════════════════════════════════════════════
  *
  * Celui qui est là s'il y a quelqu'un ; sinon le dernier parti. C'est la lecture qu'une personne fait du mot, et
@@ -1832,13 +1896,33 @@ export function locatairesEnPlace(cartes: readonly CarteLocataireBien[]): CarteL
  * ⚠️ UNE DATE INCONNUE PASSE EN DERNIER, jamais en tête : on ne met pas en avant ce qu'on ne sait pas situer.
  */
 export function anciensLocataires(cartes: readonly CarteLocataireBien[]): CarteLocataireBien[] {
+  return cartes.filter((c) => !c.enPlace)
+    .sort((a, b) => parDepartLePlusRecent(
+      { sortie: a.jusqua, entree: a.depuis, nom: a.libelle },
+      { sortie: b.jusqua, entree: b.depuis, nom: b.libelle }));
+}
+
+/**
+ * ══ 🔴🔴 L'ORDRE DES ANCIENS LOCATAIRES — DU PLUS RÉCEMMENT PARTI AU PLUS ANCIEN. PUR. ═══════════════════════════
+ *
+ * 🔴 EXTRAIT AU LOT ANCIENS-LOCATAIRES-VIOLET, et le mot « extrait » compte : ce comparateur vivait DANS
+ * `anciensLocataires`, qui ne sait trier que des cartes de l'encart Parties. La fiche du bien doit ranger ses
+ * RANGÉES d'anciens locataires dans le même ordre (Arno : « du plus récent au plus ancien ») — le recopier aurait
+ * donné deux ordres pour la même liste, et l'écart ne se serait vu que sur un bien à trois anciens.
+ *
+ * ⚠️ IL EST TOTAL : la sortie, puis l'entrée, puis le nom. Deux baux clos le même jour donneraient sinon un ordre
+ * qui change d'un affichage à l'autre.
+ * ⚠️ UNE DATE INCONNUE PASSE EN DERNIER, jamais en tête : on ne met pas en avant ce qu'on ne sait pas situer.
+ */
+export function parDepartLePlusRecent(
+  a: { sortie: string | null; entree: string | null; nom: string },
+  b: { sortie: string | null; entree: string | null; nom: string },
+): number {
   const rang = (x: string | null): number => {
     const t = Date.parse(`${(x ?? '').slice(0, 10)}T00:00:00Z`);
     return Number.isNaN(t) ? -Infinity : t;
   };
-  return cartes.filter((c) => !c.enPlace)
-    .sort((a, b) => (rang(b.jusqua) - rang(a.jusqua)) || (rang(b.depuis) - rang(a.depuis))
-      || a.libelle.localeCompare(b.libelle, 'fr'));
+  return (rang(b.sortie) - rang(a.sortie)) || (rang(b.entree) - rang(a.entree)) || a.nom.localeCompare(b.nom, 'fr');
 }
 
 /**

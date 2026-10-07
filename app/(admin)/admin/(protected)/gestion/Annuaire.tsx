@@ -42,7 +42,10 @@ import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
 /* 🔴🔴 LOT MONGA-2, POINT 4 — le bloc « Événements » de la fiche du bien. */
 import { EvenementsDuBien } from './EvenementsDuBien';
 import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien } from './HistoriqueDuBien';
-import { type CarteLocataireBien, type CategoriePartie, type ClientDuBien, type OccupationPeriode,
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », et l'ordre des
+   anciens. La fiche ne les réécrit pas : elle les appelle, comme le dépôt et comme l'encart Parties. */
+import { estAncienLocataire, estLocataireEnPlace, parDepartLePlusRecent,
+  type CarteLocataireBien, type CategoriePartie, type ClientDuBien, type OccupationPeriode,
   type PeriodePartie } from '../../../../lib/gestion/historiqueBien';
 /**
  * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LA SYNCHRONISATION DU HAUT ET DU BAS.
@@ -993,78 +996,22 @@ function BoutonDepart({ nom, occupationId, modifiable, onDepart }: {
   );
 }
 
-/**
- * ══ 🔴 UN OCCUPANT, AVEC SES COORDONNÉES COMPLÈTES ════════════════════════════════════════════════════════════
- *
- * Demande d'Arno : les occupants « avec coordonnées complètes, date d'entrée et liens vers leur fiche » — et,
- * pour l'historique, « les occupants, la date d'entrée, la date de sortie et les coordonnées ». Le même bloc
- * sert aux deux : ce qu'on veut savoir d'un ancien locataire est ce qu'on veut savoir d'un actuel.
- */
-function BlocOccupant({ o, ouvrir, onEcrire }: {
-  o: OccupationDuLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onEcrire?: (email: string) => void;
-}) {
-  const adresse = titreLogement(o.adresse, [o.codePostal, o.commune].filter((x) => x).join(' '));
-  return (
-    <article className={`ann-personne${o.encours ? '' : ' ann-personne--passe'}`}>
-      <div className="ann-personne-tete">
-        <p className="ann-personne-nom">
-          <button type="button" className="ann-lien ann-lien--fort"
-            onClick={() => ouvrir('locataire', o.locataireId)}>{o.nom}</button>
-        </p>
-        <span className="ann-personne-actions">
-          <span className="ann-role-capsule">{o.encours ? 'En place' : 'Parti'}</span>
-        </span>
-      </div>
-      {/* ══ 🔴🔴 LOT CONTACT-LIGNES — LA MÊME GRILLE QUE LES CARTES ════════════════════════════════════════════
-          Ce bloc rendait ses coordonnées dans un `<dl>`, avec une capsule de type collée à chaque valeur et des
-          « Copier » posés là où la ligne les laissait. Deux défauts d'un coup, tous deux signalés par Arno : la
-          capsule doublait le titre, et les boutons n'étaient pas alignés.
+/* ══ 🔴🔴 RETIRÉ LE 07/10/2026 — `BlocOccupant`, LOT ANCIENS-LOCATAIRES-VIOLET ════════════════════════════════
+   Il rendait un ancien locataire en FICHE DE LECTURE : nom, période, adresse, coordonnées avec « Copier ». Il
+   était le seul endroit de l'écran où une personne de l'annuaire s'affichait sans crayon, sans menu « … », sans
+   contacts et sans carte « + Ajouter ».
 
-          🔴 IL RÉUTILISE MAINTENANT LA GRILLE DES CARTES (`cp-lignes`, `Ligne`), au lieu d'en tenir une seconde.
-          Ce sont les mêmes coordonnées, dans le même écran : deux mises en page pour un même objet, c'est deux
-          endroits à corriger, et une divergence garantie au premier ajustement. */}
-      <div className="cp-lignes">
-        <LigneFiche libelle={o.encours ? 'Entré le' : 'Occupation'}>
-          {o.entree === null && o.sortie === null
-            ? <span className="ann-inconnu">dates non renseignées</span>
-            : periodeOccupation(o.entree, o.sortie)}
-        </LigneFiche>
-        <LigneFiche libelle="Adresse">
-          {adresse !== '' ? adresse : <span className="ann-inconnu">non renseignée</span>}
-        </LigneFiche>
-        {o.contacts.length === 0 && (
-          <LigneFiche libelle="Coordonnées">
-            <span className="ann-inconnu">non renseignées</span>
-          </LigneFiche>
-        )}
-        {lignesParType(o.contacts).map(({ contact: c, titre }) => {
-        /* 🔴 LOT ANNOTATIONS-TEL — le lien part de l'AFFICHAGE décortiqué, jamais de `valeur` : 16 lignes sur
-           804 y portent un repli de l'import, dont deux numéros collés en un de vingt chiffres. */
-        const appeler = c.sorte === 'telephone' ? lienAppel(c.affichage) : null;
-        return (
-          <LigneFiche key={c.id} libelle={titre} tronque={!c.absent && c.note === null}
-            infobulle={c.sorte === 'email' ? c.valeur : c.affichage}
-            apres={(
-              <BoutonCopier valeur={c.sorte === 'telephone' ? c.affichage : c.valeur}
-                quoi={c.sorte === 'telephone' ? 'ce numéro' : 'cette adresse'} />
-            )}>
-            {c.sorte === 'telephone'
-              ? (appeler === null
-                ? <span>{c.affichage}</span>
-                : <a className="ann-lien" href={appeler}>{c.affichage}</a>)
-              : onEcrire
-                ? <button type="button" className="ann-lien"
-                  onClick={() => onEcrire(c.valeur)}>{c.affichage}</button>
-                : <a className="ann-lien" href={`mailto:${c.valeur}`}>{c.affichage}</a>}
-            {/* 🔴 LOT ANNOTATIONS-TEL — la note grise, sous le numéro, comme sur les cartes. */}
-            {c.note !== null && <span className="cp-note-tel">{c.note}</span>}
-          </LigneFiche>
-        );
-        })}
-      </div>
-    </article>
-  );
-}
+   ARNO (07/10/2026) : « Chaque ancien locataire est affiché avec EXACTEMENT le même composant de carte que
+   “LOCATAIRE EN PLACE”. » C'est donc `BlocCartes` / `CartePersonne` qui le remplace, dans la rangée de chaque
+   ancien locataire.
+
+   🔴 RIEN DE CE QU'IL MONTRAIT N'EST PERDU, et c'est vérifiable ligne à ligne : le nom (titre de la rangée), la
+   période (`motRangeeAncien`, sous le titre, et la ligne « Occupation » de la carte), l'adresse, les
+   coordonnées groupées par type avec leurs boutons « Copier » (`lignesParType` + `BoutonCopier`, dans
+   `CartePersonne`), et le lien « Sa fiche ». S'y ajoutent la qualité, la note, la mention « Importée le… », le
+   crayon, le menu, les contacts et l'ajout — tout ce que la fiche de lecture ne savait pas faire.
+
+   ⚠️ IL N'A AUCUN AUTRE APPELANT : vérifié dans tout le dépôt avant le retrait. */
 
 /**
  * ══ 🔴🔴 LA FICHE D'UN BIEN — ÉTAPE B ═════════════════════════════════════════════════════════════════════════
@@ -1113,10 +1060,47 @@ function VueLot({
   /** 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — l'événement du bloc « Événements » sur lequel se poser. */
   evenementVise?: number | null;
 }) {
-  const actuels = f.occupations.filter((o) => o.encours);
-  const passes = f.occupations.filter((o) => !o.encours);
-  /** Les occupations passées, groupées par PÉRIODE : un même bail rassemble ses occupants. */
-  const baux = grouperParPeriode(passes);
+  /**
+   * 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA RÈGLE UNIQUE, ET NON `o.encours` LU À LA MAIN. Le verdict est le même
+   * (le dépôt remplit déjà `encours` avec elle), mais il n'y a plus qu'un endroit où il est ÉCRIT.
+   */
+  const actuels = f.occupations.filter(estLocataireEnPlace);
+  const passes = f.occupations.filter(estAncienLocataire);
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — « UNE RANGÉE PAR ANCIEN LOCATAIRE […] DU PLUS RÉCENT AU PLUS ANCIEN »
+   * (Arno). L'ordre vient du MÊME comparateur que l'onglet « Anciens locataires (N) » de l'encart Parties
+   * (`parDepartLePlusRecent`) : les deux listes nomment les mêmes personnes, elles ne peuvent pas les ranger
+   * autrement l'une que l'autre.
+   *
+   * ⚠️ UNE RANGÉE PAR **OCCUPATION**, et non par personne : une même personne qui a occupé deux fois le logement
+   * a deux séjours, et c'est le séjour qu'on vient lire. Sa CARTE, elle, est unique (le dépôt dédoublonne) — elle
+   * paraît donc identique dans les deux rangées, avec ses contacts, ce qui est exact.
+   */
+  const anciens = [...passes].sort((a, b) => parDepartLePlusRecent(
+    { sortie: a.sortie, entree: a.entree, nom: a.nom },
+    { sortie: b.sortie, entree: b.entree, nom: b.nom }));
+  /**
+   * ══ 🔴🔴 « N OCCUPANTS DU MÊME BAIL » N'EST PAS PERDU — IL A CHANGÉ DE FORME ═══════════════════════════════════
+   *
+   * Avant ce lot, les occupations passées étaient GROUPÉES par période, et le groupe portait la mention
+   * « 2 occupants du même bail ». Arno demande maintenant « une rangée par ancien locataire » : le groupe n'a
+   * plus d'enveloppe où écrire sa mention.
+   *
+   * 🔴 ALORS LA MENTION DESCEND DANS LA RANGÉE, et dit la même chose en nommant les gens : « même bail que
+   * MARTIN Léa ». Elle en dit même un peu plus — l'ancienne forme donnait un NOMBRE, celle-ci donne les NOMS.
+   * Rien n'est retiré, et c'est `grouperParPeriode`, la fonction d'avant, qui la calcule : la clé du groupe est
+   * toujours la PAIRE de dates, et rien d'autre.
+   *
+   * ⚠️ MESURÉ LE 29/09/2026 ET REVÉRIFIÉ : aucun couple (lot, date d'entrée) n'est porté par deux personnes dans
+   * la base. Cette mention ne s'affiche donc nulle part aujourd'hui — elle existe pour le jour où l'étape C crée
+   * un bail à deux, exactement comme le groupement qu'elle remplace.
+   */
+  const coOccupants = new Map<number, string[]>();
+  for (const groupe of grouperParPeriode(anciens)) {
+    for (const o of groupe) {
+      coOccupants.set(o.occupationId, groupe.filter((x) => x.occupationId !== o.occupationId).map((x) => x.nom));
+    }
+  }
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-7 — LES CARTES DE CONTACT DES DEUX CARROUSELS ════════════════════════════════════
@@ -1186,6 +1170,15 @@ function VueLot({
   const cartesCreees = cartesContact.filter(carteMonteAuCarrousel);
   const contactsProprietaire = cartesCreees.filter((c) => c.cote === 'proprietaire');
   const contactsLocataire = cartesCreees.filter((c) => c.cote === 'locataire');
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LES CONTACTS D'UN ANCIEN LOCATAIRE PRÉCIS.
+   *
+   * Arno : « Le contact ajouté est rattaché à l'ancien locataire, pas au locataire actuel ni au bien en
+   * général. » Les deux conditions disent exactement cela : le CÔTÉ (ce n'est pas un contact du locataire en
+   * place) et la PERSONNE (ce n'est pas celui d'un autre ancien). La base tient la même équivalence.
+   */
+  const contactsDeLAncien = (locataireId: number): CarteDeContact[] =>
+    cartesCreees.filter((c) => c.cote === 'ancien_locataire' && c.locataireId === locataireId);
 
   /**
    * 🔴🔴 LES TROIS GESTES, PAR LA MÊME PORTE QUE LE « + » DU BLOC DU BAS — et le signal après chacun.
@@ -1235,6 +1228,29 @@ function VueLot({
     const adresse = premierEmail(fiche.coordonnees);
     if (adresse === null) return 'Il faut au moins une adresse e-mail : c’est elle qui identifie le contact.';
     return gesteDeCarte({ cible: `lot-${f.numero}`, adresse, categorie: cote, ...fiche });
+  }, [f.numero, gesteDeCarte]);
+
+  /**
+   * ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — CRÉER UN CONTACT **D'UN ANCIEN LOCATAIRE** ════════════════════════════
+   *
+   * Arno : « par le même formulaire et la même logique d'enregistrement que pour le locataire en place ».
+   *
+   * 🔴 C'EST LITTÉRALEMENT LA MÊME PORTE : `gesteDeCarte`, le POST « ranger » qui pose la catégorie ET la carte.
+   * Un second chemin d'écriture aurait fini par écrire deux règles — c'est ce que le lot HISTORIQUE-BIEN-7 avait
+   * fermé, et il n'y a aucune raison de le rouvrir pour un côté de plus.
+   *
+   * 🔴 LA SEULE DIFFÉRENCE EST `locataireId`, et c'est tout l'objet du lot : il dit DE QUI ce contact est le
+   * contact. Le serveur refuse la catégorie sans la personne, et la personne sans la catégorie.
+   */
+  const creerContactAncien = useCallback(async (
+    locataireId: number, champs: ChampsSaisis,
+  ): Promise<string | null> => {
+    const fiche = ficheAEnvoyer(champs);
+    const adresse = premierEmail(fiche.coordonnees);
+    if (adresse === null) return 'Il faut au moins une adresse e-mail : c’est elle qui identifie le contact.';
+    return gesteDeCarte({
+      cible: `lot-${f.numero}`, adresse, categorie: 'ancien_locataire', locataireId, ...fiche,
+    });
   }, [f.numero, gesteDeCarte]);
 
   const gestesContact = {
@@ -1425,28 +1441,76 @@ function VueLot({
           par `aria-labelledby` — le bouton est désormais l'étiquette du bloc —, et c'est lui que le garde
           d'ordre des blocs de la fiche cherche (`HistoriqueDuBien.test.ts`). Le perdre aurait cassé les deux.
 
-          ⚠️ LE CONTENU N'EST PAS TOUCHÉ D'UNE LIGNE (Arno) : les mêmes baux, le même « N occupants du même
-          bail », le même `BlocOccupant`, et la même phrase quand il n'y a aucun locataire passé. */}
-      <section className="ann-bloc" aria-labelledby="ann-histo-loc">
-        <button type="button" className="ann-repli" id="ann-histo-loc"
+          ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET, POINT 1 — LE CONTENU DEVIENT DE VRAIES CARTES ═══════════════
+          DEMANDE D'ARNO (07/10/2026) : « Chaque ancien locataire est affiché avec EXACTEMENT le même composant
+          de carte que “LOCATAIRE EN PLACE” […] Chaque ancien locataire a sa propre carte “+ Ajouter un
+          contact” […] une rangée par ancien locataire, du plus récent au plus ancien. »
+
+          🔴 CE QUE CELA REMPLACE, ET POURQUOI CE N'EST PAS UN RETRAIT. Le bloc rendait un `BlocOccupant` : une
+          fiche de LECTURE, sans crayon, sans menu, sans contacts, sans ajout. Tout ce qu'il montrait est
+          toujours montré — nom, période, adresse, coordonnées avec « Copier » — mais par le composant des
+          cartes, qui en montre davantage et laisse MODIFIER. `BlocOccupant` n'est donc plus monté ici ; son
+          encadré de retrait est resté à sa définition, avec la date et la raison.
+
+          🔴 LE TITRE, LE REPLI ET LE COMPTEUR NE BOUGENT PAS D'UN CARACTÈRE (Arno : « Le titre “HISTORIQUE DES
+          LOCATAIRES N” reste, repliable comme aujourd'hui »). Son liseré passe au violet — c'est la seule
+          retouche de l'en-tête. */}
+      <section className="ann-bloc ann-bloc--ancien" aria-labelledby="ann-histo-loc">
+        <button type="button" className="ann-repli ann-repli--ancien" id="ann-histo-loc"
           aria-expanded={histoLocOuvert} onClick={() => setHistoLocOuvert((v) => !v)}>
           <span aria-hidden="true"
             className={`ann-repli-triangle${histoLocOuvert ? ' ann-repli-triangle--ouvert' : ''}`}>▸</span>
           Historique des locataires <span className="gst-compte">{passes.length}</span>
         </button>
-        {histoLocOuvert && (baux.length === 0
+        {histoLocOuvert && (anciens.length === 0
           ? <p className="ann-gris">Aucun locataire passé connu.</p>
-          : baux.map((bail, i) => (
-            <div key={`bail-${i}`} className="ann-bail">
-              {bail.length > 1 && (
-                <p className="ann-bail-mot">{bail.length} occupants du même bail</p>
-              )}
-              {bail.map((o) => (
-                <BlocOccupant key={`p-${o.locataireId}-${o.entree ?? ''}-${o.sortie ?? ''}`}
-                  o={o} ouvrir={ouvrir} onEcrire={onEcrire} />
-              ))}
-            </div>
-          )))}
+          : anciens.map((o) => {
+            /**
+             * 🔴 LA CARTE DE CETTE PERSONNE, prise dans la MÊME liste que les occupants en place
+             * (`personnesDe('locataire', …)`, dépôt). Absente ⇒ la personne a été archivée ou supprimée de
+             * l'annuaire : on rend la rangée SANS carte client plutôt que de taire le séjour, et ses contacts
+             * restent atteignables. Un séjour qui disparaîtrait parce qu'une fiche manque serait un trou dans
+             * l'historique du bien.
+             */
+            const carte = f.anciensOccupants.filter((p) => p.id === o.locataireId);
+            return (
+              <BlocCartes key={`anc-${o.occupationId}`} titre={o.nom}
+                id={`ann-ancien-${o.occupationId}`}
+                /* 🔴 LA PÉRIODE SOUS LE NOM, écrite par `periodeOccupation` — la MÊME fonction que la ligne de
+                   l'encart Parties et que l'ancienne fiche de lecture. Une seconde mise en forme des dates
+                   aurait fini par dire autrement la même période, et cet écart-là se recopie dans un courrier. */
+                sousTitre={motRangeeAncien(o, coOccupants.get(o.occupationId) ?? [])}
+                personnes={carte} role="Parti" motAjouter="Ajouter un contact" gestes={gestes}
+                /* 🔴🔴 SES CONTACTS À LUI, et à personne d'autre : la carte porte `locataireId`, et c'est la
+                   base qui garantit qu'une carte d'ancien locataire en porte un (migration 318). */
+                contacts={contactsDeLAncien(o.locataireId)} gestesContact={gestesContact}
+                /* 🔴 AUCUNE `creation` : on n'ajoute pas un OCCUPANT à un bail terminé. La tuile ouvre donc
+                   directement le formulaire de contact — voir `auClic` dans `BlocCartes`. */
+                creationContact={{
+                  motClient: 'Occupant (client)',
+                  motContact: LIBELLE_CONTACT_LOCATAIRE_COURT,
+                  rappel: `Rangé comme contact de ${o.nom}, ancien locataire du lot ${f.numero}.`,
+                  onCreer: (champs) => creerContactAncien(o.locataireId, champs),
+                }}
+                teinte="violet"
+                dessous={(p) => (
+                  <>
+                    <LigneFiche libelle="Entré le">
+                      {o.entree === null
+                        ? <span className="cp-rien">non renseignée</span> : formaterDateIso(o.entree)}
+                    </LigneFiche>
+                    <LigneFiche libelle="Sa fiche">
+                      <button type="button" className="cp-lien" onClick={() => ouvrir('locataire', p.id)}>
+                        Ouvrir la fiche du locataire →
+                      </button>
+                    </LigneFiche>
+                    {/* 🔴 À LA PLACE DE « Départ : Enregistrer un départ… » (Arno) : la période, déjà connue.
+                        Rien n'est recalculé — `o.entree` et `o.sortie` viennent de la même occupation. */}
+                    <LigneFiche libelle="Occupation">{periodeOccupation(o.entree, o.sortie)}</LigneFiche>
+                  </>
+                )} />
+            );
+          }))}
       </section>
 
       {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-2 — LE MOTEUR PREND LA PLACE DE « VIE DU BIEN » ═══════════════════════════
@@ -1699,6 +1763,21 @@ function clientsDesParties(f: FicheLot): ClientDuBien[] {
  * 29/09/2026. Le groupement est écrit quand même, parce que l'étape C va créer ces cas — et qu'un écran qui
  * n'aurait pas prévu deux occupants les afficherait comme deux baux successifs, ce qui serait faux. PUR.
  */
+/**
+ * ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA LIGNE SOUS LE NOM D'UN ANCIEN LOCATAIRE. PURE. ═══════════════════════
+ *
+ * La PÉRIODE, écrite par `periodeOccupation` — la MÊME fonction que l'encart Parties et que la fiche de lecture
+ * d'avant ce lot. Une seconde mise en forme des dates aurait fini par dire autrement la même période, et cet
+ * écart-là se recopie dans un courrier.
+ *
+ * Puis, s'il y en a, les CO-OCCUPANTS du même bail : c'est ce que disait « 2 occupants du même bail » avant que
+ * chaque ancien locataire ait sa propre rangée. Voir l'encadré de `coOccupants`.
+ */
+function motRangeeAncien(o: OccupationDuLot, coOccupants: readonly string[]): string {
+  const periode = periodeOccupation(o.entree, o.sortie);
+  return coOccupants.length === 0 ? periode : `${periode} · même bail que ${coOccupants.join(', ')}`;
+}
+
 function grouperParPeriode(occupations: readonly OccupationDuLot[]): OccupationDuLot[][] {
   const groupes: OccupationDuLot[][] = [];
   const index = new Map<string, number>();
@@ -1741,8 +1820,10 @@ function VueLocataire({
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
 }) {
-  const enCours = f.logements.filter((o) => o.encours);
-  const passes = f.logements.filter((o) => !o.encours);
+  /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA RÈGLE UNIQUE, ici aussi : « ancien » se décide au MÊME endroit que
+     la couleur d'un mail, la capsule d'une pièce jointe et le bloc de la fiche du bien. */
+  const enCours = f.logements.filter(estLocataireEnPlace);
+  const passes = f.logements.filter(estAncienLocataire);
   /** Le logement dont on montre les échanges : celui qu'il occupe. Le plus récent s'il en occupe plusieurs. */
   const logementDesMails = enCours[0] ?? null;
   return (
@@ -1751,7 +1832,13 @@ function VueLocataire({
         <div className="ann-tete-mots">
           <h3 className="ann-tete-nom">{f.nom}</h3>
           <p className="ann-tete-sous">
-            <span className="ann-role-capsule">{enCours.length > 0 ? 'Locataire en place' : 'Ancien locataire'}</span>
+            {/* ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — « L'Annuaire : la capsule “Ancien locataire” (aujourd'hui
+                verte) passe en violet » (Arno). Le MOT ne change pas d'un caractère ; seul le ton suit la même
+                règle que partout ailleurs. Et le mot reste : une couleur seule ne se lit ni en niveaux de gris,
+                ni au lecteur d'écran — règle transverse du module. */}
+            <span className={`ann-role-capsule${enCours.length > 0 ? '' : ' ann-role-capsule--ancien'}`}>
+              {enCours.length > 0 ? 'Locataire en place' : 'Ancien locataire'}
+            </span>
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
           </p>
         </div>
@@ -2069,6 +2156,10 @@ export const CSS_ANNUAIRE = `
 .ann-role-capsule{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
   color:var(--color-svv-muted);background:var(--color-svv-field);border:1px solid var(--color-svv-line);
   border-radius:999px;padding:.12rem .6rem}
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA CAPSULE « ANCIEN LOCATAIRE ». Fond pale, texte violet fonce : la paire
+   tamisee du theme (lot 84), mesuree 5,48:1 en Clair et 7,74:1 en Sombre. */
+.ann-role-capsule--ancien{color:var(--color-svv-violet);background:var(--color-svv-violet-soft);
+  border-color:var(--color-svv-violet)}
 .ann-tete-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-left:auto}
 
 /* ── LES BLOCS ────────────────────────────────────────────────────────────────────────────────────────────── */
@@ -2166,6 +2257,16 @@ export const CSS_ANNUAIRE = `
 .ann-repli-triangle{display:inline-block;color:var(--color-svv-red);transition:transform .15s ease}
 .ann-repli-triangle--ouvert{transform:rotate(90deg)}
 @media (prefers-reduced-motion:reduce){.ann-repli-triangle{transition:none}}
+/* ══ 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE LISERE DU TITRE « HISTORIQUE DES LOCATAIRES » ══════════════════════
+   ARNO : « Le lisere du titre HISTORIQUE DES LOCATAIRES passe en violet. »
+   Le titre est un BOUTON de repli (il n'a donc pas le ::before des titres de bloc) : on le lui pose ici, de la
+   meme largeur et du meme arrondi que celui des autres titres de la fiche. Son triangle suit la meme couleur :
+   deux rouges et un violet dans la meme ligne se liraient comme une erreur. */
+.ann-repli--ancien::before{content:"";flex:0 0 auto;width:3px;height:1em;border-radius:2px;
+  background:var(--color-svv-violet)}
+.ann-repli--ancien{color:var(--color-svv-violet)}
+.ann-repli--ancien:hover{color:var(--color-svv-violet)}
+.ann-repli--ancien .ann-repli-triangle{color:var(--color-svv-violet)}
 .ann-discret{margin:.2rem 0 0}
 /* ══ LOT FICHES-ANNUAIRE — LE HAUT DE LA FICHE, ET LES CARTES DE BIENS ════════════════════════════════════════
    AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
@@ -2231,6 +2332,16 @@ export const CSS_ANNUAIRE = `
 .ann-repli-triangle{display:inline-block;color:var(--color-svv-red);transition:transform .15s ease}
 .ann-repli-triangle--ouvert{transform:rotate(90deg)}
 @media (prefers-reduced-motion:reduce){.ann-repli-triangle{transition:none}}
+/* ══ 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE LISERE DU TITRE « HISTORIQUE DES LOCATAIRES » ══════════════════════
+   ARNO : « Le lisere du titre HISTORIQUE DES LOCATAIRES passe en violet. »
+   Le titre est un BOUTON de repli (il n'a donc pas le ::before des titres de bloc) : on le lui pose ici, de la
+   meme largeur et du meme arrondi que celui des autres titres de la fiche. Son triangle suit la meme couleur :
+   deux rouges et un violet dans la meme ligne se liraient comme une erreur. */
+.ann-repli--ancien::before{content:"";flex:0 0 auto;width:3px;height:1em;border-radius:2px;
+  background:var(--color-svv-violet)}
+.ann-repli--ancien{color:var(--color-svv-violet)}
+.ann-repli--ancien:hover{color:var(--color-svv-violet)}
+.ann-repli--ancien .ann-repli-triangle{color:var(--color-svv-violet)}
 .ann-discret{margin:.4rem 0 0}
 .ann-fiche-titre{margin:.2rem 0 0;font-size:1.05rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .ann-fiche-sous{margin:0;font-size:.8rem;color:var(--color-svv-muted)}

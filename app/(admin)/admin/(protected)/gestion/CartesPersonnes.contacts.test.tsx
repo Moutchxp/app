@@ -38,7 +38,9 @@ import type { PersonneAnnuaire } from '../../../../lib/gestion/annuaireRepo';
 const SRC = readFileSync('app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx', 'utf8');
 
 const carte = (o: Partial<LigneCarte> = {}): LigneCarte => ({
-  id: 1, lotCle: '432', cote: 'proprietaire', adresse: 'assureur@fictif.test', nom: 'AXA Courbevoie',
+  /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `locataireId` vaut `null` par défaut : c'est l'état de TOUTES les cartes
+     de la base (676 lignes, 0 rattachée), et donc l'état sur lequel l'écran doit tenir. */
+  id: 1, lotCle: '432', cote: 'proprietaire', locataireId: null, adresse: 'assureur@fictif.test', nom: 'AXA Courbevoie',
   telephone: '01 41 21 43 31', origine: 'manuel', verifieLe: '2026-10-05T09:00:00Z',
   verifiePar: 'a.jorel@sansvisavis.com', creeLe: '2026-10-04T22:00:00Z', creePar: 'a.jorel@sansvisavis.com',
   note: null,

@@ -157,7 +157,7 @@ export async function GET(request: Request): Promise<Response> {
          */
         contactsLocataires,
         cartes: cartes.map((c) => ({
-          id: c.id, cote: c.cote, adresse: c.adresse, nom: c.nom, telephone: c.telephone,
+          id: c.id, cote: c.cote, locataireId: c.locataireId, adresse: c.adresse, nom: c.nom, telephone: c.telephone,
           origine: c.origine, verifie: c.verifieLe !== null,
           note: c.note, verifieLe: c.verifieLe, verifiePar: c.verifiePar,
           civilite: c.civilite, prenom: c.prenom, qualite: c.qualite,
@@ -196,7 +196,11 @@ export async function GET(request: Request): Promise<Response> {
  * l'autre, et je le dis ». Elle est donc posée `manuel`, comme les trois autres, et l'automatisation ne la
  * reprendra plus (« le choix manuel prime »).
  */
-const CATEGORIES_POSABLES: readonly Categorie[] = ['proprietaire', 'locataire', 'independant', 'a_repartir'];
+/* 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `ancien_locataire` ENTRE DANS LA LISTE, et il y entre AVEC sa contrainte :
+   le dépôt refuse de le poser sans `locataireId` (et refuse `locataireId` sur les autres). La route n'écrit donc
+   aucune règle de plus — elle transmet, et c'est la porte d'écriture qui juge. */
+const CATEGORIES_POSABLES: readonly Categorie[] =
+  ['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'a_repartir'];
 
 function texteCourt(v: unknown, max: number): string | null {
   if (typeof v !== 'string') return null;
@@ -267,6 +271,8 @@ function identifiants(v: unknown): number[] {
  */
 async function faireSuivreLaCarte(o: {
   lotCle: string; adresse: string; categorie: Categorie; nom: string | null; telephone: string | null;
+  /** 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — l'ancien locataire nommé, quand la catégorie est `ancien_locataire`. */
+  locataireId: number | null;
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — LA FICHE SUIT AUSSI, et pour la raison écrite ci-dessus : changer de
    * côté EST une autre ligne (la clé est (bien, côté, adresse)), donc tout ce qu'un humain a saisi doit être
@@ -281,7 +287,13 @@ async function faireSuivreLaCarte(o: {
   const cle = o.adresse.trim().toLowerCase();
   const cote = coteDeLaCategorie(o.categorie);
 
-  const cartes = (await lireCartesDuBien(o.lotCle)).filter((c) => c.adresse.trim().toLowerCase() === cle);
+  /* 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — ON NE REGARDE QUE LES CARTES DU MÊME RATTACHEMENT. Sans ce filtre,
+     ranger une adresse chez l'ancien locataire aurait RETIRÉ sa carte côté locataire en place (et inversement) :
+     le même avocat peut être le contact de deux personnes du même bien, et chacune garde la sienne. C'est la
+     règle que la migration 318 pose en index, lue ici par la même clé. */
+  const memeRattachement = (c: { locataireId: number | null }): boolean => (c.locataireId ?? 0) === (o.locataireId ?? 0);
+  const cartes = (await lireCartesDuBien(o.lotCle))
+    .filter((c) => c.adresse.trim().toLowerCase() === cle && memeRattachement(c));
   const aDeplacer = cartes.filter((c) => c.cote !== cote);
   const dejaBonCote = cote === null ? undefined : cartes.find((c) => c.cote === cote);
 
@@ -349,6 +361,7 @@ async function faireSuivreLaCarte(o: {
     if (creationDemandee || carteQuiSuit) {
       const r = await poserCarteAlaMain({
         lotCle: o.lotCle, cote, adresse: o.adresse, nom, telephone, fiche, auteur: o.auteur,
+        locataireId: o.locataireId,
       });
       if (!r.ok) return { posees, retirees, refus: r.motif };
       /**
@@ -459,19 +472,31 @@ export async function POST(request: Request): Promise<Response> {
   const categorie = CATEGORIES_POSABLES.find((x) => x === c.categorie);
   if (categorie === undefined) {
     return Response.json(
-      { etat: 'refus', motif: 'Choisissez une catégorie : Propriétaire, Locataire, Tiers indépendant ou Non affectés.' },
+      {
+        etat: 'refus',
+        motif: 'Choisissez une catégorie : Propriétaire, Locataire, Ancien locataire, Tiers indépendant ou '
+          + 'Non affectés.',
+      },
       { status: 400, headers: ENTETES });
   }
+  /**
+   * 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'ANCIEN LOCATAIRE NOMMÉ, VALIDÉ DE FORME ICI ET DE FOND LÀ-BAS. Ce qui
+   * arrive du navigateur n'est jamais cru sur parole : on vérifie que c'est un entier positif, et le dépôt
+   * vérifie l'équivalence avec la catégorie (il refuse une catégorie sans personne, et une personne sans
+   * catégorie). Une seule règle, et c'est la porte d'écriture qui la tient.
+   */
+  const locataireId = typeof c.locataireId === 'number' && Number.isInteger(c.locataireId) && c.locataireId > 0
+    ? c.locataireId : null;
 
   try {
     /* 🔴 LE RANGEMENT D'ABORD : c'est lui qui fait changer la partie de groupe, et c'est ce qu'Arno a demandé. */
-    const range = await poserCategorieAlaMain({ adresse, lotCle, categorie, auteur });
+    const range = await poserCategorieAlaMain({ adresse, lotCle, categorie, auteur, locataireId });
     if (!range.ok) {
       return Response.json({ etat: 'refus', motif: range.motif }, { status: 409, headers: ENTETES });
     }
 
     const carte = await faireSuivreLaCarte({
-      lotCle, adresse, categorie,
+      lotCle, adresse, categorie, locataireId,
       nom: texteCourt(c.nom, 200), telephone: texteCourt(c.telephone, 40),
       /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — ce que le formulaire du « + » vient de faire saisir. */
       fiche: ficheDuCorps(c), auteur,

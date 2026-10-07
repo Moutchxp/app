@@ -873,6 +873,8 @@ describe('⑫ 🔴🔴 la couleur de la barre, selon la catégorie de l’expéd
     ['proprio@fictif.test', 'proprietaire'],
     ['contact-proprio@fictif.test', 'proprietaire'],
     ['locataire@fictif.test', 'locataire'],
+    /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — un ancien locataire : même logement, autre couleur. */
+    ['ancien@fictif.test', 'ancien_locataire'],
     ['plombier@fictif.test', 'independant'],
   ]);
 
@@ -924,18 +926,41 @@ describe('⑫ 🔴🔴 la couleur de la barre, selon la catégorie de l’expéd
    * information : elle se devine. « nous » vient en dernier parce qu'il est l'absence de couleur — le dire après
    * les quatre autres évite de chercher une teinte qui n'existe pas.
    */
-  it('🔴 la légende dit les cinq cas, « nous » en dernier', () => {
-    expect(LEGENDE_BARRES.map((x) => x.ton)).toEqual(['rouge', 'vert', 'bleu', 'gris', 'nous']);
+  /**
+   * ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET : SIX CAS, et non plus cinq. Le violet entre dans
+   * la légende À CÔTÉ du vert, parce que c'est là qu'on le cherche — les deux parlent du logement.
+   *
+   * 🔴 LE CONTRÔLE DU BAS A FAIT EXACTEMENT CE POUR QUOI IL A ÉTÉ ÉCRIT : il exigeait qu'un ton de plus ait son
+   * entrée de légende, et il est devenu ROUGE le jour où le violet est né sans elle. Il reste, inchangé.
+   */
+  it('🔴 la légende dit les six cas, « nous » en dernier', () => {
+    expect(LEGENDE_BARRES.map((x) => x.ton)).toEqual(['rouge', 'vert', 'violet', 'bleu', 'gris', 'nous']);
     expect(LEGENDE_BARRES.map((x) => x.mot)).toEqual([
-      'propriétaire', 'locataire', 'tiers indépendant', 'non affecté', 'nous',
+      'propriétaire', 'locataire', 'ancien locataire', 'tiers indépendant', 'non affecté', 'nous',
     ]);
-    /* ⚠️ CHAQUE TON RENDU PAR LA RÈGLE A SON ENTRÉE DANS LA LÉGENDE : sans ce contrôle, un cinquième ton
-       ajouté un jour se serait affiché sans jamais être expliqué. */
+    /* ⚠️ CHAQUE TON RENDU PAR LA RÈGLE A SON ENTRÉE DANS LA LÉGENDE : sans ce contrôle, un ton ajouté un jour
+       se serait affiché sans jamais être expliqué. */
     const tons = new Set(LEGENDE_BARRES.map((x) => x.ton));
-    for (const de of ['proprio@fictif.test', 'locataire@fictif.test', 'plombier@fictif.test', 'x@fictif.test']) {
+    for (const de of [
+      'proprio@fictif.test', 'locataire@fictif.test', 'ancien@fictif.test', 'plombier@fictif.test', 'x@fictif.test',
+    ]) {
       expect(tons.has(tonDeLExpediteur({ sens: 'recu', de }, CAT))).toBe(true);
     }
     expect(tons.has(tonDeLExpediteur({ sens: 'envoye', de: 'nous@fictif.test' }, CAT))).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE MAIL D'UN ANCIEN LOCATAIRE EST VIOLET, CELUI DE L'ACTUEL EST VERT.
+   *
+   * C'est la demande d'Arno prise au plus court, et elle couvre d'un coup les quatre endroits qui lisent cette
+   * fonction : le liseré vertical du listing, les traits de la frise, la pastille d'une adresse et le liseré d'un
+   * groupe de pièces jointes.
+   */
+  it('🔴🔴 le mail d’un ancien locataire est VIOLET, celui du locataire en place reste VERT', () => {
+    expect(tonDeLExpediteur({ sens: 'recu', de: 'ancien@fictif.test' }, CAT)).toBe('violet');
+    expect(tonDeLExpediteur({ sens: 'recu', de: 'locataire@fictif.test' }, CAT)).toBe('vert');
+    /* ⚠️ ET NOS ENVOIS N'ONT PAS DE COULEUR DE PARTIE, même vers un ancien : la règle d'avant, intacte. */
+    expect(tonDeLExpediteur({ sens: 'envoye', de: 'ancien@fictif.test' }, CAT)).toBe('nous');
   });
 });
 

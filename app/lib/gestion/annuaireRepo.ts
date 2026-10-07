@@ -32,6 +32,9 @@ import type { PlanImport } from './annuaireImport';
 import type { TermeRecherche } from './annuaireRecherche';
 // LOT BOITE-INTERNE-CORBEILLE — nos propres adresses ne se rapprochent d'aucune fiche. Règle CENTRALE, pas locale.
 import { adressesRapprochables } from './adresseInterne';
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », module PUR. Le
+   dépôt ne la réécrit pas : il l'appelle, comme la fiche, l'encart Parties et les capsules de pièces jointes. */
+import { estAncienLocataire, estLocataireEnPlace } from './historiqueBien';
 
 /**
  * Un instant rendu en ISO-8601 UTC, tel que l'écran l'attend. Même écriture que `carteRepo` et `redactionRepo` :
@@ -886,6 +889,15 @@ export interface FicheLot {
    * c'est lui qui porte l'HISTORIQUE, avec les dates. Celui-ci porte de quoi MODIFIER une personne.
    */
   occupants: PersonneAnnuaire[];
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LES CARTES DES ANCIENS LOCATAIRES (occupation close), dans l'ordre de
+   * `occupations` : du plus récemment parti au plus ancien. Même forme, même lecture et même composant que
+   * `occupants` — c'est la demande d'Arno, et c'est ce qui empêche les deux blocs de diverger.
+   *
+   * ⚠️ `occupations` RESTE, INTACT : c'est lui qui porte les PÉRIODES (et donc la capsule « PARTI » et le
+   * « du … au … »). Celui-ci porte de quoi MODIFIER une personne. Même partage que `occupants` depuis l'étape C.
+   */
+  anciensOccupants: PersonneAnnuaire[];
   /** Vrai quand la migration 278 est là. Faux = lecture seule, « Modifier » désactivé avec son motif. */
   modifiable: boolean;
   /** 🔴 LOT SUPPRIMER-CARTE — vrai quand la migration 287 est là. Faux ⇒ « Supprimer » n'est pas offert. */
@@ -1602,14 +1614,33 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
       occupations: occ.map((o) => ({
         occupationId: Number(o.id),
         locataireId: Number(o.locataire_id), nom: o.nom, entree: o.entree, sortie: o.sortie,
-        encours: o.sortie === null,
+        /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `encours` NE SE CALCULE PLUS ICI. Il lit l'unique règle
+           (`estLocataireEnPlace`), celle de l'encart Parties. Le verdict est le MÊME qu'avant ce lot sur les 535
+           occupations de la base — c'était déjà « une date de départ est renseignée », écrit à la main. */
+        encours: estLocataireEnPlace(o),
         adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
         contacts: coords.get(Number(o.locataire_id)) ?? [],
       })),
       evenementsOuverts: ev[0]?.n ?? 0,
       proprietaires: await personnesDe('proprietaire', idsProprietaires),
       occupants: await personnesDe(
-        'locataire', occ.filter((o) => o.sortie === null).map((o) => Number(o.locataire_id))),
+        'locataire', occ.filter(estLocataireEnPlace).map((o) => Number(o.locataire_id))),
+      /**
+       * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LES CARTES DES ANCIENS LOCATAIRES, pour de vraies cartes modifiables.
+       *
+       * DEMANDE D'ARNO (07/10/2026) : « Chaque ancien locataire est affiché avec EXACTEMENT le même composant de
+       * carte que "LOCATAIRE EN PLACE" : crayon de modification, menu, champs Qualite, Adresse, Mobile(s),
+       * E-mail(s) avec "Copier", Entre le, "Sa fiche", Note, mention "Importee le...". »
+       *
+       * 🔴 LA MÊME FONCTION QUE `occupants`, AU MÊME APPEL PRÈS : `personnesDe('locataire', …)`. C'est ce qui rend
+       * la promesse « exactement le même composant » vraie jusqu'aux DONNÉES — une seconde lecture aurait fini par
+       * rendre une carte à qui il manque un champ, et le défaut ne se serait vu que sur un ancien.
+       *
+       * ⚠️ DÉDOUBLONNÉ PAR `personnesDe`, ET IL LE FAUT : une personne qui a occupé DEUX fois le logement n'a
+       * qu'une carte, et c'est juste — la carte porte la personne, l'historique porte les séjours.
+       */
+      anciensOccupants: await personnesDe(
+        'locataire', occ.filter(estAncienLocataire).map((o) => Number(o.locataire_id))),
       modifiable,
       /**
        * 🔴 LOT SUPPRIMER-CARTE — la migration 287 est-elle là ? Faux ⇒ l'entrée « Supprimer » n'est pas offerte
@@ -1673,7 +1704,7 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
    * ⚠️ LA PERSONNE DEMANDÉE EST TOUJOURS EN TÊTE DE LA LISTE D'IDENTIFIANTS : un locataire parti n'a plus de
    * logement en cours, et sa propre fiche ne doit pas disparaître de sa propre fiche.
    */
-  const lotsEnCours = occ.filter((o) => o.sortie === null && o.lot_id !== null).map((o) => Number(o.lot_id));
+  const lotsEnCours = occ.filter((o) => estLocataireEnPlace(o) && o.lot_id !== null).map((o) => Number(o.lot_id));
   const idsFoyer = [Number(p.id)];
   if (lotsEnCours.length > 0) {
     const { rows: voisins } = await query<{ locataire_id: string }>(
@@ -1693,13 +1724,14 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
       occupations: occ.map((o) => ({
         lotId: o.lot_id === null ? null : Number(o.lot_id),
         numero: o.numero, adresse: o.adresse, commune: o.commune, entree: o.entree, sortie: o.sortie,
-        encours: o.sortie === null, horsGestion: o.lot_id === null,
+        /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — l'unique règle, ici comme sur la fiche d'un bien. */
+        encours: estLocataireEnPlace(o), horsGestion: o.lot_id === null,
       })),
       logements: occ.map((o) => ({
         lotId: o.lot_id === null ? null : Number(o.lot_id),
         numero: o.numero, adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
         nature: o.nature, typeBien: o.type_bien, surfaceM2: null,
-        entree: o.entree, sortie: o.sortie, encours: o.sortie === null, horsGestion: o.lot_id === null,
+        entree: o.entree, sortie: o.sortie, encours: estLocataireEnPlace(o), horsGestion: o.lot_id === null,
         proprietaireId: o.proprietaire_id === null ? null : Number(o.proprietaire_id),
         proprietaireNom: o.proprietaire_nom,
         mails: o.mails, dernierEchange: o.dernier_echange, driveDossierId: o.drive_id,

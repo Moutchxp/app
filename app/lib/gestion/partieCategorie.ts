@@ -31,10 +31,28 @@
 
 /**
  * `proprietaire` · `locataire` — contact de cette partie, SUR UN BIEN précis.
+ * `ancien_locataire`          — contact d'un ancien locataire NOMMÉ, sur un bien précis (lot
+ *                               ANCIENS-LOCATAIRES-VIOLET, migration 318). Voir l'encadré ci-dessous.
  * `independant`               — prestataire : catégorie GLOBALE, jamais rattachée à un bien.
  * `a_repartir`                — pas encore tranché. Un aveu, pas une devinette.
+ *
+ * ══ 🔴🔴 POURQUOI `ancien_locataire` EST UNE CATÉGORIE, ET NON UN DRAPEAU À CÔTÉ ════════════════════════════════
+ *
+ * DEMANDE D'ARNO (07/10/2026) : « Le contact ajouté est rattaché à l'ancien locataire, pas au locataire actuel ni
+ * au bien en général », et « une adresse d'ancien locataire donne une capsule violette, distincte de “Envoyé vers
+ * locataire” (vert, réservé au locataire en place) ».
+ *
+ * 🔴 TOUT CE QUI PEINT UNE ADRESSE LIT SA CATÉGORIE, ET RIEN D'AUTRE : le liseré d'un mail, les traits de la
+ * frise, la pastille d'une adresse, le liseré d'un groupe de pièces jointes, la capsule d'un statut d'envoi. Tous
+ * passent par `tonDeLExpediteur` / `familleDeCategorie`, qui ne reçoivent qu'une carte « adresse → catégorie ».
+ * Un drapeau posé à côté aurait obligé chacun de ces six endroits à le lire EN PLUS — six occasions d'oublier, et
+ * c'est exactement la « copie » qu'Arno écarte. Une sixième valeur dans le vocabulaire les sert tous d'un coup.
+ *
+ * ⚠️ ELLE N'EST JAMAIS PRODUITE PAR LA RÈGLE PAR DÉFAUT (`categorieParDefaut`) : « ancien » est un fait de
+ * l'annuaire (une occupation close), pas un signal d'adresse. Elle vient soit de la FICHE du bien
+ * (`categoriesDeLaFiche`, l'unique règle ancien/actuel), soit d'un rangement manuel attaché à un ancien nommé.
  */
-export type Categorie = 'proprietaire' | 'locataire' | 'independant' | 'a_repartir';
+export type Categorie = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'independant' | 'a_repartir';
 
 /**
  * D'où vient le rangement :
@@ -44,8 +62,14 @@ export type Categorie = 'proprietaire' | 'locataire' | 'independant' | 'a_repart
  */
 export type Origine = 'defaut' | 'propose' | 'manuel';
 
-/** Le côté d'un bien où une carte de contact s'affiche. Il n'y en a que deux : un indépendant n'a pas de carte. */
-export type Cote = 'proprietaire' | 'locataire';
+/**
+ * Le côté d'un bien où une carte de contact s'affiche. Un indépendant n'en a pas, un « à répartir » non plus.
+ *
+ * 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `ancien_locataire` EST UN TROISIÈME CÔTÉ, et il le fallait : Arno demande
+ * « sa propre carte “+ Ajouter un contact” » par ancien locataire, et un contact rangé là ne doit paraître ni
+ * dans le carrousel du propriétaire ni dans celui du locataire en place.
+ */
+export type Cote = 'proprietaire' | 'locataire' | 'ancien_locataire';
 
 /** Une catégorie rangée, telle qu'une ligne vivante de `gestion_partie_categorie` la porte. */
 export interface CategorieRangee {
@@ -177,13 +201,29 @@ export function sertALAutomatisation(categorie: Categorie): boolean {
 }
 
 /**
+ * ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LES DEUX CÔTÉS « LOCATAIRE » NE SONT QU'UNE PARTIE ═════════════════════
+ *
+ * Le bloc PARTIES compte QUATRE groupes, et Arno n'en demande pas un cinquième : l'ancien locataire y vit DANS
+ * l'encart Locataire, derrière son onglet « Anciens locataires (N) ». La catégorie, elle, en distingue cinq —
+ * c'est elle qui porte la COULEUR.
+ *
+ * 🔴 CETTE FONCTION EST LA SEULE CHARNIÈRE ENTRE LES DEUX, et il n'y en a qu'une pour que le groupe et la couleur
+ * ne puissent pas se contredire : un ancien locataire est TOUJOURS rangé côté locataire, et TOUJOURS peint en
+ * violet. Deux lectures séparées auraient fini par mettre sa capsule dans un encart et sa couleur dans l'autre.
+ */
+export function categorieDuGroupe(categorie: Categorie): Exclude<Categorie, 'ancien_locataire'> {
+  return categorie === 'ancien_locataire' ? 'locataire' : categorie;
+}
+
+/**
  * LE CÔTÉ OÙ CETTE CATÉGORIE S'AFFICHE, ou `null` quand elle ne s'affiche sur aucun bien.
  *
  * 🔴 `independant` ET `a_repartir` RENDENT `null`, ET C'EST LA MÊME RÈGLE QUE CI-DESSUS VUE DE L'ÉCRAN : aucune
  * carte n'est créée pour eux. Un indépendant n'est rattaché à aucun bien ; un « à répartir » attend qu'on tranche.
  */
 export function coteDeLaCategorie(categorie: Categorie): Cote | null {
-  return categorie === 'proprietaire' || categorie === 'locataire' ? categorie : null;
+  return categorie === 'proprietaire' || categorie === 'locataire' || categorie === 'ancien_locataire'
+    ? categorie : null;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

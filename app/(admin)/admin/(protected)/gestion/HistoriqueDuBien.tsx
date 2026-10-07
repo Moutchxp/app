@@ -3026,7 +3026,10 @@ function EnTeteLocataire({
       </button>
       <button
         type="button"
-        className={`hdb-onglet${surAnciens ? ' hdb-onglet--actif' : ''}`}
+        /* 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — « l'onglet “Anciens locataires (N)” et ses capsules » (Arno).
+           L'onglet porte le violet EN PERMANENCE, pas seulement quand il est actif : c'est lui qui annonce la
+           couleur des capsules qu'il va montrer, et il doit le dire AVANT qu'on clique. */
+        className={`hdb-onglet hdb-onglet--ancien${surAnciens ? ' hdb-onglet--actif' : ''}`}
         aria-pressed={surAnciens}
         aria-expanded={listeOuverte}
         disabled={anciens.length === 0}
@@ -4285,6 +4288,15 @@ ${CSS_PIECES}
 .hdb-onglet-mot{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hdb-onglet .gst-compte{flex:0 0 auto}
 .hdb-onglet--actif{color:var(--color-svv-ink);font-weight:700}
+/* ══ 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'ONGLET « ANCIENS LOCATAIRES (N) » ET SA LISTE ════════════════════════
+   Le violet du theme (jeton --color-svv-violet, defini dans les DEUX modes). La regle de l'onglet ACTIF est
+   ecrite APRES, donc elle l'emporte : actif, il reste en couleur d'encre et en gras, comme son jumeau. */
+.hdb-onglet--ancien{color:var(--color-svv-violet)}
+.hdb-onglet--ancien.hdb-onglet--actif{color:var(--color-svv-violet);font-weight:700}
+.hdb-onglet--ancien:hover:not(:disabled){background:var(--color-svv-violet-soft)}
+/* La liste des cartes d'anciens : le bouton radio et le survol prennent le meme violet que l'onglet qui l'ouvre. */
+.hdb-anciens-liste .hdb-anciens-choix:hover{background:var(--color-svv-violet-soft)}
+.hdb-anciens-liste .hdb-anciens-choix input{accent-color:var(--color-svv-violet)}
 .hdb-onglet:hover:not(:disabled){background:var(--color-svv-field)}
 .hdb-onglet:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .hdb-onglet:disabled{opacity:.5;cursor:default}
@@ -4307,6 +4319,7 @@ ${CSS_PIECES}
 .hdb-groupe--vert{border-left-color:var(--color-svv-green)}
 /* LE BLEU EST UN JETON DU DEPOT (--color-svv-blue, defini dans les DEUX modes) : rien n'est invente ici.
    Un #rrggbb ecrit a la main aurait produit un bleu illisible en sombre — ce que le depot interdit et verifie. */
+.hdb-groupe--violet{border-left-color:var(--color-svv-violet)}
 .hdb-groupe--bleu{border-left-color:var(--color-svv-blue)}
 .hdb-groupe--gris{border-left-color:var(--color-svv-line-strong)}
 /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — « NOTRE AGENCE » : LE GRIS NEUTRE D'ARNO.
@@ -4607,6 +4620,7 @@ ${CSS_PIECES}
   border-left:3px solid transparent;border-right:3px solid transparent}
 .hdb-legende-pastille--rouge{border-left-color:var(--color-svv-red);border-right-color:var(--color-svv-red)}
 .hdb-legende-pastille--vert{border-left-color:var(--color-svv-green);border-right-color:var(--color-svv-green)}
+.hdb-legende-pastille--violet{border-left-color:var(--color-svv-violet);border-right-color:var(--color-svv-violet)}
 .hdb-legende-pastille--bleu{border-left-color:var(--color-svv-blue);border-right-color:var(--color-svv-blue)}
 /* GRIS POINTILLE : un trait discontinu, et non un gris plein — il dit qu'il reste un geste a faire. */
 .hdb-legende-pastille--gris{border-left:3px dashed var(--color-svv-line-strong);
@@ -4631,6 +4645,9 @@ ${CSS_PIECES}
 .hdb-barre{border-left:3px solid transparent;border-right:3px solid transparent;border-radius:10px}
 .hdb-barre--rouge{border-left-color:var(--color-svv-red);border-right-color:var(--color-svv-red)}
 .hdb-barre--vert{border-left-color:var(--color-svv-green);border-right-color:var(--color-svv-green)}
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE CINQUIEME TON. Le jeton --color-svv-violet existe dans les DEUX modes
+   (lot 84), avec ses contrastes mesures : rien n'est invente ici, et aucun #rrggbb n'est ecrit a la main. */
+.hdb-barre--violet{border-left-color:var(--color-svv-violet);border-right-color:var(--color-svv-violet)}
 .hdb-barre--bleu{border-left-color:var(--color-svv-blue);border-right-color:var(--color-svv-blue)}
 .hdb-barre--gris{border-left-style:dashed;border-right-style:dashed;
   border-left-color:var(--color-svv-line-strong);border-right-color:var(--color-svv-line-strong)}

@@ -353,9 +353,13 @@ describe('🔴 le numéro affiché par l’app l’est partout de la même faço
    * ⚠️ Et quand ce n'est pas un numéro, il n'y a plus de lien du tout : mieux vaut un texte qu'un appel au hasard.
    */
   it('🔴 le lien `tel:` est construit sur l’affichage décortiqué, et sur rien d’autre', () => {
+    /* ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET : `Annuaire.tsx` SORT DE LA LISTE. Son seul
+       lien d'appel vivait dans `BlocOccupant`, la fiche de lecture d'un ancien locataire, qu'Arno remplace par
+       « EXACTEMENT le même composant de carte que LOCATAIRE EN PLACE ». C'est donc `CartesPersonnes.tsx` — déjà
+       dans la liste — qui construit le lien de cet écran. La règle est inchangée ; elle n'est plus écrite qu'une
+       fois, et deux écritures d'une même règle finissent toujours par diverger. */
     for (const f of [
       'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx',
-      'app/(admin)/admin/(protected)/gestion/Annuaire.tsx',
       'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
     ]) {
       const src = readFileSync(f, 'utf8');
@@ -656,9 +660,13 @@ describe('🔴 l’annotation classe la ligne, et la comparaison ne la voit jama
 describe('🔴 la note grise arrive jusqu’aux quatre tuiles', () => {
   /** ⚠️ ELLE NE VIT JAMAIS DANS LA LIGNE : sinon une adresse longue repousserait « Copier » dessous. */
   it('🔴 les quatre écrans rendent la note, hors de la ligne', () => {
+    /* ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET : `Annuaire.tsx` SORT DE LA LISTE, et pas
+       parce qu'il a perdu la note. Son seul rendu de coordonnées était `BlocOccupant`, la fiche de lecture d'un
+       ancien locataire ; Arno demande « EXACTEMENT le même composant de carte que LOCATAIRE EN PLACE », et c'est
+       donc `CartesPersonnes.tsx` — déjà dans la liste — qui rend la note de CET écran aussi. Trois tuiles, une
+       de moins à tenir, et la règle protégée est la même. */
     for (const f of [
       'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx',
-      'app/(admin)/admin/(protected)/gestion/Annuaire.tsx',
       'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
       'app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx',
     ]) {

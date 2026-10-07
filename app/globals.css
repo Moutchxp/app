@@ -57,6 +57,15 @@
   --color-svv-violet: #7d3ac1;               /* « à confirmer » : texte + bordure (le MOT porte l'info, le violet n'est qu'un appui) */
   --color-svv-violet-soft: #f3e8ff;          /* fond de la pastille « à confirmer » (texte = --color-svv-violet) */
   --color-svv-violet-faint: #faf5ff;         /* fond de la carte d'édition du sommet « à confirmer » (texte = ink/red) */
+  /* ══ LOT ANCIENS-LOCATAIRES-VIOLET — LE VIOLET « ANCIEN LOCATAIRE » ═════════════════════════════════════════════
+     La PAIRE tamisée existait déjà (lot 84) et sert telle quelle : --color-svv-violet-soft en fond,
+     --color-svv-violet en texte et en liseré plein. Contrastes MESURÉS le 07/10/2026 : 5,48:1 en Clair
+     (#7d3ac1 sur #f3e8ff), 7,74:1 en Sombre (#c9a9f0 sur #2b1d3d). En créer une seconde aurait donné deux
+     violets dans le même écran — exactement la copie que le dépôt interdit.
+     SEUL MANQUAIT LE VOILE : Arno demande un fond « violet pâle TRANSPARENT » pour les cartes d'ancien locataire
+     et de leurs contacts, qui se pose PAR-DESSUS le fond de carte sans le remplacer (la carte garde sa surface,
+     son ombre et son bord). Une couleur opaque aurait effacé la distinction carte vérifiée / carte à vérifier. */
+  --color-svv-violet-voile: rgba(125, 58, 193, .06);
   --color-svv-lien-source: #1a5fb4;          /* bleu des liens/pièces sources (accessible AA sur fond clair) */
 }
 
@@ -271,6 +280,9 @@
   --color-svv-violet: #c9a9f0;
   --color-svv-violet-soft: #2b1d3d;
   --color-svv-violet-faint: #241a33;
+  /* LOT ANCIENS-LOCATAIRES-VIOLET — le voile en SOMBRE : plus clair et un peu plus dense, parce qu'un violet
+     foncé sur une surface foncée ne se verrait pas. Mesuré à l'écran sur la fiche lot-176. */
+  --color-svv-violet-voile: rgba(201, 169, 240, .10);
   --color-svv-lien-source: #7db0ff;
 }
 /* Rouge d'ALERTE redéfini SUR la surface surélevée en SOMBRE (le `var(--color-svv-red)` lu inline par TitreFamilleEtat prend alors la variante
@@ -314,6 +326,8 @@
     --color-svv-violet: #c9a9f0;
     --color-svv-violet-soft: #2b1d3d;
     --color-svv-violet-faint: #241a33;
+    /* LOT ANCIENS-LOCATAIRES-VIOLET — identique au bloc [data-theme='dark']. */
+    --color-svv-violet-voile: rgba(201, 169, 240, .10);
     --color-svv-lien-source: #7db0ff;
   }
   .svv-adm-root[data-theme='system'] .svv-repli-titre--surface { --color-svv-red: var(--color-svv-red-raised); }

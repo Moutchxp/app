@@ -367,7 +367,15 @@ describe('🔴🔴 ⑥ les rôles sont mêlés, et leurs capsules ont la couleur
     const classeDe = (nom: string): string =>
       itemDe(nom).querySelector('.gst-annuaire-role')?.className ?? '';
     expect(classeDe('ALEJO BERNARD')).toContain('gst-annuaire-role--proprietaire');
-    expect(classeDe('ALEJO FERNANDEZ Paula')).toContain('gst-annuaire-role--locataire');
+    /**
+     * ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET. « ALEJO FERNANDEZ Paula » porte le rôle
+     * `ancien_locataire` (voir les fixtures), et sa capsule était VERTE : le vert du locataire en place. Arno
+     * tranche — « la capsule “Ancien locataire” (aujourd'hui verte) passe en violet ». La classe suit donc
+     * désormais le rôle, qui était DÉJÀ distingué par le module pur ; c'est la couleur qui lui manquait.
+     */
+    expect(classeDe('ALEJO FERNANDEZ Paula')).toContain('gst-annuaire-role--ancien_locataire');
+    /* 🔴 ET LE VERT RESTE AU LOCATAIRE EN PLACE — c'est toute la distinction que ce lot installe. */
+    expect(classeDe('JOLY Sandrine')).toContain('gst-annuaire-role--locataire');
 
     const BARRE = readFileSync('app/(admin)/admin/(protected)/gestion/BarreAnnuaire.tsx', 'utf8');
     const MENU = readFileSync('app/(admin)/admin/(protected)/Sidebar.tsx', 'utf8');
@@ -375,6 +383,11 @@ describe('🔴🔴 ⑥ les rôles sont mêlés, et leurs capsules ont la couleur
     expect(MENU).toContain('background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)');
     expect(BARRE).toContain(
       '.gst-annuaire-role--locataire{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}');
+    /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA PAIRE VIOLETTE, qui existait DÉJÀ dans le thème (lot 84) avec sa
+       variante Sombre : il n'y avait rien à créer, et créer un second violet aurait donné deux teintes pour une
+       même notion dans le même écran. */
+    expect(BARRE).toContain(
+      '.gst-annuaire-role--ancien_locataire{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}');
     /* 🔴 ET LE PENDANT ROUGE, QUI EXISTAIT DÉJÀ DANS LE THÈME — rien à créer. */
     expect(BARRE).toContain(
       '.gst-annuaire-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}');

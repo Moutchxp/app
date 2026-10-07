@@ -1129,6 +1129,26 @@ export function ficheContactCarteDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA MIGRATION 318 : UN CONTACT RATTACHÉ À UN ANCIEN LOCATAIRE ════════════
+ *
+ * Demande d'Arno (07/10/2026) : « Le contact ajouté est rattaché à l'ancien locataire, pas au locataire actuel ni
+ * au bien en général. » La 318 apporte la colonne `locataire_id` sur les DEUX tables du rangement
+ * (`gestion_partie_categorie` et `gestion_contact_carte`) et ouvre la valeur `ancien_locataire`.
+ *
+ * 🔴 UNE SEULE SONDE POUR LES DEUX TABLES, parce qu'une seule migration les apporte toutes les deux. On
+ * interroge `gestion_contact_carte`, la seconde du fichier : si elle est là, l'autre l'est aussi.
+ *
+ * 🔴 TANT QU'ELLE RÉPOND « NON », LA COLONNE N'EST NOMMÉE NULLE PART et le geste est REFUSÉ AVEC SON MOTIF plutôt
+ * qu'enregistré de travers : un contact d'ancien locataire qui serait rangé « côté locataire » faute de colonne
+ * apparaîtrait sur la carte du locataire EN PLACE — c'est-à-dire exactement ce qu'Arno écarte. Le reste de la
+ * fiche (les cartes, les capsules, les couleurs) se lit et s'écrit comme avant ce lot.
+ */
+export function contactAncienLocataireDisponible(): Promise<boolean> {
+  return memoiser('colonne.gestion_contact_carte.locataire_id',
+    () => colonneExiste('gestion_contact_carte', 'locataire_id'));
+}
+
+/**
  * ══ 🔴🔴 LOT MONGA-1, POINT 1 — LA MIGRATION 311 : LES INTERVENTIONS MONGA ════════════════════════════════════
  *
  * Elle apporte les deux tables du lot : `gestion_monga_mail` (ce que DIT chaque mail Monga) et

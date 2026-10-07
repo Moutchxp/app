@@ -322,12 +322,16 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
                     onMouseDown={(e) => { e.preventDefault(); ouvrir(s); }}
                     onMouseEnter={() => setRang(i)}>
                     <span className="gst-annuaire-nom">{s.nom}</span>
-                    {/* 🔴🔴 LOT ANNUAIRE-CAPSULES-TAMISEES — ROUGE pour un propriétaire, VERT pour un locataire
-                        (ancien compris), mais TAMISÉS : fond pâle, texte foncé, sur le modèle exact de l'entrée
-                        active du menu de gauche. Les deux jetons existent déjà dans le thème, avec leur variante
-                        Sombre — voir la feuille, plus bas. */}
-                    <span className={`gst-annuaire-role gst-annuaire-role--${
-                      s.role === 'proprietaire' ? 'proprietaire' : 'locataire'}`}>{s.mot}</span>
+                    {/* 🔴🔴 LOT ANNUAIRE-CAPSULES-TAMISEES — ROUGE pour un propriétaire, VERT pour un locataire,
+                        mais TAMISÉS : fond pâle, texte foncé, sur le modèle exact de l'entrée active du menu de
+                        gauche. Les jetons existent déjà dans le thème, avec leur variante Sombre.
+
+                        🔴🔴 REQUALIFIÉ LE 07/10/2026 — LOT ANCIENS-LOCATAIRES-VIOLET. Il disait « VERT pour un
+                        locataire (ANCIEN COMPRIS) » : Arno tranche autrement — « l'Annuaire : la capsule “Ancien
+                        locataire” (aujourd'hui verte) passe en violet ». Le vert reste donc au locataire EN
+                        PLACE, et le rôle `ancien` — que le module pur distinguait DÉJÀ — porte enfin sa couleur.
+                        Le MOT, lui, ne change pas d'un caractère : c'est lui qui porte l'information. */}
+                    <span className={`gst-annuaire-role gst-annuaire-role--${s.role}`}>{s.mot}</span>
                     {/* 🔴 L'ADRESSE DISTINGUE LES HOMONYMES, et elle ne porte PAS le numéro de lot (Arno). */}
                     {s.lieu !== null && <span className="gst-annuaire-lieu">{s.lieu}</span>}
                     {/* 🔴🔴 LOT ANNUAIRE-MENTION-PARENTHESES — « (Propriétaire de X biens au total) », APRÈS
@@ -416,6 +420,9 @@ const CSS_BARRE_ANNUAIRE = `
   color:var(--color-svv-bg);background:var(--color-svv-ink)}
 .gst-annuaire-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 .gst-annuaire-role--locataire{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — la capsule « Ancien locataire », dans la paire tamisee violette du theme
+   (lot 84 ; contrastes mesures 5,48:1 en Clair, 7,74:1 en Sombre). */
+.gst-annuaire-role--ancien_locataire{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
 .gst-annuaire-lieu{font-size:.82rem;color:var(--color-svv-muted)}
 /* ══ LOT ECRAN-ANNUAIRE-MINIMAL — LA LIGNE « D'AUTRES CORRESPONDENT » ══
    DISCRETE (Arno) : le gris des adresses, un filet au-dessus pour la detacher des suggestions, et aucun relief

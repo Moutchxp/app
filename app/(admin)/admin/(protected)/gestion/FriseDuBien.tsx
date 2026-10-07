@@ -319,6 +319,9 @@ export const CSS_FRISE_DU_BIEN = `
 .frs-trait:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 .frs-trait--rouge{background:var(--color-svv-red)}
 .frs-trait--vert{background:var(--color-svv-green)}
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE CINQUIEME TON. Le jeton --color-svv-violet existe dans les DEUX modes
+   (lot 84), avec ses contrastes mesures : rien n'est invente ici, et aucun #rrggbb n'est ecrit a la main. */
+.frs-trait--violet{background:var(--color-svv-violet)}
 .frs-trait--bleu{background:var(--color-svv-blue)}
 .frs-trait--gris{background:var(--color-svv-line-strong)}
 /* « nous » n'apparait pas dans la partie haute (elle ne porte que les RECUS), mais le ton existe : si un envoi

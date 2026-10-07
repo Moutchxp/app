@@ -1,6 +1,7 @@
 import { query, withTransaction } from '../db/client';
 import {
-  contactCarteDisponible, ficheContactCarteDisponible, noteContactCarteDisponible, partieCategorieDisponible,
+  contactAncienLocataireDisponible, contactCarteDisponible, ficheContactCarteDisponible,
+  noteContactCarteDisponible, partieCategorieDisponible,
 } from './schema';
 import { normaliserEmail } from './annuaire';
 /**
@@ -93,6 +94,14 @@ export interface LigneCarte {
   id: number;
   lotCle: string;
   cote: Cote;
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — DE QUEL ANCIEN LOCATAIRE cette carte est-elle le contact ?
+   *
+   * `null` pour tout le reste (propriétaire, locataire en place) : ces cartes se rangent sur le BIEN, et c'est la
+   * règle d'avant ce lot, intacte. Non nul SI ET SEULEMENT SI `cote === 'ancien_locataire'` — la base le tient
+   * par une contrainte d'équivalence (migration 318), et non par la discipline des appelants.
+   */
+  locataireId: number | null;
   adresse: string;
   nom: string | null;
   telephone: string | null;
@@ -153,6 +162,10 @@ const SANS_304 = 'Mise à jour de la base à appliquer (migration 304) : le rang
   + 'installé.';
 const SANS_304_CARTES = 'Mise à jour de la base à appliquer (migration 304) : les cartes de contact ne sont pas '
   + 'encore installées.';
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — le refus NOMME la migration, comme les deux précédents : ce n'est pas une
+   panne, c'est une base en retard, et la phrase doit dire quoi faire. */
+const SANS_318 = 'Mise à jour de la base à appliquer (migration 318) : un contact ne peut pas encore être '
+  + 'rattaché à un ancien locataire.';
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ② LES GARDES COMMUNS — PURS, ET DONC TESTABLES SANS BASE
@@ -300,13 +313,18 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
   /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — les sept colonnes de la 306, nommées seulement si elles existent. Une
      seule sonde pour les sept : une seule migration les apporte toutes (voir `ficheContactCarteDisponible`). */
   const avecFiche = await ficheContactCarteDisponible();
+  /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — la 318. Sans elle, `locataireId` vaut `null` partout et la fiche ne
+     propose pas d'ajouter un contact à un ancien locataire : une sonde voyage avec sa donnée. */
+  const avecAncien = await contactAncienLocataireDisponible();
   const { rows } = await query<{
     id: string; lot_cle: string; cote: string; adresse: string; nom: string | null; telephone: string | null;
+    locataire_id: string | null;
     origine: string; verifie_le: string | null; verifie_par: string | null; cree_le: string; cree_par: string;
     note: string | null; civilite: string | null; prenom: string | null; qualite: string | null;
     adresse_postale: string | null; code_postal: string | null; commune: string | null; coordonnees: unknown;
   }>(
     `SELECT id::text, lot_cle, cote, adresse, nom, telephone, origine,
+            ${avecAncien ? 'locataire_id::text' : 'NULL::text'} AS locataire_id,
             ${ts('verifie_le')} AS verifie_le, verifie_par_libelle AS verifie_par,
             ${ts('cree_le')} AS cree_le, cree_par_libelle AS cree_par,
             ${avecNote ? 'note' : 'NULL::text'} AS note,
@@ -323,6 +341,7 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
 
   return rows.map((r) => ({
     id: Number(r.id), lotCle: r.lot_cle, cote: r.cote as Cote, adresse: r.adresse,
+    locataireId: r.locataire_id === null ? null : Number(r.locataire_id),
     nom: r.nom, telephone: r.telephone, origine: r.origine as 'auto' | 'manuel',
     verifieLe: r.verifie_le, verifiePar: r.verifie_par, creeLe: r.cree_le, creePar: r.cree_par,
     note: r.note,
@@ -568,6 +587,11 @@ export async function biensDesContacts(
  */
 export async function poserCategorieAlaMain(o: {
   adresse: string; lotCle: string | null; categorie: Categorie; auteur: Auteur; motif?: string | null;
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'ANCIEN LOCATAIRE NOMMÉ, obligatoire pour `ancien_locataire` et interdit
+   * partout ailleurs. La base tient la même équivalence (migration 318) : le code la DIT, la base la GARANTIT.
+   */
+  locataireId?: number | null;
 }): Promise<IssuePartieCategorie> {
   if (!(await partieCategorieDisponible())) return { ok: false, motif: SANS_304 };
   if (!auteurHumainPartieCategorie(o.auteur)) {
@@ -581,6 +605,30 @@ export async function poserCategorieAlaMain(o: {
   if (!global && lot === null) {
     return { ok: false, motif: 'Un contact du propriétaire ou du locataire se range toujours sur un bien.' };
   }
+  /**
+   * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — « RATTACHÉ À L'ANCIEN LOCATAIRE, PAS AU BIEN EN GÉNÉRAL » (Arno).
+   *
+   * 🔴 LE REFUS EST EXPLICITE DANS LES DEUX SENS : un `ancien_locataire` sans personne nommée serait rangé « sur
+   * le bien », ce qu'Arno écarte en toutes lettres ; une personne nommée sur une AUTRE catégorie serait une
+   * donnée que rien ne lit — et qu'on finirait par lire de travers.
+   *
+   * ⚠️ ET SANS LA MIGRATION 318, ON REFUSE AU LIEU DE RANGER DE TRAVERS : le contact atterrirait côté
+   * « locataire », donc sur la carte du locataire EN PLACE. Un geste refusé avec son motif vaut mieux qu'un geste
+   * qui range chez quelqu'un d'autre.
+   */
+  const ancien = o.categorie === 'ancien_locataire';
+  const locataireId = typeof o.locataireId === 'number' && Number.isInteger(o.locataireId) && o.locataireId > 0
+    ? o.locataireId : null;
+  if (ancien && locataireId === null) {
+    return { ok: false, motif: 'Un contact d’ancien locataire se range sur un ancien locataire précis.' };
+  }
+  if (!ancien && locataireId !== null) {
+    return { ok: false, motif: 'Seul un contact d’ancien locataire se rattache à une personne.' };
+  }
+  /* ⚠️ LA SONDE EST LUE DANS TOUS LES CAS, et pas seulement pour un ancien : c'est elle qui décide si la colonne
+     peut être NOMMÉE dans le SQL ci-dessous. Nommer une colonne absente ferait tomber le rangement ENTIER. */
+  const avecAncien = await contactAncienLocataireDisponible();
+  if (ancien && !avecAncien) return { ok: false, motif: SANS_318 };
   const motif = texteCourt(o.motif);
 
   const retires: number[] = [];
@@ -593,18 +641,23 @@ export async function poserCategorieAlaMain(o: {
           SET retire_le = now(), retire_par = $3, retire_par_libelle = $4,
               retire_motif = coalesce($5, 'remplacée par un rangement manuel')
         WHERE retire_le IS NULL AND adresse = $1 AND coalesce(lot_cle, '') = coalesce($2, '')
+          ${avecAncien ? 'AND coalesce(locataire_id, 0) = coalesce($6::bigint, 0)' : ''}
         RETURNING id::text`,
-      [adresse, lot, o.auteur.id, o.auteur.libelle, motif]);
+      avecAncien
+        ? [adresse, lot, o.auteur.id, o.auteur.libelle, motif, locataireId]
+        : [adresse, lot, o.auteur.id, o.auteur.libelle, motif]);
     for (const r of anciens) retires.push(Number(r.id));
 
     /* ② PUIS LA NOUVELLE. `origine` est en dur : cette fonction est le geste manuel, et rien d'autre. */
     const { rows } = await q<{ id: string }>(
       `INSERT INTO gestion_partie_categorie
          (adresse, lot_cle, categorie, origine, pose_par, pose_par_libelle,
-          verifie_le, verifie_par, verifie_par_libelle)
-       VALUES ($1, $2, $3, 'manuel', $4, $5, now(), $4, $5)
+          verifie_le, verifie_par, verifie_par_libelle${avecAncien ? ', locataire_id' : ''})
+       VALUES ($1, $2, $3, 'manuel', $4, $5, now(), $4, $5${avecAncien ? ', $6' : ''})
        RETURNING id::text`,
-      [adresse, lot, o.categorie, o.auteur.id, o.auteur.libelle]);
+      avecAncien
+        ? [adresse, lot, o.categorie, o.auteur.id, o.auteur.libelle, locataireId]
+        : [adresse, lot, o.categorie, o.auteur.id, o.auteur.libelle]);
     return Number(rows[0]?.id ?? 0);
   });
 
@@ -678,6 +731,8 @@ export async function poserCarteAlaMain(o: {
   lotCle: string; cote: Cote; adresse: string; nom?: string | null; telephone?: string | null; auteur: Auteur;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — les champs du formulaire. Absente ⇒ comportement d'avant ce lot. */
   fiche?: FicheDeCarte;
+  /** 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — l'ancien locataire nommé. Même équivalence que `poserCategorieAlaMain`. */
+  locataireId?: number | null;
 }): Promise<IssuePartieCategorie> {
   if (!(await contactCarteDisponible())) return { ok: false, motif: SANS_304_CARTES };
   if (!auteurHumainPartieCategorie(o.auteur)) {
@@ -687,9 +742,22 @@ export async function poserCarteAlaMain(o: {
   if (lot === null) return { ok: false, motif: 'Aucun bien désigné.' };
   const adresse = adressePropre(o.adresse);
   if (adresse === null) return { ok: false, motif: 'Adresse illisible.' };
-  if (o.cote !== 'proprietaire' && o.cote !== 'locataire') {
-    return { ok: false, motif: 'Une carte se range du côté du propriétaire ou du côté du locataire.' };
+  if (o.cote !== 'proprietaire' && o.cote !== 'locataire' && o.cote !== 'ancien_locataire') {
+    return { ok: false, motif: 'Une carte se range du côté du propriétaire, du locataire ou d’un ancien locataire.' };
   }
+  /* 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — la MÊME équivalence que `poserCategorieAlaMain`, et les mêmes mots :
+     les deux portes sont franchies par le même geste, elles ne peuvent pas refuser pour deux raisons. */
+  const ancien = o.cote === 'ancien_locataire';
+  const locataireId = typeof o.locataireId === 'number' && Number.isInteger(o.locataireId) && o.locataireId > 0
+    ? o.locataireId : null;
+  if (ancien && locataireId === null) {
+    return { ok: false, motif: 'Un contact d’ancien locataire se range sur un ancien locataire précis.' };
+  }
+  if (!ancien && locataireId !== null) {
+    return { ok: false, motif: 'Seul un contact d’ancien locataire se rattache à une personne.' };
+  }
+  const avecAncien = await contactAncienLocataireDisponible();
+  if (ancien && !avecAncien) return { ok: false, motif: SANS_318 };
 
   /**
    * 🔴🔴 LA FICHE N'EST NOMMÉE QUE SI ELLE EST DEMANDÉE **ET** QUE LA 306 EST LÀ. Sans la migration, le geste
@@ -723,6 +791,16 @@ export async function poserCarteAlaMain(o: {
     'verifie_par_libelle = EXCLUDED.verifie_par_libelle',
   ];
   const params: unknown[] = [lot, o.cote, adresse, texteCourt(o.nom), telephone, o.auteur.id, o.auteur.libelle];
+  /* ⚠️ NOMMÉE SEULEMENT SI LA 318 EST LÀ. Sans elle, le geste refuse déjà `ancien_locataire` plus haut ; nommer
+     la colonne pour les deux autres côtés ferait tomber le rangement ENTIER sur une base sans la migration. */
+  if (avecAncien) {
+    params.push(locataireId);
+    cols.push('locataire_id');
+    vals.push(`$${params.length}`);
+    /* 🔴 PAS DE `coalesce` SUR CELLE-CI : le rattachement est l'IDENTITÉ de la carte (il entre dans l'index
+       d'unicité), pas un champ qu'une repose compléterait. Une mise à jour ne peut donc pas le changer — elle
+       vise déjà la ligne du bon ancien locataire. */
+  }
 
   /**
    * ⚠️ `coalesce(EXCLUDED.x, l'existant)` — UNE POSE N'EFFACE JAMAIS. C'est la règle de cette fonction depuis le
@@ -784,6 +862,15 @@ export async function poserCarteAlaMain(o: {
    * retirerait alors une carte que le geste n'a pas créée.
    * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
+  /**
+   * 🔴 LA CIBLE DU `ON CONFLICT` SUIT L'INDEX D'UNICITÉ, et elle le suit exactement : sans la 318, c'est celui
+   * d'avant (bien, côté, adresse) ; avec elle, l'ancien locataire entre dans la clé (migration 318). Une cible
+   * qui ne correspondrait à aucun index ferait échouer la pose avec une erreur illisible.
+   */
+  const cibleDuConflit = avecAncien
+    ? 'lot_cle, cote, adresse, coalesce(locataire_id, 0)'
+    : 'lot_cle, cote, adresse';
+
   const retires: number[] = [];
   const id = await withTransaction(async (q) => {
     /**
@@ -817,7 +904,13 @@ export async function poserCarteAlaMain(o: {
     const { rows: autreCote } = await q<{ id: string }>(
       `SELECT id::text FROM gestion_contact_carte
         WHERE retire_le IS NULL AND lot_cle = $1 AND adresse = $2 AND cote <> $3
-        FOR UPDATE`, [lot, adresse, o.cote]);
+          ${avecAncien ? 'AND coalesce(locataire_id, 0) = coalesce($4::bigint, 0)' : ''}
+        FOR UPDATE`,
+      /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE RETRAIT EST BORNÉ AU MÊME RATTACHEMENT. « Une adresse n'a qu'une
+         carte par bien » devient « par bien ET par ancien locataire » : le même avocat peut être le contact de
+         deux anciens locataires du même immeuble, et poser l'une ne doit pas retirer l'autre. C'est exactement ce
+         que dit le nouvel index d'unicité (migration 318), et les deux ne font qu'une règle. */
+      avecAncien ? [lot, adresse, o.cote, locataireId] : [lot, adresse, o.cote]);
     for (const c of autreCote) {
       const { rows } = await q<{ id: string }>(
         `UPDATE gestion_contact_carte
@@ -831,7 +924,8 @@ export async function poserCarteAlaMain(o: {
     const { rows: proposition } = await q<{ id: string }>(
       `SELECT id::text FROM gestion_contact_carte
         WHERE retire_le IS NULL AND lot_cle = $1 AND cote = $2 AND adresse = $3 AND origine = 'auto'
-        FOR UPDATE`, [lot, o.cote, adresse]);
+          ${avecAncien ? 'AND coalesce(locataire_id, 0) = coalesce($4::bigint, 0)' : ''}
+        FOR UPDATE`, avecAncien ? [lot, o.cote, adresse, locataireId] : [lot, o.cote, adresse]);
     if (proposition.length > 0) {
       const { rows } = await q<{ id: string }>(
         `UPDATE gestion_contact_carte
@@ -845,7 +939,7 @@ export async function poserCarteAlaMain(o: {
     const { rows } = await q<{ id: string }>(
       `INSERT INTO gestion_contact_carte (${cols.join(', ')})
        VALUES (${vals.join(', ')})
-       ON CONFLICT (lot_cle, cote, adresse) WHERE retire_le IS NULL DO UPDATE
+       ON CONFLICT (${cibleDuConflit}) WHERE retire_le IS NULL DO UPDATE
          SET ${maj.join(', ')}
        RETURNING id::text`, params);
     return rows.length === 0 ? null : Number(rows[0].id);

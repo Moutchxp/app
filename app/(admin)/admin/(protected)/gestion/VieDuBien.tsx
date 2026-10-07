@@ -774,6 +774,9 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-pastille{flex:0 0 auto;width:8px;height:8px;border-radius:999px;transform:translateY(-1px)}
 .vdb-pastille--rouge{background:var(--color-svv-red)}
 .vdb-pastille--vert{background:var(--color-svv-green)}
+/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE CINQUIEME TON. Le jeton --color-svv-violet existe dans les DEUX modes
+   (lot 84), avec ses contrastes mesures : rien n'est invente ici, et aucun #rrggbb n'est ecrit a la main. */
+.vdb-pastille--violet{background:var(--color-svv-violet)}
 .vdb-pastille--bleu{background:var(--color-svv-blue)}
 .vdb-pastille--gris{background:var(--color-svv-line-strong)}
 .vdb-corps{margin:0;font-size:.86rem;color:var(--color-svv-ink);white-space:pre-wrap;overflow-wrap:anywhere}
