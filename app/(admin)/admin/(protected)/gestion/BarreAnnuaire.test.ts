@@ -154,10 +154,14 @@ describe('🔴🔴 ② les suggestions viennent de la recherche EXISTANTE', () =
   });
 
   /**
-   * ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « + Propriétaire de X biens au total » ═══════════════════════════
+   * ══ 🔴🔴 LOT ANNUAIRE-MENTION-PARENTHESES — « (Propriétaire de X biens au total) » ═══════════════════════════
    *
    * Arno : « on garde l'adresse affichée aujourd'hui ; si ce propriétaire a d'autres biens en gestion chez nous,
-   * on ajoute APRÈS l'adresse : “+ Propriétaire de X biens au total”. Style discret, dans le gris de l'adresse. »
+   * on ajoute APRÈS l'adresse le nombre total. Style discret, dans le gris de l'adresse. »
+   *
+   * ⚠️ LE LIBELLÉ S'ÉCRIVAIT « + Propriétaire de X biens au total » jusqu'au 07/10/2026 : il perd son « + » et
+   * prend des parenthèses, qui le rattachent à l'adresse. Le reste — règle d'apparition, calcul, gris — ne bouge
+   * pas, et ce cas continue de l'éprouver.
    */
   it('🔴🔴 un propriétaire à plusieurs biens porte la mention, après l’adresse et dans le même gris', async () => {
     personnesServies = [{
@@ -169,7 +173,7 @@ describe('🔴🔴 ② les suggestions viennent de la recherche EXISTANTE', () =
     /* 🔴 UNE SEULE LIGNE pour ce propriétaire, malgré ses trois biens (Arno : « une seule suggestion »). */
     expect(items()).toHaveLength(1);
     const gris = [...items()[0].querySelectorAll('.gst-annuaire-lieu')].map((e) => e.textContent);
-    expect(gris).toEqual(['67 rue de Normandie, COURBEVOIE', '+ Propriétaire de 3 biens au total']);
+    expect(gris).toEqual(['67 rue de Normandie, COURBEVOIE', '(Propriétaire de 3 biens au total)']);
   });
 
   it('🔴 un seul bien : aucune mention', async () => {

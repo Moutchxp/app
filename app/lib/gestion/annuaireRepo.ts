@@ -1731,7 +1731,7 @@ export interface BienLie {
   /**
    * 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — LA DATE DE FIN DE GESTION, `null` quand elle court toujours.
    *
-   * Elle voyage pour que la barre Annuaire puisse dire « + Propriétaire de X biens au total » avec la MÊME
+   * Elle voyage pour que la barre Annuaire puisse dire « (Propriétaire de X biens au total) » avec la MÊME
    * définition que la fiche propriétaire (`bienEnGestion` : un bien est en gestion tant qu'il n'a pas de date de
    * fin). Elle est sur la même ligne de la même requête — elle est gratuite, et la demander à part aurait été
    * exactement la « seconde requête qui recompte à sa façon » qu'Arno interdit.

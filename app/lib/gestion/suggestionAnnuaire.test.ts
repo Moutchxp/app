@@ -119,7 +119,7 @@ describe('🔴🔴 ② le DOUBLE RÔLE fait deux suggestions', () => {
   });
 });
 
-describe('🔴🔴 ③ « + Propriétaire de X biens au total »', () => {
+describe('🔴🔴 ③ « (Propriétaire de X biens au total) »', () => {
   /**
    * ══ 🔴🔴 LA RÈGLE D'ARNO, MOT POUR MOT ═══════════════════════════════════════════════════════════════════════
    * « X = nombre TOTAL de biens en gestion de ce propriétaire (bien affiché compris). Mention seulement si
@@ -132,9 +132,14 @@ describe('🔴🔴 ③ « + Propriétaire de X biens au total »', () => {
     expect(suggestionsAnnuaire([PROPRIO])[0].mention).toBeNull();
   });
 
-  it('🔴🔴 X = 3 : « + Propriétaire de 3 biens au total »', () => {
+  /**
+   * ⚠️ LE LIBELLÉ A CHANGÉ LE 07/10/2026 (lot ANNUAIRE-MENTION-PARENTHESES) : il s'écrivait « + Propriétaire de
+   * X biens au total ». Sans le « + », entre parenthèses — elles le rattachent à l'adresse qui précède, plutôt
+   * que d'en faire une seconde information. La règle d'apparition et le calcul, eux, n'ont pas bougé.
+   */
+  it('🔴🔴 X = 3 : « (Propriétaire de 3 biens au total) »', () => {
     const trois = { ...PROPRIO, biens: [BIEN, { ...BIEN, adresse: '12 rue A' }, { ...BIEN, adresse: '5 rue B' }] };
-    expect(suggestionsAnnuaire([trois])[0].mention).toBe('+ Propriétaire de 3 biens au total');
+    expect(suggestionsAnnuaire([trois])[0].mention).toBe('(Propriétaire de 3 biens au total)');
   });
 
   /** 🔴🔴 UN BIEN SORTI DE GESTION NE COMPTE PAS : deux lots dont un vendu font X = 1, donc aucune mention. */
@@ -142,9 +147,9 @@ describe('🔴🔴 ③ « + Propriétaire de X biens au total »', () => {
     expect(suggestionsAnnuaire([{ ...PROPRIO, biens: [BIEN, VENDU] }])[0].mention).toBeNull();
   });
 
-  it('🔴 trois lots dont un vendu : « 2 biens au total »', () => {
+  it('🔴 trois lots dont un vendu : « (Propriétaire de 2 biens au total) »', () => {
     const s = suggestionsAnnuaire([{ ...PROPRIO, biens: [BIEN, { ...BIEN, adresse: '12 rue A' }, VENDU] }]);
-    expect(s[0].mention).toBe('+ Propriétaire de 2 biens au total');
+    expect(s[0].mention).toBe('(Propriétaire de 2 biens au total)');
   });
 
   /**
@@ -171,7 +176,7 @@ describe('🔴🔴 ③ « + Propriétaire de X biens au total »', () => {
       sujet: 'proprietaire', id: 12, nomAffiche: 'X', roles: ['proprietaire', 'locataire'],
       autreFicheId: 98, biens: [BIEN, { ...BIEN, adresse: '12 rue A' }],
     }]);
-    expect(s[0].mention).toBe('+ Propriétaire de 2 biens au total');
+    expect(s[0].mention).toBe('(Propriétaire de 2 biens au total)');
     expect(s[1].mention).toBeNull();
   });
 });

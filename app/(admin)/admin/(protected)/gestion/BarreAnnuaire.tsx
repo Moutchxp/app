@@ -216,7 +216,7 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
                       s.role === 'proprietaire' ? 'proprietaire' : 'locataire'}`}>{s.mot}</span>
                     {/* 🔴 L'ADRESSE DISTINGUE LES HOMONYMES, et elle ne porte PAS le numéro de lot (Arno). */}
                     {s.lieu !== null && <span className="gst-annuaire-lieu">{s.lieu}</span>}
-                    {/* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « + Propriétaire de X biens au total », APRÈS
+                    {/* 🔴🔴 LOT ANNUAIRE-MENTION-PARENTHESES — « (Propriétaire de X biens au total) », APRÈS
                         l'adresse et dans le MÊME gris (Arno : « style discret, dans le gris de l'adresse »).
                         Elle ne paraît qu'à partir de deux biens EN GESTION — voir `mentionBiens`. */}
                     {s.mention !== null && <span className="gst-annuaire-lieu">{s.mention}</span>}

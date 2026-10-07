@@ -58,11 +58,14 @@ export interface SuggestionAnnuaire {
   /** « 67 rue de Normandie, COURBEVOIE » — SANS numéro de lot (Arno). `null` quand on n'en connaît aucune. */
   lieu: string | null;
   /**
-   * ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « + Propriétaire de X biens au total » ═══════════════════════════
+   * ══ 🔴🔴 LOT ANNUAIRE-MENTION-PARENTHESES — « (Propriétaire de X biens au total) » ═══════════════════════════
    *
-   * Arno : « si ce propriétaire a d'autres biens en gestion chez nous, on ajoute après l'adresse : “+ Propriétaire
-   * de X biens au total”. X = nombre TOTAL de biens en gestion (bien affiché compris). Mention seulement si
-   * X ≥ 2 ; rien si X = 1. »
+   * Arno : « si ce propriétaire a d'autres biens en gestion chez nous, on ajoute après l'adresse le nombre total.
+   * X = nombre TOTAL de biens en gestion (bien affiché compris). Mention seulement si X ≥ 2 ; rien si X = 1. »
+   *
+   * ⚠️ LE LIBELLÉ A CHANGÉ (07/10/2026), ET LUI SEUL : « + Propriétaire de X biens au total » est devenu
+   * « (Propriétaire de X biens au total) » — sans le « + », entre parenthèses. La règle d'apparition, le calcul
+   * et le style discret ne bougent pas.
    *
    * 🔴 `null` DANS TOUS LES AUTRES CAS : un seul bien, aucun bien, ou un rôle de LOCATAIRE. Compter les biens
    * « en gestion » d'un locataire n'aurait pas de sens — ce ne sont pas les siens.
@@ -134,7 +137,12 @@ export function suggestionsAnnuaire(
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — LA MENTION DES AUTRES BIENS ═════════════════════════════════════════
  *
- * Arno, mot pour mot : « + Propriétaire de X biens au total », X ≥ 2 seulement.
+ * Arno, mot pour mot (lot ANNUAIRE-MENTION-PARENTHESES) : « (Propriétaire de X biens au total) », X ≥ 2 seulement.
+ * Elle se lit à la suite de l'adresse — « 25 rue Edith Cavell, COURBEVOIE (Propriétaire de 5 biens au total) » —,
+ * et les parenthèses sont ce qui la rattache à elle plutôt que d'en faire une seconde information.
+ *
+ * ⚠️ ELLE S'EST ÉCRITE « + Propriétaire de X biens au total » jusqu'au 07/10/2026. Seul le libellé a changé : la
+ * règle d'apparition et le calcul sont ceux du lot ANNUAIRE-BLOC-DEDIE, au mot près.
  *
  * 🔴 X COMPTE LES BIENS **EN GESTION**, et la règle n'est pas écrite ici : c'est `compterBiensEnGestion`, la même
  * que la fiche propriétaire emploie pour séparer ses cartes « en gestion » de ses « anciens ». Un bien sorti de
@@ -150,7 +158,7 @@ export function suggestionsAnnuaire(
 function mentionBiens(p: PersonnePourSuggestion, role: RoleSuggere): string | null {
   if (role !== 'proprietaire') return null;
   const n = compterBiensEnGestion(p.biens);
-  return n >= 2 ? `+ Propriétaire de ${n} biens au total` : null;
+  return n >= 2 ? `(Propriétaire de ${n} biens au total)` : null;
 }
 
 /**
