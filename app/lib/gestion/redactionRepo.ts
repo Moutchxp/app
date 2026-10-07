@@ -369,6 +369,34 @@ export async function abandonnerBrouillon(id: number): Promise<void> {
 }
 
 /**
+ * ══ 🔴🔴 SUPPRIME UN BROUILLON POUR DE BON — LOT BROUILLON-ACCES-SUPPRESSION, 07/10/2026 ════════════════════════
+ *
+ * RÈGLE D'ARNO : « après confirmation, le brouillon est supprimé en base […]. Le message reçu, ses pièces jointes,
+ * son statut et son classement ne sont jamais touchés. »
+ *
+ * 🔴 CELUI-CI EFFACE VRAIMENT, et c'est pour cela qu'il est une fonction DISTINCTE d'`abandonnerBrouillon`. Le
+ * geste de la corbeille DATE la ligne et promet un retour ; celui-ci la retire. Réunir les deux sous un même nom
+ * aurait fait du « définitivement » de la confirmation une approximation — et c'est le genre de mot qui doit être
+ * exact, parce qu'on clique dessus en s'y fiant.
+ *
+ * 🔴 CE QUI PART AVEC LUI, ET CE QUI NE PART PAS. `gestion_brouillon_cible` et `gestion_brouillon_piece` sont en
+ * `ON DELETE CASCADE` : les cibles cochées et les pièces ATTACHÉES AU BROUILLON s'en vont avec lui, ce qui est
+ * juste — elles n'existaient que pour ce brouillon. `gestion_envoi` et `gestion_envoi_file` sont en
+ * `ON DELETE SET NULL` : un envoi déjà parti garde sa trace, il perd seulement le lien vers un brouillon qui
+ * n'existe plus. ⚠️ ET RIEN NE TOUCHE `gestion_message` : le mail reçu, ses pièces, son statut et son classement
+ * vivent dans d'autres tables, qu'aucune clé ne relie à celle-ci dans ce sens.
+ *
+ * ⚠️ `envoye_le IS NULL` : un brouillon PARTI n'est plus un brouillon, c'est un message — on ne l'efface pas.
+ * Rend `false` quand il n'y avait rien à supprimer (déjà parti, ou déjà supprimé) : l'écran le dit au lieu de
+ * prétendre avoir fait quelque chose.
+ */
+export async function supprimerBrouillonDefinitivement(id: number): Promise<boolean> {
+  const { rowCount } = await query(
+    `DELETE FROM gestion_brouillon WHERE id = $1 AND envoye_le IS NULL`, [id]);
+  return (rowCount ?? 0) > 0;
+}
+
+/**
  * 🔴 LE SORT DE LA CORBEILLE. Le même verbe pris par l'autre bout : on remet `abandonne_le` à NULL, et le
  * brouillon reprend sa place dans « Brouillons », réouvrable avec son contenu et ses pièces — qui n'ont jamais
  * bougé, puisque rien n'a jamais été supprimé.

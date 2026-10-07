@@ -27,6 +27,10 @@ import {
 // 🔴🔴 LOT CLASSER-AVANT-ENVOI — « classé ou non » est une DÉCISION, prise dans un module PUR et partagée mot
 //   pour mot avec le serveur. L'écran grise un bouton ; le serveur, lui, refuse.
 import { classementFait, MOTIF_NON_CLASSE } from '../../../../lib/gestion/classementAvantEnvoi';
+// 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION — les mots de la suppression définitive et la suite du geste, module PUR.
+import {
+  MOTS_SUPPRIMER_BROUILLON, suiteSuppressionBrouillon, type SortGmailBrouillon,
+} from '../../../../lib/gestion/brouillonEnAttente';
 // Le contexte rendu par le moteur de classement — type seul : rien de ce module ne vient dans le navigateur.
 import type { ContexteRedaction } from '../../../../lib/gestion/classementBien';
 // LOT BROUILLONS-GMAIL — quand enregistrer, et comment savoir que quelque chose a VRAIMENT changé. Module PUR.
@@ -312,7 +316,7 @@ export function ChampDestinataires({
 
 export function Redaction({
   brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false, fermetureDemandee = 0,
-  reduite = false, calerAVue = true,
+  reduite = false, calerAVue = true, calage = 'start', appel = 0,
 }: {
   brouillon: BrouillonEcran;
   contexte: ContexteRedactionEcran;
@@ -359,6 +363,27 @@ export function Redaction({
    * `true` (le défaut) = le comportement d'avant ce lot, mot pour mot, pour tous les autres points d'entrée.
    */
   calerAVue?: boolean;
+  /**
+   * 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 1 — OÙ L'ÉDITEUR SE POSE QUAND IL S'AMÈNE.
+   *
+   * `'start'` (le défaut) = son HAUT en haut de la zone visible, le comportement d'avant ce lot pour tous les
+   * points d'entrée existants. `'center'` = CENTRÉ, ce qu'Arno demande pour le brouillon ouvert depuis sa
+   * pastille : « la page défile pour le centrer à l'écran ». Un brouillon qu'on vient CHERCHER se montre en
+   * entier ; un éditeur qu'on vient d'ouvrir pour écrire a besoin de son haut et de la place en dessous.
+   *
+   * ⚠️ SANS EFFET SI `calerAVue` EST FAUX : il n'y a alors aucun défilement à caler.
+   */
+  calage?: 'start' | 'center';
+  /**
+   * 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 1 — ON RAPPELLE UN ÉDITEUR DÉJÀ OUVERT.
+   *
+   * Chaque incrément est une demande venue du parent : « montre-toi, et prends le curseur ». Elle existe parce que
+   * `calerAVue` et `autoFocus` sont des gestes d'OUVERTURE — ils ne se rejouent pas sur un éditeur déjà monté, et
+   * la pastille doit pourtant tenir sa promesse quand on la clique une deuxième fois.
+   *
+   * `0` (le défaut) = aucune demande, comportement d'avant ce lot.
+   */
+  appel?: number;
 }) {
   /**
    * 🔴 LES MOTS DU GESTE QUI JETTE, TIRÉS D'UNE SEULE SOURCE. Ils dépendent de la migration 276 : sans elle, rien
@@ -396,8 +421,19 @@ export function Redaction({
    */
   const [pieceVue, setPieceVue] = useState<{ id: number; nom: string; typeMime: string | null } | null>(null);
   const [lien, setLien] = useState<{ texte: string; url: string } | null>(null);
-  /** La confirmation de suppression du brouillon. Un brouillon se supprime EXPRÈS, jamais par un clic au passage. */
+  /** La confirmation de MISE À LA CORBEILLE. Un brouillon se jette EXPRÈS, jamais par un clic au passage. */
   const [supprime, setSupprime] = useState(false);
+  /**
+   * 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — la confirmation de la suppression DÉFINITIVE. Un état à part,
+   * et c'est voulu : les deux questions ne disent pas la même chose, et deux boutons voisins dont l'un est sans
+   * retour ne doivent jamais pouvoir ouvrir la confirmation de l'autre.
+   */
+  const [supprimeDef, setSupprimeDef] = useState(false);
+  /**
+   * 🔴 CE QUI S'AFFICHE QUAND LA SUPPRESSION N'A PAS EU LIEU. `null` = rien à dire. Arno : « garder le brouillon
+   * affiché » — l'éditeur reste donc ouvert, et c'est ce bandeau, et lui seul, qui change.
+   */
+  const [echecGmail, setEchecGmail] = useState<string | null>(null);
   /**
    * ══ 🔴 LOT REDACTION-GMAIL — LA RÉPONSE EN PLACE PASSE EN PLEIN ÉCRAN ═════════════════════════════════════════
    * Demande d'Arno (A8). Une réponse s'écrit sous le message auquel elle répond — c'est bien pour les trois lignes
@@ -455,7 +491,7 @@ export function Redaction({
     const caler = () => {
       const el = racine.current;
       if (typeof el?.scrollIntoView === 'function') {
-        el.scrollIntoView({ block: 'start', behavior: doux ? 'smooth' : 'auto' });
+        el.scrollIntoView({ block: calage, behavior: doux ? 'smooth' : 'auto' });
       }
     };
     /**
@@ -489,7 +525,7 @@ export function Redaction({
      */
     const recalages = [250, 700].map((ms) => setTimeout(() => {
       const el = racine.current;
-      if (typeof el?.scrollIntoView === 'function') el.scrollIntoView({ block: 'start', behavior: 'auto' });
+      if (typeof el?.scrollIntoView === 'function') el.scrollIntoView({ block: calage, behavior: 'auto' });
     }, ms));
     /**
      * LE CURSEUR DANS LE MESSAGE, À LA POSITION 0. `focus()` seul poserait le curseur à la FIN — c'est-à-dire sous
@@ -509,7 +545,33 @@ export function Redaction({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : SEULE une nouvelle ouverture doit
     //   déclencher tout cela. Ajouter `brouillon` ferait sauter l'écran à chaque frappe.
-  }, [cleOuverture, calerAVue]);
+  }, [cleOuverture, calerAVue, calage]);
+
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 1 — LE RAPPEL D'UN ÉDITEUR DÉJÀ OUVERT ════════════════════════
+   *
+   * RÈGLE D'ARNO (07/10/2026) : « la page défile pour le centrer à l'écran, et le curseur est placé dans le texte ».
+   *
+   * 🔴 POURQUOI UN EFFET À PART, et non une dépendance de plus sur celui du dessus. Celui du dessus est l'effet
+   * d'OUVERTURE : il vise le haut, il pose le surlignage, il lance deux recalages parce que l'éditeur n'a pas
+   * encore sa hauteur. Le rappel, lui, s'adresse à un éditeur DÉJÀ mesuré et déjà peuplé — un seul défilement
+   * suffit. Les mêler aurait fait partir trois défilements pour un clic sur une pastille.
+   *
+   * ⚠️ `appelVu` DÉMARRE À LA VALEUR REÇUE : un éditeur qui NAÎT avec un appel en cours ne se rappelle pas
+   * lui-même — c'est l'effet d'ouverture qui l'amène, et deux défilements concurrents se verraient.
+   *
+   * ⚠️ LE CURSEUR D'ABORD, LE DÉFILEMENT ENSUITE. Prendre le focus défile aussi (le navigateur amène l'élément
+   * focalisé sous les yeux, mesuré au lot VISUALISER-UNIFIE) : caler avant serait caler pour rien.
+   */
+  const appelVu = useRef(appel);
+  useEffect(() => {
+    if (appel === 0 || appel === appelVu.current) return;
+    appelVu.current = appel;
+    setOuvre(true);
+    editeur.current?.curseurAuDebut();
+    const el = racine.current;
+    if (typeof el?.scrollIntoView === 'function') el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [appel]);
 
   const modifier = (p: Partial<BrouillonEcran>) => onChange({ ...brouillon, ...p });
 
@@ -1011,6 +1073,56 @@ export function Redaction({
     }
     onGeste(motsJeter.compteRendu, { compteurs: DELTA_BROUILLON_CORBEILLE });
     setEtat({ v: 'jete', brouillonId: id });
+  };
+
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — SUPPRIMER LE BROUILLON, POUR DE BON ═══════════════════════
+   *
+   * RÈGLE D'ARNO (07/10/2026) : « après confirmation, le brouillon est supprimé en base et dans Gmail (le même
+   * chemin que celui qui l'a créé/mis à jour) […]. Le message reçu, ses pièces jointes, son statut et son
+   * classement ne sont jamais touchés. Si la suppression dans Gmail échoue, afficher “Brouillon non supprimé dans
+   * Gmail, réessayer” et garder le brouillon affiché. »
+   *
+   * 🔴 IL VIT À CÔTÉ DE LA CORBEILLE, il ne la remplace pas. `supprimerBrouillon` (juste au-dessus) MET À LA
+   * CORBEILLE et promet un retour ; celui-ci EFFACE la ligne. Deux gestes, deux mots, et le mot « définitivement »
+   * n'est que sur celui qui l'est — c'est ce qui permet de cliquer l'un ou l'autre sans hésiter.
+   *
+   * 🔴 L'ÉCHEC GARDE TOUT : le bandeau le dit, l'éditeur reste ouvert sur son brouillon, et la ligne n'a pas bougé
+   * en base (le serveur tente Gmail AVANT d'effacer). « Réessayer » est donc une instruction tenable — le même
+   * bouton, au même endroit, refait exactement le même geste.
+   *
+   * ⚠️ SANS IDENTIFIANT, IL N'Y A RIEN À SUPPRIMER EN BASE : le brouillon n'y est jamais entré. On ferme, et on le
+   * dit avec les mêmes mots — l'écran n'a pas à expliquer une différence qui ne regarde que la base.
+   */
+  const supprimerDefinitivement = async (): Promise<void> => {
+    const id = aEnregistrer.current.id ?? brouillon.id;
+    setEchecGmail(null);
+    if (id === null) {
+      setSupprimeDef(false);
+      onGeste(suiteSuppressionBrouillon('sans_objet').phrase, { compteurs: DELTA_BROUILLON_ABANDONNE });
+      onFerme();
+      return;
+    }
+    let reponse: { ok?: boolean; gmail?: SortGmailBrouillon; message?: string; erreur?: string };
+    try {
+      const res = await fetch(`/api/admin/gestion/brouillons?id=${id}&definitif=1`, { method: 'DELETE' });
+      reponse = (await res.json().catch(() => ({}))) as typeof reponse;
+    } catch {
+      /* 🔴 LE RÉSEAU TOMBÉ SE TRAITE COMME UN ÉCHEC GMAIL : on ne sait pas ce qui a été fait, donc on ne promet
+         rien et on garde le brouillon sous les yeux. Le pire serait de dire « supprimé » sans l'avoir vu. */
+      setEchecGmail(suiteSuppressionBrouillon('echec').phrase);
+      return;
+    }
+    const suite = suiteSuppressionBrouillon(reponse.gmail ?? (reponse.ok === true ? 'sans_objet' : 'echec'));
+    if (reponse.ok !== true) {
+      setEchecGmail(suite.garderAffiche ? suite.phrase : (reponse.erreur ?? 'Suppression impossible.'));
+      return;
+    }
+    setSupprimeDef(false);
+    /* 🔴 LE COMPTEUR « BROUILLONS » PERD UN, ET LA CORBEILLE N'EN GAGNE PAS : le brouillon n'y va pas. C'est
+       exactement `DELTA_BROUILLON_ABANDONNE`, qui dit cela et rien de plus. */
+    onGeste(reponse.message ?? suite.phrase, { compteurs: DELTA_BROUILLON_ABANDONNE });
+    onFerme();
   };
 
   /**
@@ -1681,6 +1793,29 @@ export function Redaction({
         </p>
       )}
 
+      {/* ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — LA CONFIRMATION DE LA SUPPRESSION DÉFINITIVE ═════════
+          Mot pour mot la demande d'Arno : « Supprimer définitivement ce brouillon ? » avec Annuler et Supprimer.
+          🔴 « ANNULER » EST EN PREMIER DANS L'ORDRE DE TABULATION, comme dans la confirmation voisine : le geste
+          sans retour n'est jamais celui qu'on atteint par réflexe. */}
+      {supprimeDef && (
+        <p className="red-supprime" role="alert">
+          {MOTS_SUPPRIMER_BROUILLON.question}{' '}
+          <button type="button" className="gst-lien-bouton" onClick={() => setSupprimeDef(false)}>
+            {MOTS_SUPPRIMER_BROUILLON.annuler}
+          </button>
+          {' · '}
+          <button type="button" className="gst-lien-bouton" onClick={() => void supprimerDefinitivement()}>
+            {MOTS_SUPPRIMER_BROUILLON.confirmer}
+          </button>
+        </p>
+      )}
+
+      {/* 🔴 L'ÉCHEC RESTE SOUS LES YEUX, AVEC LE BROUILLON. Arno : « afficher “Brouillon non supprimé dans Gmail,
+          réessayer” et garder le brouillon affiché ». `role="alert"` : rien n'a été fait, il faut le savoir. */}
+      {echecGmail !== null && (
+        <p className="red-supprime red-echec-gmail" role="alert">{echecGmail}</p>
+      )}
+
       <div className="gst-actions red-bas">
         {/* 🔴 LE SEUL CHEMIN D'ENVOI : ce clic, et lui seul. Il n'envoie même pas tout de suite — il ouvre la fenêtre
             d'annulation. Aucun `type="submit"`, aucun formulaire : « Entrée » ne peut pas déclencher cela.
@@ -1729,6 +1864,20 @@ export function Redaction({
             la contourner. `fermer` ne touche qu'aux brouillons restés vides. */}
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>
           Garder en brouillon
+        </button>
+
+        {/* ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — « SUPPRIMER LE BROUILLON », À CÔTÉ DES AUTRES ══════
+            Demande d'Arno : « à côté des boutons existants (sans en retirer aucun) ». AUCUN n'a été retiré ni
+            déplacé : « Envoyer », les outils (dont la corbeille), « Garder en brouillon » et l'indicateur
+            d'enregistrement sont exactement où ils étaient.
+
+            🔴 IL PORTE SON MOT, PAS UNE ICÔNE. La corbeille de la rangée d'outils, elle, est un dessin — et c'est
+            cohérent : elle fait un geste réversible. Celui-ci est sans retour, il s'annonce donc en toutes lettres.
+
+            🔴 ET IL N'OUVRE QUE SA PROPRE CONFIRMATION. Cliquer ici ne supprime rien : cela POSE LA QUESTION. */}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn red-supprimer-def"
+          aria-expanded={supprimeDef} onClick={() => { setEchecGmail(null); setSupprimeDef(true); }}>
+          {MOTS_SUPPRIMER_BROUILLON.bouton}
         </button>
 
         {/* ══ 🔴 L'INDICATEUR D'ENREGISTREMENT — discret, en bas, comme dans Gmail ═══════════════════════════════
@@ -1790,6 +1939,12 @@ const CSS_REDACTION = `
   border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-field)}
 .red-supprime{margin:6px 0;padding:8px 10px;font-size:.85rem;color:var(--color-svv-ink);
   background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);border-radius:0 .4rem .4rem 0}
+/* 🔴 LOT BROUILLON-ACCES-SUPPRESSION — l'echec de suppression PESE PLUS QU'UNE QUESTION : le mot est en gras.
+   Aucune couleur ecrite en dur : c'est le rouge de la charte, qui a sa variante en theme Sombre. */
+.red-echec-gmail{font-weight:700;color:var(--color-svv-red)}
+/* Le bouton de la suppression definitive : la MEME forme que « Garder en brouillon » (c'est son voisin), et son
+   mot en rouge. Il ne se distingue pas par sa taille — un bouton plus gros attire le clic qu'il faut eviter. */
+.red-supprimer-def{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 
 /* ══ LOT REPONSE-VISIBLE — L'ÉDITEUR S'ANNONCE ══════════════════════════════════════════════════════════════════
    scroll-margin-top : le petit espace au-dessus quand on l'amène en haut de la zone visible. Écrit ici plutôt que

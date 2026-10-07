@@ -100,7 +100,10 @@ describe('🔴🔴 le câblage : de la liste jusque sous le bon message', () => 
      * trois écrans, avec son `aria-label` et sa bulle. Le MOT reste : un crayon seul ne se lit ni en niveaux de
      * gris ni au lecteur d'écran — c'est la règle de ce fichier depuis le début, et elle n'a pas changé.
      */
-    expect(conv).toContain('<span className="cnv-brouillon" title={AIDE_BROUILLON_EN_ATTENTE}>');
+    /* ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-ACCES-SUPPRESSION : la mention est devenue cliquable (elle
+       ouvre le brouillon), donc sa bulle dit l'action. Le MOT et le PICTO, eux, sont exactement les mêmes — et
+       c'est ce que ce fichier garde. */
+    expect(conv).toContain('<span className="cnv-brouillon"');
     expect(conv).toContain('aria-label={AIDE_BROUILLON_EN_ATTENTE}>{PICTO_BROUILLON}');
     expect(conv).toContain('Brouillon');
     // ⚠️ Un MOT, pas seulement une couleur : il se lit en niveaux de gris et au lecteur d'écran.

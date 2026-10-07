@@ -97,7 +97,7 @@ import {
 } from '../../../../lib/gestion/periodesConversation';
 /* 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — les mots du picto « brouillon en attente », écrits une seule fois. */
 import {
-  AIDE_BROUILLON_EN_ATTENTE, AIDE_CORBEILLE_MESSAGE, BANDEAU_MESSAGE_CORBEILLE,
+  AIDE_BROUILLON_EN_ATTENTE, AIDE_CORBEILLE_MESSAGE, AIDE_OUVRIR_BROUILLON, BANDEAU_MESSAGE_CORBEILLE,
   DELAI_BANDEAU_CORBEILLE_MS, MENTION_BROUILLON_VOIR_EN_BAS, PICTO_BROUILLON,
 } from '../../../../lib/gestion/brouillonEnAttente';
 /**
@@ -226,7 +226,7 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon, onClassementChange, onRetourHistoriqueBien }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon, onClassementChange, onBrouillonsChange, onRetourHistoriqueBien }: {
   filId: number;
   /**
    * 🔴 LOT LIGNE-NON-ENVOYE — rouvre le brouillon d'un mail de cet échange qui n'est pas parti. Absent ⇒ la
@@ -325,6 +325,15 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * conversation est exactement celle d'avant ce lot. Ces écrans remontent leur liste au retour, qui se relit.
    */
   onClassementChange?: () => void;
+  /**
+   * 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — « sans rechargement manuel » (Arno). Les brouillons VIVANTS de
+   * cet échange viennent de changer : un brouillon a été supprimé, abandonné ou enregistré. La conversation met à
+   * jour ce qu'elle porte elle-même (`relireBrouillons`) ; ce rappel est pour ce qu'elle ne porte PAS — le picto
+   * ✎ de la LIGNE de la liste des mails, et les compteurs de la colonne de gauche.
+   *
+   * ⚠️ FACULTATIF : un montage qui n'a pas de liste derrière lui ne passe rien, et rien ne change pour lui.
+   */
+  onBrouillonsChange?: () => void;
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — « ← RETOUR À L'HISTORIQUE DU BIEN » ═══════════════════════════════
    *
@@ -1048,6 +1057,23 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const [calerLaReponse, setCalerLaReponse] = useState(true);
   /**
+   * ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 1 — OÙ L'ÉDITEUR SE POSE, ET QUAND ON LE RAPPELLE ═════════════
+   *
+   * `calageReponse` : `'start'` partout (le comportement d'avant ce lot), `'center'` pour le SEUL cas qu'Arno
+   * nomme — « la page défile pour le centrer à l'écran » quand on ouvre le brouillon depuis sa pastille.
+   *
+   * `appelReponse` : un compteur. On l'incrémente quand l'éditeur est DÉJÀ ouvert sur ce message et qu'on reclique
+   * la pastille — il n'y a rien à monter, seulement à se montrer et à prendre le curseur. Sans lui, un deuxième
+   * clic sur la pastille ne faisait rien du tout (les gestes d'ouverture ne se rejouent pas).
+   *
+   * `brouillonADemander` : le message dont on veut le brouillon, quand un AUTRE éditeur est encore ouvert. On lui
+   * demande d'abord de se fermer (donc de s'enregistrer), et on n'ouvre le nouveau qu'une fois la place libre —
+   * sans quoi la fermeture du premier effacerait l'état qu'on vient de poser pour le second.
+   */
+  const [calageReponse, setCalageReponse] = useState<'start' | 'center'>('start');
+  const [appelReponse, setAppelReponse] = useState(0);
+  const [brouillonADemander, setBrouillonADemander] = useState<number | null>(null);
+  /**
    * ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — LE MESSAGE QUI VIENT DE PARTIR À LA CORBEILLE ════════════
    *
    * RÈGLE D'ARNO (03/10/2026) : « Un bandeau “Message mis à la corbeille — Annuler” reste quelques secondes. Le
@@ -1078,6 +1104,76 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     return () => clearTimeout(t);
   }, [messageJete]);
 
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION — ROUVRIR LE BROUILLON D'UN MESSAGE. UNE SEULE ÉCRITURE ══════════════
+   *
+   * Ce geste existait, mais il n'existait QU'À L'INTÉRIEUR de `basculer` : seul le dépliage d'un mail replié
+   * rouvrait son brouillon. C'est exactement la cause du clic mort de la pastille — arrivé par `?message=…`, le
+   * mail est déplié d'office (`messagesDeplies`), donc sans passer par là, donc sans éditeur sous lui.
+   *
+   * 🔴 ON REPREND LE BROUILLON EXISTANT (`reprendreBrouillon`), jamais un neuf : son identifiant voyage avec lui,
+   * donc l'enregistrement suivant écrit la MÊME ligne. C'est ce qui empêche un doublon à chaque réouverture.
+   *
+   * ⚠️ `amener` DIT L'INTENTION, et c'est la seule différence entre les deux appelants. Déplier un mail pour le
+   * LIRE ne tire pas la page vers l'éditeur (règle du lot VISUALISER-UNIFIE) ; cliquer la pastille, si — et au
+   * CENTRE, comme Arno le demande.
+   *
+   * Rend `false` quand il n'y avait rien à rouvrir : pas de brouillon vivant sur ce message, ou pas de contexte
+   * de rédaction. L'appelant en tire ce qu'il veut ; personne n'invente un éditeur vide.
+   */
+  function reprendreLeBrouillonDe(messageId: number, { amener }: { amener: boolean }): boolean {
+    if (redaction === null) return false;
+    const sien = brouillonsDuFil.find((b) => b.repondAMessageId === messageId);
+    if (sien === undefined) return false;
+    setBrouillon(reprendreBrouillon(sien));
+    setBrouillonSous(messageId);
+    setCalerLaReponse(amener);
+    setCalageReponse(amener ? 'center' : 'start');
+    return true;
+  }
+
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 1 — « LE BROUILLON S'OUVRE, DÉPLIÉ, SOUS LE MAIL » ════════════
+   *
+   * RÈGLE D'ARNO (07/10/2026) : « Au clic, le brouillon s'ouvre, déplié, sous le mail concerné, dans l'éditeur de
+   * réponse habituel avec son contenu déjà enregistré. La page défile pour le centrer à l'écran, et le curseur est
+   * placé dans le texte. » C'est ce que fait cette fonction, et c'est elle que la pastille du haut ET la mention
+   * « ✎ Brouillon » appellent — un seul geste, deux endroits pour le demander.
+   *
+   * 🔴 TROIS SITUATIONS, ET CHACUNE A SA RÉPONSE :
+   *   · l'éditeur est DÉJÀ sous ce message → rien à monter : on le rappelle (`appelReponse`), il se centre et
+   *     prend le curseur. Un deuxième clic doit faire quelque chose, sinon on croit l'écran cassé.
+   *   · un AUTRE éditeur est ouvert → on lui demande de se fermer (il s'enregistre en partant), et on garde la
+   *     demande sous le coude. On ne vole jamais la place de ce qui est en train d'être écrit.
+   *   · aucun éditeur → on ouvre, centré, curseur dans le texte.
+   *
+   * 🔴 ET LE MAIL EST DÉPLIÉ DANS TOUS LES CAS : « déplié, sous le mail concerné » (Arno). L'éditeur est rendu
+   * sous un `hidden` quand le mail est replié — l'ouvrir sans déplier aurait mis le brouillon hors de vue.
+   */
+  function demanderLeBrouillonDe(messageId: number): void {
+    setDeplies((s) => (s.has(messageId) ? s : new Set(s).add(messageId)));
+    if (brouillon !== null && brouillonSous === messageId) { setAppelReponse((n) => n + 1); return; }
+    if (brouillon !== null) { setFermetureReponse((n) => n + 1); setBrouillonADemander(messageId); return; }
+    reprendreLeBrouillonDe(messageId, { amener: true });
+  }
+
+  /**
+   * 🔴 LA PLACE EST LIBRE : on ouvre le brouillon qu'on avait mis sous le coude. L'ancien éditeur s'est fermé (et
+   * enregistré) de lui-même ; `brouillon` est revenu à `null`, et c'est ce signal-là qu'on attendait.
+   *
+   * ⚠️ ON OUBLIE LA DEMANDE DANS TOUS LES CAS, même si le brouillon a disparu entre-temps (envoyé depuis un autre
+   * onglet, jeté) : une demande qui resterait en attente rouvrirait un éditeur au prochain geste sans rapport.
+   */
+  useEffect(() => {
+    if (brouillonADemander === null || brouillon !== null) return;
+    const messageId = brouillonADemander;
+    setBrouillonADemander(null);
+    reprendreLeBrouillonDe(messageId, { amener: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : SEULE la libération de la place doit
+    //   déclencher l'ouverture. `reprendreLeBrouillonDe` est recréé à chaque rendu ; le mettre en dépendance
+    //   relancerait cet effet à chaque frappe.
+  }, [brouillonADemander, brouillon]);
+
   async function basculer(m: MessageDeFil) {
     const ouvert = deplies.has(m.messageId);
     /* 🔴 ON REPLIE LE MAIL QUI PORTE L'ÉDITEUR : on demande sa fermeture, il enregistre, et il s'en va. */
@@ -1095,14 +1191,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
      * ⚠️ ET SEULEMENT SI AUCUN ÉDITEUR N'EST DÉJÀ OUVERT : on ne remplace jamais ce qu'on est en train d'écrire.
      */
     if (!ouvert && brouillon === null && redaction !== null) {
-      const sien = brouillonsDuFil.find((b) => b.repondAMessageId === m.messageId);
-      if (sien !== undefined) {
-        setBrouillon(reprendreBrouillon(sien));
-        setBrouillonSous(m.messageId);
-        /* 🔴🔴 CETTE OUVERTURE-CI NE DEMANDAIT PAS L'ÉDITEUR : on le rouvre parce que le brouillon est vivant,
-           pas pour y emmener. Voir `calerAVue` dans `Redaction`. */
-        setCalerLaReponse(false);
-      }
+      /* 🔴🔴 CETTE OUVERTURE-CI NE DEMANDAIT PAS L'ÉDITEUR : on le rouvre parce que le brouillon est vivant,
+         pas pour y emmener. Voir `calerAVue` dans `Redaction`. */
+      reprendreLeBrouillonDe(m.messageId, { amener: false });
     }
     setDeplies((s) => { const n = new Set(s); if (ouvert) n.delete(m.messageId); else n.add(m.messageId); return n; });
     // On ne va chercher un corps qu'UNE fois, et seulement s'il en manque un : replier puis redéplier ne recharge rien.
@@ -1978,6 +2069,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             /* 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — la mention du HAUT, elle, reste même quand l'éditeur est
                ouvert : c'est elle qui permet de le retrouver quand il est plus bas que l'écran. */
             brouillonEnAttente={brouillonsDuFil.some((x) => x.repondAMessageId === m.messageId)}
+            /* 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 1 — LA PASTILLE ET LA MENTION OUVRENT LE BROUILLON.
+               Avant ce lot, la pastille ne faisait QUE défiler vers le pied du message — pied VIDE tant que
+               l'éditeur n'a pas été monté. Voir l'encadré de `demanderLeBrouillonDe` pour la cause complète. */
+            onOuvrirBrouillon={() => demanderLeBrouillonDe(m.messageId)}
             /**
              * 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — L'ÉDITEUR EST CACHÉ QUAND LE MAIL EST REPLIÉ, jamais rendu
              * au milieu des lignes. `hidden` et non un démontage : voir l'encadré de `basculer`.
@@ -1989,10 +2084,19 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                   /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — l'éditeur rouvert par l'OUVERTURE du mail
                      ne tire pas la page a lui : on voulait lire le mail. Voir `calerLaReponse`. */
                   calerAVue={calerLaReponse}
+                  /* 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION — le brouillon ouvert depuis sa pastille se CENTRE, et
+                     un deuxième clic sur la pastille le rappelle (`appel`). Voir `demanderLeBrouillonDe`. */
+                  calage={calageReponse}
+                  appel={brouillonSous === m.messageId ? appelReponse : 0}
                   onChange={setBrouillon}
                   onFerme={() => {
                     setBrouillon(null); setBrouillonSous(null); setCalerLaReponse(true);
+                    setCalageReponse('start');
                     void relireBrouillons();
+                    /* 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION — « sans rechargement manuel » (Arno). `relireBrouillons`
+                       met à jour la pastille, la mention « ✎ Brouillon » et le picto de CETTE conversation ; la
+                       LIGNE de la liste des mails, elle, vit dans l'écran parent — c'est lui qu'on prévient. */
+                    onBrouillonsChange?.();
                   }}
                   onEnvoye={() => {
                     setBrouillon(null); setBrouillonSous(null); void recharger(); void relireBrouillons();
@@ -2566,7 +2670,7 @@ export function CorpsHtmlMail({ html, onVisualiser }: {
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, cssMailCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
-  brouillonEnAttente = false,
+  brouillonEnAttente = false, onOuvrirBrouillon,
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
   mailsDuFil = [],
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
@@ -2637,6 +2741,17 @@ export function MessageConversation({
    * bas que l'écran. Les deux viennent de la même source (les brouillons vivants de l'échange).
    */
   brouillonEnAttente?: boolean;
+  /**
+   * 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 1 — ON DEMANDE LE BROUILLON DE CE MAIL.
+   *
+   * Appelé par la pastille du haut ET par la mention « ✎ Brouillon » de la ligne : Arno veut que les deux fassent
+   * la même chose. C'est le PARENT qui l'exécute — lui seul tient l'éditeur, les brouillons de l'échange et les
+   * mails dépliés ; un composant de message ne peut pas monter une zone de réponse qu'il ne possède pas.
+   *
+   * ⚠️ ABSENT ⇒ LA PASTILLE RETOMBE SUR SON SEUL DÉFILEMENT (le comportement d'avant ce lot) et la mention reste
+   * ce qu'elle était : un mot. Aucun écran ne perd quelque chose faute d'avoir branché ce rappel.
+   */
+  onOuvrirBrouillon?: () => void;
   /**
    * LOT 5-STATUT — OÙ EN EST CE MESSAGE, juste à gauche de sa date. Absent = aucun cartouche, et le message est
    * exactement celui d'avant ce lot (c'est le cas des écrans qui n'en ont pas besoin).
@@ -2984,8 +3099,27 @@ export function MessageConversation({
           <path d="M9 5l8 7-8 7z" fill="currentColor" />
         </svg>
       </button>
-      {/* La LIGNE REPLIÉE est le bouton : toute la largeur, au moins 44 px, et l'état annoncé par `aria-expanded`. */}
-      <button type="button" className="cnv-ligne" aria-expanded={ouvert} onClick={onBasculer}>
+      {/* La LIGNE REPLIÉE est le bouton : toute la largeur, au moins 44 px, et l'état annoncé par `aria-expanded`.
+
+          ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 1 — ET LA MENTION « ✎ Brouillon » OUVRE LE BROUILLON ════
+          Arno : « la petite mention “✎ Brouillon” sous l'objet du message fait la même chose au clic. »
+
+          🔴 POURQUOI LE CLIC SE TRIE ICI, ET NON PAR UN SECOND BOUTON. La mention vit DANS cette ligne, qui EST
+          un bouton : un bouton dans un bouton est du HTML invalide et injouable au clavier (c'est la contrainte
+          qui gouverne déjà le triangle, le cartouche de statut, l'étoile et le menu « ⋮ » de cette rangée). La
+          sortir en voisine l'aurait DÉPLACÉE hors de la colonne de l'objet — Arno la veut « sous l'objet », et
+          aucun élément existant ne doit bouger sans son accord. On regarde donc d'où part le clic.
+
+          🔴 LE CHEMIN CLAVIER EXISTE, ET IL EST COMPLET — ceci est un raccourci à la souris, pas la seule porte :
+          sur un mail REPLIÉ, « Entrée » sur la ligne le déplie ET rouvre son brouillon (`basculer`) ; sur un mail
+          DÉPLIÉ, la pastille « Brouillon de réponse en attente — voir en bas » est un vrai bouton, atteint par
+          tabulation, qui fait exactement ce geste. Rien ne dépend du survol. */}
+      <button type="button" className="cnv-ligne" aria-expanded={ouvert}
+        onClick={(e) => {
+          const surLaMention = (e.target as Element | null)?.closest?.('.cnv-brouillon') ?? null;
+          if (surLaMention !== null && onOuvrirBrouillon !== undefined) { onOuvrirBrouillon(); return; }
+          onBasculer();
+        }}>
         {/* Le SENS est dit par un MOT (« reçu de » / « envoyé à ») : il reste lisible en niveaux de gris. */}
         <span className="cnv-qui">{libelleSens(message.sens)} {qui}</span>
         {/* LOT FIL-LECTURE — L'OBJET DE CE MESSAGE, à côté de l'expéditeur. Dans un échange où l'objet a changé en
@@ -3003,8 +3137,11 @@ export function MessageConversation({
         {/* 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — LE PICTO « BROUILLON EN ATTENTE », sur la ligne du mail
             concerné. Arno : « on voit quel mail a un brouillon ». Le crayon porte son nom (`aria-label`) et sa
             bulle (`title`) ; le MOT reste à côté, parce qu'un picto seul ne se lit pas en niveaux de gris. */}
+        {/* 🔴 LA BULLE DIT CE QUE LE CLIC FAIT dès que le geste est branché : « Brouillon de réponse en attente »
+            décrit un état, « Ouvrir le brouillon de réponse » décrit une action — et c'en est une, maintenant. */}
         {avecBrouillon && (
-          <span className="cnv-brouillon" title={AIDE_BROUILLON_EN_ATTENTE}>
+          <span className="cnv-brouillon"
+            title={onOuvrirBrouillon === undefined ? AIDE_BROUILLON_EN_ATTENTE : AIDE_OUVRIR_BROUILLON}>
             <span className="cnv-brouillon-picto" role="img" aria-label={AIDE_BROUILLON_EN_ATTENTE}>{PICTO_BROUILLON}</span>
             Brouillon
           </span>
@@ -3184,9 +3321,23 @@ export function MessageConversation({
 
               ⚠️ ELLE N'APPARAÎT QUE SI LE MAIL A VRAIMENT UN BROUILLON : c'est la même source que le picto de
               la ligne — les brouillons VIVANTS de l'échange, lus en base, jamais un état d'écran. */}
+          {/* ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 1 — ELLE **OUVRE** LE BROUILLON, ET PAS SEULEMENT ═══
+              ═══ LA CAUSE DU CLIC MORT, TROUVÉE LE 07/10/2026 (exemple d'Arno : fil 36558, message 57635) ═══════
+              La pastille appelait `pied.current.scrollIntoView(…)`, et `pied` est l'enveloppe de `piedMessage` —
+              VIDE tant que l'éditeur n'a pas été monté. Or l'éditeur ne se rouvrait que par `basculer`, c'est-à-dire
+              en DÉPLIANT un mail replié. Arrivé par une adresse qui désigne le mail, celui-ci est déplié d'office
+              (`messagesDeplies`) : aucun dépliage n'a lieu, aucun brouillon n'est repris, et le défilement visait
+              un bloc de zéro pixel placé juste sous le message. Rien ne bougeait, rien ne s'ouvrait.
+
+              🔴 ELLE TIENT DONC SA PROMESSE EN DEUX TEMPS : on demande le brouillon (le parent le monte, centré,
+              curseur dans le texte — voir `demanderLeBrouillonDe`), et le défilement vers le pied ne reste que
+              pour les écrans qui n'ont pas branché ce rappel. */}
           {brouillonEnAttente && (
-            <button type="button" className="cnv-brouillon-haut"
-              onClick={() => pied.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })}>
+            <button type="button" className="cnv-brouillon-haut" title={AIDE_OUVRIR_BROUILLON}
+              onClick={() => {
+                if (onOuvrirBrouillon !== undefined) { onOuvrirBrouillon(); return; }
+                pied.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+              }}>
               <span className="cnv-brouillon-picto" aria-hidden="true">{PICTO_BROUILLON}</span>
               {MENTION_BROUILLON_VOIR_EN_BAS}
             </button>

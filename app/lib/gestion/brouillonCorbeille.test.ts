@@ -226,17 +226,50 @@ describe('🔴 l’écran dit ce qui va VRAIMENT se passer', () => {
 });
 
 /**
- * 🔒 GARDE STATIQUE — CE QUE LE MODULE NE FAIT PAS.
+ * ══ 🔒 GARDE STATIQUE — CE QUE LE MODULE FAIT, ET PAR QUELLE SEULE PORTE ════════════════════════════════════════
  *
- * Écrit sur le TEXTE plutôt que sur un cas d'essai : un `DELETE` ajouté dans une branche qu'aucun test ne
- * traverse passerait autrement inaperçu. Et c'est une promesse faite à Arno, pas une propriété d'un scénario.
+ * ═══ 🔴🔴 REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-ACCES-SUPPRESSION ═══════════════════════════════════════════
+ *
+ * CE TEST DISAIT « AUCUN `DELETE` SUR LES BROUILLONS », et c'était vrai : jeter un brouillon le DATAIT
+ * (`abandonne_le`, `corbeille_le`), et il restait en base, réintégrable. La garde protégeait cette promesse.
+ *
+ * 🔴 ARNO L'A LEVÉE, EXPRESSÉMENT ET EN CONNAISSANCE DE CAUSE (07/10/2026) : « un bouton “Supprimer le
+ * brouillon” […] confirmation “Supprimer définitivement ce brouillon ?” […] le brouillon est supprimé en base ».
+ * Le mot « définitivement » est de lui. Une corbeille reste offerte à côté, par son propre bouton : c'est la
+ * personne qui choisit entre les deux gestes, et non plus le dépôt qui en interdit un.
+ *
+ * 🔴 CE QUE LA GARDE DEVIENT, ET POURQUOI ELLE RESTE UTILE. Elle ne demande plus l'absence du geste, elle demande
+ * son UNICITÉ : un seul `DELETE`, dans la seule fonction qui l'annonce par son nom. Un `DELETE` glissé ailleurs —
+ * dans `abandonnerBrouillon`, dans la lecture d'une liste, dans une branche d'erreur — ferait disparaître du
+ * travail humain sans que personne l'ait demandé, et c'est CELA que la garde empêche désormais.
  */
 describe('🔒 garde statique', () => {
-  it('aucun DELETE sur les brouillons', async () => {
+  it('🔴 un seul DELETE, et seulement dans la suppression définitive', async () => {
     const { readFileSync } = await import('node:fs');
     const brut = readFileSync('app/lib/gestion/redactionRepo.ts', 'utf8');
-    // ⚠️ Les commentaires sont retirés : ce module RACONTE ce qu'il ne fait pas, et le mot y figure donc.
+    // ⚠️ Les commentaires sont retirés : ce module RACONTE ce qu'il fait et ne fait pas, et les mots y figurent.
     const code = brut.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
-    expect(code.toUpperCase()).not.toContain('DELETE FROM GESTION_BROUILLON');
+    const haut = code.toUpperCase();
+    expect((haut.match(/DELETE FROM GESTION_BROUILLON/g) ?? []), 'un seul, pas deux').toHaveLength(1);
+    /* 🔴 ET IL EST DANS LA FONCTION QUI LE DIT. On mesure la distance entre la déclaration et le `DELETE` : au-delà
+       du corps de cette fonction, c'est qu'il a été écrit ailleurs. */
+    const iFonction = code.indexOf('export async function supprimerBrouillonDefinitivement');
+    const iDelete = haut.indexOf('DELETE FROM GESTION_BROUILLON');
+    expect(iFonction, 'la fonction nommée existe').toBeGreaterThan(0);
+    expect(iDelete).toBeGreaterThan(iFonction);
+    /* ⚠️ ON REPART APRÈS SA PROPRE DÉCLARATION (`+ 1`), sinon c'est elle qu'on trouverait. */
+    expect(code.slice(iFonction + 1, iDelete), 'le DELETE est dans SON corps')
+      .not.toContain('export async function ');
+  });
+
+  /** 🔴 ET LE GESTE DE LA CORBEILLE, LUI, N'A PAS CHANGÉ D'UNE LIGNE : il DATE, il ne supprime pas. */
+  it('🔴 « mettre à la corbeille » ne supprime toujours rien', async () => {
+    const { readFileSync } = await import('node:fs');
+    const brut = readFileSync('app/lib/gestion/redactionRepo.ts', 'utf8');
+    const code = brut.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+    const debut = code.indexOf('export async function abandonnerBrouillon');
+    const corps = code.slice(debut, code.indexOf('\n}', debut));
+    expect(corps.toUpperCase()).not.toContain('DELETE');
+    expect(corps.replace(/\s+/g, ' ')).toContain('UPDATE gestion_brouillon SET abandonne_le = now()');
   });
 });

@@ -225,9 +225,25 @@ describe('🔴 ③ une DEMANDE d’éditeur l’amène toujours sous les yeux', 
     expect(red).toContain('autoFocus={calerAVue && (brouillon.voie === \'repondre\'');
     const conv = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
     expect(conv).toContain('calerAVue={calerLaReponse}');
-    /* 🔴 UN SEUL ENDROIT LE MET À « non » : la reprise par OUVERTURE du mail. */
-    expect(conv.match(/setCalerLaReponse\(false\)/g) ?? []).toHaveLength(1);
-    /* 🔴 ET QUATRE LE REMETTENT À « oui » : Répondre, le pied, le brouillon cliqué, la fermeture. */
+    /**
+     * ══ 🔴🔴 REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-ACCES-SUPPRESSION ════════════════════════════════════════
+     *
+     * CE QUI EST COMPTÉ A CHANGÉ DE FORME, PAS DE RÈGLE. Jusqu'ici la reprise du brouillon vivait à l'intérieur
+     * de `basculer`, et elle y écrivait `setCalerLaReponse(false)` en clair — ce test comptait cette ligne.
+     *
+     * 🔴 POURQUOI ELLE A DISPARU. C'est exactement la CAUSE du clic mort de la pastille : seul le dépliage d'un
+     * mail replié rouvrait son brouillon, donc un mail déplié d'office (`?fil=…&message=…`) n'avait aucun éditeur
+     * sous lui, et le défilement de la pastille visait un pied vide. La reprise est donc devenue une fonction —
+     * `reprendreLeBrouillonDe(messageId, { amener })` — que la pastille et la mention appellent aussi.
+     *
+     * 🔴 LA RÈGLE D'ARNO, ELLE, EST INTACTE, ET C'EST ELLE QU'ON MESURE : UN SEUL appelant ouvre l'éditeur SANS
+     * l'amener sous les yeux, et c'est l'ouverture d'un mail qu'on vient LIRE.
+     */
+    expect(conv).toContain('setCalerLaReponse(amener)');
+    expect(conv.match(/\{ amener: false \}/g) ?? []).toHaveLength(1);
+    /* 🔴 ET LES AUTRES L'AMÈNENT : les deux reprises demandées (pastille, mention) et les quatre demandes
+       directes — Répondre, le pied, le brouillon cliqué, la fermeture. */
+    expect(conv.match(/\{ amener: true \}/g) ?? []).toHaveLength(2);
     expect(conv.match(/setCalerLaReponse\(true\)/g) ?? []).toHaveLength(4);
   });
 });

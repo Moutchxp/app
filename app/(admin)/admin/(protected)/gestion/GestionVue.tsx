@@ -1346,6 +1346,8 @@ export function GestionVue({ intro }: {
            * classement d'un mail, et la payer à chaque geste ferait relire l'écran entier pour un chiffre.
            */
           onClassementChange={() => setVersionComptes((v) => v + 1)}
+          /* 🔴 LOT BROUILLON-ACCES-SUPPRESSION — le compteur « Brouillons » de la colonne suit la suppression. */
+          onBrouillonsChange={() => setVersionComptes((v) => v + 1)}
           redaction={redaction}
           enfantAClasser={fileAClasser} />
       ) : ecran === 'evenements' ? (

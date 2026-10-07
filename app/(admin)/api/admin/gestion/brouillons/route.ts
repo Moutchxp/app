@@ -5,8 +5,11 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
 import { decouperAdresses, type CibleBrouillon } from '../../../../../lib/gestion/redaction';
 import {
+  suiteSuppressionBrouillon, type SortGmailBrouillon,
+} from '../../../../../lib/gestion/brouillonEnAttente';
+import {
   abandonnerBrouillon, brouillonsALaCorbeille, compterBrouillons, enregistrerBrouillon, lireBrouillon,
-  lireBrouillonDuFil, listerBrouillons, restaurerBrouillon,
+  lireBrouillonDuFil, listerBrouillons, restaurerBrouillon, supprimerBrouillonDefinitivement,
   listerBrouillonsDuFil,
 } from '../../../../../lib/gestion/redactionRepo';
 import { redactionDisponible } from '../../../../../lib/gestion/schema';
@@ -26,6 +29,26 @@ import { redactionDisponible } from '../../../../../lib/gestion/schema';
  * `private, no-store`. Runtime Node.
  */
 export const runtime = 'nodejs';
+
+/**
+ * ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION — LE SORT DU BROUILLON DANS GMAIL, AUJOURD'HUI ════════════════════════
+ *
+ * `sans_objet`, et ce n'est pas un contournement : c'est l'état réel du système. Le chemin qui crée et met à jour
+ * un brouillon (`enregistrerBrouillon`) n'écrit que dans `gestion_brouillon`, table qui ne porte AUCUN
+ * identifiant Google — vérifié colonne par colonne le 07/10/2026. Rien n'a jamais été poussé chez eux : décision
+ * d'Arno du 29/09/2026, écrite en toutes lettres dans `abandonnerBrouillon`, prise en connaissance de cause (la
+ * synchronisation `drafts.create/update/delete` demande un lot pour elle seule).
+ *
+ * 🔴 UNE FONCTION, ET NON UNE CONSTANTE EN LIGNE : c'est l'unique endroit à rebrancher le jour de la
+ * synchronisation. L'écran, lui, sait déjà lire les trois réponses (`suiteSuppressionBrouillon`), et la route
+ * refuse déjà d'effacer en base quand le sort vaut `echec` — il n'y aura pas à réinventer le comportement.
+ *
+ * ⚠️ ET LE CÂBLAGE NE PEUT PAS SE FAIRE ICI : cette route n'importe aucun chemin d'envoi (ni `envoi.ts`, ni
+ * `envoiGmail.ts`, ni `google.ts`), invariant gardé par un test statique sur ses imports.
+ */
+function sortGmailDeLaSuppression(): SortGmailBrouillon {
+  return 'sans_objet';
+}
 
 /** Les migrations 239/240 ne sont pas passées : on le DIT, au lieu d'échouer sur une table absente. */
 function sansSchema(): Response {
@@ -259,8 +282,49 @@ export async function DELETE(request: Request): Promise<Response> {
   if (!await peutEnvoyerAuNomDeGestion(request)) return refusEnvoi();
   if (!await redactionDisponible()) return sansSchema();
 
-  const id = Number(new URL(request.url).searchParams.get('id'));
+  const parametres = new URL(request.url).searchParams;
+  const id = Number(parametres.get('id'));
   if (!Number.isInteger(id) || id <= 0) return Response.json({ erreur: 'Brouillon inconnu.' }, { status: 400 });
+
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — `?definitif=1` SUPPRIME POUR DE BON ═══════════════════════
+   *
+   * RÈGLE D'ARNO (07/10/2026) : « après confirmation, le brouillon est supprimé en base et dans Gmail (le même
+   * chemin que celui qui l'a créé/mis à jour) […]. Si la suppression dans Gmail échoue, afficher “Brouillon non
+   * supprimé dans Gmail, réessayer” et garder le brouillon affiché. »
+   *
+   * 🔴 DEUX GESTES SOUS UN MÊME VERBE, ET C'EST ASSUMÉ. `DELETE` sans paramètre reste EXACTEMENT ce qu'il était
+   * (la corbeille : la ligne est datée, elle se réintègre par `PATCH`) — aucun appel existant ne change de sens.
+   * `?definitif=1` est l'autre geste, nommé dans l'adresse : un lecteur de journal d'accès voit lequel a eu lieu.
+   *
+   * 🔴🔴 ET VOICI CE QU'IL SE PASSE CÔTÉ GMAIL : RIEN, parce qu'il n'y a RIEN. Le chemin qui crée et met à jour un
+   * brouillon est `enregistrerBrouillon`, et il n'écrit que dans `gestion_brouillon` — table qui ne porte aucun
+   * identifiant Google (vérifié colonne par colonne le 07/10/2026). Rien n'a jamais été poussé chez eux : c'est la
+   * décision d'Arno du 29/09/2026, écrite dans `abandonnerBrouillon`, prise en connaissance de cause. Le sort
+   * Gmail est donc `sans_objet`, et il est RENDU À L'ÉCRAN plutôt que passé sous silence.
+   *
+   * ⚠️ ET IL NE PEUT PAS ÊTRE CÂBLÉ ICI. Cette route n'importe AUCUN chemin d'envoi (ni `envoi.ts`, ni
+   * `envoiGmail.ts`, ni `google.ts`) — c'est un invariant du module, gardé par un test statique sur ses imports,
+   * et il vaut plus qu'une suppression qui n'a pas d'objet. Le jour de la synchronisation, le sort viendra d'un
+   * module à elle ; l'écran, lui, sait déjà lire les trois réponses (`suiteSuppressionBrouillon`).
+   */
+  if (parametres.get('definitif') === '1') {
+    try {
+      const gmail = sortGmailDeLaSuppression();
+      /* 🔴 GMAIL D'ABORD, LA BASE ENSUITE. Un échec chez eux laisse la ligne intacte : supprimer chez nous ce qui
+         reste chez eux ferait revenir le brouillon à la relève suivante, sans son contexte. */
+      const suite = suiteSuppressionBrouillon(gmail);
+      if (suite.garderAffiche) return Response.json({ erreur: suite.phrase, gmail }, { status: 502 });
+      const fait = await supprimerBrouillonDefinitivement(id);
+      return fait
+        ? Response.json({ ok: true, gmail, message: suite.phrase })
+        : Response.json({ erreur: 'Ce brouillon n’existe plus (ou il est déjà parti).' }, { status: 404 });
+    } catch (e) {
+      console.error('[gestion/brouillons] suppression définitive impossible', e);
+      return Response.json({ erreur: 'Suppression impossible : la base n’a pas répondu.' }, { status: 503 });
+    }
+  }
+
   try {
     // MET À LA CORBEILLE : la ligne est DATÉE, jamais supprimée — et elle se restaure par `PATCH`.
     await abandonnerBrouillon(id);

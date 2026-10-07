@@ -124,30 +124,39 @@ export function EditeurRiche({
   const [couleurOuverte, setCouleurOuverte] = useState(false);
   const [surlignageOuvert, setSurlignageOuvert] = useState(false);
 
+  /**
+   * 🔴 LE CURSEUR AU TOUT DÉBUT, pas à la fin. Repris du lot REPONSE-VISIBLE : une réponse naît remplie de sa
+   * signature et de sa citation ; `focus()` seul poserait le curseur APRÈS tout cela, c'est-à-dire là où
+   * personne n'écrit une réponse. On le ramène donc au premier caractère.
+   *
+   * 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION — ET C'EST MAINTENANT UNE FONCTION, offerte aussi par l'API. Arno demande
+   * que la pastille « Brouillon de réponse en attente » place le curseur dans le texte ; quand l'éditeur est DÉJÀ
+   * monté, `autoFocus` ne se rejoue pas (c'est un geste d'ouverture). Deux écritures du même placement auraient
+   * fini par diverger — celle de l'ouverture et celle du rappel. Il n'y en a qu'une.
+   */
+  const placerLeCurseurAuDebut = useCallback(() => {
+    const el = zone.current;
+    if (el === null) return;
+    el.focus();
+    const s = globalThis.getSelection?.();
+    if (s && typeof document.createRange === 'function') {
+      const r = document.createRange();
+      r.setStart(el, 0);
+      r.collapse(true);
+      s.removeAllRanges();
+      s.addRange(r);
+      selection.current = r.cloneRange();
+    }
+  }, []);
+
   // ── LE CONTENU INITIAL, POSÉ UNE SEULE FOIS ──────────────────────────────────────────────────────────────────
   const pose = useRef(false);
   useEffect(() => {
     if (pose.current || zone.current === null) return;
     pose.current = true;
     zone.current.innerHTML = assainirHtml(htmlInitial);
-    /**
-     * 🔴 LE CURSEUR AU TOUT DÉBUT, pas à la fin. Repris du lot REPONSE-VISIBLE : une réponse naît remplie de sa
-     * signature et de sa citation ; `focus()` seul poserait le curseur APRÈS tout cela, c'est-à-dire là où
-     * personne n'écrit une réponse. On le ramène donc au premier caractère.
-     */
-    if (autoFocus) {
-      zone.current.focus();
-      const s = globalThis.getSelection?.();
-      if (s && typeof document.createRange === 'function') {
-        const r = document.createRange();
-        r.setStart(zone.current, 0);
-        r.collapse(true);
-        s.removeAllRanges();
-        s.addRange(r);
-        selection.current = r.cloneRange();
-      }
-    }
-  }, [htmlInitial, autoFocus]);
+    if (autoFocus) placerLeCurseurAuDebut();
+  }, [htmlInitial, autoFocus, placerLeCurseurAuDebut]);
 
   /**
    * ══ 🔴🔴 LOT SOMBRE-ET-RECHERCHE — CE QUI REMONTE N'A JAMAIS VU LE THÈME SOMBRE ═════════════════════════
@@ -240,6 +249,9 @@ export function EditeurRiche({
         agir('insertHTML', assainirHtml(`<a href="${url.replace(/"/g, '&quot;')}">${t.replace(/</g, '&lt;')}</a>`));
       },
       focus: () => zone.current?.focus(),
+      /* 🔴 LOT BROUILLON-ACCES-SUPPRESSION — « le curseur est placé dans le texte » (Arno), au DÉBUT du texte, par
+         la même écriture que l'ouverture. Voir `placerLeCurseurAuDebut`. */
+      curseurAuDebut: placerLeCurseurAuDebut,
       /**
        * 🔴 LE TEXTE SÉLECTIONNÉ, pour que « Insérer un lien » n'oblige pas à le retaper. On sélectionne « le
        * contrat », on clique, et le champ « Texte affiché » est déjà rempli : c'est le geste de Gmail, et sans lui
@@ -247,7 +259,7 @@ export function EditeurRiche({
        */
       texteSelectionne: () => (selection.current?.toString() ?? '').trim(),
     });
-  }, [agir, onPret]);
+  }, [agir, onPret, placerLeCurseurAuDebut]);
 
   /**
    * 🔴 LE COLLAGE EST INTERCEPTÉ, TOUJOURS. C'est par là qu'arrive le HTML d'un autre mail ou d'un site — avec ses
@@ -404,6 +416,8 @@ export interface ApiEditeur {
   insererHtml: (html: string) => void;
   insererLien: (texte: string, url: string) => void;
   focus: () => void;
+  /** Place le curseur AU DÉBUT du message, et prend le focus. Le même geste que l'ouverture d'une réponse. */
+  curseurAuDebut: () => void;
   /** Le texte actuellement sélectionné, pour pré-remplir le libellé d'un lien. Vide s'il n'y a pas de sélection. */
   texteSelectionne: () => string;
 }

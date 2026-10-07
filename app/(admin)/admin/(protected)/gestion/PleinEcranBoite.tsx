@@ -101,7 +101,7 @@ export function PleinEcranBoite({
   versionDonnees = 0, onListeRelue,
   onRattacher, aRattacher = null, aRattacherSansCandidat = null, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
-  onClassementChange, onRetourHistoriqueBien,
+  onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -203,6 +203,8 @@ export function PleinEcranBoite({
    * prochain chargement de l'écran.
    */
   onClassementChange?: () => void;
+  /** 🔴 LOT BROUILLON-ACCES-SUPPRESSION — les brouillons vivants ont changé : le compteur de la colonne le suit. */
+  onBrouillonsChange?: () => void;
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — le retour vers « l'historique du bien », passé tel quel à la
    * conversation. `undefined` quand on ne vient pas de là : le bouton n'est alors pas rendu.
@@ -1214,7 +1216,12 @@ export function PleinEcranBoite({
                * l'ÉCRAN PARENT redemande les compteurs de la colonne — le nombre d'« À classer » ne lui vient
                * pas de la liste quand ce n'est pas cette liste qui est ouverte.
                */
-              onClassementChange={() => { setVersionStatuts((v) => v + 1); onClassementChange?.(); }} />
+              onClassementChange={() => { setVersionStatuts((v) => v + 1); onClassementChange?.(); }}
+              /* 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — « sans rechargement manuel » (Arno). Un brouillon
+                 supprimé doit faire disparaître le picto ✎ de SA LIGNE, qui est ici et non dans la conversation.
+                 La liste n'est pas démontée pendant qu'on lit un mail, elle est MASQUÉE : elle relit donc sa page
+                 SUR PLACE (`versionStatuts`), exactement comme après un classement. */
+              onBrouillonsChange={() => { setVersionStatuts((v) => v + 1); onBrouillonsChange?.(); }} />
           </section>
         )}
 

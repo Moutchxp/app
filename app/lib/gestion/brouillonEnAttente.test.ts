@@ -63,9 +63,22 @@ describe('🔴🔴 ① replier le mail ferme sa zone de réponse', () => {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 describe('🔴🔴 ② rouvrir le mail rouvre la zone, sur le même brouillon', () => {
+  /**
+   * ══ 🔴 REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-ACCES-SUPPRESSION ══════════════════════════════════════════════
+   *
+   * LA RÈGLE N'A PAS BOUGÉ : on REPREND le brouillon vivant du mail, on n'en ouvre pas un neuf. Ce qui a bougé,
+   * c'est l'endroit : la reprise vivait À L'INTÉRIEUR du dépliage (`basculer`), et c'était la CAUSE du clic mort
+   * de la pastille — un mail déplié d'office n'avait jamais d'éditeur sous lui. Elle est devenue une fonction,
+   * `reprendreLeBrouillonDe(messageId, { amener })`, que la pastille et la mention appellent aussi.
+   *
+   * 🔴 ON MESURE DONC LA MÊME CHOSE SUR LA FONCTION : le brouillon est cherché parmi les VIVANTS de l'échange, et
+   * repris avec son identifiant. Le dépliage reste l'un de ses appelants, et il le reste nommément.
+   */
   it('🔴🔴 le brouillon vivant de CE mail est repris, pas recréé', () => {
-    expect(CONV).toContain('const sien = brouillonsDuFil.find((b) => b.repondAMessageId === m.messageId);');
+    expect(CONV).toContain('const sien = brouillonsDuFil.find((b) => b.repondAMessageId === messageId);');
     expect(CONV).toContain('setBrouillon(reprendreBrouillon(sien))');
+    /* 🔴 ET LE DÉPLIAGE PASSE TOUJOURS PAR LÀ, sans amener la page à l'éditeur (lot VISUALISER-UNIFIE). */
+    expect(CONV).toContain('reprendreLeBrouillonDe(m.messageId, { amener: false })');
   });
 
   /**
@@ -105,9 +118,17 @@ describe('🔴🔴 ③ le picto « brouillon en attente »', () => {
     expect(BOITE).toContain('aria-label={AIDE_BROUILLON_EN_ATTENTE}>{PICTO_BROUILLON}');
   });
 
-  /** 🔴 ② LA LIGNE DU MAIL DANS LA CONVERSATION. */
+  /**
+   * 🔴 ② LA LIGNE DU MAIL DANS LA CONVERSATION.
+   *
+   * ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-ACCES-SUPPRESSION. La mention est devenue CLIQUABLE (elle ouvre le
+   * brouillon, demande d'Arno), et sa bulle dit donc l'ACTION quand le geste est branché : « Brouillon de réponse
+   * en attente » décrit un état, « Ouvrir le brouillon de réponse » décrit ce que le clic fait. Les deux mots
+   * viennent toujours de ce module — c'est cela que ce fichier garde, et non la forme exacte du `title`.
+   */
   it('🔴 sur la ligne du mail concerné, dans la conversation', () => {
-    expect(CONV).toContain('<span className="cnv-brouillon" title={AIDE_BROUILLON_EN_ATTENTE}>');
+    expect(CONV).toContain('<span className="cnv-brouillon"');
+    expect(CONV).toContain('AIDE_BROUILLON_EN_ATTENTE : AIDE_OUVRIR_BROUILLON');
   });
 
   /** 🔴 ③ EN HAUT DU MAIL OUVERT, et elle EMMÈNE : « voir en bas » est une promesse que l'écran tient. */
