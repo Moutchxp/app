@@ -1696,3 +1696,83 @@ describe('㉖ « mis à jour par Monga » : rouge, et en tête (lot EVENEMENT-MI
     expect(corps.slice(corps.indexOf('return `'))).not.toContain('/*');
   });
 });
+
+describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALISTE, point 5)', () => {
+  const REPO_H = readFileSync('app/lib/gestion/historiqueRepo.ts', 'utf8');
+
+  /**
+   * ══ 🔴🔴 LA CAUSE, MESURÉE AVANT D'ÉCRIRE UNE LIGNE ════════════════════════════════════════════════════════
+   *
+   * L'ancienne règle ne connaissait qu'UNE voie : le FIL du mail porte une affectation active vers un événement
+   * non traité. Elle ne regardait NI le bien, NI la date. Les trois mails qu'Arno signale sont rattachés au bien
+   * 315 et tombent dans la fenêtre de l'événement 1 (ouvert le 23/09, toujours ouvert), mais leur fil n'a AUCUNE
+   * affectation — d'où l'étiquette absente.
+   *
+   * 🔴 L'ANCIENNE VOIE EST CONSERVÉE : les deux s'unissent. Un mail affecté garde son étiquette même hors
+   * fenêtre (il a été classé là exprès) ; un mail du bien la gagne dans la fenêtre. Remplacer l'une par l'autre
+   * aurait RETIRÉ l'étiquette à des mails qui l'avaient — la simulation a mesuré 4 gagnés, 0 perdu.
+   */
+  it('🔴🔴 les deux voies s’unissent, l’ancienne n’est pas remplacée', () => {
+    expect(REPO_H).toContain('export function sqlEvenementsDesFils(): string {');
+    expect(REPO_H).toContain('export function sqlEvenementsDesMessages(avecMessageId: boolean): string {');
+    expect(REPO_H).toContain('evenements: unirEvenements(');
+  });
+
+  /** 🔴🔴 LA FENÊTRE : de l'ouverture à la clôture, bornes comprises — la règle d'Arno, mot pour mot. */
+  it('🔴🔴 la fenêtre va de l’ouverture à la clôture', () => {
+    const i = REPO_H.indexOf('export function sqlEvenementsDesMessages');
+    const bloc = REPO_H.slice(i, REPO_H.indexOf('\n}', i));
+    expect(bloc).toContain('AND m.recu_le >= ev.ouvert_le');
+    expect(bloc).toContain('AND (ev.traite_le IS NULL OR m.recu_le <= ev.traite_le)');
+    /* 🔴 ET LE BIEN DU MAIL EST CELUI DE L'ÉVÉNEMENT, par les DEUX axes — l'événement 1 n'a aucune partie
+       déclarée, son bien ne vient que de ses mails : ne lire qu'un axe n'aurait rien réparé. */
+    expect(bloc).toContain('FROM gestion_evenement_partie p');
+    expect(bloc).toContain('FROM gestion_affectation aa');
+  });
+
+  /**
+   * ⚠️ CLÉ = LE MESSAGE, ET NON LE FIL, pour la nouvelle voie : c'est une date de MAIL qui décide, et deux mails
+   * d'un même fil peuvent tomber de part et d'autre d'une ouverture. L'ancienne voie, elle, reste par fil.
+   */
+  it('⚠️ la nouvelle voie raisonne par MAIL, l’ancienne par fil', () => {
+    expect(REPO_H).toContain('WHERE r.message_id = ANY($1::bigint[])');
+    expect(REPO_H).toContain('evenementsParBien.get(Number(r.message_id)) ?? []');
+    expect(REPO_H).toContain('evenements.get(Number(r.fil_id)) ?? []');
+  });
+
+  /**
+   * 🔴🔴 UN ÉVÉNEMENT N'APPARAÎT QU'UNE FOIS PAR MAIL, MÊME EN UNISSANT. C'est la règle du lot
+   * HISTORIQUE-BIEN-5 (le message 57188 rendait `[1,1,1,1,1]` et l'écran criait « two children with the same
+   * key »). Les deux voies désignent souvent LE MÊME événement : sans ce dédoublonnage, le défaut reviendrait
+   * par la porte d'à côté.
+   *
+   * 🔴 ET LA VOIE DU FIL GAGNE À INFORMATION ÉGALE : c'est l'affectation qu'un humain a posée, la voie du bien
+   * est une déduction.
+   */
+  it('🔴🔴 pas de doublon, et l’affectation humaine l’emporte', () => {
+    expect(REPO_H).toContain('function unirEvenements(');
+    expect(REPO_H).toContain('for (const e of [...parFil, ...parBien]) {');
+    expect(REPO_H).toContain('if (vus.has(e.id)) continue;');
+  });
+
+  /**
+   * ⚠️ `aa.message_id` N'EXISTE QUE DEPUIS LA MIGRATION 234, et une garde du dépôt l'a déjà rappelé au point 2
+   * de ce lot : sans elle, nommer la colonne fait tomber l'écran. La seconde voie prend donc le même témoin.
+   */
+  it('⚠️ la colonne `message_id` n’est nommée que si la migration 234 est là', () => {
+    expect(REPO_H).toContain("    : 'ON mm.fil_id = aa.fil_id';");
+    expect(REPO_H).toContain('sqlEvenementsDesMessages(await deplacementsDeMailsDisponibles())');
+  });
+
+  /**
+   * ⚠️ LE FILTRE « Événement ouvert » DE L'HISTORIQUE N'EST PAS TOUCHÉ, et c'est délibéré : Arno a demandé la
+   * règle de l'ÉTIQUETTE. Le filtre raisonne par fil (`historiqueRepo:500`) ; l'aligner changerait ce que la
+   * liste CONTIENT, pas seulement ce qu'elle montre — c'est un autre lot, et il se mesure avant.
+   *   🔭 **Question posée à Arno** : veut-il que le filtre suive la même règle que l'étiquette ? Aujourd'hui une
+   *      ligne peut porter l'étiquette sans passer le filtre, et cet écart se voit.
+   */
+  it('⚠️ le filtre reste par fil, et l’écart est consigné', () => {
+    expect(REPO_H).toContain(`EXISTS (SELECT 1 FROM gestion_affectation af`);
+    expect(REPO_H).toContain("WHERE af.fil_id = m.fil_id AND af.actif AND ev.etat <> 'traite')");
+  });
+});

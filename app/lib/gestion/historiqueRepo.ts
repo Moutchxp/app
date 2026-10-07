@@ -588,6 +588,11 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   const pieces = await piecesDesMessages(gardees.map((r) => Number(r.message_id)));
   // 🔴 LOT FICHES-ANNUAIRE — les événements des ÉCHANGES de cette page, en UNE requête (jamais une par ligne).
   const evenements = await evenementsDesFils(gardees.map((r) => Number(r.fil_id)));
+  /**
+   * 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 5 — LA SECONDE VOIE : tout mail du BIEN, dans la FENÊTRE de
+   * l'événement. Voir l'encadré de `sqlEvenementsDesMessages`. UNE requête pour la page entière.
+   */
+  const evenementsParBien = await evenementsDesMessages(gardees.map((r) => Number(r.message_id)));
   // 🔴 … et la capsule de statut de chaque MAIL, par la MÊME fonction pure que la boîte.
   const statuts = await statutsDesMessages(gardees.map((r) => Number(r.message_id)));
   /**
@@ -631,7 +636,16 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
           lots: new Map(), proprietaires: new Map(),
         }),
         source: r.source === 'carte' ? 'carte' : 'rattachement',
-        evenements: evenements.get(Number(r.fil_id)) ?? [],
+        /**
+         * 🔴🔴 LES DEUX VOIES S'UNISSENT (lot EVENEMENT-MINIMALISTE, point 5) : celle du FIL (une affectation
+         * active) et celle du BIEN (le mail tombe dans la fenêtre de l'événement). Un événement n'apparaît
+         * qu'une fois — c'est la règle du lot HISTORIQUE-BIEN-5, et elle vaut pour l'union comme pour chaque
+         * voie prise à part.
+         */
+        evenements: unirEvenements(
+          evenements.get(Number(r.fil_id)) ?? [],
+          evenementsParBien.get(Number(r.message_id)) ?? [],
+        ),
         statut: statuts.get(Number(r.message_id))?.statut ?? null,
         statutDetail: statuts.get(Number(r.message_id))?.detail ?? null,
         // 🔴 LOT CONTACTS-EXTERNES — on ne garde que ce que la ligne affiche : le nom, le rôle figé, et le « via ».
@@ -848,6 +862,83 @@ export async function porteursDePieces(
   };
 }
 
+/**
+ * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 5 — LA SECONDE VOIE DE L'ÉTIQUETTE « ÉVÉNEMENT OUVERT » ════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (07/10/2026) : « L'événement GES-2026-000001 est en cours, mais les 3 mails les plus récents de
+ * l'historique n'ont pas l'étiquette “Événement ouvert”, alors que ceux du 28-29 sept. l'ont. » SA RÈGLE :
+ * « l'étiquette s'affiche pour tout mail du bien rattaché à l'événement (ou à une conversation liée à
+ * l'événement) daté entre son ouverture et sa clôture. »
+ *
+ * ═══ 🔴🔴 LA CAUSE, MESURÉE AVANT D'ÉCRIRE UNE LIGNE ════════════════════════════════════════════════════════════
+ *
+ * La règle d'avant ne connaissait qu'UNE voie : le FIL du mail porte une affectation active vers un événement non
+ * traité (`sqlEvenementsDesFils`). Elle ne regardait NI le bien, NI la date.
+ *
+ *   mail 57597 « Devis - 67 rue de Normandie »      fil 36756  06/10 12:28  événement du fil : AUCUN
+ *   mail 57276 « Fwd: Nouveau message de Art&F… »   fil 36573  30/09 12:26  événement du fil : AUCUN
+ *   mail 57258 « Fwd: Nouveau message de Art&F… »   fil 36573  30/09 11:14  événement du fil : AUCUN
+ *   (témoin)   57188 « Re: EDLS DI FIORE »          fil 36475  29/09 14:33  événement du fil : 1
+ *
+ * Les trois sont bien RATTACHÉS AU BIEN 315 — c'est ainsi qu'ils apparaissent dans l'historique — et tombent dans
+ * la fenêtre de l'événement 1 (ouvert le 23/09/2026, toujours ouvert). Mais personne ne les a AFFECTÉS à
+ * l'événement, et l'ancienne règle ne connaissait que cette porte.
+ *
+ * ═══ 🔴 SIMULATION CHIFFRÉE, VALIDÉE PAR ARNO AVANT APPLICATION ═════════════════════════════════════════════════
+ *
+ *   avant : 10 couples mail-événement étiquetés · après : 14 · GAGNÉS : 4 · PERDUS : 0
+ *
+ * Les quatre : les trois d'Arno, plus 55969 « Re: Facture diagnostic » du 24/09 — même bien, même fenêtre.
+ *
+ * 🔴 L'ANCIENNE VOIE EST CONSERVÉE, ET C'EST POURQUOI PERSONNE NE PERD RIEN. Les deux voies s'UNISSENT : un mail
+ * affecté à l'événement garde son étiquette même hors fenêtre (il a été classé là exprès), et un mail du bien la
+ * gagne dans la fenêtre. Remplacer l'une par l'autre aurait retiré l'étiquette à des mails qui l'avaient.
+ *
+ * 🔴 LES BIENS DE L'ÉVÉNEMENT VIENNENT DES DEUX AXES, comme partout : parties déclarées ET rattachements
+ * confirmés de ses mails. L'événement 1 n'a AUCUNE partie déclarée — son bien ne vient que de ses mails. Ne lire
+ * qu'un axe n'aurait rien réparé.
+ *
+ * ⚠️ LA FENÊTRE EST FERMÉE À DROITE PAR LA CLÔTURE quand elle existe : un mail arrivé APRÈS la clôture ne
+ * concerne plus cet événement. L'étiquette ne s'affiche de toute façon que pour un événement ouvert
+ * (`ouvert = etat !== 'traite'`), mais la borne est écrite — la règle d'Arno la nomme, et un événement rouvert
+ * plus tard ne doit pas repêcher les mails de l'intervalle où il était clos.
+ *
+ * ⚠️ CLÉ = LE MESSAGE, ET NON LE FIL. C'est une date de MAIL qui décide, et deux mails d'un même fil peuvent
+ * tomber de part et d'autre d'une ouverture. L'ancienne voie, elle, reste par fil — c'est sa nature.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function sqlEvenementsDesMessages(avecMessageId: boolean): string {
+  const jointure = avecMessageId
+    ? `ON (aa.message_id IS NOT NULL AND mm.id = aa.message_id)
+          OR (aa.message_id IS NULL AND mm.fil_id = aa.fil_id)`
+    : 'ON mm.fil_id = aa.fil_id';
+  /* ⚠️ `aa.message_id` N'EXISTE QUE DEPUIS LA MIGRATION 234 : sans elle, nommer la colonne fait tomber l'écran.
+     Même prudence que partout ailleurs dans ce module. */
+  return `WITH biens_evt AS (
+            SELECT DISTINCT p.evenement_id, p.cle
+              FROM gestion_evenement_partie p
+             WHERE p.sorte = 'lot' AND p.retire_le IS NULL AND btrim(coalesce(p.cle, '')) <> ''
+            UNION
+            SELECT DISTINCT aa.evenement_id, rr.cible_cle
+              FROM gestion_affectation aa
+              JOIN gestion_message mm ${jointure}
+              JOIN gestion_rattachement rr ON rr.message_id = mm.id
+             WHERE aa.actif AND rr.cible_sorte = 'lot' AND rr.statut = 'confirme' AND rr.piece_id IS NULL
+               AND btrim(coalesce(rr.cible_cle, '')) <> ''
+          )
+          SELECT DISTINCT r.message_id, ev.id, ev.reference, ev.objet, ev.etat, ev.ouvert_le
+            FROM gestion_rattachement r
+            JOIN gestion_message m ON m.id = r.message_id
+            JOIN biens_evt be ON be.cle = r.cible_cle
+            JOIN gestion_evenement ev ON ev.id = be.evenement_id
+           WHERE r.message_id = ANY($1::bigint[])
+             AND r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
+             AND m.recu_le >= ev.ouvert_le
+             AND (ev.traite_le IS NULL OR m.recu_le <= ev.traite_le)
+           ORDER BY r.message_id, ev.ouvert_le DESC, ev.id DESC`;
+}
+
 export function sqlEvenementsDesFils(): string {
   return `SELECT af.fil_id, ev.id, ev.reference, ev.objet, ev.etat
             FROM (SELECT DISTINCT fil_id, evenement_id
@@ -855,6 +946,50 @@ export function sqlEvenementsDesFils(): string {
                    WHERE actif AND fil_id = ANY($1::bigint[])) af
             JOIN gestion_evenement ev ON ev.id = af.evenement_id
            ORDER BY af.fil_id, ev.ouvert_le DESC, ev.id DESC`;
+}
+
+/**
+ * ══ 🔴 UN ÉVÉNEMENT N'APPARAÎT QU'UNE FOIS PAR MAIL, MÊME EN UNISSANT DEUX VOIES ═════════════════════════════════
+ *
+ * C'est la règle du lot HISTORIQUE-BIEN-5, point 3 — née d'un défaut mesuré : le message 57188 rendait
+ * `evenements: [1, 1, 1, 1, 1]`, et l'écran criait « two children with the same key ». Les deux voies de ce lot
+ * désignent souvent LE MÊME événement (un mail affecté ET dans la fenêtre de son bien) : sans ce dédoublonnage,
+ * le défaut reviendrait par la porte d'à côté.
+ *
+ * ⚠️ LA VOIE DU FIL PASSE EN PREMIER, ET SON EXEMPLAIRE GAGNE : c'est l'affectation explicite, celle que
+ * quelqu'un a posée à la main. La voie du bien est une déduction ; à information égale, la décision humaine
+ * l'emporte.
+ */
+function unirEvenements(
+  parFil: readonly EvenementDeLigne[], parBien: readonly EvenementDeLigne[],
+): EvenementDeLigne[] {
+  const vus = new Set<number>();
+  const out: EvenementDeLigne[] = [];
+  for (const e of [...parFil, ...parBien]) {
+    if (vus.has(e.id)) continue;
+    vus.add(e.id);
+    out.push(e);
+  }
+  return out;
+}
+
+/** La seconde voie : les événements dont la FENÊTRE contient ce mail, et dont le BIEN est celui du mail. */
+async function evenementsDesMessages(messageIds: readonly number[]): Promise<Map<number, EvenementDeLigne[]>> {
+  const out = new Map<number, EvenementDeLigne[]>();
+  const uniques = [...new Set(messageIds)];
+  if (uniques.length === 0) return out;
+  const { rows } = await query<{
+    message_id: string; id: string; reference: string; objet: string; etat: string;
+  }>(sqlEvenementsDesMessages(await deplacementsDeMailsDisponibles()), [uniques]);
+  for (const r of rows) {
+    const cle = Number(r.message_id);
+    const liste = out.get(cle) ?? [];
+    liste.push({
+      id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: r.etat !== 'traite',
+    });
+    out.set(cle, liste);
+  }
+  return out;
 }
 
 async function evenementsDesFils(filIds: readonly number[]): Promise<Map<number, EvenementDeLigne[]>> {
