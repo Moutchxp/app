@@ -770,7 +770,26 @@ export function PleinEcranBoite({
            * ⚠️ SANS MESSAGE : la fermeture n'a rien à annoncer, elle n'a qu'à faire compter. `surGeste` sait
            * traiter le message vide — voir son encadré.
            */
-          onFermer={(cle) => { fen.fermerLa(cle); onGeste('', { compteurs: undefined }); }}
+          /**
+           * ══ 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION — ET LA LISTE SE RELIT AUSSI ════════════════════════════════
+           *
+           * MESURÉ À L'ÉCRAN LE 07/10/2026 : on supprime un brouillon depuis sa fenêtre flottante, le compteur
+           * « Brouillons » passe bien de 15 à 14 — et la LIGNE du brouillon supprimé reste dans la liste. On croit
+           * alors que la suppression n'a pas pris, et l'on recommence sur une ligne qui n'existe plus.
+           *
+           * 🔴 LA CAUSE : le compteur suit le DELTA rendu par le geste, la liste suit `versionStatuts`. Fermer une
+           * fenêtre touchait le premier et pas la seconde. Arno demande les deux (« le bloc “Brouillons (N)” […]
+           * et le compteur […], ainsi que le picto ✎ de la liste, sans rechargement »).
+           *
+           * ⚠️ `versionStatuts` ET NON `versionListe` : la seconde est la CLÉ de `<BoiteMail>`, et la toucher
+           * démonterait la liste — on perdrait la page où l'on était. La première la fait relire SUR PLACE, et
+           * c'est déjà ce que fait un classement fait dans la conversation.
+           */
+          onFermer={(cle) => {
+            fen.fermerLa(cle);
+            onGeste('', { compteurs: undefined });
+            setVersionStatuts((v) => v + 1);
+          }}
           onDemanderFermeture={fen.demanderFermeture}
           onEnvoye={(cle) => { fen.fermerLa(cle); onGeste('', { compteurs: DELTA_ENVOI }); }}
           onGeste={onGeste} />
@@ -974,6 +993,9 @@ export function PleinEcranBoite({
               répond, et deux messages peuvent s'écrire côte à côte. La liste reste donc à sa place, vivante. */}
           {etiquette.sorte === 'brouillons' ? (
             <Brouillons maintenant={maintenant}
+              /* 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION — la liste relit après chaque geste de brouillon, par le
+                 MÊME battement que la liste des mails : la ligne d'un brouillon supprimé y restait. */
+              version={versionStatuts}
               /* 🔴 LE MÊME MOT QUE DANS L'ÉDITEUR, conditionné par la même sonde (migration 276). */
               corbeille={redaction?.corbeilleBrouillon === true}
               /* 🔴 LOT BANDEAU-ET-BROUILLONS — la signature de gestion@, pour la RETIRER de l'extrait. C'est la
@@ -1249,7 +1271,11 @@ export function PleinEcranBoite({
       {apercuBrouillon !== null && (
         <ApercuBrouillon brouillonId={apercuBrouillon}
           onFermer={() => setApercuBrouillon(null)}
-          onModifier={reprendreCeBrouillon} />
+          onModifier={reprendreCeBrouillon}
+          /* 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION, POINT 2 — « Voir le mail » ouvre la conversation par la MÊME
+             porte que tous les autres gestes de cet écran (`onOuvrir`), celle qui déplie le message visé et
+             surligne la ligne. Un second chemin aurait eu ses propres oublis. */
+          onVoirLeMail={(filId, messageId) => onOuvrir(filId, messageId)} />
       )}
     </div>
   );

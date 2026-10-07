@@ -143,14 +143,19 @@ const cliquer = async (e: Element) => {
 const bouton = (dans: Element, mot: string): HTMLButtonElement | undefined =>
   [...dans.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes(mot));
 /**
- * 🔴 LE BOUTON D'UNE CONFIRMATION, CHERCHÉ **DANS** SA PHRASE — requalifié le 07/10/2026 (lot
- * BROUILLON-SANS-CLASSEMENT). La confirmation est passée SOUS la rangée des boutons (elle s'affichait 132 px
- * au-dessus de celui qui l'ouvre, hors du regard) : « Supprimer » trouvait donc désormais « Supprimer le
- * brouillon » en premier, et le cas rouvrait la question au lieu d'y répondre. On vise la phrase, pas l'écran —
- * ce qui est de toute façon plus juste : c'est SON bouton qu'on veut, où qu'elle soit posée.
+ * 🔴 LE BOUTON D'UNE CONFIRMATION, CHERCHÉ **DANS SA FENÊTRE**.
+ *
+ * ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-APERCU-SUPPRESSION. La confirmation est devenue une petite fenêtre
+ * CENTRÉE, rendue dans un PORTAIL : dans la fenêtre flottante, mesuré dans Chrome, il n'en restait que 8 px sur
+ * 60 au bas du conteneur à défilement — ses deux boutons étaient entièrement hors de la zone visible. Elle n'est
+ * donc plus un descendant de `section.red`, et on la cherche là où elle est : dans le document.
+ *
+ * 🔴 ON VISE SA FENÊTRE, PAS L'ÉCRAN : « Supprimer » est aussi le début de « Supprimer le brouillon », le bouton
+ * qui l'OUVRE — le chercher largement rouvrirait la question au lieu d'y répondre.
  */
+const fenetreConfirmation = (): Element | null => document.querySelector('.red-conf');
 const boutonConfirmation = (mot: string): HTMLButtonElement | undefined => {
-  const p = document.querySelector('section.red .red-supprime');
+  const p = fenetreConfirmation();
   return p === null ? undefined : bouton(p, mot);
 };
 const editeur = () => ligne(22).querySelector('section.red');
@@ -270,8 +275,8 @@ describe('🔴🔴 ③ le bouton « Supprimer le brouillon »', () => {
     await ouvrirLeBrouillon();
     appels = [];
     await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.bouton) as Element);
-    const red = editeur() as Element;
-    expect(red.textContent, 'la question d’Arno, mot pour mot').toContain(MOTS_SUPPRIMER_BROUILLON.question);
+    expect(fenetreConfirmation()?.textContent, 'la question d’Arno, mot pour mot')
+      .toContain(MOTS_SUPPRIMER_BROUILLON.question);
     expect(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.annuler)).toBeDefined();
     expect(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.confirmer)).toBeDefined();
     /* 🔴 RIEN N'EST PARTI VERS LE SERVEUR : une question n'est pas un geste. */
@@ -282,9 +287,8 @@ describe('🔴🔴 ③ le bouton « Supprimer le brouillon »', () => {
     await ouvrirLeBrouillon();
     await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.bouton) as Element);
     await cliquer(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.annuler) as Element);
-    const red = editeur() as Element;
-    expect(red.textContent).not.toContain(MOTS_SUPPRIMER_BROUILLON.question);
-    expect(red.textContent).toContain('Le texte déjà enregistré');
+    expect(fenetreConfirmation(), 'la fenêtre s’est refermée').toBeNull();
+    expect((editeur() as Element).textContent).toContain('Le texte déjà enregistré');
     expect(appels.filter((a) => a.methode === 'DELETE')).toHaveLength(0);
   });
 });
@@ -351,9 +355,21 @@ describe('🔴🔴 ⑤ quand la suppression dans Gmail échoue', () => {
     reponseSuppression = { statut: 502, corps: { erreur: 'Brouillon non supprimé dans Gmail, réessayer', gmail: 'echec' } };
     await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.bouton) as Element);
     await cliquer(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.confirmer) as Element);
+    /**
+     * ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-APERCU-SUPPRESSION : LE MOTIF EST **DANS LA FENÊTRE**.
+     *
+     * Il était rendu en bas de l'éditeur, donc exposé au même rognage que la question — et c'est précisément lui
+     * qu'il fallait lire. La fenêtre reste ouverte avec le motif, et « Supprimer » est à la même place :
+     * « réessayer » (Arno) est un seul clic.
+     *
+     * 🔴 ET LA RÈGLE D'ARNO EST INTACTE, elle est même éprouvée plus fermement : le brouillon reste affiché
+     * DERRIÈRE, avec son texte, et rien n'a été supprimé.
+     */
+    expect(fenetreConfirmation(), 'la question reste posée').not.toBeNull();
+    expect(fenetreConfirmation()?.textContent).toContain('Brouillon non supprimé dans Gmail, réessayer');
+    expect(fenetreConfirmation()?.textContent).toContain(MOTS_SUPPRIMER_BROUILLON.confirmer);
     const red = editeur();
     expect(red, '« garder le brouillon affiché » (Arno)').not.toBeNull();
-    expect(red?.textContent).toContain('Brouillon non supprimé dans Gmail, réessayer');
     /* 🔴 ET SON TEXTE EST TOUJOURS LÀ : on peut réessayer, ou fermer sans rien perdre. */
     expect(red?.textContent).toContain('Le texte déjà enregistré');
   });
@@ -365,7 +381,7 @@ describe('🔴🔴 ⑤ quand la suppression dans Gmail échoue', () => {
     await cliquer(bouton(editeur() as Element, MOTS_SUPPRIMER_BROUILLON.bouton) as Element);
     await cliquer(boutonConfirmation(MOTS_SUPPRIMER_BROUILLON.confirmer) as Element);
     expect(editeur()).not.toBeNull();
-    expect(editeur()?.textContent).toContain(suiteSuppressionBrouillon('echec').phrase);
+    expect(fenetreConfirmation()?.textContent).toContain(suiteSuppressionBrouillon('echec').phrase);
   });
 });
 

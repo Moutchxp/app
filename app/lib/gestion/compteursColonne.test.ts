@@ -246,8 +246,16 @@ describe('🔴🔴 ③ l’écran passe par une seule porte', () => {
     /* ⚠️ LE MÊME DELTA, désormais accompagné de `avantEcriture` : il part AVANT l'écriture (point 2). */
     expect(plein).toContain('compteurs: versLaCorbeille ? DELTA_FIL_CORBEILLE : DELTA_FIL_RESTAURE, avantEcriture: true,');
     expect(plein).toContain("{ compteurs: DELTA_BROUILLON_JETE }");
-    /* 🔴🔴 ET FERMER UNE FENÊTRE DE RÉDACTION COMPTE : un brouillon NAÎT en se fermant. */
-    expect(plein).toContain("onFermer={(cle) => { fen.fermerLa(cle); onGeste('', { compteurs: undefined }); }}");
+    /**
+     * 🔴🔴 ET FERMER UNE FENÊTRE DE RÉDACTION COMPTE : un brouillon NAÎT en se fermant.
+     *
+     * ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-APERCU-SUPPRESSION : la fermeture fait DEUX choses désormais,
+     * et le geste s'écrit donc sur plusieurs lignes. Elle appelle toujours `onGeste` pour les compteurs — c'est
+     * ce que ce cas protège, et c'est intact — et elle incrémente en plus `versionStatuts`, parce que la LIGNE
+     * du brouillon supprimé restait dans la liste pendant que le compteur, lui, descendait.
+     */
+    expect(plein).toContain("fen.fermerLa(cle);\n            onGeste('', { compteurs: undefined });");
+    expect(plein).toContain('setVersionStatuts((v) => v + 1);');
   });
 
   /**

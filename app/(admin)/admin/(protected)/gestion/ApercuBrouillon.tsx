@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  AIDE_MODIFIER, corpsApercu, enTeteApercu, MOT_MODIFIER, motPiecesBrouillon, objetApercu,
-  TITRE_APERCU_BROUILLON,
+  AIDE_MODIFIER, AIDE_VOIR_LE_MAIL, brouillonMeneAUnMail, corpsApercu, enTeteApercu, MOT_MODIFIER,
+  MOT_VOIR_LE_MAIL, motPiecesBrouillon, objetApercu, TITRE_APERCU_BROUILLON,
 } from '../../../../lib/gestion/apercuBrouillon';
 import { taillePourHumain, type PieceBrouillonAffichee } from '../../../../lib/gestion/piecesEnvoi';
 import { reprendreBrouillon, type BrouillonEnregistre } from '../../../../lib/gestion/brouillonReprise';
@@ -27,7 +27,7 @@ import { CorpsHtmlMail } from './Conversation';
  * ⚠️ RIEN N'EST ÉCRIT, JAMAIS. Cette fenêtre n'émet que deux GET. Elle ne crée pas de brouillon, n'en enregistre
  * aucun, et ne touche pas à `maj_le` — c'est ce qui permet de regarder un brouillon sans le réveiller.
  */
-export function ApercuBrouillon({ brouillonId, onFermer, onModifier, onVisualiser }: {
+export function ApercuBrouillon({ brouillonId, onFermer, onModifier, onVoirLeMail, onVisualiser }: {
   brouillonId: number;
   /** Fermer et RENDRE LES RÉSULTATS INTACTS : cette fenêtre est posée PAR-DESSUS, elle ne les démonte pas. */
   onFermer: () => void;
@@ -37,6 +37,24 @@ export function ApercuBrouillon({ brouillonId, onFermer, onModifier, onVisualise
    * fois ici le ferait diverger du jour où il changera.
    */
   onModifier: (b: BrouillonEnregistre) => void;
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION, POINT 2 — « VOIR LE MAIL » ══════════════════════════════════════════
+   *
+   * Arno : « Le clic ferme l'aperçu et ouvre cette conversation, centrée sur le message auquel le brouillon
+   * répond (ou sur le dernier message de la conversation s'il n'y a pas de message précis), avec le message
+   * déplié. »
+   *
+   * 🔴 L'OUVERTURE EST LE GESTE DE L'APPELANT, comme pour « Modifier » : c'est lui qui sait où vit la
+   * conversation (l'écran « boîte », l'écran partagé, une fiche). L'écrire ici l'aurait figé sur un seul écran.
+   *
+   * 🔴 LE MESSAGE VISÉ VAUT `null` QUAND LE BROUILLON N'EN DÉSIGNE AUCUN, et c'est exactement ce que la
+   * conversation attend : `messagesDeplies` retombe alors sur son DERNIER message, déplié — la règle du module,
+   * et la phrase d'Arno, mot pour mot. On n'invente donc rien ici.
+   *
+   * ⚠️ ABSENT ⇒ LE BOUTON N'EST PAS RENDU : un écran qui ne sait pas ouvrir une conversation ne doit pas
+   * proposer d'y aller. Les deux usages d'aujourd'hui le passent.
+   */
+  onVoirLeMail?: (filId: number, messageId: number | null) => void;
   /** Agrandir une image du corps dans la visionneuse des pièces, quand elle en vient (facultatif). */
   onVisualiser?: (pieceId: number) => void;
 }) {
@@ -88,6 +106,21 @@ export function ApercuBrouillon({ brouillonId, onFermer, onModifier, onVisualise
       <div className="apb" role="dialog" aria-modal="true" aria-labelledby="apb-titre">
         <header className="apb-tete">
           <h2 className="apb-titre" id="apb-titre">{TITRE_APERCU_BROUILLON}</h2>
+          {/* 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION, POINT 2 — « Voir le mail », À GAUCHE DE « Modifier » (Arno).
+              Il n'existe que si le brouillon mène quelque part : la règle est dans le module pur
+              (`brouillonMeneAUnMail`), pas dans une condition écrite ici. */}
+          {etat.v === 'ok' && onVoirLeMail !== undefined && brouillonMeneAUnMail(etat.b) && (
+            <button type="button" className="svv-btn svv-btn-outline apb-voir" title={AIDE_VOIR_LE_MAIL}
+              onClick={() => {
+                const { filId, repondAMessageId } = etat.b;
+                onFermer();
+                /* ⚠️ LE `null` EST SIGNIFIANT : il dit « aucun message précis », et la conversation déplie alors
+                   son dernier. Le garde de type ne peut pas le voir — `brouillonMeneAUnMail` l'a déjà vérifié. */
+                if (filId !== null) onVoirLeMail(filId, repondAMessageId);
+              }}>
+              {MOT_VOIR_LE_MAIL}
+            </button>
+          )}
           {etat.v === 'ok' && (
             /* 🔴 « MODIFIER » OUVRE L'ÉDITEUR ORDINAIRE, et ferme cet aperçu : laisser les deux ouverts
                montrerait deux états du même brouillon, dont l'un cesserait d'être vrai à la première frappe. */
@@ -172,7 +205,10 @@ const CSS_APERCU_BROUILLON = `
    il ne retrecit ni ne s'etire.
    ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit DANS un litteral de gabarit, qu'un seul accent grave
    terminerait — piege consigne douze fois dans ce depot, et dans lequel je viens de tomber. */
-.apb-modifier{flex:0 0 auto;width:auto;min-height:40px;padding:0 .9rem;font-size:.85rem}
+/* 🔴 LOT BROUILLON-APERCU-SUPPRESSION — « Voir le mail » a EXACTEMENT la forme de « Modifier » : deux boutons
+   cote a cote dans une barre de titre doivent avoir la meme hauteur et la meme graisse, sinon l'un se lit comme
+   le geste principal. Arno ne hierarchise pas les deux ; l'ordre seul dit lequel vient en premier. */
+.apb-modifier,.apb-voir{flex:0 0 auto;width:auto;min-height:40px;padding:0 .9rem;font-size:.85rem}
 .apb-croix{flex:0 0 auto}
 .apb-croix{min-width:44px;min-height:44px;font-size:1.3rem;line-height:1;color:var(--color-svv-ink);
   background:transparent;border:1px solid transparent;border-radius:.5rem;cursor:pointer}

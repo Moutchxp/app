@@ -52,8 +52,24 @@ const LIBELLE_VOIE: Record<VoieRedaction, string> = {
  * toujours sur la ligne du bas (« à … »), où ils étaient déjà.
  */
 
-export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbeille = false, signature = null }: {
+export function Brouillons({
+  maintenant, onOuvrir, onReprendre, onChange, corbeille = false, signature = null, version = 0,
+}: {
   maintenant: Date;
+  /**
+   * ══ 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION — LE BATTEMENT QUI FAIT RELIRE LA LISTE ═══════════════════════════════
+   *
+   * MESURÉ À L'ÉCRAN LE 07/10/2026 : on supprime un brouillon depuis sa fenêtre flottante, le compteur de la
+   * colonne passe bien de 15 à 14 — et la LIGNE du brouillon supprimé reste dans cette liste. On croit alors que
+   * la suppression n'a pas pris, et l'on recommence sur une ligne qui n'existe plus.
+   *
+   * 🔴 LA CAUSE : cette liste ne se lisait qu'au MONTAGE (`useEffect` sans dépendance). Elle suit maintenant un
+   * battement que l'écran parent incrémente après chaque geste de brouillon — le MÊME que la liste des mails
+   * (`versionStatuts`), pour que les deux ne puissent pas diverger.
+   *
+   * ⚠️ `0` (le défaut) ⇒ EXACTEMENT LE COMPORTEMENT D'AVANT : une seule lecture, au montage.
+   */
+  version?: number;
   /**
    * 🔴 LOT BANDEAU-ET-BROUILLONS — LA SIGNATURE DE gestion@, pour la retirer de l'extrait. `null` = pas encore
    * chargée : on n'ampute alors rien, et l'extrait peut contenir la signature — mieux vaut cela qu'un extrait
@@ -123,8 +139,9 @@ export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange, corbei
     let annule = false;
     void (async () => { const r = await chercher(); if (!annule) setEtat(r); })();
     return () => { annule = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : `chercher` est recréé à chaque rendu,
+    //   le mettre en dépendance relirait la liste en boucle. Seul `version` doit la faire relire.
+  }, [version]);
 
   if (etat.v === 'charge') return <p className="gst-info" role="status">Chargement des brouillons…</p>;
   if (etat.v === 'erreur') {

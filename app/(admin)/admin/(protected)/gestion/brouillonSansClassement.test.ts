@@ -137,9 +137,15 @@ const parMot = (mot: string): HTMLButtonElement | undefined => [...container.que
   .find((b) => (b.textContent ?? '').trim() === mot) as HTMLButtonElement | undefined;
 const boutonEnvoyer = (): HTMLButtonElement => [...container.querySelectorAll('button')]
   .find((b) => /^Envoyer/.test((b.textContent ?? '').trim())) as HTMLButtonElement;
-/** Le bouton d'une confirmation, cherché DANS sa phrase : « Supprimer » est aussi le début de l'autre bouton. */
+/**
+ * La confirmation, cherchée DANS LE DOCUMENT : depuis le lot BROUILLON-APERCU-SUPPRESSION, c'est une petite
+ * fenêtre centrée rendue dans un PORTAIL — elle n'est plus un descendant de l'éditeur, exprès (mesuré dans
+ * Chrome : il n'en restait que 8 px sur 60 au bas de la fenêtre flottante, boutons compris).
+ */
+const confirmation = (): Element | null => document.querySelector('.red-conf');
+/** Son bouton, cherché DANS sa fenêtre : « Supprimer » est aussi le début de celui qui l'ouvre. */
 const dansLaConfirmation = (mot: string): HTMLButtonElement | undefined => {
-  const p = container.querySelector('.red-supprime');
+  const p = confirmation();
   return p === null ? undefined : [...p.querySelectorAll('button')]
     .find((b) => (b.textContent ?? '').trim() === mot) as HTMLButtonElement | undefined;
 };
@@ -192,8 +198,7 @@ describe('🔴🔴 ② « Supprimer le brouillon » sans classement', () => {
 
       await cliquer(parMot(MOTS_SUPPRIMER_BROUILLON.bouton));
       /* 🔴🔴 LA CONFIRMATION HABITUELLE, mot pour mot — et toujours aucune demande de classement. */
-      expect(container.querySelector('.red-supprime')?.textContent)
-        .toContain(MOTS_SUPPRIMER_BROUILLON.question);
+      expect(confirmation()?.textContent).toContain(MOTS_SUPPRIMER_BROUILLON.question);
       expect(container.querySelector('.red-non-classe')).toBeNull();
       expect(suppressions()).toHaveLength(0);
 
@@ -219,7 +224,7 @@ describe('🔴🔴 ② « Supprimer le brouillon » sans classement', () => {
        « Supprimer le brouillon »), et c'est le BOUTON qu'on veut, pas l'un de ses deux mots. */
     const corbeille = container.querySelector('.red-outil--rouge') ?? undefined;
     await cliquer(corbeille);
-    expect(container.querySelector('.red-supprime')).not.toBeNull();
+    expect(confirmation()).not.toBeNull();
     expect(container.querySelector('.red-non-classe')).toBeNull();
   });
 });
@@ -266,26 +271,45 @@ describe('🔴🔴 ④ « Envoyer » sans classement', () => {
     await cliquer(parMot(MOTS_SUPPRIMER_BROUILLON.bouton));
     /* 🔴 LE GESTE DE SUPPRESSION ÉTEINT L'AVERTISSEMENT DE L'ENVOI : il ne lui répond pas. */
     expect(container.querySelector('.red-non-classe')).toBeNull();
-    expect(container.querySelector('.red-supprime')?.textContent)
-      .toContain(MOTS_SUPPRIMER_BROUILLON.question);
+    expect(confirmation()?.textContent).toContain(MOTS_SUPPRIMER_BROUILLON.question);
   });
 
   /**
-   * 🔴🔴 LA CONFIRMATION EST SOUS LA RANGÉE, PAS AU-DESSUS. C'est la seconde moitié de la cause : on cliquait, et
-   * la réponse paraissait de l'autre côté des boutons. On éprouve l'ORDRE du document — jsdom ne fait pas de mise
-   * en page, mais l'ordre, lui, est ce qui décide où la phrase se pose.
+   * ══ 🔴🔴 REQUALIFIÉ LE 07/10/2026 — LOT BROUILLON-APERCU-SUPPRESSION ════════════════════════════════════════
+   *
+   * CE CAS EXIGEAIT QUE LA CONFIRMATION VIENNE APRÈS LA RANGÉE DANS LE DOCUMENT. C'était la correction du lot
+   * précédent — la rapprocher du doigt —, et elle ne suffisait pas : la rapprocher du bouton la laissait DANS le
+   * contenu défilant de l'éditeur. Mesuré dans Chrome sur la fenêtre flottante : 8 px visibles sur 60, « Annuler »
+   * et « Supprimer » entièrement hors de la zone visible.
+   *
+   * 🔴 ELLE EST MAINTENANT HORS DU FLUX, DANS UN PORTAIL — c'est-à-dire hors de `section.red` tout entier. C'est
+   * ce qu'on éprouve ici : aucun conteneur de l'éditeur ne peut plus la rogner, parce qu'elle n'y est plus.
    */
-  it('🔴🔴 la confirmation paraît APRÈS la rangée des boutons', async () => {
+  it('🔴🔴 la confirmation est rendue HORS de l’éditeur, dans un portail', async () => {
     await monter(TYPES[0].b);
     await cliquer(parMot(MOTS_SUPPRIMER_BROUILLON.bouton));
-    const rangee = container.querySelector('.red-bas');
-    const confirmation = container.querySelector('.red-supprime');
-    expect(rangee).not.toBeNull();
-    expect(confirmation).not.toBeNull();
-    /* `DOCUMENT_POSITION_FOLLOWING` : la confirmation vient APRÈS la rangée dans le document. */
-    const apres = (rangee as Node).compareDocumentPosition(confirmation as Node)
-      & Node.DOCUMENT_POSITION_FOLLOWING;
-    expect(apres).toBeGreaterThan(0);
+    const editeur = container.querySelector('section.red');
+    expect(editeur).not.toBeNull();
+    expect(confirmation()).not.toBeNull();
+    /* 🔴 ELLE N'EST DESCENDANTE NI DE L'ÉDITEUR, NI DU CONTENEUR QUI LE PORTE. */
+    expect(editeur?.contains(confirmation() as Node)).toBe(false);
+    expect(container.contains(confirmation() as Node)).toBe(false);
+    /* 🔴 ET ELLE PORTE CE QU'IL FAUT POUR ÊTRE LUE COMME UNE FENÊTRE. */
+    expect(confirmation()?.getAttribute('role')).toBe('dialog');
+    expect(confirmation()?.getAttribute('aria-modal')).toBe('true');
+  });
+
+  /** 🔴 ÉCHAP ANNULE, et le focus part sur « Annuler » : le geste sans retour ne s'atteint pas par réflexe. */
+  it('🔴 la fenêtre prend le focus sur « Annuler », et Échap la referme', async () => {
+    await monter(TYPES[0].b);
+    await cliquer(parMot(MOTS_SUPPRIMER_BROUILLON.bouton));
+    expect((document.activeElement?.textContent ?? '').trim()).toBe(MOTS_SUPPRIMER_BROUILLON.annuler);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await calmer();
+    expect(confirmation()).toBeNull();
+    expect(suppressions()).toHaveLength(0);
   });
 });
 

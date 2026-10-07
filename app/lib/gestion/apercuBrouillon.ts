@@ -20,6 +20,43 @@ export type LigneDestinataire = (typeof LIGNES_DESTINATAIRES)[number];
 export const TITRE_APERCU_BROUILLON = 'Aperçu du brouillon';
 export const MOT_MODIFIER = 'Modifier';
 export const AIDE_MODIFIER = 'Ouvre ce brouillon dans l’éditeur habituel.';
+
+/**
+ * ══ 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION, POINT 2 — « VOIR LE MAIL » ════════════════════════════════════════════
+ *
+ * DEMANDE D'ARNO (07/10/2026) : « ajouter, À GAUCHE de “Modifier”, un bouton “Voir le mail”. Affiché seulement si
+ * le brouillon est lié à un mail existant : réponse ou transfert d'un message, ou brouillon appartenant à une
+ * conversation. Le clic ferme l'aperçu et ouvre cette conversation, centrée sur le message auquel le brouillon
+ * répond (ou sur le dernier message de la conversation s'il n'y a pas de message précis), avec le message
+ * déplié. Pas affiché pour un nouveau message jamais envoyé et rattaché à aucun mail. »
+ */
+export const MOT_VOIR_LE_MAIL = 'Voir le mail';
+export const AIDE_VOIR_LE_MAIL = 'Ouvre la conversation de ce brouillon, sur le message auquel il répond.';
+
+/** Ce qu'il faut d'un brouillon pour savoir s'il mène à un mail. La route rend exactement ces deux champs. */
+export interface BrouillonAncre {
+  filId: number | null;
+  repondAMessageId: number | null;
+}
+
+/**
+ * ══ 🔴🔴 CE BROUILLON MÈNE-T-IL À UN MAIL ? PURE. ════════════════════════════════════════════════════════════════
+ *
+ * 🔴 C'EST `filId` QUI DÉCIDE, ET LUI SEUL. « Réponse ou transfert d'un message » et « brouillon appartenant à une
+ * conversation » sont la MÊME condition vue de deux côtés : un brouillon de réponse porte toujours son échange
+ * (la route l'écrit avec le message auquel il répond), et un brouillon rattaché à un échange a toujours un
+ * échange à ouvrir, même s'il ne vise aucun message précis.
+ *
+ * ⚠️ `repondAMessageId` NE SUFFIRAIT PAS : sans `filId`, on saurait quel message viser sans savoir où aller — la
+ * conversation s'ouvre par son échange, jamais par un message isolé. Et `repondAMessageId` SEUL sans fil n'existe
+ * pas en base (la colonne est renseignée avec le fil, par le même geste).
+ *
+ * ⚠️ ET UN MESSAGE NEUF REND `false` : il n'a pas d'échange, donc il n'y a rien à montrer. Arno le dit en toutes
+ * lettres — « seul “Modifier” reste ». Un bouton qui ouvrirait une conversation vide serait pire qu'absent.
+ */
+export function brouillonMeneAUnMail(b: BrouillonAncre): boolean {
+  return b.filId !== null;
+}
 /**
  * 🔴 LE PICTO DE LA LIGNE DE RÉSULTAT. Arno : « un picto “œil” (aria-label “Aperçu du brouillon”) ». Le mot est
  * le MÊME que le titre de la fenêtre : on doit reconnaître, en l'ouvrant, ce qu'on a cliqué.

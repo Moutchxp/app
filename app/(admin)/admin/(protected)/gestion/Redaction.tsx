@@ -1,6 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+/* 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION — la confirmation sort du DOM de l'éditeur : aucun conteneur à défilement,
+   aucun `transform` d'ancêtre ne peut plus la rogner. Voir l'encadré de `FenetreConfirmation`. */
+import { createPortal } from 'react-dom';
+import { hoteDeLaBulle } from './InfoBien';
 /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — ce qu'un geste de rédaction déplace dans la colonne. Module PUR. */
 import {
   DELTA_BROUILLON_ABANDONNE, DELTA_BROUILLON_CORBEILLE, DELTA_BROUILLON_RESTAURE, DELTA_ENVOI,
@@ -313,6 +317,72 @@ export function ChampDestinataires({
       )}
     </div>
   );
+}
+
+/**
+ * ══ 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION — UNE QUESTION QUI NE PEUT PAS ÊTRE ROGNÉE ═════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (07/10/2026) : « la confirmation est TOUJOURS visible à l'écran au moment du clic, quel que soit
+ * l'éditeur (fenêtre flottante, réponse dans une conversation, plein écran) […]. Choisis la solution la plus
+ * fiable, et la même pour tous les éditeurs. »
+ *
+ * 🔴 LE PORTAIL EST LA PIÈCE MAÎTRESSE, et il va dans `.svv-adm-root` plutôt que dans `document.body` : c'est lui
+ * qui porte `data-theme`, donc les jetons de couleur. Dans le `body`, la fenêtre serait arrivée en thème Clair
+ * au milieu d'un écran Sombre. `hoteDeLaBulle` dit déjà cette règle pour la bulle des biens — on l'appelle, on
+ * ne la réécrit pas.
+ *
+ * 🔴 ÉCHAP ANNULE, et le focus part sur « Annuler » : le geste sans retour n'est jamais celui qu'on atteint par
+ * réflexe, ni à la tabulation, ni à la touche Entrée.
+ *
+ * ⚠️ `role="dialog"` + `aria-modal` : un lecteur d'écran annonce une fenêtre et s'y enferme. Sans cela, il
+ * continuerait de lire l'éditeur derrière, qui n'est plus la question posée.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function FenetreConfirmation({ question, annuler, confirmer, echec = null, onAnnuler, onConfirmer }: {
+  question: string;
+  annuler: string;
+  confirmer: string;
+  /** Le motif d'un refus, quand le geste a été tenté et n'a pas abouti. La fenêtre reste alors ouverte. */
+  echec?: string | null;
+  onAnnuler: () => void;
+  onConfirmer: () => void;
+}) {
+  const refuser = useRef<HTMLButtonElement | null>(null);
+  const titre = useId();
+  useEffect(() => { refuser.current?.focus(); }, []);
+  useEffect(() => {
+    const surTouche = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      /* ⚠️ À LA CAPTURE, ET ON ARRÊTE LA PROPAGATION : une fenêtre posée par-dessus répond la première, sinon la
+         fenêtre flottante de dessous se fermerait avec la question. */
+      e.stopPropagation();
+      onAnnuler();
+    };
+    window.addEventListener('keydown', surTouche, true);
+    return () => window.removeEventListener('keydown', surTouche, true);
+  }, [onAnnuler]);
+
+  const fenetre = (
+    <div className="red-conf-voile" role="presentation"
+      /* ⚠️ UN CLIC SUR LE VOILE ANNULE, jamais ne confirme : c'est le geste de celui qui veut en sortir. */
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onAnnuler(); }}>
+      <div className="red-conf" role="dialog" aria-modal="true" aria-labelledby={titre}>
+        <p className="red-conf-question" id={titre}>{question}</p>
+        {/* 🔴 LE MOTIF DU REFUS, DANS LA FENÊTRE : c'est là qu'on regarde, et « Supprimer » est juste en dessous. */}
+        {echec !== null && <p className="red-conf-echec" role="alert">{echec}</p>}
+        <div className="red-conf-boutons">
+          <button type="button" ref={refuser} className="svv-btn svv-btn-outline gst-btn"
+            onClick={onAnnuler}>{annuler}</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn red-conf-oui"
+            onClick={onConfirmer}>{confirmer}</button>
+        </div>
+      </div>
+    </div>
+  );
+  /* ⚠️ SANS `document` (rendu serveur), ON NE REND RIEN : la fenêtre n'existe que sur un geste, donc jamais au
+     premier rendu. Même précaution que la bulle des biens. */
+  return typeof document === 'undefined' ? null : createPortal(fenetre, hoteDeLaBulle());
 }
 
 export function Redaction({
@@ -1914,52 +1984,55 @@ export function Redaction({
         </span>
       </div>
 
-      {/* ══ 🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — LES CONFIRMATIONS SONT PASSÉES **SOUS** LA RANGÉE ═════════════
-          Elles étaient rendues AU-DESSUS des boutons : mesuré le 07/10/2026, la confirmation « Supprimer
-          définitivement ce brouillon ? » s'affichait 132 px plus haut que le bouton qui l'ouvre, de l'autre côté
-          de toute la rangée — souvent hors de l'écran. On cliquait, et rien ne paraissait près du doigt ; le seul
-          texte visible sous le bouton était la ligne rouge du classement, qu'on lisait alors comme un refus.
+      {/* ══ 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION — LA CONFIRMATION EST UNE FENÊTRE, ET ELLE EST VUE ═══════════
+          ═══ LA CAUSE, MESURÉE DANS CHROME LE 07/10/2026 (fenêtre flottante, écran de 861 px utiles) ══════════
+          Au lot précédent, la confirmation est passée SOUS la rangée des boutons — ce qui la rapprochait du
+          doigt, mais la laissait DANS le contenu défilant de l'éditeur. Relevé au clic sur « Supprimer le
+          brouillon », la fenêtre flottante étant descendue jusqu'à ses boutons :
+              confirmation         y 820 → 880  (60 px de haut)
+              zone visible du corps  y 202 → 828  (.fre-corps, overflow-y:auto)
+              → 8 px visibles sur 60, et ces 8 px sont le padding haut du bloc, qui porte son BORD GAUCHE ROUGE
+              → « Annuler » et « Supprimer » (y 828 → 872) ENTIÈREMENT hors de la zone visible
+              → le corps était à 249 de défilement pour un maximum de 330 : 81 px restaient, sans rien le dire.
+          C'est exactement ce qu'Arno décrit : « un petit trait rouge apparaît tout en bas de la fenêtre, et rien
+          d'autre ne se passe ». Le trait rouge ÉTAIT la confirmation, rognée à son liseré.
 
-          🔴 UNE QUESTION SE POSE LÀ OÙ L'ON VIENT DE CLIQUER. C'est la règle de tout le module (la carte vide
-          prend la place de la tuile, le choix prend la place de la carte) : elle manquait seulement ici.
+          🔴 LA CORRECTION EST UNE FENÊTRE CENTRÉE, RENDUE DANS UN PORTAIL, et c'est le seul moyen FIABLE :
+            · un bloc dans le flux est à la merci du conteneur qui défile — c'est le défaut qu'on vient de lire ;
+            · « amener la confirmation dans la vue » demanderait de faire défiler le bon ancêtre parmi trois
+              (la page, `.fre-corps`, la conversation), au bon moment, et de recommencer si la hauteur change ;
+            · un simple `position:fixed` NE SUFFIT PAS : en plein écran, `.fre--plein` porte un `transform`, et un
+              descendant fixe s'ancre alors sur LUI, pas sur l'écran. Le piège est déjà consigné dans ce dépôt.
+          Le portail sort du DOM de l'éditeur : aucun `overflow`, aucun `transform`, aucun empilement d'ancêtre ne
+          peut plus la couper. Et c'est la MÊME fenêtre pour les trois éditeurs (flottante, conversation, plein
+          écran), parce qu'ils montent tous ce composant.
 
-          ⚠️ RIEN N'EST RETIRÉ NI CONDITIONNÉ : mêmes blocs, mêmes mots, mêmes boutons, même ordre entre eux. */}
-      {/* La confirmation de SUPPRESSION. Un brouillon se supprime EXPRÈS : la corbeille de la barre du bas est à
-          côté d'« Envoyer », et un clic de trop ne doit pas effacer ce qu'on vient d'écrire. */}
+          ⚠️ RIEN N'EST RETIRÉ : mêmes questions, mêmes mots, mêmes boutons, même ordre (« Annuler » d'abord — le
+          geste sans retour n'est jamais celui qu'on atteint par réflexe). */}
       {supprime && (
-        <p className="red-supprime" role="alert">
-          {/* ⚠️ LA PHRASE NE PROMET PLUS LA PERTE DU TEXTE — mais SEULEMENT si la corbeille existe : sans la
-              migration 276, `motsJeterBrouillon` redonne la phrase d'avant, qui, elle, ne promet aucun retour. */}
-          {motsJeter.question}{' '}
-          <button type="button" className="gst-lien-bouton" onClick={() => void supprimerBrouillon()}>
-            {motsJeter.confirmer}
-          </button>
-          {' · '}
-          <button type="button" className="gst-lien-bouton" onClick={() => setSupprime(false)}>Annuler</button>
-        </p>
+        <FenetreConfirmation
+          /* ⚠️ LA PHRASE NE PROMET PLUS LA PERTE DU TEXTE — mais SEULEMENT si la corbeille existe : sans la
+             migration 276, `motsJeterBrouillon` redonne la phrase d'avant, qui, elle, ne promet aucun retour. */
+          question={motsJeter.question}
+          annuler="Annuler" confirmer={motsJeter.confirmer}
+          onAnnuler={() => setSupprime(false)} onConfirmer={() => void supprimerBrouillon()} />
       )}
 
       {/* ══ 🔴🔴 LOT BROUILLON-ACCES-SUPPRESSION, POINT 2 — LA CONFIRMATION DE LA SUPPRESSION DÉFINITIVE ═════════
           Mot pour mot la demande d'Arno : « Supprimer définitivement ce brouillon ? » avec Annuler et Supprimer.
-          🔴 « ANNULER » EST EN PREMIER DANS L'ORDRE DE TABULATION, comme dans la confirmation voisine : le geste
-          sans retour n'est jamais celui qu'on atteint par réflexe. */}
-      {supprimeDef && (
-        <p className="red-supprime" role="alert">
-          {MOTS_SUPPRIMER_BROUILLON.question}{' '}
-          <button type="button" className="gst-lien-bouton" onClick={() => setSupprimeDef(false)}>
-            {MOTS_SUPPRIMER_BROUILLON.annuler}
-          </button>
-          {' · '}
-          <button type="button" className="gst-lien-bouton" onClick={() => void supprimerDefinitivement()}>
-            {MOTS_SUPPRIMER_BROUILLON.confirmer}
-          </button>
-        </p>
-      )}
 
-      {/* 🔴 L'ÉCHEC RESTE SOUS LES YEUX, AVEC LE BROUILLON. Arno : « afficher “Brouillon non supprimé dans Gmail,
-          réessayer” et garder le brouillon affiché ». `role="alert"` : rien n'a été fait, il faut le savoir. */}
-      {echecGmail !== null && (
-        <p className="red-supprime red-echec-gmail" role="alert">{echecGmail}</p>
+          🔴🔴 L'ÉCHEC RESTE **DANS** LA FENÊTRE (lot BROUILLON-APERCU-SUPPRESSION). Il était rendu en bas de
+          l'éditeur, donc exposé au même rognage que la question elle-même — et il devait précisément être LU.
+          La fenêtre reste ouverte avec le motif, et « Supprimer » est à la même place : « réessayer » (Arno) est
+          alors un seul clic, au lieu d'un message qu'on ne voit pas sous un bouton qu'il faut retrouver.
+          ⚠️ LE BROUILLON RESTE AFFICHÉ DERRIÈRE, intact : c'est la règle d'Arno, et elle n'a pas bougé. */}
+      {supprimeDef && (
+        <FenetreConfirmation
+          question={MOTS_SUPPRIMER_BROUILLON.question}
+          annuler={MOTS_SUPPRIMER_BROUILLON.annuler} confirmer={MOTS_SUPPRIMER_BROUILLON.confirmer}
+          echec={echecGmail}
+          onAnnuler={() => { setEchecGmail(null); setSupprimeDef(false); }}
+          onConfirmer={() => void supprimerDefinitivement()} />
       )}
 
       {/* ══ 🔴🔴 LOT CLASSER-AVANT-ENVOI — LA LIGNE ROUGE, SOUS LE BOUTON ════════════════════════════════════
@@ -2017,6 +2090,23 @@ const CSS_REDACTION = `
   border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-field)}
 .red-supprime{margin:6px 0;padding:8px 10px;font-size:.85rem;color:var(--color-svv-ink);
   background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);border-radius:0 .4rem .4rem 0}
+/* ══ 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION — LA FENETRE DE CONFIRMATION ════════════════════════════════════════
+   Elle est rendue dans un PORTAIL (.svv-adm-root), donc hors de tout conteneur a defilement : c'est la seule
+   facon fiable de garantir qu'une question posee soit VUE. Voir l'encadre de FenetreConfirmation.
+   z-index 95 : au-dessus de la fenetre flottante (60), de son voile (58) et de la modale de rattachement (80).
+   AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un litteral gabarit. */
+.red-conf-voile{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;
+  padding:16px;background:color-mix(in srgb, var(--color-svv-ink) 42%, transparent)}
+.red-conf{width:min(26rem,100%);display:flex;flex-direction:column;gap:.8rem;padding:1.1rem 1.2rem;
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:.7rem;
+  box-shadow:0 8px 30px color-mix(in srgb, var(--color-svv-ink) 28%, transparent)}
+.red-conf-question{margin:0;font-size:.95rem;font-weight:600;color:var(--color-svv-ink);line-height:1.35}
+/* Le motif d'un refus : en gras et dans le rouge de la charte, qui a sa variante en theme Sombre. */
+.red-conf-echec{margin:0;font-size:.85rem;font-weight:700;color:var(--color-svv-red);line-height:1.35}
+/* « Annuler » A GAUCHE et en premier dans l'ordre de tabulation : le geste sans retour ne s'atteint pas par
+   reflexe. Les deux boutons gardent les cibles tactiles du module (gst-btn). */
+.red-conf-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.6rem}
+.red-conf-oui{background:var(--color-svv-red);border-color:var(--color-svv-red)}
 /* 🔴 LOT BROUILLON-ACCES-SUPPRESSION — l'echec de suppression PESE PLUS QU'UNE QUESTION : le mot est en gras.
    Aucune couleur ecrite en dur : c'est le rouge de la charte, qui a sa variante en theme Sombre. */
 .red-echec-gmail{font-weight:700;color:var(--color-svv-red)}
