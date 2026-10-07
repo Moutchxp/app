@@ -26,6 +26,8 @@ const CARTE = {
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise. `null` = aucune étape : la
      vignette montre alors « Ouverture » et la date d'ouverture de l'événement. */
   derniereEtape: null,
+  /* 🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — aucune étape venue de Monga : pas de capsule. */
+  derniereEtapeMonga: null,
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — l'effet « mis à jour par Monga » est la comparaison de ces deux dates.
      `null` des deux côtés = aucune étape Monga, jamais vu : rien ne s'allume. */
   mongaMajLe: null, vuLe: null,
@@ -160,7 +162,10 @@ describe('① PARESSE — ce qu’on n’ouvre pas ne coûte rien', () => {
   it('une carte repliée n’émet AUCUNE requête', async () => {
     await monter();
     expect(appels).toEqual([]);
-    expect(container.textContent).toContain('GES-2026-000009'); // le résumé, lui, est déjà là
+    /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 1 — LA RÉFÉRENCE A QUITTÉ LA CARTE (accord d'Arno) : ce qui prouve
+       que le résumé est déjà là, c'est son OBJET, qui ne vient d'aucune requête. */
+    expect(container.textContent).toContain('Fuite salle de bain');
+    expect(container.textContent).not.toContain('GES-2026-000009');
   });
 
   /**

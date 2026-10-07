@@ -1116,11 +1116,21 @@ describe('㉑ la vignette d’un événement', () => {
   });
 
   /** 🔴 TOUT LE RESTE EST GARDÉ (Arno) : titre, référence, état, nombre d'échanges, dernier échange. */
-  it('🔴🔴 la vignette garde toutes ses autres informations', () => {
-    expect(CARTE).toContain('<span className="gst-ref">{carte.reference}</span>');
-    expect(CARTE).toContain('<span>{libelleEtat(etat)}</span>');
+  /**
+   * ══ 🔴🔴 CE CAS A CHANGÉ DE VERDICT — LOT CARTE-EVENEMENT-EPUREE (07/10/2026) ═════════════════════════════════
+   *
+   * IL EXIGEAIT QUE LA VIGNETTE GARDE LA RÉFÉRENCE, L'ÉTAT ET « dernier échange » sur sa ligne. ACCORD D'ARNO :
+   * la référence (« GES-2026-000001 ») et l'état (« En cours ») QUITTENT la carte — ils restent sur la fiche du
+   * bien et dans la fenêtre de l'événement — et « dernier échange » ne s'écrit plus qu'une fois, dans la ligne
+   * « Ouvert depuis N jours · dernier échange il y a N jours » juste en dessous.
+   *
+   * 🔴 CE QUI RESTE EST ÉPROUVÉ ICI, et le reste l'est À L'ÉCRAN : `CarteVive.epuree.test.ts` monte le composant
+   * et lit ce qu'il rend, plutôt que la forme de son texte source.
+   */
+  it('🔴🔴 la vignette garde le compteur d’échanges, et plus la référence ni l’état', () => {
     expect(CARTE).toContain("{carte.nbFils} échange{carte.nbFils > 1 ? 's' : ''}");
-    expect(CARTE).toContain('dernier échange {depuis(carte.dernierEchangeLe, maintenant)}');
+    expect(CARTE).not.toContain('<span className="gst-ref">{carte.reference}</span>');
+    expect(CARTE).not.toContain('<span>{libelleEtat(etat)}</span>');
   });
 
   /**
@@ -1401,7 +1411,10 @@ describe('㉓ la vignette « MONGA » (lot EVENEMENT-MINIMALISTE, point 1)', () 
    */
   it('🔴🔴 la vignette existe aux DEUX endroits, au même dessin', () => {
     expect(BLOC).toContain('<span className="evb-monga"');
-    expect(CARTE).toContain('<span className="gst-monga-vignette"');
+    /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — MÊME CLASSE, MÊME DESSIN : seule sa POSE a changé (elle est
+       passée sous la miniature, et elle dit la dernière étape Monga). Le modificateur `--sous` ne porte que le
+       placement et le retour à la ligne. */
+    expect(CARTE).toContain('className="gst-monga-vignette gst-monga-vignette--sous"');
     for (const [nom, src, cls] of [['fiche du bien', BLOC, '.evb-monga'],
       ['vue de l’événement', VUE, '.gst-monga-vignette']] as const) {
       expect(src, nom).toContain(`${cls}{display:inline-block`);
@@ -1426,7 +1439,10 @@ describe('㉓ la vignette « MONGA » (lot EVENEMENT-MINIMALISTE, point 1)', () 
   it('⚠️ la référence est lue, pas seulement survolée', () => {
     expect(BLOC).toContain('title={(e.mongaRefs ?? []).join(\', \')}');
     expect(BLOC).toContain('<span className="evb-sr"> — suivi par Monga, {(e.mongaRefs ?? []).join(\', \')}</span>');
-    expect(CARTE).toContain('title={(carte.mongaRefs ?? []).join(\', \')}');
+    /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — la bulle porte maintenant les références ET la dernière étape
+       Monga, et le lecteur d'écran les lit toutes les deux. Le survol reste un confort, jamais le seul chemin. */
+    expect(CARTE).toContain('(carte.mongaRefs ?? []).join(\', \')');
+    expect(CARTE).toContain('— suivi par Monga, {(carte.mongaRefs ?? []).join(\', \')}');
   });
 
   /** 🔴 ET LA DONNÉE VIENT DES DEUX LECTURES, par la même règle : les références NON retirées. */
@@ -1454,18 +1470,30 @@ describe('㉔ la vignette enrichie (lot EVENEMENT-MINIMALISTE, point 2)', () => 
     const qualite = readFileSync('app/lib/gestion/evenementQualite.ts', 'utf8');
     expect(qualite).toContain(
       "export const CATEGORIES_EVENEMENT = ['travaux', 'fuite_eau', 'administratif', 'litige'] as const;");
-    expect(CARTE).toContain('{motCategorie(carte.categorie)}');
+    /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 2 — le type est passé EN TÊTE de ligne (la référence et l'état
+       l'ont quittée), et il ne s'affiche que s'il est RECONNU : c'est `categorieValide` qui tranche. Le libellé
+       et le style, eux, ne bougent pas. */
+    expect(CARTE).toContain('{motCategorie(typeEvenement)}');
+    expect(CARTE).toContain('const typeEvenement = categorieValide(carte.categorie);');
     /* 🔴 ET LE FORMULAIRE DE L'ÉVÉNEMENT LA PROPOSE DÉJÀ : rien à ajouter pour la rendre modifiable. */
     const bloc = readFileSync('app/(admin)/admin/(protected)/gestion/BlocEvenement.tsx', 'utf8');
     expect(bloc).toContain('{CATEGORIES_EVENEMENT.map((c) => <option key={c} value={c}>{motCategorie(c)}</option>)}');
   });
 
-  /** ⚠️ UN TYPE NON RENSEIGNÉ NE S'AFFICHE PAS : « Non précisée » sur chaque ligne serait du bruit. */
-  it('⚠️ pas de type, pas de ligne', () => {
-    expect(CARTE).toContain('{carte.categorie !== null && carte.categorie !== undefined && <>');
+  /**
+   * ⚠️ UN TYPE NON RENSEIGNÉ NE S'AFFICHE PAS : « Non précisée » sur chaque ligne serait du bruit.
+   *
+   * 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 2 — ET UNE VALEUR VIDE OU INCONNUE NON PLUS. La condition d'avant
+   * (`!== null && !== undefined`) laissait passer `''` et les mots hors liste, que `motCategorie` rend
+   * « Non précisée » : la carte affichait alors un type là où il n'y en a pas.
+   */
+  it('⚠️ pas de type — ni vide, ni inconnu — pas de ligne', () => {
+    expect(CARTE).toContain('{typeEvenement !== null && <>');
+    expect(CARTE).not.toContain('{carte.categorie !== null && carte.categorie !== undefined && <>');
   });
 
-  /** 🔴🔴 « Ouvert depuis N jours » ET « dernier échange il y a N jours » (Arno), accordés au singulier. */
+  /** 🔴🔴 « Ouvert depuis N jours » ET « dernier échange il y a N jours » (Arno), accordés au singulier.
+   *  🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 5 — c'est désormais la SEULE ligne qui dise « dernier échange ». */
   it('🔴🔴 les deux anciennetés, en jours, accordées', () => {
     expect(CARTE).toContain('Ouvert depuis {motJours(ouvertDepuis)}');
     expect(CARTE).toContain('dernier échange il y a {motJours(dernier)}');
@@ -1477,9 +1505,18 @@ describe('㉔ la vignette enrichie (lot EVENEMENT-MINIMALISTE, point 2)', () => 
     expect(CARTE).toContain('return jours < 0 ? 0 : jours;');
   });
 
-  /** 🔴 « l'adresse du bien (AVEC LE LOT) » — le numéro identifie le bien, deux adresses se ressemblent. */
-  it('🔴 l’adresse porte son numéro de lot', () => {
-    expect(CARTE).toContain('`lot ${b.cle} — ${lieu}`');
+  /**
+   * ══ 🔴🔴 CE CAS A CHANGÉ DE VERDICT — LOT CARTE-EVENEMENT-EPUREE, POINT 6 ═════════════════════════════════════
+   *
+   * IL EXIGEAIT « l'adresse du bien AVEC LE LOT » (le numéro identifie le bien, deux adresses se ressemblent).
+   * ACCORD D'ARNO : « lot 315 — 67 rue de Normandie, COURBEVOIE » devient « 67 rue de Normandie, COURBEVOIE ».
+   *
+   * ⚠️ LE LOT RESTE LE SEUL NOM D'UN BIEN SANS ADRESSE — sans lieu à écrire, « lot 315 » demeure, sans quoi la
+   * ligne disparaîtrait avec le seul moyen de savoir de quel bien on parle.
+   */
+  it('🔴🔴 l’adresse ne porte plus le numéro de lot devant', () => {
+    expect(CARTE).not.toContain('`lot ${b.cle} — ${lieu}`');
+    expect(CARTE).toContain('`lot ${b.cle}` : lieu)');
   });
 
   /**

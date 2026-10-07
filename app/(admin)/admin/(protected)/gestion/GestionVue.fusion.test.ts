@@ -333,7 +333,9 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
   it('les cartes gardent toutes leurs fonctions en plein écran : c’est la MÊME carte, pas une copie', async () => {
     window.history.replaceState(null, '', '/admin/gestion?ecran=evenements');
     await monter();
-    expect(texte()).toContain('GES-2026-000012');
+    /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 1 — la RÉFÉRENCE a quitté la carte (accord d'Arno), ici comme dans
+       l'écran partagé : c'est le MÊME composant. L'objet, lui, est toujours ce qui identifie le dossier à l'œil. */
+    expect(texte()).not.toContain('GES-2026-000012');
     expect(texte()).toContain('Dossier 12');
     expect(texte()).toContain('3 échanges'); // le libellé de la carte, tel quel
     expect(boutonPar(/Écran partagé/)).toBeDefined();

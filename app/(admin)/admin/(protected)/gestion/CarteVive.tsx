@@ -13,7 +13,7 @@ import type { CarteEvenement, DerniereEtapeVignette } from '../../../../lib/gest
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le mot d'une étape et la forme de sa date : modules PURS. */
 import { motEtape } from '../../../../lib/gestion/mongaEtape';
 /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le mot d'un TYPE d'événement. Module PUR, liste déjà en base (268). */
-import { motCategorie } from '../../../../lib/gestion/evenementQualite';
+import { categorieValide, motCategorie } from '../../../../lib/gestion/evenementQualite';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 import {
   depuis, formaterDateFr, formaterTaille, heureParis, libelleEtat, libelleSens,
@@ -159,6 +159,13 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
     }).catch(() => undefined);
   };
 
+  /**
+   * 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 2 — LE TYPE RETENU. `categorieValide` est la MÊME fonction que le
+   * formulaire de la carte : une valeur inconnue ou vide vaut « pas de type », et rien ne s'affiche. Sans elle,
+   * `motCategorie` rendrait « Non précisée », c'est-à-dire un type là où il n'y en a pas.
+   */
+  const typeEvenement = categorieValide(carte.categorie);
+
   return (
     <li className={`gst-item${misAJour ? ' gst-item--monga' : ''}`} onClickCapture={marquerVu}>
       <BlocRepliable
@@ -182,41 +189,67 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
               {/* ⚠️ LE TITRE SE COUPE AVEC « … », et il garde son contenu entier dans son `title` : une
                   coupure qui perd l'information serait un titre faux. */}
               <span className="gst-objet gst-objet--coupe" title={objet}>{objet}</span>
+              {/**
+                * ══ 🔴🔴 LOT CARTE-EVENEMENT-EPUREE — CETTE LIGNE A ÉTÉ ÉPURÉE, POINTS 1, 2 ET 5 ═══════════════
+                *
+                * ACCORD D'ARNO (07/10/2026), et SEULEMENT pour ces retraits-là :
+                *   ① la RÉFÉRENCE (« GES-2026-000001 ») et l'ÉTAT (« En cours ») quittent la carte. Ils restent
+                *      ailleurs — fiche du bien, fenêtre de l'événement — et n'y sont pas touchés ;
+                *   ② le TYPE prend leur place en tête de ligne. Il était déjà là (lot EVENEMENT-MINIMALISTE,
+                *      point 2), au même libellé et au même style : seul son rang change ;
+                *   ⑤ « dernier échange il y a N jours » quitte CETTE ligne — il est déjà dit, en entier, par
+                *      « Ouvert depuis N jours · dernier échange il y a N jours » juste en dessous
+                *      (`LignesDuDossier`). Le compteur « N échange » reste.
+                *
+                * 🔴 LE TYPE NE S'AFFICHE QUE S'IL EST RENSEIGNÉ **ET RECONNU** (`categorieValide`). La condition
+                * d'avant (`!== null && !== undefined`) laissait passer une chaîne vide ou un mot inconnu, que
+                * `motCategorie` rend « Non précisée » : la carte aurait affiché un type là où il n'y en a pas,
+                * exactement ce qu'Arno demande d'éviter.
+                */}
               <span className="gst-carte-bas">
-                <span className="gst-ref">{carte.reference}</span>
-                <span className="gst-sep" aria-hidden="true">·</span>
-                <span>{libelleEtat(etat)}</span>
-                {/* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — LE TYPE D'ÉVÉNEMENT. La liste existait déjà
-                    (`CATEGORIES_EVENEMENT`, migration 268) : aucune migration n'a été faite, Arno l'ayant
-                    conditionnée à son absence. Un type non renseigné ne s'affiche pas — « Non précisée » sur
-                    chaque ligne serait du bruit, et la vignette en porte déjà beaucoup. */}
-                {carte.categorie !== null && carte.categorie !== undefined && <>
+                {typeEvenement !== null && <>
+                  <span className="gst-carte-type">{motCategorie(typeEvenement)}</span>
                   <span className="gst-sep" aria-hidden="true">·</span>
-                  <span className="gst-carte-type">{motCategorie(carte.categorie)}</span>
                 </>}
-                <span className="gst-sep" aria-hidden="true">·</span>
                 <span>{carte.nbFils} échange{carte.nbFils > 1 ? 's' : ''}</span>
-                {carte.dernierEchangeLe && <>
-                  <span className="gst-sep" aria-hidden="true">·</span>
-                  <span title={formaterDateFr(carte.dernierEchangeLe)}>dernier échange {depuis(carte.dernierEchangeLe, maintenant)}</span>
-                </>}
-                {/**
-                  * 🔴🔴 LA VIGNETTE « MONGA », LA MÊME QUE SUR LA FICHE DU BIEN (Arno, point 1 : « Même vignette
-                  * dans la vue de l'événement »). Fond vert, texte blanc, la ou les références au survol — et
-                  * lues à voix haute, parce qu'un renseignement qui n'existe qu'au survol n'existe ni au
-                  * tactile ni au clavier.
-                  */}
-                {(carte.mongaRefs ?? []).length > 0 && (
-                  <span className="gst-monga-vignette" title={(carte.mongaRefs ?? []).join(', ')}>
-                    MONGA
-                    <span className="gst-sr-only"> — suivi par Monga, {(carte.mongaRefs ?? []).join(', ')}</span>
-                  </span>
-                )}
               </span>
               <LignesDuDossier carte={carte} maintenant={maintenant} />
             </span>
-            <MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe}
-              misAJourLe={misAJour ? majMonga : null} />
+            {/**
+              * ══ 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — LA CAPSULE MONGA SOUS LA VIGNETTE ════════════════
+              *
+              * Arno : « afficher la capsule verte Monga JUSTE EN DESSOUS de la vignette de droite (celle qui
+              * montre “Intervention 12/10/2026”). Elle indique la DERNIÈRE étape Monga de l'événement. »
+              *
+              * 🔴 ELLE N'EST PAS NOUVELLE : c'est la capsule `gst-monga-vignette` qui vivait au bout de la ligne
+              * de la référence — même classe, même dessin (fond vert, texte blanc), mêmes références au survol
+              * et pour le lecteur d'écran. Elle CHANGE DE PLACE et gagne l'étape ; rien n'est retiré de la carte.
+              *
+              * 🔴 L'ÉTAPE VIENT DE LA MÊME SOURCE QUE LA FRISE (`sqlDerniereEtape`, borné aux étapes de Monga) :
+              * aucune seconde requête, et donc aucun risque que la capsule et la frise se contredisent.
+              *
+              * ⚠️ PAS DE RÉFÉRENCE MNG VIVE ⇒ PAS DE CAPSULE, et c'est le cas ordinaire. La condition est
+              * exactement celle d'avant (`mongaRefs`), pour que la capsule apparaisse aux mêmes dossiers.
+              */}
+            <span className="gst-carte-droite">
+              <MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe}
+                misAJourLe={misAJour ? majMonga : null} />
+              {(carte.mongaRefs ?? []).length > 0 && (
+                <span className="gst-monga-vignette gst-monga-vignette--sous"
+                  title={[(carte.mongaRefs ?? []).join(', '), motEtapeMonga(carte.derniereEtapeMonga)]
+                    .filter((x) => x !== null && x !== '').join(' — ')}>
+                  MONGA
+                  {motEtapeMonga(carte.derniereEtapeMonga) !== null && <>
+                    <span className="gst-sep" aria-hidden="true"> · </span>
+                    {motEtapeMonga(carte.derniereEtapeMonga)}
+                  </>}
+                  <span className="gst-sr-only"> — suivi par Monga, {(carte.mongaRefs ?? []).join(', ')}
+                    {motEtapeMonga(carte.derniereEtapeMonga) !== null
+                      && `, dernière étape Monga : ${motEtapeMonga(carte.derniereEtapeMonga) ?? ''}`}
+                  </span>
+                </span>
+              )}
+            </span>
           </span>
         }
       >
@@ -505,6 +538,21 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
    c'est la règle de `depuis`, et elle vaut pour que toutes les lignes d'une même page disent la même heure.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * ══ 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — LE MOT DE LA DERNIÈRE ÉTAPE MONGA ════════════════════════════════
+ *
+ * Le MÊME mot que la frise et que la miniature : `motEtape` pour le type, le titre saisi pour une carte libre.
+ * Écrit ici une seule fois, parce que la capsule l'affiche, le met dans sa bulle et le dit au lecteur d'écran —
+ * trois endroits qui ne doivent pas se mettre à diverger.
+ *
+ * ⚠️ `null` = AUCUNE ÉTAPE VENUE DE MONGA : la capsule se contente alors de « MONGA », comme avant ce lot.
+ */
+function motEtapeMonga(e: DerniereEtapeVignette | null | undefined): string | null {
+  if (e === null || e === undefined) return null;
+  const titre = e.titre?.trim() ?? '';
+  return e.type === 'autre' && titre !== '' ? titre : motEtape(e.type);
+}
+
 /** « N jours » depuis une date. PUR dans son esprit : l'instant de référence est injecté. */
 function enJours(iso: string | null, maintenant: Date): number | null {
   if (iso === null) return null;
@@ -527,10 +575,22 @@ function LignesDuDossier({ carte, maintenant }: { carte: CarteEvenement; mainten
   const b = carte.bien ?? null;
   const lieu = b === null ? null
     : [b.adresse, b.commune].filter((x) => x !== null && x !== '').join(', ');
-  /* 🔴 « l'adresse du bien (AVEC LE LOT) » — Arno. Le numéro de lot est ce qui identifie le bien dans WIPPIMMO,
-     et deux adresses se ressemblent souvent dans un même immeuble. */
+  /**
+   * ══ 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 6 — L'ADRESSE SEULE, SANS LE NUMÉRO DE LOT ════════════════════════
+   *
+   * CE QUI ÉTAIT ÉCRIT ICI : « l'adresse du bien (AVEC LE LOT) — Arno. Le numéro de lot est ce qui identifie le
+   * bien dans WIPPIMMO, et deux adresses se ressemblent souvent dans un même immeuble. » ACCORD D'ARNO
+   * (07/10/2026) : « lot 315 — 67 rue de Normandie, COURBEVOIE » devient « 67 rue de Normandie, COURBEVOIE ».
+   *
+   * ⚠️ LE LOT RESTE LE SEUL NOM D'UN BIEN SANS ADRESSE : quand on n'a pas de lieu à écrire, « lot 315 » reste —
+   * sans quoi la ligne disparaîtrait, et avec elle le seul moyen de savoir de quel bien on parle. Arno ne demande
+   * pas de retirer le lot, mais de ne plus le mettre DEVANT une adresse.
+   *
+   * ⚠️ AILLEURS DANS L'APPLICATION, RIEN NE CHANGE : la forme « adresse — lot N » (suffixe) des autres écrans
+   * n'est pas touchée.
+   */
   const adresse = b === null ? null
-    : (lieu === null || lieu === '' ? `lot ${b.cle}` : `lot ${b.cle} — ${lieu}`);
+    : (lieu === null || lieu === '' ? `lot ${b.cle}` : lieu);
   const gens = b === null ? [] : [
     b.proprietaire === null ? null : `Propriétaire : ${b.proprietaire}`,
     b.locataire === null ? null : `Locataire en place : ${b.locataire}`,
@@ -670,9 +730,14 @@ function OuvrirLaFicheDuBien({ biens, evenementId, onOuvrirBien }: {
     const n = Number(cle);
     return Number.isSafeInteger(n) && n > 0;
   };
+  /**
+   * 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 6 — L'ADRESSE SEULE, sans le numéro de lot devant. Même décision et
+   * même repli que `LignesDuDossier` : le lot ne reste que lorsqu'il n'y a AUCUNE adresse à écrire, parce qu'il
+   * est alors le seul nom du bien.
+   */
   const mot = (b: { cle: string; adresse: string | null; commune: string | null }): string => {
     const lieu = [b.adresse, b.commune].filter((x) => x !== null && x !== '').join(', ');
-    return lieu === '' ? `lot ${b.cle}` : `lot ${b.cle} — ${lieu}`;
+    return lieu === '' ? `lot ${b.cle}` : lieu;
   };
 
   /* ⚠️ AUCUN BIEN : on le DIT. Un bouton qui ne mène nulle part s'apprend, et l'on cesse de le regarder. */
@@ -694,11 +759,17 @@ function OuvrirLaFicheDuBien({ biens, evenementId, onOuvrirBien }: {
   if (ouvrables.length === 1 && biens.length === 1) {
     return (
       <div className="gst-bloc">
+        {/**
+          * 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 4 — PLUS D'ADRESSE SOUS LE BOUTON. ACCORD D'ARNO : elle
+          * redisait mot pour mot celle que la vignette porte quelques lignes plus haut. Le bouton, lui, reste.
+          *
+          * ⚠️ LA NOTE DU CAS « PLUSIEURS BIENS » N'EST PAS CONCERNÉE : elle ne dit pas une adresse, elle dit
+          * combien il y en a — et c'est ce qui explique que le bouton ouvre un choix plutôt qu'une fiche.
+          */}
         <button type="button" className="svv-btn svv-btn-primary gst-ouvrir-fiche"
           onClick={() => onOuvrirBien(ouvrables[0].cle, evenementId)}>
           Ouvrir la fiche du bien sur cet événement →
         </button>
-        <p className="gst-note">{mot(ouvrables[0])}</p>
       </div>
     );
   }

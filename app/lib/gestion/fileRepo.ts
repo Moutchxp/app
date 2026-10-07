@@ -71,6 +71,22 @@ export interface CarteEvenement {
    */
   derniereEtape: DerniereEtapeVignette | null;
   /**
+   * ══ 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — LA DERNIÈRE ÉTAPE **VENUE DE MONGA** ═════════════════════════
+   *
+   * Arno : « quand l'événement a été intégré par les mails Monga (référence MNG liée), afficher la capsule verte
+   * Monga juste en dessous de la vignette de droite. Elle indique la DERNIÈRE étape Monga de l'événement. »
+   *
+   * 🔴 CE N'EST PAS `derniereEtape`, et la différence compte : celle-ci est la dernière étape TOUTES SOURCES
+   * CONFONDUES. Un dossier dont la dernière carte a été posée à la main n'en est pas moins suivi par Monga, et
+   * c'est l'avancement CHEZ MONGA que la capsule annonce.
+   *
+   * 🔴 MÊME SOURCE DE CALCUL QUE LA FRISE, et littéralement le même texte SQL (`sqlDerniereEtape`), borné aux
+   * étapes venues de Monga — jamais une seconde requête qui recalculerait à sa façon.
+   *
+   * ⚠️ `null` EST LE CAS ORDINAIRE (aucune étape Monga) : la capsule ne s'affiche alors pas.
+   */
+  derniereEtapeMonga: DerniereEtapeVignette | null;
+  /**
    * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — « MIS À JOUR PAR MONGA » ═════════════════════════════════════════
    *
    * Arno : « Quand l'automatisation Monga AJOUTE ou MODIFIE une étape d'un événement (jamais pour un geste
@@ -303,6 +319,11 @@ interface CarteDB {
   etape_type: TypeEtape | null; etape_titre: string | null; etape_survenu_le: string;
   etape_heure_connue: boolean | null; etape_source: string | null;
   etape_certitude: DerniereEtapeVignette['certitude'] | null;
+  /* 🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — la dernière étape VENUE DE MONGA (`source` y vaut forcément
+     « monga » : la jointure l'impose, et la recopier ferait une colonne qui ne peut rien dire d'autre). */
+  etapem_type: TypeEtape | null; etapem_titre: string | null; etapem_survenu_le: string;
+  etapem_heure_connue: boolean | null;
+  etapem_certitude: DerniereEtapeVignette['certitude'] | null;
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — la dernière écriture de Monga, et ma dernière vue. */
   monga_maj_le: string | null; vu_le: string | null;
   monga_refs: string[] | null;
@@ -457,18 +478,40 @@ const SQL_DERNIERE_MAJ_MONGA = `
                                 WHERE evenement_id = e.id AND retire_le IS NULL))
   ) mg ON true`;
 
-const SQL_DERNIERE_ETAPE = `
+/**
+ * ══ 🔴🔴 LA DERNIÈRE CARTE D'ÉTAPE, ÉCRITE **UNE SEULE FOIS** ═══════════════════════════════════════════════════
+ *
+ * C'est la MÊME question que la frise d'avancement, et le même ensemble de faits : les étapes vives de
+ * l'événement et de ses références MNG reliées, les types qui ne sont pas des cartes exclus, triées par date
+ * (lot FRISE-CONSTRUCTIBLE).
+ *
+ * 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — ET LA CAPSULE MONGA POSE LA MÊME QUESTION, BORNÉE AUX ÉTAPES VENUES
+ * DE MONGA. Arno : « la même source de calcul que la frise d'avancement (aucune seconde requête qui recalcule à
+ * sa façon) ». D'où un seul texte, deux liaisons — c'est le patron du dépôt (cf. `sqlMailEtoile`).
+ *
+ * ⚠️ `mongaSeulement` NE CHANGE PAS LE TRI NI LE PÉRIMÈTRE, seulement la provenance retenue : la « dernière étape
+ * Monga » reste la dernière PAR DATE, comme la frise les range. Un second tri aurait fait dire à la capsule autre
+ * chose que la frise qu'elle résume.
+ */
+function sqlDerniereEtape(alias: string, mongaSeulement: boolean): string {
+  return `
   LEFT JOIN LATERAL (
     SELECT x.type, x.titre, x.survenu_le, x.heure_connue, x.source, x.certitude
       FROM gestion_monga_etape x
      WHERE x.statut = 'vif'
        AND x.type NOT IN ('facture','rappel_devis','contact_injoignable','commentaire','note')
+       ${mongaSeulement ? "AND x.source = 'monga'" : ''}
        AND (x.evenement_id = e.id
             OR x.reference IN (SELECT reference FROM gestion_monga_lien
                                 WHERE evenement_id = e.id AND retire_le IS NULL))
      ORDER BY x.survenu_le DESC, x.id DESC
      LIMIT 1
-  ) et ON true`;
+  ) ${alias} ON true`;
+}
+
+const SQL_DERNIERE_ETAPE = sqlDerniereEtape('et', false);
+/** 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — la dernière étape VENUE DE MONGA, pour la capsule verte. */
+const SQL_DERNIERE_ETAPE_MONGA = sqlDerniereEtape('etm', true);
 
 /**
  * LES CARTES : tous les événements, les OUVERTS d'abord (un événement traité n'attend plus rien), puis ceux qui attendent
@@ -511,6 +554,10 @@ export async function lireEvenements(
             et.type AS etape_type, et.titre AS etape_titre,
             to_char(et.survenu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS etape_survenu_le,
             et.heure_connue AS etape_heure_connue, et.source AS etape_source, et.certitude AS etape_certitude,
+            /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — la dernière étape VENUE DE MONGA : la capsule verte. */
+            etm.type AS etapem_type, etm.titre AS etapem_titre,
+            to_char(etm.survenu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS etapem_survenu_le,
+            etm.heure_connue AS etapem_heure_connue, etm.certitude AS etapem_certitude,
             /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — la dernière ÉCRITURE de Monga (ajout OU modification), et ma
                dernière vue de cet événement. L'écran compare les deux, il ne lit aucun drapeau. */
             to_char(mg.le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS monga_maj_le,
@@ -536,9 +583,11 @@ export async function lireEvenements(
        LEFT JOIN messages_deplaces md ON md.evenement_id = e.id
        ${jointuresAttente('a.fil_id')}
        ${SQL_DERNIERE_ETAPE}
+       ${SQL_DERNIERE_ETAPE_MONGA}
        ${SQL_DERNIERE_MAJ_MONGA}
        ${sqlBienDeLEvenement(ctx.deplacements)}
       GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.source, et.certitude, mg.le,
+               etm.type, etm.titre, etm.survenu_le, etm.heure_connue, etm.certitude,
                bi.cle, bi.adresse, bi.commune, bi.proprietaire, bi.locataire, bi.nb
       ORDER BY ${triMongaDAbord(avecVues)}(e.traite_le IS NOT NULL) ASC,
                ${ATTEND_CARTE} DESC,
@@ -562,6 +611,16 @@ export async function lireEvenements(
         heureConnue: r.etape_heure_connue === true,
         source: r.etape_source === 'monga' ? 'monga' : 'manuelle',
         certitude: r.etape_certitude ?? 'fiable',
+      },
+      /**
+       * 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — `null` = aucune étape venue de Monga, et c'est le cas
+       * ordinaire : la capsule ne s'affiche alors pas. Une capsule « Monga » sans étape ne dirait rien.
+       */
+      derniereEtapeMonga: r.etapem_type === null || r.etapem_type === undefined ? null : {
+        type: r.etapem_type, titre: r.etapem_titre, survenuLe: r.etapem_survenu_le,
+        heureConnue: r.etapem_heure_connue === true,
+        source: 'monga' as const,
+        certitude: r.etapem_certitude ?? 'fiable',
       },
       mongaMajLe: r.monga_maj_le, vuLe: r.vu_le,
       /* ⚠️ `null` DE POSTGRES ⇒ TABLEAU VIDE : l'écran n'a pas à distinguer « aucune référence » d'une absence. */

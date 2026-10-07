@@ -25,6 +25,8 @@ const carte = (over: Partial<Parameters<typeof CarteEv>[0]['carte']> = {}) => ({
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise. `null` = aucune étape, et la
      vignette montre alors « Ouverture » et la date d'ouverture de l'événement. */
   derniereEtape: null,
+  /* 🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — aucune étape venue de Monga : pas de capsule. */
+  derniereEtapeMonga: null,
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — l'effet « mis à jour par Monga » est la comparaison de ces deux dates.
      `null` des deux côtés = aucune étape Monga, jamais vu : rien ne s'allume. */
   mongaMajLe: null, vuLe: null,

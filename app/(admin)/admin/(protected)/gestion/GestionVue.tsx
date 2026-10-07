@@ -1888,6 +1888,11 @@ const CSS_GESTION = `
    ⚠️ PREFIXE « gst-mini- » ET NON « fav- » : la feuille de la frise n'est pas injectee sur l'ecran partage, et deux
    composants ne partagent JAMAIS un prefixe de classe (leçon du lot FRISES-REPARATION — il n'y a pas de portee
    en CSS). */
+/* ══ LOT CARTE-EVENEMENT-EPUREE, POINT 3 — LA COLONNE DE DROITE : la miniature, et la capsule Monga dessous ══
+   Arno : « afficher la capsule verte Monga JUSTE EN DESSOUS de la vignette de droite ». La colonne a la LARGEUR
+   DE LA MINIATURE (132 px) et ne s'etire pas : c'est le texte de gauche qui prend la place restante, comme avant.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-carte-droite{flex:0 0 auto;display:flex;flex-direction:column;align-items:stretch;gap:3px;width:132px}
 .gst-mini{flex:0 0 auto;box-sizing:border-box;width:132px;min-height:46px;padding:4px 6px;
   display:flex;flex-direction:column;gap:1px;position:relative;
   border-radius:8px;border:2px solid var(--color-svv-green);background:var(--color-svv-field)}
@@ -1909,6 +1914,12 @@ const CSS_GESTION = `
 .gst-monga-vignette{display:inline-block;margin-left:.35rem;padding:1px 7px;border-radius:999px;
   font-size:.68rem;font-weight:700;letter-spacing:.04em;white-space:nowrap;
   color:var(--color-svv-bg);background:var(--color-svv-green)}
+/* ══ LOT CARTE-EVENEMENT-EPUREE, POINT 3 — LA MEME CAPSULE, SOUS LA MINIATURE ══
+   Meme dessin (fond vert, texte blanc) : seule sa POSE change. Elle porte en plus la derniere etape Monga, qui
+   est un texte et non un sigle — elle passe donc a la ligne plutot que de deborder de sa colonne de 132 px.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-monga-vignette--sous{display:block;margin-left:0;white-space:normal;line-height:1.25;
+  text-align:center;letter-spacing:.02em}
 
 /* ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — LES LIGNES COURTES DE LA VIGNETTE ══════════════════════════════
    Arno : « ajoute, sur des lignes COURTES ». Chacune tient sur une ligne et se coupe proprement — la vignette
@@ -1974,6 +1985,8 @@ const CSS_GESTION = `
 @media (max-width:600px){
   .gst-carte-titre--avec-etape{flex-wrap:wrap}
   .gst-mini{width:100%}
+  /* Sur telephone, la colonne de droite passe sous le texte et prend toute la largeur, comme la miniature. */
+  .gst-carte-droite{width:100%}
 }
 .gst-carte-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;flex-basis:100%;font-size:.8rem;font-weight:400;color:var(--color-svv-muted)}
 .gst-corps{display:flex;flex-direction:column;gap:12px;padding:12px 2px 2px}
