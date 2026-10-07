@@ -1556,3 +1556,63 @@ describe('㉔-bis la lecture du bien ne peut pas faire tomber l’écran', () =>
     expect(repo).toContain('${sqlBienDeLEvenement(ctx.deplacements)}');
   });
 });
+
+describe('㉕ l’écran partagé est minimaliste (lot EVENEMENT-MINIMALISTE, point 3)', () => {
+  /**
+   * 🔴🔴 ACCORD D'ARNO : « sous la vignette dépliée, retire le titre “Avancement” et tout ce qui est en dessous
+   * (alerte de clôture, frise, bloc Quoi / Qui demande / Adresse / Ouvert / Modifier). Il ne reste que la
+   * vignette et le gros bouton “Ouvrir la fiche du bien sur cet événement →”. »
+   */
+  it('🔴🔴 dans l’écran partagé, le corps s’arrête au gros bouton', () => {
+    expect(CARTE).toContain('{partage ? null : (<>');
+    /* 🔴 ET LE GROS BOUTON, LUI, RESTE — c'est la seule chose qui demeure avec la vignette. */
+    expect(CARTE).toContain('<OuvrirLaFicheDuBien biens={d.biens ?? []}');
+  });
+
+  /**
+   * 🔴🔴 EN PLEIN ÉCRAN, RIEN NE CHANGE. L'écran partagé est une LISTE — on y choisit un dossier, on ne le
+   * travaille pas. Tout ce qui est retiré de la liste reste là où l'on travaille.
+   */
+  it('🔴🔴 le plein écran garde tout : frise, Monga, résumé, échanges', () => {
+    const i = CARTE.indexOf('{partage ? null : (<>');
+    const bloc = CARTE.slice(i, CARTE.indexOf('</>)}', i));
+    for (const morceau of ['<h3 className="gst-sous-titre">Avancement</h3>', '<FriseAvancement',
+      'className="gst-monga"', '<ResumeCarte detail={d}', 'Échanges rattachés']) {
+      expect(bloc, morceau).toContain(morceau);
+    }
+  });
+
+  /**
+   * 🔴🔴 CE QUI EST RETIRÉ RESTE DISPONIBLE SUR LA FICHE DU BIEN — c'est la condition qu'Arno a posée, et elle
+   * est vérifiée pièce par pièce.
+   */
+  it('🔴🔴 la frise, la proposition de clôture et le « Modifier » sont sur la fiche du bien', () => {
+    /* ① la frise y était déjà, depuis le lot MONGA-2. */
+    expect(BLOC).toContain('<FriseAvancement');
+    /* ② la proposition de clôture : AJOUTÉE par ce lot — ce bloc ne passait pas `onProposerCloture`. */
+    expect(BLOC).toContain('onProposerCloture={() => void ecrire(e.id, { etat: \'traite\' },');
+    /* ③ le « Modifier » des informations : AJOUTÉ, et c'est LE MÊME formulaire, importé et non recopié. */
+    expect(BLOC).toContain("import { FormulaireCarte } from './CarteVive';");
+    expect(BLOC).toContain('Modifier les informations de l’événement');
+    expect(CARTE).toContain('export function FormulaireCarte(');
+  });
+
+  /**
+   * 🔴 LA MÊME PORTE D'ÉCRITURE QUE LA VUE DE L'ÉVÉNEMENT : `PATCH /evenements/[id]`. Deux portes auraient écrit
+   * deux histoires différentes dans le journal.
+   */
+  it('🔴 les deux gestes rapatriés passent par la porte existante', () => {
+    expect(BLOC).toContain('const ecrire = useCallback(async (id: number, corps: unknown, succes: string)');
+    expect(BLOC).toContain("method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),");
+  });
+
+  /**
+   * ⚠️ LE DÉTAIL N'EST LU QU'AU CLIC SUR « MODIFIER » — chargement paresseux, comme la carte vivante depuis le
+   * lot 4c. Une fiche de bien n'a pas à payer une requête par événement pour un formulaire que personne
+   * n'ouvrira.
+   */
+  it('⚠️ ouvrir « Modifier » est le seul moment où le détail se lit', () => {
+    expect(BLOC).toContain('const ouvrirModification = useCallback(async (id: number)');
+    expect(BLOC).toContain("onClick={() => void ouvrirModification(e.id)}");
+  });
+});

@@ -331,6 +331,24 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
           onEtat={(e) => void agir({ etat: e }, `Événement ${d.reference} : ${libelleEtat(e).toLowerCase()}.`)} />}
 
       {/**
+        * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — L'ÉCRAN PARTAGÉ S'ARRÊTE ICI ═════════════════════════════
+        *
+        * ACCORD D'ARNO (07/10/2026) : « sous la vignette dépliée, retire le titre “Avancement” et tout ce qui est
+        * en dessous (alerte de clôture, frise, bloc Quoi / Qui demande / Adresse / Ouvert / Modifier). Il ne
+        * reste que la vignette et le gros bouton “Ouvrir la fiche du bien sur cet événement →”. »
+        *
+        * 🔴 RIEN N'EST PERDU, ET C'EST VÉRIFIÉ PIÈCE PAR PIÈCE : la frise est dans le bloc « Événements » de la
+        * fiche du bien depuis le lot MONGA-2 ; la proposition « Clôturer cet événement ? » y est AJOUTÉE par ce
+        * lot (elle n'y passait pas `onProposerCloture`) ; le « Modifier » des informations de l'événement y est
+        * AJOUTÉ aussi, avec le MÊME formulaire que celui-ci — pas une copie. Et le gros bouton mène là en un
+        * clic, déplié sur le bon événement.
+        *
+        * 🔴 EN PLEIN ÉCRAN, RIEN NE CHANGE : tout ce qui suit s'affiche comme avant. L'écran partagé est une
+        * LISTE — on y choisit un dossier, on ne le travaille pas.
+        */}
+      {partage ? null : (<>
+
+      {/**
         * ══ 🔴🔴 LOT MONGA-1, POINT 4 — LE BADGE DE L'INTERVENTION, SA DERNIÈRE ÉTAPE, SON LIEN ════════════════
         *
         * Arno : « Sur l'événement : un badge “Monga MNG-23987”, la dernière étape (ex. “Devis en attente de
@@ -468,6 +486,7 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
           </ol>
         </>
       )}
+      </>)}
     </div>
   );
 }
@@ -758,7 +777,12 @@ function ResumeCarte({ detail, maintenant, onModifier, occupe }: {
 }
 
 /** La correction à la main. Le pré-remplissage ne propose que ce qui est écrit dans le mail : il fallait pouvoir corriger. */
-function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
+/**
+ * 🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — EXPORTÉ pour le bloc « Événements » de la fiche du bien. Le « Modifier »
+ * y est ajouté parce qu'il quitte l'écran partagé, et c'est LE MÊME formulaire : une copie aurait fini par
+ * proposer d'autres champs d'un côté que de l'autre.
+ */
+export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
   detail: CarteDetail; occupe: boolean;
   onValider: (champs: { objet: string; demandeurNom: string; adresseLibre: string }) => void;
   onAnnuler: () => void;

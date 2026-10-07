@@ -4,6 +4,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴 MODULE PUR UNIQUEMENT : ce composant vit dans le navigateur (incident du 24/09/2026). */
 import { motEtape, type TypeEtape } from '../../../../lib/gestion/mongaEtape';
 import { FriseAvancement } from './FriseAvancement';
+/* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — le MÊME formulaire que la vue de l'événement, jamais une copie. */
+import { FormulaireCarte } from './CarteVive';
+
+/**
+ * ⚠️ LE TYPE DU DÉTAIL VIENT DU **COMPOSANT**, ET NON DU DÉPÔT — et c'est une garde du dépôt qui l'a imposé.
+ * Un premier jet écrivait `import type { CarteDetail } from '.../carteRepo'` : l'épreuve « aucun des deux
+ * écrans n'importe un dépôt » l'a refusé. L'import de TYPE est pourtant effacé à la compilation et ne crée
+ * aucune arête dans le graphe — mais la garde est TEXTUELLE, et c'est ce qui fait sa force : elle ne demande
+ * pas à celui qui la lit de juger si tel import est « vraiment » dangereux. Le prendre ici ne coûte rien et
+ * ferme la question.
+ */
+type DetailEvenement = Parameters<typeof FormulaireCarte>[0]['detail'];
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINT 4 — LE BLOC « ÉVÉNEMENTS » DE LA FICHE D'UN BIEN ═════════════════════════════════════
@@ -62,6 +74,13 @@ export function EvenementsDuBien({
 }) {
   const [evenements, setEvenements] = useState<EvenementDuBien[] | null>(null);
   const [deplies, setDeplies] = useState<ReadonlySet<number>>(new Set());
+  /**
+   * 🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — L'ÉVÉNEMENT DONT ON MODIFIE LES INFORMATIONS, et son détail chargé.
+   * `null` = aucun. Le détail n'est lu qu'AU CLIC sur « Modifier » : une fiche de bien n'a pas à payer une
+   * requête par événement pour un formulaire que personne n'ouvrira.
+   */
+  const [modifie, setModifie] = useState<{ id: number; detail: DetailEvenement } | null>(null);
+  const [occupe, setOccupe] = useState(false);
 
   const charger = useCallback(async () => {
     try {
@@ -77,6 +96,52 @@ export function EvenementsDuBien({
   }, [lotCle]);
 
   useEffect(() => { void charger(); }, [charger]);
+
+  /**
+   * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — LES DEUX GESTES RAPATRIÉS DEPUIS L'ÉCRAN PARTAGÉ ═════════════
+   *
+   * Arno a accordé le retrait du bloc sous la vignette de l'écran partagé, à condition que « tout ce qui est
+   * retiré reste disponible sur la fiche du bien : la frise, la proposition “Clôturer cet événement ?” et le
+   * “Modifier” des informations de l'événement (ajoute-les dans le bloc Événements de la fiche s'ils n'y sont
+   * pas) ». La frise y était déjà ; les deux autres arrivent ici.
+   *
+   * 🔴 LA MÊME PORTE D'ÉCRITURE QUE LA VUE DE L'ÉVÉNEMENT : `PATCH /evenements/[id]`, celle de
+   * `changerEtatEvenement` et de `modifierEvenement`. Même journal, même réversibilité — rouvrir un dossier est
+   * un geste normal, pas une réparation.
+   */
+  const ecrire = useCallback(async (id: number, corps: unknown, succes: string): Promise<void> => {
+    if (occupe) return;
+    setOccupe(true);
+    try {
+      const res = await fetch(`/api/admin/gestion/evenements/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
+      });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+      if (!res.ok || d.ok !== true) { onGeste?.(d.erreur ?? 'Modification impossible.'); return; }
+      onGeste?.(succes);
+      setModifie(null);
+      await charger();
+    } catch {
+      onGeste?.('Modification impossible : le serveur n’a pas répondu.');
+    } finally {
+      setOccupe(false);
+    }
+  }, [occupe, onGeste, charger]);
+
+  /**
+   * 🔴 LE DÉTAIL N'EST LU QU'AU CLIC SUR « MODIFIER » — chargement paresseux, comme la carte vivante depuis le
+   * lot 4c. Une fiche de bien n'a pas à payer une requête par événement pour un formulaire que personne
+   * n'ouvrira.
+   */
+  const ouvrirModification = useCallback(async (id: number): Promise<void> => {
+    try {
+      const res = await fetch(`/api/admin/gestion/evenements/${id}`, { cache: 'no-store' });
+      if (!res.ok) { onGeste?.('Lecture impossible.'); return; }
+      setModifie({ id, detail: (await res.json()) as DetailEvenement });
+    } catch {
+      onGeste?.('Lecture impossible : le serveur n’a pas répondu.');
+    }
+  }, [onGeste]);
 
   /**
    * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — OUVRIR LA FICHE DU BIEN ÉTEINT L'EFFET ═══════════════════════════
@@ -244,7 +309,29 @@ export function EvenementsDuBien({
                   <FriseAvancement
                     evenementId={e.id} compact
                     onGeste={onGeste} onOuvrirFil={onOuvrirFil}
+                    /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — la proposition « Clôturer cet événement ? », que
+                       ce bloc ne passait pas : elle n'existait que dans la vue de l'événement, d'où elle vient
+                       d'être retirée pour l'écran partagé. Même porte d'écriture. */
+                    onProposerCloture={() => void ecrire(e.id, { etat: 'traite' },
+                      `Événement ${e.reference} clos depuis la frise d’avancement.`)}
                   />
+                  {/**
+                    * 🔴 « MODIFIER » LES INFORMATIONS DE L'ÉVÉNEMENT (quoi / qui demande / adresse), rapatrié
+                    * ici avec l'accord d'Arno. C'est LE MÊME formulaire que la vue de l'événement — importé, pas
+                    * recopié : une copie aurait fini par proposer d'autres champs d'un côté que de l'autre.
+                    */}
+                  {modifie !== null && modifie.id === e.id
+                    ? <FormulaireCarte detail={modifie.detail} occupe={occupe}
+                      onValider={(champs) => void ecrire(e.id, champs, `Événement ${e.reference} mis à jour.`)}
+                      onAnnuler={() => setModifie(null)} />
+                    : (
+                      <p className="evb-gestes">
+                        <button type="button" className="evb-modifier" disabled={occupe}
+                          onClick={() => void ouvrirModification(e.id)}>
+                          Modifier les informations de l’événement
+                        </button>
+                      </p>
+                    )}
                 </div>
               )}
             </li>
@@ -285,6 +372,16 @@ const CSS_EVENEMENTS_DU_BIEN = `
    vignette illisible dans un theme et pas dans l'autre.
    ⚠️ LES REGLES D'ETAT (.evb-etats, .evb-etat) ONT ETE RETIREES AVEC LEURS BOUTONS (accord d'Arno) : une regle
    orpheline finit toujours par etre recablee « parce qu'elle est encore la ». */
+/* ══ 🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — LE « MODIFIER » RAPATRIE DEPUIS L'ECRAN PARTAGE ══════════════════
+   Discret : c'est un geste de correction, pas l'action principale du bloc. Cible 44 px (exigence transverse). */
+.evb-gestes{margin:8px 0 0}
+.evb-modifier{font:inherit;font-size:.78rem;min-height:44px;padding:4px 10px;cursor:pointer;
+  color:var(--color-svv-ink);background:var(--color-svv-bg);
+  border:1px solid var(--color-svv-line);border-radius:6px}
+.evb-modifier:hover:not(:disabled){background:var(--color-svv-field)}
+.evb-modifier:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.evb-modifier:disabled{color:var(--color-svv-muted);cursor:default}
+
 .evb-monga{display:inline-block;margin-left:.35rem;padding:1px 7px;border-radius:999px;
   font-size:.68rem;font-weight:700;letter-spacing:.04em;
   color:var(--color-svv-bg);background:var(--color-svv-green)}
