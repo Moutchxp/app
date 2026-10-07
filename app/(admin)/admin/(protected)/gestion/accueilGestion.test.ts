@@ -239,8 +239,21 @@ describe('🔴🔴 ⑤ plus de compteur d’échanges sur la carte', () => {
     expect(CARTE).toContain('dernier échange il y a {motJours(dernier)}');
   });
 
-  /** ⚠️ ET LA LIGNE DU TYPE DISPARAÎT QUAND ELLE N'A PLUS RIEN À PORTER, plutôt que de laisser un vide. */
-  it('⚠️ sans type, la ligne entière ne se rend pas', () => {
-    expect(CARTE).toContain('{typeEvenement !== null && (\n                <span className="gst-carte-bas">');
+  /**
+   * ══ ⚠️ RÈGLE REMPLACÉE LE 07/10/2026 — LOT CAPSULE-TYPE-EVENEMENT ═══════════════════════════════════════════
+   *
+   * ELLE EXIGEAIT QUE LA LIGNE DU TYPE DISPARAISSE quand elle n'avait rien à porter — c'était juste tant que le
+   * type vivait dans la colonne de TEXTE, où une ligne vide aurait laissé un blanc d'une demi-ligne sous chaque
+   * titre. Le type a quitté cette colonne : il est devenu une CAPSULE, sous la vignette de droite, et Arno la
+   * veut présente même sans type (« Type à définir »).
+   *
+   * 🔴 CE QUE LA RÈGLE PROTÉGEAIT — pas de vide dans la colonne de gauche — est tenu par construction : cette
+   * colonne ne porte plus le type du tout. C'est ce qu'on éprouve ici.
+   */
+  it('⚠️ la colonne de texte de gauche ne porte plus le type', () => {
+    expect(CARTE).not.toContain('<span className="gst-carte-type">');
+    /* 🔴 ET IL EST BIEN AILLEURS : dans la colonne de droite, sous la vignette. */
+    const droite = CARTE.slice(CARTE.indexOf('<span className="gst-carte-droite">'));
+    expect(droite.slice(0, droite.indexOf('</span>\n          </span>'))).toContain('gst-type-capsule');
   });
 });

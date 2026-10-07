@@ -73,7 +73,9 @@ export async function PATCH(request: Request, ctx: Contexte): Promise<Response> 
   const id = identifiant((await ctx.params).id);
   if (id === null) return Response.json({ erreur: 'Événement inconnu.' }, { status: 400 });
 
-  let corps: { etat?: unknown; objet?: string | null; demandeurNom?: string | null; demandeurEmail?: string | null; adresseLibre?: string | null };
+  /* 🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — `categorie` entre ici : elle ne s'écrivait qu'à la CRÉATION, et une
+     carte ouverte sans type ne pouvait donc plus jamais en recevoir un. `modifierEvenement` la valide. */
+  let corps: { etat?: unknown; objet?: string | null; demandeurNom?: string | null; demandeurEmail?: string | null; adresseLibre?: string | null; categorie?: string | null };
   try { corps = (await request.json()) as typeof corps; }
   catch { return Response.json({ erreur: 'Demande illisible.' }, { status: 422 }); }
 
@@ -85,8 +87,9 @@ export async function PATCH(request: Request, ctx: Contexte): Promise<Response> 
       if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409 });
       return Response.json({ ok: true });
     }
-    const { objet, demandeurNom, demandeurEmail, adresseLibre } = corps;
-    const issue = await modifierEvenement(id, { objet, demandeurNom, demandeurEmail, adresseLibre }, auteur);
+    const { objet, demandeurNom, demandeurEmail, adresseLibre, categorie } = corps;
+    const issue = await modifierEvenement(
+      id, { objet, demandeurNom, demandeurEmail, adresseLibre, categorie }, auteur);
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409 });
     return Response.json({ ok: true });
   } catch (e) {

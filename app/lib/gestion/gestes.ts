@@ -515,6 +515,18 @@ export interface ChampsEvenement {
   demandeurNom?: string | null;
   demandeurEmail?: string | null;
   adresseLibre?: string | null;
+  /**
+   * ══ 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — LE TYPE SE CORRIGE ════════════════════════════════════════════
+   *
+   * CONSTAT FAIT EN OUVRANT CE LOT, et rendu à Arno : le type ne se choisissait QU'À LA CRÉATION. Ni ce champ, ni
+   * le formulaire « Modifier les informations de l'événement », ni le `PATCH` ne le portaient — une carte ouverte
+   * sans type le restait pour toujours. La capsule « Type à définir » n'aurait donc mené nulle part.
+   *
+   * ⚠️ `''` VAUT « EFFACER LE TYPE » (comme les autres champs de ce formulaire, où un champ vidé est effacé), et
+   * un mot hors liste est REFUSÉ plutôt qu'écrit — `categorieValide` tranche, et la contrainte de la base
+   * derrière elle.
+   */
+  categorie?: string | null;
 }
 
 /** Les trois états d'une carte. La liste est COURTE exprès (cf. migration 228) : on n'invente pas de workflow. */
@@ -540,13 +552,33 @@ export async function modifierEvenement(evenementId: number, champs: ChampsEvene
   if (champs.demandeurNom !== undefined) demande.push(['demandeurNom', 'demandeur_nom', texte(champs.demandeurNom)]);
   if (champs.demandeurEmail !== undefined) demande.push(['demandeurEmail', 'demandeur_email', texte(champs.demandeurEmail)]);
   if (champs.adresseLibre !== undefined) demande.push(['adresseLibre', 'adresse_libre', texte(champs.adresseLibre)]);
+  /**
+   * 🔴 LOT CAPSULE-TYPE-EVENEMENT — LE TYPE, AVEC SA GARDE. Un mot vide efface le type ; un mot hors liste serait
+   * refusé par la base, et l'est d'abord ici pour que le refus dise QUOI plutôt qu'une erreur de contrainte.
+   *
+   * ⚠️ SANS LA MIGRATION 268, LA COLONNE N'EXISTE PAS : on n'écrit pas un champ qui n'a nulle part où aller, et le
+   * refus le DIT. L'écran ne propose de toute façon pas le choix dans ce cas.
+   */
+  if (champs.categorie !== undefined) {
+    const brut = typeof champs.categorie === 'string' ? champs.categorie.trim() : '';
+    const valeur = brut === '' ? null : categorieValide(brut);
+    if (brut !== '' && valeur === null) return { ok: false, motif: 'Ce type d’événement n’existe pas.' };
+    if (!(await evenementQualifieDisponible())) {
+      return { ok: false, motif: 'Le type d’événement n’est pas encore installé sur cette base (mise à jour 268 à appliquer).' };
+    }
+    demande.push(['categorie', 'categorie', valeur]);
+  }
   if (demande.length === 0) return { ok: false, motif: 'Rien à modifier.' };
 
   return withTransaction(async (q) => {
     // LIRE AVANT D'ÉCRIRE : `withTransaction` commite au retour (db/client.ts:52-54), donc un refus rendu après une
     //   écriture serait un refus qui a écrit. Et la lecture sert aussi au journal : sans l'AVANT, une trace ne dit rien.
+    /* 🔴 `categorie` N'EST LUE QUE SI ELLE EST DEMANDÉE : sans la 268 la colonne n'existe pas, et la nommer dans
+       le SELECT ferait échouer une modification de l'objet, qui n'a rien demandé au type. */
+    const relitCategorie = demande.some(([, colonne]) => colonne === 'categorie');
     const { rows: avant } = await q<Record<string, string | null>>(
-      `SELECT objet, demandeur_nom, demandeur_email, adresse_libre, reference FROM gestion_evenement
+      `SELECT objet, demandeur_nom, demandeur_email, adresse_libre, reference
+              ${relitCategorie ? ', categorie' : ''} FROM gestion_evenement
         WHERE id = $1 FOR UPDATE`, [evenementId]);
     if (!avant[0]) return { ok: false, motif: 'Cet événement n’existe pas.' };
 

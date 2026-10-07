@@ -37,8 +37,8 @@ import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 //   milieu d'une fonction (lot 5b) : deux façons d'importer le même module, donc deux endroits à tenir. Le garde
 //   d'imports de ce fichier a attrapé le doublon dès qu'un second besoin de sonde est apparu (lot DRIVE-3).
 import {
-  copiePiecesDisponible, corbeilleGmailDisponible, destinatairesSeparesDisponibles, pieceIntegreeDisponible,
-  vidageDisponible,
+  copiePiecesDisponible, corbeilleGmailDisponible, destinatairesSeparesDisponibles, evenementQualifieDisponible,
+  pieceIntegreeDisponible, vidageDisponible,
 } from './schema';
 // LOT ENVOI-DIAG — lecture seule elle aussi (SELECT sur `gestion_non_remise`). Elle rejoint la liste blanche du
 //   garde d'imports de ce fichier pour la même raison que `./schema` : elle ne manipule aucun octet de pièce jointe.
@@ -69,6 +69,15 @@ export interface CarteDetail {
   demandeurEmail: string | null;
   adresseLibre: string | null;
   etat: 'a_traiter' | 'en_cours' | 'traite';
+  /**
+   * 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — LE TYPE DE L'ÉVÉNEMENT, pour que le formulaire « Modifier les
+   * informations de l'événement » puisse le PRÉ-REMPLIR. Il n'était lu nulle part sur le détail : on ne pouvait
+   * donc choisir un type qu'À LA CRÉATION, et plus jamais après.
+   *
+   * ⚠️ `null` SANS LA MIGRATION 268 (la colonne n'existe pas) comme pour une carte sans type : les deux cas se
+   * lisent pareil à l'écran — « Type à définir » —, et c'est juste dans les deux cas.
+   */
+  categorie: string | null;
   ouvertLe: string;
   ouvertPar: string | null;
   traiteLe: string | null;
@@ -250,12 +259,16 @@ export async function lireCarte(
   evenementId: number,
   ctx: { partenaires: readonly PartenaireInterne[]; adresseGestion: string; deplacements: boolean; spam?: boolean },
 ): Promise<CarteDetail | null> {
+  /* 🔴 LOT CAPSULE-TYPE-EVENEMENT — `categorie` n'est NOMMÉE que si la migration 268 est là. Sans elle, la
+     colonne n'existe pas et la nommer ferait échouer toute la lecture de la carte, pas seulement son type. */
+  const avecCategorie = await evenementQualifieDisponible();
   const { rows } = await query<{
     evenement_id: number; reference: string; objet: string; demandeur_nom: string | null;
     demandeur_email: string | null; adresse_libre: string | null; etat: string; ouvert_le: string;
-    ouvert_par: string | null; traite_le: string | null; traite_par: string | null;
+    ouvert_par: string | null; traite_le: string | null; traite_par: string | null; categorie: string | null;
   }>(
     `SELECT id::int AS evenement_id, reference, objet, demandeur_nom, demandeur_email, adresse_libre, etat,
+            ${avecCategorie ? 'categorie' : 'NULL::text AS categorie'},
             ${INSTANT('ouvert_le')} AS ouvert_le, ouvert_par_libelle AS ouvert_par,
             ${INSTANT('traite_le')} AS traite_le, traite_par_libelle AS traite_par
        FROM gestion_evenement WHERE id = $1`, [evenementId]);
@@ -296,6 +309,7 @@ export async function lireCarte(
     evenementId: e.evenement_id, reference: e.reference, objet: e.objet,
     demandeurNom: e.demandeur_nom, demandeurEmail: e.demandeur_email, adresseLibre: e.adresse_libre,
     etat: e.etat === 'en_cours' || e.etat === 'traite' ? e.etat : 'a_traiter',
+    categorie: e.categorie,
     ouvertLe: e.ouvert_le, ouvertPar: e.ouvert_par, traiteLe: e.traite_le, traitePar: e.traite_par,
     fils: fils.map((f) => ({
       filId: f.fil_id, objet: f.objet,

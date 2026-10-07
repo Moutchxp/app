@@ -1304,9 +1304,14 @@ describe('㉒ l’effet « mis à jour par Monga »', () => {
    * fini par écrire trois dates différentes, et l'effet se serait éteint ici sans s'éteindre là.
    */
   it('🔴🔴 les trois chemins d’extinction, une seule porte', () => {
-    /* ① le clic sur la vignette */
+    /* ① le clic sur la vignette.
+       ⚠️ RANG MIS À JOUR LE 07/10/2026 — LOT CAPSULE-TYPE-EVENEMENT : le gestionnaire de capture s'appelle
+       désormais `auClic` et APPELLE `marquerVu` en premier, parce qu'il porte une seconde chose (le clic sur la
+       capsule « Type à définir »). L'extinction n'a pas bougé : elle part toujours au premier clic sur la ligne,
+       et avant tout le reste. */
     expect(CARTE).toContain('const marquerVu = (): void => {');
-    expect(CARTE).toContain('onClickCapture={marquerVu}');
+    expect(CARTE).toContain('onClickCapture={auClic}');
+    expect(CARTE).toMatch(/const auClic = \(e: React\.MouseEvent<HTMLLIElement>\): void => \{\s*\n\s*marquerVu\(\);/);
     /* ② l'ouverture de la vue de l'événement — ce corps n'est monté qu'au dépliage (chargement paresseux) */
     expect(CARTE).toContain("body: JSON.stringify({ ids: [evenementId] }),");
     /* ③ l'ouverture de la fiche du bien, par n'importe quel chemin */
@@ -1464,37 +1469,58 @@ describe('㉔ la vignette enrichie (lot EVENEMENT-MINIMALISTE, point 2)', () => 
   const REPO_FILE = readFileSync('app/lib/gestion/fileRepo.ts', 'utf8');
 
   /**
-   * 🔴🔴 LA LISTE DES TYPES EXISTAIT DÉJÀ, ET AUCUNE MIGRATION N'A ÉTÉ FAITE. Arno : « Vérifie s'il existe une
-   * liste de types : si oui, affiche-le ; sinon, migration additive. » Elle existe — `CATEGORIES_EVENEMENT`
-   * (travaux, fuite d'eau, administratif, litige), tenue en base par `gestion_evenement_categorie_chk` depuis la
-   * migration 268 — et elle est déjà modifiable dans le formulaire de l'événement (`BlocEvenement`).
+   * ══ 🔴🔴 RÈGLE RÉÉCRITE LE 07/10/2026 — LOT CAPSULE-TYPE-EVENEMENT, POINT 2 ═════════════════════════════════
+   *
+   * ELLE FIGEAIT LA LISTE MOT POUR MOT (`export const CATEGORIES_EVENEMENT = ['travaux', …] as const;`) pour
+   * prouver qu'aucune migration n'avait été nécessaire au lot EVENEMENT-MINIMALISTE. Elle avait raison ce
+   * jour-là, et elle est devenue un VERROU : figer le texte d'une déclaration interdit de la DÉRIVER.
+   *
+   * ARNO (07/10/2026) : « Il faut UNE seule source de vérité pour la liste des types, lue par TOUS ces
+   * endroits. » La liste vivait à trois endroits — le tableau de clés, la chaîne de `if` de `motCategorie`, et
+   * la contrainte en base. Elle n'en a plus qu'un, `TYPES_EVENEMENT`, dont les deux premiers SORTENT.
+   *
+   * 🔴 CE QUE LA RÈGLE PROTÉGEAIT EST ÉPROUVÉ, ET PLUS FORT QU'AVANT : les quatre types sont toujours là, mot
+   * pour mot, et c'est désormais `typeEvenement.test.ts` qui exige en plus que la base dise la même chose.
    */
-  it('🔴🔴 le type vient de la liste existante, sans migration nouvelle', () => {
+  it('🔴🔴 les deux formulaires et la carte lisent la MÊME source', () => {
     const qualite = readFileSync('app/lib/gestion/evenementQualite.ts', 'utf8');
-    expect(qualite).toContain(
-      "export const CATEGORIES_EVENEMENT = ['travaux', 'fuite_eau', 'administratif', 'litige'] as const;");
-    /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 2 — le type est passé EN TÊTE de ligne (la référence et l'état
-       l'ont quittée), et il ne s'affiche que s'il est RECONNU : c'est `categorieValide` qui tranche. Le libellé
-       et le style, eux, ne bougent pas. */
-    expect(CARTE).toContain('{motCategorie(typeEvenement)}');
-    expect(CARTE).toContain('const typeEvenement = categorieValide(carte.categorie);');
-    /* 🔴 ET LE FORMULAIRE DE L'ÉVÉNEMENT LA PROPOSE DÉJÀ : rien à ajouter pour la rendre modifiable. */
+    /* 🔴 UNE SEULE DÉCLARATION, et les clés en sortent au lieu d'être réécrites. */
+    expect(qualite).toContain('export const TYPES_EVENEMENT: readonly TypeEvenement[] = [');
+    expect(qualite).toContain('export const CATEGORIES_EVENEMENT: readonly string[] = TYPES_EVENEMENT.map((t) => t.cle);');
+    /* 🔴 ET LE LIBELLÉ AUSSI : plus de chaîne de `if` qui réécrivait les mêmes quatre clés. */
+    expect(qualite).toContain("return TYPES_EVENEMENT.find((t) => t.cle === c)?.mot ?? 'Non précisée';");
+    /* 🔴 LA CARTE : le type reconnu, et sa capsule. */
+    expect(CARTE).toContain('const typeEvenement = categorieValide(detail?.categorie ?? carte.categorie);');
+    expect(CARTE).toContain('{typeEvenement === null ? MOT_TYPE_A_DEFINIR : motCategorie(typeEvenement)}');
+    /* 🔴 LES DEUX FORMULAIRES — création ET modification — parcourent la source, de la même manière. */
     const bloc = readFileSync('app/(admin)/admin/(protected)/gestion/BlocEvenement.tsx', 'utf8');
-    expect(bloc).toContain('{CATEGORIES_EVENEMENT.map((c) => <option key={c} value={c}>{motCategorie(c)}</option>)}');
+    for (const src of [bloc, CARTE]) {
+      expect(src).toContain('{TYPES_EVENEMENT.map((t) => <option key={t.cle} value={t.cle}>{t.mot}</option>)}');
+    }
   });
 
   /**
-   * ⚠️ UN TYPE NON RENSEIGNÉ NE S'AFFICHE PAS : « Non précisée » sur chaque ligne serait du bruit.
+   * ══ 🔴🔴 RÈGLE RENVERSÉE LE 07/10/2026 — LOT CAPSULE-TYPE-EVENEMENT, POINT 1 ════════════════════════════════
    *
-   * 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 2 — ET UNE VALEUR VIDE OU INCONNUE NON PLUS. La condition d'avant
-   * (`!== null && !== undefined`) laissait passer `''` et les mots hors liste, que `motCategorie` rend
-   * « Non précisée » : la carte affichait alors un type là où il n'y en a pas.
+   * ELLE EXIGEAIT QUE RIEN NE S'AFFICHE SANS TYPE, et c'était la demande du lot CARTE-EVENEMENT-EPUREE. Arno la
+   * remplace, mot pour mot : « Cette règle remplace “pas de type → rien” […] : Arno veut toujours voir
+   * l'information. » La capsule est là dans tous les cas, et dit « Type à définir » quand il manque.
+   *
+   * 🔴 CE QUE L'ANCIENNE RÈGLE PROTÉGEAIT TIENT TOUJOURS : on n'écrit JAMAIS « Non précisée » sur une carte —
+   * un libellé qui se lit comme un type alors qu'il n'y en a pas. C'est éprouvé ici, et à l'écran dans
+   * `CarteVive.epuree.test.ts`.
    */
-  it('⚠️ pas de type — ni vide, ni inconnu — pas de ligne', () => {
-    /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 5 — la ligne ne porte plus QUE le type : sans lui, elle ne se rend
-       pas du tout, plutôt que de laisser un vide d'une demi-ligne sous chaque titre. */
-    expect(CARTE).toContain('{typeEvenement !== null && (\n                <span className="gst-carte-bas">');
+  it('🔴🔴 sans type, la capsule reste et dit quoi faire', () => {
+    /* 🔴 LE MOT VIENT DE LA SOURCE, et n'est pas retapé dans la carte. */
+    const qualite = readFileSync('app/lib/gestion/evenementQualite.ts', 'utf8');
+    expect(qualite).toContain("export const MOT_TYPE_A_DEFINIR = 'Type à définir';");
+    expect(CARTE).toContain('MOT_TYPE_A_DEFINIR');
+    expect(CARTE).not.toContain("'Type à définir'");
+    /* 🔴 LA LIGNE DE GAUCHE NE PORTE PLUS LE TYPE : il est DÉPLACÉ, pas doublé. */
+    expect(CARTE).not.toContain('<span className="gst-carte-type">');
     expect(CARTE).not.toContain('{carte.categorie !== null && carte.categorie !== undefined && <>');
+    /* 🔴 ET LA CAPSULE EST RENDUE SANS CONDITION, dans la colonne de droite. */
+    expect(CARTE).toContain('className={`gst-type-capsule ${typeEvenement === null');
   });
 
   /** 🔴🔴 « Ouvert depuis N jours » ET « dernier échange il y a N jours » (Arno), accordés au singulier.

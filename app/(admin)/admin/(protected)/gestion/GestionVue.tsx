@@ -2019,8 +2019,50 @@ ${CSS_BOUTON_ROND}
 .gst-carte-ligne{display:block;font-size:.74rem;line-height:1.3;color:var(--color-svv-muted);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gst-carte-ligne--adresse{color:var(--color-svv-ink)}
-/* Le type de l'evenement : il se distingue du reste de la ligne sans crier. */
-.gst-carte-type{font-weight:700;color:var(--color-svv-ink)}
+/* ══ 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — LA CAPSULE DU TYPE, SOUS LA VIGNETTE ══════════════════════════
+   ARNO : « une capsule qui affiche le type, placee JUSTE EN DESSOUS de la vignette d'etape de droite. Meme
+   largeur exacte que cette vignette, alignee dessus, petit ecart vertical. […] l'ordre est : vignette d'etape →
+   capsule de type → capsule Monga. Toutes a la meme largeur. »
+
+   🔴 LA LARGEUR N'EST PAS RECRITE : la colonne .gst-carte-droite est en align-items:stretch, donc chacune de ses
+   filles prend ses 132 px — et ses 100 % sur ecran etroit, ou la colonne s'elargit. Reposer « width:132px » ici
+   aurait fait une troisieme valeur a tenir, et c'est elle qui aurait fini par diverger.
+   🔴 L'ECART VERTICAL VIENT DU « gap:3px » DE LA COLONNE, deja pose pour la capsule Monga : le meme ecart entre
+   les trois, sans marge ajoutee a l'une d'elles.
+   🔴 L'ORDRE VIENT DU DOM, et de rien d'autre : vignette, puis type, puis Monga.
+
+   ⚠️ CE QUI REMPLACE .gst-carte-type (retire avec ce lot) : le type ne vit plus dans la colonne de texte de
+   gauche, ou il n'etait qu'un mot en gras. Il est DEPLACE, pas supprime — et il est desormais la meme quand il
+   manque.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-type-capsule{display:block;box-sizing:border-box;padding:3px 7px;border-radius:999px;
+  font-size:.68rem;font-weight:700;letter-spacing:.02em;line-height:1.25;text-align:center;
+  overflow:hidden;text-overflow:ellipsis}
+/* ══ LES SEPT TONS TAMISES — fond pale + texte fonce, sur le modele de l'entree active du menu de gauche ══
+   Chacun est une PAIRE DE JETONS du theme, qui porte sa variante Sombre : la capsule suit donc les trois themes
+   sans qu'une seule couleur soit ecrite ici. Le ton d'un type est calcule par tonDuType, a partir de sa CLE —
+   la feuille n'en choisit aucun, elle ne fait que les offrir. */
+.gst-type-capsule--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.gst-type-capsule--rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
+.gst-type-capsule--ambre{background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
+.gst-type-capsule--bleu{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
+.gst-type-capsule--violet{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
+.gst-type-capsule--sarcelle{background:var(--color-svv-sarcelle-soft);color:var(--color-svv-sarcelle)}
+.gst-type-capsule--rose{background:var(--color-svv-rose-soft);color:var(--color-svv-rose)}
+/* ══ SANS TYPE : GRIS NEUTRE, ET CA SE CLIQUE ══
+   Arno : « Evenement SANS type : la capsule est quand meme la, en gris neutre, avec “Type a definir”. Un clic
+   dessus ouvre l'endroit existant ou l'on choisit le type. »
+   🔴 ELLE DIT QU'ELLE EST A REMPLIR autrement que par sa couleur : le MOT « Type a definir » l'ecrit, le bord
+   est en POINTILLE — le dessin de ce qui reste a faire dans ce module — et le curseur devient une main.
+
+   ⚠️ AUCUNE REGLE DE SURVOL ICI, ET C'EST DELIBERE. L'exigence transverse du module veut que tout selecteur qui
+   reagit au survol ait son pendant au clavier (:focus-visible), et le garde de ce fichier le verifie. Or cette
+   capsule vit DANS le bouton de titre du repli : elle ne peut pas etre un bouton elle-meme (bouton dans bouton)
+   ni prendre le focus sans creer un arret de tabulation faux. Lui donner un effet de survol aurait promis une
+   interaction que le clavier ne peut pas atteindre — on ne la promet donc pas. Le chemin clavier existe et ne
+   change pas : deplier le dossier, puis « Modifier les informations de l'evenement », ou vit le vrai choix. */
+.gst-type-capsule--vide{background:var(--color-svv-field);color:var(--color-svv-muted);
+  border:1px dashed var(--color-svv-line-strong);cursor:pointer}
 /* ⚠️ ECRAN ETROIT : les lignes se coupent toujours, elles ne debordent jamais. */
 @media (max-width:600px){
   .gst-carte-ligne{white-space:normal;overflow-wrap:anywhere}

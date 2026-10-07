@@ -8,7 +8,7 @@ import { ChoisirEvenement } from './ChoisirEvenement';
  * — page de connexion comprise (incident du 24/09/2026). Le garde `clientBoundary.guard.test.ts` le vérifie.
  */
 import {
-  bornesEvenement, CATEGORIES_EVENEMENT, NOTE_EVENEMENT_MAX, URGENCES_EVENEMENT,
+  bornesEvenement, NOTE_EVENEMENT_MAX, TYPES_EVENEMENT, URGENCES_EVENEMENT,
   motCategorie, motUrgence, type EvenementDuMail,
 } from '../../../../lib/gestion/evenementQualite';
 /* 🔴 LE JOUR D'AUJOURD'HUI À PARIS, par la fonction PURE qui le dit déjà dans ce dépôt — jamais `toISOString()`,
@@ -414,9 +414,13 @@ export function ChampsEvenement({
         <div className="bev-deux">
           <label className="bev-champ">
             <span className="bev-label">Catégorie</span>
+            {/* 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 2 — LES CHOIX VIENNENT DE LA SOURCE UNIQUE, et de la MÊME
+                manière que dans le formulaire de modification (`FormulaireCarte`). Avant, l'un parcourait les
+                clés puis cherchait leur mot (`CATEGORIES_EVENEMENT` + `motCategorie`) : deux lectures pour une
+                liste qui n'en a qu'une. Un type ajouté à `TYPES_EVENEMENT` paraît ici sans toucher ce fichier. */}
             <select className="bev-saisie" value={categorie} onChange={(e) => onCategorie(e.target.value)}>
               <option value="">non précisée</option>
-              {CATEGORIES_EVENEMENT.map((c) => <option key={c} value={c}>{motCategorie(c)}</option>)}
+              {TYPES_EVENEMENT.map((t) => <option key={t.cle} value={t.cle}>{t.mot}</option>)}
             </select>
           </label>
           <label className="bev-champ">

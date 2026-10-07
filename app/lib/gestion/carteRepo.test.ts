@@ -17,6 +17,14 @@ vi.mock('./schema', () => ({
   pieceIntegreeDisponible: async () => false,
   vidageDisponible: async () => false,
   /**
+   * 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT — la sonde de la migration 268 (`categorie`). Même piège que les six
+   * précédents : une fabrique `vi.mock` exhaustive tombe AU MOMENT DE L'APPEL, et pas à l'import.
+   *
+   * ⚠️ `false` EXPRÈS, comme les autres : ce fichier fige le SQL d'une base SANS la 268, et il a raison — c'est
+   * le SQL qu'une telle base doit recevoir. Le cas « 268 appliquée » est éprouvé par `typeEvenement.test.ts`.
+   */
+  evenementQualifieDisponible: async () => false,
+  /**
    * 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — la sonde de la migration 275 (`corbeille_le`). Son absence
    * de cette fabrique faisait tomber `lireMessagesDuFil` AU MOMENT DE L'APPEL, pas à l'import : le piège des
    * fabriques `vi.mock` que ce dépôt a déjà payé six fois.

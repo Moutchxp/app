@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BlocRepliable } from '../permis/BlocRepliable';
 import { ChoisirEvenement } from './ChoisirEvenement';
 import { MenuDiscret } from './MenuDiscret';
@@ -12,8 +12,12 @@ import type { MongaDeLEvenement } from '../../../../lib/gestion/mongaRepo';
 import type { CarteEvenement, DerniereEtapeVignette } from '../../../../lib/gestion/fileRepo';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le mot d'une étape et la forme de sa date : modules PURS. */
 import { motEtape } from '../../../../lib/gestion/mongaEtape';
-/* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le mot d'un TYPE d'événement. Module PUR, liste déjà en base (268). */
-import { categorieValide, motCategorie } from '../../../../lib/gestion/evenementQualite';
+/* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le mot d'un TYPE d'événement. Module PUR, liste déjà en base (268).
+   🔴🔴 LOT CAPSULE-TYPE-EVENEMENT — et sa COULEUR, et le mot de l'absence de type, et la LISTE pour le choisir :
+   tout vient du même module, qui est désormais la seule déclaration des types. */
+import {
+  categorieValide, motCategorie, MOT_TYPE_A_DEFINIR, tonDuType, TYPES_EVENEMENT,
+} from '../../../../lib/gestion/evenementQualite';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 import {
   depuis, formaterDateFr, formaterTaille, heureParis, libelleEtat, libelleSens,
@@ -161,15 +165,54 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
 
   /**
    * 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 2 — LE TYPE RETENU. `categorieValide` est la MÊME fonction que le
-   * formulaire de la carte : une valeur inconnue ou vide vaut « pas de type », et rien ne s'affiche. Sans elle,
-   * `motCategorie` rendrait « Non précisée », c'est-à-dire un type là où il n'y en a pas.
+   * formulaire de la carte : une valeur inconnue ou vide vaut « pas de type ». Sans elle, `motCategorie` rendrait
+   * « Non précisée », c'est-à-dire un type là où il n'y en a pas.
+   *
+   * ⚠️ LE DÉTAIL FAIT FOI DÈS QU'IL EST LÀ, comme pour l'objet et l'état juste au-dessus : après avoir choisi un
+   * type dans le formulaire, la capsule doit le dire sans attendre un rechargement de tout l'écran.
    */
-  const typeEvenement = categorieValide(carte.categorie);
+  const typeEvenement = categorieValide(detail?.categorie ?? carte.categorie);
+
+  /**
+   * ══ 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — « UN CLIC SUR “Type à définir” OUVRE LE CHOIX DU TYPE » ═══════
+   *
+   * Un NONCE, et non un booléen : il sert deux fois (ouvrir le dossier, puis ouvrir son formulaire), et un
+   * booléen remis à faux aurait demandé de savoir QUAND le remettre — c'est-à-dire un troisième état à tenir.
+   */
+  const [demandeDeType, setDemandeDeType] = useState(0);
+
+  /**
+   * ══ 🔴🔴 POURQUOI LE CLIC EST INTERCEPTÉ ICI, ET NON PORTÉ PAR UN BOUTON ═══════════════════════════════════
+   *
+   * La capsule vit DANS le titre de `BlocRepliable`, et ce titre EST un `<button>`. Un bouton dans un bouton est
+   * du HTML invalide et injouable au clavier — c'est écrit noir sur blanc trois fois dans ce fichier, et c'est
+   * pour cela que le menu d'un échange vit en VOISIN du repli plutôt que dedans.
+   *
+   * 🔴 ON INTERCEPTE DONC EN PHASE DE CAPTURE, sur la ligne entière. La capture descend du `<li>` vers le
+   * `<button>` : couper la propagation ici empêche le repli de basculer, et la capsule garde son clic. Sur une
+   * carte DÉPLIÉE, c'est ce qui évite qu'un clic sur « Type à définir » ne la referme au lieu d'ouvrir le choix.
+   *
+   * ⚠️ LA FONCTION RESTE ATTEIGNABLE AU CLAVIER SANS CETTE CAPSULE, et c'est ce qui la rend acceptable : le titre
+   * du dossier est un vrai bouton, il déplie la carte, et le formulaire « Modifier » y porte un vrai `<select>`.
+   * La capsule est un RACCOURCI de souris vers un chemin qui existe déjà, jamais le seul chemin.
+   */
+  const auClic = (e: React.MouseEvent<HTMLLIElement>): void => {
+    marquerVu();
+    const cible = e.target instanceof Element ? e.target : null;
+    if (cible?.closest('.gst-type-capsule--vide') == null) return;
+    e.stopPropagation();
+    e.preventDefault();
+    setDemandeDeType((n) => n + 1);
+  };
 
   return (
-    <li className={`gst-item${misAJour ? ' gst-item--monga' : ''}`} onClickCapture={marquerVu}>
+    <li className={`gst-item${misAJour ? ' gst-item--monga' : ''}`} onClickCapture={auClic}>
       <BlocRepliable
         titreClasseExtra="gst-repli"
+        /* 🔴 LOT CAPSULE-TYPE-EVENEMENT — le clic sur « Type à définir » DÉPLIE le dossier. `ouvrirSignal` est le
+           mécanisme déjà prévu par `BlocRepliable` pour cela (un nonce), et il ne prend pas le contrôle : on
+           peut replier juste après. */
+        ouvrirSignal={demandeDeType}
         titre={
           /**
            * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — LA VIGNETTE ════════════════════════════════════════════
@@ -206,16 +249,14 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
                 * `motCategorie` rend « Non précisée » : la carte aurait affiché un type là où il n'y en a pas,
                 * exactement ce qu'Arno demande d'éviter.
                 */}
-              {/* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 5 — LE COMPTEUR « N échange(s) » EST RETIRÉ (accord
-                  d'Arno). La ligne « Ouvert depuis N jours · dernier échange il y a N jours » reste, juste en
-                  dessous : c'est elle qui dit l'activité du dossier.
-                  ⚠️ LA LIGNE DISPARAÎT QUAND IL N'Y A PLUS RIEN À Y METTRE — sans type, elle n'aurait porté
-                  qu'un vide d'une demi-ligne sous chaque titre. */}
-              {typeEvenement !== null && (
-                <span className="gst-carte-bas">
-                  <span className="gst-carte-type">{motCategorie(typeEvenement)}</span>
-                </span>
-              )}
+              {/* ══ 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — LE TYPE QUITTE CETTE COLONNE ═══════════════════
+                  ARNO (07/10/2026) : « Le type sort de la colonne de texte de gauche : le mot “Travaux” qui s'y
+                  affiche aujourd'hui est DÉPLACÉ dans la capsule, pas doublé. »
+
+                  🔴 DÉPLACÉ, ET NON RETIRÉ : il est juste à droite, sous la vignette d'étape, et il y est
+                  désormais VISIBLE MÊME QUAND IL MANQUE (« Type à définir »). On en voit donc plus qu'avant,
+                  pas moins. L'afficher aux deux endroits aurait été la seule vraie perte : deux mots pour une
+                  information, et le doute sur lequel des deux fait foi. */}
               <LignesDuDossier carte={carte} maintenant={maintenant} />
             </span>
             {/**
@@ -237,6 +278,37 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
             <span className="gst-carte-droite">
               <MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe}
                 misAJourLe={misAJour ? majMonga : null} />
+              {/**
+                * ══ 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — LA CAPSULE DU TYPE ═══════════════════════════════
+                *
+                * ARNO, 4e demande : « voir EN UN COUP D'ŒIL le type de chaque événement sur sa carte. Une capsule
+                * qui affiche le type, placée JUSTE EN DESSOUS de la vignette d'étape de droite. Même largeur
+                * exacte que cette vignette, alignée dessus, petit écart vertical. […] l'ordre est : vignette
+                * d'étape → capsule de type → capsule Monga. Toutes à la même largeur. »
+                *
+                * 🔴 LA MÊME LARGEUR N'EST PAS RECOPIÉE : la colonne est en `align-items:stretch`, donc chacune de
+                * ses filles prend sa largeur (132 px). Réécrire « width:132px » sur la capsule aurait fait une
+                * troisième valeur à tenir — et c'est exactement ce qui finit par diverger sur écran étroit, où la
+                * colonne passe à 100 %.
+                *
+                * 🔴 SANS TYPE, LA CAPSULE EST LÀ QUAND MÊME, en gris neutre, et elle se clique. Cette règle en
+                * REMPLACE une autre, posée au lot CARTE-EVENEMENT-EPUREE (« pas de type → rien ») : Arno revient
+                * dessus — « Arno veut toujours voir l'information ». Un vide ne se distingue pas d'un oubli.
+                *
+                * ⚠️ LE MOT PORTE L'INFORMATION, LA COULEUR NE FAIT QUE L'APPUYER : le type est écrit en toutes
+                * lettres dans la capsule, et le ton ne sert qu'à le reconnaître de loin.
+                */}
+              <span
+                className={`gst-type-capsule ${typeEvenement === null
+                  ? 'gst-type-capsule--vide' : `gst-type-capsule--${tonDuType(typeEvenement)}`}`}
+                title={typeEvenement === null
+                  ? 'Aucun type sur cet événement — cliquez pour le choisir'
+                  : `Type de l’événement : ${motCategorie(typeEvenement)}`}>
+                {typeEvenement === null ? MOT_TYPE_A_DEFINIR : motCategorie(typeEvenement)}
+                {typeEvenement === null && (
+                  <span className="gst-sr-only"> — cliquez pour ouvrir le choix du type</span>
+                )}
+              </span>
               {(carte.mongaRefs ?? []).length > 0 && (
                 <span className="gst-monga-vignette gst-monga-vignette--sous"
                   title={[(carte.mongaRefs ?? []).join(', '), motEtapeMonga(carte.derniereEtapeMonga)]
@@ -258,7 +330,9 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
       >
         {() => (
           <CorpsCarte evenementId={carte.evenementId} maintenant={maintenant} onDetail={setDetail} onGeste={onGeste}
-            onHistorique={onHistorique} partage={partage} onOuvrirBien={onOuvrirBien} />
+            onHistorique={onHistorique} partage={partage} onOuvrirBien={onOuvrirBien}
+            /* 🔴 … ET LE MÊME NONCE OUVRE LE FORMULAIRE, où vit le choix du type. Deux effets, un seul geste. */
+            demandeDeType={demandeDeType} />
         )}
       </BlocRepliable>
     </li>
@@ -266,15 +340,32 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
 }
 
 /** Le contenu d'une carte dépliée. Monté au PREMIER dépliage — c'est là, et seulement là, que la requête part. */
-function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, partage, onOuvrirBien }: {
+function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, partage, onOuvrirBien,
+  demandeDeType = 0 }: {
   evenementId: number; maintenant: Date; onDetail: (d: CarteDetail) => void; onGeste: Rapport;
   onHistorique?: (cible: Cible) => void;
   partage: boolean;
   onOuvrirBien?: (cleBien: string, evenementId: number) => void;
+  /**
+   * 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — le nonce du clic sur « Type à définir ». `0` = personne n'a
+   * demandé, et le corps est alors exactement celui d'avant ce lot.
+   */
+  demandeDeType?: number;
 }) {
   const [etatVue, setEtatVue] = useState<VueCarte>({ v: 'charge' });
   const [occupe, setOccupe] = useState(false);
-  const [edition, setEdition] = useState(false);
+  /**
+   * 🔴 OUVERT D'EMBLÉE QUAND ON ARRIVE PAR LA CAPSULE. Ce corps n'est MONTÉ qu'au premier dépliage : un clic sur
+   * « Type à définir » déplie et monte en même temps, et l'effet ci-dessous ne verrait donc jamais de CHANGEMENT
+   * de nonce. L'état initial lit le nonce ; l'effet, lui, sert aux clics SUIVANTS, carte déjà dépliée.
+   */
+  const [edition, setEdition] = useState(demandeDeType > 0);
+  const dernierTypeDemande = useRef(demandeDeType);
+  useEffect(() => {
+    if (demandeDeType === dernierTypeDemande.current) return;
+    dernierTypeDemande.current = demandeDeType;
+    setEdition(true);
+  }, [demandeDeType]);
 
   /** Relit la carte et POSE l'état. Sert au « Réessayer » et à la relecture qui suit un geste. */
   const lire = useCallback(async () => {
@@ -872,12 +963,29 @@ function ResumeCarte({ detail, maintenant, onModifier, occupe }: {
  */
 export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
   detail: CarteDetail; occupe: boolean;
-  onValider: (champs: { objet: string; demandeurNom: string; adresseLibre: string }) => void;
+  onValider: (champs: {
+    objet: string; demandeurNom: string; adresseLibre: string;
+    /** 🔴 LOT CAPSULE-TYPE-EVENEMENT — ABSENTE quand le type n'a pas bougé : voir plus bas pourquoi. */
+    categorie?: string;
+  }) => void;
   onAnnuler: () => void;
 }) {
   const [objet, setObjet] = useState(detail.objet);
   const [demandeur, setDemandeur] = useState(detail.demandeurNom ?? detail.demandeurEmail ?? '');
   const [adresse, setAdresse] = useState(detail.adresseLibre ?? '');
+  /**
+   * ══ 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — LE TYPE SE CHOISIT ICI, ET POUR LA PREMIÈRE FOIS ══════════════
+   *
+   * CONSTAT FAIT EN OUVRANT LE LOT : le type ne se posait QU'À LA CRÉATION (`BlocEvenement`). Ni ce formulaire,
+   * ni le `PATCH` ne le portaient — un événement ouvert sans type le restait pour toujours, et la capsule
+   * « Type à définir » n'aurait mené nulle part. Arno demande qu'un clic « ouvre l'endroit existant où l'on
+   * choisit le type, sans créer de nouvel écran » : c'est donc CE formulaire — celui qu'ouvre déjà « Modifier les
+   * informations de l'événement » — qui gagne le champ. Aucun écran de plus.
+   *
+   * 🔴 LES CHOIX VIENNENT DE LA SOURCE UNIQUE (`TYPES_EVENEMENT`), comme ceux du formulaire de création : un type
+   * ajouté là-bas apparaît ici sans qu'on touche à ce fichier.
+   */
+  const [categorie, setCategorie] = useState(categorieValide(detail.categorie) ?? '');
   return (
     <div className="gst-bloc gst-champs">
       <label className="gst-champ">
@@ -892,10 +1000,27 @@ export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
         <span className="svv-label">Adresse (texte libre)</span>
         <input className="gst-saisie" value={adresse} onChange={(e) => setAdresse(e.target.value)} maxLength={300} />
       </label>
+      <label className="gst-champ">
+        <span className="svv-label">Type</span>
+        <select className="gst-saisie" value={categorie} onChange={(e) => setCategorie(e.target.value)}>
+          <option value="">{MOT_TYPE_A_DEFINIR}</option>
+          {TYPES_EVENEMENT.map((t) => <option key={t.cle} value={t.cle}>{t.mot}</option>)}
+        </select>
+      </label>
       <p className="gst-note">Un champ vidé est effacé ; le « quoi », lui, ne peut pas rester vide — sans titre, la carte devient introuvable.</p>
       <div className="gst-actions">
         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={occupe || objet.trim() === ''}
-          onClick={() => onValider({ objet, demandeurNom: demandeur, adresseLibre: adresse })}>
+          /**
+            * ⚠️ `categorie` N'EST ENVOYÉE QUE SI ELLE A CHANGÉ, et ce n'est pas une optimisation : sur une base
+            * où la migration 268 n'est pas appliquée, la colonne n'existe pas et le serveur REFUSE d'écrire un
+            * type. L'envoyer à chaque enregistrement aurait fait échouer une simple correction du « quoi » sur
+            * ces bases-là. Qui touche au type reçoit un refus qui NOMME la mise à jour manquante ; qui n'y
+            * touche pas ne s'en aperçoit jamais.
+            */
+          onClick={() => onValider({
+            objet, demandeurNom: demandeur, adresseLibre: adresse,
+            ...(categorie === (categorieValide(detail.categorie) ?? '') ? {} : { categorie }),
+          })}>
           {occupe ? 'Enregistrement…' : 'Enregistrer'}
         </button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe} onClick={onAnnuler}>Annuler</button>

@@ -42,6 +42,8 @@ const CARTE = {
 const DETAIL: CarteDetail = {
   evenementId: 9, reference: 'GES-2026-000009', objet: 'Fuite salle de bain', demandeurNom: 'Mme M.',
   demandeurEmail: 'm@exemple.test', adresseLibre: '28 avenue Marceau', etat: 'a_traiter',
+  /* 🔴 LOT CAPSULE-TYPE-EVENEMENT — le détail porte désormais le TYPE, pour que le formulaire le pré-remplisse. */
+  categorie: null,
   ouvertLe: '2026-09-20T12:00:00Z', ouvertPar: 'arno', traiteLe: null, traitePar: null,
   fils: [{ filId: 5, objet: 'Fuite salle de bain', interlocuteur: 'Mme M.', dernierLe: '2026-09-22T12:00:00Z', nbMessages: 2, nbPieces: 1, attend: true }],
   mailsDeplaces: [],
