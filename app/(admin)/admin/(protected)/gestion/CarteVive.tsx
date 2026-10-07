@@ -206,13 +206,16 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
                 * `motCategorie` rend « Non précisée » : la carte aurait affiché un type là où il n'y en a pas,
                 * exactement ce qu'Arno demande d'éviter.
                 */}
-              <span className="gst-carte-bas">
-                {typeEvenement !== null && <>
+              {/* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 5 — LE COMPTEUR « N échange(s) » EST RETIRÉ (accord
+                  d'Arno). La ligne « Ouvert depuis N jours · dernier échange il y a N jours » reste, juste en
+                  dessous : c'est elle qui dit l'activité du dossier.
+                  ⚠️ LA LIGNE DISPARAÎT QUAND IL N'Y A PLUS RIEN À Y METTRE — sans type, elle n'aurait porté
+                  qu'un vide d'une demi-ligne sous chaque titre. */}
+              {typeEvenement !== null && (
+                <span className="gst-carte-bas">
                   <span className="gst-carte-type">{motCategorie(typeEvenement)}</span>
-                  <span className="gst-sep" aria-hidden="true">·</span>
-                </>}
-                <span>{carte.nbFils} échange{carte.nbFils > 1 ? 's' : ''}</span>
-              </span>
+                </span>
+              )}
               <LignesDuDossier carte={carte} maintenant={maintenant} />
             </span>
             {/**
@@ -345,8 +348,22 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
   }
 
   const d = etatVue.d;
+  /**
+   * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 4 — LE GROS BOUTON FAIT PARTIE DE SA CAPSULE ═══════════════════
+   *
+   * Arno : « le bouton rouge flotte aujourd'hui entre deux événements. Intègre-le DANS la capsule dépliée : même
+   * cadre, même fond, aucun vide entre la carte et le bouton, et un écart net avec l'événement suivant. »
+   *
+   * 🔴 IL ÉTAIT DÉJÀ DANS LE `li` DE SA CARTE — c'est l'HABILLAGE qui le faisait flotter : le corps gardait son
+   * espace du haut, et le bouton était posé dans un `gst-bloc` à lui, encadré et sur un autre fond. Sur l'écran
+   * partagé, où les cartes n'ont plus qu'un filet en bas, cette petite boîte se lisait comme un troisième objet,
+   * entre deux événements. Ce modificateur colle le corps à la carte et rend le cadre du bloc transparent.
+   *
+   * ⚠️ EN PLEIN ÉCRAN, RIEN NE CHANGE : là, le corps porte l'état, la frise, le résumé et les échanges — autant
+   * de blocs qui ONT besoin de leur cadre pour se distinguer les uns des autres.
+   */
   return (
-    <div className="gst-corps">
+    <div className={`gst-corps${partage ? ' gst-corps--partage' : ''}`}>
       {/**
         * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — L'ÉTAT, OU LE GROS BOUTON : L'UN OU L'AUTRE ══════════════════
         *

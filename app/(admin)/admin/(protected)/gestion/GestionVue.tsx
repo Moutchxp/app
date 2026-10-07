@@ -24,6 +24,10 @@ import { BarrePages, CSS_BARRE_PAGES } from './BarrePages';
 import { PAR_PAGE } from '../../../../lib/gestion/pagination';
 import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
+/* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — la barre de recherche de l'annuaire, sur l'accueil. */
+import { BarreAnnuaire } from './BarreAnnuaire';
+/* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — la feuille du bouton rond, partagée avec la boîte. */
+import { CSS_BOUTON_ROND } from './BoutonRond';
 import { Conversation } from './Conversation';
 // LOT ENVOI-ARRIERE-PLAN — les mails encore en route, et ceux qui ne sont PAS partis.
 import { BandeauEnvois } from './BandeauEnvois';
@@ -1000,6 +1004,18 @@ export function GestionVue({ intro }: {
           ⚠️ RIEN N'EST SUPPRIMÉ : l'en-tête revient dès qu'on quitte l'annuaire, et la page garde son `<h1>`
           dans le document — un lecteur d'écran qui parcourt les titres le trouve toujours. */}
       {ecran === 'annuaire' && <style>{'.gst-page > .svv-page-head{display:none}'}</style>}
+      {/* ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — LE PARAGRAPHE D'EXPLICATION QUITTE L'ACCUEIL ═══════════
+          ACCORD D'ARNO : « Courrier de gestion locative : à gauche la boîte de réception… » disparaît de l'écran
+          partagé. Le TITRE « Gestion » reste — il n'est pas dans la demande.
+
+          🔴 LA PHRASE N'EST PAS SUPPRIMÉE, ELLE N'EST PLUS AFFICHÉE **ICI** : `INTRO_GESTION` reste la seule
+          écriture de ce texte, et le plein écran la porte toujours dans l'info-bulle cliquable de son bandeau
+          compact. La retirer du module l'aurait enlevée des deux endroits.
+
+          ⚠️ PAR LA FEUILLE, COMME POUR L'ANNUAIRE JUSTE AU-DESSUS : l'en-tête est rendu par la PAGE (un composant
+          serveur qui ne connaît pas l'écran courant, lequel vit dans l'adresse et n'est lu qu'ici). C'est le
+          patron déjà en place dans ce fichier, et non un contournement nouveau. */}
+      {ecran === 'partage' && <style>{'.gst-page > .svv-page-head > .svv-page-sub{display:none}'}</style>}
 
       {/* BANDEAU D'ÉTAT — toujours présent : un outil qui dit depuis quand il n'a pas regardé reste honnête.
           LOT 5-GMAIL — en PLEIN ÉCRAN il devient une ligne compacte qui porte AUSSI le titre du module et sa phrase
@@ -1031,8 +1047,28 @@ export function GestionVue({ intro }: {
           ⚠️ LES ALERTES, ELLES, NE BOUGENT PAS. « Relève arrêtée », « copie arrêtée », « envoi en échec » restent
           affichées sur TOUS les écrans, annuaire compris : ce sont des sécurités, et masquer une sécurité pour
           gagner de la place, c'est la retirer. Seul l'ORDINAIRE descend. */}
-      {ecran !== 'boite' && ecran !== 'annuaire' && (
-      <div className={`gst-bandeau${ecran === 'partage' ? '' : ' gst-bandeau--compact'}`} role="status">
+      {/* ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — CE BLOC QUITTE AUSSI L'ÉCRAN PARTAGÉ ═══════════════
+          ACCORD D'ARNO (07/10/2026) : sur l'accueil Gestion, le cadre « Dernière relève… / Dernier mail reçu… /
+          N messages en base… » et ses boutons « Relever maintenant », « Annuaire », « À rattacher » sont retirés.
+          Il reste sur les écrans « Événements » et « À rattacher », où il est encore le seul moyen de relever.
+
+          🔴 CHAQUE FONCTION A ÉTÉ RETROUVÉE AILLEURS AVANT LE RETRAIT, et aucune ne disparaît :
+            · RELEVER MAINTENANT → le bouton rond « Relever et actualiser » de la boîte en plein écran ;
+            · RAFRAÎCHIR        → conservé, devenu le bouton rond à droite de l'en-tête de la colonne (point 2) ;
+            · ANNUAIRE          → la barre de recherche ci-dessous mène directement aux fiches (point 3), et la
+                                  colonne de la boîte en plein écran garde son entrée « Annuaire » ;
+            · À RATTACHER       → l'entrée « À rattacher » de cette même colonne, avec son compteur ;
+            · LES INFORMATIONS DE RELÈVE et L'AVANCEMENT DE LA COPIE DRIVE → la colonne de la boîte en plein
+                                  écran les porte déjà (lot ERGO-BOITE, `etatDiscret`).
+
+          ⚠️ LES ALERTES NE SONT PAS TOUCHÉES. « Relève arrêtée », « copie arrêtée », « envoi en échec » restent
+          affichées sur TOUS les écrans, accueil compris : ce sont des sécurités, et masquer une sécurité pour
+          gagner de la place, c'est la retirer. Seul l'ORDINAIRE s'en va.
+
+          ⚠️ ET LES MÉCANISMES TOURNENT TOUJOURS : la relève automatique (une passe par minute) et la reprise de
+          copie vers le Drive ne sont pas touchées — on retire un affichage, jamais un rouage. */}
+      {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && (
+      <div className="gst-bandeau gst-bandeau--compact" role="status">
         {/* ══ 🔴 LOT ERGO-BOITE — EN PLEIN ÉCRAN, CE BANDEAU NE PORTE PLUS QUE LE TITRE ═══════════════════════════
             L'heure de la dernière relève et l'état de la copie sont descendus dans la colonne (`etatDiscret`), et
             les deux boutons sont devenus UNE icône à côté du titre de la liste. Sur l'ÉCRAN PARTAGÉ, qui n'a pas de
@@ -1098,7 +1134,9 @@ export function GestionVue({ intro }: {
           <span className="gst-veille-texte">{veille.texte}</span>
           {veille.aide && <span className="gst-veille-aide">{veille.aide}</span>}
         </p>
-      ) : ecran !== 'boite' && ecran !== 'annuaire' && (
+      ) : ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && (
+        /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — la ligne ORDINAIRE quitte aussi l'accueil (accord d'Arno).
+           Elle reste dans la colonne de la boîte en plein écran. L'ALERTE, elle, s'affiche partout. */
         <p className="gst-veille" role="status">{veille.texte}</p>
       )}
       {/* LOT RATTACHEMENT-2 — LE COURRIER EST ARRIVÉ, MAIS SON RATTACHEMENT A ÉCHOUÉ. Une ligne SÉPARÉE de celle de
@@ -1121,7 +1159,9 @@ export function GestionVue({ intro }: {
         </p>
       )}
       {/* Même partage pour la copie : l'arrêt SUBI crie en haut, l'avancement ordinaire descend dans la colonne. */}
-      {copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' && (
+      {copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && (
+        /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — idem : l'avancement ORDINAIRE de la copie quitte l'accueil,
+           et reste dans la colonne de la boîte en plein écran. L'ARRÊT SUBI, lui, crie partout. */
         <p className="gst-veille" role="status">{copie.texte}</p>
       )}
       {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
@@ -1327,6 +1367,12 @@ export function GestionVue({ intro }: {
          🔴 LOT ACCUEIL-GESTION, POINT 3 — UN FRAGMENT, parce que cette branche porte désormais DEUX éléments :
          les deux colonnes, puis le bloc « Échanges sans événement » qui est passé SOUS elles. */
       <>
+      {/* ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — LA BARRE ANNUAIRE, À LA PLACE DU BLOC RETIRÉ ═════════
+          Arno : « un grand champ de saisie sur toute la largeur, avec le libellé “Annuaire” à sa droite », juste
+          au-dessus des deux colonnes. Elle réutilise la recherche de l'annuaire — même route, même fonction — et
+          ouvre les fiches existantes : voir l'encadré de `BarreAnnuaire`. */}
+      <BarreAnnuaire onFiche={(f) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: f }); }} />
+
       <div className="gst-deux">
         {/* ══ 🔴 LOT STATUT-PAR-MAIL — CETTE COLONNE MONTRE LES MAILS REÇUS, PLUS LA FILE DES ÉCHANGES ═══════════
             Demande d'Arno. Elle montrait une file de CONVERSATIONS à poser sur un événement ; elle montre désormais
@@ -1341,6 +1387,19 @@ export function GestionVue({ intro }: {
         <section className="gst-col" aria-labelledby="gst-titre-reception">
           <BoiteReception
             maintenant={ref}
+            /**
+             * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — « RAFRAÎCHIR » DEVIENT LE BOUTON ROND ══════════════
+             *
+             * Arno : « transforme le bouton “Rafraîchir” en bouton rond à icône, identique à celui de la boîte
+             * mail ouverte (même composant, pas une copie). Place-le juste à droite de l'en-tête “Boîte de
+             * réception · gestion@criterimmo.fr · N mails reçus”. Il garde exactement l'action de l'actuel bouton
+             * Rafraîchir de l'écran partagé. »
+             *
+             * 🔴 C'EST DONC `charger()`, MOT POUR MOT CE QUE FAISAIT « Rafraîchir » : on relit l'écran, on ne
+             * relève pas. Le bouton rond de la BOÎTE, lui, relève PUIS actualise — deux gestes différents sous le
+             * même dessin, et Arno demande de n'en changer aucun.
+             */
+            onRafraichir={() => void charger()}
             onOuvrir={(filId, messageId) => aller({
               ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: filId, messageOuvert: messageId,
             })}
@@ -1714,6 +1773,11 @@ export function CarteEv({ carte, maintenant }: { carte: CarteEvenement; maintena
 }
 
 const CSS_GESTION = `
+/* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — la feuille du bouton rond, la MEME que celle de la boite en plein
+   ecran (cf. BoutonRond.tsx). Sans elle, le bouton arriverait nu sur l'accueil : carre, sans bordure, sans
+   rotation. Une classe partagee dont la feuille ne l'est pas n'est pas partagee.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+${CSS_BOUTON_ROND}
 /* DEUX CÔTÉS au-dessus de 900 px ; UNE colonne en dessous, la file d'abord — par l'ordre du DOM, jamais par un order CSS. */
 /* ── LOT 5-GMAIL : LA PAGE, ET SON EN-TÊTE REPLIÉ EN PLEIN ÉCRAN ───────────────────────────────────────────────── */
 /* La largeur de confort de l'écran partagé ; en plein écran, la boîte prend toute la place disponible. */
@@ -1990,6 +2054,16 @@ const CSS_GESTION = `
 }
 .gst-carte-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;flex-basis:100%;font-size:.8rem;font-weight:400;color:var(--color-svv-muted)}
 .gst-corps{display:flex;flex-direction:column;gap:12px;padding:12px 2px 2px}
+/* ══ LOT ACCUEIL-GESTION-ANNUAIRE, POINT 4 — LE GROS BOUTON FAIT PARTIE DE SA CAPSULE ══
+   Arno : « aucun vide entre la carte et le bouton, un ecart net avec l'evenement suivant, et il doit se lire
+   clairement comme faisant partie de sa capsule ».
+   🔴 TROIS REGLES, ET CHACUNE REPARE UNE CHOSE VUE A L'ECRAN : le corps colle a la carte (plus de padding ni de
+   gap en haut) ; le bloc du bouton perd son cadre et son fond, qui en faisaient un troisieme objet pose entre
+   deux evenements ; et l'ecart se met SOUS le bouton, a l'interieur de la capsule, avant le filet qui separe
+   de l'evenement suivant.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.gst-corps--partage{padding:0;gap:0;margin-bottom:10px}
+.gst-corps--partage .gst-bloc{background:transparent;border:0;border-radius:0;padding:8px 0 0}
 .gst-bloc{display:flex;flex-direction:column;gap:8px;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px}
 .gst-sous-titre{margin:.25rem 0 0;font-size:13px;font-weight:700;color:var(--color-svv-ink);display:flex;align-items:center;gap:.5rem}
 /* LOT MONGA-1, POINT 4 — l'intervention Monga d'une carte : badge, derniere etape, lien, et la PROPOSITION de

@@ -1127,10 +1127,13 @@ describe('㉑ la vignette d’un événement', () => {
    * 🔴 CE QUI RESTE EST ÉPROUVÉ ICI, et le reste l'est À L'ÉCRAN : `CarteVive.epuree.test.ts` monte le composant
    * et lit ce qu'il rend, plutôt que la forme de son texte source.
    */
-  it('🔴🔴 la vignette garde le compteur d’échanges, et plus la référence ni l’état', () => {
-    expect(CARTE).toContain("{carte.nbFils} échange{carte.nbFils > 1 ? 's' : ''}");
+  it('🔴🔴 la vignette ne porte plus ni la référence, ni l’état, ni le compteur d’échanges', () => {
     expect(CARTE).not.toContain('<span className="gst-ref">{carte.reference}</span>');
     expect(CARTE).not.toContain('<span>{libelleEtat(etat)}</span>');
+    /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 5 — le compteur « N échange(s) » part à son tour (accord d'Arno).
+       Ce qui reste de l'activité du dossier, c'est « Ouvert depuis N jours · dernier échange il y a N jours ». */
+    expect(CARTE).not.toContain("{carte.nbFils} échange{carte.nbFils > 1 ? 's' : ''}");
+    expect(CARTE).toContain('dernier échange il y a {motJours(dernier)}');
   });
 
   /**
@@ -1488,7 +1491,9 @@ describe('㉔ la vignette enrichie (lot EVENEMENT-MINIMALISTE, point 2)', () => 
    * « Non précisée » : la carte affichait alors un type là où il n'y en a pas.
    */
   it('⚠️ pas de type — ni vide, ni inconnu — pas de ligne', () => {
-    expect(CARTE).toContain('{typeEvenement !== null && <>');
+    /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 5 — la ligne ne porte plus QUE le type : sans lui, elle ne se rend
+       pas du tout, plutôt que de laisser un vide d'une demi-ligne sous chaque titre. */
+    expect(CARTE).toContain('{typeEvenement !== null && (\n                <span className="gst-carte-bas">');
     expect(CARTE).not.toContain('{carte.categorie !== null && carte.categorie !== undefined && <>');
   });
 

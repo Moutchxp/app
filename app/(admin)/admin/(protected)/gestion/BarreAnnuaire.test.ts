@@ -1,0 +1,245 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
+import { BarreAnnuaire } from './BarreAnnuaire';
+import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
+
+/**
+ * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE — LA BARRE ANNUAIRE DE L'ACCUEIL, MONTÉE POUR DE VRAI ══════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * ARNO (07/10/2026) : « un grand champ de saisie sur toute la largeur, avec le libellé “Annuaire” à sa droite.
+ * Pendant la saisie, une liste de suggestions des contacts de l'annuaire. Réutilise la recherche existante de
+ * l'annuaire, pas une seconde recherche maison. Clic sur un locataire → fiche locataire ; clic sur un
+ * propriétaire → fiche propriétaire. Clavier : flèches haut/bas, Entrée, Échap. “Aucun contact trouvé” si rien ne
+ * correspond. »
+ *
+ * 🔒 Aucun réseau : `fetch` est doublé. Et AUCUNE VRAIE FICHE N'EST OUVERTE — ce fichier vérifie le LIEN que le
+ * code produit (`FicheUrl`), comme Arno le demande, jamais la fiche elle-même.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const BIEN = { adresse: '67 rue de Normandie', commune: 'COURBEVOIE' };
+/** Ce que `rechercherPersonnes` rend, réduit à ce que la barre lit. */
+let personnesServies: unknown[];
+let urls: string[];
+let fiches: FicheUrl[];
+let container: HTMLDivElement;
+let root: Root;
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  urls = []; fiches = [];
+  personnesServies = [
+    { sujet: 'proprietaire', id: 12, nomAffiche: 'Mme ABDELLATIF Névine', roles: ['proprietaire'], autreFicheId: null, biens: [BIEN] },
+    { sujet: 'locataire', id: 45, nomAffiche: 'M. ROI Nathan', roles: ['locataire'], autreFicheId: null, biens: [BIEN] },
+  ];
+  global.fetch = vi.fn(async (url: string | URL | Request) => {
+    urls.push(String(url));
+    return {
+      ok: true, json: async () => ({ etat: 'ok', data: { personnes: personnesServies } }),
+    } as unknown as Response;
+  }) as unknown as typeof fetch;
+});
+afterEach(() => {
+  act(() => { root.unmount(); }); container.remove();
+  vi.useRealTimers(); vi.restoreAllMocks();
+});
+
+const monter = async () => {
+  await act(async () => {
+    root.render(createElement(BarreAnnuaire, { onFiche: (f: FicheUrl) => fiches.push(f) }));
+  });
+};
+const champ = (): HTMLInputElement => container.querySelector('.gst-annuaire-champ') as HTMLInputElement;
+/** Taper, puis laisser passer le délai : la barre n'interroge pas à chaque touche. */
+const taper = async (t: string) => {
+  await act(async () => {
+    const c = champ();
+    const poser = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    poser?.call(c, t);
+    c.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => { vi.advanceTimersByTime(300); });
+  await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });
+};
+const items = () => [...container.querySelectorAll('.gst-annuaire-item')] as HTMLButtonElement[];
+const touche = async (key: string) => {
+  await act(async () => {
+    champ().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+  });
+};
+
+describe('🔴🔴 ① le champ et son libellé', () => {
+  it('🔴 un champ de saisie, et « Annuaire » à sa droite', async () => {
+    await monter();
+    expect(champ()).not.toBeNull();
+    expect(container.querySelector('.gst-annuaire-mot')?.textContent).toBe('Annuaire');
+    /* ⚠️ LE MOT EST DÉCORATIF : c'est `aria-label` qui nomme le champ pour un lecteur d'écran. */
+    expect(champ().getAttribute('aria-label')).toBe('Chercher dans l’annuaire');
+  });
+
+  /** ⚠️ RIEN TANT QU'ON N'A PAS CHERCHÉ : « Aucun contact » sur un champ vide apprendrait à ignorer la phrase. */
+  it('⚠️ au repos : aucune liste, aucune phrase, aucune requête', async () => {
+    await monter();
+    expect(container.querySelector('.gst-annuaire-liste')).toBeNull();
+    expect(container.querySelector('.gst-annuaire-vide')).toBeNull();
+    expect(urls).toEqual([]);
+  });
+
+  /** ⚠️ UNE SEULE LETTRE NE LANCE RIEN : la recherche rendrait la moitié de l'annuaire. */
+  it('⚠️ une seule lettre n’interroge pas', async () => {
+    await monter();
+    await taper('a');
+    expect(urls).toEqual([]);
+  });
+});
+
+describe('🔴🔴 ② les suggestions viennent de la recherche EXISTANTE', () => {
+  /**
+   * 🔴🔴 AUCUNE SECONDE RECHERCHE (Arno) : la barre interroge la route de l'annuaire, celle de l'écran Annuaire.
+   * Un filtre « maison » aurait donné deux annuaires qui ne trouvent pas les mêmes gens.
+   */
+  it('🔴🔴 elle interroge `/api/admin/gestion/annuaire?q=…`, et rien d’autre', async () => {
+    await monter();
+    await taper('normandie');
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toBe('/api/admin/gestion/annuaire?q=normandie');
+  });
+
+  it('🔴 chaque suggestion montre le nom, le rôle et l’adresse — sans numéro de lot', async () => {
+    await monter();
+    await taper('normandie');
+    const textes = items().map((b) => b.textContent ?? '');
+    expect(textes[0]).toContain('Mme ABDELLATIF Névine');
+    expect(textes[0]).toContain('Propriétaire');
+    expect(textes[0]).toContain('67 rue de Normandie, COURBEVOIE');
+    expect(textes[1]).toContain('Locataire');
+    for (const t of textes) expect(t).not.toContain('lot');
+  });
+});
+
+describe('🔴🔴 ③ le clic ouvre LA BONNE fiche', () => {
+  it('🔴🔴 un propriétaire ouvre la fiche propriétaire', async () => {
+    await monter();
+    await taper('abdellatif');
+    await act(async () => { items()[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(fiches).toEqual([{ sorte: 'proprietaire', id: 12 }]);
+  });
+
+  it('🔴🔴 un locataire ouvre la fiche locataire', async () => {
+    await monter();
+    await taper('roi');
+    await act(async () => { items()[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(fiches).toEqual([{ sorte: 'locataire', id: 45 }]);
+  });
+
+  /** 🔴🔴 LE DOUBLE RÔLE : deux lignes, deux fiches — celle du rôle cliqué, jamais « la principale ». */
+  it('🔴🔴 un double rôle donne deux lignes, chacune vers SA fiche', async () => {
+    personnesServies = [{
+      sujet: 'proprietaire', id: 12, nomAffiche: 'M. JULLIEN - GARRIDO Cédric',
+      roles: ['proprietaire', 'locataire'], autreFicheId: 98, biens: [BIEN],
+    }];
+    await monter();
+    await taper('jullien');
+    expect(items()).toHaveLength(2);
+    await act(async () => { items()[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(fiches).toEqual([{ sorte: 'locataire', id: 98 }]);
+  });
+
+  /** ⚠️ ET LE CHAMP SE VIDE APRÈS : on part sur la fiche, la liste n'a plus de raison de rester ouverte. */
+  it('⚠️ après l’ouverture, le champ est vide et la liste refermée', async () => {
+    await monter();
+    await taper('abdellatif');
+    await act(async () => { items()[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(champ().value).toBe('');
+    expect(container.querySelector('.gst-annuaire-liste')).toBeNull();
+  });
+});
+
+describe('🔴 ④ aucun résultat', () => {
+  it('🔴 « Aucun contact trouvé. »', async () => {
+    personnesServies = [];
+    await monter();
+    await taper('zzzzz');
+    expect(container.querySelector('.gst-annuaire-vide')?.textContent).toBe('Aucun contact trouvé.');
+    expect(container.querySelector('.gst-annuaire-liste')).toBeNull();
+  });
+
+  /** ⚠️ UNE PANNE DIT LA MÊME CHOSE QU'UNE ABSENCE plutôt que de laisser le champ muet. */
+  it('⚠️ une recherche en échec ne laisse pas la barre silencieuse', async () => {
+    global.fetch = vi.fn(async () => { throw new Error('réseau'); }) as unknown as typeof fetch;
+    await monter();
+    await taper('martin');
+    expect(container.querySelector('.gst-annuaire-vide')).not.toBeNull();
+  });
+});
+
+describe('🔴🔴 ⑤ le clavier', () => {
+  it('🔴🔴 flèche bas sélectionne la première, puis la suivante', async () => {
+    await monter();
+    await taper('normandie');
+    await touche('ArrowDown');
+    expect(items()[0].className).toContain('gst-annuaire-item--vise');
+    await touche('ArrowDown');
+    expect(items()[1].className).toContain('gst-annuaire-item--vise');
+  });
+
+  it('🔴 flèche haut depuis « rien » prend la DERNIÈRE', async () => {
+    await monter();
+    await taper('normandie');
+    await touche('ArrowUp');
+    expect(items()[1].className).toContain('gst-annuaire-item--vise');
+  });
+
+  it('🔴🔴 Entrée ouvre la fiche sélectionnée', async () => {
+    await monter();
+    await taper('normandie');
+    await touche('ArrowDown');
+    await touche('Enter');
+    expect(fiches).toEqual([{ sorte: 'proprietaire', id: 12 }]);
+  });
+
+  /** ⚠️ ENTRÉE SANS SÉLECTION N'OUVRE RIEN : on n'ouvre pas une fiche que personne n'a désignée. */
+  it('⚠️ Entrée sans sélection n’ouvre rien', async () => {
+    await monter();
+    await taper('normandie');
+    await touche('Enter');
+    expect(fiches).toEqual([]);
+  });
+
+  it('🔴 Échap referme la liste', async () => {
+    await monter();
+    await taper('normandie');
+    expect(items().length).toBeGreaterThan(0);
+    await touche('Escape');
+    expect(container.querySelector('.gst-annuaire-liste')).toBeNull();
+  });
+});
+
+describe('🔴🔴 ⑥ les garanties structurelles', () => {
+  const BARRE = readFileSync('app/(admin)/admin/(protected)/gestion/BarreAnnuaire.tsx', 'utf8');
+
+  /**
+   * 🔴🔴 AUCUNE SECONDE RECHERCHE, ET AUCUNE SECONDE FICHE : la barre n'interroge que la route de l'annuaire, et
+   * ne fabrique aucun chemin de fiche à elle — elle rend un `FicheUrl`, que l'écran passe à `Annuaire` comme un
+   * clic venu de ses propres résultats.
+   */
+  it('🔴🔴 une seule route interrogée, et aucun chemin de fiche écrit à la main', () => {
+    const appels = [...BARRE.matchAll(/fetch\(`([^`]+)`/g)].map((m) => m[1]);
+    expect(appels).toEqual(['/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}']);
+    expect(BARRE).not.toContain('ecran:');
+    expect(BARRE).not.toContain('?fiche=');
+  });
+
+  /** 🔴 LE RANGEMENT VIENT DU MODULE PUR, éprouvé à part : la barre ne décide pas des rôles. */
+  it('🔴 les suggestions viennent de `suggestionsAnnuaire`', () => {
+    expect(BARRE).toContain("from '../../../../lib/gestion/suggestionAnnuaire'");
+    expect(BARRE).toContain('suggestionsAnnuaire(');
+    expect(BARRE).toContain('rangSuivant(');
+  });
+});

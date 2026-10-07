@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { ecouterCorbeille, ligneQuitteLaListe } from '../../../../lib/gestion/signalCorbeille';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { Trombone } from './Trombone';
+/* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — le bouton rond, écrit une seule fois (cf. BoutonRond.tsx). */
+import { BoutonRond } from './BoutonRond';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { bulleCapsuleMessage, motCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 // 🔴🔴 LOT OPTION-C — le MOT de l'unité comptée, écrit une seule fois pour les deux écrans (module PUR).
@@ -87,9 +89,24 @@ const FILTRES: readonly { cle: Filtre; mot: string; aide: string; exigeHorsGesti
 ];
 
 export function BoiteReception({
-  maintenant, onOuvrir, onPleinEcran, onFileEchanges, compteEchanges,
+  maintenant, onOuvrir, onPleinEcran, onFileEchanges, compteEchanges, onRafraichir,
 }: {
   maintenant: Date;
+  /**
+   * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — LE BOUTON ROND, À DROITE DE L'EN-TÊTE ═══════════════════════
+   *
+   * Arno : « transforme le bouton “Rafraîchir” en bouton rond à icône, identique à celui de la boîte mail
+   * ouverte (même composant, pas une copie). Place-le juste à droite de l'en-tête “Boîte de réception ·
+   * gestion@criterimmo.fr · N mails reçus”. Il garde exactement l'action de l'actuel bouton Rafraîchir. »
+   *
+   * 🔴 L'ACTION VIENT DE L'ÉCRAN, ET ELLE EST CELLE DE « Rafraîchir » : relire la page, sans relever. Le bouton
+   * rond de la BOÎTE en plein écran, lui, relève PUIS actualise — même dessin, deux gestes, et Arno demande de
+   * n'en changer aucun.
+   *
+   * ⚠️ ABSENT ⇒ PAS DE BOUTON : un écran qui monterait cette colonne sans savoir se relire n'aurait rien à
+   * proposer, et un rond qui ne fait rien s'apprend en une fois.
+   */
+  onRafraichir?: () => void;
   /**
    * ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 2 — PLUS D'INTERRUPTEUR ICI, ET PLUS D'ÉTAT NON PLUS ═════════════════════
    *
@@ -269,6 +286,11 @@ export function BoiteReception({
           {etat.v === 'ok' && etat.automatiquesIci !== null && etat.automatiquesIci !== 0 && (
             <span className="brc-tait">{phraseCourrierAutomatique(etat.automatiquesIci, false, 'mail')}</span>
           )}
+          {/* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — JUSTE À DROITE DE L'EN-TÊTE (Arno). Le MÊME composant
+              que la boîte en plein écran — pas une copie —, avec l'action de l'ancien « Rafraîchir ».
+              ⚠️ UN `button` DANS UN `h2` EST VALIDE (un paragraphe ne l'aurait pas été), et c'est déjà ce que
+              fait le lien du courrier automatique juste au-dessus. */}
+          {onRafraichir && <BoutonRond mot="Rafraîchir" onClick={onRafraichir} />}
         </h2>
       </div>
 

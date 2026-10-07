@@ -111,12 +111,19 @@ describe('🔴🔴 ① la carte ne porte plus la référence ni l’état', () =
   });
 
   /**
-   * 🔴 LE COMPTEUR « N échange » RESTE — Arno le demande explicitement. C'est ce qui dit qu'un dossier a du
-   * courrier, et il n'a pas de doublon ailleurs sur la carte.
+   * ══ 🔴🔴 CE CAS A CHANGÉ DE VERDICT — LOT ACCUEIL-GESTION-ANNUAIRE, POINT 5 ═══════════════════════════════════
+   *
+   * IL EXIGEAIT QUE LE COMPTEUR « N échange » RESTE : c'était la demande du lot précédent, le même jour. Arno le
+   * retire à son tour — « la ligne “Ouvert depuis N jours · dernier échange il y a N jours” reste ». C'est elle
+   * qui dit l'activité du dossier, et le compteur la redisait d'une autre façon.
    */
-  it('🔴 le compteur « 1 échange » reste', async () => {
+  it('🔴🔴 le compteur « N échange » a quitté la carte', async () => {
     await monter(CARTE());
-    expect(vignette()).toContain('1 échange');
+    /* ⚠️ ON CHERCHE UN NOMBRE SUIVI DE « échange », et non le mot seul : « dernier échange il y a 7 jours »
+       contient le mot, et c'est précisément la ligne qu'Arno garde. */
+    expect(vignette()).not.toMatch(/\d+\s+échanges?/);
+    /* 🔴 ET CE QUI LE REMPLACE EST DÉJÀ LÀ : la ligne des deux anciennetés. */
+    expect(vignette()).toContain('dernier échange il y a 7 jours');
   });
 });
 

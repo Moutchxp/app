@@ -292,14 +292,28 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
   ] as const) {
     /**
      * 🔴 LOT ERGO-BOITE — DEUX BOUTONS DEVENUS UNE ICÔNE, mais SEULEMENT dans la boîte. Ils faisaient deux choses
-     * qu'on veut toujours ensemble : aller chercher le courrier, puis montrer ce qu'on a trouvé. Sur l'écran
-     * partagé, qui n'a pas de colonne de gestion ni de titre de liste où poser l'icône, ils restent tels quels :
-     * les y retirer aurait supprimé une fonction, ce qui n'a pas été demandé.
+     * qu'on veut toujours ensemble : aller chercher le courrier, puis montrer ce qu'on a trouvé.
+     *
+     * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — ET L'ÉCRAN PARTAGÉ A REJOINT LA BOÎTE ═══════════════════
+     *
+     * ACCORD D'ARNO (07/10/2026) : le bandeau et ses boutons quittent l'ACCUEIL. « Relever maintenant » y reste
+     * atteignable par la boîte en plein écran (son bouton rond), et « Rafraîchir » est conservé sur place —
+     * devenu lui aussi un bouton rond, le MÊME composant, à droite de l'en-tête de la colonne.
+     *
+     * 🔴 L'INVENTAIRE NE PERD DONC RIEN, il change de forme : ce cas vérifie que l'accueil garde un geste de
+     * relecture, et que les deux autres écrans gardent les leurs.
      */
     it(`le geste « relever puis actualiser » est atteignable dans l’écran ${nom}`, async () => {
       window.history.replaceState(null, '', adresse);
       await monter();
-      if (nom !== 'boîte en plein écran') {
+      if (nom === 'partagé') {
+        /* 🔴 LE BOUTON ROND « Rafraîchir », à droite de l'en-tête de la colonne — l'action d'avant, le dessin
+           de la boîte. « Relever maintenant », lui, vit dans la boîte en plein écran (cas suivant). */
+        const rond = container.querySelector('.bte-relever');
+        expect(rond).not.toBeNull();
+        expect(rond?.getAttribute('aria-label')).toBe('Rafraîchir');
+        expect(rond?.getAttribute('title')).toBe('Rafraîchir');
+      } else if (nom !== 'boîte en plein écran') {
         expect(boutonPar(/^Relever maintenant$/)).toBeDefined();
         expect(boutonPar(/^Rafraîchir$/)).toBeDefined();
       } else {
@@ -334,10 +348,12 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
     window.history.replaceState(null, '', '/admin/gestion?ecran=evenements');
     await monter();
     /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 1 — la RÉFÉRENCE a quitté la carte (accord d'Arno), ici comme dans
-       l'écran partagé : c'est le MÊME composant. L'objet, lui, est toujours ce qui identifie le dossier à l'œil. */
+       l'écran partagé : c'est le MÊME composant. L'objet, lui, est toujours ce qui identifie le dossier à l'œil.
+       🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 5 — et le compteur « N échanges » l'a quittée à son tour. La
+       ligne « Ouvert depuis N jours · dernier échange il y a N jours » reste, elle. */
     expect(texte()).not.toContain('GES-2026-000012');
     expect(texte()).toContain('Dossier 12');
-    expect(texte()).toContain('3 échanges'); // le libellé de la carte, tel quel
+    expect(texte()).not.toContain('3 échanges');
     expect(boutonPar(/Écran partagé/)).toBeDefined();
   });
 

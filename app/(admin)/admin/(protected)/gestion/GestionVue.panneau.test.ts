@@ -129,7 +129,11 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
     const lignes = [...container.querySelectorAll('li.gst-item')];
     await cliquer(boutonAffecter(lignes[0]));
     expect(panneaux()).toHaveLength(1);
-    await cliquer(boutonPar(/^Rafraîchir$/));
+    /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — « Rafraîchir » EST DEVENU UN BOUTON ROND sur l'accueil (accord
+       d'Arno) : même action, même appel (`charger`), un dessin au lieu d'un mot. On le désigne donc par son
+       libellé accessible, qui est la seule chose qu'il DIT — et la garantie éprouvée ici n'a pas changé d'un
+       pouce : toute relecture referme le panneau. */
+    await cliquer(container.querySelector('.bte-relever') as HTMLElement | undefined);
     expect(panneaux()).toHaveLength(0);
   });
 
