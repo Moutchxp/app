@@ -142,8 +142,16 @@ describe('fileRepo — les cartes (colonne de droite)', () => {
   it('trie : ouverts d’abord, puis ce qui attend, puis la PLUS ANCIENNE attente (pas la date d’ouverture)', async () => {
     await lireEvenements(CTX);
     const s = sqls()[0];
+    /**
+     * ⚠️ `ORDER BY` N'EST PLUS COLLÉ À SON PREMIER CRITÈRE (lot EVENEMENT-MINIMALISTE, point 4) : les mises à
+     * jour Monga non vues passent devant, pour CE collaborateur. Ici, `lireEvenements` est appelée SANS clé de
+     * collaborateur — le critère disparaît alors de la requête, et l'ordre est exactement celui d'avant. Le
+     * verdict de l'épreuve ne change pas : c'est bien `traite_le` qui ouvre le tri.
+     */
     expect(s).toContain('ORDER BY (e.traite_le IS NOT NULL) ASC');
     expect(s).toContain('min(d.recu_le) FILTER (WHERE CASE WHEN ex.fil_id IS NOT NULL');
+    /* 🔴 ET SANS COLLABORATEUR, AUCUNE TRACE DU CRITÈRE PAR VUE : la liste est celle de tout le monde. */
+    expect(s).not.toContain('gestion_evenement_vu');
   });
 
   it('projette une carte complète et retombe sur « à traiter » si l’état est inattendu', async () => {

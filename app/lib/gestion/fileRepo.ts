@@ -403,6 +403,50 @@ function sqlBienDeLEvenement(avecMessageId: boolean): string {
   ) bi ON true`;
 }
 
+/**
+ * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 4 — LES MISES À JOUR MONGA REMONTENT EN TÊTE ═══════════════════════════
+ *
+ * Arno (07/10/2026) : « Tant que l'effet est actif pour ce collaborateur, la vignette REMONTE EN PREMIÈRE
+ * POSITION de la liste (plusieurs : la plus récente mise à jour d'abord). Une fois vue (clic ou fiche ouverte),
+ * elle reprend sa place normale. Mêmes règles par collaborateur qu'au lot précédent. »
+ *
+ * 🔴 LE TRI EST LE MÊME CALCUL QUE L'EFFET : « la dernière écriture de Monga est postérieure à MA dernière vue ».
+ * Un second critère aurait pu allumer la vignette sans la faire remonter, ou l'inverse — et c'est le genre
+ * d'écart qu'on ne voit qu'après l'avoir expédié.
+ *
+ * 🔴 PAR COLLABORATEUR, DONC DANS LE TRI AUSSI : la liste n'est pas dans le même ordre pour deux personnes, et
+ * c'est exactement ce qu'Arno demande. Sans la migration 316 — ou appelée sans clé de collaborateur — le critère
+ * DISPARAÎT de la requête, et la liste retrouve son ordre d'avant, exactement.
+ *
+ * ⚠️ IL PASSE AVANT « les traités en dernier » : une mise à jour Monga sur un dossier clos est justement ce
+ * qu'on veut voir tout de suite — c'est peut-être une reprise.
+ *
+ * ⚠️ L'EXPLICATION VIT ICI, EN COMMENTAIRE JAVASCRIPT, ET NON DANS LE LITTÉRAL SQL. Un premier jet l'y avait
+ * mise : un bloc `/* … *` + `/` à l'intérieur d'un gabarit n'est pas un commentaire JavaScript, c'est du TEXTE
+ * — il partait dans la requête à chaque appel, et il a fait échouer l'épreuve qui lit le SQL émis. Les
+ * commentaires de ce fichier qui vivent DANS le SQL sont des `--` d'une ligne, et c'est la bonne mesure.
+ */
+function triMongaDAbord(avecVues: boolean): string {
+  if (!avecVues) return '';
+  const vue = `(SELECT v.vu_le FROM gestion_evenement_vu v
+                 WHERE v.evenement_id = e.id AND v.compte_cle = $4)`;
+  const allumee = `(mg.le IS NOT NULL AND (${vue} IS NULL OR mg.le > ${vue}))`;
+  /**
+   * ⚠️ LE SECOND CRITÈRE NE VAUT QU'ENTRE VIGNETTES ALLUMÉES, ET C'EST UN DÉFAUT MESURÉ À L'ÉCRAN.
+   *
+   * Premier jet : `mg.le DESC NULLS LAST` tout court. Essai sur l'écran partagé — l'événement 2, remonté en tête
+   * parce qu'allumé, Y RESTAIT APRÈS AVOIR ÉTÉ VU : son `mg.le` récent le faisait passer devant l'événement 1,
+   * qui n'a aucune référence Monga reliée (`mg.le` nul). Arno demande l'inverse en toutes lettres : « Une fois
+   * vue (clic ou fiche ouverte), elle reprend sa place NORMALE. »
+   *
+   * 🔴 LE `CASE` LE BORNE AUX ALLUMÉES : éteinte, la date ne pèse plus rien, et les critères d'origine
+   * reprennent la main — les traités en dernier, puis ce qui attend, puis la plus ancienne attente.
+   */
+  return `${allumee} DESC,
+               CASE WHEN ${allumee} THEN mg.le END DESC NULLS LAST,
+               `;
+}
+
 const SQL_DERNIERE_MAJ_MONGA = `
   LEFT JOIN LATERAL (
     SELECT max(greatest(y.cree_le, y.maj_le)) AS le
@@ -496,7 +540,7 @@ export async function lireEvenements(
        ${sqlBienDeLEvenement(ctx.deplacements)}
       GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.source, et.certitude, mg.le,
                bi.cle, bi.adresse, bi.commune, bi.proprietaire, bi.locataire, bi.nb
-      ORDER BY (e.traite_le IS NOT NULL) ASC,
+      ORDER BY ${triMongaDAbord(avecVues)}(e.traite_le IS NOT NULL) ASC,
                ${ATTEND_CARTE} DESC,
                coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), min(md.recu_le), e.ouvert_le) ASC,
                e.id ASC

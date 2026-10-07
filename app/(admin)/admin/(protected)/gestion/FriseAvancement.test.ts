@@ -1329,27 +1329,17 @@ describe('㉒ l’effet « mis à jour par Monga »', () => {
   });
 
   /**
-   * 🔴🔴 LE LISERÉ EST UNE OMBRE, PAS UNE BORDURE : une bordure déplacerait la vignette de 3 px en s'allumant, et
-   * toute la liste sauterait à chaque relecture. L'ombre ne prend aucune place.
+   * ══ 🔴🔴 CE QUE CES DEUX ÉPREUVES TENAIENT, ET POURQUOI ELLES ONT CHANGÉ DE COULEUR ════════════════════════
    *
-   * 🔴 « SANS CLIGNOTEMENT AGRESSIF » (Arno) : la pulsation dure 2,4 s — très loin des 3 clignotements par
-   * seconde que les règles d'accessibilité interdisent — et le liseré ne disparaît JAMAIS, il respire.
+   * Elles vérifiaient un liseré VERT en ombre EXTÉRIEURE, posé au lot VIGNETTE-EVENEMENT (point 3). Arno a
+   * tranché autrement au lot EVENEMENT-MINIMALISTE (point 4) : « TOUTE la vignette de l'événement est cerclée de
+   * ROUGE (au lieu du liseré vert) ». Et la mesure a imposé l'ombre INTÉRIEURE — l'extérieure était coupée sur
+   * trois côtés par le conteneur qui défile.
+   *
+   * 🔴 LES DEUX FAITS QUI COMPTAIENT SONT TENUS À L'IDENTIQUE, dans le groupe ㉖ : ce n'est pas une bordure
+   * (elle déplacerait la vignette), et « réduire les animations » garde l'indicateur en retirant le mouvement.
    */
-  it('🔴🔴 un liseré vert qui respire, et qui ne bouge pas la vignette', () => {
-    expect(VUE).toMatch(/\.gst-item--monga\{[^}]*box-shadow:0 0 0 2px var\(--color-svv-green\)/);
-    expect(VUE).toContain('animation:gst-monga-respire 2.4s ease-in-out infinite');
-    expect(VUE).toContain('@keyframes gst-monga-respire{');
-    /* ⚠️ AUCUNE BORDURE : elle déplacerait la vignette. */
-    expect(VUE).not.toMatch(/\.gst-item--monga\{[^}]*border:/);
-  });
 
-  /**
-   * 🔴🔴 « RESPECTE “RÉDUIRE LES ANIMATIONS” DU SYSTÈME (liseré FIXE dans ce cas) » — Arno, mot pour mot. Le
-   * liseré reste, l'animation s'arrête : on retire le mouvement, jamais l'information.
-   */
-  it('🔴🔴 « réduire les animations » arrête la pulsation, pas le liseré', () => {
-    expect(VUE).toContain('@media (prefers-reduced-motion: reduce){\n  .gst-item--monga{animation:none}\n}');
-  });
 
   /**
    * 🔴🔴 L'EFFET NE PORTE JAMAIS L'INFORMATION SEUL : le badge l'ÉCRIT sur la miniature, et le lecteur d'écran
@@ -1614,5 +1604,95 @@ describe('㉕ l’écran partagé est minimaliste (lot EVENEMENT-MINIMALISTE, po
   it('⚠️ ouvrir « Modifier » est le seul moment où le détail se lit', () => {
     expect(BLOC).toContain('const ouvrirModification = useCallback(async (id: number)');
     expect(BLOC).toContain("onClick={() => void ouvrirModification(e.id)}");
+  });
+});
+
+describe('㉖ « mis à jour par Monga » : rouge, et en tête (lot EVENEMENT-MINIMALISTE, point 4)', () => {
+  const REPO_FILE = readFileSync('app/lib/gestion/fileRepo.ts', 'utf8');
+
+  /**
+   * ══ 🔴🔴 CE QUE C'ÉTAIT, ET POURQUOI LE ROUGE ═════════════════════════════════════════════════════════════
+   *
+   * Arno (07/10/2026) : « Le message “Mis à jour par Monga · <heure>” s'écrit en ROUGE, et TOUTE la vignette de
+   * l'événement est cerclée de rouge (au lieu du liseré vert). »
+   *
+   * 🔴 LE VERT DISAIT DÉJÀ AUTRE CHOSE : « dans la frise » (les cartes d'étape, la vignette MONGA). Une couleur
+   * ne peut pas dire deux choses dans le même écran. Le rouge est la couleur d'attention du dépôt, et elle ne
+   * sert à rien d'autre ici.
+   */
+  it('🔴🔴 le cercle et le badge sont rouges, plus aucun vert', () => {
+    expect(VUE).toMatch(/\.gst-item--monga\{[^}]*box-shadow:inset 0 0 0 2px var\(--color-svv-red\)/);
+    expect(VUE).toMatch(/\.gst-mini-monga\{[^}]*color:var\(--color-svv-red\)/);
+    /* ⚠️ ET PLUS AUCUNE TRACE DU VERT DANS L'EFFET : une règle orpheline finit par être recâblée. */
+    const feuille = VUE.slice(VUE.indexOf('const CSS_')).replace(/\/\*[\s\S]*?\*\//g, '');
+    const i = feuille.indexOf('.gst-item--monga{');
+    expect(feuille.slice(i, feuille.indexOf('}', i))).not.toContain('green');
+  });
+
+  /**
+   * ══ 🔴🔴 DÉFAUT MESURÉ À L'ÉCRAN : LE CERCLE ÉTAIT COUPÉ SUR TROIS CÔTÉS ═══════════════════════════════════
+   *
+   * Premier jet : une ombre EXTÉRIEURE. Mesure sur l'écran partagé — la vignette est collée aux bords de
+   * `.gst-corps-partage` (marges 0 en haut, à gauche, à droite), et ce conteneur défile donc porte
+   * `overflow:auto`. Seul le BAS du cercle se voyait. Arno demande que « TOUTE la vignette soit cerclée » ; un
+   * cercle coupé sur trois côtés n'est pas un cercle.
+   *
+   * 🔴 UNE OMBRE `inset` SE DESSINE À L'INTÉRIEUR DE LA BOÎTE : rien ne peut la rogner.
+   */
+  it('🔴🔴 le cercle est une ombre INTÉRIEURE, donc jamais rognée', () => {
+    expect(VUE).toContain('box-shadow:inset 0 0 0 2px var(--color-svv-red),inset 0 0 12px 0 var(--color-svv-red)');
+    /* ⚠️ ET PAS UNE BORDURE : elle déplacerait la vignette de 2 px en s'allumant, et la liste sauterait. */
+    expect(VUE).not.toMatch(/\.gst-item--monga\{[^}]*border:/);
+  });
+
+  /** 🔴 « EFFET DISCRET SI “RÉDUIRE LES ANIMATIONS” EST ACTIVÉ » : le trait reste, le halo et le mouvement partent. */
+  it('🔴🔴 « réduire les animations » laisse le cercle, sans halo ni mouvement', () => {
+    expect(VUE).toContain('.gst-item--monga{animation:none;box-shadow:inset 0 0 0 2px var(--color-svv-red)}');
+  });
+
+  /**
+   * 🔴🔴 LA REMONTÉE EN TÊTE EST LE **MÊME CALCUL** QUE L'EFFET : « la dernière écriture de Monga est postérieure
+   * à MA dernière vue ». Un second critère aurait pu allumer la vignette sans la faire remonter, ou l'inverse.
+   */
+  it('🔴🔴 le tri remonte exactement ce que l’effet allume', () => {
+    expect(REPO_FILE).toContain('function triMongaDAbord(avecVues: boolean): string {');
+    expect(REPO_FILE).toContain(
+      'const allumee = `(mg.le IS NOT NULL AND (${vue} IS NULL OR mg.le > ${vue}))`;');
+    expect(REPO_FILE).toContain('ORDER BY ${triMongaDAbord(avecVues)}(e.traite_le IS NOT NULL) ASC,');
+  });
+
+  /**
+   * ══ 🔴🔴 DÉFAUT MESURÉ À L'ÉCRAN : VUE, LA VIGNETTE NE REPRENAIT PAS SA PLACE ══════════════════════════════
+   *
+   * Premier jet : `mg.le DESC NULLS LAST` tout court, donc appliqué à TOUTES les vignettes. Essai — l'événement
+   * 2, remonté parce qu'allumé, Y RESTAIT après avoir été vu : son `mg.le` récent le faisait passer devant
+   * l'événement 1, qui n'a aucune référence Monga (`mg.le` nul). Arno demande l'inverse : « Une fois vue, elle
+   * reprend sa place NORMALE. »
+   *
+   * 🔴 LE `CASE` BORNE LE SECOND CRITÈRE AUX ALLUMÉES : éteinte, la date ne pèse plus rien.
+   */
+  it('🔴🔴 le second critère ne vaut qu’entre vignettes allumées', () => {
+    expect(REPO_FILE).toContain('CASE WHEN ${allumee} THEN mg.le END DESC NULLS LAST');
+    expect(REPO_FILE).not.toContain('mg.le DESC NULLS LAST,\n               `;');
+  });
+
+  /**
+   * ⚠️ SANS COLLABORATEUR — ou sans la migration 316 — LE CRITÈRE DISPARAÎT DE LA REQUÊTE, et la liste retrouve
+   * son ordre d'avant, exactement. Un tri par vue qui s'appliquerait sans savoir QUI lit serait un tri faux.
+   */
+  it('⚠️ sans collaborateur, le tri est celui de tout le monde', () => {
+    expect(REPO_FILE).toContain("  if (!avecVues) return '';");
+  });
+
+  /**
+   * ⚠️ L'EXPLICATION VIT EN COMMENTAIRE JAVASCRIPT, PAS DANS LE LITTÉRAL SQL — et c'est une épreuve de ce
+   * fichier qui l'a imposé. Un bloc de commentaire à l'intérieur d'un gabarit n'est pas un commentaire : c'est
+   * du TEXTE, qui partait dans la requête à chaque appel.
+   */
+  it('⚠️ aucun pavé de commentaire ne part dans le SQL', () => {
+    const i = REPO_FILE.indexOf('function triMongaDAbord');
+    const corps = REPO_FILE.slice(i, REPO_FILE.indexOf('\n}', i));
+    /* Les commentaires de ce corps sont AVANT le `return`, jamais dans la chaîne rendue. */
+    expect(corps.slice(corps.indexOf('return `'))).not.toContain('/*');
   });
 });
