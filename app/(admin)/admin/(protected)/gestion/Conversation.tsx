@@ -3,7 +3,7 @@ import { chargerCorpsDuMessage } from './chargerCorps';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les noms de pièces cités dans le corps. Voir l'encadré du module. */
 import { decouperLesPiecesCitees, type PieceCitable } from '../../../../lib/gestion/piecesCitees';
 
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la corbeille d'UN message : même route, même journal, même
    synchronisation Gmail que celle d'un échange. Seule la désignation change. */
 /* 🔴🔴 LOT ETOILE-PAR-MESSAGE — la porte d'écriture de l'étoile est celle du MAIL, plus celle de l'échange. */
@@ -82,6 +82,13 @@ import { RattachementsDuFil } from './RattachementsDuFil';
 import { ClasserMail } from './ClasserMail';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { Cible } from '../../../../lib/gestion/rattachement';
+/* ══ 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — le statut d'envoi des pièces, par famille de destinataire.
+   Tout ce qui se DÉCIDE vient du module PUR : la famille d'une adresse, l'ordre, les mots, les tons. */
+import {
+  categoriesDeLaFiche, categoriesDuBien, famillesDestinataires, type FamilleVue,
+} from '../../../../lib/gestion/familleDestinataire';
+import type { CategoriePartie } from '../../../../lib/gestion/historiqueBien';
+import { estAdresseInterne } from '../../../../lib/gestion/adresseInterne';
 // 🔴🔴 LOT CLASSER-AVANT-ENVOI — ce dont une réponse hérite : décidé dans un module PUR, éprouvé à part.
 import { classementHerite, type ClassementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 // 🔴🔴 LOT SUIVI-CONVERSATION — les repères de période dans le fil. Décidés dans un module PUR.
@@ -602,6 +609,28 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
      « Précédent / Suivant » couvre TOUTES les pièces de l'échange, et un bloc de message n'en connaît qu'un. */
   /** La fenêtre « Pièces jointes de la conversation » est-elle ouverte ? */
   const [recapPieces, setRecapPieces] = useState(false);
+  /**
+   * ══ 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — LES CATÉGORIES DU BLOC PARTIES DU BIEN RATTACHÉ ════════════════════════
+   *
+   * ARNO (point 3b) : « si la conversation est rattachée à un bien : la catégorie de l'adresse dans le bloc
+   * PARTIES de ce bien, lue par EXACTEMENT le même calcul que celui qui remplit ce bloc. Pas de seconde requête
+   * qui reclasse à sa façon. »
+   *
+   * 🔴 LES DEUX MOITIÉS DU CALCUL, ET RIEN D'AUTRE. Le bloc PARTIES se remplit de la FICHE du bien (ses
+   * propriétaires, ses occupants) ET de la table des rangements (`gestion_partie_categorie`, qui seule connaît
+   * « Tiers indépendant »), fusionnées par une règle où la fiche l'emporte. On demande donc les deux mêmes
+   * sources, et c'est `categoriesDuBien` — la fonction que le bloc appelle lui-même — qui les fusionne. Aucun
+   * classement n'est refait ici.
+   *
+   * 🔴 CHARGÉ À L'OUVERTURE DE LA FENÊTRE, JAMAIS AVANT. Ces deux lectures ne servent qu'aux capsules des
+   * miniatures : les faire au montage de chaque conversation aurait coûté deux requêtes à chaque mail ouvert,
+   * pour une fenêtre qu'on n'ouvre pas toujours.
+   *
+   * ⚠️ EN ÉCHEC, ON NE CASSE RIEN : la carte reste vide, et les familles retombent sur « Interne » et
+   * « Extérieur » — ce qui est exactement ce que la fenêtre montrait avant ce lot (c'est-à-dire rien de faux).
+   */
+  const [categoriesDuBienRattache, setCategoriesDuBienRattache] =
+    useState<ReadonlyMap<string, CategoriePartie>>(new Map());
   /** L'ordre du récapitulatif. Local à l'écran : rien à mémoriser, la fenêtre s'ouvre et se ferme. */
   const [ordrePieces, setOrdrePieces] = useState<OrdrePieces>(ORDRE_PIECES_DEFAUT);
   /** La pièce affichée dans la visionneuse. `null` = elle est fermée. */
@@ -1244,6 +1273,97 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     }
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     ⚠️ CES TROIS CROCHETS SONT **AVANT** LES RETOURS ANTICIPÉS, ET IL LE FAUT. React exige que le nombre de
+     crochets ne change pas d'un rendu à l'autre : posés après `if (vue.v === 'charge') return …`, ils
+     disparaissaient pendant le chargement et réapparaissaient ensuite — « Rendered more hooks than during the
+     previous render », et 241 épreuves rouges. C'est pour cela qu'ils lisent `vue` plutôt que `messages`, qui
+     n'est déstructuré qu'après.
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — LE STATUT D'ENVOI DES PIÈCES DE CETTE CONVERSATION
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * LE BIEN RATTACHÉ À LA CONVERSATION, s'il y en a un. On prend le PREMIER bien CONFIRMÉ de l'échange : c'est le
+   * même filtre que la pastille de bien du mail (`SORTES_BIEN` + `statut === 'confirme'`), et c'est voulu — une
+   * proposition n'est pas un rattachement, et classer sur une proposition peindrait une capsule sur un bien qu'on
+   * n'a pas encore reconnu.
+   */
+  const cleBienDuFil = useMemo(() => {
+    for (const liens of (rattachements ?? new Map()).values()) {
+      for (const l of liens) {
+        if (SORTES_BIEN.includes(l.cible.sorte) && l.statut === 'confirme' && l.cible.cle !== null) {
+          return l.cible.cle;
+        }
+      }
+    }
+    return null;
+  }, [rattachements]);
+
+  /**
+   * LES DEUX MOITIÉS DU CALCUL DU BLOC PARTIES, demandées à l'OUVERTURE de la fenêtre seulement.
+   *
+   * ⚠️ `?lotCle=` EST LA MÊME PORTE QUE LA FICHE DU BIEN (elle résout la clé puis appelle la MÊME `ficheLot`) :
+   * aucune seconde lecture de « la fiche d'un bien » n'est introduite ici.
+   */
+  useEffect(() => {
+    if (!recapPieces || cleBienDuFil === null) return;
+    let vivant = true;
+    void (async () => {
+      try {
+        const [rf, rp] = await Promise.all([
+          fetch(`/api/admin/gestion/annuaire?lotCle=${encodeURIComponent(cleBienDuFil)}`, { cache: 'no-store' }),
+          fetch(`/api/admin/gestion/historique/parties?cible=lot-${encodeURIComponent(cleBienDuFil)}`,
+            { cache: 'no-store' }),
+        ]);
+        const df = (await rf.json().catch(() => ({}))) as {
+          etat?: string; data?: Parameters<typeof categoriesDeLaFiche>[0];
+        };
+        const dp = (await rp.json().catch(() => ({}))) as {
+          data?: { parties?: { adresse: string; categorie: string | null }[] };
+        };
+        if (!vivant) return;
+        const rangees = new Map<string, CategoriePartie>();
+        for (const x of dp.data?.parties ?? []) {
+          /* ⚠️ « a_repartir » N'EST PAS UN RANGEMENT : c'est l'absence de rangement, et le module pur l'exprime
+             en ne connaissant pas l'adresse. Même règle que le bloc PARTIES, au mot près. */
+          if (x.categorie === 'proprietaire' || x.categorie === 'locataire' || x.categorie === 'independant') {
+            rangees.set(x.adresse.trim().toLowerCase(), x.categorie);
+          }
+        }
+        setCategoriesDuBienRattache(
+          categoriesDuBien(df.etat === 'ok' && df.data ? df.data : null, rangees));
+      } catch {
+        if (vivant) setCategoriesDuBienRattache(new Map());
+      }
+    })();
+    return () => { vivant = false; };
+  }, [recapPieces, cleBienDuFil]);
+
+  /**
+   * LES FAMILLES DESTINATAIRES DE CHAQUE MESSAGE. Une pièce envoyée dans plusieurs messages garde donc des
+   * capsules PROPRES À SON MESSAGE (Arno, point 6) : la carte est indexée par `messageId`, et chaque miniature
+   * demande les siennes.
+   *
+   * ⚠️ LE CCI N'EST PAS CONNU ICI, et on ne l'invente pas : la conversation ne porte que `destA` et `destCc`
+   * (`MessageDeFil`). Arno écrit « Cci si on le connaît » — le module pur le lit quand il est là, et ne s'en
+   * plaint pas quand il manque.
+   */
+  const famillesDuMessage = useMemo(() => {
+    const regles = {
+      estInterne: (a: string) => estAdresseInterne(a),
+      adresseBoite: COMPTE_GESTION_DEFAUT,
+    };
+    const m = new Map<number, FamilleVue[]>();
+    for (const x of (vue.v === 'ok' ? vue.messages : [])) {
+      m.set(x.messageId, famillesDestinataires(
+        { sens: x.sens, a: x.destA ?? [], cc: x.destCc ?? [] },
+        categoriesDuBienRattache, regles));
+    }
+    return m as ReadonlyMap<number, FamilleVue[]>;
+  }, [vue, categoriesDuBienRattache]);
+
   if (vue.v === 'charge') return <p className="gst-info" role="status">Chargement de la conversation…</p>;
   if (vue.v === 'erreur') {
     return (
@@ -1278,6 +1398,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const recap = dedoublonnerPieces(piecesDeLaConversation(messages, ordrePieces));
   const piecesFil = recap.pieces;
+
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — toutes les copies, dédoublonnage DÉFAIT. Voir la prop du message.
    */
@@ -2012,6 +2133,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             onVoirDansLeDrive: setEmplacementAVoir,
             onAllerAuMessage: (id) => void allerAuMessage(id),
           }}
+          /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — les capsules de statut d'envoi, par MESSAGE : une même pièce
+             envoyée deux fois porte les destinataires de SON message, jamais ceux de l'autre. */
+          destinataires={(id) => famillesDuMessage.get(id) ?? []}
           onFermer={() => setRecapPieces(false)} />
       )}
 

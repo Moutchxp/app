@@ -20,7 +20,9 @@ import { CSS_PICTO_DANS_LE_DRIVE, PictoDansLeDrive } from './PictoDansLeDrive';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … ». Importé, jamais recopié : les mêmes lignes
    paraissent sur les miniatures du mail déplié, et deux rendus auraient divergé au premier correctif. */
 import { CSS_DESTINATAIRES_PIECE, DestinatairesDePiece } from './DestinatairesDePiece';
-import type { PartieDestinataire } from '../../../../lib/gestion/historiqueBien';
+/* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — les FAMILLES destinataires remplacent les parties : une famille de
+   plus (Interne), « non affecté » devenu Extérieur, et le Cci compté quand on le connaît. */
+import type { FamilleVue } from '../../../../lib/gestion/familleDestinataire';
 import type { EmplacementPiece } from '../../../../lib/gestion/pieceDansLeDrive';
 
 /**
@@ -131,7 +133,7 @@ export function ModalePiecesConversation({
    * ⚠️ ABSENTE ⇒ AUCUNE LIGNE, et la fenêtre d'une conversation ne bouge pas d'un pixel : elle n'a pas de bien en
    * tête, donc aucune catégorie à lire. C'est la même règle que `tonDe` sur la ligne d'un mail.
    */
-  destinataires?: (messageId: number) => readonly PartieDestinataire[];
+  destinataires?: (messageId: number) => readonly FamilleVue[];
   /**
    * 🔴 ÉCHAP NE FERME QUE LA FENÊTRE DU DESSUS. La visionneuse et la fenêtre Drive vivent AU-DESSUS de celle-ci et
    * posent leurs propres écouteurs sur `window` ; le premier inscrit répond le premier, et ce serait celui-ci.
@@ -278,7 +280,7 @@ export function CartePieceConversation({
    * conversation et tout écran qui n'a pas de bien en tête — et le module pur rend déjà vide pour un mail REÇU,
    * donc aucune carte entrante n'a de ligne, où qu'elle soit montée.
    */
-  destinataires?: readonly PartieDestinataire[];
+  destinataires?: readonly FamilleVue[];
 }) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
   const [vignetteMorte, setVignetteMorte] = useState(false);
@@ -367,7 +369,7 @@ export function CartePieceConversation({
         {/* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — SOUS LA DATE, comme Arno le demande : une ligne par partie
             destinataire. Rien n'est rendu pour un mail reçu (le module pur rend vide), ni là où l'appelant ne
             connaît aucune catégorie. */}
-        <DestinatairesDePiece parties={destinataires} />
+        <DestinatairesDePiece familles={destinataires} />
         {/* DÉJÀ DANS LE DRIVE : dit en MOTS, avec le nom du dossier, et un lien pour y aller — même mention que la
             carte d'un message, puisque c'est la même information. */}
         {depot && (

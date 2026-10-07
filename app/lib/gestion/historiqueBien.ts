@@ -2383,87 +2383,22 @@ export function motPiecesEcartees(n: number): string | null {
    ligne et pour la même personne.
    ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** Une adresse à qui la pièce est partie, avec le champ par lequel elle l'a reçue. */
-export interface AdresseDestinataire {
-  /** « À » ou « Cc » — c'est ce que l'info-bulle affiche, parce que les deux ne veulent pas dire la même chose. */
-  champ: 'À' | 'Cc';
-  nom: string | null;
-  adresse: string;
-}
+/* ══ 🔴🔴 RETIRÉ LE 07/10/2026 — LOT PJ-STATUT-ENVOI-FAMILLES ══════════════════════════════════════════════════
+   Vivaient ici `AdresseDestinataire`, `PartieDestinataire`, `motPartieDestinataire`, `partiesDestinataires` et
+   `detailPartieDestinataire` : les LIGNES « → envoyé à la partie propriétaire » du lot HISTORIQUE-BIEN-14.
 
-/** Une partie destinataire : sa catégorie, son ton, sa phrase, et le détail de ses adresses. */
-export interface PartieDestinataire {
-  cle: CleGroupeParties;
-  ton: TonGroupe;
-  /** « → envoyé à la partie propriétaire ». Écrit ici, jamais à l'écran. */
-  mot: string;
-  adresses: AdresseDestinataire[];
-}
+   🔴 ARNO LES REMPLACE PAR DES CAPSULES, et le remplacement change le FOND autant que la forme :
+     · une famille de plus — INTERNE —, que l'ancienne règle ÉCARTAIT (« nous mettre en copie n'est pas envoyer à
+       une partie »). Arno tranche autrement : un collègue destinataire est une information. Seule la BOÎTE
+       elle-même reste écartée ;
+     · « non affecté » devient EXTÉRIEUR ;
+     · le Cci entre dans le calcul quand on le connaît ;
+     · un seul « i » pour toute la pièce, au lieu d'un par ligne.
+   Garder l'ancienne fonction à côté aurait donné deux réponses à « vers qui cette pièce est-elle partie ».
 
-/**
- * ══ 🔴 LA PHRASE D'UNE LIGNE. PURE. ═════════════════════════════════════════════════════════════════════════════
- *
- * ⚠️ LE QUATRIÈME CAS NE DIT PAS « LA PARTIE » : Arno écrit « → envoyé à un destinataire non affecté », et il a
- * raison au mot près — « non affecté » veut précisément dire qu'on ne sait pas encore de quelle partie il s'agit.
- * « La partie non affectée » aurait nommé un groupe qui n'existe pas.
- */
-export function motPartieDestinataire(cle: CleGroupeParties): string {
-  if (cle === 'a_repartir') return '→ envoyé à un destinataire non affecté';
-  return `→ envoyé à la partie ${TITRES_GROUPES[cle].toLowerCase()}`;
-}
-
-/**
- * ══ 🔴🔴 À QUELLES PARTIES CE MAIL EST-IL PARTI ? PURE. ═════════════════════════════════════════════════════════
- *
- * Rend un tableau VIDE pour tout mail reçu : la question ne se pose que pour nos envois.
- *
- * ⚠️ « À » AVANT « Cc » DANS L'INFO-BULLE d'une même partie, et dans l'ordre des en-têtes à l'intérieur de
- * chaque champ. C'est l'ordre dans lequel on lit un en-tête de courrier, et le destinataire direct d'abord.
- *
- * ⚠️ UNE ADRESSE RÉPÉTÉE (en « À » puis en « Cc », ce qui arrive) N'EST COMPTÉE QU'UNE FOIS, au premier champ
- * où elle paraît : l'info-bulle doit lister des gens, pas des lignes d'en-tête.
- */
-export function partiesDestinataires(
-  m: { sens: 'recu' | 'envoye'; a: readonly PersonneDuMail[]; cc: readonly PersonneDuMail[] },
-  categories: ReadonlyMap<string, CategoriePartie>,
-  /** `true` pour une de NOS adresses. Passé par l'écran, qui tient déjà cette règle (`estAdresseInterne`). */
-  estNous: (adresse: string) => boolean,
-): PartieDestinataire[] {
-  if (m.sens !== 'envoye') return [];
-  const vues = new Set<string>();
-  const par = new Map<CleGroupeParties, AdresseDestinataire[]>();
-  const poser = (p: PersonneDuMail, champ: 'À' | 'Cc'): void => {
-    const a = p.adresse.trim();
-    const cle = a.toLowerCase();
-    if (cle === '' || vues.has(cle) || estNous(a)) return;
-    vues.add(cle);
-    const groupe: CleGroupeParties = categories.get(cle) ?? 'a_repartir';
-    par.set(groupe, [...(par.get(groupe) ?? []), { champ, nom: p.nom, adresse: a }]);
-  };
-  for (const p of m.a) poser(p, 'À');
-  for (const p of m.cc) poser(p, 'Cc');
-  /* 🔴 L'ORDRE VIENT DE `ORDRE_DES_GROUPES`, celui des encarts : rouge, vert, bleu, gris. Une seule liste. */
-  return ORDRE_DES_GROUPES
-    .filter((cle) => (par.get(cle) ?? []).length > 0)
-    .map((cle) => ({
-      cle, ton: TONS_GROUPES[cle], mot: motPartieDestinataire(cle), adresses: par.get(cle) ?? [],
-    }));
-}
-
-/**
- * ══ 🔴 L'INFO-BULLE DU « i » — TOUTES LES ADRESSES DE CETTE PARTIE À QUI LA PIÈCE EST PARTIE. PURE. ══════════════
- *
- * Arno : « Au survol (et au clic au clavier), une info-bulle liste toutes les adresses de cette partie à qui la
- * pièce a été envoyée (À / Cc, nom et adresse). »
- *
- * ⚠️ LE NOM **ET** L'ADRESSE, et l'adresse même quand le nom existe : deux « Jean PONS » dans un dossier de
- * famille ne se distinguent que par elle. Sans nom, l'adresse seule — jamais un « (sans nom) » inventé.
- */
-export function detailPartieDestinataire(p: PartieDestinataire): string {
-  return p.adresses
-    .map((d) => `${d.champ} : ${d.nom === null || d.nom.trim() === '' ? d.adresse : `${d.nom} <${d.adresse}>`}`)
-    .join('\n');
-}
+   ⇒ `app/lib/gestion/familleDestinataire.ts`, qui porte aussi — et c'est le point 3b d'Arno — le calcul des
+   catégories du bloc PARTIES, descendu de `Annuaire.tsx` et de `HistoriqueDuBien.tsx` pour que les capsules et le
+   bloc lisent la MÊME fonction au lieu de deux copies. */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑦-bis 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LA RECHERCHE, DANS LA SÉLECTION DÉJÀ AFFICHÉE

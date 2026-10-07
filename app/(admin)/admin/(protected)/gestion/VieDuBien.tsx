@@ -10,7 +10,9 @@ import { lienGmail, COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailM
 import { dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
 import { corpsLisible, etatTrombone, motTrombone, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
-import type { PartieDestinataire } from '../../../../lib/gestion/historiqueBien';
+/* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — les FAMILLES destinataires remplacent les parties : une famille de
+   plus (Interne), « non affecté » devenu Extérieur, et le Cci compté quand on le connaît. */
+import type { FamilleVue } from '../../../../lib/gestion/familleDestinataire';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les noms de pièces cités dans le corps. Voir l'encadré du module. */
 import {
   decouperLesPiecesCitees, piecesCiteesAilleurs, type PieceCitable,
@@ -369,7 +371,7 @@ export function LigneVie({
    * ⚠️ VIDE PAR DÉFAUT ⇒ LES TROIS AUTRES ÉCRANS NE BOUGENT PAS. Seul « Historique du bien » connaît les
    * catégories d'un bien ; la fiche d'un locataire n'en a aucune à lire. Même règle que `tonDe`.
    */
-  destinataires?: readonly PartieDestinataire[];
+  destinataires?: readonly FamilleVue[];
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES PIÈCES DE LA CONVERSATION, POUR LES NOMS CITÉS ═══════════════
    *

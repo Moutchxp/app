@@ -18,6 +18,9 @@ import type {
  * tout à fait les mêmes gens que la barre de l'accueil et qui se corrigeait séparément. Il n'y en a plus qu'un.
  */
 import { BarreAnnuaire } from './BarreAnnuaire';
+/* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — la moitié « fiche » du calcul des PARTIES, descendue dans un module
+   PUR pour que la fenêtre des pièces jointes lise exactement la même, et non une copie. */
+import { categoriesDeLaFiche } from '../../../../lib/gestion/familleDestinataire';
 /**
  * 🔴🔴 LOT HISTORIQUE-BIEN-2 — `VieDuBien` N'EST PLUS MONTÉ SUR LA FICHE D'UN **BIEN** (accord d'Arno,
  * 04/10/2026 : « deux listings de mails, c'est un de trop » ; le moteur prend sa place, juste sous « Historique
@@ -1485,7 +1488,7 @@ function VueLot({
           lotCle={f.numero}
           maintenant={maintenant}
           occupations={occupationsPourHistorique(f)}
-          categories={categoriesDesParties(f)}
+          categories={categoriesDeLaFiche(f)}
           periodes={periodesDesParties(f)}
           /* 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — les CLIENTS du bien, pour que leur capsule existe meme a 0 mail. */
           clients={clientsDesParties(f)}
@@ -1619,44 +1622,15 @@ function cartesLocatairesDuBien(f: FicheLot): CarteLocataireBien[] {
   }));
 }
 
-/**
- * ══ 🔴 À QUELLE CATÉGORIE APPARTIENT CHAQUE ADRESSE DE CETTE FICHE ════════════════════════════════════════════
- *
- * Les propriétaires du bien donnent le groupe « Propriétaire » ; les occupants et les anciens occupants donnent
- * « Locataire ». Tout le reste — assureur, syndic, artisan, voisin — tombe dans « À répartir », ce que l'écran
- * DIT en toutes lettres.
- *
- * 🔴 CE QUE CETTE FONCTION NE REND **PAS**, ET OÙ LE RESTE EST LU. Elle ne connaît que les deux catégories que la
- * fiche PORTE : la table `gestion_message_adresse` a une colonne `partie` limitée à `proprietaire | locataire`.
- * La troisième — « Indépendant » — ne vit que dans `gestion_partie_categorie` (migration 304), et le bloc la lit
- * lui-même par `/api/admin/gestion/historique/parties`, puis FUSIONNE les deux lectures.
- *
- * ⚠️ DANS CETTE FUSION, CE QUE REND CETTE FONCTION L'EMPORTE, et c'est voulu : un propriétaire ou un occupant de
- * CETTE fiche est un CLIENT, et aucun rangement de parties — fût-il « vérifié » — ne doit le faire basculer dans
- * un autre groupe. Un client n'est jamais un contact (règle d'Arno) ; la fiche est l'autorité sur les siens.
- * Deviner « indépendant » depuis un nom de domaine, en revanche, aurait rangé des gens dans une catégorie fausse,
- * ce qui est pire que de les laisser « à répartir » : « à répartir » dit qu'il reste un geste à faire.
- *
- * ⚠️ LES CLÉS SONT EN MINUSCULES : la table des adresses porte la forme canonique, et une comparaison sensible à
- * la casse aurait rangé « Jean.PONS@… » « à répartir » alors que l'annuaire le connaît.
- */
-function categoriesDesParties(f: FicheLot): ReadonlyMap<string, CategoriePartie> {
-  const m = new Map<string, CategoriePartie>();
-  const poser = (contacts: readonly ContactAffiche[], c: CategoriePartie): void => {
-    for (const x of contacts) {
-      if (x.sorte !== 'email') continue;
-      const a = x.valeur.trim().toLowerCase();
-      /* ⚠️ LE PREMIER POSÉ GAGNE : une adresse partagée (un couple propriétaire-occupant) ne doit pas changer de
-         groupe selon l'ordre de lecture. Les propriétaires sont posés d'abord, exprès. */
-      if (a !== '' && !m.has(a)) m.set(a, c);
-    }
-  };
-  for (const p of f.proprietaires) poser(p.contacts, 'proprietaire');
-  poser(f.proprietaireContacts, 'proprietaire');
-  for (const p of f.occupants) poser(p.contacts, 'locataire');
-  for (const o of f.occupations) poser(o.contacts, 'locataire');
-  return m;
-}
+/* ══ 🔴🔴 DESCENDU LE 07/10/2026 DANS LE MODULE PUR — LOT PJ-STATUT-ENVOI-FAMILLES ═══════════════════════════════
+   Vivait ici `categoriesDesParties(f)` : la moitié « fiche » du calcul qui remplit le bloc PARTIES — les
+   propriétaires donnent « Propriétaire », les occupants et les anciens donnent « Locataire ».
+
+   🔴 ELLE ÉTAIT DANS UN COMPOSANT DE NAVIGATEUR, donc inaccessible à tout autre écran sans la recopier. Arno
+   demande que les capsules des miniatures de pièces lisent « EXACTEMENT le même calcul que celui qui remplit ce
+   bloc » : elle est donc devenue `categoriesDeLaFiche`, dans `app/lib/gestion/familleDestinataire.ts`, et c'est
+   la MÊME fonction que la fiche et la fenêtre des pièces appellent. Son commentaire l'a suivie, mot pour mot. */
+
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LES CLIENTS DE CETTE FICHE, POUR LES DEUX ENCARTS ═══════════════════════

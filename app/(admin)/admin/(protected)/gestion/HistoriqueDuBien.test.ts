@@ -3528,7 +3528,11 @@ describe('⑦ 🔴🔴 le montage dans la fiche d’un bien', () => {
   /** 🔴 LES OCCUPATIONS PASSENT PAR LA FICHE : la route ne les rend pas pour une cible `lot-…`. */
   it('🔴 les occupations et les catégories sont fournies par la fiche', () => {
     expect(ANNUAIRE).toContain('occupations={occupationsPourHistorique(f)}');
-    expect(ANNUAIRE).toContain('categories={categoriesDesParties(f)}');
+    /* ⚠️ RENOMMÉ LE 07/10/2026 — LOT PJ-STATUT-ENVOI-FAMILLES : le calcul est DESCENDU dans le module pur
+       `familleDestinataire`, pour que la fenêtre des pièces jointes lise exactement le même. La fiche
+       continue de le fournir, par la même propriété. */
+    expect(ANNUAIRE).toContain('categories={categoriesDeLaFiche(f)}');
+    expect(ANNUAIRE).toContain("from '../../../../lib/gestion/familleDestinataire'");
     expect(ANNUAIRE).toContain('f.occupations.map((o) => ({ libelle: o.nom, depuis: o.entree, jusqua: o.sortie }))');
   });
 });
@@ -5204,45 +5208,57 @@ describe('⑮ 🔴🔴 nos envois disent à quelle partie ils sont allés', () =
     }));
   }
 
-  const lignesDest = (): { mot: string; ton: string }[] =>
-    [...hote.querySelectorAll('.hdb-resume--bas .ddp-ligne')].map((li) => ({
-      mot: li.querySelector('.ddp-mot')?.textContent ?? '',
-      ton: (li.className.match(/ddp-ligne--(\w+)/) ?? [])[1] ?? '',
+  /**
+   * ══ 🔴🔴 BLOC RÉÉCRIT LE 07/10/2026 — LOT PJ-STATUT-ENVOI-FAMILLES ══════════════════════════════════════════
+   *
+   * IL ÉPROUVAIT DES **LIGNES** « → envoyé à la partie … », une par partie, chacune avec SON « i ». Arno les
+   * remplace par des CAPSULES, ajoute la famille INTERNE (que l'ancienne règle ÉCARTAIT), renomme « non
+   * affecté » en EXTÉRIEUR, et ne veut plus qu'UN « i » pour toute la pièce.
+   *
+   * 🔴 CE QUE LE BLOC PROTÉGEAIT EST TOUJOURS ÉPROUVÉ, ET ÉLARGI : l'ordre, les tons, une famille par entrée, le
+   * détail des adresses, le fait que ce soit SOUS la date, le clavier, et rien du tout pour un mail reçu.
+   */
+  const capsulesDest = (): { mot: string; ton: string }[] =>
+    [...hote.querySelectorAll('.hdb-resume--bas .ddp-capsule')].map((c) => ({
+      mot: c.textContent ?? '',
+      ton: (c.className.match(/ddp-capsule--(\w+)/) ?? [])[1] ?? '',
     }));
 
-  it('🔴🔴 une ligne par partie, dans l’ordre et dans le bon ton', async () => {
+  it('🔴🔴 une capsule par famille, dans l’ordre et dans le bon ton', async () => {
     servirLenvoi();
     await monter({ categories: CATEGORIES });
     await ouvrirLeResume();
-    expect(lignesDest()).toEqual([
-      { mot: '→ envoyé à la partie propriétaire', ton: 'rouge' },
-      { mot: '→ envoyé à la partie locataire', ton: 'vert' },
-      { mot: '→ envoyé à un destinataire non affecté', ton: 'gris' },
+    /* 🔴 NOTRE COLLÈGUE EN COPIE A DÉSORMAIS SA CAPSULE — c'est le renversement du lot. */
+    expect(capsulesDest()).toEqual([
+      { mot: 'Envoyé vers propriétaire', ton: 'rouge' },
+      { mot: 'Envoyé vers locataire', ton: 'vert' },
+      { mot: 'Envoyé en interne', ton: 'gris' },
+      { mot: 'Destinataire extérieur', ton: 'neutre' },
     ]);
   });
 
   /**
-   * 🔴🔴 NOTRE PROPRE ADRESSE NE CRÉE PAS DE LIGNE. `jb.pons@sansvisavis.com` est en copie de cet envoi — comme
-   * dans la moitié de nos messages. La compter aurait posé une ligne grise sous presque chaque pièce sortante.
+   * ══ 🔴🔴 RÈGLE RENVERSÉE — NOTRE COLLÈGUE A MAINTENANT SA CAPSULE ══════════════════════════════════════════
+   *
+   * CE CAS EXIGEAIT L'INVERSE : « nous mettre en copie ne crée aucune ligne », au motif que ce n'est pas
+   * « envoyer à une partie ». Arno tranche autrement — un collègue destinataire EST une information, et c'est
+   * la famille INTERNE. Seule la BOÎTE elle-même reste écartée.
+   *
+   * 🔴 ON LIT LE CONTENU DE LA BULLE, ET NON LE NOMBRE DE CAPSULES, pour la raison exacte qui avait déjà fait
+   * corriger ce cas : compter ne prouve rien quand deux adresses peuvent tomber dans la même entrée.
    */
-  it('🔴🔴 nous mettre en copie ne crée aucune ligne', async () => {
+  it('🔴🔴 notre collègue en copie est INTERNE, la boîte reste écartée', async () => {
     servirLenvoi();
     await monter({ categories: CATEGORIES });
     await ouvrirLeResume();
-    expect(lignesDest()).toHaveLength(3);
-    /**
-     * 🔴 ON OUVRE LA LIGNE GRISE, ET C'EST UNE CORRECTION DE MA PREMIÈRE VERSION. Elle lisait `.ddp-detail`
-     * sans avoir ouvert le moindre panneau : la liste était vide, et l'épreuve passait en ne prouvant rien —
-     * vérifié par mutation (retirer l'écart de nos adresses ne la faisait pas échouer). Compter les LIGNES ne
-     * suffit pas non plus : notre adresse serait tombée dans la grise, DÉJÀ présente pour l'inconnu, et leur
-     * nombre n'aurait pas bougé. C'est le CONTENU de la grise qui porte le verdict.
-     */
-    const gris = [...hote.querySelectorAll('.hdb-resume--bas .ddp-ligne--gris .ddp-i')][0];
-    await cliquer(gris);
-    const detail = hote.querySelector('.ddp-ligne--gris .ddp-detail') as HTMLElement;
-    expect(detail.textContent).toContain('inconnu@ailleurs.test');
-    expect(detail.textContent).not.toContain('sansvisavis.com');
-    expect(detail.querySelectorAll('li')).toHaveLength(1);
+    const i = hote.querySelector('.hdb-resume--bas .ddp-i') as HTMLButtonElement;
+    await cliquer(i);
+    const detail = hote.querySelector('.hdb-resume--bas .ddp-detail') as HTMLElement;
+    const lignes = [...detail.querySelectorAll('li')].map((x) => x.textContent ?? '');
+    expect(lignes.find((l) => l.startsWith('Interne'))).toContain('jb.pons@sansvisavis.com');
+    expect(lignes.find((l) => l.startsWith('Extérieur'))).toContain('inconnu@ailleurs.test');
+    /* 🔴 LA BOÎTE N'EST NULLE PART : elle est l'expéditeur, et elle n'est pas destinataire ici. */
+    expect(detail.textContent).not.toContain('gestion@criterimmo.fr');
   });
 
   /** 🔴 SOUS LA DATE, comme Arno le demande — et pas au-dessus du nom du fichier. */
@@ -5283,32 +5299,44 @@ describe('⑮ 🔴🔴 nos envois disent à quelle partie ils sont allés', () =
     expect(hote.querySelector('.ddp-detail')).toBeNull();
   });
 
-  /** 🔴 LE CHAMP EST DIT : « À » et « Cc » ne veulent pas dire la même chose. */
-  it('🔴 l’info-bulle distingue « À » de « Cc »', async () => {
+  /**
+   * 🔴 LE CHAMP EST DIT : « À » et « Cc » ne veulent pas dire la même chose.
+   *
+   * ══ ⚠️ FORME CHANGÉE LE 07/10/2026 — LOT PJ-STATUT-ENVOI-FAMILLES ═══════════════════════════════════════════
+   * La bulle était groupée par PARTIE et commençait chaque adresse par son champ (« À : … »). Arno la veut
+   * groupée par FAMILLE, au format « Propriétaire : a@x.fr » — sans champ. Le champ EXISTAIT pourtant, et le
+   * perdre aurait été un retrait : il est donc gardé, mais seulement quand il n'est PAS « À ». Le format
+   * qu'Arno a écrit se rend au caractère près pour un destinataire direct, et une copie le dit encore.
+   */
+  it('🔴 la bulle garde la distinction « À » / « Cc », sans alourdir le format d’Arno', async () => {
     servirLenvoi();
     await monter({ categories: CATEGORIES });
     await ouvrirLeResume();
-    const is = [...hote.querySelectorAll('.hdb-resume--bas .ddp-i')] as HTMLButtonElement[];
-    expect(is[0].getAttribute('title')).toContain('À :');
-    expect(is[1].getAttribute('title')).toContain('Cc :');
+    const i = hote.querySelector('.hdb-resume--bas .ddp-i') as HTMLButtonElement;
+    const titre = i.getAttribute('title') ?? '';
+    /* 🔴 LE DESTINATAIRE DIRECT S'ÉCRIT NU, comme dans l'exemple d'Arno. */
+    expect(titre).toContain('Propriétaire : M. ROI Nathan <proprio@fictif.test>');
+    expect(titre).not.toContain('(À)');
+    /* 🔴 LA COPIE, ELLE, LE DIT. */
+    expect(titre).toContain('locataire@fictif.test> (Cc)');
   });
 
-  /** 🔴 LES MÊMES LIGNES SUR LES MINIATURES DU MAIL DÉPLIÉ (demande d'Arno), par le MÊME composant. */
-  it('🔴🔴 le mail déplié porte les mêmes lignes', async () => {
+  /** 🔴 LES MÊMES CAPSULES SUR LES MINIATURES DU MAIL DÉPLIÉ (demande d'Arno), par le MÊME composant. */
+  it('🔴🔴 le mail déplié porte les mêmes capsules', async () => {
     servirLenvoi();
     await monter({ categories: CATEGORIES });
     await cliquer(hote.querySelector('#hdb-mail-30 .vdb-ligne-tete, #hdb-mail-30 button') ?? undefined);
-    const dansLeMail = [...(hote.querySelector('#hdb-mail-30')?.querySelectorAll('.ddp-mot') ?? [])]
+    const dansLeMail = [...(hote.querySelector('#hdb-mail-30')?.querySelectorAll('.ddp-capsule') ?? [])]
       .map((x) => x.textContent);
-    expect(dansLeMail).toContain('→ envoyé à la partie propriétaire');
-    expect(dansLeMail).toContain('→ envoyé à la partie locataire');
+    expect(dansLeMail).toContain('Envoyé vers propriétaire');
+    expect(dansLeMail).toContain('Envoyé vers locataire');
   });
 
   /** 🔴🔴 UN MAIL REÇU N'A AUCUNE LIGNE : la question ne se pose que pour nos envois. */
   it('🔴🔴 un mail reçu ne porte aucune ligne', async () => {
     await monter();
     await ouvrirLeResume();
-    expect(hote.querySelectorAll('.ddp-ligne')).toHaveLength(0);
+    expect(hote.querySelectorAll('.ddp-capsule')).toHaveLength(0);
   });
 });
 

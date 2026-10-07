@@ -25,7 +25,9 @@ import { useMiniatureVideo } from './miniatureVideoNavigateur';
 import { Oeil } from './Oeil';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … ». Importé, jamais recopié. */
 import { DestinatairesDePiece } from './DestinatairesDePiece';
-import type { PartieDestinataire } from '../../../../lib/gestion/historiqueBien';
+/* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — les FAMILLES destinataires remplacent les parties : une famille de
+   plus (Interne), « non affecté » devenu Extérieur, et le Cci compté quand on le connaît. */
+import type { FamilleVue } from '../../../../lib/gestion/familleDestinataire';
 // 🔴 LOT DRIVE-UNIQUE — UNE SEULE FENÊTRE DRIVE, PARTOUT. Le panneau en ligne qui vivait ici est remplacé par la
 //    fenêtre façon Finder, ouverte en mode « ranger ». Aucune de ses fonctions n'est perdue : le dernier dossier de
 //    l'échange, les dossiers récents datés et « Déposer ici » y sont, dans la barre latérale et dans le pied.
@@ -105,7 +107,7 @@ export function PiecesJointes({
    * « Historique du bien » connaît les catégories d'un bien ; les lire ailleurs aurait demandé un bien à un
    * écran qui n'en a pas.
    */
-  destinataires?: readonly PartieDestinataire[];
+  destinataires?: readonly FamilleVue[];
   /**
    * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — OÙ RETROUVER UNE PIÈCE QU'ON N'A PAS GARDÉE ═════════════
    *
@@ -373,7 +375,7 @@ function BlocPieces({
 }: {
   messageId: number; pieces: PieceAffichee[]; archive?: boolean;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties à qui nous avons envoyé ce mail. Vide ⇒ rien n'est rendu. */
-  destinataires?: readonly PartieDestinataire[];
+  destinataires?: readonly FamilleVue[];
   /** 🔴🔴 POINT 5 — l'adresse du mail dans Gmail, pour les pièces non conservées. Voir `PiecesJointes`. */
   gmailDuMail: string | null;
   depotDe: (pieceId: number) => DepotAffiche | undefined;
@@ -511,7 +513,7 @@ function CartePiece({
   piece: PieceAffichee; depot: DepotAffiche | undefined; indisponible: string | null; onDrive: () => void;
   onVisualiser?: (pieceId: number) => void;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties à qui nous avons envoyé ce mail. Vide ⇒ rien n'est rendu. */
-  destinataires?: readonly PartieDestinataire[];
+  destinataires?: readonly FamilleVue[];
   /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — vide ⇒ la carte est EXACTEMENT celle d'avant ce lot. */
   emplacements: readonly EmplacementPiece[];
   onVoirDansLeDrive: (e: EmplacementPiece) => void;
@@ -639,7 +641,7 @@ function CartePiece({
         {precaution && <span className="pj-precaution">{MENTION_PRECAUTION}</span>}
         {/* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … », sous la ligne de la pièce. Le même
             composant que les cartes du résumé : une seule écriture, donc un seul comportement. */}
-        <DestinatairesDePiece parties={destinataires} />
+        <DestinatairesDePiece familles={destinataires} />
         {/* DÉJÀ DANS LE DRIVE : dit en MOTS, avec le nom du dossier, et un lien pour y aller. */}
         {depot && (
           <span className="pj-drive-mention">

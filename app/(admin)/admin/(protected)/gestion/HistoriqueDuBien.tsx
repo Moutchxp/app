@@ -78,8 +78,6 @@ import {
   BANDES_SOUS_LES_ENCARTS, filtrerParMots, messagesDesPorteurs,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — une pièce envoyée par une partie non cochée n'entre pas au résumé. */
   motPiecesEcartees, partagerPourLeResume, partiesCochees,
-  /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — « → envoyé à la partie … » sous une pièce que nous avons envoyée. */
-  partiesDestinataires, type PartieDestinataire,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
@@ -139,6 +137,12 @@ import {
 } from '../../../../lib/gestion/ficheContact';
 /** Ce que le dépôt sait d'une adresse avant toute saisie. Importé en TYPE : rien de `pg` n'entre ici. */
 import type { CoordonneesTrouvees } from '../../../../lib/gestion/partieCategorieRepo';
+/* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — les familles destinataires d'une pièce, et la carte des catégories du
+   bloc PARTIES : les deux viennent du MÊME module pur que les capsules des miniatures (point 3b d'Arno). */
+import {
+  famillesDestinataires, fusionnerCategories, type FamilleVue,
+} from '../../../../lib/gestion/familleDestinataire';
+import { COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailMenu';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8 — UNE CARTE TELLE QUE LA ROUTE LA REND À CE BLOC ══════════════════════════════════
@@ -1279,11 +1283,14 @@ export function HistoriqueDuBien({
    * ici. La reprise ne pose d'ailleurs aucune ligne sur une adresse que l'annuaire reconnaît : ce garde protège
    * donc d'un futur, pas d'un présent.
    */
-  const categoriesFusionnees = useMemo(() => {
-    const m = new Map<string, CategoriePartie>(categoriesRangees);
-    for (const [adresse, c] of categories) m.set(adresse, c);
-    return m as ReadonlyMap<string, CategoriePartie>;
-  }, [categories, categoriesRangees]);
+  /**
+   * ⚠️ LA FUSION EST DESCENDUE DANS LE MODULE PUR (lot PJ-STATUT-ENVOI-FAMILLES) : les capsules des miniatures
+   * doivent lire EXACTEMENT la même carte que ce bloc, et elle vivait ici, dans un composant de navigateur.
+   * `categoriesDuBien` porte la règle — la fiche l'emporte sur les rangements — et les deux écrans l'appellent.
+   */
+  const categoriesFusionnees = useMemo(
+    () => fusionnerCategories(categories, categoriesRangees),
+    [categories, categoriesRangees]);
 
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LES CLIENTS DE LA FICHE COMPLÈTENT LA LISTE AVANT LE RANGEMENT.
@@ -1469,20 +1476,32 @@ export function HistoriqueDuBien({
    * (« même source », Arno). Une seconde lecture aurait fini par peindre la flèche d'une couleur et la pastille
    * d'une autre, sur la même ligne et pour la même personne.
    *
-   * ⚠️ `estAdresseInterne` ÉCARTE LES NÔTRES, et c'est la règle du dépôt, écrite une fois dans son module : nous
-   * mettre en copie de notre propre envoi n'est pas « envoyer à une partie ».
+   * ══ ⚠️ RÉÉCRIT LE 07/10/2026 — LOT PJ-STATUT-ENVOI-FAMILLES ═══════════════════════════════════════════════
+   *
+   * IL ÉCARTAIT TOUTES NOS ADRESSES (`estAdresseInterne`), au motif que « nous mettre en copie de notre propre
+   * envoi n'est pas envoyer à une partie ». Arno tranche autrement : un collègue destinataire EST une
+   * information, et il a sa capsule « Envoyé en interne ». Seule la BOÎTE elle-même reste écartée.
+   *
+   * ⚠️ LE CCI ENTRE DANS LE CALCUL : `LigneHistorique` le porte déjà, et le module pur le lit quand il est là.
    */
   const destinatairesDuMessage = useMemo(() => {
-    const m = new Map<number, PartieDestinataire[]>();
+    const m = new Map<number, FamilleVue[]>();
+    const regles = {
+      estInterne: (a: string) => estAdresseInterne(a),
+      /* ⚠️ LA BOÎTE VIENT DE LA CONSTANTE PARTAGÉE, pas d'une chaîne recopiée : c'est le même repli que les deux
+         autres écrans qui en ont besoin sans recevoir la configuration (`VieDuBien`, `HistoriqueCible`). */
+      adresseBoite: COMPTE_GESTION_DEFAUT,
+    };
     const poser = (
-      id: number, x: { sens: 'recu' | 'envoye'; a: PersonneDuMail[]; cc: PersonneDuMail[] },
+      id: number,
+      x: { sens: 'recu' | 'envoye'; a: PersonneDuMail[]; cc: PersonneDuMail[]; cci?: PersonneDuMail[] },
     ): void => {
       if (m.has(id)) return;
-      m.set(id, partiesDestinataires(x, categoriesFusionnees, (a) => estAdresseInterne(a)));
+      m.set(id, famillesDestinataires(x, categoriesFusionnees, regles));
     };
     for (const l of lignes) poser(l.messageId, l);
     if (etatPieces.v === 'ok') for (const x of etatPieces.messages) poser(x.messageId, x);
-    return m as ReadonlyMap<number, PartieDestinataire[]>;
+    return m as ReadonlyMap<number, FamilleVue[]>;
   }, [lignes, etatPieces, categoriesFusionnees]);
 
   /** La fiche d'annuaire de chaque client, pour le lien « adresse à corriger ». */
@@ -3799,7 +3818,7 @@ function FilDeMails({
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — l'œil d'une miniature du mail déplié ouvre la visionneuse. */
   onVisualiser: (pieceId: number) => void;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
-  destinataires: ReadonlyMap<number, PartieDestinataire[]>;
+  destinataires: ReadonlyMap<number, FamilleVue[]>;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les pièces de chaque conversation, par fil. */
   piecesCitables: ReadonlyMap<number, PieceCitable[]>;
 }) {
@@ -3923,7 +3942,7 @@ function ResumeDeplie({ n, onFermer, ...props }: {
   sansEmpreinte: number;
   categories: ReadonlyMap<string, CategoriePartie>;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
-  destinataires: ReadonlyMap<number, PartieDestinataire[]>;
+  destinataires: ReadonlyMap<number, FamilleVue[]>;
 }) {
   return (
     <>
@@ -3968,7 +3987,7 @@ function ResumePieces({
    */
   categories: ReadonlyMap<string, CategoriePartie>;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
-  destinataires: ReadonlyMap<number, PartieDestinataire[]>;
+  destinataires: ReadonlyMap<number, FamilleVue[]>;
 }) {
   return (
     <div className="hdb-pieces">
