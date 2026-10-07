@@ -1016,6 +1016,24 @@ export function GestionVue({ intro }: {
           serveur qui ne connaît pas l'écran courant, lequel vit dans l'adresse et n'est lu qu'ici). C'est le
           patron déjà en place dans ce fichier, et non un contournement nouveau. */}
       {ecran === 'partage' && <style>{'.gst-page > .svv-page-head > .svv-page-sub{display:none}'}</style>}
+      {/* ══ 🔴🔴 LOT ECRAN-PARTAGE-PLEINE-LARGEUR, POINT 1 — LA PAGE VA JUSQU'AU BORD DROIT ══════════════════════
+          ARNO (07/10/2026) : « Il reste une marge vide à droite […] Le contenu de la page Gestion doit utiliser
+          toute la largeur disponible jusqu'au bord droit, avec seulement la marge intérieure habituelle (la même
+          que celle de gauche entre le menu et le contenu). »
+
+          🔴 LA MARGE QUI RESTE EST DÉJÀ LA BONNE, ET ELLE N'EST PAS ÉCRITE ICI : `.svv-adm-main` porte
+          `padding:1.25rem` sur ses quatre côtés. En levant le plafond, le contenu s'arrête donc exactement à 20 px
+          du bord droit — la même valeur qu'à gauche, entre le menu et le contenu. Il n'y avait rien à ajouter.
+
+          🔴 POURQUOI UNE RÈGLE CONDITIONNELLE, ET NON `.gst-page{max-width:none}` DANS LA FEUILLE. `.gst-page` est
+          le conteneur de TOUS les écrans du module : la boîte, les événements, l'annuaire, « À rattacher ». La
+          boîte et les événements en PLEIN ÉCRAN sont déjà sans plafond (`[data-gst-plein="1"]`, règle existante) ;
+          l'annuaire et « À rattacher », eux, ne sont pas dans la demande — et les élargir sans accord serait
+          toucher à deux écrans qu'Arno n'a pas ouverts. La règle ne vaut donc QUE pour l'écran partagé.
+
+          ⚠️ ELLE PASSE APRÈS `CSS_GESTION` DANS LE DOCUMENT, donc elle l'emporte à spécificité égale. C'est le
+          patron déjà employé deux fois juste au-dessus, et non un contournement nouveau. */}
+      {ecran === 'partage' && <style>{'.gst-page{max-width:none}'}</style>}
 
       {/* BANDEAU D'ÉTAT — toujours présent : un outil qui dit depuis quand il n'a pas regardé reste honnête.
           LOT 5-GMAIL — en PLEIN ÉCRAN il devient une ligne compacte qui porte AUSSI le titre du module et sa phrase
@@ -1818,7 +1836,29 @@ ${CSS_BOUTON_ROND}
    téléphone plutôt que de comprimer le titre — un bouton de 44 px et un titre lisible ne tiennent pas sur 320 px. */
 .gst-entete-col{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .5rem}
 .gst-entete-col .gst-titre{margin:0}
-.gst-deux{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+/* ══ 🔴🔴 LOT ECRAN-PARTAGE-PLEINE-LARGEUR, POINT 2 — DEUX ZONES CLAIREMENT SEPAREES ══════════════════════════
+   ARNO (07/10/2026) : « Chaque colonne devient une zone encadree : un lisere fin qui entoure globalement toute la
+   partie Boite de reception (en-tete, filtres, liste, "Voir les mails plus anciens") et un autre qui entoure toute
+   la partie Evenements (en-tete, Plein ecran, cartes). Coins arrondis, fond blanc, meme style de cadre que le bloc
+   Annuaire, pour un ensemble coherent. Un espace net entre les deux zones. »
+
+   🔴 LE CADRE EST CELUI DU BLOC ANNUAIRE, AU CARACTERE PRES — meme bordure, meme rayon, meme fond, meme anneau.
+   C'est ce qu'Arno demande (« meme style de cadre »), et c'est aussi ce qui fait qu'on lit trois zones d'une meme
+   famille plutot que deux cadres et un troisieme qui leur ressemble.
+
+   🔴 LA GOUTTIERE PASSE DE 16 A 24 px, ET IL LE FALLAIT : l'anneau de 3 px de chaque cote mangeait 6 des 16, et
+   « un espace net » serait devenu 10 px entre deux bords lumineux. Le RAPPORT entre les colonnes ne bouge pas —
+   la grille reste 1fr 1fr, c'est-a-dire 50/50, exactement comme avant ce lot.
+
+   ⚠️ LE SELECTEUR VISE LES ENFANTS DIRECTS DE .gst-deux, ET NON .gst-col TOUT COURT : cette classe sert AUSSI a
+   la conversation de l'ecran « Evenements » en plein ecran, qui n'est pas dans la demande. Encadrer .gst-col
+   partout l'aurait emportee avec.
+   ⚠️ LES CARTES D'EVENEMENT GARDENT LEUR PROPRE CADRE : c'est la ligne de titre du repli qui le porte
+   (.svv-repli-titre), et rien ici ne la touche.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-deux{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+.gst-deux > .gst-col{padding:14px;border:1px solid var(--color-svv-line-strong);border-radius:14px;
+  background:var(--color-svv-surface);box-shadow:0 0 0 3px var(--color-svv-field)}
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴🔴 LOT ACCUEIL-GESTION, POINT 3 — LES DEUX COLONNES SE REPONDENT

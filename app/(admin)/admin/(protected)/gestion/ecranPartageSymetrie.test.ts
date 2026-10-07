@@ -60,8 +60,23 @@ describe('① les mêmes trois rangées, des deux côtés', () => {
 });
 
 describe('② même largeur, même hauteur visible, défilement indépendant', () => {
+  /**
+   * ══ ⚠️ GOUTTIÈRE MISE À JOUR LE 07/10/2026 — LOT ECRAN-PARTAGE-PLEINE-LARGEUR, POINT 2 ═══════════════════════
+   *
+   * ELLE FIGEAIT LA DÉCLARATION ENTIÈRE, gouttière comprise (`gap:16px`). Les deux colonnes sont devenues des
+   * ZONES ENCADRÉES, et chacune porte un anneau de 3 px : il mangeait 6 des 16 px, et « un espace net entre les
+   * deux zones » (Arno) serait devenu 10 px entre deux bords lumineux. La gouttière passe donc à 24 px.
+   *
+   * 🔴 CE QUE LA RÈGLE PROTÈGE — LE RAPPORT 50/50 — N'A PAS BOUGÉ D'UN POUCE, et c'est lui qu'on éprouve
+   * désormais, séparément de la gouttière : `grid-template-columns:1fr 1fr`. Figer les deux ensemble faisait
+   * échouer la garantie de largeur au premier réglage d'espacement.
+   */
   it('🔴 la grille reste 50/50', () => {
-    expect(FEUILLE).toContain('.gst-deux{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}');
+    expect(FEUILLE).toContain('.gst-deux{display:grid;grid-template-columns:1fr 1fr;');
+    /* 🔴 DEUX PARTS ÉGALES, ET AUCUNE LARGEUR EN DUR : ni px, ni %, ni minmax qui ferait pencher la grille. */
+    const regle = FEUILLE.match(/\.gst-deux\{([^}]*)\}/)?.[1] ?? '';
+    expect(regle).toContain('grid-template-columns:1fr 1fr');
+    expect(regle).not.toMatch(/grid-template-columns:[^;]*(px|%|minmax)/);
   });
 
   it('🔴🔴 les colonnes s’étirent à la même hauteur, et c’est la GRILLE qui l’impose', () => {
@@ -157,6 +172,165 @@ describe('⑤ rien n’est retiré ni masqué', () => {
   it('⚠️ les quatre filtres de la colonne des mails sont intacts', () => {
     for (const mot of ['Tous', 'À classer', 'Classés', 'Hors gestion']) {
       expect(BRC).toContain(`mot: '${mot}'`);
+    }
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT ECRAN-PARTAGE-PLEINE-LARGEUR — LA PAGE VA AU BORD, ET CHAQUE COLONNE EST UNE ZONE
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ═══ MESURÉ LE 07/10/2026, DANS LE VRAI NAVIGATEUR ═════════════════════════════════════════════════════════════
+   Marge droite = marge gauche = 20 px, À TOUTES LES LARGEURS ÉPROUVÉES (1600, 1512, 1000, 820, 420). Colonnes
+   648/648 à 1600 px, 604/604 à 1512 (contre 552/552 avant le lot), 348/348 à 1000 ; empilées sous 900 px, et
+   aucun défilement horizontal nulle part. Gouttière 24 px, anneaux 3 px.
+   Et SEUL l'écran partagé est élargi : à 1600 px, `?ecran=annuaire` et `?ecran=a_trier` gardent leurs 1120 px.
+
+   ⚠️ L'ÉCRAN ÉTROIT A ÉTÉ MESURÉ CETTE FOIS, contrairement au lot ACCUEIL-GESTION (voir l'encadré du haut) : le
+   navigateur piloté ne change toujours pas la largeur du DOCUMENT quand on redimensionne sa fenêtre, mais un
+   cadre de MÊME ORIGINE, lui, a son propre viewport — et donc ses propres media queries. La limite consignée
+   reste vraie ; elle se contourne.
+
+   ARNO (07/10/2026) : « Il reste une marge vide à droite […] Le contenu de la page Gestion doit utiliser toute la
+   largeur disponible jusqu'au bord droit, avec seulement la marge intérieure habituelle (la même que celle de
+   gauche entre le menu et le contenu). […] Chaque colonne devient une zone encadrée […] même style de cadre que le
+   bloc Annuaire, pour un ensemble cohérent. Un espace net entre les deux zones. »
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+const SIDEBAR = readFileSync('app/(admin)/admin/(protected)/Sidebar.tsx', 'utf8');
+/**
+ * ⚠️ LA FEUILLE **ENTIÈRE**, et non celle qui commence à `.gst-deux{` : les règles de ce lot vivent AVANT ce
+ * point (`.gst-page`, `.gst-bloc-annuaire`). `FEUILLE` ci-dessus reste bornée aux règles des deux colonnes, ce qui
+ * est exactement ce que les épreuves du lot ACCUEIL-GESTION veulent lire — on n'élargit donc pas la sienne.
+ */
+const FEUILLE_ENTIERE = VUE.slice(VUE.indexOf('const CSS_GESTION = `')).replace(/\/\*[\s\S]*?\*\//g, '');
+
+describe('🔴🔴 ⑥ la page va jusqu’au bord droit', () => {
+  /**
+   * 🔴🔴 LE PLAFOND EST LEVÉ POUR L'ÉCRAN PARTAGÉ, ET POUR LUI SEUL. `.gst-page` est le conteneur de TOUS les
+   * écrans du module ; l'annuaire et « À rattacher » ne sont pas dans la demande, et les élargir sans accord
+   * serait toucher à deux écrans qu'Arno n'a pas ouverts.
+   */
+  it('🔴🔴 l’écran partagé lève le plafond, et aucun autre écran n’est élargi', () => {
+    expect(VUE).toContain("{ecran === 'partage' && <style>{'.gst-page{max-width:none}'}</style>}");
+    /* 🔴 LA RÈGLE DE BASE RESTE : les autres écrans gardent leur largeur de confort. */
+    expect(FEUILLE_ENTIERE).toContain('.gst-page{max-width:1120px}');
+    /* 🔴 ET LA RÈGLE CONDITIONNELLE PASSE APRÈS LA FEUILLE dans le document : c'est ce qui la fait gagner à
+       spécificité égale. Sans cet ordre, le plafond l'emporterait et rien ne changerait à l'écran. */
+    expect(VUE.indexOf('<style>{CSS_GESTION}</style>'))
+      .toBeLessThan(VUE.indexOf("'.gst-page{max-width:none}'"));
+  });
+
+  /**
+   * 🔴🔴 LA MARGE DE DROITE EST CELLE DE GAUCHE, et elle n'est écrite nulle part dans ce lot : `.svv-adm-main`
+   * porte un `padding` UNIFORME sur ses quatre côtés. C'est ce qui rend la demande d'Arno — « seulement la marge
+   * intérieure habituelle, la même que celle de gauche » — vraie par construction plutôt que par réglage.
+   */
+  it('🔴🔴 la marge intérieure est la même des quatre côtés', () => {
+    expect(SIDEBAR).toContain('.svv-adm-main{flex:1;padding:1.25rem;min-width:0}');
+  });
+
+  /**
+   * 🔴🔴 LE MENU LATÉRAL N'EST PAS TOUCHÉ (Arno : « même largeur, même aspect »). Sa largeur vit dans sa propre
+   * feuille, et ce lot n'écrit pas une ligne dedans.
+   */
+  it('🔴🔴 le menu latéral garde sa largeur', () => {
+    expect(SIDEBAR).toContain('.svv-adm-sidebar{width:240px;flex:0 0 240px;');
+    /* 🔴 ET L'ÉCRAN NE REDÉFINIT AUCUNE RÈGLE DU MENU : aucune classe `svv-adm-` dans la feuille de l'écran. */
+    expect(FEUILLE).not.toContain('.svv-adm-sidebar');
+    expect(FEUILLE).not.toContain('.svv-adm-shell');
+    expect(FEUILLE).not.toContain('.svv-adm-main');
+  });
+
+  /**
+   * ⚠️ AUCUNE LARGEUR MINIMALE EN DUR DANS LA GRILLE : c'est ce qui garantit l'absence de défilement horizontal
+   * quand la fenêtre rétrécit. Les colonnes portent `min-width:0` (sans quoi un enfant en grille refuse de
+   * rétrécir sous la largeur de son contenu), et sous 900 px elles s'empilent.
+   */
+  it('⚠️ rien ne peut déborder en largeur', () => {
+    expect(FEUILLE).toContain('.gst-col{min-width:0}');
+    expect(FEUILLE).toContain('@media (max-width:900px){.gst-deux{grid-template-columns:1fr}}');
+    /* 🔴 ET LA PAGE ELLE-MÊME NE SE DONNE JAMAIS UNE LARGEUR : seulement un plafond, qu'on lève. */
+    expect(FEUILLE).not.toMatch(/\.gst-page\{[^}]*(^|;)width:/);
+    expect(FEUILLE).not.toMatch(/\.gst-page\{[^}]*min-width:[^0]/);
+  });
+});
+
+describe('🔴🔴 ⑦ deux zones encadrées, et un espace net entre elles', () => {
+  /**
+   * 🔴🔴 LE CADRE EST CELUI DU BLOC ANNUAIRE, AU CARACTÈRE PRÈS. C'est la demande (« même style de cadre que le
+   * bloc Annuaire, pour un ensemble cohérent »), et c'est ce qui fait lire trois zones d'une même famille plutôt
+   * que deux cadres et un troisième qui leur ressemble. On lit donc les DEUX règles et l'on exige les mêmes
+   * valeurs, plutôt que de recopier des nombres dans l'épreuve.
+   */
+  it('🔴🔴 la colonne porte exactement le cadre du bloc Annuaire', () => {
+    const declarations = (selecteur: string): Set<string> => {
+      const corps = FEUILLE_ENTIERE.match(new RegExp(`${selecteur}\\{([^}]*)\\}`))?.[1] ?? '';
+      return new Set(corps.split(';').map((d) => d.trim()).filter(Boolean));
+    };
+    const colonne = declarations('\\.gst-deux > \\.gst-col');
+    const annuaire = declarations('\\.gst-bloc-annuaire');
+    expect(colonne.size).toBeGreaterThan(0);
+    expect(annuaire.size).toBeGreaterThan(0);
+    /* 🔴 BORDURE, RAYON, FOND, ANNEAU, MARGE INTÉRIEURE : les cinq, identiques. */
+    for (const d of ['padding:14px', 'border:1px solid var(--color-svv-line-strong)', 'border-radius:14px',
+      'background:var(--color-svv-surface)', 'box-shadow:0 0 0 3px var(--color-svv-field)']) {
+      expect(colonne, d).toContain(d);
+      expect(annuaire, d).toContain(d);
+    }
+  });
+
+  /**
+   * 🔴 LE CADRE NE VISE QUE LES DEUX COLONNES DE L'ÉCRAN PARTAGÉ. `.gst-col` sert AUSSI à la conversation de
+   * l'écran « Événements » en plein écran : l'encadrer partout l'aurait emportée avec, sans qu'Arno l'ait demandé.
+   */
+  it('🔴 la conversation du plein écran n’est pas encadrée au passage', () => {
+    /* La règle du cadre est bien bornée aux enfants directs de la grille. */
+    expect(FEUILLE).toMatch(/\.gst-deux > \.gst-col\{padding:14px;/);
+    /* Et aucune règle ne donne de cadre à `.gst-col` tout court. */
+    for (const regle of FEUILLE.split('}')) {
+      if (/(^|[\s,])\.gst-col\{/.test(`${regle}{`) && !regle.includes('.gst-deux')) {
+        expect(regle, regle).not.toMatch(/border:|border-radius:|box-shadow:/);
+      }
+    }
+  });
+
+  /**
+   * 🔴🔴 « UN ESPACE NET ENTRE LES DEUX ZONES ». L'anneau de 3 px de chaque côté mange 6 px de gouttière : une
+   * gouttière de 16 px n'aurait laissé que 10 px entre deux bords lumineux. Elle doit donc dépasser nettement la
+   * somme des deux anneaux — ce que cette épreuve exige, au lieu de figer un nombre choisi au hasard.
+   */
+  it('🔴🔴 la gouttière reste nettement plus large que les deux anneaux réunis', () => {
+    const gap = Number(/\.gst-deux\{[^}]*gap:(\d+)px/.exec(FEUILLE)?.[1] ?? '0');
+    const anneau = Number(/\.gst-deux > \.gst-col\{[^}]*box-shadow:0 0 0 (\d+)px/.exec(FEUILLE)?.[1] ?? '0');
+    expect(anneau).toBeGreaterThan(0);
+    expect(gap).toBeGreaterThanOrEqual(anneau * 2 + 12);
+  });
+
+  /**
+   * 🔴 LES CARTES D'ÉVÉNEMENT GARDENT LEUR PROPRE CADRE À L'INTÉRIEUR DE LA ZONE (Arno). Il est porté par la ligne
+   * de titre du repli — la même que partout ailleurs dans l'administration —, et ce lot n'y touche pas.
+   */
+  it('🔴 les cartes d’événement gardent leur cadre dans la zone', () => {
+    const GLOBALS = readFileSync('app/globals.css', 'utf8');
+    expect(GLOBALS).toMatch(/\.svv-repli-titre\{[^}]*border:1px solid var\(--color-svv-line\)/);
+    expect(GLOBALS).toMatch(/\.svv-repli-titre\{[^}]*border-radius:\.5rem/);
+    /* ⚠️ ET RIEN DANS CE LOT NE LE RETIRE : la règle qui aplatit les lignes de la grille ne vise que `.gst-item`,
+       l'élément de liste, et laisse la ligne de titre intacte. */
+    expect(FEUILLE).toMatch(/\.gst-deux \.gst-item\{border-radius:0;border:0;/);
+    expect(FEUILLE).not.toMatch(/\.gst-deux[^{]*\.svv-repli-titre/);
+  });
+
+  /**
+   * ⚠️ LISIBLE EN CLAIR, EN SOMBRE ET EN SYSTÈME (Arno) : aucune couleur en dur dans le cadre, et chaque jeton
+   * employé porte ses trois définitions dans le thème.
+   */
+  it('⚠️ le cadre ne tire que des jetons, et chacun existe en Clair comme en Sombre', () => {
+    const corps = FEUILLE.match(/\.gst-deux > \.gst-col\{([^}]*)\}/)?.[1] ?? '';
+    expect(corps).not.toMatch(/#[0-9a-f]{3,8}/i);
+    const GLOBALS = readFileSync('app/globals.css', 'utf8');
+    for (const jeton of corps.match(/--color-svv-[a-z-]+/g) ?? []) {
+      expect((GLOBALS.match(new RegExp(`${jeton}:`, 'g')) ?? []).length, jeton).toBeGreaterThanOrEqual(2);
     }
   });
 });
