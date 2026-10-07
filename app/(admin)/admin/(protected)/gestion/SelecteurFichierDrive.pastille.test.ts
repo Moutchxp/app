@@ -4,6 +4,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
 import { ecouterPiecesDrive } from '../../../../lib/gestion/signalPieceDrive';
+/* ⚠️ LE LIBELLÉ VIENT DE SA SEULE DÉFINITION, jamais recopié ici : voir le cas « nom accessible ». */
+import { bulleCompteurRange } from '../../../../lib/gestion/localisationDrive';
 
 /**
  * ══ 🔴🔴 LOT PASTILLE-DRIVE-EN-DIRECT — LA PASTILLE VERTE BOUGE DANS LA SECONDE ══════════════════════════════════
@@ -204,11 +206,16 @@ describe('🔴🔴 la pastille verte après un rangement', () => {
   /**
    * 🔴 LA BULLE DIT CE QUE LE NOMBRE SIGNIFIE. Un chiffre vert tout seul dans une colonne de rangement se lirait
    * aussi bien « 1 à ranger » — ce qui serait le contraire.
+   *
+   * ⚠️ LE LIBELLÉ EST NOMMÉ, PAS DEVINÉ PAR UN MOTIF. Ce cas cherchait `/rang/i`, et il est devenu rouge le jour
+   * où Arno a décidé de « Déjà dans le Drive (N) » (07/10/2026) — alors que l'écran disait exactement la bonne
+   * chose. Un motif approximatif sur un libellé n'éprouve ni le libellé ni l'écran : il éprouve le motif. On
+   * compare donc à la seule définition du libellé (`bulleCompteurRange`), qui a ses propres épreuves.
    */
   it('🔴 la pastille porte son nom accessible', async () => {
     await monter();
     await rangerDans('Test');
-    expect(pastille()?.getAttribute('aria-label') ?? '').toMatch(/rang/i);
+    expect(pastille()?.getAttribute('aria-label')).toBe(bulleCompteurRange(1));
   });
 
   /** 🔴🔴 « deux dépôts du même document → 2 » (Arno), dans DEUX dossiers : ce sont deux emplacements. */
