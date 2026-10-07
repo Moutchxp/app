@@ -5007,7 +5007,20 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
    * donc pire que celui qu'Arno a vu. On le prouve par ce que la ROUTE reçoit, parce que c'est elle qui décide
    * du listing, du compteur et du résumé.
    */
-  it('🔴🔴 une adresse cochée quitte la recherche quand elle quitte l’encart', async () => {
+  /**
+   * ══ 🔴🔴 REQUALIFIÉ LE 07/10/2026 — LOT PARTIES-LOCATAIRES-EXCLUSIF ═══════════════════════════════════════════
+   *
+   * CE CAS EXIGEAIT QU'UN CHANGEMENT D'ONGLET DÉCOCHE. Arno tranche autrement, et ses deux phrases se tiennent :
+   * « Changer d'onglet ne modifie pas la sélection à lui seul. C'est cocher dans l'autre groupe qui bascule », et
+   * « plusieurs anciens locataires peuvent être cochés ensemble ». Or la liste des anciens est un bouton RADIO :
+   * on n'en voit qu'un à la fois. Cocher deux anciens EXIGE donc que passer de l'un à l'autre garde le premier.
+   *
+   * 🔴 CE QUE CE CAS PROTÉGEAIT N'EST PAS PERDU — IL A CHANGÉ DE DÉCLENCHEUR. L'incohérence visée (voir les mails
+   * d'un ancien pendant qu'on affiche l'actuel) est désormais fermée AU MOMENT DU COCHAGE, par
+   * `exclusiviteLocataires` : cocher l'actuel décoche l'ancien, et c'est ce qu'on éprouve ici — à la fin, la
+   * route ne demande plus l'ancien. Le résultat attendu est le MÊME ; seul le geste qui y mène a changé.
+   */
+  it('🔴🔴 cocher le locataire en place décoche l’ancien, et la route le suit', async () => {
     await monterAvecCartes();
     await cliquer(boutonAnciens());
     await act(async () => { radios()[0].click(); });
@@ -5015,9 +5028,15 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
     const case1 = encartLocataire().querySelector('.hdb-capsule input[type="checkbox"]') as HTMLInputElement;
     await act(async () => { case1.click(); });
     expect(appels.at(-1) ?? '').toContain(encodeURIComponent('ancien@fictif.test'));
-    /* On revient au locataire en place : son adresse ne doit PLUS être demandée. */
+    /* 🔴 ON REVIENT À L'ONGLET DES ACTUELS : À LUI SEUL, IL NE DÉCOCHE RIEN (règle d'Arno). */
     await cliquer(boutonActuels());
+    expect([...appels].reverse().find((u) => u.includes('/historique?')) ?? '')
+      .toContain(encodeURIComponent('ancien@fictif.test'));
+    /* 🔴🔴 C'EST LE COCHAGE QUI BASCULE : on coche le locataire en place, l'ancien s'en va. */
+    const caseEnPlace = encartLocataire().querySelector('.hdb-capsule input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => { caseEnPlace.click(); });
     const dernier = [...appels].reverse().find((u) => u.includes('/historique?')) ?? '';
+    expect(dernier).toContain(encodeURIComponent('enplace@fictif.test'));
     expect(dernier).not.toContain(encodeURIComponent('ancien@fictif.test'));
   });
 
@@ -5100,6 +5119,110 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
     expect(hote.querySelectorAll('.hdb-anciens-choix')).toHaveLength(0);
     expect(boutonAnciens().textContent).toBe('Anciens locataires (0)');
     expect(boutonAnciens().disabled).toBe(true);
+  });
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — LE LISERÉ SUIT L'ONGLET, ET LES DEUX CAMPS NE SE MÊLENT PAS
+     ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+     CONSTAT D'ARNO (07/10/2026, lot-49) : « Quand l'onglet "Anciens locataires (N)" est affiché, le liseré
+     vertical à gauche de l'encart reste VERT. » Et : « Quand on coche des anciens locataires, la frise et la
+     liste des mails montrent EN MÊME TEMPS les mails du locataire actuel et ceux de l'ancienne locataire. »
+
+     🔴 CE QUE CE BLOC PROUVE, ET QUE LE MODULE PUR NE PEUT PAS PROUVER : que l'encart CHANGE de classe de ton
+     quand on ouvre l'onglet, et que la SÉLECTION QUI PART À LA ROUTE — celle que la frise et la liste lisent
+     toutes les deux — ne porte jamais les deux camps. */
+
+  /** 🔴🔴 LE LISERÉ. On éprouve la CLASSE de ton, qui est ce que le composant décide ; la teinte est au thème. */
+  it('🔴🔴 onglet « Anciens locataires » affiché ⇒ l’encart passe au ton violet', async () => {
+    await monterAvecCartes();
+    expect(encartLocataire().className).toContain('hdb-groupe--vert');
+    await cliquer(boutonAnciens());
+    expect(encartLocataire().className).toContain('hdb-groupe--violet');
+    expect(encartLocataire().className).not.toContain('hdb-groupe--vert');
+    /* 🔴 ET IL REVIENT AU VERT QUAND ON REVIENT AUX ACTUELS : la couleur suit l'onglet, pas un état figé. */
+    await cliquer(boutonActuels());
+    expect(encartLocataire().className).toContain('hdb-groupe--vert');
+  });
+
+  /**
+   * 🔴🔴 LA FEUILLE PEINT LES CASES DE CET ONGLET DANS LA MÊME TEINTE (Arno : « ainsi que la case "tout le
+   * groupe" et les cases cochées de cet onglet dans la teinte violette »). Un seul sélecteur de parent : la case
+   * ne sait pas quel onglet est affiché, et il n'y avait aucune raison de le lui apprendre.
+   */
+  it('🔴 les cases de l’encart violet prennent le jeton violet', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBien.tsx', 'utf8');
+    expect(src).toContain('.hdb-groupe--violet .hdb-case input{accent-color:var(--color-svv-violet)}');
+    expect(src).toContain('.hdb-groupe--violet{border-left-color:var(--color-svv-violet)}');
+  });
+
+  /**
+   * 🔴🔴 L'EXCLUSIVITÉ, ÉPROUVÉE SUR CE QUI PART À LA ROUTE. C'est la seule preuve qui compte : la frise, la
+   * liste, les pièces et les compteurs lisent tous `reglages.parties`, et c'est elle que l'adresse porte.
+   */
+  it('🔴🔴 cocher un ancien décoche les locataires actuels', async () => {
+    await monterAvecCartes();
+    /* ① on coche le locataire en place */
+    const enPlace = encartLocataire().querySelector('.hdb-capsule input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => { enPlace.click(); });
+    expect(appels.at(-1) ?? '').toContain(encodeURIComponent('enplace@fictif.test'));
+    /* ② on passe aux anciens et on coche l'ancien : l'actuel doit s'en aller */
+    await cliquer(boutonAnciens());
+    await act(async () => { radios()[0].click(); });
+    const ancien = encartLocataire().querySelector('.hdb-capsule input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => { ancien.click(); });
+    const dernier = [...appels].reverse().find((u) => u.includes('/historique?')) ?? '';
+    expect(dernier).toContain(encodeURIComponent('ancien@fictif.test'));
+    expect(dernier).not.toContain(encodeURIComponent('enplace@fictif.test'));
+    /* 🔴 ET LA MENTION LE DIT, sous les encarts — un décochage silencieux se lit comme une case qui n'a pas pris. */
+    expect(hote.querySelector('.hdb-exclusif')?.textContent)
+      .toBe('Locataires actuels décochés : on n’affiche pas actuels et anciens ensemble.');
+  });
+
+  /**
+   * 🔴 L'ADRESSE SANS CARTE N'EST DANS AUCUN CAMP, et elle survit à la bascule. C'est le cas que la règle ② du
+   * lot 13 protège, et il fallait qu'il tienne ici aussi : décocher au passage une case que la personne vient de
+   * cocher serait exactement le défaut qu'on corrige, retourné.
+   */
+  it('🔴 un contact annexe (sans carte) survit à la bascule', async () => {
+    await monterAvecCartes();
+    /* « tout le groupe » sur l'onglet des actuels : l'en place ET la sœur. */
+    const tout = encartLocataire().querySelector('.hdb-case--groupe input') as HTMLInputElement;
+    await act(async () => { tout.click(); });
+    expect(appels.at(-1) ?? '').toContain(encodeURIComponent('soeur@fictif.test'));
+    await cliquer(boutonAnciens());
+    await act(async () => { radios()[0].click(); });
+    const ancien = encartLocataire().querySelector('.hdb-capsule input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => { ancien.click(); });
+    const dernier = [...appels].reverse().find((u) => u.includes('/historique?')) ?? '';
+    expect(dernier).toContain(encodeURIComponent('ancien@fictif.test'));
+    expect(dernier).toContain(encodeURIComponent('soeur@fictif.test'));
+    expect(dernier).not.toContain(encodeURIComponent('enplace@fictif.test'));
+  });
+
+  /** 🔴 UN AUTRE GROUPE RESTE CUMULABLE : « Propriétaire + anciens » (Arno). */
+  it('🔴 le propriétaire reste coché avec un ancien locataire', async () => {
+    await monterAvecCartes();
+    const proprio = [...hote.querySelectorAll('.hdb-groupe--encart')][0]
+      .querySelector('.hdb-capsule input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => { proprio.click(); });
+    await cliquer(boutonAnciens());
+    await act(async () => { radios()[0].click(); });
+    const ancien = encartLocataire().querySelector('.hdb-capsule input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => { ancien.click(); });
+    const dernier = [...appels].reverse().find((u) => u.includes('/historique?')) ?? '';
+    expect(dernier).toContain(encodeURIComponent('proprio@fictif.test'));
+    expect(dernier).toContain(encodeURIComponent('ancien@fictif.test'));
+    /* 🔴 ET AUCUNE MENTION : rien n'a été décoché, donc rien à annoncer. */
+    expect(hote.querySelector('.hdb-exclusif')).toBeNull();
+  });
+
+  /** 🔴 SANS SÉLECTION, TOUT RESTE AFFICHÉ — la règle d'avant, intacte. */
+  it('🔴 aucune partie cochée : la route ne porte aucune partie', async () => {
+    await monterAvecCartes();
+    await cliquer(boutonAnciens());
+    await act(async () => { radios()[0].click(); });
+    const dernier = [...appels].reverse().find((u) => u.includes('/historique?')) ?? '';
+    expect(dernier).not.toContain('parties=');
   });
 });
 

@@ -1925,6 +1925,97 @@ export function parDepartLePlusRecent(
   return (rang(b.sortie) - rang(a.sortie)) || (rang(b.entree) - rang(a.entree)) || a.nom.localeCompare(b.nom, 'fr');
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — ACTUELS ET ANCIENS NE SE COCHENT JAMAIS ENSEMBLE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Lequel des deux groupes de locataires un geste vient de décocher. `null` = aucun, rien n'a bougé. */
+export type FamilleDecochee = 'actuels' | 'anciens';
+
+/**
+ * ══ 🔴 LE MOT DISCRET SOUS L'ENCART, QUAND LA BASCULE A LIEU. PUR. ═══════════════════════════════════════════════
+ *
+ * Arno : « Petite mention discrète sous l'encart quand la bascule a lieu, par exemple “Locataires actuels
+ * décochés : on n'affiche pas actuels et anciens ensemble”. Elle disparaît d'elle-même. »
+ *
+ * 🔴 ELLE DIT CE QUI VIENT D'ÊTRE FAIT, ET POURQUOI. Un décochage silencieux se lit comme une case qui n'a pas
+ * pris : on recoche, et l'autre se décoche à son tour — on croit l'écran cassé. La phrase ferme cette boucle.
+ */
+export function motBasculeLocataires(quoi: FamilleDecochee): string {
+  return quoi === 'actuels'
+    ? 'Locataires actuels décochés : on n’affiche pas actuels et anciens ensemble.'
+    : 'Anciens locataires décochés : on n’affiche pas actuels et anciens ensemble.';
+}
+
+/** Combien de temps la mention reste. Le même rythme que les autres messages passagers du module. */
+export const MS_MENTION_BASCULE = 6000;
+
+/**
+ * Les adresses d'un bien, rangées en deux camps par la règle unique (`enPlace` d'une carte de locataire). PURE.
+ *
+ * ⚠️ UNE ADRESSE QUI N'EST SUR AUCUNE CARTE N'EST DANS AUCUN CAMP, et c'est tout l'intérêt de passer par les
+ * cartes plutôt que par les catégories : le contact annexe d'une location (la sœur du locataire, un service
+ * « relations publiques ») est rangé « locataire » SANS appartenir à une occupation. Le décocher au passage
+ * aurait retiré, sans le dire, une case que la personne venait de cocher.
+ *
+ * ⚠️ UNE ADRESSE PRÉSENTE DES DEUX CÔTÉS (quelqu'un qui est revenu dans le logement) COMPTE COMME ACTUELLE : le
+ * présent l'emporte, et c'est la lecture qu'on fait du mot « locataire » sans y réfléchir.
+ */
+export function campsDesLocataires(
+  cartes: readonly CarteLocataireBien[],
+): { actuels: ReadonlySet<string>; anciens: ReadonlySet<string> } {
+  const actuels = new Set<string>();
+  const anciens = new Set<string>();
+  for (const c of cartes) {
+    for (const a of c.adresses) (c.enPlace ? actuels : anciens).add(a.trim().toLowerCase());
+  }
+  for (const a of actuels) anciens.delete(a);
+  return { actuels, anciens };
+}
+
+/**
+ * ══ 🔴🔴 L'EXCLUSIVITÉ ENTRE LES DEUX CAMPS. PURE. ═══════════════════════════════════════════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * RÈGLE D'ARNO (07/10/2026) : « Dans la sélection des parties, les locataires actuels et les anciens locataires
+ * ne peuvent JAMAIS être cochés en même temps. Cocher un ancien locataire (ou “tout le groupe” de l'onglet
+ * Anciens) décoche automatiquement tous les locataires actuels, et inversement. Plusieurs anciens locataires
+ * peuvent être cochés ensemble, et plusieurs locataires actuels aussi : l'exclusivité est entre les deux
+ * groupes. Les autres groupes restent cumulables avec l'un OU l'autre. »
+ *
+ * 🔴 ELLE REGARDE CE QUE LE GESTE **AJOUTE**, et rien d'autre. C'est le seul endroit où l'intention se lit sans
+ * ambiguïté : décocher ne bascule rien (on n'a pas demandé l'autre camp), et cocher dit lequel on veut. Une
+ * règle qui aurait regardé l'état FINAL aurait dû choisir un camp au hasard quand les deux s'y trouvent.
+ *
+ * 🔴 ET ELLE NE TOUCHE QUE LES DEUX CAMPS. Propriétaire, Tiers indépendant, Notre agence, Non affectés et les
+ * contacts annexes d'une location traversent intacts — Arno le demande en toutes lettres, et c'est ce qui permet
+ * de regarder « le propriétaire ET l'ancienne locataire » d'un même œil.
+ *
+ * ⚠️ UN GESTE QUI AJOUTE LES DEUX CAMPS À LA FOIS N'EXISTE PAS À L'ÉCRAN (l'encart ne montre qu'un camp à la
+ * fois), mais la fonction doit quand même trancher : l'ANCIEN l'emporte, parce que c'est le camp qu'on va
+ * CHERCHER — on ne clique pas « Anciens locataires » par hasard, alors que les actuels sont le défaut.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function exclusiviteLocataires(
+  avant: readonly string[],
+  apres: readonly string[],
+  cartes: readonly CarteLocataireBien[],
+): { parties: string[]; decoche: FamilleDecochee | null } {
+  const { actuels, anciens } = campsDesLocataires(cartes);
+  const deja = new Set(avant.map((a) => a.trim().toLowerCase()));
+  const ajoutees = apres.map((a) => a.trim().toLowerCase()).filter((a) => !deja.has(a));
+  const ajouteAncien = ajoutees.some((a) => anciens.has(a));
+  const ajouteActuel = ajoutees.some((a) => actuels.has(a));
+  /* ⚠️ L'ANCIEN D'ABORD : voir l'encadré. Aucun des deux ⇒ la sélection passe telle quelle. */
+  const aEcarter = ajouteAncien ? actuels : (ajouteActuel ? anciens : null);
+  if (aEcarter === null) return { parties: [...apres], decoche: null };
+  const parties = apres.filter((a) => !aEcarter.has(a.trim().toLowerCase()));
+  /* 🔴 ON NE DIT « BASCULÉ » QUE SI QUELQUE CHOSE A VRAIMENT ÉTÉ DÉCOCHÉ : une mention qui paraît sans raison
+     fait chercher ce qui a changé. */
+  if (parties.length === apres.length) return { parties, decoche: null };
+  return { parties, decoche: ajouteAncien ? 'actuels' : 'anciens' };
+}
+
 /**
  * ══ 🔴🔴 LE CHOIX DE DÉPART — ET LE CAS QUE « LE LOCATAIRE EN PLACE » N'AURAIT PAS COUVERT ═══════════════════════
  *

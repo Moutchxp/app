@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   adresseGardeeDansLencart, anciensLocataires, carteChoisie, choixLocataireParDefaut,
   CHOIX_LOCATAIRE_DEFAUT, ilYAUnLocataireEnPlace, locatairesEnPlace,
-  aideBoutonAnciensLocataires,
+  aideBoutonAnciensLocataires, campsDesLocataires, exclusiviteLocataires, motBasculeLocataires,
   motAnciensLocataires, motAncienLocataire, motBoutonAnciensLocataires, MOT_LOCATAIRE_EN_PLACE,
   MOT_LOCATAIRES_ACTUELS, periodeDuChoixLocataire,
   type CarteLocataireBien,
@@ -303,5 +303,105 @@ describe('🔴🔴 ⑥ un logement vacant n’arrive jamais avec un encart vide'
     expect(choixLocataireParDefaut([])).toEqual(CHOIX_LOCATAIRE_DEFAUT);
     expect(ilYAUnLocataireEnPlace([])).toBe(false);
     expect(adresseGardeeDansLencart('qui@x.fr', [], choixLocataireParDefaut([]))).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — ACTUELS ET ANCIENS NE SE COCHENT JAMAIS ENSEMBLE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (07/10/2026, lot-49) : « Quand on coche des anciens locataires, la frise et la liste des mails
+   montrent EN MÊME TEMPS les mails du locataire actuel (liseré vert) et ceux de l'ancienne locataire (violet). »
+
+   SA RÈGLE : « les locataires actuels et les anciens locataires ne peuvent JAMAIS être cochés en même temps.
+   […] Plusieurs anciens locataires peuvent être cochés ensemble, et plusieurs locataires actuels aussi :
+   l'exclusivité est entre les deux groupes. » */
+
+describe('🔴🔴 ⑤ l’exclusivité entre locataires actuels et anciens', () => {
+  const CARTES = [EN_PLACE, VAGLIO, ACKET];
+  const ACTUEL = 'mathilde.brasset@gmail.com';
+  const ACTUEL2 = 'thomas.bruere1996@gmail.com';
+  const VAG = 'louis.vaglio@audencia.com';
+  const VAG2 = 'aurelie.arnaud1402@gmail.com';
+  const ACK = 'thomas.derrien@hec.edu';
+  /** Un contact annexe rangé « locataire » à la main : il n'est sur AUCUNE carte, donc dans aucun camp. */
+  const SOEUR = 'soeur@fictif.test';
+  const PROPRIO = 'proprio@fictif.test';
+
+  it('🔴 les deux camps viennent des cartes, et une adresse sans carte n’est dans aucun', () => {
+    const { actuels, anciens } = campsDesLocataires(CARTES);
+    expect([...actuels].sort()).toEqual([ACTUEL2, ACTUEL].sort());
+    expect(anciens.has(VAG)).toBe(true);
+    expect(anciens.has(ACK)).toBe(true);
+    expect(actuels.has(SOEUR)).toBe(false);
+    expect(anciens.has(SOEUR)).toBe(false);
+  });
+
+  /**
+   * ⚠️ QUELQU'UN QUI EST REVENU DANS LE LOGEMENT COMPTE COMME ACTUEL : le présent l'emporte, et c'est la lecture
+   * qu'on fait du mot « locataire » sans y réfléchir. Sans cette levée d'ambiguïté, son adresse aurait été
+   * décochée par les DEUX camps, donc par n'importe quel geste.
+   */
+  it('⚠️ une adresse présente des deux côtés compte comme actuelle', () => {
+    const revenu: CarteLocataireBien = { ...VAGLIO, adresses: [ACTUEL] };
+    const { actuels, anciens } = campsDesLocataires([EN_PLACE, revenu]);
+    expect(actuels.has(ACTUEL)).toBe(true);
+    expect(anciens.has(ACTUEL)).toBe(false);
+  });
+
+  it('🔴🔴 cocher un ancien décoche TOUS les locataires actuels', () => {
+    const r = exclusiviteLocataires([ACTUEL, ACTUEL2], [ACTUEL, ACTUEL2, VAG], CARTES);
+    expect(r.parties).toEqual([VAG]);
+    expect(r.decoche).toBe('actuels');
+    expect(motBasculeLocataires('actuels'))
+      .toBe('Locataires actuels décochés : on n’affiche pas actuels et anciens ensemble.');
+  });
+
+  it('🔴🔴 et inversement : cocher un actuel décoche tous les anciens', () => {
+    const r = exclusiviteLocataires([VAG, ACK], [VAG, ACK, ACTUEL], CARTES);
+    expect(r.parties).toEqual([ACTUEL]);
+    expect(r.decoche).toBe('anciens');
+    expect(motBasculeLocataires('anciens'))
+      .toBe('Anciens locataires décochés : on n’affiche pas actuels et anciens ensemble.');
+  });
+
+  it('🔴🔴 deux anciens cochés ensemble : rien n’est décoché', () => {
+    const r = exclusiviteLocataires([VAG], [VAG, VAG2, ACK], CARTES);
+    expect(r.parties).toEqual([VAG, VAG2, ACK]);
+    expect(r.decoche).toBeNull();
+  });
+
+  it('🔴 deux locataires actuels cochés ensemble : rien n’est décoché non plus', () => {
+    const r = exclusiviteLocataires([ACTUEL], [ACTUEL, ACTUEL2], CARTES);
+    expect(r.parties).toEqual([ACTUEL, ACTUEL2]);
+    expect(r.decoche).toBeNull();
+  });
+
+  /** 🔴 « Les autres groupes restent cumulables avec l'un OU l'autre, comme aujourd'hui » (Arno). */
+  it('🔴🔴 le propriétaire et un contact annexe traversent intacts', () => {
+    const r = exclusiviteLocataires([PROPRIO, SOEUR, ACTUEL], [PROPRIO, SOEUR, ACTUEL, VAG], CARTES);
+    expect(r.parties).toEqual([PROPRIO, SOEUR, VAG]);
+    expect(r.decoche).toBe('actuels');
+  });
+
+  /** 🔴 DÉCOCHER NE BASCULE RIEN : on n'a pas demandé l'autre camp. */
+  it('🔴 décocher ne déclenche aucune bascule', () => {
+    const r = exclusiviteLocataires([ACTUEL, ACTUEL2], [ACTUEL], CARTES);
+    expect(r.parties).toEqual([ACTUEL]);
+    expect(r.decoche).toBeNull();
+  });
+
+  /** 🔴 ET RIEN À DÉCOCHER ⇒ AUCUNE MENTION : une phrase qui paraît sans raison fait chercher ce qui a changé. */
+  it('🔴 cocher un ancien quand aucun actuel n’est coché n’annonce rien', () => {
+    const r = exclusiviteLocataires([PROPRIO], [PROPRIO, VAG], CARTES);
+    expect(r.parties).toEqual([PROPRIO, VAG]);
+    expect(r.decoche).toBeNull();
+  });
+
+  /** ⚠️ SANS CARTE, LA RÈGLE NE PEUT RIEN RANGER : la sélection passe telle quelle, comme avant ce lot. */
+  it('⚠️ sans aucune carte, rien n’est jamais décoché', () => {
+    const r = exclusiviteLocataires([ACTUEL], [ACTUEL, VAG], []);
+    expect(r.parties).toEqual([ACTUEL, VAG]);
+    expect(r.decoche).toBeNull();
   });
 });

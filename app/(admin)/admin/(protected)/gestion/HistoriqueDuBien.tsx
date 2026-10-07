@@ -81,9 +81,12 @@ import {
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
-  SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, trierFil, LEGENDE_BARRES,
+  SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, tonDuGroupe, trierFil, LEGENDE_BARRES,
+  type TonGroupe,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — un seul locataire à la fois dans l'encart. */
   adresseGardeeDansLencart, anciensLocataires, choixLocataireParDefaut, ilYAUnLocataireEnPlace,
+  /* 🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — actuels et anciens ne se cochent jamais ensemble. */
+  exclusiviteLocataires, motBasculeLocataires, MS_MENTION_BASCULE, type FamilleDecochee,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-15 — les deux boutons de l'en-tête de l'encart Locataire. */
   /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — un événement prolonge la période d'un locataire. */
   motProlongationDeLaPeriode, type EvenementDuLocataire,
@@ -1327,32 +1330,44 @@ export function HistoriqueDuBien({
   const [listeAnciensOuverte, setListeAnciensOuverte] = useState(false);
 
   const anciens = useMemo(() => anciensLocataires(cartesLocataires), [cartesLocataires]);
+  /**
+   * 🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — L'ONGLET « ANCIENS » EST-IL AFFICHÉ ? Écrit ICI, et nulle part
+   * ailleurs : l'en-tête le reçoit, et l'encart s'en sert pour son liseré. Arno : « Onglet “Anciens locataires”
+   * affiché → liseré VIOLET. »
+   */
+  const surAnciens = choixLocataire.sorte === 'ancien' || listeAnciensOuverte;
 
   /**
    * ══ 🔴🔴 CHANGER DE LOCATAIRE — UN SEUL CALCUL, COMME ARNO LE DEMANDE ═══════════════════════════════════════
    *
    * « Le listing, le compteur en direct et le résumé des pièces suivent (un seul calcul). »
    *
-   * 🔴 ET VOICI CE QUI LE REND VRAI : les trois lisent `reglages.parties`, PAS les capsules affichées. Une
-   * adresse cochée puis cachée serait restée dans la recherche — le listing aurait continué de montrer les mails
-   * d'un ancien locataire alors que l'encart affiche le locataire en place, et le résumé des pièces aussi. Elle
-   * QUITTE donc la sélection ici, dans le même geste : un seul `setReglages`, un seul rendu, aucune fenêtre où
-   * l'écran et la recherche divergent.
+   * 🔴 ET VOICI CE QUI LE REND VRAI : les trois lisent `reglages.parties`, PAS les capsules affichées.
+   *
+   * ══ 🔴🔴 REQUALIFIÉ LE 07/10/2026 — LOT PARTIES-LOCATAIRES-EXCLUSIF : CHANGER D'ONGLET NE DÉCOCHE PLUS ══════
+   *
+   * CE GESTE ÉLAGUAIT LA SÉLECTION : `parties.filter(adresseGardeeDansLencart(…, choix))`. Il protégeait d'une
+   * adresse « cochée puis cachée », restée dans la recherche alors que sa capsule avait disparu.
+   *
+   * 🔴 ARNO TRANCHE AUTREMENT, ET SES DEUX PHRASES SE TIENNENT : « Changer d'onglet ne modifie pas la sélection à
+   * lui seul. C'est cocher dans l'autre groupe qui bascule » — et « plusieurs anciens locataires peuvent être
+   * cochés ensemble ». Or la liste des anciens est un bouton RADIO : on n'en voit qu'un à la fois. Cocher deux
+   * anciens EXIGE donc que passer de l'un à l'autre garde le premier coché. L'élagage le rendait impossible.
+   *
+   * 🔴 ET CE QU'IL PROTÉGEAIT EST REPRIS, MIEUX : l'incohérence qu'il visait — voir les mails d'un ancien pendant
+   * qu'on affiche l'actuel — est désormais fermée par `exclusiviteLocataires`, qui agit AU MOMENT DU COCHAGE
+   * plutôt qu'au changement d'onglet. La protection a changé de déclencheur, pas d'objet.
    *
    * ⚠️ `periodeDuChoixLocataire` REND `null` POUR LE LOCATAIRE EN PLACE, et c'est lui qui distingue les deux
    * sens : on met de côté en partant, on remet en revenant. Le module pur ne connaît pas la période d'avant —
-   * c'est l'écran qui s'en souvient, et lui seul.
+   * c'est l'écran qui s'en souvient, et lui seul. CE PAN-LÀ NE BOUGE PAS.
    */
   const choisirLocataire = (choix: ChoixLocataire): void => {
     const imposee = periodeDuChoixLocataire(cartesLocataires, choix, evtsParLocataire, maintenant);
     if (imposee !== null && periodeAvant === null) setPeriodeAvant(reglages.periode);
     if (imposee === null) setPeriodeAvant(null);
     setChoixLocataire(choix);
-    setReglages((r) => ({
-      ...r,
-      parties: r.parties.filter((a) => adresseGardeeDansLencart(a, cartesLocataires, choix)),
-      periode: imposee ?? periodeAvant ?? r.periode,
-    }));
+    setReglages((r) => ({ ...r, periode: imposee ?? periodeAvant ?? r.periode }));
   };
 
   /**
@@ -1535,10 +1550,59 @@ export function HistoriqueDuBien({
   const evenementOuvert = evenements.find((e) => e.ouvert) ?? null;
 
   /** Cocher ou décocher une personne. Les cases restent montées : le focus ne quitte pas celle qu'on vient de cliquer. */
+  /**
+   * ══ 🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — LA MENTION DISCRÈTE, ET POURQUOI ELLE PASSE PAR UNE RÉFÉRENCE ═══════
+   *
+   * Arno : « Petite mention discrète sous l'encart quand la bascule a lieu […]. Elle disparaît d'elle-même. »
+   *
+   * ⚠️ LE VERDICT EST RANGÉ DANS UNE RÉFÉRENCE, PAS DANS L'ÉTAT : il est produit DANS le calcul que `setReglages`
+   * reçoit, et React peut rejouer ce calcul (mode strict, rendu concurrent). Un `setState` posé là-dedans
+   * partirait deux fois. Un effet relève la référence après le rendu, et c'est lui qui fait paraître le message.
+   */
+  const basculeAVenir = useRef<FamilleDecochee | null>(null);
+  const [bascule, setBascule] = useState<{ quoi: FamilleDecochee; cle: number } | null>(null);
+  useEffect(() => {
+    const quoi = basculeAVenir.current;
+    if (quoi === null) return;
+    basculeAVenir.current = null;
+    setBascule({ quoi, cle: Date.now() });
+  });
+  /* ⚠️ ELLE S'EFFACE TOUTE SEULE, et la minuterie repart à chaque bascule : deux bascules rapprochées ne doivent
+     pas faire disparaître la seconde phrase à l'heure de la première. */
+  useEffect(() => {
+    if (bascule === null) return undefined;
+    const t = setTimeout(() => setBascule(null), MS_MENTION_BASCULE);
+    return () => clearTimeout(t);
+  }, [bascule]);
+
+  /**
+   * ══ 🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — LES DEUX GESTES DE SÉLECTION PASSENT PAR LA MÊME RÈGLE ══════════════
+   *
+   * RÈGLE D'ARNO (07/10/2026) : « les locataires actuels et les anciens locataires ne peuvent JAMAIS être cochés
+   * en même temps. Cocher un ancien (ou “tout le groupe” de l'onglet Anciens) décoche automatiquement tous les
+   * locataires actuels, et inversement. »
+   *
+   * 🔴 DEUX GESTES, UNE SEULE ÉCRITURE DE LA RÈGLE : `exclusiviteLocataires`, module PUR. La poser dans chacun
+   * aurait donné deux arbitrages à tenir d'accord — et c'est précisément « une seule source » qu'Arno demande,
+   * puisque la frise, la liste, les pièces et les compteurs lisent tous `reglages.parties`.
+   *
+   * ⚠️ ELLE NE S'APPLIQUE QU'À CE QUE LE GESTE **AJOUTE** : décocher ne bascule rien, et les autres groupes
+   * (Propriétaire, Tiers indépendant, Notre agence, Non affectés) traversent intacts.
+   */
+  const appliquerExclusivite = (avant: readonly string[], apres: readonly string[]): string[] => {
+    const r = exclusiviteLocataires(avant, apres, cartesLocataires);
+    /* ⚠️ LA MENTION EST POSÉE DANS UN EFFET, jamais pendant le calcul d'état : `setReglages` reçoit une fonction
+       que React peut rejouer, et un `setState` posé là-dedans partirait deux fois. On range donc le verdict, et
+       un effet le transforme en message. */
+    if (r.decoche !== null) basculeAVenir.current = r.decoche;
+    return r.parties;
+  };
+
   const basculerPartie = (adresse: string): void => setReglages((r) => {
     const a = adresse.trim().toLowerCase();
     const dedans = r.parties.includes(a);
-    return { ...r, parties: dedans ? r.parties.filter((x) => x !== a) : [...r.parties, a] };
+    const apres = dedans ? r.parties.filter((x) => x !== a) : [...r.parties, a];
+    return { ...r, parties: appliquerExclusivite(r.parties, apres) };
   });
 
   /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1955,12 +2019,11 @@ export function HistoriqueDuBien({
   const basculerGroupe = (adresses: readonly string[]): void => setReglages((r) => {
     const toutes = adresses.map((a) => a.trim().toLowerCase());
     const tout = toutes.length > 0 && toutes.every((a) => r.parties.includes(a));
-    return {
-      ...r,
-      parties: tout
-        ? r.parties.filter((a) => !toutes.includes(a))
-        : [...new Set([...r.parties, ...toutes])],
-    };
+    const apres = tout
+      ? r.parties.filter((a) => !toutes.includes(a))
+      : [...new Set([...r.parties, ...toutes])];
+    /* 🔴 LA MÊME RÈGLE QUE LA CASE À L'UNITÉ : « tout le groupe » de l'onglet Anciens décoche les actuels. */
+    return { ...r, parties: appliquerExclusivite(r.parties, apres) };
   });
 
   /**
@@ -2343,11 +2406,15 @@ export function HistoriqueDuBien({
                      C'est là que la règle vit : le gabarit commun, lui, ne connaît que « un titre de rechange »
                      et « une zone qui remplace les capsules ». Lui faire connaître les cartes de locataire
                      aurait mis une règle de locataire dans le composant qui rend les quatre groupes. */
+                  /* 🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — LE LISERÉ SUIT L'ONGLET AFFICHÉ (Arno). Le ton est
+                     celui du vocabulaire, lu par la MÊME fonction que la couleur d'un mail d'ancien locataire :
+                     `tonDuGroupe('ancien_locataire')`. Aucune couleur n'est décidée ici. */
+                  ton={cle === 'locataire' && surAnciens ? tonDuGroupe('ancien_locataire') : undefined}
                   titre={cle !== 'locataire' ? undefined : (
                     <EnTeteLocataire
                       nbActuels={parties.nbLocatairesActuels} anciens={anciens} choix={choixLocataire}
                       enPlaceOffert={ilYAUnLocataireEnPlace(cartesLocataires)}
-                      listeOuverte={listeAnciensOuverte}
+                      listeOuverte={listeAnciensOuverte} surAnciens={surAnciens}
                       onActuels={() => { setListeAnciensOuverte(false); choisirLocataire(CHOIX_LOCATAIRE_DEFAUT); }}
                       onAnciens={() => setListeAnciensOuverte((v) => !v)} />
                   )}
@@ -2360,6 +2427,17 @@ export function HistoriqueDuBien({
               );
             })}
           </div>
+
+          {/* ══ 🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — LA MENTION DE LA BASCULE, SOUS LES ENCARTS ═══════════════
+              Arno : « Petite mention discrète sous l'encart quand la bascule a lieu […]. Elle disparaît d'elle-
+              même. » Elle dit ce qui vient d'être fait ET pourquoi : un décochage silencieux se lit comme une
+              case qui n'a pas pris, on recoche, l'autre se décoche à son tour, et l'on croit l'écran cassé.
+
+              🔴 `role="status"` : rien n'est cassé, et l'on vient d'agir — interrompre une lecture d'écran pour
+              un décochage attendu serait disproportionné. Le MOT vient du module pur, comme tous les autres. */}
+          {bascule !== null && (
+            <p className="gst-note hdb-exclusif" role="status">{motBasculeLocataires(bascule.quoi)}</p>
+          )}
 
           {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 2 — LES DEUX BANDES SONT **TOUJOURS** LÀ, MÊME À ZÉRO ════════
               RÈGLE D'ARNO : « Sous les deux encarts, sur toute la largeur, deux lignes dépliables, repliées par
@@ -2992,7 +3070,7 @@ export function HistoriqueDuBien({
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 function EnTeteLocataire({
-  nbActuels, anciens, choix, enPlaceOffert, listeOuverte, onActuels, onAnciens,
+  nbActuels, anciens, choix, enPlaceOffert, listeOuverte, surAnciens, onActuels, onAnciens,
 }: {
   /** Combien de capsules le choix « locataire en place » afficherait. Lisible même quand on regarde un ancien. */
   nbActuels: number;
@@ -3001,12 +3079,20 @@ function EnTeteLocataire({
   enPlaceOffert: boolean;
   /** La liste des cartes est-elle affichée À LA PLACE des capsules ? */
   listeOuverte: boolean;
+  /**
+   * 🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — EST-ON SUR L'ONGLET « ANCIENS » ? Calculé PAR LE PARENT, et reçu ici.
+   *
+   * Il était écrit dans ce composant (`choix.sorte === 'ancien' || listeOuverte`). Le parent en a maintenant
+   * besoin lui aussi, pour peindre le liseré de l'encart en violet : deux écritures de la même phrase auraient
+   * fini par donner un onglet noir au-dessus d'un liseré vert, ou l'inverse. Elle n'est plus écrite qu'une fois.
+   *
+   * ⚠️ « SÉLECTIONNÉ » SE LIT SUR LE CHOIX, PAS SEULEMENT SUR LA LISTE : la liste ouverte est un passage, le
+   * choix est l'état. Sans quoi, ouvrir la liste puis la refermer sans rien choisir laisserait l'en-tête mentir.
+   */
+  surAnciens: boolean;
   onActuels: () => void;
   onAnciens: () => void;
 }) {
-  /* 🔴 « SÉLECTIONNÉ » SE LIT SUR LE CHOIX, PAS SUR LA LISTE : la liste ouverte est un passage, le choix est
-     l'état. Sans quoi, ouvrir la liste puis la refermer sans rien choisir aurait laissé l'en-tête mentir. */
-  const surAnciens = choix.sorte === 'ancien' || listeOuverte;
   const choisie = anciens.find((c) => choix.sorte === 'ancien' && c.cle === choix.cle);
   return (
     <>
@@ -3161,6 +3247,21 @@ interface PropsGroupe {
    * liste. On peut donc encore déposer une capsule sur un encart dont la liste des anciens est ouverte.
    */
   zone?: ReactNode;
+  /**
+   * ══ 🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — UN TON DE RECHANGE, QUAND L'ENCART CHANGE DE SUJET ════════════════
+   *
+   * Arno : « Onglet “Anciens locataires” affiché → liseré VIOLET […], ainsi que la case “tout le groupe” et les
+   * cases cochées de cet onglet dans la teinte violette. »
+   *
+   * 🔴 LE GROUPE NE CHANGE PAS, SON SUJET CHANGE. L'encart reste le groupe « Locataire » — l'ancien locataire y
+   * vit depuis le lot ANCIENS-LOCATAIRES-VIOLET, et Arno n'a pas demandé un cinquième groupe. Mais ce qu'il
+   * MONTRE n'est plus le même, et la couleur doit le dire. Le ton ne se décide donc pas ici : il est passé par
+   * l'appelant, qui est le seul à savoir quel onglet est affiché.
+   *
+   * ⚠️ ABSENT ⇒ `g.ton`, le ton du groupe, au caractère près : les trois autres encarts et les deux bandes ne
+   * changent pas d'une ligne.
+   */
+  ton?: TonGroupe;
 }
 
 /**
@@ -3323,7 +3424,7 @@ function GroupeDeParties(p: PropsGroupe) {
 
   return (
     <section
-      className={`hdb-groupe hdb-groupe--${g.ton} hdb-groupe--${forme}`
+      className={`hdb-groupe hdb-groupe--${p.ton ?? g.ton} hdb-groupe--${forme}`
         + `${surligne ? ' hdb-groupe--cible' : ''}`}
       onDragOver={(e) => {
         if (!survolable) return;
@@ -4320,6 +4421,17 @@ ${CSS_PIECES}
 /* LE BLEU EST UN JETON DU DEPOT (--color-svv-blue, defini dans les DEUX modes) : rien n'est invente ici.
    Un #rrggbb ecrit a la main aurait produit un bleu illisible en sombre — ce que le depot interdit et verifie. */
 .hdb-groupe--violet{border-left-color:var(--color-svv-violet)}
+/* ══ 🔴🔴 LOT PARTIES-LOCATAIRES-EXCLUSIF — L'ENCART QUI MONTRE LES ANCIENS EST VIOLET D'UN BOUT A L'AUTRE ═════
+   ARNO : « Onglet "Anciens locataires" affiche → lisere VIOLET, ainsi que la case "tout le groupe" et les cases
+   cochees de cet onglet dans la teinte violette. »
+   🔴 LES CASES SUIVENT LE LISERE PAR UN SEUL SELECTEUR DE PARENT : la case ne sait pas quel onglet est affiche,
+   et il n'y avait aucune raison de le lui apprendre. accent-color peint la coche elle-meme, dans les deux
+   themes, avec le jeton du depot. */
+.hdb-groupe--violet .hdb-case input{accent-color:var(--color-svv-violet)}
+.hdb-groupe--violet.hdb-groupe--cible{border-color:var(--color-svv-violet);
+  background:var(--color-svv-violet-soft)}
+/* La mention discrete de la bascule actuels/anciens, sous les deux encarts. */
+.hdb-exclusif{margin:.35rem 0 0;font-size:.76rem;color:var(--color-svv-violet)}
 .hdb-groupe--bleu{border-left-color:var(--color-svv-blue)}
 .hdb-groupe--gris{border-left-color:var(--color-svv-line-strong)}
 /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — « NOTRE AGENCE » : LE GRIS NEUTRE D'ARNO.
