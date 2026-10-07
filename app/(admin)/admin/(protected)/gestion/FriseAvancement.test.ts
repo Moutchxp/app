@@ -1713,8 +1713,8 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
    * aurait RETIRÉ l'étiquette à des mails qui l'avaient — la simulation a mesuré 4 gagnés, 0 perdu.
    */
   it('🔴🔴 les deux voies s’unissent, l’ancienne n’est pas remplacée', () => {
-    expect(REPO_H).toContain('export function sqlEvenementsDesFils(): string {');
-    expect(REPO_H).toContain('export function sqlEvenementsDesMessages(avecMessageId: boolean): string {');
+    expect(REPO_H).toContain('export function sqlEvenementsDesFils(fils: string): string {');
+    expect(REPO_H).toContain('export function sqlEvenementsDesMessages(avecMessageId: boolean, messages: string): string {');
     expect(REPO_H).toContain('evenements: unirEvenements(');
   });
 
@@ -1722,8 +1722,11 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
   it('🔴🔴 la fenêtre va de l’ouverture à la clôture', () => {
     const i = REPO_H.indexOf('export function sqlEvenementsDesMessages');
     const bloc = REPO_H.slice(i, REPO_H.indexOf('\n}', i));
-    expect(bloc).toContain('AND m.recu_le >= ev.ouvert_le');
-    expect(bloc).toContain('AND (ev.traite_le IS NULL OR m.recu_le <= ev.traite_le)');
+    /* ⚠️ L'ALIAS INTERNE S'APPELLE `msg` DEPUIS LE LOT FILTRE-COMME-ETIQUETTE, et non `m` : glissée dans le
+       filtre, une seconde déclaration de `m` aurait masqué la table des messages de la requête porteuse et rendu
+       la borne `ARRAY[m.id]` tautologique. Voir l'encadré de `sqlFiltreEvenementOuvert`. */
+    expect(bloc).toContain('AND msg.recu_le >= ev.ouvert_le');
+    expect(bloc).toContain('AND (ev.traite_le IS NULL OR msg.recu_le <= ev.traite_le)');
     /* 🔴 ET LE BIEN DU MAIL EST CELUI DE L'ÉVÉNEMENT, par les DEUX axes — l'événement 1 n'a aucune partie
        déclarée, son bien ne vient que de ses mails : ne lire qu'un axe n'aurait rien réparé. */
     expect(bloc).toContain('FROM gestion_evenement_partie p');
@@ -1735,7 +1738,9 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
    * d'un même fil peuvent tomber de part et d'autre d'une ouverture. L'ancienne voie, elle, reste par fil.
    */
   it('⚠️ la nouvelle voie raisonne par MAIL, l’ancienne par fil', () => {
-    expect(REPO_H).toContain('WHERE r.message_id = ANY($1::bigint[])');
+    /* ⚠️ L'ENSEMBLE DE MESSAGES EST DÉSORMAIS UN PARAMÈTRE (lot FILTRE-COMME-ETIQUETTE) : l'étiquette le borne
+       à la page (`$1::bigint[]`), le filtre au mail courant (`ARRAY[m.id]`). La clé reste le message. */
+    expect(REPO_H).toContain('WHERE r.message_id = ANY(${messages})');
     expect(REPO_H).toContain('evenementsParBien.get(Number(r.message_id)) ?? []');
     expect(REPO_H).toContain('evenements.get(Number(r.fil_id)) ?? []');
   });
@@ -1761,18 +1766,26 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
    */
   it('⚠️ la colonne `message_id` n’est nommée que si la migration 234 est là', () => {
     expect(REPO_H).toContain("    : 'ON mm.fil_id = aa.fil_id';");
-    expect(REPO_H).toContain('sqlEvenementsDesMessages(await deplacementsDeMailsDisponibles())');
+    expect(REPO_H).toContain("sqlEvenementsDesMessages(await deplacementsDeMailsDisponibles(), '$1::bigint[]')");
   });
 
   /**
-   * ⚠️ LE FILTRE « Événement ouvert » DE L'HISTORIQUE N'EST PAS TOUCHÉ, et c'est délibéré : Arno a demandé la
-   * règle de l'ÉTIQUETTE. Le filtre raisonne par fil (`historiqueRepo:500`) ; l'aligner changerait ce que la
-   * liste CONTIENT, pas seulement ce qu'elle montre — c'est un autre lot, et il se mesure avant.
-   *   🔭 **Question posée à Arno** : veut-il que le filtre suive la même règle que l'étiquette ? Aujourd'hui une
-   *      ligne peut porter l'étiquette sans passer le filtre, et cet écart se voit.
+   * ══ 🔴🔴 L'ÉCART EST FERMÉ — LOT FILTRE-COMME-ETIQUETTE (07/10/2026) ═══════════════════════════════════════
+   *
+   * CE QUE CE TEST DISAIT AU POINT 5, ET POURQUOI IL DIT MAINTENANT LE CONTRAIRE. Il tenait l'état délibéré de
+   * l'époque — « le filtre reste par fil, et l'écart est consigné » — avec la question posée à Arno : veut-il
+   * que le filtre suive la même règle que l'étiquette ? SA RÉPONSE : « aligne le filtre sur la même règle que
+   * l'étiquette (même code, pas de second chemin) : le filtre montre exactement les mails qui portent
+   * l'étiquette. » Le verdict change donc parce que la DÉCISION a changé, pas parce que la mesure était fausse.
+   *
+   * 🔴 ET LA CONDITION D'AVANT NE DOIT PLUS EXISTER NULLE PART : c'était la seconde écriture de la règle, celle
+   * qui pouvait se périmer seule. Le détail de l'alignement est éprouvé par `filtreCommeEtiquette.test.ts`.
    */
-  it('⚠️ le filtre reste par fil, et l’écart est consigné', () => {
-    expect(REPO_H).toContain(`EXISTS (SELECT 1 FROM gestion_affectation af`);
-    expect(REPO_H).toContain("WHERE af.fil_id = m.fil_id AND af.actif AND ev.etat <> 'traite')");
+  it('🔴🔴 le filtre ne réécrit plus la règle : l’ancienne condition a disparu du dépôt', () => {
+    expect(REPO_H).not.toContain('EXISTS (SELECT 1 FROM gestion_affectation af\n');
+    expect(REPO_H).not.toContain("WHERE af.fil_id = m.fil_id AND af.actif AND ev.etat <> 'traite')");
+    // Le filtre est désormais FAIT des deux requêtes de l'étiquette, bornées au mail courant.
+    expect(REPO_H).toContain("sqlEvenementsDesFils('ARRAY[m.fil_id]')");
+    expect(REPO_H).toContain("sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')");
   });
 });

@@ -37,7 +37,10 @@ import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { libelleCible, type LienAffiche } from './rattachementRepo';
 // 🔴🔴 LOT CONTACTS-EXTERNES — « via Me Martin, avocat » sur la ligne d'un mail de « Vie du bien ».
 import { interventionsDesMessages } from './contactExterneRepo';
+/* 🔴🔴 LOT FILTRE-COMME-ETIQUETTE — « ouvert » vient du module pur, en TypeScript ET en SQL : l'étiquette et le
+   filtre lisent la même constante (décision d'Arno du 07/10/2026 : « même code, pas de second chemin »). */
 import {
+  estEvenementOuvert, sqlEvenementOuvert,
   texteCible, CONTACTS_PAR_LOCATAIRE_MAX, INTERLOCUTEURS_MAX, MAILS_DE_LA_FRISE_MAX,
   PORTEURS_DE_PIECES_MAX,
   type EnteteHistorique, type EvenementDeLigne, type FiltresHistorique, type Interlocuteur,
@@ -430,8 +433,16 @@ function cteMessages(o: {
  * ajoutée. La requête liait alors le tableau des interlocuteurs au `LIMIT`, et PostgreSQL refusait :
  * « argument of LIMIT must be type bigint, not type text[] » (mesuré sur le cluster jetable le 26/09/2026). Un
  * placeholder calculé à la main est un défaut qui attend son heure ; ici il ne peut plus diverger de sa valeur.
+ *
+ * 🔴🔴 LOT FILTRE-COMME-ETIQUETTE — `deplacements` EST LA SONDE DE LA MIGRATION 234, et elle entre ici parce que
+ * le filtre « Événement ouvert » appelle désormais la requête de l'étiquette, qui ne nomme `gestion_affectation.
+ * message_id` que si la colonne existe. La valeur vient des CINQ appelants, qui l'ont déjà en main pour
+ * `cteMessages` : la recalculer ici aurait fait une seconde sonde, donc un jour deux réponses dans une même
+ * requête — la moitié nommant une colonne que l'autre moitié croit absente.
  */
-function conditions(f: FiltresHistorique, apres: number): { sql: string; params: unknown[] } {
+function conditions(
+  f: FiltresHistorique, apres: number, deplacements: boolean,
+): { sql: string; params: unknown[] } {
   const bouts: string[] = [];
   const params: unknown[] = [];
   /**
@@ -490,15 +501,18 @@ function conditions(f: FiltresHistorique, apres: number): { sql: string; params:
     bouts.push(`(coalesce(m.objet, '') ILIKE ${p} OR coalesce(m.corps_texte, '') ILIKE ${p})`);
   }
   /**
-   * 🔴 LOT FICHES-ANNUAIRE — « AVEC ÉVÉNEMENT OUVERT ». Un événement est posé sur l'ÉCHANGE, pas sur le mail :
-   * la condition remonte donc au fil. « Ouvert » se lit « pas encore traité » — les trois états sont
-   * `a_traiter`, `en_cours` et `traite` (contrainte de la table), et les deux premiers attendent une réponse.
+   * ══ 🔴🔴 LOT FILTRE-COMME-ETIQUETTE — « AVEC ÉVÉNEMENT OUVERT » : LE FILTRE N'A PLUS DE RÈGLE À LUI ══════════
+   *
+   * DÉCISION D'ARNO (07/10/2026) : « le filtre montre exactement les mails qui portent l'étiquette ». La
+   * condition ne s'écrit donc plus ici : elle est FAITE des deux requêtes de l'étiquette, bornées au mail
+   * courant. Tout est dit dans l'encadré de `sqlFiltreEvenementOuvert` — y compris le piège de l'alias `m`.
+   *
+   * 🔴 CE QUI ÉTAIT ÉCRIT ICI AVANT : « une affectation active du fil de ce mail vers un événement non traité ».
+   * C'était la voie du fil, et RIEN D'AUTRE — ni le bien, ni la fenêtre d'ouverture. L'étiquette, depuis le lot
+   * EVENEMENT-MINIMALISTE, connaît les deux voies : une ligne pouvait donc porter l'étiquette sans passer le
+   * filtre. C'est ce désaccord-là qu'Arno ferme.
    */
-  if (f.evenementOuvert) {
-    bouts.push(`EXISTS (SELECT 1 FROM gestion_affectation af
-                          JOIN gestion_evenement ev ON ev.id = af.evenement_id
-                         WHERE af.fil_id = m.fil_id AND af.actif AND ev.etat <> 'traite')`);
-  }
+  if (f.evenementOuvert) bouts.push(sqlFiltreEvenementOuvert(deplacements));
   return { sql: bouts.length === 0 ? '' : ` AND ${bouts.join(' AND ')}`, params };
 }
 
@@ -547,10 +561,11 @@ export interface PageHistorique {
 
 /** UNE PAGE DE LA FRISE, la plus récente en haut. LECTURE SEULE. */
 export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Promise<PageHistorique> {
-  const cond = conditions(f, decalage(c));
   const [, , evs] = clesDe(c);
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
+  // 🔴 LA SONDE AVANT LES CONDITIONS : le filtre « Événement ouvert » en a besoin (voir `conditions`).
+  const cond = conditions(f, decalage(c), deplacements);
   const cte = cteMessages({
     avecCarte: evs.length > 0, deplacements, grouper: f.grouper, avecLocataire: estLocataire(c),
   });
@@ -818,7 +833,7 @@ export async function porteursDePieces(
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
   /* 🔴 LA PAGINATION N'A PAS DE SENS ICI : on veut la sélection ENTIÈRE. Les champs `page` et `taille` des
      filtres sont donc ignorés — ils ne font pas partie de `conditions`, qui ne lit que les tamis. */
-  const cond = conditions(f, decalage(c));
+  const cond = conditions(f, decalage(c), deplacements);
   const pLimite = base.length + 1 + cond.params.length;
 
   const { rows } = await query<{
@@ -901,14 +916,14 @@ export async function porteursDePieces(
  *
  * ⚠️ LA FENÊTRE EST FERMÉE À DROITE PAR LA CLÔTURE quand elle existe : un mail arrivé APRÈS la clôture ne
  * concerne plus cet événement. L'étiquette ne s'affiche de toute façon que pour un événement ouvert
- * (`ouvert = etat !== 'traite'`), mais la borne est écrite — la règle d'Arno la nomme, et un événement rouvert
- * plus tard ne doit pas repêcher les mails de l'intervalle où il était clos.
+ * (`estEvenementOuvert`, module pur), mais la borne est écrite — la règle d'Arno la nomme, et un événement
+ * rouvert plus tard ne doit pas repêcher les mails de l'intervalle où il était clos.
  *
  * ⚠️ CLÉ = LE MESSAGE, ET NON LE FIL. C'est une date de MAIL qui décide, et deux mails d'un même fil peuvent
  * tomber de part et d'autre d'une ouverture. L'ancienne voie, elle, reste par fil — c'est sa nature.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function sqlEvenementsDesMessages(avecMessageId: boolean): string {
+export function sqlEvenementsDesMessages(avecMessageId: boolean, messages: string): string {
   const jointure = avecMessageId
     ? `ON (aa.message_id IS NOT NULL AND mm.id = aa.message_id)
           OR (aa.message_id IS NULL AND mm.fil_id = aa.fil_id)`
@@ -929,23 +944,75 @@ export function sqlEvenementsDesMessages(avecMessageId: boolean): string {
           )
           SELECT DISTINCT r.message_id, ev.id, ev.reference, ev.objet, ev.etat, ev.ouvert_le
             FROM gestion_rattachement r
-            JOIN gestion_message m ON m.id = r.message_id
+            JOIN gestion_message msg ON msg.id = r.message_id
             JOIN biens_evt be ON be.cle = r.cible_cle
             JOIN gestion_evenement ev ON ev.id = be.evenement_id
-           WHERE r.message_id = ANY($1::bigint[])
+           WHERE r.message_id = ANY(${messages})
              AND r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
-             AND m.recu_le >= ev.ouvert_le
-             AND (ev.traite_le IS NULL OR m.recu_le <= ev.traite_le)
+             AND msg.recu_le >= ev.ouvert_le
+             AND (ev.traite_le IS NULL OR msg.recu_le <= ev.traite_le)
            ORDER BY r.message_id, ev.ouvert_le DESC, ev.id DESC`;
 }
 
-export function sqlEvenementsDesFils(): string {
+export function sqlEvenementsDesFils(fils: string): string {
   return `SELECT af.fil_id, ev.id, ev.reference, ev.objet, ev.etat
             FROM (SELECT DISTINCT fil_id, evenement_id
                     FROM gestion_affectation
-                   WHERE actif AND fil_id = ANY($1::bigint[])) af
+                   WHERE actif AND fil_id = ANY(${fils})) af
             JOIN gestion_evenement ev ON ev.id = af.evenement_id
            ORDER BY af.fil_id, ev.ouvert_le DESC, ev.id DESC`;
+}
+
+/**
+ * ══ 🔴🔴 LOT FILTRE-COMME-ETIQUETTE — LE FILTRE EST FAIT DES DEUX REQUÊTES DE L'ÉTIQUETTE ════════════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DÉCISION D'ARNO (07/10/2026), mot pour mot : « aligne le filtre “Événement ouvert” de l'historique sur la même
+ * règle que l'étiquette (MÊME CODE, PAS DE SECOND CHEMIN) : le filtre montre exactement les mails qui portent
+ * l'étiquette. »
+ *
+ * ═══ 🔴🔴 CE QUE « MÊME CODE » VEUT DIRE ICI, ET POURQUOI CE N'EST PAS UNE COPIE ════════════════════════════════
+ *
+ * Le filtre n'a PAS sa propre idée de « ce mail porte un événement ouvert ». Il prend les DEUX requêtes qui
+ * fabriquent l'étiquette — `sqlEvenementsDesFils` et `sqlEvenementsDesMessages`, les mêmes fonctions, le même
+ * texte SQL — et il ne leur change qu'UNE chose : l'ensemble de messages sur lequel elles portent. L'étiquette
+ * les borne à la page affichée (`$1::bigint[]`, cent mails) ; le filtre les borne au mail courant
+ * (`ARRAY[m.id]`). Le reste — les deux voies, la fenêtre d'ouverture, le dédoublonnage — n'existe qu'à un seul
+ * endroit du dépôt, et c'est ce qui rend l'égalité vraie par CONSTRUCTION et non par surveillance.
+ *
+ * 🔴 ET C'EST POUR CELA QUE LES DEUX FONCTIONS PRENNENT DÉSORMAIS LEUR ENSEMBLE EN PARAMÈTRE. Le premier jet
+ * recopiait la condition du bien et de la fenêtre dans le filtre : deux textes à garder d'accord, c'est-à-dire
+ * exactement le défaut que cette décision vient réparer. C'est le même procédé que `sqlLiensDuBien(alias)`,
+ * déjà en place dans ce module pour « qu'est-ce qu'un bien rattaché à un mail ».
+ *
+ * ═══ 🔴🔴 LE PIÈGE QUI A FAILLI PASSER : L'ALIAS `m` MASQUÉ ════════════════════════════════════════════════════
+ *
+ * Les cinq requêtes de cet écran nomment `m` la table des messages, et c'est sur `m.id` que ce filtre se
+ * corrèle. `sqlEvenementsDesMessages` nommait AUSSI `m` sa propre jointure sur `gestion_message` : glissée dans
+ * un `EXISTS`, cette seconde déclaration MASQUAIT la première, `r.message_id = ANY(ARRAY[m.id])` devenait une
+ * tautologie (la jointure interne l'impose déjà), et le filtre aurait rendu VRAI pour tout mail dès qu'UN SEUL
+ * mail de la base portait un événement ouvert. Aucune erreur de PostgreSQL, aucun test de type : juste un filtre
+ * qui ne filtre plus. L'alias interne s'appelle donc `msg`.
+ *
+ * ⚠️ SIMULATION CHIFFRÉE AVANT APPLICATION (règle d'Arno), relevée sur toute la base le 07/10/2026 :
+ *   avant : 10 mails passent le filtre · après : 14 · ENTRENT : 4 · SORTENT : 0
+ *   Les quatre sont sur le MÊME bien — le 315 —, tous dans la fenêtre de GES-2026-000001 : 57597 (06/10 12:28),
+ *   57276 (30/09 12:26), 57258 (30/09 11:14), 55969 (24/09 09:40). Ce sont EXACTEMENT les quatre mails qui
+ *   avaient gagné l'étiquette au lot précédent — la preuve, en chiffres, que les deux listes se rejoignent.
+ *
+ * ⚠️ PERSONNE NE PERD RIEN, ET CE N'EST PAS UN HASARD : l'ancienne condition du filtre (« une affectation active
+ * du fil vers un événement non traité ») est, au caractère près, la voie du fil de l'étiquette. Le filtre ne
+ * s'étend donc que de la seconde voie ; aucune ligne ne peut en sortir.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function sqlFiltreEvenementOuvert(avecMessageId: boolean): string {
+  return `EXISTS (
+            SELECT 1 FROM (
+              SELECT vf.etat FROM (${sqlEvenementsDesFils('ARRAY[m.fil_id]')}) vf
+              UNION ALL
+              SELECT vb.etat FROM (${sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')}) vb
+            ) porte
+             WHERE ${sqlEvenementOuvert('porte')})`;
 }
 
 /**
@@ -980,12 +1047,12 @@ async function evenementsDesMessages(messageIds: readonly number[]): Promise<Map
   if (uniques.length === 0) return out;
   const { rows } = await query<{
     message_id: string; id: string; reference: string; objet: string; etat: string;
-  }>(sqlEvenementsDesMessages(await deplacementsDeMailsDisponibles()), [uniques]);
+  }>(sqlEvenementsDesMessages(await deplacementsDeMailsDisponibles(), '$1::bigint[]'), [uniques]);
   for (const r of rows) {
     const cle = Number(r.message_id);
     const liste = out.get(cle) ?? [];
     liste.push({
-      id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: r.etat !== 'traite',
+      id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: estEvenementOuvert(r.etat),
     });
     out.set(cle, liste);
   }
@@ -999,12 +1066,12 @@ async function evenementsDesFils(filIds: readonly number[]): Promise<Map<number,
   const { rows } = await query<{
     fil_id: string; id: string; reference: string; objet: string; etat: string;
   }>(
-    sqlEvenementsDesFils(), [uniques]);
+    sqlEvenementsDesFils('$1::bigint[]'), [uniques]);
   for (const r of rows) {
     const cle = Number(r.fil_id);
     const liste = out.get(cle) ?? [];
     liste.push({
-      id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: r.etat !== 'traite',
+      id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: estEvenementOuvert(r.etat),
     });
     out.set(cle, liste);
   }
@@ -1099,7 +1166,7 @@ export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): P
   };
 
   const [filtre, total] = await Promise.all([
-    compter(conditions(f, decalage(c))),
+    compter(conditions(f, decalage(c), deplacements)),
     compter({ sql: '', params: [] }),
   ]);
   return { filtre, total };
@@ -1124,7 +1191,7 @@ export async function interlocuteursHistorique(
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
-  const cond = conditions({ ...f, interlocuteurs: [], expediteursExclus: [] }, decalage(c));
+  const cond = conditions({ ...f, interlocuteurs: [], expediteursExclus: [] }, decalage(c), deplacements);
   const pLimite = base.length + 1 + cond.params.length;
 
   /**
@@ -1426,7 +1493,7 @@ export async function mailsDeLaFrise(
   const deplacements = await deplacementsDeMailsDisponibles();
   const [, , evs] = clesDe(c);
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
-  const cond = conditions(f, decalage(c));
+  const cond = conditions(f, decalage(c), deplacements);
   const pLimite = base.length + 1 + cond.params.length;
 
   const { rows } = await query<{

@@ -36,8 +36,16 @@ import { sqlEvenementsDesFils } from './historiqueRepo';
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
-/** La requête, blancs normalisés : on éprouve le SENS, jamais l'indentation (règle du dépôt, AGENTS.md). */
-const SQL = sqlEvenementsDesFils().replace(/\s+/g, ' ');
+/**
+ * La requête, blancs normalisés : on éprouve le SENS, jamais l'indentation (règle du dépôt, AGENTS.md).
+ *
+ * 🔴🔴 L'ENSEMBLE DE FILS EST UN PARAMÈTRE DEPUIS LE LOT FILTRE-COMME-ETIQUETTE (07/10/2026). Décision d'Arno :
+ * « aligne le filtre “Événement ouvert” sur la même règle que l'étiquette (même code, pas de second chemin) ».
+ * Le filtre appelle donc CETTE requête-ci, bornée au fil du mail courant (`ARRAY[m.fil_id]`), là où l'étiquette
+ * la borne à la page affichée. On éprouve ici la forme de l'étiquette — c'est la même, au paramètre près, et
+ * `filtreCommeEtiquette.test.ts` tient cette égalité.
+ */
+const SQL = sqlEvenementsDesFils('$1::bigint[]').replace(/\s+/g, ' ');
 const REPO = readFileSync('app/lib/gestion/historiqueRepo.ts', 'utf8');
 
 describe('point 3 — le couple (fil, événement) est rendu unique', () => {
@@ -79,7 +87,13 @@ describe('point 3 — le couple (fil, événement) est rendu unique', () => {
     /* Le corps SQL ne doit apparaître qu'à UN endroit du dépôt — sa fonction. Deux copies divergeraient. */
     const occurrences = REPO.split('SELECT DISTINCT fil_id, evenement_id').length - 1;
     expect(occurrences).toBe(1);
-    expect(REPO).toContain('sqlEvenementsDesFils(), [uniques]);');
+    /**
+     * 🔴🔴 ET ELLE A MAINTENANT **DEUX** APPELANTS, POUR LA MÊME RAISON. Lot FILTRE-COMME-ETIQUETTE : le filtre
+     * « Événement ouvert » ne réécrit plus la règle, il appelle cette requête bornée au fil du mail courant.
+     * Un seul corps SQL, deux bornes — c'est précisément ce que la décision d'Arno demande.
+     */
+    expect(REPO).toContain("sqlEvenementsDesFils('$1::bigint[]'), [uniques]);");
+    expect(REPO).toContain("sqlEvenementsDesFils('ARRAY[m.fil_id]')");
   });
 
   it('⚠️ LA PORTÉE RESTE CELLE DU FIL : la clé rendue est `fil_id`, comme avant ce lot', () => {

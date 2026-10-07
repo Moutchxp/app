@@ -490,6 +490,32 @@ export interface EvenementDeLigne {
   ouvert: boolean;
 }
 
+/**
+ * ══ 🔴🔴 LOT FILTRE-COMME-ETIQUETTE — « OUVERT », ÉCRIT UNE SEULE FOIS, EN DEUX LANGAGES ═════════════════════════
+ *
+ * DÉCISION D'ARNO (07/10/2026) : « aligne le filtre « Événement ouvert » de l'historique sur la même règle que
+ * l'étiquette (même code, pas de second chemin) : le filtre montre exactement les mails qui portent l'étiquette. »
+ *
+ * 🔴 L'ÉTIQUETTE SE DÉCIDE EN TYPESCRIPT (`ouvert` de la ligne, lu par la capsule de « Vie du bien ») et LE FILTRE
+ * EN SQL (il doit s'appliquer avant la pagination et le compteur). Les deux phrases ne peuvent donc pas être le
+ * même caractère — mais elles peuvent sortir de la MÊME constante, et c'est tout ce qui compte : le jour où un
+ * quatrième état apparaît dans la table, il n'y a qu'une ligne à relire.
+ *
+ * ⚠️ LES TROIS ÉTATS SONT `a_traiter`, `en_cours` ET `traite` (contrainte de `gestion_evenement`). « Ouvert » se
+ * lit donc « pas encore traité », et non « est à traiter » : un événement en cours est ouvert.
+ */
+export const ETAT_EVENEMENT_TRAITE = 'traite';
+
+/** La règle, en TypeScript : un événement est ouvert tant qu'il n'est pas traité. */
+export function estEvenementOuvert(etat: string): boolean {
+  return etat !== ETAT_EVENEMENT_TRAITE;
+}
+
+/** LA MÊME RÈGLE, EN SQL, pour l'alias donné. Le filtre de l'historique ne la réécrit pas : il appelle ceci. */
+export function sqlEvenementOuvert(alias: string): string {
+  return `${alias}.etat <> '${ETAT_EVENEMENT_TRAITE}'`;
+}
+
 export interface Interlocuteur {
   adresse: string;
   /** Le nom d'affichage le plus fréquent pour cette adresse, ou `null` si elle n'en a jamais porté. */

@@ -159,7 +159,14 @@ describe('🔴🔴 ④ les paramètres liés, là où un décalage ne se voit pa
    * pour un locataire — jamais un « 3 » écrit en dur dans `conditions`.
    */
   it('🔴🔴 `conditions` ne connaît plus de décalage en dur', () => {
-    expect(REPO).toContain('function conditions(f: FiltresHistorique, apres: number)');
+    /**
+     * ⚠️ LA SIGNATURE A PRIS UN TROISIÈME ARGUMENT AU LOT FILTRE-COMME-ETIQUETTE (07/10/2026) : `deplacements`,
+     * la sonde de la migration 234, parce que le filtre « Événement ouvert » appelle désormais la requête de
+     * l'étiquette, qui ne nomme `gestion_affectation.message_id` que si la colonne existe. Le DÉCALAGE, lui,
+     * n'a pas bougé d'un caractère — et c'est tout ce que ce groupe surveille. Le filtre ne lie, du reste,
+     * aucune valeur : `filtreCommeEtiquette.test.ts` le tient (« pas un seul placeholder de plus »).
+     */
+    expect(REPO).toContain('f: FiltresHistorique, apres: number, deplacements: boolean,');
     expect(REPO).toContain('const ajouter = (v: unknown): string => `$${params.push(v) + apres}`;');
     expect(REPO).not.toContain('params.push(v) + 3');
   });
