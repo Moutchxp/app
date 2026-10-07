@@ -229,9 +229,19 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
            */
           <span className="gst-carte-titre gst-carte-titre--avec-etape">
             <span className="gst-carte-texte">
-              {/* ⚠️ LE TITRE SE COUPE AVEC « … », et il garde son contenu entier dans son `title` : une
-                  coupure qui perd l'information serait un titre faux. */}
-              <span className="gst-objet gst-objet--coupe" title={objet}>{objet}</span>
+              {/* ══ 🔴🔴 LOT EVENEMENTS-CARTES-PLEINES, POINT 2 — LE TITRE EST ENTIER ═══════════════════════
+                  CETTE LIGNE DISAIT : « LE TITRE SE COUPE AVEC “…”, et il garde son contenu entier dans son
+                  `title` : une coupure qui perd l'information serait un titre faux. » C'était la demande du lot
+                  VIGNETTE-EVENEMENT, qui venait d'ajouter la miniature à droite.
+
+                  🔴 ARNO REVIENT DESSUS (07/10/2026) : « Plus aucun texte coupé par “…” dans la carte : le titre
+                  complet […]. Les textes longs passent à la ligne au lieu d'être tronqués, et la carte grandit
+                  en hauteur. » La place de la miniature est toujours laissée — elle garde ses 132 px fixes —,
+                  mais c'est la HAUTEUR qui absorbe les titres longs.
+
+                  ⚠️ LE `title` RESTE, ET IL N'EST PLUS UN FILET : c'est une bulle de confort. Le retirer serait
+                  un retrait, qu'Arno n'a pas demandé. */}
+              <span className="gst-objet gst-objet--entier" title={objet}>{objet}</span>
               {/**
                 * ══ 🔴🔴 LOT CARTE-EVENEMENT-EPUREE — CETTE LIGNE A ÉTÉ ÉPURÉE, POINTS 1, 2 ET 5 ═══════════════
                 *

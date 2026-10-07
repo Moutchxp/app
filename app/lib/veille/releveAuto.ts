@@ -21,6 +21,52 @@ import { releverBoite, type ClientBoite, type RapportReleve } from './releveRepo
 import { autoConfirmerAccusesTeleservice } from './autoConfirmationTeleservice'; // téléservice : bascule auto d'un accusé citant un num_dau en attente (aucun envoi)
 import { CLE_VERROU_VEILLE } from './verrouVeille';
 
+/**
+ * ══ 🔴🔴 LOT EVENEMENTS-CARTES-PLEINES, POINT 3 — UN MOTIF D'ÉCHEC N'EST JAMAIS VIDE ══════════════════════════════
+ *
+ * ═══ LE DÉFAUT, DIAGNOSTIQUÉ LE 07/10/2026 ═══════════════════════════════════════════════════════════════════════
+ * Ces deux lignes s'écrivaient `e instanceof Error ? e.message : String(e)`. Quand une erreur arrive avec un
+ * message VIDE — certaines ruptures de socket construisent l'erreur sans texte —, la chaîne vide partait telle
+ * quelle en base, et le bandeau de l'écran affichait « motif non enregistré ». Il ne mentait pas : c'est la
+ * CAPTURE qui laissait tomber l'information, pas l'affichage.
+ *
+ * MESURE AU MOMENT DU CORRECTIF : 2 passes sur 56 échecs depuis le 25/09/2026 (le 26/09 à 10:29 et le 07/10 à
+ * 17:33). Rare, et c'est justement pour cela qu'on ne pouvait pas l'expliquer après coup.
+ *
+ * ═══ CE QU'ON ÉCRIT À LA PLACE ═══════════════════════════════════════════════════════════════════════════════════
+ * Le message s'il y en a un ; sinon le CODE et le NOM de l'erreur — « ECONNRESET (Error) » —, qui sont précisément
+ * ce qui reste quand le message manque ; sinon la représentation brute de ce qui a été lancé ; et en tout dernier
+ * recours une phrase, « erreur sans description », plutôt qu'un vide.
+ *
+ * 🔴 LE CODE D'ABORD, PARCE QUE C'EST LUI QUI DIT QUOI FAIRE. Les erreurs réseau de Node le portent
+ * (`ECONNRESET`, `ENOTFOUND`, `ECONNREFUSED`…) et c'est exactement le mot qu'on cherche six mois plus tard pour
+ * savoir si c'était le DNS, la box ou le serveur. Le NOM seul (« Error ») ne dirait rien.
+ *
+ * ⚠️ RIEN D'AUTRE NE CHANGE. La relève se comporte exactement comme avant : mêmes gardes, même isolation, même
+ * journal en deux temps. Seul le TEXTE enregistré en cas d'échec s'améliore.
+ */
+export const MOTIF_SANS_DESCRIPTION = 'erreur sans description';
+
+export function motifErreur(e: unknown): string {
+  const texte = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+  if (e instanceof Error) {
+    const message = texte(e.message);
+    if (message !== '') return message;
+    /* ⚠️ `code` N'EST PAS DANS LE TYPE `Error`, et il est pourtant là sur toutes les erreurs réseau de Node :
+       on le lit par indexation plutôt que de l'ignorer, et l'absence se voit — elle ne jette pas. */
+    const code = texte((e as { code?: unknown }).code);
+    const nom = texte(e.name);
+    if (code !== '' && nom !== '') return `${code} (${nom})`;
+    if (code !== '') return code;
+    if (nom !== '') return nom;
+    return MOTIF_SANS_DESCRIPTION;
+  }
+  /* ⚠️ CE QUI N'EST PAS UNE `Error` SE DIT QUAND MÊME : un `throw 'x'` ou un objet doit laisser une trace, et
+     `String(null)` rend « null », qui est une information — tandis qu'une chaîne vide n'en est pas une. */
+  const brut = (() => { try { return String(e).trim(); } catch { return ''; } })();
+  return brut === '' ? MOTIF_SANS_DESCRIPTION : brut;
+}
+
 export type ResultatReleveAuto = 'ok' | 'erreur' | 'ignore';
 
 export interface IssueReleveAuto {
@@ -77,7 +123,7 @@ export async function executerReleveAuto(deps: DepsReleveAuto): Promise<IssueRel
     return { resultat: 'ok', raison: `${rapport.retenus} retenu(s), ${rapport.rattaches} rattaché(s), ${rapport.ecrites} enregistré(s)`, runId };
   } catch (e) {
     // On ABSORBE : la ligne « en_cours » passe « erreur » avec le motif, et on retourne SANS relancer (isolation).
-    const motif = e instanceof Error ? e.message : String(e);
+    const motif = motifErreur(e);
     await deps.finaliserRun(runId, { resultat: 'erreur', termineLe: deps.maintenant(), erreur: motif });
     return { resultat: 'erreur', raison: motif, runId };
   }
@@ -112,7 +158,7 @@ export async function executerReleveManuelle(deps: DepsReleveAuto): Promise<Issu
     await deps.finaliserRun(runId, { resultat: 'ok', termineLe: deps.maintenant(), rapport });
     return { resultat: 'ok', raison: `${rapport.retenus} retenu(s), ${rapport.rattaches} rattaché(s), ${rapport.ecrites} enregistré(s)`, runId, rapport };
   } catch (e) {
-    const motif = e instanceof Error ? e.message : String(e);
+    const motif = motifErreur(e);
     await deps.finaliserRun(runId, { resultat: 'erreur', termineLe: deps.maintenant(), erreur: motif });
     return { resultat: 'erreur', raison: motif, runId, rapport: null };
   }

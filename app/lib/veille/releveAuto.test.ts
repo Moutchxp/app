@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { executerReleveAuto, executerReleveManuelle, executerReleveDemandee, type DepsReleveAuto, type DepsReleveDemandee, type IssueReleveManuelle } from './releveAuto';
+import { executerReleveAuto, executerReleveManuelle, executerReleveDemandee, motifErreur,
+  MOTIF_SANS_DESCRIPTION,
+  type DepsReleveAuto, type DepsReleveDemandee, type IssueReleveManuelle,
+  type MajReleveRun } from './releveAuto';
 import type { ClientBoite, RapportReleve } from './releveReponses';
 
 /**
@@ -234,5 +237,122 @@ describe('LOT 34 — GARDE D’IMPORTS : la relève déclenchée n’atteint auc
     const imports = src.split('\n').filter((l) => /^\s*import\b/.test(l)).join('\n');
     expect(imports).toMatch(/executerReleveDemandee/);      // elle passe bien par le chemin LECTURE SEULE
     expect(imports).not.toMatch(MODULES_ENVOI);             // et par AUCUN émetteur (ni executerVeille)
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT EVENEMENTS-CARTES-PLEINES, POINT 3 — UN MOTIF D'ÉCHEC N'EST JAMAIS VIDE
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   DIAGNOSTIC DU 07/10/2026, rendu à Arno : le bandeau de l'écran affichait « La dernière relève automatique a
+   échoué à 17:33 : motif non enregistré ». Il ne mentait pas — le motif était une chaîne VIDE en base. La cause
+   tenait en une ligne : `e instanceof Error ? e.message : String(e)`, sans aucun repli quand le message manque.
+
+   MESURE : 2 passes sur 56 échecs depuis le 25/09/2026 (26/09 à 10:29, 07/10 à 17:33). Rare — et c'est justement
+   pour cela qu'on ne pouvait pas l'expliquer après coup.
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 le motif d’un échec de relève n’est jamais vide', () => {
+  /** 🔴 LE CAS ORDINAIRE NE CHANGE PAS : un message présent reste le motif, mot pour mot. */
+  it('🔴 un message présent est le motif, inchangé', () => {
+    expect(motifErreur(new Error('getaddrinfo ENOTFOUND imap.gmail.com')))
+      .toBe('getaddrinfo ENOTFOUND imap.gmail.com');
+  });
+
+  /**
+   * 🔴🔴 LE CAS QUI A MANQUÉ : message vide, mais `code` présent — c'est exactement la forme des erreurs réseau
+   * de Node, et `code` est précisément le mot qu'on cherche six mois plus tard (DNS ? box ? serveur ?).
+   */
+  it('🔴🔴 message vide : le CODE et le NOM prennent sa place', () => {
+    const e = Object.assign(new Error(''), { code: 'ECONNRESET' });
+    expect(motifErreur(e)).toBe('ECONNRESET (Error)');
+  });
+
+  /** 🔴 UN MESSAGE FAIT D'ESPACES VAUT UN MESSAGE VIDE : sinon le bandeau afficherait du blanc. */
+  it('🔴 un message d’espaces vaut un message vide', () => {
+    const e = Object.assign(new Error('   \n  '), { code: 'ETIMEDOUT' });
+    expect(motifErreur(e)).toBe('ETIMEDOUT (Error)');
+  });
+
+  /** ⚠️ SANS CODE, LE NOM SUFFIT : « TypeError » dit déjà où chercher. */
+  it('⚠️ ni message ni code : le nom de l’erreur', () => {
+    const e = new TypeError('');
+    expect(motifErreur(e)).toBe('TypeError');
+  });
+
+  /** ⚠️ SANS CODE NI NOM : une phrase, jamais un vide. */
+  it('⚠️ ni message, ni code, ni nom : une phrase', () => {
+    const e = Object.assign(new Error(''), { name: '' });
+    expect(motifErreur(e)).toBe(MOTIF_SANS_DESCRIPTION);
+    expect(MOTIF_SANS_DESCRIPTION.trim()).not.toBe('');
+  });
+
+  /** ⚠️ CE QUI N'EST PAS UNE `Error` SE DIT QUAND MÊME — un `throw 'x'`, un objet, `null`. */
+  it('⚠️ ce qui n’est pas une Error laisse une trace lisible', () => {
+    expect(motifErreur('la boîte a raccroché')).toBe('la boîte a raccroché');
+    expect(motifErreur(null)).toBe('null');
+    expect(motifErreur(undefined)).toBe('undefined');
+    expect(motifErreur(404)).toBe('404');
+    /* Une chaîne vide, elle, n'est pas une information : on rend la phrase. */
+    expect(motifErreur('')).toBe(MOTIF_SANS_DESCRIPTION);
+    expect(motifErreur('   ')).toBe(MOTIF_SANS_DESCRIPTION);
+  });
+
+  /**
+   * 🔴🔴 ET AUCUNE ENTRÉE NE PEUT RENDRE UNE CHAÎNE VIDE. C'est la promesse du lot, et on la vérifie sur un
+   * éventail plutôt que sur les cas qu'on a imaginés : c'est ce qui aurait attrapé le défaut d'origine.
+   */
+  it('🔴🔴 quoi qu’on lui donne, le motif n’est jamais vide', () => {
+    const cas: unknown[] = [
+      new Error(''), new Error('  '), new TypeError(''), Object.assign(new Error(''), { name: '', code: '' }),
+      Object.assign(new Error(''), { code: 42 }), '', '   ', null, undefined, 0, false, {}, [],
+      Object.create(null) as unknown,
+    ];
+    /* ⚠️ L'ÉTIQUETTE DE L'ASSERTION DOIT ÊTRE SÛRE, ELLE AUSSI : `String(Object.create(null))` JETTE, et c'est
+       l'épreuve qui serait tombée, pas le code. Défaut rencontré en écrivant ce cas — exactement le genre de
+       chose que ce test existe pour attraper, mais côté sujet. */
+    const nommer = (c: unknown, i: number): string => {
+      try { return `cas ${i} : ${String(c)}`; } catch { return `cas ${i} : (objet sans représentation)`; }
+    };
+    cas.forEach((c, i) => {
+      const m = motifErreur(c);
+      expect(typeof m, nommer(c, i)).toBe('string');
+      expect(m.trim(), nommer(c, i)).not.toBe('');
+    });
+  });
+
+  /**
+   * 🔴🔴 LES DEUX CHEMINS D'ÉCRITURE L'EMPLOIENT — la relève AUTOMATIQUE et la relève MANUELLE. C'est ce qui
+   * fait que le journal ne peut plus recevoir de motif vide, quel que soit le déclencheur.
+   */
+  it('🔴🔴 les deux relèves écrivent ce motif, et plus aucune ne lit `e.message` seul', () => {
+    const src = readFileSync(join(process.cwd(), 'app/lib/veille/releveAuto.ts'), 'utf8');
+    expect((src.match(/const motif = motifErreur\(e\);/g) ?? [])).toHaveLength(2);
+    /* ⚠️ SANS LES COMMENTAIRES : l'encadré du correctif CITE la ligne d'avant pour dire ce qu'elle faisait, et
+       une lecture brute serait tombée sur la mémoire du lot au lieu du code. */
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toContain('e instanceof Error ? e.message : String(e)');
+  });
+
+  /**
+   * 🔴🔴 ET CE QUI EST ÉCRIT ARRIVE BIEN DANS LE JOURNAL : on fait échouer une relève avec une erreur au message
+   * vide, et l'on regarde ce que `finaliserRun` reçoit. C'est la seule épreuve qui relie la fonction au défaut
+   * constaté — les autres ne jugent que la fonction.
+   */
+  it('🔴🔴 une relève qui échoue sans message journalise quand même un motif', async () => {
+    /* ⚠️ LES PARAMÈTRES SONT DÉCLARÉS, et pas seulement pour la forme : sans eux, `mock.calls` est typé `[]` et
+       lire `[1]` ne compile pas. On veut justement regarder ce SECOND argument — la mise à jour du journal. */
+    const finaliserRun = vi.fn(async (_id: number, _maj: MajReleveRun) => undefined);
+    const deps = makeDeps({
+      relever: vi.fn(async () => { throw Object.assign(new Error(''), { code: 'ECONNRESET' }); }),
+      finaliserRun,
+    });
+    const issue = await executerReleveAuto(deps);
+    expect(issue.resultat).toBe('erreur');
+    expect(issue.raison).toBe('ECONNRESET (Error)');
+    const maj = finaliserRun.mock.calls.at(-1)?.[1];
+    expect(maj?.resultat).toBe('erreur');
+    expect(maj?.erreur).toBe('ECONNRESET (Error)');
+    expect((maj?.erreur ?? '').trim()).not.toBe('');
   });
 });

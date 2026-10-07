@@ -38,8 +38,17 @@ describe('🔴🔴 ① le bloc d’état ne s’affiche plus sur l’accueil', (
    * 🔴🔴 LE BANDEAU ET SES BOUTONS. La condition d'affichage écarte désormais `partage` — c'est-à-dire l'accueil.
    * Il RESTE sur « Événements » et « À rattacher », où il est encore le seul moyen de relever.
    */
+  /**
+   * ⚠️ CONDITION ÉTENDUE LE 07/10/2026 — LOT EVENEMENTS-CARTES-PLEINES, POINT 1 : l'écran « Événements » rejoint
+   * la liste des écrans qui n'affichent plus ce bandeau (demande d'Arno). La règle éprouvée ici — « il est écarté
+   * de l'écran partagé » — n'a pas bougé ; c'est la liste qui s'allonge, et on la lit donc par APPARTENANCE
+   * plutôt qu'en figeant la ligne entière, qui s'allongera encore.
+   */
   it('🔴🔴 le bandeau est écarté de l’écran partagé', () => {
-    expect(VUE).toContain("{ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && (");
+    const condition = VUE.slice(VUE.indexOf("{ecran !== 'boite'"), VUE.indexOf('<div className="gst-bandeau'));
+    for (const ecran of ['partage', 'boite', 'annuaire', 'evenements']) {
+      expect(condition, ecran).toContain(`ecran !== '${ecran}'`);
+    }
     /* ⚠️ ET IL N'EST PLUS JAMAIS RENDU EN VERSION « LARGE » : la seule qui reste est la compacte. */
     expect(VUE).not.toContain("gst-bandeau${ecran === 'partage' ? '' : ' gst-bandeau--compact'}");
   });

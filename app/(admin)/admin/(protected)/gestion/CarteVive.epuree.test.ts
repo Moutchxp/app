@@ -479,3 +479,133 @@ describe('🔴🔴 ⑧ un type ajouté à la SOURCE paraît partout, sans autre 
     expect(TYPES_EVENEMENT.map((t) => t.cle)).toEqual(['travaux', 'fuite_eau', 'administratif', 'litige']);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT EVENEMENTS-CARTES-PLEINES, POINT 2 — MÊME LARGEUR, CONTENU ENTIER
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ARNO (07/10/2026) : « Toutes les cartes d'une même liste ont la même largeur : toute la largeur de leur colonne
+   ou zone, quelle que soit la longueur de leur titre. Aujourd'hui la carte _TEST est plus étroite que l'autre. […]
+   Plus aucun texte coupé par "…" dans la carte : le titre complet, la ligne "Propriétaire : … · Demandé par …"
+   complète, l'adresse complète. […] La colonne de droite garde sa largeur fixe et reste alignée en haut à droite. »
+
+   ⚠️ JSDOM NE FAIT PAS DE MISE EN PAGE : il ne mesure ni largeur ni retour à la ligne. Ce bloc éprouve donc ce
+   qu'il PEUT éprouver — le balisage rendu et les RÈGLES qui le gouvernent —, et les largeurs réelles ont été
+   MESURÉES dans le vrai navigateur, à l'écran partagé comme en plein écran. Les deux sont dans le commit.
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+const VUE_FEUILLE = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
+/**
+ * La règle d'un sélecteur, sans les commentaires : on éprouve des DÉCLARATIONS, pas des explications.
+ *
+ * ⚠️ ANCRÉE EN DÉBUT DE LIGNE, et il le faut : sans le `^`, chercher `.gst-liste{` tombe d'abord sur
+ * `.gst-deux .gst-liste{gap:0}`, qui le CONTIENT — on aurait lu la règle de l'écran partagé en croyant lire
+ * celle de la liste. Défaut rencontré en écrivant ce bloc.
+ */
+const regleDe = (selecteur: string): string =>
+  VUE_FEUILLE.replace(/\/\*[\s\S]*?\*\//g, '')
+    .match(new RegExp(`^${selecteur}\\{([^}]*)\\}`, 'm'))?.[1] ?? '';
+
+describe('🔴🔴 ⑨ aucun texte n’est coupé dans la carte', () => {
+  /** Un titre de 150 caractères, comme Arno le demande dans ses tests. */
+  const TITRE_LONG = 'Re: NOTE INFORMATION RESIDENCE DE L’ORNE — CHANGEMENT DES CODES D’ENTREE DES 3 BATIMENTS '
+    + 'ET REMPLACEMENT DES BOITES AUX LETTRES DU HALL B, INTERVENTION URGENTE DEMANDEE';
+
+  it('🔴🔴 un titre de 150 caractères s’affiche en ENTIER, sans « … »', async () => {
+    expect(TITRE_LONG.length).toBeGreaterThanOrEqual(150);
+    await monter(CARTE({ objet: TITRE_LONG }));
+    const titre = container.querySelector('.gst-objet');
+    /* 🔴 LE TEXTE RENDU EST LE TITRE COMPLET : rien n'est tronqué à la source. */
+    expect(titre?.textContent).toBe(TITRE_LONG);
+    /* 🔴 ET AUCUNE RÈGLE NE LE COUPERA : la classe de coupure a disparu, et celle qui la remplace passe à la ligne. */
+    expect(titre?.className).toContain('gst-objet--entier');
+    expect(titre?.className).not.toContain('gst-objet--coupe');
+    const regle = regleDe('\\.gst-objet--entier');
+    expect(regle).toContain('white-space:normal');
+    expect(regle).toContain('overflow-wrap:anywhere');
+    expect(regle).not.toContain('text-overflow:ellipsis');
+  });
+
+  /**
+   * 🔴🔴 LES LIGNES DU DOSSIER AUSSI : « Propriétaire : … · Demandé par … » et l'adresse. Elles se coupaient
+   * (lot EVENEMENT-MINIMALISTE, « sur des lignes COURTES ») ; elles passent désormais à la ligne.
+   */
+  it('🔴🔴 la ligne des personnes et l’adresse sont entières', async () => {
+    await monter(CARTE({
+      demandeur: 'Madame Sarah MEZIANE-DELACROIX, syndic bénévole de la résidence',
+      bien: {
+        cle: '315', adresse: '67 rue de Normandie, bâtiment B, escalier 3, deuxième étage porte gauche',
+        commune: 'COURBEVOIE', proprietaire: 'Mme ABDELLATIF Névine épouse JULLIEN - GARRIDO', locataire: null,
+      },
+    }));
+    const lignes = [...container.querySelectorAll('.gst-carte-ligne')].map((e) => e.textContent ?? '');
+    expect(lignes.some((l) => l.includes('Mme ABDELLATIF Névine épouse JULLIEN - GARRIDO'))).toBe(true);
+    expect(lignes.some((l) => l.includes('Madame Sarah MEZIANE-DELACROIX, syndic bénévole de la résidence'))).toBe(true);
+    expect(container.querySelector('.gst-carte-ligne--adresse')?.textContent)
+      .toContain('bâtiment B, escalier 3, deuxième étage porte gauche');
+    /* 🔴 ET LA RÈGLE NE LES COUPE PLUS, À AUCUNE LARGEUR. */
+    const regle = regleDe('\\.gst-carte-ligne');
+    expect(regle).toContain('white-space:normal');
+    expect(regle).not.toContain('text-overflow:ellipsis');
+  });
+
+  /** ⚠️ AUCUN « … » N'EST AJOUTÉ PAR LE CODE NON PLUS : la carte ne tronque nulle part elle-même. */
+  it('⚠️ le composant n’écrit aucune ellipse de son propre chef', async () => {
+    await monter(CARTE({ objet: TITRE_LONG }));
+    const vign = vignette();
+    expect(vign).toContain(TITRE_LONG);
+    expect(vign).not.toContain('…');
+  });
+});
+
+describe('🔴🔴 ⑩ même largeur pour toutes les cartes, colonne de droite fixe', () => {
+  /**
+   * ══ 🔴🔴 CE QUI CLOCHAIT, MESURÉ LE 07/10/2026 DANS LE VRAI NAVIGATEUR ═══════════════════════════════════════
+   *
+   * Sur le plein écran Événements (liste de 1232 px), les deux cartes faisaient 961 px et 552 px — chacune à la
+   * largeur de son titre. Deux règles se marchaient dessus : `.gst-cartes-larges` posait `display:grid` ET
+   * `align-items:start`, tandis que `.gst-liste`, DÉCLARÉE PLUS BAS dans la même feuille, reposait
+   * `display:flex`. La grille n'a donc jamais pris — depuis le jour où elle a été écrite — et il n'en restait
+   * que son `align-items:start`, qui en colonne veut dire « chaque carte prend la largeur de son contenu ».
+   */
+  it('🔴🔴 la liste étire ses cartes, et plus rien ne reprend cet alignement', () => {
+    expect(regleDe('\\.gst-liste')).toContain('align-items:stretch');
+    /* 🔴 ET LA RÈGLE « deux de front » NE POSE PLUS D'ALIGNEMENT : c'est elle qui fuitait. */
+    const larges = regleDe('\\.gst-cartes-larges');
+    expect(larges).not.toContain('align-items');
+    expect(larges).not.toContain('display:grid');
+  });
+
+  /**
+   * 🔴 LA COLONNE DE DROITE GARDE SA LARGEUR FIXE ET RESTE EN HAUT (Arno). C'est elle qui rend la nouvelle règle
+   * tenable : le titre peut grandir en hauteur sans jamais pousser la vignette, la capsule de type ni Monga.
+   */
+  it('🔴 la colonne de droite est fixe, et alignée en haut', async () => {
+    await monter(CARTE({ mongaRefs: ['MNG-23830'] }));
+    expect(container.querySelector('.gst-carte-droite')).not.toBeNull();
+    expect(regleDe('\\.gst-carte-droite')).toContain('flex:0 0 auto');
+    expect(regleDe('\\.gst-carte-droite')).toContain('width:132px');
+    /* 🔴 EN HAUT : c'est la rangée du titre qui l'impose, et elle ne se replie pas. */
+    const titre = regleDe('\\.gst-carte-titre--avec-etape');
+    expect(titre).toContain('align-items:flex-start');
+    expect(titre).toContain('flex-wrap:nowrap');
+    /* 🔴 ET LE TEXTE EST CE QUI CÈDE : sans `min-width:0`, un enfant en flex refuse de passer sous la largeur de
+       son contenu — et c'est la colonne de droite qui serait écrasée. */
+    expect(regleDe('\\.gst-carte-texte')).toContain('flex:1 1 auto;min-width:0');
+  });
+
+  /**
+   * ⚠️ MESURÉ DANS LE VRAI NAVIGATEUR APRÈS LE CORRECTIF (jsdom ne met pas en page) :
+   *   · plein écran Événements, liste 1232 px → les DEUX cartes à 1232 px (contre 961 et 552 avant) ;
+   *   · écran partagé, zone de 604 px → les deux cartes à 574 px, soit la zone moins son cadre ;
+   *   · un titre de 168 caractères posé dans le DOM : 2 lignes, AUCUNE troncature, carte toujours à 1232 px,
+   *     colonne de droite toujours à 132 px et toujours calée en haut (décalage 0).
+   * Ce cas-ci fige la RÈGLE qui le produit ; les mesures vivent dans le message de commit.
+   */
+  it('⚠️ aucune carte ne se donne une largeur à elle', () => {
+    const item = regleDe('\\.gst-item');
+    expect(item).not.toMatch(/(^|;)width:/);
+    expect(item).not.toContain('max-width');
+    expect(item).not.toContain('align-self');
+  });
+});

@@ -302,8 +302,19 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
      *
      * 🔴 L'INVENTAIRE NE PERD DONC RIEN, il change de forme : ce cas vérifie que l'accueil garde un geste de
      * relecture, et que les deux autres écrans gardent les leurs.
+     *
+     * ══ 🔴🔴 RÈGLE RÉÉCRITE LE 07/10/2026 — LOT EVENEMENTS-CARTES-PLEINES, POINT 1 ═══════════════════════════
+     *
+     * ELLE EXIGEAIT « Relever maintenant » ET « Rafraîchir » SUR L'ÉCRAN ÉVÉNEMENTS. Arno les y retire, avec le
+     * bloc gris qui les portait : « retirer le bloc gris du haut […] les boutons "Relever maintenant",
+     * "Rafraîchir", "Annuaire", "À rattacher" ».
+     *
+     * 🔴 CE QUE LA RÈGLE PROTÈGE — « L'INVENTAIRE NE PERD RIEN » — EST ÉPROUVÉ PLUS FORT QU'AVANT, et c'est tout
+     * l'objet de la réécriture : on n'exige plus le geste sur CHAQUE écran (ce qu'Arno vient de défaire deux
+     * fois : l'accueil, puis celui-ci), on exige qu'il existe ENCORE QUELQUE PART, et l'on dit où. L'écran
+     * Événements, lui, doit maintenant en être NET — sans quoi le retrait n'aurait pas eu lieu.
      */
-    it(`le geste « relever puis actualiser » est atteignable dans l’écran ${nom}`, async () => {
+    it(`le geste « relever puis actualiser » est atteignable depuis l’écran ${nom}`, async () => {
       window.history.replaceState(null, '', adresse);
       await monter();
       if (nom === 'partagé') {
@@ -313,15 +324,22 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
         expect(rond).not.toBeNull();
         expect(rond?.getAttribute('aria-label')).toBe('Rafraîchir');
         expect(rond?.getAttribute('title')).toBe('Rafraîchir');
-      } else if (nom !== 'boîte en plein écran') {
-        expect(boutonPar(/^Relever maintenant$/)).toBeDefined();
-        expect(boutonPar(/^Rafraîchir$/)).toBeDefined();
-      } else {
+      } else if (nom === 'boîte en plein écran') {
         const icone = container.querySelector('.bte-relever');
         expect(icone).not.toBeNull();
         // 🔴 UNE ICÔNE SANS NOM N'EXISTE PAS pour un lecteur d'écran, et ne s'apprend pas au survol sur téléphone.
         expect(icone?.getAttribute('aria-label')).toBe('Relever et actualiser');
         expect(icone?.getAttribute('title')).toBe('Relever et actualiser');
+      } else {
+        /* 🔴🔴 L'ÉCRAN ÉVÉNEMENTS N'EN PORTE PLUS AUCUN (Arno, 07/10/2026) — ni les deux boutons, ni le bloc
+           gris, ni les deux autres entrées qu'il portait. */
+        for (const mot of [/^Relever maintenant$/, /^Rafraîchir$/, /^Annuaire$/, /^À rattacher$/]) {
+          expect(boutonPar(mot), String(mot)).toBeUndefined();
+        }
+        expect(container.querySelector('.gst-bandeau')).toBeNull();
+        /* 🔴 ET LE GESTE RESTE À UN CLIC : la colonne de cet écran ramène à l'écran partagé, d'où la boîte en
+           plein écran — qui porte le bouton rond — est atteignable. Rien n'est enfermé. */
+        expect(boutonPar(/← Écran partagé/)).toBeDefined();
       }
     });
   }

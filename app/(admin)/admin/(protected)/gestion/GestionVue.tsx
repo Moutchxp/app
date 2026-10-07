@@ -1085,7 +1085,29 @@ export function GestionVue({ intro }: {
 
           ⚠️ ET LES MÉCANISMES TOURNENT TOUJOURS : la relève automatique (une passe par minute) et la reprise de
           copie vers le Drive ne sont pas touchées — on retire un affichage, jamais un rouage. */}
-      {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && (
+      {/* ══ 🔴🔴 LOT EVENEMENTS-CARTES-PLEINES, POINT 1 — ET IL QUITTE AUSSI L'ÉCRAN « ÉVÉNEMENTS » ═════════════
+          DEMANDE D'ARNO (07/10/2026) : sur `?ecran=evenements`, le cadre « Dernière relève… / Dernier mail reçu… /
+          N messages en base… » et ses quatre boutons « Relever maintenant », « Rafraîchir », « Annuaire »,
+          « À rattacher » sont retirés.
+
+          🔴 CHAQUE FONCTION A ÉTÉ RETROUVÉE AVANT LE RETRAIT, dans la boîte en plein écran (`?ecran=boite`), et
+          le fichier d'épreuves le VÉRIFIE dans le code — c'est la garde qui empêche qu'un lot suivant retire le
+          dernier chemin sans s'en apercevoir :
+            · RELEVER MAINTENANT → le bouton rond « Relever et actualiser » de l'en-tête de la liste ;
+            · RAFRAÎCHIR        → ce même bouton rond relit la liste APRÈS avoir relevé (il fait les deux, c'est
+                                  tout son objet depuis le lot ERGO-BOITE) ; et l'écran partagé garde son propre
+                                  bouton rond « Rafraîchir », qui relit sans relever ;
+            · ANNUAIRE          → l'entrée « Annuaire » de la colonne de la boîte, et la barre Annuaire de
+                                  l'écran partagé ;
+            · À RATTACHER       → l'entrée « À rattacher » de cette même colonne, avec son compteur ;
+            · LES INFORMATIONS DE RELÈVE → la colonne les porte déjà dans « Détails relève » (`etatDiscret`).
+
+          ⚠️ LES DEUX LIGNES DU DESSOUS NE SONT PAS DANS LA DEMANDE, et elles restent donc sur cet écran :
+          « Relève automatique : dernière passe… » et « Copie des pièces vers le Drive à reprendre… ». Leurs
+          conditions, juste plus bas, ne sont pas touchées.
+          ⚠️ LES ALERTES NON PLUS : « relève arrêtée », « copie arrêtée », « envoi en échec » s'affichent sur TOUS
+          les écrans, celui-ci compris. Masquer une sécurité pour gagner de la place, c'est la retirer. */}
+      {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && (
       <div className="gst-bandeau gst-bandeau--compact" role="status">
         {/* ══ 🔴 LOT ERGO-BOITE — EN PLEIN ÉCRAN, CE BANDEAU NE PORTE PLUS QUE LE TITRE ═══════════════════════════
             L'heure de la dernière relève et l'état de la copie sont descendus dans la colonne (`etatDiscret`), et
@@ -1934,8 +1956,28 @@ ${CSS_BOUTON_ROND}
 /* Les cartes en plein écran : deux de front quand la largeur le permet, une seule sinon. Aucune fonction n'y change.
    Point de rupture en max-width, comme tout le reste de cette feuille : c'est la convention du fichier, et elle évite
    qu'une largeur minimale en dur se glisse dans une règle. */
-.gst-cartes-larges{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
-@media (max-width:1099px){.gst-cartes-larges{grid-template-columns:1fr}}
+/* ══ 🔴🔴 LOT EVENEMENTS-CARTES-PLEINES, POINT 2 — TOUTES LES CARTES ONT LA MEME LARGEUR ══════════════════════
+   ARNO (07/10/2026) : « Toutes les cartes d'une meme liste ont la meme largeur : toute la largeur de leur colonne
+   ou zone, quelle que soit la longueur de leur titre. Aujourd'hui la carte _TEST est plus etroite que l'autre. »
+
+   ═══ CE QUI SE PASSAIT, MESURE A L'ECRAN LE 07/10/2026 ═══════════════════════════════════════════════════════
+   Sur le plein ecran Evenements (liste de 1232 px), les deux cartes faisaient 961 px et 552 px — chacune a la
+   largeur de son titre. La cause tient en deux regles qui se marchent dessus :
+     · .gst-cartes-larges posait display:grid (deux cartes de front) ET align-items:start ;
+     · .gst-liste, DECLAREE PLUS BAS dans cette meme feuille, repose display:flex — donc la grille n'a JAMAIS
+       pris, depuis le jour ou elle a ete ecrite.
+   Il restait de la grille son SEUL effet valable en flex : align-items:start, qui en colonne veut dire « chaque
+   carte prend la largeur de son contenu ». D'ou deux cartes de largeurs differentes.
+
+   🔴 ON NE RESSUSCITE PAS LA GRILLE, et c'est un choix qu'il faut dire : deux cartes de front donneraient des
+   cartes DEUX FOIS PLUS ETROITES, c'est-a-dire l'inverse de ce qu'Arno demande (« toute la largeur de leur
+   colonne »). La regle garde donc son nom et son role d'ancrage, mais cesse de poser un alignement qui ne la
+   concernait plus.
+
+   🔴 ET LA LISTE ETIRE SES CARTES EXPLICITEMENT : align-items:stretch est le defaut de flex, mais l'ecrire ici
+   est ce qui empeche une regle voisine de le reprendre en douce — c'est exactement ce qui vient d'arriver.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-cartes-larges{gap:8px}
 @media (max-width:900px){.gst-deux{grid-template-columns:1fr}}
 .gst-col{min-width:0}  /* sans ça, une grille laisse un enfant déborder de sa colonne */
 /* LOT ERGO-BOITE-4 — flex-wrap : la mention « courrier automatique » vit maintenant sur cette ligne, poussée à
@@ -1971,7 +2013,7 @@ ${CSS_BOUTON_ROND}
 .gst-info,.gst-vide,.gst-tronc{font-size:.85rem;color:var(--color-svv-muted);line-height:1.5;margin:0 0 .5rem}
 .gst-vide{background:var(--color-svv-surface);border:1px dashed var(--color-svv-line-strong);border-radius:10px;padding:14px 16px}
 .gst-erreur{font-size:.9rem;font-weight:600;color:var(--color-svv-red);margin:0 0 .6rem}
-.gst-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.gst-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;align-items:stretch;gap:8px}
 /* Cible tactile confortable ; tout casse en fin de ligne → jamais de débordement horizontal, même sur un objet sans espace. */
 .gst-item{min-height:44px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;overflow-wrap:anywhere}
 .gst-item-haut{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem}
@@ -2012,7 +2054,20 @@ ${CSS_BOUTON_ROND}
 .gst-carte-texte{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0}
 /* ⚠️ LA COUPURE GARDE LE TITRE ENTIER DANS SON ATTRIBUT « title » (balisage) : une coupure qui perd
    l'information serait un titre faux. */
-.gst-objet--coupe{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ══ 🔴🔴 LOT EVENEMENTS-CARTES-PLEINES, POINT 2 — LE TITRE NE SE COUPE PLUS ══════════════════════════════════
+   ARNO : « Plus aucun texte coupe par "…" dans la carte : le titre complet […]. Les textes longs passent a la
+   ligne au lieu d'etre tronques, et la carte grandit en hauteur. »
+
+   ⚠️ CETTE REGLE DISAIT L'INVERSE (overflow:hidden + text-overflow:ellipsis + white-space:nowrap), et c'etait la
+   demande du lot VIGNETTE-EVENEMENT : « Le titre se coupe proprement avec "…" pour laisser la place [a la
+   miniature]. » La place est toujours laissee — la colonne de droite garde ses 132 px fixes —, mais c'est
+   desormais la HAUTEUR qui absorbe les titres longs, et non plus l'information qu'on jette.
+
+   🔴 overflow-wrap:anywhere EST NECESSAIRE, ET PAS SEULEMENT word-break : une reference sans espace (un objet de
+   mail recopie d'un systeme) ne se couperait nulle part et deborderait de la carte. La classe est renommee
+   --entier plutot que --coupe : un nom qui dit le contraire de sa regle est un piege pour qui la relira.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-objet--entier{display:block;white-space:normal;overflow-wrap:anywhere}
 
 /* ══ LA MINIATURE — meme dessin qu'un carre de la frise, en reduit ══
    ⚠️ PREFIXE « gst-mini- » ET NON « fav- » : la feuille de la frise n'est pas injectee sur l'ecran partage, et deux
@@ -2056,8 +2111,15 @@ ${CSS_BOUTON_ROND}
    vit dans une colonne etroite, et un retour a la ligne par adresse la ferait grandir du double.
    ⚠️ « min-width:0 » EST NECESSAIRE sur le parent (.gst-carte-texte, deja pose) : sans lui, un enfant en flex
    refuse de retrecir sous la largeur de son contenu, et la coupure ne se declenche jamais. */
+/* ══ 🔴🔴 LOT EVENEMENTS-CARTES-PLEINES, POINT 2 — LES LIGNES DU DOSSIER NON PLUS ════════════════════════════
+   ARNO : « la ligne "Proprietaire : … · Demande par …" complete, l'adresse complete ».
+   ⚠️ ELLES SE COUPAIENT, et c'etait la demande du lot EVENEMENT-MINIMALISTE (« sur des lignes COURTES »). Elles
+   restent courtes quand elles le peuvent ; quand elles ne le peuvent pas, elles passent a la ligne au lieu de
+   perdre la fin — un nom de proprietaire tronque ne sert a rien.
+   ⚠️ LA REGLE D'ECRAN ETROIT QUI VIVAIT PLUS BAS DISPARAIT AVEC LA TRONCATURE : elle ne faisait que retablir ce
+   qui est desormais le comportement de base, a toutes les largeurs. */
 .gst-carte-ligne{display:block;font-size:.74rem;line-height:1.3;color:var(--color-svv-muted);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  white-space:normal;overflow-wrap:anywhere}
 .gst-carte-ligne--adresse{color:var(--color-svv-ink)}
 /* ══ 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — LA CAPSULE DU TYPE, SOUS LA VIGNETTE ══════════════════════════
    ARNO : « une capsule qui affiche le type, placee JUSTE EN DESSOUS de la vignette d'etape de droite. Meme
@@ -2103,10 +2165,6 @@ ${CSS_BOUTON_ROND}
    change pas : deplier le dossier, puis « Modifier les informations de l'evenement », ou vit le vrai choix. */
 .gst-type-capsule--vide{background:var(--color-svv-field);color:var(--color-svv-muted);
   border:1px dashed var(--color-svv-line-strong);cursor:pointer}
-/* ⚠️ ECRAN ETROIT : les lignes se coupent toujours, elles ne debordent jamais. */
-@media (max-width:600px){
-  .gst-carte-ligne{white-space:normal;overflow-wrap:anywhere}
-}
 
 /* ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 4 — « MIS A JOUR PAR MONGA » PASSE AU ROUGE ════════════════════════
    Arno (07/10/2026) : « Le message “Mis a jour par Monga · <heure>” s'ecrit en ROUGE, et TOUTE la vignette de

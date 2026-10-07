@@ -1169,12 +1169,23 @@ describe('㉑ la vignette d’un événement', () => {
   });
 
   /**
-   * 🔴 LE TITRE SE COUPE AVEC « … » POUR LAISSER LA PLACE (Arno), et il garde son contenu entier dans son
-   * attribut `title` : une coupure qui perd l'information serait un titre faux.
+   * ══ 🔴🔴 RÈGLE RENVERSÉE LE 07/10/2026 — LOT EVENEMENTS-CARTES-PLEINES, POINT 2 ═════════════════════════════
+   *
+   * ELLE EXIGEAIT LA COUPURE : « Le titre se coupe proprement avec “…” pour laisser la place [à la miniature] »,
+   * c'était la demande du lot VIGNETTE-EVENEMENT. ARNO LA REMPLACE : « Plus aucun texte coupé par “…” dans la
+   * carte : le titre complet […]. Les textes longs passent à la ligne au lieu d'être tronqués, et la carte
+   * grandit en hauteur. »
+   *
+   * 🔴 CE QUE L'ANCIENNE RÈGLE PROTÉGEAIT TIENT TOUJOURS, ET C'EST LA MOITIÉ QUI COMPTE : la miniature garde sa
+   * place, c'est le TEXTE qui cède. Les deux dernières assertions ne bougent donc pas d'un caractère — elles
+   * sont même ce qui empêche la nouvelle règle de faire déborder la colonne de droite.
    */
-  it('🔴 le titre se coupe, et reste lisible en entier au survol', () => {
-    expect(CARTE).toContain('<span className="gst-objet gst-objet--coupe" title={objet}>{objet}</span>');
-    expect(VUE).toMatch(/\.gst-objet--coupe\{[^}]*text-overflow:ellipsis/);
+  it('🔴🔴 le titre est ENTIER, et c’est la hauteur qui cède, jamais la miniature', () => {
+    expect(CARTE).toContain('<span className="gst-objet gst-objet--entier" title={objet}>{objet}</span>');
+    expect(VUE).toContain('.gst-objet--entier{display:block;white-space:normal;overflow-wrap:anywhere}');
+    /* 🔴 PLUS AUCUNE COUPURE : ni la classe d'avant, ni sa règle. */
+    expect(CARTE).not.toContain('gst-objet--coupe');
+    expect(VUE).not.toContain('.gst-objet--coupe{');
     /* 🔴 ET C'EST LE TEXTE QUI RÉTRÉCIT, PAS LA MINIATURE : `min-width:0` sur la colonne de texte (sans quoi un
        enfant en flex refuse de passer sous sa largeur de contenu), `flex:0 0 auto` sur la miniature. */
     expect(VUE).toMatch(/\.gst-carte-texte\{[^}]*flex:1 1 auto;min-width:0/);
@@ -1581,10 +1592,22 @@ describe('㉔ la vignette enrichie (lot EVENEMENT-MINIMALISTE, point 2)', () => 
     expect(CARTE).toContain('{gens.length > 0 && <span className="gst-carte-ligne">');
   });
 
-  /** 🔴 « le texte se coupe proprement » (Arno), et il se coupe encore sur un écran étroit. */
-  it('🔴 chaque ligne se coupe, et ne déborde jamais', () => {
-    expect(VUE).toMatch(/\.gst-carte-ligne\{[^}]*text-overflow:ellipsis/);
-    expect(VUE).toContain('.gst-carte-ligne{white-space:normal;overflow-wrap:anywhere}');
+  /**
+   * ══ 🔴🔴 RÈGLE RENVERSÉE LE 07/10/2026 — LOT EVENEMENTS-CARTES-PLEINES, POINT 2 ═════════════════════════════
+   *
+   * ELLE EXIGEAIT LA COUPURE (« le texte se coupe proprement », lot EVENEMENT-MINIMALISTE), avec un repli sur
+   * écran étroit où il passait à la ligne. ARNO : « la ligne “Propriétaire : … · Demandé par …” complète,
+   * l'adresse complète ». Ce qui n'était vrai que sous 600 px devient donc la règle à TOUTES les largeurs, et la
+   * media query qui la rétablissait n'a plus lieu d'être.
+   *
+   * 🔴 CE QUE LA RÈGLE PROTÉGEAIT — « il ne déborde jamais » — EST TENU PAR `overflow-wrap:anywhere`, qui coupe
+   * même une référence sans espace. C'était déjà lui qui le tenait sur écran étroit.
+   */
+  it('🔴🔴 chaque ligne est ENTIÈRE, et ne déborde jamais', () => {
+    expect(VUE).toMatch(/\.gst-carte-ligne\{[^}]*white-space:normal;overflow-wrap:anywhere\}/);
+    expect(VUE).not.toMatch(/\.gst-carte-ligne\{[^}]*text-overflow:ellipsis/);
+    /* ⚠️ ET PLUS DE RÈGLE D'ÉCRAN ÉTROIT QUI RÉTABLIRAIT CE QUI EST DÉSORMAIS LE DÉFAUT. */
+    expect(VUE).not.toContain('@media (max-width:600px){\n  .gst-carte-ligne');
   });
 
   /** ⚠️ SANS LA MIGRATION 268, aucune requête ne nomme la colonne absente, et l'écran est celui d'avant. */
