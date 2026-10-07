@@ -402,6 +402,32 @@ définitive avant de figer les couleurs dans le code.
   - 🔵 **PROMPT** — prompt à coller à l'agent Claude Code (toujours préciser DANS QUEL TERMINAL).
   - 🟢 **COMMIT** — message de commit à coller dans la boîte de commit de VS Code (Source Control).
 
+### 🔴🔴 INTERDIT — UN ESSAI SUR LE DRIVE N'UTILISE JAMAIS UNE VRAIE PIÈCE
+
+> **Les essais qui déposent, déplacent, renomment ou mettent à la corbeille dans le Drive n'utilisent QUE des
+> pièces de mails dont l'objet commence par « _TEST », envoyés à `a.jorel@sansvisavis.com`. Jamais une vraie
+> pièce de locataire, propriétaire ou tiers, même vers le Drive « Test ».**
+
+- **Décision d'Arno du 08/10/2026.** Elle vaut pour TOUS les gestes d'écriture du Drive, présents et futurs, et
+  pour tous les Drive partagés — y compris ceux qui portent un nom de bac à sable.
+- **CE QUI LA JUSTIFIE, MESURÉ.** Au 07/10/2026, les 17 dépôts de l'application dans le Drive partagé « Test »
+  venaient de **10 pièces distinctes, et pas une seule d'un mail « _TEST »** : des scans réels
+  (`administration@sansvisavis.com`), un recommandé pour un locataire nommé, deux sommations d'huissier. La même
+  lettre recommandée s'y est retrouvée en **cinq copies** parce qu'une campagne de mesure la reprenait à chaque
+  essai. Aucun garde-fou technique ne s'y opposait : le Drive « Test » est un vrai Drive partagé, et un essai qui
+  y écrit écrit pour de bon.
+- **« Test » N'EST PAS UNE EXCUSE, ET C'EST LE CŒUR DE LA RÈGLE.** Un dossier nommé « Test » ne rend pas anonyme
+  le document qu'on y pose : la pièce reste celle d'un client, son nom reste lisible, et elle reste partagée avec
+  tout le monde qui a accès au Drive.
+- **La borne est l'OBJET DU MAIL, pas le nom du fichier.** « _TEST » en tête de l'objet est vérifiable d'un coup
+  d'œil et ne dépend pas d'un renommage — alors qu'un fichier nommé « test marty.pdf » peut parfaitement être le
+  vrai courrier d'un vrai M. Marty (constaté : les quatre scans d'essai du 03/10/2026 étaient dans ce cas).
+- **Si aucun mail « _TEST » ne porte le type de pièce qu'il faut éprouver** (un PDF lourd, une image, un nom à
+  rallonge), on s'en envoie un : un mail « _TEST … » à `a.jorel@sansvisavis.com` avec la pièce voulue. On ne
+  « emprunte » pas celle d'un client parce qu'elle était sous la main.
+- **Et l'on nettoie derrière soi** : tout ce qu'un essai crée dans le Drive se met à la corbeille par le geste
+  normal de l'application, qui met à jour le registre — jamais par une suppression définitive.
+
 ---
 
 ## 15. Exigences transverses d'interface
