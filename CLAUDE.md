@@ -428,6 +428,30 @@ définitive avant de figer les couleurs dans le code.
 - **Et l'on nettoie derrière soi** : tout ce qu'un essai crée dans le Drive se met à la corbeille par le geste
   normal de l'application, qui met à jour le registre — jamais par une suppression définitive.
 
+### 🔴🔴 INTERDIT — RIEN NE S'ÉCRIT SUR LE BUREAU
+
+> **Les captures et fichiers de vérification de Claude Code vont UNIQUEMENT dans
+> `/Users/macbookprom4arnaud/sansvisavis/app/.captures/<nom-du-lot>/`. Jamais sur le Bureau, jamais dans
+> Documents, jamais dans Téléchargements.**
+
+- **Décision d'Arno du 08/10/2026**, lot RANGEMENT-BUREAU-CAPTURES. `.captures/` est dans `.gitignore` : ces
+  fichiers ne sont pas du code et ne sont jamais committés.
+- **CE QUI LA JUSTIFIE, COMPTÉ.** Le Bureau d'Arno portait **70 dossiers**, dont **41 créés par Claude Code**
+  pour ses vérifications à l'écran — `historique-bien-1-captures` à `-18-captures`, quatre dossiers `frise-*`,
+  deux `monga-*`, et une vingtaine d'autres. C'est un espace de travail qui appartient à quelqu'un, et il n'y
+  avait aucune raison d'y déposer quoi que ce soit. Les 41 ont été regroupés dans
+  `~/Desktop/_Captures Claude Code/`, rangés par thème ; **rien n'a été supprimé**.
+- **Le Bureau est synchronisé avec iCloud** : y écrire ne salit pas seulement un écran, cela consomme le
+  stockage iCloud d'Arno et fait remonter les fichiers sur tous ses appareils.
+- **ON NE PRÉ-AUTORISE PAS NON PLUS LE GESTE.** `mkdir ~/Desktop/…` était entré dans l'`allow` de
+  `.claude/settings.local.json`, ce qui rendait l'écriture sur le Bureau silencieuse ; ces lignes sont passées
+  en `deny`. Une permission accordée une fois ne se relit jamais.
+- **Les captures de plus de 14 jours se suppriment**, et seulement dans `.captures/`.
+- ⚠️ **CE QUE CETTE RÈGLE NE COUVRE PAS** : les rapports, journaux et **sauvegardes de base avant migration**
+  que les scripts `app/scripts/*.ts` écrivent dans `~/Desktop` (dont `adresses-inconnues-documents.csv`, qu'Arno
+  a explicitement demandé là le 01/10/2026). Ce ne sont pas des captures : un filet de sécurité enterré dans un
+  dossier « Captures » est un filet perdu. Ne pas les déplacer sans l'accord d'Arno.
+
 ---
 
 ## 15. Exigences transverses d'interface

@@ -93,3 +93,7 @@ sauvegardes/
 # GOOGLE_GESTION_JETON_FICHIER pointerait ici. JAMAIS committé.
 google-gestion.json
 /.config/
+
+# Captures et fichiers de vérification à l'écran produits par Claude Code (lot RANGEMENT-BUREAU-CAPTURES,
+# 08/10/2026). Ils remplacent les dossiers qui s'empilaient sur le Bureau d'Arno. Jamais committés.
+.captures/
