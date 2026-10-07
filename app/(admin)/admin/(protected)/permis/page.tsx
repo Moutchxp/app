@@ -36,7 +36,8 @@ export default async function PermisPage({ searchParams }: { searchParams: Searc
   const depuisParDefaut = `${auj.getFullYear() - config.anneesParDefaut}-${String(auj.getMonth() + 1).padStart(2, '0')}-${String(auj.getDate()).padStart(2, '0')}`;
 
   return (
-    <section style={{ maxWidth: 1120 }}>
+    /* 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — plafond retiré : la largeur vient de `.svv-adm-main`, écrite une fois. */
+    <section>
       <EnTetePage
         titre="Permis de construire"
         intro="Veille des autorisations d'urbanisme (Sitadel) : constructions, surélévations, extensions et démolitions autorisées, classées par priorité — réservé aux administrateurs."

@@ -182,7 +182,8 @@ export default function AuditPage() {
   }, [fenetre]);
 
   return (
-    <section className="svv-audit" style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 14 }}>
+    /* 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — le plafond de 760 px est retiré ; la colonne et sa gouttière restent. */
+    <section className="svv-audit" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <style>{CSS_AUDIT}</style>
       <EnTetePage titre="Audit de sécurité" intro={RAPPEL_AUDIT} />
 

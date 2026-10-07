@@ -670,7 +670,10 @@ function CelluleOrientation({ meta, ctx }: { meta: ColonneMeta; ctx: CtxPilotage
 }
 
 const CSS = `
-.svv-pil{max-width:960px}
+/* ══ LOT ADMIN-PLEINE-LARGEUR — AUCUN PLAFOND DE LARGEUR ICI ══
+   La largeur d'une page d'administration est donnee UNE fois, par .svv-adm-main (Sidebar.tsx) : toute la
+   place disponible, moins sa marge interieure uniforme. Un plafond pose par la page la rouvrait a droite.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
 .svv-pil code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;background:var(--color-svv-field);padding:.05rem .3rem;border-radius:.3rem;color:var(--color-svv-ink)}
 
 .svv-pil-banniere{margin:.75rem 0;padding:.6rem .75rem;border:1px solid var(--color-svv-line);border-left:3px solid var(--color-svv-red);border-radius:.6rem;background:var(--color-svv-field);color:var(--color-svv-gray);font-size:.85rem;line-height:1.4}

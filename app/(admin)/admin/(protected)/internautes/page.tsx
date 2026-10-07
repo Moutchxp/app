@@ -19,7 +19,8 @@ export default async function InternautesPage() {
   const estAdmin = role === 'administrateur';
 
   return (
-    <section style={{ maxWidth: 960 }}>
+    /* 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — plafond retiré : la largeur vient de `.svv-adm-main`, écrite une fois. */
+    <section>
       <EnTetePage
         titre="Internautes (Base de données)"
         intro="Base des internautes ayant consenti à au moins un des trois consentements RGPD de l'application publique — réservé aux administrateurs."

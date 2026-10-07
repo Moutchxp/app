@@ -24,7 +24,10 @@ export default async function AdminAccueilPage() {
   const tuiles = session ? ordonner(liensVisibles(session.role, session.perms), ordreModules) : [];
 
   return (
-    <section style={{ maxWidth: 720 }}>
+    /* 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — PLUS DE PLAFOND ICI : la largeur d'une page d'administration est
+       donnée UNE fois, par `.svv-adm-main` (voir `Sidebar.tsx`). Elle vaut 720 px avant ce lot, et laissait
+       le reste de l'écran vide à droite. */
+    <section>
       <EnTetePage titre="Tableau de bord" intro="Interface d’administration interne — Sans Vis-à-Vis®." />
 
       {/* Grille RÉORDONNABLE (client) : la lecture de l'ordre reste SERVEUR (ci-dessus), on passe la liste

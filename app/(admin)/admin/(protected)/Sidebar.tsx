@@ -128,6 +128,25 @@ const CSS = `
 .svv-adm-shell{min-height:100dvh;display:flex;flex-direction:column}
 .svv-adm-content{flex:1;display:flex;flex-direction:column;min-width:0}
 .svv-adm-bandeau{border-bottom:1px solid var(--color-svv-line);padding:.6rem 1rem;font-size:.8rem;color:var(--color-svv-muted);background:var(--color-svv-field)}
+/* ══ 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — LA LARGEUR DES PAGES D'ADMINISTRATION, ECRITE UNE SEULE FOIS ═══════════════
+   ARNO (07/10/2026) : « toutes les pages de l'administration qui laissent une marge vide a droite doivent occuper
+   toute la largeur disponible […] avec la meme marge interieure qu'a gauche. »
+
+   🔴 CETTE REGLE EST LA REGLE. Elle ne pose AUCUN plafond, et sa marge interieure est UNIFORME sur les quatre
+   cotes : une page s'arrete donc exactement a 20 px du bord droit, la meme valeur qu'entre le menu et le contenu.
+   Il n'y avait rien a ajouter pour la demande d'Arno — il y avait des plafonds a retirer.
+
+   🔴 CE QUI A ETE RETIRE, ET OU (inventaire du 07/10/2026) : tableau de bord 720 px, Statistiques 960, Internautes
+   960, Pilotage Moteur 960, Annees de construction 820, Banc de test 720, Curation 1100, Permis 1120, Gestion 1120
+   (et sa levee conditionnelle de l'ecran partage), Audit 760. Administratif et Sources de donnees n'en avaient
+   aucun — ils etaient deja a la bonne largeur.
+
+   ⚠️ AUCUNE PAGE NE DOIT EN REPOSER UN : une epreuve lit les racines de page et le verifie. Si une page a besoin
+   d'une colonne de lecture etroite, c'est un choix de CONTENU a trancher avec Arno, pas un plafond de conteneur.
+
+   ⚠️ LES PAGES D'AUTHENTIFICATION NE SONT PAS CONCERNEES : /admin/login et /admin/compte/mot-de-passe vivent HORS
+   de cette coquille, et gardent leur carte de 360 px. Les pages publiques non plus.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit. */
 .svv-adm-main{flex:1;padding:1.25rem;min-width:0}
 /* ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 2 — LE BOUTON DRIVE ET L'HEURE DE PARIS ══════════════════════
    Arno : « discret, meme style que le bandeau », et « lisible en Clair et en Sombre, et a toutes les largeurs

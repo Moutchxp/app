@@ -395,10 +395,24 @@ describe('⑤ L’EN-TÊTE COMPACT, et l’écran partagé qui ne bouge pas', ()
     expect(container.querySelector('.cm-etat')?.textContent).toContain('Dernière relève');
   });
 
+  /**
+   * ══ ⚠️ SECONDE ASSERTION RETIRÉE LE 07/10/2026 — LOT ADMIN-PLEINE-LARGEUR ═══════════════════════════════════
+   *
+   * ELLE EXIGEAIT `:root[data-gst-plein="1"] .gst-page{max-width:none}`, la levée du plafond du module en plein
+   * écran. Le PLAFOND lui-même a disparu : toute l'administration va désormais jusqu'au bord droit, et une règle
+   * qui lève un plafond inexistant ne lève rien. La garder aurait figé une mécanique devenue sans objet.
+   *
+   * 🔴 CE QUE LE CAS PROTÈGE — « l'en-tête est REPLIÉ par une règle, jamais supprimé du document » — n'a pas
+   * bougé d'un pouce, et c'est la seule chose qu'il éprouvait vraiment. On vérifie en plus qu'aucun plafond
+   * n'est revenu par la bande : le plein écran n'a plus rien à défaire.
+   */
   it('…et l’en-tête de page est REPLIÉ par une règle, jamais supprimé du document', () => {
     const css = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
     expect(css).toContain(':root[data-gst-plein="1"] .svv-page-head{display:none}');
-    expect(css).toContain(':root[data-gst-plein="1"] .gst-page{max-width:none}');
+    /* 🔴 ET PLUS AUCUN PLAFOND À LEVER : ni la règle de base, ni sa levée.
+       ⚠️ SANS LES COMMENTAIRES : l'encadré du retrait CITE la règle d'avant pour dire ce qu'elle faisait, et une
+       lecture brute serait tombée sur la mémoire du lot au lieu du code. */
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('.gst-page{max-width:');
   });
 
   it('🔴 L’ÉCRAN PARTAGÉ N’A PAS BOUGÉ : deux colonnes, bandeau ordinaire, aucun partage « classer »', async () => {

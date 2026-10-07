@@ -136,7 +136,8 @@ export default function StatistiquesPage() {
     setCommunesSel((prev) => (prev.includes(insee) ? prev.filter((c) => c !== insee) : [...prev, insee]));
 
   return (
-    <section className="svv-stats" style={{ maxWidth: 960, display: 'flex', flexDirection: 'column', gap: 14 }}>
+    /* 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — le plafond de 960 px est retiré ; la colonne et sa gouttière restent. */
+    <section className="svv-stats" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <style>{CSS_ECRAN}</style>
       <EnTetePage titre="Statistiques" intro={RAPPEL_CRON} />
 

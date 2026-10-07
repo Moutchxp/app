@@ -486,7 +486,10 @@ function ChampsCarte({
 }
 
 const CSS = `
-.svv-ca{max-width:820px}
+/* ══ LOT ADMIN-PLEINE-LARGEUR — AUCUN PLAFOND DE LARGEUR ICI ══
+   La largeur d'une page d'administration est donnee UNE fois, par .svv-adm-main (Sidebar.tsx) : toute la
+   place disponible, moins sa marge interieure uniforme. Un plafond pose par la page la rouvrait a droite.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
 .svv-ca code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;background:var(--color-svv-field);padding:.05rem .3rem;border-radius:.3rem;color:var(--color-svv-ink)}
 
 .svv-ca-message{padding:.75rem 0;color:var(--color-svv-muted);font-size:.9rem;line-height:1.45}

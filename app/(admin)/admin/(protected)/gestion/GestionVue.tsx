@@ -1016,24 +1016,15 @@ export function GestionVue({ intro }: {
           serveur qui ne connaît pas l'écran courant, lequel vit dans l'adresse et n'est lu qu'ici). C'est le
           patron déjà en place dans ce fichier, et non un contournement nouveau. */}
       {ecran === 'partage' && <style>{'.gst-page > .svv-page-head > .svv-page-sub{display:none}'}</style>}
-      {/* ══ 🔴🔴 LOT ECRAN-PARTAGE-PLEINE-LARGEUR, POINT 1 — LA PAGE VA JUSQU'AU BORD DROIT ══════════════════════
-          ARNO (07/10/2026) : « Il reste une marge vide à droite […] Le contenu de la page Gestion doit utiliser
-          toute la largeur disponible jusqu'au bord droit, avec seulement la marge intérieure habituelle (la même
-          que celle de gauche entre le menu et le contenu). »
+      {/* ══ 🔴🔴 RETIRÉ LE 07/10/2026 — LOT ADMIN-PLEINE-LARGEUR ═══════════════════════════════════════════════
+          Vivait ici une règle conditionnelle qui levait `.gst-page{max-width:1120px}` POUR LE SEUL écran partagé
+          (lot ECRAN-PARTAGE-PLEINE-LARGEUR, 0ae9eb79). Elle était bornée à cet écran parce que l'annuaire et
+          « À rattacher » n'étaient alors pas dans la demande.
 
-          🔴 LA MARGE QUI RESTE EST DÉJÀ LA BONNE, ET ELLE N'EST PAS ÉCRITE ICI : `.svv-adm-main` porte
-          `padding:1.25rem` sur ses quatre côtés. En levant le plafond, le contenu s'arrête donc exactement à 20 px
-          du bord droit — la même valeur qu'à gauche, entre le menu et le contenu. Il n'y avait rien à ajouter.
-
-          🔴 POURQUOI UNE RÈGLE CONDITIONNELLE, ET NON `.gst-page{max-width:none}` DANS LA FEUILLE. `.gst-page` est
-          le conteneur de TOUS les écrans du module : la boîte, les événements, l'annuaire, « À rattacher ». La
-          boîte et les événements en PLEIN ÉCRAN sont déjà sans plafond (`[data-gst-plein="1"]`, règle existante) ;
-          l'annuaire et « À rattacher », eux, ne sont pas dans la demande — et les élargir sans accord serait
-          toucher à deux écrans qu'Arno n'a pas ouverts. La règle ne vaut donc QUE pour l'écran partagé.
-
-          ⚠️ ELLE PASSE APRÈS `CSS_GESTION` DANS LE DOCUMENT, donc elle l'emporte à spécificité égale. C'est le
-          patron déjà employé deux fois juste au-dessus, et non un contournement nouveau. */}
-      {ecran === 'partage' && <style>{'.gst-page{max-width:none}'}</style>}
+          🔴 ARNO ÉTEND LA RÈGLE À TOUTE L'ADMINISTRATION, son exemple étant justement la fiche du bien sur
+          l'écran annuaire. Le plafond de base est donc supprimé (voir la feuille), et il n'y a plus rien à lever :
+          garder cette règle aurait laissé croire que l'écran partagé est un cas à part, alors qu'il est devenu
+          la règle commune. Le résultat à l'écran est identique. */}
 
       {/* BANDEAU D'ÉTAT — toujours présent : un outil qui dit depuis quand il n'a pas regardé reste honnête.
           LOT 5-GMAIL — en PLEIN ÉCRAN il devient une ligne compacte qui porte AUSSI le titre du module et sa phrase
@@ -1846,9 +1837,18 @@ const CSS_GESTION = `
 ${CSS_BOUTON_ROND}
 /* DEUX CÔTÉS au-dessus de 900 px ; UNE colonne en dessous, la file d'abord — par l'ordre du DOM, jamais par un order CSS. */
 /* ── LOT 5-GMAIL : LA PAGE, ET SON EN-TÊTE REPLIÉ EN PLEIN ÉCRAN ───────────────────────────────────────────────── */
-/* La largeur de confort de l'écran partagé ; en plein écran, la boîte prend toute la place disponible. */
-.gst-page{max-width:1120px}
-:root[data-gst-plein="1"] .gst-page{max-width:none}
+/* ══ 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — LE MODULE N'A PLUS DE PLAFOND DE LARGEUR ════════════════════════════════
+   Vivaient ici deux regles : « .gst-page{max-width:1120px} » — la largeur de confort de l'ecran partage — et sa
+   levee en plein ecran. La seconde ne servait qu'a defaire la premiere.
+
+   🔴 ARNO (07/10/2026) : « toutes les pages de l'administration qui laissent une marge vide a droite doivent
+   occuper toute la largeur disponible ». Son exemple est la fiche du bien, sur l'ecran annuaire — qui passait
+   par ce plafond-ci. Les deux regles partent donc ensemble, et la largeur vient desormais de .svv-adm-main,
+   ecrite UNE fois pour toute l'administration.
+
+   ⚠️ LA REGLE CONDITIONNELLE DE L'ECRAN PARTAGE PART AUSSI (lot ECRAN-PARTAGE-PLEINE-LARGEUR, 0ae9eb79) : elle
+   levait ce plafond pour ce seul ecran, et n'a plus rien a lever. Le resultat a l'ecran est identique.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 /* L'en-tête de page (titre + phrase) se replie : son titre et sa phrase repassent dans le bandeau compact, qui les
    porte l'un à côté de l'autre. Rien n'est retiré — c'est un déménagement, et il est réversible au clic sur retour. */
 :root[data-gst-plein="1"] .svv-page-head{display:none}

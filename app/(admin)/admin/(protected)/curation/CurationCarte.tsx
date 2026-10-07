@@ -2157,7 +2157,11 @@ export default function CurationCarte() {
 }
 
 const CSS = `
-.svv-cur-wrap{display:flex;flex-direction:column;gap:.6rem;max-width:1100px}
+/* ══ LOT ADMIN-PLEINE-LARGEUR — AUCUN PLAFOND DE LARGEUR ICI ══
+   La largeur d'une page d'administration est donnee UNE fois, par .svv-adm-main (Sidebar.tsx) : toute la
+   place disponible, moins sa marge interieure uniforme. Un plafond pose par la page la rouvrait a droite.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.svv-cur-wrap{display:flex;flex-direction:column;gap:.6rem}
 .svv-cur-wrap code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82em;background:var(--color-svv-field);padding:.05rem .3rem;border-radius:.3rem;color:var(--color-svv-ink);word-break:break-all}
 
 .svv-cur-toast{padding:.55rem .75rem;border-radius:.55rem;font-size:.85rem;font-weight:600}

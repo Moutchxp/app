@@ -207,18 +207,28 @@ const FEUILLE_ENTIERE = VUE.slice(VUE.indexOf('const CSS_GESTION = `')).replace(
 
 describe('🔴🔴 ⑥ la page va jusqu’au bord droit', () => {
   /**
-   * 🔴🔴 LE PLAFOND EST LEVÉ POUR L'ÉCRAN PARTAGÉ, ET POUR LUI SEUL. `.gst-page` est le conteneur de TOUS les
-   * écrans du module ; l'annuaire et « À rattacher » ne sont pas dans la demande, et les élargir sans accord
-   * serait toucher à deux écrans qu'Arno n'a pas ouverts.
+   * ══ 🔴🔴 RÈGLE GÉNÉRALISÉE LE 07/10/2026 — LOT ADMIN-PLEINE-LARGEUR ═════════════════════════════════════════
+   *
+   * ELLE EXIGEAIT UNE LEVÉE CONDITIONNELLE, bornée à l'écran partagé : `.gst-page{max-width:1120px}` restait la
+   * règle, et une seconde règle la défaisait pour ce seul écran. C'était juste tant que l'annuaire et
+   * « À rattacher » n'étaient pas dans la demande.
+   *
+   * ARNO ÉTEND LA RÈGLE À TOUTE L'ADMINISTRATION (son exemple : la fiche du bien, sur l'écran annuaire). Le
+   * plafond du module est donc SUPPRIMÉ, et la levée conditionnelle avec lui — elle n'avait plus rien à lever.
+   *
+   * 🔴 CE QUE LA RÈGLE PROTÈGE — « l'écran partagé va jusqu'au bord droit » — est tenu plus simplement qu'avant,
+   * et c'est ce qu'on éprouve : plus aucun plafond nulle part dans le module, et la largeur vient de la règle
+   * commune de l'administration.
    */
-  it('🔴🔴 l’écran partagé lève le plafond, et aucun autre écran n’est élargi', () => {
-    expect(VUE).toContain("{ecran === 'partage' && <style>{'.gst-page{max-width:none}'}</style>}");
-    /* 🔴 LA RÈGLE DE BASE RESTE : les autres écrans gardent leur largeur de confort. */
-    expect(FEUILLE_ENTIERE).toContain('.gst-page{max-width:1120px}');
-    /* 🔴 ET LA RÈGLE CONDITIONNELLE PASSE APRÈS LA FEUILLE dans le document : c'est ce qui la fait gagner à
-       spécificité égale. Sans cet ordre, le plafond l'emporterait et rien ne changerait à l'écran. */
-    expect(VUE.indexOf('<style>{CSS_GESTION}</style>'))
-      .toBeLessThan(VUE.indexOf("'.gst-page{max-width:none}'"));
+  it('🔴🔴 le module ne pose plus aucun plafond de largeur', () => {
+    /* ⚠️ SANS LES COMMENTAIRES : les encadrés de retrait CITENT les règles d'avant pour dire ce qu'elles
+       faisaient, et une lecture brute tomberait sur la mémoire du lot au lieu du code. */
+    const code = VUE.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(code).not.toContain('.gst-page{max-width:');
+    expect(code).not.toContain("<style>{'.gst-page{max-width:none}'}</style>");
+    /* 🔴 ET C'EST LA COQUILLE DE L'ADMINISTRATION QUI DONNE LA LARGEUR, sans plafond. */
+    expect(SIDEBAR).toContain('.svv-adm-main{flex:1;padding:1.25rem;min-width:0}');
+    expect(SIDEBAR.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/\.svv-adm-main\{[^}]*max-width/);
   });
 
   /**

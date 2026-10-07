@@ -379,7 +379,8 @@ export default function BancSaisie() {
   }
 
   return (
-    <section style={{ maxWidth: 720 }}>
+    /* 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — plafond retiré : la largeur vient de `.svv-adm-main`, écrite une fois. */
+    <section>
       <EnTetePage titre="Banc d’essai — saisie" intro="Paramètres d’entrée d’une analyse de test." />
 
       {/* BLOC DE SAISIE encapsulé — TRAME GRISE (cohérence admin : Pilotage / Cartes d'année / Statistiques / Curation).
