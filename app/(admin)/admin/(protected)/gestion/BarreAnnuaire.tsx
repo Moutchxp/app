@@ -208,11 +208,10 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
                     onMouseDown={(e) => { e.preventDefault(); ouvrir(s); }}
                     onMouseEnter={() => setRang(i)}>
                     <span className="gst-annuaire-nom">{s.nom}</span>
-                    {/* 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 3 — ROUGE pour un propriétaire, VERT pour
-                        un locataire (ancien compris) : les MÊMES jetons que les liserés des encarts Propriétaire
-                        et Locataire de la fiche du bien (`--color-svv-red` / `--color-svv-green`, cf.
-                        `.hdb-groupe--rouge` et `.hdb-groupe--vert`). Aucune couleur nouvelle, et le thème Sombre
-                        suit sans rien dire de lui. */}
+                    {/* 🔴🔴 LOT ANNUAIRE-CAPSULES-TAMISEES — ROUGE pour un propriétaire, VERT pour un locataire
+                        (ancien compris), mais TAMISÉS : fond pâle, texte foncé, sur le modèle exact de l'entrée
+                        active du menu de gauche. Les deux jetons existent déjà dans le thème, avec leur variante
+                        Sombre — voir la feuille, plus bas. */}
                     <span className={`gst-annuaire-role gst-annuaire-role--${
                       s.role === 'proprietaire' ? 'proprietaire' : 'locataire'}`}>{s.mot}</span>
                     {/* 🔴 L'ADRESSE DISTINGUE LES HOMONYMES, et elle ne porte PAS le numéro de lot (Arno). */}
@@ -265,15 +264,26 @@ const CSS_BARRE_ANNUAIRE = `
 .gst-annuaire-item--vise,.gst-annuaire-item:hover{background:var(--color-svv-field)}
 .gst-annuaire-item:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .gst-annuaire-nom{font-weight:700;color:var(--color-svv-ink)}
-/* ══ LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 3 — LA CAPSULE DE ROLE PREND LA COULEUR DE SON ENCART ══
-   ROUGE pour un proprietaire, VERT pour un locataire (ancien compris) : les MEMES jetons que les lisereres des
-   encarts de la fiche du bien. Le texte est --color-svv-bg et non un blanc en dur : en theme Sombre, c'est lui
-   qui donne le contraste contre le fond colore.
+/* ══ LOT ANNUAIRE-CAPSULES-TAMISEES — LA CAPSULE DE ROLE EST TAMISEE, PAS EN APLAT ══
+   DEMANDE D'ARNO (07/10/2026) : « sur le modele exact de l'entree active “Gestion” du menu de gauche : fond clair
+   teinte, texte de la couleur foncee, pas d'aplat ».
+
+   🔴 CE SONT LES JETONS DE CETTE ENTREE-LA, repris tels quels : le menu actif s'ecrit
+   « background:var(--color-svv-green-soft);color:var(--color-svv-green-ink) » (.svv-adm-link[data-actif]), et
+   « Locataire » en est la copie. Une teinte approchante aurait donne deux verts pales dans la meme page.
+
+   🔴 LE PENDANT ROUGE EXISTAIT DEJA DANS LE THEME, il n'y avait rien a creer : --color-svv-red-soft est ne comme
+   « pendant ROUGE de green-soft » (globals.css), et son commentaire dit lui-meme avec quoi l'ecrire — « texte =
+   red-dark ». Les deux portent leur variante Sombre depuis le meme fichier : la capsule suit donc les trois
+   themes sans rien dire d'eux.
+
+   ⚠️ SEULES LES COULEURS CHANGENT : la taille, le gras, l'espacement des lettres et les coins arrondis sont
+   exactement ceux d'avant.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 .gst-annuaire-role{font-size:.72rem;font-weight:700;letter-spacing:.03em;padding:1px 7px;border-radius:999px;
   color:var(--color-svv-bg);background:var(--color-svv-ink)}
-.gst-annuaire-role--proprietaire{background:var(--color-svv-red)}
-.gst-annuaire-role--locataire{background:var(--color-svv-green)}
+.gst-annuaire-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
+.gst-annuaire-role--locataire{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .gst-annuaire-lieu{font-size:.82rem;color:var(--color-svv-muted)}
 /* Sur telephone, la capsule garde sa forme : c'est le libelle qui se resserre, jamais le champ qui disparait. */
 @media (max-width: 560px){

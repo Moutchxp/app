@@ -332,22 +332,61 @@ describe('🔴🔴 ⑥ les rôles sont mêlés, et leurs capsules ont la couleur
   });
 
   /**
-   * 🔴🔴 POINT 3 — ROUGE pour un propriétaire, VERT pour un locataire (ancien compris) : les MÊMES jetons que les
-   * liserés des encarts de la fiche du bien. Aucune couleur nouvelle.
+   * ══ 🔴🔴 LOT ANNUAIRE-CAPSULES-TAMISEES — LES CAPSULES SONT TAMISÉES, PLUS EN APLAT ══════════════════════════
+   *
+   * CE CAS EXIGEAIT L'APLAT VIF (`--color-svv-red` / `--color-svv-green`, texte blanc), c'était la demande du lot
+   * précédent. ARNO LES VEUT TAMISÉES : « sur le modèle exact de l'entrée active “Gestion” du menu de gauche :
+   * fond clair teinté, texte de la couleur foncée, pas d'aplat ».
+   *
+   * 🔴 ON ÉPROUVE QUE CE SONT LES JETONS DE CETTE ENTRÉE-LÀ, et pas une teinte approchante : on lit la règle du
+   * menu dans SA feuille, et on exige la même paire dans la capsule. Deux verts pâles choisis séparément auraient
+   * fini par différer, et c'est précisément ce que « le modèle exact » interdit.
    */
-  it('🔴🔴 capsule ROUGE pour Propriétaire, VERTE pour Locataire et Ancien locataire', async () => {
+  it('🔴🔴 capsule TAMISÉE : les jetons de l’entrée de menu active pour Locataire, leur pendant rouge pour Propriétaire', async () => {
     await monter();
     await taper('alejo');
     const classeDe = (nom: string): string =>
       itemDe(nom).querySelector('.gst-annuaire-role')?.className ?? '';
     expect(classeDe('ALEJO BERNARD')).toContain('gst-annuaire-role--proprietaire');
     expect(classeDe('ALEJO FERNANDEZ Paula')).toContain('gst-annuaire-role--locataire');
+
     const BARRE = readFileSync('app/(admin)/admin/(protected)/gestion/BarreAnnuaire.tsx', 'utf8');
-    /* 🔴 LES JETONS DES ENCARTS, ET PAS UNE COULEUR EN DUR. */
-    expect(BARRE).toContain('.gst-annuaire-role--proprietaire{background:var(--color-svv-red)}');
-    expect(BARRE).toContain('.gst-annuaire-role--locataire{background:var(--color-svv-green)}');
-    /* ⚠️ LE TEXTE EST `--color-svv-bg` ET NON UN BLANC EN DUR : en thème Sombre, c'est lui qui contraste. */
-    expect(BARRE).toContain('color:var(--color-svv-bg)');
+    const MENU = readFileSync('app/(admin)/admin/(protected)/Sidebar.tsx', 'utf8');
+    /* 🔴 LA PAIRE DU MENU ACTIF, telle qu'elle y est écrite — et la MÊME dans la capsule « Locataire ». */
+    expect(MENU).toContain('background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)');
+    expect(BARRE).toContain(
+      '.gst-annuaire-role--locataire{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}');
+    /* 🔴 ET LE PENDANT ROUGE, QUI EXISTAIT DÉJÀ DANS LE THÈME — rien à créer. */
+    expect(BARRE).toContain(
+      '.gst-annuaire-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}');
+    /* ⚠️ PLUS D'APLAT VIF : c'est ce qu'Arno retire. */
+    expect(BARRE).not.toContain('.gst-annuaire-role--proprietaire{background:var(--color-svv-red)}');
+    expect(BARRE).not.toContain('.gst-annuaire-role--locataire{background:var(--color-svv-green)}');
+  });
+
+  /**
+   * 🔴🔴 AUCUNE COULEUR EN DUR DANS TOUTE LA FEUILLE DE LA BARRE : tout passe par les jetons de la charte, qui
+   * portent leur variante Sombre. C'est l'exigence transverse du module, et elle vaut ici comme ailleurs.
+   */
+  it('🔴🔴 aucune couleur en dur dans la feuille de la barre', () => {
+    const BARRE = readFileSync('app/(admin)/admin/(protected)/gestion/BarreAnnuaire.tsx', 'utf8');
+    const i = BARRE.indexOf('const CSS_BARRE_ANNUAIRE');
+    const feuille = BARRE.slice(i);
+    expect(feuille.match(/#[0-9a-f]{3,8}\b/gi) ?? []).toEqual([]);
+    expect(feuille).toContain('var(--color-svv-');
+  });
+
+  /**
+   * 🔴 LES DEUX JETONS ROUGES EXISTENT DANS LE THÈME, AVEC LEUR VARIANTE SOMBRE — c'est ce qui rend la capsule
+   * lisible en Clair, en Sombre et en Système sans une ligne de plus.
+   */
+  it('🔴 le rouge pâle et son texte sont des jetons du thème, en Clair ET en Sombre', () => {
+    const GLOBALS = readFileSync('app/globals.css', 'utf8');
+    for (const jeton of ['--color-svv-red-soft', '--color-svv-red-dark',
+      '--color-svv-green-soft', '--color-svv-green-ink']) {
+      /* ⚠️ AU MOINS DEUX DÉFINITIONS : celle du thème Clair, et celle du Sombre. */
+      expect((GLOBALS.match(new RegExp(`${jeton}:`, 'g')) ?? []).length, jeton).toBeGreaterThanOrEqual(2);
+    }
   });
 
   /**
