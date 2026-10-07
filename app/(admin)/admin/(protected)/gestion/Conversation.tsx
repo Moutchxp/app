@@ -664,7 +664,14 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   const [emplacementsFil, setEmplacementsFil] =
     useState<ReadonlyMap<number, readonly EmplacementPiece[]>>(new Map());
   /** L'emplacement qu'on vient de demander à voir dans notre fenêtre Drive. `null` = aucune fenêtre ouverte. */
-  const [emplacementAVoir, setEmplacementAVoir] = useState<EmplacementPiece | null>(null);
+  /**
+   * 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — ON GARDE AUSSI LA PIÈCE D'OÙ L'ON VIENT.
+   *
+   * Arno : « ces pièces s'affichent EN HAUT de la colonne de gauche ». L'emplacement seul ne suffit pas à la
+   * dessiner — il ne porte ni le `pieceId`, ni la taille, ni le type. Le picto les rend donc ensemble.
+   */
+  const [emplacementAVoir, setEmplacementAVoir] =
+    useState<{ ou: EmplacementPiece; source: PieceARanger } | null>(null);
   const relireDepotsFil = useCallback(async (): Promise<void> => {
     try {
       const res = await fetch(`/api/admin/gestion/fils/${filId}/pieces-drive`, { cache: 'no-store' });
@@ -2234,7 +2241,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           gestes={{
             onVoir: (id) => setPieceVue(id),
             onRanger: ouvrirRangement,
-            onVoirDansLeDrive: setEmplacementAVoir,
+            onVoirDansLeDrive: (ou, source) => setEmplacementAVoir({ ou, source }),
             onAllerAuMessage: (id) => void allerAuMessage(id),
           }}
           /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — les capsules de statut d'envoi, par MESSAGE : une même pièce
@@ -2343,8 +2350,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
         <SelecteurFichierDrive
           mode="consulter"
           filId={filId}
-          dossierDepart={dossierDeLEmplacement(emplacementAVoir)}
-          documentEnEvidence={{ driveFileId: emplacementAVoir.driveFileId }}
+          dossierDepart={dossierDeLEmplacement(emplacementAVoir.ou)}
+          documentEnEvidence={{ driveFileId: emplacementAVoir.ou.driveFileId }}
+          /* 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — la pièce cliquée, en vignette tout en haut de la colonne. */
+          piecesSources={[emplacementAVoir.source]}
           /* ══ 🔴🔴 LOT PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE ══════════════════════════════════════════════
               Arno : « on ne voit pas où l'on se trouve dans l'arborescence ». On arrive donc à la RACINE,
               branche dépliée jusqu'au document, les autres dossiers repliés à côté.

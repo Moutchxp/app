@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 /**
  * 🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — LES VIGNETTES DE BIEN DE LA COLONNE DE GAUCHE. Module PUR.
  *
@@ -93,6 +93,8 @@ import {
  */
 import {
   aideVignette, ajouterVignette, cleVignette, dejaDupliquee, motCopieRangee, resumeVignettes,
+  /* 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — le titre discret de la section, et l'état d'une pièce absente. */
+  MOT_PAS_ENCORE_DANS_LE_DRIVE, titrePiecesSources,
   type VignetteDupliquee,
 } from '../../../../lib/gestion/vignetteDrive';
 /**
@@ -364,11 +366,129 @@ interface DossierRecent {
   dernierDepot: string;
 }
 
+/**
+ * ══ 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — **LA** VIGNETTE DE DOCUMENT, ÉCRITE UNE SEULE FOIS ══════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * ARNO (07/10/2026) : « Ce sont les MÊMES vignettes que celles déjà utilisées ailleurs dans l'écran du Drive pour
+ * un document (même composant, pas une copie) : aperçu, nom, taille, et toutes les fonctions habituelles de ce
+ * type de vignette. »
+ *
+ * 🔴 ELLES ÉTAIENT DÉJÀ DEUX COPIES — la pièce du message et la vignette dupliquée : mêmes classes, même squelette,
+ * même compteur vert, même loupe, écrits deux fois à cent lignes d'écart. Ce lot en aurait fait TROIS. Le squelette
+ * descend donc ici, et les trois listes l'appellent.
+ *
+ * 🔴 CE QUI RESTE CHEZ L'APPELANT, ET POURQUOI. La MINIATURE (une pièce se sert par son identifiant, un fichier du
+ * Drive par le sien), les GESTES (l'œil d'une pièce ouvre notre visionneuse, celui d'une copie ouvre l'aperçu du
+ * Drive) et les ÉTATS (« Rangement… », « Copie… », « pas encore dans le Drive ») diffèrent VRAIMENT d'une liste à
+ * l'autre. Les fondre aurait demandé un drapeau par différence, c'est-à-dire un composant qui redevient trois.
+ *
+ * ⚠️ LE RENDU EST CELUI D'AVANT, BALISE POUR BALISE : mêmes classes, même ordre, mêmes attributs. Ce lot déplace,
+ * il ne redessine pas — et les épreuves de ce dossier, qui lisent ces classes, le vérifient.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+function VignetteDocument({
+  className, draggable, onDragStart, onDragEnd, onClick, title,
+  avant = null, miniature, nom, nomRecu = null, tailleOctets, compteur = 0, gestes, etats = null,
+}: {
+  className: string;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  onClick?: (e: React.MouseEvent) => void;
+  title?: string;
+  /** Ce qui précède la miniature : la case à cocher des pièces du message, et rien ailleurs. */
+  avant?: ReactNode;
+  /** L'adresse de l'aperçu, servie par l'application — jamais une URL de stockage. */
+  miniature: string;
+  /** Le nom AFFICHÉ, c'est-à-dire celui sous lequel le document partira. */
+  nom: string;
+  /** Le nom REÇU, quand il diffère de l'affiché : la mention « reçue sous : … » en vit. `null` = rien. */
+  nomRecu?: string | null;
+  tailleOctets: number | null;
+  /** Le compteur vert « déjà dans le Drive (N) ». Masqué à zéro — voir l'encadré de `comptesRanges`. */
+  compteur?: number;
+  gestes: ReactNode;
+  etats?: ReactNode;
+}) {
+  return (
+    <li className={className} title={title}
+      draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={onClick}>
+      {avant}
+      {/* La miniature est servie par l'application, jamais par une URL de stockage.
+          🔴 `draggable={false}` SUR LA VIGNETTE, ET C'EST INDISPENSABLE : une image est saisissable NATIVEMENT par
+          le navigateur. Sans cela, saisir la pièce par sa miniature démarrait le glisser de l'IMAGE et non celui
+          de la ligne — le dépôt n'arrivait jamais, en silence. Vu à l'écran, sur la vraie pièce. */}
+      {/* eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route */}
+      <img className="sfd-piece-vignette" alt="" draggable={false}
+        src={miniature} loading="lazy" decoding="async"
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }} />
+      <span className="sfd-piece-mots">
+        <span className="sfd-piece-nom" title={nom}>{nom}</span>
+        {nomRecu !== null && nomRecu !== nom && (
+          <span className="sfd-piece-origine" title={nomRecu}>{mentionNomOrigine(nomRecu)}</span>
+        )}
+        <span className="sfd-piece-ligne">
+          <span className="sfd-piece-taille">{tailleFinder(tailleOctets, false)}</span>
+          {compteur > 0 && (
+            <span className="sfd-piece-range"
+              title={bulleCompteurRange(compteur)} aria-label={bulleCompteurRange(compteur)}>
+              {compteur}
+            </span>
+          )}
+          <span className="sfd-piece-gestes">{gestes}</span>
+        </span>
+        {etats}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LA LOUPE « OÙ EST CE DOCUMENT ? », ÉCRITE UNE SEULE FOIS ════════════════════════════════════════════════
+ *
+ * Arno : « sur chaque vignette de la colonne de gauche, un picto loupe (aria-label “Localiser dans le Drive”).
+ * Clic = active ou désactive la localisation pour cette vignette (une seule active à la fois). » Et, pour ce lot :
+ * « en particulier la LOUPE, qui fait défiler et déplie l'arborescence de droite jusqu'à l'emplacement réel du
+ * document et le met en surbrillance. »
+ *
+ * 🔒 LECTURE SEULE : elle ne fait que demander où se trouve ce document.
+ */
+function BoutonLoupe({ actif, nom, onBasculer }: {
+  actif: boolean;
+  nom: string;
+  onBasculer: () => void;
+}) {
+  return (
+    <button type="button"
+      className={`sfd-piece-oeil${actif ? ' sfd-piece-oeil--actif' : ''}`}
+      aria-pressed={actif}
+      title={AIDE_LOUPE} aria-label={`${AIDE_LOUPE} — ${nom}`}
+      onClick={(e) => { e.stopPropagation(); onBasculer(); }}>
+      <span aria-hidden="true">🔎</span>
+    </button>
+  );
+}
+
 export function SelecteurFichierDrive({
   onChoisir, onFermer, filId = null, lots = [], adressesA = [],
   mode = 'joindre', messageId = null, pieces = [], onRangement, dossierDepart = null,
-  documentEnEvidence = null, arrivee = 'dossier',
+  documentEnEvidence = null, arrivee = 'dossier', piecesSources = [],
 }: {
+  /**
+   * ══ 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — LES PIÈCES D'OÙ CETTE FENÊTRE A ÉTÉ OUVERTE ═══════════════════
+   *
+   * Arno : « Quand l'écran du Drive est ouvert à partir d'une ou plusieurs pièces jointes […], ces pièces
+   * s'affichent EN HAUT de la colonne de gauche, au-dessus de “Dossier du bien”, sous forme de vignettes. »
+   *
+   * ⚠️ DISTINCTES DE `pieces`, ET IL LE FAUT : `pieces` sont les pièces À RANGER d'un message, avec leur file,
+   * leur case à cocher et leur glisser. Celles-ci ne sont là QUE pour dire d'où l'on vient — on ne les range
+   * pas, on les regarde. Les confondre aurait annoncé un travail à faire qui n'existe pas.
+   *
+   * ⚠️ VIDE (le défaut) ⇒ RIEN NE CHANGE : « Ouvert sans pièce source (ex. bouton Drive du haut) : rien ne
+   * change » (Arno), et c'est vrai par construction — la section n'est pas rendue.
+   */
+  piecesSources?: readonly PieceARanger[];
   /**
    * Ajoute la pièce au brouillon. ⚠️ NE FERME PAS la fenêtre : c'est « Terminé » ou la croix qui ferme.
    * ⚠️ INUTILISÉ EN MODE « ranger » — on n'y prend rien, on y pose.
@@ -4111,10 +4231,20 @@ export function SelecteurFichierDrive({
    * aussi ce qu'elle affichera si le document n'est rangé nulle part.
    */
   useEffect(() => {
-    if (mode !== 'ranger') return;
+    /**
+     * 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — LES PIÈCES SOURCES COMPTENT DANS **TOUS** LES MODES.
+     *
+     * Le `return` d'avant portait sur le mode entier. Or le picto vert ouvre la fenêtre en « consulter », et
+     * c'est précisément là que la vignette source a besoin de son compteur : c'est lui qui décide si la loupe
+     * paraît, ou si l'on écrit « pas encore dans le Drive ». Les deux autres listes, elles, n'existent qu'en
+     * « ranger » — on ne demande donc rien de plus qu'avant pour elles.
+     */
     const aDemander: { cle: string; adresse: string }[] = [
-      ...pieces.map((x) => ({ cle: `piece:${x.pieceId}`, adresse: `piece=${x.pieceId}` })),
-      ...vignettes.map((v) => ({ cle: v.cle, adresse: `source=${encodeURIComponent(v.driveFileId)}` })),
+      ...piecesSources.map((x) => ({ cle: `piece:${x.pieceId}`, adresse: `piece=${x.pieceId}` })),
+      ...(mode !== 'ranger' ? [] : [
+        ...pieces.map((x) => ({ cle: `piece:${x.pieceId}`, adresse: `piece=${x.pieceId}` })),
+        ...vignettes.map((v) => ({ cle: v.cle, adresse: `source=${encodeURIComponent(v.driveFileId)}` })),
+      ]),
     ].filter((x) => !comptesDemandes.current.has(x.cle));
     if (aDemander.length === 0) return;
     for (const d of aDemander) comptesDemandes.current.add(d.cle);
@@ -4139,7 +4269,7 @@ export function SelecteurFichierDrive({
        ⚠️ LA DIRECTIVE `eslint-disable` QUI VIVAIT ICI A ÉTÉ RETIRÉE PAR CE LOT, et pas par distraction : la règle
        `exhaustive-deps` ne demandait plus rien (ESLint la signalait comme « directive inutilisée »). Garder une
        dérogation qui ne déroge à rien fait croire qu'une règle est tenue en échec alors qu'elle est satisfaite. */
-  }, [mode, pieces, vignettes, versionComptes]);
+  }, [mode, pieces, vignettes, piecesSources, versionComptes]);
 
   /**
    * 🔴🔴 LA PHRASE QUI DIT CE QU'ON A CHERCHÉ, ET CE QU'ON N'A PAS CHERCHÉ. Elle vit dans le module PUR, et elle
@@ -4806,6 +4936,82 @@ export function SelecteurFichierDrive({
              la connaître. C'est aussi ce qui permet au CSS de garder ses bornes en une seule ligne. */
           style={{ ['--sfd-cote' as string]: `${largeurCoteVue}px` }}>
           <aside className="sfd-cote" aria-label="Emplacements">
+            {/* ══ 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — LES PIÈCES D'OÙ L'ON VIENT, TOUT EN HAUT ═════════════
+                ═══ LE CONSTAT D'ARNO (07/10/2026, fil 36558) ═══════════════════════════════════════════════════
+                Un clic sur l'icône verte « Dans le Drive » d'une miniature ouvre cet écran — « mais la pièce ne
+                figure nulle part en haut de la colonne de gauche ». On y voyait les emplacements, et rien du
+                document qu'on venait de cliquer. Seul le bandeau « CE DOCUMENT EST ICI » en parlait.
+
+                🔴 LA CAUSE : la colonne ne portait de vignettes QU'EN MODE « ranger ». Le picto vert ouvre la
+                fenêtre en mode « consulter », qui n'en a jamais eu — le document était là sans être nulle part.
+
+                🔴 ELLES SONT AU-DESSUS DE TOUT, Y COMPRIS DES PIÈCES À RANGER (Arno : « EN HAUT de la colonne de
+                gauche, au-dessus de “Dossier du bien” ») : c'est le document qu'on vient de cliquer, donc la
+                réponse à la seule question qu'on se pose en arrivant.
+
+                ⚠️ C'EST LA MÊME VIGNETTE QUE PARTOUT AILLEURS — le composant `VignetteDocument`, et la loupe est
+                `BoutonLoupe` : celle qui déplie l'arborescence jusqu'à l'emplacement réel et le surligne. */}
+            {piecesSources.length > 0 && (
+              <section className="sfd-ranger sfd-sources" aria-label="Pièces sélectionnées">
+                <p className="sfd-ranger-titre" role="status">{titrePiecesSources(piecesSources.length)}</p>
+                <ul className="sfd-ranger-liste">
+                  {piecesSources.map((x) => {
+                    /**
+                     * 🔴 LA LOUPE N'EST LÀ QUE SI LE DOCUMENT EST QUELQUE PART. Arno : « Une pièce qui n'est pas
+                     * encore dans le Drive apparaît aussi en vignette, avec son état (“pas encore dans le
+                     * Drive”), et la loupe ne s'affiche pas pour elle. »
+                     *
+                     * ⚠️ TROIS ÉTATS, ET NON DEUX : tant que le compteur n'a pas répondu, on ne dit RIEN — ni
+                     * loupe, ni phrase. Annoncer « pas encore dans le Drive » avant d'avoir cherché serait une
+                     * affirmation inventée, et c'est elle qu'on retiendrait.
+                     */
+                    const cle = `piece:${x.pieceId}`;
+                    const repondu = comptesRanges.has(cle);
+                    const combien = comptesRanges.get(cle) ?? 0;
+                    return (
+                      <VignetteDocument key={x.pieceId}
+                        className="sfd-piece sfd-piece--source"
+                        miniature={`/api/admin/gestion/pieces/${x.pieceId}/miniature`}
+                        nom={x.nom} tailleOctets={x.tailleOctets} compteur={combien}
+                        gestes={(
+                          <>
+                            {(() => {
+                              const refus = motifSansApercuPiece(x);
+                              return (
+                                <button type="button" className="sfd-piece-oeil"
+                                  disabled={refus !== null}
+                                  title={refus ?? 'Visualiser'}
+                                  aria-label={refus ?? `Visualiser ${x.nom}`}
+                                  onClick={(e) => { e.stopPropagation(); if (refus === null) voirPiece(x); }}>
+                                  <span aria-hidden="true">👁</span>
+                                </button>
+                              );
+                            })()}
+                            {combien > 0 && (
+                              <BoutonLoupe actif={loupeSur === cle} nom={x.nom}
+                                onBasculer={() => { void basculerLoupe(cle, '', x.pieceId); }} />
+                            )}
+                          </>
+                        )}
+                        etats={(
+                          <>
+                            {loupeSur === cle && (
+                              <span className="sfd-piece-etat sfd-loupe-compte"
+                                role="status" title={phraseMethodeCourante()}>
+                                🔎 {motCompteur(surlignage.nombre)}
+                              </span>
+                            )}
+                            {repondu && combien === 0 && (
+                              <span className="sfd-piece-etat">{MOT_PAS_ENCORE_DANS_LE_DRIVE}</span>
+                            )}
+                          </>
+                        )} />
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+
             {/* ══ 🔴🔴 « À RANGER » — CE QU'ON TIENT DANS LA MAIN GAUCHE ════════════════════════════════════════
                 Arno : « un panneau “À ranger” qui liste les pièces jointes du mail avec leur miniature, leur nom
                 et leur taille. Chaque pièce est glissable. »
@@ -4833,7 +5039,7 @@ export function SelecteurFichierDrive({
                     const cliquer = (cmd: boolean, maj: boolean) => setChoixPieces(
                       (c) => cliquerLigne(c, String(x.pieceId), ordrePieces, { cmd, maj }));
                     return (
-                      <li key={x.pieceId}
+                      <VignetteDocument key={x.pieceId}
                         className={`sfd-piece${ou !== null ? ' sfd-piece--rangee' : ''}`
                           + `${cochee ? ' sfd-piece--cochee' : ''}`
                           + `${piecesGlissees.some((g) => g.pieceId === x.pieceId) ? ' sfd-piece--enVol' : ''}`}
@@ -4847,56 +5053,30 @@ export function SelecteurFichierDrive({
                         onClick={(e) => {
                           if ((e.target as HTMLElement).closest('button, input, a') !== null) return;
                           cliquer(e.metaKey || e.ctrlKey, e.shiftKey);
-                        }}>
-                        {/* 🔴 LA CASE À COCHER (demande d'Arno). Elle porte le nom de la pièce : sans lui, un
-                            lecteur d'écran n'annoncerait que « case à cocher », quatre fois de suite. */}
-                        <input type="checkbox" className="sfd-piece-case" checked={cochee}
-                          aria-label={`Sélectionner ${x.nom}`}
-                          onChange={() => cliquer(true, false)} />
-        {/* La miniature est servie par l'application, jamais par une URL de stockage.
-                            🔴 `draggable={false}` SUR LA VIGNETTE, ET C'EST INDISPENSABLE : une image est
-                            saisissable NATIVEMENT par le navigateur. Sans cela, saisir la pièce par sa miniature
-                            démarrait le glisser de l'IMAGE et non celui de la ligne — le dépôt n'arrivait jamais,
-                            en silence. Vu à l'écran, sur la vraie pièce. */}
-                        {/* eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route */}
-                        <img className="sfd-piece-vignette" alt="" draggable={false}
-                          src={`/api/admin/gestion/pieces/${x.pieceId}/miniature`}
-                          loading="lazy" decoding="async"
-                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }} />
-                        <span className="sfd-piece-mots">
-                          {/* 🔴 LOT RENOMMER-AVANT-RANGER — LA CARTE MONTRE LE NOM SOUS LEQUEL LA PIÈCE PARTIRA.
-                              C'est le seul qui compte pour qui s'apprête à ranger ; le nom reçu, lui, se lit
-                              juste en dessous dès qu'il diffère — c'est celui qu'on cherchera dans le mail. */}
-                          <span className="sfd-piece-nom" title={nomDeDepot(x.nom, nomsChoisis.get(x.pieceId))}>
-                            {nomDeDepot(x.nom, nomsChoisis.get(x.pieceId))}
-                          </span>
-                          {estRenommee(x.nom, nomsChoisis.get(x.pieceId)) && (
-                            <span className="sfd-piece-origine" title={x.nom}>{mentionNomOrigine(x.nom)}</span>
-                          )}
-                          {/* ══ 🔴 LE POIDS, ET L'ŒIL À SA DROITE (demande d'Arno) ═══════════════════════════
-                              🔴 IL MARCHE AUSSI SUR UNE PIÈCE VIDÉE : la route des pièces bascule d'elle-même
-                              sur la copie Drive quand les octets locaux ont été libérés. Rien à écrire ici.
-                              ⚠️ ÉTEINT, AVEC SON MOTIF, pour un « ._ » de macOS (qui ne contient pas le document)
-                              et pour un type sans aperçu — promettre une fenêtre vide serait pire que rien. */}
-                          <span className="sfd-piece-ligne">
-                            <span className="sfd-piece-taille">{tailleFinder(x.tailleOctets, false)}</span>
-                            {/* ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE COMPTEUR VERT ════════════════════════
-                                « Déjà dans le Drive (N) » (Arno, 07/10/2026). VERT parce que c'est un état d'ARRIVÉE —
-                                il ne dit pas « à faire », il dit « c'est déjà quelque part ».
-                                ⚠️ MASQUÉ À ZÉRO : un « 0 » vert se lirait comme une bonne nouvelle alors qu'il
-                                dit le contraire (ce document n'est rangé nulle part). */}
-                            {(comptesRanges.get(`piece:${x.pieceId}`) ?? 0) > 0 && (
-                              <span className="sfd-piece-range"
-                                title={bulleCompteurRange(comptesRanges.get(`piece:${x.pieceId}`) ?? 0)}
-                                aria-label={bulleCompteurRange(comptesRanges.get(`piece:${x.pieceId}`) ?? 0)}>
-                                {comptesRanges.get(`piece:${x.pieceId}`)}
-                              </span>
-                            )}
-                            {/* 🔴 LES TROIS PICTOS SUR UNE SEULE LIGNE, COLLÉS À DROITE (demande d'Arno) : c'est
-                                `sfd-piece-gestes`, poussé par `margin-left:auto`. Avant ce lot ils flottaient
-                                dans le texte, et le crayon passait à la ligne dès que le nom était long. */}
-                            <span className="sfd-piece-gestes">
+                        }}
+                        /* 🔴 LA CASE À COCHER (demande d'Arno). Elle porte le nom de la pièce : sans lui, un
+                           lecteur d'écran n'annoncerait que « case à cocher », quatre fois de suite. */
+                        avant={(
+                          <input type="checkbox" className="sfd-piece-case" checked={cochee}
+                            aria-label={`Sélectionner ${x.nom}`}
+                            onChange={() => cliquer(true, false)} />
+                        )}
+                        miniature={`/api/admin/gestion/pieces/${x.pieceId}/miniature`}
+                        /* 🔴 LOT RENOMMER-AVANT-RANGER — LA CARTE MONTRE LE NOM SOUS LEQUEL LA PIÈCE PARTIRA.
+                           Le nom reçu se lit juste en dessous dès qu'il diffère : c'est celui qu'on cherchera
+                           dans le mail. */
+                        nom={nomDeDepot(x.nom, nomsChoisis.get(x.pieceId))}
+                        nomRecu={estRenommee(x.nom, nomsChoisis.get(x.pieceId)) ? x.nom : null}
+                        tailleOctets={x.tailleOctets}
+                        compteur={comptesRanges.get(`piece:${x.pieceId}`) ?? 0}
+                        /* 🔴 LES TROIS PICTOS SUR UNE SEULE LIGNE, COLLÉS À DROITE (demande d'Arno). */
+                        gestes={(
+                          <>
                             {(() => {
+                              /* 🔴 L'ŒIL MARCHE AUSSI SUR UNE PIÈCE VIDÉE : la route des pièces bascule d'elle-
+                                 même sur la copie Drive quand les octets locaux ont été libérés.
+                                 ⚠️ ÉTEINT, AVEC SON MOTIF, pour un « ._ » de macOS et pour un type sans aperçu —
+                                 promettre une fenêtre vide serait pire que rien. */
                               const refus = motifSansApercuPiece(x);
                               return (
                                 <button type="button" className="sfd-piece-oeil"
@@ -4909,62 +5089,41 @@ export function SelecteurFichierDrive({
                               );
                             })()}
                             {/* ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LE STYLO, À CÔTÉ DE L'ŒIL ═══════════════════
-                                Arno : « à côté de l'œil, une petite icône stylo ✎ (infobulle “Renommer avant de
-                                ranger”), de même taille et même alignement que l'œil ».
-
-                                🔴 IL OUVRE LA MÊME FENÊTRE QUE L'ŒIL, directement sur le champ. Une boîte de
-                                dialogue à part aurait obligé à renommer SANS voir la pièce — or c'est en la
-                                regardant qu'on sait comment l'appeler, et c'est tout l'intérêt du geste.
-
-                                ⚠️ IL RESTE ACTIF MÊME SANS APERÇU POSSIBLE (un type sans visuel) : on renomme
-                                aussi bien un fichier qu'on ne peut pas afficher, et la fenêtre dira simplement
-                                « aperçu indisponible » à la place du visuel.
-                                🔴🔴 LOT ETOILE-SIGNATURES-PIECES — IL EST ALLUMÉ MÊME SUR UNE PIÈCE DÉJÀ RANGÉE
-                                (décision d'Arno du 03/10/2026 : « un document = un seul nom » gagne). Le
-                                renommage part alors pour de vrai, sur la pièce ET sur toutes ses copies. */}
+                                🔴 IL OUVRE LA MÊME FENÊTRE QUE L'ŒIL, directement sur le champ : c'est en
+                                regardant la pièce qu'on sait comment l'appeler.
+                                ⚠️ IL RESTE ACTIF MÊME SANS APERÇU POSSIBLE, et il est allumé même sur une pièce
+                                déjà rangée (décision d'Arno du 03/10/2026 : « un document = un seul nom »). */}
                             <button type="button" className="sfd-piece-stylo"
                               title={INFOBULLE_RENOMMER}
                               aria-label={`${INFOBULLE_RENOMMER} — ${x.nom}`}
                               onClick={(e) => { e.stopPropagation(); voirPiece(x, true); }}>
                               <span aria-hidden="true">✎</span>
                             </button>
-                            {/* ══ 🔴🔴 LA LOUPE « OÙ EST CE DOCUMENT ? » ═══════════════════════════════════════
-                                Arno : « sur chaque vignette de la colonne de gauche (pièce jointe ou vignette
-                                dupliquée), ajoute un picto loupe (aria-label “Localiser dans le Drive”). Clic =
-                                active ou désactive la localisation pour cette vignette (une seule active à la
-                                fois). »
-                                🔒 LECTURE SEULE : elle ne fait que demander où se trouve ce document. */}
-                            <button type="button"
-                              className={`sfd-piece-oeil${loupeSur === `piece:${x.pieceId}` ? ' sfd-piece-oeil--actif' : ''}`}
-                              aria-pressed={loupeSur === `piece:${x.pieceId}`}
-                              title={AIDE_LOUPE} aria-label={`${AIDE_LOUPE} — ${x.nom}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void basculerLoupe(`piece:${x.pieceId}`, '', x.pieceId);
-                              }}>
-                              <span aria-hidden="true">🔎</span>
-                            </button>
-                            </span>
-                          </span>
-                          {/* 🔴 LE COMPTEUR ET LA MÉTHODE, à côté de la loupe et jamais ailleurs : la limite doit
-                              se lire AU MOMENT où l'on regarde le nombre. */}
-                          {loupeSur === `piece:${x.pieceId}` && (
-                            <span className="sfd-piece-etat sfd-loupe-compte"
-                              role="status" title={phraseMethodeCourante()}>
-                              🔎 {motCompteur(surlignage.nombre)}
-                            </span>
-                          )}
-                          {occupee && <span className="sfd-piece-etat">Rangement…</span>}
-                          {ou !== null && !occupee && (
-                            <span className="sfd-piece-etat sfd-piece-etat--ok">
-                              {motRangee(ou.dossierNom)}
-                              {ou.lien !== null && (
-                                <> · <a className="sfd-piece-lien" href={ou.lien} target="_blank" rel="noreferrer">ouvrir</a></>
-                              )}
-                            </span>
-                          )}
-                        </span>
-                      </li>
+                            <BoutonLoupe actif={loupeSur === `piece:${x.pieceId}`} nom={x.nom}
+                              onBasculer={() => { void basculerLoupe(`piece:${x.pieceId}`, '', x.pieceId); }} />
+                          </>
+                        )}
+                        etats={(
+                          <>
+                            {/* 🔴 LE COMPTEUR ET LA MÉTHODE, à côté de la loupe et jamais ailleurs : la limite
+                                doit se lire AU MOMENT où l'on regarde le nombre. */}
+                            {loupeSur === `piece:${x.pieceId}` && (
+                              <span className="sfd-piece-etat sfd-loupe-compte"
+                                role="status" title={phraseMethodeCourante()}>
+                                🔎 {motCompteur(surlignage.nombre)}
+                              </span>
+                            )}
+                            {occupee && <span className="sfd-piece-etat">Rangement…</span>}
+                            {ou !== null && !occupee && (
+                              <span className="sfd-piece-etat sfd-piece-etat--ok">
+                                {motRangee(ou.dossierNom)}
+                                {ou.lien !== null && (
+                                  <> · <a className="sfd-piece-lien" href={ou.lien} target="_blank" rel="noreferrer">ouvrir</a></>
+                                )}
+                              </span>
+                            )}
+                          </>
+                        )} />
                     );
                   })}
                 </ul>
@@ -4990,38 +5149,23 @@ export function SelecteurFichierDrive({
                     const nomAffiche = (nomsVignettes.get(v.cle) ?? '').trim() === ''
                       ? v.nom : (nomsVignettes.get(v.cle) ?? v.nom);
                     return (
-                      <li key={v.cle}
+                      <VignetteDocument key={v.cle}
                         className={`sfd-piece sfd-piece--copie${ou !== null ? ' sfd-piece--rangee' : ''}`
                           + `${vignettesGlissees.some((g) => g.cle === v.cle) ? ' sfd-piece--enVol' : ''}`}
                         title={aideVignette(v.nom)}
                         draggable
                         onDragStart={(e) => demarrerGlisseDeVignette(e, v)}
-                        onDragEnd={() => finGlisse(true)}>
-                        {/* 🔴 LA MINIATURE VIENT DU DRIVE, par la route d'aperçu qui sert déjà la liste — jamais
-                            par l'adresse signée de Google, qui sortirait de l'application.
-                            🔴 `draggable={false}` : une image est saisissable nativement, et le glisser de
-                            l'IMAGE aurait remplacé celui de la ligne (défaut déjà payé sur les pièces). */}
-                        {/* eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route */}
-                        <img className="sfd-piece-vignette" alt="" draggable={false}
-                          src={`/api/admin/gestion/drive/apercu?fichier=${encodeURIComponent(v.driveFileId)}&vignette=1`}
-                          loading="lazy" decoding="async"
-                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }} />
-                        <span className="sfd-piece-mots">
-                          <span className="sfd-piece-nom" title={nomAffiche}>{nomAffiche}</span>
-                          {nomAffiche !== v.nom && (
-                            <span className="sfd-piece-origine" title={v.nom}>{mentionNomOrigine(v.nom)}</span>
-                          )}
-                          <span className="sfd-piece-ligne">
-                            <span className="sfd-piece-taille">{tailleFinder(v.tailleOctets, false)}</span>
-                            {/* 🔴🔴 LE MÊME COMPTEUR VERT que sur une pièce du message : même source, même mot. */}
-                            {(comptesRanges.get(v.cle) ?? 0) > 0 && (
-                              <span className="sfd-piece-range"
-                                title={bulleCompteurRange(comptesRanges.get(v.cle) ?? 0)}
-                                aria-label={bulleCompteurRange(comptesRanges.get(v.cle) ?? 0)}>
-                                {comptesRanges.get(v.cle)}
-                              </span>
-                            )}
-                            <span className="sfd-piece-gestes">
+                        onDragEnd={() => finGlisse(true)}
+                        /* 🔴 LA MINIATURE VIENT DU DRIVE, par la route d'aperçu qui sert déjà la liste — jamais
+                           par l'adresse signée de Google, qui sortirait de l'application. */
+                        miniature={`/api/admin/gestion/drive/apercu?fichier=${encodeURIComponent(v.driveFileId)}&vignette=1`}
+                        nom={nomAffiche}
+                        nomRecu={v.nom}
+                        tailleOctets={v.tailleOctets}
+                        /* 🔴🔴 LE MÊME COMPTEUR VERT que sur une pièce du message : même source, même mot. */
+                        compteur={comptesRanges.get(v.cle) ?? 0}
+                        gestes={(
+                          <>
                             {/* L'ŒIL — il ouvre le fichier SOURCE dans l'aperçu du Drive, en lecture seule. */}
                             <button type="button" className="sfd-piece-oeil"
                               title="Visualiser" aria-label={`Visualiser ${v.nom}`}
@@ -5062,31 +5206,29 @@ export function SelecteurFichierDrive({
                               }}>
                               <span aria-hidden="true">✕</span>
                             </button>
-                            {/* 🔴🔴 LA MÊME LOUPE QUE SUR UNE PIÈCE DU MESSAGE : même picto, même libellé, même
-                                interrupteur — une seule active à la fois, toutes vignettes confondues. */}
-                            <button type="button"
-                              className={`sfd-piece-oeil${loupeSur === v.cle ? ' sfd-piece-oeil--actif' : ''}`}
-                              aria-pressed={loupeSur === v.cle}
-                              title={AIDE_LOUPE} aria-label={`${AIDE_LOUPE} — ${v.nom}`}
-                              onClick={(e) => { e.stopPropagation(); void basculerLoupe(v.cle, v.driveFileId, null); }}>
-                              <span aria-hidden="true">🔎</span>
-                            </button>
-                            </span>
-                          </span>
-                          {loupeSur === v.cle && (
-                            <span className="sfd-piece-etat sfd-loupe-compte"
-                              role="status" title={phraseMethodeCourante()}>
-                              🔎 {motCompteur(surlignage.nombre)}
-                            </span>
-                          )}
-                          {occupee && <span className="sfd-piece-etat">Copie…</span>}
-                          {ou !== null && !occupee && (
-                            <span className="sfd-piece-etat sfd-piece-etat--ok">
-                              {`✓ Copiée dans « ${ou.dossierNom} »${ou.nb > 1 ? ` (${ou.nb} copies)` : ''}`}
-                            </span>
-                          )}
-                        </span>
-                      </li>
+                            {/* 🔴🔴 LA MÊME LOUPE QUE SUR UNE PIÈCE DU MESSAGE — le MÊME composant depuis le lot
+                                DRIVE-VIGNETTES-PIECES-SOURCE : même picto, même libellé, même interrupteur
+                                (une seule active à la fois, toutes vignettes confondues). */}
+                            <BoutonLoupe actif={loupeSur === v.cle} nom={v.nom}
+                              onBasculer={() => { void basculerLoupe(v.cle, v.driveFileId, null); }} />
+                          </>
+                        )}
+                        etats={(
+                          <>
+                            {loupeSur === v.cle && (
+                              <span className="sfd-piece-etat sfd-loupe-compte"
+                                role="status" title={phraseMethodeCourante()}>
+                                🔎 {motCompteur(surlignage.nombre)}
+                              </span>
+                            )}
+                            {occupee && <span className="sfd-piece-etat">Copie…</span>}
+                            {ou !== null && !occupee && (
+                              <span className="sfd-piece-etat sfd-piece-etat--ok">
+                                {`✓ Copiée dans « ${ou.dossierNom} »${ou.nb > 1 ? ` (${ou.nb} copies)` : ''}`}
+                              </span>
+                            )}
+                          </>
+                        )} />
                     );
                   })}
                 </ul>
@@ -6419,6 +6561,14 @@ export const CSS_SELECTEUR_FICHIER = `
    (« N copies a ranger ») — jamais porte par la seule couleur.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 .sfd-piece--copie{border-left:3px solid var(--color-svv-line-strong)}
+/* ══ 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — LA PIECE D'OU L'ON VIENT ════════════════════════════════════════
+   Un lisere VERT, et c'est le meme vert que le picto « Dans le Drive » qui a ouvert cette fenetre : on reconnait
+   d'un coup d'oeil le document qu'on vient de cliquer. Jeton du theme, defini dans les DEUX modes.
+   ⚠️ ELLE N'EST NI GLISSABLE NI COCHABLE : on ne la range pas, on la regarde. Rien a desactiver pour autant —
+   la vignette n'en porte tout simplement ni case ni glisser (voir le JSX). */
+.sfd-piece--source{border-left:3px solid var(--color-svv-green)}
+/* La section des pieces sources tient en haut de la colonne, au-dessus de tout le reste. */
+.sfd-sources{border-bottom:1px solid var(--color-svv-line)}
 /* ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LA LOUPE ACTIVE, ET CE QU'ELLE SURLIGNE ═══════════════════
    🔴 UNE COULEUR DISTINCTE DE LA SELECTION (demande d'Arno). La selection est ROUGE (la couleur de la maison) ;
    la localisation est AMBREE. Deux teintes franchement differentes : sans cela, on ne saurait plus ce qu'on a

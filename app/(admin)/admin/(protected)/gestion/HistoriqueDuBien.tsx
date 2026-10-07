@@ -502,7 +502,10 @@ export function HistoriqueDuBien({
   const [pieceVue, setPieceVue] = useState<number | null>(null);
   /** Ce que le renommage a répondu, dit sous la ligne d'état. `null` = rien à dire. */
   const [motRenommage, setMotRenommage] = useState<string | null>(null);
-  const [aVoirDansLeDrive, setAVoirDansLeDrive] = useState<EmplacementPiece | null>(null);
+  /* 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — l'emplacement ET la pièce d'où l'on vient : l'un dit OÙ aller,
+     l'autre ce qu'on met en vignette tout en haut de la colonne. Voir `PiecesDeLaConversation`. */
+  const [aVoirDansLeDrive, setAVoirDansLeDrive] =
+    useState<{ ou: EmplacementPiece; source: PieceARanger } | null>(null);
 
   /**
    * ⚠️ TOUT CHANGEMENT DE RÉGLAGE REMET À LA PREMIÈRE PAGE. Sans cela, filtrer depuis la page 3 afficherait
@@ -2098,7 +2101,7 @@ export function HistoriqueDuBien({
       filId: filDuMessage.get(p.messageId) ?? null,
       pieces: [{ pieceId: p.pieceId, nom: p.nomFichier, tailleOctets: p.tailleOctets, typeMime: p.typeMime }],
     }),
-    onVoirDansLeDrive: setAVoirDansLeDrive,
+    onVoirDansLeDrive: (ou, source) => setAVoirDansLeDrive({ ou, source }),
     onAllerAuMessage: (messageId) => {
       setDeplie((s) => new Set(s).add(messageId));
       /* ⚠️ `block: 'center'` ET AUCUNE ANIMATION : le mail vient de se déplier, donc la page grandit — une
@@ -3022,8 +3025,10 @@ export function HistoriqueDuBien({
       {aVoirDansLeDrive !== null && (
         <SelecteurFichierDrive
           mode="consulter"
-          dossierDepart={dossierDeLEmplacement(aVoirDansLeDrive)}
-          documentEnEvidence={{ driveFileId: aVoirDansLeDrive.driveFileId }}
+          dossierDepart={dossierDeLEmplacement(aVoirDansLeDrive.ou)}
+          documentEnEvidence={{ driveFileId: aVoirDansLeDrive.ou.driveFileId }}
+          /* 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — la pièce cliquée, en vignette tout en haut de la colonne. */
+          piecesSources={[aVoirDansLeDrive.source]}
           arrivee="arborescence"
           onFermer={() => setAVoirDansLeDrive(null)} />
       )}

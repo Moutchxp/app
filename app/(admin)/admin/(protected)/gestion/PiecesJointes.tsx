@@ -385,7 +385,8 @@ function BlocPieces({
   onVisualiser?: (pieceId: number) => void;
   /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — où ce CONTENU se trouve déjà. Liste vide ⇒ aucun picto sur la carte. */
   emplacementsDePiece: (pieceId: number) => readonly EmplacementPiece[];
-  onVoirDansLeDrive: (e: EmplacementPiece) => void;
+  /** 🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — la PIÈCE voyage avec l'emplacement : voir `PiecesDeLaConversation`. */
+  onVoirDansLeDrive: (e: EmplacementPiece, source: PieceARanger) => void;
 }) {
   const dispo = pieces.filter((p) => p.disponible);
   const refusees = pieces.filter((p) => !p.disponible);
@@ -516,7 +517,8 @@ function CartePiece({
   destinataires?: readonly FamilleVue[];
   /** 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE — vide ⇒ la carte est EXACTEMENT celle d'avant ce lot. */
   emplacements: readonly EmplacementPiece[];
-  onVoirDansLeDrive: (e: EmplacementPiece) => void;
+  /** 🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — la PIÈCE voyage avec l'emplacement : voir `PiecesDeLaConversation`. */
+  onVoirDansLeDrive: (e: EmplacementPiece, source: PieceARanger) => void;
 }) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
   const [vignetteMorte, setVignetteMorte] = useState(false);
@@ -693,7 +695,9 @@ function CartePiece({
             CONSTAT, pas une action à proposer. Les trois autres, eux, sont toujours là — l'ordre ne bouge pas. */}
         <PictoDansLeDrive
           emplacements={emplacements} nomPiece={p.nomFichier} classe="pj-action"
-          onOuvrir={onVoirDansLeDrive} />
+          onOuvrir={(e) => onVoirDansLeDrive(e, {
+            pieceId: p.pieceId, nom: p.nomFichier, tailleOctets: p.tailleOctets, typeMime: p.typeMime,
+          })} />
       </div>
     </li>
   );

@@ -132,3 +132,34 @@ export function resumeVignettes(n: number): string | null {
     ? `${n} copies à ranger (l’original reste en place)`
     : '1 copie à ranger (l’original reste en place)';
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — LES PIÈCES D'OÙ L'ON VIENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (07/10/2026, fil 36558) : un clic sur l'icône verte « Dans le Drive » d'une miniature ouvre
+   l'écran du Drive — « mais la pièce ne figure nulle part en haut de la colonne de gauche ». On y voit les
+   emplacements (« Dossier du bien », « Mon Drive », « Drives partagés », « Récents ») et rien du document qu'on
+   vient de cliquer. Seul le bandeau « CE DOCUMENT EST ICI » en parle.
+
+   🔴 LA CAUSE, LUE DANS LE CODE : la colonne de gauche ne montre des vignettes QU'EN MODE « ranger » — les pièces
+   du message et les copies dupliquées. Le picto vert ouvre la fenêtre en mode « consulter », qui n'en a jamais
+   porté. Le document était donc là sans être nulle part. */
+
+/**
+ * LE TITRE DISCRET DE LA SECTION. Arno : « avec un titre discret “Pièce(s) sélectionnée(s)” ».
+ *
+ * ⚠️ IL DIT COMBIEN dès qu'il y en a plusieurs : on arrive parfois d'une sélection de six pièces, et le nombre
+ * est la première chose qu'on vérifie.
+ */
+export function titrePiecesSources(n: number): string | null {
+  if (n <= 0) return null;
+  return n > 1 ? `${n} pièces sélectionnées` : '1 pièce sélectionnée';
+}
+
+/**
+ * 🔴 L'ÉTAT D'UNE PIÈCE QUI N'EST PAS ENCORE DANS LE DRIVE. Arno le demande en toutes lettres, et il a raison de
+ * le vouloir ÉCRIT : une vignette sans loupe et sans compteur ne dit pas, à elle seule, si l'on n'a pas encore
+ * cherché ou si l'on a cherché sans trouver.
+ */
+export const MOT_PAS_ENCORE_DANS_LE_DRIVE = 'pas encore dans le Drive';

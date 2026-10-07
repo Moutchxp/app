@@ -122,8 +122,22 @@ describe('ce que l’écran dit à zéro', () => {
    * 🔴 LA PASTILLE VERTE EST MASQUÉE À ZÉRO, et c'est une règle, pas un détail d'affichage : un « 0 » vert se
    * lirait comme une bonne nouvelle alors qu'il dit exactement le contraire.
    */
+  /**
+   * ⚠️ REQUALIFIÉ LE 07/10/2026 — LOT DRIVE-VIGNETTES-PIECES-SOURCE : LA RÈGLE A CHANGÉ D'ENDROIT, PAS DE SENS.
+   *
+   * La condition était écrite DANS la liste des pièces à ranger, puis une seconde fois dans celle des vignettes
+   * dupliquées. Ce lot en aurait fait une troisième (les pièces sources), et Arno demande « le même composant,
+   * pas une copie » : le masquage à zéro vit maintenant dans `VignetteDocument`, et il sert les trois listes.
+   *
+   * 🔴 CE QU'ON ÉPROUVE EST LE MÊME FAIT, à son nouvel et unique endroit : un « 0 » vert se lirait comme une
+   * bonne nouvelle alors qu'il dit le contraire — ce document n'est rangé nulle part.
+   */
   it('🔴 la pastille verte ne paraît pas à zéro', () => {
     const ecran = readFileSync('app/(admin)/admin/(protected)/gestion/SelecteurFichierDrive.tsx', 'utf8');
-    expect(ecran).toContain('(comptesRanges.get(`piece:${x.pieceId}`) ?? 0) > 0 && (');
+    expect(ecran).toContain('{compteur > 0 && (');
+    expect(ecran).toContain('className="sfd-piece-range"');
+    /* 🔴 ET LES TROIS LISTES LUI PASSENT LEUR COMPTE : aucune ne redessine la pastille elle-même. */
+    expect(ecran).toContain('compteur={comptesRanges.get(`piece:${x.pieceId}`) ?? 0}');
+    expect(ecran).toContain('compteur={comptesRanges.get(v.cle) ?? 0}');
   });
 });

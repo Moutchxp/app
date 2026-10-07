@@ -24,6 +24,8 @@ import { CSS_DESTINATAIRES_PIECE, DestinatairesDePiece } from './DestinatairesDe
    plus (Interne), « non affecté » devenu Extérieur, et le Cci compté quand on le connaît. */
 import type { FamilleVue } from '../../../../lib/gestion/familleDestinataire';
 import type { EmplacementPiece } from '../../../../lib/gestion/pieceDansLeDrive';
+/* 🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — la forme d'une pièce telle que la fenêtre du Drive la reçoit. */
+import type { PieceARanger } from '../../../../lib/gestion/rangementDrive';
 
 /**
  * LOT PIECES-DE-LA-CONVERSATION — LE RÉCAPITULATIF DES PIÈCES D'UN ÉCHANGE.
@@ -90,7 +92,13 @@ export interface GestesPiece {
    * ⚠️ RENDU PAR L'ÉCRAN PARENT, comme tous les autres gestes de cette fenêtre : la fenêtre Drive s'empile
    * au-dessus de celle-ci, et c'est la conversation qui tient cet empilement (et l'écoute d'Échap qui va avec).
    */
-  onVoirDansLeDrive: (e: EmplacementPiece) => void;
+  /**
+   * 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — LA PIÈCE VOYAGE AVEC L'EMPLACEMENT. `EmplacementPiece` ne dit que
+   * le FICHIER là-bas (son identifiant Drive, son dossier) : il ne porte ni le `pieceId`, ni la taille, ni le
+   * type. Or c'est la PIÈCE qu'Arno veut voir en vignette dans la colonne de gauche. L'appelant la tient sous la
+   * main ; la redemander au serveur aurait fait une lecture de plus pour une donnée déjà affichée à l'écran.
+   */
+  onVoirDansLeDrive: (e: EmplacementPiece, source: PieceARanger) => void;
 }
 
 export function ModalePiecesConversation({
@@ -450,7 +458,9 @@ export function CartePieceConversation({
             si cette pièce est déjà dans le Drive. */}
         <PictoDansLeDrive
           emplacements={emplacements} nomPiece={p.nomFichier} classe="pdc-action"
-          onOuvrir={gestes.onVoirDansLeDrive} />
+          onOuvrir={(e) => gestes.onVoirDansLeDrive(e, {
+            pieceId: p.pieceId, nom: p.nomFichier, tailleOctets: p.tailleOctets, typeMime: p.typeMime,
+          })} />
       </div>
       {/* 🔴 « ALLER AU MESSAGE » : la fenêtre se ferme et le message se déplie dans le fil (demande d'Arno). Une
           pièce ne se comprend souvent qu'avec le courrier qui l'accompagne.
