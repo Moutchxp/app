@@ -3,8 +3,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import {
-  rangSuivant, suggestionsAnnuaire, type PersonnePourSuggestion, type SuggestionAnnuaire,
+  classerSuggestions, rangSuivant, suggestionsAnnuaire,
+  type PersonnePourSuggestion, type SuggestionAnnuaire,
 } from '../../../../lib/gestion/suggestionAnnuaire';
+/* 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 2 — la dernière ligne visible l'est EN ENTIER (module PUR). */
+import { hauteurEntiereDans } from '../../../../lib/gestion/listeDefilante';
 
 /**
  * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — LA BARRE DE RECHERCHE ANNUAIRE DE L'ACCUEIL ═════════════════════
@@ -49,6 +52,12 @@ interface ReponseAnnuaire {
 const DELAI_MS = 250;
 /** En dessous de deux lettres, la recherche rendrait la moitié de l'annuaire : on ne la lance pas. */
 const MINIMUM = 2;
+/**
+ * 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 2 — LE PLAFOND DE LA LISTE, écrit UNE fois. La feuille le pose
+ * (`max-height:min(60vh,380px)`) et la mesure le relit : deux valeurs auraient fini par différer, et la liste
+ * aurait coupé une ligne de plus que prévu.
+ */
+const PLAFOND_LISTE_PX = 380;
 
 export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
   const [texte, setTexte] = useState('');
@@ -57,6 +66,22 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
   const [occupe, setOccupe] = useState(false);
   const idListe = useId();
   const champ = useRef<HTMLInputElement | null>(null);
+  /**
+   * ══ 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 2 — LA DERNIÈRE LIGNE VISIBLE L'EST EN ENTIER ═════════════
+   *
+   * Arno : « la liste doit montrer le dernier élément visible en entier (pas de ligne coupée par le bord) ».
+   * Le plafond de la feuille est une PLACE (`min(60vh, 380px)`), pas un nombre de lignes : il tombe donc au
+   * milieu d'une suggestion, et c'est ainsi qu'« ALEJO FERNANDEZ Paula » est apparue à moitié coupée.
+   *
+   * 🔴 ON MESURE, COMME POUR LES ENCARTS DE PARTIES, et par la MÊME fonction (`hauteurEntiereDans`) : on garde
+   * la dernière ligne qui tient entièrement dans ce budget, et la boîte s'arrête à son bas. Les lignes ont des
+   * hauteurs différentes — une mention « + Propriétaire de X biens » en ajoute une —, donc aucune hauteur
+   * calculée à la main n'aurait pu tenir.
+   *
+   * ⚠️ `null` TANT QU'ON N'A PAS MESURÉ : la feuille garde la main, et la liste ne saute pas au premier rendu.
+   */
+  const boiteListe = useRef<HTMLUListElement | null>(null);
+  const [hauteurListe, setHauteurListe] = useState<number | null>(null);
 
   /**
    * 🔴 LA RECHERCHE, APRÈS LE DÉLAI, ET ANNULABLE. `annule` garde la réponse d'une frappe abandonnée hors de
@@ -75,7 +100,14 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
           if (annule) return;
           /* ⚠️ `sans_schema` ET LES ERREURS RENDENT UNE LISTE VIDE, pas une liste absente : l'écran dit alors
              « Aucun contact trouvé » plutôt que de laisser le champ muet. */
-          setSuggestions(suggestionsAnnuaire(d.etat === 'ok' ? (d.data?.personnes ?? []) : []));
+          /**
+           * 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 2 — ON CLASSE PAR PERTINENCE DU NOM, TOUS RÔLES
+           * MÊLÉS. La recherche rend ses propriétaires puis ses locataires — deux requêtes concaténées, donc un
+           * ordre d'ARRIVÉE et non un classement. Sur « jo », les locataires tombaient tous en bas de liste.
+           */
+          setSuggestions(classerSuggestions(
+            suggestionsAnnuaire(d.etat === 'ok' ? (d.data?.personnes ?? []) : []), t,
+          ));
           setRang(-1);
         } catch {
           if (!annule) { setSuggestions([]); setRang(-1); }
@@ -86,6 +118,21 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
     }, DELAI_MS);
     return () => { annule = true; clearTimeout(minuteur); };
   }, [texte]);
+
+  /**
+   * ⚠️ ON MESURE APRÈS CHAQUE CHANGEMENT DE LISTE, et c'est le seul moment où il le faut : les lignes ne bougent
+   * pas d'elles-mêmes. Le budget vient de la feuille (`min(60vh, 380px)`), relu ici pour ne pas l'écrire deux
+   * fois — une valeur recopiée aurait fini par différer de celle qui s'applique.
+   */
+  useEffect(() => {
+    const el = boiteListe.current;
+    if (el === null) { setHauteurListe(null); return; }
+    const positions = [...el.querySelectorAll('li')].map((x) => ({
+      haut: (x as HTMLElement).offsetTop, hauteur: (x as HTMLElement).offsetHeight,
+    }));
+    const budget = Math.min(window.innerHeight * 0.6, PLAFOND_LISTE_PX);
+    setHauteurListe(hauteurEntiereDans(positions, budget));
+  }, [suggestions]);
 
   const ouvrir = (s: SuggestionAnnuaire): void => {
     setTexte(''); setSuggestions(null); setRang(-1);
@@ -149,7 +196,9 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
             {occupe ? 'Recherche…' : 'Aucun contact trouvé.'}
           </p>
           : (
-            <ul className="gst-annuaire-liste" id={idListe} role="listbox" aria-label="Contacts trouvés">
+            <ul className="gst-annuaire-liste" id={idListe} role="listbox" aria-label="Contacts trouvés"
+              ref={boiteListe}
+              style={hauteurListe === null ? undefined : { maxHeight: `${hauteurListe}px` }}>
               {liste.map((s, i) => (
                 <li key={s.cle} id={`${idListe}-${i}`} role="option" aria-selected={i === rang}>
                   {/* ⚠️ `onMouseDown` ET NON `onClick` : le champ perd le focus au clic, ce qui referme la liste
@@ -159,7 +208,13 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
                     onMouseDown={(e) => { e.preventDefault(); ouvrir(s); }}
                     onMouseEnter={() => setRang(i)}>
                     <span className="gst-annuaire-nom">{s.nom}</span>
-                    <span className="gst-annuaire-role">{s.mot}</span>
+                    {/* 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 3 — ROUGE pour un propriétaire, VERT pour
+                        un locataire (ancien compris) : les MÊMES jetons que les liserés des encarts Propriétaire
+                        et Locataire de la fiche du bien (`--color-svv-red` / `--color-svv-green`, cf.
+                        `.hdb-groupe--rouge` et `.hdb-groupe--vert`). Aucune couleur nouvelle, et le thème Sombre
+                        suit sans rien dire de lui. */}
+                    <span className={`gst-annuaire-role gst-annuaire-role--${
+                      s.role === 'proprietaire' ? 'proprietaire' : 'locataire'}`}>{s.mot}</span>
                     {/* 🔴 L'ADRESSE DISTINGUE LES HOMONYMES, et elle ne porte PAS le numéro de lot (Arno). */}
                     {s.lieu !== null && <span className="gst-annuaire-lieu">{s.lieu}</span>}
                     {/* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « + Propriétaire de X biens au total », APRÈS
@@ -210,8 +265,15 @@ const CSS_BARRE_ANNUAIRE = `
 .gst-annuaire-item--vise,.gst-annuaire-item:hover{background:var(--color-svv-field)}
 .gst-annuaire-item:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .gst-annuaire-nom{font-weight:700;color:var(--color-svv-ink)}
+/* ══ LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 3 — LA CAPSULE DE ROLE PREND LA COULEUR DE SON ENCART ══
+   ROUGE pour un proprietaire, VERT pour un locataire (ancien compris) : les MEMES jetons que les lisereres des
+   encarts de la fiche du bien. Le texte est --color-svv-bg et non un blanc en dur : en theme Sombre, c'est lui
+   qui donne le contraste contre le fond colore.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 .gst-annuaire-role{font-size:.72rem;font-weight:700;letter-spacing:.03em;padding:1px 7px;border-radius:999px;
   color:var(--color-svv-bg);background:var(--color-svv-ink)}
+.gst-annuaire-role--proprietaire{background:var(--color-svv-red)}
+.gst-annuaire-role--locataire{background:var(--color-svv-green)}
 .gst-annuaire-lieu{font-size:.82rem;color:var(--color-svv-muted)}
 /* Sur telephone, la capsule garde sa forme : c'est le libelle qui se resserre, jamais le champ qui disparait. */
 @media (max-width: 560px){

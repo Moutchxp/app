@@ -154,6 +154,71 @@ function mentionBiens(p: PersonnePourSuggestion, role: RoleSuggere): string | nu
 }
 
 /**
+ * ══ 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 2 — LES RÔLES SONT MÊLÉS, ET C'EST LA PERTINENCE QUI RANGE ═════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CONSTAT D'ARNO (07/10/2026) : en tapant « jo », tous les propriétaires sortent d'abord et les locataires
+ * n'apparaissent qu'en bas, à moitié coupés. « Arno croit qu'il n'y a que des propriétaires. »
+ *
+ * 🔴 LA CAUSE : l'ordre était celui de la RECHERCHE, qui rend ses propriétaires puis ses locataires — deux
+ * requêtes, concaténées. Ce n'était pas un classement, c'était l'ordre d'arrivée, et il dit « rôle » là où l'on
+ * cherche un NOM.
+ *
+ * 🔴 RÈGLE D'ARNO : « classe par PERTINENCE du nom, quel que soit le rôle : correspondance en début de nom ou de
+ * mot d'abord, puis ailleurs dans le nom, puis par ordre alphabétique ».
+ *
+ * TROIS RANGS, DANS CET ORDRE :
+ *   ① le nom COMMENCE par ce qu'on tape — « JOREL » pour « jo » ;
+ *   ② un MOT du nom commence par ce qu'on tape — « ALEJO FERNANDEZ Paula » pour « fer », « M. JOLY » pour « jo » ;
+ *   ③ ce qu'on tape est AILLEURS dans le nom — « ALEJO » pour « jo ».
+ *   ④ et le nom ne répond pas du tout : la personne a été trouvée par son adresse, son téléphone ou son e-mail.
+ *      Elle reste dans la liste — la recherche l'a trouvée pour une bonne raison — mais après celles dont le nom
+ *      parle, parce que c'est un nom qu'on tape.
+ *
+ * ⚠️ À RANG ÉGAL, L'ORDRE ALPHABÉTIQUE, et il est STABLE : `localeCompare` en français, puis la clé en secours.
+ * Deux personnes du même nom ne doivent pas changer de place d'une frappe à l'autre.
+ *
+ * ⚠️ ON COMPARE SANS ACCENTS NI CASSE : « éric » trouve « ERIC », et « JOREL » répond à « jo » comme à « JO ».
+ */
+function sansAccent(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/**
+ * LE RANG D'UNE SUGGESTION POUR CE QU'ON TAPE. Plus petit = plus haut dans la liste. PUR.
+ *
+ * ⚠️ LES MOTS SONT DÉCOUPÉS SUR TOUT CE QUI N'EST PAS UNE LETTRE OU UN CHIFFRE : « JULLIEN - GARRIDO » a bien
+ * deux mots, et « M. ROI » en a un qui commence par « roi » — sans quoi un nom précédé de sa civilité ne serait
+ * jamais en tête.
+ */
+export function rangPertinence(nom: string, terme: string): number {
+  const t = sansAccent(terme.trim());
+  if (t === '') return 3;
+  const n = sansAccent(nom);
+  if (n.startsWith(t)) return 0;
+  if (n.split(/[^\p{L}\p{N}]+/u).some((mot) => mot !== '' && mot.startsWith(t))) return 1;
+  return n.includes(t) ? 2 : 3;
+}
+
+/**
+ * CLASSE LES SUGGESTIONS PAR PERTINENCE DU NOM, TOUS RÔLES MÊLÉS. PUR.
+ *
+ * ⚠️ IL NE FILTRE RIEN : tout ce que la recherche a trouvé reste affiché, y compris les personnes trouvées par
+ * une coordonnée. Classer n'est pas écarter — une suggestion retirée serait une personne introuvable.
+ */
+export function classerSuggestions(
+  suggestions: readonly SuggestionAnnuaire[], terme: string,
+): SuggestionAnnuaire[] {
+  return [...suggestions].sort((a, b) => {
+    const ra = rangPertinence(a.nom, terme);
+    const rb = rangPertinence(b.nom, terme);
+    if (ra !== rb) return ra - rb;
+    const parNom = a.nom.localeCompare(b.nom, 'fr', { sensitivity: 'base' });
+    return parNom !== 0 ? parNom : a.cle.localeCompare(b.cle);
+  });
+}
+
+/**
  * ══ 🔴 LE DÉPLACEMENT DU CURSEUR DANS LA LISTE ═══════════════════════════════════════════════════════════════════
  *
  * Arno : « Clavier : flèches haut/bas, Entrée, Échap. » Écrit ici, et non dans l'écran, parce que c'est la seule

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  motRoleSuggere, rangSuivant, suggestionsAnnuaire, type PersonnePourSuggestion,
+  classerSuggestions, motRoleSuggere, rangPertinence, rangSuivant, suggestionsAnnuaire,
+  type PersonnePourSuggestion, type RoleSuggere, type SuggestionAnnuaire,
 } from './suggestionAnnuaire';
 
 /**
@@ -215,6 +216,72 @@ describe('🔴🔴 ⑤ le clavier : flèches haut et bas', () => {
   it('⚠️ une seule suggestion : les deux sens y restent', () => {
     expect(rangSuivant(0, 1, 'bas')).toBe(0);
     expect(rangSuivant(0, 1, 'haut')).toBe(0);
+  });
+});
+
+describe('🔴🔴 ⑦ le classement : les rôles sont MÊLÉS, c’est la pertinence qui range', () => {
+  /**
+   * ══ 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 2 ═════════════════════════════════════════════════════════
+   *
+   * CONSTAT D'ARNO : en tapant « jo », tous les propriétaires sortent d'abord et les locataires n'apparaissent
+   * qu'en bas. « Arno croit qu'il n'y a que des propriétaires. » La cause : l'ordre était celui de la RECHERCHE,
+   * qui rend ses propriétaires puis ses locataires — deux requêtes concaténées, donc un ordre d'ARRIVÉE.
+   *
+   * RÈGLE D'ARNO : « correspondance en début de nom ou de mot d'abord, puis ailleurs dans le nom, puis par ordre
+   * alphabétique », quel que soit le rôle.
+   */
+  const sug = (nom: string, role: RoleSuggere, id: number): SuggestionAnnuaire => ({
+    cle: `${role}-${id}`, nom, role, mot: motRoleSuggere(role), lieu: null, mention: null,
+    fiche: { sorte: role === 'proprietaire' ? 'proprietaire' : 'locataire', id },
+  });
+
+  it('🔴🔴 un locataire dont le nom commence par le terme passe DEVANT un propriétaire trouvé autrement', () => {
+    const liste = [
+      sug('MARTIN Paul', 'proprietaire', 1),          // trouvé par son adresse : le nom ne répond pas
+      sug('JOLY Sandrine', 'locataire', 2),           // début de nom
+    ];
+    expect(classerSuggestions(liste, 'jo').map((s) => s.nom)).toEqual(['JOLY Sandrine', 'MARTIN Paul']);
+  });
+
+  it('🔴🔴 les trois rangs, dans l’ordre : début de nom, début de mot, ailleurs', () => {
+    const liste = [
+      sug('ALEJO FERNANDEZ Paula', 'locataire', 3),   // « jo » est AILLEURS dans le mot
+      sug('M. JOLY Sandrine', 'proprietaire', 2),     // un MOT commence par « jo »
+      sug('JOREL Arnaud', 'proprietaire', 1),         // le NOM commence par « jo »
+    ];
+    expect(classerSuggestions(liste, 'jo').map((s) => s.nom))
+      .toEqual(['JOREL Arnaud', 'M. JOLY Sandrine', 'ALEJO FERNANDEZ Paula']);
+  });
+
+  /** 🔴 À RANG ÉGAL, L'ORDRE ALPHABÉTIQUE — et les rôles restent mêlés. */
+  it('🔴 à rang égal, l’alphabet tranche, tous rôles confondus', () => {
+    const liste = [
+      sug('JOREL Zoé', 'proprietaire', 1),
+      sug('JOREL Arnaud', 'locataire', 2),
+    ];
+    const r = classerSuggestions(liste, 'jo');
+    expect(r.map((s) => s.nom)).toEqual(['JOREL Arnaud', 'JOREL Zoé']);
+    expect(r.map((s) => s.role)).toEqual(['locataire', 'proprietaire']);
+  });
+
+  /** ⚠️ SANS ACCENTS NI CASSE : « eric » trouve « ÉRIC » en tête, pas en queue. */
+  it('⚠️ les accents et la casse ne changent pas le rang', () => {
+    expect(rangPertinence('ÉRIC Dupont', 'eric')).toBe(0);
+    expect(rangPertinence('Dupont Éric', 'ERIC')).toBe(1);
+  });
+
+  /**
+   * ⚠️ IL NE FILTRE RIEN : une personne trouvée par son téléphone ou son e-mail reste dans la liste, après
+   * celles dont le nom parle. Classer n'est pas écarter — une suggestion retirée serait une personne introuvable.
+   */
+  it('⚠️ une personne trouvée sans que son nom réponde reste affichée', () => {
+    const liste = [sug('MARTIN Paul', 'proprietaire', 1), sug('JOLY Sandrine', 'locataire', 2)];
+    expect(classerSuggestions(liste, 'jo')).toHaveLength(2);
+  });
+
+  it('⚠️ un terme vide ne réordonne rien d’autre que l’alphabet', () => {
+    const liste = [sug('ZOE', 'proprietaire', 1), sug('ANNA', 'locataire', 2)];
+    expect(classerSuggestions(liste, '  ').map((s) => s.nom)).toEqual(['ANNA', 'ZOE']);
   });
 });
 

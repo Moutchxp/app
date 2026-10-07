@@ -1212,6 +1212,18 @@ export interface PositionCapsule { haut: number; hauteur: number }
  */
 export const TOLERANCE_DEFILEMENT_PX = 1;
 
+/**
+ * ══ 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 1 — COMBIEN DE CAPSULES UN ENCART MONTRE ══════════════════════
+ *
+ * Trois, c'est le nombre d'origine (demande d'Arno au lot HISTORIQUE-BIEN-3 : « la hauteur actuelle, 3 lignes
+ * visibles »). Il était écrit dans la FEUILLE, sous forme d'une hauteur en rem calculée à la main — et c'est de là
+ * que venait le faux « ↓ 1 autre » : une capsule dont le nom passe à la ligne dépassait la hauteur supposée.
+ *
+ * 🔴 IL EST DÉSORMAIS UN NOMBRE DE LIGNES, et la hauteur se MESURE (`hauteurDesPremiers`). C'est la seule façon
+ * de tenir la promesse « ces trois-là tiennent entièrement », quelle que soit la hauteur réelle d'une capsule.
+ */
+export const CAPSULES_VISIBLES = 3;
+
 export function compteCacheesEnBas(
   positions: readonly PositionCapsule[], scrollTop: number, hauteurVisible: number,
 ): number {

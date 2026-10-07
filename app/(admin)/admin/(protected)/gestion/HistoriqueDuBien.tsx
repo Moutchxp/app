@@ -71,7 +71,8 @@ import {
   MOT_TOUT_DECOCHER, motGroupeAgence, motSelectionDesParties, TITRE_GROUPE_AGENCE,
   motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
-  adresseACorriger, BUT_DU_PLUS, ciblesDeplacement, clientConnuPour, compteCacheesEnBas, compteCacheesEnHaut,
+  adresseACorriger, BUT_DU_PLUS, CAPSULES_VISIBLES, ciblesDeplacement, clientConnuPour, compteCacheesEnBas,
+  compteCacheesEnHaut,
   MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable, motPorteeDuResume,
   completerAvecLesClients, motPastille, ordonnerLesCapsules, pastilleDeCapsule, sorteDeCapsule,
   BANDES_SOUS_LES_ENCARTS, filtrerParMots, messagesDesPorteurs,
@@ -98,6 +99,8 @@ import {
   type ChoixPeriode, type OccupationPeriode,
   type PeriodePartie, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
+/* 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 1 — la hauteur qui contient N lignes ENTIÈRES (module PUR). */
+import { hauteurDesPremiers } from '../../../../lib/gestion/listeDefilante';
 /**
  * 🔴🔴 LOT HISTORIQUE-BIEN-7 — LA SYNCHRONISATION AVEC LES CARROUSELS DU HAUT, DANS LES DEUX SENS.
  *
@@ -3688,6 +3691,24 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
   const boite = useRef<HTMLDivElement | null>(null);
   const [enBas, setEnBas] = useState(0);
   const [enHaut, setEnHaut] = useState(0);
+  /**
+   * ══ 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 1 — LA HAUTEUR EST MESURÉE, PLUS DEVINÉE ═══════════════════
+   *
+   * CONSTAT D'ARNO (bien 315) : l'encart montre ses trois contacts, et affiche pourtant « ↓ 1 autre ».
+   *
+   * 🔴 LA CAUSE : le plafond était ÉCRIT (`--hdb-liste-h`), calculé pour « trois capsules de 44 px ». Une capsule
+   * dont le nom passe à la ligne dépasse ces 44 px : la troisième était rognée de quelques pixels, le compteur la
+   * voyait « pas entièrement visible » — ce qui était EXACT — et annonçait un contact de plus.
+   *
+   * 🔴 ON NE RELÂCHE DONC PAS LE COMPTEUR, ce qui l'aurait rendu faux pour de bon : on mesure la hauteur qu'il
+   * faut pour que les `CAPSULES_VISIBLES` premières tiennent ENTIÈREMENT, et la boîte s'arrête là. Au-delà, le
+   * défilement et la puce fonctionnent comme avant, avec le bon nombre — il n'y a plus rien qui dépasse quand
+   * tout tient.
+   *
+   * ⚠️ `null` TANT QU'ON N'A PAS MESURÉ : la feuille garde la main (`--hdb-liste-h`), et l'encart ne saute pas
+   * d'une hauteur à l'autre au premier rendu.
+   */
+  const [hauteur, setHauteur] = useState<number | null>(null);
 
   const mesurer = useCallback((): void => {
     const el = boite.current;
@@ -3695,6 +3716,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
     const positions = [...el.querySelectorAll('[data-capsule]')].map((x) => ({
       haut: (x as HTMLElement).offsetTop, hauteur: (x as HTMLElement).offsetHeight,
     }));
+    setHauteur(hauteurDesPremiers(positions, CAPSULES_VISIBLES));
     setEnBas(compteCacheesEnBas(positions, el.scrollTop, el.clientHeight));
     setEnHaut(compteCacheesEnHaut(positions, el.scrollTop));
   }, []);
@@ -3724,7 +3746,8 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
 
   return (
     <div className="hdb-boite">
-      <div className="hdb-defile" ref={boite} onScroll={mesurer}>
+      <div className="hdb-defile" ref={boite} onScroll={mesurer}
+        style={hauteur === null ? undefined : { maxHeight: `${hauteur}px` }}>
         <ul className="hdb-personnes">{children}</ul>
       </div>
       {motHaut !== null && (
