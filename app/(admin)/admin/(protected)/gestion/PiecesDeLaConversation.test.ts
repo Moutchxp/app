@@ -381,3 +381,132 @@ describe('🔴🔴 le résumé d’une conversation se referme sans remonter', (
     expect(plat).toContain('onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}');
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PJ-MINIATURE-ICONES — LES QUATRE ICÔNES SUR UNE LIGNE, LE MOT CENTRÉ SOUS ELLES
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (07/10/2026), sur « RIB GESTION CRED… AGRIC… » : la 4e icône (verte, « déjà dans le Drive »)
+   passait SOUS la ligne des icônes et se retrouvait à GAUCHE de « Aller au message ».
+
+   🔴 LA CAUSE, MESURÉE : les cinq éléments — quatre pictos de 44 px et un MOT — vivaient dans la même rangée en
+   `flex-wrap`. Une carte fait au minimum 190 px (la grille est en `minmax(190px,1fr)`), il reste ~179 px une fois
+   les marges internes retirées, et quatre cibles de 44 px plus leurs gouttières en demandaient 182. Trois pixels
+   manquaient, et c'est la quatrième icône qui tombait — avec le mot.
+
+   ⚠️ JSDOM NE MET PAS EN PAGE : il ne calcule ni largeur ni repli. Ce bloc éprouve donc la STRUCTURE et les
+   RÈGLES qui la produisent. LES LARGEURS RÉELLES ONT ÉTÉ MESURÉES dans le vrai navigateur, sur les 11 pièces du
+   fil 36216, à 1600, 1280 et 1000 px, et à la largeur MINIMALE d'une carte (190 px, forcée dans le DOM) :
+   quatre icônes sur UNE ligne partout, hauteur 44 px partout, « Aller au message » dessous et centré à 0 px
+   près sur les onze cartes, aucun débordement. Les onze ont la même mise en page.
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑨ la miniature : quatre icônes sur une ligne, « Aller au message » centré dessous', () => {
+  const SRC_IC = readFileSync('app/(admin)/admin/(protected)/gestion/PiecesDeLaConversation.tsx', 'utf8');
+  /** La feuille sans ses commentaires : on éprouve des DÉCLARATIONS, pas des explications. */
+  const FEUILLE = SRC_IC.replace(/\/\*[\s\S]*?\*\//g, '');
+  const regleDe = (sel: string): string =>
+    FEUILLE.match(new RegExp(`^${sel}\\{([^}]*)\\}`, 'm'))?.[1] ?? '';
+
+  /**
+   * La pièce est dans le Drive : c'est le cas à QUATRE icônes, celui qu'Arno a vu se replier.
+   *
+   * ⚠️ LA CARTE EST INDEXÉE PAR `pieceId`, et l'ordre par défaut met la plus RÉCENTE en tête — c'est `devis.pdf`
+   * (pièce 20). Poser l'emplacement sur la pièce 1, qui n'existe pas, donnait trois icônes et un cas qui ne
+   * prouvait rien : on les pose donc sur TOUTES les pièces du jeu d'essai.
+   */
+  const avecQuatre = () => monter({
+    emplacements: new Map([10, 20, 21].map((id) =>
+      [id, [{ id: `d-${id}`, nom: 'bail.pdf', dossierNom: 'Baux', webViewLink: null }]])),
+  });
+
+  it('🔴🔴 les quatre icônes sont dans LEUR rangée, et le mot n’y est plus', () => {
+    avecQuatre();
+    const carte = container.querySelector('.pdc-carte') as HTMLElement;
+    const icones = carte.querySelector('.pdc-icones') as HTMLElement;
+    expect(icones).not.toBeNull();
+    /* 🔴 QUATRE CASES, ET QUATRE SEULEMENT : le mot n'est plus l'une d'elles. */
+    expect(icones.children).toHaveLength(4);
+    expect(icones.textContent).not.toContain('Aller au message');
+    /* 🔴 ET LES QUATRE GESTES SONT TOUS LÀ — rien n'a été retiré au passage (Arno, point 4). */
+    const titres = [...icones.querySelectorAll('[title]')].map((e) => e.getAttribute('title'));
+    for (const t of ['Visualiser', 'Télécharger', 'Ranger dans le Drive']) {
+      expect(titres, t).toContain(t);
+    }
+    /* La quatrième est le picto « déjà dans le Drive », dont la bulle est écrite par son module pur. */
+    expect(icones.querySelector('.pdd')).not.toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LA RÈGLE QUI INTERDIT LE REPLI. C'est `nowrap` qui rend le défaut d'Arno impossible à reproduire : les
+   * largeurs peuvent changer, le repli, lui, n'est plus une option.
+   */
+  it('🔴🔴 la rangée des icônes ne peut PAS se replier', () => {
+    const r = regleDe('\\.pdc-icones');
+    expect(r).toContain('display:flex');
+    expect(r).toContain('flex-wrap:nowrap');
+    expect(r).not.toContain('flex-wrap:wrap');
+  });
+
+  /**
+   * 🔴🔴 RÉPARTIES SUR LA LARGEUR, ET LE PLANCHER DE 44 px LEVÉ **DANS CETTE RANGÉE SEULEMENT**.
+   *
+   * ⚠️ LA SPÉCIFICITÉ EST LE POINT, et c'est le défaut que j'ai dû corriger en route : `.pdc-action` et
+   * `.pdc-icones > *` pèsent pareil, donc l'ORDRE de déclaration tranchait — le plancher gagnait, les trois
+   * premiers pictos restaient à 44 px et le quatrième absorbait tout le reste (mesuré : 44/44/44/39).
+   */
+  it('🔴🔴 chaque icône prend une part égale, et le plancher de largeur est levé ici', () => {
+    expect(regleDe('\\.pdc-icones > \\*')).toContain('flex:1 1 0');
+    expect(regleDe('\\.pdc-icones > \\*')).toContain('min-width:0');
+    /* 🔴 DEUX CLASSES DANS LE SÉLECTEUR : c'est ce qui le fait gagner sur `.pdc-action{min-width:44px}`. */
+    expect(FEUILLE).toContain('.pdc-icones .pdc-action{width:100%;min-width:0}');
+    /* ⚠️ ET LA HAUTEUR NE BOUGE PAS : la cible reste confortable (Arno). */
+    expect(regleDe('\\.pdc-action')).toContain('min-height:44px');
+  });
+
+  /** 🔴🔴 LE MOT EST SEUL SUR SA LIGNE, ET CENTRÉ (Arno, point 2). */
+  it('🔴🔴 « Aller au message » est seul sur sa ligne, centré', () => {
+    avecQuatre();
+    const carte = container.querySelector('.pdc-carte') as HTMLElement;
+    const aller = carte.querySelector('.pdc-aller') as HTMLElement;
+    expect(aller).not.toBeNull();
+    /* 🔴 SEUL : un enfant, et c'est le bouton. */
+    expect(aller.children).toHaveLength(1);
+    expect(aller.textContent).toBe('Aller au message');
+    /* 🔴 ET IL VIENT APRÈS la rangée des icônes, dans l'ordre du document. */
+    const enfants = [...carte.querySelectorAll(':scope > *')];
+    expect(enfants.findIndex((e) => e.classList.contains('pdc-aller')))
+      .toBeGreaterThan(enfants.findIndex((e) => e.classList.contains('pdc-icones')));
+    /* 🔴 CENTRÉ : c'est la règle qui le dit, jsdom ne mesurant rien. */
+    expect(regleDe('\\.pdc-aller')).toContain('justify-content:center');
+  });
+
+  /**
+   * 🔴 TROIS ICÔNES AU LIEU DE QUATRE (pièce absente du Drive) : la mise en page ne change pas. C'est le point 3
+   * d'Arno — « toutes les miniatures d'une même grille gardent la même mise en page » : deux rangées dans les
+   * deux cas, et des parts égales dans les deux cas.
+   */
+  it('🔴 sans le picto Drive, la carte garde exactement la même mise en page', () => {
+    monter();
+    const carte = container.querySelector('.pdc-carte') as HTMLElement;
+    expect(carte.querySelector('.pdc-icones')?.children).toHaveLength(3);
+    expect(carte.querySelector('.pdc-aller')?.textContent).toBe('Aller au message');
+  });
+
+  /** ⚠️ LES BULLES D'AIDE RESTENT (Arno, point 4) : chaque icône garde son `title` ET son libellé accessible. */
+  it('⚠️ chaque icône garde sa bulle et son libellé accessible', () => {
+    avecQuatre();
+    const icones = container.querySelector('.pdc-icones') as HTMLElement;
+    for (const e of [...icones.querySelectorAll('.pdc-action')]) {
+      expect((e.getAttribute('title') ?? '').trim()).not.toBe('');
+      expect((e.getAttribute('aria-label') ?? '').trim()).not.toBe('');
+    }
+  });
+
+  /** ⚠️ ET L'ANCIENNE RANGÉE UNIQUE N'EXISTE PLUS : elle était la cause, elle ne doit pas revenir par la bande. */
+  it('⚠️ plus aucune rangée `pdc-actions` repliable', () => {
+    avecQuatre();
+    expect(container.querySelector('.pdc-actions')).toBeNull();
+    expect(FEUILLE).not.toContain('.pdc-actions{');
+  });
+});

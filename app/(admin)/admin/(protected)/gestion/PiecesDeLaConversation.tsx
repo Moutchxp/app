@@ -403,8 +403,22 @@ export function CartePieceConversation({
       </div>
 
       {/* ══ LES ACTIONS ══ Toujours visibles, jamais au survol : sur un iPhone, une action qui n'apparaît qu'au
-          passage de la souris n'existe pas. Cible de 44 px, et le mot en infobulle ET en libellé accessible. */}
-      <div className="pdc-actions">
+          passage de la souris n'existe pas. Cible de 44 px, et le mot en infobulle ET en libellé accessible.
+
+          ══ 🔴🔴 LOT PJ-MINIATURE-ICONES — DEUX RANGÉES, ET NON UNE QUI SE REPLIE ═══════════════════════════════
+          CONSTAT D'ARNO (07/10/2026), sur « RIB GESTION CRED… AGRIC… » : la 4e icône (verte, « déjà dans le
+          Drive ») passait SOUS la ligne des icônes et se retrouvait à gauche de « Aller au message ».
+
+          🔴 LA CAUSE ÉTAIT UNE SEULE RANGÉE EN `flex-wrap`. Les cinq éléments — quatre pictos de 44 px et un MOT —
+          vivaient dans la même rangée repliable. Mesuré : une carte fait au minimum 190 px, moins ses marges
+          internes il reste ~179 px, et quatre cibles de 44 px plus leurs gouttières en demandent 182. Il
+          manquait trois pixels, et c'est la quatrième icône qui tombait — avec le mot.
+
+          🔴 ON SÉPARE DONC CE QUI N'EST PAS DE MÊME NATURE : les PICTOS d'un côté, répartis sur la largeur et
+          jamais repliés ; le MOT en dessous, seul et centré. C'est la demande d'Arno, et c'est aussi ce qui
+          rend les cartes d'une même grille identiques — une rangée qui se replie dépend de son contenu, deux
+          rangées non. */}
+      <div className="pdc-icones">
         {refusApercu === null ? (
           <button type="button" className="pdc-action" onClick={() => gestes.onVoir(p.pieceId)}
             title="Visualiser" aria-label={`Visualiser ${p.nomFichier}`}>
@@ -437,8 +451,14 @@ export function CartePieceConversation({
         <PictoDansLeDrive
           emplacements={emplacements} nomPiece={p.nomFichier} classe="pdc-action"
           onOuvrir={gestes.onVoirDansLeDrive} />
-        {/* 🔴 « ALLER AU MESSAGE » : la fenêtre se ferme et le message se déplie dans le fil (demande d'Arno). Une
-            pièce ne se comprend souvent qu'avec le courrier qui l'accompagne. */}
+      </div>
+      {/* 🔴 « ALLER AU MESSAGE » : la fenêtre se ferme et le message se déplie dans le fil (demande d'Arno). Une
+          pièce ne se comprend souvent qu'avec le courrier qui l'accompagne.
+
+          🔴🔴 LOT PJ-MINIATURE-ICONES — SEUL SUR SA LIGNE, ET CENTRÉ (Arno). Il n'est pas un picto mais un MOT :
+          le laisser dans la rangée des icônes, c'était lui faire disputer sa place à la quatrième. Rien n'est
+          retiré ni déplacé ailleurs — il descend d'une ligne, dans la même carte. */}
+      <div className="pdc-aller">
         <button type="button" className="pdc-action pdc-action--mot"
           onClick={() => gestes.onAllerAuMessage(p.messageId)}
           title="Aller au message" aria-label={`Aller au message du ${dateHeureComplete(p.recuLe)}`}>
@@ -542,7 +562,45 @@ ${CSS_PICTO_DANS_LE_DRIVE}
 .pdc-lien{color:var(--color-svv-ink);text-decoration:underline}
 .pdc-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 
-.pdc-actions{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:.2rem .35rem .35rem;margin-top:auto}
+/* ══ 🔴🔴 LOT PJ-MINIATURE-ICONES — LES PICTOS SUR UNE LIGNE, LE MOT SOUS EUX ═════════════════════════════════
+   ARNO (07/10/2026) : « Les 4 icones restent TOUJOURS sur une seule ligne, quelle que soit la largeur de la
+   miniature : reparties sur la largeur, sans retour a la ligne. Si la place manque, reduis l'espacement (et la
+   taille des icones en dernier recours, sans descendre sous une zone cliquable confortable), mais jamais de
+   passage a la ligne. […] "Aller au message" est seul sur la ligne du dessous, centre horizontalement. »
+
+   🔴 MESURE QUI A DICTE CES VALEURS. Une carte fait au minimum 190 px (la grille est en minmax(190px,1fr)) ;
+   moins les marges internes de la rangee il reste environ 179 px. Quatre cibles de 44 px et leurs trois
+   gouttieres en demandaient 182 : il manquait TROIS pixels, et la quatrieme icone tombait a la ligne.
+
+   🔴 LA REPARTITION SE FAIT PAR flex:1 1 0 ET MIN-WIDTH NUL, et c'est ce qui tient la promesse « jamais de
+   passage a la ligne » : chaque picto prend le quart de la place, quelle qu'elle soit. A 190 px cela fait 43 px
+   de large — l'espacement a ete reduit a 2 px AVANT d'en arriver la, comme Arno le demande — et la HAUTEUR reste
+   44 px : la zone cliquable mesure donc 43 x 44 px, et aucune taille de dessin n'a eu a diminuer.
+
+   ⚠️ nowrap EST EXPLICITE, et ce n'est pas une precaution inutile : c'est la seule declaration qui rende le
+   defaut impossible a reproduire. Les largeurs peuvent changer ; le repli, lui, est interdit.
+   ⚠️ TROIS ICONES AU LIEU DE QUATRE (piece absente du Drive) SE REPARTISSENT PAREIL : chacune prend le tiers.
+   La mise en page d'une carte ne depend donc pas de son contenu, ce qu'Arno demande au point 3.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.pdc-icones{display:flex;flex-wrap:nowrap;align-items:center;gap:2px;padding:.2rem .35rem 0;margin-top:auto}
+/* ⚠️ TOUS LES ENFANTS DIRECTS, ET NON LES SEULS .pdc-action : le picto « deja dans le Drive » arrive ENVELOPPE
+   (PictoDansLeDrive rend un .pdd autour de son bouton, pour y ancrer son menu). Vise sur la seule classe du
+   bouton, la regle sautait la quatrieme case — mesure a l'ecran : 48/48/48/44 au lieu de quatre parts egales. */
+/* ⚠️ L'ENVELOPPE DU PICTO DRIVE RESTE ENVIRON DEUX PIXELS EN DECA DES TROIS AUTRES (mesure a 190 px :
+   43/43/43/41), et c'est dit plutot que tu : elle porte un menu ancre, et sa boite se calcule autrement. Deux
+   pixels sur quarante-trois ne se voient pas, et aucune des quatre promesses d'Arno n'en depend — une seule
+   ligne, aucun repli, reparties sur la largeur, cible confortable. Passer display:flex sur les enfants a ete
+   essaye : cela n'y change rien, et la regle a donc ete retiree plutot que gardee « au cas ou ». */
+.pdc-icones > *{flex:1 1 0;min-width:0}
+/* 🔴 LE PLANCHER DE 44 px EST LEVE **DANS CETTE RANGEE**, et la specificite est le point : « .pdc-action » et
+   « .pdc-icones > * » pesent pareil, et c'est donc l'ORDRE de declaration qui tranchait — le plancher gagnait,
+   les trois premiers pictos restaient a 44 px et le quatrieme absorbait tout le reste. Mesure a la largeur
+   MINIMALE d'une carte (190 px) : 44/44/44/39 avant, quatre parts egales apres.
+   ⚠️ LA HAUTEUR, ELLE, NE BOUGE PAS : min-height:44px tient toujours, et la zone cliquable reste confortable. */
+.pdc-icones .pdc-action{width:100%;min-width:0}
+/* 🔴 LE MOT, SEUL SUR SA LIGNE ET CENTRE (Arno). Il ne s'etire pas : c'est un mot, et un bouton large comme la
+   carte se lirait comme l'action principale de la carte, ce qu'il n'est pas. */
+.pdc-aller{display:flex;justify-content:center;padding:0 .35rem .35rem}
 .pdc-action{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;
   font:inherit;font-size:1.05rem;line-height:1;color:var(--color-svv-ink);background:transparent;
   border:1px solid transparent;border-radius:.45rem;text-decoration:none;cursor:pointer}
