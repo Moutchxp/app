@@ -22,7 +22,8 @@ import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const BIEN = { adresse: '67 rue de Normandie', commune: 'COURBEVOIE' };
+/** ⚠️ `fin: null` = ENCORE EN GESTION (règle de la fiche propriétaire, `bienEnGestion`). */
+const BIEN = { adresse: '67 rue de Normandie', commune: 'COURBEVOIE', fin: null };
 /** Ce que `rechercherPersonnes` rend, réduit à ce que la barre lit. */
 let personnesServies: unknown[];
 let urls: string[];
@@ -75,12 +76,43 @@ const touche = async (key: string) => {
 };
 
 describe('🔴🔴 ① le champ et son libellé', () => {
-  it('🔴 un champ de saisie, et « Annuaire » à sa droite', async () => {
+  /**
+   * ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 2 — LE LIBELLÉ PASSE À GAUCHE, DANS LA CAPSULE ═══════════════════════
+   *
+   * CE CAS EXIGEAIT L'INVERSE (« à sa droite »), c'était la demande du lot précédent. Arno le déplace : « le
+   * libellé “Annuaire” passe à GAUCHE du champ. Libellé + champ forment une seule capsule à fond blanc. »
+   *
+   * 🔴 « À GAUCHE » SE VÉRIFIE PAR L'ORDRE DU DOM, qui est aussi l'ordre de lecture : le libellé précède le
+   * champ, dans la même capsule. Mesurer des pixels dans jsdom n'aurait rien prouvé.
+   */
+  it('🔴🔴 le libellé est à GAUCHE du champ, dans la même capsule', async () => {
     await monter();
-    expect(champ()).not.toBeNull();
+    const capsule = container.querySelector('.gst-annuaire-capsule');
+    expect(capsule).not.toBeNull();
+    const enfants = [...(capsule?.children ?? [])].map((e) => e.className);
+    expect(enfants[0]).toContain('gst-annuaire-mot');
+    expect(enfants[1]).toContain('gst-annuaire-champ');
     expect(container.querySelector('.gst-annuaire-mot')?.textContent).toBe('Annuaire');
-    /* ⚠️ LE MOT EST DÉCORATIF : c'est `aria-label` qui nomme le champ pour un lecteur d'écran. */
-    expect(champ().getAttribute('aria-label')).toBe('Chercher dans l’annuaire');
+  });
+
+  /**
+   * 🔴 LE LIBELLÉ NOMME LE CHAMP, et ne se contente pas d'être posé à côté : c'est un vrai `label`, lié par
+   * `htmlFor`. Un lecteur d'écran annonce donc « Annuaire » en entrant dans le champ — et l'`aria-label` qui le
+   * doublait a pu partir.
+   */
+  it('🔴 le libellé est un vrai `label`, lié au champ', async () => {
+    await monter();
+    const label = container.querySelector('label.gst-annuaire-mot') as HTMLLabelElement | null;
+    expect(label).not.toBeNull();
+    expect(label?.htmlFor).toBe(champ().id);
+    expect(champ().id).not.toBe('');
+  });
+
+  /** 🔴 LE ✕ D'EFFACEMENT RESTE DANS LA CAPSULE : c'est celui du navigateur, porté par `type="search"`. */
+  it('🔴 le champ reste un champ de recherche — son ✕ vit dans la capsule', async () => {
+    await monter();
+    expect(champ().getAttribute('type')).toBe('search');
+    expect(champ().closest('.gst-annuaire-capsule')).not.toBeNull();
   });
 
   /** ⚠️ RIEN TANT QU'ON N'A PAS CHERCHÉ : « Aucun contact » sur un champ vide apprendrait à ignorer la phrase. */
@@ -109,6 +141,31 @@ describe('🔴🔴 ② les suggestions viennent de la recherche EXISTANTE', () =
     await taper('normandie');
     expect(urls).toHaveLength(1);
     expect(urls[0]).toBe('/api/admin/gestion/annuaire?q=normandie');
+  });
+
+  /**
+   * ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « + Propriétaire de X biens au total » ═══════════════════════════
+   *
+   * Arno : « on garde l'adresse affichée aujourd'hui ; si ce propriétaire a d'autres biens en gestion chez nous,
+   * on ajoute APRÈS l'adresse : “+ Propriétaire de X biens au total”. Style discret, dans le gris de l'adresse. »
+   */
+  it('🔴🔴 un propriétaire à plusieurs biens porte la mention, après l’adresse et dans le même gris', async () => {
+    personnesServies = [{
+      sujet: 'proprietaire', id: 12, nomAffiche: 'Mme ABDELLATIF Névine', roles: ['proprietaire'],
+      autreFicheId: null, biens: [BIEN, { ...BIEN, adresse: '12 rue A' }, { ...BIEN, adresse: '5 rue B' }],
+    }];
+    await monter();
+    await taper('abdellatif');
+    /* 🔴 UNE SEULE LIGNE pour ce propriétaire, malgré ses trois biens (Arno : « une seule suggestion »). */
+    expect(items()).toHaveLength(1);
+    const gris = [...items()[0].querySelectorAll('.gst-annuaire-lieu')].map((e) => e.textContent);
+    expect(gris).toEqual(['67 rue de Normandie, COURBEVOIE', '+ Propriétaire de 3 biens au total']);
+  });
+
+  it('🔴 un seul bien : aucune mention', async () => {
+    await monter();
+    await taper('abdellatif');
+    expect(items()[0].textContent).not.toContain('biens au total');
   });
 
   it('🔴 chaque suggestion montre le nom, le rôle et l’adresse — sans numéro de lot', async () => {

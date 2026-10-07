@@ -1367,11 +1367,25 @@ export function GestionVue({ intro }: {
          🔴 LOT ACCUEIL-GESTION, POINT 3 — UN FRAGMENT, parce que cette branche porte désormais DEUX éléments :
          les deux colonnes, puis le bloc « Échanges sans événement » qui est passé SOUS elles. */
       <>
-      {/* ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — LA BARRE ANNUAIRE, À LA PLACE DU BLOC RETIRÉ ═════════
-          Arno : « un grand champ de saisie sur toute la largeur, avec le libellé “Annuaire” à sa droite », juste
-          au-dessus des deux colonnes. Elle réutilise la recherche de l'annuaire — même route, même fonction — et
-          ouvre les fiches existantes : voir l'encadré de `BarreAnnuaire`. */}
-      <BarreAnnuaire onFiche={(f) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: f }); }} />
+      {/* ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 1 — L'ANNUAIRE EST UN OUTIL À PART ═════════════════════════════
+          Arno : « la fonction Annuaire doit se lire comme un outil à part entière, nettement séparé de l'écran
+          partagé en dessous. Le bloc a son propre cadre (fond blanc, bord net, coins arrondis, légère ombre), une
+          marge franche au-dessus et en dessous, AUCUN cadre commun avec les colonnes. »
+
+          🔴 UN BLOC, PUIS UN TRAIT, PUIS L'ÉCRAN PARTAGÉ : deux zones qu'on distingue d'un coup d'œil. Le trait
+          est discret (`gst-separation`) — l'espacement seul laissait encore lire une seule colonne de contenu.
+
+          🔴 ET AUCUN ÉTAT PARTAGÉ, c'est la demande explicite : `BarreAnnuaire` ne reçoit QUE `onFiche`. Elle ne
+          connaît ni la liste des mails, ni les événements, ni les filtres, ni le rafraîchissement — elle ne peut
+          donc rien leur faire, et aucune relecture de l'écran ne la touche.
+
+          ⚠️ LA LISTE DE SUGGESTIONS S'OUVRE PAR-DESSUS SANS RIEN DÉCALER, comme avant : elle est posée en
+          absolu DANS le bloc (`position:relative` sur la barre), donc rattachée à lui et au-dessus du reste. */}
+      <section className="gst-bloc-annuaire" aria-label="Annuaire">
+        <BarreAnnuaire
+          onFiche={(f) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: f }); }} />
+      </section>
+      <hr className="gst-separation" />
 
       <div className="gst-deux">
         {/* ══ 🔴 LOT STATUT-PAR-MAIL — CETTE COLONNE MONTRE LES MAILS REÇUS, PLUS LA FILE DES ÉCHANGES ═══════════
@@ -1773,6 +1787,18 @@ export function CarteEv({ carte, maintenant }: { carte: CarteEvenement; maintena
 }
 
 const CSS_GESTION = `
+/* ══ LOT ANNUAIRE-BLOC-DEDIE, POINT 1 — LE BLOC ANNUAIRE, ET SA SEPARATION D'AVEC L'ECRAN PARTAGE ══
+   Son propre cadre : fond de surface (BLANC en theme Clair, et ce qui en tient lieu en Sombre — un blanc en dur
+   y serait illisible), bord net, coins arrondis. Marge franche au-dessus et en dessous, puis un trait discret :
+   on voit deux zones, l'outil en haut, le courrier et les evenements en dessous.
+   🔴 UN LISERE PLUTOT QU'UNE OMBRE (Arno laisse le choix : « legere ombre OU lisere ») : la feuille de ce module
+   n'admet AUCUNE couleur en dur, et une ombre portee en demande une (un rgba). Un second anneau pose sur un
+   jeton donne le meme relief, et il suit le theme Sombre sans rien dire de lui.
+   ⚠️ AUCUN CADRE COMMUN avec les colonnes : ce bloc se ferme avant elles, et le trait le dit.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.gst-bloc-annuaire{margin:0 0 14px;padding:14px;border:1px solid var(--color-svv-line-strong);border-radius:14px;
+  background:var(--color-svv-surface);box-shadow:0 0 0 3px var(--color-svv-field)}
+.gst-separation{height:0;margin:0 0 16px;border:0;border-top:1px solid var(--color-svv-line)}
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — la feuille du bouton rond, la MEME que celle de la boite en plein
    ecran (cf. BoutonRond.tsx). Sans elle, le bouton arriverait nu sur l'accueil : carre, sans bordure, sans
    rotation. Une classe partagee dont la feuille ne l'est pas n'est pas partagee.

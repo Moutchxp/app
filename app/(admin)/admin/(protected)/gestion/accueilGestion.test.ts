@@ -117,17 +117,79 @@ describe('🔴🔴 ② le bouton rond, le même des deux côtés', () => {
   });
 });
 
-describe('🔴🔴 ③ la barre Annuaire est au-dessus des deux colonnes', () => {
-  it('🔴🔴 elle est rendue juste avant `gst-deux`', () => {
-    const b = VUE.indexOf('<BarreAnnuaire ');
-    const d = VUE.indexOf('<div className="gst-deux">');
-    expect(b).toBeGreaterThan(-1);
-    expect(b).toBeLessThan(d);
+describe('🔴🔴 ③ l’Annuaire est un BLOC DÉDIÉ, au-dessus des deux colonnes', () => {
+  /**
+   * ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 1 — UN OUTIL À PART ═══════════════════════════════════════════════════
+   *
+   * Arno : « l'Annuaire devient un bloc à part, sous le titre “Gestion” et au-dessus de l'écran partagé. Le bloc
+   * a son propre cadre et une marge franche. AUCUN cadre commun avec les colonnes. Sépare visuellement ce bloc de
+   * l'écran partagé, par l'espacement et/ou un trait horizontal discret. »
+   */
+  it('🔴🔴 le bloc est rendu HORS du conteneur des deux colonnes, et avant lui', () => {
+    const bloc = VUE.indexOf('<section className="gst-bloc-annuaire"');
+    const barre = VUE.indexOf('<BarreAnnuaire');
+    const trait = VUE.indexOf('<hr className="gst-separation" />');
+    const deux = VUE.indexOf('<div className="gst-deux">');
+    expect(bloc).toBeGreaterThan(-1);
+    /* 🔴 LA BARRE EST DANS LE BLOC, et le bloc se ferme AVANT les colonnes : aucun cadre commun. */
+    expect(barre).toBeGreaterThan(bloc);
+    expect(VUE.indexOf('</section>', barre)).toBeLessThan(deux);
+    /* 🔴 ET UN TRAIT DISCRET SÉPARE LES DEUX ZONES. */
+    expect(trait).toBeGreaterThan(bloc);
+    expect(trait).toBeLessThan(deux);
+  });
+
+  it('🔴 le bloc a son propre cadre, et le trait sa règle', () => {
+    expect(VUE).toContain('.gst-bloc-annuaire{margin:0 0 14px;padding:14px;'
+      + 'border:1px solid var(--color-svv-line-strong);border-radius:14px;');
+    /* 🔴 UN LISERÉ, PAS UNE OMBRE : la feuille de ce module n'admet aucune couleur en dur, et une ombre portée
+       en demande une. Arno laisse le choix (« légère ombre ou liseré ») ; le second anneau donne le même relief
+       et suit le thème Sombre. */
+    expect(VUE).toContain('background:var(--color-svv-surface);box-shadow:0 0 0 3px var(--color-svv-field)}');
+    expect(VUE).toContain('.gst-separation{height:0;margin:0 0 16px;border:0;'
+      + 'border-top:1px solid var(--color-svv-line)}');
+  });
+
+  /**
+   * 🔴🔴 AUCUN ÉTAT PARTAGÉ (demande explicite d'Arno) : la barre ne reçoit QUE `onFiche`. Elle ne connaît ni la
+   * liste des mails, ni les événements, ni les filtres, ni le rafraîchissement — elle ne peut donc rien leur
+   * faire, et aucune relecture de l'écran ne la touche.
+   */
+  it('🔴🔴 le bloc ne partage aucun état avec la boîte ni les événements', () => {
+    const BARRE = readFileSync('app/(admin)/admin/(protected)/gestion/BarreAnnuaire.tsx', 'utf8');
+    /* 🔴 UNE SEULE PROPRIÉTÉ, ET C'EST UNE SORTIE : la barre REÇOIT de quoi ouvrir une fiche, et rien d'autre.
+       Elle ne peut donc ni lire ni toucher l'état de la boîte ou des événements. */
+    expect(BARRE).toContain('export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {');
+    /* 🔴 ET ELLE N'IMPORTE AUCUN DES ÉCRANS DE L'ÉCRAN PARTAGÉ : un composant qui en tire un état le partage. */
+    for (const voisin of ['./BoiteMail', './BoiteReception', './GestionVue', './CarteVive']) {
+      expect(BARRE, voisin).not.toContain(voisin);
+    }
+    /* ⚠️ ET L'ÉCRAN NE LUI PASSE QUE `onFiche` — aucun filtre, aucune sélection, aucun rafraîchissement. */
+    const i = VUE.indexOf('<BarreAnnuaire');
+    expect(VUE.slice(i, VUE.indexOf('/>', i))).not.toMatch(/\s(?!onFiche)[a-zA-Z]+=\{/);
   });
 
   /** 🔴 ET SON CLIC OUVRE LA FICHE PAR LE CHEMIN EXISTANT : le même `fiche` que l'écran Annuaire reçoit. */
   it('🔴 le clic passe par l’écran Annuaire et sa fiche', () => {
     expect(VUE).toContain("aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: f })");
+  });
+});
+
+describe('🔴🔴 ⑥ « en gestion » n’est écrit qu’une fois', () => {
+  /**
+   * 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — Arno : « réutilise ce calcul, pas de seconde requête qui recompte à
+   * sa façon ». La règle vit dans le module PUR `bienEnGestion`, et la fiche propriétaire comme la barre la
+   * lisent. Deux écritures auraient fini par diverger.
+   */
+  it('🔴🔴 la fiche propriétaire et les suggestions lisent le MÊME module', () => {
+    const ANN = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    const SUG = readFileSync('app/lib/gestion/suggestionAnnuaire.ts', 'utf8');
+    expect(ANN).toContain("from '../../../../lib/gestion/bienEnGestion'");
+    expect(ANN).toContain('f.biens.filter(bienEnGestion)');
+    expect(SUG).toContain("from './bienEnGestion'");
+    expect(SUG).toContain('compterBiensEnGestion(p.biens)');
+    /* ⚠️ ET PLUS AUCUNE ÉCRITURE À LA MAIN DE LA RÈGLE DANS L'ÉCRAN. */
+    expect(ANN).not.toContain('f.biens.filter((b) => b.fin === null)');
   });
 });
 

@@ -1,3 +1,7 @@
+/* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR, lu aussi par la
+   fiche propriétaire). */
+import { compterBiensEnGestion } from './bienEnGestion';
+
 /**
  * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — LES SUGGESTIONS DE LA BARRE ANNUAIRE ════════════════════════════
  *
@@ -37,7 +41,11 @@ export interface PersonnePourSuggestion {
   roles: readonly RoleSuggere[];
   /** La fiche SECONDAIRE, quand la personne en porte deux. `null` sinon. */
   autreFicheId: number | null;
-  biens: readonly { adresse: string | null; commune: string | null }[];
+  /**
+   * 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — `fin` VOYAGE AVEC CHAQUE BIEN : c'est elle qui dit s'il est encore en
+   * gestion, et c'est la MÊME règle que la fiche propriétaire (`bienEnGestion`).
+   */
+  biens: readonly { adresse: string | null; commune: string | null; fin: string | null }[];
 }
 
 export interface SuggestionAnnuaire {
@@ -49,6 +57,17 @@ export interface SuggestionAnnuaire {
   mot: string;
   /** « 67 rue de Normandie, COURBEVOIE » — SANS numéro de lot (Arno). `null` quand on n'en connaît aucune. */
   lieu: string | null;
+  /**
+   * ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « + Propriétaire de X biens au total » ═══════════════════════════
+   *
+   * Arno : « si ce propriétaire a d'autres biens en gestion chez nous, on ajoute après l'adresse : “+ Propriétaire
+   * de X biens au total”. X = nombre TOTAL de biens en gestion (bien affiché compris). Mention seulement si
+   * X ≥ 2 ; rien si X = 1. »
+   *
+   * 🔴 `null` DANS TOUS LES AUTRES CAS : un seul bien, aucun bien, ou un rôle de LOCATAIRE. Compter les biens
+   * « en gestion » d'un locataire n'aurait pas de sens — ce ne sont pas les siens.
+   */
+  mention: string | null;
   /** La fiche qu'un clic ouvre. C'est celle DU RÔLE de la suggestion, jamais « la principale ». */
   fiche: { sorte: 'proprietaire' | 'locataire'; id: number };
 }
@@ -106,9 +125,32 @@ export function suggestionsAnnuaire(
       role,
       mot: motRoleSuggere(role),
       lieu: lieuDe(p),
+      mention: mentionBiens(p, role),
       fiche,
     }];
   }));
+}
+
+/**
+ * ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — LA MENTION DES AUTRES BIENS ═════════════════════════════════════════
+ *
+ * Arno, mot pour mot : « + Propriétaire de X biens au total », X ≥ 2 seulement.
+ *
+ * 🔴 X COMPTE LES BIENS **EN GESTION**, et la règle n'est pas écrite ici : c'est `compterBiensEnGestion`, la même
+ * que la fiche propriétaire emploie pour séparer ses cartes « en gestion » de ses « anciens ». Un bien sorti de
+ * gestion — vendu, mandat perdu — n'est donc pas compté.
+ *
+ * ⚠️ UNE SEULE SUGGESTION PAR PROPRIÉTAIRE, ET C'EST DÉJÀ LE CAS : la recherche rend UNE personne par fiche, avec
+ * TOUS ses biens dans `biens` — jamais une ligne par bien. Le regroupement qu'Arno demande n'est donc pas à faire,
+ * il est à NE PAS DÉFAIRE : c'est pourquoi ce calcul lit la liste entière plutôt que de produire une ligne par
+ * bien, et une épreuve le tient.
+ *
+ * ⚠️ RIEN POUR UN LOCATAIRE : ses « biens » sont ceux qu'il occupe, pas les siens.
+ */
+function mentionBiens(p: PersonnePourSuggestion, role: RoleSuggere): string | null {
+  if (role !== 'proprietaire') return null;
+  const n = compterBiensEnGestion(p.biens);
+  return n >= 2 ? `+ Propriétaire de ${n} biens au total` : null;
 }
 
 /**

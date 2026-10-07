@@ -17,7 +17,10 @@ import {
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
-const BIEN = { adresse: '67 rue de Normandie', commune: 'COURBEVOIE' };
+/** ⚠️ `fin: null` = ENCORE EN GESTION : c'est la règle de la fiche propriétaire (`bienEnGestion`). */
+const BIEN = { adresse: '67 rue de Normandie', commune: 'COURBEVOIE', fin: null };
+/** Un bien SORTI de gestion — vendu, mandat perdu : il ne compte pas dans le « X biens au total ». */
+const VENDU = { adresse: '3 rue des Lilas', commune: 'PUTEAUX', fin: '2025-06-30' };
 
 const PROPRIO: PersonnePourSuggestion = {
   sujet: 'proprietaire', id: 12, nomAffiche: 'Mme ABDELLATIF Névine',
@@ -33,6 +36,8 @@ describe('🔴🔴 ① une suggestion par rôle, avec le bon lien', () => {
     expect(suggestionsAnnuaire([PROPRIO])).toEqual([{
       cle: 'proprietaire-proprietaire-12', nom: 'Mme ABDELLATIF Névine', role: 'proprietaire',
       mot: 'Propriétaire', lieu: '67 rue de Normandie, COURBEVOIE',
+      /* 🔴 UN SEUL BIEN ⇒ AUCUNE MENTION (Arno : « rien si X = 1 »). */
+      mention: null,
       fiche: { sorte: 'proprietaire', id: 12 },
     }]);
   });
@@ -67,7 +72,7 @@ describe('🔴🔴 ① une suggestion par rôle, avec le bon lien', () => {
   });
 
   it('⚠️ un bien sans adresse ni commune ne fabrique pas une ligne vide', () => {
-    const [s] = suggestionsAnnuaire([{ ...PROPRIO, biens: [{ adresse: null, commune: null }] }]);
+    const [s] = suggestionsAnnuaire([{ ...PROPRIO, biens: [{ adresse: null, commune: null, fin: null }] }]);
     expect(s.lieu).toBeNull();
   });
 });
@@ -113,7 +118,64 @@ describe('🔴🔴 ② le DOUBLE RÔLE fait deux suggestions', () => {
   });
 });
 
-describe('🔴 ③ aucun résultat', () => {
+describe('🔴🔴 ③ « + Propriétaire de X biens au total »', () => {
+  /**
+   * ══ 🔴🔴 LA RÈGLE D'ARNO, MOT POUR MOT ═══════════════════════════════════════════════════════════════════════
+   * « X = nombre TOTAL de biens en gestion de ce propriétaire (bien affiché compris). Mention seulement si
+   * X ≥ 2 ; rien si X = 1. »
+   *
+   * 🔴 « EN GESTION » EST LA DÉFINITION DE LA FICHE PROPRIÉTAIRE : un bien l'est tant qu'il n'a pas de date de
+   * fin (`bienEnGestion`). Les biens vendus ou perdus — qui en portent une — ne comptent donc pas.
+   */
+  it('🔴 X = 1 : aucune mention', () => {
+    expect(suggestionsAnnuaire([PROPRIO])[0].mention).toBeNull();
+  });
+
+  it('🔴🔴 X = 3 : « + Propriétaire de 3 biens au total »', () => {
+    const trois = { ...PROPRIO, biens: [BIEN, { ...BIEN, adresse: '12 rue A' }, { ...BIEN, adresse: '5 rue B' }] };
+    expect(suggestionsAnnuaire([trois])[0].mention).toBe('+ Propriétaire de 3 biens au total');
+  });
+
+  /** 🔴🔴 UN BIEN SORTI DE GESTION NE COMPTE PAS : deux lots dont un vendu font X = 1, donc aucune mention. */
+  it('🔴🔴 un bien vendu ne compte pas — deux lots dont un sorti font X = 1', () => {
+    expect(suggestionsAnnuaire([{ ...PROPRIO, biens: [BIEN, VENDU] }])[0].mention).toBeNull();
+  });
+
+  it('🔴 trois lots dont un vendu : « 2 biens au total »', () => {
+    const s = suggestionsAnnuaire([{ ...PROPRIO, biens: [BIEN, { ...BIEN, adresse: '12 rue A' }, VENDU] }]);
+    expect(s[0].mention).toBe('+ Propriétaire de 2 biens au total');
+  });
+
+  /**
+   * 🔴🔴 UNE SEULE LIGNE PAR PROPRIÉTAIRE, et c'est la garantie qu'Arno demande : la recherche rend UNE personne
+   * avec TOUS ses biens, jamais une ligne par bien. Le regroupement n'est pas à faire — il est à NE PAS DÉFAIRE.
+   */
+  it('🔴🔴 trois biens ⇒ UNE seule suggestion, pas trois', () => {
+    const trois = { ...PROPRIO, biens: [BIEN, { ...BIEN, adresse: '12 rue A' }, { ...BIEN, adresse: '5 rue B' }] };
+    const s = suggestionsAnnuaire([trois]);
+    expect(s).toHaveLength(1);
+    /* 🔴 ET C'EST LE PREMIER BIEN QUI DONNE L'ADRESSE : une suggestion est une ligne. */
+    expect(s[0].lieu).toBe('67 rue de Normandie, COURBEVOIE');
+  });
+
+  /** ⚠️ RIEN POUR UN LOCATAIRE : ses « biens » sont ceux qu'il occupe, pas les siens. */
+  it('⚠️ un locataire n’a jamais la mention, même avec plusieurs biens', () => {
+    const s = suggestionsAnnuaire([{ ...LOCATAIRE, biens: [BIEN, { ...BIEN, adresse: '12 rue A' }] }]);
+    expect(s[0].mention).toBeNull();
+  });
+
+  /** ⚠️ ET SUR UN DOUBLE RÔLE, SEULE LA LIGNE « Propriétaire » LA PORTE. */
+  it('⚠️ double rôle : la mention n’est que sur la ligne Propriétaire', () => {
+    const s = suggestionsAnnuaire([{
+      sujet: 'proprietaire', id: 12, nomAffiche: 'X', roles: ['proprietaire', 'locataire'],
+      autreFicheId: 98, biens: [BIEN, { ...BIEN, adresse: '12 rue A' }],
+    }]);
+    expect(s[0].mention).toBe('+ Propriétaire de 2 biens au total');
+    expect(s[1].mention).toBeNull();
+  });
+});
+
+describe('🔴 ④ aucun résultat', () => {
   it('🔴 aucune personne ⇒ aucune suggestion', () => {
     expect(suggestionsAnnuaire([])).toEqual([]);
   });
@@ -123,7 +185,7 @@ describe('🔴 ③ aucun résultat', () => {
   });
 });
 
-describe('🔴🔴 ④ le clavier : flèches haut et bas', () => {
+describe('🔴🔴 ⑤ le clavier : flèches haut et bas', () => {
   /** 🔴 RIEN DE SÉLECTIONNÉ (`-1`) : « bas » prend la PREMIÈRE, « haut » la DERNIÈRE. */
   it('🔴 depuis « rien », bas prend la première et haut la dernière', () => {
     expect(rangSuivant(-1, 3, 'bas')).toBe(0);
@@ -156,7 +218,7 @@ describe('🔴🔴 ④ le clavier : flèches haut et bas', () => {
   });
 });
 
-describe('🔴 ⑤ les mots des rôles', () => {
+describe('🔴 ⑥ les mots des rôles', () => {
   it('🔴 « Propriétaire », « Locataire », « Ancien locataire »', () => {
     expect(motRoleSuggere('proprietaire')).toBe('Propriétaire');
     expect(motRoleSuggere('locataire')).toBe('Locataire');

@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+/* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR). */
+import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
 import {
   analyserTerme, formaterDateIso, messageRechercheVide, periodeOccupation, titreLogement,
 } from '../../../../lib/gestion/annuaireRecherche';
@@ -927,8 +929,11 @@ function VueProprietaire({
   onCreer: (sujet: Sujet, lots: readonly number[], champs: ChampsSaisis) => Promise<string | null>;
 }) {
   const [anciensOuverts, setAnciensOuverts] = useState(false);
-  const enGestion = f.biens.filter((b) => b.fin === null);
-  const anciens = f.biens.filter((b) => b.fin !== null);
+  /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — LA RÈGLE N'EST PLUS ÉCRITE ICI : elle vit dans le module PUR
+     `bienEnGestion`, que la barre Annuaire lit aussi pour compter les biens d'un propriétaire. Deux écritures de
+     « en gestion » auraient fini par diverger — c'est la raison d'être du module, pas un rangement. */
+  const enGestion = f.biens.filter(bienEnGestion);
+  const anciens = f.biens.filter((b) => !bienEnGestion(b));
   return (
     <>
       {/* ══ 🔴 L'EN-TÊTE DE FICHE — un bandeau sobre : le nom en grand, le rôle en capsule, les actions à droite.

@@ -1728,6 +1728,15 @@ export interface BienLie {
   numero: string;
   adresse: string | null;
   commune: string | null;
+  /**
+   * 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — LA DATE DE FIN DE GESTION, `null` quand elle court toujours.
+   *
+   * Elle voyage pour que la barre Annuaire puisse dire « + Propriétaire de X biens au total » avec la MÊME
+   * définition que la fiche propriétaire (`bienEnGestion` : un bien est en gestion tant qu'il n'a pas de date de
+   * fin). Elle est sur la même ligne de la même requête — elle est gratuite, et la demander à part aurait été
+   * exactement la « seconde requête qui recompte à sa façon » qu'Arno interdit.
+   */
+  fin: string | null;
 }
 
 export interface PersonneTrouvee {
@@ -1938,13 +1947,18 @@ async function assemblerPersonnes(
   if (idsP.length > 0 || idsL.length > 0) {
     const { rows } = await query<{
       cle: string; lot_id: string; numero: string; adresse: string | null; commune: string | null;
+      fin: string | null;
     }>(
+      /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — `gestion_fin` VOYAGE AVEC : la barre Annuaire compte les biens
+         EN GESTION d'un proprietaire, et la regle est celle de la fiche (bienEnGestion). Meme requete, meme
+         ligne, aucune lecture de plus. */
       `SELECT 'proprietaire|' || lo.proprietaire_id::text AS cle, lo.id::text AS lot_id,
-              lo.wippimmo_id AS numero, lo.adresse, lo.commune
+              lo.wippimmo_id AS numero, lo.adresse, lo.commune, lo.gestion_fin::text AS fin
          FROM gestion_annuaire_lot lo
         WHERE lo.proprietaire_id = ANY($1::bigint[])
         UNION ALL
-       SELECT DISTINCT 'locataire|' || o.locataire_id::text, lo.id::text, lo.wippimmo_id, lo.adresse, lo.commune
+       SELECT DISTINCT 'locataire|' || o.locataire_id::text, lo.id::text, lo.wippimmo_id, lo.adresse, lo.commune,
+              lo.gestion_fin::text
          FROM gestion_annuaire_occupation o
          JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
         WHERE o.locataire_id = ANY($2::bigint[])
@@ -1952,7 +1966,9 @@ async function assemblerPersonnes(
     for (const r of rows) {
       const liste = biens.get(r.cle) ?? [];
       if (!liste.some((b) => b.numero === r.numero)) {
-        liste.push({ lotId: Number(r.lot_id), numero: r.numero, adresse: r.adresse, commune: r.commune });
+        liste.push({
+          lotId: Number(r.lot_id), numero: r.numero, adresse: r.adresse, commune: r.commune, fin: r.fin,
+        });
       }
       biens.set(r.cle, liste);
     }

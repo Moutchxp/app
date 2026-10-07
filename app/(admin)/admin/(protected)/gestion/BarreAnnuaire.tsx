@@ -117,16 +117,28 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
   return (
     <div className="gst-annuaire">
       <style>{CSS_BARRE_ANNUAIRE}</style>
-      {/* ⚠️ LE CHAMP PORTE SON NOM POUR LE LECTEUR D'ÉCRAN AUSSI : le libellé « Annuaire » est posé à DROITE,
-          comme Arno le demande, et `aria-label` dit la même chose à qui ne le voit pas. */}
-      <input ref={champ} type="search" className="gst-annuaire-champ"
-        value={texte} onChange={(e) => setTexte(e.target.value)} onKeyDown={auClavier}
-        placeholder="Chercher un locataire, un propriétaire, une adresse…"
-        aria-label="Chercher dans l’annuaire"
-        role="combobox" aria-expanded={liste.length > 0} aria-controls={idListe}
-        aria-autocomplete="list"
-        aria-activedescendant={rang >= 0 && liste[rang] !== undefined ? `${idListe}-${rang}` : undefined} />
-      <span className="gst-annuaire-mot" aria-hidden="true">Annuaire</span>
+      {/* ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 2 — LE LIBELLÉ PASSE À GAUCHE, DANS LA CAPSULE ════════════════
+          Arno : « le libellé “Annuaire” passe à GAUCHE du champ. Libellé + champ forment une seule capsule à
+          fond BLANC, un peu plus haute qu'aujourd'hui, pour donner de l'importance à l'outil. Le libellé est en
+          gras, bien lisible, séparé du champ par un léger trait vertical. Le bouton ✕ reste dans la capsule. »
+
+          🔴 UNE SEULE CAPSULE, ET LE CHAMP N'EN A PLUS : c'est l'enveloppe qui porte le fond, le bord et le
+          liseré de focus (`:focus-within`), et le champ y est posé nu. Deux cadres imbriqués se seraient vus.
+
+          🔴 LE ✕ EST CELUI DU NAVIGATEUR (`type="search"`), et il vit DANS le champ, donc dans la capsule : il
+          n'a pas bougé. En écrire un à la main aurait ajouté un bouton là où le navigateur en met déjà un.
+
+          ⚠️ LE LIBELLÉ EST UN VRAI `label`, lié au champ : il le NOMME pour un lecteur d'écran au lieu d'être un
+          mot décoratif posé à côté. C'est ce qui permet de retirer l'`aria-label`, qui le doublait. */}
+      <div className="gst-annuaire-capsule">
+        <label className="gst-annuaire-mot" htmlFor={`${idListe}-champ`}>Annuaire</label>
+        <input ref={champ} id={`${idListe}-champ`} type="search" className="gst-annuaire-champ"
+          value={texte} onChange={(e) => setTexte(e.target.value)} onKeyDown={auClavier}
+          placeholder="Chercher un locataire, un propriétaire, une adresse…"
+          role="combobox" aria-expanded={liste.length > 0} aria-controls={idListe}
+          aria-autocomplete="list"
+          aria-activedescendant={rang >= 0 && liste[rang] !== undefined ? `${idListe}-${rang}` : undefined} />
+      </div>
 
       {/* ⚠️ RIEN TANT QU'ON N'A PAS CHERCHÉ : `suggestions === null` veut dire « on n'a pas encore demandé », et
           c'est différent de « on a demandé et il n'y a rien ». Afficher « Aucun contact » sur un champ vide
@@ -150,6 +162,10 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
                     <span className="gst-annuaire-role">{s.mot}</span>
                     {/* 🔴 L'ADRESSE DISTINGUE LES HOMONYMES, et elle ne porte PAS le numéro de lot (Arno). */}
                     {s.lieu !== null && <span className="gst-annuaire-lieu">{s.lieu}</span>}
+                    {/* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « + Propriétaire de X biens au total », APRÈS
+                        l'adresse et dans le MÊME gris (Arno : « style discret, dans le gris de l'adresse »).
+                        Elle ne paraît qu'à partir de deux biens EN GESTION — voir `mentionBiens`. */}
+                    {s.mention !== null && <span className="gst-annuaire-lieu">{s.mention}</span>}
                   </button>
                 </li>
               ))}
@@ -167,13 +183,24 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
  * les deux colonnes (position absolue) : la pousser vers le bas ferait sauter tout l'ecran a chaque frappe.
  */
 const CSS_BARRE_ANNUAIRE = `
-.gst-annuaire{position:relative;display:flex;align-items:center;gap:.6rem;margin:0 0 .8rem}
-.gst-annuaire-champ{flex:1 1 auto;min-width:0;height:44px;padding:0 12px;font-size:16px;
-  border:1px solid var(--color-svv-line);border-radius:10px;background:var(--color-svv-surface);
-  color:var(--color-svv-ink)}
-.gst-annuaire-champ:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
-.gst-annuaire-mot{flex:0 0 auto;font-size:15px;font-weight:700;color:var(--color-svv-ink)}
-.gst-annuaire-liste,.gst-annuaire-vide{position:absolute;top:48px;left:0;right:0;z-index:30;
+.gst-annuaire{position:relative}
+/* ══ LOT ANNUAIRE-BLOC-DEDIE, POINT 2 — LIBELLE + CHAMP, UNE SEULE CAPSULE ══
+   Fond BLANC (la surface du theme : en Sombre, c'est elle qui donne le contraste — un blanc en dur y serait
+   illisible), un peu plus haute qu'avant (52 px contre 44) pour donner du poids a l'outil, et le liseré de focus
+   porte par l'enveloppe plutot que par le champ : deux cadres imbriques se seraient vus.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.gst-annuaire-capsule{display:flex;align-items:stretch;min-height:52px;
+  border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-surface);
+  overflow:hidden}
+.gst-annuaire-capsule:focus-within{outline:2px solid var(--color-svv-red);outline-offset:1px}
+/* Le libelle A GAUCHE, en gras, separe du champ par un trait vertical discret (Arno). */
+.gst-annuaire-mot{display:flex;align-items:center;flex:0 0 auto;padding:0 14px;
+  font-size:15px;font-weight:700;color:var(--color-svv-ink);
+  border-right:1px solid var(--color-svv-line);cursor:text}
+.gst-annuaire-champ{flex:1 1 auto;min-width:0;padding:0 14px;font-size:16px;
+  border:0;background:transparent;color:var(--color-svv-ink)}
+.gst-annuaire-champ:focus-visible{outline:none}
+.gst-annuaire-liste,.gst-annuaire-vide{position:absolute;top:56px;left:0;right:0;z-index:30;
   margin:0;padding:0;list-style:none;max-height:min(60vh,380px);overflow:auto;
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;
   box-shadow:0 8px 24px rgba(0,0,0,.12)}
@@ -186,9 +213,9 @@ const CSS_BARRE_ANNUAIRE = `
 .gst-annuaire-role{font-size:.72rem;font-weight:700;letter-spacing:.03em;padding:1px 7px;border-radius:999px;
   color:var(--color-svv-bg);background:var(--color-svv-ink)}
 .gst-annuaire-lieu{font-size:.82rem;color:var(--color-svv-muted)}
-/* Sur telephone, le mot passe sous le champ plutot que de le comprimer a rien. */
+/* Sur telephone, la capsule garde sa forme : c'est le libelle qui se resserre, jamais le champ qui disparait. */
 @media (max-width: 560px){
-  .gst-annuaire{flex-wrap:wrap}
-  .gst-annuaire-mot{order:-1}
+  .gst-annuaire-mot{padding:0 10px;font-size:14px}
+  .gst-annuaire-champ{padding:0 10px}
 }
 `;
