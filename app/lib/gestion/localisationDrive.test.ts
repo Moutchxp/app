@@ -169,7 +169,18 @@ describe('🔴 le compteur et la méthode', () => {
    * conclure « il n'est nulle part ailleurs » — d'un balayage qui n'a pas eu lieu.
    */
   it('🔴🔴 le compteur dit « connu », jamais un total', () => {
-    expect(motCompteur(0)).toBe('Aucun emplacement connu');
+    /**
+     * ══ 🔴🔴 VERDICT CHANGÉ — LOT PASTILLE-COPIES-VIVANTES (07/10/2026) ════════════════════════════════════
+     *
+     * Il exigeait « Aucun emplacement connu ». DÉCISION D'ARNO : « À 0 : pas de pastille verte, et la loupe
+     * affiche “Document inconnu du Drive” (aucun lien). » Le verdict change parce que la PHRASE change de
+     * sujet : « aucun emplacement connu » parlait de notre savoir et laissait croire qu'on avait mal cherché ;
+     * « Document inconnu du Drive » parle du document, et dit ce qui a été vérifié.
+     *
+     * ⚠️ AU-DESSUS DE ZÉRO, RIEN NE BOUGE : « connu(s) » reste, pour la raison dite ci-dessus.
+     */
+    expect(motCompteur(0)).toBe('Document inconnu du Drive');
+    expect(motCompteur(-1)).toBe('Document inconnu du Drive');
     expect(motCompteur(1)).toBe('1 emplacement connu');
     expect(motCompteur(3)).toBe('3 emplacements connus');
   });

@@ -1,5 +1,7 @@
 import { query } from '../db/client';
 import { copiePiecesDisponible, corbeilleDriveDisponible, journalMouvementDriveDisponible } from './schema';
+/* 🔴🔴 LOT PASTILLE-COPIES-VIVANTES — « une copie vivante », écrit une seule fois pour les deux tables. */
+import { sqlCopieVivante } from './localisationDrive';
 
 /**
  * LOT DRIVE-DEPLACER — CE QUE LA BASE GARDE DES DÉPLACEMENTS ET DES COPIES. IMPUR (SQL).
@@ -208,14 +210,14 @@ export async function fichiersDriveDeLaPiece(
          FROM (
          SELECT d.drive_file_id, d.md5, false AS par_empreinte, d.id
            FROM gestion_piece_drive d
-          WHERE d.piece_id = $1 AND btrim(d.drive_file_id) <> '' AND d.disparu_le IS NULL
+          WHERE d.piece_id = $1 AND btrim(d.drive_file_id) <> '' AND ${sqlCopieVivante('d')}
          ${parContenu ? `
          UNION ALL
          SELECT d.drive_file_id, d.md5, true AS par_empreinte, d.id
            FROM gestion_piece_drive d
            JOIN gestion_piece p ON lower(btrim(p.md5)) = lower(btrim(d.md5))
           WHERE p.id = $1 AND coalesce(btrim(p.md5), '') <> ''
-            AND btrim(d.drive_file_id) <> '' AND d.disparu_le IS NULL` : ''}
+            AND btrim(d.drive_file_id) <> '' AND ${sqlCopieVivante('d')}` : ''}
          ) t
         ORDER BY drive_file_id, par_empreinte, id
      ) u

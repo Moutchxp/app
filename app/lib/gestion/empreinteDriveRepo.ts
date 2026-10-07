@@ -1,6 +1,9 @@
 import { query } from '../db/client';
 import { indexEmpreintesDriveDisponible, pieceMd5Disponible } from './schema';
 import { cheminDepuisIndex, empreinteNormalisee, type LigneIndex } from './indexEmpreintesDrive';
+/* 🔴🔴 LOT PASTILLE-COPIES-VIVANTES — « une copie vivante » n'a qu'une définition dans ce dépôt (module PUR).
+   La pastille et la loupe comptent le même ensemble PAR CONSTRUCTION, et non par surveillance. */
+import { sqlCopieVivante } from './localisationDrive';
 
 /**
  * ══ 🔴🔴 LOT EMPREINTE-PIECES-DEJA-DANS-LE-DRIVE, NIVEAU 2 — CE QUE LA BASE SAIT DES EMPREINTES DU DRIVE ═════════
@@ -101,7 +104,7 @@ export async function fichiersDeMemeEmpreinte(
   }>(
     `SELECT drive_file_id, nom, parent_id, drive_id, releve_le::text
        FROM gestion_drive_empreinte
-      WHERE lower(md5) = $1 AND disparu_le IS NULL AND NOT est_dossier
+      WHERE lower(md5) = $1 AND ${sqlCopieVivante('gestion_drive_empreinte')} AND NOT est_dossier
       ORDER BY releve_le DESC
       LIMIT $2`, [e, Math.max(1, Math.min(limite, FICHIERS_MAX))]);
   if (rows.length === 0) return [];

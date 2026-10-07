@@ -195,8 +195,49 @@ export const AIDE_LOUPE = 'Localiser dans le Drive';
  * empreinte : une copie manuelle rangée dans un dossier qu'on n'a pas ouvert reste invisible. « 2 emplacements »
  * ferait conclure « il n'est nulle part ailleurs » ; « 2 emplacements connus » dit la vérité, et exactement elle.
  */
+/**
+ * ══ 🔴🔴 LOT PASTILLE-COPIES-VIVANTES — « DOCUMENT INCONNU DU DRIVE » À ZÉRO ═════════════════════════════════════
+ *
+ * DÉCISION D'ARNO (07/10/2026) : « À 0 : pas de pastille verte, et la loupe affiche “Document inconnu du Drive”
+ * (aucun lien). À 1 ou plus : “N emplacement(s) connu(s)”, avec la liste cliquable comme aujourd'hui. »
+ *
+ * 🔴 CE QUE LE NOUVEAU MOT RÉPARE. « Aucun emplacement connu » se lisait « je n'ai pas réussi à le situer » — une
+ * phrase sur NOTRE savoir, qui laissait croire qu'il était peut-être là, ailleurs, et qu'on avait mal cherché.
+ * « Document inconnu du Drive » dit ce qui a été VÉRIFIÉ : ce contenu n'existe dans aucune copie vivante que nous
+ * connaissions. C'est une phrase sur le document, pas sur notre embarras.
+ *
+ * ⚠️ « CONNU(S) » RESTE AU-DESSUS DE ZÉRO, et ce mot n'est pas une précaution de style : l'API Drive ne sait pas
+ * chercher par empreinte, et une copie rangée à la main dans un dossier jamais ouvert reste invisible.
+ * « 2 emplacements » ferait conclure « il n'est nulle part ailleurs » ; « 2 emplacements connus » dit la vérité,
+ * et exactement elle.
+ */
+export const MOT_INCONNU_DU_DRIVE = 'Document inconnu du Drive';
+
+/**
+ * ══ 🔴🔴 LOT PASTILLE-COPIES-VIVANTES — « UNE COPIE VIVANTE », ÉCRIT UNE SEULE FOIS ══════════════════════════════
+ *
+ * DÉCISION D'ARNO (07/10/2026) : « la pastille et la loupe ne comptent que les copies vivantes du Drive (hors
+ * corbeille, hors fantômes) ».
+ *
+ * 🔴 DEUX TABLES RÉPONDENT À CETTE QUESTION — le registre des dépôts (`gestion_piece_drive`) et l'index des
+ * empreintes (`gestion_drive_empreinte`) — et chacune écrivait sa propre condition. Deux écritures d'une même
+ * règle finissent par ne plus dire la même chose, et c'est toujours celle qu'on relit le moins qui garde le faux.
+ * Elles lisent donc ce fragment, et la pastille comme la loupe comptent le même ensemble PAR CONSTRUCTION.
+ *
+ * ⚠️ CE QUE CE FRAGMENT NE PEUT PAS DIRE, ET IL FAUT LE SAVOIR : la corbeille de Google. Une copie mise à la
+ * corbeille APRÈS le dernier relevé de l'index est encore `disparu_le IS NULL` chez nous. La LOUPE l'écarte
+ * quand même — elle demande le fichier à Google, et `lireMetadonnees` refuse un fichier à la corbeille ; la
+ * PASTILLE, qui ne fait aucun appel Google (c'est ce qui la rend gratuite sur une colonne de dix vignettes), ne
+ * le peut pas. L'écart se referme au relevé suivant, qui pose `disparu_le`. Mesuré le 07/10/2026 : **0** ligne
+ * vive du registre (sur 26 553) pointe vers un fichier que l'index donne pour disparu, et **0** vers un fichier
+ * qu'il ne connaît pas.
+ */
+export function sqlCopieVivante(alias: string): string {
+  return `${alias}.disparu_le IS NULL`;
+}
+
 export function motCompteur(n: number): string {
-  if (n <= 0) return 'Aucun emplacement connu';
+  if (n <= 0) return MOT_INCONNU_DU_DRIVE;
   return n > 1 ? `${n} emplacements connus` : '1 emplacement connu';
 }
 

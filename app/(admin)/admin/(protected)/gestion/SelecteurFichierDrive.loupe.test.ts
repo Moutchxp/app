@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
+/* 🔴 LA PHRASE VIENT DU MODULE PUR, jamais recopiée ici : une épreuve qui tient sa propre copie d'un mot ne
+   prouve rien le jour où le mot change. */
+import { MOT_INCONNU_DU_DRIVE } from '../../../../lib/gestion/localisationDrive';
 
 /**
  * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LA LOUPE « OÙ EST CE DOCUMENT ? » À L'ÉCRAN ═════════════════
@@ -283,13 +286,21 @@ describe('🔴 le compteur', () => {
     expect(titre).toContain('le Drive n’est pas balayé');
   });
 
-  /** ⚠️ AUCUN EMPLACEMENT : on le DIT, au lieu de laisser une loupe allumée sans rien à montrer. */
-  it('⚠️ aucun emplacement connu se dit aussi', async () => {
+  /**
+   * ⚠️ AUCUN EMPLACEMENT : on le DIT, au lieu de laisser une loupe allumée sans rien à montrer.
+   *
+   * 🔴🔴 ET LA PHRASE A CHANGÉ AU LOT PASTILLE-COPIES-VIVANTES (07/10/2026), sur décision d'Arno : « À 0 : pas
+   * de pastille verte, et la loupe affiche “Document inconnu du Drive” (aucun lien). » Elle vient du module
+   * PUR — on ne la recopie pas ici, sinon l'épreuve ne tiendrait que sa propre copie.
+   */
+  it('⚠️ à zéro, la loupe dit « Document inconnu du Drive », et n’offre aucun lien', async () => {
     reponseLocaliser = { etat: 'ok', source: 'f1', md5: null, parRegistre: 0, occurrences: [] };
     await monter();
     await dupliquer();
     await cliquer(loupeVignette());
-    expect(container.querySelector('.sfd-loupe-compte')?.textContent).toContain('Aucun emplacement connu');
+    expect(container.querySelector('.sfd-loupe-compte')?.textContent).toContain(MOT_INCONNU_DU_DRIVE);
+    // 🔴 « aucun lien » : rien à cliquer, puisqu'il n'y a nulle part où aller.
+    expect(container.querySelectorAll('.sfd-loupe-lien')).toHaveLength(0);
   });
 });
 
