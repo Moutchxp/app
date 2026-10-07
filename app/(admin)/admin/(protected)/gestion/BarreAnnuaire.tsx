@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import {
   classerSuggestions, rangSuivant, suggestionsAnnuaire,
@@ -39,10 +39,17 @@ import { hauteurEntiereDans } from '../../../../lib/gestion/listeDefilante';
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
-/** Ce que la route rend. On ne lit QUE ce qu'on affiche — le reste de la personne ne nous regarde pas. */
+/**
+ * Ce que la route rend. On ne lit QUE ce qu'on affiche — le reste de la personne ne nous regarde pas.
+ *
+ * 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — `tronque` ENTRE DANS CETTE LECTURE, et il le fallait : le serveur plafonne à
+ * 60 personnes (`PLAFOND_RESULTATS`) et le DIT dans sa réponse. Cette barre l'ignorait, donc coupait en silence.
+ * C'est exactement le défaut mesuré par Arno le 26/09/2026 sur l'ancien écran (« puvis » : 76 logements, 60
+ * montrés, 16 disparus sans un mot) — la règle « une liste coupée le dit » vaut ici comme là-bas.
+ */
 interface ReponseAnnuaire {
   etat?: string;
-  data?: { personnes?: PersonnePourSuggestion[] };
+  data?: { personnes?: PersonnePourSuggestion[]; tronque?: boolean };
 }
 
 /**
@@ -59,13 +66,40 @@ const MINIMUM = 2;
  */
 const PLAFOND_LISTE_PX = 380;
 
-export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
+/**
+ * ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — `focusAuMontage` ════════════════════════════════════════════════════════════
+ *
+ * Arno : « le focus est sur le champ à l'ouverture de l'écran Annuaire ». C'est une propriété de L'ÉCRAN qui
+ * monte la barre, pas de la barre : sur l'écran partagé, prendre le focus volerait le clavier à la boîte mail et
+ * ferait sauter la page vers le haut à chaque arrivée. Le défaut est donc `false`, et seul l'écran Annuaire
+ * demande le focus.
+ */
+export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
+  onFiche: (f: FicheUrl) => void;
+  focusAuMontage?: boolean;
+}) {
   const [texte, setTexte] = useState('');
   const [suggestions, setSuggestions] = useState<SuggestionAnnuaire[] | null>(null);
   const [rang, setRang] = useState(-1);
   const [occupe, setOccupe] = useState(false);
+  /**
+   * 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — « D'AUTRES CORRESPONDENT ». Vrai quand le serveur a plafonné sa réponse :
+   * la liste montre alors les premiers, et la barre doit le dire au lieu de laisser croire qu'on a tout vu.
+   */
+  const [tronque, setTronque] = useState(false);
+  /**
+   * 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — « l'annuaire n'est pas installé » est un ÉTAT, pas une absence de résultat.
+   * Voir l'encadré du chargement : la route le rend en 200 exprès, pour qu'aucun écran ne confonde les deux.
+   */
+  const [sansSchema, setSansSchema] = useState(false);
   const idListe = useId();
   const champ = useRef<HTMLInputElement | null>(null);
+  /**
+   * 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — L'ENVELOPPE, pour savoir ce qui est « dehors ». Elle contient la capsule
+   * (donc le champ et son libellé) ET la liste : un clic DANS l'un des deux n'est pas un clic dehors, et c'est
+   * cette enveloppe-là qui tranche, jamais une liste de sélecteurs à maintenir.
+   */
+  const racine = useRef<HTMLDivElement | null>(null);
   /**
    * ══ 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 2 — LA DERNIÈRE LIGNE VISIBLE L'EST EN ENTIER ═════════════
    *
@@ -89,7 +123,9 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
    */
   useEffect(() => {
     const t = texte.trim();
-    if (t.length < MINIMUM) { setSuggestions(null); setRang(-1); return; }
+    if (t.length < MINIMUM) {
+      setSuggestions(null); setRang(-1); setTronque(false); setSansSchema(false); return;
+    }
     let annule = false;
     setOccupe(true);
     const minuteur = setTimeout(() => {
@@ -98,8 +134,21 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
           const res = await fetch(`/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}`, { cache: 'no-store' });
           const d = (await res.json().catch(() => ({}))) as ReponseAnnuaire;
           if (annule) return;
-          /* ⚠️ `sans_schema` ET LES ERREURS RENDENT UNE LISTE VIDE, pas une liste absente : l'écran dit alors
-             « Aucun contact trouvé » plutôt que de laisser le champ muet. */
+          /* ⚠️ LES ERREURS RENDENT UNE LISTE VIDE, pas une liste absente : l'écran dit alors « Aucun contact
+             trouvé » plutôt que de laisser le champ muet. */
+          /**
+           * ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — « PAS ENCORE INSTALLÉ » N'EST PAS « AUCUN CONTACT » ═══════════
+           *
+           * `sans_schema` (migration 253 non appliquée) tombait ici dans le même sac que « rien ne correspond » :
+           * la barre annonçait « Aucun contact trouvé » sur un annuaire ABSENT. C'est le mensonge que la route
+           * se donne justement pour mission d'éviter — elle rend un ÉTAT en 200, pas une liste vide, « parce
+           * qu'une réponse vide se lirait comme un annuaire sans personne dedans ».
+           *
+           * 🔴 L'ANCIEN ÉCRAN ANNUAIRE LE DISAIT, ET ÉTAIT LE SEUL. En lui retirant sa liste, ce lot aurait fait
+           * disparaître la phrase du module entier : elle est donc reportée ici, comme l'avertissement de
+           * troncature, et profite désormais aux deux écrans.
+           */
+          setSansSchema(d.etat === 'sans_schema');
           /**
            * 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 2 — ON CLASSE PAR PERTINENCE DU NOM, TOUS RÔLES
            * MÊLÉS. La recherche rend ses propriétaires puis ses locataires — deux requêtes concaténées, donc un
@@ -108,9 +157,12 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
           setSuggestions(classerSuggestions(
             suggestionsAnnuaire(d.etat === 'ok' ? (d.data?.personnes ?? []) : []), t,
           ));
+          /* 🔴🔴 LE PLAFOND DU SERVEUR SE REDIT TEL QUEL : on ne le recalcule pas depuis le nombre de
+             suggestions, qui n'est PAS le nombre de personnes — une personne à double rôle en donne deux. */
+          setTronque(d.etat === 'ok' && d.data?.tronque === true);
           setRang(-1);
         } catch {
-          if (!annule) { setSuggestions([]); setRang(-1); }
+          if (!annule) { setSuggestions([]); setRang(-1); setTronque(false); setSansSchema(false); }
         } finally {
           if (!annule) setOccupe(false);
         }
@@ -134,10 +186,62 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
     setHauteurListe(hauteurEntiereDans(positions, budget));
   }, [suggestions]);
 
+  /**
+   * ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — « LA BARRE REDEVIENT VIERGE », UN SEUL GESTE POUR TROIS SORTIES ═════════
+   *
+   * ARNO (07/10/2026) : « un clic n'importe où en dehors de la liste de suggestions et du champ ferme la liste ET
+   * vide le champ (il redevient vierge, comme avec le ✕). La touche Échap fait la même chose. »
+   *
+   * 🔴 ÉCRIT UNE SEULE FOIS, et les trois sorties l'empruntent : le clic dehors, Échap, et l'ouverture d'une
+   * fiche. Trois recopies de « vider + refermer » auraient fini par diverger — l'une oubliant le rang visé, et
+   * la flèche bas serait revenue sur une liste disparue.
+   */
+  const fermerEtVider = useCallback((): void => {
+    setTexte(''); setSuggestions(null); setRang(-1); setTronque(false); setSansSchema(false);
+  }, []);
+
   const ouvrir = (s: SuggestionAnnuaire): void => {
-    setTexte(''); setSuggestions(null); setRang(-1);
+    fermerEtVider();
     onFiche(s.fiche);
   };
+
+  /**
+   * ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — LE CLIC DEHORS ══════════════════════════════════════════════════════════
+   *
+   * ⚠️ C'EST L'ENVELOPPE QUI DÉFINIT « DEHORS », et non une liste de sélecteurs : tout ce que la barre possède —
+   * le libellé, le champ, son ✕, la liste, la ligne « d'autres correspondent » — vit dedans. Un clic sur une
+   * suggestion est donc un clic DEDANS, et c'est son propre `onMouseDown` qui ouvre la fiche : ce garde-fou ne
+   * peut pas le lui voler.
+   *
+   * ⚠️ `mousedown` ET `touchstart`, PAS `blur` : le champ perd le focus aussi quand on clique une suggestion, et
+   * un `blur` aurait vidé le champ avant que le clic n'aboutisse — exactement le défaut que `onMouseDown`
+   * contourne déjà dans la liste.
+   *
+   * ⚠️ RIEN À ÉCOUTER QUAND LE CHAMP EST VIDE : on n'attache le garde-fou que lorsqu'il a quelque chose à
+   * effacer, et il se détache de lui-même ensuite.
+   */
+  useEffect(() => {
+    if (texte === '') return;
+    const dehors = (e: Event): void => {
+      const cible = e.target;
+      if (cible instanceof Node && racine.current?.contains(cible) === true) return;
+      fermerEtVider();
+    };
+    document.addEventListener('mousedown', dehors);
+    document.addEventListener('touchstart', dehors);
+    return () => {
+      document.removeEventListener('mousedown', dehors);
+      document.removeEventListener('touchstart', dehors);
+    };
+  }, [texte, fermerEtVider]);
+
+  /**
+   * 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — LE FOCUS À L'OUVERTURE, quand l'écran le demande. L'écran Annuaire n'a
+   * plus que cette barre : y arriver sans pouvoir taper obligerait à un clic pour rien.
+   */
+  useEffect(() => {
+    if (focusAuMontage) champ.current?.focus();
+  }, [focusAuMontage]);
 
   /**
    * 🔴 LE CLAVIER, EN ENTIER (Arno) : flèches pour parcourir, Entrée pour ouvrir, Échap pour refermer. Le
@@ -145,10 +249,13 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
    *
    * ⚠️ ENTRÉE SANS SÉLECTION NE FAIT RIEN plutôt que d'ouvrir la première : on n'ouvre pas une fiche que
    * personne n'a désignée.
+   *
+   * 🔴🔴 ÉCHAP VIDE AUSSI LE CHAMP depuis le lot ECRAN-ANNUAIRE-MINIMAL : il refermait la liste en laissant la
+   * saisie, et la frappe suivante la rouvrait sur un terme qu'on croyait abandonné.
    */
   const auClavier = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     const liste = suggestions ?? [];
-    if (e.key === 'Escape') { setSuggestions(null); setRang(-1); return; }
+    if (e.key === 'Escape') { fermerEtVider(); return; }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       setRang((r) => rangSuivant(r, liste.length, e.key === 'ArrowDown' ? 'bas' : 'haut'));
@@ -162,7 +269,7 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
 
   const liste = suggestions ?? [];
   return (
-    <div className="gst-annuaire">
+    <div className="gst-annuaire" ref={racine}>
       <style>{CSS_BARRE_ANNUAIRE}</style>
       {/* ══ 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 2 — LE LIBELLÉ PASSE À GAUCHE, DANS LA CAPSULE ════════════════
           Arno : « le libellé “Annuaire” passe à GAUCHE du champ. Libellé + champ forment une seule capsule à
@@ -193,7 +300,14 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
       {suggestions !== null && (
         liste.length === 0
           ? <p className="gst-annuaire-vide" role="status">
-            {occupe ? 'Recherche…' : 'Aucun contact trouvé.'}
+            {occupe
+              ? 'Recherche…'
+              /* 🔴🔴 TROIS PHRASES POUR TROIS FAITS DISTINCTS, et surtout pas une seule : « on cherche »,
+                 « l'annuaire n'est pas installé », « personne ne correspond ». Les confondre apprendrait a
+                 lire la troisieme comme un simple « pas de chance ». */
+              : sansSchema
+                ? 'L’annuaire n’est pas encore installé sur cette base (mise à jour 253 à appliquer).'
+                : 'Aucun contact trouvé.'}
           </p>
           : (
             <ul className="gst-annuaire-liste" id={idListe} role="listbox" aria-label="Contacts trouvés"
@@ -223,6 +337,24 @@ export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {
                   </button>
                 </li>
               ))}
+              {/* ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — UNE LISTE COUPÉE LE DIT ════════════════════════════════
+                  Le serveur rend au plus 60 personnes et signale qu'il a plafonné (`tronque`). Sans cette
+                  ligne, on lisait les premières en croyant les avoir toutes — le défaut mesuré par Arno le
+                  26/09/2026 sur l'ancien écran (« puvis » : 76 logements, 60 montrés, 16 disparus sans un mot).
+
+                  🔴 AUCUN NOMBRE DANS LA PHRASE, ET C'EST VOLONTAIRE : le nombre de SUGGESTIONS n'est pas le
+                  nombre de PERSONNES — une personne à double rôle en donne deux. Annoncer « 60 » serait faux
+                  une fois sur deux ; « d'autres correspondent » est vrai à chaque fois.
+
+                  ⚠️ `role="presentation"` : ce n'est pas une option de la liste, on ne doit pas pouvoir la
+                  viser aux flèches ni l'ouvrir. `role="status"` la fait DIRE par un lecteur d'écran.
+                  ⚠️ ELLE EST DANS LA LISTE, donc mesurée comme une ligne par `hauteurEntiereDans` : la boîte
+                  ne s'arrête jamais au milieu de l'avertissement. */}
+              {tronque && (
+                <li className="gst-annuaire-tronque" role="presentation">
+                  <span role="status">D’autres contacts correspondent — précisez votre recherche.</span>
+                </li>
+              )}
             </ul>
           )
       )}
@@ -285,6 +417,12 @@ const CSS_BARRE_ANNUAIRE = `
 .gst-annuaire-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 .gst-annuaire-role--locataire{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .gst-annuaire-lieu{font-size:.82rem;color:var(--color-svv-muted)}
+/* ══ LOT ECRAN-ANNUAIRE-MINIMAL — LA LIGNE « D'AUTRES CORRESPONDENT » ══
+   DISCRETE (Arno) : le gris des adresses, un filet au-dessus pour la detacher des suggestions, et aucun relief
+   qui la ferait passer pour une ligne cliquable — elle informe, elle n'agit pas.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.gst-annuaire-tronque{padding:8px 12px;font-size:.78rem;color:var(--color-svv-muted);
+  border-top:1px solid var(--color-svv-line)}
 /* Sur telephone, la capsule garde sa forme : c'est le libelle qui se resserre, jamais le champ qui disparait. */
 @media (max-width: 560px){
   .gst-annuaire-mot{padding:0 10px;font-size:14px}

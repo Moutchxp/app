@@ -157,9 +157,24 @@ describe('🔴🔴 ③ l’Annuaire est un BLOC DÉDIÉ, au-dessus des deux colo
    */
   it('🔴🔴 le bloc ne partage aucun état avec la boîte ni les événements', () => {
     const BARRE = readFileSync('app/(admin)/admin/(protected)/gestion/BarreAnnuaire.tsx', 'utf8');
-    /* 🔴 UNE SEULE PROPRIÉTÉ, ET C'EST UNE SORTIE : la barre REÇOIT de quoi ouvrir une fiche, et rien d'autre.
-       Elle ne peut donc ni lire ni toucher l'état de la boîte ou des événements. */
-    expect(BARRE).toContain('export function BarreAnnuaire({ onFiche }: { onFiche: (f: FicheUrl) => void }) {');
+    /**
+     * ══ ⚠️ RÈGLE RÉÉCRITE LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ═══════════════════════════════════════════
+     *
+     * ELLE FIGEAIT LA SIGNATURE ENTIÈRE (`{ onFiche }: { onFiche: (f: FicheUrl) => void }`), pour dire « une
+     * seule propriété, et c'est une SORTIE ». La barre en a désormais une seconde, `focusAuMontage`, parce que
+     * l'écran Annuaire la monte seule et demande le focus là où l'écran partagé ne le veut pas.
+     *
+     * 🔴 CE QUE LA RÈGLE PROTÉGEAIT N'A PAS BOUGÉ, et c'est exactement ce qu'on éprouve maintenant : la barre ne
+     * reçoit AUCUN état de l'écran partagé. `onFiche` est une sortie, `focusAuMontage` un booléen de présentation
+     * — ni l'un ni l'autre ne porte une liste de mails, un filtre, une sélection ou un rafraîchissement. Figer la
+     * signature au caractère près faisait échouer la garantie au premier réglage d'affichage, ce qui n'est pas
+     * ce qu'Arno a demandé de garder.
+     */
+    expect(BARRE).toContain('export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {');
+    const signature = BARRE.slice(BARRE.indexOf('export function BarreAnnuaire('), BARRE.indexOf('}) {'));
+    /* 🔴 LES SEULES PROPRIÉTÉS ADMISES, et chacune pour la raison écrite ci-dessus. */
+    expect([...signature.matchAll(/^\s{2}(\w+)[?]?:/gm)].map((m) => m[1]))
+      .toEqual(['onFiche', 'focusAuMontage']);
     /* 🔴 ET ELLE N'IMPORTE AUCUN DES ÉCRANS DE L'ÉCRAN PARTAGÉ : un composant qui en tire un état le partage. */
     for (const voisin of ['./BoiteMail', './BoiteReception', './GestionVue', './CarteVive']) {
       expect(BARRE, voisin).not.toContain(voisin);

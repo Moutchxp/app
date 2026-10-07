@@ -134,40 +134,39 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
   const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
 
   /**
-   * ══ 🔴 RÈGLE RÉÉCRITE LE 29/09/2026 (lot FICHES-ANNUAIRE) ═══════════════════════════════════════════════════
+   * ══ 🔴 RÈGLE RÉÉCRITE DEUX FOIS LE 29/09/2026 (lot FICHES-ANNUAIRE, puis son étape C) ════════════════════════
    *
-   * ELLE COMPTAIT LES `<input>` DU FICHIER, et il y en a maintenant DEUX. Ce n'est pas un second champ : c'est
-   * LE MÊME, écrit à deux endroits parce qu'il change de forme — grand avec son étiquette sur les résultats,
-   * compact dans l'en-tête d'une fiche, où l'on cherche la personne SUIVANTE. Les deux sont mutuellement
-   * exclusifs (`fiche === null` / `fiche !== null`) : un seul est rendu à la fois, et ils écrivent tous les deux
-   * dans `terme`.
+   * Elle a d'abord compté TOUS les `<input>` du fichier, puis seulement ceux de RECHERCHE (`type="search"`), en
+   * exigeant les DEUX champs de l'écran — le grand des résultats et le compact de l'en-tête d'une fiche — et le
+   * fait qu'ils écrivaient tous deux dans `terme`.
    *
-   * CE QUE LA RÈGLE PROTÉGEAIT, ET QUI N'A PAS BOUGÉ : on ne choisit JAMAIS, avant de taper, dans quel champ on
-   * est — il n'y a qu'une recherche, et elle accepte tout. C'est cela qu'on éprouve désormais, plutôt qu'un
-   * comptage de balises que la moindre mise en page faisait mentir.
+   * ══ 🔴🔴 RÈGLE RÉÉCRITE UNE TROISIÈME FOIS LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ═══════════════════════
+   *
+   * IL N'Y A PLUS DE CHAMP DU TOUT DANS CET ÉCRAN. Arno : « LE MÊME composant `BarreAnnuaire` que l'écran
+   * partagé — pas une copie. » Les deux champs, leur `terme` commun, leur délai de frappe et leur requête sont
+   * passés dans la barre partagée, qui sert désormais les deux écrans.
+   *
+   * 🔴 CE QUE LA RÈGLE PROTÉGEAIT EST MIEUX TENU QU'AVANT, ET C'EST CE QU'ON ÉPROUVE : « on ne choisit jamais,
+   * avant de taper, dans quelle recherche on est » — il n'y en a plus qu'UNE dans tout le module, écrite dans un
+   * seul fichier. Compter les champs d'un écran qui n'en a plus n'aurait rien dit ; vérifier qu'il n'en a AUCUN
+   * en propre, et qu'il monte celui de l'autre écran, dit exactement la règle.
    */
-  /**
-   * ══ 🔴 RÈGLE RÉÉCRITE UNE SECONDE FOIS LE 29/09/2026 (lot FICHES-ANNUAIRE, étape C) ═════════════════════════
-   *
-   * ELLE COMPTAIT TOUS LES `<input>` DU FICHIER, et attendait exactement deux. L'étape C ajoute de VRAIS
-   * formulaires à cet écran — créer une personne, enregistrer un départ — donc d'autres `<input>`, qui ne sont
-   * pas des champs de recherche du tout. Le comptage global ne disait plus rien.
-   *
-   * CE QU'ON ÉPROUVE DÉSORMAIS, et qui est la règle elle-même : les champs de RECHERCHE (`type="search"`) sont
-   * DEUX, ils écrivent tous les deux dans `terme`, et ils sont mutuellement exclusifs. Les autres saisies sont
-   * des formulaires, et n'ont rien à voir avec « une seule recherche ».
-   */
-  it('🔴 UNE SEULE recherche : les deux champs sont exclusifs et écrivent au même endroit', () => {
-    const champs = (src.match(/<input[\s\S]*?\/>/g) ?? []).filter((c) => c.includes('type="search"'));
-    expect(champs).toHaveLength(2);
-    // Les deux alimentent `terme` : on ne choisit jamais, avant de taper, dans quel champ on est.
-    for (const c of champs) expect(c).toContain('setTerme(e.target.value)');
-    // L'un porte l'étiquette visible (les résultats), l'autre son intitulé accessible (la fiche).
-    expect(src).toContain('<label className="ann-label"');
-    expect(src).toContain('aria-label="Chercher un propriétaire, un lot, un locataire"');
-    // 🔴 EXCLUSIFS : l'un ne s'affiche que sans fiche, l'autre que sur une fiche.
-    expect(src).toContain('{fiche === null && (');
-    expect(src).toContain('{fiche !== null && (');
+  it('🔴🔴 UNE SEULE recherche dans tout le module : cet écran n’a plus de champ en propre', () => {
+    /* ⚠️ SANS LES COMMENTAIRES : l'encadré de retrait DÉCRIT le champ disparu et sa requête — une lecture brute
+       serait tombée sur la mémoire du lot au lieu du code. */
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '');
+    const champs = (code.match(/<input[\s\S]*?\/>/g) ?? []).filter((c) => c.includes('type="search"'));
+    expect(champs).toEqual([]);
+    expect(code).not.toContain('setTerme(e.target.value)');
+    expect(code).not.toContain('<label className="ann-label"');
+    /* 🔴 ET C'EST LE COMPOSANT PARTAGÉ QUI PORTE LA RECHERCHE, dans les deux états de l'écran. */
+    expect(code).toContain("import { BarreAnnuaire } from './BarreAnnuaire'");
+    expect(code).toContain('<BarreAnnuaire onFiche={onFiche} focusAuMontage />');
+    expect(code).toContain('<BarreAnnuaire onFiche={onFiche} />');
+    /* 🔴 ET LE CHAMP UNIQUE EST BIEN UN CHAMP DE RECHERCHE, chez lui : `type="search"` porte son ✕ natif. */
+    const barre = readFileSync('app/(admin)/admin/(protected)/gestion/BarreAnnuaire.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    expect((barre.match(/type="search"/g) ?? [])).toHaveLength(1);
   });
 
   /**
@@ -412,9 +411,27 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
     expect(src).toContain('absent du dernier export');
   });
 
-  it('l’écran DIT quand l’annuaire n’est pas installé, plutôt que de rester vide', () => {
-    expect(src).toContain('sans_schema');
-    expect(src).toContain('n’est pas encore installé');
+  /**
+   * ══ ⚠️ RÈGLE DÉPLACÉE LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ══════════════════════════════════════════════
+   *
+   * ELLE LISAIT CES DEUX PHRASES DANS `Annuaire.tsx`, où la liste de résultats les portait. La liste est partie
+   * avec la recherche de l'écran ; la RÈGLE, elle, ne pouvait pas partir avec elle — c'est la seule chose qui
+   * empêche de lire « aucun contact » sur un annuaire ABSENT (migration 253 non appliquée), et la route se donne
+   * justement pour mission de rendre un ÉTAT en 200 plutôt qu'une liste vide.
+   *
+   * 🔴 ELLE EST DONC REPORTÉE DANS LA BARRE PARTAGÉE, qui l'ignorait et confondait les deux. Les deux écrans en
+   * profitent désormais, là où un seul le disait.
+   */
+  it('🔴 « pas encore installé » n’est pas « aucun contact », et la barre le dit', () => {
+    const barre = readFileSync('app/(admin)/admin/(protected)/gestion/BarreAnnuaire.tsx', 'utf8');
+    expect(barre).toContain("setSansSchema(d.etat === 'sans_schema')");
+    expect(barre).toContain('n’est pas encore installé sur cette base');
+    /* 🔴 TROIS PHRASES POUR TROIS FAITS : « on cherche », « pas installé », « personne ne correspond ». */
+    expect(barre).toContain("'Recherche…'");
+    expect(barre).toContain("'Aucun contact trouvé.'");
+    /* ⚠️ ET LA ROUTE REND TOUJOURS CET ÉTAT EN 200 : c'est de là que la phrase tire son droit d'exister. */
+    const route = readFileSync('app/(admin)/api/admin/gestion/annuaire/route.ts', 'utf8');
+    expect(route).toContain("etat: 'sans_schema'");
   });
 
   /**
@@ -424,15 +441,28 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
    * de la file annonce ce qu'elle laisse de côté).
    */
   /**
-   * ⚠️ MOTS RÉÉCRITS LE 30/09/2026 (lot ANNUAIRE-PERSONNES) : la liste rend des PERSONNES, elle dit donc
-   * « N premières personnes » et non « N premiers résultats ». La règle — une liste coupée le DIT, et dit quoi
-   * faire — n'a pas bougé d'un pouce, et c'est elle qu'on éprouve.
+   * ⚠️ MOTS RÉÉCRITS LE 30/09/2026 (lot ANNUAIRE-PERSONNES) : la liste rendait des PERSONNES, elle disait donc
+   * « N premières personnes » et non « N premiers résultats ».
+   *
+   * ══ 🔴🔴 RÈGLE DÉPLACÉE LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ═══════════════════════════════════════════
+   *
+   * DÉCISION D'ARNO, mot pour mot : « supprimer, mais reporter l'avertissement de troncature dans la barre
+   * (au-delà de 60 : ligne discrète “d'autres correspondent, précisez”) ». C'était le seul point du retrait qui
+   * contredisait une règle déjà posée — celle du 26/09/2026, mesurée sur « puvis » : 76 logements, 60 montrés,
+   * 16 disparus sans un mot. La barre partagée l'ignorait complètement ; elle la tient maintenant, et pour les
+   * DEUX écrans.
+   *
+   * 🔴 AUCUN NOMBRE DANS LA PHRASE, ET C'EST UNE CORRECTION, PAS UN RACCOURCI : le nombre de SUGGESTIONS n'est
+   * pas le nombre de PERSONNES — une personne à double rôle en donne deux. Annoncer « 60 » aurait été faux une
+   * fois sur deux, là où « d'autres correspondent » est vrai à chaque fois.
    */
-  it('🔴 une liste COUPÉE le dit, et dit quoi faire pour voir le reste', () => {
-    expect(src).toContain('reponse.tronque');
-    expect(src).toContain('premières personnes');
-    expect(src).toContain('d’autres correspondent');
-    expect(src).toContain('Précisez votre recherche');
+  it('🔴🔴 une liste COUPÉE le dit, et dit quoi faire pour voir le reste', () => {
+    const barre = readFileSync('app/(admin)/admin/(protected)/gestion/BarreAnnuaire.tsx', 'utf8');
+    /* 🔴 LE PLAFOND DU SERVEUR SE REDIT TEL QUEL, il n'est pas recalculé depuis la liste affichée. */
+    expect(barre).toContain("setTronque(d.etat === 'ok' && d.data?.tronque === true)");
+    expect(barre).toContain('D’autres contacts correspondent — précisez votre recherche.');
+    /* ⚠️ ELLE N'EST PAS UNE OPTION DE LA LISTE : on ne doit ni la viser aux flèches, ni l'ouvrir. */
+    expect(barre).toContain('className="gst-annuaire-tronque" role="presentation"');
   });
 
   it('le dépôt demande UNE ligne de plus que le plafond — c’est elle qui révèle qu’il y en a d’autres', () => {

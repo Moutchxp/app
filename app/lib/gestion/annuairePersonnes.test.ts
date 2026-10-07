@@ -143,76 +143,108 @@ describe('🔴 ce qu’on n’a PAS touché', () => {
     expect(epreuve).toContain('rechercher(analyserTerme');
   });
 
-  /** ⚠️ LES FICHES ET LE RETOUR NE BOUGENT PAS : le retour ramène aux résultats, avec la saisie intacte. */
   /**
    * 🔴🔴 LOT FLECHES-RETOUR — LA PROPRIÉTÉ N'A PAS CHANGÉ, LE MOYEN SI.
    *
    * Le bouton reposait la fiche à `null` quand une fiche était ouverte, et menait à la boîte sinon : deux
    * destinations FIXES, dont aucune n'était le mail d'où l'on venait (constat d'Arno). Il passe désormais par le
-   * RETOUR COMMUN du module (`onRetour`), qui recule dans l'historique : la liste revient telle qu'on l'a quittée,
-   * et le terme cherché n'est même pas touché — personne n'a à le sauvegarder.
+   * RETOUR COMMUN du module (`onRetour`), qui recule dans l'historique.
+   *
+   * ══ ⚠️ RÈGLE RÉÉCRITE LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ═══════════════════════════════════════════
+   *
+   * ELLE S'INTITULAIT « … sans effacer la saisie » et lisait `const [terme, setTerme] = useState` : la preuve
+   * que le terme cherché survivait au retour. IL N'Y A PLUS DE SAISIE À SAUVER sur cet écran — la recherche est
+   * passée à la barre partagée, qui se vide de toute façon dès qu'on ouvre une fiche (c'était déjà sa règle).
+   *
+   * 🔴 CE QUE LA RÈGLE PROTÉGEAIT ET QUI EST ÉPROUVÉ ICI : le bouton existe toujours SUR UNE FICHE, il passe par
+   * le retour commun, et il ne rejoue plus les deux destinations fixes d'avant. Son retrait sur l'état « aucune
+   * fiche ouverte » est la demande explicite d'Arno du 07/10/2026.
    */
-  it('🔴 le bouton Retour ramène aux résultats sans effacer la saisie', () => {
+  it('🔴 le bouton Retour d’une fiche passe par le retour commun du module', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
     expect(src).toContain('onClick={() => onRetour()}');
     expect(src).not.toContain('fiche !== null ? onFiche(null) : onRetour()');
-    // Le terme vit dans un état que le retour ne touche pas — c'est ce qui le fait survivre.
-    expect(src).toContain('const [terme, setTerme] = useState');
+    /* 🔴 ET IL NE VIT QUE DANS LA BRANCHE D'UNE FICHE : l'écran sans fiche n'a plus que son titre et la barre. */
+    /* ⚠️ SANS LES COMMENTAIRES : l'encadré du haut de fiche EXPLIQUE que « ← Retour » reste sur une fiche —
+       une lecture brute serait tombée sur cette explication plutôt que sur du code. */
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '');
+    const sansFiche = code.slice(code.indexOf('{fiche === null ? ('), code.indexOf('<div className="ann-entete">'));
+    expect(sansFiche).not.toContain('← Retour');
   });
 });
 
-describe('🔴 l’écran : des noms, pas des adresses', () => {
+/**
+ * ══ 🔴🔴 BLOC RÉÉCRIT LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ════════════════════════════════════════════════════
+ *
+ * IL S'INTITULAIT « l'écran : des noms, pas des adresses » et éprouvait la LISTE DE RÉSULTATS de l'écran Annuaire,
+ * ligne par ligne : `<LignePersonne`, le compteur « N personnes », le mobile, l'e-mail, le bien, la raison, le filet
+ * de groupe et la case « Afficher les archivées ».
+ *
+ * CETTE LISTE N'EXISTE PLUS. Arno (07/10/2026) : « l'écran Annuaire est à reconstruire, minimal : un titre, une
+ * phrase, et LE MÊME composant `BarreAnnuaire` que l'écran partagé. » Le retrait a été vérifié avant d'être fait,
+ * et rendu point par point — voir l'encadré de retrait dans `Annuaire.tsx`.
+ *
+ * 🔴 CE QUE LE BLOC PROTÉGEAIT, ET QUI EST ÉPROUVÉ ICI PLUTÔT QUE SUPPRIMÉ : l'annuaire répond par des PERSONNES, et
+ * un clic mène à la fiche DE SON RÔLE. C'est désormais la barre partagée qui le tient — et elle le tient pour de
+ * vrai, montée dans un DOM, dans `BarreAnnuaire.test.ts` (« un propriétaire ouvre la fiche propriétaire », « un
+ * locataire ouvre la fiche locataire », « un double rôle donne deux lignes, chacune vers SA fiche »). Le reste du
+ * présent fichier — ce que le DÉPÔT rend, et ce qu'on n'a PAS touché — n'a pas bougé d'une ligne.
+ *
+ * ⚠️ ON NE GARDE DONC PAS DEUX ÉPREUVES DE LA MÊME CHOSE : ce qui suit vérifie que l'écran ne rend PLUS de seconde
+ * liste, et qu'il passe bien par le composant partagé. Le détail du rendu d'une suggestion appartient à la barre.
+ */
+describe('🔴🔴 l’écran Annuaire : plus de seconde liste, la barre partagée', () => {
   const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+  /**
+   * ⚠️ ON ÉPROUVE LE CODE, PAS LES COMMENTAIRES, et il le faut ici plus qu'ailleurs : la convention de ce dépôt
+   * veut qu'un retrait LAISSE UN ENCADRÉ disant ce qui vivait là et pourquoi c'est parti. Cet encadré nomme donc
+   * `Resultats`, `LignePersonne` et « Afficher les archivées » — un `not.toContain` sur le fichier entier serait
+   * tombé sur la trace écrite du retrait, et aurait obligé à choisir entre la mémoire du lot et l'épreuve.
+   */
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-  it('🔴 la liste rend des PERSONNES, et le compteur les compte', () => {
-    expect(src).toContain('<LignePersonne');
-    expect(src).toContain('personne{reponse.personnes.length > 1 ? \'s\' : \'\'}');
-    // 🔴 L'ANCIENNE LISTE PAR LOGEMENT A DISPARU : plus de titre d'adresse, plus de « Locataire actuel ».
-    const liste = src.slice(src.indexOf('function Resultats'), src.indexOf('function LignePersonne'));
-    expect(liste).not.toContain("ouvrir('lot'");
-    expect(liste).not.toContain('Locataire actuel');
+  /** 🔴🔴 LA LISTE ET SES PIÈCES SONT PARTIES, et rien n'en est gardé en dormance. */
+  it('🔴🔴 ni `Resultats`, ni `LignePersonne`, ni compteur, ni case des archivées', () => {
+    for (const mort of ['function Resultats', 'function LignePersonne', '<LignePersonne', 'MOT_ROLE',
+      'Afficher les archivées', 'ann-personnes', 'ann-pers-corps', 'reponse.personnes']) {
+      expect(code, mort).not.toContain(mort);
+    }
   });
 
-  /** 🔴 UN CLIC MÈNE À LA FICHE DE SON RÔLE : propriétaire → fiche propriétaire, locataire → fiche locataire. */
-  it('🔴 le clic ouvre la fiche de la personne, selon son rôle principal', () => {
-    const ligne = src.slice(src.indexOf('function LignePersonne'));
-    expect(ligne).toContain('onClick={() => ouvrir(p.sujet, p.id)}');
-    // Et la seconde fiche reste atteignable, hors du bouton de la ligne.
-    expect(ligne).toContain("ouvrir('locataire', p.autreFicheId as number)");
-    const corps = ligne.slice(ligne.indexOf('ann-pers-corps'), ligne.indexOf('</button>'));
-    expect(corps).not.toContain('<button');
-    expect(corps).not.toContain('<a ');
+  /** 🔴🔴 ET L'ÉCRAN N'A PLUS DE RECHERCHE À LUI : ni champ, ni délai de frappe, ni requête. */
+  it('🔴🔴 plus aucune recherche écrite dans l’écran', () => {
+    expect(code).not.toContain('/api/admin/gestion/annuaire?q=');
+    expect(code).not.toContain('const [terme, setTerme]');
+    expect(code).not.toContain('ATTENTE_FRAPPE_MS');
+    /* ⚠️ AUCUN CHAMP DE RECHERCHE PROPRE À L'ÉCRAN : les `<input>` qui restent sont ceux des formulaires de
+       fiche (créer une personne, enregistrer un départ), et aucun n'est un `type="search"`. */
+    const champs = (code.match(/<input[\s\S]*?\/>/g) ?? []).filter((c) => c.includes('type="search"'));
+    expect(champs).toEqual([]);
   });
 
-  /** 🔴 CE QU'UNE LIGNE PORTE, mot pour mot : nom en gras, capsule de rôle, puis le gris. */
-  it('🔴 la ligne porte le nom, le rôle, le mobile, l’e-mail et le bien', () => {
-    const ligne = src.slice(src.indexOf('function LignePersonne'));
-    expect(ligne).toContain('{nom}');
-    expect(ligne).toContain('MOT_ROLE[r]');
-    expect(ligne).toContain('{p.mobile ?? \'—\'}');
-    expect(ligne).toContain('{p.email ?? \'—\'}');
-    expect(ligne).toContain('titreLogement(premier.adresse, premier.commune)} — lot {premier.numero}');
-    expect(ligne).toContain('+{p.biens.length - 1} bien');
-    expect(src).toContain("proprietaire: 'Propriétaire'");
-    expect(src).toContain("ancien_locataire: 'Ancien locataire'");
+  /**
+   * 🔴🔴 LE MÊME COMPOSANT, PAS UNE COPIE (Arno, mot pour mot). C'est la garantie centrale du lot : l'écran
+   * Annuaire et l'écran partagé montent le MÊME `BarreAnnuaire`, donc interrogent la même route par le même
+   * code. Deux copies auraient fini par ne plus trouver les mêmes personnes — ce qui était déjà en train
+   * d'arriver.
+   */
+  it('🔴🔴 l’écran monte `BarreAnnuaire`, le composant de l’écran partagé', () => {
+    expect(src).toContain("import { BarreAnnuaire } from './BarreAnnuaire'");
+    expect(src).toContain('<BarreAnnuaire onFiche={onFiche} focusAuMontage />');
+    const VUE = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
+    expect(VUE).toContain("import { BarreAnnuaire } from './BarreAnnuaire'");
   });
 
-  /** 🔴 LE FILET NE SE POSE QU'ENTRE DEUX VOISINES DU MÊME GROUPE. */
-  it('🔴 le filet relie deux voisines, jamais la dernière d’un groupe', () => {
-    expect(src).toContain('reponse.personnes[i + 1]?.groupe === p.groupe');
-    expect(src).toContain('.ann-pers--groupe{');
-    expect(src).toContain('.ann-pers--groupe + .ann-pers{');
+  /** ⚠️ L'OPTION SERVEUR DES ARCHIVÉES N'EST PAS SUPPRIMÉE : c'est son appelant d'écran qui part. */
+  it('⚠️ la route et le dépôt savent toujours rendre les archivées', () => {
+    const route = readFileSync('app/(admin)/api/admin/gestion/annuaire/route.ts', 'utf8');
+    expect(route).toContain("url.searchParams.get('archivees') === '1'");
+    expect(route).toContain('rechercherPersonnes(terme, { avecArchivees })');
+    const repo = readFileSync('app/lib/gestion/annuaireRepo.ts', 'utf8');
+    expect(repo).toContain('avecArchivees ? lignes : lignes.filter((x) => !x.archive)');
   });
 
-  /** ⚠️ LA CASE EST TOUJOURS VISIBLE, même sur un résultat vide : c'est souvent elle qu'on vient cocher. */
-  it('🔴 « Afficher les archivées » existe, et relance la recherche', () => {
-    expect(src).toContain('Afficher les archivées');
-    expect(src).toContain("archivees ? '&archivees=1' : ''");
-    expect(src).toContain('}, [terme, archivees]);');
-    expect(src).toContain('ann-etiq--absent">archivée');
-  });
-
-  /** ⚠️ MOBILE D'ABORD (§15) : rien au seul survol, et la ligne tient à 390 px. */
+  /** ⚠️ MOBILE D'ABORD (§15) : rien au seul survol. */
   it('mobile d’abord : aucune information révélée au seul survol', () => {
     expect(src).not.toMatch(/:hover\{[^}]*(display|visibility)\s*:/);
   });

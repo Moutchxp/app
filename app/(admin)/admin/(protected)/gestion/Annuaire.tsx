@@ -4,12 +4,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR). */
 import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
 import {
-  analyserTerme, formaterDateIso, messageRechercheVide, periodeOccupation, titreLogement,
+  formaterDateIso, periodeOccupation, titreLogement,
 } from '../../../../lib/gestion/annuaireRecherche';
 import type {
   BienDuProprietaire, ContactAffiche, FicheLocataire, FicheLot, FicheProprietaire,
-  LogementDuLocataire, OccupationDuLot, PersonneTrouvee, RolePersonne,
+  LogementDuLocataire, OccupationDuLot,
 } from '../../../../lib/gestion/annuaireRepo';
+/**
+ * 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — LA **MÊME** BARRE QUE L'ÉCRAN PARTAGÉ, PAS UNE COPIE.
+ *
+ * Arno : « LE MÊME composant que l'écran partagé (pas une copie) ». C'est tout l'enjeu du lot : cet écran avait
+ * son propre champ, son propre débounce, sa propre liste de résultats — un second annuaire, qui ne trouvait pas
+ * tout à fait les mêmes gens que la barre de l'accueil et qui se corrigeait séparément. Il n'y en a plus qu'un.
+ */
+import { BarreAnnuaire } from './BarreAnnuaire';
 /**
  * 🔴🔴 LOT HISTORIQUE-BIEN-2 — `VieDuBien` N'EST PLUS MONTÉ SUR LA FICHE D'UN **BIEN** (accord d'Arno,
  * 04/10/2026 : « deux listings de mails, c'est un de trop » ; le moteur prend sa place, juste sous « Historique
@@ -72,12 +80,32 @@ import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffic
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * 🔴 UN SEUL CHAMP DE RECHERCHE, et c'est la demande d'Arno mot pour mot : « trouver par nom, adresse, téléphone ou
- * mail qui est qui par rapport à un logement ». Quatre champs obligeraient à décider AVANT de taper dans lequel on
- * est — alors qu'on a sous les yeux un numéro sans savoir s'il est d'un propriétaire ou d'un locataire.
+ * 🔴 UNE SEULE RECHERCHE, et c'est la demande d'Arno mot pour mot : « trouver par nom, adresse, téléphone ou mail qui
+ * est qui par rapport à un logement ». Quatre champs obligeraient à décider AVANT de taper dans lequel on est —
+ * alors qu'on a sous les yeux un numéro sans savoir s'il est d'un propriétaire ou d'un locataire.
  *
- * 🔴 LES RÉSULTATS SONT GROUPÉS PAR LOGEMENT, parce que c'est l'unité de la question : « 12 rue X, Puteaux —
- * Propriétaire : … — Locataire actuel : … ». Chaque ligne porte le trio, et chaque nom du trio est cliquable.
+ * ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL (07/10/2026) — CET ÉCRAN N'A PLUS DE RECHERCHE À LUI ════════════════════════════
+ *
+ * ARNO : « l'écran Annuaire est à reconstruire, minimal : un titre “Annuaire”, une phrase d'explication, et LE MÊME
+ * composant `BarreAnnuaire` que l'écran partagé — pas une copie. »
+ *
+ * 🔴 CE QUI A ÉTÉ RETIRÉ, ET CE QUI LE REMPLACE. L'écran portait son propre champ (`ann-q`), son propre délai de
+ * frappe, son propre état de réponse et sa propre liste de résultats (`Resultats` / `LignePersonne`) — un SECOND
+ * annuaire, avec ses propres défauts à corriger deux fois. Tout cela passe par la barre partagée, qui interroge la
+ * MÊME route (`/api/admin/gestion/annuaire?q=…`) et la MÊME fonction (`rechercherPersonnes`).
+ *
+ * 🔴 CE QUE LA LISTE DÉTAILLÉE PORTAIT, ET OÙ C'EST PASSÉ — vérifié AVANT le retrait, et rendu à Arno :
+ *   · le mobile et l'e-mail de chaque résultat → dans la FICHE, qu'un clic ouvre directement ;
+ *   · la raison (« propriétaire du lot 219 ») → la suggestion porte l'adresse du bien, et la fiche dit le reste ;
+ *   · l'avertissement « d'autres correspondent » → REPORTÉ DANS LA BARRE (décision d'Arno), parce que c'est une
+ *     règle qu'il avait posée et qu'aucun écran ne doit perdre : une liste coupée le dit ;
+ *   · la case « Afficher les archivées » → RETIRÉE, décision d'Arno. Mesure en base au moment du retrait : six
+ *     propriétaires archivés, dont cinq AUSSI supprimés (donc hors de portée des deux chemins) ; la case ne
+ *     changeait donc le résultat que pour UNE personne, une fiche d'essai. L'option `?archivees=1` reste
+ *     INTACTE côté serveur — rien n'est supprimé du dépôt ni de la route.
+ *
+ * ⚠️ SEUL L'ÉTAT « AUCUNE FICHE OUVERTE » EST RECONSTRUIT. `?ecran=annuaire&fiche=bien-315&evenement=1` et tous
+ * ses voisins passent par la branche `fiche !== null`, qui n'est pas touchée par ce lot.
  *
  * 🔴 LECTURE SEULE DANS CE LOT. Rien ne se saisit ici : WIPPIMMO fait foi, et une correction tapée dans cet écran
  * serait écrasée au prochain import sans prévenir. L'écran DIT de quand datent ses données, pour qu'on sache quoi
@@ -92,14 +120,6 @@ import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffic
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
-type Reponse =
-  | { etat: 'repos' }
-  | { etat: 'charge' }
-  | { etat: 'sans_schema' }
-  | { etat: 'erreur'; message: string }
-  /** 🔴 LOT ANNUAIRE-PERSONNES — la réponse porte des PERSONNES, plus des lots. */
-  | { etat: 'ok'; personnes: PersonneTrouvee[]; tronque: boolean; importe: { le: string } | null };
-
 type Fiche =
   | { etat: 'charge' }
   | { etat: 'erreur'; message: string }
@@ -107,9 +127,24 @@ type Fiche =
   | { etat: 'lot'; data: FicheLot }
   | { etat: 'locataire'; data: FicheLocataire };
 
-/** Le temps de silence après la dernière frappe avant d'interroger. Assez court pour paraître instantané, assez
- *  long pour ne pas lancer une requête par lettre. */
-const ATTENTE_FRAPPE_MS = 250;
+/**
+ * ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — LA PHRASE D'EXPLICATION, AJUSTÉE À CE QUE LA RECHERCHE ACCEPTE VRAIMENT ══════
+ *
+ * Arno a donné une phrase et une consigne : « ajuste-la à ce que la recherche accepte réellement, sans rien
+ * promettre de faux ». Sa version disait « par son nom, son adresse, son téléphone ou son e-mail ».
+ *
+ * 🔴 CE QUI A ÉTÉ AJOUTÉ, PARCE QUE C'EST VRAI : la COMMUNE et le NUMÉRO DE LOT — `analyserTerme` les lit tous
+ * les deux, et `rechercherPersonnes` ramène par eux les propriétaires, les locataires en place ET les anciens
+ * locataires du bien désigné. Les taire aurait caché une porte d'entrée qui existe.
+ *
+ * 🔴 CE QUI A ÉTÉ AJOUTÉ AUSSI : « un ancien locataire ». La recherche les rend, avec leur mot à eux ; promettre
+ * seulement « un locataire » aurait laissé croire qu'un parti est introuvable.
+ *
+ * ⚠️ RIEN SUR LES ACCENTS NI LA CASSE, bien que ce soit vrai : Arno a autorisé le retrait de la ligne d'aide qui
+ * le disait, et cette phrase-ci doit rester UNE phrase discrète.
+ */
+const PHRASE_ANNUAIRE = 'Retrouvez un propriétaire, un locataire ou un ancien locataire par son nom, '
+  + 'une adresse, une commune, un téléphone, un e-mail ou un numéro de lot, et ouvrez directement sa fiche.';
 
 /* ══ 🔴🔴 RETIRÉ LE 30/09/2026 — LOT FICHES-RETOUCHES-2 ══════════════════════════════════════════════════════════
    Ici vivaient `DemandeAjout` et son panneau : un clic sur « + Ajouter » ouvrait EN HAUT DE LA FICHE un petit
@@ -162,20 +197,22 @@ export function Annuaire({
    */
   onHistorique?: (cible: Cible) => void;
 }) {
-  const [terme, setTerme] = useState('');
   /**
    * ⚠️ UNE SEULE RÉFÉRENCE DE TEMPS POUR TOUT L'ÉCRAN, figée au montage : recalculer `new Date()` à chaque rendu
    * ferait glisser les « il y a 3 min » d'une ligne à l'autre, et l'on croirait à des mails différents.
    */
   const [refTemps] = useState(() => maintenant ?? new Date());
-  const [reponse, setReponse] = useState<Reponse>({ etat: 'repos' });
   /**
-   * 🔴 LOT ANNUAIRE-PERSONNES — « Personnes archivées : masquées par défaut ; une case “Afficher les archivées”
-   * les montre, avec la mention “archivée” ». L'état vit ici, à côté du terme : les deux font la requête.
+   * ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — PLUS AUCUN ÉTAT DE RECHERCHE ICI ═══════════════════════════════════════════
+   *
+   * Vivaient là `terme`, `reponse` et `archivees`, plus la référence du champ : l'état d'une recherche que cet
+   * écran menait lui-même. La barre partagée porte désormais le sien, et il n'en reste qu'un seul dans le module.
+   *
+   * 🔴 CE N'EST PAS UNE SIMPLIFICATION DE CONFORT : deux états de recherche voulaient deux débounces, deux
+   * gestions d'annulation et deux classements — et c'est exactement par là que l'accueil et l'annuaire s'étaient
+   * mis à ne plus trouver tout à fait les mêmes personnes.
    */
-  const [archivees, setArchivees] = useState(false);
   const [detail, setDetail] = useState<Fiche | null>(null);
-  const champ = useRef<HTMLInputElement | null>(null);
   /**
    * ══ 🔴 LOT FICHES-ANNUAIRE (étape C) — CE QUI FAIT RELIRE LA FICHE APRÈS UNE MODIFICATION ═══════════════════════
    *
@@ -249,38 +286,18 @@ export function Annuaire({
     setVieDuBienVisee(fiche.id);
   }, [poserSurVie, fiche]);
 
-  // ── LA RECHERCHE ────────────────────────────────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const t = terme.trim();
-    if (t === '') { setReponse({ etat: 'repos' }); return; }
-    let vivant = true;
-    setReponse({ etat: 'charge' });
-    const minuterie = setTimeout(() => {
-      void (async () => {
-        try {
-          /* 🔴 LOT ANNUAIRE-PERSONNES — `archivees` part dans l'ADRESSE de la requête, et la case est dans les
-             dépendances de l'effet : la cocher relance la recherche, sans qu'on ait à retaper quoi que ce soit. */
-          const res = await fetch(
-            `/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}${archivees ? '&archivees=1' : ''}`,
-            { cache: 'no-store' });
-          const d = (await res.json()) as {
-            etat?: string; data?: { personnes?: PersonneTrouvee[]; tronque?: boolean };
-            importe?: { le: string } | null;
-          };
-          if (!vivant) return;
-          if (d.etat === 'sans_schema') { setReponse({ etat: 'sans_schema' }); return; }
-          if (d.etat !== 'ok') { setReponse({ etat: 'erreur', message: 'La recherche n’a pas abouti.' }); return; }
-          setReponse({
-            etat: 'ok', personnes: d.data?.personnes ?? [], tronque: d.data?.tronque === true,
-            importe: d.importe ?? null,
-          });
-        } catch {
-          if (vivant) setReponse({ etat: 'erreur', message: 'La recherche n’a pas abouti : le serveur n’a pas répondu.' });
-        }
-      })();
-    }, ATTENTE_FRAPPE_MS);
-    return () => { vivant = false; clearTimeout(minuterie); };
-  }, [terme, archivees]);
+  /* ══ 🔴🔴 RETIRÉ LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ═══════════════════════════════════════════════════
+     Ici vivait « LA RECHERCHE » de cet écran : un délai de frappe de 250 ms, un `fetch` vers
+     `/api/admin/gestion/annuaire?q=…&archivees=1`, une annulation par drapeau `vivant`, et quatre états de
+     réponse (repos / charge / erreur / sans_schema).
+
+     🔴 CE N'EST PAS UNE FONCTION PERDUE, C'EST UNE SECONDE ÉCRITURE DE LA MÊME. `BarreAnnuaire` fait exactement
+     cela — même route, même fonction serveur, même délai — et elle le fait pour les DEUX écrans. Garder celle-ci
+     en dormance aurait été pire que la retirer : un chemin que personne n'emprunte finit par diverger de celui
+     qui sert, et l'on corrige alors le mauvais.
+
+     ⚠️ L'OPTION `?archivees=1` N'EST PAS SUPPRIMÉE : elle vit dans la route et dans `rechercherPersonnes`, où
+     elle était déjà. C'est son seul APPELANT d'écran qui disparaît, sur décision d'Arno. */
 
   // ── LA FICHE OUVERTE, QUI VIT DANS L'ADRESSE ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -424,64 +441,71 @@ export function Annuaire({
           serait une dépendance invisible, qui tomberait le jour où ce bloc-là quitte la fiche. */}
       <style>{CSS_HISTORIQUE_DU_BIEN}</style>
 
-      {/* ══ 🔴🔴 LOT FICHES-ANNUAIRE — LE HAUT DE LA FICHE : UN RETOUR, ET LA RECHERCHE ════════════════════════
-          Arno, sur la fiche de M. ROI Nathan : « elle est nulle, il faut totalement la restructurer ». La fiche
-          commençait à 590 px du haut, sous cinq blocs qui ne la concernaient pas — titre du module, sa
-          description, le bandeau de relève, « Relève automatique », « Copie des pièces ». Ils sont retirés de CET
-          écran (voir `GestionVue`), et restent là où ils servent : la page de la boîte.
+      {/* ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — L'ÉTAT « AUCUNE FICHE OUVERTE », RECONSTRUIT ══════════════════════
+          ARNO (07/10/2026) : « l'écran `?ecran=annuaire` est à reconstruire, minimal : (1) le titre “Annuaire”
+          au même niveau et dans le même style que “Gestion” sur l'écran partagé, (2) une seule phrase discrète
+          d'explication, (3) LE MÊME composant `BarreAnnuaire` que l'écran partagé — pas une copie —, avec le
+          focus sur le champ à l'ouverture de l'écran. »
 
-          🔴 CE QU'ON GARDE, ET RIEN D'AUTRE : un fil de retour, et le champ de recherche — compact quand une
-          fiche est ouverte, parce qu'on y cherche la personne SUIVANTE, pas la page où l'on est. */}
-      <div className="ann-entete">
-        {/* 🔴🔴 LOT FLECHES-RETOUR — UN SEUL GESTE, CELUI DE TOUT LE MODULE.
-            Avant ce lot, ce bouton connaissait deux destinations FIXES : la liste de l'annuaire quand une fiche
-            était ouverte, la boîte sinon. Venu d'un mail, il ne rendait donc jamais le mail — constat d'Arno.
-            `onRetour` est maintenant le retour commun : il rend la liste quand on y a ouvert la fiche, et le mail
-            quand on vient d'un mail. La présentation du bouton, elle, ne change pas d'un pixel. */}
-        <button type="button" className="svv-btn svv-btn-outline gst-btn ann-retour-haut"
-          onClick={() => onRetour()}>
-          ← Retour
-        </button>
-        {fiche === null && <h2 className="ann-titre">Annuaire</h2>}
-        {/* LE CHAMP. `type="search"` pour la croix d'effacement native. Son étiquette reste VISIBLE tant qu'on est
-            sur les résultats ; sur une fiche elle devient l'invite du champ, faute de quoi elle ferait une ligne
-            de plus au-dessus de ce qu'on est venu lire. */}
-        {fiche !== null && (
-          <input
-            type="search" className="ann-champ ann-champ--compact" value={terme} autoComplete="off"
-            aria-label="Chercher un propriétaire, un lot, un locataire"
-            onChange={(e) => setTerme(e.target.value)}
-            placeholder="Chercher une autre personne, un lot, une adresse…"
-          />
-        )}
-      </div>
+          🔴 LE TITRE EST CELUI DES PAGES D'ADMINISTRATION, pas un titre maison : `svv-page-head` /
+          `svv-page-title` / `svv-page-sub` sont EXACTEMENT les classes de `EnTetePage`, celui qui écrit
+          « Gestion » sur l'écran partagé. « Au même niveau et dans le même style » se tient par les MÊMES
+          règles, jamais par une taille recopiée à l'œil qui aurait fini par diverger de la charte.
 
-      {fiche === null && (
-      <div className="ann-chercher">
-        <label className="ann-label" htmlFor="ann-q">Chercher un propriétaire, un lot, un locataire</label>
-        <input
-          id="ann-q" ref={champ} type="search" className="ann-champ" value={terme} autoComplete="off"
-          onChange={(e) => setTerme(e.target.value)}
-          placeholder="nom, adresse, commune, téléphone, e-mail, n° de lot"
-        />
-        <p className="ann-aide">
-          Tout est accepté&nbsp;: accents ou non, majuscules ou non, téléphone avec espaces, points ou +33.
-        </p>
-      </div>
-      )}
+          ⚠️ POURQUOI ON LE RÉÉCRIT ICI AU LIEU DE RÉUTILISER `EnTetePage` : cet écran est un état du CLIENT
+          (il change sans recharger la page), et l'en-tête de la page est rendu par un composant SERVEUR qui a
+          déjà rendu « Gestion » — c'est pourquoi `GestionVue` le masque sur cet écran. On ne peut donc pas lui
+          faire changer de titre ; on en pose un, avec ses classes.
 
-      {/* 🔴 TAPER DANS LE CHAMP D'UNE FICHE RAMÈNE AUX RÉSULTATS. Sans cela, on taperait sans rien voir venir :
-          les résultats sont rendus à la place de la fiche, et la fiche est encore ouverte. */}
-      {fiche !== null && terme.trim() !== '' && (
-        <p className="ann-bascule">
-          <button type="button" className="ann-lien ann-lien--fort" onClick={() => onFiche(null)}>
-            Voir les résultats pour « {terme.trim()} » →
+          ⚠️ IL N'EST PAS MASQUÉ PAR LA RÈGLE DE `GestionVue` : celle-ci vise `.gst-page > .svv-page-head`, un
+          enfant DIRECT de la page. Celui-ci vit dans `.ann`. */}
+      {fiche === null ? (
+        <header className="svv-page-head ann-tete-page">
+          <div className="svv-page-head-ligne">
+            <h1 className="svv-page-title">Annuaire</h1>
+          </div>
+          <p className="svv-page-sub">{PHRASE_ANNUAIRE}</p>
+        </header>
+      ) : (
+        /* ══ 🔴🔴 LOT FICHES-ANNUAIRE — LE HAUT DE LA FICHE : UN RETOUR, ET LA RECHERCHE ════════════════════
+            Arno, sur la fiche de M. ROI Nathan : « elle est nulle, il faut totalement la restructurer ». La
+            fiche commençait à 590 px du haut, sous cinq blocs qui ne la concernaient pas — titre du module, sa
+            description, le bandeau de relève, « Relève automatique », « Copie des pièces ». Ils sont retirés de
+            CET écran (voir `GestionVue`), et restent là où ils servent : la page de la boîte.
+
+            🔴 CE QU'ON GARDE, ET RIEN D'AUTRE : un fil de retour, et la recherche — parce qu'on cherche ici la
+            personne SUIVANTE, pas la page où l'on est.
+
+            ⚠️ LE « ← Retour » RESTE SUR UNE FICHE, et seulement là : Arno n'autorise son retrait que sur l'état
+            « aucune fiche ouverte », où il n'avait plus de liste à rendre. Sur une fiche, il est le chemin de
+            retour vers le mail ou la liste d'où l'on vient. */
+        <div className="ann-entete">
+          {/* 🔴🔴 LOT FLECHES-RETOUR — UN SEUL GESTE, CELUI DE TOUT LE MODULE.
+              Avant ce lot, ce bouton connaissait deux destinations FIXES : la liste de l'annuaire quand une
+              fiche était ouverte, la boîte sinon. Venu d'un mail, il ne rendait donc jamais le mail — constat
+              d'Arno. `onRetour` est maintenant le retour commun : il rend la liste quand on y a ouvert la
+              fiche, et le mail quand on vient d'un mail. La présentation du bouton ne change pas d'un pixel. */}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn ann-retour-haut"
+            onClick={() => onRetour()}>
+            ← Retour
           </button>
-        </p>
+          {/* ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — LA MÊME BARRE, JUSQUE DANS L'EN-TÊTE D'UNE FICHE ═══════════
+              Vivait là un `<input>` compact qui écrivait dans `terme`, et un lien « Voir les résultats pour
+              “…” → » ramenait à la liste. La liste n'existe plus : ce lien aurait promis une page vide.
+
+              🔴 LA BARRE PARTAGÉE REMPLIT LE MÊME BESOIN, et plus court : un clic sur une suggestion ouvre
+              directement la fiche suivante, sans passer par une liste intermédiaire. Rien n'est devenu
+              inatteignable — c'est le même chemin, avec une étape de moins.
+
+              ⚠️ PAS DE FOCUS ICI : on arrive sur une fiche pour la LIRE. Prendre le clavier ferait sauter la
+              page vers le haut à chaque ouverture. */}
+          <div className="ann-barre-fiche">
+            <BarreAnnuaire onFiche={onFiche} />
+          </div>
+        </div>
       )}
 
-      {/* LA FICHE OUVERTE PREND LA PLACE DE LA LISTE — pas de colonne à côté : à 390 px il n'y en a pas deux. Le
-          bouton de retour ramène à la liste, qui n'a pas bougé (le texte tapé est resté). */}
+      {/* LA FICHE OUVERTE PREND LA PLACE DE LA BARRE — pas de colonne à côté : à 390 px il n'y en a pas deux. */}
       {fiche !== null ? (
         <section className="ann-fiche" aria-live="polite">
           {/* ⚠️ PLUS DE SECOND BOUTON DE RETOUR ICI : il est en haut de page, au-dessus de tout, et il ramène aux
@@ -508,178 +532,46 @@ export function Annuaire({
                     onHistoriqueDuBien={ouvrirVieDuBien} onCreer={creerEtRattacher} />}
         </section>
       ) : (
-        <Resultats reponse={reponse} terme={terme} ouvrir={ouvrir}
-          archivees={archivees} onArchivees={setArchivees} />
+        /**
+         * ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL, POINT 3 — LA MÊME BARRE QUE L'ÉCRAN PARTAGÉ ═══════════════════════
+         *
+         * 🔴 `focusAuMontage` : « le focus est sur le champ à l'ouverture de l'écran » (Arno). Cet écran n'a plus
+         * que cette barre — y arriver sans pouvoir taper coûterait un clic pour rien. Sur l'écran partagé, où la
+         * boîte mail prend le clavier, la même barre ne le demande pas : c'est l'écran qui décide, pas la barre.
+         *
+         * 🔴 ET AUCUN CADRE AUTOUR, contrairement à l'écran partagé : là-bas le cadre SÉPARE l'annuaire des deux
+         * colonnes (lot ANNUAIRE-BLOC-DEDIE) ; ici il n'y a rien d'autre sur l'écran, et un cadre ne séparerait
+         * la barre de rien.
+         */
+        <BarreAnnuaire onFiche={onFiche} focusAuMontage />
       )}
     </div>
   );
 }
 
-// ══ LA LISTE ════════════════════════════════════════════════════════════════════════════════════════════════════
+/* ══ 🔴🔴 RETIRÉ LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ═══════════════════════════════════════════════════
+   Ici vivaient `Resultats`, `MOT_ROLE` et `LignePersonne` : la LISTE DE RÉSULTATS DÉTAILLÉE de cet écran — une
+   ligne par personne, avec son nom, sa capsule de rôle, son premier mobile, son premier e-mail, ses biens en
+   texte court (« +2 biens »), la raison de sa présence (« propriétaire du lot 219 »), le filet qui reliait deux
+   voisines d'un même bien, le compteur « N personnes », la date du dernier import, l'avertissement de troncature
+   et la case « Afficher les archivées ».
 
-/**
- * ══ 🔴🔴 LOT ANNUAIRE-PERSONNES — LES RÉSULTATS SONT DES PERSONNES ════════════════════════════════════════════════
- *
- * Constat d'Arno : « un annuaire sert à chercher une PERSONNE. Aujourd'hui les résultats sont des biens
- * immobiliers. Il faut afficher des noms ; un clic sur un propriétaire mène à sa fiche propriétaire, un clic sur un
- * locataire à sa fiche locataire. »
- *
- * ═══ CE QUI A ÉTÉ REMPLACÉ, ET POURQUOI ═══════════════════════════════════════════════════════════════════════════
- * La liste d'avant rendait un LOGEMENT par ligne : l'adresse en titre, puis « Propriétaire : … » et « Locataire
- * actuel : … » en dessous. Elle répondait à « qui est qui par rapport à un logement » — une vraie question, mais
- * pas celle qu'on pose à un annuaire. Chercher « jullien » rendait cinq lignes (ses cinq biens) là où il fallait
- * UNE personne.
- *
- * 🔴 CE QUE LA RÈGLE D'AVANT PROTÉGEAIT N'EST PAS PERDU : le bien reste écrit sur la ligne de la personne, en
- * texte court, et la raison dit en clair POURQUOI elle répond (« propriétaire du lot 219 »). On n'a pas retiré
- * l'information : on a changé ce qui porte la ligne.
- *
- * ⚠️ LA LIGNE ENTIÈRE EST LE BOUTON, et les deux liens qui en sortent (la seconde fiche, rien d'autre) vivent
- * DANS le pied, à côté — un bouton dans un bouton est du HTML invalide et injouable au clavier.
- */
-function Resultats({ reponse, terme, ouvrir, archivees, onArchivees }: {
-  reponse: Reponse; terme: string; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
-  archivees: boolean; onArchivees: (v: boolean) => void;
-}) {
-  if (reponse.etat === 'repos') {
-    return (
-      <p className="gst-vide">
-        Tapez un nom, une adresse, une commune, un téléphone, un e-mail ou un numéro de lot.
-        {' '}L’annuaire répond par PERSONNE&nbsp;: son nom, ses coordonnées, et le ou les biens qui la relient
-        {' '}à nous.
-      </p>
-    );
-  }
-  if (reponse.etat === 'charge') return <p className="gst-info" role="status">Recherche…</p>;
-  if (reponse.etat === 'erreur') return <p className="gst-erreur" role="status">{reponse.message}</p>;
-  if (reponse.etat === 'sans_schema') {
-    return (
-      <p className="gst-vide">
-        <strong>L’annuaire n’est pas encore installé.</strong> Une mise à jour de la base est nécessaire
-        (migration 253), puis un premier import des exports WIPPIMMO. Rien d’autre n’est affecté&nbsp;: le reste du
-        module fonctionne normalement.
-      </p>
-    );
-  }
+   🔴 LE RETRAIT A ÉTÉ VÉRIFIÉ AVANT D'ÊTRE FAIT, et rendu à Arno point par point, parce qu'il l'avait exigé :
+     · LE MOTEUR EST LE MÊME. Cette liste et la barre partagée tapent la même route et la même fonction
+       (`rechercherPersonnes(analyserTerme(q))`) : nom, prénom, adresse, commune, téléphone (espaces, points,
+       +33), e-mail, numéro de lot, sans accent ni casse. Aucune personne trouvable ici ne devient introuvable.
+     · LE MOBILE ET L'E-MAIL sont dans la FICHE, qu'un clic sur une suggestion ouvre directement.
+     · LA RAISON : la suggestion porte l'adresse du bien ; la fiche dit le rôle et la période.
+     · L'AVERTISSEMENT DE TRONCATURE EST REPORTÉ DANS LA BARRE (décision d'Arno du 07/10/2026). C'était le seul
+       point qui contredisait une règle déjà posée — « une liste coupée le dit », mesurée le 26/09/2026 sur
+       « puvis » (76 logements, 60 montrés, 16 disparus sans un mot). Voir `gst-annuaire-tronque`.
+     · LA CASE « AFFICHER LES ARCHIVÉES » est retirée, décision d'Arno, mesure en main : six propriétaires
+       archivés en base, dont cinq AUSSI supprimés — la case ne changeait le résultat que pour UNE fiche
+       d'essai. ⚠️ L'OPTION SERVEUR `?archivees=1` ET `rechercherPersonnes(t, { avecArchivees })` SONT
+       INTACTES : c'est l'appelant d'écran qui disparaît, pas la capacité.
 
-  /**
-   * 🔴 LA CASE « AFFICHER LES ARCHIVÉES » EST TOUJOURS LÀ, même quand la liste est vide : c'est souvent ce qu'on
-   * vient cocher quand on ne trouve pas quelqu'un. La cacher sur un résultat vide obligerait à retaper la
-   * recherche pour la voir apparaître.
-   */
-  const caseArchivees = (
-    <label className="ann-archivees">
-      <input type="checkbox" checked={archivees} onChange={(e) => onArchivees(e.target.checked)} />
-      Afficher les archivées
-    </label>
-  );
-
-  if (reponse.personnes.length === 0) {
-    return (
-      <>
-        <p className="gst-vide" role="status">{messageRechercheVide(analyserTerme(terme))}</p>
-        {caseArchivees}
-      </>
-    );
-  }
-
-  return (
-    <>
-      {/* 🔴 UNE LISTE COUPÉE LE DIT. Mesuré le 26/09/2026 sur la vraie base : « puvis » correspondait à 76
-          logements, l'écran en montrait 60 et annonçait « 60 résultats » — 16 disparaissaient sans un mot. La
-          règle vaut pour les personnes exactement comme elle valait pour les biens. */}
-      <p className="ann-compte" role="status">
-        {reponse.tronque
-          ? <>
-            <strong>{reponse.personnes.length} premières personnes</strong>
-            {' — d’autres correspondent. Précisez votre recherche (un nom complet, une adresse plus précise) '}
-            {'pour toutes les voir.'}
-          </>
-          : <>{reponse.personnes.length} personne{reponse.personnes.length > 1 ? 's' : ''}</>}
-        {reponse.importe && <> · annuaire importé le {formaterDateIso(reponse.importe.le)}</>}
-      </p>
-      {caseArchivees}
-      <ul className="ann-personnes">
-        {reponse.personnes.map((p, i) => (
-          <LignePersonne key={`${p.sujet}-${p.id}`} p={p} ouvrir={ouvrir}
-            /* 🔴 LE FILET NE SE POSE QU'ENTRE DEUX VOISINES DU MÊME GROUPE : il dit « ces deux-là vont
-               ensemble », et poser un trait sous la dernière d'un groupe dirait le contraire. */
-            memeGroupe={p.groupe !== null && reponse.personnes[i + 1]?.groupe === p.groupe} />
-        ))}
-      </ul>
-    </>
-  );
-}
-
-/** Le mot d'un rôle, écrit une seule fois : deux formulations finiraient par se contredire d'un écran à l'autre. */
-const MOT_ROLE: Record<RolePersonne, string> = {
-  proprietaire: 'Propriétaire',
-  locataire: 'Locataire',
-  ancien_locataire: 'Ancien locataire',
-};
-
-/**
- * ══ 🔴 UNE PERSONNE, EN UNE LIGNE ════════════════════════════════════════════════════════════════════════════════
- *
- * Arno : « civilité + nom + prénom en gras, capsule de rôle (Propriétaire / Locataire / Ancien locataire), puis en
- * gris sur une ligne : le premier mobile, le premier e-mail, et le ou les biens liés en texte court
- * (“25 rue Edith Cavell, Courbevoie — lot 219”, “+2 biens” s'il y en a plus). »
- *
- * 🔴 UN CLIC MÈNE À SA FICHE — celle de son rôle principal. Une personne qui est à la fois propriétaire et
- * locataire ouvre sa fiche PROPRIÉTAIRE, et un lien secondaire mène à l'autre : sans lui, une moitié d'elle
- * serait inatteignable depuis l'annuaire.
- */
-function LignePersonne({ p, ouvrir, memeGroupe }: {
-  p: PersonneTrouvee; ouvrir: (s: FicheUrl['sorte'], id: number) => void; memeGroupe: boolean;
-}) {
-  const nom = `${p.civilite !== null && p.civilite !== '' ? `${p.civilite} ` : ''}${p.nomAffiche}`;
-  const premier = p.biens[0];
-  return (
-    <li className={`ann-pers${memeGroupe ? ' ann-pers--groupe' : ''}${p.archive ? ' ann-pers--archive' : ''}`}>
-      <button type="button" className="ann-pers-corps" onClick={() => ouvrir(p.sujet, p.id)}>
-        <span className="ann-pers-tete">
-          <span className="ann-pers-nom">{nom}</span>
-          {p.roles.map((r) => (
-            <span key={r} className={`ann-pers-role ann-pers-role--${r}`}>{MOT_ROLE[r]}</span>
-          ))}
-          {p.archive && <span className="ann-etiq ann-etiq--absent">archivée</span>}
-        </span>
-        <span className="ann-pers-gris">
-          {/* ⚠️ « — » PLUTÔT QU'UN VIDE : une coordonnée absente est un fait, et un blanc se lirait comme un
-              défaut d'affichage. */}
-          <span className="ann-pers-coord">{p.mobile ?? '—'}</span>
-          <span className="ann-pers-sep" aria-hidden="true">·</span>
-          <span className="ann-pers-coord">{p.email ?? '—'}</span>
-          {premier !== undefined && (
-            <>
-              <span className="ann-pers-sep" aria-hidden="true">·</span>
-              <span className="ann-pers-bien">
-                {titreLogement(premier.adresse, premier.commune)} — lot {premier.numero}
-                {p.biens.length > 1 && <span className="ann-pers-plus">+{p.biens.length - 1} bien
-                  {p.biens.length > 2 ? 's' : ''}</span>}
-              </span>
-            </>
-          )}
-          {/* 🔴 LA RAISON, EN CLAIR : « propriétaire du lot 219 ». Sans elle, chercher une adresse rendrait trois
-              noms sans qu'on sache lequel est le propriétaire et lequel est parti. */}
-          {p.raison !== null && (
-            <>
-              <span className="ann-pers-sep" aria-hidden="true">·</span>
-              <span className="ann-pers-raison">{p.raison}</span>
-            </>
-          )}
-        </span>
-      </button>
-      {p.autreFicheId !== null && (
-        <span className="ann-pers-pied">
-          <button type="button" className="ann-lien" onClick={() => ouvrir('locataire', p.autreFicheId as number)}>
-            Voir aussi sa fiche locataire →
-          </button>
-        </span>
-      )}
-    </li>
-  );
-}
+   ⚠️ RIEN N'EST GARDÉ EN DORMANCE. Un composant que plus personne ne rend finit par diverger de celui qui sert,
+   et l'on corrige alors le mauvais — c'est la règle déjà appliquée à `Contacts`, juste en dessous. */
 
 /* ══ 🔴 RETIRÉ LE 29/09/2026 — LOT FICHES-ANNUAIRE, ÉTAPE C ════════════════════════════════════════════════════
    Ici vivait `Contacts`, la liste plate des coordonnées d'une personne (« Aucune coordonnée dans WIPPIMMO. »).
@@ -2108,15 +2000,21 @@ export const CSS_ANNUAIRE = `
 .ann{display:flex;flex-direction:column;gap:.75rem;min-width:0}
 .ann-histo{align-self:flex-start;margin:.2rem 0 .4rem}
 .ann-entete{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem}
-.ann-titre{margin:0;font-size:15px;font-weight:700;color:var(--color-svv-ink)}
-.ann-chercher{display:flex;flex-direction:column;gap:.3rem}
-/* L'étiquette est VISIBLE : un intitulé qui n'existe que dans le texte d'invite disparaît dès qu'on tape. */
-.ann-label{font-size:.78rem;font-weight:600;color:var(--color-svv-ink)}
+/* ══ LOT ECRAN-ANNUAIRE-MINIMAL — L'EN-TETE DE L'ECRAN, AU NIVEAU DE CELUI DE « Gestion » ══
+   Les classes svv-page-* font tout le travail : ce sont celles de EnTetePage, l'en-tete standard des pages
+   d'administration. On ne regle ici que la marge basse, parce que cet en-tete-la est suivi d'une barre de
+   recherche et non du corps d'une page.
+   RETIRE AVEC LA RECHERCHE DE CET ECRAN : .ann-titre, .ann-chercher, .ann-label, .ann-aide, .ann-compte,
+   .ann-champ--compact, .ann-bascule, .ann-personnes et toute la famille .ann-pers-* — plus rien ne les rend.
+   .ann-champ RESTE : VieDuBien et HistoriqueDuBien s'en servent pour leurs propres champs.
+   AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.ann-tete-page{margin:0 0 .25rem}
+/* La barre partagee dans l'en-tete d'une fiche : elle prend la place qui reste, sans pousser la fiche vers le
+   bas. C'est l'ancien reglage du champ compact, applique a l'enveloppe de la barre. */
+.ann-barre-fiche{flex:1 1 16rem;min-width:0}
 .ann-champ{min-height:44px;padding:.5rem .7rem;border:1px solid var(--color-svv-line-strong);border-radius:.6rem;
   background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-size:.95rem;width:100%}
 .ann-champ:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.ann-aide{margin:0;font-size:.74rem;color:var(--color-svv-muted);line-height:1.4}
-.ann-compte{margin:0;font-size:.78rem;color:var(--color-svv-muted)}
 .ann-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .ann-item{background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;
   padding:10px 12px;overflow-wrap:anywhere;display:flex;flex-direction:column;gap:3px}
@@ -2170,8 +2068,6 @@ export const CSS_ANNUAIRE = `
    AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
    terminerait — piege consigne dix fois dans ce depot, et dix fois dans un commentaire. */
 .ann-retour-haut{flex:0 0 auto}
-.ann-champ--compact{flex:1 1 14rem;min-width:0;min-height:38px;font-size:.88rem}
-.ann-bascule{margin:0}
 
 /* LE FOND TEINTE de la fiche. En clair, le gris de la charte ; en sombre, le fond de page, plus SOMBRE que la
    surface des blocs — dans les deux cas, les blocs se detachent par la LUMINOSITE, jamais par une teinte. */
@@ -2301,9 +2197,6 @@ export const CSS_ANNUAIRE = `
    AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
    terminerait — piege consigne dix fois dans ce depot, et dix fois dans un commentaire. */
 .ann-retour-haut{flex:0 0 auto}
-/* Le champ compact d'une fiche : il prend la place qui reste, sans pousser la fiche vers le bas. */
-.ann-champ--compact{flex:1 1 14rem;min-width:0;min-height:38px;font-size:.88rem}
-.ann-bascule{margin:0}
 /* Un BLOC de fiche : un titre, un cadre discret, et de l'air. C'est l'unite de lecture de la fiche. */
 .ann-bloc{display:flex;flex-direction:column;gap:.5rem;margin-top:.2rem}
 .ann-bloc-titre{margin:0;font-size:.82rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
@@ -2405,58 +2298,11 @@ export const CSS_ANNUAIRE = `
 /* Le lien discret de l'en-tete : l'historique tous biens confondus, quand il n'est pas redondant. */
 .ann-tete-histo{font-size:.78rem}
 
-/* ══ 🔴🔴 LOT ANNUAIRE-PERSONNES — UNE LIGNE PAR PERSONNE ═════════════════════════════════════════════════════
-   Arno : « une ligne ou carte compacte par personne, cliquable sur toute sa surface ». COMPACTE est le mot :
-   l'annuaire se parcourt des yeux, et une ligne qui respire trop en fait tenir quatre a l'ecran au lieu de dix.
-
-   ⚠️ LA LIGNE ENTIERE EST LE BOUTON, et le lien vers la seconde fiche vit dans un PIED, a cote — jamais dedans :
-   un bouton dans un bouton est du HTML invalide et injouable au clavier. */
-.ann-personnes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
-.ann-pers{display:flex;flex-direction:column;border:1px solid var(--color-svv-line);border-radius:10px;
-  background:var(--color-svv-surface);overflow:hidden;min-width:0;
-  transition:border-color .15s ease,box-shadow .15s ease}
-.ann-pers:hover{border-color:var(--color-svv-line-strong-hover);box-shadow:0 2px 6px rgba(22,32,44,.1)}
-@media (prefers-reduced-motion:reduce){.ann-pers{transition:none}}
-/* ══ 🔴 LE FILET DISCRET : « quand ils partagent le meme bien, on voit qu'ils vont ensemble » ═══════════════
-   Deux voisines d'un meme groupe sont collees, et un trait FIN les relie. Ni cadre, ni fond, ni titre : un
-   groupe de coloc n'est pas une section — c'est juste deux lignes qui se suivent. */
-.ann-pers--groupe{border-bottom-left-radius:0;border-bottom-right-radius:0;border-bottom-style:dashed;
-  margin-bottom:-6px;padding-bottom:2px}
-.ann-pers--groupe + .ann-pers{border-top-left-radius:0;border-top-right-radius:0;border-top:0}
-.ann-pers--archive{background:var(--color-svv-field);border-style:dashed}
-.ann-pers-corps{display:flex;flex-direction:column;gap:.15rem;align-items:stretch;text-align:left;width:100%;
-  background:none;border:0;padding:8px 12px;font:inherit;color:inherit;cursor:pointer}
-.ann-pers-corps:hover{background:var(--color-svv-field)}
-.ann-pers--archive .ann-pers-corps:hover{background:var(--color-svv-surface)}
-.ann-pers-corps:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
-.ann-pers-tete{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0}
-.ann-pers-nom{font-size:.92rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
-/* LA CAPSULE DE ROLE. Le MOT porte l'information — jamais la seule couleur, qui ne se lit ni en niveaux de gris
-   ni pour un oeil daltonien. Le ton, lui, ne fait que confirmer ce que le mot dit deja. */
-.ann-pers-role{display:inline-flex;align-items:center;min-height:1.15rem;padding:.05rem .45rem;border-radius:.6rem;
-  font-size:.68rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;
-  background:var(--color-svv-field);color:var(--color-svv-muted)}
-.ann-pers-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
-.ann-pers-role--locataire{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
-/* LA LIGNE GRISE : le premier mobile, le premier e-mail, le bien, la raison. Elle ne revient jamais a la ligne
-   au milieu d'une valeur — elle se replie entre ses morceaux, qui sont autant de blocs insecables. */
-.ann-pers-gris{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;min-width:0;
-  font-size:.78rem;color:var(--color-svv-muted)}
-.ann-pers-coord{white-space:nowrap}
-.ann-pers-sep{color:var(--color-svv-line-strong)}
-.ann-pers-bien{min-width:0;overflow-wrap:anywhere}
-.ann-pers-plus{margin-left:.3rem;padding:.02rem .35rem;border-radius:.5rem;font-size:.7rem;font-weight:700;
-  background:var(--color-svv-field);color:var(--color-svv-muted);white-space:nowrap}
-.ann-pers-raison{font-style:italic}
-.ann-pers-pied{display:flex;padding:0 12px 8px}
-.ann-pers-pied .ann-lien{font-size:.78rem}
-/* La case des archivees : discrete, mais TOUJOURS visible — c'est souvent elle qu'on vient cocher. */
-.ann-archivees{display:inline-flex;align-items:center;gap:.4rem;min-height:38px;font-size:.8rem;
-  color:var(--color-svv-muted);cursor:pointer}
-.svv-adm-root[data-theme='dark'] .ann-pers:hover{box-shadow:0 2px 8px rgba(0,0,0,.5)}
-@media (prefers-color-scheme:dark){
-  .svv-adm-root:not([data-theme='light']) .ann-pers:hover{box-shadow:0 2px 8px rgba(0,0,0,.5)}
-}
+/* ══ RETIRE LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ══
+   Vivait ici toute la famille .ann-personnes / .ann-pers-* : la ligne de resultat, sa capsule de role, sa ligne
+   grise de coordonnees, son filet de groupe, son pied, et la case des archivees. Plus rien ne les rend — la
+   liste de resultats de cet ecran a laisse la place a la barre partagee, qui a sa propre feuille.
+   AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 
 /* ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — DES CARTES DE MEME HAUTEUR, BOUTONS COLLES EN BAS ══════════════════════════
    Arno : « toutes les cartes ont la meme hauteur : la plus haute impose sa taille aux autres. Pas de hauteur fixe

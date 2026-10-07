@@ -26,6 +26,10 @@ import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 const BIEN = { adresse: '67 rue de Normandie', commune: 'COURBEVOIE', fin: null };
 /** Ce que `rechercherPersonnes` rend, réduit à ce que la barre lit. */
 let personnesServies: unknown[];
+/** 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — le serveur plafonne a 60 personnes et le DIT : on rejoue ce signal. */
+let tronqueServi: boolean;
+/** 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — « annuaire pas installe » (migration 253) est un ETAT, pas une liste vide. */
+let etatServi: string;
 let urls: string[];
 let fiches: FicheUrl[];
 let container: HTMLDivElement;
@@ -34,7 +38,7 @@ let root: Root;
 beforeEach(() => {
   vi.useFakeTimers();
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  urls = []; fiches = [];
+  urls = []; fiches = []; tronqueServi = false; etatServi = 'ok';
   personnesServies = [
     { sujet: 'proprietaire', id: 12, nomAffiche: 'Mme ABDELLATIF Névine', roles: ['proprietaire'], autreFicheId: null, biens: [BIEN] },
     { sujet: 'locataire', id: 45, nomAffiche: 'M. ROI Nathan', roles: ['locataire'], autreFicheId: null, biens: [BIEN] },
@@ -42,7 +46,8 @@ beforeEach(() => {
   global.fetch = vi.fn(async (url: string | URL | Request) => {
     urls.push(String(url));
     return {
-      ok: true, json: async () => ({ etat: 'ok', data: { personnes: personnesServies } }),
+      ok: true,
+      json: async () => ({ etat: etatServi, data: { personnes: personnesServies, tronque: tronqueServi } }),
     } as unknown as Response;
   }) as unknown as typeof fetch;
 });
@@ -287,12 +292,22 @@ describe('🔴🔴 ⑤ le clavier', () => {
     expect(fiches).toEqual([]);
   });
 
-  it('🔴 Échap referme la liste', async () => {
+  /**
+   * ══ 🔴🔴 RÈGLE ÉTENDUE LE 07/10/2026 — LOT ECRAN-ANNUAIRE-MINIMAL ════════════════════════════════════════════
+   *
+   * ELLE N'EXIGEAIT QUE LA FERMETURE DE LA LISTE, et la saisie restait. ARNO : « la touche Échap fait la même
+   * chose [que le clic dehors] » — elle ferme la liste ET vide le champ, qui redevient vierge comme avec le ✕.
+   *
+   * 🔴 POURQUOI C'EST MIEUX : un champ qui gardait son terme rouvrait la liste à la frappe suivante, sur une
+   * recherche qu'on croyait abandonnée.
+   */
+  it('🔴🔴 Échap referme la liste ET vide le champ', async () => {
     await monter();
     await taper('normandie');
     expect(items().length).toBeGreaterThan(0);
     await touche('Escape');
     expect(container.querySelector('.gst-annuaire-liste')).toBeNull();
+    expect(champ().value).toBe('');
   });
 });
 
@@ -425,5 +440,204 @@ describe('🔴🔴 ⑦ les garanties structurelles', () => {
     expect(BARRE).toContain("from '../../../../lib/gestion/suggestionAnnuaire'");
     expect(BARRE).toContain('suggestionsAnnuaire(');
     expect(BARRE).toContain('rangSuivant(');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — LA BARRE REDEVIENT VIERGE, ET UNE LISTE COUPÉE LE DIT
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑧ un clic dehors ferme la liste ET vide le champ', () => {
+  /**
+   * ARNO (07/10/2026), mot pour mot : « un clic n'importe où en dehors de la liste de suggestions et du champ
+   * ferme la liste ET vide le champ (il redevient vierge, comme avec le ✕). […] Un clic sur une suggestion ouvre
+   * toujours sa fiche, un clic dans le champ ne ferme rien. »
+   *
+   * ⚠️ ON CLIQUE SUR UN VRAI ÉLÉMENT HORS DE LA BARRE, posé dans le `body` : viser `document` lui-même aurait
+   * été un faux dehors — c'est l'ancêtre de la barre, et `contains` l'aurait dit « dedans » ou non selon le
+   * hasard de l'implémentation. Un voisin est exactement la situation réelle.
+   */
+  const ailleurs = (): HTMLElement => {
+    const d = document.createElement('button');
+    d.textContent = 'ailleurs dans la page';
+    document.body.appendChild(d);
+    return d;
+  };
+  const cliquer = async (cible: EventTarget) => {
+    await act(async () => { cible.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+  };
+
+  it('🔴🔴 clic dehors : la liste se ferme et le champ redevient vierge', async () => {
+    await monter();
+    await taper('normandie');
+    expect(items().length).toBeGreaterThan(0);
+    const voisin = ailleurs();
+    await cliquer(voisin);
+    expect(container.querySelector('.gst-annuaire-liste')).toBeNull();
+    expect(champ().value).toBe('');
+    /* ⚠️ ET AUCUNE FICHE N'A ÉTÉ OUVERTE AU PASSAGE : refermer n'est pas choisir. */
+    expect(fiches).toEqual([]);
+    voisin.remove();
+  });
+
+  /** 🔴🔴 UN CLIC DANS LE CHAMP NE FERME RIEN : c'est le geste de celui qui veut corriger sa frappe. */
+  it('🔴🔴 clic dans le champ : rien ne change', async () => {
+    await monter();
+    await taper('normandie');
+    const avant = items().length;
+    await cliquer(champ());
+    expect(champ().value).toBe('normandie');
+    expect(items()).toHaveLength(avant);
+    expect(container.querySelector('.gst-annuaire-liste')).not.toBeNull();
+  });
+
+  /** 🔴🔴 UN CLIC SUR LE LIBELLÉ « Annuaire » NON PLUS : il est DANS la capsule, donc dans la barre. */
+  it('🔴 clic sur le libellé de la capsule : rien ne change', async () => {
+    await monter();
+    await taper('normandie');
+    await cliquer(container.querySelector('.gst-annuaire-mot') as HTMLElement);
+    expect(champ().value).toBe('normandie');
+    expect(container.querySelector('.gst-annuaire-liste')).not.toBeNull();
+  });
+
+  /**
+   * 🔴🔴 ET UN CLIC SUR UNE SUGGESTION OUVRE TOUJOURS SA FICHE. C'est le cas qui aurait pu casser : la
+   * suggestion vit DANS la liste, donc dans la barre — le garde-fou du clic dehors ne peut pas lui voler son
+   * clic. Un garde-fou posé sur le `blur` du champ l'aurait fait, et c'est pourquoi il n'y en a pas.
+   */
+  it('🔴🔴 clic sur une suggestion : la fiche s’ouvre, le champ se vide', async () => {
+    await monter();
+    await taper('roi');
+    await cliquer(itemDe('M. ROI Nathan'));
+    expect(fiches).toEqual([{ sorte: 'locataire', id: 45 }]);
+    expect(champ().value).toBe('');
+    expect(container.querySelector('.gst-annuaire-liste')).toBeNull();
+  });
+
+  /** ⚠️ LE DOIGT COMME LA SOURIS (§15 — mobile d'abord) : un `touchstart` dehors referme aussi. */
+  it('⚠️ au doigt aussi : un `touchstart` dehors referme et vide', async () => {
+    await monter();
+    await taper('normandie');
+    const voisin = ailleurs();
+    await act(async () => { voisin.dispatchEvent(new Event('touchstart', { bubbles: true })); });
+    expect(champ().value).toBe('');
+    expect(container.querySelector('.gst-annuaire-liste')).toBeNull();
+    voisin.remove();
+  });
+
+  /** ⚠️ CHAMP DÉJÀ VIDE : un clic dehors ne fait rien, et surtout ne redemande rien au serveur. */
+  it('⚠️ champ vide : un clic dehors est sans effet', async () => {
+    await monter();
+    const voisin = ailleurs();
+    await cliquer(voisin);
+    expect(champ().value).toBe('');
+    expect(urls).toEqual([]);
+    voisin.remove();
+  });
+});
+
+describe('🔴🔴 ⑨ une liste coupée le dit', () => {
+  /**
+   * DÉCISION D'ARNO (07/10/2026) : « supprimer [la liste détaillée de l'écran Annuaire], mais reporter
+   * l'avertissement de troncature dans la barre (au-delà de 60 : ligne discrète “d'autres correspondent,
+   * précisez”) ».
+   *
+   * 🔴 LA RÈGLE DATE DU 26/09/2026, mesurée sur la vraie base : « puvis » correspondait à 76 logements, l'écran
+   * en montrait 60 et annonçait « 60 résultats » — 16 disparaissaient sans un mot. L'ancien écran Annuaire le
+   * disait ; cette barre, elle, l'ignorait complètement. Mesuré le 07/10/2026 avant le report : `paris` rend 60
+   * personnes avec `tronque = true`, et la barre n'en soufflait pas un mot.
+   */
+  it('🔴🔴 le serveur a plafonné : la barre l’annonce, sous les suggestions', async () => {
+    tronqueServi = true;
+    await monter();
+    await taper('paris');
+    const ligne = container.querySelector('.gst-annuaire-tronque');
+    expect(ligne).not.toBeNull();
+    expect(ligne?.textContent).toBe('D’autres contacts correspondent — précisez votre recherche.');
+    /* 🔴 ELLE EST DANS LA LISTE, EN DERNIER : au-dessus, elle se lirait comme un titre de la liste. */
+    const lignes = [...(container.querySelector('.gst-annuaire-liste')?.children ?? [])];
+    expect(lignes[lignes.length - 1]).toBe(ligne);
+  });
+
+  /** 🔴 RIEN QUAND RIEN N'EST COUPÉ : un avertissement permanent s'apprend à ignorer. */
+  it('🔴 liste complète : aucune ligne d’avertissement', async () => {
+    await monter();
+    await taper('normandie');
+    expect(container.querySelector('.gst-annuaire-tronque')).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 ELLE N'EST PAS UNE SUGGESTION : les flèches ne la visent pas, Entrée ne l'ouvre pas. Sans ce garde-fou,
+   * la dernière flèche bas aurait désigné une phrase, et Entrée n'aurait rien ouvert sans dire pourquoi.
+   */
+  it('🔴🔴 l’avertissement n’est pas visable au clavier', async () => {
+    tronqueServi = true;
+    await monter();
+    await taper('paris');
+    const combien = items().length;
+    for (let i = 0; i < combien + 1; i++) await touche('ArrowDown');
+    /* Après un tour complet, on est revenu sur la PREMIÈRE suggestion — pas sur l'avertissement. */
+    expect(items()[0].className).toContain('gst-annuaire-item--vise');
+    expect(container.querySelector('.gst-annuaire-tronque')?.className)
+      .not.toContain('gst-annuaire-item--vise');
+  });
+
+  /** ⚠️ ET L'AVERTISSEMENT PART AVEC LE RESTE quand la barre redevient vierge. */
+  it('⚠️ Échap efface aussi l’avertissement', async () => {
+    tronqueServi = true;
+    await monter();
+    await taper('paris');
+    expect(container.querySelector('.gst-annuaire-tronque')).not.toBeNull();
+    await touche('Escape');
+    expect(container.querySelector('.gst-annuaire-tronque')).toBeNull();
+  });
+});
+
+describe('🔴🔴 ⑩ « pas encore installé » n’est pas « aucun contact »', () => {
+  /**
+   * 🔴 LA ROUTE REND `sans_schema` EN 200, EXPRÈS (migration 253 non appliquée) : « une erreur 500 laisserait
+   * croire à une panne, et une réponse vide à un annuaire sans personne dedans ». Cette barre rangeait pourtant
+   * l'état dans le même sac que « rien ne correspond ».
+   *
+   * 🔴 L'ANCIEN ÉCRAN ANNUAIRE ÉTAIT LE SEUL À LE DIRE. En lui retirant sa liste, le lot ECRAN-ANNUAIRE-MINIMAL
+   * aurait fait disparaître la phrase du module entier — elle est donc reportée ici.
+   */
+  it('🔴🔴 annuaire non installé : la barre le DIT, et ne dit pas « aucun contact »', async () => {
+    etatServi = 'sans_schema';
+    personnesServies = [];
+    await monter();
+    await taper('martin');
+    const phrase = container.querySelector('.gst-annuaire-vide')?.textContent ?? '';
+    expect(phrase).toContain('n’est pas encore installé');
+    expect(phrase).not.toContain('Aucun contact');
+  });
+
+  /** ⚠️ ET L'INVERSE TIENT TOUJOURS : un annuaire installé mais sans correspondance dit « Aucun contact ». */
+  it('⚠️ annuaire installé, aucune correspondance : « Aucun contact trouvé. »', async () => {
+    personnesServies = [];
+    await monter();
+    await taper('zzzzz');
+    expect(container.querySelector('.gst-annuaire-vide')?.textContent).toBe('Aucun contact trouvé.');
+  });
+});
+
+describe('🔴🔴 ⑪ le focus à l’ouverture, et seulement quand l’écran le demande', () => {
+  /**
+   * ARNO : « le focus est sur le champ à l'ouverture de l'écran Annuaire ». C'est une propriété de L'ÉCRAN, et
+   * pas de la barre : sur l'écran partagé, la même barre ne doit PAS prendre le clavier — elle volerait la
+   * boîte mail et ferait sauter la page vers le haut à chaque arrivée.
+   */
+  it('🔴🔴 `focusAuMontage` pose le curseur dans le champ', async () => {
+    await act(async () => {
+      root.render(createElement(BarreAnnuaire, {
+        onFiche: (f: FicheUrl) => fiches.push(f), focusAuMontage: true,
+      }));
+    });
+    expect(document.activeElement).toBe(champ());
+  });
+
+  it('🔴🔴 sans la demande, le champ ne prend PAS le focus', async () => {
+    await monter();
+    expect(document.activeElement).not.toBe(champ());
   });
 });
