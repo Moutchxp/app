@@ -1,10 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-// LOT DRIVE-DOSSIER-DU-BIEN — le dossier du propriétaire du bien rattaché, proposé en première position.
+/**
+ * 🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — LES VIGNETTES DE BIEN DE LA COLONNE DE GAUCHE. Module PUR.
+ *
+ * Il REMPLACE `dossierDuBien`, qui menait au dossier du PROPRIÉTAIRE. Arno a nommé un autre dossier : « la RACINE
+ * du dossier Drive du bien (celui de “Dossier Drive” sur la fiche bien) ». Et il a étendu la question : le bien
+ * ne vient plus seulement du rattachement, mais aussi du DESTINATAIRE quand rien n'est rattaché.
+ */
 import {
-  dossiersPrioritaires, mentionNbBiens, titreDossierPrioritaire, type BienDuMail, type DossierPrioritaire,
-} from '../../../../lib/gestion/dossierDuBien';
+  cleDuCalcul, dossierDOuverture, type VignetteDrive,
+} from '../../../../lib/gestion/raccourciDrive';
 // LOT DRIVE-VISUALISER-ET-DOSSIERS — voir un fichier sans le joindre, et créer un dossier là où l'on est.
 import { ApercuFichierDrive, adresseApercu, type FichierAVoir } from './ApercuFichierDrive';
 import { messageSansApercu, sorteApercu } from '../../../../lib/gestion/apercuDrive';
@@ -359,7 +365,7 @@ interface DossierRecent {
 }
 
 export function SelecteurFichierDrive({
-  onChoisir, onFermer, filId = null, lots = [],
+  onChoisir, onFermer, filId = null, lots = [], adressesA = [],
   mode = 'joindre', messageId = null, pieces = [], onRangement, dossierDepart = null,
   documentEnEvidence = null, arrivee = 'dossier',
 }: {
@@ -378,6 +384,17 @@ export function SelecteurFichierDrive({
    */
   filId?: number | null;
   lots?: readonly string[];
+  /**
+   * ══ 🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — LE CHAMP « À » DE LA FENÊTRE D'ENVOI ═══════════════════════
+   *
+   * Arno : « Sinon : on prend la PREMIÈRE adresse destinataire (À) qui n'est pas une adresse de l'agence, et on
+   * cherche dans l'annuaire. » Les adresses arrivent dans l'ORDRE DE SAISIE — c'est l'ordre qui porte la règle.
+   *
+   * ⚠️ ELLES NE SERVENT QUE SI RIEN N'EST RATTACHÉ : le serveur applique la priorité, pas cet écran. Le champ
+   * « À » d'une RÉPONSE ne change donc aucune vignette, et c'est exactement ce qu'Arno demande (« pour une
+   * réponse, il vaut dès l'ouverture »).
+   */
+  adressesA?: readonly string[];
   /* ══ 🔴🔴 LOT DRIVE-UNIQUE — LE SECOND USAGE ════════════════════════════════════════════════════════════════
      Arno : « je veux le même système que la fenêtre Drive façon Finder, partout où on y fait appel ». Ranger une
      pièce reçue ouvre donc CETTE fenêtre, et non plus un panneau en ligne qui réinventait la moitié du Drive. */
@@ -493,7 +510,21 @@ export function SelecteurFichierDrive({
   const [recents, setRecents] = useState<{ lignes: Recent[]; disponible: boolean } | null>(null);
   const [montrerRecents, setMontrerRecents] = useState(false);
   const [rechercheOuverte, setRechercheOuverte] = useState<string | null>(null);
-  const [prioritaires, setPrioritaires] = useState<DossierPrioritaire[]>([]);
+  /**
+   * 🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — LES VIGNETTES DE BIEN, telles que le serveur les a composées.
+   * Une par bien détecté, précédée du dossier du propriétaire quand il en porte plusieurs.
+   *
+   * ⚠️ `vignettesBien`, ET NON `vignettes` : ce composant appelle DÉJÀ « vignettes » les copies à ranger du mode
+   * « ranger » (`VignetteDupliquee`). Deux `vignettes` dans la même portée, c'est la version JavaScript du piège
+   * de préfixe CSS que ce dépôt connaît bien — le compilateur l'a refusé, et il avait raison.
+   */
+  const [vignettesBien, setVignettesBien] = useState<VignetteDrive[]>([]);
+  /**
+   * ⚠️ L'OUVERTURE AUTOMATIQUE N'A LIEU QU'UNE FOIS, ET C'EST UN REF, PAS UN ÉTAT. Les vignettes arrivent APRÈS
+   * le premier rendu (une requête) ; sans ce verrou, toute relecture — un destinataire retouché, une fenêtre
+   * rouverte — ramènerait la vue à la racine du bien, SOUS LA MAIN de qui navigue ailleurs.
+   */
+  const ouvertureAuto = useRef(false);
   const [aVoir, setAVoir] = useState<FichierAVoir | null>(null);
   /**
    * ══ 🔴🔴 LOT RENOMMER-AVANT-RANGER — LES NOMS CHOISIS, PAR PIÈCE ═══════════════════════════════════════════
@@ -796,6 +827,17 @@ export function SelecteurFichierDrive({
   /** ⚠️ `lots` est un tableau LITTÉRAL côté appelant : le suivre relancerait la lecture à chaque rendu.
    *  Sa clé, elle, ne change qu'avec son contenu — et elle se vérifie statiquement. */
   const clesLots = lots.join(',');
+  /**
+   * 🔴🔴 LA CLÉ DE CALCUL VIENT DU MODULE PUR (`cleDuCalcul`), et c'est elle, et elle seule, qui décide quand la
+   * lecture se refait. L'écrire ici aurait mis la moitié de la règle d'Arno dans un composant de 6 500 lignes :
+   * « le calcul se met à jour en direct quand on modifie le champ À ; pour une réponse, il vaut dès
+   * l'ouverture » — deux phrases qui ne sont qu'une seule règle de priorité, tenue à un seul endroit.
+   *
+   * ⚠️ UN TABLEAU LITTÉRAL CÔTÉ APPELANT : suivre `adressesA` lui-même relancerait la lecture à CHAQUE rendu de
+   * la fenêtre de rédaction. C'est une CHAÎNE qu'on suit, comme `clesLots` avant elle.
+   */
+  const cleRaccourci = cleDuCalcul({ filId, lots: [...lots], adresses: [...adressesA] });
+  const adressesJointes = adressesA.join(',');
   const chemin = cheminCourant(histo);
   const dossierCourant = chemin.at(-1) ?? null;
   /** 🔴 Les deux parents et le dossier courant. Déplié, le bandeau rend le chemin entier — d'où le 99. */
@@ -1166,24 +1208,31 @@ export function SelecteurFichierDrive({
    * WIPPIMMO). Ouvrir le navigateur ne coûte donc pas une requête Google de plus.
    */
   useEffect(() => {
-    if (filId === null && clesLots === '') return undefined;
+    if (filId === null && clesLots === '' && adressesJointes === '') { setVignettesBien([]); return undefined; }
     let annule = false;
     void (async () => {
       try {
         const p = new URLSearchParams();
         if (filId !== null) p.set('fil', String(filId));
         if (clesLots !== '') p.set('lots', clesLots);
+        /* 🔴 LE CHAMP « À » PART AUSSI, et c'est le serveur qui décide s'il doit s'en servir : la priorité
+           (rattaché d'abord) est une règle de dépôt, pas une règle d'écran. L'envoyer toujours évite d'avoir à
+           deviner ici si l'échange donnera quelque chose — une devinette qui serait fausse une fois sur deux. */
+        if (adressesJointes !== '') p.set('a', adressesJointes);
         const res = await fetch(`/api/admin/gestion/drive/dossier-du-bien?${p}`, { cache: 'no-store' });
-        const d = (await res.json()) as { etat?: string; biens?: BienDuMail[]; dossiers?: DossierPrioritaire[] };
+        const d = (await res.json()) as { etat?: string; vignettes?: VignetteDrive[] };
         if (annule || d.etat !== 'ok') return;
-        const liste = d.dossiers ?? dossiersPrioritaires(d.biens ?? []);
-        setPrioritaires(liste);
+        const liste = d.vignettes ?? [];
+        setVignettesBien(liste);
         // 🔴 PRÉCHARGÉ D'EMBLÉE (demande d'Arno) : c'est l'endroit où l'on va neuf fois sur dix.
         for (const x of liste) precharger(x.dossierId);
       } catch { /* un raccourci absent n'est pas une panne : le navigateur reste entièrement utilisable */ }
     })();
     return () => { annule = true; };
-  }, [filId, clesLots, precharger]);
+    /* ⚠️ `cleRaccourci` EST LA DÉPENDANCE QUI PORTE LA RÈGLE : tant qu'un échange ou des lots désignent quelque
+       chose, elle ne bouge pas quand on retouche le champ « À » — donc aucune relecture, donc aucune vignette qui
+       change sous la main pendant qu'on écrit une réponse. */
+  }, [cleRaccourci, filId, clesLots, adressesJointes, precharger]);
 
   /**
    * LA RECHERCHE, TEMPORISÉE (250 ms). ⚠️ `annule` couvre les DEUX cas : fenêtre refermée, et réponse PÉRIMÉE —
@@ -1245,6 +1294,34 @@ export function SelecteurFichierDrive({
     setHisto((h) => naviguerVers(h, c));
     void charger(dossierDuChemin(c));
   }, [charger]);
+
+  /**
+   * ══ 🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — LA FENÊTRE S'OUVRE DANS LE DOSSIER DU BIEN ════════════════════
+   *
+   * DEMANDE D'ARNO : « Elle s'ouvre directement à la RACINE du dossier Drive du bien […], ou à la racine du
+   * dossier propriétaire dans le cas multi-biens. » C'est la PREMIÈRE vignette, et `dossierDOuverture` le dit —
+   * ni un test sur la sorte ici, ni un second ordre : l'ordre d'affichage EST l'ordre d'ouverture.
+   *
+   * 🔴 TROIS GARDES, ET CHACUNE RÉPARE UN CAS QU'ON AURAIT VU À L'USAGE :
+   *   ① UNE SEULE FOIS (`ouvertureAuto`) — les vignettes arrivent après le premier rendu ; sans le verrou, une
+   *      relecture ramènerait la vue à la racine du bien pendant qu'on navigue ailleurs ;
+   *   ② JAMAIS SI L'APPELANT A DIT OÙ OUVRIR (`departInitial`) — « Ouvrir le Drive du bien » depuis une carte
+   *      vise déjà un dossier précis, et le lui reprendre serait lui désobéir ;
+   *   ③ JAMAIS SI ON A DÉJÀ BOUGÉ (`chemin.length > 0`) — ouvrir, cliquer vite, puis se faire déplacer par une
+   *      réponse en retard est exactement le genre de saut qu'on ne pardonne pas à un outil.
+   *
+   * ⚠️ RIEN N'EST PERDU EN CHEMIN : `allerA` ne touche ni les pièces à ranger, ni leur sélection, ni les « ✓
+   * ajouté » — ils vivent au-dessus de la navigation. C'est ce qui rend vrai le « sans perdre les pièces à ranger
+   * ni leur sélection » d'Arno, pour l'ouverture comme pour un clic de vignette.
+   */
+  useEffect(() => {
+    if (ouvertureAuto.current || vignettesBien.length === 0) return;
+    if (departInitial.current !== '' || chemin.length > 0) return;
+    const ou = dossierDOuverture(vignettesBien);
+    if (ou === null) return;
+    ouvertureAuto.current = true;
+    allerA([{ id: ou.dossierId, nom: ou.dossierNom || ou.titre }]);
+  }, [vignettesBien, chemin.length, allerA]);
 
   const entrer = (f: { id: string; nom: string }) => {
     allerA([...chemin, { id: f.id, nom: f.nom }]);
@@ -4258,6 +4335,8 @@ export function SelecteurFichierDrive({
    */
   type EntreeLaterale = {
     cle: string; icone: string; libelle: string; detail: string | null;
+    /** 🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — cette entrée désigne-t-elle le dossier où l'on est ? */
+    actif?: boolean;
     depot: { id: string; nom: string } | null;
     /** Où mène cette entrée : un dossier du Drive, ou la liste des pièces déjà jointes. */
     aller: { sorte: 'dossier'; id: string; nom: string } | { sorte: 'pieces' };
@@ -4279,13 +4358,26 @@ export function SelecteurFichierDrive({
    * dépose pas sur ce qu'on ne voit pas, et c'est précisément pour cela que la section est dépliée par défaut.
    */
   const emplacements: EntreeLaterale[] = [
-    ...prioritaires.map((d) => ({
-      cle: `bien:${d.dossierId}`, icone: '🏠', libelle: titreDossierPrioritaire(d),
-      depot: { id: d.dossierId, nom: d.dossierNom || d.libelle },
-      // ⚠️ LE NOMBRE N'EST DIT QUE S'IL Y EN A PLUSIEURS : « 1 bien » est du bruit. Il l'était déjà avant ce lot,
-      //   et le taire ici ferait croire qu'un dossier ne porte qu'un seul logement.
-      detail: mentionNbBiens(d) === null ? d.libelle : `${d.libelle} · ${mentionNbBiens(d)}`,
-      aller: { sorte: 'dossier' as const, id: d.dossierId, nom: d.dossierNom || d.libelle },
+    /**
+     * ══ 🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — UNE VIGNETTE PAR BIEN DÉTECTÉ ═══════════════════════════
+     *
+     * Elles sont ICI, c'est-à-dire JUSTE SOUS le bloc « N pièces à ranger » qui ouvre la colonne — Arno : « sous
+     * le bloc “N pièces à ranger” (qui reste au-dessus, inchangé) ». Elles portent le nom du propriétaire,
+     * l'adresse, le lot, et LA RAISON : « rattaché au mail », « locataire », « propriétaire de 3 biens ».
+     *
+     * 🔴 LE TITRE ET LE DÉTAIL VIENNENT DU MODULE PUR, composés par le serveur. Les recomposer ici aurait fait
+     * deux façons de nommer un même dossier — et c'est toujours celle qu'on relit le moins qui se périme.
+     *
+     * 🔴 ET LA VIGNETTE ACTIVE EST SURLIGNÉE : on compare le dossier où l'on EST à celui où la vignette mène.
+     * Sans ce repère, passer d'un bien à l'autre en un clic laisse sans réponse la seule question qui compte —
+     * « lequel je regarde ? » —, surtout chez RD PROMOTION, dont les six lots partagent une adresse.
+     */
+    ...vignettesBien.map((v) => ({
+      cle: v.cle, icone: v.sorte === 'proprietaire' ? '🗂️' : '🏠', libelle: v.titre,
+      depot: { id: v.dossierId, nom: v.dossierNom || v.titre },
+      detail: v.detail,
+      actif: (dossierCourant?.id ?? '') === v.dossierId,
+      aller: { sorte: 'dossier' as const, id: v.dossierId, nom: v.dossierNom || v.titre },
     })),
     { cle: 'mon_drive', icone: '💾', libelle: 'Mon Drive', detail: null,
       depot: { id: 'root', nom: 'Mon Drive' },
@@ -4356,7 +4448,11 @@ export function SelecteurFichierDrive({
       <li key={l.cle}>
         <button type="button"
           className={`sfd-cote-item${compact ? ' sfd-cote-item--compact' : ''}`
-            + `${survole === `cote:${l.cle}` ? ' sfd-cote-item--vise' : ''}`}
+            + `${survole === `cote:${l.cle}` ? ' sfd-cote-item--vise' : ''}`
+            + `${l.actif === true ? ' sfd-cote-item--actif' : ''}`}
+          /* ⚠️ `aria-current` ET LA COULEUR, les deux : un surlignage seul ne dit rien au lecteur d'écran, et
+             c'est la seule indication de « où suis-je » quand six vignettes partagent une adresse. */
+          aria-current={l.actif === true ? 'true' : undefined}
           onClick={() => {
             if (l.aller.sorte === 'pieces') { setMontrerRecents(true); setSelection(SELECTION_VIDE); return; }
             entrerDepuisRacine({ id: l.aller.id, nom: l.aller.nom });
@@ -6058,10 +6154,21 @@ export const CSS_SELECTEUR_FICHIER = `
   border-radius:.35rem;cursor:pointer}
 .sfd-cote-item:hover{background:var(--color-svv-surface)}
 .sfd-cote-item:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* 🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — LA VIGNETTE DU DOSSIER OU L'ON EST.
+   Un fond, et un filet a gauche : le fond seul se confond avec le survol, et chez RD PROMOTION six vignettes
+   partagent une adresse — « lequel je regarde ? » doit se lire sans bouger la souris. Aucune couleur en dur :
+   les deux jetons existent dans les DEUX themes (regle du depot). */
+.sfd-cote-item--actif{background:var(--color-svv-surface);box-shadow:inset 3px 0 0 0 var(--color-svv-red)}
+.sfd-cote-item--actif .sfd-cote-libelle{font-weight:700}
 .sfd-cote-icone{flex:0 0 auto}
 .sfd-cote-mots{display:flex;flex-direction:column;min-width:0}
 .sfd-cote-libelle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sfd-cote-detail{font-size:.72rem;color:var(--color-svv-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ⚠️ LE DETAIL PEUT PASSER A LA LIGNE depuis ce lot : il porte maintenant l'adresse, le lot ET la raison
+   (« 19 Rue Diderot, 92130 Issy-les-Moulineaux — lot 478 · proprietaire de 6 biens »). Le couper a une ligne
+   aurait mange la raison, c'est-a-dire precisement ce qu'Arno a demande d'ecrire. Deux lignes au plus : au-dela
+   la colonne se remplirait de texte, et l'on ne verrait plus les vignettes suivantes. */
+.sfd-cote-detail{font-size:.72rem;color:var(--color-svv-muted);overflow:hidden;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}
 
 .sfd-vue{display:flex;flex-direction:column;min-width:0;min-height:0}
 

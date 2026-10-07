@@ -478,12 +478,26 @@ export function RattachementsDuFil({
     void (async () => {
       try {
         const res = await fetch(`/api/admin/gestion/drive/dossier-du-bien?fil=${filId}`, { cache: 'no-store' });
+        /**
+         * 🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — LA ROUTE REND MAINTENANT `biens`, UN PAR LOT.
+         *
+         * Elle rendait `dossiers`, un par DOSSIER DE PROPRIÉTAIRE, avec les clés des biens qu'il couvre — il
+         * fallait donc déplier `cles` pour retrouver le bien. Elle rend désormais le dossier DE CHAQUE BIEN
+         * (celui de « Dossier Drive » sur la fiche), et la carte se lit d'un trait.
+         *
+         * 🔴 ET « Ouvrir le Drive du bien » Y GAGNE : il ouvrait le dossier du bailleur, un cran au-dessus du
+         * logement — chez un propriétaire à six lots, on arrivait sur six sous-dossiers à choisir. Il ouvre
+         * maintenant le logement nommé sur le bouton.
+         *
+         * ⚠️ UN BIEN SANS DOSSIER CONNU N'ENTRE PAS DANS LA CARTE : l'appelant retombe alors sur
+         * `b.dossierDriveId`, exactement comme avant. Une absence n'est pas une panne.
+         */
         const d = (await res.json()) as {
-          etat?: string; dossiers?: { dossierId: string; cles: string[] }[];
+          etat?: string; biens?: { cle: string; dossierId: string | null }[];
         };
         if (annule || d.etat !== 'ok') return;
         const carte: Record<string, string> = {};
-        for (const x of d.dossiers ?? []) for (const c of x.cles) carte[c] = x.dossierId;
+        for (const x of d.biens ?? []) if (x.dossierId !== null) carte[x.cle] = x.dossierId;
         setDossiers(carte);
       } catch { /* confort absent : la fiche reste entièrement utilisable */ }
     })();

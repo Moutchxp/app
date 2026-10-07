@@ -1642,6 +1642,23 @@ export function Redaction({
           lots={(brouillon.cibles ?? [])
             .filter((c) => c.sorte === 'lot' && typeof c.cle === 'string' && c.cle !== '')
             .map((c) => c.cle as string)}
+          /**
+           * ══ 🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — LA TROISIÈME SOURCE : LE CHAMP « À » ═══════════════
+           *
+           * DEMANDE D'ARNO (07/10/2026) : « Sinon : on prend la PREMIÈRE adresse destinataire (À) qui n'est pas
+           * une adresse de l'agence, et on cherche dans l'annuaire. »
+           *
+           * 🔴 `brouillon.a`, ET LUI SEUL — ni Cc, ni Cci. Arno écrit « destinataire (À) », et c'est la bonne
+           * borne : on met en copie sa hiérarchie, un syndic, un artisan ; le dossier qu'on vise est celui de la
+           * personne à qui l'on ÉCRIT.
+           *
+           * ⚠️ DANS L'ORDRE DE SAISIE, jamais trié : « la PREMIÈRE adresse » n'a de sens que dans cet ordre-là.
+           *
+           * ⚠️ IL NE CHANGE RIEN À UNE RÉPONSE : le serveur applique d'abord les biens rattachés à l'échange, et
+           * ne regarde le « À » que s'il n'y en a aucun. Retoucher les destinataires d'une réponse ne déplace
+           * donc aucune vignette — « pour une réponse, il vaut dès l'ouverture ».
+           */
+          adressesA={brouillon.a}
           onFermer={() => setDrive(false)}
           onChoisir={async (c) => {
             if (c.lien) { setDrive(false); editeur.current?.insererLien(c.lien.nom, c.lien.url); return; }

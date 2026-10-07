@@ -414,11 +414,28 @@ describe('🔴 ⑤ « Récents » sans la migration 269', () => {
  *   ④ aucune requête n'est même émise quand le mail n'a ni échange ni lot.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
-  const dossier = (o: Record<string, unknown> = {}) => ({
-    dossierId: 'd-garreau', dossierNom: 'GARREAU Gabrielle (289)',
-    libelle: '28 Avenue Marceau, 92400 Courbevoie — lot 421',
-    cles: ['421'], proprietaire: 'GARREAU Gabrielle', ...o,
+describe('🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — les vignettes de bien', () => {
+  /**
+   * ══ 🔴🔴 POURQUOI CE GROUPE A CHANGÉ DE FORME, ET CE QU'IL TIENT ENCORE ═══════════════════════════════════════
+   *
+   * Il s'appelait « LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire ». La route rendait alors des `dossiers`,
+   * un par dossier de PROPRIÉTAIRE, et deux lots d'un même bailleur se groupaient sur UNE ligne (« 2 biens »)
+   * parce qu'ils menaient au même endroit.
+   *
+   * 🔴 ARNO A RE-SPÉCIFIÉ LA CHOSE le 07/10/2026 : « Elle s'ouvre directement à la RACINE du dossier Drive du
+   * bien (celui de “Dossier Drive” sur la fiche bien) […] une VIGNETTE par bien détecté […] Multi-biens : une
+   * vignette “Dossier propriétaire — <nom>” en tête, puis une par bien. » Les lignes ne se groupent donc plus :
+   * chaque bien a SON dossier, et il n'y a plus de ligne commune à deux logements. Les verdicts qui changent
+   * ci-dessous changent pour CELA, et non parce qu'une mesure d'alors était fausse.
+   *
+   * 🔴 ET LE BIEN NE VIENT PLUS SEULEMENT DU RATTACHEMENT : il vient aussi du DESTINATAIRE. Les règles de
+   * priorité se mesurent sur la vraie base (`raccourciDriveRepo.itest.ts`, les dix cas d'Arno) ; leur mise en
+   * forme au pur (`raccourciDrive.test.ts`). Ici, on éprouve L'ÉCRAN : ce qu'on voit, et ce qu'un clic fait.
+   */
+  const vignette = (o: Record<string, unknown> = {}) => ({
+    cle: 'bien:421', sorte: 'bien', titre: 'Dossier du bien — GARREAU Gabrielle',
+    detail: '28 Avenue Marceau, 92400 Courbevoie — lot 421 · rattaché au mail',
+    dossierId: 'd-421', dossierNom: 'lot 421', ...o,
   });
   const monterAvecBien = async (props: Record<string, unknown> = {}) => {
     await act(async () => {
@@ -430,8 +447,8 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
     await calmer();
   };
 
-  it('🔴 ① la ligne s’affiche, et AU-DESSUS de « Récents »', async () => {
-    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+  it('🔴 ① la vignette s’affiche, et AU-DESSUS de « Récents »', async () => {
+    prioritaires = { etat: 'ok', vignettes: [vignette()] };
     recents = {
       etat: 'ok', disponible: true,
       lignes: [{ sorte: 'drive_dossier', cle: 'd9', libelle: 'MACJ', detail: null, tailleOctets: null }],
@@ -449,51 +466,113 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
     expect(prio!.compareDocumentPosition(rec!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('🔴 elle NOMME le propriétaire et le bien — le dossier est rangé par propriétaire, pas par logement', async () => {
-    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+  /**
+   * 🔴🔴 ELLE DIT LE NOM, L'ADRESSE, LE LOT **ET LA RAISON** — c'est le modèle qu'Arno a nommé, et la raison est
+   * la nouveauté : on doit pouvoir répondre « pourquoi ce bien ? » sans ouvrir la fiche.
+   */
+  it('🔴🔴 elle NOMME le propriétaire, l’adresse, le lot et la RAISON', async () => {
+    prioritaires = { etat: 'ok', vignettes: [vignette()] };
     await monterAvecBien();
     const bloc = lateraleDe(/Dossier du bien/);
     expect(bloc?.textContent).toContain('GARREAU Gabrielle');
+    expect(bloc?.textContent).toContain('28 Avenue Marceau');
     expect(bloc?.textContent).toContain('lot 421');
+    expect(bloc?.textContent).toContain('rattaché au mail');
   });
 
-  it('🔴 ② un clic OUVRE le dossier, et la fenêtre ne se ferme pas', async () => {
-    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+  it('🔴 ② un clic OUVRE le dossier du bien, et la fenêtre ne se ferme pas', async () => {
+    prioritaires = { etat: 'ok', vignettes: [vignette()] };
     await monterAvecBien();
     await cliquer(lateraleDe(/Dossier du bien/));
-    expect(appels.some((u) => u.includes('dossier=d-garreau'))).toBe(true);
+    expect(appels.some((u) => u.includes('dossier=d-421'))).toBe(true);
     expect(fermetures).toBe(0);
     expect(container.querySelector('.sfd')).not.toBeNull();
   });
 
-  it('deux biens du même propriétaire : UNE ligne, qui dit combien', async () => {
+  /**
+   * ══ 🔴🔴 VERDICT CHANGÉ — DEUX BIENS DU MÊME PROPRIÉTAIRE FONT MAINTENANT DEUX VIGNETTES ════════════════════
+   *
+   * Il tenait l'inverse (« UNE ligne, qui dit combien »), et c'était juste tant que les deux lots menaient au
+   * MÊME dossier — celui du bailleur. Ils ne mènent plus au même : chaque bien a le sien, et une ligne commune
+   * n'ouvrirait plus le bon endroit. La vignette de tête « Dossier propriétaire » reprend, elle, ce que l'ancienne
+   * ligne unique disait : « propriétaire de N biens ».
+   */
+  it('🔴🔴 multi-biens : une vignette « Dossier propriétaire » en tête, puis une par bien', async () => {
     prioritaires = {
       etat: 'ok',
-      dossiers: [dossier({ cles: ['421', '422'], libelle: '28 Av. Marceau — lot 421 · 30 Av. Marceau — lot 422' })],
-    };
-    await monterAvecBien();
-    expect([...container.querySelectorAll('.sfd-cote-item')].filter((b) => /Dossier du bien/.test(b.textContent ?? ''))).toHaveLength(1);
-    expect(lateraleDe(/Dossier du bien/)?.textContent).toContain('2 biens');
-  });
-
-  it('deux propriétaires : DEUX lignes, dans l’ordre rendu par le serveur', async () => {
-    prioritaires = {
-      etat: 'ok',
-      dossiers: [
-        dossier({ dossierId: 'd-a', proprietaire: 'ZOLA', libelle: 'B1', cles: ['1'] }),
-        dossier({ dossierId: 'd-b', proprietaire: 'ABEL', libelle: 'B2', cles: ['2'] }),
+      vignettes: [
+        { cle: 'proprietaire:d-p', sorte: 'proprietaire', titre: 'Dossier propriétaire — RD PROMOTION ET CIE',
+          detail: 'propriétaire de 2 biens', dossierId: 'd-p', dossierNom: 'RD (335)' },
+        vignette({ cle: 'bien:478', detail: '19 Rue Diderot — lot 478 · propriétaire de 2 biens', dossierId: 'd-478' }),
+        vignette({ cle: 'bien:479', detail: '19 Rue Diderot — lot 479 · propriétaire de 2 biens', dossierId: 'd-479' }),
       ],
     };
     await monterAvecBien();
-    const lignes = [...container.querySelectorAll('.sfd-cote-item')].filter((b) => /Dossier du bien/.test(b.textContent ?? ''));
+    expect(lateraleDe(/Dossier propriétaire/)?.textContent).toContain('propriétaire de 2 biens');
+    const lignes = [...container.querySelectorAll('.sfd-cote-item')]
+      .filter((b) => /Dossier du bien/.test(b.textContent ?? ''));
+    expect(lignes).toHaveLength(2);
+    expect(lignes[0].textContent).toContain('lot 478');
+    expect(lignes[1].textContent).toContain('lot 479');
+  });
+
+  it('deux propriétaires : DEUX vignettes, dans l’ordre rendu par le serveur', async () => {
+    prioritaires = {
+      etat: 'ok',
+      vignettes: [
+        vignette({ cle: 'b:1', titre: 'Dossier du bien — ZOLA', detail: 'B1 · locataire', dossierId: 'd-a' }),
+        vignette({ cle: 'b:2', titre: 'Dossier du bien — ABEL', detail: 'B2 · locataire', dossierId: 'd-b' }),
+      ],
+    };
+    await monterAvecBien();
+    const lignes = [...container.querySelectorAll('.sfd-cote-item')]
+      .filter((b) => /Dossier du bien/.test(b.textContent ?? ''));
     expect(lignes).toHaveLength(2);
     expect(lignes[0].textContent).toContain('ZOLA');
     expect(lignes[1].textContent).toContain('ABEL');
   });
 
-  /** 🔴 « Mail non relié à un bien, ou Hors gestion : comportement actuel inchangé » — demande d'Arno. */
-  it('🔴 ③ aucun bien ⇒ AUCUNE ligne, et le reste du sélecteur est intact', async () => {
-    prioritaires = { etat: 'ok', dossiers: [] };
+  /**
+   * ══ 🔴🔴 LA FENÊTRE S'OUVRE DANS LE DOSSIER, SANS QU'ON CLIQUE ══════════════════════════════════════════════
+   * « Elle s'ouvre directement à la RACINE du dossier Drive du bien » — c'est la première vignette.
+   */
+  it('🔴🔴 ③ la fenêtre s’ouvre d’elle-même sur la PREMIÈRE vignette', async () => {
+    prioritaires = {
+      etat: 'ok',
+      vignettes: [
+        { cle: 'proprietaire:d-p', sorte: 'proprietaire', titre: 'Dossier propriétaire — X',
+          detail: 'propriétaire de 2 biens', dossierId: 'd-p', dossierNom: 'X (1)' },
+        vignette({ dossierId: 'd-478' }),
+      ],
+    };
+    await monterAvecBien();
+    expect(appels.some((u) => u.includes('dossier=d-p'))).toBe(true);
+  });
+
+  /**
+   * 🔴 ET LA VIGNETTE ACTIVE EST SURLIGNÉE. Sans ce repère, passer d'un bien à l'autre en un clic laisse sans
+   * réponse la seule question qui compte — « lequel je regarde ? » —, surtout chez un bailleur dont les six lots
+   * partagent une adresse.
+   */
+  it('🔴 la vignette du dossier où l’on est est SURLIGNÉE, et elle seule', async () => {
+    prioritaires = {
+      etat: 'ok',
+      vignettes: [vignette({ cle: 'b:1', dossierId: 'd-1' }), vignette({ cle: 'b:2', dossierId: 'd-2' })],
+    };
+    await monterAvecBien();
+    const actives = () => [...container.querySelectorAll('.sfd-cote-item--actif')];
+    // L'ouverture automatique a posé la fenêtre sur la première : c'est elle qui porte le repère.
+    expect(actives()).toHaveLength(1);
+    expect(actives()[0].getAttribute('aria-current')).toBe('true');
+    const lignes = [...container.querySelectorAll('.sfd-cote-item')]
+      .filter((b) => /Dossier du bien/.test(b.textContent ?? ''));
+    await cliquer(lignes[1] as HTMLElement);
+    expect(actives()).toHaveLength(1);
+  });
+
+  /** 🔴 « Aucune correspondance : comportement actuel inchangé » — demande d'Arno. */
+  it('🔴 ④ aucun bien ⇒ AUCUNE vignette, et le reste de la fenêtre est intact', async () => {
+    prioritaires = { etat: 'ok', vignettes: [] };
     await monterAvecBien();
     expect(lateraleDe(/Dossier du bien/)).toBeUndefined();
     expect(container.textContent).not.toContain('Dossier du bien');
@@ -502,14 +581,14 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
     expect(boutonPar(/^Terminé$/)).toBeDefined();
   });
 
-  it('🔴 ④ sans échange NI lot, aucune requête n’est même émise', async () => {
-    await monter();   // ni filId ni lots
+  it('🔴 ⑤ sans échange, sans lot NI destinataire, aucune requête n’est même émise', async () => {
+    await monter();
     expect(appels.some((u) => u.includes('/dossier-du-bien'))).toBe(false);
     expect(lateraleDe(/Dossier du bien/)).toBeUndefined();
   });
 
   it('les lots choisis à l’écriture sont transmis, pour un message neuf sans échange', async () => {
-    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+    prioritaires = { etat: 'ok', vignettes: [vignette()] };
     await act(async () => {
       root.render(createElement(SelecteurFichierDrive, {
         onChoisir: () => {}, onFermer: () => {}, filId: null, lots: ['421', '494'],
@@ -520,19 +599,32 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
   });
 
   /**
+   * ══ 🔴🔴 LE CHAMP « À » PART À LA ROUTE — la nouveauté de ce lot ════════════════════════════════════════════
+   * Arno : « on prend la PREMIÈRE adresse destinataire (À) qui n'est pas une adresse de l'agence ». L'écran les
+   * transmet dans l'ORDRE DE SAISIE ; c'est le serveur qui applique la priorité et écarte les nôtres.
+   */
+  it('🔴🔴 ⑥ les destinataires sont transmis, dans l’ordre, même sans échange ni lot', async () => {
+    prioritaires = { etat: 'ok', vignettes: [vignette()] };
+    await act(async () => {
+      root.render(createElement(SelecteurFichierDrive, {
+        onChoisir: () => {}, onFermer: () => {}, filId: null,
+        adressesA: ['premier@client.fr', 'second@client.fr'],
+      } as never));
+    });
+    await calmer();
+    expect(appels.some((u) => u.includes('a=premier%40client.fr%2Csecond%40client.fr'))).toBe(true);
+  });
+
+  /**
    * ⚠️ ASSERTION RÉÉCRITE LE 29/09/2026 (lot DRIVE-FACON-FINDER), et la raison est un changement de NATURE.
    *
    * Elle exigeait que la ligne DISPARAISSE pendant une recherche : c'était juste tant qu'il s'agissait d'une
-   * SUGGESTION posée en tête de liste — dans des résultats, elle n'aurait rien eu à voir avec ce qu'on regardait.
-   * Ce n'est plus une suggestion : c'est une entrée de la BARRE LATÉRALE, comme dans le Finder, c'est-à-dire un
-   * raccourci permanent. Une barre latérale qui se vide quand on cherche ferait exactement ce qu'Arno reproche à
-   * l'ancien navigateur : se comporter autrement que celui de Google.
-   *
-   * 🔴 CE QU'ON TIENT MAINTENANT, et qui est la vraie garantie : elle reste là, et un clic RAMÈNE au dossier du
-   * bien en quittant la recherche — on ne reste pas coincé dans des résultats.
+   * SUGGESTION posée en tête de liste. Ce n'est plus une suggestion : c'est une entrée de la BARRE LATÉRALE,
+   * c'est-à-dire un raccourci permanent. Une barre latérale qui se vide quand on cherche ferait exactement ce
+   * qu'Arno reproche à l'ancien navigateur : se comporter autrement que celui de Google.
    */
   it('🔴 elle RESTE pendant une recherche, et un clic ramène au dossier du bien', async () => {
-    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+    prioritaires = { etat: 'ok', vignettes: [vignette()] };
     await monterAvecBien();
     expect(lateraleDe(/Dossier du bien/)).toBeDefined();
     const champ = await ouvrirLoupe();
@@ -543,12 +635,10 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
     });
     await act(async () => { await new Promise((r) => setTimeout(r, 320)); });
     await calmer();
-    // Le raccourci est toujours là — c'est une barre latérale, pas une suggestion.
     expect(lateraleDe(/Dossier du bien/)).toBeDefined();
     const avant = appels.length;
     await cliquer(lateraleDe(/Dossier du bien/));
-    // …et il emmène bien dans le dossier du bien, en quittant les résultats.
-    expect(appels.slice(avant).some((u) => u.includes('dossier=d-garreau'))).toBe(true);
+    expect(appels.slice(avant).some((u) => u.includes('dossier=d-421'))).toBe(true);
     expect((container.querySelector('.sfd-saisie') as HTMLInputElement | null)?.value ?? '').toBe('');
   });
 });
