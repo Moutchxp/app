@@ -1080,3 +1080,48 @@ export async function annulerGesteDeRangement(o: {
 
   return { ok: true, id: null, nb };
 }
+
+/**
+ * ══ 🔴🔴 LOT DRIVE-RACCOURCI-PAR-DESTINATAIRE — UNE CARTE DE CONTACT DIT SON BIEN **ET** SON CÔTÉ ════════════════
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (07/10/2026) : « CARTE DE CONTACT créée par le “+” (contact du propriétaire ou du locataire) :
+ * mêmes règles que son client, pour le bien concerné. »
+ *
+ * 🔴 POURQUOI PAS `biensDesContacts`, QUI EXISTE DÉJÀ. Elle rend les BIENS d'une adresse, et c'est tout ce dont
+ * la passe de classement avait besoin. Ici il manque une chose : DE QUEL CÔTÉ ce contact se tient. « contact du
+ * propriétaire » et « contact du locataire » ne se lisent pas pareil sur une vignette, et c'est précisément ce
+ * qu'Arno demande d'écrire — « mêmes règles que SON CLIENT ». Les deux fonctions lisent la même table, la même
+ * ligne, avec la même sonde ; celle-ci rend une colonne de plus.
+ *
+ * 🔴 ET ELLE EST ICI, PAS AILLEURS. `gestion_contact_carte` ne se nomme que depuis ce dépôt — un garde du module
+ * l'éprouve, et il refuse toute liste blanche qu'on allongerait. Écrire cette requête dans le dépôt du raccourci
+ * aurait fait une seconde porte sur une table qui n'en a qu'une.
+ *
+ * ⚠️ SANS LA TABLE, LA CARTE REVIENT VIDE : le cas ne joue pas, et la fenêtre est exactement celle d'avant. Une
+ * sonde voyage avec sa donnée — règle du module.
+ *
+ * ⚠️ `retire_le IS NULL` : une carte retirée n'a plus cours. Elle n'est jamais supprimée (c'est la règle de cette
+ * table), donc l'oublier ici ferait resurgir des contacts que quelqu'un a justement écartés.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function biensEtCotesDesContacts(
+  adresses: readonly string[],
+): Promise<Map<string, { lotCle: string; cote: Cote }[]>> {
+  const out = new Map<string, { lotCle: string; cote: Cote }[]>();
+  const uniques = [...new Set(adresses.map((a) => a.trim().toLowerCase()).filter((a) => a !== ''))];
+  if (uniques.length === 0 || !(await contactCarteDisponible())) return out;
+
+  const { rows } = await query<{ adresse: string; lot_cle: string; cote: string }>(
+    `SELECT DISTINCT adresse, lot_cle, cote
+       FROM gestion_contact_carte
+      WHERE retire_le IS NULL AND adresse = ANY($1::text[])
+      ORDER BY adresse, lot_cle`, [uniques]);
+
+  for (const r of rows) {
+    const cle = r.adresse.trim().toLowerCase();
+    const cote: Cote = r.cote === 'proprietaire' ? 'proprietaire' : 'locataire';
+    out.set(cle, [...(out.get(cle) ?? []), { lotCle: r.lot_cle, cote }]);
+  }
+  return out;
+}
