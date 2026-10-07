@@ -10,6 +10,13 @@ import { actionDeLaCapsule, type CapsuleStatut } from '../../../../lib/gestion/s
 import {
   aideIconeReintegrer, PICTO_REINTEGRER, type BoiteOrigine,
 } from '../../../../lib/gestion/boiteOrigine';
+/**
+ * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — les trois états de l'étoile d'une ligne, leur mot et leur geste. Module PUR :
+ * aucun import ne tire `pg`, comme l'exige l'encadré de ce fichier.
+ */
+import {
+  bulleEtoileLigne, clicPoseLEtoile, sorteEtoileLigne, type EtatEtoileLigne,
+} from '../../../../lib/gestion/etoileLigne';
 
 /**
  * LOT LISTE-GMAIL — LA BARRE D'ACTIONS D'UNE LIGNE, AU SURVOL.
@@ -37,7 +44,17 @@ import {
 export interface EtatBarreLigne {
   /** Le nombre de messages de l'échange. Affiché seulement s'il y en a PLUS D'UN : « 1 » n'apprend rien. */
   nbMessages: number;
-  etoilee: boolean;
+  /**
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — L'ÉTAT D'ÉTOILE DE LA LIGNE, EN DEUX INFORMATIONS ══════════════════════
+   *
+   * C'ÉTAIT `etoilee: boolean`, « l'échange porte-t-il une étoile ? ». CONSTAT D'ARNO (fil 383) : la barre
+   * montrait une étoile PLEINE sur une ligne dont le mail affiché n'en avait aucune — elle était ailleurs dans la
+   * conversation. Un booléen ne pouvait ni le dire, ni empêcher le clic de décrocher l'étoile de cet autre mail.
+   *
+   * 🔴 LE DESSIN, LE MOT ET LE GESTE VIENNENT TOUS DU MODULE PUR `etoileLigne` — `sorteEtoileLigne`,
+   * `bulleEtoileLigne`, `clicPoseLEtoile` —, c'est-à-dire du MÊME calcul que la liste et que le serveur.
+   */
+  etoile: EtatEtoileLigne;
   /**
    * L'étoile est-elle utilisable ? `false` = migration 264 non appliquée : le bouton est rendu DÉSACTIVÉ avec une
    * info-bulle qui le dit — plutôt qu'absent (on chercherait un bug) ou actif (on promettrait un geste impossible).
@@ -86,7 +103,8 @@ export function BarreLigne({
    */
   confirme: boolean;
   onConfirmer: (ouvrir: boolean) => void;
-  onEtoile: (etoilee: boolean) => void;
+  /** 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — `true` = POSER l'étoile sur le mail affiché, `false` = la lui retirer. */
+  onEtoile: (poser: boolean) => void;
   onLecture: (lu: boolean) => void;
   onCorbeille: () => void;
   /**
@@ -147,18 +165,36 @@ export function BarreLigne({
         <span className="brl-compte" title={`${etat.nbMessages} messages dans cet échange`}>{etat.nbMessages}</span>
       )}
 
-      {/* b. L'ÉTOILE de l'équipe — état de NOTRE application, partagé et daté. Elle ne touche pas à Gmail. */}
-      <button type="button"
-        className={`brl-icone${etat.etoilee ? ' brl-icone--etoilee' : ''}`}
-        disabled={!etat.etoileDisponible}
-        aria-pressed={etat.etoilee}
-        aria-label={etat.etoilee ? 'Retirer l’étoile' : 'Mettre une étoile'}
-        title={etat.etoileDisponible
-          ? (etat.etoilee ? 'Retirer l’étoile' : 'Mettre une étoile')
-          : 'Étoile indisponible : mise à jour de la base à appliquer (migration 264).'}
-        onClick={geste(() => onEtoile(!etat.etoilee))}>
-        <Etoile pleine={etat.etoilee} />
-      </button>
+      {/* ══ b. L'ÉTOILE — PLEINE, CREUSE, OU ÉTEINTE ══════════════════════════════════════════════════════════
+             🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS. PLEINE = le mail que la ligne AFFICHE est étoilé. CREUSE (contour
+             ROUGE) = un AUTRE mail de la conversation l'est, et la bulle le NOMME. ÉTEINTE (contour gris) = aucune
+             étoile dans la conversation.
+
+             🔴 LE CLIC NE TOUCHE QUE LE MAIL AFFICHÉ (règle d'Arno). D'où `clicPoseLEtoile` plutôt qu'un
+             `!etat.etoilee` : sur une CREUSE, l'ancien calcul aurait lu « l'échange est étoilé, donc on retire »
+             et aurait décroché l'étoile d'un mail qu'on ne regardait même pas.
+
+             ⚠️ LE MOT DU BOUTON DIT CE QUE LE CLIC FAIT, puis la bulle ajoute ce qu'on voit : une étoile en
+             contour qu'on clique pour POSER mérite d'expliquer pourquoi elle est rouge. */}
+      {(() => {
+        const sorte = sorteEtoileLigne(etat.etoile);
+        const poser = clicPoseLEtoile(etat.etoile);
+        const mot = poser ? 'Mettre une étoile' : 'Retirer l’étoile';
+        const aide = sorte === 'creuse' ? `${mot} — ${bulleEtoileLigne(etat.etoile)}` : mot;
+        return (
+          <button type="button"
+            className={`brl-icone${sorte === 'aucune' ? '' : ' brl-icone--etoilee'}`}
+            disabled={!etat.etoileDisponible}
+            aria-pressed={sorte === 'pleine'}
+            aria-label={aide}
+            title={etat.etoileDisponible
+              ? aide
+              : 'Étoile indisponible : mise à jour de la base à appliquer (migration 264).'}
+            onClick={geste(() => onEtoile(poser))}>
+            <Etoile pleine={sorte === 'pleine'} />
+          </button>
+        );
+      })()}
 
       {/* c. L'ENVELOPPE — elle montre L'ACTION POSSIBLE, pas l'état : ouverte quand le mail est non lu, donc
              « je peux le marquer lu ». Le mot est dans le libellé accessible, jamais porté par la seule forme. */}

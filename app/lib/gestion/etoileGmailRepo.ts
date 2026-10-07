@@ -1,5 +1,7 @@
 import { query } from '../db/client';
 import { deuxEcritures } from './corbeilleRepo';
+/* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — la forme d'un mail étoilé est définie UNE fois, dans le module pur. */
+import type { MailEtoile } from './etoileLigne';
 import { etoileGmailDisponible } from './schema';
 
 /**
@@ -52,6 +54,46 @@ export async function filsEtoiles(filIds: readonly number[]): Promise<Set<number
     `SELECT DISTINCT fil_id::text AS fil_id FROM gestion_message
       WHERE etoile_le IS NOT NULL AND fil_id = ANY($1::bigint[])`, [[...filIds]]);
   return new Set(rows.map((r) => Number(r.fil_id)));
+}
+
+/**
+ * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LES MAILS ÉTOILÉS DE CHAQUE ÉCHANGE D'UNE PAGE ═══════════════════════════
+ *
+ * UNE SEULE REQUÊTE pour toute la page, jamais une par ligne — même patron que `piecesVraiesDesFils`, pour la même
+ * raison : une liste de trente lignes ne doit pas poser trente questions.
+ *
+ * 🔴 ELLE REND LES MAILS, PAS UN BOOLÉEN. `filsEtoiles` répond « cet échange porte-t-il une étoile ? », ce qui est
+ * la question du FILTRE ; la LIGNE, elle, en pose deux (le mail qu'elle montre est-il étoilé ? un autre l'est-il ?)
+ * et doit pouvoir NOMMER cet autre mail dans sa bulle. Les deux lectures coexistent donc, chacune pour sa question.
+ *
+ * ⚠️ L'EXPÉDITEUR ET LA DATE VOYAGENT AVEC : sans eux, l'écran devrait aller les chercher message par message pour
+ * écrire « (houda ghannam, 6 octobre 2026 à 17:26) ». Ils sont sur la même ligne, ils sont gratuits.
+ *
+ * ⚠️ ORDRE TOTAL (`recu_le DESC, id DESC`) : deux mails à la même seconde existent, et la bulle ne doit pas nommer
+ * l'un ou l'autre selon l'humeur de la requête. Le module pur retrie de toute façon — on ne lui demande rien.
+ *
+ * ⚠️ SANS LA MIGRATION 277, LA COLONNE N'EST NOMMÉE NULLE PART : carte vide, aucune requête posée.
+ */
+export async function mailsEtoilesDesFils(
+  filIds: readonly number[],
+): Promise<Map<number, MailEtoile[]>> {
+  const parFil = new Map<number, MailEtoile[]>();
+  if (filIds.length === 0 || !(await etoileGmailDisponible())) return parFil;
+  const { rows } = await query<{
+    fil_id: string; id: string; de_adresse: string; de_nom: string | null; recu_le: string;
+  }>(
+    `SELECT fil_id::text, id::text, de_adresse, de_nom,
+            to_char(recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le
+       FROM gestion_message
+      WHERE etoile_le IS NOT NULL AND fil_id = ANY($1::bigint[])
+      ORDER BY recu_le DESC, id DESC`, [[...filIds]]);
+  for (const r of rows) {
+    const fil = Number(r.fil_id);
+    const liste = parFil.get(fil) ?? [];
+    liste.push({ messageId: Number(r.id), de: r.de_adresse, deNom: r.de_nom, recuLe: r.recu_le });
+    parFil.set(fil, liste);
+  }
+  return parFil;
 }
 
 /**

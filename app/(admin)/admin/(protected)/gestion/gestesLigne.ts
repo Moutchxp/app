@@ -13,6 +13,8 @@
 
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — l'étoile écrite ici est annoncée à tous les écrans montés. */
 import { annoncerEtoile } from '../../../../lib/gestion/signalEtoile';
+/* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — la forme d'un mail étoilé, définie une fois dans le module PUR. */
+import type { MailEtoile } from '../../../../lib/gestion/etoileLigne';
 /* 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — la corbeille écrite ici est annoncée AVANT d'être écrite. */
 import { annoncerCorbeille, type ActionCorbeille } from '../../../../lib/gestion/signalCorbeille';
 
@@ -90,10 +92,11 @@ export async function gesteEtoileFil(filId: number, etoilee: boolean): Promise<I
    * affichent des mails appliquent alors la règle du serveur : poser va sur le dernier message, retirer passe
    * sur tous (voir `basculerEtoileDuFil`).
    *
-   * ⚠️ `filEtoile` VAUT `etoilee` ET C'EST EXACT ICI : poser l'étoile d'un échange en fait un échange étoilé ;
-   * la retirer la retire de TOUS ses messages, donc l'échange ne l'est plus. Aucun doute à transmettre.
+   * ⚠️ `etoiles: null` — CETTE PORTE NE SAIT PAS QUELS MAILS SONT ÉTOILÉS. Elle n'en a jamais eu besoin : elle
+   * raisonne par échange. Les listes gardent donc l'état qu'elles ont, et la relecture suivante les remet droites
+   * (lot ETOILE-LIGNE-DEUX-ETATS) — plutôt que de dessiner une étoile pleine là où l'autre mail porte la sienne.
    */
-  const annonce = (e: boolean) => annoncerEtoile({ filId, messageId: null, etoilee: e, filEtoile: e });
+  const annonce = (e: boolean) => annoncerEtoile({ filId, messageId: null, etoilee: e, etoiles: null });
   /* ① L'ÉTAT VOULU, TOUT DE SUITE. Toutes les étoiles de ce mail basculent dans l'image de ce clic. */
   annonce(etoilee);
   const revenir = (message: string): IssueEtoile => {
@@ -147,28 +150,37 @@ export async function gesteEtoileFil(filId: number, etoilee: boolean): Promise<I
  * Gmail, qui est réannoncé comme vérité. Les deux coïncident sauf si quelqu'un a étoilé depuis son téléphone
  * entre-temps — et dans ce cas c'est Gmail qui a raison.
  *
- * ⚠️ `filAvant` / `filApres` : L'ÉTAT DE LA LIGNE DE LA BOÎTE, QUE SEUL L'APPELANT CONNAÎT. La ligne s'allume dès
- * qu'AU MOINS UN mail de l'échange est étoilé (règle inchangée, `boiteRepo.sqlEtoile`) ; retirer l'étoile d'un
- * mail parmi trois ne l'éteint donc pas. La conversation, elle, connaît l'étoile de chacun de ses mails : elle
- * seule peut trancher, et elle le fait AVANT l'appel pour que la ligne bascule dans la même image.
+ * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — `etoilesAvant` / `etoilesApres` REMPLACENT LE BOOLÉEN D'ÉCHANGE ═════════
+ *
+ * CE QU'ILS ÉTAIENT : `filAvant` / `filApres`, deux booléens « l'échange est-il étoilé ? ». La ligne de la boîte a
+ * maintenant TROIS états (pleine si le mail qu'elle AFFICHE est étoilé, creuse si c'est un AUTRE mail, aucune
+ * sinon), et un booléen ne peut ni les distinguer ni NOMMER cet autre mail.
+ *
+ * 🔴 ON PASSE DONC LA LISTE DES MAILS ÉTOILÉS, AVANT ET APRÈS, quand l'appelant la connaît — c'est le cas de la
+ * CONVERSATION OUVERTE, qui tient l'étoile de chacun de ses mails. Chaque liste en tire SA réponse, avec le même
+ * calcul que le serveur (`etoileDeLaLigne`) : l'appelant dit ce qui EST, jamais ce qu'il faut dessiner.
+ *
+ * ⚠️ `null` EST LÉGITIME, et c'est le cas de la LIGNE elle-même : elle ne connaît que le mail qu'elle montre. Elle
+ * se met quand même à jour, parce que `messageId` + `etoilee` lui suffisent pour SON mail — et ce qui se passe
+ * ailleurs dans l'échange n'a pas bougé (voir `etoileLigneApresSignal`).
  */
 export async function gesteEtoileMessage(o: {
   filId: number;
   messageId: number;
   /** L'état VOULU pour ce mail — celui qu'on annonce d'avance. */
   etoilee: boolean;
-  /** L'échange était-il étoilé AVANT ce geste ? Réémis tel quel si le serveur refuse. */
-  filAvant: boolean;
-  /** L'échange sera-t-il encore étoilé APRÈS ce geste ? « au moins un mail », l'appelant l'a calculé. */
-  filApres: boolean;
+  /** Les mails étoilés de l'échange AVANT ce geste. `null` = l'appelant ne connaît que le sien. */
+  etoilesAvant: readonly MailEtoile[] | null;
+  /** Les mails étoilés de l'échange APRÈS ce geste, calculés par l'appelant. `null` = idem. */
+  etoilesApres: readonly MailEtoile[] | null;
 }): Promise<IssueEtoile> {
-  const annonce = (etoilee: boolean, filEtoile: boolean) =>
-    annoncerEtoile({ filId: o.filId, messageId: o.messageId, etoilee, filEtoile });
+  const annonce = (etoilee: boolean, etoiles: readonly MailEtoile[] | null) =>
+    annoncerEtoile({ filId: o.filId, messageId: o.messageId, etoilee, etoiles });
   /* ① L'ÉTAT VOULU, TOUT DE SUITE : les étoiles de CE mail basculent dans l'image du clic, et elles seules. */
-  annonce(o.etoilee, o.filApres);
+  annonce(o.etoilee, o.etoilesApres);
   const revenir = (message: string): IssueEtoile => {
-    /* ③ TOUT LE MONDE REVIENT — le mail à son étoile d'avant, la ligne à la sienne. */
-    annonce(!o.etoilee, o.filAvant);
+    /* ③ TOUT LE MONDE REVIENT — le mail à son étoile d'avant, les listes à ce qu'elles montraient. */
+    annonce(!o.etoilee, o.etoilesAvant);
     return { ok: false, etoilee: null, touches: 0, message };
   };
   try {
@@ -184,7 +196,7 @@ export async function gesteEtoileMessage(o: {
      * qu'on avait annoncé plutôt que d'inventer l'inverse : l'action, elle, a bien abouti (`ok: true`).
      */
     const confirme = d.etat?.etoile ?? o.etoilee;
-    annonce(confirme, confirme === o.etoilee ? o.filApres : o.filAvant);
+    annonce(confirme, confirme === o.etoilee ? o.etoilesApres : o.etoilesAvant);
     return {
       ok: true, etoilee: confirme, touches: 1,
       message: d.message ?? (confirme ? 'Étoile ajoutée dans Gmail.' : 'Étoile retirée dans Gmail.'),
@@ -208,15 +220,30 @@ export async function gesteEtoileMessage(o: {
  * et l'écran n'affiche alors AUCUNE étoile dans le bloc d'en-tête — plutôt qu'une étoile éteinte, qui dirait
  * faussement « ce mail n'est pas suivi ». C'est déjà la règle de la barre de survol (`etoileDisponible`).
  */
-export async function lireEtoilesDuFil(filId: number): Promise<{ disponible: boolean; etoiles: number[] }> {
+export async function lireEtoilesDuFil(
+  filId: number,
+): Promise<{ disponible: boolean; etoiles: MailEtoile[] }> {
   try {
     const res = await fetch(`/api/admin/gestion/fils/${filId}/etoile`, { cache: 'no-store' });
     const d = (await res.json().catch(() => ({}))) as { etoiles?: unknown; disponible?: boolean };
     if (!res.ok || d.disponible !== true) return { disponible: false, etoiles: [] };
-    /* ⚠️ ON NE FAIT CONFIANCE QU'À DES NOMBRES : une réponse abîmée ne doit pas peupler l'état d'un `NaN`. */
-    const etoiles = Array.isArray(d.etoiles)
-      ? d.etoiles.filter((n): n is number => typeof n === 'number' && Number.isInteger(n))
-      : [];
+    /**
+     * ⚠️ ON NE GARDE QUE CE QUI A LA BONNE FORME : une réponse abîmée ne doit pas peupler l'état d'un `NaN` ni
+     * d'un expéditeur `undefined` que la bulle d'aide irait afficher.
+     *
+     * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — L'EXPÉDITEUR ET LA DATE VOYAGENT MAINTENANT AVEC L'IDENTIFIANT : la
+     * ligne de la boîte doit pouvoir NOMMER l'autre mail étoilé (« Un autre message de cette conversation est
+     * étoilé (houda ghannam, …) »), et la conversation est le seul écran qui connaisse toute la liste.
+     */
+    const etoiles = Array.isArray(d.etoiles) ? d.etoiles.flatMap((m): MailEtoile[] => {
+      const o = m as Partial<MailEtoile> | null;
+      if (o === null || typeof o !== 'object') return [];
+      if (!Number.isInteger(o.messageId) || typeof o.de !== 'string' || typeof o.recuLe !== 'string') return [];
+      return [{
+        messageId: o.messageId as number, de: o.de,
+        deNom: typeof o.deNom === 'string' ? o.deNom : null, recuLe: o.recuLe,
+      }];
+    }) : [];
     return { disponible: true, etoiles };
   } catch {
     return { disponible: false, etoiles: [] };

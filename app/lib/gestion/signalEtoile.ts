@@ -1,3 +1,6 @@
+/* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — un mail étoilé a UNE forme, définie dans le module PUR `etoileLigne`. */
+import type { MailEtoile } from './etoileLigne';
+
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — « L'ÉTOILE DE CET ÉCHANGE VIENT DE CHANGER » ═════════════════════════
  *
@@ -80,15 +83,23 @@ export interface SignalEtoile {
   /** L'état de CE mail (ou de l'échange entier quand `messageId` vaut `null`). */
   etoilee: boolean;
   /**
-   * 🔴 L'ÉCHANGE PORTE-T-IL ENCORE AU MOINS UNE ÉTOILE APRÈS CE GESTE ? C'est la règle de la LIGNE de la boîte
-   * (`boiteRepo.sqlEtoile`), et elle ne se déduit pas d'un geste par message : retirer l'étoile d'un mail parmi
-   * trois laisse l'échange étoilé si un autre porte la sienne.
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LES MAILS ÉTOILÉS DE L'ÉCHANGE, APRÈS CE GESTE ═══════════════════════
    *
-   * ⚠️ `null` = L'ÉMETTEUR L'IGNORE. La ligne garde alors son état, et la relecture suivante la remettra droite :
-   * c'est la direction sûre du doute — éteindre une ligne d'échange encore étoilé serait un mensonge, l'allumer
-   * à tort en serait un autre.
+   * CE QUI ÉTAIT ÉCRIT ICI : `filEtoile: boolean | null`, « l'échange porte-t-il encore une étoile ? ». C'était la
+   * réponse à l'ancienne question de la ligne. Depuis que la ligne a TROIS états (pleine / creuse / aucune), elle
+   * n'en pose plus une mais deux : le mail que J'AFFICHE est-il étoilé, et lequel l'est AILLEURS ? Un booléen ne
+   * peut pas y répondre, et surtout il ne peut pas NOMMER l'autre mail dans la bulle d'aide.
+   *
+   * 🔴 ON TRANSPORTE DONC LA LISTE, et chaque ligne en tire SA réponse avec `etoileDeLaLigne` — le même calcul que
+   * le serveur. L'émetteur n'a pas à savoir quel mail telle liste affiche : il dit ce qui EST, pas ce qu'il faut
+   * dessiner.
+   *
+   * ⚠️ `null` = L'ÉMETTEUR NE CONNAÎT PAS TOUTE LA CONVERSATION — c'est le cas d'un clic depuis une LIGNE, qui ne
+   * connaît que le mail qu'elle montre. La ligne sait alors quand même se mettre à jour, parce que `messageId` et
+   * `etoilee` lui suffisent pour SON mail (voir `etoileLigneApresSignal`). Hors de ce cas, on garde l'état qu'on a
+   * et la relecture suivante remet droit : deviner éteindrait une ligne encore étoilée — ou l'inverse.
    */
-  filEtoile: boolean | null;
+  etoiles: readonly MailEtoile[] | null;
 }
 
 export type AuditeurEtoile = (s: SignalEtoile) => void;

@@ -39,9 +39,20 @@ export async function GET(request: Request): Promise<Response> {
      * existe : celle de Gmail (migration 277, la seule voulue désormais) ou, à défaut, celle de l'équipe (264).
      * L'écran n'a pas à savoir laquelle — il a juste besoin de savoir s'il peut proposer le bouton.
      */
+    /**
+     * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — `etoileParMessage` DIT **LAQUELLE** DES DEUX SOURCES EST EN PLACE.
+     *
+     * L'écran en a besoin pour une raison précise : avec la migration 277, le clic sur l'étoile d'une ligne porte
+     * sur LE MAIL QUE LA LIGNE AFFICHE (règle d'Arno, lot ETOILE-LIGNE-DEUX-ETATS) ; sans elle, il n'existe que
+     * l'étoile d'ÉQUIPE, posée sur l'ÉCHANGE, et le geste doit rester celui d'avant — sans quoi un clic
+     * n'écrirait plus rien que la liste sache relire.
+     *
+     * ⚠️ C'EST LE SERVEUR QUI RÉPOND, parce que lui seul connaît l'état du schéma. L'écran ne devine pas.
+     */
     const sondes = await import('../../../../../../lib/gestion/schema');
-    const [comptes, etoileDisponible, brouillonsJetes] = await Promise.all([
+    const [comptes, etoileParMessage, etoileDisponible, brouillonsJetes] = await Promise.all([
       comptesBoite(),
+      sondes.etoileGmailDisponible(),
       (async () => await sondes.etoileGmailDisponible() || await sondes.etoileDisponible())(),
       (await import('../../../../../../lib/gestion/redactionRepo')).compterBrouillonsALaCorbeille().catch(() => 0),
     ]);
@@ -55,7 +66,7 @@ export async function GET(request: Request): Promise<Response> {
      * pour une liste qui ne saurait rien afficher d'autre.
      */
     const corbeille = comptes.corbeille === null ? null : comptes.corbeille + brouillonsJetes;
-    return Response.json({ ...comptes, corbeille, brouillonsJetes, etoileDisponible },
+    return Response.json({ ...comptes, corbeille, brouillonsJetes, etoileDisponible, etoileParMessage },
       { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     // Pas de catch muet : des compteurs à zéro feraient croire à une boîte vide. On dit que la lecture a échoué, et

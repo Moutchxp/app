@@ -190,9 +190,15 @@ describe('garanties d’écran (statiques)', () => {
    * ⚠️ CE CAS EST PLUS STRICT QU'AVANT, ET C'EST VOLONTAIRE : zéro écriture directe, quelle que soit la méthode.
    * Et il NOMME la porte, pour qu'on ne puisse pas la contourner en recopiant un `fetch` ailleurs.
    */
-  it('la boîte n’écrit RIEN elle-même : l’étoile passe par `gesteEtoileFil`', () => {
+  it('la boîte n’écrit RIEN elle-même : l’étoile passe par les portes de `gestesLigne`', () => {
     expect(/method:\s*'(PATCH|DELETE|PUT|POST)'/.test(src)).toBe(false);
-    expect(src).toContain('gesteEtoileFil(filId, etoilee)');
+    /**
+     * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — DEUX PORTES NOMMÉES, ET TOUJOURS AUCUN `fetch` ICI. Le clic porte
+     * désormais sur LE MAIL QUE LA LIGNE AFFICHE (`gesteEtoileMessage`) ; sans la migration 277, où l'étoile est
+     * celle de l'ÉCHANGE, il garde l'ancienne porte (`gesteEtoileFil`). Les deux vivent dans `gestesLigne`.
+     */
+    expect(src).toContain('gesteEtoileMessage({');
+    expect(src).toContain('gesteEtoileFil(l.filId, poser)');
     expect(src).toContain("from './gestesLigne'");
   });
 

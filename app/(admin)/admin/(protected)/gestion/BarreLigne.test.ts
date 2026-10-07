@@ -36,9 +36,13 @@ const LIGNE = (o: Record<string, unknown> = {}) => ({
   reference: null, sansSuite: false,
   // LOT MESSAGE-CLIQUE — le message que la ligne represente : c'est lui que le clic doit ouvrir.
   messageAffiche: 8123,
-  nonRemise: null, etoilee: false, ...o,
+  /* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — l'étoile d'une ligne, en deux informations : le mail AFFICHÉ est-il
+     étoilé (⇒ pleine), et lequel l'est AILLEURS (⇒ creuse, et de quoi le nommer). */
+  nonRemise: null, etoile: { duMessage: false, ailleurs: null }, ...o,
 });
 const COMPTES = { lisibles: 10, automatiques: 2, envoyes: 3, reception: 10, corbeille: 0, etoileDisponible: true };
+/** 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — l'AUTRE mail étoilé d'une conversation, celui que la bulle d'une creuse nomme. */
+const AUTRE = { messageId: 99, de: 'didier.caussanel@free.fr', deNom: 'Didier Caussanel', recuLe: '2026-09-24T19:08:00Z' };
 
 let container: HTMLDivElement;
 let root: Root;
@@ -55,12 +59,15 @@ let rattachements: Record<string, unknown>;
  */
 let ficheFil: Record<string, unknown>;
 let comptes: Record<string, unknown>;
+/** 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ce que la route PAR MESSAGE rend après la bascule. Piloté par le test. */
+let etoileGmailPosee: boolean;
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   ecritures = []; ouverts = []; actions = [];
   ligneCourante = LIGNE();
   comptes = COMPTES;
+  etoileGmailPosee = true;
   rattachements = { etat: 'ok', data: [] };
   ficheFil = {
     etat: 'ok',
@@ -75,6 +82,15 @@ beforeEach(() => {
     if (methode !== 'GET') {
       const corps = JSON.parse(String(init?.body ?? 'null')) as { etoilee?: boolean } | null;
       ecritures.push({ url: u, methode, corps });
+      /**
+       * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LA ROUTE PAR MESSAGE, celle que le clic emprunte quand la migration
+       * 277 est là : elle BASCULE l'étoile dans Gmail et rend l'état obtenu, comme la vraie.
+       */
+      if (/\/messages\/\d+\/gmail$/.test(u)) {
+        return {
+          ok: true, json: async () => ({ ok: true, etat: { etoile: etoileGmailPosee, nonLu: false } }),
+        } as unknown as Response;
+      }
       /**
        * ⚠️ LE DOUBLE REND CE QUE LA VRAIE ROUTE REND, `etoilee` COMPRIS. Elle l'a toujours rendu
        * (`{ ok: true, etoilee, touches }`) ; le double, lui, se contentait d'un `{ ok: true }`. Depuis le lot
@@ -193,7 +209,7 @@ describe('🔴 ③ l’étoile : posée elle se voit, éteinte elle ne s’affic
   });
 
   it('une étoile POSÉE apparaît au début de la ligne, en permanence', async () => {
-    ligneCourante = LIGNE({ etoilee: true });
+    ligneCourante = LIGNE({ etoile: { duMessage: true, ailleurs: null } });
     await monter();
     expect(container.querySelector('.bte-etoile')).not.toBeNull();
   });
@@ -773,18 +789,18 @@ describe('🔴🔴 l’étoile de la ligne suit celle du mail ouvert', () => {
     await monter();
     expect(container.querySelector('.bte-etoile')).toBeNull();
     await act(async () => {
-      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: true, filEtoile: true });
+      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: true, etoiles: null });
     });
     expect(container.querySelector('.bte-etoile')).not.toBeNull();
   });
 
   /** 🔴 ET DANS L'AUTRE SENS : décrocher depuis le mail ouvert éteint la ligne. */
   it('🔴 une étoile décrochée depuis le mail ouvert éteint la ligne', async () => {
-    ligneCourante = LIGNE({ etoilee: true });
+    ligneCourante = LIGNE({ etoile: { duMessage: true, ailleurs: null } });
     await monter();
     expect(container.querySelector('.bte-etoile')).not.toBeNull();
     await act(async () => {
-      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: false, filEtoile: false });
+      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: false, etoiles: null });
     });
     expect(container.querySelector('.bte-etoile')).toBeNull();
   });
@@ -793,39 +809,148 @@ describe('🔴🔴 l’étoile de la ligne suit celle du mail ouvert', () => {
   it('⚠️ l’étoile d’un autre échange ne change rien à cette ligne', async () => {
     await monter();
     await act(async () => {
-      annoncerEtoile({ filId: 99999, messageId: 1, etoilee: true, filEtoile: true });
+      annoncerEtoile({ filId: 99999, messageId: 1, etoilee: true, etoiles: null });
     });
     expect(container.querySelector('.bte-etoile')).toBeNull();
   });
 
   /**
-   * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — CETTE LIGNE LIT `filEtoile`, PAS L'ÉTOILE D'UN MAIL ═══════════════════════
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — RETIRER L'ÉTOILE DU MAIL AFFICHÉ LAISSE UNE **CREUSE** ═══════════════
    *
-   * RÈGLE D'ARNO (07/10/2026), DEMANDÉE MOT POUR MOT : la règle de la ligne NE CHANGE PAS — une ligne d'ici
-   * représente une CONVERSATION, et son étoile est allumée dès qu'AU MOINS UN mail de l'échange est étoilé.
-   *
-   * 🔴 D'OÙ CE CAS : retirer l'étoile d'UN mail d'un échange qui en garde une autre ne doit PAS éteindre la
-   * ligne. Avant ce lot, la ligne recopiait `etoilee` — l'état du MAIL — et s'éteignait à tort.
+   * RÈGLE D'ARNO (07/10/2026) : CREUSE = « le mail affiché n'est pas étoilé, mais un AUTRE mail de la
+   * conversation l'est ». Retirer l'étoile du mail affiché ne fait donc pas disparaître la marque : elle passe
+   * de pleine à creuse, parce que l'autre mail garde la sienne.
    */
-  it('🔴🔴 retirer l’étoile d’un mail parmi plusieurs laisse la ligne allumée', async () => {
-    ligneCourante = LIGNE({ etoilee: true });
+  it('🔴🔴 retirer l’étoile du mail affiché laisse la creuse de l’autre mail', async () => {
+    ligneCourante = LIGNE({ etoile: { duMessage: true, ailleurs: AUTRE } });
     await monter();
     await act(async () => {
-      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: false, filEtoile: true });
+      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: false, etoiles: null });
+    });
+    const e = container.querySelector('.bte-etoile');
+    expect(e).not.toBeNull();
+    expect(e?.getAttribute('title')).toContain('Un autre message de cette conversation est étoilé');
+  });
+
+  /**
+   * ⚠️ UN SIGNAL QUI NOMME UN **AUTRE** MAIL NE TOUCHE PAS CETTE LIGNE : elle ne montre pas ce mail-là, et ce
+   * qu'elle sait de l'« ailleurs » date de sa lecture. On garde donc son état, et la relecture suivante la remet
+   * droite. Deviner éteindrait une ligne encore étoilée — ou l'inverse.
+   */
+  it('⚠️ un signal sur un AUTRE mail laisse la ligne telle quelle', async () => {
+    ligneCourante = LIGNE({ etoile: { duMessage: true, ailleurs: null } });
+    await monter();
+    await act(async () => {
+      annoncerEtoile({ filId: 7, messageId: 99, etoilee: false, etoiles: null });
     });
     expect(container.querySelector('.bte-etoile')).not.toBeNull();
   });
 
   /**
-   * ⚠️ `filEtoile: null` = L'ÉMETTEUR NE SAIT PAS : la ligne GARDE son état, et la relecture suivante la remet
-   * droite. Deviner — éteindre par symétrie — éteindrait la ligne d'un échange encore étoilé.
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LES TROIS ÉTATS, À L'ÉCRAN ════════════════════════════════════════════
+   *
+   * CONSTAT D'ARNO (fil 383 « Fenêtre cassée ») : étoile ROUGE PLEINE sur la ligne, aucune étoile sur le mail
+   * qu'elle montre — elle était sur un autre mail de la conversation.
    */
-  it('⚠️ un signal sans réponse sur l’échange laisse la ligne telle quelle', async () => {
-    ligneCourante = LIGNE({ etoilee: true });
+  it('🔴🔴 ① PLEINE quand le mail affiché est étoilé', async () => {
+    ligneCourante = LIGNE({ etoile: { duMessage: true, ailleurs: null } });
     await monter();
-    await act(async () => {
-      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: false, filEtoile: null });
-    });
+    const e = container.querySelector('.bte-etoile svg');
+    expect(e?.getAttribute('fill')).toBe('currentColor');
+    expect(container.querySelector('.bte-etoile')?.getAttribute('title')).toBe('Ce message est étoilé.');
+  });
+
+  it('🔴🔴 ② CREUSE quand l’étoile est AILLEURS — contour, et la bulle le nomme', async () => {
+    ligneCourante = LIGNE({ etoile: { duMessage: false, ailleurs: AUTRE } });
+    await monter();
+    const e = container.querySelector('.bte-etoile');
+    expect(e).not.toBeNull();
+    /* 🔴 CONTOUR, PAS REMPLI — et la cellule reste rouge (`bte-etoile`), comme Arno l'a demandé. */
+    expect(e?.querySelector('svg')?.getAttribute('fill')).toBe('none');
+    expect(e?.getAttribute('title')).toContain('Un autre message de cette conversation est étoilé');
+    expect(e?.getAttribute('title')).toContain('Didier Caussanel');
+  });
+
+  it('🔴🔴 ③ AUCUNE quand rien n’est étoilé dans la conversation', async () => {
+    await monter();
+    expect(container.querySelector('.bte-etoile')).toBeNull();
+  });
+
+  /**
+   * ══ 🔴🔴 LE CLIC SUR UNE CREUSE — RÈGLE D'ARNO, MOT POUR MOT ═════════════════════════════════════════════════
+   * « Cas creuse + clic : le mail affiché devient étoilé, la ligne passe en pleine, et l'autre mail garde son
+   * étoile. » Et surtout : le geste part sur LE MAIL AFFICHÉ, jamais sur l'échange.
+   */
+  it('🔴🔴 cliquer une CREUSE pose l’étoile sur le mail affiché, et la ligne passe en pleine', async () => {
+    comptes = { ...COMPTES, etoileParMessage: true };
+    ligneCourante = LIGNE({ etoile: { duMessage: false, ailleurs: AUTRE } });
+    await monter();
+    /* 🔴 LE MOT DU BOUTON DIT CE QUE LE CLIC FAIT : « Mettre une étoile », et la bulle explique le rouge. */
+    const bouton = boutonBarre('Mettre une étoile — Un autre message de cette conversation est étoilé '
+      + '(Didier Caussanel, jeudi 24 septembre 2026 à 21:08).');
+    expect(bouton).not.toBeNull();
+    await cliquer(bouton);
+    /* 🔴 LA ROUTE DU MAIL AFFICHÉ (8123), jamais celle de l'échange. */
+    expect(ecritures).toHaveLength(1);
+    expect(ecritures[0].url).toContain('/messages/8123/gmail');
+    expect(ecritures[0].corps).toEqual({ action: 'etoile' });
+    /* 🔴 ET LA LIGNE PASSE EN PLEINE, l'autre mail gardant la sienne (la bulle ne le nomme plus : on a la nôtre). */
+    expect(container.querySelector('.bte-etoile svg')?.getAttribute('fill')).toBe('currentColor');
+  });
+
+  /**
+   * 🔴🔴 ET LE RETRAIT NE DÉBORDE PAS : retirer l'étoile du mail affiché d'une ligne PLEINE dont un autre mail est
+   * étoilé la fait passer en CREUSE, et non s'éteindre.
+   */
+  it('🔴🔴 retirer l’étoile du mail affiché laisse la creuse de l’autre', async () => {
+    comptes = { ...COMPTES, etoileParMessage: true };
+    etoileGmailPosee = false;
+    ligneCourante = LIGNE({ etoile: { duMessage: true, ailleurs: AUTRE } });
+    await monter();
+    await cliquer(boutonBarre('Retirer l’étoile'));
+    expect(ecritures[0].url).toContain('/messages/8123/gmail');
+    const e = container.querySelector('.bte-etoile');
+    expect(e?.querySelector('svg')?.getAttribute('fill')).toBe('none');
+    expect(e?.getAttribute('title')).toContain('Un autre message de cette conversation est étoilé');
+  });
+
+  /**
+   * 🔴 UN FIL D'UN SEUL MAIL NE CHANGE PAS DE COMPORTEMENT — c'est la grande majorité des lignes. Jamais
+   * d'« ailleurs », donc jamais de creuse : pleine ou rien, et le clic pose puis retire.
+   */
+  it('🔴 un fil d’un seul mail : pleine ou rien, sans jamais de creuse', async () => {
+    comptes = { ...COMPTES, etoileParMessage: true };
+    ligneCourante = LIGNE({ nbMessages: 1, etoile: { duMessage: false, ailleurs: null } });
+    await monter();
+    expect(container.querySelector('.bte-etoile')).toBeNull();
+    await cliquer(boutonBarre('Mettre une étoile'));
+    expect(ecritures[0].url).toContain('/messages/8123/gmail');
+    expect(container.querySelector('.bte-etoile svg')?.getAttribute('fill')).toBe('currentColor');
+  });
+
+  /**
+   * ⚠️ SANS LA MIGRATION 277, LE GESTE RESTE CELUI D'AVANT : l'étoile est alors celle de l'ÉQUIPE, posée sur
+   * l'ÉCHANGE, et c'est la seule que la liste sache relire. Rien n'est retiré.
+   */
+  it('⚠️ sans l’étoile par message, le clic garde l’ancienne porte', async () => {
+    await monter();
+    await cliquer(boutonBarre('Mettre une étoile'));
+    expect(ecritures[0].url).toContain('/fils/7/etoile');
+    expect(ecritures[0].corps).toEqual({ etoilee: true });
+  });
+
+  /**
+   * 🔴🔴 ET LA CONVERSATION, QUI CONNAÎT TOUS LES MAILS ÉTOILÉS, FAIT DISPARAÎTRE LA CREUSE. C'est la règle 4
+   * d'Arno : « l'étoile creuse disparaît dès qu'on retire l'étoile du mail concerné dans la conversation (aucun
+   * état mémorisé à part : c'est un calcul) ».
+   */
+  it('🔴🔴 la creuse disparaît quand la conversation annonce une liste vide', async () => {
+    ligneCourante = LIGNE({ etoile: { duMessage: false, ailleurs: AUTRE } });
+    await monter();
     expect(container.querySelector('.bte-etoile')).not.toBeNull();
+    await act(async () => {
+      annoncerEtoile({ filId: 7, messageId: 99, etoilee: false, etoiles: [] });
+    });
+    expect(container.querySelector('.bte-etoile')).toBeNull();
   });
 });

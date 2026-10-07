@@ -13,6 +13,8 @@ import { gesteCorbeilleMessage, gesteEtoileMessage, lireEtoilesDuFil } from './g
 import { Etoile } from './BarreLigne';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — « les trois en direct » : ligne, barre de survol, mail ouvert. */
 import { annoncerEtoile, ecouterEtoile } from '../../../../lib/gestion/signalEtoile';
+/* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — la forme d'un mail étoilé, définie une fois dans le module PUR. */
+import type { MailEtoile } from '../../../../lib/gestion/etoileLigne';
 /* 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — le message jeté quitte la conversation dans l'image du clic. */
 import { ecouterCorbeille, ouVaLeMail } from '../../../../lib/gestion/signalCorbeille';
 import { DELTA_FIL_CORBEILLE, DELTA_FIL_RESTAURE } from '../../../../lib/gestion/compteursColonne';
@@ -438,8 +440,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * ⚠️ `disponible: false` ⇒ AUCUNE GRANDE ÉTOILE AFFICHÉE (migration 277 absente, ou lecture en échec) : une
    * étoile éteinte dirait faussement « ce mail n'est pas suivi ». C'est déjà la règle de la barre de survol.
    */
-  const [etoiles, setEtoiles] = useState<{ disponible: boolean; ids: ReadonlySet<number> }>(
-    { disponible: false, ids: new Set() });
+  const [etoiles, setEtoiles] = useState<{ disponible: boolean; mails: readonly MailEtoile[] }>(
+    { disponible: false, mails: [] });
 
   /**
    * 🔴 L'ÉTOILE D'UN MAIL — **UNE SEULE DÉFINITION**, pour les deux étoiles qui l'affichent et pour le geste.
@@ -449,19 +451,42 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * sur l'état lu DANS Gmail, exactement comme avant ce lot.
    */
   const etoileDe = (messageId: number): boolean => (etoiles.disponible
-    ? etoiles.ids.has(messageId)
+    ? etoiles.mails.some((m) => m.messageId === messageId)
     : (gmail.get(messageId)?.etoile ?? false));
+
+  /**
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LA LISTE QUE CET ÉCRAN ANNONCE AUX AUTRES ══════════════════════════════
+   *
+   * La conversation est le SEUL écran qui connaisse tous les mails étoilés d'un échange. C'est donc elle qui les
+   * transporte dans le signal, pour que la LIGNE de la boîte puisse décider toute seule entre « pleine » (son
+   * mail est étoilé) et « creuse » (un autre l'est), et NOMMER cet autre mail dans sa bulle.
+   *
+   * ⚠️ ON N'ANNONCE QUE CE QU'ON SAIT VRAIMENT : sans la migration 277, `etoiles.mails` est vide parce qu'on n'a
+   * rien lu — et non parce qu'il n'y a pas d'étoile. On passe alors `null`, et les listes gardent leur état.
+   */
+  const mailsEtoiles = (ids: readonly number[]): readonly MailEtoile[] | null => {
+    if (!etoiles.disponible) return null;
+    const connus = new Map(etoiles.mails.map((m) => [m.messageId, m]));
+    const duFil = vue.v === 'ok' ? vue.messages : [];
+    return ids.flatMap((id) => {
+      const deja = connus.get(id);
+      if (deja !== undefined) return [deja];
+      /* 🔴 UN MAIL QU'ON VIENT D'ÉTOILER : il est à l'écran, donc son expéditeur et sa date sont déjà là. */
+      const m = duFil.find((x) => x.messageId === id);
+      return m === undefined ? [] : [{ messageId: id, de: m.de, deNom: m.deNom ?? null, recuLe: m.recuLe }];
+    });
+  };
 
   /** Relit le miroir de l'échange et remplace l'ensemble. Rendu séparément : l'ouverture ET la fin de la relecture Gmail s'en servent. */
   const relireEtoiles = useCallback(async (): Promise<void> => {
     const e = await lireEtoilesDuFil(filId);
-    setEtoiles({ disponible: e.disponible, ids: new Set(e.etoiles) });
+    setEtoiles({ disponible: e.disponible, mails: e.etoiles });
   }, [filId]);
 
   useEffect(() => {
     let annule = false;
     void lireEtoilesDuFil(filId).then((e) => {
-      if (!annule) setEtoiles({ disponible: e.disponible, ids: new Set(e.etoiles) });
+      if (!annule) setEtoiles({ disponible: e.disponible, mails: e.etoiles });
     });
     return () => { annule = true; };
   }, [filId]);
@@ -476,14 +501,23 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   useEffect(() => ecouterEtoile((sig) => {
     if (sig.filId !== filId) return;
     setEtoiles((e) => {
-      const ids = new Set(e.ids);
+      /** Le mail `id` de cet échange, sous la forme que le signal et la bulle attendent. `null` = il n'est pas ici. */
+      const mailDuFil = (id: number): MailEtoile | null => {
+        const deja = e.mails.find((m) => m.messageId === id);
+        if (deja !== undefined) return deja;
+        const m = (vueRef.current.v === 'ok' ? vueRef.current.messages : []).find((x) => x.messageId === id);
+        return m === undefined ? null : { messageId: id, de: m.de, deNom: m.deNom ?? null, recuLe: m.recuLe };
+      };
       /**
-       * 🔴 LE CAS NORMAL, ET IL N'A PLUS RIEN À DEVINER : le signal NOMME le mail. Un seul identifiant change,
-       * et c'est exactement celui sur lequel on a cliqué.
+       * 🔴 LE CAS NORMAL, ET IL N'A PLUS RIEN À DEVINER : le signal NOMME le mail. Un seul mail change, et c'est
+       * exactement celui sur lequel on a cliqué.
        */
       if (sig.messageId !== null) {
-        if (sig.etoilee) ids.add(sig.messageId); else ids.delete(sig.messageId);
-        return { ...e, ids };
+        const id = sig.messageId;
+        if (!sig.etoilee) return { ...e, mails: e.mails.filter((m) => m.messageId !== id) };
+        const ajout = mailDuFil(id);
+        return ajout === null || e.mails.some((m) => m.messageId === id)
+          ? e : { ...e, mails: [...e.mails, ajout] };
       }
       /**
        * ⚠️ `messageId: null` = LE GESTE A PORTÉ SUR L'ÉCHANGE (la ligne de la boîte, ou sa barre de survol, où une
@@ -493,10 +527,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
        *   · L'ALLUMER n'allume que SON DERNIER mail — celui que la route vise, trié comme elle
        *     (`recu_le DESC, id DESC`). Allumer tous les mails serait faux dès le second.
        */
-      if (!sig.etoilee) return { ...e, ids: new Set<number>() };
+      if (!sig.etoilee) return { ...e, mails: [] };
       const dernier = dernierMessage.current;
-      if (dernier !== null) ids.add(dernier);
-      return { ...e, ids };
+      const ajout = dernier === null ? null : mailDuFil(dernier);
+      return ajout === null || e.mails.some((m) => m.messageId === ajout.messageId)
+        ? e : { ...e, mails: [...e.mails, ajout] };
     });
   }), [filId]);
 
@@ -506,6 +541,13 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * premier rendu, et l'étoile se poserait sur le message d'alors.
    */
   const dernierMessage = useRef<number | null>(null);
+  /**
+   * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LES MESSAGES DU FIL, LISIBLES DEPUIS L'ÉCOUTE. Même raison que le repère
+   * ci-dessus : l'écoute ne dépend que de `filId`, et y lire `vue` directement en figerait la valeur du premier
+   * rendu — on chercherait alors l'expéditeur d'un mail dans une conversation d'il y a cinq minutes.
+   */
+  const vueRef = useRef(vue);
+  useEffect(() => { vueRef.current = vue; }, [vue]);
   useEffect(() => {
     const ms = vue.v === 'ok' ? [...vue.messages] : [];
     ms.sort((a, b) => (a.recuLe === b.recuLe ? a.messageId - b.messageId : (a.recuLe < b.recuLe ? -1 : 1)));
@@ -1374,12 +1416,19 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const basculerEtoile = async (m: MessageDeFil) => {
     const vise = !etoileDe(m.messageId);
+    const avant = etoiles.mails.map((x) => x.messageId);
+    /**
+     * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ON ANNONCE LA LISTE, AVANT ET APRÈS. La LIGNE de la boîte en tire SA
+     * réponse : pleine si c'est SON mail qui est étoilé, creuse si c'en est un autre, et de quoi le nommer.
+     * Cet écran-ci n'a pas à savoir quel mail telle liste affiche — il dit ce qui EST.
+     */
+    const apres = vise ? [...avant, m.messageId] : avant.filter((id) => id !== m.messageId);
     const r = await gesteEtoileMessage({
       filId,
       messageId: m.messageId,
       etoilee: vise,
-      filAvant: etoiles.ids.size > 0,
-      filApres: vise || [...etoiles.ids].some((id) => id !== m.messageId),
+      etoilesAvant: mailsEtoiles(avant),
+      etoilesApres: mailsEtoiles(apres),
     });
     if (!r.ok) onGeste(r.message);
   };

@@ -57,6 +57,14 @@ const message = (id: number, recuLe: string, o: Record<string, unknown> = {}) =>
   destA: null, destCc: null, destinatairesFondus: null, aHtml: false, html: null,
   aLaCorbeille: false, ...o,
 });
+/**
+ * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LA ROUTE REND DES **MAILS**, pas des identifiants : la LIGNE de la boîte doit
+ * pouvoir nommer l'autre mail étoilé dans sa bulle (« …, Gestion CRITERIMMO, 6 octobre 2026 à 16:31 »).
+ */
+const mailEtoile = (id: number) => {
+  const m = messagesServis.find((x) => x.messageId === id);
+  return { messageId: id, de: 'gestion@criterimmo.fr', deNom: 'Gestion CRITERIMMO', recuLe: String(m?.recuLe ?? '') };
+};
 const FIL = () => ({
   fil: { filId: 36764, objet: 'Facture Huissier', etat: 'a_classer', reference: null, evenementId: null },
   messages: messagesServis,
@@ -69,7 +77,7 @@ const REDACTION = {
 let container: HTMLDivElement;
 let root: Root;
 let appels: { url: string; methode: string; corps: unknown }[];
-let etoileServie: { disponible: boolean; etoiles: number[] };
+let etoileServie: { disponible: boolean; etoiles: { messageId: number }[] };
 let messagesServis: Record<string, unknown>[];
 /** L'état Gmail de chaque mail, tel que la vraie boîte le rendrait. La route le BASCULE, comme Gmail. */
 let etoilesGmail: Map<number, boolean>;
@@ -90,7 +98,7 @@ const servir = (): void => {
         /* 🔴 LE MIROIR SUIT GMAIL, comme le fait le serveur : l'échange rendra désormais ce mail-là. */
         etoileServie = {
           disponible: etoileServie.disponible,
-          etoiles: [...etoilesGmail].filter(([, e]) => e).map(([i]) => i),
+          etoiles: [...etoilesGmail].filter(([, e]) => e).map(([i]) => mailEtoile(i)),
         };
         return { ok: true, json: async () => ({ ok: true, etat: { etoile: vise, nonLu: false } }) } as Response;
       }
@@ -176,7 +184,7 @@ describe('🔴🔴 ① l’étoile du bloc d’en-tête dit l’état DE SON MAI
    * l'état de l'ÉCHANGE : étoiler n'importe lequel les allumait toutes les trois.
    */
   it('🔴🔴 un seul mail étoilé n’allume que SON étoile', async () => {
-    etoileServie = { disponible: true, etoiles: [M2] };
+    etoileServie = { disponible: true, etoiles: [mailEtoile(M2)] };
     await monter();
     await deplierTout();
     expect(pleine(M2)).toBe(true);
@@ -194,7 +202,7 @@ describe('🔴🔴 ① l’étoile du bloc d’en-tête dit l’état DE SON MAI
 
   /** 🔴 ALLUMÉE : ROUGE PLEINE, et « Retirer l'étoile ». Le MOT change, jamais la seule couleur. */
   it('🔴 allumée : pleine, et « Retirer l’étoile »', async () => {
-    etoileServie = { disponible: true, etoiles: [M1] };
+    etoileServie = { disponible: true, etoiles: [mailEtoile(M1)] };
     await monter();
     await deplierTout();
     expect(pleine(M1)).toBe(true);
@@ -274,7 +282,7 @@ describe('🔴🔴 ③ LE CAS D’ARNO : 3 mails, étoile sur le 2ᵉ', () => {
    */
   it('🔴 retirer l’étoile du 2ᵉ laisse celle du 1ᵉʳ en place', async () => {
     etoilesGmail = new Map([[M1, true], [M2, true]]);
-    etoileServie = { disponible: true, etoiles: [M1, M2] };
+    etoileServie = { disponible: true, etoiles: [mailEtoile(M1), mailEtoile(M2)] };
     await monter();
     await deplierTout();
     await cliquer(grandeEtoile(M2));
@@ -311,8 +319,9 @@ describe('🔴🔴 ④ le signal NOMME le mail, dans les deux sens', () => {
    * 🔴 DEUX ANNONCES PAR GESTE (lot INSTANTANE-ETOILE-CORBEILLE) : l'état VOULU avant l'écriture — toutes les
    * étoiles de ce mail basculent dans la même image —, puis l'état CONFIRMÉ par Gmail au retour.
    *
-   * 🔴 ET `filEtoile` RÉPOND À LA LIGNE DE LA BOÎTE, dont la règle NE CHANGE PAS : elle s'allume dès qu'au moins
-   * un mail de l'échange est étoilé. Poser ⇒ `true` à coup sûr.
+   * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ET `etoiles` PORTE LA CONVERSATION ENTIÈRE. C'est de cette liste que la
+   * LIGNE de la boîte tire ses trois états : pleine si le mail qu'elle affiche y figure, creuse si c'en est un
+   * autre (qu'elle peut alors NOMMER), aucune si elle est vide.
    */
   it('🔴🔴 cliquer annonce le mail visé, l’état voulu puis le confirmé', async () => {
     const vus: unknown[] = [];
@@ -321,39 +330,40 @@ describe('🔴🔴 ④ le signal NOMME le mail, dans les deux sens', () => {
     await deplierTout();
     await cliquer(grandeEtoile(M1));
     stop();
-    expect(vus).toEqual([
-      { filId: 36764, messageId: M1, etoilee: true, filEtoile: true },
-      { filId: 36764, messageId: M1, etoilee: true, filEtoile: true },
-    ]);
+    const attendu = {
+      filId: 36764, messageId: M1, etoilee: true, etoiles: [mailEtoile(M1)],
+    };
+    expect(vus).toEqual([attendu, attendu]);
   });
 
   /**
-   * 🔴🔴 RETIRER L'ÉTOILE D'UN MAIL PARMI PLUSIEURS N'ÉTEINT PAS LA LIGNE. C'est la conversation qui le tranche —
-   * elle seule connaît l'étoile de chacun de ses mails — et elle le dit dans `filEtoile`.
+   * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ELLE ANNONCE **LA LISTE** DES MAILS ÉTOILÉS, et c'est ce qui permet à une
+   * ligne de la boîte de décider entre « pleine » (son mail est étoilé) et « creuse » (un autre l'est). La
+   * conversation est le seul écran qui connaisse cette liste.
    */
-  it('🔴🔴 retirer une étoile parmi deux annonce « l’échange reste étoilé »', async () => {
+  it('🔴🔴 retirer une étoile parmi deux annonce la liste qui reste', async () => {
     etoilesGmail = new Map([[M1, true], [M2, true]]);
-    etoileServie = { disponible: true, etoiles: [M1, M2] };
-    const vus: { filEtoile: boolean | null }[] = [];
+    etoileServie = { disponible: true, etoiles: [mailEtoile(M1), mailEtoile(M2)] };
+    const vus: { etoiles: readonly { messageId: number }[] | null }[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
     await monter();
     await deplierTout();
     await cliquer(grandeEtoile(M2));
     stop();
-    expect(vus[0]).toEqual({ filId: 36764, messageId: M2, etoilee: false, filEtoile: true });
+    expect(vus[0].etoiles?.map((m) => m.messageId)).toEqual([M1]);
   });
 
-  /** 🔴 ET LA DERNIÈRE ÉTOILE RETIRÉE, ELLE, ÉTEINT BIEN LA LIGNE. */
-  it('🔴 retirer la seule étoile de l’échange annonce « plus étoilé »', async () => {
+  /** 🔴 ET LA DERNIÈRE ÉTOILE RETIRÉE LAISSE UNE LISTE VIDE — la ligne s'éteindra, sans l'avoir deviné. */
+  it('🔴 retirer la seule étoile de l’échange annonce une liste vide', async () => {
     etoilesGmail = new Map([[M2, true]]);
-    etoileServie = { disponible: true, etoiles: [M2] };
-    const vus: { filEtoile: boolean | null }[] = [];
+    etoileServie = { disponible: true, etoiles: [mailEtoile(M2)] };
+    const vus: { etoiles: readonly { messageId: number }[] | null }[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
     await monter();
     await deplierTout();
     await cliquer(grandeEtoile(M2));
     stop();
-    expect(vus[0]).toEqual({ filId: 36764, messageId: M2, etoilee: false, filEtoile: false });
+    expect(vus[0].etoiles).toEqual([]);
   });
 
   /** 🔴🔴 LE SENS INVERSE : un signal venu d'ailleurs allume l'étoile DU MAIL QU'IL NOMME, et d'aucun autre. */
@@ -361,7 +371,7 @@ describe('🔴🔴 ④ le signal NOMME le mail, dans les deux sens', () => {
     await monter();
     await deplierTout();
     await act(async () => {
-      annoncerEtoile({ filId: 36764, messageId: M1, etoilee: true, filEtoile: true });
+      annoncerEtoile({ filId: 36764, messageId: M1, etoilee: true, etoiles: null });
     });
     await calmer();
     expect(pleine(M1)).toBe(true);
@@ -369,7 +379,7 @@ describe('🔴🔴 ④ le signal NOMME le mail, dans les deux sens', () => {
     expect(pleine(M3)).toBe(false);
     /* ⚠️ ET DANS L'AUTRE SENS AUSSI. */
     await act(async () => {
-      annoncerEtoile({ filId: 36764, messageId: M1, etoilee: false, filEtoile: false });
+      annoncerEtoile({ filId: 36764, messageId: M1, etoilee: false, etoiles: null });
     });
     await calmer();
     expect(pleine(M1)).toBe(false);
@@ -384,14 +394,14 @@ describe('🔴🔴 ④ le signal NOMME le mail, dans les deux sens', () => {
     await monter();
     await deplierTout();
     await act(async () => {
-      annoncerEtoile({ filId: 36764, messageId: null, etoilee: true, filEtoile: true });
+      annoncerEtoile({ filId: 36764, messageId: null, etoilee: true, etoiles: null });
     });
     await calmer();
     expect(pleine(M3), 'le plus récent, celui que la route de l’échange vise').toBe(true);
     expect(pleine(M1)).toBe(false);
     expect(pleine(M2)).toBe(false);
     await act(async () => {
-      annoncerEtoile({ filId: 36764, messageId: null, etoilee: false, filEtoile: false });
+      annoncerEtoile({ filId: 36764, messageId: null, etoilee: false, etoiles: null });
     });
     await calmer();
     expect(pleine(M3)).toBe(false);
@@ -405,7 +415,7 @@ describe('🔴🔴 ④ le signal NOMME le mail, dans les deux sens', () => {
     await monter();
     await deplierTout();
     await act(async () => {
-      annoncerEtoile({ filId: 99999, messageId: M1, etoilee: true, filEtoile: true });
+      annoncerEtoile({ filId: 99999, messageId: M1, etoilee: true, etoiles: null });
     });
     await calmer();
     expect(pleine(M1)).toBe(false);
@@ -442,13 +452,13 @@ describe('🔴 ⑥ la porte, et ce qu’elle lit', () => {
       /* ⚠️ Gmail rend `false` alors qu'on demandait `true` : quelqu'un a décroché l'étoile entre-temps. */
       { ok: true, json: async () => ({ ok: true, etat: { etoile: false, nonLu: false } }) } as unknown as Response)
     ) as unknown as typeof fetch;
-    const r = await gesteEtoileMessage({ filId: 7, messageId: 51, etoilee: true, filAvant: false, filApres: true });
+    const r = await gesteEtoileMessage({ filId: 7, messageId: 51, etoilee: true, etoilesAvant: null, etoilesApres: null });
     stop();
     expect(r.etoilee).toBe(false);
     /* 🔴 ET L'ÉCHANGE REVIENT À SON ÉTAT D'AVANT : l'étoile n'a finalement pas été posée. */
     expect(vus).toEqual([
-      { filId: 7, messageId: 51, etoilee: true, filEtoile: true },
-      { filId: 7, messageId: 51, etoilee: false, filEtoile: false },
+      { filId: 7, messageId: 51, etoilee: true, etoiles: null },
+      { filId: 7, messageId: 51, etoilee: false, etoiles: null },
     ]);
   });
 
@@ -459,14 +469,14 @@ describe('🔴 ⑥ la porte, et ce qu’elle lit', () => {
     global.fetch = vi.fn(async () => (
       { ok: false, json: async () => ({ erreur: 'refus' }) } as unknown as Response)
     ) as unknown as typeof fetch;
-    const r = await gesteEtoileMessage({ filId: 7, messageId: 51, etoilee: false, filAvant: true, filApres: false });
+    const r = await gesteEtoileMessage({ filId: 7, messageId: 51, etoilee: false, etoilesAvant: null, etoilesApres: null });
     stop();
     expect(r.ok).toBe(false);
     expect(r.etoilee).toBeNull();
     expect(r.message).toBe('refus');
     expect(vus).toEqual([
-      { filId: 7, messageId: 51, etoilee: false, filEtoile: false },
-      { filId: 7, messageId: 51, etoilee: true, filEtoile: true },
+      { filId: 7, messageId: 51, etoilee: false, etoiles: null },
+      { filId: 7, messageId: 51, etoilee: true, etoiles: null },
     ]);
   });
 
@@ -476,12 +486,26 @@ describe('🔴 ⑥ la porte, et ce qu’elle lit', () => {
     expect(await lireEtoilesDuFil(7)).toEqual({ disponible: false, etoiles: [] });
   });
 
-  /** ⚠️ ET UNE LISTE ABÎMÉE NE PEUPLE PAS L'ÉTAT DE VALEURS QUI N'EN SONT PAS. */
+  /**
+   * ⚠️ ET UNE LISTE ABÎMÉE NE PEUPLE PAS L'ÉTAT DE VALEURS QUI N'EN SONT PAS. Depuis le lot
+   * ETOILE-LIGNE-DEUX-ETATS, la route rend des MAILS : un mail sans expéditeur ni date irait s'afficher dans la
+   * bulle d'une ligne creuse (« Un autre message est étoilé (undefined, —) »).
+   */
   it('⚠️ une liste de mails abîmée est filtrée, pas recopiée', async () => {
+    const bon = { messageId: 51, de: 'a@b.fr', deNom: 'Houda', recuLe: '2026-10-06T15:26:00Z' };
+    const sansNom = { messageId: 52, de: 'c@d.fr', recuLe: '2026-10-05T10:00:00Z' };
     global.fetch = vi.fn(async () => ({
-      ok: true, json: async () => ({ disponible: true, etoiles: [51, 'x', null, 52.5, 52] }),
+      ok: true,
+      json: async () => ({
+        disponible: true,
+        etoiles: [bon, 51, null, { messageId: 53 }, { messageId: 1.5, de: 'x', recuLe: 'z' }, sansNom],
+      }),
     } as unknown as Response)) as unknown as typeof fetch;
-    expect(await lireEtoilesDuFil(7)).toEqual({ disponible: true, etoiles: [51, 52] });
+    expect(await lireEtoilesDuFil(7)).toEqual({
+      disponible: true,
+      /* ⚠️ `deNom` ABSENT DEVIENT `null`, et non `undefined` : la bulle retombe alors sur l'adresse. */
+      etoiles: [bon, { ...sansNom, deNom: null }],
+    });
   });
 
   /**

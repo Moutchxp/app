@@ -51,7 +51,11 @@ import { etoilesDesFils } from './etoileRepo';
  * importée juste au-dessus : sans la migration 277, c'est encore elle qui répond, et la liste se comporte
  * exactement comme avant ce lot. Les deux ne sont JAMAIS lues ensemble — une ligne ne porte qu'une étoile.
  */
-import { filsEtoiles } from './etoileGmailRepo';
+import { mailsEtoilesDesFils } from './etoileGmailRepo';
+/* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — la règle des trois états est écrite UNE fois, dans ce module PUR. */
+import {
+  ETOILE_LIGNE_VIDE, etoileDeLaLigne, type EtatEtoileLigne, type MailEtoile,
+} from './etoileLigne';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'échange : jointure et colonne, écrites UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 /**
@@ -154,10 +158,25 @@ export interface LigneBoite {
   /** Les pièces de la conversation qui ne sont PAS sur le message affiché. Mêmes exclusions. */
   piecesAilleurs: number;
   /**
-   * LOT LISTE-GMAIL — l'échange porte-t-il l'étoile de l'ÉQUIPE ? (Pas celle de Gmail : voir `etoileRepo`.)
-   * Toujours `false` sans la migration 264 — on ne prétend pas savoir ce qu'on n'a pas lu.
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — L'ÉTOILE DE CETTE LIGNE, EN DEUX INFORMATIONS ══════════════════════════
+   *
+   * CE QUI ÉTAIT ÉCRIT ICI : `etoilee: boolean`, « l'échange porte-t-il une étoile ? ». CONSTAT D'ARNO (fil 383,
+   * « Fenêtre cassée ») : la ligne affichait une étoile pleine, et le mail qu'elle montre n'en avait aucune —
+   * l'étoile était sur un autre mail du même échange. Un seul booléen ne pouvait pas dire la différence.
+   *
+   * 🔴 DEUX INFORMATIONS, ET LE DESSIN SE DÉDUIT : `duMessage` (le mail AFFICHÉ par la ligne est-il étoilé ⇒
+   * PLEINE) et `ailleurs` (quel autre mail de la conversation l'est ⇒ CREUSE, et de quoi le NOMMER dans la bulle).
+   * La règle est écrite une seule fois, dans le module PUR `etoileLigne` — que l'écran relit après chaque clic
+   * pour afficher exactement ce que le serveur lui aurait rendu.
+   *
+   * ⚠️ LA RÈGLE DU FILTRE NE CHANGE PAS (`sqlEtoile`) : « au moins un mail de l'échange est étoilé ». Un filtre qui
+   * n'aurait regardé que le mail affiché raterait l'étoile posée ailleurs — c'est la règle de Gmail, et c'est la
+   * moitié du défaut qu'on avait corrigée au lot ETOILE-ET-SIGNATURE. Ce lot-ci ne touche QUE l'affichage.
+   *
+   * ⚠️ SANS LA MIGRATION 277, on ne dispose que du booléen d'échange (`gestion_fil_etoile`) : la ligne est alors
+   * PLEINE ou rien, exactement comme avant ce lot. On n'invente jamais une « creuse » qu'on n'a pas lue.
    */
-  etoilee: boolean;
+  etoile: EtatEtoileLigne;
   /**
    * LOT CAPSULE-STATUT — où en est le RATTACHEMENT de cet échange. `null` = migration 257 absente : aucune capsule
    * n'est rendue, plutôt qu'une capsule rouge qui accuserait à tort.
@@ -1320,14 +1339,38 @@ export async function lireBoiteMail(
    */
   const premierePage = curseur === null;
   const montrerEchecs = etiquette.sorte === 'envoyes' && premierePage;
-  const [avis, etoiles, echecsDesFils, echecsOrphelins, piecesDesFils, brouillons] = await Promise.all([
+  const [avis, mailsEtoiles, filsEtoilesAnciens, echecsDesFils, echecsOrphelins, piecesDesFils,
+    brouillons] = await Promise.all([
     nonRemisesDesFils(filsDeLaPage),
-    etoileGmail ? filsEtoiles(filsDeLaPage) : etoilesDesFils(filsDeLaPage),
+    /**
+     * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ON LIT LES MAILS ÉTOILÉS, PLUS SEULEMENT LES ÉCHANGES ════════════════
+     *
+     * `mailsEtoilesDesFils` rend, pour chaque échange de la page, QUELS mails portent l'étoile (avec expéditeur et
+     * date, pour la bulle). Une requête pour toute la page, comme `piecesVraiesDesFils`.
+     *
+     * ⚠️ SANS LA MIGRATION 277 elle rend une carte vide, et c'est `etoilesDesFils` — le booléen d'ÉCHANGE de la
+     * table d'équipe — qui répond : la ligne est alors PLEINE ou rien, exactement comme avant ce lot.
+     */
+    etoileGmail ? mailsEtoilesDesFils(filsDeLaPage) : new Map<number, MailEtoile[]>(),
+    etoileGmail ? new Set<number>() : etoilesDesFils(filsDeLaPage),
     nonEnvoyesDesFils(filsDeLaPage),
     montrerEchecs ? nonEnvoyesAMontrer() : Promise.resolve([] as MentionNonEnvoye[]),
     piecesVraiesDesFils(filsDeLaPage),
     filsAvecBrouillonEnAttente(filsDeLaPage),
   ]);
+
+  /**
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — L'ÉTOILE D'UNE LIGNE, CALCULÉE PAR LE MODULE PUR ═══════════════════════
+   *
+   * 🔴 LE CALCUL N'EST PAS ÉCRIT ICI, ET C'EST LE POINT : `etoileDeLaLigne` est la MÊME fonction que l'écran
+   * rappelle après chaque clic (`BoiteMail`). Une seconde écriture — en SQL, ou dans l'écran — aurait fini par
+   * dessiner une étoile ici et une autre là, ce qui est exactement le défaut qu'Arno a constaté.
+   *
+   * ⚠️ SANS LA MIGRATION 277 : on n'a qu'un booléen d'échange, donc PLEINE ou rien. Pas de « creuse » inventée.
+   */
+  const etoileDe = (filId: number, messageAffiche: number): EtatEtoileLigne => (etoileGmail
+    ? etoileDeLaLigne(mailsEtoiles.get(filId) ?? [], messageAffiche)
+    : (filsEtoilesAnciens.has(filId) ? { duMessage: true, ailleurs: null } : ETOILE_LIGNE_VIDE));
 
   const lignes: LigneBoite[] = gardees.map((r) => ({
       // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans cette conversion, l'écran comparerait des chaînes à des nombres et
@@ -1364,7 +1407,7 @@ export async function lireBoiteMail(
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
       // 🔴 LA CAPSULE « Non envoyé », sur la ligne de l'échange concerné. `null` = rien à signaler.
       nonEnvoye: echecsDesFils.get(Number(r.fil_id)) ?? null,
-      etoilee: etoiles.has(Number(r.fil_id)),
+      etoile: etoileDe(Number(r.fil_id), Number(r.message_id)),
       classement: r.cl_n === null && r.cl_humain === null && r.cl_detail === null
         ? null
         : { nbActifs: r.cl_n ?? 0, parUnHumain: r.cl_humain === true, detail: r.cl_detail },
@@ -1431,7 +1474,8 @@ export async function lireBoiteMail(
       sansSuite: false,
       nonRemise: null,
       nonEnvoye: e,
-      etoilee: false,
+      /* ⚠️ UNE LIGNE FABRIQUÉE N'A PAS D'ÉCHANGE : ni mail affiché, ni mail ailleurs — donc aucune étoile. */
+      etoile: ETOILE_LIGNE_VIDE,
       classement: null,
       horsGestion: false,
       motifHorsGestion: null,

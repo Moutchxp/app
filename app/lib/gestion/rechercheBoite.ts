@@ -34,7 +34,11 @@ import { sqlEstVraiePiece } from './lisibilite';
 import { sqlCleIdentitePiece } from './piecesConversation';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — la recherche trouve la pièce par ses DEUX noms (usage et origine).
 import { nomsCherchablesAvec, sqlNomAffiche } from './nomUsageSql';
-import { nomUsageDisponible, pieceIntegreeDisponible } from './schema';
+import { etoileGmailDisponible, nomUsageDisponible, pieceIntegreeDisponible } from './schema';
+/* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — la règle des trois états, écrite une seule fois (module PUR). */
+import {
+  ETOILE_LIGNE_VIDE, etoileDeLaLigne, type MailEtoile,
+} from './etoileLigne';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 import {
@@ -532,9 +536,25 @@ export async function chercherDansLeCourrier(
    * pour toute la page, et surtout la MÊME règle — c'est `trierPieces` qui dit ce qu'est une vraie pièce, pas un
    * `count(*)` qui compterait les logos de signature. Sans elle, le trombone d'un résultat ne pouvait rien dire.
    */
-  const [avis, etoiles, piecesDesFils, brouillons] = await Promise.all([
+  /**
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LA RECHERCHE EST UNE LISTE DE LIGNES, DONC LA MÊME ÉTOILE ═════════════
+   *
+   * RÈGLE D'ARNO : les trois états valent pour « la boîte de réception ET toutes les listes qui affichent une
+   * ligne par conversation ». Un résultat de recherche en est une.
+   *
+   * 🔴 ET ELLE LIT MAINTENANT LA MÊME CHOSE QUE LA LISTE. Elle interrogeait `etoilesDesFils` — la table d'ÉQUIPE
+   * (migration 264), que plus rien n'alimente depuis le lot ETOILE-ET-SIGNATURE : un résultat n'affichait donc
+   * jamais d'étoile là où la ligne de la boîte en montrait une. Même dépôt, même calcul, même repli qu'ailleurs.
+   */
+  const etoileParMail = await etoileGmailDisponible();
+  const [avis, mailsEtoiles, filsEtoilesAnciens, piecesDesFils, brouillons] = await Promise.all([
     nonRemisesDesFils(filsDeLaPage),
-    (await import('./etoileRepo')).etoilesDesFils(filsDeLaPage),
+    etoileParMail
+      ? (await import('./etoileGmailRepo')).mailsEtoilesDesFils(filsDeLaPage)
+      : new Map<number, MailEtoile[]>(),
+    etoileParMail
+      ? new Set<number>()
+      : (await import('./etoileRepo')).etoilesDesFils(filsDeLaPage),
     piecesVraiesDesFils(filsDeLaPage),
     /* 🔴 LOT BROUILLON-REPONSE-ET-REPERE — le picto vaut AUSSI dans les résultats de recherche : une réponse
        commencée ne doit pas disparaître parce qu'on est arrivé à la ligne par la recherche. */
@@ -588,7 +608,15 @@ export async function chercherDansLeCourrier(
       reference: r.reference,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
-      etoilee: etoiles.has(Number(r.fil_id)),
+      /**
+       * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — le MÊME calcul que la liste, par le MÊME module pur. Sans la migration
+       * 277 on n'a que le booléen d'échange : PLEINE ou rien, jamais une « creuse » inventée.
+       */
+      etoile: etoileParMail
+        ? etoileDeLaLigne(mailsEtoiles.get(Number(r.fil_id)) ?? [], Number(r.message_id))
+        : (filsEtoilesAnciens.has(Number(r.fil_id))
+          ? { duMessage: true, ailleurs: null }
+          : ETOILE_LIGNE_VIDE),
       /**
        * ══ 🔴🔴 RÉÉCRIT (lot RECHERCHE-LIGNES, 30/09/2026) ═══════════════════════════════════════════════════════
        *

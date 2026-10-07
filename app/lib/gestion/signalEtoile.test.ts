@@ -18,17 +18,17 @@ import { annoncerEtoile, ecouterEtoile } from './signalEtoile';
  *
  * 🔴 DEUX CHAMPS DE PLUS, ET CHACUN RÉPOND À UNE QUESTION DIFFÉRENTE :
  *   · `messageId` — QUEL MAIL (ou `null` : le geste a porté sur l'échange entier, depuis une ligne de la boîte) ;
- *   · `filEtoile` — L'ÉCHANGE EST-IL ENCORE ÉTOILÉ (la règle de la LIGNE : « au moins un mail »), ou `null` quand
- *     l'émetteur l'ignore.
+ *   · `etoiles` — LA LISTE DES MAILS ÉTOILÉS de l'échange après ce geste (lot ETOILE-LIGNE-DEUX-ETATS : la LIGNE
+ *     en tire ses trois états), ou `null` quand l'émetteur ne connaît pas toute la conversation.
  */
 
 describe('🔴🔴 le signal de l’étoile', () => {
-  it('🔴 un auditeur abonné reçoit le MAIL, l’état, ET l’état de l’échange', () => {
+  it('🔴 un auditeur abonné reçoit le MAIL, son état, ET ce qu’on sait de l’échange', () => {
     const vus: unknown[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
-    annoncerEtoile({ filId: 7, messageId: 51, etoilee: true, filEtoile: true });
+    annoncerEtoile({ filId: 7, messageId: 51, etoilee: true, etoiles: null });
     stop();
-    expect(vus).toEqual([{ filId: 7, messageId: 51, etoilee: true, filEtoile: true }]);
+    expect(vus).toEqual([{ filId: 7, messageId: 51, etoilee: true, etoiles: null }]);
   });
 
   /** 🔴 LE DÉSABONNEMENT EST RÉEL : un écran démonté ne doit plus jamais être appelé. */
@@ -36,7 +36,7 @@ describe('🔴🔴 le signal de l’étoile', () => {
     const vus: unknown[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
     stop();
-    annoncerEtoile({ filId: 7, messageId: 51, etoilee: true, filEtoile: true });
+    annoncerEtoile({ filId: 7, messageId: 51, etoilee: true, etoiles: null });
     expect(vus).toEqual([]);
   });
 
@@ -48,7 +48,7 @@ describe('🔴🔴 le signal de l’étoile', () => {
     const vu = vi.fn();
     const a = ecouterEtoile(vu);
     const b = ecouterEtoile(vu);
-    annoncerEtoile({ filId: 7, messageId: 51, etoilee: false, filEtoile: false });
+    annoncerEtoile({ filId: 7, messageId: 51, etoilee: false, etoiles: null });
     a(); b();
     expect(vu).toHaveBeenCalledTimes(1);
   });
@@ -61,7 +61,7 @@ describe('🔴🔴 le signal de l’étoile', () => {
     const vus: number[] = [];
     const a = ecouterEtoile(() => { throw new Error('écran en faute'); });
     const b = ecouterEtoile((s) => vus.push(s.filId));
-    expect(() => annoncerEtoile({ filId: 12, messageId: 51, etoilee: true, filEtoile: true })).not.toThrow();
+    expect(() => annoncerEtoile({ filId: 12, messageId: 51, etoilee: true, etoiles: null })).not.toThrow();
     a(); b();
     expect(vus).toEqual([12]);
   });
@@ -72,13 +72,13 @@ describe('🔴🔴 le signal de l’étoile', () => {
     let stopA: (() => void) | null = null;
     stopA = ecouterEtoile(() => { stopA?.(); });
     const stopB = ecouterEtoile((s) => vus.push(s.filId));
-    expect(() => annoncerEtoile({ filId: 5, messageId: 51, etoilee: true, filEtoile: true })).not.toThrow();
+    expect(() => annoncerEtoile({ filId: 5, messageId: 51, etoilee: true, etoiles: null })).not.toThrow();
     stopB();
     expect(vus).toEqual([5]);
   });
 
   it('⚠️ sans aucun auditeur, annoncer ne fait rien et ne jette pas', () => {
-    expect(() => annoncerEtoile({ filId: 1, messageId: 51, etoilee: true, filEtoile: true })).not.toThrow();
+    expect(() => annoncerEtoile({ filId: 1, messageId: 51, etoilee: true, etoiles: null })).not.toThrow();
   });
 
   /**
@@ -91,26 +91,43 @@ describe('🔴🔴 le signal de l’étoile', () => {
     const vus: unknown[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
     /* Retirer l'étoile d'un mail parmi plusieurs : le MAIL s'éteint, l'ÉCHANGE reste allumé. */
-    annoncerEtoile({ filId: 36764, messageId: 57625, etoilee: false, filEtoile: true });
+    annoncerEtoile({ filId: 36764, messageId: 57625, etoilee: false, etoiles: null });
     stop();
-    expect(vus).toEqual([{ filId: 36764, messageId: 57625, etoilee: false, filEtoile: true }]);
+    expect(vus).toEqual([{ filId: 36764, messageId: 57625, etoilee: false, etoiles: null }]);
   });
 
   /** ⚠️ ET UN GESTE SUR L'ÉCHANGE ENTIER SE DIT `messageId: null` — la ligne de la boîte et sa barre de survol. */
   it('⚠️ un geste sur l’échange entier passe sans identifiant de mail', () => {
     const vus: unknown[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
-    annoncerEtoile({ filId: 36764, messageId: null, etoilee: true, filEtoile: true });
+    annoncerEtoile({ filId: 36764, messageId: null, etoilee: true, etoiles: null });
     stop();
-    expect(vus).toEqual([{ filId: 36764, messageId: null, etoilee: true, filEtoile: true }]);
+    expect(vus).toEqual([{ filId: 36764, messageId: null, etoilee: true, etoiles: null }]);
   });
 
-  /** ⚠️ `filEtoile: null` VOYAGE AUSSI : « je ne sais pas » est une information, pas une absence à remplacer. */
-  it('⚠️ « je ne sais pas » sur l’échange arrive intact', () => {
-    const vus: { filEtoile: boolean | null }[] = [];
+  /**
+   * ⚠️ `etoiles: null` VOYAGE AUSSI : « je ne connais pas toute la conversation » est une information, pas une
+   * absence à remplacer. C'est le cas d'un clic parti d'une LIGNE, qui ne connaît que le mail qu'elle montre.
+   */
+  it('⚠️ « je ne connais pas toute la conversation » arrive intact', () => {
+    const vus: { etoiles: readonly unknown[] | null }[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
-    annoncerEtoile({ filId: 7, messageId: 51, etoilee: false, filEtoile: null });
+    annoncerEtoile({ filId: 7, messageId: 51, etoilee: false, etoiles: null });
     stop();
-    expect(vus[0].filEtoile).toBeNull();
+    expect(vus[0].etoiles).toBeNull();
+  });
+
+  /**
+   * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ET LA LISTE DES MAILS ÉTOILÉS VOYAGE TELLE QUELLE. C'est elle qui permet à
+   * une LIGNE de décider entre « pleine » (son mail est étoilé) et « creuse » (un autre l'est), et de NOMMER cet
+   * autre mail. Le registre ne la transforme pas : il la transporte.
+   */
+  it('🔴🔴 la liste des mails étoilés arrive intacte', () => {
+    const vus: unknown[] = [];
+    const stop = ecouterEtoile((s) => vus.push(s));
+    const mails = [{ messageId: 51, de: 'a@b.fr', deNom: 'Houda', recuLe: '2026-10-06T15:26:00Z' }];
+    annoncerEtoile({ filId: 383, messageId: 51, etoilee: true, etoiles: mails });
+    stop();
+    expect(vus).toEqual([{ filId: 383, messageId: 51, etoilee: true, etoiles: mails }]);
   });
 });

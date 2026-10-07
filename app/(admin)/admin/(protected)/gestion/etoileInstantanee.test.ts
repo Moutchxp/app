@@ -53,11 +53,15 @@ let stop: (() => void) | null = null;
  * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — CE QU'UN GESTE D'ÉCHANGE ANNONCE ══════════════════════════════════════════════
  *
  * `messageId: null` dit « le geste porte sur l'ÉCHANGE » (la ligne de la boîte, sa barre de survol), et
- * `filEtoile` vaut alors exactement `etoilee` : poser l'étoile d'un échange en fait un échange étoilé, la retirer
- * la retire de TOUS ses messages. Aucun doute à transmettre — voir `gesteEtoileFil`.
+ * `etoiles: null` dit « je ne connais pas les mails de cette conversation » : cette porte-là raisonne par échange,
+ * elle n'a jamais lu les mails un par un. Les listes gardent donc ce qu'elles montrent, et la relecture suivante
+ * les remet droites (lot ETOILE-LIGNE-DEUX-ETATS) — voir `gesteEtoileFil`.
  */
 const duFil = (filId: number, etoilee: boolean): SignalEtoile =>
-  ({ filId, messageId: null, etoilee, filEtoile: etoilee });
+  ({ filId, messageId: null, etoilee, etoiles: null });
+
+/** 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — un mail étoilé, tel que le signal le transporte désormais. */
+const MAIL = { messageId: 57625, de: 'gestion@criterimmo.fr', deNom: null, recuLe: '2026-10-06T14:31:00Z' };
 
 beforeEach(() => { vus = []; stop = ecouterEtoile((s) => vus.push(s)); });
 afterEach(() => { stop?.(); stop = null; vi.restoreAllMocks(); });
@@ -138,7 +142,10 @@ describe('③ plus aucun état privé : les écrans ÉCOUTENT, ils n’anticipen
   });
 
   it('🔴🔴 la liste non plus', () => {
-    expect(BTE).toContain('const r = await gesteEtoileFil(filId, etoilee);');
+    /* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — elle appelle la porte du MAIL QU'ELLE AFFICHE (et garde l'ancienne
+       porte sans la migration 277, où l'étoile est celle de l'échange). */
+    expect(BTE).toContain('const basculerEtoile = async (l: LigneEcran, poser: boolean) => {');
+    expect(BTE).toContain('filId: l.filId, messageId: l.messageAffiche, etoilee: poser,');
     expect(BTE).not.toContain('setEtoilees((m) => new Map(m).set(filId, !etoilee))');
   });
 
@@ -175,7 +182,7 @@ describe('④ l’étoile PAR MESSAGE a maintenant SA porte, et elle annonce com
       ordre.push('fetch');
       return { ok: true, json: async () => ({ ok: true, etat: { etoile: true, nonLu: false } }) } as unknown as Response;
     }) as never;
-    await gesteEtoileMessage({ filId: 36764, messageId: 57625, etoilee: true, filAvant: false, filApres: true });
+    await gesteEtoileMessage({ filId: 36764, messageId: 57625, etoilee: true, etoilesAvant: null, etoilesApres: null });
     expect(ordre[0]).toBe('annonce:57625');
     expect(ordre[1]).toBe('fetch');
   });
@@ -190,7 +197,7 @@ describe('④ l’étoile PAR MESSAGE a maintenant SA porte, et elle annonce com
       urls.push(String(u));
       return { ok: true, json: async () => ({ ok: true, etat: { etoile: true, nonLu: false } }) } as unknown as Response;
     }) as never;
-    await gesteEtoileMessage({ filId: 36764, messageId: 57625, etoilee: true, filAvant: false, filApres: true });
+    await gesteEtoileMessage({ filId: 36764, messageId: 57625, etoilee: true, etoilesAvant: null, etoilesApres: null });
     expect(urls).toEqual(['/api/admin/gestion/messages/57625/gmail']);
   });
 
@@ -199,40 +206,64 @@ describe('④ l’étoile PAR MESSAGE a maintenant SA porte, et elle annonce com
    * moins un mail de l'échange est étoilé ») ; c'est l'appelant qui la calcule, parce que lui seul connaît les
    * autres mails. Retirer une étoile parmi deux laisse donc la ligne allumée.
    */
-  it('🔴 retirer une étoile parmi plusieurs laisse l’échange étoilé', async () => {
+  /**
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ELLE TRANSPORTE **LA LISTE** DES MAILS ÉTOILÉS ═══════════════════════
+   *
+   * La LIGNE de la boîte a trois états (pleine / creuse / aucune) et doit pouvoir NOMMER l'autre mail étoilé :
+   * un booléen « l'échange est-il étoilé ? » ne suffisait plus. L'appelant qui connaît la conversation — c'est la
+   * conversation ouverte — passe donc la liste d'AVANT et celle d'APRÈS.
+   */
+  it('🔴 la liste d’APRÈS est annoncée, puis réémise au retour', async () => {
     serveur({ ok: true, etat: { etoile: false, nonLu: false } });
-    await gesteEtoileMessage({ filId: 36764, messageId: 57625, etoilee: false, filAvant: true, filApres: true });
+    const reste = [{ messageId: 57652, de: 'a@b.fr', deNom: null, recuLe: '2026-10-07T07:32:00Z' }];
+    await gesteEtoileMessage({
+      filId: 36764, messageId: 57625, etoilee: false, etoilesAvant: [...reste, MAIL], etoilesApres: reste,
+    });
     expect(vus).toEqual([
-      { filId: 36764, messageId: 57625, etoilee: false, filEtoile: true },
-      { filId: 36764, messageId: 57625, etoilee: false, filEtoile: true },
+      { filId: 36764, messageId: 57625, etoilee: false, etoiles: reste },
+      { filId: 36764, messageId: 57625, etoilee: false, etoiles: reste },
     ]);
   });
 
-  it('⚠️ un refus remet l’étoile du mail ET celle de l’échange', async () => {
+  it('⚠️ un refus remet l’étoile du mail ET la liste d’avant', async () => {
     serveur({ erreur: 'Gmail refuse.' }, false);
     const r = await gesteEtoileMessage({
-      filId: 36764, messageId: 57625, etoilee: true, filAvant: false, filApres: true,
+      filId: 36764, messageId: 57625, etoilee: true, etoilesAvant: [], etoilesApres: [MAIL],
     });
     expect(r.ok).toBe(false);
     expect(r.message).toBe('Gmail refuse.');
     expect(vus).toEqual([
-      { filId: 36764, messageId: 57625, etoilee: true, filEtoile: true },
-      { filId: 36764, messageId: 57625, etoilee: false, filEtoile: false },
+      { filId: 36764, messageId: 57625, etoilee: true, etoiles: [MAIL] },
+      { filId: 36764, messageId: 57625, etoilee: false, etoiles: [] },
     ]);
   });
 
-  /** ⚠️ ET GMAIL GARDE LE DERNIER MOT : s'il rend l'inverse, l'échange revient à son état d'avant. */
-  it('⚠️ quand Gmail rend autre chose, c’est le sien qui reste annoncé', async () => {
+  /** ⚠️ ET GMAIL GARDE LE DERNIER MOT : s'il rend l'inverse, c'est la liste d'AVANT qui est réémise. */
+  it('⚠️ quand Gmail rend autre chose, c’est la liste d’avant qui reste', async () => {
     serveur({ ok: true, etat: { etoile: false, nonLu: false } });
-    await gesteEtoileMessage({ filId: 36764, messageId: 57625, etoilee: true, filAvant: false, filApres: true });
-    expect(vus[1]).toEqual({ filId: 36764, messageId: 57625, etoilee: false, filEtoile: false });
+    await gesteEtoileMessage({
+      filId: 36764, messageId: 57625, etoilee: true, etoilesAvant: [], etoilesApres: [MAIL],
+    });
+    expect(vus[1]).toEqual({ filId: 36764, messageId: 57625, etoilee: false, etoiles: [] });
+  });
+
+  /**
+   * ⚠️ `null` RESTE LÉGITIME : c'est le clic parti d'une LIGNE, qui ne connaît que le mail qu'elle montre. Elle
+   * se met quand même à jour, parce que `messageId` + `etoilee` lui suffisent pour SON mail.
+   */
+  it('⚠️ un appelant qui ne connaît pas la conversation passe `null`, et c’est transmis tel quel', async () => {
+    serveur({ ok: true, etat: { etoile: true, nonLu: false } });
+    await gesteEtoileMessage({
+      filId: 36764, messageId: 57625, etoilee: true, etoilesAvant: null, etoilesApres: null,
+    });
+    expect(vus[0]).toEqual({ filId: 36764, messageId: 57625, etoilee: true, etoiles: null });
   });
 });
 
 describe('⑤ une porte par grain, et chacune seule à annoncer', () => {
   it('🔴 la porte de l’ÉCHANGE annonce trois fois au plus : voulu, confirmé, ou retour', () => {
     expect(PORTE).toContain('const annonce = (e: boolean) => annoncerEtoile({ filId, messageId: null, '
-      + 'etoilee: e, filEtoile: e });');
+      + 'etoilee: e, etoiles: null });');
     expect(PORTE).toContain('annonce(etoilee);');
     expect(PORTE).toContain('annonce(!etoilee);');
     expect(PORTE).toContain('annonce(d.etoilee);');
@@ -243,9 +274,9 @@ describe('⑤ une porte par grain, et chacune seule à annoncer', () => {
    * réponse destinée à la ligne de la boîte.
    */
   it('🔴🔴 la porte du MAIL annonce de même, en nommant le mail', () => {
-    expect(PORTE).toContain('annoncerEtoile({ filId: o.filId, messageId: o.messageId, etoilee, filEtoile });');
-    expect(PORTE).toContain('annonce(o.etoilee, o.filApres);');
-    expect(PORTE).toContain('annonce(!o.etoilee, o.filAvant);');
+    expect(PORTE).toContain('annoncerEtoile({ filId: o.filId, messageId: o.messageId, etoilee, etoiles });');
+    expect(PORTE).toContain('annonce(o.etoilee, o.etoilesApres);');
+    expect(PORTE).toContain('annonce(!o.etoilee, o.etoilesAvant);');
   });
 
   /** ⚠️ AUCUN ÉCRAN NE RECOPIE UNE ROUTE D'ÉTOILE : c'est ce qui tient « une seule porte » dans le temps. */
@@ -271,13 +302,12 @@ describe('⑥ les étoiles d’un MAIL se suivent, et uniquement entre elles', (
    * déduire — le signal le nomme.
    */
   it('🔴🔴 un geste sur un MAIL ne touche que son identifiant', () => {
-    expect(CONV).toContain('if (sig.etoilee) ids.add(sig.messageId); else ids.delete(sig.messageId);');
+    expect(CONV).toContain('if (!sig.etoilee) return { ...e, mails: e.mails.filter((m) => m.messageId !== id) };');
   });
 
   it('🔴 un geste sur l’ÉCHANGE garde la règle de sa porte : tous éteints, ou le dernier allumé', () => {
-    expect(CONV).toContain("if (!sig.etoilee) return { ...e, ids: new Set<number>() };");
+    expect(CONV).toContain('if (!sig.etoilee) return { ...e, mails: [] };');
     expect(CONV).toContain('const dernier = dernierMessage.current;');
-    expect(CONV).toContain('if (dernier !== null) ids.add(dernier);');
   });
 
   /**
@@ -302,12 +332,27 @@ describe('⑥ les étoiles d’un MAIL se suivent, et uniquement entre elles', (
   });
 
   /**
+   * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LA RÈGLE DES TROIS ÉTATS N'EST ÉCRITE QU'À UN SEUL ENDROIT, et les deux
+   * côtés la lisent : le serveur qui compose les lignes, l'écran qui les met à jour après un clic. Deux écritures
+   * auraient fini par dessiner une étoile ici et une autre là — c'est le défaut même qu'on répare.
+   */
+  it('🔴🔴 serveur et écran lisent le MÊME module pur', () => {
+    for (const f of ['app/lib/gestion/boiteRepo.ts', 'app/lib/gestion/rechercheBoite.ts']) {
+      expect(readFileSync(f, 'utf8'), f).toContain("from './etoileLigne'");
+    }
+    expect(BTE).toContain("from '../../../../lib/gestion/etoileLigne'");
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/BarreLigne.tsx', 'utf8'))
+      .toContain("from '../../../../lib/gestion/etoileLigne'");
+  });
+
+  /**
    * ⚠️ LA LIGNE DE LA BOÎTE, ELLE, NE LIT PLUS `etoilee` — qui porte l'état d'UN mail — mais `filEtoile`, la
    * réponse à SA question. Sa règle est inchangée : « au moins un mail de l'échange est étoilé ».
    */
-  it('⚠️ la ligne de la boîte lit `filEtoile`, et garde son état quand il est inconnu', () => {
-    expect(BTE).toContain('useEffect(() => ecouterEtoile(({ filId, filEtoile }) => {');
-    expect(BTE).toContain('if (filEtoile === null) return;');
-    expect(BTE).toContain('setEtoilees((m) => new Map(m).set(filId, filEtoile));');
+  it('⚠️ la ligne de la boîte recalcule ses trois états par le module PUR', () => {
+    expect(BTE).toContain('const apres = etoileLigneApresSignal(avant, ligne.messageAffiche, sig);');
+    /* ⚠️ ELLE PART DE CE QUE LE SERVEUR A RENDU quand elle n'a encore rien posé sur place : sinon une CREUSE
+       cliquée repartirait d'un état vide et perdrait l'autre mail étoilé. */
+    expect(BTE).toContain('const avant = m.get(sig.filId) ?? ligne.etoile ?? ETOILE_LIGNE_VIDE;');
   });
 });

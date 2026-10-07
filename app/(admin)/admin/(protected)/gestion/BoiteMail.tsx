@@ -55,8 +55,12 @@ import { RattachementsDuFil } from './RattachementsDuFil';
 import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
 import { BarreLigne, CSS_BARRE_LIGNE, Etoile } from './BarreLigne';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — la porte d'écriture UNIQUE de l'étoile, et son annonce aux autres écrans. */
-import { gesteEtoileFil } from './gestesLigne';
+import { gesteEtoileFil, gesteEtoileMessage } from './gestesLigne';
 import { ecouterEtoile } from '../../../../lib/gestion/signalEtoile';
+/* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — la règle des trois états, écrite une seule fois (module PUR). */
+import {
+  bulleEtoileLigne, ETOILE_LIGNE_VIDE, etoileLigneApresSignal, sorteEtoileLigne, type EtatEtoileLigne,
+} from '../../../../lib/gestion/etoileLigne';
 /* 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 2 — la ligne quitte la liste dans l'image du clic. */
 import { ecouterCorbeille, ligneQuitteLaListe } from '../../../../lib/gestion/signalCorbeille';
 // 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — les mots du picto « brouillon en attente », écrits une seule fois.
@@ -643,7 +647,18 @@ export function BoiteMail({
    * plus » et la position de défilement, pour un booléen que le serveur vient de confirmer.
    */
   const [etoiles, setEtoiles] = useState(false);
-  const [etoilees, setEtoilees] = useState<Map<number, boolean>>(new Map());
+  /**
+   * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — L'ÉTOILE SE POSE-T-ELLE SUR UN MAIL (migration 277) OU SUR L'ÉCHANGE ?
+   * Le serveur répond ; l'écran ne devine pas. `false` au départ : tant qu'on ne sait pas, on garde le geste
+   * d'avant ce lot, qui marche dans les deux configurations.
+   */
+  const [etoileParMessage, setEtoileParMessage] = useState(false);
+  /**
+   * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ON NE GARDE PLUS UN BOOLÉEN PAR ÉCHANGE, MAIS SON ÉTAT D'ÉTOILE : le mail
+   * que la ligne AFFICHE est-il étoilé (⇒ pleine), et lequel l'est AILLEURS (⇒ creuse, et de quoi le nommer).
+   * Le calcul n'est pas écrit ici : c'est `etoileLigneApresSignal`, le même module PUR que le serveur.
+   */
+  const [etoilees, setEtoilees] = useState<Map<number, EtatEtoileLigne>>(new Map());
   /**
    * ══ 🔴 RELU À CHAQUE LECTURE DE LA PREMIÈRE PAGE, ET NON UNE SEULE FOIS AU MONTAGE ════════════════════════════
    * DÉFAUT CONSTATÉ PAR ARNO le 27/09/2026 : la migration 264 appliquée, l'étoile restait grisée avec « mise à jour
@@ -691,8 +706,12 @@ export function BoiteMail({
       try {
         const res = await fetch('/api/admin/gestion/boite/comptes', { cache: 'no-store' });
         if (!res.ok || annule) return;
-        const c = (await res.json()) as { etoileDisponible?: boolean };
-        if (!annule) setEtoiles(c.etoileDisponible === true);
+        const c = (await res.json()) as { etoileDisponible?: boolean; etoileParMessage?: boolean };
+        if (!annule) {
+          setEtoiles(c.etoileDisponible === true);
+          /* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — quelle porte le clic emprunte : voir `basculerEtoile`. */
+          setEtoileParMessage(c.etoileParMessage === true);
+        }
       } catch { /* étoile indisponible : le bouton le dira lui-même, en info-bulle */ }
     })();
     return () => { annule = true; };
@@ -718,35 +737,67 @@ export function BoiteMail({
    * l'état voulu AVANT d'écrire, et cette liste l'apprend par l'écoute, comme la conversation — même source,
    * même image. Poser l'état ici en plus en ferait un second, qui est exactement le défaut réparé.
    */
-  const basculerEtoile = async (filId: number, etoilee: boolean) => {
-    const r = await gesteEtoileFil(filId, etoilee);
+  /**
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — LE CLIC N'AGIT QUE SUR LE MAIL QUE LA LIGNE AFFICHE ════════════════════
+   *
+   * RÈGLE D'ARNO (07/10/2026) : « on agit UNIQUEMENT sur le mail affiché par la ligne (pleine → vide, vide ou
+   * creuse → pleine), jamais sur un autre mail de l'échange. »
+   *
+   * 🔴 CE QUE ÇA CHANGE, ET POURQUOI IL LE FALLAIT. Ce clic passait par la porte de l'ÉCHANGE : poser visait « le
+   * dernier message », retirer passait sur TOUS les messages étoilés du fil. Sur une ligne CREUSE — dessinée en
+   * contour parce que l'étoile est ailleurs — cliquer aurait donc décroché l'étoile d'un mail qu'on ne regardait
+   * même pas. Il passe désormais par la porte du MAIL, celle du lot ETOILE-PAR-MESSAGE.
+   *
+   * ⚠️ `etoilesAvant` / `etoilesApres` VALENT `null`, ET C'EST EXACT : une ligne ne connaît que le mail qu'elle
+   * montre. Elle se met quand même à jour, parce que `messageId` + `etoilee` lui suffisent pour SON mail, et que
+   * ce qui se passe ailleurs dans l'échange n'a pas bougé (voir `etoileLigneApresSignal`).
+   *
+   * ⚠️ SANS LA MIGRATION 277 ON GARDE L'ANCIENNE PORTE, et rien ne disparaît : c'est elle qui écrit l'étoile
+   * d'ÉQUIPE (`gestion_fil_etoile`), la seule que la liste sache alors lire. `etoileParMessage` vient du serveur,
+   * qui est le seul à savoir quelle migration est en place.
+   */
+  const basculerEtoile = async (l: LigneEcran, poser: boolean) => {
+    const r = etoileParMessage
+      ? await gesteEtoileMessage({
+        filId: l.filId, messageId: l.messageAffiche, etoilee: poser,
+        etoilesAvant: null, etoilesApres: null,
+      })
+      : await gesteEtoileFil(l.filId, poser);
     if (!r.ok) onGesteLigne?.(r.message);
   };
 
   /**
-   * 🔴🔴 L'ÉCOUTE : une étoile basculée DANS LE MAIL OUVERT allume la ligne et sa barre de survol, en direct.
+   * 🔴🔴 L'ÉCOUTE : une étoile basculée DANS LE MAIL OUVERT change la ligne et sa barre de survol, en direct.
    *
-   * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — LA LIGNE LIT `filEtoile`, ET PLUS `etoilee` ════════════════════════════════
+   * ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ET ELLE RECALCULE LES TROIS ÉTATS, PAR LE MODULE PUR ═════════════════
    *
-   * 🔴 LA RÈGLE DE CETTE LIGNE NE CHANGE PAS, ET ARNO L'A DEMANDÉ EXPLICITEMENT : une ligne d'ici représente une
-   * CONVERSATION, et son étoile est allumée dès qu'AU MOINS UN mail de l'échange est étoilé. C'est la règle du
-   * serveur (`boiteRepo.sqlEtoile` / `filsEtoiles`, sur `gestion_message.etoile_le`), et elle reste la seule.
+   * 🔴 ELLE LISAIT UN BOOLÉEN D'ÉCHANGE (`filEtoile`), qui ne pouvait pas distinguer « le mail que je montre est
+   * étoilé » de « un AUTRE mail de la conversation l'est ». C'est exactement le défaut qu'Arno a constaté sur le
+   * fil 383 : étoile pleine sur la ligne, aucune étoile sur le mail qu'elle montre.
    *
-   * 🔴 CE QUI CHANGE, C'EST CE QU'ON ÉCOUTE. `etoilee` porte désormais l'état D'UN MAIL, qui ne dit rien de la
-   * ligne : retirer l'étoile d'un mail parmi trois laisse l'échange étoilé. `filEtoile` est le champ qui répond
-   * à la question de la ligne, calculé par l'écran qui connaît les mails (la conversation).
+   * 🔴 `etoileLigneApresSignal` EST LA MÊME RÈGLE QUE LE SERVEUR, écrite une seule fois. Elle sait quoi faire des
+   * trois sortes de signaux : la conversation qui connaît TOUS les mails étoilés (on recalcule tout — c'est ce qui
+   * fait disparaître une « creuse »), un clic sur cette ligne (seul SON mail change, le reste ne bouge pas), et
+   * un geste dont on ne peut rien conclure (on garde ce qu'on a, la relecture suivante remet droit).
    *
-   * ⚠️ `null` = L'ÉMETTEUR NE SAIT PAS. La ligne garde alors l'état qu'elle a, et la relecture suivante la remet
-   * droite. Deviner — éteindre par symétrie — aurait éteint la ligne d'un échange encore étoilé : c'est
-   * exactement le mensonge que la porte d'écriture refuse de produire.
+   * ⚠️ ON PART DE CE QUE LE SERVEUR A RENDU (`ligne.etoile`) quand on n'a encore rien posé sur place : sans cela,
+   * une ligne CREUSE cliquée repartirait d'un état vide et perdrait l'autre mail étoilé.
    *
    * ⚠️ ON S'ÉCOUTE AUSSI SOI-MÊME, et sans dommage : le signal porte l'état CONFIRMÉ, qui est déjà celui qu'on a
    * posé d'avance. Un garde « ne pas s'entendre » n'aurait servi qu'à compliquer — ici, s'entendre REMET DROIT
    * (si Gmail a rendu un autre état que celui demandé, c'est le sien qui gagne).
+   *
+   * ⚠️ `lignesRef` PARCE QUE L'ÉCOUTE NE S'ABONNE QU'UNE FOIS : y lire `etat` directement figerait la liste du
+   * premier rendu, et l'on chercherait le mail affiché d'une page qu'on a quittée depuis.
    */
-  useEffect(() => ecouterEtoile(({ filId, filEtoile }) => {
-    if (filEtoile === null) return;
-    setEtoilees((m) => new Map(m).set(filId, filEtoile));
+  useEffect(() => ecouterEtoile((sig) => {
+    setEtoilees((m) => {
+      const ligne = lignesRef.current.find((l) => l.filId === sig.filId);
+      if (ligne === undefined) return m;
+      const avant = m.get(sig.filId) ?? ligne.etoile ?? ETOILE_LIGNE_VIDE;
+      const apres = etoileLigneApresSignal(avant, ligne.messageAffiche, sig);
+      return apres === avant ? m : new Map(m).set(sig.filId, apres);
+    });
   }), []);
 
   /**
@@ -1010,6 +1061,9 @@ export function BoiteMail({
    * resterait vivante sur un mail qu'on ne voit plus.
    */
   const lignesVues = etat.v === 'ok' ? etat.lignes.filter((l) => !partis.has(l.filId)) : [];
+  /* 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — voir l'encadré de l'écoute : elle a besoin du mail AFFICHÉ par chaque ligne. */
+  const lignesRef = useRef<LigneEcran[]>([]);
+  lignesRef.current = lignesVues;
   const cleAffiches = etat.v === 'ok'
     ? lignesVues.filter((l) => l.filId > 0)
       .map((l) => `${l.filId}:${l.nbCorbeille ?? 0}:${boiteOrigine({
@@ -1734,11 +1788,22 @@ export function BoiteMail({
                       COLONNE de la grille dense : l'adresse du correspondant se retrouvait dans une colonne d'un
                       caractère de large et descendait sur vingt lignes. Vu à l'écran le 27/09/2026. */}
                   <span className="bte-qui">
-                    {(etoilees.get(l.filId) ?? l.etoilee) && (
-                      <span className="bte-etoile" title="Échange étoilé par l’équipe" aria-label="Échange étoilé">
-                        <Etoile pleine />
-                      </span>
-                    )}
+                    {/* ══ 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — PLEINE, CREUSE, OU RIEN ═══════════════════════════
+                        CONSTAT D'ARNO (fil 383) : étoile ROUGE PLEINE sur la ligne, et AUCUNE étoile sur le mail
+                        qu'elle montre — elle était sur un autre mail de la conversation.
+                        🔴 PLEINE = le mail affiché est étoilé. CREUSE (contour rouge) = un AUTRE mail l'est, et la
+                        bulle le NOMME. RIEN = aucune étoile dans la conversation. Le calcul vient du module PUR,
+                        le même que le serveur. */}
+                    {(() => {
+                      /* ⚠️ `?? ETOILE_LIGNE_VIDE` : une réponse de serveur plus ancienne que ce lot n'a pas
+                         le champ. Aucune étoile vaut mieux qu'un écran cassé — patron du module. */
+                      const e = etoilees.get(l.filId) ?? l.etoile ?? ETOILE_LIGNE_VIDE;
+                      return sorteEtoileLigne(e) === 'aucune' ? null : (
+                        <span className="bte-etoile" title={bulleEtoileLigne(e)} aria-label={bulleEtoileLigne(e)}>
+                          <Etoile pleine={sorteEtoileLigne(e) === 'pleine'} />
+                        </span>
+                      );
+                    })()}
                     {nomCorrespondant(l)}
                   </span>
                   <span className="bte-sujet">
@@ -1912,7 +1977,8 @@ export function BoiteMail({
                 {onActionLigne && (
                   <BarreLigne
                     etat={{
-                      nbMessages: l.nbMessages, etoilee: etoilees.get(l.filId) ?? l.etoilee,
+                      nbMessages: l.nbMessages,
+                      etoile: etoilees.get(l.filId) ?? l.etoile ?? ETOILE_LIGNE_VIDE,
                       etoileDisponible: etoiles,
                       nonLu, corbeilleDisponible: corbeille,
                       /* LOT BARRE-STATUT — la capsule décide du dernier bouton : « Classer » en rouge quand rien
@@ -1936,7 +2002,7 @@ export function BoiteMail({
                     }}
                     confirme={confirmeSur === l.filId}
                     onConfirmer={(ouvrir) => setConfirmeSur(ouvrir ? l.filId : null)}
-                    onEtoile={(e) => void basculerEtoile(l.filId, e)}
+                    onEtoile={(poser) => void basculerEtoile(l, poser)}
                     onLecture={(lu) => onActionLigne(l.filId, lu ? 'lu' : 'non_lu')}
                     onCorbeille={() => onActionLigne(l.filId, 'corbeille')}
                     /* 🔴🔴 POINT 1 — `restaurer` : LA CLÉ DU MENU « … », DONC LE MÊME CODE SERVEUR ET LE MÊME

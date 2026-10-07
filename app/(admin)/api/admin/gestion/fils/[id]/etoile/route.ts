@@ -5,7 +5,7 @@ import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import { poserEtoile } from '../../../../../../../lib/gestion/etoileRepo';
 import { basculerEtoileDuFil, type DepsEtoileFil } from '../../../../../../../lib/gestion/etoileFil';
 import {
-  ecrireEtoileMessage, messagesEtoilesDuFil,
+  ecrireEtoileMessage, mailsEtoilesDesFils, messagesEtoilesDuFil,
 } from '../../../../../../../lib/gestion/etoileGmailRepo';
 import { lireAncrage, memoriserAncrage } from '../../../../../../../lib/gestion/gmailRepo';
 import { peutEnvoyerAuNomDeGestion } from '../../../../../../../lib/gestion/gardeEnvoi';
@@ -102,14 +102,18 @@ function deps(request: Request): DepsEtoileFil {
  * 06/10 16:31, étoile allumée sur celui du 07/10 09:32. Mesuré en base : `gestion_message.etoile_le` posé sur le
  * message 57652 (le plus récent), jamais sur le 57625 (celui qu'il avait sous le curseur).
  *
- * 🔴 ELLE REND DONC LA LISTE DES MAILS ÉTOILÉS, par `messagesEtoilesDuFil` — le MÊME dépôt et la MÊME colonne que
- * le filtre et la liste (`gestion_message.etoile_le`), simplement lu au grain où le geste se joue. L'état de
+ * 🔴 ELLE REND DONC LA LISTE DES MAILS ÉTOILÉS, par `mailsEtoilesDesFils` — le MÊME dépôt, la MÊME colonne et la
+ * MÊME lecture que les listes (`gestion_message.etoile_le`), simplement au grain où le geste se joue. L'état de
  * l'échange s'en déduit (« la liste n'est pas vide »), et c'est ce sens-là qui est vrai : l'inverse — déduire le
  * mail de l'échange — est exactement la devinette qu'on supprime.
  *
- * ⚠️ LA RÈGLE DE LA LIGNE DE LA BOÎTE N'EST PAS TOUCHÉE : elle reste « allumée dès qu'au moins un mail de
- * l'échange est étoilé » (`boiteRepo.sqlEtoile`, `filsEtoiles`), et c'est voulu — une ligne y représente une
- * CONVERSATION, pas un mail.
+ * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ET ELLE REND L'EXPÉDITEUR ET LA DATE AVEC. La conversation est le seul écran
+ * qui connaisse TOUTE la liste : c'est elle qui l'annonce aux listes après un clic, et une ligne doit pouvoir
+ * NOMMER l'autre mail étoilé dans sa bulle d'aide.
+ *
+ * ⚠️ LA RÈGLE DU **FILTRE** N'EST PAS TOUCHÉE : il reste « cet échange porte au moins un mail étoilé »
+ * (`boiteRepo.sqlEtoile`), et c'est voulu — un filtre qui ne regarderait que le mail affiché raterait l'étoile
+ * posée ailleurs. Seul l'AFFICHAGE de la ligne distingue désormais les deux cas (pleine / creuse).
  *
  * ⚠️ `disponible: false` SANS LA MIGRATION 277 : le geste n'est pas possible, et l'écran n'affiche alors AUCUNE
  * étoile plutôt qu'une étoile éteinte — qui dirait faussement « ce mail n'est pas suivi ». C'est déjà ce que fait
@@ -131,9 +135,15 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
     if (!(await etoileGmailDisponible())) {
       return Response.json({ disponible: false, etoiles: [] }, { headers: ENTETES });
     }
-    const etoiles = await messagesEtoilesDuFil(filId);
+    /**
+     * 🔴🔴 LOT ETOILE-LIGNE-DEUX-ETATS — ON REND LES MAILS, PAS DES IDENTIFIANTS. La conversation est le seul
+     * écran qui connaisse TOUTE la liste : c'est elle qui l'annonce aux listes après un clic, et une ligne doit
+     * pouvoir NOMMER l'autre mail étoilé dans sa bulle (« …, houda ghannam, 6 octobre 2026 à 17:26 »).
+     * Même lecture que les listes (`mailsEtoilesDesFils`), donc la même vérité.
+     */
+    const etoiles = await mailsEtoilesDesFils([filId]);
     return Response.json(
-      { disponible: true, etoiles: etoiles.map((m) => m.messageId) }, { headers: ENTETES });
+      { disponible: true, etoiles: etoiles.get(filId) ?? [] }, { headers: ENTETES });
   } catch (e) {
     /* Pas de catch muet qui rendrait « éteinte » : une panne et un mail non suivi ne sont pas la même chose. */
     console.error('[api/admin/gestion/fils/etoile] lecture impossible', e);
