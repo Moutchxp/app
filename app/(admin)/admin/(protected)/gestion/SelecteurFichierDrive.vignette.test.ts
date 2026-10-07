@@ -310,8 +310,9 @@ describe('🔴🔴 la vignette, après le lot DRIVE-LOUPE-MENU-VITESSE', () => {
   });
 
   /**
-   * 🔴🔴 LE COMPTEUR VERT : « Rangé N fois dans le Drive ». MASQUÉ À ZÉRO — un « 0 » vert se lirait comme une
-   * bonne nouvelle alors qu'il dit le contraire.
+   * 🔴🔴 LE COMPTEUR VERT : « Déjà dans le Drive (N) » (libellé décidé par Arno le 07/10/2026 — il dit un ÉTAT,
+   * pas un geste répété). MASQUÉ À ZÉRO — un « 0 » vert se lirait comme une bonne nouvelle alors qu'il dit le
+   * contraire.
    */
   it('🔴🔴 le compteur vert est MASQUÉ quand le document n’est rangé nulle part', async () => {
     comptePart = 0;
@@ -321,12 +322,26 @@ describe('🔴🔴 la vignette, après le lot DRIVE-LOUPE-MENU-VITESSE', () => {
   });
 
   /** 🔴 ET IL PARAÎT, AVEC SON NOMBRE ET SA BULLE, dès que le registre connaît au moins un emplacement. */
-  it('🔴🔴 le compteur vert annonce « Rangé N fois dans le Drive »', async () => {
+  it('🔴🔴 le compteur vert annonce « Déjà dans le Drive (N) »', async () => {
     comptePart = 2;
     await monter();
     const vert = container.querySelector('.sfd-piece-range');
     expect(vert?.textContent).toBe('2');
-    expect(vert?.getAttribute('title')).toBe('Rangé 2 fois dans le Drive');
+    expect(vert?.getAttribute('title')).toBe('Déjà dans le Drive (2)');
+    /* 🔴 LE MÊME MOT POUR LE LECTEUR D'ÉCRAN : une pastille verte ne dit pas d'elle-même ce qu'elle compte. */
+    expect(vert?.getAttribute('aria-label')).toBe('Déjà dans le Drive (2)');
+  });
+
+  /**
+   * 🔴 UN SEUL EMPLACEMENT SE DIT DE LA MÊME FAÇON. L'ancien libellé avait une branche singulier/pluriel
+   * (« Rangé 1 fois » / « Rangé N fois ») : le nombre entre parenthèses la supprime, et avec elle le risque que
+   * les deux formes divergent.
+   */
+  it('🔴 un seul emplacement : « Déjà dans le Drive (1) », même forme', async () => {
+    comptePart = 1;
+    await monter();
+    expect(container.querySelector('.sfd-piece-range')?.getAttribute('title'))
+      .toBe('Déjà dans le Drive (1)');
   });
 
   /** ⚠️ ET IL EST DEMANDÉ PAR LE MODE RAPIDE, celui qui ne fait aucun appel Google. */

@@ -4881,7 +4881,7 @@ export function SelecteurFichierDrive({
                           <span className="sfd-piece-ligne">
                             <span className="sfd-piece-taille">{tailleFinder(x.tailleOctets, false)}</span>
                             {/* ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — LE COMPTEUR VERT ════════════════════════
-                                « Rangé N fois dans le Drive » (Arno). VERT parce que c'est un état d'ARRIVÉE —
+                                « Déjà dans le Drive (N) » (Arno, 07/10/2026). VERT parce que c'est un état d'ARRIVÉE —
                                 il ne dit pas « à faire », il dit « c'est déjà quelque part ».
                                 ⚠️ MASQUÉ À ZÉRO : un « 0 » vert se lirait comme une bonne nouvelle alors qu'il
                                 dit le contraire (ce document n'est rangé nulle part). */}
@@ -6462,7 +6462,7 @@ export const CSS_SELECTEUR_FICHIER = `
    droite, flex-wrap:nowrap les garde ensemble, et flex:0 0 auto les empeche de se comprimer.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 .sfd-piece-gestes{display:inline-flex;align-items:center;gap:2px;flex:0 0 auto;margin-left:auto;flex-wrap:nowrap}
-/* LE COMPTEUR VERT : « range N fois dans le Drive ». Un etat d'ARRIVEE, donc la couleur des capsules vertes du
+/* LE COMPTEUR VERT : « Deja dans le Drive (N) ». Un etat d'ARRIVEE, donc la couleur des capsules vertes du
    module. Masque a zero — un 0 vert se lirait comme une bonne nouvelle alors qu'il dit le contraire. */
 .sfd-piece-range{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
   min-width:16px;height:16px;padding:0 4px;border-radius:999px;font-size:.68rem;font-weight:700;

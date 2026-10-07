@@ -295,7 +295,17 @@ export function phraseMethode(o: {
  * LA BULLE DU COMPTEUR VERT. PUR.
  *
  * Arno : « Compteur VERT dans la vignette : nombre d'emplacements où ce document est déjà rangé dans le Drive.
- * Masqué si 0. Bulle au survol : “Rangé N fois dans le Drive”. »
+ * Masqué si 0. »
+ *
+ * ══ 🔴 DÉCISION D'ARNO (07/10/2026) : « DÉJÀ DANS LE DRIVE (N) », ET PLUS « RANGÉ N FOIS » ═════════════════════
+ *
+ * Le libellé disait un GESTE RÉPÉTÉ (« rangé N fois »), là où le compteur dit un ÉTAT : ce document se trouve à N
+ * endroits du Drive. « N fois » laissait entendre qu'on l'avait rangé N fois — y compris deux fois au même
+ * endroit, ce que le compteur ne compte justement pas (il compte des EMPLACEMENTS).
+ *
+ * 🔴 UNE SEULE FORME, SANS SINGULIER NI PLURIEL. Le nombre est entre parenthèses, donc la phrase ne change pas
+ * avec lui : plus de branche `n > 1` à tenir d'accord avec elle-même. C'est la seule définition du libellé, et
+ * les deux endroits qui l'affichent (la pastille verte de la vignette, la loupe) la lisent tous les deux.
  *
  * 🔴 VERT, ET C'EST UN ÉTAT D'ARRIVÉE. Il ne dit pas « à faire » : il dit « c'est déjà quelque part ». C'est la
  * même grammaire que la capsule « Classé » du module — le vert y signifie toujours « c'est traité ».
@@ -304,5 +314,5 @@ export function phraseMethode(o: {
  * nouvelle alors qu'il dit exactement le contraire (ce document n'est rangé nulle part).
  */
 export function bulleCompteurRange(n: number): string {
-  return n > 1 ? `Rangé ${n} fois dans le Drive` : 'Rangé 1 fois dans le Drive';
+  return `Déjà dans le Drive (${n})`;
 }

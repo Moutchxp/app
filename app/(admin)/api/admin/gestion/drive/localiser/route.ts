@@ -80,7 +80,7 @@ export async function GET(request: Request): Promise<Response> {
   /**
    * ══ 🔴🔴 LOT DRIVE-LOUPE-MENU-VITESSE — `?compte=1` : LE NOMBRE SEUL, SANS UN SEUL APPEL GOOGLE ═══════════════
    *
-   * Le COMPTEUR VERT de chaque vignette (« Rangé N fois dans le Drive ») est demandé pour TOUTES les vignettes de
+   * Le COMPTEUR VERT de chaque vignette (« Déjà dans le Drive (N) ») est demandé pour TOUTES les vignettes de
    * la colonne, dès qu'elles paraissent. Lui faire payer ce que paie la loupe — un `files.get` et une remontée de
    * parents PAR EMPLACEMENT — ferait partir des dizaines d'appels pour afficher un chiffre.
    *
