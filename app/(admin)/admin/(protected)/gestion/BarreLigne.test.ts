@@ -772,7 +772,9 @@ describe('🔴🔴 l’étoile de la ligne suit celle du mail ouvert', () => {
   it('🔴🔴 une étoile posée depuis le mail ouvert allume la ligne, en direct', async () => {
     await monter();
     expect(container.querySelector('.bte-etoile')).toBeNull();
-    await act(async () => { annoncerEtoile({ filId: 7, etoilee: true }); });
+    await act(async () => {
+      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: true, filEtoile: true });
+    });
     expect(container.querySelector('.bte-etoile')).not.toBeNull();
   });
 
@@ -781,14 +783,49 @@ describe('🔴🔴 l’étoile de la ligne suit celle du mail ouvert', () => {
     ligneCourante = LIGNE({ etoilee: true });
     await monter();
     expect(container.querySelector('.bte-etoile')).not.toBeNull();
-    await act(async () => { annoncerEtoile({ filId: 7, etoilee: false }); });
+    await act(async () => {
+      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: false, filEtoile: false });
+    });
     expect(container.querySelector('.bte-etoile')).toBeNull();
   });
 
   /** ⚠️ L'ÉTOILE D'UN AUTRE ÉCHANGE NE TOUCHE PAS CELLE-CI : chaque ligne n'écoute que la sienne. */
   it('⚠️ l’étoile d’un autre échange ne change rien à cette ligne', async () => {
     await monter();
-    await act(async () => { annoncerEtoile({ filId: 99999, etoilee: true }); });
+    await act(async () => {
+      annoncerEtoile({ filId: 99999, messageId: 1, etoilee: true, filEtoile: true });
+    });
     expect(container.querySelector('.bte-etoile')).toBeNull();
+  });
+
+  /**
+   * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — CETTE LIGNE LIT `filEtoile`, PAS L'ÉTOILE D'UN MAIL ═══════════════════════
+   *
+   * RÈGLE D'ARNO (07/10/2026), DEMANDÉE MOT POUR MOT : la règle de la ligne NE CHANGE PAS — une ligne d'ici
+   * représente une CONVERSATION, et son étoile est allumée dès qu'AU MOINS UN mail de l'échange est étoilé.
+   *
+   * 🔴 D'OÙ CE CAS : retirer l'étoile d'UN mail d'un échange qui en garde une autre ne doit PAS éteindre la
+   * ligne. Avant ce lot, la ligne recopiait `etoilee` — l'état du MAIL — et s'éteignait à tort.
+   */
+  it('🔴🔴 retirer l’étoile d’un mail parmi plusieurs laisse la ligne allumée', async () => {
+    ligneCourante = LIGNE({ etoilee: true });
+    await monter();
+    await act(async () => {
+      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: false, filEtoile: true });
+    });
+    expect(container.querySelector('.bte-etoile')).not.toBeNull();
+  });
+
+  /**
+   * ⚠️ `filEtoile: null` = L'ÉMETTEUR NE SAIT PAS : la ligne GARDE son état, et la relecture suivante la remet
+   * droite. Deviner — éteindre par symétrie — éteindrait la ligne d'un échange encore étoilé.
+   */
+  it('⚠️ un signal sans réponse sur l’échange laisse la ligne telle quelle', async () => {
+    ligneCourante = LIGNE({ etoilee: true });
+    await monter();
+    await act(async () => {
+      annoncerEtoile({ filId: 7, messageId: 8123, etoilee: false, filEtoile: null });
+    });
+    expect(container.querySelector('.bte-etoile')).not.toBeNull();
   });
 });

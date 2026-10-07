@@ -5,7 +5,7 @@ import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import { poserEtoile } from '../../../../../../../lib/gestion/etoileRepo';
 import { basculerEtoileDuFil, type DepsEtoileFil } from '../../../../../../../lib/gestion/etoileFil';
 import {
-  ecrireEtoileMessage, filsEtoiles, messagesEtoilesDuFil,
+  ecrireEtoileMessage, messagesEtoilesDuFil,
 } from '../../../../../../../lib/gestion/etoileGmailRepo';
 import { lireAncrage, memoriserAncrage } from '../../../../../../../lib/gestion/gmailRepo';
 import { peutEnvoyerAuNomDeGestion } from '../../../../../../../lib/gestion/gardeEnvoi';
@@ -86,19 +86,34 @@ function deps(request: Request): DepsEtoileFil {
 }
 
 /**
- * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — CE QUE LE SERVEUR SAIT DE L'ÉTOILE DE CET ÉCHANGE ════════════════════
+ * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — QUELS **MAILS** DE CET ÉCHANGE PORTENT UNE ÉTOILE ════════════════════════════
  *
  * RÈGLE D'ARNO : « une seule porte d'écriture, un seul état ». La porte d'écriture était déjà ici ; il manquait
  * la LECTURE, parce qu'un seul écran affichait l'étoile — la liste, qui la reçoit avec ses lignes
  * (`boiteRepo.etoilee`). La conversation, elle, est montée à côté de la liste et n'en reçoit rien.
  *
- * 🔴 ELLE RÉPOND PAR LA MÊME RÈGLE QUE LA LISTE, PAR LE MÊME DÉPÔT : `filsEtoiles`, c'est-à-dire « au moins un
- * message de l'échange porte une étoile », exactement comme `sqlEtoile` dans `boiteRepo`. Une seconde définition
- * ici aurait fini par allumer l'étoile du mail ouvert sur un échange que la liste montre éteint.
+ * ══ 🔴🔴 CE QU'ELLE RENDAIT, ET LE BUG QUE CE GRAIN A PRODUIT ═══════════════════════════════════════════════════
+ *
+ * Elle rendait UN BOOLÉEN D'ÉCHANGE (`filsEtoiles` : « au moins un message porte une étoile »). La conversation
+ * en faisait l'état de la grande étoile de CHACUN de ses mails — donc le même pour tous —, et le clic ne pouvait
+ * désigner aucun mail en particulier : il partait par la porte de l'ÉCHANGE, qui vise « le dernier message ».
+ *
+ * CONSTAT D'ARNO (07/10/2026, fil 36764 « Facture Huissier », 3 mails) : clic sur la grande étoile du mail du
+ * 06/10 16:31, étoile allumée sur celui du 07/10 09:32. Mesuré en base : `gestion_message.etoile_le` posé sur le
+ * message 57652 (le plus récent), jamais sur le 57625 (celui qu'il avait sous le curseur).
+ *
+ * 🔴 ELLE REND DONC LA LISTE DES MAILS ÉTOILÉS, par `messagesEtoilesDuFil` — le MÊME dépôt et la MÊME colonne que
+ * le filtre et la liste (`gestion_message.etoile_le`), simplement lu au grain où le geste se joue. L'état de
+ * l'échange s'en déduit (« la liste n'est pas vide »), et c'est ce sens-là qui est vrai : l'inverse — déduire le
+ * mail de l'échange — est exactement la devinette qu'on supprime.
+ *
+ * ⚠️ LA RÈGLE DE LA LIGNE DE LA BOÎTE N'EST PAS TOUCHÉE : elle reste « allumée dès qu'au moins un mail de
+ * l'échange est étoilé » (`boiteRepo.sqlEtoile`, `filsEtoiles`), et c'est voulu — une ligne y représente une
+ * CONVERSATION, pas un mail.
  *
  * ⚠️ `disponible: false` SANS LA MIGRATION 277 : le geste n'est pas possible, et l'écran n'affiche alors AUCUNE
- * étoile plutôt qu'une étoile éteinte — qui dirait faussement « cet échange n'est pas suivi ». C'est déjà ce que
- * fait la barre de survol (`etoileDisponible`).
+ * étoile plutôt qu'une étoile éteinte — qui dirait faussement « ce mail n'est pas suivi ». C'est déjà ce que fait
+ * la barre de survol (`etoileDisponible`).
  *
  * 🔒 MÊME DROIT QUE L'ÉCRITURE, relu en base. `private, no-store` : l'état d'un échange n'est pas une page.
  */
@@ -114,14 +129,15 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
 
   try {
     if (!(await etoileGmailDisponible())) {
-      return Response.json({ etoilee: false, disponible: false }, { headers: ENTETES });
+      return Response.json({ disponible: false, etoiles: [] }, { headers: ENTETES });
     }
-    const etoiles = await filsEtoiles([filId]);
-    return Response.json({ etoilee: etoiles.has(filId), disponible: true }, { headers: ENTETES });
+    const etoiles = await messagesEtoilesDuFil(filId);
+    return Response.json(
+      { disponible: true, etoiles: etoiles.map((m) => m.messageId) }, { headers: ENTETES });
   } catch (e) {
-    /* Pas de catch muet qui rendrait « éteinte » : une panne et un échange non suivi ne sont pas la même chose. */
+    /* Pas de catch muet qui rendrait « éteinte » : une panne et un mail non suivi ne sont pas la même chose. */
     console.error('[api/admin/gestion/fils/etoile] lecture impossible', e);
-    return Response.json({ etoilee: false, disponible: false }, { status: 503, headers: ENTETES });
+    return Response.json({ disponible: false, etoiles: [] }, { status: 503, headers: ENTETES });
   }
 }
 

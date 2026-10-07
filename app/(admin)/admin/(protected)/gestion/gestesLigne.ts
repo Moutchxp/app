@@ -84,11 +84,21 @@ export interface IssueEtoile extends IssueGeste {
  * l'encadré de `signalEtoile`.
  */
 export async function gesteEtoileFil(filId: number, etoilee: boolean): Promise<IssueEtoile> {
+  /**
+   * ⚠️ `messageId: null` — CE GESTE PORTE SUR L'ÉCHANGE, PAS SUR UN MAIL (lot ETOILE-PAR-MESSAGE). C'est la porte
+   * de la LIGNE de la boîte et de sa barre de survol, où une ligne REPRÉSENTE une conversation. Les écrans qui
+   * affichent des mails appliquent alors la règle du serveur : poser va sur le dernier message, retirer passe
+   * sur tous (voir `basculerEtoileDuFil`).
+   *
+   * ⚠️ `filEtoile` VAUT `etoilee` ET C'EST EXACT ICI : poser l'étoile d'un échange en fait un échange étoilé ;
+   * la retirer la retire de TOUS ses messages, donc l'échange ne l'est plus. Aucun doute à transmettre.
+   */
+  const annonce = (e: boolean) => annoncerEtoile({ filId, messageId: null, etoilee: e, filEtoile: e });
   /* ① L'ÉTAT VOULU, TOUT DE SUITE. Toutes les étoiles de ce mail basculent dans l'image de ce clic. */
-  annoncerEtoile({ filId, etoilee });
+  annonce(etoilee);
   const revenir = (message: string): IssueEtoile => {
     /* ③ TOUT LE MONDE REVIENT, pas seulement le bouton cliqué. */
-    annoncerEtoile({ filId, etoilee: !etoilee });
+    annonce(!etoilee);
     return { ok: false, etoilee: null, touches: 0, message };
   };
   try {
@@ -102,7 +112,7 @@ export async function gesteEtoileFil(filId: number, etoilee: boolean): Promise<I
       return revenir(d.erreur ?? 'Étoile impossible.');
     }
     /* ② L'ÉTAT CONFIRMÉ. */
-    annoncerEtoile({ filId, etoilee: d.etoilee });
+    annonce(d.etoilee);
     return {
       ok: true, etoilee: d.etoilee, touches: d.touches ?? 0,
       message: d.etoilee ? 'Étoile posée.' : 'Étoile retirée.',
@@ -113,20 +123,103 @@ export async function gesteEtoileFil(filId: number, etoilee: boolean): Promise<I
 }
 
 /**
- * CE QUE LE SERVEUR SAIT DE L'ÉTOILE D'UN ÉCHANGE — pour un écran qui ne tient pas la liste (la conversation).
+ * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — **LA** PORTE D'ÉCRITURE DE L'ÉTOILE D'UN MAIL ═════════════════════════════════
+ *
+ * BUG CONSTATÉ PAR ARNO (07/10/2026, fil 36764 « Facture Huissier », 3 mails) : il clique la GRANDE étoile du mail
+ * déplié du 06/10 16:31, et c'est l'étoile du mail du 07/10 09:32 — le plus récent de l'échange — qui s'allume.
+ *
+ * 🔴 LA CAUSE : LA GRANDE ÉTOILE PASSAIT PAR LA PORTE DE L'ÉCHANGE (`gesteEtoileFil`), qui ne reçoit AUCUN
+ * identifiant de message et pose donc l'étoile sur « le dernier message de l'échange ». Sur un fil d'un seul mail
+ * c'était invisible ; dès le second, le clic débordait sur un autre mail.
+ *
+ * 🔴 RÈGLE D'ARNO : « une étoile ne concerne QUE le mail sur lequel on clique. Elle ne déborde jamais sur un autre
+ * mail, ni de la conversation, ni d'ailleurs. » Cette porte-ci NOMME donc le message, et c'est la route PAR
+ * MESSAGE (`messages/:id/gmail`, `action: 'etoile'`) qui écrit — la même que l'étoile de la rangée du mail
+ * utilisait déjà. Les deux étoiles d'un mail passent désormais par la même fonction : elles ne peuvent plus
+ * désigner deux cibles différentes.
+ *
+ * 🔴 MÊME DISCIPLINE D'ANNONCE QUE LA PORTE D'ÉCHANGE (lot INSTANTANE-ETOILE-CORBEILLE) : l'état VOULU avant
+ * l'écriture — toutes les étoiles de ce mail basculent dans l'image du clic —, l'état CONFIRMÉ après la réponse,
+ * l'état D'AVANT en cas de refus.
+ *
+ * ⚠️ LA ROUTE BASCULE, ELLE NE REÇOIT PAS D'ÉTAT : elle lit l'étoile DANS GMAIL et pose l'inverse (voir
+ * `gmailAction.basculerEtoile`). L'état demandé ne sert donc qu'à l'ANNONCE ; c'est `etat.etoile`, rendu par
+ * Gmail, qui est réannoncé comme vérité. Les deux coïncident sauf si quelqu'un a étoilé depuis son téléphone
+ * entre-temps — et dans ce cas c'est Gmail qui a raison.
+ *
+ * ⚠️ `filAvant` / `filApres` : L'ÉTAT DE LA LIGNE DE LA BOÎTE, QUE SEUL L'APPELANT CONNAÎT. La ligne s'allume dès
+ * qu'AU MOINS UN mail de l'échange est étoilé (règle inchangée, `boiteRepo.sqlEtoile`) ; retirer l'étoile d'un
+ * mail parmi trois ne l'éteint donc pas. La conversation, elle, connaît l'étoile de chacun de ses mails : elle
+ * seule peut trancher, et elle le fait AVANT l'appel pour que la ligne bascule dans la même image.
+ */
+export async function gesteEtoileMessage(o: {
+  filId: number;
+  messageId: number;
+  /** L'état VOULU pour ce mail — celui qu'on annonce d'avance. */
+  etoilee: boolean;
+  /** L'échange était-il étoilé AVANT ce geste ? Réémis tel quel si le serveur refuse. */
+  filAvant: boolean;
+  /** L'échange sera-t-il encore étoilé APRÈS ce geste ? « au moins un mail », l'appelant l'a calculé. */
+  filApres: boolean;
+}): Promise<IssueEtoile> {
+  const annonce = (etoilee: boolean, filEtoile: boolean) =>
+    annoncerEtoile({ filId: o.filId, messageId: o.messageId, etoilee, filEtoile });
+  /* ① L'ÉTAT VOULU, TOUT DE SUITE : les étoiles de CE mail basculent dans l'image du clic, et elles seules. */
+  annonce(o.etoilee, o.filApres);
+  const revenir = (message: string): IssueEtoile => {
+    /* ③ TOUT LE MONDE REVIENT — le mail à son étoile d'avant, la ligne à la sienne. */
+    annonce(!o.etoilee, o.filAvant);
+    return { ok: false, etoilee: null, touches: 0, message };
+  };
+  try {
+    const res = await fetch(`/api/admin/gestion/messages/${o.messageId}/gmail`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'etoile' }),
+    });
+    const d = (await res.json().catch(() => ({}))) as {
+      ok?: boolean; message?: string; erreur?: string; etat?: { etoile: boolean } | null;
+    };
+    if (!res.ok || d.ok !== true) return revenir(d.erreur ?? 'Étoile impossible.');
+    /**
+     * ② L'ÉTAT CONFIRMÉ PAR GMAIL. `etat` absent (connexion perdue entre l'action et la relecture) ⇒ on garde ce
+     * qu'on avait annoncé plutôt que d'inventer l'inverse : l'action, elle, a bien abouti (`ok: true`).
+     */
+    const confirme = d.etat?.etoile ?? o.etoilee;
+    annonce(confirme, confirme === o.etoilee ? o.filApres : o.filAvant);
+    return {
+      ok: true, etoilee: confirme, touches: 1,
+      message: d.message ?? (confirme ? 'Étoile ajoutée dans Gmail.' : 'Étoile retirée dans Gmail.'),
+    };
+  } catch {
+    return revenir('Étoile impossible : le serveur n’a pas répondu.');
+  }
+}
+
+/**
+ * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — QUELS **MAILS** DE L'ÉCHANGE PORTENT UNE ÉTOILE ══════════════════════════════
+ *
+ * Pour un écran qui ne tient pas la liste : la conversation.
+ *
+ * 🔴 ELLE RENDAIT UN BOOLÉEN D'ÉCHANGE (« au moins un mail est étoilé »), et c'est ce grain-là qui a produit le
+ * bug d'Arno : la grande étoile de CHACUN des trois mails du fil 36764 affichait le même état, et le clic ne
+ * pouvait désigner aucun d'eux en particulier. Elle rend maintenant la LISTE DES MAILS étoilés — l'échange
+ * s'en déduit (`ids.size > 0`), l'inverse n'est pas vrai.
  *
  * ⚠️ `disponible: false` VEUT DIRE « LE GESTE N'EST PAS POSSIBLE » (migration 277 absente, ou lecture en échec),
- * et l'écran n'affiche alors AUCUNE étoile — plutôt qu'une étoile éteinte, qui dirait faussement « cet échange
- * n'est pas suivi ». C'est déjà la règle de la barre de survol (`etoileDisponible`).
+ * et l'écran n'affiche alors AUCUNE étoile dans le bloc d'en-tête — plutôt qu'une étoile éteinte, qui dirait
+ * faussement « ce mail n'est pas suivi ». C'est déjà la règle de la barre de survol (`etoileDisponible`).
  */
-export async function lireEtoileFil(filId: number): Promise<{ etoilee: boolean; disponible: boolean }> {
+export async function lireEtoilesDuFil(filId: number): Promise<{ disponible: boolean; etoiles: number[] }> {
   try {
     const res = await fetch(`/api/admin/gestion/fils/${filId}/etoile`, { cache: 'no-store' });
-    const d = (await res.json().catch(() => ({}))) as { etoilee?: boolean; disponible?: boolean };
-    if (!res.ok || d.disponible !== true) return { etoilee: false, disponible: false };
-    return { etoilee: d.etoilee === true, disponible: true };
+    const d = (await res.json().catch(() => ({}))) as { etoiles?: unknown; disponible?: boolean };
+    if (!res.ok || d.disponible !== true) return { disponible: false, etoiles: [] };
+    /* ⚠️ ON NE FAIT CONFIANCE QU'À DES NOMBRES : une réponse abîmée ne doit pas peupler l'état d'un `NaN`. */
+    const etoiles = Array.isArray(d.etoiles)
+      ? d.etoiles.filter((n): n is number => typeof n === 'number' && Number.isInteger(n))
+      : [];
+    return { disponible: true, etoiles };
   } catch {
-    return { etoilee: false, disponible: false };
+    return { disponible: false, etoiles: [] };
   }
 }
 

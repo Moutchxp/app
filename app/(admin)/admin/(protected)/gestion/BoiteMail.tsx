@@ -726,12 +726,27 @@ export function BoiteMail({
   /**
    * 🔴🔴 L'ÉCOUTE : une étoile basculée DANS LE MAIL OUVERT allume la ligne et sa barre de survol, en direct.
    *
+   * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — LA LIGNE LIT `filEtoile`, ET PLUS `etoilee` ════════════════════════════════
+   *
+   * 🔴 LA RÈGLE DE CETTE LIGNE NE CHANGE PAS, ET ARNO L'A DEMANDÉ EXPLICITEMENT : une ligne d'ici représente une
+   * CONVERSATION, et son étoile est allumée dès qu'AU MOINS UN mail de l'échange est étoilé. C'est la règle du
+   * serveur (`boiteRepo.sqlEtoile` / `filsEtoiles`, sur `gestion_message.etoile_le`), et elle reste la seule.
+   *
+   * 🔴 CE QUI CHANGE, C'EST CE QU'ON ÉCOUTE. `etoilee` porte désormais l'état D'UN MAIL, qui ne dit rien de la
+   * ligne : retirer l'étoile d'un mail parmi trois laisse l'échange étoilé. `filEtoile` est le champ qui répond
+   * à la question de la ligne, calculé par l'écran qui connaît les mails (la conversation).
+   *
+   * ⚠️ `null` = L'ÉMETTEUR NE SAIT PAS. La ligne garde alors l'état qu'elle a, et la relecture suivante la remet
+   * droite. Deviner — éteindre par symétrie — aurait éteint la ligne d'un échange encore étoilé : c'est
+   * exactement le mensonge que la porte d'écriture refuse de produire.
+   *
    * ⚠️ ON S'ÉCOUTE AUSSI SOI-MÊME, et sans dommage : le signal porte l'état CONFIRMÉ, qui est déjà celui qu'on a
    * posé d'avance. Un garde « ne pas s'entendre » n'aurait servi qu'à compliquer — ici, s'entendre REMET DROIT
    * (si Gmail a rendu un autre état que celui demandé, c'est le sien qui gagne).
    */
-  useEffect(() => ecouterEtoile(({ filId, etoilee }) => {
-    setEtoilees((m) => new Map(m).set(filId, etoilee));
+  useEffect(() => ecouterEtoile(({ filId, filEtoile }) => {
+    if (filEtoile === null) return;
+    setEtoilees((m) => new Map(m).set(filId, filEtoile));
   }), []);
 
   /**

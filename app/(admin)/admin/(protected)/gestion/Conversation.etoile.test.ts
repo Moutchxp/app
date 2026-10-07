@@ -4,62 +4,103 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { Conversation } from './Conversation';
-import { gesteEtoileFil, lireEtoileFil } from './gestesLigne';
+import { gesteEtoileMessage, lireEtoilesDuFil } from './gestesLigne';
 import { annoncerEtoile, ecouterEtoile } from '../../../../lib/gestion/signalEtoile';
 
 /**
- * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ÉTOILE DU MAIL OUVERT ══════════════════════════════════════════════
+ * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — L'ÉTOILE D'UN MAIL NE DÉBORDE JAMAIS SUR UN AUTRE ═════════════════════════════
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * RÈGLE D'ARNO (05/10/2026) : « À côté de la grande corbeille du bloc gris De / À / Cc / Date […], une icône
- * étoile. C'est la MÊME fonction et le MÊME état que l'étoile de la barre de survol des lignes et que l'étoile
- * rouge affichée sur la ligne : une seule porte d'écriture, un seul état. Cliquer l'une allume ou éteint les
- * trois en direct (ligne, barre de survol, mail ouvert), dans les deux sens. […] Étoile active : rouge pleine.
- * Inactive : contour. Info-bulle “Ajouter une étoile” / “Retirer l'étoile”. Dans la Corbeille, l'étoile reste
- * disponible. »
+ * BUG CONSTATÉ PAR ARNO (07/10/2026, fil 36764 « Facture Huissier », 3 mails) : il clique la GRANDE étoile du mail
+ * déplié du 06/10 16:31 (De Gestion CRITERIMMO À Jean David Bile) ; c'est l'étoile du mail du HAUT (07/10 09:32)
+ * qui s'allume en rouge.
+ *
+ * ═══ 🔴🔴 CE QUE LE DIAGNOSTIC A TROUVÉ — TROIS GRAINS, ET AUCUN N'ÉTAIT LE BON ═══════════════════════════════
+ *
+ *   ① L'ÉTAT était celui de l'ÉCHANGE (`etoileFil`, un booléen « au moins un mail est étoilé ») : les trois
+ *      grandes étoiles du fil affichaient donc la MÊME chose, et aucune ne parlait de son mail.
+ *   ② LA PORTE D'ÉCRITURE était celle de l'ÉCHANGE (`POST /fils/:id/etoile`) : elle ne reçoit AUCUN identifiant
+ *      de message et pose l'étoile sur « le dernier message de l'échange » (`recu_le DESC, id DESC`).
+ *   ③ LE SIGNAL ne portait que `{ filId, etoilee }` : l'écran devait DEVINER quel mail allumer, et devinait
+ *      « le dernier » — la même règle que la porte, donc la même erreur.
+ *
+ * MESURÉ EN BASE sur le fil 36764 : `gestion_message.etoile_le` posé sur le message 57652 (07/10 09:32, le plus
+ * récent), jamais sur le 57625 (06/10 16:31, celui qu'il avait sous le curseur).
+ *
+ * ═══ 🔴 RÈGLE D'ARNO, ÉPROUVÉE ICI ═════════════════════════════════════════════════════════════════════════════
+ *
+ * « Une étoile ne concerne QUE le mail sur lequel on clique. Elle ne déborde jamais sur un autre mail, ni de la
+ * conversation, ni d'ailleurs. L'état, la porte d'écriture et l'affichage sont tous par IDENTIFIANT DE MESSAGE. »
  *
  * CE QUE CE FICHIER TIENT :
- *
- *   ① L'ÉTOILE EST LÀ, DANS LE BLOC D'EN-TÊTE, et elle dit son état (pleine / contour, et le MOT qui va avec).
- *   ② CLIQUER PASSE PAR LA PORTE UNIQUE — la route de l'échange, jamais celle du message.
- *   ③ LES TROIS SENS : le clic du mail ouvert allume les autres ; un clic venu d'ailleurs l'allume, lui.
- *   ④ ELLE RESTE SUR UN MAIL À LA CORBEILLE, et disparaît quand le geste n'est pas possible (migration absente).
+ *   ① L'ÉTOILE EST LÀ, DANS LE BLOC D'EN-TÊTE DE CHAQUE MAIL, et elle dit l'état DE CE MAIL.
+ *   ② CLIQUER ÉCRIT SUR LA ROUTE **DU MESSAGE**, jamais sur celle de l'échange.
+ *   ③ LE CAS D'ARNO : 3 mails, étoile sur le 2ᵉ ⇒ SEUL le 2ᵉ est étoilé.
+ *   ④ LES DEUX SENS DU SIGNAL, et il NOMME le mail.
+ *   ⑤ CE QUI N'A PAS CHANGÉ : indisponible ⇒ aucune étoile, et un mail à la corbeille garde la sienne.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const SRC = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
 
-const message = (o: Record<string, unknown> = {}) => ({
-  messageId: 57523, messageIdRfc: '<m1@orange.fr>', sens: 'recu', de: 'martin@orange.fr', deNom: 'Mme Martin',
-  recuLe: '2026-09-21T08:00:00Z', objet: 'Paiement loyer Octobre',
+/** Les trois mails du fil d'Arno, aux heures qu'il a relevées. */
+const M1 = 57625; // 06/10 16:31 — celui qu'il a cliqué
+const M2 = 57646; // 06/10 20:53
+const M3 = 57652; // 07/10 09:32 — LE PLUS RÉCENT, celui qui s'allumait à tort
+
+const message = (id: number, recuLe: string, o: Record<string, unknown> = {}) => ({
+  messageId: id, messageIdRfc: `<m${id}@criterimmo.fr>`, sens: 'envoye', de: 'gestion@criterimmo.fr',
+  deNom: 'Gestion CRITERIMMO', recuLe, objet: 'Facture Huissier',
   corps: null, extrait: 'message', automatique: false, pieces: [],
   horsFile: false, motifHorsFile: null, nonRemises: [],
   destA: null, destCc: null, destinatairesFondus: null, aHtml: false, html: null,
   aLaCorbeille: false, ...o,
 });
-const FIL = (m: Record<string, unknown>) => ({
-  fil: { filId: 3495, objet: 'Paiement loyer Octobre', etat: 'a_classer', reference: null, evenementId: null },
-  messages: [m], partis: [],
+const FIL = () => ({
+  fil: { filId: 36764, objet: 'Facture Huissier', etat: 'a_classer', reference: null, evenementId: null },
+  messages: messagesServis,
+  partis: [],
 });
+const REDACTION = {
+  adresseGestion: 'gestion@criterimmo.fr', signature: '', peutEnvoyer: true, schemaPret: true, delaiAnnulationS: 10,
+};
 
 let container: HTMLDivElement;
 let root: Root;
 let appels: { url: string; methode: string; corps: unknown }[];
-let etoileServie: { etoilee: boolean; disponible: boolean };
-let messageServi: Record<string, unknown>;
+let etoileServie: { disponible: boolean; etoiles: number[] };
+let messagesServis: Record<string, unknown>[];
+/** L'état Gmail de chaque mail, tel que la vraie boîte le rendrait. La route le BASCULE, comme Gmail. */
+let etoilesGmail: Map<number, boolean>;
+let avecBarre: boolean;
 
 const servir = (): void => {
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     const methode = init?.method ?? 'GET';
     appels.push({ url: u, methode, corps: JSON.parse(String(init?.body ?? 'null')) });
-    if (u.includes('/etoile') && methode === 'POST') {
-      const c = JSON.parse(String(init?.body ?? '{}')) as { etoilee?: boolean };
-      return { ok: true, json: async () => ({ ok: true, etoilee: c.etoilee === true, touches: 1 }) } as Response;
+    /* ⚠️ `/gmail` SE TESTE AVANT `/messages` : la route par message contient les deux mots. */
+    const gmail = /\/messages\/(\d+)\/gmail/.exec(u);
+    if (gmail !== null) {
+      const id = Number(gmail[1]);
+      if (methode === 'POST') {
+        const vise = !(etoilesGmail.get(id) ?? false);
+        etoilesGmail.set(id, vise);
+        /* 🔴 LE MIROIR SUIT GMAIL, comme le fait le serveur : l'échange rendra désormais ce mail-là. */
+        etoileServie = {
+          disponible: etoileServie.disponible,
+          etoiles: [...etoilesGmail].filter(([, e]) => e).map(([i]) => i),
+        };
+        return { ok: true, json: async () => ({ ok: true, etat: { etoile: vise, nonLu: false } }) } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ etat: { etoile: etoilesGmail.get(id) ?? false, nonLu: false } }),
+      } as unknown as Response;
     }
     if (u.includes('/etoile')) return { ok: true, json: async () => etoileServie } as unknown as Response;
-    if (u.includes('/messages')) return { ok: true, json: async () => FIL(messageServi) } as unknown as Response;
+    if (u.includes('/messages')) return { ok: true, json: async () => FIL() } as unknown as Response;
     if (u.includes('/corps')) {
       return { ok: true, json: async () => ({ corps: 'texte', html: null }) } as unknown as Response;
     }
@@ -69,18 +110,26 @@ const servir = (): void => {
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  try { globalThis.localStorage?.clear(); } catch { /* stockage refusé : le test vaut quand même */ }
   appels = [];
-  etoileServie = { etoilee: false, disponible: true };
-  messageServi = message();
+  etoileServie = { disponible: true, etoiles: [] };
+  etoilesGmail = new Map();
+  avecBarre = false;
+  messagesServis = [
+    message(M1, '2026-10-06T14:31:00Z'),
+    message(M2, '2026-10-06T18:53:00Z'),
+    message(M3, '2026-10-07T07:32:00Z'),
+  ];
   servir();
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
-const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
+const calmer = async () => { await act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); }); };
 const monter = async () => {
   await act(async () => {
     root.render(createElement(Conversation, {
-      filId: 3495, maintenant: new Date('2026-09-29T12:00:00Z'), onGeste: () => {}, onFerme: () => {},
+      filId: 36764, maintenant: new Date('2026-10-07T12:00:00Z'), onGeste: () => {}, onFerme: () => {},
+      ...(avecBarre ? { barreActions: true, redaction: REDACTION } : {}),
     } as never));
   });
   await calmer();
@@ -89,103 +138,93 @@ const cliquer = async (e: Element | null | undefined) => {
   await act(async () => { (e as HTMLElement)?.click(); }); await calmer();
 };
 /**
- * ⚠️ UN FIL D'UN SEUL MESSAGE S'OUVRE DÉJÀ DÉPLIÉ : cliquer sans regarder l'aurait REFERMÉ, et le bloc d'en-tête
- * — où vit l'étoile — n'existe que déplié. Ma première version de cette aide a échoué pour cette raison, pas
- * pour un défaut du produit.
+ * ⚠️ LE BLOC D'EN-TÊTE — OÙ VIT LA GRANDE ÉTOILE — N'EXISTE QUE DÉPLIÉ, et un mail déjà déplié se REFERMERAIT
+ * au clic. On regarde donc `aria-expanded` avant de cliquer, pour chacun.
  */
-const deplier = async () => {
-  const l = container.querySelector('.cnv-ligne');
-  if (l?.getAttribute('aria-expanded') !== 'true') await cliquer(l);
+const deplierTout = async () => {
+  for (const l of [...container.querySelectorAll('.cnv-ligne')]) {
+    if (l.getAttribute('aria-expanded') !== 'true') await cliquer(l);
+  }
 };
 /**
- * ⚠️ `.cnv-entete-etoile` ET NON `.cnv-etoile` : ce dernier nom était DÉJÀ pris par l'étoile par message de la
- * barre de survol. La collision s'est vue à l'écran (case blanche perdue) — voir l'encadré de la feuille.
+ * ⚠️ ON DÉSIGNE UN MAIL PAR `data-message`, JAMAIS PAR SA PLACE : l'ordre d'affichage est un réglage (plus récent
+ * ou plus ancien d'abord), et viser « le deuxième du DOM » désignerait un autre mail selon le réglage. C'est
+ * exactement l'ambiguïté dont le bug d'Arno est fait.
  */
-const etoile = (): HTMLButtonElement | null => container.querySelector('.cnv-entete-etoile');
+const grandeEtoile = (id: number): HTMLButtonElement | null =>
+  container.querySelector(`[data-message="${id}"] .cnv-entete-etoile`);
+const pleine = (id: number): boolean =>
+  grandeEtoile(id)?.className.includes('cnv-entete-etoile--pleine') === true;
+/** L'étoile de la RANGÉE du mail (statut · heure · étoile · ⋮), celle qui n'existe qu'en plein écran. */
+const etoileRangee = (id: number): HTMLButtonElement | null =>
+  container.querySelector(`[data-message="${id}"] .cnv-etoile`);
+const ecrituresEtoile = () => appels.filter((a) => a.methode === 'POST' && /\/gmail$/.test(a.url));
 
-describe('🔴🔴 ① l’étoile est dans le bloc d’en-tête, et elle dit son état', () => {
-  it('🔴 elle est là, à côté de la grande corbeille, dans la même case', async () => {
+describe('🔴🔴 ① l’étoile du bloc d’en-tête dit l’état DE SON MAIL', () => {
+  it('🔴 chaque mail déplié porte la sienne, dans la même case que la corbeille', async () => {
     await monter();
-    await deplier();
-    expect(etoile()).not.toBeNull();
-    /* 🔴 LA MÊME CASE QUE LA CORBEILLE : `cnv-corbeille` porte la taille et le fond ; `cnv-etoile` la couleur. */
-    expect(etoile()?.className).toContain('cnv-corbeille');
+    await deplierTout();
+    for (const id of [M1, M2, M3]) {
+      expect(grandeEtoile(id), String(id)).not.toBeNull();
+      /* 🔴 LA MÊME CASE QUE LA CORBEILLE : `cnv-corbeille` porte la taille et le fond. */
+      expect(grandeEtoile(id)?.className).toContain('cnv-corbeille');
+    }
+  });
+
+  /**
+   * 🔴🔴 LE CŒUR DU LOT : UN SEUL MAIL ÉTOILÉ ⇒ UNE SEULE ÉTOILE ALLUMÉE. Avant ce lot, les trois affichaient
+   * l'état de l'ÉCHANGE : étoiler n'importe lequel les allumait toutes les trois.
+   */
+  it('🔴🔴 un seul mail étoilé n’allume que SON étoile', async () => {
+    etoileServie = { disponible: true, etoiles: [M2] };
+    await monter();
+    await deplierTout();
+    expect(pleine(M2)).toBe(true);
+    expect(pleine(M1)).toBe(false);
+    expect(pleine(M3)).toBe(false);
   });
 
   /** 🔴 ÉTEINTE : CONTOUR, et le mot qui PROMET le geste — « Ajouter une étoile ». */
   it('🔴 éteinte : contour, et « Ajouter une étoile »', async () => {
     await monter();
-    await deplier();
-    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
-    expect(etoile()?.getAttribute('title')).toBe('Ajouter une étoile');
-    expect(etoile()?.getAttribute('aria-pressed')).toBe('false');
+    await deplierTout();
+    expect(grandeEtoile(M1)?.getAttribute('title')).toBe('Ajouter une étoile');
+    expect(grandeEtoile(M1)?.getAttribute('aria-pressed')).toBe('false');
   });
 
   /** 🔴 ALLUMÉE : ROUGE PLEINE, et « Retirer l'étoile ». Le MOT change, jamais la seule couleur. */
   it('🔴 allumée : pleine, et « Retirer l’étoile »', async () => {
-    etoileServie = { etoilee: true, disponible: true };
+    etoileServie = { disponible: true, etoiles: [M1] };
     await monter();
-    await deplier();
-    expect(etoile()?.className).toContain('cnv-entete-etoile--pleine');
-    expect(etoile()?.getAttribute('title')).toBe('Retirer l’étoile');
-    expect(etoile()?.getAttribute('aria-pressed')).toBe('true');
-  });
-
-  /**
-   * ⚠️ MIGRATION 277 ABSENTE ⇒ AUCUNE ÉTOILE. Une étoile éteinte dirait faussement « cet échange n'est pas
-   * suivi », là où la vérité est « on ne peut pas le savoir ». C'est déjà la règle de la barre de survol.
-   */
-  it('⚠️ geste impossible ⇒ aucune étoile, plutôt qu’une étoile éteinte', async () => {
-    etoileServie = { etoilee: false, disponible: false };
-    await monter();
-    await deplier();
-    expect(etoile()).toBeNull();
-  });
-
-  /** 🔴 « Dans la Corbeille, l'étoile reste disponible » (Arno) — là où la corbeille devient « Réintégrer ». */
-  it('🔴 un mail à la corbeille garde son étoile', async () => {
-    messageServi = message({ aLaCorbeille: true });
-    await monter();
-    await deplier();
-    expect(etoile()).not.toBeNull();
+    await deplierTout();
+    expect(pleine(M1)).toBe(true);
+    expect(grandeEtoile(M1)?.getAttribute('title')).toBe('Retirer l’étoile');
+    expect(grandeEtoile(M1)?.getAttribute('aria-pressed')).toBe('true');
   });
 });
 
-describe('🔴🔴 ② une seule porte d’écriture', () => {
+describe('🔴🔴 ② la porte d’écriture est celle du MESSAGE', () => {
   /**
-   * 🔴🔴 LA ROUTE DE L'ÉCHANGE, ET NON CELLE DU MESSAGE. L'étoile de la ligne est celle de l'ÉCHANGE (« dès
-   * qu'au moins un message est étoilé », décision d'Arno au lot ETOILE-ET-SIGNATURE) : écrire sur le message
-   * aurait donné deux étoiles, deux états — exactement ce qu'il interdit.
+   * 🔴🔴 LA CAUSE DU BUG, PRISE À LA RACINE. La grande étoile écrivait sur `POST /fils/:id/etoile`, qui ne reçoit
+   * aucun identifiant de message et pose l'étoile sur « le dernier message de l'échange ». Elle écrit maintenant
+   * sur la route DU MAIL cliqué — la même que l'étoile de sa rangée utilisait déjà.
    */
-  it('🔴🔴 cliquer écrit sur `/fils/3495/etoile`, jamais sur le message', async () => {
+  it('🔴🔴 cliquer écrit sur `/messages/<ce mail>/gmail`, jamais sur `/fils/.../etoile`', async () => {
     await monter();
-    await deplier();
-    await cliquer(etoile());
-    /* ⚠️ ON FILTRE SUR L'ÉTOILE : la conversation marque aussi l'échange LU en arrivant (`/lecture`), et ce
-       POST-là n'a rien à voir avec ce cas. */
-    const ecritures = appels.filter((a) => a.methode === 'POST' && a.url.includes('/etoile'));
-    expect(ecritures).toHaveLength(1);
-    expect(ecritures[0].url).toContain('/fils/3495/etoile');
-    expect(ecritures[0].corps).toEqual({ etoilee: true });
-    /* 🔴 ET RIEN SUR LA ROUTE DU MESSAGE : deux étoiles, deux états, c'est ce qu'Arno interdit. */
-    expect(appels.filter((a) => a.methode === 'POST' && a.url.includes('/messages/'))).toEqual([]);
+    await deplierTout();
+    await cliquer(grandeEtoile(M1));
+    expect(ecrituresEtoile()).toHaveLength(1);
+    expect(ecrituresEtoile()[0].url).toContain(`/messages/${M1}/gmail`);
+    expect(ecrituresEtoile()[0].corps).toEqual({ action: 'etoile' });
+    /* 🔴 ET PLUS RIEN SUR LA PORTE DE L'ÉCHANGE : c'est elle qui débordait sur un autre mail. */
+    expect(appels.filter((a) => a.methode === 'POST' && a.url.includes('/etoile'))).toEqual([]);
   });
 
-  /** 🔴 L'ÉTAT DEMANDÉ EST ENVOYÉ, jamais « l'inverse de ce qui est là » : deux clics ne peuvent pas se croiser. */
-  it('🔴 un second clic demande l’état inverse, explicitement', async () => {
-    etoileServie = { etoilee: true, disponible: true };
+  it('⚠️ elle s’allume aussitôt, sans attendre la réponse du serveur', async () => {
     await monter();
-    await deplier();
-    await cliquer(etoile());
-    expect(appels.filter((a) => a.methode === 'POST' && a.url.includes('/etoile'))[0].corps)
-      .toEqual({ etoilee: false });
-  });
-
-  it('⚠️ elle s’allume aussitôt, sans attendre la relecture', async () => {
-    await monter();
-    await deplier();
-    await cliquer(etoile());
-    expect(etoile()?.className).toContain('cnv-entete-etoile--pleine');
+    await deplierTout();
+    await cliquer(grandeEtoile(M1));
+    expect(pleine(M1)).toBe(true);
   });
 
   /**
@@ -194,126 +233,275 @@ describe('🔴🔴 ② une seule porte d’écriture', () => {
    */
   it('🔴 un refus du serveur remet l’étoile dans son état d’avant', async () => {
     await monter();
-    await deplier();
+    await deplierTout();
     global.fetch = vi.fn(async () => (
       { ok: false, json: async () => ({ erreur: 'Gmail refuse.' }) } as unknown as Response)
     ) as unknown as typeof fetch;
-    await cliquer(etoile());
-    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
+    await cliquer(grandeEtoile(M1));
+    expect(pleine(M1)).toBe(false);
   });
 });
 
-describe('🔴🔴 ③ les trois en direct, dans les deux sens', () => {
+describe('🔴🔴 ③ LE CAS D’ARNO : 3 mails, étoile sur le 2ᵉ', () => {
   /**
-   * 🔴🔴 LE SENS « MAIL OUVERT → LES AUTRES ». La ligne et sa barre de survol vivent dans `BoiteMail`, montée à
-   * CÔTÉ de la conversation : c'est le signal qui les relie (voir `signalEtoile`).
+   * ══ 🔴🔴 LE TEST QUE DEMANDE ARNO, MOT POUR MOT ══════════════════════════════════════════════════════════════
+   * « 3 mails dans un fil, étoile sur le 2ᵉ → seul le 2ᵉ est étoilé, dans les deux écrans. »
+   *
+   * 🔴 ET IL ÉPROUVE LES TROIS GRAINS À LA FOIS : la route visée (le 2ᵉ mail), l'affichage (son étoile seule), et
+   * ce que les autres mails ne font PAS (le 3ᵉ — le plus récent — est celui qui s'allumait à tort).
    */
-  it('🔴🔴 cliquer dans le mail ouvert annonce l’état VOULU, puis le CONFIRMÉ', async () => {
-    /**
-     * ══ 🔴🔴 CE CAS A CHANGÉ DE VERDICT — LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 ════════════════════════════
-     *
-     * IL ATTENDAIT **UNE SEULE** ANNONCE, celle de l'état confirmé : c'était le contrat « on n'annonce que ce
-     * qui est écrit ». Mesuré à l'écran le 06/10/2026, ce contrat donnait **721 ms** pendant lesquels l'étoile
-     * cliquée et celle de la ligne se contredisaient — le défaut qu'Arno signale.
-     *
-     * 🔴 LA PORTE ANNONCE MAINTENANT DEUX FOIS : l'état VOULU avant d'écrire (toutes les étoiles basculent dans
-     * la même image), puis l'état CONFIRMÉ au retour. Les deux valeurs sont identiques quand tout va bien — on
-     * réémet quand même, parce que le serveur peut rendre autre chose (étoile posée depuis un téléphone).
-     */
-    const vus: { filId: number; etoilee: boolean }[] = [];
-    const stop = ecouterEtoile((s) => vus.push(s));
+  it('🔴🔴 seul le 2ᵉ mail est écrit, et seule son étoile s’allume', async () => {
     await monter();
-    await deplier();
-    await cliquer(etoile());
-    stop();
-    expect(vus).toEqual([{ filId: 3495, etoilee: true }, { filId: 3495, etoilee: true }]);
-    /* 🔴 ET LA PREMIÈRE PART AVANT L'ÉCRITURE : c'est elle qui fait l'instantané. */
-    expect(vus[0]).toEqual({ filId: 3495, etoilee: true });
+    await deplierTout();
+    await cliquer(grandeEtoile(M2));
+
+    /* ① LA ROUTE : le 2ᵉ mail, et lui seul. */
+    expect(ecrituresEtoile().map((a) => a.url.replace(/^.*\/messages\//, '/messages/')))
+      .toEqual([`/messages/${M2}/gmail`]);
+    /* ② L'AFFICHAGE : son étoile, et elle seule. */
+    expect(pleine(M2)).toBe(true);
+    expect(pleine(M1)).toBe(false);
+    /* 🔴 LE MAIL DU HAUT — LE PLUS RÉCENT — EST CELUI QUI S'ALLUMAIT À TORT. Il reste éteint. */
+    expect(pleine(M3)).toBe(false);
+    /* ③ L'ÉTAT GMAIL SIMULÉ : une seule étoile posée, sur le bon mail. */
+    expect([...etoilesGmail].filter(([, e]) => e).map(([i]) => i)).toEqual([M2]);
   });
 
-  /** 🔴🔴 LE SENS INVERSE : un clic sur la LIGNE (ou sa barre de survol) allume le mail ouvert. */
-  it('🔴🔴 une étoile posée ailleurs allume celle du mail ouvert', async () => {
+  /**
+   * 🔴 ET LE RETRAIT NE DÉBORDE PAS DAVANTAGE. La porte de l'ÉCHANGE retirait l'étoile de TOUS les mails étoilés
+   * du fil (c'est sa règle, et elle a du sens pour une LIGNE de la boîte) : depuis le mail ouvert, ce serait
+   * décrocher l'étoile d'un mail qu'on ne regardait pas.
+   */
+  it('🔴 retirer l’étoile du 2ᵉ laisse celle du 1ᵉʳ en place', async () => {
+    etoilesGmail = new Map([[M1, true], [M2, true]]);
+    etoileServie = { disponible: true, etoiles: [M1, M2] };
     await monter();
-    await deplier();
-    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
-    await act(async () => { annoncerEtoile({ filId: 3495, etoilee: true }); });
+    await deplierTout();
+    await cliquer(grandeEtoile(M2));
+    expect(pleine(M2)).toBe(false);
+    expect(pleine(M1)).toBe(true);
+    expect(ecrituresEtoile()).toHaveLength(1);
+  });
+
+  /**
+   * 🔴🔴 « LES TROIS ÉTOILES D'UN MÊME MAIL RESTENT SYNCHRONISÉES ENTRE ELLES » (Arno). En plein écran, un mail
+   * en montre deux : celle de sa rangée et la grande du bloc gris. Cliquer l'une bascule les deux, dans la même
+   * image — elles lisent un seul état et appellent une seule fonction.
+   */
+  it('🔴🔴 les deux étoiles d’un mail basculent ensemble, et celles des autres ne bougent pas', async () => {
+    avecBarre = true;
+    await monter();
+    await deplierTout();
+    expect(etoileRangee(M2), 'l’étoile de rangée existe en plein écran').not.toBeNull();
+    await cliquer(etoileRangee(M2));
+    expect(etoileRangee(M2)?.className).toContain('cnv-etoile--posee');
+    expect(pleine(M2)).toBe(true);
+    /* 🔴 ET RIEN CHEZ LES AUTRES, ni la rangée ni la grande. */
+    expect(etoileRangee(M3)?.className).not.toContain('cnv-etoile--posee');
+    expect(pleine(M3)).toBe(false);
+    expect(pleine(M1)).toBe(false);
+  });
+});
+
+describe('🔴🔴 ④ le signal NOMME le mail, dans les deux sens', () => {
+  /**
+   * 🔴🔴 LE SENS « MAIL OUVERT → LES AUTRES ÉCRANS ». La ligne de la boîte et sa barre de survol vivent dans
+   * `BoiteMail`, montée à CÔTÉ de la conversation : c'est le signal qui les relie (voir `signalEtoile`).
+   *
+   * 🔴 DEUX ANNONCES PAR GESTE (lot INSTANTANE-ETOILE-CORBEILLE) : l'état VOULU avant l'écriture — toutes les
+   * étoiles de ce mail basculent dans la même image —, puis l'état CONFIRMÉ par Gmail au retour.
+   *
+   * 🔴 ET `filEtoile` RÉPOND À LA LIGNE DE LA BOÎTE, dont la règle NE CHANGE PAS : elle s'allume dès qu'au moins
+   * un mail de l'échange est étoilé. Poser ⇒ `true` à coup sûr.
+   */
+  it('🔴🔴 cliquer annonce le mail visé, l’état voulu puis le confirmé', async () => {
+    const vus: unknown[] = [];
+    const stop = ecouterEtoile((s) => vus.push(s));
+    await monter();
+    await deplierTout();
+    await cliquer(grandeEtoile(M1));
+    stop();
+    expect(vus).toEqual([
+      { filId: 36764, messageId: M1, etoilee: true, filEtoile: true },
+      { filId: 36764, messageId: M1, etoilee: true, filEtoile: true },
+    ]);
+  });
+
+  /**
+   * 🔴🔴 RETIRER L'ÉTOILE D'UN MAIL PARMI PLUSIEURS N'ÉTEINT PAS LA LIGNE. C'est la conversation qui le tranche —
+   * elle seule connaît l'étoile de chacun de ses mails — et elle le dit dans `filEtoile`.
+   */
+  it('🔴🔴 retirer une étoile parmi deux annonce « l’échange reste étoilé »', async () => {
+    etoilesGmail = new Map([[M1, true], [M2, true]]);
+    etoileServie = { disponible: true, etoiles: [M1, M2] };
+    const vus: { filEtoile: boolean | null }[] = [];
+    const stop = ecouterEtoile((s) => vus.push(s));
+    await monter();
+    await deplierTout();
+    await cliquer(grandeEtoile(M2));
+    stop();
+    expect(vus[0]).toEqual({ filId: 36764, messageId: M2, etoilee: false, filEtoile: true });
+  });
+
+  /** 🔴 ET LA DERNIÈRE ÉTOILE RETIRÉE, ELLE, ÉTEINT BIEN LA LIGNE. */
+  it('🔴 retirer la seule étoile de l’échange annonce « plus étoilé »', async () => {
+    etoilesGmail = new Map([[M2, true]]);
+    etoileServie = { disponible: true, etoiles: [M2] };
+    const vus: { filEtoile: boolean | null }[] = [];
+    const stop = ecouterEtoile((s) => vus.push(s));
+    await monter();
+    await deplierTout();
+    await cliquer(grandeEtoile(M2));
+    stop();
+    expect(vus[0]).toEqual({ filId: 36764, messageId: M2, etoilee: false, filEtoile: false });
+  });
+
+  /** 🔴🔴 LE SENS INVERSE : un signal venu d'ailleurs allume l'étoile DU MAIL QU'IL NOMME, et d'aucun autre. */
+  it('🔴🔴 un signal venu d’ailleurs n’allume que le mail qu’il nomme', async () => {
+    await monter();
+    await deplierTout();
+    await act(async () => {
+      annoncerEtoile({ filId: 36764, messageId: M1, etoilee: true, filEtoile: true });
+    });
     await calmer();
-    expect(etoile()?.className).toContain('cnv-entete-etoile--pleine');
-    /* ⚠️ ET DANS L'AUTRE SENS AUSSI : décrocher ailleurs éteint ici. */
-    await act(async () => { annoncerEtoile({ filId: 3495, etoilee: false }); });
+    expect(pleine(M1)).toBe(true);
+    expect(pleine(M2)).toBe(false);
+    expect(pleine(M3)).toBe(false);
+    /* ⚠️ ET DANS L'AUTRE SENS AUSSI. */
+    await act(async () => {
+      annoncerEtoile({ filId: 36764, messageId: M1, etoilee: false, filEtoile: false });
+    });
     await calmer();
-    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
+    expect(pleine(M1)).toBe(false);
+  });
+
+  /**
+   * ⚠️ `messageId: null` = LE GESTE EST VENU D'UNE **LIGNE** DE LA BOÎTE, où une ligne représente une
+   * CONVERSATION. On applique alors la règle de cette porte, qui n'est pas symétrique : poser va sur le DERNIER
+   * mail, retirer passe sur TOUS. Cette règle-là n'a pas changé, et Arno a demandé qu'elle ne change pas.
+   */
+  it('⚠️ un geste venu d’une LIGNE pose sur le dernier mail, et retire sur tous', async () => {
+    await monter();
+    await deplierTout();
+    await act(async () => {
+      annoncerEtoile({ filId: 36764, messageId: null, etoilee: true, filEtoile: true });
+    });
+    await calmer();
+    expect(pleine(M3), 'le plus récent, celui que la route de l’échange vise').toBe(true);
+    expect(pleine(M1)).toBe(false);
+    expect(pleine(M2)).toBe(false);
+    await act(async () => {
+      annoncerEtoile({ filId: 36764, messageId: null, etoilee: false, filEtoile: false });
+    });
+    await calmer();
+    expect(pleine(M3)).toBe(false);
   });
 
   /**
    * ⚠️ ON NE RETIENT QUE SON PROPRE ÉCHANGE : deux conversations peuvent être montées en même temps (l'écran
    * partagé en ouvre une, une carte vive une autre), et chacune ne doit s'allumer que pour elle.
    */
-  it('⚠️ l’étoile d’un AUTRE échange ne l’allume pas', async () => {
+  it('⚠️ l’étoile d’un AUTRE échange n’allume rien ici', async () => {
     await monter();
-    await deplier();
-    await act(async () => { annoncerEtoile({ filId: 99999, etoilee: true }); });
+    await deplierTout();
+    await act(async () => {
+      annoncerEtoile({ filId: 99999, messageId: M1, etoilee: true, filEtoile: true });
+    });
     await calmer();
-    expect(etoile()?.className).not.toContain('cnv-entete-etoile--pleine');
+    expect(pleine(M1)).toBe(false);
+  });
+});
+
+describe('🔴 ⑤ ce qui n’a pas changé', () => {
+  /**
+   * ⚠️ MIGRATION 277 ABSENTE ⇒ AUCUNE ÉTOILE. Une étoile éteinte dirait faussement « ce mail n'est pas suivi »,
+   * là où la vérité est « on ne peut pas le savoir ». C'est déjà la règle de la barre de survol.
+   */
+  it('⚠️ geste impossible ⇒ aucune étoile, plutôt qu’une étoile éteinte', async () => {
+    etoileServie = { disponible: false, etoiles: [] };
+    await monter();
+    await deplierTout();
+    expect(grandeEtoile(M1)).toBeNull();
   });
 
-  it('🔴🔴 un geste REFUSÉ ramène TOUTES les étoiles à l’état d’avant', async () => {
-    /**
-     * ══ 🔴🔴 CE CAS A CHANGÉ DE VERDICT — LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 ════════════════════════════
-     *
-     * IL DISAIT : « un geste refusé n'annonce rien — les autres écrans n'ont rien vu, ce qui est exact ». C'était
-     * vrai TANT QUE personne n'avait bougé avant la réponse. Depuis que l'état voulu est annoncé d'avance, « ne
-     * rien dire » laisserait toutes les étoiles allumées sur un geste que le serveur a refusé.
-     *
-     * 🔴 RÈGLE D'ARNO : « En cas d'échec, TOUTES reviennent à l'état d'avant, avec un message court. » Deux
-     * annonces, donc : l'état voulu, puis son contraire — et c'est bien tout le monde qui revient, pas seulement
-     * le bouton cliqué.
-     */
-    const vus: { filId: number; etoilee: boolean }[] = [];
+  /** 🔴 « Dans la Corbeille, l'étoile reste disponible » (Arno) — là où la corbeille devient « Réintégrer ». */
+  it('🔴 un mail à la corbeille garde son étoile', async () => {
+    messagesServis = [message(M1, '2026-10-06T14:31:00Z', { aLaCorbeille: true })];
+    await monter();
+    await deplierTout();
+    expect(grandeEtoile(M1)).not.toBeNull();
+  });
+});
+
+describe('🔴 ⑥ la porte, et ce qu’elle lit', () => {
+  /** 🔴 L'ÉTAT ANNONCÉ EST CELUI QUE GMAIL CONFIRME, jamais seulement celui qu'on a demandé. */
+  it('🔴 c’est l’état RENDU par le serveur qui reste annoncé', async () => {
+    const vus: unknown[] = [];
+    const stop = ecouterEtoile((s) => vus.push(s));
+    global.fetch = vi.fn(async () => (
+      /* ⚠️ Gmail rend `false` alors qu'on demandait `true` : quelqu'un a décroché l'étoile entre-temps. */
+      { ok: true, json: async () => ({ ok: true, etat: { etoile: false, nonLu: false } }) } as unknown as Response)
+    ) as unknown as typeof fetch;
+    const r = await gesteEtoileMessage({ filId: 7, messageId: 51, etoilee: true, filAvant: false, filApres: true });
+    stop();
+    expect(r.etoilee).toBe(false);
+    /* 🔴 ET L'ÉCHANGE REVIENT À SON ÉTAT D'AVANT : l'étoile n'a finalement pas été posée. */
+    expect(vus).toEqual([
+      { filId: 7, messageId: 51, etoilee: true, filEtoile: true },
+      { filId: 7, messageId: 51, etoilee: false, filEtoile: false },
+    ]);
+  });
+
+  /** 🔴🔴 UN GESTE REFUSÉ RAMÈNE **TOUTES** LES ÉTOILES À L'ÉTAT D'AVANT — mail ET ligne. */
+  it('🔴🔴 un refus réémet l’état d’avant, pour le mail et pour la ligne', async () => {
+    const vus: unknown[] = [];
     const stop = ecouterEtoile((s) => vus.push(s));
     global.fetch = vi.fn(async () => (
       { ok: false, json: async () => ({ erreur: 'refus' }) } as unknown as Response)
     ) as unknown as typeof fetch;
-    const r = await gesteEtoileFil(7, true);
+    const r = await gesteEtoileMessage({ filId: 7, messageId: 51, etoilee: false, filAvant: true, filApres: false });
     stop();
     expect(r.ok).toBe(false);
     expect(r.etoilee).toBeNull();
     expect(r.message).toBe('refus');
-    expect(vus).toEqual([{ filId: 7, etoilee: true }, { filId: 7, etoilee: false }]);
-  });
-});
-
-describe('🔴 ④ la porte, et ce qu’elle lit', () => {
-  /** 🔴 L'ÉTAT ANNONCÉ EST CELUI QUE LE SERVEUR CONFIRME, jamais celui qu'on a demandé. */
-  it('🔴 c’est l’état RENDU par le serveur qui est annoncé', async () => {
-    const vus: { filId: number; etoilee: boolean }[] = [];
-    const stop = ecouterEtoile((s) => vus.push(s));
-    global.fetch = vi.fn(async () => (
-      /* ⚠️ Le serveur rend `false` alors qu'on demandait `true` : c'est le sien qui gagne. */
-      { ok: true, json: async () => ({ ok: true, etoilee: false, touches: 0 }) } as unknown as Response)
-    ) as unknown as typeof fetch;
-    const r = await gesteEtoileFil(7, true);
-    stop();
-    expect(r.etoilee).toBe(false);
-    /* 🔴 LA PREMIÈRE ANNONCE EST CELLE QU'ON VOULAIT (`true`), LA SECONDE CELLE DU SERVEUR (`false`) — et c'est
-       la seconde qui reste à l'écran. Le serveur garde le dernier mot, il l'a simplement un instant plus tard. */
-    expect(vus).toEqual([{ filId: 7, etoilee: true }, { filId: 7, etoilee: false }]);
+    expect(vus).toEqual([
+      { filId: 7, messageId: 51, etoilee: false, filEtoile: false },
+      { filId: 7, messageId: 51, etoilee: true, filEtoile: true },
+    ]);
   });
 
   /** ⚠️ `disponible: false` DÈS QUE LA LECTURE N'ABOUTIT PAS : on n'invente pas « pas suivi ». */
   it('⚠️ une lecture en échec rend « indisponible », jamais « éteinte »', async () => {
     global.fetch = vi.fn(async () => { throw new Error('réseau'); }) as unknown as typeof fetch;
-    expect(await lireEtoileFil(7)).toEqual({ etoilee: false, disponible: false });
+    expect(await lireEtoilesDuFil(7)).toEqual({ disponible: false, etoiles: [] });
+  });
+
+  /** ⚠️ ET UNE LISTE ABÎMÉE NE PEUPLE PAS L'ÉTAT DE VALEURS QUI N'EN SONT PAS. */
+  it('⚠️ une liste de mails abîmée est filtrée, pas recopiée', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: true, json: async () => ({ disponible: true, etoiles: [51, 'x', null, 52.5, 52] }),
+    } as unknown as Response)) as unknown as typeof fetch;
+    expect(await lireEtoilesDuFil(7)).toEqual({ disponible: true, etoiles: [51, 52] });
   });
 
   /**
-   * 🔴🔴 LA GARANTIE STRUCTURELLE : la conversation n'écrit l'étoile de l'échange que par `gesteEtoileFil`. Un
-   * `fetch` recopié ici rougirait ce cas — c'est ce qui tient « une seule porte d'écriture » dans le temps.
+   * 🔴🔴 LA GARANTIE STRUCTURELLE : la conversation n'écrit l'étoile que par la porte, et la porte qu'elle
+   * appelle est celle DU MESSAGE. Un `fetch` recopié ici, ou un retour à la porte de l'échange, rougirait ce cas.
    */
-  it('🔴🔴 la conversation ne recopie aucun appel d’étoile d’échange', () => {
-    /* ⚠️ L'APPEL S'ÉCRIT DÉSORMAIS SANS VARIABLE INTERMÉDIAIRE : la conversation n'a plus d'état à poser
-       d'avance (la porte annonce pour tout le monde), donc plus de `vise` à nommer. */
-    expect(SRC).toContain('gesteEtoileFil(filId, !etoileFil.etoilee)');
+  it('🔴🔴 la conversation n’écrit que par `gesteEtoileMessage`', () => {
+    expect(SRC).toContain('const r = await gesteEtoileMessage({');
+    expect(SRC).not.toContain('gesteEtoileFil');
     expect(SRC).not.toMatch(/fetch\(`\/api\/admin\/gestion\/fils\/\$\{filId\}\/etoile`/);
+    expect(SRC).not.toMatch(/fetch\(`\/api\/admin\/gestion\/messages\/\$\{m\.messageId\}\/gmail`,\s*\{\s*\n?\s*method: 'POST'[^}]*action: 'etoile'/);
+  });
+
+  /**
+   * 🔴🔴 ET LES DEUX ÉTOILES D'UN MAIL LISENT **UNE SEULE** VALEUR. C'est la forme du code qui tient la règle
+   * d'Arno, et non une vigilance à répéter : `etoilePosee`, lue une fois, utilisée par les deux boutons.
+   */
+  it('🔴🔴 une seule valeur lue pour les deux étoiles d’un mail', () => {
+    expect(SRC).toContain('const etoilePosee = etoileDuMessage?.etoilee ?? gmail?.etat?.etoile ?? false;');
+    /* ⚠️ Et plus aucune lecture directe de `gmail.etat.etoile` dans le rendu de la rangée. */
+    expect(SRC).not.toContain('className={`cnv-etoile${gmail.etat.etoile ?');
   });
 });

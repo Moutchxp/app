@@ -53,10 +53,42 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
-/** Ce que porte le signal : l'échange touché, et l'état que le serveur a CONFIRMÉ. */
+/**
+ * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — LE SIGNAL DIT QUEL **MAIL**, ET PLUS SEULEMENT QUEL ÉCHANGE ══════════════════
+ *
+ * BUG CONSTATÉ PAR ARNO (07/10/2026, fil 36764 « Facture Huissier », 3 mails) : il clique la GRANDE étoile du
+ * mail déplié du 06/10 16:31, et c'est l'étoile du mail du HAUT (07/10 09:32) qui s'allume en rouge.
+ *
+ * 🔴 LE SIGNAL EN ÉTAIT COMPLICE. Il ne portait que `{ filId, etoilee }` : aucun écran ne pouvait savoir DE QUEL
+ * MAIL on parlait, et la conversation devait DEVINER — elle allumait « le dernier message de l'échange », parce
+ * que c'est ce que la porte d'écriture d'un ÉCHANGE visait. Sur un fil d'un seul mail la devinette tombait juste ;
+ * dès le second, elle désignait le mauvais.
+ *
+ * 🔴 RÈGLE D'ARNO : « une étoile ne concerne QUE le mail sur lequel on clique. Elle ne déborde jamais sur un autre
+ * mail, ni de la conversation, ni d'ailleurs. » Le signal porte donc l'IDENTIFIANT DU MESSAGE, et les écrans n'ont
+ * plus rien à deviner.
+ */
 export interface SignalEtoile {
   filId: number;
+  /**
+   * 🔴 LE MAIL TOUCHÉ, et lui seul. `null` = le geste a porté sur l'ÉCHANGE ENTIER — c'est le cas de la ligne de
+   * la boîte et de sa barre de survol, où une ligne REPRÉSENTE une conversation (règle inchangée, cf. `boiteRepo`
+   * et la porte `gesteEtoileFil`). Un écran qui affiche des mails applique alors la règle de cette porte : poser
+   * va sur le dernier message, retirer passe sur tous.
+   */
+  messageId: number | null;
+  /** L'état de CE mail (ou de l'échange entier quand `messageId` vaut `null`). */
   etoilee: boolean;
+  /**
+   * 🔴 L'ÉCHANGE PORTE-T-IL ENCORE AU MOINS UNE ÉTOILE APRÈS CE GESTE ? C'est la règle de la LIGNE de la boîte
+   * (`boiteRepo.sqlEtoile`), et elle ne se déduit pas d'un geste par message : retirer l'étoile d'un mail parmi
+   * trois laisse l'échange étoilé si un autre porte la sienne.
+   *
+   * ⚠️ `null` = L'ÉMETTEUR L'IGNORE. La ligne garde alors son état, et la relecture suivante la remettra droite :
+   * c'est la direction sûre du doute — éteindre une ligne d'échange encore étoilé serait un mensonge, l'allumer
+   * à tort en serait un autre.
+   */
+  filEtoile: boolean | null;
 }
 
 export type AuditeurEtoile = (s: SignalEtoile) => void;

@@ -6,7 +6,8 @@ import { decouperLesPiecesCitees, type PieceCitable } from '../../../../lib/gest
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la corbeille d'UN message : même route, même journal, même
    synchronisation Gmail que celle d'un échange. Seule la désignation change. */
-import { gesteCorbeilleMessage, gesteEtoileFil, lireEtoileFil } from './gestesLigne';
+/* 🔴🔴 LOT ETOILE-PAR-MESSAGE — la porte d'écriture de l'étoile est celle du MAIL, plus celle de l'échange. */
+import { gesteCorbeilleMessage, gesteEtoileMessage, lireEtoilesDuFil } from './gestesLigne';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — LE MÊME DESSIN D'ÉTOILE que la ligne et sa barre de survol. Une seconde
    étoile dessinée ici aurait fini par ne plus ressembler aux deux autres — et la ressemblance EST l'information. */
 import { Etoile } from './BarreLigne';
@@ -412,71 +413,90 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const [gmail, setGmail] = useState<Map<number, { etoile: boolean; nonLu: boolean } | null>>(new Map());
   /**
-   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ÉTOILE DE L'ÉCHANGE, CELLE DE LA LISTE ════════════════════════════
+   * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — LES MAILS DE L'ÉCHANGE QUI PORTENT UNE ÉTOILE ═════════════════════════════════
    *
-   * RÈGLE D'ARNO (05/10/2026) : « C'est la MÊME fonction et le MÊME état que l'étoile de la barre de survol des
-   * lignes et que l'étoile rouge affichée sur la ligne : une seule porte d'écriture, un seul état. »
+   * RÈGLE D'ARNO (07/10/2026) : « une étoile ne concerne QUE le mail sur lequel on clique. Elle ne déborde jamais
+   * sur un autre mail, ni de la conversation, ni d'ailleurs. »
    *
-   * 🔴 CE N'EST DONC **PAS** `gmail` (juste au-dessus), et la différence est la raison d'être de cet état. `gmail`
-   * porte l'étoile de CHAQUE message, telle que Gmail la rend message par message ; la ligne de la liste, elle,
-   * est étoilée dès qu'AU MOINS UN message de l'échange l'est (`boiteRepo.sqlEtoile`, décision d'Arno au lot
-   * ETOILE-ET-SIGNATURE). Afficher `gmail` dans le bloc d'en-tête aurait donné une étoile éteinte sur un échange
-   * que la liste montre allumé — deux étoiles, deux états, exactement ce qu'Arno interdit.
+   * ══ 🔴🔴 CE QUE CET ÉTAT ÉTAIT, ET LE BUG QUE SON GRAIN A PRODUIT ══════════════════════════════════════════════
    *
-   * ⚠️ `disponible: false` ⇒ AUCUNE ÉTOILE AFFICHÉE (migration 277 absente, ou lecture en échec) : une étoile
-   * éteinte dirait faussement « cet échange n'est pas suivi ». C'est déjà la règle de la barre de survol.
+   * C'était `etoileFil`, UN BOOLÉEN POUR TOUT L'ÉCHANGE (« au moins un mail est étoilé »). La grande étoile de
+   * CHACUN des mails affichait donc le même état, et son clic partait par la porte de l'ÉCHANGE — celle qui pose
+   * l'étoile sur « le dernier message », faute de savoir lequel on visait.
+   *
+   * CONSTAT D'ARNO (fil 36764 « Facture Huissier », 3 mails) : clic sur la grande étoile du mail du 06/10 16:31,
+   * étoile allumée sur celui du 07/10 09:32. Vérifié en base : `etoile_le` posé sur le message 57652 (le plus
+   * récent), jamais sur le 57625 (celui qu'il avait sous le curseur).
+   *
+   * 🔴 UN ENSEMBLE D'IDENTIFIANTS, DONC, ET PLUS UN BOOLÉEN. C'est le grain où le geste se joue, et l'état de
+   * l'échange s'en déduit toujours (`ids.size > 0`) — l'inverse, lui, était la devinette.
+   *
+   * 🔴 ET C'EST L'ÉTAT UNIQUE DES **DEUX** ÉTOILES D'UN MAIL : celle de sa rangée et la grande du bloc gris lisent
+   * `etoileDe(messageId)` et appellent `basculerEtoile(m)`. Elles ne peuvent plus ni se contredire, ni désigner
+   * deux cibles différentes.
+   *
+   * ⚠️ `disponible: false` ⇒ AUCUNE GRANDE ÉTOILE AFFICHÉE (migration 277 absente, ou lecture en échec) : une
+   * étoile éteinte dirait faussement « ce mail n'est pas suivi ». C'est déjà la règle de la barre de survol.
    */
-  const [etoileFil, setEtoileFil] = useState<{ etoilee: boolean; disponible: boolean }>(
-    { etoilee: false, disponible: false });
+  const [etoiles, setEtoiles] = useState<{ disponible: boolean; ids: ReadonlySet<number> }>(
+    { disponible: false, ids: new Set() });
+
+  /**
+   * 🔴 L'ÉTOILE D'UN MAIL — **UNE SEULE DÉFINITION**, pour les deux étoiles qui l'affichent et pour le geste.
+   *
+   * ⚠️ LE REPLI SUR `gmail` N'EST PAS UN SECOND ÉTAT : il ne sert QUE sans la migration 277, où le miroir n'existe
+   * pas et où la grande étoile ne s'affiche pas non plus. L'étoile de la rangée, elle, continue alors de marcher
+   * sur l'état lu DANS Gmail, exactement comme avant ce lot.
+   */
+  const etoileDe = (messageId: number): boolean => (etoiles.disponible
+    ? etoiles.ids.has(messageId)
+    : (gmail.get(messageId)?.etoile ?? false));
+
+  /** Relit le miroir de l'échange et remplace l'ensemble. Rendu séparément : l'ouverture ET la fin de la relecture Gmail s'en servent. */
+  const relireEtoiles = useCallback(async (): Promise<void> => {
+    const e = await lireEtoilesDuFil(filId);
+    setEtoiles({ disponible: e.disponible, ids: new Set(e.etoiles) });
+  }, [filId]);
 
   useEffect(() => {
     let annule = false;
-    void lireEtoileFil(filId).then((e) => { if (!annule) setEtoileFil(e); });
+    void lireEtoilesDuFil(filId).then((e) => {
+      if (!annule) setEtoiles({ disponible: e.disponible, ids: new Set(e.etoiles) });
+    });
     return () => { annule = true; };
   }, [filId]);
 
   /**
-   * 🔴🔴 L'ÉCOUTE, ET C'EST ELLE QUI TIENT « LES TROIS EN DIRECT ». Une étoile basculée depuis la LIGNE ou depuis
-   * sa BARRE DE SURVOL arrive ici sans que la liste et la conversation se connaissent (voir `signalEtoile`).
+   * 🔴🔴 L'ÉCOUTE, ET C'EST ELLE QUI TIENT « LES ÉTOILES D'UN MAIL EN DIRECT ». Un geste parti d'ici, de la LIGNE
+   * ou de sa BARRE DE SURVOL arrive par le même signal, sans que la liste et la conversation se connaissent.
    *
    * ⚠️ ON NE RETIENT QUE SON PROPRE ÉCHANGE : deux conversations peuvent être montées en même temps (l'écran
    * partagé en ouvre une, une carte vive une autre), et chacune ne doit s'allumer que pour elle.
    */
   useEffect(() => ecouterEtoile((sig) => {
     if (sig.filId !== filId) return;
-    setEtoileFil((e) => ({ ...e, etoilee: sig.etoilee }));
-    /**
-     * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — LES ÉTOILES **PAR MESSAGE** SUIVENT AUSSI ══════════════
-     *
-     * 🔴 LE DÉFAUT VU SUR LA CAPTURE D'ARNO : la grande étoile du bloc gris rouge, et l'étoile du MESSAGE juste
-     * au-dessus restée en contour. Deux étoiles du même mail, deux états — exactement ce que ce point répare.
-     * Sur son fil (un seul message), c'est le même mail : elles ne peuvent pas se contredire.
-     *
-     * 🔴 ET CE N'EST PAS UNE DEVINETTE : `basculerEtoileDuFil` écrit « un message à poser, TOUS les étoilés à
-     * retirer » (son encadré). Donc, à coup sûr :
-     *   · ÉTEINDRE l'échange éteint TOUS ses messages ;
-     *   · ALLUMER l'échange allume SON DERNIER message — celui que la route vise, trié comme elle
-     *     (`recu_le DESC, id DESC`), et lui seul. Allumer tous les messages serait faux dès le second.
-     *
-     * ⚠️ ON NE TOUCHE QUE CE QU'ON CONNAÎT : un message dont l'état Gmail n'a pas été lu (`null`) le reste. On
-     * n'invente pas une étoile pour un message dont on ne sait rien.
-     *
-     * ⚠️ « LE DERNIER » EST CELUI DE LA ROUTE, PAS LE PLUS GRAND IDENTIFIANT. Elle trie `recu_le DESC, id DESC` :
-     * un mail reçu plus tôt mais capturé plus tard porte un identifiant plus grand, et viser l'identifiant aurait
-     * allumé le mauvais message — rarement, donc d'autant plus difficile à voir.
-     */
-    setGmail((g) => {
-      if (g.size === 0) return g;
-      const n = new Map(g);
-      if (!sig.etoilee) {
-        for (const [id, etat] of n) if (etat) n.set(id, { ...etat, etoile: false });
-        return n;
+    setEtoiles((e) => {
+      const ids = new Set(e.ids);
+      /**
+       * 🔴 LE CAS NORMAL, ET IL N'A PLUS RIEN À DEVINER : le signal NOMME le mail. Un seul identifiant change,
+       * et c'est exactement celui sur lequel on a cliqué.
+       */
+      if (sig.messageId !== null) {
+        if (sig.etoilee) ids.add(sig.messageId); else ids.delete(sig.messageId);
+        return { ...e, ids };
       }
+      /**
+       * ⚠️ `messageId: null` = LE GESTE A PORTÉ SUR L'ÉCHANGE (la ligne de la boîte, ou sa barre de survol, où une
+       * ligne REPRÉSENTE une conversation). On applique alors la règle de cette porte, qui n'est pas symétrique
+       * (`basculerEtoileDuFil`) :
+       *   · ÉTEINDRE l'échange éteint TOUS ses mails ;
+       *   · L'ALLUMER n'allume que SON DERNIER mail — celui que la route vise, trié comme elle
+       *     (`recu_le DESC, id DESC`). Allumer tous les mails serait faux dès le second.
+       */
+      if (!sig.etoilee) return { ...e, ids: new Set<number>() };
       const dernier = dernierMessage.current;
-      if (dernier === null) return n;
-      const etat = n.get(dernier);
-      if (etat) n.set(dernier, { ...etat, etoile: true });
-      return n;
+      if (dernier !== null) ids.add(dernier);
+      return { ...e, ids };
     });
   }), [filId]);
 
@@ -492,23 +512,6 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     dernierMessage.current = ms.length === 0 ? null : ms[ms.length - 1].messageId;
   }, [vue]);
 
-  /**
-   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — PLUS D'ANTICIPATION LOCALE ═══════════════════════════════
-   *
-   * CETTE FONCTION POSAIT SON PROPRE ÉTAT D'AVANCE, puis le remettait droit en cas d'échec. C'était la moitié du
-   * défaut : la grande étoile basculait à 19 ms, celle de la ligne à 740 ms (mesuré, fil 36748).
-   *
-   * 🔴 ELLE NE FAIT PLUS QU'APPELER LA PORTE. C'est `gesteEtoileFil` qui annonce l'état voulu AVANT d'écrire, et
-   * cette conversation l'apprend par le même signal que la ligne et que sa barre de survol — dans la même image,
-   * depuis la même source. Un `setEtoileFil` de plus ici recréerait un second état, c'est-à-dire le défaut.
-   *
-   * ⚠️ LE MESSAGE D'ÉCHEC EST DIT ICI, parce que c'est cet écran qui a cliqué : le retour à l'état d'avant, lui,
-   * est déjà annoncé à tout le monde par la porte.
-   */
-  const basculerEtoileDuFil = async (): Promise<void> => {
-    const r = await gesteEtoileFil(filId, !etoileFil.etoilee);
-    if (!r.ok) onGeste(r.message);
-  };
   /**
    * LOT RATTACHEMENT-1 — les liens de CHAQUE mail de l'échange, demandés en UNE requête pour tout le monde.
    * `null` = migration 257 absente, ou lecture en échec : le bandeau ne s'affiche alors pas du tout, et le reste de
@@ -919,9 +922,25 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           if (!annule && d.etat) setGmail((g) => new Map(g).set(id, d.etat ?? null));
         } catch { /* pas d'étoile affichée : voir l'encadré */ }
       }
+      /**
+       * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — ET ON RELIT LE MIROIR, UNE FOIS, À LA FIN ══════════════════════════════
+       *
+       * 🔴 POURQUOI ICI, ET PAS DANS LA BOUCLE. Chaque lecture ci-dessus CORRIGE DÉJÀ LE MIROIR EN BASE : le
+       * serveur note ce que Gmail vient de lui dire (`lireEtatGmail` → `noterEtoile`). Une seule relecture après
+       * la boucle rapporte donc l'état frais de TOUS les mails, pour UNE requête.
+       *
+       * 🔴 ET ELLE NE CRÉE PAS UN SECOND ÉTAT, c'est tout le point : on ne recopie pas `d.etat.etoile` dans
+       * `etoiles` mail par mail — on relit la seule source, celle que la ligne de la boîte et le filtre lisent
+       * aussi. Deux chemins pour le même fait auraient fini par se contredire, et c'est exactement le défaut
+       * qu'Arno a vu deux fois de suite.
+       *
+       * ⚠️ APRÈS LA BOUCLE, DONC APRÈS TOUT GESTE PARTI ENTRE-TEMPS : un clic pendant la relecture a déjà écrit
+       * dans Gmail ET dans le miroir, et la relecture le rapporte. L'ordre protège l'instantané.
+       */
+      if (!annule) await relireEtoiles().catch(() => {});
     })();
     return () => { annule = true; };
-  }, [barreActions, vue]);
+  }, [barreActions, vue, relireEtoiles]);
 
   /**
    * ══ 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — LA ZONE DE RÉPONSE SUIT LE MAIL, ET NE TRAÎNE JAMAIS DANS UNE LISTE ══
@@ -1330,50 +1349,39 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     }
   };
 
-  /** L'ÉTOILE : elle bascule, exactement comme le clic de Gmail — on ne décide pas à sa place ce qu'elle doit devenir. */
   /**
-   * ══ 🔴🔴 LOT INSTANTANE-ETOILE-CORBEILLE, POINT 1 — L'ÉTOILE PAR MESSAGE ENTRE DANS LA BOUCLE ════════════════
+   * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — L'ÉTOILE D'UN MAIL, ET DE LUI SEUL ════════════════════════════════════════════
    *
-   * 🔴 C'ÉTAIT LA QUATRIÈME ÉTOILE, ET LA SEULE HORS DU COMPTE. Elle écrit par une autre route
-   * (`messages/:id/gmail`), n'anticipait rien, et surtout **n'annonçait rien** : poser l'étoile d'un message
-   * rendait l'échange étoilé en base, et ni la ligne ni la grande étoile ne l'apprenaient. La divergence
-   * survivait alors à l'aller-retour — c'est l'explication la plus probable de ce qu'Arno a vu : une grande
-   * étoile allumée sur un échange dont la ligne restait éteinte.
+   * RÈGLE D'ARNO (07/10/2026) : « une étoile ne concerne QUE le mail sur lequel on clique. Elle ne déborde jamais
+   * sur un autre mail, ni de la conversation, ni d'ailleurs. »
    *
-   * 🔴 ELLE BASCULE MAINTENANT TOUT DE SUITE, ET ANNONCE :
-   *   · POSER une étoile rend l'échange étoilé À COUP SÛR (« au moins un message l'est ») : on peut l'annoncer
-   *     sans rien relire.
-   *   · LA RETIRER ne dit rien de l'échange — un autre message peut encore porter la sienne. On ne devine donc
-   *     pas : on RELIT l'état de l'échange et on annonce ce qu'il vaut vraiment. Annoncer « éteint » par
-   *     symétrie aurait éteint la ligne d'un échange qui reste étoilé.
+   * 🔴 LES DEUX ÉTOILES D'UN MAIL APPELLENT CETTE FONCTION — celle de sa rangée, et la grande du bloc gris. C'est
+   * ce qui les rend synchronisées PAR CONSTRUCTION : même état lu (`etoileDe`), même cible écrite, même annonce.
+   * La grande étoile passait avant par la porte de l'ÉCHANGE, qui vise « le dernier message » faute de savoir
+   * lequel on montre : c'est exactement le bug du fil 36764.
    *
-   * ⚠️ ET SON PROPRE AFFICHAGE ANTICIPE AUSSI : `setGmail` avant l'appel, remis en place si le serveur refuse.
+   * 🔴 ELLE NE FAIT QU'APPELER LA PORTE, et c'est la règle du lot INSTANTANE-ETOILE-CORBEILLE : `gesteEtoileMessage`
+   * annonce l'état voulu AVANT d'écrire, cet écran l'apprend par le même signal que la ligne de la boîte — dans la
+   * même image, depuis la même source. Un `setEtoiles` de plus ici recréerait un second état, c'est-à-dire le défaut.
+   *
+   * 🔴 ET C'EST ICI QU'ON TRANCHE POUR LA LIGNE DE LA BOÎTE, parce que nous seuls le savons : elle s'allume dès
+   * qu'AU MOINS UN mail de l'échange est étoilé (règle inchangée). Poser ⇒ allumée à coup sûr. Retirer ⇒ allumée
+   * encore si un AUTRE mail porte la sienne. Ce calcul-là ne peut pas se faire dans la liste, qui ne connaît que
+   * des échanges.
+   *
+   * ⚠️ LE MESSAGE D'ÉCHEC EST DIT ICI, parce que c'est cet écran qui a cliqué : le retour à l'état d'avant, lui,
+   * est déjà annoncé à tout le monde par la porte.
    */
   const basculerEtoile = async (m: MessageDeFil) => {
-    const avant = gmail.get(m.messageId) ?? null;
-    const vise = !(avant?.etoile ?? false);
-    if (avant) setGmail((g) => new Map(g).set(m.messageId, { ...avant, etoile: vise }));
-    if (vise) annoncerEtoile({ filId, etoilee: true });
-    try {
-      const res = await fetch(`/api/admin/gestion/messages/${m.messageId}/gmail`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'etoile' }),
-      });
-      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; erreur?: string; etat?: { etoile: boolean; nonLu: boolean } | null };
-      if (!res.ok || !d.ok) {
-        if (avant) setGmail((g) => new Map(g).set(m.messageId, avant));
-        if (vise) annoncerEtoile({ filId, etoilee: etoileFil.etoilee });
-        onGeste(d.erreur ?? 'Action impossible.');
-        return;
-      }
-      if (d.etat) setGmail((g) => new Map(g).set(m.messageId, d.etat ?? null));
-      /* 🔴 L'ÉCHANGE, LUI, SE RELIT — voir l'encadré : retirer une étoile ne dit rien des autres messages. */
-      const e = await lireEtoileFil(filId);
-      if (e.disponible) annoncerEtoile({ filId, etoilee: e.etoilee });
-    } catch {
-      if (avant) setGmail((g) => new Map(g).set(m.messageId, avant));
-      if (vise) annoncerEtoile({ filId, etoilee: etoileFil.etoilee });
-      onGeste('Action impossible : le serveur n’a pas répondu.');
-    }
+    const vise = !etoileDe(m.messageId);
+    const r = await gesteEtoileMessage({
+      filId,
+      messageId: m.messageId,
+      etoilee: vise,
+      filAvant: etoiles.ids.size > 0,
+      filApres: vise || [...etoiles.ids].some((id) => id !== m.messageId),
+    });
+    if (!r.ok) onGeste(r.message);
   };
 
   const agirSurLeStatut = (a: ActionStatut) => {
@@ -1629,17 +1637,23 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la grande corbeille du bloc d'en-tête. Elle ne
                s'affiche que là où les gestes sont permis, comme l'étoile et « Répondre » juste au-dessus. */
             onCorbeilleMessage={barreActions ? () => void corbeilleDuMessage(m) : undefined}
-            /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 2 — L'ÉTOILE DE L'ÉCHANGE, dans le bloc d'en-tête.
+            /* 🔴🔴 LOT ETOILE-PAR-MESSAGE — L'ÉTOILE DE **CE MAIL**, dans son bloc d'en-tête.
+
+               🔴 ELLE PORTAIT L'ÉTAT DE L'ÉCHANGE, ET C'EST LE BUG DU FIL 36764 : les trois mails affichaient la
+               même étoile, et le clic ne pouvait désigner aucun d'eux — il partait par la porte de l'échange, qui
+               vise « le dernier message ». Elle porte maintenant `etoileDe(m.messageId)`, le MÊME état que
+               l'étoile de la rangée juste au-dessus, et le MÊME geste : elles ne peuvent plus se contredire.
+               C'est d'ailleurs la grammaire de sa voisine, la grande corbeille — « ce message », pas l'échange.
 
                🔴 ELLE N'EST **PAS** CONDITIONNÉE À `barreActions`, et c'est la demande d'Arno : « boîte de
                réception, plein écran ET écran partagé ». `barreActions` ne vaut que pour le plein écran ; s'y
                raccrocher aurait privé l'écran partagé de l'étoile, c'est-à-dire la moitié des cas.
 
-               ⚠️ `disponible` TRANCHE À LA PLACE : sans la migration 277 le geste n'existe pas, et aucune étoile
-               ne s'affiche — plutôt qu'une étoile éteinte, qui dirait faussement « cet échange n'est pas
+               ⚠️ `disponible` TRANCHE À LA PLACE : sans la migration 277 le miroir n'existe pas, et aucune grande
+               étoile ne s'affiche — plutôt qu'une étoile éteinte, qui dirait faussement « ce mail n'est pas
                suivi ». C'est déjà la règle de la barre de survol. */
-            etoileDuFil={etoileFil.disponible
-              ? { etoilee: etoileFil.etoilee, onBasculer: () => { void basculerEtoileDuFil(); } }
+            etoileDuMessage={etoiles.disponible
+              ? { etoilee: etoileDe(m.messageId), onBasculer: () => { void basculerEtoile(m); } }
               : undefined}
             /* 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LE GESTE INVERSE, PAR LA MÊME PORTE.
                `annulerCorbeilleDuMessage` EST `gesteCorbeilleMessage(id, false)` : c'est déjà ce qu'« Annuler »
@@ -2383,7 +2397,7 @@ export function MessageConversation({
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
   mailsDuFil = [],
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
-  onReintegrerMessage, etoileDuFil, piecesCitables = [],
+  onReintegrerMessage, etoileDuMessage, piecesCitables = [],
 }: {
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES PIÈCES DE LA CONVERSATION, POUR LES NOMS CITÉS ═══════════════
@@ -2484,18 +2498,26 @@ export function MessageConversation({
    * […] Étoile active : rouge pleine. Inactive : contour. Info-bulle “Ajouter une étoile” / “Retirer l'étoile”.
    * Dans la Corbeille, l'étoile reste disponible. »
    *
-   * 🔴 C'EST L'ÉTOILE DE L'ÉCHANGE, celle de la ligne et de sa barre de survol — un seul état, une seule porte
-   * (voir `etoileFil` et `signalEtoile`). Ce n'est PAS l'étoile par message de `gmail`, qui vit juste à côté et
-   * ne dit pas la même chose.
+   * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — C'EST L'ÉTOILE DE **CE MAIL**, ET PLUS CELLE DE L'ÉCHANGE ══════════════════
+   *
+   * RÈGLE D'ARNO (07/10/2026) : « une étoile ne concerne QUE le mail sur lequel on clique. Elle ne déborde jamais
+   * sur un autre mail, ni de la conversation, ni d'ailleurs. »
+   *
+   * 🔴 ELLE PORTAIT L'ÉTAT DE L'ÉCHANGE (`etoileDuFil`), ET C'ÉTAIT LE BUG : sur le fil 36764 (3 mails), les
+   * trois grandes étoiles affichaient la même chose, et le clic sur celle du mail du 06/10 16:31 allumait celle
+   * du 07/10 09:32 — la porte de l'échange pose l'étoile sur « le dernier message », faute de savoir lequel on
+   * montre. Elle reçoit maintenant l'état de SON mail, le même que l'étoile de la rangée juste au-dessus.
+   *
+   * ⚠️ C'EST BIEN LA GRAMMAIRE DE SA VOISINE, la grande corbeille : « ce message », et non l'échange.
    *
    * ⚠️ ABSENTE ⇒ AUCUNE ÉTOILE, et le bloc est exactement celui d'avant ce lot. C'est le cas des écrans qui
    * montrent un message sans pouvoir agir dessus, et celui d'une migration 277 absente — où une étoile éteinte
-   * dirait faussement « cet échange n'est pas suivi ».
+   * dirait faussement « ce mail n'est pas suivi ».
    *
    * ⚠️ ELLE RESTE SUR UN MAIL À LA CORBEILLE, là où la corbeille, elle, devient « Réintégrer » : étoiler un mail
    * jeté est un geste qui a du sens (le retrouver), et Arno l'a demandé explicitement.
    */
-  etoileDuFil?: { etoilee: boolean; onBasculer: () => void };
+  etoileDuMessage?: { etoilee: boolean; onBasculer: () => void };
   /**
    * ══ 🔴🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — LE GESTE INVERSE, SUR UN MAIL DÉJÀ À LA CORBEILLE ════
    *
@@ -2616,6 +2638,18 @@ export function MessageConversation({
     .filter((l) => SORTES_BIEN.includes(l.cible.sorte) && l.statut === 'confirme')
     .map((l) => l.libelle);
   const visualisable = capsule !== null && capsule !== 'a_classer' && filId !== null;
+  /**
+   * ══ 🔴🔴 LOT ETOILE-PAR-MESSAGE — **L'ÉTOILE DE CE MAIL**, LUE UNE SEULE FOIS POUR LES DEUX QUI L'AFFICHENT ══
+   *
+   * RÈGLE D'ARNO (07/10/2026) : « Les étoiles d'un même mail restent synchronisées entre elles, et uniquement
+   * entre elles. » Une seule lecture ici, deux boutons qui s'en servent (la rangée, et la grande du bloc gris) :
+   * la synchronisation n'est plus quelque chose à maintenir, c'est la forme du code.
+   *
+   * ⚠️ LE REPLI SUR `gmail.etat.etoile` NE SERT QUE SANS LA MIGRATION 277 — le parent ne passe alors pas
+   * `etoileDuMessage`, et la grande étoile ne s'affiche pas du tout. L'étoile de la rangée, elle, continue de
+   * marcher sur l'état lu DANS Gmail, exactement comme avant ce lot.
+   */
+  const etoilePosee = etoileDuMessage?.etoilee ?? gmail?.etat?.etoile ?? false;
   /**
    * ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 1 — « CLASSER » OUVRE LA MÊME FENÊTRE QUE « VISUALISER / MODIFIER »
    *
@@ -2885,14 +2919,23 @@ export function MessageConversation({
         {/* L'heure façon Gmail : « 19:07 (il y a 3 heures) », « hier 17:24 », « 22 sept. 18:44 ». */}
         <span className="cnv-quand" title={dateHeureComplete(message.recuLe)}>{heureGmail(message.recuLe, maintenant)}</span>
 
-        {/* L'ÉTOILE — elle bascule le libellé STARRED dans la VRAIE boîte, et son état est relu DANS GMAIL.
-            Sans connexion Google, elle n'est pas affichée : on ne montre pas une étoile éteinte qui ne dirait rien. */}
+        {/* ══ L'ÉTOILE DE LA RANGÉE — elle bascule le libellé STARRED dans la VRAIE boîte ════════════════════════
+            Sans connexion Google, elle n'est pas affichée : on ne montre pas une étoile éteinte qui ne dirait rien.
+
+            🔴🔴 LOT ETOILE-PAR-MESSAGE — ELLE LIT LE MÊME ÉTAT QUE LA GRANDE ÉTOILE DU BLOC GRIS, et c'est ce qui
+            tient la règle d'Arno « les étoiles d'un même mail restent synchronisées entre elles » : un seul état
+            lu (`etoileDuMessage.etoilee`, c'est-à-dire `etoileDe(messageId)` chez le parent), un seul geste écrit
+            (`onEtoile` et `etoileDuMessage.onBasculer` sont la MÊME fonction, `basculerEtoile(m)`).
+
+            ⚠️ LE REPLI SUR `gmail.etat.etoile` N'EST PAS UN SECOND ÉTAT : il ne sert que sans la migration 277,
+            où le miroir n'existe pas — et où la grande étoile, elle, ne s'affiche pas du tout. C'est exactement
+            le comportement d'avant ce lot, conservé pour ce seul cas. */}
         {gmail?.etat && onEtoile && (
-          <button type="button" className={`cnv-etoile${gmail.etat.etoile ? ' cnv-etoile--posee' : ''}`}
-            aria-pressed={gmail.etat.etoile} aria-label={libelleEtoile(gmail.etat.etoile)} title={libelleEtoile(gmail.etat.etoile)}
+          <button type="button" className={`cnv-etoile${etoilePosee ? ' cnv-etoile--posee' : ''}`}
+            aria-pressed={etoilePosee} aria-label={libelleEtoile(etoilePosee)} title={libelleEtoile(etoilePosee)}
             onClick={onEtoile}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
-              fill={gmail.etat.etoile ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8">
+              fill={etoilePosee ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8">
               <path d="M12 3.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" strokeLinejoin="round" />
             </svg>
           </button>
@@ -3078,18 +3121,19 @@ export function MessageConversation({
 
               ⚠️ MÊMES COMPORTEMENTS, MÊME SYNCHRONISATION : les trois boutons appellent exactement les mêmes
               fonctions qu'avant, avec les mêmes mots et les mêmes info-bulles. Seule leur boîte change. */}
-          {(etoileDuFil !== undefined || onCorbeilleMessage !== undefined
+          {(etoileDuMessage !== undefined || onCorbeilleMessage !== undefined
             || (message.aLaCorbeille && onReintegrerMessage !== undefined)) && (
             <div className="cnv-entete-cases">
               {/* ⚠️ ELLE RESTE SUR UN MAIL À LA CORBEILLE (Arno), là où la corbeille devient « Réintégrer ». */}
-              {etoileDuFil !== undefined && (
+              {etoileDuMessage !== undefined && (
                 <button type="button"
                   className={'cnv-corbeille cnv-entete-etoile'
-                    + (etoileDuFil.etoilee ? ' cnv-entete-etoile--pleine' : '')}
-                  aria-pressed={etoileDuFil.etoilee}
-                  title={libelleEtoile(etoileDuFil.etoilee)} aria-label={libelleEtoile(etoileDuFil.etoilee)}
-                  onClick={etoileDuFil.onBasculer}>
-                  <Etoile pleine={etoileDuFil.etoilee} />
+                    + (etoileDuMessage.etoilee ? ' cnv-entete-etoile--pleine' : '')}
+                  aria-pressed={etoileDuMessage.etoilee}
+                  title={libelleEtoile(etoileDuMessage.etoilee)}
+                  aria-label={libelleEtoile(etoileDuMessage.etoilee)}
+                  onClick={etoileDuMessage.onBasculer}>
+                  <Etoile pleine={etoileDuMessage.etoilee} />
                 </button>
               )}
               {/* 🔴 LE MOT EST LE MÊME POUR LA BULLE ET POUR LE LECTEUR D'ÉCRAN : une corbeille dessinée ne dit
