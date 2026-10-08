@@ -3,9 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴 MODULE PUR UNIQUEMENT : ce composant vit dans le navigateur (incident du 24/09/2026). */
 import { motEtape, type TypeEtape } from '../../../../lib/gestion/mongaEtape';
+/* 🔴 LOT URGENCE-EVENEMENT, POINT 2 — le mot d'un niveau, depuis la SOURCE UNIQUE. Module PUR. */
+import { motUrgence } from '../../../../lib/gestion/evenementQualite';
 import { FriseAvancement } from './FriseAvancement';
 /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — le MÊME formulaire que la vue de l'événement, jamais une copie. */
 import { FormulaireCarte } from './CarteVive';
+/**
+ * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 3b — LE MÊME SÉLECTEUR QUE LA CARTE, « AU MÊME COMPOSANT » (Arno), et c'est
+ * pour cela qu'il vit dans son propre fichier plutôt que dans `CarteVive` : il porte sa feuille avec lui, parce
+ * que celle de `CarteVive` vit dans `GestionVue` et n'est pas injectée sur une fiche de bien.
+ */
+import { SelecteurUrgence } from './SelecteurUrgence';
 
 /**
  * ⚠️ LE TYPE DU DÉTAIL VIENT DU **COMPOSANT**, ET NON DU DÉPÔT — et c'est une garde du dépôt qui l'a imposé.
@@ -51,6 +59,11 @@ interface EvenementDuBien {
   derniereEtapeLe: string | null;
   /** 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées. Vide = pas suivi par Monga. */
   mongaRefs?: string[];
+  /**
+   * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 3b — le niveau d'urgence enregistré, qui met en évidence le bon bouton du
+   * sélecteur. `null` = aucun ; ABSENT = une réponse antérieure à ce lot, et le sélecteur se lit pareil.
+   */
+  urgence?: string | null;
 }
 
 export function EvenementsDuBien({
@@ -304,7 +317,28 @@ export function EvenementsDuBien({
                   )}
                 </span>
               </button>
-              {ouvert && (
+              {ouvert && (<>
+                {/**
+                  * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 3b — LE SÉLECTEUR D'URGENCE, PRÈS DE L'EN-TÊTE ══════════
+                  *
+                  * ARNO : « Dans la fiche du bien quand un événement est en cours : le même sélecteur, AU MÊME
+                  * COMPOSANT, près de l'en-tête de l'événement. »
+                  *
+                  * 🔴 JUSTE SOUS L'EN-TÊTE, ET NON DEDANS : `evb-tete` EST un `<button>`, et trois boutons dans un
+                  * bouton seraient du HTML invalide et injouables au clavier. C'est l'arbitrage que ce module a
+                  * déjà pris trois fois (le menu d'un échange, la capsule de type) — on est VOISIN du repli, pas
+                  * dedans. « Près de » est donc tenu à la lettre : première chose sous le titre, avant la frise.
+                  *
+                  * 🔴 LA MÊME PORTE D'ÉCRITURE QUE LA VUE DE L'ÉVÉNEMENT : `ecrire` → `PATCH /evenements/[id]`,
+                  * c'est-à-dire `modifierEvenement`. Même garde, même journal, même réversibilité. Deux portes
+                  * auraient fini par écrire deux histoires dans le journal.
+                  *
+                  * ⚠️ `compact` : le bloc « Événements » vit dans une colonne de fiche, plus serrée que la vue de
+                  * l'événement. Le pas se réduit, JAMAIS la cible tactile (44 px, exigence transverse §15).
+                  */}
+                <SelecteurUrgence urgence={e.urgence} occupe={occupe} compact
+                  onUrgence={(u) => void ecrire(e.id, { urgence: u },
+                    `Événement ${e.reference} — urgence : ${motUrgence(u).toLowerCase()}.`)} />
                 <div className="evb-frise">
                   <FriseAvancement
                     evenementId={e.id} compact
@@ -333,7 +367,7 @@ export function EvenementsDuBien({
                       </p>
                     )}
                 </div>
-              )}
+              </>)}
             </li>
           );
         })}

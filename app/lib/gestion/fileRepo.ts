@@ -129,6 +129,16 @@ export interface CarteEvenement {
    * une liste de dossiers la rendraient illisible. Le nombre total est rendu à côté, pour ne rien taire.
    */
   categorie: string | null;
+  /**
+   * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 1 — LE DEGRÉ D'URGENCE, qui PEINT la capsule de la carte. Le mot qu'elle
+   * écrit reste le TYPE : la couleur ne fait que dire s'il y a le feu.
+   *
+   * ⚠️ `null` = aucun niveau enregistré, et c'est le cas de 2 événements sur 2 en base le 08/10/2026. La capsule
+   * est alors GRISE NEUTRE — ni verte, ni « Normal » par défaut : ne pas avoir choisi n'est pas « pas urgent ».
+   *
+   * ⚠️ MÊME TÉMOIN QUE `categorie` (`evenementQualifieDisponible`), puisque c'est la MÊME migration (268).
+   */
+  urgence: string | null;
   bien: { cle: string; adresse: string | null; commune: string | null;
     proprietaire: string | null; locataire: string | null } | null;
   nbBiens: number;
@@ -328,6 +338,8 @@ interface CarteDB {
   monga_maj_le: string | null; vu_le: string | null;
   monga_refs: string[] | null;
   categorie: string | null;
+  /* 🔴 LOT URGENCE-EVENEMENT, POINT 1 — le degré d'urgence, qui peint la capsule de la carte. */
+  urgence: string | null;
   bien_cle: string | null; bien_adresse: string | null; bien_commune: string | null;
   bien_proprietaire: string | null; bien_locataire: string | null; nb_biens: number;
 }
@@ -570,8 +582,11 @@ export async function lireEvenements(
             (SELECT array_agg(x.reference ORDER BY x.reference)
                FROM (SELECT DISTINCT reference FROM gestion_monga_lien
                       WHERE evenement_id = e.id AND retire_le IS NULL) x) AS monga_refs,
-            /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le type, et le bien avec ceux qui gravitent autour. */
-            ${avecCategorie ? 'e.categorie' : 'NULL::text AS categorie'},
+            -- 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le type, et le bien avec ceux qui gravitent autour.
+            -- 🔴 LOT URGENCE-EVENEMENT, POINT 1 — et le degre d'urgence, qui peint la capsule du type. Meme
+            --    migration, donc meme temoin : avecCategorie. ⚠️ AUCUN ACCENT GRAVE ICI, et des -- d'une ligne :
+            --    ce commentaire vit DANS un litteral de gabarit (regle du fichier, cf. triMongaDAbord).
+            ${avecCategorie ? 'e.categorie, e.urgence' : 'NULL::text AS categorie, NULL::text AS urgence'},
             bi.cle AS bien_cle, bi.adresse AS bien_adresse, bi.commune AS bien_commune,
             bi.proprietaire AS bien_proprietaire, bi.locataire AS bien_locataire,
             coalesce(bi.nb, 0) AS nb_biens
@@ -626,6 +641,7 @@ export async function lireEvenements(
       /* ⚠️ `null` DE POSTGRES ⇒ TABLEAU VIDE : l'écran n'a pas à distinguer « aucune référence » d'une absence. */
       mongaRefs: r.monga_refs ?? [],
       categorie: r.categorie,
+      urgence: r.urgence,
       bien: r.bien_cle === null ? null : {
         cle: r.bien_cle, adresse: r.bien_adresse, commune: r.bien_commune,
         proprietaire: r.bien_proprietaire, locataire: r.bien_locataire,

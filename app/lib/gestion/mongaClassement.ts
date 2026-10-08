@@ -32,6 +32,8 @@
  */
 
 import { query } from '../db/client';
+/* 🔴 LOT URGENCE-EVENEMENT — « le jour de Paris », écrit une seule fois dans le dépôt. Module PUR. */
+import { jourCivilParis } from './ecran';
 import { personnesDesBiens, poserInterventions } from './contactExterneRepo';
 import {
   deplacerMessage, deplacerMessageVersNouveau, modifierEvenement, remettreMessage, type Auteur,
@@ -586,9 +588,15 @@ export async function creerEvenementEtRelier(o: {
   return { ...lien, renomme: null };
 }
 
-/** Le jour d'aujourd'hui, heure de Paris, en `AAAA-MM-JJ`. */
+/**
+ * Le jour d'aujourd'hui, heure de Paris, en `AAAA-MM-JJ`.
+ *
+ * 🔴 LOT URGENCE-EVENEMENT — LA PHRASE A DÉMÉNAGÉ DANS `ecran.ts` (`jourCivilParis`), parce que la route du détail
+ * d'une carte en a eu besoin à son tour. Deux écritures du « jour de Paris » auraient fini par diverger la nuit du
+ * changement d'heure. Ce nom reste : il est lisible là où il est appelé.
+ */
 function jourDuJour(): string {
-  return new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris' }).format(new Date());
+  return jourCivilParis();
 }
 
 /**

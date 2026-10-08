@@ -8,7 +8,7 @@ import { ChoisirEvenement } from './ChoisirEvenement';
  * — page de connexion comprise (incident du 24/09/2026). Le garde `clientBoundary.guard.test.ts` le vérifie.
  */
 import {
-  bornesEvenement, NOTE_EVENEMENT_MAX, TYPES_EVENEMENT, URGENCES_EVENEMENT,
+  bornesEvenement, NOTE_EVENEMENT_MAX, TYPES_EVENEMENT, NIVEAUX_URGENCE,
   motCategorie, motUrgence, type EvenementDuMail,
 } from '../../../../lib/gestion/evenementQualite';
 /* 🔴 LE JOUR D'AUJOURD'HUI À PARIS, par la fonction PURE qui le dit déjà dans ce dépôt — jamais `toISOString()`,
@@ -425,9 +425,14 @@ export function ChampsEvenement({
           </label>
           <label className="bev-champ">
             <span className="bev-label">Urgence</span>
+            {/* 🔴🔴 LOT URGENCE-EVENEMENT, POINT 2 — LES CHOIX VIENNENT DE LA SOURCE UNIQUE, et de la MÊME manière
+                que ceux du type juste à côté. Avant, ce `<select>` parcourait les CLÉS (`URGENCES_EVENEMENT`) puis
+                cherchait leur mot (`motUrgence`) : deux lectures pour une liste qui n'en a qu'une. Un niveau
+                ajouté à `NIVEAUX_URGENCE` paraît ici sans qu'on touche à ce fichier — et le plus haut s'appelle
+                désormais « Urgent », dans ce formulaire comme dans tous les autres. */}
             <select className="bev-saisie" value={urgence} onChange={(e) => onUrgence(e.target.value)}>
               <option value="">non précisée</option>
-              {URGENCES_EVENEMENT.map((u) => <option key={u} value={u}>{motUrgence(u)}</option>)}
+              {NIVEAUX_URGENCE.map((n) => <option key={n.cle} value={n.cle}>{n.mot}</option>)}
             </select>
           </label>
         </div>

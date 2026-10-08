@@ -388,6 +388,22 @@ function jourParis(d: Date): number {
 }
 
 /**
+ * ══ 🔴 LE MÊME JOUR, ÉCRIT `AAAA-MM-JJ` — la forme qu'attendent les lectures datées. PUR ═══════════════════════
+ *
+ * 🔴 ÉCRITE ICI PARCE QU'ELLE L'ÉTAIT DÉJÀ AILLEURS : `mongaClassement.jourDuJour()` tenait la même phrase pour
+ * son seul appelant. Deux écritures du « jour de Paris », c'est deux réponses possibles la nuit du changement
+ * d'heure, et celle qu'on regarde le moins qui garde l'ancienne. Elle n'est plus écrite qu'ici, et les deux
+ * l'appellent.
+ *
+ * ⚠️ `fr-CA` REND `2026-10-08`, et ce n'est pas un détail de goût : c'est le seul format court de `Intl` qui soit
+ * déjà dans l'ordre année-mois-jour. Découper un `toISOString()` aurait rendu le jour UTC — la veille, chaque soir
+ * après 22 h en heure d'été.
+ */
+export function jourCivilParis(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat('fr-CA', { timeZone: FUSEAU_AFFICHAGE }).format(d);
+}
+
+/**
  * Date et heure de réception, façon messagerie. `iso` absent ou illisible → « — » (jamais une date inventée). PUR.
  */
 export function dateHeureCourte(iso: string | null | undefined, maintenant: Date): string {

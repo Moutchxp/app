@@ -9,6 +9,8 @@ import { jourFr } from './EvenementsDuBien';
 import { motGroupeMessages } from '../../../../lib/gestion/frise';
 /* 🔴 LOT FRISE-CONSTRUCTIBLE — la liste du réservoir vient du module PUR, jamais recopiée dans une épreuve. */
 import { TYPES_RESERVOIR as RESERVOIR_TYPES } from '../../../../lib/gestion/mongaEtape';
+/* 🔴 LOT URGENCE-EVENEMENT, POINT 4 — on éprouve l'adresse PRODUITE et RELUE, et non la forme de son code. */
+import { ecrireEtatUrl, ETAT_DEFAUT, lireEtatUrl } from '../../../../lib/gestion/ecranUrl';
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINTS 3 ET 4 — CE QUE LES DEUX ÉCRANS DOIVENT TENIR ═══════════════════════════════════════
@@ -966,11 +968,24 @@ describe('⑱ les événements clos restent repliés (Arno, point 3)', () => {
     expect(BLOC).toContain('className="evb-etape"');
   });
 
-  /** 🔴 ET LA FRISE N'EST MONTÉE QUE SI L'ÉVÉNEMENT EST DÉPLIÉ : un clos ne coûte aucune requête. */
+  /**
+   * 🔴 ET LA FRISE N'EST MONTÉE QUE SI L'ÉVÉNEMENT EST DÉPLIÉ : un clos ne coûte aucune requête.
+   *
+   * ⚠️ LA FENÊTRE DE LECTURE S'EST ÉLARGIE (lot URGENCE-EVENEMENT, point 3b) : le sélecteur d'urgence est
+   * désormais la PREMIÈRE chose sous l'en-tête, et la frise vient juste après — « près de l'en-tête de
+   * l'événement » (Arno). Ce qui est éprouvé ne change pas d'un cran : la frise est DANS le `{ouvert && …}`, donc
+   * elle n'est pas montée tant que la carte est repliée.
+   */
   it('🔴 la frise d’un événement replié n’est pas montée', () => {
     expect(BLOC).toContain('{ouvert && (');
     const i = BLOC.indexOf('{ouvert && (');
-    expect(BLOC.slice(i, i + 200)).toContain('<FriseAvancement');
+    const fin = BLOC.indexOf('</>)}', i);
+    expect(fin).toBeGreaterThan(i);
+    expect(BLOC.slice(i, fin)).toContain('<FriseAvancement');
+    /* 🔴 ET LE SÉLECTEUR D'URGENCE EST DEDANS AUSSI, AVANT ELLE : il ne coûte rien sur un événement replié. */
+    expect(BLOC.slice(i, fin)).toContain('<SelecteurUrgence ');
+    expect(BLOC.slice(i, fin).indexOf('<SelecteurUrgence '))
+      .toBeLessThan(BLOC.slice(i, fin).indexOf('<FriseAvancement'));
   });
 });
 
@@ -1059,13 +1074,27 @@ describe('⑳ le gros bouton « Ouvrir la fiche du bien sur cet événement »',
    * 🔴🔴 LA NAVIGATION PASSE PAR L'ADRESSE, et non par un état de composant : ce que le bouton promet doit
    * survivre à un rechargement et à un lien envoyé à un collègue (même arbitrage que `bloc`).
    */
+  /**
+   * ⚠️ ÉPREUVE RÉÉCRITE EN **COMPORTEMENT** (lot URGENCE-EVENEMENT, point 4). Elle figeait trois lignes de
+   * `ecranUrl.ts` mot pour mot ; le point 4 d'Arno les a élargies (`evenement=` vaut désormais aussi sur
+   * `ecran=evenements`), et l'épreuve est tombée sans qu'aucune promesse ne soit rompue. On éprouve donc ce qui
+   * compte : l'adresse PRODUITE, et ce qu'une adresse RELUE rend — ce qu'un collègue reçoit dans un lien.
+   */
   it('🔴🔴 l’événement visé voyage dans l’adresse, avec sa fiche', () => {
     expect(VUE).toContain("aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'bien', id: n }, evenementVise: evenementId });");
     const url = readFileSync('app/lib/gestion/ecranUrl.ts', 'utf8');
     expect(url).toContain('evenementVise?: number | null;');
-    /* ⚠️ ÉCRIT UNIQUEMENT AVEC SA FICHE, et jamais seul : un `?evenement=` orphelin ne désigne rien. */
-    expect(url).toContain("if (e.ecran === 'annuaire' && e.fiche != null && e.evenementVise != null) {");
-    expect(url).toContain("evenementVise: ecran === 'annuaire' && ficheDepuisTexte(p.get('fiche')) !== null");
+    /* 🔴 L'ADRESSE PORTE LES DEUX, et elle se relit à l'identique : c'est l'aller-retour qui compte. */
+    const ecrite = ecrireEtatUrl({
+      ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'bien', id: 315 }, evenementVise: 7,
+    });
+    expect(ecrite).toContain('fiche=bien-315');
+    expect(ecrite).toContain('evenement=7');
+    expect(lireEtatUrl(ecrite).evenementVise).toBe(7);
+    /* ⚠️ DANS L'ANNUAIRE, ÉCRIT ET LU UNIQUEMENT AVEC SA FICHE : un `?evenement=` orphelin n'y désigne rien. */
+    expect(ecrireEtatUrl({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: null, evenementVise: 7 }))
+      .not.toContain('evenement=');
+    expect(lireEtatUrl('?ecran=annuaire&evenement=7').evenementVise).toBeNull();
   });
 
   /**
@@ -1530,8 +1559,12 @@ describe('㉔ la vignette enrichie (lot EVENEMENT-MINIMALISTE, point 2)', () => 
     /* 🔴 LA LIGNE DE GAUCHE NE PORTE PLUS LE TYPE : il est DÉPLACÉ, pas doublé. */
     expect(CARTE).not.toContain('<span className="gst-carte-type">');
     expect(CARTE).not.toContain('{carte.categorie !== null && carte.categorie !== undefined && <>');
-    /* 🔴 ET LA CAPSULE EST RENDUE SANS CONDITION, dans la colonne de droite. */
-    expect(CARTE).toContain('className={`gst-type-capsule ${typeEvenement === null');
+    /* 🔴 ET LA CAPSULE EST RENDUE SANS CONDITION, dans la colonne de droite.
+       ⚠️ SA CLASSE S'ÉCRIT AUTREMENT DEPUIS LE LOT URGENCE-EVENEMENT (point 1) : elle porte DEUX axes — le fond
+       vient du niveau d'urgence, le bord pointillé de l'absence de type — et se compose donc par une liste plutôt
+       que par une interpolation. Ce qui est éprouvé reste le même : la capsule est là, type ou pas. */
+    expect(CARTE).toContain("'gst-type-capsule',");
+    expect(CARTE).toContain("typeEvenement === null ? 'gst-type-capsule--vide' : '',");
   });
 
   /** 🔴🔴 « Ouvert depuis N jours » ET « dernier échange il y a N jours » (Arno), accordés au singulier.
@@ -1612,7 +1645,11 @@ describe('㉔ la vignette enrichie (lot EVENEMENT-MINIMALISTE, point 2)', () => 
 
   /** ⚠️ SANS LA MIGRATION 268, aucune requête ne nomme la colonne absente, et l'écran est celui d'avant. */
   it('⚠️ la catégorie absente ne casse rien', () => {
-    expect(REPO_FILE).toContain("${avecCategorie ? 'e.categorie' : 'NULL::text AS categorie'}");
+    /* ⚠️ LA MÊME SONDE SERT MAINTENANT AUX **DEUX** COLONNES DE LA 268 (lot URGENCE-EVENEMENT, point 1) :
+       `categorie` et `urgence` viennent de la même migration, et deux témoins pour un seul fait finiraient par se
+       contredire le jour où l'un serait oublié. */
+    expect(REPO_FILE).toContain(
+      "${avecCategorie ? 'e.categorie, e.urgence' : 'NULL::text AS categorie, NULL::text AS urgence'}");
     /* ⚠️ LE MÊME TÉMOIN QUE `gestes.ts`, et non un second : table et colonnes viennent de la MÊME migration. */
     expect(REPO_FILE).toContain('const avecCategorie = await evenementQualifieDisponible();');
   });

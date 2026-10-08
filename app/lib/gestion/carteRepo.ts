@@ -78,6 +78,16 @@ export interface CarteDetail {
    * lisent pareil à l'écran — « Type à définir » —, et c'est juste dans les deux cas.
    */
   categorie: string | null;
+  /**
+   * 🔴🔴 LOT URGENCE-EVENEMENT, POINTS 1 ET 3 — LE DEGRÉ D'URGENCE. Il PEINT la capsule de la carte (le mot qu'elle
+   * écrit reste le type) et il pré-remplit le sélecteur à trois boutons. Il n'était lu nulle part sur le détail :
+   * on ne pouvait donc choisir un niveau qu'À LA CRÉATION, et plus jamais après — exactement le trou qu'avait le
+   * type avant le lot CAPSULE-TYPE-EVENEMENT.
+   *
+   * ⚠️ `null` SANS LA MIGRATION 268 (la colonne n'existe pas) comme pour une carte sans niveau : les deux cas se
+   * lisent pareil à l'écran — capsule grise neutre —, et c'est juste dans les deux cas.
+   */
+  urgence: string | null;
   ouvertLe: string;
   ouvertPar: string | null;
   traiteLe: string | null;
@@ -260,15 +270,18 @@ export async function lireCarte(
   ctx: { partenaires: readonly PartenaireInterne[]; adresseGestion: string; deplacements: boolean; spam?: boolean },
 ): Promise<CarteDetail | null> {
   /* 🔴 LOT CAPSULE-TYPE-EVENEMENT — `categorie` n'est NOMMÉE que si la migration 268 est là. Sans elle, la
-     colonne n'existe pas et la nommer ferait échouer toute la lecture de la carte, pas seulement son type. */
+     colonne n'existe pas et la nommer ferait échouer toute la lecture de la carte, pas seulement son type.
+     🔴 LOT URGENCE-EVENEMENT — `urgence` vient de la MÊME migration (268) et suit donc le MÊME témoin. Deux
+     sondes pour un seul fait finiraient par se contredire le jour où l'une serait oubliée. */
   const avecCategorie = await evenementQualifieDisponible();
   const { rows } = await query<{
     evenement_id: number; reference: string; objet: string; demandeur_nom: string | null;
     demandeur_email: string | null; adresse_libre: string | null; etat: string; ouvert_le: string;
     ouvert_par: string | null; traite_le: string | null; traite_par: string | null; categorie: string | null;
+    urgence: string | null;
   }>(
     `SELECT id::int AS evenement_id, reference, objet, demandeur_nom, demandeur_email, adresse_libre, etat,
-            ${avecCategorie ? 'categorie' : 'NULL::text AS categorie'},
+            ${avecCategorie ? 'categorie, urgence' : 'NULL::text AS categorie, NULL::text AS urgence'},
             ${INSTANT('ouvert_le')} AS ouvert_le, ouvert_par_libelle AS ouvert_par,
             ${INSTANT('traite_le')} AS traite_le, traite_par_libelle AS traite_par
        FROM gestion_evenement WHERE id = $1`, [evenementId]);
@@ -310,6 +323,7 @@ export async function lireCarte(
     demandeurNom: e.demandeur_nom, demandeurEmail: e.demandeur_email, adresseLibre: e.adresse_libre,
     etat: e.etat === 'en_cours' || e.etat === 'traite' ? e.etat : 'a_traiter',
     categorie: e.categorie,
+    urgence: e.urgence,
     ouvertLe: e.ouvert_le, ouvertPar: e.ouvert_par, traiteLe: e.traite_le, traitePar: e.traite_par,
     fils: fils.map((f) => ({
       filId: f.fil_id, objet: f.objet,

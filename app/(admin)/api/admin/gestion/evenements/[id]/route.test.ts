@@ -31,6 +31,24 @@ const biens = { biensNommesDeLEvenement: vi.fn() };
 vi.mock('../../../../../../lib/gestion/mongaEtapeRepo', () => ({
   biensNommesDeLEvenement: (...a: unknown[]) => biens.biensNommesDeLEvenement(...a),
 }));
+/**
+ * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — LES PARTIES DU BIEN, PAR LE CALCUL QUI EXISTE DÉJÀ ═════════════════════
+ *
+ * Arno : « Réutilise le calcul du bloc Parties de la fiche bien (pas de seconde requête qui recalcule à sa
+ * façon). » `personnesDesBiens` EST ce calcul — celui que l'étape 2 du classement affiche, et celui que la
+ * création d'un événement depuis Monga emploie déjà pour POSER les parties d'une carte neuve.
+ *
+ * 🔴 MOCKÉ COMME LES TROIS AUTRES LECTURES, et pour la même raison : ce fichier éprouve le CONTRAT de la route —
+ * ce qu'elle appelle, avec quoi, et ce qu'elle rend. Le calcul lui-même a ses propres épreuves.
+ *
+ * ⚠️ `personnesEnVigueur` N'EST PAS MOCKÉE, ET C'EST VOULU : c'est un module PUR, et c'est la RÈGLE qu'on veut
+ * voir appliquée (propriétaires en cours, locataires OCCUPANTS du jour). La doubler aurait éprouvé que la route
+ * appelle une fonction, non qu'elle retient les bonnes personnes.
+ */
+const parts = { personnesDesBiens: vi.fn() };
+vi.mock('../../../../../../lib/gestion/contactExterneRepo', () => ({
+  personnesDesBiens: (...a: unknown[]) => parts.personnesDesBiens(...a),
+}));
 
 import { GET, PATCH } from './route';
 
@@ -45,6 +63,7 @@ beforeEach(() => {
   gardeMock.mockReset(); gardeMock.mockResolvedValue(null);
   monga.mongaDeLEvenement.mockReset(); monga.mongaDeLEvenement.mockResolvedValue(null);
   biens.biensNommesDeLEvenement.mockReset(); biens.biensNommesDeLEvenement.mockResolvedValue([]);
+  parts.personnesDesBiens.mockReset(); parts.personnesDesBiens.mockResolvedValue([]);
   repo.lireCarte.mockReset(); repo.lireCarte.mockResolvedValue(CARTE);
   gestes.modifierEvenement.mockReset(); gestes.modifierEvenement.mockResolvedValue({ ok: true, evenementId: 9 });
   gestes.changerEtatEvenement.mockReset(); gestes.changerEtatEvenement.mockResolvedValue({ ok: true, evenementId: 9 });
@@ -74,8 +93,59 @@ describe('GET — le détail, servi seulement à qui a le droit', () => {
      * événement rattaché à aucun bien n'a pas de fiche à ouvrir, et l'écran le DIT plutôt que d'offrir un bouton
      * qui ne mène nulle part.
      */
-    expect(await res.json()).toEqual({ ...CARTE, monga: null, biens: [] });
+    /**
+     * 🔴 LOT URGENCE-EVENEMENT, POINT 5 — `parties` S'AJOUTE AU CONTRAT, et la liste vide est une réponse : un
+     * événement sans bien n'a aucune partie à nommer, et la carte dépliée n'affiche alors rien de plus qu'avant
+     * ce lot.
+     */
+    expect(await res.json()).toEqual({ ...CARTE, monga: null, biens: [], parties: [] });
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+     ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — LES PARTIES EN VIGUEUR, ET ELLES SEULES ══════════════════════════
+     ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  it('🔴🔴 LOT URGENCE-EVENEMENT — les parties sont lues pour TOUS les biens, en un seul appel', async () => {
+    biens.biensNommesDeLEvenement.mockResolvedValue([
+      { cle: '315', adresse: 'a', commune: 'b' },
+      { cle: '402', adresse: 'c', commune: 'd' },
+    ]);
+    await GET(new Request('http://local/x'), ctx('9'));
+    /* 🔴 UN SEUL APPEL, AVEC LES DEUX CLÉS : c'est la promesse de `personnesDesBiens` (deux requêtes pour tous
+       les biens, jamais deux par bien), et la route ne doit pas la casser en l'appelant dans une boucle. */
+    expect(parts.personnesDesBiens).toHaveBeenCalledTimes(1);
+    expect(parts.personnesDesBiens.mock.calls[0][0]).toEqual(['315', '402']);
+    /* 🔴 ET LA DATE EST CELLE D'AUJOURD'HUI : « locataires ACTUELS » (Arno), et non ceux de la date d'un mail. */
+    expect(parts.personnesDesBiens.mock.calls[0][1]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  /**
+   * 🔴🔴 ON NE RETIENT QUE LES PERSONNES EN VIGUEUR, et c'est `personnesEnVigueur` (module PUR) qui tranche :
+   * propriétaires EN COURS, et locataires OCCUPANTS du jour. Un ancien propriétaire d'un bien vendu et un
+   * locataire sortant existent en base et n'ont rien à faire sur la carte d'aujourd'hui.
+   */
+  it('🔴🔴 LOT URGENCE-EVENEMENT — un ancien propriétaire et un sortant sont ÉCARTÉS', async () => {
+    biens.biensNommesDeLEvenement.mockResolvedValue([{ cle: '315', adresse: 'a', commune: 'b' }]);
+    parts.personnesDesBiens.mockResolvedValue([{
+      cle: '315', adresseComplete: 'a', nature: null, typeBien: null,
+      personnes: [
+        { sorte: 'proprietaire', cle: 'p1', id: 1, nom: 'SCI DES LILAS', civilite: null,
+          role: 'proprietaire', actif: true },
+        { sorte: 'proprietaire', cle: 'p2', id: 2, nom: 'ANCIEN VENDEUR', civilite: null,
+          role: 'proprietaire', actif: false },
+        { sorte: 'locataire', cle: 'l1', id: 3, nom: 'DUPONT Marie', civilite: null,
+          role: 'locataire_occupant' },
+        { sorte: 'locataire', cle: 'l2', id: 4, nom: 'PARTI Paul', civilite: null,
+          role: 'locataire_sortant' },
+      ],
+    }]);
+    const res = await GET(new Request('http://local/x'), ctx('9'));
+    const d = (await res.json()) as { parties: { sorte: string; nom: string }[] };
+    expect(d.parties).toEqual([
+      { sorte: 'proprietaire', nom: 'SCI DES LILAS' },
+      { sorte: 'locataire', nom: 'DUPONT Marie' },
+    ]);
   });
 
   it('🔴 LOT MONGA-1, POINT 4 — une carte RELIÉE porte son badge, son étape et son lien', async () => {

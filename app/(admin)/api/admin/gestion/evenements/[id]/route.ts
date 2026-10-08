@@ -6,6 +6,22 @@ import { lireCarte } from '../../../../../../lib/gestion/carteRepo';
 import { mongaDeLEvenement } from '../../../../../../lib/gestion/mongaRepo';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — les biens de l'événement, pour le bouton « Ouvrir la fiche du bien ». */
 import { biensNommesDeLEvenement } from '../../../../../../lib/gestion/mongaEtapeRepo';
+/**
+ * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — LES PARTIES DU BIEN, PAR LE CALCUL QUI EXISTE DÉJÀ.
+ *
+ * Arno : « Réutilise le calcul du bloc Parties de la fiche bien (pas de seconde requête qui recalcule à sa
+ * façon). » `personnesDesBiens` EST ce calcul — c'est lui que l'étape 2 du classement affiche, et c'est lui que
+ * la création d'un événement depuis Monga emploie déjà pour POSER les parties de la carte neuve
+ * (`mongaClassement.creerEvenementEtRelier`). `personnesEnVigueur` (module PUR) en retient les mêmes personnes
+ * que là-bas : propriétaires en cours, et locataires OCCUPANTS du jour.
+ *
+ * ⚠️ DEUX REQUÊTES POUR TOUS LES BIENS, et non deux par bien : c'est la promesse de `personnesDesBiens`, écrite
+ * dans son encadré. On ne paie donc pas une lecture par bien d'un événement multi-biens.
+ */
+import { personnesDesBiens } from '../../../../../../lib/gestion/contactExterneRepo';
+import { personnesEnVigueur } from '../../../../../../lib/gestion/monga';
+/* 🔴 « le jour de Paris », écrit une seule fois dans le dépôt (module PUR). */
+import { jourCivilParis } from '../../../../../../lib/gestion/ecran';
 import { chargerConfigGestion } from '../../../../../../lib/gestion/config';
 import { lirePartenairesInternes } from '../../../../../../lib/gestion/partenaires';
 import { deplacementsDeMailsDisponibles } from '../../../../../../lib/gestion/schema';
@@ -60,7 +76,24 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
      * bouton le dit plutôt que de mener nulle part.
      */
     const biens = await biensNommesDeLEvenement(id);
-    return Response.json({ ...carte, monga, biens }, { headers: { 'Cache-Control': 'private, no-store' } });
+    /**
+     * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — « Quand on déplie la carte, afficher les noms qui n'apparaissent pas
+     * dans la carte repliée : le ou les locataires actuels, et le ou les propriétaires s'ils manquent. »
+     *
+     * 🔴 LA DATE EST CELLE D'AUJOURD'HUI, et c'est ce que « locataires ACTUELS » veut dire. `personnesDesBiens`
+     * rend TOUT le monde (anciens compris) et ÉTIQUETTE chacun à la date donnée ; `personnesEnVigueur` ne garde
+     * ensuite que l'occupant du jour et les propriétaires en cours. Donner la date du mail aurait répondu à une
+     * autre question — qui habitait là à l'époque —, et c'est justement celle que l'étape 2 pose.
+     *
+     * ⚠️ LISTE VIDE SUR UN ÉVÉNEMENT SANS BIEN, et sans aucune requête : `personnesDesBiens` rend `[]` sur une
+     * liste de clés vide. L'écran n'affiche alors rien de plus qu'avant ce lot.
+     */
+    const fiches = await personnesDesBiens(biens.map((b) => b.cle), jourCivilParis());
+    const parties = fiches
+      .flatMap((b) => personnesEnVigueur(b.personnes))
+      .map((p) => ({ sorte: p.sorte, nom: p.nom }));
+    return Response.json(
+      { ...carte, monga, biens, parties }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/evenement] lecture impossible', e);
     return Response.json({ erreur: 'Lecture impossible : erreur interne du serveur.' }, { status: 503 });
@@ -74,8 +107,11 @@ export async function PATCH(request: Request, ctx: Contexte): Promise<Response> 
   if (id === null) return Response.json({ erreur: 'Événement inconnu.' }, { status: 400 });
 
   /* 🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — `categorie` entre ici : elle ne s'écrivait qu'à la CRÉATION, et une
-     carte ouverte sans type ne pouvait donc plus jamais en recevoir un. `modifierEvenement` la valide. */
-  let corps: { etat?: unknown; objet?: string | null; demandeurNom?: string | null; demandeurEmail?: string | null; adresseLibre?: string | null; categorie?: string | null };
+     carte ouverte sans type ne pouvait donc plus jamais en recevoir un. `modifierEvenement` la valide.
+     🔴 LOT URGENCE-EVENEMENT, POINT 3 — et `urgence` avec elle, pour exactement la même raison : le niveau ne se
+     posait qu'à la création. Le sélecteur à trois boutons de la carte et celui de la fiche du bien passent tous
+     les deux par CETTE porte, et par aucune autre : même garde, même journal. */
+  let corps: { etat?: unknown; objet?: string | null; demandeurNom?: string | null; demandeurEmail?: string | null; adresseLibre?: string | null; categorie?: string | null; urgence?: string | null };
   try { corps = (await request.json()) as typeof corps; }
   catch { return Response.json({ erreur: 'Demande illisible.' }, { status: 422 }); }
 
@@ -87,9 +123,9 @@ export async function PATCH(request: Request, ctx: Contexte): Promise<Response> 
       if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409 });
       return Response.json({ ok: true });
     }
-    const { objet, demandeurNom, demandeurEmail, adresseLibre, categorie } = corps;
+    const { objet, demandeurNom, demandeurEmail, adresseLibre, categorie, urgence } = corps;
     const issue = await modifierEvenement(
-      id, { objet, demandeurNom, demandeurEmail, adresseLibre, categorie }, auteur);
+      id, { objet, demandeurNom, demandeurEmail, adresseLibre, categorie, urgence }, auteur);
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409 });
     return Response.json({ ok: true });
   } catch (e) {

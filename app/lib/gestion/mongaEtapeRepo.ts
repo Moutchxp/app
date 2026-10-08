@@ -16,6 +16,8 @@ import {
   etapesDuMailMonga, ouvertureDeRepli, rangsDesDevis,
   type Certitude, type TypeEtape,
 } from './mongaEtape';
+/* 🔴 LOT URGENCE-EVENEMENT — la sonde de la migration 268 (`categorie` / `urgence`), celle de tout le module. */
+import { evenementQualifieDisponible } from './schema';
 
 /** Une étape telle que l'écran la reçoit. */
 export interface EtapeEcran {
@@ -412,10 +414,20 @@ export async function biensNommesDeLEvenement(evenementId: number): Promise<{
 export async function evenementsDuBien(cleBien: string): Promise<{
   id: number; reference: string; objet: string; etat: string; ouvertLe: string; traiteLe: string | null;
   mongaRefs: string[];
+  /**
+   * 🔴 LOT URGENCE-EVENEMENT, POINT 3b — le niveau d'urgence, pour que le sélecteur de la fiche du bien montre
+   * lequel est enregistré. `null` sans la migration 268 (la colonne n'existe pas) comme pour un événement sans
+   * niveau : les deux se lisent pareil à l'écran, et c'est juste dans les deux cas.
+   */
+  urgence: string | null;
 }[]> {
+  /* 🔴 LOT URGENCE-EVENEMENT — `urgence` n'est NOMMÉE que si la migration 268 est là. Sans elle, la colonne
+     n'existe pas et la nommer ferait échouer TOUTE la lecture du bloc « Événements », pas seulement son niveau.
+     Même témoin que `categorie` partout ailleurs dans le module : c'est la même migration. */
+  const avecUrgence = await evenementQualifieDisponible();
   const { rows } = await query<{
     id: string; reference: string; objet: string; etat: string; ouvert_le: string; traite_le: string | null;
-    monga_refs: string[] | null;
+    monga_refs: string[] | null; urgence: string | null;
   }>(
     `WITH par_partie AS (
         SELECT DISTINCT p.evenement_id
@@ -436,7 +448,8 @@ export async function evenementsDuBien(cleBien: string): Promise<{
                les références reliées, dans l'ordre, et l'écran décide quoi en montrer. */
             (SELECT array_agg(l.reference ORDER BY l.reference)
                FROM (SELECT DISTINCT reference FROM gestion_monga_lien
-                      WHERE evenement_id = e.id AND retire_le IS NULL) l) AS monga_refs
+                      WHERE evenement_id = e.id AND retire_le IS NULL) l) AS monga_refs,
+            ${avecUrgence ? 'e.urgence' : 'NULL::text AS urgence'}
        FROM gestion_evenement e
       WHERE e.id IN (SELECT evenement_id FROM par_partie
                      UNION SELECT evenement_id FROM par_mail)
@@ -447,5 +460,6 @@ export async function evenementsDuBien(cleBien: string): Promise<{
     /* ⚠️ `null` DE POSTGRES ⇒ TABLEAU VIDE : l'écran ne doit pas avoir à distinguer « aucune référence » de
        « colonne absente ». Un événement sans Monga est le cas ordinaire, et de très loin. */
     mongaRefs: r.monga_refs ?? [],
+    urgence: r.urgence,
   }));
 }

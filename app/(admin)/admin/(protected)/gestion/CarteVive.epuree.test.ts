@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs';
 import { CarteVive } from './CarteVive';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 /* 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT — la SOURCE UNIQUE des types, et le calcul de leur ton. */
-import { tonDuType, TYPES_EVENEMENT, type TypeEvenement } from '../../../../lib/gestion/evenementQualite';
+import {
+  tonDuType, TONS_TYPE_EVENEMENT, TYPES_EVENEMENT, type TypeEvenement,
+} from '../../../../lib/gestion/evenementQualite';
 
 /**
  * ══ 🔴🔴 LOT CARTE-EVENEMENT-EPUREE — CE QUE LA CARTE D'UN ÉVÉNEMENT MONTRE, ET CE QU'ELLE NE MONTRE PLUS ════════
@@ -44,6 +46,8 @@ const CARTE = (o: Partial<CarteEvenement> = {}): CarteEvenement => ({
   derniereEtapeMonga: null,
   mongaMajLe: null, vuLe: null, mongaRefs: [],
   categorie: null,
+  /* 🔴 LOT URGENCE-EVENEMENT — aucun niveau : la capsule est alors GRISE NEUTRE. */
+  urgence: null,
   bien: {
     cle: '315', adresse: '67 rue de Normandie', commune: 'COURBEVOIE',
     proprietaire: null, locataire: null,
@@ -90,6 +94,24 @@ const monter = async (carte: CarteEvenement, partage = false) => {
 };
 /** Le texte de la VIGNETTE (le titre repliable), c'est-à-dire la carte telle qu'on la voit fermée. */
 const vignette = (): string => container.querySelector('.gst-carte-titre')?.textContent ?? '';
+/**
+ * ══ 🔴🔴 LOT URGENCE-EVENEMENT — CE QUE LA CAPSULE MONTRE À L'ŒIL, SANS CE QU'ELLE DIT À L'OREILLE ═════════════
+ *
+ * La capsule porte désormais DEUX informations : le TYPE, écrit en toutes lettres, et le NIVEAU D'URGENCE, porté
+ * par sa couleur — donc répété dans un `.gst-sr-only` pour qui ne voit pas la couleur (règle du module : jamais
+ * une couleur seule). `textContent` les concatène, et les épreuves du TYPE deviendraient alors des épreuves de
+ * la phrase entière.
+ *
+ * 🔴 ON RETIRE DONC LE TEXTE RÉSERVÉ AU LECTEUR D'ÉCRAN, sur une COPIE du nœud : ce que rend cette fonction est
+ * exactement ce qu'Arno lit sur la capsule. Le texte caché, lui, est éprouvé à part — il porte sa propre règle.
+ */
+const capsuleVisible = (): string => {
+  const c = container.querySelector('.gst-type-capsule');
+  if (c === null) return '';
+  const copie = c.cloneNode(true) as Element;
+  for (const sr of copie.querySelectorAll('.gst-sr-only')) sr.remove();
+  return copie.textContent ?? '';
+};
 const deplier = async () => {
   const b = [...container.querySelectorAll('button')].find((x) => x.getAttribute('aria-expanded') !== null);
   await act(async () => { b?.click(); }); await calmer();
@@ -155,7 +177,9 @@ describe('🔴🔴 ② le TYPE est une CAPSULE, sous la vignette de droite', () 
     ['litige', 'Litige'],
   ])('🔴 « %s » s’affiche « %s » dans la capsule', async (categorie, mot) => {
     await monter(CARTE({ categorie }));
-    expect(container.querySelector('.gst-type-capsule')?.textContent).toBe(mot);
+    /* 🔴 LOT URGENCE-EVENEMENT — ON LIT LE TEXTE VISIBLE : la capsule dit AUSSI le niveau d'urgence, mais au
+       seul lecteur d'écran (la couleur le porte à l'œil). Voir l'encadré de `capsuleVisible`. */
+    expect(capsuleVisible()).toBe(mot);
     /* 🔴 ET IL A QUITTÉ LA COLONNE DE GAUCHE : plus de `.gst-carte-type`, nulle part. */
     expect(container.querySelector('.gst-carte-type')).toBeNull();
   });
@@ -186,21 +210,105 @@ describe('🔴🔴 ② le TYPE est une CAPSULE, sous la vignette de droite', () 
   });
 
   /**
-   * 🔴🔴 QUATRE TYPES, QUATRE TONS DISTINCTS (Arno). On lit la CLASSE rendue, c'est-à-dire ce que la feuille
-   * appliquera — pas la fonction qui la calcule, éprouvée à part dans `typeEvenement.test.ts`.
+   * ══ 🔴🔴 ÉPREUVE RENVERSÉE LE 08/10/2026 — LOT URGENCE-EVENEMENT, POINT 1 ═══════════════════════════════════
+   *
+   * ELLE EXIGEAIT « QUATRE TYPES, QUATRE TONS DISTINCTS » : la couleur de la capsule venait de la CLÉ du type
+   * (`tonDuType`), et c'était la demande du lot CAPSULE-TYPE-EVENEMENT, la veille.
+   *
+   * ARNO REVIENT DESSUS (08/10/2026) : « La couleur de fond de la capsule de type ne dépend plus du type : elle
+   * traduit le degré d'urgence de l'événement. Le texte affiché reste le type. » Quatre types au MÊME niveau
+   * d'urgence portent donc désormais la MÊME couleur — et c'est exactement ce que cette épreuve vérifie, à
+   * l'envers de ce qu'elle exigeait.
+   *
+   * 🔴 CE QUE L'ANCIENNE RÈGLE PROTÉGEAIT N'EST PAS PERDU : elle voulait qu'on distingue les types d'un coup
+   * d'œil. Le MOT du type est toujours écrit en toutes lettres dans la capsule (éprouvé juste au-dessus), et
+   * c'est lui qui portait déjà l'information — la couleur n'était qu'un appui, et elle appuie maintenant autre
+   * chose.
    */
-  it('🔴🔴 les quatre types portent quatre tons distincts', async () => {
+  it('🔴🔴 la couleur ne dépend PLUS du type : quatre types, un seul ton', async () => {
     const tons: string[] = [];
     for (const cle of ['travaux', 'fuite_eau', 'administratif', 'litige']) {
-      await monter(CARTE({ categorie: cle }));
+      await monter(CARTE({ categorie: cle, urgence: 'haute' }));
       const classe = container.querySelector('.gst-type-capsule')?.className ?? '';
-      tons.push(classe.split(/\s+/).find((c) => c.startsWith('gst-type-capsule--')) ?? '');
+      tons.push(classe.split(/\s+/).find((c) => c.startsWith('gst-type-capsule--urg-')) ?? '');
       act(() => { root.unmount(); });
       container.innerHTML = ''; root = createRoot(container);
     }
-    expect(new Set(tons).size).toBe(4);
-    expect(tons).not.toContain('');
-    expect(tons).not.toContain('gst-type-capsule--vide');
+    expect(new Set(tons).size).toBe(1);
+    expect(tons[0]).toBe('gst-type-capsule--urg-orange');
+    /* 🔴 ET AUCUN TON DE TYPE NE SURVIT SUR LA CAPSULE : les sept règles existent encore dans la feuille, sans
+       porteur (c'est dit à leur place), mais plus personne ne les applique ici. */
+    for (const ton of TONS_TYPE_EVENEMENT) {
+      expect(container.querySelector(`.gst-type-capsule--${ton}`), ton).toBeNull();
+    }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 1 — LA COULEUR DE LA CAPSULE DIT L'URGENCE ═══════════════════════════════
+
+   DEMANDE D'ARNO (08/10/2026) : « Trois niveaux, en couleurs TAMISÉES : Normal → vert ; Intermédiaire → orange ;
+   Urgent → rouge. Événement sans niveau d'urgence enregistré : capsule grise neutre. »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴🔴 ②bis la COULEUR de la capsule traduit le degré d’urgence', () => {
+  it.each([
+    ['normale', 'gst-type-capsule--urg-vert'],
+    ['haute', 'gst-type-capsule--urg-orange'],
+    ['urgent', 'gst-type-capsule--urg-rouge'],
+  ])('🔴 « %s » peint la capsule en %s', async (urgence, classe) => {
+    await monter(CARTE({ categorie: 'travaux', urgence }));
+    expect(container.querySelector('.gst-type-capsule')?.className).toContain(classe);
+    /* 🔴 LE TEXTE RESTE LE TYPE, et rien d'autre : c'est la lettre de la demande. */
+    expect(capsuleVisible()).toBe('Travaux');
+  });
+
+  /**
+   * 🔴🔴 AUCUN NIVEAU ⇒ GRIS NEUTRE, ET SURTOUT PAS VERT. Ne pas avoir choisi n'est pas avoir choisi « Normal » :
+   * c'est le quatrième état, et le confondre avec le premier ferait passer pour « pas urgent » tout dossier que
+   * personne n'a encore regardé. C'est le cas des 2 événements de la base au 08/10/2026.
+   */
+  it('🔴🔴 aucun niveau : gris neutre, jamais le vert de « Normal »', async () => {
+    await monter(CARTE({ categorie: 'travaux', urgence: null }));
+    const c = container.querySelector('.gst-type-capsule');
+    expect(c?.className).toContain('gst-type-capsule--sans-urgence');
+    expect(c?.className).not.toContain('gst-type-capsule--urg-');
+  });
+
+  /** ⚠️ UNE VALEUR HORS LISTE VAUT « AUCUN NIVEAU » — `critique` comprise, depuis la migration 319. */
+  it.each(['', '   ', 'critique', 'inconnu'])('⚠️ « %s » retombe sur le gris neutre', async (urgence) => {
+    await monter(CARTE({ categorie: 'travaux', urgence }));
+    expect(container.querySelector('.gst-type-capsule')?.className)
+      .toContain('gst-type-capsule--sans-urgence');
+  });
+
+  /**
+   * 🔴🔴 LES DEUX AXES SONT INDÉPENDANTS, et c'est le cas qu'une classe unique aurait rendu impossible : un
+   * dossier URGENT que personne n'a encore qualifié. Fond rouge, bord pointillé, et il se clique.
+   */
+  it('🔴🔴 « Type à définir » peut être ROUGE : les deux axes ne se mélangent pas', async () => {
+    await monter(CARTE({ categorie: null, urgence: 'urgent' }));
+    const c = container.querySelector('.gst-type-capsule');
+    expect(c?.className).toContain('gst-type-capsule--urg-rouge');
+    expect(c?.className).toContain('gst-type-capsule--vide');
+    expect(capsuleVisible()).toContain('Type à définir');
+  });
+
+  /**
+   * 🔴 LA COULEUR NE PORTE PAS L'INFORMATION SEULE : le niveau est dit au lecteur d'écran, et dans la bulle.
+   * Sans cela, le degré d'urgence n'existerait ni en niveaux de gris ni pour un daltonien.
+   */
+  it('🔴 le niveau est ÉCRIT pour le lecteur d’écran, et dans la bulle', async () => {
+    await monter(CARTE({ categorie: 'travaux', urgence: 'urgent' }));
+    const c = container.querySelector('.gst-type-capsule');
+    expect(c?.textContent).toContain('urgence : Urgent');
+    expect(c?.getAttribute('title')).toContain('Urgence : Urgent');
+  });
+
+  it('🔴 et l’absence de niveau est ÉCRITE aussi', async () => {
+    await monter(CARTE({ categorie: 'travaux', urgence: null }));
+    const c = container.querySelector('.gst-type-capsule');
+    expect(c?.textContent).toContain('aucun niveau d’urgence enregistré');
+    expect(c?.getAttribute('title')).toContain('Aucun niveau d’urgence enregistré');
   });
 });
 
@@ -450,14 +558,23 @@ describe('🔴🔴 ⑧ un type ajouté à la SOURCE paraît partout, sans autre 
     }
   };
 
-  it('🔴🔴 il s’affiche dans la capsule, avec son mot et un ton de la palette', async () => {
+  /**
+   * ══ 🔴🔴 ÉPREUVE AMENDÉE LE 08/10/2026 — LOT URGENCE-EVENEMENT, POINT 1 ════════════════════════════════════
+   *
+   * ELLE EXIGEAIT, EN PLUS DU MOT, que le ton de la capsule soit celui que `tonDuType` calcule pour la clé neuve.
+   * Ce n'est plus vrai, et c'est voulu : la couleur traduit désormais le degré d'URGENCE. Ce que l'épreuve
+   * protégeait — « un type créé plus tard paraît partout sans toucher au code de chaque écran » — tient
+   * intégralement, et c'est le MOT qui le démontre.
+   */
+  it('🔴🔴 il s’affiche dans la capsule, avec son mot, et la couleur reste celle de l’urgence', async () => {
     await avecLeType(async () => {
-      await monter(CARTE({ categorie: 'degat_eaux' }));
+      await monter(CARTE({ categorie: 'degat_eaux', urgence: 'urgent' }));
       const c = container.querySelector('.gst-type-capsule');
-      expect(c?.textContent).toBe('Dégât des eaux');
-      /* 🔴 ET SON TON EST CELUI QUE LA SOURCE CALCULE : aucune couleur n'a été choisie à la main. */
-      expect(c?.className).toContain(`gst-type-capsule--${tonDuType('degat_eaux')}`);
+      expect(capsuleVisible()).toBe('Dégât des eaux');
       expect(c?.className).not.toContain('gst-type-capsule--vide');
+      /* 🔴 LA COULEUR VIENT DU NIVEAU, ET D'AUCUN CALCUL SUR LA CLÉ DU TYPE. */
+      expect(c?.className).toContain('gst-type-capsule--urg-rouge');
+      expect(c?.className).not.toContain(`gst-type-capsule--${tonDuType('degat_eaux')}`);
     });
   });
 

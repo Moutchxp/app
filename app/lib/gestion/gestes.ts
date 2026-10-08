@@ -123,6 +123,8 @@ export interface NouvelEvenement {
  */
 export {
   CATEGORIES_EVENEMENT, URGENCES_EVENEMENT, categorieValide, urgenceValide, motCategorie, motUrgence,
+  /* 🔴🔴 LOT URGENCE-EVENEMENT, POINT 2 — la SOURCE UNIQUE des niveaux et de leurs libellés, et le ton de chacun. */
+  NIVEAUX_URGENCE, TONS_URGENCE, tonUrgence,
   /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les deux dates et la note d'une carte neuve. */
   bornesEvenement, jourCivil, noteEvenement, MOT_CLOTURE_AVANT_OUVERTURE, NOTE_EVENEMENT_MAX,
 } from './evenementQualite';
@@ -527,6 +529,17 @@ export interface ChampsEvenement {
    * derrière elle.
    */
   categorie?: string | null;
+  /**
+   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 3 — L'URGENCE SE CHANGE EN COURS DE VIE ════════════════════════════════
+   *
+   * CONSTAT FAIT EN OUVRANT CE LOT, et rendu à Arno : l'urgence ne se posait QU'À LA CRÉATION — exactement le même
+   * trou que le type avant le lot CAPSULE-TYPE-EVENEMENT. Ni ce champ, ni le `PATCH` ne la portaient.
+   *
+   * ⚠️ `''` VAUT « EFFACER LE NIVEAU » (comme les autres champs de ce formulaire), et un mot hors liste est
+   * REFUSÉ plutôt qu'écrit — `urgenceValide` tranche, et la contrainte de la base derrière elle. Une page restée
+   * ouverte qui enverrait encore `critique` reçoit donc un refus qui le DIT (migration 319).
+   */
+  urgence?: string | null;
 }
 
 /** Les trois états d'une carte. La liste est COURTE exprès (cf. migration 228) : on n'invente pas de workflow. */
@@ -568,17 +581,35 @@ export async function modifierEvenement(evenementId: number, champs: ChampsEvene
     }
     demande.push(['categorie', 'categorie', valeur]);
   }
+  /**
+   * 🔴 LOT URGENCE-EVENEMENT, POINT 3 — LE NIVEAU D'URGENCE, AVEC SA GARDE. Même forme, mot pour mot, que le type
+   * juste au-dessus : un mot vide efface le niveau, un mot hors liste est refusé ICI pour que le refus dise QUOI
+   * plutôt qu'une erreur de contrainte, et sans la migration 268 la colonne n'existe pas — on n'écrit pas un champ
+   * qui n'a nulle part où aller.
+   */
+  if (champs.urgence !== undefined) {
+    const brut = typeof champs.urgence === 'string' ? champs.urgence.trim() : '';
+    const valeur = brut === '' ? null : urgenceValide(brut);
+    if (brut !== '' && valeur === null) return { ok: false, motif: 'Ce niveau d’urgence n’existe pas.' };
+    if (!(await evenementQualifieDisponible())) {
+      return { ok: false, motif: 'Le niveau d’urgence n’est pas encore installé sur cette base (mise à jour 268 à appliquer).' };
+    }
+    demande.push(['urgence', 'urgence', valeur]);
+  }
   if (demande.length === 0) return { ok: false, motif: 'Rien à modifier.' };
 
   return withTransaction(async (q) => {
     // LIRE AVANT D'ÉCRIRE : `withTransaction` commite au retour (db/client.ts:52-54), donc un refus rendu après une
     //   écriture serait un refus qui a écrit. Et la lecture sert aussi au journal : sans l'AVANT, une trace ne dit rien.
-    /* 🔴 `categorie` N'EST LUE QUE SI ELLE EST DEMANDÉE : sans la 268 la colonne n'existe pas, et la nommer dans
-       le SELECT ferait échouer une modification de l'objet, qui n'a rien demandé au type. */
-    const relitCategorie = demande.some(([, colonne]) => colonne === 'categorie');
+    /* 🔴 `categorie` ET `urgence` NE SONT LUES QUE SI ELLES SONT DEMANDÉES : sans la 268 ces colonnes n'existent
+       pas, et les nommer dans le SELECT ferait échouer une modification de l'objet, qui n'a rien demandé ni au
+       type ni au niveau d'urgence.
+       ⚠️ ON LIT CE QU'ON ÉCRIT, ET PAS PLUS : la liste est DÉRIVÉE de `demande`, et non recopiée — sans quoi un
+       troisième champ de la 268 ajouté plus tard s'écrirait sans que le journal sache dire son « avant ». */
+    const relues = (['categorie', 'urgence'] as const).filter((c) => demande.some(([, col]) => col === c));
     const { rows: avant } = await q<Record<string, string | null>>(
       `SELECT objet, demandeur_nom, demandeur_email, adresse_libre, reference
-              ${relitCategorie ? ', categorie' : ''} FROM gestion_evenement
+              ${relues.map((c) => `, ${c}`).join('')} FROM gestion_evenement
         WHERE id = $1 FOR UPDATE`, [evenementId]);
     if (!avant[0]) return { ok: false, motif: 'Cet événement n’existe pas.' };
 

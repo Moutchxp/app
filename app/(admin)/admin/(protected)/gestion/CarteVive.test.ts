@@ -34,7 +34,7 @@ const CARTE = {
   /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées ; vide = pas suivi par Monga. */
   mongaRefs: [],
   /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le type, le bien et ceux qui gravitent autour. */
-  categorie: null, bien: null, nbBiens: 0,
+  categorie: null, urgence: null, bien: null, nbBiens: 0,
 };
 
 // Typés d'après le contrat RÉEL des routes : sans ça, un littéral s'infère trop étroitement (`traiteLe: null` de
@@ -44,6 +44,8 @@ const DETAIL: CarteDetail = {
   demandeurEmail: 'm@exemple.test', adresseLibre: '28 avenue Marceau', etat: 'a_traiter',
   /* 🔴 LOT CAPSULE-TYPE-EVENEMENT — le détail porte désormais le TYPE, pour que le formulaire le pré-remplisse. */
   categorie: null,
+  /* 🔴 LOT URGENCE-EVENEMENT — … et le NIVEAU D'URGENCE, qui peint la capsule et met en évidence le sélecteur. */
+  urgence: null,
   ouvertLe: '2026-09-20T12:00:00Z', ouvertPar: 'arno', traiteLe: null, traitePar: null,
   fils: [{ filId: 5, objet: 'Fuite salle de bain', interlocuteur: 'Mme M.', dernierLe: '2026-09-22T12:00:00Z', nbMessages: 2, nbPieces: 1, attend: true }],
   mailsDeplaces: [],

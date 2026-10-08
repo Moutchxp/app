@@ -197,12 +197,25 @@ export interface EtatEcranUrl {
    * bouton est AILLEURS que la fiche. Ce qu'il promet doit survivre à un rechargement et à un lien envoyé à un
    * collègue, sans quoi « Précédent » rouvrirait la fiche par le haut, sur rien.
    *
-   * ⚠️ IL NE VAUT RIEN SANS `fiche`, comme `bloc` et comme `message` sans `fil` : un `?evenement=` orphelin ne
-   * désigne aucun endroit, et le traîner mettrait deux adresses dans l'historique pour un seul écran.
-   *
    * ⚠️ IL N'EST PAS EXCLUSIF DE `bloc` : l'un vise le bloc « Vie du bien », l'autre un événement du bloc
    * « Événements ». Deux endroits différents de la même fiche, et rien n'oblige à choisir entre eux ici — c'est
    * la fiche qui décide où elle se pose quand les deux sont écrits (l'événement l'emporte : il est plus précis).
+   *
+   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 (CORRECTION D'ARNO DU 08/10/2026) — UN SECOND ÉCRAN ═══════════════════
+   *
+   * ARNO : « Double-clic sur une carte d'événement [dans l'écran partagé] → ouvre l'écran Événements en plein
+   * écran, la liste défilée et CENTRÉE sur l'événement double-cliqué, cet événement mis en évidence (liseré de
+   * sélection) et déplié. Le lien doit marcher aussi en le copiant dans un nouvel onglet : un paramètre dans
+   * l'adresse, par exemple `&evenement=<id>`, que l'écran lit à l'ouverture. »
+   *
+   * 🔴 LE MÊME PARAMÈTRE, ET NON UN SECOND. `evenement=<id>` répond déjà exactement à « sur quel événement on
+   * arrive » ; en inventer un deuxième (`&vise=`, `&carte=`) aurait fait deux noms pour une question, et c'est
+   * toujours celui qu'on regarde le moins qui finit par mentir. La question change d'ÉCRAN, pas de nature.
+   *
+   * ⚠️ LA CONDITION N'EST DONC PLUS « SANS `fiche`, IL NE VAUT RIEN » : cette phrase, qui vivait ici depuis le lot
+   * VIGNETTE-EVENEMENT, ne valait que pour l'annuaire, où un `?evenement=` seul ne désignait aucun endroit. Sur
+   * `ecran=evenements`, il désigne une carte de LA liste, et il se suffit à lui-même. La règle d'origine tient
+   * toujours là où elle a été écrite : dans l'annuaire, il reste lu et écrit UNIQUEMENT avec sa fiche.
    */
   evenementVise?: number | null;
   /**
@@ -442,9 +455,12 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
        seule la valeur connue est retenue : voir `bloc`. */
     bloc: ecran === 'annuaire' && ficheDepuisTexte(p.get('fiche')) !== null && p.get('bloc') === 'vie'
       ? 'vie' : null,
-    /* 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — l'événement visé n'existe QUE sur une fiche de l'annuaire, et il est
-       lu par `identifiant` : une adresse abîmée ouvre la fiche par le haut, jamais une erreur. */
-    evenementVise: ecran === 'annuaire' && ficheDepuisTexte(p.get('fiche')) !== null
+    /* 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — dans l'annuaire, l'événement visé n'existe QUE sur une fiche, et il
+       est lu par `identifiant` : une adresse abîmée ouvre la fiche par le haut, jamais une erreur.
+       🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 — et sur `ecran=evenements` il se suffit à lui-même : il désigne une
+       carte de LA liste, que l'écran centre, met en évidence et déplie. Voir l'encadré de `evenementVise`. */
+    evenementVise: ecran === 'evenements'
+      || (ecran === 'annuaire' && ficheDepuisTexte(p.get('fiche')) !== null)
       ? identifiant(p.get('evenement')) : null,
     /* 🔴🔴 LOT HISTORIQUE-BIEN-3 — le jeton de retour : voir l'encadré de `hdb`. Lu sur les DEUX écrans du
        va-et-vient, et nettoyé (une clé, rien d'autre) — un paramètre abîmé n'ouvre jamais une erreur. */
@@ -497,8 +513,11 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
   // 🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — écrit UNIQUEMENT avec sa fiche, et jamais seul : voir `bloc`.
   if (e.ecran === 'annuaire' && e.fiche != null && e.bloc === 'vie') p.set('bloc', 'vie');
-  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — écrit UNIQUEMENT avec sa fiche, et jamais seul : voir `evenementVise`. */
-  if (e.ecran === 'annuaire' && e.fiche != null && e.evenementVise != null) {
+  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — dans l'annuaire, écrit UNIQUEMENT avec sa fiche, et jamais seul.
+     🔴 LOT URGENCE-EVENEMENT, POINT 4 — sur `ecran=evenements`, écrit seul : il désigne une carte de la liste.
+     Voir l'encadré de `evenementVise`. */
+  if (e.evenementVise != null
+    && (e.ecran === 'evenements' || (e.ecran === 'annuaire' && e.fiche != null))) {
     p.set('evenement', String(e.evenementVise));
   }
   /* 🔴 LE JETON DE RETOUR, sur les deux écrans du va-et-vient, et jamais ailleurs : voir l'encadré de `hdb`. */

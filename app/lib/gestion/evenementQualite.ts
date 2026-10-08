@@ -86,6 +86,19 @@ export const CATEGORIES_EVENEMENT: readonly string[] = TYPES_EVENEMENT.map((t) =
    qui portent chacun leur variante Sombre. Écrire un `#rrggbb` dans ce module l'aurait rendu faux en thème sombre.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 1 — CE TON N'EST PLUS APPLIQUÉ À LA CAPSULE ══════════════════════════════
+ *
+ * ARNO (08/10/2026) : « La couleur de fond de la capsule de type ne dépend plus du type : elle traduit le degré
+ * d'urgence de l'événement. » La capsule lit donc `tonUrgence`, et plus `tonDuType`.
+ *
+ * 🔴 LE MÉCANISME EST GARDÉ, PAS RECÂBLÉ : les sept tons, leur calcul et leurs sept règles de feuille restent en
+ * place, SANS porteur. Les retirer aurait été un retrait, et Arno ne l'a pas demandé — mais il faut le dire :
+ * `TONS_TYPE_EVENEMENT` et `tonDuType` ne sont plus lus par aucun écran depuis ce lot. Ils sont à supprimer d'un
+ * mot d'Arno, et il a été prévenu.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
 /** Les tons disponibles, dans l'ordre. Chacun a sa paire de jetons (fond pâle + texte foncé) dans `globals.css`. */
 export const TONS_TYPE_EVENEMENT = [
   'vert', 'rouge', 'ambre', 'bleu', 'violet', 'sarcelle', 'rose',
@@ -116,8 +129,63 @@ export function tonDuType(cle: string): TonType {
  */
 export const MOT_TYPE_A_DEFINIR = 'Type à définir';
 
-/** Les trois degrés d'urgence. Le MOT est toujours écrit à l'écran, jamais une couleur seule. */
-export const URGENCES_EVENEMENT = ['normale', 'haute', 'critique'] as const;
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINTS 1 ET 2 — LES TROIS NIVEAUX, ÉCRITS UNE SEULE FOIS ═══════════════════════
+
+   ARNO (08/10/2026) : « Le niveau le plus haut s'appelle “Urgent” partout (création, modification, carte, fiche,
+   filtres, bulles). Une seule source pour la liste des niveaux et leurs libellés, lue par tous les écrans (même
+   principe que la liste des types). »
+
+   ═══ CE QUI ÉTAIT ÉCRIT TROIS FOIS, ET NE L'EST PLUS ════════════════════════════════════════════════════════════
+     ① `URGENCES_EVENEMENT`, un tableau de CLÉS — il reste, mais DÉRIVÉ ;
+     ② `motUrgence()`, une chaîne de trois `if` qui réécrivait les mêmes clés pour leur donner un libellé — le
+        même défaut silencieux que `motCategorie` avant le lot CAPSULE-TYPE-EVENEMENT : un niveau ajouté en ①
+        sans sa ligne en ② tombait sur « Non précisée » ;
+     ③ la contrainte `gestion_evenement_urgence_chk`, en base (migration 268), régénérée depuis ce tableau par la
+        migration 319 — et une épreuve compare le SQL de cette migration à ce tableau.
+
+   ═══ 🔴 LE TON VIT ICI, À CÔTÉ DU MOT, ET C'EST LE POINT 1 ══════════════════════════════════════════════════════
+   ARNO : « La couleur de fond de la capsule de type ne dépend plus du type : elle traduit le degré d'urgence de
+   l'événement. Le texte affiché reste le type. » Le ton est donc une propriété du NIVEAU, déclarée avec lui — et
+   non calculée comme celui d'un type (`tonDuType`), qui devait tenir pour des clés inconnues d'avance. Ici les
+   niveaux sont trois, nommés, et leurs couleurs sont celles d'un feu : rien à hacher.
+
+   ⚠️ `'critique'` N'EST PLUS UNE CLÉ : elle est devenue `'urgent'`, et la migration 319 renomme les lignes qui la
+   portaient. Une page restée ouverte qui enverrait encore `'critique'` reçoit un refus qui le DIT, plutôt qu'une
+   erreur de contrainte — `urgenceValide` tranche avant la base.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Les trois tons d'un niveau d'urgence. Chacun a sa paire de jetons (fond pâle + texte foncé) dans la feuille. */
+export const TONS_URGENCE = ['vert', 'orange', 'rouge'] as const;
+
+export type TonUrgence = (typeof TONS_URGENCE)[number];
+
+/** Un degré d'urgence : sa clé (celle qui s'écrit en base), le mot qui s'affiche, et son ton. */
+export interface NiveauUrgence {
+  cle: string;
+  mot: string;
+  ton: TonUrgence;
+}
+
+/**
+ * LA LISTE, ET LA SEULE. Les trois niveaux d'Arno, mot pour mot.
+ *
+ * ⚠️ UNE CLÉ NE SE RENOMME PAS SANS MIGRATION : elle est écrite dans `gestion_evenement.urgence` sur les cartes
+ * existantes, et dans la contrainte de la base. C'est exactement ce qu'a demandé le point 2 pour `critique` →
+ * `urgent`, et c'est ce que fait la migration 319. Changer un MOT, lui, est sans danger.
+ */
+export const NIVEAUX_URGENCE: readonly NiveauUrgence[] = [
+  { cle: 'normale', mot: 'Normal', ton: 'vert' },
+  { cle: 'haute', mot: 'Intermédiaire', ton: 'orange' },
+  { cle: 'urgent', mot: 'Urgent', ton: 'rouge' },
+];
+
+/**
+ * Les clés seules — DÉRIVÉES, et plus écrites à la main. Le nom ne change pas, pour la même raison que
+ * `CATEGORIES_EVENEMENT` : des appels le lisent déjà, et le renommer aurait fait un lot de renommage là où il
+ * n'y avait qu'une source à unifier.
+ */
+export const URGENCES_EVENEMENT: readonly string[] = NIVEAUX_URGENCE.map((n) => n.cle);
 
 /**
  * La catégorie retenue, ou `null`. PUR.
@@ -134,9 +202,15 @@ export function categorieValide(brut: unknown): string | null {
   return typeof brut === 'string' && TYPES_EVENEMENT.some((t) => t.cle === brut) ? brut : null;
 }
 
-/** L'urgence retenue, ou `null`. PUR. */
+/**
+ * L'urgence retenue, ou `null`. PUR.
+ *
+ * ⚠️ ON CONSULTE `NIVEAUX_URGENCE`, ET NON `URGENCES_EVENEMENT` : cette dernière est une PHOTO prise au
+ * chargement du module. Même raison qu'à `categorieValide` — lire la source plutôt que sa copie, c'est une
+ * indirection de moins et une vérité de plus, et c'est l'épreuve qui ajoute un niveau qui s'en aperçoit.
+ */
 export function urgenceValide(brut: unknown): string | null {
-  return typeof brut === 'string' && (URGENCES_EVENEMENT as readonly string[]).includes(brut) ? brut : null;
+  return typeof brut === 'string' && NIVEAUX_URGENCE.some((n) => n.cle === brut) ? brut : null;
 }
 
 /**
@@ -154,12 +228,33 @@ export function motCategorie(c: string | null | undefined): string {
   return TYPES_EVENEMENT.find((t) => t.cle === c)?.mot ?? 'Non précisée';
 }
 
-/** Le mot d'une urgence, tel qu'il s'affiche. PUR. */
+/**
+ * Le mot d'une urgence, tel qu'il s'affiche. PUR.
+ *
+ * ══ 🔴🔴 RÉÉCRIT LE 08/10/2026 — LOT URGENCE-EVENEMENT, POINT 2 ════════════════════════════════════════════════
+ * C'ÉTAIT UNE CHAÎNE DE TROIS `if`, c'est-à-dire la liste des niveaux écrite une SECONDE fois — le défaut qu'on
+ * venait de refermer sur les types. Les mots eux-mêmes changent : « Normale / Haute / Critique » devient
+ * « Normal / Intermédiaire / Urgent », ce qu'Arno demande en toutes lettres.
+ *
+ * ⚠️ « Non précisée » RESTE LE REPLI : une valeur hors liste (une vieille carte, une base où la 319 n'est pas
+ * appliquée et qui porte encore `critique`) doit se lire pour ce qu'elle est plutôt que de rendre une chaîne vide.
+ */
 export function motUrgence(u: string | null | undefined): string {
-  if (u === 'critique') return 'Critique';
-  if (u === 'haute') return 'Haute';
-  if (u === 'normale') return 'Normale';
-  return 'Non précisée';
+  return NIVEAUX_URGENCE.find((n) => n.cle === u)?.mot ?? 'Non précisée';
+}
+
+/**
+ * Le TON d'une urgence, ou `null` quand l'événement n'en porte aucune. PUR.
+ *
+ * 🔴 `null` EST UNE RÉPONSE, ET LA PLUS FRÉQUENTE (2 événements sur 2 en base le 08/10/2026 n'ont aucun niveau) :
+ * la capsule est alors GRISE NEUTRE, comme elle l'était pour « Type à définir » avant ce lot. Arno : « Événement
+ * sans niveau d'urgence enregistré : capsule grise neutre. »
+ *
+ * ⚠️ AUCUN CODE COULEUR ICI, exactement comme pour `tonDuType` : on rend un NOM de ton, et la feuille de style le
+ * traduit en jetons `--color-svv-*`, qui portent chacun leur variante Sombre.
+ */
+export function tonUrgence(u: string | null | undefined): TonUrgence | null {
+  return NIVEAUX_URGENCE.find((n) => n.cle === u)?.ton ?? null;
 }
 
 /**

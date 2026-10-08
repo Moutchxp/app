@@ -33,7 +33,7 @@ const carte = (over: Partial<Parameters<typeof CarteEv>[0]['carte']> = {}) => ({
   /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées ; vide = pas suivi par Monga. */
   mongaRefs: [],
   /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le type, le bien et ceux qui gravitent autour. */
-  categorie: null, bien: null, nbBiens: 0, ...over,
+  categorie: null, urgence: null, bien: null, nbBiens: 0, ...over,
 });
 
 const rendreFil = (o = {}) => renderToStaticMarkup(createElement(LigneFil, { fil: fil(o), maintenant: MAINTENANT }));

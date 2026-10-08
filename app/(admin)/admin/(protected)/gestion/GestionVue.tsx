@@ -905,15 +905,42 @@ export function GestionVue({ intro }: {
   };
 
   /**
+   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 (CORRECTION D'ARNO DU 08/10/2026) — LE PLEIN ÉCRAN, SUR CET ÉVÉNEMENT ══
+   *
+   * Arno : « Double-clic sur une carte d'événement [dans l'écran partagé] → ouvre l'écran Événements en plein
+   * écran, la liste défilée et CENTRÉE sur l'événement double-cliqué, cet événement mis en évidence (liseré de
+   * sélection) et déplié. […] Le lien vers l'écran Événements centré doit marcher aussi en le copiant dans un
+   * nouvel onglet : un paramètre dans l'adresse, par exemple &evenement=<id>, que l'écran lit à l'ouverture. »
+   *
+   * 🔴 C'EST DONC L'ADRESSE QUI PORTE L'INTENTION, et non un état de composant : `?ecran=evenements&evenement=12`.
+   * Elle survit au rechargement, au bouton « Précédent », et à un copier-coller vers un collègue — ce qu'Arno
+   * demande en toutes lettres, et ce que la règle de ce fichier impose depuis le lot 5-FUSION.
+   *
+   * ⚠️ `...ETAT_DEFAUT` COMME LES AUTRES SAUTS D'ÉCRAN : on part d'un état propre, sans traîner le fil ouvert ni
+   * la fiche d'où l'on vient. C'est aussi ce qui garantit que l'adresse produite est EXACTEMENT celle qu'un
+   * nouvel onglet relira — sans quoi le lien copié n'ouvrirait pas le même écran que le double-clic.
+   */
+  const ouvrirPleinEcranSurEvenement = (evenementId: number): void => {
+    aller({ ...ETAT_DEFAUT, ecran: 'evenements', evenementVise: evenementId });
+  };
+
+  /**
    * Les cartes, écrites une seule fois : mêmes fonctions dans la colonne et en plein écran.
    *
    * 🔴 UN SEUL ARGUMENT LES SÉPARE (lot VIGNETTE-EVENEMENT, point 1) : dans l'écran PARTAGÉ, le bloc d'état cède
    * la place au gros bouton « Ouvrir la fiche du bien sur cet événement → » (accord d'Arno) ; en plein écran,
    * l'état reste. Deux listes écrites à la main auraient fini par diverger sur tout le reste.
+   *
+   * 🔴 LOT URGENCE-EVENEMENT, POINT 4 — ET C'EST CE MÊME ARGUMENT QUI DÉCIDE DU DOUBLE-CLIC : la carte sait dans
+   * quel écran elle est rendue, et elle n'a donc pas besoin d'un second drapeau pour savoir où mener. L'événement
+   * VISÉ, lui, ne peut l'être qu'en plein écran : dans l'écran partagé, `evenementVise` n'est pas lu de l'adresse
+   * (`lireEtatUrl`), et la comparaison rend donc toujours faux — aucune carte n'y porte de liseré.
    */
   const cartesDe = (partage: boolean) => d.evenements.map((e) => (
     <CarteVive key={e.evenementId} carte={e} maintenant={ref}
       partage={partage} onOuvrirBien={ouvrirBienSurEvenement}
+      onPleinEcranSurEvenement={ouvrirPleinEcranSurEvenement}
+      vise={!partage && (etatUrl.evenementVise ?? null) === e.evenementId}
       /* LOT RATTACHEMENT-2 — la carte est le troisième point d'entrée de l'historique, avec l'annuaire et le bandeau. */
       onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
       onGeste={(message, options) => {
@@ -2153,6 +2180,32 @@ ${CSS_BOUTON_ROND}
 .gst-type-capsule--violet{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
 .gst-type-capsule--sarcelle{background:var(--color-svv-sarcelle-soft);color:var(--color-svv-sarcelle)}
 .gst-type-capsule--rose{background:var(--color-svv-rose-soft);color:var(--color-svv-rose)}
+/* ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 1 — LA COULEUR DIT L'URGENCE, PLUS LE TYPE ═════════════════════════════
+   ARNO (08/10/2026) : « La couleur de fond de la capsule de type ne dépend plus du type : elle traduit le degre
+   d'urgence de l'evenement. Le texte affiche reste le type (“Travaux”, “Fuite”…). Trois niveaux, en couleurs
+   TAMISEES (fond pale + texte fonce, memes familles que les capsules de role de l'Annuaire) : Normal → vert ;
+   Intermediaire → orange ; Urgent → rouge. »
+
+   🔴 LES SEPT REGLES CI-DESSUS NE SONT PLUS APPLIQUEES, ET ELLES NE SONT PAS RETIREES. Arno n'a pas demande de
+   supprimer le mecanisme de couleur par type (tonDuType) — seulement de cesser de le porter sur cette capsule.
+   Elles restent donc, SANS PORTEUR, et le module pur le dit au meme endroit que son calcul. A supprimer d'un mot
+   d'Arno, qui a ete prevenu.
+
+   🔴 DEUX AXES, DEUX CLASSES, ET C'EST CE QUI REND LES QUATRE COMBINAISONS JUSTES. Le TEXTE vient du type (ou
+   « Type a definir »), le FOND vient de l'urgence (ou du gris). Un evenement peut tres bien porter un niveau sans
+   type, ou l'inverse : melanger les deux axes dans une seule classe aurait rendu impossible « Type a definir en
+   rouge » — c'est-a-dire le cas le plus interessant, un dossier urgent qu'on n'a pas encore qualifie.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-type-capsule--urg-vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.gst-type-capsule--urg-orange{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
+.gst-type-capsule--urg-rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
+/* ══ AUCUN NIVEAU ENREGISTRE : GRIS NEUTRE ══
+   Arno : « Evenement sans niveau d'urgence enregistre : capsule grise neutre (comme aujourd'hui pour “Type a
+   definir”). » C'est mot pour mot le fond et le texte que --vide portait avant ce lot — ils DEMENAGENT ici,
+   parce qu'ils disent desormais l'absence de NIVEAU et non l'absence de TYPE.
+   ⚠️ NE PAS LIRE « gris = pas urgent ». Ne pas avoir choisi n'est pas avoir choisi « Normal », et c'est pour cela
+   qu'un quatrieme etat existe : le vert affirme quelque chose, le gris dit qu'on n'a rien affirme. */
+.gst-type-capsule--sans-urgence{background:var(--color-svv-field);color:var(--color-svv-muted)}
 /* ══ SANS TYPE : GRIS NEUTRE, ET CA SE CLIQUE ══
    Arno : « Evenement SANS type : la capsule est quand meme la, en gris neutre, avec “Type a definir”. Un clic
    dessus ouvre l'endroit existant ou l'on choisit le type. »
@@ -2165,8 +2218,15 @@ ${CSS_BOUTON_ROND}
    ni prendre le focus sans creer un arret de tabulation faux. Lui donner un effet de survol aurait promis une
    interaction que le clavier ne peut pas atteindre — on ne la promet donc pas. Le chemin clavier existe et ne
    change pas : deplier le dossier, puis « Modifier les informations de l'evenement », ou vit le vrai choix. */
-.gst-type-capsule--vide{background:var(--color-svv-field);color:var(--color-svv-muted);
-  border:1px dashed var(--color-svv-line-strong);cursor:pointer}
+/* 🔴🔴 LOT URGENCE-EVENEMENT, POINT 1 — --vide NE PORTE PLUS DE COULEUR, ET C'EST TOUT CE QUI CHANGE ICI.
+   Son fond et son texte gris sont passes a --sans-urgence ci-dessus, parce que le gris dit desormais « aucun
+   niveau » et non « aucun type ». Ce qui reste est ce que --vide disait DEJA de propre : le bord POINTILLE —
+   le dessin de ce qui reste a faire dans ce module — et la main du curseur. Un evenement URGENT et non qualifie
+   garde donc son fond rouge ET son bord pointille : les deux informations tiennent ensemble.
+   ⚠️ LA CLASSE GARDE SON NOM : c'est elle que auClic interroge pour savoir qu'on vient de cliquer « Type a
+   definir » (closest sur .gst-type-capsule--vide). La renommer aurait casse le raccourci sans qu'aucun type ne
+   s'en plaigne. */
+.gst-type-capsule--vide{border:1px dashed var(--color-svv-line-strong);cursor:pointer}
 
 /* ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 4 — « MIS A JOUR PAR MONGA » PASSE AU ROUGE ════════════════════════
    Arno (07/10/2026) : « Le message “Mis a jour par Monga · <heure>” s'ecrit en ROUGE, et TOUTE la vignette de
@@ -2222,6 +2282,16 @@ ${CSS_BOUTON_ROND}
 }
 .gst-carte-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;flex-basis:100%;font-size:.8rem;font-weight:400;color:var(--color-svv-muted)}
 .gst-corps{display:flex;flex-direction:column;gap:12px;padding:12px 2px 2px}
+/* ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — LES PARTIES QUE LA CARTE REPLIEE NE DIT PAS ════════════════════════
+   Des LIGNES COURTES, et chacune se tait quand elle n'a rien a dire — meme forme et meme raison que les lignes
+   du dossier dans la vignette (.gst-carte-ligne). Le ROLE est en gras, les noms derriere.
+   ⚠️ overflow-wrap:anywhere : un nom a rallonge passe a la ligne au lieu d'elargir la carte (regle du module
+   depuis le lot EVENEMENTS-CARTES-PLEINES — plus aucun texte coupe).
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-parties{display:flex;flex-direction:column;gap:2px;margin:0;min-width:0}
+.gst-parties-ligne{display:block;font-size:.78rem;line-height:1.35;color:var(--color-svv-ink);
+  overflow-wrap:anywhere}
+.gst-parties-role{font-weight:700;color:var(--color-svv-muted)}
 /* ══ LOT ACCUEIL-GESTION-ANNUAIRE, POINT 4 — LE GROS BOUTON FAIT PARTIE DE SA CAPSULE ══
    Arno : « aucun vide entre la carte et le bouton, un ecart net avec l'evenement suivant, et il doit se lire
    clairement comme faisant partie de sa capsule ».
@@ -2253,6 +2323,22 @@ ${CSS_BOUTON_ROND}
 @media (max-width:520px){.gst-fiche{grid-template-columns:1fr;gap:.1rem}.gst-fiche dd{margin-bottom:.4rem}}
 /* Une donnée absente est DITE absente — un blanc laisserait croire à un oubli d'affichage. */
 .gst-absent{color:var(--color-svv-muted);font-style:italic}
+/* ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 (CORRECTION D'ARNO) — L'EVENEMENT SUR LEQUEL ON ARRIVE ══════════════
+   ARNO : « la liste defilee et CENTREE sur l'evenement double-clique, cet evenement mis en evidence (lisere de
+   selection) et deplie. »
+
+   🔴 UN LISERE DE SELECTION, ET NON L'EFFET MONGA. --monga crie (il pulse, il a un halo) parce qu'il annonce
+   une NOUVELLE que personne n'a demandee. Ici on vient d'arriver volontairement : le lisere ne fait que dire
+   « c'est celui-la », une fois, sans bouger. Deux effets qui se ressemblent auraient fini par se lire comme un
+   seul fait.
+   🔴 UNE OMBRE INTERIEURE, PAS UNE BORDURE : une bordure deplacerait la carte de 2 px en s'allumant, et toute
+   la liste sauterait a l'arrivee — exactement ce que --monga a deja tranche quelques regles plus haut.
+   🔴 scroll-margin DONNE L'AIR DU CENTRAGE : c'est scrollIntoView(block:center) qui centre, cette marge
+   evite seulement qu'un bord colle a l'en-tete quand la carte est plus haute que la fenetre.
+   ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : la carte visee est DEPLIEE, ce qui la distingue deja des
+   autres, et aria-current le dit au lecteur d'ecran.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-item--vise{box-shadow:inset 0 0 0 2px var(--color-svv-red);scroll-margin:24px 0}
 .gst-item--fil{background:var(--color-svv-field)}
 .gst-fil{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 /* Un message : le sens est porté par un MOT (« reçu de » / « nous avons écrit »), la bordure ne fait que l'appuyer. */

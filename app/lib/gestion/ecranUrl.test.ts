@@ -68,6 +68,10 @@ describe('🔴 ② lire puis écrire redonne la MÊME adresse', () => {
     /* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — la fiche d'un bien, posée sur « Vie du bien ». Elle entre
        dans les formes canoniques : c'est une adresse qu'on envoie à un collègue, donc elle doit se relire. */
     '?ecran=annuaire&fiche=lot-287&bloc=vie',
+    /* 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 — l'écran Événements posé sur UN événement. Arno : « Le lien vers
+       l'écran Événements centré doit marcher aussi en le copiant dans un nouvel onglet. » C'est donc une forme
+       canonique à part entière, et elle doit se relire à l'identique. */
+    '?ecran=evenements&evenement=7',
   ];
 
   it('aller-retour stable sur toutes les formes canoniques', () => {
@@ -304,5 +308,81 @@ describe('🔴🔴 le jeton de retour (hdb)', () => {
   it('🔴🔴 poser un jeton ne change pas d’écran', () => {
     const avant = lireEtatUrl('?ecran=annuaire&fiche=lot-31');
     expect(memeEtat(avant, { ...avant, hdb: 'abc123' })).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 — L'ÉCRAN ÉVÉNEMENTS, POSÉ SUR UN ÉVÉNEMENT ════════════════════════════
+
+   CORRECTION D'ARNO (08/10/2026) : « Double-clic sur une carte d'événement [dans l'écran partagé] → ouvre l'écran
+   Événements en plein écran, la liste défilée et CENTRÉE sur l'événement double-cliqué […]. Le lien vers l'écran
+   Événements centré doit marcher aussi en le copiant dans un nouvel onglet : un paramètre dans l'adresse, par
+   exemple &evenement=<id>, que l'écran lit à l'ouverture. »
+
+   🔴 LE MÊME PARAMÈTRE QUE L'ANNUAIRE, ET NON UN SECOND : `evenement=<id>` répond déjà à « sur quel événement on
+   arrive ». La question change d'ÉCRAN, pas de nature — et deux noms pour une question finissent toujours par ne
+   plus dire la même chose.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑤ `&evenement=` sur l’écran Événements', () => {
+  it('🔴🔴 une adresse collée dans un nouvel onglet désigne bien cet événement', () => {
+    expect(lireEtatUrl('?ecran=evenements&evenement=7').ecran).toBe('evenements');
+    expect(lireEtatUrl('?ecran=evenements&evenement=7').evenementVise).toBe(7);
+  });
+
+  it('🔴🔴 et l’écrire redonne exactement cette adresse', () => {
+    expect(ecrireEtatUrl(etat({ ecran: 'evenements', evenementVise: 7 })))
+      .toBe('?ecran=evenements&evenement=7');
+  });
+
+  /**
+   * ⚠️ UNE ADRESSE ABÎMÉE OUVRE L'ÉCRAN PAR LE HAUT, JAMAIS UNE ERREUR : c'est la règle ① de ce fichier, et elle
+   * vaut aussi pour ce paramètre — `identifiant` refuse tout ce qui n'est pas un entier positif.
+   */
+  it.each(['', 'abc', '0', '-3', '1.5', '9'.repeat(30)])('⚠️ « %s » vaut « aucun événement visé »', (v) => {
+    expect(lireEtatUrl(`?ecran=evenements&evenement=${encodeURIComponent(v)}`).evenementVise).toBeNull();
+  });
+
+  /**
+   * 🔴 IL NE DÉSIGNE RIEN AILLEURS, et le traîner mettrait deux adresses dans l'historique pour un seul écran.
+   * L'exception est l'ANNUAIRE, où il ne vaut QUE posé sur une fiche — règle du lot VIGNETTE-EVENEMENT, inchangée.
+   */
+  it('🔴 il est ignoré sur les autres écrans', () => {
+    for (const e of ['partage', 'boite', 'a_trier', 'historique']) {
+      expect(lireEtatUrl(`?ecran=${e}&evenement=7`).evenementVise, e).toBeNull();
+    }
+    expect(lireEtatUrl('?ecran=annuaire&evenement=7').evenementVise).toBeNull();
+    expect(lireEtatUrl('?ecran=annuaire&fiche=bien-315&evenement=7').evenementVise).toBe(7);
+  });
+
+  it('🔴 et il ne s’écrit pas davantage ailleurs', () => {
+    for (const ecran of ['partage', 'boite', 'a_trier', 'historique'] as const) {
+      expect(ecrireEtatUrl(etat({ ecran, evenementVise: 7 })), ecran).not.toContain('evenement=');
+    }
+  });
+
+  /**
+   * ══ 🔴🔴 CE QUI COMPTE POUR L'HISTORIQUE, ET CE QUI N'Y COMPTE PAS — MESURÉ, PAS SUPPOSÉ ═══════════════════
+   *
+   * 🔴 LE DOUBLE-CLIC EMPILE BIEN UNE ENTRÉE, et c'est tout ce dont Arno a besoin : il part de `partage` et
+   * arrive sur `evenements`. L'ÉCRAN change, donc `memeEtat` rend faux, donc `aller` fait un `pushState` — et
+   * « Précédent » ramène à l'écran partagé d'où l'on vient.
+   *
+   * ⚠️ `evenementVise` N'ENTRE **PAS** DANS `memeEtat`, ET JE NE L'Y AI PAS AJOUTÉ. Deux adresses `evenements`
+   * qui ne diffèrent que par l'événement visé comptent donc pour le même écran. C'est sans conséquence
+   * aujourd'hui : AUCUN geste de l'application ne produit cette transition — on arrive sur un événement visé
+   * depuis l'écran partagé (l'écran change) ou par un lien collé (page neuve). Toucher à `memeEtat` est une
+   * modification de la navigation PARTAGÉE par les six écrans, et elle ne se fait pas pour un cas qui n'existe
+   * pas. C'est le même arbitrage, et la même phrase, que pour `hdb`.
+   */
+  it('🔴🔴 arriver sur un événement visé depuis l’écran partagé CHANGE d’écran', () => {
+    const departPartage = lireEtatUrl('?ecran=partage');
+    const arrivee = lireEtatUrl('?ecran=evenements&evenement=7');
+    expect(memeEtat(departPartage, arrivee)).toBe(false);
+  });
+
+  it('⚠️ mais deux événements visés du même écran ne se distinguent pas (voir l’encadré)', () => {
+    const a = lireEtatUrl('?ecran=evenements&evenement=7');
+    expect(memeEtat(a, lireEtatUrl('?ecran=evenements&evenement=8'))).toBe(true);
   });
 });

@@ -881,7 +881,9 @@ describe('🔴 B1 — le bloc « Événement rattaché » est EN TÊTE', () => {
     expect(l).toContain('posé sur ce mail');
     // La catégorie et l'urgence sont écrites en MOTS, jamais portées par une couleur seule.
     expect(l).toContain('Fuite d’eau');
-    expect(l).toContain('Urgence : Haute');
+    /* 🔴 LOT URGENCE-EVENEMENT, POINT 2 — le niveau `haute` s'écrit désormais « Intermédiaire ». La clé stockée
+       n'a pas bougé ; c'est son LIBELLÉ qui vient de la source unique (`NIVEAUX_URGENCE`). */
+    expect(l).toContain('Urgence : Intermédiaire');
   });
 
   it('un événement hérité de l’échange est dit comme tel', async () => {
@@ -1002,7 +1004,15 @@ describe('🔴 B1 — lier, créer, délier', () => {
     expect(options).toContain('Fuite d’eau');
     expect(options).toContain('Administratif');
     expect(options).toContain('Litige');
-    expect(options).toContain('Critique');
+    /**
+     * 🔴 LOT URGENCE-EVENEMENT, POINT 2 — « Critique » EST DEVENU « Urgent », ici comme partout. Arno : « Le
+     * niveau le plus haut s'appelle “Urgent” partout (création, modification, carte, fiche, filtres, bulles). »
+     * Ce formulaire est la CRÉATION, et c'est donc le premier endroit où le mot devait changer.
+     */
+    expect(options).toContain('Normal');
+    expect(options).toContain('Intermédiaire');
+    expect(options).toContain('Urgent');
+    expect(options).not.toContain('Critique');
   });
 });
 

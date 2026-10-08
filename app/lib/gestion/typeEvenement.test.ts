@@ -254,7 +254,10 @@ describe('🔴🔴 ⑤ sans type : « Type à définir », et un chemin pour le 
     expect(GESTES).toContain("demande.push(['categorie', 'categorie', valeur]);");
     expect(GESTES).toContain("if (brut !== '' && valeur === null) return { ok: false, motif: 'Ce type d’événement n’existe pas.' };");
     const ROUTE = readFileSync('app/(admin)/api/admin/gestion/evenements/[id]/route.ts', 'utf8');
-    expect(ROUTE).toContain('const { objet, demandeurNom, demandeurEmail, adresseLibre, categorie } = corps;');
+    /* 🔴 LOT URGENCE-EVENEMENT, POINT 3 — `urgence` a rejoint la MÊME ligne, par la MÊME porte : le type n'est
+       donc plus seul à se corriger après coup. */
+    expect(ROUTE).toContain(
+      'const { objet, demandeurNom, demandeurEmail, adresseLibre, categorie, urgence } = corps;');
   });
 
   /**

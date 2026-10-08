@@ -15,9 +15,15 @@ import { motEtape } from '../../../../lib/gestion/mongaEtape';
 /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le mot d'un TYPE d'événement. Module PUR, liste déjà en base (268).
    🔴🔴 LOT CAPSULE-TYPE-EVENEMENT — et sa COULEUR, et le mot de l'absence de type, et la LISTE pour le choisir :
    tout vient du même module, qui est désormais la seule déclaration des types. */
+/* 🔴🔴 LOT URGENCE-EVENEMENT, POINT 1 — ET SA COULEUR VIENT DÉSORMAIS DU DEGRÉ D'URGENCE (`tonUrgence`), non plus
+   du type (`tonDuType`, qui n'est plus lu ici). Le MOT, lui, reste le type : c'est exactement ce qu'Arno demande. */
 import {
-  categorieValide, motCategorie, MOT_TYPE_A_DEFINIR, tonDuType, TYPES_EVENEMENT,
+  categorieValide, motCategorie, motUrgence, MOT_TYPE_A_DEFINIR, tonUrgence, TYPES_EVENEMENT,
 } from '../../../../lib/gestion/evenementQualite';
+/* 🔴🔴 LOT URGENCE-EVENEMENT, POINT 3 — LE MÊME sélecteur que la fiche du bien, importé et jamais recopié. */
+import { SelecteurUrgence } from './SelecteurUrgence';
+/* 🔴 LOT URGENCE-EVENEMENT, POINT 5 — comparer deux noms accents/casse/tirets indifférents. Module PUR. */
+import { normaliserNom } from '../../../../lib/gestion/documentsAuto';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 import {
   depuis, formaterDateFr, formaterTaille, heureParis, libelleEtat, libelleSens,
@@ -56,6 +62,15 @@ type CarteAvecMonga = CarteDetail & {
   monga?: MongaDeLEvenement | null;
   /** 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — les biens de l'événement, pour le gros bouton. */
   biens?: { cle: string; adresse: string | null; commune: string | null }[];
+  /**
+   * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — LES PARTIES EN VIGUEUR DU OU DES BIENS : propriétaires en cours et
+   * locataires occupants du jour, calculés par la route avec `personnesDesBiens` + `personnesEnVigueur` — c'est-à-dire
+   * le calcul du bloc Parties de la fiche du bien, et non une seconde lecture qui dirait autrement.
+   *
+   * ⚠️ ABSENT (et non `[]`) sur une réponse antérieure à ce lot — une page restée ouverte pendant un déploiement.
+   * L'écran n'affiche alors rien de plus qu'avant, au lieu de tomber. Même prudence que `biens` et `derniereEtape`.
+   */
+  parties?: { sorte: 'proprietaire' | 'locataire'; nom: string }[];
 };
 
 type VueCarte = { v: 'charge' } | { v: 'ok'; d: CarteAvecMonga } | { v: 'erreur'; m: string };
@@ -75,6 +90,23 @@ async function chargerCarte(evenementId: number): Promise<VueCarte> {
   }
 }
 
+/**
+ * ══ 🔴 CETTE FICHE DE BIEN PEUT-ELLE S'OUVRIR ? PUR ════════════════════════════════════════════════════════════
+ *
+ * ⚠️ UNE FICHE DE BIEN S'ADRESSE PAR SA CLÉ WIPPIMMO, et cette clé s'écrit `bien-<nombre>` dans l'adresse
+ * (`SORTES_FICHE_PAR_CLE`). Une clé qui n'est pas un nombre ne peut donc pas être ouverte — le bouton rouge la DIT
+ * plutôt que de la faire disparaître d'une liste où elle devrait être.
+ *
+ * 🔴 LOT URGENCE-EVENEMENT, POINT 4 — SORTIE DE `OuvrirLaFicheDuBien`, où elle était une fermeture locale. Le
+ * double-clic de l'écran Événements doit ouvrir « exactement comme le bouton rouge » (Arno) : deux écritures de
+ * « cette clé est-elle adressable » auraient fini par ne plus répondre pareil, et c'est précisément la promesse
+ * d'Arno qui serait tombée. Une seule règle, deux appelants.
+ */
+function estCleAdressable(cle: string): boolean {
+  const n = Number(cle);
+  return Number.isSafeInteger(n) && n > 0;
+}
+
 /** Même principe pour les messages d'un échange : on rapporte, on ne décide pas. */
 async function chargerMessages(filId: number): Promise<
   { v: 'ok'; messages: MessageDeFil[]; partis: MailParti[] } | { v: 'erreur'; m: string }
@@ -90,7 +122,10 @@ async function chargerMessages(filId: number): Promise<
 }
 
 
-export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = false, onOuvrirBien }: {
+export function CarteVive({
+  carte, maintenant, onGeste, onHistorique, partage = false, onOuvrirBien,
+  onPleinEcranSurEvenement, vise = false,
+}: {
   carte: CarteEvenement;
   maintenant: Date;
   onGeste: Rapport;
@@ -114,6 +149,25 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
    * celle d'avant ce lot, et c'est ce qui la garde rendable hors de `GestionVue`.
    */
   onOuvrirBien?: (cleBien: string, evenementId: number) => void;
+  /**
+   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 (CORRECTION D'ARNO DU 08/10/2026) — LE DOUBLE-CLIC DE L'ÉCRAN PARTAGÉ ══
+   *
+   * ARNO : « ÉCRAN PARTAGÉ : double-clic sur une carte d'événement → ouvre l'écran Événements en plein écran, la
+   * liste défilée et CENTRÉE sur l'événement double-cliqué, cet événement mis en évidence (liseré de sélection) et
+   * déplié. »
+   *
+   * 🔴 ABSENT = AUCUN DOUBLE-CLIC, et la carte est alors celle d'avant ce lot : c'est ce qui la garde rendable hors
+   * de `GestionVue`, exactement comme `onOuvrirBien` et `onHistorique`.
+   */
+  onPleinEcranSurEvenement?: (evenementId: number) => void;
+  /**
+   * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 — EST-CE CETTE CARTE QU'ON VIENT VOIR ? L'adresse le dit
+   * (`?ecran=evenements&evenement=<id>`), et c'est `GestionVue` qui compare. Vrai ⇒ liseré de sélection, carte
+   * DÉPLIÉE, et la liste se défile pour la centrer.
+   *
+   * ⚠️ `false` PAR DÉFAUT : une vue qui rendrait cette carte sans rien dire garde le comportement d'avant ce lot.
+   */
+  vise?: boolean;
   /**
    * LOT RATTACHEMENT-2 — ouvre TOUT l'historique de cette carte : ses échanges affectés ET les mails qui lui ont été
    * rattachés à la main. Absent = aucun bouton, et la carte est exactement celle d'avant ce lot.
@@ -174,6 +228,22 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
   const typeEvenement = categorieValide(detail?.categorie ?? carte.categorie);
 
   /**
+   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 1 — LE DEGRÉ D'URGENCE, QUI PEINT LA CAPSULE ═══════════════════════════
+   *
+   * ARNO : « La couleur de fond de la capsule de type ne dépend plus du type : elle traduit le degré d'urgence de
+   * l'événement. Le texte affiché reste le type. »
+   *
+   * 🔴 LE DÉTAIL FAIT FOI DÈS QU'IL EST LÀ, comme pour l'objet, l'état et le type juste au-dessus. C'est CELA qui
+   * tient la promesse « la couleur de la capsule change sans recharger » du point 3 : le sélecteur écrit, la carte
+   * se relit, `detail.urgence` change, et la capsule suit — sans que l'écran entier soit rechargé.
+   *
+   * ⚠️ `null` = AUCUN NIVEAU ENREGISTRÉ, et c'est le cas des 2 événements de la base au 08/10/2026 : la capsule est
+   * alors grise neutre. Ne pas avoir choisi n'est pas « Normal ».
+   */
+  const urgence = detail?.urgence ?? carte.urgence ?? null;
+  const ton = tonUrgence(urgence);
+
+  /**
    * ══ 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — « UN CLIC SUR “Type à définir” OUVRE LE CHOIX DU TYPE » ═══════
    *
    * Un NONCE, et non un booléen : il sert deux fois (ouvrir le dossier, puis ouvrir son formulaire), et un
@@ -196,19 +266,114 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
    * du dossier est un vrai bouton, il déplie la carte, et le formulaire « Modifier » y porte un vrai `<select>`.
    * La capsule est un RACCOURCI de souris vers un chemin qui existe déjà, jamais le seul chemin.
    */
+  /**
+   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 (CORRECTION D'ARNO DU 08/10/2026) — LE DOUBLE-CLIC ════════════════════
+   *
+   * ARNO, et les deux gestes NE FONT PAS LA MÊME CHOSE SELON L'ÉCRAN :
+   *   · ÉCRAN PARTAGÉ (`partage`) → « ouvre l'écran Événements en plein écran, la liste défilée et CENTRÉE sur
+   *     l'événement double-cliqué, cet événement mis en évidence et déplié » ;
+   *   · ÉCRAN ÉVÉNEMENTS EN PLEIN ÉCRAN → « ouvre la fiche du bien sur cet événement, exactement comme le bouton
+   *     rouge “Ouvrir la fiche du bien sur cet événement →” (même lien, même code) ».
+   *
+   * ═══ 🔴🔴 COMMENT LES DEUX GESTES SONT DISTINGUÉS, ET L'ARBITRAGE QUE J'AI PRIS ═══════════════════════════════
+   *
+   * ARNO : « un double-clic ne doit pas d'abord déplier puis replier la carte ». C'est le défaut d'un double-clic
+   * NAÏF : deux clics, deux bascules, la carte revient où elle était et l'on croit que rien n'a marché.
+   *
+   * 🔴 ON LIT `e.detail`, LE COMPTEUR DE CLICS DU NAVIGATEUR. Le SECOND clic (`detail >= 2`) est INTERCEPTÉ en
+   * phase de capture : il n'atteint jamais le bouton du repli, donc la seconde bascule N'A PAS LIEU. Le symptôme
+   * qu'Arno décrit est donc impossible : la carte ne revient jamais à son état de départ.
+   *
+   * ⚠️ CE QUE CELA LAISSE, ET JE NE LE CACHE PAS : le PREMIER clic, lui, bascule normalement. Un double-clic sur
+   * une carte repliée la déplie donc pendant l'instant qui précède le changement d'écran. L'alternative était de
+   * RETARDER toute bascule de ~250 ms le temps de voir venir un second clic — c'est-à-dire taxer le geste le plus
+   * fréquent (déplier une carte, des dizaines de fois par jour) pour servir le plus rare. J'ai refusé ce
+   * marchandage ; il se renverse en un mot d'Arno.
+   *
+   * ⚠️ UN CONTRÔLE INTERNE NE DÉCLENCHE RIEN (Arno) : si le clic vient d'un bouton, d'un lien ou d'un champ AUTRE
+   * que le titre du repli — le sélecteur d'urgence, « Modifier », les liens Monga —, on ne fait rien du tout. Le
+   * titre du repli EST un `<button>` (`svv-repli-titre`), d'où la comparaison explicite : sans elle, le
+   * double-clic ne marcherait nulle part, puisque toute la carte repliée vit dans ce bouton.
+   */
   const auClic = (e: React.MouseEvent<HTMLLIElement>): void => {
     marquerVu();
     const cible = e.target instanceof Element ? e.target : null;
-    if (cible?.closest('.gst-type-capsule--vide') == null) return;
+    /* 🔴 LA CAPSULE « Type à définir » D'ABORD, et elle garde son clic — y compris au double-clic, où elle rouvre
+       simplement le choix du type au lieu de changer d'écran. C'est un contrôle interne comme un autre. */
+    if (cible?.closest('.gst-type-capsule--vide') != null) {
+      e.stopPropagation();
+      e.preventDefault();
+      setDemandeDeType((n) => n + 1);
+      return;
+    }
+    /* Premier clic : on laisse le repli faire son travail, exactement comme avant ce lot. */
+    if (e.detail < 2) return;
+
+    /* ⚠️ UN CONTRÔLE INTERNE (hors titre du repli) NE DÉCLENCHE RIEN. */
+    const interactif = cible?.closest('button, a, input, select, textarea, label') ?? null;
+    if (interactif !== null && !interactif.classList.contains('svv-repli-titre')) return;
+
+    /* 🔴 LE SECOND CLIC N'ATTEINT PAS LE REPLI : c'est ce qui empêche la seconde bascule. */
     e.stopPropagation();
     e.preventDefault();
-    setDemandeDeType((n) => n + 1);
+
+    if (partage) {
+      /* ⚠️ Sans l'appel, rien ne se passe — et surtout pas une bascule de plus. */
+      onPleinEcranSurEvenement?.(carte.evenementId);
+      return;
+    }
+    /**
+     * 🔴 PLEIN ÉCRAN : LA FICHE DU BIEN, PAR LE MÊME CHEMIN QUE LE BOUTON ROUGE (`onOuvrirBien`, même clé, même
+     * adresse). La clé est celle du bien UNIQUE de l'événement, et c'est bien la même que celle qu'ouvrirait le
+     * bouton : `biensNommesDeLEvenement` et `sqlBienDeLEvenement` trient tous deux `ORDER BY cle`, donc le premier
+     * de l'un est le premier de l'autre — et quand il n'y en a qu'un, c'est le même.
+     *
+     * ⚠️ AUCUN BIEN ⇒ AUCUNE OUVERTURE (Arno, en toutes lettres), et rien d'autre ne change.
+     *
+     * ⚠️ PLUSIEURS BIENS ⇒ AUCUNE OUVERTURE NON PLUS, ET C'EST DÉLIBÉRÉ : le bouton rouge ouvre alors un CHOIX du
+     * bien (« petit choix du bien d'abord »), et un double-clic n'a pas d'endroit où le poser. En désigner un
+     * d'office serait choisir à la place d'Arno, silencieusement, dans le seul cas où la question se pose. Signalé.
+     */
+    if (onOuvrirBien === undefined || carte.bien === null || carte.nbBiens !== 1) return;
+    if (!estCleAdressable(carte.bien.cle)) return;
+    onOuvrirBien(carte.bien.cle, carte.evenementId);
   };
 
+  /**
+   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 — « LA LISTE DÉFILÉE ET CENTRÉE SUR L'ÉVÉNEMENT » ════════════════════
+   *
+   * ⚠️ UNE SEULE FOIS, ET LE VERROU EST ICI : sans lui, chaque relecture de la liste — un geste, le battement de
+   * 30 s — ramènerait la page sur l'événement, et l'on perdrait l'endroit qu'on regardait. Même règle, et même
+   * raison, que le calage du bloc « Événements » de la fiche du bien (lot VIGNETTE-EVENEMENT).
+   *
+   * ⚠️ SANS `behavior: 'smooth'`, ET C'EST MESURÉ AILLEURS : un défilement animé est piloté par les images du
+   * navigateur et s'interrompt dès que la page cesse d'en produire — on arrivait à mi-chemin. Arbitrage déjà pris
+   * par `EvenementsDuBien` et par les frises, pour exactement cette raison.
+   *
+   * ⚠️ `block: 'center'` PARCE QU'ARNO DIT « CENTRÉE ». Le corps de la carte se monte juste après (il charge son
+   * détail) et peut décaler le centre de quelques dizaines de pixels : la carte reste à l'écran, et le liseré dit
+   * laquelle. Un second défilement après l'arrivée du détail aurait fait sauter la page deux fois.
+   */
+  const ancre = useRef<HTMLLIElement | null>(null);
+  const pose = useRef(false);
+  useEffect(() => {
+    if (!vise || pose.current || ancre.current === null) return;
+    pose.current = true;
+    ancre.current.scrollIntoView({ block: 'center' });
+  }, [vise]);
+
   return (
-    <li className={`gst-item${misAJour ? ' gst-item--monga' : ''}`} onClickCapture={auClic}>
+    <li ref={ancre}
+      className={`gst-item${misAJour ? ' gst-item--monga' : ''}${vise ? ' gst-item--vise' : ''}`}
+      /* ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : le liseré se voit, `aria-current` s'entend. */
+      aria-current={vise ? true : undefined}
+      onClickCapture={auClic}>
       <BlocRepliable
         titreClasseExtra="gst-repli"
+        /* 🔴 LOT URGENCE-EVENEMENT, POINT 4 — « cet événement […] déplié ». `ouvrirQuand` est la LATCH que
+           `BlocRepliable` offre déjà : elle s'ouvre UNE fois et ne referme jamais d'elle-même, donc on peut
+           replier la carte juste après sans qu'elle se rouvre. */
+        ouvrirQuand={vise}
         /* 🔴 LOT CAPSULE-TYPE-EVENEMENT — le clic sur « Type à définir » DÉPLIE le dossier. `ouvrirSignal` est le
            mécanisme déjà prévu par `BlocRepliable` pour cela (un nonce), et il ne prend pas le contrôle : on
            peut replier juste après. */
@@ -308,13 +473,45 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
                 * ⚠️ LE MOT PORTE L'INFORMATION, LA COULEUR NE FAIT QUE L'APPUYER : le type est écrit en toutes
                 * lettres dans la capsule, et le ton ne sert qu'à le reconnaître de loin.
                 */}
+              {/**
+                * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 1 — DEUX AXES SUR UNE SEULE CAPSULE ═══════════════════════
+                *
+                * ARNO (08/10/2026) : « La couleur de fond de la capsule de type ne dépend plus du type : elle
+                * traduit le degré d'urgence de l'événement. Le texte affiché reste le type (“Travaux”,
+                * “Fuite”…). […] Événement sans niveau d'urgence enregistré : capsule grise neutre (comme
+                * aujourd'hui pour “Type à définir”). »
+                *
+                * 🔴 DEUX CLASSES, PARCE QUE CE SONT DEUX FAITS INDÉPENDANTS : le TEXTE vient du type (ou de son
+                * absence), le FOND vient de l'urgence (ou de son absence). Les quatre combinaisons existent, et
+                * la plus intéressante est celle qu'une classe unique aurait rendue impossible : « Type à définir »
+                * en ROUGE, c'est-à-dire un dossier urgent que personne n'a encore qualifié.
+                *
+                * 🔴 `--vide` RESTE, ET NE PORTE PLUS QUE LE BORD POINTILLÉ ET LA MAIN : c'est elle que `auClic`
+                * interroge pour reconnaître un clic sur « Type à définir ». Son fond gris a déménagé dans
+                * `--sans-urgence`, qui dit maintenant autre chose — l'absence de NIVEAU, non de type.
+                *
+                * ⚠️ LE MOT PORTE L'INFORMATION, LA COULEUR NE FAIT QUE L'APPUYER — et le niveau, qui n'est plus
+                * écrit dans la capsule, l'est DANS SA BULLE et au lecteur d'écran. Sans cela, le degré d'urgence
+                * n'existerait que comme une couleur : illisible en niveaux de gris, et pour un daltonien.
+                */}
               <span
-                className={`gst-type-capsule ${typeEvenement === null
-                  ? 'gst-type-capsule--vide' : `gst-type-capsule--${tonDuType(typeEvenement)}`}`}
-                title={typeEvenement === null
-                  ? 'Aucun type sur cet événement — cliquez pour le choisir'
-                  : `Type de l’événement : ${motCategorie(typeEvenement)}`}>
+                className={[
+                  'gst-type-capsule',
+                  ton === null ? 'gst-type-capsule--sans-urgence' : `gst-type-capsule--urg-${ton}`,
+                  typeEvenement === null ? 'gst-type-capsule--vide' : '',
+                ].filter((c) => c !== '').join(' ')}
+                title={[
+                  typeEvenement === null
+                    ? 'Aucun type sur cet événement — cliquez pour le choisir'
+                    : `Type de l’événement : ${motCategorie(typeEvenement)}`,
+                  urgence === null ? 'Aucun niveau d’urgence enregistré' : `Urgence : ${motUrgence(urgence)}`,
+                ].join(' — ')}>
                 {typeEvenement === null ? MOT_TYPE_A_DEFINIR : motCategorie(typeEvenement)}
+                <span className="gst-sr-only">
+                  {urgence === null
+                    ? ' — aucun niveau d’urgence enregistré'
+                    : ` — urgence : ${motUrgence(urgence)}`}
+                </span>
                 {typeEvenement === null && (
                   <span className="gst-sr-only"> — cliquez pour ouvrir le choix du type</span>
                 )}
@@ -342,7 +539,14 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
           <CorpsCarte evenementId={carte.evenementId} maintenant={maintenant} onDetail={setDetail} onGeste={onGeste}
             onHistorique={onHistorique} partage={partage} onOuvrirBien={onOuvrirBien}
             /* 🔴 … ET LE MÊME NONCE OUVRE LE FORMULAIRE, où vit le choix du type. Deux effets, un seul geste. */
-            demandeDeType={demandeDeType} />
+            demandeDeType={demandeDeType}
+            /**
+             * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — CE QUE LA CARTE REPLIÉE DIT DÉJÀ, pour ne pas le répéter en
+             * dessous. Les deux noms viennent de `LignesDuDossier`, quelques lignes plus haut, et de nulle
+             * part ailleurs : c'est LUI qui les écrit, et c'est donc lui qui sait lesquels sont « déjà dits ».
+             */
+            dejaDits={[carte.bien?.proprietaire ?? null, carte.bien?.locataire ?? null]
+              .filter((n): n is string => n !== null && n.trim() !== '')} />
         )}
       </BlocRepliable>
     </li>
@@ -351,7 +555,7 @@ export function CarteVive({ carte, maintenant, onGeste, onHistorique, partage = 
 
 /** Le contenu d'une carte dépliée. Monté au PREMIER dépliage — c'est là, et seulement là, que la requête part. */
 function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, partage, onOuvrirBien,
-  demandeDeType = 0 }: {
+  demandeDeType = 0, dejaDits = [] }: {
   evenementId: number; maintenant: Date; onDetail: (d: CarteDetail) => void; onGeste: Rapport;
   onHistorique?: (cible: Cible) => void;
   partage: boolean;
@@ -361,6 +565,11 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
    * demandé, et le corps est alors exactement celui d'avant ce lot.
    */
   demandeDeType?: number;
+  /**
+   * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — les noms que la carte REPLIÉE affiche déjà. Vide = elle n'en affiche
+   * aucun, et tout ce qu'on sait du bien se dit alors sous le repli.
+   */
+  dejaDits?: readonly string[];
 }) {
   const [etatVue, setEtatVue] = useState<VueCarte>({ v: 'charge' });
   const [occupe, setOccupe] = useState(false);
@@ -480,6 +689,41 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
         ? <OuvrirLaFicheDuBien biens={d.biens ?? []} evenementId={evenementId} onOuvrirBien={onOuvrirBien} />
         : <EtatCarte etat={d.etat} traiteLe={d.traiteLe} traitePar={d.traitePar} occupe={occupe}
           onEtat={(e) => void agir({ etat: e }, `Événement ${d.reference} : ${libelleEtat(e).toLowerCase()}.`)} />}
+
+      {/**
+        * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 3a — LE SÉLECTEUR D'URGENCE, DANS LA CARTE DÉPLIÉE ════════════════
+        *
+        * ARNO : « Dans la carte d'événement DÉPLIÉE (un clic) : un sélecteur à trois boutons Normal /
+        * Intermédiaire / Urgent, chacun dans sa couleur, le niveau actuel mis en évidence. Le choix est enregistré
+        * tout de suite, et la couleur de la capsule change sans recharger. »
+        *
+        * 🔴 DANS LES DEUX ÉCRANS, ET C'EST POUR CELA QU'IL EST ICI ET NON PLUS BAS. Tout ce qui suit est encadré
+        * par `partage ? null :` (accord d'Arno au lot EVENEMENT-MINIMALISTE : l'écran partagé est une LISTE). Le
+        * sélecteur, lui, est demandé « dans la carte dépliée » sans distinction d'écran — l'enfermer dans le plein
+        * écran l'aurait rendu absent là où Arno travaille le plus.
+        *
+        * 🔴 « SANS RECHARGER » EST TENU PAR `agir`, ET PAR RIEN D'AUTRE : il écrit, puis RELIT cette carte seule
+        * (`lire`), ce qui repose `detail` — donc l'urgence que la capsule du titre lit. Aucun rechargement de
+        * l'écran, et le dossier qu'on est en train de lire ne se replie pas.
+        *
+        * ⚠️ LE MESSAGE NOMME LE NIVEAU, pas seulement la carte : « mis à jour » ne dirait pas ce qui a changé, et
+        * c'est la seule confirmation qu'on a quand on clique un bouton dont l'effet est une couleur.
+        */}
+      <SelecteurUrgence urgence={d.urgence} occupe={occupe}
+        onUrgence={(u) => void agir({ urgence: u },
+          `Événement ${d.reference} — urgence : ${motUrgence(u).toLowerCase()}.`)} />
+
+      {/**
+        * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — LES PARTIES QUE LA CARTE REPLIÉE NE DIT PAS ═══════════════════
+        *
+        * ARNO : « Quand on déplie la carte, afficher les noms qui n'apparaissent pas dans la carte repliée : le ou
+        * les locataires actuels, et le ou les propriétaires s'ils manquent. […] Si une partie est déjà affichée
+        * dans la carte repliée, elle n'est pas répétée. Pas de numéro de lot interne. »
+        *
+        * 🔴 DANS LES DEUX ÉCRANS, pour la même raison que le sélecteur juste au-dessus : la demande parle de « la
+        * carte dépliée », sans distinguer.
+        */}
+      <PartiesManquantes parties={d.parties} dejaDits={dejaDits} />
 
       {/**
         * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — L'ÉCRAN PARTAGÉ S'ARRÊTE ICI ═════════════════════════════
@@ -671,6 +915,86 @@ function motEtapeMonga(e: DerniereEtapeVignette | null | undefined): string | nu
   return e.type === 'autre' && titre !== '' ? titre : motEtape(e.type);
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — LES PARTIES QUE LA CARTE REPLIÉE NE DIT PAS ══════════════════════════
+
+   DEMANDE D'ARNO (08/10/2026), mot pour mot : « Quand on déplie la carte, afficher les noms qui n'apparaissent pas
+   dans la carte repliée : le ou les locataires actuels, et le ou les propriétaires s'ils manquent. Réutilise le
+   calcul du bloc Parties de la fiche bien (pas de seconde requête qui recalcule à sa façon). Si une partie est
+   déjà affichée dans la carte repliée, elle n'est pas répétée. Pas de numéro de lot interne. »
+
+   ═══ 🔴🔴 CE QUE LA CARTE REPLIÉE DIT DÉJÀ, ET POURQUOI IL EN MANQUE ════════════════════════════════════════════
+
+   `LignesDuDossier` écrit « Propriétaire : X · Locataire en place : Y » — mais UN SEUL de chaque, et pour UN SEUL
+   bien : `sqlBienDeLEvenement` rend le premier lot par clé (`ORDER BY c.cle LIMIT 1`) et, dans ce lot, la dernière
+   occupation ouverte (`LIMIT 1`). Un bien en COLOCATION, un bien à plusieurs PROPRIÉTAIRES, ou un événement qui
+   porte deux lots : la carte repliée n'en montre qu'un bout, et c'est ce bout-là qu'Arno veut compléter.
+
+   ═══ 🔴🔴 « RÉUTILISE LE CALCUL », ET C'EST LA DÉCISION DE CE POINT ═════════════════════════════════════════════
+
+   La liste arrive TOUTE FAITE de la route (`parties`), qui la tire de `personnesDesBiens` + `personnesEnVigueur` —
+   le calcul que l'étape 2 du classement AFFICHE et que la création d'un événement depuis Monga emploie déjà pour
+   POSER les parties d'une carte neuve. Ce composant ne calcule donc rien d'autre que la SOUSTRACTION demandée :
+   retirer ce qui est déjà écrit au-dessus.
+
+   ⚠️ LA COMPARAISON PASSE PAR `normaliserNom`, ET IL LE FAUT ABSOLUMENT. Les deux listes ne viennent pas de la
+   même colonne : la carte repliée écrit `gestion_annuaire_lot.proprietaire_texte`, la fiche écrit
+   `gestion_annuaire_proprietaire.nom_complet`. « VALET / RAEPSAET Damien et Michelle » et « Valet-Raepsaet Damien
+   et Michelle » sont la MÊME personne et deux chaînes différentes : un `===` aurait répété tout le monde, c'est-à-
+   dire exactement ce qu'Arno interdit. `normaliserNom` est la fonction que les documents automatiques emploient
+   pour cette question précise, et elle est PURE.
+
+   ⚠️ PAS DE NUMÉRO DE LOT (Arno) : on n'écrit que des NOMS et leur rôle. L'adresse du bien est déjà dans la carte
+   repliée, et le lot interne n'y a jamais eu sa place.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Comment chaque rôle s'annonce. Les MÊMES mots que `LignesDuDossier`, pour qu'on lise une liste et non deux. */
+const MOTS_PARTIE: Record<'proprietaire' | 'locataire', string> = {
+  proprietaire: 'Propriétaire',
+  locataire: 'Locataire en place',
+};
+
+function PartiesManquantes({ parties, dejaDits }: {
+  parties: { sorte: 'proprietaire' | 'locataire'; nom: string }[] | undefined;
+  dejaDits: readonly string[];
+}) {
+  /* ⚠️ ABSENTE ⇒ RIEN, et ce n'est pas la même chose que vide : une réponse antérieure à ce lot ne porte pas le
+     champ, et l'écran doit alors être celui d'avant — jamais une ligne « aucune partie » inventée. */
+  if (parties === undefined) return null;
+
+  const connus = new Set(dejaDits.map(normaliserNom).filter((n) => n !== ''));
+  const lignes = (['proprietaire', 'locataire'] as const).map((sorte) => {
+    const noms: string[] = [];
+    /* ⚠️ DÉDOUBLONNÉ AUSSI À L'INTÉRIEUR DE LA LISTE : une même personne peut être propriétaire de DEUX lots du
+       même événement. Deux fois son nom se lirait comme deux personnes. */
+    const vus = new Set<string>();
+    for (const p of parties) {
+      if (p.sorte !== sorte) continue;
+      const cle = normaliserNom(p.nom);
+      if (cle === '' || connus.has(cle) || vus.has(cle)) continue;
+      vus.add(cle);
+      noms.push(p.nom.trim());
+    }
+    return { sorte, noms };
+  }).filter((l) => l.noms.length > 0);
+
+  /* 🔴 RIEN À AJOUTER ⇒ RIEN DU TOUT. Un bloc « (aucune autre partie) » sur chaque carte serait deux lignes de
+     vide par dossier : c'est l'absence de la ligne qui dit l'absence, règle de `LignesDuDossier`. */
+  if (lignes.length === 0) return null;
+
+  return (
+    <p className="gst-parties">
+      {lignes.map((l) => (
+        <span key={l.sorte} className="gst-parties-ligne">
+          <span className="gst-parties-role">{MOTS_PARTIE[l.sorte]}&nbsp;:</span>
+          {' '}
+          {l.noms.join(' · ')}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 /** « N jours » depuis une date. PUR dans son esprit : l'instant de référence est injecté. */
 function enJours(iso: string | null, maintenant: Date): number | null {
   if (iso === null) return null;
@@ -840,15 +1164,6 @@ function OuvrirLaFicheDuBien({ biens, evenementId, onOuvrirBien }: {
   const [choix, setChoix] = useState(false);
 
   /**
-   * ⚠️ UNE FICHE DE BIEN S'ADRESSE PAR SA CLÉ WIPPIMMO, et cette clé s'écrit `bien-<nombre>` dans l'adresse
-   * (`SORTES_FICHE_PAR_CLE`). Une clé qui n'est pas un nombre ne peut donc pas être ouverte — on la DIT plutôt
-   * que de la faire disparaître d'une liste où elle devrait être.
-   */
-  const adressable = (cle: string): boolean => {
-    const n = Number(cle);
-    return Number.isSafeInteger(n) && n > 0;
-  };
-  /**
    * 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 6 — L'ADRESSE SEULE, sans le numéro de lot devant. Même décision et
    * même repli que `LignesDuDossier` : le lot ne reste que lorsqu'il n'y a AUCUNE adresse à écrire, parce qu'il
    * est alors le seul nom du bien.
@@ -871,7 +1186,7 @@ function OuvrirLaFicheDuBien({ biens, evenementId, onOuvrirBien }: {
     );
   }
 
-  const ouvrables = biens.filter((b) => adressable(b.cle));
+  const ouvrables = biens.filter((b) => estCleAdressable(b.cle));
 
   /* 🔴 UN SEUL BIEN : le bouton y va directement. « Petit choix du bien D'ABORD » ne vaut qu'au pluriel (Arno). */
   if (ouvrables.length === 1 && biens.length === 1) {
@@ -902,7 +1217,7 @@ function OuvrirLaFicheDuBien({ biens, evenementId, onOuvrirBien }: {
         <ul className="gst-choix-biens" aria-label="Choisir le bien">
           {biens.map((b) => (
             <li key={b.cle}>
-              {adressable(b.cle)
+              {estCleAdressable(b.cle)
                 ? <button type="button" className="svv-btn svv-btn-outline gst-btn"
                   onClick={() => onOuvrirBien(b.cle, evenementId)}>{mot(b)}</button>
                 /* ⚠️ IL EST LISTÉ QUAND MÊME, et son impossibilité est écrite : le taire ferait croire que
