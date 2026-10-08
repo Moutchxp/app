@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  */
 import {
   cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, mentionCreation,
+  type MentionCreation,
   motAjout, motDateEtape, motGroupeMessages,
   motMailDOrigine, motMontant, motSource, pictoSource, rangerEnLigne, referencesDeLaFrise,
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
@@ -710,6 +711,20 @@ function Carre({
         <div className={`fav-carre fav-carre--dans${CLASSE_COULEUR[couleurDeLaCarte(c.type)]}`}>
           <ChampOuverture jour={c.survenuLe.slice(0, 10)} mot={c.mot} occupe={occupe} onPoser={onOuverture} />
         </div>
+        {/**
+          * ══ 🔴🔴 LOT FRISE-DATE-CREATION-TOUTES-CARTES — « SANS EXCEPTION » L'INCLUT, ELLE AUSSI ═══════════
+          *
+          * ⚠️ ET ELLE N'A PAS DE DATE DE CRÉATION, PAR NATURE : cette carte n'est pas une ligne de
+          * `gestion_monga_etape`, elle AFFICHE `gestion_evenement.ouvert_le` — une date MÉTIER, que
+          * l'internaute corrige à la main juste au-dessus. La table des événements ne porte aucun instant de
+          * création : `ouvert_le` est modifiable, et `maj_le` est écrasée à chaque modification.
+          *
+          * 🔴 ELLE L'AVOUE DONC EN GRIS, et n'invente rien (Arno, point 3 : « n'invente rien : n'affiche pas
+          * de date fausse »). Prendre `maj_le` aurait donné une date qui a l'air juste le jour de la création
+          * et devient fausse à la première retouche — le pire des deux. Mesuré le 08/10/2026 : **2 cartes**
+          * sont dans ce cas, une par événement sans étape « ouverture » enregistrée.
+          */}
+        <LigneCreation creation={mentionCreation(null)} />
       </li>
     );
   }
@@ -721,17 +736,27 @@ function Carre({
   /* 🔴 « ajoutée le 06/10 à 22:31 par Arnaud », au survol (Arno, point 3). Jamais seul porteur d'information. */
   const pose = motAjout(e.creeLe, e.creeParLibelle);
   /**
-   * ══ 🔴🔴 LOT FRISE-COULEURS-DATES — LA DATE DE CRÉATION, SOUS LA CARTE (Arno, point 3.b) ═══════════════════
+   * ══ 🔴🔴 LOT FRISE-DATE-CREATION-TOUTES-CARTES (08/10/2026) — PLUS AUCUNE EXCEPTION ════════════════════════
    *
-   * `null` sur les trois cartes de BORNE (Ouverture, Clôture, Réouverture) : « Pas de date de création en
-   * dessous » (Arno, point 3.a). Leur date de carte est déjà au centre, en gras — la doubler d'une seconde date
-   * ferait deux dates à lire sur une carte qui n'en raconte qu'une.
+   * CETTE LIGNE VALAIT : `dateAuCentre(e.type) ? null : mentionCreation(e.creeLe)`. Les trois cartes de BORNE
+   * (Ouverture, Clôture, Réouverture, Clôture Monga comprise) n'avaient donc PAS de date de création dessous —
+   * c'était le point 3.a du lot FRISE-COULEURS-DATES, mot pour mot : « Pas de date de création en dessous ».
    *
-   * ⚠️ LES POINTS (messages simplement informatifs) N'EN PORTENT PAS : ce sont des points de 11 px sur le
-   * trait, pas des cartes, et Arno écrit « sous la CARTE ». Leur date de pose reste lue dans leur bulle, par
-   * `motAjout`, exactement comme avant ce lot — rien n'est perdu.
+   * 🔴 ARNO REVIENT DESSUS, ET C'EST SA DÉCISION : « TOUTES les cartes de la frise, SANS EXCEPTION, portent
+   * sous elles la ligne verte “créée le JJ/MM/AAAA”. » Constat qui la motive : sur GES-2026-000001, la Clôture
+   * du 14/10/2026 et la Réouverture du 17/10/2026 n'avaient rien dessous, là où leurs onze voisines le
+   * disaient — et savoir QUAND une clôture a été saisie est précisément ce qu'on vient chercher quand on
+   * conteste une fermeture.
+   *
+   * ⚠️ LA DATE DE L'ÉTAPE NE BOUGE PAS : elle reste au centre, en gras, dans le carré (`fav-date--centree`).
+   * Les deux dates ne disent pas la même chose — l'une quand la chose a eu lieu, l'autre quand on l'a saisie —
+   * et c'est quand elles DIFFÈRENT qu'on a besoin des deux. `dateAuCentre` sert donc toujours, juste en dessous.
+   *
+   * ⚠️ LES POINTS (messages simplement informatifs) N'EN PORTENT TOUJOURS PAS : ce sont des points de 11 px sur
+   * le trait, pas des cartes, et Arno écrit « sous la CARTE ». Leur date de pose reste lue dans leur bulle, par
+   * `motAjout` — rien n'est perdu.
    */
-  const creation = dateAuCentre(e.type) ? null : mentionCreation(e.creeLe);
+  const creation = mentionCreation(e.creeLe);
 
   return (
     <li className="fav-el fav-el--carre" ref={moi}>
@@ -830,10 +855,25 @@ function Carre({
         *
         * ⚠️ `connue === false` ⇒ ELLE L'AVOUE EN GRIS, et n'invente rien (Arno : « n'invente pas de date »).
         */}
-      {creation !== null && (
-        <span className={`fav-cree${creation.connue ? '' : ' fav-cree--inconnue'}`}>{creation.mot}</span>
-      )}
+      <LigneCreation creation={creation} />
     </li>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT FRISE-DATE-CREATION-TOUTES-CARTES — LA LIGNE « CRÉÉE LE », ÉCRITE UNE SEULE FOIS ═══════════════════
+ *
+ * ARNO (08/10/2026) : « TOUTES les cartes de la frise, SANS EXCEPTION, portent sous elles la ligne verte
+ * “créée le JJ/MM/AAAA”. MÊME STYLE, MÊME POSITION, MÊME ALIGNEMENT que sous les autres cartes. »
+ *
+ * 🔴 « MÊME STYLE, MÊME POSITION, MÊME ALIGNEMENT » EST UNE EXIGENCE, PAS UN SOUHAIT — d'où ce composant
+ * minuscule. Les DEUX cartes de la frise (la réelle et l'ouverture dérivée) le rendent, et il n'y a donc
+ * qu'un endroit où la classe, la couleur et la place sont décidées. Deux balises recopiées auraient fini par
+ * diverger d'un pixel ou d'un gris, et c'est exactement ce qu'Arno demande d'éviter.
+ */
+function LigneCreation({ creation }: { creation: MentionCreation }) {
+  return (
+    <span className={`fav-cree${creation.connue ? '' : ' fav-cree--inconnue'}`}>{creation.mot}</span>
   );
 }
 

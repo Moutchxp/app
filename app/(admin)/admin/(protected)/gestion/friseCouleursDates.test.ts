@@ -212,10 +212,27 @@ describe('🔴🔴 ③ la date des trois cartes de borne : en gras, centrée', (
     }
   });
 
-  /** 🔴 « Pas de date de création en dessous » — c'est la même règle qui coupe les deux. */
-  it('🔴🔴 une carte de borne n’a aucune date de création en dessous', () => {
-    expect(FRISE).toContain('const creation = dateAuCentre(e.type) ? null : mentionCreation(e.creeLe);');
-    expect(FRISE).toContain('{creation !== null && (');
+  /**
+   * ══ 🔴🔴 LOT FRISE-DATE-CREATION-TOUTES-CARTES (08/10/2026) — LE VERDICT S'INVERSE ════════════════════════
+   *
+   * Cette épreuve exigeait le contraire : « une carte de borne n'a AUCUNE date de création en dessous », et
+   * figeait l'exclusion `dateAuCentre(e.type) ? null : …`. C'était le point 3.a de CE lot-ci, mot pour mot.
+   *
+   * 🔴 ARNO EST REVENU DESSUS LE MÊME JOUR : « TOUTES les cartes de la frise, SANS EXCEPTION, portent sous
+   * elles la ligne verte “créée le JJ/MM/AAAA”. » Son constat : sur GES-2026-000001, la Clôture du 14/10 et la
+   * Réouverture du 17/10 n'avaient rien dessous, là où leurs onze voisines le disaient.
+   *
+   * 🔴 CE QUI SURVIT DE CE LOT-CI, ET QUE L'ÉPREUVE CONTINUE DE TENIR : la date de l'ÉTAPE reste au centre, en
+   * gras, dans le carré. Les deux dates coexistent donc sur les cartes de borne — et c'est quand elles
+   * DIFFÈRENT (Clôture du 14/10 saisie le 08/10) qu'on a besoin des deux.
+   */
+  it('🔴🔴 une carte de borne garde sa date centrée ET gagne sa date de création', () => {
+    expect(FRISE).toContain('const creation = mentionCreation(e.creeLe);');
+    /* ⚠️ ON INTERDIT LE CODE, PAS LA MENTION : l'encadré qui explique ce revirement CITE forcément la ligne
+       d'exclusion, et il doit pouvoir le faire. C'est l'AFFECTATION qu'on bannit. */
+    expect(FRISE).not.toContain('const creation = dateAuCentre(');
+    /* 🔴 `dateAuCentre` SERT TOUJOURS, et seulement à cela : la date de l'étape, au centre, en gras. */
+    expect(FRISE).toContain("`fav-date${dateAuCentre(e.type) ? ' fav-date--centree' : ''}`");
   });
 });
 
@@ -228,16 +245,32 @@ describe('🔴🔴 ④ la date de création, sous les autres cartes', () => {
    * de la vue.
    */
   it('🔴🔴 la mention est rendue hors du cadre, dans l’élément de la rangée', () => {
-    /* ⚠️ LA **SECONDE** OCCURRENCE : la première est la carte d'ouverture dérivée, qui n'a pas de mention. */
-    const premier = FRISE.indexOf('<li className="fav-el fav-el--carre" ref={moi}>');
-    const i = FRISE.indexOf('<li className="fav-el fav-el--carre" ref={moi}>', premier + 1);
-    const j = FRISE.indexOf('{creation !== null && (', i);
-    const k = FRISE.indexOf('</li>', i);
-    expect(i).toBeGreaterThan(premier);
-    expect(j).toBeGreaterThan(i);
-    expect(j).toBeLessThan(k);
-    /* ⚠️ ET HORS DU CADRE : le `</div>` qui ferme le carré vient entre l'ouverture du `li` et la mention. */
-    expect(FRISE.lastIndexOf('</div>', j)).toBeGreaterThan(i);
+    /**
+     * 🔴🔴 LOT FRISE-DATE-CREATION-TOUTES-CARTES — LES **DEUX** CARTES LA PORTENT DÉSORMAIS, et l'épreuve les
+     * vérifie toutes les deux : la carte d'ouverture DÉRIVÉE (première occurrence) comme la carte réelle
+     * (seconde). « SANS EXCEPTION » (Arno) inclut la première, qui n'en avait pas.
+     */
+    const positions = [...FRISE.matchAll(/<li className="fav-el fav-el--carre" ref=\{moi\}>/g)]
+      .map((m) => m.index as number);
+    expect(positions.length).toBe(2);
+    for (const i of positions) {
+      const j = FRISE.indexOf('<LigneCreation creation=', i);
+      const k = FRISE.indexOf('</li>', i);
+      expect(j, String(i)).toBeGreaterThan(i);
+      expect(j, String(i)).toBeLessThan(k);
+      /* ⚠️ ET HORS DU CADRE : le `</div>` qui ferme le carré vient entre l'ouverture du `li` et la mention. */
+      expect(FRISE.lastIndexOf('</div>', j), String(i)).toBeGreaterThan(i);
+    }
+  });
+
+  /**
+   * 🔴🔴 « MÊME STYLE, MÊME POSITION, MÊME ALIGNEMENT que sous les autres cartes » (Arno). C'est une exigence,
+   * et elle est tenue par CONSTRUCTION : un seul composant rend la ligne, pour les deux cartes. Deux balises
+   * recopiées auraient fini par diverger d'un pixel ou d'un gris.
+   */
+  it('🔴🔴 la ligne est écrite une seule fois, et les deux cartes la rendent', () => {
+    expect((FRISE.match(/className=\{`fav-cree\$\{/g) ?? []).length).toBe(1);
+    expect((FRISE.match(/<LigneCreation creation=/g) ?? []).length).toBe(2);
   });
 
   /** 🔴 EN PETIT, CENTRÉE, ET EN VERT — l'encre verte, lisible sur le fond de page dans les deux thèmes. */
