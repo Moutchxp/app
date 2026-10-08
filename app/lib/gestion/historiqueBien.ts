@@ -1687,20 +1687,29 @@ export function reglagesEnFiltres(r: Reglages, page = 0, taille = PAGE_HISTORIQU
     au: jourValide(bornes.au),
     pieces: r.pieces,
     /**
-     * ══ 🔴🔴 LA RECHERCHE NE PART PLUS AU SERVEUR (lot HISTORIQUE-BIEN-3, point 5) ═══════════════════════════
+     * ══ 🔴🔴 LA RECHERCHE REPART AU SERVEUR — LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER ══════════
      *
-     * DEMANDE D'ARNO (05/10/2026) : « La RECHERCHE filtre par mots-clés UNIQUEMENT dans la sélection déjà
-     * affichée (période + parties + options) : objet, texte, nom de l'expéditeur, nom des pièces. »
+     * ARNO (08/10/2026, point 3) : « Aujourd'hui la recherche du bloc OPTIONS ne filtre que les mails déjà
+     * chargés (100 sur 140 pour bien-315 ; “gohudif” = 59 à l'écran, 82 en base). Quand une recherche est
+     * active, elle doit porter sur TOUS les mails du bien qui correspondent aux autres filtres en cours. »
      *
-     * 🔴 ELLE NE VA DONC PLUS CHERCHER DE MAILS, ELLE EN RETIRE — et c'est ce qui permet d'ajouter l'expéditeur
-     * et le nom des pièces, deux champs que la route ne sait pas interroger. `texte` reste VIDE dans les
-     * filtres : l'envoyer aurait fait deux tamis pour une seule question, et le compteur « N sur M » aurait
-     * compté sur une sélection que la route avait déjà réduite.
+     * ══ 🔴🔴 CE QUI ÉTAIT ÉCRIT ICI, ET POURQUOI CELA CHANGE ══════════════════════════════════════════════════
      *
-     * ⚠️ LE RÉGLAGE, LUI, EXISTE TOUJOURS (`Reglages.texte`) : c'est l'écran qui l'applique, par
-     * `filtrerParMots`. Et il compte toujours comme un réglage ACTIF, pour qu'on puisse le défaire.
+     * `texte: ''` — la recherche ne partait PLUS au serveur depuis le lot HISTORIQUE-BIEN-3, et la raison était
+     * bonne : « c'est ce qui permet d'ajouter l'expéditeur et le nom des pièces, DEUX CHAMPS QUE LA ROUTE NE
+     * SAIT PAS INTERROGER ». Le commentaire disait même la contrepartie, honnêtement : « elle ne porte que sur
+     * la PAGE affichée ».
+     *
+     * 🔴 LA PRÉMISSE A ÉTÉ LEVÉE, ET C'EST POUR CELA QUE LA DÉCISION PEUT S'INVERSER : la route SAIT désormais
+     * interroger ces champs — l'expéditeur, le nom des pièces, et les cinq familles d'adresses du lot
+     * RECHERCHE-MAILS-PAR-ADRESSE. Ce n'est donc pas un retour en arrière, c'est la même recherche, en plus
+     * large, du côté où vivent TOUS les mails et non les cent premiers.
+     *
+     * ⚠️ ET LES DEUX TAMIS NE SE SUPERPOSENT PLUS : l'écran cesse d'appliquer `filtrerParMots` dès que le
+     * serveur a filtré (voir `HistoriqueDuBien`). Les garder tous les deux était le vrai danger — l'écran
+     * n'a du corps qu'un extrait de 240 caractères, et il aurait RETIRÉ les mails trouvés par leur texte.
      */
-    texte: '',
+    texte: r.texte,
     evenementOuvert: r.evenementOuvert,
     /**
      * 🔴 `grouper` RESTE **FAUX**, TOUJOURS, ET CE N'EST PAS UN OUBLI. Le `grouper=1` de la route regroupe par

@@ -70,6 +70,9 @@ export async function GET(request: Request): Promise<Response> {
         suite: page.suite,
         entete: entete.filtre,
         total: entete.total,
+        /* 🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER — la sélection SANS la recherche : c'est le
+           « M » de « N mails sur M », que la recherche serveur aurait sinon rendu égal à N. */
+        selection: entete.sansRecherche,
         interlocuteurs: interlocuteurs.liste,
         interlocuteursTronques: interlocuteurs.tronque,
         propositions: propositions.lignes,

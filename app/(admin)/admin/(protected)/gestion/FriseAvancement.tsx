@@ -251,6 +251,18 @@ export function FriseAvancement({
    * une valeur de départ.
    */
   const [modifie, setModifie] = useState<EtapeAAfficher | null>(null);
+  /**
+   * ══ 🔴🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER, POINT 2 — LE CRAYON EST UNE BASCULE ════════
+   *
+   * ARNO : « 1er clic sur ✎ : le bloc s'ouvre. 2e clic sur le MÊME ✎ : le bloc se referme. 3e clic : il se
+   * rouvre […] Si des modifications non enregistrées sont en cours au moment de refermer : petite
+   * confirmation “Abandonner les modifications ?” (Oui / Non) — jamais de perte silencieuse. »
+   *
+   * `saisieSale` — ce que le formulaire DIT de lui-même (il est seul à connaître ses huit champs).
+   * `abandon`    — on a demandé à refermer une saisie sale : la question est posée, rien n'est perdu.
+   */
+  const [saisieSale, setSaisieSale] = useState(false);
+  const [abandon, setAbandon] = useState(false);
   const [occupe, setOccupe] = useState(false);
   /**
    * ══ 🔴🔴 LE DÉFILEMENT VIENT DU CROCHET PARTAGÉ, ET DE NULLE PART AILLEURS ═════════════════════════════════
@@ -329,6 +341,10 @@ export function FriseAvancement({
    */
   const fermerReservoir = useCallback((): void => {
     setReservoir(null); setAjout(false); setTypePose(null); setModifie(null);
+    /* 🔴 LOT FRISE-PICTOS-PLUS-GRANDS… — refermer, c'est aussi oublier la question posée et l'état de la
+       saisie : sans cela, la prochaine ouverture hériterait d'un « sale » qui n'est plus vrai, et le crayon
+       demanderait d'abandonner une saisie qui n'existe pas. */
+    setSaisieSale(false); setAbandon(false);
   }, []);
 
   /**
@@ -391,6 +407,31 @@ export function FriseAvancement({
     setFixe(null); bulle.fermer(); bulleTexte.fermer(); setCommentaire(null);
     setModifie(null); setTypePose(null); setAjout(false); setReservoir({ jour });
   }, [bulle, bulleTexte]);
+
+  /**
+   * ══ 🔴🔴 LE GESTE DU CRAYON, EN UN SEUL ENDROIT (point 2) ═══════════════════════════════════════════════
+   *
+   * Trois cas, et ils sont tous les trois d'Arno :
+   *   · le bloc est fermé, ou ouvert sur une AUTRE carte ⇒ il s'ouvre sur celle-ci (« le bloc bascule sur
+   *     cette autre carte ») ;
+   *   · il est ouvert sur CETTE carte et rien n'a été saisi ⇒ il se referme ;
+   *   · il est ouvert sur CETTE carte et une saisie est en cours ⇒ on DEMANDE avant de perdre quoi que ce soit.
+   *
+   * ⚠️ CHANGER DE CARTE NE DEMANDE RIEN, ET C'EST VOULU : Arno écrit « le bloc bascule sur cette autre carte »,
+   * sans condition. Poser la question là aussi aurait transformé un geste de navigation en interrogatoire —
+   * et la saisie en cours, elle, n'est pas perdue par mégarde : on la voit partir, elle est remplacée par un
+   * formulaire visiblement différent, portant le nom d'une autre carte.
+   */
+  const crayonDeLaCarte = useCallback((e: EtapeAAfficher): void => {
+    const surCetteCarte = ajout && modifie !== null && modifie.id === e.id;
+    if (!surCetteCarte) {
+      setAbandon(false); setSaisieSale(false);
+      setModifie(e); setTypePose(null); setAjout(true); setFixe(null);
+      return;
+    }
+    if (saisieSale) { setAbandon(true); return; }
+    fermerReservoir();
+  }, [ajout, modifie, saisieSale, fermerReservoir]);
 
   /** Fixer (ou défixer) la bulle d'une carte. Elle ferme le réservoir, pour la même raison. */
   const setOuvert = useCallback((cle: string | null): void => {
@@ -544,6 +585,9 @@ export function FriseAvancement({
               key={el.cle} el={el} avecReference={plusieursRefs} occupe={occupe}
               cleOuverture={cleOuverture} calerSurUneFois={defilement.calerSurUneFois}
               ouvert={ouvert} epingle={fixe} onOuvrir={setOuvert}
+              /* 🔴 POINT 2 — « Le ✎ de la carte en cours d'édition reste visiblement “enfoncé” (état actif)
+                 tant que le bloc est ouvert. » L'écran dit QUELLE carte ; le carré en tire son état. */
+              enEdition={ajout && modifie !== null ? modifie.id : null}
               /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — `null` veut dire « la souris est sortie », et ce n'est
                  plus « ferme » : c'est « demande la fermeture », que 300 ms et une entrée peuvent annuler.
                  Le contrat du point ne change pas ; ce qu'on en fait, oui. */
@@ -554,7 +598,7 @@ export function FriseAvancement({
               onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
               onAjouter={ouvrirReservoir} aujourdhui={aujourdhui}
               horsChronologie={el.case !== undefined && deplacees.has(el.case.cle)}
-              onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}
+              onModifier={crayonDeLaCarte}
               onCommentaire={(x, ancre) => {
                 /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — SORTIR NE FERME PLUS, cela DEMANDE la fermeture : 300 ms
                    pour atteindre la bulle, annulés si on y entre. La charge utile (texte, abscisse) n'est pas
@@ -644,7 +688,7 @@ export function FriseAvancement({
             <BulleDetail
               e={detailApercu} occupe={occupe} mot={motDuDetail} onOuvrirFil={onOuvrirFil}
               question={questionAvantRetrait(detailApercu.type, vue.d.ouvert !== false)}
-              onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}
+              onModifier={crayonDeLaCarte}
               onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
               onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
               onFermer={() => { bulle.fermer(); }}
@@ -663,6 +707,27 @@ export function FriseAvancement({
         */}
       {(reservoir !== null || ajout) && (
         <div className="fav-reservoir" role="group" aria-label="Ajouter une carte à la frise">
+          {/**
+            * ══ 🔴🔴 POINT 2 — « JAMAIS DE PERTE SILENCIEUSE » ════════════════════════════════════════════
+            *
+            * ARNO : « Si des modifications non enregistrées sont en cours au moment de refermer : petite
+            * confirmation “Abandonner les modifications ?” (Oui / Non). »
+            *
+            * 🔴 EN TÊTE DU BLOC, ET NON DANS UNE BOÎTE DU NAVIGATEUR : règle du module (« aucune boîte modale
+            * du navigateur »), et surtout la question se pose LÀ OÙ EST LA SAISIE qu'elle menace — on voit en
+            * même temps ce qu'on s'apprête à perdre.
+            *
+            * ⚠️ « NON » NE FERME RIEN ET NE PERD RIEN : il retire la question, le formulaire est intact. C'est
+            * le défaut par sécurité — un clic à côté laisse donc la saisie en place.
+            */}
+          {abandon && (
+            <p className="fav-confirme" role="alert">
+              Abandonner les modifications ?{' '}
+              <button type="button" className="fav-lien" onClick={fermerReservoir}>Oui</button>
+              {' · '}
+              <button type="button" className="fav-lien" onClick={() => setAbandon(false)}>Non</button>
+            </p>
+          )}
           {ajout ? (
             <AjouterEtape
               /**
@@ -678,6 +743,9 @@ export function FriseAvancement({
               key={modifie === null ? 'ajout' : `modif-${modifie.id}`}
               evenementId={evenementId} typeImpose={typePose} modifie={modifie}
               jourDefaut={reservoir?.jour ?? aujourdhui}
+              /* 🔴 POINT 2 — le formulaire dit s'il porte une saisie non enregistrée ; le crayon s'en sert
+                 pour demander avant de refermer. Lui seul connaît ses huit champs. */
+              onSaisieSale={setSaisieSale}
               onFermer={fermerReservoir}
               onRetour={modifie === null ? () => { setAjout(false); setTypePose(null); } : undefined}
               /* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — quand l'état a changé, on prévient la fiche AVANT de relire
@@ -730,7 +798,7 @@ export function FriseAvancement({
           <BulleDetail
             e={detailFixe} occupe={occupe} onOuvrirFil={onOuvrirFil}
             question={questionAvantRetrait(detailFixe.type, vue.d.ouvert !== false)}
-            onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}
+            onModifier={crayonDeLaCarte}
             onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
             onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
             onFermer={() => setFixe(null)}
@@ -792,6 +860,8 @@ function ElementDeLaFrise(p: {
    * `ouvert` dit ce qui est MONTRÉ (survol compris), `epingle` dit ce qui est RETENU par un clic.
    */
   epingle: string | null;
+  /** 🔴 POINT 2 — l'identifiant de la carte dont le bloc « Modifier » est ouvert, ou `null`. */
+  enEdition: number | null;
   onSurvol: (cle: string | null) => void;
   onOuvrirFil?: (filId: number) => void;
   onConfirmer: (id: number, geste: 'confirmer' | 'ecarter') => void;
@@ -911,6 +981,7 @@ function Carre({
   c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
   onOuvrirFil, onConfirmer, onMontant, onRetirer, onOuverture,
   horsChronologie = false, saisie = null, onSaisir, onPoignee, onModifier, onCommentaire,
+  enEdition = null,
 }: {
   c: CaseFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
   calerSurUneFois: (cible: HTMLElement | null) => void;
@@ -932,6 +1003,12 @@ function Carre({
   onModifier?: (e: EtapeAAfficher) => void;
   /** 🔴 LOT HORODATAGE-ET-PICTOS — le « i » : la bulle de commentaire, au survol, sans délai. */
   onCommentaire?: (e: EtapeAAfficher | null, ancre: HTMLElement | null) => void;
+  /**
+   * 🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER, POINT 2 — la carte dont le bloc « Modifier »
+   * est ouvert. Son crayon reste « enfoncé » : sans cela, rien ne relie le bloc à la carte qu'il édite, et un
+   * second clic sur un bouton d'apparence inchangée est un pari.
+   */
+  enEdition?: number | null;
 }) {
   const moi = useRef<HTMLLIElement | null>(null);
 
@@ -1202,8 +1279,13 @@ function Carre({
             * tenue, pour que les trois pictos ne dansent pas d'une carte à l'autre.
             */}
           {e.source === 'manuelle' && onModifier !== undefined ? (
-            <button type="button" className="fav-picto-b" disabled={occupe}
-              aria-label={`Modifier la carte ${c.mot}`} title="Modifier cette carte"
+            <button type="button"
+              className={`fav-picto-b${enEdition === e.id ? ' fav-picto-b--enfonce' : ''}`}
+              disabled={occupe} aria-pressed={enEdition === e.id}
+              aria-label={`Modifier la carte ${c.mot}`}
+              /* 🔴 POINT 2 — le titre DIT la bascule : « Modifier cette carte » n'annonce pas qu'un second
+                 clic referme. Un bouton qui fait deux choses doit le dire avant, pas après. */
+              title={enEdition === e.id ? 'Refermer le formulaire' : 'Modifier cette carte'}
               onClick={() => onModifier(e)}>✎</button>
           ) : <span className="fav-picto-b fav-picto-b--vide" aria-hidden="true" />}
 
@@ -1606,7 +1688,7 @@ function Reservoir({
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 function AjouterEtape({
-  evenementId, typeImpose, modifie, jourDefaut, onFermer, onRetour, onFait,
+  evenementId, typeImpose, modifie, jourDefaut, onFermer, onRetour, onFait, onSaisieSale,
 }: {
   evenementId: number; typeImpose: TypeEtape | null;
   /**
@@ -1631,6 +1713,13 @@ function AjouterEtape({
    * bande orange resterait absente jusqu'à un rechargement à la main.
    */
   onFait: (message: string, etatChange?: boolean) => void;
+  /**
+   * 🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER, POINT 2 — « ce formulaire porte-t-il une saisie
+   * non enregistrée ? ». La frise s'en sert pour demander confirmation avant de refermer au crayon.
+   *
+   * ⚠️ FACULTATIVE : un appelant qui ne propose pas la bascule n'a pas à connaître cette question.
+   */
+  onSaisieSale?: (sale: boolean) => void;
 }) {
   /**
    * ══ 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LES VALEURS DE DÉPART SE DÉRIVENT, ELLES NE S'APPLIQUENT PLUS ════
@@ -1658,6 +1747,25 @@ function AjouterEtape({
   const [montant, setMontant] = useState(depart.montant);
   const [piece, setPiece] = useState(depart.piece);
   const [occupe, setOccupe] = useState(false);
+
+  /**
+   * ══ 🔴🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER, POINT 2 — « JAMAIS DE PERTE SILENCIEUSE » ══
+   *
+   * ARNO : « Si des modifications non enregistrées sont en cours au moment de refermer : petite confirmation
+   * “Abandonner les modifications ?” (Oui / Non) — jamais de perte silencieuse. »
+   *
+   * 🔴 LE FORMULAIRE EST LE SEUL À SAVOIR S'IL EST SALE, et c'est pour cela qu'il le DIT au lieu qu'on le lui
+   * demande. Ses huit valeurs vivent ici ; la frise, qui porte le crayon, ne les voit pas. Une référence
+   * partagée pour aller les lire de l'extérieur aurait été refusée par le compilateur React — et elle aurait
+   * surtout mis la règle à deux endroits.
+   *
+   * ⚠️ LA COMPARAISON EST FAITE AVEC LES VALEURS DE DÉPART (`valeursDeLaCarte`, module pur), donc remettre un
+   * champ à sa valeur d'origine REND la carte propre : on ne demande pas de confirmer l'abandon de rien.
+   */
+  const sale = forme !== depart.forme || type !== depart.type || jour !== depart.jour
+    || heure !== depart.heure || texte !== depart.texte || titre !== depart.titre
+    || montant !== depart.montant || piece !== depart.piece;
+  useEffect(() => { onSaisieSale?.(sale); }, [sale, onSaisieSale]);
 
   useEffect(() => {
     if (typeImpose !== null) { setType(typeImpose); setForme(estRepere(typeImpose) ? 'information' : 'etape'); }
@@ -2080,10 +2188,12 @@ const CSS_FRISE_AVANCEMENT = `
    Ils promettaient une suite d'etapes que le dossier reel ne suit pas. Les types restent tous posables par le
    reservoir, autant de fois que necessaire : on retire une PROMESSE, pas une possibilite. */
 /* ══ LE CARRE — meme taille pour tous (Arno : environ 120 x 90 px) ══ */
-/* ⚠️ 112 px ET NON 92 DEPUIS LE LOT HORODATAGE-ET-PICTOS : le carre porte une RANGEE DE TROIS PICTOS en bas
-   (20 px + 2 de marge), qu'Arno a demandee. Sans ces 20 px, elle aurait mange le texte d'un titre a deux
-   lignes. Tous les carres gardent la MEME taille, ce qui est la regle depuis le lot FRISE-HORIZONTALE. */
-.fav-carre{position:relative;z-index:1;box-sizing:border-box;width:124px;min-height:112px;
+/* ⚠️ 118 px, ET CHAQUE PALIER A SA RAISON : 92 au depart ; 112 au lot HORODATAGE-ET-PICTOS, quand le carre a
+   recu une RANGEE DE TROIS PICTOS (20 px + 2 de marge) ; 118 au lot FRISE-PICTOS-PLUS-GRANDS, ou ces pictos
+   grandissent de 30 % (26 px de haut au lieu de 20). Sans ces 6 px, la rangee aurait mange le texte d'un titre
+   a deux lignes — et Arno tranche explicitement : « augmente legerement sa hauteur plutot que de rogner un
+   texte ». Tous les carres gardent la MEME taille, regle du lot FRISE-HORIZONTALE. */
+.fav-carre{position:relative;z-index:1;box-sizing:border-box;width:124px;min-height:118px;
   margin:0 10px;padding:6px 7px;display:flex;flex-direction:column;gap:2px;
   border-radius:10px;border:2px solid var(--color-svv-red);background:var(--color-svv-bg)}
 /* 🔴 UNE CARTE QUI EST DANS LA FRISE : contour VERT (Arno, points 2 et 5), quelle que soit son origine. */
@@ -2345,14 +2455,31 @@ const CSS_FRISE_AVANCEMENT = `
    pictos restants se recentreraient et les carres n'auraient plus la meme rangee d'un bout a l'autre.
    ⚠️ CIBLE TACTILE DE 22 px : une commande qu'on ne peut atteindre qu'a la souris precise n'existe pas sur un
    telephone (CLAUDE.md §15). */
-.fav-pictos{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:2px;flex:0 0 auto}
-.fav-picto-b{width:22px;height:20px;min-width:22px;padding:0;display:inline-flex;align-items:center;
-  justify-content:center;font:inherit;font-size:.82rem;line-height:1;cursor:pointer;
-  border:0;border-radius:4px;background:none;color:var(--color-svv-muted)}
+/* ══ 🔴🔴 LOT FRISE-PICTOS-PLUS-GRANDS (08/10/2026) — +30 %, ICONE ET ZONE CLIQUABLE ════════════════
+   ARNO : « Les 3 pictos en bas de chaque carre de la frise sont agrandis de 30 % (taille de l'icone ET zone
+   cliquable), pour etre plus visibles. Ils restent centres, bien espaces, sans chevaucher la date, le montant
+   ni le bord du carre. Si le carre devient trop juste, augmente legerement sa hauteur plutot que de rogner un
+   texte. »
+   🔴 LE CALCUL EST FAIT, PAS ESTIME : 22 × 1,3 = 28,6 → 29 px de large ; 20 × 1,3 = 26 px de haut ;
+   0,82 rem × 1,3 = 1,066 → 1,07 rem pour le glyphe. L'ecart passe de 6 a 8 px (« bien espaces »), ce qui
+   donne 3 × 29 + 2 × 8 = 103 px dans un carre de 124 : il reste 10 px de chaque cote, donc aucun picto ne
+   touche le bord.
+   ⚠️ ET LE CARRE GRANDIT D'AUTANT, pas d'un pixel de plus : la rangee prend 6 px de haut en plus (26 au lieu
+   de 20), donc 112 → 118 px. C'est le choix d'Arno — « augmente legerement sa hauteur plutot que de rogner un
+   texte » — et il est pris a la lettre.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-pictos{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px;flex:0 0 auto}
+.fav-picto-b{width:29px;height:26px;min-width:29px;padding:0;display:inline-flex;align-items:center;
+  justify-content:center;font:inherit;font-size:1.07rem;line-height:1;cursor:pointer;
+  border:0;border-radius:5px;background:none;color:var(--color-svv-muted)}
 .fav-picto-b:hover,.fav-picto-b:focus-visible{background:var(--color-svv-line);color:var(--color-svv-ink)}
 .fav-picto-b:disabled{opacity:.45;cursor:default}
 /* ⚠️ LE « i » GRISE QUAND LA CARTE N'A PAS DE TEXTE (Arno), mais il reste ATTEIGNABLE : sa bulle dit « Aucun
    commentaire », et c'est une information. Un bouton desactive ne se survole pas au clavier. */
+/* ⚠️ LE CRAYON ENFONCE (point 2) : la carte dont le bloc « Modifier » est ouvert. Fond pose et encre
+   pleine — le meme vocabulaire que les boutons actifs du module, jamais une couleur nouvelle. */
+.fav-picto-b--enfonce{background:var(--color-svv-line-strong);color:var(--color-svv-ink)}
+.fav-carre--close .fav-picto-b--enfonce{background:var(--color-svv-green);color:var(--color-svv-bg)}
 .fav-picto-b--muet{opacity:.45}
 .fav-picto-b--vide{cursor:default}
 .fav-picto-b--vide:hover{background:none}
@@ -2380,7 +2507,7 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-commentaire-vide{font-style:italic;color:var(--color-svv-muted)}
 /* ⚠️ LES DEUX BOUTONS « A CONFIRMER » REMONTENT D'UNE RANGEE : la rangee de pictos occupe desormais le bas du
    carre. Ils ne sont ni retires ni masques — ils se posent juste au-dessus, et gardent leurs deux gestes. */
-.fav-doute{position:absolute;right:4px;bottom:24px;display:flex;gap:3px}
+.fav-doute{position:absolute;right:4px;bottom:30px;display:flex;gap:3px}
 .fav-mini{width:22px;height:22px;min-width:22px;padding:0;font:inherit;font-size:.72rem;cursor:pointer;
   border-radius:5px;border:1px solid var(--color-svv-amber);background:var(--color-svv-bg);
   color:var(--color-svv-ink);line-height:1}

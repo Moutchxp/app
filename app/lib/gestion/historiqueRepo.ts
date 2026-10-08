@@ -30,8 +30,14 @@ import {
 /* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — le relevé des adresses d'un corps de mail. Module PUR, éprouvé à part :
    aucune expression régulière n'est écrite dans ce dépôt-ci. */
 import { adressesDuTexte } from './rechercheAdresses';
+/* 🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER — LA MÊME DÉCOUPE DE LA SAISIE QUE L'ÉCRAN. Deux
+   découpes auraient fini par ne pas répondre pareil, et le tamis du serveur aurait contredit celui de l'écran. */
+import { motsRecherches } from './historiqueBien';
+import { nomsCherchablesAvec } from './nomUsageSql';
 import { nomBien, nomProprietaire } from './driveArbre';
-import { deplacementsDeMailsDisponibles, horsGestionDisponible, rattachementsDisponibles } from './schema';
+import {
+  deplacementsDeMailsDisponibles, horsGestionDisponible, nomUsageDisponible, rattachementsDisponibles,
+} from './schema';
 // LOT FICHES-ANNUAIRE — LA MÊME fonction pure que la boîte : un seul verdict de statut pour tout le module.
 import { capsuleStatut, sqlSortesBien, type CapsuleStatut } from './statutClassement';
 import { cibleEvenement, cibleLocataire, cibleLot, cibleProprietaire, type Cible } from './rattachement';
@@ -447,6 +453,12 @@ function cteMessages(o: {
  */
 function conditions(
   f: FiltresHistorique, apres: number, deplacements: boolean,
+  /**
+   * 🔴 LA RÉPONSE DE LA SONDE, EN PARAMÈTRE — patron du module (`nomsCherchablesAvec` : « il reçoit donc la
+   * réponse de la sonde en paramètre, comme il reçoit déjà `spamConnu` et `corbeilleConnue` »). Sans la
+   * migration 286, la recherche porte sur le seul nom reçu, et la requête est celle d'avant.
+   */
+  avecNomUsage = false,
 ): { sql: string; params: unknown[] } {
   const bouts: string[] = [];
   const params: unknown[] = [];
@@ -500,10 +512,61 @@ function conditions(
   if (f.au !== null) bouts.push(`m.recu_le < (${ajouter(f.au)}::date + 1)`);
   if (f.pieces === 'avec') bouts.push('EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)');
   if (f.pieces === 'sans') bouts.push('NOT EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)');
-  if (f.texte.trim() !== '') {
-    const p = ajouter(`%${f.texte.trim()}%`);
-    // L'objet ET le texte : chercher « préavis » sans regarder le corps ne trouverait que les mails bien intitulés.
-    bouts.push(`(coalesce(m.objet, '') ILIKE ${p} OR coalesce(m.corps_texte, '') ILIKE ${p})`);
+  /**
+   * ══ 🔴🔴 LA RECHERCHE, SUR TOUT LE BIEN — LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER ═════════════
+   *
+   * ARNO (point 3) : « Quand une recherche est active, elle doit porter sur TOUS les mails du bien qui
+   * correspondent aux autres filtres en cours […] avec les mêmes champs que dans 21e8f777 (From, To, Cc, Bcc,
+   * Reply-To, adresses dans le texte, objet, corps, pièces jointes) et les mêmes étiquettes de rôle. »
+   *
+   * ══ 🔴🔴 CE QUE CETTE CONDITION VALAIT, ET CE QU'ELLE RATAIT ════════════════════════════════════════════════
+   *
+   * UNE SEULE expression, sur deux champs : `(objet ILIKE p OR corps_texte ILIKE p)`. Ni les adresses, ni les
+   * noms, ni les pièces — et un seul motif pour toute la saisie, donc « fuite cuisine » ne trouvait que les
+   * mails portant ces deux mots D'AFFILÉE.
+   *
+   * 🔴 CHAQUE MOT EST UN TAMIS, ET ILS S'ADDITIONNENT (ET), chacun pouvant être trouvé dans un champ
+   * DIFFÉRENT (OU). C'est MOT POUR MOT la règle de l'écran (`filtrerParMots`) : « plusieurs mots = tous
+   * présents ; un mot peut être trouvé dans des champs différents ». Les deux tamis répondent donc pareil, ce
+   * qui est la condition pour que l'écran cesse de refiltrer sans que le résultat bouge.
+   *
+   * 🔴 LES ADRESSES PASSENT PAR `gestion_message_adresse`, qui porte DÉJÀ expéditeur, destinataire, copie,
+   * répondre-à et transféré, avec le nom d'affichage dans `adresse_brute` — c'est la table que le rattachement
+   * alimente. Le Cci n'y est pas (décision de `releverAdresses` : « on ne sait pas s'il a été lu »), on le lit
+   * donc dans sa colonne.
+   *
+   * ⚠️ LE CORPS EST LU AVEC SON REPLI HTML, exactement comme le relevé d'adresses de la page : 545 des 11 736
+   * mails de biens n'ont AUCUN corps_texte. Sans le repli, leurs adresses citées resteraient introuvables.
+   * Le HTML n'est lu QUE pour ces mails-là (nullif + coalesce), ce qui evite d'attraper tout mail en HTML sur
+   * un mot comme « table » ou « span ».
+   *
+   * ⚠️ AUCUN INDEX N'EST AJOUTE, ET C'EST MESURE : la condition ne s'applique JAMAIS seule — elle vient apres
+   * la restriction au bien (CTE « choisis »), soit 140 mails pour le bien 315 et 332 pour le plus fourni du
+   * portefeuille. Un ILIKE '%x%' n'est de toute facon servi par aucun btree ; il faudrait un index trigramme,
+   * pour un gain nul sur trois cents lignes.
+   * AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit.
+   */
+  for (const mot of motsRecherches(f.texte)) {
+    /* 🔴 LE MOT EST DÉJÀ NORMALISÉ par `motsRecherches` (sans accent, en minuscules) : la colonne subit donc
+       le MÊME traitement, `lower(svv_unaccent_immutable(…))`. Sans cela, « preavis » tapé sans accent ne
+       trouverait plus « préavis » — c'est-à-dire une régression sur la recherche de tous les jours, au
+       moment même où l'on élargit celle des adresses. La fonction est IMMUTABLE et date de la migration 049. */
+    const p = ajouter(`%${mot}%`);
+    const sansAccent = (x: string): string => `lower(svv_unaccent_immutable(coalesce(${x}, '')))`;
+    bouts.push(`(
+      ${sansAccent('m.objet')} LIKE ${p}
+      OR ${sansAccent("nullif(btrim(m.corps_texte), ''), m.corps_html")} LIKE ${p}
+      OR ${sansAccent('m.de_adresse')} LIKE ${p}
+      OR ${sansAccent('m.de_nom')} LIKE ${p}
+      OR ${sansAccent('m.dest_cci::text')} LIKE ${p}
+      OR EXISTS (SELECT 1 FROM gestion_message_adresse ma
+                  WHERE ma.message_id = m.id
+                    AND (${sansAccent('ma.adresse')} LIKE ${p}
+                         OR ${sansAccent('ma.adresse_brute')} LIKE ${p}))
+      OR EXISTS (SELECT 1 FROM gestion_piece pj
+                  WHERE pj.message_id = m.id
+                    AND ${sansAccent(nomsCherchablesAvec(avecNomUsage, 'pj'))} LIKE ${p})
+    )`);
   }
   /**
    * ══ 🔴🔴 LOT FILTRE-COMME-ETIQUETTE — « AVEC ÉVÉNEMENT OUVERT » : LE FILTRE N'A PLUS DE RÈGLE À LUI ══════════
@@ -570,7 +633,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   // 🔴 LA SONDE AVANT LES CONDITIONS : le filtre « Événement ouvert » en a besoin (voir `conditions`).
-  const cond = conditions(f, decalage(c), deplacements);
+  const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible());
   const cte = cteMessages({
     avecCarte: evs.length > 0, deplacements, grouper: f.grouper, avecLocataire: estLocataire(c),
   });
@@ -865,7 +928,7 @@ export async function porteursDePieces(
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
   /* 🔴 LA PAGINATION N'A PAS DE SENS ICI : on veut la sélection ENTIÈRE. Les champs `page` et `taille` des
      filtres sont donc ignorés — ils ne font pas partie de `conditions`, qui ne lit que les tamis. */
-  const cond = conditions(f, decalage(c), deplacements);
+  const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible());
   const pLimite = base.length + 1 + cond.params.length;
 
   const { rows } = await query<{
@@ -1263,6 +1326,20 @@ async function piecesDesMessages(ids: readonly number[]): Promise<Map<number, Pi
  */
 export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): Promise<{
   filtre: EnteteHistorique; total: EnteteHistorique;
+  /**
+   * ══ 🔴🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER — LE DÉNOMINATEUR DU « N SUR M » ════════════
+   *
+   * La SÉLECTION (période, parties, pièces, événement) SANS la recherche.
+   *
+   * 🔴 IL A FALLU L'AJOUTER, ET C'EST LA RECHERCHE SERVEUR QUI L'IMPOSE. « N mails sur M » comparait jusqu'ici
+   * les mails trouvés à ceux de la PAGE — et c'était juste tant que l'écran filtrait lui-même : la page
+   * portait la sélection entière. Maintenant que le serveur filtre, la page EST le résultat, et le compteur
+   * aurait dit « 82 mails sur 82 » : vrai, et vide de sens.
+   *
+   * ⚠️ IL NE COÛTE RIEN QUAND ON NE CHERCHE PAS : sans recherche, la sélection EST le filtre, et l'on rend la
+   * même valeur sans poser de seconde question à la base.
+   */
+  sansRecherche: EnteteHistorique;
 }> {
   const [, , evs] = clesDe(c);
   const base = baseParams(c);
@@ -1286,11 +1363,16 @@ export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): P
     };
   };
 
-  const [filtre, total] = await Promise.all([
-    compter(conditions(f, decalage(c), deplacements)),
+  const avecNomUsage = await nomUsageDisponible();
+  const cherche = f.texte.trim() !== '';
+  const [filtre, total, sansRecherche] = await Promise.all([
+    compter(conditions(f, decalage(c), deplacements, avecNomUsage)),
     compter({ sql: '', params: [] }),
+    cherche
+      ? compter(conditions({ ...f, texte: '' }, decalage(c), deplacements, avecNomUsage))
+      : Promise.resolve(null),
   ]);
-  return { filtre, total };
+  return { filtre, total, sansRecherche: sansRecherche ?? filtre };
 }
 
 /**
@@ -1312,7 +1394,7 @@ export async function interlocuteursHistorique(
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
-  const cond = conditions({ ...f, interlocuteurs: [], expediteursExclus: [] }, decalage(c), deplacements);
+  const cond = conditions({ ...f, interlocuteurs: [], expediteursExclus: [] }, decalage(c), deplacements, await nomUsageDisponible());
   const pLimite = base.length + 1 + cond.params.length;
 
   /**
@@ -1614,7 +1696,7 @@ export async function mailsDeLaFrise(
   const deplacements = await deplacementsDeMailsDisponibles();
   const [, , evs] = clesDe(c);
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
-  const cond = conditions(f, decalage(c), deplacements);
+  const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible());
   const pLimite = base.length + 1 + cond.params.length;
 
   const { rows } = await query<{

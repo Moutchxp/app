@@ -120,7 +120,10 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    */
   it('🔴🔴 tous les carrés font la même taille', () => {
     expect(FRISE).toMatch(/\.fav-carre\{[^}]*width:124px/);
-    expect(FRISE).toMatch(/\.fav-carre\{[^}]*min-height:112px/);
+    /* ⚠️ 118 px DEPUIS LE LOT FRISE-PICTOS-PLUS-GRANDS : les trois pictos du pied grandissent de 30 % (26 px
+       de haut au lieu de 20), et Arno tranche — « augmente légèrement sa hauteur plutôt que de rogner un
+       texte ». Les paliers : 92 à l'origine, 112 à l'arrivée de la rangée, 118 à son agrandissement. */
+    expect(FRISE).toMatch(/\.fav-carre\{[^}]*min-height:118px/);
   });
 
   /** 🔴 LE TRAIT FIN QUI RELIE LES CARRÉS, et il est décoratif : posé en CSS, jamais dans le balisage. */
@@ -480,9 +483,12 @@ describe('②bis « Modifier » dans la bulle (lot ATTENTION-ET-MODIFIER)', () =
   it('🔴 « Modifier » est offert à côté de « Retirer », sur une étape MANUELLE seulement', () => {
     expect(FRISE).toContain('onClick={() => onModifier(e)}');
     expect(FRISE).toMatch(/onModifier\(e\)\}>\s*\n\s*Modifier\s*\n/);
-    /* 🔴 LES DEUX GESTES SONT GARDÉS PAR LA MÊME CONDITION. */
+    /* 🔴 LES DEUX GESTES SONT GARDÉS PAR LA MÊME CONDITION.
+       ⚠️ LA FENÊTRE PASSE DE 300 À 1 200 CARACTÈRES : le crayon de la rangée du bas porte désormais, entre sa
+       garde et son `onClick`, le commentaire qui explique la BASCULE (lot FRISE-PICTOS-PLUS-GRANDS…). Ce
+       qu'on cherche n'a pas bougé d'une ligne ; c'est la fenêtre qui était devenue trop courte. */
     const i = FRISE.indexOf('onClick={() => onModifier(e)}');
-    expect(FRISE.slice(Math.max(0, i - 300), i)).toContain("e.source === 'manuelle'");
+    expect(FRISE.slice(Math.max(0, i - 1200), i)).toContain("e.source === 'manuelle'");
   });
 
   /**

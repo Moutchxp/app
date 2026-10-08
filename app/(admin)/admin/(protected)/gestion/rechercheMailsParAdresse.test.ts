@@ -149,9 +149,16 @@ describe('🔴🔴 ③ l’écran montre POURQUOI le mail correspond', () => {
    * retirer demanderait l'accord d'Arno pour CET élément. Les deux coexistent, et le compte rendu le dit.
    */
   it('🔴 un compteur « N mails » paraît contre le champ, sans retirer l’ancien', () => {
-    expect(ECRAN).toContain('{lignes.length} mail{lignes.length > 1 ? \'s\' : \'\'}');
+    /**
+     * ⚠️ LES DEUX COMPTEURS LISENT LE SERVEUR DEPUIS LE LOT FRISE-PICTOS-PLUS-GRANDS… (point 3). Ils comptaient
+     * `lignes.length` et `lignesPage.length` — la page —, ce qui était juste quand la recherche filtrait
+     * l'écran. Maintenant que le serveur cherche sur TOUT le bien, la page EST le résultat : « 82 mails sur
+     * 82 » aurait été vrai et vide. Le numérateur est donc le total TROUVÉ, le dénominateur la sélection SANS
+     * la recherche — c'est-à-dire exactement ce que les deux compteurs ont toujours voulu dire.
+     */
+    expect(ECRAN).toContain('{totalTrouve} mail{totalTrouve > 1 ? \'s\' : \'\'}');
     expect(ECRAN).toContain('className="hdb-compte-champ"');
-    expect(ECRAN).toContain('motCompteurRecherche(lignes.length, lignesPage.length, true)');
+    expect(ECRAN).toContain('motCompteurRecherche(totalTrouve, totalSelection, true)');
   });
 
   /**

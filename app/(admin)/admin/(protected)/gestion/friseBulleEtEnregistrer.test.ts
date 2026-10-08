@@ -208,7 +208,10 @@ describe('🔴🔴 ④ la bulle de survol se laisse atteindre', () => {
     const bloc = FRISE.slice(FRISE.indexOf('{detailApercu !== null && ('), FRISE.indexOf('{detailFixe !== null && ('));
     expect(bloc).not.toContain('() => undefined');
     expect(bloc).not.toContain('aria-hidden');
-    expect(bloc).toContain('onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}');
+    /* ⚠️ LE GESTE A UN NOM DEPUIS LE LOT FRISE-PICTOS-PLUS-GRANDS… : `crayonDeLaCarte`, parce qu'il est devenu
+       une BASCULE (ouvrir, changer de carte, ou refermer en demandant). C'est le MÊME geste, écrit une fois au
+       lieu de trois — et la bulle flottante le partage avec les deux autres crayons, ce qui est le point ici. */
+    expect(bloc).toContain('onModifier={crayonDeLaCarte}');
     expect(bloc).toContain("onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}");
     expect(bloc).toContain('onOuvrirFil={onOuvrirFil}');
   });

@@ -690,25 +690,30 @@ describe('⑩ 🔴🔴 la reprise de « Vie du bien » — recherche et événem
    * « Avec événement ouvert ». Ce groupe est ce qui empêche la promesse de rester une promesse.
    */
   /**
-   * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LA RECHERCHE A CHANGÉ DE CÔTÉ ══════════════════════════════════════
+   * ══ 🔴🔴 LA RECHERCHE A CHANGÉ DE CÔTÉ DEUX FOIS, ET LA SECONDE EST UN ÉLARGISSEMENT ═════════════════════════
    *
-   * ═══ CE QUE CE CAS ATTENDAIT, ET POURQUOI C'ÉTAIT JUSTE ══════════════════════════════════════════════════════
-   * Que `texte` parte au SERVEUR en `q=`, comme le faisait « Vie du bien » : la route cherchait alors dans
-   * l'objet et le texte de TOUT le bien, et c'était exactement la reprise demandée au lot 2.
+   * ═══ ① CE CAS ATTENDAIT D'ABORD QUE `texte` PARTE AU SERVEUR, comme le faisait « Vie du bien » : la route
+   * cherchait dans l'objet et le texte de TOUT le bien.
    *
-   * ═══ 🔴 CE QU'ARNO A TRANCHÉ LE 05/10/2026 ═══════════════════════════════════════════════════════════════════
-   * « La RECHERCHE filtre par mots-clés UNIQUEMENT dans la sélection déjà affichée (période + parties +
-   * options) : objet, texte, nom de l'expéditeur, nom des pièces. » Elle ne va donc plus CHERCHER de mails, elle
-   * en RETIRE — et c'est ce qui permet d'ajouter l'expéditeur et le nom des pièces, deux champs que la route ne
-   * sait pas interroger. `texte` reste donc VIDE dans les filtres envoyés.
+   * ═══ ② PUIS ARNO A TRANCHÉ L'INVERSE (05/10/2026, lot HISTORIQUE-BIEN-3) : « La RECHERCHE filtre par
+   * mots-clés UNIQUEMENT dans la sélection déjà affichée […] objet, texte, nom de l'expéditeur, nom des
+   * pièces. » Le cas exigeait alors `texte: ''` et l'ABSENCE de `q=`, avec cette raison — juste — : c'est ce
+   * qui permettait d'ajouter l'expéditeur et le nom des pièces, « DEUX CHAMPS QUE LA ROUTE NE SAIT PAS
+   * INTERROGER ». La contrepartie était écrite : « elle ne porte plus que sur la PAGE affichée ».
    *
-   * ⚠️ LA CONTREPARTIE EST RÉELLE, et elle est dite : la recherche ne porte plus que sur la PAGE affichée.
+   * ═══ ③ 🔴 ET IL REVIENT DESSUS LE 08/10/2026, en nommant précisément cette contrepartie : « Aujourd'hui la
+   * recherche ne filtre que les mails déjà chargés (100 sur 140 pour bien-315 ; “gohudif” = 59 à l'écran, 82
+   * en base). Quand une recherche est active, elle doit porter sur TOUS les mails du bien. »
+   *
+   * 🔴 CE N'EST PAS UN ALLER-RETOUR, C'EST LA LEVÉE D'UNE PRÉMISSE : la route SAIT désormais interroger
+   * l'expéditeur, le nom des pièces et les cinq familles d'adresses (lot RECHERCHE-MAILS-PAR-ADRESSE). La
+   * raison qui imposait le filtre d'écran a disparu ; la recherche repart donc là où vivent tous les mails.
    */
-  it('🔴🔴 la recherche ne part PLUS au serveur : elle filtre l’écran', () => {
+  it('🔴🔴 la recherche repart au serveur, sur TOUT le bien', () => {
     const r: Reglages = { ...REGLAGES_DEFAUT, texte: 'chaudière' };
-    expect(reglagesEnFiltres(r).texte).toBe('');
-    expect(reglagesEnParametres(r)).not.toContain('q=');
-    /* …mais elle reste un réglage ACTIF, pour qu'on puisse la défaire. */
+    expect(reglagesEnFiltres(r).texte).toBe('chaudière');
+    expect(reglagesEnParametres(r)).toContain('q=');
+    /* …et elle reste un réglage ACTIF, pour qu'on puisse la défaire. */
     expect(reglagesActifs(r)).toBe(true);
   });
 

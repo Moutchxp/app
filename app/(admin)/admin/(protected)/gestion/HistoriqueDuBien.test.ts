@@ -7,7 +7,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { HistoriqueDuBien } from './HistoriqueDuBien';
 import { BANDES_SOUS_LES_ENCARTS, BUT_DU_PLUS, GROUPES_EN_BANDE, GROUPES_EN_ENCART, LEGENDE_BARRES,
-  motDeuxCompteurs } from '../../../../lib/gestion/historiqueBien';
+  motDeuxCompteurs, filtrerParMots } from '../../../../lib/gestion/historiqueBien';
 import type { CategoriePartie, OccupationPeriode } from '../../../../lib/gestion/historiqueBien';
 import { PORTEURS_DE_PIECES_MAX } from '../../../../lib/gestion/historique';
 import type { Interlocuteur, LigneHistorique, PieceHistorique } from '../../../../lib/gestion/historique';
@@ -126,6 +126,22 @@ function porteursDepuis(lignes: readonly LigneHistorique[]): unknown {
   };
 }
 
+/**
+ * ══ 🔴🔴 CE QUE LA VRAIE ROUTE FAIT DU `q=`, EN PETIT ═══════════════════════════════════════════════════════════
+ *
+ * Elle applique, par MOT, un OU sur l'objet, le corps, l'expéditeur, les adresses et le nom des pièces — et un
+ * ET entre les mots (`conditions`, `historiqueRepo`). Le bouchon en reprend la SUBSTANCE sur les champs que le
+ * jeu d'essai porte, par la MÊME fonction pure que l'écran employait avant ce lot (`filtrerParMots`).
+ *
+ * 🔴 LA MÊME FONCTION, ET C'EST LE POINT : la condition SQL a été écrite pour répondre comme elle. Si les deux
+ * divergeaient un jour, ces épreuves-ci ne le verraient pas — c'est `rechercheMailsParAdresse.test.ts` qui
+ * tient la condition SQL, champ par champ.
+ */
+function filtreesParQ(lignes: readonly LigneHistorique[], url: string): LigneHistorique[] {
+  const q = new URL(url, 'http://local.test').searchParams.get('q') ?? '';
+  return filtrerParMots(lignes, q);
+}
+
 beforeEach(() => {
   appels = [];
   hote = document.createElement('div');
@@ -136,14 +152,29 @@ beforeEach(() => {
     if (String(url).includes('/historique/evenements')) {
       return reponse({ etat: 'ok', evenements: EVENEMENTS, tronque: false });
     }
-    if (String(url).includes('/historique/pieces')) return reponse(porteursDepuis(LIGNES));
+    if (String(url).includes('/historique/pieces')) {
+      return reponse(porteursDepuis(filtreesParQ(LIGNES, String(url))));
+    }
     if (String(url).includes('/pieces-drive')) {
       return reponse({ etat: 'ok', depots: [], emplacements: [] });
     }
     return reponse({
       etat: 'ok',
       data: {
-        lignes: LIGNES, suite: false, entete: { nbMails: 2 },
+        /**
+         * ══ 🔴🔴 LE BOUCHON FILTRE, PARCE QUE LA ROUTE FILTRE (lot FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-
+         * BIEN-ENTIER, point 3) ═══════════════════════════════════════════════════════════════════════════
+         *
+         * Il rendait `LIGNES` quoi qu'on demande, et c'était juste tant que la recherche était un filtre
+         * d'ÉCRAN : le serveur n'avait rien à en savoir. Depuis qu'Arno la fait porter sur TOUT le bien, le
+         * `q=` part au serveur — un bouchon qui l'ignorerait ferait passer les épreuves sur une réponse que
+         * personne ne reçoit, l'erreur nommée à l'encadré de `porteursDepuis` juste au-dessus.
+         */
+        lignes: filtreesParQ(LIGNES, String(url)), suite: false,
+        /* 🔴 LES DEUX COMPTES DE LA VRAIE ROUTE : `entete` = la sélection FILTRÉE (recherche comprise),
+           `selection` = la même SANS la recherche. C'est le couple « N mails sur M ». */
+        entete: { nbMails: filtreesParQ(LIGNES, String(url)).length },
+        selection: { nbMails: LIGNES.length },
         interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
       },
     });
@@ -1868,12 +1899,21 @@ describe('⑤-octies 🔴🔴 une seule rangée d’options, et la recherche dan
   });
 
   /**
-   * ══ 🔴🔴 LA RECHERCHE NE PART PLUS AU SERVEUR : ELLE FILTRE L'ÉCRAN ══════════════════════════════════════════
+   * ══ 🔴🔴 LA RECHERCHE REPART AU SERVEUR, SUR TOUT LE BIEN ═══════════════════════════════════════════════════
    *
-   * Arno : « UNIQUEMENT dans la sélection déjà affichée ». L'épreuve vérifie les deux moitiés : aucune requête
-   * ne porte `q=`, et le fil se réduit à l'écran.
+   * ═══ CE QUE CE CAS EXIGEAIT, ET POURQUOI C'ÉTAIT JUSTE ═════════════════════════════════════════════════════
+   * Il s'appelait « elle filtre les mails affichés, SANS RIEN DEMANDER AU SERVEUR » et vérifiait les deux
+   * moitiés de la règle du lot HISTORIQUE-BIEN-3 : AUCUNE requête de fil de plus, et AUCUN `q=`. C'était la
+   * décision d'Arno du 05/10/2026 — « UNIQUEMENT dans la sélection déjà affichée » — et sa contrepartie était
+   * écrite noir sur blanc : la recherche ne portait que sur la page.
+   *
+   * ═══ 🔴 CE QU'ARNO TRANCHE LE 08/10/2026 ═══════════════════════════════════════════════════════════════════
+   * « Aujourd'hui la recherche ne filtre que les mails déjà chargés (100 sur 140 pour bien-315 ; “gohudif” =
+   * 59 à l'écran, 82 en base). Quand une recherche est active, elle doit porter sur TOUS les mails du bien. »
+   *
+   * Le cas s'inverse donc terme à terme : une requête de fil DE PLUS, et un `q=` dedans.
    */
-  it('🔴🔴 elle filtre les mails affichés, sans rien demander au serveur', async () => {
+  it('🔴🔴 elle demande au serveur, et porte sur tout le bien', async () => {
     await monter();
     expect(hote.querySelectorAll('.hdb-ancre')).toHaveLength(2);
     const avantFil = appels.filter((a) => a.includes('/historique?') || a.includes('/historique&')).length;
@@ -1882,17 +1922,11 @@ describe('⑤-octies 🔴🔴 une seule rangée d’options, et la recherche dan
     await chercher('fevrier');
     expect(hote.querySelectorAll('.hdb-ancre')).toHaveLength(1);
     expect(hote.querySelector('.hdb-ancre')?.id).toBe('hdb-mail-1');
-    /**
-     * 🔴 AUCUNE REQUÊTE DE FIL DE PLUS, ET AUCUN `q=` : la recherche ne va plus chercher, elle retire.
-     *
-     * ⚠️ ON COMPTE LES REQUÊTES DE **FIL**, ET NON TOUTES — et la nuance est une vérification, pas une
-     * tolérance. Le statut Drive des pièces, lui, EST redemandé : le résumé suit les mails visibles, donc la
-     * liste des pièces change. Compter toutes les requêtes aurait fait échouer l'épreuve sur un comportement
-     * juste, et m'aurait fait « corriger » ce qui ne l'était pas.
-     */
+    /* 🔴 LE FIL A ÉTÉ REDEMANDÉ, ET LA DEMANDE PORTE LE MOT : c'est cela qui permet d'atteindre les mails que
+       la page n'avait pas chargés. */
     expect(appels.filter((a) => a.includes('/historique?') || a.includes('/historique&')).length)
-      .toBe(avantFil);
-    expect(appels.some((a) => a.includes('q='))).toBe(false);
+      .toBeGreaterThan(avantFil);
+    expect(appels.some((a) => a.includes('q=fevrier'))).toBe(true);
   });
 
   /** 🔴 « N MAILS SUR M », EN DIRECT — et rien quand on ne cherche pas. */
@@ -2268,11 +2302,24 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
     /* …et il retombe sur `lignes` dès qu'une recherche est en cours, ou si la lecture n'a pas abouti. */
     expect(code).toContain('partagerPourLeResume(lignes, cochees)');
     expect(code).toContain('messagesDuFil(t.gardes)');
-    expect(code).toContain("surToutLaSelection = etatPieces.v === 'ok' && motsCherches.length === 0");
+    /* ⚠️ LA CONDITION PERD SA SECONDE MOITIÉ (lot FRISE-PICTOS-PLUS-GRANDS…, point 3). Elle valait
+       `etatPieces.v === 'ok' && motsCherches.length === 0` : pendant une recherche, le résumé retombait sur
+       la page, parce que la recherche ne filtrait que les mails chargés. `/historique/pieces` reçoit
+       maintenant le même `q=` que le fil — sa réponse EST celle des mails trouvés, sur toute la sélection. */
+    expect(code).toContain("const surToutLaSelection = etatPieces.v === 'ok';");
     /* Le listing, lui, lit toujours `lignes`… */
     expect(code).toContain('<FilDeMails lignes={lignes}');
-    /* ⚠️ …et `lignes` N'A QU'UNE SOURCE : la page reçue, triée, puis filtrée par la recherche. */
-    expect(code).toContain('filtrerParMots(lignesPage, reglages.texte)');
+    /**
+     * ⚠️ …et `lignes` N'A QU'UNE SOURCE : LA PAGE REÇUE, TRIÉE. Ce cas exigeait
+     * `filtrerParMots(lignesPage, reglages.texte)` — la page, PUIS le tamis de l'écran.
+     *
+     * 🔴 LE SECOND TAMIS A ÉTÉ RETIRÉ AU LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER, et il le
+     * fallait : depuis que le serveur cherche sur TOUT le bien, refiltrer ici aurait RETIRÉ les mails trouvés
+     * par leur corps entier, par une adresse en copie ou par le nom d'une pièce — l'écran n'ayant du corps
+     * qu'un extrait de 240 caractères. Ce que ce cas protège — UNE seule source — est donc plus vrai qu'avant.
+     */
+    expect(code).toContain('const lignes = lignesPage;');
+    expect(code).not.toContain('filtrerParMots(lignesPage');
     /* 🔴 ET LA LECTURE DES PIÈCES IGNORE LA PAGE : c'est ce qui la distingue de celle du fil.
 
        ⚠️ ON VÉRIFIE LA DÉPENDANCE, PAS LA LISTE ENTIÈRE. Sa première version exigeait `[lotCle,
@@ -4009,10 +4056,17 @@ describe('⑤-unvicies 🔴🔴 le compteur de la ligne d’état', () => {
       if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       const avec = (new URL(u, 'http://local').searchParams.get('avec') ?? '').split(',').filter((x) => x !== '');
       const n = avec.length === 0 ? total : selon(avec);
+      /* 🔴 LE BOUCHON HONORE LE `q=`, PARCE QUE LA ROUTE LE FAIT (lot FRISE-PICTOS-PLUS-GRANDS…, point 3) :
+         les lignes rendues sont filtrées, et `entete` compte les TROUVÉS sur toute la sélection — ici, les
+         lignes du jeu d'essai, puisque c'est tout ce que ce bouchon connaît. */
+      const trouvees = filtreesParQ(LIGNES, u);
+      const cherche = (new URL(u, 'http://local').searchParams.get('q') ?? '').trim() !== '';
       return reponse({
         etat: 'ok',
         data: {
-          lignes: LIGNES, suite: true, entete: { nbMails: n },
+          lignes: trouvees, suite: true,
+          entete: { nbMails: cherche ? trouvees.length : n },
+          selection: { nbMails: n },
           interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
         },
       });
@@ -4136,9 +4190,20 @@ describe('⑪-quinquies 🔴🔴 le résumé porte sur toute la sélection', () 
       if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       if (u.includes('/historique/pieces')) {
         if (pieces === null) return reponse({ etat: 'erreur' });
+        /* 🔴 LA LECTURE DES PIÈCES REÇOIT LE `q=` COMME LE FIL (point 3) : elle rend donc les porteurs
+           TROUVÉS, sur toute la sélection. Un bouchon qui l'ignorerait ferait croire que le résumé s'élargit
+           tout seul pendant une recherche. */
+        const q = (new URL(u, 'http://local').searchParams.get('q') ?? '').trim().toLowerCase();
+        const gardes = q === ''
+          ? pieces
+          : (pieces as { pieces: { nomFichier: string }[] }[])
+            .filter((m) => m.pieces.some((x) => x.nomFichier.toLowerCase().includes(q)));
         return reponse({
           etat: 'ok',
-          data: { messages: pieces, tronque, nbPieces: 5 },
+          data: {
+            messages: gardes, tronque,
+            nbPieces: (gardes as { pieces: unknown[] }[]).reduce((n, m) => n + m.pieces.length, 0),
+          },
         });
       }
       if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
@@ -4231,11 +4296,19 @@ describe('⑪-quinquies 🔴🔴 le résumé porte sur toute la sélection', () 
   });
 
   /**
-   * 🔴 PENDANT UNE RECHERCHE, LE RÉSUMÉ REDEVIENT CELUI DES MAILS TROUVÉS, et c'est VOULU : la recherche ne
-   * filtre que les mails chargés (règle d'Arno au lot 3, point 5). Un résumé qui couvrirait toute la sélection
-   * pendant qu'on cherche montrerait les pièces de mails que le fil n'affiche plus.
+   * ══ 🔴🔴 CE CAS EXIGEAIT UNE EXCEPTION, ET ELLE N'A PLUS LIEU D'ÊTRE ══════════════════════════════════════
+   *
+   * IL S'APPELAIT « une recherche ramène le résumé aux mails trouvés, et l'écran LE DIT », et exigeait la
+   * phrase « La recherche ne lit que les mails chargés ». C'était exact : la recherche ne filtrait que la
+   * page, donc un résumé couvrant toute la sélection aurait montré les pièces de mails que le fil n'affichait
+   * plus — et l'écran le disait, honnêtement.
+   *
+   * 🔴 DEPUIS LE LOT FRISE-PICTOS-PLUS-GRANDS…, `/historique/pieces` REÇOIT LE MÊME `q=` QUE LE FIL. Le résumé
+   * porte donc sur les mails trouvés DE TOUTE LA SÉLECTION, pas sur ceux de la page : il n'y a plus d'écart à
+   * avouer, et la phrase serait devenue fausse. Ce que le cas protégeait — « le résumé et le fil parlent du
+   * même ensemble » — est tenu, et plus largement qu'avant.
    */
-  it('🔴 une recherche ramène le résumé aux mails trouvés, et l’écran le dit', async () => {
+  it('🔴🔴 une recherche ramène le résumé aux mails trouvés, sur TOUTE la sélection', async () => {
     servir();
     await monter();
     const champ = hote.querySelector('.hdb-champ-recherche') as HTMLInputElement;
@@ -4244,7 +4317,7 @@ describe('⑪-quinquies 🔴🔴 le résumé porte sur toute la sélection', () 
     await changer(champ, 'charges');
     await new Promise((r) => { setTimeout(r, 350); });
     expect(texte()).toContain('1 pièce dans cette sélection');
-    expect(texte()).toContain('La recherche ne lit que les mails chargés');
+    expect(texte()).not.toContain('La recherche ne lit que les mails chargés');
   });
 
   /**

@@ -78,7 +78,9 @@ import {
   compteCacheesEnHaut,
   MOT_ADRESSE_A_CORRIGER, motifNonSelectionnable, motPorteeDuResume,
   completerAvecLesClients, motPastille, ordonnerLesCapsules, pastilleDeCapsule, sorteDeCapsule,
-  BANDES_SOUS_LES_ENCARTS, filtrerParMots, messagesDesPorteurs,
+  /* ⚠️ `filtrerParMots` N'EST PLUS IMPORTÉ ICI : le serveur filtre (point 3), et l'écran ne refiltre plus. La
+     fonction reste exportée et éprouvée — elle est la définition de la règle, que la condition SQL reproduit. */
+  BANDES_SOUS_LES_ENCARTS, messagesDesPorteurs,
   /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — une pièce envoyée par une partie non cochée n'entre pas au résumé. */
   motPiecesEcartees, partagerPourLeResume, partiesCochees,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
@@ -208,6 +210,12 @@ type Etat =
   | { v: 'erreur'; message: string }
   | {
     v: 'ok'; lignes: LigneHistorique[]; suite: boolean; total: number;
+    /**
+     * 🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER — COMBIEN DE MAILS DANS LA SÉLECTION, SANS LA
+     * RECHERCHE. `total` compte désormais les mails TROUVÉS (le serveur filtre) ; sans ce second nombre, le
+     * « N mails sur M » dirait « 82 sur 82 ».
+     */
+    selection: number;
     interlocuteurs: Interlocuteur[]; tronques: boolean;
     /**
      * 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — LE TITRE DU BIEN, tel que `nomBien` l'écrit. La question posée avant
@@ -773,6 +781,8 @@ export function HistoriqueDuBien({
           etat?: string;
           data?: {
             lignes?: LigneHistorique[]; suite?: boolean; entete?: { nbMails?: number };
+            /* 🔴 LOT FRISE-PICTOS-PLUS-GRANDS… — la sélection SANS la recherche, dénominateur du « N sur M ». */
+            selection?: { nbMails?: number };
             interlocuteurs?: Interlocuteur[]; interlocuteursTronques?: boolean; titre?: string;
           };
         };
@@ -786,6 +796,7 @@ export function HistoriqueDuBien({
           lignes: d.data?.lignes ?? [],
           suite: d.data?.suite === true,
           total: d.data?.entete?.nbMails ?? 0,
+          selection: d.data?.selection?.nbMails ?? d.data?.entete?.nbMails ?? 0,
           interlocuteurs: d.data?.interlocuteurs ?? [],
           tronques: d.data?.interlocuteursTronques === true,
           titre: d.data?.titre ?? '',
@@ -903,8 +914,31 @@ export function HistoriqueDuBien({
   }, [lotCle, parametresSansPage, rechargement]);
 
   const motsCherches = useMemo(() => motsRecherches(reglages.texte), [reglages.texte]);
-  const lignes = useMemo(
-    () => filtrerParMots(lignesPage, reglages.texte), [lignesPage, reglages.texte]);
+  /**
+   * 🔴 LES DEUX NOMBRES DES COMPTEURS, LUS AU SERVEUR (point 3) : ce qu'on a TROUVÉ dans tout le bien, et ce
+   * que la sélection contient SANS la recherche. L'écran ne les recompte pas — il n'a qu'une page sous la main.
+   */
+  const totalTrouve = etat.v === 'ok' ? etat.total : 0;
+  const totalSelection = etat.v === 'ok' ? etat.selection : 0;
+  /**
+   * ══ 🔴🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER, POINT 3 — UN SEUL TAMIS ════════════════════
+   *
+   * ARNO : « Quand une recherche est active, elle doit porter sur TOUS les mails du bien qui correspondent aux
+   * autres filtres en cours […] via le serveur. »
+   *
+   * 🔴🔴 L'ÉCRAN NE REFILTRE DONC PLUS, ET C'EST UNE NÉCESSITÉ, PAS UNE ÉCONOMIE. Il n'a du corps qu'un
+   * EXTRAIT de 240 caractères : refiltrer ici ce que le serveur vient de trouver dans le corps entier, dans
+   * une adresse en copie ou dans le nom d'une pièce AURAIT RETIRÉ ces mails-là, un par un, sans un mot. Le
+   * tamis large aurait été annulé par le tamis étroit posé derrière lui.
+   *
+   * ⚠️ `filtrerParMots` RESTE, ET IL SERT ENCORE : la page de la frise des mails l'emploie, et il reste la
+   * définition ÉPROUVÉE de la règle « tous les mots présents, n'importe où » — celle que la condition SQL
+   * reproduit mot pour mot. On ne l'appelle simplement plus ici.
+   *
+   * ⚠️ LES MOTS CHERCHÉS, EUX, RESTENT INDISPENSABLES À L'ÉCRAN : ce sont eux qui surlignent, qui expliquent
+   * (`adressesTrouvees`) et qui disent au compteur qu'une recherche est en cours.
+   */
+  const lignes = lignesPage;
 
   /**
    * 🔴 LE TRI DES PIÈCES « PAR DATE ET PAR EXPÉDITEUR » N'EST PAS RÉÉCRIT ICI : il vit dans
@@ -954,7 +988,18 @@ export function HistoriqueDuBien({
    * pu montrer, même en cochant tout.
    */
   const recap = useMemo(() => {
-    const surToutLaSelection = etatPieces.v === 'ok' && motsCherches.length === 0;
+    /**
+     * ══ 🔴🔴 LA RECHERCHE N'EST PLUS UNE EXCEPTION (lot FRISE-PICTOS-PLUS-GRANDS…, point 3) ════════════════
+     *
+     * Cette ligne valait `etatPieces.v === 'ok' && motsCherches.length === 0` : pendant une recherche, le
+     * résumé retombait sur la PAGE. La raison était bonne — la recherche ne filtrait que les mails chargés,
+     * et un résumé couvrant toute la sélection aurait montré les pièces de mails que le fil n'affichait plus.
+     *
+     * 🔴 LA PRÉMISSE EST TOMBÉE : `/historique/pieces` reçoit les MÊMES filtres que le fil, `q=` compris. Sa
+     * réponse porte donc exactement les mails trouvés, sur toute la sélection — le résumé et le fil parlent
+     * du même ensemble, ce qui est précisément ce que l'ancienne exception cherchait à garantir.
+     */
+    const surToutLaSelection = etatPieces.v === 'ok';
     const cochees = partiesCochees(reglages.parties);
     let gardes: MessagePorteur[];
     let ecartes: MessagePorteur[];
@@ -971,7 +1016,10 @@ export function HistoriqueDuBien({
     const nbEcartees = dedoublonnerPieces(
       piecesDeLaConversation(ecartes, reglages.ordre)).pieces.length;
     return { ...dedoublonnerPieces(classees), surToutLaSelection, nbEcartees };
-  }, [lignes, etatPieces, motsCherches.length, reglages.ordre, reglages.parties]);
+  /* ⚠️ `motsCherches.length` N'EST PLUS UNE DÉPENDANCE : le résumé ne dépend plus de la présence d'une
+     recherche depuis que `/historique/pieces` la reçoit lui aussi (point 3). La garder aurait laissé une
+     dépendance que rien ne lit — et le compilateur React le dit. */
+  }, [lignes, etatPieces, reglages.ordre, reglages.parties]);
   const groupesPieces = useMemo(() => grouperParMessage(recap.pieces), [recap.pieces]);
 
   /**
@@ -2372,15 +2420,20 @@ export function HistoriqueDuBien({
                 qui en a 326 — exactement le genre de nombre qu'on croit.
 
                 ⚠️ PENDANT UNE RECHERCHE, C'EST LE NOMBRE TROUVÉ : le listing affiche alors « N mails sur M », et
-                la ligne d'état doit dire la même chose que lui. La recherche, elle, ne filtre que la page
-                chargée (règle du lot 3, point 5) — c'est pourquoi les deux nombres diffèrent, et c'est dit ici.
+                la ligne d'état doit dire la même chose que lui.
+
+                🔴 ET CE NOMBRE VIENT MAINTENANT DU SERVEUR (lot FRISE-PICTOS-PLUS-GRANDS…, point 3). Il valait
+                `lignes.length`, la page filtrée à l'écran — ce qui était juste quand la recherche ne portait
+                que sur les mails chargés. Depuis qu'elle porte sur TOUT le bien, écrire `lignes.length` aurait
+                annoncé « 82 mails » quand la page en montre 82 sur 82 trouvés… mais « 100 mails » le jour où
+                la recherche en trouve 140. C'est le même piège que la ligne du dessus, à une page près.
 
                 ⚠️ `undefined` TANT QUE LA PREMIÈRE RÉPONSE N'EST PAS LÀ : « — 0 mail » pendant le chargement
                 aurait annoncé un bien vide à chaque ouverture de fiche. */}
             <span className="hdb-selection-mot">
               {motSelectionDesParties(
                 reglages.parties.length,
-                etat.v !== 'ok' ? undefined : motsCherches.length > 0 ? lignes.length : etat.total,
+                etat.v !== 'ok' ? undefined : etat.total,
               )}
             </span>
             {/* 🔴 LE BOUTON N'APPARAÎT QUE S'IL Y A QUELQUE CHOSE À DÉCOCHER : un bouton qui ne fait rien
@@ -2674,7 +2727,11 @@ export function HistoriqueDuBien({
                 */}
               {motsCherches.length > 0 && (
                 <span className="hdb-compte-champ" role="status">
-                  {lignes.length} mail{lignes.length > 1 ? 's' : ''}
+                  {/* 🔴 LE NOMBRE TROUVÉ SUR TOUT LE BIEN (point 3), et non sur la page : c'est la question
+                      qu'on se pose en tapant. `etat.total` est le compte que le serveur rend pour la
+                      sélection filtrée — 82 pour « gohudif » sur le bien 315, là où la page en montre 82
+                      aussi, mais où elle n'en montrait que 59 avant ce lot. */}
+                  {totalTrouve} mail{totalTrouve > 1 ? 's' : ''}
                 </span>
               )}
               {saisie !== '' && (
@@ -2729,9 +2786,18 @@ export function HistoriqueDuBien({
             {/* ══ 🔴 « N MAILS SUR M », EN DIRECT ═══════════════════════════════════════════════════════════
                 Arno : « le compteur “N mails sur M” se met à jour en direct ». Il n'apparaît que pendant une
                 recherche : un « 25 sur 25 » permanent serait du bruit qu'on apprend à ne plus lire. */}
-            {motCompteurRecherche(lignes.length, lignesPage.length, motsCherches.length > 0) !== null && (
+            {/**
+              * ⚠️ LE DÉNOMINATEUR A CHANGÉ DE SOURCE, PAS DE SENS (point 3). Il valait `lignesPage.length` —
+              * la page — et c'était juste tant que l'écran filtrait lui-même : la page portait la sélection
+              * entière. Le serveur filtrant désormais, la page EST le résultat, et « 82 mails sur 82 » aurait
+              * été vrai et vide. On compare donc aux mails de la SÉLECTION, que la route compte à part.
+              *
+              * 🔴 ARNO DEMANDE EXPRESSÉMENT DE LE GARDER (« NE retire PAS l'ancien compteur ») : il est donc
+              * réparé, pas retiré.
+              */}
+            {motCompteurRecherche(totalTrouve, totalSelection, motsCherches.length > 0) !== null && (
               <p className="hdb-compte-recherche" role="status">
-                {motCompteurRecherche(lignes.length, lignesPage.length, true)}
+                {motCompteurRecherche(totalTrouve, totalSelection, true)}
               </p>
             )}
           </div>

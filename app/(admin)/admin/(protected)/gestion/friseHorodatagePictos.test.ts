@@ -128,10 +128,15 @@ describe('🔴🔴 ② la rangée de trois pictos, en bas et centrée', () => {
    */
   it('🔴🔴 le crayon n’est que sur une étape manuelle, et sa place reste tenue sinon', () => {
     expect(FRISE).toContain("{e.source === 'manuelle' && onModifier !== undefined ? (");
+    /* ⚠️ LE BOUTON PORTE DEUX ATTRIBUTS DE PLUS (lot FRISE-PICTOS-PLUS-GRANDS…, point 2) : `aria-pressed` et
+       un titre qui change, parce que le crayon est devenu une BASCULE. Le geste, lui, est le même. */
     expect(FRISE).toContain('onClick={() => onModifier(e)}>✎</button>');
     expect(FRISE).toContain(') : <span className="fav-picto-b fav-picto-b--vide" aria-hidden="true" />}');
-    /* 🔴 LE MÊME GESTE QUE « Modifier » DANS LA BULLE : une seule porte, un seul formulaire. */
-    expect(FRISE).toContain('onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}');
+    /* 🔴 LE MÊME GESTE QUE « Modifier » DANS LA BULLE : une seule porte, un seul formulaire — et il porte
+       désormais un NOM (`crayonDeLaCarte`, lot FRISE-PICTOS-PLUS-GRANDS…), parce qu'il est devenu une bascule
+       et qu'une bascule écrite trois fois aurait fini par s'ouvrir d'un côté et se fermer de l'autre. */
+    expect(FRISE).toContain('onModifier={crayonDeLaCarte}');
+    expect(FRISE).toContain('const crayonDeLaCarte = useCallback((e: EtapeAAfficher): void => {');
   });
 
   /**
@@ -267,7 +272,9 @@ describe('🔴🔴 ④ tous les textes centrés, et rien de perdu au passage', (
    * ⚠️ ET LEURS DEUX GESTES SONT INTACTS : `confirmer` et `ecarter`, la même route, le même appel.
    */
   it('🔴🔴 les boutons ✓ / ✕ sont toujours là, remontés d’une rangée', () => {
-    expect(FEUILLE).toContain('.fav-doute{position:absolute;right:4px;bottom:24px;display:flex;gap:3px}');
+    /* ⚠️ 30 px ET NON 24 : la rangée de pictos a grandi de 30 % (26 px de haut au lieu de 20), donc les deux
+       boutons remontent d'autant. Ils ne sont toujours NI retirés NI masqués — c'est tout l'objet du cas. */
+    expect(FEUILLE).toContain('.fav-doute{position:absolute;right:4px;bottom:30px;display:flex;gap:3px}');
     expect(FRISE).toContain("onClick={() => onConfirmer(e.id, 'confirmer')}>✓");
     expect(FRISE).toContain("onClick={() => onConfirmer(e.id, 'ecarter')}>✕");
   });
@@ -278,8 +285,11 @@ describe('🔴🔴 ④ tous les textes centrés, et rien de perdu au passage', (
    * mangé la deuxième ligne d'un titre long, c'est-à-dire exactement ce que le point 9 interdit.
    */
   it('🔴🔴 le carré a la place de la rangée, et tous la même', () => {
-    expect(FEUILLE).toContain('width:124px;min-height:112px;');
-    expect(FEUILLE).toContain('.fav-picto-b{width:22px;height:20px;');
+    /* ⚠️ 118 px ET 29 × 26 : les pictos ont grandi de 30 % au lot FRISE-PICTOS-PLUS-GRANDS, et le carré a pris
+       les 6 px de hauteur correspondants — « augmente légèrement sa hauteur plutôt que de rogner un texte »
+       (Arno). La LARGEUR ne bouge pas : 3 × 29 + 2 × 8 = 103 px dans 124, il reste 10 px de chaque côté. */
+    expect(FEUILLE).toContain('width:124px;min-height:118px;');
+    expect(FEUILLE).toContain('.fav-picto-b{width:29px;height:26px;');
   });
 
   /**
