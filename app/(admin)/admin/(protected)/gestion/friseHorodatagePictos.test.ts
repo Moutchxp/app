@@ -162,10 +162,19 @@ describe('🔴🔴 ③ le « i » : une bulle instantanée, et un aveu quand il 
   it('🔴🔴 la bulle est à nous, et elle paraît au survol sans délai', () => {
     expect(FRISE).toContain('onMouseEnter={(ev) => onCommentaire?.(e, ev.currentTarget)}');
     expect(FRISE).toContain('onMouseLeave={() => onCommentaire?.(null, null)}');
-    expect(FRISE).toContain('<div className="fav-commentaire" style={{ left: `${commentaire.x}px` }} role="status">');
-    /* ⚠️ AUCUNE TEMPORISATION : un `setTimeout` ici serait précisément le délai qu'Arno refuse. */
+    /* ⚠️ LA BALISE PORTE DEUX ATTRIBUTS DE PLUS DEPUIS LE LOT FRISE-BULLE-ET-ENREGISTRER (le survol de la
+       bulle elle-même) : on en exige donc l'ouverture, et non la ligne entière. */
+    expect(FRISE).toContain('<div className="fav-commentaire" style={{ left: `${commentaire.x}px` }} role="status"');
+    /**
+     * ⚠️ AUCUNE TEMPORISATION À L'OUVERTURE : un `setTimeout` ici serait précisément le délai qu'Arno refuse.
+     *
+     * 🔴 ET LA FERMETURE, ELLE, EN A UNE DEPUIS LE LOT FRISE-BULLE-ET-ENREGISTRER (300 ms, pour laisser
+     * atteindre la bulle) — c'est l'autre demande d'Arno, et les deux ne se contredisent pas : on PARAÎT sans
+     * délai, on DISPARAÎT avec. Le minuteur vit dans `useBulleSurvol`, jamais ici.
+     */
     const bloc = FRISE.slice(FRISE.indexOf('onCommentaire={(x, ancre) => {'), FRISE.indexOf('saisie={carteSaisie}'));
     expect(bloc).not.toContain('setTimeout');
+    expect(bloc).toContain('bulleTexte.entrerCible(`i${x.id}`);');
   });
 
   /**
@@ -199,16 +208,24 @@ describe('🔴🔴 ③ le « i » : une bulle instantanée, et un aveu quand il 
    * ce qui dépasse de la piste est COUPÉ — défaut mesuré au lot FRISE-HORIZONTALE, 132 px de texte tronqués.
    * Une bulle posée sous une carte dépasse par construction.
    *
-   * ⚠️ ET ELLE NE SE CLIQUE PAS (`pointer-events:none`) : sous la souris, elle masquerait le picto suivant et
-   * empêcherait de le survoler.
+   * ══ 🔴🔴 CE CAS EXIGEAIT AUSSI `pointer-events:none`, ET LE VERDICT A CHANGÉ ════════════════════════════
+   *
+   * IL LE JUSTIFIAIT AINSI : « ⚠️ ET ELLE NE SE CLIQUE PAS : sous la souris, elle masquerait le picto suivant
+   * et empêcherait de le survoler. » La crainte était raisonnable — et mesurable, donc mesurée depuis : cette
+   * bulle est posée à `top:100%` du CADRE, c'est-à-dire sous la frise entière. Elle ne recouvre aucun picto.
+   *
+   * 🔴 ET ARNO DEMANDE L'INVERSE AU LOT SUIVANT : « Même comportement pour la bulle du “i” des carrés », donc
+   * elle doit rester ouverte quand la souris passe dessus — ce que `pointer-events:none` rendait impossible.
+   * Ce que ce cas protège vraiment, en revanche, n'a pas bougé : elle est rendue HORS de la piste qui coupe.
    */
-  it('🔴🔴 la bulle est hors de la piste qui coupe, et ne masque rien', () => {
+  it('🔴🔴 la bulle est hors de la piste qui coupe, et se laisse survoler', () => {
     const piste = FRISE.indexOf('<ol className="fav-piste"');
     const fermeture = FRISE.indexOf('</ol>', piste);
     const bulle = FRISE.indexOf('<div className="fav-commentaire"');
     expect(bulle).toBeGreaterThan(fermeture);
-    expect(FEUILLE).toContain('.fav-commentaire{position:absolute;top:100%;');
-    expect(FEUILLE).toContain('pointer-events:none;');
+    const regle = FEUILLE.slice(FEUILLE.indexOf('.fav-commentaire{'), FEUILLE.indexOf('.fav-commentaire-vide'));
+    expect(regle).toContain('position:absolute;top:100%;');
+    expect(regle).not.toContain('pointer-events:none');
   });
 });
 

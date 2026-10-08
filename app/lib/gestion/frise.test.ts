@@ -39,7 +39,7 @@ let n = 0;
 const etape = (p: Partial<EtapeAAfficher>): EtapeAAfficher => ({
   id: (n += 1), reference: 'MNG-10000', type: 'ouverture', survenuLe: '2026-09-01T00:00:00', heureConnue: false, heureFin: null,
   numero: null, rang: null, montantCents: null, texte: null, auteur: null, source: 'monga',
-  certitude: 'fiable', messageId: 1, aEuUnMail: true, filId: 10, creeParLibelle: null,
+  certitude: 'fiable', messageId: 1, aEuUnMail: true, filId: 10, creeParLibelle: null, pieceNom: null,
   /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `rangPose: null` PAR DÉFAUT, et c'est le cas qui compte ici : il fait
      retomber le comparateur sur l'ANCIENNE clé (date, rang de type, identifiant). Les épreuves d'ordre
      chronologique de MONGA-2 et de FRISE-CONSTRUCTIBLE continuent donc de dire ce qu'elles disaient, sans

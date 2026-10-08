@@ -13,6 +13,9 @@ import {
   parOrdreDePose, type MentionCreation,
   motAjout, motDateEtape, motGroupeMessages,
   motMailDOrigine, motMontant, motSource, pictoSource, rangerEnLigne, referencesDeLaFrise,
+  /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — le formulaire naît rempli, et son refus s'explique. Deux fonctions
+     PURES, éprouvées dans `frise.test.ts` : l'écran ne reformule ni l'un ni l'autre. */
+  refusDEnregistrement, valeursDeLaCarte,
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
 } from '../../../../lib/gestion/frise';
 import {
@@ -27,6 +30,9 @@ import { useDefilementFrise } from './useDefilementFrise';
 /* 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — le clic maintenu qui déplace une carte. Même discipline que le
    défilement : le geste vit dans un crochet, l'arithmétique dans un module PUR (`glisserCarte`). */
 import { useDrapeauGeste, useGlisserCarte } from './useGlisserCarte';
+/* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — la tolérance de trajet des bulles : le minuteur ici, la règle dans
+   `app/lib/gestion/survolBulle.ts`. */
+import { useBulleSurvol } from './useBulleSurvol';
 
 /**
  * ══ 🔴🔴 LOT FRISE-HORIZONTALE — LA FRISE D'AVANCEMENT, EN LIGNE ═════════════════════════════════════════════════
@@ -183,7 +189,19 @@ export function FriseAvancement({
    * immobile. Même composant, même contenu, une seule classe de différence — deux rendus distincts auraient fini
    * par diverger sur « mail supprimé — étape conservée », comme l'avertit déjà `BulleDetail`.
    */
-  const [apercu, setApercu] = useState<string | null>(null);
+  /**
+   * 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LE SURVOL PASSE PAR UN CROCHET, PLUS PAR UN `useState` NU.
+   *
+   * ARNO : « la bulle se ferme dès que la souris quitte le point → on ne peut jamais cliquer dans la bulle. »
+   * C'était littéral : `onMouseLeave` du point remettait cet état à `null`, et la bulle — rendue SOUS la frise
+   * — disparaissait avant que la souris n'y arrive. Ses liens « Modifier » et « Retirer » n'étaient donc
+   * atteignables que par le CLIC, qui épingle, et rien ne le disait.
+   *
+   * 🔴 LA RÈGLE EST AILLEURS (`survolBulle.ts`, module pur) : fermeture DIFFÉRÉE de 300 ms, annulée par une
+   * entrée sur le point OU sur la bulle. Ici, on ne garde que le branchement.
+   */
+  const bulle = useBulleSurvol();
+  const apercu = bulle.cible;
   /**
    * ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 7② — LA BULLE DU « i » ══════════════════════════════
    *
@@ -195,6 +213,12 @@ export function FriseAvancement({
    * sous le « i » qu'on survole. L'abscisse est lue au survol, dans le repère du cadre.
    */
   const [commentaire, setCommentaire] = useState<{ texte: string | null; x: number } | null>(null);
+  /**
+   * 🔴 LA BULLE DU « i » SUIT LA MÊME RÈGLE (Arno : « Même comportement pour la bulle du “i” des carrés »).
+   * Deux crochets et non un seul : les deux bulles peuvent se succéder sous la souris, et un état partagé
+   * ferait fermer l'une au nom de l'autre.
+   */
+  const bulleTexte = useBulleSurvol();
   const [fixe, setFixe] = useState<string | null>(null);
   const ouvert = fixe ?? apercu;
   const [ajout, setAjout] = useState(false);
@@ -318,8 +342,12 @@ export function FriseAvancement({
    */
   const toutRefermer = useCallback((): void => {
     setReservoir(null); setAjout(false); setTypePose(null); setModifie(null);
-    setFixe(null); setApercu(null);
-  }, []);
+    setFixe(null);
+    /* 🔴 LES DEUX BULLES DE SURVOL AUSSI (lot FRISE-BULLE-ET-ENREGISTRER) : depuis qu'elles survivent à la
+       sortie de la souris, Échap et le clic ailleurs sont les deux seules façons de s'en débarrasser quand on
+       a quitté la frise sans repasser dessus. Les oublier aurait laissé une bulle sur l'écran. */
+    bulle.fermer(); bulleTexte.fermer(); setCommentaire(null);
+  }, [bulle, bulleTexte]);
 
   /**
    * ⚠️ L'ÉCOUTEUR N'EXISTE QUE TANT QU'UNE ZONE EST OUVERTE. Un écouteur global permanent intercepterait Échap
@@ -329,7 +357,11 @@ export function FriseAvancement({
    * nos propres gestionnaires ont agi — et un glisser de la frise qui se termine hors du bloc aurait alors
    * refermé la zone qu'on venait d'ouvrir. La descente dit l'intention au bon moment.
    */
-  const quelqueChoseEstOuvert = reservoir !== null || ajout || fixe !== null;
+  /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LES BULLES DE SURVOL COMPTENT AUSSI. Depuis qu'elles survivent à la
+     sortie de la souris, Échap doit pouvoir les chasser : une bulle qu'on ne peut fermer qu'en la survolant
+     puis en attendant est une bulle qui décide à notre place. */
+  const quelqueChoseEstOuvert = reservoir !== null || ajout || fixe !== null
+    || bulle.cible !== null || bulleTexte.cible !== null;
   const moi = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -355,9 +387,9 @@ export function FriseAvancement({
    * rendraient au bloc la hauteur de trois lignes qu'on vient justement de lui retirer.
    */
   const ouvrirReservoir = useCallback((jour: string): void => {
-    setFixe(null); setApercu(null);
+    setFixe(null); bulle.fermer(); bulleTexte.fermer(); setCommentaire(null);
     setModifie(null); setTypePose(null); setAjout(false); setReservoir({ jour });
-  }, []);
+  }, [bulle, bulleTexte]);
 
   /** Fixer (ou défixer) la bulle d'une carte. Elle ferme le réservoir, pour la même raison. */
   const setOuvert = useCallback((cle: string | null): void => {
@@ -510,7 +542,11 @@ export function FriseAvancement({
             <ElementDeLaFrise
               key={el.cle} el={el} avecReference={plusieursRefs} occupe={occupe}
               cleOuverture={cleOuverture} calerSurUneFois={defilement.calerSurUneFois}
-              ouvert={ouvert} onOuvrir={setOuvert} onSurvol={setApercu}
+              ouvert={ouvert} epingle={fixe} onOuvrir={setOuvert}
+              /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — `null` veut dire « la souris est sortie », et ce n'est
+                 plus « ferme » : c'est « demande la fermeture », que 300 ms et une entrée peuvent annuler.
+                 Le contrat du point ne change pas ; ce qu'on en fait, oui. */
+              onSurvol={(c) => { if (c === null) bulle.quitterCible(); else bulle.entrerCible(c); }}
               onOuvrirFil={onOuvrirFil}
               onConfirmer={(id, g) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: g })}
               onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
@@ -519,13 +555,18 @@ export function FriseAvancement({
               horsChronologie={el.case !== undefined && deplacees.has(el.case.cle)}
               onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}
               onCommentaire={(x, ancre) => {
-                if (x === null || ancre === null) { setCommentaire(null); return; }
+                /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — SORTIR NE FERME PLUS, cela DEMANDE la fermeture : 300 ms
+                   pour atteindre la bulle, annulés si on y entre. La charge utile (texte, abscisse) n'est pas
+                   effacée : l'affichage est commandé par `bulleTexte.cible`, et une charge périmée derrière une
+                   bulle fermée ne se voit pas — l'effacer ici viderait la bulle pendant le trajet. */
+                if (x === null || ancre === null) { bulleTexte.quitterCible(); return; }
                 /* ⚠️ L'ABSCISSE EST CELLE DU CADRE, pas de la page : la bulle y est rendue, et la piste défile
                    sous elle. La lire ici, au survol, évite d'avoir à la recalculer à chaque défilement. */
                 const cadre = moi.current?.querySelector('.fav-piste-cadre');
                 const r = ancre.getBoundingClientRect();
                 const rc = cadre?.getBoundingClientRect();
                 setCommentaire({ texte: x.texte, x: Math.round(r.left + r.width / 2 - (rc?.left ?? 0)) });
+                bulleTexte.entrerCible(`i${x.id}`);
               }}
               saisie={carteSaisie} onSaisir={saisirLaCarte} onPoignee={saisirParLaPoignee}
               onOuverture={(j) => void agir(
@@ -536,37 +577,64 @@ export function FriseAvancement({
         </ol>
 
         {/**
-          * ══ 🔴🔴 LOT FRISE-COMPACTE — LA BULLE DE SURVOL, FLOTTANTE ════════════════════════════════════════
-          *
-          * Elle se pose PAR-DESSUS ce qui suit, et ne prend aucune place : c'est ce qui permet de supprimer les
-          * 92 px de vide qu'`.fav-zone` réservait en permanence sans faire sauter la page à chaque survol.
-          *
-          * 🔴 DANS `.fav-piste-cadre` (positionné), ET NON DANS `.fav-piste` : la piste est un conteneur de
-          * défilement, et tout ce qui en dépasse y est COUPÉ — c'est le défaut mesuré au lot FRISE-HORIZONTALE
-          * (132 px de texte tronqués). Le cadre, lui, ne coupe rien.
-          *
-          * ⚠️ `pointer-events:none` EN FEUILLE : une bulle flottante sous la souris masquerait la carte suivante
-          * et empêcherait de la survoler. Elle se regarde, elle ne se clique pas — le clic, c'est la bulle
-          * déployée, qui porte les gestes.
-          */}
-        {/**
           * 🔴🔴 LA BULLE DU « i » — rendue DANS LE CADRE, jamais dans la piste : `overflow-x:auto` force
           * l'autre axe à `auto`, et tout ce qui dépasse y est COUPÉ (défaut mesuré au lot FRISE-HORIZONTALE).
           *
-          * ⚠️ `pointer-events:none` EN FEUILLE : une bulle sous la souris masquerait le picto suivant.
+          * ══ 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — ELLE SE SURVOLE, DÉSORMAIS ═══════════════════════════════
+          *
+          * ARNO : « Même comportement pour la bulle du “i” des carrés. »
+          *
+          * 🔴 CE QUE DISAIT CE COMMENTAIRE, ET POURQUOI LE VERDICT A CHANGÉ : « `pointer-events:none` EN
+          * FEUILLE : une bulle sous la souris masquerait le picto suivant. » La crainte était raisonnable mais
+          * fausse en fait, et mesurée depuis : cette bulle est posée à `top:100%` du CADRE, c'est-à-dire SOUS
+          * la frise entière — elle ne recouvre aucun picto. En revanche, `pointer-events:none` empêchait de
+          * l'atteindre, donc de lire un long commentaire qu'on voudrait suivre à la souris.
           */}
-        {commentaire !== null && (
-          <div className="fav-commentaire" style={{ left: `${commentaire.x}px` }} role="status">
+        {commentaire !== null && bulleTexte.cible !== null && (
+          <div className="fav-commentaire" style={{ left: `${commentaire.x}px` }} role="status"
+            onMouseEnter={bulleTexte.entrerBulle} onMouseLeave={bulleTexte.quitterBulle}>
             {(commentaire.texte ?? '').trim() === ''
               ? <span className="fav-commentaire-vide">Aucun commentaire</span>
               : commentaire.texte}
           </div>
         )}
+        {/**
+          * ══ 🔴🔴 LA BULLE DE SURVOL, FLOTTANTE — ET ENFIN ATTEIGNABLE ══════════════════════════════════════
+          *
+          * Elle se pose PAR-DESSUS ce qui suit, et ne prend aucune place (lot FRISE-COMPACTE) : c'est ce qui
+          * permet de supprimer les 92 px de vide qu'`.fav-zone` réservait en permanence sans faire sauter la
+          * page à chaque survol. Elle est rendue dans `.fav-piste-cadre` (positionné) et non dans `.fav-piste`,
+          * qui coupe ce qui dépasse — 132 px de texte tronqués, mesurés au lot FRISE-HORIZONTALE.
+          *
+          * ══ 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — CE QUI CHANGE, ET CE QUE CELA RÉPARE ═══════════════════════
+          *
+          * ARNO : « la bulle (texte + liens “Modifier”, “Retirer”, pièces) se ferme dès que la souris quitte le
+          * point → ON NE PEUT JAMAIS CLIQUER DANS LA BULLE. »
+          *
+          * 🔴 ELLE ÉTAIT INERTE PAR CONSTRUCTION, et pas seulement fugace : `aria-hidden`, `occupe` forcé, et
+          * TROIS gestes remplacés par `() => undefined`. Le commentaire d'alors l'assumait — « elle se regarde,
+          * elle ne se clique pas — le clic, c'est la bulle déployée, qui porte les gestes ». C'était un choix
+          * tenable tant qu'on savait qu'il fallait CLIQUER le point pour agir ; personne ne le savait.
+          *
+          * 🔴 ELLE PORTE DONC LES MÊMES GESTES QUE LA BULLE ÉPINGLÉE — exactement les mêmes fonctions, pas des
+          * copies : « Aucun lien ni action de la bulle n'est retiré » (Arno), et rien n'est ajouté non plus.
+          * Le survol et le clic mènent maintenant au même endroit ; le clic garde son intérêt, qui est de
+          * laisser la bulle ouverte sans tenir la souris.
+          *
+          * ⚠️ PLUS D'`aria-hidden` : une bulle qu'on peut atteindre à la souris doit l'être au lecteur d'écran.
+          * Elle n'est plus un doublon décoratif de la bulle épinglée — les deux ne s'affichent jamais ensemble
+          * (`detailApercu` est `null` dès qu'une bulle est fixée).
+          */}
         {detailApercu !== null && (
-          <div className="fav-flottante" aria-hidden="true">
+          <div className="fav-flottante"
+            onMouseEnter={bulle.entrerBulle} onMouseLeave={bulle.quitterBulle}>
             <BulleDetail
-              e={detailApercu} occupe mot={motDuDetail}
-              onMontant={() => undefined} onRetirer={() => undefined} onModifier={() => undefined}
+              e={detailApercu} occupe={occupe} mot={motDuDetail} onOuvrirFil={onOuvrirFil}
+              question={questionAvantRetrait(detailApercu.type, vue.d.ouvert !== false)}
+              onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}
+              onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
+              onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
+              onFermer={() => { bulle.fermer(); }}
             />
           </div>
         )}
@@ -584,6 +652,17 @@ export function FriseAvancement({
         <div className="fav-reservoir" role="group" aria-label="Ajouter une carte à la frise">
           {ajout ? (
             <AjouterEtape
+              /**
+               * 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — UNE CLÉ PAR CARTE, ET C'EST LA MOITIÉ DU CORRECTIF.
+               *
+               * Changer de carte change l'IDENTITÉ du formulaire : React le démonte et en monte un neuf, dont
+               * les valeurs de départ sont celles de la carte (`valeursDeLaCarte`). Le préremplissage cesse
+               * d'être un effet qui doit se déclencher — il devient ce que le formulaire EST à la naissance.
+               *
+               * ⚠️ `'ajout'` POUR UNE CARTE NEUVE : passer d'une modification à un ajout doit aussi repartir
+               * d'un formulaire vierge, sans traîner le texte de la carte précédente.
+               */
+              key={modifie === null ? 'ajout' : `modif-${modifie.id}`}
               evenementId={evenementId} typeImpose={typePose} modifie={modifie}
               jourDefaut={reservoir?.jour ?? aujourdhui}
               onFermer={fermerReservoir}
@@ -688,6 +767,18 @@ function ElementDeLaFrise(p: {
   el: ElementFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
   calerSurUneFois: (cible: HTMLElement | null) => void;
   ouvert: string | null; onOuvrir: (c: string | null) => void;
+  /**
+   * ══ 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LA BULLE ÉPINGLÉE, ET ELLE SEULE ═══════════════════════════════
+   *
+   * ARNO : « Un CLIC sur le point épingle la bulle : elle reste ouverte jusqu'à un clic ailleurs ou Échap. »
+   *
+   * 🔴 LE CLIC NE POUVAIT PAS ÉPINGLER, ET C'EST MESURÉ À L'ÉCRAN (08/10/2026). Le point basculait sur
+   * `ouvert`, qui vaut `fixe ?? apercu` : quand on CLIQUE un point, on le SURVOLE forcément, donc `ouvert`
+   * valait déjà sa clé, donc la bascule lisait « déjà ouvert » et envoyait `null`. Le clic DÉFAISAIT une
+   * épingle qui n'avait jamais été posée. Il fallait distinguer les deux états, et c'est ce que ceci fait :
+   * `ouvert` dit ce qui est MONTRÉ (survol compris), `epingle` dit ce qui est RETENU par un clic.
+   */
+  epingle: string | null;
   onSurvol: (cle: string | null) => void;
   onOuvrirFil?: (filId: number) => void;
   onConfirmer: (id: number, geste: 'confirmer' | 'ecarter') => void;
@@ -754,7 +845,10 @@ function ElementDeLaFrise(p: {
           {messages.map((m) => (
             <Point key={m.id} m={m} actif={p.ouvert === `p${m.id}`}
               onSurvol={p.onSurvol}
-              onOuvrir={() => p.onOuvrir(p.ouvert === `p${m.id}` ? null : `p${m.id}`)} />
+              /* 🔴 LA BASCULE LIT `epingle`, ET NON `ouvert` : voir la raison au-dessus de la propriété. Un
+                 deuxième clic sur un point déjà épinglé le défait, ce qui est le geste attendu ; un premier
+                 clic sur un point seulement survolé l'épingle, ce qui ne marchait pas. */
+              onOuvrir={() => p.onOuvrir(p.epingle === `p${m.id}` ? null : `p${m.id}`)} />
           ))}
         </span>
       </li>
@@ -1514,19 +1608,30 @@ function AjouterEtape({
   onFait: (message: string, etatChange?: boolean) => void;
 }) {
   /**
-   * 🔴 « avec en plus le choix “Étape” ou “Simple information” » (Arno). Une étape s'affiche en carré, une
-   * information en point — et c'est le TYPE qui décide, `estRepere` tranchant à l'affichage. Le choix ne fait
-   * donc que changer la liste des types proposés : il n'y a pas deux chemins d'écriture.
+   * ══ 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LES VALEURS DE DÉPART SE DÉRIVENT, ELLES NE S'APPLIQUENT PLUS ════
+   *
+   * ARNO : « Le formulaire de modification doit être pré-rempli avec TOUTES les valeurs actuelles de la carte
+   * (forme, type, date, heure, montant, texte, pièce jointe). »
+   *
+   * 🔴 C'EST LE CŒUR DU CORRECTIF DU POINT 2, ET C'EST UN CHANGEMENT DE NATURE. Le préremplissage était un
+   * `useEffect` : un GESTE, qui peut ne pas avoir lieu. Il est maintenant l'état INITIAL, calculé par une
+   * fonction pure (`valeursDeLaCarte`) — et l'écran monte un formulaire NEUF par carte (voir la clé React sur
+   * `<AjouterEtape>`). Un formulaire ne peut plus exister à moitié rempli : il naît rempli.
+   *
+   * ⚠️ L'EFFET RESTE, ET IL A ENCORE UN RÔLE : après un enregistrement, la frise est relue et la carte revient
+   * avec de nouvelles valeurs sous le MÊME identifiant. La clé ne change pas, donc le composant ne remonte pas.
+   * Il ne porte plus la charge du premier remplissage, seulement celle de suivre la donnée.
    */
-  const [forme, setForme] = useState<'etape' | 'information'>('etape');
-  const [type, setType] = useState<TypeEtape>('autre');
+  const depart = valeursDeLaCarte(modifie, jourDefaut, typeImpose ?? 'autre');
+  const [forme, setForme] = useState<'etape' | 'information'>(depart.forme);
+  const [type, setType] = useState<TypeEtape>(depart.type);
   /* 🔴 « date (obligatoire, aujourd'hui par défaut) » — ou la date proposée par un « + » intercalaire (Arno). */
-  const [jour, setJour] = useState(jourDefaut);
-  const [heure, setHeure] = useState('');
-  const [texte, setTexte] = useState('');
-  const [titre, setTitre] = useState('');
-  const [montant, setMontant] = useState('');
-  const [piece, setPiece] = useState('');
+  const [jour, setJour] = useState(depart.jour);
+  const [heure, setHeure] = useState(depart.heure);
+  const [texte, setTexte] = useState(depart.texte);
+  const [titre, setTitre] = useState(depart.titre);
+  const [montant, setMontant] = useState(depart.montant);
+  const [piece, setPiece] = useState(depart.piece);
   const [occupe, setOccupe] = useState(false);
 
   useEffect(() => {
@@ -1537,18 +1642,20 @@ function AjouterEtape({
    * 🔴 LE PRÉREMPLISSAGE, UNE SEULE FOIS PAR ÉTAPE OUVERTE. Il ne dépend que de l'identifiant : sans cela,
    * chaque frappe dans le champ « texte » redéclencherait l'effet et réécrirait ce qu'on vient de taper.
    *
+   * 🔴🔴 IL N'EST PLUS LE SEUL CHEMIN (lot FRISE-BULLE-ET-ENREGISTRER) : les valeurs de départ viennent
+   * maintenant de `valeursDeLaCarte`, à la construction. Cet effet ne sert plus qu'au cas où la MÊME carte
+   * revient avec d'autres valeurs — après un enregistrement suivi d'une relecture — sans que le composant soit
+   * remonté. Il appelle donc EXACTEMENT la même fonction pure : deux préremplissages écrits séparément auraient
+   * fini par diverger, et c'est le genre d'écart qui ne se voit que sur un champ, un jour, chez quelqu'un.
+   *
    * ⚠️ `survenuLe` SE DÉCOUPE, il ne passe pas par un `Date` : le fuseau du lecteur ne doit pas décaler le jour
-   * d'un rendez-vous. Même règle que dans `frise.ts`.
+   * d'un rendez-vous. Même règle que dans `frise.ts`, et c'est `valeursDeLaCarte` qui la tient.
    */
   useEffect(() => {
     if (modifie === null) return;
-    setForme(estRepere(modifie.type) ? 'information' : 'etape');
-    setType(modifie.type);
-    setJour(modifie.survenuLe.slice(0, 10));
-    setHeure(modifie.heureConnue ? modifie.survenuLe.slice(11, 16) : '');
-    setTexte(modifie.texte ?? '');
-    setTitre(modifie.titre ?? '');
-    setMontant(modifie.montantCents === null ? '' : String(modifie.montantCents / 100).replace('.', ','));
+    const v = valeursDeLaCarte(modifie, jourDefaut, modifie.type);
+    setForme(v.forme); setType(v.type); setJour(v.jour); setHeure(v.heure);
+    setTexte(v.texte); setTitre(v.titre); setMontant(v.montant); setPiece(v.piece);
   }, [modifie?.id]);
 
   /**
@@ -1581,9 +1688,23 @@ function AjouterEtape({
     return Number.isFinite(v) && v >= 0 ? Math.round(v * 100) : undefined;
   };
 
-  /* 🔴 « titre à saisir » (Arno) : une carte libre sans titre serait une ligne muette. Même garde que la route. */
-  const titreManquant = type === 'autre' && titre.trim() === '';
-  const montantFaux = montantEnCents() === undefined;
+  /**
+   * ══ 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER, POINT 2 — LE REFUS A UNE PHRASE, TOUJOURS ════════════════════════
+   *
+   * ARNO : « Si une règle bloque l'enregistrement (champ requis, format), un message clair s'affiche à côté du
+   * bouton au lieu d'un bouton grisé muet. »
+   *
+   * 🔴🔴 C'EST EXACTEMENT LE DÉFAUT QU'IL A VU. Le bouton se désactivait sur TROIS conditions —
+   * `occupe || jour === '' || titreManquant || montantFaux` — dont DEUX seulement écrivaient leur raison.
+   * La troisième, `jour === ''`, n'en avait aucune : un bouton gris, et pas un mot pour dire qu'il manque une
+   * date. Un refus muet se lit comme une panne, et l'on cherche la panne là où il n'y en a pas.
+   *
+   * 🔴 LA RÈGLE ET SA PHRASE VIENNENT DONC DU MÊME ENDROIT (`refusDEnregistrement`, module pur) : il ne peut
+   * plus exister de refus sans phrase, parce qu'il n'y a plus qu'une seule fonction pour dire les deux.
+   */
+  const refus = refusDEnregistrement({
+    jour, type, titre, montantLisible: montantEnCents() !== undefined,
+  });
 
   /**
    * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — LA CONFIRMATION, AVANT DE POSER ═════════════════════════════════════════
@@ -1609,7 +1730,7 @@ function AjouterEtape({
   useEffect(() => { setConfirme(false); }, [type]);
 
   const envoyer = async (): Promise<void> => {
-    if (occupe || jour === '' || titreManquant || montantFaux) return;
+    if (occupe || refus !== null) return;
     if (demande !== null && !confirme) { setConfirme(true); return; }
     setOccupe(true);
     try {
@@ -1637,7 +1758,11 @@ function AjouterEtape({
         })
         : await fetch(`/api/admin/gestion/etapes/${modifie.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...corps, geste: 'modifier' }),
+          /* 🔴 LA PIÈCE PART AUSSI À LA MODIFICATION, comme à l'ajout : même corps, deux portes. L'omettre
+             aurait EFFACÉ l'intitulé existant, la route lisant une absence comme un `null`. */
+          body: JSON.stringify({
+            ...corps, geste: 'modifier', pieceNom: piece.trim() === '' ? null : piece.trim(),
+          }),
         });
       const d = (await res.json().catch(() => ({}))) as {
         etat?: string; message?: string; erreur?: string;
@@ -1753,19 +1878,36 @@ function AjouterEtape({
           onChange={(e) => setTexte(e.target.value)} />
       </div>
 
-      {/* ⚠️ LA PIÈCE NE SE MODIFIE PAS ICI : `modifierEtapeManuelle` ne la touche pas, et un champ qui ne
-          s'enregistre pas est pire qu'un champ absent. Elle reste offerte à l'AJOUT. */}
-      {modifie === null && <div className="fav-ajout-ligne">
+      {/**
+        * ══ 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LA PIÈCE JOINTE EST OFFERTE À LA MODIFICATION AUSSI ════════
+        *
+        * ARNO : « pré-rempli avec TOUTES les valeurs actuelles de la carte (forme, type, date, heure, montant,
+        * texte, pièce jointe) ».
+        *
+        * 🔴 CE QUE DISAIT CE COMMENTAIRE, ET POURQUOI IL A CESSÉ D'ÊTRE VRAI : « LA PIÈCE NE SE MODIFIE PAS
+        * ICI : `modifierEtapeManuelle` ne la touche pas, et un champ qui ne s'enregistre pas est pire qu'un
+        * champ absent. » Le raisonnement était juste, et c'est la PRÉMISSE qui a changé : le dépôt écrit
+        * désormais `piece_nom` à la modification, et la route le lui passe. Le champ s'enregistre, donc il
+        * s'affiche — l'inverse aurait été de montrer un champ menteur.
+        */}
+      <div className="fav-ajout-ligne">
         <label className="fav-label" htmlFor="fav-piece">Pièce jointe</label>
         {/* ⚠️ LE NOM DE LA PIÈCE, PAS LE FICHIER : le dépôt range les pièces par le Drive (lot FENETRE-DRIVE-UNIQUE),
             et ouvrir ici un second chemin de dépôt aurait fait deux endroits où un fichier peut vivre. */}
         <input id="fav-piece" className="fav-champ" value={piece} placeholder="nom du document (facultatif)"
           onChange={(e) => setPiece(e.target.value)} />
-      </div>}
+      </div>
 
-      {/* ⚠️ LE REFUS SE DIT AVANT LE CLIC, pas après : un bouton éteint sans raison écrite se lit comme une panne. */}
-      {titreManquant && <p className="fav-perdu">Une carte libre demande un titre.</p>}
-      {montantFaux && <p className="fav-perdu">Le montant ne se lit pas : un nombre, en euros.</p>}
+      {/**
+        * ⚠️ LE REFUS SE DIT AVANT LE CLIC, pas après : un bouton éteint sans raison écrite se lit comme une
+        * panne. Il valait deux lignes conditionnelles — une par règle — et c'est précisément ainsi qu'une
+        * troisième règle (la date manquante) a pu exister sans la sienne. Une seule ligne, nourrie par la
+        * fonction qui décide : on ne peut plus en oublier une.
+        *
+        * ⚠️ `role="status"` ET NON `alert` : la phrase apparaît pendant qu'on saisit, et une alerte
+        * interromprait la lecture d'écran à chaque frappe.
+        */}
+      {refus !== null && <p className="fav-perdu" role="status">{refus}</p>}
 
       {/* 🔴 LA QUESTION D'ARNO, MOT POUR MOT, et elle dit la CONSÉQUENCE SUR LE BIEN — pas le nom du bouton. */}
       {demande !== null && confirme && (
@@ -1774,7 +1916,7 @@ function AjouterEtape({
 
       <div className="fav-ajout-ligne">
         <button type="button" className="fav-btn fav-btn--fort"
-          disabled={occupe || jour === '' || titreManquant || montantFaux}
+          disabled={occupe || refus !== null}
           onClick={() => void envoyer()}>
           {demande !== null && confirme
             ? demande.valider
@@ -2192,10 +2334,15 @@ const CSS_FRISE_AVANCEMENT = `
    ⚠️ L'ATTRIBUT title AURAIT ATTENDU UNE SECONDE : Arno demande « sans delai ». C'est donc un element a nous.
    ⚠️ CENTREE SOUS LE PICTO SURVOLE (translateX) : son abscisse est lue au survol, dans le repere du cadre.
    ⚠️ pointer-events:none — une bulle sous la souris masquerait le picto suivant et empecherait de le survoler. */
+/* ⚠️ LA PROPRIETE pointer-events:none A DISPARU D'ICI (lot FRISE-BULLE-ET-ENREGISTRER). Elle valait « une
+   bulle sous la souris masquerait le picto suivant » : la crainte etait raisonnable, et fausse en fait — cette
+   bulle est posee a top:100% du CADRE, donc SOUS la frise entiere, et ne recouvre aucun picto. Ce qu'elle
+   faisait vraiment, c'etait empecher de l'atteindre, donc de suivre un long commentaire a la souris.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 .fav-commentaire{position:absolute;top:100%;z-index:8;transform:translateX(-50%);
   max-width:22rem;padding:6px 9px;font-size:.76rem;line-height:1.3;white-space:pre-wrap;overflow-wrap:anywhere;
   color:var(--color-svv-ink);background:var(--color-svv-bg);border:1px solid var(--color-svv-line);
-  border-left:3px solid var(--color-svv-red);border-radius:8px;pointer-events:none;
+  border-left:3px solid var(--color-svv-red);border-radius:8px;
   box-shadow:0 0 0 3px var(--color-svv-bg),0 0 0 4px var(--color-svv-line-strong)}
 .fav-commentaire-vide{font-style:italic;color:var(--color-svv-muted)}
 /* ⚠️ LES DEUX BOUTONS « A CONFIRMER » REMONTENT D'UNE RANGEE : la rangee de pictos occupe desormais le bas du
@@ -2252,7 +2399,14 @@ const CSS_FRISE_AVANCEMENT = `
    jetons --color-svv-* (un garde refuse tout hexadecimal et tout rgba, commentaire compris). On double donc le
    contour de la bulle par un halo de la couleur de FOND de la page : il la detache nettement du texte en
    dessous, en Clair comme en Sombre, et il suit le theme sans qu'on ait rien a dire de plus. */
-.fav-flottante{position:absolute;left:0;top:100%;z-index:7;max-width:40rem;pointer-events:none}
+/* ══ 🔴🔴 LA BULLE FLOTTANTE SE CLIQUE — LOT FRISE-BULLE-ET-ENREGISTRER ═════════════════════════
+   Elle portait pointer-events:none, ce qui rendait ses liens « Modifier » et « Retirer » inatteignables meme
+   si elle restait ouverte. C'etait coherent avec son role d'alors (un apercu decoratif, double de la bulle
+   epinglee) ; Arno demande qu'on puisse y aller.
+   ⚠️ ELLE NE RECOUVRE RIEN QUI SE CLIQUE : posee a top:100% du cadre, elle tombe SOUS la frise, dans l'espace
+   que le bloc occupe de toute facon. Et elle n'existe que tant qu'on la survole, elle ou son point.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-flottante{position:absolute;left:0;top:100%;z-index:7;max-width:40rem}
 .fav-flottante .fav-bulle{box-shadow:0 0 0 3px var(--color-svv-bg),0 0 0 4px var(--color-svv-line-strong)}
 
 /* ══ LES FLECHES ══ */

@@ -76,6 +76,13 @@ export interface EtapeAAfficher {
   /** 🔴 LE TITRE D'UNE CARTE LIBRE (Arno : « un carré LIBRE (titre à saisir) »). `null` partout ailleurs. */
   titre: string | null;
   /**
+   * 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LE NOM DE LA PIÈCE JOINTE. Le dépôt le rendait déjà (`EtapeEcran`), mais
+   * cette vue-ci ne le déclarait pas : la donnée arrivait jusqu'à l'écran et s'y perdait, faute d'être nommée.
+   * Arno demande que le formulaire de modification porte « TOUTES les valeurs actuelles de la carte […] pièce
+   * jointe » ; il faut donc d'abord pouvoir la lire.
+   */
+  pieceNom: string | null;
+  /**
    * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — L'ORDRE DE POSE, ET C'EST LUI QUI RANGE LA FRISE ═══════════════
    *
    * ARNO (08/10/2026) : « Une carte ajoutée se place TOUJOURS au bout à droite de la frise. La date saisie à la
@@ -856,4 +863,98 @@ export function pictoSource(e: EtapeAAfficher): string {
  */
 export function motGroupeMessages(n: number): string {
   return n <= 1 ? `${n} message` : `${n} messages`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER (08/10/2026) — CE QUE LE FORMULAIRE AFFICHE QUAND IL S'OUVRE ════════════
+
+   DEMANDE D'ARNO : « Le formulaire de modification doit être pré-rempli avec TOUTES les valeurs actuelles de la
+   carte (forme, type, date, heure, montant, texte, pièce jointe), et le bouton s'active dès qu'une valeur
+   change. […] Si une règle bloque l'enregistrement (champ requis, format), un message clair s'affiche à côté du
+   bouton au lieu d'un bouton grisé muet. »
+
+   ══ 🔴🔴 LE DÉFAUT QUE CELA FERME, ET IL EST STRUCTUREL ═════════════════════════════════════════════════════════
+
+   Le préremplissage vivait dans un `useEffect` dont les dépendances étaient `[modifie?.id]`, sur un composant que
+   rien ne remonte entre deux cartes. Tant que l'effet joue, tout va bien — et il joue, mesuré ce 08/10/2026 sur
+   la carte même d'Arno. Mais le jour où il ne joue PAS (un remontage à chaud qui conserve l'état, un ordre de
+   rendu inattendu), les champs gardent leurs valeurs de DÉPART : une date de réservoir, ou rien. Le bouton se
+   désactive alors sur `jour === ''`, SANS un mot — les deux autres refus, eux, écrivent leur raison.
+
+   🔴 LA RÉPONSE N'EST PAS DE RENFORCER L'EFFET, C'EST DE NE PLUS EN DÉPENDRE. Les valeurs de départ se DÉRIVENT
+   ici, d'une fonction pure, et l'écran monte un formulaire NEUF par carte (une clé React). Le préremplissage
+   cesse d'être un geste qui peut manquer : il devient ce que le formulaire EST.
+
+   ⚠️ ET LA DATE NE PEUT PLUS ÊTRE VIDE : si `survenuLe` n'offre pas un jour lisible — ce qui n'arrive pas en base
+   (`survenu_le` est NOT NULL, vérifié : 0 ligne sur 177 hors forme AAAA-MM-JJ), mais que le type du dépôt
+   autorise — on retombe sur le jour proposé, jamais sur le vide.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export interface ValeursDeLaCarte {
+  /** « etape » (un carré) ou « information » (un point) — la bascule du formulaire. */
+  forme: 'etape' | 'information';
+  type: TypeEtape;
+  /** AAAA-MM-JJ, jamais vide. */
+  jour: string;
+  /** HH:MM, ou '' si l'heure n'est pas connue — ce qui est une information, pas une absence. */
+  heure: string;
+  texte: string;
+  titre: string;
+  /** Le montant en euros, tel qu'on le saisit : « 650 », « 1234,5 ». Vide s'il n'y en a pas. */
+  montant: string;
+  piece: string;
+}
+
+/** AAAA-MM-JJ si la chaîne en porte un, sinon `null`. Aucun `Date` construit : le fuseau du lecteur décalerait. */
+function jourLisible(survenuLe: string | null | undefined): string | null {
+  if (typeof survenuLe !== 'string') return null;
+  const [jour] = survenuLe.split(/[T ]/);
+  return /^\d{4}-\d{2}-\d{2}$/.test(jour) ? jour : null;
+}
+
+/**
+ * Les valeurs d'ouverture du formulaire : celles de la carte qu'on modifie, ou celles d'une carte neuve.
+ *
+ * ⚠️ LE MONTANT EN CENTIMES REDEVIENT DES EUROS À VIRGULE, et c'est la forme qu'on saisit en français. Le
+ * calcul se fait sur l'entier (`montantCents / 100`) : passer par un flottant afficherait 885,4999999.
+ */
+export function valeursDeLaCarte(
+  carte: EtapeAAfficher | null, jourDefaut: string, typeDefaut: TypeEtape,
+): ValeursDeLaCarte {
+  if (carte === null) {
+    return {
+      forme: estRepere(typeDefaut) ? 'information' : 'etape',
+      type: typeDefaut, jour: jourDefaut, heure: '', texte: '', titre: '', montant: '', piece: '',
+    };
+  }
+  const jour = jourLisible(carte.survenuLe);
+  return {
+    forme: estRepere(carte.type) ? 'information' : 'etape',
+    type: carte.type,
+    jour: jour ?? jourDefaut,
+    /* ⚠️ L'HEURE NE SE LIT QUE SI LE JOUR S'EST LU : sur une chaîne illisible, les positions 11 à 16 ne veulent
+       rien dire, et « 26:10 » dans un champ `time` s'affiche vide — le piège qu'on vient de fermer. */
+    heure: jour !== null && carte.heureConnue ? carte.survenuLe.slice(11, 16) : '',
+    texte: carte.texte ?? '',
+    titre: carte.titre ?? '',
+    montant: carte.montantCents === null ? '' : String(carte.montantCents / 100).replace('.', ','),
+    piece: carte.pieceNom ?? '',
+  };
+}
+
+/**
+ * Pourquoi l'enregistrement est refusé, en toutes lettres — ou `null` si rien ne s'y oppose.
+ *
+ * 🔴 ARNO : « un message clair s'affiche à côté du bouton au lieu d'un bouton grisé muet ». Le refus et sa
+ * raison viennent donc du MÊME endroit : il ne peut plus exister de refus sans phrase, ce qui était exactement
+ * le cas de la date vide — seule des trois conditions à n'en porter aucune.
+ */
+export function refusDEnregistrement(v: {
+  jour: string; type: TypeEtape; titre: string; montantLisible: boolean;
+}): string | null {
+  if (v.jour === '') return 'La date manque : une carte se range à une date.';
+  if (jourLisible(v.jour) === null) return 'La date ne se lit pas : attendu JJ/MM/AAAA.';
+  if (v.type === 'autre' && v.titre.trim() === '') return 'Une carte libre demande un titre.';
+  if (!v.montantLisible) return 'Le montant ne se lit pas : un nombre, en euros.';
+  return null;
 }

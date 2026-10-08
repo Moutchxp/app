@@ -337,14 +337,27 @@ export async function reordonnerCartes(
  */
 export async function modifierEtapeManuelle(a: {
   id: number; type: TypeEtape; survenuLe: string; heureConnue: boolean;
-  texte: string | null; montantCents: number | null; titre: string | null; parLibelle: string;
+  texte: string | null; montantCents: number | null; titre: string | null;
+  /**
+   * 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LE NOM DE LA PIÈCE S'ENREGISTRE ENFIN. Arno demande que le formulaire
+   * de modification porte « TOUTES les valeurs actuelles de la carte […] pièce jointe ». Le champ existait à
+   * l'AJOUT seulement, et l'écran le cachait à la modification avec cette raison écrite : « un champ qui ne
+   * s'enregistre pas est pire qu'un champ absent » — c'était vrai tant que cette requête l'ignorait.
+   *
+   * ⚠️ C'EST UN NOM, PAS UN FICHIER. `piece_id` ne sert nulle part (0 ligne sur 180, mesuré le 08/10/2026) :
+   * cette colonne est l'intitulé qu'on écrit à la main (« devis Plomberie Dupont »), et le rangement des vrais
+   * fichiers passe par le Drive (lot FENETRE-DRIVE-UNIQUE). Le corriger ne déplace donc aucun document.
+   *
+   * ⚠️ `null` EFFACE, et c'est voulu : un intitulé posé par erreur doit pouvoir partir.
+   */
+  pieceNom: string | null; parLibelle: string;
 }): Promise<boolean> {
   const r = await query(
     `UPDATE gestion_monga_etape
         SET type = $2, survenu_le = $3, heure_connue = $4, texte = $5, montant_cents = $6, titre = $7,
-            maj_le = now(), maj_par_libelle = $8
+            piece_nom = $8, maj_le = now(), maj_par_libelle = $9
       WHERE id = $1 AND source = 'manuelle' AND statut = 'vif'`,
-    [a.id, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.titre, a.parLibelle]);
+    [a.id, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.titre, a.pieceNom, a.parLibelle]);
   return (r.rowCount ?? 0) > 0;
 }
 

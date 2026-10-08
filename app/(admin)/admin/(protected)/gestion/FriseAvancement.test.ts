@@ -304,8 +304,21 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
   it('🔴🔴 la bulle de survol flotte, et ne prend aucune place', () => {
     expect(FRISE).toContain('{detailApercu !== null && (');
     expect(FRISE).toMatch(/\.fav-flottante\{position:absolute/);
-    /* ⚠️ ET ELLE NE SE CLIQUE PAS : sous la souris, elle masquerait la carte suivante. */
-    expect(FRISE).toMatch(/\.fav-flottante\{[^}]*pointer-events:none/);
+    /**
+     * ══ 🔴🔴 CE CAS EXIGEAIT L'INVERSE, ET LE VERDICT A CHANGÉ (lot FRISE-BULLE-ET-ENREGISTRER) ═══════════
+     *
+     * IL EXIGEAIT `pointer-events:none`, sous le commentaire « ⚠️ ET ELLE NE SE CLIQUE PAS : sous la souris,
+     * elle masquerait la carte suivante. » C'était la décision du lot FRISE-COMPACTE : un aperçu décoratif,
+     * doublé par la bulle ÉPINGLÉE qui, elle, portait les gestes.
+     *
+     * 🔴 ARNO REVIENT DESSUS, ET IL DÉCRIT LE COÛT : « la bulle (texte + liens “Modifier”, “Retirer”, pièces)
+     * se ferme dès que la souris quitte le point → ON NE PEUT JAMAIS CLIQUER DANS LA BULLE. » Le doublon
+     * n'en était pas un : il fallait savoir qu'il fallait CLIQUER le point pour agir, et rien ne le disait.
+     *
+     * ⚠️ LA CRAINTE D'ALORS ÉTAIT MESURABLE, ET ELLE EST FAUSSE : la bulle est posée à `top:100%` du cadre,
+     * donc SOUS la frise entière. Elle ne recouvre aucune carte — elle ne pouvait donc en masquer aucune.
+     */
+    expect(FRISE).toMatch(/\.fav-flottante\{position:absolute;left:0;top:100%;z-index:7;max-width:40rem\}/);
     /* 🔴 DANS LE CADRE POSITIONNÉ, JAMAIS DANS LA PISTE, qui coupe ce qui dépasse. */
     const iPiste = FRISE.indexOf('<ol className="fav-piste"');
     const iFin = FRISE.indexOf('</ol>', iPiste);
@@ -477,11 +490,25 @@ describe('②bis « Modifier » dans la bulle (lot ATTENTION-ET-MODIFIER)', () =
    * d'autres types que l'ajout, ou par oublier la bascule « Étape / Simple information ».
    */
   it('🔴🔴 c’est le MÊME panneau, prérempli', () => {
+    /**
+     * ══ 🔴🔴 LE VERDICT NE CHANGE PAS, LE CHEMIN SI (lot FRISE-BULLE-ET-ENREGISTRER) ══════════════════════
+     *
+     * CE CAS EXIGEAIT les quatre `setX` du préremplissage, un par champ : `setForme(estRepere(modifie.type)…)`,
+     * `setJour(modifie.survenuLe.slice(0, 10))`, `setHeure(…)`, `setTexte(…)`. Il tenait donc une MANIÈRE de
+     * préremplir — un effet qui applique — là où ce qui compte est QUE le formulaire soit rempli.
+     *
+     * 🔴 ET C'EST PAR LÀ QUE LE DÉFAUT D'ARNO EST PASSÉ : un effet peut ne pas jouer, et le champ Date s'ouvrait
+     * alors vide, bouton gris. Les valeurs de départ sont maintenant DÉRIVÉES à la construction
+     * (`valeursDeLaCarte`, module pur) sur un formulaire monté à neuf par carte. L'épreuve suit : elle exige le
+     * résultat, et c'est `friseBulleEtEnregistrer.test.ts` qui éprouve les valeurs elles-mêmes, champ par champ.
+     */
     expect(FRISE).toContain('modifie: EtapeAAfficher | null;');
-    expect(FRISE).toContain("setForme(estRepere(modifie.type) ? 'information' : 'etape');");
-    expect(FRISE).toContain('setJour(modifie.survenuLe.slice(0, 10));');
-    expect(FRISE).toContain("setHeure(modifie.heureConnue ? modifie.survenuLe.slice(11, 16) : '');");
-    expect(FRISE).toContain("setTexte(modifie.texte ?? '');");
+    expect(FRISE).toContain("const depart = valeursDeLaCarte(modifie, jourDefaut, typeImpose ?? 'autre');");
+    expect(FRISE).toContain('useState(depart.jour)');
+    expect(FRISE).toContain('useState(depart.heure)');
+    expect(FRISE).toContain('useState(depart.texte)');
+    /* 🔴 ET LE MÊME PANNEAU RESTE LE MÊME PANNEAU : la bascule « Étape / Simple information » y est. */
+    expect(FRISE).toContain("useState<'etape' | 'information'>(depart.forme)");
   });
 
   /**
@@ -507,16 +534,26 @@ describe('②bis « Modifier » dans la bulle (lot ATTENTION-ET-MODIFIER)', () =
    */
   it('⚠️ modifier ne perd pas le montant', () => {
     expect(FRISE).toContain('montantCents: montantEnCents() ?? null');
-    expect(FRISE).toContain(
-      "setMontant(modifie.montantCents === null ? '' : String(modifie.montantCents / 100).replace('.', ','));");
+    /* ⚠️ LA CONVERSION CENTIMES → EUROS A DÉMÉNAGÉ, elle n'a pas disparu : elle est dans `valeursDeLaCarte`
+       (module pur), et éprouvée sur les valeurs — « 650 », « 1234,5 » — plutôt que sur sa ligne de code. */
+    expect(FRISE).toContain('useState(depart.montant)');
   });
 
   /**
-   * ⚠️ LA PIÈCE NE SE MODIFIE PAS : `modifierEtapeManuelle` ne la touche pas, et un champ qui ne s'enregistre
-   * pas est pire qu'un champ absent. Elle reste offerte à l'AJOUT.
+   * ══ 🔴🔴 CE CAS DISAIT LE CONTRAIRE, ET SA PRÉMISSE A CHANGÉ (lot FRISE-BULLE-ET-ENREGISTRER) ═════════════
+   *
+   * IL S'APPELAIT « le champ “pièce jointe” DISPARAÎT en modification » et exigeait
+   * `{modifie === null && <div className="fav-ajout-ligne">`. Sa raison était juste : « `modifierEtapeManuelle`
+   * ne la touche pas, et un champ qui ne s'enregistre pas est pire qu'un champ absent. »
+   *
+   * 🔴 ARNO DEMANDE LE CHAMP (« pré-rempli avec TOUTES les valeurs actuelles de la carte […] pièce jointe »).
+   * On n'a donc pas retiré la garde : on a retiré sa CAUSE. Le dépôt écrit `piece_nom` à la modification, la
+   * route la transmet, et le champ s'affiche parce qu'il s'enregistre — l'ordre compte.
    */
-  it('⚠️ le champ « pièce jointe » disparaît en modification', () => {
-    expect(FRISE).toContain('{modifie === null && <div className="fav-ajout-ligne">');
+  it('🔴🔴 le champ « pièce jointe » est offert aux DEUX, et il s’enregistre', () => {
+    expect(FRISE).not.toContain('{modifie === null && <div className="fav-ajout-ligne">');
+    expect(FRISE).toContain('<input id="fav-piece" className="fav-champ" value={piece}');
+    expect(FRISE).toContain("...corps, geste: 'modifier', pieceNom: piece.trim() === '' ? null : piece.trim(),");
   });
 });
 
@@ -689,8 +726,14 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
   /** 🔴 LA CARTE LIBRE DIT CE QU'ELLE DEMANDE, et son titre est exigé — à l'écran comme à la route. */
   it('🔴🔴 la carte libre demande un titre, et les deux portes l’exigent', () => {
     expect(FRISE).toContain('titre à saisir');
-    expect(FRISE).toContain("const titreManquant = type === 'autre' && titre.trim() === '';");
-    expect(FRISE).toContain('Une carte libre demande un titre.');
+    /* ⚠️ LA RÈGLE A CHANGÉ D'ENDROIT (lot FRISE-BULLE-ET-ENREGISTRER), PAS DE SENS : elle est dans
+       `refusDEnregistrement` (module pur), avec sa phrase, parce qu'un refus sans phrase éteignait le bouton
+       en silence. L'exigence reste la même : une carte libre sans titre ne s'enregistre pas. */
+    expect(FRISE).toContain('const refus = refusDEnregistrement({');
+    expect(FRISE).toContain('disabled={occupe || refus !== null}');
+    /* ⚠️ LA PHRASE A SUIVI LA RÈGLE : elle est écrite dans le module pur, avec le refus qui la motive, et
+       l'écran ne fait plus que l'afficher. Les DEUX portes de la route, elles, gardent la leur. */
+    expect(readFileSync('app/lib/gestion/frise.ts', 'utf8')).toContain('Une carte libre demande un titre.');
     for (const [nom, src] of [['POST frise', ROUTE_FRISE], ['PATCH étape', ROUTE_ETAPE]] as const) {
       expect(src, nom).toContain("if (type === 'autre' && titreBrut === '') {");
       expect(src, nom).toContain('Une carte libre demande un titre.');
@@ -719,7 +762,11 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
 
   /** 🔴 LE FORMULAIRE PART AVEC LA DATE PROPOSÉE, et elle reste modifiable (Arno, points 2 et 4). */
   it('🔴 la date part remplie, et le champ reste modifiable', () => {
-    expect(FRISE).toContain('const [jour, setJour] = useState(jourDefaut);');
+    /* ⚠️ LE JOUR PROPOSÉ PASSE PAR `valeursDeLaCarte` DEPUIS LE LOT FRISE-BULLE-ET-ENREGISTRER : la ligne
+       exigée était `useState(jourDefaut)`, et c'est exactement ce que la fonction pure rend pour une carte
+       NEUVE — éprouvé dans `friseBulleEtEnregistrer.test.ts`. Ce qui comptait ici, « la date part remplie »,
+       est désormais vrai aussi à la MODIFICATION, ce qui était tout l'objet du lot. */
+    expect(FRISE).toContain('const [jour, setJour] = useState(depart.jour);');
     expect(FRISE).toContain('jourDefaut={reservoir?.jour ?? aujourdhui}');
     expect(FRISE).toContain('onChange={(e) => setJour(e.target.value)}');
   });
@@ -817,7 +864,10 @@ describe('⑭ l’ouverture, et ce qu’une carte raconte (Arno, points 1, 3 et 
     expect(FRISE).toContain("{e.source === 'manuelle' && (");
     const repo = readFileSync('app/lib/gestion/mongaEtapeRepo.ts', 'utf8');
     const i = repo.indexOf('export async function modifierEtapeManuelle');
-    expect(repo.slice(i, i + 900)).toContain("source = 'manuelle'");
+    /* ⚠️ LA FENÊTRE S'ÉLARGIT À 2 400 CARACTÈRES : la fonction porte désormais le commentaire qui explique
+       pourquoi `piece_nom` s'y écrit (lot FRISE-BULLE-ET-ENREGISTRER). Ce qu'on cherche — le `WHERE` qui refuse
+       une étape Monga — est à la MÊME place dans la requête ; c'est la fenêtre qui était devenue trop courte. */
+    expect(repo.slice(i, i + 2400)).toContain("source = 'manuelle'");
   });
 
   /**
@@ -867,7 +917,16 @@ describe('⑮ par défaut, une seule rangée (Arno, point 1)', () => {
    * Un état initial non nul aurait déployé la zone dès le premier rendu, ce qu'Arno interdit en toutes lettres.
    */
   it('🔴🔴 rien n’est ouvert au premier rendu', () => {
-    expect(FRISE).toContain("const [apercu, setApercu] = useState<string | null>(null);");
+    /**
+     * ⚠️ L'ÉTAT DU SURVOL EST DANS UN CROCHET DEPUIS LE LOT FRISE-BULLE-ET-ENREGISTRER (`useBulleSurvol`), et
+     * ce cas exigeait sa forme précédente : `const [apercu, setApercu] = useState<string | null>(null)`. CE
+     * QU'IL PROTÈGE EST INTACT — rien n'est ouvert au premier rendu —, et c'est maintenant l'état initial du
+     * crochet (`BULLE_FERMEE`, dont la cible est `null`) qui le garantit, pour les DEUX bulles à la fois.
+     */
+    expect(FRISE).toContain('const bulle = useBulleSurvol();');
+    expect(FRISE).toContain('const apercu = bulle.cible;');
+    expect(readFileSync('app/lib/gestion/survolBulle.ts', 'utf8'))
+      .toContain('cible: null, surLaCible: false, surLaBulle: false, fermetureDemandee: false,');
     expect(FRISE).toContain("const [fixe, setFixe] = useState<string | null>(null);");
     expect(FRISE).toContain('const [reservoir, setReservoir] = useState<{ jour: string } | null>(null);');
     expect(FRISE).toContain('const [ajout, setAjout] = useState(false);');
@@ -938,7 +997,11 @@ describe('⑯ l’espace ne se déploie qu’à la demande, et se replie (Arno, 
    */
   it('🔴🔴 une seule zone ouverte à la fois', () => {
     const iRes = FRISE.indexOf('const ouvrirReservoir = useCallback(');
-    expect(FRISE.slice(iRes, iRes + 300)).toContain('setFixe(null); setApercu(null);');
+    /* ⚠️ `setApercu(null)` EST DEVENU `bulle.fermer()` (lot FRISE-BULLE-ET-ENREGISTRER), et la BULLE DU « i »
+       s'y est jointe : elle n'existait pas quand cette épreuve a été écrite, et une seule zone à la fois vaut
+       pour elle aussi. */
+    expect(FRISE.slice(iRes, iRes + 300))
+      .toContain('setFixe(null); bulle.fermer(); bulleTexte.fermer(); setCommentaire(null);');
     const iFix = FRISE.indexOf('const setOuvert = useCallback(');
     expect(FRISE.slice(iFix, iFix + 300)).toContain('setReservoir(null); setAjout(false);');
   });

@@ -40,7 +40,7 @@ export async function PATCH(
   }
   const corps = (await request.json().catch(() => ({}))) as {
     geste?: unknown; type?: unknown; survenuLe?: unknown; heureConnue?: unknown;
-    texte?: unknown; montantCents?: unknown; titre?: unknown;
+    texte?: unknown; montantCents?: unknown; titre?: unknown; pieceNom?: unknown;
   };
   const geste = String(corps.geste ?? '');
   const auteur = await auteurDeLaRequete(request);
@@ -123,6 +123,10 @@ export async function PATCH(
         heureConnue: dateImposee === null ? corps.heureConnue === true : false,
         texte: typeof corps.texte === 'string' && corps.texte.trim() !== '' ? corps.texte.trim() : null,
         montantCents: montant, titre: type === 'autre' && titreBrut !== '' ? titreBrut : null,
+        /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — le nom de la pièce suit le même chemin que le texte : vide ⇒ null,
+           ce qui l'EFFACE. C'est le pendant de ce que la route d'ajout fait déjà de `pieceNom`. */
+        pieceNom: typeof corps.pieceNom === 'string' && corps.pieceNom.trim() !== ''
+          ? corps.pieceNom.trim() : null,
         parLibelle: auteur.libelle,
       });
       if (!fait) {
