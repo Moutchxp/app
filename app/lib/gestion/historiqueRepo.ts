@@ -27,6 +27,9 @@ import { sqlNomAffiche } from './nomUsageSql';
 import {
   adressesDuChamp, personnesDuChamp, ROLES_DE_PARTICIPATION, ROLES_RECEPTION, ROLE_EXPEDITEUR,
 } from './adressesMessage';
+/* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — le relevé des adresses d'un corps de mail. Module PUR, éprouvé à part :
+   aucune expression régulière n'est écrite dans ce dépôt-ci. */
+import { adressesDuTexte } from './rechercheAdresses';
 import { nomBien, nomProprietaire } from './driveArbre';
 import { deplacementsDeMailsDisponibles, horsGestionDisponible, rattachementsDisponibles } from './schema';
 // LOT FICHES-ANNUAIRE — LA MÊME fonction pure que la boîte : un seul verdict de statut pour tout le module.
@@ -576,7 +579,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   const { rows } = await query<{
     message_id: string; fil_id: string; recu_le: string; sens: string; de: string; de_nom: string | null;
     objet: string | null; extrait: string | null; dest_a: string | null; dest_cc: string | null;
-    dest_cci: string | null;
+    dest_cci: string | null; repondre_a: string | null; corps_adresses: string | null;
     cible_sorte: string; cible_cle: string | null; cible_id: string | null; cible_libelle: string | null;
     source: string; message_id_rfc: string | null;
   }>(
@@ -591,6 +594,29 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
             /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — la copie cachée, pour NOS envois : on ne la connaît que si
                l'on y était. Mesuré : 790 messages en portent une, jamais plus de six adresses. */
             m.dest_cci::text,
+            /* 🔴🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — LE « RÉPONDRE-À », cinquième famille d'adresses d'un mail.
+               La colonne existe depuis longtemps ; personne ne la lisait ici. Mesuré le 08/10/2026 : 1 090 des
+               11 736 mails de biens en portent un. */
+            m.repondre_a::text,
+            /**
+             * 🔴🔴 LE CORPS, POUR Y RELEVER LES ADRESSES — et SEULEMENT pour cela.
+             *
+             * ARNO : « et les adresses écrites dans le corps (ex. historique cité “De : … <x@y.fr>”, messages
+             * transférés) ». L'écran ne reçoit du corps qu'un extrait de 240 caractères : une adresse citée
+             * dans un fil repris vit bien plus bas, et aucune recherche d'écran ne pouvait l'atteindre.
+             *
+             * 🔴 LE RELEVÉ SE FAIT ICI, PAS À L'ÉCRAN : la page ne part qu'avec les adresses trouvées (dix au
+             * plus en pratique), et non avec 20 000 caractères de corps par mail — cent fois son poids.
+             *
+             * ⚠️ corps_html EN REPLI, et il sert vraiment : 545 des 11 736 mails de biens n'ont AUCUN
+             * corps_texte mais portent un HTML (mesure). Sans ce repli, leurs adresses resteraient
+             * AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit.
+             * introuvables, et c'est le genre d'absence qu'on ne remarque jamais.
+             *
+             * ⚠️ BORNÉ À 20 000 CARACTÈRES : au-delà, on est dans les pieds de page et les désabonnements, et
+             * la page lirait 25 fois un corps entier à chaque affichage.
+             */
+            left(coalesce(nullif(btrim(m.corps_texte), ''), m.corps_html, ''), 20000) AS corps_adresses,
             ch.cible_sorte, ch.cible_cle, ch.cible_id, ch.cible_libelle, ch.source
        FROM choisis ch
        JOIN gestion_message m ON m.id = ch.message_id
@@ -646,6 +672,10 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
         a: personnesDuChamp(r.dest_a),
         cc: personnesDuChamp(r.dest_cc),
         cci: personnesDuChamp(r.dest_cci),
+        /* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — les deux dernières familles d'adresses. Le relevé du corps passe
+           par le module PUR `rechercheAdresses`, éprouvé à part : le dépôt ne connaît aucune expression. */
+        repondreA: personnesDuChamp(r.repondre_a),
+        adressesTexte: adressesDuTexte(r.corps_adresses),
         pieces: pieces.get(Number(r.message_id)) ?? [],
         parCible,
         // Le libellé FIGÉ du lien quand il y en a un ; sinon celui que l'annuaire donne aujourd'hui.

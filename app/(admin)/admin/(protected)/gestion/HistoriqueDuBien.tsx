@@ -16,6 +16,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
  * balises n'a été redessinée ici.
  */
 import { CSS_VIE_DU_BIEN, LigneVie } from './VieDuBien';
+/* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — quelles adresses expliquent la correspondance, et sous quel rôle.
+   Module PUR : l'écran ne décide ni du rôle, ni de son mot, ni de l'ordre d'affichage. */
+import { adressesTrouvees } from '../../../../lib/gestion/rechercheAdresses';
 import { CartePieceConversation, CSS_PIECES_CONVERSATION, type GestesPiece } from './PiecesDeLaConversation';
 import { CSS_PIECES, type DepotAffiche } from './PiecesJointes';
 import { SelecteurFichierDrive } from './SelecteurFichierDrive';
@@ -79,6 +82,9 @@ import {
   /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 1 — une pièce envoyée par une partie non cochée n'entre pas au résumé. */
   motPiecesEcartees, partagerPourLeResume, partiesCochees,
   GROUPES_EN_ENCART, motBasculeResume, motCompteurRecherche, motEncartVide, motPiecesSelection, motsRecherches,
+  /* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — la MÊME normalisation que la recherche (sans accent, sans casse) sert
+     à reconnaître l'adresse trouvée. Deux normalisations auraient fini par ne pas répondre pareil. */
+  normaliserRecherche,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
   SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, tonDuGroupe, trierFil, LEGENDE_BARRES,
@@ -2655,6 +2661,22 @@ export function HistoriqueDuBien({
                 onChange={(e) => setSaisie(e.target.value)} />
               {/* ⚠️ LE ✕ N'APPARAÎT QUE S'IL Y A QUELQUE CHOSE À EFFACER : un bouton éteint occupe la place et
                   fait croire à une panne. Il est dans le même cadre que le champ, comme une messagerie. */}
+              {/**
+                * ══ 🔴🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE, POINT 4 — « N MAILS », CONTRE LE CHAMP ════════════
+                *
+                * ARNO : « Ajoute un compteur “N mails” à côté du champ quand une recherche est active. »
+                *
+                * ⚠️ IL Y EN A DÉJÀ UN, ET IL RESTE : « N mails sur M », à l'autre bout de la rangée
+                * d'options (`hdb-compte-recherche`, lot HISTORIQUE-BIEN-3). Arno en demande un CONTRE LE
+                * CHAMP, là où le regard est quand on tape — et il a raison, l'autre est à 900 px de là sur
+                * un grand écran. Retirer le premier demanderait son accord pour CET élément ; je ne l'ai
+                * pas, donc les deux coexistent et je le lui signale.
+                */}
+              {motsCherches.length > 0 && (
+                <span className="hdb-compte-champ" role="status">
+                  {lignes.length} mail{lignes.length > 1 ? 's' : ''}
+                </span>
+              )}
               {saisie !== '' && (
                 <button type="button" className="hdb-effacer" aria-label="Effacer la recherche"
                   title="Effacer la recherche" onClick={() => setSaisie('')}>✕</button>
@@ -3999,6 +4021,9 @@ function FilDeMails({
                 grise des non-affectés, c'est-à-dire une affirmation fausse. */}
             <LigneVie l={l} maintenant={maintenant} ouvert={deplie.has(l.messageId)}
               surligner={mots}
+              /* 🔴🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE, POINT 4 — POURQUOI CE MAIL EST DANS LA LISTE. Le calcul
+                 est dans le module PUR : l'écran ne décide ni du rôle, ni de son mot, ni de l'ordre. */
+              adressesTrouvees={adressesTrouvees(l, mots, normaliserRecherche)}
               tonDe={(adresse) => (estAdresseInterne(adresse)
                 ? 'nous'
                 : tonDeLExpediteur({ sens: 'recu', de: adresse }, categories))}
@@ -4311,6 +4336,10 @@ ${CSS_PIECES}
   font-size:.78rem;color:var(--color-svv-ink);cursor:pointer;white-space:nowrap}
 .hdb-bascule input{width:18px;height:18px;flex:0 0 auto;accent-color:var(--color-svv-red)}
 /* « N MAILS SUR M », en direct. Pousse a droite de la rangee : c'est un resultat, pas un reglage. */
+/* ⚠️ LE COMPTEUR CONTRE LE CHAMP (point 4) : il vit DANS le cadre arrondi de la recherche, entre le texte et
+   la croix, pour etre la ou le regard est quand on tape. Il ne pousse pas le champ (flex:0 0 auto). */
+.hdb-compte-champ{flex:0 0 auto;padding:0 6px;font-size:.72rem;font-weight:700;white-space:nowrap;
+  color:var(--color-svv-red)}
 .hdb-compte-recherche{margin:0 0 0 auto;font-size:.74rem;font-weight:700;color:var(--color-svv-red);
   white-space:nowrap}
 /* 44 px de cible sur TOUT ce qui se clique : sur un telephone, 36 px se rate une fois sur trois. */

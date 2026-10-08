@@ -26,6 +26,8 @@ import type { LigneHistorique } from '../../../../lib/gestion/historique';
 /* 🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — le découpage des mots surlignés vit dans le module PUR : il est
    éprouvé sans écran, et il ne rend jamais de HTML. */
 import { decouperPourSurligner, motTonDeMail, type TonMail } from '../../../../lib/gestion/historiqueBien';
+/* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — l'adresse trouvée et son rôle. Importé en TYPE : rien de `pg` n'entre. */
+import type { AdresseTrouvee } from '../../../../lib/gestion/rechercheAdresses';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — le nom ET l'adresse d'un destinataire, séparés (module pur). */
 import type { PersonneDuMail } from '../../../../lib/gestion/adressesMessage';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — le mot du bouton vient du module pur, comme tous les autres. */
@@ -327,7 +329,7 @@ function AdressesDuMail({ l, tonDe }: {
 export function LigneVie({
   l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, modifierRattachement,
   onVisualiser,
-  destinataires = [], piecesCitables = [],
+  destinataires = [], piecesCitables = [], adressesTrouvees = [],
 }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
@@ -412,6 +414,22 @@ export function LigneVie({
    * courrier que n'importe qui envoie.
    */
   surligner?: readonly string[];
+  /**
+   * ══ 🔴🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE (08/10/2026), POINT 4 — POURQUOI CE MAIL EST LÀ ═══════════════════
+   *
+   * ARNO : « Dans la liste des résultats, montre POURQUOI le mail correspond : l'adresse trouvée est
+   * surlignée, avec une petite étiquette de son rôle (“expéditeur”, “destinataire”, “en copie”, “dans le
+   * texte”). »
+   *
+   * 🔴 SANS CELA, LA RECHERCHE EST UNE BOÎTE NOIRE. Chercher « gohudif » et voir revenir neuf mails dont
+   * l'objet, l'expéditeur et l'extrait ne portent pas le mot, c'est se demander si l'écran s'est trompé. La
+   * réponse — « l'adresse est en copie, et la voici » — est la moitié de l'outil qu'Arno demande.
+   *
+   * ⚠️ FACULTATIVE, COMME `surligner` ET `tonDe` JUSTE AU-DESSUS, et pour la MÊME raison : cette ligne est
+   * montée par QUATRE écrans (Historique du bien, fiche d'un locataire, Vie du bien, Annuaire). Seul le
+   * premier porte un champ de recherche. Absente ⇒ la ligne est exactement celle d'avant ce lot, au pixel.
+   */
+  adressesTrouvees?: readonly AdresseTrouvee[];
 }) {
   const { vraies, signatures } = trierPieces(l.pieces);
   /**
@@ -519,6 +537,35 @@ export function LigneVie({
                 <span key={`${x.sorte}-${x.libelle}`} className="vdb-via-qui">
                   pour {x.libelle} <span className="vdb-via-role">({motRoleInstantane(x.role).toLowerCase()})</span>
                   {x.via !== null && <> · <span className="vdb-via-contact">{x.via}</span></>}
+                </span>
+              ))}
+            </span>
+          )}
+          {/**
+            * ══ 🔴🔴 POINT 4 — LES ADRESSES QUI EXPLIQUENT LA CORRESPONDANCE ═══════════════════════════════
+            *
+            * 🔴 DANS LA LIGNE REPLIÉE COMME DÉPLIÉE : c'est en PARCOURANT la liste qu'on cherche à comprendre
+            * pourquoi un mail y figure. Les montrer seulement une fois le mail ouvert obligerait à déplier
+            * chacun des neuf résultats pour trouver le bon.
+            *
+            * ⚠️ L'ADRESSE EST SURLIGNÉE AU MÊME ENDROIT QUE LE RESTE (`decouperPourSurligner`, module pur,
+            * qui rend des MORCEAUX que React échappe) : on ne colle pas de HTML, même pour une adresse —
+            * elle vient d'un courrier que n'importe qui envoie.
+            */}
+          {adressesTrouvees.length > 0 && (
+            <span className="vdb-adresses">
+              {adressesTrouvees.map((x) => (
+                <span key={`${x.role}-${x.adresse}`} className="vdb-adresse">
+                  <span className="vdb-adresse-role">{x.mot}</span>
+                  <span className="vdb-adresse-mot">
+                    {surligner.length === 0
+                      ? x.adresse
+                      : decouperPourSurligner(x.adresse, surligner).map((m, i) => (
+                        m.trouve
+                          ? <mark key={`${i}-${m.texte}`} className="vdb-trouve">{m.texte}</mark>
+                          : <span key={`${i}-${m.texte}`}>{m.texte}</span>
+                      ))}
+                  </span>
                 </span>
               ))}
             </span>
@@ -735,6 +782,18 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-qui{font-size:.88rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .vdb-quand{margin-left:auto;font-size:.76rem;color:var(--color-svv-muted);flex:0 0 auto}
 .vdb-objet{font-size:.84rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* ══ 🔴🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE, POINT 4 — LES ADRESSES QUI EXPLIQUENT LA CORRESPONDANCE ════════════
+   Une rangee de petites pastilles sous l'objet : l'etiquette du role en gris, l'adresse a cote, le morceau
+   cherche surligne par la regle commune.
+   ⚠️ ELLE S'ENROULE (flex-wrap) : un mail peut porter la meme adresse en trois roles, et une rangee qui
+   deborde pousserait la largeur de toute la liste.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.vdb-adresses{display:flex;flex-wrap:wrap;gap:4px 8px;margin:2px 0 0}
+.vdb-adresse{display:inline-flex;align-items:baseline;gap:4px;max-width:100%;
+  padding:1px 6px;border-radius:999px;background:var(--color-svv-field);
+  border:1px solid var(--color-svv-line);font-size:.72rem}
+.vdb-adresse-role{font-weight:700;color:var(--color-svv-muted);white-space:nowrap}
+.vdb-adresse-mot{color:var(--color-svv-ink);overflow-wrap:anywhere}
 .vdb-extrait{font-size:.8rem;color:var(--color-svv-muted);overflow:hidden;text-overflow:ellipsis;
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
 /* LES MOTS TROUVES, surlignes dans l'apercu (lot HISTORIQUE-BIEN-3, point 5). Jetons seulement : lisible dans

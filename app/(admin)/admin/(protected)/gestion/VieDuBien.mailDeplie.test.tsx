@@ -279,6 +279,8 @@ const LIGNE: LigneHistorique = {
   destinataires: ['gestion@exemple.test'],
   /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — les trois champs séparés : De / À / Cc, avec leurs noms. */
   a: [{ nom: 'Gestion', adresse: 'gestion@exemple.test' }], cc: [], cci: [],
+  /* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — les deux familles d'adresses ajoutées à la ligne. */
+  repondreA: [], adressesTexte: [],
   objet: 'Prise de possession',
   extrait: EXTRAIT, pieces: [],
   parCible: { sorte: 'lot', cle: 'LOT-47', id: null }, cibleLibelle: 'Lot 47',

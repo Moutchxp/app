@@ -49,6 +49,8 @@ const inter = (o: Partial<Interlocuteur> = {}): Interlocuteur => ({
 const ligne = (o: Partial<LigneHistorique> = {}): LigneHistorique => ({
   messageId: 1, filId: 10, messageIdRfc: null, recuLe: '2026-02-01T09:00:00Z', sens: 'recu',
   de: 'qui@fictif.test', deNom: null, destinataires: [], a: [], cc: [], cci: [],
+  /* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — les deux familles d'adresses ajoutées à la ligne. */
+  repondreA: [], adressesTexte: [],
   objet: 'Objet', extrait: null, pieces: [],
   parCible: { sorte: 'lot', cle: '155', id: null }, cibleLibelle: 'Lot 155', source: 'rattachement',
   evenements: [], statut: null, statutDetail: null, ...o,

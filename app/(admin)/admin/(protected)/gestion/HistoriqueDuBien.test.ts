@@ -37,6 +37,8 @@ const piece = (o: Partial<PieceHistorique> = {}): PieceHistorique => ({
 const ligne = (o: Partial<LigneHistorique> = {}): LigneHistorique => ({
   messageId: 1, filId: 10, messageIdRfc: null, recuLe: '2026-02-01T09:00:00Z', sens: 'recu',
   de: 'proprio@fictif.test', deNom: 'M. ROI Nathan', destinataires: [], a: [], cc: [], cci: [],
+  /* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — les deux familles d'adresses ajoutées à la ligne. */
+  repondreA: [], adressesTexte: [],
   objet: 'Quittance de février',
   extrait: 'Bonjour, voici la quittance.', pieces: [],
   parCible: { sorte: 'lot', cle: '155', id: null }, cibleLibelle: 'Lot 155', source: 'rattachement',

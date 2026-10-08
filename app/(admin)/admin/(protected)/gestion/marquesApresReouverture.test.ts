@@ -68,6 +68,8 @@ const LIGNE = (evenements: ReturnType<typeof evt>[]): LigneHistorique => ({
   messageId: 1, filId: 1, messageIdRfc: '<a@x>', recuLe: '2026-10-06T08:00:00Z',
   sens: 'recu', de: 'locataire@exemple.test', deNom: 'DUPONT Marie',
   destinataires: [], a: [], cc: [], cci: [],
+  /* 🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE — les deux familles d'adresses ajoutées à la ligne. */
+  repondreA: [], adressesTexte: [],
   objet: 'Problème de chauffe-eau', extrait: 'Bonjour,', pieces: [],
   parCible: { sorte: 'lot', cle: '315', id: null }, cibleLibelle: 'lot 315',
   source: 'rattachement', evenements,

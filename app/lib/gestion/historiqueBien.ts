@@ -2601,7 +2601,25 @@ export function motsRecherches(texte: string): string[] {
   return [...new Set(normaliserRecherche(texte).split(/\s+/).filter((m) => m !== ''))].slice(0, 8);
 }
 
-/** Ce sur quoi la recherche porte, pour un mail. Assemblé une fois, lu autant de fois qu'il y a de mots. */
+/**
+ * Ce sur quoi la recherche porte, pour un mail. Assemblé une fois, lu autant de fois qu'il y a de mots.
+ *
+ * ══ 🔴🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE (08/10/2026) — TOUTES LES ADRESSES ENTRENT ICI ══════════════════════
+ *
+ * ARNO : « Pouvoir taper une adresse e-mail (ou un morceau : “gohudif”, “@gmail.com”, “manomano”) et retrouver
+ * tous les mails affichés où cette adresse apparaît. […] expéditeur (From), destinataires (To), copie (Cc),
+ * copie cachée (Bcc) si connue, Répondre-à (Reply-To) ; et les adresses écrites dans le corps. »
+ *
+ * 🔴 CE QUE CETTE FONCTION FOUILLAIT AVANT, ET CE QU'ELLE RATAIT. Cinq champs : l'objet, l'EXTRAIT du corps
+ * (240 caractères), le nom de l'expéditeur, SON ADRESSE, et le nom des pièces. Donc UNE SEULE des cinq familles
+ * d'adresses d'un mail. Or celles qu'Arno traque — les « non affectées » — sont par construction celles qui
+ * n'ont JAMAIS été expéditeur : si elles l'avaient été, elles seraient déjà rattachées.
+ *
+ * ⚠️ LES AUTRES CRITÈRES NE BOUGENT PAS D'UNE LIGNE (Arno : « Les autres critères de recherche actuels restent
+ * inchangés ») : objet, extrait, nom de l'expéditeur et noms de pièces sont toujours là, au même endroit. On
+ * AJOUTE quatre familles à la matière, on n'en retire aucune — et la règle « tous les mots présents, n'importe
+ * où » continue de valoir mot pour mot.
+ */
 function matiereDuMail(l: LigneHistorique): string {
   return normaliserRecherche([
     l.objet ?? '',
@@ -2609,6 +2627,13 @@ function matiereDuMail(l: LigneHistorique): string {
     l.deNom ?? '',
     l.de,
     ...l.pieces.map((p) => p.nomFichier),
+    /* 🔴 LES NOMS AUSSI, et pas seulement les adresses : « à : Mme Gohudif » se cherche comme « gohudif ». Les
+       noms des destinataires n'étaient fouillés nulle part — celui de l'expéditeur, si. */
+    ...l.a.map((p) => `${p.nom ?? ''} ${p.adresse}`),
+    ...l.cc.map((p) => `${p.nom ?? ''} ${p.adresse}`),
+    ...l.cci.map((p) => `${p.nom ?? ''} ${p.adresse}`),
+    ...l.repondreA.map((p) => `${p.nom ?? ''} ${p.adresse}`),
+    ...l.adressesTexte,
   ].join(' '));
 }
 

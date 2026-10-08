@@ -410,6 +410,28 @@ export interface LigneHistorique {
   a: PersonneDuMail[];
   cc: PersonneDuMail[];
   cci: PersonneDuMail[];
+  /**
+   * ══ 🔴🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE (08/10/2026) — LE « RÉPONDRE-À », ET LES ADRESSES DU CORPS ═══════
+   *
+   * ARNO : « La recherche doit aussi porter sur TOUTES les adresses de chaque mail : expéditeur (From),
+   * destinataires (To), copie (Cc), copie cachée (Bcc) si connue, Répondre-à (Reply-To) ; et les adresses
+   * écrites dans le corps. »
+   *
+   * 🔴 QUATRE DES CINQ FAMILLES ÉTAIENT DÉJÀ LÀ (`de`, `a`, `cc`, `cci`) : seul le Reply-To manquait à la
+   * ligne, alors que la colonne `repondre_a` existe et porte 1 090 mails de biens. On l'AJOUTE, on ne refait
+   * rien.
+   *
+   * 🔴 LES ADRESSES DU CORPS SONT RELEVÉES AU DÉPÔT, et c'est une nécessité, pas un choix d'architecture :
+   * l'écran ne reçoit du corps qu'un EXTRAIT de 240 caractères (`EXTRAIT_MAX`), et une adresse citée dans un
+   * historique repris vit bien plus bas. Envoyer le corps entier de chaque mail à l'écran pour l'y chercher
+   * aurait multiplié le poids de la page par cent, pour une liste de dix adresses.
+   *
+   * ⚠️ DES ADRESSES SEULES, SANS NOM NI POSITION : on ne dit pas « cette personne participe », on dit « cette
+   * adresse est écrite quelque part dans ce mail ». C'est ce qu'Arno cherche — une piste —, et c'est tout ce
+   * qu'on peut honnêtement en tirer.
+   */
+  repondreA: PersonneDuMail[];
+  adressesTexte: string[];
   objet: string | null;
   extrait: string | null;
   pieces: PieceHistorique[];
